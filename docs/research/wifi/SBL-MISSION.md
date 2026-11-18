@@ -236,7 +236,18 @@ request=0`, `WiFi association test PASS: authenticated link and IPv4 address`,
 It stops on `WiFi association test SKIP`/`FAIL`, any MHI timeout, BHIe `ret=-`, power-up
 `-110`, IPCR failure and duplicate AMSS. Offline checks: `build-strict` eight-step 36
 checks passed; `image-arg-audit: OK (31 arguments, 602 bytes)`; `verify-boot-image: OK`;
-judge positive/negative controls pass/fail as designed. The image is built but not
-flown (`hardware_tested:false`); if it fails, do not fly the same candidate twice. A
-pass proves association, DHCP/IPv4 and RX/TX only; HTTPS/webpage remains a separate
-userland check.
+judge positive/negative controls pass/fail as designed.
+
+The image was flown once on 2026-11-18 10:38:37. The console
+`E:/k60-work/evidence/usblog-20261118-103831/console.log` (82,266 B, 1,382 lines,
+SHA256 `3b947808aa383cdec5bee903c2be325b4932f44c6e680793d60de451c3666ac2`)
+passed MHI/QMI/102 channels/en0/scan, but the association test did not run: there is no
+`PongWifi: association test RUNNING`, no `WiFi association test SKIP`/`FAIL`, no
+DHCP line and no IPv4 address. `:728` has the station ready, `:817` has scan 1
+finished with 12 networks, but `:730/:874/:892/:992` say
+`wifi-net: en0 address none, packets in 0 out 0`. The likely cause is
+`PongWifiPlatform.cpp:603` requiring `NW_STA_IDLE` while the completed scan leaves
+the station in `NW_STA_SCANNING` (runtime state 1 at `:873/:891/:991`); mission6
+changes that gate to accept both states. Mission5 is not a valid association result and
+must not be re-flown. A pass would prove association, DHCP/IPv4 and RX/TX only;
+HTTPS/webpage remains a separate userland check.

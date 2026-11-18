@@ -361,6 +361,22 @@ The probe is deliberately kept out of the pane image: mission22 carries the pane
 experiment, and an authentication frame in that flight would make a dropped row
 unattributable.
 
+The probe image was built the same day and then parked, because the pane item
+comes first:
+
+| field | value |
+|---|---|
+| image | `E:/k60-work/artifacts/wifi-20261118sbl-mission23/boot.img`, 201,887,744 B |
+| sha256 | `d6849c92923c62aae6eddbd910033c0de523ac1410abf315828b3625832807ec` |
+| boot line | 32 arguments, 606 bytes, ending `pong_wifi=2 k60_wifi_rsc=2 sae`, plus `k60_autoreset=900` |
+| gate | `check-image-args.py` OK once `sae` joined `ALLOWED_ADDITIONS`, `verify-boot-image.py` OK |
+| archive | `/opt/k60/trees/k60build/wifi/ath11k-sae1/libPongAth11k.a`; `nw_sta_pong.c:13` includes `pong_sae.h`, `:486` calls `sae_probe_tick()`, `:545` calls `sae_probe_rx(skb)` |
+| judge | `E:/k60-work/scratch/judge-wifi-mission23.py`: ARMED / SENT / ANSWERED, verdict TRANSPORT-OK or SENT-NO-ANSWER |
+
+The image stays unflown, which `check-bisect-coverage.py --prefix wifi-` reports as
+P-218 debt next to mission20; both are deliberate, and this table is the reason.
+Mission22 stays the pane experiment and carries no SAE frame.
+
 ## 4. Open questions
 
 - Does the `nw_mainline` manifest actually link on this tree (P0), and does

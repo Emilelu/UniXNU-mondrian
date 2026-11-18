@@ -23,6 +23,13 @@ surface=a.translator/'crates/metal2vulkan-runtime/src/buffer_texture.rs'
 if 'surface_row_padding' not in surface.read_text():
     subprocess.run(['git','apply',str(ROOT/'patches/metal2vulkan/0009-pong-owned-iosurface-row-padding.patch')],
         cwd=a.translator,check=True)
+# 0013 keeps the per-draw state (viewports, scissors, specialization) in the encoder
+# instead of allocating a copy per draw.  Without it a single draw was observed
+# allocating thousands of times before nmb_render_draw returned.
+render=a.translator/'crates/metal2vulkan-runtime/src/render.rs'
+if 'PerViewport' not in render.read_text():
+    subprocess.run(['git','apply',str(ROOT/'patches/metal2vulkan/0013-data-a-live-fewer-allocations-a-draw.patch')],
+        cwd=a.translator,check=True)
 env=dict(os.environ,DEVELOPER_DIR=str(a.developer_dir),IPHONEOS_DEPLOYMENT_TARGET='16.6.1')
 sdk=subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'],env=env,text=True).strip()
 frontend=out/'PongMetalFrontend.o'

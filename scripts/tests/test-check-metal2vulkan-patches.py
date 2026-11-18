@@ -65,5 +65,26 @@ class PatchAccounting(unittest.TestCase):
             self.assertEqual(len(problems), 1)
 
 
+class TheBridgeBuildAppliesTheDrawFix(unittest.TestCase):
+    """0013 is the one variable we opened; the build has to carry it, in order."""
+
+    def setUp(self):
+        self.script = (HERE.parent / 'build-pong-metal-bridge.py').read_text(encoding='utf-8')
+
+    def test_the_draw_convergence_patch_is_applied(self):
+        self.assertIn('0013-data-a-live-fewer-allocations-a-draw.patch', self.script)
+
+    def test_it_is_applied_after_the_policy_and_surface_patches(self):
+        policy = self.script.find('0008-pong-ios16-20G81-policy.patch')
+        surface = self.script.find('0009-pong-owned-iosurface-row-padding.patch')
+        draw = self.script.find('0013-data-a-live-fewer-allocations-a-draw.patch')
+        self.assertTrue(-1 < policy < surface < draw, (policy, surface, draw))
+
+    def test_it_is_guarded_by_a_marker_from_the_patch(self):
+        draw = self.script.find('0013-data-a-live-fewer-allocations-a-draw.patch')
+        window = self.script[max(0, draw - 400):draw + 200]
+        self.assertIn("'PerViewport'", window)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

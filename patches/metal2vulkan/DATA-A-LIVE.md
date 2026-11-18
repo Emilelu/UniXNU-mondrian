@@ -14,8 +14,6 @@
 - `0010-pong-ipados18-22H374-policy.patch` — 面向 22H374，本机是 20G81，不适用。
 - `0011-pong-scoped-memory-pressure.patch` — 内存压力作用域，需先在 20G81 上证明缺失症状。
 - `0012-data-a-live-final-pass-cache.patch` — pass 缓存，属性能项，非当前卡死原因。
-- `0013-data-a-live-fewer-allocations-a-draw.patch` — **每 draw 分配次数收敛**；与实测
-  「一次 draw 触发上千次 `IOMemoryDescriptor` 映射后不返回」高度相关，优先评估。
 - `0015-data-a-live-draw-commands-kept.patch` — draw 命令保留；同上，优先评估。
 - `0016-data-a-live-draw-lists-kept.patch` — draw 列表保留；同上，优先评估。
 - `0017-data-a-live-refuse-rebinds.patch` — 拒绝重绑定，属正确性项。
@@ -25,3 +23,21 @@
 
 启用任一条前必须先在 Mac 侧对 pin 住的 translator 跑 `git apply --check`，并在宿主测试里
 给出「应用前/应用后」的行为差异；不得只因为「看起来相关」就打开。
+
+## 已应用（2026-11-18 起）
+
+`scripts/build-pong-metal-bridge.py` 现在按顺序应用 `0008`、`0009`、`0013`：
+
+- `0008-pong-ios16-20G81-policy.patch` — 20G81 policy 行。
+- `0009-pong-owned-iosurface-row-padding.patch` — own-surface row padding。
+- `0013-data-a-live-fewer-allocations-a-draw.patch` — **每 draw 分配次数收敛**：viewports/
+  scissors/specialization 留在 encoder 里，不再每次 draw 复制一份。实测动机是一次 draw 触发
+  5,517 次 `IOMemoryDescriptor` 映射后 `nmb_render_draw` 不返回；补丁自带说明为
+  「frame_costs_plain: 24.6 -> 17.8 allocations a draw」。
+
+应用前置验证（2026-11-18，Mac `192.168.31.204`，pin `2c8369999af72509ebc45e491f2368d4b0e7fc70`
+= "metal2vulkan 720ef1ce snapshot"）：对 `git archive` 导出的干净树逐个 `git apply --check`，
+结果 **8 个可应用**（`0008`、`0009`、`0011`、`0012`、`0013`、`0017`、`0019`、`0021`）、
+**4 个已过时**（`0010` 面向 22H374；`0015`、`0016`、`0018` 的 hunk 与当前 pin 不符），
+且累计应用 `0008+0009+0013` 与 `0008+0009+0013+0011+0012+0017+0019` 两次都干净通过。
+本次只开 `0013` 一个变量，其余仍留在「未启用」里等单变量证据。

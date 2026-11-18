@@ -722,7 +722,9 @@ static void waitForResource(id resource) {
 }
 - (void)drawPrimitives:(MTLPrimitiveType)t vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i baseInstance:(NSUInteger)b {
  gDraws++;self.commandBuffer->encodedWork.draws++;
+ if(gDraws.load()<=4)NBLOG(@"K60DRAW enter draws=%llu",(unsigned long long)gDraws.load());
  [self check:nmb_render_draw(self.handle,t,(uint32_t)s,(uint32_t)n,(uint32_t)i,(uint32_t)b) what:"drawPrimitives"];
+ if(gDraws.load()<=4)NBLOG(@"K60DRAW leave draws=%llu",(unsigned long long)gDraws.load());
 }
 - (void)drawPrimitives:(MTLPrimitiveType)t vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i {
  [self drawPrimitives:t vertexStart:s vertexCount:n instanceCount:i baseInstance:0];

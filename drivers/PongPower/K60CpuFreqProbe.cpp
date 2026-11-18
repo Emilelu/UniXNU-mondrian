@@ -35,11 +35,19 @@
 #include <kern/thread.h>
 #include <mach/processor_info.h>
 #include "K60CpuFreqPlan.h"
+#include "K60BoostPlan.h"
 
 /* The SDK header hides the array behind KERNEL_PRIVATE, but the kernel exports
  * it and processor_info() needs the processor_t. The declared extent only has
  * to cover the eight CPUs this board has. */
 extern "C" processor_t processor_array[64];
+
+/* The CP ring read lives in the Adreno code, but the image links both objects
+ * into the kernel: llvm-nm -g on kernel.macho shows _pong_adreno_cp_pending as
+ * a defined global next to _k60_physical_battery_start, so this direct call is
+ * resolved at kernel link and needs no exported trampoline. -1 means the CP is
+ * not running yet, which counts as "no submission". */
+extern "C" int pong_adreno_cp_pending(void);
 
 namespace {
 
@@ -433,11 +441,14 @@ void samplerThread(void *, wait_result_t)
     uint32_t previous[K60_CPU_FREQ_CPUS][K60_CPU_FREQ_STATES] = {};
     uint64_t idle[K60_CPU_FREQ_CPUS] = {}, elapsed[K60_CPU_FREQ_CPUS] = {};
     unsigned busy[K60_CPU_FREQ_DOMAINS] = {};
+    K60BoostState boost = {};
+    int frameActive = 0, framePrevious = 0;
     uint64_t window = 0;
     bool havePrevious = false;
     host_t host = nullptr;
 
     k60_cpufreq_governor_reset(&gov, 0);
+    k60_boost_reset(&boost);
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
         uint32_t state;
         unsigned current = 0;
@@ -490,12 +501,32 @@ void samplerThread(void *, wait_result_t)
             havePrevious = true;
             continue;
         }
+        /* Official section 5 :116: when two of the last four 16 ms windows
+         * carried a GPU submission, every CPU domain is held at 60 % of its
+         * top for 300 ms. The submit window is the CP ring occupancy the DCVS
+         * thread already reads, sampled here too so the read-only mode 5 also
+         * reports the floor it would request. */
+        {
+            const uint64_t boostNow = window * kSampleSleepMs;
+            int pending = pong_adreno_cp_pending();
+            if (pending < 0) pending = 0;
+            k60_boost_window(&boost, boostNow, pending > 0);
+            frameActive = k60_boost_frame_active(&boost, boostNow);
+        }
         for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
             if (!ready[domain]) continue;
             busy[domain] = k60_cpufreq_domain_busy_elapsed(idle, elapsed,
                 K60_CPU_FREQ_CPUS, domain);
             (void)k60_cpufreq_governor_window(&gov, &tables[domain], domain,
-                busy[domain], 0, 0);
+                busy[domain], 0, static_cast<unsigned>(frameActive));
+        }
+        if (frameActive != framePrevious) {
+            const uint32_t top = tables[0].count ? tables[0].khz[tables[0].count - 1] : 0;
+            IOLog("K60CpuFreq: mode%u frame floor %s win=%llu subs=%u floor=%ukHz\n",
+                applyMode, frameActive ? "active" : "released",
+                static_cast<unsigned long long>(window),
+                k60_boost_frame_count(&boost), k60_boost_cpu_floor_khz(top));
+            framePrevious = frameActive;
         }
 
         /* Domains 1 and 2 are still disabled when the first read runs, so
@@ -608,11 +639,11 @@ void samplerThread(void *, wait_result_t)
                 if (ready[domain])
                     hardware[domain] = (rd32(windows[domain].va,
                         K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu) * K60_CPU_FREQ_XO_KHZ;
-            IOLog("K60CpuFreq: sample win=%llu d0=%u/%ukHz/hw%ukHz d1=%u/%ukHz/hw%ukHz d2=%u/%ukHz/hw%ukHz\n",
+            IOLog("K60CpuFreq: sample win=%llu d0=%u/%ukHz/hw%ukHz d1=%u/%ukHz/hw%ukHz d2=%u/%ukHz/hw%ukHz fr=%d\n",
                 static_cast<unsigned long long>(window),
                 busy[0], tables[0].khz[gov.current[0]], hardware[0],
                 busy[1], tables[1].khz[gov.current[1]], hardware[1],
-                busy[2], tables[2].khz[gov.current[2]], hardware[2]);
+                busy[2], tables[2].khz[gov.current[2]], hardware[2], frameActive);
         }
     }
     if (apply && !restored) {

@@ -113,6 +113,7 @@ L4 逐项状态：
 - 验收：`coachz_modem_data_send()` 返回 0、TX 计数递增；RX 回调收到包并交给 `pdp_ip`；`ping` 网关或 UDP echo 至少单向；掉包/错误计数可解释。
 - 风险：QMAP 头/聚合格式、TRE 位域未验证；DMA cache 一致性；GSI completion 与 ifnet 队列的背压。
 - 预计文件：`K60/K60IpaRx.c`、`K60/K60IpaTx.c`、`K60/K60IpaDma.h`。
+- 已落地（2026-11-19，`673330c1`）：`K60/K60IpaQmap.h`、`K60/K60IpaQmap.c`。4 字节头是 `pad_len:6|reserved:1|command:1 | mux_id | length:16 BE`，`length` 只计 padded payload、不含头，padding 在 payload 尾部，所以 IP 长度是 `length - pad`；Pong 的编码与解析（`references/pong-baseband/PongModemWan.h:313-342`）和 PHK110 分支（`references/phk110-port/drivers/modem/hakios.ipa.c:671-689`、`:710-733`）都是这一约定。`k60_ipa_qmap_encode()` 检查 mux 1..254、4 字节对齐、零填充、16 位长度上限与容量；`k60_ipa_qmap_decode()` 逐帧交付并统计 command/dropped，命令帧（bit7）跳过，reserved、零长、`pad > length`、越过缓冲一律丢弃并停止重同步。QMAP 与 QMAPv4/QMAPv5 的数据帧头相同，DAP 值只选择聚合/校验能力；checksum offload 变体不实现，因为 Pong 数据面明确不宣告 AP checksum/NAT offload（`references/pong-baseband/PongModemRules.h:6`），若 modem 将来要求，必须回到协商层重做而不是猜。宿主测试 `scripts/tests/test-k60-ipa-qmap.c` 覆盖帧长、编码边界、聚合、命令帧与六类坏头，输出 `K60 IPA QMAP PASS`；两个文件由 `scripts/gen-ipa-patch.py` 带进 0623，并在 `scripts/append-conffiles.py` 登记为内核源。
 
 ### M6 — reset / flight mode
 
@@ -138,7 +139,7 @@ L4 逐项状态：
 - `K60IpaSmmu.c` 仍是宿主 SMMU 寄存器模型；内核页表由 `K60Ipa.c` 直接调用 `ArmSmmu4KBuild()` 构建（三区间、输出 36 位、8 表页），在 TCSR SMEM mutex 0x1f43000 下分配/复用 SMEM item 497（≥0x9000，失败即拒绝），并写 SID 0x5c0 的 SMR/S2CR；没有 SMMU 抢占/lease，没有硬件执行。宿主测试现在覆盖精确运行时几何：SMEM item 497 窗口按页对齐后为 0x9000，未对齐时最多 0xa000；0x9000 下得到 6 个表页、267 个叶页，0xa000 下得到 6 个表页、268 个叶页（8 个表页容量）。
 - 没有 IPA QMI 服务 0x31 的 `INIT_DRIVER/INIT_COMPLETE/DRIVER_INIT_COMPLETE`。
 - 没有 WDS 0x00a2 / QOS 0x002b / DPM Open Port / WDA Set Data Format。
-- 没有 QMAP mux 注册、没有 QMAPv5 常量、没有 QMAPv4 回退。
+- QMAP 帧 codec 已落地并有宿主测试（`K60IpaQmap.h/.c`，见 M5），但仍没有 IPA QMI 服务 0x31 的 DAP 协商、没有 mux 1..4 注册、没有 QMAPv5→v4 回退路径。
 - 没有 K60 IPA SMMU 配置；没有 pdp_ip 数据 TX/RX；`K60/K60ModemLink.c:261-282` 仍返回 ENETDOWN。
 - 没有 reset/flight-mode 的 IPA 停止/恢复。
 
@@ -149,4 +150,4 @@ L4 逐项状态：
 3. 与 DT 的两个 region 比较结果：`0x8568`（34,152 B）≤ `0xa000`，当前 `memory-regions -> ipa_gsi_region@8b910000` 可容纳全部 PT_LOAD；metadata `0xe8c` 走 `ipa_fw_region@8b900000` 的最后 8 KiB。M1 的 40 KiB 风险解除。
 4. 同时用 `dtc`/FDT 属性导出核对 `firmware-names`、`memory-regions`、`pas-ids` 的 index 对齐（`DIPA/ipa_v3/ipa.c:8117-8128` 要求同 index）。
 
-**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与固定 ipa_fw_region handoff 调用点、M2 host 模块与运行时 glue 已落地；k16 标准与 M2 诊断镜像（C/C0/IPA-only/B-full）已生成并嵌入 FD 9b7155f6，k18 C-M2、k20 p1 IPA PAS15 与 k20 p2 M2 runtime 已先后在硬件上通过（见 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` §3.6/§3.8/§3.9）。k20 p2（同 kernel `dd881b0e`，`pong_ipa=2`）启动 1 MiB ring 与 0x8000 表块（`ring=0x90d50d000 tables=0x90d60d000`）、SMMU 上下文（`bank=72 slot=110 pages=6 leaf=268`）与 GSI 命令通道（`stage=10 completed=3`）。下一步是 QMAP/ifnet 数据面与 GSI IRQ 432/654 处理；modemd 的 B/QRTR 仍按 §5 单独授权，不在本步。
+**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与固定 ipa_fw_region handoff 调用点、M2 host 模块与运行时 glue 已落地；k16 标准与 M2 诊断镜像（C/C0/IPA-only/B-full）已生成并嵌入 FD 9b7155f6，k18 C-M2、k20 p1 IPA PAS15 与 k20 p2 M2 runtime 已先后在硬件上通过（见 `docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md` §3.6/§3.8/§3.9）。k20 p2（同 kernel `dd881b0e`，`pong_ipa=2`）启动 1 MiB ring 与 0x8000 表块（`ring=0x90d50d000 tables=0x90d60d000`）、SMMU 上下文（`bank=72 slot=110 pages=6 leaf=268`）与 GSI 命令通道（`stage=10 completed=3`）。下一步是 IPA QMI 服务 0x31 的握手与 mux 注册（需要 B/QRTR 在硬件上枚举，仍按 §5 单独授权）、ifnet 数据面与 GSI IRQ 432/654 处理；QMAP 帧 codec 已先行落地（`K60IpaQmap.h/.c`，`673330c1`），它只是 M5 的解析前置，不等于数据面可用。

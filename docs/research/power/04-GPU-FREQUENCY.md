@@ -114,12 +114,12 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
   kernel `4b9fa1f96302afc6604afaac306cd9c6b389ad5638c4d1b9b1c1f3f0147d3849`，
   payload `7a6c891224c6045dee50b79a55035b8b595095e259dadf704a2d4025d789387e`；
   参数 gate `OK (30 arguments, 605 bytes)`；平台 archive 含 3 个 `_k60_gpu_dcvs_*` 符号。
-- **提交窗口已接，触摸/帧/fence 未接**：`pong_adreno_cp_pending()` 现在把 CP 环
-  占用喂给 `K60BoostPlan`，四窗口内两次提交的判定与 d0 60 % 下限已能算出并写进
-  `DCVS frames` 日志；但 K60 没有触摸事件源（`native_hid_input_events` 不存在），
-  也没有帧提交计数与 fence 截止时间，所以 1 s 触摸保持、300 ms 内抬到 60 % 的
-  CPU 投票都还没执行——floor 只有值，没有消费者。当前的 50 ms 唤醒档仍只由
-  「计数器从零变为非零」触发。
+- **提交窗口、触摸与 60 % 下限已接，fence 未接**：`pong_adreno_cp_pending()` 把 CP 环
+  占用喂给 `K60BoostPlan`，CPU 采样线程把 `framing` 传给 governor，mode 8 的升档窗口
+  会写 60 % 下限；触摸计数补丁 `0622` 导出 `pong_touch_report_count()`，DCVS 线程在
+  1 s 触摸窗口内把目标档强制为 top（`DCVS touch top`/`release`，commit `aa3bada7`）。
+  仍缺 fence 截止时间与真实 GPU 负载：image w 的 276 条样本全部 `fr=0`，触摸保持也
+  还没有真机触摸数据；50 ms 唤醒档仍只由「计数器从零变为非零」触发。
 - **2026-11-19 02:14 真机（image o）**：启动 22 个阶段全部成功，`:714` 打出
   `PONG ADRENO: DCVS started result=0 a=0xd00000001 b=0x1`（top 13、floor 1、初始 level 1），
   之后每 10 s 一条 `DCVS window result=1 a=0x0 b=0x0`，共 24 条（约 4 分钟，控制台 138,144 B，
@@ -145,7 +145,8 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
 1. 设备探针：用 image o 启动一次 `pong_gpu_dcvs=1`，确认忙碌计数器在动、投票被接受，
    并记录 10 s 汇总里的档位分布。
 2. 负载对照：跑一段 GPU 负载，比较投票前后的档位与帧时间，确认没有和固件 DVFS 打架。
-3. 触摸/帧信号：等输入线与 Metal 提交计数可用后，把 1 s 保持与 300 ms/60 % 接进来。
+3. 触摸/帧信号：触摸已接（补丁 0622 + commit aa3bada7），下一步在 image x 上机触摸；
+   帧下限等 Metal 提交计数可用后验证 300 ms/60 %。
 4. 温控与顺序：在升档前接入温度读取与电压/互连顺序，否则只保留降档方向。
 
 ## 6. 参考

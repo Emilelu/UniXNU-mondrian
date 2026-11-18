@@ -151,7 +151,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   2026-11-19 03:26 已由 image r 上机：`mode7 armed win=854 d0 level=9` 后写入
   `level=9 (1324800kHz) busy=666 writes=1 readback=ok state=81->69`，10 s 后
   `mode7 restore domains=1 votes=1`，硬件回到 1.5552 GHz；同一轮 `raise refused` 出现一次。
-  它仍没有电压/互连/温控顺序、没有触摸/帧输入，也不处理 EPSS 硬件自主变频。
+  它仍没有电压/互连/温控顺序，也不处理 EPSS 硬件自主变频；触摸/帧输入由采样线程单独接入（见 `05-BOOST-RULES.md`）。
 - mode 8（双向 governor 写回，2026-11-19）：在 mode 7 的采样与受限期窗口上允许**升档**。
   依据是参考实现 `package/CpuFreqProbe.cpp:198-203, 293-296`：它对升档和降档都只写 perf-state
   行，从不调用稳压器；EPSS 固件自己拥有 CPU 轨并完成电压过渡，只读运行里也见过它把 d2 自主
@@ -183,8 +183,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，
   `hw` 是当次读到的硬件档位，不是写入结果。线程由 `kernel_thread_start` 启动，
   `K60Battery::cleanup` 调 `k60_cpufreq_sample_stop` 置标志退出；不写任何寄存器、不投票。
-  没有触摸/帧输入（boost/framing 传 0），也不写硬件；写回在 mode 7（只降）和 mode 8（双向）。
-- mode 4 与大于 8 的值直接打印 "modes 1-3, 5, 6, 7 and 8 are implemented" 并返回。
+  mode 5 的 boost/framing 传 0，也不写硬件；写回在 mode 7（只降）和 mode 8（双向）。触摸/帧输入自 `cbdf382f`/`aa3bada7` 起接入采样线程，不是 mode 5 本身。
+- mode 4 与大于 9 的值直接打印 "modes 1-3, 5, 6, 7, 8 and 9 are implemented" 并返回。
 - 调用点：`k60_physical_battery_start()` 开头做第一次读取；电池 `begin` 成功后
   （`K60Battery.cpp` 的同一入口）延迟 5 s 做第二次读取。这是当前 archive 唯一由
   userland 触发的 IOKit 入口；探针不需要 ADSP 租约，也不经过电池配置解析。
@@ -437,7 +437,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   但采样里 d1 的 `hw` 一直是 2.496 GHz，`DOMAIN_STATE` 也没有变化。
   `:809` `mode8 restore domains=2 votes=11`；恢复后 `sample win=1280` 的 d0 `hw` 从 1.8048 GHz 回到 1.5552 GHz。
   判读：d0 的双向写回与恢复都在真机成立；d1 的行写入回读成功但 EPSS 不接受持续投票，大核簇仍自主变频。
-  探针没有触摸/帧输入、没有温度/throttle 读数，300 s autoreset 先到，没有 `sample stop`，mode 2/3 未执行。
+  该轮探针还没有触摸计数（补丁 0622 在 image x 才进入），没有温度/throttle 读数，300 s autoreset 先到，没有 `sample stop`，mode 2/3 未执行。
 - 镜像 w 与帧下限调用路径（2026-11-19 05:07–05:13，`E:/k60-work/evidence/power-conformance-frame-20261119-0510`）：
   image w 的 `boot.img` 201,887,744 B，sha256 `005b3095600174911d29d4769ce31385fb296447505c07b707d39d719605f94c`；
   kernel.macho `ca262497406d0b6986ac75c838a95da0f63d4fc5a068a9086775a9f9d3a3a23c`，payload
@@ -465,7 +465,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
-  mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；仍没有触摸输入、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
+  mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；触摸计数自 image x 起由补丁 0622 导出（CPU/GPU 线程消费，尚未上机触摸）、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
   先到，没有 `sample stop`，也没有负载/温度/throttle 读数。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。

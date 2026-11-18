@@ -1,4 +1,5 @@
 diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
+index ca5ab16..a0f37ca 100644
 --- a/bsd/dev/qbt/qbt_transport.c
 +++ b/bsd/dev/qbt/qbt_transport.c
 @@ -18,6 +18,114 @@
@@ -116,7 +117,7 @@ diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
  static struct qbt_transport_ops bt_ops;
  static uint32_t bt_sk_speed=115200;
  static uint64_t bt_sk_kicks_tx,bt_sk_kicks_rx;
-@@ -439,6 +547,9 @@
+@@ -439,6 +547,9 @@ void qbt_transport_power_result(bool enabled,int error,const char *firmware,uint
          strlcpy(reg.ctl_name,"com.apple.uart.sk.bluetooth",sizeof(reg.ctl_name));
          error=ctl_register(&reg,&bt_sk.ctl);
          printf("[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=%d firmware=%s speed=%u\n",error,firmware,speed);
@@ -127,9 +128,10 @@ diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
      lck_mtx_lock(&bt_sk_lock);
      if(firmware) strlcpy(bt_sk.firmware,firmware,sizeof(bt_sk.firmware));
 diff --git a/iokit/Kernel/MiniBluetooth.cpp b/iokit/Kernel/MiniBluetooth.cpp
+index 86b7b94..115d6db 100644
 --- a/iokit/Kernel/MiniBluetooth.cpp
 +++ b/iokit/Kernel/MiniBluetooth.cpp
-@@ -33,7 +33,11 @@
+@@ -38,7 +38,11 @@
  extern "C" int k60_bt_local_address(uint8_t address[6]);
  
  #define K60_BT_TRANSPORT_ENCODING 1u

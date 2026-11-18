@@ -225,16 +225,3 @@ zzy-native-gpu-addon-mount.patch
 0619-k60-adsp-glink-handoff.patch
 0620-k60-adsp-blob.patch
 0621-k60-io-submap-budget.patch
-0507-k60-bt-readonly-probe.patch
-0508-k60-bt-s2-smmu-rcg-reset.patch
-0509-k60-bt-s3-identity-publish.patch
-0510-k60-bt-firmware-addon.patch
-0511-k60-bt-s4-unblock.patch
-0512-k60-bt-late-start.patch
-0514-k60-bt-boot-observability.patch
-0515-k60-bt-tlv-counters.patch
-0516-k60-bt-qbt-uart-clock.patch
-0517-k60-bt-power-order.patch
-0518-k60-bt-gic-intid.patch
-0519-k60-bt-userspace-power-nodes.patch
-0520-k60-bt-uart-control-alias.patch

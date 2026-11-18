@@ -1,7 +1,8 @@
 diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
+index a0f37ca..1a00c09 100644
 --- a/bsd/dev/qbt/qbt_transport.c
 +++ b/bsd/dev/qbt/qbt_transport.c
-@@ -143,6 +143,7 @@
+@@ -143,6 +143,7 @@ static LCK_GRP_DECLARE(bt_sk_grp,"unixnu.bt.uart.sk");
  static LCK_MTX_DECLARE(bt_sk_lock,&bt_sk_grp);
  static struct {
      kern_ctl_ref ctl;
@@ -9,7 +10,7 @@ diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
      bool connected,creating,closing;
      kern_nexus_t nexus;
      uint32_t unit,spec[3];
-@@ -391,7 +392,7 @@
+@@ -391,7 +392,7 @@ static errno_t bt_sk_create(const uint32_t spec[3],pid_t pid,nexus_controller_t
  }
  
  /* Kernel control. */
@@ -18,7 +19,7 @@ diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
  {
      lck_mtx_lock(&bt_sk_lock);
      if(bt_sk.connected) {lck_mtx_unlock(&bt_sk_lock);return EBUSY;}
-@@ -399,7 +400,8 @@
+@@ -399,7 +400,8 @@ static errno_t bt_sk_connect(kern_ctl_ref ref __unused,struct sockaddr_ctl *sac,
      bt_sk_termios_default();
      lck_mtx_unlock(&bt_sk_lock);
      bt_sk_count(2);
@@ -28,7 +29,7 @@ diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
      /* A client on a stopped controller restarts it; failures reach the client through I/O status. */
      if(bt_sk.boot>0 && bt_ops.power)(void)bt_ops.power(bt_ops.context,true);
      return 0;
-@@ -547,6 +549,20 @@
+@@ -547,6 +549,20 @@ void qbt_transport_power_result(bool enabled,int error,const char *firmware,uint
          strlcpy(reg.ctl_name,"com.apple.uart.sk.bluetooth",sizeof(reg.ctl_name));
          error=ctl_register(&reg,&bt_sk.ctl);
          printf("[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=%d firmware=%s speed=%u\n",error,firmware,speed);
@@ -50,9 +51,10 @@ diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
          bt_power_nodes_register();
  #endif
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 813d521..28bbcc5 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -1310,6 +1310,36 @@
+@@ -2051,6 +2051,36 @@ grade:
  		goto bad;
  	}
  

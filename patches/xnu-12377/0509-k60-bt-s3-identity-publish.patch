@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
-index ee12fba..fbdf0ef 100755
+index ee12fba..fbdf0ef 100644
 --- a/bsd/dev/qbt_k60.c
 +++ b/bsd/dev/qbt_k60.c
 @@ -47,6 +47,7 @@
@@ -95,34 +95,57 @@ index ee12fba..fbdf0ef 100755
  #else
          e = -ENOENT;
  #endif
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 9f20542..97827e4 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1316,6 +1316,13 @@ bsd_autoconf(void)
+ 	}
+ 
+ 	kern_return_t result = IOKitBSDInit();
++	/* K60 Bluetooth: publish /arm-io/bluetooth and the IOService "bluetooth"
++	 * before launchd starts.  Fail-closed: the publish returns unless the
++	 * image booted with k60bt=1 and /chosen/unique-chip-id exists. */
++	{
++		extern void K60BluetoothPublish(void);
++		K60BluetoothPublish();
++	}
+ #if (DEVELOPMENT || DEBUG) && defined(XNU_NATIVE_LEGACY_DISPLAY) && XNU_NATIVE_LEGACY_DISPLAY
+ 	/* The original IOSurface personality requires the genuine IOBSD resource.
+ 	 * The default-off framebuffer instrument may start only after publication.
 diff --git a/iokit/Kernel/MiniBluetooth.cpp b/iokit/Kernel/MiniBluetooth.cpp
 new file mode 100644
-index 0000000..de1e25f
+index 0000000..86b7b94
 --- /dev/null
 +++ b/iokit/Kernel/MiniBluetooth.cpp
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,198 @@
 +/*
-+ * Bluetooth publication for the Pong port.
++ * Bluetooth publication for the K60 port on xnu-12377 (iOS 27 line).
 + *
-+ * bluetoothd on this build looks for a device-tree child of /arm-io whose
-+ * device_type is "bluetooth", and for an IOService carrying the same name.
-+ * When neither exists it prints "No bluetooth on this device" and gives up,
-+ * which is exactly what the K60 console shows today.  This file publishes
-+ * both and stamps the stable local address that bsd/dev/qbt_k60.c derives
-+ * from /chosen/unique-chip-id.
++ * bluetoothd on the iOS 16 build looks for a device-tree child of /arm-io
++ * whose device_type is "bluetooth" and for an IOService carrying the same
++ * name; on iOS 27 the same contract is expected.  When neither exists the
++ * daemon prints "No bluetooth on this device" and gives up, which is exactly
++ * what the K60 console shows today.  This file publishes both and stamps the
++ * stable local address that bsd/dev/qbt_k60.c derives from
++ * /chosen/unique-chip-id.
++ *
++ * The 16.6.1 tree called this from MiniIOSurface.cpp's UI-services start,
++ * behind the PONG machine config.  The 12377 line has neither the Mini*
++ * files nor that machine config, so the entry point is a standalone
++ * extern "C" symbol called from bsd_init.c once IOKit is up; the service
++ * root is obtained from IOKit itself.
 + *
 + * Everything is gated on the k60bt boot argument, so booting the same image
 + * without it leaves the registry exactly as it is today.
 + */
-+#include <pexpert/arm64/board_config.h>
-+
 +#include <IOKit/IOService.h>
 +
 +#if !defined(XNU_K60_BT_PUBLISH)
 +#define XNU_K60_BT_PUBLISH 1
 +#endif
 +
-+#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL && XNU_K60_BT_PUBLISH
++#if XNU_K60_BT_PUBLISH && !SECURE_KERNEL
 +
 +#include <IOKit/IOLib.h>
 +#include <IOKit/IODeviceTreeSupport.h>
@@ -209,8 +232,8 @@ index 0000000..de1e25f
 +	return node;
 +}
 +
-+void
-+MiniBluetoothPublishStub(IOService * provider)
++static void
++k60_bt_publish(IOService * provider)
 +{
 +	static bool published;
 +	uint32_t enabled = 0;
@@ -271,49 +294,38 @@ index 0000000..de1e25f
 +	    address[0], address[1], address[2], address[3], address[4], address[5]);
 +}
 +
-+#else /* !(PONG && development && XNU_K60_BT_PUBLISH) */
-+
-+void
-+MiniBluetoothPublishStub(IOService * provider)
++/* Entry point for bsd_init.c (C).  The 16.6.1 tree handed in the UI-services
++ * provider; on 12377 the publish happens once IOKit is up, so the service
++ * root is the parent. */
++extern "C" void
++K60BluetoothPublish(void)
 +{
-+	(void)provider;
++	IOService * provider = IOService::getResourceService();
++
++	if (provider == NULL) {
++		IOLog("K60 BT: no IOKit resource service; bluetooth not published\n");
++		return;
++	}
++	k60_bt_publish(provider);
 +}
 +
-+#endif /* PONG && development && XNU_K60_BT_PUBLISH */
-diff --git a/iokit/Kernel/MiniDrivers.h b/iokit/Kernel/MiniDrivers.h
-index f855666..25ceacf 100755
---- a/iokit/Kernel/MiniDrivers.h
-+++ b/iokit/Kernel/MiniDrivers.h
-@@ -17,6 +17,7 @@ bool MiniIOSurfaceStart(IOService * provider);
- void MiniIOMobileFramebufferStart(IOService * provider);
- void MiniAcceleratorPublishStub(IOService * provider);
- void MiniAppleKeyStoreStart(void);
-+void MiniBluetoothPublishStub(IOService * provider);
- /* A network hardware stand-in is not part of the Pong port. */
- 
- #endif /* _IOKIT_MINIDRIVERS_H */
-diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
-index 078011b..6c64e1a 100755
---- a/iokit/Kernel/MiniIOSurface.cpp
-+++ b/iokit/Kernel/MiniIOSurface.cpp
-@@ -2214,6 +2214,8 @@ native_pong_ui_services_start(void)
- #if XNU_K60_ACCEL_STUB
- 	MiniAcceleratorPublishStub(provider);
- #endif
++#else /* !(XNU_K60_BT_PUBLISH && !SECURE_KERNEL) */
 +
-+	MiniBluetoothPublishStub(provider);
- }
- 
- #endif /* Pong development IOSurface */
++extern "C" void
++K60BluetoothPublish(void)
++{
++}
++
++#endif /* XNU_K60_BT_PUBLISH && !SECURE_KERNEL */
 diff --git a/iokit/conf/files b/iokit/conf/files
-index 5b3dd51..bdbba91 100755
+index c72c690..3896f5e 100644
 --- a/iokit/conf/files
 +++ b/iokit/conf/files
-@@ -83,6 +83,7 @@ iokit/Kernel/MiniIOSurface.cpp			optional iokitcpp
- iokit/Kernel/MiniIOMobileFramebuffer.cpp		optional iokitcpp
- iokit/Kernel/MiniAcceleratorES.cpp		optional iokitcpp
- iokit/Kernel/MiniAppleKeyStore.cpp			optional iokitcpp
-+iokit/Kernel/MiniBluetooth.cpp			optional iokitcpp
+@@ -81,6 +81,7 @@ iokit/Kernel/IOGuardPageMemoryDescriptor.cpp		optional iokitcpp
+ 
+ iokit/Kernel/IOPlatformExpert.cpp			optional iokitcpp
  iokit/Kernel/IOPlatformIO.cpp				optional iokitcpp
++iokit/Kernel/MiniBluetooth.cpp			optional iokitcpp
  
  iokit/Kernel/IOCPU.cpp					optional iokitcpp
+ iokit/Kernel/IOPlatformActions.cpp			optional iokitcpp

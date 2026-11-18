@@ -341,14 +341,14 @@ index fbdf0ef..736109e 100644
      return 0;
  }
 diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
-index c40d57b..e5e1adf 100644
+index 0db4600..caf17a4 100644
 --- a/osfmk/conf/files.arm64
 +++ b/osfmk/conf/files.arm64
-@@ -25,6 +25,7 @@ osfmk/arm64/WKdmCompress_4k.s	standard
+@@ -35,6 +35,7 @@ osfmk/arm64/WKdmCompress_4k.s	standard
  osfmk/arm64/WKdmData.s		standard
  osfmk/arm64/lz4_decode_arm64.s  standard
  osfmk/arm64/lz4_encode_arm64.s  standard
 +osfmk/arm64/k60_bt_blob.s	standard
  osfmk/arm64/amcc_rorgn_ppl.c optional nos_arm_asm config_pmap_ppl apple_amcc
+ osfmk/arm64/amcc_rorgn_ppl_amcc.c optional nos_arm_asm config_pmap_ppl apple_amcc
  osfmk/arm64/amcc_rorgn_common.c optional nos_arm_asm apple_amcc
- osfmk/arm64/bcopy.s standard

@@ -6,3 +6,27 @@ ptrauth-string-discriminator.patch
 # ArmCpu's weak_import sleep hook has no definition in any component; ld64-port
 # rejects the unresolved weak data symbol when the archive joins the kernel link.
 armcpu-sleep-hook.patch
+# The K60 Bluetooth series, carried over from the iOS 16 line (feat/bt-research
+# patches/xnu/0507..0520). The driver source is byte-identical across lines: after
+# these patches bsd/dev/qbt_k60.c is the same 2239-line file the iOS 16 0518
+# image was built from. Only the platform hooks were re-anchored -- 0501 six qbt
+# sources in bsd/conf/files, 0502 qbt_k60_start() without a PONG guard, 0509
+# MiniBluetooth.cpp as its own file with the ResourceService provider, 0510
+# k60_bt_blob.s in osfmk/conf/files.arm64, 0512 the late start in kern_exec,
+# 0519/0520 as written. 0507 and 0508 must precede 0509: 0509's include block is
+# their work.
+0501-k60-bt-qbt-bsd-conf.patch
+0502-k60-bt-qbt-bsd-init.patch
+0507-k60-bt-readonly-probe.patch
+0508-k60-bt-s2-smmu-rcg-reset.patch
+0509-k60-bt-s3-identity-publish.patch
+0510-k60-bt-firmware-addon.patch
+0511-k60-bt-s4-unblock.patch
+0512-k60-bt-late-start.patch
+0514-k60-bt-boot-observability.patch
+0515-k60-bt-tlv-counters.patch
+0516-k60-bt-qbt-uart-clock.patch
+0517-k60-bt-power-order.patch
+0518-k60-bt-gic-intid.patch
+0519-k60-bt-userspace-power-nodes.patch
+0520-k60-bt-uart-control-alias.patch

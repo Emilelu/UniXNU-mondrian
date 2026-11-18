@@ -119,21 +119,20 @@ index a186e5c..3846453 100644
      /* Snapshot the boot-image firmware addon now, before the worker runs: the
       * DarwinBoot window is EfiLoaderCode memory that the VM system may reuse. */
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index 59ad9a0..da02f98 100644
+index 20cda24..813d521 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7900,6 +7900,14 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
- 
- 		(void)k60_uilib_deploy();
- 	}
-+	/* 0512: the Bluetooth ladder starts here, after Data is mounted, so a
-+	 * failure leaves the console and /private/var behind.  No-op unless the
-+	 * image booted with k60bt=1 pong_bt_late=1. */
-+	{
+@@ -8966,6 +8966,13 @@ native_owner_data_prepare(proc_t p, user_addr_t scratch)
+ 	if (actual != device || (vfs_flags(data_mount) & MNT_RDONLY) ||
+ 	    strcmp(vfs_statfs(data_mount)->f_fstypename, "apfs")) error = EINVAL;
+ 	if (!error) native_owner_data_stage = 4;
++	if (!error) {
++		/* 0512: the Bluetooth ladder starts here, after Data is mounted, so a
++		 * failure leaves the console and /private/var behind.  No-op unless the
++		 * image booted with k60bt=1 pong_bt_late=1. */
 +		extern void qbt_k60_late_start(void);
-+
 +		qbt_k60_late_start();
 +	}
- 	/* 0610: place the Adreno Metal plugin where the addon union expects it.
- 	 * It must run after the Data mount and before launchd starts, because
- 	 * zzy-native-gpu-addon-mount unions /private/var/ngpu/addons during the
+ 	if (!error) native_gpu_addon_prepare(p, scratch);
+ 	if (!error) native_staged_apps_prepare(p, scratch, data_mount);
+ done:

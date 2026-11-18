@@ -23,6 +23,12 @@
 - P5 门禁：`check-metal2vulkan-patches.py` 12/12 有归属；`check-rule-registry` 109 条；
   `check-docs` 通过；`sync-device-input` 一致。
 
+- P6 产物级证据（追加于 2026-11-18 12:2x，**判据未改**，卡片 mtime 保持建卡时间以维持门禁语义）：
+  打进 bundle 的 `PongAdrenoMetal.bundle/PongMetalBridge.dylib`
+  `strings -a | grep -c 'PerViewport'` = **11**（源码侧只有 5 行，二进制里的调试/类型名更多），
+  而 20261118b/c 那两版 bundle 的同一命令 = 0 ⇒ 0013 真的进了这次上机的二进制，
+  不再只是「源码树里 apply 过」。
+
 ## 3. 抓取
 
 `K60_FORCE_NEW=1 bash scripts/flash.sh <boot.img> 240`，证据落

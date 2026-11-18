@@ -134,20 +134,22 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 ## 6. 构建与验证
 
-- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 128 checks (0 failures)**。
+- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 143 checks (0 failures)**（含 ASan/UBSan 同数）。
   覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、hispeed/frame/quiet/boost 地板、
   4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
   dcvs 开/关的写条数、缓冲区不足拒绝、enable/档位守卫、写后回读、恢复原值，以及 governor
   的单窗口序列（降档闩锁、立即升档、boost 释放后的半速地板、错误入参），以及空闲换算
-  （满忙/半忙/全闲/超计/零窗口）和 4/3/1 域的“最忙 CPU”选择。断言使用合成的 LUT 行；
-  真机 image k 已把 66 条有效档位逐行读出。
-- archive（含逐行 dump 与写入守卫，commit `42ca4421`）：`build/k60-battery/libK60PhysicalBattery.a`
-  **127,688 字节**，sha256 `77841710f182eb9cc1de5cca580c74c21203c9a30568f02dc6b9c0e68843180b`；
+  （满忙/半忙/全闲/超计/零窗口）、4/3/1 域的“最忙 CPU”选择，以及 mode 5 的 tick 差分
+  （含 32 位回绕、全零窗口）与按 CPU 各自窗口的最忙值。断言使用合成的 LUT 行；
+  真机 image k 已把 66 条有效档位逐行读出，image l 已把采样线程跑通。
+- archive（含 mode 5 采样与写入守卫，commit `3e9917ed`/`38b84c35`）：`build/k60-battery/libK60PhysicalBattery.a`
+  **130,648 字节**，sha256 `70856d4d51d85c1f0445f6ca94dc4115316f9bb829d5a179837118e761b49c8f`；
   `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_probe_late`（0x65c）、
   `_k60_cpufreq_build_table`、`_k60_cpufreq_target`、`_k60_cpufreq_build_votes`、
   `_k60_cpufreq_vote_allowed/check_readback/build_restore`、
-  `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy` 等 cpufreq 符号。本轮只重建
-  archive，没有构建新镜像；image k 内仍是 `1cb58397…` 的旧 archive。
+  `_k60_cpufreq_governor_window`、`_k60_cpufreq_domain_busy`、`_k60_cpufreq_domain_busy_elapsed`、
+  `_k60_cpufreq_tick_delta`、`_k60_cpufreq_sample_stop` 等 cpufreq 符号；undefined-symbol
+  检查 imports=313 defs=139 external=242 kernel=22,909 missing=0。image l 用的是这份 archive。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -295,10 +297,46 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 的 `enable=0` 仍只是辅核尚未启动，
 延后读取 `:304–:310` 已变为 `enable=1`。本轮仍无写入，mode 2/3 未执行。
 
-参数 gate 现状（18:50）：commit `91e64b4e` 把 `k60_cpufreq` 加入
-`scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`。用一份只去掉 `applog=1` token 的
-board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image i/j/k 构建时该名字
-尚未声明，历史 REFUSED 记录保留。探针镜像仍需在构建时去掉 `applog=1`，上机后恢复。
+- 参数 gate 现状（18:50）：commit `91e64b4e` 把 `k60_cpufreq` 加入
+  `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`。用一份只去掉 `applog=1` token 的
+  board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image i/j/k 构建时该名字
+  尚未声明，历史 REFUSED 记录保留。探针镜像仍需在构建时去掉 `applog=1`，上机后恢复；
+  image l 就是用这份快照构建并通过同一 gate 的。
+
+- 镜像 l 与 mode 5 首次上机（**16 ms 只读采样**，2026-11-18 23:19:20–23:24:44，
+  `E:/k60-work/evidence/power-conformance-mode5-20261118-2319`）：image l
+  `E:/k60-work/artifacts/power-conformance-20261118l/boot.img` 201,887,744 B，
+  sha256 `86d1933f949e54f856d8f9cc16ef5e79c9b868acb8b07fb5364422e60d205149`；
+  kernel `cad33d06…`，payload `cee0ff23…`；参数 30 个/603 字节，
+  `pong_handoff_publish=1 k60_cpufreq=5`，构建时去掉 `applog=1`，gate
+  `OK (30 arguments, 603 bytes)`。`boot.json` `bootAccepted=true`、`bootExitCode=0`、
+  `finishedAt=23:24:44`；`capture.json` `captured-budget-complete`、`complete=true`、
+  159,147 B、`logSha256=C2EE7FA3…`、`panicMarker=null`、`openErrors=4`（COM5 早期）、
+  `stopReason=budget`；console.log 159,147 B，sha256 `c2ee7fa3…`，末尾为
+  `K60AUTORESET: 300 s since boot; resetting to fastboot`。采样 start 在 `:203`：
+
+  ```
+  K60CpuFreq: sample start every=16ms log-every=64 domains=3
+  ```
+
+  第一条样本 `:311`、最后一条 `win=17536`；274 条 `sample win=`（每 64 窗一条）。分布：
+  d0 busy 0/333/500/666/1000 = 174/6/20/5/69，governor 300000/1132800/1555200/1804800 =
+  183/2/1/88，hw 691200/1555200 = 169/105；d1 busy 0/333/500/666 = 266/3/4/1，governor
+  633600/883200/1324800/1440000/2496000 = 16/1/250/1/6，hw 633600/2496000 = 261/13；d2
+  busy 0/500 = 272/2，governor 787200/1536000 = 16/258，hw 787200/2995200 = 267/7。典型行：
+
+  ```
+  K60CpuFreq: sample win=64 d0=1000/1804800kHz/hw1555200kHz d1=0/1324800kHz/hw633600kHz d2=0/1536000kHz/hw787200kHz
+  K60CpuFreq: sample win=17536 d0=0/300000kHz/hw691200kHz d1=0/1324800kHz/hw633600kHz d2=0/1536000kHz/hw787200kHz
+  ```
+
+  判读：16 ms 采样、逐 CPU tick 差分、按域取最忙 CPU 后喂 governor 的链路已在真机跑通；
+  d0 从持续 1000 busy/top 档降到 0 busy/300 MHz，说明四个较闲窗口后的降档路径生效；d1/d2
+  的 `quiet` 窗口按 shared-cluster 下限停在半档附近，偶发降到 633.6/787.2 MHz 后回到半档，
+  是现有 `K60_CPU_FREQ_QUIET_WINDOWS` 逻辑，不是写频。探针只读：300 s autoreset 先发生，
+  没有 `sample stop`；没有任何 EPSS 写入，mode 2/3 未执行。EPSS 硬件自身在采样期间把 d0
+  在 691.2/1555.2 MHz、d1 到 2.496 GHz、d2 到 2.9952 GHz 之间移动，说明写路径必须先处理
+  硬件自主 DCVS/所有权，不能把只读采样当作写频闭环。
 
 ## 7. 未实现 / 边界
 
@@ -307,8 +345,9 @@ board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image 
   也没有验证恢复后的寄存器值。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
-  但仍是只读：没有触摸/帧信号输入、没有 10 s 统计窗口、没有把决策写回 EPSS；
-  mode 5 尚未上机，也没有负载/温度/throttle 读数。
+  2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
+  但仍是只读：没有触摸/帧信号输入、没有 10 s 统计窗口、没有把决策写回 EPSS；300 s autoreset
+  先到，没有 `sample stop`，也没有负载/温度/throttle 读数。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。
 - 真机已有三次 mode 1 读数：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
@@ -326,6 +365,8 @@ board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image 
    用去掉 `applog=1` 的 board 快照重跑 image k 得到 `OK (30 arguments, 603 bytes)`；但构建时
    仍须显式去掉 `applog=1`。
    `k60-adsp-handoff/board.toml` 的 `applog=1` 已恢复。
+   image l（sha256 `86d1933f…`，commit `65c390fd`）于 23:19 以 `k60_cpufreq=5` 上机，
+  采集模式为只读采样；证据、分布与边界见 §6 的 image l 条目。
 2. d1/d2 的“辅核启动后补读”已经完成：image j 的 `late read` 在 `ArmCpu` CPU 1–7 全部
    PSCI start PASS、电池首帧发布之后执行，d1 `enable=1 state=33 (633600kHz) vote=16`、
    d2 `enable=1 state=41 (787200kHz) vote=19`。不需要再移动调用点，也不要在早期快照上
@@ -337,9 +378,12 @@ board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image 
    - CPU 各域的行跟在对应摘要后，形如 `K60CpuFreq: row=0 raw=0x0004000f khz=300000 cores=4 turbo=0`；L3 行另带 `L3 ` 前缀。
    - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=… readback=… restored=…`、
      `mode3 vote L3 …`
-4. 设备空窗：image k 于 2026-11-18 18:22:22 启动、18:27:54 结束；之后仍先跑
-   `list-boot-watchers.ps1` 和 `k60-device.sh state`，不要与任何 `boot-and-capture`
-   抢 fastboot；启动时 `audio-probe-at` watcher（PID 11116）的镜像尚不存在，只轮询。
+   - mode 5 的行形如 `K60CpuFreq: sample win=… d0=<busy>/<governor>kHz/hw<state>kHz d1=… d2=…`，
+     开头是 `K60CpuFreq: sample start every=16ms log-every=64 domains=3`；正常退出才会有 `sample stop`。
+4. 设备空窗：image l 于 2026-11-18 23:19:20 启动、23:24:44 结束并回到 fastboot。下一次上机前
+   仍先跑 `list-boot-watchers.ps1` 和 `k60-device.sh state`；23:16 的教训是另一个 agent 的
+   `watch-fastboot-v4.ps1` 会先抢到 fastboot，仅靠占位命令行不一定挡得住，必须等它的进程
+   真正退出后再启动自己的 supervisor。
 5. 首次写入前：参数门禁须通过。启用状态守卫、写后回读和恢复原投票的路径已在代码中补齐
   （commit `42ca4421`/`70dd3794` 及 `38b84c35`，host 143 项含 mode 5 采样换算），但仍不能仅凭 LUT 可读就执行早期 mode 2/3
   写入（d1/d2 在辅核启动前 `enable=0`）。首次验证应限定在 d0 单域，分别记录请求档位、

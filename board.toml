@@ -23,7 +23,10 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 # when a second SM8475 board would not want it.
 patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:patches/xnu/series", "device:patches/xnu-12377/series"]
 archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-fileset-release-reference.py --tree . --lto"]
-driver_records = "DEVELOPMENT_ARM64_PONG"
+# Boot-record label. The object tree is BCM2837 (the 4 KiB machine config the
+# arch profile builds); PONG belonged to the 16.6.1 line and would point the
+# next reader at a target this branch never produces.
+driver_records = "DEVELOPMENT_ARM64_BCM2837"
 # Stage 0 selects no Pong component and no pong_native_driver_source: PongUfs
 # comes back in F3 with its own archive recipe and that key.
 

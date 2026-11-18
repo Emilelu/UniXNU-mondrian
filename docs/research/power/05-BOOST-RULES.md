@@ -1,6 +1,6 @@
 # 触摸/帧/GPU 唤醒与 fence 规则（官网 §5 :115-117）
 
-状态：**规则模块 + host 40 项断言；触摸计数与 GPU 提交窗口已接线并在真机触发过，寄存器写窗口的触摸/帧重开待 image y 验证**（触摸计数补丁 `0622-k60-touch-activity.patch`，消费方 commit `aa3bada7`，重开窗口 commit `9b8a36b6`）。
+状态：**规则模块 + host 40 项断言；触摸计数与 GPU 提交窗口已接线并在真机触发过，寄存器写窗口的触摸/帧重开由 `9b8a36b6` 实现，100 s 上限由 `a0e8a060` 去掉，image z 待上机**（触摸计数补丁 `0622-k60-touch-activity.patch`，消费方 commit `aa3bada7`，重开窗口 commit `9b8a36b6`）。
 官网 `https://unixnu.com/zh/porting/power` §5 在 CPU/GPU 调频之后还有四条规则
 （快照 `E:/k60-work/scratch/power-page-20261117.txt:115-117`）：
 
@@ -28,7 +28,7 @@
 - 没有温度/throttle 读数；触摸保持与帧下限都不检查温度。
 - 触摸已有真机数据（image x，2026-11-19 05:47）：触摸后 12 条 `touch boost` 日志、7 条 `tb=1`
   样本，报告计数 1→7；但 mode 8 的 10 s 写回窗口在 ~20 s 就已恢复，触摸发生在 ~121 s，
-  所以只有 governor 抬档、没有寄存器写入，这个缺口由 `9b8a36b6` 补上。
+  所以只有 governor 抬档、没有寄存器写入，`9b8a36b6` 补了重开窗口，但投票仍受 100 s 上限；`a0e8a060` 才让信号窗口脱离该上限，image z 尚未上机。
 - 帧仍无真机数据：image w 的 276 条样本全部 `fr=0`，启动全程没有 GPU 提交。
 
 ## 2. 已实现的规则
@@ -54,6 +54,7 @@
   都会重新抬到 top，窗口结束后的第一个降档窗口才允许写回。`9b8a36b6` 起，触摸上升沿
   （或帧下限上升沿）会重开一个短写窗口：触摸 63 个窗口（1 s）、帧 19 个窗口（300 ms），
   `applyUntil` 取较晚者，总票数上限仍是 32；日志 `mode<7|8> touch window win=… span=… applyUntil=… domains=0x…`。
+  信号窗口不受 100 s 的 `kApplyLatestEndWindow` 限制（`a0e8a060`），开机突发窗口仍受。
 - GPU：`PongAdrenoDcvs.cpp` 在触摸窗口内把目标档强制为 `top`，并在 `DCVS touch top` /
   `DCVS touch release` 两条日志里记录报告计数与时间；窗口结束后恢复正常 governor。
 - 帧：CPU 采样线程把 `k60_boost_frame_active()` 作为 `framing` 参数，`k60_cpufreq_target()`
@@ -75,7 +76,7 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tboost \
 
 - 触摸计数已上机（image x 05:47）：`touch boost active/released`、`tb=1`、计数 1→7 都出现，
   「触摸 → tb=1 → governor 抬到 1,804,800 kHz」时序成立；但那次触摸没有写进寄存器
-  （写窗口已关），`9b8a36b6` 的 1 s 重开窗口还没有真机结果。
+  （写窗口已关）；`9b8a36b6` 的 1 s 重开窗口仍被 100 s 上限挡住，`a0e8a060` 才去掉该上限，image z 还没有真机结果。
 - 触摸保持把 P 域抬到 top 依赖 EPSS 接受写回：d0 已验证双向写回，d1/d2 的写回不被
   EPSS 接受（image s 的 `state=130->130`），所以「P 域」目前只有 d0 真正生效。
 - GPU 触摸保持只改 HFI 投票目标，是否被固件接受取决于当时温度/负载；连续 8 次拒绝会停线程。
@@ -85,7 +86,7 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tboost \
 ## 4. 下一步（需要设备或其他线）
 
 1. 上机触摸（image x 已完成前半段）：05:47 image x 触摸后 `tb=1`、`touch boost active`、
-   1 s 后 `released` 都成立，d0 governor 抬到 top；下一步用 image y（`9b8a36b6`）触摸，
+   1 s 后 `released` 都成立，d0 governor 抬到 top；下一步用 image z（`a0e8a060`）触摸，
    确认出现 `touch window` 并在窗口内看到 d0 的 `apply`/`state` 与 `hw` 跟随。
 2. GPU 触摸：同一次启动加 `pong_gpu_dcvs=1`，确认 `DCVS touch top` / `DCVS touch release`
    两条日志，并核对 HFI 投票错误码。

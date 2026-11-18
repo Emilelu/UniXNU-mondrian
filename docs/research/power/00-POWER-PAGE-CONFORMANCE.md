@@ -69,8 +69,10 @@
   top=1.8048 GHz；d1/d2 辅核未启动读到 0；L3 rows=15）；image j 于 17:55 上机，在电池
   `begin` 后 5 s 第二次读取，d1 `enable=1 state=0.6336 GHz vote=16`、d2
   `enable=1 state=0.7872 GHz vote=19`，三域均可读；image k 于 18:22 上机，转储
-  66 条有效 LUT 档位（14/17/20/15），`capture.json complete=true`、console 133,807 B。三个镜像的参数 gate 都拒绝了
-  未声明的 `k60_cpufreq` 和缺失的 `applog=1`；构建配置中的 `applog=1` 已恢复，见 `power/01-EPSS-PROBE.md` §6。
+  66 条有效 LUT 档位（14/17/20/15），`capture.json complete=true`、console 133,807 B。三个镜像构建时
+  `k60_cpufreq` 尚未声明、且缺 `applog=1`；`91e64b4e` 已把它加入 `ALLOWED_ADDITIONS`，用去掉
+  `applog=1` 的 board 快照重跑 image k 得到 `OK (30 arguments, 603 bytes)`；构建配置中的
+  `applog=1` 已恢复，见 `power/01-EPSS-PROBE.md` §6。
   本轮 `42ca4421`/`70dd3794` 只重建 archive（127,688 B，sha256 `77841710…`），未构建新镜像。
 - 缺：GPU 探针真机读数、负载/温度/throttle 读数、外设转换与恢复的逐项验证、重启行为记录。
 - 状态：**部分**。

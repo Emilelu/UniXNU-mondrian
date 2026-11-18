@@ -4,7 +4,8 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。当前 30 项 591 字节，余 17。
+**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。2026-11-18 探针镜像为 30 项
+603 字节（临时去掉 `applog=1`），余 4；发布镜像仍以 board.toml 的完整参数为准。
 
 ## 一览
 
@@ -31,6 +32,7 @@
 | `pong_touch` | 触摸 | 真值 | 1 | 0 则整条触摸线不跑 |
 | `pong_init_path` | 启动链 | 路径 | 代码默认 | — |
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
+| `k60_cpufreq` | 电源 / EPSS | 1/2/3 | 0（关闭） | `drivers/PongPower/K60CpuFreqProbe.cpp`；1=只读三域+L3，2=d0 最高非 turbo，3=三域+L3；2/3 为瞬态验证写（写前守卫、写后回读、立即恢复），未上机验证；探针镜像需去掉 `applog=1` 才不超 607 字节 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
@@ -293,6 +295,20 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 `CONTROL_TRIGGER` 仍然全面禁止**。2026-11-16 15:03 裁决撤回 C 与功能图批准；
 `adsp-20261116a` 被门禁拒绝，无 boot.img、未上机。下一次 rail-only 须先完成离线审计再由 Lead 决定，
 不增参数、不扩大到其它 DRV；参数字节数须从真实镜像量，不能沿用旧 592/593 B 估算。
+
+### `k60_cpufreq`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不探测） |
+| 取值 | 1 / 2 / 3 |
+| 来源 | `drivers/PongPower/K60CpuFreqProbe.cpp`（`PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode))`）；`K60Battery.cpp:513` 在电池租约判断之前做第一次读取，`K60Battery.cpp:543-546` 在 `begin` 成功后 5 s 调用 `k60_cpufreq_probe_late()` |
+| 作用 | 1 = 只读 EPSS 三域与 L3（enable/state/vote/LUT 行）；2 = 只给 domain 0 投最高非 turbo 档；3 = 三域 + L3。2/3 是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器原值，写后逐条回读，再立即写回原值；不会留下持续投票。 |
+
+**为什么默认关闭**：EPSS 是 CPU 频率/电压的现场控制点。官方 §5 要求 OS 明确外设电源投票的所有权与引用计数；在 governor、供电和温控路径接入之前，任何持续写都可能与固件或其它 owner 冲突。探针镜像必须确认设备独占空窗，首次只做 d0 单域。
+
+**陷阱**：`k60_cpufreq` 不在 `board.toml` 的默认参数里。探针镜像若保留 `applog=1`，命令行会超过 DarwinBoot 的 607 字节上限（实测 612 字节）；构建时必须临时去掉 `applog=1`，上机结束后恢复，并把该镜像视为探针镜像而非发布镜像。该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`，但参数 gate 仍会检查 board 契约的其余部分；image i/j/k 构建时 gate 尚未接受该名字。`k60_cpufreq=2/3` 的写入路径尚未在真机执行。
 
 ### `pong_handoff_publish`
 

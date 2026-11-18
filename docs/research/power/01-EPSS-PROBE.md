@@ -285,6 +285,11 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 的 `enable=0` 仍只是辅核尚未启动，
 延后读取 `:304–:310` 已变为 `enable=1`。本轮仍无写入，mode 2/3 未执行。
 
+参数 gate 现状（18:50）：commit `91e64b4e` 把 `k60_cpufreq` 加入
+`scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`。用一份只去掉 `applog=1` token 的
+board 快照重跑 image k，gate 返回 `OK (30 arguments, 603 bytes)`；image i/j/k 构建时该名字
+尚未声明，历史 REFUSED 记录保留。探针镜像仍需在构建时去掉 `applog=1`，上机后恢复。
+
 ## 7. 未实现 / 边界
 
 - 投票写集合已实现（mode 2/3），并已在代码层加入 enable/档位守卫、写后回读和恢复原值
@@ -307,7 +312,9 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    成功后 5 s 完成第二次读取（sha256 `ff5fd178…`，commit `950742e9`），三个 domain 均
    `enable=1`；image k（sha256 `74e66779…`，commit `eba8de2a`）在 18:22 走同一条只读路径，
    并把 66 条有效 LUT 档位全部打印。三个镜像都带 `k60_cpufreq=1`，构建时临时去掉 `applog=1`，
-   只用于探针，参数 gate 仍未通过（`k60_cpufreq` 未加入 `ALLOWED_ADDITIONS`）。
+   只用于探针，参数 gate 的命名检查已由 `91e64b4e` 解决：把 `k60_cpufreq` 加入 `ALLOWED_ADDITIONS`，
+   用去掉 `applog=1` 的 board 快照重跑 image k 得到 `OK (30 arguments, 603 bytes)`；但构建时
+   仍须显式去掉 `applog=1`。
    `k60-adsp-handoff/board.toml` 的 `applog=1` 已恢复。
 2. d1/d2 的“辅核启动后补读”已经完成：image j 的 `late read` 在 `ArmCpu` CPU 1–7 全部
    PSCI start PASS、电池首帧发布之后执行，d1 `enable=1 state=33 (633600kHz) vote=16`、

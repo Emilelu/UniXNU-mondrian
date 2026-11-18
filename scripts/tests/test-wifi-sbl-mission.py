@@ -302,14 +302,13 @@ def main() -> int:
           'snprintf(ids + at, sizeof ids - at, "%s%u/%u"' in net and
           'log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %u bytes %s"' in net and
           "const unsigned rn = rsn < 24 ? rsn : 24;" in net)
-    check("five probes swap the elements and the capability between the dropped record and a kept one",
+    check("five probes add one target element each to a kept record",
           'static const char *const nm[5] = { "K60A", "K60B", "K60C", "K60D", "K60E" };' in net and
-          "pr[1] = c; pr[1].ie_len = t.ie_len; if (t.ie_len) memcpy(pr[1].ie, t.ie, t.ie_len);" in net and
-          "pr[3] = t; pr[3].ie_len = c.ie_len; if (c.ie_len) memcpy(pr[3].ie, c.ie, c.ie_len);" in net and
-          "pr[2] = c; pr[2].caps = t.caps; pr[2].beacon_int = t.beacon_int;" in net and
-          "pr[4] = t; pr[4].caps = c.caps; pr[4].beacon_int = c.beacon_int;" in net and
-          "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
-          'log(6, "wifi-net: probe %s = %s + %s (ie %u cap %04x)"' in net)
+          "static const unsigned want[5] = { 7, 195, 32, 255, 221 };" in net and
+          "if (id == 255) pick = pick && len == 33;" in net and
+          "if (id == 221) pick = pick && len == 2;" in net and
+          "memcpy(q.ie + q.ie_len, t.ie + o, 2 + len);" in net and
+          'log(6, "wifi-net: probe %s = carrier + element %u (%s, %u bytes added, ie %u)"' in net)
     check("the probe falls back to the 2.4 GHz record and names a sweep with no pair",
           'mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz' in net and
           '"wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)"' in net)

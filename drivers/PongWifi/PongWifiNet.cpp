@@ -287,24 +287,36 @@ void freeze_scan_list() {
   if (ti >= 0 && ci >= 0 && gSnapCount + 5 <= 64) {
     const nw_bss_info t = gSnap[ti], c = gSnap[ci];
     static const char *const nm[5] = { "K60A", "K60B", "K60C", "K60D", "K60E" };
-    static const char *const base[5] = { "carrier", "carrier", "carrier", "target", "target" };
-    static const char *const what[5] = { "nothing", "our elements", "our capability", "carrier elements", "carrier capability" };
+    // mission25 separated the fields: carrier + our elements was dropped, carrier + our capability was kept, and
+    // the target record carrying the carrier's elements was kept. So the filter is one of the target's information
+    // elements, not the capability and not the channel. This image adds exactly one of them to a kept record.
+    static const unsigned want[5] = { 7, 195, 32, 255, 221 };
+    static const char *const shown[5] = { "country", "vht-tx-power", "power-constraint", "he-capabilities", "vendor" };
     nw_bss_info pr[5];
-    pr[0] = c;
-    pr[1] = c; pr[1].ie_len = t.ie_len; if (t.ie_len) memcpy(pr[1].ie, t.ie, t.ie_len);
-    pr[2] = c; pr[2].caps = t.caps; pr[2].beacon_int = t.beacon_int;
-    pr[3] = t; pr[3].ie_len = c.ie_len; if (c.ie_len) memcpy(pr[3].ie, c.ie, c.ie_len);
-    pr[4] = t; pr[4].caps = c.caps; pr[4].beacon_int = c.beacon_int;
     memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);
     for (int k = 0; k < 5; k++) {
-      nw_bss_info &q = pr[k];
+      nw_bss_info q = c;
+      unsigned o = 0, added = 0;
+      while (o + 2 <= t.ie_len) {
+        const unsigned id = t.ie[o], len = t.ie[o + 1];
+        if (o + 2 + len > t.ie_len) break;
+        bool pick = id == want[k];
+        if (id == 255) pick = pick && len == 33;
+        if (id == 221) pick = pick && len == 2;
+        if (pick && q.ie_len + 2 + len <= sizeof q.ie) {
+          memcpy(q.ie + q.ie_len, t.ie + o, 2 + len);
+          q.ie_len += 2 + len;
+          added += 2 + len;
+        }
+        o += 2 + len;
+      }
       q.ssid_len = 4;   // every probe name is four characters
       memset(q.ssid, 0, sizeof q.ssid); memcpy(q.ssid, nm[k], 4);
       q.bssid[5] = static_cast<uint8_t>(q.bssid[5] ^ (0x40 + k));
       gSnap[k] = q; gSnapCount++;
       log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
           nm[k], q.freq_mhz, q.bssid[0], q.bssid[1], q.bssid[2], q.bssid[3], q.bssid[4], q.bssid[5]);
-      log(6, "wifi-net: probe %s = %s + %s (ie %u cap %04x)", nm[k], base[k], what[k], q.ie_len, q.caps);
+      log(6, "wifi-net: probe %s = carrier + element %u (%s, %u bytes added, ie %u)", nm[k], want[k], shown[k], added, q.ie_len);
     }
   } else {
     log(6, "wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)", ti, ci, gSnapCount);

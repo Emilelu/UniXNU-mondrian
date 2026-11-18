@@ -307,6 +307,12 @@ k21 的 `7b6bb385` 保留为历史，不再上机；k21 的 B 图 `eefe6fdf` 也
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
+判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
+按本节判据输出 PASS/FAIL（B 分 S3/S4 两组，任一组 FAIL 即退出码非 0），自身回归是
+`scripts/tests/test-check-modem-flight-log.py`（`K60 FLIGHT LOG PASS p1 c b negative-cases`）。
+拿它复判已保存的 k18 C 日志（`E:/k60-work/evidence/usblog-20261118-234555/console.log`）仍是
+`C: PASS`；同一份日志按 `--phase p1` 判则 FAIL（没有 power 行且出现 init/mem），说明相位不可互换。
+
 ### 4.1 成功判据（全部满足才算 S）
 
 - **S1**（静态门禁 + UEFI 日志，不是 CDC console 行）：`python3 scripts/check-modem-metadata.py` 必须 PASS，

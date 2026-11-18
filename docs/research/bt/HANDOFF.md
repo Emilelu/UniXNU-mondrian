@@ -1086,6 +1086,17 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 判定：D12-C 形态，但 §6 要求的"至少一次 connect"没有出现，按探针门槛未达记录；结论（看门狗在传输打开前触发）靠时间差成立。0519 的电源节点未被打开，0520 的名字别名错配也被排除为直接原因。
 - 边界：不证明卡在哪一步（XPC 等待、平台/芯片探测、设备树读取），不证明蓝牙可用；内核栈自 d11 起未变。离线补充：从 20G81 IPSW 解出 `com.apple.BlueTool.plist`（`-R`、MachServices `com.apple.BlueTool`、无 RunAtLoad）与 `com.apple.bluetoothd.plist`（RunAtLoad、KeepAlive SuccessfulExit=false），bluetoothd 字符串同时含 `com.apple.uart.sk.bluetooth` 与 `/dev/btwake`。
 
+### 50. 蓝牙转入待命：接受“iOS 16 测试床 / 用户态预算转 iOS 27”，并记下上游基线（2026-11-19 01:10）
+
+- 用户决定（2026-11-19）：“接受『iOS 16 停在测试床、用户态预算转 iOS 27』，接下来就看外国大佬，如果他有突破性进展，那 iOS 27 的蓝牙就可以继续做。现在蓝牙先待命。” 据此：不启动 iOS 27 构建、不做 20G81 用户态、不新增飞行；只保留监视。
+- 上游基线（本轮抓取，供下次比对）：
+  - `xNekom/UniXNU-mondrian` `feat/ios27` = `95d9c8a1849e1befed0852ff78f7674089345e6c`。我们的 `feat/bt-ios27-port` 基于 `96e07b1`，已落后 17 个提交。新提交把 F1 内核、payload、F2 prelink、F3 userdata 全部搬到了 Linux 离线路径（`scripts/build-ios27-linux.sh`、`scripts/check-ios27-artifacts.py`、`patches/unixnu-core/fileset-reference-linux.patch`、`linux-aea-decrypt.patch`、`patches/ios-mondrian/pac-probe-arm64e-gate.patch`、`patches/xnu-12377/armcpu-sleep-hook.patch`），也就是我们之前 F1 卡住的 `LD_KERNEL_LIBS` 一类问题已被上游用自己的路径解决。
+  - `QcaBluetooth` 本地落后 `origin/main` 4 个提交（尖端 `fa52814`，2026-11-16）：LE event-mask 追踪与 CrossDarwin 的 classic inquiry / extended discovery 合并——都属于 iOS 27 用户态蓝牙的实质推进。
+  - 框架 `UniXNU` 本地 `4eaf2b9`（A730 hw_init 生成）。
+- 恢复条件（任一命中就重新评估，不必等用户再次点名）：上游 `docs/engineering/IOS27.md` 记录 F1/F2 镜像在真机到达 `bsd_init`；或 `board.toml`/catalog 出现蓝牙相位或 `QcaBluetooth` 组件；或 `QcaBluetooth` 新增 iOS 16 目标/新 native 适配；或 `feat/ios27` 出现蓝牙相关提交。
+- 恢复后的第一步（已定，不用重新设计）：把 `feat/bt-ios27-port` 变基到新的 `95d9c8a1`，按 `docs/plans/BT-IOS27-PORT.md` §4/§7 重排 0501/0502/0509/0510/0512（含 0519 的 `MiniBluetooth.cpp`、0520 的 `kern_exec.c` 两个 hunk），再把 13 个补丁从 `patches/xnu/series` 移进 `patches/xnu-12377/series`，用上游的 `scripts/build-ios27-linux.sh` 出 F1。
+- 当前没有待飞行项：设备 `k60-device.sh state` = none；d8 `0297012d…`、d10 `6c631bc4…`、0518 `d6beec4c…`、0520 `9361ec1c…` 四枚镜像均在且哈希已复核。
+
 ### 49. 用户态难度对比：iOS 16 停在测试床，用户态预算转向 iOS 27（2026-11-19 00:35）
 
 - 新文件 `docs/plans/BT-USERLAND-COMPARE.md`（114 行）回答用户 2026-11-18 的决定性问题：先修 20G81 的用户态，还是把用户态留给 iOS 27。

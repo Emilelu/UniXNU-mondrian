@@ -261,6 +261,53 @@ Query for PMF — all in code we own, BSD-2-Clause-Patent, with the supplicant
 supplying the Dragonfly crypto. Path B is bounded, keeps the licence unchanged,
 and reuses the same supplicant; it is the recommended route unless the maintainer
 wants the full mac80211 stack for other reasons. Neither path starts until the
+
+### 2.2 The frame-path audit: Path B is feasible but not cheap
+
+The paragraph above priced Path B as bounded. A second read-only audit of the frame
+path says the transport is there and the *policy* is not, so the price is the PMF
+subset itself. What was verified:
+
+- **Authentication frames already flow.** `ath11k_mac_op_tx` sends every host-built
+  management frame through `ath11k_mac_mgmt_tx` → `ath11k_wmi_mgmt_send` →
+  `WMI_MGMT_TX_SEND_CMDID` (only 64 bytes inline, the rest DMA'd by address), and
+  `nw_sta.c:132-136,324-336` already uses that path for the open-system auth it sends
+  on every join. Received management frames arrive on the ordinary RX path and are
+  classified by the host, not by a management descriptor. So SAE commit/confirm bodies
+  can travel; the station ABI needs no new frame hook.
+- **But there is no supplicant on this build.** The compiled SME *is* `nw_sta.c`; the
+  control protocol and the cfg80211 glue that front wpa_supplicant
+  (`nw_control*.c`, `nw_cfg80211_control.c`, `nw_wifi.c`) are not compiled
+  (`build-k60-ath11k.py:657-659`), and the board ABI carries one passphrase, not an
+  auth algorithm (`include/nw_abi.h:71`; `PongWifiNet.cpp:562-564` accepts
+  `auth_upper` 0 or 8 and returns `EOPNOTSUPP` otherwise). "SAE in the legacy
+  station" therefore means implementing Dragonfly and its state machine in the module,
+  not wiring a daemon that is already there.
+- **The IGTK cannot go to the firmware.** `mac.c:4520-4525` returns "host does it" for
+  BIP suites with the comment "BIP needs to be done in software"; `WMI_MAX_KEY_INDEX`
+  is 3 (`wmi.h:5240`) while the IGTK is index 4/5, and `nw_crypto.c` has SHA-1,
+  HMAC, PBKDF2, AES and PRF but no CMAC/BIP, with `install_key` hardcoding CCMP
+  (`nw_sta.c:376-383`). Software BIP plus a protected-action path is new code on both
+  ends.
+- **SA Query is entirely ours to write.** The PMF-offload WMI bits exist in the header
+  and are referenced nowhere; `on_mgmt` handles auth/assoc/deauth/disassoc only
+  (`nw_sta.c:458-487`), and `ath11k_mac_mgmt_tx` only appends MIC space — the caller
+  must encrypt and cipher-tag a protected action frame.
+
+Cost, as measured by the three experiments that would settle it: a dummy SAE-sized auth
+body through the existing path (**S**), receiving the AP's confirm while unassociated
+(**S**), and software-CCMP protected action TX with a PTK installed (**M**). The work
+itself: auth-data attribute and body pass-through (**S–M**), IGTK/BIP in software
+(**M**), SA Query with protected actions and timers (**L**), supplicant EC provider and
+`CONFIG_SAE` (**S–M**, host-only and moot until a supplicant is on the path). End to
+end this is weeks, not days, on either path — Path A buys the same features from
+upstream at the price of the GPL boundary and an unmeasured shim gap, Path B keeps the
+licence clean at the price of writing the mac80211 PMF subset ourselves.
+
+**Recommendation, revised:** do not start either path before the 5 GHz pane item is
+closed. When work does start, take Path B but begin with the two **S** experiments,
+because a firmware that cannot carry an SAE body or deliver the confirm makes Path B
+impossible and the answer arrives in days, not weeks.
 5 GHz pane item is closed and the maintainer chooses.
 
 

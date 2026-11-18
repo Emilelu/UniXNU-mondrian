@@ -7,7 +7,8 @@
 [[source]]
 name = "sm8475"
 kind = "soc"
-git = "https://github.com/Emilelu/UniXNU-sm8475-common"
-# Filled with the reviewed commit of this port's SoC repository (branch
-# feat/xnu-12377, which adds patches/xnu-12377/series).
-commit = "d0c90f1e2f8d570b48030ec5062aef59d0040121"
+git = "https://github.com/xNekom/UniXNU-sm8475-common"
+# The reviewed commit of this port's SoC repository (branch feat/xnu-12377,
+# which adds patches/xnu-12377/series). Emilelu/UniXNU-sm8475-common does not
+# carry it, so the feed names the published fork and pins the commit:
+commit = "20a30fd623dbcfacdd71350a24fae67a2158884f"

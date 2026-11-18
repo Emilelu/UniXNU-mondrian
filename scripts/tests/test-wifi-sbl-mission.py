@@ -259,6 +259,18 @@ def main() -> int:
     check("the current network is answered from the link that exists",
           "Joined by a join that did not scan first" in net and
           "b.caps = static_cast<uint16_t>(0x0001 | (gKeyed ? 0x0010 : 0));" in net)
+    check("a refused request names its value and its first bytes",
+          "void log_unhandled(bool set, int type, const apple80211req &rq, bool kernel)" in net and
+          'log(6, "wifi-net: refused %s %d val %d len %u%s%s"' in net and
+          "default: log_unhandled(true, type, rq, kernel); return EOPNOTSUPP;" in net and
+          "default: log_unhandled(false, type, rq, kernel); return EOPNOTSUPP;" in net)
+    check("every scan prints its request and its per-band table",
+          'log(6, "wifi-net: scan request type %d len %u val %d", type, rq.req_len, rq.req_val);' in net and
+          'log(6, "wifi-net: scan table %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u"' in net and
+          'log(6, "wifi-net: scan result end after %d records", count);' in net and
+          net.index("log_scan_table();") < net.index("pong_wifi_notification event={NotifyScan"))
+    check("the supported channel list reports both bands",
+          'log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi);' in net)
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

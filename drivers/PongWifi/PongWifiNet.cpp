@@ -244,7 +244,26 @@ void notify_locked(unsigned events) {
   pong_wifi_notification event={NotifyControl,static_cast<int32_t>(events),0,0};
   queue_notification_locked(event);
 }
+// The scan list counted by band. The Settings pane builds its list from these records, so a band that is
+// missing here cannot appear there, and the strongest few per band say what the radio actually heard.
+void log_scan_table() {
+  const int count = nw_wifi_bss_count(); unsigned c24 = 0, c5 = 0, c6 = 0, hidden = 0;
+  for (int i = 0; i < count; i++) {
+    nw_bss_info b; if (nw_wifi_bss_get(i, &b)) continue;
+    if (!b.ssid_len) { hidden++; continue; }
+    if (b.freq_mhz < 3000) c24++; else if (b.freq_mhz < 5925) c5++; else c6++;
+  }
+  log(6, "wifi-net: scan table %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u", count, c24, c5, c6, hidden);
+  unsigned shown24 = 0, shown5 = 0;
+  for (int i = 0; i < count && (shown24 < 3 || shown5 < 3); i++) {
+    nw_bss_info b; if (nw_wifi_bss_get(i, &b) || !b.ssid_len || b.freq_mhz >= 5925) continue;
+    if (b.freq_mhz < 3000) { if (shown24++ >= 3) continue; } else { if (shown5++ >= 3) continue; }
+    log(6, "wifi-net: scan band %u MHz %d dBm %.*s", b.freq_mhz, b.signal_dbm,
+        b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+  }
+}
 void on_scan_done() {
+  log_scan_table();
   lck_mtx_lock(gLock);gScanning=0;gScanCursor=0;
   pong_wifi_notification event={NotifyScan,0,0,0};queue_notification_locked(event);
   lck_mtx_unlock(gLock);
@@ -418,6 +437,22 @@ int copy_in(const apple80211req &rq, void *dst, size_t size, bool kernel = false
   if (kernel) { memcpy(dst, reinterpret_cast<const void *>(rq.req_data), n); return 0; }
   return copyin(rq.req_data, dst, n);
 }
+// A request the driver does not implement has to be identifiable from one console rather than guessed at from its
+// number: log the value, the length and the first bytes (the first two of each type, then one in 64).
+void log_unhandled(bool set, int type, const apple80211req &rq, bool kernel) {
+  static uint32_t seen[2][512 / 32]; static unsigned skipped;
+  const unsigned t = static_cast<unsigned>(type) & 511u, word = 1u << (t % 32);
+  const bool first = !(seen[set][t / 32] & word);
+  seen[set][t / 32] |= word;
+  if (!first && ++skipped % 64) return;
+  uint8_t head[16]; memset(head, 0, sizeof head); size_t n = 0;
+  if (set && rq.req_len && rq.req_data && !copy_in(rq, head, sizeof head, kernel))
+    n = rq.req_len < sizeof head ? rq.req_len : sizeof head;
+  char text[40]; int at = 0;
+  for (size_t i = 0; i < n && at < 34; i++) at += snprintf(text + at, sizeof text - at, "%02x", head[i]);
+  log(6, "wifi-net: refused %s %d val %d len %u%s%s", set ? "set" : "get", type, rq.req_val, rq.req_len,
+      n ? " starts " : "", n ? text : "");
+}
 unsigned gResultsShown;
 // The regulatory country as the access points announce it (802.11d: the Country element, id 7, of the strongest network that has one), else "XX".
 void country(char cc[3]) {
@@ -463,6 +498,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]); if (!gPower) {nw_wifi_disconnect();pong_wifi_wake();} notify_locked(NotifyPower); return 0; }
     case kScanReq: case kScanReqMultiple: {
       if(!gPower)return ENETDOWN;
+      log(6, "wifi-net: scan request type %d len %u val %d", type, rq.req_len, rq.req_val);
       if(rq.req_len<20)return EINVAL;
       uint8_t buf[0x80]; if (copy_in(rq, buf, sizeof buf, kernel)) return EFAULT;
       uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
@@ -530,7 +566,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
         log(6, "wifi-net: property list %.200s", d ? d : reinterpret_cast<char *>(buf + 8)); }
       return 0; }
     case kFlagA: case kFlagB: return 0;
-    default: return EOPNOTSUPP;
+    default: log_unhandled(true, type, rq, kernel); return EOPNOTSUPP;
     }
   }
   switch (type) {
@@ -585,11 +621,16 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     // Keep the band/width representation consistent with scan/current/
     // history channels rather than adding ACTIVE only to this answer.
     for(unsigned i=0;i<actual && n<401;i++){fill_channel(out.chans.list[n],frequencies[i]);n++;}
+    static unsigned shown; if (!shown++) { unsigned lo=0, hi=0;
+      for (unsigned i = 0; i < n; i++) (frequencies[i] < 3000 ? lo : hi)++;
+      log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi); }
     out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }
   case kScanResult: {
     nw_bss_info b; const int count = nw_wifi_bss_count();
     const uint64_t sampled_ns=scan_clock_ns();
-    if (gScanCursor >= static_cast<unsigned>(count) || nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) { gScanCursor = 0; return EIO; }   // after the last record
+    if (gScanCursor >= static_cast<unsigned>(count) || nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) {   // after the last record
+      static unsigned ends; if (++ends % 16 == 1) log(6, "wifi-net: scan result end after %d records", count);
+      gScanCursor = 0; return EIO; }
     gScanCursor++; fill_result(out.res, b,sampled_ns);
     if (gResultsShown < 3) { ++gResultsShown; log(6, "wifi-net: scan result %u: %u MHz, %d dBm, %.*s", gScanCursor, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid)); }
     return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
@@ -609,7 +650,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     b.caps = static_cast<uint16_t>(0x0001 | (gKeyed ? 0x0010 : 0)); b.beacon_int = 100;
     fill_result(out.res, b, scan_clock_ns());
     return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
-  default: return EOPNOTSUPP;
+  default: log_unhandled(false, type, rq, kernel); return EOPNOTSUPP;
   }
 }
 

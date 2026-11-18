@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,912 @@
+@@ -858,6 +892,937 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -658,7 +658,7 @@
 +static bool
 +pong_audio_smmu_lease(uint16_t sid)
 +{
-+	uint32_t scr0, idr0, idr1, idr2, value, smr_keep = 0;
++	uint32_t scr0, idr0, idr1, idr2, value, smr_keep = 0, s2cr_keep = 0;
 +	unsigned count, banks, pages, bank, slot = 0xffffffffu, i;
 +	bool have_smr = false;
 +
@@ -677,8 +677,8 @@
 +	count = idr0 & 0xffu;
 +	banks = idr1 & 0xffu;
 +	pages = 1u << (((idr1 >> 28) & 7u) + 1u);
-+	if (count == 0u || banks < 2u || pages > 128u ||
-+	    (pages + banks) * 4096u > 0x100000u) {
++	if ((idr1 & 0x80000000u) != 0u || count == 0u || banks < 2u ||
++	    pages > 128u || (pages + banks) * 4096u > 0x100000u) {
 +		printf("PongAudio: SMMU lease refused: geometry pages=%u banks=%u count=%u\n",
 +		    pages, banks, count);
 +		return false;
@@ -697,11 +697,14 @@
 +			return false;
 +		}
 +		if ((smr & 0x80000000u) != 0u) {
-+			const uint32_t mask = (smr >> 16) & 0xffffu;
++			const uint32_t mask = (smr >> 16) & 0x7fffu;
 +
-+			if ((((uint32_t)sid ^ (smr & 0xffffu)) & mask) == 0u) {
++			if (((((uint32_t)sid ^ (smr & 0xffffu)) & 0xffffu) &
++			    ~mask) == 0u) {
 +				slot = i;
 +				smr_keep = smr;
++				(void)pong_smmu_read32(0xc00u + 4u * i,
++				    &s2cr_keep);
 +				have_smr = true;
 +				break;
 +			}
@@ -713,6 +716,28 @@
 +	}
 +	if (slot == 0xffffffffu) {
 +		printf("PongAudio: SMMU lease refused: no free stream group\n");
++		return false;
++	}
++	/* The top bank is shared: never take it from a stream that already
++	 * translates through it, and never repoint an existing mapping. */
++	for (i = 0; i < count; i++) {
++		uint32_t smr, s2cr;
++
++		if (!pong_smmu_read32(0x800u + 4u * i, &smr) ||
++		    !pong_smmu_read32(0xc00u + 4u * i, &s2cr)) {
++			return false;
++		}
++		if ((smr & 0x80000000u) != 0u && ((s2cr >> 16) & 3u) == 0u &&
++		    (s2cr & 0xffu) == bank && !(have_smr && i == slot)) {
++			printf("PongAudio: SMMU bank %u already serves stream 0x%03x\n",
++			    bank, smr & 0xffffu);
++			return false;
++		}
++	}
++	if (have_smr && (((s2cr_keep >> 16) & 3u) != 0u ||
++	    (s2cr_keep & 0xffu) != bank)) {
++		printf("PongAudio: SMMU stream 0x%03x is mapped to bank %u; left alone\n",
++		    sid, s2cr_keep & 0xffu);
 +		return false;
 +	}
 +	if (!pong_smmu_read32((pages + bank) * 4096u, &value) || (value & 1u) != 0u) {

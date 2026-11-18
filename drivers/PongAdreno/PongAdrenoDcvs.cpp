@@ -68,6 +68,24 @@ static void dcvs(void *,wait_result_t)
     uint64_t last_busy=busy,last=0,report_at=0,win_busy=0,win_us=0;
     absolutetime_to_nanoseconds(mach_absolute_time(),&last);
     report("DCVS started",0,(uint64_t(top)<<32)|floor,dcvs.level);
+    /* pong_gpu_dcvs=2 additionally exercises the HFI id 30 path once, because a
+     * boot with no GPU client never leaves the floor and would leave the vote
+     * path unproven. One step up, then straight back to the floor. */
+    unsigned probe=0;
+    (void)PE_parse_boot_argn("pong_gpu_dcvs",&probe,sizeof(probe));
+    if(probe>=2) {
+        const unsigned up=floor<top?floor+1:floor;
+        uint32_t error=0;
+        auto status=PongAdrenoGmuSetLevel(gmu,up,
+            PongAdrenoPowerLevels[K60_GPU_MAX_LEVELS-up].bus,&error);
+        report("DCVS probe up",unsigned(status),(uint64_t(up)<<32)|error,dcvs.level);
+        if(status==PongGpuSuccess) {
+            error=0;
+            status=PongAdrenoGmuSetLevel(gmu,floor,
+                PongAdrenoPowerLevels[K60_GPU_MAX_LEVELS-floor].bus,&error);
+            report("DCVS probe restore",unsigned(status),(uint64_t(floor)<<32)|error,0);
+        }
+    }
     for(;;) {
         IOSleep(kWindowMs);
         uint64_t now_ticks=0;
@@ -119,7 +137,7 @@ static void dcvs(void *,wait_result_t)
 extern "C" int pong_adreno_dcvs_start(void)
 {
     unsigned requested=0;
-    if(!PE_parse_boot_argn("pong_gpu_dcvs",&requested,sizeof(requested)) || requested!=1)return 0;
+    if(!PE_parse_boot_argn("pong_gpu_dcvs",&requested,sizeof(requested)) || !requested)return 0;
     if(__atomic_exchange_n(&sStarted,1,__ATOMIC_ACQ_REL))return 0;
     thread_t thread=THREAD_NULL;
     const auto status=kernel_thread_start(dcvs,nullptr,&thread);

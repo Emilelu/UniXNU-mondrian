@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <string.h>
+#include "PongScanoutTiming.h"
 
 namespace gpupresent {
 
@@ -27,10 +28,6 @@ struct Frame {
 
 enum Result { kOk = 0, kBadFrame, kBadScanout, kNoResource, kGpuFailed };
 
-inline uint64_t _k60Us(const struct timespec &a, const struct timespec &b) {
-    return (uint64_t)(b.tv_sec - a.tv_sec) * 1000000u + (uint64_t)(b.tv_nsec - a.tv_nsec) / 1000u;
-}
-
 class Presenter {
 public:
     Presenter(id<MTLDevice> device, const Scanout &scanout) : device_(device), scanout_(scanout) {
@@ -39,35 +36,33 @@ public:
         target_ = [device newBufferWithBytesNoCopy:scanout.base length:scanout.bytes options:MTLResourceStorageModeShared deallocator:nil];
     }
     bool ready() const { return target_ != nil; }
-    // One frame: encodes the GPU copy, commits, waits for the GPU. Rows are copied as whole rows of width*4 bytes.
+    // One frame: imports the source pages, encodes the GPU copy, commits, waits for the GPU. Rows are copied as whole rows of width*4 bytes.
     Result present(const Frame &frame) {
         if (!ready()) return kBadScanout;
         const size_t page = (size_t)getpagesize(), row = (size_t)frame.width * 4;
         if (!frame.base || ((uintptr_t)frame.base & (page - 1)) || !frame.bytes || (frame.bytes & (page - 1)) ||
             frame.width != scanout_.width || frame.height != scanout_.height || frame.stride < row ||
             (size_t)frame.height > frame.bytes / frame.stride || frame.stride * (frame.height - 1) + row > frame.bytes) return kBadFrame;
-        /* The compositor hands back the same surface pages frame after frame, and importing them
-         * is not cheap: the kernel maps every page into the GPU's context again, which measured
-         * 16.8 ms of a 17 ms copy. Keep the last import and reuse it while the pages are the same. */
-        if (!(imported_ && importedBase_ == frame.base && importedBytes_ == frame.bytes)) {
-            struct timespec before={},after={};clock_gettime(CLOCK_MONOTONIC,&before);
-            id<MTLBuffer> fresh = [device_ newBufferWithBytesNoCopy:(void *)frame.base length:frame.bytes options:MTLResourceStorageModeShared deallocator:nil];
-            clock_gettime(CLOCK_MONOTONIC,&after);
-            lastImportUs_=(uint64_t)(after.tv_sec-before.tv_sec)*1000000u+(uint64_t)(after.tv_nsec-before.tv_nsec)/1000u;
-            if (!fresh) return kNoResource;
-            /* ARC owns the import: assigning a new buffer to the strong ivar releases the old one. */
-            imported_ = fresh;
-            importedBase_ = frame.base;
-            importedBytes_ = frame.bytes;
-            ++imports_;
-        } else {
-            lastImportUs_=0;
-            ++reuses_;
-        }
-        id<MTLBuffer> source = imported_;
+        /* Import the source pages for THIS frame and drop the import when this call returns.
+         * A previous version kept the last import and reused it when the address and length
+         * matched. That is not safe: the kernel releases the frame's IOMemoryMap in
+         * PongAdrenoScanout.cpp right after the copy retires, so a cached import would point
+         * at a mapping that is already gone, and the GPU would read pages nobody owns. There
+         * is no way to prove the same virtual address means the same live pages, so the
+         * import is measured instead of cached: `imports` must equal the number of frames,
+         * and `import=` is the share of the frame that the mapping itself costs. */
+        struct timespec i0 = {}, i1 = {};
+        clock_gettime(CLOCK_MONOTONIC, &i0);
+        id<MTLBuffer> source = [device_ newBufferWithBytesNoCopy:(void *)frame.base length:frame.bytes
+                                                         options:MTLResourceStorageModeShared deallocator:nil];
+        clock_gettime(CLOCK_MONOTONIC, &i1);
+        lastImportUs_ = pongscanout::elapsedUs(i0, i1);
+        ++imports_;
+        if (!source) return kNoResource;
         /* The official porting guide splits a frame into commit, submit and GPU complete. Measure
          * all three so a 16.8 ms copy can be attributed instead of guessed. */
-        struct timespec e0={},e1={},e2={},e3={};clock_gettime(CLOCK_MONOTONIC,&e0);
+        struct timespec e0 = {}, e1 = {}, e2 = {}, e3 = {};
+        clock_gettime(CLOCK_MONOTONIC, &e0);
         id<MTLCommandBuffer> commands = [queue_ commandBuffer];
         id<MTLBlitCommandEncoder> blit = commands ? [commands blitCommandEncoder] : nil;
         if (!blit) return kNoResource;
@@ -92,16 +87,21 @@ public:
             }
         }
         [blit endEncoding];
-        clock_gettime(CLOCK_MONOTONIC,&e1);
+        clock_gettime(CLOCK_MONOTONIC, &e1);
         [commands commit];
-        clock_gettime(CLOCK_MONOTONIC,&e2);
+        clock_gettime(CLOCK_MONOTONIC, &e2);
         [commands waitUntilCompleted];
-        clock_gettime(CLOCK_MONOTONIC,&e3);
-        lastEncodeUs_=_k60Us(e0,e1);
-        lastSubmitUs_=_k60Us(e1,e2);
-        lastWaitUs_=_k60Us(e2,e3);
+        clock_gettime(CLOCK_MONOTONIC, &e3);
+        lastEncodeUs_ = pongscanout::elapsedUs(e0, e1);
+        lastSubmitUs_ = pongscanout::elapsedUs(e1, e2);
+        lastWaitUs_ = pongscanout::elapsedUs(e2, e3);
         return commands.status == MTLCommandBufferStatusCompleted ? kOk : kGpuFailed;
     }
+    /* How many times the source pages were imported: one per presented frame, so a
+     * flight can prove no import survived into the next frame. */
+    uint64_t imports() const { return imports_; }
+    /* How long the last import took, in microseconds. */
+    uint64_t importMicroseconds() const { return lastImportUs_; }
     uint64_t encodeMicroseconds() const { return lastEncodeUs_; }
     uint64_t submitMicroseconds() const { return lastSubmitUs_; }
     uint64_t waitMicroseconds() const { return lastWaitUs_; }
@@ -116,18 +116,7 @@ private:
     Scanout scanout_;
     id<MTLCommandQueue> queue_;
     id<MTLBuffer> target_;
-    id<MTLBuffer> imported_ = nil;   /* the last imported source, reused while the pages are the same */
-    const void *importedBase_ = nullptr;
-    size_t importedBytes_ = 0;
-public:
-    /* How often the source import was rebuilt (a new mapping) versus reused (no mapping at all). */
-    uint64_t imports() const { return imports_; }
-    uint64_t reuses() const { return reuses_; }
-    /* How long the last import took, in microseconds: 0 when the previous import was reused. */
-    uint64_t importMicroseconds() const { return lastImportUs_; }
-private:
     uint64_t imports_ = 0;
-    uint64_t reuses_ = 0;
     uint64_t lastImportUs_ = 0;
     uint64_t lastEncodeUs_ = 0;
     uint64_t lastSubmitUs_ = 0;

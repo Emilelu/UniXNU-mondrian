@@ -50,8 +50,10 @@ class FrameStageTiming(unittest.TestCase):
         before = text.index('clock_gettime(CLOCK_MONOTONIC,&t1);')
         self.assertLess(before, present, 'the copy stage starts before present()')
         self.assertLess(present, after, 'the copy stage ends after present()')
-        self.assertIn('lastCopy=uint64_t(t2.tv_sec-t1.tv_sec)', text,
-                      'the copy number must be t2 - t1, not a guess')
+        self.assertIn('lastCopy=span(t1,t2);', text,
+                      'the copy number must be t2 - t1 through the tested helper, not a guess')
+        self.assertIn('lastWait=span(t0,t1);', text, 'the wait number must be t1 - t0')
+        self.assertIn('lastDone=span(t2,t3);', text, 'the retire number must be t3 - t2')
 
     def test_neither_report_is_unconditional(self):
         kernel = KERNEL.read_text(encoding='utf-8')
@@ -68,6 +70,14 @@ class FrameStageTiming(unittest.TestCase):
                       'the kernel report must be bounded by its own buffer')
         self.assertIn('snprintf(rate,sizeof(rate)', server,
                       'the render server report must be bounded by its own buffer')
+
+    def test_a_missing_clock_read_does_not_become_a_stage(self):
+        """A failed clock_gettime leaves a zeroed timespec; that is not a span."""
+        text = SERVER.read_text(encoding='utf-8')
+        self.assertIn('#include "PongScanoutTiming.h"', text,
+                      'the render server must use the host-tested arithmetic')
+        self.assertIn('return stamped(from) && stamped(to) ? elapsedUs(from,to) : 0;', text,
+                      'stage spans must be suppressed when either clock was not read')
 
 
 if __name__ == '__main__':

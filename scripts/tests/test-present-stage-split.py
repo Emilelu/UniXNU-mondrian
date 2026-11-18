@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""The scanout copy is split into encode, submit and GPU wait (official gpu porting guide).
+"""A slow scanout copy has to name its stage, not just its total.
 
-The guide asks a slow frame to be attributed to a stage instead of guessed at: "提交到 GPU 完成"
-is a different owner from "运行时 commit 到提交". A single `copy=` number cannot tell them apart,
-so the presenter records the three spans separately and the report prints all three.
+The porting guide asks a slow frame to be attributed to a stage: "提交到 GPU 完成"
+belongs to a different owner than "运行时 commit 到提交". A single `copy=` number
+cannot tell them apart, so the presenter records import, encode, submit and GPU
+wait separately, and the report prints all of them.
 
-This guard pins the shape: the three clocks must bracket exactly the calls they claim to, the
-report must print them, and the copy itself must keep both pitch branches.
+This guard pins the shape of that instrumentation: the four clocks bracket exactly
+the calls they claim to, every span goes through the shared timing helper (so the
+arithmetic itself can be executed by scripts/tests/test-scanout-timing.py), the
+report prints the fields in stage order, and both pitch branches of the copy and
+the wait itself survive.
+
+The numbers mean nothing if the arithmetic is wrong, which is why this file no
+longer accepts an inline helper of its own: the helper moved to
+PongScanoutTiming.h where a host compiler runs it.
 """
 import os
 import re
@@ -15,11 +23,15 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PRESENTER = os.path.join(REPO, 'drivers', 'PongMetal', 'GpuScanoutPresenter.h')
 SCANOUT = os.path.join(REPO, 'drivers', 'PongMetal', 'PongMetalScanout.h')
+TIMING = os.path.join(REPO, 'drivers', 'PongMetal', 'PongScanoutTiming.h')
 
 FAILED = []
+CASES = 0
 
 
 def check(name, ok, detail=''):
+    global CASES
+    CASES += 1
     if ok:
         print('  ok   %s' % name)
     else:
@@ -46,49 +58,69 @@ def order(text, needles):
 def main():
     presenter = read(PRESENTER)
     scanout = read(SCANOUT)
+    timing = read(TIMING)
 
-    check('the microsecond helper exists once',
-          presenter.count('inline uint64_t _k60Us(') == 1,
-          'found %d' % presenter.count('inline uint64_t _k60Us('))
-    check('the helper treats the nanosecond field as a difference',
-          '/ 1000u;' in presenter and '(b.tv_nsec - a.tv_nsec)' in presenter,
-          'the helper must divide a nanosecond difference, not an absolute value')
+    check('the timing helper lives in its own host-testable header',
+          'inline uint64_t elapsedUs(' in timing and '#include <metal/' not in timing.lower(),
+          'the helper must be executable without Metal or Darwin headers')
+    check('both translation units use the shared helper',
+          '#include "PongScanoutTiming.h"' in presenter and '#include "PongScanoutTiming.h"' in scanout,
+          'a local copy would drift from the tested one')
+    check('the presenter does not carry a second microsecond helper',
+          presenter.count('_k60Us(') == 0,
+          'found %d references to the retired helper' % presenter.count('_k60Us('))
 
     body = presenter[presenter.find('Result present(const Frame &frame)'):]
     ok, missing = order(body, [
-        'clock_gettime(CLOCK_MONOTONIC,&e0)',
+        'clock_gettime(CLOCK_MONOTONIC, &e0)',
         'id<MTLCommandBuffer> commands = [queue_ commandBuffer];',
         '[blit endEncoding];',
-        'clock_gettime(CLOCK_MONOTONIC,&e1)',
+        'clock_gettime(CLOCK_MONOTONIC, &e1)',
         '[commands commit];',
-        'clock_gettime(CLOCK_MONOTONIC,&e2)',
+        'clock_gettime(CLOCK_MONOTONIC, &e2)',
         '[commands waitUntilCompleted];',
-        'clock_gettime(CLOCK_MONOTONIC,&e3)',
+        'clock_gettime(CLOCK_MONOTONIC, &e3)',
     ])
     check('the four clocks bracket the calls they name', ok, 'missing %r' % missing)
 
-    check('e1 and e2 are derived, not copied',
-          'lastEncodeUs_=_k60Us(e0,e1);' in body and 'lastSubmitUs_=_k60Us(e1,e2);' in body
-          and 'lastWaitUs_=_k60Us(e2,e3);' in body,
-          'each span must come from its own pair of clocks')
+    check('each span is derived from its own pair of clocks',
+          'lastEncodeUs_ = pongscanout::elapsedUs(e0, e1);' in body
+          and 'lastSubmitUs_ = pongscanout::elapsedUs(e1, e2);' in body
+          and 'lastWaitUs_ = pongscanout::elapsedUs(e2, e3);' in body,
+          'a span that does not come from its own clocks is a guess')
 
-    for name in ('encodeMicroseconds', 'submitMicroseconds', 'waitMicroseconds'):
+    ok, missing = order(body, [
+        'clock_gettime(CLOCK_MONOTONIC, &i0)',
+        'newBufferWithBytesNoCopy',
+        'clock_gettime(CLOCK_MONOTONIC, &i1)',
+        'lastImportUs_ = pongscanout::elapsedUs(i0, i1);',
+        '++imports_;',
+    ])
+    check('the import is timed around the real import call', ok, 'missing %r' % missing)
+
+    for name in ('importMicroseconds', 'encodeMicroseconds', 'submitMicroseconds', 'waitMicroseconds'):
         check('the presenter exposes %s()' % name,
-              re.search(r'uint64_t %s\(\) const \{ return last\w+Us_; \}' % name, presenter) is not None)
+              re.search(r'uint64_t %s\(\) const \{ return last\w+Us_; \}' % name, presenter) is not None,
+              'the report cannot read a span that has no accessor')
 
-    check('the report prints encode, submit and gpu in that order',
-          order(scanout, ['encode=%llu us submit=%llu us gpu=%llu us'])[0],
-          'the three fields must be adjacent and in stage order')
+    check('the report prints every stage in stage order',
+          order(scanout, ['wait=%llu us copy=%llu us done=%llu us;',
+                          'imports=%llu import=%llu us encode=%llu us submit=%llu us gpu=%llu us',
+                          'sum=%llu us'])[0],
+          'import, encode, submit and gpu must stay adjacent and ordered')
     ok, missing = order(scanout, [
         'context->presenter->importMicroseconds()',
         'context->presenter->encodeMicroseconds()',
         'context->presenter->submitMicroseconds()',
         'context->presenter->waitMicroseconds()',
     ])
-    check('the report passes the three accessors in the same order', ok, 'missing %r' % missing)
-    check('the report buffer is large enough for the extra fields',
-          'char rate[448]' in scanout,
-          'three more fields do not fit in the old 320 byte buffer')
+    check('the report reads the accessors in the same order', ok, 'missing %r' % missing)
+    check('the sum is the four stages this side owns',
+          'imported+encoded+submitted+waited' in scanout,
+          'the flight compares sum against the kernel copy, so it must be explicit')
+    check('the report buffer holds the longer line',
+          'char rate[512]' in scanout,
+          'four more fields do not fit in the 448 byte buffer')
 
     check('the equal pitch path is still one run',
           'copyFromBuffer:source sourceOffset:0 toBuffer:target_ destinationOffset:0 size:frame.stride * (frame.height - 1) + row' in presenter,
@@ -100,7 +132,7 @@ def main():
           'an unwaiting present would report frames the GPU never retired')
 
     print('TESTS %s %d case(s) (%d failure(s))'
-          % ('OK' if not FAILED else 'FAILED', 13, len(FAILED)))
+          % ('OK' if not FAILED else 'FAILED', CASES, len(FAILED)))
     return 0 if not FAILED else 1
 
 

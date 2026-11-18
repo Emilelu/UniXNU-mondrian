@@ -6,11 +6,19 @@
 #include <time.h>
 #include "../PongAdreno/PongScanoutWire.h"
 #include "GpuScanoutPresenter.h"
+#include "PongScanoutTiming.h"
 namespace pongscanout {
 using Open=kern_return_t(*)(unsigned,mach_port_t,unsigned,unsigned *);
 using Call=kern_return_t(*)(unsigned,unsigned,const void *,size_t,void *,size_t *);
 using Map=kern_return_t(*)(unsigned,unsigned,mach_port_t,uint64_t *,uint64_t *,unsigned);
 struct Context {unsigned connection;Call call;gpupresent::Presenter *presenter;};
+/* A span is only meaningful when both ends were actually read: a zeroed timespec is
+ * what a failed clock_gettime leaves behind, and treating that as a real stamp would
+ * report a stage that never ran. */
+static inline uint64_t span(const struct timespec &from,const struct timespec &to)
+{
+    return stamped(from) && stamped(to) ? elapsedUs(from,to) : 0;
+}
 static void *serve(void *opaque)
 {
     auto *context=static_cast<Context *>(opaque);unsigned copies=0,refusals=0;
@@ -33,8 +41,8 @@ static void *serve(void *opaque)
             auto result=context->presenter->present({reinterpret_cast<void *>(frame.address),size_t(frame.bytes),
                 size_t(frame.stride),frame.width,frame.height});
             clock_gettime(CLOCK_MONOTONIC,&t2);
-            lastWait=uint64_t(t1.tv_sec-t0.tv_sec)*1000000000ull+uint64_t(t1.tv_nsec-t0.tv_nsec);
-            lastCopy=uint64_t(t2.tv_sec-t1.tv_sec)*1000000000ull+uint64_t(t2.tv_nsec-t1.tv_nsec);
+            lastWait=span(t0,t1);
+            lastCopy=span(t1,t2);
             // Presenter returns kOk only after waitUntilCompleted reports the
             // real command buffer completed. Errors never retire as success.
             const bool notSubmitted=result!=gpupresent::kOk && result!=gpupresent::kGpuFailed;
@@ -43,7 +51,7 @@ static void *serve(void *opaque)
             status=context->call(context->connection,PongScanoutComplete,&done,sizeof(done),nullptr,&bytes);
             {
                 struct timespec t3={};clock_gettime(CLOCK_MONOTONIC,&t3);
-                lastDone=uint64_t(t3.tv_sec-t2.tv_sec)*1000000000ull+uint64_t(t3.tv_nsec-t2.tv_nsec);
+                lastDone=span(t2,t3);
             }
             if(status || result==gpupresent::kGpuFailed) {
                 report("GPU scanout copy failed; mappings retained",status?:int(result));return nullptr;
@@ -59,15 +67,23 @@ static void *serve(void *opaque)
             if(copies++<3)report("actual GPU scanout copy completed",0);
             if(!(copies%60)) {
                 struct timespec now={};clock_gettime(CLOCK_MONOTONIC,&now);
-                char rate[448];snprintf(rate,sizeof(rate),
-                    "scanout frames=%u at %lld.%03lld s; last frame: wait=%llu us copy=%llu us done=%llu us; imports=%llu reuses=%llu import=%llu us; encode=%llu us submit=%llu us gpu=%llu us",
-                    copies,(long long)now.tv_sec,(long long)(now.tv_nsec/1000000),
-                    lastWait/1000,lastCopy/1000,lastDone/1000,
-                    (unsigned long long)context->presenter->imports(),(unsigned long long)context->presenter->reuses(),
-                    (unsigned long long)context->presenter->importMicroseconds(),
-                    (unsigned long long)context->presenter->encodeMicroseconds(),
-                    (unsigned long long)context->presenter->submitMicroseconds(),
-                    (unsigned long long)context->presenter->waitMicroseconds());
+                /* `sum` is the four stages this side owns, so the flight can compare it
+                 * against the kernel's outer `copy` number without doing arithmetic on
+                 * numbers that were printed from different samples. `imports` must equal
+                 * `frames`: the presenter imports the source once per presented frame and
+                 * keeps nothing across frames (PongAdrenoScanout.cpp releases the mapping
+                 * as soon as the copy retires, so a cached import would be a dangling one). */
+                const uint64_t imported=context->presenter->importMicroseconds();
+                const uint64_t encoded=context->presenter->encodeMicroseconds();
+                const uint64_t submitted=context->presenter->submitMicroseconds();
+                const uint64_t waited=context->presenter->waitMicroseconds();
+                char rate[512];snprintf(rate,sizeof(rate),
+                    "scanout frames=%u at %llu.%03llu s; last frame: wait=%llu us copy=%llu us done=%llu us; imports=%llu import=%llu us encode=%llu us submit=%llu us gpu=%llu us sum=%llu us",
+                    copies,(unsigned long long)absoluteUs(now)/1000000ull,(unsigned long long)(absoluteUs(now)%1000000ull)/1000ull,
+                    (unsigned long long)lastWait/1000,(unsigned long long)lastCopy/1000,(unsigned long long)lastDone/1000,
+                    (unsigned long long)context->presenter->imports(),
+                    (unsigned long long)imported,(unsigned long long)encoded,(unsigned long long)submitted,
+                    (unsigned long long)waited,(unsigned long long)(imported+encoded+submitted+waited));
                 report(rate,0);
             }
         }

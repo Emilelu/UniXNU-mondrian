@@ -1,5 +1,12 @@
 # 上机卡 20261118 / gpu-import：源缓冲导入缓存与导入计时
 
+> **状态：HOLD，未上机，且不得再上机。** 本卡描述的 `(base, bytes)` 跨帧导入缓存
+> 后来被证明不安全：内核在 `PongAdrenoScanout.cpp` 里每帧 `createMappingInTask` 新建
+> 映射、并在 `PongScanoutComplete` 之后立刻 `release`，而缓存的 `MTLBuffer` 活到下一
+> 帧，于是「命中」意味着 GPU 从已经释放的映射里取源像素。判据 S3/S4 奖励的正是这个
+> 危险行为，F3 只在事后才发现。已被 `FLIGHT-CARD-20261118j.md`（每帧导入、不缓存）
+> 取代；本卡保留作为归因数据的出处（P1–P3 的实测仍然有效）。
+
 ## 1. 目的
 
 `usblog-20261118-135714`（`gpu-stages-20261118`）把每帧拆开后给出决定性数字：

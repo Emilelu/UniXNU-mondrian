@@ -35,11 +35,24 @@ static void *iokit;
 }
 static void report(const char *phase,int status)
 {
-    char line[256];snprintf(line,sizeof(line),"Pong Metal: %s status=0x%x\n",phase,status);
-    (void)write(2,line,strlen(line));
+    /* The scanout rate line carries a dozen counters plus their units, and the
+     * prefix/suffix here add 25 more bytes. At 256 the tail of that line was
+     * silently cut, so a flight read present-but-empty fields and could not tell
+     * a zero from a missing number. Size for the longest caller, and end the
+     * record with a newline even if a future caller outgrows the buffer: a
+     * diagnostic without a line ending gets glued onto the next line and stops
+     * matching the grep the flight card uses. */
+    char line[768];
+    int needed=snprintf(line,sizeof(line),"Pong Metal: %s status=0x%x\n",phase,status);
+    if(needed<0)return;
+    size_t length=(size_t)needed;
+    if(length>=sizeof(line)){length=sizeof(line)-1;line[length-1]='\n';}
+    else if(length && line[length-1]!='\n')line[length++]='\n';
+    if(!length)return;
+    (void)write(2,line,length);
     size_t count=CTL_MAXNAME;int mib[CTL_MAXNAME];
     if(!sysctlnametomib("kern.pong_diagnostic",mib,&count))
-        (void)sysctl(mib,(u_int)count,NULL,NULL,line,strlen(line));
+        (void)sysctl(mib,(u_int)count,NULL,NULL,line,length);
 }
 #include "PongMetalScanout.h"
 #include "PongQuartzCorePolicy.h"

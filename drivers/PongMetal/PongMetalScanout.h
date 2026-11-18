@@ -59,12 +59,15 @@ static void *serve(void *opaque)
             if(copies++<3)report("actual GPU scanout copy completed",0);
             if(!(copies%60)) {
                 struct timespec now={};clock_gettime(CLOCK_MONOTONIC,&now);
-                char rate[320];snprintf(rate,sizeof(rate),
-                    "scanout frames=%u at %lld.%03lld s; last frame: wait=%llu us copy=%llu us done=%llu us; imports=%llu reuses=%llu import=%llu us",
+                char rate[448];snprintf(rate,sizeof(rate),
+                    "scanout frames=%u at %lld.%03lld s; last frame: wait=%llu us copy=%llu us done=%llu us; imports=%llu reuses=%llu import=%llu us; encode=%llu us submit=%llu us gpu=%llu us",
                     copies,(long long)now.tv_sec,(long long)(now.tv_nsec/1000000),
                     lastWait/1000,lastCopy/1000,lastDone/1000,
                     (unsigned long long)context->presenter->imports(),(unsigned long long)context->presenter->reuses(),
-                    (unsigned long long)context->presenter->importMicroseconds());
+                    (unsigned long long)context->presenter->importMicroseconds(),
+                    (unsigned long long)context->presenter->encodeMicroseconds(),
+                    (unsigned long long)context->presenter->submitMicroseconds(),
+                    (unsigned long long)context->presenter->waitMicroseconds());
                 report(rate,0);
             }
         }

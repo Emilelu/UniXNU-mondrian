@@ -27,6 +27,10 @@ struct Frame {
 
 enum Result { kOk = 0, kBadFrame, kBadScanout, kNoResource, kGpuFailed };
 
+inline uint64_t _k60Us(const struct timespec &a, const struct timespec &b) {
+    return (uint64_t)(b.tv_sec - a.tv_sec) * 1000000u + (uint64_t)(b.tv_nsec - a.tv_nsec) / 1000u;
+}
+
 class Presenter {
 public:
     Presenter(id<MTLDevice> device, const Scanout &scanout) : device_(device), scanout_(scanout) {
@@ -61,6 +65,9 @@ public:
             ++reuses_;
         }
         id<MTLBuffer> source = imported_;
+        /* The official porting guide splits a frame into commit, submit and GPU complete. Measure
+         * all three so a 16.8 ms copy can be attributed instead of guessed. */
+        struct timespec e0={},e1={},e2={},e3={};clock_gettime(CLOCK_MONOTONIC,&e0);
         id<MTLCommandBuffer> commands = [queue_ commandBuffer];
         id<MTLBlitCommandEncoder> blit = commands ? [commands blitCommandEncoder] : nil;
         if (!blit) return kNoResource;
@@ -85,10 +92,19 @@ public:
             }
         }
         [blit endEncoding];
+        clock_gettime(CLOCK_MONOTONIC,&e1);
         [commands commit];
+        clock_gettime(CLOCK_MONOTONIC,&e2);
         [commands waitUntilCompleted];
+        clock_gettime(CLOCK_MONOTONIC,&e3);
+        lastEncodeUs_=_k60Us(e0,e1);
+        lastSubmitUs_=_k60Us(e1,e2);
+        lastWaitUs_=_k60Us(e2,e3);
         return commands.status == MTLCommandBufferStatusCompleted ? kOk : kGpuFailed;
     }
+    uint64_t encodeMicroseconds() const { return lastEncodeUs_; }
+    uint64_t submitMicroseconds() const { return lastSubmitUs_; }
+    uint64_t waitMicroseconds() const { return lastWaitUs_; }
 private:
     bool validScanout() const {
         const size_t page = (size_t)getpagesize();
@@ -113,6 +129,9 @@ private:
     uint64_t imports_ = 0;
     uint64_t reuses_ = 0;
     uint64_t lastImportUs_ = 0;
+    uint64_t lastEncodeUs_ = 0;
+    uint64_t lastSubmitUs_ = 0;
+    uint64_t lastWaitUs_ = 0;
 };
 
 }  // namespace gpupresent

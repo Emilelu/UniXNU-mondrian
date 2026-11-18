@@ -66,7 +66,7 @@ def main() -> int:
     check(width == -1 or 'lastCopy/1000' in scanout,
           'the extended report dropped the copy timing it used to carry')
     # The report buffer has to be big enough for the two extra numbers.
-    check('char rate[320]' in scanout,
+    check('char rate[448]' in scanout,
           'the report buffer was not grown for the import counters')
 
     for failure in failures:

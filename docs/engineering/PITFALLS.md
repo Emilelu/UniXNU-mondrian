@@ -6095,3 +6095,28 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 4. 日志必须整份读完再定性；只 grep 命中会把 77% 的正文当成噪声。
 
 守卫：`python3 scripts/tests/test-metal-trace-semantics.py`。文档：`docs/research/gpu/METAL-SUMMARY-FIELDS.md`。
+
+## P-232
+
+**症状**：`patches/metal2vulkan/` 里有 12 个补丁，其中 10 个从未出现在任何构建脚本里。
+它们看起来像修法（含 `0013-data-a-live-fewer-allocations-a-draw`、`0015/0016-draw-*-kept`
+这一族「每 draw 分配次数」收敛补丁），实际二进制里一条都没有，而现场症状正是「一次 draw
+之后大量 `IOMemoryDescriptor` 映射、`nmb_render_draw` 不返回」。
+
+**成因**：`scripts/build-pong-metal-bridge.py` 只 apply `0008` 与 `0009`（两处都带
+`check=True`，所以失败会响）；其余补丁从被搬进仓库那天起就没有接入点，也没有任何清单
+声明它们「不启用」。这与 P-183（资产没人用）、P-221（回执没人读）是同一形状：**仓库里存在
+并被文档提及，不等于构建产物里有。**
+
+**修法**：新增 `scripts/check-metal2vulkan-patches.py`——每个补丁必须要么被某个构建脚本
+按文件名引用，要么在 `patches/metal2vulkan/DATA-A-LIVE.md` 的「未启用」小节里显式声明；
+否则失败。当前 12/12 有归属（`0008`/`0009` 已应用，其余 10 条已声明并写明启用前置条件）。
+守卫 `scripts/tests/test-check-metal2vulkan-patches.py` 5 例（命名即通过、无人应用即失败、
+已声明通过、小节外的提及不算、空目录是错误不是通过）。
+
+**教训**：
+1. 「补丁在树里」必须配一张「谁 apply 它」的账；没有账的补丁等于注释。
+2. 一个目录的资产数与被使用的资产数要能对账，差集必须被显式解释。
+3. 遇到「症状与某个未启用补丁同名」时，第一件事是查它是否真的进了二进制，而不是先改代码。
+4. 声明「未启用」时要写清启用前置条件（先在 pin 住的 translator 上 `git apply --check`、
+   给出应用前后行为差异），否则下一个人只会把它当成待办清单。

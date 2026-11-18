@@ -348,6 +348,55 @@ int main(void)
                "status 2 with positive current is rejected");
     }
 
+    /* 16. Capacity consistency, adapter limits and the absent-pack snapshot
+     * must not invent measurements the wire did not carry. */
+    {
+        K60Battmgr c;
+        K60BatterySample cs;
+        const uint32_t all = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline) | BIT(K60BmUsbCurrent) |
+            BIT(K60BmUsbAdapter) | BIT(K60BmUsbMaxCurrent) | BIT(K60BmUsbInputLimit) |
+            BIT(K60BmTimeToFull) | BIT(K60BmTimeToEmpty);
+        k60_battmgr_init(&c, 1, 0, 0);
+        c.last_fresh = all;
+        c.value[K60BmStatus] = 1;
+        c.value[K60BmPresent] = 1;
+        c.value[K60BmCapacity] = 5000;
+        c.value[K60BmVoltage] = 4300000;
+        c.value[K60BmTemperature] = 3000;
+        c.value[K60BmFull] = 5000000;
+        c.value[K60BmDesign] = 5500000;
+        c.value[K60BmCycles] = 100;
+        c.value[K60BmUsbOnline] = 1;
+        c.value[K60BmUsbVoltage] = 5000000;
+        c.value[K60BmUsbCurrent] = 397000;
+        c.value[K60BmUsbAdapter] = 1;
+        c.value[K60BmUsbMaxCurrent] = 3000000;
+        c.value[K60BmUsbInputLimit] = 2000000;
+        expect(k60_battmgr_sample(&c, &cs) == 1, "consistent capacity returns a sample");
+        expect(cs.current_mah == 2500, "50% of a 5000 mAh full charge is 2500 mAh");
+        expect(cs.adapter_mv == 5000 && cs.adapter_ma == 2000 && cs.adapter_type == 1,
+               "adapter input limit clamps the advertised current");
+
+        c.value[K60BmFull] = 9000000;
+        expect(k60_battmgr_sample(&c, &cs) == 0,
+               "full capacity above 1.5x design is rejected");
+        c.value[K60BmFull] = 2000000;
+        expect(k60_battmgr_sample(&c, &cs) == 0,
+               "full capacity below half design is rejected");
+        c.value[K60BmFull] = 5000000;
+
+        c.value[K60BmPresent] = 0;
+        expect(k60_battmgr_sample(&c, &cs) == 1, "absent pack still returns a snapshot");
+        expect(cs.present == 0 && cs.external == 1 && cs.charging == 0 &&
+               cs.current_source == K60BatteryCurrentNone,
+               "absent pack reports external power but no charge state");
+        expect(cs.capacity_hundredths == 0 && cs.full_mah == 0 && cs.current_mah == 0,
+               "absent pack has no fabricated measurement");
+    }
+
     if (fails) { printf("FAILURES %d\n", fails); return 1; }
     printf("TESTS OK %d\n", checks);
     return 0;

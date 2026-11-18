@@ -150,7 +150,289 @@ k60_rsc_layout(uint32_t drv_id)
 	return ((drv_id >> 16) & 0xff) >= 3 ? v3 : v2;
 }
 
+/* Clear a record so that a failed measurement still names what was missing. */
+static void
+rail_record_clear(K60RailRecord *r, const char *not_read)
+{
+	r->resource_id = 0;
+	r->address = 0;
+	r->level = 0;
+	r->tcs_slot = 0;
+	r->complete = 0;
+	r->valid = 0;
+	r->missing = not_read;
+	r->why = 0;
+}
+
+/*
+ * Scan the DRV-2 TCS slots for the one whose cmd_addr carries this rail's
+ * cmd-db address, then read that slot's cmd_data. Read-only: every access is a
+ * load from the already-mapped window. The slot number is discovered, never
+ * assumed, because this board votes touch through TCS3 while the reference
+ * implementation writes slot 4 (POWER-RPMH-LDOC2.md:30-33, :142-144).
+ */
+int
+k60_rail_measure(const volatile uint32_t *words, size_t words_bytes,
+    const K60RscLayout *layout, uint32_t resource_id, K60RailRecord *out)
+{
+	unsigned slot;
+
+	if (out == NULL || layout == NULL || words == NULL) {
+		return K60RpmhArgument;
+	}
+	rail_record_clear(out, "resource id");
+	if (resource_id == 0) {
+		return K60RpmhMissing;
+	}
+	out->resource_id = resource_id;
+	out->missing = "tcs slot";
+	for (slot = 0; slot < K60_RAIL_SLOTS; slot++) {
+		const size_t base = (size_t)K60_RSC_TCS_OFFSET +
+		    (size_t)slot * layout->tcs_stride;
+		size_t at_addr, at_data, at_status;
+		uint32_t addr;
+
+		if (base + layout->cmd_data + sizeof(uint32_t) > words_bytes ||
+		    base + layout->status + sizeof(uint32_t) > words_bytes) {
+			break;
+		}
+		at_addr = base + layout->cmd_addr;
+		at_data = base + layout->cmd_data;
+		at_status = base + layout->status;
+		addr = words[at_addr / sizeof(uint32_t)];
+		if (addr != resource_id) {
+			continue;
+		}
+		out->tcs_slot = slot;
+		out->address = addr;
+		out->level = words[at_data / sizeof(uint32_t)];
+		out->complete = 1;
+		out->missing = 0;
+		if (out->level == 0) {
+			out->why = "level read back as 0";
+		} else if ((words[at_status / sizeof(uint32_t)] & 1u) == 0) {
+			out->why = "tcs slot not idle";
+		} else {
+			out->valid = 1;
+		}
+		return K60RpmhOk;
+	}
+	return K60RpmhMissing;
+}
+
+static K60RailLedger rail_ledger;
+
+void
+k60_rail_ledger_store(uint32_t drv_id, const K60RailRecord *lcx,
+    const K60RailRecord *lmx)
+{
+	K60RailLedger next;
+
+	next.magic = K60_RAIL_LEDGER_MAGIC;
+	next.drv_id = drv_id;
+	next.recorded = 1;
+	next.gate = K60_RAIL_GATE_PROBE;
+	if (lcx != NULL) {
+		next.lcx = *lcx;
+	} else {
+		rail_record_clear(&next.lcx, "not read");
+	}
+	if (lmx != NULL) {
+		next.lmx = *lmx;
+	} else {
+		rail_record_clear(&next.lmx, "not read");
+	}
+	rail_ledger = next;
+}
+
+const K60RailLedger *
+k60_rail_ledger(void)
+{
+	return rail_ledger.recorded ? &rail_ledger : 0;
+}
+
+/*
+ * The three answers a consumer must be able to tell apart. "Not recorded" is
+ * not "the rail is absent"; "incomplete" is not "invalid"; and only the last
+ * one says something about the rail itself rather than about the read.
+ */
+int
+k60_rail_verdict(const K60RailLedger *ledger, const char **rail,
+    const char **field)
+{
+	const K60RailRecord *r;
+
+	if (rail != 0) {
+		*rail = 0;
+	}
+	if (field != 0) {
+		*field = 0;
+	}
+	if (ledger == 0 || ledger->magic != K60_RAIL_LEDGER_MAGIC ||
+	    !ledger->recorded) {
+		return K60RailVerdictNotRecorded;
+	}
+	r = &ledger->lcx;
+	if (!r->complete) {
+		if (rail != 0) {
+			*rail = "lcx";
+		}
+		if (field != 0) {
+			*field = r->missing ? r->missing : "field";
+		}
+		return K60RailVerdictIncomplete;
+	}
+	if (!r->valid) {
+		if (rail != 0) {
+			*rail = "lcx";
+		}
+		if (field != 0) {
+			*field = r->why ? r->why : "inconsistent";
+		}
+		return K60RailVerdictInvalid;
+	}
+	r = &ledger->lmx;
+	if (!r->complete) {
+		if (rail != 0) {
+			*rail = "lmx";
+		}
+		if (field != 0) {
+			*field = r->missing ? r->missing : "field";
+		}
+		return K60RailVerdictIncomplete;
+	}
+	if (!r->valid) {
+		if (rail != 0) {
+			*rail = "lmx";
+		}
+		if (field != 0) {
+			*field = r->why ? r->why : "inconsistent";
+		}
+		return K60RailVerdictInvalid;
+	}
+	return K60RailVerdictInherited;
+}
+
 #ifdef KERNEL
+static void
+rail_print(const char *name, const K60RailRecord *r)
+{
+	printf("K60RAIL %s id=%#x tcs=%u addr=%#x level=%u (arc index, not mV)"
+	    " complete=%u valid=%u", name, r->resource_id, r->tcs_slot,
+	    r->address, r->level, r->complete, r->valid);
+	if (r->missing != 0) {
+		printf(" missing=%s", r->missing);
+	}
+	if (r->why != 0) {
+		printf(" why=%s", r->why);
+	}
+	printf("\n");
+}
+
+/* One read-only pass over the two windows: find each rail's cmd-db address and
+ * read the TCS slot that address names. Nothing here writes. */
+static void
+rail_record_pass(const uint8_t *db, volatile uint32_t *words, uint32_t drv_id)
+{
+	K60RailRecord lcx, lmx;
+	K60RscLayout layout = k60_rsc_layout(drv_id);
+	K60RpmhResource rail;
+	uint32_t lcx_id = 0, lmx_id = 0;
+
+	if (k60_cmd_db_find(db, K60_CMD_DB_BYTES, "lcx.lvl", &rail) == K60RpmhOk) {
+		lcx_id = rail.address;
+	}
+	if (k60_cmd_db_find(db, K60_CMD_DB_BYTES, "lmx.lvl", &rail) == K60RpmhOk) {
+		lmx_id = rail.address;
+	}
+	(void)k60_rail_measure(words, K60_RSC_BYTES, &layout, lcx_id, &lcx);
+	(void)k60_rail_measure(words, K60_RSC_BYTES, &layout, lmx_id, &lmx);
+	k60_rail_ledger_store(drv_id, &lcx, &lmx);
+	rail_print("lcx", &lcx);
+	rail_print("lmx", &lmx);
+}
+
+/* Map both windows once, record, leave. 0 means the ledger now exists. */
+static int
+rail_pass(void)
+{
+	vm_offset_t db, rsc;
+
+	db = ml_io_map_unmappable((vm_offset_t)K60_CMD_DB_PHYS,
+	    (vm_size_t)K60_CMD_DB_BYTES, 0x7);
+	if (db == 0) {
+		printf("K60RAIL cmd-db map failed phys=%#llx\n",
+		    (unsigned long long)K60_CMD_DB_PHYS);
+		return -1;
+	}
+	rsc = ml_io_map_unmappable((vm_offset_t)K60_RSC_DRV2_PHYS,
+	    (vm_size_t)K60_RSC_BYTES, 0x7);
+	if (rsc == 0) {
+		printf("K60RAIL rsc map failed phys=%#llx\n",
+		    (unsigned long long)K60_RSC_DRV2_PHYS);
+		return -1;
+	}
+	rail_record_pass((const uint8_t *)db, (volatile uint32_t *)rsc,
+	    ((volatile uint32_t *)rsc)[0]);
+	return 0;
+}
+
+/*
+ * The rail gate, and the reason it is not in resources(): the earliest call
+ * site in the kernel cannot legally read these registers at all (HR-01 timing),
+ * so a verdict there would be an always-false condition wearing a gate's
+ * clothes (P-223). This runs as the first step of k60_adsp_bring_up(), which
+ * only exists after Data mount and which reaches AUTH_AND_RESET itself; the
+ * refusal therefore sits before the irreversible step it is protecting.
+ */
+int
+k60_rail_inherit(void)
+{
+	const K60RailLedger *led;
+	const char *rail = 0, *field = 0;
+	int verdict, gate = 0;
+
+	led = k60_rail_ledger();
+	if (led == 0 || led->magic != K60_RAIL_LEDGER_MAGIC || !led->recorded) {
+		/* HR-01 condition 2: this second restricted read site stays behind
+		 * the same explicit boot argument as the first one. */
+		if (!PE_parse_boot_argn("pong_rail_probe", &gate, sizeof(gate)) ||
+		    gate == 0) {
+			printf("K60ADSP: rails not measured: pong_rail_probe is "
+			    "off, so inheritance cannot be proven; refusing "
+			    "AUTH_AND_RESET\n");
+			return K60_RAIL_REFUSED;
+		}
+		if (rail_pass() != 0) {
+			printf("K60ADSP: rails not measured: cmd-db=%#llx or "
+			    "rsc=%#llx could not be mapped; refusing "
+			    "AUTH_AND_RESET\n",
+			    (unsigned long long)K60_CMD_DB_PHYS,
+			    (unsigned long long)K60_RSC_DRV2_PHYS);
+			return K60_RAIL_REFUSED;
+		}
+		led = k60_rail_ledger();
+	}
+	verdict = k60_rail_verdict(led, &rail, &field);
+	if (verdict == K60RailVerdictInherited) {
+		printf("K60ADSP: rails inherited lcx=%#x@%u level=%u "
+		    "lmx=%#x@%u level=%u (arc index, not mV)\n",
+		    led->lcx.resource_id, led->lcx.tcs_slot, led->lcx.level,
+		    led->lmx.resource_id, led->lmx.tcs_slot, led->lmx.level);
+		return 0;
+	}
+	if (verdict == K60RailVerdictInvalid) {
+		/* Wording differs from the missing case on purpose: a measured
+		 * but self-inconsistent rail is not a failed read. */
+		printf("K60ADSP: rail measured but invalid %s (%s); refusing "
+		    "AUTH_AND_RESET\n", rail ? rail : "?", field ? field : "?");
+		return K60_RAIL_REFUSED;
+	}
+	printf("K60ADSP: rail not inherited %s: %s missing; refusing "
+	    "AUTH_AND_RESET\n", rail ? rail : "lcx", field ? field : "record");
+	return K60_RAIL_REFUSED;
+}
+
 int
 k60_rail_probe(void)
 {
@@ -240,6 +522,18 @@ k60_rail_probe(void)
 		    "ctrl=%#x enable=%#x msgid=%#x addr=%#x data=%#x\n", w[0],
 		    (unsigned)((w[0] >> 16) & 0xff), l.tcs_stride, l.cmd_stride,
 		    l.control, l.cmd_enable, l.cmd_msgid, l.cmd_addr, l.cmd_data);
+
+		/* Same pass, same gate, single shot: if k60_adsp_bring_up()
+		 * already measured this boot, print that ledger instead of
+		 * mapping a second time (P-223). */
+		if (k60_rail_ledger() == 0) {
+			rail_record_pass(bytes, w, w[0]);
+		} else {
+			const K60RailLedger *led = k60_rail_ledger();
+
+			rail_print("lcx", &led->lcx);
+			rail_print("lmx", &led->lmx);
+		}
 	}
 	return 0;
 }

@@ -12,9 +12,9 @@ static void acquire(void)
 int k60_handoff_remote_ready(const K60BatteryConfig *c, const K60Smem *s,
     const K60SmemPartition *p, uint32_t *bytes, uint32_t *restart)
 {
-    uint32_t off, n;
-    if (!c || !s || !p || !bytes || !restart ||
-        k60_smem_find(s,p,(uint16_t)c->smp2p_item,&off,&n) ||
+    uint32_t off = 0, n = 0;
+    const int find_rc = (c && s && p) ? k60_smem_find(s,p,(uint16_t)c->smp2p_item,&off,&n) : -1;
+    if (!c || !s || !p || !bytes || !restart || find_rc ||
         (off & 3u) || n < 20u || n > 340u) return K60PublishNotReady;
     if (rd(s,off)!=0x504d5324u || (rd(s,off+4)&255u)!=1u ||
         rd(s,off+8)!=c->remote_pid) return K60PublishNotReady;
@@ -72,7 +72,7 @@ int k60_handoff_publish(const K60BatteryConfig *c,const K60Smem *s,uint32_t epoc
     K60HandoffPlan plan={K60AdspHandoffRequired,epoch,c->smem_base,(uint32_t)c->smem_bytes,
         c->adsp_base,(uint32_t)c->adsp_bytes,(uint16_t)c->desc_item,(uint16_t)c->tx_item,
         (uint16_t)c->rx_item,(uint16_t)c->smp2p_item,(uint16_t)c->remote_pid,
-        32u,4096u,4096u,n,0,0,restart};
+        32u,16384u,16384u,n,0,0,restart};
     stage=K60PublishBuildFailed;
     /* FIFO preparation belongs to the stopped-DSP PAS owner, not this live
      * publication path. Missing items are a dependency failure, never allocation. */
@@ -81,7 +81,7 @@ int k60_handoff_publish(const K60BatteryConfig *c,const K60Smem *s,uint32_t epoc
     /* Consumer demands exact item sizes; reject a previously allocated larger
      * ring rather than publish a lease the consumer cannot adopt. */
     const uint16_t ids[3]={(uint16_t)c->desc_item,(uint16_t)c->tx_item,(uint16_t)c->rx_item};
-    const uint32_t want[3]={32u,4096u,4096u};
+    const uint32_t want[3]={32u,16384u,16384u};
     for (unsigned i=0;!rc && i<3;i++) {
         rc=k60_smem_find(s,&part,ids[i],&off,&bytes);
         if (!rc && bytes!=want[i]) rc=-1;

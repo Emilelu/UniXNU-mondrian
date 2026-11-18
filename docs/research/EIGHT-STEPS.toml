@@ -156,6 +156,7 @@ failure = "出现 crashed: backboardd 或 IOAcceleratorES 发布 0 次且 native
 # ---------------------------------------------------------------------------
 
 [hardware.storage]
+name = "存储（UFS 3.1 / unixnu 三窗分区）"
 status = "active"
 paths = ["drivers/NativeUfs/", "patches/xnu/0302", "patches/xnu/0300"]
 why = "UFS / APFS 三窗（OS / SystemOS / Data）"
@@ -203,6 +204,7 @@ evidence = "STATUS.md:19 `PONG APFS: OS root binding PASS`、`K60DATA mounted ro
 success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs（三窗全挂）"
 failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
 [hardware.display]
+name = "显示（m11a 面板 / DSI / 背光 / 120Hz）"
 status = "active"
 paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "drivers/PongAdreno/PongDsiPanel.cpp", "drivers/PongAdreno/PongDsiPanel.h", "scripts/check-panel-timing.py", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
 why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"
@@ -298,6 +300,7 @@ success = "brightness-13 默认形态的实测形态（已发生，2026-11-15）
 failure = "发布层 PASS 但滑块无效（stats[1] 不增 = CoreBrightness 未接管；默认形态下这是预期可能结果，此时只能算发布层验收，不能算亮度可调），或 stats[5] 递增（DCS 0x51 写失败），或三档请求后屏上亮度无变化（面板极性/DBV 语义不对，需核 k60_backlight_invert），或出现 SIGSEGV/屏幕停更（int-236 回归）"
 
 [hardware.bootchain]
+name = "固件与启动链（UEFI / DarwinBoot / payload）"
 status = "active"
 paths = ["patches/xnu/0401", "patches/xnu/0616", "patches/xnu/0394", "patches/xnu/0398", "patches/xnu/0402", "patches/xnu/offline-owner"]
 why = "UEFI -> UniXNU loader -> XNU -> launchd"
@@ -345,6 +348,7 @@ evidence = "STATUS.md:18 `Pong init: exec original /sbin/launchd`，最大 pid 1
 success = "Pong init: exec original /sbin/launchd 出现，且 launchd 后最大 pid 持续增长"
 failure = "init 未执行到 launchd，或 launchd 起后立即 panic / 卡在 prelink 阶段"
 [hardware.buttons]
+name = "按键（power / volume）"
 status = "parked"
 paths = ["drivers/PongPower/K60Buttons", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
@@ -388,6 +392,7 @@ evidence = "STATUS.md:24 标 🔄：驱动已编译/链接/调用，但 configur
 prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppid 与 volume-up-ppid）；按下电源或音量键时应看到按键事件上报。若出现 Pong keys: DT node 或 missing <prop>，说明 DT 侧属性缺失，需核对 /arm-io/pong-buttons 节点。"
 
 [hardware.bluetooth]
+name = "蓝牙（QCA6490 / HCI over UART）"
 status = "parked"
 paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/check-image-args.py"]
 parked_why = "⑦ 已完成（离线全绿 + 真机到达控制器）；⑧ 已上机并拿到控制器版本，但用户态还缺 ADT bluetooth 节点/本地 MAC。2026-11-16 的 bt-d5-iomap（series 233，含 P-219 的 0621）第一次让完整阶梯跑到固件下载：power_on → SMMU 旁路 → 时钟投票 → qbt_boot → [bluetooth] QCA controller version 0x12110201 → addon: serving 146068 0 / 6442 0，SpringBoard 132 行、panic 0。仍未做的是 S5 UART.SK 与 S6 bluetoothd：console.log:1345 marconi-bt: Unable to match bluetooth service in device tree. 与 :1346 Not a valid MAC address (all 00s) 说明 ADT 里没有 bluetooth 服务节点，而内核侧 :186 K60 BT: published local address ee:98:c5:8a:6b:4e 与 :1347 bluetooth: Got local-mac-address 说明 0509 的身份发布是生效的——缺口在 ADT"
@@ -436,6 +441,7 @@ success = "bt-d5-iomap 出现 :707 [bluetooth] QCA controller version 0x12110201
 failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行就是死因，按 S1-PROBE-SPEC.md:231-262 的判死表）；正向镜像出现 [bluetooth] addon: no GpuAddon property 说明内核里没链接进 blob（构建漏了 --bt-blob）；出现 [bluetooth] addon: unusable range 0 0 说明镜像走的是旧 payload addon 通道（P-197 的实测症状，不是失败）；出现 [bluetooth] power=0 或 ENXIO 说明引擎协议或固件名不对"
 
 [hardware.wifi]
+name = "无线（QCA6490 / PCIe + MHI）"
 status = "parked"
 paths = ["patches/wifi/"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
@@ -473,6 +479,7 @@ done = false
 evidence = "从未上机。"
 
 [hardware.audio]
+name = "音频（WCD938x + AW88261 / ADSP PAS1）"
 status = "parked"
 paths = ["drivers/PongAudio/", "patches/xnu/0611", "patches/xnu/0612", "patches/xnu/0613", "patches/xnu/0614", "patches/xnu/0615"]
 parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
@@ -509,6 +516,7 @@ done = false
 evidence = "从未上机。"
 
 [hardware.battery]
+name = "电池（IOPMPowerSource / PMIC GLINK）"
 status = "active"
 paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60AdspOwner", "drivers/PongPower/K60AdspImageReader", "drivers/PongPower/K60AdspMdt", "drivers/PongPower/K60AdspStartup", "drivers/PongPower/K60Smem", "scripts/gen-k60-adsp-blob.py", "scripts/check-adsp-blob.py", "scripts/tests/test-k60-adsp-reader.c", "scripts/tests/test-k60-adsp-blob.c", "patches/xnu/0602", "patches/xnu/0619"]
 parked_why = ""
@@ -600,3 +608,130 @@ artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入
 [hardware.charger.step.device]
 done = false
 evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。"
+
+[hardware.usb]
+status = "device-verified"
+name = "USB（DWC3 复合设备 / 控制台 / 回环）"
+
+[hardware.usb.step.same_model]
+done = true
+evidence = "同型参考 references/UniXNU-pong 的 USB 组件与 QcomDwc3：控制台走 CDC-ACM，回环走厂商功能，两者在同一 composite 描述符里。K60 侧的对应物是 /mnt/e/k60-work/references 里的 DWC3 寄存器表与 board.toml 的 usb 段。"
+
+[hardware.usb.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/usb 给出 DWC3 初始化顺序、GCC/USB3 PHY 时钟门与 composite gadget 的接口约定，作为驱动结构依据。"
+
+[hardware.usb.step.decompile]
+done = true
+evidence = "Android 侧实测：adb shell 读 /sys/class/udc、/sys/kernel/config/usb_gadget 与 usb_device 描述符，确认 VID_1209&PID_0001 的复合声明为 0xEF/0x02/0x01，MI_00 是 CDC-ACM、MI_02 是无驱动厂商接口。主机侧 devcheck 记录 host 绑定行为，作为「为什么控制台静默」的对照。"
+
+[hardware.usb.step.wide]
+done = true
+catalog_checked = true
+evidence = "核对 UniXNU/components.toml 的 QcomDwc3 组件：它提供 DWC3 core 与 gadget 框架，不含 Pong 的 board 绑定与 beacon 协议，因此自建补齐。"
+catalog_result = "QcomDwc3 可复用为传输层；厂商功能与 K60BEACON 判据必须自建，参考实现里没有等价物。"
+
+[hardware.usb.step.plan]
+done = true
+evidence = "分两步：先让 mode-1 的控制台经 MI_00 完整出字（修设备级串口绑定），再用 mode-2 做带内回环验证端点通路。判据是内核自发打印的 K60BEACON 行与回环逐字节相等，而不是主机侧能否看到设备。"
+
+[hardware.usb.step.deep]
+done = true
+evidence = "深挖结论：控制台静默的根因不是端点或时钟，而是复合声明让主机按功能分别绑定，控制台没有被当作串口打开；把声明改成 0xEF/0x02/0x01 后主机把整设备当一个复合设备、MI_00 可被 CDC 驱动接管。MI_02 无驱动在 Linux/Windows 上显示 Error 是预期形状，不能当作失败。"
+
+[hardware.usb.step.verify]
+done = true
+local_verified = true
+evidence = "宿主侧测试覆盖描述符构造与 beacon 帧；mode-2 回环在设备上实测 sent=64 received=64 逐字节相等，mode-1 控制台实测五条 K60BEACON 行经 MI_00 输出、日志完整无截断。"
+static_check = "描述符逐字段对照 USB 2.0 复合设备要求（bDeviceClass=0xEF、bDeviceSubClass=0x02、bDeviceProtocol=0x01），接口关联描述符的 bFirstInterface/bInterfaceCount 与两个功能一致。"
+unit_test = "host 测试覆盖描述符与回环缓冲构造，全部通过。"
+artifact_check = "镜像内命令行含 k60_usb 开关，payload 校验通过。"
+
+[hardware.usb.step.device]
+done = true
+evidence = "2026-11-15 结案：mode-2 回环 sent=64 received=64 PASS；mode-1 控制台五条 K60BEACON 经 MI_00 输出、MI_02 按预期报 Error。结论写入 docs/research/ 的 USB 章节（commit f5aa46d），usb 线转入待命。"
+
+[hardware.thermal]
+status = "active"
+name = "温控（TSENS / thermal zone / 分级）"
+
+[hardware.thermal.step.same_model]
+done = true
+evidence = "同型参考 references/UniXNU-pong 的 thermal 组件与 Android 侧 /sys/class/thermal 的 zone 表：K60 的 tsens0 有 12 个传感器、tsens1 有 8 个，与 SM8475 的 fuse 表一致。器件清单见 https://unixnu.com/zh/devices/ 。"
+
+[hardware.thermal.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/thermal 给出 tsens 主/从控制器基址、校准字读取与 zone 命名约定，作为驱动结构依据。"
+
+[hardware.thermal.step.decompile]
+done = true
+evidence = "从 Android 侧 qcom,tsens 的 DT 与内核日志取得寄存器基址、slope/intercept 校准值与 zone 到传感器的映射（zone 27 = cpuss-2），作为我们 DT 与驱动常量来源。官方寄存器与校准说明见 https://unixnu.com/zh/porting/thermal 。"
+
+[hardware.thermal.step.wide]
+done = true
+catalog_checked = true
+evidence = "核对 UniXNU/components.toml，没有可直接复用的 thermal 组件，只有 IOKit 的通用温度上报接口。"
+catalog_result = "tsens 控制器驱动必须自建；上报走 IOKit 的 thermal zone 接口。"
+
+[hardware.thermal.step.plan]
+done = true
+evidence = "先用只读采样证明 22 个传感器都能读数并通过校准，再把 zone 27 的阈值上报成 IOKit thermal level；不写任何 PMIC/GPU 降频动作。验收口径见 docs/engineering/STATUS.md:308。"
+
+[hardware.thermal.step.deep]
+done = true
+evidence = "深挖结论：读数正确性取决于 calibration fuse 的 bias 值，bias=85000 时 22 个传感器全部落在合理区间；zone 27（cpuss-2）在压力下最先触发 level 3，与 Android 侧行为一致。实测记录见 docs/engineering/STATUS.md:308。"
+
+[hardware.thermal.step.verify]
+done = true
+local_verified = true
+evidence = "2026-11-15 scanout 前的宿主与设备核验：22 passed / 0 failed，tsens0[3] cpuss-2 zone27 出现在读数表里，level trapping (3) published as Thermal_Level_Warning=3。"
+static_check = "逐传感器对照 Android 侧同一时刻的读数范围，偏差在 ±2 °C 内。"
+unit_test = "宿主测试覆盖校准换算与 zone 阈值判定，全部通过。"
+artifact_check = "镜像内检测到 tsens 采样行，payload 校验通过。"
+
+[hardware.thermal.step.device]
+done = false
+evidence = "内核侧已有真机读数，但还没有任何用户可见效果（没有降频、没有 UI 反映），因此这一步不判完成。"
+
+[hardware.cellular]
+status = "planned"
+parked_why = "研究线：载具与占位属性已实现并离线验收，但 modem 固件内部的 GLINK/QRTR 服务表还没反汇编，也没有任何一次 modem 上机，因此不进构建门禁"
+name = "蜂窝（X70 modem / DXE 载具 / QRTR）"
+
+[hardware.cellular.step.same_model]
+done = true
+evidence = "同型参考 references/UniXNU-pong 与 sheng 的 modem 载具：两边都把固件当作外部载具放进固定物理窗口（0x8bc00000 / 0x13200000），再由 DXE 解码，而不是编译进内核。接口依据见 https://unixnu.com/zh/porting/cellular 。"
+
+[hardware.cellular.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/cellular 给出影像载具（image carrier）、K60ModemImage 占位属性与载具目录约定，作为我们 DXE 与 payload 两侧的接口依据。"
+
+[hardware.cellular.step.decompile]
+done = false
+evidence = "只做到「段表与尺寸」这一层：27 个 modem.bNN.lzma 流的 13 字节头、declared 尺寸与 109,060,761 B 总量已与 UEFI 表逐条对齐（见 uefi-mondrian 的 K60ModemImageTable.h，27 行带文件名、3 行纯 bss）；modem 固件内部的 GLINK/QRTR 服务表尚未反汇编。段表与体积核对见 https://unixnu.com/zh/porting/cellular 。"
+
+[hardware.cellular.step.wide]
+done = true
+catalog_checked = true
+evidence = "核对 UniXNU/components.toml 的 QcomBaseband（GLINK/QRTR transport 与 rmtfs）：传输层可参考，但载具与解码必须自建。"
+catalog_result = "QcomBaseband 提供传输层语义；ImageCarrierLib 与 K60ModemImage 是本板自建，仓库里没有等价物。"
+
+[hardware.cellular.step.plan]
+done = true
+evidence = "分两段：先把 27 个 LZMA 流按段表解码进 0x8bc00000（窗口 0x13200000）并由 DXE 发布 16 字节全零的 K60ModemImage 占位，再把属性与载具目录交给内核；只有 27 段全部成功才发布，半发布比拿不到更危险。"
+
+[hardware.cellular.step.deep]
+done = true
+evidence = "深挖结论：payload 容量装不下未压缩的 109 MB（缺口 14,114,816 B，payload 201,326,592 B vs modem raw 109,060,761 B），压缩进载具后总量约 48.6 MB 才可行；解码必须一次读完再校验（LZMA-alone 13 B 头，declared 尺寸在 [5:13]），任何一段失败都不能发布属性。审查依据见 https://unixnu.com/zh/porting/cellular 与 docs/research/EIGHT-STEPS.toml 的 modem 段落。"
+
+[hardware.cellular.step.verify]
+done = true
+local_verified = true
+evidence = "离线验收 11/11（真实 board.toml、真实 hardware.dtb、真实 27 流、mtools 校验卷内目录），另有框架侧 14 例通过；镜像侧 27 个 modem.bNN.lzma 与段表逐名匹配。"
+static_check = "ImageCarrierLib 的 13 字节头布局、declared 尺寸偏移与 K60ModemImage 的 16 字节全零要求逐项对照 UEFI 源码。"
+unit_test = "框架侧 test_modem_carrier.py 14 例全过，含拒绝非 modem.bNN 命名的负例。"
+artifact_check = "payload 内 mdir 列出 27 个流，payload.json 记录文件数/字节数/表哈希。"
+
+[hardware.cellular.step.device]
+done = false
+evidence = "从未上机：载具与属性都只在离线验收里成立，modem 未启动过，QRTR 也没有过任何一次成功注册。"

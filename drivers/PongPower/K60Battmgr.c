@@ -25,7 +25,8 @@ static const struct { uint8_t opcode, property; } fields[K60BmFields] = {
     {OP_BATTERY, 9}, {OP_BATTERY, 13}, {OP_USB, 0}, {OP_USB, 1},
     {OP_USB, 7}, {OP_USB, 4}, {OP_USB, 5}, {OP_WIRELESS, 0},
     {OP_BATTERY, 18}, {OP_BATTERY, 17}, {OP_BATTERY, 16},
-    {OP_BATTERY, 20}, {OP_BATTERY, 21}, {OP_BATTERY, 19}
+    {OP_BATTERY, 20}, {OP_BATTERY, 21}, {OP_BATTERY, 19},
+    {OP_USB, 3}
 };
 static uint32_t le32(const uint8_t *p)
 {
@@ -41,7 +42,7 @@ static void zero(void *p, unsigned bytes)
 }
 static void begin_cycle(K60Battmgr *b)
 {
-    b->cursor = 0; b->fresh = b->completed = 0;
+    b->cursor = 0; b->fresh = b->completed = b->failed = 0;
     b->cycle_active = 1; b->refresh_due = b->sample_dirty = 0;
 }
 void k60_battmgr_init(K60Battmgr *b, int sign, unsigned reply_type, unsigned reply_bytes)
@@ -56,7 +57,7 @@ void k60_battmgr_init(K60Battmgr *b, int sign, unsigned reply_type, unsigned rep
 }
 void k60_battmgr_channel_down(K60Battmgr *b)
 {
-    b->valid = b->fresh = b->completed = b->last_fresh = b->last_completed = 0;
+    b->valid = b->fresh = b->completed = b->last_fresh = b->last_completed = b->failed = 0;
     b->flight = FLIGHT_NONE; b->cycle_active = b->subscribed = b->subscribe_due = 0;
     b->refresh_due = b->poisoned = b->sample_dirty = 0;
 }
@@ -114,7 +115,7 @@ static int value_valid(unsigned f, int32_t v)
     case K60BmTemperature: return v >= -4000 && v <= 9000;
     case K60BmUsbVoltage: return v >= 0 && v <= 30000000;
     case K60BmUsbAdapter: return (v >= 0 && v <= 10) || (v >= 0x80 && v <= 0x84);
-    case K60BmUsbMaxCurrent: case K60BmUsbInputLimit: return v >= 0 && v <= 15000000;
+    case K60BmUsbMaxCurrent: case K60BmUsbInputLimit: case K60BmUsbCurrent: return v >= 0 && v <= 15000000;
     case K60BmFull: case K60BmDesign: return v >= 100000 && v <= 20000000;
     case K60BmCycles: return v >= 0 && v <= 100000;
     case K60BmTimeToFull: case K60BmTimeToEmpty:
@@ -139,9 +140,20 @@ static int model_valid(K60Battmgr *b, const uint8_t *data)
 static int finish_field(K60Battmgr *b)
 {
     b->flight = FLIGHT_NONE;
-    if (++b->cursor < K60BmFields) return K60BmAnswer;
+    if (++b->cursor < K60BmFields) {
+        /* CURRENT_NOW is optional: the ADSP property-9 getter never answered
+         * on the actual K60, and a request that times out poisons the epoch.
+         * The sample still carries every other measured property. */
+        if (b->cursor == K60BmCurrent) b->cursor++;
+        return K60BmAnswer;
+    }
     b->last_fresh = b->fresh; b->last_completed = b->completed;
-    b->cycle_active = 0; b->generations++;
+    b->cycle_active = 0;
+    /* A notification that arrived during this cycle must not discard the
+     * completed sample: keep the extra cycle request, publish what completed. */
+    if (b->sample_dirty) b->refresh_due = 1;
+    b->sample_dirty = 0;
+    b->generations++;
     return K60BmCycleDone;
 }
 int k60_battmgr_receive(K60Battmgr *b, const uint8_t *data, unsigned bytes)
@@ -177,7 +189,7 @@ int k60_battmgr_receive(K60Battmgr *b, const uint8_t *data, unsigned bytes)
     if (f == K60BmModel && bytes == 16 + K60_BATTMGR_MODEL_BYTES) {
         b->responses++; b->completed |= BIT(f);
         if (model_valid(b, data + 16)) {b->valid |= BIT(f); b->fresh |= BIT(f);}
-        else {b->valid &= ~BIT(f); b->errors++;}
+        else {b->valid &= ~BIT(f); b->failed |= BIT(f); b->errors++;}
         return finish_field(b);
     }
     if (bytes != 24) {b->ignored++; return K60BmIgnored;}
@@ -187,7 +199,7 @@ int k60_battmgr_receive(K60Battmgr *b, const uint8_t *data, unsigned bytes)
     if (!result && f != K60BmModel && value_valid(f, value)) {
         b->value[f] = value; b->valid |= BIT(f); b->fresh |= BIT(f);
     } else {
-        b->valid &= ~BIT(f); b->errors++;
+        b->valid &= ~BIT(f); b->failed |= BIT(f); b->errors++;
     }
     return finish_field(b);
 }
@@ -195,6 +207,7 @@ void k60_battmgr_timeout(K60Battmgr *b)
 {
     if (b->flight == FLIGHT_NONE) return;
     b->timeouts++; b->poisoned = 1;
+    b->failed |= ((1u << K60BmFields) - 1) & ~b->completed;
     b->valid = b->fresh = b->completed = b->last_fresh = 0;
     b->cycle_active = 0;
 }
@@ -202,24 +215,27 @@ void k60_battmgr_timeout(K60Battmgr *b)
 int k60_battmgr_sample(const K60Battmgr *b, K60BatterySample *s)
 {
     const uint32_t battery = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
-        BIT(K60BmVoltage) | BIT(K60BmCurrent) | BIT(K60BmTemperature) |
+        BIT(K60BmVoltage) | BIT(K60BmTemperature) |
         BIT(K60BmFull) | BIT(K60BmDesign) | BIT(K60BmCycles);
     const uint32_t source = BIT(K60BmUsbOnline) | BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline);
     const uint32_t required = battery | source;
     if (!s || b->poisoned || b->sample_dirty ||
         (b->last_fresh & (source | BIT(K60BmPresent))) != (source | BIT(K60BmPresent))) return 0;
     if (!b->value[K60BmPresent]) {
-        zero(s, sizeof(*s)); s->valid = b->last_fresh;
+        zero(s, sizeof(*s)); s->valid = b->last_fresh; s->failed = b->failed;
+        for (unsigned i = 0; i < K60BmFields; ++i) s->raw[i] = b->value[i];
         s->external = b->value[K60BmUsbOnline] || b->value[K60BmUsbVoltage] >= 4000000 || b->value[K60BmWirelessOnline];
         return 1;
     }
-    if (!b->charging_current_sign || (b->last_fresh & required) != required) return 0;
+    if ((b->last_fresh & required) != required) return 0;
     /* UNKNOWN status is not a fabricated charging/discharging conclusion. */
     if (!b->value[K60BmStatus]) return 0;
     const uint32_t full = (uint32_t)b->value[K60BmFull], design = (uint32_t)b->value[K60BmDesign];
     if ((uint64_t)full * 2 < design || (uint64_t)full > (uint64_t)design * 3 / 2) return 0;
     zero(s, sizeof(*s));
-    s->valid = b->last_fresh; s->present = 1;
+    s->valid = b->last_fresh; s->failed = b->failed;
+    for (unsigned i = 0; i < K60BmFields; ++i) s->raw[i] = b->value[i];
+    s->present = 1;
     const int usb = b->value[K60BmUsbOnline] != 0 || b->value[K60BmUsbVoltage] >= 4000000;
     s->usb_connected = usb;
     s->external = usb || b->value[K60BmWirelessOnline] != 0;
@@ -233,7 +249,17 @@ int k60_battmgr_sample(const K60Battmgr *b, K60BatterySample *s)
     s->current_mah = (uint32_t)(((uint64_t)s->capacity_hundredths * full + 5000000) / 10000000);
     if (s->current_mah > s->full_mah) s->current_mah = s->full_mah;
     s->voltage_mv = (uint32_t)b->value[K60BmVoltage] / 1000;
-    s->current_ma = b->charging_current_sign * (b->value[K60BmCurrent] / 1000);
+    if ((b->last_fresh & BIT(K60BmCurrent)) && b->charging_current_sign) {
+        s->current_ma = b->charging_current_sign * (b->value[K60BmCurrent] / 1000);
+        s->current_source = K60BatteryCurrentCell;
+    }
+    /* The battery CURRENT_NOW getter is silent on this ADSP, but the USB
+     * power-supply domain reports the measured input current. It is a fair
+     * positive charging current while external power is present. */
+    if (!s->current_ma && s->charging && (s->valid & BIT(K60BmUsbCurrent))) {
+        s->current_ma = b->value[K60BmUsbCurrent] / 1000;
+        s->current_source = K60BatteryCurrentUsb;
+    }
     if ((status == 2 && s->current_ma > 0) || (status == 1 && s->current_ma < 0)) return 0;
     s->temperature_hundredths = b->value[K60BmTemperature]; s->cycles = (uint32_t)b->value[K60BmCycles];
     s->time_remaining_min = -1;

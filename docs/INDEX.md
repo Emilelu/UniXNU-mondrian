@@ -63,6 +63,7 @@ docs/
 | [`ENVIRONMENT.md`](engineering/ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
 | [`LOCAL-ASSETS.md`](engineering/LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
+| [`DISK-HYGIENE.md`](engineering/DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据、回收顺序、WSL 虚拟盘压缩（需管理员） |
 | [`README.md`](engineering/README.md) | 本目录的简介与阅读顺序 |
 
 ---
@@ -86,6 +87,13 @@ docs/
 | `wifi/RESEARCH.md` | **WiFi 八步 ①②③**：Pong 同 SoC 同芯片的 PCIe0 冷启动、PWF2 固件包、K60 本机真值 |
 | `wifi/BOOT-DEATH-BISECT.md` | **WiFi series 死因考古（静态）**：0618 MHI 注入不存在、0011 stage 门与 229 series 均被对照排除，剩余差异与缺失的对照格子 |
 | `wifi/BLOB-RESIDENCY.md` | **11.19 MB 固件 blob 与装载边界**：最窄余量 1.14×（117 MB 镜像 vs `ReadFile` 128 MB），可证伪判断、五格判别矩阵、全家族实测段表与 `z0` 上机判决（silent） |
+| `wifi/BOOT-DEATH-SUSPECT.md` | **WiFi ⑧ 死因账本**：mhi3/mhi4 静默前无任何内核输出的证据、过期内核混淆项、四个嫌疑（__TEXT 11.2 MB 固件 blob / 窗口算术 / 退役 touch 探针 / `pong_wifi=1`）与逐个反证方法 |
+| `wifi/T2-PATCH.md` | **WiFi T2 备胎补丁**：把 11.19 MB PWF2 容器从 `__TEXT,__const` 挪到 `__DATA,__const` 的一行 diff（已验证可正反向 apply）、t2 构建配方、飞行前三项离线校验 |
+| `wifi/MSI-TOPOLOGY.md` | **WiFi 中断拓扑**：PCIe0 的三条 MSI 路径（PARF `MSI0`→SPI140/INTID172 实走、DT `msi-map` 指向 ITS 的 `0x5980`/`0x5981`、`pcie0_msi` 32 条 SPI 768..799 已 disabled）、为什么选 legacy、单 INTID 能看见与看不见什么、c5/c6 飞行证据 |
+| `wifi/SBL-QUEUE.md` | **WiFi SBL 队列候选**：c7 的 `ee=0 exec_env=1` 与官方 `MhiBoot.c` 的 `BHI_EXECENV` 轮询/BHIe 路径、`pong_sbl_pushed` 一次锁、`wifi-20261118sbl-gated` 镜像身份与首飞失败记录 |
+| `wifi/SBL-DIRECT.md` | **WiFi SBL 直接推送候选**：队列路径在 `mhi_sync_power_up` 超时后失效的复盘、同一 worker pass 直接调用 `mhi_download_amss_image` 的官方等价实现、`BHIE_TXVECSTATUS` 诊断与 `wifi-20261118sbl-direct` 判据 |
+| `wifi/SBL-MISSION.md` | **WiFi SBL mission 轮询候选到可用网络**：直接 BHIe 后缓存 `ee=1` 导致 `mhi_sync_power_up` 超时；mission4 将 `ready_timeout_ms` 延到 60 s 并创建 IPCR 通道；mission8 首次 WPA2 关联；mission9 用 4 参数 `initWithTask` 修掉打开 IONetworkStack 的 panic；mission10 让 namer 找到服务；mission11 由原生 configd/IPConfiguration 取得 192.168.31.134 并验证 RX/TX，mission13 从头再飞一次：DHCP 192.168.31.227、in 23,397 / out 28,455、tcp443 in 22,315 / out 27,138，26/26 judge 通过（应用探针 job 未运行，记入 limits） |
+| `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 
@@ -101,6 +109,7 @@ docs/
 | `charger/05-OPEN-QUESTIONS.md` | **充电器未决结案**：+0xc 不对称、`0x37` shutdown、`0x48` 未识别、type 1/2、`check_status_work` 四条请求、无线升级 0x40–0x44/0x51，附 bcdev 字段表 30 项 |
 | `charger/06-SUBSCRIPTION-CONSTANT.md` | **订阅应答常量定值**：`K60_BATTERY_NOTIFY_REPLY_TYPE = 1` / `_BYTES = 16`，依据 ADSP opcode-0x04 handler `0x60155910` 逐指令 + 四字节锚点 + 全固件 30 处 `0x800a` 组包点穷举；含生成器/测试落点与交给 touch agent 的交接段 |
 | `charger/07-DEVICE-CRITERIA.md` | **充电器 ⑧ 判据**：订阅成立（`subscription-ack=1/16` → `subscribed=1`）、四属性区间（3.3–5.0 V / 0.1–6 A / 1–100 % / 0–60 °C）、与 Android 同窗口（±60 mV、±150 mA 仅 \|I\|≥100 mA、±3 pp、±3 °C，ΔT≤10 s），每条附失败行原文 |
+| `charger/10-POWER-DOC-CONFORMANCE.md` | **电池上报 §4 逐条对照**：协议五要素、单请求/超时、有效-失败位图、原始值→OS 换算、register/updateStatus、adapter、断链 stale；逐条挂 `K60Battmgr.c` / `K60Battery.cpp` 行号与 route-c 实测值，未闭项单列 |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |
 | `memory/RESEARCH.md` | **内存布局结论层（本板真值）**：DDR 保留区与寄存器窗口，以及跨板边界——DXE Heap `0xC7000000` 与 Kernel `0xBB000000` 绝不可跨板抄 |
@@ -137,6 +146,7 @@ docs/
 | `plans/K60-TOUCH-PARAMS.md` | K60 Goodix / GENI-SPI 触摸参数表 |
 | `plans/120HZ-PORT-PLAN.md` | 120Hz 移植方案 |
 | [`plans/WIFI-REBUILD-CHECKLIST.md`](plans/WIFI-REBUILD-CHECKLIST.md) | **WiFi 对照镜像重出核对清单**：从 origin/main 按 4.5 GiB 窗口重出，对照 mhi3/mhi4 逐字段；五条硬差异（0010 装配路径、series 224 vs 229、`.config` 开关、buttons 节点、freeze 盲区） |
+| [`plans/WIFI6-WPA3-PLAN.md`](plans/WIFI6-WPA3-PLAN.md) | **Wi-Fi 6 / WPA3 方案**：HE 只发 HE Cap（HE Operation 由 AP 发）、先解析关联响应再触发 `BSS_CHANGED_ASSOC`；SAE 必须先迁控制面，再补 EC/BN provider，含 P0–P4 与证据清单 |
 | 其余 | 见目录 |
 
 ---

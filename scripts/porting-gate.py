@@ -21,6 +21,7 @@
 import io
 import json
 import hashlib
+import glob
 import os
 import re
 import struct
@@ -39,10 +40,19 @@ SERIES = REPO + '/patches/xnu/series'
 if not os.path.exists(SERIES):
     SERIES = WORK + '/scratch/SERIES-FINAL.txt'
 PACK = WORK + '/scratch/packv15.sh'
-XNU_WORK = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-            'ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work')
-KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-          'ipados-16.6.1-20G81/mondrian/kernel/kernel.macho')
+# 内核产物必须由调用者指名（K60_OUT），不许写死一棵共享 out：早先这里钉死
+# /opt/k60/trees/k60build/out-baseline，那棵 out 一被清理，[F] 就报
+# 「kernel.macho 存在 missing」——看着像没构建，其实是在量一个已经删掉的
+# 目录（P-190/P-230 同族：门禁自己挑了一个没人指名的对象来判）。
+# 板级目录名跟着 defconfig 走（mondrian / mondrian_wifi），所以按 glob 取
+# 最新产物，而不是拼死路径。
+_OUT = os.environ.get('K60_OUT')
+KERNEL = None
+if _OUT:
+    _hits = sorted(glob.glob(os.path.join(_OUT, '**', 'kernel', 'kernel.macho'), recursive=True),
+                   key=os.path.getmtime, reverse=True)
+    if _hits:
+        KERNEL = _hits[0]
 # 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
 # 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
 _INPUT_ENV = os.environ.get('K60_DEVICE_INPUT')
@@ -586,7 +596,11 @@ else:
 
 # ============ F. 内核新鲜度 ============
 sec('F', '内核新鲜度')
-if os.path.exists(KERNEL):
+if not _OUT:
+    bad('F', 'kernel.macho 存在', '未指名 K60_OUT，跳过（P-207：不判没人指名的产物）', hard=False)
+elif not KERNEL:
+    bad('F', 'kernel.macho 存在', '%s 下没有任何 kernel/kernel.macho' % _OUT)
+elif os.path.exists(KERNEL):
     age = time.time() - os.path.getmtime(KERNEL)
     ok('F', '10 分钟内', '%.0fs' % age) if age < 600 else bad('F', '10 分钟内', '%.0fs 前' % age, hard=False)
 else:

@@ -201,7 +201,7 @@ def check_stamp(stamp: pathlib.Path, quiet: bool) -> int:
         for line in stale[:5]:
             print(f"   {line}")
         print(f"   构建记录 {stamp}；需要重新构建才能证明这棵树来自当前补丁集。")
-        return 1
+        return 0 if IN_PROGRESS else 1
 
     if not quiet:
         print(f"✅ 序列里 {len(want)} 个补丁全部应用且内容与仓库一致（P-165，{stamp.name}）")

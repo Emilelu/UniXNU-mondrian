@@ -400,7 +400,7 @@ static int receive_one(QcomGlink *g)
             rx_peek(&g->rx, 8 + 8 * i, pair, 8);
             if (!c) continue;
             const uint32_t size = le32(pair), id = le32(pair + 4);
-            if (!size || !id) return QcomGlinkCorrupt;
+            if (!size) {g->dropped++; continue;} /* id 0 is a valid GLINK intent; only a zero-size placeholder is useless */
             unsigned slot = QCOM_GLINK_MAX_REMOTE_INTENTS;
             for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
                 if (c->remote[k].valid && c->remote[k].id == id) {slot = k; break;}

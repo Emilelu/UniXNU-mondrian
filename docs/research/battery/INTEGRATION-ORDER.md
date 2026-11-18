@@ -33,9 +33,9 @@ flowchart TD
 |---|---|---|---|
 | runtime preflight | k60_adsp_handoff_publish：永久 startup owner1 claim；生成配置、XNU RAM overlap、/chosen duplicate 检查；预分配 OSData。 | 默认关闭门控成功；电池宏启用。 | provider 有副作用、SMEM/TCSR map。 |
 | 阶段1 claim | k60_owner_claim：完整 available/backend/reader、MDT验证、排他 cookie/epoch、资源和 stopped/live 证明，再 map 和短 TCSR probe。 | Lead 的早期 carrier/SCM/资源路径已经可用；不得等待 rootfs。 | FIFO 准备和任何 PAS 写操作；缺依赖 -1000 早于 mapping。 |
-| 阶段2 stopped prepare | k60_owner_prepare_pas1：短 TCSR 下 partition 查找，fresh478/479/480分配32/4096/4096；拒绝旧 host items，不创建443。 | 逻辑排他 lease 持续；PAS stopped。 | AUTH/start。partial失败不可重试为fresh。 |
+| 阶段2 stopped prepare | k60_owner_prepare_pas1：短 TCSR 下 partition 查找，精确尺寸的既有429/478/479/480清零复用，缺失项按340/32/16384/16384分配并初始化SMP2P master-kernel输出项429；不创建443。 | 逻辑排他 lease 持续；PAS stopped。 | AUTH/start。partial失败不可重试为fresh。 |
 | 阶段3 / 六步1 PAS1 | k60_owner_auth_and_start：INIT metadata一次 → reloc MEM_SETUP → COPY/BSS/CACHE → AUTH_AND_RESET。 | stopped/资源/排他有效；reader bytes pin到load；实际物理装载和cache同步由后端完成。 | public Authenticated bit0、ready；此时仍无 native lease。 |
-| 阶段4 / 六步2 SMP2P | k60_owner_build_handoff 调 ready；backend自己短锁发现443，再由core短锁复核partition/ready/restart/全零descriptor/items。 | PAS成功且public facts15；plan.required15/epoch匹配。 | 最终序列化锁；不通过则不build、不写chosen。 |
+| 阶段4 / 六步2 SMP2P | k60_owner_build_handoff 调 ready；backend自己短锁发现443，再由core短锁复核partition/ready/restart/descriptor word1-2/items。 | PAS成功且public facts15；plan.required15/epoch匹配。 | 最终序列化锁；不通过则不build、不写chosen。 |
 | 阶段4 / 六步3–5 | 解锁重验 live，再 lock；只 k60_handoff_build_existing + consumer self-parse；unlock后核对offsets/epoch/restart。builder本身不锁。 | discovery已解锁、逻辑lease仍pin；final TCSR成功。 | 内部build/self-parse bit1及native lease；公共bit1始终ResourcesHeld。 |
 | 阶段5 / 六步6 | k60_owner_publish：registry root/exists、owner live、ready/restart和blob/epoch检查，runtime commit内append/self-parse并runPropertyAction原子无覆盖写104字节。 | final TCSR已释放；callback不执行于该临界区。 | 同步返回、IOBSD、physical battery，因此也早于setconf/root挂载。 |
 
@@ -43,7 +43,7 @@ flowchart TD
 
 ## 逻辑所有权与短锁
 
-软件排他 session 从claim持续覆盖阶段2–4和stage5 commit；copy配置/ops且context/reader持久，不能使用runtime栈寿命作为资源寿命。短TCSR分别用于probe、stopped allocation、ready discovery、core discovery和final build/parse；每次成功取得才恰好解锁一次。ready回调必须有界、只在解锁后sleep，未来硬件后端需落实时限，本轮没有可运行的真实polling实现。
+软件排他 session 从claim持续覆盖阶段2–4和stage5 commit；copy配置/ops且context/reader持久，不能使用runtime栈寿命作为资源寿命。短TCSR分别用于probe、stopped allocation、ready discovery、core discovery和final build/parse；每次成功取得才恰好解锁一次。ready回调必须有界、只在解锁后sleep；本板 K60AdspPlatform 已以 5000×1 ms 有界轮询实现。
 
 最终TCSR区只包含build_existing+self-parse，不包含PAS/owner callback、日志、sleep、OSData或registry操作。核心stage诊断为 K60ADSP owner stage=%d rc=%d，解锁后才输出。TCSR不冻结DSP；逻辑平台排他契约必须覆盖所有解锁窗口，restart检查不能防止未来崩溃。
 

@@ -82,7 +82,7 @@ static inline int fx_available(void *context, const K60BatteryConfig *c)
     fx_outside(f); ++f->available_calls;
     CHECK(c->smem_base == UINT64_C(0x80900000) && c->smem_bytes == FX_SMEM_BYTES);
     CHECK(c->adsp_base == UINT64_C(0x9fd00000) && c->adsp_bytes == 0x3100000u);
-    CHECK(c->mutex_base == 0x1f4100cu && c->ipcc_base == 0xed18000u);
+    CHECK(c->mutex_base == 0x1f43000u && c->ipcc_base == 0xed18000u);
     CHECK(c->remote_pid == 2 && c->ipcc_client == 3 && !c->ipcc_signal);
     return f->available_value;
 }
@@ -169,7 +169,7 @@ static inline void fx_unlock(void *context)
             const uint32_t tag = fx_get(f, FX_PART + at), n = fx_get(f, FX_PART + at + 4);
             CHECK((tag & 65535u) == 0xa5a5u);
             CHECK((tag >> 16) == 478u + f->allocations);
-            CHECK(n == (f->allocations ? 4096u : 32u));
+            CHECK(n == (f->allocations ? 16384u : 32u));
             CHECK(fx_zero(fx_bytes(f) + FX_PART + at + 16, n));
             ++f->allocations; at += 16 + n;
         }
@@ -252,7 +252,7 @@ static inline int fx_commit(void *context, const uint8_t *blob, size_t n)
 static inline void fx_case(OwnerFixture *f, const char *name)
 {
     memset(f, 0, sizeof *f); f->owner = &f->session; fx_name = name; ++fx_cases;
-    f->config = (K60BatteryConfig){UINT64_C(0x80900000), FX_SMEM_BYTES, 0xed18000u, 0x1f4100cu,
+    f->config = (K60BatteryConfig){UINT64_C(0x80900000), FX_SMEM_BYTES, 0xed18000u, 0x1f43000u,
         UINT64_C(0x9fd00000), 0x3100000u, 2, 3, 0, 478, 479, 480, 443, 1, 0};
     f->epoch = 0x13579bdfu; f->available_value = f->live_value = f->stop_after_shutdown = 1;
     f->ready_bytes = 40; f->ready_restart = 1; f->root_value = 1;
@@ -261,7 +261,7 @@ static inline void fx_case(OwnerFixture *f, const char *name)
         fx_lock, fx_unlock, fx_init, fx_mem, fx_load, fx_auth, fx_shutdown, fx_ready, fx_report};
     f->publish = (K60OwnerPublishOps){fx_root, fx_exists, fx_commit};
     f->plan = (K60HandoffPlan){15, f->epoch, f->config.smem_base, FX_SMEM_BYTES,
-        f->config.adsp_base, 0x3100000u, 478, 479, 480, 443, 2, 32, 4096, 4096, 40, 0, 0, 1};
+        f->config.adsp_base, 0x3100000u, 478, 479, 480, 443, 2, 32, 16384, 16384, 40, 0, 0, 1};
     /* ELF32LE ET_EXEC/Hexagon: PT_NULL prefix + hash + relocatable PT_LOAD. */
     uint8_t *m = f->mdt;
     m[0] = 0x7f; m[1] = 'E'; m[2] = 'L'; m[3] = 'F'; m[4] = m[5] = m[6] = 1;
@@ -286,8 +286,11 @@ static inline void fx_case(OwnerFixture *f, const char *name)
     fx_put(f, FX_PART + 16, FX_PART_BYTES);
     K60Smem smem = {fx_bytes(f), FX_SMEM_BYTES}; K60SmemPartition part; uint32_t n;
     CHECK(!k60_smem_partition(&smem, 0, 2, &part));
-    /* Only the remote fixture creates item 443, before the owner starts. */
+    /* The remote fixture creates item 443; the owner fixture keeps the
+     * outbound SMP2P item 429 already present so stage 2 must reclaim it. */
     CHECK(!k60_smem_alloc(&smem, &part, 443, 40, &f->remote_offset, &n) && n == 40);
+    uint32_t smp2p_out = 0;
+    CHECK(!k60_smem_alloc(&smem, &part, 429, 340, &smp2p_out, &n) && n == 340);
     fx_put(f, f->remote_offset, 0x504d5324u); fx_put(f, f->remote_offset + 4, 1);
     fx_put(f, f->remote_offset + 8, 2); fx_put(f, f->remote_offset + 12, 0x10001);
     fx_put(f, f->remote_offset + 16, 1); memcpy(fx_bytes(f) + f->remote_offset + 20, "slave-kernel", 13);

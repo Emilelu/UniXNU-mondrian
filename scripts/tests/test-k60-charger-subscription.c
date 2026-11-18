@@ -108,6 +108,168 @@ int main(void)
     expect(k60_battmgr_receive(&b, in, 16) == K60BmNotified, "type 2 opcode 7 notification accepted");
     expect(b.notifications == 1, "notification counted");
 
+    /* 8. CURRENT_NOW (field 4 / property 9) is optional and never requested. */
+    {
+        K60Battmgr s;
+        const uint32_t props[4] = {0u, 2u, 4u, 7u};
+        const int32_t values[4] = {1, 1, 5000, 4300000};
+        k60_battmgr_init(&s, 0, 0, 0);
+        k60_battmgr_channel_up(&s);
+        for (unsigned i = 0; i < 4; ++i) {
+            expect(k60_battmgr_next(&s, frame) == K60_BATTMGR_REQUEST_BYTES, "property request is 24 B");
+            expect(le32(frame + 16) == props[i], "property order before the current field");
+            k60_battmgr_sent(&s);
+            ack(in, 24, 1u, 0x30u, 0u);
+            put(in, 12, props[i]);
+            put(in, 16, (uint32_t)values[i]);
+            expect(k60_battmgr_receive(&s, in, 24) == K60BmAnswer, "battery property answered");
+        }
+        expect(k60_battmgr_next(&s, frame) == K60_BATTMGR_REQUEST_BYTES, "next request after voltage is 24 B");
+        expect(le32(frame + 16) == 13u, "CURRENT_NOW property 9 is skipped");
+    }
+
+    /* 9. A notification during a cycle must not discard the completed sample. */
+    {
+        K60Battmgr d;
+        K60BatterySample sample;
+        k60_battmgr_init(&d, 0, 0, 0);
+        d.cycle_active = 1;
+        d.cursor = K60BmFields - 1;
+        d.sample_dirty = 1;
+        d.notifications = 1;
+        d.fresh = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline) | BIT(K60BmUsbCurrent);
+        d.value[K60BmStatus] = 1;
+        d.value[K60BmPresent] = 1;
+        d.value[K60BmCapacity] = 5000;
+        d.value[K60BmVoltage] = 4300000;
+        d.value[K60BmTemperature] = 3000;
+        d.value[K60BmFull] = 5000000;
+        d.value[K60BmDesign] = 5500000;
+        d.value[K60BmCycles] = 100;
+        d.value[K60BmUsbOnline] = 1;
+        d.value[K60BmUsbVoltage] = 5000000;
+        d.value[K60BmUsbCurrent] = 397000;
+        d.valid = BIT(K60BmUsbCurrent);
+        expect(finish_field(&d) == K60BmCycleDone, "notification-dirty cycle finishes");
+        expect(d.sample_dirty == 0, "finish_field clears the notification flag");
+        expect(d.refresh_due == 1, "finish_field keeps the extra refresh request");
+        expect(k60_battmgr_sample(&d, &sample) == 1, "completed sample survives the notification");
+        expect(sample.current_source == K60BatteryCurrentUsb && sample.current_ma == 397,
+               "USB input current is tagged as the source");
+    }
+
+    /* 10. A rejected value marks its field failed, never valid. */
+    {
+        K60Battmgr v;
+        uint8_t req[K60_BATTMGR_NOTIFY_BYTES];
+        k60_battmgr_init(&v, 0, 0, 0);
+        k60_battmgr_channel_up(&v);
+        v.cursor = K60BmVoltage;
+        expect(k60_battmgr_next(&v, req) == K60_BATTMGR_REQUEST_BYTES, "voltage request is 24 B");
+        k60_battmgr_sent(&v);
+        ack(in, 24, 1u, 0x30u, 0u);
+        put(in, 12, 7u);
+        put(in, 16, 100u);
+        expect(k60_battmgr_receive(&v, in, 24) == K60BmAnswer, "invalid voltage is answered");
+        expect((v.failed & BIT(K60BmVoltage)) != 0, "invalid voltage sets its failed bit");
+        expect((v.valid & BIT(K60BmVoltage)) == 0, "invalid voltage is not valid");
+        expect(v.errors == 1, "invalid voltage counts one error");
+    }
+
+    /* 11. The sample carries raw wire values and the cycle failed mask. */
+    {
+        K60Battmgr raw;
+        K60BatterySample sm;
+        k60_battmgr_init(&raw, 0, 0, 0);
+        raw.last_fresh = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline);
+        raw.failed = BIT(K60BmUsbCurrent);
+        raw.value[K60BmStatus] = 2;
+        raw.value[K60BmPresent] = 1;
+        raw.value[K60BmCapacity] = 8900;
+        raw.value[K60BmVoltage] = 4277000;
+        raw.value[K60BmTemperature] = 2830;
+        raw.value[K60BmFull] = 5000000;
+        raw.value[K60BmDesign] = 5500000;
+        raw.value[K60BmCycles] = 100;
+        raw.value[K60BmUsbOnline] = 1;
+        raw.value[K60BmUsbVoltage] = 5000000;
+        raw.value[K60BmUsbCurrent] = 0;
+        expect(k60_battmgr_sample(&raw, &sm) == 1, "raw sample passes validation");
+        expect(sm.raw[K60BmVoltage] == 4277000, "raw voltage keeps microvolts");
+        expect(sm.raw[K60BmTemperature] == 2830, "raw temperature keeps hundredths");
+        expect(sm.raw[K60BmCapacity] == 8900, "raw capacity keeps hundredths of a percent");
+        expect(sm.failed == BIT(K60BmUsbCurrent), "sample carries the failed mask");
+        expect(sm.voltage_mv == 4277, "published voltage is millivolts");
+        expect(sm.capacity_hundredths == 8900, "published capacity is hundredths");
+    }
+
+    /* 12. An absent pack still reports raw USB values and the failed mask. */
+    {
+        K60Battmgr raw;
+        K60BatterySample sm;
+        k60_battmgr_init(&raw, 0, 0, 0);
+        raw.last_fresh = BIT(K60BmPresent) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline);
+        raw.failed = BIT(K60BmCapacity);
+        raw.value[K60BmPresent] = 0;
+        raw.value[K60BmUsbOnline] = 1;
+        raw.value[K60BmUsbVoltage] = 5000000;
+        expect(k60_battmgr_sample(&raw, &sm) == 1, "absent pack returns a sample");
+        expect(sm.present == 0, "absent pack is not present");
+        expect(sm.raw[K60BmUsbVoltage] == 5000000, "absent pack keeps raw USB voltage");
+        expect(sm.failed == BIT(K60BmCapacity), "absent pack keeps the failed mask");
+    }
+
+    /* 13. A timeout marks only the fields that never completed. */
+    {
+        K60Battmgr t;
+        k60_battmgr_init(&t, 0, 0, 0);
+        k60_battmgr_channel_up(&t);
+        t.cursor = K60BmCapacity;
+        t.flight = FLIGHT_PROPERTY;
+        t.completed = BIT(K60BmStatus) | BIT(K60BmPresent);
+        k60_battmgr_timeout(&t);
+        expect((t.failed & BIT(K60BmCapacity)) != 0, "timeout marks the outstanding field failed");
+        expect((t.failed & BIT(K60BmStatus)) == 0, "timeout leaves completed fields alone");
+        expect((t.failed & BIT(K60BmPresent)) == 0, "timeout leaves every completed field alone");
+    }
+
+    /* 14. A transport restart clears the sample and a fresh cycle publishes again. */
+    {
+        K60Battmgr rst;
+        K60BatterySample smp;
+        k60_battmgr_init(&rst, 0, 0, 0);
+        k60_battmgr_channel_up(&rst);
+        rst.last_fresh = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline);
+        rst.value[K60BmStatus] = 1;
+        rst.value[K60BmPresent] = 1;
+        rst.value[K60BmCapacity] = 5000;
+        rst.value[K60BmVoltage] = 4300000;
+        rst.value[K60BmTemperature] = 3000;
+        rst.value[K60BmFull] = 5000000;
+        rst.value[K60BmDesign] = 5500000;
+        rst.value[K60BmUsbOnline] = 1;
+        rst.value[K60BmUsbVoltage] = 5000000;
+        expect(k60_battmgr_sample(&rst, &smp) == 1, "sample available before restart");
+        k60_battmgr_channel_down(&rst);
+        expect(k60_battmgr_sample(&rst, &smp) == 0, "channel down drops the sample");
+        k60_battmgr_channel_up(&rst);
+        rst.last_fresh = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline);
+        expect(k60_battmgr_sample(&rst, &smp) == 1, "a fresh cycle publishes after restart");
+    }
+
     if (fails) { printf("FAILURES %d\n", fails); return 1; }
     printf("TESTS OK %d\n", checks);
     return 0;

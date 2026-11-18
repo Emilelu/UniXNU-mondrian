@@ -2,6 +2,8 @@
 
 本文件记录实现 `K60AdspPas.c` 所需的全部外部知识，来源均为读源码所得，不在本仓库内可再推导。
 
+> 本文不再是 SCM 参数的一手来源，以 `ADSP-BRINGUP-PLAN-V2.md` §4 为准。
+
 ## SCM 常量（来源 `E:\k60-work\references\pong-power\QcomScm.h`）
 
 ```
@@ -27,21 +29,26 @@ qcom_scm_fn(svc, cmd)                (:21，位域拼装)
 ## 序列与参数
 
 ```
-PAS_AUTH_AND_RESET  args(1, 0, 0, 0)             pas=1
-PAS_INIT_IMAGE      args(2, QCOM_SCM_VAL, RW, 0) pas=1, phys=<每段物理地址>
-PAS_MEM_SETUP       args(3, 0, 0, 0)             pas=1, base=0x86300000, span=0x3100000
+PAS_INIT_IMAGE      args(2, QCOM_SCM_VAL, RW, 0) pas=1, phys=<metadata 物理地址，一次>
+PAS_MEM_SETUP       args(3, 0, 0, 0)             pas=1, base=0x9fd00000, span=0x3100000
+（逐段 COPY/BSS）
+PAS_AUTH_AND_RESET  args(1, 0, 0, 0)             pas=1（不可逆，最后一步）
 PAS_SHUTDOWN        args(1, 0, 0, 0)             pas=1（仅用于回滚/重试）
 ```
 
-顺序要点：`PAS_INIT_IMAGE` 需要**逐段**地址，因此必须先有段的 `(paddr, bytes)` 列表；`PAS_MEM_SETUP` 用整段跨度一次圈定。原计划的"先拷完再调 SCM"是错的。
+顺序要点：`PAS_INIT_IMAGE` 只调一次，参数是 metadata（884 B header prefix + 4520 B hash，共 5404 B）的物理地址；逐段的是 COPY/BSS，不是 SCM `INIT_IMAGE`。`PAS_MEM_SETUP` 用 region 基址 `0x9fd00000` 和 span `0x3100000` 一次圈定；`0x86300000` 是链接基址。原计划的"先拷完再调 SCM"是错的。
 
 ## ADSP 镜像事实（实测，见 `VENDOR-ADSP-NODE.md`）
 
-- 载入基址 `0x86300000`，跨度 `0x3100000`（= `adsp_region` 大小）
+- 链接基址 `0x86300000`；重定位后物理装载到 `0x9fd00000..0xa2e00000`，span `0x3100000`（= `adsp_region` 大小）
 - `adsp.mdt` 为 ELF32，`e_phoff=52`、`e_phentsize=32`、`e_phnum=26`；有效 PT_LOAD 24 段
 - `adsp.b10` 落在**非页对齐**地址 `0x86e0b2c0` → 必须逐字节拷贝
 - `adsp.b24` 为纯 bss（7,245,824 B，无文件）
 - 表由 `scripts/gen-adsp-table.py` 生成；`k60_adsp_plan()` / `k60_adsp_copy()` 已实现并有宿主测 6 项（`scripts/tests/test-k60-adsp-loader.c`）
+
+## Legacy 0613 路径（只登记，不作为参数来源）
+
+`patches/xnu/0613-k60-adsp-pas.patch:243` 仍按段调用 `k60_adsp_init_image(s->paddr)`，`:252` 仍调用 `k60_adsp_mem_setup(K60_ADSP_BASE, K60_ADSP_WINDOW)`（`0x86300000/0x3100000`）。这是 legacy 路径的代码事实，与 vendor `mdt_loader.c` 及生产 owner（一次 metadata INIT_IMAGE + region MEM_SETUP + 逐段 COPY/BSS）不一致；本轮只登记，不修改补丁。
 
 ## 尚缺
 

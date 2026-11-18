@@ -88,7 +88,7 @@ struct Entry {char name[32];uint32_t offset,bytes;};
 }
 ```
 
-**`subsystem_device` 已核对** —— Pong 264，K60 实测同为 264（2026-11-14，`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）。
+**NVIDIA/K60 需要核对 `subsystem_device`** —— Pong 是 264，K60 可能不同。
 
 ---
 
@@ -114,7 +114,7 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 
 ### 官方文档
 
-`https://unixnu.com/zh/porting/network`（待读，④ 阶段补）
+`https://unixnu.com/zh/porting/network` —— 2026-11-12 已读，要点见本文件 §④ 节。
 
 ---
 
@@ -132,27 +132,53 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 
 | 文件 | 大小 |
 |---|---|
-| `amss.bin` | 5,470,128 |
+| `amss.bin` | 5,47x,xxx |
 | `amss20.bin` | 5,296,128 |
 | `Data.msc` | 889,524 |
 | `Data20.msc` | 916,071 |
-| `m3.bin` | 266,684 |
-| `regdb.bin` / `regdb_xiaomi.bin` | 24,278 / 24,278 |
-| `bdwlan.elf` / `bdwlang.elf` | 59,932 / 59,936 |
 | `bd_m11agf.elf`（蓝牙）| 60,000 |
 
-> 2026-11-14 复核：本机副本 `firmware/qca6490/` 实为 **10 个文件**（上表逐项实测，sha256 见 `FIRMWARE.md`）。
+> 2026-11-14 复核：本机副本 `firmware/qca6490/` 实为 **10 个文件**（逐项实测，sha256 见 `FIRMWARE.md`）。
 > **`bdwlan.elf` 不是「WiFi 不需要」**：`patches/wifi/0009` 的构建脚本硬性要求 board data ——
 > `if not any(f['name'].startswith('bdwlan.') for f in inventory): raise RuntimeError('Missing board data')`，
 > 且 `required=['amss.bin','amss20.bin','m3.bin','regdb.bin']`。
+
+### ③ 已补齐：K60 本机真值（2026-11-14，live FDT 反编译）
+
+来源：`dtc -I dtb -O dts E:\k60-work\reports\live-6033dbec-fdt.dtb`（34,801 行），
+逐项出处与完整证据表见 `docs/research/wifi/GAP-ANALYSIS.md` §2。
+
+| 项 | 真值 | 出处 |
+|---|---|---|
+| PCI 设备 ID | `17CB:1103` | FDT `/soc/mhi_qrtr_cnss` `qcom,dev-id = <0x1103>`；代码 `PongWifiPlatform.cpp:356` `cfg.r(0)!=0x110317cb` |
+| BAR0 基址 / 大小 | `0x60200000` / 2 MiB | FDT `ranges` mem32 段；代码 `:368` `bar.open(0x60200000,0x200000)` |
+| subsystem_device | **不作为门禁**（Pong 板级 264 / zizhan 实测 0x010817cb 不一致但链路正常）| zizhan porting.toml 实测；K60 profile 记 0/0 |
+| PCIe0 GDSC 偏移 | `0x7b004`（SM8475 单 GDSC，无 SM8550 的 PHY GDSC）| Pong 注释 + `PongWifiPlatform.cpp:221` |
+| PMIC SPMI 通道 | core `0xC400000` / cfg `0xC42D000` / obs `0xC440000` | `PongWifiPlatform.cpp:163` |
+| IOVA 池 | `0xA0000000` + 256 MiB | FDT `cnss_pci_iommu_group` `qcom,iommu-dma-addr-pool = <0xa0000000 0x10000000>` |
+| SID | root `0x1C00` / BDF 0x100 → `0x1C01` | FDT `iommu-map` + `qcom,smmu-sid-base = <0x1c00>` |
+| MSI | PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)，**不走 ITS** | FDT `interrupt-map` 首项 GIC 侧 `0x8c=140`；代码 `:42` `PcieGlobalIntid = 32+140` |
+| refgen 时钟索引 | `[10]` = 100 MHz | FDT `max-clock-frequency-hz` 第 10 项 `0x5f5e100`；`clock-names[8]="pcie_phy_refgen_clk"` |
+| PCIe PHY 表 | 82 组三元组，与 Pong **逐 cell 相同**（different=0）| FDT `qcom,phy-sequence`；`PongWifiPlatform.cpp` `kPongWifiPhy[]` |
+| GPIO | perst 94 / wake 96 / wlan-en 80 / bt-en 81 / sw-ctrl 82 / xo-clk 204 | FDT `perst-gpio`、`wake-gpio`、`/soc/qcom,cnss-qca6490@b0000000` |
+| 电源 rail | 6 条：`smpe2`/`smpb11`/`smpb10`/`smpc1`/`smpb12`/`ldoe7`（无 Pong 的 `smpe3`）| FDT `*-supply` phandle + `configs/mondrian-wifi-sm8475.json` |
+
+**关键判定：不走 ITS。** DT 里存在 `msi-controller@17140000`（`arm,gic-v3-its`，
+别名 `gic_its`），`msi-map` 也指向它，但 Pong 的实现完全绕开 ITS：
+PARF 置 `MSI0`（`1u<<23`）→ DesignWare 写 MSI 到 `Iova+0x40` → PARF 翻译成
+SPI 140 → GIC INTID 172。所以 `armcpu_spi_attach(172,...)` 是唯一中断路径。
+
+**上机风险**：`drivers/ArmCpu/ArmCpu.cpp:403` 有
+`if(!owner) panic("ArmCpu: unowned SPI %u", intid);` —— SPI 172 必须先 publish
+owner，否则 `armcpu_spi_attach` 直接 panic。
 
 ### 待补的 ③ 项
 
 - [x] K60 的 **PCI 设备 ID** —— 实测 `0x17CB:0x1103`（sysfs `vendor/device`；`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）
 - [x] K60 的 **BAR0 基址与大小** —— 实测 `0x60200000-0x603fffff`，2 MiB（`resource.txt`、`iomem-pci.txt`）
 - [x] K60 的 **subsystem_device** —— 实测 `0x0108`（264），与 Pong 相同（`pci-identity.txt`）
-- [ ] K60 的 **PCIe0 GDSC 偏移**（Pong 注释说 SM8475 是 `7b004`）
-- [ ] K60 的 **PMIC SPMI 通道号**（Pong 用 SPMI 观察者读，K60 可能不同）
+- [ ] K60 的 **PCIe0 GDSC 偏移**（Pong 注释说 SM8475 是 `7b004`）—— 本表按 Pong 注释与 `PongWifiPlatform.cpp:221` 记 `0x7b004`，尚未在 K60 实测
+- [ ] K60 的 **PMIC SPMI 通道号**（Pong 用 SPMI 观察者读，K60 可能不同）—— 本表记的是 Pong 的 `0xC400000`/`0xC42D000`/`0xC440000`
 
 ---
 
@@ -171,7 +197,7 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
    ATU 映射、DBI 预设。失败模式是"链路起不来"，没有任何日志。
 2. **固件必须从 K60 自己的 Android 分区提取**（`amd.bin` / `amss.bin` / `bd_m11agf.elf`），
    不能用 Pong 的。
-3. **`subsystem_device` 已实测相同**（`0x0108`/264）；换板或换批次时仍需核对，不同则 PCIe 设备枚举会失败。
+3. **`subsystem_device` 可能不同**。如果不同，PCIe 设备枚举会失败。
 4. **PWF2 打包工具需要先实现**（Pong 的打包脚本在 `scripts/build-pong-wifi-native.py`）。
 
 ---
@@ -267,7 +293,7 @@ WiFi 是 P3（新子系统），低于：
 |---|---|---|
 | SoC | SM8550 | **SM8475（与 Pong 相同）** |
 | 芯片 | WCN7850（ath12k 族）| **QCA6490 / WCN6855（ath11k 族）** |
-| 端点 ID | `17cb:1107` | **实测 `17cb:1103`**（2026-11-14；与 Pong 配置 device=4355 一致；证据 `E:/k60-work/evidence/pci-id-20261114/`）|
+| 端点 ID | `17cb:1107` | 预期 `17cb:1103`（Pong 配置 device=4355=0x1103，待实测）|
 | MSI | SPI 141 | 待实测 |
 | 板级实现 | sheng 的 `WifiProbe.cpp` + `WifiNet.cpp` | **Pong 的 `PongWifiPlatform.cpp`（40,764 B，同 SoC 同芯片）** |
 
@@ -319,7 +345,7 @@ Pong 用 PWF2 包（`/pong/firmware/qca6490.pwf`，magic `0x32465750`）。
 
 ## ⑥ 深挖待办
 
-- [x] K60 的端点 ID、BAR0、subsystem_device（已实测：`17CB:1103` / `0x60200000` 2 MiB / `0x0108`；`E:/k60-work/evidence/pci-id-20261114/`）
+- [ ] K60 的端点 ID、BAR0、subsystem_device（实测）
 - [ ] K60 的 MSI 目标（官方参考是 SPI 141，K60 待测）
 - [ ] K60 的六路 PMU 电源与 RPMh 请求（Pong 用 SPMI 观察者，K60 待核对）
 - [ ] `nw_abi.h` 是否覆盖 WCN6855（决定第二步走 A 还是 B）
@@ -333,8 +359,6 @@ Pong 用 PWF2 包（`/pong/firmware/qca6490.pwf`，magic `0x32465750`）。
 
 - `include/nw_abi.h`（f6bf561）
 - `src/nw_wifi.c`（f6bf561）
-
-> 出处状态：**本机不可复核**。`E:/hackios/UniXNU-zizhan` 里 `git log f6bf561` 为空、`git show f6bf561:include/nw_abi.h` 为空，全盘 `find -name nw_abi.h` 0 命中。下列判定按官方文档与 `components.toml` 成立，但两个源文件本身属「自述来源」。
 
 ### 判定依据
 
@@ -392,31 +416,3 @@ int (*fw_get)(const char *name, const uint8_t **data, size_t *size);  // 按路�
 
 组件用 `fw_get("amss.bin", ...)`、`fw_get("wlan_mac.bin", ...)` —— **只给文件名**，
 不要路径。我们的实现要在 `/vendor/firmware_mnt/image/qca6490/` 里按文件名查找。
-
----
-
-## ⑦ 出处回溯（2026-11-14，任务 B）
-
-逐条把本文结论对回「文件:行」的结果。**结论未被推翻**，但有三类需要标注：
-
-### 7.1 已核到行的结论
-
-| 结论 | 出处 |
-|---|---|
-| 地址表（GCC/TLMM/PARF/DBI/PHY/ATU/SPMI/cmd-db） | `references/pong-wifi/PongWifiPlatform.cpp` :184 / :236 / :239 / :91 / :94 / :163，逐行命中 |
-| 四条「SM8475 ≠ SM8550」注释 | 同文件 :205 / :207 / :226 / :339-340，逐字命中 |
-| PWF2 格式（magic 0x32465750、64 MiB 上限、Entry 32+4+4） | `PongWifiFirmware.cpp`，与 §① 描述一致 |
-| 板级 JSON（vendor 6091 / device 4355 / bar0 1612709888 / 2097152） | `UniXNU-pong/configs/pong-wifi-sm8475.json` 与 `UniXNU-zizhan/configs/pong-wifi-sm8475.json`，两仓同文件 11,847 B，逐值命中 |
-| `Ath12kWifi` 不适用（ath12k 族 vs ath11k 族） | `E:/hackios/UniXNU/components.toml:473-482`，`hardware = ["ath12k PCI devices", "qcc2072, qcn9274, and wcn7850 build inputs"]` |
-| sheng 参考值 17cb:1107 / SPI 141 | `references/UniXNU-sheng/package/WifiProbe.cpp:7`、`:1065`、`:1068`、`:1091`、`:1236` |
-
-### 7.2 数值修正
-
-- `amss.bin` 原写占位符「5,47x,xxx」→ 实测 **5,470,128**（本机副本 + `docs/engineering/ANDROID-HW-TRUTH.md:107` 同值）。
-- 固件「六文件」口径不成立：构建实际要求 `amss.bin` + `amss20.bin` + `m3.bin` + `regdb.bin` + `bdwlan.*`；`Data.msc`/`Data20.msc` 未被 0009 断言。
-
-### 7.3 无出处 / 不可复核
-
-- **「MhiBoot 0 字节 = 窗口抢内存」**：本文与 `GAP-ANALYSIS.md`、`FIRMWARE.md` 都没有这条表述，`MhiBoot` 在 `E:/hackios` 全树 0 命中（只在官方驱动表 `docs/porting/drivers.md:44` 作为组件名出现）。该结论只存在于运行时记忆与 `E:/k60-work/evidence/wifi-trial/` 的 QEMU 实验，**不是本文档的结论**。
-- `nw_abi.h` / `nw_wifi.c` 的 f6bf561 版本：本机不可复核（见 ⑤ 第二步开头注）。
-- K60 的端点 ID、subsystem_device 已于 2026-11-14 实测（`17CB:1103`、`17CB:0108`/264；证据 `E:/k60-work/evidence/pci-id-20261114/`）；**MSI INTID 172 仍只有 live FDT `interrupt-map` 推导**（SPI140+32），而运行时 `/proc/interrupts` 显示 ITS-MSI 524289..524306（32 向量）供 mhi/ce/dp 使用——实际 MSI 路由待复核。

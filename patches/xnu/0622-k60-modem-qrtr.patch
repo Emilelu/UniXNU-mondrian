@@ -1260,7 +1260,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1344 @@
+@@ -0,0 +1,1347 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -2471,8 +2471,11 @@ index 0000000..1111111
 +			uint32_t tail = rx->tail != NULL ? *rx->tail : 0u;
 +			uint8_t m[8] = {0};
 +
++			/* rx_peek() reads from the tail; head is the modem's write
++			 * index, so sampling there shows unused ring bytes (k30 did
++			 * exactly that and printed cmd=0 p1=0 p2=0). */
 +			for (uint32_t b = 0; b < 8u && b < avail && rx->data != NULL; ++b) {
-+				m[b] = rx->data[(head + b) % rx->length];
++				m[b] = rx->data[(tail + b) % rx->length];
 +			}
 +			printf("K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u cmd=%#x p1=%#x p2=%#x\n",
 +			    polls, i, avail, head, tail, (unsigned)(m[0] | (m[1] << 8)),

@@ -1208,8 +1208,11 @@ k60_modem_qrtr_probe(void)
 			uint32_t tail = rx->tail != NULL ? *rx->tail : 0u;
 			uint8_t m[8] = {0};
 
+			/* rx_peek() reads from the tail; head is the modem's write
+			 * index, so sampling there shows unused ring bytes (k30 did
+			 * exactly that and printed cmd=0 p1=0 p2=0). */
 			for (uint32_t b = 0; b < 8u && b < avail && rx->data != NULL; ++b) {
-				m[b] = rx->data[(head + b) % rx->length];
+				m[b] = rx->data[(tail + b) % rx->length];
 			}
 			printf("K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u cmd=%#x p1=%#x p2=%#x\n",
 			    polls, i, avail, head, tail, (unsigned)(m[0] | (m[1] << 8)),

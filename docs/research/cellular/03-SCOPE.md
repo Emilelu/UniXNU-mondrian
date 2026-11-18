@@ -52,7 +52,7 @@
 
 | 已有件 | 文件 | 对 modem 的可复用度 |
 |---|---|---|
-| PAS SCM 调用序列 | `K60AdspPas.c` | **100%** —— `QCOM_SCM_SVC_PIL=0x02`、`PAS_INIT_IMAGE=0x01`、`PAS_MEM_SETUP=0x02`、`PAS_AUTH_AND_RESET=0x05`，调用形状 `scm(command, arginfo, a, b, c)`、`smc #0` 用 x0..x7，成功判据 `x0==0 && x1==0` |
+| PAS SCM 调用序列 | `K60AdspPas.c` | **100%** —— `QCOM_SCM_SVC_PIL=0x02`、`PAS_INIT_IMAGE=0x01`、`PAS_MEM_SETUP=0x02`、`PAS_AUTH_AND_RESET=0x05`，调用形状 `scm(command, arginfo, a, b, c)`、`smc #0` 用 x0..x7，成功判据 `x0==0`（x1 是结果寄存器；续做时回 `0x82`，不是判定值） |
 | ELF32 段表解析 | `K60AdspImage.c` | **100%** —— 同样的 `e_phoff=52`/`e_phentsize=32`，只需换常量。实测（2026-11-14）：ADSP `e_phnum=26`、`type=0` 出现在 index 0 与 25 ⇒ **有效 PT_LOAD 24**；modem `e_phnum=32`、`type=0` 在 index 0 与 31 ⇒ **有效 PT_LOAD 30**。另有基址/窗口不同（0x86300000/0x03100000 → 0x8bc00000/0x13200000），详见 `05-MODEM-IMAGE.md` §10 的对照表 |
 | SMEM 分区 | `K60Smem.c/.h`（`k60_smem_find`/`k60_smem_alloc`） | **100%** —— modem 的 `IPCRTR` FIFO 也在 `smem_region@80900000` 里 |
 | GLINK 协议 | `QcomGlink.c/.h` | **~60%** —— 协议层（`VERSION/OPEN/CLOSE/TX_DATA/RX_DATA/RX_DONE/READ_NOTIF/SIGNALS`、intent 数组、FIFO 头尾指针）可复用；但 `QCOM_GLINK_MAX_CHANNELS = 1` 和"exclusively leased K60 PMIC endpoint"的假设必须改 |
@@ -249,3 +249,67 @@ modem 固件、EFS/NV、SIM 身份都在 Android 侧（`porting.toml:198` 的 in
 | IPA ring 几何 | **未取**。DT 不描述，需从 `ipa-hw-ver=0x16` 对应的寄存器表取 |
 | modem 起来后是否需要 EFS 才能"枚举" | **未验证**。理论上不需要（枚举是 QRTR 层），但没有实测 |
 | `mba.mbn` 缺失是否影响加载 | **推测不影响**（新世代单镜像），未实测 |
+
+---
+
+## 10. 2026-11-19 再收窄：只做内核层通用部分（m30366）
+
+**决定（用户 m30366，2026-11-19 00:12）：** 基带修复只做**内核层通用**的部分；
+与 iOS 系统版本强相关的部分先暂缓，等评估完 iOS 16 与 iOS 27 的修复难度再决定。
+
+背景：xNekom/UniXNU-mondrian 的 `feat/ios27` 分支（95d9c8a1，2026-11-18）正在把
+同一套设备移植到 iOS 27。内核层的 PAS/GLINK/QRTR/IPA 不依赖 Apple 的用户态类契约，
+可以被两个版本共用；把 iOS 16 的类名、方法号、TLV 写死进内核，会让 27 的移植
+重新踩一遍同样的坑。因此分界线画在 **"内核能不能独立验证"**，而不是"属于哪一层"。
+
+### 10.1 继续做（内核层通用）
+
+| 组 | 内容 | 现有落点 | 为什么与版本无关 |
+|---|---|---|---|
+| **G1 PAS/SCM** | INIT_IMAGE / MEM_SETUP / AUTH_AND_RESET、SCM_INTERRUPTED 续做、元数据页 | `K60ModemPas.c/.h`、`K60ModemBoot.c`、`K60Ipa.c` | SMC 的 fn/arginfo/返回约定由 TZ 与固件定义，Apple 侧看不到 |
+| **G2 传输** | SMEM/SMP2P、GLINK `IPCRTR`、QRTR 报文与名字服务 | `K60Smem.c`、`QcomGlink.c`、`K60ModemQrtr.c` | 协议是 Qualcomm 公开协议；Android 侧同一通道可作对照 |
+| **G3 数据面** | IPA 固件加载/暂存、GSI、SMMU、QMAP 多路复用 | `K60Ipa.c`、`K60Mdt.c`、`K60IpaGsi/Smmu` | 环几何与寄存器语义来自 IPA v5.1，不来自 iOS |
+| **G4 电源/时钟** | QMP/RSC TCS4、rail 投票、IP0 | `K60ModemPower.c`、`K60Ipa.c` 的 clock vote | RPMh/RSC 是 SoC 硬件接口 |
+| **G5 固件搬运** | UEFI carrier、元数据页、固定窗口 IPA handoff | `uefi-mondrian` ImageCarrierLib | DXE 在 XNU 之前，和 iOS 版本无关 |
+| **G6 验证** | host tests、镜像身份校验、八步证据 | `scripts/tests/test-k60-*` | 离线可重复，不依赖设备用户态 |
+
+### 10.2 暂缓（iOS 版本强相关）
+
+| 组 | 内容 | 为什么暂缓 |
+|---|---|---|
+| **V1 AppleBaseband 类契约** | `AppleBaseband`、`AppleBasebandPCIControl`、`AppleBasebandPCIInterface`、`PCI...MAVPDPManager`、`AppleIPAppender` 的类名、方法号、参数尺寸、异步完成语义 | 这些符号由 iOS 内核导出，16 与 27 可能不同；写死一个版本等于给另一个版本埋雷 |
+| **V2 ABPInterfaceProtocol** | 通道命名 `pbl/sahara/qmux1/qmux2`、channel 语义 | 属于 Apple 的 baseband 协议层 |
+| **V3 CommCenter** | BSP/VINYL、PRI/GRI、TLV `0x42/0x43` | 用户态协议，随 iOS 版本变化 |
+| **V4 ADT 身份** | `baseband-chipset`、`compatible = J121AP` 等 | 需要匹配目标 iOS 的驱动匹配表 |
+| **V5 打包** | `.bbfw`、ABM、BBUpdater | 用户态工具链与版本绑定 |
+| **V6 数据接口** | `pdp_ip`、plumber、CommCenter 的 PDP 激活 | 用户态网络栈契约 |
+
+### 10.3 代码里的分界线
+
+`drivers/PongCellular/K60ModemLink.c` 用一组 **weak C 符号**
+（`coachz_baseband_enabled/configure/new_server/del_server/qrtr/poll/report`、
+`coachz_modem_data_send`、`coachz_modem_data_receiver`）把内核与 QcomBaseband 的
+C++ provider 隔开。这条缝本身保留：它让内核可以在 provider 缺席时启动并自检。
+**暂缓的是缝的另一侧**——`baseband/coachz_baseband.cpp` 里对 Apple 类的注册与方法实现，
+以及 `patches/qcombaseband/0001-coachz-defer-publication.patch` 之外的任何适配。
+
+规则：**新代码不得引入只在某一个 iOS 版本成立的常量。** 如果某个修复必须依赖
+版本相关常量，就在这里记一行、停手，等 §10.4 的评估。
+
+### 10.4 之后怎么评估 iOS 16 与 27
+
+按同一组问题各测一遍，用数据决定先修哪个：
+
+1. 目标内核是否导出 V1 的类/方法；方法号与参数尺寸能否从内核符号或反汇编确认。
+2. CommCenter 期望的 BSP/VINYL 版本、TLV 集合与 16 的差异。
+3. `.bbfw`/ABM 的打包格式与签名要求是否变化。
+4. ADT 需要的 `baseband-chipset`/兼容串是否不同。
+5. 内核通用层（G1–G6）在两个版本上是否**零修改**可用——这是本次分线的目的，也是评估的基线。
+
+### 10.5 当前进度（截至 2026-11-19）
+
+- k18 C-M2 已在硬件上通过 C 判据：`init_image ok`、`mem_setup ok`，诊断停在 auth_reset 前。
+- k19 在 `K60Ipa.c` 增加 SCM_INTERRUPTED 续做（commit bba7dcaa），内核
+  `ce46173c713288f47572ff4a51de321f10ecb434f203a2819a06a89c19134803`；
+  IPA-only 镜像待上机。它属于 G1，不在暂缓范围。
+- B（auth_reset/QRTR）仍未验证；GUI/launchd 的 K60EXC 共享区问题是独立故障，不计入基带结论。

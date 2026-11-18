@@ -132,7 +132,7 @@ L4 逐项状态：
 
 **当前明确未实现：**
 
-- 没有上机验证：`k60_ipa_probe_from_handoff()` 已从固定的 ipa_fw_region（0x8b900000，前 0xE000 字节）读取 UEFI 拷贝的 `IPA/ipa_fws.mbn` 并调用 `k60_ipa_firmware_start()`，但还没有在硬件上执行过 PAS 15，也没有设备侧 IPA_VERSION 读数；host 侧可用 `k60_ipa_firmware_stage()` 验证真实映像。M2 运行时由 boot arg `pong_ipa` 的级别显式启用：`pong_ipa=1` 只到 M1，`pong_ipa=2` 才运行 M2（默认关闭）；k7 完整候选只设 `pong_ipa=1`，k16 M2 诊断镜像设 `pong_ipa=2`。
+- 没有上机验证：`k60_ipa_probe_from_handoff()` 已从固定的 ipa_fw_region（0x8b900000，前 0xE000 字节）读取 UEFI 拷贝的 `IPA/ipa_fws.mbn` 并调用 `k60_ipa_firmware_start()`，k18 已在硬件上执行到 PAS 15，但 `init_image` 返回 rc=-7（x0=1，SCM_INTERRUPTED，x1=0x82），旧单次 SMC 没有续做；`bba7dcaa` 给 `K60Ipa.c` 加了同样的有界续调，k19 待上机；仍没有 IPA_VERSION 读数；host 侧可用 `k60_ipa_firmware_stage()` 验证真实映像。M2 运行时由 boot arg `pong_ipa` 的级别显式启用：`pong_ipa=1` 只到 M1，`pong_ipa=2` 才运行 M2（默认关闭）；k7 完整候选只设 `pong_ipa=1`，k16 M2 诊断镜像设 `pong_ipa=2`。
 - `k60_ipa_firmware_start()` 映射固件区、GSI 与 IPA_VERSION 寄存器，IPA5.1 资源表已初始化，`k60_ipa_gsi_check()` 只读 GSI status/channels/events 和 command12/event0 状态；M2 运行时接着分配 ring/表块并启动 GSI command-DMA，但没有硬件执行过，也没有接 IRQ 654/432。
 - GSI 运行时初始化、1 MiB ring 与 0x8000 表块已在内核代码里绑定（`kmem_alloc_contig`、`pmap_find_phys`、MMIO 回调、命令 channel12/event0），但没有硬件执行；没有 GSI IRQ 432 处理，只轮询 event shadow；`K60IpaGsi.c` 的宿主状态机测试仍是唯一的代码级证据。
 - `K60IpaSmmu.c` 仍是宿主 SMMU 寄存器模型；内核页表由 `K60Ipa.c` 直接调用 `ArmSmmu4KBuild()` 构建（三区间、输出 36 位、8 表页），在 TCSR SMEM mutex 0x1f43000 下分配/复用 SMEM item 497（≥0x9000，失败即拒绝），并写 SID 0x5c0 的 SMR/S2CR；没有 SMMU 抢占/lease，没有硬件执行。宿主测试现在覆盖精确运行时几何：SMEM item 497 窗口按页对齐后为 0x9000，未对齐时最多 0xa000；0x9000 下得到 6 个表页、267 个叶页，0xa000 下得到 6 个表页、268 个叶页（8 个表页容量）。
@@ -149,4 +149,4 @@ L4 逐项状态：
 3. 与 DT 的两个 region 比较结果：`0x8568`（34,152 B）≤ `0xa000`，当前 `memory-regions -> ipa_gsi_region@8b910000` 可容纳全部 PT_LOAD；metadata `0xe8c` 走 `ipa_fw_region@8b900000` 的最后 8 KiB。M1 的 40 KiB 风险解除。
 4. 同时用 `dtc`/FDT 属性导出核对 `firmware-names`、`memory-regions`、`pas-ids` 的 index 对齐（`DIPA/ipa_v3/ipa.c:8117-8128` 要求同 index）。
 
-**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与固定 ipa_fw_region handoff 调用点、M2 host 模块与运行时 glue 已落地，内核 03a3aeab 已从 a2d11e2b 编译（0621 io_submap 预算修复 + SMMU IDR/context 诊断 + SMEM item 497 分配修复 + 固定窗口 handoff 消费），k16 标准与 M2 诊断镜像（C/C0/IPA-only/B-full）已生成并嵌入 FD 9b7155f6；IP0 时钟投票已由 ipclk 探针在硬件上确认；下一步是上机读 IPA_VERSION，确认 PAS 15、资源表与 GSI status，再用 `pong_ipa=2` 开一次受控 M2 运行时并抓 ring/GSI 状态。M2 未上机通过前不要写 QMAP 代码。
+**下一步代码动作：** M0 骨架、M1 固件校验/暂存/PAS 路径、IP0 时钟与固定 ipa_fw_region handoff 调用点、M2 host 模块与运行时 glue 已落地，内核 03a3aeab 已从 a2d11e2b 编译（0621 io_submap 预算修复 + SMMU IDR/context 诊断 + SMEM item 497 分配修复 + 固定窗口 handoff 消费），k16 标准与 M2 诊断镜像（C/C0/IPA-only/B-full）已生成并嵌入 FD 9b7155f6；IP0 时钟投票已由 ipclk 探针在硬件上确认；下一步先用 k19 的 `pong_ipa=1` 单变量图（`d6813412...`，kernel `ce46173c...`）只验证 PAS 15 续调与 IPA_VERSION；通过后再用 `pong_ipa=2` 开一次受控 M2 运行时并抓 ring/GSI 状态。M2 未上机通过前不要写 QMAP 代码。

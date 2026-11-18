@@ -438,7 +438,8 @@ static void pas_failures(void)
     f=new_case("ready timeout is bounded and safely aborts running owner",0);start(f);
     fx_put(&f->fx,f->fx.remote_offset+36,0);
     CHECK(k60_owner_build_handoff(&f->fx.session,&f->fx.plan)==K60PublishNotReady);
-    CHECK(f->delay_calls==999 && f->lock_calls==1002 && f->unlock_calls==1002);
+    /* ready() tries 5000 times and delays after every failed try but the last. */
+    CHECK(f->delay_calls==4999 && f->lock_calls==5002 && f->unlock_calls==5002);
     CHECK(f->shutdown_calls==1);dispose(f);
     f=new_case("ready lock failure releases without delay or held TCSR",0);start(f);f->fail_lock_on=3;
     CHECK(k60_owner_build_handoff(&f->fx.session,&f->fx.plan)==K60PublishNotReady);

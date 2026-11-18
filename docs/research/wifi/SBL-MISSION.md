@@ -305,3 +305,22 @@ It also tolerates a driver-reported trailing NUL in `ssid_len`. Source shape is 
 `scripts/tests/test-wifi-sbl-mission.py`; the images are built with the same private
 WPA2 fixture and 602-byte args, and no credential ever enters the repository, the console
 or the boot arguments.
+
+### Flight result
+
+Mission7 was flown once on 2026-11-18 11:35:48. The console is
+`E:/k60-work/evidence/usblog-20261118-113548/console.log` (82,932 B, 1,394 lines,
+SHA256 `d4986302bd51548f451817c0b04a01d3880c8c22b9450dea63af73076967b20d`).
+MHI, QMI, the 102 channels, `en0` and the scan still pass (`:691` BHIe ret=0,
+`:701` cached ee=2, `:705` powered up, `:715` chip_id 0x12, `:717` fw_version
+0x20070039, `:723` 102 channels, `:727` en0 up `00:03:7f:12:b6:64`). The probe
+proves the test was enabled: `:729 PongWifi: association probe:
+pong_wifi_test=0/0 pong_wifi=1/2 fixture=14/13 state=1`. The wildcard scan found
+9 networks (`:765`), but none matched the fixture: `:766 PongWifi: association
+target absent: target_len=14 target_hash=980ca5d7 bss=9 failed=0 state=1`; the
+per-BSS lines list lengths/hashes and frequencies 2412 through 5745. There is no
+association RUNNING/PASS/FAIL and no DHCP address; the 18-check judge passes 11.
+The 60 s deadline did not elapse before the kernel data abort at `:1367`
+(pc=0xfffffff0084218c4 lr=0xfffffff008425b84 esr=0x96000005 far=0x0), so the next
+candidate needs repeated or directed scans and an access point that is actually
+visible. Mission7 must not be re-flown; its one-shot marker exists.

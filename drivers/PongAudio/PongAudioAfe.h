@@ -156,6 +156,7 @@ pong_audio_error_name(int status)
 #define PONG_AFE_GPR_APM_GET_SPF_STATE 0x01001021u  /* M: audioreach.h:38 */
 #define PONG_AFE_GPR_APM_SPF_STATE     0x02001007u  /* M: audioreach.h:39 */
 #define PONG_AFE_GPR_PORT_APM          1u           /* M: apr.h:105, the APM module instance */
+#define PONG_AFE_GPR_SVC_AFE           4u           /* V: qcom,gpr.h:17, the AFE service */
 #define PONG_AFE_GPR_PORT_CLIENT       0x2001u      /* P: PongAudio.cpp:36 Port */
 
 /* Envelope sizes, all packed (M: q6afe.c:396-417). */
@@ -262,8 +263,8 @@ pong_afe_svc_set_param(uint8_t *buf, size_t bytes, uint32_t module_id,
         payload_bytes > 0xffffu || bytes < total) {
         return 0;
     }
-    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_SVC_CMD_SET_PARAM, token, 0u, 0u,
-            total) == 0u) {
+    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_SVC_CMD_SET_PARAM, token,
+            PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_SVC_AFE, total) == 0u) {
         return 0;
     }
     pong_afe_put32(buf + PONG_AFE_OFF_SVC_PAYLOAD_SIZE,
@@ -281,8 +282,10 @@ pong_afe_svc_set_param(uint8_t *buf, size_t bytes, uint32_t module_id,
 
 /* Port-scoped parameter: the port id goes in the first two bytes and the
  * payload size in the next two (P: afe_port_param :404-420, the same
- * 16-byte shape as M: q6afe.c:411-417 afe_port_cmd_set_param_v2). The GPR
- * src and dest ports stay 0 (M: q6afe.c:1146). */
+ * 16-byte shape as M: q6afe.c:411-417 afe_port_cmd_set_param_v2). The packet
+ * travels from our client port to the AFE service, like the PRM vote travels
+ * from ASM to the PRM instance: a zero destination reached no service at all
+ * and the DSP answered GPR_IBASIC_RSP_RESULT status 1 (aj console 549). */
 static inline size_t
 pong_afe_port_set_param(uint8_t *buf, size_t bytes, uint16_t port_id,
     uint32_t module_id, uint32_t param_id, const uint8_t *payload,
@@ -295,8 +298,8 @@ pong_afe_port_set_param(uint8_t *buf, size_t bytes, uint16_t port_id,
         payload_bytes > 0xffffu || bytes < total) {
         return 0;
     }
-    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_PORT_CMD_SET_PARAM_V2, token, 0u,
-            0u, total) == 0u) {
+    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_PORT_CMD_SET_PARAM_V2, token,
+            PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_SVC_AFE, total) == 0u) {
         return 0;
     }
     pong_afe_put16(buf + PONG_AFE_OFF_PORT_ID, port_id);
@@ -323,8 +326,8 @@ pong_afe_device_start(uint8_t *buf, size_t bytes, uint16_t port_id, uint32_t tok
     if (buf == NULL || bytes < total) {
         return 0;
     }
-    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_PORT_CMD_DEVICE_START, token, 0u,
-            0u, total) == 0u) {
+    if (pong_afe_gpr_hdr(buf, bytes, PONG_AFE_PORT_CMD_DEVICE_START, token,
+            PONG_AFE_GPR_PORT_CLIENT, PONG_AFE_GPR_SVC_AFE, total) == 0u) {
         return 0;
     }
     pong_afe_put16(buf + 24, port_id);

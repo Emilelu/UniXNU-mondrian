@@ -2534,6 +2534,14 @@ afe_plan_cases(void)
         expect_eq(le32(p) >> 8, n, "planner packet size word");
         expect_eq(le32(p + 16), 0x100u + step, "planner token");
         expect_eq(le32(p + 20), pong_afe_step_opcode(step), "planner opcode");
+        expect_eq(le32(p + 8),
+            step == (unsigned)PongAfeStepClock ? PONG_AFE_GPR_SVC_ASM
+                                               : PONG_AFE_GPR_PORT_CLIENT,
+            "planner src port");
+        expect_eq(le32(p + 12),
+            step == (unsigned)PongAfeStepClock ? PONG_AFE_PRM_MODULE_INSTANCE_ID
+                                               : PONG_AFE_GPR_SVC_AFE,
+            "planner dst port");
     }
     memset(p, 0, sizeof(p));
     n = pong_afe_step_packet(p, sizeof(p), PongAfeStepClock, 0x201u);

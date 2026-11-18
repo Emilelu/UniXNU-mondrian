@@ -32,7 +32,7 @@ modem=4 与 IPA=15 并存。ADSP 是 1（`drivers/PongPower/K60AdspPas.h` 的 `K
 ## 2. SMC 编码器（照抄 ADSP 形状，只换常量名）
 
 编码器与 `drivers/PongPower/K60AdspPas.h` 完全同构（SMC64 bit30 | SiP owner 2<<24 | svc<<8 | cmd；
-args = count | t0<<4 | t1<<6 | t2<<8；成功 = x0==0 && x1==0），宏名改成 `K60M_SCM_*` 以避免同一
+args = count | t0<<4 | t1<<6 | t2<<8；成功 = x0==0；x1..x3 是结果寄存器，不是 payload 判决），宏名改成 `K60M_SCM_*` 以避免同一
 内核里两套同名符号。调用序列沿用 `docs/research/audio/ADSP-PAS1.md` 的裁决：
 
 1. `PAS_AUTH_AND_RESET`：args(1,0,0,0)，参数 = peripheral；
@@ -50,7 +50,9 @@ k16 C-M2 的 `E:/k60-work/evidence/usblog-20261118-204241/console.log:479-480` �
 
 主依据是 Android common 的 `drivers/firmware/qcom_scm-smc.c::__scm_smc_do_quirk()`（固定标签 [android13-5.15-2024-03_r9](https://android.googlesource.com/kernel/common/+/refs/tags/android13-5.15-2024-03_r9/drivers/firmware/qcom_scm-smc.c)）：x0=1 时继续，重送原 x1..x5/x7，并保留返回的 x6 上下文。同 SoC 参考 `E:/k60-work/references/phk110-port/drivers/modem/hakios.mpss.c:1298-1327` 也是相同形状（只参考 ABI 事实，未复制无授权代码）。
 
-提交 `92657c8f` 修正 PAS4 封装：首调 fn、续调 x0=1、每轮重建原参数、传回 x6，最多 100 次；耗尽返回独立的 `K60ModemPasInterrupted=-3`。它不重写 metadata、不改 PA、不修 IPA 的独立单次 SMC 封装。新增 `drivers/PongCellular/tests/run-modem-scm-continuation.sh` 编译实际 `K60ModemPas.c`，模拟 monitor 覆盖一次/多次中断、输入寄存器被改写、64 位 x6、最终 payload 拒绝、transport -12、100 次耗尽和第 100 次成功。k17 内核 `9b21321f...` 已离线编译，未打包/未上机。
+提交 `92657c8f` 修正 PAS4 封装：首调 fn、续调 x0=1、每轮重建原参数、传回 x6，最多 100 次；耗尽返回独立的 `K60ModemPasInterrupted=-3`。它不重写 metadata、不改 PA、不修 IPA 的独立单次 SMC 封装。新增 `drivers/PongCellular/tests/run-modem-scm-continuation.sh` 编译实际 `K60ModemPas.c`，模拟 monitor 覆盖一次/多次中断、输入寄存器被改写、64 位 x6、最终 x0 非零拒绝、x1 非零但 x0=0 视为成功、transport -12、100 次耗尽和第 100 次成功。k17 内核 `9b21321f...` 已离线编译，未打包/未上机。
+
+2026-11-18 追加修正：`k60_modem_scm_ok()` 改为只判 `x0==0`。依据 Linux v6.6 `drivers/firmware/qcom_scm-smc.c::__scm_smc_do_quirk()` / `__scm_smc_call()`：`res.a0` 是返回码，`a1..a3` 只是结果寄存器，`__scm_smc_call()` 返回 `smc_res.a0`。因此 `x1=0x82` 不是 payload 判决，不能让 `x0=0` 的完成态被误判为拒绝。宿主 `test-modem-scm-continuation.c` 的 `x1=0x82` 用例改为期望成功，另用 `x0=-22` 覆盖最终拒绝；`test-k60-modem-pas.c` 断言 `(0,1)=1`。`0621` 新文件 hunk 同步更新为 113 行。以上仍是离线证据，未上机。
 
 ### 2.2 metadata 的 CRLF 污染（2026-11-18 审计，未上机）
 

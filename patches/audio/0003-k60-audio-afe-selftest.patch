@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,651 @@
+@@ -858,6 +892,912 @@
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -222,7 +222,8 @@
 +		break;
 +	case PongPlayMap:
 +		bytes = pong_ar_map(packet, sizeof(packet), PONG_AUDIO_GPR_PORT,
-+		    token, state->dma_pa, PONG_AUDIO_DMA_BYTES);
++		    token, pong_play_dsp_address(state->dma_pa),
++		    PONG_AUDIO_DMA_BYTES);
 +		break;
 +	case PongPlayClock:
 +		bytes = pong_ar_prm_clock(packet, sizeof(packet),
@@ -298,8 +299,12 @@
 +	if (pong_ring_queue_used(&state->ring) < PONG_AUDIO_PERIOD_FRAMES) {
 +		return false;
 +	}
++	/* Pong, the SM8475 device that plays through this same GPR port, tags
++	 * each transfer 0x10000000 | sequence, and the DSP sizes the transfer
++	 * from the buffer size field, so the token carries no length. */
++	state->write_token++;
 +	const uint32_t token = 0x10000000u |
-+	    (++state->write_token & 0x0fffffffu);
++	    (state->write_token & 0x0fffffffu);
 +	const uint64_t address = pong_play_slot_address(state->dma_pa, slot);
 +	const uint32_t bytes = pong_ar_write(packet, sizeof(packet),
 +	    PONG_AUDIO_GPR_PORT, token, address, state->map_handle,
@@ -325,6 +330,7 @@
 +	if (state->playback_frames == 0u) {
 +		printf("PongAudio: PCM slot %u copy done\n", slot);
 +	}
++	printf("PongAudio: PCM slot %u send begin bytes=%u\n", slot, bytes);
 +	const int rc = k60_pmic_glink_send_audio(packet, bytes);
 +	if (rc != K60_PMIC_GLINK_AUDIO_OK) {
 +		state->ring_dropped += PONG_AUDIO_PERIOD_FRAMES;
@@ -504,6 +510,259 @@
 +	return false;
 +}
 +
++/* The audio buffer reaches the DSP through the apps SMMU, which aborts every
++ * stream it has no entry for. Before the first write, report how this kernel
++ * routed the audio stream ids so a silent ADSP reset can be attributed. The
++ * registers, the SMR array at 0x800 and the S2CR array at 0xc00 all fit in one
++ * 4 KiB page, which matters: the io_submap budget is nearly spent and running
++ * out of it panics before the console appears (P-63). */
++static bool g_pong_smmu_audited;
++
++static void
++pong_audio_smmu_audit(void)
++{
++	static const uint16_t audio_streams[] = { 0x1800u, 0x1801u, 0x1001u };
++	const uint32_t base = 0x15000000u;	/* apps SMMU, as the UFS takeover uses */
++	volatile uint32_t *r;
++
++	if (g_pong_smmu_audited) {
++		return;
++	}
++	g_pong_smmu_audited = true;
++	r = (volatile uint32_t *)ml_io_map(base, 0x1000);
++	if (r == NULL) {
++		printf("PongAudio: SMMU audit map failed\n");
++		return;
++	}
++	const uint32_t scr0 = r[0x00 / 4];
++	const uint32_t idr0 = r[0x20 / 4];
++	const uint32_t idr1 = r[0x24 / 4];
++	const uint32_t idr2 = r[0x28 / 4];
++	const uint32_t gfsr = r[0x48 / 4];
++	const unsigned smrs = idr0 & 0xffu;
++	const unsigned banks = idr1 & 0xffu;
++	unsigned valid = 0;
++	unsigned shown = 0;
++
++	printf("PongAudio: SMMU audit sCR0=0x%08x IDR0=0x%08x IDR1=0x%08x IDR2=0x%08x sGFSR=0x%08x\n",
++	    scr0, idr0, idr1, idr2, gfsr);
++	for (unsigned i = 0; i < smrs && i < 128u; i++) {
++		const uint32_t smr = r[(0x800 / 4) + i];
++		if ((smr & 0x80000000u) == 0u) {
++			continue;
++		}
++		valid++;
++		if (shown < 24u) {
++			const uint32_t s2cr = r[(0xc00 / 4) + i];
++			shown++;
++			printf("PongAudio: SMMU smr[%u] sid=0x%03x mask=0x%04x s2cr=0x%08x type=%u bank=%u\n",
++			    i, smr & 0xffffu, (smr >> 16) & 0xffffu, s2cr,
++			    (s2cr >> 16) & 3u, s2cr & 0xffu);
++		}
++	}
++	printf("PongAudio: SMMU audit smrs=%u valid=%u banks=%u\n", smrs, valid,
++	    banks);
++	for (unsigned a = 0; a < sizeof(audio_streams) / sizeof(audio_streams[0]); a++) {
++		const uint16_t sid = audio_streams[a];
++		bool found = false;
++
++		for (unsigned i = 0; i < smrs && i < 128u; i++) {
++			const uint32_t smr = r[(0x800 / 4) + i];
++			if ((smr & 0x80000000u) == 0u) {
++				continue;
++			}
++			if ((((uint32_t)sid ^ (smr & 0xffffu)) &
++			    ((smr >> 16) & 0xffffu)) != 0u) {
++				continue;
++			}
++			const uint32_t s2cr = r[(0xc00 / 4) + i];
++			printf("PongAudio: SMMU stream 0x%03x -> smr[%u] s2cr=0x%08x type=%u bank=%u\n",
++			    sid, i, s2cr, (s2cr >> 16) & 3u, s2cr & 0xffu);
++			found = true;
++			break;
++		}
++		if (!found) {
++			printf("PongAudio: SMMU stream 0x%03x has no matching SMR\n", sid);
++		}
++	}
++}
++
++/* The DSP reads the PCM period through apps SMMU stream 0x1801: the audio ion
++ * node in the device tree binds iommus <&apps_smmu 0x1801 0>, and the low four
++ * bits of the stream id come from the buffer address upper word, which is why
++ * the map and write commands carry bit 32. Firmware leaves that stream
++ * translating into a table this kernel never fills, so the first read faults
++ * and the ADSP resets. Lease the top context bank as a stage-1 bypass bank,
++ * the same handoff the Pong reference performs for its DMA buffer, and leave
++ * every other stream and bank alone. */
++static bool g_pong_smmu_leased;
++static volatile uint32_t *g_pong_smmu_pages[3];
++static uint32_t g_pong_smmu_page_base[3];
++
++static volatile uint32_t *
++pong_smmu_page(uint32_t off)
++{
++	const uint32_t base = off & ~0xfffu;
++	unsigned i;
++
++	for (i = 0; i < 3u; i++) {
++		if (g_pong_smmu_pages[i] != NULL &&
++		    g_pong_smmu_page_base[i] == base) {
++			return g_pong_smmu_pages[i];
++		}
++	}
++	for (i = 0; i < 3u; i++) {
++		if (g_pong_smmu_pages[i] == NULL) {
++			break;
++		}
++	}
++	if (i == 3u) {
++		return NULL;
++	}
++	volatile uint32_t *page = (volatile uint32_t *)ml_io_map(0x15000000u + base,
++	    0x1000);
++
++	if (page == NULL) {
++		return NULL;
++	}
++	g_pong_smmu_pages[i] = page;
++	g_pong_smmu_page_base[i] = base;
++	return page;
++}
++
++static bool
++pong_smmu_read32(uint32_t off, uint32_t *value)
++{
++	volatile uint32_t *page = pong_smmu_page(off);
++
++	if (page == NULL) {
++		return false;
++	}
++	*value = page[(off & 0xfffu) / 4u];
++	return true;
++}
++
++static bool
++pong_smmu_write32(uint32_t off, uint32_t value)
++{
++	volatile uint32_t *page = pong_smmu_page(off);
++
++	if (page == NULL) {
++		return false;
++	}
++	page[(off & 0xfffu) / 4u] = value;
++	__asm__ volatile("dsb sy" ::: "memory");
++	return true;
++}
++
++static bool
++pong_audio_smmu_lease(uint16_t sid)
++{
++	uint32_t scr0, idr0, idr1, idr2, value, smr_keep = 0;
++	unsigned count, banks, pages, bank, slot = 0xffffffffu, i;
++	bool have_smr = false;
++
++	if (g_pong_smmu_leased) {
++		return true;
++	}
++	if (!pong_smmu_read32(0x00u, &scr0) || !pong_smmu_read32(0x20u, &idr0) ||
++	    !pong_smmu_read32(0x24u, &idr1) || !pong_smmu_read32(0x28u, &idr2)) {
++		printf("PongAudio: SMMU lease cannot map the register page\n");
++		return false;
++	}
++	if ((idr0 & (1u << 30)) == 0u || (idr2 & (1u << 12)) == 0u) {
++		printf("PongAudio: SMMU lease refused: no AArch64 stage 1\n");
++		return false;
++	}
++	count = idr0 & 0xffu;
++	banks = idr1 & 0xffu;
++	pages = 1u << (((idr1 >> 28) & 7u) + 1u);
++	if (count == 0u || banks < 2u || pages > 128u ||
++	    (pages + banks) * 4096u > 0x100000u) {
++		printf("PongAudio: SMMU lease refused: geometry pages=%u banks=%u count=%u\n",
++		    pages, banks, count);
++		return false;
++	}
++	if (banks > 78u) {
++		banks = 78u;
++	}
++	if (count > 120u) {
++		count = 120u;
++	}
++	bank = banks - 1u;
++	for (i = 0; i < count; i++) {
++		uint32_t smr;
++
++		if (!pong_smmu_read32(0x800u + 4u * i, &smr)) {
++			return false;
++		}
++		if ((smr & 0x80000000u) != 0u) {
++			const uint32_t mask = (smr >> 16) & 0xffffu;
++
++			if ((((uint32_t)sid ^ (smr & 0xffffu)) & mask) == 0u) {
++				slot = i;
++				smr_keep = smr;
++				have_smr = true;
++				break;
++			}
++			continue;
++		}
++		if (slot == 0xffffffffu) {
++			slot = i;
++		}
++	}
++	if (slot == 0xffffffffu) {
++		printf("PongAudio: SMMU lease refused: no free stream group\n");
++		return false;
++	}
++	if (!pong_smmu_read32((pages + bank) * 4096u, &value) || (value & 1u) != 0u) {
++		printf("PongAudio: SMMU bank %u is not a disabled free bank\n", bank);
++		return false;
++	}
++	if (!pong_smmu_read32(0x1800u + 4u * bank, &value) || (value & ~1u) != 0u) {
++		printf("PongAudio: SMMU bank %u belongs to someone else\n", bank);
++		return false;
++	}
++	if (!pong_smmu_read32(0x1000u + 4u * bank, &value)) {
++		return false;
++	}
++	if (value != 0x10000u && !pong_smmu_write32(0x1000u + 4u * bank, 0x10000u)) {
++		return false;
++	}
++	if (value != 1u && !pong_smmu_write32(0x1800u + 4u * bank, 1u)) {
++		return false;
++	}
++	if (!pong_smmu_write32(0xc00u + 4u * slot, bank) ||
++	    !pong_smmu_read32(0xc00u + 4u * slot, &value) || value != bank) {
++		printf("PongAudio: SMMU lease: S2CR slot %u did not take bank %u\n",
++		    slot, bank);
++		return false;
++	}
++	if (!have_smr) {
++		smr_keep = 0x80000000u | (uint32_t)sid;
++		if (!pong_smmu_write32(0x800u + 4u * slot, smr_keep) ||
++		    !pong_smmu_read32(0x800u + 4u * slot, &value) ||
++		    value != smr_keep) {
++			printf("PongAudio: SMMU lease: SMR slot %u did not take stream 0x%03x\n",
++			    slot, sid);
++			return false;
++		}
++	}
++	if (!pong_smmu_read32((pages + bank) * 4096u, &value) ||
++	    !pong_smmu_read32(0x1000u + 4u * bank, &value) ||
++	    value != 0x10000u) {
++		printf("PongAudio: SMMU lease: bypass bank %u readback failed\n", bank);
++		return false;
++	}
++	g_pong_smmu_leased = true;
++	printf("PongAudio: SMMU stream 0x%03x leased to bypass bank %u slot %u smr=0x%08x SMMUEN=%u\n",
++	    sid, bank, slot, smr_keep, scr0 & 1u);
++	if ((scr0 & 1u) == 0u) {
++		printf("PongAudio: SMMU translation is off; the stream reads physical addresses\n");
++	}
++	return true;
++}
++
 +static void
 +pong_audio_pump_one(PongAudioState *state)
 +{
@@ -520,6 +779,8 @@
 +		}
 +		printf("PongAudio: PCM lead reached frames=%u; starting playback graph\n",
 +		    (unsigned)pong_ring_queue_used(&state->ring));
++		pong_audio_smmu_audit();
++		(void)pong_audio_smmu_lease(0x1801u);
 +		pong_audio_play_send_step(state, PongPlayPrepareSpeaker);
 +		return;
 +	}

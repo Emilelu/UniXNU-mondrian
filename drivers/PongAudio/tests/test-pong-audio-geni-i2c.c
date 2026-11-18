@@ -2647,11 +2647,13 @@ play_cases(void)
     expect_eq(PONG_PLAY_SLOT_TIMEOUT_PUMPS, 8ul, "playback slot timeout");
     expect(!pong_play_slot_expired(7u), "playback slot 7 pumps is live");
     expect(pong_play_slot_expired(8u), "playback slot 8 pumps is expired");
-    expect_eq(pong_play_slot_address(0x80000000ull, 0), 0x80000000ull,
+    expect_eq(pong_play_dsp_address(0x80000000ull), 0x180000000ull,
+        "playback map address");
+    expect_eq(pong_play_slot_address(0x80000000ull, 0), 0x180000000ull,
         "playback slot 0 address");
-    expect_eq(pong_play_slot_address(0x80000000ull, 1), 0x80002000ull,
+    expect_eq(pong_play_slot_address(0x80000000ull, 1), 0x180002000ull,
         "playback slot 1 address");
-    expect_eq(pong_play_slot_address(0x80000000ull, 7), 0x8000e000ull,
+    expect_eq(pong_play_slot_address(0x80000000ull, 7), 0x18000e000ull,
         "playback slot 7 address");
     for (step = 0; step < (unsigned)PongPlayStepCount; step++) {
         expect_eq(pong_play_opcode(step), opcodes[step], "playback opcode");

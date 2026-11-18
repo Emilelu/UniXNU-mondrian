@@ -102,10 +102,22 @@ pong_play_slot_expired(uint32_t age)
 	return age >= PONG_PLAY_SLOT_TIMEOUT_PUMPS;
 }
 
+/* The DSP decodes the upper word of a buffer address as the audio stream
+ * index: the reference audio client sends its 0x1001 stream as index 1, and a
+ * 36-bit address whose upper word it cannot decode is refused. The shared
+ * memory map and the writes both carry this tagged address, so the two sides
+ * name one buffer. */
+static inline uint64_t
+pong_play_dsp_address(uint64_t dma_pa)
+{
+	return dma_pa | (1ull << 32);
+}
+
 static inline uint64_t
 pong_play_slot_address(uint64_t dma_pa, unsigned slot)
 {
-	return dma_pa + (uint64_t)slot * PONG_PLAY_PERIOD_BYTES;
+	return pong_play_dsp_address(dma_pa) +
+	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES;
 }
 
 static inline bool

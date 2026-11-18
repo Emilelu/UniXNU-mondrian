@@ -16,7 +16,7 @@
 | 文件 | 大小 | 说明 |
 |---|---|---|
 | `patches/xnu/0503-k60-audio-aw882xx.patch` | 25,561 B | 823 行 aw882xx.c：GENI I2C + GCC/TLMM + chip-id；**寄存器号全是 `AW882XX_TODO_*`**，`g_aw882xx_apply_todo_init=false` |
-| `patches/xnu/0504-k60-audio-pong-audio.patch` | 30,334 B | 994 行 pong_audio.c：GPR 编解码 + AudioReach 11 种报文构造器齐备，但 `pong_audio_start()` 只做 4 个 `ml_io_map` 后打印 `skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)`；`pong_audio_submit()` 直接 ENOTSUP |
+| `patches/xnu/0504-k60-audio-pong-audio.patch` | 31,052 B | 1,013 行 pong_audio.c：GPR 编解码 + AudioReach 12 种报文构造器齐备，但 `pong_audio_start()` 只做 4 个 `ml_io_map` 后打印 `skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)`；`pong_audio_submit()` 直接 ENOTSUP |
 | `patches/xnu/0505-k60-audio-integration.patch` | 730 B | 只加 `bsd/conf/files` + `bsd_init` 调 `pong_audio_bootstrap()`（boot-arg 关门）|
 | `docs/plans/BT-AUDIO-PORT-PLAN.md` | 61,991 B | 移植计划 |
 

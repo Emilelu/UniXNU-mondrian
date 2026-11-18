@@ -129,6 +129,9 @@ IOKit 级验证仍待完成。
 | 适配器电压/最大电流 | µV / µA | mV / mA | `/1000`；输入限流取二者较小值 | `:273-278` |
 | 适配器功率 | — | W | `mV × mA / 1,000,000` | `K60Battery.cpp:300` |
 
+电池 `CURRENT_NOW`（属性 9）在该 ADSP 上不应答；`K60Battmgr.c:144-147` 直接跳过该字段，因为一次超时会毒化整个 channel epoch。
+因此充电中的 `current_ma` 只能取 USB 输入电流（`:256-261`），放电中为 0；这不是固定值顶替，而是本板唯一可读的充电电流。
+
 原始值本身也发布为 `K60Raw*` 属性（`K60Battery.cpp:111-116` 声明，`:261-276` `rawNumbers()` 赋值；缺失分支在 `:170` 调用）：
 `K60RawStatus`、`K60RawCapacityHundredths`、`K60RawVoltageMicrovolts`、`K60RawCurrentMicroamps`、
 `K60RawTemperatureHundredths`、`K60RawFullChargeMicroampHours`、`K60RawDesignChargeMicroampHours`、
@@ -383,8 +386,9 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   判 C3：PASS 3 对，最大 |ΔV|=46mV/±60mV、|ΔSOC|=1.00pp/±3pp、|ΔT|=1.00C/±3C；
   |ΔI| 未比较（两侧没有同时 ≥100mA 的稳态窗口），报告 `judge-android.txt`。
 - 全 8 行窗口判 C3 仍 FAIL（6 对）：`:2156` ΔI=253mA、`:2609` ΔV=-83mV/ΔI=290mA，
-  最大 |ΔV|=83mV/±60mV、|ΔSOC|=1.00pp、|ΔT|=1.30°C、|ΔI|=290mA/±150mA。原因是 Android 侧电流
-  在 0–490mA 间波动而 XNU 稳定 397mA；匹配低电流 3 行窗口 PASS 不能替代全窗口通过。
+  最大 |ΔV|=83mV/±60mV、|ΔSOC|=1.00pp、|ΔT|=1.30°C、|ΔI|=290mA/±150mA。原因是 Android 的
+  `current_now` 是电池电流，XNU 发布的是 USB 输入电流（属性 9 不应答，见 §3.3），两者相差系统负载；
+  全窗口电流差不能当作发布值错误，匹配电流窗口才是有效 C3 证据。匹配低电流 3 行窗口 PASS 不能替代全窗口通过。
 - 旧 route-c dmesg 窗口 16447–16652 仍因冷战基线判 FAIL（rc=1），不是同状态基线。
 - 该镜像的插拔、放电、超时与服务重启仍未获得真机脚本化证据；第 15 节只证明 manager 对待发布样本的状态转换，
   不代替真机。image e 不含 `0bad0c61`，image f 起包含该修正。

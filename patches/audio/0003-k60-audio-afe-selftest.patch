@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1162 @@ int pong_audio_status(void);
+@@ -898,6 +933,1175 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -143,7 +143,8 @@
 + * have no mapping for them, so the DSP faults on the first fetch and the ADSP
 + * restarts. The stock audio stack lends the same pages to LPASS and ADSP_HEAP
 + * before the graph runs (msm_audio_ion.c, IOCTL_MAP_HYP_ASSIGN), so issue the
-+ * same assign call here. */
++ * same assign call here and keep HLOS in the list: the write side has to stay
++ * able to fill the periods. */
 +#define PONG_SCM_ASSIGN_FNID	0x42000c16u
 +#define PONG_SCM_ASSIGN_ARGS	0x1117u
 +#define PONG_VMID_HLOS		0x03u
@@ -218,9 +219,14 @@
 +	dst[0].perm = PONG_SCM_PERM_RW;
 +	dst[1].vmid = PONG_VMID_ADSP_HEAP;
 +	dst[1].perm = PONG_SCM_PERM_RW;
++	/* The DSP cannot read a page the audio VMs do not own, but the kernel
++	 * writes the PCM samples into the same page, so HLOS has to stay in
++	 * the list: the call lends the page out instead of moving it. */
++	dst[2].vmid = PONG_VMID_HLOS;
++	dst[2].perm = PONG_SCM_PERM_RW;
 +	ext[0] = 4u;
 +	ext[1] = base + 0x080u;
-+	ext[2] = 2u * sizeof(*dst);
++	ext[2] = 3u * sizeof(*dst);
 +	ext[3] = 0;
 +	ext[4] = 0;
 +	ext[5] = 0;
@@ -510,6 +516,14 @@
 +	printf("PongAudio: PCM zero-byte probe send bytes=%u address=0x%llx\n",
 +	    bytes, (unsigned long long)address);
 +	const int rc = k60_pmic_glink_send_audio(packet, bytes);
++	if (rc == 0) {
++		/* Book the probe like a real period so the write-done answer
++		 * finds slot 0 and proves the completion path end to end. */
++		state->slot_busy[0] = true;
++		state->slot_token[0] = token;
++		state->slot_age[0] = 0;
++		state->inflight++;
++	}
 +	printf("PongAudio: PCM zero-byte probe rc=%d inflight=%u\n", rc,
 +	    state->inflight);
 +}
@@ -569,8 +583,7 @@
 +		 * write command from the memory the DSP has to read. */
 +		pong_audio_play_probe_zero(state);
 +		/* The probe answered, so the write path is alive; the real
-+		 * periods now leave from shared memory instead of the page group
-+		 * the loader leased. */
++		 * periods follow through the leased page group. */
 +		printf("PongAudio: zero-byte probe answered; streaming real slots\n");
 +		return;
 +	}

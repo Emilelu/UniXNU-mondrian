@@ -190,7 +190,20 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `kApplyLatestEndWindow=6250`（100 s）检查，121 s 的触摸即使重开窗口也写不进去；commit
   `a0e8a060` 让信号窗口不再受该上限（仍受 32 票预算），archive 变为 137,384 字节（`b65a10f1…`）。
   image z 用 `a0e8a060` 构建（boot.img `59921097…`，30 项 603 B），06:47 尝试上机时设备已不在
-  fastboot，随后空窗被 wifi/audio watcher 占用，**尚未上机**。
+  fastboot，随后空窗被 wifi/audio watcher 占用，**image y/z 均未上机**；此后才由 image ab 拿到空窗。
+- 触摸写回（2026-11-19 07:18，image ab）：image x 里窗口虽由触摸重开，但 `gov.current` 在启动窗口结束时已等于 13，
+  触摸的升档请求因此被“无需改变”跳过。commit `a6a51bc5` 用一个 `forceVote[]` 标记（不是 `~0u` 哨兵，避免
+  `k60_cpufreq_vote_allowed` 拒绝时把越界值写进 `gov.current`）强制信号窗口的第一票。image ab 上机后
+  win=6937 出现 `mode8 touch boost active … reports=1` 与 `mode8 touch window win=6937 span=63`，
+  随后 `apply d0 level=0 (300000kHz) state=36->15`、`apply d0 level=13 (1804800kHz) state=15->94`，
+  win=6976 的样本为 `d0=1000/1804800kHz/hw1804800kHz … tb=1`——**硬件第一次跟随触摸写回**；
+  窗口末尾 `restore domains=3 votes=27`。同轮的第二个触摸（win=7207）只写了 5 票就触发
+  `restore … votes=32`：32 票预算原本是整轮累计（启动 5 + 首触 22 + 二触 5），不是每窗口。
+  另外 `k60_cpufreq_target` 只在 `shared_cluster` 分支里应用 `boost`，而 d0 的 `shared_cluster` 为 0，
+  轻触摸并不会抬 d0（win=6976 的 1.8 GHz 来自 busy=1000 的触摸负载）。commit `43af2a5c`
+  让 `boost` 对每个域都直接取 top（安静半档仍只给共享簇），并在两个 arm 分支把 `appliedVotes` 清零，
+  使 32 票只约束一个窗口；host `TESTS OK 154 checks`，archive 137,520 字节（`5d6d1203…`），
+  image ac 用这份代码构建（见 §6）。
 - mode 5（只读采样，2026-11-18）：内核线程每 16 ms 调 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，
   把每 CPU 的 user/system/idle/nice 累计 tick 差分成一个窗口，按域取最忙 CPU 的 busy permille，
   再调用 governor 单窗口决策；每 64 个窗口打印 `sample win=… d0=busy/kHz/hw kHz …`，
@@ -223,7 +236,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   undefined-symbol 检查 imports=320 defs=140 external=248 kernel=22,956 missing=0（对照含 Adreno 的 image w kernel.macho；`_pong_adreno_cp_pending` 与 `_k60_boost_*` 由 Adreno archive 提供）。image l 用的是
   修复前的 130,648 字节 archive（`70856d4d`）；image m 用的是 130,592 字节（`1ebfd4d0`）版本，
   均早于 mode 6；image n/o/p/q 用的是 131,008 字节（`08a95bfc`）版本，含 mode 6 但早于 mode 7；
-  image r 用的是 133,632 字节（`7584fcec`）版本，含首次降档窗口的 mode 7 写回；image s 用的是 134,064 字节（`ffaf7e43`）版本，含双向 mode 8 与 d1/d2 reseed；image w 用的是 136,600 字节（`9f119715`）版本，含帧下限接线；image x 用的是 137,016 字节（`baefc961`）版本，含触摸计数消费；image y 用的是 137,320 字节（`ef257c01`）版本，含触摸/帧重开写窗口；image z 用的是 137,384 字节（`b65a10f1`）版本，含信号窗口脱离 100 s 上限的修复。
+  image r 用的是 133,632 字节（`7584fcec`）版本，含首次降档窗口的 mode 7 写回；image s 用的是 134,064 字节（`ffaf7e43`）版本，含双向 mode 8 与 d1/d2 reseed；image w 用的是 136,600 字节（`9f119715`）版本，含帧下限接线；image x 用的是 137,016 字节（`baefc961`）版本，含触摸计数消费；image y 用的是 137,320 字节（`ef257c01`）版本，含触摸/帧重开写窗口；image z 用的是 137,384 字节（`b65a10f1`）版本，含信号窗口脱离 100 s 上限的修复；
+  image aa 用的是 137,440 字节（`3046ece1`）版本（`~0u` 哨兵，未上机、作废）；image ab 用的是
+  137,512 字节（`254bd713`）版本，含 `forceVote` 强制首票；image ac 用的是 137,520 字节
+  （`5d6d1203`）版本，含每窗口票数重置与全簇 boost。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，

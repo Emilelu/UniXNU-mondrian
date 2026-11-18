@@ -1,6 +1,6 @@
 # 触摸/帧/GPU 唤醒与 fence 规则（官网 §5 :115-117）
 
-状态：**规则模块 + host 40 项断言；触摸计数与 GPU 提交窗口已接线并在真机触发过，寄存器写窗口的触摸/帧重开由 `9b8a36b6` 实现，100 s 上限由 `a0e8a060` 去掉，image z 待上机**（触摸计数补丁 `0622-k60-touch-activity.patch`，消费方 commit `aa3bada7`，重开窗口 commit `9b8a36b6`）。
+状态：**规则模块 + host 40 项断言；触摸与帧输入已接线并在真机触发，触摸写回已在 image ab 上机成立（d0 `state=15->94`、`hw=1804800kHz`），票数预算与全簇 boost 由 `43af2a5c` 修正，image ac 待上机**（触摸计数补丁 `0622-k60-touch-activity.patch`，消费方 `aa3bada7`，重开窗口 `9b8a36b6`，预算/boost `43af2a5c`）。
 官网 `https://unixnu.com/zh/porting/power` §5 在 CPU/GPU 调频之后还有四条规则
 （快照 `E:/k60-work/scratch/power-page-20261117.txt:115-117`）：
 
@@ -28,7 +28,8 @@
 - 没有温度/throttle 读数；触摸保持与帧下限都不检查温度。
 - 触摸已有真机数据（image x，2026-11-19 05:47）：触摸后 12 条 `touch boost` 日志、7 条 `tb=1`
   样本，报告计数 1→7；但 mode 8 的 10 s 写回窗口在 ~20 s 就已恢复，触摸发生在 ~121 s，
-  所以只有 governor 抬档、没有寄存器写入，`9b8a36b6` 补了重开窗口，但投票仍受 100 s 上限；`a0e8a060` 才让信号窗口脱离该上限，image z 尚未上机。
+  所以只有 governor 抬档、没有寄存器写入，`9b8a36b6` 补了重开窗口，但投票仍受 100 s 上限；`a0e8a060` 才让信号窗口脱离该上限。
+- 触摸写回在 image ab（07:18）成立：win=6937 `touch window` 后 d0 写 `level=13 state=15->94`，win=6976 样本 `hw=1804800kHz tb=1`，窗口末 `restore domains=3 votes=27`。同轮第二触（win=7207）只写 5 票就 `votes=32` 恢复，说明票数当时是整轮累计；`43af2a5c` 改为每窗口重置，并让 `boost` 对每个域取 top（原先只作用于共享簇，轻触摸抬不动 d0）。image ac 带这份修复，待上机。
 - 帧仍无真机数据：image w 的 276 条样本全部 `fr=0`，启动全程没有 GPU 提交。
 
 ## 2. 已实现的规则
@@ -75,8 +76,7 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tboost \
 ## 3. 边界
 
 - 触摸计数已上机（image x 05:47）：`touch boost active/released`、`tb=1`、计数 1→7 都出现，
-  「触摸 → tb=1 → governor 抬到 1,804,800 kHz」时序成立；但那次触摸没有写进寄存器
-  （写窗口已关）；`9b8a36b6` 的 1 s 重开窗口仍被 100 s 上限挡住，`a0e8a060` 才去掉该上限，image z 还没有真机结果。
+  「触摸 → tb=1 → governor 抬到 1,804,800 kHz」时序成立；image ab 更进一步：`touch window` 内 d0 写入 `state=15->94`，样本 `hw=1804800kHz`，硬件确实跟随，窗口末恢复原值。32 票预算已改为每窗口一份，`boost` 已覆盖每个域；image ac 待上机验证「轻触摸也抬 d0」与第二触仍有预算。
 - 触摸保持把 P 域抬到 top 依赖 EPSS 接受写回：d0 已验证双向写回，d1/d2 的写回不被
   EPSS 接受（image s 的 `state=130->130`），所以「P 域」目前只有 d0 真正生效。
 - GPU 触摸保持只改 HFI 投票目标，是否被固件接受取决于当时温度/负载；连续 8 次拒绝会停线程。
@@ -85,9 +85,9 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tboost \
 
 ## 4. 下一步（需要设备或其他线）
 
-1. 上机触摸（image x 已完成前半段）：05:47 image x 触摸后 `tb=1`、`touch boost active`、
-   1 s 后 `released` 都成立，d0 governor 抬到 top；下一步用 image z（`a0e8a060`）触摸，
-   确认出现 `touch window` 并在窗口内看到 d0 的 `apply`/`state` 与 `hw` 跟随。
+1. 上机触摸：image ab 已确认 `touch window`、d0 `apply`/`state` 与 `hw` 跟随（07:18）；
+   下一步用 image ac（`43af2a5c`）做一次轻触摸，确认 `boost` 直接抬 d0（不依赖触摸负载），
+   并在同一轮里触摸两次，确认第二个窗口仍有完整 32 票预算、窗口末才 `restore`。
 2. GPU 触摸：同一次启动加 `pong_gpu_dcvs=1`，确认 `DCVS touch top` / `DCVS touch release`
    两条日志，并核对 HFI 投票错误码。
 3. 帧下限：等 Metal 提交路径可用后跑一段负载，确认 `fr=1` 时 CPU 投票抬到 60 %。

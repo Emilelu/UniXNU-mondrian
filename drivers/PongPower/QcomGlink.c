@@ -231,10 +231,6 @@ static void progress(QcomGlink *g)
         QcomGlinkChannel *c = &g->channel[i];
         if (!c->used) continue;
         if (c->open_hold) continue;
-        if (c->open_held) {
-            if (command(g, QCOM_GLINK_OPEN_ACK, c->rcid, 0)) return;
-            c->open_held = 0;
-        }
         if (c->closing) {
             if (c->closing == 1) {
                 if (command(g, QCOM_GLINK_CLOSE, c->lcid, 0)) return;
@@ -371,8 +367,9 @@ static int receive_one(QcomGlink *g)
         } else {
             if (c->closing) return QcomGlinkCorrupt;
             if (c->open_hold) {
-                /* Record the remote's OPEN, but do not put a single byte on
-                 * the shared FIFO until the owner releases the channel. */
+                /* Acknowledge immediately so the remote does not time out, but
+                 * defer our own OPEN until the owner releases the channel. */
+                if (command(g, QCOM_GLINK_OPEN_ACK, param1, 0)) return 0;
                 c->rcid = param1;
                 c->remote_open = 1;
                 c->open_held = 1;

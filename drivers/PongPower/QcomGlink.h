@@ -92,8 +92,8 @@ int qcom_glink_adopt(QcomGlink *g, QcomGlinkFifo tx, QcomGlinkFifo rx, void (*ki
  * otherwise we answer when the remote opens it. */
 QcomGlinkChannel *qcom_glink_channel(QcomGlink *g, const char *name, uint32_t intent_size, uint32_t intent_count, uint8_t *storage,
                                      const QcomGlinkClient *client, void *context, int open_now);
-/* Hold a passive channel until its owner releases it: a remote OPEN is recorded
- * but neither acknowledged nor answered while held. */
+/* Hold a passive channel until its owner releases it: a remote OPEN is
+ * acknowledged at once, but our own OPEN waits for the release. */
 void qcom_glink_channel_hold(QcomGlinkChannel *channel);
 int qcom_glink_channel_release(QcomGlinkChannel *channel);
 /* Sends VERSION (once) and any channel OPEN that is due, then handles every complete message in the receive FIFO. Returns the number of

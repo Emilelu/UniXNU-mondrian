@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_pas.h
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,112 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* PAS (peripheral authentication service) calls for the K60 modem (MSS).
 + *

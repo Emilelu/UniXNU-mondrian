@@ -115,3 +115,72 @@ unsigned k60_gpu_wake_level(const K60GpuTable *table, unsigned current,
     if (target < min_khz) target = min_khz;
     return k60_gpu_level_for_khz(table, target);
 }
+
+void k60_gpu_dcvs_reset(K60GpuDcvs *dcvs, K60GpuGovernor *gov, unsigned floor,
+    unsigned top)
+{
+    if (!dcvs) return;
+    if (top == 0 || top > K60_GPU_MAX_LEVELS) top = K60_GPU_MAX_LEVELS;
+    if (floor < 1) floor = 1;
+    if (floor > top) floor = top;
+    dcvs->level = floor;
+    dcvs->floor = floor;
+    dcvs->top = top;
+    dcvs->wake_level = 0;
+    dcvs->wake_end_ns = 0;
+    dcvs->idle_ms = 0;
+    dcvs->idle = 0;
+    dcvs->wakes = 0;
+    dcvs->changes = 0;
+    dcvs->refused = 0;
+    k60_gpu_governor_reset(gov, floor);
+}
+
+int k60_gpu_dcvs_window(K60GpuDcvs *dcvs, K60GpuGovernor *gov,
+    const K60GpuTable *table, uint64_t delta_ticks, uint64_t window_ns,
+    uint64_t now_ns, unsigned boost_ms, uint64_t wake_min_khz, unsigned *want)
+{
+    unsigned permille, target;
+    const int active = delta_ticks != 0;
+    if (!dcvs || !gov || !table || !want || table->count == 0) return -1;
+    if (dcvs->level < 1 || dcvs->level > dcvs->top) return -1;
+    permille = k60_gpu_busy_permille(delta_ticks, window_ns / 1000u);
+    dcvs->idle_ms = active ? 0 : dcvs->idle_ms + (unsigned)(window_ns / 1000000u);
+    if (active && dcvs->idle) {
+        dcvs->idle = 0;
+        if (boost_ms) {
+            unsigned wake = k60_gpu_wake_level(table, dcvs->level, wake_min_khz);
+            if (wake > dcvs->top) wake = dcvs->top;
+            if (wake > dcvs->level) {
+                dcvs->wake_level = wake;
+                dcvs->wake_end_ns = now_ns + (uint64_t)boost_ms * 1000000u;
+                dcvs->wakes++;
+            }
+        }
+    } else if (!active) {
+        dcvs->idle = 1;
+    }
+    if (k60_gpu_governor_window(gov, table, permille, dcvs->idle_ms) < 0) return -1;
+    target = gov->level;
+    if (now_ns < dcvs->wake_end_ns && target < dcvs->wake_level) target = dcvs->wake_level;
+    if (target < dcvs->floor) target = dcvs->floor;
+    if (target > dcvs->top) target = dcvs->top;
+    *want = target;
+    return 0;
+}
+
+int k60_gpu_dcvs_voted(K60GpuDcvs *dcvs, K60GpuGovernor *gov, unsigned want,
+    int accepted)
+{
+    if (!dcvs || !gov) return 1;
+    if (accepted) {
+        dcvs->level = want;
+        gov->level = want;
+        dcvs->changes++;
+        dcvs->refused = 0;
+        return 0;
+    }
+    if (++dcvs->refused >= K60_GPU_STOP_REFUSALS) return 1;
+    return 0;
+}
+

@@ -23,11 +23,8 @@ extern "C" void pong_ramoops_diagnostic_write(const char *,int);
 namespace {
 constexpr unsigned kWindowMs=16;
 constexpr unsigned kReportMs=10000;
-constexpr unsigned kStopAfterRefusals=8;
 /* 19.2 MHz XO: one tick is 625/12 ns (52.083 ns). */
 constexpr uint64_t kTickNsNumerator=625,kTickNsDenominator=12;
-/* Official section 5 :116: at least 578 MHz when the GPU wakes. */
-constexpr uint64_t kWakeKhz=578000;
 static volatile unsigned sStarted;
 
 static void report(const char *phase,unsigned result,uint64_t a=0,uint64_t b=0)
@@ -57,14 +54,12 @@ static void dcvs(void *,wait_result_t)
     if(PongAdrenoGmuEnableBusyCounter(gmu)){report("SKIP DCVS busy counter",3);return;}
     uint64_t busy=0;
     if(PongAdrenoGmuBusyTicks(gmu,&busy)){report("SKIP DCVS first sample",4);return;}
+    K60GpuDcvs dcvs={};
     K60GpuGovernor gov={};
-    k60_gpu_governor_reset(&gov,floor);
-    unsigned current=gov.level,changes=0,refused=0,idle_ms=0,wakes=0;
-    bool idle=false;
-    uint64_t last_busy=busy,last=0,wake_end=0,report_at=0,win_busy=0,win_us=0;
-    unsigned wake_level=0;
+    k60_gpu_dcvs_reset(&dcvs,&gov,floor,top);
+    uint64_t last_busy=busy,last=0,report_at=0,win_busy=0,win_us=0;
     absolutetime_to_nanoseconds(mach_absolute_time(),&last);
-    report("DCVS started",0,(uint64_t(top)<<32)|floor,current);
+    report("DCVS started",0,(uint64_t(top)<<32)|floor,dcvs.level);
     for(;;) {
         IOSleep(kWindowMs);
         uint64_t now_ticks=0;
@@ -76,31 +71,17 @@ static void dcvs(void *,wait_result_t)
         uint64_t delta=now_ticks-last_busy;last_busy=now_ticks;
         uint64_t busy_ns=delta*kTickNsNumerator/kTickNsDenominator;
         if(busy_ns>ns)busy_ns=ns;
-        unsigned permille=k60_gpu_busy_permille(delta,ns/1000ull);
-        const bool active=delta!=0;
-        idle_ms=active?0:idle_ms+(unsigned)(ns/1000000ull);
-        if(active && idle) {
-            idle=false;
-            if(boost_ms) {
-                wake_level=k60_gpu_wake_level(&table,current,kWakeKhz);
-                if(wake_level>top)wake_level=top;
-                if(wake_level>current){wake_end=at+uint64_t(boost_ms)*1000000ull;++wakes;}
-            }
-        } else if(!active) idle=true;
-        if(k60_gpu_governor_window(&gov,&table,permille,idle_ms)<0)
+        unsigned want=0;
+        if(k60_gpu_dcvs_window(&dcvs,&gov,&table,delta,ns,at,boost_ms,
+            K60_GPU_WAKE_MIN_KHZ,&want)<0)
             {report("STOP DCVS governor",6);break;}
-        unsigned want=gov.level;
-        if(at<wake_end && want<wake_level)want=wake_level;
-        if(want<floor)want=floor;
-        if(want>top)want=top;
-        if(want!=current) {
+        if(want!=dcvs.level) {
             uint32_t error=0;
             const auto status=PongAdrenoGmuSetLevel(gmu,want,
                 PongAdrenoPowerLevels[K60_GPU_MAX_LEVELS-want].bus,&error);
-            if(status==PongGpuSuccess) {
-                current=want;gov.level=want;++changes;
-            } else if(++refused>=kStopAfterRefusals) {
-                report("STOP DCVS votes refused",refused,(uint64_t(status)<<32)|want,current);
+            if(k60_gpu_dcvs_voted(&dcvs,&gov,want,status==PongGpuSuccess)) {
+                report("STOP DCVS votes refused",dcvs.refused,
+                    (uint64_t(status)<<32)|want,dcvs.level);
                 break;
             }
         }
@@ -108,7 +89,8 @@ static void dcvs(void *,wait_result_t)
         if(!report_at)report_at=at+uint64_t(kReportMs)*1000000ull;
         if(at>=report_at) {
             const unsigned average=win_us?unsigned(win_busy*1000ull/(win_us?win_us:1)):0;
-            report("DCVS window",current,(uint64_t(average)<<32)|wakes,changes);
+            report("DCVS window",dcvs.level,(uint64_t(average)<<32)|dcvs.wakes,
+                dcvs.changes);
             report_at=at+uint64_t(kReportMs)*1000000ull;win_busy=win_us=0;
         }
     }

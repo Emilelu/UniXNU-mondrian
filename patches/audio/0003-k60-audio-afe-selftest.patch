@@ -13,7 +13,7 @@
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void thread_terminate_self(void);
-@@ -816,6 +822,35 @@
+@@ -856,6 +862,35 @@ typedef struct {
  	uint32_t graph_state;
  	bool mapped;
  	bool service_ready;
@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -858,6 +892,1155 @@
+@@ -898,6 +933,1155 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -1205,7 +1205,7 @@
  static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
-@@ -896,6 +1506,36 @@
+@@ -936,6 +2120,36 @@ pong_audio_start(void)
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -1242,7 +1242,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,23 +1546,94 @@
+@@ -947,23 +2161,93 @@ int
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -1342,4 +1342,3 @@
  }
  
  /* Compile-time coverage of every pure packet builder. This is not a hardware
-+

@@ -89,9 +89,9 @@ python3 ./unixnu defconfig mondrian_ios27_defconfig --device ../UniXNU-mondrian-
 python3 ./unixnu build kernel --device ../UniXNU-mondrian-ios27
 ```
 
-That path needs no Mac and no phone. The 24.4 GiB userdata image still needs
-macOS (`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1
-does not.
+That path needs no Mac and no phone. The userdata image still needs macOS
+(`hdiutil` and `/usr/bin/aea`), so F3 keeps an Xcode 26 host even when F1 does
+not.
 
 The 4 KiB granule assertion has its own script because the framework copy
 (`scripts/check-xnu-granules.py`) does not yet pass the two defines xnu-12377

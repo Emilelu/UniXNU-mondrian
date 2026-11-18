@@ -148,6 +148,14 @@ IOReturn NativeAdrenoSubmit::submit(const NativeAdrenoSubmitBuffer *buffers,size
             if(audited)native_adreno_wc_audit[4]=audited;
         }
         if(dirty || (audited && audited!=kIOReturnUnsupported)) {
+            /* One line per boot, emitted exactly when trust ends: from here on publishMapped() also
+             * maintains every write-combined BO, which is the difference between a cheap submission and
+             * the 10 ms pass the probe measures. Without this line a flight cannot tell "distrusted from
+             * the start" from "lost trust at frame N", and those have different causes. */
+            IOLog("PONG WC: distrust latched submit=%u audit=%u lines=%u dirty=%u stale=%u status=0x%x resets=%u\n",
+                (unsigned)(++audit_tick_),(unsigned)native_adreno_wc_audit[0],(unsigned)native_adreno_wc_audit[1],
+                (unsigned)native_adreno_wc_audit[2],(unsigned)native_adreno_wc_audit[3],(unsigned)audited,
+                (unsigned)reset);
             vm_->distrustWriteCombined();
             native_adreno_wc_distrusted=native_adreno_coherence[0]+1;
         }

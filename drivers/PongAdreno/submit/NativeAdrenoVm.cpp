@@ -342,6 +342,12 @@ IOReturn NativeAdrenoVm::publishMapped()
     const bool sample=!(++calls&31);
     unsigned objects=0,imported=0,combined=0,owned=0;
     uint64_t bytes=0,began=0;
+    /* Which class of mapping is the maintenance really spent on? The totals above say 135 MiB and 610
+     * calls per submission, but not whether that is the imported frames the CPU just wrote, the owned
+     * pages, or write-combined BOs maintained only because distrust latched. Counting per class stops
+     * the next conclusion from being another ratio between two numbers that describe different things
+     * (P-237). */
+    uint64_t imported_bytes=0,owned_bytes=0,combined_bytes=0,combined_skipped=0;
     uint64_t calls_before=0,bytes_before=0;
     if(sample) {
         began=mach_absolute_time();
@@ -353,18 +359,24 @@ IOReturn NativeAdrenoVm::publishMapped()
         if(coherentMapping(m.writeback) || importedUntouched(m.memory)) {native_adreno_coherent_skips[2]=native_adreno_coherent_skips[2]+1;continue;}
         if(sample) {
             ++objects;bytes+=m.memory->bytes();
-            if(m.memory->imported())++imported;
-            else if(m.memory->writeCombined())++combined;
-            else ++owned;
+            if(m.memory->imported()) {++imported;imported_bytes+=m.memory->bytes();}
+            else if(m.memory->writeCombined()) {
+                ++combined;
+                /* publishForDevice() returns without touching a write-combined BO unless the submission
+                 * layer has distrusted it, so this is the difference between "visited" and "maintained". */
+                if(distrust_write_combined_)combined_bytes+=m.memory->bytes();else combined_skipped+=m.memory->bytes();
+            }
+            else {++owned;owned_bytes+=m.memory->bytes();}
         }
         if(m.memory->publishForDevice(0,m.memory->bytes(),true,distrust_write_combined_))return fail(ArmSmmu4KIoError);
     }
     if(sample) {
         uint64_t nanoseconds=0;
         absolutetime_to_nanoseconds(mach_absolute_time()-began,&nanoseconds);
-        IOLog("PONG VM: publish sample n=%u objects=%u imported=%u owned=%u combined=%u bytes=%llu us=%llu calls=%llu cachebytes=%llu\n",
+        IOLog("PONG VM: publish sample n=%u objects=%u imported=%u owned=%u combined=%u bytes=%llu us=%llu calls=%llu cachebytes=%llu trusted=%u ibytes=%llu obytes=%llu wbytes=%llu wskipped=%llu\n",
             (unsigned)calls,objects,imported,owned,combined,bytes,nanoseconds/1000,
-            native_adreno_cache_stats[3]-calls_before,native_adreno_cache_stats[1]-bytes_before);
+            native_adreno_cache_stats[3]-calls_before,native_adreno_cache_stats[1]-bytes_before,
+            (unsigned)(distrust_write_combined_?0:1),imported_bytes,owned_bytes,combined_bytes,combined_skipped);
     }
     return kIOReturnSuccess;
 }

@@ -1069,6 +1069,25 @@ k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
 		printf("K60MODEM glink: adopt rc=%d\n", rc);
 		return rc;
 	}
+	/* A peer that has just booted writes nothing before our first VERSION,
+	 * so the head value and the ring's first words separate a fresh
+	 * boot-time burst from a ring still holding the previous session.
+	 * Words are little-endian: w0 = cmd | param1 << 16, w1 = param2,
+	 * w2/w3 = the first INTENT pair (size/id), w4/w5 = the next header. */
+	{
+		uint32_t w[8], b;
+
+		for (b = 0; b < 8u; ++b) {
+			const uint32_t at = b * 4u;
+
+			w[b] = (uint32_t)rx.data[at] | ((uint32_t)rx.data[at + 1] << 8) |
+			    ((uint32_t)rx.data[at + 2] << 16) |
+			    ((uint32_t)rx.data[at + 3] << 24);
+		}
+		printf("K60MODEM qrtr: glink adopt tx tail=%u rx head=%u rx w0=%#x w1=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
+		    (unsigned)*tx.tail, (unsigned)*rx.head, w[0], w[1], w[2], w[3],
+		    w[4], w[5], w[6], w[7]);
+	}
 	k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
 	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
 	    &callbacks, NULL, 1);
@@ -1206,18 +1225,27 @@ k60_modem_qrtr_probe(void)
 			uint32_t avail = rx->data != NULL ? qcom_glink_rx_avail(rx) : 0u;
 			uint32_t head = rx->head != NULL ? *rx->head : 0u;
 			uint32_t tail = rx->tail != NULL ? *rx->tail : 0u;
-			uint8_t m[8] = {0};
+			uint8_t m[32] = {0};
+			uint32_t w[8], b;
 
 			/* rx_peek() reads from the tail; head is the modem's write
 			 * index, so sampling there shows unused ring bytes (k30 did
 			 * exactly that and printed cmd=0 p1=0 p2=0). */
-			for (uint32_t b = 0; b < 8u && b < avail && rx->data != NULL; ++b) {
+			for (b = 0; b < 32u && b < avail && rx->data != NULL; ++b) {
 				m[b] = rx->data[(tail + b) % rx->length];
 			}
-			printf("K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u cmd=%#x p1=%#x p2=%#x\n",
-			    polls, i, avail, head, tail, (unsigned)(m[0] | (m[1] << 8)),
-			    (unsigned)(m[2] | (m[3] << 8)),
-			    (unsigned)(m[4] | (m[5] << 8) | (m[6] << 16) | ((unsigned)m[7] << 24)));
+			for (b = 0; b < 8u; ++b) {
+				const uint32_t at = b * 4u;
+
+				w[b] = (uint32_t)m[at] | ((uint32_t)m[at + 1] << 8) |
+				    ((uint32_t)m[at + 2] << 16) | ((uint32_t)m[at + 3] << 24);
+			}
+			printf("K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u tx head=%u tx tail=%u cmd=%#x p1=%#x p2=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
+			    polls, i, avail, head, tail,
+			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
+			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u,
+			    (unsigned)(w[0] & 0xffffu), (unsigned)(w[0] >> 16), w[1],
+			    w[2], w[3], w[4], w[5], w[6], w[7]);
 			return polls;
 		}
 		coachz_baseband_poll();

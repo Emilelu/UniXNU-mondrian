@@ -19,6 +19,5 @@ the comparison is the evidence for why the 27 line must not.
 `build-ios16-pong-macos.py` in `scripts/` names the old filenames and is dead on
 this branch for the same reason.
 
-`build-firehose.sh` and `save-xnu-patch.py` are still shadowing the framework
-copies. Neither runs in the stage-0 kernel build; move them here the moment a
-27-line step calls one of them.
+`save-xnu-patch.py` still shadows the framework copy. It does not run in the
+stage-0 kernel build; move it here the moment a 27-line step calls it.

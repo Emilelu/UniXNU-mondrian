@@ -305,6 +305,10 @@ def main() -> int:
           'static const char nm[] = "K60SYNTH"' in net and
           'log(6, "wifi-net: synthetic 5 GHz clone of %u MHz served as %s", b.freq_mhz, nm);' in net and
           "c.bssid[5] = static_cast<uint8_t>(c.bssid[5] ^ 0x40);" in net)
+    check("a same-name twin of the 5 GHz record is served with another BSSID",
+          "nw_bss_info t = b; t.bssid[5] = static_cast<uint8_t>(t.bssid[5] ^ 0x80);" in net and
+          'log(6, "wifi-net: synthetic twin of the 5 GHz record served as %.*s with bssid %02x:%02x:%02x:%02x:%02x:%02x"' in net and
+          "gSnapCount + 2 > 64" in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

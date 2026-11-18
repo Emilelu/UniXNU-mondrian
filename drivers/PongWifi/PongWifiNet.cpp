@@ -262,12 +262,18 @@ void freeze_scan_list() {
   // this record under an unrelated name separates the two on one screen. Test-branch experiment only.
   for (unsigned i = 0; i < gSnapCount; i++) {
     const nw_bss_info &b = gSnap[i];
-    if (b.freq_mhz < 3000 || b.ssid_len < 2 || gSnapCount >= 63) continue;
+    if (b.freq_mhz < 3000 || b.ssid_len < 2 || gSnapCount + 2 > 64) continue;
     nw_bss_info c = b; static const char nm[] = "K60SYNTH"; c.ssid_len = sizeof nm - 1;
     memset(c.ssid, 0, sizeof c.ssid); memcpy(c.ssid, nm, c.ssid_len);
     c.bssid[5] = static_cast<uint8_t>(c.bssid[5] ^ 0x40);
     gSnap[gSnapCount++] = c;
     log(6, "wifi-net: synthetic 5 GHz clone of %u MHz served as %s", b.freq_mhz, nm);
+    // A second copy keeps the access point's own name and changes only the BSSID, so one screen separates a
+    // name filter (both copies hidden) from a BSSID-keyed multi-band collapse (only this twin appears).
+    nw_bss_info t = b; t.bssid[5] = static_cast<uint8_t>(t.bssid[5] ^ 0x80);
+    gSnap[gSnapCount++] = t;
+    log(6, "wifi-net: synthetic twin of the 5 GHz record served as %.*s with bssid %02x:%02x:%02x:%02x:%02x:%02x",
+        static_cast<int>(t.ssid_len), t.ssid, t.bssid[0], t.bssid[1], t.bssid[2], t.bssid[3], t.bssid[4], t.bssid[5]);
     break;
   }
 }

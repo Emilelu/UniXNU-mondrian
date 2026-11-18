@@ -70,6 +70,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 |---|---|
 | `1d7ea7fa` `feat(power): add a read-only EPSS probe` | `K60CpuFreqPlan.h/.c`、`K60CpuFreqProbe.cpp`、build 列表、battery start 钩子 |
 | `e785355f` `test(power): cover the EPSS plan arithmetic` | `scripts/tests/test-k60-cpufreq-plan.c` |
+| `64ae77fd` `feat(power): add the EPSS level vote write sets` | `k60_cpufreq_build_votes/build_l3_vote`、探针 mode 2/3 |
+| `25ce9bdc` `test(power): cover the vote write sets` | 偏移/核数/L3/容量不足断言 |
 
 `K60CpuFreqPlan`（纯 C，无 MMIO）：
 
@@ -80,24 +82,32 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `当前频率 × busy × 1.25` 的最低档；帧下限 60%；共享簇 boost/quiet 地板）。
 - `k60_cpufreq_step`：升档立即、降档连续 4 窗口才落地。
 - `k60_cpufreq_domain_of_cpu/domain_cores`：K60 的 4/3/1 映射。
+- `k60_cpufreq_build_votes`：把「一个档位」展开成参考的写集合——总是写 `perf_state 0x320`，
+  dcvs 控制位为 1 且该 domain 多于 1 核时，再按 `0x320 + 4×i` 写每核一行（K60 为 4/3/1 核，
+  不是参考的 3/4/1）；调用方缓冲区不足时返回 0 且一条都不写。
+- `k60_cpufreq_build_l3_vote`：L3 共享投票，写 `0x90`，值同样是 LUT 行号。
 
-`K60CpuFreqProbe`（只读）：
+`K60CpuFreqProbe`（默认关闭，boot arg `k60_cpufreq` 选模式）：
 
-- 默认关闭，boot arg `k60_cpufreq=1` 才运行；大于 1 的值直接打印 "only mode 1 ... implemented" 并返回。
-- 用 `IODeviceMemory::withRange(...)->map(kIOMapAnywhere | kIOMapInhibitCache)` 映射三个
-  domain 窗口与 L3；**不写任何寄存器、不轮询**。
-- 每个 domain 打印 `base/enable/state(kHz)/dcvs/vote/rows/top/level`，L3 打印 `vote/rows/top/level`。
+- mode 1（只读）：映射三个 domain 窗口与 L3，读 LUT/enable/state/dcvs/vote，
+  **不写任何寄存器、不轮询**；每个 domain 打印 `base/enable/state(kHz)/dcvs/vote/rows/top/level`，
+  L3 打印 `vote/rows/top/level`。
+- mode 2：只给 domain 0 投最高非 turbo 档（参考的 mode 2 语义）。
+- mode 3：三个 domain 都投最高非 turbo 档，再投 L3（参考的 mode 3 语义）。
+- 大于 3 的值直接打印 "modes 1-3 are implemented" 并返回；mode 2/3 从未在真机上执行过。
 - 调用点：`k60_physical_battery_start()` 开头。这是当前 archive 唯一由 userland 触发的
   IOKit 入口；探针不需要 ADSP 租约，也不经过电池配置解析。
 
 ## 6. 离线验证
 
-- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 65 checks (0 failures)**。
+- host 测试：`cc -Wall -Wextra -Werror -std=c11`，**TESTS OK 80 checks (0 failures)**。
   覆盖 LUT 解码、turbo 跳过、表尾去重、cap、highest、hispeed/frame/quiet/boost 地板、
-  4 窗口降档、4/3/1 映射。LUT 行是合成的；真机表尚未读，因此断言的是算术而不是实测频率。
-- archive：`build/k60-battery/libK60PhysicalBattery.a` **121,976 字节**，
-  sha256 `3f27f9686f361221f7516c7200c3499298ca86854c26442f16ea130c5869ae52`；
-  `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_build_table`、`_k60_cpufreq_target` 等符号。
+  4 窗口降档、4/3/1 映射，以及投票写集合的偏移（`0x320`、`+4×i`、L3 `0x90`）、
+  dcvs 开/关的写条数、缓冲区不足拒绝。LUT 行是合成的；真机表尚未读，因此断言的是算术而不是实测频率。
+- archive：`build/k60-battery/libK60PhysicalBattery.a` **123,816 字节**，
+  sha256 `c42a8f7b3d89a9d160ecfbfe733757897c7fc3a840048bf6f5aa66965a43a16c`；
+  `llvm-nm` 可见 `_k60_cpufreq_probe`、`_k60_cpufreq_build_table`、`_k60_cpufreq_target`、
+  `_k60_cpufreq_build_votes` 等 19 个 cpufreq 符号。
 - 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
@@ -108,10 +118,19 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   payload 字符串里 `K60CpuFreq: d`/`K60CpuFreq: L3` 各 2 次、`K60CpuFreq: mode=` 1 次，
   kernel.macho 符号表含 `_k60_cpufreq_probe/build_table/pick_highest/target/step/domain_*`；
   `boot.json` 的 `hardware_tested` 为 `false`，即没有任何真机读数。
+- 镜像 h 链接验证（**离线，未启动**，含 mode 2/3 投票代码）：`E:/k60-work/artifacts/power-conformance-20261118h/boot.img`
+  201,887,744 字节，sha256 `7ef07b95ff0977a113b665e13bdbc38e50c74efa1ec86b7515f106d853cb7eba`；
+  kernel.macho `f63db805b421d80066dda7c766c6f1cd7023e41b9e449471f1eb940a14a3b102`，
+  payload `8d4e0969390f5dedc4c78996cec0306e5a59fb091109fbb3f935fccf8ea87966`。
+  `verify-boot-img-payload.py` OK（payload 内 kernel probe-patched `93c2da73dd3a7db1…`，
+  pre-patch `f63db805…`，FD `cf4485712c29…`）；`check-image-args.py` OK（30 个参数，598 字节）。
+  payload 字符串含 `K60CpuFreq: mode%u vote d`、`K60CpuFreq: L3 vote skipped`，
+  kernel.macho 有 14 条 `k60_cpufreq` 符号；`boot.json` 仍为 `hardware_tested=false`。
 
 ## 7. 未实现 / 边界
 
-- 没有任何投票路径：`0x320`/`0x90` 的写入、per-core perf_state 行、enable 等待都未实现。
+- 投票写集合已实现（mode 2/3），但**从未在真机上执行**：没有 enable 等待、没有写后读回校验、
+  没有 dcvs 反馈；mode 1 是唯一有离线证据的模式。
 - 没有 governor 线程、没有 idle 时间统计（参考用内核 `sheng_cpu_idle_mach`）、
   没有触摸/帧信号输入、没有 10 s 统计窗口。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 频率（`GpuPowerProbe.cpp` 149 KB）、
@@ -120,13 +139,15 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 ## 8. 设备空窗时的上机步骤（当前暂缓）
 
-1. 用带本 archive 的 image 启动（当前候选 image g，sha256 `7b0473ae…`），boot args 加 `k60_cpufreq=1`。
+1. 先用 mode 1（`k60_cpufreq=1`）确认表可读，再考虑 mode 2/3；当前候选 image h（sha256 `7ef07b95…`）。
 2. 抓 `K60CpuFreq:` 开头的行：
-   - `probing EPSS domains=3 cpus=8 lut-rows=40 (read-only)`
+   - `mode=1 EPSS domains=3 cpus=8 lut-rows=40`
    - `d0 base=0x17d91000 enable=… state=… (…kHz) dcvs=… vote=… rows=… top=…kHz level=… mode1=read-only`
    - `L3 base=0x17d90000 vote=… rows=… top=…kHz level=…`
+   - mode 2/3 的行形如 `mode2 vote d0 level=… (…kHz) dcvs=… writes=…`、`mode3 vote L3 …`
 3. 判读：`enable=1` 且 `rows` 在 10–40 之间、频率随 domain 递增，才说明表可读；
-   `nomap` 或 `rows=0` 则先查窗口/时钟，不得直接开投票。
+   `nomap` 或 `rows=0` 则先查窗口/时钟，不得进入 mode 2/3。mode 2/3 第一次上机只投最高档，
+   并同时抓 `state` 是否跟随、温度与是否触发 throttle。
 
 ## 9. 参考
 

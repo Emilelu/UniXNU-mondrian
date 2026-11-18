@@ -266,9 +266,12 @@ def main() -> int:
           "default: log_unhandled(false, type, rq, kernel); return EOPNOTSUPP;" in net)
     check("every scan prints its request and its per-band table",
           'log(6, "wifi-net: scan request type %d len %u val %d ssid %u", type, rq.req_len, rq.req_val, ssidLength);' in net and
-          'log(6, "wifi-net: scan table %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u"' in net and
+          'log(6, "wifi-net: scan table %u %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u"' in net and
           'log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);' in net and
           net.index("log_scan_table();") < net.index("pong_wifi_notification event={NotifyScan"))
+    check("the first scans list every record with its age and BSSID",
+          'log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x %.*s"' in net and
+          "if (tables > 3) return;" in net)
     check("the scan log says how many records the daemon read",
           "unsigned gScanCursor, gScanning, gScanServed;" in net and
           "gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns);" in net and

@@ -253,13 +253,17 @@ void log_scan_table() {
     if (!b.ssid_len) { hidden++; continue; }
     if (b.freq_mhz < 3000) c24++; else if (b.freq_mhz < 5925) c5++; else c6++;
   }
-  log(6, "wifi-net: scan table %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u", count, c24, c5, c6, hidden);
-  unsigned shown24 = 0, shown5 = 0;
-  for (int i = 0; i < count && (shown24 < 3 || shown5 < 3); i++) {
-    nw_bss_info b; if (nw_wifi_bss_get(i, &b) || !b.ssid_len || b.freq_mhz >= 5925) continue;
-    if (b.freq_mhz < 3000) { if (shown24++ >= 3) continue; } else { if (shown5++ >= 3) continue; }
-    log(6, "wifi-net: scan band %u MHz %d dBm %.*s", b.freq_mhz, b.signal_dbm,
-        b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+  static unsigned tables; ++tables;
+  log(6, "wifi-net: scan table %u %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u", tables, count, c24, c5, c6, hidden);
+  // The daemon keeps its own copy of this list, so a network that disappears between the two is rejected by the
+  // daemon rather than missed by the radio. The first scans print every record with the fields a filter can use
+  // (band, age, capability, element length) so the difference can be read off one console.
+  if (tables > 3) return;
+  for (int i = 0; i < count; i++) {
+    nw_bss_info b; if (nw_wifi_bss_get(i, &b)) continue;
+    log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x %.*s",
+        i, count, b.freq_mhz, b.signal_dbm, b.age_ms, b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4],
+        b.bssid[5], b.ie_len, b.caps, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
   }
 }
 void on_scan_done() {

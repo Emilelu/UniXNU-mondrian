@@ -6120,3 +6120,32 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 3. 遇到「症状与某个未启用补丁同名」时，第一件事是查它是否真的进了二进制，而不是先改代码。
 4. 声明「未启用」时要写清启用前置条件（先在 pin 住的 translator 上 `git apply --check`、
    给出应用前后行为差异），否则下一个人只会把它当成待办清单。
+
+## P-233
+
+**现象（2026-11-18 16:19，`gpu-import-scope-20261118`）**：飞行完整（231,325 B / 3,400 行、
+`capture.json` `complete=true`、supervisor rc=0、`K60KEXC` 0），但按卡判 S2–S8 全部 FAIL，
+原因是**一条 `scanout frames=` 报告行都没有**；而卡的 F2 把「没有 `sum=`」归因为
+「新插件没上机」，产物核对却证明插件在机上：镜像内核里 `sum=%llu us` /
+`imports=%llu import=` / `encode=%llu us submit=` 各命中 1 次，日志里有 2 条
+`Pong Metal: actual GPU scanout copy completed status=0x0`。
+
+**真因**：报告行原本 `if(!(copies%60))` —— 每 60 帧一条。而这次玩家态只有
+`MiniIOMobileFramebuffer: 22 frames in 54713 ms (0 a second)`，`copies` 永远到不了 60。
+卡自己 §3 写「每 60 帧一条」，S8 却要求「≥2 条样本」：**判据与采样节奏没有一起设计**，
+两者在 ≤5 fps 的飞行里互斥，于是任何一次这样长度的飞行都注定判不出来。
+
+**修法**：`drivers/PongMetal/PongMetalScanout.h` 改成
+`if(copies<=8 || !(copies%10))`（前 8 帧每帧一条，之后每 10 帧一条），
+`scripts/tests/test-frame-stage-timing.py` 用 `assertIn('if(copies<=8 || !(copies%10))')` 钉住它；
+新卡 `docs/research/gpu/FLIGHT-CARD-20261118k.md` 的 S2/S3 直接按新节奏写。
+
+**教训**：
+1. 判据要「每条样本」还是「末条样本」，必须和采样频率一起算：`需要的样本数 × 采样间隔`
+   必须小于飞行时长，否则判据在设计上就不可能成立。
+2. 采样节奏属于**判据**，不属于实现细节。写在卡里的「每 N 帧一条」就是判据的一部分，
+   改节奏要改卡，改卡要改测试。
+3. 「某一类行一条都没有」有两种完全不同的原因：代码没上机，或代码上机但采样没触发。
+   区分它们只需一次产物核对（`strings` 内核找格式串），不要先改代码。
+4. 失败规则里写「归因为 X」之前，先确认 X 能用**独立证据**否证；F2 这次的归因错了，
+   如果不是产物核对拦住，下一步会去重编一张根本没问题的插件。

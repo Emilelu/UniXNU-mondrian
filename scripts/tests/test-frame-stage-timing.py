@@ -60,8 +60,9 @@ class FrameStageTiming(unittest.TestCase):
         server = SERVER.read_text(encoding='utf-8')
         self.assertRegex(kernel, r'if\(ok && \(completed<=4 \|\| !\(completed%60\)\)\)',
                          'the kernel report must be sampled, not每帧')
-        self.assertIn('if(!(copies%60))', server,
-                      'the render server report must stay on its 60-frame cadence')
+        self.assertIn('if(copies<=8 || !(copies%10))', server,
+                      'the stage line must be sampled early: a 60-frame cadence '
+                      'produced zero samples in the 2026-11-18 flight')
 
     def test_the_report_fits_its_buffer(self):
         kernel = KERNEL.read_text(encoding='utf-8')

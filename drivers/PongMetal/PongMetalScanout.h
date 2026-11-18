@@ -65,7 +65,11 @@ static void *serve(void *opaque)
             }
             refusals=0;
             if(copies++<3)report("actual GPU scanout copy completed",0);
-            if(!(copies%60)) {
+            /* The flight is 240 s long. A 60-frame cadence needs 0.25 fps just to
+             * produce one sample, and the 2026-11-18 16:19 flight presented 22
+             * frames in 55 s, so no stage line ever appeared and the card could
+             * not be judged. Sample the first few frames, then every tenth. */
+            if(copies<=8 || !(copies%10)) {
                 struct timespec now={};clock_gettime(CLOCK_MONOTONIC,&now);
                 /* `sum` is the four stages this side owns, so the flight can compare it
                  * against the kernel's outer `copy` number without doing arithmetic on

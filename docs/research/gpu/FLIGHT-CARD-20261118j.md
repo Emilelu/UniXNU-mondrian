@@ -79,4 +79,27 @@ backboardd` > 0 ⇒ 抓取或运行无效，本轮结论作废，重飞同一张
 
 ## 5. 结果登记
 
-（判决在出帧后填写，不在镜像之前填。）
+### 2026-11-18 16:19 飞行判决：**无法判定（F2 字面命中，但 F2 给出的原因被否证）**
+
+- 镜像 `gpu-import-scope-20261118`，`boot.img`
+  `111851fac41d8b0e242fe6670730dd0cc00caead5b55317f3019157792bfd1ff`，
+  `kernel_built` `d85f2d17111affdd2bf0174db3ac571801a0a04bbf04e366f99cf70ddcf517b7`，
+  `payload_kernel` `cef829c74c5f9437edf7cfc1b07451cda7135e3d1e4c29f32e739efb952136c6`。
+- 证据 `E:/k60-work/evidence/usblog-20261118-161936`：`console.log` 231,325 B / 3,400 行，
+  `capture.json` `complete=true`，supervisor rc=0。
+- **S1 PASS**：`K60KEXC` 0 命中，`K60PANIC: ring kept` / `Debugger called` / `initproc exited` 均 0。
+- **S2/S3/S4/S5/S6/S7/S8 全部 FAIL**，原因同一个：**一条 `scanout frames=` 报告行都没有**。
+- F2 的字面条件成立（没有 `sum=`），但 F2 归因的「新插件没上机」已被产物证据否证：
+  镜像内核里 `sum=%llu us` / `imports=%llu import=` / `encode=%llu us submit=` 各命中 1 次，
+  且 `Pong Metal: actual GPU scanout copy completed status=0x0` 出现 2 次 ⇒ 新插件确实在跑。
+- 真因（**P-233**）：报告行原本每 60 帧一条。这次玩家态只有
+  `MiniIOMobileFramebuffer: 22 frames in 54713 ms (0 a second)`，`copies` 远不到 60，
+  于是判据永远看不到样本。卡自己的 §3 写「每 60 帧一条」而 S8 要求「≥2 条样本」，
+  在 ≤5 fps 的飞行里互相矛盾 —— 判据与采样节奏没有一起设计。
+- 这次飞行仍然给出了三条有效事实：①新插件+kernel 侧计时都在机上且无异常（S1）；
+  ②内核侧 `PONG SCANOUT: frame=1..4 prepare=4..19 us offer_and_copy=18364..236070 us`
+  复现了上一飞的归因（成本在 `offer_and_copy`，与 `prepare` 无关）；
+  ③`MiniIOMobileFramebuffer` 记 `presenter GPU` 与 `33348 us each in the driver`，
+  说明 GPU 提交路径仍在工作，只是慢。
+- 下一步：把采样节奏改成「前 8 帧每帧一条、之后每 10 帧一条」，重编插件、重建镜像，
+  按 `FLIGHT-CARD-20261118k.md` 重飞。

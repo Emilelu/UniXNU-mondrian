@@ -808,3 +808,10 @@ title = "补丁在树里不等于在二进制里：metal2vulkan 的 10 个补丁
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-check-metal2vulkan-patches.py"
 note = "每个补丁必须被构建脚本按名引用，或在 patches/metal2vulkan/DATA-A-LIVE.md 的未启用小节里显式声明"
+[[rule]]
+id = "P-233"
+kind = "pitfall"
+title = "判据与采样节奏必须一起设计：每 60 帧一条在 22 帧的飞行里永远看不到"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-frame-stage-timing.py"
+note = "2026-11-18 gpu-import-scope 飞行完整但 0 条样本；改为 copies<=8 每帧一条、之后每 10 帧一条；「某类行一条都没有」先用 strings 核对产物，再判是不是采样没触发。"

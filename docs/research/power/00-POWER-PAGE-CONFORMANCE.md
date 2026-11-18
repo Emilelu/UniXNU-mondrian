@@ -43,14 +43,14 @@
 | 订阅、周期刷新、断链 stale | 已验证（image f 12-14 条样本） |
 | 与 Android/OEM 对照（C3） | 部分：只有低电流 3 对 PASS；匹配电流窗口因属性 9 静默、XNU 只能发 USB 输入电流而 FAIL |
 | 真机插拔、放电、超时、服务重启 | 未完成（host 第 15/16 节只模拟状态转换） |
-| 充电认证 PD/PPS/MiPPS（:82-88） | 未接入；sheng 有 `ShengChargeAuth.c` 参考，K60 固件把认证放在 DSP/固件侧，本树没有等价实现 |
+| 充电认证 PD/PPS/MiPPS（:82-88） | 部分（仅移植）：sheng 的 `ShengChargeAuth.c` 已移植到 `feat/charge-auth`（host 85 项，未接入电池队列）；本分支仍未接线，K60 固件侧的认证字段与密钥没有来源 |
 | Linux 充电读取镜像（:89-104） | 未接入；参考脚本在 sheng 仓库 |
 
 ## §5 调频与电源操作（:105-121）
 
 | 条目（行号） | 状态 | 证据/缺口 |
 | --- | --- | --- |
-| CPU：16 ms 读空闲、1.25 倍余量、4 窗口降频（:113） | 部分（真机只读） | `K60CpuFreqPlan` 纯算术 + governor 核心（host 107 项）；image i 2026-11-18 17:30 mode 1：d0 enable=1 state=1.5552 GHz vote=11 rows=14 top=1.8048 GHz，d1/d2 因辅核尚未启动读到 0，L3 vote=13 rows=15 top=1.7088 GHz；无 idle 采样调用/线程，mode 2/3 未上机 |
+| CPU：16 ms 读空闲、1.25 倍余量、4 窗口降频（:113） | 部分（真机只读） | `K60CpuFreqPlan` 纯算术 + governor 核心（host 107 项）；image i 2026-11-18 17:30 早读 d0 enable=1 state=1.5552 GHz vote=11 rows=14 top=1.8048 GHz，d1/d2 因辅核未启动读到 0；image j 17:55 在电池 begin 后 5 s 延后读取，d1 enable=1 state=0.6336 GHz vote=16、d2 enable=1 state=0.7872 GHz vote=19，d0/L3 不变（L3 vote=13 rows=15 top=1.7088 GHz）；无 idle 采样调用/线程，mode 2/3 未上机 |
 | GPU：GMU XO 忙碌计数、50 % 目标、HFI 投票带带宽（:114） | 部分（离线） | `K60GpuFreqPlan` 纯规划（host 56 项）；无 GMU 读取、无 HFI 投票、无线程、未上机 |
 | 触摸后 CPU P 域与 GPU 最高档保持 1 s（:115） | 部分（离线） | `K60BoostPlan` 触摸 1000 ms 规则（host 40 项）；仍无触摸输入源 |
 | 帧：4 窗口中 2 个有提交时 CPU 各域 300 ms 内不低于 60 %（:116） | 部分（离线） | `K60BoostPlan` 4 窗口/2 帧/300 ms/60 % 规则（host 40 项）；提交路径尚未采样 |
@@ -59,16 +59,18 @@
 | OS 电源回调、休眠保存/恢复（:110） | 未实现 | 见 §5 平台睡眠 |
 | 目标稳压器、互连、温控顺序（:108） | 部分（离线） | 只有路线 A 的 TCS4 lcx/lmx 真实投票；CPU/GPU 电压、互连、温控无写路径；顺序与回滚见 `power/07-RAIL-ORDERING.md` |
 | 平台睡眠（:119-121） | 未实现 | `power/02-PLATFORM-SLEEP.md` 调研 + `K60SleepPlan` 掩码（host 53 项）；无 ArmCpuSleep、TLMM、PON、喂狗、背光/触摸恢复 |
-| 负载下测量频率并逐项验证（:111） | 未完成 | 只有一次早期 EPSS mode 1 只读快照；GPU 无真机读数，负载/温度/throttle 未测 |
+| 负载下测量频率并逐项验证（:111） | 未完成 | 已有早期 + 延后两次 EPSS mode 1 只读快照，三域均 enable=1；GPU 无真机读数，负载/温度/throttle 未测 |
 
 ## §6 构建并验证（:123-131）
 
 - 构建链已打通：battery archive → `./unixnu defconfig/tree/kernel/payload/bootimg`，
   image f 三次上机（C1/C2 PASS、低电流 C3 PASS）；image g/h 只做链接验证；image i 于
-  2026-11-18 17:30 上机一次，完成 EPSS mode 1 只读（d0 enable=1、state=1.5552 GHz、rows=14、
-  top=1.8048 GHz；L3 rows=15），但参数 gate 因临时去掉 `applog=1` 未通过，`applog=1` 已恢复，
-  见 `power/01-EPSS-PROBE.md` §6。
-- 缺：GPU 探针真机读数、EPSS d1/d2 的延后快照、外设转换与恢复的逐项验证、重启行为记录。
+  2026-11-18 17:30 上机完成 EPSS 早期 mode 1 只读（d0 enable=1、state=1.5552 GHz、rows=14、
+  top=1.8048 GHz；d1/d2 辅核未启动读到 0；L3 rows=15）；image j 于 17:55 上机，在电池
+  `begin` 后 5 s 第二次读取，d1 `enable=1 state=0.6336 GHz vote=16`、d2
+  `enable=1 state=0.7872 GHz vote=19`，三域均可读。两个镜像都因临时去掉 `applog=1`
+  未通过参数 gate，`applog=1` 已恢复，见 `power/01-EPSS-PROBE.md` §6。
+- 缺：GPU 探针真机读数、负载/温度/throttle 读数、外设转换与恢复的逐项验证、重启行为记录。
 - 状态：**部分**。
 
 ## 汇总

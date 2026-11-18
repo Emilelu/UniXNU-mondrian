@@ -278,13 +278,14 @@ int k60_cpufreq_governor_window(K60CpuFreqGovernor *gov, const K60CpuFreqTable *
 
     if (!gov || !table || !table->count || domain >= K60_CPU_FREQ_DOMAINS) return -1;
     quiet = gov->quiet[domain];
+    if (busy_permille < K60_CPU_FREQ_QUIET_BUSY) {
+        if (quiet < K60_CPU_FREQ_QUIET_WINDOWS) ++quiet;
+    } else {
+        quiet = 0;
+    }
+    gov->quiet[domain] = quiet;
     want = k60_cpufreq_target(table, gov->current[domain], busy_permille,
         domain != 0, boost, framing, quiet);
     changed = (int)k60_cpufreq_step(table, &gov->current[domain], want, &gov->down[domain]);
-    if (changed || boost) {
-        gov->quiet[domain] = 0;
-    } else if (quiet < K60_CPU_FREQ_QUIET_WINDOWS) {
-        gov->quiet[domain] = quiet + 1;
-    }
     return changed;
 }

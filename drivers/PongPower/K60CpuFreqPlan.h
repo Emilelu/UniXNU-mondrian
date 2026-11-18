@@ -32,6 +32,11 @@ extern "C" {
 #define K60_CPU_FREQ_HISPEED 900u          /* busy per mille: jump to the top */
 #define K60_CPU_FREQ_MARGIN 125u           /* percent over the busy estimate */
 #define K60_CPU_FREQ_DOWN_WINDOWS 4u       /* windows before a lower level lands */
+/* A window counts as quiet below this busy share (per mille), matching the
+ * reference's busy < 100 test. The shared-cluster floor is released after
+ * K60_CPU_FREQ_QUIET_WINDOWS consecutive quiet windows and must not be
+ * re-armed by the down-steps that release takes. */
+#define K60_CPU_FREQ_QUIET_BUSY 100u
 #define K60_CPU_FREQ_QUIET_WINDOWS 12u     /* shared clusters stay high this long */
 #define K60_CPU_FREQ_FRAME_PCT 60u         /* frame floor, percent of the top */
 

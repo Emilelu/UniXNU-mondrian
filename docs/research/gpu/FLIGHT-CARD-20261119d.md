@@ -211,11 +211,27 @@ scanout blit control bytes=18432000 src-to-device=1993 us device-to-scanout=1835
 
 ### 5.7 另一个更重要的数字：`present()` 只占一帧的 9 %
 
-`scanout frames=1 at 90.776 s` → `frames=1000 at 230.386 s` = 999 帧 / 139.6 s = **7.16 fps**，
-即帧间隔 **139.7 ms**。`present()` 的 12.6 ms 只占 **9.0 %**。
+总账：`scanout frames=1 at 90.776 s` → `frames=1000 at 230.386 s` = 999 帧 / 139.6 s
+= **7.16 fps**，平均帧间隔 **139.7 ms**，`present()` 的 12.6 ms 只占平均的 **9.0 %**。
 
-即使把扫出做到 0，上限也只有 ~7.9 fps。**扫描路径不是 120 fps 的主要障碍** ——
-这是对前几轮结论的修正，必须写明，否则下一轮还会继续优化错的 9 %。
+**但平均值被停顿主导了，逐帧分布才是可行动的那个数**（99 条稳态样本，帧周期 =
+`wait + copy + done`）：
+
+| 分位 | 帧周期 | 折算 |
+|---|---|---|
+| p10 | 11.4 ms | 88 fps |
+| p25 | 16.7 ms | 60 fps |
+| **中位** | **29.4 ms** | **34 fps** |
+| p75 | 50.0 ms | 20 fps |
+| p90 | 162.2 ms | 6 fps |
+| 最大 | 404.9 ms | — |
+
+超过 60 ms 的帧占 20/99。
+
+⇒ 两个说法都对，但含义完全不同：`present()` 是**平均帧**的 9 %，却是**典型帧**（29.4 ms）
+的 **43 %**。把它从 12.6 ms 压到对照实测的 1.9 ms，典型帧会从 29.4 ms 变成 ~19 ms ≈ **53 fps**，
+这是直接可得的收益；而 120 fps 还需要同时消掉那 20 % 的长停顿（p90 162 ms、最大 405 ms）。
+前几轮「扫描路径不是主要障碍」的判断只对平均值成立，对典型帧不成立，特此更正。
 
 合成器窗口（18 个）的帧率分布：`0.1 20.4 5.0 11.1 2.1 21.9 17.8 1.5 7.3 15.0 11.4 6.8 17.8 8.1 22.1 4.9 6.0 5.7`，
 中位 9.6 fps，最好 22.1 fps（该窗口 `102 frames in 5010 ms, 14036 us each in the driver`）。
@@ -240,12 +256,13 @@ scanout blit control bytes=18432000 src-to-device=1993 us device-to-scanout=1835
 
 ### 5.9 下一步
 
-1. **主攻方向换成客户端绘制**：`present()` 只占 9 %，先把「一帧 139.7 ms 花在哪」
-   做一次端到端分解。现有 `T/G/J/K` 行只覆盖我们自己的 bridge，
-   缺的是 SpringBoard / CoreAnimation 那一段（合成器窗口已给出
-   「14036 us each in the driver」与「408888 us each in the driver」两个极端，
-   说明有的窗口驱动内只 14 ms、有的 34 秒只出 4 帧）。
-2. **把纹理 untile 换成单次 `copyFromBuffer`**：对照证明这条能到 1.9 ms（省 10.7 ms/帧）。
+1. **先把典型帧的 29.4 ms 拆开**：`present()` 12.6 ms 已量清，剩下的 ~17 ms
+   需要 `wait` 之外的解释（`wait` 中位 14.7 ms 本身就是「等合成器给下一帧」，
+   所以它既是等待也是节拍）。现有 `T/G/J/K` 行只覆盖我们自己的 bridge，
+   缺 SpringBoard / CoreAnimation 那一段（合成器窗口已给出
+   「14036 us each in the driver」与「408888 us each in the driver」两个极端）。
+2. **把纹理 untile 换成单次 `copyFromBuffer`**：对照证明这条能到 1.9 ms
+   （省 ~10.7 ms/帧 ⇒ 典型帧 29.4 → ~19 ms ≈ 53 fps；这是目前唯一已量化到微秒的收益）。
    前提是扫描缓冲的 stride 等于 surface 的 5888 —— 即自己拥有扫描缓冲
    （zizhan 的 `db[]` 路线，见 `ZIZHAN-DBUF.md`），并且要接受「画面不上屏」
    直到 DPU/SSPP 编程完成。这条路能把 `present()` 从 12.6 ms 压到 ~2 ms，

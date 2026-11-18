@@ -33,3 +33,23 @@
 ## 5. 结果登记
 
 （上机后填写）
+
+**2026-11-18 10:55:06 飞（`boot.img 3d32cbdfd88cbc71d9dfedc731be38f5e5657935eae14169e0136eb999bc9ddc`）**
+
+判决：**FAIL（无可归因的 F，未触发被测路径）**
+
+| 判据 | 结果 |
+|---|---|
+| S1 `K60KEXC`=0 | ✅ 0 |
+| S2 `K60DRAW enter` ≥1 | ❌ 0 |
+| S3 `K60DRAW leave` ≥1 | ❌ 0 |
+| S4 `c`>0 | ❌ `c0/0` |
+| S5 `crashed: backboardd`=0 | ✅ 0 |
+
+现场：`Pong Metal: c0/0 d0 p14 x3 R6 D0 F0 M18 C0 B2`——**`D0`，这次一个 draw 都没有**，
+因此 `NATIVEPRELINK`/`K60DRAW` 那条被追踪的路径根本没被走到。`first frame presented` 1、
+`MiniIOSurface` 1 ⇒ 这一飞是「软件合成出帧、Metal 未参与」的良性变体。
+3775 行，无 panic、无 backboardd 崩溃。
+
+结论：`K60DRAW` 只能证明「进入 draw 之后会不会返回」，无法解释「为什么这次没有 draw」。
+变异点在更上游：**backboardd 是否决定用 Metal 渲染**（坏变体 `D2/F1/M4500`，好变体 `D0/F0/M18`）。

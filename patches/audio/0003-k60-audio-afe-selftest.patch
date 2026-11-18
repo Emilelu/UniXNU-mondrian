@@ -1107,7 +1107,7 @@
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -907,23 +1546,81 @@
+@@ -907,23 +1546,88 @@
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;
@@ -1153,7 +1153,14 @@
 +		return PongAudioErrRingFull;
 +	}
 +	{
-+		static unsigned submit_logs;
++		static unsigned submit_logs, running_logs;
++		if (g_pong_audio.playback_running && running_logs < 8u) {
++			running_logs++;
++			printf("PongAudio: PCM submit after start n=%u frames=%u used=%u inflight=%u\n",
++			    running_logs, frame_count,
++			    (unsigned)pong_ring_queue_used(&g_pong_audio.ring),
++			    g_pong_audio.inflight);
++		}
 +		if ((submit_logs++ & 255u) == 0u) {
 +			printf("PongAudio: PCM submit n=%u frames=%u used=%u running=%u inflight=%u\n",
 +			    submit_logs, frame_count,

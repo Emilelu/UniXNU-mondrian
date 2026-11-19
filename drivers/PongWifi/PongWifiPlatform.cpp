@@ -64,6 +64,8 @@ unsigned pmicChannels;
 IOBufferMemoryDescriptor *arena,*tables,*msiPage;
 uint8_t *arenaVa; uint64_t tablePa,msiPa; uint64_t cbOffset;
 unsigned pcieCap,msiCap; volatile uint32_t stopped,wake; bool dmaOwned,hostMmioReady;
+ // Set by pong_wifi_station_stop(); the worker reads it at the top of every loop and stops the component cleanly.
+ volatile uint32_t stopRequested;
 uint64_t initDeadline;
 uint64_t now() {uint64_t ns=0;absolutetime_to_nanoseconds(mach_absolute_time(),&ns);return ns/1000000;}
 bool progressDiagnostic;
@@ -772,6 +774,7 @@ void irq(void *) {
 }
 void worker(void *,wait_result_t) {
  uint32_t diagnostic=0;progressDiagnostic=PE_parse_boot_argn("pong_wifi_diag",&diagnostic,sizeof diagnostic)&&diagnostic==1;
+ bool cleanStop=false;
  // P-49: a register access to a block whose clock or power domain is not up
  // hangs the interconnect, and the phone dies before k60_usblog_start() has
  // printed anything, so the failure leaves no console at all. Nothing in this
@@ -805,7 +808,7 @@ void worker(void *,wait_result_t) {
   if(cfgWrite(4,2,6))goto done;
   initDeadline=now()+90000;int r=nw_wifi_start(&platform,&board);if(r){IOLog("PongWifi: ath11k start failed=%d\n",r);goto done;}
  }
- {bool net=false,irqSeen=false;uint64_t diagnosticsAt=0;for(;;){if(!irqSeen&&__atomic_load_n(&msiArrivals,__ATOMIC_RELAXED)){irqSeen=true;log(6,"QCA6490 MSI delivered by GIC");}progress(1);poll();progress(2);int busy=nw_wifi_step();progress(3);nw_wifi_status st={};nw_wifi_status_get(&st);progress(4);
+ {bool net=false,irqSeen=false;uint64_t diagnosticsAt=0;for(;;){if(__atomic_load_n(&stopRequested,__ATOMIC_ACQUIRE)){cleanStop=true;break;}if(!irqSeen&&__atomic_load_n(&msiArrivals,__ATOMIC_RELAXED)){irqSeen=true;log(6,"QCA6490 MSI delivered by GIC");}progress(1);poll();progress(2);int busy=nw_wifi_step();progress(3);nw_wifi_status st={};nw_wifi_status_get(&st);progress(4);
    if(!net&&st.channels&&st.state!=NW_STA_OFF&&nw_wifi_stats.stage>=4&&!nw_wifi_stats.last_err){bool valid=false;for(unsigned i=0;i<6;i++)valid|=st.mac[i]!=0;if(valid&&!(st.mac[0]&1)){initDeadline=0;net=true;
      auto chosen=IORegistryEntry::fromPath("/chosen",gIODTPlane);if(chosen){chosen->setProperty("mac-address-wifi0",st.mac,6);chosen->release();}
      void *handle=OSMetaClass::preModLoad(g_kernel_kmod_info.name);if(!handle)goto done;
@@ -828,12 +831,19 @@ void worker(void *,wait_result_t) {
    progress(7);IOSleep(busy?1:5);
  }}
  done: stopped=1;
+ // A requested stop is not a failure: the station component is released in place, while the DMA arena stays mapped
+ // because freeing it needs a reset this kernel cannot perform at runtime.
+ if(cleanStop){nw_wifi_stop();log(6,"WiFi station stopped on request; component released, DMA retained");}
  // A mapped address does not prove a powered device. Failed GDSC/clock
  // prerequisites must not be followed by cleanup MMIO into a dead domain.
  if(hostMmioReady){if(dbi.v)dbi.w(MsiEnable,0);if(parf.v)parf.w(0x22c,0);}
  if(tlmm.v)pin(94,1u|1u<<9,0);
  log(3,"WiFi initialization stopped; normal iOS boot continues, DMA retained");thread_terminate(current_thread());thread_block(THREAD_CONTINUE_NULL);
 }
+}
+extern "C" void pong_wifi_station_stop(void) {
+ __atomic_store_n(&stopRequested,1u,__ATOMIC_RELEASE);
+ signalWorker();
 }
 extern "C" void PongWifiRandom(void *p,size_t n) {while(n){unsigned part=n>4096?4096:unsigned(n);read_random(p,part);p=static_cast<uint8_t *>(p)+part;n-=part;}}
 extern "C" bool pong_wifi_test_reconnect(void) {

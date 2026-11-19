@@ -220,6 +220,81 @@ def the_newest_kernel_wins_not_the_first_in_path_order():
             f"graded the stale kernel at {picked}; find_kernel must pick the newest"
         )
 
+@case
+def wifi_archive_symbol_is_a_real_config_key():
+    """The wifi archive is selected by an env var, so a typo in its key would
+    skip the only archive the official checklist asks to inspect twice."""
+    gate = load_gate()
+    text = (ROOT / "configs" / "mondrian_wifi_defconfig").read_text(
+        encoding="utf-8", errors="replace")
+    keys = set(re.findall(r"^CONFIG_([A-Z0-9_]+)=", text, re.M))
+    for symbol, _env, _rel, _entry, _later in gate.ENV_ARCHIVES:
+        assert symbol in keys, (
+            f"CONFIG_{symbol} is not in mondrian_wifi_defconfig (the gate would skip it)")
+
+
+@case
+def an_imported_symbol_is_not_defined():
+    """P-190 in miniature: an archive member that imports the entry point is
+    the same failure as an empty archive, and nm output looks similar."""
+    gate = load_gate()
+    text = (
+        "pong_a.o:\n"
+        "0000000000000000 T _pong_wifi_start_optional\n"
+        "                 U _mbuf_alloc\n"
+        "0000000000000010 t _static_helper\n"
+    )
+    defined = gate.parse_defined_symbols(text)
+    assert "pong_wifi_start_optional" in defined
+    assert "static_helper" in defined
+    assert "mbuf_alloc" not in defined, "an undefined import counted as defined (P-190)"
+
+
+@case
+def a_wifi_archive_without_the_entry_point_fails():
+    import os
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        board = Path(tmp) / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        (board / ".config").write_text("CONFIG_XNU_PONG_WIFI=y\n", encoding="utf-8")
+        kernel = board / "kernel" / "kernel.macho"
+        kernel.write_bytes(b"\x00" * 64)
+        archive = Path(tmp) / "libPongWifiNative.a"
+        archive.write_bytes(b"!<arch>\n")
+        os.environ["XNU_PONG_WIFI_ARCHIVE"] = str(archive)
+        try:
+            rc = gate.main(["--out", tmp, "--kernel", str(kernel)])
+        finally:
+            del os.environ["XNU_PONG_WIFI_ARCHIVE"]
+        assert rc == 1, f"expected 1 for an archive without the entry point, got {rc}"
+
+
+@case
+def a_wifi_archive_with_the_entry_point_passes():
+    import os
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        board = Path(tmp) / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        (board / ".config").write_text("CONFIG_XNU_PONG_WIFI=y\n", encoding="utf-8")
+        kernel = board / "kernel" / "kernel.macho"
+        kernel.write_bytes(b"\x00" * 64)
+        archive = Path(tmp) / "libPongWifiNative.a"
+        archive.write_bytes(b"!<arch>\n")
+        os.environ["XNU_PONG_WIFI_ARCHIVE"] = str(archive)
+        original_inspect = gate.inspect_archive
+        gate.inspect_archive = lambda a, nm, ar: (1, {"pong_wifi_start_optional", "pong_wifi_net_stop"})
+        try:
+            rc = gate.main(["--out", tmp, "--kernel", str(kernel)])
+        finally:
+            gate.inspect_archive = original_inspect
+            del os.environ["XNU_PONG_WIFI_ARCHIVE"]
+        assert rc == 0, f"expected 0 when the archive defines the entry point, got {rc}"
+
+
 def main() -> int:
     failures = 0
     for fn in CASES:

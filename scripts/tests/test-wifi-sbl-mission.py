@@ -265,20 +265,136 @@ def main() -> int:
           "default: log_unhandled(true, type, rq, kernel); return EOPNOTSUPP;" in net and
           "default: log_unhandled(false, type, rq, kernel); return EOPNOTSUPP;" in net)
     check("every scan prints its request and its per-band table",
-          'log(6, "wifi-net: scan request type %d len %u val %d ssid %u", type, rq.req_len, rq.req_val, ssidLength);' in net and
+          'log(6, "wifi-net: scan request type %d len %u val %d ssid %u channels %u type %u", type, rq.req_len, rq.req_val, ssidLength, frequencies, scanType);' in net and
           'log(6, "wifi-net: scan table %u %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u"' in net and
           'log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);' in net and
           net.index("log_scan_table();") < net.index("pong_wifi_notification event={NotifyScan"))
     check("the first scans list every record with its age and BSSID",
-          'log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x %.*s"' in net and
+          'log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x cc %c%c %.*s"' in net and
+          "if (b.ie[o] == 7 && b.ie[o + 1] >= 2) { cc[0]" in net and
           "if (tables > 3) return;" in net)
     check("the scan log says how many records the daemon read",
           "unsigned gScanCursor, gScanning, gScanServed;" in net and
-          "gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns);" in net and
+          "gScanCursor++; ++gScanServed; fill_result(out.res, b,rq.req_len);" in net and
           'log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s"' in net and
           "gScanCursor = 0; gScanServed = 0; return EIO;" in net)
     check("the supported channel list reports both bands",
-          'log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi);' in net)
+          'log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, g24, g5);' in net and
+          'log(6, "wifi-net: channel %u: number %u flags 0x%x", frequencies[i], out.chans.list[i].channel, out.chans.list[i].flags);' in net)
+    check("the scan list is frozen when a sweep completes and sorted strongest first",
+          "nw_bss_info gSnap[64]; unsigned gSnapCount;" in net and
+          "gSnap[at - 1].signal_dbm < b.signal_dbm" in net and
+          net.index("freeze_scan_list();") < net.index("log_scan_table();") and
+          "gSnapCount ? static_cast<int>(gSnapCount) : nw_wifi_bss_count()" in net)
+    check("a served 5 GHz record prints the words the daemon sees",
+          "const uint32_t *wds = reinterpret_cast<const uint32_t *>(&out.res);" in net and
+          'log(6, "wifi-net: 5ghz %u words %08x %08x' in net)
+    check("the daemon's scan filter and every served record are in the log",
+          'log(6, "wifi-net: scan request prefix %08x %08x %08x %08x"' in net and
+          "if (count <= 40 || gScanServed <= 3 || gScanServed % 8 == 0)" in net and
+          'log(6, "wifi-net: 5ghz %u ie %02x%02x%02x%02x%02x%02x%02x%02x' in net)
+    check("every scan record prints its element inventory",
+          'log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u ht40 %u vht %u vw %u he %u"' in net and
+          "vw = (cap >> 2) & 3u;" in net and
+          "case 255: if (len >= 1 && b.ie[o + 2] == 35) he = 1; break;" in net)
+    check("a scan record prints its element ids and RSN bytes",
+          'log(6, "wifi-net: ie-list %02x:%02x:%02x:%02x:%02x:%02x %s"' in net and
+          'snprintf(ids + at, sizeof ids - at, "%s%u/%u"' in net and
+          'log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %u bytes %s"' in net and
+          "const unsigned rn = rsn < 24 ? rsn : 24;" in net)
+    check("the production record path serves every element the access point sent",
+          "if (o + 2 + len > b.ie_len) break;" in net and
+          "drop_scan_element" not in net and
+          '"wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served"' in net and
+          "synthetic copy" not in net and "K60A" not in net and "withheld" not in net and
+          "memmove(&gSnap[" not in net)
+    check("every rssi and noise query logs the value it answers with",
+          "const int32_t dbm = type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95;" in net and
+          '"wifi-net: %s query -> %d dBm (link state %d)"' in net)
+    abi_hdr = (ROOT / "drivers" / "PongWifi" / "PongWifiAbi.h").read_text(encoding="utf-8")
+    check("a 24A446 client is not offered the passive 6 GHz channels",
+          "PONG_BAND_6GHZ_MIN 5925u" in abi_hdr and
+          "if(gModern27Client && frequencies[i] >= PONG_BAND_6GHZ_MIN)continue;" in net and
+          "out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }" in net)
+    check("one scan record serves the 24A446 and 22H374 extents",
+          "PONG_SCAN_RECORD_24A446 0x8e8u" in abi_hdr and
+          "PONG_SCAN_ELEMENTS_BYTES 2048u" in abi_hdr and
+          "uint8_t filler[PONG_SCAN_TIMESTAMP_OFFSET - PONG_SCAN_ELEMENTS_OFFSET - PONG_SCAN_ELEMENTS_BYTES];" in net and
+          "const uint32_t room = pong_scan_elements_room(request_bytes ? request_bytes : PONG_SCAN_RECORD_24A446);" in net and
+          "scan_result24" not in net and
+          "return copy_out(rq, &out.res, sizeof(out.res), kernel);" in net)
+    check("the power answer follows the station state",
+          "(gPower && st.state != NW_STA_OFF) ? 1 : 0" in net)
+    check("a 24A446 power switch reaches the station's own power path",
+          "if (gModern27Client) { nw_wifi_power(gPower ? 1 : 0); pong_wifi_wake(); }" in net)
+    check("the current-network answer carries the live signal",
+          net.count("out.res.rssi = st.signal_dbm;") == 2 and net.count("out.res.snr = st.signal_dbm > -95") == 2)
+    check("the rate query reports the cached peer rate",
+          "st.state == NW_STA_UP ? st.tx_rate_100kbps / 10 : 0" in net)
+    check("a record is stamped when it is handed out, from the age the station measures",
+          "const uint64_t now_ns = scan_clock_ns();" in net and
+          "const uint64_t age_ns = uint64_t(b.age_ms) * 1000000ull;" in net and
+          "record.timestamp_ns = now_ns > age_ns ? now_ns - age_ns : 0;" in net and
+          "sampled_ns" not in net)
+    check("the newer daemon's auth encoding is accepted and answered",
+          "gModern27Client ? 0x10 : 0x8" in net and "rq.req_len == PONG_SCAN_MULTIPLE_BYTES" in net and
+          "a.auth_upper!=8 && a.auth_upper!=0x10" in net)
+    check("a join answers pending until the station finishes, and the newer daemon's credentials are read as the reference does",
+          "kAssocPending = 0" in net and
+          "gAssocResult = kAssocPending; gJoinPending = true; gLinkSuppressed = false;" in net and
+          "gUserJoin = true; gAssocModern27 = modern27;" in net and
+          "modern27 && a.key_length && !((a.key_cipher == 6 && a.key_length == 32)" in net and
+          "if (r) { gAssocResult = kAssocFailed; gJoinPending = false; }" in net)
+    check("an explicit disconnect hides the link and answers a join that was waiting",
+          "void visible_status(nw_wifi_status &st)" in net and
+          "if (!gPower || gLinkSuppressed) {" in net and
+          "void post_link_down(bool involuntary, int reason)" in net and
+          "if (gJoinPending) {" in net and
+          "post_event(kEvSsidChanged, nullptr, 0);" in net and
+          "gLinkSuppressed = true; gAssocResult = kAssocFailed; gJoinPending = false;" in net and
+          "if (gLinkSuppressed) { log(6, \"wifi-net: link lost during an explicit disconnect: reason %d\", reason); return; }" in net)
+    check("a completion without a link and a lost link are reported as the reference does",
+          "if (result == NW_RES_OK && status.state != NW_STA_UP) {" in net and
+          "gAssocResult=kAssocFailed;gJoinPending=false;" in net and
+          "post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);break;" in net and
+          "void post_association_result()" in net and
+          "memcpy(done.attempts, current.bssid, 6);" in net)
+    check("a join drains a link that is already up before asking the station",
+          "int drain_disconnect()" in net and
+          "for (unsigned waited = 0; waited < 2000; waited += 10)" in net and
+          'log(4, "wifi-net: disconnect did not drain within 2000 ms");' in net and
+          "if (drain_disconnect()) { memset(&a,0,sizeof(a)); gAssocResult = kAssocFailed; return ETIMEDOUT; }" in net)
+    check("the abort-scan request is accepted instead of falling through",
+          "PONG_REQUEST_ABORT_SCAN 382u" in abi_hdr and "kAbortScan = PONG_REQUEST_ABORT_SCAN" in net and
+          "case kAbortScan: return 0;" in net)
+    policy_hdr = (ROOT / "drivers" / "PongWifi" / "PongWifiScanPolicy.h").read_text(encoding="utf-8")
+    check("the scan policy keeps the radio on channel during a join and drops stale records",
+          '#include "PongWifiScanPolicy.h"' in net and
+          "pong_scan_on_air(&gScanAir, link, link_ms" in net and
+          "pong_scan_air_mark(&gScanAir, mhz, frequencies, now_ms);" in net and
+          "pong_scan_held_stale(b.age_ms)" in net and
+          "gLinkUpMs = result == NW_RES_OK ? scan_clock_ms() : 0;" in net and
+          "PONG_SCAN_HELD_MS 60000u" in policy_hdr and
+          "PONG_SCAN_LINK_SETTLE_MS 15000u" in policy_hdr and
+          "PONG_SCAN_RESCAN_MS 20000u" in policy_hdr)
+    check("request 10 takes its scan type from the same place the reference does",
+          "PONG_SCAN_ONE_TYPE 0x34u" in abi_hdr and
+          "memcpy(&scanType, out.raw + PONG_SCAN_ONE_TYPE, 4);" in net)
+    check("a 24A446 scan request is parsed for its names, type and channels",
+          "if (type == kScanReqMultiple) {" in net and
+          "pong_scan_multiple_parse(out.raw, held, &scanType, &ssid, &ssidLength)" in net and
+          "PONG_SCAN_MULTIPLE_CHANNEL_COUNT" in net and
+          "const bool asked = frequencies != 0 && nw_wifi_scan_frequencies != nullptr;" in net and
+          "PONG_WIFI_CAP_NAMED_SCAN 22u" in abi_hdr and
+          "PONG_WIFI_CAP_SCAN_DONE_EVENT 46u" in abi_hdr and
+          "if (rq.req_len <= PONG_WIFI_CAPS_BYTES)" in net)
+    check("the 24A446 association request and completion event are decoded",
+          "const bool modern27=rq.req_len==PONG_ASSOC_REQUEST_24A446;" in net and
+          "gAssocModern27 = modern27;" in net and
+          "pong_assoc_event27 done{}" in net and
+          "post_event(kEvAssocDone, &done, sizeof done);" in net and
+          "uint8_t data[16 + sizeof(pong_assoc_event27)];" in net and
+          "sizeof(struct pong_assoc_event27) == 540" in abi_hdr)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",
@@ -294,6 +410,65 @@ def main() -> int:
           "#define PONG_HE_ELEM_ID 255" in he_hdr and
           "peer->mcs[0] = intersect16(own->mcs[1], peer->mcs[0]);" in he_src and
           (ROOT / "scripts" / "tests" / "pong-he-selftest.c").is_file())
+
+    net_src = NET.read_text(encoding="utf-8")
+    check("the SAE probe is armed only by a boot argument",
+          'extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak_import));' in net_src and
+          'PE_parse_boot_argn("sae", &sae, sizeof(sae))' in net_src and
+          "jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_sae.c', out / 'pong_sae.o', [])]" in text and
+          (ROOT / "scripts" / "tests" / "test-pong-sae.py").is_file())
+
+    check("the framework ABI shapes are host-tested",
+          (ROOT / "drivers" / "PongWifi" / "PongWifiAbi.h").is_file() and
+          (ROOT / "scripts" / "tests" / "test-pong-abi.py").is_file() and
+          (ROOT / "scripts" / "tests" / "pong-abi-selftest.c").is_file() and
+          "a 24A446 scan request is parsed for its names, type and channels" in (ROOT / "scripts" / "tests" / "test-wifi-sbl-mission.py").read_text(encoding="utf-8"))
+
+    native_src = (ROOT / "scripts" / "build-k60-wifi-native.py").read_text(encoding="utf-8")
+    check("both builds carry a 2048-byte element array and the station clamp follows it",
+          "uint8_t ie[2048];" in text and "uint8_t ie[2048];" in native_src and
+          "raise RuntimeError('shared ABI element array differs')" in text and
+          "raise RuntimeError('shared ABI element array differs')" in native_src and
+          "sta.replace('#define IE_MAX 384', '#define IE_MAX 2048')" in text and
+          "'-I', str(abi), '-include', 'PongCompat.h'," in text and
+          "'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include')" in native_src)
+
+    check("the station build records the element width the kext build checks",
+          "(abi / 'nw_abi.stamp').write_text('ie_bytes=2048" in text and
+          "hashlib.sha256((abi / 'nw_abi.h').read_bytes())" in text and
+          "stamp=a.ath11k.parent/'abi'/'nw_abi.stamp'" in native_src and
+          "but this build carries 2048: rebuild the station (P-230)" in native_src)
+    check("a requested stop quiesces the interface and releases the station",
+          'extern "C" void pong_wifi_station_stop(void);' in net_src and
+          'extern "C" void pong_wifi_net_stop(void) {' in net_src and
+          'pong_wifi_net_stop(); pong_wifi_station_stop();' in net_src and
+          '__builtin_strncmp(q, "pong-wifi-stop", 14) == 0' in net_src and
+          ' volatile uint32_t stopRequested;' in platform and
+          'bool cleanStop=false;' in platform and
+          'if(__atomic_load_n(&stopRequested,__ATOMIC_ACQUIRE)){cleanStop=true;break;}' in platform and
+          'if(cleanStop){nw_wifi_stop();' in platform and
+          'extern "C" void pong_wifi_station_stop(void) {' in platform)
+
+    check("events are installed before the station starts",
+          platform.index('if(!pong_wifi_net_prepare())') < platform.index('nw_wifi_start(&platform,&board)') and
+          'nw_wifi_set_events(&gEvents)' in net_src)
+
+    check("the peer signal refresh reaches the daemon as a link change",
+          'void on_link_update(const nw_wifi_status *status) {' in net_src and
+          'gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx, nullptr, nullptr, on_link_update }' in net_src and
+          'event.rssi = status->signal_dbm;' in net_src and
+          'post_event(kEvLinkChanged, &event, sizeof event);' in net_src)
+
+    check("a 24A446 daemon reads events from two descriptors",
+          'if (gModern27Client) {' in net_src and
+          'msg.dv[0].data_length = sizeof name; msg.dv[0].data_ptr = name;' in net_src and
+          'msg.dv[1].data_length = static_cast<uint32_t>(length); msg.dv[1].data_ptr = const_cast<void *>(payload);' in net_src and
+          net_src.count('if (rq.req_len == PONG_SCAN_RECORD_24A446) gModern27Client = true;') == 2)
+    check("a 24A446 event is logged with its size and result",
+          'wifi-net: event %u bytes %u -> %d' in net_src and
+          'if (code != kEvScanDone) log(6, "wifi-net: event %u bytes %u -> %d"' in net_src)
+    check("the link settle window starts where the reference starts it",
+          "gLinkUpMs = up ? scan_clock_ms() : 0;" in net_src)
 
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0

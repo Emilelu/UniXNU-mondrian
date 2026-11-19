@@ -103,7 +103,16 @@ def main():
  framework=a.tree/'.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A'
  env=dict(os.environ,DEVELOPER_DIR=str(pong_paths.developer_dir()))
  sdk=subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'],env=env,text=True).strip()
- flags=['-target','arm64-apple-ios16.0','-isysroot',sdk,'-mkernel','-ffreestanding','-fno-builtin','-fno-exceptions','-fno-rtti','-fno-stack-protector','-mgeneral-regs-only','-std=gnu++17','-fblocks','-O2','-DKERNEL=1','-DKERNEL_PRIVATE=1','-DXNU_KERNEL_PRIVATE=1','-DARM64_BOARD_CONFIG_PONG=1','-I'+str(framework/'PrivateHeaders'),'-I'+str(framework/'Headers'),'-I'+str(shared/'drivers/Ath12kWifi/include'),'-I'+str(shared/'package'),'-I'+str(out),'-Wno-deprecated-declarations']
+ abi=out/'abi';abi.mkdir(exist_ok=True)
+ hdr=(shared/'drivers/Ath12kWifi/include/nw_abi.h').read_text()
+ if hdr.count('uint8_t ie[384];')!=1:raise RuntimeError('shared ABI element array differs')
+ (abi/'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];','uint8_t ie[2048];'))
+ stamp=a.ath11k.parent/'abi'/'nw_abi.stamp'
+ if stamp.is_file():
+     t=dict(l.split('=',1) for l in stamp.read_text().splitlines() if '=' in l)
+     if t.get('ie_bytes')!='2048':raise RuntimeError('station archive %s carries ie_bytes=%s but this build carries 2048: rebuild the station (P-230)'%(a.ath11k,t.get('ie_bytes')))
+ else:print('note: %s has no abi/nw_abi.stamp, so the element width was not compared'%a.ath11k)
+ flags=['-target','arm64-apple-ios16.0','-isysroot',sdk,'-mkernel','-ffreestanding','-fno-builtin','-fno-exceptions','-fno-rtti','-fno-stack-protector','-mgeneral-regs-only','-std=gnu++17','-fblocks','-O2','-DKERNEL=1','-DKERNEL_PRIVATE=1','-DXNU_KERNEL_PRIVATE=1','-DARM64_BOARD_CONFIG_PONG=1','-I'+str(framework/'PrivateHeaders'),'-I'+str(framework/'Headers'),'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include'),'-I'+str(shared/'package'),'-I'+str(out),'-Wno-deprecated-declarations']
  objects=[]
  for name in ('PongWifiPlatform','PongWifiNet'):
   obj=out/(name+'.o');cmd=['xcrun','clang++',*flags,'-c',str(ROOT/'drivers/PongWifi'/(name+'.cpp')),'-o',str(obj)]

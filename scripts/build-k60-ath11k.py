@@ -6,6 +6,7 @@ The driver is not replaced by success stubs. Missing core symbols fail the
 link recipe; power/DMA/MSI remain the consuming Pong board's responsibility.
 """
 import argparse
+import hashlib
 import sys
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -512,12 +513,25 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         ['xcrun', '-f', 'clang'], env=env, text=True).strip()
     resource = subprocess.check_output([clang, '-print-resource-dir'], text=True).strip() + '/include'
     overlay = ROOT / 'drivers/PongWifi/ath11k/compat'
+    # The scan record has to carry every element the access point sends. The shared ABI copies 384 bytes,
+    # which cut this access point's 5 GHz element list off in the middle of an element (SBL-MISSION.md 28),
+    # so both builds use an enlarged copy generated here from the shared header; the station's IE_MAX follows it.
+    abi = out / 'abi'; abi.mkdir(exist_ok=True)
+    hdr = (shared / 'include/nw_abi.h').read_text()
+    if hdr.count('uint8_t ie[384];') != 1: raise RuntimeError('shared ABI element array differs')
+    # 24A446's scan record carries 2048 element bytes at 0x8c; the station's own bss keeps the same area
+    # so a wide 5 GHz record is not cut inside an element (the 384 clamp that dropped Emilelu_5G, P-230).
+    (abi / 'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];', 'uint8_t ie[2048];'))
+    # The kext is compiled against its own copy of this header. If a prebuilt station archive was made from a
+    # different width, the two halves disagree about struct nw_bss_info and the record is cut again on the air
+    # (the mission34 384/1024 accident, P-230). Record the width here so the kext build can refuse the mix.
+    (abi / 'nw_abi.stamp').write_text('ie_bytes=2048\nheader_sha256=%s\n' % hashlib.sha256((abi / 'nw_abi.h').read_bytes()).hexdigest())
     flags = ['-target', 'arm64-apple-ios16.0', '-mkernel', '-O2', '-g0', '-ffreestanding',
         '-fno-builtin', '-fno-common', '-fno-strict-aliasing', '-fwrapv', '-fno-stack-protector',
         '-fno-delete-null-pointer-checks', '-mgeneral-regs-only', '-std=gnu11',
         '-Wno-incompatible-pointer-types', '-Wno-error', '-Wno-unused-value',
         '-nostdinc', '-isystem', str(shared / 'shim/libc'), '-isystem', resource,
-        '-I', str(overlay), '-include', 'PongCompat.h', '-I', str(shared / 'shim/include'),
+        '-I', str(overlay), '-I', str(abi), '-include', 'PongCompat.h', '-I', str(shared / 'shim/include'),
         '-I', str(pinned), '-I', str(linux / 'include'), '-I', str(linux / 'include/uapi'),
         '-I', str(shared / 'include'), '-I', str(shared / 'src'),
         '-I', str(gen), '-I', str(out), '-I', str(source.parent), '-I', str(ROOT / 'drivers/PongWifi/ath11k'),
@@ -528,6 +542,9 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     jobs += [(mhi / (n + '.c'), out / ('mhi_' + n + '.o'), ['-I', str(mhi)]) for n in ('init', 'main', 'pm', 'boot')]
     # WPA station nonces use Darwin's entropy source, not a timer/counter.
     sta = (shared / 'src/nw_sta.c').read_text()
+    # The station clamps its element copy at IE_MAX; the enlarged ABI carries 1024 bytes, so keep the whole list.
+    if sta.count('#define IE_MAX 384') != 1: raise RuntimeError('shared station IE_MAX differs')
+    sta = sta.replace('#define IE_MAX 384', '#define IE_MAX 2048')
     begin = sta.index('static void make_nonce(u8 *out) {')
     end = sta.index('static void derive_ptk(void)', begin)
     sta = sta[:begin] + 'extern void PongWifiRandom(void *, size_t);\nstatic void make_nonce(u8 *out) { PongWifiRandom(out, 32); }\n' + sta[end:]
@@ -652,6 +669,50 @@ static void send_assoc(void) {'''),
         if sta.count(he_old) != 1:
             raise RuntimeError('shared station HE anchor differs: ' + he_old.splitlines()[0][:64])
         sta = sta.replace(he_old, he_new)
+    # SAE (WPA3): the legacy station can only send open-system authentication, so the cheapest question about WPA3 is
+    # whether the management transmit path carries a frame of SAE size at all. The framing lives in
+    # drivers/PongWifi/ath11k/pong_sae.c (host-tested); the station gains a gate, a sender and a receive log, and the
+    # kext arms the gate only from the pong_sae_probe boot argument, so a normal image never sends these frames.
+    sae_code = """/* SAE probe: one Authentication frame with algorithm 3 (SAE) and a commit-sized body, so the firmware's management
+ * transmit path can be measured at the size a real commit needs. The gate comes from the kext (pong_sae_probe); a
+ * normal boot never arms it. This is framing only: the body is filler, and a transmitted frame proves transport. */
+static int g_sae_group, g_sae_sent, g_sae_answered, g_sae_done;
+static u8 g_sae_body[PONG_SAE_MAX_BODY];
+void nw_wifi_sae_probe(int group) {
+  g_sae_group = group == (int)PONG_SAE_GROUP_20 ? (int)PONG_SAE_GROUP_20 : group ? (int)PONG_SAE_GROUP_19 : 0;
+  lx_log(6, "k60 sae: probe %s", g_sae_group == 20 ? "armed for group 20" : g_sae_group ? "armed for group 19" : "off"); }
+static void tx_frame(struct sk_buff *skb);
+static void sae_probe_tick(void) {
+  if (!g_sae_group || g_sae_done || C.state != NW_STA_UP) return;
+  if (g_sae_sent >= 2) { g_sae_done = 1;
+    lx_log(6, "k60 sae: probe finished, %d sent, %d answered", g_sae_sent, g_sae_answered); return; }
+  const unsigned len = pong_sae_commit_body(g_sae_body, sizeof g_sae_body, (unsigned)g_sae_group);
+  if (!len) { g_sae_done = 1; lx_log(3, "k60 sae: the framing unit refused group %d", g_sae_group); return; }
+  struct sk_buff *skb = new_frame(len); if (!skb) return;
+  mgmt_header(skb, IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_AUTH);
+  skb_put_data(skb, g_sae_body, len);
+  g_sae_sent++;
+  lx_log(6, "k60 sae: sending authentication alg %u body %u bytes (try %d)", g_sae_body[0], len, g_sae_sent);
+  tx_frame(skb); }
+static void sae_probe_rx(struct sk_buff *skb) {
+  const struct ieee80211_mgmt *m = (const void *)skb->data;
+  if (!g_sae_group || !ieee80211_is_auth(m->frame_control)) return;
+  const u16 alg = le16_to_cpu(m->u.auth.auth_alg), seq = le16_to_cpu(m->u.auth.auth_transaction);
+  const u16 status = le16_to_cpu(m->u.auth.status_code);
+  g_sae_answered++;
+  lx_log(6, "k60 sae: access point answered alg %u seq %u status %u (%u bytes)", alg, seq, status, skb->len); }
+"""
+    sae_edits = [
+        ('#include "pong_he.h"', '#include "pong_he.h"\n#include "pong_sae.h"'),
+        ('/* ---- chanctx, interface and station entry, in the order a driver of this kind expects ---- */',
+         sae_code + '/* ---- chanctx, interface and station entry, in the order a driver of this kind expects ---- */'),
+        ('  if (now - C.hb_at < 1000) return;', '  if (now - C.hb_at < 1000) return;\n  sae_probe_tick();'),
+        ('  if (memcmp(m->sa, C.ap.bssid, 6)) return;', '  if (memcmp(m->sa, C.ap.bssid, 6)) return;\n  sae_probe_rx(skb);'),
+    ]
+    for sae_old, sae_new in sae_edits:
+        if sta.count(sae_old) != 1:
+            raise RuntimeError('shared station SAE anchor differs: ' + sae_old.splitlines()[0][:64])
+        sta = sta.replace(sae_old, sae_new)
     (out / 'nw_sta_pong.c').write_text(sta)
     (out / 'lx_rt_pong.c').write_text(adapt_dispatcher_timers((shared / 'shim/src/lx_rt.c').read_text()))
     common_sources = ['src/nw_crypto.c', 'src/nw_events.c', 'src/nw_mac80211.c', 'src/nw_net.c',
@@ -664,6 +725,8 @@ static void send_assoc(void) {'''),
     # The HE (802.11ax) capability codec, kept out of the station transform so scripts/tests/test-pong-he.py can
     # compile and exercise it on the host.
     jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_he.c', out / 'pong_he.o', [])]
+    # The SAE authentication framing unit, host-tested by scripts/tests/test-pong-sae.py.
+    jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_sae.c', out / 'pong_sae.o', [])]
     commands = []
     def compile(job):
         src, obj, extra = job; cmd = [clang, *flags, *extra, '-c', str(src), '-o', str(obj)]

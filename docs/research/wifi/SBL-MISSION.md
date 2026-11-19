@@ -735,3 +735,899 @@ verdict is PANE-ONLY. Against the official page the six items pass for the
 fourth time and the Settings pane — the user's new acceptance item — is now
 proven at the protocol level, with the person-visible list limited by the
 scan gap above.
+
+## 17. Mission16: every refused request is named, and the daemon's list is the one that drops 5 GHz
+
+Mission16 (image 95e16e01def0a0efe782aa7a9c5de19e5f1225696b072f8f277a1d6384c786e9,
+head d964770e, built 2026-11-18T23:31:57+08:00) was flown once at 00:23. Console
+E:/k60-work/evidence/usblog-20261119-002257/console.log is 639,221 B, 8,729
+lines, SHA256 565cf7890195720f2534a8f1c6a52b79899cea6a2fb05f7f83236135755534ce.
+
+The diagnostics answered the first half of the question. The radio hears 5 GHz:
+scan tables of 6 BSS (2.4 GHz 3, 5 GHz 1) at :790, 31 BSS (20/1) at :4376 and
+eight tables of 33 BSS (2.4 GHz 20, 5 GHz 2, 6 GHz 0, hidden 11) from :4404,
+with Emilelu_5G at 5240 MHz -50 dBm (:4380, :4408) and a neighbour at 5805 MHz
+-86 dBm (:4409). The pane's scan request is type 10 length 5456 (:4389), the
+driver serves the list one record at a time and logs "scan result served 32 of
+33" at :4416 (the 32nd record is 2412 MHz, -81 dBm, empty SSID), and the
+supported-channel query reports 102 channels: 2.4 GHz 14, 5/6 GHz 88 (:1816).
+
+Every refused request is now named with its value, length and first bytes:
+types [6, 18, 25, 57, 115, 207, 346, 353, 365, 386, 387, 419, 422, 423], among
+them 419 set 136 bytes starting `01000000d0af…`, 115 get 1288, 207 get 10016
+and 387 get 37. Those payloads are the next contract to read, not a guess to
+encode.
+
+The second half is the daemon. wifid's own log
+`-[WiFiSettlementObserver _handleScanResults:...] scanType=2 client='Preferences'`
+prints 27-entry lists (:5608, :6453 and later). They contain Emilelu at
+c8:bf:4c:30:03:1d -50, the 5805 MHz neighbour as `d8f;-5G`
+74:86:6f:79:28:1c -86 (the garbled text is how the daemon renders that SSID),
+and an empty-SSID ce:bf:4c:30:03:1d -52, but never Emilelu_5G. The radio, the
+driver table and the driver's own logs all carry 5240; the daemon's parsed list
+does not. So the gap is in the record stream or in the daemon's handling of it,
+not in the band.
+
+Two explanations are recorded and neither is claimed yet. First, the table is
+33 records deep and is served in table order; the daemon read 32 of them, and
+whether the 5240 record is the one unread record is exactly what mission18's
+per-record dump prints (index, age, BSSID, element length, capability, SSID).
+Second, the daemon may drop that record over a field it cannot use even after
+reading it. No code was changed on the strength of either.
+
+Judge: 22 PASS, 0 FAIL, 1 PENDING (host HTTP receipt) = DIAG-ONLY. The pane
+join still came from a person (:4425 connecting to c8:bf:4c:30:03:1d at
+2412 MHz). mission16 must not be re-flown.
+
+## 18. Mission17: the station associates with an 11ax access point
+
+Mission17 (image 738c9125fcd2714d6a7ed0b197243f9a5d78bc5ace3ebc6b1a98f377267dcd37,
+head 497e512c, built 2026-11-19T00:18:00+08:00) merged the Settings-pane line
+with the HE codec and was flown once at 00:40:32. Console
+E:/k60-work/evidence/usblog-20261119-004032/console.log is 467,035 B, 6,982
+lines, SHA256 ba3b58c2e403291cbda83ef9b36bcd5bdaacfcdab460ed42f14c9a3f6292c3c6.
+
+The station announces HE and the peer entry keeps it. At :799 the association
+request states `HT 28 VHT 14 HE 31 bytes`; before it, :794 logs
+`peer HE yes, MCS 80 rx fffa tx fffa, params 0x25003ff4 nss 0xfffc` for
+c8:bf:4c:30:03:1c at 5240 MHz, width 80. The association completes and the key
+handshake follows (:3311 onwards), so the access point accepted the request
+that carries the HE element. The lifecycle test then reconnects at :3309 and a
+daemon-initiated join at :4341 (ssid length 7, key length 32, cipher 6) moves
+the link to 2412 MHz, where the request is `HT 28 VHT 0 HE 28 bytes` (:4347)
+and the peer HE operation carries params 0x2b003ff4; :4420 reports
+`WiFi lifecycle test PASS: reconnected BSSID c8:bf:4c:30:03:1d state=6 IPv4=1
+lease=5/3`. The initial association PASS is :1676.
+
+What this proves: the HE capability is encoded, sent, accepted, and the peer's
+HE capability is parsed and narrowed into the station's own state on both
+bands. What it does not prove: HE rate selection or throughput — no traffic
+measurement was made, and the peer MCS map 0xfffa is recorded as the access
+point's answer rather than interpreted.
+
+The pane line stayed intact: the scan tables are 8 BSS (2.4 GHz 4, 5 GHz 1),
+24 (14/1) and 29 (17/1), and the refused-type list now also includes 29.
+
+Judge: 24 PASS, 0 FAIL, 1 PENDING (the host-side application receipt) = base
+PASS, HE PASS. The page still cannot be loaded because WebKit is killed; that
+remains the application-layer blocker and it belongs to the WebKit/GPU line.
+mission17 must not be re-flown.
+
+## 19. Mission18: the record is delivered; the country element is the next lead
+
+Mission18 (image c094e5bf5b36fcf658058cb6aa1f38c29f3afa67ce0029431be700a434047e76,
+head 7663471a, built 2026-11-19T00:55:25+08:00) prints every scan record for the
+first three scans and was flown once at 01:00:09. Console
+E:/k60-work/evidence/usblog-20261119-010007/console.log is 479,040 B, 7,115
+lines, SHA256 3ca108dc887cc2598344360d0ef6a4f76bc580a8816bcc30abdd29513723f14b.
+
+The 5240 record is delivered. The tables are 6 BSS (2.4 GHz 4, 5 GHz 1, hidden 1)
+at :771, 27 (17/1, hidden 9) at :4402, and 29 (18/1, hidden 10) at :4443, :4697
+and :5675. Emilelu_5G c8:bf:4c:30:03:1c, 5240 MHz, -51/-50 dBm, element length
+384, capability 0x0511, sits at index 5 of every table, and the daemon read the
+whole table: scan request type 10 len 5456 at :4116, records served 1/2/3/8/16/24,
+and "scan result end after serving 27 of 27 records" at :4437. Mission16's
+"served 32 of 33" had the same property. The record the pane loses therefore
+reached wifid; the loss is on content, not on position.
+
+The ages say what the module does: the 5240 entry ages 6 -> 1285 -> 2812 ms
+between sweeps while 2.4 GHz entries reach 303,825 ms, so the module keeps the
+last observation per BSSID instead of re-hearing every network on every sweep.
+
+The flight could not observe the daemon's own list. No person opened Settings, so
+wifid wrote no Preferences scan list this time (mission16 had two 27-entry lists
+at :5608 and :6453). That comparison needs a flight with a person at the screen.
+
+Country element. wifid logged "2 country code(s) currently advertised by 16
+networks", "Country <BR> IE count 1", "Country <CN> IE count 15" and "Currently
+highest country <CN>" at :5231-:5234. One network advertises a non-local country,
+and CoreWiFi can drop a BSS whose advertised country conflicts with the local
+one; that is the leading candidate for a record that is delivered and then
+discarded.
+
+Judge: the first run printed base=FAIL only because judge-wifi-mission16.py's
+table regexes expected "scan table N BSS" without the ordinal mission18 added.
+Accepting an optional ordinal makes the same console judge base=PASS dump=PASS;
+the user group stays PENDING because no host receipt exists. No code was flown
+twice, and mission18 must not be re-flown.
+
+Two changes follow, neither yet on device. 1cb402db freezes the list when a
+sweep completes, serves it strongest first, and prints the first twelve 32-bit
+words of each served 5 GHz record. 49ee1b8a adds the record's Country element to
+the per-record dump, so mission19 can show whether the dropped record is the
+<BR> one.
+
+## 20. Mission19: the 5 GHz record is well formed, served first, and says CN
+
+Image `c1429161f1d02aa5fa7e875c911f2af0e013a6f8fd26b2f6d107458e41481320`
+(201,887,744 B, built 2026-11-19T01:50:48+08:00, head `20e5a2b1`, wifi archive
+`4afa1ef9`, 602-byte args, `k60_autoreset=900`), flown once at 01:53:37 into
+`E:/k60-work/evidence/usblog-20261119-015237/console.log` (482,395 B, 7,147
+lines, SHA256 `e83371ee852df28094a28c09be16bab09af43ec0887ddf934665c6a4e4dd70a9`).
+
+The sorted frozen list works: the first sweep's table of 9 BSS (2.4 GHz 6, 5 GHz
+1, hidden 2) at :781 was served with the 5 GHz record first —
+"scan result served 1 of 32: 5240 MHz, -51 dBm, Emilelu_5G" at :4386 and
+"served 2 of 34" at :4470. The record's own words, identical in both sweeps
+(:4385, :4469), decode cleanly: version 1, channel 48 with flags 0x12, noise
+-95 dBm, SNR 44, RSSI -51 dBm, beacon interval 100, capability 0x0511, BSSID
+c8:bf:4c:30:03:1c, rate count 0.
+
+The Country element column (:4385 onward) does not single the record out:
+Emilelu_5G advertises CN, Emilelu itself advertises no country element (--), and
+the only BR networks are two unrelated 2.4 GHz observations (70:85:6c:da:71:2d
+and CMCC-666 at 70:85:6c:d4:71:2e). The country lead from mission18 is
+therefore not the explanation for the missing row.
+
+Supported channels again answer 102 (2.4 GHz 14, 5/6 GHz 88) at :2040, with
+2412/2417/2422/2427 numbered 1/2/3/4 and flags 0xa. The daemon's settlement
+observer is created at :2031 with maxNetworks 10, maxScans 3, low 30, high 120.
+
+No Preferences scan list exists in this console (the only
+`WiFiSettlementObserver` line is the init at :2031): nobody opened Settings, so
+the daemon's own list is still unobserved. The daemon did join on its own at
+:4479 (ssid length 7, key length 32, cipher 6) and the baseline reconnected
+(:4546, "lifecycle test PASS ... lease=5/3"). Judge: base=PASS dump=PASS
+user=PENDING -> DIAG-ONLY.
+
+Mission20 (f0c959f0) therefore only adds observation: the scan request's first
+four words (the channel filter the daemon sends), every record it reads rather
+than one in eight, and the first sixteen bytes of each served 5 GHz record's
+element blob. It must be flown with a person at the screen who opens
+Settings -> Wi-Fi and pulls to refresh; that console will carry both the
+Preferences list and the records behind it.
+
+## 21. What the reference trees actually contain (and do not)
+
+The maintainer's directive for this span was "copy pong and zizhan". The two
+trees were fetched again and compared line by line with our driver, so the
+answer is a list of concrete deltas rather than an impression.
+
+- **pong's wifi driver is a separate repository and it is alive:**
+  `https://github.com/Chengdong-Yu/pong-wifi.git` at `d2e33ca` ("Import
+  PongWifi from UniXNU-pong"), 1,803 lines total. The `UniXNU-pong` superproject
+  itself 404s on GitHub, which is why `drivers/PongWifi` is an empty submodule
+  directory locally. The clone now sits at `E:/k60-work/scratch/pong-wifi`.
+- **zizhan** is unchanged at `034a0b0`; its `drivers/PongWifi` is the tree ours
+  was derived from, down to the enum values and `fill_channel`.
+- **Our driver is already a superset.** pong-wifi has no freezed scan list, no
+  24-style record (timestamp at +0x8d0), no property-list handling, no tap, and
+  it answers `kScanResult` from the live table exactly as we did before
+  mission19. zizhan has the 22H374 record and the user-client tunnel; we have
+  both plus the mission19 freeze/sort and the mission20 request and element
+  dumps. Nothing in either tree handles types 25, 207, 419, 422, 423 or 115 —
+  they are 20G81/22H374 daemon requests that both reference drivers refuse.
+- **Three real deltas exist, and none is a drop-in fix for the missing row.**
+  1. pong sets `flags |= 0x80` on every supported channel
+     (`pong-wifi/PongWifiNet.cpp:427`), and evb10 does the same with a static
+     table. zizhan deliberately does not, with the comment "CWFChannel compares
+     the complete flag word for supported membership. Keep the band/width
+     representation consistent with scan/current/history channels rather than
+     adding ACTIVE only to this answer." Our tree follows zizhan, because a
+     supported-channels entry whose flag word differs from the scan record's
+     cannot match by that rule.
+  2. pong skips `NL80211_BAND_6GHZ` when it enumerates channels
+     (`pong-wifi/ath11k/PongAth11k.c:154`), because "the shared station scan
+     policy and the Apple80211 channel codec currently publish only 2.4/5 GHz
+     channels on this board". Our `nw_wifi_channel_list` does not skip it, which
+     is why the type-254 answer has 102 entries (2.4 GHz 14, "5/6 GHz" 88) while
+     the station sweeps 42 channels. The count is the clue, not the proof: this
+     is a candidate for the next image, not a change to make under a running
+     diagnosis.
+  3. pong answers a scan while joined from the cached table
+     (`pong-wifi/PongWifiNet.cpp:342-345`); that behaviour has been in our
+     driver since mission15 and is unrelated to the row.
+
+One new fact from the mission16 console (checked with
+`scripts/diff-scan-list.py` and by direct search): the 5240 MHz BSSID
+`c8:bf:4c:30:03:1c` appears in **no** daemon list at all — eight
+`client='Preferences'` lists and seven `client='configd'` lists were logged in
+that flight, and the neighbour at 5805 MHz (`74:86:6f:79:28:1c`, shown as
+`d8f;-5G`) appears in both. So the drop happens inside wifid before any
+client-specific filtering, and the pane is not the stage that loses it. That
+makes mission20's pairing (full record dump + a list produced while Settings is
+open) the right instrument, and it makes "copy more reference code" an empty
+lever: neither reference project has a 20G81 daemon to copy from.
+
+## 22. The one-field experiment mission20 should carry
+
+The mission16 record dump leaves exactly one 5 GHz record per table (the
+5240 MHz AP, `ie 384 cap 0x0511 cc CN`), while mission16's pane list shows a
+*different* 5 GHz neighbour (`74:86:6f:79:28:1c`, shown as `d8f;-5G`, -86 dBm).
+So wifid accepts 5 GHz records in general and rejects this one on a property of
+the record, not of the band. The properties that differ are the SSID, the
+capability word (0x0511 vs the neighbours' 0x1c31/0x0431), the element blob
+and channel 48.
+
+wifid carries band-steering strings (`known5ghzSsid`, `invalid 5ghzSsid`,
+"companion network %@ is not a 5ghz network"), so one live hypothesis is that a
+2.4 GHz SSID `X` plus a 5 GHz SSID `X_5G` is treated as one companion pair and
+only the 2.4 GHz row is shown. That is testable in a single flight without new
+code: open Settings -> Wi-Fi, record the list, rename the router's 5 GHz SSID
+from `Emilelu_5G` to a name without the `_5G` suffix, pull to refresh, and see
+whether the row appears. The same console then carries the mission20 dumps for
+both states.
+
+If the rename does not change anything, the remaining suspects are the
+capability word and the element blob, and the next image should serve synthetic
+clones of the one record to bisect them (same BSSID neighbourhood, one field
+changed per clone). Both experiments are cheaper than further static analysis:
+wifid is arm64e with chained fixups, `llvm-objdump --macho --objc-meta-data`
+returns nothing for it, and the 20G81 iPhone 13 runtime has no iPadOS 18
+counterpart in either reference tree, so there is no second binary to diff
+against.
+
+
+## 23. Mission21: the element inventory of the two bands
+
+Mission21 (image 766606e0, 201,887,744 B, head 7e8b3310, built
+2026-11-19T03:38:21+08:00, archive f6d168c7, 602 B args, k60_autoreset=900)
+flew once at 03:39:24 into
+E:/k60-work/evidence/usblog-20261119-033924/console.log (542,538 B / 7,854
+lines / SHA256 10d9351965bd76ce67ffc0224cb5dfeb22b7f0c2ea89f159a68584bfeaa3e3e1).
+The judge printed base=PASS dump=PASS list=UNOBSERVED, verdict DIAG-ONLY.
+
+HE survived the merge into the pane branch: :822 association request HT 28
+VHT 14 HE 31 bytes, :817 peer HE yes, MCS 80 rx fffa tx fffa, params
+0x25003ff4 at 5240 MHz; after the daemon moved to 2412 MHz, :5112 requests
+HT 28 VHT 0 HE 28 bytes with params 0x2b003ff4 (:5110). Association PASS at
+:1821 and :5180, lifecycle PASS at :5181 (lease=5/3).
+
+Scan tables: 11 BSS (2.4 GHz 8, 5 GHz 1, hidden 2) at :788, 28 (19/1,
+hidden 8) at :4893, 35 (26/1, hidden 8) at :4994. The 5805 MHz neighbour
+was not heard in this flight, so the only 5 GHz record is this access point
+at 5240 MHz.
+
+The element inventory is the new fact, and it shrinks the difference to one
+group of fields. The same access point on 2.4 GHz (c8:bf:4c:30:03:1d)
+carries ie 347, RSN 24 bytes at offset 37 and capability 0x0431; on 5 GHz
+(c8:bf:4c:30:03:1c) it carries ie 384, RSN 24 bytes at offset 76 and
+capability 0x0511. The RSN length is identical, three of the extra 37 bytes
+are the longer SSID, and the remaining 34 bytes are other elements.
+Mission22 prints the element-id list and the RSN bytes of both records and
+serves a copy of the 5 GHz record under the unrelated name K60SYNTH, which
+separates a name-based filter from a field-based one in a single screen.
+
+No pane list was produced: the only WiFiSettlementObserver line is its init,
+so nobody opened Settings and the daemon-side drop is still unobserved after
+six flights. wifid's band strings (guess1..guess4, "2Ghz scanned network[%@]
+has a matching known 5Ghz network") make the name hypothesis the first one
+to test.
+
+mission20 (b0ae4826, head fc8f5432, built 2026-11-19T02:25:38+08:00) was
+superseded by mission21 before it flew and is recorded as
+built-but-never-flown; its 193 MB artifact was deleted on 2026-11-19 05:07 so
+the P-218 gate stops reporting an image nobody will fly (the hash and head above
+are the whole record); mission22 (0d6a2f16, head d250f2c3, built
+2026-11-19T03:57:47+08:00) is built, verified and unflown. K60EXC appears 64
+times in every flight since mission17, so it is not a mission21 anomaly.
+
+## 24. The pane list on mission22: the name is not the filter
+
+mission22 (0d6a2f16, head d250f2c3, built 2026-11-19T03:57:47+08:00) flew at
+05:14:20 with a person at the screen and was the first flight that held a
+Preferences list and the per-record dumper at the same time:
+
+| field | value |
+|---|---|
+| console | E:/k60-work/evidence/usblog-20261119-051413/console.log, 889,855 B, 11,636 lines, sha256 37e0079f09c8381492b543630e74400eda5a17badac7060d75e11bdb692bf87e |
+| boot record | boot.json bootAccepted true, returnedToFastboot true, finished 05:29:47; the one-shot marker was written |
+| pane lists | 24 lists for client=Preferences (37 observer lists in all); the last holds 40 entries |
+| records | 55 distinct dumped records, 45 KEPT, 10 DROPPED |
+| join timeline | ...1c on 5240 MHz at :856 and :3545, ...1d on 2412 MHz at :4938; the lists start at :5464, after the move to 2.4 GHz |
+
+The pane does list 5 GHz: CMCC8888 at 5240 MHz -79 dBm (ie 332, cap 0x1531) and a
+hidden 5240 MHz -82 dBm are both KEPT. Emilelu_5G (c8:bf:4c:30:03:1c, 5240 MHz,
+-51 dBm, ie 384, cap 0x0511) is DROPPED. Its 2.4 GHz sibling (...:1d, cap 0x0431)
+is KEPT and carries the same 24-byte RSN (0100000f ac040100 000fac04, WPA2-PSK
+only, no SAE AKM), so the security type is not the difference either.
+
+The renamed copy settled the name hypothesis: mission22 served K60SYNTH 24 times
+and the daemon read every record of every sweep ("scan result end after serving
+46 of 46" and "49 of 49"), yet no list holds its BSSID (c8:bf:4c:30:03:5c). A
+name the daemon cannot band-steer is dropped exactly like the real one, so the
+filter is a property of the record, not of the SSID.
+
+What remains is the BSSID. ...:1c differs from the joined ...:1d in one bit, and
+the copy shared those five leading bytes. mission24 therefore serves two copies
+from the FRONT of the frozen list - K60SYNTH with the same first five bytes and
+K60SYNTH2 with the OUI's first byte flipped (ca:bf:4c:30:03:1c) - because the
+word dump only covers the first six 5 GHz records and a copy at the tail was
+unobservable in mission22. A pane that lists only K60SYNTH2 hides 5 GHz siblings
+by prefix; a pane that lists neither hides them by a record field; a pane that
+lists both means the earlier copy was simply never read.
+
+Two build facts from the same day: the kext's sae probe reference has to be a
+weak_import, otherwise a pane image linked against the HE archive fails with
+"_nw_wifi_sae_probe undefined" (the mission24 link caught it), and mission24
+builds against the ath11k-sae1 archive so the symbol resolves; its boot line
+carries no sae argument, so the probe stays off.
+
+## 25. Mission24: the daemon drops the record itself, not its name and not its BSSID prefix
+
+Image wifi-20261118sbl-mission24 (6ba9a0537326ddadded57a0ccaf7658d1fdcde2529f45f9f1fd39ca5938952bd, 201,887,744 bytes,
+built 2026-11-19T05:55:25+08:00, 31 arguments / 602 bytes) was flown once at 06:06:12 with the supervisor
+boot-and-capture.ps1; the capture is usblog-20261119-060604, console 1,180,114 bytes / 14,506 lines / SHA256
+4201f716a09a1387. A person opened Settings -> Wi-Fi and pulled to refresh, so for the first time one flight carries
+both the driver's record dump and the daemon's own Preferences list.
+
+The image serves two copies of the 5240 MHz record from the front of the frozen list: K60SYNTH
+(c8:bf:4c:30:03:5c, the last BSSID byte flipped) and K60SYNTH2 (ca:bf:4c:30:03:1c, the OUI first byte flipped).
+The console shows both at served positions 2 and 3 of 33 and again of 40, and the daemon read whole sweeps
+("scan result end after serving 33 of 33 records"). Its Preferences list, 41 entries over 44 records (30 kept,
+14 dropped), holds Emilelu_5G zero times and neither copy's BSSID in any observer line either.
+
+Conclusion: the filter is not the SSID (a renamed copy is dropped too), not band steering by name, and not a
+BSSID-prefix merge with the joined 2.4 GHz sibling (a copy with a different OUI is dropped as well). The record
+content is the filter. The router screenshot supplied by the user adds the missing context: this access point is
+5 GHz on automatic channel 48 with 160/80/40/20 MHz and WPA3/WPA2 mixed security, while the 2.4 GHz radio is
+40/20 MHz; the only 5 GHz records the pane lists in this flight are neighbours at ordinary widths.
+
+The mission24 judge needed two fixes: judge21's element-inventory regex still expected the mission21 column set
+(no ht40/vw), which turned a healthy flight into base=FAIL; it now accepts both formats and the same console
+judges base=PASS inventory=SEEN. The full RSN is 24 bytes at element offset 82 (offset 76 in one sweep), and the
+mission24 image still printed only the first 16 of them, which mission25 extends to all 24.
+
+## 26. mission25（2026-11-19 06:46）：探针被 daemon 看见，过滤在元素区
+
+镜像 wifi-20261118sbl-mission25/boot.img，SHA256 95629508…，head ec51f578，201,887,744 B，31 参数 / 602 B；飞于 06:46:57，07:02:24 回到 fastboot（boot.json accepted=true、returnedToFastboot=true），随后脚本恢复 Android。console E:/k60-work/evidence/usblog-20261119-064651/console.log 887,140 B / 11,567 lines / SHA256 fb5cfee0de94a37aabdedc8f4431e3bd87b4c7d59af527d4c39471f868694eed，含 100 行 wifi-net: probe、100 行 synthetic copy、26 条 Preferences 列表。本次多数扫描里 5 GHz 只有 1 条记录（2.4 GHz 25-28 条），探针直到后段出现第二条 5 GHz 记录（5180 MHz，88:c3:97:c6:0a:73，ie 382，cap 0x0511）才配对成功。
+
+判据是人的观察：先看到 K60A、K60C、K60D，K60B 与 K60E 从未出现，且五条探针随刷新闪烁（m33078/m33082/m33085/m33105/m33110）。K60A 是被保留记录的原样改名（基线），K60B 是它加我们的元素区，K60C 是它加我们的 capability，K60D 是我们那条 5240 记录换成载体的元素区，K60E 是我们那条记录换成载体的 capability。A/C/D 出现、B/E 不出现，说明 capability 无辜，元素区就是把 daemon 推开的东西；把我们 5240 记录的元素区换成载体的，daemon 就收下（D）。
+
+两条频段的元素清单（本次 console）：
+
+- 5 GHz c8:bf:4c:30:03:1c：0/10 1/8 3/1 7/42 32/1 35/2 48/24 45/26 61/22 127/10 191/12 192/5 195/5 255/33 255/7 255/2 255/14 244/1 221/23 221/24 221/2
+- 2.4 GHz c8:bf:4c:30:03:1d：0/7 1/8 3/1 5/4 42/1 50/4 48/24 45/26 61/22 74/14 127/10 191/12 192/5 255/26 255/7 255/2 255/14 244/1 221/23 221/24 221/22
+
+5 GHz 独有：国家 IE 7（42 B）、功率约束 32/1、TPC 报告 35/2、VHT 发射功率包络 195/5、HE capability 33 B（2.4 GHz 为 26 B）、厂商 221/2。mission27 把这几项逐个加回载体，一次一个，用「哪一条让载体行消失」定位真正的字段，再从真实记录里删掉或收窄。
+
+mission26（a978c829，只有一条 5 GHz 记录时回退到 2.4 GHz 载体）构建中途取消、未飞，镜像 wifi-20261118sbl-mission26 记为 built-not-flown。
+
+## §27 mission30/31：先看被保留的 5 GHz 记录带了什么
+
+2026-11-19 08:00–08:10。mission25 的口头判定（A/C/D 在、B/E 不在）只说明元素区是过滤器；mission27 的加法探针按「5 GHz 独有六项」设计，但缺一项离线证据：wifid 保留的其他 5 GHz 记录到底带不带这些元素。mission24 的 console（44 条 Preferences 列表、104 个 BSSID、57 个名字）把这一点补齐了。
+
+- 被保留的 5 GHz 记录是 5200 MHz -78 Rh1 与 5200 MHz -77（空 SSID），元素清单分别为 `0 1 3 5 7 32 195 70 51 48 221 11 45 61 191 192 127 221 255 255 255 255` 和 `0 1 3 5 7 32 195 70 51 48 11 45 61 191 192 127 221 255 255 255 255 221`。
+- 也就是说国家 IE 7、功率约束 32、VHT 发射功率 195、厂商 221、HE 255 都出现在被保留的 5 GHz 记录里，单独任何一条都不可能是过滤器。
+- 目标记录 `0 1 3 5 7 32 35 48 45 61 127 191 192 195 255 255 255 255 244 221 221 2` 比它们多出 TPC 报告 35 与 IE 244，另外多一条 255，以及长度为 2 的厂商 IE（221/2，没有 OUI）。
+
+方法上也有一条教训：只取最后一条 Preferences 列表比对时，大量记录显示 DROPPED，看起来像随机丢包；把 44 条列表取并集后，38 条有元素清单的记录里 33 条 KEPT，唯一被丢的 5 GHz 记录就是目标本身。逐条比对的结论必须基于并集。
+
+mission30（d33ffe06，国家 + 畸形厂商过滤，五条减法探针）因此在起飞前被 mission31 取代：
+
+- 真实记录送出前去掉 IE 7、IE 35、IE 244 与长度小于 4 的 221（`drop_scan_element()`）；
+- 减法探针扩到八条：K60F 去 7、K60G 去 195、K60H 去 32 和 35、K60I 去 255/33、K60J 去 221/2、K60K 去 35、K60L 去 244、K60M 去 35 和 244；
+- 加法探针仍是五条：K60A 是保留的 5 GHz 记录改名（基线），K60B..K60E 把目标的元素组逐组加回它；
+- mission31 镜像 `E:/k60-work/artifacts/wifi-20261118sbl-mission31/boot.img`，201,887,744 B，SHA256 4abbc2a23ce83369c39be644e81a27e4c3929dbad5f3fb8fb08dcf85c4aa9a94，参数 31 条 / 602 B，verify-boot-image OK，归档里同时含 scan record elements filtered 与 target minus element 两个字符串。
+
+判读：K60K/K60L/K60M 任一出现，35 或 244 就是过滤器，生产修法就是让它们离开记录；只有 K60A 出现而 Emilelu_5G 仍不见，则过滤器是共享元素的内容（HT/VHT/HE operation 的宽度与 80 MHz 频道结构不一致），下一版把 2.4 GHz 同族的 operation 内容换进目标记录再测。
+
+mission27/28/29/30 均建于 2026-11-19 07:12–07:57、从未飞行，已被 31 取代；四个 artifact 目录已删除，`check-bisect-coverage.py --prefix wifi-` 现在只剩 mission31 一条待飞。
+
+
+## 28. Mission32：元素区在 384 字节处被截断
+
+把 mission24 console 的 44 条 Preferences 列表取并集，38 条带元素清单的记录里 33 条 KEPT、5 条 DROPPED，唯一被丢的 5 GHz 记录仍是目标 c8:bf:4c:30:03:1c 5240 -51 cap 0x0511（Emilelu_5G）。两条被保留的 5 GHz 记录是 3a:16:5a:1f:fb:a5 5200 -77 ie 307 与 38:16:5a:4f:fb:a5 5200 -78 ie 361，元素号集合都含国家 7、功率约束 32、VHT 发射功率 195、厂商 221、HE 255，所以单条元素不可能是过滤器；TPC 报告 35 与 IE 244 也出现在被保留的 2.4 GHz 记录里（含同族 c8:bf:4c:30:03:1d），同样排除。两频段 RSN 逐字节相同（24 B：01 00000fac04 0100 00000fac04 0200 00000fac02 000fac08 8c00，group CCMP / pairwise CCMP / AKM PSK+SAE / caps 0x008c），安全类型也被排除。
+
+剩下的是元素区的形状：station 用 384 字节定长数组承载扫描元素（src/nw_sta.c:14 #define IE_MAX 384、:61 if (len > IE_MAX) len = IE_MAX;、:66 b.ie_len = len; memcpy(b.ie, ie, len);，ABI include/nw_abi.h:52 uint8_t ie[384];）。目标 5 GHz 记录报 ie 384（正好等于上限），但按 TLV 走到 318 B 就断了，剩 66 B 构不成完整元素；2.4 GHz 同族 347 B 走到底，两条被保留的 5 GHz 记录 307/361 B 也走到底。mission25 的两条探针与此一致：K60D（目标 + 载体完整 382 B 元素区）被保留，K60B（载体 + 我们 384 B 元素区）被丢——尾部残缺才是差异，而不是任何单条元素。
+
+代码 a9e8e399 删掉 mission31 的元素过滤器（35/244 在被保留的记录里同样存在，过滤理由不成立），fill_result() 改为只送到最后一个完整元素，并在发生裁剪时打印 wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served。站端源头未动：本次靠裁剪交付合法记录，如果仍不见行，下一版再把 IE_MAX 与 ABI 数组一起放大到 1024（station 与 kext 两处构建都要改）。
+
+十三条探针照旧送出（K60A 基线、K60B..E 加法、K60F..M 减法），所以这一次飞行同时回答两个问题：真实记录裁剪后是否出现，以及哪条探针复现。
+
+mission32 镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission32/boot.img，201,887,744 B，SHA256 fd80093a4ad199c5e265dc4e0c1d4f7f3b8e75ce197f73959ccf3f93ca02e9ba，参数 31 条 / 602 B，check-image-args OK，verify-boot-image OK，未飞；mission31 目录已删，check-bisect-coverage.py --prefix wifi- 只剩 mission32 一条待飞。
+
+判读：Emilelu_5G 出现，根因就是 384 字节截断，生产修法是交付完整或裁剪后的元素区；仍不出现，则把 ABI 数组放大后重测。
+
+放大版已在 917c89ee 落地：两个构建脚本都从共享头生成 out/abi/nw_abi.h（uint8_t ie[384]; -> ie[1024];），station 的 #define IE_MAX 384 同步改成 1024，任一锚点不符就以 shared ABI element array differs 终止；下一次构建（mission33）自动带上它，mission32 的镜像仍按裁剪版交付。
+
+尾部残缺不是唯一判据：把 mission24 console 的每条记录按 TLV 走一遍（PongWifiNet.cpp:412 的循环本身就在第一个不完整元素处停下，所以清单长度就是可走到的位置），used = Σ(2+len)、leftover = ie - used，再看它在 Preferences 并集里是否被保留：38 条记录里 33 条 KEPT、其中 17 条同样有整段走不完的尾巴；5 条 DROPPED 全部有尾巴。两条被保留的 5 GHz 记录 leftover 分别是 33 B 与 51 B，目标记录是 66 B。也就是说「末尾停在半个元素」这件事 wifid 并不是一律拒绝，mission32 的裁剪是一次必要的合法性修复，但能不能把行拉回来还要看飞行结果；真正能指名道姓的仍是十三条探针（K60F..M 每条去掉一组元素），以及放大 ABI 的下一版。
+
+## §29 Mission33：元素区放大到 1024 字节
+
+Station 的 384 字节上限不只影响尾部，它决定了 wifid 能看到的整条记录。917c89ee 之后，两个构建脚本都从共享头生成 out/abi/nw_abi.h（ie[384] → ie[1024]），station 的 IE_MAX 同步 1024；station 归档用 build-ath11k-abi1.sh 重新构建为 /opt/k60/trees/k60build/wifi/ath11k-abi1/libPongAth11k.a（SHA256 6ef0058f…），生成源码里 #define IE_MAX 1024，SAE 探针五行仍在。
+
+mission33 镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission33/boot.img，201,887,744 B，SHA256 446d5332847590f644e54905783f2e064675ff130e3fba3d2bbe7612d7c85bb8，head 1e31b49a，args 31 条 / 602 B，check-image-args OK，verify-boot-image OK；归档 SHA256SUMS 记的 station 就是 abi1 的 6ef0058f，native 侧 abi/nw_abi.h 含 uint8_t ie[1024]。
+
+判读：目标 AP 的元素区在 384 上限下只能到 318 B，放大后应交付完整元素区（预计 ie≈642）。Emilelu_5G 出现即根因是 384 截断，生产修法就是保持放大；仍不出现则十三条探针照旧指名元素。mission32（fd80093a，裁剪版）在飞行前被 mission33 取代，artifact 目录已删，记 built-but-never-flown。
+
+两半用的是同一份生成头这件事有实证：station 的编译参数里 `-I overlay -I abi -I shim/include ... -I shared/include`（`build-k60-ath11k.py:527-529`），`clang -E` 对一个只含 `#include "nw_abi.h"` 的探针文件解析出的就是 `ath11k-abi1/abi/nw_abi.h`；kext 侧 `-I abi` 排在 `-I shared/drivers/Ath12kWifi/include` 之前（`build-k60-wifi-native.py:110`），而 `drivers/PongWifi/` 下没有同名头可以抢先，所以两个目标文件看到的都是 1024 字节数组。station 的 `IE_MAX 1024` 与 ABI 的 `ie[1024]` 因此是同一次改动的两半，不存在「station 写 1024、kext 只读 384」的越界路径。
+
+
+## §30 mission34：把共用元素的「内容」也变成探针（2026-11-19 09:16）
+
+mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission34 取代，artifact 目录已删除，记 built-but-never-flown。
+
+新代码 d91cfc2a（`drivers/PongWifi/PongWifiNet.cpp`）：`freeze_scan_list()` 排序后把表压到 45 条给 19 个探针留位（`if (gSnapCount > 45) gSnapCount = 45;`），并加第三组 6 个探针 K60N..K60S。前五条把两条记录都有的元素的**载荷**从守护进程会保留的 carrier 拷进目标记录：HT operation（61）、VHT operation（192）、VHT capabilities（191）、HT capabilities（45）、extended capabilities（127）；只有长度相同才拷（`memcpy(q.ie + to + 2, c.ie + co + 2, t.ie[to + 1])`），结构不动、偏移不变。K60S 是 mission32 没飞过的裁剪对照：把目标记录尾部不完整元素切掉后再交付。
+
+为什么需要第三组：减法探针（K60F..K60M）会造出真实 AP 不会发的记录——少了 HT/VHT operation 的结构本身就不合法，命中可能只是「结构残缺」而不是「这个元素有罪」；换载荷保持结构合法，命中就直接指向内容。三组合起来（加一个元素 / 减一个元素 / 换一个元素的载荷）才能把过滤器夹到单个元素。
+
+镜像：`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img` 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，head d91cfc2a，args 31 条 / 602 B（`image-arg-audit: OK`），`verify-boot-image: OK`；native 归档里 `wifi-net: probe %s = target with %s` 存在，station 仍是 abi1 的 6ef0058f（`#define IE_MAX 1024`）。
+
+判读：`judge-wifi-mission34.py` 打印 19 条探针各自的 KEPT/ABSENT 与真实 Emilelu_5G 行；`mission34-checklist.md` 是给人看的步骤。真名行出现即设置页这一项关闭；只出现某条探针则那条探针改动的元素就是过滤器。
+
+## §31 2026-11-19 09:37 mission35：1024 字节元素区与 42 字节国家 IE 在真机上生效，但没有人打开设置页
+
+镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission35/boot.img 201,887,744 B，SHA256 7b654920e7c86d518381382342b20c2f95e6715aa1c1185459973e5deb108cc6，head d5c03c0d，09:33 构建，args 31 条 / 602 B（image-arg-audit: OK、verify-boot-image: OK）；station 是 abi1 的 6ef0058f（#define IE_MAX 1024，struct bss … ie[IE_MAX]），native 归档里 withheld from 存在。
+
+飞行 09:37:33–09:52（boot.json startedAt 09:37:33.569，captureArmed/bootAccepted/returnedToFastboot 全 true），采集 E:/k60-work/evidence/usblog-20261119-093727/console.log 488,000 B / 7,196 行 / SHA256 6385bad479509de9609bd450231bcd2dfda67336c78491fce8cd0a7a88f46c8c。
+
+两处改动都在真机上生效：wifi-net: bss 9/17 5240 MHz -52 dBm age 2041 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G —— 记录报 ie 390，已超过旧的 384 上限，说明 1024 元素区在 station 与 kext 两端一致；wifi-net: country element of 42 bytes withheld from the 5240 MHz record 出现 3 次，42 字节的填充国家 IE 没有进入下发的记录。
+
+但整趟没有一条 scan request，也没有任何 WiFiScanObserverNetwork 列表（Preferences 与 configd 都是 0）：wifid 一次扫描请求都没发，所以既没有 daemon 侧列表可对照，也没有真实行被观察。19 条探针每轮都生成（本次 carrier 是 2417 MHz 96:de:f9:b6:be:7e，冻结时 5 GHz 记录还没出现，走的是 2.4 GHz 回退），只是没有人打开设置页。
+
+更正（2026-11-19 10:26）：先前把 boot 早期的 4 次 native client type 103 get bytes=1164 -> 0 读成「daemon 读走了扫描记录」是错的——103 在 Apple80211 枚举里是 kCurrentNetwork（PongWifiNet.cpp:76），返回的是当前已加入网络的那条 1164 字节记录，不是扫描表。按请求类型统计四趟采集（脚本 E:/k60-work/scratch/type-counts.sh）：mission16 有类型 10×1、11×1、103×28，mission24 有 10×1、11×1、103×22，mission25 有 10×1、11×1、103×24，而 mission35 是 10×0、11×0、103×8。也就是说这一趟 wifid 连一次扫描请求都没发（类型 10 为 0），扫描结果也从未被取走（类型 11 为 0），采集里的 scan starts on 42 channels 全是 station 自己的漫游扫描，与 daemon 无关。所以「0 条 Preferences」在这里是「daemon 没扫描」，不能当成「读了记录但没记日志」；设置页必须由人打开，这是硬前提。
+
+判读 UNOBSERVED。教训：设置页那一步必须有人在，而且要落在窗口内；下一趟要么等用户确认在手机前再飞，要么把采集窗口拉到 25 分钟以上并在检测到 Preferences 列表后提前收尾。mission34（b08a14f8）保留为「只测 1024 元素区」的单变量对照，仍欠一次飞行或需要删除。
+
+## §32 2026-11-19 10:19 wifid 20G81 的离线拆解：列表删除路径只剩 WAPI 一条
+
+对 E:/k60-work/scratch/wifid-20G81（2,606,496 B，SHA256 96a3c5df…，arm64e）做两跳 xref：cstring → __os_log_fmt 描述符 → __TEXT,__text 的 adrp/add 立即数解码，并用 LC_FUNCTION_STARTS 划函数边界（笔记 E:/k60-work/scratch/wifid-filter-notes.md，171 行）。
+
+结论：整份 wifid 里按「记录字段」删掉一条扫描 BSS 的只有 **WAPI 过滤器**。谓词在 0x1000a8274，取 scan record 字典（WiFiNetwork +0x10）的 key "WAPI"（CFNumber/SInt32），缺失按 0 处理；(v & 3) == 3 && (v & 0xc) != 0（即 v ∈ {7, 11, 15}）时丢弃。两个丢弃点：__WiFiDeviceProcessScanDoneEvent（0x100059828，门 ldrb w8,[x19,#0xa8]，循环 0x100059c10 打 "%s: filtered out WAPI network %@" 后不 append）与 __processScanBeaconCacheEntry（0x100052034，0x100052138 同一谓词，无门）。旁证 WiFiDeviceAssociateAsyncWithCommand（0x1000526f8）用它判 WAPI，WiFiDeviceSetWapiEnabled（0x1000569dc）写 device+0x1690。
+
+负结果（省掉重复排查）：之前怀疑的六条 5 GHz/hidden/SSID 字符串**都不在列表删除路径上**——"%s: ignoring hidden network"（0x1001ec50c，引用点 0x10015a028）属于 WiFiPerfPerAssoc.m 的指标采样；invalid 5ghzSsid（0x1001ef303）、companion network …（0x1001ef02a）、2Ghz scanned network…（0x1001ef406）、Correspondng 5GHz network（0x1001ee53f）、guess1..4（0x1001efaf6）都属于 WiFiIDSSyncEngine 的 BSSID 猜测与口令继承，与列表无关；_nomap/(IE check)（0x100036d40/0x100036d70）是 GEO 质量上报。
+
+意义：我们的记录没有 WAPI 标记（key 缺失 ⇒ v=0 ⇒ 保留），所以 **wifid 里不存在「按元素/频道/SSID 后缀丢弃」的路径**；mission25 的 B/E 两条探针被丢，最简解释仍是它们携带的目标元素区在旧 384 上限下被截断成不完整尾部（mission35 的 trim + 1024 元素区 + 扣留 42 字节国家 IE 正好把这一条修掉）。因此下一步仍是让带着干净记录的 mission35 在有人看设置页时飞一次；K60J（目标减 221/2）保留作为「畸形厂商元素」的对照，不是当前首选。
+
+## §33 2026-11-19 10:22 先飞 mission34：单变量，且保留真实的国家元素
+
+mission35 的两处改动已在真机上生效（ie 390 证明 1024 元素区两侧一致；42 字节国家 IE 被扣留的日志出现三次），但它同时改了两个变量，而且扣留本身可能有害：被 daemon 保留的两条 5 GHz 记录都带 6 字节国家 IE，CoreWiFi 把国家元素翻译成管制三元组，缺了它，5 GHz 信道可能被判成未知管制域，于是记录仍被丢掉——这会用一个新原因掩盖真正的修复。它还把两条探针变成空转：K60F（真实记录减国家元素）与修好后的真实记录完全相同，K60B（保留记录加我们的国家元素）在服务前就被扣留吃掉。
+
+mission34（E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img，201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，09:16 构建）只有一个变量：station 与 kext 都换成 1024 字节元素区（/opt/k60/trees/k60build/wifi/ath11k-abi1，#define IE_MAX 1024；native-sbl-mission34 的 abi/nw_abi.h 含 uint8_t ie[1024]，其 SHA256 81a5c2bdb563e759f9ddd4470288dad3977f1285837001e95a5541b39e54275c 与 build-manifest 的 wifi_archive 相同），记录照实携带 AP 的 42 字节国家 IE，19 条探针语义完整。所以它是「384 字节上限是否就是那一行消失的原因」最干净的一次判断：真实行出现即根因坐实、可直接收工；不出现则探针 K60B（国家）/K60D（目标元素）/K60J（厂商 221/2）指名下一个嫌疑。
+
+mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二发：届时扣留才是有证据的方向，且需要先把扣留从所有目标系探针里摘出去再飞。
+
+## §34 2026-11-19 10:30 384 从来不是线上格式的限制，而是我们自己 ABI 的限制
+
+把两处数组摆在一起看：
+
+- 线上记录 scan_result（drivers/PongWifi/PongWifiNet.cpp:89）是 uint16_t elements_length; uint8_t elements[1024];，static_assert(sizeof(scan_result) == 1164 && offsetof(elements) == 0x8c)（:119-120）。20G81 的 wifid 每次正是按 **1164 字节**取这条记录（native client type 11 get bytes=1164），也就是说 daemon 侧本来就预期最多 1024 字节元素。
+- 384 只出现在我们自己内部：station 的 src/nw_sta.c:14 #define IE_MAX 384，扫描时 if (len > IE_MAX) len = IE_MAX;（:61）再把 ie_len/ie 放进 include/nw_abi.h:52 uint8_t ie[384];（:66）。
+
+所以目标 AP 的 390 字节元素区是**在我们自己的代码里**被截成 384 的，截断点落在某个元素的中间；线上那条「384 字节、走不到结尾」的记录不是 AP 发的，也不是 Apple 的格式，而是我们这个内部上限的产物。mission34 把 IE_MAX 与 nw_abi.h 一起抬到 1024（两侧同一次改动，见 §29 的引号包含证明），390 < 1024，记录因此第一次以 AP 原本的样子到达 wifid。这不是改协议，是我们自己的 ABI 追上它本来就在用的容量。
+
+对照：被 daemon 保留的两条 5 GHz 记录元素区是 307 与 361 字节，都在旧的 384 以内、也都能完整走到结尾；唯一被丢的那条正是唯一越过 384 的。这条相关性现在有了机制解释：截断的是我们，不是 AP。
+
+## §35 2026-11-19 10:33 mission34 飞行：单变量镜像，但窗口内仍无人打开设置页
+
+镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，09:16 构建；station /opt/k60/trees/k60build/wifi/ath11k-abi1（IE_MAX 1024），native 81a5c2bd… 与 build-manifest 的 wifi_archive 一致，abi/nw_abi.h 含 uint8_t ie[1024]。整趟只有一个变量：元素区从 384 抬到 1024；国家 IE 照实下发，探针语义完整。
+
+飞行 10:33:06–10:48:33（boot.json imageSha256 B08A14F8…，captureArmed/bootAccepted/returnedToFastboot 全 true，bootExitCode 0），采集 E:/k60-work/evidence/usblog-20261119-103258/console.log 467,538 B / 6,949 行 / SHA256 591ebb97c8d5d78843f2efa35461878754c993cae2ebe6f1db3243dbf4cd4495；K60AUTORESET: 900 s since boot 结束后脚本尝试回 Android（日志里出现 Android up），但 10:50 复查时 USB 上既无 fastboot 也无 adb，需要用户看一眼手机。
+
+判读：lists of client=Preferences: 0、scan request 0、scan result served 0——和 mission35 一样，窗口内没有人打开设置页，wifid 没有发出扫描请求，pane 状态不存在可观察的面。因此 19 条探针（K60A..K60S，本次 carrier 又是 2.4 GHz 回退 96:de:f9:b6:be:7e，因冻结时 5 GHz 只有 1 条记录）全部「ABSENT」只是无列表的必然结果，不能读成「daemon 丢掉了它们」。
+
+可直接用的正面证据仍有一条：wifi-net: bss 9/10 5240 MHz -51 dBm age 552 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G，且全会话 incomplete element 计数为 0——在 1024 元素区下，这条记录第一次以完整、可解析的形态存在于 kext 侧（旧的 384 上限下它会停在 318 字节）。
+
+结论：mission34 不再欠飞行（P-218 清零），但 pane 判读依旧是 UNOBSERVED。要做到「显示并可用」，必须在一次 15 分钟窗口里有人打开 设置→无线局域网 并下拉刷新；设备内没有任何替代触发方式（/usr/bin 为空、无 uiopen/launchctl/notifyutil，wifid 的扫描请求只由设置页客户端产生）。
+
+## 36. mission34b：设置页 5 GHz 行出现，pane 关闭
+
+- 镜像：wifi-20261118sbl-mission34（boot.img 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，head d91cfc2a，args 31/602，verify-boot-image OK）。只改了 station 的 1024 字节元素区，没有扣留国家 IE。
+- 飞行：11:53:17 起飞，K60AUTORESET: 900 s since boot 结束；boot.json accepted/returned true；控制台 E:/k60-work/evidence/usblog-20261119-115312/console.log 1,023,926 B / 12,632 行 / SHA256 75af24fb5497e7d8c1f4871f39f6cd49ded9407830d1bbb49d2d506bb90a6fa3。
+- 观察者：38 条 scan request、3,901 行 WiFiScanObserverNetwork、12 条 Preferences 列表、52 个不同 BSSID。
+- 结果：真实记录出现——<WiFiScanObserverNetwork : 0x14b13d2d0 SSID='Emilelu_5G' BSSID='c8:bf:4c:30:03:1c' RSSI=-52>；judge-wifi-mission34.py 打印 REAL Emilelu_5G row: SEEN / VERDICT: PANE CLOSED；19 条探针 K60A..K60S 全部被 daemon 保留。
+- 可用性同一趟成立：wifi: connecting to c8:bf:4c:30:03:1c on 5240 MHz、wifi: connected、WiFi lifecycle test PASS: reconnected BSSID c8:bf:4c:30:03:1c state=6 IPv4=1 lease=3/3、wifi-net: en0 address 192.168.31.232, packets in 1632 out 1897。用户目视确认「全都有」。
+- 结论：5 GHz 行的根因就是我们自己 ABI 的 384 字节上限（§34）；1024 字节元素区是生产修复。mission35 的国家 IE 扣留没有必要，不进生产。
+- 新开的两条观察（本轮未解）：
+  - 状态栏 Wi-Fi 只显示一格，而设置页满格。设置页读的是记录里的 RSSI（-52/-47 dBm，满格强度）；状态栏走 kRssi（Apple80211 IOC 16），整趟只被问过 1 次（native client type 16 get，type 106 也 1 次），驱动按 PongWifiNet.cpp:853-856 回 version 1 / radios 1 / unit 0(dBm) / 各链 -47。所以要么状态栏没刷新，要么它读的不是 kRssi；下一版镜像给每次 kRssi 请求加日志，并记录当前网络记录的 rssi/age。
+  - 触摸在复位前几分钟无响应。控制台 41 条 Pong touch HID: touch detection mode，最后一条在第 13,830 行（全文 14,029 行），之后约 200 行才 autoreset，说明触摸驱动到关机前仍在工作，症状更像关机/teardown 路径，不属于 Wi-Fi。
+
+
+## 37. Mission36：干净镜像关掉 pane，状态栏的「一格」来自内核侧自动关联（2026-11-19 12:33）
+
+- 镜像：`wifi-20261118sbl-mission36/boot.img`，201,887,744 B，SHA256 `8af8f58916d01d4078796c0c33b5a22967a8926ceabb9a2deaddf9821da20871`，head `45add8d1`，31 个参数 / 602 B（image-arg-audit OK，verify-boot-image OK）。相对 mission34b 只少了 19 条诊断探针和国家 IE 扣留，保留 1024 字节元素区与扫描记录尾部裁剪。
+- 飞行：12:33:53 起飞，12:49:22 结束（boot.json captureArmed/bootAccepted/returnedToFastboot 全 true，bootExitCode 0）；console 1,206,266 B / 14,893 行 / SHA256 `4946a4326551ad488363ab39dc6950b3210a61d3a1b4d488bb6be4c92078170d`。
+- 判据（judge-wifi-mission36.py，修正后）：68 次 scan request、53 条 client='Preferences' 列表、4,568 行 WiFiScanObserverNetwork、147 行 `SSID='Emilelu_5G' BSSID='c8:bf:4c:30:03:1c' RSSI=-39`、服务出的诊断探针 0 个 → `PANE CLOSED, PROBES GONE`。
+- 用户确认（m34715）：设置页里有这一行，点进去能看到 IP；m34976 前后又确认从设置页重连 5 GHz 后状态栏满格。也就是说「显示并可用」在干净镜像上成立。
+- 状态栏「一格」的成因（用户 m34735 解释并实测）：连接是内核侧 association test 自己建立的，设置页并没有保存这个网络，所以状态栏显示的是未保存/未知网络的一格；用户在设置页点一次重连后立刻满格。rssi 日志佐证两个频段的值几乎相同（5 GHz -50 dBm、2.4 GHz -47 dBm，noise 都是 -95），所以不是 RSSI 映射问题，而是「连接来源」问题。
+- 日志量的观察（用户 m34694 的怀疑）：起飞到 12:40:20 共 437 KB ≈ 1.1 KB/s，其中 PongWifi 105,597 B（24%）、wifi-net 85,945 B（20%）、K60 USBLOG 轮询 12,876 B（3%）；这一飞桌面大约 6 分钟才出来，而 mission34b 约 3 分钟。尚未证明因果，但内核侧自动关联 + 每秒状态行是下一步要收紧的对象。
+- 后续（mission37 方向，未起飞）：① 把 association test 改成 boot-arg 开关且默认关闭，避免它抢在设置页之前关联；② 把 `wifi-net: en0 address …` 这类每秒状态行降到 30 秒或挂到同一个开关后面；③ 不再需要 kRssi 逐条日志时把它一起关掉。
+
+## §38 2026-11-19 13:25 iOS 27（24A446）ABI 迁移：扫描记录与关联事件落地（build-only）
+
+- 用户决定主线转向 iOS 27（fork 的 ios27 分支目标 27.0.1），先在 k60-wifi 开 feat/wifi-ios27-abi，只移植 Apple80211 ABI，不移植协议栈。
+- 参照 UniXNU-sheng origin/main c8f92b208068eeaa4cd2b0f592671f04ee70076e（board.toml os_profile = ipados-27.0.1-24A446）：扫描结果 0x8e8 = 2280 字节，元素区在 0x8c 处 2048 字节，元素区之后 68 字节填充，时间戳 0x8d0，尾部 16 字节；关联完成事件 540 字节，result 在 0x214，has_result 在 0x218；关联请求 0x290 字节（22H374 是 0x384，更旧是 0x250），字段偏移相同、只有尾部长度不同；kCardCaps 在 sheng 里是 12 字节。
+- 本分支新增 drivers/PongWifi/PongWifiAbi.h（两代常量、pong_scan_elements_room、540 字节事件结构，C 与 C++ 双向 static_assert），PongWifiNet.cpp 用一个 0x8e8 记录同时服务 1164 与 2280 请求：fill_result 按 rq.req_len 计算元素容量，时间戳落在 0x8d0；kScanResult 与 kCurrentNetwork 把 sizeof(out.res) 交给 copy_out 按请求截断；kAssociate 接受 0x250/0x290/0x384 三种长度并记录 gAssocModern27；关联完成事件在 24A446 下改为 540 字节 payload（result=gAssocResult，has_result=1），post_event 缓冲从 128 改为 16+540。
+- 构建证明：以 mission36 的参数在 WSL 里离线编译 /opt/k60/trees/k60build/wifi/native-abi27/libPongWifiNative.a 成功（scripts/build-k60-wifi-native.py，站档案 ath11k-abi1），说明 0x8e8 记录与 540 字节事件的 static_assert 在真实 ABI 头下成立；源码测试 summary: 0 failure(s)，check-boot-args 与 check-secrets 通过。
+- 元素区改为 2048：27 的扫描记录允许 2048 字节元素，站侧 Ath12kWifi 的 nw_abi.h 仍是 ie[384]、nw_sta.c 仍是 IE_MAX 384（origin/main 的 submodule f087c7dd 实测），照搬就会在 27 上重演 P-230 的截断。本分支把两个 builder 都改为生成 ie[2048] 并把站的 IE_MAX 改成 2048，两处同步。
+- 27 站档案构建证明：在 UniXNU/Ath12kWifi 的 f087c7dd 工作树上用 build-k60-ath11k.py --shared 构建出 /opt/k60/trees/k60build/wifi/ath11k-abi27/libPongAth11k.a（739,992 B，IE_MAX 2048，nw_abi.h ie[2048]）；再用这份 27 头编译 kext 也成功（native-abi27s）。27 头新增的 nw_board.diagnostics 字段与 nw_wifi_scan_frequencies 接口不影响现有代码：nw_board 是位置初始化，尾部字段零填充。
+- 顺带发现：sheng 的 27 Wi-Fi 记录按 0x8e8 编写，但它自己的站仍按 384 截断元素区；宽 5 GHz 记录在他们那条线上也会被 wifid 丢掉。
+- 未验证的风险：24A446 的 IO80211 用户客户端 selector 0 信封（0x3c30 输入、0x3c00 输出）是否与 22H374 相同，手上没有 27 的 IO80211Family/wifid 二进制，无法离线确认；这是唯一还可能在 27 上挡住宿主绑定的形状。等 fork 走到 bsd_init 再取 27 的二进制核对。
+- 下一步：fork 的 ios27 分支能上机后，先跑 clean build 的八步流程，再按 mission36 的判据（设置页 Emilelu_5G 行、可加入、192.168.31.x 地址）验收。
+
+## §39 2026-11-19 14:00 24A446 扫描请求与能力位：命名扫描、频道表、缓存结果
+
+27 的扫描入口与 16 不是同一份请求。sheng 的 package/WifiScan.h 与 WifiNet.cpp（origin/main c8f92b2）给出三处必须照抄的形状，这一节记录它们在本驱动里的落点，全部离线验证，未上机（27 还没有可飞的内核）。
+
+1. 能力位（请求 12，12 字节）。24A446 读两位决定扫描会不会到达驱动：bit 22（byte 2 bit 6）让「点名扫描」通过，缺它 Apple80211Scan 立刻 -3903 返回，驱动根本收不到请求；bit 46（byte 5 bit 6）让框架等扫描完成事件（最多 20 秒）再读结果，缺它就立刻读空表。现在 12 字节请求由 pong_wifi_caps_fill() 填 {2,3,6,9,10,14,17,19,22,46}，19 字节请求仍走 22H374 的老位图，16 的行为一个字节都没动。
+2. 扫描请求 86（kScanReqMultiple，0x14e8 字节）。名字个数在 0x8，条目在 0xc（每条 40 字节：version、length、32 字节名字），扫描类型在 0x200（3 = 用手上已有的结果回答），频道在 0x210/0x214。请求 10 的频道个数在 0x44、表在 0x48，类型在 0x34（16 上没用到）。pong_scan_multiple_parse() 只取「恰好一个名字且无通配」时点名探测，否则全扫；pong_scan_frequencies() 把 12 字节频道项（flags 0x8 = 2.4 GHz，0x10 = 5 GHz，ch14=2484）折算成 MHz 去重后交给 nw_wifi_scan_frequencies。
+3. 频道表为什么必须用。sheng 的记录：WCN7850 上全频道扫描约 15.7 秒，超过框架等待的 12 秒，每次都是空表。所以点名扫描要按请求里的频道走，不能全扫。
+4. 27 站的新入口。Ath12kWifi f087c7dd 新增 int nw_wifi_scan_frequencies(const uint8_t *ssid, size_t len, const uint32_t *mhz, size_t count) 与 NW_WIFI_SCAN_FREQUENCIES_MAX 32；本驱动用 weak_import 声明它，站里没有这个符号（22H374 的 ath11k-abi1 归档）时退回 nw_wifi_scan，两个归档都能链。27 头文件里 nw_board 末尾多了 unsigned diagnostics，我们的 nw_board 实例是零初始化，不影响。
+
+离线证据：scripts/tests/pong-abi-selftest.c 的 31 项检查（扫描记录空间、540 字节关联完成事件、能力位、请求 86 解析、频道折算、去重与越界拒绝）在 scripts/tests/test-pong-abi.py 里编译运行通过；脚本另查头文件常量与 PongWifiNet.cpp 的落点，18 项检查 0 失败。test-wifi-sbl-mission.py 新增一条「24A446 扫描请求被解析出名字、类型与频道」，全套 0 失败。编译两遍都对：对 16 头（ath11k-abi1）与对 27 头（ath11k-abi27）都产出 libPongWifiNative.a。
+
+还没验证的仍是那一处：24A446 的 selector 0 信封（0x3c30 入 / 0x3c00 出）。它要等 fork 的 ios27 分支走到 bsd_init、拿到 27 的 IO80211Family 或 wifid 才能核对。kext 侧 24A446 的记录形状、请求解析与事件尺寸都已静态锁定，剩下的是绑定层。
+
+## §40 2026-11-19 14:15 27 的绑定路径：framework 走的是网卡 ioctl，不是 selector 0 的 user client
+
+这一节改掉了 §38/§39 里「等拿到二进制核对 selector 0 信封」的假设：27 上 wifid 根本不走那条信道。
+
+sheng 的 27 版本（origin/main c8f92b2，package/WifiNet.cpp）把两条路都写在一处：`if_ioctl(ifnet_t, cmd, data)` 处理 SIOCGA80211 / SIOCSA80211，请求体就是 apple80211req；同一个 `apple80211()` 又被一个 `kKernelRequest` 伪 ifp 的 user client 隧道调用，日志里用 `uc` 与 `ioctl` 两种前缀区分来源。他们在 27 的 `IO80211Interface::newUserClient` 里直接返回 kIOReturnUnsupported 并记一行「a user client of type %u was asked for: none offered (ioctl path)」——27 上接口的 IOKit 用户客户端是关掉的，wifid 的扫描、关联、状态查询全部经网卡的 if_ioctl 到达驱动。
+
+我们这边早就两条路都有：PongWifiNet.cpp:811 的 if_ioctl 处理 SIOCGA80211/SIOCSA80211，Pong80211UserClient 的 selector 0 隧道走同一个 apple80211()。16（22H374）上 wifid 走 user client；27 上会走 ioctl，不需要新增绑定层，只需要让 ioctl 路的长度限制容得下 27 的请求。
+
+改掉的那一处：if_ioctl 原来写死 `len>5120` 就返回 EINVAL，而 27 的扫描请求 86 是 0x14e8 = 5352 字节（比 5120 多 232 字节）。在 ioctl 路上这会直接把每一次点名扫描变成 EINVAL，而且发生在 pong_scan_multiple_parse 之前，日志里只会看到一条 request 失败。现在上限是 PONG_SCAN_REQUEST_MAX（0x14e8），申请与拷贝都按这个长度，解析只读前 0x214 + 64*12 字节，仍在 5120 的 out.raw 之内。
+
+离线证据：test-pong-abi.py 新增「ioctl 路接受与 24A446 扫描请求等长的请求」，28 项检查 0 失败；对 16 头（ath11k-abi1）与 27 头（ath11k-abi27）都编译出 libPongWifiNative.a；四套 host 套件 0 失败。
+
+还剩两件事没有证据：一是 27 的 selector 0 信封（0x3c30/0x3c00）现在看只在 16 上用到，27 不需要它，但仍要等 27 的 IO80211Family/wifid 才能下定论；二是 sheng 在 27 上还带了一个签名的 launchd 服务 unixnu-wpa_supplicant 与 org.unixnu.wifi.control 控制端点，那是他们的用户态 supplicant 方案，我们的内核四步握手不需要它，但 27 的 wifid 是否要求那个服务存在，要等第一次上机才知道。
+
+## §41 2026-11-19 14:20 参考线切换：内核看 t970 + zizhan，用户态仍看 sheng
+
+用户指示（2026-11-19 14:18）：kmu1757/UniXNU-t970 是 Pong 的 fork、代码更新，内核/驱动参考转向它和 zizhan；用户态继续参考 sheng。
+
+三条参考线现在的分工：
+
+1. kmu1757/UniXNU-t970（Pong fork，HEAD 638dbda「z166 wifi-start-marks」）：board.toml 的 os_profile = ipados-18.7.10-22H374，drivers/PongWifi 是 Chengdong-Yu/pong-wifi 子模块（钉在 d2e33ca）。它自己的新东西在 drivers/T970Wifi：6743 字节的 T970WifiNetGlue.cpp（pong_wifi_net_prepare / pong_wifi_net_start，用 OSMetaClass::preModLoad + PongWifiNetStaticInit + postModLoad 注册 PongWifiNet.cpp 的 IOService，与 USB 网的 en1 共用）、44,305 字节的 T970WifiWpa3.c 与 5,927 字节头文件、两个 host 测试（14,622 / 19,445 字节），以及 z165 链路监视与 z166 wifi-start-marks 两个提交。
+2. UniXNU-zizhan（HEAD 034a0b0，同样 22H374）：drivers/PongWifi 是普通目录（607faeb1），作同 SoC 的驱动写法参考。
+3. UniXNU-sheng（origin/main c8f92b2，24A446）：仍是用户态与 24A446 ABI 的唯一来源。
+
+对 27 准备的影响：t970 与 zizhan 都不是 27 树，它们的 Apple80211 ABI 仍是 22H374 代。pong-wifi d2e33ca 的 PongWifiNet.cpp 只有 775 行，scan_result 还是 1164 字节、elements[1024]、SSID 偏移 0x60、age 0x84，走 if_ioctl:444 与 :581 的 user client 隧道。我们在 feat/wifi-ios27-abi 上做的 0x8e8 / 2048 元素区 / 540 字节事件 / 请求 86 已经领先它一代；27 的形状只能继续以 sheng 为准。t970 能给的是内核侧工程写法（glue 分层、链路监视、启动标记）和 WPA3。
+
+WPA3 的重要更正：此前「没有任何 hakios 设备有 WPA3」只在「已发布特性」层面成立。t970 带着一份完整的洁净室 WPA3-Personal 实现（BSD-2-Clause，文件头写明 Copyright (c) 2026 PongWifi contributors）：SAE 组 19、H2E（PW3_SAE_H2E_STATUS 126）、抗泛洪（PW3_SAE_ANTI_CLOG_STATUS 76）、EID 扩展（PW3_SAE_EID_EXT_TOKEN 93），含 SHA-256/HMAC/HKDF/KDF-SHA256、AES-128-CMAC、BIP-CMAC-128 校验、P-256 的 on-curve/add/scalar_mul/SSWU，以及 pw3_sae_derive_pwe_hnp / derive_pt_h2e / derive_pwe_h2e / commit_begin / process_peer_commit / build_confirm / verify_confirm 与 pw3_rsn_info（akm 8 = SAE、mfpc/mfpr/use_mfp/use_h2e）。它不依赖 Apple80211，是纯 802.11 层；下次解冻 WPA3 时起点是这份代码，不是空白。
+
+本轮不动 PongWifiNet.cpp 的 ABI 形状：t970 的 ABI 更老，没有可抄的新形状。改动只落在记录里，等 fork 的 ios27 分支走到 bsd_init 再按 sheng 的 27 形状核对。
+
+## 42. 官方 Wi-Fi/驱动清单核对与 teardown 落地（2026-11-19 14:40）
+
+按 https://unixnu.com/zh/porting/network 与 https://unixnu.com/zh/porting/drivers 逐条核对本仓库的实现，并把唯一的功能缺口补上：驱动清单要求「接口关闭时先停新请求、再停在飞工作、再停组件并释放」，此前树里没有任何 nw_wifi_stop() 调用，halt() 与 worker 退出都只打印 DMA retained 就终止线程。
+
+核对结果（满足项给出行号；行号是本轮编辑后的）：
+
+| 清单项 | 状态 | 证据 |
+|---|---|---|
+| 平台 IRQ + DMA 先行 | 满足 | PongWifiPlatform.cpp 的 MSI 接收与 dmaAlloc/dmaMap/dmaSync 表在 lx_platform 里 |
+| lx_platform 12 项 | 满足 | PongWifiPlatform.cpp:805 起的静态表（now,sleep,poll,log,halt,alloc,freeHeap,dmaAlloc,dmaFree,dmaMap,dmaSync,fwGet） |
+| nw_board | 满足 | PongWifiPlatform.cpp:806 起（BAR、0x200000 大小、1103 设备号、cfgRead/cfgWrite、msiTarget、mapPhys） |
+| dma_alloc 清零并可被端点寻址 | 满足 | dmaAlloc 里 bzero(p,n) 且返回 Iova+4096 之后的地址 |
+| dma_map 越界返回 0 / dma_sync 按方向 | 满足 | PongWifiPlatform.cpp:545 与 :546 的 dsb sy |
+| 事件必须在 start 之前安装 | 满足 | PongWifiPlatform.cpp:796 pong_wifi_net_prepare() 早于 :809 nw_wifi_start；PongWifiNet.cpp:1173 的 nw_wifi_set_events；测试新增「events are installed before the station starts」 |
+| start 后循环 step | 满足 | worker 里 progress(2) 后 nw_wifi_step() |
+| 回调快返回、RX 先拷贝到 OS 自己的缓冲 | 满足 | PongWifiNet.cpp:430 on_rx 用 mbuf_allocpacket + 分段 memcpy，再 bpf tap 与 ifnet_input |
+| 关闭：停新请求 -> 停工作 -> 停组件 -> 释放 | 本轮补齐 | 见下 |
+| 固件/板数据/校准登记 | 满足 | drivers/PongWifi/proprietary-files.txt（amss/amss20/m3/regdb/bdwlan*，BDF 由真实 QMI chip/board ID 选） |
+| 组件存档登记与 llvm-ar/llvm-nm 校验 | 未覆盖 | 我们的 wifi 不走 [components]，由 build-strict.sh 以 XNU_PONG_WIFI_ARCHIVE 选 libPongWifiNative.a；check-kernel-archives.py 的 EXPECTED 表没有它，也不跑 llvm-ar t。列为待办，不改本轮行为 |
+| 记录最后成功阶段 | 满足 | porting.toml 网络区本轮更新 |
+
+teardown 的实现（本轮）：
+
+- PongWifiPlatform.cpp:68 增加 volatile uint32_t stopRequested；worker 的循环头（:811）每圈以 __ATOMIC_ACQUIRE 读它，命中就 cleanStop=true 并 break；:836 在 done 标签之后执行 if(cleanStop){nw_wifi_stop(); log(6,"WiFi station stopped on request; component released, DMA retained");}。
+- PongWifiPlatform.cpp:844 导出 extern "C" void pong_wifi_station_stop(void)：置位并 signalWorker()。
+- PongWifiNet.cpp:1206 增加 pong_wifi_net_stop()：置 gFailed、gPower=false、清 gScanning/gScanCursor、gAssocResult 归为失败、取消 gCachedScan、重置通知队列，并打印 interface quiesced。这就是「停新请求 + 取消在飞工作」。
+- PongWifiNet.cpp:1028 起，网络栈用户客户端写来的属性若含 pong-wifi-stop（:1031 的 __builtin_strncmp），先 pong_wifi_net_stop() 再 pong_wifi_station_stop()，把两层串起来。
+- DMA 竞技场仍不释放：释放它需要对端点复位，而这颗板子的内核在运行时不能安全复位 PCIe0；这一点在原文件头注释里已有声明，本轮把它写进本节，不再算「未实现的缺口」，而是有据的已知边界。
+
+离线验证：两代站头各编译一次（16 头 ath11k-abi1 与 27 头 ath11k-abi27），产物 /opt/k60/trees/k60build/wifi/teardown16/libPongWifiNative.a 与 teardown27/libPongWifiNative.a 都是 12,098,984 / 12,099,064 字节；llvm-nm --defined-only 里两者都有 _pong_wifi_station_stop 与 _pong_wifi_net_stop。scripts/tests/test-wifi-sbl-mission.py 新增两条检查（「a requested stop quiesces the interface and releases the station」「events are installed before the station starts」），整套 summary: 0 failure(s)。
+
+本节不改变任何 Apple80211 形状：27 的 0x8e8/2048/540 事件仍在 feat/wifi-ios27-abi 上按 sheng 24A446 准备，等 fork 走到 bsd_init 再核对 selector 0 信封。
+
+
+## 43. 官方清单最后一项：归档自检进门禁（2026-11-19 14:58，c658df2b）
+
+官方 network 清单的「构建与验证」要求两件事：用 ar t 证明归档成员是真对象，用 nm --defined-only 证明入口点是定义而不是引用。此前 scripts/check-kernel-archives.py 只查 EXPECTED 表里的五个 defconfig 归档；wifi 归档走的是 XNU_PONG_WIFI_ARCHIVE 环境变量（build-strict.sh:195-219），完全在门禁之外——一个空归档或只有 import 的归档照样让链接成功、镜像过校验，而内核里没有 WiFi，这正是 P-190 的形状。
+
+本次改动（c658df2b）：
+- ENV_ARCHIVES 表：XNU_PONG_WIFI / XNU_PONG_WIFI_ARCHIVE / build/pong-wifi/libPongWifiNative.a / 入口 pong_wifi_start_optional / 后加 pong_wifi_net_stop。
+- parse_defined_symbols() 按 nm 的类型列判定，U 不算定义；inspect_archive() 用 ar t 数成员、用 nm 取定义集合。
+- 判定：归档在但无成员 → 失败；无入口符号 → 失败；无 pong_wifi_net_stop 只打 note（陈旧归档会造 P-207 式死锁，除 teardown 外不该拦构建）；环境变量指向的路径不存在 → 失败；未设环境变量且默认路径不存在 → skip（build-strict.sh:215 已在链接前拒绝这种配置，而门禁跑在所有线上）。
+- 自检四条新用例：wifi 键必须是 mondrian_wifi_defconfig 真键、import 不算定义、缺入口失败、有入口通过；WSL 内 14 case 0 failure。
+
+真机归档核对：teardown16 与 teardown27 的 libPongWifiNative.a 各 5 个成员、3507 个定义符号，pong_wifi_start_optional 与 pong_wifi_net_stop 都在（llvm-nm-18 / llvm-ar-18）。§42 的「组件存档登记」未覆盖项因此收窄为「board 仍用环境变量而不是 [components]/[kernel] archives 登记」，清单要求的两项归档自检已落到门禁。
+
+
+## 44. 官方参考要点的逐条核验（2026-11-19 15:10）
+
+官方 porting/network 的参考实现一节列了六条会咬人的事实。本轮把它们逐条落到树里的具体位置，作为 27 迁移前的基线证据。
+
+| 参考要点 | 我们的现状 | 证据 |
+|---|---|---|
+| 6 GHz 的 59 个被动频道占了扫描的大部分时间 | 站内扫描显式跳过 NL80211_BAND_6GHZ，注释写明原因；16 与 27 两棵树同一实现 | nw_sta.c:89-91（do_scan） |
+| 关联必须用 AP 自己的 HT/VHT 能力 | peer_caps() 从 AP beacon 取 HT/VHT capability，再按本机能力逐位收窄：LDPC、SGI20/40、STBC 双向、宽度位、波束成形全清 | nw_sta.c:262-308 |
+| 同上（速率表） | HT MCS 掩码与本机 rx_mask 逐字节取交集 | nw_sta.c:280 |
+| MAC 不能伪造，要用芯片给的地址 | platform 等 station 报出非零、非组播的 MAC 后才启动网络栈，并把 mac-address-wifi0 写进 /chosen；kext 设成 IOMACAddress 与 ifnet lladdr | PongWifiPlatform.cpp:812-816；PongWifiNet.cpp:1096 / :1106 / :1221 / :1242 |
+| 固件报 beacon 丢失先等 5 s，期间仍有帧就不算断 | nw_sta_link_lost() 在 NW_STA_UP 只记起点并等待，beacon_miss_check() 之后才 teardown | nw_sta.c 的 nw_sta_link_lost / beacon_miss_check |
+| 系统不保存网络口令 | 口令只随 join 请求出现一次，join 结构在 init/disconnect/power 里都用 memzero_explicit 清空 | nw_mainline.c 的 nw_mainline_init / nw_wifi_disconnect / nw_wifi_power |
+
+结论：六条里五条已经满足；第六条是一个不对称而不是缺陷——VHT MCS 表直接取 AP 的（nw_sta.c:297），只按流数收窄（:302 own_nss），没有像 HT（:280）那样与本机 vht_mcs 求交。这段代码属共享组件 Ath12kWifi，改它要那边出补丁并承担关联回归风险，因此在 27 迁移里记为观察项，不在 k60-wifi 内改。
+
+## 45. 元素宽度戳：站点档案与 kext 必须同意
+
+mission34 的事故不是算法错，而是两半用了不同的宽度：预编译站点档案（IE_MAX 1024）链接进刚编译的 kext（ie[2048]），
+记录在 1024 处被截断，于是又出现“元素列表在元素中间结束”。
+
+现在两个构建器都会把自己的宽度写下来，kext 构建在链接前对比：
+
+- 站点：scripts/build-k60-ath11k.py 在 abi/ 下多写一个 nw_abi.stamp，内容为 ie_bytes=2048 与生成头文件的 sha256；
+- kext：scripts/build-k60-wifi-native.py 读 <ath11k 目录>/abi/nw_abi.stamp，缺失时打印提示（旧档案仍可链接，
+  但会被提醒重建），ie_bytes 不等于 2048 时直接 RuntimeError 并指名 P-230，不产出档案。
+
+离线证据（2026-11-19 15:15，27 头文件 ath12kwifi27）：
+
+| 步骤 | 结果 |
+|---|---|
+| 站点构建 /opt/k60/trees/k60build/wifi/ath11k-stamp | libPongAth11k.a sha256 77d255f4b8fe30abc255c411275ef915698edc11220d76d782cc425da4b31f60，stamp ie_bytes=2048 |
+| kext 构建 native-stamp（指向上面档案） | libPongWifiNative.a sha256 77b421b28ca395b9561294f747ba337a6e98c3db5df22c694afd0c7b885e8243，rc 0 |
+| 反例 ath11k-badstamp（戳改成 ie_bytes=1024） | rc 1，RuntimeError: station archive ... carries ie_bytes=1024 but this build carries 2048: rebuild the station (P-230)，未产出档案 |
+
+测试：scripts/tests/test-wifi-sbl-mission.py 新增 “the station build records the element width the kext build checks”，
+整个套件 summary: 0 failure(s)。
+
+已知边界：本改动之前构建的档案（含 mission33-36 用的 ath11k-abi1、ath11k-abi27）没有戳，只能得到提示；
+下一次重建站点时会自动带上，之后任何跨宽度的混用都会被拒绝。
+
+## 46. 关联请求的三种布局在宿主机上钉死
+
+24A446 的关联请求是 0x290 字节，网络前缀在 0x10；22H374 是 0x384，同一个前缀；legacy 是 0x250，前缀在 0x0c。
+三种布局的网络字段偏移完全相同，驱动因此只用一个扁平结构解码并只读 PONG_ASSOC_FIELDS_BYTES（到 key[64] 的 0x8c）。
+
+此前这些偏移只写在 PongWifiNet.cpp 的 static_assert 里，宿主机测试看不到。现在：
+
+- drivers/PongWifi/PongWifiAbi.h 新增 pong_assoc_parameters、pong_assoc_request_legacy、pong_assoc_request_24a446、
+  pong_assoc_request_22h374，并用 PONG_ABI_ASSERT（C++ 走 static_assert，C 走 _Static_assert）钉住
+  0x7c / 0x3c / 0x30 / 0x34、592 / 0x250 / 0x0c、0x290 / 0x10、0x384；
+- PongWifiNet.cpp 的 assoc_request 与 assoc_request24 增加与头文件逐字段相等的断言，
+  两边若漂移构建就会报错，而不是在空口上解码错位；
+- scripts/tests/pong-abi-selftest.c 增加 8 条宿主机检查（前缀、key_length/key_cipher、三种总长与前缀偏移、
+  key 结束位置等于字段上限）；
+- scripts/tests/test-pong-abi.py 的参考漂移段新增两条：我们的 PONG_ASSOC_REQUEST_LEGACY/24A446 仍等于 sheng 的
+  0x250/0x290，且 sheng 仍钉着 0x7c/656/592/540。
+
+结果：test-pong-abi 31 checks 0 failure；test-wifi-sbl-mission summary: 0 failure(s)；
+16 与 27 两代头文件都编译通过（/opt/k60/trees/k60build/wifi/teardown16 与 teardown27）。
+
+## 47. 请求 10 的扫描类型也在 0x34
+
+参考实现（sheng 27，package/WifiNet.cpp 的 kScanReq 分支）在请求 10 里读四处：SSID 长度 0x10、SSID 0x14、
+扫描类型 0x34、信道数 0x44 / 信道表 0x48。我们的驱动此前只读了前三处中的两处，scanType 对请求 10 一直是 0，
+于是“type 3 直接用已有结果回答”的近路只对请求 86 生效，对请求 10 会多跑一次空口扫描。
+
+现在 PongWifiAbi.h 增加 PONG_SCAN_ONE_TYPE 0x34，驱动在 held >= 0x38 时把它读进来；请求 10 与 86 共享
+同一段缓存近路与信道过滤逻辑。测试方面：test-wifi-sbl-mission 新增一条检查（常量与读取语句都在），
+test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 读），两套都是 0 failure；
+16 与 27 两代头文件重新编译通过。
+
+## 48. 请求 382（中止扫描）按参考实现接受
+
+参考实现（sheng 27，package/WifiNet.cpp:86 与 :671）把 382 当作“已接受”：已经在跑的扫描照常跑完并自己上报，
+用户态可以接受这种迟到的结果。我们的 SET 分支此前没有这个 case，382 落到 default，框架收到 EOPNOTSUPP，
+而参考实现返回 0——同一个请求在两条代码路径上成败相反。
+
+现在 PongWifiAbi.h 定义 PONG_REQUEST_ABORT_SCAN 382，PongWifiNet.cpp 的请求类型枚举用它定义 kAbortScan，
+并在 kScanCacheClear 一行之后单独返回 0（注释照抄参考实现的语义）。test-wifi-sbl-mission 新增一条检查
+把常量、枚举值和 case 三处钉住；16 与 27 两代头文件重新编译通过。
+
+## 49. 认证编码按两代 daemon 分别回答
+
+22H374 的 daemon 把个人版 WPA2 记作 0x8（zizhan 与我们的驱动都回答 0x8，上机验证过）。参考实现的 27 侧
+（sheng 27，package/WifiNet.cpp:679 与引入它的 b72e382）回答 0x10，并在注释里把它写成同一个含义。我们的
+关联校验此前只接受 0x8，其余一律 EOPNOTSUPP——如果 27 的 wifid 按驱动宣告的值把 0x10 发回来，加入会在
+校验处被直接拒绝，看上去像“密码错”。
+
+现在驱动记住“对端是新 daemon”：收到 0x14e8 字节的请求 86（没有任何 22H374 客户端会发这个长度）或 0x290
+字节的关联请求时置位，kAuthType 在置位后回答 0x10、否则仍是 0x8；关联校验同时接受 8 与 0x10，其他值照旧
+不支持。这样 22H374 的行为逐字节不变，27 侧不需要靠猜。
+
+## 50. 速率查询回答缓存的对端速率
+
+参考实现（sheng 27，package/WifiNet.cpp:690）用 st.tx_rate_100kbps / 10 回答 kRate。我们此前固定回答 54，
+在 20 MHz HE 上偏低、在 80 MHz VHT 上偏低一个数量级，设置页与状态栏看到的速率因此与链路无关。
+
+两代 ABI（16 与 27 的 nw_abi.h）都带 struct nw_wifi_status 的 tx_rate_100kbps 字段和 nw_wifi_status_get()，
+所以不需要弱导入：kRate 现在回答 st.state == NW_STA_UP ? st.tx_rate_100kbps / 10 : 0，未连接时仍是 0。
+
+## 51. 当前网络的信号取实时值
+
+参考实现（sheng 27，package/WifiNet.cpp 的 kCurrentNetwork 分支）在填完记录后覆盖 out.res.rssi = st.signal_dbm，
+并按 -95 dBm 的噪声底重算 snr；我们此前把扫描快照里的 signal_dbm 直接交给 daemon。扫描可能是几十秒前的，
+而当前网络的信号是设置页与状态栏画格子的依据，用快照会让“已连上但只剩一格”这种读数停在那里直到下一次扫描。
+
+现在两条路径（扫描表里找到当前 BSS、以及没扫描过直接加入的兜底）都在 fill_result 之后覆盖 rssi 与 snr；
+未连接时仍走原来的 ENOENT。16 与 27 两代头文件编译通过。
+
+## 52. 电源查询跟站状态一起回答
+
+参考实现（sheng 27，package/WifiNet.cpp:676）回答 kPower 时用 gPower && st.state != NW_STA_OFF。我们此前只看
+自己的 gPower 标志：站处于 NW_STA_OFF（停站或组件停之后）而标志仍为 1 时回答 1，daemon 会以为射频已开，
+跳过重新使能，用户看到的是“开关是开的但没有网络”。
+
+现在回答 (gPower && st.state != NW_STA_OFF) ? 1 : 0；NW_STA_OFF 在两代 nw_abi.h 里都是枚举 0，不需要弱符号。
+电源设置的路径没有改动（仍走 disconnect + wake），这一条只改查询的回答。
+
+## 53. 扫描记录在交出时打戳，年龄按站侧测量值扣减
+
+参考实现（sheng 27，package/WifiNet.cpp:505 与 package/WifiScanResult.h 的 sheng_wifi_scan_result_stamp）
+在记录交出时读连续时钟，时间戳写成 now_ns - age_ms * 1000000，元素区按“请求长度减去 0x8c”留出容量；
+它对年龄不做任何取整。我们此前把扫描冻结那一刻的时钟（sampled_ns）传进 fill_result，再按
+(age_ms + 1) * 1000000 向上取整后相减：一是同一份缓存被服务几十秒后时间戳仍停在冻结时刻，CoreWiFi
+看到的结果不会随时间变旧；二是“向上取整”让旧观测比真实帧最多新 1 ms，方向正好反了。
+
+现在 fill_result 自己读 scan_clock_ns()，用 b.age_ms 的精确值相减（不取整），把 now 在调用点测量、
+在 bss_get 之后立刻打戳的顺序与参考实现对齐；三个调用点（kScanResult 的逐条服务、kCurrentNetwork 的
+扫描表命中、以及没扫描直接加入的兜底）都不再传采样时间。请求长度与元素容量的换算本来就和参考一致，
+这一节只改时间戳。16 与 27 两代头文件编译通过（teardown16/teardown27 rc=0），
+scripts/tests/test-wifi-sbl-mission.py 增加一项检查并 0 failure，test-pong-abi 32 项 0 failure。
+
+## 54. 扫描策略照参考实现移植：陈旧记录不再交出，建链期间不上空口
+
+参考实现（sheng 27，package/WifiScanPolicy.h）给出三条策略。我们此前只有一条粗规则（站状态到 AUTH 以上就一律从缓存回答）：
+链路稳定之后永远不会再扫描，设置页刷新看不到新出现的网络，auto-join 也扫不到；同时冻结列表里的记录永远不会变旧，
+一分钟前听过、接入点已经离开的记录会一直交出去。
+
+现在把策略移植为 drivers/PongWifi/PongWifiScanPolicy.h（BSD-2-Clause-Patent，常量与判定逐条对齐）：
+
+- PONG_SCAN_HELD_MS 60000：服务扫描结果时跳过 age_ms 超过 60 s 的记录。冻结列表保存采样时刻，服务时把经过的时间
+  加回 age，记录因此会按时变旧；之前冻结之后 age 停在采样那一刻。
+- PONG_SCAN_LINK_SETTLE_MS 15000：建链中（状态低于 UP）与建链后 15 s 内不上空口，回答缓存里的网络。
+- PONG_SCAN_RESCAN_MS 20000：链路稳定后，只有请求里存在“最近 20 s 没扫过的信道”才上空口；整段扫描记在 every_ms。
+
+驱动侧接入点：on_connect_done 成功时记下 gLinkUpMs，链路丢失与断开时清零；kScanReq 用 pong_scan_on_air 决定上空口
+还是回答缓存，真正上空口后 pong_scan_air_mark 记下这批信道。gSnapAtNs 记录冻结列表的时刻，服务时据此补上老化。
+
+验证：scripts/tests/pong-abi-selftest.c 增加 11 项策略检查（50 项全过，0 failed）；test-pong-abi 32 项 0 failure；
+test-wifi-sbl-mission 增加结构检查后 0 failure；16 与 27 两代头文件编译 rc=0（teardown16/teardown27）。
+
+## 55. 加入过程中的结果回答 pending，24A446 的凭据按参考矩阵解释
+
+参考实现（sheng 27，package/WifiNet.cpp:94 与 :660）把关联结果从 kAssocPending = 0 开始：请求交给站之后，
+daemon 在加入过程中轮询 kAssociateResult 看到的是 0（有待完成），只有站拒绝时才写 kAssocFailed，连接完成后
+再由回调写 1/9/21。我们此前在 kAssociate 入口就写 kAssocFailed = 2，而 27 的关联完成事件里带的也是这个值，
+于是“正在加入”在 daemon 看来等于“已经失败”，27 上会表现为刚点加入就报错。
+
+同时参考实现在 :641 拒绝它无法解释的凭据：cipher 6 必须带 32 字节 PMK，cipher 10 必须是 8 到 63 字节的口令，
+其他组合直接 EINVAL，不当作口令、也不当作开放网络。我们对所有 22H374 客户端保持原来的宽容（zizhan 上机验证过），
+只对 24A446 的 0x290 请求启用严格矩阵。
+
+验证：test-wifi-sbl-mission 增加一项结构检查后 0 failure；16 与 27 两代头文件编译 rc=0。
+
+## 56. 加入新网络前先排空旧链路
+
+站侧的 start_connect（nw_sta.c:536-537）只在 IDLE 或 SCANNING 状态开始一次加入；任何其他状态下这个请求
+被直接丢掉。我们此前收到 kAssociate 就直接 nw_wifi_connect，于是“已连接时在设置页改连另一个网络”会把请求
+排给一个不会运行的站任务：daemon 等关联事件等到自己超时，期间 kAssociateResult 一直是 pending。
+
+参考实现（sheng 27，package/WifiNet.cpp:227-238 与 :649-655）在加入前先排空：disconnect_user 后唤醒 worker，
+每 10 ms 读一次 nw_wifi_status，最多 2000 ms；状态仍到 AUTH 以上就返回 ETIMEDOUT，并且不把连接请求排进去。
+现在同样处理：drain_disconnect() 放在关联校验之后、nw_wifi_connect 之前；超时返回 ETIMEDOUT 并把关联结果写成
+failed，成功则清掉 gLinkUpMs。22H374 的“切网”走同一条路径，之前那条隐性等待超时的问题一并消失。
+
+验证：test-wifi-sbl-mission 增加一项结构检查后 0 failure；16 与 27 两代头文件编译 rc=0。
+
+## 57. 显式断开的语义：隐藏旧链路、补齐事件、回答等待中的加入
+
+参考实现在用户请求断开时并不只是调用 disconnect：它把链路标记为抑制（gLinkSuppressed），让状态查询把旧网络
+隐藏（visible_status 返回 IDLE，清空 ssid/bssid/频点/信号），立刻发出链路断开事件（involuntary=0）以及 SSID、
+BSSID 变更事件，并且在有加入请求排队时当场发出 540 字节的关联完成事件——否则 27 的 daemon 会一直等一个站不会
+再发的完成事件。掉线路径同样补发 SSID/BSSID 事件，并把关联结果写成 failed。
+
+本轮把这些搬进 PongWifiNet.cpp：新增 gJoinPending / gLinkSuppressed 与 visible_status()；kPower 关闭和
+kDisassociate/kDeauth 都走抑制路径并排队 NotifyLinkDown；NotifyControl 的 LinkDown 分支改发完整序列；关联与
+掉线完成统一由 post_association_result() 产出（24A446 的 attempts[0] 填入当前 bssid）；on_connect_done 忽略
+显式断开之后的完成，以及“授权成功但链路不在”（写 failed、不通知）。join 入口清抑制、置 pending，站拒绝时清
+pending。
+
+验证：16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 0 failure（新增一项检查）。
+
+## 58. 站侧信号刷新现在会变成链路变更事件
+
+设备端每 3 dB 的缓存信号变化由 nw_mainline_signal_update 上报；两代 nw_abi.h 的 nw_wifi_events 都带
+link_update，但本驱动的 gEvents 只填了前四项，回调是空的——daemon 只拿到关联那一刻的信号，之后不再更新。
+
+参考实现（package/WifiNet.cpp:278-283 on_link_update）把回调搬成链路变更：不在供电、抑制中、链路非 UP 或
+信号非负时不发；否则发 link_event（rssi、noise -95、snr = rssi + 95，down=0）。
+
+本轮：新增 on_link_update()，并把 gEvents 扩到七项（rx_flush/rx_packet 仍为 null，保持原有收包路径），
+link_update 指向新回调。16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 新增检查后 0 failure。
+
+## 59. 24A446 的事件改成两个描述符
+
+22H374 的 daemon 从 dv[0] 读 16 字节接口名加负载，这条路径在 mission34b/36 上机验证过；24A446 的参考实现
+（sheng 790232e 的 post_event）改成 dv[0] 为 16 字节名字、dv[1] 为负载，而且这次提交同时加入 540 字节关联完成
+事件，说明 27 的 daemon 按两个描述符取负载。
+
+本轮按代际切换：gModern27Client 为真时发两个描述符，否则保持已验证的单描述符形状。触发代际的入口除已有的
+0x14e8 扫描请求与 0x290 关联请求外，补上 0x8e8 的 kScanResult 与 kCurrentNetwork 请求，这样 27 的 daemon 在
+第一次扫描后就会走新形状。
+
+验证：16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 新增检查后 0 failure。27 上机时若事件仍不达，先核对
+这一处与 selector 0 信封。
+
+## 60. 在真实的 24A446 检出上编译，并用带宽度戳的 27 站点档案链接
+
+前几轮的 27 编译用的是 shim（package 指回 16 的树）。本轮在 sheng origin/main c8f92b2 的独立检出
+（/mnt/e/k60-work/impl/sheng27-full，git worktree --detach）上复现：该检出把 drivers/Ath12kWifi 钉在
+f087c7dd（27 的站点模块），但 worktree 里是空目录，首次构建报
+FileNotFoundError: .../drivers/Ath12kWifi/include/nw_abi.h；用符号链接指到 27 站点检出后即可编译。
+
+站点档案也重建成带戳的 27 版本：/opt/k60/trees/k60build/wifi/ath11k-abi27s/libPongAth11k.a
+（dabcf0b97d9dab2738f26709a889e8db16a8384e0ade5e694c3e720b61d03559，abi/nw_abi.stamp 为
+ie_bytes=2048 与 header_sha256=ec0b8227…，nw_sta_pong.c 的 IE_MAX 为 2048）。用它链接时构建日志里不再出现
+“has no abi/nw_abi.stamp”提示——宽度戳在这一代也生效。
+
+结果：teardown27full2 rc=0，产物 libPongWifiNative.a 12,102,400 字节
+（586228b4e4114722a7238ab7195b5d4915cf008095d2a3a3e32f25a75222864e），llvm-nm 里
+pong_wifi_station_stop 与 pong_wifi_net_stop 都在。编译命令与 16 的完全一致，只换 --ath11k 与
+PONG_SHENG_ROOT；说明驱动对 27 的 package 头文件没有额外依赖，需要变化的确实只在 ABI 形状。
+
+边界：27 头文件给 nw_board 末尾加了 diagnostics 字段；本驱动的定位初始化不写它，27 上为 0（不向固件
+索取接收统计），这是有意的默认值，等需要统计时再加开关。
+
+## 61. 24A446 的电源开关交给站侧，22H374 保持原样
+
+参考实现的 SET kPower 在关电时先 disconnect_user，再调用 nw_wifi_power(0)，由站侧 worker 向 cfg80211 发电源请求；
+开电同理。我们此前只断链、清站并置 gPower，电台实际上没有离开空气——27 的设置页关掉 Wi-Fi 后，扫描仍可能
+被站侧接受。
+
+本轮按代际处理：gModern27Client 为真时调用 nw_wifi_power(gPower ? 1 : 0) 并唤醒 worker；22H374 保持
+mission34b/36 上机验证过的“只断链”行为，避免改坏已验证路径。站侧 nw_wifi_power 只更新缓存的 radio 状态并让
+worker 发 cfg80211 电源事件（nw_mainline.c:266-272 与 :365-380），不需要平台重新初始化 MHI。
+
+验证：test-wifi-sbl-mission 新增“24A446 的电源开关走到站侧电源路径”检查后 0 failure；16/27 两代头文件编译 rc=0。
+27 上机时核对：关 Wi-Fi 后扫描返回 ENETDOWN、开 Wi-Fi 后能重新扫描。
+
+## 62. 24A446 的事件有日志，建链沉降窗口从 post_link 开始
+
+参考实现的 post_event 对除扫描完成以外的每个事件都打一行“event 码 字节数 -> 结果”，27 上机时这是判断
+daemon 到底收到了什么的第一手证据；我们的实现此前完全静默。现在 24A446 代际（gModern27Client）在
+post_event 里打同样的一行，22H374 保持原有日志量。
+
+另一处小差异：参考在 post_link 里设置 gLinkUpMs（链路起来记时刻，断开清 0），我们此前只在 on_connect_done
+里设置。把设置移进 post_link 后，所有走 post_link 的路径都维持同一个沉降窗口起点，扫描策略不再依赖
+某一条回调是否先跑。
+
+验证：test-wifi-sbl-mission 新增两项检查（事件日志行、post_link 的 gLinkUpMs）后 0 failure；16/27
+两代头文件编译 rc=0。
+
+## 63. 24A446 的频道应答不再列出 6 GHz
+
+官方清单的 WCN7850 说明要求跳过 6 GHz 的 59 个被动频道。mission36 的 console 里有一行
+`supported channels 102: 2.4 GHz 14, 5/6 GHz 88`：station 的频道表确实带着 14 个 2.4 GHz、
+29 个 5 GHz 和 59 个 6 GHz 条目，而扫描本身在 `nw_sta.c` 的 band 判断里就把 6 GHz 跳过了。
+也就是说两个代际的 daemon 一直被许以 59 个永远不会被扫描的频道；参考实现（sheng 27 的
+`kSupportedChannels`）只回答一张 2.4/5 GHz 的静态表。
+
+改动：`drivers/PongWifi/PongWifiAbi.h` 新增 `PONG_BAND_6GHZ_MIN 5925u`；
+`PongWifiNet.cpp` 的 `kSupportedChannels`/`kHwSupportedChannels` 在 `gModern27Client` 时跳过
+`>= 5925 MHz` 的条目，并按实际交出的条目统计 2.4/5 GHz 数量供日志使用。只丢整条，不改任何
+flags 字——CWFChannel 比较完整 flag word，参考实现给每条加 0x80 的那处仍是风险项 6。
+
+为什么按代际：22H374 的 102 条频道应答是 mission34b/36 上机证明过的设置页路径；24A446 从未上机。
+`gModern27Client` 只在见过 0x14e8 扫描请求或 0x290 关联请求后置位，22H374 永远不会触发，
+所以这一改动对已验证路径零影响。
+
+验证：`test-wifi-sbl-mission.py` 新增检查
+`a 24A446 client is not offered the passive 6 GHz channels`；套件输出 0 failure；
+`compile-teardown2.sh` 用 16 与 27 两套头文件各编一次，`teardown16 rc=0` / `teardown27 rc=0`。
+
+边界：若 27 的 wifid 在任何扫描请求之前就问频道表，它仍会拿到 102 条（代际检测尚未发生）——
+这只会多给条目，不会少给。频道表 flag 0x80 的问题保持未决。

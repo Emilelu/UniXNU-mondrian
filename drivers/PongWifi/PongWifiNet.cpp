@@ -20,6 +20,8 @@
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <net/ethernet.h>
+#include "PongWifiAbi.h"
+#include "PongWifiScanPolicy.h"
 #include <net/if.h>
 #include <net/if_media.h>
 #include <net/if_ether.h>
@@ -37,6 +39,9 @@ extern "C" {
 #include <sys/proc.h>
 #include <stdarg.h>
 #include "nw_abi.h"
+
+extern "C" void pong_wifi_net_stop(void);
+extern "C" void pong_wifi_station_stop(void);
 #include "PongWifiLease.h"
 #include "PongWifiNotify.h"
 #include <pexpert/pexpert.h>
@@ -45,6 +50,12 @@ extern "C" {
 extern "C" bool pong_wifi_test_reconnect(void);
 extern "C" unsigned nw_wifi_channel_list(unsigned *, unsigned);
 extern "C" int nw_wifi_rssi_limits(int *,int *);
+// WPA3 feasibility: the station exports this only when the builder injected the probe, so the call is weak.
+extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak_import));
+// 24A446 scans name the channels they want; a station archive without the entry (the 22H374
+// line) leaves the scan on every channel, which is what the framework did before.
+extern "C" int nw_wifi_scan_frequencies(const uint8_t *ssid, size_t len, const uint32_t *mhz, size_t count)
+    __attribute__((weak_import));
 extern "C" volatile uint64_t pong_wifi_progress[3];
 static bool gProgressDiagnostic;
 extern "C" void native_wifi_logf(int level, const char *fmt, ...);
@@ -72,30 +83,30 @@ enum {
   kCardCaps = 12, kState = 13, kPhyMode = 14, kOpMode = 15, kRssi = 16, kNoise = 17, kPower = 19, kAssociate = 20, kAssociateResult = 21,
   kDisassociate = 22, kSupportedChannels = 27, kLocale = 28, kDeauth = 29, kDriverVersion = 43, kHardwareVersion = 44, kCountryCode = 51,
   kRadioInfo = 54, kWowEnabled = 70, kVirtualRole = 96, kVirtualParent = 97, kScanReqMultiple = 86, kScanCacheClear = 90, kCurrentNetwork = 103, kRssiBounds = 106, kChannelsInfo = 207, kHwSupportedChannels = 254,
-  kProperty = 383, kFlagA = 470, kFlagB = 471,
+  kAbortScan = PONG_REQUEST_ABORT_SCAN, kProperty = 383, kFlagA = 470, kFlagB = 471,
 };
 // events
 enum { kEvPowerChanged = 1, kEvSsidChanged = 2, kEvBssidChanged = 3, kEvLinkChanged = 4, kEvAssocDone = 9, kEvScanDone = 10, kEvRsnHandshakeDone = 20 };
 // results of an association, as the framework numbers them
-enum { kAssocOk = 1, kAssocFailed = 2, kAssocTimeout = 9, kAssocBadKey = 21 };
+enum { kAssocPending = 0, kAssocOk = 1, kAssocFailed = 2, kAssocTimeout = 9, kAssocBadKey = 21 };
 
 struct channel { uint32_t version, channel, flags; };
 struct channels_list { uint32_t version, count; channel list[401]; uint32_t unused; };           // 4824 bytes
-struct scan_result {                                                                              // 1164 bytes
+struct scan_result {                                                                              // 0x8e8 bytes
   uint32_t version; channel ch; uint16_t noise_known; int16_t noise, snr, rssi; uint16_t beacon_interval, capability; uint8_t bssid[6];
   uint8_t rate_count, unused0; uint32_t rates[15]; uint8_t ssid_length, ssid[32], unused1[3]; uint32_t age_ms; uint8_t flags, unused2;
-  uint16_t elements_length; uint8_t elements[1024];
-};
-// 22H374 retains the legacy prefix, but reads a separate monotonic-raw
-// nanosecond observation timestamp at +0x8d0. Returning only the prefix
-// leaves TIMESTAMP zero and breaks native scan freshness filtering.
-struct scan_result24 {
-  scan_result legacy;
-  uint8_t reserved[0x8d0-sizeof(scan_result)];
+  uint16_t elements_length; uint8_t elements[PONG_SCAN_ELEMENTS_BYTES];
+  uint8_t filler[PONG_SCAN_TIMESTAMP_OFFSET - PONG_SCAN_ELEMENTS_OFFSET - PONG_SCAN_ELEMENTS_BYTES];
   uint64_t timestamp_ns;
+  uint8_t tail[PONG_SCAN_RECORD_24A446 - PONG_SCAN_TIMESTAMP_OFFSET - 8];
 };
-static_assert(sizeof(scan_result24)==2264 &&
-  __builtin_offsetof(scan_result24,timestamp_ns)==0x8d0,"22H374 scan timestamp ABI");
+// One record serves both framework generations (drivers/PongWifi/PongWifiAbi.h): the prefix through
+// 0x8c is the same in 22H374's 1164-byte result and 24A446's 0x8e8-byte one. The element count
+// follows the request (pong_scan_elements_room) and the timestamp sits past 68 filler bytes at
+// 0x8d0, so a client that asked for 1164 bytes reads exactly the prefix it knows.
+static_assert(sizeof(scan_result)==PONG_SCAN_RECORD_24A446 &&
+  __builtin_offsetof(scan_result,elements)==PONG_SCAN_ELEMENTS_OFFSET &&
+  __builtin_offsetof(scan_result,timestamp_ns)==PONG_SCAN_TIMESTAMP_OFFSET,"24A446 scan record ABI");
 struct assoc_request {                                                                            // 592 bytes
   uint32_t version; uint16_t mode, auth_lower, auth_upper, unused0; uint32_t ssid_length; uint8_t ssid[32]; uint8_t bssid[6], unused1[2];
   uint32_t key_version, key_length, key_cipher; uint16_t key_flags, key_index; uint8_t key[64]; uint8_t rest[0x250 - 0x88];
@@ -113,10 +124,22 @@ static_assert(sizeof(assoc_request24)==0x384 &&
   __builtin_offsetof(assoc_request24,ssid_length)==0x10 &&
   __builtin_offsetof(assoc_request24,bssid)==0x34 &&
   __builtin_offsetof(assoc_request24,key)==0x4c,"22H374 association ABI");
+// 24A446 sends 0x290 bytes with the same field offsets; the driver reads only PONG_ASSOC_FIELDS_BYTES
+// (through key[64]) and ignores the trailing remainder, so one struct decodes both generations.
+static_assert(__builtin_offsetof(assoc_request24,key)+64==PONG_ASSOC_FIELDS_BYTES &&
+  PONG_ASSOC_REQUEST_24A446==0x290,"24A446 association ABI");
 struct link_event { uint8_t down, unused0[3]; int32_t rssi; uint16_t snr, noise; uint8_t unused1[4]; uint8_t involuntary, unused2[3]; uint32_t reason, subreason; uint8_t unused3[4]; };
-static_assert(sizeof(scan_result) == 1164 && __builtin_offsetof(scan_result, ssid_length) == 0x60 && __builtin_offsetof(scan_result, age_ms) == 0x84 &&
-              __builtin_offsetof(scan_result, elements) == 0x8c, "scan result layout");
+static_assert(__builtin_offsetof(scan_result, ssid_length) == 0x60 && __builtin_offsetof(scan_result, age_ms) == 0x84,
+              "scan result field offsets");
 static_assert(sizeof(assoc_request) == 592 && __builtin_offsetof(assoc_request, key) == 0x48, "association layout");
+// These two structs must agree field for field with the host-tested shapes in PongWifiAbi.h;
+// a silent mismatch would decode a 24A446 request with the wrong offsets and nothing else would fail.
+static_assert(__builtin_offsetof(assoc_request,ssid_length)==__builtin_offsetof(pong_assoc_request_legacy,network)+__builtin_offsetof(struct pong_assoc_parameters,ssid_length) &&
+  __builtin_offsetof(assoc_request,bssid)==__builtin_offsetof(pong_assoc_request_legacy,network)+__builtin_offsetof(struct pong_assoc_parameters,bssid) &&
+  __builtin_offsetof(assoc_request,key)==__builtin_offsetof(pong_assoc_request_legacy,network)+__builtin_offsetof(struct pong_assoc_parameters,key),"legacy association fields match the ABI header");
+static_assert(__builtin_offsetof(assoc_request24,ssid_length)==__builtin_offsetof(pong_assoc_request_24a446,network)+__builtin_offsetof(struct pong_assoc_parameters,ssid_length) &&
+  __builtin_offsetof(assoc_request24,bssid)==__builtin_offsetof(pong_assoc_request_24a446,network)+__builtin_offsetof(struct pong_assoc_parameters,bssid) &&
+  __builtin_offsetof(assoc_request24,key)==__builtin_offsetof(pong_assoc_request_24a446,network)+__builtin_offsetof(struct pong_assoc_parameters,key),"24A446 association fields match the ABI header");
 static_assert(sizeof(channels_list) == 4824, "channel list layout");
 static_assert(sizeof(link_event) == 32, "link event layout");
 
@@ -139,8 +162,30 @@ bool gKeyed;   // the last join used a passphrase
 uint32_t gRxFrames, gRxErrors; int gRxLastError;
 uint32_t gRxNoBuffer, gRxChains, gRxLongest;   // frames dropped for want of a buffer, frames that took a chain, the longest frame
 struct { unsigned count, kicks, cleared, longest; bool kicked; } gStall;   // input thread stalls (check_input)   // frames handed to the stack, refused ones and the last refusal
-int gAssocResult = kAssocOk;
+int gAssocResult = kAssocPending;
+bool gAssocModern27;   // the last join arrived through the 0x290-byte 24A446 request
+bool gModern27Client;  // a 24A446-sized request arrived, so the daemon speaks the newer auth encoding
+bool gJoinPending;     // a join request is queued in the station and its completion has not arrived
+bool gLinkSuppressed;  // an explicit disconnect hides the link until a new join clears it
 unsigned gScanCursor, gScanning, gScanServed;
+nw_bss_info gSnap[64]; unsigned gSnapCount;   // the scan list frozen when a sweep completes, strongest first
+// The channels the radio last visited and when the link came up: the reference port's scan policy
+// (PongWifiScanPolicy.h) decides from these whether a request may take the radio off channel.
+pong_scan_air gScanAir;
+uint64_t gSnapAtNs;      // when the frozen list was taken
+uint64_t gLinkUpMs;      // when the link came up, 0 while it is down
+uint64_t scan_clock_ns();
+static inline uint64_t scan_clock_ms() { return scan_clock_ns() / 1000000ull; }
+// After an explicit disconnect the station's snapshot keeps reporting the old network until the firmware
+// teardown finishes; the reference port hides it (visible_status) so the daemon does not read a link that
+// the user has already left. A new join clears the suppression.
+void visible_status(nw_wifi_status &st) {
+  nw_wifi_status_get(&st);
+  if (!gPower || gLinkSuppressed) {
+    st.state = NW_STA_IDLE; st.ssid_len = 0; memset(st.ssid, 0, sizeof st.ssid);
+    memset(st.bssid, 0, sizeof st.bssid); st.freq_mhz = 0; st.signal_dbm = 0;
+  }
+}
 thread_call_t gNotifications;
 pong_wifi_notification_queue gNotificationQueue;
 enum { NotifyControl=1, NotifyScan, NotifyAssociate, NotifyLost, NotifyFailed };
@@ -165,17 +210,30 @@ errno_t if_set_bpf_tap(ifnet_t, bpf_tap_mode mode, bpf_packet_func callback) {
   return 0;
 }
 
-// ---- events to the framework: class IEEE 802.11 (6), subclass 1, data starting with the interface name ----
+// ---- events to the framework: class IEEE 802.11 (6), subclass 1 ----
+// Two shapes, chosen by the daemon generation. 22H374 reads the interface name and the payload out of
+// one descriptor (name first); 24A446 reads them from two (name, then payload). The reference port made
+// that change in the same commit that added the 540-byte association event, and the older shape is the
+// one this device's pane was proven with, so the generation decides rather than a blanket switch.
 void post_event(uint32_t code, const void *payload, size_t length) {
-  uint8_t data[128]; if (length > sizeof data - 16) length = sizeof data - 16;
-  memset(data, 0, 16); snprintf(reinterpret_cast<char *>(data), 16, "en0"); if (length) memcpy(data + 16, payload, length);
   struct kev_msg msg; memset(&msg, 0, sizeof msg);
   msg.vendor_code = KEV_VENDOR_APPLE; msg.kev_class = 6; msg.kev_subclass = 1; msg.event_code = code;
+  if (gModern27Client) {
+    char name[16] = "en0";
+    msg.dv[0].data_length = sizeof name; msg.dv[0].data_ptr = name;
+    msg.dv[1].data_length = static_cast<uint32_t>(length); msg.dv[1].data_ptr = const_cast<void *>(payload);
+    const int error = pong_kev_post(&msg);
+    if (code != kEvScanDone) log(6, "wifi-net: event %u bytes %u -> %d", code, static_cast<unsigned>(length), error);
+    return;
+  }
+  uint8_t data[16 + sizeof(pong_assoc_event27)]; if (length > sizeof data - 16) length = sizeof data - 16;
+  memset(data, 0, 16); snprintf(reinterpret_cast<char *>(data), 16, "en0"); if (length) memcpy(data + 16, payload, length);
   msg.dv[0].data_length = static_cast<uint32_t>(16 + length); msg.dv[0].data_ptr = data;
   pong_kev_post(&msg);
 }
 // link state for the network configuration: the interface's flags and the stack's own link events
 void post_link(bool up) {
+  gLinkUpMs = up ? scan_clock_ms() : 0;
   if (!gIf) return;
   lck_mtx_lock(gLock);
   if (gLease.up != up) pong_wifi_lease_link(&gLease, up);
@@ -187,6 +245,24 @@ void post_link(bool up) {
   msg.vendor_code = KEV_VENDOR_APPLE; msg.kev_class = KEV_NETWORK_CLASS; msg.kev_subclass = KEV_DL_SUBCLASS; msg.event_code = up ? KEV_DL_LINK_ON : KEV_DL_LINK_OFF;
   msg.dv[0].data_length = sizeof payload; msg.dv[0].data_ptr = &payload;
   pong_kev_post(&msg);
+}
+// A requested disconnect is announced now, not when the station finishes its firmware teardown (the
+// reference port's post_link_down): the link change carries involuntary=0, and the name events follow.
+void post_link_down(bool involuntary, int reason) {
+  post_link(false);
+  link_event ev{}; ev.down = 1; ev.involuntary = involuntary ? 1 : 0; ev.reason = static_cast<uint32_t>(reason);
+  post_event(kEvLinkChanged, &ev, sizeof ev);
+  post_event(kEvSsidChanged, nullptr, 0);
+  post_event(kEvBssidChanged, nullptr, 0);
+}
+// The association completion the daemon reads: 24A446 takes the 540-byte event, with the peer's address in
+// the first attempt slot as the reference port fills it, and the older daemon the empty payload.
+void post_association_result() {
+  if (!gAssocModern27) { post_event(kEvAssocDone, nullptr, 0); return; }
+  pong_assoc_event27 done{}; done.result = static_cast<uint32_t>(gAssocResult); done.has_result = 1;
+  nw_wifi_status current; nw_wifi_status_get(&current);
+  memcpy(done.attempts, current.bssid, 6);   // the first attempt slot, 52 bytes in the 540-byte event
+  post_event(kEvAssocDone, &done, sizeof done);
 }
 
 // Socket/ifnet delivery can synchronously cause output or interface queries.
@@ -214,13 +290,20 @@ void deliver_notifications(thread_call_param_t,thread_call_param_t) {
     if(!available)return;
     switch(event.kind) {
     case NotifyControl:
-      if(event.result&NotifyLinkDown)post_link(false);
+      if(event.result&NotifyLinkDown) {
+        // An explicit disconnect while a join waits leaves the daemon waiting for an association result
+        // the station will never post (the join it queued was replaced), so the failure is posted here.
+        post_link_down(false, 0);
+        if (gJoinPending) { gJoinPending = false; post_association_result(); }
+      }
       if(event.result&NotifyPower)post_event(kEvPowerChanged,nullptr,0);
       break;
     case NotifyScan:post_event(kEvScanDone,nullptr,0);break;
     case NotifyAssociate:
       if(event.result==NW_RES_OK)post_link(true);
-      post_event(kEvAssocDone,nullptr,0);
+      // 24A446's assoc-done event is 540 bytes: the framework reads result at 0x214 and has_result
+      // at 0x218 to decide whether the join succeeded, so the payload cannot be the legacy empty one.
+      post_association_result();
       if(event.result==NW_RES_OK) {
         post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);
         link_event link={};link.rssi=event.rssi;link.noise=static_cast<uint16_t>(-95);link.snr=static_cast<uint16_t>(event.rssi+95);
@@ -231,18 +314,34 @@ void deliver_notifications(thread_call_param_t,thread_call_param_t) {
       break;
     case NotifyLost: {
       post_link(false);link_event link={};link.down=1;link.involuntary=1;link.reason=static_cast<uint32_t>(event.result);
-      post_event(kEvLinkChanged,&link,sizeof link);break;
+      post_event(kEvLinkChanged,&link,sizeof link);
+      // The name events follow every link change the reference port reports, so the daemon drops the old
+      // SSID/BSSID reading even when the loss was the access point's.
+      post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);break;
     }
     case NotifyFailed:
       post_link(false);
       if(event.result)post_event(kEvScanDone,nullptr,0);
-      post_event(kEvAssocDone,nullptr,0);post_event(kEvPowerChanged,nullptr,0);break;
+      post_association_result();
+      post_event(kEvPowerChanged,nullptr,0);break;
     }
   }
 }
 void notify_locked(unsigned events) {
   pong_wifi_notification event={NotifyControl,static_cast<int32_t>(events),0,0};
   queue_notification_locked(event);
+}
+// The daemon reads the list one record per call. A live table that gains or loses entries between two calls
+// shifts the cursor and cuts its copy short (mission16: "served 32 of 33"), so a completed sweep is frozen.
+void freeze_scan_list() {
+  gSnapAtNs = scan_clock_ns();
+  const int count = nw_wifi_bss_count(); gSnapCount = 0;
+  for (int i = 0; i < count && gSnapCount < 64; i++) {
+    nw_bss_info b; if (nw_wifi_bss_get(i, &b)) continue;
+    unsigned at = gSnapCount;
+    while (at && gSnap[at - 1].signal_dbm < b.signal_dbm) { gSnap[at] = gSnap[at - 1]; at--; }
+    gSnap[at] = b; gSnapCount++;
+  }
 }
 // The scan list counted by band. The Settings pane builds its list from these records, so a band that is
 // missing here cannot appear there, and the strongest few per band say what the radio actually heard.
@@ -261,12 +360,55 @@ void log_scan_table() {
   if (tables > 3) return;
   for (int i = 0; i < count; i++) {
     nw_bss_info b; if (nw_wifi_bss_get(i, &b)) continue;
-    log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x %.*s",
+    // The 802.11d Country element: wifid tracks the advertised country per network and can reject a network whose
+    // country differs from the local one, so the record dump must show which country each record carries.
+    char cc[3] = { '-', '-', 0 };
+    for (unsigned o = 0; o + 4 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1])
+      if (b.ie[o] == 7 && b.ie[o + 1] >= 2) { cc[0] = static_cast<char>(b.ie[o + 2]); cc[1] = static_cast<char>(b.ie[o + 3]); break; }
+    log(6, "wifi-net: bss %d/%d %u MHz %d dBm age %u bssid %02x:%02x:%02x:%02x:%02x:%02x ie %u cap %04x cc %c%c %.*s",
         i, count, b.freq_mhz, b.signal_dbm, b.age_ms, b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4],
-        b.bssid[5], b.ie_len, b.caps, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+        b.bssid[5], b.ie_len, b.caps, cc[0], cc[1], b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+    // The element blob is what the daemon parses for security, rates and band capability, so a record it drops
+    // despite being served differs here first. Print the inventory, the element-id list and the RSN bytes: the
+    // 5 GHz record of this access point carries 384 bytes of elements against the 2.4 GHz record's 347, and only
+    // the id list says which 34 bytes that is.
+    unsigned ssid = 0, rates = 0, dsss = 0, cc_ie = 0, rsn = 0, rsn_at = 0, ht = 0, ht40 = 0, vht = 0, vw = 0, he = 0;
+    for (unsigned o = 0; o + 2 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1]) {
+      const unsigned id = b.ie[o], len = b.ie[o + 1];
+      switch (id) {
+      case 0: ssid = len; break;
+      case 1: rates = len; break;
+      case 3: dsss = 1; break;
+      case 7: cc_ie = 1; break;
+      case 45: ht = 1; if (len > 1) ht40 = (b.ie[o + 2] >> 1) & 1u; break;
+      case 48: rsn = len; rsn_at = o; break;
+      case 191: vht = 1; if (len >= 4) { const unsigned cap = b.ie[o + 2] | (b.ie[o + 3] << 8); vw = (cap >> 2) & 3u; } break;
+      case 255: if (len >= 1 && b.ie[o + 2] == 35) he = 1; break;
+      }
+    }
+    log(6, "wifi-net: ies %02x:%02x:%02x:%02x:%02x:%02x ssid %u rates %u dsss %u cc %u rsn %u@%u ht %u ht40 %u vht %u vw %u he %u",
+        b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4], b.bssid[5], ssid, rates, dsss, cc_ie, rsn, rsn_at,
+        ht, ht40, vht, vw, he);
+    char ids[240]; unsigned at = 0; ids[0] = 0;
+    for (unsigned o = 0; o + 2 <= b.ie_len && o + 2 + b.ie[o + 1] <= b.ie_len; o += 2 + b.ie[o + 1]) {
+      if (at + 10 >= sizeof ids) { at += static_cast<unsigned>(snprintf(ids + at, sizeof ids - at, " ...")); break; }
+      at += static_cast<unsigned>(snprintf(ids + at, sizeof ids - at, "%s%u/%u", at ? " " : "", b.ie[o], b.ie[o + 1]));
+    }
+    log(6, "wifi-net: ie-list %02x:%02x:%02x:%02x:%02x:%02x %s", b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3],
+        b.bssid[4], b.bssid[5], ids);
+    if (rsn >= 8) {
+      const uint8_t *r = b.ie + rsn_at + 2;
+      char rh[80]; unsigned ro = 0; rh[0] = 0;
+      const unsigned rn = rsn < 24 ? rsn : 24;
+      for (unsigned x = 0; x < rn && ro + 3 < sizeof rh; x++)
+        ro += static_cast<unsigned>(snprintf(rh + ro, sizeof rh - ro, "%02x", r[x]));
+      log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %u bytes %s",
+          b.bssid[0], b.bssid[1], b.bssid[2], b.bssid[3], b.bssid[4], b.bssid[5], rsn, rh);
+    }
   }
 }
 void on_scan_done() {
+  freeze_scan_list();
   log_scan_table();
   lck_mtx_lock(gLock);gScanning=0;gScanCursor=0;
   pong_wifi_notification event={NotifyScan,0,0,0};queue_notification_locked(event);
@@ -277,15 +419,54 @@ void cached_scan_done(thread_call_param_t,thread_call_param_t) { on_scan_done();
 void on_connect_done(int result) {
   nw_wifi_status status={};nw_wifi_status_get(&status);
   lck_mtx_lock(gLock);
+  gJoinPending = false;
+  if (!gPower || gLinkSuppressed) {
+    lck_mtx_unlock(gLock);
+    log(6, "wifi-net: ignore join completion after explicit disconnect: %d", result);
+    return;
+  }
+  if (result == NW_RES_OK && status.state != NW_STA_UP) {
+    // Authorization without the link standing would tell the daemon the join succeeded and draw bars
+    // for a link that is not there; the reference port ignores such a completion.
+    gAssocResult = kAssocFailed;
+    lck_mtx_unlock(gLock);
+    log(6, "wifi-net: ignore authorization without an active link");
+    return;
+  }
   gAssocResult=result==NW_RES_OK?kAssocOk:result==NW_RES_BAD_KEY?kAssocBadKey:result==NW_RES_TIMEOUT?kAssocTimeout:kAssocFailed;
   // NW_RES_OK follows actual key installation/STA_AUTHORIZED for WPA2.
   pong_wifi_notification event={NotifyAssociate,result,status.signal_dbm,gKeyed?1u:0u};
+  gLinkUpMs = result == NW_RES_OK ? scan_clock_ms() : 0;
   queue_notification_locked(event);lck_mtx_unlock(gLock);
   log(6,"wifi-net: join finished: module result %d",result);
 }
 void on_link_lost(int reason) {
+  if (gLinkSuppressed) { log(6, "wifi-net: link lost during an explicit disconnect: reason %d", reason); return; }
   log(6,"wifi-net: link lost: reason %d",reason);
-  lck_mtx_lock(gLock);pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
+  lck_mtx_lock(gLock);gLinkUpMs=0;gAssocResult=kAssocFailed;gJoinPending=false;pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
+}
+// The station refreshes the cached peer signal every time it moves three dB (nw_mainline.c
+// nw_mainline_signal_update). The reference port turns that callback into a link change so the
+// bars follow the link; without it the event table leaves link_update null and the daemon keeps
+// the signal it read at association.
+void on_link_update(const nw_wifi_status *status) {
+  if (!gPower || gLinkSuppressed || status->state != NW_STA_UP || status->signal_dbm >= 0) return;
+  link_event event{}; event.rssi = status->signal_dbm;
+  event.noise = static_cast<uint16_t>(-95); event.snr = status->signal_dbm > -95 ? status->signal_dbm + 95 : 0;
+  post_event(kEvLinkChanged, &event, sizeof event);
+}
+// The station starts a join only from IDLE (nw_sta.c start_connect): a request that meets a link already up
+// is dropped, and the daemon would wait for an association event that never comes. Drain the old link first,
+// as the reference port does, and report a timeout instead of starting a join that cannot run.
+int drain_disconnect() {
+  nw_wifi_disconnect(); pong_wifi_wake();
+  for (unsigned waited = 0; waited < 2000; waited += 10) {
+    nw_wifi_status current; nw_wifi_status_get(&current);
+    if (current.state < NW_STA_AUTH) return 0;
+    IOSleep(10);
+  }
+  log(4, "wifi-net: disconnect did not drain within 2000 ms");
+  return ETIMEDOUT;
 }
 
 // What crosses the interface, for the traffic line: DHCP messages (type, transaction, offered address), ARP, TLS on port 443 and DNS, with
@@ -379,7 +560,7 @@ void on_rx(const uint8_t *eth, size_t length) {
   const errno_t e = ifnet_input(gIf, m, &inc);
   if (e) { gRxErrors++; gRxLastError = e; } else gRxFrames++;
 }
-const struct nw_wifi_events gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx };
+const struct nw_wifi_events gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx, nullptr, nullptr, on_link_update };
 
 // ---- the interface ----
 errno_t if_output(ifnet_t, mbuf_t m) {
@@ -404,17 +585,37 @@ void fill_channel(channel &c, uint32_t mhz) {
 uint64_t scan_clock_ns() {
   uint64_t ns=0;absolutetime_to_nanoseconds(mach_continuous_time(),&ns);return ns;
 }
-void fill_result(scan_result24 &record, const nw_bss_info &b,uint64_t sampled_ns) {
-  memset(&record, 0, sizeof record);scan_result &r=record.legacy;
+// The 5 GHz record of this access point is the only one of 38 records the daemon drops, and its element blob is the
+// one the station clamps: the 2.4 GHz record carries 347 bytes and parses to the end, the 5 GHz record reports 384
+// bytes (the size of the station's copy) and its element walk stops after 318, leaving 66 bytes that never form a
+// whole element. A list that ends in the middle of an element is a malformed record, and that is the one difference
+// no element inventory shows. Serve the record the access point sent, ended at the last complete element. The
+// station's own association uses the beacon directly, not this record, so nothing on the air changes. Test
+// branch only.
+void fill_result(scan_result &record, const nw_bss_info &b,uint32_t request_bytes) {
+  memset(&record, 0, sizeof record);scan_result &r=record;
   r.version = 1; fill_channel(r.ch, b.freq_mhz); r.noise_known = 1; r.noise = -95; r.rssi = b.signal_dbm; r.snr = b.signal_dbm + 95;
   r.beacon_interval = b.beacon_int; r.capability = b.caps; memcpy(r.bssid, b.bssid, 6); r.ssid_length = b.ssid_len; memcpy(r.ssid, b.ssid, 32);
-  r.age_ms = b.age_ms; r.elements_length = b.ie_len > sizeof r.elements ? sizeof r.elements : b.ie_len; memcpy(r.elements, b.ie, r.elements_length);
+  r.age_ms = b.age_ms;
+  static unsigned announced; r.elements_length = 0; unsigned used = 0;
+  // A 22H374 client asks for 1164 bytes and gets 1024 element bytes; a 24A446 client asks for 0x8e8
+  // and gets the full 2048. The record says how many of them are meaningful.
+  const uint32_t room = pong_scan_elements_room(request_bytes ? request_bytes : PONG_SCAN_RECORD_24A446);
+  for (unsigned o = 0; o + 2 <= b.ie_len; o += 2 + b.ie[o + 1]) {
+    const unsigned id = b.ie[o], len = b.ie[o + 1];
+    if (o + 2 + len > b.ie_len) break;   // a blob the station clamped at 384 ends in the middle of an element
+    used = o + 2 + len;
+    if (r.elements_length + 2 + len <= room) { memcpy(r.elements + r.elements_length, b.ie + o, 2 + len); r.elements_length += 2 + len; }
+  }
+  if (used < b.ie_len && announced++ < 3) log(6, "wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served", b.ie_len - used, b.ie_len);
   r.rate_count = 0;
-  // The station exposes real frame age at millisecond resolution. Sample
-  // the clock BEFORE querying it and round age upward, so this estimate
-  // never makes an old cached observation newer than the actual frame.
-  const uint64_t age_ns=(uint64_t(b.age_ms)+1)*1000000ull;
-  record.timestamp_ns=sampled_ns>age_ns?sampled_ns-age_ns:0;
+  // The record says when the network was heard, not when it was sampled: the hand-out clock minus the
+  // age the station measures at this bss_get, exactly as the reference port stamps it
+  // (sheng_wifi_scan_result_stamp). Rounding the age upward made an old observation look newer than
+  // the frame, and a frozen sample time left a cached list looking stale while it was served.
+  const uint64_t now_ns = scan_clock_ns();
+  const uint64_t age_ns = uint64_t(b.age_ms) * 1000000ull;
+  record.timestamp_ns = now_ns > age_ns ? now_ns - age_ns : 0;
 }
 int copy_out(const apple80211req &rq, const void *src, size_t size, bool kernel = false) {
   if (rq.req_len == 0 || !rq.req_data) return EINVAL;
@@ -487,10 +688,10 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     const auto lease = pong_wifi_lease_snapshot(&gLease, lease_clock());
     return answer_bytes(rq, &lease, sizeof(lease), kernel);
   }
-  nw_wifi_status st; nw_wifi_status_get(&st);
+  nw_wifi_status st; visible_status(st);
   const int type = rq.req_type;
   // (not on the stack: the largest answer is 4824 bytes)
-  union Out { uint8_t raw[5120]; channels_list chans; scan_result24 res; };
+  union Out { uint8_t raw[5120]; channels_list chans; scan_result res; };
   Out *outp = static_cast<Out *>(IOMallocData(sizeof(Out)));
   if (!outp) return ENOMEM;
   memset(outp, 0, sizeof(Out));
@@ -499,31 +700,77 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   uint32_t *w = reinterpret_cast<uint32_t *>(out.raw);
   if (set) {
     switch (type) {
-    case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]); if (!gPower) {nw_wifi_disconnect();pong_wifi_wake();} notify_locked(NotifyPower); return 0; }
+    case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]);
+      if (!gPower) { gLinkSuppressed = true; gAssocResult = kAssocFailed; gJoinPending = false; nw_wifi_disconnect(); pong_wifi_wake(); notify_locked(NotifyLinkDown); }
+      // The reference tells the station itself, so the radio really leaves the air on 24A446; the
+      // 22H374 daemon kept its proven behaviour (disconnect only) until a 27 daemon is seen.
+      if (gModern27Client) { nw_wifi_power(gPower ? 1 : 0); pong_wifi_wake(); }
+      notify_locked(NotifyPower); return 0; }
     case kScanReq: case kScanReqMultiple: {
       if(!gPower)return ENETDOWN;
       if(rq.req_len<20)return EINVAL;
-      uint8_t buf[0x80]; if (copy_in(rq, buf, sizeof buf, kernel)) return EFAULT;
-      uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
-      log(6, "wifi-net: scan request type %d len %u val %d ssid %u", type, rq.req_len, rq.req_val, ssidLength);
-      if(ssidLength>32 || rq.req_len<20+ssidLength)return EINVAL;
-      // joining or joined: a scan takes the radio off channel for seconds and the access point's beacons and handshake frames are missed, so
-      // the daemon gets the last results instead
-      if (st.state >= NW_STA_AUTH && nw_wifi_bss_count() > 0) {
+      // 24A446 asks for the networks by name in request 86 (PongWifiAbi.h): the names sit at 0xc,
+      // 40 bytes each, the scan type at 0x200 and the channels at 0x210. Request 10 keeps the
+      // single name at 0x14 and its channels at 0x44. Both shapes are parsed here so a named scan
+      // (airportd's hidden-network probe) reaches the radio instead of being read as a wildcard.
+      const uint32_t held = rq.req_len < sizeof out.raw ? rq.req_len : sizeof out.raw;
+      if (copy_in(rq, out.raw, held, kernel)) return EFAULT;
+      uint32_t ssidLength = 0, scanType = 0; const uint8_t *ssid = nullptr;
+      uint32_t mhz[PONG_SCAN_FREQUENCIES_MAX]; uint32_t frequencies = 0;
+      if (type == kScanReqMultiple) {
+        if (pong_scan_multiple_parse(out.raw, held, &scanType, &ssid, &ssidLength)) return EINVAL;
+        // 0x14e8 bytes is the 24A446 scan request, a size no 22H374 client sends: from here on the
+        // daemon is the newer one, and its auth upper value is 0x10 where 22H374 used 0x8.
+        if (rq.req_len == PONG_SCAN_MULTIPLE_BYTES) gModern27Client = true;
+        frequencies = pong_scan_frequencies(out.raw, held, PONG_SCAN_MULTIPLE_CHANNEL_COUNT,
+                                            PONG_SCAN_MULTIPLE_CHANNELS, mhz);
+      } else {
+        if (held < 20) return EINVAL;
+        memcpy(&ssidLength, out.raw + 16, 4); ssid = out.raw + 20;
+        // The request-10 prefix is the reference port's layout: the scan type sits at 0x34, and the
+        // type 3 shortcut (answer from the results already held) has to work on this shape too.
+        if (held >= PONG_SCAN_ONE_TYPE + 4u) memcpy(&scanType, out.raw + PONG_SCAN_ONE_TYPE, 4);
+        frequencies = pong_scan_frequencies(out.raw, held, PONG_SCAN_ONE_CHANNEL_COUNT,
+                                            PONG_SCAN_ONE_CHANNELS, mhz);
+      }
+      log(6, "wifi-net: scan request type %d len %u val %d ssid %u channels %u type %u", type, rq.req_len, rq.req_val, ssidLength, frequencies, scanType);
+      // The daemon's scan request carries a channel filter ahead of the SSID; the filter decides what the pane may see.
+      static unsigned reqs; if (++reqs <= 8) { uint32_t wds[4]; memcpy(wds, out.raw, sizeof wds); log(6, "wifi-net: scan request prefix %08x %08x %08x %08x", wds[0], wds[1], wds[2], wds[3]); }
+      if(ssidLength>32 || (type == kScanReq && held<20+ssidLength))return EINVAL;
+      // The results already held are what was asked for: read them from the start, run no scan.
+      if (scanType == PONG_SCAN_TYPE_CACHED && nw_wifi_bss_count() > 0) {
+        gScanCursor = 0; gScanServed = 0; gResultsShown = 24; return 0; }
+      // The reference port's scan policy (PongWifiScanPolicy.h): while a join is under way, and for 15 s
+      // after the link came up, the radio stays on the access point's channel and the request is answered
+      // from the held networks; on a settled link it goes on the air unless every channel it names was
+      // already scanned in the last 20 s.
+      const uint64_t now_ms = scan_clock_ms();
+      const int link = st.state >= NW_STA_UP ? PONG_LINK_UP : st.state >= NW_STA_AUTH ? PONG_LINK_JOINING : PONG_LINK_NONE;
+      const uint64_t link_ms = (gLinkUpMs && now_ms >= gLinkUpMs) ? now_ms - gLinkUpMs : 0;
+      if (!pong_scan_on_air(&gScanAir, link, link_ms, nw_wifi_bss_count() > 0, mhz, frequencies, now_ms)) {
         if (!gCachedScan) gCachedScan = thread_call_allocate(cached_scan_done, nullptr);
         if (!gCachedScan) return ENOMEM;
-        static unsigned answered; if (++answered <= 8 || answered % 64 == 0) log(6, "wifi-net: scan %u while joined: answered from the cache", answered);
+        static unsigned answered; if (++answered <= 8 || answered % 64 == 0) log(6, "wifi-net: scan %u answered from the held networks (link %d, up %llu s)", answered, link, static_cast<unsigned long long>(link_ms / 1000));
         gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 24; uint64_t at; clock_interval_to_deadline(2000, kMillisecondScale, &at); thread_call_enter_delayed(gCachedScan, at); return 0; }
       gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 0;
-      if(nw_wifi_scan(ssidLength?ssid:nullptr,ssidLength)){gScanning=0;return EBUSY;}
+      // A scan of every band took 15.7 s on this radio, past the 12 s the framework waits, so the
+      // channels the request names are what the radio visits when the station knows how to take them.
+      const bool asked = frequencies != 0 && nw_wifi_scan_frequencies != nullptr;
+      if (asked ? nw_wifi_scan_frequencies(ssid, ssidLength, mhz, frequencies)
+                : nw_wifi_scan(ssidLength ? ssid : nullptr, ssidLength)) { gScanning = 0; return EBUSY; }
+      pong_scan_air_mark(&gScanAir, mhz, frequencies, now_ms);
       pong_wifi_wake();return 0; }
     case kAssociate: {
       if(!gPower)return ENETDOWN;
       assoc_request24 a={};
-      const bool darwin24=rq.req_len==sizeof(assoc_request24);
+      // 24A446 sends 0x290 bytes and 22H374 0x384; both carry the same fields through key[64] at
+      // 0x4c, so one struct decodes either. Only the legacy 0x250 request moves key to 0x48.
+      const bool modern27=rq.req_len==PONG_ASSOC_REQUEST_24A446;
+      const bool darwin24=rq.req_len>=PONG_ASSOC_REQUEST_24A446 && rq.req_len<=PONG_ASSOC_REQUEST_22H374;
       size_t keyOffset;
       if(darwin24) {
-        if(copy_in(rq,&a,sizeof(a),kernel))return EFAULT;
+        const size_t want = rq.req_len < sizeof(a) ? rq.req_len : sizeof(a);
+        if(copy_in(rq,&a,want,kernel))return EFAULT;
         keyOffset=__builtin_offsetof(assoc_request24,key);
       } else if(rq.req_len==sizeof(assoc_request)) {
         assoc_request legacy={};
@@ -541,20 +788,39 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
           rq.req_len<keyOffset+a.key_length) {memset(&a,0,sizeof(a));return EINVAL;}
       // The station implements open/WPA2-personal, not enterprise or SAE.
       // Preserve native failure for unsupported authentication, not an open join.
-      if(a.auth_upper && a.auth_upper!=8) {memset(&a,0,sizeof(a));return EOPNOTSUPP;}
+      // 22H374 names WPA2 personal 0x8, 24A446 names it 0x10 (the reference port answers 0x10 on 27):
+      // both are the same personal WPA2 join here, anything else stays unsupported.
+      if(a.auth_upper && a.auth_upper!=8 && a.auth_upper!=0x10) {memset(&a,0,sizeof(a));return EOPNOTSUPP;}
       const bool hasBssid = (a.bssid[0] | a.bssid[1] | a.bssid[2] | a.bssid[3] | a.bssid[4] | a.bssid[5]) != 0;
       const bool hasKey = a.key_length != 0 && a.key_length <= 64; char pass[65]; memset(pass, 0, sizeof pass); if (hasKey) memcpy(pass, a.key, a.key_length);
       // cipher 6: the daemon already derived the pairwise master key (32 bytes); the module takes it as 64 hex digits
       unsigned keyLength = a.key_length;
       if (hasKey && a.key_cipher == 6 && a.key_length == 32) { static const char hex[] = "0123456789abcdef"; for (int i = 0; i < 32; i++) { pass[2 * i] = hex[a.key[i] >> 4]; pass[2 * i + 1] = hex[a.key[i] & 15]; } keyLength = 64; }
-      gAssocResult = kAssocFailed; gUserJoin = true;
+      // A join while a link is up drains first (drain_disconnect): the station ignores a join request that
+      // arrives in any state other than IDLE, so switching networks from the pane would otherwise never run.
+      nw_wifi_status current; nw_wifi_status_get(&current);
+      if (current.state >= NW_STA_AUTH) {
+        log(6, "wifi-net: switching network: draining state %u", current.state);
+        if (drain_disconnect()) { memset(&a,0,sizeof(a)); gAssocResult = kAssocFailed; return ETIMEDOUT; }
+        gLinkUpMs = 0;
+      }
+      // The reference rejects a credential it cannot interpret (cipher 6 carries the 32-byte PMK,
+      // cipher 10 an 8..63-byte passphrase) instead of passing it on as a password or an open network.
+      // 22H374 clients keep their previous acceptance; the newer daemon gets the strict set.
+      if (modern27 && a.key_length && !((a.key_cipher == 6 && a.key_length == 32) ||
+                                        (a.key_cipher == 10 && a.key_length >= 8 && a.key_length <= 63))) {
+        memset(&a,0,sizeof(a)); return EINVAL; }
+      gAssocResult = kAssocPending; gJoinPending = true; gLinkSuppressed = false; gUserJoin = true; gAssocModern27 = modern27; if (modern27) gModern27Client = true;
       log(6, "wifi-net: join: ssid length %u, bssid given %d, key length %u cipher %u", a.ssid_length, hasBssid, a.key_length, a.key_cipher);
       gKeyed = hasKey; int r = nw_wifi_connect(a.ssid, a.ssid_length, hasBssid ? a.bssid : nullptr, hasKey ? pass : nullptr, hasKey ? keyLength : 0);
+      if (r) { gAssocResult = kAssocFailed; gJoinPending = false; }   // the request never reached the station
       memset(pass, 0, sizeof pass); memset(&a, 0, sizeof a);
       if(!r)pong_wifi_wake();
       return r ? EINVAL : 0; }
-    case kDisassociate: case kDeauth: gUserJoin = true; log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
+    case kDisassociate: case kDeauth: gUserJoin = true; gLinkUpMs = 0; gLinkSuppressed = true; gAssocResult = kAssocFailed; gJoinPending = false;
+      log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
     case kScanCacheClear: case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return 0;
+    case kAbortScan: return 0;   // accepted; a running scan still runs to its end (seconds) and reports it
     // Settings the module has no use for, that the wireless daemon sends at every state change (a property list, two flags): taking them
     // without effect is what a driver with nothing to configure does; refusing makes the daemon repeat them and log errors.
     case kProperty: {
@@ -574,10 +840,12 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     }
   }
   switch (type) {
-  case kPower: w[0] = 1; w[1] = 1; w[2] = gPower ? 1 : 0; return copy_out(rq, w, 24, kernel);
+  // A station that is off is off even while the daemon's power bit is still set (the reference port
+  // answers gPower && state != NW_STA_OFF): saying 1 here makes the daemon skip the re-enable.
+  case kPower: w[0] = 1; w[1] = 1; w[2] = (gPower && st.state != NW_STA_OFF) ? 1 : 0; return copy_out(rq, w, 24, kernel);
   case kState: return answer_value(rq, static_cast<uint32_t>(gPower ? map_state(st.state) : 0), kernel);
   case kOpMode: return answer_value(rq, 1, kernel);   // station
-  case kAuthType: w[0] = 1; w[1] = 1; w[2] = gKeyed ? 0x8 : 0; return copy_out(rq, w, 16, kernel);   // {version, lower: open system, upper: WPA2 personal or none}
+  case kAuthType: w[0] = 1; w[1] = 1; w[2] = gKeyed ? (gModern27Client ? 0x10 : 0x8) : 0; w[3] = 0; return copy_out(rq, w, 16, kernel);   // {version, lower: open system, upper: WPA2 personal in the daemon's own encoding}
   case kPowerSave: return answer_value(rq, 0, kernel);
   // en0 is the physical infrastructure station, not P2P/AWDL. A physical
   // interface has role zero and no virtual parent. These discovery queries
@@ -588,6 +856,11 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   case kCardCaps: {   // a bitmap, bit n in byte n / 8: AES, AES-CCM, power management, short slot and preamble, WPA2, WME, short guard interval at 20 MHz
     static const uint8_t has[] = { 2, 3, 6, 9, 10, 14, 17, 19 };
     for (uint8_t b : has) out.raw[b / 8] |= static_cast<uint8_t>(1u << (b % 8));
+    // A 12-byte request is the 24A446 extent, and it is the one whose scanner tests bits 22 and 46
+    // (PongWifiAbi.h): without 22 a scan that names networks fails at once with -3903 and never
+    // reaches this driver; without 46 the framework reads results before the scan-done event.
+    if (rq.req_len <= PONG_WIFI_CAPS_BYTES) { uint8_t caps[PONG_WIFI_CAPS_BYTES]; pong_wifi_caps_fill(caps);
+      for (unsigned i = 0; i < PONG_WIFI_CAPS_BYTES; ++i) out.raw[i] = caps[i]; }
     // 22H374 asks for 19 capability bytes (older clients ask for 12).
     // Preserve that negotiated extent and zero unsupported extension bits;
     // truncating the newer bitmap to 12 makes interface discovery incomplete.
@@ -611,51 +884,94 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   }
   case kRssi: case kNoise: {   // {version, radios, unit (0: dBm), per chain[4], aggregate, extension per chain[4], its aggregate}
     if (type == kRssi && st.state != NW_STA_UP) return ENOENT;
-    const uint32_t v = static_cast<uint32_t>(type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95);
+    const int32_t dbm = type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95;
+    // The status bar draws its bars from this query, not from the scan record, so every answer is logged with the
+    // value it carried: a bar count that disagrees with the record can then be read off one console.
+    static unsigned asks; if (asks++ < 60) log(6, "wifi-net: %s query -> %d dBm (link state %d)", type == kRssi ? "rssi" : "noise", dbm, static_cast<int>(st.state));
+    const uint32_t v = static_cast<uint32_t>(dbm);
     w[0] = 1; w[1] = 1; w[2] = 0; for (int i = 3; i < 13; i++) w[i] = v; return copy_out(rq, w, 13 * 4, kernel); }
-  case kRate: return answer_value(rq, st.state == NW_STA_UP ? 54 : 0, kernel);
+  // The station caches the peer's PHY rate at every status update (nw_abi.h tx_rate_100kbps), so the
+  // daemon is told the rate in use rather than a constant that would be wrong at every VHT width.
+  case kRate: return answer_value(rq, st.state == NW_STA_UP ? st.tx_rate_100kbps / 10 : 0, kernel);
   case kTxPower: return answer_value(rq, 15, kernel);
   case kDriverVersion: case kHardwareVersion: { const char *v = type == kDriverVersion ? "nativewifi 1" : "QCA6490 (ath11k/WCN6855)"; strlcpy(reinterpret_cast<char *>(out.raw), v, 256); return copy_out(rq, out.raw, 256, kernel); }
   case kCountryCode: { char cc[3]; country(cc); return answer_bytes(rq, cc, 3, kernel); }   // the two letters and a NUL (the daemon asks with a 3-byte buffer)
   case kAssociateResult: return answer_value(rq, static_cast<uint32_t>(gAssocResult), kernel);
   case kSupportedChannels: case kHwSupportedChannels: {
-    out.chans.version = 1; unsigned n = 0;
+    out.chans.version = 1; unsigned n = 0, g24 = 0, g5 = 0;
     uint32_t frequencies[401];unsigned actual=nw_wifi_channel_list(frequencies,401);
     // CWFChannel compares the complete flag word for supported membership.
     // Keep the band/width representation consistent with scan/current/
     // history channels rather than adding ACTIVE only to this answer.
-    for(unsigned i=0;i<actual && n<401;i++){fill_channel(out.chans.list[n],frequencies[i]);n++;}
-    static unsigned shown; if (!shown++) { unsigned lo=0, hi=0;
-      for (unsigned i = 0; i < n; i++) (frequencies[i] < 3000 ? lo : hi)++;
-      log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi); }
+    // A 24A446 daemon is told only about the channels the station can scan. Its 6 GHz entries are
+    // passive and a scan never visits them, so announcing them offers the pane networks the radio
+    // cannot hear (the reference port leaves them out of its answer); the 22H374 answer stays as the
+    // image that proved the pane. No flag word changes: only whole entries are dropped.
+    for(unsigned i=0;i<actual && n<401;i++){
+      if(gModern27Client && frequencies[i] >= PONG_BAND_6GHZ_MIN)continue;
+      fill_channel(out.chans.list[n],frequencies[i]);(frequencies[i]<3000?g24:g5)++;n++;}
+    static unsigned shown; if (!shown++) {
+      log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, g24, g5);
+      for (unsigned i = 0; i < n && i < 4; i++) log(6, "wifi-net: channel %u: number %u flags 0x%x", frequencies[i], out.chans.list[i].channel, out.chans.list[i].flags); }
     out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }
   case kScanResult: {
-    nw_bss_info b; const int count = nw_wifi_bss_count();
-    const uint64_t sampled_ns=scan_clock_ns();
-    if (gScanCursor >= static_cast<unsigned>(count) || nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) {   // after the last record
+    if (rq.req_len == PONG_SCAN_RECORD_24A446) gModern27Client = true;   // a 24A446 daemon asks for the 2280-byte record
+    const int count = gSnapCount ? static_cast<int>(gSnapCount) : nw_wifi_bss_count();
+    nw_bss_info b; bool bad = false;
+    // A held network that has not been heard for a minute is passed over (the reference port's policy):
+    // one whose access point went out of range leaves the list instead of being handed out forever. The
+    // frozen list carries the age each record had when the sweep ended, so the time since is added back.
+    const uint64_t now_ns = scan_clock_ns();
+    while (gScanCursor < static_cast<unsigned>(count)) {
+      if (gSnapCount) b = gSnap[gScanCursor];
+      else if (nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) { bad = true; break; }
+      if (gSnapCount) {
+        const uint64_t held_ns = uint64_t(b.age_ms) * 1000000ull + (now_ns > gSnapAtNs ? now_ns - gSnapAtNs : 0);
+        b.age_ms = held_ns / 1000000ull > 0xffffffffull ? 0xffffffffu : static_cast<uint32_t>(held_ns / 1000000ull);
+      }
+      if (!pong_scan_held_stale(b.age_ms)) break;
+      ++gScanCursor;
+    }
+    if (gScanCursor >= static_cast<unsigned>(count) || bad) {   // after the last record
       static unsigned ends;
       if (++ends % 16 == 1) log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);
       gScanCursor = 0; gScanServed = 0; return EIO; }
-    gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns);
+    gScanCursor++; ++gScanServed; fill_result(out.res, b,rq.req_len);
+    // A 5 GHz record the daemon drops despite being served is a field problem, so print its encoded words.
+    if (b.freq_mhz >= 3000 && gScanServed <= 6) {
+      const uint32_t *wds = reinterpret_cast<const uint32_t *>(&out.res);
+      log(6, "wifi-net: 5ghz %u words %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x",
+          gScanServed, wds[0], wds[1], wds[2], wds[3], wds[4], wds[5], wds[6], wds[7], wds[8], wds[9], wds[10], wds[11]);
+      // The element blob decides the security type the daemon parses, so print its head for the same records.
+      const uint8_t *ie = reinterpret_cast<const uint8_t *>(&out.res.elements);
+      log(6, "wifi-net: 5ghz %u ie %02x%02x%02x%02x%02x%02x%02x%02x %02x%02x%02x%02x%02x%02x%02x%02x",
+          gScanServed, ie[0],ie[1],ie[2],ie[3],ie[4],ie[5],ie[6],ie[7],ie[8],ie[9],ie[10],ie[11],ie[12],ie[13],ie[14],ie[15]);
+    }
     // The daemon's list is only as complete as what it read: log what it consumed, not just the first few.
-    if (gScanServed <= 3 || gScanServed % 8 == 0) log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s", gScanServed, count, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
-    return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
+    if (count <= 40 || gScanServed <= 3 || gScanServed % 8 == 0) log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s", gScanServed, count, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
+    return copy_out(rq, &out.res, sizeof(out.res), kernel); }
   case kCurrentNetwork: {
+    if (rq.req_len == PONG_SCAN_RECORD_24A446) gModern27Client = true;
     if (st.state < NW_STA_ASSOC) return ENOENT;
     nw_bss_info b; const int count = nw_wifi_bss_count();
     for (int i = 0; i < count; i++) {
-      const uint64_t sampled_ns=scan_clock_ns();
       if (!nw_wifi_bss_get(i, &b) && !memcmp(b.bssid, st.bssid, 6)) {
-        fill_result(out.res, b,sampled_ns);
-        return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel);
+        fill_result(out.res, b,rq.req_len);
+        // The scan record is a snapshot; the daemon's current-network answer is what the bars follow,
+        // so answer with the live peer signal the station refreshes instead of the sweep's value.
+        out.res.rssi = st.signal_dbm;
+        out.res.snr = st.signal_dbm > -95 && st.signal_dbm < 0 ? st.signal_dbm + 95 : 0;
+        return copy_out(rq, &out.res, sizeof(out.res), kernel);
       }
     }
     // Joined by a join that did not scan first (a network the Settings pane did not list): the access point is not in the scan list, so
     // describe it from the link's own state. Answering "no such network" while associated makes the wireless daemon think the link is gone.
     memset(&b, 0, sizeof b); memcpy(b.bssid, st.bssid, 6); b.ssid_len = st.ssid_len; memcpy(b.ssid, st.ssid, 32); b.freq_mhz = st.freq_mhz; b.signal_dbm = st.signal_dbm;
     b.caps = static_cast<uint16_t>(0x0001 | (gKeyed ? 0x0010 : 0)); b.beacon_int = 100;
-    fill_result(out.res, b, scan_clock_ns());
-    return copy_out(rq, &out.res, rq.req_len>=sizeof(out.res)?sizeof(out.res):sizeof(out.res.legacy), kernel); }
+    fill_result(out.res, b, rq.req_len);
+    out.res.rssi = st.signal_dbm;
+    out.res.snr = st.signal_dbm > -95 && st.signal_dbm < 0 ? st.signal_dbm + 95 : 0;
+    return copy_out(rq, &out.res, sizeof(out.res), kernel); }
   default: log_unhandled(false, type, rq, kernel); return EOPNOTSUPP;
   }
 }
@@ -671,7 +987,10 @@ errno_t if_ioctl(ifnet_t, unsigned long cmd, void *data) {
     // A user-page fault must not retain the driver state lock: scan/join
     // completions on the station worker need that lock too. The native
     // user-client tunnel already uses this copy-before/after-lock pattern.
-    if(len>5120 || (len && !rq->req_data))return EINVAL;
+    // A 24A446 scan request is 0x14e8 bytes (PongWifiAbi.h), past the 5120 this path used to
+    // accept: the framework reaches the driver by ioctl on this generation, so refusing that
+    // length turns every named scan into EINVAL before it is parsed.
+    if(len>PONG_SCAN_REQUEST_MAX || (len && !rq->req_data))return EINVAL;
     void *bytes=len?IOMallocZeroData(len):nullptr;
     if(len && !bytes)return ENOMEM;
     struct Buffer {void *p;size_t n;~Buffer(){if(p){bzero(p,n);IOFreeData(p,n);}}} buffer{bytes,len};
@@ -874,6 +1193,14 @@ class IONetworkStackUserClient : public IOUserClient {
       char text[200] = "?";
       if (OSSerialize *s = OSSerialize::withCapacity(512)) { if (properties && properties->serialize(s)) strlcpy(text, s->text(), sizeof text); s->release(); }
       log(6, "wifi-net: network stack command %s", text);
+      // A registry write carrying pong-wifi-stop asks the interface to quiesce and the station to stop.
+      bool stopCommand = false;
+      for (const char *q = text; *q && !stopCommand; ++q)
+        stopCommand = __builtin_strncmp(q, "pong-wifi-stop", 14) == 0;
+      if (stopCommand) {
+        log(6, "wifi-net: station stop requested by the network stack client");
+        pong_wifi_net_stop(); pong_wifi_station_stop();
+      }
     }
     return kIOReturnUnsupported;
   }
@@ -1040,6 +1367,21 @@ extern "C" void pong_wifi_net_failed(void) {
   lck_mtx_unlock(gLock);
 }
 
+// The teardown order the wiring guide asks for is: stop accepting requests,
+// cancel the asynchronous work, then stop the station component. The last
+// step runs on the platform worker, which calls nw_wifi_stop when asked to.
+// The DMA arena is the one thing that cannot be released without a reset.
+extern "C" void pong_wifi_net_stop(void) {
+  if (!gLock) return;
+  lck_mtx_lock(gLock);
+  __atomic_store_n(&gFailed,true,__ATOMIC_RELEASE); gPower = false;
+  gScanning = 0; gScanCursor = 0; gAssocResult = kAssocFailed;
+  if (gCachedScan) thread_call_cancel(gCachedScan);
+  pong_wifi_notification_reset(&gNotificationQueue);
+  lck_mtx_unlock(gLock);
+  log(6, "wifi-net: interface quiesced; no new scan or join is accepted");
+}
+
 // Called once the module has a station interface and a hardware address.
 extern "C" void pong_wifi_net_start(const uint8_t mac[6]) {
   if (gIf) return;
@@ -1049,6 +1391,10 @@ extern "C" void pong_wifi_net_start(const uint8_t mac[6]) {
   uint32_t test = 0, cycle = 0;
   gCycleTest = PE_parse_boot_argn("pong_wifi_test", &test, sizeof(test)) && test == 1 &&
       PE_parse_boot_argn("pong_wifi_cycle", &cycle, sizeof(cycle)) && cycle == 1;
+  // WPA3 feasibility (parked): a bare sae argument arms one SAE-sized authentication frame and costs four bytes of
+  // the 607-byte command line. sae=2 would pick group 20, which the line cannot afford at the moment.
+  uint32_t sae = 0;
+  if (PE_parse_boot_argn("sae", &sae, sizeof(sae)) && nw_wifi_sae_probe) nw_wifi_sae_probe(sae == 2 ? 20 : 19);
   struct ifnet_init_eparams p; memset(&p, 0, sizeof p);
   p.ver = IFNET_INIT_CURRENT_VERSION; p.len = sizeof p; p.flags = IFNET_INIT_LEGACY | IFNET_INIT_NX_NOAUTO; p.name = "en"; p.unit = 0; p.family = IFNET_FAMILY_ETHERNET; p.subfamily = IFNET_SUBFAMILY_WIFI; p.type = IFT_ETHER;
   p.output = if_output; p.demux = ether_demux; p.add_proto = ether_add_proto; p.del_proto = ether_del_proto; p.check_multi = ether_check_multi; p.framer = ether_frameout;

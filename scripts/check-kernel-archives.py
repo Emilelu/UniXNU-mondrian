@@ -43,6 +43,22 @@ EXPECTED = (
     ("XNU_PONG_THERMAL", "build/thermal-kext/libK60ThermalKext.a", "k60_thermal_start"),
 )
 
+# Archives the board links through an environment variable instead of a
+# defconfig archive entry: (config symbol, override variable, checkout-relative
+# path, entry point, optional later symbol). build-strict.sh:195-219 turns
+# CONFIG_XNU_PONG_WIFI=y (or XNU_PONG_WIFI=1) into XNU_PONG_WIFI_ARCHIVE and the
+# kernel link force-loads it, so neither .config nor [kernel] archives names the
+# file. The official porting checklist (porting/network, build and verification)
+# asks for exactly two inspections of an archive like this before a flight:
+# `llvm-ar t` to prove the members are real objects and `llvm-nm
+# --defined-only` to prove the entry point is defined rather than imported.
+ENV_ARCHIVES = (
+    ("XNU_PONG_WIFI", "XNU_PONG_WIFI_ARCHIVE", "build/pong-wifi/libPongWifiNative.a",
+     "pong_wifi_start_optional", "pong_wifi_net_stop"),
+)
+
+AR_CANDIDATES = ("/usr/bin/llvm-ar-18", "/usr/bin/llvm-ar", "llvm-ar-18", "llvm-ar")
+
 
 def find_kernel(out: Path) -> Path | None:
     """Return the newest kernel.macho under the output tree.
@@ -94,6 +110,47 @@ def kernel_symbols(kernel: Path, nm: str) -> set[str]:
         if parts:
             symbols.add(parts[-1].lstrip("_"))
     return symbols
+
+
+def ar_tool() -> str | None:
+    """The ar next to the nm this gate picked; llvm-ar reads Mach-O archives."""
+    for name in AR_CANDIDATES:
+        if name.startswith("/"):
+            if Path(name).is_file():
+                return name
+            continue
+        found = subprocess.run(["sh", "-c", f"command -v {name}"], capture_output=True, text=True)
+        if found.returncode == 0 and found.stdout.strip():
+            return found.stdout.strip()
+    return None
+
+
+def parse_defined_symbols(text: str) -> set[str]:
+    """Symbols nm lists as defined, with or without --defined-only.
+
+    An archive member that only imports a name prints "U name". Counting that as
+    defined is the exact confusion this gate exists to prevent (P-190), so the
+    marker column decides rather than the presence of the name.
+    """
+    defined: set[str] = set()
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[-2] != "U":
+            defined.add(parts[-1].lstrip("_"))
+    return defined
+
+
+def inspect_archive(archive: Path, nm: str, ar: str | None) -> tuple[int, set[str]]:
+    """(member count, defined symbols) for one archive; never raises."""
+    members = 0
+    if ar:
+        proc = subprocess.run([ar, "t", str(archive)], capture_output=True, text=True)
+        if proc.returncode == 0:
+            members = sum(1 for line in proc.stdout.splitlines() if line.strip())
+    proc = subprocess.run([nm, "--defined-only", str(archive)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        proc = subprocess.run([nm, str(archive)], capture_output=True, text=True)
+    return members, parse_defined_symbols(proc.stdout)
 
 
 def enabled(config: Path, symbol: str) -> bool:
@@ -149,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     if not nm:
         print("FAIL: no nm tool found", file=sys.stderr)
         return 2
+    ar = ar_tool()
 
     symbols = kernel_symbols(kernel, nm)
     problems = []
@@ -182,6 +240,53 @@ def main(argv: list[str] | None = None) -> int:
             problems.append(
                 f"CONFIG_{symbol}=y but no {needle} symbol is in {kernel.name}; "
                 f"{rel} was force-loaded into a branch that does not run (P-190)"
+            )
+
+    # The environment-selected archives, inspected rather than trusted: an
+    # archive that exists but holds no members, or holds an import instead of
+    # the definition, links without a symbol and the kernel simply has no WiFi.
+    for symbol, env_name, rel, entry, later in ENV_ARCHIVES:
+        if not enabled(config, symbol):
+            print(f"skip: CONFIG_{symbol} is not enabled in {config.name}")
+            continue
+        checked += 1
+        override = os.environ.get(env_name)
+        archive = Path(override) if override else REPO / rel
+        if not archive.is_file():
+            if override:
+                problems.append(
+                    f"{env_name}={override} does not exist; the build would link "
+                    f"nothing under CONFIG_{symbol}=y (P-190)"
+                )
+            else:
+                # No override: build-strict.sh:215 already refuses this exact
+                # configuration before the link, and the registry runs this gate
+                # for every line, so failing here would block builds that never
+                # asked this checkout for a wifi archive.
+                print(
+                    f"skip: {env_name} is unset and {archive} is absent; nothing "
+                    f"to inspect for CONFIG_{symbol}"
+                )
+            continue
+        members, defined = inspect_archive(archive, nm, ar)
+        if ar and members == 0:
+            problems.append(
+                f"CONFIG_{symbol}=y but {ar} t {archive.name} lists no members: "
+                f"the file is an archive header without objects (P-190)"
+            )
+        if entry not in defined:
+            problems.append(
+                f"CONFIG_{symbol}=y but {archive.name} does not define {entry}; "
+                f"the link would import it from nowhere and the force_load would "
+                f"add nothing (P-190)"
+            )
+        elif later and later not in defined:
+            # A stale archive predates the teardown export; failing here would
+            # block the rebuild that fixes it (same deadlock shape as P-207).
+            print(
+                f"note: {archive.name} does not export {later} yet; rebuild the "
+                f"wifi archive before relying on the stop path",
+                file=sys.stderr,
             )
 
     if problems:

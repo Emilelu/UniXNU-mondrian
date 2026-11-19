@@ -82,6 +82,12 @@ python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27   # 列出
   `.c/.h`、测试文件与用例数；`check-power-carry.py --target` 会按哈希说 SAME/DRIFT/MISS。
 - 只想先要温控那一块时，三个提交（`d1ddea39`、`92c56173`、`9554ab7e`）的合并 diff 在 27 树上
   `git apply --check` 通过，可以直接 cherry-pick，不必整支合并。
+- **bundle 通道已实测走通（2026-11-20，`f902a778` 的导出树）**：`git archive HEAD` 把 27 检出
+  导到 scratch（不动它的 `.git`，不建工作树），`cp -a build/power-carry-bundle/. <导出树>/` 之后，
+  在**那份 27 代码上**直接得到 `power-carry: OK (8 modules, 16 files, 872 checks; 3 judge(s), 75 cases)`、
+  `hw-contracts: 23 contract(s) across 5 lane(s)`、`power-host: OK (1915 checks in 10 suites)` 与
+  `power-python: OK (6 suites)`。也就是说 27 线不需要拉本分支、也不需要合并，就能先拿到全部离线证据；
+  剩下的只有真机重接（属性号、`read_random`、读取路径）。
 - 拿不到分支时还有一个不看 git 的通道：
   `python3 scripts/make-power-carry-bundle.py` 按 `CARRY.toml` 把 8 个模块、3 个判读器、它们的测试
   与三份文档复制成 `build/power-carry-bundle/`（路径与仓库一致，附 `MANIFEST.sha256` 与 README）。

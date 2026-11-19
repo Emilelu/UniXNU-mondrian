@@ -980,6 +980,37 @@ k38 的静态请求证明了两件事：包能从我们这边发出去（`:944` 
 静态端口这条兜底只在前者没有时继续重试。若 k39 仍然零应答，下一变量不再是重试：要么**把 IPCRTR 的
 open 提到 `modem ready` 之前**，要么在 AP 侧实现最小的 QRTR 名称服务并把 `qrtr_ns` 的重放语义补上。
 
+### 3.27 待命：k39 已打包、k40 只有源码（2026-11-19 12:58）
+
+用户要求本线先收尾待命：等 fork 我们仓库的那位外国开发者在 iOS 27（目标 27.0.1）上取得突破性进展
+（到 bsd_init）之后，蓝牙线与基带线都转向 iOS 27；本仓库的 ios27 分支由蓝牙线建立、GitHub Actions
+已成功跑过一次。本线在 iOS 16 上的工作停在下面这个明确的状态，恢复时不需要重新推导：
+
+| 项 | 状态 |
+|---|---|
+| k39 镜像 9f950b09… | 已打包、未上机（§3.26）。唯一变量是四分钟窗口 + 每 30 s 交替重发 lookup 与端口 96 的 DMS 请求 |
+| k40 源码 bcf277dc | 已提交、已同步 mirror：就绪等待循环每 500 次 poll（1 s）打印 ready wait <ms> fifo=<item 480 size> smp2p=<0/1> items=<count>；0622 重新生成 103,615 B / 5 files，主机测试全绿 |
+| k40 内核/镜像 | 没有。build-k40-kernel.sh 已生成，构建在 bootstrap 阶段被停止，modem-20261117k40/ 为空，没有 manifest |
+| 起飞守卫 | E:/k60-work/artifacts/fly-k39-b.sh：最新 console.log 的 mtime < 120 s 视为别人正在采集；连续两次读到 fastboot 才 exec flash.sh（420 s）。12:52 那次失败是 flash.sh 自检时设备从 fastboot 掉成 none，不是脚本逻辑错 |
+
+k40 要回答的问题只有一个：modem 建出 glink fifo（smem item 480）之后，到 smp2p ready（item 435）之前
+隔多久。k37/k38 都是等两者齐备才 adopt 并 open IPCRTR，而 modem 的 QMI 注册潮发生在更早的窗口里；
+这个间隙决定“把 open 提到 modem ready 之前”是不是一个可行的单变量（§3.26 末尾的两条路线）。
+
+k41 的备忘（未写一行代码，恢复时照此改）：
+
+- drivers/PongCellular/K60ModemLink.c:1182-1215 的退出条件从“smp2p ready && sizes[2] != 0”收窄到
+  “sizes[2] != 0”（fifo 出现即可，几何检查仍在 :1219-1224），把 smp2p ready 变成 QRTR 循环里的旁路打印，
+  于是 adopt 与 qcom_glink_channel(..., open_now = 1)（:1241/:1261）发生在 modem 注册之前。
+- 同一条 wait 行（:1311-1315）可加 tx 端读数：k60_qrtr_link.tx.head/.tail 两个指针在 :1233-1234 装好，
+  tx.tail（远端读指针 desc[0]）是否随我们的发送增长，是“modem 到底收没收到我们的 DATA”的直接证据。
+- 若 k41 仍看不到服务：AP 侧最小名称服务（qrtr_ns 重放语义）+ 常驻 worker，两者都只能用内核线程
+  （kernel_thread_start）实现，Pong 没有可抄的 XNU 版本。
+
+恢复时要先做的四件事：bash scripts/k60-device.sh state 看板子在哪；给门禁送 K60_DEVICE_INPUT=/mnt/e/k60-work/mirror-k14-device；
+跑 update-modem-qrtr-patch.py 前确认 0622 与 drivers/PongPower/QcomGlink.c 的 delta 仍只命中一处
+（if (!size || !id) 若被上游改动，生成器会以 count != 1 报错，这是设计好的护栏）；sync-device-input.py 一致。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -1098,6 +1129,10 @@ open 提到 `modem ready` 之前**，要么在 AP 侧实现最小的 QRTR 名称
     DMS GetRevision（各最多 8 次）。k38（`ce6ffeb1…`）已于 2026-11-19 12:09 飞过：S3/S6 PASS，端口 96
     的请求发出去但零应答（§3.25）。S3/S6 必须保持，S4 仍按 dms revision 判，S5 由同一份日志判读。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
+    **2026-11-19 12:58 起本线待命**：用户计划等 fork 方在 iOS 27（27.0.1）上到达 bsd_init 后全面转过去；
+    蓝牙线与基带线届时都迁到 iOS 27，本仓库的 ios27 分支由蓝牙线建立、Actions 已跑通一次。
+    此刻 k39（`9f950b09…`）已打包未飞；k40（`bcf277dc9e549595f75e54b0f26e86ac363464c3`，就绪时间线）只有源码与 0622，
+    构建被停止、无镜像。恢复清单与 k41 备忘见 §3.27。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

@@ -99,13 +99,13 @@
 
 ## 5. 结果登记
 
-criteria-sha256: 6cd6e057f7cf2baea4dd37c67c45c385333314573326844b10b3d26c50d56100
+criteria-sha256: b2306b9ee4e4a157a424d7bf77142e93a9f2dcb65f8f5a3bb7e7d480625045db
 
 ### 5.1 飞行事实
 
 | 项 | 值 |
 | --- | --- |
-| 镜像 | `gpu-submit-20261119` · `boot.img 1ca7fd150cb4f461ac75c4ffafa68e85620dab2b1e06adb1333c160befe802b7` |
+| 镜像 | `gpu-submit-20261119` · `boot.img 1ca7fd150cb4f461ac75c4ffaca68e85620dab2b1e06adb1333c160befe802b7` |
 | 内核 | `18537b4d633d3ce62ce2a9e24ae788703f01b2b56825f92b8ec04ca6d4cbd5fa`（105,693,184 B） |
 | 证据 | `usblog-20261119-095547`，236,641 B / 3,357 行，`complete=true`，supervisor rc=0 |
 | 有效性 | `compositor=4 · client_commits=8 · scanout_lines=4` ⇒ 有效（但**空闲**，见 §6） |

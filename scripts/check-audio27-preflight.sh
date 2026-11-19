@@ -57,6 +57,7 @@ run "glue needs only the table" sh scripts/tests/portability/run-deps.sh
 run "glue copy set matches the compiler" python3 scripts/check-audio27-closure.py
 run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
 run "one command applies the wiring" python3 scripts/tests/test-apply-audio27-wiring.py
+run "weak hook links either way" sh scripts/tests/portability/run-weak-hook.sh
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh

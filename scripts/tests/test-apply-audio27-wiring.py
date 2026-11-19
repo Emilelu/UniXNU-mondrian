@@ -8,6 +8,7 @@ applier against it, and reads the two verdicts the script prints: how many
 sources are in bsd/dev and whether conf/files names them. Nothing touches a
 real tree.
 """
+import io
 import pathlib
 import shutil
 import subprocess
@@ -147,6 +148,9 @@ def case_hook_init(root):
     # second run: idempotent, still one call
     code, out = run(root, "--hook-init", "--anchor", ANCHOR_27)
     assert code == 0, out
+    init_text = init.read_text(encoding="utf-8")
+    assert "__attribute__((weak))" in init_text, "the declaration must be weak"
+    assert "if (pong_audio_amp_probe != NULL)" in init_text, "the call must be guarded"
     assert "already hooked" in out, out
     assert init.read_text().count("pong_audio_amp_probe()") == 1, init.read_text()
     assert listed(conf) == 2, conf.read_text()
@@ -171,6 +175,19 @@ def case_hook_wrong_anchor(root):
     assert "pong_audio_amp_probe()" not in init.read_text(), init.read_text()
 
 
+def case_hook_anchor_without_newline(root):
+    """A pasted anchor line loses its newline; the block still starts a line."""
+    make_tree(root)
+    init = seed_bsd_init(root)
+    anchor = '\tbsd_init_kprintf("calling vfsinit\\n");'
+    code, out = run(root, "--hook-init", "--anchor", ANCHOR_27,
+                    "--init-anchor", anchor)
+    assert code == 0, out
+    text = init.read_text()
+    assert "\n#if 1\n" in text, "the block must start on its own line: " + text
+    assert ";#if 1" not in text, "the block must not follow the semicolon: " + text
+
+
 def case_hook_without_bsd_init(root):
     make_tree(root)
     code, out = run(root, "--hook-init", "--anchor", ANCHOR_27)
@@ -189,6 +206,7 @@ CASES = [
     ("the hook calls the probe exactly once", case_hook_init),
     ("a run without the hook says so", case_hook_absent_is_loud),
     ("a hook with the wrong anchor fails", case_hook_wrong_anchor),
+    ("a pasted anchor still starts a line", case_hook_anchor_without_newline),
     ("a tree without bsd_init is refused", case_hook_without_bsd_init),
 ]
 

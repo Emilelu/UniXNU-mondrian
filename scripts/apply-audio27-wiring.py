@@ -47,12 +47,20 @@ INIT_FILE = "bsd/kern/bsd_init.c"
 INIT_ANCHOR = '\tbsd_init_kprintf("calling vfsinit\\n");\n'
 INIT_BLOCK = (
     "#if 1\n"
-    "\t/* K60 audio amplifier probe (drivers/PongAudio): the amplifiers answer a\n"
-    "\t * chip-id read over AP-owned GENI I2C without the DSP. Inert unless the\n"
-    "\t * image is booted with pong_audio_probe=1. */\n"
+    "\t/*\n"
+    "\t * K60 audio amplifier probe: the AW88261 answers a chip-id read over\n"
+    "\t * AP-owned GENI I2C without the DSP. The switch is the boot argument\n"
+    "\t * pong_audio_probe=1, read inside the probe; it is deliberately not\n"
+    "\t * #if defined(XNU_PONG_AUDIO), because that macro reaches\n"
+    "\t * PongAudioAmp.o only and would compile this call out. Ported from\n"
+    "\t * the 16 line series, patches/audio/0001:3508-3522.\n"
+    "\t */\n"
     "\t{\n"
-    "\t\textern int pong_audio_amp_probe(void);\n"
-    "\t\t(void)pong_audio_amp_probe();\n"
+    "\t\textern int pong_audio_amp_probe(void) __attribute__((weak));\n"
+    "\n"
+    "\t\tif (pong_audio_amp_probe != NULL) {\n"
+    "\t\t\t(void)pong_audio_amp_probe();\n"
+    "\t\t}\n"
     "\t}\n"
     "#endif\n"
 )
@@ -108,6 +116,10 @@ def hook_init(work, check, anchor=INIT_ANCHOR):
         print("audio wiring: no %s under %s; nothing to hook" % (INIT_FILE, work))
         return 1
     text = path.read_text(errors="replace")
+    if not anchor.endswith("\n"):
+        # a caller pasting the line out of the file loses its newline; without
+        # this the block lands after the semicolon instead of on its own line
+        anchor += "\n"
     calls = text.count(CALL)
     if calls:
         print("audio wiring: bsd_init already hooked (probe calls %d)" % calls)

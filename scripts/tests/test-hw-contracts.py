@@ -148,6 +148,15 @@ def main() -> int:
     if real.is_file():
         problems = module.verify(REPO, real)
         check("the repository manifest verifies", problems == [], str(problems[:3]))
+        problems = module.checklist_problems(REPO, real)
+        check("the generated checklist matches its table", problems == [], str(problems))
+        stale = build(WORK / "stale", healthy)
+        (WORK / "stale" / module.CHECKLIST).parent.mkdir(parents=True, exist_ok=True)
+        (WORK / "stale" / module.CHECKLIST).write_text("hand edited\n", encoding="utf-8", newline="\n")
+        problems = module.checklist_problems(WORK / "stale", stale)
+        check("a hand-edited checklist is refused", any("is stale" in p for p in problems), str(problems))
+        problems = module.checklist_problems(WORK / "good", good)
+        check("a missing checklist is reported", any("is missing" in p for p in problems), str(problems))
 
     print()
     if failures:

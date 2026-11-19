@@ -46,6 +46,7 @@ EXTRA = [
     "docs/research/power/09-CHARGE-AUTH.md",
     "docs/research/power/10-THERMAL-MAP.md",
     "docs/research/power/HW-CONTRACTS.toml",
+    "docs/research/power/HW-CONTRACTS-IOS27.md",
     "scripts/check-power-carry.py",
     "scripts/check-power-portability.py",
     # its fixture exercises this gate end to end
@@ -191,10 +192,10 @@ def cite_closure() -> list[str]:
         return []
     rows: list[str] = []
     for row in load(path).get("contract", []):
-        source = str(row.get("source") or "")
-        rel = source.rpartition(":")[0]
-        if rel and rel not in rows:
-            rows.append(rel)
+        for key in ("source", "mirror"):
+            rel = str(row.get(key) or "").rpartition(":")[0]
+            if rel and rel not in rows:
+                rows.append(rel)
     return rows
 
 

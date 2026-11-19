@@ -39,6 +39,7 @@
 | `k60_cpufreq` | 电源 / EPSS | 1/2/3/5/6/7/8 | 0（关闭） | `drivers/PongPower/K60CpuFreqProbe.cpp`；1=只读三域+L3，2=d0 最高非 turbo，3=三域+L3，5=16 ms `processor_info` 只读采样，6=d0 降到最低档（已上机），7=首个降档窗口起 10 s 按 governor 只降档写回并恢复（100 s 上限，已上机），8=同一窗口内双向写回并恢复（已上机）；2/3 为瞬态验证写（写前守卫、写后回读、立即恢复），4 被拒绝，9 已禁用（两次 0 字节卡死）；2/3 未上机，5 已于 2026-11-18 23:19 以 image l 只读上机（274 条样本），6 已于 2026-11-19 02:47 以 image n 上机，7 已于 03:26 以 image r 上机、8 已于 03:58 以 image s 上机（d0 双向生效，d1 写回不被 EPSS 接受）；探针镜像需去掉 `applog=1` 才不超 607 字节 |
 | `platform-sleep` | 电源 / 睡眠 | 0 / 1 | 0（关闭） | `drivers/ArmCpu/ArmCpu.cpp`；仅当值为 1、XNU 侧 `arm64_platform_sleep_hook` 存在且 GIC 映射成功时安装 hook，`quiesceCPU` 才进入 `ml_arm_sleep`；默认 0 时整条路径不安装，image z 用它做默认启动回归 |
 | `platform-sleep-wake-after` | 电源 / 睡眠 | 秒，0 = 不设期限 | 0 | 同上；启动核等待的绝对 CNTV 期限，与 10 s tick 取较小值。没有唤醒源也没有该期限时 hook 直接返回（`unarmed`），所以计时唤醒测试必须同时给 `platform-sleep=1` 和本参数 |
+| `k60_slp` | 电源 / 睡眠 | 秒，0 = 不触发 | 0 | `drivers/PongPower/K60PlatformSleep.cpp`；仅 bring-up 诊断用，非 0 时在板级 hook 注册后启动内核线程，等待指定秒数后调用 `IOPMrootDomain::sleepSystem()`，用于无人按电源键时验证 `platform-sleep=1`；w9/w10 已用它进入 `IOCPUSleepKernel`，但完整恢复挂死，发布镜像不应带它 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |

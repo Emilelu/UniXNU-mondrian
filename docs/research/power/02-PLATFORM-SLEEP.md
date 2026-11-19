@@ -1,6 +1,6 @@
 # 平台睡眠（官网 §5 末段）调研
 
-状态：**ArmCpu 等待路径 + XNU hook + 板级 hook 已实现，host 73 + 1038 项断言，image z 默认启动已上机（SpringBoard），platform-sleep=1 待上机**。官网
+状态：**ArmCpu 等待路径 + XNU hook + 板级 hook 已实现，host 73 + 1038 项断言；image z 默认启动已上机（SpringBoard）；w9/w10 已进入 IOCPUSleepKernel 并完成 prepare/restore 与 timer 唤醒，但完整恢复在 secondary `processor_start` 阶段硬挂，iOS16 平台睡眠暂停上机，转 iOS27 参考实现**。官网
 `https://unixnu.com/zh/porting/power` 的平台睡眠段落（快照 `E:/k60-work/scratch/power-page-20261117.txt:119-121`）
 描述的是板级 XNU 睡眠 hook 与 ArmCpu 挂起路径。2026-11-19 已把 UniXNU/ArmCpu 组件的
 `ArmCpuSleep.h` 与等待路径移植进本仓库的 vendored `drivers/ArmCpu`，补丁 `0623` 提供 XNU 侧
@@ -152,6 +152,10 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
   （`wake_spis=nullptr`、10 s tick），`prepare/restore/tick` 各打一条 `K60Sleep:` 日志；
   从 `k60_physical_battery_start()` 调用，早于电池 lease 检查。PON 电源键的 SPI 481/
   INTID 513 路由尚无驱动配置，因此第一版不注册它，避免把一条永远不触发的线当成唤醒源。
+- 为无人按电源键的首次验证加了诊断入口 `k60_slp=<秒>`（默认 0，关闭）：注册板级 hook 后
+  启动内核线程，等待指定秒数后取 `IOService::getPMRootDomain()` 并调用 `sleepSystem()`；
+  日志为 `K60Sleep: diagnostic trigger armed`、`diagnostic trigger after`、`sleepSystem rc=`。
+  它只用于 bring-up，发布镜像不带该参数；实际睡眠仍走 `platform-sleep=1` 的 hook。
 - 验证：`scripts/tests/test-armcpu-sleep.c`（组件 host 测试适配，1038 项）覆盖掩码、
   决策、绝对期限、tick、pending、storm 与结构体大小；`bash scripts/tests/run-k60-power-host.sh`
   七套件 1530 项全过。battery archive 140,048 B sha256 `f867efca…`；ArmCpu 目标文件
@@ -169,12 +173,19 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
   （`KERN_NOT_SUPPORTED`，即 hook 未安装）且没有 prepare/restore 行，证明默认关闭没有改变
   启动路径。`platform-sleep=1 platform-sleep-wake-after=5` 的 5 s 睡眠/唤醒待测。
 
+- 2026-11-19 13:11 image w9（boot.img `0fc5a223…`、kernel `d87590f6…`、payload `2800c16a…`，30 项/607 B，`platform-sleep=1 platform-sleep-wake-after=5 k60_slp=6 k60_autoreset=90`）首次走通 OS 睡眠入口：trigger 6 s → `sleepSystem rc=0x0` → `IOCPUSleepKernel enter` → `K60TRACE: sleep enter cpus=8`/sched override/platform actions/quiescing/halt cpu 7..1/secondaries done/resumed → `ArmCpu: sleep report phase=5 entries=1 spurious=0 last_intid=27 last_reason=2 cpu_off=0 asleep_ticks=96018353`、`K60Sleep: report prepares=1 restores=1`。这证明 timer-only 等待路径和 CNTV timer PPI 27 唤醒成立（reason 2 = ArmcpuWakeTimer）。随后 `IOCPUSleepKernel` 的唤醒循环 panic `Spurious wakeup of cpu 1 @IOCPU.cpp:334`：secondary 在 `psci_smp_cpu_off` 前没有把 IOCPU 状态置为 Stopped。
+- 2026-11-19 13:28 image w10（commit `24746184`，boot.img `4399eea5…`、kernel `20a0aac9…`、payload `0e686049…`，同样的 30 项/607 B）在 `quiesceCPU` 中先把非启动核 `setCPUState(kIOCPUStateStopped)` 再进 `ml_arm_sleep`。console 显示 `K60TRACE: halt cpu 7..1`、`secondaries done`、`resumed`、`ArmCpu: sleep report phase=5 …`、`K60Sleep: report prepares=1 restores=1 ticks=0`，但再没有 `K60TRACE: wake cpus done` 或 `IOCPUSleepKernel` 退出；console 于 13:29:07 停止，系统硬挂，用户手动复位到 fastboot。结论：等待路径与 timer 唤醒成立，完整恢复（secondary `processor_start`）未通过。0624 的 boot-complete helper 和 0625 的 K60TRACE 只用于这轮 bring-up；0625 仍留在 series 里，发布前应移除或明确标注为调试补丁。
+- 下一步不再在 iOS16 上继续试 platform-sleep；iOS27 使用 catalog ArmCpu 与 sheng 的 `patches/xnu-12377/sheng-platform-sleep.patch`（927a458）重做，见 `docs/research/power/08-IOS27-POWER-PORT.md`。
+
 ## 8. 边界
 
-- 已实现的是等待路径与 XNU 接线，不是“平台睡眠已验收”：image z 默认参数已于
-  2026-11-19 10:12 启动到 SpringBoard（console 168,735 B sha256 `4ec7b2c6…`，2491 行，
-  panicMarker null），证明 hook 只在 `platform-sleep=1` 时生效；下一步用
-  `platform-sleep=1 platform-sleep-wake-after=5` 做 5 s 睡眠/唤醒。
+- 已实现的是等待路径与 XNU 接线，不是“平台睡眠已验收”：image z 默认参数已启动到
+  SpringBoard；w9/w10 在 `platform-sleep=1` 下已进入 `IOCPUSleepKernel`，完成
+  prepare/restore 与 timer 唤醒（w9 report `last_intid=27 last_reason=2`），但 w9 在
+  唤醒循环 panic `Spurious wakeup of cpu 1`，w10 修复 secondary 状态后仍没有
+  `wake cpus done`/`IOCPUSleepKernel` 退出，console 停止、系统硬挂，用户手动复位。
+  因此完整 sleep/resume 未通过；iOS16 不再继续上机，iOS27 按 `08-IOS27-POWER-PORT.md`
+  使用 catalog ArmCpu + sheng xnu-12377 补丁重做。
 - 电源键唤醒仍缺 SPMI/PDC 到 SPI 481 的路由与 PON 锁存清除；看门狗没有可写的固件
   端点（`IOWatchdog` 只是软件 check-in 服务），tick 只记录；背光 1500/600 ms 与触摸
   60 ms 恢复要等显示/触摸分支提供回调。以上都不影响 timer 路径的首次验证。

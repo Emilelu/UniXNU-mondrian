@@ -1606,6 +1606,34 @@ modem 用 0x22 申请一块连续内存、0x23 归还，所有权转移与 §3.4
 提交 `db7a9f89`。判据（将来）：宣告行出现后，若 modem 发 0x24 说明它认了这个服务；
 发 0x22 则要看到分配在 4 GiB 以下、SCM 记录成功、应答里的 extent 与分配一致。
 
+### 3.43 k52（离线，已构建，未上机）：第三个服务——内存分享
+
+k52 把这一层接上服务：宣告 `0x34` 实例 1 端口 `0x101`，并用与存储窗口同一个 4 GiB 以下分配器回答申请、查询与归还。
+
+协议取自 `PongModemMemshare.h`（QMI v1，7 字节头，TLV 长度在 offset 5）：申请 `0x22` 带字节数、客户端、处理器（必须 0）、序列号与可选对齐（≤11），应答带序列号和 13 字节 extent（版本 1、物理地址 8 字节、字节数 4 字节）；查询 `0x24` 报客户端上限 `0x500000`；归还 `0x23` 的 extent 必须与持有的一致。拒绝码沿用参考：48 参数错、2 没内存、3 所有权转移失败、71 不支持。所有权仍走与 RMTFS 相同的 SCM 记录（`0x0c`/`0x16`），两个服务共用新的 `k60_qrtr_assign_pages()`。
+
+接线要点：区域来自同一个 4 GiB 以下的连续分配器（`k60_qrtr_rmtfs_low_alloc`），分配后按 `k60_memshare_region_ok()` 复核 4096 对齐与上界；同一时间只持有一块，字节数/节点/端口任一不同都回 `memshare busy`；归还是先反向转移所有权、成功后才 `kmem_free`。所有请求都打印 `memshare request=%#x client=%u bytes=%u result=%u`，首次宣告打印 `announced memshare service 52 instance 1 port 0x101`。
+
+| 项 | 值 |
+| --- | --- |
+| 源码提交 | `bddd74b9`（接线）、`db7a9f89`（协议层）、`0e985027`（文档） |
+| 构建树 | `/opt/k60/trees/cellular-k49`，`K60_OUT=/opt/k60/trees/cellular-k49-out` |
+| kernel.macho | `105,758,720` B `94d6229c0cc808bf6446d6ac398036eec09ed5e85ae03e90ad143cad56723b19` |
+| COACHZ 记录 | 40 条 |
+| boot-modem-b-full.img | `201,895,936` B `0f63739aeac6a88392272aaf72fcdf14c9fda60f98babfea6a0a2b8003059eb0` |
+| payload.img | `42b51cee0be95b9673bd03b147868c605637de32847c330498613694f83a0371` |
+| payload.json | `8d9f827db8876bc2a3ff5864ff7873120755baaa4e7bc31a68be61b5f0f926e9`（1,403 B） |
+| payload 内核 | `d52ce2ba7dedd557acd174ad0ae6dc7776383db5f56781fcd4dfb2be358e1156` |
+| ADT | `4041e50610b80360b4fb61971c3c9bebab3a91ef55d4f2f431c13bbb5c49cfd9` |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| 启动行 | 30 条 588 B，`image-arg-audit: OK (30 arguments, 588 bytes)`；尾部 `k60_autoreset=300 applog=1 pong_modem=2` |
+| 布局 | kernel 560384 / ramdisk 201326592 / 解压 3145840 / DTB 4024 |
+| series | 230 条，指纹 `f97477fee11e6b59` |
+| 0622 / 0623 | 162,956 B（11 files）/ 174,551 B |
+
+宿主测试 `scripts/tests/test-k60-memshare.c` 覆盖三种消息、四种拒绝码、应答字节布局（37 / 21 / 14 字节）与区域边界，输出 `K60 MEMSHARE PASS parse, replies, regions`；`test-k60-modem-image.py` 30 段一致、GLINK INTENT 与整套 host 测试全绿。
+
+**判据**（本飞仍不指望 S4/S5）：`announced memshare service 52` 出现在 RMTFS 宣告之后；若 modem 要堆，应看到 `memshare buffer va=… physical=<4 GiB 以下>`、`assign … rc=0` 与 `memshare request=0x22/0x23/0x24`；S3/S6 必须保持 PASS。
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

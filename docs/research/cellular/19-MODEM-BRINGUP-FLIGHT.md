@@ -1529,6 +1529,32 @@ Lead 在 2026-11-20 02:46 裁决 (b)：授权本分支给 storage 加**只读**�
 
 还没做的只有接线：`K60ModemLink.c` 的 rw 分支要改成调用 `k60_efs_serve_read`，并把 `k60_efs_read_ufs` 回调接到这个新导出；接线前要先确认本机 LUN 0 的 GPT 里确有 `modemst1`/`modemst2`/`fsg`/`fsc` 四个分区（Android 布局里它们在 LUN 0，SHNGROOT 镜像里没有）。
 
+### 3.40 k50（离线）：在 Lead 提供的 /opt 树里重建（2026-11-20 03:35）
+
+- 树：`/opt/k60/trees/cellular-k49`（Lead 02:46 以 root 建好并 chown emilelu）、`K60_OUT=/opt/k60/trees/cellular-k49-out`；源码 `feat/cellular` HEAD `9b8ce2c0`，与 02:56 的 `origin/feat/cellular` 齐平。
+- 三个让空树能编起来的前置条件（都不是代码问题，但每个都会以一条不相干的报错结束构建）：
+
+  1. **编译记录**。`scripts/build-qcom-baseband.py` 的 `record_for('IOPlatformExpert.cpo.json')` 要求 `build/xnu/ios-obj` 下恰好一份记录，空树没有，于是 `Expected one IOPlatformExpert.cpo.json compile record, found 0`。做法是把已证明树的同一份记录取出，把 223 个参数里的 `/tmp/k60-modem-20261117c` 前缀换成新树路径后落回同名文件。**注意形状**：`record_for` 按对象取值（`record['arguments']`），而 clang `-MJ` 写的是单元素数组；照抄成数组会得到 `TypeError: list indices must be integers or slices, not str`。
+  2. **电池归档**。`build-xnu-4k-baseline.sh:1174` 的 `test -f "$BATTERY_ARCHIVE"` 要求 `build/k60-battery/libK60PhysicalBattery.a`；`build-strict.sh:135` 才会先造它，而本设备仓库不带 `drivers/PongPower`（那是充电线的目录）。从已证明树 stage 同一归档：56,112 B，sha256 `b34178e3bc156569c364d0122d7919dfc762c23ba1601438e97313585caaa765`。
+  3. **设备树**。首次构建前没有 `device-tree/hardware.dtb`，电池脚本与链接步都会失败；把已证明树的 DTB 拷进板目录即可，payload 阶段会再用 `dtc` 从 `dts/mondrian.dts` 重生成。
+
+- 结果（全部来自 `/opt/k60/trees/cellular-k49`，路径可复现）：
+
+  | 件 | 字节 | sha256 |
+  |---|---|---|
+  | kernel.macho | 105,758,720 | `e8c55b4c440c57f37f6b4e0760c2c111fa81260c861d6e2cb849fe91169ca813` |
+  | boot-modem-b-full.img | 201,895,936 | `08be7b8a944f8546651de8225c1825b04e9c5459d67e5f67ab47008f4ed53b4a` |
+  | payload.img | 201,326,592 | `2e37853fbcce4ae43c712a2355a69a1a23a001310e64ec1dccd7df527c5b9a5f` |
+  | payload.json | 1,403 | `cc732753d09dd66076d9bf68cfc81bcf6163889865e9ac28796c2ee6236cc1fa` |
+  | ADT | — | `539cd318f62e4cbf6c7c8bad6dc9c85dc5eb4cf939d38edaa0fb66ff7bf23b13` |
+  | DTB | — | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+  | FD | — | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+
+- 启动行 30 条 / 588 B，`scripts/check-image-args.py --image` 报 `image-arg-audit: OK (30 arguments, 588 bytes)`；布局 `kernel=560384 ramdisk=201326592 解压=3145840 DTB=4024`；`patches/xnu/series` 230 条，指纹 `3c5dce0177dbcac9`；0622 = 142,939 B、0623 = 174,551 B。
+- 符号：`_native_pong_ufs_read_named_volume` @ fffffff007a83214、`_k60_efs_serve_read` @ fffffff00776af98，`llvm-strings` 里 `K60MODEM qrtr` 共 60 条（含 `announced rmtfs`、`rmtfs open path`、`opening IPCRTR early`、`hello probe #%u`）；COACHZ = 40。
+- 与 k49 的差别只有源码：k50 含 `c612b474` 接回的 480 行探针尾巴与 EFS 数据面；k49 的那份镜像出自不可复现的 `/tmp` 树，作废。
+- 判据不变：S3（`power ok`/`auth_reset ok` 六行）、S4（`K60MODEM qrtr: dms revision`）、S5（verdict `ok`）、S6（`bridge enabled` + COACHZ 发布）；本代新增的观测点是 `rmtfs alloc ... physical=0x…`（低于 4 GiB）与随后 modem 是否真的发 `rmtfs rw`。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1588,6 +1614,14 @@ Lead 在 2026-11-20 02:46 裁决 (b)：授权本分支给 storage 加**只读**�
     2026-11-19 15:05 起本线恢复推进：goal 改为“为迁移到 iOS 27.0.1 做准备”，
     仍只做与 iOS 版本无关的内核通用层（UEFI/载波/电源/PAS/GLINK/QRTR/QMI 与 RMTFS）。
 
+    k47（源码 `0d95a3db`）按“把共享区放到低 4 GiB”飞过（2026-11-19 17:14）直接 panic：
+    `vm_map_delete(...): Attempting to remove permanent VM map entry 0xfffffff292f98650
+    [0xfffffffa00000000:0xfffffffa00280000] @vm_map.c:7940`（§3.35）——`KMA_PERMANENT` 的内存在 4 GiB 之上被
+    `kmem_free` 时会 panic。k48（`721bf605…`）去掉永久标志后不再 panic，但八次分配全在 4 GiB 之上
+    （`rmtfs attempt 0..7 above 4 GiB`），modem 拿到 physical=0（§3.35）。k49（`e5a39992…`）把
+    `kmem_alloc_contig` 的第五个参数 `max_pnum` 钉成 `(2^32-bytes)>>12`，只做了离线构建、**未上机**。
+    k50（`08be7b8a…`）是同一份源码在 Lead 提供的 `/opt/k60/trees/cellular-k49` 树里重建的结果，
+    另含 `c612b474` 接回的 480 行探针尾巴（§3.40），**未上机**。上机 slot 由 Lead 分配（本线排第三）。
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 
 - 框架 `payload.py`/CLI 的通用性；本飞只使用已在 `feat/modem-carrier`（`92bb60f`）上实测过的 carrier 钩子（27 streams / 109,060,761 B declared）。

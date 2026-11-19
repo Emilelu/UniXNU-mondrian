@@ -1825,6 +1825,13 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 - 用户态不变：BlueTool `-R` 仍打印 `Device not open yet` 后被 30 s 看门狗杀死（`:2894`），没有 connect。
 - 边界：内核链路端到端成功；蓝牙可用性与传输打开仍未证明。
 
+### 7.32 内核蓝牙契约检查与 ios27 用户态组件（2026-11-19）
+
+- `scripts/check-bluetooth-kernel.py` 从产物验契约：9 条内核字符串 + 可选 payload ADT 的 4 条；`--require` 用于后续补丁才带的字符串；测试 7/0。
+- 实跑 iOS 16（bt-out-0523）与 iOS 27（run 44470953368）各自 13 条全 PASS；两棵树契约一致。
+- sysctl 语义与 QcaBluetooth `userland/BlueTool.c` 对齐：读 `kern.qbt_power_on` 触发上电、写返回 EPERM、pending 返回 EBUSY；`kern.qbt_boot` 30 s 内返回结果；`kern.qbt_firmware` 返回固件标签。0500 已实现，无需改内核。
+- fork `drivers/QcaBluetooth` 钉 `effe4ec5…`（框架 563595a 的 catalog 版本）；`feeds.resolve` 第 5 步扫设备仓库 `drivers/`，模块自然解析；`[payload.runtime]` 仍未启用。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

@@ -1167,3 +1167,13 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 用户态没有变：`:1914`/`:1915` BlueTool `-R` 启动，`:1955` 打印 `Device not open yet, use 'device' to open it.`，30 s 后被看门狗杀死（`:2894` `KX! 15 101 BlueTool exit=1`），随后又重启四次，每次都停在同一句；没有任何 `[bluetooth sk] connect`。d12 的用户态结论在控制器已就绪时依然成立：卡点在 BlueTool 自己的脚本/MobileGestalt 路径，不在内核。
 - 一个未解的小观测：console 里没有 `boot: log-bluetooth=3` 行，但 kernel.macho 的 strings 含 `log-bluetooth` 与 `boot: log-bluetooth=%d`，说明 0525 确实编译进去了。判断是 `qbt_k60_start()` 早于 USB 日志开始排空，start 内唯一那行日志被丢弃（`:257` 的 addon 行来自 worker 侧的再次加载）。这不影响别名判据；要确认它需要在命令行腾出空间单独飞一次 `bluetooth=1 log-bluetooth=3`。
 - 边界：证明官方启动参数可用、内核固件下载链路首次端到端成功；不证明蓝牙可用，不证明任何客户端打开了传输。iOS 16 的下一道门槛仍是用户态。
+
+### 56. 内核蓝牙契约检查脚本；iOS 27 用户态组件落地（2026-11-19 17:05）
+
+- 背景：官方页 step 6 要求按板子跑蓝牙检查。K60 没有 sheng 那种 QcaBluetooth 用户态模型（Sm8550GeniUart/Sm8550QupDma/ArmSmmu4K 的寄存器桩），但内核这一半可以直接从产物验：控制名、三个 sysctl、电源/通道日志前缀、radio 服务类名，以及 payload ADT 里的静态节点。
+- 新增 `scripts/check-bluetooth-kernel.py`：`--kernel` 必填，检查 9 条内核字符串（`com.apple.uart.sk.bluetooth`、`com.apple.uart.bluetooth`、`[bluetooth power]`、`[bluetooth sk]`、`qbt_power_on`、`qbt_boot`、`qbt_firmware`、`K60BluetoothRadio`、`mac-address-bluetooth0`）；`--payload` 用 `mcopy` 取 `::/EFI/UniXNU/Payloads/kernel.macho.adt` 后查 4 条（`bluetooth`、`qcom,wcn6855-bt`、`transport-encoding`、`transport-speed`）；`--require TEXT` 供只有后续补丁才带的字符串（例如 0525 的 `log-bluetooth`）。`scripts/tests/test-bt-kernel-check.py` 7 例：完整内核通过、缺 sysctl 变红并点名、`--require` 命中/未命中、缺文件非零退出。
+- 实跑：iOS 16 的 `bt-out-0523` 内核（106,602,496 B）13 条全 PASS；iOS 27 的 CI 产物 run 44470953368（kernel.macho 93,077,504 B + payload.img 201,326,592 B）同样 13 条全 PASS，说明两棵树的发布契约一致。该 run 早于 0525，所以 `log-bluotool` 不参与判据；新构建应带 `--require log-bluetooth`。
+- 与 QcaBluetooth 用户态的接口（这次一并核对）：`src/qbt_transport.c:396-420` 与 `userland/BlueTool.c:18/23/42` 读 `kern.qbt_power_on`（读即请求上电，写返回 EPERM，pending 时 EBUSY）、`kern.qbt_boot`（等待 30 s 内的启动结果）、`kern.qbt_firmware`；K60 的 0500 从未改过这三处（`patches/xnu/0500-k60-bt-qbt-new-files.patch:2424-2460`），语义与 sheng 一致，所以换上 QcaBluetooth 的 BlueTool 不需要再改内核。
+- fork 侧组件落地：`drivers/QcaBluetooth` 改为子模块，钉在 `effe4ec5c57cd400a5f818b21c9903fef237edbc`（钉住的框架 `563595a` 的 `components.toml:496-511` 就是这一版；本机 `/mnt/e/hackios/UniXNU` 的主干目录里是 `22ff97f9`）。`feeds.py` 的 resolve 第 5 步先扫设备仓库的 `drivers/`，所以模块以 `('driver','QcaBluetooth')` 解析，和 sheng 一样不需要 feeds 条目；`runtime.py:76-80` 会把它的路径交给 runtime builder。board.toml 仍没有 `[payload.runtime]`，还没有东西调用它。
+- 提交：k60-bt `59b98ad4`（检查脚本 + 测试）；fork `c099dc1`（子模块）、`ba41c0f`（0525 文档）、`881555e`（ci 分支，仅两个 workflow 文件在 feat 之上）。CI：44491451065（head a650557）与 44492630013（head 881555e）。
+- 边界：这是产物级检查，不证明运行；ADT 检查依赖 mcopy；iOS 27 一侧仍无真机。

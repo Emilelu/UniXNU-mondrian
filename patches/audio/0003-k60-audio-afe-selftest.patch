@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1281 @@ int pong_audio_status(void);
+@@ -898,6 +933,1285 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -1016,8 +1016,12 @@
 +		    (value & ~1u) != 0u) {
 +			continue;
 +		}
++		/* Firmware parks spare banks either with the 0x10000
++		 * sentinel or with an empty CBAR. Both are free: the bank
++		 * stays disabled (SCTLR.M=0), so its table is never walked,
++		 * and the lease writes the sentinel below. */
 +		if (!pong_smmu_read32(0x1000u + 4u * candidate, &value) ||
-+		    value != 0x10000u) {
++		    (value != 0x10000u && value != 0u)) {
 +			continue;
 +		}
 +		for (j = 0; j < count; j++) {

@@ -280,7 +280,7 @@ re-targeting for this OS build.
 
 | Output | Bytes | CDHash | SHA-256 |
 | --- | --- | --- | --- |
-| `bin/BlueTool` | 87,216 | `f3768896b52bb01e435f4f43a0078e8145eac408` | `2e775b80f3ca19b17e2fd78a5827bd252146621e32d64df803e3f49502ae524f` |
+| `bin/BlueTool` | 87,216 | `1c1c94b3c400d2525051be6c0815851c436206b6` | `aef741399ef23d3283721a708ff78a2ad6d9ea64357229cf2d11564dafe73d9f` |
 | `bin/bluetoothd` | 13,092,096 | `7d6db4db44e30e52150c6ae63b3337f0f1fa6521` | `178444d651c734bdbff49b03503418b4c1264b45b80bc4c54a5d7dda13013d34` |
 | `lib/QcaBTType0.dylib` | 102,096 | `4c000ee5244140a98ec23f1b11ec30b5fd12f15e` | `e815fe2f32a147b1f574ebccaf9e205503bbba41c723d184096fa3f0879147b7` |
 
@@ -289,12 +289,14 @@ entitlements on the re-signed daemon, and `hardware_verified: false` — nothing
 here has run on a device. The firmware manifest staged 40 `hpbtfw*`/`hpnv*`
 files under `firmware/qca`.
 
-The build host was a Mac with Command Line Tools only, which needed two
-adaptations, both carried in `scripts/toolchain/` (see its README): a minimal
-`xpc/xpc.h` shim, because that SDK ships `libxpc` without headers, and
+The build host was a Mac with Command Line Tools only, which needed three small
+files, all carried in `scripts/toolchain/` (see its README): a minimal
+`xpc/xpc.h` header shim, because that SDK ships `libxpc` without headers; a
+text `libxpc.tbd` stub, because it ships no `-lxpc` library either; and
 `qca-bluetooth-extra-flags.diff`, because the component's
-`tools/build-bluetool.py` took no extra compiler flags. A full Xcode install
-needs neither.
+`tools/build-bluetool.py` took no extra compiler flags. With those, BlueTool
+links a real `LC_LOAD_DYLIB /usr/lib/libxpc.dylib` instead of leaving the XPC
+symbols unresolved. A full Xcode install needs none of them.
 
 ## 7. What remains before "directly usable after migration"
 

@@ -930,3 +930,11 @@ title = "判据要自带样本源：屏幕静止时「稳态中位」永远采�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-gpu-perf-vote.py"
 note = "gperf 触发 24 次有界基准（PongMetalScanout.h），judge 优先用 bench 行取中位"
+
+[[rule]]
+id = "P-248"
+kind = "pitfall"
+title = "同一个字段两种读法都自洽：GLINK 零长度 intent 的分歧会被合并静默改回去"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-k60-glink-d9.py"
+note = "本树逐条丢弃（QcomGlink.c D9 守卫），蜂窝线 0622 整条判损坏；test-k60-glink-intent.c 70 项断言，改用对方写法会失败 37 项"

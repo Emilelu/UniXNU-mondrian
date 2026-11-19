@@ -17,7 +17,7 @@
 | PDMEM perf-lock 投票（`0x17d09804/8/c`） | `K60CpuFreqPlan`/探针已接入，host 203，未上机 | **直接复用**；iOS27 先确认 ADT 的 `qcom,perf-lock-support` 与 PDMEM 窗 |
 | L3 follow（mode 10，`0x17d90000` + `0x90`） | `K60CpuFreqPlan`/探针已接入，host 203，未上机 | **直接复用**；iOS27 先确认 L3 窗口与 `0x90` 投票语义 |
 | 限频上限（`0x30c`=REG_INTR_STATUS，bit2=GT_IRQ_STATUS + `0x20` 低字节） | `K60CpuFreqPlan`/探针已接入，mode 1 只读打印 limits/cap，voteDomain 也按 cap 重建 LUT，host 203，未上机 | **直接复用**；iOS27 先确认 12377 的 EPSS 窗口仍暴露 `0x30c` 与相同 bit |
-| `K60GpuFreqPlan`（13 档 OPP、HFI id 30、50% 目标、prewake） | `drivers/PongPower/K60GpuFreqPlan.c`，host 140 项 | **直接复用策略**；HFI/GMU 寄存器访问按 iOS27 的 Adreno 组件重接 |
+| `K60GpuFreqPlan`（13 档 OPP、HFI id 30 的 level+bus index、50% 目标、prewake） | `drivers/PongPower/K60GpuFreqPlan.c`，host 140 项 | **直接复用策略**；HFI/GMU 寄存器访问按 iOS27 的 Adreno 组件重接 |
 | `K60BoostPlan`（触摸 1 s、4 窗 2 帧、300 ms/60%、fence 1 ms） | `drivers/PongPower/K60BoostPlan.c`，host 40 项 | **直接复用**；输入改为 iOS27 的触摸/帧通知 |
 | `K60SleepPlan`（TLMM 掩码、PON 位、wake-after、背光/触摸时序） | `drivers/PongPower/K60SleepPlan.c`，host 73 项 | **直接复用**；板级 hook 只替换 IOKit/ArmCpu 接线 |
 | `K60PowerVotePlan`（16 资源×32 owner） | `drivers/PongPower/K60PowerVotePlan.c`，host 58 项 | **直接复用**；消费者等外设驱动 |

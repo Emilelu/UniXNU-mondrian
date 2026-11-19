@@ -1298,3 +1298,36 @@ sheng 的 27 版本（origin/main c8f92b2，package/WifiNet.cpp）把两条路�
 WPA3 的重要更正：此前「没有任何 hakios 设备有 WPA3」只在「已发布特性」层面成立。t970 带着一份完整的洁净室 WPA3-Personal 实现（BSD-2-Clause，文件头写明 Copyright (c) 2026 PongWifi contributors）：SAE 组 19、H2E（PW3_SAE_H2E_STATUS 126）、抗泛洪（PW3_SAE_ANTI_CLOG_STATUS 76）、EID 扩展（PW3_SAE_EID_EXT_TOKEN 93），含 SHA-256/HMAC/HKDF/KDF-SHA256、AES-128-CMAC、BIP-CMAC-128 校验、P-256 的 on-curve/add/scalar_mul/SSWU，以及 pw3_sae_derive_pwe_hnp / derive_pt_h2e / derive_pwe_h2e / commit_begin / process_peer_commit / build_confirm / verify_confirm 与 pw3_rsn_info（akm 8 = SAE、mfpc/mfpr/use_mfp/use_h2e）。它不依赖 Apple80211，是纯 802.11 层；下次解冻 WPA3 时起点是这份代码，不是空白。
 
 本轮不动 PongWifiNet.cpp 的 ABI 形状：t970 的 ABI 更老，没有可抄的新形状。改动只落在记录里，等 fork 的 ios27 分支走到 bsd_init 再按 sheng 的 27 形状核对。
+
+## 42. 官方 Wi-Fi/驱动清单核对与 teardown 落地（2026-11-19 14:40）
+
+按 https://unixnu.com/zh/porting/network 与 https://unixnu.com/zh/porting/drivers 逐条核对本仓库的实现，并把唯一的功能缺口补上：驱动清单要求「接口关闭时先停新请求、再停在飞工作、再停组件并释放」，此前树里没有任何 nw_wifi_stop() 调用，halt() 与 worker 退出都只打印 DMA retained 就终止线程。
+
+核对结果（满足项给出行号；行号是本轮编辑后的）：
+
+| 清单项 | 状态 | 证据 |
+|---|---|---|
+| 平台 IRQ + DMA 先行 | 满足 | PongWifiPlatform.cpp 的 MSI 接收与 dmaAlloc/dmaMap/dmaSync 表在 lx_platform 里 |
+| lx_platform 12 项 | 满足 | PongWifiPlatform.cpp:805 起的静态表（now,sleep,poll,log,halt,alloc,freeHeap,dmaAlloc,dmaFree,dmaMap,dmaSync,fwGet） |
+| nw_board | 满足 | PongWifiPlatform.cpp:806 起（BAR、0x200000 大小、1103 设备号、cfgRead/cfgWrite、msiTarget、mapPhys） |
+| dma_alloc 清零并可被端点寻址 | 满足 | dmaAlloc 里 bzero(p,n) 且返回 Iova+4096 之后的地址 |
+| dma_map 越界返回 0 / dma_sync 按方向 | 满足 | PongWifiPlatform.cpp:545 与 :546 的 dsb sy |
+| 事件必须在 start 之前安装 | 满足 | PongWifiPlatform.cpp:796 pong_wifi_net_prepare() 早于 :809 nw_wifi_start；PongWifiNet.cpp:1173 的 nw_wifi_set_events；测试新增「events are installed before the station starts」 |
+| start 后循环 step | 满足 | worker 里 progress(2) 后 nw_wifi_step() |
+| 回调快返回、RX 先拷贝到 OS 自己的缓冲 | 满足 | PongWifiNet.cpp:430 on_rx 用 mbuf_allocpacket + 分段 memcpy，再 bpf tap 与 ifnet_input |
+| 关闭：停新请求 -> 停工作 -> 停组件 -> 释放 | 本轮补齐 | 见下 |
+| 固件/板数据/校准登记 | 满足 | drivers/PongWifi/proprietary-files.txt（amss/amss20/m3/regdb/bdwlan*，BDF 由真实 QMI chip/board ID 选） |
+| 组件存档登记与 llvm-ar/llvm-nm 校验 | 未覆盖 | 我们的 wifi 不走 [components]，由 build-strict.sh 以 XNU_PONG_WIFI_ARCHIVE 选 libPongWifiNative.a；check-kernel-archives.py 的 EXPECTED 表没有它，也不跑 llvm-ar t。列为待办，不改本轮行为 |
+| 记录最后成功阶段 | 满足 | porting.toml 网络区本轮更新 |
+
+teardown 的实现（本轮）：
+
+- PongWifiPlatform.cpp:68 增加 volatile uint32_t stopRequested；worker 的循环头（:811）每圈以 __ATOMIC_ACQUIRE 读它，命中就 cleanStop=true 并 break；:836 在 done 标签之后执行 if(cleanStop){nw_wifi_stop(); log(6,"WiFi station stopped on request; component released, DMA retained");}。
+- PongWifiPlatform.cpp:844 导出 extern "C" void pong_wifi_station_stop(void)：置位并 signalWorker()。
+- PongWifiNet.cpp:1206 增加 pong_wifi_net_stop()：置 gFailed、gPower=false、清 gScanning/gScanCursor、gAssocResult 归为失败、取消 gCachedScan、重置通知队列，并打印 interface quiesced。这就是「停新请求 + 取消在飞工作」。
+- PongWifiNet.cpp:1028 起，网络栈用户客户端写来的属性若含 pong-wifi-stop（:1031 的 __builtin_strncmp），先 pong_wifi_net_stop() 再 pong_wifi_station_stop()，把两层串起来。
+- DMA 竞技场仍不释放：释放它需要对端点复位，而这颗板子的内核在运行时不能安全复位 PCIe0；这一点在原文件头注释里已有声明，本轮把它写进本节，不再算「未实现的缺口」，而是有据的已知边界。
+
+离线验证：两代站头各编译一次（16 头 ath11k-abi1 与 27 头 ath11k-abi27），产物 /opt/k60/trees/k60build/wifi/teardown16/libPongWifiNative.a 与 teardown27/libPongWifiNative.a 都是 12,098,984 / 12,099,064 字节；llvm-nm --defined-only 里两者都有 _pong_wifi_station_stop 与 _pong_wifi_net_stop。scripts/tests/test-wifi-sbl-mission.py 新增两条检查（「a requested stop quiesces the interface and releases the station」「events are installed before the station starts」），整套 summary: 0 failure(s)。
+
+本节不改变任何 Apple80211 形状：27 的 0x8e8/2048/540 事件仍在 feat/wifi-ios27-abi 上按 sheng 24A446 准备，等 fork 走到 bsd_init 再核对 selector 0 信封。

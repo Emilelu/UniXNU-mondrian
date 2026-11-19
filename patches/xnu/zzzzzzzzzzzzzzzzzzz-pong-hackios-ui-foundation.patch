@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/iokit/Kernel/MiniIOSurface.cpp
-@@ -0,0 +1,1850 @@
+@@ -0,0 +1,1857 @@
 +/*
 + * MiniIOSurface: a stand-in for Apple's closed IOSurface.kext (see MiniIOSurface.h).
 + *
@@ -692,6 +692,13 @@
 +	gSurfaceTable[sid] = s;                 /* the table owns the object until the last holder goes */
 +	gSurfaceCount++;
 +	gSurfaceBytes += alloc;
++	/* Every surface this driver returns says its own geometry here, so the next flight can tell
++	 * whether the 5888-row scanout canvas came through this path at all: the 2026-11-19 pitch
++	 * patch never ran, and this log had exactly one MiniIOSurface line while the scanout still
++	 * offered 5888 rows. One line per surface, not a sampled probe. */
++	printf("MiniIOSurface: surface made sid=%u %ux%u bpr=%u planes=%u alloc=%llu asked=%llu%c",
++	    (unsigned) sid, width, height, (unsigned) bpr, (unsigned) s->info.planeCount,
++	    (unsigned long long) alloc, (unsigned long long) dictNumber(props, "IOSurfacePlaneBytesPerRow", 0), 10);
 +
 +	struct minisurf_shared * sh = s->shared();
 +	sh->registryID = 0x100000000ULL + sid;

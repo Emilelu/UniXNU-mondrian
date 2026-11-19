@@ -99,4 +99,52 @@
 
 ## 5. 结果登记
 
-（飞行后写在这里；`criteria-sha256` 在第一次写入时钉入。）
+criteria-sha256: 6cd6e057f7cf2baea4dd37c67c45c385333314573326844b10b3d26c50d56100
+
+### 5.1 飞行事实
+
+| 项 | 值 |
+| --- | --- |
+| 镜像 | `gpu-submit-20261119` · `boot.img 1ca7fd150cb4f461ac75c4ffafa68e85620dab2b1e06adb1333c160befe802b7` |
+| 内核 | `18537b4d633d3ce62ce2a9e24ae788703f01b2b56825f92b8ec04ca6d4cbd5fa`（105,693,184 B） |
+| 证据 | `usblog-20261119-095547`，236,641 B / 3,357 行，`complete=true`，supervisor rc=0 |
+| 有效性 | `compositor=4 · client_commits=8 · scanout_lines=4` ⇒ 有效（但**空闲**，见 §6） |
+
+### 5.2 判据
+
+| 判据 | 结果 | 实测 |
+| --- | --- | --- |
+| **S1** 无 panic / `K60KEXC` / backboardd 崩 | ✅ | 三项全 0 |
+| **S2** 采样行带 `prevsub_count=`/`prevsub_total=` | ✅ | 4 条（`n=1..4`） |
+| **S3** `prevsub_count` 单调增长 | ✅ | 0 → 1 → 2 → 3 |
+| **S4** `publish` 仍 ≤2,000 µs | ✅ | 28–58 µs |
+| **S5** `submit` 中位 < 4,500 µs | ✅ | **677 µs** |
+| **S6** 仍出帧、`imports==frames` | ✅ | 4/4 |
+| **S7** 无 poison、面板 ≥110 Hz | ✅ | `status=0x0`；`panel after UI: 122 Hz` |
+
+失败规则：**F4 命中** —— KMD `Submit` 只占 `submit` 的 **13.1 %**（`prevsub_total/prevsub_count = 89 µs` 对 677 µs），
+按卡的定义「the 3.0 ms is upstream of us」。
+
+### 5.3 这一飞回答了什么
+
+1. **3.0 ms 不在内核里。** 我们自己的 `NativeAdrenoMethodSubmit` 一次只要 89 µs（63–137 µs），
+   只有客户端 `[commands commit]` 的 13 %。内核侧继续优化没有空间。
+2. **`submit` 是负载相关的，不是一个常数。** 同一张镜像、同一台设备：
+   空闲飞（本飞，8 次提交）677 µs；上一飞（`usblog-20261119-070345`，1,215 次提交）3,015 µs。
+   两次的 KMD 部分都在 0.1 ms 量级，所以**多出来的部分随提交并发量增长**。
+   这指向转译器队列/slot 竞争（`J scheduled wait` 在那一飞是 617 次共 722 ms），
+   而不是我们的 ring 提交或 fence 等待。
+3. **`encode` 也随帧变化极大**：本飞 667 / 721 / 22,933 / 25,217 µs，与 `copy` 33.6 / 23.8 / 30.9 / 17.5 ms 同步。
+   首帧与含 untile 的帧贵 30 倍，说明「首帧建管线」与「纹理 untile」是同一个数量级的两个独立来源。
+
+### 5.4 边界
+
+本飞只有 4 帧、8 次提交，**不能**用来判帧率或稳态（§6）。要拿「有负载时的 submit」必须在
+同一飞里驱动动画且保持 GPU 存活（泄漏在约 1,000 帧时触发，约 140 s）。
+
+### 5.5 下一步
+
+1. 按 F4 的方向：在 Mac 侧给 `metal2vulkan-runtime` 的 `commit_now`/队列取 slot 加计时
+   （需要重编 `PongMetalBridge.dylib`），量出「排队 vs 真正提交」的比。
+2. 动画驱动是前置条件：没有输入就没有负载，而触摸现在零上报 —— **触摸是这一条路的必经项**，
+   也是目标里「跟手」的那一半。

@@ -144,6 +144,9 @@ K60 READY ok   all 36 sections create new files, no target twice
 判据是「每个 `+++ b/` 段落都有一个 `new file mode` 与它配对」加上「路径集合两两不交」。任一不成立就
 `DRIFT` 并点名是哪个补丁的几比几、或哪个文件被两条补丁同时碰（`patch_sections()`）。
 
+同一段还断言 0629 要调的两个入口确实由前面的补丁提供（`k60_modem_probe_from_handoff` 在 0626、
+`k60_ipa_probe_from_handoff` 在 0628）：`K60 READY ok   both probe symbols are defined by the patches`。否则 0629 打完会在链接期报未定义。
+
 ## 6. `0621-k60-io-submap-budget` 在 27 上没有对应物
 
 16 线的 `osfmk/arm/io_map.c` 有一张所有调用者共用的 8 MiB `io_submap`，`kmem_alloc(io_submap, …, KMA_NOFAIL)` 撑爆时会 panic（P-219），所以才把宏抬到 32 MiB。

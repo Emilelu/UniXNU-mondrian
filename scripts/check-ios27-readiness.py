@@ -149,6 +149,19 @@ def patch_targets():
     return sorted(names)
 
 
+def probe_symbols():
+    """Both call sites 0629 inserts need a definition from the earlier patches."""
+    wanted = (("0626-k60-modem-image.patch", "k60_modem_probe_from_handoff"),
+              ("0628-k60-ipa.patch", "k60_ipa_probe_from_handoff"))
+    missing = []
+    for name, symbol in wanted:
+        path = os.path.join(ARTIFACT_DIR, name)
+        text = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
+        if symbol not in text:
+            missing.append("%s lacks %s" % (name, symbol))
+    return missing
+
+
 def patch_sections():
     """Per patch: the files it touches and how many of its sections are new files."""
     result = []
@@ -258,6 +271,12 @@ def main(argv):
         print('K60 READY DRIFT two patches touch the same file: ' + ' '.join(twice[:3]))
     else:
         print('K60 READY ok   all %d sections create new files, no target twice' % len(seen))
+    missing_probes = probe_symbols()
+    if missing_probes:
+        drift += 1
+        print('K60 READY DRIFT ' + '; '.join(missing_probes))
+    else:
+        print('K60 READY ok   both probe symbols are defined by the patches')
     wired = conf_entries_in_tree(args.tree)
     if wired:
         drift += 1

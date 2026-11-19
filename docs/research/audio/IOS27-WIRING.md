@@ -349,7 +349,7 @@ sh scripts/tests/portability/run-symbols.sh        # 宿主三连：off=0 / XNU_
 `out-baseline`。
 
 
-### 第四处改动（待批）：27 上谁调用它
+### 第四处改动：27 上谁调用它（内容归音频，承载归 27 补丁系列）
 
 前三处让胶水**编进内核**，但没有一处让它在启动时**跑起来**。16 树上是补丁替我们做的：
 `patches/audio/0001-k60-audio-amp-probe.patch:3508-3522` 在 `bsd/kern/bsd_init.c` 里插了一段
@@ -393,8 +393,30 @@ python3 scripts/apply-audio27-wiring.py <tree> --anchor "<line>" --hook-init
 重跑打印 `bsd_init already hooked (probe calls 1)`。锚点不在树里时 exit 1 并给
 `pass --init-anchor with a line this tree has`，**先放源文件再失败**的顺序不变。
 
-**这一步还没批**：它改的是 `bsd/kern/bsd_init.c`，不在音频的树内，而且把「三处改动」变成了四处；
-所以默认不执行，preflight 也不会替你钩。要上就明确说一句，或者由 27 补丁系列的所有者写成补丁行。
+**2026-11-20 06:20 裁决**：内容由音频写，承载走 27 补丁系列——补丁落在 `patches/xnu-12377/`，
+由 Lead book 进 MAIN-BASELINE 与 sync，ownership 因此留在设备仓。音频分支只保留源与生成器
+（`apply-audio27-wiring.py --hook-init`），提交消息写明 ported from 16 line
+`patches/audio/0001:3508-3522`。
+
+裁决同时加了一条硬要求：**调用点必须弱符号安全**。声明写成
+`extern int pong_audio_amp_probe(void) __attribute__((weak));` 并在调用点判空，
+否则 27 上胶水一旦被裁掉就是 `Undefined symbols`（cellular 线刚在 0628 上踩到同一形状：
+`ArmSmmu4KBuild` 缺定义）。块内因此是 `if (pong_audio_amp_probe != NULL) {
+(void)pong_audio_amp_probe(); }`，注释里写明「唯一的开关是 `pong_audio_probe=1`，不是 `XNU_PONG_AUDIO`」。
+
+两种链接各走一遍（`scripts/tests/portability/run-weak-hook.sh`）：把 applier 写出的块原样放进一个
+函数体，**不链** provider 时链接必须成功且不执行，链上 provider 时必须执行到（provider 里 `exit(42)`）：
+
+```sh
+sh scripts/tests/portability/run-weak-hook.sh
+# WEAK OK absent links and skips, present runs (exit 42)
+```
+
+交付的补丁（`git diff` 形态，17 行，只碰 `bsd/kern/bsd_init.c`）：
+
+- 文件：`E:/k60-work/scratch/audio-27/k60-audio-amp-probe-call.patch`（876 B，sha256 `46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd`）
+- 在真 27 源树（`ac9718f xnu-12377.121.6`）的干净副本上 `git apply --check` → `APPLY CHECK OK`
+- 落位编号由 Lead 分配（不占号）；series 里建议名 `05xx-k60-audio-amp-probe-call.patch`
 
 ### 空跑一遍：这条链路在一棵「像 27 的树」上走通
 
@@ -416,7 +438,7 @@ sh scripts/tests/test-wiring-dry-run.sh
 
 | 函数 | 16 树的调用者 | 27 上的调用者 | 证明它跑过的日志行 |
 | --- | --- | --- | --- |
-| `pong_audio_amp_probe()` | 内核初始化，`patches/audio/0001-k60-audio-amp-probe.patch:3515`（`bsd_init.c`）调一次 | 同样是内核初始化（`--hook-init` 写进 `bsd/kern/bsd_init.c`，待批），**没有任何用户态进程参与** | `PongAudio: amp probe start (read pass first, then a replay pass …)`（`PongAudioAmp.c:921`），收尾 `PongAudio: amp probe done found=%u/2 …`（:970） |
+| `pong_audio_amp_probe()` | 内核初始化，`patches/audio/0001-k60-audio-amp-probe.patch:3515`（`bsd_init.c`）调一次 | 同样是内核初始化（`--hook-init` 写进 `bsd/kern/bsd_init.c`；内容已批，承载走 27 补丁系列），**没有任何用户态进程参与** | `PongAudio: amp probe start (read pass first, then a replay pass …)`（`PongAudioAmp.c:921`），收尾 `PongAudio: amp probe done found=%u/2 …`（:970） |
 | `pong_audio_amp_play()` | 内核播放图启动之后，`patches/audio/0003-k60-audio-afe-selftest.patch:717` | 27 上由「启动扬声器图的那段代码」在第一个周期前调用；图不在本清单里，所以 27 的第一版只能由内核自检（`pong_audio=1`）当调用者 | `PongAudio: amp%u play pll=%u status=0x%04x …`（:819）→ `amp%u play unmuted volume=0x%03x`（:842）→ `amp play done playing=%u/2`（:887） |
 | `pong_audio_amp_stop()` | 停机路径 | 同上 | `PongAudio: amp%u stopped muted and powered down`（:866） |
 | `pong_audio_tdm_pads()` | `patches/audio/0003`:1497（`pong_audio_start()`） | 27 树若没有 pinctrl 框架，仍在初始化里手动 mux | `PongAudio: TDM pad %s gpio=%u cfg 0x%08x -> 0x%08x io=0x%08x` |

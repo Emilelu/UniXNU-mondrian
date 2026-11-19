@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 """Host tests for apply-audio27-wiring.py.
 
-Each case builds a throwaway repository with a seeded .cache/xnu-work, runs the
+Each case builds a throwaway repository - seeded under .cache/xnu-work, or with
+the sources in place the way an iOS 27 output tree keeps them - runs the
 applier against it, and reads the two verdicts the script prints: how many
 sources are in bsd/dev and whether conf/files names them. Nothing touches a
 real tree.
@@ -20,8 +21,8 @@ ANCHOR_16 = "bsd/dev/pong_buttons.c\t\t\tstandard"
 KERNEL_SET = 9
 
 
-def make_tree(root):
-    work = root / ".cache/xnu-work"
+def make_tree(root, inplace=False):
+    work = root if inplace else root / ".cache/xnu-work"
     (work / "bsd/dev").mkdir(parents=True, exist_ok=True)
     (work / "bsd/conf").mkdir(parents=True, exist_ok=True)
     conf = work / "bsd/conf/files"
@@ -36,8 +37,8 @@ def run(*args):
     return done.returncode, done.stdout
 
 
-def audio_files(tree):
-    dev = tree / ".cache/xnu-work/bsd/dev"
+def audio_files(tree, inplace=False):
+    dev = (tree if inplace else tree / ".cache/xnu-work") / "bsd/dev"
     return sorted(p.name for p in dev.iterdir() if p.name.startswith("PongAudio"))
 
 
@@ -98,7 +99,16 @@ def case_stale_header(root):
 def case_no_seed(root):
     code, out = run(root)
     assert code == 1, "an unseeded tree is not an XNU tree: " + out
-    assert "no seeded tree" in out, out
+    assert "not seeded" in out, out
+
+
+def case_inplace_tree(root):
+    conf = make_tree(root, inplace=True)
+    code, out = run(root, "--anchor", ANCHOR_27)
+    assert code == 0, out
+    assert "OK sources=%d conf=2" % KERNEL_SET in out, out
+    assert listed(conf) == 2, conf.read_text()
+    assert len(audio_files(root, inplace=True)) == KERNEL_SET
 
 
 def case_afe_stays_out(root):
@@ -119,6 +129,7 @@ CASES = [
     ("a stale header is refreshed", case_stale_header),
     ("an unseeded tree is refused", case_no_seed),
     ("the frozen headers stay out", case_afe_stays_out),
+    ("an in-place 27 tree is wired the same way", case_inplace_tree),
 ]
 
 

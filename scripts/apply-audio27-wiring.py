@@ -11,8 +11,9 @@ run in one order that cannot half-apply silently:
   python3 scripts/apply-audio27-wiring.py <tree> --anchor LINE    # 27 tree
   python3 scripts/apply-audio27-wiring.py <tree>                  # 16 series
 
-<tree> is the repository the builder seeds: the kernel sources sit in
-<tree>/.cache/xnu-work, and bsd/conf/files there is what the build reads. The
+<tree> is either the repository the builder seeds (kernel sources under
+<tree>/.cache/xnu-work) or an iOS 27 output tree that builds in place; bsd/conf/files
+in whichever one holds bsd/ is what the build reads. The
 third edit is not a file edit - it is EXTRA_MAKE_ARGS on the builder call, so
 this script prints that line instead of touching the builder, which is a
 framework copy (scripts/refresh-xnu-generic.py rewrites the whole file).
@@ -36,6 +37,14 @@ SOURCES = ("PongAudioAmp.c", "PongAudioGeniI2c.c")
 INCLUDE = re.compile(r'#include\s+"(Pong[^"]+)"')
 BUILDER_LINE = ("EXTRA_MAKE_ARGS=\"PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO\" "
                 "sh scripts/build-xnu-generic.sh")
+
+
+def resolve_tree(tree):
+    """The directory holding bsd/: a seeded repo, or the XNU sources in place."""
+    for root in (tree / ".cache/xnu-work", tree):
+        if (root / "bsd/dev").is_dir():
+            return root
+    return None
 
 
 def kernel_set(src):
@@ -84,11 +93,12 @@ def main(argv):
     repo = pathlib.Path(__file__).resolve().parents[1]
     src = repo / "drivers/PongAudio"
     tree = pathlib.Path(args.tree)
-    work = tree / ".cache/xnu-work"
-    if not (work / "bsd/dev").is_dir():
-        print("audio wiring: no seeded tree at %s (bsd/dev missing)" % work)
+    work = resolve_tree(tree)
+    if work is None:
+        print("audio wiring: no bsd/dev under %s (neither .cache/xnu-work nor "
+              "the tree itself; tree not seeded)" % tree)
         print("audio wiring: run the builder's fetch step first, or point at "
-              "the repository the builder seeds")
+              "the XNU sources themselves")
         return 1
 
     files = kernel_set(src)

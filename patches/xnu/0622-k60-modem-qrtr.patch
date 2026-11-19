@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1972 @@
+@@ -0,0 +1,1973 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1409,6 +1409,7 @@ index 0000000..1111111
 +#include <sys/systm.h>
 +#include <mach/vm_param.h>
 +#include <vm/pmap.h>
++#include <arm/pmap.h>
 +#include <vm/vm_kern.h>
 +#include "pong_modem_pas.h"
 +

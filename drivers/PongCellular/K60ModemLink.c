@@ -108,6 +108,7 @@ coachz_baseband_report(unsigned second)
 #include <sys/systm.h>
 #include <mach/vm_param.h>
 #include <vm/pmap.h>
+#include <arm/pmap.h>
 #include <vm/vm_kern.h>
 #include "K60ModemPas.h"
 

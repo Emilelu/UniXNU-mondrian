@@ -1581,3 +1581,16 @@ PONG_SHENG_ROOT；说明驱动对 27 的 package 头文件没有额外依赖，�
 
 边界：27 头文件给 nw_board 末尾加了 diagnostics 字段；本驱动的定位初始化不写它，27 上为 0（不向固件
 索取接收统计），这是有意的默认值，等需要统计时再加开关。
+
+## 61. 24A446 的电源开关交给站侧，22H374 保持原样
+
+参考实现的 SET kPower 在关电时先 disconnect_user，再调用 nw_wifi_power(0)，由站侧 worker 向 cfg80211 发电源请求；
+开电同理。我们此前只断链、清站并置 gPower，电台实际上没有离开空气——27 的设置页关掉 Wi-Fi 后，扫描仍可能
+被站侧接受。
+
+本轮按代际处理：gModern27Client 为真时调用 nw_wifi_power(gPower ? 1 : 0) 并唤醒 worker；22H374 保持
+mission34b/36 上机验证过的“只断链”行为，避免改坏已验证路径。站侧 nw_wifi_power 只更新缓存的 radio 状态并让
+worker 发 cfg80211 电源事件（nw_mainline.c:266-272 与 :365-380），不需要平台重新初始化 MHI。
+
+验证：test-wifi-sbl-mission 新增“24A446 的电源开关走到站侧电源路径”检查后 0 failure；16/27 两代头文件编译 rc=0。
+27 上机时核对：关 Wi-Fi 后扫描返回 ENETDOWN、开 Wi-Fi 后能重新扫描。

@@ -55,3 +55,30 @@ const char *k60_sleep_woke_by(unsigned armcpu_reason, enum k60_wake_source sourc
     if (armcpu_reason == K60_SLEEP_ARMCPU_TIMER) return "timer";
     return armcpu_reason == K60_SLEEP_ARMCPU_STORM ? "storm" : "nothing";
 }
+
+int k60_sleep_watchdog_due(uint64_t now_ms, uint64_t last_feed_ms)
+{
+    if (now_ms < last_feed_ms) return 0;
+    return now_ms - last_feed_ms >= K60_SLEEP_WATCHDOG_FEED_MS;
+}
+
+uint64_t k60_sleep_wake_after_ms(unsigned seconds)
+{
+    return (uint64_t)seconds * 1000u;
+}
+
+int k60_sleep_backlight_ready(unsigned frames, int frame_counting,
+    uint64_t elapsed_ms)
+{
+    if (frame_counting) {
+        if (frames >= K60_SLEEP_BACKLIGHT_FRAMES) return 1;
+        return elapsed_ms >= K60_SLEEP_BACKLIGHT_MAX_MS;
+    }
+    return elapsed_ms >= K60_SLEEP_BACKLIGHT_FALLBACK_MS;
+}
+
+int k60_sleep_touch_reestablish(uint64_t now_ms, uint64_t last_report_ms)
+{
+    if (!last_report_ms || now_ms <= last_report_ms) return 0;
+    return now_ms - last_report_ms > K60_SLEEP_TOUCH_GAP_MS;
+}

@@ -101,6 +101,30 @@ int main(void)
     check_text("woke storm", k60_sleep_woke_by(K60_SLEEP_ARMCPU_STORM, K60WakeNone), "storm");
     check_text("woke nothing", k60_sleep_woke_by(0, K60WakeNone), "nothing");
 
+    check("watchdog early", k60_sleep_watchdog_due(9999, 0), 0);
+    check("watchdog due", k60_sleep_watchdog_due(10000, 0), 1);
+    check("watchdog late", k60_sleep_watchdog_due(10001, 0), 1);
+    check("watchdog backwards", k60_sleep_watchdog_due(5, 10), 0);
+
+    check("wake-after off", (long)k60_sleep_wake_after_ms(0), 0);
+    check("wake-after one", (long)k60_sleep_wake_after_ms(1), 1000);
+    check("wake-after thirty", (long)k60_sleep_wake_after_ms(30), 30000);
+
+    check("backlight one frame", k60_sleep_backlight_ready(1, 1, 0), 0);
+    check("backlight two frames", k60_sleep_backlight_ready(2, 1, 0), 1);
+    check("backlight cap pending", k60_sleep_backlight_ready(0, 1, 1499), 0);
+    check("backlight cap reached", k60_sleep_backlight_ready(0, 1, 1500), 1);
+    check("backlight counting ignores 600", k60_sleep_backlight_ready(0, 1, 600), 0);
+    check("backlight fallback pending", k60_sleep_backlight_ready(0, 0, 599), 0);
+    check("backlight fallback reached", k60_sleep_backlight_ready(0, 0, 600), 1);
+    check("backlight fallback ignores frames", k60_sleep_backlight_ready(5, 0, 0), 0);
+
+    check("touch no contact", k60_sleep_touch_reestablish(1000, 0), 0);
+    check("touch same instant", k60_sleep_touch_reestablish(1000, 1000), 0);
+    check("touch 60 ms", k60_sleep_touch_reestablish(1060, 1000), 0);
+    check("touch 61 ms", k60_sleep_touch_reestablish(1061, 1000), 1);
+    check("touch backwards", k60_sleep_touch_reestablish(900, 1000), 0);
+
     printf("TESTS %s %u checks (%u failure%s)\n", failures ? "FAILED" : "OK",
         checks, failures, failures == 1 ? "" : "s");
     return failures != 0;

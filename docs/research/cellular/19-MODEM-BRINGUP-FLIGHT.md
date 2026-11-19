@@ -790,6 +790,66 @@ k35 B 镜像（与 k34 只差这一层）：
 判据不变：S3 必须保持 PASS；S4 要求 `K60MODEM qrtr: dms revision …` 出现（id 0 的 INTENT 不再中断 poll 是本飞的**唯一**
 变量，若仍失败，损坏行里的下一对才是新线索）；S6 仍要 `bridge enabled` 与 N>0 的发布行；S5 只有在 servloc 应答后才可能通过。
 
+### 3.24 k37：六十秒窗口、重发 lookup 与每五秒的服务计数（离线，未上机）
+
+k36 的实机结果（2026-11-19 10:52:46，420 s 采集）换了一种失败形态：S3 PASS
+（`scm cmd=0x5 ok calls=181`、`auth_reset ok`），S6 PASS，**没有** `glink poll rc=-5`，也没有
+channel down——id 0 的 INTENT 修复生效了。通道建立后只发生两件事：
+
+```
+K60MODEM qrtr: channel up
+K60MODEM qrtr: sent hello from node 1 port 0xfffffffe
+K60MODEM qrtr: service 66 (0x42) instance 46081 node 0 port 2
+K60MODEM qrtr: service 43 (0x2b) instance 4610 node 0 port 1
+K60MODEM qrtr: announced servloc service 64 instance 0x101 port 0x100
+K60MODEM qrtr: sent new_lookup (0x0a) to node 0
+K60MODEM qrtr: verdict no reply services=2 node0=2 wanted=0 malformed=0 locator=2 dms=none polls=5000
+```
+
+两个 NEW_SERVER 都来自 node 0（`from_node0=2`），但没有一个在 `k60_qrtr_wanted()` 的集合里
+（WDS 1 / NAS 3 / UIM 11 / PDS 16 / EFS 21），DMS(2) 从未出现；发给 node 0 的单播 lookup 连
+零终止记录都没有回。窗口是 `K60_QRTR_POLLS 5000` × `delay(2000)` = **10 s**，而 modem 的 QMI
+服务是逐个注册的 NEW_SERVER；探针返回后（`K60ModemLink.c` 循环结束即 `return -2`）也没有任何线程
+继续 poll glink，晚到的注册永远看不到。
+
+k37 只改观测面，不改协议行为：
+
+- `K60_QRTR_POLLS 30000`（60 s），就绪循环仍是 30 s 的 `K60_QRTR_READY_POLLS`；
+- lookup 最多两次，**都发广播节点**（`K60_QRTR_BROADCAST_NODE`）：第一次 service 0（全量），
+  第 15000 次 poll（30 s）后第二次只问 `K60_QRTR_DMS_SERVICE`(2)/instance 0——参照 Pong 的
+  `PongModemQrtr.cpp:111-112`，它的 lookup 在 hello 后发给 `remote_node`，初始值就是广播；
+- 新 builder `k60_qrtr_build_lookup_service(out, cap, to_node, service, instance)`，
+  `k60_qrtr_build_lookup()` 变成它的 `(0, 0)` 特例，两个查询只有一个构造点；
+- 每 2500 次 poll（5 s）打印
+  `K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u`，
+  用于判断服务数是否还在增长、还是停在两条；
+- NEW_SERVER 行追加 `cmd=%#x`，把控制记录的 command 字段与 `header.type` 同时留在日志里。
+
+宿主测试 `scripts/tests/test-k60-modem-qrtr.c` 增加 service-targeted 断言（service=2、instance=0、
+广播节点），输出 `TESTS OK 13 groups`；`scripts/update-modem-qrtr-patch.py` 重新生成
+0622 = **100,436 B / 5 files**，`test-k60-modem-image.py` 仍 `TESTS OK 30 segments … table+patch agree`。
+代码提交 `039edd88`。
+
+k36 实机证据：`E:/k60-work/evidence/usblog-20261119-105246`，capture `state=captured-disconnected`、
+`complete=false`、242,632 B、`logSha256=E4D2A129F134BCF62B706500CE92FCF1BBD3BE07B485AFD5C7082FA75BF0BEB1`、
+`stopReason=fastboot-return`、resetMarker 存在（`lastDataAt` 10:58:36，`finishedAt` 10:58:41）——
+k60_autoreset=300 这次确实把板子送回了 fastboot。
+
+镜像状态（2026-11-19 11:15，**已打包、未上机**）：
+
+| 项 | 值 |
+|---|---|
+| kernel | `E:/k60-work/artifacts/modem-20261117k37/kernel.macho`，105,734,144 B，`a8322700cef55e466caaf2446f987914b27bb7e0dac53a9d77dd4155a2c452ea`（`COACHZ` 40 条） |
+| boot image | `E:/k60-work/artifacts/modem-20261117k37/boot-modem-b-full.img`，201,895,936 B，`b920669faadb0ba1989e95a20f919443f29fa8a059a352ad4674cdc840a3d0f6` |
+| payload | `4c2b881678561b10dccbb565de1bf4ba217c0c9f493bb88ed9795b62c410ffc2`；payload.json `bc8862d8…`；payload kernel `7bdeda83…`；ADT `58d7c1187a8976030632d68372940cb23cfd8b6ce82228adc385f946634922c0` |
+| FD / args / 布局 | `40c29d51…`；末尾 `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`；560,384 / 201,326,592 / 3,145,840 / 4,024 |
+| 校验 | `verify-k37-b.py` rc0 `verify-boot-image: OK`；`test-bootimg-layout.py` 布局正确 |
+
+判据：S3 必须保持 PASS；S4 要 `K60MODEM qrtr: dms revision …`；S5 要 verdict `ok`
+（`node0>=1` 且 `wanted>0`）；S6 要 `bridge enabled` 与 N>0 的发布行。诊断价值在新增的
+`wait` 行：若 60 s 内服务数一直停在 2，说明 modem 根本不通过 QRTR 名称服务发布 DMS，
+下一变量应是 servloc 应答（modem 在 k36 里已两次向我们要 service 64），而不是重试 lookup。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -891,9 +951,11 @@ k35 B 镜像（与 k34 只差这一层）：
    `transport remote glink fifo absent, defer IPCRTR` 并改走探针路径 adopt，那一行永远不会出现（§3.18 更正）。
     k35（`2f989b28…`）已于 2026-11-19 10:03 飞过：S3 PASS（calls=181）、S6 首次 PASS、S4 仍 FAIL，失败行把
     第一对 pair 钉成 `size=0x80 id=0`（§3.22），adopt 行的 8 字节旧残料被丢弃逻辑清掉（§3.19）。
-    下一飞用 k36 的 `E:/k60-work/artifacts/modem-20261117k36/boot-modem-b-full.img`（`6f015eb6…`，§3.23）：
-    它只把 0622 里那份 GLINK 副本的 `if (!size || !id)` 收窄成 `if (!size)`，`drivers/PongPower/QcomGlink.c` 本体不动。
-    S3 必须保持，S4 仍按 dms revision 判，S5/S6 由同一份日志判读。
+    k36（`6f015eb6…`）已于 2026-11-19 10:52 飞过：S3 PASS（calls=181）、S6 PASS，**rc=-5 消失**，
+    S4 FAIL 于 `verdict no reply services=2`——modem 在 10 s 内只注册了服务 66/0x2b，DMS 没出现（§3.24）。
+    下一飞用 k37 的 `E:/k60-work/artifacts/modem-20261117k37/boot-modem-b-full.img`（`b920669f…`，§3.24）：
+    窗口改 60 s，lookup 广播重发两次（第二次只问 DMS），每 5 s 打印服务计数。S3 必须保持，
+    S4 仍按 dms revision 判，S5/S6 由同一份日志判读。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

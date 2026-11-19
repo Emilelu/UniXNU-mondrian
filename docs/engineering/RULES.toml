@@ -1,19 +1,3 @@
-# Compliance registry: every iron rule, every gated pitfall and every normative
-# requirement this repository asks for lives here with an executable check.
-#
-# `scripts/check-rules.py` reads this file, runs every `check`, and fails when
-#   * a registered check exits non-zero,
-#   * an iron rule has no entry,
-#   * a pitfall newer than `grandfather_through` has no entry.
-#
-# A rule that cannot be machine-checked yet still needs an entry with a `waiver`
-# that explains why and names what would make it checkable. A waiver is a debt,
-# not an exemption: it is printed in every report.
-version = 1
-grandfather_through = 151   # P-001..P-151 predate the registry; new ones must register
-
-# ---------------------------------------------------------------- iron rules
-
 [[rule]]
 id = "iron-1"
 kind = "iron"
@@ -532,18 +516,18 @@ statement = "门禁要能按线收窄作用域，否则会逼人绕过构建器�
 check = "python3 scripts/tests/test-eight-step-scope.py"
 
 [[rule]]
-id = "P-194"
-kind = "pitfall"
-source = "docs/engineering/PITFALLS.md:P-194"
-statement = "补丁集指纹必须来自构建实际应用的 series，并与 build-manifest.json 的条数一致"
-check = "python3 scripts/tests/test-series-source.py"
-
-[[rule]]
 id = "P-193"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-193"
 statement = "门禁不许写死检出路径；参考源按前缀元组解析，失败信息必须说明试过几个前缀"
 check = "python3 scripts/tests/test-research-gate-prefixes.py"
+
+[[rule]]
+id = "P-194"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-194"
+statement = "补丁集指纹必须来自构建实际应用的 series，并与 build-manifest.json 的条数一致"
+check = "python3 scripts/tests/test-series-source.py"
 
 [[rule]]
 id = "hard-39"
@@ -785,6 +769,12 @@ check = "python3 scripts/tests/test-build-strict-board-dir.py && python3 scripts
 note = "board_dir() 必须按「.config 有没有写 CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY」排序，不能只按 mtime；两个候选都没有这两个键时要警告 P-202。check-config-consistency.py 的 resolve_generated() 是同一判据的第二处，不许退回 found[0]"
 
 [[rule]]
+id = "P-226"
+title = "整份取一侧的冲突解决会连另一侧的非重叠新增一起吃掉"
+check = "python3 scripts/tests/test-build-strict-blocks.py"
+note = "解 build-strict.sh 冲突时整份取 main，丢掉 board_dir()/__pycache__ prune/wifi archive 块/内核断言四块；git 报过冲突、三方合并结果本来是对的，丢在「取整份」这一步。新增 check-build-strict-blocks.py 断言这四块必须存在，九个用例含六个反向验证"
+
+[[rule]]
 id = "P-228"
 kind = "pitfall"
 title = "兼容层无条件重放 IRQ，handler 被调用过不等于硬件中断到达"
@@ -797,3 +787,146 @@ kind = "pitfall"
 title = "门禁的测试断言了当前分支身份，导致任何改补丁的分支都构建不了"
 check = "python3 scripts/tests/test-porting-gate-book.py"
 note = "被构建流程调用的测试不能在断言里依赖「当前检出就是 main」；状态相关的一条必须允许 skipTest 并说明这是正确的拒绝，其余用合成 fixture。P-165（registry 继承 K60_BUILD_IN_PROGRESS）是同一问题域的另一端"
+
+[[rule]]
+id = "P-230"
+kind = "pitfall"
+title = "判据缺输入时不许替换成默认镜像"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-device-input-must-be-named.py"
+note = "2026-11-16 在干净 main 上不设 K60_DEVICE_INPUT 跑 check-rules.py 报五条红，加上变量后全绿——红的是「没给输入」而不是仓库状态；三处静默回落（sync-device-input.py、porting-gate.py、check-build-applied.py）必须改成缺输入即拒绝。合并 consolidate 时这个 check 行被 union 的块切分吃掉，门禁立刻报「P-230 既没有 check 也没有 waiver」。"
+[[rule]]
+id = "P-231"
+kind = "pitfall"
+title = "Metal 进度判据必须从格式串读，c 才是提交次数"
+check = "python3 scripts/tests/test-metal-trace-semantics.py"
+note = "2026-11-18 两次同镜像读错 S 行字段导致两个错误结论；格式串在 NativeBridgeMetalFrontend.mm:1604；c0/0 表示从未 commit，first frame presented 属软件合成兜底。"
+
+[[rule]]
+id = "P-232"
+kind = "pitfall"
+title = "补丁在树里不等于在二进制里：metal2vulkan 的 10 个补丁从未被应用"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-check-metal2vulkan-patches.py"
+note = "每个补丁必须被构建脚本按名引用，或在 patches/metal2vulkan/DATA-A-LIVE.md 的未启用小节里显式声明"
+
+[[rule]]
+id = "P-233"
+kind = "pitfall"
+title = "判据与采样节奏必须一起设计：每 60 帧一条在 22 帧的飞行里永远看不到"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-check-probe-cadence.py"
+note = "2026-11-18 gpu-import-scope 飞行完整但 0 条样本；改为 copies<=8 每帧一条、之后每 10 帧一条；「某类行一条都没有」先用 strings 核对产物，再判是不是采样没触发。"
+
+[[rule]]
+id = "P-234"
+kind = "pitfall"
+title = "量出来的时间除以 1000 却仍标 us：外层比内层小一千倍的日志会给出反向归因"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "2026-11-18 gpu-import-scope2：wait/copy/done 打印时 /1000 但仍标 us，实为毫秒；先看到 sum>copy 的结构性矛盾再换算，才没有把 23 ms 的 copy 读成 23 µs。"
+
+[[rule]]
+id = "P-235"
+kind = "pitfall"
+title = "删掉一次分配不等于删掉那段开销：逐行搬运比线性纹理慢 14.6 ms，而 submit 差 5 µs"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "2026-11-18 gpu-stride：把纹理换成 3,200 条 copyFromBuffer，encode 389 -> 15040 us、copy 23.0 -> 37.6 ms；同一对照里 submit 11478 -> 11483 us，证明被优化的不是成本。保留纹理，行循环只做对齐兜底，并把形状名称打进日志。"
+
+[[rule]]
+id = "P-236"
+kind = "pitfall"
+title = "判据失败与没有数据是两件事：零帧的一飞必须先判无效，不能算 F 规则命中"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-judge-gpu-flight.py"
+note = "2026-11-18 gpu-texture-20261118 首飞完整无 panic 但零帧零提交，判决脚本把它判成 S2-S8 全失败并命中 F2；同镜像 9 分钟后重飞 359 帧 PASS。有效性层（frames>0 / client_commits>0 / scanout_lines>0）必须先判，--require-valid 无效时退出 3。"
+
+[[rule]]
+id = "P-237"
+kind = "pitfall"
+title = "计数器要先问窗口：单次调用的计数差被当成累计值，算出「每次提交 52 KB」"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-judge-gpu-flight.py"
+note = "2026-11-18 gpu-publish-probe：calls/cachebytes 是单次 publishMapped 调用前后的全局计数差（中位 610 次 / 135.3 MiB），不是开机累计；84 个样本里 calls 24 对、cachebytes 24 对相邻样本变小（合计 25/83 对）即证。cachebytes/n 与 us/objects 都是跨窗口除法，必须禁止。"
+
+[[rule]]
+id = "P-238"
+kind = "pitfall"
+title = "先到先得的规则必须先有单写者：Local 互斥体不是机器级，竞争者在锁外就重启了设备"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-boot-lock.py"
+note = "2026-11-18 用户把上机规则改为先到先得；原 capture 互斥体是 Local\\ 每会话作用域、supervisor 无锁、flash.sh 在探测前就 adb reboot bootloader。改为 FileShare.None 机器级 claim + K60_AGENT_ID 署名 + rc=6/7，check-boot-procedure.py 增加 B2。"
+
+[[rule]]
+id = "P-239"
+kind = "pitfall"
+title = "登记表 union 按块切分会吃掉块外尾行：union 后必须重新断言 schema"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-rule-registry-schema.py"
+note = "2026-11-19 合并 consolidate 时 P-230 的 check 行落在最后一个 [[rule]] 块之外被丢弃，registry 报覆盖缺口、构建被拒；MAIN-BASELINE 的第一次 union 还造出无 sha 空 entry。正确形状是读两边 TOML 按 id 合并再整文件重写，并断言 check/waiver、id 唯一、家族内编号递增、check 指向的文件存在。"
+
+
+[[rule]]
+id = "P-240"
+kind = "pitfall"
+title = "一个没人赋值的开关让三处跳过判据全是死代码：判据存在 ≠ 判据生效"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-gpu-coherence-probe.py"
+note = "2026-11-19: native_adreno_io_coherent 被声明两次、读三处、全仓无赋值，于是 publishMapped/acquireImported/UserClient 的相干跳过全部是死代码，每次提交照旧清 93.2 MiB 导入帧（6.6-10.1 ms）。移植 zizhan 的 coherenceProbe 并在 native_adreno_publish 之前赋值后，真机首次即 d64/64 a1 r1024/0 w1024/1024 s0 k6 通过。门禁要问生产者，不是声明次数。"
+
+[[rule]]
+id = "P-241"
+kind = "pitfall"
+title = "写好的计时表没有调用点，采样又只到 60 s：客户端那 48 ms 因此从未被看见"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-metal-telemetry-stream.py"
+note = "2026-11-19: native_bridge_metal_telemetry()（行 T/G/J/V/K，含每 commit 的 ctc）全仓无调用点的同时，插件只在 5/20/60 s 采状态，200 s 的飞行在 60 s 后静默，于是 present() 之外的 ~48 ms 客户端绘制既没被量也没被报。修法是给表一个调用者（按行 report），并把节奏延到 5/20/60/120/180 s。教训：接口的存在不构成通路（同族 P-240），采样窗口必须覆盖判据声称的时间段。"
+
+[[rule]]
+id = "P-242"
+kind = "pitfall"
+title = "按调用形式扫描的门禁会漏掉整类参数：只认 PE_parse_boot_argn 就看不见 sysctlbyname 的键"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-gpu-blit-probe.py"
+note = "2026-11-19 加 pong_gpu_blit_probe 时发现 check-boot-args.py 的源码参数计数 24 没变；补 sysctl 字面量模式后变 25 并立刻报缺文档。"
+
+[[rule]]
+id = "P-243"
+kind = "pitfall"
+title = "Vulkan 没有带行距的 buffer→buffer 拷贝，我们的 bridge 也没有那个 selector"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "照抄 Metal 的 copyFromBuffer 带行距重载会抛 unrecognized selector 打死 backboardd；能消除行距差的只有自持扫描缓冲（DBUF）或不拷贝。"
+
+[[rule]]
+id = "P-244"
+kind = "pitfall"
+title = "GPU 长跑会先挂死再变慢：DeviceLost 之后 70 % 的日志是空转，不是帧率"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-judge-gpu-submit.py"
+note = "受管对象 331→951、字节 276→557 MB 后 CP/SMMU 故障；任何长跑帧率判据必须先证明被测设备还活着"
+
+[[rule]]
+id = "P-245"
+kind = "pitfall"
+title = "文本断言不是编译器：未闭合注释让 22 条单测全过而 20 个编译错误还在"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "撤销 pitched-copy 分支时留下未闭合 `/*`，Mac 侧报 `function definition is not allowed here`；插件侧头文件改动必须有一次真实语法检查，文本断言只证明字符串在文件里。"
+
+[[rule]]
+id = "P-246"
+kind = "pitfall"
+title = "有门禁不等于有人回收：25 个旧输出目录把虚拟盘涨到 181.8 GB"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-disk-guards.py"
+note = "scripts/k60-janitor.py 才是删除者；hard-41 只量余量。测试证明它保留最新 N 个、跳过符号链接、保护镜子与被链接的树。"
+
+[[rule]]
+id = "P-247"
+kind = "pitfall"
+title = "判据要自带样本源：屏幕静止时「稳态中位」永远采不到样，别把它读成失败"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-gpu-perf-vote.py"
+note = "gperf 触发 24 次有界基准（PongMetalScanout.h），judge 优先用 bench 行取中位"

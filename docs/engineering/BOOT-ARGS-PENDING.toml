@@ -1,0 +1,91 @@
+# Arguments that patches parse but BOOT-ARGS.md does not document yet.
+#
+# Until 2026-11-19 the gate only scanned drivers/**, so every kernel-side argument a patch
+# introduces was invisible. Scanning patches surfaced 40 of them at once. They are accepted
+# here as debt with a fixed ceiling: this file may not grow. Document one, delete its line,
+# lower `count`. A new undocumented argument fails the gate.
+
+count = 41
+
+[[pending]]
+name = "-no_slto_panic"
+[[pending]]
+name = "-show_pointers"
+[[pending]]
+name = "-v"
+[[pending]]
+name = "accel_stub"
+[[pending]]
+name = "amfi_get_out_of_my_way"
+[[pending]]
+name = "cpus_defeatures"
+[[pending]]
+name = "cs_debug"
+[[pending]]
+name = "cs_enforcement_panic"
+[[pending]]
+name = "cs_library_val_enable"
+[[pending]]
+name = "fips_mode"
+[[pending]]
+name = "k60-no-lc"
+[[pending]]
+name = "k60_amfi"
+[[pending]]
+name = "k60_capmanaged"
+[[pending]]
+name = "k60_entitlement_any"
+[[pending]]
+name = "k60_miniamfi"
+[[pending]]
+name = "k60_panic_flush"
+[[pending]]
+name = "k60_panic_test"
+[[pending]]
+name = "k60_sandbox"
+[[pending]]
+name = "k60_setprop_guard"
+[[pending]]
+name = "k60_usblog_reset"
+[[pending]]
+name = "k60_watch"
+[[pending]]
+name = "k60bt"
+[[pending]]
+name = "k60bt_stage"
+[[pending]]
+name = "maxmem"
+[[pending]]
+name = "offline-air-init"
+[[pending]]
+name = "offline-apfs-load"
+[[pending]]
+name = "offline-iogpu-load"
+[[pending]]
+name = "offline-legacy-register"
+[[pending]]
+name = "offline-mobile-graphics-client"
+[[pending]]
+name = "offline-mobile-graphics-load"
+[[pending]]
+name = "offline-owner-root-check"
+[[pending]]
+name = "offline-zone-pgz-case"
+[[pending]]
+name = "pong_audio"
+[[pending]]
+name = "pong_aw882xx"
+[[pending]]
+name = "pong_buttons"
+[[pending]]
+name = "pong_disable_swap"
+[[pending]]
+name = "pong_gpu_only"
+[[pending]]
+name = "pong_init_trace"
+[[pending]]
+name = "pong_skip_owner_apfs_mounts"
+[[pending]]
+name = "pong_software_ui"
+[[pending]]
+name = "sheng-no-lc"

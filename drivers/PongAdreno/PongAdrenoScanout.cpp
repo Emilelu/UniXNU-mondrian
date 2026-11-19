@@ -19,6 +19,10 @@
 extern "C" bool pong_panel_bringup(void);
 extern "C" void pong_panel_sample(void);
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
+/* The OS facing brightness service (K60Backlight.cpp, same archive): it is
+ * started from here for the same reason pong_panel_bringup is - a reference in
+ * this translation unit is what pulls those objects into the static archive. */
+extern "C" void k60_backlight_start(void);
 namespace {
 IOLock *scanout_gate;
 IOMemoryDescriptor *scanout;
@@ -41,6 +45,9 @@ extern "C" void pong_scanout_initialize(uint64_t address,size_t bytes,uint32_t s
     /* K60: bring the panel out of Sleep Out before any scanout is offered,
      * independent of whether the GPU scanout path itself is enabled. */
     if(!pong_panel_bringup())IOLog("K60 DISPLAY: panel bring-up failed; continuing with canvas only\n");
+    /* Brightness only makes sense once the panel is out of sleep; the service
+     * publishes IODisplayParameters and answers CoreBrightness from here on. */
+    else k60_backlight_start();
     unsigned enabled=0;
     if(scanout_gate || !PE_parse_boot_argn("pong_gpu_scanout",&enabled,sizeof(enabled)) || enabled!=1)return;
     if(!address || (address&4095) || !width || !height || stride<uint64_t(width)*4 ||
@@ -150,6 +157,11 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
     IOLockLock(scanout_gate);
     if(poisoned){IOLockUnlock(scanout_gate);return 2;}
     if(!client || !waiting || pending.offered){IOLockUnlock(scanout_gate);return 0;}
+    /* The frame path the porting guide asks us to attribute: page preparation,
+     * the offer the render server has to pick up, and the GPU copy itself are
+     * three different waits with three different owners. Report each one, so a
+     * slow frame names the stage instead of the whole driver. */
+    const uint64_t began=mach_absolute_time();
     size_t bytes=(size_t(stride)*height+4095)&~size_t(4095);
     if(offset>source->getLength() || bytes>source->getLength()-offset){IOLockUnlock(scanout_gate);return 0;}
     auto *memory=IOSubMemoryDescriptor::withSubRange(source,offset,bytes,kIODirectionInOut);
@@ -159,10 +171,12 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
     if(memory->prepare()!=kIOReturnSuccess) {
         memory->release();IOLockUnlock(scanout_gate);return 0;
     }
+    const uint64_t prepared=mach_absolute_time();
     pending={true,false,false,++sequence,0,memory,nullptr,stride};
     IOLockWakeup(scanout_gate,&pending,false);const uint64_t until=deadline(2000);
     while(!pending.done && !poisoned)
         if(IOLockSleepDeadline(scanout_gate,&pending,until,THREAD_UNINT)!=THREAD_AWAKENED)break;
+    const uint64_t finished=mach_absolute_time();
     if(pending.delivered && (!pending.done || (pending.status && pending.status!=PongScanoutNotSubmitted))) {
         poisoned=true;note("GPU copy not retired; retain pages and previous frame",pending.id,pending.status?:kIOReturnTimeout);
         IOLockUnlock(scanout_gate);return 2;
@@ -170,6 +184,29 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
     bool ok=pending.done && !pending.status;
     if(ok)pong_panel_sample();
     if(ok && completed++<3)note("GPU frame completed",pending.id,0);
+    /* Only the first frames and then one in sixty: the numbers are what a
+     * frame-rate claim has to be built on, so they must not flood the console
+     * the way an unconditional report would. The three stages are the ones the
+     * porting guide separates: page preparation here, the wait for the render
+     * server to take the offer and copy it, then the panel sample. */
+    if(ok && (completed<=4 || !(completed%60))) {
+        uint64_t prepare=0,wait=0,total=0;
+        absolutetime_to_nanoseconds(prepared-began,&prepare);
+        absolutetime_to_nanoseconds(finished-prepared,&wait);
+        absolutetime_to_nanoseconds(finished-began,&total);
+        /* addr/bytes are the mapping this frame handed the presenter. The
+         * presenter imports that user VA into a Metal buffer, and the import
+         * costs 63 us on some frames and 15000 us on others (usblog-20261119-125434,
+         * 18.4 MB). Without the address a log cannot say whether the expensive
+         * ones are the frames that got a fresh VA, which decides whether the fix
+         * is a kept mapping or something inside the bridge. */
+        char text[260];int n=snprintf(text,sizeof(text),
+            "PONG SCANOUT: frame=%llu prepare=%llu us offer_and_copy=%llu us total=%llu us addr=0x%llx bytes=%llu\n",
+            pending.id,prepare/1000,wait/1000,total/1000,
+            (unsigned long long)(pending.map?pending.map->getVirtualAddress():0),
+            (unsigned long long)(pending.map?pending.map->getLength():0));
+        if(n>0)IOLog("%s",text);
+    }
     if(pending.map)pending.map->release();
     (void)pending.memory->complete();pending.memory->release();pending={};
     IOLockUnlock(scanout_gate);return ok?1:0;

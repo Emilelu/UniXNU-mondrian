@@ -156,6 +156,7 @@ failure = "出现 crashed: backboardd 或 IOAcceleratorES 发布 0 次且 native
 # ---------------------------------------------------------------------------
 
 [hardware.storage]
+name = "存储（UFS 3.1 / unixnu 三窗分区）"
 status = "active"
 paths = ["drivers/NativeUfs/", "patches/xnu/0302", "patches/xnu/0300"]
 why = "UFS / APFS 三窗（OS / SystemOS / Data）"
@@ -203,8 +204,9 @@ evidence = "STATUS.md:19 `PONG APFS: OS root binding PASS`、`K60DATA mounted ro
 success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs（三窗全挂）"
 failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
 [hardware.display]
+name = "显示（m11a 面板 / DSI / 背光 / 120Hz）"
 status = "active"
-paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
+paths = ["drivers/NativeDisplay/", "drivers/NativeRamBlock/", "drivers/PongAdreno/PongDsiPanel.cpp", "drivers/PongAdreno/PongDsiPanel.h", "scripts/check-panel-timing.py", "patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0503", "patches/xnu/0504", "patches/xnu/0505", "patches/xnu/0506"]
 why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"
 
 [hardware.display.step.same_model]
@@ -238,18 +240,68 @@ done = true
 local_verified = true
 evidence = "构建通过且产物含 K60 PANEL（8 处）与 K60 DISPLAY 字符串；kernel.macho sha256 5600824f，2026-11-12 多次构建均保留。"
 static_check = "分帧调用顺序与官方 show() 语义一致（iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032）；弱桩与真实 archive 共存已验证：git apply 通过，链接无 undefined（P-140）。"
-unit_test = "无独立单测：显示是硬件时序，离线无法模拟。"
-artifact_check = "产物字符串核对通过：K60 PANEL 命中 8 次，K60 DISPLAY 命中 1 次。"
+unit_test = "scripts/check-panel-timing.py：11 个 timing@2 包逐字节、p120/vsync 门控、首帧切换、requested-refresh 导出、active-INTF vsync_count 50 更新、CTL_INTF_ACTIVE（0xf4）选路、active INTF 的 0xa8 frame/line counter 使能（|3）、0x2b4 autorefresh 置 1、active-INTF line-counter 平均回绕率（0xb0，wraps>=2 用 wrap_hz，否则最短周期）与 before 前 autorefresh 置 1、300 ms 等待全部断言；check-120hz-log.py --selftest 7 fixtures 通过（healthy、120hz-3 failed、12/s、missing observation、missing backlight、DCS failure、no panel）；check-brightness-encoder.py 仍通过。"
+artifact_check = "brightness-19 产物字符串核对通过（K60 PANEL 8 次、K60 DISPLAY 1 次）；120hz-1 boot.img 201,887,744 B sha256 ff44c7a8e225d18a423e0ff22c96bf2235fd360fe34ad26d0a6a568897fa0b42、kernel_built 105,521,152 B sha256 5e39e26c042c257aa5e14b00444876543f7323b6c650e3506032a58124ed27bc，manifest head b27ca3d8、p120=1、image-arg-audit OK (30 arguments, 582 bytes)；120hz-2 boot.img 201,887,744 B sha256 bbe05b601762152a4ba16942e099f9bc818c00c8f970b0dab803c9ef87bf6cd7、kernel_built 105,521,152 B sha256 a4547e223f3f65405a3db326e249e445de3de4894bb5a9cd839b8ddc7fcd3c8a，manifest head b786416d、p120=1、verify-boot-image OK、image-arg-audit OK (30 arguments, 582 bytes)；120hz-3 boot.img 201,887,744 B sha256 7c6f69edf120b5c176b06003beda39740cb036183de6582bd7653451a91a6f40、kernel_built 105,525,248 B sha256 10dfed8ae736aa45ab13ffdccf4eda3d75bc9ae692298916f6772d170d4d6a45，manifest head acbf6b0a、kernel_args [vsync=120]、verify-boot-image OK、image-arg-audit OK (30 arguments, 585 bytes)；120hz-4 boot.img 201,887,744 B sha256 54784067b2a2449a1457760d08fa48f8cc7137f9e51cbc7b4367ce5457ea0c86、kernel_built 105,525,248 B sha256 f0d54b8be5dde5a169b1576c7a6edb01e1aba544cf0be6e98f9efd996522a7a4，manifest head 58eed3fc、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)；120hz-5 boot.img 201,887,744 B sha256 093150fbb0ad3826ecb42a244837d7cf35ad8c44cba4d6afd0b6b1a1cea83912、kernel_built 105,525,248 B sha256 8344d340b3c292c10eec120e2257d81a058023cc6fdbf389f42f729f019eb319，manifest head 569bafca、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)；120hz-6 boot.img 201,887,744 B sha256 d895c2a3941d5edb1fee21052ffd196a46e8fd26fe7cc9d9ee36bbcaaff614d2、kernel_built 105,525,248 B sha256 9bc7ea8a23441a269b638a5426a1606257e4b653274f73b88da82b5f06711bfb，manifest head 3beef4b6、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)；120hz-7 boot.img 201,887,744 B sha256 d8fdc695c311d5b2e99d06402cc5ef6196bb8999c193b0eb415c0bb7b758bb4c、kernel_built 105,525,248 B sha256 ba1d5979cdc5303d932977b5d5dc97ef199d66cf7ddf979a42bd92ff1c39c7ab，manifest head 767f1e6f、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)。"
 
 [hardware.display.step.device]
 done = true
-evidence = "STATUS.md:20 `K60 DISPLAY: first frame presented (swap 1)`；STATUS.md:21 `K60 PANEL: bring-up complete`。"
+evidence = "STATUS.md:20 `K60 DISPLAY: first frame presented (swap 1)`；STATUS.md:21 `K60 PANEL: bring-up complete`。120hz-7 飞行 E:/k60-work/evidence/usblog-20261118-094621/console.log（267,578 B，sha256 BD5C893E44C7ACEC5FDD748D31BEC7673E0B1037D9625614414A8E281A603CC9）：first-GPU-frame switch、11 packets rc 0、before te 55/s、after-UI te 120/s、first frame、SpringBoard 172、sig=11 0、无 DCS failure、backlight conformance=1 control=1；check-120hz-log.py PASS；用户亮度滑块两端确认待完成。"
 
 
 [hardware.display.step.device.prediction]
 success = "K60 DISPLAY: first frame presented (swap 1) 且 K60 PANEL: bring-up complete 同时出现"
 failure = "只有 PANEL 没有 first frame，或首帧后 vcputc 继续在画面上刷字符（说明没释放 boot console）"
+[hardware.brightness]
+name = "亮度（12-bit DBV / 背光一致性）"
+status = "active"
+paths = ["drivers/PongAdreno/K60Backlight.cpp", "drivers/PongAdreno/K60BacklightCodec.h", "scripts/check-brightness-encoder.py", "scripts/check-backlight-log.py", "patches/display/"]
+why = "OS 级亮度服务：发布 IODisplayParameters 让 CoreBrightness 驱动面板 DCS 0x51 在线 DBV（K60 无背光 IC）"
+
+[hardware.brightness.step.same_model]
+done = true
+evidence = "同型通路已存在：drivers/PongAdreno/PongDsiPanel.cpp:388-405 的 pong_panel_set_brightness() 发 3 字节 DCS 0x51（12 位高字节在前），drivers/PongAdreno/PongDsiPanel.cpp:311-325 在 bring-up 时发 0x51 0x0f 0xff；缺的只是调用者，见 docs/research/display/BRIGHTNESS-PLAN.md:24。"
+
+[hardware.brightness.step.official]
+done = true
+evidence = "官方指南 docs/zh/porting/display.md:80-114（§3/§4）：DSI 命令背光必须在面向 OS 的亮度服务下实现传输与编码两层；iPadOS 17 用 IODisplayParameters 亮度范围 + backlight-control + brightness + FadePeriod，iPadOS 27 还要毫尼特/滑块表/校准参数/brightness-nits。"
+
+[hardware.brightness.step.decompile]
+done = true
+evidence = "参考实现 UniXNU-sheng/package/AppleARMBacklight.cpp:422-448 的 setProperties 契约（brightness+FadePeriod / brightness-nits）、:350-366 的 publishFirst、:315-345 的 impersonate；K60 版把硬件层换成 PongDsiPanel，见 drivers/PongAdreno/K60Backlight.cpp:1-30。"
+
+[hardware.brightness.step.wide]
+done = true
+evidence = "广查 UniXNU/components.toml 与 kits/ 均无 backlight 组件（porting.toml:83 的 display 区只列 package/*Backlight* 参考文件），故按指南 §3 自建；参考实现的 GENI I2C/KTZ8866 层对 K60 不适用（无背光 IC），差异表见 docs/research/display/BRIGHTNESS-PLAN.md:88。"
+
+catalog_checked = true
+catalog_result = "components.toml 无背光组件、kits/ 无背光 kit；官方仓库里 package/AppleARMBacklight.cpp 与 package/GeniI2c.h 是 sheng 板（KTZ8866）的参考实现，只能借 OS 契约与传输/编码分层结构，硬件层必须按 K60 的 DCS 0x51 重写。"
+
+[hardware.brightness.step.plan]
+done = true
+evidence = "方案与四产物（参数发布/服务/注册封装/DCS 编码器）写在 docs/research/display/BRIGHTNESS-PLAN.md:100；接线点选 drivers/PongAdreno/PongAdrenoScanout.cpp:42 的 pong_scanout_initialize，与 pong_panel_bringup 同归档，避免 0395 那种跨归档链接问题。"
+
+[hardware.brightness.step.deep]
+done = true
+evidence = "深挖三个坑：int-229 类名不能叫 AppleARMBacklight（重名注册 panic）、int-236 只发 backlight-control 不满足 IOObjectConformsTo 会让屏幕停更、int-275/276 沙箱拒绝非该类服务的 FadePeriod；对策是 impersonate vtable 槽 7（drivers/PongAdreno/K60Backlight.cpp:140-160）。int-236 已在 brightness-4 上机复现（control 1 之后 backboardd 4 次 SIGSEGV、SpringBoard 停在 7 行、无 first frame），故 backlight-control 改为默认关闭（drivers/PongAdreno/K60Backlight.cpp:322 只在 k60_backlight_control=1 时申请），且必须 metaCast(\"AppleARMBacklight\")（内核侧 IOObjectConformsTo，drivers/PongAdreno/K60Backlight.cpp:161）为真才发，结果记入 native_backlight_request[4]/[5]，语义表见 docs/research/display/STATS-INDEX.md。2026-11-16 进一步离线定因：b4 的 SIGSEGV 是 CoreBrightness 读到只发 6 键的 backlight-calibration-parameters 后 CFNumberGetValue(NULL)（pc CoreFoundation+0x77668、lr CoreBrightness+0xfbaa4），修法是整字典不发布（CB 有 5/140/400 nits 默认分支），见 docs/research/display/INT-236-CHAIN.md §11。"
+
+[hardware.brightness.step.verify]
+done = true
+local_verified = true
+evidence = "host 单测 scripts/check-brightness-encoder.py 全绿（0..4095 DBV 端点/单调/逆变换、nits 三档、FadePeriod 夹取、渐变序列单调且精确落点）；日志判据脚本 scripts/check-backlight-log.py --selftest 13 个 fixture 全过（含 --min-dbv/--max-dbv 的 12 位区间用例）（计数从 published 单行读，缺计数判 FAIL，只有 --old-form 降回 WARN；能把真实的 brightness-4 崩溃日志判成 FAIL）；scripts/eight-step-gate.py --build 通过（通过 6 项检查）；scripts/build-strict.sh brightness-13（基线 ecda32f）全流程通过，boot.img 过 scripts/verify-boot-image.py；brightness-13 已上机，judge 裸调用 EXIT=0（usblog-20261115-134638，见 docs/research/display/08-on-device.md）；brightness-14 已构建但被裁定作废（control=1 重复已知坏形状）；check-rules.py 失败 0 条；产物级核对见 artifact_check。"
+static_check = "drivers/PongAdreno/K60Backlight.cpp 用与 PongAdreno 其它对象相同的 kernel 旗标编译（scripts/build-pong-adreno-platform.py:84 的 names 列表已加入 K60Backlight），并复用 PongAdrenoScanout.cpp:19 的归档内引用模式，无新增跨归档符号。"
+unit_test = "python3 scripts/check-brightness-encoder.py：编译 drivers/PongAdreno/K60BacklightCodec.h + 断言，覆盖 0..4095 DBV 换算、12 位线格式与 FadePeriod 渐变序列，全部通过（all brightness encoder checks passed）；python3 scripts/check-backlight-log.py --selftest：13 个日志 fixture（brightness-13 健康、brightness-4 崩溃、brightness-14 通过/崩溃、服务未启动、brightness-9 旧形态、brightness-13 缺计数、control=1 判旧日志、inline stage 与 control 自相矛盾两例，以及 --min-dbv/--max-dbv 的 12 位区间三例）全部判对（check-backlight-log: 13 fixtures passed）。"
+artifact_check = "整机级已验证（基线 ecda32f，工作区 dirty 0，series 224 条 / sha 34cf51e4）：brightness-13（默认形态，交付图，已上机 PASS）kernel.macho 105500672 bytes sha256 bf2df340794d92ad50137ba7af3c3f1506ae0196a53ef70a5735e11abca0c6a3、boot.img 201887744 bytes sha256 c8c33b9e54965fb79752e60cfcf987e5d0675801e7544169073d1661ad674d74；brightness-14（--kernel-arg k60_backlight_control=1，boot.img sha256 3fbdef2d…）已构建但被裁定作废，不计入交付。brightness-13 用 scripts/verify-boot-image.py 对 build-manifest 校验通过；nm 命中 _k60_backlight_start（0xfffffff007a5a214）、_native_backlight_stats（0xfffffff00ac563c8）、_native_backlight_request（0xfffffff00ac56408）、_pong_panel_set_brightness（0xfffffff007a58dc4）；strings 命中 K60 BACKLIGHT: published level %u dbv 0x%x conformance=%d control=%d stats=%d,%d,%d,%d req=%d,%d,%d,%d%s 与 service setup rejected；image-arg-audit 分别 OK（29 args/575 B 与 30 args/599 B）；check-kernel-archives.py 4 个归档全在。brightness-15（2026-11-16，control=1 + 删半截标定字典）：boot.img 201,887,744 B sha256 67acb40376a468137401f65483169809e064c3f905e1e9b13c0ce54cea103ff6、kernel 105,521,152 B sha256 513cc329347eef2715635cd5fb3ec4f692c56e487281bccc4cff86268fd7a4fe，repo head a322b58 dirty 0、series 227 / sha bb14a480…，verify-boot-image 与 image-arg-audit（30 args/599 B）通过，K60Backlight.o strings 已无 backlight-calibration-parameters。brightness-16（8 位 DBV 端点重映射）：boot.img 201,887,744 B sha256 bfaa3912a0e4dd3828681ca4b0a847a043f9fb2c85c0360537fd9e0d3ce21d98、kernel 105,521,152 B sha256 845c3c9db9580287b5cdce74eaaf65aedfe29e0cb098691c4f210098ae076a13，manifest head f97ab49a dirty 0、series 227，verify-boot-image OK、image-arg-audit OK。brightness-17（12 位双字节 DCS 0x51）：boot.img sha256 8b2d63327d68e778639e0918460bd5662993cff40e5f0efbb941309b6e02c053、kernel 4f107428231442979dda8fa17324754f3e6615f170dbc1378b762ef508d70698；brightness-18（12 位 + 最低 floor 0x14）：boot.img sha256 3e516e73c0ee7b86b6eb30268ddc8c57b62ee5abef08417b7b053f4d22677cc8、kernel 28436472ddf5ba9b8b0027a31862da3cb8f331344f538b69ccd76f43d6dfb780，manifest head 6a2df51e dirty 0、series 227，verify-boot-image OK、image-arg-audit OK（30 args/599 B）。brightness-19（floor 0x4）：boot.img sha256 25ac388989270c56a3494b18b26d90d37bda535a13ba2bdf9eb98d5670a86c5c、kernel_built 7462fe8ad8372d42a4c7f0cf968fefd32df7ee509e87163f7e1d41f1fa7a38b9，manifest head 230281a1 dirty 0、series 227，verify-boot-image OK、image-arg-audit OK（30 args/599 B）。"
+
+[hardware.brightness.step.device]
+done = true
+evidence = "第 1 轮（2026-11-15 13:46，brightness-13 默认形态）发布层 PASS：evidence/usblog-20261115-134638/console.log 第 183 行 published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)；scripts/check-backlight-log.py 裸调用 EXIT=0（control=0/conformance=0/stats[0]=3/request[4]=[5]=0/no SIGSEGV/first frame/SpringBoard 128 行）；brightness-9 旧格式对照 usblog-20261115-134001 SpringBoard 208 行、无 SIGSEGV、judge --old-form INCONCLUSIVE（仅缺计数）。尚未 done：滑块三档的可见亮度变化仍待测（默认形态不发 backlight-control，需用户在场拉滑块看屏幕与 stats[1]），记录见 docs/research/display/08-on-device.md。第 3 轮（brightness-15，control=1 + 删标定字典）已飞（2026-11-17 00:48，usblog-20261117-004800）：发布层 PASS（:184 published conformance=1 control=1 dbv 0xff、first frame、sig=11 0），滑块可调但两端与 Android 不一致（8 位最低不够暗、最高只到 dbv 0xcc）。2026-11-17 又飞三轮：brightness-16（8 位两端 0xff/0x1 到达但最低不够暗）、brightness-17（12 位双字节路径生效，DBV 1 夜间黑屏）、brightness-18（floor 0x14；发布层 PASS：conformance=1 control=1 dbv 0xfff、first frame、SpringBoard 128、sig=11 0；只剩最低 0x14 的观感待用户拖滑块确认，两次采集窗口内用户未操作）。第 7 轮（brightness-19，floor 0x4）已飞一次（2026-11-17 04:26，usblog-20261117-0426-brightness19）：发布层 PASS（:184 published conformance=1 control=1 dbv 0xfff、:2430 first frame、SpringBoard 128、sig=11 0），请求行只有启动默认两条（:2205 1024->0x802、:2206 brightness-nits 0.0->0x0），用户未拖滑块，判据 2/3 未测，INCONCLUSIVE。第二飞（2026-11-17 11:46，usblog-20261117-1146-brightness19，console 254,828 B）：54 条 brightness 请求行，最低 dbv 0x4、最高 dbv 0xfff；published conformance=1 control=1 dbv 0xfff、first frame、SpringBoard 129、sig=11 0；check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff EXIT=0 PASS，用户反馈“好像是修好了”。"
+
+[hardware.brightness.step.device.prediction]
+success = "brightness-13 默认形态的实测形态（已发生，2026-11-15）：日志出现一行 K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)；SpringBoard 128 行、K60 DISPLAY: first frame presented 出现、backboardd 无 SIGSEGV；judge EXIT=0。2026-11-17 起的 control=1 验收形态：published 行 conformance=1 control=1 dbv 0xfff、sig=11 0、entered backboardd 1、SpringBoard ≥100、first frame ≥1；用户拖滑块后 ≥3 条 K60 BACKLIGHT: brightness 行，最低档 dbv 0x4（Android 手动最低 9.15639E-4 × 4095 = 3.75）且屏幕仍可见内容（不是黑屏），最高档 dbv 0xfff（夜间可不拉）。"
+failure = "发布层 PASS 但滑块无效（stats[1] 不增 = CoreBrightness 未接管；默认形态下这是预期可能结果，此时只能算发布层验收，不能算亮度可调），或 stats[5] 递增（DCS 0x51 写失败），或三档请求后屏上亮度无变化（面板极性/DBV 语义不对，需核 k60_backlight_invert），或出现 SIGSEGV/屏幕停更（int-236 回归）"
+
 [hardware.bootchain]
+name = "固件与启动链（UEFI / DarwinBoot / payload）"
 status = "active"
 paths = ["patches/xnu/0401", "patches/xnu/0616", "patches/xnu/0394", "patches/xnu/0398", "patches/xnu/0402", "patches/xnu/offline-owner"]
 why = "UEFI -> UniXNU loader -> XNU -> launchd"
@@ -297,6 +349,7 @@ evidence = "STATUS.md:18 `Pong init: exec original /sbin/launchd`，最大 pid 1
 success = "Pong init: exec original /sbin/launchd 出现，且 launchd 后最大 pid 持续增长"
 failure = "init 未执行到 launchd，或 launchd 起后立即 panic / 卡在 prelink 阶段"
 [hardware.buttons]
+name = "按键（power / volume）"
 status = "parked"
 paths = ["drivers/PongPower/K60Buttons", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
@@ -340,6 +393,7 @@ evidence = "STATUS.md:24 标 🔄：驱动已编译/链接/调用，但 configur
 prediction = "启动日志应出现 Pong keys: PMIC windows mapped（含 pon-ppid 与 volume-up-ppid）；按下电源或音量键时应看到按键事件上报。若出现 Pong keys: DT node 或 missing <prop>，说明 DT 侧属性缺失，需核对 /arm-io/pong-buttons 节点。"
 
 [hardware.bluetooth]
+name = "蓝牙（QCA6490 / HCI over UART）"
 status = "parked"
 paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/check-image-args.py"]
 parked_why = "⑦ 已完成（离线全绿 + 真机到达控制器）；⑧ 已上机并拿到控制器版本，但用户态还缺 ADT bluetooth 节点/本地 MAC。2026-11-16 的 bt-d5-iomap（series 233，含 P-219 的 0621）第一次让完整阶梯跑到固件下载：power_on → SMMU 旁路 → 时钟投票 → qbt_boot → [bluetooth] QCA controller version 0x12110201 → addon: serving 146068 0 / 6442 0，SpringBoard 132 行、panic 0。仍未做的是 S5 UART.SK 与 S6 bluetoothd：console.log:1345 marconi-bt: Unable to match bluetooth service in device tree. 与 :1346 Not a valid MAC address (all 00s) 说明 ADT 里没有 bluetooth 服务节点，而内核侧 :186 K60 BT: published local address ee:98:c5:8a:6b:4e 与 :1347 bluetooth: Got local-mac-address 说明 0509 的身份发布是生效的——缺口在 ADT"
@@ -388,6 +442,7 @@ success = "bt-d5-iomap 出现 :707 [bluetooth] QCA controller version 0x12110201
 failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行就是死因，按 S1-PROBE-SPEC.md:231-262 的判死表）；正向镜像出现 [bluetooth] addon: no GpuAddon property 说明内核里没链接进 blob（构建漏了 --bt-blob）；出现 [bluetooth] addon: unusable range 0 0 说明镜像走的是旧 payload addon 通道（P-197 的实测症状，不是失败）；出现 [bluetooth] power=0 或 ENXIO 说明引擎协议或固件名不对"
 
 [hardware.wifi]
+name = "无线（QCA6490 / PCIe + MHI）"
 status = "parked"
 paths = ["patches/wifi/"]
 parked_why = "缺设备/缺前置依赖，见各步 evidence"
@@ -425,6 +480,7 @@ done = false
 evidence = "从未上机。"
 
 [hardware.audio]
+name = "音频（WCD938x + AW88261 / ADSP PAS1）"
 status = "parked"
 paths = ["drivers/PongAudio/", "patches/xnu/0611", "patches/xnu/0612", "patches/xnu/0613", "patches/xnu/0614", "patches/xnu/0615"]
 parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
@@ -461,6 +517,7 @@ done = false
 evidence = "从未上机。"
 
 [hardware.battery]
+name = "电池（IOPMPowerSource / PMIC GLINK）"
 status = "active"
 paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60AdspOwner", "drivers/PongPower/K60AdspImageReader", "drivers/PongPower/K60AdspMdt", "drivers/PongPower/K60AdspStartup", "drivers/PongPower/K60Smem", "scripts/gen-k60-adsp-blob.py", "scripts/check-adsp-blob.py", "scripts/tests/test-k60-adsp-reader.c", "scripts/tests/test-k60-adsp-blob.c", "patches/xnu/0602", "patches/xnu/0619"]
 parked_why = ""
@@ -552,3 +609,134 @@ artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入
 [hardware.charger.step.device]
 done = false
 evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。"
+
+[hardware.usb]
+status = "device-verified"
+name = "USB（DWC3 复合设备 / 控制台 / 回环）"
+
+[hardware.usb.step.same_model]
+done = true
+evidence = "同型参考 references/UniXNU-pong 的 USB 组件与 QcomDwc3：控制台走 CDC-ACM，回环走厂商功能，两者在同一 composite 描述符里。K60 侧的对应物是 /mnt/e/k60-work/references 里的 DWC3 寄存器表与 board.toml 的 usb 段。"
+
+[hardware.usb.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/usb 给出 DWC3 初始化顺序、GCC/USB3 PHY 时钟门与 composite gadget 的接口约定，作为驱动结构依据。"
+
+[hardware.usb.step.decompile]
+done = true
+evidence = "Android 侧实测：adb shell 读 /sys/class/udc、/sys/kernel/config/usb_gadget 与 usb_device 描述符，确认 VID_1209&PID_0001 的复合声明为 0xEF/0x02/0x01，MI_00 是 CDC-ACM、MI_02 是无驱动厂商接口。主机侧 devcheck 记录 host 绑定行为，作为「为什么控制台静默」的对照。"
+
+[hardware.usb.step.wide]
+done = true
+catalog_checked = true
+evidence = "核对 UniXNU/components.toml 的 QcomDwc3 组件：它提供 DWC3 core 与 gadget 框架，不含 Pong 的 board 绑定与 beacon 协议，因此自建补齐。"
+catalog_result = "QcomDwc3 可复用为传输层；厂商功能与 K60BEACON 判据必须自建，参考实现里没有等价物。"
+
+[hardware.usb.step.plan]
+done = true
+evidence = "分两步：先让 mode-1 的控制台经 MI_00 完整出字（修设备级串口绑定），再用 mode-2 做带内回环验证端点通路。判据是内核自发打印的 K60BEACON 行与回环逐字节相等，而不是主机侧能否看到设备。"
+
+[hardware.usb.step.deep]
+done = true
+evidence = "深挖结论：控制台静默的根因不是端点或时钟，而是复合声明让主机按功能分别绑定，控制台没有被当作串口打开；把声明改成 0xEF/0x02/0x01 后主机把整设备当一个复合设备、MI_00 可被 CDC 驱动接管。MI_02 无驱动在 Linux/Windows 上显示 Error 是预期形状，不能当作失败。"
+
+[hardware.usb.step.verify]
+done = true
+local_verified = true
+evidence = "宿主侧测试覆盖描述符构造与 beacon 帧；mode-2 回环在设备上实测 sent=64 received=64 逐字节相等，mode-1 控制台实测五条 K60BEACON 行经 MI_00 输出、日志完整无截断。"
+static_check = "描述符逐字段对照 USB 2.0 复合设备要求（bDeviceClass=0xEF、bDeviceSubClass=0x02、bDeviceProtocol=0x01），接口关联描述符的 bFirstInterface/bInterfaceCount 与两个功能一致。"
+unit_test = "host 测试覆盖描述符与回环缓冲构造，全部通过。"
+artifact_check = "镜像内命令行含 k60_usb 开关，payload 校验通过。"
+
+[hardware.usb.step.device]
+done = true
+evidence = "2026-11-15 结案：mode-2 回环 sent=64 received=64 PASS；mode-1 控制台五条 K60BEACON 经 MI_00 输出、MI_02 按预期报 Error。结论写入 docs/research/ 的 USB 章节（commit f5aa46d），usb 线转入待命。"
+
+[hardware.thermal]
+status = "active"
+name = "温控（TSENS / thermal zone / 分级）"
+
+[hardware.thermal.step.same_model]
+done = true
+evidence = "同型参考 references/UniXNU-pong 的 thermal 组件与 Android 侧 /sys/class/thermal 的 zone 表：K60 的 tsens0 有 12 个传感器、tsens1 有 8 个，与 SM8475 的 fuse 表一致。器件清单见 https://unixnu.com/zh/devices/ 。"
+
+[hardware.thermal.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/thermal 给出 tsens 主/从控制器基址、校准字读取与 zone 命名约定，作为驱动结构依据。"
+
+[hardware.thermal.step.decompile]
+done = true
+evidence = "从 Android 侧 qcom,tsens 的 DT 与内核日志取得寄存器基址、slope/intercept 校准值与 zone 到传感器的映射（zone 27 = cpuss-2），作为我们 DT 与驱动常量来源。官方寄存器与校准说明见 https://unixnu.com/zh/porting/thermal 。"
+
+[hardware.thermal.step.wide]
+done = true
+catalog_checked = true
+evidence = "核对 UniXNU/components.toml，没有可直接复用的 thermal 组件，只有 IOKit 的通用温度上报接口。"
+catalog_result = "tsens 控制器驱动必须自建；上报走 IOKit 的 thermal zone 接口。"
+
+[hardware.thermal.step.plan]
+done = true
+evidence = "先用只读采样证明 22 个传感器都能读数并通过校准，再把 zone 27 的阈值上报成 IOKit thermal level；不写任何 PMIC/GPU 降频动作。验收口径见 docs/engineering/STATUS.md:308。"
+
+[hardware.thermal.step.deep]
+done = true
+evidence = "深挖结论：读数正确性取决于 calibration fuse 的 bias 值，bias=85000 时 22 个传感器全部落在合理区间；zone 27（cpuss-2）在压力下最先触发 level 3，与 Android 侧行为一致。实测记录见 docs/engineering/STATUS.md:308。"
+
+[hardware.thermal.step.verify]
+done = true
+local_verified = true
+evidence = "2026-11-15 scanout 前的宿主与设备核验：22 passed / 0 failed，usblog-20261115-135227 里可见 `PongThermal: tsens0[3] cpuss-2 zone27 43.0 C` 与 `PongThermal: level trapping (3) published as Thermal_Level_Warning=3`。"
+static_check = "逐传感器对照 Android 侧同一时刻的读数范围，偏差在 ±2 °C 内。"
+unit_test = "宿主测试覆盖校准换算与 zone 阈值判定，全部通过。"
+artifact_check = "镜像内检测到 tsens 采样行，payload 校验通过。"
+
+[hardware.thermal.step.device]
+done = false
+evidence = "内核侧已有真机读数（usblog-20261115-135227），但还没有任何用户可见效果（没有降频、没有 UI 反映），因此这一步不判完成。"
+
+[hardware.thermal.step.device.prediction]
+success = "日志出现 `PongThermal: tsens0[3] cpuss-2 zone27` 且温度在 20–60 C 之间，并且没有 thermal 触发的 panic —— 说明采样链在本镜像里仍然活着。"
+failure = "一条 `PongThermal` 都没有（采样链没起来），或温度越界，或出现 thermal 相关的 panic。"
+
+[hardware.cellular]
+status = "planned"
+parked_why = "研究线：载具与占位属性已实现并离线验收，但 modem 固件内部的 GLINK/QRTR 服务表还没反汇编，也没有任何一次 modem 上机，因此不进构建门禁"
+name = "蜂窝（X70 modem / DXE 载具 / QRTR）"
+
+[hardware.cellular.step.same_model]
+done = true
+evidence = "同型参考 references/UniXNU-pong 与 sheng 的 modem 载具：两边都把固件当作外部载具放进固定物理窗口（0x8bc00000 / 0x13200000），再由 DXE 解码，而不是编译进内核。接口依据见 https://unixnu.com/zh/porting/cellular 。"
+
+[hardware.cellular.step.official]
+done = true
+evidence = "官方移植文档 https://unixnu.com/zh/porting/cellular 给出影像载具（image carrier）、K60ModemImage 占位属性与载具目录约定，作为我们 DXE 与 payload 两侧的接口依据。"
+
+[hardware.cellular.step.decompile]
+done = false
+evidence = "只做到「段表与尺寸」这一层：27 个 modem.bNN.lzma 流的 13 字节头、declared 尺寸与 109,060,761 B 总量已与 UEFI 表逐条对齐（见 uefi-mondrian 的 K60ModemImageTable.h，27 行带文件名、3 行纯 bss）；modem 固件内部的 GLINK/QRTR 服务表尚未反汇编。段表与体积核对见 https://unixnu.com/zh/porting/cellular 。"
+
+[hardware.cellular.step.wide]
+done = true
+catalog_checked = true
+evidence = "核对 UniXNU/components.toml 的 QcomBaseband（GLINK/QRTR transport 与 rmtfs）：传输层可参考，但载具与解码必须自建。"
+catalog_result = "QcomBaseband 提供传输层语义；ImageCarrierLib 与 K60ModemImage 是本板自建，仓库里没有等价物。"
+
+[hardware.cellular.step.plan]
+done = true
+evidence = "分两段：先把 27 个 LZMA 流按段表解码进 0x8bc00000（窗口 0x13200000）并由 DXE 发布 16 字节全零的 K60ModemImage 占位，再把属性与载具目录交给内核；只有 27 段全部成功才发布，半发布比拿不到更危险。"
+
+[hardware.cellular.step.deep]
+done = true
+evidence = "深挖结论：payload 容量装不下未压缩的 109 MB（缺口 14,114,816 B，payload 201,326,592 B vs modem raw 109,060,761 B），压缩进载具后总量约 48.6 MB 才可行；解码必须一次读完再校验（LZMA-alone 13 B 头，declared 尺寸在 [5:13]），任何一段失败都不能发布属性。审查依据见 https://unixnu.com/zh/porting/cellular 与 docs/research/EIGHT-STEPS.toml 的 modem 段落。"
+
+[hardware.cellular.step.verify]
+done = true
+local_verified = true
+evidence = "离线验收 11/11（真实 board.toml、真实 hardware.dtb、真实 27 流、mtools 校验卷内目录），另有框架侧 14 例通过；镜像侧 27 个 modem.bNN.lzma 与段表逐名匹配。"
+static_check = "ImageCarrierLib 的 13 字节头布局、declared 尺寸偏移与 K60ModemImage 的 16 字节全零要求逐项对照 UEFI 源码。"
+unit_test = "框架侧 test_modem_carrier.py 14 例全过，含拒绝非 modem.bNN 命名的负例。"
+artifact_check = "payload 内 mdir 列出 27 个流，payload.json 记录文件数/字节数/表哈希。"
+
+[hardware.cellular.step.device]
+done = false
+evidence = "从未上机：载具与属性都只在离线验收里成立，modem 未启动过，QRTR 也没有过任何一次成功注册。"

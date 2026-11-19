@@ -1,0 +1,31 @@
+diff --git a/iokit/Kernel/IOMemoryDescriptor.cpp b/iokit/Kernel/IOMemoryDescriptor.cpp
+--- a/iokit/Kernel/IOMemoryDescriptor.cpp	2026-11-18 12:51:47.971918055 +0800
++++ b/iokit/Kernel/IOMemoryDescriptor.cpp	2026-11-18 12:51:47.972171217 +0800
+@@ -33,6 +33,11 @@
+ #include <IOKit/system.h>
+ #include <IOKit/IOLib.h>
+ #include <IOKit/IOMemoryDescriptor.h>
++/* Native board kernels map driver-owned (managed) pages through physical descriptors on
++ * purpose: GPU buffer views and the scanout hand-off. The DEVELOPMENT report below then ran
++ * once per segment of every such mapping, with a backtrace, tens of thousands of times per
++ * boot while the UI animates, and pushed every other message out of the 128 KiB buffer. */
++#define NATIVE_QUIET_MANAGED_PAGE_REPORT 1
+ #include <IOKit/IOMapper.h>
+ #include <IOKit/IODMACommand.h>
+ #include <IOKit/IOKitKeysPrivate.h>
+@@ -5191,13 +5196,13 @@
+ 			break;
+ 		}
+ 
+-#if DEBUG || DEVELOPMENT
++#if (DEBUG || DEVELOPMENT) && !NATIVE_QUIET_MANAGED_PAGE_REPORT
+ 		if ((kIOMemoryTypeUPL != type)
+ 		    && pmap_has_managed_page((ppnum_t) atop_64(physAddr), (ppnum_t) atop_64(physAddr + segLen - 1))) {
+ 			OSReportWithBacktrace("IOMemoryDescriptor physical with managed page 0x%qx:0x%qx",
+ 			    physAddr, (uint64_t)segLen);
+ 		}
+-#endif /* DEBUG || DEVELOPMENT */
++#endif /* (DEBUG || DEVELOPMENT) && !NATIVE_QUIET_MANAGED_PAGE_REPORT */
+ 
+ 		chunk = (reserved->dp.pagerContig ? round_page(segLen) : page_size);
+ 		for (page = 0;

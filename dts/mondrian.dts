@@ -80,6 +80,23 @@
 		period-buffer-limit = <0x1 0x00000000>;
 	};
 
+	/*
+	 * Wi-Fi as a device tree fact, not as a driver: /sbin/launchd starts the
+	 * wireless daemon com.apple.wifid only on a device whose device tree has a
+	 * node named "wlan" (or a compatible of "marconi-wifi")
+	 * (_LimitLoadToDeviceTree in com.apple.wifid.plist). wifid is what the
+	 * Settings pane talks to; without it the pane exists but never lists a
+	 * network.
+	 *
+	 * The node carries no register window on purpose: the station is driven by
+	 * PongWifi over MHI and the firmware, and this node exists so the daemon
+	 * matches. The ADT export ignores a node without reg, so nothing is mapped.
+	 */
+	wlan {
+		compatible = "marconi-wifi", "pong,qca6490-wifi";
+		device_type = "wlan";
+		unixnu,adt-name = "wlan";
+	};
 	ufs@1d84000 {
 		compatible = "qcom,sm8475-ufshc";
 		status = "okay";

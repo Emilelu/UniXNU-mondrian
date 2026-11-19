@@ -409,3 +409,69 @@ K60SEED /private/var/pong/PongAdrenoMetal.bundle/Info.plist bytes=555 resid=0 er
 `PongAdrenoMetal.clients` 数十字节（这三项极小，可用内核 blob 方式部署）；
 `PongMetalBridge.dylib` ≈33 MB、`libvulkan_freedreno.dylib` ≈18 MB（必须走
 文件系统，不可能做成 C 数组）。
+
+## 2026-11-18 GPU 逐行搬运实测：比纹理慢 14.6 ms，`submit` 与搬运形状无关
+
+- `gpu-stride-20261118`（`usblog-20261118-181618`，295,620 B）判 **FAIL**，唯一失败项是 S6：
+  逐行搬运下 `submit` 中位数 11,483 µs，未达 ≤6,000 µs。
+- 与 `gpu-import-scope2` 逐项对照：`encode` 389 → 15,040 µs、`copy` 23.0 → 37.6 ms，
+  而 `submit` 11,478 → 11,483 µs。**删掉每帧纹理让每帧慢 14.6 ms**，纹理路径已恢复；
+  3,200 条命令各要 ~4.7 µs 编码，是真正的成本所在（P-235）。
+- `submit` 在两种完全不同的搬运形状下只差 5 µs，加上 45 样本的 `r(submit,gpu)=0.007`，
+  判定它是翻译层每次提交的固定 CPU 开销；下一步进 `commit_now`/`submit_batch` 打点，
+  不再在外层调搬运形状。
+- 帧率 7.04 fps（669 帧 / 95 s），与 `present()` 的单帧 23–37 ms 同量级；
+  距 120 fps（≤8.3 ms/帧）还差一个数量级。
+
+## 2026-11-18 GPU 帧路径：成本被定位到 `presenter->present()`，采样节奏教训记入 P-233
+
+两次上机都是 Lead 自己飞的，只 `fastboot boot`，没有写过分区。
+
+**第一飞 `gpu-stages-20261118`（证据 `usblog-20261118-135714`）** 把官方文档
+`/zh/porting/gpu` 的七阶段拆成两段可读计时：内核侧 `PONG SCANOUT: frame=N prepare=…
+offer_and_copy=… total=…`、渲染线程侧 `last frame: wait=… copy=… done=…`。实测
+`prepare` 4–12 µs、`offer_and_copy` 13,296–37,320 µs、`copy` 16,813–19,833 µs、`done` 38–55 µs
+⇒ 成本全在 `presenter->present()`（F6），锁页与 offer 交接都被排除。18.4 MB / 16.8 ms ≈ 1.1 GB/s，
+远低于 A730 blit 的预期带宽。
+
+**同日修掉三个问题**（`38b44bed`）：①`_k60Us()` 的跨整秒负数强转会把 17 ms 算成小时级，
+换成带借位的 `PongScanoutTiming.h` 并用 `test-scanout-timing.py` 真编译执行 11 例；
+②`report()` 的 256 字节缓冲把整行尾部连同换行一起截掉，改成 768 字节且强制换行；
+③跨帧复用导入会让 GPU 读已 `release` 的映射（`PongAdrenoScanout.cpp:195-196` 每帧释放），
+缓存整体删除，改为每帧在 `present()` 内导入一次（`test-presenter-import-scope.py` 13 例钉住）。
+
+**第二飞 `gpu-import-scope-20261118`（`boot.img 111851fa…`，证据 `usblog-20261118-161936`）**
+抓取完整（231,325 B / 3,400 行）、`K60KEXC` 0、`actual GPU scanout copy completed` 2 次，
+但**一条阶段样本都没有**：报告行每 60 帧一条，而这次玩家态只有
+`MiniIOMobileFramebuffer: 22 frames in 54713 ms`。判据与采样节奏没有一起设计 ⇒ **P-233**。
+采样改为「前 8 帧每帧一条、之后每 10 帧一条」，`FLIGHT-CARD-20261118k.md` 是按新节奏写的卡，
+镜像 `gpu-import-scope2-20261118`（`boot.img f67c4983…`）已构建、`verify-boot-image: OK`、
+卡片门禁 ✅ —— **等设备回到 fastboot 才能飞**。
+
+当前里程碑：首帧（软件合成）已成立、Metal 出帧（`c>0`）已成立、**帧率仍只有 0.4–7.8 fps**，
+120 fps 与跟手远未达成。下一步按 k 卡的 F6/F7 分支决定：`gpu` 占 `sum` 的 0.8 以上 ⇒ 转
+Turnip 渲染模式（本机被 `PongMetalPlugin.mm:136` 强制 `TU_DEBUG=sysmem,nocb`，官方默认 `gmem,nocb`）；
+`encode`+`submit` 占 0.6 以上 ⇒ 转命令提交的批量/复用。
+
+**第三飞 `gpu-import-scope2-20261118`（`boot.img f67c4983…`，证据 `usblog-20261118-171507`）** 判决 PASS：
+54 条阶段样本，S1–S8 全过（`K60KEXC` 0、backboardd 崩 0、中位 `copy` 23.0 ms、`imports==frames` 54/54）。
+归因第一次是**量出来的**而不是推的：45 条稳态样本里 `import` 0.2 %、`encode` 1.9 %、
+**`submit` 49.6 %、`gpu` 45.9 %**，`sum` 与 `copy` 中位只差 +1.8 %。
+
+两个结论由此而定：
+
+1. **删掉跨帧导入缓存没有代价**（每帧重导入中位 54 µs）——那条缓存本来只是为了性能，现在理由彻底消失。
+2. **`commit` 不是等 GPU**：`pearson r(submit, gpu) = 0.007`、`r(submit, 上一帧 gpu) = 0.088`，
+   极差 0.05–4.99 也说明它不跟随 GPU。所以 8–11 ms 的 `submit` 是翻译层里的 CPU 工作。
+
+同一飞暴露一个测量缺陷并记为 **P-234**：`wait/copy/done` 打印时除以 1000 却仍标 `us`，
+外层看起来比内层小一千倍；若照字面读会得到「copy 已经免费」的反向结论。
+
+下一张 `gpu-stride-20261118`（卡 `FLIGHT-CARD-20261118l.md`）只回答一个问题：
+这条拷贝是整段一次还是逐行 3200 次？它同时删掉线性纹理分支——那条分支会让翻译层每帧
+建一个 Vulkan image 并分配内存，正是「CPU 侧 per-frame 开销」最可能的形状。
+若本来就已是整段，则纹理分支从来不是成本，下一步转去翻译层内部测量 `commit_now`。
+
+当前里程碑：首帧（软件合成）已成立、Metal 出帧（`c>0`）已成立、**帧率仍只有 3.1 fps**（样本区间
+469 帧 / 150 s），而 `present()` 只占 23 ms（理论上限 43 fps）⇒ 帧路径之外还有别的瓶颈，
+120 fps 与跟手远未达成。

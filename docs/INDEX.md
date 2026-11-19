@@ -14,6 +14,7 @@
 | 1 | [`../README.md`](../README.md) / [`../README_EN.md`](../README_EN.md) | 设备身份、八步进度、仓库结构、构建入口 |
 | `engineering/REPO-MAP.md` | **仓库与目录登记表**：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB |
 | 2 | [`engineering/STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细与变更记录 |
+- 2026-11-19 iOS 迁移边界（只保留可转移的活）：[IOS-SCOPE](engineering/IOS-SCOPE.md)
 | 3 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
 | 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★35，从踩过的坑提炼的可执行规则 |
 | 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-130，每条含症状/根因/判据/教训 |
@@ -51,6 +52,7 @@ docs/
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
 | [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★35，每条含来源、硬规则、判别方法 |
 | [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-130：症状 → 真因 → 判别 → 教训 |
+| [`GPU-IOSURFACE-ROOT-CAUSE.md`](engineering/GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 加速失败的根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [`TAGS.md`](engineering/TAGS.md) | tag 策略：只留 boot-proven、main 基线、版本里程碑三种 |
 | [`PITFALL-TO-RULE-INDEX.md`](engineering/PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |
 | [`TOOLBOX.md`](engineering/TOOLBOX.md) | 可复用工具与脚本清单 |
@@ -62,6 +64,7 @@ docs/
 | [`ENVIRONMENT.md`](engineering/ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
 | [`LOCAL-ASSETS.md`](engineering/LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
+| [`DISK-HYGIENE.md`](engineering/DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据、回收顺序、WSL 虚拟盘压缩（需管理员） |
 | [`README.md`](engineering/README.md) | 本目录的简介与阅读顺序 |
 
 ---
@@ -85,6 +88,13 @@ docs/
 | `wifi/RESEARCH.md` | **WiFi 八步 ①②③**：Pong 同 SoC 同芯片的 PCIe0 冷启动、PWF2 固件包、K60 本机真值 |
 | `wifi/BOOT-DEATH-BISECT.md` | **WiFi series 死因考古（静态）**：0618 MHI 注入不存在、0011 stage 门与 229 series 均被对照排除，剩余差异与缺失的对照格子 |
 | `wifi/BLOB-RESIDENCY.md` | **11.19 MB 固件 blob 与装载边界**：最窄余量 1.14×（117 MB 镜像 vs `ReadFile` 128 MB），可证伪判断、五格判别矩阵、全家族实测段表与 `z0` 上机判决（silent） |
+| `wifi/BOOT-DEATH-SUSPECT.md` | **WiFi ⑧ 死因账本**：mhi3/mhi4 静默前无任何内核输出的证据、过期内核混淆项、四个嫌疑（__TEXT 11.2 MB 固件 blob / 窗口算术 / 退役 touch 探针 / `pong_wifi=1`）与逐个反证方法 |
+| `wifi/T2-PATCH.md` | **WiFi T2 备胎补丁**：把 11.19 MB PWF2 容器从 `__TEXT,__const` 挪到 `__DATA,__const` 的一行 diff（已验证可正反向 apply）、t2 构建配方、飞行前三项离线校验 |
+| `wifi/MSI-TOPOLOGY.md` | **WiFi 中断拓扑**：PCIe0 的三条 MSI 路径（PARF `MSI0`→SPI140/INTID172 实走、DT `msi-map` 指向 ITS 的 `0x5980`/`0x5981`、`pcie0_msi` 32 条 SPI 768..799 已 disabled）、为什么选 legacy、单 INTID 能看见与看不见什么、c5/c6 飞行证据 |
+| `wifi/SBL-QUEUE.md` | **WiFi SBL 队列候选**：c7 的 `ee=0 exec_env=1` 与官方 `MhiBoot.c` 的 `BHI_EXECENV` 轮询/BHIe 路径、`pong_sbl_pushed` 一次锁、`wifi-20261118sbl-gated` 镜像身份与首飞失败记录 |
+| `wifi/SBL-DIRECT.md` | **WiFi SBL 直接推送候选**：队列路径在 `mhi_sync_power_up` 超时后失效的复盘、同一 worker pass 直接调用 `mhi_download_amss_image` 的官方等价实现、`BHIE_TXVECSTATUS` 诊断与 `wifi-20261118sbl-direct` 判据 |
+| `wifi/SBL-MISSION.md` | **WiFi SBL mission 轮询候选到可用网络**：直接 BHIe 后缓存 `ee=1` 导致 `mhi_sync_power_up` 超时；mission4 将 `ready_timeout_ms` 延到 60 s 并创建 IPCR 通道；mission8 首次 WPA2 关联；mission9 用 4 参数 `initWithTask` 修掉打开 IONetworkStack 的 panic；mission10 让 namer 找到服务；mission11 由原生 configd/IPConfiguration 取得 192.168.31.134 并验证 RX/TX，mission13 从头再飞一次：DHCP 192.168.31.227、in 23,397 / out 28,455、tcp443 in 22,315 / out 27,138，26/26 judge 通过（应用探针 job 未运行，记入 limits） |
+| `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 
@@ -146,6 +156,7 @@ docs/
 | `plans/K60-TOUCH-PARAMS.md` | K60 Goodix / GENI-SPI 触摸参数表 |
 | `plans/120HZ-PORT-PLAN.md` | 120Hz 移植方案 |
 | [`plans/WIFI-REBUILD-CHECKLIST.md`](plans/WIFI-REBUILD-CHECKLIST.md) | **WiFi 对照镜像重出核对清单**：从 origin/main 按 4.5 GiB 窗口重出，对照 mhi3/mhi4 逐字段；五条硬差异（0010 装配路径、series 224 vs 229、`.config` 开关、buttons 节点、freeze 盲区） |
+| [`plans/WIFI6-WPA3-PLAN.md`](plans/WIFI6-WPA3-PLAN.md) | **Wi-Fi 6 / WPA3 方案**：HE 只发 HE Cap（HE Operation 由 AP 发）、先解析关联响应再触发 `BSS_CHANGED_ASSOC`；SAE 必须先迁控制面，再补 EC/BN provider，含 P0–P4 与证据清单 |
 | 其余 | 见目录 |
 
 ---
@@ -205,3 +216,15 @@ python3 scripts/render-eight-step-table.py --check
 ```
 
 四个门禁在 build / flash 前自动运行，任一失败即中止。
+- 2026-11-18 GPU 帧路径成本定位、采样节奏教训（P-233）与时间单位缺陷（P-234）：[STATUS 摘要](engineering/STATUS.md) · [飞行卡 j](research/gpu/FLIGHT-CARD-20261118j.md) · [飞行卡 k](research/gpu/FLIGHT-CARD-20261118k.md) · [飞行卡 l](research/gpu/FLIGHT-CARD-20261118l.md)
+- 2026-11-18 GPU 搬运形状对照：逐行比线性纹理慢 14.6 ms、`submit` 与形状无关（P-235）：[飞行卡 m](research/gpu/FLIGHT-CARD-20261118m.md)
+- 2026-11-18 GPU 提交期维护归因（探针窗口的更正、双峰分布、P-237）：[飞行卡 n](research/gpu/FLIGHT-CARD-20261118n.md) · 正在飞的只读归因：[飞行卡 o](research/gpu/FLIGHT-CARD-20261118o.md)
+- 2026-11-19 合并后第一次把 120 Hz 面板、12-bit 背光、电池与 wifi 与 GPU 放进同一张镜像：[飞行卡 a](research/gpu/FLIGHT-CARD-20261119a.md)
+- 2026-11-19 `submit` 那 3.0 ms 到底是内核还是转译器：给一个从 11-18 起就没有读者的计数器装上读者 —— [飞行卡 e](research/gpu/FLIGHT-CARD-20261119e.md) · [STATUS](engineering/STATUS.md)
+- 2026-11-19 证明 GPU SMMU 的 IO coherence，让每次提交不再清 93 MiB 导入帧（抄 zizhan 的探针，此前三处跳过判据是死代码）：[飞行卡 b](research/gpu/FLIGHT-CARD-20261119b.md)
+- 2026-11-19 同一个 18.4 MB 拷进两个不同目标，用来分开「目标端慢」与「拷贝实现慢」：[飞行卡 d](research/gpu/FLIGHT-CARD-20261119d.md)
+- 2026-11-19 让 surface 只报一个行距，验证 untile 与它 5.3 ms 能否一起消失：[飞行卡 f](research/gpu/FLIGHT-CARD-20261119f.md)
+- 2026-11-19 帧拿到的映射地址是新的还是旧的：用来分开「保留映射能救 import」与「地址不是变量」：[飞行卡 i](research/gpu/FLIGHT-CARD-20261119i.md)
+- 2026-11-19 保留映射（token/evict）的设计草案：如果 H1 成立要改哪几处、wire 48→56 B、以及验收判据：[KEPT-MAPPING](research/gpu/KEPT-MAPPING.md)
+- 2026-11-19 GPU 负优化 A/B 第一半（行距默认改回 0）：[飞行卡 j](research/gpu/FLIGHT-CARD-20261119j.md)
+- 2026-11-19 GPU 档位：把「启动投一次」改成可以在 GX 起来后重投（t970 z164）——[飞行卡 k](research/gpu/FLIGHT-CARD-20261119k.md)、[飞行卡 l](research/gpu/FLIGHT-CARD-20261119l.md)

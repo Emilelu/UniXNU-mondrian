@@ -1,0 +1,512 @@
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
+/*
+ * K60Backlight.cpp - the OS facing half of the K60 brightness service.
+ *
+ * K60 has no backlight IC: brightness is the panel's DSI DCS 0x51 online DBV,
+ * already implemented by pong_panel_set_brightness() in PongDsiPanel.cpp:247.
+ * What was missing is a service CoreBrightness can talk to. This file is the
+ * structure of UniXNU-sheng/package/AppleARMBacklight.cpp with the hardware
+ * layer removed: no I2C engines, no GENI state machine, no interrupts, because
+ * the transport is the DSI command FIFO that already works.
+ *
+ * Contract (docs/zh/porting/display.md:80-114, AppleARMBacklight.cpp:350-448):
+ *   CoreBrightness/backboardd looks for a service with backlight-control = true,
+ *   reads min/max from IODisplayParameters.brightness, and sends
+ *   {brightness, FadePeriod (16.16 seconds)} through setProperties. iPadOS 27
+ *   sends brightness-nits (signed 16.16) instead and ramps by itself.
+ *
+ * Two traps from the reference implementation, both avoided here:
+ *   int-229 the class cannot be named AppleARMBacklight (the prelinked kernel
+ *          already carries that class; a duplicate name panics on registration),
+ *          so it is K60Backlight and impersonates the metaclass instead.
+ *   int-236 publishing backlight-control without IOObjectConformsTo(service,
+ *          "AppleARMBacklight") makes CoreBrightness skip the libEDR server and
+ *          QuartzCore blocks with the display lock held: the screen stops
+ *          updating (the reference implementation's shape). brightness-4 on
+ *          20G81 died differently and left a stack: four backboardd SIGSEGV,
+ *          pc CoreFoundation+0x77668 (CFNumberGetValue on a NULL CFNumber),
+ *          lr CoreBrightness+0xfbaa4, because the service published a
+ *          six-key backlight-calibration-parameters dictionary while that
+ *          CoreBrightness reads ten keys with no NULL check. The dictionary is
+ *          no longer published at all (see publishCalibration). The property
+ *          is published by default since brightness-19 / 120hz-7; only an
+ *          explicit k60_backlight_control=0 turns it off, and the kernel side
+ *          of the conformance query must still really answer
+ *          AppleARMBacklight (conformsToAppleBacklight).
+ *
+ * Counting follows the reference layout; see docs/research/display/
+ * BRIGHTNESS-PLAN.md section 5 for the index table.
+ */
+#include <IOKit/IOService.h>
+#include <IOKit/IOLib.h>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/IOTimerEventSource.h>
+#include <IOKit/IOPlatformExpert.h>
+#include <kern/clock.h>
+#include <libkern/c++/OSData.h>
+#include <libkern/c++/OSDictionary.h>
+#include <libkern/c++/OSNumber.h>
+#include <libkern/c++/OSSymbol.h>
+#include <libkern/libkern.h>
+#include <pexpert/pexpert.h>
+
+#include "K60BacklightCodec.h"
+
+/* Same archive: PongDsiPanel.o is linked in through this reference, which is why
+ * this service lives in drivers/PongAdreno rather than in the xnu tree. */
+extern "C" int pong_panel_set_brightness(uint32_t level);
+extern "C" uint32_t pong_panel_brightness(void);
+
+/* [0] stage (1 attached, 2 work loop ready, 3 published, 4 published as
+ * AppleARMBacklight, negative: the step that failed), [1] brightness requests,
+ * [2] last level written, [3] level read back, [4] DBV read back, [5] failed
+ * writes, [6]..[12] GENI/interrupt slots that K60 does not have (-1),
+ * [13] timeouts (-1: counted inside PongDsiPanel.cpp), [14] attach tries,
+ * [15] completed writes. */
+extern "C" {volatile int32_t native_backlight_stats[16];}
+/* [0] last level asked for, [1] its fade in milliseconds, [2] request timer
+ * runs, [3] fades begun from a request, [4] conformance AppleARMBacklight
+ * (0 no, 1 yes), [5] backlight-control published (0 no, 1 yes). */
+extern "C" {volatile int32_t native_backlight_request[6];}
+
+namespace {
+/* The newest request, goal << 16 | milliseconds, bit 63 set while the work loop
+ * has not taken it yet. */
+volatile uint64_t gRequest;
+
+bool bootArg(const char *name, uint32_t &value)
+{
+    uint32_t parsed = value;
+    if (!PE_parse_boot_argn(name, &parsed, sizeof(parsed))) return false;
+    value = parsed;
+    return true;
+}
+}
+
+class K60Backlight final : public IOService
+{
+    OSDeclareDefaultStructors(K60Backlight)
+
+public:
+    bool startService(void);
+    void stop(IOService *provider) override;
+    void free(void) override;
+    IOReturn setProperties(OSObject *properties) override;
+
+private:
+    IOWorkLoop *loop = nullptr;
+    IOTimerEventSource *requestTimer = nullptr;
+    IOTimerEventSource *fadeTimer = nullptr;
+    bool requestAdded = false, fadeAdded = false;
+    bool published = false, stopped = false, impersonated = false;
+    bool conformed = false, control = false;
+    bool invert = false;
+    uint32_t level = 0, from = 0, to = 0, periodMs = 0;
+    uint64_t start = 0;
+
+    static const OSMetaClass *gAppleClass;
+
+    static const OSMetaClass *appleMetaClass(const OSMetaClassBase *);
+    bool impersonate(void);
+    bool conformsToAppleBacklight(void);
+    void publish(uint32_t value);
+    void publishCalibration(void);
+    void publishFirst(void);
+    void beginFade(uint32_t goal, uint32_t milliseconds);
+    bool writeLevel(uint32_t value);
+    static void requestAction(OSObject *owner, IOTimerEventSource *timer);
+    static void fadeAction(OSObject *owner, IOTimerEventSource *timer);
+    static IOReturn beginAction(OSObject *owner, void *, void *, void *, void *);
+};
+
+OSDefineMetaClassAndStructors(K60Backlight, IOService)
+
+const OSMetaClass *K60Backlight::gAppleClass = nullptr;
+
+/* The metaclass the sandbox and IOObjectConformsTo are asked about once the
+ * instance's vtable slot 7 points here (see impersonate). A member so it can
+ * reach the private gAppleClass, exactly as the reference implementation does. */
+const OSMetaClass *K60Backlight::appleMetaClass(const OSMetaClassBase *)
+{
+    return gAppleClass;
+}
+
+bool K60Backlight::impersonate(void)
+{
+    enum {kSlots = 320, kGetMetaClass = 7};
+    const OSSymbol *name = OSSymbol::withCString("AppleARMBacklight");
+    gAppleClass = name ? OSMetaClass::getMetaClassWithName(name) : nullptr;
+    OSSafeReleaseNULL(name);
+    if (!gAppleClass) return false;
+#if __has_feature(ptrauth_calls)
+    /* arm64e signs vtable entries, so a copied vtable would not authenticate;
+     * that build would need the hand written getMetaClass() of the reference
+     * implementation. This kernel is built for arm64 (build-xnu-4k-baseline.sh
+     * ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64), so refuse rather than
+     * pretend: without impersonation the service simply does not claim
+     * backlight-control (int-236 stays avoided). */
+    return false;
+#else
+    uintptr_t *copy = static_cast<uintptr_t *>(IOMalloc(kSlots * sizeof(uintptr_t)));
+    if (!copy) return false;
+    memcpy(copy, *reinterpret_cast<uintptr_t **>(this), kSlots * sizeof(uintptr_t));
+    copy[kGetMetaClass] = reinterpret_cast<uintptr_t>(&appleMetaClass);
+    __asm__ volatile("dmb ish" ::: "memory");
+    *reinterpret_cast<uintptr_t **>(this) = copy;
+    return true;
+#endif
+}
+
+/* The same walk user space does in IOObjectConformsTo(): IOKitLib asks for the
+ * class name, then for each superclass name. In the kernel that is
+ * OSMetaClass::checkMetaCast(), which starts at getMetaClass() (vtable slot 7)
+ * and follows superClassLink (OSMetaClass.cpp:1381-1402). It therefore answers
+ * exactly one question: did impersonate() really take effect on this object?
+ * A failed vtable swap leaves slot 7 pointing at K60Backlight, whose chain is
+ * IOService, so the cast returns null. */
+bool K60Backlight::conformsToAppleBacklight(void)
+{
+    return gAppleClass && metaCast("AppleARMBacklight") != nullptr;
+}
+
+void K60Backlight::publish(uint32_t value)
+{
+    OSDictionary *brightness = OSDictionary::withCapacity(3);
+    OSDictionary *milliNits = OSDictionary::withCapacity(3);
+    OSDictionary *parameters = OSDictionary::withCapacity(2);
+    OSNumber *min = OSNumber::withNumber(0ULL, 32);
+    OSNumber *max = OSNumber::withNumber((uint64_t)k60backlight::kMaxLevel, 32);
+    OSNumber *cur = OSNumber::withNumber((uint64_t)value, 32);
+    OSNumber *nitsMin = OSNumber::withNumber((uint64_t)k60backlight::kMinNits * 1000, 32);
+    OSNumber *nitsMax = OSNumber::withNumber((uint64_t)k60backlight::kMaxNits * 1000, 32);
+    OSNumber *nitsCur = OSNumber::withNumber((uint64_t)k60backlight::milliNitsFromLevel(value), 32);
+    if (!brightness || !milliNits || !parameters || !min || !max || !cur ||
+        !nitsMin || !nitsMax || !nitsCur) goto done;
+    brightness->setObject("min", min);
+    brightness->setObject("max", max);
+    brightness->setObject("value", cur);
+    milliNits->setObject("min", nitsMin);
+    milliNits->setObject("max", nitsMax);
+    milliNits->setObject("value", nitsCur);
+    parameters->setObject("brightness", brightness);
+    parameters->setObject("BrightnessMilliNits", milliNits);
+    setProperty("IODisplayParameters", parameters);
+done:
+    OSSafeReleaseNULL(nitsCur);
+    OSSafeReleaseNULL(nitsMax);
+    OSSafeReleaseNULL(nitsMin);
+    OSSafeReleaseNULL(cur);
+    OSSafeReleaseNULL(max);
+    OSSafeReleaseNULL(min);
+    OSSafeReleaseNULL(parameters);
+    OSSafeReleaseNULL(milliNits);
+    OSSafeReleaseNULL(brightness);
+}
+
+/* The slider table and calibration points iPadOS 27 asks for. The panel's
+ * luminance has not been measured, so these set the slider's scale, not an
+ * absolute brightness (same disclosure as the reference implementation). */
+void K60Backlight::publishCalibration(void)
+{
+    const int32_t table[3] = {(int32_t)(k60backlight::kMinNits << 16),
+                              (int32_t)(k60backlight::kMidNits << 16),
+                              (int32_t)(k60backlight::kMaxNits << 16)};
+    if (OSData *marketing = OSData::withBytes(table, sizeof(table))) {
+        setProperty("backlight-marketing-table", marketing);
+        marketing->release();
+    }
+    if (OSData *lmax = OSData::withBytes(&table[2], sizeof(table[2]))) {
+        setProperty("LmaxProduct", lmax);
+        lmax->release();
+    }
+    if (OSNumber *number = OSNumber::withNumber((uint64_t)k60backlight::kMinNits, 32)) {
+        setProperty("LminProduct", number);
+        number->release();
+    }
+    if (OSNumber *number = OSNumber::withNumber((uint64_t)k60backlight::kMidNits, 32)) {
+        setProperty("LmidProduct", number);
+        number->release();
+    }
+    /* Do not publish backlight-calibration-parameters.
+     *
+     * 20G81's CoreBrightness reads ten keys out of that dictionary
+     * (current-for-max-backlight, current-for-mid-backlight,
+     * hardware-max-current-limit, lMaxProduct, lMidProduct, lMinProduct,
+     * lMaxPanel, lMidPanel, lMinPanel, milliAmps2NitsScaleFactor) and feeds
+     * each value to CFNumberGetValue with no NULL check in between
+     * (CoreBrightness 0x1af030a28 reads the property, 0x1af030a5c..0x1af030a70
+     * the loop). A dictionary that carries only the six luminance keys makes
+     * the very first lookup return NULL and backboardd dies inside
+     * CoreFoundation (int-236: brightness-4, pc CoreFoundation+0x0, lr
+     * CoreBrightness+0xfbaa4). The same reader takes a default branch when the
+     * property is absent (0x1af031684: 5 / 140 / 400 nits and the scaled
+     * derivatives), so an absent dictionary is the only shape this port can
+     * publish honestly: the panel currents and the milliAmp-to-nit scale have
+     * not been measured. Never publish a partial dictionary here.
+     */
+}
+
+/* One DCS 0x51 write. The panel has no read back command, so the value reported
+ * as read back is the one this service last wrote successfully
+ * (PongDsiPanel.cpp:255), not a measurement. */
+bool K60Backlight::writeLevel(uint32_t value)
+{
+    const uint32_t dbv = k60backlight::applyInvert(k60backlight::dbvFromLevel(value), invert);
+    if (pong_panel_set_brightness(dbv)) {
+        __atomic_fetch_add(&native_backlight_stats[5], 1, __ATOMIC_RELAXED);
+        return false;
+    }
+    __atomic_fetch_add(&native_backlight_stats[15], 1, __ATOMIC_RELAXED);
+    native_backlight_stats[2] = (int32_t)value;
+    const uint32_t written = pong_panel_brightness();
+    native_backlight_stats[4] = (int32_t)written;
+    native_backlight_stats[3] = (int32_t)k60backlight::levelFromDbv(written);
+    return true;
+}
+
+void K60Backlight::beginFade(uint32_t goal, uint32_t milliseconds)
+{
+    if (!fadeTimer) return;
+    fadeTimer->cancelTimeout();
+    from = level;
+    to = k60backlight::clampLevel((int64_t)goal);
+    periodMs = milliseconds;
+    clock_get_uptime(&start);
+    fadeAction(this, fadeTimer);
+}
+
+void K60Backlight::fadeAction(OSObject *owner, IOTimerEventSource *sender)
+{
+    K60Backlight *self = static_cast<K60Backlight *>(owner);   /* see impersonate() */
+    if (!self || self->stopped) return;
+    uint64_t now = 0, elapsedNs = 0;
+    clock_get_uptime(&now);
+    absolutetime_to_nanoseconds(now - self->start, &elapsedNs);
+    const uint32_t elapsedMs = elapsedNs > 0xffffffffull ? 0xffffffffu : (uint32_t)(elapsedNs / 1000000ull);
+    const uint32_t next = k60backlight::fadeLevel(self->from, self->to, elapsedMs, self->periodMs);
+    if (next != self->level) {
+        self->writeLevel(next);
+        self->level = next;
+    }
+    if (next != self->to) sender->setTimeoutMS(k60backlight::kStepMs);
+}
+
+void K60Backlight::requestAction(OSObject *owner, IOTimerEventSource *sender)
+{
+    (void)sender;
+    K60Backlight *self = static_cast<K60Backlight *>(owner);
+    if (!self || self->stopped) return;
+    __atomic_fetch_add(&native_backlight_request[2], 1, __ATOMIC_RELAXED);
+    const uint64_t request = __atomic_exchange_n(&gRequest, 0ull, __ATOMIC_ACQUIRE);
+    if (!(request >> 63)) return;
+    __atomic_fetch_add(&native_backlight_request[3], 1, __ATOMIC_RELAXED);
+    self->beginFade((uint32_t)(request >> 16) & 0xffff, (uint32_t)request & 0xffff);
+}
+
+/* The reference waits for both engines to answer a level read first; here the
+ * panel is already lit by bring-up, so the published value is whatever DBV the
+ * panel was left at (0xfff, PongDsiPanel.cpp bring-up). */
+void K60Backlight::publishFirst(void)
+{
+    published = true;
+    level = from = to = k60backlight::levelFromDbv(pong_panel_brightness());
+    native_backlight_stats[2] = (int32_t)level;
+    native_backlight_stats[3] = (int32_t)level;
+    native_backlight_stats[4] = (int32_t)pong_panel_brightness();
+    /* int-236, measured on brightness-4: that image published backlight-control
+     * (log said control 1) and backboardd then took four SIGSEGV faults while
+     * SpringBoard stopped after seven lines and never presented a frame. The
+     * impersonation had succeeded, so "did the vtable swap work" is not enough
+     * of a gate - the property itself is what hurt. It is therefore opt-in:
+     *
+     *   k60_backlight_control=1  ask for backlight-control (default 0);
+     *   conformsToAppleBacklight()  and the kernel side of IOObjectConformsTo
+     *                               must really answer AppleARMBacklight.
+     *
+     * With the default, the service still publishes IODisplayParameters and
+     * accepts brightness/FadePeriod requests, so a level can be driven from
+     * either side, and nothing that walks the registry is told a backlight
+     * control exists. */
+    /* backlight-control is the default since brightness-19 and 120hz-7: both
+     * published conformance=1 control=1 on the device with no SIGSEGV, the
+     * first frame presented and SpringBoard at 128-172 lines, and the user
+     * confirmed the slider range end to end (DBV 0x4 .. 0xfff). The earlier
+     * int-236 crash family came from publishCalibration() handing CoreBrightness
+     * a half-built dictionary, not from the impersonation itself, and that call
+     * no longer publishes the dictionary. Keep k60_backlight_control=0 as the
+     * explicit opt-out for an image that must not walk the registry with a
+     * backlight control published. */
+    uint32_t controlArg = 1;
+    const bool controlGiven = bootArg("k60_backlight_control", controlArg);
+    if (controlGiven ? controlArg != 0 : true) {
+        /* A successful vtable swap is not the answer that matters: brightness-4
+         * swapped it and backboardd still crashed. The flag records the
+         * conformance query itself, which is the question user space asks. */
+        impersonate();
+        conformed = conformsToAppleBacklight();
+        impersonated = conformed;
+        if (conformed) {
+            control = true;
+            setProperty("NativeSandboxGrantProcess", "backboardd");
+            setProperty("backlight-control", true);
+        }
+    }
+    publishCalibration();
+    publish(level);
+    registerService();
+    native_backlight_stats[0] = control ? 4 : 3;
+    /* [4] conformance answer, [5] control published: both were unused (-1) and
+     * are what an on-device log has to show to tell "pretending" from
+     * "conforming" (see STATS-INDEX.md). */
+    native_backlight_request[4] = conformed ? 1 : 0;
+    native_backlight_request[5] = control ? 1 : 0;
+    /* One line, so scripts/check-backlight-log.py reads the verdict without
+     * reconstructing it from the counters.  The counters ride in this line
+     * rather than being read out of memory by a debugger: a verdict that needs
+     * a human to inspect the kernel is a memory of a measurement, not evidence,
+     * and nobody can re-check it later (Lead, 2026-11-15).
+     *
+     *   stats = stage, requests, last level, readback level    (stats[0..3])
+     *   req   = goal, fade ms, conformance, control            (request 0,1,4,5)
+     *
+     * At publish time no request has arrived yet, so req is 0,0,conformance,
+     * control; later requests show up in the counters, not in this line. */
+    IOLog("K60 BACKLIGHT: published level %u dbv 0x%x conformance=%d control=%d"
+          " stats=%d,%d,%d,%d req=%d,%d,%d,%d%s\n",
+          level, pong_panel_brightness(), (int)conformed, (int)control,
+          (int)native_backlight_stats[0], (int)native_backlight_stats[1],
+          (int)native_backlight_stats[2], (int)native_backlight_stats[3],
+          (int)native_backlight_request[0], (int)native_backlight_request[1],
+          (int)native_backlight_request[4], (int)native_backlight_request[5],
+          control ? "" : " (no AppleARMBacklight conformance)");
+}
+
+IOReturn K60Backlight::setProperties(OSObject *properties)
+{
+    OSDictionary *dictionary = OSDynamicCast(OSDictionary, properties);
+    if (!dictionary) return kIOReturnBadArgument;
+    uint32_t goal;
+    uint32_t milliseconds = 0;
+    bool nitsRequest = false;
+    int32_t nitsQ16 = 0;
+    if (OSNumber *nits = OSDynamicCast(OSNumber, dictionary->getObject("brightness-nits"))) {
+        /* iPadOS 27: signed 16.16 nits, ramped by the caller. */
+        nitsQ16 = (int32_t)nits->unsigned32BitValue();
+        nitsRequest = true;
+        goal = k60backlight::levelFromNits(nitsQ16);
+    } else if (OSNumber *brightness = OSDynamicCast(OSNumber, dictionary->getObject("brightness"))) {
+        OSNumber *fadePeriod = OSDynamicCast(OSNumber, dictionary->getObject("FadePeriod"));
+        goal = k60backlight::clampLevel((int64_t)(int32_t)brightness->unsigned32BitValue());
+        if (fadePeriod)
+            milliseconds = k60backlight::fadeMsFromFixed((uint64_t)fadePeriod->unsigned32BitValue());
+    } else {
+        return kIOReturnSuccess;
+    }
+    /* One line per request, so a boot log answers "what does the OS actually
+     * send at the top and the bottom of the slider" without a debugger. The
+     * published line alone cannot: it is written before any request arrives
+     * (brightness-15 showed req=0,0). A slider drag writes a handful of lines;
+     * fades do not, because only requests pass through here. */
+    if (nitsRequest) {
+        IOLog("K60 BACKLIGHT: brightness-nits %d.%05u -> level %u dbv 0x%x\n",
+              (int)(nitsQ16 >> 16),
+              (unsigned)((((uint32_t)nitsQ16 & 0xffffu) * 100000u) >> 16),
+              goal, (unsigned)k60backlight::dbvFromLevel(goal));
+    } else {
+        IOLog("K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x\n",
+              goal, goal, (unsigned)k60backlight::dbvFromLevel(goal));
+    }
+    __atomic_fetch_add(&native_backlight_stats[1], 1, __ATOMIC_RELAXED);
+    native_backlight_request[0] = (int32_t)goal;
+    native_backlight_request[1] = (int32_t)milliseconds;
+    /* Hand the request to the work loop instead of blocking backboardd's
+     * brightness thread here (int-277/int-278 in the reference). */
+    __atomic_store_n(&gRequest,
+                     (1ull << 63) | ((uint64_t)goal << 16) | (uint64_t)(milliseconds & 0xffff),
+                     __ATOMIC_RELEASE);
+    if (requestTimer) requestTimer->setTimeoutUS(1);
+    publish(goal);
+    return kIOReturnSuccess;
+}
+
+bool K60Backlight::startService(void)
+{
+    native_backlight_stats[0] = 1;
+    for (int i = 6; i <= 12; ++i) native_backlight_stats[i] = -1;
+    native_backlight_stats[13] = -1;
+    native_backlight_stats[14] = 1;
+    native_backlight_request[4] = -1;
+    native_backlight_request[5] = -1;
+    uint32_t invertArg = 0;
+    invert = bootArg("k60_backlight_invert", invertArg) && invertArg != 0;
+    loop = IOWorkLoop::workLoop();
+    requestTimer = IOTimerEventSource::timerEventSource(this, requestAction);
+    fadeTimer = IOTimerEventSource::timerEventSource(this, fadeAction);
+    if (!loop || !requestTimer || !fadeTimer) return false;
+    if (loop->addEventSource(requestTimer) != kIOReturnSuccess) return false;
+    requestAdded = true;
+    if (loop->addEventSource(fadeTimer) != kIOReturnSuccess) return false;
+    fadeAdded = true;
+    native_backlight_stats[0] = 2;
+    /* Publish from the work loop so the first setProperties cannot race the
+     * IORegistry publication. */
+    loop->runAction(beginAction, this);
+    return true;
+}
+
+IOReturn K60Backlight::beginAction(OSObject *owner, void *, void *, void *, void *)
+{
+    K60Backlight *self = static_cast<K60Backlight *>(owner);   /* see impersonate() */
+    if (!self || self->published) return kIOReturnSuccess;
+    self->publishFirst();
+    return kIOReturnSuccess;
+}
+
+void K60Backlight::stop(IOService *provider)
+{
+    stopped = true;
+    if (fadeTimer) fadeTimer->cancelTimeout();
+    if (requestTimer) requestTimer->cancelTimeout();
+    if (loop) {
+        if (fadeAdded) {loop->removeEventSource(fadeTimer); fadeAdded = false;}
+        if (requestAdded) {loop->removeEventSource(requestTimer); requestAdded = false;}
+    }
+    OSSafeReleaseNULL(fadeTimer);
+    OSSafeReleaseNULL(requestTimer);
+    OSSafeReleaseNULL(loop);
+    IOService::stop(provider);
+}
+
+void K60Backlight::free(void)
+{
+    OSSafeReleaseNULL(fadeTimer);
+    OSSafeReleaseNULL(requestTimer);
+    OSSafeReleaseNULL(loop);
+    IOService::free();
+}
+
+/* Entry point, called from pong_scanout_initialize() once the panel is out of
+ * sleep (same archive, so PongDsiPanel.o is already linked in). */
+extern "C" void k60_backlight_start(void)
+{
+    static unsigned attempted;
+    uint32_t enabled = 1;
+    bootArg("k60_backlight", enabled);
+    if (!enabled || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
+    IOService *provider = IOService::getPlatform();
+    K60Backlight *service = new K60Backlight;
+    bool attached = false;
+    if (provider && service && service->init()) attached = service->attach(provider);
+    if (!attached || !service->startService()) {
+        if (service) {
+            if (attached) service->stop(provider);
+            if (attached) service->detach(provider);
+            service->release();
+        }
+        native_backlight_stats[0] = -1;
+        IOLog("K60 BACKLIGHT: service setup rejected; brightness stays at bring-up value\n");
+        return;
+    }
+    /* The service retains its own owner reference for the epoch; there is no
+     * unload path, matching the reference implementation. */
+}

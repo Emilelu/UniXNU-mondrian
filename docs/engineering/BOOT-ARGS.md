@@ -4,8 +4,19 @@
 > 集中到一处。P-144（`pong_metal=2` 不发布）与 P-145（`pong_adreno_start`
 > 从未配过）都是参数语义不清造成的。
 
-**硬限制：arm64 boot-args 上限 608 字节**（含空格分隔）。2026-11-18 探针镜像为 30 项
-603 字节（临时去掉 `applog=1`），余 4；发布镜像仍以 board.toml 的完整参数为准。
+**硬限制：command line 607 字节**（含空格分隔）。判据在
+`uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8`
+（`DARWIN_BOOT_LINE_LENGTH 608`）与 `DarwinBoot.c:678-684`：
+`if ((Index >= sizeof (CommandLine) - 1) || (Request->BootArgs[Index] > 0x7f)) return EFI_BAD_BUFFER_SIZE;`
+—— 即长度 ≥607 或含非 ASCII 时 DarwinBoot 在 ReadFile/ParseKernel 之前直接返回，
+屏幕停在 REQUEST 阶段，**串口一个字节都不会出现**，设备自己回 fastboot。
+2026-11-14 的 bt 线 `usblog-20261114-bts1b-run1`（610 字节）就是这样 0 字节的。
+实测 board.toml 当前 29 项 575 字节（`unixnu build payload` 会按名覆盖后重新拼接）。
+`payload.py:30-38 check_args()` 只拦 >1000，注释里的「1024-byte buffer」是过时的。
+
+预算实例（2026-11-19，合并 `feat/120hz-panel` 时核算）：`board.toml` 当前 29 项 575 字节，`p120=1` 追加 7 字节为 582，`vsync=120` 追加 10 字节为 585；`p120=1` 叠加 `k60_backlight_control=1` 为 606，仍在 607 上限内；`vsync=120` 与 `k60_backlight_control=1` 同用会到 609，装不进同一张镜像——所以面板切档与背光控制改为**默认开启**，只保留 `p120=0` / `vsync=120` / `k60_backlight_control=0` 作为退出开关。
+
+探针镜像另有实测：2026-11-18 的 mode-1 探针为 30 项 603 字节（临时去掉 `applog=1`），余 4 字节；发布镜像仍以 `board.toml` 的完整参数为准。
 
 ## 一览
 
@@ -17,6 +28,11 @@
 | `pong_adreno_start` | GPU 平台 | 必须 == 1 | 未设 = 不启动 | 缺它则整个 GPU 栈不运行，但日志里没有报错（P-145） |
 | `pong_metal` | GPU / Metal | 必须 == 1 | 未设 = 不发布 | 设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144） |
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |
+| `pong_gpu_coherent` | GPU / 提交 | 0 / 1 / 2（默认 2） | 2 = 跑探针 | 唯一有对方量化证据的一项：zizhan g40/g41 强制开后扫出 24–35 ms → 5–6 ms。用 1 绕过证明等于拿帧的正确性换速度 |
+| `pong_surface_pitch` | GPU / 扫出 | `1` 开（默认 `0` 关） | 关 = 照客户端请求的 `IOSurfaceBytesPerRow` 分配（当前行为） | 开时一律按 `alignUp(width*bpe, 64)` 回报，客户端经 `IOSurfaceGetBytesPerRow` 得到同一个数。行距差（5888 vs 5760）是扫描 blit 只能走线性纹理的唯一原因，实测那一段 `encode` 46 ms 而同样 18.4 MB 的普通拷贝 1.9 ms；若调用方不尊重回报值，画面会斜切，这是它保留开关的原因 |
+| `pong_gpu_blit_probe` | GPU / 扫出 | `1` 开（默认关） | 开 = 首帧后跑一次对照 | 已答完并默认**关**：对照实测两个目标都是 9–10 GB/s，固件帧缓冲不是慢的那个；带它的那次飞行以 CP/SMMU fault 收场（P-244），且它按源行距写目标会让那一帧斜切 |
+| `gbench` | GPU / 提交 | `0`..`120`（默认不跑） | 未设：`gperf` 出现时按 24 次 | 把同一次拷贝在同一个 offer 里重复 N 次并逐次打印 `scanout bench n=…`，让 blit 的测量不依赖「屏幕上恰好有没有动画」。三次飞行都因为静止屏只有 4 帧、拿不到稳态样本，这个开关就是为此存在 |
+| `gperf` | GPU / 提交 | `1`..`13`（默认不投） | 未设 = 只投一次启动票、此后永不复访 | GX 起来之后按 `gperf=N` 重投同一条 `GX_BW_PERF_VOTE`（HFI id 30）。功率与发热随档位变化，所以默认不动；`0` 与 `>13` 被当成调用方 bug 拒发，`14` 是表长不是档位 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
 | `pong_ufs_readwrite` | 存储 | 真值 | 只读 | 写盘会改动 Data 卷 |
@@ -47,11 +63,13 @@
 | `k60_usbvend` | 调试 / USB | 0/1/2 | 0（= 0409 原样） | `0410-k60-usb-vendor-loopback.patch`：0 = 67 字节两接口 CDC-ACM、无回环；1 = 98 字节复合描述符（IAD + IF2 vendor 0xff/0xfe，EP 0x03 OUT / 0x83 IN）+ EP6→EP7 回环；2 = 控制台描述符不变、回环跑 CDC 数据对 EP2→EP3（普通 COM 口可验） | mode 1 的 IF2 主机侧没有驱动，要用 libusb 直接开；mode 2 必须同时开 `k60_usblog`（控制台让位给回环） |
 | `pong_modem` | uint32 | 0 | `patches/xnu/0621-k60-modem-pas.patch:325` | `bsd/dev/pong_modem_pas.c` | 0 = quiet; 1 = modem image stage; 2 = image + QRTR verdict `K60MODEM qrtr: verdict ok` (cellular L3). |
 | `k60_wallpaper_reset` | uint32 | 0 | `userland/ui_compat.c:677` | `select_initial_wallpaper()` | 1 = SpringBoard restores the stock 7410 wallpaper through the native setter on the next boot (springboard F1). |
-| `k60_backlight` | uint32 | 1 | `drivers/PongAdreno/K60Backlight.cpp:399` | `k60_backlight_start()` | 0 = never start the backlight service (panel keeps the DBV bring-up left, 0xff). |
-| `k60_backlight_control` | uint32 | **1** | `drivers/PongAdreno/K60Backlight.cpp:292` | `K60Backlight::publishFirst()` | 1 = impersonate AppleARMBacklight and publish `backlight-control`; 0 = publish the level only, never claim the control property (int-236 escape hatch). |
-| `k60_backlight_invert` | uint32 | 0 | `drivers/PongAdreno/K60Backlight.cpp:346` | `K60Backlight::start()` | 1 = invert the level-to-DBV mapping when the panel is wired the other way round. |
+| `k60_backlight` | uint32 | 1 | `drivers/PongAdreno/K60Backlight.cpp:443` | `k60_backlight_start()` | 0 = never start the backlight service (panel keeps the DBV bring-up left, 0xff). |
+| `k60_backlight_control` | uint32 | **0** | `drivers/PongAdreno/K60Backlight.cpp:322` | `K60Backlight::publishFirst()` | 1 = impersonate AppleARMBacklight and publish `backlight-control`, but only if `metaCast("AppleARMBacklight")` then answers true (the kernel side of `IOObjectConformsTo`, `K60Backlight.cpp:161`); 0 (default) = publish `IODisplayParameters` only and never claim the control property. brightness-4 ran with 1 and backboardd crashed with four SIGSEGVs before the first frame (int-236), so the default is off. Judge a log with `python3 scripts/check-backlight-log.py <console.log> [--control=1]`. Index semantics: `docs/research/display/STATS-INDEX.md`. |
+| `k60_backlight_invert` | uint32 | 0 | `drivers/PongAdreno/K60Backlight.cpp:390` | `K60Backlight::startService()` | 1 = invert the level-to-DBV mapping when the panel is wired the other way round. |
 | `pong_thermal_bias` | int32 (mC) | 0 | `drivers/PongThermal/pong_thermal.c:277` | `pong_thermal_start()` | Synthetic offset added to every sensor reading so a cold device can be pushed up the zone ladder: 50000 = level 1, 75000 = level 2, 85000 = level 3. |
 | `gprobe` | uint32 | 0 | `drivers/PongAdreno/PongDsiPanel.cpp:330` | `pong_panel_bring_up()` / `pong_panel_sample()` | 1 = arm the bounded 120 s panel-cadence observation window (GCC_DISP_AHB gate, DISPCC, MDSS) and let `K60 CADENCE:` lines print; 0 = the sample hook stays silent unless the one-shot post-bring-up check is still pending. |
+| `p120` | 显示 | uint32 | 0 | `patches/xnu/0506-k60-120hz-refresh.patch` + `drivers/PongAdreno/PongDsiPanel.cpp` | `refreshHz()` / `pong_panel_switch_120()` | `p120=1` = send the m11a timing@2 eleven-packet switch once at the first completed GPU frame; report the requested 120 Hz to TimingElements and log the separately measured INTF1 rate; 0 (default) = keep the native 60 Hz mode. The `K60 PANEL: INTF1 ... te .../s` line is the measured evidence; a failed switch is visible there even though the one-time TimingElements publication already says 120. |
+| `vsync` | 显示 | 仅 120（其他值忽略） | 0 | `patches/xnu/0506-k60-120hz-refresh.patch` + `drivers/PongAdreno/PongDsiPanel.cpp` | `refreshHz()` / `pong_panel_switch_120()` | Official display-document alias: `vsync=120` is accepted as equivalent to `p120=1`; it is a request, not a report. The same eleven-packet timing@2 switch runs at the first completed GPU frame; refreshHz() publishes the requested 120 Hz and the INTF1 line records the measured rate. Do not combine `vsync=120` with `k60_backlight_control=1` — the boot-args budget reaches 609 B, over the 608-byte limit. |
 | `k60_fontscale` | 显示 | 整数 | 代码默认 | `0214-k60-console-font-scale.patch` 控制台字号倍率 | — |
 | `k60_textonly` | 显示 | 真值 | 代码默认 | 只跑文本控制台，不初始化图形帧 | 用于隔离显示问题 |
 | `fb_threads` | 显示 | 整数 | 代码默认 | `zzzz…-pong-hackios-ui-foundation.patch` framebuffer 线程数 | — |
@@ -68,6 +86,15 @@
 | `pong_data_mount` | 存储 | 真值 | 关闭 | `offline-owner-systemos-mount.patch` 挂 Data 卷 | 与 `pong_data_rw` 同用 |
 | `pong_data_rw` | 存储 | 真值 | 只读 | `offline-owner-systemos-mount.patch` Data 卷可写 | 写盘会改动 Data |
 | `xpcproxy_idversion` | 启动链 | 真值 | 关闭 | `zzzz…-pong-hackios-launchd-exec.patch` xpcproxy 版本兼容 | — |
+| `pong_wifi` | WiFi | 1 或 2 | 未设 = 不启动 | 1 = 启动板级 worker；2 = 启动 worker，并在私有 fixture 存在时同时开启关联测试。缺它则 `pong_wifi_start_optional()` 只做 `pong_rpmh_init()` 就返回，日志里没有报错 |
+| `k60_wifi_rsc` | WiFi | 0..2 | 0 = 不动 RSC | 1 = 只读探针 TCS4 后拒绝投票；2 = 允许 RPMh 投票。默认 fail-safe，因为对未上电 RSC 写入会挂死整机（K60-TOUCH-PARAMS.md:120,174） |
+| `k60_wifi_stage` | WiFi | 0..10 | 0 = 跑全部 | 只跑到第 N 级就停，用于把早期挂死收敛到一个 MMIO 块；超范围值等于全跑 |
+| `pong_wifi_dma_mib` | WiFi | 64..128 | 64 | 只接受 64/128，其它值 `return fail("WiFi DMA budget must be 64 or 128 MiB")` 后整条线停 |
+| `pong_wifi_diag` | WiFi | 真值 | 关闭 | 打开 progressDiagnostic，把 stage 进度写进 `pong_wifi_progress[]` |
+| `pong_wifi_test` | WiFi | 真值 | 关闭 | 关联测试：拿到 MAC 后主动连接 fixture 里的 AP；`pong_wifi=2` 是等价且不增加命令行字节的入口 |
+| `pong_wifi_alt` | WiFi | 真值 | 关闭 | 只有 `pong_wifi_test=1` 时才用；选「备用网络」那一组 fixture，不是 SSID 文本 |
+| `pong_wifi_band` | WiFi | 0..5 | 0 = 不限 | 只接受 0/2/5；其它值打 `WiFi association test SKIP: band must be 0, 2 or 5` 并关掉整条测试 |
+| `pong_wifi_cycle` | WiFi | 真值 | 关闭 | 与 `pong_wifi_test=1` **同时**满足才开 gCycleTest（`PongWifiNet.cpp:892-893` 是 `&&` 串联） |
 
 ## 逐个说明
 
@@ -99,6 +126,94 @@
 - **作用**：PongAdrenoScanout.cpp:44 才能走 GPU scanout
 - **陷阱**：官方 next_action 要求先确认 accelerator 已发布再开它
 - **源码**：`drivers/PongAdreno/PongAdrenoScanout.cpp:44`
+
+### `pong_gpu_coherent`
+
+- **所属**：GPU / 提交（每次 `[MTLCommandBuffer commit]` 的缓存维护）
+- **接受值**：`0` 关 / `1` 强制开（**不证明**）/ `2` 跑探针（默认）
+- **未设时**：2 —— 探针，两个方向都过才置位
+- **作用**：PongAdrenoNativeGlue.cpp:151 用 `coherenceProbe()` 的结论给 `native_adreno_io_coherent` 赋值；该变量非零时 `NativeAdrenoVm::publishMapped()`（`submit/NativeAdrenoVm.cpp:359`）、`acquireImported()`（`:389`）与 `NativeAdrenoUserClient.cpp:268` 才真正跳过导入帧的 clean+invalidate
+- **陷阱**：这三处跳过判据一直存在，但此前**全仓无人给该变量赋值**，所以全是死代码；实测每次提交维护 93.2 MiB 导入帧（`usblog-20261118-233946`，`publish` 中位 6,635 µs、`ibytes/cachebytes=1.00`）。探针不读 DTS、不参考 A740，而是写/读真实页并核对 DRAM，脏行不足时最多重试 8 次（sheng int-150 见过一次被写回后的假阳性）。判据写在 `docs/research/gpu/FLIGHT-CARD-20261119b.md`
+- **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:149`
+- **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:151`
+- **源码**：`drivers/PongAdreno/submit/NativeAdrenoVm.cpp:359`
+
+### `pong_surface_pitch`
+
+**默认是 `0`（2026-11-19 改回）**：把行距差关掉是**替客户端改几何**，而量到收益的那一飞
+（`usblog-20261119-125434`）没有确认画面没有斜切——那张卡的 S8 至今未由人目视确认。
+CPU 数字更好看不构成让它做默认值的理由；要开就自己写 `pong_surface_pitch=1`，启动行还余 11 字节。
+
+
+- **所属**：`drivers/PongAdreno/`（宏）与 `MiniIOSurface`（`surfaceCreate()`，经 xnu 补丁）
+- **接受值**：`0` 或 `1`；未设时按 **1**（关闭一个行距）
+- **作用**：`1` 时忽略客户端给的 `IOSurfaceBytesPerRow`，把 `bpr` 算成
+  `alignUp(width * bytesPerElement, MINISURF_ROW_ALIGN)`，并在请求值不同时打印
+  `MiniIOSurface: row bytes asked=%llu reported=%llu (one pitch only)`。
+  `0` 时回到「客户端要多少给多少」。
+- **为什么**：2026-11-19 的 `gpu-surface-20261119` 飞行枚举了 19 块 surface，
+  其中扫描画布是 `sid=15 1440x3200 bpr=5888 planes=0 alloc=18841600`，而我们自己创建的两块
+  是 `bpr=5760`。5888 只能来自 `dictNumber(props, "IOSurfaceBytesPerRow", 0)` 这一行。
+- **陷阱**：客户端是否尊重回报的行距**尚未在真机验证**；不尊重则画面斜切。
+  判据必须包含「画面正确」这一条，而且不得用「帧还在出」代替它。
+
+### `pong_gpu_blit_probe`
+
+- **所属**：GPU / 扫出（`[MTLCommandBuffer commit]` 里那次全屏 blit 的成本归因）
+- **接受值**：`1` 开；**未设时关**
+- **未设时**：关
+- **作用**：`PongMetalScanout.h` 在第一帧真实拷贝成功之后，用同样的 API 形状再拷两次同样的字节：
+  ① 客户端 surface → GPU 自有缓冲（`src-to-device`），② 该缓冲 → 固件帧缓冲（`device-to-scanout`）。
+  三处独立测量（内核 `gpu=`、客户端 `G commit-to-complete`、合成器 `us each in the driver`）都指向
+  12.6 ms / 18.4 MB = 1.5 GB/s，但没有任何一个能区分「目标端慢」「Turnip 的拷贝实现慢」「带宽本身慢」。
+  这一对照正是用来分开这三者的
+- **它已经回答完了，所以默认关**（2026-11-19，P-244）：`gpu-blitprobe2-20261119` 上实测
+  `bytes=18432000 src-to-device=1993 us device-to-scanout=1835 us`，两块目标分别是 9.25 GB/s 与
+  10.04 GB/s ⇒ **固件帧缓冲不是慢的那个**，对照没有剩余问题要问。同一次飞行最后以
+  `CP/SMMU fault` 收场（受管对象从 331 长到 951、字节从 276 MB 长到 557 MB），探针多写的那一帧
+  无法证明无辜；而且它按源行距写目标，会让**那一帧**斜切
+- **陷阱**：它只在第一帧跑一次，所以日志里要么有一行、要么一行都没有；没有时先去查
+  `scanout copy …` 那一行在不在，不要直接读成「对照很便宜」。启动行已用 596 / 607 B，
+  所以想打开它必须自己腾出 20 字节（见 `## 参数预算`）——这是有意的成本，不是遗漏
+- **源码**：`drivers/PongMetal/PongMetalScanout.h:114`
+- **源码**：`drivers/PongMetal/GpuScanoutPresenter.h:116`
+
+### `gbench`
+
+- **所属**：`drivers/PongMetal/`（扫出 worker 的有界基准循环）
+- **接受值**：`0`..`120`；超过 120 被夹到 120
+- **未设时**：**`gperf` 出现在启动行时按 24 次**，否则不跑
+- **作用**：在第一帧真实拷贝成功之后、内核 retire 映射之前，用同一个 `present()` 再拷 N 次同一帧，
+  每次打印一行 `scanout bench n=<i>/<N> import=… encode=… submit=… gpu=… sum=… status=0x…`
+- **为什么**：`gpu-pitchoff-20261119`（卡 j）的 `gpu` 中位 5,983 µs、`gpu-perf-20261119`（卡 k）飞行
+  时屏幕静止只有 4 帧，稳态样本数为 0。判据一旦依赖「设备上恰好有东西在动」就不是判据
+  （P-236 同族）。这个循环把同一次工作重复到够多，测的还是同一次工作
+- **陷阱**：它在同一个 offer 内跑，所以源页仍然有效——不要在 `PongScanoutComplete` 之后调用
+  （那之后内核已 `release()` 映射，`usblog-20261119` 的 P-244 就是从那类误用开始的）；
+  循环次数有上限，且 `status` 非 0 立即中止，不会把一次启动变成无限基准
+- **源码**：`drivers/PongMetal/PongMetalScanout.h:60`
+- **源码**：`drivers/PongMetal/PongMetalScanout.h:198`
+
+### `gperf`
+
+- **所属**：`drivers/PongAdreno/`（GMU 运行期调档）
+- **接受值**：`1`..`13`；`0` 与大于 `13` 的值被 `PongAdrenoGmuVotePerf()` 以 `PongGpuArgument` 拒绝
+- **未设时**：不投票 —— 启动时那一次 `default_gpu_index` 是全程唯一的票
+- **作用**：`PongAdrenoPlatform.cpp` 在 `PongAdrenoCpStart()` 成功之后（即 GMU 已持有 GX 域、
+  GX 时钟已开）读这个参数，非零就调 `PongAdrenoGmuVotePerf(&gmu,perf,…)`，向 GMU 发
+  `{ack type 1, GX 档位, DDR 档位}` 到 HFI id 30（`GX_BW_PERF_VOTE`），成功后打印
+  `GPU level vote from gperf` 一行（含 settle 后的 `perf_gpu_index` 与 `perf_bus_index`）
+- **为什么需要**：`PongAdrenoPower.c:186-187` 只投一次启动票（`table.default_gpu_index=2`，
+  注释 `DT initial-pwrlevel11 -> ascending wire index2`），**此后永不改档**；perf 表 14 档
+  （`performance[0]=14` 是项数、`[1]=3` 是每档 word 数，`PongAdrenoPowerLevels[13-i]` 映射到
+  索引 0=关 / **13=最高**）。t970 的 z164 在 GX 起来后重投同一条消息，本参数是它在 K60 上的入口
+- **陷阱**：升档改变功耗与发热，**不该由默认值决定**；投票只在 CP 起来之后合法（那之前 GMU 还没
+  接管 GX，发出去要么被拒要么挂死启动）；同一时刻只允许一个未完成的 HFI 头
+  （`hfi.pending_header` 时返回 `PongGpuBusy` 而不是排队）；1 秒等不到回复即 `PongGpuTimeout`，
+  不会无限轮询。DDR 档位始终沿用启动票的值，这个参数只动 GX 档
+- **源码**：`drivers/PongAdreno/PongAdrenoPlatform.cpp:558`
+- **源码**：`drivers/PongAdreno/PongAdrenoGmu.c:242`
+- **源码**：`drivers/PongAdreno/PongAdrenoPower.c:186`
 
 ### `pong_gpu_pool_mib`
 
@@ -222,6 +337,86 @@
 - **作用**：无人值守自检后自动重启
 - **陷阱**：手动测试时是浪费的 23 字节，可让位给 GPU 开关
 
+### `pong_wifi`
+
+- **所属**：WiFi
+- **接受值**：1 或 2
+- **未设时**：不启动（`pong_wifi_start_optional()` 只做 `pong_rpmh_init()` 就返回）
+- **作用**：1 = 通过后 `kernel_thread_start(worker)` 起 QCA6490 bring-up 线程；2 = 同一 worker，并在私有 fixture 存在时同时开启关联测试（与 `pong_wifi_test=1` 等价，但复用已有参数、命令行不多占字节）
+- **陷阱**：worker 比 `k60_usblog_start()`（`bsd_init.c:1341`）早约 180 行运行；在控制台起来之前碰未上时钟的外设会挂死整机、串口 0 字节（P-49）。驱动侧已有 `k60_usblog_console_up()` 门，但仍应配合 `k60_wifi_stage` 逐级放行
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:730-733`；关联测试分支 `PongWifiPlatform.cpp:579-580`
+
+### `k60_wifi_rsc`
+
+- **所属**：WiFi
+- **接受值**：0..2
+- **未设时**：0（RSC 完全不动）
+- **作用**：1 = 只读探针 `0x17a20000` 的 TCS4 并打印 `RSC probe id/caps/tcs4Idle/tcs4Status`，然后拒绝所有投票；2 = 探针通过后允许 `rawVote()` 走 RPMh
+- **陷阱**：探针本身就是 RSC MMIO 读；RSC 电源域未证明时会挂死整机而不是返回错误。默认 0 是有意的 fail-safe
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:744`
+
+### `k60_wifi_stage`
+
+- **所属**：WiFi
+- **接受值**：0..10
+- **未设时**：0（跑全部十级）
+- **作用**：`stageOpen()` 逐级放行：1 TLMM pinmux、2 SPMI/PMIC page、3 cmd-db、4 RPMh/RSC 投票、5 GCC GDSC/refgen、6 PARF/DBI/PHY/ATU、7 82 项 PHY 表、8 PERST/LTSSM、9 SMMU SID 1c01、10 MSI attach
+- **陷阱**：每级在碰寄存器之前就打 `PongWifi: stage N (…)`，被挡的级打 `held back by k60_wifi_stage=N`；最后一条 stage 行就是死掉的那一块的入口
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:69`
+
+### `pong_wifi_dma_mib`
+
+- **所属**：WiFi
+- **接受值**：64..128
+- **未设时**：64
+- **作用**：选择 WiFi DMA arena 大小
+- **陷阱**：只接受 64/128，其它值直接 `fail("WiFi DMA budget must be 64 or 128 MiB")` 后整条线停
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:408`
+
+### `pong_wifi_diag`
+
+- **所属**：WiFi
+- **接受值**：真值
+- **未设时**：关闭
+- **作用**：打开 progressDiagnostic，把 stage 进度写进 `pong_wifi_progress[]`
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:647`、`drivers/PongWifi/PongWifiNet.cpp:890`
+
+### `pong_wifi_test`
+
+- **所属**：WiFi
+- **接受值**：真值
+- **未设时**：关闭
+- **作用**：拿到 station MAC 后主动关联测试 AP；也可以用 `pong_wifi=2` 达到同样效果而不增加命令行字节
+- **陷阱**：没有真实 board data（BDF）时连不上，日志停在 `Pong: actual QMI board firmware` 之后；注意 `pong_wifi=2` 仅在源码/构建包含私有 fixture 时才会进入关联测试
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:571`、`:579-580`、`drivers/PongWifi/PongWifiNet.cpp:892`
+
+### `pong_wifi_alt`
+
+- **所属**：WiFi
+- **接受值**：真值
+- **未设时**：关闭
+- **作用**：关联测试里选用「备用网络」那一组 fixture（`alternate` 标志），不是 SSID 文本
+- **陷阱**：SSID/PSK 来自构建期注入的私有 fixture（`PongWifiTestInputs.h`，0600）；缺 fixture 时打 `WiFi association test SKIP: no private network fixture` 并关掉整条测试
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:573`
+
+### `pong_wifi_band`
+
+- **所属**：WiFi
+- **接受值**：0 / 2 / 5
+- **未设时**：0（不限）
+- **作用**：限定关联测试频段
+- **陷阱**：其它值打 `WiFi association test SKIP: band must be 0, 2 or 5` 并关掉整条测试
+- **源码**：`drivers/PongWifi/PongWifiPlatform.cpp:574`
+
+### `pong_wifi_cycle`
+
+- **所属**：WiFi
+- **接受值**：真值（必须 == 1）
+- **未设时**：关闭
+- **作用**：在 `pong_wifi_test=1` **同时**成立时才把 `gCycleTest` 置真，跑断连/重连生命周期测试
+- **陷阱**：两个参数是 `&&` 关系，只给 `pong_wifi_cycle=1` 不会有任何动作
+- **源码**：`drivers/PongWifi/PongWifiNet.cpp:892`
+
 ## 三个 GPU 开关的相互关系
 
 ```
@@ -236,13 +431,25 @@ pong_gpu_scanout=1     -> 只有在 accelerator 已发布之后才应该打开
 ## 字节预算
 
 ```
-上限 608
-当前 30 项 591，余 17
-pong_metal=1        需 13  -> 超限 7
-pong_gpu_scanout=1  需 19  -> 超限 14
+上限 607（DarwinBoot.c:681）
+基线：29 项 575 B（2026-11-16 实测，baseline-20261116a 的 payload args），余 32
+
+pong_wifi=1                                   +12 -> 587   （c4 实测）
+pong_wifi=1 k60_wifi_rsc=1                    +15 -> 602   （只读探针；c5 实测）
+pong_wifi=1 k60_wifi_rsc=2                    +15 -> 602   （允许投票；与 =1 同长）
+pong_wifi=2 k60_wifi_rsc=2                    +15 -> 602   （mission5 关联测试；与 =1 同长）
+pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10  +18 -> 620 超限
 ```
 
-候选让位项：`k60_selftest_reboot=300`（23 字节，手动测试不需要）。
+`k60_wifi_rsc` 的取值语义与宽度：`1` = 只读探针（读 drv-2 的 TCS 寄存器，
+不写任何票），`2` = 允许投票（会写 TCS）。两者名字同宽，所以在 607 B 上限下
+`rsc=1` 与 `rsc=2` 都是 31 项 602 B，换值不改预算——c5 用 `1`、c6 用 `2`，
+两张图的参数长度逐字节相同。
+
+让位项（实测）：`epoch=1793709100` 改 `epoch=1` 省 9 字节，`debug=0x140` 改 `debug=1` 省 4 字节，
+两项合起来正好把 620 压到 607 以下（实测 589）。`k60_fontscale=0` **不是**让位项：
+`osfmk/console/video_console.c:2844` 要求 scale 在 2..4，0 会被忽略且长度不变。
+`k60_selftest_reboot=300`（23 字节）在未配置时本来就不在 board.toml 里。
 
 ## 当前状态（2026-11-12）
 

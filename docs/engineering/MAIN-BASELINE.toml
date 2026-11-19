@@ -1,8 +1,3 @@
-# main 基线的登记簿（铁则 9）
-# state: boot = 上机通过；build-only = 只过了构建；unverified = 未验证
-version = 1
-anchor = """bf487cc"""
-
 [[entry]]
 sha = "bf487cc"
 tag = "snap-r177"
@@ -146,20 +141,17 @@ kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "P-205：README 门禁化。新增 scripts/check-readme.py（双语互链、日期不早于 STATUS、★N/P-M 范围等于真实最大标题号、门禁表与 build-strict.sh 标记区内嵌门禁同名同集）+ scripts/tests/test-check-readme.py（8 例），build-strict.sh 只加两对 # --- gate-table:BEGIN/END --- 注释标记（不改变任何构建行为），render-eight-step-table.py 的 UNTRACKED 表把 USB 改 device-verified 并补 thermal 行，README/README_EN/AGENTS/HARD-RULES(★36 第 7 条)/PITFALLS(P-205)/RULES.toml/STATUS 同步更新。登记原因是该提交碰了 scripts/build-strict.sh，铁则 9。欠账：无，全部是注释/文档/校验脚本层改动，不改变内核与镜像内容。"
 
-
 [[entry]]
 sha = "fd6adeb"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "合并 feat/charger（08b08fd，11 提交 no-ff）。内容：EIGHT-STEPS.toml 新增 [hardware.charger]（①-⑦ done、⑧ 未上机）、build-k60-physical-battery.py 产出 MEASURED_NOTIFY_REPLY=(1,16)（K60Battmgr.h 契约注释同步）、docs/research/charger/ 六篇研究、scripts/tests/test-k60-charger-subscription.c（30 断言）。登记原因：build-k60-physical-battery.py 参与构建电池归档（PLATFORM_ARCHIVES），产物常量从 0 变成 (1,16)，会改变内核镜像字节，铁则 9。欠账：充电 ⑧ 上机排在 ADSP PAS1 落地之后（真实电量计读数与 Android 侧对比），届时按八步流程执行并另行登记。检查路径：scripts/tests/test-k60-charger-subscription.c TESTS OK 30；check-readme（含八步表对账）/check-docs/render --check 全绿。"
 
-
 [[entry]]
 sha = "4f56970"
 kernel_sha256 = "unknown-unchanged-image"
 state = "build-only"
 note = "合并 feat/judge-tools（rebase 到 9fec9a5 后 no-ff，17 提交）。内容：scripts/judge-z0.sh、scripts/judge-wifi-boot.py、scripts/tests/test-judge-wifi-boot.py（11 例）、scripts/tests/test-check-arg.py（14 例）、docs/wifi 判决账本修正（P-201 口径）与 docs/research 两篇 file:line 追溯。登记原因：新增 scripts/ 文件，铁则 9。欠账：无，不改变内核与镜像内容，仅新增判定工具与文档。"
-
 
 [[entry]]
 sha = "996aac6"
@@ -256,6 +248,21 @@ note = "P-224: freeze() no longer hashes scripts/__pycache__/*.pyc. Touches scri
 sha = "cb33248"
 state = "build-only"
 note = "P-225: board_dir() now ranks candidates by whether the .config names CONFIG_XNU_GPU_ADDON / CONFIG_XNU_K60_PHYSICAL_BATTERY. On every tree present today it resolves to the same directory the hardcoded path used (out-wifi -> mondrian/, which is what the wifi builds already wrote), so no build output changes; the next full build confirms it."
+
+[[entry]]
+sha = "1bfbe26"
+state = "build-only"
+note = "build-strict now forwards K60_MODEM_CARRIER and counts the streams back out of the finished payload against modem-table.txt. Touches scripts/build-strict.sh, which iron-9 counts as a risky path, so it is registered here. The carrier path is off unless the variable is set, so an ordinary build is unchanged; the modem-20261116a build proves the new branch."
+
+[[entry]]
+sha = "17190e6"
+state = "build-only"
+note = "build-strict no longer writes a manufactured value into the receipt when an option is off: kernel_args_requested serialises the real KARGS array ([] instead of [\"\"]) and adsp_blob_path stays empty instead of pointing at the filesystem root. Touches scripts/build-strict.sh, so iron-9 wants it registered. Only the receipt text changes; kernel, payload and boot image are byte-identical for any given set of options. The next build writes the first honest receipt."
+
+[[entry]]
+sha = "0589a33a"
+state = "build-only"
+note = "fix(xnu): the open trace no longer dereferences a recycled namei pointer; a rebuild plus a boot is needed before the scanout experiment can be judged"
 
 [[entry]]
 sha = "c4461f9"

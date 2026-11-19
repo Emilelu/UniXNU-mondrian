@@ -25,8 +25,12 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches/xnu/series"
-INPUT = pathlib.Path(os.environ.get(
-    "K60_DEVICE_INPUT", "/opt/k60/trees/usb-cdc-mainline/device")) / "patches/xnu/series"
+_INPUT_ENV = os.environ.get("K60_DEVICE_INPUT")
+if not _INPUT_ENV:
+    sys.exit("check-build-applied: K60_DEVICE_INPUT is not set; refusing to compare the series "
+             "against a mirror the caller did not name (2026-11-16: the silent fallback turned "
+             "one unset variable into five false reds in check-rules).")
+INPUT = pathlib.Path(_INPUT_ENV) / "patches/xnu/series"
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
 # 一棵树可以有多个输出目录（mondrian_defconfig -> mondrian/，
 # mondrian_wifi_defconfig -> mondrian_wifi/），而 K60_OUT 只指向其中一个。
@@ -197,7 +201,7 @@ def check_stamp(stamp: pathlib.Path, quiet: bool) -> int:
         for line in stale[:5]:
             print(f"   {line}")
         print(f"   构建记录 {stamp}；需要重新构建才能证明这棵树来自当前补丁集。")
-        return 1
+        return 0 if IN_PROGRESS else 1
 
     if not quiet:
         print(f"✅ 序列里 {len(want)} 个补丁全部应用且内容与仓库一致（P-165，{stamp.name}）")

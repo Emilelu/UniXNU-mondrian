@@ -24,16 +24,20 @@ diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
 index d22e316..dd9d6a5 100644
 --- a/bsd/vfs/vfs_syscalls.c
 +++ b/bsd/vfs/vfs_syscalls.c
-@@ -4644,6 +4644,14 @@ open1(vfs_context_t ctx, struct nameidata *ndp, int uflags,
+@@ -4644,6 +4644,18 @@ open1(vfs_context_t ctx, struct nameidata *ndp, int uflags,
  	pong_init_note("open vnode authorization begin");
  #endif
  	if ((error = vn_open_auth(ndp, &flags, vap, authvp))) {
 +		if (error == EACCES) {
-+			/* K60probe: open denied - dump requester cred and target attrs */
++			/* K60probe: open denied - dump requester cred and target attrs.
++			 * K60: never print ni_cnd.cn_nameptr here. On this path the namei
++			 * buffer can already be recycled, and dereferencing it faulted the
++			 * kernel: pc=_vprintf_internal, esr=0x96000007, far=0xfffffff14d513c27
++			 * (usblog-20261116-232947). Print the length, not the string. */
 +			kauth_cred_t k60c = vfs_context_ucred(ctx);
-+			printf("K60POPEN err=13 uid=%d ruid=%d path=%s mode=%o type=%d\n",
++			printf("K60POPEN err=13 uid=%d ruid=%d namelen=%u mode=%o type=%d\n",
 +			    kauth_cred_getuid(k60c), kauth_cred_getruid(k60c),
-+			    ndp->ni_cnd.cn_nameptr ? ndp->ni_cnd.cn_nameptr : "?",
++			    (unsigned)ndp->ni_cnd.cn_namelen,
 +			    (unsigned)vap->va_mode, (int)(vap->va_type));
 +		}
  		if (authvp != NULLVP) {

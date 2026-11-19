@@ -53,6 +53,10 @@ typedef struct {
 typedef struct {
     PongGpuOps io;PongAdrenoHfi hfi;
     unsigned attempted,poisoned,fw_ready,hfi_ready,power_attempted,power_started,gpu_held;
+    /* The two indices the startup vote used (GX level and DDR level). Kept so a later
+     * GX_BW_PERF_VOTE can raise the GPU level without rebuilding the tables, which need
+     * the power inputs that are only available during startup. */
+    unsigned perf_gpu_index,perf_bus_index,perf_votes;
 } PongGpuGmuDevice;
 typedef struct {
     unsigned phase,writes,fw_ready,hfi_ready,resources_must_retain;
@@ -96,6 +100,11 @@ PongGpuStatus PongAdrenoGmuEnableBusyCounter(PongGpuGmuDevice *);
 PongGpuStatus PongAdrenoGmuBusyTicks(PongGpuGmuDevice *,uint64_t *ticks);
 PongGpuStatus PongAdrenoGmuSetLevel(PongGpuGmuDevice *,unsigned gpu_index,
     unsigned bus_index,uint32_t *firmware_error);
+/* Another GPU level on the running GMU -- the same GX_BW_PERF_VOTE (HFI 30) the startup
+ * vote uses, exactly as Linux's a6xx_gmu_set_freq does for a non-legacy GMU. Valid only
+ * after the GX is up (PongAdrenoGmuHoldGpu succeeded). The DDR level is not changed: this
+ * raises the GPU's own level and leaves the bandwidth vote as startup set it. */
+PongGpuStatus PongAdrenoGmuVotePerf(PongGpuGmuDevice *,unsigned gpu_index,PongGpuPowerResult *);
 #ifdef __cplusplus
 }
 #endif

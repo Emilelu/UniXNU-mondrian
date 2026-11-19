@@ -35,6 +35,7 @@ with (bundle/'Info.plist').open('wb') as f:
     plistlib.dump(dict(CFBundleIdentifier='dev.unixnu.pong.Metal',CFBundleName='PongAdrenoMetal',
         CFBundleExecutable='PongAdrenoMetal',CFBundlePackageType='BNDL',CFBundleVersion='1',
         NSPrincipalClass='PongAdrenoMetalDevice',MinimumOSVersion='16.6.1',
+        MetalPluginName='PongAdrenoMetal',MetalPluginClassName='PongAdrenoMetalDevice',
         CFBundleSupportedPlatforms=['iPhoneOS']),f)
 clients=['backboardd', 'SpringBoard', 'CollectionsPoster', 'WidgetRenderer_Default', 'PosterBoard', 'Weather', 'WeatherPoster', 'GradientPosterExtension']
 (out/'PongAdrenoMetal.clients').write_text('\n'.join(clients)+'\n')

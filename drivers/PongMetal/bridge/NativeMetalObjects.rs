@@ -372,6 +372,19 @@ fn device_answer(device: &NmbDevice, selector: &str, arg: u64) -> Result<u64, St
     let d = &device.0;
     let p = d.properties();
     let none = || format!("the device has no answer for {selector}");
+    // Core Image reads these SPI aliases as well as the public limits. Derive them from the device's measured runtime
+    // properties, never from an Apple GPU table.
+    if selector == "maxComputeThreadgroupMemory" {
+        return Ok(p.max_threadgroup_memory_length);
+    }
+    if selector == "maxVertexAmplificationCount" {
+        for count in (1..=32).rev() {
+            if p.supports_vertex_amplification_count(count).unwrap_or(false) {
+                return Ok(count);
+            }
+        }
+        return Ok(0);
+    }
     if let Some(c) = PrivateCount::ALL.into_iter().find(|c| c.selector() == selector) {
         return device.private().count(c).value().ok_or_else(none);
     }

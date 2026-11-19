@@ -17,6 +17,8 @@
 A  flash.sh 只经由 boot-and-capture.ps1 启动，不再自己起抓取进程（单写者）
 B  boot-and-capture.ps1 在 `fastboot boot` 之前启动 capture-k60-usblog.ps1，
    并把 -OutDir / -ReadyFile 传下去（同一证据目录 + 就绪握手）
+B2 机器级 boot claim（2026-11-18 改为先到先得）：supervisor 必须在启动前取得
+   单写者 claim、在 finally 里释放，flash.sh 必须在 adb reboot 之前拒绝竞争
 C  capture-k60-usblog.ps1 持有命名互斥体，并把"端口没出现 / 打开失败 / 零字节 /
    截断"分开记进 capture.json（判据不再是"文件存在吗"）
 D  没有脚本出现 `fastboot flash`
@@ -125,6 +127,62 @@ else:
         problems.append('B supervisor 自己打开了 SerialPort —— 只能由 collector 打开（单写者）')
     if 'Booting\\s+OKAY' not in sup and 'Booting' not in sup:
         problems.append('B supervisor 没有核对 fastboot 的 "Booting OKAY"')
+
+# B2: one machine-wide claim. 2026-11-18 the user changed the policy from
+# "only Lead boots" to "first claimant wins", so the requirement is no longer
+# exclusivity by actor but a single writer with attributed ownership: the
+# supervisor must take the claim before touching the device, release it in
+# `finally`, and the wrapper must refuse a competitor *before* it reboots the
+# phone into fastboot (a reboot outside the claim breaks another actor's capture).
+LOCK = os.path.join(REPO, 'scripts', 'k60-boot-lock.ps1')
+lock_src = read(LOCK)
+if lock_src is None:
+    problems.append('B2 缺 %s（机器级 boot claim 没有实现）' % os.path.relpath(LOCK, REPO))
+else:
+    for needle, why in (('FileShare]::None', '独占句柄才是锁'), ('K60_BOOT_BUSY:', '竞争者要被明确告知'),
+                        ('Exit-K60BootLock', '释放函数')):
+        if needle not in lock_src:
+            problems.append('B2 k60-boot-lock.ps1 没有 %s（%s）' % (needle, why))
+    notes.append('B2 k60-boot-lock.ps1 用独占句柄实现机器级 claim')
+if sup is not None:
+    acquire = first_line(sup, 'Enter-K60BootLock')
+    release = first_line(sup, 'Exit-K60BootLock')
+    reset = first_line(sup, "'boot'")
+    if acquire is None:
+        problems.append('B2 supervisor 没有取得机器级 boot claim —— 多 agent 会重叠 boot')
+    if release is None:
+        problems.append('B2 supervisor 没有释放 boot claim —— 一次崩溃会让设备永久不可用')
+    if acquire is not None and reset is not None and acquire > reset:
+        problems.append('B2 boot claim 在 fastboot boot 之后才取（第 %d 行 > 第 %d 行）' % (acquire + 1, reset + 1))
+    if acquire is not None and release is not None and release < acquire:
+        problems.append('B2 释放（第 %d 行）早于获取（第 %d 行）' % (release + 1, acquire + 1))
+    if acquire is not None and release is not None and acquire < release:
+        notes.append('B2 supervisor 先取 claim（第 %d 行）、后在 finally 释放（第 %d 行）' % (acquire + 1, release + 1))
+    reboot = first_line(sup, "'reboot','bootloader'")
+    if reboot is None:
+        problems.append('B2 supervisor 没有实现 claim 内的 adb reboot bootloader —— flash.sh 已经不自己重启了')
+    elif acquire is not None and acquire > reboot:
+        problems.append('B2 supervisor 在取 claim 之前就重启设备（第 %d 行 > 第 %d 行）' % (acquire + 1, reboot + 1))
+    else:
+        notes.append('B2 supervisor 在 claim 之内重启到 fastboot（第 %d 行）' % (reboot + 1))
+if wrapper is not None:
+    # A `flock` probe in the wrapper was the first attempt and it was WRONG: POSIX
+    # advisory locks and the supervisor's FileShare::None handle are different
+    # lock domains, so `flock -n` always looked free while another agent held the
+    # claim — a false pass on the one property that matters. The wrapper must not
+    # probe or reboot at all; the supervisor reboots inside the claim.
+    if 'reboot bootloader' in live_text(wrapper):
+        problems.append('B2 flash.sh 自己 adb reboot bootloader —— 重启必须在 claim 之内由 supervisor 做')
+    else:
+        notes.append('B2 flash.sh 不自己重启设备，重启由 supervisor 在 claim 内完成')
+    if 'flock' in live_text(wrapper):
+        problems.append('B2 flash.sh 用 flock 探测 claim —— 与 FileShare::None 不同锁域，永远看到「空闲」')
+    if '-RebootToFastboot' not in live_text(wrapper):
+        problems.append('B2 flash.sh 没有把重启职责交给 supervisor（缺 -RebootToFastboot）')
+    if 'K60_AGENT_ID' not in wrapper:
+        problems.append('B2 flash.sh 没有要求 K60_AGENT_ID —— claim 无法署名')
+    if '-Actor' not in live_text(wrapper):
+        problems.append('B2 flash.sh 没有把 -Actor 传给 supervisor')
 
 # C: the collector must classify, not just create a file, and must hold the lock.
 col = read(COLLECTOR)

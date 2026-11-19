@@ -133,10 +133,39 @@ a violation costs work that cannot be recovered.
    partition") instead of reading it. Anything that depends on being remembered
    is not a process.
 
+   **Booting is first-come-first-served, but single-writer.** On 2026-11-18 the
+   user replaced "only Lead boots" with "whichever agent grabs the device first
+   boots it". That is only safe if the claim is machine-wide: two agents booting
+   at once leave the loser's capture attached to a device that already runs a
+   different image, which produces evidence that looks real and is wrong.
+   `scripts/k60-boot-lock.ps1` takes the claim with an exclusive
+   `FileShare.None` handle, and `scripts/boot-and-capture.ps1` acquires it before
+   it touches the device — including before `adb reboot bootloader`, which it does
+   itself under the claim (`-RebootToFastboot`) — and releases it in `finally`.
+   `scripts/flash.sh` neither probes nor reboots: it only requires
+   `K60_AGENT_ID` and hands the reboot to the supervisor, because a shell
+   `flock` probe lives in a different lock domain and always looks free while the
+   Windows handle is held. `K60_AGENT_ID` is mandatory so the claim is
+   attributable, and the owner is written to
+   `E:\k60-work\state\k60-device-boot.lock.owner.json`. Refused competitors exit
+   6; a missing actor exits 7. The properties are executed by
+   `python3 scripts/tests/test-boot-lock.py`.
+
 The check before every build: `git status --porcelain` is empty on the source
 tree, the branch is level with its remote, and
 `python3 scripts/sync-device-input.py --check` reports no drift. The gates below
 then run automatically and must all pass.
+
+**Space is part of the check.** `hard-41` (`scripts/check-disk-space.py`) refuses
+to build when a filesystem is below its blocking line, but it only measures what
+is left — it never reclaims. Every experiment that writes a new `K60_OUT` needs a
+deleter, and that is `python3 scripts/k60-janitor.py --apply` (dry run without
+`--apply`; keep the newest two outputs of each prefix, never touch a `/tmp`
+symlink or the tree one points at, never touch a mirror). On 2026-11-19 the
+virtual disk reached 181.8 GB this way: twenty-five stale
+`power-conformance-battery-*` outputs (47.6 GB) plus 18.3 GB of old `/tmp`
+entries, while every gate stayed green. See `docs/engineering/DISK-HYGIENE.md`
+§2.5 and P-246.
 
 ## Gates
 

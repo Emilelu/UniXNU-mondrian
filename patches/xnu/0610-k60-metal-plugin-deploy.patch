@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/k60_metal.c
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,261 @@
 +/*
 + * 0610: deploy the Adreno Metal plugin onto the Data volume.
 + *
@@ -40,6 +40,15 @@
 +extern const unsigned short k60_metal_blob_modes[];
 +
 +#define K60_METAL_ROOT "/private/var/ngpu"
++
++/* The legacy init helper injects the plugin from here, not from the addons
++ * union: init-v24dp.c:366 hard-codes
++ * "/private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal backboardd" and
++ * :378 skips that line unless the binary exists. Deploying only under
++ * K60_METAL_ROOT therefore leaves backboardd without the plugin, which is why
++ * every boot logged MTLCreateSystemDefaultDevice() as nil while
++ * "K60METAL deploy files=6/6 error=0" still passed. */
++#define K60_METAL_INJECT "/private/var/pong"
 +
 +struct k60_metal_entry {
 +	uint16_t name_len;
@@ -116,7 +125,7 @@
 +	const unsigned char *blob = k60_metal_blob;
 +	uint32_t count, index;
 +	vfs_context_t ctx;
-+	int error = 0, written = 0;
++	int error = 0, written = 0, injected = 0;
 +
 +	if (done) {
 +		return 0;
@@ -138,6 +147,8 @@
 +	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons", p, scratch);
 +	(void) k60_metal_mkdir(K60_METAL_ROOT "/daemons", p, scratch);
 +	(void) k60_metal_mkdir(K60_METAL_ROOT "/addons/PongAdrenoMetal.bundle", p, scratch);
++	(void) k60_metal_mkdir(K60_METAL_INJECT, p, scratch);
++	(void) k60_metal_mkdir(K60_METAL_INJECT "/PongAdrenoMetal.bundle", p, scratch);
 +
 +	for (index = 0; index < count; index++) {
 +		const unsigned char *entry = blob + 8 + index * 10;
@@ -212,9 +223,43 @@
 +			break;
 +		}
 +		written++;
++
++		/* Second copy for the legacy init helper. Only the bundle and the two
++		 * markers are injected; /daemons and anything else has no consumer
++		 * there. A failure here is reported but does not fail the deploy,
++		 * because the addons union copy above is already complete. */
++		if (field.name_len > sizeof("addons/") - 1 &&
++		    memcmp(name, "addons/", sizeof("addons/") - 1) == 0) {
++			const unsigned char *rel = name + sizeof("addons/") - 1;
++			size_t rel_len = field.name_len - (sizeof("addons/") - 1);
++			char inject[256];
++			size_t root = strlen(K60_METAL_INJECT);
++			int inject_error;
++
++			memcpy(inject, K60_METAL_INJECT, root);
++			inject[root] = '/';
++			memcpy(inject + root + 1, rel, rel_len);
++			inject[root + 1 + rel_len] = '\0';
++			inject_error = vnode_open(inject, O_CREAT | O_WRONLY | O_TRUNC,
++			    k60_metal_blob_modes[index], 0, &vp, ctx);
++			if (inject_error == 0) {
++				inject_error = vn_rdwr(UIO_WRITE, vp,
++				    (caddr_t) (blob + field.offset), (ssize_t) field.size,
++				    0, UIO_SYSSPACE, IO_SYNC, vfs_context_ucred(ctx),
++				    &resid, current_proc());
++				vnode_close(vp, 0, ctx);
++			}
++			if (inject_error == 0) {
++				injected++;
++			} else {
++				printf("K60METAL inject %s error=%d\n", inject,
++				    inject_error);
++			}
++		}
 +	}
 +
-+	printf("K60METAL deploy files=%u/%u error=%d\n", written, count, error);
++	printf("K60METAL deploy files=%u/%u inject=%u error=%d\n", written,
++	    count, injected, error);
 +	return error;
 +}
 --- a/bsd/conf/files

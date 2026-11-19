@@ -307,6 +307,30 @@ if [ -n "$K60_METAL_PLUGIN_DIR" ] && [ -d "$K60_METAL_PLUGIN_DIR" ] && \
   python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-metal-blob.py" \
     --plugin-dir "$K60_METAL_PLUGIN_DIR" --assembly --output "$K60_METAL_ASM" \
     >&2 || { echo 'k60_metal_blob generation failed' >&2; exit 1; }
+elif [ -f "patches/xnu/0610-k60-metal-plugin-deploy.patch" ]; then
+  # 0610 wires osfmk/conf/files.arm64 to k60_metal_blob.s unconditionally, so
+  # a kernel without the GPU addon (the wifi C cell) must still provide the
+  # symbols. Emit an empty K60M container: k60_metal_deploy() rejects count 0
+  # before touching the Data volume, so the C cell carries no metal bytes and
+  # prints one 'K60METAL bad count 0' line at data-mount.
+  K60_METAL_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s
+  mkdir -p "$(dirname "$K60_METAL_ASM")"
+  cat > "$K60_METAL_ASM" <<'EOF'
+/* Generated stub: no GPU addon in this configuration - do not edit. */
+.data
+.globl _k60_metal_blob
+.p2align 3
+_k60_metal_blob:
+    .byte 0x4b,0x36,0x30,0x4d,0x00,0x00,0x00,0x00
+.globl _k60_metal_blob_len
+.p2align 3
+_k60_metal_blob_len:
+    .quad 8
+.globl _k60_metal_blob_modes
+.p2align 3
+_k60_metal_blob_modes:
+    .short 0
+EOF
 fi
 # 0620: the ADSP firmware carrier travels inside the kernel the same way
 # (P-197: the firmware volume has no loader). build-strict stages the
@@ -985,6 +1009,12 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$CONSTANT_UPLOADS_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $CONSTANT_UPLOADS_ARCHIVE"
   fi
+  if [ "${XNU_PONG_WIFI:-0}" = 1 ]; then
+    PONG_WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-$ROOT/build/pong-wifi/libPongWifiNative.a}
+    test -f "$PONG_WIFI_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$PONG_WIFI_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $PONG_WIFI_ARCHIVE"
+  fi
   if [ "${XNU_ARMVIRT_PLATFORM:-0}" = 1 ]; then
     ARMVIRT_ARCHIVE=$ROOT/build/armvirt-platform/libArmVirtPlatform.a
     test -f "$ARMVIRT_ARCHIVE"
@@ -1243,6 +1273,12 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     test -f "$BATTERY_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $BATTERY_ARCHIVE"
+  fi
+  if [ "${XNU_PONG_WIFI:-0}" = 1 ]; then
+    PONG_WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-$ROOT/build/pong-wifi/libPongWifiNative.a}
+    test -f "$PONG_WIFI_ARCHIVE"
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$PONG_WIFI_ARCHIVE"
+    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $PONG_WIFI_ARCHIVE"
   fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a

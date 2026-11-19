@@ -35,20 +35,45 @@ static void *iokit;
 }
 static void report(const char *phase,int status)
 {
-    char line[256];snprintf(line,sizeof(line),"Pong Metal: %s status=0x%x\n",phase,status);
-    (void)write(2,line,strlen(line));
+    /* The scanout rate line carries a dozen counters plus their units, and the
+     * prefix/suffix here add 25 more bytes. At 256 the tail of that line was
+     * silently cut, so a flight read present-but-empty fields and could not tell
+     * a zero from a missing number. Size for the longest caller, and end the
+     * record with a newline even if a future caller outgrows the buffer: a
+     * diagnostic without a line ending gets glued onto the next line and stops
+     * matching the grep the flight card uses. */
+    char line[768];
+    int needed=snprintf(line,sizeof(line),"Pong Metal: %s status=0x%x\n",phase,status);
+    if(needed<0)return;
+    size_t length=(size_t)needed;
+    if(length>=sizeof(line)){length=sizeof(line)-1;line[length-1]='\n';}
+    else if(length && line[length-1]!='\n')line[length++]='\n';
+    if(!length)return;
+    (void)write(2,line,length);
     size_t count=CTL_MAXNAME;int mib[CTL_MAXNAME];
     if(!sysctlnametomib("kern.pong_diagnostic",mib,&count))
-        (void)sysctl(mib,(u_int)count,NULL,NULL,line,strlen(line));
-}
-// PongMetalScanout.h reaches this frame-pacing sink through a function pointer, so the
-// presenter can report stage costs on the same bounded kernel diagnostic channel.
-static void reportFrame(const char *text,int status)
-{
-    report(text,status);
+        (void)sysctl(mib,(u_int)count,NULL,NULL,line,length);
 }
 #include "PongMetalScanout.h"
 #include "PongQuartzCorePolicy.h"
+// The bridge accumulates per-commit timing (rows T/G/J/V/K) but
+// native_bridge_metal_telemetry() had no caller, so none of it reached the log.
+// Stream it a row at a time: rows are <=90 characters and report() prefixes each.
+static void streamTelemetry(void)
+{
+    static char blob[8192];
+    const size_t bytes=native_bridge_metal_telemetry(blob,sizeof(blob));
+    if(!bytes)return;
+    for(size_t at=0;at<bytes;){
+        size_t end=at;
+        while(end<bytes && blob[end]!='\n')++end;
+        const char saved=blob[end];
+        blob[end]=0;
+        if(end>at)report(blob+at,0);
+        blob[end]=saved;
+        at=end+1;
+    }
+}
 namespace {
 static void missing(const char *type,const char *selector)
 {
@@ -137,9 +162,11 @@ static id openDevice(unsigned port)
     }
     NSString *base=[NSSearchPathForDirectoriesInDomains(NSCachesDirectory,NSUserDomainMask,YES) firstObject];
     if(base)[candidates addObject:[[base stringByAppendingPathComponent:@"PongMetal"] stringByAppendingPathComponent:process]];
-    // A7xx sysmem/no concurrent binning until Pong's BV/BR scheduling is ready.
-    // Plain IOSurface rows match Pong's current framebuffer/scanout contract.
-    setenv("TU_DEBUG","sysmem,nocb",0);
+    // The guide's default render mode is gmem,nocb; Pong used sysmem until the
+    // per-class probe showed the GPU wait (12.4 ms for an 18.4 MB blit, about
+    // 1.5 GB/s) dominating the frame. nocb stays because Pong's BV/BR scheduling
+    // is still unwritten; only the render mode changes, so this is one variable.
+    setenv("TU_DEBUG","gmem,nocb",1);
     setenv("PONG_IOSURFACE_PADDING","1",1);
     // Pong implements NativeAdreno directly, not Sheng's AGX selector tunnel.
     setenv("TU_DARWIN_SERVICE","NativeAdrenoGpuPublished",1);
@@ -198,30 +225,26 @@ static bool selectedClient()
 }
 static void startPresentation(id candidate,unsigned port)
 {
-    if(!strcmp(getprogname(),"backboardd")) {
-        using Ref=kern_return_t(*)(unsigned);
-        auto retain=(Ref)dlsym(iokit,"IOObjectRetain"),release=(Ref)dlsym(iokit,"IOObjectRelease");
-        if(retain && release && !retain(port)) {
-            // Leave the stock catalog's construction lock before creating the
-            // presenter. Its actual client retains the device and scanout backing.
-            dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE,0),^{
-                pongscanout::start(iokit,port,(id<MTLDevice>)candidate);release(port);
-            });
-        }
-    }
+    if(strcmp(getprogname(),"backboardd"))return;
+    using Ref=kern_return_t(*)(unsigned);
+    auto retain=(Ref)dlsym(iokit,"IOObjectRetain"),release=(Ref)dlsym(iokit,"IOObjectRelease");
+    if(!retain || !release || retain(port))return;
+    // Leave the stock catalog's construction lock before creating the
+    // presenter. Its actual client retains the device and scanout backing.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE,0),^{
+        pongscanout::start(iokit,port,(id<MTLDevice>)candidate);release(port);
+    });
     // Bounded observations of real application work, not synthetic renders.
     // RAM cache journals disappear on REC; retain these few status lines.
-    for(unsigned seconds:{5u,20u,60u,120u})
+    // P-241: 5/20/60 s only sampled the launch; a 200 s flight reported nothing
+    // after 60 s, so the steady state - the part that feels slow - was never seen.
+    // From 60 s on, also stream the bridge's own timing table (rows T/G/J/V/K).
+    for(unsigned seconds:{5u,20u,60u,120u,180u})
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,int64_t(seconds)*NSEC_PER_SEC),
             dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
-                char telemetry[8192]={};native_bridge_metal_telemetry(telemetry,sizeof(telemetry));
-                char *line=telemetry;
-                while(*line) {
-                    char *end=strchr(line,'\n');if(end)*end=0;
-                    report(line,0);
-                    if(!end)break;
-                    line=end+1;
-                }
+                char status[240]={};native_bridge_metal_status(status,sizeof(status));
+                report(status,0);
+                if(seconds>=60u)streamTelemetry();
             });
 }
 }

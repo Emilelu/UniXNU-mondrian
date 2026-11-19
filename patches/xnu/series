@@ -70,7 +70,6 @@ offline-owner-systemos-mount.patch
 zzzzzzzzzzzzzzzzz-pong-systemos-shared-region.patch
 zzzzzzzzzzzzzzzzzz-pong-hackios-launchd-exec.patch
 zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch
-zzzzzzzzzzzzzzzzzzzz-pong-iosurface-bounds.patch
 zzzzzzzzzzzzzzzzzzzzz-pong-psci-smp.patch
 zzzzzzzzzzzzzzzzzzzzzz-pong-cpu-start-completion.patch
 zzzzzzzzzzzzzzzzzzzzzzz-pong-ui-crash-compat.patch
@@ -225,6 +224,9 @@ zzy-native-gpu-addon-mount.patch
 0619-k60-adsp-glink-handoff.patch
 0620-k60-adsp-blob.patch
 0621-k60-io-submap-budget.patch
+0622-k60-iosurface-root-name.patch
+0623-k60-iosurface-root-class-name.patch
+0624-k60-quiet-managed-page-report.patch
 0622-k60-touch-activity.patch
 0623-k60-platform-sleep.patch
 0624-k60-platform-sleep-boot-complete.patch

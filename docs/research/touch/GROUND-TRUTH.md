@@ -1,8 +1,14 @@
-# K60 touch ground truth (measured, not inferred)
+# K60 touch evidence ledger (dated observations, not current hardware truth)
 
-Every fact below was read from the device itself or from a console capture.
-Anything derived by reasoning is marked **推断**. Do not re-measure these; if a
-value changes, update this file instead of re-deriving it in a later session.
+> **Scope (2026-11-19).** The observations below are dated records, and the
+> candidate they diagnose (`touch-20261114d`, lane tuple 16/17/18/19) is not the
+> configuration that ended up working. The current tree uses that same tuple but
+> also carries the `0x91/0x01` coordinate-enable that was missing, and touch was
+> verified on the device on 2026-11-14 15:09. Read the open questions below as
+> "what the 2026-11-13/14 captures could not establish", not as open questions
+> today.
+
+The rows below preserve historical device or console observations. Interpret each only in its recorded date, wiring, image and setup. Later source or image changes do not retroactively validate them. Any causal explanation is a hypothesis, not a direct measurement.
 
 ## 1. IOVDD / AVDD rails (`/sys/class/regulator/*`, Android 17, root adb)
 
@@ -18,9 +24,7 @@ value changes, update this file instead of re-deriving it in a later session.
 `/sys/class/regulator` does. Reproduce with `scripts/reg8350c.sh` in
 `E:\k60-work\scratch`.
 
-**推断**: `pm8350c_l2` is enabled only because Android's touch driver votes it.
-Nothing in the XNU chain votes it, so the rail's state at our `bring_up()` is
-unknown — this is the open question, not an established fact.
+Android reported `pm8350c_l2` enabled at 1.8 V. The available records do not establish that Android's touch driver is the only voter, whether XNU or firmware votes it, or its state at `bring_up()`. The handoff state is unknown.
 
 ## 2. SPMI arbiter (read live from XNU, `usblog-20261113-001906`)
 
@@ -30,12 +34,12 @@ unknown — this is the open question, not an established fact.
 Bases are hard-checked by `bsd/dev/pong_buttons.c`:
 core `0xc400000`, cnfg `0xc42d000`, observer `0xc440000`.
 
-## 3. GPIO pins (`board.toml`, confirmed by the driver's own prints)
+## 3. Historical GPIO configuration records (2026-11-13)
 
 `pins = <16 17 18 19 21 20>` — pins[5] = GPIO20 = RESET, avdd = GPIO71
-`bitbang-pins = <17 18 16 19>` — MISO 17, MOSI 18, CLK 16, CS 19
+Historical configured tuple: `<17 18 16 19>` labelled MISO 17, MOSI 18, CLK 16, CS 19. The later touch-20261114d candidate uses a different proposed tuple (MISO 16, MOSI 17, CLK 18, CS 19); neither tuple is established by the old bias samples.
 
-## 4. Bus behaviour (measured, four permutations so far)
+## 4. Historical bus samples (2026-11-13 setup)
 
 Every frame reads back **all ones**:
 
@@ -44,25 +48,15 @@ K60BB frame len=13 rx0=0 rx1=0 miso=104      (104 = 13*8, every sampled bit high
 K60BB frame len=16 rx0=0xff rx1=0xff miso=128
 ```
 
-With the internal pull-up armed the idle level is `0` and every sampled bit is
-high. A powered SPI slave with CS asserted does not leave MISO permanently at
-VCC, so **推断**: the controller is unpowered or held in reset — not a pin
-permutation problem. Confirmed for `17-18-16-19` and `17-16-18-19`; the
-remaining permutations cannot change a permanently-high line.
+These readings show the sampled line followed the configured pull bias in this historical setup. They do not uniquely identify the physical MISO pin or establish IOVDD voltage, controller power state, reset state, CS timing, or SPI timing/mode. The old tuple differs from the later candidate lane map; treat these as historical electrical observations, not a current diagnosis.
 
-## 5. What this rules out
+## 5. Limits of the historical observations
 
-- Pin role mismatch as the cause of all-ones (two permutations agree).
-- Clock speed: bitbang runs ~333 kHz, inside the declared 500 kHz cap.
-- SPI mode: Mode 0, MSB first, rising-edge sampling — correct for Berlin.
-- Code path: `transport=bitbang` and `probe start` both print, frames do
-  transmit.
+The historical captures show the selected software path ran and reported transmit/read samples under the then-current configuration. They do not prove that the intended physical SPI pins, waveform, reset sequence, or rail were correct, and they do not exclude those as causes. The later touch-20261114d candidate uses a different proposed lane map and still does not obtain chip identity; see docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md.
 
-## 6. Next action implied by the above
+## 6. Follow-up evidence
 
-Vote `pm8350c_l2` from the kernel before the first frame. Requires an SPMI
-write path, which the tree does not have yet; the arbiter read path is proven
-and the write is the same command word with bit 27 cleared.
+The historical SPMI attempts listed below establish only those tested register paths and outcomes. They do not prove all AP, firmware, or RPMh provider paths unavailable, and they are not authorization to write PMIC ownership or regulator registers. Current IOVDD handoff state remains unknown until supported by current provider ACK/retention evidence or an authorized direct measurement.
 
 ## SPMI write-path findings (2026-11-13, measured on device)
 
@@ -77,38 +71,35 @@ Every line below came off the serial console; nothing here is inferred.
 | channel `sid1/apid0x9b` (0x19b) | `v=0` | n/a | `K60CFG ap st=0x1 v=0` (DONE) |
 | channel `sid2/apid0xc2` (0x1c2) | `v=0` | n/a | `K60REG type st=0x8 val=0` (DROPPED) |
 
-Conclusions that stand:
+Narrow conclusions from these historical captures:
 
-- `wr()` is sound and `ml_io_map()` mappings are writable — proven by the GPIO write-back.
-- The SPMI command path (observer window, command word `(1u<<27)|reg<<4|(count-1)`, status poll on `+0x08`, data at `+0x18`) is correct — proven by `DONE` on the AP's own channel.
-- The PMIC channel returns `DROPPED`, i.e. it is not owned by the AP execution environment.
-- Changing ownership needs a write to the core window, and every such write faults. This is a bus-level refusal, not a code defect.
+- The logged GPIO write-back succeeded in that experiment.
+- The tested observer-window command returned `DONE` for the AP channel, while the tested PMIC channel returned `DROPPED`.
+- Writes to the tested core-window addresses faulted. This does not establish that every AP or firmware provider path is unavailable.
 
-Not yet determined: whether the configuration window `0xc42d000` accepts writes; if it does, ownership can be set there. If it does not, the rail must be enabled from the firmware side before hand-off.
+The behavior of the configuration window and current IOVDD handoff remain undetermined; do not infer a firmware-only remedy from these limited probes.
 
-## MISO 悬空的判定（2026-11-13，实测三组）
+## Additional historical pad and bias records (2026-11-13)
 
-| 构型 | CS | MISO 采样 | 结论 |
+| Historical configuration | CS setting | sampled input result | recorded observation |
 |---|---|---|---|
 | 上拉偏置 | 1 | 每帧每一位都是 1（`miso=104` = 13x8，`miso=128` = 16x8） | 线被拉高 |
 | 下拉偏置，焊盘未配置 | 未配置 | 每一位都是 0 | 线跟随偏置 |
 | 下拉偏置，焊盘已配置 | 1 | 每一位都是 0 | 线跟随偏置 |
 
-同一批实验里 `K60PAD cs=1 miso=0 clk=0 mosi=0 rst=1` 与 `K60RST pin=20 after=1`
-证明 GPIO 控制器、焊盘配置、引脚映射（MISO 17 / MOSI 18 / CLK 16 / CS 19 /
-RESET 20）、复位时序都正确。MISO 在两种偏置下都跟随偏置，说明没有任何一端
-在驱动它——触摸芯片（Goodix GT9916R）没有工作。
+Historical lines logged `K60PAD cs=1 miso=0 clk=0 mosi=0 rst=1` and `K60RST pin=20 after=1`. These are software-reported values in that experiment; they do not establish the physical signal roles, waveform at the chip, or reset voltage/timing at the controller. The contemporaneous 333 kHz and Mode 0 values describe configured settings, not an independent measurement of the electrical waveform.
 
-已经排除的解释：时钟过快（333 kHz，上限 500 kHz）、SPI 模式（Mode 0 MSB-first
-上升沿采样）、片选时序、复位未释放、引脚映射错误、映射表/寄存器地址错误。
+The bias table and these GPIO logs do not exclude lane routing, CS/SCK timing, SPI mode, reset, protocol, controller state, or IOVDD as causes. They do not establish that IOVDD was absent, that the chip was not working, or that firmware is the only remedy. Current handoff and provider status require current ACK/retention evidence or an authorized direct rail measurement. See `docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` for candidate-specific discriminating tests.
 
-剩下的解释只有一个：芯片没有 IOVDD。`pm8350c_l2` 1.8 V 在 Android 下是
-`enabled`（`/sys/class/regulator/pm8350c_l2/state`），但在本移植的启动链上
-没有任何一方投过票，而 AP 侧四条通路都不可用：
+## 7. Historical RPMh/SPMI observations (2026-11-09; separate boots)
 
-1. SPMI 映射表（`core+0x2000` 与 `core+0x900` 两种布局都遍历过）没有 PPID `0x241`；
-2. 固件树里没有 RPMh/RSC 驱动（`find -iname '*rpmh*' -o -iname '*rsc*'` 零命中）；
-3. 厂商 DTB 里 `pm8350c_l2` 是 `regulator-name` 形式的 RPMh 消费者，不带 SPMI 基址；
-4. RSC `0x17a00000` 对 XNU 被 XPU 封锁（读即 abort）。
+These captures are retained to clarify the old `rails on` claim; they are not current hardware truth and do not authorize access to RSC/SPMI.
 
-结论：这一项必须在 ABL/固件层解决，内核侧的探针到此为止。
+| Capture | Image SHA-256 | Console SHA-256 | Relevant console observation | Limits |
+|---|---|---|---|---|
+| `usblog-20261109-224044` | `9D03CC266D3CE625577B7BE4EB7768139E22B492F3557818C7C042C0F4981A11` | `C53F7A5E7E1E7DFD0E1DB96AF7AFFC7A96E971E0638061FDA3AD6C8E48653810` | Nonzero mapped RSC/CMD_DB addresses; `rails on (ldoc2=0x42c00, AVDD gpio71=1)`; then three BRL `dev_confirm` zero reads and failure. | Capture incomplete at budget. No matching source/manifest recovered. Log statement is not RPMh ACK, rail status readback, or measured voltage. |
+| `usblog-20261109-220623` | `859680D0E21B2DFB02A54D0ECF756575A58A7C1D277094B92B48BAE526D1417A` | `7CC2B8A52A470122A0035E1309F41E4908B962B944BEF123BB5887CBFF83695F` | `K60SPMI: ppid=0x2c2 apid=181 owner=4 type=4 sub=135 range=0x8 vset=0x7 enable=0 LDO_OFF`. | Different boot/image from all other rows; this raw status does not identify the PPID as `pm8350c_l2`. Capture is budget-incomplete. |
+| `usblog-20261109-225138` | `376CB995A1F464B5C6DAC5616E579B2B2F92D28C0132DCD0E223EFEFA786E7CC` | `F373B6F2F88477FD707921A85AEC3FA52B1E97D9DB97A8428572A69CECA2A49F` | Separate log prints `rails on`, later reports PPID 0x2c2 with `enable=0x80 LDO_ENABLED`. | Different boot/image; capture says console vanished without panic marker. Not an off-to-on transition in one run and not proof of touch-rail voltage. |
+| `usblog-20261109-230157` | `CAEB715BDEF636E575FDD407D7C046FB2B8FA9E023F0D957AAEBD814D8FF8345` | `F10191DA4AD35B590C79AD3D2D60130AC60B210E691A298AF6815D3AB14E0399` | Separate log prints `rails on` and later lists PPID 0x2c2 enabled. | Different budget-incomplete boot; does not connect an RPMh command/ACK to the earlier `dev_confirm` run. |
+
+The values `enable=0` and `enable=0x80` are software-read register fields from separate captures. They are not a paired transition and, without verified PPID/resource mapping plus source provenance, do not establish the touch regulator state. The literal `ldoc2=0x42c00` is a command-database address, not an enable register. Searches of the retained candidate sources found ldoc3/ldoc12 supply code but no provenance-bound ldoc2 implementation for the 22:40 boot. Distinguish the five evidence levels: command-name/level lookup, attempted transaction, provider ACK, retained regulator status, and electrical voltage at the panel; current material proves none of the last three for the 22:40 touch event. Access restrictions in `docs/ops/HARD-RULES.md` remain in force unless Lead explicitly changes them after a separate safety review.

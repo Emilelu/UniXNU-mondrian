@@ -88,7 +88,7 @@ struct Entry {char name[32];uint32_t offset,bytes;};
 }
 ```
 
-**NVIDIA/K60 需要核对 `subsystem_device`** —— Pong 是 264，K60 可能不同。
+**`subsystem_device` 已核对** —— K60 实测 `0x0108`（264），与 Pong 相同（2026-11-14，证据 `E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）。原先担心的「不同会导致枚举失败」不成立。
 
 ---
 
@@ -197,7 +197,7 @@ owner，否则 `armcpu_spi_attach` 直接 panic。
    ATU 映射、DBI 预设。失败模式是"链路起不来"，没有任何日志。
 2. **固件必须从 K60 自己的 Android 分区提取**（`amd.bin` / `amss.bin` / `bd_m11agf.elf`），
    不能用 Pong 的。
-3. **`subsystem_device` 可能不同**。如果不同，PCIe 设备枚举会失败。
+3. ~~`subsystem_device` 可能不同~~ —— **已排除**：K60 实测 `0x0108`（264），与 `PongWifiPci.cpp:117` 的校验值一致。
 4. **PWF2 打包工具需要先实现**（Pong 的打包脚本在 `scripts/build-pong-wifi-native.py`）。
 
 ---

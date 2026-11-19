@@ -84,7 +84,10 @@ k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
 		const uint64_t bytes = (uint64_t)vec->block_length * K60_RMTFS_BLOCK;
 
 		if (vec->block_length == 0) {
-			continue;
+			/* A zero-length scatter entry is malformed on the wire; the
+			 * protocol check refuses it, so the plan must not quietly drop
+			 * it and report success for the rest. */
+			return -1;
 		}
 		if (image_offset > image_bytes || bytes > image_bytes - image_offset) {
 			return -1;

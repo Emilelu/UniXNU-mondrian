@@ -174,6 +174,74 @@ test_copy(void)
 	    sizeof window) == -1, "a NULL plan is refused");
 }
 
+static uint32_t
+mix(uint32_t *state)
+{
+	uint32_t x = *state;
+
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+	*state = x;
+	return x;
+}
+
+/* The protocol check and the plan must agree: whenever the request is legal the
+ * plan returns one span per vector, and whenever the check refuses it the plan
+ * refuses too. Random tables catch a divergence the fixed cases would miss. */
+static void
+test_sweep(void)
+{
+	K60RmtfsRequest request;
+	K60EfsSpan spans[K60_RMTFS_MAX_VECS];
+	const uint64_t window_base = 0xaf000000ull;
+	const uint64_t window_bytes = 0x8000ull;
+	const uint64_t image_bytes = 0x20000ull;
+	uint32_t state = 0x1234567u;
+	unsigned legal = 0, refused = 0;
+
+	for (unsigned i = 0; i < 4000; i++) {
+		uint64_t expected = 0;
+
+		memset(&request, 0, sizeof request);
+		request.message = K60_RMTFS_RW;
+		request.vectors = 1 + mix(&state) % K60_RMTFS_MAX_VECS;
+		for (size_t v = 0; v < request.vectors; v++) {
+			request.table[v].block_offset = mix(&state) % 64u;
+			request.table[v].block_length = mix(&state) % 8u;
+			request.table[v].physical = (uint32_t)(window_base +
+			    mix(&state) % window_bytes);
+			expected += (uint64_t)request.table[v].block_length *
+			    K60_RMTFS_BLOCK;
+		}
+		int checked = k60_rmtfs_check_vectors(&request, image_bytes,
+		    window_base, window_bytes);
+		int planned = k60_efs_plan(&request, image_bytes, window_base,
+		    window_bytes, spans, K60_RMTFS_MAX_VECS);
+
+		if (checked == 0) {
+			uint64_t total = 0;
+
+			legal++;
+			check(planned == (int)request.vectors,
+			    "a legal request plans one span per vector");
+			for (int s = 0; s < planned; s++) {
+				total += spans[s].bytes;
+				check(spans[s].bytes != 0, "no empty span");
+				check(spans[s].image_offset + spans[s].bytes <=
+				    image_bytes, "the span stays inside the image");
+				check(spans[s].buffer_offset + spans[s].bytes <=
+				    window_bytes, "the span stays inside the window");
+			}
+			check(total == expected, "the spans move every byte once");
+		} else {
+			refused++;
+			check(planned == -1, "a refused request is not planned");
+		}
+	}
+	check(legal > 100 && refused > 100, "the sweep covers both outcomes");
+}
+
 int
 main(void)
 {
@@ -181,10 +249,11 @@ main(void)
 	test_names();
 	test_plan();
 	test_copy();
+	test_sweep();
 	if (failures != 0) {
 		printf("K60 EFS FAIL %d checks\n", failures);
 		return 1;
 	}
-	printf("K60 EFS PASS table, gpt names, scatter plan, copies, refusals\n");
+	printf("K60 EFS PASS table, gpt names, scatter plan, copies, sweep, refusals\n");
 	return 0;
 }

@@ -227,3 +227,10 @@ zzy-native-gpu-addon-mount.patch
 0621-k60-io-submap-budget.patch
 0617-k60-thermal-tsens.patch
 0624-k60-quiet-managed-page-report.patch
+../usb/0405-k60-usb-heartbeat.patch
+../usb/0406-k60-usb-composite.patch
+../usb/0407-k60-usb-endpoint-diag.patch
+../usb/0408-k60-usb-p2-structure.patch
+../usb/0409-k60-usb-console-restore.patch
+../usb/0410-k60-usb-vendor-loopback.patch
+../usb/0411-k60-usb-composite-beacon.patch

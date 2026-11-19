@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1977 @@
+@@ -0,0 +1,1480 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1321,6 +1321,7 @@ index 0000000..1111111
 + * Every line starts with K60MODEM, and the whole probe is inert unless
 + * pong_modem is set to 2 or more. */
 +#include "pong_modem_qrtr.h"
++#include "pong_modem_efs.h"
 +#include "pong_modem_rmtfs.h"
 +#include "pong_smem.h"
 +#include "qcom_glink.h"
@@ -1682,37 +1683,15 @@ index 0000000..1111111
 +}
 +
 +
-+/* The four EFS images the modem opens by name, numbered exactly as the
-+ * reference numbers them (PongModemRmtfs.h). A name we do not know is not
-+ * an error in the protocol: the answer is result 1, the modem retries or
-+ * moves on, and the log names the path it asked for. */
-+static const char *const k60_qrtr_rmtfs_images[K60_RMTFS_STORAGE_COUNT] = {
-+	"/boot/modem_fs1",
-+	"/boot/modem_fs2",
-+	"/boot/modem_fsg",
-+	"/boot/modem_fsc",
-+};
-+
-+/* A byte compare, not strlen/memcmp: this file carries no libkern string
-+ * header, and the name arrives with an explicit length. */
++/* The four EFS images the modem opens by name are numbered exactly as the
++ * reference numbers them (PongModemRmtfs.h), and that table lives with the
++ * storage data plane in K60ModemEfs so the name comparison exists once. A name
++ * we do not know is not an error in the protocol: the answer is result 1, the
++ * modem retries or moves on, and the log names the path it asked for. */
 +static uint32_t
 +k60_qrtr_rmtfs_storage(const char *path, size_t length)
 +{
-+	uint32_t i;
-+
-+	for (i = 0; i < K60_RMTFS_STORAGE_COUNT; i++) {
-+		const char *name = k60_qrtr_rmtfs_images[i];
-+		size_t at = 0;
-+
-+		while (at < length && name[at] != '\0' &&
-+		    name[at] == path[at]) {
-+			at++;
-+		}
-+		if (at == length && name[at] == '\0') {
-+			return i + 1u;
-+		}
-+	}
-+	return 0;
++	return k60_efs_storage_for_path(path, length);
 +}
 +
 +/* The modem's storage service wants one contiguous region it can map into
@@ -2800,482 +2779,6 @@ index 0000000..1111111
 +	/* A peer that has just booted writes nothing before our first
 +	 * VERSION, so the ring is clean exactly when its head is zero. */
 +	k60_qrtr_print_ring("glink adopt (transport)", &tx, &rx);
-+	k60_qrtr_channel = k60m_glink_channel(&k60_qrtr_link, "IPCRTR",
-+	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
-+	    &callbacks, NULL, 1);
-+	if (k60_qrtr_channel == NULL) {
-+		printf("K60MODEM glink: no channel slot for IPCRTR\n");
-+		return -1;
-+	}
-+	k60_qrtr_glink_ready = 1;
-+	printf("K60MODEM glink: IPCRTR opened as initiator\n");
-+	return 0;
-+}
-+
-+int
-+k60_modem_qrtr_probe(void)
-+{
-+	K60Smem smem;
-+	K60SmemPartition partition;
-+	uint32_t offsets[4] = {0, 0, 0, 0}, sizes[4] = {0, 0, 0, 0};
-+	const uint32_t items[4] = {K60_MODEM_GLINK_DESC, K60_MODEM_GLINK_OURS,
-+	    K60_MODEM_GLINK_THEIRS, K60_MODEM_SMP2P_THEIRS};
-+	volatile uint8_t *window;
-+	volatile uint32_t *desc;
-+	QcomGlinkFifo tx, rx;
-+	const QcomGlinkClient callbacks = {k60_qrtr_state_cb, k60_qrtr_receive_cb};
-+	uint32_t i, seen = 0;
-+	int enabled = 0, qrtr_mode = 2, rc, bridge_reported = 0, ready_reported = 0;
-+
-+	if (!PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled)) || enabled < 2) {
-+		return 0;   /* default: not one byte is touched */
-+	}
-+	/* k43: pong_qrtr selects what the probe says after the handshake, so one
-+	 * image can tell whether our own requests silence the modem. 0 = HELLO
-+	 * probes only, 1 = HELLO plus lookups, 2 = lookups and the fixed DMS port. */
-+	if (!PE_parse_boot_argn("pong_qrtr", &qrtr_mode, sizeof(qrtr_mode))) {
-+		qrtr_mode = 2;
-+	}
-+	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
-+	    K60_MODEM_SMEM_BYTES, 0x7);
-+	if (window == NULL) {
-+		printf("K60MODEM qrtr: smem map failed at %#x\n", K60_MODEM_SMEM_BASE);
-+		return -1;
-+	}
-+	k60_qrtr_ipcc = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_IPCC_BASE, 0x1000, 0x7);
-+	if (k60_qrtr_ipcc == NULL) {
-+		printf("K60MODEM qrtr: ipcc map failed at %#x\n", K60_MODEM_IPCC_BASE);
-+		return -1;
-+	}
-+	smem.base = window;
-+	smem.size = K60_MODEM_SMEM_BYTES;
-+	rc = k60_smem_partition(&smem, 0, 1, &partition);
-+	if (rc != K60SmemOk) {
-+		printf("K60MODEM qrtr: no modem smem partition rc=%d\n", rc);
-+		return -1;
-+	}
-+	/* 478/479 are AP-owned and must exist now. 480 and 435 are created by
-+	 * the modem during its own boot; wait for both instead of failing the
-+	 * cold boot before the readiness poll. */
-+	for (i = 0; i < 2; i++) {
-+		rc = k60_smem_find(&smem, &partition, (uint16_t)items[i], &offsets[i], &sizes[i]);
-+		if (rc != K60SmemOk) {
-+			printf("K60MODEM qrtr: smem item %u missing rc=%d\n", items[i], rc);
-+			return -1;
-+		}
-+	}
-+	for (i = 0; i < K60_QRTR_READY_POLLS; i++) {
-+		if (sizes[2] == 0) {
-+			(void)k60_smem_find(&smem, &partition, (uint16_t)items[2],
-+			    &offsets[2], &sizes[2]);
-+		}
-+		rc = k60_smem_find(&smem, &partition, (uint16_t)items[3],
-+		    &offsets[3], &sizes[3]);
-+		if (rc == K60SmemOk && (i % 500u) == 0u) {
-+			/* Which comes first: the modem-created glink fifo or the
-+			 * smp2p readiness item?  k37 and k38 opened the channel only
-+			 * after both, and by then most QRTR registrations were gone;
-+			 * the gap decides whether opening earlier is even possible. */
-+			printf("K60MODEM qrtr: ready wait %u ms fifo=%u smp2p=%u items=%u\n",
-+			    (unsigned)(i * K60_QRTR_POLL_US / 1000u),
-+			    sizes[2], rc == K60SmemOk ? 1u : 0u, seen);
-+		}
-+		if (sizes[2] != 0) {
-+			/* k40 measured the gap between the glink fifo (item 480) and
-+			 * the smp2p readiness item (435).  k41 opens IPCRTR as soon as
-+			 * the fifo exists, so the channel is up before the modem
-+			 * registers its QMI services; readiness is reported below and
-+			 * polled again inside the QRTR loop. */
-+			break;
-+		}
-+		delay(K60_QRTR_POLL_US);
-+	}
-+	if (i == K60_QRTR_READY_POLLS) {
-+		printf("K60MODEM qrtr: modem not ready after %u ms (smp2p items=%u)\n",
-+		    K60_QRTR_READY_POLLS * K60_QRTR_POLL_US / 1000u, seen);
-+		return -2;
-+	}
-+	if (sizes[2] == 0) {
-+		printf("K60MODEM qrtr: remote glink fifo item %u missing after %u ms\n",
-+		    items[2], K60_QRTR_READY_POLLS * K60_QRTR_POLL_US / 1000u);
-+		return -2;
-+	}
-+	printf("K60MODEM qrtr: glink desc=%#x/%u ours=%#x/%u theirs=%#x/%u\n",
-+	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
-+	ready_reported = (k60_smem_find(&smem, &partition, (uint16_t)items[3],
-+	    &offsets[3], &sizes[3]) == K60SmemOk &&
-+	    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen));
-+	if (ready_reported) {
-+		printf("K60MODEM qrtr: modem ready (smp2p items=%u)\n", seen);
-+	} else {
-+		printf("K60MODEM qrtr: fifo at %u ms, smp2p not ready yet; opening IPCRTR early\n",
-+		    (unsigned)(i * K60_QRTR_POLL_US / 1000u));
-+	}
-+	if (!k60_qrtr_glink_ready) {
-+		if (sizes[0] != 32 || sizes[1] < 1024 || sizes[2] < 1024) {
-+			printf("K60MODEM qrtr: glink geometry wrong desc=%u ours=%u theirs=%u\n",
-+			    sizes[0], sizes[1], sizes[2]);
-+			return -1;
-+		}
-+		desc = (volatile uint32_t *)(window + offsets[0]);
-+		/* A live Android epoch owns these indices; we never reset them. A
-+		 * fresh epoch has our head and its tail at zero, which is what we adopt. */
-+		if (desc[1] != 0 || desc[2] != 0) {
-+			printf("K60MODEM qrtr: glink fifo not fresh (our_head=%u their_tail=%u), not adopted\n",
-+			    desc[1], desc[2]);
-+			return -1;
-+		}
-+		tx.head = &desc[1];
-+		tx.tail = &desc[0];
-+		tx.data = (volatile uint8_t *)(window + offsets[1]);
-+		tx.length = sizes[1];
-+		rx.head = &desc[3];
-+		rx.tail = &desc[2];
-+		rx.data = (volatile uint8_t *)(window + offsets[2]);
-+		rx.length = sizes[2];
-+		rc = k60m_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
-+		if (rc != QcomGlinkOk) {
-+			printf("K60MODEM qrtr: glink adopt rc=%d\n", rc);
-+			return -1;
-+		}
-+		/* This is the path a B flight takes: transport_prepare defers
-+		 * IPCRTR when the modem has not published item 480 yet. The ring
-+		 * may still hold the previous session, and the modem's write
-+		 * index is not ours to clear, so a non-zero head here cannot be
-+		 * a reply to anything we have sent - drop it instead of replaying
-+		 * another session's handshake as if it were ours. */
-+		k60_qrtr_print_ring("glink adopt (probe)", &tx, &rx);
-+		if (*rx.head != 0u) {
-+			const uint32_t stale = k60m_glink_rx_avail(&rx);
-+
-+			*rx.tail = *rx.head;
-+			k60_modem_fence();
-+			printf("K60MODEM qrtr: glink adopt dropped %u stale bytes (head=%u)\n",
-+			    stale, (unsigned)*rx.head);
-+		}
-+		k60_qrtr_channel = k60m_glink_channel(&k60_qrtr_link, "IPCRTR",
-+		    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
-+		    &callbacks, NULL, 1);
-+		if (k60_qrtr_channel == NULL) {
-+			printf("K60MODEM qrtr: no channel slot for IPCRTR\n");
-+			return -1;
-+		}
-+	} else {
-+		printf("K60MODEM qrtr: GLINK already opened by transport\n");
-+	}
-+	printf("K60MODEM qrtr: opening IPCRTR as initiator\n");
-+	bridge_reported = coachz_baseband_enabled() != 0;
-+	printf("K60MODEM baseband: bridge %s\n",
-+	    bridge_reported ? "enabled" : "disabled");
-+	coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
-+	for (i = 0; i < K60_QRTR_POLLS; i++) {
-+		const int polls = k60m_glink_poll(&k60_qrtr_link);
-+
-+		if (polls < 0) {
-+			/* QcomGlinkCorrupt leaves the offending message at the head of the
-+			 * RX ring (receive_one peeks, never advances, and stop() keeps the
-+			 * FIFO). Snapshot it so a single flight identifies the branch. */
-+			const QcomGlinkFifo *rx = &k60_qrtr_link.rx;
-+			uint32_t avail = rx->data != NULL ? k60m_glink_rx_avail(rx) : 0u;
-+			uint32_t head = rx->head != NULL ? *rx->head : 0u;
-+			uint32_t tail = rx->tail != NULL ? *rx->tail : 0u;
-+			uint8_t m[32] = {0};
-+			uint32_t w[8], b;
-+
-+			/* rx_peek() reads from the tail; head is the modem's write
-+			 * index, so sampling there shows unused ring bytes (k30 did
-+			 * exactly that and printed cmd=0 p1=0 p2=0). */
-+			for (b = 0; b < 32u && b < avail && rx->data != NULL; ++b) {
-+				m[b] = rx->data[(tail + b) % rx->length];
-+			}
-+			for (b = 0; b < 8u; ++b) {
-+				const uint32_t at = b * 4u;
-+
-+				w[b] = (uint32_t)m[at] | ((uint32_t)m[at + 1] << 8) |
-+				    ((uint32_t)m[at + 2] << 16) | ((uint32_t)m[at + 3] << 24);
-+			}
-+			printf("K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u tx head=%u tx tail=%u cmd=%#x p1=%#x p2=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
-+			    polls, i, avail, head, tail,
-+			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
-+			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u,
-+			    (unsigned)(w[0] & 0xffffu), (unsigned)(w[0] >> 16), w[1],
-+			    w[2], w[3], w[4], w[5], w[6], w[7]);
-+			return polls;
-+		}
-+		coachz_baseband_poll();
-+		if (i != 0u && i % 2500u == 0u) {
-+			unsigned rbusy = 0, rvalid = 0, ladvertised = 0, lcount = 0;
-+			unsigned lbusy = 0, ldone = 0;
-+			uint32_t rxavail = 0, rxhead = 0, rxtail = 0;
-+
-+			k60_qrtr_intent_counts(&rbusy, &rvalid, &ladvertised, &lcount,
-+			    &lbusy, &ldone);
-+			if (k60_qrtr_link.rx.head != NULL && k60_qrtr_link.rx.tail != NULL) {
-+				rxavail = k60m_glink_rx_avail(&k60_qrtr_link.rx);
-+				rxhead = (unsigned)*k60_qrtr_link.rx.head;
-+				rxtail = (unsigned)*k60_qrtr_link.rx.tail;
-+			}
-+			/* tx.tail is the modem's read index: a value that trails our
-+			 * head means it consumed what we sent; one that never moves
-+			 * means the DATA never left the ring. */
-+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u replies=%u rmtfs=%u\n",
-+			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
-+			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
-+			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
-+			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u,
-+			    rxavail, rxhead, rxtail, rbusy, rvalid, ladvertised, lcount,
-+			    lbusy, ldone,
-+			    k60_qrtr_link.rx_messages, k60_qrtr_link.tx_messages,
-+			    k60_qrtr_link.dropped,
-+			    k60_qrtr_rx_cmds[1], k60_qrtr_rx_cmds[2], k60_qrtr_rx_cmds[3],
-+			    k60_qrtr_rx_cmds[4], k60_qrtr_lookup_replies,
-+			    k60_qrtr_rmtfs_requests);
-+			if (i == 2500u) {
-+				k60_qrtr_dump_intents();
-+			}
-+			if (!ready_reported &&
-+			    k60_smem_find(&smem, &partition, (uint16_t)items[3],
-+			    &offsets[3], &sizes[3]) == K60SmemOk &&
-+			    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
-+				ready_reported = 1;
-+				printf("K60MODEM qrtr: modem ready (smp2p items=%u) at %u s\n",
-+				    seen, i / 500u);
-+			}
-+		}
-+		/* k42: the modem answers HELLO even when it ignores every lookup, so a
-+		 * repeated HELLO is the only liveness probe we have. A count that keeps
-+		 * rising while tx tail stands still proves the tail is not the modem's
-+		 * read pointer; one that stops proves the modem really went quiet. */
-+		/* Mode 3 is the quiet control: one HELLO and then silence, so the next
-+		 * flight shows whether our own periodic traffic is what silences the
-+		 * modem about forty seconds in. */
-+		if (qrtr_mode != 3 && k60_qrtr_hello_sent && i != 0u && i % 5000u == 0u) {
-+			uint8_t probe[K60_QRTR_LOOKUP_BYTES];
-+
-+			if (k60_qrtr_build_hello(probe, sizeof(probe)) != 0) {
-+				const int probe_rc = k60m_glink_send(&k60_qrtr_link,
-+				    k60_qrtr_channel, probe, K60_QRTR_LOOKUP_BYTES);
-+
-+				if (probe_rc == QcomGlinkOk) {
-+					++k60_qrtr_hello_probes;
-+					printf("K60MODEM qrtr: hello probe #%u, acks=%u\n",
-+					    k60_qrtr_hello_probes, k60_qrtr_state.hello_acks);
-+				} else if (probe_rc != QcomGlinkAgain) {
-+					printf("K60MODEM qrtr: hello probe rc=%d\n", probe_rc);
-+				}
-+			}
-+		}
-+		if (i != 0u && i % 500u == 0u) {
-+			/* QcomBaseband defers publication when IOResources is not ready;
-+			 * retry once a second instead of latching the first failure. */
-+			coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
-+			coachz_baseband_report(i / 500u);
-+			/* The bridge state is printed once before the loop, before the
-+			 * provider can publish. Announce the transition too, or a late
-+			 * publication is invisible to the S6 criterion. */
-+			if (!bridge_reported && coachz_baseband_enabled()) {
-+				bridge_reported = 1;
-+				printf("K60MODEM baseband: bridge enabled (poll %u)\n", i);
-+			}
-+		}
-+		if (k60_qrtr_up && !k60_qrtr_hello_sent) {
-+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
-+
-+			if (k60_qrtr_build_hello(packet, sizeof(packet)) != 0) {
-+				const int send_rc = k60m_glink_send(&k60_qrtr_link,
-+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
-+
-+				if (send_rc == QcomGlinkOk) {
-+					k60_qrtr_hello_sent = 1;
-+					printf("K60MODEM qrtr: sent hello from node %u port %#x mode=%d\n",
-+					    K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT, qrtr_mode);
-+				} else if (send_rc != QcomGlinkAgain) {
-+					printf("K60MODEM qrtr: hello send rc=%d\n", send_rc);
-+					return send_rc;
-+				}
-+			}
-+		}
-+		/* Pong starts the modem only after its storage service answers; the
-+		 * modem may be waiting for exactly that before it brings its QMI
-+		 * stack up. Announce the service and log whatever it asks. */
-+		if (k60_qrtr_server_sent && !k60_qrtr_rmtfs_sent) {
-+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
-+			uint32_t rmtfs_node = k60_qrtr_state.remote_node;
-+
-+			if (rmtfs_node == K60_QRTR_CONTROL_PORT ||
-+			    rmtfs_node == K60_QRTR_AP_NODE) {
-+				rmtfs_node = K60_QRTR_BROADCAST_NODE;
-+			}
-+			if (k60_qrtr_build_new_server(packet, sizeof(packet),
-+			    K60_QRTR_RMTFS_SERVICE, K60_QRTR_RMTFS_INSTANCE,
-+			    rmtfs_node, K60_QRTR_RMTFS_PORT) != 0) {
-+				const int send_rc = k60m_glink_send(&k60_qrtr_link,
-+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
-+
-+				if (send_rc == QcomGlinkOk) {
-+					k60_qrtr_rmtfs_sent = 1;
-+					printf("K60MODEM qrtr: announced rmtfs service %u instance %u port %#x\n",
-+					    K60_QRTR_RMTFS_SERVICE, K60_QRTR_RMTFS_INSTANCE,
-+					    K60_QRTR_RMTFS_PORT);
-+				} else if (send_rc != QcomGlinkAgain) {
-+					printf("K60MODEM qrtr: rmtfs announce rc=%d\n", send_rc);
-+					return send_rc;
-+				}
-+			}
-+		}
-+		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
-+		    !k60_qrtr_server_sent) {
-+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
-+			uint32_t to_node = k60_qrtr_state.remote_node;
-+
-+			if (to_node == K60_QRTR_CONTROL_PORT || to_node == K60_QRTR_AP_NODE) {
-+				to_node = K60_QRTR_BROADCAST_NODE;
-+			}
-+			if (k60_qrtr_build_new_server(packet, sizeof(packet),
-+			    K60_QRTR_SERVLOC_SERVICE, K60_QRTR_SERVLOC_INSTANCE,
-+			    to_node, K60_QRTR_LOCATOR_PORT) != 0) {
-+				const int send_rc = k60m_glink_send(&k60_qrtr_link,
-+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
-+
-+				if (send_rc == QcomGlinkOk) {
-+					k60_qrtr_server_sent = 1;
-+					printf("K60MODEM qrtr: announced servloc service %u instance %#x port %#x\n",
-+					    K60_QRTR_SERVLOC_SERVICE, K60_QRTR_SERVLOC_INSTANCE,
-+					    K60_QRTR_LOCATOR_PORT);
-+				} else if (send_rc != QcomGlinkAgain) {
-+					printf("K60MODEM qrtr: servloc announce rc=%d\n", send_rc);
-+					return send_rc;
-+				}
-+			}
-+		}
-+		/* k36 saw two spontaneous registrations (service 66 and 0x2b) and no
-+		 * answer to the unicast lookup within ten seconds; k37 asked twice in
-+		 * sixty seconds and still heard nothing. Keep asking for four minutes,
-+		 * alternating an all-services query with a DMS-targeted one, because a
-+		 * service that registers at the fourth minute is still a service. */
-+		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
-+		    (qrtr_mode == 1 || qrtr_mode == 2) &&
-+		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
-+		    i >= (int)k60_qrtr_lookup_next) {
-+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
-+			const uint32_t to_node = ((k60_qrtr_lookup_count & 1u) != 0u) ?
-+			    K60_QRTR_BROADCAST_NODE : 0u;
-+			const uint32_t to_port = K60_QRTR_NS_PORT;
-+			uint32_t built;
-+			uint32_t service = 0;
-+			uint32_t instance = 0;
-+
-+			if ((k60_qrtr_lookup_count & 1u) != 0u) {
-+				service = K60_QRTR_DMS_SERVICE;
-+				instance = 0;
-+			}
-+			built = k60_qrtr_build_lookup_at(packet, sizeof(packet),
-+			    to_node, to_port, service, instance);
-+			if (built != 0) {
-+				const int send_rc = k60m_glink_send(&k60_qrtr_link,
-+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
-+
-+				if (send_rc == QcomGlinkOk) {
-+					k60_qrtr_lookup_sent = 1;
-+					++k60_qrtr_lookup_count;
-+					k60_qrtr_lookup_next = (unsigned)i + K60_QRTR_LOOKUP_PERIOD;
-+					printf("K60MODEM qrtr: sent new_lookup (0x0a) #%u service %u to node %u port %u\n",
-+					    k60_qrtr_lookup_count, service, to_node, to_port);
-+				} else if (send_rc != QcomGlinkAgain) {
-+					printf("K60MODEM qrtr: lookup send rc=%d\n", send_rc);
-+					return send_rc;
-+				}
-+			}
-+		}
-+		if (k60_qrtr_lookup_sent && k60_qrtr_state.dms_found &&
-+		    !k60_qrtr_dms_requested) {
-+			uint8_t query[K60_QMI_HEADER];
-+			uint16_t transaction = ++k60_qrtr_dms_transaction;
-+
-+			if (transaction == 0) {
-+				transaction = ++k60_qrtr_dms_transaction;
-+			}
-+			if (k60_qmi_build_dms_revision(query, sizeof(query), transaction) != 0) {
-+				k60_qrtr_state.dms_transaction = transaction;
-+				rc = k60_qrtr_send_data_packet(K60_QRTR_DMS_PORT,
-+				    k60_qrtr_state.dms_node, k60_qrtr_state.dms_port,
-+				    query, sizeof(query));
-+				if (rc == QcomGlinkOk) {
-+					k60_qrtr_dms_requested = 1;
-+					k60_qrtr_state.dms_sent = 1;
-+					printf("K60MODEM qrtr: sent dms get_revision to node %u port %u txn %u\n",
-+					    k60_qrtr_state.dms_node, k60_qrtr_state.dms_port,
-+					    transaction);
-+				} else if (rc != QcomGlinkAgain) {
-+					printf("K60MODEM qrtr: dms send rc=%d\n", rc);
-+					return rc;
-+				}
-+			}
-+		}
-+		/* k37 answered no lookup and announced only two services in sixty
-+		 * seconds: the modem's QMI services registered during bring-up, when
-+		 * nothing was listening on the AP side. Fall back to the port the
-+		 * Android inventory recorded for DMS on this very device (01-ANDROID-
-+		 * INVENTORY.md 5.4.1: service 2, node 0, port 96). */
-+		if (k60_qrtr_hello_sent && !k60_qrtr_state.dms_found &&
-+		    qrtr_mode == 2 && k60_qrtr_static_count < K60_QRTR_STATIC_MAX &&
-+		    i >= (int)k60_qrtr_static_next) {
-+			uint8_t query[K60_QMI_HEADER];
-+			uint16_t transaction = ++k60_qrtr_dms_transaction;
-+
-+			if (transaction == 0) {
-+				transaction = ++k60_qrtr_dms_transaction;
-+			}
-+			k60_qrtr_state.dms_node = 0;
-+			k60_qrtr_state.dms_port = K60_QRTR_DMS_STATIC_PORT;
-+			if (k60_qmi_build_dms_revision(query, sizeof(query), transaction) != 0) {
-+				k60_qrtr_state.dms_transaction = transaction;
-+				rc = k60_qrtr_send_data_packet(K60_QRTR_DMS_PORT, 0,
-+				    K60_QRTR_DMS_STATIC_PORT, query, sizeof(query));
-+				if (rc == QcomGlinkOk) {
-+					k60_qrtr_state.dms_static = 1;
-+					k60_qrtr_dms_requested = 1;
-+					k60_qrtr_state.dms_sent = 1;
-+					++k60_qrtr_static_count;
-+					k60_qrtr_static_next = (unsigned)i + K60_QRTR_STATIC_PERIOD;
-+					printf("K60MODEM qrtr: sent dms get_revision (static) #%u to node 0 port %u txn %u\n",
-+					    k60_qrtr_static_count, K60_QRTR_DMS_STATIC_PORT,
-+					    transaction);
-+				} else if (rc != QcomGlinkAgain) {
-+					printf("K60MODEM qrtr: dms static send rc=%d\n", rc);
-+					return rc;
-+				}
-+			}
-+		}
-+		rc = k60_qrtr_flush_replies();
-+		if (rc != 0) {
-+			printf("K60MODEM qrtr: reply send rc=%d at %u\n", rc, i);
-+			return rc;
-+		}
-+		if (k60_qrtr_lookup_sent && k60_qrtr_state.dms_answered &&
-+		    k60_qrtr_verdict(&k60_qrtr_state)) {
-+			break;
-+		}
-+		delay(K60_QRTR_POLL_US);
-+	}
-+	printf("K60MODEM qrtr: verdict %s services=%u node0=%u wanted=%u malformed=%u locator=%u dms=%s polls=%u\n",
-+	    k60_qrtr_verdict(&k60_qrtr_state) ? "ok" : "no reply",
-+	    k60_qrtr_state.services, k60_qrtr_state.from_node0, k60_qrtr_state.wanted,
-+	    k60_qrtr_state.malformed, k60_qrtr_state.locator_requests,
-+	    k60_qrtr_state.dms_answered ? k60_qrtr_state.revision : "none", i);
-+	if (!k60_qrtr_verdict(&k60_qrtr_state)) {
-+		return -2;
-+	}
-+	if (!k60_qrtr_state.dms_answered) {
-+		printf("K60MODEM qrtr: dms revision missing after %u ms (errors=%u)\n",
-+		    K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u,
-+		    k60_qrtr_state.dms_errors);
-+		return -2;
-+	}
-+	return 0;
-+}
-+
-+#endif /* K60_HOST_TEST */
 diff --git a/bsd/dev/pong_modem_rmtfs.h b/bsd/dev/pong_modem_rmtfs.h
 new file mode 100644
 index 0000000..1111111
@@ -3579,6 +3082,342 @@ index 0000000..1111111
 +		    physical - window_base > window_bytes ||
 +		    span > window_bytes - (physical - window_base)) {
 +			return -1;
++		}
++	}
++	return 0;
++}
+diff --git a/bsd/dev/pong_modem_efs.h b/bsd/dev/pong_modem_efs.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_efs.h
+@@ -0,0 +1,86 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* The four EFS images the modem opens by name, and the copy plan its scatter
++ * list turns into. This is the piece between the RMTFS protocol and the UFS:
++ * it knows which GPT partition backs /boot/modem_fs1 and friends, how a
++ * 512-byte-block scatter entry maps onto that image and into the shared
++ * window, and nothing about how the bytes are actually read.
++ *
++ * Reference: PongModemRmtfs.h maps /boot/modem_fs1|fs2|fsg|fsc onto the Android
++ * partitions modemst1, modemst2, fsg and fsc; rmtfsAnswer() copies between the
++ * image and the region the scatter entry names.
++ */
++#ifndef K60_MODEM_EFS_H
++#define K60_MODEM_EFS_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include "K60ModemRmtfs.h"
++
++#define K60_EFS_IMAGE_COUNT 4u
++/* A GPT partition entry name is 36 UTF-16LE code units (72 bytes). */
++#define K60_EFS_GPT_NAME_BYTES 72u
++
++/* Storage ids start at one, exactly as the open reply numbers them. */
++const char *k60_efs_partition(uint32_t storage);
++const char *k60_efs_boot_path(uint32_t storage);
++
++/* Compares a GPT partition entry name, which is UTF-16LE with the remainder
++ * zero filled, against an ASCII name. Returns 0 when they are the same. */
++int k60_efs_name_matches(const void *entry, size_t entry_bytes, const char *name);
++
++/* One copy the scatter list asks for: 'bytes' move from image_offset in the
++ * image to buffer_offset in the shared window. */
++typedef struct {
++	uint64_t image_offset;
++	uint64_t buffer_offset;
++	uint32_t bytes;
++} K60EfsSpan;
++
++/* Turns a validated rw request into the copies that serve it. The request must
++ * already have passed k60_rmtfs_check_vectors(); this function additionally
++ * requires every byte to fall inside the image. Returns the number of spans
++ * written to 'out', or -1 when the request does not fit (wrong message, no
++ * vectors, more vectors than 'cap', or an offset past the end of the image). */
++int k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes, K60EfsSpan *out, size_t cap);
++
++/* Performs the copies a plan describes. direction 0 moves bytes from the image
++ * into the shared window (the modem reads the image), direction 1 moves them
++ * back (the modem writes it). 'image' and 'window' carry the whole image and
++ * the whole window, so a span indexes them directly; every span must stay
++ * inside both. Returns 0, or -1 when a span leaves a buffer or nothing is
++ * planned. */
++#define K60_EFS_TO_WINDOW 0
++#define K60_EFS_TO_IMAGE  1
++int k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
++    uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes);
++
++/* Maps an open request path onto the storage id the reply must carry: 1..4 for
++ * the four EFS images, 0 for anything else. The comparison is byte for byte
++ * against k60_efs_boot_path(), because the wire path has no terminator. */
++uint32_t k60_efs_storage_for_path(const char *path, size_t length);
++
++/* Reads image bytes on the modem's behalf. 'read' must fill dst with 'bytes'
++ * from the image at 'offset' and return 0; anything else counts as a failure.
++ * The callback is what the kernel supplies once the UFS path exists. */
++typedef int (*K60EfsRead)(void *context, uint32_t storage, uint64_t offset,
++    uint8_t *dst, size_t bytes);
++
++/* Serves one read request end to end: it must be an rw request in the read
++ * direction, its vectors must fit the image and the window, and the reader must
++ * deliver every span. On success the window holds what the modem asked for and
++ * the caller answers result 0. Returns 0 on success, -1 otherwise. */
++int k60_efs_serve_read(const K60RmtfsRequest *request, K60EfsRead read,
++    void *context, uint8_t *image, size_t image_bytes, uint8_t *window,
++    size_t window_bytes, uint64_t window_base);
++
++/* Serves the write direction into a boot-session shadow: the bytes land in
++ * 'image' and nothing reaches the flash. Pong does the same (a write only ever
++ * reaches the shadow), so a modem write is acknowledged without a UFS writer.
++ * Returns 0 when the image now holds the bytes, -1 otherwise. */
++int k60_efs_serve_write(const K60RmtfsRequest *request, uint8_t *image,
++    size_t image_bytes, const uint8_t *window, size_t window_bytes,
++    uint64_t window_base);
++
++#endif /* K60_MODEM_RMTFS_EFS */
+diff --git a/bsd/dev/pong_modem_efs.c b/bsd/dev/pong_modem_efs.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_efs.c
+@@ -0,0 +1,238 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* The EFS image table and the scatter-to-copy mapping. Protocol only: no UFS,
++ * no SCM, no allocation, so the host test and the kernel share it. */
++
++#include "pong_modem_efs.h"
++
++typedef struct {
++	const char *boot;
++	const char *partition;
++} K60EfsImage;
++
++static const K60EfsImage k60_efs_images[K60_EFS_IMAGE_COUNT] = {
++	{ "/boot/modem_fs1", "modemst1" },
++	{ "/boot/modem_fs2", "modemst2" },
++	{ "/boot/modem_fsg", "fsg" },
++	{ "/boot/modem_fsc", "fsc" },
++};
++
++const char *
++k60_efs_partition(uint32_t storage)
++{
++	if (storage == 0 || storage > K60_EFS_IMAGE_COUNT) {
++		return NULL;
++	}
++	return k60_efs_images[storage - 1].partition;
++}
++
++const char *
++k60_efs_boot_path(uint32_t storage)
++{
++	if (storage == 0 || storage > K60_EFS_IMAGE_COUNT) {
++		return NULL;
++	}
++	return k60_efs_images[storage - 1].boot;
++}
++
++int
++k60_efs_name_matches(const void *entry, size_t entry_bytes, const char *name)
++{
++	const uint8_t *at = (const uint8_t *)entry;
++	size_t units;
++	size_t i;
++
++	if (entry == NULL || name == NULL || entry_bytes < 2) {
++		return -1;
++	}
++	units = entry_bytes / 2;
++	if (units > K60_EFS_GPT_NAME_BYTES / 2) {
++		units = K60_EFS_GPT_NAME_BYTES / 2;
++	}
++	for (i = 0; i < units; i++) {
++		const uint16_t unit = (uint16_t)(at[2 * i] | (uint16_t)(at[2 * i + 1] << 8));
++
++		if (name[i] == '\0') {
++			/* The entry may not run past the end of the name. */
++			return unit == 0 ? 0 : -1;
++		}
++		if (unit != (uint16_t)(uint8_t)name[i]) {
++			return -1;
++		}
++	}
++	/* The name is longer than the entry: only a zero terminated entry can
++	 * match, and a 36-unit entry is never terminated. */
++	return -1;
++}
++
++int
++k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes, K60EfsSpan *out, size_t cap)
++{
++	size_t written = 0;
++	size_t i;
++
++	if (request == NULL || out == NULL || request->message != K60_RMTFS_RW) {
++		return -1;
++	}
++	if (request->vectors == 0 || request->vectors > cap ||
++	    request->vectors > K60_RMTFS_MAX_VECS) {
++		return -1;
++	}
++	for (i = 0; i < request->vectors; i++) {
++		const K60RmtfsVec *vec = &request->table[i];
++		const uint64_t image_offset = (uint64_t)vec->block_offset * K60_RMTFS_BLOCK;
++		const uint64_t bytes = (uint64_t)vec->block_length * K60_RMTFS_BLOCK;
++
++		if (vec->block_length == 0) {
++			/* A zero-length scatter entry is malformed on the wire; the
++			 * protocol check refuses it, so the plan must not quietly drop
++			 * it and report success for the rest. */
++			return -1;
++		}
++		if (image_offset > image_bytes || bytes > image_bytes - image_offset) {
++			return -1;
++		}
++		if (vec->physical < window_base ||
++		    (uint64_t)vec->physical - window_base > window_bytes ||
++		    bytes > window_bytes - ((uint64_t)vec->physical - window_base)) {
++			return -1;
++		}
++		out[written].image_offset = image_offset;
++		out[written].buffer_offset = (uint64_t)vec->physical - window_base;
++		out[written].bytes = (uint32_t)bytes;
++		written++;
++	}
++	if (written == 0) {
++		return -1;
++	}
++	return (int)written;
++}
++
++int
++k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
++    uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes)
++{
++	if (spans == NULL || image == NULL || window == NULL || count == 0) {
++		return -1;
++	}
++	if (direction != K60_EFS_TO_WINDOW && direction != K60_EFS_TO_IMAGE) {
++		return -1;
++	}
++	for (size_t i = 0; i < count; i++) {
++		const K60EfsSpan *span = &spans[i];
++
++		if ((uint64_t)span->bytes > image_bytes ||
++		    span->image_offset > image_bytes - span->bytes) {
++			return -1;
++		}
++		if ((uint64_t)span->bytes > window_bytes ||
++		    span->buffer_offset > window_bytes - span->bytes) {
++			return -1;
++		}
++		for (uint32_t b = 0; b < span->bytes; b++) {
++			uint64_t from = direction == K60_EFS_TO_WINDOW ?
++			    span->image_offset + b : span->buffer_offset + b;
++			uint64_t to = direction == K60_EFS_TO_WINDOW ?
++			    span->buffer_offset + b : span->image_offset + b;
++
++			if (direction == K60_EFS_TO_WINDOW) {
++				window[to] = image[from];
++			} else {
++				image[to] = window[from];
++			}
++		}
++	}
++	return 0;
++}
++
++int
++k60_efs_serve_read(const K60RmtfsRequest *request, K60EfsRead read,
++    void *context, uint8_t *image, size_t image_bytes, uint8_t *window,
++    size_t window_bytes, uint64_t window_base)
++{
++	K60EfsSpan spans[K60_RMTFS_MAX_VECS];
++	int count;
++
++	if (request == NULL || read == NULL || image == NULL || window == NULL) {
++		return -1;
++	}
++	if (request->message != K60_RMTFS_RW || request->direction != 0) {
++		return -1;      /* only the modem's read direction is served */
++	}
++	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT) {
++		return -1;
++	}
++	if (k60_rmtfs_check_vectors(request, image_bytes, window_base,
++	    window_bytes) != 0) {
++		return -1;
++	}
++	count = k60_efs_plan(request, image_bytes, window_base, window_bytes,
++	    spans, K60_RMTFS_MAX_VECS);
++	if (count <= 0) {
++		return -1;
++	}
++	for (int i = 0; i < count; i++) {
++		if (read(context, request->storage, spans[i].image_offset,
++		    image + spans[i].image_offset, spans[i].bytes) != 0) {
++			return -1;
++		}
++	}
++	if (k60_efs_copy(spans, (size_t)count, K60_EFS_TO_WINDOW, image,
++	    image_bytes, window, window_bytes) != 0) {
++		return -1;
++	}
++	return 0;
++}
++
++int
++k60_efs_serve_write(const K60RmtfsRequest *request, uint8_t *image,
++    size_t image_bytes, const uint8_t *window, size_t window_bytes,
++    uint64_t window_base)
++{
++	K60EfsSpan spans[K60_RMTFS_MAX_VECS];
++	int count;
++
++	if (request == NULL || image == NULL || window == NULL) {
++		return -1;
++	}
++	if (request->message != K60_RMTFS_RW || request->direction != 1) {
++		return -1;      /* only the modem's write direction lands here */
++	}
++	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT) {
++		return -1;
++	}
++	if (k60_rmtfs_check_vectors(request, image_bytes, window_base,
++	    window_bytes) != 0) {
++		return -1;
++	}
++	count = k60_efs_plan(request, image_bytes, window_base, window_bytes,
++	    spans, K60_RMTFS_MAX_VECS);
++	if (count <= 0) {
++		return -1;
++	}
++	if (k60_efs_copy(spans, (size_t)count, K60_EFS_TO_IMAGE, image,
++	    image_bytes, (uint8_t *)window, window_bytes) != 0) {
++		return -1;
++	}
++	return 0;
++}
++
++uint32_t
++k60_efs_storage_for_path(const char *path, size_t length)
++{
++	for (uint32_t storage = 1; storage <= K60_EFS_IMAGE_COUNT; storage++) {
++		const char *name = k60_efs_boot_path(storage);
++		size_t at = 0;
++
++		if (name == NULL || path == NULL) {
++			return 0;
++		}
++		while (at < length && name[at] != '\0' && name[at] == path[at]) {
++			at++;
++		}
++		if (at == length && name[at] == '\0') {
++			return storage;
 +		}
 +	}
 +	return 0;

@@ -216,3 +216,23 @@ k60_efs_serve_write(const K60RmtfsRequest *request, uint8_t *image,
 	}
 	return 0;
 }
+
+uint32_t
+k60_efs_storage_for_path(const char *path, size_t length)
+{
+	for (uint32_t storage = 1; storage <= K60_EFS_IMAGE_COUNT; storage++) {
+		const char *name = k60_efs_boot_path(storage);
+		size_t at = 0;
+
+		if (name == NULL || path == NULL) {
+			return 0;
+		}
+		while (at < length && name[at] != '\0' && name[at] == path[at]) {
+			at++;
+		}
+		if (at == length && name[at] == '\0') {
+			return storage;
+		}
+	}
+	return 0;
+}

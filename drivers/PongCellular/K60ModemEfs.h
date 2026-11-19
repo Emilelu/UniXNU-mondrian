@@ -56,6 +56,11 @@ int k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
 int k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
     uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes);
 
+/* Maps an open request path onto the storage id the reply must carry: 1..4 for
+ * the four EFS images, 0 for anything else. The comparison is byte for byte
+ * against k60_efs_boot_path(), because the wire path has no terminator. */
+uint32_t k60_efs_storage_for_path(const char *path, size_t length);
+
 /* Reads image bytes on the modem's behalf. 'read' must fill dst with 'bytes'
  * from the image at 'offset' and return 0; anything else counts as a failure.
  * The callback is what the kernel supplies once the UFS path exists. */

@@ -197,6 +197,19 @@ fake_read(void *context, uint32_t storage, uint64_t offset, uint8_t *dst,
 }
 
 static void
+test_storage_path(void)
+{
+	check(k60_efs_storage_for_path("/boot/modem_fs1", 15) == 1, "fs1 is storage 1");
+	check(k60_efs_storage_for_path("/boot/modem_fs2", 15) == 2, "fs2 is storage 2");
+	check(k60_efs_storage_for_path("/boot/modem_fsg", 15) == 3, "fsg is storage 3");
+	check(k60_efs_storage_for_path("/boot/modem_fsc", 15) == 4, "fsc is storage 4");
+	check(k60_efs_storage_for_path("/boot/modem_fs1x", 16) == 0, "a longer path is unknown");
+	check(k60_efs_storage_for_path("/boot/modem_fs", 14) == 0, "a shorter path is unknown");
+	check(k60_efs_storage_for_path("", 0) == 0, "an empty path is unknown");
+	check(k60_efs_storage_for_path(NULL, 15) == 0, "a NULL path is unknown");
+}
+
+static void
 test_serve_read(void)
 {
 	K60RmtfsRequest request;
@@ -388,6 +401,7 @@ main(void)
 	test_names();
 	test_plan();
 	test_copy();
+	test_storage_path();
 	test_serve_read();
 	test_serve_write();
 	test_sweep();

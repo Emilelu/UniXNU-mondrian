@@ -68,7 +68,15 @@ jobs:
 
       - name: Install the Linux kernel toolchain
         run: |
-          curl -fL --retry 3 -o /tmp/unixnu-linux.tar.gz "$TOOLCHAIN_URL"
+          # A freshly published release asset can answer 404 for a minute while
+          # the CDN catches up; curl --retry does not retry 404, so loop here.
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fL --retry 3 -o /tmp/unixnu-linux.tar.gz "$TOOLCHAIN_URL"; then
+              break
+            fi
+            echo "toolchain download failed (attempt $attempt), retrying in 30s" >&2
+            sleep 30
+          done
           echo "$TOOLCHAIN_SHA256  /tmp/unixnu-linux.tar.gz" | sha256sum -c -
           sudo tar -C /opt -xzf /tmp/unixnu-linux.tar.gz
           /opt/unixnu-linux/llvm/bin/clang --version | head -2

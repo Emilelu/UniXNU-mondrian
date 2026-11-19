@@ -312,6 +312,74 @@ change is in the framework, and the K60 initrd/ramoops/config deltas live in
 `uefi-mondrian`'s vendored `Platforms/Xiaomi/UniXNUPkg`, which resolves ahead of
 the framework's copy.
 
+## Known debt: the Bluetooth runtime mounts are behind the Data gate
+
+The Bluetooth runtime ships three read-only overlays: `/usr/lib` (QcaBTType0),
+`/usr/sbin` (BlueTool and bluetoothd) and `/System/Library/xpc` (the launchd
+cache that makes the BlueTool job run as root). Patches 0526 and 0527 add them
+from `native_bt_runtime_prepare()` in `bsd/kern/kern_exec.c`.
+
+That function, its call site and every `native_gpu_addon_*` helper it uses sit
+inside one compile-time block:
+
+```c
+#if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
+...
+#endif
+```
+
+`configs/mondrian_ios27_defconfig` never sets `CONFIG_XNU_OWNER_DATA_MOUNT`,
+and the framework maps a missing `CONFIG_XNU_*` to `0`
+(`scripts/build-xnu-4k-baseline.sh`, `OWNER_DATA_MOUNT=${XNU_OWNER_DATA_MOUNT:-0}`),
+so on this branch the whole block is compiled out. The two patch files still
+appear in the series log and the build is still green — that is exactly why
+this is recorded as debt: **green means compiled, not mounted**. Stage 0 stops
+at `bsd_init` and never calls `load_init_program`, so there is no process to
+mount anything for anyway.
+
+This is not a defect to fix now. It becomes live when the Data mount work
+(`CONFIG_XNU_OWNER_DATA_MOUNT=y` plus the UFS Data patches the 16.6.1 line
+carries) lands.
+
+**Criterion.** Judge the gate, not the build, with either of:
+
+- `python3 scripts/check-bluetooth-runtime-gate.py --out <dir>` — the
+  `state` field is `gated-off` when the defconfig leaves the gate closed and
+  `gated-on` when it is open; when open, the series must contain 0526 and 0527
+  or the run fails. Add `--tree <patched xnu>` to also assert that
+  `native_bt_runtime_prepare` still sits inside the `#if`.
+- `--expect-runtime` on an artifact: the built `kernel.macho` must contain the
+  string `[bluetooth-runtime]`. Today it has zero hits (run 44518998961,
+  93,077,504 bytes) while the 16.6.1 kernel has six hits of
+  `native_gpu_addon_prepare` — that difference is the gate.
+
+At runtime the line to look for on the console is
+`[bluetooth-runtime] library=5/0 executables=5/0 cache=5/0`, printed by
+`native_bt_runtime_prepare()` once per launchd spawn. Absent line plus absent
+kernel string means the gate is closed, which is the expected stage-0 reading;
+present string but absent line would mean the block is compiled but never
+reached.
+
+### Known limitation: `[payload.runtime]` cannot be built on Linux
+
+Any board with `[payload.runtime].bluetooth_tool` set makes the framework mount
+the OS image and take CDHashes for the files it stages:
+`scripts/build-boot-runtime.py` calls `hdiutil info -plist` and
+`hdiutil attach -readonly` in `os_mount()`, and `verified_cdhash()` runs
+`codesign --verify --strict` before `bundle_cdhash()` reads the CDHash out of
+`codesign --display --verbose=4`. CI installs `UniXNU/scripts/linux/codesign`
+as a no-op (its own comment says the setup tools and the kernel need no
+signature there), so `bundle_cdhash()` fails with `no CDHash for <path>`
+instead of producing an unsigned addon. The `plutil` shim is a real
+implementation (plistlib), so only the launchd-cache half can run on Linux.
+
+Consequence: this branch can *check* the userspace stage offline — the 24A446
+BlueTool, bluetoothd and QcaBTType0 have been rebuilt and verified that way —
+but it cannot *produce the runtime addon*. That needs a macOS host, or a Linux
+CDHash path in the framework. `scripts/check-bluetooth-payload-host.py`
+reports the difference (`verdict: cannot build the runtime addon on this host`)
+and exits 0; `--require-runtime` is the gate for a host that claims it can.
+
 ## Traps
 
 - **The prelink is bound to two hashes** (kernelcache and native kernel) and the

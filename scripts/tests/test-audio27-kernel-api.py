@@ -98,6 +98,21 @@ def case_wired_headers_do_not_count():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def case_signature_drift():
+    root = pathlib.Path(tempfile.mkdtemp(prefix="k60-api-"))
+    try:
+        headers = dict(HEADERS)
+        headers["osfmk/kern/clock.h"] = ["extern void delay_for_interval(uint32_t);"]
+        build(root, headers=headers)
+        code, out = run(root)
+        assert code == 1, "a changed signature is not the declaration the glue assumes: " + out
+        assert "SIGNATURE CHANGED" in out, out
+        assert "delay_for_interval" in out, out
+        return "signature drift: reported, not silently accepted"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def case_unseeded():
     root = pathlib.Path(tempfile.mkdtemp(prefix="k60-api-"))
     try:
@@ -110,7 +125,7 @@ def case_unseeded():
 
 
 CASES = [case_all_present, case_one_missing, case_inplace_layout,
-         case_wired_headers_do_not_count, case_unseeded]
+         case_wired_headers_do_not_count, case_signature_drift, case_unseeded]
 
 
 def main():

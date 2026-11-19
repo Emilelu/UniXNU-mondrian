@@ -372,6 +372,11 @@ def main() -> int:
           "'-I', str(abi), '-include', 'PongCompat.h'," in text and
           "'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include')" in native_src)
 
+    check("the station build records the element width the kext build checks",
+          "(abi / 'nw_abi.stamp').write_text('ie_bytes=2048" in text and
+          "hashlib.sha256((abi / 'nw_abi.h').read_bytes())" in text and
+          "stamp=a.ath11k.parent/'abi'/'nw_abi.stamp'" in native_src and
+          "but this build carries 2048: rebuild the station (P-230)" in native_src)
     check("a requested stop quiesces the interface and releases the station",
           'extern "C" void pong_wifi_station_stop(void);' in net_src and
           'extern "C" void pong_wifi_net_stop(void) {' in net_src and

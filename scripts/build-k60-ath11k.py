@@ -6,6 +6,7 @@ The driver is not replaced by success stubs. Missing core symbols fail the
 link recipe; power/DMA/MSI remain the consuming Pong board's responsibility.
 """
 import argparse
+import hashlib
 import sys
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -521,6 +522,10 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     # 24A446's scan record carries 2048 element bytes at 0x8c; the station's own bss keeps the same area
     # so a wide 5 GHz record is not cut inside an element (the 384 clamp that dropped Emilelu_5G, P-230).
     (abi / 'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];', 'uint8_t ie[2048];'))
+    # The kext is compiled against its own copy of this header. If a prebuilt station archive was made from a
+    # different width, the two halves disagree about struct nw_bss_info and the record is cut again on the air
+    # (the mission34 384/1024 accident, P-230). Record the width here so the kext build can refuse the mix.
+    (abi / 'nw_abi.stamp').write_text('ie_bytes=2048\nheader_sha256=%s\n' % hashlib.sha256((abi / 'nw_abi.h').read_bytes()).hexdigest())
     flags = ['-target', 'arm64-apple-ios16.0', '-mkernel', '-O2', '-g0', '-ffreestanding',
         '-fno-builtin', '-fno-common', '-fno-strict-aliasing', '-fwrapv', '-fno-stack-protector',
         '-fno-delete-null-pointer-checks', '-mgeneral-regs-only', '-std=gnu11',

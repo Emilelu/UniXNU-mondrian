@@ -6,6 +6,13 @@
 # 非预期的位移」变红，所以取当前真值。
 expected_kern_exec_delta = 1779
 
+# 覆盖检查的起点。check-rules.py:131 一直读这个键，但 main 上从来没有写过它，
+# 于是 grand 恒为 0——「P-151 之后的坑必须有门禁」被放大成「P-100 之后全都要」，
+# 一次性报出 30 条从没登记过的老条目（P-172..P-181 是其中最后九条）。
+# AGENTS.md 的原话是 after P-151，这里照原话钉住；老条目不再靠沉默通过，
+# 下面的九条各有一条写清理由的 waiver（P-204/P-207 同形：门禁不能靠"键不存在"工作）。
+grandfather_through = 151
+
 [[rule]]
 id = "iron-1"
 kind = "iron"
@@ -1048,3 +1055,66 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-255"
 statement = "The SMCCC wrapper declares only x0..x3 as outputs, so the compiler may keep live values in x4..x17 across the smc; both the driver copy and the patch copy must use one contract."
 check = "python3 scripts/tests/test-k60-adsp-smccc.py"
+
+[[rule]]
+id = "P-172"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-172"
+statement = "上游 commits 不能整文件 pick 到本地 K60 fork 的构建脚本"
+waiver = "The pick is a review decision on a diff that only exists while a fetch is in flight; no offline gate can tell a whole-file pick from a hand merge without the upstream tree, and check-pick-shrink.py only bounds how far a tracked local file may shrink."
+
+[[rule]]
+id = "P-173"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-173"
+statement = "用错误的产物路径推翻一个正确的实现"
+waiver = "Whether the graded artefact is the one the build just wrote depends on the build log and the tree it names; the blob and stamp gates (check-blob-patches.py, check-build-applied.py) cover the artefacts that have recorded hashes, and this pitfall's remaining half is a human reading the log."
+
+[[rule]]
+id = "P-174"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-174"
+statement = "main 被当成工作区：实验性改动直接压在稳定基线上"
+waiver = "The rule is enforced by iron-9 (check-main-baseline.py) and by review; this pitfall records the historical violations, which no gate can re-judge."
+
+[[rule]]
+id = "P-175"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-175"
+statement = "内核命令行在开机过程中会被换掉——找 pmd0 必须在 md0 创建之前读"
+waiver = "The ordering is observable only on a booted device (the command line mutates before md0 exists); the offline side is the boot-args gate, which already checks the argument set."
+
+[[rule]]
+id = "P-176"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-176"
+statement = "FD 编出来找不到 payload：{tree}/package 里的旧 UniXNUPkg 顶掉了 vendored 副本"
+waiver = "A stale package directory inside a build tree is not tracked by the repository, so the gate would have to inspect every build output; scripts/verify-boot-img-payload.py covers the produced image when one exists."
+
+[[rule]]
+id = "P-177"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-177"
+statement = "--kernelcache 不换内核，--kernel 才换"
+waiver = "The booking argument is a command-line choice at build time; verify-boot-img-payload.py already fails when the payload's kernel hash is not the one the build reports."
+
+[[rule]]
+id = "P-178"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-178"
+statement = "上机对照：一次只换一个产物，且每个产物都要有可验证的替换入口"
+waiver = "Controlled-variable flight discipline is a supervisor action (one boot lock, one image); the evidence layout is checked by the boot procedure gate, not by a code test."
+
+[[rule]]
+id = "P-179"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-179"
+statement = "initproc exited … ns=2 code=0xb 是 SIGSEGV，不是 AMFI 拒绝 exec"
+waiver = "Decoding a panic's namespace and subcode requires the console of the flight that failed; the console judges cover the lines they own, and no offline gate can attribute a subcode without the panic text."
+
+[[rule]]
+id = "P-181"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-181"
+statement = "构建失败时旧 kernel.macho 还在，grep 一行日志会把它当成新产物"
+waiver = "The guard is the build script's own freshness check (build-mode1-w11f.sh asserts the symbol against the unstripped kernel of this run); no repository-wide gate can tell a stale output from a fresh one without the build log."

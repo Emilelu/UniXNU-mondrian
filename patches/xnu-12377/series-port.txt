@@ -1,0 +1,10 @@
+# iOS 27 line: ported from 16 line 0620..0623, call sites merged into 0629
+# born as 16 line 0620 plus the 0621 file sections
+0626-k60-modem-image.patch
+# born as 16 line 0622
+0627-k60-modem-qrtr.patch
+# born as 16 line 0623
+0628-k60-ipa.patch
+# born as the 16 line 0621/0624 call sites
+0629-kern-exec-call-sites.patch
+# 0621-k60-io-submap-budget is not carried: the 27 io_map.c has no io_submap

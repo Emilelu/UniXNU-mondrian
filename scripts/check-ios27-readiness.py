@@ -87,6 +87,53 @@ def anchor_state(tree):
     return body.count('native_owner_data_stage = 3;')
 
 
+
+ARTIFACT_DIR = os.path.join(REPO, 'patches', 'xnu-12377')
+ARTIFACTS = ['0626-k60-modem-image.patch', '0627-k60-modem-qrtr.patch',
+             '0628-k60-ipa.patch', 'series-port.txt', 'conffiles-port.txt']
+
+
+def sourced_from_patches():
+    names = set()
+    for name in ARTIFACTS[:3]:
+        path = os.path.join(ARTIFACT_DIR, name)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding='utf-8') as handle:
+            for line in handle:
+                if line.startswith('+++ b/bsd/dev/') and line.rstrip().endswith('.c'):
+                    names.add(line[6:].strip())
+    return sorted(names)
+
+
+def conffile_entries():
+    path = os.path.join(ARTIFACT_DIR, 'conffiles-port.txt')
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding='utf-8') as handle:
+        return [line.split(chr(9))[0] for line in handle if line.strip()]
+
+
+def conf_entries_in_tree(tree):
+    total = 0
+    root = os.path.join(tree, 'bsd', 'conf')
+    for base, _dirs, files in os.walk(root):
+        for name in files:
+            try:
+                text = open(os.path.join(base, name), encoding='utf-8',
+                            errors='replace').read()
+            except OSError:
+                continue
+            total += sum(1 for line in text.splitlines()
+                         if 'pong_' in line or 'qcom_glink' in line)
+    return total
+
+
+def smmu_in_tree(tree):
+    found = run(['grep', '-rIl', 'ArmSmmu4KBuild', tree])
+    return bool(found.stdout.strip())
+
+
 def compare(expected, actual):
     """Drift is any measured rc that differs from the recorded one."""
     return expected == actual
@@ -137,6 +184,33 @@ def main(argv):
         print('K60 READY DRIFT headers missing: ' + ' '.join(absent))
     else:
         print('K60 READY ok   %d includes resolve' % len(headers))
+    missing = [n for n in ARTIFACTS
+               if not os.path.exists(os.path.join(ARTIFACT_DIR, n))]
+    if missing:
+        drift += 1
+        print('K60 READY DRIFT port artifacts missing: ' + ' '.join(missing))
+    else:
+        sources = sourced_from_patches()
+        entries = conffile_entries() or []
+        if entries != sources:
+            drift += 1
+            print('K60 READY DRIFT conffiles-port.txt lists %d entries, the patches install %d'
+                  % (len(entries), len(sources)))
+        else:
+            print('K60 READY ok   %d port artifacts, %d build entries'
+                  % (len(ARTIFACTS), len(entries)))
+    wired = conf_entries_in_tree(args.tree)
+    if wired:
+        drift += 1
+        print('K60 READY DRIFT %d pong/glink lines appeared in bsd/conf: the build wiring landed'
+              % wired)
+    else:
+        print('K60 READY ok   bsd/conf still lists no pong/glink source')
+    if smmu_in_tree(args.tree):
+        drift += 1
+        print('K60 READY DRIFT ArmSmmu4KBuild is in the 27 tree: the weak fallback can be retired')
+    else:
+        print('K60 READY ok   ArmSmmu4K still absent from the 27 tree')
     anchors = anchor_state(args.tree)
     if anchors is None:
         print('K60 READY INVALID no bsd/kern/kern_exec.c under the tree')

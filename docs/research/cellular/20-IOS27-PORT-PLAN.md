@@ -346,3 +346,53 @@ grep -rhoE '\b(native_[a-z_]+|pong_[a-z_]+)\(' drivers/PongCellular/*.c drivers/
 
 本文倾向 **2 在 16 线先落地 + 1 在 27 线成立后自然胜出**（弱定义被强定义覆盖，与 UFS 读同一套机制），
 但改 `K60Ipa.c` 的时机要与 k53 飞行协调，属于 Lead 的排期决定。
+
+## 16. Lead 的三条裁决（2026-11-20 06:22）与本线的落点
+
+| 裁决 | 内容 | 本线落点 |
+|---|---|---|
+| conffiles | 走构建期追加，**驱动与表归 Lead**；本线继续产出 `conffiles-port.txt` 并报路径 | `patches/xnu-12377/conffiles-port.txt`（18 行，从 `+++ b/` 推） |
+| IPA 归属 | `K60Ipa.c:892` 的上界与重试、以及 ArmSmmu4K 弱定义兜底，**都归 cellular 线**；GPU 线只管 ArmSmmu4K 本体 | 两份草稿：`E:/k60-work/scratch/k60ipa-smmu-weak.txt`、`k60ipa-runtime-alloc.txt`，排在 k53 飞完之后 |
+| ArmSmmu4K | 选弱定义兜底，但排在 k53 判读之后；(a) 真功能路线等 GPU 线优先级上来，`b9de56b9` 随 (a) 一起走 | 同上，同一批应用 |
+| data-mount 锚点 | Lead 的 F1 还没出图，**别等**；先让 0626/0627/0628 与工具「贴一条命令全绿」 | 本节即为此 |
+
+### 17.1 产物与一条命令
+
+27 侧的四个产物现在住在仓库里，不是 `/tmp`：
+
+```
+patches/xnu-12377/0626-k60-modem-image.patch      29,161 B
+patches/xnu-12377/0627-k60-modem-qrtr.patch      170,730 B
+patches/xnu-12377/0628-k60-ipa.patch             174,551 B
+patches/xnu-12377/series-port.txt                    396 B  (注释独占一行 + 四个 bare 名)
+patches/xnu-12377/conffiles-port.txt                 650 B  (18 行 bsd/dev/*.c + standard)
+```
+
+复现与判绿：
+
+```sh
+python3 scripts/port-cellular-to-xnu27.py \
+  --tree /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc --out patches/xnu-12377 --verify
+python3 scripts/check-ios27-readiness.py \
+  --tree /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc --self-test
+python3 scripts/check-ios27-readiness.py \
+  --tree /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc
+```
+
+锚点没落地时第一条按设计 exit 2（`anchor … matches 0 lines`），但 0626/0627/0628、`series-port.txt`、
+`conffiles-port.txt` 都照写；第二条 exit 0；第三条现在全绿。
+
+`check-ios27-readiness.py` 新增三项期望，树往前走就变成 DRIFT（提醒重新生成，而不是静悄悄过期）：
+
+1. `patches/xnu-12377/` 里五个产物都在，且 `conffiles-port.txt` 的条目集合**逐项等于**三个补丁装的 `.c`；
+2. 27 树 `bsd/conf` 里 `pong_`/`qcom_glink` 计数为 0——Lead 的构建期追加一落地，这一项就报 DRIFT；
+3. 27 树里 `ArmSmmu4KBuild` 不存在——GPU 线把它带过来时，这一项报 DRIFT，弱定义兜底就可以退休。
+
+实测输出：
+
+```
+K60 READY ok   5 port artifacts, 18 build entries
+K60 READY ok   bsd/conf still lists no pong/glink source
+K60 READY ok   ArmSmmu4K still absent from the 27 tree
+K60 READY OK every recorded expectation still holds
+```

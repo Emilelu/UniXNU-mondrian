@@ -1,0 +1,4703 @@
+diff --git a/bsd/dev/pong_modem_qrtr.h b/bsd/dev/pong_modem_qrtr.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_qrtr.h
+@@ -0,0 +1,162 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* QRTR (the Qualcomm IPC Router) wire format and QMI helpers: build HELLO,
++ * NEW_LOOKUP and NEW_SERVER, fold replies into a table, answer the service
++ * locator, and carry one QMI DMS GetRevision request/response.
++ *
++ * Everything here is pure: no SMEM, no GLINK, no allocation. The transport
++ * (K60ModemLink.c) owns the bytes and hands each received datagram to
++ * k60_qrtr_note(); a host test can therefore prove the encoding, the QMI
++ * TLV parsing and the servloc answer against recorded traffic without the
++ * device.
++ *
++ * Wire format (qrtr v1, little endian, 8 words = 32 bytes of header):
++ *   version type from_node from_port confirm size to_node to_port
++ * Control messages carry a 20 byte payload: command plus four words.
++ * NEW_LOOKUP is type 10 (0x0a); the modem answers with one NEW_SERVER per
++ * service, each of them 20 bytes with command == K60QrtrNewServer. */
++#ifndef K60_MODEM_QRTR_H
++#define K60_MODEM_QRTR_H
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60_QRTR_VERSION        1u
++#define K60_QRTR_HEADER_BYTES   32u
++#define K60_QRTR_CONTROL_BYTES  20u
++#define K60_QRTR_LOOKUP_BYTES   (K60_QRTR_HEADER_BYTES + K60_QRTR_CONTROL_BYTES)
++#define K60_QRTR_CONTROL_PORT   0xfffffffeu  /* control messages: hello, new server */
++#define K60_QRTR_NS_PORT        53u          /* where a node's name server listens */
++/* The modem reads its NV through a storage service that the AP must host;
++ * Pong registers the same service (14/1) before it starts PAS. */
++#define K60_QRTR_RMTFS_SERVICE   14u
++#define K60_QRTR_RMTFS_INSTANCE  1u
++#define K60_QRTR_RMTFS_PORT      0x102u
++#define K60_QRTR_BROADCAST_NODE 0xffffffffu  /* "every node", what a lookup is sent to */
++#define K60_QRTR_AP_NODE        1u           /* this AP's QRTR node id */
++#define K60_QRTR_FIRST_PORT     0x4000u      /* first port we hand out */
++#define K60_QRTR_MAX_SERVICES   64u
++#define K60_QRTR_MAX_PACKET     512u
++/* The five services that prove the modem's own name service answered:
++ * 21 EFS, 1 WDS, 11 UIM, 3 NAS, 16 PDS (01-ANDROID-INVENTORY.md:409-454). */
++#define K60_QRTR_WANTED_MASK    0x00u
++
++/* Local endpoints this file serves. 0x100 is the service locator the modem
++ * queries for the protection-domain table; 0x110 carries our DMS GetRevision
++ * request and response. */
++#define K60_QRTR_LOCATOR_PORT   0x100u
++#define K60_QRTR_DMS_PORT       0x110u
++#define K60_QRTR_DMS_SERVICE    2u
++/* The modem registers its QMI services while it boots, before our GLINK
++ * channel exists; Android's kernel nameserver catches those announcements and
++ * a late channel does not. The inventory taken on this device puts DMS on
++ * node 0 port 96, so that port is the fallback when nothing is announced. */
++#define K60_QRTR_DMS_STATIC_PORT 96u
++#define K60_QRTR_SERVLOC_SERVICE 0x40u
++#define K60_QRTR_SERVLOC_INSTANCE 0x101u
++
++#define K60_QMI_HEADER          7u
++#define K60_QMI_REQUEST         0u
++#define K60_QMI_RESPONSE        2u
++#define K60_QMI_INDICATION      4u
++#define K60_QMI_DMS_GET_REVISION 0x23u
++
++enum {
++	K60QrtrData = 1, K60QrtrHello = 2, K60QrtrBye = 3, K60QrtrNewServer = 4,
++	K60QrtrDelServer = 5, K60QrtrDelClient = 6, K60QrtrResumeTx = 7,
++	K60QrtrNewLookup = 10, K60QrtrDelLookup = 11,
++};
++
++enum { K60QrtrOk = 0, K60QrtrBadArg = -1, K60QrtrShort = -2, K60QrtrNoRoom = -3 };
++
++typedef struct {
++	uint32_t version, type, from_node, from_port;
++	uint32_t confirm, size, to_node, to_port;
++} K60QrtrHeader;
++
++typedef struct {
++	uint32_t command;
++	uint32_t words[4];
++} K60QrtrControl;
++
++typedef struct {
++	uint32_t service, instance, node, port;
++} K60QrtrServer;
++
++/* One parsed QMI message: a seven byte header and the TLV region that
++ * follows. All fields little endian, as libqmi defines them. */
++typedef struct {
++	uint8_t type;
++	uint16_t transaction, message;
++	const uint8_t *tlvs;
++	uint32_t length;
++} K60QmiMessage;
++
++/* One protection-domain row of the service locator answer. The strings and
++ * arrays must outlive the call; services is NULL when the domain has none. */
++typedef struct {
++	const char *domain;
++	uint32_t instance;
++	const char *const *services;
++} K60PdDomain;
++
++typedef struct {
++	uint32_t services;      /* NEW_SERVER replies recorded (including repeats) */
++	uint32_t remote_node;   /* learned from HELLO; broadcast until then */
++	uint32_t from_node0;    /* of those, the ones that came from node 0 */
++	uint32_t wanted;        /* of those, the ones whose service is EFS/WDS/UIM/NAS/PDS */
++	uint32_t hello_acks;
++	uint32_t malformed;     /* datagrams dropped before a control payload */
++	K60QrtrServer table[K60_QRTR_MAX_SERVICES];
++	/* DMS service 2 endpoint and its GetRevision exchange. */
++	uint32_t dms_node, dms_port, dms_found;
++	uint32_t dms_transaction, dms_sent, dms_answered, dms_errors;
++	/* 1 once the request went to the fixed port the Android inventory saw. */
++	uint32_t dms_static;
++	uint32_t locator_requests;
++	uint32_t revision_bytes;
++	char revision[128];
++} K60QrtrState;
++
++/* Builds the 52 byte datagram a lookup consists of. Returns its length or 0.
++ * Control messages come from node 1, port 0xfffffffe, exactly as Pong emits
++ * them; HELLO goes to the broadcast node and LOOKUP to the learned modem. */
++uint32_t k60_qrtr_build_hello(uint8_t *out, size_t cap);
++uint32_t k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node);
++uint32_t k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
++    uint32_t service, uint32_t instance);
++/* Same lookup, but addressed to an explicit port. A name server is reached on
++ * K60_QRTR_NS_PORT, not on the control port: k37 broadcast lookups to the
++ * control port for a full minute and no node answered. */
++uint32_t k60_qrtr_build_lookup_at(uint8_t *out, size_t cap, uint32_t to_node,
++    uint32_t to_port, uint32_t service, uint32_t instance);
++/* NEW_SERVER for one local service: announces where the AP listens. */
++uint32_t k60_qrtr_build_new_server(uint8_t *out, size_t cap, uint32_t service,
++    uint32_t instance, uint32_t to_node, uint32_t port);
++/* DATA datagram; returns the padded on-wire length or 0. The header's size
++ * field is the unpadded payload length. */
++uint32_t k60_qrtr_build_data(uint8_t *out, size_t cap, uint32_t from_port,
++    uint32_t to_node, uint32_t to_port, const uint8_t *payload, size_t length);
++/* Splits one datagram: header, then the payload that follows it. */
++int k60_qrtr_parse(const uint8_t *data, size_t length, K60QrtrHeader *header, const uint8_t **payload);
++/* Folds one received datagram into the state. Unknown types are counted as
++ * malformed only when they are too short to be a control message. */
++int k60_qrtr_note(K60QrtrState *state, const uint8_t *data, size_t length);
++/* True for the five services the completion criterion names. */
++int k60_qrtr_wanted(uint32_t service);
++/* 1 when a NEW_SERVER from node 0 named a wanted service: the judgement line. */
++int k60_qrtr_verdict(const K60QrtrState *state);
++
++/* QMI helpers. qcom_qmi_parse validates the seven byte header and bounds the
++ * TLV region; qcom_qmi_tlv returns the value pointer for one type or NULL. */
++int k60_qmi_parse(const uint8_t *data, uint32_t length, K60QmiMessage *message);
++const uint8_t *k60_qmi_tlv(const K60QmiMessage *message, uint8_t type, uint32_t *size);
++/* DMS GetRevision (service 2, message 0x23): a seven byte request with no
++ * TLVs, and a parser for the response TLV 1 revision string. */
++uint32_t k60_qmi_build_dms_revision(uint8_t *out, size_t cap, uint16_t transaction);
++int k60_qmi_dms_revision(const uint8_t *data, uint32_t length, uint16_t transaction,
++    char *out, size_t cap);
++/* Answers a QMI service locator GET_DOMAIN_LIST request with the same QMI
++ * response Pong sends (result, total, revision, domain list). */
++uint32_t k60_qrtr_servloc_answer(const uint8_t *request, uint32_t length,
++    uint8_t *out, uint32_t capacity);
++
++#endif
+diff --git a/bsd/dev/pong_modem_qrtr.c b/bsd/dev/pong_modem_qrtr.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_qrtr.c
+@@ -0,0 +1,475 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* QRTR wire format plus the small QMI surface the modem bring-up needs: the
++ * service locator answer and DMS GetRevision. No locking, no IO, no kernel
++ * headers: the same file is compiled into the kernel and into the host test
++ * (scripts/tests/test-k60-modem-qrtr.c), so the bytes a boot would put on the
++ * wire are the bytes the test proved. */
++#include "pong_modem_qrtr.h"
++
++static void put16(uint8_t *at, uint16_t value)
++{
++	at[0] = (uint8_t)(value & 0xffu);
++	at[1] = (uint8_t)((value >> 8) & 0xffu);
++}
++
++static uint16_t get16(const uint8_t *at)
++{
++	return (uint16_t)((uint16_t)at[0] | (uint16_t)at[1] << 8);
++}
++
++static void put32(uint8_t *at, uint32_t value)
++{
++	at[0] = (uint8_t)(value & 0xffu);
++	at[1] = (uint8_t)((value >> 8) & 0xffu);
++	at[2] = (uint8_t)((value >> 16) & 0xffu);
++	at[3] = (uint8_t)((value >> 24) & 0xffu);
++}
++
++static uint32_t get32(const uint8_t *at)
++{
++	return (uint32_t)at[0] | (uint32_t)at[1] << 8 | (uint32_t)at[2] << 16 | (uint32_t)at[3] << 24;
++}
++
++static void put_header(uint8_t *out, uint32_t type, uint32_t from_node, uint32_t from_port, uint32_t to_node, uint32_t to_port, uint32_t payload)
++{
++	put32(out + 0, K60_QRTR_VERSION);
++	put32(out + 4, type);
++	put32(out + 8, from_node);
++	put32(out + 12, from_port);
++	put32(out + 16, 0);           /* confirm: no reply is requested */
++	put32(out + 20, payload);
++	put32(out + 24, to_node);
++	put32(out + 28, to_port);
++}
++
++uint32_t
++k60_qrtr_build_hello(uint8_t *out, size_t cap)
++{
++	K60QrtrControl control;
++
++	if (out == NULL || cap < K60_QRTR_LOOKUP_BYTES) {
++		return 0;
++	}
++	control.command = K60QrtrHello;
++	control.words[0] = 0;
++	control.words[1] = 0;
++	control.words[2] = 0;
++	control.words[3] = 0;
++	put_header(out, K60QrtrHello, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
++	    K60_QRTR_BROADCAST_NODE, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_BYTES);
++	put32(out + K60_QRTR_HEADER_BYTES + 0, control.command);
++	put32(out + K60_QRTR_HEADER_BYTES + 4, control.words[0]);
++	put32(out + K60_QRTR_HEADER_BYTES + 8, control.words[1]);
++	put32(out + K60_QRTR_HEADER_BYTES + 12, control.words[2]);
++	put32(out + K60_QRTR_HEADER_BYTES + 16, control.words[3]);
++	return K60_QRTR_LOOKUP_BYTES;
++}
++
++/* NEW_LOOKUP to node 0xffffffff: "every name server, tell me what you have".
++ * The modem's own name service (node 0) answers with one NEW_SERVER per
++ * service; that is the reply the completion criterion is written against. */
++/* A lookup with service 0 asks for every name; a non-zero service asks for one.
++ * k36's unicast-to-node-0 lookup was never answered, so the probe now sends
++ * both forms to the broadcast node. */
++uint32_t
++k60_qrtr_build_lookup_at(uint8_t *out, size_t cap, uint32_t to_node,
++    uint32_t to_port, uint32_t service, uint32_t instance)
++{
++	if (out == NULL || cap < K60_QRTR_LOOKUP_BYTES) {
++		return 0;
++	}
++	put_header(out, K60QrtrNewLookup, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
++	    to_node, to_port, K60_QRTR_CONTROL_BYTES);
++	put32(out + K60_QRTR_HEADER_BYTES + 0, K60QrtrNewLookup);
++	put32(out + K60_QRTR_HEADER_BYTES + 4, service);
++	put32(out + K60_QRTR_HEADER_BYTES + 8, instance);
++	put32(out + K60_QRTR_HEADER_BYTES + 12, 0);
++	put32(out + K60_QRTR_HEADER_BYTES + 16, 0);
++	return K60_QRTR_LOOKUP_BYTES;
++}
++
++uint32_t
++k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
++    uint32_t service, uint32_t instance)
++{
++	return k60_qrtr_build_lookup_at(out, cap, to_node, K60_QRTR_CONTROL_PORT,
++	    service, instance);
++}
++
++uint32_t
++k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node)
++{
++	return k60_qrtr_build_lookup_service(out, cap, to_node, 0, 0);
++}
++
++/* NEW_SERVER: the AP's own service 64, instance 0x101, locator port 0x100.
++ * The modem asks that endpoint for the protection-domain table. */
++uint32_t
++k60_qrtr_build_new_server(uint8_t *out, size_t cap, uint32_t service,
++    uint32_t instance, uint32_t to_node, uint32_t port)
++{
++	if (out == NULL || cap < K60_QRTR_LOOKUP_BYTES) {
++		return 0;
++	}
++	put_header(out, K60QrtrNewServer, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
++	    to_node, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_BYTES);
++	put32(out + K60_QRTR_HEADER_BYTES + 0, K60QrtrNewServer);
++	put32(out + K60_QRTR_HEADER_BYTES + 4, service);
++	put32(out + K60_QRTR_HEADER_BYTES + 8, instance);
++	put32(out + K60_QRTR_HEADER_BYTES + 12, K60_QRTR_AP_NODE);
++	put32(out + K60_QRTR_HEADER_BYTES + 16, port);
++	return K60_QRTR_LOOKUP_BYTES;
++}
++
++uint32_t
++k60_qrtr_build_data(uint8_t *out, size_t cap, uint32_t from_port,
++    uint32_t to_node, uint32_t to_port, const uint8_t *payload, size_t length)
++{
++	const size_t padded = (length + 3u) & ~(size_t)3u;
++
++	if (out == NULL || (payload == NULL && length != 0) ||
++	    cap < K60_QRTR_HEADER_BYTES + padded || length > K60_QRTR_MAX_PACKET) {
++		return 0;
++	}
++	put_header(out, K60QrtrData, K60_QRTR_AP_NODE, from_port, to_node, to_port,
++	    (uint32_t)length);
++	for (size_t i = 0; i < length; ++i) {
++		out[K60_QRTR_HEADER_BYTES + i] = payload[i];
++	}
++	for (size_t i = length; i < padded; ++i) {
++		out[K60_QRTR_HEADER_BYTES + i] = 0;
++	}
++	return (uint32_t)(K60_QRTR_HEADER_BYTES + padded);
++}
++
++int
++k60_qrtr_parse(const uint8_t *data, size_t length, K60QrtrHeader *header, const uint8_t **payload)
++{
++	if (data == NULL || header == NULL || length < K60_QRTR_HEADER_BYTES) {
++		return K60QrtrShort;
++	}
++	header->version = get32(data + 0);
++	header->type = get32(data + 4);
++	header->from_node = get32(data + 8);
++	header->from_port = get32(data + 12);
++	header->confirm = get32(data + 16);
++	header->size = get32(data + 20);
++	header->to_node = get32(data + 24);
++	header->to_port = get32(data + 28);
++	if (header->version != K60_QRTR_VERSION) {
++		return K60QrtrBadArg;
++	}
++	if (header->size > length - K60_QRTR_HEADER_BYTES) {
++		return K60QrtrShort;
++	}
++	if (payload != NULL) {
++		*payload = data + K60_QRTR_HEADER_BYTES;
++	}
++	return K60QrtrOk;
++}
++
++/* ---- QMI ---- */
++int
++k60_qmi_parse(const uint8_t *data, uint32_t length, K60QmiMessage *message)
++{
++	if (data == NULL || message == NULL || length < K60_QMI_HEADER) {
++		return -1;
++	}
++	message->type = data[0];
++	message->transaction = get16(data + 1);
++	message->message = get16(data + 3);
++	message->length = get16(data + 5);
++	if (message->length > length - K60_QMI_HEADER) {
++		return -1;
++	}
++	message->tlvs = data + K60_QMI_HEADER;
++	return 0;
++}
++
++const uint8_t *
++k60_qmi_tlv(const K60QmiMessage *message, uint8_t type, uint32_t *size)
++{
++	uint32_t at = 0;
++
++	if (message == NULL || size == NULL) {
++		return NULL;
++	}
++	while (at + 3u <= message->length) {
++		const uint32_t n = get16(message->tlvs + at + 1);
++
++		if (n > message->length - at - 3u) {
++			return NULL;
++		}
++		if (message->tlvs[at] == type) {
++			*size = n;
++			return message->tlvs + at + 3u;
++		}
++		at += 3u + n;
++	}
++	return NULL;
++}
++
++uint32_t
++k60_qmi_build_dms_revision(uint8_t *out, size_t cap, uint16_t transaction)
++{
++	if (out == NULL || cap < K60_QMI_HEADER) {
++		return 0;
++	}
++	out[0] = K60_QMI_REQUEST;
++	put16(out + 1, transaction);
++	put16(out + 3, K60_QMI_DMS_GET_REVISION);
++	put16(out + 5, 0);
++	return K60_QMI_HEADER;
++}
++
++int
++k60_qmi_dms_revision(const uint8_t *data, uint32_t length, uint16_t transaction,
++    char *out, size_t cap)
++{
++	K60QmiMessage message;
++	const uint8_t *result, *revision;
++	uint32_t result_size = 0, revision_size = 0;
++
++	if (k60_qmi_parse(data, length, &message) != 0 ||
++	    message.type != K60_QMI_RESPONSE ||
++	    message.message != K60_QMI_DMS_GET_REVISION ||
++	    message.transaction != transaction || out == NULL || cap == 0) {
++		return -1;
++	}
++	result = k60_qmi_tlv(&message, 0x02, &result_size);
++	if (result == NULL || result_size != 4 || get16(result) != 0) {
++		return -2;
++	}
++	revision = k60_qmi_tlv(&message, 0x01, &revision_size);
++	if (revision == NULL || revision_size == 0 || revision_size >= cap) {
++		return -3;
++	}
++	for (uint32_t i = 0; i < revision_size; ++i) {
++		if (revision[i] < 0x20 || revision[i] > 0x7e) {
++			return -4;
++		}
++		out[i] = (char)revision[i];
++	}
++	out[revision_size] = '\0';
++	return (int)revision_size;
++}
++
++/* ---- the service locator ---- */
++#define K60_NAME_MAX 64u
++#define K60_LIST_MAX 32u
++
++static int
++same_name(const char *a, const uint8_t *b, uint32_t n)
++{
++	uint32_t i = 0;
++
++	for (; i < n && a[i]; ++i) {
++		if ((uint8_t)a[i] != b[i]) {
++			return 0;
++		}
++	}
++	return i == n && !a[i];
++}
++
++static int
++provides(const K60PdDomain *domain, const uint8_t *name, uint32_t n)
++{
++	if (same_name("tms/servreg", name, n)) {
++		return 1;
++	}
++	for (unsigned i = 0; domain->services && domain->services[i]; ++i) {
++		if (same_name(domain->services[i], name, n)) {
++			return 1;
++		}
++	}
++	return 0;
++}
++
++static const char *const k60_pd_audio_services[] = { "avs/audio", NULL };
++static const char *const k60_pd_gps_services[] = { "gps/gps_service", NULL };
++static const K60PdDomain k60_pd_domains[] = {
++	{ "msm/adsp/root_pd", 74, NULL },
++	{ "msm/adsp/audio_pd", 74, k60_pd_audio_services },
++	{ "msm/adsp/charger_pd", 74, NULL },
++	{ "msm/cdsp/root_pd", 76, NULL },
++	{ "msm/modem/root_pd", 180, k60_pd_gps_services },
++	{ "msm/slpi/root_pd", 90, NULL },
++	{ "msm/slpi/sensor_pd", 90, NULL },
++};
++
++uint32_t
++k60_qrtr_servloc_answer(const uint8_t *request, uint32_t length,
++    uint8_t *out, uint32_t capacity)
++{
++	K60QmiMessage message;
++	uint32_t name_size = 0, offset_size = 0, total = 0, listed = 0;
++	const uint8_t *name, *skip;
++	const uint32_t count = (uint32_t)(sizeof(k60_pd_domains) / sizeof(k60_pd_domains[0]));
++	uint8_t *p, *list, *entry;
++
++	if (out == NULL || k60_qmi_parse(request, length, &message) != 0 ||
++	    message.type != K60_QMI_REQUEST ||
++	    message.message != 0x21u) { /* SERVLOC GET_DOMAIN_LIST */
++		return 0;
++	}
++	name = k60_qmi_tlv(&message, 0x01, &name_size);
++	skip = k60_qmi_tlv(&message, 0x10, &offset_size);
++	if (name == NULL || name_size > K60_NAME_MAX ||
++	    (skip != NULL && offset_size != 4)) {
++		return 0;
++	}
++	while (name_size && !name[name_size - 1]) {
++		--name_size;
++	}
++	const uint32_t first = skip ? get32(skip) : 0;
++
++	if (capacity < K60_QMI_HEADER + 7u + 5u + 5u + 4u) {
++		return 0;
++	}
++	p = out + K60_QMI_HEADER;
++	p[0] = 0x02;
++	put16(p + 1, 4);
++	put32(p + 3, 0);
++	p += 7;
++	list = p + 5 + 5;
++	entry = list + 4;
++	for (uint32_t i = 0; i < count; ++i) {
++		uint32_t n = 0;
++
++		if (!provides(&k60_pd_domains[i], name, name_size)) {
++			continue;
++		}
++		const uint32_t index = total++;
++		if (index < first || listed == K60_LIST_MAX) {
++			continue;
++		}
++		while (k60_pd_domains[i].domain[n] && n < K60_NAME_MAX) {
++			++n;
++		}
++		if ((uint32_t)(entry - out) + 1u + n + 9u > capacity) {
++			return 0;
++		}
++		entry[0] = (uint8_t)n;
++		for (uint32_t b = 0; b < n; ++b) {
++			entry[1 + b] = (uint8_t)k60_pd_domains[i].domain[b];
++		}
++		entry += 1 + n;
++		put32(entry, k60_pd_domains[i].instance);
++		entry[4] = 0;
++		put32(entry + 5, 0);
++		entry += 9;
++		++listed;
++	}
++	p[0] = 0x10;
++	put16(p + 1, 2);
++	put16(p + 3, (uint16_t)total);
++	p += 5;
++	p[0] = 0x11;
++	put16(p + 1, 2);
++	put16(p + 3, 1);
++	p += 5;
++	if (listed) {
++		p[0] = 0x12;
++		put16(p + 1, (uint16_t)(entry - p - 3));
++		p[3] = (uint8_t)listed;
++		p = entry;
++	}
++	out[0] = K60_QMI_RESPONSE;
++	put16(out + 1, message.transaction);
++	put16(out + 3, message.message);
++	put16(out + 5, (uint16_t)(p - out - K60_QMI_HEADER));
++	return (uint32_t)(p - out);
++}
++
++int
++k60_qrtr_wanted(uint32_t service)
++{
++	switch (service) {
++	case 1:  /* WDS */
++	case 3:  /* NAS */
++	case 11: /* UIM */
++	case 16: /* PDS */
++	case 21: /* EFS */
++		return 1;
++	default:
++		return 0;
++	}
++}
++
++int
++k60_qrtr_note(K60QrtrState *state, const uint8_t *data, size_t length)
++{
++	K60QrtrHeader header;
++	const uint8_t *payload = NULL;
++	K60QrtrControl control;
++	int rc;
++
++	if (state == NULL || data == NULL) {
++		return K60QrtrBadArg;
++	}
++	rc = k60_qrtr_parse(data, length, &header, &payload);
++	if (rc != K60QrtrOk) {
++		state->malformed++;
++		return rc;
++	}
++	if (header.type == K60QrtrHello) {
++		state->hello_acks++;
++		state->remote_node = header.from_node;
++		return K60QrtrOk;
++	}
++	if (header.type != K60QrtrNewServer && header.type != K60QrtrDelServer) {
++		return K60QrtrOk; /* BYE, RESUME_TX and DATA are not ours to judge */
++	}
++	if (header.size != K60_QRTR_CONTROL_BYTES) {
++		state->malformed++;
++		return K60QrtrShort;
++	}
++	control.command = get32(payload + 0);
++	control.words[0] = get32(payload + 4);
++	control.words[1] = get32(payload + 8);
++	control.words[2] = get32(payload + 12);
++	control.words[3] = get32(payload + 16);
++	if (control.command != header.type) {
++		state->malformed++;
++		return K60QrtrBadArg;
++	}
++	if (header.type == K60QrtrDelServer) {
++		if (control.words[0] == K60_QRTR_DMS_SERVICE &&
++		    control.words[2] == state->dms_node &&
++		    control.words[3] == state->dms_port) {
++			state->dms_found = 0;
++			state->dms_node = 0;
++			state->dms_port = 0;
++		}
++		return K60QrtrOk; /* a removal never counts against the verdict */
++	}
++	state->services++;
++	if (header.from_node == 0) {
++		state->from_node0++;
++	}
++	if (k60_qrtr_wanted(control.words[0])) {
++		state->wanted++;
++	}
++	if (state->services <= K60_QRTR_MAX_SERVICES) {
++		K60QrtrServer *slot = &state->table[state->services - 1];
++		slot->service = control.words[0];
++		slot->instance = control.words[1];
++		slot->node = control.words[2];
++		slot->port = control.words[3];
++	}
++	if (control.words[0] == K60_QRTR_DMS_SERVICE) {
++		state->dms_node = control.words[2];
++		state->dms_port = control.words[3];
++		state->dms_found = 1;
++	}
++	return K60QrtrOk;
++}
++
++int
++k60_qrtr_verdict(const K60QrtrState *state)
++{
++	if (state == NULL) {
++		return 0;
++	}
++	return state->from_node0 != 0 && state->wanted != 0;
++}
+diff --git a/bsd/dev/qcom_glink.h b/bsd/dev/qcom_glink.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/qcom_glink.h
+@@ -0,0 +1,109 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. Adapted from pong-power c37179ed.
++ * K60 accepts an authenticated, exclusive fresh-host lease; it never resets
++ * live Android FIFO indices. */
++/* GLINK over shared memory: the native GLINK protocol (version handshake, channel open/close, receive intents, data, done) on a pair of
++ * SMEM FIFOs. Event driven and allocation free: the owner calls k60m_glink_poll whenever the remote rings the GLINK doorbell (and after
++ * sending), every call does a bounded amount of work, and nothing here waits. A send that cannot go out yet (no remote intent, no FIFO
++ * room) returns QcomGlinkAgain and the owner tries again on the next event; an intent is asked for once per pending send. */
++#ifndef QCOM_GLINK_H
++#define QCOM_GLINK_H
++#include <stddef.h>
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define QCOM_GLINK_MAX_CHANNELS 1u /* exclusively leased K60 PMIC endpoint */
++/* DSP advertises 24 small intents before its larger command buffer.
++ * Keep room for that later advertisement (shared transport, not SM8850 MMIO). */
++#define QCOM_GLINK_MAX_REMOTE_INTENTS 48u
++#define QCOM_GLINK_MAX_LOCAL_INTENTS 4u
++#define QCOM_GLINK_NAME 32u
++#define QCOM_GLINK_FEATURE_INTENT_REUSE 1u
++
++enum {
++    QCOM_GLINK_VERSION = 0, QCOM_GLINK_VERSION_ACK = 1, QCOM_GLINK_OPEN = 2, QCOM_GLINK_CLOSE = 3, QCOM_GLINK_OPEN_ACK = 4,
++    QCOM_GLINK_INTENT = 5, QCOM_GLINK_RX_DONE = 6, QCOM_GLINK_RX_INTENT_REQ = 7, QCOM_GLINK_RX_INTENT_REQ_ACK = 8,
++    QCOM_GLINK_TX_DATA = 9, QCOM_GLINK_CLOSE_ACK = 11, QCOM_GLINK_TX_DATA_CONT = 12, QCOM_GLINK_READ_NOTIF = 13,
++    QCOM_GLINK_RX_DONE_W_REUSE = 14, QCOM_GLINK_SIGNALS = 15,
++};
++
++enum {
++    QcomGlinkOk = 0,
++    QcomGlinkAgain = -1,    /* not now: no intent or no FIFO room yet */
++    QcomGlinkNotOpen = -2,
++    QcomGlinkTooBig = -3,
++    QcomGlinkFull = -4,     /* no channel slot */
++    QcomGlinkCorrupt = -5,  /* the receive FIFO holds something that cannot be a message: the link is stopped */
++    QcomGlinkArgument = -6,
++};
++
++/* One direction's FIFO in SMEM: indices are byte offsets into data. */
++typedef struct {
++    volatile uint32_t *head, *tail;
++    volatile uint8_t *data;
++    uint32_t length;
++} QcomGlinkFifo;
++
++typedef struct QcomGlinkChannel QcomGlinkChannel;
++typedef struct {
++    void (*state)(void *context, QcomGlinkChannel *channel, int up);
++    /* A complete message; data stays valid for the duration of the call only. */
++    void (*receive)(void *context, QcomGlinkChannel *channel, const uint8_t *data, uint32_t length);
++} QcomGlinkClient;
++
++struct QcomGlinkChannel {
++    char name[QCOM_GLINK_NAME];
++    uint16_t lcid, rcid;
++    uint8_t used, initiator, open_sent, open_acked, remote_open, up, intent_asked, closing;
++    QcomGlinkClient client;
++    void *context;
++    /* Our receive intents: count buffers of size bytes in storage (count * size). */
++    uint8_t *storage;
++    uint32_t intent_size, intent_count;
++    struct {uint32_t fill, remaining; uint8_t advertised, busy, active, done_pending;} local[QCOM_GLINK_MAX_LOCAL_INTENTS];
++    /* The remote's intents we may send into. */
++    struct {uint32_t id, size; uint8_t valid, busy;} remote[QCOM_GLINK_MAX_REMOTE_INTENTS];
++};
++
++typedef struct {
++    QcomGlinkFifo tx, rx;
++    void (*kick)(void *context);
++    void *kick_context;
++    uint32_t features;
++    uint8_t version_sent, version_agreed, broken, kick_pending, notify_sent;
++    uint16_t next_lcid;
++    QcomGlinkChannel channel[QCOM_GLINK_MAX_CHANNELS];
++    /* Counters for the log. */
++    uint32_t rx_messages, tx_messages, rx_data, unknown_opens, dropped;
++    char last_unknown[QCOM_GLINK_NAME];
++    char unknown_names[96];  /* the distinct names of those opens, space separated, as many as fit */
++} QcomGlink;
++
++/* Adopts FIFOs whose APSS-owned indices are already zero in a new authenticated
++ * platform epoch. This does not write/reset them. Reject malformed geometry. */
++int k60m_glink_adopt(QcomGlink *g, QcomGlinkFifo tx, QcomGlinkFifo rx, void (*kick)(void *), void *kick_context);
++/* Registers a channel by name with intent_count receive buffers of intent_size bytes in storage. open_now: we send OPEN ourselves;
++ * otherwise we answer when the remote opens it. */
++QcomGlinkChannel *k60m_glink_channel(QcomGlink *g, const char *name, uint32_t intent_size, uint32_t intent_count, uint8_t *storage,
++                                     const QcomGlinkClient *client, void *context, int open_now);
++/* Sends VERSION (once) and any channel OPEN that is due, then handles every complete message in the receive FIFO. Returns the number of
++ * messages handled or QcomGlinkCorrupt. Rings the remote when anything was written. */
++int k60m_glink_poll(QcomGlink *g);
++/* Queues one message on an open channel (single chunk, up to the remote intent size). */
++int k60m_glink_send(QcomGlink *g, QcomGlinkChannel *channel, const void *data, uint32_t length);
++/* Close/ACK/open a channel after a protocol timeout. No new PMIC request is
++ * sent in the old channel incarnation; an unanswered close stays down. */
++int k60m_glink_reopen(QcomGlink *g, QcomGlinkChannel *channel);
++/* Revoke a failed platform epoch without further physical writes. */
++void k60m_glink_stop(QcomGlink *g);
++
++/* FIFO primitives, exposed for the tests. */
++uint32_t k60m_glink_rx_avail(const QcomGlinkFifo *f);
++uint32_t k60m_glink_tx_avail(const QcomGlinkFifo *f);
++
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/bsd/dev/qcom_glink.c b/bsd/dev/qcom_glink.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/qcom_glink.c
+@@ -0,0 +1,525 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Copyright (c) 2026, UniXNU contributors. Adapted from pong-power c37179ed.
++ * K60-specific ownership, validation and deferred intent acknowledgements. */
++#include "qcom_glink.h"
++
++/* The sender keeps 8 bytes so a full FIFO never looks empty, and 16 more for a READ_NOTIF when it runs out of room. */
++#define FULL_RESERVE 8u
++#define BLOCKED_RESERVE 16u
++#define GLINK_VERSION_1 1u
++
++static void barrier(void)
++{
++#if defined(__aarch64__) && defined(KERNEL)
++    __asm__ volatile("dmb osh" ::: "memory");
++#endif
++}
++static uint32_t align8(uint32_t v) {return (v + 7u) & ~7u;}
++static uint32_t le32(const uint8_t *p) {return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;}
++static void put32(uint8_t *p, uint32_t v) {p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);}
++static size_t name_length(const char *s) {size_t n = 0; while (n < QCOM_GLINK_NAME - 1 && s[n]) ++n; return n;}
++static int fifo_valid(const QcomGlinkFifo *f)
++{
++    if (!f->head || !f->tail || !f->data || f->length < 256 || f->length > 65536 ||
++        (f->length & 7) || ((uintptr_t)f->head & 3) || ((uintptr_t)f->tail & 3)) return 0;
++    const uint32_t head = *f->head, tail = *f->tail;
++    barrier();
++    return head < f->length && tail < f->length && !(head & 7) && !(tail & 7);
++}
++
++uint32_t k60m_glink_rx_avail(const QcomGlinkFifo *f)
++{
++    if (!fifo_valid(f)) return 0;
++    const uint32_t head = *f->head, tail = *f->tail;
++    barrier();
++    return head >= tail ? head - tail : f->length - tail + head;
++}
++
++uint32_t k60m_glink_tx_avail(const QcomGlinkFifo *f)
++{
++    if (!fifo_valid(f)) return 0;
++    const uint32_t head = *f->head, tail = *f->tail;
++    barrier();
++    const uint32_t avail = tail <= head ? f->length - head + tail : tail - head;
++    return avail < FULL_RESERVE + BLOCKED_RESERVE ? 0 : avail - FULL_RESERVE - BLOCKED_RESERVE;
++}
++
++static void rx_peek(const QcomGlinkFifo *f, uint32_t offset, uint8_t *to, uint32_t count)
++{
++    uint32_t at = *f->tail + offset;
++    if (at >= f->length) at -= f->length;
++    for (uint32_t i = 0; i < count; ++i) {
++        to[i] = f->data[at];
++        if (++at == f->length) at = 0;
++    }
++}
++
++static void rx_advance(QcomGlinkFifo *f, uint32_t count)
++{
++    uint32_t tail = *f->tail + count;
++    if (tail >= f->length) tail -= f->length;
++    barrier();
++    *f->tail = tail;
++}
++
++/* Writes header and payload as one message (padded to 8 bytes); the caller checked the room. */
++static void tx_write(QcomGlink *g, const uint8_t *header, uint32_t header_length, const uint8_t *data, uint32_t data_length)
++{
++    QcomGlinkFifo *f = &g->tx;
++    uint32_t head = *f->head;
++    for (uint32_t i = 0; i < header_length; ++i) {f->data[head] = header[i]; if (++head == f->length) head = 0;}
++    for (uint32_t i = 0; i < data_length; ++i) {f->data[head] = data[i]; if (++head == f->length) head = 0;}
++    for (uint32_t pad = (8 - ((header_length + data_length) & 7)) & 7; pad; --pad) {
++        f->data[head] = 0;
++        if (++head == f->length) head = 0;
++    }
++    barrier();
++    *f->head = head;
++    g->tx_messages++;
++    g->kick_pending = 1;
++}
++
++static int tx(QcomGlink *g, const uint8_t *header, uint32_t header_length, const uint8_t *data, uint32_t data_length)
++{
++    if (align8(header_length + data_length) > k60m_glink_tx_avail(&g->tx)) return QcomGlinkAgain;
++    tx_write(g, header, header_length, data, data_length);
++    return QcomGlinkOk;
++}
++
++static int command(QcomGlink *g, uint16_t cmd, uint16_t param1, uint32_t param2)
++{
++    uint8_t m[8];
++    m[0] = (uint8_t)cmd; m[1] = (uint8_t)(cmd >> 8); m[2] = (uint8_t)param1; m[3] = (uint8_t)(param1 >> 8);
++    put32(m + 4, param2);
++    return tx(g, m, 8, 0, 0);
++}
++
++int k60m_glink_adopt(QcomGlink *g, QcomGlinkFifo txf, QcomGlinkFifo rxf, void (*kick)(void *), void *kick_context)
++{
++    if (!g || !kick || !fifo_valid(&txf) || !fifo_valid(&rxf) || *txf.head || *rxf.tail)
++        return QcomGlinkArgument;
++    for (size_t i = 0; i < sizeof *g; ++i) ((uint8_t *)g)[i] = 0;
++    g->tx = txf;
++    g->rx = rxf;
++    g->kick = kick;
++    g->kick_context = kick_context;
++    g->features = QCOM_GLINK_FEATURE_INTENT_REUSE;
++    g->next_lcid = 1;
++    return QcomGlinkOk;
++}
++
++
++QcomGlinkChannel *k60m_glink_channel(QcomGlink *g, const char *name, uint32_t intent_size, uint32_t intent_count, uint8_t *storage,
++                                     const QcomGlinkClient *client, void *context, int open_now)
++{
++    if (!g || g->broken || !name || !client || !client->state || !client->receive || !intent_count ||
++        intent_count > QCOM_GLINK_MAX_LOCAL_INTENTS || !storage || !intent_size ||
++        intent_size > 65536 || !name[0] || name_length(name) == QCOM_GLINK_NAME - 1 || !g->next_lcid)
++        return 0;
++    for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i) {
++        QcomGlinkChannel *c = &g->channel[i];
++        if (c->used) continue;
++        for (size_t b = 0; b < sizeof *c; ++b) ((uint8_t *)c)[b] = 0;
++        const size_t n = name_length(name);
++        for (size_t b = 0; b < n; ++b) c->name[b] = name[b];
++        c->used = 1;
++        c->lcid = g->next_lcid++;
++        c->client = *client;
++        c->context = context;
++        c->storage = storage;
++        c->intent_size = intent_size;
++        c->intent_count = intent_count;
++        c->initiator = open_now != 0;
++        c->open_sent = open_now ? 0 : 2;  /* 2: wait for the remote's OPEN before sending ours */
++        return c;
++    }
++    return 0;
++}
++
++static QcomGlinkChannel *by_lcid(QcomGlink *g, uint32_t lcid)
++{
++    for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i)
++        if (g->channel[i].used && g->channel[i].lcid == lcid) return &g->channel[i];
++    return 0;
++}
++static QcomGlinkChannel *by_rcid(QcomGlink *g, uint32_t rcid)
++{
++    for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i)
++        if (g->channel[i].used && g->channel[i].remote_open && g->channel[i].rcid == rcid) return &g->channel[i];
++    return 0;
++}
++
++static int send_open(QcomGlink *g, QcomGlinkChannel *c)
++{
++    uint8_t m[8];
++    const uint32_t n = (uint32_t)name_length(c->name) + 1;
++    m[0] = QCOM_GLINK_OPEN; m[1] = 0; m[2] = (uint8_t)c->lcid; m[3] = (uint8_t)(c->lcid >> 8);
++    put32(m + 4, n);
++    if (align8(8 + n) > k60m_glink_tx_avail(&g->tx)) return QcomGlinkAgain;
++    tx_write(g, m, 8, (const uint8_t *)c->name, n);
++    c->open_sent = 1;
++    return QcomGlinkOk;
++}
++
++static int advertise(QcomGlink *g, QcomGlinkChannel *c, unsigned index)
++{
++    uint8_t m[16];
++    m[0] = QCOM_GLINK_INTENT; m[1] = 0; m[2] = (uint8_t)c->lcid; m[3] = (uint8_t)(c->lcid >> 8);
++    put32(m + 4, 1);
++    put32(m + 8, c->intent_size);
++    put32(m + 12, index + 1);
++    const int rc = tx(g, m, 16, 0, 0);
++    if (!rc) {c->local[index].advertised = 1; c->local[index].fill = 0;}
++    return rc;
++}
++
++static void reset_channel(QcomGlinkChannel *c)
++{
++    c->open_acked = c->remote_open = c->up = c->intent_asked = 0;
++    c->open_sent = c->initiator ? 0 : 2;
++    c->closing = 0;
++    for (unsigned i = 0; i < QCOM_GLINK_MAX_LOCAL_INTENTS; ++i) {
++        c->local[i].advertised = c->local[i].busy = c->local[i].active = c->local[i].done_pending = 0;
++        c->local[i].fill = c->local[i].remaining = 0;
++    }
++    for (unsigned i = 0; i < QCOM_GLINK_MAX_REMOTE_INTENTS; ++i) c->remote[i].valid = c->remote[i].busy = 0;
++}
++
++int k60m_glink_reopen(QcomGlink *g, QcomGlinkChannel *c)
++{
++    if (!g || !c || g->broken || !c->used || c->closing || !c->up) return QcomGlinkNotOpen;
++    c->up = 0;
++    c->closing = 1;
++    c->client.state(c->context, c, 0);
++    return QcomGlinkOk;
++}
++
++void k60m_glink_stop(QcomGlink *g)
++{
++    if (!g || g->broken) return;
++    g->broken = 1;
++    for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i) {
++        QcomGlinkChannel *c = &g->channel[i];
++        const int was = c->up;
++        c->up = 0;
++        if (was && c->client.state) c->client.state(c->context, c, 0);
++    }
++}
++
++/* Channel bring-up and our intents: whatever is due and fits in the FIFO now. */
++static void progress(QcomGlink *g)
++{
++    if (!g->version_sent) {
++        if (command(g, QCOM_GLINK_VERSION, GLINK_VERSION_1, g->features)) return;
++        g->version_sent = 1;
++    }
++    if (!g->version_agreed) return;
++    for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS; ++i) {
++        QcomGlinkChannel *c = &g->channel[i];
++        if (!c->used) continue;
++        if (c->closing) {
++            if (c->closing == 1) {
++                if (command(g, QCOM_GLINK_CLOSE, c->lcid, 0)) return;
++                c->closing = 2;
++            }
++            continue;
++        }
++        for (unsigned k = 0; k < c->intent_count; ++k) {
++            if (!c->local[k].done_pending) continue;
++            const int reuse = (g->features & QCOM_GLINK_FEATURE_INTENT_REUSE) != 0;
++            if (command(g, reuse ? QCOM_GLINK_RX_DONE_W_REUSE : QCOM_GLINK_RX_DONE, c->lcid, k + 1)) return;
++            c->local[k].done_pending = c->local[k].busy = 0;
++            if (!reuse) c->local[k].advertised = 0;
++        }
++        if (c->open_sent == 0 || (c->open_sent == 2 && c->remote_open)) {
++            if (send_open(g, c)) return;
++        }
++        if (c->open_sent == 1 && c->open_acked && c->remote_open && !c->up) {
++            for (unsigned k = 0; k < c->intent_count; ++k)
++                if (!c->local[k].advertised && advertise(g, c, k)) return;
++            c->up = 1;
++            if (c->client.state) c->client.state(c->context, c, 1);
++        }
++        if (c->up)
++            for (unsigned k = 0; k < c->intent_count; ++k)
++                if (!c->local[k].advertised && !c->local[k].busy && advertise(g, c, k)) return;
++    }
++}
++
++static int handle_data(QcomGlink *g, uint16_t cmd, uint32_t rcid, uint32_t liid, uint32_t avail)
++{
++    uint8_t h[16];
++    if (avail < 16) return 0;
++    rx_peek(&g->rx, 0, h, 16);
++    const uint32_t chunk = le32(h + 8), left = le32(h + 12);
++    if (chunk > g->rx.length - 16) return QcomGlinkCorrupt;
++    if (avail < align8(16 + chunk)) return 0;
++    QcomGlinkChannel *c = by_rcid(g, rcid);
++    const unsigned index = liid - 1;
++    if (!c || !c->up || c->closing) {
++        g->dropped++; /* A late response in a quarantined/closed incarnation. */
++    } else {
++        if (!liid || index >= c->intent_count || !c->local[index].advertised) return QcomGlinkCorrupt;
++        if (c->local[index].busy || (cmd == QCOM_GLINK_TX_DATA && c->local[index].active) ||
++            (cmd == QCOM_GLINK_TX_DATA_CONT && (!c->local[index].active ||
++             (uint64_t)chunk + left != c->local[index].remaining))) return QcomGlinkCorrupt;
++        const uint32_t fill = cmd == QCOM_GLINK_TX_DATA ? 0 : c->local[index].fill;
++        if ((uint64_t)fill + chunk + left > c->intent_size || (!chunk && left)) return QcomGlinkCorrupt;
++        rx_peek(&g->rx, 16, c->storage + (size_t)index * c->intent_size + fill, chunk);
++        c->local[index].fill = fill + chunk;
++        c->local[index].remaining = left;
++        c->local[index].active = left != 0;
++        if (!left) {
++            c->local[index].busy = 1;
++            c->local[index].done_pending = 1;
++            g->rx_data++;
++            c->client.receive(c->context, c, c->storage + (size_t)index * c->intent_size, fill + chunk);
++            c->local[index].fill = 0;
++        }
++    }
++    rx_advance(&g->rx, align8(16 + chunk));
++    return 1;
++}
++
++/* One message at the FIFO tail: 1 handled, 0 incomplete (wait for more), negative on a broken stream. */
++
++/* Adds name to the list of opens nobody serves unless it is there already or does not fit. */
++static void note_unknown(QcomGlink *g, const char *name)
++{
++    char *list = g->unknown_names;
++    const unsigned cap = sizeof g->unknown_names;
++    unsigned n = 0, used = 0;
++    while (n < QCOM_GLINK_NAME && name[n]) ++n;
++    while (used < cap && list[used]) ++used;
++    for (unsigned at = 0; at < used;) {
++        unsigned end = at;
++        while (end < used && list[end] != ' ') ++end;
++        unsigned same = end - at == n;
++        for (unsigned b = 0; same && b < n; ++b) same = list[at + b] == name[b];
++        if (same) return;
++        at = end + 1;
++    }
++    if (!n || used + (used ? 1 : 0) + n + 1 > cap) return;
++    if (used) list[used++] = ' ';
++    for (unsigned b = 0; b < n; ++b) list[used++] = name[b];
++    list[used] = 0;
++}
++static int receive_one(QcomGlink *g)
++{
++    const uint32_t avail = k60m_glink_rx_avail(&g->rx);
++    uint8_t m[8];
++    if (avail < 8) return 0;
++    rx_peek(&g->rx, 0, m, 8);
++    const uint16_t cmd = (uint16_t)(m[0] | m[1] << 8), param1 = (uint16_t)(m[2] | m[3] << 8);
++    const uint32_t param2 = le32(m + 4);
++    QcomGlinkChannel *c;
++    switch (cmd) {
++    case QCOM_GLINK_VERSION:
++        if (param1 != GLINK_VERSION_1) return QcomGlinkCorrupt;
++        g->features &= param2;
++        if (command(g, QCOM_GLINK_VERSION_ACK, GLINK_VERSION_1, g->features)) return 0;
++        g->version_agreed = 1;
++        break;
++    case QCOM_GLINK_VERSION_ACK:
++        if (param1 != GLINK_VERSION_1) return QcomGlinkCorrupt;
++        if (param2 != g->features) {
++            g->features &= param2;
++            if (command(g, QCOM_GLINK_VERSION, GLINK_VERSION_1, g->features)) return 0;
++        }
++        g->version_agreed = 1;
++        break;
++    case QCOM_GLINK_OPEN: {
++        const uint32_t n = param2 & 0xffff;
++        if (!param1 || n >= QCOM_GLINK_NAME || n == 0) return QcomGlinkCorrupt;
++        if (avail < align8(8 + n)) return 0;
++        char name[QCOM_GLINK_NAME] = {0};
++        rx_peek(&g->rx, 8, (uint8_t *)name, n);
++        if (name[n - 1]) return QcomGlinkCorrupt;
++        for (uint32_t b = 0; b + 1 < n; ++b) if (!name[b]) return QcomGlinkCorrupt;
++        c = 0;
++        for (unsigned i = 0; i < QCOM_GLINK_MAX_CHANNELS && !c; ++i) {
++            QcomGlinkChannel *k = &g->channel[i];
++            unsigned same = k->used;
++            for (unsigned b = 0; same && b < QCOM_GLINK_NAME; ++b) {
++                if (k->name[b] != name[b]) same = 0;
++                if (!name[b]) break;
++            }
++            if (same) c = k;
++        }
++        if (!c) {
++            g->unknown_opens++;
++            for (unsigned b = 0; b < QCOM_GLINK_NAME; ++b) g->last_unknown[b] = name[b];
++            note_unknown(g, name);
++        } else {
++            if (c->closing) return QcomGlinkCorrupt;
++            if (command(g, QCOM_GLINK_OPEN_ACK, param1, 0)) return 0;
++            if (c->remote_open && c->up) c->client.state(c->context, c, 0);
++            if (c->remote_open) reset_channel(c);
++            c->rcid = param1;
++            c->remote_open = 1;
++        }
++        rx_advance(&g->rx, align8(8 + n));
++        g->rx_messages++;
++        return 1;
++    }
++    case QCOM_GLINK_OPEN_ACK:
++        if ((c = by_lcid(g, param1)) && c->open_sent == 1) c->open_acked = 1;
++        break;
++    case QCOM_GLINK_CLOSE:
++        c = by_rcid(g, param1);
++        if (c && c->open_sent == 1 && !c->closing && k60m_glink_tx_avail(&g->tx) < 16) return 0;
++        if (command(g, QCOM_GLINK_CLOSE_ACK, param1, 0)) return 0;
++        if (c) {
++            const int was = c->up;
++            if (!c->closing) {
++                if (c->open_sent == 1) command(g, QCOM_GLINK_CLOSE, c->lcid, 0);
++                c->closing = 2;
++            }
++            c->up = c->remote_open = 0;
++            if (was) c->client.state(c->context, c, 0);
++            /* Do not reopen until OUR CLOSE is acknowledged. A crossed
++             * remote CLOSE must not erase a timeout's quarantined epoch. */
++        }
++        break;
++    case QCOM_GLINK_CLOSE_ACK:
++        if ((c = by_lcid(g, param1)) && c->closing == 2) {
++            reset_channel(c);
++            if (!g->next_lcid) return QcomGlinkCorrupt;
++            c->lcid = g->next_lcid++;
++            c->initiator = 1;
++            c->open_sent = 0;
++        }
++        break;
++    case QCOM_GLINK_INTENT: {
++        if (param2 > (g->rx.length - 8) / 8) return QcomGlinkCorrupt;
++        const uint32_t bytes = 8 + 8 * param2;
++        if (avail < bytes) return 0;
++        c = by_rcid(g, param1);
++        for (uint32_t i = 0; i < param2; ++i) {
++            uint8_t pair[8];
++            rx_peek(&g->rx, 8 + 8 * i, pair, 8);
++            if (!c) continue;
++            const uint32_t size = le32(pair), id = le32(pair + 4);
++            if (!size) {g->dropped++; continue;}  /* id 0 is legal; an empty intent carries nothing */
++            unsigned slot = QCOM_GLINK_MAX_REMOTE_INTENTS;
++            for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
++                if (c->remote[k].valid && c->remote[k].id == id) {slot = k; break;}
++            if (slot != QCOM_GLINK_MAX_REMOTE_INTENTS && c->remote[slot].busy) return QcomGlinkCorrupt;
++            if (slot == QCOM_GLINK_MAX_REMOTE_INTENTS)
++                for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
++                    if (!c->remote[k].valid) {slot = k; break;}
++            if (slot == QCOM_GLINK_MAX_REMOTE_INTENTS) return QcomGlinkCorrupt;
++            c->remote[slot].size = size;
++            c->remote[slot].id = id;
++            c->remote[slot].valid = 1;
++            c->remote[slot].busy = 0;
++        }
++        if (c) c->intent_asked = 0;
++        rx_advance(&g->rx, align8(bytes));
++        g->rx_messages++;
++        return 1;
++    }
++    case QCOM_GLINK_RX_DONE:
++    case QCOM_GLINK_RX_DONE_W_REUSE:
++        if ((c = by_rcid(g, param1)))
++            for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
++                if (c->remote[k].valid && c->remote[k].id == param2) {
++                    c->remote[k].busy = 0;
++                    if (cmd == QCOM_GLINK_RX_DONE) c->remote[k].valid = 0;
++                    break;
++                }
++        break;
++    case QCOM_GLINK_RX_INTENT_REQ: {
++        /* Grant it if a buffer of ours that is big enough is not advertised (all are, normally: then refuse). */
++        int granted = 0;
++        if ((c = by_rcid(g, param1)) && c->up && param2 <= c->intent_size)
++            for (unsigned k = 0; k < c->intent_count; ++k)
++                /* Keep enough room for INTENT and its ACK together. Otherwise
++                 * re-reading this command after backpressure would deny an
++                 * intent we already advertised for it. */
++                if (!c->local[k].advertised && !c->local[k].busy) {
++                    if (k60m_glink_tx_avail(&g->tx) < 24) return 0;
++                    if (advertise(g, c, k)) return 0;
++                    granted = 1;
++                    break;
++                }
++        if (command(g, QCOM_GLINK_RX_INTENT_REQ_ACK, c ? c->lcid : param1, (uint32_t)granted)) return 0;
++        break;
++    }
++    case QCOM_GLINK_RX_INTENT_REQ_ACK:
++        if ((c = by_rcid(g, param1)) && !param2) c->intent_asked = 0;
++        break;
++    case QCOM_GLINK_TX_DATA:
++    case QCOM_GLINK_TX_DATA_CONT: {
++        const int rc = handle_data(g, cmd, param1, param2, avail);
++        if (rc == 1) g->rx_messages++;
++        return rc;
++    }
++    case QCOM_GLINK_READ_NOTIF:
++        g->kick_pending = 1;
++        break;
++    case QCOM_GLINK_SIGNALS:
++        break;
++    default:
++        return QcomGlinkCorrupt;
++    }
++    rx_advance(&g->rx, 8);
++    g->rx_messages++;
++    return 1;
++}
++
++int k60m_glink_poll(QcomGlink *g)
++{
++    if (!g || g->broken) return QcomGlinkCorrupt;
++    if (!fifo_valid(&g->tx) || !fifo_valid(&g->rx)) {k60m_glink_stop(g); return QcomGlinkCorrupt;}
++    int handled = 0;
++    g->notify_sent = 0;
++    progress(g);
++    /* Bounded: at most one FIFO's worth of minimal messages per call. */
++    for (uint32_t budget = g->rx.length / 8 + 1; g->rx.data && budget; --budget) {
++        const int rc = receive_one(g);
++        if (rc < 0) {k60m_glink_stop(g); handled = rc; break;}
++        if (!rc) break;
++        ++handled;
++    }
++    if (!g->broken) progress(g);
++    if (g->kick_pending && g->kick) {g->kick_pending = 0; g->kick(g->kick_context);}
++    return handled;
++}
++
++int k60m_glink_send(QcomGlink *g, QcomGlinkChannel *c, const void *data, uint32_t length)
++{
++    if (!g || !c || (!data && length)) return QcomGlinkArgument;
++    if (g->broken || !c->up) return QcomGlinkNotOpen;
++    if (!fifo_valid(&g->tx) || !fifo_valid(&g->rx)) {k60m_glink_stop(g); return QcomGlinkCorrupt;}
++    if (length > g->tx.length - 16 || align8(16 + length) > g->tx.length / 2) return QcomGlinkTooBig;
++    unsigned best = QCOM_GLINK_MAX_REMOTE_INTENTS;
++    for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
++        if (c->remote[k].valid && !c->remote[k].busy && c->remote[k].size >= length &&
++            (best == QCOM_GLINK_MAX_REMOTE_INTENTS || c->remote[k].size < c->remote[best].size))
++            best = k;
++    if (best == QCOM_GLINK_MAX_REMOTE_INTENTS) {
++        if (!c->intent_asked && command(g, QCOM_GLINK_RX_INTENT_REQ, c->lcid, length) == QcomGlinkOk) c->intent_asked = 1;
++        if (g->kick_pending && g->kick) {g->kick_pending = 0; g->kick(g->kick_context);}
++        return QcomGlinkAgain;
++    }
++    uint8_t h[16];
++    h[0] = QCOM_GLINK_TX_DATA; h[1] = 0; h[2] = (uint8_t)c->lcid; h[3] = (uint8_t)(c->lcid >> 8);
++    put32(h + 4, c->remote[best].id);
++    put32(h + 8, length);
++    put32(h + 12, 0);
++    if (tx(g, h, 16, (const uint8_t *)data, length)) {
++        /* Ask the remote to ring us once it has read, so the owner retries then. */
++        const uint32_t head = *g->tx.head, tail = *g->tx.tail;
++        if (!g->notify_sent && head < g->tx.length && tail < g->tx.length) {
++            uint8_t m[8] = {QCOM_GLINK_READ_NOTIF, 0, 0, 0, 0, 0, 0, 0};
++            const uint32_t raw = tail <= head ? g->tx.length - head + tail : tail - head;
++            if (raw >= FULL_RESERVE + 8) {tx_write(g, m, 8, 0, 0); g->notify_sent = 1;}
++        }
++        if (g->kick_pending && g->kick) {g->kick_pending = 0; g->kick(g->kick_context);}
++        return QcomGlinkAgain;
++    }
++    c->remote[best].busy = 1;
++    if (g->kick) {g->kick_pending = 0; g->kick(g->kick_context);}
++    return QcomGlinkOk;
++}
+diff --git a/bsd/dev/pong_modem_link.c b/bsd/dev/pong_modem_link.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_link.c
+@@ -0,0 +1,2260 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
++ * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
++ * the channel the modem opens for QRTR ("IPCRTR", the DT's
++ * qcom,glink-channels), send one HELLO and one NEW_LOOKUP, and fold the
++ * NEW_SERVER replies into K60ModemQrtr's table. Nothing here writes a modem
++ * partition, an EFS item or an NV item: the bytes written are the transport
++ * items themselves and the GLINK ring.
++ *
++ * Layout facts, all from the live DT (docs/research/cellular/02-DT-TRUTH.md):
++ *   smem  0x80900000 + 0x200000   qcom,smem
++ *   ipcc  0x0ed18000              mboxes = <&ipcc 2 0>
++ *   glink edge qcom,remote-pid = <1>, transport "smem"
++ *   channel "IPCRTR", intents 0x800x5 0x2000x3 0x4400x2
++ * SMEM item ids 428 (our SMP2P), 478/479/480 (descriptor, our queue, its
++ * queue) and 435 (the modem's SMP2P state) are the modem transport's, not
++ * the ADSP's: the ADSP used 428/435 on its own partition, so this file reads
++ * its own partition (host 0 <-> remote 1) and never touches the DSP's.
++ *
++ * Every line starts with K60MODEM, and the whole probe is inert unless
++ * pong_modem is set to 2 or more. */
++#include "pong_modem_qrtr.h"
++#include "pong_modem_efs.h"
++#include "pong_modem_memshare.h"
++#include "pong_modem_rmtfs.h"
++#include "pong_modem_smp2p.h"
++#include "pong_smem.h"
++#include "qcom_glink.h"
++#include "pong_pmic_rail.h"
++
++/* QcomBaseband's C ABI (drivers/QcomBaseband/baseband/QcomBaseband.h). The
++ * bridge is a separate component archive; keep the declarations here so this
++ * file stays one patch hunk and does not depend on the archive's header path. */
++/* drivers/NativeUfs/PongUfsTransport.cpp: the one read-only block entry Lead
++ * authorised for this branch (2026-11-20 02:46). Declared here for the same
++ * reason the coachz functions are: the carried file must not depend on the
++ * C++ header, and the signature is the whole contract. */
++/* The transport lives in a component archive that only the final link
++ * force-loads, so the bootstrap pass has no definition for it. A weak
++ * fallback keeps that pass linkable; the strong definition in the archive
++ * wins in the real kernel, and without it the read is simply refused. */
++__attribute__((weak)) int
++native_pong_ufs_read_named_volume(const char *name, uint64_t offset,
++    uint8_t *buffer, size_t length)
++{
++	(void)name;
++	(void)offset;
++	(void)buffer;
++	(void)length;
++
++	return 0;
++}
++
++extern int coachz_baseband_enabled(void);
++extern void coachz_baseband_configure(void (*send)(uint32_t, uint32_t,
++    uint32_t, const void *, uint32_t), void (*del_client)(uint32_t));
++extern void coachz_baseband_new_server(uint32_t service,
++    uint32_t version_instance, uint32_t node, uint32_t port);
++extern void coachz_baseband_del_server(uint32_t service, uint32_t node,
++    uint32_t port);
++extern int coachz_baseband_qrtr(uint32_t dst_port, uint32_t src_node,
++    uint32_t src_port, const void *body, uint32_t size);
++extern void coachz_baseband_poll(void);
++extern void coachz_baseband_report(unsigned second);
++extern int coachz_modem_data_send(uint32_t mux, const uint8_t *ip,
++    uint32_t length);
++extern void coachz_modem_data_receiver(void (*receiver)(uint32_t mux,
++    const uint8_t *ip, uint32_t length, uint32_t ip_version));
++
++#ifndef K60_HOST_TEST
++
++/* The XNU compile-record bootstrap pass links this object before any component
++ * archive exists. Keep weak fallbacks so that pass links; the real link
++ * force-loads libQcomBaseband.a and its strong definitions replace these. */
++__attribute__((weak)) int
++coachz_baseband_enabled(void)
++{
++	return 0;
++}
++
++__attribute__((weak)) void
++coachz_baseband_configure(void (*send)(uint32_t, uint32_t, uint32_t,
++    const void *, uint32_t), void (*del_client)(uint32_t))
++{
++	(void)send;
++	(void)del_client;
++}
++
++__attribute__((weak)) void
++coachz_baseband_new_server(uint32_t service, uint32_t version_instance,
++    uint32_t node, uint32_t port)
++{
++	(void)service;
++	(void)version_instance;
++	(void)node;
++	(void)port;
++}
++
++__attribute__((weak)) void
++coachz_baseband_del_server(uint32_t service, uint32_t node, uint32_t port)
++{
++	(void)service;
++	(void)node;
++	(void)port;
++}
++
++__attribute__((weak)) int
++coachz_baseband_qrtr(uint32_t dst_port, uint32_t src_node, uint32_t src_port,
++    const void *body, uint32_t size)
++{
++	(void)dst_port;
++	(void)src_node;
++	(void)src_port;
++	(void)body;
++	(void)size;
++	return 0;
++}
++
++__attribute__((weak)) void
++coachz_baseband_poll(void)
++{
++}
++
++__attribute__((weak)) void
++coachz_baseband_report(unsigned second)
++{
++	(void)second;
++}
++
++#include <pexpert/pexpert.h>
++#include <sys/systm.h>
++#include <mach/vm_param.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++#include "pong_modem_pas.h"
++
++/* osfmk/arm/machine_routines.h:703 (same declaration K60AdspBoot.c uses). */
++extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
++extern void delay(int microseconds);
++/* osfmk/arm/pmap/pmap.h declares this; that header is not on the
++ * carried file include path, so declare the one prototype we use. */
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
++
++#define K60_MODEM_SMEM_BASE      0x80900000u
++#define K60_MODEM_SMEM_BYTES     0x00200000u
++#define K60_MODEM_SMEM_MUTEX_BASE 0x1f43000u
++#define K60_MODEM_IPCC_BASE      0x0ed18000u
++#define K60_MODEM_IPCC_CLIENT    2u
++#define K60_MODEM_IPCC_SIGNAL    0u
++#define K60_MODEM_IPCC_SEND      0x0cu
++
++#define K60_MODEM_SMP2P_THEIRS   435u
++#define K60_MODEM_SMP2P_OURS     428u
++#define K60_MODEM_GLINK_DESC     478u
++#define K60_MODEM_GLINK_OURS     479u
++#define K60_MODEM_GLINK_THEIRS   480u
++#define K60_MODEM_SMP2P_MAGIC    K60_SMP2P_MAGIC
++#define K60_MODEM_SMP2P_ITEM_WORDS (K60_SMP2P_ITEM_BYTES / 4u)
++#define K60_MODEM_GLINK_TX_BYTES 0x4000u
++
++/* Our receive intents: the DT asks for three groups (0x800x5, 0x2000x3,
++ * 0x4400x2); QcomGlink carries one group per channel, so pick the largest
++ * size and the largest count that fit its limits (4 local intents). */
++#define K60_QRTR_INTENT_SIZE     0x4400u
++#define K60_QRTR_INTENT_COUNT    4u
++#define K60_QRTR_POLL_US         2000
++#define K60_QRTR_POLLS           120000 /* four minutes of verdict polling: after AUTH_AND_RESET the
++                                        * modem restarts its firmware and registers its QMI services
++                                        * one NEW_SERVER at a time, late. k36 saw two of them in ten
++                                        * seconds and k37 two in sixty, so both windows closed long
++                                        * before DMS appeared; ask again instead of giving up. */
++#define K60_QRTR_LOOKUP_PERIOD   15000  /* ask every thirty seconds */
++#define K60_QRTR_LOOKUP_MAX      8u
++#define K60_QRTR_STATIC_PERIOD   15000  /* and ask the recorded DMS port on the same beat */
++#define K60_QRTR_STATIC_MAX      8u
++/* Pong answers the modem's IPA clock question with bit 0 complete and
++ * bit 1 as the retained clock vote; 1 says complete without a claim. */
++#define K60_QRTR_IPA_ANSWER      1u
++/* The modem firmware boots asynchronously after AUTH_AND_RESET. Pong keeps a
++ * worker polling until it is ready; a single boot has only this window, so
++ * allow thirty seconds before declaring the modem absent. */
++#define K60_QRTR_READY_POLLS     15000  /* thirty seconds of readiness polling */
++
++static QcomGlink k60_qrtr_link;
++static QcomGlinkChannel *k60_qrtr_channel;
++static uint8_t k60_qrtr_intents[K60_QRTR_INTENT_COUNT * K60_QRTR_INTENT_SIZE];
++static K60QrtrState k60_qrtr_state;
++static volatile uint8_t *k60_qrtr_ipcc;
++static int k60_qrtr_up;
++static int k60_qrtr_glink_ready;
++static int k60_qrtr_hello_sent;
++static int k60_qrtr_lookup_sent;
++static int k60_qrtr_server_sent;
++static unsigned k60_qrtr_lookup_count;
++static unsigned k60_qrtr_lookup_next;
++static int k60_qrtr_dms_requested;
++static uint16_t k60_qrtr_dms_transaction;
++static unsigned k60_qrtr_static_next;
++/* k42: the remote intent table and the rings are the other half of the
++ * story. k60m_glink_send only succeeds while the modem keeps advertising and
++ * releasing buffers, so a frozen tx tail plus a full remote table means the
++ * modem stopped servicing the link rather than that our packet was wrong. */
++static void
++k60_qrtr_intent_counts(unsigned *remote_busy, unsigned *remote_valid,
++    unsigned *local_advertised, unsigned *local_count, unsigned *local_busy_out,
++    unsigned *local_done_out)
++{
++	unsigned busy = 0, valid = 0, advertised = 0, count = 0, local_busy = 0, local_done = 0, k;
++
++	if (k60_qrtr_channel != NULL) {
++		count = k60_qrtr_channel->intent_count;
++		for (k = 0; k < count && k < QCOM_GLINK_MAX_LOCAL_INTENTS; ++k) {
++			if (k60_qrtr_channel->local[k].advertised) {
++				++advertised;
++			}
++			if (k60_qrtr_channel->local[k].busy) {
++				++local_busy;
++			}
++			if (k60_qrtr_channel->local[k].done_pending) {
++				++local_done;
++			}
++		}
++		for (k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k) {
++			if (!k60_qrtr_channel->remote[k].valid) {
++				continue;
++			}
++			++valid;
++			if (k60_qrtr_channel->remote[k].busy) {
++				++busy;
++			}
++		}
++	}
++	if (remote_busy != NULL) *remote_busy = busy;
++	if (remote_valid != NULL) *remote_valid = valid;
++	if (local_advertised != NULL) *local_advertised = advertised;
++	if (local_count != NULL) *local_count = count;
++	if (local_busy_out != NULL) *local_busy_out = local_busy;
++	if (local_done_out != NULL) *local_done_out = local_done;
++}
++
++static void
++k60_qrtr_dump_intents(void)
++{
++	unsigned k;
++
++	if (k60_qrtr_channel == NULL) {
++		return;
++	}
++	for (k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k) {
++		if (!k60_qrtr_channel->remote[k].valid) {
++			continue;
++		}
++		printf("K60MODEM qrtr: remote intent %u id=%u size=%u busy=%u\n", k,
++		    k60_qrtr_channel->remote[k].id, k60_qrtr_channel->remote[k].size,
++		    k60_qrtr_channel->remote[k].busy);
++	}
++	for (k = 0; k < k60_qrtr_channel->intent_count &&
++	    k < QCOM_GLINK_MAX_LOCAL_INTENTS; ++k) {
++		printf("K60MODEM qrtr: local intent %u advertised=%u busy=%u done=%u\n",
++		    k, k60_qrtr_channel->local[k].advertised,
++		    k60_qrtr_channel->local[k].busy,
++		    k60_qrtr_channel->local[k].done_pending);
++	}
++}
++
++static unsigned k60_qrtr_hello_probes;
++/* k43: every received message by type, so the stall window can be read as a
++ * picture (DATA, HELLO, BYE, NEW_SERVER, DEL_SERVER, DEL_CLIENT) instead of a
++ * single total. */
++static unsigned k60_qrtr_rx_cmds[8];
++static unsigned k60_qrtr_lookup_replies;
++static unsigned k60_qrtr_rmtfs_requests;
++static int k60_qrtr_rmtfs_sent;
++/* Pong publishes two SMP2P entries before PAS and answers through them
++ * (PongModemControl.cpp:97-99, 139-164): master-kernel carries the AP-owned
++ * stop bit, ipa carries the modem's clock question. Keep both indices and the
++ * outbound item so the probe loop can answer. */
++static volatile uint32_t *k60_qrtr_smp2p_out;
++static int k60_qrtr_smp2p_stop_entry = -1;
++static int k60_qrtr_smp2p_ipa_entry = -1;
++static int k60_qrtr_ipa_replied;
++static unsigned k60_qrtr_ipa_queries;
++static uint32_t k60_qrtr_ipa_state;
++static int k60_qrtr_memshare_sent;
++static unsigned k60_qrtr_static_count;
++static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
++    uint32_t length, uint32_t ip_version);
++static unsigned k60_modem_data_drops;
++
++#define K60_QRTR_REPLY_MAX 32u
++struct K60QrtrReply {
++	uint32_t from_port, node, port, length;
++	uint8_t data[K60_QRTR_MAX_PACKET];
++};
++static struct K60QrtrReply k60_qrtr_replies[K60_QRTR_REPLY_MAX];
++static unsigned k60_qrtr_reply_head, k60_qrtr_reply_count;
++
++static void
++k60_qrtr_kick(void *context)
++{
++	(void)context;
++	if (k60_qrtr_ipcc == NULL) {
++		return;
++	}
++	__asm__ volatile("dmb oshst" ::: "memory");
++	*(volatile uint32_t *)(k60_qrtr_ipcc + K60_MODEM_IPCC_SEND) =
++	    (K60_MODEM_IPCC_CLIENT << 16) | K60_MODEM_IPCC_SIGNAL;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++static void
++k60_qrtr_state_cb(void *context, QcomGlinkChannel *channel, int up)
++{
++	(void)context;
++	(void)channel;
++	k60_qrtr_up = up != 0;
++	printf("K60MODEM qrtr: channel %s\n", up ? "up" : "down");
++}
++
++static int
++k60_qrtr_queue_reply(uint32_t from_port, uint32_t node, uint32_t port,
++    const uint8_t *payload, uint32_t length)
++{
++	struct K60QrtrReply *reply;
++
++	if (k60_qrtr_reply_count >= K60_QRTR_REPLY_MAX ||
++	    length > K60_QRTR_MAX_PACKET) {
++		return -1;
++	}
++	reply = &k60_qrtr_replies[(k60_qrtr_reply_head + k60_qrtr_reply_count) %
++	    K60_QRTR_REPLY_MAX];
++	reply->from_port = from_port;
++	reply->node = node;
++	reply->port = port;
++	reply->length = length;
++	for (uint32_t i = 0; i < length; ++i) {
++		reply->data[i] = payload[i];
++	}
++	++k60_qrtr_reply_count;
++	return 0;
++}
++
++static int
++k60_qrtr_send_data_packet(uint32_t from_port, uint32_t node, uint32_t port,
++    const uint8_t *payload, uint32_t length)
++{
++	uint8_t packet[K60_QRTR_HEADER_BYTES + K60_QRTR_MAX_PACKET];
++	uint32_t bytes;
++
++	bytes = k60_qrtr_build_data(packet, sizeof(packet), from_port, node, port,
++	    payload, length);
++	if (bytes == 0) {
++		return K60QrtrBadArg;
++	}
++	return k60m_glink_send(&k60_qrtr_link, k60_qrtr_channel, packet, bytes);
++}
++
++static int
++k60_qrtr_flush_replies(void)
++{
++	while (k60_qrtr_reply_count != 0) {
++		struct K60QrtrReply *reply = &k60_qrtr_replies[k60_qrtr_reply_head];
++		const int rc = k60_qrtr_send_data_packet(reply->from_port, reply->node,
++		    reply->port, reply->data, reply->length);
++
++		if (rc == QcomGlinkAgain) {
++			return 0;   /* keep it queued and retry on the next poll */
++		}
++		if (rc != QcomGlinkOk) {
++			return rc;
++		}
++		k60_qrtr_reply_head = (k60_qrtr_reply_head + 1u) % K60_QRTR_REPLY_MAX;
++		--k60_qrtr_reply_count;
++	}
++	return 0;
++}
++
++/* The QcomBaseband bridge hands back QMI replies for the clients it owns.
++ * Queue them under the port the bridge named; the next poll loop flushes
++ * them through the same GLINK channel as the locator and DMS answers. */
++static void
++k60_baseband_send(uint32_t local_port, uint32_t node, uint32_t port,
++    const void *message, uint32_t length)
++{
++	if (k60_qrtr_queue_reply(local_port, node, port, message, length) != 0) {
++		printf("K60MODEM baseband: reply dropped port=%#x len=%u\n",
++		    local_port, length);
++	}
++}
++
++static void
++k60_baseband_del_client(uint32_t port)
++{
++	printf("K60MODEM baseband: client port %#x released\n", port);
++}
++
++/* K60 has no IPA/GSI data path yet. The control bridge can still enumerate
++ * and publish AppleBaseband; the PDP data plane reports ENETDOWN until the
++ * IPA v5.1 adapter exists. */
++int
++coachz_modem_data_send(uint32_t mux, const uint8_t *ip, uint32_t length)
++{
++	(void)ip;
++	if (k60_modem_data_drops++ == 0) {
++		printf("K60MODEM baseband: no IPA data path, dropping mux %u len %u\n",
++		    mux, length);
++	}
++	return -50;   /* ENETDOWN */
++}
++
++void
++coachz_modem_data_receiver(void (*receiver)(uint32_t mux, const uint8_t *ip,
++    uint32_t length, uint32_t ip_version))
++{
++	k60_modem_data_receiver = receiver;
++	printf("K60MODEM baseband: data receiver %s\n",
++	    receiver != NULL ? "registered" : "cleared");
++}
++
++
++/* The four EFS images the modem opens by name are numbered exactly as the
++ * reference numbers them (PongModemRmtfs.h), and that table lives with the
++ * storage data plane in K60ModemEfs so the name comparison exists once. A name
++ * we do not know is not an error in the protocol: the answer is result 1, the
++ * modem retries or moves on, and the log names the path it asked for. */
++static uint32_t
++k60_qrtr_rmtfs_storage(const char *path, size_t length)
++{
++	return k60_efs_storage_for_path(path, length);
++}
++
++/* The modem's storage service wants one contiguous region it can map into
++ * its own address space. Two facts decide the placement: the address it gets
++ * back is a 32-bit value, so the memory must live below 4 GiB; and the MSS
++ * reaches it through the IOMMU, so SCM 0x0c/0x16 has to move the ownership of
++ * those pages from HLOS to HLOS|MSS before the modem touches them. The
++ * allocation is retried, because the first contiguous block the kernel hands
++ * out can sit above the 4 GiB line; every refusal is logged with its
++ * physical address instead of being hidden. */
++static vm_offset_t k60_qrtr_memshare_buffer;
++static uint64_t k60_qrtr_memshare_physical;
++static uint32_t k60_qrtr_memshare_bytes;
++static uint32_t k60_qrtr_memshare_node;
++static uint32_t k60_qrtr_memshare_port;
++static unsigned k60_qrtr_memshare_requests;
++static unsigned k60_qrtr_memshare_allocations;
++static unsigned k60_qrtr_memshare_releases;
++
++static vm_offset_t k60_qrtr_rmtfs_buffer;
++static uint64_t k60_qrtr_rmtfs_physical;
++static uint64_t k60_qrtr_rmtfs_bytes;
++static vm_offset_t k60_qrtr_rmtfs_scratch;
++static uint64_t k60_qrtr_rmtfs_scratch_physical;
++static unsigned k60_qrtr_rmtfs_allocations;
++
++static int
++k60_qrtr_rmtfs_low_alloc(vm_size_t bytes, vm_offset_t *va, uint64_t *physical)
++{
++	unsigned tries;
++
++	for (tries = 0; tries < 8; tries++) {
++		vm_offset_t address = 0;
++		ppnum_t page;
++
++		/* max_pnum counts physical pages, and a page is whatever this kernel
++		 * builds with: 16 KiB on the shipping line, 4 KiB on the tree the iOS 27
++		 * port uses. Divide by the real page size so the ceiling keeps meaning
++		 * "below four gigabytes" on both instead of assuming a 4 KiB shift. */
++		const uint64_t page_bytes = ptoa_64(1);
++		const ppnum_t ceiling =
++		    (ppnum_t)(((1ull << 32) - bytes) / page_bytes);
++
++		if (kmem_alloc_contig(kernel_map, &address, bytes, 0, ceiling,
++		    0, KMA_DATA | KMA_ZERO,
++		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++			printf("K60MODEM qrtr: rmtfs cannot allocate %llu bytes\n",
++			    (unsigned long long)bytes);
++			return -1;
++		}
++		page = pmap_find_phys(kernel_pmap, (addr64_t)address);
++		if (page != 0 && ptoa_64(page) + bytes <= (1ull << 32)) {
++			*va = address;
++			*physical = ptoa_64(page);
++			return 0;
++		}
++		printf("K60MODEM qrtr: rmtfs attempt %u above 4 GiB (phys=%#llx)\n",
++		    tries, page == 0 ? 0ull : (unsigned long long)ptoa_64(page));
++		kmem_free(kernel_map, address, bytes);
++	}
++	return -1;
++}
++
++static void
++k60_qrtr_rmtfs_clean(const void *at, uint32_t bytes)
++{
++	const uintptr_t start = (uintptr_t)at & ~(uintptr_t)63u;
++	const uintptr_t end = ((uintptr_t)at + bytes + 63u) & ~(uintptr_t)63u;
++	uintptr_t line;
++
++	for (line = start; line < end; line += 64u) {
++		__asm__ volatile("dc cvac, %0" : : "r"(line) : "memory");
++	}
++	__asm__ volatile("dsb sy" : : : "memory");
++}
++
++static void
++k60_qrtr_rmtfs_invalidate(const void *at, uint32_t bytes)
++{
++	const uintptr_t start = (uintptr_t)at & ~(uintptr_t)63u;
++	const uintptr_t end = ((uintptr_t)at + bytes + 63u) & ~(uintptr_t)63u;
++	uintptr_t line;
++
++	for (line = start; line < end; line += 64u) {
++		__asm__ volatile("dc civac, %0" : : "r"(line) : "memory");
++	}
++	__asm__ volatile("dsb sy" : : : "memory");
++}
++
++/* Both services hand pages across the same SCM primitive (0x0c/0x16) and the
++ * same 64 KiB metadata scratch: RMTFS lends its window to the modem for file
++ * reads, the memory share service lends it as a heap. */
++static int
++k60_qrtr_assign_pages(uint64_t physical, uint32_t bytes, unsigned from,
++    unsigned to)
++{
++	uint8_t *record;
++	uint32_t sources = 0;
++	uint32_t destinations = 0;
++	int rc;
++
++	if (k60_qrtr_rmtfs_scratch == 0 &&
++	    k60_qrtr_rmtfs_low_alloc(65536, &k60_qrtr_rmtfs_scratch,
++	    &k60_qrtr_rmtfs_scratch_physical) != 0) {
++		printf("K60MODEM qrtr: no assignment scratch for %#llx\n",
++		    (unsigned long long)physical);
++		return -1;
++	}
++	record = (uint8_t *)k60_qrtr_rmtfs_scratch;
++	if (k60_modem_assign_record(record, 4096, physical, bytes, from, to,
++	    k60_qrtr_rmtfs_scratch_physical, &sources, &destinations) != 0) {
++		printf("K60MODEM qrtr: assign record refused physical=%#llx bytes=%u\n",
++		    (unsigned long long)physical, bytes);
++		return -1;
++	}
++	k60_qrtr_rmtfs_clean(record, 4096);
++	rc = k60_modem_assign_call(k60_qrtr_rmtfs_scratch_physical);
++	printf("K60MODEM qrtr: assign physical=%#llx bytes=%u from=%u to=%u rc=%d sources=%u destinations=%u\n",
++	    (unsigned long long)physical, bytes, from, to, rc, sources,
++	    destinations);
++	return rc == 0 ? 0 : -1;
++}
++
++static uint64_t
++k60_qrtr_rmtfs_prepare(uint32_t bytes)
++{
++	if (k60_qrtr_rmtfs_physical != 0) {
++		return k60_qrtr_rmtfs_physical;
++	}
++	if (bytes == 0 || bytes > (8u << 20)) {
++		printf("K60MODEM qrtr: rmtfs alloc %u bytes out of range\n", bytes);
++		return 0;
++	}
++	if (k60_qrtr_rmtfs_low_alloc((vm_size_t)round_page(bytes),
++	    &k60_qrtr_rmtfs_buffer, &k60_qrtr_rmtfs_physical) != 0) {
++		return 0;
++	}
++	k60_qrtr_rmtfs_bytes = bytes;
++	printf("K60MODEM qrtr: rmtfs buffer va=%#llx physical=%#llx bytes=%u\n",
++	    (unsigned long long)k60_qrtr_rmtfs_buffer,
++	    (unsigned long long)k60_qrtr_rmtfs_physical, bytes);
++	if (k60_qrtr_assign_pages(k60_qrtr_rmtfs_physical, bytes,
++	    K60M_OWNER_HLOS, K60M_OWNER_HLOS | K60M_OWNER_MSS) != 0) {
++		printf("K60MODEM qrtr: rmtfs assignment failed; answering anyway\n");
++	}
++	return k60_qrtr_rmtfs_physical;
++}
++
++/* A read is served from the EFS image the open named: the bytes come straight
++ * out of the GPT partition through the read-only entry NativeUfs exports,
++ * one vector at a time, so the shared window never has to hold the whole
++ * image. A write stays in the boot-session shadow, which is what the
++ * reference does: the buffer is the shadow and only the cache has to be
++ * invalidated. Every vector is validated before a single byte moves. */
++static int
++k60_qrtr_rmtfs_read(const K60RmtfsRequest *request)
++{
++	const char *name = k60_efs_partition(request->storage);
++	size_t i;
++
++	if (name == NULL) {
++		return -1;
++	}
++	for (i = 0; i < request->vectors; i++) {
++		const uint64_t offset =
++		    (uint64_t)request->table[i].block_offset * 512u;
++		const uint64_t length =
++		    (uint64_t)request->table[i].block_length * 512u;
++		uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
++		    (request->table[i].physical - k60_qrtr_rmtfs_physical));
++
++		if (length == 0 ||
++		    native_pong_ufs_read_named_volume(name, offset, shared,
++		    (size_t)length) == 0) {
++			return -1;
++		}
++	}
++	return 0;
++}
++
++static int
++k60_qrtr_rmtfs_rw(const K60RmtfsRequest *request)
++{
++	size_t i;
++
++	if (k60_qrtr_rmtfs_physical == 0) {
++		return -1;
++	}
++	for (i = 0; i < request->vectors; i++) {
++		const uint64_t offset = (uint64_t)request->table[i].block_offset * 512u;
++		const uint64_t physical = request->table[i].physical;
++		const uint64_t length = (uint64_t)request->table[i].block_length * 512u;
++
++		if (physical < k60_qrtr_rmtfs_physical ||
++		    physical - k60_qrtr_rmtfs_physical > k60_qrtr_rmtfs_bytes ||
++		    length > k60_qrtr_rmtfs_bytes - (physical - k60_qrtr_rmtfs_physical) ||
++		    offset > k60_qrtr_rmtfs_bytes ||
++		    length > k60_qrtr_rmtfs_bytes - offset) {
++			return -1;
++		}
++	}
++	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT) {
++		return -1;
++	}
++	if (request->direction == 0) {
++		if (k60_qrtr_rmtfs_read(request) != 0) {
++			return -1;
++		}
++		for (i = 0; i < request->vectors; i++) {
++			uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
++			    (request->table[i].physical - k60_qrtr_rmtfs_physical));
++			k60_qrtr_rmtfs_clean(shared,
++			    (uint32_t)request->table[i].block_length * 512u);
++		}
++		return 0;
++	}
++	for (i = 0; i < request->vectors; i++) {
++		uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
++		    (request->table[i].physical - k60_qrtr_rmtfs_physical));
++
++		k60_qrtr_rmtfs_invalidate(shared,
++		    (uint32_t)request->table[i].block_length * 512u);
++	}
++	return 0;
++}
++
++/* The memory share service keeps one region for the modem: the reference
++ * reuses it only when the size, node and port all match, and refuses a second
++ * client rather than handing out a second window. */
++static uint64_t
++k60_qrtr_memshare_allocate(uint32_t bytes, uint32_t node, uint32_t port)
++{
++	vm_offset_t address = 0;
++	uint64_t physical = 0;
++
++	if (k60_qrtr_memshare_physical != 0) {
++		if (bytes == k60_qrtr_memshare_bytes && node == k60_qrtr_memshare_node &&
++		    port == k60_qrtr_memshare_port) {
++			return k60_qrtr_memshare_physical;
++		}
++		printf("K60MODEM qrtr: memshare busy bytes=%u node=%u port=%#x\n",
++		    k60_qrtr_memshare_bytes, k60_qrtr_memshare_node,
++		    k60_qrtr_memshare_port);
++		return 0;
++	}
++	if (bytes == 0 || bytes > K60_MEMSHARE_MAXIMUM) {
++		printf("K60MODEM qrtr: memshare %u bytes out of range\n", bytes);
++		return 0;
++	}
++	if (k60_qrtr_rmtfs_low_alloc((vm_size_t)round_page(bytes), &address,
++	    &physical) != 0) {
++		return 0;
++	}
++	if (k60_memshare_region_ok(physical, bytes, 1ull << 32) != 0) {
++		printf("K60MODEM qrtr: memshare region %#llx bytes=%u refused\n",
++		    (unsigned long long)physical, bytes);
++		kmem_free(kernel_map, address, round_page(bytes));
++		return 0;
++	}
++	k60_qrtr_memshare_buffer = address;
++	k60_qrtr_memshare_physical = physical;
++	k60_qrtr_memshare_bytes = bytes;
++	k60_qrtr_memshare_node = node;
++	k60_qrtr_memshare_port = port;
++	printf("K60MODEM qrtr: memshare buffer va=%#llx physical=%#llx bytes=%u node=%u port=%#x\n",
++	    (unsigned long long)address, (unsigned long long)physical, bytes, node,
++	    port);
++	if (k60_qrtr_assign_pages(physical, bytes, K60M_OWNER_HLOS,
++	    K60M_OWNER_HLOS | K60M_OWNER_MSS) != 0) {
++		printf("K60MODEM qrtr: memshare assignment failed; answering anyway\n");
++	}
++	return physical;
++}
++
++/* Handing the extent back costs the ownership reversal first, then the pages:
++ * the reference frees the buffer only after the modem's half is revoked. */
++static int
++k60_qrtr_memshare_release(uint64_t physical, uint32_t bytes, uint32_t node,
++    uint32_t port)
++{
++	if (k60_qrtr_memshare_physical == 0) {
++		return -1;
++	}
++	if (physical != k60_qrtr_memshare_physical ||
++	    bytes != k60_qrtr_memshare_bytes || node != k60_qrtr_memshare_node ||
++	    port != k60_qrtr_memshare_port) {
++		printf("K60MODEM qrtr: memshare release mismatch physical=%#llx bytes=%u node=%u port=%#x\n",
++		    (unsigned long long)physical, bytes, node, port);
++		return -1;
++	}
++	if (k60_qrtr_assign_pages(physical, bytes, K60M_OWNER_MSS,
++	    K60M_OWNER_HLOS) != 0) {
++		return -1;
++	}
++	kmem_free(kernel_map, k60_qrtr_memshare_buffer,
++	    round_page(k60_qrtr_memshare_bytes));
++	k60_qrtr_memshare_buffer = 0;
++	k60_qrtr_memshare_physical = 0;
++	k60_qrtr_memshare_bytes = 0;
++	k60_qrtr_memshare_node = 0;
++	k60_qrtr_memshare_port = 0;
++	return 0;
++}
++
++static void
++k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *data, uint32_t length)
++{
++	K60QrtrHeader header;
++	const uint8_t *payload = NULL;
++
++	(void)context;
++	(void)channel;
++	if (k60_qrtr_parse(data, length, &header, &payload) != K60QrtrOk) {
++		return;
++	}
++	if (header.type < 8u) {
++		++k60_qrtr_rx_cmds[header.type];
++	}
++	/* A name server answers a lookup with NEW_LOOKUP records of its own: one
++	 * service, instance, node and port per record. k37 never saw one because
++	 * every query went to the control port; the name server listens on
++	 * K60_QRTR_NS_PORT. Treat the answer exactly like a registration. */
++	if (header.type == K60QrtrNewLookup && header.size == K60_QRTR_CONTROL_BYTES) {
++		const uint32_t service = (uint32_t)payload[4] | (uint32_t)payload[5] << 8 |
++		    (uint32_t)payload[6] << 16 | (uint32_t)payload[7] << 24;
++		const uint32_t instance = (uint32_t)payload[8] | (uint32_t)payload[9] << 8 |
++		    (uint32_t)payload[10] << 16 | (uint32_t)payload[11] << 24;
++		const uint32_t node = (uint32_t)payload[12] | (uint32_t)payload[13] << 8 |
++		    (uint32_t)payload[14] << 16 | (uint32_t)payload[15] << 24;
++		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
++		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
++
++		++k60_qrtr_lookup_replies;
++		printf("K60MODEM qrtr: lookup reply service %u instance %u node %u port %u\n",
++		    service, instance, node, port);
++		coachz_baseband_new_server(service, instance, node, port);
++		if (service == K60_QRTR_DMS_SERVICE && port != 0) {
++			k60_qrtr_state.dms_node = node;
++			k60_qrtr_state.dms_port = port;
++			k60_qrtr_state.dms_found = 1;
++		}
++	}
++	if (header.type == K60QrtrData) {
++		if (header.to_port == K60_QRTR_RMTFS_PORT) {
++			K60RmtfsRequest request;
++			uint8_t answer[64];
++			uint32_t id = 0;
++			uint32_t used;
++			uint16_t result = 0;
++			const void *value = NULL;
++			size_t value_bytes = 0;
++			int parsed;
++
++			++k60_qrtr_rmtfs_requests;
++			parsed = k60_rmtfs_parse(payload, header.size, &request);
++			if (parsed != 0) {
++				printf("K60MODEM qrtr: rmtfs request %u bytes unreadable\n",
++				    header.size);
++				result = 2;
++			} else if (request.message == K60_RMTFS_OPEN) {
++				char shown[K60_RMTFS_MAX_PATH + 1];
++				size_t at;
++
++				id = k60_qrtr_rmtfs_storage(request.path, request.path_length);
++				for (at = 0; at < request.path_length; at++) {
++					shown[at] = request.path[at];
++				}
++				shown[at] = '\0';
++				printf("K60MODEM qrtr: rmtfs open path=%s storage=%u\n",
++				    shown, id);
++				if (id != 0) {
++					value = &id;
++					value_bytes = 4;
++				} else {
++					result = 1;
++				}
++			} else if (request.message == K60_RMTFS_CLOSE) {
++				printf("K60MODEM qrtr: rmtfs close storage=%u\n", request.storage);
++				value = &id;
++				value_bytes = 1;
++			} else if (request.message == K60_RMTFS_SYNC) {
++				printf("K60MODEM qrtr: rmtfs sync storage=%u\n", request.storage);
++				value = &id;
++				value_bytes = 1;
++			} else if (request.message == K60_RMTFS_ALLOC) {
++				uint64_t physical = k60_qrtr_rmtfs_prepare(
++				    request.alloc_bytes);
++
++				++k60_qrtr_rmtfs_allocations;
++				printf("K60MODEM qrtr: rmtfs alloc storage=%u bytes=%u physical=%#llx\n",
++				    request.storage, request.alloc_bytes,
++				    (unsigned long long)physical);
++				if (physical != 0) {
++					value = &physical;
++					value_bytes = 8;
++				} else {
++					result = 1;
++				}
++			} else if (request.message == K60_RMTFS_RW) {
++				const int served = k60_qrtr_rmtfs_rw(&request);
++
++				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u %s\n",
++				    request.storage, request.direction,
++				    (unsigned)request.vectors,
++				    served == 0 ? "served" : "refused");
++				if (served != 0) {
++					result = 1;
++				}
++			} else {
++				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u not-served\n",
++				    request.storage, request.direction, (unsigned)request.vectors);
++				result = 1;
++			}
++			if (parsed == 0) {
++				used = k60_rmtfs_build_reply(answer, sizeof(answer),
++				    request.message, request.transaction, result, value,
++				    value_bytes);
++				if (used == 0 || k60_qrtr_queue_reply(K60_QRTR_RMTFS_PORT,
++				    header.from_node, header.from_port, answer, used) != 0) {
++					printf("K60MODEM qrtr: rmtfs reply dropped (%u bytes)\n",
++					    used);
++				}
++			}
++		} else if (header.to_port == K60_MEMSHARE_PORT) {
++			K60MemshareRequest request;
++			uint8_t answer[64];
++			uint32_t used;
++			uint32_t error = K60_MEMSHARE_ERROR_NONE;
++			uint64_t physical = 0;
++			uint32_t extent = 0;
++			int parsed;
++
++			++k60_qrtr_memshare_requests;
++			parsed = k60_memshare_parse(payload, header.size, &request);
++			if (parsed != 0) {
++				printf("K60MODEM qrtr: memshare request %u bytes unreadable\n",
++				    header.size);
++				return;
++			}
++			error = request.error;
++			if (error == K60_MEMSHARE_ERROR_NONE &&
++			    request.message == K60_MEMSHARE_ALLOCATE) {
++				physical = k60_qrtr_memshare_allocate(request.bytes,
++				    header.from_node, header.from_port);
++				++k60_qrtr_memshare_allocations;
++				if (physical != 0) {
++					extent = request.bytes;
++				} else {
++					error = K60_MEMSHARE_ERROR_NO_MEMORY;
++				}
++			} else if (error == K60_MEMSHARE_ERROR_NONE &&
++			    request.message == K60_MEMSHARE_FREE) {
++				if (k60_qrtr_memshare_release(request.physical,
++				    request.extent_bytes, header.from_node,
++				    header.from_port) == 0) {
++					++k60_qrtr_memshare_releases;
++				} else {
++					error = K60_MEMSHARE_ERROR_TRANSFER;
++				}
++			}
++			printf("K60MODEM qrtr: memshare request=%#x client=%u bytes=%u result=%u\n",
++			    request.message, request.client, request.bytes, error);
++			used = k60_memshare_build_reply(answer, sizeof(answer),
++			    request.transaction, request.message, error,
++			    K60_MEMSHARE_MAXIMUM, &request.sequence, physical,
++			    extent);
++			if (used == 0 || k60_qrtr_queue_reply(K60_MEMSHARE_PORT,
++			    header.from_node, header.from_port, answer, used) != 0) {
++				printf("K60MODEM qrtr: memshare reply dropped (%u bytes)\n",
++				    used);
++			}
++		} else if (header.to_port == K60_QRTR_LOCATOR_PORT) {
++			uint8_t answer[K60_QRTR_MAX_PACKET];
++			uint32_t bytes;
++
++			++k60_qrtr_state.locator_requests;
++			bytes = k60_qrtr_servloc_answer(payload, header.size, answer,
++			    sizeof(answer));
++			if (bytes == 0 ||
++			    k60_qrtr_queue_reply(K60_QRTR_LOCATOR_PORT, header.from_node,
++			    header.from_port, answer, bytes) != 0) {
++				printf("K60MODEM qrtr: locator answer dropped (%u bytes)\n", bytes);
++			}
++		} else if (header.to_port == K60_QRTR_DMS_PORT &&
++		    header.from_node == k60_qrtr_state.dms_node &&
++		    header.from_port == k60_qrtr_state.dms_port) {
++			char revision[sizeof(k60_qrtr_state.revision)];
++			const int bytes = k60_qmi_dms_revision(payload, header.size,
++			    k60_qrtr_state.dms_transaction, revision, sizeof(revision));
++
++			if (bytes > 0) {
++				for (int i = 0; i <= bytes; ++i) {
++					k60_qrtr_state.revision[i] = revision[i];
++				}
++				k60_qrtr_state.revision_bytes = (uint32_t)bytes;
++				k60_qrtr_state.dms_answered = 1;
++				printf("K60MODEM qrtr: dms revision %s\n", revision);
++			} else {
++				++k60_qrtr_state.dms_errors;
++			}
++		} else if (header.to_port == K60_QRTR_DMS_PORT) {
++			++k60_qrtr_state.dms_errors;
++		} else {
++			/* Ports owned by the QcomBaseband control bridge (CBQ_PORT_BASE
++			 * and above). The bridge copies what it needs; unknown ports
++			 * simply return zero. */
++			(void)coachz_baseband_qrtr(header.to_port, header.from_node,
++			    header.from_port, payload, header.size);
++		}
++	}
++	if (header.type == K60QrtrNewServer && header.size == K60_QRTR_CONTROL_BYTES) {
++		const uint32_t service = (uint32_t)payload[4] | (uint32_t)payload[5] << 8 |
++		    (uint32_t)payload[6] << 16 | (uint32_t)payload[7] << 24;
++		const uint32_t instance = (uint32_t)payload[8] | (uint32_t)payload[9] << 8 |
++		    (uint32_t)payload[10] << 16 | (uint32_t)payload[11] << 24;
++		const uint32_t node = (uint32_t)payload[12] | (uint32_t)payload[13] << 8 |
++		    (uint32_t)payload[14] << 16 | (uint32_t)payload[15] << 24;
++		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
++		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
++
++		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u cmd=%#x to=%u\n",
++		    service, service, instance, node, port,
++		    (unsigned)payload[0] | (unsigned)payload[1] << 8 |
++		    (unsigned)payload[2] << 16 | (unsigned)payload[3] << 24,
++		    header.to_node);
++		coachz_baseband_new_server(service, instance, node, port);
++	}
++	if (header.type == K60QrtrDelServer && header.size == K60_QRTR_CONTROL_BYTES) {
++		const uint32_t service = (uint32_t)payload[4] | (uint32_t)payload[5] << 8 |
++		    (uint32_t)payload[6] << 16 | (uint32_t)payload[7] << 24;
++		const uint32_t node = (uint32_t)payload[12] | (uint32_t)payload[13] << 8 |
++		    (uint32_t)payload[14] << 16 | (uint32_t)payload[15] << 24;
++		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
++		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
++
++		printf("K60MODEM qrtr: service %u (%#x) removed node %u port %u\n",
++		    service, service, node, port);
++		coachz_baseband_del_server(service, node, port);
++	}
++	(void)k60_qrtr_note(&k60_qrtr_state, data, length);
++}
++
++/* SMP2P outbound item: the modem's boot firmware expects the AP's
++ * "master-kernel" entry before PAS_AUTH_AND_RESET. Pong allocates item 428
++ * (340 bytes), item 478 (32-byte GLINK descriptor) and item 479 (16 KiB TX
++ * FIFO) after INIT_IMAGE and before MEM_SETUP; we do the same so a cold boot
++ * starts from an AP-owned, fresh transport instead of whatever an Android
++ * epoch left behind. */
++static void
++k60_smp2p_barrier(void)
++{
++	__asm__ volatile("dmb oshst" ::: "memory");
++}
++
++static void
++k60_smp2p_init_out(volatile uint32_t *out)
++{
++	unsigned i;
++
++	for (i = 0; i < K60_MODEM_SMP2P_ITEM_WORDS; i++) {
++		out[i] = 0;
++	}
++	k60_smp2p_barrier();
++	out[0] = K60_MODEM_SMP2P_MAGIC;
++	out[2] = 0u | (uint32_t)1u << 16;  /* local pid 0, remote pid 1 */
++	out[3] = 16u;                      /* total entries, valid entries 0 */
++	k60_smp2p_barrier();
++	out[1] = 1u | (1u << 8);           /* version 1, SSR ack feature */
++	k60_smp2p_barrier();
++}
++
++static int
++k60_smp2p_add_entry(volatile uint32_t *out, const char *name)
++{
++	const uint32_t valid = out[3] >> 16;
++	volatile uint32_t *entry;
++	unsigned i;
++
++	if (valid >= 16u) {
++		return -1;
++	}
++	entry = out + 5u + 5u * valid;
++	for (i = 0; i < 4; i++) {
++		entry[i] = 0;
++	}
++	for (i = 0; i < 16u && name[i] != '\0'; i++) {
++		entry[i / 4u] |= (uint32_t)(uint8_t)name[i] << (8u * (i % 4u));
++	}
++	entry[4] = 0;
++	k60_smp2p_barrier();
++	out[3] = 16u | (valid + 1u) << 16;
++	k60_smp2p_barrier();
++	return (int)valid;
++}
++
++/* Pong never leaves the AP-owned stop bit set across a start: the Q6V5 reads
++ * bit 0 of master-kernel as stop, so releasing it is part of handing over a
++ * fresh session, not part of shutting one down. A stale bit left by an Android
++ * epoch is otherwise republished as if we meant it. */
++static void
++k60_smp2p_release_stop(volatile uint32_t *item)
++{
++	const uint32_t was = k60_smp2p_entry_word(item, k60_qrtr_smp2p_stop_entry);
++
++	if (k60_qrtr_smp2p_stop_entry < 0) {
++		return;
++	}
++	if (!k60_smp2p_update(item, k60_qrtr_smp2p_stop_entry, 1u, 0u)) {
++		return;
++	}
++	k60_smp2p_barrier();
++	printf("K60MODEM transport: smp2p stop released was=%#x now=%#x ipa=%#x\n",
++	    was, k60_smp2p_entry_word(item, k60_qrtr_smp2p_stop_entry),
++	    k60_smp2p_entry_word(item, k60_qrtr_smp2p_ipa_entry));
++}
++
++static int
++k60_transport_item(K60Smem *smem, K60SmemPartition *partition, uint16_t id,
++    uint32_t bytes, uint32_t *offset, uint32_t *size)
++{
++	int rc = k60_smem_alloc(smem, partition, id, bytes, offset, size);
++
++	if (rc == K60SmemExists) {
++		rc = k60_smem_find(smem, partition, id, offset, size);
++	}
++	if (rc != K60SmemOk) {
++		return rc;
++	}
++	if (*size < bytes) {
++		return K60SmemBadPartition;
++	}
++	return K60SmemOk;
++}
++
++/* ---- modem power: AOP QMP load_state and cx/mss/xo RPMh votes ---------- */
++
++#define K60_MODEM_AOSS_BASE       0x0c300000u
++#define K60_MODEM_AOSS_BYTES      0x00001000u
++#define K60_MODEM_QMP_RAM_BYTES   0x00000400u
++#define K60_MODEM_AOP_SEND        0x0cu
++
++#define K60_MODEM_QMP_DESC_MAGIC          0x0u
++#define K60_MODEM_QMP_DESC_VERSION        0x4u
++#define K60_MODEM_QMP_DESC_UCORE_LINK     0x0cu
++#define K60_MODEM_QMP_DESC_UCORE_LINK_ACK 0x10u
++#define K60_MODEM_QMP_DESC_UCORE_CH       0x14u
++#define K60_MODEM_QMP_DESC_UCORE_CH_ACK   0x18u
++#define K60_MODEM_QMP_DESC_MCORE_LINK     0x24u
++#define K60_MODEM_QMP_DESC_MCORE_LINK_ACK 0x28u
++#define K60_MODEM_QMP_DESC_MCORE_CH       0x2cu
++#define K60_MODEM_QMP_DESC_MCORE_CH_ACK   0x30u
++#define K60_MODEM_QMP_DESC_MBOX_SIZE      0x34u
++#define K60_MODEM_QMP_DESC_MBOX_OFFSET    0x38u
++#define K60_MODEM_QMP_MAGIC               0x4d41494cu /* "MAIL" */
++#define K60_MODEM_QMP_VERSION             1u
++#define K60_MODEM_QMP_STATE_UP            0xffffu
++#define K60_MODEM_QMP_MSG_BYTES           100u
++#define K60_MODEM_QMP_WORDS               (K60_MODEM_QMP_MSG_BYTES / 4u)
++
++#define K60_MODEM_RSC_DRV_CONTROL  0x00u
++#define K60_MODEM_RSC_IRQ_STATUS   0x04u
++#define K60_MODEM_RSC_IRQ_CLEAR    0x08u
++#define K60_MODEM_RSC_CAPS         0x0cu
++#define K60_MODEM_TCS_BASE         0xd00u
++#define K60_MODEM_TCS_STRIDE       672u
++#define K60_MODEM_TCS4             (K60_MODEM_TCS_BASE + 4u * K60_MODEM_TCS_STRIDE)
++#define K60_MODEM_TCS3             (K60_MODEM_TCS_BASE + 3u * K60_MODEM_TCS_STRIDE)
++#define K60_MODEM_RSC_MSGID        0x10108u
++#define K60_MODEM_RSC_IRQ_DONE     (1u << 4)
++#define K60_MODEM_RSC_CMD_DONE     0x10100u
++#define K60_MODEM_RSC_CTRL_TCS     (1u << 4)
++
++static uint32_t
++k60_modem_rd32(const volatile uint8_t *base, size_t at)
++{
++	return *(volatile uint32_t *)(base + at);
++}
++
++static void
++k60_modem_wr32(volatile uint8_t *base, size_t at, uint32_t value)
++{
++	*(volatile uint32_t *)(base + at) = value;
++	/* Match PongPlatformResources::wr: do not let a posted MMIO write
++	 * race the immediate control/IRQ readbacks below. */
++	__asm__ volatile("dsb oshst" ::: "memory");
++}
++
++static void
++k60_modem_fence(void)
++{
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++static void
++k60_modem_spin(void)
++{
++	__asm__ volatile("yield" ::: "memory");
++}
++
++static int
++k60_modem_wait_word(const volatile uint8_t *base, size_t at, uint32_t mask,
++    uint32_t value, unsigned tries)
++{
++	unsigned i;
++
++	for (i = 0; i < tries; i++) {
++		if ((k60_modem_rd32(base, at) & mask) == value) {
++			return 0;
++		}
++		delay(10);
++	}
++	return -1;
++}
++
++static void
++k60_modem_aop_kick(volatile uint8_t *ipcc)
++{
++	/* QCOM_IPCC_CLIENT_AOP 0 / QCOM_IPCC_SIGNAL_GLINK_QMP 0. */
++	k60_modem_fence();
++	*(volatile uint32_t *)(ipcc + K60_MODEM_AOP_SEND) = 0;
++	k60_modem_fence();
++}
++
++static volatile uint8_t *
++k60_modem_map(uint64_t physical, size_t bytes)
++{
++	vm_offset_t va = ml_io_map_unmappable((vm_offset_t)physical,
++	    (vm_size_t)bytes, 0x7);
++
++	return (volatile uint8_t *)(uintptr_t)va;
++}
++
++/* The QMP descriptor lives in the first 0x400 bytes of AOSS. Its message box
++ * is a word offset plus a byte length; both are read back and bounds-checked
++ * before any word is written. */
++static int
++k60_modem_qmp_open(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t *box_out)
++{
++	volatile uint8_t *d = aoss;
++	const uint32_t box = k60_modem_rd32(d, K60_MODEM_QMP_DESC_MBOX_OFFSET);
++	const uint32_t bytes = k60_modem_rd32(d, K60_MODEM_QMP_DESC_MBOX_SIZE);
++	unsigned phase;
++
++	if (k60_modem_rd32(d, K60_MODEM_QMP_DESC_MAGIC) != K60_MODEM_QMP_MAGIC ||
++	    k60_modem_rd32(d, K60_MODEM_QMP_DESC_VERSION) != K60_MODEM_QMP_VERSION) {
++		return -1;
++	}
++	if ((box & 3u) != 0 || box < 0x3cu ||
++	    bytes < K60_MODEM_QMP_MSG_BYTES + 4u ||
++	    bytes > K60_MODEM_QMP_RAM_BYTES || box > bytes ||
++	    bytes - box < K60_MODEM_QMP_MSG_BYTES + 4u) {
++		return -1;
++	}
++	*box_out = box;
++	if (k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_LINK) == K60_MODEM_QMP_STATE_UP &&
++	    k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_LINK_ACK) == K60_MODEM_QMP_STATE_UP &&
++	    k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_CH) == K60_MODEM_QMP_STATE_UP &&
++	    k60_modem_rd32(d, K60_MODEM_QMP_DESC_UCORE_CH) == K60_MODEM_QMP_STATE_UP &&
++	    k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_CH_ACK) == K60_MODEM_QMP_STATE_UP) {
++		return 0;
++	}
++	for (phase = 0; phase < 4; phase++) {
++		if (k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_LINK) != K60_MODEM_QMP_STATE_UP ||
++		    k60_modem_rd32(d, K60_MODEM_QMP_DESC_MCORE_LINK_ACK) != K60_MODEM_QMP_STATE_UP) {
++			k60_modem_wr32(d, K60_MODEM_QMP_DESC_UCORE_LINK_ACK,
++			    k60_modem_rd32(d, K60_MODEM_QMP_DESC_UCORE_LINK));
++			k60_modem_wr32(d, K60_MODEM_QMP_DESC_MCORE_LINK, K60_MODEM_QMP_STATE_UP);
++			k60_modem_fence();
++			k60_modem_aop_kick(ipcc);
++			if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_MCORE_LINK_ACK,
++			    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
++				continue;
++			}
++		}
++		k60_modem_wr32(d, K60_MODEM_QMP_DESC_MCORE_CH, K60_MODEM_QMP_STATE_UP);
++		k60_modem_fence();
++		k60_modem_aop_kick(ipcc);
++		if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_UCORE_CH,
++		    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
++			continue;
++		}
++		k60_modem_wr32(d, K60_MODEM_QMP_DESC_UCORE_CH_ACK, K60_MODEM_QMP_STATE_UP);
++		k60_modem_fence();
++		k60_modem_aop_kick(ipcc);
++		if (k60_modem_wait_word(d, K60_MODEM_QMP_DESC_MCORE_CH_ACK,
++		    0xffffu, K60_MODEM_QMP_STATE_UP, 100000)) {
++			continue;
++		}
++		return 0;
++	}
++	return -1;
++}
++
++static int
++k60_modem_qmp_load_state(volatile uint8_t *aoss, volatile uint8_t *ipcc, uint32_t box)
++{
++	volatile uint8_t *mailbox = aoss + box;
++	static const char msg[] = "{class: image, res: load_state, name: modem, val: on}";
++	uint32_t words[K60_MODEM_QMP_WORDS] = { 0 };
++	const size_t n = sizeof(msg) - 1u;
++	size_t i;
++	unsigned w;
++
++	if (n + 1u > K60_MODEM_QMP_MSG_BYTES) {
++		return -1;
++	}
++	for (i = 0; i < n; i++) {
++		words[i / 4u] |= (uint32_t)(uint8_t)msg[i] << (8u * (i % 4u));
++	}
++	if (k60_modem_wait_word(aoss, box, 0xffffffffu, 0, 100000)) {
++		return -1;
++	}
++	for (w = 0; w < K60_MODEM_QMP_WORDS; w++) {
++		k60_modem_wr32(mailbox, 4u + w * 4u, words[w]);
++	}
++	k60_modem_fence();
++	k60_modem_wr32(mailbox, 0, K60_MODEM_QMP_MSG_BYTES);
++	k60_modem_fence();
++	k60_modem_aop_kick(ipcc);
++	return k60_modem_wait_word(aoss, box, 0xffffffffu, 0, 100000);
++}
++
++static int
++k60_modem_find_rail(volatile uint8_t *db, const char *name, uint32_t level,
++    K60RpmhResource *res, uint32_t *index)
++{
++	int rc = k60_cmd_db_find((const uint8_t *)(const void *)db,
++	    K60_CMD_DB_BYTES, name, res);
++
++	if (rc != K60RpmhOk) {
++		return rc;
++	}
++	return k60_rpmh_level_index(res, level, index);
++}
++
++static int
++k60_modem_tcs_conflict(const volatile uint8_t *rsc, const K60RscLayout *l,
++    uint32_t tcs, uint32_t capacity, uint32_t address)
++{
++	uint32_t enable = k60_modem_rd32(rsc, tcs + l->cmd_enable);
++	uint32_t i;
++
++	for (i = 0; i < capacity && i < 16u; i++) {
++		if ((enable & (1u << i)) != 0 &&
++		    k60_modem_rd32(rsc, tcs + (size_t)i * l->cmd_stride + l->cmd_addr) == address) {
++			return -1;
++		}
++	}
++	return 0;
++}
++
++/* One RPMh active-only command into TCS4, the sequence that powers the modem
++ * rails on this board. The TCS trigger lives at RSC_DRV + 0xd00; completion
++ * status and IRQ clear live at +0xd04 and +0xd08, not at the RSC DRV_ID page.
++ * Readback happens after wait_for_cmpl/cmd_enable, matching Pong rawVote. */
++static int
++k60_modem_vote_tcs4(volatile uint8_t *rsc, const K60RscLayout *l,
++    uint32_t address, uint32_t value, uint32_t capacity)
++{
++	const size_t base = K60_MODEM_TCS4;
++	uint32_t control;
++	uint32_t progressed = 0;
++	unsigned i;
++	int rc = -1;
++
++	if (k60_modem_rd32(rsc, K60_MODEM_TCS3 + l->status) == 0 &&
++	    k60_modem_tcs_conflict(rsc, l, K60_MODEM_TCS3, capacity, address)) {
++		return -1;
++	}
++	k60_modem_wr32(rsc, K60_MODEM_TCS_BASE,
++	    k60_modem_rd32(rsc, K60_MODEM_TCS_BASE) & ~K60_MODEM_RSC_CTRL_TCS);
++	control = k60_modem_rd32(rsc, base + l->control) & ~(1u << 24);
++	k60_modem_wr32(rsc, base + l->control, control);
++	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
++		return -1;
++	}
++	control &= ~(1u << 16);
++	k60_modem_wr32(rsc, base + l->control, control);
++	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
++		return -1;
++	}
++	k60_modem_wr32(rsc, base + l->cmd_enable, 0);
++	k60_modem_wr32(rsc, K60_MODEM_TCS_BASE + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
++	if (k60_modem_wait_word(rsc, K60_MODEM_TCS_BASE + l->irq_status,
++	    K60_MODEM_RSC_IRQ_DONE, 0, 1000)) {
++		return -1;
++	}
++	k60_modem_wr32(rsc, base + l->cmd_msgid, K60_MODEM_RSC_MSGID);
++	k60_modem_wr32(rsc, base + l->cmd_addr, address);
++	k60_modem_wr32(rsc, base + l->cmd_data, value);
++	k60_modem_wr32(rsc, base + l->wait_for_cmpl, 1);
++	k60_modem_fence();
++	k60_modem_wr32(rsc, base + l->cmd_enable, 1);
++	if (k60_modem_rd32(rsc, base + l->cmd_addr) != address ||
++	    k60_modem_rd32(rsc, base + l->cmd_data) != value) {
++		goto cleanup;
++	}
++	k60_modem_wr32(rsc, base + l->control, 1u << 16);
++	k60_modem_fence();
++	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, 1u << 16, 1000)) {
++		goto cleanup;
++	}
++	k60_modem_fence();
++	k60_modem_wr32(rsc, base + l->control, (1u << 16) | (1u << 24));
++	for (i = 0; i < 200000u; i++) {
++		const uint32_t status = k60_modem_rd32(rsc, base + l->cmd_data + 4u);
++		const uint32_t idle = k60_modem_rd32(rsc, base + l->status);
++
++		if ((status & K60_MODEM_RSC_CMD_DONE) == K60_MODEM_RSC_CMD_DONE && idle &&
++		    k60_modem_rd32(rsc, base + l->cmd_enable) == 1u &&
++		    k60_modem_rd32(rsc, base + l->cmd_addr) == address &&
++		    k60_modem_rd32(rsc, base + l->cmd_data) == value &&
++		    (progressed || (k60_modem_rd32(rsc, K60_MODEM_TCS_BASE + l->irq_status) &
++		    K60_MODEM_RSC_IRQ_DONE))) {
++			rc = 0;
++			break;
++		}
++		if ((status & K60_MODEM_RSC_CMD_DONE) != K60_MODEM_RSC_CMD_DONE || !idle) {
++			progressed = 1;
++		}
++		if ((i & 0x0fu) == 0) {
++			delay(10);
++		} else {
++			k60_modem_spin();
++		}
++	}
++cleanup:
++	k60_modem_wr32(rsc, base + l->cmd_enable, 0);
++	k60_modem_wr32(rsc, K60_MODEM_TCS_BASE + l->irq_clear, K60_MODEM_RSC_IRQ_DONE);
++	control = k60_modem_rd32(rsc, base + l->control) & ~(1u << 24);
++	k60_modem_wr32(rsc, base + l->control, control);
++	if (k60_modem_wait_word(rsc, base + l->control, 0xffffffffu, control, 1000)) {
++		return -1;
++	}
++	k60_modem_fence();
++	return rc;
++}
++
++/* Send AOP the modem load_state message, then vote the three rails Pong votes
++ * before PAS starts: cx.lvl and mss.lvl at corner 384, xo.lvl at 3. */
++int
++k60_modem_rails_vote(void)
++{
++	volatile uint8_t *aoss = NULL, *ipcc = NULL, *db = NULL, *rsc = NULL;
++	K60RpmhResource cx = { 0 }, mss = { 0 }, xo = { 0 };
++	uint32_t cx_index = 0, mss_index = 0, box = 0;
++	unsigned attempt;
++	uint32_t drv, caps, version, capacity;
++	K60RscLayout layout;
++	const char *why = "aoss map";
++
++	aoss = k60_modem_map(K60_MODEM_AOSS_BASE, K60_MODEM_AOSS_BYTES);
++	if (aoss == NULL) {
++		goto fail;
++	}
++	why = "ipcc map";
++	ipcc = k60_modem_map(K60_MODEM_IPCC_BASE, 0x1000);
++	if (ipcc == NULL) {
++		goto fail;
++	}
++	why = "qmp open";
++	/* qmp_open can spend up to 12 s in its four handshake phases; ten
++	 * attempts bound the wait at about two minutes instead of two hours. */
++	for (attempt = 0; attempt < 10u; attempt++) {
++		if (k60_modem_qmp_open(aoss, ipcc, &box) == 0) {
++			why = "qmp load_state";
++			if (k60_modem_qmp_load_state(aoss, ipcc, box) == 0) {
++				break;
++			}
++		}
++		delay(100000);
++	}
++	if (attempt == 10u) {
++		why = "qmp open/load_state";
++		goto fail;
++	}
++	why = "cmd-db map";
++	db = k60_modem_map(K60_CMD_DB_PHYS, K60_CMD_DB_BYTES);
++	if (db == NULL) {
++		goto fail;
++	}
++	why = "RSC map";
++	rsc = k60_modem_map(K60_RSC_DRV2_PHYS, K60_RSC_BYTES);
++	if (rsc == NULL) {
++		goto fail;
++	}
++	drv = k60_modem_rd32(rsc, 0);
++	caps = k60_modem_rd32(rsc, K60_MODEM_RSC_CAPS);
++	version = (drv >> 16) & 0xffu;
++	if (version != 2u) {
++		why = "RSC version";
++		goto fail;
++	}
++	layout = k60_rsc_layout(drv);
++	capacity = (caps >> 27) & 0x1fu;
++	if (((caps >> 12) & 0x3fu) < 8u || capacity < 1u) {
++		why = "RSC caps";
++		goto fail;
++	}
++	if (k60_modem_rd32(rsc, K60_MODEM_TCS4 + layout.status) == 0) {
++		why = "TCS4 unavailable";
++		goto fail;
++	}
++	if (k60_modem_find_rail(db, "cx.lvl", 384u, &cx, &cx_index) != K60RpmhOk) {
++		why = "cx.lvl";
++		goto fail;
++	}
++	if (k60_modem_find_rail(db, "mss.lvl", 384u, &mss, &mss_index) != K60RpmhOk) {
++		why = "mss.lvl";
++		goto fail;
++	}
++	/* Pong votes xo.lvl as the literal 3 and never converts it through the
++	 * cmd-db level table (PongModemRuntime.cpp:159); the XOB resource has no
++	 * level table, so an index conversion here would either fail or vote a
++	 * different value than the proven path. */
++	if (k60_cmd_db_find((const uint8_t *)(const void *)db, K60_CMD_DB_BYTES,
++	    "xo.lvl", &xo) != K60RpmhOk) {
++		why = "xo.lvl";
++		goto fail;
++	}
++	why = "cx.lvl vote";
++	if (k60_modem_vote_tcs4(rsc, &layout, cx.address, cx_index, capacity) != 0) {
++		goto fail;
++	}
++	why = "mss.lvl vote";
++	if (k60_modem_vote_tcs4(rsc, &layout, mss.address, mss_index, capacity) != 0) {
++		goto fail;
++	}
++	why = "xo.lvl vote";
++	if (k60_modem_vote_tcs4(rsc, &layout, xo.address, 3u, capacity) != 0) {
++		goto fail;
++	}
++	printf("K60MODEM power ok cx=%#x/%u mss=%#x/%u xo=%#x/%u\n",
++	    cx.address, cx_index, mss.address, mss_index, xo.address, 3u);
++	return 0;
++
++fail:
++	printf("K60MODEM power failed: %s\n", why);
++	return -1;
++}
++
++static int k60_qrtr_modem_ready(volatile uint8_t *smem, uint32_t offset,
++    uint32_t bytes, uint32_t *seen);
++static int k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
++    uint32_t desc_bytes, uint32_t tx_offset, uint32_t tx_bytes,
++    uint32_t rx_offset, uint32_t rx_bytes);
++
++int
++k60_modem_transport_prepare(void)
++{
++	K60Smem smem;
++	K60SmemPartition partition;
++	const uint16_t ids[3] = { K60_MODEM_SMP2P_OURS, K60_MODEM_GLINK_DESC,
++	    K60_MODEM_GLINK_OURS };
++	const uint32_t bytes[3] = { K60_MODEM_SMP2P_ITEM_WORDS * 4u, 32u,
++	    K60_MODEM_GLINK_TX_BYTES };
++	uint32_t offsets[3] = { 0, 0, 0 }, sizes[3] = { 0, 0, 0 };
++	uint32_t guard_offset = 0, guard_size = 0, guard_seen = 0;
++	volatile uint8_t *window, *mutex;
++	volatile uint32_t *out, *desc;
++	unsigned i;
++	int rc, locked = 0;
++
++	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
++	    K60_MODEM_SMEM_BYTES, 0x7);
++	if (window == NULL) {
++		printf("K60MODEM transport: smem map failed at %#x\n",
++		    K60_MODEM_SMEM_BASE);
++		return -1;
++	}
++	smem.base = window;
++	smem.size = K60_MODEM_SMEM_BYTES;
++	rc = k60_smem_partition(&smem, 0, 1, &partition);
++	if (rc != K60SmemOk) {
++		printf("K60MODEM transport: no modem smem partition rc=%d\n", rc);
++		return rc;
++	}
++	/* Pong refuses to reset a modem that still owns the inbound SMP2P
++	 * block. Read the old 435 state before touching 428 or the GLINK
++	 * descriptor so a stale modem is never silently overwritten. */
++	if (k60_smem_find(&smem, &partition, K60_MODEM_SMP2P_THEIRS,
++	    &guard_offset, &guard_size) == K60SmemOk &&
++	    k60_qrtr_modem_ready(window, guard_offset, guard_size, &guard_seen)) {
++		printf("K60MODEM transport: modem still owns smp2p entries=%u, refusing reset\n",
++		    guard_seen);
++		return -16;
++	}
++	/* The SMEM allocator is shared with the ADSP; take the TCSR SMEM
++	 * mutex 0x1f43000 exactly as Pong does around item allocation. */
++	mutex = (volatile uint8_t *)ml_io_map_unmappable(
++	    K60_MODEM_SMEM_MUTEX_BASE, 0x1000, 0x7);
++	if (mutex == NULL) {
++		printf("K60MODEM transport: smem mutex map failed\n");
++		return -1;
++	}
++	for (i = 0; i < 1000; i++) {
++		*(volatile uint32_t *)mutex = 1;
++		k60_modem_fence();
++		if (*(volatile uint32_t *)mutex == 1u) {
++			locked = 1;
++			break;
++		}
++		delay(10);
++	}
++	if (!locked) {
++		printf("K60MODEM transport: smem mutex timeout\n");
++		return -1;
++	}
++	for (i = 0; i < 3; i++) {
++		rc = k60_transport_item(&smem, &partition, ids[i], bytes[i],
++		    &offsets[i], &sizes[i]);
++		if (rc != K60SmemOk) {
++			*(volatile uint32_t *)mutex = 0;
++			k60_modem_fence();
++			printf("K60MODEM transport: item %u unavailable rc=%d\n",
++			    ids[i], rc);
++			return rc;
++		}
++	}
++	*(volatile uint32_t *)mutex = 0;
++	k60_modem_fence();
++	out = (volatile uint32_t *)(window + offsets[0]);
++	k60_smp2p_init_out(out);
++	k60_qrtr_smp2p_stop_entry = k60_smp2p_add_entry(out, "master-kernel");
++	k60_qrtr_smp2p_ipa_entry = k60_smp2p_add_entry(out, "ipa");
++	k60_qrtr_smp2p_out = out;
++	if (k60_qrtr_smp2p_stop_entry < 0 || k60_qrtr_smp2p_ipa_entry < 0) {
++		printf("K60MODEM transport: smp2p entries full\n");
++		return -1;
++	}
++	k60_smp2p_release_stop(out);
++	desc = (volatile uint32_t *)(window + offsets[1]);
++	/* Only the AP-owned indices are reset; desc[0]/desc[3] belong to the
++	 * remote and must stay intact so a live FIFO is never mistaken for fresh. */
++	desc[1] = 0;
++	desc[2] = 0;
++	k60_smp2p_barrier();
++	{
++		uint32_t rx_offset = 0, rx_size = 0;
++
++		if (k60_smem_find(&smem, &partition, K60_MODEM_GLINK_THEIRS,
++		    &rx_offset, &rx_size) == K60SmemOk) {
++			k60_qrtr_ipcc = (volatile uint8_t *)ml_io_map_unmappable(
++			    K60_MODEM_IPCC_BASE, 0x1000, 0x7);
++			if (k60_qrtr_ipcc == NULL) {
++				printf("K60MODEM transport: ipcc map failed\n");
++				return -1;
++			}
++			rc = k60_modem_glink_start(window, offsets[1], sizes[1],
++			    offsets[2], sizes[2], rx_offset, rx_size);
++			if (rc != 0) {
++				printf("K60MODEM transport: glink init rc=%d\n", rc);
++				return rc;
++			}
++		} else {
++			printf("K60MODEM transport: remote glink fifo absent, defer IPCRTR\n");
++		}
++	}
++	printf("K60MODEM transport ok smp2p=%#x/%u desc=%#x/%u tx=%#x/%u\n",
++	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
++	return 0;
++}
++
++/* True when the modem's SMP2P block says the modem is up and not fatal. */
++static int
++k60_qrtr_modem_ready(volatile uint8_t *smem, uint32_t offset, uint32_t bytes, uint32_t *seen)
++{
++	volatile uint32_t *words = (volatile uint32_t *)(smem + offset);
++	uint32_t count, total, valid, i, word;
++
++	if (bytes < 20 || words[0] != K60_MODEM_SMP2P_MAGIC || (words[1] & 0xffu) != 1u) {
++		return 0;
++	}
++	if (words[2] != 1u) {   /* local processor id: 1 is the modem */
++		return 0;
++	}
++	count = words[3];
++	total = count & 0xffffu;
++	valid = count >> 16;
++	if (total > 16 || valid > total || 20u + valid * 20u > bytes) {
++		return 0;
++	}
++	*seen = valid;
++	for (i = 0; i < valid; i++) {
++		const volatile uint32_t *entry = words + 5 + i * 5;
++		const uint32_t state = entry[4];
++		const uint32_t name[4] = {entry[0], entry[1], entry[2], entry[3]};
++		static const char wanted[16] = "slave-kernel";
++		int same = 1;
++		unsigned b;
++
++		for (word = 0; word < 4; word++) {
++			for (b = 0; b < 4; b++) {
++				if ((uint8_t)(name[word] >> (b * 8)) != (uint8_t)wanted[word * 4 + b]) {
++					same = 0;
++				}
++			}
++		}
++		if (same) {
++			return (state & 2u) != 0 && (state & 1u) == 0;
++		}
++	}
++	return 0;
++}
++
++/* Read-only guard used by k60_modem_bring_up before it copies an image or
++ * touches PAS. Pong refuses a stale modem at item 435 before PAS_INIT_IMAGE. */
++int
++k60_modem_transport_stale(void)
++{
++	K60Smem smem;
++	K60SmemPartition partition;
++	uint32_t offset = 0, size = 0, seen = 0;
++	volatile uint8_t *window;
++	int rc;
++
++	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
++	    K60_MODEM_SMEM_BYTES, 0x7);
++	if (window == NULL) {
++		printf("K60MODEM stale check: smem map failed\n");
++		return -1;
++	}
++	smem.base = window;
++	smem.size = K60_MODEM_SMEM_BYTES;
++	rc = k60_smem_partition(&smem, 0, 1, &partition);
++	if (rc != K60SmemOk) {
++		printf("K60MODEM stale check: no modem smem partition rc=%d\n", rc);
++		return -1;
++	}
++	rc = k60_smem_find(&smem, &partition, K60_MODEM_SMP2P_THEIRS, &offset, &size);
++	if (rc == K60SmemOk && k60_qrtr_modem_ready(window, offset, size, &seen)) {
++		printf("K60MODEM stale check: modem still owns smp2p entries=%u, refusing reset\n", seen);
++		return -16;
++	}
++	return 0;
++}
++
++/* Print the first unread GLINK message as eight little-endian words.
++ * A peer that has just booted writes nothing before our first VERSION, so at
++ * adopt the remote write index is the discriminator: zero means a clean ring,
++ * anything else means the ring still holds the previous session (the modem
++ * does not have to clear its own index when it reboots). */
++static void
++k60_qrtr_print_ring(const char *tag, const QcomGlinkFifo *tx,
++    const QcomGlinkFifo *rx)
++{
++	uint8_t m[32] = {0};
++	uint32_t w[8] = {0}, avail = 0, head = 0, tail = 0, b;
++
++	if (rx->data != NULL && rx->head != NULL && rx->tail != NULL) {
++		avail = k60m_glink_rx_avail(rx);
++		head = *rx->head;
++		tail = *rx->tail;
++		for (b = 0; b < 32u && b < avail; ++b) {
++			m[b] = rx->data[(tail + b) % rx->length];
++		}
++	}
++	for (b = 0; b < 8u; ++b) {
++		const uint32_t at = b * 4u;
++
++		w[b] = (uint32_t)m[at] | ((uint32_t)m[at + 1] << 8) |
++		    ((uint32_t)m[at + 2] << 16) | ((uint32_t)m[at + 3] << 24);
++	}
++	printf("K60MODEM qrtr: %s rx head=%u tail=%u avail=%u tx head=%u tail=%u cmd=%#x p1=%#x p2=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
++	    tag, head, tail, avail,
++	    tx->head != NULL ? (unsigned)*tx->head : 0u,
++	    tx->tail != NULL ? (unsigned)*tx->tail : 0u,
++	    (unsigned)(w[0] & 0xffffu), (unsigned)(w[0] >> 16), w[1], w[2], w[3],
++	    w[4], w[5], w[6], w[7]);
++}
++
++/* Adopt the AP-owned GLINK pair and open IPCRTR as the initiator. Pong does
++ * this after PAS_INIT_IMAGE and before PAS_MEM_SETUP, not after AUTH. */
++static int
++k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
++    uint32_t desc_bytes, uint32_t tx_offset, uint32_t tx_bytes,
++    uint32_t rx_offset, uint32_t rx_bytes)
++{
++	volatile uint32_t *desc;
++	QcomGlinkFifo tx, rx;
++	const QcomGlinkClient callbacks = {k60_qrtr_state_cb, k60_qrtr_receive_cb};
++	int rc;
++
++	if (desc_bytes != 32 || tx_bytes < 1024 || rx_bytes < 1024) {
++		printf("K60MODEM glink: geometry wrong desc=%u tx=%u rx=%u\n",
++		    desc_bytes, tx_bytes, rx_bytes);
++		return -1;
++	}
++	desc = (volatile uint32_t *)(window + desc_offset);
++	/* The AP-owned indices are cleared by transport_prepare after the item
++	 * 435 stale check; this function no longer pretends to gate freshness. */
++	tx.head = &desc[1];
++	tx.tail = &desc[0];
++	tx.data = (volatile uint8_t *)(window + tx_offset);
++	tx.length = tx_bytes;
++	rx.head = &desc[3];
++	rx.tail = &desc[2];
++	rx.data = (volatile uint8_t *)(window + rx_offset);
++	rx.length = rx_bytes;
++	rc = k60m_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
++	if (rc != QcomGlinkOk) {
++		printf("K60MODEM glink: adopt rc=%d\n", rc);
++		return rc;
++	}
++	/* A peer that has just booted writes nothing before our first
++	 * VERSION, so the ring is clean exactly when its head is zero. */
++	k60_qrtr_print_ring("glink adopt (transport)", &tx, &rx);
++	k60_qrtr_channel = k60m_glink_channel(&k60_qrtr_link, "IPCRTR",
++	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
++	    &callbacks, NULL, 1);
++	if (k60_qrtr_channel == NULL) {
++		printf("K60MODEM glink: no channel slot for IPCRTR\n");
++		return -1;
++	}
++	k60_qrtr_glink_ready = 1;
++	printf("K60MODEM glink: IPCRTR opened as initiator\n");
++	return 0;
++}
++
++int
++k60_modem_qrtr_probe(void)
++{
++	K60Smem smem;
++	K60SmemPartition partition;
++	uint32_t offsets[4] = {0, 0, 0, 0}, sizes[4] = {0, 0, 0, 0};
++	const uint32_t items[4] = {K60_MODEM_GLINK_DESC, K60_MODEM_GLINK_OURS,
++	    K60_MODEM_GLINK_THEIRS, K60_MODEM_SMP2P_THEIRS};
++	volatile uint8_t *window;
++	volatile uint32_t *desc;
++	QcomGlinkFifo tx, rx;
++	const QcomGlinkClient callbacks = {k60_qrtr_state_cb, k60_qrtr_receive_cb};
++	uint32_t i, seen = 0;
++	int enabled = 0, qrtr_mode = 2, rc, bridge_reported = 0, ready_reported = 0;
++
++	if (!PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled)) || enabled < 2) {
++		return 0;   /* default: not one byte is touched */
++	}
++	/* k43: pong_qrtr selects what the probe says after the handshake, so one
++	 * image can tell whether our own requests silence the modem. 0 = HELLO
++	 * probes only, 1 = HELLO plus lookups, 2 = lookups and the fixed DMS port. */
++	if (!PE_parse_boot_argn("pong_qrtr", &qrtr_mode, sizeof(qrtr_mode))) {
++		qrtr_mode = 2;
++	}
++	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
++	    K60_MODEM_SMEM_BYTES, 0x7);
++	if (window == NULL) {
++		printf("K60MODEM qrtr: smem map failed at %#x\n", K60_MODEM_SMEM_BASE);
++		return -1;
++	}
++	k60_qrtr_ipcc = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_IPCC_BASE, 0x1000, 0x7);
++	if (k60_qrtr_ipcc == NULL) {
++		printf("K60MODEM qrtr: ipcc map failed at %#x\n", K60_MODEM_IPCC_BASE);
++		return -1;
++	}
++	smem.base = window;
++	smem.size = K60_MODEM_SMEM_BYTES;
++	rc = k60_smem_partition(&smem, 0, 1, &partition);
++	if (rc != K60SmemOk) {
++		printf("K60MODEM qrtr: no modem smem partition rc=%d\n", rc);
++		return -1;
++	}
++	/* 478/479 are AP-owned and must exist now. 480 and 435 are created by
++	 * the modem during its own boot; wait for both instead of failing the
++	 * cold boot before the readiness poll. */
++	for (i = 0; i < 2; i++) {
++		rc = k60_smem_find(&smem, &partition, (uint16_t)items[i], &offsets[i], &sizes[i]);
++		if (rc != K60SmemOk) {
++			printf("K60MODEM qrtr: smem item %u missing rc=%d\n", items[i], rc);
++			return -1;
++		}
++	}
++	for (i = 0; i < K60_QRTR_READY_POLLS; i++) {
++		if (sizes[2] == 0) {
++			(void)k60_smem_find(&smem, &partition, (uint16_t)items[2],
++			    &offsets[2], &sizes[2]);
++		}
++		rc = k60_smem_find(&smem, &partition, (uint16_t)items[3],
++		    &offsets[3], &sizes[3]);
++		if (rc == K60SmemOk && (i % 500u) == 0u) {
++			/* Which comes first: the modem-created glink fifo or the
++			 * smp2p readiness item?  k37 and k38 opened the channel only
++			 * after both, and by then most QRTR registrations were gone;
++			 * the gap decides whether opening earlier is even possible. */
++			printf("K60MODEM qrtr: ready wait %u ms fifo=%u smp2p=%u items=%u\n",
++			    (unsigned)(i * K60_QRTR_POLL_US / 1000u),
++			    sizes[2], rc == K60SmemOk ? 1u : 0u, seen);
++		}
++		if (sizes[2] != 0) {
++			/* k40 measured the gap between the glink fifo (item 480) and
++			 * the smp2p readiness item (435).  k41 opens IPCRTR as soon as
++			 * the fifo exists, so the channel is up before the modem
++			 * registers its QMI services; readiness is reported below and
++			 * polled again inside the QRTR loop. */
++			break;
++		}
++		delay(K60_QRTR_POLL_US);
++	}
++	if (i == K60_QRTR_READY_POLLS) {
++		printf("K60MODEM qrtr: modem not ready after %u ms (smp2p items=%u)\n",
++		    K60_QRTR_READY_POLLS * K60_QRTR_POLL_US / 1000u, seen);
++		return -2;
++	}
++	if (sizes[2] == 0) {
++		printf("K60MODEM qrtr: remote glink fifo item %u missing after %u ms\n",
++		    items[2], K60_QRTR_READY_POLLS * K60_QRTR_POLL_US / 1000u);
++		return -2;
++	}
++	printf("K60MODEM qrtr: glink desc=%#x/%u ours=%#x/%u theirs=%#x/%u\n",
++	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
++	ready_reported = (k60_smem_find(&smem, &partition, (uint16_t)items[3],
++	    &offsets[3], &sizes[3]) == K60SmemOk &&
++	    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen));
++	if (ready_reported) {
++		printf("K60MODEM qrtr: modem ready (smp2p items=%u)\n", seen);
++	} else {
++		printf("K60MODEM qrtr: fifo at %u ms, smp2p not ready yet; opening IPCRTR early\n",
++		    (unsigned)(i * K60_QRTR_POLL_US / 1000u));
++	}
++	if (!k60_qrtr_glink_ready) {
++		if (sizes[0] != 32 || sizes[1] < 1024 || sizes[2] < 1024) {
++			printf("K60MODEM qrtr: glink geometry wrong desc=%u ours=%u theirs=%u\n",
++			    sizes[0], sizes[1], sizes[2]);
++			return -1;
++		}
++		desc = (volatile uint32_t *)(window + offsets[0]);
++		/* A live Android epoch owns these indices; we never reset them. A
++		 * fresh epoch has our head and its tail at zero, which is what we adopt. */
++		if (desc[1] != 0 || desc[2] != 0) {
++			printf("K60MODEM qrtr: glink fifo not fresh (our_head=%u their_tail=%u), not adopted\n",
++			    desc[1], desc[2]);
++			return -1;
++		}
++		tx.head = &desc[1];
++		tx.tail = &desc[0];
++		tx.data = (volatile uint8_t *)(window + offsets[1]);
++		tx.length = sizes[1];
++		rx.head = &desc[3];
++		rx.tail = &desc[2];
++		rx.data = (volatile uint8_t *)(window + offsets[2]);
++		rx.length = sizes[2];
++		rc = k60m_glink_adopt(&k60_qrtr_link, tx, rx, k60_qrtr_kick, NULL);
++		if (rc != QcomGlinkOk) {
++			printf("K60MODEM qrtr: glink adopt rc=%d\n", rc);
++			return -1;
++		}
++		/* This is the path a B flight takes: transport_prepare defers
++		 * IPCRTR when the modem has not published item 480 yet. The ring
++		 * may still hold the previous session, and the modem's write
++		 * index is not ours to clear, so a non-zero head here cannot be
++		 * a reply to anything we have sent - drop it instead of replaying
++		 * another session's handshake as if it were ours. */
++		k60_qrtr_print_ring("glink adopt (probe)", &tx, &rx);
++		if (*rx.head != 0u) {
++			const uint32_t stale = k60m_glink_rx_avail(&rx);
++
++			*rx.tail = *rx.head;
++			k60_modem_fence();
++			printf("K60MODEM qrtr: glink adopt dropped %u stale bytes (head=%u)\n",
++			    stale, (unsigned)*rx.head);
++		}
++		k60_qrtr_channel = k60m_glink_channel(&k60_qrtr_link, "IPCRTR",
++		    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
++		    &callbacks, NULL, 1);
++		if (k60_qrtr_channel == NULL) {
++			printf("K60MODEM qrtr: no channel slot for IPCRTR\n");
++			return -1;
++		}
++	} else {
++		printf("K60MODEM qrtr: GLINK already opened by transport\n");
++	}
++	printf("K60MODEM qrtr: opening IPCRTR as initiator\n");
++	bridge_reported = coachz_baseband_enabled() != 0;
++	printf("K60MODEM baseband: bridge %s\n",
++	    bridge_reported ? "enabled" : "disabled");
++	coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
++	for (i = 0; i < K60_QRTR_POLLS; i++) {
++		const int polls = k60m_glink_poll(&k60_qrtr_link);
++
++		if (polls < 0) {
++			/* QcomGlinkCorrupt leaves the offending message at the head of the
++			 * RX ring (receive_one peeks, never advances, and stop() keeps the
++			 * FIFO). Snapshot it so a single flight identifies the branch. */
++			const QcomGlinkFifo *rx = &k60_qrtr_link.rx;
++			uint32_t avail = rx->data != NULL ? k60m_glink_rx_avail(rx) : 0u;
++			uint32_t head = rx->head != NULL ? *rx->head : 0u;
++			uint32_t tail = rx->tail != NULL ? *rx->tail : 0u;
++			uint8_t m[32] = {0};
++			uint32_t w[8], b;
++
++			/* rx_peek() reads from the tail; head is the modem's write
++			 * index, so sampling there shows unused ring bytes (k30 did
++			 * exactly that and printed cmd=0 p1=0 p2=0). */
++			for (b = 0; b < 32u && b < avail && rx->data != NULL; ++b) {
++				m[b] = rx->data[(tail + b) % rx->length];
++			}
++			for (b = 0; b < 8u; ++b) {
++				const uint32_t at = b * 4u;
++
++				w[b] = (uint32_t)m[at] | ((uint32_t)m[at + 1] << 8) |
++				    ((uint32_t)m[at + 2] << 16) | ((uint32_t)m[at + 3] << 24);
++			}
++			printf("K60MODEM qrtr: glink poll rc=%d at %u rx avail=%u head=%u tail=%u tx head=%u tx tail=%u cmd=%#x p1=%#x p2=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
++			    polls, i, avail, head, tail,
++			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
++			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u,
++			    (unsigned)(w[0] & 0xffffu), (unsigned)(w[0] >> 16), w[1],
++			    w[2], w[3], w[4], w[5], w[6], w[7]);
++			return polls;
++		}
++		coachz_baseband_poll();
++		if (i != 0u && i % 2500u == 0u) {
++			unsigned rbusy = 0, rvalid = 0, ladvertised = 0, lcount = 0;
++			unsigned lbusy = 0, ldone = 0;
++			uint32_t rxavail = 0, rxhead = 0, rxtail = 0;
++
++			k60_qrtr_intent_counts(&rbusy, &rvalid, &ladvertised, &lcount,
++			    &lbusy, &ldone);
++			if (k60_qrtr_link.rx.head != NULL && k60_qrtr_link.rx.tail != NULL) {
++				rxavail = k60m_glink_rx_avail(&k60_qrtr_link.rx);
++				rxhead = (unsigned)*k60_qrtr_link.rx.head;
++				rxtail = (unsigned)*k60_qrtr_link.rx.tail;
++			}
++			/* tx.tail is the modem's read index: a value that trails our
++			 * head means it consumed what we sent; one that never moves
++			 * means the DATA never left the ring. */
++			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u replies=%u rmtfs=%u ipa=%#x\n",
++			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
++			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
++			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
++			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u,
++			    rxavail, rxhead, rxtail, rbusy, rvalid, ladvertised, lcount,
++			    lbusy, ldone,
++			    k60_qrtr_link.rx_messages, k60_qrtr_link.tx_messages,
++			    k60_qrtr_link.dropped,
++			    k60_qrtr_rx_cmds[1], k60_qrtr_rx_cmds[2], k60_qrtr_rx_cmds[3],
++			    k60_qrtr_rx_cmds[4], k60_qrtr_lookup_replies,
++			    k60_qrtr_rmtfs_requests, k60_qrtr_ipa_state);
++			if (i == 2500u) {
++				k60_qrtr_dump_intents();
++			}
++			if (!ready_reported &&
++			    k60_smem_find(&smem, &partition, (uint16_t)items[3],
++			    &offsets[3], &sizes[3]) == K60SmemOk &&
++			    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
++				ready_reported = 1;
++				printf("K60MODEM qrtr: modem ready (smp2p items=%u) at %u s\n",
++				    seen, i / 500u);
++			}
++		}
++		/* The ipa entry is a question, not a state: the modem raises bit 0 to
++		 * ask whether the AP retains the IPA clock, and the answer is bit 0
++		 * (complete) plus bit 1 (vote) written into our own entry
++		 * (PongModemControl.cpp:139-147). Nothing here answered it, and a modem
++		 * that never receives the answer has no reason to bring the rest of its
++		 * stack up. Answer 1 first: complete, with no clock claim, because IPA
++		 * votes its own clock when it starts. */
++		if (k60_qrtr_smp2p_ipa_entry >= 0 && k60_qrtr_smp2p_out != NULL &&
++		    k60_smem_find(&smem, &partition, (uint16_t)items[3],
++		    &offsets[3], &sizes[3]) == K60SmemOk &&
++		    k60_smp2p_find((volatile uint32_t *)(window + offsets[3]), sizes[3],
++		    "ipa", &k60_qrtr_ipa_state) &&
++		    (k60_qrtr_ipa_state & 1u) != 0u && !k60_qrtr_ipa_replied) {
++			++k60_qrtr_ipa_queries;
++			k60_qrtr_ipa_replied = 1;
++			k60_smp2p_update(k60_qrtr_smp2p_out, k60_qrtr_smp2p_ipa_entry,
++			    3u, K60_QRTR_IPA_ANSWER);
++			k60_smp2p_barrier();
++			printf("K60MODEM qrtr: ipa query=%#x reply=%#x at %u s\n",
++			    k60_qrtr_ipa_state, K60_QRTR_IPA_ANSWER, i / 500u);
++		}
++		/* k42: the modem answers HELLO even when it ignores every lookup, so a
++		 * repeated HELLO is the only liveness probe we have. A count that keeps
++		 * rising while tx tail stands still proves the tail is not the modem's
++		 * read pointer; one that stops proves the modem really went quiet. */
++		/* Mode 3 is the quiet control: one HELLO and then silence, so the next
++		 * flight shows whether our own periodic traffic is what silences the
++		 * modem about forty seconds in. */
++		if (qrtr_mode != 3 && k60_qrtr_hello_sent && i != 0u && i % 5000u == 0u) {
++			uint8_t probe[K60_QRTR_LOOKUP_BYTES];
++
++			if (k60_qrtr_build_hello(probe, sizeof(probe)) != 0) {
++				const int probe_rc = k60m_glink_send(&k60_qrtr_link,
++				    k60_qrtr_channel, probe, K60_QRTR_LOOKUP_BYTES);
++
++				if (probe_rc == QcomGlinkOk) {
++					++k60_qrtr_hello_probes;
++					printf("K60MODEM qrtr: hello probe #%u, acks=%u\n",
++					    k60_qrtr_hello_probes, k60_qrtr_state.hello_acks);
++				} else if (probe_rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: hello probe rc=%d\n", probe_rc);
++				}
++			}
++		}
++		if (i != 0u && i % 500u == 0u) {
++			/* QcomBaseband defers publication when IOResources is not ready;
++			 * retry once a second instead of latching the first failure. */
++			coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
++			coachz_baseband_report(i / 500u);
++			/* The bridge state is printed once before the loop, before the
++			 * provider can publish. Announce the transition too, or a late
++			 * publication is invisible to the S6 criterion. */
++			if (!bridge_reported && coachz_baseband_enabled()) {
++				bridge_reported = 1;
++				printf("K60MODEM baseband: bridge enabled (poll %u)\n", i);
++			}
++		}
++		if (k60_qrtr_up && !k60_qrtr_hello_sent) {
++			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
++
++			if (k60_qrtr_build_hello(packet, sizeof(packet)) != 0) {
++				const int send_rc = k60m_glink_send(&k60_qrtr_link,
++				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
++
++				if (send_rc == QcomGlinkOk) {
++					k60_qrtr_hello_sent = 1;
++					printf("K60MODEM qrtr: sent hello from node %u port %#x mode=%d\n",
++					    K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT, qrtr_mode);
++				} else if (send_rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: hello send rc=%d\n", send_rc);
++					return send_rc;
++				}
++			}
++		}
++		/* Pong starts the modem only after its storage service answers; the
++		 * modem may be waiting for exactly that before it brings its QMI
++		 * stack up. Announce the service and log whatever it asks. */
++		if (k60_qrtr_server_sent && !k60_qrtr_rmtfs_sent) {
++			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
++			uint32_t rmtfs_node = k60_qrtr_state.remote_node;
++
++			if (rmtfs_node == K60_QRTR_CONTROL_PORT ||
++			    rmtfs_node == K60_QRTR_AP_NODE) {
++				rmtfs_node = K60_QRTR_BROADCAST_NODE;
++			}
++			if (k60_qrtr_build_new_server(packet, sizeof(packet),
++			    K60_QRTR_RMTFS_SERVICE, K60_QRTR_RMTFS_INSTANCE,
++			    rmtfs_node, K60_QRTR_RMTFS_PORT) != 0) {
++				const int send_rc = k60m_glink_send(&k60_qrtr_link,
++				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
++
++				if (send_rc == QcomGlinkOk) {
++					k60_qrtr_rmtfs_sent = 1;
++					printf("K60MODEM qrtr: announced rmtfs service %u instance %u port %#x\n",
++					    K60_QRTR_RMTFS_SERVICE, K60_QRTR_RMTFS_INSTANCE,
++					    K60_QRTR_RMTFS_PORT);
++				} else if (send_rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: rmtfs announce rc=%d\n", send_rc);
++					return send_rc;
++				}
++			}
++		}
++		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
++		    !k60_qrtr_server_sent) {
++			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
++			uint32_t to_node = k60_qrtr_state.remote_node;
++
++			if (to_node == K60_QRTR_CONTROL_PORT || to_node == K60_QRTR_AP_NODE) {
++				to_node = K60_QRTR_BROADCAST_NODE;
++			}
++			if (k60_qrtr_build_new_server(packet, sizeof(packet),
++			    K60_QRTR_SERVLOC_SERVICE, K60_QRTR_SERVLOC_INSTANCE,
++			    to_node, K60_QRTR_LOCATOR_PORT) != 0) {
++				const int send_rc = k60m_glink_send(&k60_qrtr_link,
++				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
++
++				if (send_rc == QcomGlinkOk) {
++					k60_qrtr_server_sent = 1;
++					printf("K60MODEM qrtr: announced servloc service %u instance %#x port %#x\n",
++					    K60_QRTR_SERVLOC_SERVICE, K60_QRTR_SERVLOC_INSTANCE,
++					    K60_QRTR_LOCATOR_PORT);
++				} else if (send_rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: servloc announce rc=%d\n", send_rc);
++					return send_rc;
++				}
++			}
++		}
++		/* k36 saw two spontaneous registrations (service 66 and 0x2b) and no
++		 * answer to the unicast lookup within ten seconds; k37 asked twice in
++		 * sixty seconds and still heard nothing. Keep asking for four minutes,
++		 * alternating an all-services query with a DMS-targeted one, because a
++		 * service that registers at the fourth minute is still a service. */
++		/* The reference registers the heap share service right after storage, so
++		 * the modem sees the same three services Pong offers. */
++		if (k60_qrtr_rmtfs_sent && !k60_qrtr_memshare_sent) {
++			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
++			uint32_t memshare_node = k60_qrtr_state.remote_node;
++
++			if (memshare_node == K60_QRTR_CONTROL_PORT ||
++			    memshare_node == K60_QRTR_AP_NODE) {
++				memshare_node = K60_QRTR_BROADCAST_NODE;
++			}
++			if (k60_qrtr_build_new_server(packet, sizeof(packet),
++			    K60_MEMSHARE_SERVICE, K60_MEMSHARE_INSTANCE,
++			    memshare_node, K60_MEMSHARE_PORT) != 0) {
++				const int send_rc = k60m_glink_send(&k60_qrtr_link,
++				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
++
++				if (send_rc == QcomGlinkOk) {
++					k60_qrtr_memshare_sent = 1;
++					printf("K60MODEM qrtr: announced memshare service %u instance %u port %#x\n",
++					    K60_MEMSHARE_SERVICE, K60_MEMSHARE_INSTANCE,
++					    K60_MEMSHARE_PORT);
++				} else if (send_rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: memshare announce rc=%d\n", send_rc);
++					return send_rc;
++				}
++			}
++		}
++		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
++		    (qrtr_mode == 1 || qrtr_mode == 2) &&
++		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
++		    i >= (int)k60_qrtr_lookup_next) {
++			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
++			const uint32_t to_node = ((k60_qrtr_lookup_count & 1u) != 0u) ?
++			    K60_QRTR_BROADCAST_NODE : 0u;
++			const uint32_t to_port = K60_QRTR_NS_PORT;
++			uint32_t built;
++			uint32_t service = 0;
++			uint32_t instance = 0;
++
++			if ((k60_qrtr_lookup_count & 1u) != 0u) {
++				service = K60_QRTR_DMS_SERVICE;
++				instance = 0;
++			}
++			built = k60_qrtr_build_lookup_at(packet, sizeof(packet),
++			    to_node, to_port, service, instance);
++			if (built != 0) {
++				const int send_rc = k60m_glink_send(&k60_qrtr_link,
++				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
++
++				if (send_rc == QcomGlinkOk) {
++					k60_qrtr_lookup_sent = 1;
++					++k60_qrtr_lookup_count;
++					k60_qrtr_lookup_next = (unsigned)i + K60_QRTR_LOOKUP_PERIOD;
++					printf("K60MODEM qrtr: sent new_lookup (0x0a) #%u service %u to node %u port %u\n",
++					    k60_qrtr_lookup_count, service, to_node, to_port);
++				} else if (send_rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: lookup send rc=%d\n", send_rc);
++					return send_rc;
++				}
++			}
++		}
++		if (k60_qrtr_lookup_sent && k60_qrtr_state.dms_found &&
++		    !k60_qrtr_dms_requested) {
++			uint8_t query[K60_QMI_HEADER];
++			uint16_t transaction = ++k60_qrtr_dms_transaction;
++
++			if (transaction == 0) {
++				transaction = ++k60_qrtr_dms_transaction;
++			}
++			if (k60_qmi_build_dms_revision(query, sizeof(query), transaction) != 0) {
++				k60_qrtr_state.dms_transaction = transaction;
++				rc = k60_qrtr_send_data_packet(K60_QRTR_DMS_PORT,
++				    k60_qrtr_state.dms_node, k60_qrtr_state.dms_port,
++				    query, sizeof(query));
++				if (rc == QcomGlinkOk) {
++					k60_qrtr_dms_requested = 1;
++					k60_qrtr_state.dms_sent = 1;
++					printf("K60MODEM qrtr: sent dms get_revision to node %u port %u txn %u\n",
++					    k60_qrtr_state.dms_node, k60_qrtr_state.dms_port,
++					    transaction);
++				} else if (rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: dms send rc=%d\n", rc);
++					return rc;
++				}
++			}
++		}
++		/* k37 answered no lookup and announced only two services in sixty
++		 * seconds: the modem's QMI services registered during bring-up, when
++		 * nothing was listening on the AP side. Fall back to the port the
++		 * Android inventory recorded for DMS on this very device (01-ANDROID-
++		 * INVENTORY.md 5.4.1: service 2, node 0, port 96). */
++		if (k60_qrtr_hello_sent && !k60_qrtr_state.dms_found &&
++		    qrtr_mode == 2 && k60_qrtr_static_count < K60_QRTR_STATIC_MAX &&
++		    i >= (int)k60_qrtr_static_next) {
++			uint8_t query[K60_QMI_HEADER];
++			uint16_t transaction = ++k60_qrtr_dms_transaction;
++
++			if (transaction == 0) {
++				transaction = ++k60_qrtr_dms_transaction;
++			}
++			k60_qrtr_state.dms_node = 0;
++			k60_qrtr_state.dms_port = K60_QRTR_DMS_STATIC_PORT;
++			if (k60_qmi_build_dms_revision(query, sizeof(query), transaction) != 0) {
++				k60_qrtr_state.dms_transaction = transaction;
++				rc = k60_qrtr_send_data_packet(K60_QRTR_DMS_PORT, 0,
++				    K60_QRTR_DMS_STATIC_PORT, query, sizeof(query));
++				if (rc == QcomGlinkOk) {
++					k60_qrtr_state.dms_static = 1;
++					k60_qrtr_dms_requested = 1;
++					k60_qrtr_state.dms_sent = 1;
++					++k60_qrtr_static_count;
++					k60_qrtr_static_next = (unsigned)i + K60_QRTR_STATIC_PERIOD;
++					printf("K60MODEM qrtr: sent dms get_revision (static) #%u to node 0 port %u txn %u\n",
++					    k60_qrtr_static_count, K60_QRTR_DMS_STATIC_PORT,
++					    transaction);
++				} else if (rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: dms static send rc=%d\n", rc);
++					return rc;
++				}
++			}
++		}
++		rc = k60_qrtr_flush_replies();
++		if (rc != 0) {
++			printf("K60MODEM qrtr: reply send rc=%d at %u\n", rc, i);
++			return rc;
++		}
++		if (k60_qrtr_lookup_sent && k60_qrtr_state.dms_answered &&
++		    k60_qrtr_verdict(&k60_qrtr_state)) {
++			break;
++		}
++		delay(K60_QRTR_POLL_US);
++	}
++	printf("K60MODEM qrtr: verdict %s services=%u node0=%u wanted=%u malformed=%u locator=%u dms=%s polls=%u\n",
++	    k60_qrtr_verdict(&k60_qrtr_state) ? "ok" : "no reply",
++	    k60_qrtr_state.services, k60_qrtr_state.from_node0, k60_qrtr_state.wanted,
++	    k60_qrtr_state.malformed, k60_qrtr_state.locator_requests,
++	    k60_qrtr_state.dms_answered ? k60_qrtr_state.revision : "none", i);
++	if (!k60_qrtr_verdict(&k60_qrtr_state)) {
++		return -2;
++	}
++	if (!k60_qrtr_state.dms_answered) {
++		printf("K60MODEM qrtr: dms revision missing after %u ms (errors=%u)\n",
++		    K60_QRTR_POLLS * K60_QRTR_POLL_US / 1000u,
++		    k60_qrtr_state.dms_errors);
++		return -2;
++	}
++	return 0;
++}
++
++#endif /* K60_HOST_TEST */
+diff --git a/bsd/dev/pong_modem_rmtfs.h b/bsd/dev/pong_modem_rmtfs.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_rmtfs.h
+@@ -0,0 +1,70 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* RMTFS: the storage service the modem asks for its EFS images before its RF
++ * and QMI stack can start. Pong blocks PAS_INIT_IMAGE until its native RFS
++ * storage is ready for exactly this reason (PongModemRuntime.cpp:271-277) and
++ * serves four images over QMI v1 service 14 (PongModemRmtfs.h:1-13).
++ *
++ * The wire layout follows linux-msm/rmtfs and the reference:
++ *   1 open   -- TLV 1 is the image path, the reply carries the storage id;
++ *   2 close  -- TLV 1 is the id;
++ *   3 rw     -- TLV 2 direction, TLV 3 the scatter list, TLV 4 force;
++ *   4 alloc  -- TLV 1 id, TLV 2 the size of the shared buffer;
++ *   5 sync   -- TLV 1 id, acknowledged with one zero byte.
++ * This file is protocol only: no buffer, no UFS, no SCM, so the kernel and the
++ * host test share one implementation of the parts that can be wrong on paper.
++ */
++#ifndef K60_MODEM_RMTFS_H
++#define K60_MODEM_RMTFS_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60_RMTFS_MAX_PATH 64u
++#define K60_RMTFS_MAX_VECS 8u
++#define K60_RMTFS_STORAGE_COUNT 4u
++#define K60_RMTFS_BLOCK 512u
++
++/* QMI v1 message numbers on service 14, in the order the reference
++ * dispatches them (PongModemRmtfs.h:84-145). */
++#define K60_RMTFS_OPEN 1u
++#define K60_RMTFS_CLOSE 2u
++#define K60_RMTFS_RW 3u
++#define K60_RMTFS_ALLOC 4u
++#define K60_RMTFS_SYNC 5u
++
++typedef struct {
++	uint32_t block_offset;
++	uint32_t physical;
++	uint32_t block_length;
++} K60RmtfsVec;
++
++typedef struct {
++	uint16_t message;
++	uint16_t transaction;
++	uint32_t storage;
++	uint32_t direction;
++	uint32_t force;
++	uint32_t alloc_bytes;
++	char path[K60_RMTFS_MAX_PATH];
++	size_t path_length;
++	size_t vectors;
++	K60RmtfsVec table[K60_RMTFS_MAX_VECS];
++} K60RmtfsRequest;
++
++/* Parses one request. Returns 0 when every field the message defines is
++ * present and well formed, -1 otherwise; a rejected request still carries the
++ * message number and transaction so the caller can answer with result 2. */
++int k60_rmtfs_parse(const void *bytes, size_t length, K60RmtfsRequest *out);
++
++/* Builds the response: a seven byte header, the four byte result TLV and,
++ * when the reference answers with one, the value TLV (type 0x10). */
++uint32_t k60_rmtfs_build_reply(uint8_t *out, size_t cap, uint16_t message,
++    uint16_t transaction, uint16_t result, const void *value, size_t value_bytes);
++
++/* Validates every scatter entry against one image and the shared window: the
++ * offsets and lengths count 512-byte blocks, and the physical address must lie
++ * inside the window the modem was given. Returns 0 when all entries fit. */
++int k60_rmtfs_check_vectors(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes);
++
++#endif /* K60_MODEM_RMTFS_H */
+diff --git a/bsd/dev/pong_modem_rmtfs.c b/bsd/dev/pong_modem_rmtfs.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_rmtfs.c
+@@ -0,0 +1,225 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#include "pong_modem_rmtfs.h"
++
++#include <string.h>
++
++#define K60_RMTFS_TYPE_REQUEST 0u
++#define K60_RMTFS_TYPE_RESPONSE 2u
++#define K60_RMTFS_TLV_RESULT 0x02u
++#define K60_RMTFS_TLV_VALUE 0x10u
++
++static uint16_t
++le16(const uint8_t *at)
++{
++	return (uint16_t)(at[0] | (uint16_t)at[1] << 8);
++}
++
++static uint32_t
++le32(const uint8_t *at)
++{
++	return (uint32_t)le16(at) | (uint32_t)le16(at + 2) << 16;
++}
++
++static void
++put16(uint8_t *at, uint16_t value)
++{
++	at[0] = (uint8_t)value;
++	at[1] = (uint8_t)(value >> 8);
++}
++
++/* One TLV walk over the region that starts after the seven byte header. */
++static const uint8_t *
++tlv(const uint8_t *tlvs, size_t length, uint8_t type, size_t *size)
++{
++	size_t at = 0;
++
++	while (at + 3 <= length) {
++		const uint8_t kind = tlvs[at];
++		const size_t span = le16(tlvs + at + 1);
++
++		if (at + 3 + span > length) {
++			return NULL;
++		}
++		if (kind == type) {
++			if (size != NULL) {
++				*size = span;
++			}
++			return tlvs + at + 3;
++		}
++		at += 3 + span;
++	}
++	return NULL;
++}
++
++static int
++take_word(const uint8_t *tlvs, size_t length, uint8_t type, uint32_t *out)
++{
++	size_t size = 0;
++	const uint8_t *field = tlv(tlvs, length, type, &size);
++
++	if (field == NULL || size != 4) {
++		return -1;
++	}
++	*out = le32(field);
++	return 0;
++}
++
++static int
++take_byte(const uint8_t *tlvs, size_t length, uint8_t type, uint32_t *out)
++{
++	size_t size = 0;
++	const uint8_t *field = tlv(tlvs, length, type, &size);
++
++	if (field == NULL || size != 1) {
++		return -1;
++	}
++	*out = field[0];
++	return 0;
++}
++
++int
++k60_rmtfs_parse(const void *bytes, size_t length, K60RmtfsRequest *out)
++{
++	const uint8_t *p = (const uint8_t *)bytes;
++	const uint8_t *tlvs;
++	size_t region;
++	size_t span = 0;
++	const uint8_t *field;
++	int rc = 0;
++
++	if (bytes == NULL || out == NULL || length < 7) {
++		return -1;
++	}
++	memset(out, 0, sizeof(*out));
++	if (p[0] != K60_RMTFS_TYPE_REQUEST) {
++		return -1;
++	}
++	out->transaction = le16(p + 1);
++	out->message = le16(p + 3);
++	region = le16(p + 5);
++	if (region > length - 7) {
++		return -1;
++	}
++	tlvs = p + 7;
++	switch (out->message) {
++	case K60_RMTFS_OPEN: {
++		field = tlv(tlvs, region, 1, &span);
++		if (field == NULL || span == 0 || span > K60_RMTFS_MAX_PATH) {
++			return -1;
++		}
++		if (field[span - 1] == 0) {
++			span--;
++		}
++		memcpy(out->path, field, span);
++		out->path_length = span;
++		break;
++	}
++	case K60_RMTFS_CLOSE:
++	case K60_RMTFS_SYNC:
++		rc = take_word(tlvs, region, 1, &out->storage);
++		break;
++	case K60_RMTFS_RW: {
++		size_t list_size = 0;
++		const uint8_t *list;
++
++		if (take_byte(tlvs, region, 2, &out->direction) != 0 ||
++		    take_byte(tlvs, region, 4, &out->force) != 0 ||
++		    take_word(tlvs, region, 1, &out->storage) != 0) {
++			rc = -1;
++			break;
++		}
++		list = tlv(tlvs, region, 3, &list_size);
++		if (list == NULL || list_size < 1) {
++			rc = -1;
++			break;
++		}
++		if (list[0] == 0 || list[0] > K60_RMTFS_MAX_VECS ||
++		    1u + (size_t)list[0] * 12u != list_size) {
++			rc = -1;
++			break;
++		}
++		out->vectors = list[0];
++		for (size_t i = 0; i < out->vectors; i++) {
++			const uint8_t *v = list + 1 + 12 * i;
++
++			out->table[i].block_offset = le32(v);
++			out->table[i].physical = le32(v + 4);
++			out->table[i].block_length = le32(v + 8);
++		}
++		break;
++	}
++	case K60_RMTFS_ALLOC:
++		if (take_word(tlvs, region, 1, &out->storage) != 0 ||
++		    take_word(tlvs, region, 2, &out->alloc_bytes) != 0) {
++			rc = -1;
++		}
++		break;
++	default:
++		rc = -1;
++		break;
++	}
++	return rc;
++}
++
++uint32_t
++k60_rmtfs_build_reply(uint8_t *out, size_t cap, uint16_t message,
++    uint16_t transaction, uint16_t result, const void *value, size_t value_bytes)
++{
++	size_t used = 7;
++	const uint8_t *payload = (const uint8_t *)value;
++
++	if (out == NULL || cap < 14) {
++		return 0;
++	}
++	if (value_bytes != 0 && (payload == NULL || cap < 14 + 3 + value_bytes)) {
++		return 0;
++	}
++	out[0] = K60_RMTFS_TYPE_RESPONSE;
++	put16(out + 1, transaction);
++	put16(out + 3, message);
++	/* Result TLV: error flag then the code, exactly as the reference sends. */
++	out[used++] = K60_RMTFS_TLV_RESULT;
++	put16(out + used, 4);
++	used += 2;
++	put16(out + used, result != 0 ? 1 : 0);
++	put16(out + used + 2, result);
++	used += 4;
++	if (result == 0 && value_bytes != 0) {
++		out[used++] = K60_RMTFS_TLV_VALUE;
++		put16(out + used, (uint16_t)value_bytes);
++		used += 2;
++		memcpy(out + used, payload, value_bytes);
++		used += value_bytes;
++	}
++	put16(out + 5, (uint16_t)(used - 7));
++	return (uint32_t)used;
++}
++
++int
++k60_rmtfs_check_vectors(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes)
++{
++	if (request == NULL || image_bytes == 0 || window_bytes == 0) {
++		return -1;
++	}
++	if (request->vectors == 0 || request->vectors > K60_RMTFS_MAX_VECS) {
++		return -1;
++	}
++	for (size_t i = 0; i < request->vectors; i++) {
++		const uint64_t offset = (uint64_t)request->table[i].block_offset *
++		    K60_RMTFS_BLOCK;
++		const uint64_t span = (uint64_t)request->table[i].block_length *
++		    K60_RMTFS_BLOCK;
++		const uint64_t physical = request->table[i].physical;
++
++		if (span == 0 || offset > image_bytes || span > image_bytes - offset) {
++			return -1;
++		}
++		if (physical < window_base ||
++		    physical - window_base > window_bytes ||
++		    span > window_bytes - (physical - window_base)) {
++			return -1;
++		}
++	}
++	return 0;
++}
+diff --git a/bsd/dev/pong_modem_efs.h b/bsd/dev/pong_modem_efs.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_efs.h
+@@ -0,0 +1,86 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* The four EFS images the modem opens by name, and the copy plan its scatter
++ * list turns into. This is the piece between the RMTFS protocol and the UFS:
++ * it knows which GPT partition backs /boot/modem_fs1 and friends, how a
++ * 512-byte-block scatter entry maps onto that image and into the shared
++ * window, and nothing about how the bytes are actually read.
++ *
++ * Reference: PongModemRmtfs.h maps /boot/modem_fs1|fs2|fsg|fsc onto the Android
++ * partitions modemst1, modemst2, fsg and fsc; rmtfsAnswer() copies between the
++ * image and the region the scatter entry names.
++ */
++#ifndef K60_MODEM_EFS_H
++#define K60_MODEM_EFS_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include "pong_modem_rmtfs.h"
++
++#define K60_EFS_IMAGE_COUNT 4u
++/* A GPT partition entry name is 36 UTF-16LE code units (72 bytes). */
++#define K60_EFS_GPT_NAME_BYTES 72u
++
++/* Storage ids start at one, exactly as the open reply numbers them. */
++const char *k60_efs_partition(uint32_t storage);
++const char *k60_efs_boot_path(uint32_t storage);
++
++/* Compares a GPT partition entry name, which is UTF-16LE with the remainder
++ * zero filled, against an ASCII name. Returns 0 when they are the same. */
++int k60_efs_name_matches(const void *entry, size_t entry_bytes, const char *name);
++
++/* One copy the scatter list asks for: 'bytes' move from image_offset in the
++ * image to buffer_offset in the shared window. */
++typedef struct {
++	uint64_t image_offset;
++	uint64_t buffer_offset;
++	uint32_t bytes;
++} K60EfsSpan;
++
++/* Turns a validated rw request into the copies that serve it. The request must
++ * already have passed k60_rmtfs_check_vectors(); this function additionally
++ * requires every byte to fall inside the image. Returns the number of spans
++ * written to 'out', or -1 when the request does not fit (wrong message, no
++ * vectors, more vectors than 'cap', or an offset past the end of the image). */
++int k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes, K60EfsSpan *out, size_t cap);
++
++/* Performs the copies a plan describes. direction 0 moves bytes from the image
++ * into the shared window (the modem reads the image), direction 1 moves them
++ * back (the modem writes it). 'image' and 'window' carry the whole image and
++ * the whole window, so a span indexes them directly; every span must stay
++ * inside both. Returns 0, or -1 when a span leaves a buffer or nothing is
++ * planned. */
++#define K60_EFS_TO_WINDOW 0
++#define K60_EFS_TO_IMAGE  1
++int k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
++    uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes);
++
++/* Maps an open request path onto the storage id the reply must carry: 1..4 for
++ * the four EFS images, 0 for anything else. The comparison is byte for byte
++ * against k60_efs_boot_path(), because the wire path has no terminator. */
++uint32_t k60_efs_storage_for_path(const char *path, size_t length);
++
++/* Reads image bytes on the modem's behalf. 'read' must fill dst with 'bytes'
++ * from the image at 'offset' and return 0; anything else counts as a failure.
++ * The callback is what the kernel supplies once the UFS path exists. */
++typedef int (*K60EfsRead)(void *context, uint32_t storage, uint64_t offset,
++    uint8_t *dst, size_t bytes);
++
++/* Serves one read request end to end: it must be an rw request in the read
++ * direction, its vectors must fit the image and the window, and the reader must
++ * deliver every span. On success the window holds what the modem asked for and
++ * the caller answers result 0. Returns 0 on success, -1 otherwise. */
++int k60_efs_serve_read(const K60RmtfsRequest *request, K60EfsRead read,
++    void *context, uint8_t *image, size_t image_bytes, uint8_t *window,
++    size_t window_bytes, uint64_t window_base);
++
++/* Serves the write direction into a boot-session shadow: the bytes land in
++ * 'image' and nothing reaches the flash. Pong does the same (a write only ever
++ * reaches the shadow), so a modem write is acknowledged without a UFS writer.
++ * Returns 0 when the image now holds the bytes, -1 otherwise. */
++int k60_efs_serve_write(const K60RmtfsRequest *request, uint8_t *image,
++    size_t image_bytes, const uint8_t *window, size_t window_bytes,
++    uint64_t window_base);
++
++#endif /* K60_MODEM_RMTFS_EFS */
+diff --git a/bsd/dev/pong_modem_efs.c b/bsd/dev/pong_modem_efs.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_efs.c
+@@ -0,0 +1,238 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* The EFS image table and the scatter-to-copy mapping. Protocol only: no UFS,
++ * no SCM, no allocation, so the host test and the kernel share it. */
++
++#include "pong_modem_efs.h"
++
++typedef struct {
++	const char *boot;
++	const char *partition;
++} K60EfsImage;
++
++static const K60EfsImage k60_efs_images[K60_EFS_IMAGE_COUNT] = {
++	{ "/boot/modem_fs1", "modemst1" },
++	{ "/boot/modem_fs2", "modemst2" },
++	{ "/boot/modem_fsg", "fsg" },
++	{ "/boot/modem_fsc", "fsc" },
++};
++
++const char *
++k60_efs_partition(uint32_t storage)
++{
++	if (storage == 0 || storage > K60_EFS_IMAGE_COUNT) {
++		return NULL;
++	}
++	return k60_efs_images[storage - 1].partition;
++}
++
++const char *
++k60_efs_boot_path(uint32_t storage)
++{
++	if (storage == 0 || storage > K60_EFS_IMAGE_COUNT) {
++		return NULL;
++	}
++	return k60_efs_images[storage - 1].boot;
++}
++
++int
++k60_efs_name_matches(const void *entry, size_t entry_bytes, const char *name)
++{
++	const uint8_t *at = (const uint8_t *)entry;
++	size_t units;
++	size_t i;
++
++	if (entry == NULL || name == NULL || entry_bytes < 2) {
++		return -1;
++	}
++	units = entry_bytes / 2;
++	if (units > K60_EFS_GPT_NAME_BYTES / 2) {
++		units = K60_EFS_GPT_NAME_BYTES / 2;
++	}
++	for (i = 0; i < units; i++) {
++		const uint16_t unit = (uint16_t)(at[2 * i] | (uint16_t)(at[2 * i + 1] << 8));
++
++		if (name[i] == '\0') {
++			/* The entry may not run past the end of the name. */
++			return unit == 0 ? 0 : -1;
++		}
++		if (unit != (uint16_t)(uint8_t)name[i]) {
++			return -1;
++		}
++	}
++	/* The name is longer than the entry: only a zero terminated entry can
++	 * match, and a 36-unit entry is never terminated. */
++	return -1;
++}
++
++int
++k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes, K60EfsSpan *out, size_t cap)
++{
++	size_t written = 0;
++	size_t i;
++
++	if (request == NULL || out == NULL || request->message != K60_RMTFS_RW) {
++		return -1;
++	}
++	if (request->vectors == 0 || request->vectors > cap ||
++	    request->vectors > K60_RMTFS_MAX_VECS) {
++		return -1;
++	}
++	for (i = 0; i < request->vectors; i++) {
++		const K60RmtfsVec *vec = &request->table[i];
++		const uint64_t image_offset = (uint64_t)vec->block_offset * K60_RMTFS_BLOCK;
++		const uint64_t bytes = (uint64_t)vec->block_length * K60_RMTFS_BLOCK;
++
++		if (vec->block_length == 0) {
++			/* A zero-length scatter entry is malformed on the wire; the
++			 * protocol check refuses it, so the plan must not quietly drop
++			 * it and report success for the rest. */
++			return -1;
++		}
++		if (image_offset > image_bytes || bytes > image_bytes - image_offset) {
++			return -1;
++		}
++		if (vec->physical < window_base ||
++		    (uint64_t)vec->physical - window_base > window_bytes ||
++		    bytes > window_bytes - ((uint64_t)vec->physical - window_base)) {
++			return -1;
++		}
++		out[written].image_offset = image_offset;
++		out[written].buffer_offset = (uint64_t)vec->physical - window_base;
++		out[written].bytes = (uint32_t)bytes;
++		written++;
++	}
++	if (written == 0) {
++		return -1;
++	}
++	return (int)written;
++}
++
++int
++k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
++    uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes)
++{
++	if (spans == NULL || image == NULL || window == NULL || count == 0) {
++		return -1;
++	}
++	if (direction != K60_EFS_TO_WINDOW && direction != K60_EFS_TO_IMAGE) {
++		return -1;
++	}
++	for (size_t i = 0; i < count; i++) {
++		const K60EfsSpan *span = &spans[i];
++
++		if ((uint64_t)span->bytes > image_bytes ||
++		    span->image_offset > image_bytes - span->bytes) {
++			return -1;
++		}
++		if ((uint64_t)span->bytes > window_bytes ||
++		    span->buffer_offset > window_bytes - span->bytes) {
++			return -1;
++		}
++		for (uint32_t b = 0; b < span->bytes; b++) {
++			uint64_t from = direction == K60_EFS_TO_WINDOW ?
++			    span->image_offset + b : span->buffer_offset + b;
++			uint64_t to = direction == K60_EFS_TO_WINDOW ?
++			    span->buffer_offset + b : span->image_offset + b;
++
++			if (direction == K60_EFS_TO_WINDOW) {
++				window[to] = image[from];
++			} else {
++				image[to] = window[from];
++			}
++		}
++	}
++	return 0;
++}
++
++int
++k60_efs_serve_read(const K60RmtfsRequest *request, K60EfsRead read,
++    void *context, uint8_t *image, size_t image_bytes, uint8_t *window,
++    size_t window_bytes, uint64_t window_base)
++{
++	K60EfsSpan spans[K60_RMTFS_MAX_VECS];
++	int count;
++
++	if (request == NULL || read == NULL || image == NULL || window == NULL) {
++		return -1;
++	}
++	if (request->message != K60_RMTFS_RW || request->direction != 0) {
++		return -1;      /* only the modem's read direction is served */
++	}
++	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT) {
++		return -1;
++	}
++	if (k60_rmtfs_check_vectors(request, image_bytes, window_base,
++	    window_bytes) != 0) {
++		return -1;
++	}
++	count = k60_efs_plan(request, image_bytes, window_base, window_bytes,
++	    spans, K60_RMTFS_MAX_VECS);
++	if (count <= 0) {
++		return -1;
++	}
++	for (int i = 0; i < count; i++) {
++		if (read(context, request->storage, spans[i].image_offset,
++		    image + spans[i].image_offset, spans[i].bytes) != 0) {
++			return -1;
++		}
++	}
++	if (k60_efs_copy(spans, (size_t)count, K60_EFS_TO_WINDOW, image,
++	    image_bytes, window, window_bytes) != 0) {
++		return -1;
++	}
++	return 0;
++}
++
++int
++k60_efs_serve_write(const K60RmtfsRequest *request, uint8_t *image,
++    size_t image_bytes, const uint8_t *window, size_t window_bytes,
++    uint64_t window_base)
++{
++	K60EfsSpan spans[K60_RMTFS_MAX_VECS];
++	int count;
++
++	if (request == NULL || image == NULL || window == NULL) {
++		return -1;
++	}
++	if (request->message != K60_RMTFS_RW || request->direction != 1) {
++		return -1;      /* only the modem's write direction lands here */
++	}
++	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT) {
++		return -1;
++	}
++	if (k60_rmtfs_check_vectors(request, image_bytes, window_base,
++	    window_bytes) != 0) {
++		return -1;
++	}
++	count = k60_efs_plan(request, image_bytes, window_base, window_bytes,
++	    spans, K60_RMTFS_MAX_VECS);
++	if (count <= 0) {
++		return -1;
++	}
++	if (k60_efs_copy(spans, (size_t)count, K60_EFS_TO_IMAGE, image,
++	    image_bytes, (uint8_t *)window, window_bytes) != 0) {
++		return -1;
++	}
++	return 0;
++}
++
++uint32_t
++k60_efs_storage_for_path(const char *path, size_t length)
++{
++	for (uint32_t storage = 1; storage <= K60_EFS_IMAGE_COUNT; storage++) {
++		const char *name = k60_efs_boot_path(storage);
++		size_t at = 0;
++
++		if (name == NULL || path == NULL) {
++			return 0;
++		}
++		while (at < length && name[at] != '\0' && name[at] == path[at]) {
++			at++;
++		}
++		if (at == length && name[at] == '\0') {
++			return storage;
++		}
++	}
++	return 0;
++}
+diff --git a/bsd/dev/pong_modem_memshare.h b/bsd/dev/pong_modem_memshare.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_memshare.h
+@@ -0,0 +1,84 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Memshare, service 0x34 instance 1 on port 0x101.
++
++ * Pong registers three services to the modem before pas4: the servloc
++ * locator (0x40/0x101), heap memory share (0x34/0x101) and storage (14/1).
++ * The memory share is how the modem asks the AP for a contiguous region and
++ * how it hands it back; the transfer itself is the SCM 0x0c/0x16 ownership
++ * call this branch already carries in K60ModemPas.h.
++
++ * The wire shapes follow references/pong-baseband/PongModemMemshare.h: a QMI
++ * v1 request (type 0), seven byte header, little endian TLVs.  A query (0x24)
++ * reports the client limit, an allocate (0x22) asks for bytes and answers with
++ * a sequence number plus a 13 byte extent, and a free (0x23) hands back an
++ * extent that must match the one still held.  Rejections use QMI error 48
++ * (invalid argument), 2 (no memory), 3 (ownership transfer failed) or 71
++ * (message not supported), exactly as the reference does.
++ */
++#ifndef K60_MODEM_MEMSHARE_H
++#define K60_MODEM_MEMSHARE_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60_MEMSHARE_SERVICE            0x34u
++#define K60_MEMSHARE_INSTANCE           1u
++#define K60_MEMSHARE_PORT               0x101u
++
++#define K60_MEMSHARE_QUERY              0x24u
++#define K60_MEMSHARE_ALLOCATE           0x22u
++#define K60_MEMSHARE_FREE               0x23u
++
++#define K60_MEMSHARE_MAXIMUM            0x500000u   /* five megabytes */
++#define K60_MEMSHARE_ALIGNMENT_LIMIT    11u
++#define K60_MEMSHARE_CLIENT             1u
++#define K60_MEMSHARE_CLIENT_LIMIT       2u
++#define K60_MEMSHARE_EXTENT_BYTES       13u
++#define K60_MEMSHARE_EXTENT_VERSION     1u
++
++#define K60_MEMSHARE_ERROR_NONE         0u
++#define K60_MEMSHARE_ERROR_NO_MEMORY    2u
++#define K60_MEMSHARE_ERROR_TRANSFER     3u
++#define K60_MEMSHARE_ERROR_ARGUMENT     48u
++#define K60_MEMSHARE_ERROR_UNSUPPORTED  71u
++
++enum {
++	K60MemshareOk = 0,
++	K60MemshareBadArgument = -1,
++	K60MemshareMalformed = -2,
++};
++
++typedef struct {
++	uint16_t message;
++	uint16_t transaction;
++	uint32_t client;
++	uint32_t processor;
++	uint32_t sequence;
++	uint32_t bytes;             /* allocate: the size asked for */
++	uint32_t alignment;
++	uint64_t physical;          /* free: the extent handed back */
++	uint32_t extent_bytes;
++	uint32_t error;             /* non zero: answer with this code, not memory */
++} K60MemshareRequest;
++
++/* Parses one request.  The protocol rejections the reference decides while
++ * parsing (wrong client, a processor id, a bad alignment, an extent that does
++ * not match the shape) are reported in out->error with a zero return, so the
++ * caller answers with that code instead of allocating.  A malformed header or
++ * a missing required TLV is K60MemshareMalformed. */
++int k60_memshare_parse(const void *bytes, size_t length, K60MemshareRequest *out);
++
++/* Builds the response.  error is one of the codes above; a successful query
++ * carries the client limit, a successful allocate carries the sequence and the
++ * extent, and nothing else carries a value TLV.  Returns the message length or
++ * zero when the buffer is too small. */
++size_t k60_memshare_build_reply(uint8_t *out, size_t capacity,
++    uint16_t transaction, uint16_t message, uint32_t error, uint32_t maximum,
++    const uint32_t *sequence, uint64_t physical, uint32_t bytes);
++
++/* Rounding and bounds the reference applies to a region before it is handed
++ * over: 4096 byte pages, no zero length, and every page below the ceiling.
++ * Returns 0 when the region is acceptable. */
++int k60_memshare_region_ok(uint64_t physical, uint32_t bytes, uint64_t ceiling);
++
++#endif
+diff --git a/bsd/dev/pong_modem_memshare.c b/bsd/dev/pong_modem_memshare.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_memshare.c
+@@ -0,0 +1,260 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Memshare request parsing and response building.  Self contained: the seven
++ * byte QMI header and the TLVs are little endian, and the shapes are the ones
++ * references/pong-baseband/PongModemMemshare.h uses. */
++
++#include "pong_modem_memshare.h"
++
++static uint16_t
++k60_memshare_le16(const uint8_t *at)
++{
++	return (uint16_t)((uint16_t)at[0] | ((uint16_t)at[1] << 8));
++}
++
++static uint32_t
++k60_memshare_le32(const uint8_t *at)
++{
++	return (uint32_t)k60_memshare_le16(at) |
++	    ((uint32_t)k60_memshare_le16(at + 2) << 16);
++}
++
++static uint64_t
++k60_memshare_le64(const uint8_t *at)
++{
++	return (uint64_t)k60_memshare_le32(at) |
++	    ((uint64_t)k60_memshare_le32(at + 4) << 32);
++}
++
++static void
++k60_memshare_put16(uint8_t *at, uint16_t value)
++{
++	at[0] = (uint8_t)(value & 0xffu);
++	at[1] = (uint8_t)(value >> 8);
++}
++
++static void
++k60_memshare_put32(uint8_t *at, uint32_t value)
++{
++	k60_memshare_put16(at, (uint16_t)(value & 0xffffu));
++	k60_memshare_put16(at + 2, (uint16_t)(value >> 16));
++}
++
++static void
++k60_memshare_put64(uint8_t *at, uint64_t value)
++{
++	k60_memshare_put32(at, (uint32_t)(value & 0xffffffffu));
++	k60_memshare_put32(at + 4, (uint32_t)(value >> 32));
++}
++
++/* A required TLV: present with exactly four bytes.  An optional one may be
++ * absent (returns 0 with *found cleared) but must still be four bytes when
++ * the modem sent it. */
++static int
++k60_memshare_u32(const uint8_t *tlvs, size_t bytes, uint8_t tag, uint32_t *value,
++    int *found)
++{
++	size_t at = 0;
++
++	if (found != NULL) {
++		*found = 0;
++	}
++	while (at + 3u <= bytes) {
++		const uint8_t type = tlvs[at];
++		const uint16_t length = k60_memshare_le16(tlvs + at + 1);
++
++		if (at + 3u + length > bytes) {
++			return K60MemshareMalformed;
++		}
++		if (type == tag) {
++			if (length != 4u) {
++				return K60MemshareMalformed;
++			}
++			*value = k60_memshare_le32(tlvs + at + 3);
++			if (found != NULL) {
++				*found = 1;
++			}
++			return K60MemshareOk;
++		}
++		at += 3u + length;
++	}
++	return K60MemshareOk;
++}
++
++int
++k60_memshare_parse(const void *bytes, size_t length, K60MemshareRequest *out)
++{
++	const uint8_t *data = (const uint8_t *)bytes;
++	const uint8_t *tlvs;
++	size_t payload;
++	int found;
++
++	if (bytes == NULL || out == NULL || length < 7u) {
++		return K60MemshareBadArgument;
++	}
++	if (data[0] != 0u) {
++		return K60MemshareMalformed;               /* not a request */
++	}
++	payload = (size_t)k60_memshare_le16(data + 5);
++	if (7u + payload > length) {
++		return K60MemshareMalformed;
++	}
++	tlvs = data + 7;
++	out->transaction = k60_memshare_le16(data + 1);
++	out->message = k60_memshare_le16(data + 3);
++	out->client = 0;
++	out->processor = 0;
++	out->sequence = 0;
++	out->bytes = 0;
++	out->alignment = 0;
++	out->physical = 0;
++	out->extent_bytes = 0;
++	out->error = K60_MEMSHARE_ERROR_NONE;
++
++	if (out->message == K60_MEMSHARE_QUERY) {
++		if (k60_memshare_u32(tlvs, payload, 1, &out->client, NULL) != 0) {
++			return K60MemshareMalformed;
++		}
++		if (k60_memshare_u32(tlvs, payload, 0x10, &out->processor,
++		    &found) != 0) {
++			return K60MemshareMalformed;
++		}
++		if (out->client > K60_MEMSHARE_CLIENT_LIMIT || out->processor != 0u) {
++			out->error = K60_MEMSHARE_ERROR_ARGUMENT;
++		}
++		return K60MemshareOk;
++	}
++
++	if (out->message == K60_MEMSHARE_ALLOCATE) {
++		if (k60_memshare_u32(tlvs, payload, 1, &out->bytes, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 2, &out->client, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 3, &out->processor, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 4, &out->sequence, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 0x11, &out->alignment,
++		    &found) != 0) {
++			return K60MemshareMalformed;
++		}
++		if (out->client != K60_MEMSHARE_CLIENT || out->processor != 0u ||
++		    out->alignment > K60_MEMSHARE_ALIGNMENT_LIMIT) {
++			out->error = K60_MEMSHARE_ERROR_ARGUMENT;
++		} else if (out->bytes == 0u || out->bytes > K60_MEMSHARE_MAXIMUM) {
++			out->error = K60_MEMSHARE_ERROR_NO_MEMORY;
++		}
++		return K60MemshareOk;
++	}
++
++	if (out->message == K60_MEMSHARE_FREE) {
++		size_t at = 0;
++		int have_extent = 0;
++
++		/* no client TLV means any client may hand the extent back */
++		out->client = 0xffffffffu;
++		if (k60_memshare_u32(tlvs, payload, 0x10, &out->client, &found) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 0x11, &out->processor,
++		    &found) != 0) {
++			return K60MemshareMalformed;
++		}
++		while (at + 3u <= payload) {
++			const uint8_t type = tlvs[at];
++			const uint16_t extent = k60_memshare_le16(tlvs + at + 1);
++
++			if (at + 3u + extent > payload) {
++				return K60MemshareMalformed;
++			}
++			if (type == 1u) {
++				if (extent != K60_MEMSHARE_EXTENT_BYTES ||
++				    tlvs[at + 3] != K60_MEMSHARE_EXTENT_VERSION) {
++					return K60MemshareMalformed;
++				}
++				out->physical = k60_memshare_le64(tlvs + at + 4);
++				out->extent_bytes = k60_memshare_le32(tlvs + at + 12);
++				have_extent = 1;
++			}
++			at += 3u + extent;
++		}
++		if (!have_extent) {
++			return K60MemshareMalformed;
++		}
++		if (out->processor != 0u ||
++		    (out->client != 0xffffffffu && out->client != K60_MEMSHARE_CLIENT)) {
++			out->error = K60_MEMSHARE_ERROR_ARGUMENT;
++		}
++		return K60MemshareOk;
++	}
++
++	out->error = K60_MEMSHARE_ERROR_UNSUPPORTED;
++	return K60MemshareOk;
++}
++
++size_t
++k60_memshare_build_reply(uint8_t *out, size_t capacity, uint16_t transaction,
++    uint16_t message, uint32_t error, uint32_t maximum, const uint32_t *sequence,
++    uint64_t physical, uint32_t bytes)
++{
++	size_t used;
++
++	if (out == NULL || capacity < 14u) {
++		return 0;
++	}
++	out[0] = 2u;                                   /* response */
++	k60_memshare_put16(out + 1, transaction);
++	k60_memshare_put16(out + 3, message);
++	out[7] = 0x02u;                                /* result TLV */
++	k60_memshare_put16(out + 8, 4);
++	k60_memshare_put16(out + 10, error != 0u ? 1u : 0u);
++	k60_memshare_put16(out + 12, (uint16_t)error);
++	used = 14u;
++
++	if (error != 0u) {
++		goto done;
++	}
++	if (message == K60_MEMSHARE_QUERY) {
++		if (capacity < used + 7u) {
++			return 0;
++		}
++		out[used++] = 0x10u;
++		k60_memshare_put16(out + used, 4);
++		used += 2;
++		k60_memshare_put32(out + used, maximum);
++		used += 4;
++	} else if (message == K60_MEMSHARE_ALLOCATE) {
++		if (capacity < used + 7u + 16u) {
++			return 0;
++		}
++		out[used++] = 0x10u;
++		k60_memshare_put16(out + used, 4);
++		used += 2;
++		k60_memshare_put32(out + used,
++		    sequence != NULL ? *sequence : 0u);
++		used += 4;
++		out[used++] = 0x11u;
++		k60_memshare_put16(out + used, K60_MEMSHARE_EXTENT_BYTES);
++		used += 2;
++		out[used++] = K60_MEMSHARE_EXTENT_VERSION;
++		k60_memshare_put64(out + used, physical);
++		used += 8;
++		k60_memshare_put32(out + used, bytes);
++		used += 4;
++	}
++
++done:
++	k60_memshare_put16(out + 5, (uint16_t)(used - 7u));
++	return used;
++}
++
++int
++k60_memshare_region_ok(uint64_t physical, uint32_t bytes, uint64_t ceiling)
++{
++	uint64_t rounded;
++
++	if (physical == 0u || bytes == 0u || (physical & 0xfffu) != 0u) {
++		return -1;
++	}
++	rounded = ((uint64_t)bytes + 4095u) & ~(uint64_t)4095u;
++	if (rounded == 0u || physical + rounded < physical) {
++		return -1;
++	}
++	if (physical + rounded > ceiling) {
++		return -1;
++	}
++	return 0;
++}
+diff --git a/bsd/dev/pong_modem_smp2p.h b/bsd/dev/pong_modem_smp2p.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_smp2p.h
+@@ -0,0 +1,137 @@
++/*
++ * Shared memory point-to-point: the 340-byte item both sides publish.
++ *
++ * Both the AP-owned item (item 428) and the modem-owned item (item 435) use
++ * one layout: five header words, then sixteen 20-byte entries, each four
++ * little-endian name words and one value word.  The value word is a bitfield
++ * whose meaning belongs to the service that owns the entry: "slave-kernel"
++ * reports ready/fatal, "ipa" is a question the modem asks and the AP answers.
++ *
++ * These helpers only touch memory the caller already mapped; every write is
++ * ordered by the caller's own barrier, because the host test compiles on a
++ * different architecture than the kernel.
++ */
++
++#ifndef _K60_MODEM_SMP2P_H_
++#define _K60_MODEM_SMP2P_H_
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60_SMP2P_MAGIC          0x504d5324u
++#define K60_SMP2P_VERSION        1u
++#define K60_SMP2P_HEADER_WORDS   5u
++#define K60_SMP2P_ENTRY_WORDS    5u
++#define K60_SMP2P_ENTRIES        16u
++#define K60_SMP2P_ITEM_BYTES     (K60_SMP2P_HEADER_WORDS * 4u + K60_SMP2P_ENTRIES * K60_SMP2P_ENTRY_WORDS * 4u)
++#define K60_SMP2P_NAME_BYTES     16u
++
++/* Value word of one entry; out of range reads as zero so a caller can never
++ * reach outside the item it mapped. */
++static inline uint32_t
++k60_smp2p_entry_word(volatile uint32_t *item, int index)
++{
++	if (item == NULL || index < 0 || (uint32_t)index >= K60_SMP2P_ENTRIES) {
++		return 0;
++	}
++	return item[K60_SMP2P_HEADER_WORDS +
++	    (uint32_t)index * K60_SMP2P_ENTRY_WORDS + 4u];
++}
++
++/* Replace the masked bits of one entry's value word.  Returns 1 when it wrote,
++ * 0 when the index is outside the item. */
++static inline int
++k60_smp2p_update(volatile uint32_t *item, int index, uint32_t mask, uint32_t value)
++{
++	volatile uint32_t *word;
++
++	if (item == NULL || index < 0 || (uint32_t)index >= K60_SMP2P_ENTRIES) {
++		return 0;
++	}
++	word = &item[K60_SMP2P_HEADER_WORDS +
++	    (uint32_t)index * K60_SMP2P_ENTRY_WORDS + 4u];
++	*word = (*word & ~mask) | (value & mask);
++	return 1;
++}
++
++/* Header check: magic, version and a valid count that fits the item.  The
++ * processor ids in word two are the caller's business, because the AP item
++ * and the modem item legitimately name different local processors. */
++static inline int
++k60_smp2p_header(volatile uint32_t *item, size_t bytes, uint32_t *valid)
++{
++	uint32_t total;
++
++	if (item == NULL || bytes < K60_SMP2P_HEADER_WORDS * 4u) {
++		return 0;
++	}
++	if (item[0] != K60_SMP2P_MAGIC || (item[1] & 0xffu) != K60_SMP2P_VERSION) {
++		return 0;
++	}
++	total = item[3] & 0xffffu;
++	if (total > K60_SMP2P_ENTRIES || (item[3] >> 16) > total) {
++		return 0;
++	}
++	if (valid != NULL) {
++		*valid = item[3] >> 16;
++	}
++	return 1;
++}
++
++/* A name occupies all four name words: a shorter name is zero padded, and a
++ * longer one cannot match because the sixteenth byte is already fixed. */
++static inline int
++k60_smp2p_name_matches(const volatile uint32_t *entry, const char *name)
++{
++	unsigned i;
++
++	if (entry == NULL || name == NULL) {
++		return 0;
++	}
++	/* Read the name only as far as its terminator: a caller passes a string
++	 * literal, and the bytes past it are not ours to read. */
++	for (i = 0; i < K60_SMP2P_NAME_BYTES; i++) {
++		if (name[i] == '\0') {
++			break;
++		}
++		if ((uint8_t)(entry[i / 4u] >> (8u * (i % 4u))) !=
++		    (uint32_t)(uint8_t)name[i]) {
++			return 0;
++		}
++	}
++	/* The rest of the field is zero padded, so a stored byte there means the
++	 * entry names something longer than the name just compared. */
++	for (; i < K60_SMP2P_NAME_BYTES; i++) {
++		if ((uint8_t)(entry[i / 4u] >> (8u * (i % 4u))) != 0u) {
++			return 0;
++		}
++	}
++	return 1;
++}
++
++/* Find one entry by name and hand back its value word.  Returns 1 when the
++ * entry is present, 0 when it is not or the item header is not usable. */
++static inline int
++k60_smp2p_find(volatile uint32_t *item, size_t bytes, const char *name,
++    uint32_t *value)
++{
++	uint32_t valid = 0, i;
++
++	if (!k60_smp2p_header(item, bytes, &valid)) {
++		return 0;
++	}
++	for (i = 0; i < valid; i++) {
++		volatile uint32_t *entry = item + K60_SMP2P_HEADER_WORDS +
++		    i * K60_SMP2P_ENTRY_WORDS;
++
++		if (k60_smp2p_name_matches(entry, name)) {
++			if (value != NULL) {
++				*value = entry[4];
++			}
++			return 1;
++		}
++	}
++	return 0;
++}
++
++#endif /* _K60_MODEM_SMP2P_H_ */

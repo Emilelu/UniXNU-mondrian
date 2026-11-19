@@ -231,6 +231,15 @@ BlueTool. The wiring needed is `bluetooth_tool`,
 `bluetooth_target = "ios27"`, `audio_system_plugins = ["BTAudioHALPlugin.driver"]`
 and an OS image to mount.
 
+**Component source.** `drivers/QcaBluetooth` is now a submodule pinned to
+`effe4ec5c57cd400a5f818b21c9903fef237edbc`, the revision the pinned
+framework's `components.toml` names. `feeds.resolve` scans the device
+repository's `drivers/` directory before the framework's, so the module
+resolves as `("driver", "QcaBluetooth")` exactly as it does for sheng, and
+`runtime.py` can hand its path to the runtime builder as
+`bluetooth_component`. The board still has no `[payload.runtime]` section, so
+nothing calls it yet.
+
 **What this branch now carries.** `scripts/build-bluetooth-userspace.py`
 stages the services through the component's `tools/build-userland.py`, and
 `scripts/stage-bluetooth-firmware.py` stages the pinned `hpbtfw*`/`hpnv*`

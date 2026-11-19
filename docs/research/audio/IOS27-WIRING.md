@@ -71,20 +71,59 @@ sh scripts/tests/portability/run-symbols.sh
    `PongAudioAmp.c` 与它直接调用的 `PongAudioGeniI2c.c`（宿主探针同样要链这两个，
    `run-probe.sh` 就是这么链的），随行头文件由 `python3 scripts/check-audio-migration.py --copy DIR`
    按清单复制，避免手抄漏项。
-2. **bsd/conf/files**：`scripts/append-conffiles.py` 的 `ENTRIES` 里加两行
-   `bsd/dev/PongAudioAmp.c			standard` 与 `bsd/dev/PongAudioGeniI2c.c			standard`。
-   这个 hook 是 P-171 的产物（补丁锚不住 `conf/files`），构建驱动在补丁全部应用后调它；
-   它要求锚点 `bsd/dev/pong_buttons.c` 已在树里，否则打印 `anchor missing, entries not added`
-   并原样退出——那说明按键驱动没搬，音频也进不去。
-3. **宏**：`scripts/build-xnu-generic.sh` 的 `EXTRA_MAKE_ARGS` 里加
-   `EXTRA_MAKE_ARGS+=("PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO")`。
-   用**每目标文件**的 `_CFLAGS_ADD`（该脚本 :375/:520 已是这个写法），不往全局
-   `EXTRA_CFLAGS` 里塞——宏只属于音频胶水，别的文件不该看见它。
+2. **bsd/conf/files**：两行由**音频自己的**追加器写进去——`scripts/add-audio-conffiles.py`
+   （`bsd/dev/PongAudioGeniI2c.c` 与 `bsd/dev/PongAudioAmp.c`），锚点仍是按键驱动的 `bsd/dev/pong_buttons.c` 那一行（`standard`，制表符分隔）。不用 power 线的 `scripts/append-conffiles.py`：
+   那个文件按 `TREE-OWNERS.toml:139` 归 power，音频加行要改别人的表；而它的失败形状正是
+   P-245 那一族——打印 `anchor missing, entries not added`，外面一个 `|| true` 就变成绿色构建
+   加一树没有音频的内核。**判据是计数不是消息**：
 
-验证不看日志，看产物：未链接的 `PongAudioAmp.o` 导出 3 个符号、含
-`T pong_audio_amp_probe`；宏漏了就是 0 个。真机上再对 `amp probe start`
-（`PongAudioAmp.c:921`）——两者的区别是「内核里有没有这段代码」与「这段代码跑没跑到」，
-先证前者。
+   ```sh
+   python3 scripts/add-audio-conffiles.py <tree>           # 追加；没长行就 exit 1
+   python3 scripts/add-audio-conffiles.py --check <tree>   # 只报数，不写
+   ```
+
+   输出 `audio conffiles: pong_audio lines 0 -> 2`；锚点缺失、源文件不在树里、写后仍不到两行，
+   三种情况都是 exit 1 且把计数打出来，不再有「静默跳过」这一档。`--check` 给构建后复核用。
+   宿主用例 `scripts/tests/test-audio-conffiles.py`（6 例：追加、幂等、锚点缺失、源缺失、
+   check 模式、未 seed 的树），`check-audio27-preflight.sh` 里是一行 `ok   conf-files appender is loud`。
+   16 树上这两行是 `0001:3504-3505` 直接打进 `bsd/conf/files` 的，27 上不能打补丁（P-171）。
+
+3. **宏**：唯一正确的落点是**每目标文件**的编译标志，不是全局变量：
+
+   ```sh
+   # build-xnu-generic.sh 的 :375/:520 已经是这种写法；EXTRA_MAKE_ARGS 透传给 make。
+   EXTRA_MAKE_ARGS="PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO" sh scripts/build-xnu-generic.sh
+   ```
+
+   理由是「可转移」这三个字：全局 `EXTRA_CFLAGS` 会把 `-DXNU_PONG_AUDIO` 塞给**每一个**对象，
+   于是「音频的宏开没开」不再是这一条线的性质，任何一处的行为变化都可能是别人编进来的；
+   每目标文件写法把定义钉在 `PongAudioAmp.c` 上，别的单元看不到它，判据才可证。
+   `scripts/build-xnu-generic.sh` 是框架构建器的**逐字副本**，`scripts/refresh-xnu-generic.py`
+   刷新会整体覆盖（只留文件头），所以不往里面加行——用上面的变量，或由上游把这条写进构建器。
+
+   现存的替代口径（只在没有 `EXTRA_MAKE_ARGS` 口子时用）：`XNU_EXTRA_CFLAGS` 在脚本 :286 是
+   **替换**不是追加，只写 `-DXNU_PONG_AUDIO=1` 会连 :286 的默认 `-Wno-*` 一起丢掉，
+   要先把那七条拼回来再追加；:841 以 `CFLAGS_EXTRA` 交给内核 `make`（`MACHINE_CONFIGS=BCM2837`，
+   :833-842），所以它到得了每个单元——这也正是上一条要避开的原因。
+
+验证不看日志，看产物，而且正反两跑都要给：
+
+```sh
+NM=llvm-nm-18 sh scripts/tests/portability/run-symbols.sh --object <build>/PongAudioAmp.o --expect on
+# -> SYMBOLS OK object=... expect=on probe=1        (符号名是 Mach-O 的 _pong_audio_amp_probe)
+NM=llvm-nm-18 sh scripts/tests/portability/run-symbols.sh --object <without-macro>/PongAudioAmp.o --expect off
+# -> SYMBOLS OK object=... expect=off probe=0
+sh scripts/tests/portability/run-symbols.sh        # 宿主三连：off=0 / XNU_PONG_AUDIO=3 / PONG=3
+```
+
+`probe=1` 与 `probe=0` 是同一个问题的两个答案：前者证明宏真的进了这次编译，后者证明这张
+计数表本身会动（不会永远打印同一个数）。两者都在 `check-audio27-preflight.sh` 里。
+真机上再对 `amp probe start`（`PongAudioAmp.c:921`）——两者的区别是「内核里有没有这段代码」
+与「这段代码跑没跑」，先证前者。
+
+本清单的门禁不读任何 out 树（迁移清单、桩、符号、宿主探针、判据测试都在临时目录或宿主上跑），
+所以不存在写死 16 线产物路径的问题；以后若加读产物的检查，路径必须取 `K60_OUT`，不许钉
+`out-baseline`。
 
 ## 2. 谁调用、哪一行证明它被调过
 

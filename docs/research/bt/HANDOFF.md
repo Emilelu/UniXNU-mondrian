@@ -1187,3 +1187,14 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 测试：`scripts/tests/test-bt-userspace-check.py` 16 例，覆盖 libxpc 缺失、minos 26、非 arm64e 的 bluetoothd、可执行文件冒充 dylib、report 四个字段被改、固件哈希不符、manifest 条目缺文件、marker 指向别的输入、`--require` 缺失，以及未重签的 bluetoothd。
 - 边界：静态检查，不证明签名被 iOS 接受、不证明能运行；manifest 只描述 `firmware/bluetooth` 树里的 hp* 文件，其它固件族不在覆盖范围内。
 
+### 58. GENI 平台检查：把引擎放进寄存器模型跑一遍（2026-11-19 20:20）
+
+- 背景：官方页 step 6 的第一个脚本是 `check-bluetooth-platform.py`（sheng 用 clang 编 `Sm8550GeniUart.c`、`Sm8550QupDma.c`、`ArmSmmu4K.c` 与 `package/tests/bluetooth_platform.c`，在 ASan/UBSan 下跑寄存器模型）。K60 没有 SM8550 的平台文件，但我们的 `bsd/dev/qbt/qbt_geni.c` 只通过 `struct qbt_geni_ops` 触硬件，可以脱离内核头在宿主上编译，所以同一套做法能照搬。
+- 寄存器模型：`scripts/tests/fixtures/bt-geni-model.c`（348 行，GPL-2.0-only）。4096 个 32 位寄存器加 touched 位图与 TX/RX 缓冲，`model_write` 对 `G_M_CLEAR`/`G_S_CLEAR`/`G_TX_CLEAR`/`G_RX_CLEAR` 清状态位、对 `G_TX_IRQ_SET`/`G_RX_IRQ_SET` 只动使能位；`rig_init` 设 `G_FW_REV=0x00000200`（协议 2 微码）与 `G_HW_PARAM1=8<<16`（FIFO 深度 8），这正是 powerOn 要查的两个条件。
+- 八个场景：`prepare`（协议 1 得 ENXIO、已激活得 EBUSY、深度 2 得 ENXIO、打包 0x4380e/0xc3e0e、RX_WM 2、RFR_WM 6、RTS 停放）、`rate`（3 Mbaud/48 MHz/16x 得 M_CLK 0x11；3.2 Mbaud 得 ERANGE；8x 得 EINVAL）、`start`（S_CMD 为 (1<<27)|(1<<7)、IRQ_EN 0x0f、首个 RX DMA 2048）、`write`（TX DMA 长度与属性、M_CMD 1<<27、忙时拒绝第二次、完成计数 4 字节）、`receive`（H4 事件 6 字节；超长得 EOVERFLOW 且通道 FAILED）、`fault`（TX DMA_ERROR 得 EIO，fault_irq[2] 保留）、`quiesce`（CANCEL 到 ABORT 到 RESET 到 STOPPED，10 ms 步进，S_CTRL 0x4/0x2、RX_RESET 1）、`flow`（TX_CFG bit1）。
+- 检查器：`scripts/check-bluetooth-geni.py`。默认从 `patches/xnu/0500-k60-bt-qbt-new-files.patch`（sha256 `4e6f58d9…`，4006 行）抽出 `qbt_geni.c`、`qbt_geni.h`、`qbt_geni_regs.h`（按 `+++ b/bsd/dev/qbt/` 分节、只取加号行），或 `--tree DIR` 从工作树取；用 clang（缺则 gcc）以 `-std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined` 编译模型与引擎，逐场景和 `all` 各跑一次；`--out DIR` 写 `report.json`（passed、registers_simulated、assertions、hardware_verified=false、origin.patch_sha256、inputs、fixture_sha256、compiler、compile_command、scenarios）与 `output.txt`。
+- 实跑：`python3 scripts/check-bluetooth-geni.py --out /tmp/geni-report` 得 64 条断言、36 个寄存器被写到，输出 `bluetooth-geni-check: OK (64 assertion(s), 36 register(s))`；`--tree /home/emilelu/verify0526a` 同样 OK。fork 的 `patches/xnu-12377/0500` 与 16 线同哈希（`4e6f58d9…`），所以同一脚本对两条线都成立。
+- 测试：`scripts/tests/test-bt-geni-model.py` 26 例。除正常路径外，把模型里被断言的打包写入 `wr(g,G_TX_PACK0,0x4380e)` 改成 `0x4380f` 后必须失败——只改 `G_RFR_OFF` 之类的宏不会变红，因为模型只比较写入值；另覆盖缺 patch（报 missing patch）与空树两种拒绝。
+- 边界：模型只模拟寄存器语义与 DMA 队列，不模拟真实 QUP/GENI 时序、不模拟 SMMU 与引脚；`hardware_verified` 永远是 false。它证明的是「引擎源码在给定寄存器语义下的行为符合预期」，不证明控制器可驱动。
+
+

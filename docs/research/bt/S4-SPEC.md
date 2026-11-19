@@ -1842,6 +1842,16 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 实跑 `/mnt/e/hackios/k60-bt-work/bt24/stage4` 得 18 PASS / 0 FAIL；`scripts/tests/test-bt-userspace-check.py` 16 例覆盖各类拒绝路径。边界：静态检查，不证明签名被 iOS 接受、不证明运行。
 
+### 7.34 GENI 平台检查：引擎对寄存器模型（0526 之后）
+
+官方页 step 6 的第一个脚本是平台检查：sheng 把 `Sm8550GeniUart.c`、`Sm8550QupDma.c`、`ArmSmmu4K.c` 和 `package/tests/bluetooth_platform.c` 一起编进宿主程序，在 ASan/UBSan 下跑寄存器模型。K60 没有 SM8550 的平台文件，但 `bsd/dev/qbt/qbt_geni.c` 只通过 `struct qbt_geni_ops` 触硬件，可以脱离内核头在宿主上编译，于是同一套做法可以照搬。
+
+`scripts/tests/fixtures/bt-geni-model.c` 是 K60 的模型：4096 个 32 位寄存器、touched 位图、TX/RX 缓冲，写 `G_M_CLEAR`/`G_S_CLEAR`/`G_TX_CLEAR`/`G_RX_CLEAR` 清状态位，写 `G_TX_IRQ_SET`/`G_RX_IRQ_SET` 只动使能位；初始化设 `G_FW_REV=0x00000200`（协议 2 微码）与 `G_HW_PARAM1=8<<16`（FIFO 深度 8），这是 `qbt_geni_prepare` 检查的两个条件。八个场景覆盖 prepare（协议、激活、深度三种拒绝，打包 0x4380e 与 0xc3e0e，RX_WM 2、RFR_WM 6、RTS 停放）、rate（3 Mbaud 精确、3.2 Mbaud ERANGE、8x EINVAL）、start（S_CMD、IRQ_EN 0x0f、首个 RX DMA 2048）、write（DMA 长度与属性、M_CMD、忙时拒绝、完成计数）、receive（H4 事件与超长 EOVERFLOW）、fault（DMA_ERROR 得 EIO，fault_irq 保留）、quiesce（CANCEL 到 ABORT 到 RESET 到 STOPPED）、flow（TX_CFG bit1）。
+
+`scripts/check-bluetooth-geni.py` 默认从 `patches/xnu/0500-k60-bt-qbt-new-files.patch`（`4e6f58d9…`）抽出三个 GENI 源文件，或 `--tree` 取工作树；用 clang（缺则 gcc）加 ASan/UBSan 与 `-Werror` 编译，逐场景跑一次、再跑一次 `all`，写 `report.json` 与 `output.txt`。`hardware_verified` 恒为 false。
+
+实跑得 64 条断言、36 个寄存器，`bluetooth-geni-check: OK`；`scripts/tests/test-bt-geni-model.py` 26 例覆盖各场景与三种拒绝路径，其中「改坏被断言的打包写入必须变红」是这套检查的核心约束。边界：模型只模拟寄存器语义与 DMA 队列，不模拟真实 QUP/GENI 时序、SMMU 或引脚。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

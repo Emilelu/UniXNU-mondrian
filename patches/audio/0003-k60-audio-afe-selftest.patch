@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1236 @@ int pong_audio_status(void);
+@@ -898,6 +933,1242 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -244,6 +244,9 @@
 +	ext[2] = (uint64_t)dst_count * sizeof(*dst);
 +	flush_dcache64((uint64_t)(uintptr_t)g_pong_scm_page,
 +	    sizeof(g_pong_scm_page), 0);
++	printf("PongAudio: SCM %s begin pa=0x%llx bytes=0x%llx src=%u dst=%u\n",
++	    label, (unsigned long long)pa, (unsigned long long)bytes,
++	    src_count, dst_count);
 +	rc = pong_audio_scm_call5(PONG_SCM_ASSIGN_FNID, PONG_SCM_ASSIGN_ARGS,
 +	    base, 16u, base + 0x040u, base + 0x100u, &x0, &x1);
 +	printf("PongAudio: SCM %s pa=0x%llx bytes=0x%llx rc=%d x0=0x%llx x1=0x%llx\n",
@@ -268,7 +271,9 @@
 +{
 +	static const uint32_t src[2] = { PONG_VMID_LPASS, PONG_VMID_ADSP_HEAP };
 +	static const uint32_t dst[1] = { PONG_VMID_HLOS };
-+	static const uint32_t perms[1] = { 7u };
++	/* Read/write is all the copy needs; the stock unmap also grants
++	 * execute, which the next lend would carry as a source permission. */
++	static const uint32_t perms[1] = { PONG_SCM_PERM_RW };
 +
 +	return pong_audio_scm_transfer(pa, bytes, src, 2u, dst, perms, 1u,
 +	    "reclaim");
@@ -606,10 +611,11 @@
 +		return;
 +	}
 +	if (state->play_step == (unsigned)PongPlayPreparePlayback) {
-+		/* A paired START was refused with status 1 while single STARTs
-+		 * were accepted, so bring the TDM speaker up on its own. */
-+		printf("PongAudio: speaker START follows the playback prepare\n");
-+		pong_audio_play_send_step(state, PongPlayStartSpeaker);
++		/* The av image sent both graphs in one command, was refused with
++		 * status 1, and then had both singles accepted: the pair still
++		 * left the TDM speaker running. Repeat that order here. */
++		printf("PongAudio: pair START follows the playback prepare\n");
++		pong_audio_play_send_step(state, PongPlayStartPair);
 +		return;
 +	}
 +	if (state->play_step == (unsigned)PongPlayClock) {

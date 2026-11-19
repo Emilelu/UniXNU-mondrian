@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/pong_audio.c b/bsd/dev/pong_audio.c
-index 86ca152..95cc8d2 100644
+index 1cf9c4c..94ccfd4 100644
 --- a/bsd/dev/pong_audio.c
 +++ b/bsd/dev/pong_audio.c
 @@ -43,6 +43,13 @@
@@ -52,7 +52,7 @@ index 86ca152..95cc8d2 100644
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +934,1330 @@ int pong_audio_status(void);
+@@ -898,6 +934,1395 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -1257,6 +1257,70 @@ index 86ca152..95cc8d2 100644
 +	printf("PongAudio: AFE step %u refused rc=%d\n", step, rc);
 +}
 +
++/*
++ * The GPR AFE service answers every legacy parameter with status 2, while
++ * the DSP accepted the same opcodes from UniXNU-t970 over APR framing
++ * (20-byte header, version 2). This probe sends one APR device start and
++ * one APR group enable so a single boot tells whether this firmware takes
++ * the legacy AFE service through APR instead of GPR.
++ */
++static void
++pong_audio_afe_apr_probe(void)
++{
++	uint8_t pkt[64];
++	unsigned n = 0u;
++	int rc;
++
++	/* APR device start: opcode 0x000100e5, port 0x9020. */
++	n = 0u;
++	pkt[n++] = 0x52u;   /* version 2, five header words */
++	pkt[n++] = 0x02u;   /* sequential command */
++	pkt[n++] = 0u;
++	pkt[n++] = 0u;
++	pkt[n++] = 4u;     /* source service: AFE */
++	pkt[n++] = 3u;     /* source domain: APPS */
++	pkt[n++] = 0u;
++	pkt[n++] = 0u;
++	pkt[n++] = 4u;     /* destination service: AFE */
++	pkt[n++] = 2u;     /* destination domain: ADSP */
++	pkt[n++] = 0u;
++	pkt[n++] = 0u;
++	pong_afe_put32(&pkt[n], 0x00025a00u); n += 4u;
++	pong_afe_put32(&pkt[n], 0x000100e5u); n += 4u;
++	pong_afe_put16(&pkt[n], 0x9020u); n += 2u;
++	pong_afe_put16(&pkt[n], 0u); n += 2u;
++	pkt[2] = (uint8_t)(n & 0xffu);
++	pkt[3] = (uint8_t)((n >> 8) & 0xffu);
++	rc = k60_pmic_glink_send_audio(pkt, n);
++	printf("PongAudio: APR probe start bytes=%u rc=%d\n", n, rc);
++
++	/* APR group enable: AFE_SVC_CMD_SET_PARAM, module 0x00010254,
++	 * parameter 0x00010256, group 0x9120. */
++	n = 0u;
++	pkt[n++] = 0x52u;
++	pkt[n++] = 0x02u;
++	pkt[n++] = 0u;
++	pkt[n++] = 0u;
++	pkt[n++] = 4u; pkt[n++] = 3u; pkt[n++] = 0u; pkt[n++] = 0u;
++	pkt[n++] = 4u; pkt[n++] = 2u; pkt[n++] = 0u; pkt[n++] = 0u;
++	pong_afe_put32(&pkt[n], 0x00025a01u); n += 4u;
++	pong_afe_put32(&pkt[n], 0x000100f3u); n += 4u;
++	pong_afe_put32(&pkt[n], 16u); n += 4u;
++	pong_afe_put32(&pkt[n], 0u); n += 4u;
++	pong_afe_put32(&pkt[n], 0u); n += 4u;
++	pong_afe_put32(&pkt[n], 0u); n += 4u;
++	pong_afe_put32(&pkt[n], 0x00010254u); n += 4u;
++	pong_afe_put32(&pkt[n], 0x00010256u); n += 4u;
++	pong_afe_put16(&pkt[n], 4u); n += 2u;
++	pong_afe_put16(&pkt[n], 0u); n += 2u;
++	pong_afe_put16(&pkt[n], 0x9120u); n += 2u;
++	pong_afe_put16(&pkt[n], 1u); n += 2u;
++	pkt[2] = (uint8_t)(n & 0xffu);
++	pkt[3] = (uint8_t)((n >> 8) & 0xffu);
++	rc = k60_pmic_glink_send_audio(pkt, n);
++	printf("PongAudio: APR probe group enable bytes=%u rc=%d\n", n, rc);
++}
++
 +static void
 +pong_audio_afe_next(PongAudioState *state)
 +{
@@ -1269,6 +1333,7 @@ index 86ca152..95cc8d2 100644
 +		state->service_ready = true;
 +		state->last_error = PongAudioOk;
 +		printf("PongAudio: AFE six-step complete; speaker path ready\n");
++	pong_audio_afe_apr_probe();
 +		pong_audio_play_start(state);
 +		return;
 +	}
@@ -1383,7 +1448,7 @@ index 86ca152..95cc8d2 100644
  static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
-@@ -926,6 +2286,34 @@ pong_audio_bootstrap(void)
+@@ -926,6 +2351,34 @@ pong_audio_bootstrap(void)
  	return 0;
  }
  
@@ -1418,7 +1483,7 @@ index 86ca152..95cc8d2 100644
  int
  pong_audio_start(void)
  {
-@@ -936,6 +2324,38 @@ pong_audio_start(void)
+@@ -936,6 +2389,38 @@ pong_audio_start(void)
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -1457,7 +1522,7 @@ index 86ca152..95cc8d2 100644
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -947,23 +2367,93 @@ int
+@@ -947,23 +2432,93 @@ int
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;

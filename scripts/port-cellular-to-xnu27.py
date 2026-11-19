@@ -111,6 +111,29 @@ def write_port(out, tree, anchor_text):
     return None
 
 
+def verify(tree, out):
+    """Run git apply --check for every patch that was produced."""
+    wanted = ["0626-k60-modem-image.patch", "0627-k60-modem-qrtr.patch",
+              "0628-k60-ipa.patch", "0629-kern-exec-call-sites.patch"]
+    seen = 0
+    for name in wanted:
+        path = os.path.join(out, name)
+        if not os.path.exists(path):
+            print("K60 PORT27 VERIFY %s skipped (not produced)" % name[:4])
+            continue
+        result = subprocess.run(["git", "-C", tree, "apply", "--check", path],
+                                capture_output=True, text=True)
+        seen += 1
+        if result.returncode != 0:
+            print("K60 PORT27 VERIFY %s FAILED: %s"
+                  % (name[:4], (result.stderr or result.stdout).strip()))
+            return 1
+        print("K60 PORT27 VERIFY %s ok" % name[:4])
+    if not seen:
+        print("K60 PORT27 VERIFY nothing to check in " + out)
+        return 1
+    return 0
+
 def self_test():
     """Build a throwaway tree, port into it, and prove the call-site patch applies."""
     work = tempfile.mkdtemp(prefix="k60-port27-")
@@ -141,7 +164,10 @@ def self_test():
         if result.returncode != 0:
             print("K60 PORT27 FAIL generated patch does not apply: " + result.stderr.strip())
             return 1
-        print("K60 PORT27 PASS renumbering, anchor insertion, refusal")
+        if verify(work, out) != 0:
+            print("K60 PORT27 FAIL verify disagreed with the generated patches")
+            return 1
+        print("K60 PORT27 PASS renumbering, anchor insertion, refusal, verification")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -153,6 +179,8 @@ def main(argv):
     parser.add_argument("--out", help="directory to write the 27-line patches into")
     parser.add_argument("--anchor", default="native_owner_data_stage = 3;",
                         help="line in bsd/kern/kern_exec.c to insert the probes before")
+    parser.add_argument("--verify", action="store_true",
+                        help="run git apply --check on every produced patch")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args(argv)
     if args.self_test:
@@ -162,9 +190,13 @@ def main(argv):
     problem = write_port(args.out, args.tree, args.anchor)
     if problem:
         print("K60 PORT27 FAIL " + problem)
+        if args.verify:
+            verify(args.tree, args.out)
         return 2
     print("K60 PORT27 OK wrote 0626, 0627, 0628, 0629 and series-port.txt to " + args.out)
-    return 0
+    if not args.verify:
+        return 0
+    return verify(args.tree, args.out)
 
 
 if __name__ == "__main__":

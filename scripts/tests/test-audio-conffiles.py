@@ -6,7 +6,8 @@ The script exists because a silent anchor miss is indistinguishable from a
 successful run without reading conf/files. These cases hold it to the four
 outcomes that matter: it lists both entries, it is idempotent, it takes an
 anchor the caller names, and it fails loudly - with the count printed - when
-the anchor or a source is absent.
+the anchor or a source is absent. One case covers the iOS 27 layout, where the
+sources build in place and bsd/conf/files sits at the tree root.
 """
 import pathlib
 import shutil
@@ -20,9 +21,9 @@ ANCHOR = "bsd/dev/pong_buttons.c\t\t\tstandard"
 SOURCES = ["bsd/dev/PongAudioGeniI2c.c", "bsd/dev/PongAudioAmp.c"]
 
 
-def make_tree(conf_body, sources=SOURCES):
+def make_tree(conf_body, sources=SOURCES, inplace=False):
     root = pathlib.Path(tempfile.mkdtemp(prefix="k60-conf-"))
-    work = root / ".cache/xnu-work"
+    work = root if inplace else root / ".cache/xnu-work"
     (work / "bsd/conf").mkdir(parents=True)
     if conf_body is not None:
         (work / "bsd/conf/files").write_text(conf_body)
@@ -44,8 +45,9 @@ def run(tree, check=False, anchor=None):
     return proc.returncode, proc.stdout + proc.stderr
 
 
-def conf_text(tree):
-    return (pathlib.Path(tree) / ".cache/xnu-work/bsd/conf/files").read_text()
+def conf_text(tree, inplace=False):
+    root = pathlib.Path(tree)
+    return ((root if inplace else root / ".cache/xnu-work") / "bsd/conf/files").read_text()
 
 
 def case_append():
@@ -123,6 +125,19 @@ def case_check_mode():
     return "check mode: 1 before, 0 after"
 
 
+def case_inplace_tree():
+    body = "bsd/dev/unix_startup.c\t\t\tstandard\n"
+    tree = make_tree(body, inplace=True)
+    rc, out = run(tree, anchor=body.strip())
+    assert rc == 0, out
+    text = conf_text(tree, inplace=True)
+    for name in SOURCES:
+        assert name in text, out
+    assert "pong_audio lines 0 -> 2" in out, out
+    shutil.rmtree(tree)
+    return "in place: a 27 tree lists both entries at its own root"
+
+
 def case_unseeded_tree():
     root = pathlib.Path(tempfile.mkdtemp(prefix="k60-conf-"))
     rc, out = run(root)
@@ -133,7 +148,8 @@ def case_unseeded_tree():
 
 
 CASES = [case_append, case_idempotent, case_anchor_missing, case_custom_anchor,
-         case_source_missing, case_check_mode, case_unseeded_tree]
+         case_source_missing, case_check_mode, case_inplace_tree,
+         case_unseeded_tree]
 
 
 def main():

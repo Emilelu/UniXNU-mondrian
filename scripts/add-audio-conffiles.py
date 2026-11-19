@@ -9,6 +9,11 @@ an outer "|| true" swallows it, and the build goes green with no audio in it.
 So the verdict here is a count, not a message: how many lines name the driver
 sources before and after the write, and a non-zero exit when it did not grow.
 
+Two layouts are supported, because the two series seed differently:
+
+  <tree>/.cache/xnu-work/bsd/conf/files   the 16 series build driver
+  <tree>/bsd/conf/files                   iOS 27 output trees build in place
+
   python3 scripts/add-audio-conffiles.py <tree>           # append, exit 1 if it did not
   python3 scripts/add-audio-conffiles.py --check <tree>   # report the count only
 
@@ -30,6 +35,14 @@ MARKER = "PongAudio"
 SOURCES = [entry.split("\t")[0] for entry in ENTRIES]
 
 
+def resolve(tree):
+    """The directory holding bsd/, or None: a seeded repo, or XNU sources in place."""
+    for root in (tree / ".cache/xnu-work", tree):
+        if (root / "bsd/conf/files").is_file():
+            return root
+    return None
+
+
 def count(text):
     """Lines that name an audio source. The whole point: a number, not a log line."""
     return sum(1 for line in text.splitlines() if MARKER in line)
@@ -49,11 +62,12 @@ def main(argv):
     args = parser.parse_args(argv[1:])
 
     tree = pathlib.Path(args.tree)
-    work = tree / ".cache/xnu-work"
-    conf = work / "bsd/conf/files"
-    if not conf.is_file():
-        print("audio conffiles: no conf/files at %s (tree not seeded)" % conf)
+    work = resolve(tree)
+    if work is None:
+        print("audio conffiles: no bsd/conf/files under %s (neither .cache/xnu-work "
+              "nor the tree itself; tree not seeded)" % tree)
         return 1
+    conf = work / "bsd/conf/files"
 
     text = conf.read_text()
     before = count(text)

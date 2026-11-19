@@ -99,6 +99,10 @@ def main() -> int:
                     "1763000101 4501 832 57.3 35.8 2\n"
                     "1763000102 4502 834 57.4 35.9 2\n")
     window = ("--window-start", "1763000000", "--window-end", "1763000200")
+    # The synthetic TSV uses Apple's positive=charging sign, the same as the
+    # XNU sample line above; the judge defaults to K60 Android's
+    # negative=charging convention (773452af), so say so explicitly here.
+    window_positive = window + ("--android-current-sign", "positive")
 
     # (criterion, label, kind, log path, extra args, expected verdict, expected rc,
     #  what the row defends)
@@ -138,10 +142,10 @@ def main() -> int:
           "--window-start", "6380", "--window-end", "6420"), "INVALID", 2,
          "C1/C2 未过时不评估 C3：先判有没有，再判差多少"),
         ("C3 Android 同窗口", "3 pairs inside tolerance", "synthetic",
-         triples, ("--android", str(tsv_ok)) + window, "PASS", 0,
+         triples, ("--android", str(tsv_ok)) + window_positive, "PASS", 0,
          "阈值内必须 PASS，并打印每个量的最大差值"),
         ("C3 Android 同窗口", "3 pairs, voltage off by 170 mV", "synthetic",
-         triples, ("--android", str(tsv_far)) + window, "FAIL", 1,
+         triples, ("--android", str(tsv_far)) + window_positive, "FAIL", 1,
          "系统性电压差必须 FAIL，不能只报一个数字"),
         ("C3 Android 同窗口", "no --android", "synthetic",
          triples, (), "SKIP", 0,

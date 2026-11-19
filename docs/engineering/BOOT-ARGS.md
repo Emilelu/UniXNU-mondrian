@@ -70,6 +70,7 @@
 | `gprobe` | uint32 | 0 | `drivers/PongAdreno/PongDsiPanel.cpp:330` | `pong_panel_bring_up()` / `pong_panel_sample()` | 1 = arm the bounded 120 s panel-cadence observation window (GCC_DISP_AHB gate, DISPCC, MDSS) and let `K60 CADENCE:` lines print; 0 = the sample hook stays silent unless the one-shot post-bring-up check is still pending. |
 | `p120` | 显示 | uint32 | 0 | `patches/xnu/0506-k60-120hz-refresh.patch` + `drivers/PongAdreno/PongDsiPanel.cpp` | `refreshHz()` / `pong_panel_switch_120()` | `p120=1` = send the m11a timing@2 eleven-packet switch once at the first completed GPU frame; report the requested 120 Hz to TimingElements and log the separately measured INTF1 rate; 0 (default) = keep the native 60 Hz mode. The `K60 PANEL: INTF1 ... te .../s` line is the measured evidence; a failed switch is visible there even though the one-time TimingElements publication already says 120. |
 | `vsync` | 显示 | 仅 120（其他值忽略） | 0 | `patches/xnu/0506-k60-120hz-refresh.patch` + `drivers/PongAdreno/PongDsiPanel.cpp` | `refreshHz()` / `pong_panel_switch_120()` | Official display-document alias: `vsync=120` is accepted as equivalent to `p120=1`; it is a request, not a report. The same eleven-packet timing@2 switch runs at the first completed GPU frame; refreshHz() publishes the requested 120 Hz and the INTF1 line records the measured rate. Do not combine `vsync=120` with `k60_backlight_control=1` — the boot-args budget reaches 609 B, over the 608-byte limit. |
+| `pong_adsp_carrier` | ADSP | uint32 | 0 | `patches/xnu/0613-k60-adsp-pas.patch:455` | `k60_adsp_carrier_probe()` | 1 = 从内核内嵌 `k60_adsp_blob` 装载 ADSP 镜像并跑 PAS1（metadata → INIT_IMAGE → MEM_SETUP → copy → verify → AUTH_AND_RESET）；成功打 `K60PAS auth ok` + `K60PAS carrier verdict PASS`，失败打 `K60PAS carrier verdict FAIL rc=`；门禁要求 manifest 带 `adsp_blob` 且 sha256 与镜像一致（`scripts/verify-boot-image.py:85`） |
 | `k60_fontscale` | 显示 | 整数 | 代码默认 | `0214-k60-console-font-scale.patch` 控制台字号倍率 | — |
 | `k60_textonly` | 显示 | 真值 | 代码默认 | 只跑文本控制台，不初始化图形帧 | 用于隔离显示问题 |
 | `fb_threads` | 显示 | 整数 | 代码默认 | `zzzz…-pong-hackios-ui-foundation.patch` framebuffer 线程数 | — |
@@ -587,6 +588,20 @@ HFI id 30 的升档与还原投票都被固件接受（错误码 0），整轮�
 这是 2026-11-13 的 legacy 诊断记录。2026-11-16 15:03 裁决要求本轮不启用 `pong_adsp`；
 legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不能以 TCS 请求证明供电或授权 SCM。
 不能作为可用的音频/电池前提。
+
+### `pong_adsp_carrier`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不探测） |
+| 取值 | 0 / 1 |
+| 来源 | `patches/xnu/0613-k60-adsp-pas.patch:455`（`PE_parse_boot_argn("pong_adsp_carrier", &enabled, sizeof(enabled))`），调用点 `patches/xnu/0614-k60-adsp-call-site.patch:13-15`（`kern_exec.c`，在 0619 的 `k60_adsp_startup_claim(2u)` 之前）|
+| 作用 | 1 = 用内核内嵌的 `k60_adsp_blob`（26 记录容器）执行一次完整的 PAS1 bring-up：按镜像表把 24 段复制到板级 carveout（默认 `0x9fd00000`/`0x3100000`，可被 `/chosen` 的 `qcom,adsp-region` 覆盖）、metadata 走 INIT_IMAGE、然后 MEM_SETUP、copy、逐段 verify（memcmp + bss 全零）、clean 到 PoC、最后 AUTH_AND_RESET |
+
+**判据行**：成功 = `K60PAS auth ok` 之后 `K60PAS carrier verdict PASS auth=ok base=0x9fd00000 span=0x3100000`；失败 = `K60PAS auth refused rc=-4`（SCM 拒绝，零售机不放行的形态）或 `K60PAS carrier verdict FAIL rc=`。
+
+**与 `pong_adsp` 的区别**：`pong_adsp` 走 ramdisk FAT + md0（虚拟地址不可读的老死路）；本参数不会碰 md0，也不占 0619 的 owner claim。两者可同时存在但门禁只放行 `pong_adsp_carrier`（`pong_adsp=1` 仍被 `verify-boot-image.py` 拒）。
 
 ### `sheng-gpu-addon`
 

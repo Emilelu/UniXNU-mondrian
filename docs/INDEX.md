@@ -138,6 +138,8 @@ docs/
 | [`power/06-FIRMWARE-MANIFEST.md`](research/power/06-FIRMWARE-MANIFEST.md) | **电源固件清单**：ADSP 26 段 + mdt 的完整 sha256、充电器 .ko、carrier FD/UEFI 输入；记录来源压缩包与缺失段 b24，声明整机清单与认证密钥仍无来源 |
 | [`power/07-RAIL-ORDERING.md`](research/power/07-RAIL-ORDERING.md) | **稳压器/互连/温控顺序**：审计现有 TCS4 lcx/lmx、触摸 IOVDD TCS3、GPU 电源表与投票账本；给出读状态→温控→电压→互连→频率→回读的顺序和 HR-01 边界 |
 | [`power/08-IOS27-POWER-PORT.md`](research/power/08-IOS27-POWER-PORT.md) | **iOS27 电源移植清单**：iOS16 平台睡眠停在完整恢复硬挂；列出五个纯 C 策略模块/七套 host 1531 项、K60 现场事实、catalog ArmCpu + sheng xnu-12377 补丁（927a458）的复用/重写矩阵、移植顺序与验收判据；新增五模块 freestanding portability preflight |
+| `charger/08-ADSP-CARRIER-EXPERIMENT.md` | **ADSP 载体上机实验（已被 Route A 取代）**：零售机第一次受控 PAS 实验的 C0–C4 判据（唯一结论点 `K60PAS auth ok`）、carveout 真值 0x9fd00000、内嵌 blob 载体、SCM 重试、未闭合项清账表与 ADC 兜底摘要；§8/§8.1 记录 Route A 取代关系与电池判据复核，carrier-20261117c 不应 boot |
+| `charger/09-ADC-FALLBACK-SURVEY.md` | **电池遥测降级调研**：不依赖 ADSP 的候选逐项证据（SPMI VADC 通道表 0x38f/0x311/0x3a1、现有 arbiter 前例、UEFI/FG/USB 排除），两档成本与一次 boot 的 7 条证明清单 |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |
 | `memory/RESEARCH.md` | **内存布局结论层（本板真值）**：DDR 保留区与寄存器窗口，以及跨板边界——DXE Heap `0xC7000000` 与 Kernel `0xBB000000` 绝不可跨板抄 |

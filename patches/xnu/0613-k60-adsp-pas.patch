@@ -2,7 +2,7 @@ diff --git a/bsd/dev/pong_adsp_pas.h b/bsd/dev/pong_adsp_pas.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_adsp_pas.h
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,65 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* PAS (peripheral authentication service) calls for the K60 ADSP.
 + *
@@ -25,7 +25,9 @@ new file mode 100644
 +#define K60_SCM_RW 2u
 +
 +#define K60_PAS_ADSP 1u
-+#define K60_ADSP_LOAD_BASE 0x86300000ull
++/* Destination, not link address: adsp.mdt links at 0x86300000 (pong's
++ * carveout); this board reserves adsp_region@0x9fd00000 span 0x3100000. */
++#define K60_ADSP_LOAD_BASE 0x9fd00000ull
 +#define K60_ADSP_LOAD_SPAN 0x3100000ull
 +
 +/* Function id: SMC64 | SiP owner | service | command. */
@@ -84,8 +86,12 @@ new file mode 100644
 +
 +static int k60_scm_called;
 +
-+/* R8..x7 are the SMCCC argument registers; the secure monitor writes both the
-+ * result (x0) and the payload status (x1) back through the same registers. */
++/* x0..x7 are the SMCCC argument registers. The secure monitor writes the
++ * result (x0), the payload status (x1) and, when it preempts a call, a session
++ * cookie (x6) back through the same registers, and SMCCC 1.x lets it clobber
++ * x4..x17. Declaring only x0..x3 as outputs let the compiler keep live values
++ * in x4..x17 across the smc, so every argument register is read-write and
++ * x8..x17 are clobbered (the shape Linux arm_smccc_smc uses). */
 +static int
 +k60_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c,
 +    uint64_t *rx0, uint64_t *rx1)
@@ -100,9 +106,11 @@ new file mode 100644
 +	register uint64_t x7 __asm__("x7") = 0;
 +
 +	__asm__ volatile("smc #0"
-+	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
-+	    : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
-+	    : "memory");
++	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x5),
++	      "+r"(x6), "+r"(x7)
++	    :
++	    : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16",
++	      "x17", "memory");
 +
 +	k60_scm_called = 1;
 +	*rx0 = x0;
@@ -164,24 +172,42 @@ new file mode 100644
 diff --git a/bsd/dev/pong_adsp_boot.c b/bsd/dev/pong_adsp_boot.c
 new file mode 100644
 --- /dev/null
-+++ b/bsd/dev/pong_adsp_boot.c
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,516 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
-+/* ADSP bring-up order: prove the image table is sane, copy it into the
-+ * carveout, let the secure monitor authenticate, then hand the span to the
-+ * DSP. Every step prints its own verdict so a single boot log says which
-+ * layer refused. */
++/* ADSP bring-up: place the image in the carveout the board reserved, prove the
++ * placement, then let the secure monitor authenticate it.
++ *
++ * The order below is the one the reference implementation uses on the same SoC:
++ *   metadata (adsp.mdt) -> INIT_IMAGE -> MEM_SETUP -> copy -> verify ->
++ *   AUTH_AND_RESET.
++ * The shipped 06xx order (AUTH first, one INIT_IMAGE per segment, MEM_SETUP
++ * last) was read command by command, never from a working caller; no boot has
++ * reached "auth ok", so that order has never been exercised on this board.
++ *
++ * Two ways in:
++ *   pong_adsp_carrier=1  the linked K60A blob (osfmk/arm64/k60_adsp_blob.s),
++ *                        admitted only when the manifest names a container whose
++ *                        sha256 verify-boot-image.py can recompute;
++ *   pong_adsp=1          the legacy ramdisk FAT path; verify-boot-image.py still
++ *                        refuses it, kept only so the older evidence stays
++ *                        reproducible.
++ */
 +
 +#include "pong_adsp_pas.h"
 +#include "pong_adsp_image.h"
 +#include "pong_fat.h"
 +#include "K60AdspImageReader.h" /* device drivers/PongPower; -I added in build-xnu-4k-baseline.sh */
-+#include "pong_pmic_rail.h" /* the rail gate, same directory */
 +
 +#ifndef K60_HOST_TEST
 +
 +#include <pexpert/pexpert.h>
 +#include <pexpert/device_tree.h>
++#include <machine/machine_routines.h>
++#include <arm/caches_internal.h>
++#include <mach/vm_param.h>
++#include <mach/vm_statistics.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
 +#include <sys/systm.h>
 +#include <sys/vnode.h>
 +#include <sys/namei.h>
@@ -192,76 +218,303 @@ new file mode 100644
 + * include path out of the leaky kernel header set. */
 +extern vm_offset_t ml_io_map(vm_offset_t phys, vm_size_t size);
 +extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
++/* vm/pmap.h does not expose this one in the BSD compilation unit. */
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 +
++/* Zero-copy view of one firmware part. Verification memcmp()s the carveout
++ * against this; a second 49 MB copy would only prove the copy to itself. */
++typedef int (*K60AdspBorrow)(const char *part, const uint8_t **data, size_t *bytes);
++
++/* The carveout is mapped cacheable (VM_WIMG_DEFAULT is 0x2 on this chip:
++ * coherent, cacheable DDR, not device memory), so the copy lands in the data
++ * cache and has to be cleaned to the point of coherency before the monitor
++ * reads DRAM with the MMU off. flush_dcache64 is the helper 0300 already uses
++ * for the same problem on this board; it takes a physical address and a 32-bit
++ * count, which is why the span is checked before the call. */
++static void
++k60_adsp_flush(uint64_t pa, size_t bytes)
++{
++	if (bytes == 0 || bytes > 0xffffffffull) {
++		printf("K60PAS flush refused bytes=%u\n", (unsigned)bytes);
++		return;
++	}
++	flush_dcache64((addr64_t)pa, (unsigned)bytes, TRUE);
++}
++
++/* PAS authenticates the metadata, not the segments: INIT_IMAGE takes the
++ * physical address of adsp.mdt (884-byte header plus the hash table), which the
++ * monitor reads with the MMU off. Hence one physically contiguous, cleaned
++ * copy, and only of that file. */
++static int
++k60_adsp_metadata(const uint8_t *mdt, size_t bytes, void **hold, uint64_t *pa)
++{
++	vm_offset_t va = 0;
++	vm_size_t need;
++	ppnum_t page;
++	kern_return_t kr;
++
++	if (mdt == NULL || bytes == 0 || bytes > 65536) {
++		return K60AdspBadArg;
++	}
++	need = round_page((vm_size_t)bytes);
++	kr = kmem_alloc_contig(kernel_map, &va, need, PAGE_MASK, 0, 0,
++	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT);
++	if (kr != KERN_SUCCESS) {
++		printf("K60PAS metadata alloc failed kr=%d bytes=%u\n", kr, (unsigned)need);
++		return K60AdspReadBounds;
++	}
++	memcpy((void *)va, mdt, bytes);
++	page = pmap_find_phys(kernel_pmap, (addr64_t)va);
++	if (page == 0) {
++		printf("K60PAS metadata has no physical page\n");
++		kmem_free(kernel_map, va, need);
++		return K60AdspReadBounds;
++	}
++	*hold = (void *)va;
++	*pa = ptoa_64(page);
++	k60_adsp_flush(*pa, need);
++	return 0;
++}
++
++/* The carveout is a board fact, not an image fact: 0x9fd00000 is what the live
++ * FDT reserves (adsp_region, span 0x3100000); 0x86300000 is where the firmware
++ * was linked and where pong's SM8475 carveout sits. A loader that grows an
++ * override can publish reg-style cells under /chosen and win. */
++/* Device-tree cells are big-endian.  Two cells are a 32-bit base and span;
++ * four are a 64-bit base and a 64-bit span in the usual reg order. */
++static uint32_t
++k60_adsp_cell(const void *prop, unsigned index)
++{
++	const uint8_t *p = (const uint8_t *)prop + index * 4;
++
++	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
++	    ((uint32_t)p[2] << 8) | (uint32_t)p[3];
++}
++
++static void
++k60_adsp_board_region(uint32_t *base, uint32_t *span)
++{
++	DTEntry chosen = NULL;
++	const void *prop = NULL;
++	unsigned int length = 0;
++
++	*base = K60_ADSP_BOARD_BASE;
++	*span = K60_ADSP_WINDOW;
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
++	    SecureDTGetProperty(chosen, "qcom,adsp-region", &prop, &length) != kSuccess ||
++	    prop == NULL || (length != 8 && length != 16)) {
++		return;
++	}
++	{
++		uint64_t want_base, want_span;
++
++		if (length == 8) {
++			want_base = k60_adsp_cell(prop, 0);
++			want_span = k60_adsp_cell(prop, 1);
++		} else {
++			want_base = ((uint64_t)k60_adsp_cell(prop, 0) << 32) |
++			    k60_adsp_cell(prop, 1);
++			want_span = ((uint64_t)k60_adsp_cell(prop, 2) << 32) |
++			    k60_adsp_cell(prop, 3);
++		}
++
++		if ((want_base & 0xfffull) || want_base > 0xffffffffull ||
++		    want_span < K60_ADSP_WINDOW || want_span > 0xffffffffull) {
++			printf("K60PAS ignoring region override base=%#llx span=%#llx\n",
++			    (unsigned long long)want_base, (unsigned long long)want_span);
++			return;
++		}
++		if ((uint32_t)want_base != *base || (uint32_t)want_span != *span) {
++			printf("K60PAS region from /chosen base=%#x span=%#x\n",
++			    (unsigned)want_base, (unsigned)want_span);
++		}
++		*base = (uint32_t)want_base;
++		*span = (uint32_t)want_span;
++	}
++}
++
++/* Read-back: every copied byte must equal the firmware file it came from and
++ * every bss tail must be zero. This is the only proof that the window PAS will
++ * authenticate is the image the table describes. */
++static int
++k60_adsp_verify(void *window, K60AdspBorrow borrow)
++{
++	uint32_t i;
++
++	for (i = 0; i < K60_ADSP_SEGMENTS; i++) {
++		const K60AdspSegment *s = &k60_adsp_segments[i];
++		uint8_t *at = (uint8_t *)window + (s->paddr - K60_ADSP_LINK_BASE);
++		uint32_t z;
++
++		if (s->bytes) {
++			const uint8_t *src = NULL;
++			size_t have = 0;
++
++			if (borrow(s->part, &src, &have) != 0) {
++				printf("K60PAS verify borrow %s failed\n", s->part);
++				return K60AdspPartMissing;
++			}
++			if (have != s->bytes) {
++				printf("K60PAS verify size %s have=%u want=%u\n",
++				    s->part, (unsigned)have, s->bytes);
++				return K60AdspReadBounds;
++			}
++			if (memcmp(at, src, s->bytes) != 0) {
++				printf("K60PAS verify mismatch %s at window+%#x\n",
++				    s->part, (unsigned)(s->paddr - K60_ADSP_LINK_BASE));
++				return K60AdspMismatch;
++			}
++		}
++		for (z = 0; z < s->bss; z++) {
++			if (at[s->bytes + z] != 0) {
++				printf("K60PAS verify bss not zero %s+%u\n",
++				    s->part ? s->part : "adsp.b24", (unsigned)z);
++				return K60AdspMismatch;
++			}
++		}
++	}
++	return 0;
++}
++
++/* The whole bring-up, in the order the reference implementation proved:
++ * metadata, INIT_IMAGE, MEM_SETUP, copy, verify, AUTH_AND_RESET. Stops at
++ * "auth ok": starting the DSP is a separate decision with its own evidence. */
 +int
-+k60_adsp_bring_up(void *window, size_t window_bytes, K60AdspRead read)
++k60_adsp_bring_up(const uint8_t *mdt, size_t mdt_bytes, K60AdspBorrow borrow,
++    K60AdspRead read, uint32_t board_base, uint32_t span)
 +{
 +	K60AdspPlan plan;
-+	uint32_t i;
++	void *hold = NULL;
++	uint64_t meta_pa = 0;
++	vm_offset_t window;
 +	int rc;
 +
-+	/* First step, because it guards the irreversible one:
-+	 * AUTH_AND_RESET below resets the DSP and cannot be undone. The
-+	 * read is only legal after Data mount, which is why the gate is
-+	 * here and not in resources(), and why its verdict is three-state
-+	 * rather than one constant (P-223). */
-+	rc = k60_rail_inherit();
++	rc = k60_adsp_plan_at(&plan, board_base);
 +	if (rc != 0) {
-+		printf("K60ADSP: rail inheritance refused rc=%d; not "
-+		    "reaching AUTH_AND_RESET\n", rc);
++		printf("K60PAS plan rc=%d base=%#x\n", rc, board_base);
 +		return rc;
 +	}
++	printf("K60PAS plan rows=%u copied=%u zeroed=%u link=%#x base=%#x window=%#x\n",
++	    plan.segments, plan.copied, plan.zeroed,
++	    (unsigned)K60_ADSP_LINK_BASE, plan.base, plan.window);
++	if (span != plan.window) {
++		printf("K60PAS span %#x does not match the table window %#x\n",
++		    span, plan.window);
++		return K60AdspBadArg;
++	}
 +
-+	rc = k60_adsp_plan(&plan);
++	window = ml_io_map_unmappable((vm_offset_t)board_base, (vm_size_t)span,
++	    0x2 /* VM_WIMG_DEFAULT: DDR, not device memory */);
++	if (window == 0) {
++		printf("K60PAS cannot map the carveout %#x span %#x\n", board_base, span);
++		return K60AdspBadArg;
++	}
++
++	rc = k60_adsp_metadata(mdt, mdt_bytes, &hold, &meta_pa);
 +	if (rc != 0) {
-+		printf("K60PAS plan rc=%d\n", rc);
 +		return rc;
 +	}
-+	printf("K60PAS plan rows=%u copied=%u zeroed=%u base=%#x window=%#x\n",
-+	    plan.segments, plan.copied, plan.zeroed, plan.base, plan.window);
++	printf("K60PAS metadata phys=%#llx bytes=%u\n",
++	    (unsigned long long)meta_pa, (unsigned)mdt_bytes);
 +
-+	rc = k60_adsp_copy(window, window_bytes, read);
++	rc = k60_adsp_init_image(meta_pa);
++	if (rc != K60PasOk) {
++		printf("K60PAS init refused rc=%d\n", rc);
++		goto out;
++	}
++	printf("K60PAS init ok\n");
++
++	rc = k60_adsp_mem_setup((uint64_t)board_base, (uint64_t)span);
++	if (rc != K60PasOk) {
++		printf("K60PAS mem_setup refused rc=%d\n", rc);
++		goto out;
++	}
++	printf("K60PAS mem_setup ok\n");
++
++	rc = k60_adsp_copy((void *)window, (size_t)span, read);
 +	if (rc != 0) {
 +		printf("K60PAS copy rc=%d\n", rc);
-+		return rc;
++		goto out;
 +	}
 +	printf("K60PAS copy ok\n");
++
++	rc = k60_adsp_verify((void *)window, borrow);
++	if (rc != 0) {
++		goto out;
++	}
++	printf("K60PAS verify ok segments=%u copied=%u zeroed=%u\n",
++	    plan.segments, plan.copied, plan.zeroed);
++
++	/* The monitor reads the window with the MMU off: clean the copy out of the
++	 * cache first. Physically addressed, because the monitor is not. */
++	k60_adsp_flush((uint64_t)board_base, (size_t)span);
 +
 +	rc = k60_adsp_auth_and_reset();
 +	if (rc != K60PasOk) {
 +		printf("K60PAS auth refused rc=%d\n", rc);
-+		return rc;
++		goto out;
 +	}
 +	printf("K60PAS auth ok\n");
++	rc = K60PasOk;
 +
-+	for (i = 0; i < K60_ADSP_SEGMENTS; i++) {
-+		const K60AdspSegment *s = &k60_adsp_segments[i];
-+
-+		if (s->bytes == 0) {
-+			continue;
-+		}
-+		rc = k60_adsp_init_image((uint64_t)s->paddr);
-+		if (rc != K60PasOk) {
-+			printf("K60PAS init seg=%u addr=%#x bytes=%u rc=%d\n",
-+			    i, s->paddr, s->bytes, rc);
-+			return rc;
-+		}
++out:
++	if (hold != NULL) {
++		kmem_free(kernel_map, (vm_offset_t)hold, round_page(mdt_bytes));
 +	}
-+	printf("K60PAS init all segments ok\n");
-+
-+	rc = k60_adsp_mem_setup((uint64_t)K60_ADSP_BASE, (uint64_t)K60_ADSP_WINDOW);
-+	if (rc != K60PasOk) {
-+		printf("K60PAS mem_setup refused rc=%d\n", rc);
-+		return rc;
-+	}
-+	printf("K60PAS mem_setup ok base=%#x span=%#x\n",
-+	    (unsigned)K60_ADSP_BASE, (unsigned)K60_ADSP_WINDOW);
-+	return K60PasOk;
++	return rc;
 +}
 +
++/* Linked carrier: the only admitted path. The blob is compiled into the kernel
++ * image, so there is no firmware I/O and no FAT here. */
++static K60AdspReader k60_carrier_reader;
 +
-+/* Called from the Data-mount path (patch 0614). Off unless the boot argument
-+ * is present, so the shipped baseline never takes this path. */
++static int
++k60_carrier_borrow(const char *part, const uint8_t **data, size_t *bytes)
++{
++	return k60_adsp_reader_borrow(&k60_carrier_reader, part, data, bytes);
++}
++
++int
++k60_adsp_carrier_probe(void)
++{
++	const uint8_t *mdt = NULL;
++	size_t mdt_bytes = 0;
++	uint32_t base = 0, span = 0;
++	int enabled = 0;
++	int rc;
++
++	if (!PE_parse_boot_argn("pong_adsp_carrier", &enabled, sizeof(enabled)) ||
++	    enabled == 0) {
++		return 0;
++	}
++	printf("K60PAS carrier begin\n");
++	rc = k60_adsp_reader_linked(&k60_carrier_reader);
++	if (rc != 0) {
++		printf("K60PAS carrier absent rc=%d\n", rc);
++		return rc;
++	}
++	rc = k60_adsp_reader_borrow(&k60_carrier_reader, "adsp.mdt", &mdt, &mdt_bytes);
++	if (rc != 0) {
++		printf("K60PAS carrier metadata rc=%d\n", rc);
++		return rc;
++	}
++	k60_adsp_board_region(&base, &span);
++	printf("K60PAS carrier region base=%#x span=%#x\n", base, span);
++
++	rc = k60_adsp_bring_up(mdt, mdt_bytes, k60_carrier_borrow, k60_adsp_read,
++	    base, span);
++	if (rc == K60PasOk) {
++		printf("K60PAS carrier verdict PASS auth=ok base=%#x span=%#x\n",
++		    base, span);
++	} else {
++		printf("K60PAS carrier verdict FAIL rc=%d base=%#x span=%#x\n",
++		    rc, base, span);
++	}
++	return rc;
++}
++
++/* Legacy ramdisk FAT path. Kept for the older evidence, still refused by
++ * verify-boot-image.py; the carrier above is what ships. */
 +/* This XNU has no msdos filesystem and 0404's mount never ran, so the old
 + * /private/var/pong/md0 path could never resolve. md0 is a contiguous block
 + * device whose base and size the firmware already wrote into the
@@ -295,10 +548,6 @@ new file mode 100644
 +	return -1;
 +}
 +
-+/* PE_boot_args() hands back the kernel-embedded default string, so it never
-+ * carries the loader's md token (measured: it lacks pong_adsp too, yet
-+ * PE_parse_boot_argn finds that key). PE_parse_boot_argn reads the buffer the
-+ * firmware actually filled, which is where memdev.c found md0. */
 +/* memdev.c calls this the moment it registers md0: the only place where the
 + * ramdisk geometry is still live (P-175). */
 +static uint64_t k60_md_base;
@@ -335,26 +584,38 @@ new file mode 100644
 +}
 +
 +static int
-+k60_adsp_ramdisk_reader(const char *part, void *dst, uint32_t bytes)
++k60_adsp_ramdisk_borrow(const char *part, const uint8_t **data, size_t *bytes)
 +{
 +	uint32_t offset = 0, length = 0;
-+	int rc;
 +
 +	if (!k60_fat_ready) {
 +		printf("K60PAS fat volume not opened\n");
 +		return -1;
 +	}
-+	rc = k60_fat_find(k60_fat_base, &k60_fat_vol, "ADSP", part, &offset,
-+	    &length);
-+	if (rc != 0) {
-+		printf("K60PAS fat find %s rc=%d\n", part, rc);
++	if (k60_fat_find(k60_fat_base, &k60_fat_vol, "ADSP", part, &offset,
++	    &length) != 0) {
++		printf("K60PAS fat find %s failed\n", part);
 +		return -1;
 +	}
-+	if (length != bytes) {
-+		printf("K60PAS fat size %s have=%u want=%u\n", part, length, bytes);
++	*data = (const uint8_t *)k60_fat_base + offset;
++	*bytes = (size_t)length;
++	return 0;
++}
++
++static int
++k60_adsp_ramdisk_reader(const char *part, void *dst, uint32_t bytes)
++{
++	const uint8_t *src = NULL;
++	size_t have = 0;
++
++	if (k60_adsp_ramdisk_borrow(part, &src, &have) != 0) {
 +		return -1;
 +	}
-+	memcpy(dst, (const uint8_t *)k60_fat_base + offset, (size_t)length);
++	if (have != bytes) {
++		printf("K60PAS fat size %s have=%u want=%u\n", part, (unsigned)have, bytes);
++		return -1;
++	}
++	memcpy(dst, src, (size_t)bytes);
 +	return 0;
 +}
 +
@@ -362,7 +623,9 @@ new file mode 100644
 +k60_adsp_probe_from_handoff(void)
 +{
 +	uint64_t base = 0, size = 0;
-+	vm_offset_t window;
++	const uint8_t *mdt = NULL;
++	size_t mdt_bytes = 0;
++	uint32_t region = 0, span = 0;
 +	int enabled = 0;
 +
 +	if (!PE_parse_boot_argn("pong_adsp", &enabled, sizeof(enabled)) || enabled == 0) {
@@ -403,14 +666,12 @@ new file mode 100644
 +	    k60_fat_vol.bytes_per_sector, k60_fat_vol.sectors_per_cluster,
 +	    k60_fat_vol.root_cluster, k60_fat_vol.clusters);
 +
-+	window = ml_io_map_unmappable((vm_offset_t)K60_ADSP_BASE,
-+	    (vm_size_t)K60_ADSP_WINDOW, 0x2 /* VM_WIMG_DEFAULT: both windows are DDR, not device memory */);
-+	if (window == 0) {
-+		printf("K60PAS cannot map the carveout\n");
++	if (k60_adsp_ramdisk_borrow("adsp.mdt", &mdt, &mdt_bytes) != 0) {
 +		return -1;
 +	}
-+	return k60_adsp_bring_up((void *)window, (size_t)K60_ADSP_WINDOW,
-+	    k60_adsp_ramdisk_reader);
++	k60_adsp_board_region(&region, &span);
++	return k60_adsp_bring_up(mdt, mdt_bytes, k60_adsp_ramdisk_borrow,
++	    k60_adsp_ramdisk_reader, region, span);
 +}
 +
 +/* Blob-less fallback binding for the owner image reader: the linked carrier is

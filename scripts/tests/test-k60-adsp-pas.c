@@ -44,8 +44,16 @@ static void check_ok(void)
 static void check_constants(void)
 {
 	assert(K60_PAS_ADSP == 1u);
-	assert(K60_ADSP_LOAD_BASE == 0x86300000ull);
+	/* The PAS destination is the board carveout (adsp_region@0x9fd00000 in
+	 * the live FDT), never the firmware's link address 0x86300000: that one is
+	 * the pong SM8475 carveout. */
+	assert(K60_ADSP_LOAD_BASE == 0x9fd00000ull);
 	assert(K60_ADSP_LOAD_SPAN == 0x3100000ull);
+	/* Retry rules, same values the reference implementation uses. */
+	assert(K60_SCM_V2_EBUSY == -12);
+	assert(K60_SCM_INTERRUPTED == 1);
+	assert(K60_SCM_EBUSY_TRIES > 1);
+	assert(K60_SCM_RESUME_TRIES > 1);
 	assert(K60_SCM_PAS_INIT_IMAGE == 0x01u);
 	assert(K60_SCM_PAS_MEM_SETUP == 0x02u);
 	assert(K60_SCM_PAS_AUTH_AND_RESET == 0x05u);

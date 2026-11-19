@@ -15,10 +15,11 @@ enum {
     K60AdspReadFailed = -5, /* partial/exact-size failure */
     K60AdspPartMissing = -6, /* reader source/name absent */
     K60AdspReadBounds = -7, /* reader container/range invalid */
+    K60AdspMismatch = -9, /* read-back differs from the firmware file */
 };
 
 typedef struct {
-    uint32_t paddr;
+    uint32_t paddr; /* firmware LINK address (adsp.mdt p_paddr) */
     uint32_t bytes;
     uint32_t bss;
     const char *part;
@@ -27,7 +28,7 @@ typedef struct {
 #include "pong_adsp_table.h" /* needs K60AdspSegment, declared above */
 
 typedef struct {
-    uint32_t base;
+    uint32_t base; /* BOARD carveout the bytes are copied to */
     uint32_t window;
     uint32_t segments;
     uint32_t copied;
@@ -42,6 +43,11 @@ typedef int (*K60AdspRead)(const char *part, void *dst, uint32_t bytes);
 
 /* Validates the table only; no allocation, no device access. */
 int k60_adsp_plan(K60AdspPlan *plan);
+
+/* Same, for an explicit destination: board_base must be 4 KiB aligned.
+ * K60_ADSP_LINK_BASE is where the firmware was linked, never where it runs;
+ * segment paddr keeps its link value and is relocated on copy. */
+int k60_adsp_plan_at(K60AdspPlan *plan, uint32_t board_base);
 
 /* Copies every segment and zeroes every bss tail. window is the PAS carveout. */
 int k60_adsp_copy(void *window, size_t window_bytes, K60AdspRead read);

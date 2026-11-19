@@ -18,7 +18,10 @@ What it checks, in order, and it stops at the first disagreement:
      patches it, so the manifest records both and this compares the right one)
   6. payload TOML: every `args =` line, which is what the firmware actually
      passes (P-175: PE_boot_args() returns the kernel's compiled-in default)
-  7. policy: pong_adsp=1 is refused, pong_adsp=0 is allowed
+  7. policy: pong_adsp=1 is refused, pong_adsp=0 is allowed; the carrier is
+     admitted only with a manifest that names the container and a file that
+     still hashes to it. A boot argument that names nothing is a silent
+     fallback with better manners (P-204).
 
 Usage:
   scripts/verify-boot-image.py --manifest <build-manifest.json>
@@ -77,6 +80,39 @@ def read_fat_file(volume, inner):
     if done.returncode != 0:
         return None, done.stderr.decode('utf-8', 'replace').strip()
     return done.stdout, ''
+
+
+def carrier_problems(comp):
+    """pong_adsp_carrier=1 is only as good as the container it names.
+
+    The kernel image always contains the blob, so the argument alone proves
+    nothing about which firmware it carries: the build has to record the
+    container sha256, the file has to still exist, and the two have to agree.
+    Anything less is refused here rather than read as a fallback in the log.
+    """
+    blob_sha = comp.get('adsp_blob') or ''
+    path = comp.get('adsp_blob_path') or ''
+    if len(blob_sha) != 64:
+        return ['payload TOML enables pong_adsp_carrier=1 but the manifest has no adsp_blob sha256']
+    if not path:
+        return ['the manifest records an adsp_blob sha256 but no adsp_blob_path']
+    blob = Path(path)
+    if not blob.is_file():
+        return [f'the manifest adsp_blob_path is missing: {path}']
+    got = sha256_file(blob)
+    if got != blob_sha:
+        return [f'adsp container sha256 {got[:16]} != manifest {blob_sha[:16]}']
+    return []
+
+
+def boot_policy(tokens, comp):
+    """Every boot argument this project refuses has to be decided here."""
+    problems = []
+    if 'pong_adsp=1' in tokens:
+        problems.append('payload TOML enables pong_adsp=1 (active ADSP probe is refused)')
+    if 'pong_adsp_carrier=1' in tokens:
+        problems.extend(carrier_problems(comp))
+    return problems
 
 
 def check(manifest_path, image_override=None):
@@ -160,13 +196,13 @@ def check(manifest_path, image_override=None):
             problems.append(f'payload FAT has no unixnu.toml: {err}')
         else:
             text = toml.decode('utf-8', 'replace')
+            tokens = []
             for line in text.splitlines():
                 s = line.strip()
                 if not s.startswith('args'):
                     continue
-                for token in s.replace('"', ' ').split():
-                    if token == 'pong_adsp=1':
-                        problems.append('payload TOML enables pong_adsp=1 (active ADSP probe is refused)')
+                tokens.extend(s.replace('"', ' ').split())
+            problems.extend(boot_policy(tokens, comp))
     finally:
         vol.unlink(missing_ok=True)
 

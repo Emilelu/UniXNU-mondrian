@@ -5,17 +5,24 @@ adsp.b00..b25:
   * the metadata really is ELF32 with a program header table,
   * every PT_LOAD segment names an existing adsp.bNN whose size equals p_filesz,
   * segments do not overlap once p_memsz is honoured,
-  * the whole span fits one 4 KiB-aligned window starting at ADSP_BASE.
+  * the whole span fits one 4 KiB-aligned window starting at LINK_BASE,
+  * the generated header agrees with LINK_BASE / BOARD_BASE / WINDOW below.
 
 Run: python3 scripts/tests/test-k60-adsp-image.py /mnt/e/k60-work/firmware/adsp
 """
 
+import re
 import struct
 import sys
 from pathlib import Path
 
-ADSP_BASE = 0x86300000
+# Firmware link address (lowest p_paddr in adsp.mdt).
+LINK_BASE = 0x86300000
+# Board carveout the loader must copy to: adsp_region@0x9fd00000, span 0x3100000.
+BOARD_BASE = 0x9fd00000
 WINDOW = 0x04000000  # 64 MiB ceiling; the measured image needs ~0x3100000
+HERE = Path(__file__).resolve()
+HEADER = HERE.parents[2] / "drivers" / "PongPower" / "pong_adsp_table.h"
 
 
 def fail(message):
@@ -59,16 +66,34 @@ def main(argv):
             problems += fail("%s has a non page-aligned file offset %#x" % (name, p_offset))
         if paddr % 4096:
             print("NOTE %s loads at unaligned %#x; PAS must copy by byte, not by page" % (name, paddr))
-        if not (ADSP_BASE <= paddr and paddr + memsz <= ADSP_BASE + WINDOW):
-            problems += fail("%s loads at %#x, outside %#x..%#x" % (name, paddr, ADSP_BASE, ADSP_BASE + WINDOW))
+        if not (LINK_BASE <= paddr and paddr + memsz <= LINK_BASE + WINDOW):
+            problems += fail("%s loads at %#x, outside %#x..%#x" % (name, paddr, LINK_BASE, LINK_BASE + WINDOW))
 
     ordered = sorted(segs, key=lambda s: s[2])
     for prev, nxt in zip(ordered, ordered[1:]):
         if prev[2] + prev[4] > nxt[2]:
             problems += fail("segment %d overlaps %d" % (prev[0], nxt[0]))
 
+    # The header the kernel compiles must carry the same split. A generator
+    # that silently reverts to one base is the failure this guards against.
+    defines = {}
+    for line in HEADER.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"#define (K60_ADSP_[A-Z_]+) (0x[0-9a-fA-F]+)UL", line)
+        if m:
+            defines[m.group(1)] = int(m.group(2), 16)
+    for key, want in (("K60_ADSP_LINK_BASE", LINK_BASE),
+                      ("K60_ADSP_BOARD_BASE", BOARD_BASE)):
+        if defines.get(key) != want:
+            problems += fail("%s is %#x in the header, expected %#x"
+                             % (key, defines.get(key, 0), want))
+    if defines.get("K60_ADSP_BOARD_BASE", 0) % 4096:
+        problems += fail("K60_ADSP_BOARD_BASE is not 4 KiB aligned")
+    if defines.get("K60_ADSP_BOARD_BASE") == defines.get("K60_ADSP_LINK_BASE"):
+        problems += fail("the header collapsed link and board bases")
+
     lo, hi = ordered[0][2], max(s[2] + s[4] for s in ordered)
-    print("TESTS OK %d segments, %#x..%#x (%d bytes), base %#x" % (len(segs), lo, hi, hi - lo, ADSP_BASE))
+    print("TESTS OK %d segments, %#x..%#x (%d bytes), link %#x board %#x"
+          % (len(segs), lo, hi, hi - lo, LINK_BASE, BOARD_BASE))
     if problems:
         print("PROBLEMS %d" % problems)
         return 1

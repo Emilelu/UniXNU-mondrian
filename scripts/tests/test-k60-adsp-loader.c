@@ -44,6 +44,32 @@ int main(void)
     printf("plan segments=%u copied=%u zeroed=%u base=%#x window=%#x\n",
            plan.segments, plan.copied, plan.zeroed, plan.base, plan.window);
 
+    if (plan.base != K60_ADSP_BOARD_BASE) {
+        printf("FAIL plan targets %#lx, not the board carveout %#lx\n",
+               (unsigned long)plan.base, (unsigned long)K60_ADSP_BOARD_BASE);
+        return 1;
+    }
+    if (K60_ADSP_BOARD_BASE == K60_ADSP_LINK_BASE) {
+        printf("FAIL link base and board base collapsed into one address\n");
+        return 1;
+    }
+
+    /* The carveout is a board fact: an override must be honoured, an unaligned
+     * one refused (the PAS copy writes page-backed memory). */
+    K60AdspPlan alt;
+    if (k60_adsp_plan_at(&alt, 0x9fd00000u) != 0 || alt.base != 0x9fd00000u) {
+        printf("FAIL plan_at did not honour an explicit board base\n");
+        return 1;
+    }
+    if (k60_adsp_plan_at(&alt, 0x9fd00800u) != K60AdspBadArg) {
+        printf("FAIL plan_at accepted an unaligned board base\n");
+        return 1;
+    }
+    if (k60_adsp_plan_at(NULL, 0x9fd00000u) != K60AdspBadArg) {
+        printf("FAIL plan_at accepted a null plan\n");
+        return 1;
+    }
+
     if (plan.segments != K60_ADSP_SEGMENTS) {
         printf("FAIL segment count\n");
         return 1;
@@ -72,7 +98,7 @@ int main(void)
 
     /* The first segment must be visible at its address, and its bss must be zero. */
     const K60AdspSegment *first = &k60_adsp_segments[0];
-    const uint8_t *at = buf + (first->paddr - K60_ADSP_BASE);
+    const uint8_t *at = buf + (first->paddr - K60_ADSP_LINK_BASE);
     if (first->bytes && at[0] != 0xa5) {
         printf("FAIL first segment not copied (%#x)\n", at[0]);
         return 1;
@@ -85,7 +111,7 @@ int main(void)
     /* Bytes after the last segment must stay untouched. */
     uint32_t end = 0;
     for (uint32_t i = 0; i < K60_ADSP_SEGMENTS; i++) {
-        uint32_t e = k60_adsp_segments[i].paddr - K60_ADSP_BASE +
+        uint32_t e = k60_adsp_segments[i].paddr - K60_ADSP_LINK_BASE +
                      k60_adsp_segments[i].bytes + k60_adsp_segments[i].bss;
         end = e > end ? e : end;
     }

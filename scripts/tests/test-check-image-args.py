@@ -90,6 +90,10 @@ def main() -> int:
           "image-arg-audit: OK",
           "-v native-ufs=1 debug=0x140 epoch=1793709100 pong_rail_probe=1")
 
+    check("the ADSP carrier argument passes", 0,
+          "image-arg-audit: OK",
+          "-v native-ufs=1 debug=0x140 epoch=1793709100 pong_adsp_carrier=1")
+
     check("debug=1 is refused", 1,
           "DB_HALT",
           "-v native-ufs=1 debug=1 epoch=1793709100")
@@ -115,7 +119,7 @@ def main() -> int:
     if failures:
         print(f"TESTS OK 0 cases ({failures} failure(s))")
         return 1
-    print("TESTS OK 7 cases (0 failure(s))")
+    print("TESTS OK 8 cases (0 failure(s))")
     return 0
 
 

@@ -1,0 +1,254 @@
+# ADSP 载体实验：零售机第一次受控 PAS 上机
+
+状态：已被 ADSP Route A 真机结果取代（2026-11-17）；本实验不再需要上机，`carrier-20261117c` 不应 boot。
+分支：`feat/adsp-carrier`（基于 `origin/main 74c0d24e`，不混 `feat/charger`）。
+执行人：Lead（本线禁止自行 boot，见 m01673 与用户 m03715 铁律）。
+
+## 0 这次上机只回答一个问题
+
+**零售 K60 的 SCM 会不会放行 PAS（PIL）鉴权。**
+
+不是"电池能不能用"，不是"GLINK 通不通"：那些都在 lease 之后。
+所以判据钉在 `K60PAS auth ok` 这一行；到不了这一行就不是 PASS，
+不论前面打印了多少行。
+
+### 0.1 判据表（逐字，先写死）
+
+| 判据 | PASS（全部满足） | FAIL | INVALID |
+| --- | --- | --- | --- |
+| C0 载体装载 | `K60PAS carrier begin` 与 `K60PAS carrier region base=0x9fd00000 span=0x3100000` 各 1 次 | 出现 `K60PAS carrier absent rc=` | 没有 `K60PAS carrier begin`（boot-arg 没进镜像，或 K60DATA mount 在本钩子之前失败；见 §3 前置） |
+| C1 放置 | `K60PAS plan rows=24 copied=23494284 zeroed=25925684 link=0x86300000 base=0x9fd00000 window=0x3100000` 与 `K60PAS verify ok segments=24` 各 1 次 | `K60PAS verify mismatch` / `K60PAS verify bss not zero` / `K60PAS plan rc=` | 有 begin 无 plan 行 |
+| C2 鉴权前步骤 | `K60PAS init ok` 与 `K60PAS mem_setup ok` 各 1 次 | `K60PAS init refused rc=` / `K60PAS mem_setup refused rc=` | init 行缺失 |
+| C3 SCM 鉴权（本实验唯一结论点） | `K60PAS auth ok` 1 次，随后 `K60PAS carrier verdict PASS auth=ok base=0x9fd00000 span=0x3100000` | `K60PAS auth refused rc=` 或 `K60PAS carrier verdict FAIL rc=` | `K60PAS auth` 从未出现（提前 panic） |
+| C4 系统存活 | auth 之后 60 s 内无 panic，控制台仍有心跳行 | 60 s 内 panic（贴 panic 首行 + `esr=`） | 无法判定（日志截断） |
+
+规则：
+
+- 一次 boot 只判一次；同一镜像重复 boot 不改变判决。
+- 行号必须贴（`console.log:N`），不贴行号的判读不算证据（P-204 家族）。
+- C3 为 FAIL 时先看 rc：`rc=-4` 是 SCM 拒绝（结论：零售机不放行）；
+  `rc=-12`（EBUSY）要在 20 次重试后仍出现才算超时；`rc=1`（INTERRUPTED）
+  要在 100000 次续会话后仍出现才是真中断。
+- `K60PAS carrier verdict FAIL rc=` 是终态行，缺它而中途停住按 INVALID 处理。
+
+### 0.2 止损线 D4（用户批准，m03755）
+
+连续 2 次 boot 未到 `K60PAS auth ok` → 停止 ADSP 尝试，转 §6 的 ADC 兜底，
+不再追加第三次"也许这次行"的镜像。
+
+## 1 变更清单（每项：为什么 / 改在哪 / 静态证据）
+
+### 1.1 carveout 真值（D1 = ③ 双来源）
+
+- 事实：真机 FDT `/reserved-memory/adsp_region@9fd00000` reg=<0 0x9fd00000 0 0x3100000>
+  （`E:/k60-work/scratch/power-work/assets/fdt-tree.json:286-291`），而固件按
+  `0x86300000` 链接（pong SM8475 carveout）。旧代码把链接地址当目的地址：
+  `drivers/PongPower/pong_adsp_table.h:3`、`drivers/PongPower/K60AdspPas.h:23`。
+- 改法：三常量分开 —— `K60_ADSP_LINK_BASE 0x86300000`（固件链接）、
+  `K60_ADSP_BOARD_BASE 0x9fd00000`（本板 carveout）、`K60_ADSP_WINDOW 0x3100000`；
+  运行时可被 `/chosen` 的 `qcom,adsp-region` 覆盖（`patches/xnu/0613-k60-adsp-pas.patch:279`
+  `k60_adsp_board_region()`）：2 cell = 32 位 base/span，4 cell = 64 位 base/span；
+  device-tree cell 按 big-endian 解码（`k60_adsp_cell()`），对齐/范围校验。
+- 静态证据：`scripts/tests/test-k60-adsp-loader.c` 断言 `plan.base == K60_ADSP_BOARD_BASE`、
+  两者不等、`plan_at(0x9fd00800)` 必须 `K60AdspBadArg`；`scripts/tests/test-k60-adsp-image.py`
+  从 `pong_adsp_table.h` 读回三个常量并与镜像表比对（`TESTS OK ... link 0x86300000 board 0x9fd00000`）。
+- 产物证据：c 的 `kernel.macho` 保留 `K60PAS region from /chosen` 与
+  `K60PAS ignoring region override` 两条诊断串（`strings` 复核，见证 `k60_adsp_board_region()` 被编入）。
+- 结构测试：`scripts/tests/test-k60-adsp-region.py` 读 0613 patch，断言 `k60_adsp_cell()`
+  按字节 big-endian 解码、`k60_adsp_board_region()` 支持 2/4 cell 且不退回 `const uint32_t *cells`
+  （`TESTS OK region override parser uses big-endian cells (2 and 4 cell forms)`）。
+- 回滚：一个 commit；改回 0x86300000 即恢复旧行为（不做）。
+
+### 1.2 载体接线（D3 = ② 新 boot-arg）
+
+- 为什么：`k60_adsp_reader_blob()` 早已存在但没有生产调用点
+  （`drivers/PongPower/K60AdspImageReader.c:186`，过去只有单测在调）；旧 `pong_adsp`
+  路径依赖 ramdisk FAT + Data mount，发布时机死锁（`docs/research/battery/HANDOFF-PUBLISH-SPEC.md` §7）。
+- 改法：新 boot-arg `pong_adsp_carrier=1`（`patches/xnu/0613-k60-adsp-pas.patch:455`
+  `k60_adsp_carrier_probe()`），走内嵌 blob；调用点插在
+  `patches/xnu/0614-k60-adsp-call-site.patch:13-15` 的 `kern_exec.c` 块内，
+  在 0619 的 `k60_adsp_startup_claim(2u)` 之前（不改 0619 一行，见 §5）。
+- 静态证据：`scripts/verify-boot-image.py:85` `carrier_problems()` 只在该 boot-arg 有
+  manifest `components.adsp_blob` + `adsp_blob_path` 且文件 sha256 一致时放行；
+  自测 `scripts/tests/test-verify-boot-image.py` 6 例（缺 sha / 缺文件 / sha 不符 / 相符 /
+  legacy 仍拒 / =0 允许），`14 cases, 0 failure(s)`。`scripts/check-image-args.py:44-55`
+  的 `ALLOWED_ADDITIONS` 登记同名参数，`scripts/tests/test-check-image-args.py` 8 例全过。
+- 可达性：carrier 块在 `native_owner_data_prepare()` 的 `if (error) goto done;`
+  （K60DATA mount 成功）之后才执行（patched `bsd/kern/kern_exec.c:7892-7920`），不是函数入口。
+  代码注释里的 "needs no filesystem and no Data mount" 指 carrier 自身不做文件系统 I/O，
+  不表示钩子在 Data mount 之前；Data mount 失败时不会执行。这个前置写在 §3，失败形态按 C0 INVALID。
+- 回滚：去掉 `--kernel-arg pong_adsp_carrier=1` 即完全不进这条路径（默认关闭）。
+
+### 1.3 SCM 语义（D2 = ② 只补三点）
+
+- EBUSY/INTERRUPTED 重试：`drivers/PongPower/K60AdspPas.c` `k60_scm_call()`，外层
+  `K60_SCM_EBUSY_TRIES 20` × `IOSleep(30)`，内层 `K60_SCM_RESUME_TRIES 100000` 用
+  `K60_SCM_INTERRUPTED` 续会话；x6 作为 in/out 寄存器显式声明（`k60_scm_raw`）。
+- mem_setup 用表推导的 span（`plan.window` = 0x3100000）；pong 的 `qcom_mdt_span` 等价物
+  记录为差异（§5 NOT-IN-SCOPE）。
+- DTB PAS 36：**本次不启用**，只记差异（`PongAdsp.cpp:507-508` 成对 shutdown）。
+- 寄存器声明：SMCCC 调用可改写全部 caller-saved 寄存器；`k60_scm_raw()` 把 x0–x7 全声明为
+  in/out 并 clobber x8–x17 + memory（`a0547907`），否则编译器可能把活跃值留在 x4/x5/x7/x8+
+  上，调用返回后读错栈/结构体。
+- 静态证据：`scripts/tests/test-k60-adsp-pas.c` 断言三个重试常量与 `K60_ADSP_LOAD_BASE == 0x9fd00000`。
+
+### 1.4 放置顺序与 cache（本次的 hard 证据）
+
+- 顺序改成参考实现的 metadata → INIT_IMAGE → MEM_SETUP → copy → verify → AUTH_AND_RESET
+  （旧 06xx 是 auth 先行、逐段 INIT_IMAGE、MEM_SETUP 最后，从未有过 `auth ok`）。
+- 映射是 cacheable DDR（`0x2` = `VM_WIMG_DEFAULT` = `VM_MEM_COHERENT`，`osfmk/arm/memory_types.h:41-43`），
+  所以 copy 后必须 clean 到 PoC：`k60_adsp_flush()`（`patches/xnu/0613-k60-adsp-pas.patch:229`）
+  走同板已在用的 `flush_dcache64(pa,len,TRUE)`（0300 patch `:660` 先例；声明 `osfmk/arm/caches_internal.h:43`）。
+- read-back：`k60_adsp_verify()`（`patches/xnu/0613-k60-adsp-pas.patch:317`）逐段 `memcmp` 窗口与
+  blob 原文（零额外 49 MB），bss 逐字节扫 0；不等即 `K60PAS verify mismatch`，不进 auth。
+
+## 2 构建与产物
+
+| 项 | 值 | 证据 |
+| --- | --- | --- |
+| 构建命令 | `scripts/build-strict.sh carrier-20261117c --fd .../baseline-20261116a-cf4485712c29.fd --adsp-blob /mnt/e/k60-work/firmware/adsp --kernel-arg pong_adsp_carrier=1` | `k60-work/artifacts/carrier-20261117c/logs/` |
+| 设备输入 | `/home/emilelu/charger-carrier/device`（共享树 2026-11-17 01:00 快照的私有镜像，789 文件与仓库同步） | `HEAD=70a1e4ca361a1116bc0ec1563bac74771c79f81c`、`git diff` sha256 `56697fe6a64b4e3f276f3d73ad240515a2db3fef369b1a8304d52ab26d1ca511` |
+| ADSP 容器 | 26 个 adsp.* 文件，`sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319` | `artifacts/carrier-20261117c/adsp-carrier/k60_adsp_blob.bin` |
+| kernel | `sha256 5bb7f4c8e6f64929a43395c282c9a8c50373bce51f07aaf9741723d828165099`，129,048,576 B（a `29a7097f…`、b `a77cbb76…`、c `5bb7f4c8…`；以 manifest 为唯一真值） | `build-manifest.json` `components.kernel_built` |
+| kernel 字符串复核 | `K60PAS carrier` ×6、`K60PAS auth ok` ×1、`K60PAS carrier verdict` ×2、`pong_adsp_carrier` ×1（2026-11-17 04:12 对 c 的 kernel.macho 复核） | `strings -a /opt/k60/trees/k60build/out-charger-carrier/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho` |
+| payload | kernel `020e79a64dd7c70ca947fb55adf8a99362b0d952cfb7ac8dbdaed7c2c43cad4f`、adt `1097f85c79886ee484ab0e5888a9781a0ce3df8b39864dd26b290bd7c20f40c9`、payload `9ab8b05cc55c2427f24a76042f8b42d893d87ee48cde4ba0c55f7f1c17ccfe4a` | `build-manifest.json` `components.payload*` |
+| boot.img | `sha256 c484aa059309eea5459505c9e871779fc2aa2d23411a33762b4dbb076c802e78` | `build-manifest.json` `components.boot_img`；`verify-boot-image.py --manifest` 通过 |
+| 电池存档 | `sha256 406942a1682d3f1141b827381ce442ebeb25547eda0789920bcef91363422e77` | 构建日志 `battery archive` |
+| 八步门禁 | `build-strict: eight-step 通过 36 项检查`；冻结输入 `d408222162f4e3429b6a3eeb2cfd3a1a48c8b2bcf833787eef539a48649741db` | `logs/eight-step.log` |
+| 镜像参数 | 30 args / 595 B，末项 `pong_adsp_carrier=1`；`image-arg-audit: OK (30 arguments, 595 bytes)` | `logs/image-arg-audit.log` |
+
+`carrier-20261117a`（boot.img `149b0b0d…`）和 `carrier-20261117b`（`092a2d5f…`）均已被 c 取代：
+a 的 SMC wrapper 缺 x4–x7 与 x8–x17 的 caller-saved 约束；b 的 `/chosen` 区域覆盖解析把
+device-tree cell 按本机端序读，真实覆盖会被误读/忽略。c 包含 `d7fdff4d` 的 big-endian 修复，
+manifest 的 `repo.head` 是 `d7fdff4d`。上机只用 c。
+
+## 3 上机步骤（Lead 执行）
+
+执行前置：0614 的 carrier 块位于 `native_owner_data_prepare()` 的 `if (error) goto done;`
+（K60DATA mount 成功）之后（patched `bsd/kern/kern_exec.c:7892-7920`）。Data mount 失败时
+carrier 不会执行，日志里只有 `K60DATA mount returned error=`，按 §0.1 C0 判 INVALID，
+不计入 D4 的两次 ADSP 尝试（没有发生任何 SCM 调用）。
+
+1. `bash scripts/k60-device.sh state` 确认识别到设备；`fastboot boot /mnt/e/k60-work/artifacts/carrier-20261117c/boot.img`，绝不 `flash`。
+2. 采集：`record-boot.py`（console.log 落 `k60-work/evidence/usblog-<ts>/`）。
+3. 判读：`python3 scripts/judge-battery.py --log <evidence dir>` 先跑 C1/C2 基础三态
+   （契约就是 07-DEVICE-CRITERIA §0；本例会因无 lease 判 INVALID，那是预期的），
+   然后按 §0.1 的表人工判 C0–C4 —— 判据行见本文件，不看别的。
+4. 把 console.log 路径 + 判决贴回 reply md。
+
+## 4 失败形态处置
+
+| 日志行 | 含义 | 下一步 |
+| --- | --- | --- |
+| `K60DATA mount returned error=` 且无 `K60PAS carrier begin` | Data 未挂载，carrier 钩子未执行 | 按 C0 INVALID 记，不计 D4；先查 Data mount，不查 ADSP |
+| `K60PAS carrier absent rc=` | 内核里没有 blob（0620 没进镜像） | 查 manifest `adsp_blob`，不是 ADSP 问题 |
+| `K60PAS cannot map the carveout` | 0x9fd00000 不可映射 | 查 FDT adsp_region 是否被别的驱动占 |
+| `K60PAS init refused rc=-4` | SCM 拒绝 INIT_IMAGE（PAS 不放行） | 立即记 FAIL，按 D4 止损 |
+| `K60PAS auth refused rc=-4` | SCM 拒绝 AUTH_AND_RESET | 同上，这是本实验最可能的 FAIL 形态 |
+| `K60PAS auth refused rc=-12` | EBUSY 用尽 20 次重试 | 查是否有别的 PIL 客户端在跑；可再给一次机会（D4 允许 2 次） |
+| `K60PAS verify mismatch <part> at window+0x...` | 放置/读回不一致 | 我们的 bug，不是 SCM；修完再来 |
+| `K60PAS metadata phys=` 后无 init 行 | kmem/PA 问题 | 把 rc 抄回来 |
+| panic（`panic(cpu` 或 `esr=`） | 触碰了未映射页 | 贴首 20 行，按 D4 记一次失败 |
+
+## 5 未闭合项清账表（上机前必须为空）
+
+| # | 项 | 状态 | 依据 |
+| --- | --- | --- | --- |
+| 1 | 0613/0614 与 0619 的 hunk 关系 | 已闭 | 0614 的 carrier 块插在 0619 的 `{` 之前，0619 未改；`check-patch-apply` 全绿（227 patches applied） |
+| 2 | boot-arg 只能被有容器 manifest 的镜像使用 | 已闭 | `verify-boot-image.py:85`；自测 6 例；`check-image-args.py` 已登记，自测 8 例 |
+| 3 | 目的地址 = 板级 carveout 而非链接地址 | 已闭 | 三常量 + 单测 + `plan.base` 断言 |
+| 4 | copy 后 cache 一致性 | 已闭 | `flush_dcache64` 先例（0300:660）与 cacheable 证明（memory_types.h:41-43） |
+| 5 | SCM EBUSY/INTERRUPTED 语义 | 已闭 | 常量与调用形状来自 pong 工作实现；单测断言常量 |
+| 6 | 旧 `pong_adsp` 路径仍可能被误开 | 已闭 | 门禁拒 `pong_adsp=1`；`pong_adsp_carrier` 独立 |
+| 7 | DTB PAS 36 | NOT-IN-SCOPE | 本实验只回答 ADSP PAS 1；pong 的成对 shutdown 记录为差异 |
+| 8 | SMEM TOC / SMP2P 就绪时间 / remote_restart_flag / tx-rx 4096 | NOT-IN-SCOPE | 属 lease 之后；HANDOFF-PUBLISH-SPEC §11 已列 |
+| 9 | 采样器访问许可域 | NOT-IN-SCOPE | adsp-20261115e 之后由 adsp 线证明；本实验不读电池 |
+| 10 | carrier 钩子的可达性（Data mount 前置） | 已闭 | `native_owner_data_prepare()` 在 `mount` 成功后才执行 0614 carrier 块（patched `bsd/kern/kern_exec.c:7892-7920`）；§3 前置与 §4 失败形态已写死 |
+| 11 | `/chosen qcom,adsp-region` 覆盖的 cell 端序 | 已闭 | `k60_adsp_cell()` 按 big-endian 解码 2/4 cell（`patches/xnu/0613-k60-adsp-pas.patch:279`）；真机 FDT 无该属性时走默认 `0x9fd00000/0x3100000`（`d7fdff4d`） |
+
+## 6 ADC 兜底预研（D5，只取证不写驱动）
+
+结论摘要（全文 `E:/k60-work/scratch/charger-adc-fallback.md`，162 行）：
+
+- 真机 FDT 有 `vadc@3100`（compatible `qcom,spmi-adc7`，FDT:16681-16690），电池通道齐全：
+  `vbat_sns` reg 0x38f、`usb_in_v_div_16` 0x311、`ichg_fb` 0x3a1、`chg_temp` 0x310、`die_temp` 0x303。
+- 端口已有真机验证过的 SPMI arbiter 读写（`patches/xnu/0308-...` / `0334-...`，
+  `K60_SPMI_CORE_PA 0x0C400000`，observer/channel 窗口，`console.log:188/256` 的 restart-reason 写入成功）。
+- FDT 全树无 fg/fuel/qg 节点；Android 的 SOC 来自 `[ADSP] fg_update_status`（dmesg:2）→
+  无 ADSP 时 **SOC 必须标 unknown**，不得编造。UEFI 侧只有 ABL 二进制，无传给 XNU 的接口。
+- 推荐两步：先做零写风险只读探针（PPID 0x031 的 apid + STATUS1/APP_SID/EN_CTL1，约 100–150 行），
+  再实现 ADC7 配置/转换（vbat_sns + usb_in_v_div_16 为主，约 300–400 行）；
+  代价与 4 个 not-proven（PPID 0x031 映射、EOC 轮询、ichg 换算、VADC 校准）见原文。
+
+## 7 证据归档
+
+- 构建：`/mnt/e/k60-work/artifacts/carrier-20261117c/`（manifest、logs、adsp-carrier/）。
+- 上机：`/mnt/e/k60-work/evidence/usblog-<ts>/console.log`（Lead 采集）。
+- 判读结果按 §0.1 表逐行贴回 `E:/k60-work/scratch/reply-charger-20261115.md`。
+
+## 8 Route A 取代关系（2026-11-17）
+
+- `E:/hackios/k60-adsp-handoff/docs/research/audio/ADSP-ROUTE-A.md` 记录真机结果：
+  镜像 `E:/k60-work/artifacts/adsp-board-20261116/route-a/boot.img`，201,887,744 B，
+  sha256 `6aa9107c30cab42bf4fd1a8555f5d622774eeb242fd79606ca2bec36226061f1`；
+  `console.log:189` 为 `K60Handoff: published authenticated PAS1 epoch=1 bytes=104 flags=15`，
+  `console.log:596` 为 `K60Battery: physical source published sample=4 SOC=100.00% ... current=397mA`。
+- 结论：零售 K60 的 PAS1 鉴权、PAS1 handoff 发布和电池物理源已在 Route A 路径上真机通过；
+  本文原问题“SCM 是否放行 PAS”已被回答，carrier-20261117c 没有剩余上机价值，也不应合入 main。
+- 本线的 D1–D6 中只有 D5（ADC 兜底调研）保留参考价值；D1–D4 的 carrier 代码保留在本分支作离线证据，
+  不作为生产路径。下一步以 Route A 镜像/分支为基线验证 charger/battery 行为，而不是再 boot c。
+
+### 8.1 Route A 电池判据复核（2026-11-17 11:25）
+
+- 判据命令：`python3 scripts/judge-battery.py --log /mnt/e/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log`；
+  输出 `battery-judge: FAIL (C1+C2+C3)`：C1 FAIL（`measured sign=0`，命中 0 次），
+  C2 PASS（`sample=4`：4379 mV / 397 mA / 100.00 % / 34.30 °C），C3 INVALID（未提供 Android 同窗口样本）。
+- 口径差异：`07-DEVICE-CRITERIA.md:52-56` 要求 `measured sign=±1`，且 C1 只能由带 `subscribed=1` 的 sample 行证明；
+  Route A 分支的 `K60Battmgr.c:147` 跳过 property 9（CURRENT_NOW）请求，`:216` 不再用 `charging_current_sign` 拒绝 sample，
+  `:243-249` 在电芯电流缺失时回退到 `K60BmUsbCurrent`，所以 sample 行存在，但 397 mA 是 USB 输入电流回退，不是电芯电流极性。
+- 结论：ADSP/PAS1 等待可以解除（owner stage 1-5 rc=0、PAS1 epoch=1）；电池步骤不能按 07 宣布通过，C3 仍缺 Android 样本；
+  `sample=6`、`sample=33` 还各出现一次 `no publication ... sign=0`，只能证明首帧，不能证明电池 UI 持续刷新。
+  需要 Lead 二选一：提供充/放电 wire capture 把 `charging_current_sign` 定为 ±1，或书面同意把 C1 的电流口径改为
+  “USB 输入电流回退”并登记为独立判据；本线不自行改判据。
+
+### 8.2 C1 的 A 选项在当前硬件上不可满足（2026-11-17 11:50）
+
+- 07 的 A 选项要求 `--charging-wire` / `--discharging-wire` 的每份 capture 都出现 `OP_BATTERY` property 9 的带符号回包：`scripts/build-k60-physical-battery.py:196-220` 的 `current_pair()` 只在 `prop == 9` 时收集 current，否则抛 `ValueError('Wire capture lacks stable status1/signed-current9 evidence')`（:219）。
+- 实际 K60 的 property 9 不回答：`E:/k60-work/evidence/route-a/usblog-boot-20261117-0620-intentid/console.log:554` 与 `E:/k60-work/evidence/route-a/usblog-boot-20261117-0630-battrx/console.log:692` 都是 `K60Battery: physical PMIC request timeout op=30 property=9 ... quarantining old channel`；Route A 代码因此 `K60Battmgr.c:147` 跳过该字段，`scripts/tests/test-k60-charger-subscription.c:128` 断言 `CURRENT_NOW property 9 is skipped`。
+- `qualification()` 只有在两份 capture 都成功时才把 sign 设为 ±1（`:223-236`），否则保持 0（`K60BatteryConfig.h:45`）。因此任何诚实的 K60 构建都只能得到 `measured sign=0`，07 C1 的 `measured sign=±1` 永远不会成立。
+- 结论：A 选项不是缺一份 wire capture，而是在本机不可实现。建议 Lead 批准 B：把 C1 的电流口径改为“USB 输入电流回退”，并在 sample 行增加 `current-source=usb` 作为独立证据字段；本线可在批准后提交 judge/文档/日志字段补丁，不自行改判据。
+
+### 8.3 Route A 电池刷新：一个已知行为缺口（2026-11-17 12:30）
+
+- `K60Battmgr.c:163` 在收到 type 2 / opcode 7 通知时置 `sample_dirty=1`；该标志只在 `begin_cycle()`（`:46`）清除，而 `k60_battmgr_sample()` 在 `:216` 遇到它非零就直接返回 0。`K60Battery.cpp:298-303` 先调用 sample，再检查 `refresh_due`，所以**在周期进行中到达的通知会让该周期完成后的 sample 被丢弃**，然后才启动额外一轮。
+- 这正是 `E:/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:665-666` 的形态：先 `hardware sample unavailable (incomplete/unqualified sample)`，随后 `no publication sample=6 fresh=7ffef errors=0 sign=0 raw-current=0 raw-temp=3430`。`fresh=7ffef` 说明除 current 外的字段都已完成；缺的不是数据，而是采样窗口内的通知撞上了周期。
+- 这不证明电池 UI 永久停更：`K60Battery.cpp:207-214` 只在首帧或 external/charging/full/capacity 变化时打印 sample，成功但值不变的刷新是静默的。它证明的是一条已完成的 sample 可能被丢掉；若通知每个周期都来，刷新会被反复推迟。
+- 建议的 instrumentation-only 补丁（不改 07 判据，待 Lead 决定 B 后落地）：`K60BatterySample` 增加 `current_source`（none/cell/usb），在 `k60_battmgr_sample()` 的电芯分支与 USB 回退分支分别置值；sample 行打印 `current-source=%s`；`no publication` 行补 `status=%d dirty=%d refresh=%d notifications=%u valid=%x`；`finish_field()` 在周期完成时把 `sample_dirty` 清 0 并保留 `refresh_due`，避免丢弃已完成周期；`scripts/tests/test-k60-charger-subscription.c` 增加“周期中通知不得丢掉完成 sample”的 host 用例。
+### 8.4 刷新修复的代码与 route-b 产物（2026-11-17 12:56）
+
+- 代码分支 `fix/battery-sample-dirty`，提交 `4d139463 fix(battery): keep a completed sample when a notification arrives`（4 文件 +61/−8），基于 Route A 分支 `feat/adsp-handoff-owner`（`c19f1297`）。改动：`K60Battmgr.h` 增加 `K60BatteryCurrentSource`（none/cell/usb）与 `K60BatterySample.current_source`；`K60Battmgr.c` 的 `finish_field()` 在周期完成时清 `sample_dirty`、保留 `refresh_due`，`k60_battmgr_sample()` 在电芯与 USB 回退分支分别置来源；`K60Battery.cpp` 的 sample 行增加 `current-source=%s`，`no publication` 行增加 `status/dirty/refresh/notifications/valid`；host 用例第 9 组断言通知不会丢弃完成样本。
+- 单测：`cc -Wall -Wextra -Werror -std=c11 -o /tmp/k60sub-new2 scripts/tests/test-k60-charger-subscription.c && /tmp/k60sub-new2` → `TESTS OK 49`（含新增 5 条断言）。
+- 产物：电池归档 `d34b5c7c11de598d427f60e9d902317569b6cf45a91a6b29296e76bc2a6bc012`（114,080 B）；route-b boot.img `762645bc80643dad6a7fa26528bd5937eb11f18a99ff4bd1763a66f196e56911`（201,887,744 B，`/mnt/e/k60-work/artifacts/adsp-board-20261116/route-b/boot.img`）；kernel `f6e10fa28d67a84b8763e783b10abcc00f86842764aa2fa142881d3cf9a3ea7c`；payload `67800d3b7ecb5a4c02dd32a9c62bdf4ebf3687c5825509d667e2adcbba8bd6c0`；`check-image-args.py` → `image-arg-audit: OK (30 arguments, 598 bytes)`；kernel strings：`current-source=`×1、`K60Battery: no publication`×1。
+- 状态：未 boot。route-b 仍按 Route A 的 `pong_handoff_publish=1` 参数构建；C1 判据仍是 07 原口径，需 Lead 批准 B 或另行裁决后才能把 `current-source=usb` 作为独立证据登记。
+### 8.5 route-b 上机判据（2026-11-17 13:10，先写死）
+
+- 前置：Lead 批准 B（C1 电流口径 = USB 输入电流回退，`current-source=usb` 作为独立证据），且镜像 sha256 必须等于 `762645bc80643dad6a7fa26528bd5937eb11f18a99ff4bd1763a66f196e56911`。
+- C0 可达：console 出现 `K60Battery: actual PMIC_RTR_ADSP_APPS channel up`，且不出现 `K60Battery: blocked` 或 Data mount 失败；否则本镜像不计入 D4 的 ADSP 尝试。
+- C1 订阅：`channel up` 行 `subscription-ack=1/16`，且首帧 `physical source published` 行尾 `subscribed=1`。
+- C2 电流来源：首帧 sample 行含 `current-source=usb`（B 口径）或 `current-source=cell`（仅当 sign 已由 wire capture 定为 ±1）；两者都没有则 FAIL。
+- C3 刷新修复：60 秒内所有 `K60Battery: no publication` 行的 `dirty=` 必须为 0；出现 `dirty=1` 即 FAIL（说明 `sample_dirty` 修复没有生效）。
+- C4 存活：60 秒内 `panic(` 与 `esr=` 均 0 次，且无 `K60Battery: blocked`。
+- 结论：C1–C4 全部 PASS 才判 PASS；任一 FAIL 打对应行；C0 不成立判 INVALID。本线不自行 boot，由 Lead 用 fastboot boot 执行。
+
+### 8.6 route-c 构建与参考电流符号（2026-11-17 13:45）
+
+- 官方 porting/power 页 §4 明确：电流符号是协议输入，参考源码给出真值。`E:/hackios/UniXNU-sheng/package/ShengBattmgr.c:228` 为 `s->current_ma = HAS(BmCurrent) ? -V(BmCurrent) / 1000 : 0;`，`ShengBattmgr.h:56-64` 说明板端按放电正汇报、电源源按充电正消费；K60 的 owner `32778` 与参考实现同为 `0x800a`。因此 `charging_current_sign` 的默认值应为 **-1**，不再要求 wire capture 才能定符号。
+- 代码分支 `fix/battery-sample-dirty`：`40e06370` 使用参考符号 -1，`5c960671` 增加周期刷新日志，`263ee626` 记录 07 的符号约定；`python3 -B scripts/tests/test-k60-notification-qualification.py` → 22 tests OK，host `TESTS OK 49`，电池归档 `88a1ad8d50903dba01b6039bbe333044b82bbb00860e8971fd35361fa2572671`（`build-report.json` 的 `charging_current_sign: -1`，`captured-board-config.bin` byte 96 = -1）。
+- route-c 产物取代 route-b：boot.img `/mnt/e/k60-work/artifacts/adsp-board-20261116/route-c/boot.img`，201,887,744 B，sha256 `e83c9513818d768a9138a4cd2eeb43b534ebcc8fa8c66650db2963608841ed3f`；kernel `6f0b7a48e0fbcbbecd789a9c656c8d8659b0b929fbd697ec26185d45a60e9fa9`；payload `ca0f6e60a13d8d50939b0776133522138113cf7321e738f47e0116bba47e21ba`；`image-arg-audit: OK (30 arguments, 598 bytes)`；kernel strings：`current-source=`×2、`K60Battery: refresh sample=`×1、`K60Battery: no publication`×1。
+- 上机判据沿用 §8.5，但镜像 sha256 改为 `e83c9513...`，C1 的期望改为 `measured sign=-1`；C2 的 `current-source=usb` 仍表示 **USB 输入电流回退**，不是电芯电流。route-b 的 `762645bc...` 不再 boot。
+
+### 8.7 Android 侧 C3 样本（2026-11-17 23:05）
+
+- 采集目录：`E:/k60-work/evidence/route-c/android-20261117-2305/`。设备 6033dbec，Android 17（CP2A.260605.016），内核 5.10.237；采集时 AC 供电、USB powered=false、充电器类型 CDP、status Charging、89%、4277 mV、0 mA、28.3 °C、charge counter 3913。
+- `samples.tsv` 有 5 条 sysfs 样本（epoch 1794927869..1794927891）；`dmesg.txt` 含 122 条 `fg_update_status` 与 115 条 `usb_present`；`dumpsys-battery.txt` 与 `props.txt` 为同一时刻快照。哈希见该目录 README.md。
+- 判读命令：`python3 scripts/judge-battery.py --log <route-c console.log> --android E:/k60-work/evidence/route-c/android-20261117-2305/samples.tsv --window-start 1794927869 --window-end 1794927891`。当前 `current_now=0`，C3 的电流项在两侧不同时 ≥100 mA 时按 07 §3.2 跳过；若 boot 晚于该窗口，boot 前用 `E:/hackios/_scratch/charger-ko/capture-android-battery.sh` 重采并换窗口。

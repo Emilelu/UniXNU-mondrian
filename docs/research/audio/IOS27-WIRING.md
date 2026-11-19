@@ -11,11 +11,18 @@
 | --- | --- | --- |
 | `ml_io_map` / `ml_io_map_wcomb` | 把寄存器窗口映射进内核 | XNU 本体，无版本契约 |
 | `PE_parse_boot_argn` | `pong_audio=1` 之类的开关 | XNU 本体 |
-| `wait_us` / `printf` | 功放 SYSST 轮询与日志 | XNU 本体 |
+| `delay_for_interval` / `NSEC_PER_USEC` | `wait_us()` 的底座，功放 SYSST 轮询 | XNU 本体 |
+| `printf` | 每一步的证据行 | XNU 本体 |
 | `k60_pmic_glink_send_audio` | 走 PMIC GLINK 的 adsp_apps 通道 | `drivers/PongPower`（`QcomGlink.c` + `K60AudioGlink.c`），power 线 |
 
 ⇒ 功放这一半（GENI I2C、ACF 回放、开关、SYSST）**不依赖 GLINK**，`PongAudioAmp.c` 可以单独编译、
 单独在 27 上跑出 `amp0 id=0x2113`。只有 AudioReach 图那半边需要 GLINK，而它不在本清单里。
+
+这张表不是推断：`scripts/tests/portability/run.sh` 用只声明这六个符号与三个类型
+（`vm_offset_t` / `vm_size_t` / `boolean_t`）的桩头文件，把 `PongAudioAmp.c` 编过，
+输出 `STUBS OK PongAudioAmp.c`。用的是 `-fsyntax-only` 而不是 `-c`：文件里有 arm64 的
+`dsb sy`，x86 宿主汇编器不认它，而解析、类型检查与 `-Werror` 警告照跑。
+桩的大小就是 27 树必须提供的内核面的**上界**——少一个符号，这个脚本就红。
 
 ## 2. 谁调用、哪一行证明它被调过
 

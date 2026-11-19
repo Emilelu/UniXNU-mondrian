@@ -1232,3 +1232,15 @@ mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二�
 - 新开的两条观察（本轮未解）：
   - 状态栏 Wi-Fi 只显示一格，而设置页满格。设置页读的是记录里的 RSSI（-52/-47 dBm，满格强度）；状态栏走 kRssi（Apple80211 IOC 16），整趟只被问过 1 次（native client type 16 get，type 106 也 1 次），驱动按 PongWifiNet.cpp:853-856 回 version 1 / radios 1 / unit 0(dBm) / 各链 -47。所以要么状态栏没刷新，要么它读的不是 kRssi；下一版镜像给每次 kRssi 请求加日志，并记录当前网络记录的 rssi/age。
   - 触摸在复位前几分钟无响应。控制台 41 条 Pong touch HID: touch detection mode，最后一条在第 13,830 行（全文 14,029 行），之后约 200 行才 autoreset，说明触摸驱动到关机前仍在工作，症状更像关机/teardown 路径，不属于 Wi-Fi。
+
+
+## 37. Mission36：干净镜像关掉 pane，状态栏的「一格」来自内核侧自动关联（2026-11-19 12:33）
+
+- 镜像：`wifi-20261118sbl-mission36/boot.img`，201,887,744 B，SHA256 `8af8f58916d01d4078796c0c33b5a22967a8926ceabb9a2deaddf9821da20871`，head `45add8d1`，31 个参数 / 602 B（image-arg-audit OK，verify-boot-image OK）。相对 mission34b 只少了 19 条诊断探针和国家 IE 扣留，保留 1024 字节元素区与扫描记录尾部裁剪。
+- 飞行：12:33:53 起飞，12:49:22 结束（boot.json captureArmed/bootAccepted/returnedToFastboot 全 true，bootExitCode 0）；console 1,206,266 B / 14,893 行 / SHA256 `4946a4326551ad488363ab39dc6950b3210a61d3a1b4d488bb6be4c92078170d`。
+- 判据（judge-wifi-mission36.py，修正后）：68 次 scan request、53 条 client='Preferences' 列表、4,568 行 WiFiScanObserverNetwork、147 行 `SSID='Emilelu_5G' BSSID='c8:bf:4c:30:03:1c' RSSI=-39`、服务出的诊断探针 0 个 → `PANE CLOSED, PROBES GONE`。
+- 用户确认（m34715）：设置页里有这一行，点进去能看到 IP；m34976 前后又确认从设置页重连 5 GHz 后状态栏满格。也就是说「显示并可用」在干净镜像上成立。
+- 状态栏「一格」的成因（用户 m34735 解释并实测）：连接是内核侧 association test 自己建立的，设置页并没有保存这个网络，所以状态栏显示的是未保存/未知网络的一格；用户在设置页点一次重连后立刻满格。rssi 日志佐证两个频段的值几乎相同（5 GHz -50 dBm、2.4 GHz -47 dBm，noise 都是 -95），所以不是 RSSI 映射问题，而是「连接来源」问题。
+- 日志量的观察（用户 m34694 的怀疑）：起飞到 12:40:20 共 437 KB ≈ 1.1 KB/s，其中 PongWifi 105,597 B（24%）、wifi-net 85,945 B（20%）、K60 USBLOG 轮询 12,876 B（3%）；这一飞桌面大约 6 分钟才出来，而 mission34b 约 3 分钟。尚未证明因果，但内核侧自动关联 + 每秒状态行是下一步要收紧的对象。
+- 后续（mission37 方向，未起飞）：① 把 association test 改成 boot-arg 开关且默认关闭，避免它抢在设置页之前关联；② 把 `wifi-net: en0 address …` 这类每秒状态行降到 30 秒或挂到同一个开关后面；③ 不再需要 kRssi 逐条日志时把它一起关掉。
+

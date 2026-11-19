@@ -427,12 +427,12 @@ artifact_check = "verify-boot-image: OK；check-image-args: OK（31 参数/602 B
 
 [hardware.wifi.step.device]
 done = true
-evidence = "2026-11-19 11:53 mission34b 飞行关掉 pane（head d91cfc2a，镜像 wifi-20261118sbl-mission34 b08a14f8…，只含 1024 字节元素区）：console 1,023,926 B / 12,632 行 / SHA256 75af24fb…；38 条 scan request、3,901 行 WiFiScanObserverNetwork、12 条 Preferences 列表，Emilelu_5G（c8:bf:4c:30:03:1c，RSSI -52）出现在列表里，19 条探针全保留；同趟 lifecycle PASS（state=6、IPv4=1、lease 3/3、en0 192.168.31.232）。用户目视确认全部行都在。\n\n2026-11-19 09:37 mission35 飞行（head d5c03c0d）：console 488,000 B / 7,196 行 / SHA256 6385bad4…；5240 记录报 ie 390，42 字节国家 IE 被扣留 3 次；0 条 scan request、0 条 Preferences 列表，判读 UNOBSERVED。"
+evidence = "2026-11-19 12:33 mission36 干净镜像关掉 pane（head 45add8d1，镜像 wifi-20261118sbl-mission36 8af8f589…，只含 1024 字节元素区 + 尾部裁剪 + kRssi 日志）：console 1,206,266 B / 14,893 行 / SHA256 4946a432…；68 次 scan request、53 条 Preferences 列表、4,568 行观察者记录、147 行 Emilelu_5G（RSSI -39）、服务出的探针 0 个；用户确认行在列表里、点进去有 IP、从设置页重连后状态栏满格。"
 
 [hardware.wifi.step.device.prediction]
 success = "mission36（干净镜像，去掉 19 条探针与国家 IE 扣留，只留 1024 元素区 + kRssi 日志）：设置页仍列出 Emilelu_5G 且能加入拿到 192.168.31.x；日志里每次 kRssi 请求都带返回值，状态栏格子那条链有据可查。"
 
-failure = "干净镜像里 Emilelu_5G 又消失——说明探针本身影响了 daemon 的列表，重建记录对照；若 0 条 scan request，说明设置页那一步没发生，不要据此下结论。"
+failure = "干净镜像下 Emilelu_5G 仍不见，或行在但点进去没有 IP / 无法加入：说明 1024 元素区之外还有第二个过滤条件，回到元素级探针重新定位。"
 
 
 [hardware.audio]

@@ -18,7 +18,9 @@
 #  11. the 27 interface checker's own tests
 #  12. the four interfaces, against a real 27 XNU tree when one is on disk
 #      (XNU27_REPO overrides the search)
-#  13. sheng's audio host tests, when its checkout is reachable; the row names
+#  13. the product checker's own tests, and - when XNU27_KERNEL names a built
+#      kernel or boot image - whether that product really carries the audio
+#  14. sheng's audio host tests, when its checkout is reachable; the row names
 #      the commit it ran on, because a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
@@ -58,6 +60,7 @@ run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "three edits dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
+run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 
 xnu27=${XNU27_REPO:-}
 if [ -z "$xnu27" ]; then
@@ -72,6 +75,14 @@ if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
 else
 	printf 'skip %-34s no 27 xnu tree (set XNU27_REPO)\n' "27 kernel interfaces are there"
+fi
+
+# The product itself, when there is one: a built 27 kernel or a boot image.
+# Strings always decide; symbols decide when the file has a readable symbol table.
+if [ -n "${XNU27_KERNEL:-}" ]; then
+	run "27 kernel carries the audio" python3 scripts/check-audio27-kernel.py "$XNU27_KERNEL"
+else
+	printf 'skip %-34s no built kernel (set XNU27_KERNEL)\n' "27 kernel carries the audio"
 fi
 
 sheng=${SHENG_REPO:-}

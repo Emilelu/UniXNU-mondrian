@@ -1594,3 +1594,16 @@ worker 发 cfg80211 电源事件（nw_mainline.c:266-272 与 :365-380），不�
 
 验证：test-wifi-sbl-mission 新增“24A446 的电源开关走到站侧电源路径”检查后 0 failure；16/27 两代头文件编译 rc=0。
 27 上机时核对：关 Wi-Fi 后扫描返回 ENETDOWN、开 Wi-Fi 后能重新扫描。
+
+## 62. 24A446 的事件有日志，建链沉降窗口从 post_link 开始
+
+参考实现的 post_event 对除扫描完成以外的每个事件都打一行“event 码 字节数 -> 结果”，27 上机时这是判断
+daemon 到底收到了什么的第一手证据；我们的实现此前完全静默。现在 24A446 代际（gModern27Client）在
+post_event 里打同样的一行，22H374 保持原有日志量。
+
+另一处小差异：参考在 post_link 里设置 gLinkUpMs（链路起来记时刻，断开清 0），我们此前只在 on_connect_done
+里设置。把设置移进 post_link 后，所有走 post_link 的路径都维持同一个沉降窗口起点，扫描策略不再依赖
+某一条回调是否先跑。
+
+验证：test-wifi-sbl-mission 新增两项检查（事件日志行、post_link 的 gLinkUpMs）后 0 failure；16/27
+两代头文件编译 rc=0。

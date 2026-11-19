@@ -6,10 +6,21 @@ Why this exists: capture.json has no verdict field, and panicMarker reads K60PAN
 both a healthy boot and a broken one (usblog-20261113-noinitblob was healthy, the
 -rev0340 capture was not, and both carry the marker). complete=true is likewise not a
 health signal: the broken capture had complete=true and the healthy one had false.
-The only evidence that decides this subtask is the PongAudio lines in console.log, so
-this script reads those and nothing else.
+The only evidence that decides this subtask is the PongAudio lines in the console log,
+so this script reads those and nothing else.
 
-Exit codes: 0 = probe succeeded, 1 = probe ran but failed, 2 = probe never ran.
+Exit codes, and they are three different answers rather than two:
+  0  PASS     every criterion that gates the verdict held
+  1  FAIL     the run reached the branch and a criterion failed
+  2  INVALID  there is nothing to judge: no log, an empty log, or the branch
+              never ran, so the capture says nothing about this criterion
+
+The argument is an evidence directory, not a file: E:/k60-work/evidence/
+usblog-<ts>/ holds console.log plus capture.json and that is the whole input.
+A directory whose log was renamed (console-1.log, <ts>.log) still resolves -
+the largest *.log is taken - so one command works on a hand-merged directory.
+
+  python3 scripts/judge-audio-capture.py --playback E:/k60-work/evidence/usblog-<ts>/
 
 --replay adds the criterion for image k and later: the replay pass in
 PongAudioAmp.c must also have run to completion. That means 60 steps per
@@ -83,11 +94,35 @@ KNOWN = {
 }
 
 
+def find_log(directory):
+    """The console capture inside an evidence directory, or None.
+
+    capture-k60-usblog.ps1 writes console.log. A directory that was copied or
+    merged by hand may carry console-1.log or <timestamp>.log instead, and the
+    largest *.log is the console when a small sidecar sits beside it.
+    """
+    preferred = os.path.join(directory, "console.log")
+    if os.path.isfile(preferred):
+        return preferred
+    if not os.path.isdir(directory):
+        return None
+    best = None
+    for name in sorted(os.listdir(directory)):
+        if not name.lower().endswith(".log"):
+            continue
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            continue
+        if best is None or os.path.getsize(path) > os.path.getsize(best):
+            best = path
+    return best
+
+
 def read_capture(directory):
     """Return (console lines, capture.json dict). Missing files yield empty values."""
     lines = []
-    log_path = os.path.join(directory, "console.log")
-    if os.path.isfile(log_path):
+    log_path = find_log(directory)
+    if log_path:
         with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
             lines = handle.read().splitlines()
     meta = {}
@@ -113,6 +148,10 @@ def judge(lines, meta):
     text = "\n".join(lines)
     ids = MARK_ID.findall(text)
     dones = MARK_DONE.findall(text)
+
+    if not lines:
+        report.append("VERDICT: INVALID - no console lines in this directory")
+        return 2, report
 
     report.append("amp probe start      : %d line(s)" % len(starts))
     report.append("gcc/se15 bus ready   : %d line(s)" % len(buses))

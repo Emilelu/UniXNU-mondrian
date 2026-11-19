@@ -377,8 +377,42 @@ def severity_case():
     expect(mod.severity(0) == 0, "success is the least severe")
 
 
+def capture_cases():
+    """The evidence directory, not a file: renamed logs resolve, empty ones invalid."""
+    import tempfile
+
+    root = tempfile.mkdtemp(prefix="k60-evi-")
+    # console.log wins over the sidecar by name, whatever the sizes.
+    with open(os.path.join(root, "console.log"), "w") as f:
+        f.write(step_line(1, 24, 0x100e5, 0x25a00) + chr(10))
+    with open(os.path.join(root, "notes.log"), "w") as f:
+        f.write("x" * 4000)
+    expect(mod.find_log(root).endswith("console.log"), "console.log is preferred by name")
+
+    # A hand-merged directory keeps the log under another name; largest wins.
+    renamed = tempfile.mkdtemp(prefix="k60-evi-")
+    with open(os.path.join(renamed, "side.log"), "w") as f:
+        f.write("small")
+    with open(os.path.join(renamed, "console-1.log"), "w") as f:
+        f.write("PongAudio: amp probe start" + chr(10))
+    path = mod.find_log(renamed)
+    expect(path.endswith("console-1.log"), "the largest *.log is the console: %s" % path)
+    lines, meta = mod.read_capture(renamed)
+    expect(any("amp probe start" in l for l in lines), "the renamed log is read")
+
+    # An empty directory is INVALID (2), never a quiet pass or a failure.
+    empty = tempfile.mkdtemp(prefix="k60-evi-")
+    lines, meta = mod.read_capture(empty)
+    code, report = mod.judge(lines, meta)
+    expect(code == 2, "an empty directory is INVALID, got %d" % code)
+    expect(any("INVALID" in l for l in report), "the report says INVALID: %s" % report)
+    expect(mod.find_log(os.path.join(empty, "absent")) is None,
+           "a path that is not a directory has no log")
+
+
 def main():
     cases()
+    capture_cases()
     replay_cases()
     playback_cases()
     bom_case()

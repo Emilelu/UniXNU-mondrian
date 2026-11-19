@@ -21,11 +21,66 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_DEFCONFIG = REPO / "configs" / "mondrian_defconfig"
+def board_defconfig(board_path: Path | None = None) -> Path:
+    """The defconfig board.toml selects for its own OS profile.
+
+    Mirrors scripts/unixnu/config.py:150-161 (per_os / [kernel] defconfig) and
+    profiles.py:57-71 (the override table is merged over the board), because a
+    gate that always compares against the 16.6.1 defconfig grades the 27 build
+    against a file it never reads (P-256).
+    """
+    import copy
+    import tomllib
+
+    fallback = REPO / "configs" / "mondrian_defconfig"
+    path = board_path or REPO / "board.toml"
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, ValueError):
+        return fallback
+    profile = data.get("board", {}).get("os_profile")
+    chosen = copy.deepcopy(data.get("os_overrides", {}).get(profile, {})) if profile else {}
+    chosen.pop("remove", None)
+    kernel = dict(data.get("kernel", {}))
+    kernel.update(chosen.get("kernel", {}))
+    name = kernel.get("defconfig")
+    if not isinstance(name, str) or not name:
+        return fallback
+    # board.toml names the defconfig either as `mondrian_ios27_defconfig` or as
+    # `mondrian_ios27`; the file on disk always carries the underscore suffix.
+    stem = name
+    for suffix in (".defconfig", "_defconfig"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    return REPO / "configs" / f"{stem}_defconfig"
+
+
+DEFAULT_DEFCONFIG = board_defconfig()
 # The output tree moves with the checkout: the Lead, wifi and shared trees all
 # build the same defconfig into different directories (P-225).
 DEFAULT_OUT = Path(os.environ.get("K60_OUT") or "/opt/k60/trees/k60build/out-baseline")
-K60_SDK_RELATIVE = Path("ipados-16.6.1-20G81")
+# The output tree is out/mondrian/<os_profile>/<defconfig>/. Hardcoding one
+# profile made this gate grade a directory no build writes once main moved to
+# iOS 27 (P-256): it reported "generated config missing" while the tree sat one
+# level over. Read the profile the board actually selects.
+def board_os_profile(board_path: Path | None = None) -> Path:
+    """Return the os_profile of board.toml, or the historical default."""
+    import tomllib
+
+    fallback = Path("ipados-16.6.1-20G81")
+    path = board_path or REPO / "board.toml"
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, ValueError):
+        return fallback
+    profile = data.get("board", {}).get("os_profile")
+    return Path(profile) if isinstance(profile, str) and profile else fallback
+
+
+K60_SDK_RELATIVE = board_os_profile()
 ASSIGNMENT = re.compile(r"CONFIG_(\w+)=(.*)")
 DISABLED = re.compile(r"#\s*CONFIG_(\w+) is not set")
 NUMBER = re.compile(r"-?(0x[0-9a-fA-F]+|\d+)")
@@ -144,7 +199,7 @@ def compare_configs(
             )
     return problems
 
-def resolve_generated(out: Path) -> Path:
+def resolve_generated(out: Path, sdk: Path | None = None) -> Path:
     """Find the generated .config under out/mondrian/<sdk>/<board>/.
 
     unixnu names the board directory after the defconfig (mondrian_defconfig ->
@@ -158,7 +213,7 @@ def resolve_generated(out: Path) -> Path:
     config that names the two feature keys (the full defconfig) outranks one
     that does not, and mtime breaks a tie inside a rank.
     """
-    base = out / "mondrian" / K60_SDK_RELATIVE
+    base = out / "mondrian" / (sdk or K60_SDK_RELATIVE)
     if not base.is_dir():
         return base / "mondrian" / ".config"
     found = sorted(p for p in base.glob("*/.config") if p.is_file())
@@ -195,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
         "--defconfig", type=Path, default=DEFAULT_DEFCONFIG,
         help="selected source defconfig",
     )
+    parser.add_argument(
+        "--os-profile", default=None,
+        help="output profile directory under out/mondrian/ (default: [board] os_profile)",
+    )
     target = parser.add_mutually_exclusive_group()
     target.add_argument(
         "--config", type=Path,
@@ -204,11 +263,18 @@ def main(argv: list[str] | None = None) -> int:
         "--out", type=Path, default=DEFAULT_OUT,
         help="K60 output root; the board directory is discovered under it",
     )
+    argv = sys.argv[1:] if argv is None else argv
     args = parser.parse_args(argv)
     defconfig = args.defconfig.expanduser()
+    if args.os_profile is None and "default" not in argv and "--defconfig" in argv:
+        # An explicit defconfig names the line it belongs to: mondrian_defconfig
+        # only ever builds the 16.6.1 profile, mondrian_ios27_defconfig only 27.
+        args.os_profile = (
+            "ipados-16.6.1-20G81" if defconfig.name == "mondrian_defconfig" else None
+        )
     config = (
         args.config if args.config is not None
-        else resolve_generated(args.out)
+        else resolve_generated(args.out, Path(args.os_profile) if args.os_profile else None)
     ).expanduser()
     expected, source_problems, _ = read_config(defconfig, "defconfig", True)
     actual, generated_problems, generated_notes = read_config(config, "generated config", False)

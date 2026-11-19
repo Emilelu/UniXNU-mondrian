@@ -215,3 +215,33 @@ rc=2
 ```
 
 2026-11-20 05:41 对真实 27 树跑过：三个只加文件的补丁全部 `git apply --check` rc=0；`0629` 因为锚点还不存在而按设计拒绝（退出码 2）。
+
+## 13. 就绪检查：scripts/check-ios27-readiness.py
+
+§4、§4.1、§4.2 的每一条都是「某天在某个 27 树上量到的」，27 树会往前走。把测量值写死在脚本里，
+变化时一条命令就会喊出来，不必等补丁打不上才发现：
+
+```
+python3 scripts/check-ios27-readiness.py --tree /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc
+```
+
+它核对四类预期，全部打印成 `K60 READY ok|DRIFT|note` 行：
+
+- 六个 16 线补丁的 `git apply --check` 返回值（0620/0622/0623 期望 0；0621、0621-io-submap、0624 期望 1，各自附原因）；
+- 8 个内核符号是否仍能在 27 树里 grep 到；
+- `drivers/PongCellular/*.[ch]` 里 13 个 include 是否都能在 27 树里找到；
+- `bsd/kern/kern_exec.c` 里锚点 `native_owner_data_stage = 3;` 的行数（现在应为 0，data-mount 落地后变 1，提示可以生成 0629）。
+
+退出码：0 全部符合预期、1 有漂移、2 树不存在或缺 `kern_exec.c`。2026-11-20 06:04 实测：
+
+```
+K60 READY ok   0621-k60-modem-pas.patch rc=1 (its call-site hunk waits for the 27 data mount)
+K60 READY ok   8 kernel symbols present
+K60 READY ok   13 includes resolve
+K60 READY note anchor lines=0 (expected 0 until the data mount lands)
+K60 READY OK every recorded expectation still holds
+```
+
+漂移路径也验过：指向 16 线 feed 树时它报 `K60 READY DRIFT 0621-k60-io-submap-budget.patch expected rc=1 got rc=0`、
+`K60 READY CHANGED 1 expectation(s) drifted`、退出码 1；`--self-test` 输出 `K60 READY PASS expectations compared, drift detected`，已进宿主套件。
+

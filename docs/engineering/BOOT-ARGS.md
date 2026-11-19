@@ -322,7 +322,7 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 | 默认 | 0（不启动 DCVS） |
 | 取值 | 0 = 关闭；1 = 启动 DCVS；2 = 启动并做一次 HFI 投票探针（升一档再立刻还原） |
 | 来源 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`（`PE_parse_boot_argn("pong_gpu_dcvs", &on, sizeof(on))`）；`PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后调用 `pong_adreno_dcvs_start()`，CP 启动失败则不启动 |
-| 作用 | ≥1 = 起 16 ms 线程：读 GMU XO 忙碌计数器 → `k60_gpu_governor_window()` → HFI id 30 投 `{1, level, bandwidth}`；计数器从零转非零时给 50 ms 唤醒档（两倍频率、至少 578 MHz）；连续 8 次投票被拒就停线程并毒化 HFI。=2 时另在进入循环前投一档（`DCVS probe up`）并立即还原（`DCVS probe restore`），用于无 GPU 负载时验证 HFI id 30 是否被接受。日志前缀 `PONG ADRENO: `，每 10 s 一条档位汇总；触摸计数变化后 1 s 内目标档强制为 top，并打印 `DCVS touch top`/`DCVS touch release`（计数与时间在参数里）。 |
+| 作用 | ≥1 = 起 16 ms 线程：读 GMU XO 忙碌计数器 → `k60_gpu_governor_window()` → HFI id 30 投 `{1, level, bandwidth}`；计数器从零转非零、或 2/4 提交窗口活跃且 GPU 空闲时先布防 50 ms 唤醒档（两倍频率、至少 578 MHz，日志 `DCVS prewake`）；连续 8 次投票被拒就停线程并毒化 HFI。=2 时另在进入循环前投一档（`DCVS probe up`）并立即还原（`DCVS probe restore`），用于无 GPU 负载时验证 HFI id 30 是否被接受。日志前缀 `PONG ADRENO: `，每 10 s 一条档位汇总；触摸计数变化后 1 s 内目标档强制为 top，并打印 `DCVS touch top`/`DCVS touch release`（计数与时间在参数里）。 |
 
 伴随参数（都未列入 board 契约，只有 `pong_gpu_dcvs`≥1 时才读取）：
 
@@ -330,7 +330,7 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 |---|---|---|
 | `pong_gpu_max_level` | 13 | DCVS 可投的最高档；越界（<1 或 >13）回落 13，`table.count = top` 所以它同时是档位表的顶 |
 | `pong_gpu_dcvs_min` | 1 | 空闲允许降到的最低档；<1 夹到 1，>最高档夹到最高档 |
-| `pong_gpu_dcvs_boost_ms` | 50 | 忙碌计数由零转非零后的唤醒档保持毫秒数；0 = 立即回落，不再保持 |
+| `pong_gpu_dcvs_boost_ms` | 50 | 忙碌计数由零转非零、或提交窗口提前布防后的唤醒档保持毫秒数；0 = 立即回落，不再保持 |
 
 触摸保持不另设参数：窗口固定 1 s，与官网 §5 :115 的 `gpu-dcvs-boost-ms` 一致。`pong_gpu_dcvs=1` 时触摸会强制目标档为 top，窗口结束立刻回到 governor 的档位；`=2` 的启动探针不受触摸影响。
 

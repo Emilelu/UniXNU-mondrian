@@ -1,6 +1,6 @@
 # 触摸/帧/GPU 唤醒与 fence 规则（官网 §5 :115-117）
 
-状态：**规则模块 + host 40 项断言；触摸与帧输入已接线并在真机触发，触摸写回已在 image ab 上机成立（d0 `state=15->94`、`hw=1804800kHz`），票数预算与全簇 boost 由 `43af2a5c` 修正，image ac 待上机**（触摸计数补丁 `0622-k60-touch-activity.patch`，消费方 `aa3bada7`，重开窗口 `9b8a36b6`，预算/boost `43af2a5c`）。
+状态：**规则模块 + host 40 项断言；触摸与帧输入已接线并在真机触发，触摸写回已在 image ab 上机成立（d0 `state=15->94`、`hw=1804800kHz`），票数预算与全簇 boost 由 `43af2a5c` 修正，image ac 待上机**（触摸计数补丁 `0622-k60-touch-activity.patch`，消费方 `aa3bada7`，重开窗口 `9b8a36b6`，预算/boost `43af2a5c`；GPU 预唤醒 `34ab1da1`，host 140）。
 官网 `https://unixnu.com/zh/porting/power` §5 在 CPU/GPU 调频之后还有四条规则
 （快照 `E:/k60-work/scratch/power-page-20261117.txt:115-117`）：
 
@@ -18,7 +18,9 @@
 - GPU 提交：`pong_adreno_cp_pending()` 读 CP 环读写指针，采样线程每 16 ms 把
   「这个窗口有没有提交」喂给 `k60_boost_window()`。
 - GPU 空闲/唤醒：DCVS 线程用忙碌计数从零转非零作为空闲→工作边沿，唤醒档保持
-  `pong_gpu_dcvs_boost_ms`（默认 50 ms）。
+  `pong_gpu_dcvs_boost_ms`（默认 50 ms）；`34ab1da1` 起，提交窗口判定为活跃
+  （最近 4 个窗口有 2 个提交）且 GPU 空闲时先调用 `k60_gpu_dcvs_submit()` 布防同一
+  唤醒档，不等计数器抬升。
 
 ## 1.1 仍然缺什么
 
@@ -58,6 +60,8 @@
   信号窗口不受 100 s 的 `kApplyLatestEndWindow` 限制（`a0e8a060`），开机突发窗口仍受。
 - GPU：`PongAdrenoDcvs.cpp` 在触摸窗口内把目标档强制为 `top`，并在 `DCVS touch top` /
   `DCVS touch release` 两条日志里记录报告计数与时间；窗口结束后恢复正常 governor。
+  提交窗口另有 `DCVS prewake`：GPU 空闲时提前布防 50 ms 唤醒档，日志带档位、
+  时间与累计唤醒次数；`k60_gpu_dcvs_window()` 不会重复布防同一次唤醒。
 - 帧：CPU 采样线程把 `k60_boost_frame_active()` 作为 `framing` 参数，`k60_cpufreq_target()`
   把目标钳到 60 % 下限。
 

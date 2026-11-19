@@ -1,8 +1,9 @@
 # GPU 调频（官网 §5 的 GPU 条目）
 
-状态：**GMU XO 忙碌计数器、HFI id 30 投票与 16 ms governor 线程已实现，host 123 项断言；
+状态：**GMU XO 忙碌计数器、HFI id 30 投票与 16 ms governor 线程已实现，host 140 项断言；
 opt-in（`pong_gpu_dcvs=1`）。image o（02:14）验证了线程与计数器读取（24 条窗口、无 panic）；
-image q（02:36，`pong_gpu_dcvs=2`）进一步验证了 HFI id 30 投票：升一档被接受、随即还原到 floor 也被接受**。
+image q（02:36，`pong_gpu_dcvs=2`）进一步验证了 HFI id 30 投票：升一档被接受、随即还原到 floor 也被接受；
+提交窗口现在会先布防 50 ms 唤醒档（`34ab1da1`），仍无真实负载数据**。
 官网 `https://unixnu.com/zh/porting/power` §5 对 GPU 的要求只有一句（快照
 `E:/k60-work/scratch/power-page-20261117.txt:114`）：
 
@@ -10,7 +11,7 @@ image q（02:36，`pong_gpu_dcvs=2`）进一步验证了 HFI id 30 投票：升�
 
 同段的触摸/帧/fence 规则（:115-117）会改变这个档位：触摸后 GPU 保持最高档到最后一帧后 1 s；
 最近 4 个窗口有 2 个有提交时 CPU 各域不低于 60 %；GPU 从空闲恢复时 50 ms 内以两倍频率运行、
-至少 578 MHz。这些输入本模块都还没有接。
+至少 578 MHz。触摸与提交窗口已接（`aa3bada7`/`34ab1da1`），fence 未接。
 
 ## 1. 本板已有的硬件事实
 
@@ -88,7 +89,7 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
 - 2026-11-19 01:41（`ff49b5a6`）把整条窗口规则也搬进了这个模块：
   `k60_gpu_dcvs_reset()` / `k60_gpu_dcvs_window()` / `k60_gpu_dcvs_voted()`。
   线程只剩读计数器、投票、汇总和停止报告；空闲累计、空闲转活跃时布防唤醒档、
-  唤醒到期、floor/top 夹取、连续 8 次被拒停止都在 host 侧断言（`1db88bc2`，123 项）。
+  唤醒到期、floor/top 夹取、连续 8 次被拒停止都在 host 侧断言（`1db88bc2`；`34ab1da1` 后 140 项）。
   顺带修掉一处与文档不符的行为：旧代码的 `refused` 计数跨整个运行累加，
   一次成功投票也不清零；现在按文档「连续 8 次」在成功投票后清零。
 - 2026-11-19 02:05：接上官网 §5 :116 的**提交窗口**输入。`PongAdrenoCp.cpp` 导出只读的
@@ -97,8 +98,10 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
   （`k60_boost_window()`），每 10 s 额外打一条
   `PONG ADRENO: DCVS frames result=<0..4> a=<d0 floor kHz<<32|active> b=<累计提交窗口>`。
   floor 按 d0 顶部 1,804,800 kHz 的 60 % 计算（`K60BoostPlan` 的 40 项 host 断言覆盖
-  两窗口/四窗口判定、提交窗口滑动与 60 % 下限）。**目前只记录、不投票**：K60 还没有
-  消费该 floor 的 CPU 侧投票路径，读到的是「如果接线会要求多少」，不是实际频率。
+  两窗口/四窗口判定、提交窗口滑动与 60 % 下限）。CPU 侧自 `cbdf382f` 起由采样线程把
+  `framing` 交给 governor 并写 60 % 下限；GPU 侧 `34ab1da1` 新增
+  `k60_gpu_dcvs_submit()`，提交窗口活跃且 GPU 空闲时先布防 50 ms 唤醒档，不等忙碌
+  计数抬升。host 140 项覆盖这两处。
 - 启动开关：boot-arg `pong_gpu_dcvs=1`（默认 0）；`pong_gpu_max_level`（默认 13）、
   `pong_gpu_dcvs_min`（默认 1）、`pong_gpu_dcvs_boost_ms`（默认 50）可调。
   `PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后才调用 `pong_adreno_dcvs_start()`，
@@ -119,7 +122,8 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
   会写 60 % 下限；触摸计数补丁 `0622` 导出 `pong_touch_report_count()`，DCVS 线程在
   1 s 触摸窗口内把目标档强制为 top（`DCVS touch top`/`release`，commit `aa3bada7`）。
   仍缺 fence 截止时间与真实 GPU 负载：image w 的 276 条样本全部 `fr=0`，触摸保持也
-  还没有真机触摸数据；50 ms 唤醒档仍只由「计数器从零变为非零」触发。
+  还没有真机触摸数据；50 ms 唤醒档现在既由计数器从零转非零触发，也由提交窗口
+  提前布防（`34ab1da1`，日志 `DCVS prewake`）。
 - **2026-11-19 02:14 真机（image o）**：启动 22 个阶段全部成功，`:714` 打出
   `PONG ADRENO: DCVS started result=0 a=0xd00000001 b=0x1`（top 13、floor 1、初始 level 1），
   之后每 10 s 一条 `DCVS window result=1 a=0x0 b=0x0`，共 24 条（约 4 分钟，控制台 138,144 B，

@@ -25,10 +25,17 @@ Run: python3 scripts/tests/test-judge-wallpaper-log.py
 """
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+# The judge prints Chinese diagnoses; under a GBK console the child raises
+# UnicodeEncodeError and leaves stdout empty, which reads as a wrong verdict.
+ENV = dict(os.environ, PYTHONIOENCODING='utf-8')
+RUN = dict(capture_output=True, text=True, encoding='utf-8', errors='replace', env=ENV)
 
 ROOT = Path(__file__).resolve().parents[2]
 JUDGE = ROOT / 'scripts' / 'judge-wallpaper-log.py'
@@ -120,8 +127,7 @@ def run(text):
     with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False, encoding='utf-8') as handle:
         handle.write(text)
         path = handle.name
-    proc = subprocess.run([sys.executable, str(JUDGE), path, '--quiet'],
-                          capture_output=True, text=True)
+    proc = subprocess.run([sys.executable, str(JUDGE), path, '--quiet'], **RUN)
     Path(path).unlink(missing_ok=True)
     verdict = ''
     for line in proc.stdout.splitlines():
@@ -151,7 +157,7 @@ def main():
     with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False, encoding='utf-8') as handle:
         handle.write(FULL_SUCCESS)
         eyes_path = handle.name
-    eyes = subprocess.run([sys.executable, str(JUDGE), eyes_path], capture_output=True, text=True)
+    eyes = subprocess.run([sys.executable, str(JUDGE), eyes_path], **RUN)
     Path(eyes_path).unlink(missing_ok=True)
     check('EYES 6 screen pixels' in eyes.stdout and 'PASS 6' not in eyes.stdout,
           'step 6 stays EYES on a full success', eyes.stdout[:200])
@@ -162,7 +168,7 @@ def main():
     with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False, encoding='utf-8') as handle:
         handle.write(VIEWS_FAIL_PIXELS_DECIDE)
         closure_path = handle.name
-    closed = subprocess.run([sys.executable, str(JUDGE), closure_path], capture_output=True, text=True)
+    closed = subprocess.run([sys.executable, str(JUDGE), closure_path], **RUN)
     Path(closure_path).unlink(missing_ok=True)
     check('verdict: half' in closed.stdout and 'closure:' in closed.stdout
           and 'close the case' in closed.stdout,
@@ -180,7 +186,7 @@ def main():
     with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False, encoding='utf-8') as handle:
         handle.write(RESID_REGRESSION)
         resid_path = handle.name
-    resid = subprocess.run([sys.executable, str(JUDGE), resid_path], capture_output=True, text=True)
+    resid = subprocess.run([sys.executable, str(JUDGE), resid_path], **RUN)
     Path(resid_path).unlink(missing_ok=True)
     check('diagnosis: resid 判据回归' in resid.stdout and 'resid=7420' in resid.stdout,
           'a size=772 resid=7420 rejection is named as a resid regression',
@@ -194,16 +200,16 @@ def main():
         capture = Path(tmp) / 'usblog-test'
         capture.mkdir()
         (capture / 'console.log').write_text(SEED_OK_GUARD_STILL, encoding='utf-8')
-        proc = subprocess.run([sys.executable, str(JUDGE), str(capture), '--quiet'],
-                              capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, str(JUDGE), str(capture), '--quiet'], **RUN)
         check('verdict: half' in proc.stdout,
               'a capture directory is judged by its console.log', proc.stdout[:200])
         (capture / 'console.log').unlink()
+        # json.dumps, not %-formatting: a Windows path carries backslashes and
+        # '{"log": "C:\\..."}' is not valid JSON, so the judge saw no log at all.
         (capture / 'capture.json').write_text(
-            '{"log": "%s"}' % str(capture / 'inner.log'), encoding='utf-8')
+            json.dumps({'log': str(capture / 'inner.log')}), encoding='utf-8')
         (capture / 'inner.log').write_text(SEED_OK_GUARD_STILL, encoding='utf-8')
-        proc = subprocess.run([sys.executable, str(JUDGE), str(capture), '--quiet'],
-                              capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, str(JUDGE), str(capture), '--quiet'], **RUN)
         check('verdict: half' in proc.stdout,
               'capture.json names the log when console.log is absent', proc.stdout[:200])
 
@@ -214,8 +220,7 @@ def main():
                  Path('/mnt/e/k60-work/evidence/usblog-20261114-235957')):
         if not path.exists():
             continue
-        proc = subprocess.run([sys.executable, str(JUDGE), str(path), '--quiet'],
-                              capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, str(JUDGE), str(path), '--quiet'], **RUN)
         check('verdict: dead' in proc.stdout,
               f'real pre-0618 capture stays dead ({path.parent.name if path.is_file() else path.name})',
               proc.stdout[:200])

@@ -1,6 +1,6 @@
 --- a/iokit/Kernel/MiniIOSurface.cpp
 +++ b/iokit/Kernel/MiniIOSurface.cpp
-@@ -12,6 +12,7 @@
+@@ -11,6 +11,7 @@
  #include <pexpert/arm64/board_config.h>
  #if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL
  #include <IOKit/IOLib.h>
@@ -8,7 +8,7 @@
  #include <pexpert/pexpert.h>
  #include <IOKit/IOLocks.h>
  #include <IOKit/IOKitKeys.h>
-@@ -524,6 +525,12 @@
+@@ -523,6 +524,12 @@
  			}
  			p->width = dictNumber(pd, "IOSurfacePlaneWidth", width);
  			p->height = dictNumber(pd, "IOSurfacePlaneHeight", height);
@@ -21,8 +21,8 @@
  			p->bytesPerElement = (uint16_t) dictNumber(pd, "IOSurfacePlaneBytesPerElement", bpe ? bpe : 1);
  			p->elementWidth = (uint8_t) pew;
  			p->elementHeight = (uint8_t) peh;
-@@ -533,7 +540,17 @@
- 			}
+@@ -532,7 +539,17 @@
+ 			if (asked != p->bytesPerRow) printf("MiniIOSurface: plane pitch asked=%llu reported=%llu (one pitch only)%c", asked, p->bytesPerRow, 10);
  			p->size = dictNumber(pd, "IOSurfacePlaneSize", 0);
  			if (p->size == 0) {
 -				p->size = p->bytesPerRow * ((p->height + peh - 1) / peh);
@@ -40,7 +40,7 @@
  			}
  			p->offset = dictNumber(pd, "IOSurfacePlaneOffset", dictNumber(pd, "IOSurfacePlaneBase", (uint32_t) needed));
  			p->extendedPixels[0] = dictNumber(pd, "IOSurfacePlaneExtendedPixelsOnLeft", 0);
-@@ -568,12 +585,20 @@
+@@ -567,12 +584,20 @@
  	if (bpe == 0) {
  		bpe = planeCount ? s->planes[0].bytesPerElement : defaultBytesPerElement(format);
  	}
@@ -61,7 +61,7 @@
  		needed = (uint64_t) bpr * ((height + eh - 1) / eh);
  		/* the one implicit plane, for the per-plane getters */
  		s->planes[0].width = width;
-@@ -607,6 +632,10 @@
+@@ -606,6 +631,10 @@
  	} else {
  		/* (the memory is as big as its owner says, and not a byte of ours is added to it) */
  		alloc = dictNumber(props, "IOSurfaceAllocSize", (uint32_t) needed);

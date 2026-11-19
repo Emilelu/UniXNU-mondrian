@@ -109,4 +109,5 @@
 - 不搬 `PongAudioAfe.h` 进内核接线（见 §4）。
 - 不搬 `patches/xnu/0504`、`patches/audio/0003`：绑 16 树的文件位置与 `bsd/conf`。
 - 不复制 `drivers/PongPower` 的 GLINK 源（见 §3）。
-- HAL bundle 冻结，用户态按 sheng 在 27 重接。
+- HAL bundle 冻结，用户态按 sheng 在 27 重接——那一半的接口、注入点与 host 基线在
+  [IOS27-USERLAND.md](IOS27-USERLAND.md)。

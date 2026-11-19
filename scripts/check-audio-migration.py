@@ -128,10 +128,41 @@ def classify():
             errors += fail("%s appears in the do-not-copy table" % name)
 
     errors += line_counts(doc)
+    errors += pong_guards()
 
     total = len(PURE) + len(GLUE) + len(TESTS_ONLY)
     print("files: %d portable (%d pure C, %d glue, %d test-only), %d frozen"
           % (total, len(PURE), len(GLUE), len(TESTS_ONLY), len(FROZEN)))
+    return errors
+
+
+PONG_GUARD = re.compile(r"^\s*#\s*(?:if|ifdef|elif)\b[^\n]*\bPONG\b")
+
+
+def pong_guards():
+    """A second PONG guard is how a file silently leaves the 27 build.
+
+    The glue is compiled on 27 because XNU_PONG_AUDIO is defined for that one
+    object; a file wrapped in #if defined(PONG) alone compiles to nothing there
+    and the only symptom is a missing symbol much later. So exactly one guard is
+    allowed, it has to be the two-way one, and it has to be in the glue.
+    """
+    errors = 0
+    hits = []
+    for name in PURE + GLUE:
+        path = os.path.join(REPO, DRIVER, name)
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            for number, line in enumerate(handle, 1):
+                if PONG_GUARD.match(line):
+                    hits.append((name, number, line.strip()))
+    for name, number, line in hits:
+        if name == "PongAudioAmp.c" and "XNU_PONG_AUDIO" in line:
+            continue
+        errors += fail("%s:%d guards on PONG alone; on 27 that file compiles to nothing"
+                       % (name, number))
+    if not hits:
+        errors += fail("the glue carries no PONG guard, so the macro cannot switch it")
+    print("pong guards: %d in the portable set (1 expected, PongAudioAmp.c)" % len(hits))
     return errors
 
 

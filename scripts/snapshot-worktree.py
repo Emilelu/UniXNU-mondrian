@@ -69,12 +69,17 @@ def main() -> int:
 
     (out / "tracked.patch").write_bytes(git(repo, "diff", "HEAD", "--binary"))
     (out / "staged.patch").write_bytes(git(repo, "diff", "--cached", "--binary"))
-    (out / "status.txt").write_text(status, encoding="utf-8")
+    # LF only, always. In text mode Windows turns these into CRLF, and then
+    # restore.sh runs "git checkout $'<sha>\r'" - the revision does not exist,
+    # the patch no longer applies and the snapshot silently restores nothing
+    # (P-184: a recovery path that lies is worse than none).
+    (out / "status.txt").write_text(status, encoding="utf-8", newline="\n")
     (out / "HEAD.txt").write_text(
-        git(repo, "rev-parse", "HEAD").decode().strip() + "\n", encoding="utf-8"
+        git(repo, "rev-parse", "HEAD").decode().strip() + "\n", encoding="utf-8",
+        newline="\n",
     )
     branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").decode().strip()
-    (out / "branch.txt").write_text(branch + "\n", encoding="utf-8")
+    (out / "branch.txt").write_text(branch + "\n", encoding="utf-8", newline="\n")
 
     # Untracked files, path-preserving. `git ls-files -o --exclude-standard -z`
     # lists them without shell quoting.
@@ -107,6 +112,9 @@ def main() -> int:
         '[ -d "$HERE/untracked" ] && cp -a "$HERE/untracked/." ./\n'
         'echo "restored from $HERE"\n',
         encoding="utf-8",
+        # LF only: a CRLF bash script dies on "set -euo pipefail" with
+        # "invalid option name" (P-184, Windows host).
+        newline="\n",
     )
     restore.chmod(0o755)
 

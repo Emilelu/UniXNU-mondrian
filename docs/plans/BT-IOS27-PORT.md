@@ -249,6 +249,17 @@ the GPU addon carrier, mounts `/private/var/ngpu/bluetooth-lib` over
 addon argument is absent, which is the case on K60. Without the argument the
 patch is inert, so the baseline build is unchanged.
 
+Two later runs failed before compiling, and neither failure is in the code.
+Run 44530120502 (head `8602d85`) and 44530500213 (head `e79e259`) spent six
+download attempts on `curl: (22) ... 404` for the toolchain asset and then
+either failed on `sha256sum` or fell through to a package mirror 503. The
+release `toolchain-linux-20261119` had gone back to draft state, so its asset
+URL answers 404 to everyone outside the repository; publishing it again
+(`gh api -X PATCH .../releases/450511132 -F draft=false`) made the range
+request answer 206 on the first try. A draft release is the one state the
+workflow cannot retry its way out of, because the URL never becomes valid
+while the draft flag is set.
+
 Run [44516786407](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44516786407)
 (head `e8a61f5`) was cancelled by the concurrency group before it built.
 Run [44518998961](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44518998961)

@@ -1121,19 +1121,19 @@ statement = "The pitfall-heading scan must compile its pattern with re.MULTILINE
 check = "python3 scripts/tests/test-check-rules-pitfall-headings.py"
 
 [[rule]]
+id = "P-255"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-255"
+statement = "The SMCCC wrapper declares only x0..x3 as outputs, so the compiler may keep live values in x4..x17 across the smc; both the driver copy and the patch copy must use one contract."
+check = "python3 scripts/tests/test-k60-adsp-smccc.py"
+
+[[rule]]
 id = "P-256"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-256"
 statement = "check-rules.py 读的 grandfather_through 从来没有被写过，「起点之后」因此退化成「全部」"
 check = "python3 scripts/tests/test-rules-grandfather.py"
 note = "The key now records a measured line (P-155, the last pitfall logged when ad527fd0e added this coverage); the test recomputes it from that commit so the number cannot drift, and asserts that removing the key turns the registry red again."
-
-[[rule]]
-id = "P-255"
-kind = "pitfall"
-source = "docs/engineering/PITFALLS.md:P-255"
-statement = "The SMCCC wrapper declares only x0..x3 as outputs, so the compiler may keep live values in x4..x17 across the smc; both the driver copy and the patch copy must use one contract."
-check = "python3 scripts/tests/test-k60-adsp-smccc.py"
 
 [[rule]]
 id = "P-257"

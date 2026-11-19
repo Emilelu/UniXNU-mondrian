@@ -1752,4 +1752,6 @@ cd <framework> && XNU_PONG_WIFI=1 \
 
 `availability-spi.patch` 已打；`libcc_kext.a` 生成后 cc_kext 过关；随后进入 bootstrap pass
 （生成编译记录）。本机慢在两点：`MAKEJOBS=-j${JOBS:-4}` 而源码在 `/mnt/e`（9p），实测约 6-7 个
-对象/分钟。跑完后用 `check-wifi-symbols.py` 数符号才算 B2 成立。
+对象/分钟。跑完后用 `check-wifi-symbols.py` 数符号才算 B2 成立。整条路径已封装成
+`scripts/build-wifi27-kernel.sh`（导出两个变量、按设备 OS 键调用、最后数符号；
+契约测试 `scripts/tests/test-build-wifi27-kernel.py` 五例）。

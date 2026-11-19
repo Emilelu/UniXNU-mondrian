@@ -48,6 +48,10 @@ extern "C" unsigned nw_wifi_channel_list(unsigned *, unsigned);
 extern "C" int nw_wifi_rssi_limits(int *,int *);
 // WPA3 feasibility: the station exports this only when the builder injected the probe, so the call is weak.
 extern "C" void nw_wifi_sae_probe(int group) __attribute__((weak_import));
+// 24A446 scans name the channels they want; a station archive without the entry (the 22H374
+// line) leaves the scan on every channel, which is what the framework did before.
+extern "C" int nw_wifi_scan_frequencies(const uint8_t *ssid, size_t len, const uint32_t *mhz, size_t count)
+    __attribute__((weak_import));
 extern "C" volatile uint64_t pong_wifi_progress[3];
 static bool gProgressDiagnostic;
 extern "C" void native_wifi_logf(int level, const char *fmt, ...);
@@ -591,12 +595,31 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     case kScanReq: case kScanReqMultiple: {
       if(!gPower)return ENETDOWN;
       if(rq.req_len<20)return EINVAL;
-      uint8_t buf[0x80]; if (copy_in(rq, buf, sizeof buf, kernel)) return EFAULT;
-      uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
-      log(6, "wifi-net: scan request type %d len %u val %d ssid %u", type, rq.req_len, rq.req_val, ssidLength);
+      // 24A446 asks for the networks by name in request 86 (PongWifiAbi.h): the names sit at 0xc,
+      // 40 bytes each, the scan type at 0x200 and the channels at 0x210. Request 10 keeps the
+      // single name at 0x14 and its channels at 0x44. Both shapes are parsed here so a named scan
+      // (airportd's hidden-network probe) reaches the radio instead of being read as a wildcard.
+      const uint32_t held = rq.req_len < sizeof out.raw ? rq.req_len : sizeof out.raw;
+      if (copy_in(rq, out.raw, held, kernel)) return EFAULT;
+      uint32_t ssidLength = 0, scanType = 0; const uint8_t *ssid = nullptr;
+      uint32_t mhz[PONG_SCAN_FREQUENCIES_MAX]; uint32_t frequencies = 0;
+      if (type == kScanReqMultiple) {
+        if (pong_scan_multiple_parse(out.raw, held, &scanType, &ssid, &ssidLength)) return EINVAL;
+        frequencies = pong_scan_frequencies(out.raw, held, PONG_SCAN_MULTIPLE_CHANNEL_COUNT,
+                                            PONG_SCAN_MULTIPLE_CHANNELS, mhz);
+      } else {
+        if (held < 20) return EINVAL;
+        memcpy(&ssidLength, out.raw + 16, 4); ssid = out.raw + 20;
+        frequencies = pong_scan_frequencies(out.raw, held, PONG_SCAN_ONE_CHANNEL_COUNT,
+                                            PONG_SCAN_ONE_CHANNELS, mhz);
+      }
+      log(6, "wifi-net: scan request type %d len %u val %d ssid %u channels %u type %u", type, rq.req_len, rq.req_val, ssidLength, frequencies, scanType);
       // The daemon's scan request carries a channel filter ahead of the SSID; the filter decides what the pane may see.
-      static unsigned reqs; if (++reqs <= 8) { uint32_t wds[4]; memcpy(wds, buf, sizeof wds); log(6, "wifi-net: scan request prefix %08x %08x %08x %08x", wds[0], wds[1], wds[2], wds[3]); }
-      if(ssidLength>32 || rq.req_len<20+ssidLength)return EINVAL;
+      static unsigned reqs; if (++reqs <= 8) { uint32_t wds[4]; memcpy(wds, out.raw, sizeof wds); log(6, "wifi-net: scan request prefix %08x %08x %08x %08x", wds[0], wds[1], wds[2], wds[3]); }
+      if(ssidLength>32 || (type == kScanReq && held<20+ssidLength))return EINVAL;
+      // The results already held are what was asked for: read them from the start, run no scan.
+      if (scanType == PONG_SCAN_TYPE_CACHED && nw_wifi_bss_count() > 0) {
+        gScanCursor = 0; gScanServed = 0; gResultsShown = 24; return 0; }
       // joining or joined: a scan takes the radio off channel for seconds and the access point's beacons and handshake frames are missed, so
       // the daemon gets the last results instead
       if (st.state >= NW_STA_AUTH && nw_wifi_bss_count() > 0) {
@@ -605,7 +628,11 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
         static unsigned answered; if (++answered <= 8 || answered % 64 == 0) log(6, "wifi-net: scan %u while joined: answered from the cache", answered);
         gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 24; uint64_t at; clock_interval_to_deadline(2000, kMillisecondScale, &at); thread_call_enter_delayed(gCachedScan, at); return 0; }
       gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 0;
-      if(nw_wifi_scan(ssidLength?ssid:nullptr,ssidLength)){gScanning=0;return EBUSY;}
+      // A scan of every band took 15.7 s on this radio, past the 12 s the framework waits, so the
+      // channels the request names are what the radio visits when the station knows how to take them.
+      const bool asked = frequencies != 0 && nw_wifi_scan_frequencies != nullptr;
+      if (asked ? nw_wifi_scan_frequencies(ssid, ssidLength, mhz, frequencies)
+                : nw_wifi_scan(ssidLength ? ssid : nullptr, ssidLength)) { gScanning = 0; return EBUSY; }
       pong_wifi_wake();return 0; }
     case kAssociate: {
       if(!gPower)return ENETDOWN;
@@ -682,6 +709,11 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   case kCardCaps: {   // a bitmap, bit n in byte n / 8: AES, AES-CCM, power management, short slot and preamble, WPA2, WME, short guard interval at 20 MHz
     static const uint8_t has[] = { 2, 3, 6, 9, 10, 14, 17, 19 };
     for (uint8_t b : has) out.raw[b / 8] |= static_cast<uint8_t>(1u << (b % 8));
+    // A 12-byte request is the 24A446 extent, and it is the one whose scanner tests bits 22 and 46
+    // (PongWifiAbi.h): without 22 a scan that names networks fails at once with -3903 and never
+    // reaches this driver; without 46 the framework reads results before the scan-done event.
+    if (rq.req_len <= PONG_WIFI_CAPS_BYTES) { uint8_t caps[PONG_WIFI_CAPS_BYTES]; pong_wifi_caps_fill(caps);
+      for (unsigned i = 0; i < PONG_WIFI_CAPS_BYTES; ++i) out.raw[i] = caps[i]; }
     // 22H374 asks for 19 capability bytes (older clients ask for 12).
     // Preserve that negotiated extent and zero unsupported extension bits;
     // truncating the newer bitmap to 12 makes interface discovery incomplete.

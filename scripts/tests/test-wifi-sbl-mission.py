@@ -265,7 +265,7 @@ def main() -> int:
           "default: log_unhandled(true, type, rq, kernel); return EOPNOTSUPP;" in net and
           "default: log_unhandled(false, type, rq, kernel); return EOPNOTSUPP;" in net)
     check("every scan prints its request and its per-band table",
-          'log(6, "wifi-net: scan request type %d len %u val %d ssid %u", type, rq.req_len, rq.req_val, ssidLength);' in net and
+          'log(6, "wifi-net: scan request type %d len %u val %d ssid %u channels %u type %u", type, rq.req_len, rq.req_val, ssidLength, frequencies, scanType);' in net and
           'log(6, "wifi-net: scan table %u %d BSS: 2.4 GHz %u, 5 GHz %u, 6 GHz %u, hidden %u"' in net and
           'log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);' in net and
           net.index("log_scan_table();") < net.index("pong_wifi_notification event={NotifyScan"))
@@ -319,6 +319,14 @@ def main() -> int:
           "const uint32_t room = pong_scan_elements_room(request_bytes ? request_bytes : PONG_SCAN_RECORD_24A446);" in net and
           "scan_result24" not in net and
           "return copy_out(rq, &out.res, sizeof(out.res), kernel);" in net)
+    check("a 24A446 scan request is parsed for its names, type and channels",
+          "if (type == kScanReqMultiple) {" in net and
+          "pong_scan_multiple_parse(out.raw, held, &scanType, &ssid, &ssidLength)" in net and
+          "PONG_SCAN_MULTIPLE_CHANNEL_COUNT" in net and
+          "const bool asked = frequencies != 0 && nw_wifi_scan_frequencies != nullptr;" in net and
+          "PONG_WIFI_CAP_NAMED_SCAN 22u" in abi_hdr and
+          "PONG_WIFI_CAP_SCAN_DONE_EVENT 46u" in abi_hdr and
+          "if (rq.req_len <= PONG_WIFI_CAPS_BYTES)" in net)
     check("the 24A446 association request and completion event are decoded",
           "const bool modern27=rq.req_len==PONG_ASSOC_REQUEST_24A446;" in net and
           "gAssocModern27 = modern27;" in net and
@@ -348,6 +356,12 @@ def main() -> int:
           'PE_parse_boot_argn("sae", &sae, sizeof(sae))' in net_src and
           "jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_sae.c', out / 'pong_sae.o', [])]" in text and
           (ROOT / "scripts" / "tests" / "test-pong-sae.py").is_file())
+
+    check("the framework ABI shapes are host-tested",
+          (ROOT / "drivers" / "PongWifi" / "PongWifiAbi.h").is_file() and
+          (ROOT / "scripts" / "tests" / "test-pong-abi.py").is_file() and
+          (ROOT / "scripts" / "tests" / "pong-abi-selftest.c").is_file() and
+          "a 24A446 scan request is parsed for its names, type and channels" in (ROOT / "scripts" / "tests" / "test-wifi-sbl-mission.py").read_text(encoding="utf-8"))
 
     native_src = (ROOT / "scripts" / "build-k60-wifi-native.py").read_text(encoding="utf-8")
     check("both builds carry a 2048-byte element array and the station clamp follows it",

@@ -1042,7 +1042,8 @@ k60_modem_transport_stale(void)
  * anything else means the ring still holds the previous session (the modem
  * does not have to clear its own index when it reboots). */
 static void
-k60_qrtr_print_ring(const char *tag, const QcomGlinkFifo *rx)
+k60_qrtr_print_ring(const char *tag, const QcomGlinkFifo *tx,
+    const QcomGlinkFifo *rx)
 {
 	uint8_t m[32] = {0};
 	uint32_t w[8] = {0}, avail = 0, head = 0, tail = 0, b;
@@ -1061,9 +1062,12 @@ k60_qrtr_print_ring(const char *tag, const QcomGlinkFifo *rx)
 		w[b] = (uint32_t)m[at] | ((uint32_t)m[at + 1] << 8) |
 		    ((uint32_t)m[at + 2] << 16) | ((uint32_t)m[at + 3] << 24);
 	}
-	printf("K60MODEM qrtr: %s rx head=%u tail=%u avail=%u cmd=%#x p1=%#x p2=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
-	    tag, head, tail, avail, (unsigned)(w[0] & 0xffffu),
-	    (unsigned)(w[0] >> 16), w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
+	printf("K60MODEM qrtr: %s rx head=%u tail=%u avail=%u tx head=%u tail=%u cmd=%#x p1=%#x p2=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
+	    tag, head, tail, avail,
+	    tx->head != NULL ? (unsigned)*tx->head : 0u,
+	    tx->tail != NULL ? (unsigned)*tx->tail : 0u,
+	    (unsigned)(w[0] & 0xffffu), (unsigned)(w[0] >> 16), w[1], w[2], w[3],
+	    w[4], w[5], w[6], w[7]);
 }
 
 /* Adopt the AP-owned GLINK pair and open IPCRTR as the initiator. Pong does
@@ -1101,7 +1105,7 @@ k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
 	}
 	/* A peer that has just booted writes nothing before our first
 	 * VERSION, so the ring is clean exactly when its head is zero. */
-	k60_qrtr_print_ring("glink adopt (transport)", &rx);
+	k60_qrtr_print_ring("glink adopt (transport)", &tx, &rx);
 	k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
 	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
 	    &callbacks, NULL, 1);
@@ -1220,7 +1224,7 @@ k60_modem_qrtr_probe(void)
 		 * index is not ours to clear, so a non-zero head here cannot be
 		 * a reply to anything we have sent - drop it instead of replaying
 		 * another session's handshake as if it were ours. */
-		k60_qrtr_print_ring("glink adopt (probe)", &rx);
+		k60_qrtr_print_ring("glink adopt (probe)", &tx, &rx);
 		if (*rx.head != 0u) {
 			const uint32_t stale = qcom_glink_rx_avail(&rx);
 

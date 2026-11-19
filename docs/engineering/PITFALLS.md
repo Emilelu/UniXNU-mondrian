@@ -7334,8 +7334,8 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
    `expect = "必须出现在该行的文本"`，再加 `dependence`（none/macro/firmware/property-number/layout）
    说明 27 侧要换的是什么，`ios27` 写动作。
 2. `scripts/check-hw-contracts.py` 逐行解析定位：文件缺失、行号越界、该行不含记录文本、id 重复、
-   dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 12 项回归
-   覆盖"常量挪了""引了第 9 行""整条线没人管"。
+   dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 16 项回归
+   覆盖"常量挪了""引了第 9 行""整条线没人管""第二份副本漂了"。
 3. 项数这类聚合值不要写死在散文里：要么写成"见 `run-k60-power-host.sh` 的输出"，要么由检查器比对
    （`check-power-carry.py` 已经比对 CARRY.toml 的项数与 runner 的 `run <suite> <N>` 行、以及判读器用例数）。
 4. 宏名/门控写法改变时，同一个提交里改掉所有提到它的注释与文档（这次 `judge-k60-sleep-console.py` 的

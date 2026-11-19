@@ -1,11 +1,12 @@
 # K60 Bluetooth on iOS 27 (feat/ios27)
 
-Status: **source staged in the iOS 27 series, not built, not flown.** Eighteen
-patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0520, 0521) now live in
+Status: **source staged in the iOS 27 series, built on Linux CI, not flown.**
+Twenty patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0523) now live in
 `patches/xnu-12377/series`, the list the iOS 27 board actually selects, with
-the platform hooks rebased onto the 95d9c8a1 tree and an empty firmware carrier
-so 0510 has its input. No kernel has been built from this branch and no device
-action was taken. The driver layer is additionally hardware-verified on the iOS
+the platform hooks rebased onto the 95d9c8a1 tree, an empty firmware carrier so
+0510 has its input, and the Bluetooth device-tree node now shipped in
+`dts/mondrian.dts`. Three Linux CI builds (§5.3) have produced a prelinked
+kernel and payload; no device action was taken on this line. The driver layer is additionally hardware-verified on the iOS
 16.6.1 line: d11 (0518) completed the firmware download and d12 (0520)
 registered both control names (see `k60-bt` D11/D12 plans).
 
@@ -186,6 +187,14 @@ succeeded: `kernel/kernel.macho` 93,077,504 B
 the new `[bluetooth sk] TIOCSETA cflag=%#llx speed=%llu/%llu %s error=%d`
 log, so the client-requested reclock is linked.
 
+Run [44470953368](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44470953368)
+(head `5f4c895`, 9m12s) builds the same twenty patches plus the Bluetooth
+device-tree node added in `1e2e681`: the generated payload ADT carries
+`bluetooth` twice and `qcom,wcn6855-bt` once, so `/arm-io/bluetooth` is now
+part of the static contract instead of being created at runtime by
+MiniBluetooth. `kernel/kernel.macho` still carries both
+`com.apple.uart.sk.bluetooth` strings.
+
 The run before 0522 stopped at `bsd/dev/qbt_k60.c:1851` with
 `call to undeclared function 'kmem_alloc_contig'`; 0522 fixes it (§3). The
 only errors left in the logs are the bootstrap pass, the documented false
@@ -230,8 +239,9 @@ it is already written.
 
 ## 7. What remains before "directly usable after migration"
 
-1. P3's build half is done: two CI runs (§5.3) produced `kernel.macho` and
-   `payload.img` with the whole series, including the reclock. What remains is
+1. P3's build half is done: three CI runs (§5.3) produced `kernel.macho` and
+   `payload.img` with the whole series, including the reclock and the
+   device-tree node. What remains is
    hardware: `qbt_k60_start` must actually run under iOS 27, which waits for
    `bsd_init`. To embed firmware first, see 5.2.
 2. `[payload.runtime]` wiring plus the OS image and signing inputs (§6).

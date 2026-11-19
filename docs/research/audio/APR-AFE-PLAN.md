@@ -81,3 +81,30 @@ t970 的启动顺序（`afeStart`）与我们相同，但多了两件事：
 两条路都只动内核侧纯 C（`drivers/PongAudio/*.h` + `bsd/dev/pong_audio.c`），
 与 iOS 版本无关；host 测试随代码走。**16 的 AFE 参数表（`PongAudioAfe.h` 里的 group/tdm/slot 值）不带进 27**——
 by 已证明固件代次不同会整体拒绝，27 上要按那时的固件重新标定。
+
+## 5. 一个必须先说的判读陷阱：我们的 rx 解析器只认 24 字节 GPR 头
+
+`pong_gpr_decode()`（`patches/xnu/0504-k60-audio-pong-audio.patch:197-225`）要求
+`header_bytes >= 24`，否则返回 `PongGprBadHeader`，`pong_audio.c` 只打印
+`PongAudio: glink adsp_apps rx bytes=%u (bad gpr)`（0003 补丁 1385-1386 行）。
+
+APR 甲板的头是 **20 字节**（`field>>4 & 15` = 5 字），端口是 16 位、域是单字节，
+token 在偏移 12、opcode 在 16（`T970Apr.c` 的 `begin()` 与 `apr_parse()` 一致）。
+两种头在字节 0..3 的编码完全相同（`version | hdr_words<<4 | size<<8`，size 在 `[2..3]`），
+差别只在 4 字节之后：GPR 是 `u32 dest_domain|src_domain<<8, u32 src_port, u32 dst_port`，
+APR 是 `u8 svc, u8 domain, u16 port` ×2。
+
+⇒ **如果本机 ADSP 用 APR 帧回应，ca 的 console 里不会出现带 status 的 `rx` 行，
+而会出现 `rx bytes=N (bad gpr)`。** 这条也要算「包到了、有应答」，
+只是我们这边解不开；flight card 的 F5（两条应答都没有）不覆盖它。
+判读时请把 `(bad gpr)` 行的 bytes 与 token 位置一并记下。
+
+路 A 的改造因此要多一步：`pong_gpr_decode()` 需要接受 `header_bytes == 20` 的帧，
+按 APR 布局取 `src_svc/src_domain/src_port/dest_port`，否则 APR 路一开就会把自己的回包丢掉。
+
+## 6. 若 ca 连 `(bad gpr)` 都没有
+
+说明 ADSP 把 APR 帧整包丢了（协议不并存）。那时的动作不是改判据，而是：
+先用同一份代码把六步的**信封**从 GPR 24 B 换成 APR 20 B、其余字段不动，
+发一次最小 `GET_SPF_STATE`（APM 命令在 GPR 下已能成功，换封装后若仍成功，
+说明通道接受 APR 帧），再决定要不要继续在 legacy AFE 上投。

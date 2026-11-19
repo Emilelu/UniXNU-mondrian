@@ -604,8 +604,36 @@ k31 的失败行（`rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0
 | 布局 | 560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-boot-image.py` rc0 OK，`test-bootimg-layout.py` OK |
 | 判据 | S3 必须保持 PASS；S4 仍要求 `dms revision`。adopt 行与 `dropped … stale bytes` 行用于判定残料假设，不改变 S4 的通过条件 |
 | 采集 | 本次 `flash.sh` 的采集秒数由 300 改为 **420**：autoreset 在 300 s 触发，过去两次采集都在复位行之后 1.3 s 结束，无法判定 `PE_k60_reset_now()` 是否真的复位；多观察 120 s，USB 断开即复位生效 |
-| 状态 | 已打包、未上机 |
+| 状态 | 已打包、未上机；已被 §3.20 的 k34 取代（k34 只多一行 bridge 状态打印） |
 
+
+### 3.20 k34：bridge 晚发布的状态行（离线，未上机）
+
+k33 打包后设备一直挂死、没能起飞，等待期间复核 S6 时发现**这条判据按原代码永远无法满足**：
+`K60MODEM baseband: bridge ` 状态行在轮询循环**之前**只打印一次，而 `coachz_baseband_configure()`
+的重试在循环里（每 500 次 poll 一次）。QcomBaseband 组件在 IOResources 未就绪时会推迟发布
+（`patches/qcombaseband/0001-coachz-defer-publication.patch`），因此一个**工作正常但晚发布**的桥
+只会留下开头的 `bridge disabled`，S6 会被误判为失败，白飞一次。
+
+k34（`cfb2917f`）只加一段：重试块里若 `!bridge_reported && coachz_baseband_enabled()`，打印
+`K60MODEM baseband: bridge enabled (poll %u)` 并置位。行为无其他变化，与 k33 的差别就是这一行。
+
+同轮把判据机械化：`scripts/check-modem-flight-log.py --phase b` 现在输出 **S3/S4/S5/S6** 四组
+（新增 S5 判 `K60MODEM qrtr: verdict ok services=N node0=M` 的 N>0、M≥1；S6 判 bridge enabled 行与
+`COACHZ baseband: %d of %u services published` 的 N>0），回归 `test-check-modem-flight-log.py`
+输出 `K60 FLIGHT LOG PASS p1 c b s5 s6 negative-cases`。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `cfb2917f982095a4799cba19361b6f3b5ede19e2`（叠加 k33 的 `52c741a8`+`979bf601`） |
+| 主机验证 | 0622 98,625 B / 5 files；`test-k60-modem-image.py` TESTS OK 30 segments；`test-k60-ipa-patch.py` PASS；`run-host-tests.sh` rc0（含 S5/S6 判读回归） |
+| kernel | `E:/k60-work/artifacts/modem-20261117k34/kernel.macho`，105,582,592 B，sha256 `68c6c9bcfbf8258f134714ecab5a6c4e5371bb3f3996e0d8bf86fed1d5b05501`；`llvm-strings` 命中 `K60MODEM baseband: bridge enabled (poll %u)` |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k34/boot-modem-b-full.img`，201,895,936 B，sha256 `20fff9f27110ef723c281efabd01599b70dfaf43cc0dde91b93da5123b994a98` |
+| payload | `2beb6fd370752abdccdae39d8f821ab5420587058d6aaabf74d073c4cc4dd875`（json `50ba0a1d3838cbc718e7b703f9fb8dd65a6a7689a6875aa984074b72ec38c7b0`）；payload kernel `56d8dd65d9273a50901c16004e980b32fe91e7a806bab561d66d783da7cd033d`；adt `fdc1a9818dd5fcf3ce0cf972faff1434df440917d7c74f5782912b53c2ca91f7` |
+| args | 末尾 `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`；FD `40c29d513eab…`；carrier `1b4631a6…` |
+| 布局 | 560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-boot-image.py` rc0 OK |
+| 状态 | 已打包、未上机（k33 未飞即被取代） |
+| 判读 | `--phase b` 四组全过才算 B PASS；采集 420 s 以判定 autoreset |
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
@@ -701,8 +729,10 @@ k31 的失败行（`rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0
    坏消息是一条带单个 pair 的 GLINK INTENT（§3.17）。
    k32（`5571c7f2…`）**作废**：它的 adopt 诊断只挂在 transport 路径，B 形态总在 `mem_setup` 打印
    `transport remote glink fifo absent, defer IPCRTR` 并改走探针路径 adopt，那一行永远不会出现（§3.18 更正）。
-   下一飞用 k33 的 `E:/k60-work/artifacts/modem-20261117k33/boot-modem-b-full.img`（`d467eee4…`，§3.19）：
-   与 k31 的差别是探针路径 adopt 行、head 非零时丢弃旧环、损坏行 32 字节；S3 必须保持，S4 仍按 dms revision 判。
+   下一飞用 k34 的 `E:/k60-work/artifacts/modem-20261117k34/boot-modem-b-full.img`（`20fff9f2…`，§3.20）：
+   与 k31 的差别是探针路径 adopt 行、head 非零时丢弃旧环、损坏行 32 字节，以及 bridge 晚发布时的
+   `bridge enabled (poll N)` 行（k33 未飞即被 k34 取代）；S3 必须保持，S4 仍按 dms revision 判，
+   S5/S6 由同一份日志判读。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

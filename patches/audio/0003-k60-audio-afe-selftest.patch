@@ -512,9 +512,10 @@
 +	if (state->playback_frames == 0u) {
 +		printf("PongAudio: PCM slot %u copy done\n", slot);
 +	}
-+	if (pong_audio_scm_lend(state->dma_pa +
-+	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES,
-+	    PONG_PLAY_PERIOD_BYTES) != 0) {
++	/* The DSP validates the whole mapping, not only the write address:
++	 * lending one slot left the rest of the 64 KiB region on the HLOS
++	 * side and the firmware died while answering the first period. */
++	if (pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
 +		printf("PongAudio: PCM slot %u lend refused\n", slot);
 +		return false;
 +	}
@@ -552,7 +553,7 @@
 +		printf("PongAudio: PCM zero-byte probe encode failed\n");
 +		return;
 +	}
-+	if (pong_audio_scm_lend(state->dma_pa, PONG_PLAY_PERIOD_BYTES) != 0) {
++	if (pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
 +		printf("PongAudio: PCM zero-byte probe lend refused\n");
 +		return;
 +	}
@@ -728,9 +729,8 @@
 +			    (unsigned long long)answer->address);
 +			return true;
 +		}
-+		if (pong_audio_scm_reclaim(state->dma_pa +
-+		    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES,
-+		    PONG_PLAY_PERIOD_BYTES) != 0) {
++		if (pong_audio_scm_reclaim(state->dma_pa,
++		    PONG_AUDIO_DMA_BYTES) != 0) {
 +			printf("PongAudio: PCM slot %u reclaim failed\n", slot);
 +		}
 +		state->slot_busy[slot] = false;
@@ -1288,7 +1288,7 @@
 +		g_pong_audio.refusal_printed = true;
 +		return -1;
 +	}
-+	printf("PongAudio: PCM slots stay HLOS-owned; each write lends its slot\n");
++	printf("PongAudio: PCM slots stay HLOS-owned; each write lends the buffer\n");
 +	pong_audio_ring_reset();
 +	unsigned int group_probe = 0;
 +	g_pong_audio.afe_group_probe = PE_parse_boot_argn("pong_audio_group_probe",

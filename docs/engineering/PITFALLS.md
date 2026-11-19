@@ -6704,3 +6704,30 @@ rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**
    这是新测试 `test_symlink_in_tmp_is_never_removed` 抓到的。
 4. 空间问题的第一手证据是 `du -x -d1`（`-x` 保证不跨 `/mnt` 把 Windows 盘算进来）与
    `fsutil sparse queryflag`；只看 `ls -la` 的逻辑大小会得出相反结论。
+
+## P-247
+
+**现象（2026-11-19，`gpu-pitchoff-20261119` / `gpu-perf-20261119`）**
+连续三飞写下「稳态中位」这类判据，实测却只有 4–5 条样本：屏幕静止，`Pong Metal: c8/0 d8`、
+`MiniIOMobileFramebuffer: 4 frames in 110000 ms`。判读器按 P-236 判 INVALID，于是
+「升档有没有用」这个问题**一次都没被回答**，而每次都要先构建、再等设备窗口、再飞一次。
+
+**真因**
+判据隐含了「设备上恰好有东西在动画」这个前提，而那不是我们能控制的条件。驱动每 10 帧打一条
+stage 行（`copies<=8 || !(copies%10)`），静止屏永远到不了 10 帧，样本数因此恒为 0–4。
+这是「判据存在 ≠ 判据可触发」的第三种脸：P-240 缺赋值者、P-241 缺调用点、P-242 缺覆盖，
+这里是**缺一个能自己制造样本的入口**。
+
+**修法**
+`drivers/PongMetal/PongMetalScanout.h`：见到 `gperf=` 时在第一帧真实拷贝成功之后、
+内核 `PongScanoutComplete` retire 映射之前，把同一次 `present()` 重复 24 次并逐次打印
+`scanout bench n=<i>/24 import=… gpu=… sum=… status=…`；`gbench=N` 可覆盖（上限 120），
+`status` 非 0 立即中止。`scripts/judge-gpu-perf.py` 优先用 bench 行取中位，并在有 ≥8 条
+bench 样本时允许屏幕静止。
+
+**教训**
+1. 性能判据要自带样本源。依赖外部活动的判据，在设备静止时不是「失败」而是「没测到」，
+   而「没测到」花掉的是整轮构建加一次上机。
+2. 基准要放在**映射还有效**的窗口里（首帧成功后、`PongScanoutComplete` 之前），
+   否则测的是已被 `release()` 的页 —— 那正是 P-244 的来路。
+3. 判读器必须能区分「没有 bench 行」与「bench 全失败」：前者是镜像没带代码，后者是拷贝坏了。

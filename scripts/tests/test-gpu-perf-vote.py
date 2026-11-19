@@ -18,6 +18,7 @@ import sys
 # tree it is judging); a literal path here would judge a different tree than the one asked.
 ROOT = pathlib.Path(os.environ.get("K60_REPO") or pathlib.Path(__file__).resolve().parents[2])
 GMU_C = ROOT / "drivers/PongAdreno/PongAdrenoGmu.c"
+SCANOUT = ROOT / "drivers/PongMetal/PongMetalScanout.h"
 GMU_H = ROOT / "drivers/PongAdreno/PongAdrenoGmu.h"
 PLATFORM = ROOT / "drivers/PongAdreno/PongAdrenoPlatform.cpp"
 
@@ -126,6 +127,41 @@ def _():
     t = PLATFORM.read_text(encoding="utf-8")
     assert 'record("GPU level vote from gperf"' in t, "no verdict line"
     assert "gmu.perf_gpu_index,gmu.perf_bus_index" in t, "the line omits the indices"
+
+
+@case("asking for a level vote also asks for a measurement of it")
+def _():
+    t = SCANOUT.read_text(encoding="utf-8")
+    assert 'const char perfKey[]="gperf=";' in t, "the plugin does not look at gperf"
+    assert "bench=24;" in t, "a static screen would leave the vote unmeasured again"
+
+
+@case("the bench repeats inside the offer, before the kernel retires the mapping")
+def _():
+    t = SCANOUT.read_text(encoding="utf-8")
+    bench = t.find("scanout bench n=")
+    assert bench > 0, "no bench line"
+    # The bench must sit in the first-frame block, which runs before PongScanoutComplete:
+    # presenting after Complete would read pages the kernel already released (P-244).
+    complete = t.find("PongScanoutComplete")
+    assert complete == -1 or bench < complete, "the bench runs after the mapping is retired"
+
+
+@case("the bench line carries the six numbers the judge needs, and a status")
+def _():
+    t = SCANOUT.read_text(encoding="utf-8")
+    for field in ("import=%llu us", "encode=%llu us", "submit=%llu us", "gpu=%llu us",
+                  "sum=%llu us", "status=0x%x"):
+        assert field in t, "the bench line omits %s" % field
+
+
+@case("the bench count is capped and stops on the first failed copy")
+def _():
+    t = SCANOUT.read_text(encoding="utf-8")
+    assert "value>120?120:value" in t, "no cap on the count"
+    bench = t.find("scanout bench n=")
+    tail = t[bench:bench + 1600]
+    assert "if(repeat!=gpupresent::kOk)break;" in tail, "a failure does not stop the loop"
 
 
 def main():

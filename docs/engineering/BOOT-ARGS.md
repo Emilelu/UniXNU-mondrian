@@ -29,6 +29,7 @@
 | `pong_gpu_coherent` | GPU / 提交 | 0 / 1 / 2（默认 2） | 2 = 跑探针 | 唯一有对方量化证据的一项：zizhan g40/g41 强制开后扫出 24–35 ms → 5–6 ms。用 1 绕过证明等于拿帧的正确性换速度 |
 | `pong_surface_pitch` | GPU / 扫出 | `1` 开（默认 `0` 关） | 关 = 照客户端请求的 `IOSurfaceBytesPerRow` 分配（当前行为） | 开时一律按 `alignUp(width*bpe, 64)` 回报，客户端经 `IOSurfaceGetBytesPerRow` 得到同一个数。行距差（5888 vs 5760）是扫描 blit 只能走线性纹理的唯一原因，实测那一段 `encode` 46 ms 而同样 18.4 MB 的普通拷贝 1.9 ms；若调用方不尊重回报值，画面会斜切，这是它保留开关的原因 |
 | `pong_gpu_blit_probe` | GPU / 扫出 | `1` 开（默认关） | 开 = 首帧后跑一次对照 | 已答完并默认**关**：对照实测两个目标都是 9–10 GB/s，固件帧缓冲不是慢的那个；带它的那次飞行以 CP/SMMU fault 收场（P-244），且它按源行距写目标会让那一帧斜切 |
+| `gbench` | GPU / 提交 | `0`..`120`（默认不跑） | 未设：`gperf` 出现时按 24 次 | 把同一次拷贝在同一个 offer 里重复 N 次并逐次打印 `scanout bench n=…`，让 blit 的测量不依赖「屏幕上恰好有没有动画」。三次飞行都因为静止屏只有 4 帧、拿不到稳态样本，这个开关就是为此存在 |
 | `gperf` | GPU / 提交 | `1`..`13`（默认不投） | 未设 = 只投一次启动票、此后永不复访 | GX 起来之后按 `gperf=N` 重投同一条 `GX_BW_PERF_VOTE`（HFI id 30）。功率与发热随档位变化，所以默认不动；`0` 与 `>13` 被当成调用方 bug 拒发，`14` 是表长不是档位 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
@@ -166,6 +167,22 @@ CPU 数字更好看不构成让它做默认值的理由；要开就自己写 `po
   所以想打开它必须自己腾出 20 字节（见 `## 参数预算`）——这是有意的成本，不是遗漏
 - **源码**：`drivers/PongMetal/PongMetalScanout.h:114`
 - **源码**：`drivers/PongMetal/GpuScanoutPresenter.h:116`
+
+### `gbench`
+
+- **所属**：`drivers/PongMetal/`（扫出 worker 的有界基准循环）
+- **接受值**：`0`..`120`；超过 120 被夹到 120
+- **未设时**：**`gperf` 出现在启动行时按 24 次**，否则不跑
+- **作用**：在第一帧真实拷贝成功之后、内核 retire 映射之前，用同一个 `present()` 再拷 N 次同一帧，
+  每次打印一行 `scanout bench n=<i>/<N> import=… encode=… submit=… gpu=… sum=… status=0x…`
+- **为什么**：`gpu-pitchoff-20261119`（卡 j）的 `gpu` 中位 5,983 µs、`gpu-perf-20261119`（卡 k）飞行
+  时屏幕静止只有 4 帧，稳态样本数为 0。判据一旦依赖「设备上恰好有东西在动」就不是判据
+  （P-236 同族）。这个循环把同一次工作重复到够多，测的还是同一次工作
+- **陷阱**：它在同一个 offer 内跑，所以源页仍然有效——不要在 `PongScanoutComplete` 之后调用
+  （那之后内核已 `release()` 映射，`usblog-20261119` 的 P-244 就是从那类误用开始的）；
+  循环次数有上限，且 `status` 非 0 立即中止，不会把一次启动变成无限基准
+- **源码**：`drivers/PongMetal/PongMetalScanout.h:60`
+- **源码**：`drivers/PongMetal/PongMetalScanout.h:198`
 
 ### `gperf`
 

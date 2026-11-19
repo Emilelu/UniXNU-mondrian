@@ -11,7 +11,7 @@ namespace pongscanout {
 using Open=kern_return_t(*)(unsigned,mach_port_t,unsigned,unsigned *);
 using Call=kern_return_t(*)(unsigned,unsigned,const void *,size_t,void *,size_t *);
 using Map=kern_return_t(*)(unsigned,unsigned,mach_port_t,uint64_t *,uint64_t *,unsigned);
-struct Context {unsigned connection;Call call;gpupresent::Presenter *presenter;bool blitProbe;};
+struct Context {unsigned connection;Call call;gpupresent::Presenter *presenter;bool blitProbe;unsigned bench;};
 /* A span is only meaningful when both ends were actually read: a zeroed timespec is
  * what a failed clock_gettime leaves behind, and treating that as a real stamp would
  * report a stage that never ran. */
@@ -65,7 +65,38 @@ static void *serve(void *opaque)
                         (unsigned long long)context->presenter->probeSourceToDeviceUs(),
                         (unsigned long long)context->presenter->probeDeviceToScanoutUs());
                     report(control,0);
-                } else if(context->blitProbe) {
+                
+                /* A bounded repeat of the same copy, so the blit can be measured without
+                 * waiting for something on the device to animate. Every flight before this
+                 * one came back with four frames and no steady sample because the screen was
+                 * static, which is a property of the screen and not of the copy. Off unless
+                 * gbench=N asked, and it runs inside the same offer, before the kernel
+                 * retires the mapping, so the pages are the ones the client really gave us. */
+                if(context->bench) {
+                    for(unsigned n=1;n<=context->bench;n++) {
+                        const auto repeat=context->presenter->present(
+                            {reinterpret_cast<void *>(frame.address),size_t(frame.bytes),
+                             size_t(frame.stride),frame.width,frame.height});
+                        const uint64_t imported=context->presenter->importMicroseconds();
+                        const uint64_t encoded=context->presenter->encodeMicroseconds();
+                        const uint64_t submitted=context->presenter->submitMicroseconds();
+                        const uint64_t waited=context->presenter->waitMicroseconds();
+                        char line[256];
+                        snprintf(line,sizeof(line),
+                                 "scanout bench n=%u/%u import=%llu us encode=%llu us submit=%llu us"
+                                 " gpu=%llu us sum=%llu us status=0x%x",
+                                 n,context->bench,
+                                 (unsigned long long)imported,(unsigned long long)encoded,
+                                 (unsigned long long)submitted,(unsigned long long)waited,
+                                 (unsigned long long)(imported+encoded+submitted+waited),
+                                 unsigned(repeat));
+                        report(line,0);
+                        if(repeat!=gpupresent::kOk)break;
+                        struct timespec pause={0,2000000};
+                        nanosleep(&pause,nullptr);
+                    }
+                }
+} else if(context->blitProbe) {
                     report("scanout blit control could not run",0);
                 }
             }
@@ -138,6 +169,7 @@ static void start(void *iokit,unsigned service,id<MTLDevice> device)
      * it back sets `pong_gpu_blit_probe=1` on the boot line (the line is at 596 of 607 bytes,
      * so this costs a decision, not a default). */
     bool blitProbe=false;
+    unsigned bench=0;
     if(!sysctlbyname("kern.bootargs",args,&argsLength,nullptr,0)) {
         args[argsLength<sizeof(args)?argsLength:sizeof(args)-1]=0;
         const char key[]="pong_gpu_scanout=0";
@@ -157,6 +189,34 @@ static void start(void *iokit,unsigned service,id<MTLDevice> device)
             if((option==args || option[-1]==' ' || option[-1]=='\t') &&
                (!after || after==' ' || after=='\t')) { blitProbe=true;break; }
             option+=sizeof(probeKey)-1;
+        }
+        /* Asking for a level vote implies asking to measure it, so `gperf` also runs a bounded
+         * bench: three flights came back with four frames because the screen was static, and a
+         * measurement that depends on whether something happens to animate is not a
+         * measurement. `gbench=` overrides the count for a future flight that has room for it
+         * on the boot line; the count is capped so a typo cannot loop forever. */
+        const char perfKey[]="gperf=";
+        option=args;
+        while((option=strstr(option,perfKey))) {
+            if((option==args || option[-1]==' ' || option[-1]=='\t') &&
+               option[sizeof(perfKey)-1]>='0' && option[sizeof(perfKey)-1]<='9') { bench=24;break; }
+            option+=sizeof(perfKey)-1;
+        }
+        const char benchKey[]="gbench=";
+        option=args;
+        while((option=strstr(option,benchKey))) {
+            if(option!=args && option[-1]!=' ' && option[-1]!='\t') {option+=sizeof(benchKey)-1;continue;}
+            const char *digits=option+sizeof(benchKey)-1;
+            if(*digits>='0' && *digits<='9') {
+                unsigned value=0,count=0;
+                while(*digits>='0' && *digits<='9' && ++count<=6) value=value*10+unsigned(*digits++-'0');
+                const char after=*digits;
+                if(!after || after==' ' || after=='\t') {
+                    bench=value>120?120:value;
+                    break;
+                }
+            }
+            option+=sizeof(benchKey)-1;
         }
     }
     auto open=(Open)dlsym(iokit,"IOServiceOpen");auto call=(Call)dlsym(iokit,"IOConnectCallStructMethod");
@@ -182,7 +242,7 @@ static void start(void *iokit,unsigned service,id<MTLDevice> device)
         // connection/backing for teardown rather than silently recycle it.
         report("GPU scanout import unavailable; CPU fallback requires retired DMA",-1);return;
     }
-    auto *context=new Context{connection,call,presenter,blitProbe};pthread_t thread;
+    auto *context=new Context{connection,call,presenter,blitProbe,bench};pthread_t thread;
     pthread_attr_t attr;pthread_attr_init(&attr);pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
     pthread_attr_setstacksize(&attr,1024*1024);
     int result=pthread_create(&thread,&attr,serve,context);pthread_attr_destroy(&attr);

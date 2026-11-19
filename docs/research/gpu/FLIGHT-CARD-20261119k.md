@@ -74,4 +74,47 @@
 
 ## 5. 结果登记
 
-（飞行后写）
+### 5.1 飞行事实
+
+| 项 | 值 |
+|---|---|
+| 镜像 | `gpu-perf-20261119`，`boot.img b0add41325199bd9a314b1ec981e4e12de6a17b3bde270c53b54e907ac3adc7f` |
+| 内核 | `98fb8d874f2cda4b28374ece163bee2036041b2aa653c91c342c96f2f4c604a6`（105,693,184 B） |
+| 命令行 | 31 条 605 B，末项 `gperf=13`（`image-arg-audit: OK`） |
+| 插件 | `metal-plugin-20261119p` |
+| 证据 | `E:\k60-work\evidence\usblog-20261119-163734`，`console.log` 249,356 B，supervisor rc=0，抓取完整 |
+
+### 5.2 判据
+
+| 判据 | 结果 | 实测 |
+|---|---|---|
+| S1 无 fault | ✅ | `panic(` / `K60KEXC` / `crashed: backboardd` / `DeviceLost` / `CP/SMMU fault` / `GPU copy not retired` 各 0 |
+| S2 恰一条投票行、状态 0 | ✅ | 2 条 `PONG ADRENO: GPU level vote from gperf result=0 a=0xd b=0x2`（两条相同，见 5.5） |
+| S3 GX 档 = 13、DDR 档不变 | ✅ | `a=0xd` = 13（最高档）、`b=0x2` = 启动票的 DDR 档，未被这个参数改动 |
+| S4 稳态 `gpu` < 3,000 µs | ⏳ 未测到 | 4 帧、0 条稳态 stage 行 |
+| S5 稳态 `copy` < 6,000 µs | ⏳ 未测到 | 同上 |
+| S6 `imports == frames` | ✅（4/4） | 但样本只有 4 条，不足以支撑中位 |
+| S7 面板 ≥110 Hz | ✅ | `K60 PANEL: INTF1 after the UI frame te 120/s … period 7386 us` |
+| S8 画面一致 | ⏳ | 需目视 |
+
+### 5.3 结论
+
+**机制成立**：`PongAdrenoGmuVotePerf` 在 CP 起来之后把 GX 档投到 13、DDR 档沿用启动值，
+GMU 应答 `result=0`，此后启动过程无 fault。这是本轮唯一新增的行为，它按设计工作。
+
+**性能未测到**：这一飞屏幕静止（`Pong Metal: c8/0 d8`、4 帧、110.9 s 量级），
+按 P-236 判 **INVALID**，因此**不能**用它说「升档有没有用」。卡里 S4/S5 记「未测到」而不是「失败」。
+
+### 5.4 为什么又是静止屏（第三次）
+
+`usblog-20261119-095547`（4 帧）、`usblog-20261119-163734`（4 帧）、`usblog-20261119-151837`
+（5 帧但 34 条 stage）都是屏幕没有动画。判据一旦依赖「设备上恰好有东西在动」就不是判据。
+对策见卡 l：`gperf` 出现时在同一个 offer 内把同一次拷贝重复 24 次（`scanout bench n=…`），
+测量不再依赖屏幕。
+
+### 5.5 一个观察
+
+投票行打了**两次**，两行内容完全相同。`record()` 在平台启动路径里只调用一次，所以要么有第二个
+调用者，要么 `record()` 自己输出两遍。记在这里，下一飞核对；不影响 plumb 是否生效。
+
+- criteria-sha256: （见下条，指纹由门禁函数计算）

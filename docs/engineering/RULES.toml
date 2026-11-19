@@ -922,3 +922,11 @@ title = "有门禁不等于有人回收：25 个旧输出目录把虚拟盘涨�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-disk-guards.py"
 note = "scripts/k60-janitor.py 才是删除者；hard-41 只量余量。测试证明它保留最新 N 个、跳过符号链接、保护镜子与被链接的树。"
+
+[[rule]]
+id = "P-247"
+kind = "pitfall"
+title = "判据要自带样本源：屏幕静止时「稳态中位」永远采不到样，别把它读成失败"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-gpu-perf-vote.py"
+note = "gperf 触发 24 次有界基准（PongMetalScanout.h），judge 优先用 bench 行取中位"

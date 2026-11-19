@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1973 @@
+@@ -0,0 +1,1975 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1409,13 +1409,15 @@ index 0000000..1111111
 +#include <sys/systm.h>
 +#include <mach/vm_param.h>
 +#include <vm/pmap.h>
-+#include <arm/pmap.h>
 +#include <vm/vm_kern.h>
 +#include "pong_modem_pas.h"
 +
 +/* osfmk/arm/machine_routines.h:703 (same declaration K60AdspBoot.c uses). */
 +extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
 +extern void delay(int microseconds);
++/* osfmk/arm/pmap/pmap.h declares this; that header is not on the
++ * carried file include path, so declare the one prototype we use. */
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 +
 +#define K60_MODEM_SMEM_BASE      0x80900000u
 +#define K60_MODEM_SMEM_BYTES     0x00200000u

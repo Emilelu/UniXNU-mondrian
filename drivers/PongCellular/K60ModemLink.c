@@ -108,13 +108,15 @@ coachz_baseband_report(unsigned second)
 #include <sys/systm.h>
 #include <mach/vm_param.h>
 #include <vm/pmap.h>
-#include <arm/pmap.h>
 #include <vm/vm_kern.h>
 #include "K60ModemPas.h"
 
 /* osfmk/arm/machine_routines.h:703 (same declaration K60AdspBoot.c uses). */
 extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
 extern void delay(int microseconds);
+/* osfmk/arm/pmap/pmap.h declares this; that header is not on the
+ * carried file include path, so declare the one prototype we use. */
+extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 
 #define K60_MODEM_SMEM_BASE      0x80900000u
 #define K60_MODEM_SMEM_BYTES     0x00200000u

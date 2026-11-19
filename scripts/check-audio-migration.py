@@ -44,10 +44,13 @@ PURE = [
 ]
 # Section 2: kernel glue, portable but rewired at the call site.
 GLUE = ["PongAudioAmp.c", "PongAudioRegs.h"]
-# Section 3: must not travel. Afe.h is the AFE/TDM parameter table; the two
-# patches are bound to the iOS 16 tree.
-FROZEN = ["PongAudioAfe.h"]
-FROZEN_NAMES = ["PongAudioAfe.h", "0504-k60-audio-pong-audio.patch",
+# Section 1b: travels only so the host tests keep compiling. The AFE/TDM
+# parameter table is dead on this firmware, so no driver file may call it, but
+# tests/test-pong-audio-geni-i2c.c:30 includes it and the 979 cases cover it.
+TESTS_ONLY = ["PongAudioAfe.h"]
+# Section 3: must not travel. The two patches are bound to the iOS 16 tree.
+FROZEN = []
+FROZEN_NAMES = ["0504-k60-audio-pong-audio.patch",
                 "0003-k60-audio-afe-selftest.patch"]
 
 
@@ -86,7 +89,7 @@ def line_counts(doc):
             if lines != int(claimed):
                 errors += fail("%s has %d lines, the table says %s"
                                % (name, lines, claimed))
-    for name in PURE + GLUE:
+    for name in PURE + GLUE + TESTS_ONLY:
         if name not in covered:
             errors += fail("%s carries no line count in the tables" % name)
     print("line counts: %d file(s) checked against the tables" % len(covered))
@@ -99,7 +102,7 @@ def classify():
     for name in sorted(os.listdir(driver_dir)):
         if name.endswith(".c") or name.endswith(".h"):
             present.add(name)
-    known = set(PURE) | set(GLUE) | set(FROZEN)
+    known = set(PURE) | set(GLUE) | set(TESTS_ONLY) | set(FROZEN)
     for name in sorted(present - known):
         errors += fail("%s/%s is not classified in the migration list" % (DRIVER, name))
     for name in sorted(known - present):
@@ -113,7 +116,7 @@ def classify():
     # header is never reported missing just because the row abbreviates it.
     portable_section = re.sub(r"`(\w+)\.c` / `\.h`", r"`\1.c` `\1.h`", portable_section)
     frozen_section = doc.split("## 3.")[1].split("## 4.")[0]
-    for name in PURE + GLUE:
+    for name in PURE + GLUE + TESTS_ONLY:
         if name not in portable_section:
             errors += fail("%s is portable but the document never names it" % name)
     for name in FROZEN_NAMES:
@@ -125,9 +128,9 @@ def classify():
 
     errors += line_counts(doc)
 
-    total = len(PURE) + len(GLUE)
-    print("files: %d portable (%d pure C, %d glue), %d frozen"
-          % (total, len(PURE), len(GLUE), len(FROZEN)))
+    total = len(PURE) + len(GLUE) + len(TESTS_ONLY)
+    print("files: %d portable (%d pure C, %d glue, %d test-only), %d frozen"
+          % (total, len(PURE), len(GLUE), len(TESTS_ONLY), len(FROZEN)))
     return errors
 
 

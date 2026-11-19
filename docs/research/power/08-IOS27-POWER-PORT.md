@@ -40,7 +40,7 @@
 
 ### 2.1 搬运前置检查（2026-11-20）
 
-搬运清单只回答“七个模块的字节还在不在”。27 线另外踩过的三类坑不会让哈希变化，却会让一次
+搬运清单只回答“八个模块的字节还在不在”。27 线另外踩过的三类坑不会让哈希变化，却会让一次
 27 飞行毫无结论，所以它们也进同一个检查：
 
 ```sh
@@ -49,14 +49,38 @@ K60_IOS27_TREE=E:/hackios/xnekom-ios27 python3 scripts/check-ios27-power-preflig
 
 - **sleep-report-guard**：`patches/xnu/0629-k60-sleep-trace.patch:7` 与 `:61` 把两条 report
   调用包在 `#if defined(PONG)` 里。27 线的机器 profile 不是 PONG（Lead 裁定：27 线不引入 PONG），
-  于是 report 静默消失、`judge-k60-sleep-console.py` 的 REPORT 判据永远 FAIL。修法是驱动级宏
-  （例如 `K60_PLATFORM_SLEEP_REPORT`），改的是 16 行的补丁，需 Lead 点头。
+  于是 report 静默消失、`judge-k60-sleep-console.py` 的 REPORT 判据永远 FAIL。2026-11-20 已按
+  Lead 裁定改成驱动级宏 `K60_PLATFORM_SLEEP_REPORT`（默认 1，`-D…=0` 关闭）：补丁开头定义一次，
+  两处 `#if K60_PLATFORM_SLEEP_REPORT` 只管调用。本门禁同时拦两种形状——旧的 `defined(PONG)`
+  是阻塞项，完全没有宏只算警告（"以后再套一个 #if 会再删一次"）。
 - **builder-route**：调 27 树自己的 `scripts/pick-xnu-builder.sh board.toml`，要求它选
   `build-xnu-generic.sh`。选到 16.6.1 的 `build-xnu-4k-baseline.sh` 就意味着 `MACHINE_CONFIGS=PONG`，
   而 12377 源码没有 `pexpert/pexpert/arm64/PONG.h`，`make installhdrs` 直接停在
   `Unsupported CURRENT_MACHINE_CONFIG PONG`（bt 线 2026-11-20 的 CI 诊断）。该树实测已通过。
 - **judges**：判读器是脚本，必须真的在 27 树里存在，否则飞行没有判据。只在本线存在时算阻塞，
   两边都没有时只算警告（还没写的东西不该阻塞别人）。
+
+### 2.2 本分支的成果怎么交到 27 检出（2026-11-20 实测）
+
+27 检出 `E:/hackios/xnekom-ios27` 的 `origin` 是 **xNekom 的 fork**，而且 fetch refspec 只有
+`+refs/heads/feat/ios27:refs/remotes/origin/feat/ios27`——本线的 `feat/power-ios27-carry` 在那里
+既不在 `origin/*` 里，也不会被 `git fetch origin` 拉到。要么临时加一个指向
+`https://github.com/Emilelu/UniXNU-mondrian.git` 的 remote，要么按文件搬：
+
+```sh
+# 只取到 FETCH_HEAD，不留引用
+git fetch https://github.com/Emilelu/UniXNU-mondrian.git feat/power-ios27-carry
+python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27   # 列出缺哪些文件
+```
+
+实测（2026-11-20，本线 HEAD `4023fd52`，27 线 `feat/xnu27-psci-target` `f902a778`）：
+
+- `git merge-tree --write-tree` 合成无冲突（树 `a321fd2e`），但**整支合并不等于正确**：本分支带
+  iOS16 的 profile、`board.toml`、`AGENTS.md` 与 16.6.1 的补丁序列，27 线要的是文件级搬运。
+- 逐文件搬运以 `docs/research/power/CARRY.toml` 为准：八个纯 C 模块 + 三个上机判读器，各自带
+  `.c/.h`、测试文件与用例数；`check-power-carry.py --target` 会按哈希说 SAME/DRIFT/MISS。
+- 只想先要温控那一块时，三个提交（`d1ddea39`、`92c56173`、`9554ab7e`）的合并 diff 在 27 树上
+  `git apply --check` 通过，可以直接 cherry-pick，不必整支合并。
 
 ## 3. iOS27 参考实现
 

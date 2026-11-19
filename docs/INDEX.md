@@ -216,3 +216,4 @@ python3 scripts/render-eight-step-table.py --check
 - 2026-11-19 同一个 18.4 MB 拷进两个不同目标，用来分开「目标端慢」与「拷贝实现慢」：[飞行卡 d](research/gpu/FLIGHT-CARD-20261119d.md)
 - 2026-11-19 让 surface 只报一个行距，验证 untile 与它 5.3 ms 能否一起消失：[飞行卡 f](research/gpu/FLIGHT-CARD-20261119f.md)
 - 2026-11-19 帧拿到的映射地址是新的还是旧的：用来分开「保留映射能救 import」与「地址不是变量」：[飞行卡 i](research/gpu/FLIGHT-CARD-20261119i.md)
+- 2026-11-19 保留映射（token/evict）的设计草案：如果 H1 成立要改哪几处、wire 48→56 B、以及验收判据：[KEPT-MAPPING](research/gpu/KEPT-MAPPING.md)

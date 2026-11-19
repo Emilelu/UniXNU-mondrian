@@ -13,8 +13,10 @@
  * votes every domain and L3, 5 samples idle time read-only, 6 votes domain 0
  * down to its lowest level, 7 runs the idle sampler and applies the governor's
  * down steps inside a bounded window, then restores the original votes, and 8
- * does the same in both directions, and 9 measures why the big clusters
- * ignore the vote by setting the dcvs control bit and writing every core row.
+ * does the same in both directions. Mode 9 (dcvs control bit plus every core
+ * row) is disabled: both images that carried it, one with the thermal patch
+ * and one without, hung before the console appeared, so the probe is the
+ * common factor and must not run again without new firmware evidence.
  * Touch and frame activity re-arm a short window (1 s and 300 ms) so the
  * section 5 :115-:116 holds can reach the registers after boot.
  * Raises are safe to place because the EPSS
@@ -748,8 +750,8 @@ extern "C" void k60_cpufreq_probe(void)
 
     PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
     if (!mode || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
-    if (mode == 4 || mode > 9) {
-        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5, 6, 7, 8 and 9 are implemented\n", mode);
+    if (mode == 4 || mode == 9 || mode > 9) {
+        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5, 6, 7 and 8 are implemented, mode 9 is disabled after two hangs\n", mode);
         return;
     }
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
@@ -767,6 +769,9 @@ extern "C" void k60_cpufreq_probe(void)
         return;
     }
     if (mode == 9) {
+        /* Unreachable: the gate above rejects 9. The probe stays compiled so a
+         * future firmware answer can reuse it, but it must not run on this
+         * board - image t and image u both stopped before the console. */
         for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
             probeDcvsControl(domain);
         return;

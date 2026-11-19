@@ -208,7 +208,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_pas.c
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,164 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* PAS calls for the K60 modem: the SMC glue only. The encoders live in the
 + * header so a host test can prove them without the device.
@@ -331,8 +331,7 @@ index 0000000..1111111
 +	    K60M_SCM_MEM_ASSIGN), arginfo, scratch, 16, scratch + 64,
 +	    scratch + 192, &x0, &x1, &calls);
 +
-+	printf("K60MODEM scm mem_assign rc=%d calls=%u x0=%#llx x1=%#llx scratch=%#llx
-+",
++	printf("K60MODEM scm mem_assign rc=%d calls=%u x0=%#llx x1=%#llx scratch=%#llx\n",
 +	    r, calls, (unsigned long long)x0, (unsigned long long)x1,
 +	    (unsigned long long)scratch);
 +	return r;

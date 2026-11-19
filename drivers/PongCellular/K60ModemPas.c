@@ -120,8 +120,7 @@ k60_modem_assign_call(uint64_t scratch)
 	    K60M_SCM_MEM_ASSIGN), arginfo, scratch, 16, scratch + 64,
 	    scratch + 192, &x0, &x1, &calls);
 
-	printf("K60MODEM scm mem_assign rc=%d calls=%u x0=%#llx x1=%#llx scratch=%#llx
-",
+	printf("K60MODEM scm mem_assign rc=%d calls=%u x0=%#llx x1=%#llx scratch=%#llx\n",
 	    r, calls, (unsigned long long)x0, (unsigned long long)x1,
 	    (unsigned long long)scratch);
 	return r;

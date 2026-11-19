@@ -126,7 +126,7 @@ paths = ["drivers/PongWifi/**", "configs/*wifi*", "patches/wifi/**", "scripts/*w
 inputs = ["Identify the network hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for network."]
 procedure = ["Follow the network stage in the porting guide and record the actual commands."]
-findings = ["IOS27 事件日志（2026-11-19 17:18）：参考实现对除扫描完成外的事件都记录码、字节数与结果；现在仅 24A446 代际照做，22H374 日志量不变。gLinkUpMs 也移进 post_link，所有链路路径用同一个沉降窗口起点。",
+findings = ["IOS27 频道表（2026-11-19 17:31）：24A446 代际的 kSupportedChannels 不再列出 >=5925 MHz 的 59 条 6 GHz 被动频道（station 的扫描本来就跳过 6 GHz），22H374 的 102 条应答保持上机验证过的样子；只丢整条、不改 flag 字，0x80 仍待 27 上机决定；详见 SBL-MISSION §63。", "IOS27 事件日志（2026-11-19 17:18）：参考实现对除扫描完成外的事件都记录码、字节数与结果；现在仅 24A446 代际照做，22H374 日志量不变。gLinkUpMs 也移进 post_link，所有链路路径用同一个沉降窗口起点。",
   "IOS27 电源开关（2026-11-19 17:12）：参考实现在 SET kPower 里调用 nw_wifi_power 让电台真正离网；现在仅对 24A446 代际照做，22H374 保持只断链的已验证路径，27 上机核对关/开电后的扫描行为。",
   "IOS27 真实27树构建（2026-11-19 17:10）：sheng origin/main c8f92b2 检出（Ath12kWifi 指到 f087c7dd）上用带宽度戳的 27 站点档案（ie_bytes=2048，dabcf0b9…）编译 kext，rc=0、无缺戳提示，产物 586228b4…（12,102,400 B，含 pong_wifi_station_stop 与 pong_wifi_net_stop）。",
   "IOS27 事件描述符（2026-11-19 17:10）：22H374 单描述符已上机；24A446 参考实现用 dv[0]=名字、dv[1]=负载，现按 daemon 代际切换（0x14e8/0x290/0x8e8 触发），27 上机再核。",

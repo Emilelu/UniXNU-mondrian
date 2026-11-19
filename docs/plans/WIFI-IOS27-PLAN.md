@@ -36,6 +36,7 @@
 | kCurrentNetwork 信号 | 覆盖为 st.signal_dbm 与 snr | 两条路径都覆盖（§51） |
 | kPower | gPower && state != NW_STA_OFF | 同（§52） |
 | kAuthType | 27 回 0x10，22H374 回 0x8 | 按是否见过 24A446 请求自动选择（§49） |
+| kSupportedChannels | 静态 2.4/5 GHz known 表，每条 flags |= 0x80 | 动态列举；24A446 代际去掉 6 GHz 条目，flag 与其它路径一致（§63） |
 | 中止扫描 382 | 接受并返回 0 | 同（§48） |
 | kAssociateResult | 从 pending(0) 起步，站拒绝才写 failed，完成回调写结果 | 同（§55） |
 | 已连接时再次加入 | 先 drain_disconnect（2 s 内排空，超时 ETIMEDOUT）再排队 | 同（§56） |
@@ -46,10 +47,10 @@
 
 1. selector 0 信封（0x3c30 进 / 0x3c00 出）：16 的 wifid 用 user client；27 是否完全不碰 selector 0 还没有二进制可证。拿到 24A446 的 IO80211Family 与 wifid 后第一件事就是核对这一处。
 2. 27 的 wifid 是否要求签名 launchd 服务 unixnu-wpa_supplicant / org.unixnu.wifi.control：sheng 的用户态方案带它，我们的 4-way 在内核里。若 27 的 wifid 只认该服务，要么补服务，要么证明 ABI 正确即可。
-3. 6 GHz：官方 WCN7850 页面写明 59 个被动频道要跳过；我们的扫描请求解析目前不区分 6 GHz，27 上要把 PONG_SCAN_FREQUENCIES 的上限与频道表按 band 过滤。
+3. 6 GHz：官方 WCN7850 页面写明 59 个被动频道要跳过。station 的扫描本来就在 band 判断里跳过 6 GHz；本轮又让 24A446 的 kSupportedChannels 不再列出 >=5925 MHz 的条目（§63）。27 上仍需确认 wifid 不会因缺少 6 GHz 条目而报能力缺失。
 4. 系统不能保存网络口令（官方页面已写），27 上用户每次开机要重连；这不是缺陷，不要写成 WiFi 回归。
 5. t970 与 zizhan 都是 22H374 树，27 的形状只能继续以 sheng 为准；不要把它们的 ABI 抄回来。
-6. 频道表 flag：参考的 27 kSupportedChannels 用静态 known 表并给每条加 0x80；我们沿用 zizhan 的做法动态列举、不加额外位（CWFChannel 比较完整 flag word）。27 上若成员判定不过，再考虑加 0x80，不要在 22H374 上先改。
+6. 频道表 flag：参考的 27 kSupportedChannels 用静态 known 表并给每条加 0x80（条目过滤已在 §63 做掉，0x80 未加）；我们沿用 zizhan 的做法动态列举、不加额外位（CWFChannel 比较完整 flag word）。27 上若成员判定不过，再考虑加 0x80，不要在 22H374 上先改。
 7. SET kPower：24A446 代际现在调用 nw_wifi_power（站侧 worker 走 cfg80211 电源请求），22H374 保持“只断链”的已验证行为；27 上机时核对关电后扫描返回 ENETDOWN、开电后能重新扫描（§61）。
 8. 硬件版本字符串写实际芯片（QCA6490 / WCN6855），参考写 WCN7850；这是设备事实，不当作 ABI 抄。
 9. 事件描述符形状：22H374 的单描述符（名字加负载）已上机验证；24A446 参考实现改为两个描述符，本轮按代际切换，27 上机时若事件不达先查这里。

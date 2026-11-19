@@ -1607,3 +1607,27 @@ post_event 里打同样的一行，22H374 保持原有日志量。
 
 验证：test-wifi-sbl-mission 新增两项检查（事件日志行、post_link 的 gLinkUpMs）后 0 failure；16/27
 两代头文件编译 rc=0。
+
+## 63. 24A446 的频道应答不再列出 6 GHz
+
+官方清单的 WCN7850 说明要求跳过 6 GHz 的 59 个被动频道。mission36 的 console 里有一行
+`supported channels 102: 2.4 GHz 14, 5/6 GHz 88`：station 的频道表确实带着 14 个 2.4 GHz、
+29 个 5 GHz 和 59 个 6 GHz 条目，而扫描本身在 `nw_sta.c` 的 band 判断里就把 6 GHz 跳过了。
+也就是说两个代际的 daemon 一直被许以 59 个永远不会被扫描的频道；参考实现（sheng 27 的
+`kSupportedChannels`）只回答一张 2.4/5 GHz 的静态表。
+
+改动：`drivers/PongWifi/PongWifiAbi.h` 新增 `PONG_BAND_6GHZ_MIN 5925u`；
+`PongWifiNet.cpp` 的 `kSupportedChannels`/`kHwSupportedChannels` 在 `gModern27Client` 时跳过
+`>= 5925 MHz` 的条目，并按实际交出的条目统计 2.4/5 GHz 数量供日志使用。只丢整条，不改任何
+flags 字——CWFChannel 比较完整 flag word，参考实现给每条加 0x80 的那处仍是风险项 6。
+
+为什么按代际：22H374 的 102 条频道应答是 mission34b/36 上机证明过的设置页路径；24A446 从未上机。
+`gModern27Client` 只在见过 0x14e8 扫描请求或 0x290 关联请求后置位，22H374 永远不会触发，
+所以这一改动对已验证路径零影响。
+
+验证：`test-wifi-sbl-mission.py` 新增检查
+`a 24A446 client is not offered the passive 6 GHz channels`；套件输出 0 failure；
+`compile-teardown2.sh` 用 16 与 27 两套头文件各编一次，`teardown16 rc=0` / `teardown27 rc=0`。
+
+边界：若 27 的 wifid 在任何扫描请求之前就问频道表，它仍会拿到 102 条（代际检测尚未发生）——
+这只会多给条目，不会少给。频道表 flag 0x80 的问题保持未决。

@@ -220,6 +220,7 @@ k60_qrtr_dump_intents(void)
 	}
 }
 
+static unsigned k60_qrtr_hello_probes;
 static unsigned k60_qrtr_static_count;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
     uint32_t length, uint32_t ip_version);
@@ -1407,6 +1408,26 @@ k60_modem_qrtr_probe(void)
 				ready_reported = 1;
 				printf("K60MODEM qrtr: modem ready (smp2p items=%u) at %u s\n",
 				    seen, i / 500u);
+			}
+		}
+		/* k42: the modem answers HELLO even when it ignores every lookup, so a
+		 * repeated HELLO is the only liveness probe we have. A count that keeps
+		 * rising while tx tail stands still proves the tail is not the modem's
+		 * read pointer; one that stops proves the modem really went quiet. */
+		if (k60_qrtr_hello_sent && i != 0u && i % 5000u == 0u) {
+			uint8_t probe[K60_QRTR_LOOKUP_BYTES];
+
+			if (k60_qrtr_build_hello(probe, sizeof(probe)) != 0) {
+				const int probe_rc = qcom_glink_send(&k60_qrtr_link,
+				    k60_qrtr_channel, probe, K60_QRTR_LOOKUP_BYTES);
+
+				if (probe_rc == QcomGlinkOk) {
+					++k60_qrtr_hello_probes;
+					printf("K60MODEM qrtr: hello probe #%u, acks=%u\n",
+					    k60_qrtr_hello_probes, k60_qrtr_state.hello_acks);
+				} else if (probe_rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: hello probe rc=%d\n", probe_rc);
+				}
 			}
 		}
 		if (i != 0u && i % 500u == 0u) {

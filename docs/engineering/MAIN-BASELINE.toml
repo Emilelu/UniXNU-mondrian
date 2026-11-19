@@ -274,3 +274,44 @@ K60HandoffRuntime.cpp 接线、patches/xnu/0613-k60-adsp-pas.patch 重生成使�
 分支尖端；紧随其后的登记提交只动这个文件，按 RISKY 前缀规则免登记。未上机：判据是
 pong_handoff_publish=1 pong_rail_probe=1 下的六行成功链，缺 'K60ADSP: rails inherited'
 就说明账本没被填上，不是构建问题。"""
+
+
+[[entry]]
+sha = "ca916428"
+state = "build-only"
+date = "2026-11-20"
+note = """main 的默认 OS profile 从 iOS 16.6.1 换成 iOS 27.0.1（用户决定：16 线归档，
+本分支做 27）。改动只有 board.toml 的 [board] os_profile 一行 + 注释重写，
+因为 [os_overrides."ios-27.0.1-24A446"] 早已完整；16.6.1 板仍可用
+--os ipados-16.6.1-20G81 构建，两侧等价性由 scripts/tests/test-board-profiles.py
+逐键证明（27：mondrian_ios27_defconfig / 无 PongUfs / 7 args / chip_id 8140；
+16.6.1：mondrian_defconfig / 有 PongUfs / 30 args / chip_id 8015）。
+为什么是 build-only：27 stage-0 按设计停在 bsd_init，没有根卷也没有面板，它现在
+还不可启动，这是要打通的目标而不是已经打通的成果。16.6.1 侧的上机证据不随本提交
+失效（内核输入逐字节未变），最近一条见 b48613d（baseline-20261116a）。
+同一轮还改了两处规则文本：AGENTS.md 铁则 9 恢复「上机由 Lead 独占调度，其它 agent
+不得私自 boot」并写明 Lead 每次 boot 不必事先征求同意（用户 2026-11-20）；RULES.toml
+的 iron-9 statement 从「只放可启动基线」改成「只放已登记的基线（booted / build-only
+两态）」。欠账：这一版还没有构建过，下一次 strict 构建（默认 profile 即 27）是它的
+首次产物检验；27 的首次上机判据见 docs/engineering/IOS27.md 的 F2 阶段门。
+"""
+
+
+[[entry]]
+sha = "3cc8cbc9"
+state = "build-only"
+date = "2026-11-20"
+note = """一个仓库同时承载两条线的内核构建器（scripts/build-xnu-4k-baseline.sh 按
+board.toml 的 [board] os_profile dispatch 到 scripts/build-xnu-generic.sh）。
+为什么必须动构建路径：装配树把框架、SoC、本仓依次覆盖，本仓同名文件会顶掉框架的
+通用构建器；只留 Pong 构建器则 27 树在 `make installhdrs` 报
+`Unsupported CURRENT_MACHINE_CONFIG PONG`（12377 的 pexpert/pexpert/arm64 无 PONG.h，
+CI run 44591014076 的真错行），只留通用构建器则 16.6.1 线丢掉 MACHINE_CONFIGS=PONG、
+Sleep/wifi/thermal 三个钩子与全部 K60 归档。
+为什么是 build-only：①27 stage-0 按设计停在 bsd_init，这一版是它的首次产物检验而不是
+可启动成果；②16.6.1 线没有被重新构建，dispatch 只在该 profile 下让原构建器继续跑，
+它的内核输入逐字节未变，仍然引用 b48613d（baseline-20261116a）的上机证据；③通用构建器
+是框架 4eaf2b9d 的逐字副本，不带任何 K60 符号，因此它进镜像的部分就是框架原物。
+同一链上的另外两个提交不登记：e162e0dd 只改 bt 的宿主测试与夹具、72e5edec 只改门禁
+正则，两者都不进镜像。
+"""

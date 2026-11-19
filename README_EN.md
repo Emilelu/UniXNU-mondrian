@@ -80,7 +80,7 @@ cleanup procedure is in
 Two layers of checks run before build or flash; any failure aborts: the registry
 `scripts/check-rules.py` runs every check registered in
 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) (iron rules, gated
-pitfalls, upstream triage, input sync, snapshot tags — currently 136); the strict
+pitfalls, upstream triage, input sync, snapshot tags — currently 149); the strict
 build entry point `scripts/build-strict.sh` embeds these checks:
 
 <!-- GATE-TABLE:BEGIN -->
@@ -164,7 +164,7 @@ table row naming a nonexistent script, fails the build.
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
 | [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why the same sources give the same bytes, the two volumes in the field, P-154 today, and the rebuild experiment protocol |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
-| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-253 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-256 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) — Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing

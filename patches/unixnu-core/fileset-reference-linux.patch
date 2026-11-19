@@ -1,5 +1,5 @@
 diff --git a/scripts/build-fileset-release-reference.py b/scripts/build-fileset-release-reference.py
-index 2e87000..ac71da5 100644
+index 5090d117..b7704ea5 100644
 --- a/scripts/build-fileset-release-reference.py
 +++ b/scripts/build-fileset-release-reference.py
 @@ -38,6 +38,29 @@ def reusable(final, record, inputs):
@@ -32,10 +32,10 @@ index 2e87000..ac71da5 100644
  def linked_objects(directory, lto):
      if lto:
          # XNU splits the final link into non-LTO objects and the code generated
-@@ -152,8 +175,11 @@ def main():
-     require_link_phase(output / f'{mode}-obj/RELEASE_ARM64_BCM2837', options.lto,
-                        result.returncode, build_log, output / f'{mode}-build.log')
-     stub_names = sorted(set(re.findall(r'^\s+"(_(?:native_[a-z0-9_]+|boot_log_[a-z0-9_]+|boot_cache_input_capture))"', build_log, re.M)))
+@@ -132,8 +155,11 @@ def main():
+     # comparison kernel never runs, the prelink step reads its layout.
+     build_log = (output / f'{mode}-build.log').read_text()
+     stub_names = sorted(set(re.findall(r'^\s+"(_(?:native_[a-z0-9_]+|boot_log_rounds|boot_cache_input_capture))"', build_log, re.M)))
 -    if stub_names:
 -        (output / 'native-stubs.c').write_text(''.join(f'long {name[1:]};\n' for name in stub_names))   # the linker names carry the leading underscore
 +    stubs = ''.join(f'long {name[1:]};\n' for name in stub_names)   # the linker names carry the leading underscore

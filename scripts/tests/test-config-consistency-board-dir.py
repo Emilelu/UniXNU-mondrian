@@ -21,7 +21,15 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 GATE = HERE.parent / "check-config-consistency.py"
-SDK = "ipados-16.6.1-20G81"
+# The profile under test follows board.toml, because the gate now does too: the
+# default of this branch is ios-27.0.1-24A446, and a hardcoded 16.6.1 fixture
+# would build its tree where the gate no longer looks (P-256).
+SDK = ""
+
+
+def _sdk() -> str:
+    """The profile the gate resolves at import time."""
+    return load_gate().board_os_profile().as_posix()
 
 FULL = "CONFIG_XNU_GPU_ADDON=y\nCONFIG_XNU_K60_PHYSICAL_BATTERY=y\n"
 PARTIAL = "# CONFIG_XNU_GPU_ADDON is not set\n# CONFIG_XNU_K60_PHYSICAL_BATTERY is not set\n"
@@ -39,7 +47,7 @@ def load_gate():
 
 def make_board(out: Path, name: str, body: str, age_seconds: float = 0.0) -> Path:
     """Create out/mondrian/<sdk>/<name>/.config and backdate it if asked."""
-    board = out / "mondrian" / SDK / name
+    board = out / "mondrian" / (SDK or _sdk()) / name
     board.mkdir(parents=True, exist_ok=True)
     config = board / ".config"
     config.write_text(body, encoding="utf-8")
@@ -93,7 +101,26 @@ class ResolveGenerated(unittest.TestCase):
     def test_an_empty_out_falls_back_to_the_default_name(self):
         """No board directory at all: name the conventional path so the error is readable."""
         chosen = self.gate.resolve_generated(self.out)
-        self.assertEqual(chosen, self.out / "mondrian" / SDK / "mondrian" / ".config")
+        profile = self.gate.board_os_profile().as_posix()
+        self.assertEqual(chosen, self.out / "mondrian" / profile / "mondrian" / ".config")
+        self.assertNotEqual(profile, "ipados-16.6.1-20G81",
+                            "board.toml on this branch builds iOS 27; if this flips back, "
+                            "the default profile changed and the 16.6.1 case below is the guard")
+
+    def test_an_explicit_sixteen_six_board_uses_its_own_directory(self):
+        """The profile comes from the board we were handed, not from this branch."""
+        board = self.out / "board.toml"
+        board.write_text(
+            '[board]\nos_profile = "ipados-16.6.1-20G81"\n', encoding="utf-8"
+        )
+        profile = self.gate.board_os_profile(board).as_posix()
+        self.assertEqual(profile, "ipados-16.6.1-20G81")
+        target = self.out / "mondrian" / profile / "mondrian"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / ".config").write_text(FULL, encoding="utf-8")
+        chosen = self.gate.resolve_generated(self.out, sdk=Path(profile))
+        self.assertEqual(chosen.parent.name, "mondrian")
+        self.assertEqual(chosen.parent.parent.name, "ipados-16.6.1-20G81")
 
     def test_an_unreadable_config_does_not_win(self):
         """A config we cannot read has no proven features; it must not outrank a readable one."""

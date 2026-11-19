@@ -113,13 +113,18 @@ P-151 has no executable check or written waiver). Before a build: clean
    not guess at UI symptoms. Procedure, evidence layout and bisect recipe:
    `docs/engineering/BOOT-PROCEDURE.md`.
 
-### Iron rule 9 — `main` carries only bootable baselines, experiments go on a branch
+### Iron rule 9 — `main` carries only registered baselines, and only the Lead writes to the device
 
-   **Booting is first-come-first-served, but single-writer.** On 2026-11-18 the
-   user replaced "only Lead boots" with "whichever agent grabs the device first
-   boots it". That is only safe if the claim is machine-wide: two agents booting
-   at once leave the loser's capture attached to a device that already runs a
-   different image, which produces evidence that looks real and is wrong.
+   **The Lead owns the device; nobody else boots it.** The user settled this twice:
+   on 2026-11-18 the device became first-come-first-served, and on 2026-11-20 it
+   went back to a single owner — "手机的上机权限完全由你管理调度 其他agent不允许
+   私自上机", with "你每次boot不用问我". So the Lead boots whenever the evidence
+   says it is time, and a lane that wants a flight asks for a slot instead of
+   taking the cable. This is not a formality: two agents booting at once leave the
+   loser's capture attached to a device that already runs a different image, which
+   produces evidence that looks real and is wrong.
+
+   The lock is still enforced, because it is what makes a capture attributable.
    `scripts/k60-boot-lock.ps1` takes the claim with an exclusive
    `FileShare.None` handle, and `scripts/boot-and-capture.ps1` acquires it before
    it touches the device — including before `adb reboot bootloader`, which it does
@@ -129,9 +134,15 @@ P-151 has no executable check or written waiver). Before a build: clean
    `flock` probe lives in a different lock domain and always looks free while the
    Windows handle is held. `K60_AGENT_ID` is mandatory so the claim is
    attributable, and the owner is written to
-   `E:\k60-work\state\k60-device-boot.lock.owner.json`. Refused competitors exit
-   6; a missing actor exits 7. The properties are executed by
+   `E:\k60-work\state\k60-device-boot.lock.owner.json`. Refused competitors
+   exit 6; a missing actor exits 7. The properties are executed by
    `python3 scripts/tests/test-boot-lock.py`.
+
+   **A baseline is one of two states, and both are registered.** `state = "booted"`
+   needs the console evidence; `state = "build-only"` needs the reason it was not
+   flown. `main` currently builds the iOS 27 stage-0 board (see `board.toml`), which
+   stops at `bsd_init` on purpose, so the 16.6.1 board is the one with the boot
+   evidence and it stays reachable with `--os ipados-16.6.1-20G81`.
 
 The check before every build: `git status --porcelain` is empty on the source
 tree, the branch is level with its remote, and

@@ -98,6 +98,30 @@ esac
 
 [ "$dangerous" = 1 ] || exec "$REAL_GIT" "$@"
 
+# A linked worktree must never rewrite shared metadata, not even with the
+# all-trees consent: on 2026-11-20 `git worktree prune` there deleted the admin
+# directories of twelve sibling trees (P-256, the third repeat of P-203). Refuse
+# outright and before any snapshot, so a refused attempt has no side effects.
+if [ "${shared:-0}" = 1 ]; then
+    _gd=$(cd "$PWD" && "$REAL_GIT" "${GLOBALS[@]}" rev-parse --absolute-git-dir 2>/dev/null || true)
+    _gcd=$(cd "$PWD" && "$REAL_GIT" "${GLOBALS[@]}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+    if [ -n "$_gd" ] && [ -n "$_gcd" ] && [ "$_gd" != "$_gcd" ]; then
+        cat >&2 <<'EOF'
+git-guard: refused a shared-metadata rewrite from a LINKED worktree.
+
+  `worktree prune`, `gc` and `repack` rewrite the repository, not the tree you
+  are standing in. Run from a linked worktree, `git worktree prune` deletes the
+  admin directory of every sibling it cannot stat - on 2026-11-20 that took
+  twelve worktrees, and the same command took twenty on 2026-11-15 (P-203,
+  P-256). K60_I_OWN_ALL_TREES=1 does not apply here.
+
+  Run it from the main checkout, with the consent variable, if you truly mean it.
+  For a clean baseline use `git archive` or `git clone --shared` instead.
+EOF
+        exit 128
+    fi
+fi
+
 # Shared-metadata verbs are not scoped to one tree: `worktree prune` from any
 # linked worktree can delete every sibling's admin directory (P-203, lost all 20
 # trees twice). Per-tree ownership is the wrong test, so these need their own

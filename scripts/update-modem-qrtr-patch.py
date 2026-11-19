@@ -29,6 +29,22 @@ PATCH = REPO / "patches/xnu/0622-k60-modem-qrtr.patch"
 # same replacement to all five files before comparing.
 RENAME = ("qcom_glink_", "k60m_glink_")
 
+# The carried GLINK stack diverges from drivers/PongPower/QcomGlink.c by one
+# line, deliberately.  On the k35 B flight the modem advertised its IPCRTR
+# receive intents with ids starting at 0:
+#     cmd=0x5 p1=0x1 p2=0x1 w2=0x80 w3=0x0   (next frame: w6=0x80 w7=0x1)
+# Linux's qcom_glink_handle_intent() stores id 0 (idr_alloc(id, id + 1)) and
+# hakios stores every pair unvalidated, so zero is a legal buffer number;
+# calling it corruption stalled the handshake at poll 2.  The charger line owns
+# QcomGlink.c (TREE-OWNERS.toml:70) and should adopt the same line; until it
+# does, this generator applies it to the kernel's copy only.
+DELTA = {
+    "drivers/PongPower/QcomGlink.c": (
+        "            if (!size || !id) return QcomGlinkCorrupt;",
+        "            if (!size) return QcomGlinkCorrupt;  /* id 0 is a legal buffer number */",
+    ),
+}
+
 # (local source, carried path, {local include: carried include})
 FILES = [
     ("drivers/PongCellular/K60ModemQrtr.h", "bsd/dev/pong_modem_qrtr.h", {}),
@@ -51,6 +67,13 @@ def body(source: Path, renames: dict) -> list:
     for old, new in renames.items():
         text = text.replace(old, new)
     text = text.replace(RENAME[0], RENAME[1])
+    key = source.resolve().relative_to(REPO).as_posix()
+    if key in DELTA:
+        old, new = DELTA[key]
+        if text.count(old) != 1:
+            sys.exit("%s: the carried-copy delta matches %d times, expected 1; "
+                     "re-read the source before regenerating" % (key, text.count(old)))
+        text = text.replace(old, new)
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()

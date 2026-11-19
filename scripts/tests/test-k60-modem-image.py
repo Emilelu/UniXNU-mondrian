@@ -44,6 +44,22 @@ def fail(message):
     return 1
 
 
+def qrtr_generator():
+    """Load scripts/update-modem-qrtr-patch.py: it owns the carried-copy deltas.
+
+    The generator rewrites the include names, renames qcom_glink_ to
+    k60m_glink_ (P-190) and applies the one-line INTENT id-0 fix the k35 B
+    flight proved necessary. Comparing through it keeps this test honest about
+    all three instead of restating them here and letting the two drift.
+    """
+    import importlib.util
+    path = REPO / "scripts/update-modem-qrtr-patch.py"
+    spec = importlib.util.spec_from_file_location("update_modem_qrtr_patch", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def find(root, name):
     """Prefer name.bin: the byte-exact dump is written with that suffix."""
     for candidate in (root / (name + ".bin"), root / name):
@@ -281,6 +297,7 @@ def main(argv):
               '"QcomGlink.h"': '"qcom_glink.h"',
               '"K60PmicRail.h"': '"pong_pmic_rail.h"'}),
         ]
+        gen = qrtr_generator()
         for repo_rel, patch_rel, include_map in qrtr_pairs:
             local = REPO / repo_rel
             if patch_rel not in carried:
@@ -292,8 +309,8 @@ def main(argv):
             # 0622 keeps a private copy of the GLINK stack under the k60m_glink_
             # prefix: the battery archive force-loads QcomGlink.o into the same
             # image, and a second copy of qcom_glink_* fails the link (P-190).
-            if normalise(local.read_text(encoding="utf-8"), include_map).replace(
-                    "qcom_glink_", "k60m_glink_") != normalise(carried[patch_rel], {}):
+            if normalise("\n".join(gen.body(local, include_map)), {}) != normalise(
+                    carried[patch_rel], {}):
                 problems += fail("%s and %s differ; the kernel would compile a "
                                  "different QRTR path than the one tested here"
                                  % (repo_rel, patch_rel))

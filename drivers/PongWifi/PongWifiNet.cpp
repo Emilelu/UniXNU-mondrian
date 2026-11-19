@@ -716,7 +716,9 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     }
   }
   switch (type) {
-  case kPower: w[0] = 1; w[1] = 1; w[2] = gPower ? 1 : 0; return copy_out(rq, w, 24, kernel);
+  // A station that is off is off even while the daemon's power bit is still set (the reference port
+  // answers gPower && state != NW_STA_OFF): saying 1 here makes the daemon skip the re-enable.
+  case kPower: w[0] = 1; w[1] = 1; w[2] = (gPower && st.state != NW_STA_OFF) ? 1 : 0; return copy_out(rq, w, 24, kernel);
   case kState: return answer_value(rq, static_cast<uint32_t>(gPower ? map_state(st.state) : 0), kernel);
   case kOpMode: return answer_value(rq, 1, kernel);   // station
   case kAuthType: w[0] = 1; w[1] = 1; w[2] = gKeyed ? (gModern27Client ? 0x10 : 0x8) : 0; w[3] = 0; return copy_out(rq, w, 16, kernel);   // {version, lower: open system, upper: WPA2 personal in the daemon's own encoding}

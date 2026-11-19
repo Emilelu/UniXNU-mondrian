@@ -64,7 +64,20 @@ static void check_lookup(void)
 	assert(le32(packet + 36) == 0 && le32(packet + 48) == 0);
 	assert(k60_qrtr_build_lookup(packet, 51, K60_QRTR_BROADCAST_NODE) == 0); /* short buffer */
 	assert(k60_qrtr_build_lookup(NULL, 64, K60_QRTR_BROADCAST_NODE) == 0);
-	printf("lookup ok: 52 bytes, type 10, node 0xffffffff port 0xfffffffe\n");
+
+	/* The probe repeats the lookup for one service when the all-services
+	 * query goes unanswered. */
+	n = k60_qrtr_build_lookup_service(packet, sizeof(packet),
+	    K60_QRTR_BROADCAST_NODE, K60_QRTR_DMS_SERVICE, 0);
+	assert(n == 52);
+	assert(le32(packet + 4) == 10);
+	assert(le32(packet + 24) == 0xffffffffu);
+	assert(le32(packet + 32) == 10);                       /* command */
+	assert(le32(packet + 36) == K60_QRTR_DMS_SERVICE);     /* service */
+	assert(le32(packet + 40) == 0);                        /* instance */
+	assert(k60_qrtr_build_lookup_service(NULL, 64, K60_QRTR_BROADCAST_NODE,
+	    K60_QRTR_DMS_SERVICE, 0) == 0);
+	printf("lookup ok: 52 bytes, type 10, node 0xffffffff port 0xfffffffe, service-targeted query\n");
 }
 
 static void check_hello(void)

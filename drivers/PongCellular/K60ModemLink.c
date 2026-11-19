@@ -133,7 +133,9 @@ extern void delay(int microseconds);
 #define K60_QRTR_INTENT_SIZE     0x4400u
 #define K60_QRTR_INTENT_COUNT    4u
 #define K60_QRTR_POLL_US         2000
-#define K60_QRTR_POLLS           5000   /* ten seconds of verdict polling */
+#define K60_QRTR_POLLS           30000  /* sixty seconds of verdict polling: the modem registers its QMI
+                                        * services one NEW_SERVER at a time as they come up, and k36
+                                        * saw only service 66/0x2b in the first ten seconds */
 /* The modem firmware boots asynchronously after AUTH_AND_RESET. Pong keeps a
  * worker polling until it is ready; a single boot has only this window, so
  * allow thirty seconds before declaring the modem absent. */
@@ -149,6 +151,8 @@ static int k60_qrtr_glink_ready;
 static int k60_qrtr_hello_sent;
 static int k60_qrtr_lookup_sent;
 static int k60_qrtr_server_sent;
+static unsigned k60_qrtr_lookup_count;
+static unsigned k60_qrtr_lookup_next;
 static int k60_qrtr_dms_requested;
 static uint16_t k60_qrtr_dms_transaction;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
@@ -346,8 +350,10 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
 		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
 
-		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u\n",
-		    service, service, instance, node, port);
+		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u cmd=%#x\n",
+		    service, service, instance, node, port,
+		    (unsigned)payload[0] | (unsigned)payload[1] << 8 |
+		    (unsigned)payload[2] << 16 | (unsigned)payload[3] << 24);
 		coachz_baseband_new_server(service, instance, node, port);
 	}
 	if (header.type == K60QrtrDelServer && header.size == K60_QRTR_CONTROL_BYTES) {
@@ -1283,6 +1289,11 @@ k60_modem_qrtr_probe(void)
 			return polls;
 		}
 		coachz_baseband_poll();
+		if (i != 0u && i % 2500u == 0u) {
+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u\n",
+			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
+			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed);
+		}
 		if (i != 0u && i % 500u == 0u) {
 			/* QcomBaseband defers publication when IOResources is not ready;
 			 * retry once a second instead of latching the first failure. */
@@ -1338,22 +1349,34 @@ k60_modem_qrtr_probe(void)
 				}
 			}
 		}
+		/* k36 showed two spontaneous registrations (service 66 and 0x2b) and
+		 * no answer to the unicast lookup within ten seconds. Ask twice, an
+		 * all-services query first and a DMS-targeted one thirty seconds
+		 * later, and keep the answer window at sixty seconds. */
 		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
-		    !k60_qrtr_lookup_sent) {
+		    k60_qrtr_lookup_count < 2u && i >= (int)k60_qrtr_lookup_next) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
-			uint32_t to_node = k60_qrtr_state.remote_node;
+			const uint32_t to_node = K60_QRTR_BROADCAST_NODE;
+			uint32_t built;
+			uint32_t service = 0;
+			uint32_t instance = 0;
 
-			if (to_node == K60_QRTR_CONTROL_PORT || to_node == K60_QRTR_AP_NODE) {
-				to_node = K60_QRTR_BROADCAST_NODE;
+			if (k60_qrtr_lookup_count != 0u) {
+				service = K60_QRTR_DMS_SERVICE;
+				instance = 0;
 			}
-			if (k60_qrtr_build_lookup(packet, sizeof(packet), to_node) != 0) {
+			built = k60_qrtr_build_lookup_service(packet, sizeof(packet),
+			    to_node, service, instance);
+			if (built != 0) {
 				const int send_rc = qcom_glink_send(&k60_qrtr_link,
 				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
 
 				if (send_rc == QcomGlinkOk) {
 					k60_qrtr_lookup_sent = 1;
-					printf("K60MODEM qrtr: sent new_lookup (0x0a) to node %u\n",
-					    to_node);
+					++k60_qrtr_lookup_count;
+					k60_qrtr_lookup_next = (unsigned)i + 15000u;
+					printf("K60MODEM qrtr: sent new_lookup (0x0a) #%u service %u to node %u\n",
+					    k60_qrtr_lookup_count, service, to_node);
 				} else if (send_rc != QcomGlinkAgain) {
 					printf("K60MODEM qrtr: lookup send rc=%d\n", send_rc);
 					return send_rc;

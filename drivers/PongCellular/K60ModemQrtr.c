@@ -68,8 +68,12 @@ k60_qrtr_build_hello(uint8_t *out, size_t cap)
 /* NEW_LOOKUP to node 0xffffffff: "every name server, tell me what you have".
  * The modem's own name service (node 0) answers with one NEW_SERVER per
  * service; that is the reply the completion criterion is written against. */
+/* A lookup with service 0 asks for every name; a non-zero service asks for one.
+ * k36's unicast-to-node-0 lookup was never answered, so the probe now sends
+ * both forms to the broadcast node. */
 uint32_t
-k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node)
+k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
+    uint32_t service, uint32_t instance)
 {
 	if (out == NULL || cap < K60_QRTR_LOOKUP_BYTES) {
 		return 0;
@@ -77,11 +81,17 @@ k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node)
 	put_header(out, K60QrtrNewLookup, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
 	    to_node, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_BYTES);
 	put32(out + K60_QRTR_HEADER_BYTES + 0, K60QrtrNewLookup);
-	put32(out + K60_QRTR_HEADER_BYTES + 4, 0);
-	put32(out + K60_QRTR_HEADER_BYTES + 8, 0);
+	put32(out + K60_QRTR_HEADER_BYTES + 4, service);
+	put32(out + K60_QRTR_HEADER_BYTES + 8, instance);
 	put32(out + K60_QRTR_HEADER_BYTES + 12, 0);
 	put32(out + K60_QRTR_HEADER_BYTES + 16, 0);
 	return K60_QRTR_LOOKUP_BYTES;
+}
+
+uint32_t
+k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node)
+{
+	return k60_qrtr_build_lookup_service(out, cap, to_node, 0, 0);
 }
 
 /* NEW_SERVER: the AP's own service 64, instance 0x101, locator port 0x100.

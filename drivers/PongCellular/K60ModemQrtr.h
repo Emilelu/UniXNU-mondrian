@@ -108,6 +108,8 @@ typedef struct {
  * them; HELLO goes to the broadcast node and LOOKUP to the learned modem. */
 uint32_t k60_qrtr_build_hello(uint8_t *out, size_t cap);
 uint32_t k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node);
+uint32_t k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
+    uint32_t service, uint32_t instance);
 /* NEW_SERVER for one local service: announces where the AP listens. */
 uint32_t k60_qrtr_build_new_server(uint8_t *out, size_t cap, uint32_t service,
     uint32_t instance, uint32_t to_node, uint32_t port);

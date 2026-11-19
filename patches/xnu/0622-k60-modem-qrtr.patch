@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_qrtr.h
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,144 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* QRTR (the Qualcomm IPC Router) wire format and QMI helpers: build HELLO,
 + * NEW_LOOKUP and NEW_SERVER, fold replies into a table, answer the service
@@ -114,6 +114,8 @@ index 0000000..1111111
 + * them; HELLO goes to the broadcast node and LOOKUP to the learned modem. */
 +uint32_t k60_qrtr_build_hello(uint8_t *out, size_t cap);
 +uint32_t k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node);
++uint32_t k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
++    uint32_t service, uint32_t instance);
 +/* NEW_SERVER for one local service: announces where the AP listens. */
 +uint32_t k60_qrtr_build_new_server(uint8_t *out, size_t cap, uint32_t service,
 +    uint32_t instance, uint32_t to_node, uint32_t port);
@@ -151,7 +153,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_qrtr.c
-@@ -0,0 +1,457 @@
+@@ -0,0 +1,467 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* QRTR wire format plus the small QMI surface the modem bring-up needs: the
 + * service locator answer and DMS GetRevision. No locking, no IO, no kernel
@@ -222,8 +224,12 @@ index 0000000..1111111
 +/* NEW_LOOKUP to node 0xffffffff: "every name server, tell me what you have".
 + * The modem's own name service (node 0) answers with one NEW_SERVER per
 + * service; that is the reply the completion criterion is written against. */
++/* A lookup with service 0 asks for every name; a non-zero service asks for one.
++ * k36's unicast-to-node-0 lookup was never answered, so the probe now sends
++ * both forms to the broadcast node. */
 +uint32_t
-+k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node)
++k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
++    uint32_t service, uint32_t instance)
 +{
 +	if (out == NULL || cap < K60_QRTR_LOOKUP_BYTES) {
 +		return 0;
@@ -231,11 +237,17 @@ index 0000000..1111111
 +	put_header(out, K60QrtrNewLookup, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
 +	    to_node, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_BYTES);
 +	put32(out + K60_QRTR_HEADER_BYTES + 0, K60QrtrNewLookup);
-+	put32(out + K60_QRTR_HEADER_BYTES + 4, 0);
-+	put32(out + K60_QRTR_HEADER_BYTES + 8, 0);
++	put32(out + K60_QRTR_HEADER_BYTES + 4, service);
++	put32(out + K60_QRTR_HEADER_BYTES + 8, instance);
 +	put32(out + K60_QRTR_HEADER_BYTES + 12, 0);
 +	put32(out + K60_QRTR_HEADER_BYTES + 16, 0);
 +	return K60_QRTR_LOOKUP_BYTES;
++}
++
++uint32_t
++k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node)
++{
++	return k60_qrtr_build_lookup_service(out, cap, to_node, 0, 0);
 +}
 +
 +/* NEW_SERVER: the AP's own service 64, instance 0x101, locator port 0x100.
@@ -1260,7 +1272,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1416 @@
+@@ -0,0 +1,1439 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1396,7 +1408,9 @@ index 0000000..1111111
 +#define K60_QRTR_INTENT_SIZE     0x4400u
 +#define K60_QRTR_INTENT_COUNT    4u
 +#define K60_QRTR_POLL_US         2000
-+#define K60_QRTR_POLLS           5000   /* ten seconds of verdict polling */
++#define K60_QRTR_POLLS           30000  /* sixty seconds of verdict polling: the modem registers its QMI
++                                        * services one NEW_SERVER at a time as they come up, and k36
++                                        * saw only service 66/0x2b in the first ten seconds */
 +/* The modem firmware boots asynchronously after AUTH_AND_RESET. Pong keeps a
 + * worker polling until it is ready; a single boot has only this window, so
 + * allow thirty seconds before declaring the modem absent. */
@@ -1412,6 +1426,8 @@ index 0000000..1111111
 +static int k60_qrtr_hello_sent;
 +static int k60_qrtr_lookup_sent;
 +static int k60_qrtr_server_sent;
++static unsigned k60_qrtr_lookup_count;
++static unsigned k60_qrtr_lookup_next;
 +static int k60_qrtr_dms_requested;
 +static uint16_t k60_qrtr_dms_transaction;
 +static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
@@ -1609,8 +1625,10 @@ index 0000000..1111111
 +		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
 +		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
 +
-+		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u\n",
-+		    service, service, instance, node, port);
++		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u cmd=%#x\n",
++		    service, service, instance, node, port,
++		    (unsigned)payload[0] | (unsigned)payload[1] << 8 |
++		    (unsigned)payload[2] << 16 | (unsigned)payload[3] << 24);
 +		coachz_baseband_new_server(service, instance, node, port);
 +	}
 +	if (header.type == K60QrtrDelServer && header.size == K60_QRTR_CONTROL_BYTES) {
@@ -2546,6 +2564,11 @@ index 0000000..1111111
 +			return polls;
 +		}
 +		coachz_baseband_poll();
++		if (i != 0u && i % 2500u == 0u) {
++			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u\n",
++			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
++			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed);
++		}
 +		if (i != 0u && i % 500u == 0u) {
 +			/* QcomBaseband defers publication when IOResources is not ready;
 +			 * retry once a second instead of latching the first failure. */
@@ -2601,22 +2624,34 @@ index 0000000..1111111
 +				}
 +			}
 +		}
++		/* k36 showed two spontaneous registrations (service 66 and 0x2b) and
++		 * no answer to the unicast lookup within ten seconds. Ask twice, an
++		 * all-services query first and a DMS-targeted one thirty seconds
++		 * later, and keep the answer window at sixty seconds. */
 +		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
-+		    !k60_qrtr_lookup_sent) {
++		    k60_qrtr_lookup_count < 2u && i >= (int)k60_qrtr_lookup_next) {
 +			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
-+			uint32_t to_node = k60_qrtr_state.remote_node;
++			const uint32_t to_node = K60_QRTR_BROADCAST_NODE;
++			uint32_t built;
++			uint32_t service = 0;
++			uint32_t instance = 0;
 +
-+			if (to_node == K60_QRTR_CONTROL_PORT || to_node == K60_QRTR_AP_NODE) {
-+				to_node = K60_QRTR_BROADCAST_NODE;
++			if (k60_qrtr_lookup_count != 0u) {
++				service = K60_QRTR_DMS_SERVICE;
++				instance = 0;
 +			}
-+			if (k60_qrtr_build_lookup(packet, sizeof(packet), to_node) != 0) {
++			built = k60_qrtr_build_lookup_service(packet, sizeof(packet),
++			    to_node, service, instance);
++			if (built != 0) {
 +				const int send_rc = k60m_glink_send(&k60_qrtr_link,
 +				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
 +
 +				if (send_rc == QcomGlinkOk) {
 +					k60_qrtr_lookup_sent = 1;
-+					printf("K60MODEM qrtr: sent new_lookup (0x0a) to node %u\n",
-+					    to_node);
++					++k60_qrtr_lookup_count;
++					k60_qrtr_lookup_next = (unsigned)i + 15000u;
++					printf("K60MODEM qrtr: sent new_lookup (0x0a) #%u service %u to node %u\n",
++					    k60_qrtr_lookup_count, service, to_node);
 +				} else if (send_rc != QcomGlinkAgain) {
 +					printf("K60MODEM qrtr: lookup send rc=%d\n", send_rc);
 +					return send_rc;

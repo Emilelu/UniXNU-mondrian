@@ -63,7 +63,8 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
 4. 可选：等 power 线把 `drivers/PongPower/QcomGlink.c` 与 `K60AudioGlink.c` 迁到 27 树之后，
    再跑 `drivers/PongAudio/tests/run-glink-multislot-tests.sh`（期望 `TESTS OK 800 cases`）。
    这套件编的是 PongPower 的传输源，不随本清单走。
-5. 在 27 树加一个编译单元与一个初始化调用点（不进 `patches/xnu/0504`）。
+5. 在 27 树加一个编译单元与一个初始化调用点（不进 `patches/xnu/0504`）；接哪个点、还缺什么
+   依赖，见 [IOS27-WIRING.md](IOS27-WIRING.md)。
 6. 判据：`run-tests.sh` 与 `scripts/tests/test-judge-audio-capture.py` 全绿、内核编译 0 错、工作树不碰 main。
 
 ## 5. 现状

@@ -40,6 +40,16 @@ with tempfile.TemporaryDirectory() as tmp:
     check(r.returncode == 1, f"kernel without the power sysctl fails (rc={r.returncode})")
     check("qbt_power_on not found" in r.stdout, "failure names the missing needle")
 
+    runtime = [b"/private/var/ngpu/bluetooth-lib", b"/private/var/ngpu/bluetooth-bin",
+               b"/System/Library/xpc/launchd.plist", b"[bluetooth-runtime] "]
+    staged = Path(tmp) / "staged.macho"
+    staged.write_bytes(b"\x00".join(NEEDLES + runtime))
+    r = run(staged, ["--expect-runtime"])
+    check(r.returncode == 0, f"--expect-runtime accepts a kernel with the mounts (rc={r.returncode})")
+    r = run(good, ["--expect-runtime"])
+    check(r.returncode == 1, f"--expect-runtime rejects a kernel without them (rc={r.returncode})")
+    check("bluetooth-lib not found" in r.stdout, "--expect-runtime names the missing source")
+
     r = run(good, ["--require", "log-bluetooth"])
     check(r.returncode == 1, f"--require of an absent string fails (rc={r.returncode})")
     r = run(good, ["--require", "qbt_firmware"])

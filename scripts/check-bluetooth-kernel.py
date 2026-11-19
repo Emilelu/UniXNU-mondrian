@@ -34,6 +34,16 @@ KERNEL_NEEDLES = [
     (b"mac-address-bluetooth0", "/chosen identity key"),
 ]
 
+# 0526/0527 mount the staged runtime over the sealed system.  They live inside the
+# XNU_OWNER_DATA_MOUNT block, so a stage-0 kernel that does not mount Data does not
+# carry them at all; --expect-runtime asserts them once that gate is on.
+RUNTIME_NEEDLES = [
+    (b"/private/var/ngpu/bluetooth-lib", "library overlay source"),
+    (b"/private/var/ngpu/bluetooth-bin", "executables overlay source"),
+    (b"/System/Library/xpc/launchd.plist", "launchd cache overlay target"),
+    (b"[bluetooth-runtime] ", "runtime mount log line"),
+]
+
 ADT_NEEDLES = [
     (b"bluetooth", "arm-io/bluetooth node"),
     (b"qcom,wcn6855-bt", "compatible"),
@@ -66,12 +76,16 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--kernel", type=Path, required=True, help="built kernel.macho")
     p.add_argument("--payload", type=Path, help="built payload.img; adds the ADT checks")
+    p.add_argument("--expect-runtime", action="store_true",
+                   help="also require the 0526/0527 runtime mounts (needs CONFIG_XNU_OWNER_DATA_MOUNT=y)")
     p.add_argument("--require", action="append", default=[],
                    help="extra text the kernel must carry, for a patch the series only adds later")
     a = p.parse_args()
     failures = []
     kernel = a.kernel.read_bytes()
     check(kernel, KERNEL_NEEDLES, "kernel:", failures)
+    if a.expect_runtime:
+        check(kernel, RUNTIME_NEEDLES, "runtime:", failures)
     for extra in a.require:
         check(kernel, [(extra.encode(), "required text")], "kernel:", failures)
     if a.payload:

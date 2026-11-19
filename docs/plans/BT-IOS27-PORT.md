@@ -1,7 +1,7 @@
 # K60 Bluetooth on iOS 27 (feat/ios27)
 
 Status: **source staged in the iOS 27 series, built on Linux CI, not flown.**
-Twenty-two patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0523, 0525, 0526) now live in
+Twenty-three patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0523, 0525, 0526, 0527) now live in
 `patches/xnu-12377/series`, the list the iOS 27 board actually selects, with
 the platform hooks rebased onto the 95d9c8a1 tree, an empty firmware carrier so
 0510 has its input, and the Bluetooth device-tree node now shipped in
@@ -96,7 +96,7 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
    vanilla plus the four series was used as the adaptation base; the adapted
    patches were then validated against it from scratch (§5.1).
 3. **P2 - port the platform hooks. Done offline** (§4); the Linux CI builds of §5.3 now compile and link them.
-4. **P3 - build and inspect. Done for the build half** (§5.3). The twenty-two
+4. **P3 - build and inspect. Done for the build half** (§5.3). The twenty-three
    patches build and prelink on a Linux runner; hardware inspection waits for
    iOS 27 to reach `bsd_init`.
 5. **P4 - hardware only when iOS 27 reaches `bsd_init`.** Until then, every
@@ -109,7 +109,7 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 `device:patches/xnu-12377/series`. The Bluetooth patches are now in the fourth.
 
 Validation: the fresh base `12068a8` (vanilla xnu-12377 with 0500 and 0502b
-already applied) received the other twenty patches in series order; all
+already applied) received the other twenty-one patches in series order; all
 applied with no reject, and the results are byte-identical to the adaptation
 tree:
 
@@ -124,7 +124,7 @@ tree:
 | `osfmk/arm64/k60_bt_blob.s` | `a0e788aacf276750a51372ed47abc90323f7f6d6e2b4dfe230d70611429d9784` |
 
 The series order is 0500, 0502b, 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
-0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522, 0523, 0525, 0526. There is no 0513.
+0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522, 0523, 0525, 0526, 0527. There is no 0513.
 
 ### 5.2 The firmware carrier
 
@@ -253,7 +253,7 @@ Run [44516786407](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/445167
 (head `e8a61f5`) was cancelled by the concurrency group before it built.
 Run [44518998961](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44518998961)
 (head `33f5229`, 2026-11-19T11:55:09Z to 12:12:31Z, 17m22s) is the first
-successful build of the twenty-two-patch series: every step passed,
+successful build of the twenty-three-patch series: every step passed,
 `kernel/kernel.macho` is
 `4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86` and
 `payload/payload.img` is 192 MiB. The "Check the Bluetooth contract" step
@@ -337,7 +337,7 @@ guard or the enable write turns the run red.
 Boundary: the model covers register semantics and the owner table, not real GIC
 timing, preemption or affinity, and `hardware_verified` stays false.
 
-## 5.6 The power ladder check
+### 5.6 The power ladder check
 
 The third official step-6 script is the power check. Sheng's version asserts the
 shared WCN votes (`sheng_wcn_power_get`/`put`, one vote per radio). K60 has no
@@ -366,6 +366,35 @@ a literal INTID. One case proves a comment that mentions a rail is not a vote.
 The check is textual: it proves the code still says what the port decided, not
 that the hardware followed. The timing and level evidence remains the bt-0525
 console, lines 480-1342.
+
+### 5.7 The runtime mount sits behind the Data mount gate
+
+0527 completes the mount set: after the executables overlay succeeds, it mounts
+`/private/var/ngpu/xpc` over `/System/Library/xpc`, visible through
+`foreground_user_endpoints.plist` and owning `launchd.plist`. That is the file
+the framework's `merge_launchd_cache()` rewrites (BlueTool's job to `root`) and
+`sign_launchd_cache()` signs; without it `xpcproxy` keeps starting BlueTool as
+`mobile`, which is what the bt-0525 console shows.
+
+Both 0526 and 0527 live inside
+`#if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT` in
+`bsd/kern/kern_exec.c`, because the addon is unpacked into `/private/var/ngpu`
+on the Data volume and `native_gpu_addon_install()` needs that volume mounted
+first. `configs/mondrian_ios27_defconfig` does not set
+`CONFIG_XNU_OWNER_DATA_MOUNT`, so on this branch the whole block, mounts
+included, is compiled out. That is not an oversight and not a defect: it is the
+same stage-0 boundary as section 5.3. The ios27 kernel stops at `bsd_init`, so
+no `load_init_program`, so nothing to mount over.
+
+The consequence has to be stated plainly, because a green CI run is easy to
+misread: the run 44518998961 kernel carries none of these strings
+(`bluetooth-lib`, `bluetooth-bin`, `[bluetooth-runtime]`, all zero hits), and
+`scripts/check-bluetooth-kernel.py --expect-runtime` fails against it by design.
+The flag exists so the F3 build, the first one with Data mounted, can assert the
+mounts instead of trusting a patch file. The iOS 16.6.1 line is the one that
+sets `CONFIG_XNU_OWNER_DATA_MOUNT=y` (`configs/mondrian_defconfig:43`), and
+0526/0527 are not in that series; they exist for the 27 line, waiting for the
+gate to open.
 
 ## 6. Userspace layer: what actually makes the adapter usable
 

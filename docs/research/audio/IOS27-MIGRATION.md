@@ -86,6 +86,8 @@ power 搬完之后才可跑；音频侧自己的门禁是 `run-tests.sh` 与 `sc
 ——加 13 个头）拷进一个空目录，只给 `-I.`，用 `cc -std=gnu11 -Wall -Wextra -Werror -c`
 逐个编译，五个单元全部 `OK`、零内核头、零警告 ⇒ 第 1 节的「纯 C」不是分类推断，是实测。
 这条验证现在由 `scripts/check-audio-migration.py --compile` 复现。
+搬之前还要有 `PONG` 机配置：胶水整体在 `#if defined(PONG)` 里，缺它会把音频静默编空
+（细节与判读顺序见 [IOS27-WIRING.md](IOS27-WIRING.md) §1「第零道闸」）。
 胶水文件另有 `scripts/tests/portability/run.sh`：桩头文件只声明 `ml_io_map`、`ml_io_map_wcomb`、
 `printf`、`delay_for_interval`、`NSEC_PER_USEC`、`PE_parse_boot_argn` 与三个类型，
 `PongAudioAmp.c` 在里面 `-Wall -Wextra -Werror` 编过（`STUBS OK`）。

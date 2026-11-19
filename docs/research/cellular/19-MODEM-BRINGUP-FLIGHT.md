@@ -1735,6 +1735,32 @@ python3 scripts/fly-cellular.py --image <boot 镜像> --manifest <manifest.json>
 
 对 k53 真实 manifest 干跑一次（2026-11-20 07:27）：sha256 `f9afac0d…`、201,895,936 B 与 manifest 相符，设备当前 `adb`，于是只打印「真实运行会拒绝」。
 
+### 3.48 EFS 分区不在 LUN 0：读入口改成逐个 LUN 问
+
+k46 的 modem 要的是 `/boot/modem_fs1` 与 `/boot/modem_fs2`；k51 起我们把读请求落到 UFS 的 GPT 名上。但读入口一直只读 **LUN 0** 的 GPT。
+
+2026-11-20 在板子的 Android 侧实测（`adb shell ls -l /dev/block/by-name`，只读）：
+
+| 分区 | 设备节点 | 大小 |
+|---|---|---|
+| modemst1 | sdf3 | 8 MiB（16384 扇区） |
+| modemst2 | sdf4 | 8 MiB |
+| fsg | sdf5 | 8 MiB |
+| fsc | sdf6 | 1 MiB（2048 扇区） |
+| unixnu | sda38 | 32 MiB |
+
+基带要的四块 EFS 全在**另一条 LUN**（sdf）上，而我们的 unixnu/userdata 在 sda。只问 LUN 0 时名字查不到，读请求会被拒成 `result 1`，看起来像「modem 读不到 EFS」，其实是读错了盘。
+
+改法（`drivers/NativeUfs/`，仍只有只读、无新状态）：
+
+- 新 `findNamedVolumeOnLun(lun, name, *first, *last)`：1 命中、0 该 LUN 没有或不是 GPT、-1 表本身坏了或同名两次；
+- 导出函数对 `kNativeVolumeLunCount = 8` 个 LUN 逐个问，命中位交给 `nativeVolumeUniqueLun()`：恰好一个命中才继续，两个 LUN 都声称有就拒绝；
+- 任何 LUN 的 GPT 校验失败即整体失败——「表都没验过就按它读」比拒绝更糟。
+
+宿主测试补了七个断言（`test-k60-named-volume.c`）：无命中拒绝、拒绝时不动输出、唯一命中返回 5（不是第一个）、两个命中拒绝、全部命中拒绝、NULL 输出可用、NULL 表拒绝；输出 `K60 NAMED VOLUME PASS names, unused slots, plans, lun choice, refusals`。
+
+这条改动**不在 k53 镜像里**（k53 由 `11458c12` 构建）：k53 飞起来时 `rmtfs rw … refused` 应被读成「已知的 LUN 偏差」，而不是「EFS 数据面不通」。要在设备上验证读通路，需要 k54。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

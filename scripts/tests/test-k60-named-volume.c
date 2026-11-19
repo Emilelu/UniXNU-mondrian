@@ -75,7 +75,28 @@ int main (void)
   check (!nativeVolumePlan (0x1000, 0x10ff, 0, 0, 512, &sector, &skip, &sectors),
     "a zero sector size is refused");
 
+  {
+    // The EFS partitions are not on the LUN that carries unixnu/userdata, so the
+    // choice has to come out of the table rather than out of a constant.
+    uint8_t none[kNativeVolumeLunCount] = { 0 };
+    uint8_t one[kNativeVolumeLunCount] = { 0 };
+    uint8_t two[kNativeVolumeLunCount] = { 0 };
+    uint8_t all[kNativeVolumeLunCount];
+    unsigned lun = 99;
+    for (unsigned i = 0; i < kNativeVolumeLunCount; ++i) all[i] = 1;
+    one[5] = 1;
+    two[2] = 1;
+    two[5] = 1;
+    check (!nativeVolumeUniqueLun (none, kNativeVolumeLunCount, &lun), "no claimant is refused");
+    check (lun == 99, "a refusal leaves the output untouched");
+    check (nativeVolumeUniqueLun (one, kNativeVolumeLunCount, &lun) && lun == 5,
+      "the single claimant is returned, not the first LUN");
+    check (!nativeVolumeUniqueLun (two, kNativeVolumeLunCount, &lun), "two claimants are refused");
+    check (!nativeVolumeUniqueLun (all, kNativeVolumeLunCount, &lun), "every LUN claiming is refused");
+    check (nativeVolumeUniqueLun (one, kNativeVolumeLunCount, nullptr), "a null output is fine");
+    check (!nativeVolumeUniqueLun (nullptr, kNativeVolumeLunCount, &lun), "a null table is refused");
+  }
   if (failures) { printf ("K60 NAMED VOLUME FAIL %d checks\n", failures); return 1; }
-  printf ("K60 NAMED VOLUME PASS names, unused slots, plans, refusals\n");
+  printf ("K60 NAMED VOLUME PASS names, unused slots, plans, lun choice, refusals\n");
   return 0;
 }

@@ -635,6 +635,29 @@ k34（`cfb2917f`）只加一段：重试块里若 `!bridge_reported && coachz_ba
 | 状态 | 已打包、未上机（k33 未飞即被取代） |
 | 判读 | `--phase b` 四组全过才算 B PASS；采集 420 s 以判定 autoreset |
 
+### 3.21 QcomBaseband 从未链入内核（2026-11-19 静态查明）
+
+等待设备期间把 S6 一路查到根：**内核里根本没有 QcomBaseband 组件，只有 weak 兜底。** 证据链：
+
+- 构建产物存在：`/tmp/k60-modem-20261117c/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/qcom-baseband/libQcomBaseband.a`
+  767,600 B（k34 构建 09:02 重写），`llvm-nm --defined-only` 给出 `T _coachz_baseband_configure`、
+  `T _coachz_baseband_enabled`，`llvm-strings` 有 40 条 `COACHZ`；
+- 但 `llvm-strings kernel.macho | grep -c COACHZ` = **0**，`llvm-nm` 只看到七个间隔 8 字节的 `S` 符号
+  （`fffffff007762978/80/84/88/8c/94/98`），正是 0622 里 `__attribute__((weak))` 的兜底；
+- 树里的 `.config` 没有任何 `BASEBAND` 项，`scripts/check-kernel-archives.py` 的 `EXPECTED` 只列
+  battery/UFS/ARMCPU/ARMDT/ADRENO 五个 archive，也没有任何 Makefile 对 `libQcomBaseband.a` 做
+  `-Wl,-force_load`。
+
+影响：`coachz_baseband_configure()` 是空函数、`coachz_baseband_enabled()` 恒 0，AppleBaseband /
+AppleBasebandPCIControl / AppleBasebandPCIInterface / PDP manager / AppleIPAppender **一次都没发布过**；
+k30/k31 日志里只有 `bridge disabled`、没有任何 `COACHZ baseband:` 行，原因就是这个（不是 IOResources
+未就绪）。k34 的 `bridge enabled (poll N)` 只有在组件链入后才有意义。
+
+下一步（未做，需单独一轮）：按 `scripts/build-k60-platform-archives.py` 的做法在 kernel 链接行加
+`-Wl,-force_load,…/libQcomBaseband.a`，并在 `check-kernel-archives.py` 的 `EXPECTED` 里登记
+`(XNU_QCOM_BASEBAND, build/qcom-baseband/libQcomBaseband.a, coachz_baseband_configure)`；先在主机上确认
+符号解析与体积，再决定它与 K60 的 SM8475 集成 modem（不是 Coachz 的 PCIe/MHI）是否兼容。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -688,6 +711,11 @@ k34（`cfb2917f`）只加一段：重试块里若 `!bridge_reported && coachz_ba
   或 N=0 算失败。开关行有两个来源：探测开头打印的静态状态，以及 `cfb2917f` 起轮询中 `coachz_baseband_configure()`
   重试成功后的 `K60MODEM baseband: bridge enabled (poll N)`——组件在 IOResources 未就绪时会推迟发布，
   只判开头那一行会把“晚发布”误判成失败。
+  **但 S6 目前判不了**：§3.21 已查明本内核只链入 `coachz_baseband_*` 的 weak 兜底，`libQcomBaseband.a`
+  从来没被 force_load 进 kernel，因此任何镜像都不会打印 `COACHZ baseband: …`，`bridge enabled`
+  也永远不会出现。判读器因此把“有 `bridge disabled` 且全文没有任何 COACHZ 发布行”判为 **N/A**
+  （不算失败、不影响退出码），只有“组件在场却发布 0 个服务”或“有发布行却没有 bridge enabled”
+  才算失败。组件链入之后 N/A 会自动消失，判据恢复为上面的两条。
 
 ### 4.2 失败判据（一条失败即停，一次开机只归一类，不重试）
 

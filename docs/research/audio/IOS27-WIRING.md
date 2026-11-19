@@ -85,19 +85,24 @@ sh scripts/tests/portability/run-symbols.sh
    `run-probe.sh` 就是这么链的），随行头文件由 `python3 scripts/check-audio-migration.py --copy DIR`
    按清单复制，避免手抄漏项。
 2. **bsd/conf/files**：两行由**音频自己的**追加器写进去——`scripts/add-audio-conffiles.py`
-   （`bsd/dev/PongAudioGeniI2c.c` 与 `bsd/dev/PongAudioAmp.c`），锚点仍是按键驱动的 `bsd/dev/pong_buttons.c` 那一行（`standard`，制表符分隔）。不用 power 线的 `scripts/append-conffiles.py`：
-   那个文件按 `TREE-OWNERS.toml:139` 归 power，音频加行要改别人的表；而它的失败形状正是
-   P-245 那一族——打印 `anchor missing, entries not added`，外面一个 `|| true` 就变成绿色构建
-   加一树没有音频的内核。**判据是计数不是消息**：
+   （`bsd/dev/PongAudioGeniI2c.c` 与 `bsd/dev/PongAudioAmp.c`）。不用 power 线的
+   `scripts/append-conffiles.py`：那个文件按 `TREE-OWNERS.toml:139` 归 power，音频加行要改别人的表；
+   而它的失败形状正是 P-245 那一族——打印 `anchor missing, entries not added`，外面一个 `|| true`
+   就变成绿色构建加一树没有音频的内核。**判据是计数不是消息**：
 
    ```sh
-   python3 scripts/add-audio-conffiles.py <tree>           # 追加；没长行就 exit 1
-   python3 scripts/add-audio-conffiles.py --check <tree>   # 只报数，不写
+   python3 scripts/add-audio-conffiles.py <tree>                   # 16 树：锚点是 pong_buttons 那一行
+   python3 scripts/add-audio-conffiles.py --anchor "<line>" <tree> # 27 树：给一行它真的有的
+   python3 scripts/add-audio-conffiles.py --check <tree>           # 只报数，不写
    ```
 
-   输出 `audio conffiles: pong_audio lines 0 -> 2`；锚点缺失、源文件不在树里、写后仍不到两行，
-   三种情况都是 exit 1 且把计数打出来，不再有「静默跳过」这一档。`--check` 给构建后复核用。
-   宿主用例 `scripts/tests/test-audio-conffiles.py`（6 例：追加、幂等、锚点缺失、源缺失、
+   默认锚点是按键驱动的 `bsd/dev/pong_buttons.c`（`standard`，制表符分隔）。**27 树没有这个文件**——
+   它是 16 线补丁带进 `bsd/conf/files` 的，所以 27 上必须传 `--anchor` 指一行那棵树真的有的
+   （构建树 `bsd/conf/files` 里任取一行，例如它自己的 `bsd/dev/*` 段落），计数判据不变。输出
+   `audio conffiles: pong_audio lines 0 -> 2`；锚点缺失、源文件不在树里、写后仍不到两行，三种情况
+   都是 exit 1 且把计数打出来；锚点缺失时还会打印 `pass --anchor with a line this tree has`，
+   不再有「静默跳过」这一档。`--check` 给构建后复核用。宿主用例
+   `scripts/tests/test-audio-conffiles.py`（7 例：追加、幂等、锚点缺失、自定锚点、源缺失、
    check 模式、未 seed 的树），`check-audio27-preflight.sh` 里是一行 `ok   conf-files appender is loud`。
    16 树上这两行是 `0001:3504-3505` 直接打进 `bsd/conf/files` 的，27 上不能打补丁（P-171）。
 

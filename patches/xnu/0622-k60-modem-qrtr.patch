@@ -1279,7 +1279,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1612 @@
+@@ -0,0 +1,1630 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1450,15 +1450,22 @@ index 0000000..1111111
 + * modem stopped servicing the link rather than that our packet was wrong. */
 +static void
 +k60_qrtr_intent_counts(unsigned *remote_busy, unsigned *remote_valid,
-+    unsigned *local_advertised, unsigned *local_count)
++    unsigned *local_advertised, unsigned *local_count, unsigned *local_busy_out,
++    unsigned *local_done_out)
 +{
-+	unsigned busy = 0, valid = 0, advertised = 0, count = 0, k;
++	unsigned busy = 0, valid = 0, advertised = 0, count = 0, local_busy = 0, local_done = 0, k;
 +
 +	if (k60_qrtr_channel != NULL) {
 +		count = k60_qrtr_channel->intent_count;
 +		for (k = 0; k < count && k < QCOM_GLINK_MAX_LOCAL_INTENTS; ++k) {
 +			if (k60_qrtr_channel->local[k].advertised) {
 +				++advertised;
++			}
++			if (k60_qrtr_channel->local[k].busy) {
++				++local_busy;
++			}
++			if (k60_qrtr_channel->local[k].done_pending) {
++				++local_done;
 +			}
 +		}
 +		for (k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k) {
@@ -1475,6 +1482,8 @@ index 0000000..1111111
 +	if (remote_valid != NULL) *remote_valid = valid;
 +	if (local_advertised != NULL) *local_advertised = advertised;
 +	if (local_count != NULL) *local_count = count;
++	if (local_busy_out != NULL) *local_busy_out = local_busy;
++	if (local_done_out != NULL) *local_done_out = local_done;
 +}
 +
 +static void
@@ -2487,10 +2496,16 @@ index 0000000..1111111
 +	QcomGlinkFifo tx, rx;
 +	const QcomGlinkClient callbacks = {k60_qrtr_state_cb, k60_qrtr_receive_cb};
 +	uint32_t i, seen = 0;
-+	int enabled = 0, rc, bridge_reported = 0, ready_reported = 0;
++	int enabled = 0, qrtr_mode = 2, rc, bridge_reported = 0, ready_reported = 0;
 +
 +	if (!PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled)) || enabled < 2) {
 +		return 0;   /* default: not one byte is touched */
++	}
++	/* k43: pong_qrtr selects what the probe says after the handshake, so one
++	 * image can tell whether our own requests silence the modem. 0 = HELLO
++	 * probes only, 1 = HELLO plus lookups, 2 = lookups and the fixed DMS port. */
++	if (!PE_parse_boot_argn("pong_qrtr", &qrtr_mode, sizeof(qrtr_mode))) {
++		qrtr_mode = 2;
 +	}
 +	window = (volatile uint8_t *)ml_io_map_unmappable(K60_MODEM_SMEM_BASE,
 +	    K60_MODEM_SMEM_BYTES, 0x7);
@@ -2661,9 +2676,11 @@ index 0000000..1111111
 +		coachz_baseband_poll();
 +		if (i != 0u && i % 2500u == 0u) {
 +			unsigned rbusy = 0, rvalid = 0, ladvertised = 0, lcount = 0;
++			unsigned lbusy = 0, ldone = 0;
 +			uint32_t rxavail = 0, rxhead = 0, rxtail = 0;
 +
-+			k60_qrtr_intent_counts(&rbusy, &rvalid, &ladvertised, &lcount);
++			k60_qrtr_intent_counts(&rbusy, &rvalid, &ladvertised, &lcount,
++			    &lbusy, &ldone);
 +			if (k60_qrtr_link.rx.head != NULL && k60_qrtr_link.rx.tail != NULL) {
 +				rxavail = k60m_glink_rx_avail(&k60_qrtr_link.rx);
 +				rxhead = (unsigned)*k60_qrtr_link.rx.head;
@@ -2672,12 +2689,13 @@ index 0000000..1111111
 +			/* tx.tail is the modem's read index: a value that trails our
 +			 * head means it consumed what we sent; one that never moves
 +			 * means the DATA never left the ring. */
-+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u msgs=%u/%u dropped=%u\n",
++			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u\n",
 +			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
 +			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
 +			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
 +			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u,
 +			    rxavail, rxhead, rxtail, rbusy, rvalid, ladvertised, lcount,
++			    lbusy, ldone,
 +			    k60_qrtr_link.rx_messages, k60_qrtr_link.tx_messages,
 +			    k60_qrtr_link.dropped);
 +			if (i == 2500u) {
@@ -2734,8 +2752,8 @@ index 0000000..1111111
 +
 +				if (send_rc == QcomGlinkOk) {
 +					k60_qrtr_hello_sent = 1;
-+					printf("K60MODEM qrtr: sent hello from node %u port %#x\n",
-+					    K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT);
++					printf("K60MODEM qrtr: sent hello from node %u port %#x mode=%d\n",
++					    K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT, qrtr_mode);
 +				} else if (send_rc != QcomGlinkAgain) {
 +					printf("K60MODEM qrtr: hello send rc=%d\n", send_rc);
 +					return send_rc;
@@ -2773,7 +2791,7 @@ index 0000000..1111111
 +		 * alternating an all-services query with a DMS-targeted one, because a
 +		 * service that registers at the fourth minute is still a service. */
 +		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
-+		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
++		    qrtr_mode >= 1 && k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
 +		    i >= (int)k60_qrtr_lookup_next) {
 +			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
 +			const uint32_t to_node = K60_QRTR_BROADCAST_NODE;
@@ -2834,7 +2852,7 @@ index 0000000..1111111
 +		 * Android inventory recorded for DMS on this very device (01-ANDROID-
 +		 * INVENTORY.md 5.4.1: service 2, node 0, port 96). */
 +		if (k60_qrtr_hello_sent && !k60_qrtr_state.dms_found &&
-+		    k60_qrtr_static_count < K60_QRTR_STATIC_MAX &&
++		    qrtr_mode >= 2 && k60_qrtr_static_count < K60_QRTR_STATIC_MAX &&
 +		    i >= (int)k60_qrtr_static_next) {
 +			uint8_t query[K60_QMI_HEADER];
 +			uint16_t transaction = ++k60_qrtr_dms_transaction;

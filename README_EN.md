@@ -9,6 +9,12 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 
 **`main` target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
 
+> **What the Bluetooth baseline does not include (feat/bt-ios27-port):** this
+> branch is the kernel and the device tree only. `[payload.runtime]` is not
+> enabled and 0521 is a blob stub, so "iOS 27 baseline" does not mean
+> "Bluetooth works on iOS 27". See
+> [`docs/plans/BT-IOS27-PORT.md`](docs/plans/BT-IOS27-PORT.md) section 5.3.
+
 > Last updated: 2026-11-16. Detailed status and change log:
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md).
 

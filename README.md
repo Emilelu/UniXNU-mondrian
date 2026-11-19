@@ -7,6 +7,10 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 [English](README_EN.md)
 
+> **蓝牙基线的边界（feat/bt-ios27-port）：** 这一支只有内核与设备树。
+> `[payload.runtime]` 未启用、0521 只是 blob stub，所以「iOS 27 基线」
+> ≠「iOS 27 蓝牙可跑」。见 [`docs/plans/BT-IOS27-PORT.md`](docs/plans/BT-IOS27-PORT.md) §5.3。
+
 > 最后更新：2026-11-16。详细状态与变更记录见
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md)。
 

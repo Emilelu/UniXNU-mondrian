@@ -148,6 +148,37 @@ int main(void)
     /* The boot cluster never takes the shared-cluster quiet floor. */
     check("target_boot_quiet", k60_cpufreq_target(&clock, 0, 0, 0, 0, 0, 0), 0);
     check("target_empty", k60_cpufreq_target(NULL, 0, 0, 0, 0, 0, 0), 0);
+    /* A 1 GHz ceiling keeps the table at 960 MHz (index 2). With current above
+     * the ceiling the need is measured from the capped top: 960 x 0.5 x 1.25
+     * = 600 MHz, so the decision drops to 768 MHz. */
+    check("target_cap_half", k60_cpufreq_target_capped(&clock, 1000000, 4, 500,
+        0, 0, 0, 0), 1);
+    check("target_cap_hispeed", k60_cpufreq_target_capped(&clock, 1000000, 4, 950,
+        0, 0, 0, 0), 2);
+    check("target_cap_boost", k60_cpufreq_target_capped(&clock, 1000000, 0, 0,
+        1, 1, 0, 0), 2);
+    check("target_cap_low", k60_cpufreq_target_capped(&clock, 500000, 4, 950,
+        0, 0, 0, 0), 0);
+    check("target_cap_below", k60_cpufreq_target_capped(&clock, 200000, 4, 950,
+        0, 0, 0, 0), 5);
+    check("target_cap_zero", k60_cpufreq_target_capped(&clock, 0, 4, 500,
+        0, 0, 0, 0), 2);
+    check("target_cap_null", k60_cpufreq_target_capped(NULL, 1000000, 4, 500,
+        0, 0, 0, 0), 0);
+
+    /* 0x81 is 129 x 19.2 MHz = 2476.8 MHz; the limit bit makes it a ceiling,
+     * and a ceiling above the table top cannot raise the table. */
+    check("hwcap_active", k60_cpufreq_hardware_cap(0x81, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 2476800);
+    check("hwcap_off", k60_cpufreq_hardware_cap(0x81, 0, 2995200), 2995200);
+    check("hwcap_zero_state", k60_cpufreq_hardware_cap(0, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 2995200);
+    check("hwcap_above_top", k60_cpufreq_hardware_cap(0xff, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 2995200);
+    check("hwcap_below_table_top", k60_cpufreq_hardware_cap(0x81,
+        K60_CPU_FREQ_HW_LIMIT_ACTIVE, 2000000), 2000000);
+    check("hwcap_low", k60_cpufreq_hardware_cap(1, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 19200);
 
     {
         unsigned current = 4, down = 0, i;
@@ -273,6 +304,18 @@ int main(void)
         check("gov_quiet_level", gov.current[1], 0);
         check("gov_bad_domain", k60_cpufreq_governor_window(&gov, &clock, 3, 0, 0, 0), -1);
         check("gov_null", k60_cpufreq_governor_window(NULL, &clock, 0, 0, 0, 0), -1);
+
+        /* The same down latch runs under a hardware ceiling, and a ceiling
+         * below the table refuses every level instead of clamping upward. */
+        k60_cpufreq_governor_reset(&gov, 4);
+        for (i = 0; i < K60_CPU_FREQ_DOWN_WINDOWS - 1; ++i)
+            check("gov_cap_deferred", k60_cpufreq_governor_window_capped(&gov,
+                &clock, 0, 950, 0, 0, 1000000), 0);
+        check("gov_cap_lands", k60_cpufreq_governor_window_capped(&gov, &clock,
+            0, 950, 0, 0, 1000000), 1);
+        check("gov_cap_level", gov.current[0], 2);
+        check("gov_cap_below", k60_cpufreq_governor_window_capped(&gov, &clock,
+            0, 0, 0, 0, 100000), -1);
     }
 
     {

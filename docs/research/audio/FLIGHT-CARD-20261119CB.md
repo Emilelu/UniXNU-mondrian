@@ -33,10 +33,10 @@ PRM 时钟改成 **clock_id 0x104 TER_MI2S_IBIT @3.072 MHz、attribute 1 COUPLE_
 | P4 | 真实前像 apply 链（0503/0504/0505/0001 → 0003）通过，产物 2,559 行 | 是 |
 | P5 | `check-patch-apply.py --all` 通过（313 补丁可解析） | 是 |
 | P6 | 门禁 docs / eight / patches 全 0 | 是 |
-| P7 | `verify-boot-image: OK` | 待填（构建中） |
+| P7 | `verify-boot-image: OK` | 是（verify-boot-image: OK） |
 
 本卡判定的镜像：`audio-probe-20261119cb`，
-`boot.img` sha256 待填（构建完成后写入）。
+`boot.img` sha256 `69a3102f80c5180552d1a46726707ac649dc42b3e43e4ff7dc4c8cd1fbe71021`。
 
 ## 3. 抓取
 
@@ -70,6 +70,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File E:/hackios/k60-audio-adsp/sc
 
 ## 5. 结果登记
 
-criteria-sha256: 待填
+criteria-sha256: d3989dbb4f49560ed873af791f6dc8d956c5714a75a1c131978bdb9291570338
 
 （上机后填写：镜像名、boot.img sha256、证据目录、S1–S6 与 F1–F5 的实测值、amp 的 SYSST、判决。）

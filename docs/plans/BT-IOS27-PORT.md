@@ -705,6 +705,18 @@ Two consequences for this port, both testable without hardware:
    `com.apple.uart.bluetooth` alias (line 577) for stock BlueTool's default
    name. So the route bluetoothd can take on this port is the one the kernel
    already exposes, and no HCI bytes need to pass through BlueTool.
+
+The one value that decides the route is the device-tree
+`transport-encoding`. Stock BlueTool treats 6 as AppleBT, 7 as PCIe and
+everything else as UART; sheng's `package/BluetoothProbe.cpp` makes the same
+reading explicit — it publishes the radio only when
+`wire == 1 && baud == 3200000`, and `scripts/check-bluetooth-runtime.py:159`
+names that pair `H4 UART.SK`. So `transport-encoding = <1>` is the H4 over
+UART.SK route, which is the route this port wants, while `transport-speed`
+stays `3000000` here because the K60 clock cannot produce 3.2 Mbaud. That
+second number is why sheng's probe condition is not reusable verbatim: it
+requires 3200000, and copying it would leave the radio unpublished on this
+board.
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and

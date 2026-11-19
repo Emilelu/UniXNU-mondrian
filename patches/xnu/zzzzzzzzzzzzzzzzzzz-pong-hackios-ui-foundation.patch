@@ -577,8 +577,14 @@
 +	 * is where the gap enters (sid=15 bpr=5888 planes=0, while our own canvases are 5760), so the
 +	 * request is answered with the pitch we can scan and the client is told the same number through
 +	 * IOSurfaceGetBytesPerRow. If a caller cannot honour the reported pitch the picture shears,
-+	 * which is why pong_surface_pitch=0 restores the old behaviour. */
-+	uint32_t onePitch=1;
++	 * which is why pong_surface_pitch=0 restores the old behaviour.
++	 *
++	 * 2026-11-19: the default is 0 until someone watches the panel. Turning the gap off is a
++	 * geometry change made on the client's behalf, and the flight that measured the win
++	 * (usblog-20261119-125434) never confirmed the picture was not sheared - S8 of its card is
++	 * still open. An unverified geometry change must not be the default just because its CPU
++	 * numbers look better. */
++	uint32_t onePitch=0;
 +	(void) PE_parse_boot_argn("pong_surface_pitch", &onePitch, sizeof onePitch);
 +	const uint64_t askedRowBytes = dictNumber(props, "IOSurfaceBytesPerRow", 0);
 +	bpr = onePitch ? 0 : askedRowBytes;

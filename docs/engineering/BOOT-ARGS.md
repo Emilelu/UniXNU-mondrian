@@ -27,7 +27,7 @@
 | `pong_metal` | GPU / Metal | 必须 == 1 | 未设 = 不发布 | 设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144） |
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |
 | `pong_gpu_coherent` | GPU / 提交 | 0 / 1 / 2（默认 2） | 2 = 跑探针 | 唯一有对方量化证据的一项：zizhan g40/g41 强制开后扫出 24–35 ms → 5–6 ms。用 1 绕过证明等于拿帧的正确性换速度 |
-| `pong_surface_pitch` | GPU / 扫出 | `0` 关（默认 `1` 开） | 关 = 照客户端请求的 `IOSurfaceBytesPerRow` 分配 | 开时一律按 `alignUp(width*bpe, 64)` 回报，客户端经 `IOSurfaceGetBytesPerRow` 得到同一个数。行距差（5888 vs 5760）是扫描 blit 只能走线性纹理的唯一原因，实测那一段 `encode` 46 ms 而同样 18.4 MB 的普通拷贝 1.9 ms；若调用方不尊重回报值，画面会斜切，这是它保留开关的原因 |
+| `pong_surface_pitch` | GPU / 扫出 | `1` 开（默认 `0` 关） | 关 = 照客户端请求的 `IOSurfaceBytesPerRow` 分配（当前行为） | 开时一律按 `alignUp(width*bpe, 64)` 回报，客户端经 `IOSurfaceGetBytesPerRow` 得到同一个数。行距差（5888 vs 5760）是扫描 blit 只能走线性纹理的唯一原因，实测那一段 `encode` 46 ms 而同样 18.4 MB 的普通拷贝 1.9 ms；若调用方不尊重回报值，画面会斜切，这是它保留开关的原因 |
 | `pong_gpu_blit_probe` | GPU / 扫出 | `1` 开（默认关） | 开 = 首帧后跑一次对照 | 已答完并默认**关**：对照实测两个目标都是 9–10 GB/s，固件帧缓冲不是慢的那个；带它的那次飞行以 CP/SMMU fault 收场（P-244），且它按源行距写目标会让那一帧斜切 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
@@ -127,6 +127,11 @@
 - **源码**：`drivers/PongAdreno/submit/NativeAdrenoVm.cpp:359`
 
 ### `pong_surface_pitch`
+
+**默认是 `0`（2026-11-19 改回）**：把行距差关掉是**替客户端改几何**，而量到收益的那一飞
+（`usblog-20261119-125434`）没有确认画面没有斜切——那张卡的 S8 至今未由人目视确认。
+CPU 数字更好看不构成让它做默认值的理由；要开就自己写 `pong_surface_pitch=1`，启动行还余 11 字节。
+
 
 - **所属**：`drivers/PongAdreno/`（宏）与 `MiniIOSurface`（`surfaceCreate()`，经 xnu 补丁）
 - **接受值**：`0` 或 `1`；未设时按 **1**（关闭一个行距）

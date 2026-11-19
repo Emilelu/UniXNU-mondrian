@@ -70,7 +70,6 @@ offline-owner-systemos-mount.patch
 zzzzzzzzzzzzzzzzz-pong-systemos-shared-region.patch
 zzzzzzzzzzzzzzzzzz-pong-hackios-launchd-exec.patch
 zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch
-zzzzzzzzzzzzzzzzzzzz-pong-iosurface-bounds.patch
 zzzzzzzzzzzzzzzzzzzzz-pong-psci-smp.patch
 zzzzzzzzzzzzzzzzzzzzzz-pong-cpu-start-completion.patch
 zzzzzzzzzzzzzzzzzzzzzzz-pong-ui-crash-compat.patch

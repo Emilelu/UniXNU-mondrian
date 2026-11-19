@@ -1415,6 +1415,7 @@ RmtfsBytes 相同），我们回 result 1，它就不再前进。k47 把这块�
 下一步——(a) 出现 rw 行 ⇒ 共享区打通，k48 换成真实 UFS 内容；(b) 无 rw 但 `scm mem_assign` 返回非零 ⇒
 先修归属调用；(c) channel down / modem 复位 ⇒ 共享区没有映射进 MSS，同样是归属问题。S4/S5 仍不指望。
 
+- **实机结果（2026-11-19 17:14，420 s 采集）**：起飞后直接 panic，探针一行未出（证据 `E:/k60-work/evidence/usblog-20261119-171436`，supervisor rc=5）。`K60PANICFMT caller=0xfffffff007aa3024 fmt=vm_map_delete(...): Attempting to remove permanent VM map entry`，`K60PANICARGS vm_map_delete(0xfffffff292f03ec0,0xfffffffa00000000,0xfffffffa00280000): … permanent VM map entry 0xfffffff292f98650 [0xfffffffa00000000:0xfffffffa00280000] @vm_map.c:7940`。原因：`k60_qrtr_rmtfs_low_alloc` 用 `KMA_PERMANENT` 分配，地址落在 4 GiB 之上时 `kmem_free()` 要删除永久映射，vm_map 直接 panic。S3/S4/S5/S6 本飞不可判——panic 早于 SCM 与 auth_reset。
 哈希：
 
 | 项目 | 值 |
@@ -1428,6 +1429,20 @@ RmtfsBytes 相同），我们回 result 1，它就不再前进。k47 把这块�
 | FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
 | 符号 | `_coachz_baseband_configure` fffffff007a8e118、`_coachz_baseband_enabled` fffffff007a89298，COACHZ 40 条 |
 | 内核字符串 | `rmtfs buffer`/`rmtfs assign record`/`scm mem_assign`/`rmtfs rw storage` 共 6 次命中 |
+
+### 3.35 k48：共享区不再用永久映射（2026-11-19 17:28 已上机）
+
+k47 的 panic 只指向一个旗标：`kmem_alloc_contig(..., KMA_DATA | KMA_ZERO | KMA_PERMANENT, ...)`。k48 把它改成 `KMA_DATA | KMA_ZERO`，其余（8 次重试、`ptoa_64(page) + bytes <= 1ull<<32` 的低地址判据、SCM 0x0c/0x16 移交、alloc 回物理基址、rw 逐项校验）不变。
+
+判据：① 不再出现 `Attempting to remove permanent VM map entry`；② `rmtfs buffer` 与 `scm mem_assign` 行出现；③ alloc 回的是 4 GiB 以下的物理地址；④ 若 modem 接着发 rw，看 `rmtfs rw … served/refused` 与 `vectors` 数；⑤ S3 与 S6 保持 PASS。
+
+- **实机结果（2026-11-19 17:28，420 s 采集）**：不再 panic（`panicMarker` 为 null），S3 PASS / S4 FAIL / S5 FAIL / S6 PASS（证据 `E:/k60-work/evidence/usblog-20261119-172834`，capture `state=captured-disconnected`、`complete=false`、`bytes=217078`、`logSha256=ACB79AFD851558F6F4EA473E0A8B6839C9632DCEAE3633CCCDE5E40A8CD81EF3`、`stopReason=fastboot-return`、`lastDataAt=17:34:25`、`finishedAt=17:34:31`、`rc=5` 自行复位）。
+- 分配仍然落在 4 GiB 之上，八次全部如此：`rmtfs attempt 0 above 4 GiB (phys=0x90d5b3000)` … `attempt 7 above 4 GiB (phys=0x90e733000)`，随后 `rmtfs alloc storage=1 bytes=2621440 physical=0`，四分钟里 `rmtfs=3` 不变、没有 `rmtfs rw`。原因：`kmem_alloc_contig` 的第四参数是**对齐掩码**、第五个是 `max_pnum`（物理页上限），原来传 `0xfffff000` 与 `0` 都没有约束力，只有重试循环在筛。
+### 3.36 k49：把连续区钉在 4 GiB 以下（离线，构建中）
+
+k48 的八行 `above 4 GiB` 说明重试筛不出来，必须让分配器直接给低页。k49 把 `kmem_alloc_contig` 的掩码改成 0、`max_pnum` 改成 `(ppnum_t)(((1ull << 32) - bytes) >> 12)`，其余不变；失败时仍回落到八次重试与 `ptoa_64(page) + bytes <= 1ull<<32` 的断言。
+
+判据：① `rmtfs attempt … above 4 GiB` 不再出现；② `rmtfs alloc … physical=0x…` 非零且小于 `0x100000000`；③ 是否出现 `rmtfs rw` 与 `vectors`；④ S3/S6 保持。若 `max_pnum` 分配直接失败（低区没有 2.5 MiB 连续页），下一个变量是复用 payload 预留的低区内存或把区缩小到 modem 实际分配的大小。
 
 ## 5. 飞行顺序
 

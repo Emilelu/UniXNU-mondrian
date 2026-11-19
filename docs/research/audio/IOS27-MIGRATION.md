@@ -57,7 +57,11 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    和 `drivers/PongAudio` 的实际文件逐一对照（目录里出现未分类文件、清单里的文件缺失、
    冻结项混进可搬表都会报错），再用 `-I.` 把五个纯 C 单元逐个 `-Wall -Wextra -Werror`
    编一遍；同时核对表里每个文件的行数（表与磁盘对不上就报错，防止文档变陈旧）。
-   期望 `OK: the migration list matches the driver directory`。
+   期望 `OK: the migration list matches the driver directory`，以及一行
+   `pong guards: 1 in the portable set (1 expected, PongAudioAmp.c)`。这一行不是装饰：可搬集里
+   **只允许那一条**两向守卫（`#if defined(PONG) || defined(XNU_PONG_AUDIO`）；任何文件被单独
+   包进 `#if defined(PONG)`，在 27 上就整份编空，症状要等到链接期才出现。检查器对多出来的守卫
+   直接报 `… guards on PONG alone; on 27 that file compiles to nothing`。
    再跑 `sh scripts/tests/portability/run.sh`：它用桩头文件把胶水文件 `PongAudioAmp.c` 编过，
    期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
    这几条加上判据测试、功放 host 测试与（有 sheng 检出时的）audioreach 测试，可以用一条命令全跑：

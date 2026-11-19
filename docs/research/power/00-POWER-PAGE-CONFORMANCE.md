@@ -130,7 +130,9 @@
   钉成清单，`python3 scripts/check-power-carry.py` 校验哈希、套件数与 portability 列表，
   `--target <树>` 逐文件比对另一棵检出（`--update` 刷新哈希）。2026-11-20 对
   `E:/hackios/xnekom-ios27` 实测六个模块 `SAME`、`K60ThermalMap` 三个 `MISS`：那份 iOS27
-  检出停在温控提交之前，合并即可；检查器自带 15 项测试（`scripts/tests/test-power-carry.py`）。
+  检出停在温控提交之前，合并即可。清单同时钉住三个 console 判读器（handoff 33 / sleep 28 / mode1 14 例）：
+  判读器搬过去先跑夹具，夹具打印的用例数与清单不符即失败，因为缩水的夹具就是 P-204 那种"绿而盲"。
+  检查器自带 25 项测试（`scripts/tests/test-power-carry.py`）。
 - 27 侧前置检查：`scripts/check-ios27-power-preflight.py`（18 项测试）把四件事合成一份输出——
   七个模块的哈希、`0629-k60-sleep-trace.patch` 里 report 是否仍被 `#if defined(PONG)` 包住、
   27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、三个判读器是否已并入。

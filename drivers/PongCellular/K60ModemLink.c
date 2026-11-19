@@ -33,8 +33,21 @@
  * authorised for this branch (2026-11-20 02:46). Declared here for the same
  * reason the coachz functions are: the carried file must not depend on the
  * C++ header, and the signature is the whole contract. */
-extern int native_pong_ufs_read_named_volume(const char *name, uint64_t offset,
-    uint8_t *buffer, size_t length);
+/* The transport lives in a component archive that only the final link
+ * force-loads, so the bootstrap pass has no definition for it. A weak
+ * fallback keeps that pass linkable; the strong definition in the archive
+ * wins in the real kernel, and without it the read is simply refused. */
+__attribute__((weak)) int
+native_pong_ufs_read_named_volume(const char *name, uint64_t offset,
+    uint8_t *buffer, size_t length)
+{
+	(void)name;
+	(void)offset;
+	(void)buffer;
+	(void)length;
+
+	return 0;
+}
 
 extern int coachz_baseband_enabled(void);
 extern void coachz_baseband_configure(void (*send)(uint32_t, uint32_t,

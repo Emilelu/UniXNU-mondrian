@@ -610,7 +610,7 @@ k31 的失败行（`rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
-按本节判据输出 PASS/FAIL（B 分 S3/S4 两组，任一组 FAIL 即退出码非 0），自身回归是
+按本节判据输出 PASS/FAIL（B 分 S3/S4/S5/S6 四组，任一组 FAIL 即退出码非 0），自身回归是
 `scripts/tests/test-check-modem-flight-log.py`（`K60 FLIGHT LOG PASS p1 c b negative-cases`）。
 拿它复判已保存的 k18 C 日志（`E:/k60-work/evidence/usblog-20261118-234555/console.log`）仍是
 `C: PASS`；同一份日志按 `--phase p1` 判则 FAIL（没有 power 行且出现 init/mem），说明相位不可互换。
@@ -653,8 +653,13 @@ k31 的失败行（`rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0
   head 非 0 时紧跟 `glink adopt dropped N stale bytes (head=…)`（环里是上一会话残料，已被丢弃）。
   §3.18 的 k32 adopt 行只在 transport 路径，B 形态不会打印，不能作为判据。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
-  `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。
-- **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published` 的 N 大于 0；bridge disabled 或 N=0 都算失败。
+  `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。`--phase b` 的 S5 组按这条判，
+  `verdict` 字段允许是两个词（`no reply`）。
+- **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published`
+  （组件原文格式串是 `COACHZ baseband: %d of %u services published (...)`）的 N 大于 0；只有 `bridge disabled`
+  或 N=0 算失败。开关行有两个来源：探测开头打印的静态状态，以及 `cfb2917f` 起轮询中 `coachz_baseband_configure()`
+  重试成功后的 `K60MODEM baseband: bridge enabled (poll N)`——组件在 IOResources 未就绪时会推迟发布，
+  只判开头那一行会把“晚发布”误判成失败。
 
 ### 4.2 失败判据（一条失败即停，一次开机只归一类，不重试）
 

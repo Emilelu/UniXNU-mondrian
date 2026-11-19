@@ -54,6 +54,7 @@ run "migration list + pure C build" python3 scripts/check-audio-migration.py --c
 run "glue vs six kernel symbols" sh scripts/tests/portability/run.sh
 run "driver macro really switches it" sh scripts/tests/portability/run-symbols.sh
 run "glue needs only the table" sh scripts/tests/portability/run-deps.sh
+run "glue copy set matches the compiler" python3 scripts/check-audio27-closure.py
 run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
 run "one command applies the wiring" python3 scripts/tests/test-apply-audio27-wiring.py
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
@@ -63,6 +64,7 @@ run "wiring dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
+run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "sheng abi checker is honest" python3 scripts/tests/test-sheng-abi.py
 
 xnu27=${XNU27_REPO:-}

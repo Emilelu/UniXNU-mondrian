@@ -68,7 +68,7 @@ def resolve_tree(tree):
 
 
 def kernel_set(src):
-    """The sources plus every Pong header they reach, relative to src."""
+    """The sources plus every Pong header they reach, transitively."""
     seen = []
     stack = list(SOURCES)
     while stack:
@@ -79,7 +79,7 @@ def kernel_set(src):
         if not path.is_file():
             raise SystemExit("audio wiring: %s is missing from %s" % (name, src))
         seen.append(name)
-        if name.endswith(".c"):
+        if name.endswith((".c", ".h")):
             stack.extend(INCLUDE.findall(path.read_text(errors="replace")))
     return sorted(seen)
 

@@ -1146,7 +1146,7 @@ k60_modem_qrtr_probe(void)
 	QcomGlinkFifo tx, rx;
 	const QcomGlinkClient callbacks = {k60_qrtr_state_cb, k60_qrtr_receive_cb};
 	uint32_t i, seen = 0;
-	int enabled = 0, rc, bridge_reported = 0;
+	int enabled = 0, rc, bridge_reported = 0, ready_reported = 0;
 
 	if (!PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled)) || enabled < 2) {
 		return 0;   /* default: not one byte is touched */
@@ -1191,14 +1191,16 @@ k60_modem_qrtr_probe(void)
 			 * smp2p readiness item?  k37 and k38 opened the channel only
 			 * after both, and by then most QRTR registrations were gone;
 			 * the gap decides whether opening earlier is even possible. */
-			printf("K60MODEM qrtr: ready wait %u ms fifo=%u smp2p=%u items=%u
-",
+			printf("K60MODEM qrtr: ready wait %u ms fifo=%u smp2p=%u items=%u\n",
 			    (unsigned)(i * K60_QRTR_POLL_US / 1000u),
 			    sizes[2], rc == K60SmemOk ? 1u : 0u, seen);
 		}
-		if (rc == K60SmemOk &&
-		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen) &&
-		    sizes[2] != 0) {
+		if (sizes[2] != 0) {
+			/* k40 measured the gap between the glink fifo (item 480) and
+			 * the smp2p readiness item (435).  k41 opens IPCRTR as soon as
+			 * the fifo exists, so the channel is up before the modem
+			 * registers its QMI services; readiness is reported below and
+			 * polled again inside the QRTR loop. */
 			break;
 		}
 		delay(K60_QRTR_POLL_US);
@@ -1215,7 +1217,15 @@ k60_modem_qrtr_probe(void)
 	}
 	printf("K60MODEM qrtr: glink desc=%#x/%u ours=%#x/%u theirs=%#x/%u\n",
 	    offsets[0], sizes[0], offsets[1], sizes[1], offsets[2], sizes[2]);
-	printf("K60MODEM qrtr: modem ready (smp2p items=%u)\n", seen);
+	ready_reported = (k60_smem_find(&smem, &partition, (uint16_t)items[3],
+	    &offsets[3], &sizes[3]) == K60SmemOk &&
+	    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen));
+	if (ready_reported) {
+		printf("K60MODEM qrtr: modem ready (smp2p items=%u)\n", seen);
+	} else {
+		printf("K60MODEM qrtr: fifo at %u ms, smp2p not ready yet; opening IPCRTR early\n",
+		    (unsigned)(i * K60_QRTR_POLL_US / 1000u));
+	}
 	if (!k60_qrtr_glink_ready) {
 		if (sizes[0] != 32 || sizes[1] < 1024 || sizes[2] < 1024) {
 			printf("K60MODEM qrtr: glink geometry wrong desc=%u ours=%u theirs=%u\n",
@@ -1309,9 +1319,22 @@ k60_modem_qrtr_probe(void)
 		}
 		coachz_baseband_poll();
 		if (i != 0u && i % 2500u == 0u) {
-			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u\n",
+			/* tx.tail is the modem's read index: a value that trails our
+			 * head means it consumed what we sent; one that never moves
+			 * means the DATA never left the ring. */
+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u\n",
 			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
-			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed);
+			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
+			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
+			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u);
+			if (!ready_reported &&
+			    k60_smem_find(&smem, &partition, (uint16_t)items[3],
+			    &offsets[3], &sizes[3]) == K60SmemOk &&
+			    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen)) {
+				ready_reported = 1;
+				printf("K60MODEM qrtr: modem ready (smp2p items=%u) at %u s\n",
+				    seen, i / 500u);
+			}
 		}
 		if (i != 0u && i % 500u == 0u) {
 			/* QcomBaseband defers publication when IOResources is not ready;

@@ -59,10 +59,14 @@ def items_with(statuses):
 def run(args, items=None):
     env = dict(os.environ)
     env.pop("K60_EIGHT_STEP_ITEMS", None)
+    # The gate prints Chinese verdicts with a check mark; a GBK console kills it
+    # mid-print and the empty stdout reads as a failed case (P-248 family).
+    env["PYTHONIOENCODING"] = "utf-8"
     if items is not None:
         env["K60_EIGHT_STEP_ITEMS"] = items
     proc = subprocess.run([sys.executable, str(GATE)] + args,
-                          capture_output=True, text=True, env=env, cwd=str(ROOT))
+                          capture_output=True, text=True, env=env, cwd=str(ROOT),
+                          encoding="utf-8", errors="replace")
     return proc.returncode, proc.stdout + proc.stderr
 
 

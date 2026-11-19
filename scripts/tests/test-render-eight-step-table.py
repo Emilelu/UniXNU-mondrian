@@ -75,9 +75,14 @@ class RendererTests(unittest.TestCase):
         self.assertGreater(len(text.splitlines()), 4)
 
     def invoke(self, flag):
-        env = dict(os.environ, K60_REPO=str(self.root), PYTHONDONTWRITEBYTECODE="1")
+        # The renderer prints Chinese; a GBK console decodes the pipe with the
+        # wrong codec, the reader thread dies and stdout becomes None (P-249
+        # sibling: a check must not depend on the console's encoding).
+        env = dict(os.environ, K60_REPO=str(self.root), PYTHONDONTWRITEBYTECODE="1",
+                   PYTHONIOENCODING="utf-8")
         return subprocess.run([sys.executable, str(SCRIPT), flag], env=env,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace")
 
     def test_apply_and_check_cover_both_readmes(self):
         for name in ("README.md", "README_EN.md"):

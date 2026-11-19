@@ -92,7 +92,12 @@ def main() -> int:
     for path in paths:
         rows = entries(path)
         problems = collisions(rows)
-        label = os.path.relpath(path, args.root)
+        try:
+            label = os.path.relpath(path, args.root)
+        except ValueError:
+            # A series under test may live on another drive (the test fixture
+            # does); relpath cannot cross mounts, and the label is only a label.
+            label = path
         if problems:
             failures += len(problems)
             print(f'❌ {label}: {len(problems)} ambiguous patch number(s) (P-250)')

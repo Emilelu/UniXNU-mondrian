@@ -12,6 +12,12 @@ import subprocess
 import sys
 import tempfile
 
+# The gate prints a check mark; a GBK console cannot encode it, and a child
+# whose stdout cannot be decoded returns None here instead of text (P-248 family).
+ENV = dict(os.environ, PYTHONIOENCODING='utf-8')
+RUN = dict(capture_output=True, text=True, encoding='utf-8', errors='replace',
+           env=ENV)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 GATE = os.path.join(REPO, 'scripts', 'check-series-numbering.py')
@@ -27,14 +33,22 @@ def case(name):
 
 
 def run(series_text):
-    """Write a series file and run the gate against it."""
-    handle = tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8')
+    """Write a series file and run the gate against it.
+
+    The fixture lives under build/, not the system temp directory: the gate
+    prints the path relative to --root, and relpath cannot cross drives, so a
+    C: fixture against an E: repository used to abort every case.
+    """
+    scratch = os.path.join(REPO, 'build', 'series-numbering-tests')
+    os.makedirs(scratch, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False,
+                                         encoding='utf-8', dir=scratch)
     handle.write(series_text)
     handle.close()
     try:
         result = subprocess.run(
             [sys.executable, GATE, '--series', handle.name, '--root', REPO],
-            capture_output=True, text=True,
+            **RUN,
         )
         return result.returncode, result.stdout + result.stderr
     finally:
@@ -114,9 +128,11 @@ def test_comments_ignored():
 @case('the live series is clean')
 def test_live_series():
     series = os.path.join(REPO, 'patches', 'xnu', 'series')
-    result = subprocess.run([sys.executable, GATE], capture_output=True, text=True, cwd=REPO)
+    result = subprocess.run([sys.executable, GATE], cwd=REPO, **RUN)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert 'patches/xnu/series' in result.stdout, result.stdout
+    # The gate labels a series with the host separator; compare one spelling.
+    listing = (result.stdout or '').replace('\\', '/')
+    assert 'patches/xnu/series' in listing, result.stdout
     # The renumbered power patches must be the entries that made it clean.
     body = open(series, encoding='utf-8').read()
     assert '0628-k60-platform-sleep-boot-complete.patch' in body

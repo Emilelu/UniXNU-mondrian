@@ -16,6 +16,7 @@ Run: python3 scripts/tests/test-judge-battery.py
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -59,9 +60,12 @@ def sample(voltage=4333, current=836, soc=(57, 30), temp=(35, 80), external=1,
 
 
 def run_judge(log: pathlib.Path, *extra: str):
+    # The judge prints Chinese verdicts; a GBK console kills the child with
+    # UnicodeEncodeError and every case then reads as a mismatch.
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
     proc = subprocess.run(
         [sys.executable, str(JUDGE), "--log", str(log), *extra],
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
     out = proc.stdout or ""
     tail = [ln for ln in out.strip().splitlines() if ln.strip()]
     return proc.returncode, out, (tail[-1] if tail else "")
@@ -265,7 +269,9 @@ def main() -> int:
     # --- 11. a missing log is a usage error, never a verdict --------------
     cases += 1
     proc = subprocess.run([sys.executable, str(JUDGE), "--log", str(tmp / "nope.log")],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace",
+                          env=dict(os.environ, PYTHONIOENCODING="utf-8"))
     ok = proc.returncode == 4 and "[exit" not in (proc.stdout or "")
     print(f"{'PASS' if ok else 'FAIL'} a missing log exits 4 and prints no verdict")
     if not ok:

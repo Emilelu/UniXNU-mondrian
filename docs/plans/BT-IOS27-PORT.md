@@ -271,6 +271,31 @@ xnu-12377 kernel that the profile's prelink step accepts, so the build half of
 P3 is closed. What it does not prove: no hardware has run this kernel, iOS 27
 on SM8475 has not reached `bsd_init`, and every P4 item stays open.
 
+### 5.4 The GENI platform check
+
+The official page asks for a platform check in step 6: sheng compiles
+`Sm8550GeniUart.c`, `Sm8550QupDma.c` and `ArmSmmu4K.c` against a
+register model and runs it under ASan/UBSan. K60 has no SM8550 platform files,
+but `bsd/dev/qbt/qbt_geni.c` reaches hardware only through
+`struct qbt_geni_ops`, so it builds on the host.
+
+`scripts/tests/fixtures/bt-geni-model.c` models 4096 registers with clear and
+interrupt-set semantics, protocol 2 firmware (`G_FW_REV=0x00000200`) and an
+eight-entry FIFO (`G_HW_PARAM1=8<<16`), the two conditions
+`qbt_geni_prepare` checks. `scripts/check-bluetooth-geni.py` extracts the
+engine from `patches/xnu-12377/0500` (or from a tree with `--tree`), builds
+it with the model under ASan/UBSan and runs eight scenarios: prepare, rate,
+start, write, receive, fault, quiesce and flow. The run reports 64 assertions
+over 36 registers and always records `hardware_verified: false`.
+
+The CI job runs it next to the contract step, so a patch that breaks either
+the artifact strings or the engine behaviour fails the build.
+`scripts/tests/test-bt-geni-model.py` covers 26 cases, including that a damaged
+packing write in the model must turn the run red.
+
+Boundary: the model covers register semantics and the DMA queue, not real
+QUP/GENI timing, the SMMU or the pins.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

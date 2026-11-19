@@ -1273,6 +1273,59 @@ k44 用 mode 3 分开这两者。
 
 判据：S3/S6 保持。若 mode 3 下 rx 仍在 53 条附近停住 ⇒ 停摆是 modem 自己的问题（或 GLINK 基础层），
 与我们的应用层流量无关；若 rx 一直增长或服务继续出现 ⇒ 是我们的周期流量触发的，下一步按探针频率二分。
+实机结果（2026-11-19 14:46，420 s 采集）：
+
+- 镜像 \`E:/k60-work/artifacts/modem-20261117k44/boot-modem-b-full-qrtr3.img\`
+  （\`02cd895fc023a7de194746b16507438ca3a58c657f2e41c93aed4cef34df438f\`），args 尾 \`pong_modem=2 pong_qrtr=3\`；
+  证据 \`E:/k60-work/evidence/usblog-20261119-144720\`，capture \`captured-disconnected\`、complete=false、213,341 B、
+  logSha256 \`9420C41A308EFFD64783655500AB1551EAACFC8E22F4DFDD6C7A2A7541651F1D\`、stopReason \`fastboot-return\`、
+  resetMarker 存在。判读 S3 PASS / S4 FAIL / S5 FAIL / S6 PASS。
+- **静默基线**：\`wait 5 s services=2 wanted=0 dms=0 malformed=0 tx head=632 tail=632 rx avail=0 head=960 tail=960
+  intents=0/30 local=4/4 lbusy=0 ldone=0 msgs=44/17 dropped=0 rxcmd=2/1/0/2\`；\`wait 230 s\` **逐字节相同**。
+  整个四分钟里 modem 只送来 2 条 NEW_SERVER（66/0x42 与 43/0x2b）、1 条 HELLO 应答、2 条 DATA，
+  其余什么都没有；两个环都停在握手结束时的位置。
+- 结论一：k42/k43 里 35–45 秒后的“停摆”（rx head 冻结、intents 涨到 30/30、tx tail 不动）**是我们自己的
+  周期流量触发的**——mode 3 完全不发，就没有任何停摆，也没有任何新服务。
+- 结论二（更重要）：modem 的 QRTR 表**从一开始就只有两条服务**，它不会在后续四分钟里补上 QMI 那一批。
+  Android 记录的 36 条（EFS 21 / WDS 1 / UIM 11 / NAS 3 / PDS 16 …）在我们的窗口里从未出现，所以问题不是
+  “注册潮比我们早”，而是“QMI 栈根本没起来”。
+- adopt 行照旧：\`rx head=8 …\` 与 \`glink adopt dropped 8 stale bytes\`（Android 时代的 VERSION 残帧）。
+
+### 3.32 k45：问名称服务器，并把存储服务挂出去（离线，构建中）
+
+两条互不依赖的假设，用一次飞行同时读：
+
+1. **名称服务器端口**。k37 的两分钟广播 lookup 全部发往控制端口 \`0xfffffffe\`；QRTR 的名称服务器
+   监听在 \`K60_QRTR_NS_PORT\`（53）。k45 的 lookup 改为 \`node 0 port 53\` 与 \`broadcast port 53\` 交替，
+   并把收到的 \`NEW_LOOKUP\`（类型 0x0a，20 字节一条）解析成服务发现，行格式
+   \`K60MODEM qrtr: lookup reply service %u instance %u node %u port %u\`；wait 行尾加 \`replies=%u\`。
+2. **存储服务**。Pong 在启动 modem 之前就把 RMTFS（QMI 服务 14 / 实例 1，端口 \`0x102\`）注册好；
+   它记录的 modem 第一次 NV 访问发生在 \`PAS4\` 启动以前。我们从未挂过这个服务。k45 在 servloc 之后
+   追加 \`K60MODEM qrtr: announced rmtfs service 14 instance 1 port 0x102\`，并对任何发往 \`0x102\` 的 DATA
+   打印 \`rmtfs request %u bytes type=%u msg=%u\`（wait 行尾 \`rmtfs=%u\`）。**本飞只观测不应答**：
+   如果 modem 开始要文件，下一版才实现读/写/iovec 与共享缓冲。
+
+镜像与哈希（2026-11-19 15:09 构建，源码 `5abc29b99de356d3c8375a3aefedc61d3423559d`）：
+
+| 项 | 值 |
+|---|---|
+| kernel.macho | 105,734,144 B `fd009d6654e79122aa6ed8af400c6793d3ab9257ced67de73bdd2d20cdeec88f`（COACHZ 40 条） |
+| boot-modem-b-full.img | 201,895,936 B `04d2373f7bdd5b77a93a52b7e2b8ee646ba43283457e7e2b2527ed7ae4930ca9` |
+| payload.img | `37c4f7386a9e5ea1d3ad929f2a583201ff0d1d5259ac1dc705abad96b25d66bc` |
+| payload.json | `c186c39e0b905aeb1a98ca4d44c3afd2e9d92dc7182fc7f291948bd431ac0237` |
+| ADT | `54385758306ef877ad61523cca51429cd6679155df68a962db461b1b066873ca` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| args 尾 | `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`（`pong_qrtr` 缺省 2） |
+| layout | kernel=560384 payload=201326592 解压=3145840 DTB=4024 |
+
+内核字符串已确认四条新诊断各出现一次：`announced rmtfs service`、`rmtfs request`、
+`lookup reply service`、`replies=%u rmtfs=%u`。
+
+判据：S3/S6 保持；新增三条可读事实——\`replies=\` 是否非零、\`rmtfs=\` 是否非零、以及
+\`lookup reply\`/\`rmtfs request\` 行有没有出现。三条全零则说明 modem 连名称服务与存储服务都不问了，
+下一步转向 modem 侧状态（崩溃转储/子系统中止），而不是继续在 AP 侧加服务。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1315,13 +1368,19 @@ k44 用 mode 3 分开这两者。
     接收端在 35–45 秒后停摆（§3.29 实机结果）。k43 因此加 `pong_qrtr` 启动参数（0 = 只发 HELLO、1 = 加 lookup、
     2 = 再加固定端口 DMS），先用 mode 0 判断停摆是不是我们自己的请求造成的（§3.30）。mode 0 已飞（2026-11-19 14:23）：
     lookup 与固定端口 DMS 一次都没发，modem 仍在 35–45 秒后停读、停回 RX_DONE ⇒ 停摆与那两类请求无关。
-    下一飞是 k44 `pong_qrtr=3`（只发一次 HELLO，之后完全静默）加接收直方图 `rxcmd=`，用来看清是我们自己的周期
-    流量把它说死，还是它自己走完启动序列就不应酬了（§3.31）；S3/S6 必须保持，S4/S5 不指望。
+    k44（`02cd895f…`）按 mode 3 静默飞过（2026-11-19 14:46）：`wait 5 s` 与 `wait 230 s` 逐字节相同 ——
+    `services=2 tx head=632 tail=632 rx head=960 tail=960 intents=0/30 msgs=44/17 rxcmd=2/1/0/2`，即完全不发就没有
+    停摆，且四分钟里 modem 一条新服务也没注册（§3.31 实机结果）⇒ 不是注册窗口问题，是它的 QMI 栈从未启动。
+    下一飞是 k45 `E:/k60-work/artifacts/modem-20261117k45/boot-modem-b-full.img`（`04d2373f…`，§3.32）：
+    lookup 改问名称服务器端口 53，并宣告 RMTFS 14/1（端口 0x102）。看三条新读数——`replies=`、`rmtfs=`、
+    `lookup reply`/`rmtfs request` 行；S3/S6 必须保持，S4/S5 不指望。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
     **2026-11-19 12:58 起本线待命**：用户计划等 fork 方在 iOS 27（27.0.1）上到达 bsd_init 后全面转过去；
     蓝牙线与基带线届时都迁到 iOS 27，本仓库的 ios27 分支由蓝牙线建立、Actions 已跑通一次。
     此刻 k39（`9f950b09…`）已打包未飞；k40（`bcf277dc9e549595f75e54b0f26e86ac363464c3`，就绪时间线）只有源码与 0622，
     构建被停止、无镜像。恢复清单与 k41 备忘见 §3.27。
+    2026-11-19 15:05 起本线恢复推进：goal 改为“为迁移到 iOS 27.0.1 做准备”，
+    仍只做与 iOS 版本无关的内核通用层（UEFI/载波/电源/PAS/GLINK/QRTR/QMI 与 RMTFS）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

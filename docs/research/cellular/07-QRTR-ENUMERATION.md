@@ -265,3 +265,20 @@ k35 起 QcomBaseband 组件真的链进内核（22/22 服务发布，S6 PASS）�
 `if (!size)` 的 delta 结论一致：**id 0 是合法的缓冲编号，不是坏帧**——k35 的硬件日志（w2=0x80、w3=0）
 正是这个形态。
 
+### 10.4 k44 的静默基线：不是窗口问题，是 QMI 栈没起来（2026-11-19 14:46）
+
+\`pong_qrtr=3\` 只发一次 HELLO，之后四分钟一个字节也不发（镜像
+\`E:/k60-work/artifacts/modem-20261117k44/boot-modem-b-full-qrtr3.img\`，证据
+\`E:/k60-work/evidence/usblog-20261119-144720\`）。结果：\`wait 5 s\` 与 \`wait 230 s\` 逐字节相同——
+\`services=2 tx head=632 tail=632 rx head=960 tail=960 intents=0/30 msgs=44/17 rxcmd=2/1/0/2\`。
+
+两条推论：
+
+1. k42/k43 看到的“35–45 秒后 modem 停读、停回 RX_DONE”**由我们的周期流量触发**；不发就没有停摆。
+2. modem 的 QRTR 表自始至终只有两条服务（66/0x42 servreg 通知、43/0x2b 子系统控制），
+   四分钟静默里**没有任何 QMI 服务出现**。所以 k36–k43 的失败不是“注册潮早于我们的通道”
+   （k41 的 fifo-at-24 ms 已经否掉这一条），而是 **modem 的 QMI 栈从未启动**。
+   Android 记录的 36 条（EFS 21 / WDS 1 / UIM 11 / NAS 3 / PDS 16 …）在这块板上一次都没广播过。
+
+由此，枚举工作的下一步不再是“怎么问”，而是“让 modem 把 QMI 栈拉起来”。k45 并行的两个假设：
+名称服务器端口（53，而不是控制端口）与 AP 侧存储服务（Pong 在启动 modem 之前就挂好的 RMTFS 14/1）。

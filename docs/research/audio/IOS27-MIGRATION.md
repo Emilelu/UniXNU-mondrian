@@ -58,7 +58,9 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    冻结项混进可搬表都会报错），再用 `-I.` 把五个纯 C 单元逐个 `-Wall -Wextra -Werror`
    编一遍；同时核对表里每个文件的行数（表与磁盘对不上就报错，防止文档变陈旧）。
    期望 `OK: the migration list matches the driver directory`。
-2. 在 27 树新建 `drivers/PongAudio`，只拷第 1、2 节的文件（清单就是那条命令守的东西）。
+2. 在 27 树里跑 `python3 scripts/check-audio-migration.py --copy <27树>/drivers/PongAudio`：
+   它按同一份清单复制 §1/§1b/§2 的 21 个文件与 `tests/` 的两个文件（共 23 个），分类检查不通过时
+   直接拒绝复制。本仓实测 `--copy` 到空树后，`tests/run-tests.sh` 在副本里仍是 `TESTS OK 979 cases`。
 3. 跑 `drivers/PongAudio/tests/run-tests.sh`，期望 `TESTS OK 979 cases`。
 4. 可选：等 power 线把 `drivers/PongPower/QcomGlink.c` 与 `K60AudioGlink.c` 迁到 27 树之后，
    再跑 `drivers/PongAudio/tests/run-glink-multislot-tests.sh`（期望 `TESTS OK 800 cases`）。

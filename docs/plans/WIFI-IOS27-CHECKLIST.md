@@ -2,28 +2,32 @@
 
 ## Read this first (hard facts, 2026-11-19)
 
-- main is still the iOS 16 line (dddce57f). feat/bt-ios27-port (9f7c0d06) is the 27
-  kernel line, and it does NOT contain the GPU/display line: 2a8dba3c is not its
-  ancestor (629 behind / 86 ahead against main). Moving main to 27 is a real merge,
-  not a fast-forward.
-- patches/xnu/series (227 entries over 271 patch files, 16 KiB pages) and
-  patches/xnu-12377/series (24 entries, 4 KiB pages) are two different patch sets.
-  Measured 2026-11-19: the patches/xnu/series file is byte-identical on feat/bt-ios27-port
-  (same sha256), i.e. the bt line kept the whole 16 set as its test bed and applies the
-  12377 series instead. Most 16 entries do not apply to 12377 unchanged.
-- The 27 kernel line carries no network patch at all. patches/xnu-12377/series is
-  ptrauth, armcpu-sleep-hook and the 0500-0526 k60-bt-qbt-* Bluetooth series only.
-- The wifi patch set (patches/wifi/series, 12 entries) exists on feat/bt-ios27-port
-  byte for byte, but its targets do not: drivers/PongWifi/** is absent there, and so
-  are scripts/build-k60-ath11k.py, scripts/build-k60-wifi-native.py,
-  scripts/pong_paths.py, scripts/prepare-k60-wifi.py and
-  scripts/build-xnu-4k-baseline.sh. Only drivers/NativeUfs/PongUfsTransport.cpp
-  (0004) and scripts/build-pong-platform-macos.py (0006) exist. Porting wifi to 27 is
-  therefore moving a tree, not applying a patch.
-- The SoC layer we depend on is xNekom/UniXNU-sm8475-common feat/xnu-12377
-  (20a30fd6), which feat/bt-ios27-port:unixnu.lock already pins as
-  [source.sm8475] commit = 20a30fd623dbcfacdd71350a24fae67a2158884f.
-- Nothing here has been on the device. Every step below is build-only until the fork
+Rewritten 2026-11-20, when main itself became the 27 line.
+
+- main is the iOS 27 line (stage 0: an arm64e kernel that stops at bsd_init, profile
+  ios-27.0.1-24A446 as an iPhone 17,2 on xnu-12377). The iOS 16 line is archived as
+  archive/ios16-20261120, and feat/bt-ios27-port is deleted; its content is in main.
+- Both operating systems are still reachable from one main: board.toml maps
+  [package.defconfig] ipados-16.6.1-20G81 = mondrian_defconfig and
+  ios-27.0.1-24A446 = mondrian_ios27_defconfig, and [os_overrides."ios-27.0.1-24A446"]
+  removes kernel.pong_native_driver_source and the PongUfs component. A 27 change must
+  not alter the 16 default.
+- patches/xnu/series (16 KiB pages) and patches/xnu-12377/series (4 KiB pages) are two
+  patch sets that main carries side by side; the 27 profile's patch_series is
+  arch:patches/xnu/series + soc:patches/xnu-12377/series + os:patches/xnu/series +
+  device:patches/xnu-12377/series. Most 16 entries do not apply to 12377 unchanged.
+- The 27 side has no network patch at all: patches/xnu-12377/series is ptrauth,
+  armcpu-sleep-hook and the 0500-0526 k60-bt-qbt-* Bluetooth series only. drivers/PongWifi
+  is present in main as the proven 16 tree, and the 24A446 ABI is carried on top of it
+  (branch feat/wifi-ios27-tree), so wifi still moves as a tree plus six files, not as
+  patches/wifi/*.
+- The SoC layer is xNekom/UniXNU-sm8475-common feat/xnu-12377 (20a30fd6), pinned by
+  main's unixnu.lock as [source.sm8475] commit =
+  20a30fd623dbcfacdd71350a24fae67a2158884f.
+- Pitfall numbering moved: main already uses P-230 through P-253 for GPU, gate and
+  boot-lock work, while the wifi bring-up notes kept P-230-P-241 on the old branch.
+  Anything ported from there is renumbered before it lands.
+- Nothing here has been on the device. Every step below is build-only until the 27 line
   reaches bsd_init.
 
 ## Legend
@@ -58,18 +62,22 @@
 
 ## B. What the 27 kernel line must gain before wifi can even link
 
-- [ ] B1 [DEV] Move drivers/PongWifi/** onto the 27 branch as a tree, not as
-  patches/wifi/0001. Exit: git ls-tree origin/feat/bt-ios27-port:drivers/PongWifi
-  lists PongWifiNet.cpp, PongWifiPlatform.cpp, PongWifiAbi.h, PongWifiScanPolicy.h.
-- [ ] B2 [DEV] Carry the build scripts (build-k60-ath11k.py, build-k60-wifi-native.py,
-  pong_paths.py, prepare-k60-wifi.py) and a 27 equivalent of
-  build-xnu-4k-baseline.sh (it is absent on 27; the 4 KiB page size is now an
-  arch-layer property). Exit: python3 scripts/build-k60-wifi-native.py completes
-  against the 27 tree and prints the archive path.
-- [ ] B3 [DEV] Add configs/mondrian_wifi_defconfig and
-  configs/mondrian-wifi-sm8475.json to the 27 branch, with CONFIG_XNU_PONG_WIFI=y and
-  CONFIG_XNU_BUILD_ARCHIVES=y. Exit: the defconfig names both switches and
-  scripts/build-strict.sh selects libPongWifiNative.a.
+- [ ] B1 [DEV] Put the 24A446 ABI on the branch feat/wifi-ios27-tree: the six files
+  (PongWifiNet.cpp, PongWifiPlatform.cpp, PongWifiAbi.h, PongWifiScanPolicy.h,
+  ath11k/pong_sae.c, ath11k/pong_sae.h) plus their host tests, on top of main's
+  drivers/PongWifi tree. Exit: scripts/tests/test-wifi-sbl-mission.py and
+  test-pong-abi.py print 0 failure(s), and compile-teardown2.sh builds the kext against
+  both nw_abi.h generations (16 header + ath11k-abi1, 27 header + ath11k-abi27).
+- [ ] B2 [DEV] Prove the 4 KiB entry on the 27 line: main already carries
+  scripts/build-xnu-4k-baseline.sh with the XNU_PONG_WIFI=1 path
+  (-Wl,-force_load,$PONG_WIFI_ARCHIVE), so this is a run, not a port. Exit: the script
+  links libPongWifiNative.a into the 27 kernel and the prelink report names the archive.
+- [ ] B3 [DEV] Wire wifi into the 27 side without touching the 16 default: main already
+  has configs/mondrian_wifi_defconfig (CONFIG_XNU_PONG_WIFI=y,
+  CONFIG_XNU_BUILD_ARCHIVES=y) and configs/mondrian-wifi-sm8475.json, while
+  mondrian_ios27_defconfig does not name wifi. Exit: a 27 wifi defconfig (or fragment)
+  selects both switches, board.toml's 27 override still builds the stage-0 kernel
+  unchanged when wifi is off, and build-strict.sh selects libPongWifiNative.a with it on.
 - [ ] B4 [SOC] Confirm the 12377 kernel exports what the driver links against:
   kev_post_msg, mbuf_allocpacket, ifnet_input, IOService/IOUserClient.
   The IO80211 side is ours: PongWifiNet.cpp:1153-1173 defines IO80211Controller and

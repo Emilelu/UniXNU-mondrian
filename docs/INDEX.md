@@ -180,6 +180,7 @@ docs/
 | `plans/120HZ-PORT-PLAN.md` | 120Hz 移植方案 |
 | [`plans/WIFI-REBUILD-CHECKLIST.md`](plans/WIFI-REBUILD-CHECKLIST.md) | **WiFi 对照镜像重出核对清单**：从 origin/main 按 4.5 GiB 窗口重出，对照 mhi3/mhi4 逐字段；五条硬差异（0010 装配路径、series 224 vs 229、`.config` 开关、buttons 节点、freeze 盲区） |
 | [`plans/WIFI6-WPA3-PLAN.md`](plans/WIFI6-WPA3-PLAN.md) | **Wi-Fi 6 / WPA3 方案**：HE 只发 HE Cap（HE Operation 由 AP 发）、先解析关联响应再触发 `BSS_CHANGED_ASSOC`；SAE 必须先迁控制面，再补 EC/BN provider，含 P0–P4 与证据清单 |
+| [`plans/WIFI-IOS27-CHECKLIST.md`](plans/WIFI-IOS27-CHECKLIST.md) | **iOS 27（24A446）Wi-Fi 待办勾选清单**：每步带出口判据、[SOC]/[DEV] 归属、27 上不成立项，以及 A 已落地 / B 27 线补齐 / C 只有 24A446 二进制能定 / D 不成立 / E 上机顺序 |
 | 其余 | 见目录 |
 
 ---

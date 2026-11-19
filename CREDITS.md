@@ -105,6 +105,8 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | `dipa-studio/ios-sweet` | HackiOS / ios-sweet 上游（userland 注入、UIKit 兼容层思路） |
 | `oosexgang/hakios-xnu-kernel` | HakiOS XNU 内核的另一个分支参考 |
 | `blacktop/darwin-xnu-build` | XNU 构建工具链参考 |
+| `kmu1757/UniXNU-t970` | Pong 的 fork（iPadOS 18.7.10-22H374）；内核/驱动侧参考：`drivers/T970Wifi/T970WifiNetGlue.cpp` 的注册与 en1 共用、`T970WifiWpa3.c`（BSD-2 洁净室 SAE 组 19 + H2E + BIP-CMAC-128，带 host 测试）、z165 链路监视与 z166 启动标记。它钉的 pong-wifi 子模块 d2e33ca 仍是 1164 字节记录的 22H374 一代；24A446 形状与用户态仍看 `UniXNU/UniXNU-sheng` |
+| IEEE 802.11-2020 12.4（SAE 认证帧） | Authentication 帧的算法号 3、事务序号与提交体长度（组 19 为 102 字节、组 20 为 150 字节）；`drivers/PongWifi/ath11k/pong_sae.c` 只是用于测量管理帧路径的定长框架，不实现 Dragonfly 交换 |
 | IEEE 802.11ax-2021 / Linux `net/mac80211/he.c` | HE Capabilities（9.4.2.248）与 HE Operation（9.4.2.249）的字段顺序、长度规则和 MCS/NSS 收敛语义；`drivers/PongWifi/ath11k/pong_he.c` 是按规范行为重写的字节编解码，未复制 GPL-2.0-only 的 mac80211 代码 |
 
 ### 3.4 UniXNU 官方
@@ -113,7 +115,7 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 |---|---|
 | `UniXNU/UniXNU` | 框架、`components.toml` 组件目录（25 个组件）、`porting-record.py` 校验器、文档站 |
 | `UniXNU/UniXNU-pong` | 官方 Pong 设备仓库 |
-| `UniXNU/UniXNU-sheng` | 官方 sheng 设备（SM8550，Novatek 触摸 + GPU 调度） |
+| `UniXNU/UniXNU-sheng` | 官方 sheng 设备（SM8550，Novatek 触摸 + GPU 调度） | `package/WifiScanPolicy.h` 的扫描策略按 BSD-2-Clause-Patent 移植为 `drivers/PongWifi/PongWifiScanPolicy.h`：60 s 未听到的记录不再交出、建链中与建链后 15 s 不上空口、20 s 重扫窗口；24A446 的扫描与关联 ABI 形状也以 `package/WifiNet.cpp` 为准 |
 | `UniXNU/UniXNU-zizhan` | 同 SoC SM8475 设备（ST FTS 触摸 + Adreno 730） |
 | `Emilelu/UniXNU-sm8475-common` | SM8475 SoC 公共层（本项目的 SoC 仓库） |
 | `UniXNU/UniXNU-sm8550-common` | SM8550 SoC 公共层（`Sm8550Platform` 组件） |

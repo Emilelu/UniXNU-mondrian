@@ -152,6 +152,15 @@ jobs:
           python3 scripts/check-bluetooth-addon-prefixes.py --framework "$GITHUB_WORKSPACE/UniXNU/scripts/build-boot-runtime.py" --out "$UNIXNU_OUT/prefix-check"
           python3 scripts/tests/test-bt-addon-prefixes.py
 
+      - name: Check the launchd job overrides
+        working-directory: device
+        run: |
+          # The cache itself is only produced by a userspace build against an OS
+          # image, which this workflow does not do; the suite drives the checker
+          # over synthetic reports and, when the framework is beside the device
+          # checkout, over a real merge.
+          python3 scripts/tests/test-bt-launchd-cache.py
+
       - name: Collect the build summary
         if: always()
         run: |

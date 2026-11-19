@@ -273,6 +273,27 @@ channel log prefixes, the three `kern.qbt_*` sysctls, `K60BluetoothRadio`,
 the `/chosen` identity key, the `log-bluetooth` text and the four ADT
 properties.
 
+Run [44535919879](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44535919879)
+(head `b100115`, 2026-11-19T13:41:11Z to 13:53:07Z) is the first build of the
+twenty-five-patch series, 0527 included, and it passed. Run
+[44537777657](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44537777657)
+(head `125510a`) then passed with the whole check chain in one job: contract,
+GENI register model, shared interrupt controller, power ladder, runtime mount
+gate and addon prefixes, in that order, before the build summary is collected.
+The gate step is the one that matters for F3: it reads the defconfig and the
+series and refuses a build where `CONFIG_XNU_OWNER_DATA_MOUNT=y` is set without
+0526 and 0527.
+
+Run [44540057095](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44540057095)
+(head `7b6f115`, attempt 2, 2026-11-19T14:05:44Z to 14:25:44Z) is the first
+run with every checker in place, the launchd job step included, and it passed
+all seventeen steps. Its first attempt failed before the build started: the
+`toolchain-linux-20261119` release had reverted to `draft`, so the asset URL
+answered 404 six times in a row. Publishing it again
+(`gh api -X PATCH repos/Emilelu/UniXNU-mondrian/releases/450511132 -F draft=false`)
+and rerunning was the whole fix; the retry loop in the workflow cannot rescue
+a draft, because a draft answers 404 to every client.
+
 `feat/bt-ios27-port` is only the kernel and the device tree:
 `[payload.runtime]` is not enabled and 0521 is a blob stub, so "iOS 27
 baseline" does not mean "Bluetooth works on iOS 27".
@@ -413,6 +434,49 @@ mounts instead of trusting a patch file. The iOS 16.6.1 line is the one that
 sets `CONFIG_XNU_OWNER_DATA_MOUNT=y` (`configs/mondrian_defconfig:43`), and
 0526/0527 are not in that series; they exist for the 27 line, waiting for the
 gate to open.
+Opening the gate is not one line. On the iOS 16.6.1 line the same switch comes
+with `XNU_OWNER_DATA_UFS=y` and three patches this branch does not carry:
+`ios16-native-ufs-personality.patch`, `zzzzzz-pong-writable-data.patch` and
+`zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ufs-data.patch`.
+`patches/xnu-12377/` holds the Bluetooth series plus `armcpu-sleep-hook.patch`
+and `ptrauth-string-discriminator.patch`, and
+`configs/mondrian_ios27_defconfig` sets `CONFIG_XNU_NATIVE_UFS=n`, so there is
+no UFS IOMedia to mount Data from even if the flag were flipped. The mount
+work therefore belongs to F3 (PongUfs, then the writable Data volume) together
+with the Bluetooth mounts, not to this branch alone.
+
+
+### 5.8 The launchd job the runtime ships
+
+The mount in 5.7 is only half of the fix; the other half is what the mounted
+`launchd.plist` contains. Stock 24A446 runs `com.apple.BlueTool` as `mobile`
+(`UserName`, `EnablePressuredExit: true`, `ThrottleInterval: 0`), and a job in
+that session cannot write `kern.qbt_power_on`, so the adapter answers `EPERM`
+and BlueTool waits for a device it will never be allowed to open. That is the
+`Device not open yet` line in the bt-0525 console, repeated until the watchdog
+kills it.
+
+The userspace stager reports the change it wants:
+
+```json
+{"com.apple.BlueTool": {"UserName": "root", "EnableTransactions": true,
+                        "EnablePressuredExit": false, "ThrottleInterval": 3}}
+```
+
+and the framework's `merge_launchd_cache()` applies exactly those four fields to
+the one job whose `Label` matches, leaving `ProgramArguments`, `MachServices`
+and every other job untouched; `sign_launchd_cache()` then signs the result.
+`scripts/check-bluetooth-launchd.py` checks that chain: structurally, that the
+report asks for root and pressured-exit-off and uses only supported fields; and,
+given the OS cache plus a framework checkout, by running the real merge and
+proving that one job changed and nothing else did. Ten cases in
+`scripts/tests/test-bt-launchd-cache.py` cover a missing override, a `mobile`
+override, a string `ThrottleInterval`, a bool given as an int, a cache without
+the job, and a merge that has no framework to run.
+
+The checker is textual plus a pure-python merge: it proves the report and the
+merge function agree, not that launchd read the file. That last step needs the
+Data mount open (5.7), which is why the two sections sit together.
 
 ## 6. Userspace layer: what actually makes the adapter usable
 
@@ -550,6 +614,148 @@ Consequences, which correct the earlier reading of that console:
   is a userland-generator decision, not a device-tree fact, and this branch does
   not inherit it.
 
+### 6.3 What the stock BlueTool does, and why the adapter replaces it
+
+The `Device not open yet, use 'device' to open it.` line in the bt-0525 console
+looked like a startup failure. Disassembling `20G81`'s `/usr/sbin/BlueTool`
+(Mach-O arm64e, `LC_MAIN` `0x10001c110`, file offset = vmaddr − `0x100000000`)
+shows it is not: `-R` never touches a transport.
+
+- `getopt` at `0x10001c4b0` handles `c:hf:F:R`. `case 'R'` sets the cold-reset
+  flag at `0x100931f3c` and tail-jumps to `0x100041c48`, which is
+  `xpc_connection_create_mach_service("com.apple.BlueTool", _dispatch_main_q, 1)`
+  (`0x100041c68`) → event handler → `resume` → `CFRunLoopRun` → `return 0`. The
+  closure has five functions and no IOService call, no device-tree read, no
+  print. The `-R  - Cold Reset.` string in the plist is a mode switch, not an
+  action.
+- The message comes from the XPC script path instead: a `RunBuiltinScript`
+  message (`0x1000420fc`) with `script` = `boot`/`init` reaches
+  `runCommandForCurrentConfig` (`0x100015fa4`, called at `0x100042b98`), which
+  calls `getChipset` (`0x100040e98`), which calls `0x100018be0` at
+  `0x1000410a0` to read the HCI local version. Every one of the three sites
+  that prints the line (`0x100018cec`, `0x100018b90`, `0x100018fa4`) is guarded
+  by `[0x100931fe0 + 0x408] == 0`, the transport-open flag.
+- Only the `device` command opens a transport: the command table at
+  `0x10092cb20` maps `device` to `0x10001ca84`. The UART route uses
+  `socket(AF_SYSTEM, 1, 2)` then `ioctl(0xc0644e03, {name})` then `connect()`
+  (`0x10001da38`), i.e. the `com.apple.uart.bluetooth` kernel control — not an
+  IOService. The AppleBT route (`transport-encoding` 6) matches
+  `AppleBTHci`; the PCIe route (7) matches `AppleConvergedIPCInterface` with
+  `ACIPCInterfaceProtocol = hci`. Anything else, including the value 8 that
+  the daemon falls back to, is the UART route.
+- `transport-encoding`, `transport-speed` and `local-mac-address` are read
+  through `IORegistryEntrySearchCFProperty` on the `IODeviceTree` plane of the
+  service matching the name `bluetooth` (`marconi-bt` is tried first).
+
+So the chain this branch ships is the right shape and the console line was the
+wrong diagnosis: with the Data mount gate open, `/usr/sbin/BlueTool` is not the
+stock binary at all — 0526 mounts the staged `bluetooth-bin` over `/usr/sbin`,
+and 0527 mounts the launchd cache that runs it as `root`. The adapter answers
+the same mach service and the same four keys, but it stubs `RunCommand`, drops
+`RunExternalScript`, `btaddress` and the real manufacturer/firmware lookups,
+and never implements the transport-open sequence above. That is a deliberate
+trade: the transport is driven by `qbt_k60` in the kernel, so the adapter does
+not need it. It does mean the migration is validated only as far as
+`bluetoothd` talking to the adapter; if the daemon needs HCI passthrough
+through the transport it opened itself, this layer has to grow a `device`
+command. That question can only be answered once the Data mount gate is open.
+### 6.4 What bluetoothd asks BlueTool for, and where HCI really comes from
+
+Disassembling the same `24A446` `bluetoothd` (arm64e, `__TEXT` at
+`0x100000000`, file offset = vmaddr − `0x100000000`) answers the question
+section 6.3 left open.
+
+- **bluetoothd is a client, not a listener.** It creates
+  `xpc_connection_create_mach_service` nine times; exactly one names
+  `com.apple.BlueTool` (`0x100401b90`, in the constructor `0x100401b64`), with
+  client flags, `set_event_handler`, `set_context`, `set_finalizer_f`, then
+  `resume` (`0x100401dec`). Two call sites build that connection:
+  `0x1004d25e0` (script sender) and `0x1004d2f38` (command sender).
+- **Two message shapes.** Both carry `kMsgId` and `kMsgArgs` (helper
+  `0x1001226b0`) and are sent with
+  `xpc_connection_send_message_with_reply_sync` (`0x100401ea8`):
+  `RunBuiltinScript` with `{"script": <boot|init|deepsleep>, "btaddress": <addr>}`
+  (`0x1004d2444`; `btaddress` only when the local buffer is non-zero), and
+  `RunCommand` with `{"command": <string>}` (`0x1004d2dc0`). Nothing else — no
+  `device`, no `status`, no `RunExternalScript`, and no byte or data setter.
+- **Four reply keys.** `result` (`get_int64`, `0x1004d2a08`; zero means success
+  and re-logs otherwise), `firmware` (`get_string`, `0x1004d2aa4`),
+  `manufacturer` (`get_int64`, `0x1004d2ab8`, formatted as `%lld/%s` with the
+  firmware at `0x1004d2af8`), and `output` (`get_string`, `0x1004d3124`, logged
+  as `Command "%s", Response "%s"`). There is no retry and no transport
+  handle in any reply.
+- **HCI is bluetoothd's own business.** Its probe at `0x1001f3d28` looks for
+  `/dev/cu.bluetooth`, `/dev/uart.bluetooth`, the `marconi-bt` and `bluetooth`
+  IOservices, and the UART.SK channel (`os_channel_create("com.apple.uart.sk.bluetooth")`,
+  `0x1009ec56c` after the `CTLIOCGINFO`/`connect`/`IOAOSSKYSETCHANNELSPEC`/
+  `IOAOSSKYGETCHANNELUUID` sequence). It also opens `AppleBluetoothModule`
+  (`0x1002631b0`), `AppleConvergedIPCOLYBTControl` (`0x10026329c`),
+  `AppleBTMgmt` (`0x1002e5410`), `AppleBTHci` (`0x100334eb0`) and the Sunrise
+  PCIe node (`0x100265d84`) when they exist.
+
+Two consequences for this port, both testable without hardware:
+
+1. **The adapter is sufficient for the BlueTool stage.** `result = 0` clears
+   the status, `manufacturer = 29` plus a firmware string produce the
+   `29/<fw>` version, and `output` is only logged. That is every key
+   bluetoothd reads.
+2. **The transport is already on the kernel side.** `bsd/dev/qbt/qbt_transport.c`
+   registers the `com.apple.uart.sk.bluetooth` kernel control
+   (`ctl_register`, line 565) and, through `kern_nexus_controller_register_provider`
+   (line 372), the provider that `os_channel_create` resolves; 0520 added the
+   `com.apple.uart.bluetooth` alias (line 577) for stock BlueTool's default
+   name. So the route bluetoothd can take on this port is the one the kernel
+   already exposes, and no HCI bytes need to pass through BlueTool.
+
+The one value that decides the route is the device-tree
+`transport-encoding`. Stock BlueTool treats 6 as AppleBT, 7 as PCIe and
+everything else as UART; sheng's Bluetooth probe (a file under `package/` in
+that reference checkout, not in this repository) makes the same reading
+explicit — it publishes the radio only when `wire == 1 && baud == 3200000`.
+sheng's runtime script names that pair `H4 UART.SK` at its line 159; this
+repository has no such script, and `scripts/check-bluetooth-runtime-gate.py`
+checks whether the runtime mount gate is open, which is a different question. So `transport-encoding = <1>` is the H4 over
+UART.SK route, which is the route this port wants, while `transport-speed`
+stays `3000000` here because the K60 clock cannot produce 3.2 Mbaud. That
+second number is why sheng's probe condition is not reusable verbatim: it
+requires 3200000, and copying it would leave the radio unpublished on this
+board.
+### 6.5 Enabling the runtime block needs a macOS payload host
+
+`[payload.runtime]` is not a Linux build. `scripts/unixnu/runtime.py:76-80`
+sets `request['os_image']` as soon as `bluetooth_tool` exists, and
+`scripts/build-boot-runtime.py` mounts that image with `hdiutil` — both
+`hdiutil info -plist` and `hdiutil attach -readonly` at `os_mount()`,
+lines 38 and 50-54 — then verifies every staged executable through
+`verified_cdhash()`, which needs `codesign --display --verbose=4` to print a
+CDHash (line 96). Neither tool exists on the Linux runner. The shims the
+workflow installs (`UniXNU/scripts/linux/codesign`) deliberately do nothing —
+"xnu's SETUP host tools and the kernel need no signature on this host" — so
+`bundle_cdhash()` would fail with `no CDHash for <path>` rather than
+silently produce an unsigned addon. The `plutil` shim is real (plistlib), so the
+launchd merge half would run; the mount and the signature halves would not.
+
+Enabling the block therefore moves the payload build to a macOS host, which is
+also where §6.1 was staged: `/home/emilelu/bt24/stage4` was produced on the LAN
+Mac against the 24A446 image. Two consequences for this branch:
+
+- The kernel CI keeps proving the series and the contract; it will not prove
+  the addon. A red run after enabling the block would be about the host, not
+  about the port.
+- F3 needs an explicit decision: run the payload target on macOS, or teach the
+  framework's Linux path to compute a CDHash itself (the CodeDirectory hash is
+  plain SHA-256/SHA-1 over the code directory; no signature is needed to read
+  it) and to reach a mounted OS root some other way.
+
+
+`scripts/check-bluetooth-payload-host.py` turns this into a report instead of a
+guess: it names the board block and its `bluetooth_tool`, checks that the
+framework really mounts through `hdiutil` and reads a CDHash, and asks the host
+itself — `codesign` must print `CDHash=` for a probe binary, which the shim does
+not. On WSL it reports the block absent, the framework correct and the host
+unable, and exits 0 as a report; `--require` and `--require-runtime` gate a host
+that is meant to build. `scripts/tests/test-bt-payload-host.py` covers 12 cases.
+
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and
@@ -557,9 +763,10 @@ Consequences, which correct the earlier reading of that console:
    device-tree node. What remains is
    hardware: `qbt_k60_start` must actually run under iOS 27, which waits for
    `bsd_init`. To embed firmware first, see 5.2.
-2. `[payload.runtime]` wiring plus an OS image and `codesign` on the payload
-   host. The staging half is built (§6.1): enabling the block makes the payload
-   build emit the services instead of only the kernel.
+2. `[payload.runtime]` wiring, and a payload host that has `hdiutil` and a
+   working `codesign` (§6.5) — the Linux CI has neither. The staging half is
+   built (§6.1): enabling the block makes the payload build emit the services
+   instead of only the kernel.
 3. Hardware only once the fork's `ios27-arm64e` area reaches `bsd_init`.
 
 Until then the iOS 16.6.1 line stays the only hardware testbed, and every

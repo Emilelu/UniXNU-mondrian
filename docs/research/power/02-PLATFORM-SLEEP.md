@@ -212,6 +212,12 @@ w10 什么都不打印、系统硬挂、用户手动复位。靠“这一轮有�
 | WAKE | `K60TRACE: wake cpus done`（w10 缺的就是这一行） |
 | NO-PANIC | 没有 `K60PANIC`/`panic(cpu` |
 
+REPORT 这一行依赖 `0629-k60-sleep-trace.patch` 里那对弱符号。它原来用 `#if defined(PONG)`
+包住，所以在非 PONG 的机器配置（iOS 27 的 12377 框就是）下两份 report 被预处理器删掉，
+判据永远等不到 REPORT，却看不出是谁的责任。现在门控是驱动级宏 `K60_PLATFORM_SLEEP_REPORT`
+（默认 1，`-D…=0` 可关），`scripts/check-ios27-power-preflight.py` 既拦旧的 `defined(PONG)`，
+也在补丁提到 report 却没带这个宏时报警。
+
 退出码仍与其它判读器一致：0 PASS、1 FAIL、2 INVALID、4 用法错误。失败时按已知的两种
 形态给诊断，而不是只说“停住了”：
 

@@ -140,6 +140,13 @@ def smmu_in_tree(tree):
 
 
 
+def smmu_definitions(tree):
+    # Files outside our own patches that name the SMMU builder.
+    found = run(['grep', '-rIl', 'ArmSmmu4KBuild', tree])
+    names = [line for line in found.stdout.splitlines() if line.strip()]
+    return [name for name in names if '/bsd/dev/pong_' not in name]
+
+
 def patch_targets():
     """Every path the three ported patches touch, from their diff headers."""
     names = set()
@@ -217,13 +224,129 @@ def compare(expected, actual):
     return expected == actual
 
 
-def self_test():
-    cases = [(0, 0, True), (1, 1, True), (0, 1, False), (1, 0, False)]
-    for expected, actual, want in cases:
-        if compare(expected, actual) is not want:
-            print('K60 READY FAIL compare(%d, %d) != %r' % (expected, actual, want))
-            return 1
-    print('K60 READY PASS expectations compared, drift detected')
+PORT_SERIES = os.path.join(ARTIFACT_DIR, 'series-port.txt')
+
+
+def read_series(path=None):
+    """The bare patch names a 27 series must list, comments dropped."""
+    path = path or PORT_SERIES
+    names = []
+    if not os.path.exists(path):
+        return names
+    with open(path, encoding='utf-8') as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            names.append(line)
+    return names
+
+
+def integrated_tree(tree):
+    """A tree that already carries the ported sources is past the patches."""
+    return os.path.exists(os.path.join(tree, 'bsd', 'dev', 'pong_modem_link.c'))
+
+
+def reverse_status(tree, name):
+    path = os.path.join(ARTIFACT_DIR, name)
+    if not os.path.exists(path):
+        return None, 'patch file missing'
+    result = run(['git', '-C', tree, 'apply', '--reverse', '--check', path])
+    return result.returncode, (result.stderr or result.stdout).strip()
+
+
+def conf_text(tree):
+    chunks = []
+    root = os.path.join(tree, 'bsd', 'conf')
+    for base, _dirs, files in os.walk(root):
+        for name in files:
+            try:
+                with open(os.path.join(base, name), encoding='utf-8',
+                          errors='replace') as handle:
+                    chunks.append(handle.read())
+            except OSError:
+                continue
+    return chr(10).join(chunks)
+
+
+def call_sites(tree):
+    path = os.path.join(tree, 'bsd', 'kern', 'kern_exec.c')
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding='utf-8', errors='replace') as handle:
+        body = handle.read()
+    return {name: body.count(name)
+            for name in ('k60_modem_probe_from_handoff', 'k60_ipa_probe_from_handoff')}
+
+
+def check_integrated(tree):
+    """The other half: a tree the patches and the build wiring already reached."""
+    drift = 0
+    series = read_series()
+    if not series:
+        print('K60 READY INVALID series-port.txt lists no patch')
+        return 2
+    print('K60 READY note integrated tree: %d patches expected applied' % len(series))
+    for name in series:
+        rc, note = reverse_status(tree, name)
+        if rc is None:
+            drift += 1
+            print('K60 READY DRIFT %s: %s; generate it with --anchor-auto once the tree '
+                  'stages the data mount' % (name, note))
+            continue
+        if rc == 0:
+            print('K60 READY ok   %s is applied' % name)
+        else:
+            drift += 1
+            print('K60 READY DRIFT %s is not applied (reverse check rc=%d)' % (name, rc))
+    targets = patch_targets()
+    absent = [t for t in targets if not os.path.exists(os.path.join(tree, t))]
+    if absent:
+        drift += 1
+        print('K60 READY DRIFT %d patch target(s) missing from the tree: %s'
+              % (len(absent), ' '.join(absent[:4])))
+    else:
+        print('K60 READY ok   all %d patch targets exist in the tree' % len(targets))
+    entries = conffile_entries() or []
+    text = conf_text(tree)
+    missing = [e for e in entries if e not in text]
+    if not entries:
+        drift += 1
+        print('K60 READY DRIFT conffiles-port.txt is empty')
+    elif missing:
+        drift += 1
+        print('K60 READY DRIFT %d build entr(y/ies) absent from bsd/conf: %s'
+              % (len(missing), ' '.join(os.path.basename(m) for m in missing[:4])))
+    else:
+        print('K60 READY ok   all %d build entries are in bsd/conf' % len(entries))
+    counts = call_sites(tree)
+    if counts is None:
+        print('K60 READY INVALID no bsd/kern/kern_exec.c under the tree')
+        return 2
+    bad = [name for name, count in counts.items() if count != 1]
+    if bad:
+        drift += 1
+        print('K60 READY DRIFT call sites are not exactly once: '
+              + ' '.join('%s=%d' % (name, counts[name]) for name in bad))
+    else:
+        print('K60 READY ok   both probe call sites appear once in kern_exec.c')
+    anchors = anchor_state(tree)
+    if anchors != 1:
+        drift += 1
+        print('K60 READY DRIFT anchor lines=%s, expected exactly one' % anchors)
+    else:
+        print('K60 READY ok   the data mount anchor line is still there')
+    owners = smmu_definitions(tree)
+    if owners:
+        print('K60 READY note ArmSmmu4K arrived with %s: the weak fallback can go'
+              % os.path.basename(owners[0]))
+    else:
+        print('K60 READY ok   only our own sources name ArmSmmu4KBuild, the weak '
+              'fallback is what answers')
+    if drift:
+        print('K60 READY CHANGED %d expectation(s) drifted' % drift)
+        return 1
+    print('K60 READY OK the integrated tree carries every ported patch and its wiring')
     return 0
 
 
@@ -237,9 +360,34 @@ def main(argv):
     if not args.tree or not os.path.isdir(args.tree):
         print('K60 READY INVALID tree not found: %r' % (args.tree,))
         return 2
+    if integrated_tree(args.tree):
+        return check_integrated(args.tree)
+    return check_pristine(args.tree)
+
+
+def self_test():
+    cases = [(0, 0, True), (1, 1, True), (0, 1, False), (1, 0, False)]
+    for expected, actual, want in cases:
+        if compare(expected, actual) is not want:
+            print('K60 READY FAIL compare(%d, %d) != %r' % (expected, actual, want))
+            return 1
+    NL = chr(10)  # a real newline in the sample series
+    import tempfile
+    scratch = tempfile.mkdtemp(prefix='k60-series-')
+    sample = os.path.join(scratch, 'series.txt')
+    with open(sample, 'w', encoding='utf-8') as handle:
+        handle.write('# a note' + NL + '0626-a.patch' + NL + '0627-b.patch' + NL)
+    if read_series(sample) != ['0626-a.patch', '0627-b.patch']:
+        print('K60 READY FAIL read_series dropped a name or kept a comment')
+        return 1
+    print('K60 READY PASS expectations compared, drift detected, series parsed')
+    return 0
+
+
+def check_pristine(tree):
     drift = 0
     for name, expected, reason in PATCH_EXPECT:
-        actual, note = patch_status(args.tree, name)
+        actual, note = patch_status(tree, name)
         if actual is None:
             print('K60 READY INVALID %s %s' % (name, note))
             return 2
@@ -249,14 +397,14 @@ def main(argv):
             drift += 1
             print('K60 READY DRIFT %s expected rc=%d got rc=%d: %s'
                   % (name, expected, actual, note.splitlines()[0] if note else ''))
-    missing = [s for s in SYMBOLS if not symbol_present(args.tree, s)]
+    missing = [s for s in SYMBOLS if not symbol_present(tree, s)]
     if missing:
         drift += 1
         print('K60 READY DRIFT kernel symbols missing: ' + ' '.join(missing))
     else:
         print('K60 READY ok   %d kernel symbols present' % len(SYMBOLS))
     headers = includes_used()
-    absent = [h for h in headers if not include_present(args.tree, h)]
+    absent = [h for h in headers if not include_present(tree, h)]
     if absent:
         drift += 1
         print('K60 READY DRIFT headers missing: ' + ' '.join(absent))
@@ -312,7 +460,7 @@ def main(argv):
     pairs = quoted_includes()
     own = installed_headers()
     unresolved = sorted({(src, hdr) for src, hdr in pairs
-                         if hdr not in own and not include_present(args.tree, hdr)})
+                         if hdr not in own and not include_present(tree, hdr)})
     if not pairs:
         drift += 1
         print('K60 READY DRIFT no carried file includes anything')
@@ -330,19 +478,19 @@ def main(argv):
         print("K60 READY DRIFT a ported patch still needs pong_pmic_rail: " + " ".join(rail))
     else:
         print("K60 READY ok   no ported patch needs the pmic rail driver")
-    wired = conf_entries_in_tree(args.tree)
+    wired = conf_entries_in_tree(tree)
     if wired:
         drift += 1
         print('K60 READY DRIFT %d pong/glink lines appeared in bsd/conf: the build wiring landed'
               % wired)
     else:
         print('K60 READY ok   bsd/conf still lists no pong/glink source')
-    if smmu_in_tree(args.tree):
+    if smmu_in_tree(tree):
         drift += 1
         print('K60 READY DRIFT ArmSmmu4KBuild is in the 27 tree: the weak fallback can be retired')
     else:
         print('K60 READY ok   ArmSmmu4K still absent from the 27 tree')
-    anchors = anchor_state(args.tree)
+    anchors = anchor_state(tree)
     if anchors is None:
         print('K60 READY INVALID no bsd/kern/kern_exec.c under the tree')
         return 2

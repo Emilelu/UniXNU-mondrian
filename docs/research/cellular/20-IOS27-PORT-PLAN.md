@@ -664,3 +664,28 @@ python3 scripts/check-ios27-deps.py --deps <16 tree>/build/xnu/ios-obj/DEVELOPME
 - 27 的 `board.toml` 与 `QcomBaseband` 组件 pin 不属本线（§18 表格第 5 行）：该驱动是组件目录 fetch 来的，本仓库只有 `patches/qcombaseband/`。本线交的是随补丁走的东西——`0626`/`0627`/`0628`/`0630`、`series-port.txt`、`conffiles-port.txt`。
 - `drivers/PongAdreno/ArmSmmu4K` 属 GPU 线；IPA 需要的两个符号在本线用弱定义兜底，等 k53 判读后才落。
 - 0629 之外不需要再动 `kern_exec.c`；IPA 的 `kmem_alloc_contig` 上界与重试也在 k53 之后。
+
+## 22. readiness 的第二种模式：已集成树
+
+`scripts/check-ios27-readiness.py` 现在有两种判断，按树自身切换，仍然是一条命令：
+
+| 树的状态 | 判据 | 期望输出 |
+|---|---|---|
+| pristine（还没打补丁） | `bsd/dev/pong_modem_link.c` 不存在 | 老模式：六个已记录的 rc、8 个内核符号、150 个头、6 个产物、38 个目标、19 条 include |
+| 已集成（合过补丁与 conffiles） | 同左文件存在 | 新模式：系列里每条补丁反向可撤销、38 个目标都在树里、19 条构建项都在 `bsd/conf`、两个探针调用点各出现一次、Data mount 锚点仍恰有一行 |
+
+新模式检查的是「打进去之后」，正好补上老模式只盯着「能不能打进去」的空档（P-208 是同一个教训的另一半）。
+两个失败样例都跑过：
+
+- 真实 27 树（pristine）：`K60 READY OK every recorded expectation still holds`，rc=0。
+- 合成已集成树（把 0626/0627/0628/0630 真打进去、抄 19 条 conffiles、伪造锚点与两个探针）：只报一条
+  `K60 READY DRIFT 0629-kern-exec-call-sites.patch: patch file missing; generate it with --anchor-auto once the tree stages the data mount`，rc=1
+  ——这正是当前仓库的真实状态（0629 还没生成），说明检查不会因为缺一件就静默放行（P-209）。
+
+Lead 侧接线完成后的用法不变：
+
+```
+python3 scripts/check-ios27-readiness.py --tree <27 树>
+```
+
+rc=0 就可以开始第一次带基带的内核构建；rc=1 的每一行都写明是哪一条期望变了。

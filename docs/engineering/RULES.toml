@@ -650,3 +650,11 @@ source = "docs/engineering/PITFALLS.md:P-208"
 statement = "跨线携带的文件如果 include 了别条线的头，git apply --check 仍会全绿，但构建会在二十分钟后失败。携带集合要么把这些头一起搬过来，要么用调用点证据证明它没被用到并把 include 删掉；每个 +include 都要有「补丁集自装 or 目标树存在」的审计。"
 check = "grep -q 'quoted includes resolve inside the patch set' scripts/check-ios27-readiness.py"
 note = "2026-11-20 27 线的 0627/0628 include pong_smem.h 与 pong_pmic_rail.h（来自 16 线 0611/0613）：smem 有 17 处调用，逐字节搬成 0630；rail 零调用者，生成时删 include 并重算 hunk 行数。"
+
+[[rule]]
+id = "P-209"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-209"
+statement = "系列清单里列出的补丁名必须与目录逐项对齐；「还没生成」要显式报出来。readiness 的已集成模式会在反向检查时把这种缺口报成 DRIFT 并给出生辰手势。"
+check = "grep -q 'generate it with --anchor-auto' scripts/check-ios27-readiness.py"
+note = "2026-11-20 series-port.txt 列了 0629 但文件不存在（等 data-mount 锚点），pristine 模式的产物清单不覆盖系列。"

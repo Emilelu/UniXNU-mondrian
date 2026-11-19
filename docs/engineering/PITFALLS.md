@@ -5061,3 +5061,14 @@ K60 READY DRIFT 4 quoted include(s) resolve nowhere: pong_pmic_rail.h (pong_ipa.
 （删 `+` 行要按 hunk 体重算 `@@ -a,b +c,d @@`，否则 `corrupt patch`）。
 
 一般化的教训：**跨线携带文件时，依赖要么一起携带、要么证明它没被用到；「打得上」不是证据。**
+
+## P-209 — 系列里列着一个补丁名，目录里却没有这个文件
+
+27 线的 `patches/xnu-12377/series-port.txt` 写着五条，`0629-kern-exec-call-sites.patch` 不在目录里：
+它要等 27 树把 Data mount 推到 stage 3 才能按锚点生成。pristine 模式的产物清单只检查那六个已知文件，
+而系列是给构建器读的清单，两者从来没有互相对过。
+
+第一次跑的是新加的「已集成树」模式（`check-ios27-readiness.py` 按 `bsd/dev/pong_modem_link.c` 是否存在
+自动切换）：`K60 READY DRIFT 0629-kern-exec-call-sites.patch: patch file missing; generate it with --anchor-auto once the tree stages the data mount`。
+
+教训：清单文件与目录必须逐项对齐，且「还没生成」是一个要显式说出来的状态，不是沉默的空缺。

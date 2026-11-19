@@ -56,4 +56,18 @@ int k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
 int k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
     uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes);
 
+/* Reads image bytes on the modem's behalf. 'read' must fill dst with 'bytes'
+ * from the image at 'offset' and return 0; anything else counts as a failure.
+ * The callback is what the kernel supplies once the UFS path exists. */
+typedef int (*K60EfsRead)(void *context, uint32_t storage, uint64_t offset,
+    uint8_t *dst, size_t bytes);
+
+/* Serves one read request end to end: it must be an rw request in the read
+ * direction, its vectors must fit the image and the window, and the reader must
+ * deliver every span. On success the window holds what the modem asked for and
+ * the caller answers result 0. Returns 0 on success, -1 otherwise. */
+int k60_efs_serve_read(const K60RmtfsRequest *request, K60EfsRead read,
+    void *context, uint8_t *image, size_t image_bytes, uint8_t *window,
+    size_t window_bytes, uint64_t window_base);
+
 #endif /* K60_MODEM_RMTFS_EFS */

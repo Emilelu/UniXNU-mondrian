@@ -144,3 +144,42 @@ k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
 	}
 	return 0;
 }
+
+int
+k60_efs_serve_read(const K60RmtfsRequest *request, K60EfsRead read,
+    void *context, uint8_t *image, size_t image_bytes, uint8_t *window,
+    size_t window_bytes, uint64_t window_base)
+{
+	K60EfsSpan spans[K60_RMTFS_MAX_VECS];
+	int count;
+
+	if (request == NULL || read == NULL || image == NULL || window == NULL) {
+		return -1;
+	}
+	if (request->message != K60_RMTFS_RW || request->direction != 0) {
+		return -1;      /* only the modem's read direction is served */
+	}
+	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT) {
+		return -1;
+	}
+	if (k60_rmtfs_check_vectors(request, image_bytes, window_base,
+	    window_bytes) != 0) {
+		return -1;
+	}
+	count = k60_efs_plan(request, image_bytes, window_base, window_bytes,
+	    spans, K60_RMTFS_MAX_VECS);
+	if (count <= 0) {
+		return -1;
+	}
+	for (int i = 0; i < count; i++) {
+		if (read(context, request->storage, spans[i].image_offset,
+		    image + spans[i].image_offset, spans[i].bytes) != 0) {
+			return -1;
+		}
+	}
+	if (k60_efs_copy(spans, (size_t)count, K60_EFS_TO_WINDOW, image,
+	    image_bytes, window, window_bytes) != 0) {
+		return -1;
+	}
+	return 0;
+}

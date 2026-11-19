@@ -174,6 +174,94 @@ test_copy(void)
 	    sizeof window) == -1, "a NULL plan is refused");
 }
 
+typedef struct {
+	unsigned calls;
+	unsigned fail_at;
+	uint32_t storage;
+} FakeReader;
+
+static int
+fake_read(void *context, uint32_t storage, uint64_t offset, uint8_t *dst,
+    size_t bytes)
+{
+	FakeReader *fake = (FakeReader *)context;
+
+	if (fake->calls++ == fake->fail_at) {
+		return 1;
+	}
+	fake->storage = storage;
+	for (size_t i = 0; i < bytes; i++) {
+		dst[i] = (uint8_t)(offset + i);
+	}
+	return 0;
+}
+
+static void
+test_serve_read(void)
+{
+	K60RmtfsRequest request;
+	uint8_t image[0x4000];
+	uint8_t window[0x800];
+	FakeReader fake;
+	const uint64_t window_base = 0xaf000000ull;
+
+	memset(image, 0, sizeof image);
+	memset(window, 0, sizeof window);
+	memset(&fake, 0, sizeof fake);
+	fake.fail_at = 99;
+	memset(&request, 0, sizeof request);
+	request.message = K60_RMTFS_RW;
+	request.storage = 2;
+	request.direction = 0;
+	request.vectors = 2;
+	request.table[0].block_offset = 0x10;
+	request.table[0].physical = (uint32_t)(window_base + 0x40);
+	request.table[0].block_length = 1;
+	request.table[1].block_offset = 0x18;
+	request.table[1].physical = (uint32_t)(window_base + 0x400);
+	request.table[1].block_length = 2;
+
+	check(k60_efs_serve_read(&request, fake_read, &fake, image, sizeof image,
+	    window, sizeof window, window_base) == 0, "a read request is served");
+	check(fake.calls == 2, "one read per vector");
+	check(fake.storage == 2, "the reader is told which image to open");
+	check(window[0x40] == (uint8_t)0x2000 && window[0x40 + 0x1ff] ==
+	    (uint8_t)(0x2000 + 0x1ff), "the first span lands in the window");
+	check(window[0x400] == (uint8_t)0x3000 && window[0x400 + 0x3ff] ==
+	    (uint8_t)(0x3000 + 0x3ff), "the second span lands in the window");
+
+	memset(&fake, 0, sizeof fake);
+	fake.fail_at = 1;
+	check(k60_efs_serve_read(&request, fake_read, &fake, image, sizeof image,
+	    window, sizeof window, window_base) == -1, "a failed read is refused");
+
+	request.direction = 1;
+	check(k60_efs_serve_read(&request, fake_read, &fake, image, sizeof image,
+	    window, sizeof window, window_base) == -1,
+	    "a write direction is not served by the read path");
+	request.direction = 0;
+
+	request.storage = 5;
+	check(k60_efs_serve_read(&request, fake_read, &fake, image, sizeof image,
+	    window, sizeof window, window_base) == -1, "an unknown image is refused");
+	request.storage = 1;
+
+	request.message = K60_RMTFS_ALLOC;
+	check(k60_efs_serve_read(&request, fake_read, &fake, image, sizeof image,
+	    window, sizeof window, window_base) == -1, "only rw is served");
+	request.message = K60_RMTFS_RW;
+
+	request.table[0].physical = (uint32_t)(window_base + 0x7ff);
+	check(k60_efs_serve_read(&request, fake_read, &fake, image, sizeof image,
+	    window, sizeof window, window_base) == -1,
+	    "a span past the window is refused before any read");
+	request.table[0].physical = (uint32_t)(window_base + 0x40);
+	request.table[1].physical = (uint32_t)(window_base + 0x100);
+
+	check(k60_efs_serve_read(&request, NULL, &fake, image, sizeof image,
+	    window, sizeof window, window_base) == -1, "a NULL reader is refused");
+}
+
 static uint32_t
 mix(uint32_t *state)
 {
@@ -249,11 +337,12 @@ main(void)
 	test_names();
 	test_plan();
 	test_copy();
+	test_serve_read();
 	test_sweep();
 	if (failures != 0) {
 		printf("K60 EFS FAIL %d checks\n", failures);
 		return 1;
 	}
-	printf("K60 EFS PASS table, gpt names, scatter plan, copies, sweep, refusals\n");
+	printf("K60 EFS PASS table, gpt names, scatter plan, copies, serve, sweep, refusals\n");
 	return 0;
 }

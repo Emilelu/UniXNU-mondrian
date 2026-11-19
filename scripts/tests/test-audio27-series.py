@@ -100,6 +100,41 @@ def main():
     cases += 1
     print("  ok   a patch nobody lists is a failure")
 
+
+    far = work / "far"
+    far.mkdir()
+    (far / "0500-far.patch").write_text(
+        "--- a/bsd/kern/bsd_init.c" + chr(10) +
+        "+++ b/bsd/kern/bsd_init.c" + chr(10) +
+        "@@ -1,2 +1,3 @@" + chr(10) +
+        " int" + chr(10) +
+        "+int far_away;" + chr(10) +
+        " bsd_init(void)" + chr(10))
+    (far / NAME).write_bytes(good)
+    (far / "series").write_text("0500-far.patch" + chr(10) + NAME + chr(10))
+    code, out = run(sys.executable, str(CHECK), str(root), "--series", str(far))
+    assert code == 0, out
+    assert "SERIES ORDER OK: 1 earlier patch(es)" in out, out
+    cases += 1
+    print("  ok   an earlier patch on another line is not a conflict")
+
+    near = work / "near"
+    near.mkdir()
+    (near / "0500-near.patch").write_text(
+        "--- a/bsd/kern/bsd_init.c" + chr(10) +
+        "+++ b/bsd/kern/bsd_init.c" + chr(10) +
+        "@@ -5,3 +5,4 @@" + chr(10) +
+        " " + chr(10) +
+        "+\tint near_the_call = 0;" + chr(10) +
+        " \tbsd_init_kprintf(\"calling vfsinit\\n\");" + chr(10) +
+        " \tvfsinit();" + chr(10))
+    (near / NAME).write_bytes(good)
+    (near / "series").write_text("0500-near.patch" + chr(10) + NAME + chr(10))
+    code, out = run(sys.executable, str(CHECK), str(root), "--series", str(near))
+    assert code == 1, out
+    assert "SERIES FAILED: 0500-near.patch edits bsd/kern/bsd_init.c" in out, out
+    cases += 1
+    print("  ok   an earlier patch on the call site is a failure")
     print("TESTS OK %d cases" % cases)
 
 

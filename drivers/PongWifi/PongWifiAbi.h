@@ -103,6 +103,9 @@ static inline void pong_wifi_caps_fill(uint8_t caps[PONG_WIFI_CAPS_BYTES])
 #define PONG_SCAN_CHANNEL_ENTRY 12u
 #define PONG_SCAN_CHANNELS_READ 64u
 #define PONG_SCAN_FREQUENCIES_MAX 32u
+/* 6 GHz starts at 5925 MHz. The station's channel list carries its passive channels but a scan never
+   visits them; a 24A446 daemon is not told they exist (the reference port's answer stops at 5 GHz). */
+#define PONG_BAND_6GHZ_MIN 5925u
 #define PONG_SCAN_CHANNEL_2GHZ 0x8u
 #define PONG_SCAN_CHANNEL_5GHZ 0x10u
 

@@ -279,7 +279,7 @@ def main() -> int:
           'log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s"' in net and
           "gScanCursor = 0; gScanServed = 0; return EIO;" in net)
     check("the supported channel list reports both bands",
-          'log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi);' in net and
+          'log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, g24, g5);' in net and
           'log(6, "wifi-net: channel %u: number %u flags 0x%x", frequencies[i], out.chans.list[i].channel, out.chans.list[i].flags);' in net)
     check("the scan list is frozen when a sweep completes and sorted strongest first",
           "nw_bss_info gSnap[64]; unsigned gSnapCount;" in net and
@@ -312,6 +312,10 @@ def main() -> int:
           "const int32_t dbm = type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95;" in net and
           '"wifi-net: %s query -> %d dBm (link state %d)"' in net)
     abi_hdr = (ROOT / "drivers" / "PongWifi" / "PongWifiAbi.h").read_text(encoding="utf-8")
+    check("a 24A446 client is not offered the passive 6 GHz channels",
+          "PONG_BAND_6GHZ_MIN 5925u" in abi_hdr and
+          "if(gModern27Client && frequencies[i] >= PONG_BAND_6GHZ_MIN)continue;" in net and
+          "out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }" in net)
     check("one scan record serves the 24A446 and 22H374 extents",
           "PONG_SCAN_RECORD_24A446 0x8e8u" in abi_hdr and
           "PONG_SCAN_ELEMENTS_BYTES 2048u" in abi_hdr and

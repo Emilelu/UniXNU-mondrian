@@ -898,15 +898,20 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   case kCountryCode: { char cc[3]; country(cc); return answer_bytes(rq, cc, 3, kernel); }   // the two letters and a NUL (the daemon asks with a 3-byte buffer)
   case kAssociateResult: return answer_value(rq, static_cast<uint32_t>(gAssocResult), kernel);
   case kSupportedChannels: case kHwSupportedChannels: {
-    out.chans.version = 1; unsigned n = 0;
+    out.chans.version = 1; unsigned n = 0, g24 = 0, g5 = 0;
     uint32_t frequencies[401];unsigned actual=nw_wifi_channel_list(frequencies,401);
     // CWFChannel compares the complete flag word for supported membership.
     // Keep the band/width representation consistent with scan/current/
     // history channels rather than adding ACTIVE only to this answer.
-    for(unsigned i=0;i<actual && n<401;i++){fill_channel(out.chans.list[n],frequencies[i]);n++;}
-    static unsigned shown; if (!shown++) { unsigned lo=0, hi=0;
-      for (unsigned i = 0; i < n; i++) (frequencies[i] < 3000 ? lo : hi)++;
-      log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, lo, hi);
+    // A 24A446 daemon is told only about the channels the station can scan. Its 6 GHz entries are
+    // passive and a scan never visits them, so announcing them offers the pane networks the radio
+    // cannot hear (the reference port leaves them out of its answer); the 22H374 answer stays as the
+    // image that proved the pane. No flag word changes: only whole entries are dropped.
+    for(unsigned i=0;i<actual && n<401;i++){
+      if(gModern27Client && frequencies[i] >= PONG_BAND_6GHZ_MIN)continue;
+      fill_channel(out.chans.list[n],frequencies[i]);(frequencies[i]<3000?g24:g5)++;n++;}
+    static unsigned shown; if (!shown++) {
+      log(6, "wifi-net: supported channels %u: 2.4 GHz %u, 5/6 GHz %u", n, g24, g5);
       for (unsigned i = 0; i < n && i < 4; i++) log(6, "wifi-net: channel %u: number %u flags 0x%x", frequencies[i], out.chans.list[i].channel, out.chans.list[i].flags); }
     out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }
   case kScanResult: {

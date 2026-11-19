@@ -26,6 +26,26 @@ BUILD = Path(os.environ.get("K60_BUILD_TREE", "/opt/k60/trees/k60build"))
 OUT = Path(os.environ.get("K60_OUT", str(BUILD / "out-baseline")))
 
 
+def os_profile() -> str:
+    """The OS profile board.toml selects, so the gate grades the tree the build uses.
+
+    P-206 was "do not hardcode the board directory"; this is the same defect one
+    level up: the *profile* directory was hardcoded to iOS 16.6.1, so after the
+    branch moved to iOS 27.0.1 the gate inspected a tree nobody builds (P-256).
+    """
+    import tomllib
+
+    fallback = "ipados-16.6.1-20G81"
+    path = Path(os.environ.get("K60_REPO") or Path(__file__).resolve().parents[1]) / "board.toml"
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, ValueError):
+        return fallback
+    profile = data.get("board", {}).get("os_profile")
+    return profile if isinstance(profile, str) and profile else fallback
+
+
 def find_board_dir(out: Path) -> Path | None:
     """Locate the board dir instead of assuming it is named 'mondrian'.
 
@@ -37,17 +57,17 @@ def find_board_dir(out: Path) -> Path | None:
     legacy literal is the fallback, not the default.
     """
     candidates = [
-        cand for cand in sorted(out.glob("*/ipados-16.6.1-20G81/*"),
+        cand for cand in sorted(out.glob(f"*/{os_profile()}/*"),
                                 key=lambda p: p.stat().st_mtime, reverse=True)
         if (cand / "tree").is_dir() or (cand / ".config").is_file()
     ]
     if candidates:
         return candidates[0]
-    literal = out / "mondrian/ipados-16.6.1-20G81/mondrian"
+    literal = out / "mondrian" / os_profile() / "mondrian"
     return literal if literal.is_dir() else None
 
 
-M = find_board_dir(OUT) or OUT / "mondrian/ipados-16.6.1-20G81/mondrian"
+M = find_board_dir(OUT) or OUT / "mondrian" / os_profile() / "mondrian"
 FAKEROOT = M / "tree/.cache/fakeroot"
 
 # The Darwin tools Linux does not have. `xcodebuild` is the one that fails last

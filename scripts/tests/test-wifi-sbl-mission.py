@@ -275,7 +275,7 @@ def main() -> int:
           "if (tables > 3) return;" in net)
     check("the scan log says how many records the daemon read",
           "unsigned gScanCursor, gScanning, gScanServed;" in net and
-          "gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns);" in net and
+          "gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns,rq.req_len);" in net and
           'log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s"' in net and
           "gScanCursor = 0; gScanServed = 0; return EIO;" in net)
     check("the supported channel list reports both bands",
@@ -311,6 +311,21 @@ def main() -> int:
     check("every rssi and noise query logs the value it answers with",
           "const int32_t dbm = type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95;" in net and
           '"wifi-net: %s query -> %d dBm (link state %d)"' in net)
+    abi_hdr = (ROOT / "drivers" / "PongWifi" / "PongWifiAbi.h").read_text(encoding="utf-8")
+    check("one scan record serves the 24A446 and 22H374 extents",
+          "PONG_SCAN_RECORD_24A446 0x8e8u" in abi_hdr and
+          "PONG_SCAN_ELEMENTS_BYTES 2048u" in abi_hdr and
+          "uint8_t filler[PONG_SCAN_TIMESTAMP_OFFSET - PONG_SCAN_ELEMENTS_OFFSET - PONG_SCAN_ELEMENTS_BYTES];" in net and
+          "const uint32_t room = pong_scan_elements_room(request_bytes ? request_bytes : PONG_SCAN_RECORD_24A446);" in net and
+          "scan_result24" not in net and
+          "return copy_out(rq, &out.res, sizeof(out.res), kernel);" in net)
+    check("the 24A446 association request and completion event are decoded",
+          "const bool modern27=rq.req_len==PONG_ASSOC_REQUEST_24A446;" in net and
+          "gAssocModern27 = modern27;" in net and
+          "pong_assoc_event27 done{}" in net and
+          "post_event(kEvAssocDone, &done, sizeof done);" in net and
+          "uint8_t data[16 + sizeof(pong_assoc_event27)];" in net and
+          "sizeof(struct pong_assoc_event27) == 540" in abi_hdr)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

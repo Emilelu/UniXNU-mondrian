@@ -7334,12 +7334,15 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
    `expect = "必须出现在该行的文本"`，再加 `dependence`（none/macro/firmware/property-number/layout）
    说明 27 侧要换的是什么，`ios27` 写动作。
 2. `scripts/check-hw-contracts.py` 逐行解析定位：文件缺失、行号越界、该行不含记录文本、id 重复、
-   dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 16 项回归
-   覆盖"常量挪了""引了第 9 行""整条线没人管""第二份副本漂了"。
+   dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 19 项回归
+   覆盖"常量挪了""引了第 9 行""整条线没人管""第二份副本漂了""清单被手改"。
 3. 项数这类聚合值不要写死在散文里：要么写成"见 `run-k60-power-host.sh` 的输出"，要么由检查器比对
    （`check-power-carry.py` 已经比对 CARRY.toml 的项数与 runner 的 `run <suite> <N>` 行、以及判读器用例数）。
 4. 宏名/门控写法改变时，同一个提交里改掉所有提到它的注释与文档（这次 `judge-k60-sleep-console.py` 的
    REPORT 注释与 08 的行是一起改的）。
+5. 需要给人看的汇总也生成，不要手写：`check-hw-contracts.py --render` 从契约表产出
+   `docs/research/power/HW-CONTRACTS-IOS27.md`（按 dependence 分组的 27 改线清单），门禁比对两者，
+   手改这份清单会红——生成物按定义不会过期。
 
 **教训**：文档写"当前值"是最脆弱的引用形态，因为它不带地址、也没有读者会去验证；能写成
 "文件:行 + 该行文本"的，就让门禁去核，不能的，就改成指路而不是复述。一条数字在四处出现，就该有一处是生成的。

@@ -132,7 +132,9 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | `UniXNU/RamBlock` | RAM block 设备 |
 | `UniXNU/SoftwareAES` | 软件 AES-CBC |
 | `UniXNU/AppleKeyStoreState` | AppleKeyStore 状态 |
-| `UniXNU/VerifiedRoot` | 认证块读取 |
+| `UniXNU/VerifiedRoot` | 认证块读取（kernel 侧 `verified_root.h/.c`、`xnu_crypto.c` 与 policy fixture，catalog pin `974f043`） |
+| `UniXNU/ShengUfs` | UFS 传输与根发布层（`VerifiedTableCache.h`、`RootPublication.h`、`RootWindowRead.h` 及其 host tests；policy-table 流程参考 `NativeUfs.cpp:2169-2330`；`RootWindowVerifier.h` 为 policy table + page cache 的宿主可测封装） |
+| `UniXNU/VirtioMmioBlock` | `NativeVerifiedBlockPolicy` 策略表接口 |
 | `UniXNU/ShengPreflight` | sheng 固件预检 |
 | `UniXNU/QcomBaseband` | 基带参考 |
 | `UniXNU/QcaBluetooth` | 蓝牙参考 |

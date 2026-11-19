@@ -11,6 +11,7 @@
 #include <IOKit/IOLib.h>
 #include <vm/vm_kern.h>
 #include <kern/clock.h>
+#include <kern/thread.h>
 #include <mach/mach_time.h>
 #include <libkern/c++/OSBoolean.h>
 #include <libkern/c++/OSDictionary.h>
@@ -131,6 +132,37 @@ extern "C" boolean_t PE_parse_boot_arg_str(const char *arg_string, char *arg_ptr
 #include "RootQueue.h"
 #include "RootCommands.h"
 #include "RootLayout.h"
+#include "RootPublication.h"
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+#include "RootWindowRead.h"
+#include "RootWindowVerifier.h"
+#include "VerifiedBlockPolicy.h"
+extern "C" {
+extern const struct vr_crypto vr_xnu_crypto;
+extern const uint8_t verified_root_key[];
+}
+#endif
+
+static RootLayout gRootLayout;
+
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+// Cache and table-page I/O for the verified-root adapter. The table object is
+// read straight from LUN 0, never through a window device, so a page-in cannot
+// recurse into a verified read of the window that needed it.
+struct PongVrootOps {
+  IOLock *lockObject = nullptr;
+  void lock() { IOLockLock(lockObject); }
+  void unlock() { IOLockUnlock(lockObject); }
+  void sleep(void *event) { IOLockSleep(lockObject, event, THREAD_UNINT); }
+  void wakeup(void *event) { IOLockWakeup(lockObject, event, false); }
+  bool readPage(const VrootTable &table, uint64_t page, void *dst) {
+    return hostRead4k(0, table.firstLba + page, 1, dst) == kIOReturnSuccess;
+  }
+  bool sha256(const void *data, size_t bytes, uint8_t out[32]) {
+    return vr_xnu_crypto.sha256(data, bytes, out) != 0;
+  }
+};
+#endif
 
 static bool transportFailure(const char *why) {
   gHost.ready = false;
@@ -260,8 +292,27 @@ class PongUfsBlock : public IOBlockStorageDevice {
   IOLock *mutex = nullptr;
   bool online = false;
   RootDiskWindow window = {};
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  RootWindowVerifier verifier = {};
+  bool verifierReady = false;
+  IOLock *vrootLock = nullptr;
+  uint8_t *verifyHeader = nullptr;
+  uint8_t *verifyPageHashes = nullptr;
+  uint32_t *verifyWhere = nullptr;
+  uint8_t *verifyScratch = nullptr;
+  VrootCacheEntry *verifyEntries = nullptr;
+  uint8_t *verifyCachePages = nullptr;
+  size_t verifyPageHashBytes = 0;
+  size_t verifyWhereBytes = 0;
+  uint32_t verifyCacheCount = 0;
+  bool configureVerification();
+  void releaseVerification();
+#endif
 public:
   bool init(OSDictionary *properties, const RootDiskWindow &selected);
+  bool prepareForPublish(IOService *provider);
+  bool publishWindow(IOService *provider);
+  bool verifiedVolumeUuid(char out[37]) const;
   bool start(IOService *provider) override;
   void free() override;
   IOReturn doEjectMedia() override { return kIOReturnUnsupported; }
@@ -463,14 +514,98 @@ bool PongUfsBlock::init(OSDictionary *properties, const RootDiskWindow &selected
   window = selected;
   return true;
 }
-bool PongUfsBlock::start(IOService *provider) {
-  bounce = static_cast<uint8_t *>(IOMalloc(4096)); mutex = IOLockAlloc();
-  if (!bounce || !mutex || !gHost.ready || !window.size || !IOBlockStorageDevice::start(provider)) return false;
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+bool PongUfsBlock::configureVerification() {
+  RootPolicySelection selection = {};
+  gRootDiagnostic.stage = "policy selection";
+  if (!verified_root_policy_count || verified_root_policy_count > 16 ||
+      !rootPolicySelect(verified_root_policies, verified_root_policy_count, window.size, &selection))
+    return false;
+  vrootLock = IOLockAlloc();
+  if (!vrootLock) return false;
+  PongVrootOps ops;
+  ops.lockObject = vrootLock;
+  RootWindowVerifierMemory memory = {};
+  if (selection.headerOnly) {
+    const uint64_t pages = rootWindowTablePages(selection.tableBytes);
+    if (!pages || pages > UINT32_MAX / 32 || pages > UINT32_MAX / sizeof(uint32_t)) return false;
+    verifyPageHashBytes = static_cast<size_t>(pages * 32);
+    verifyWhereBytes = static_cast<size_t>(pages * sizeof(uint32_t));
+    verifyCacheCount = 512;
+    verifyHeader = static_cast<uint8_t *>(IOMalloc(VR_BLOCK_BYTES));
+    verifyPageHashes = static_cast<uint8_t *>(IOMalloc(verifyPageHashBytes));
+    verifyWhere = static_cast<uint32_t *>(IOMalloc(verifyWhereBytes));
+    verifyScratch = static_cast<uint8_t *>(IOMalloc(VR_BLOCK_BYTES));
+    verifyEntries = static_cast<VrootCacheEntry *>(IOMalloc(verifyCacheCount * sizeof(VrootCacheEntry)));
+    verifyCachePages = static_cast<uint8_t *>(IOMalloc(verifyCacheCount * VR_BLOCK_BYTES));
+    if (!verifyHeader || !verifyPageHashes || !verifyWhere || !verifyScratch || !verifyEntries ||
+        !verifyCachePages)
+      return false;
+    memory = {verifyHeader, VR_BLOCK_BYTES, verifyPageHashes, verifyPageHashBytes, verifyWhere,
+              verifyWhereBytes / sizeof(uint32_t), verifyScratch, VR_BLOCK_BYTES, verifyEntries,
+              verifyCachePages, verifyCacheCount};
+  }
+  gRootDiagnostic.stage = "policy table";
+  if (!rootWindowVerifierConfigure(verifier, memory, selection, gRootLayout.window, gRootLayout.windows,
+                                   gRootLayout.userdataFirst, window.name, verified_root_key,
+                                   &vr_xnu_crypto, ops))
+    return false;
+  verifierReady = true;
+  return true;
+}
+
+bool PongUfsBlock::verifiedVolumeUuid(char out[37]) const {
+  if (!out) return false;
+  out[0] = 0;
+  if (!verifierReady) return false;
+  const uint8_t *u = verifier.view.volume_uuid;
+  bool any = false;
+  for (unsigned i = 0; i < 16; ++i) any = any || u[i] != 0;
+  if (!any) return false;
+  snprintf(out, 37, "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+           u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11],
+           u[12], u[13], u[14], u[15]);
+  return true;
+}
+
+void PongUfsBlock::releaseVerification() {
+  if (verifierReady && vrootLock) {
+    PongVrootOps ops;
+    ops.lockObject = vrootLock;
+    rootWindowVerifierDrop(verifier, ops);
+    verifierReady = false;
+  }
+  if (verifyHeader) IOFree(verifyHeader, VR_BLOCK_BYTES);
+  if (verifyPageHashes) IOFree(verifyPageHashes, verifyPageHashBytes);
+  if (verifyWhere) IOFree(verifyWhere, verifyWhereBytes);
+  if (verifyScratch) IOFree(verifyScratch, VR_BLOCK_BYTES);
+  if (verifyEntries) IOFree(verifyEntries, verifyCacheCount * sizeof(VrootCacheEntry));
+  if (verifyCachePages) IOFree(verifyCachePages, verifyCacheCount * VR_BLOCK_BYTES);
+  verifyHeader = nullptr;
+  verifyPageHashes = nullptr;
+  verifyWhere = nullptr;
+  verifyScratch = nullptr;
+  verifyEntries = nullptr;
+  verifyCachePages = nullptr;
+  if (vrootLock) IOLockFree(vrootLock);
+  vrootLock = nullptr;
+}
+#endif
+bool PongUfsBlock::prepareForPublish(IOService *provider) {
+  bounce = static_cast<uint8_t *>(IOMalloc(kDataMax)); mutex = IOLockAlloc();
+  if (!bounce || !mutex || !gHost.ready || !window.size) return false;
   gRootDiagnostic.stage = "first root read";
   if (hostRead4k(0, window.baseByte / 4096, 1, bounce) != kIOReturnSuccess)
     return transportFailure("first root read");
   if (memcmp(bounce + window.signatureOffset, window.signature, strlen(window.signature)))
     return transportFailure("SHNGROOT window signature mismatch");
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  // Data keeps the path that predates verified-root; P-152/P-153 apply there.
+  if (strcmp(window.name, "Data") && !configureVerification()) {
+    releaseVerification();
+    return transportFailure("verified root policy");
+  }
+#endif
   gRootDiagnostic.first = kPongUserdataFirst4k;
   gRootDiagnostic.last = kPongUserdataLast4k;
   gRootDiagnostic.windowBytes = window.size;
@@ -484,14 +619,27 @@ bool PongUfsBlock::start(IOService *provider) {
   setProperty("PongSystemOSWindow", !strcmp(window.name, "SystemOS"));
   setProperty("PongDataWindow", !strcmp(window.name, "Data"));
   setProperty("Physical Interconnect", "UFS");
+  return true;
+}
+
+bool PongUfsBlock::publishWindow(IOService *provider) {
+  if (online) return true;
+  if (!IOBlockStorageDevice::start(provider)) return false;
   online = true; registerService();
   char detail[96];
   snprintf(detail, sizeof(detail), "SHNGROOT %s disk published", window.name);
   PongProbeRecord(4, "ufs-transport", PongProbePass, detail, window.size);
   return true;
 }
+
+bool PongUfsBlock::start(IOService *provider) {
+  return prepareForPublish(provider) && publishWindow(provider);
+}
 void PongUfsBlock::free() {
-  if (bounce) IOFree(bounce, 4096);
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  releaseVerification();
+#endif
+  if (bounce) IOFree(bounce, kDataMax);
   if (mutex) IOLockFree(mutex);
   IOBlockStorageDevice::free();
 }
@@ -531,6 +679,45 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
           (unsigned long long)block, (unsigned long long)count);
     gHost.readTraceCount++;
   }
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  if (!write && verifierReady) {
+    struct RequestOps {
+      IOMemoryDescriptor *buffer;
+      RootWindowVerifier &verifier;
+      PongVrootOps &vroot;
+      void lock() {}
+      void unlock() {}
+      IOReturn read(uint64_t lba, uint32_t blocks, void *out) {
+        return hostRead4k(0, lba, blocks, out);
+      }
+      IOReturn verify(uint64_t index, const void *data, size_t length) {
+        const int status = rootWindowVerifierVerify(verifier, vroot, index, data, length, &vr_xnu_crypto);
+        if (status != VR_OK) {
+          gRootDiagnostic.stage = "read block integrity";
+          gRootDiagnostic.verify = static_cast<uint32_t>(status);
+          return kIOReturnNotPrivileged;
+        }
+        return kIOReturnSuccess;
+      }
+      uint64_t copy(uint64_t offset, const void *data, uint64_t length) {
+        return buffer->writeBytes(offset, data, length);
+      }
+    };
+    PongVrootOps vroot;
+    vroot.lockObject = vrootLock;
+    RequestOps ops = {buffer, verifier, vroot};
+    IOLockLock(mutex);
+    const UfsWindowResult outcome = ufsReadWindow(ops, window.baseByte, window.size, block, count, bounce);
+    IOLockUnlock(mutex);
+    if (outcome.status != kIOReturnSuccess) {
+      if (gRootDiagnostic.verify == 0xffffffff) gRootDiagnostic.stage = "read block integrity";
+      completion->action(completion->target, completion->parameter, outcome.status, outcome.done);
+      return kIOReturnSuccess;
+    }
+    completion->action(completion->target, completion->parameter, kIOReturnSuccess, outcome.done);
+    return kIOReturnSuccess;
+  }
+#endif
   static uint32_t k60WriteTrace;
   const bool k60TraceWrite = write && k60WriteTrace < 8;
   if (k60TraceWrite) {
@@ -592,6 +779,178 @@ IOReturn PongUfsBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block
   completion->action(completion->target, completion->parameter, result, done);
   return kIOReturnSuccess;
 }
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+static PongUfsBlock *gPendingBlocks[4];
+static bool gPendingAttached[4];
+static bool gPendingStarted[4];
+static char gPendingUuid[4][37];
+static unsigned gPendingCount;
+static IOService *gPendingProvider;
+static UfsRootPlan gPublicationPlan;
+static void pongUfsPublishThread(void *, wait_result_t);
+
+struct PongProviderChain {
+  IOService *current = nullptr;
+  bool isValid() { return true; }
+  IOService *getNextObject() {
+    IOService *result = current;
+    if (current) current = current->getProvider();
+    return result;
+  }
+};
+
+// The window's IOMedia object must descend from the exact PongUfsBlock that
+// published it; a UUID collision elsewhere in the registry is not enough.
+static bool pongUfsWaitForMedia(PongUfsBlock *block, const char *uuid) {
+  if (!block) return false;
+  OSDictionary *matching = IOService::serviceMatching("IOMedia");
+  if (!matching) return false;
+  OSDictionary *properties = nullptr;
+  OSString *wanted = nullptr;
+  bool prepared = true;
+  if (uuid && uuid[0]) {
+    properties = OSDictionary::withCapacity(1);
+    wanted = OSString::withCString(uuid);
+    prepared = properties && wanted && properties->setObject("UUID", wanted) &&
+        matching->setObject("IOPropertyMatch", properties);
+  }
+  if (wanted) wanted->release();
+  if (properties) properties->release();
+  if (!prepared) {
+    matching->release();
+    return false;
+  }
+  bool found = false;
+  for (unsigned attempt = 0; attempt < 300 && !found; ++attempt) {
+    OSIterator *iterator = IOService::getMatchingServices(matching);
+    if (iterator) {
+      while (OSObject *object = iterator->getNextObject()) {
+        IOService *media = OSDynamicCast(IOService, object);
+        if (!media) continue;
+        PongProviderChain chain;
+        chain.current = media;
+        if (ufsMediaHasAncestor(chain, block)) {
+          found = true;
+          break;
+        }
+      }
+      iterator->release();
+    }
+    if (!found) {
+      if ((attempt % 50) == 49)
+        IOLog("PONG APFS: waiting for %s media %u/300\n",
+              uuid && uuid[0] ? uuid : block->getAdditionalDeviceInfoString(), attempt + 1);
+      IOSleep(100);
+    }
+  }
+  matching->release();
+  if (!found)
+    IOLog("PONG APFS: media wait timed out window=%s uuid=%s\n",
+          block->getAdditionalDeviceInfoString(), uuid && uuid[0] ? uuid : "?");
+  return found;
+}
+
+class PongUfsPublicationOps {
+public:
+  bool prepare(unsigned index) {
+    if (index >= gPendingCount) return false;
+    gRootDiagnostic.stage = "root window allocation/configuration";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Prepare);
+    gRootDiagnostic.publicationWindow = index;
+    PongUfsBlock *block = new PongUfsBlock;
+    if (!block) return false;
+    gPendingBlocks[index] = block;
+    if (!block->init(nullptr, gRootWindows[index])) return false;
+    if (!block->attach(gPendingProvider)) return false;
+    gPendingAttached[index] = true;
+    return block->prepareForPublish(gPendingProvider);
+  }
+
+  bool validate() {
+    gRootDiagnostic.stage = "signed window identities";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Identity);
+    for (unsigned i = 0; i < gPendingCount; ++i) {
+      const char *name = gRootWindows[i].name;
+      // Data has no signed policy in the reference policy sets. It keeps the
+      // existing property/ancestor path; only OS and SystemOS are signed.
+      if (!strcmp(name, "Data")) continue;
+      if (!gPendingBlocks[i] || !gPendingBlocks[i]->verifiedVolumeUuid(gPendingUuid[i]) ||
+          !gPendingUuid[i][0])
+        return false;
+      for (unsigned j = 0; j < i; ++j)
+        if (!strcmp(gPendingUuid[i], gPendingUuid[j])) return false;
+    }
+    return true;
+  }
+
+  bool schedule() {
+    if (!gPendingProvider) return false;
+    gRootDiagnostic.stage = "root publisher thread";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Schedule);
+    gRootDiagnostic.publicationWindow = 0xffffffff;
+    gPendingProvider->retain();
+    thread_t thread = nullptr;
+    const kern_return_t result = kernel_thread_start((thread_continue_t)pongUfsPublishThread, nullptr, &thread);
+    if (result != KERN_SUCCESS) {
+      gPendingProvider->release();
+      return false;
+    }
+    thread_deallocate(thread);
+    return true;
+  }
+
+  bool start(unsigned index) {
+    if (index >= gPendingCount || !gPendingBlocks[index] || !gPendingAttached[index] ||
+        gPendingStarted[index])
+      return false;
+    gRootDiagnostic.stage = "root window service start";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Start);
+    gRootDiagnostic.publicationWindow = index;
+    if (!gPendingBlocks[index]->publishWindow(gPendingProvider)) return false;
+    gPendingStarted[index] = true;
+    return true;
+  }
+
+  bool wait(unsigned index) {
+    if (index >= gPendingCount || !gPendingStarted[index]) return false;
+    gRootDiagnostic.stage = "media publication";
+    gRootDiagnostic.publicationPhase = static_cast<uint32_t>(UfsRootPhase::Media);
+    gRootDiagnostic.publicationWindow = index;
+    const char *uuid = gPendingUuid[index][0] ? gPendingUuid[index] : nullptr;
+    return pongUfsWaitForMedia(gPendingBlocks[index], uuid);
+  }
+
+  void discard(unsigned index) {
+    if (index >= gPendingCount || !gPendingBlocks[index] || gPendingStarted[index]) return;
+    if (gPendingAttached[index]) gPendingBlocks[index]->detach(gPendingProvider);
+    gPendingBlocks[index]->release();
+    gPendingBlocks[index] = nullptr;
+    gPendingAttached[index] = false;
+  }
+};
+
+static void pongUfsPublishThread(void *, wait_result_t) {
+  PongUfsPublicationOps ops;
+  const UfsRootPublicationResult result = ufsPublishRootWindows(ops, gPublicationPlan);
+  gRootDiagnostic.publicationPhase = static_cast<uint32_t>(result.phase);
+  gRootDiagnostic.publicationWindow = result.index;
+  gRootDiagnostic.published = result.published;
+  if (result.phase == UfsRootPhase::Start) {
+    gRootDiagnostic.stage = "root window start";
+    gRootDiagnostic.result = kIOReturnIOError;
+  } else if (result.phase == UfsRootPhase::Media) {
+    gRootDiagnostic.stage = "root media wait";
+    gRootDiagnostic.result = kIOReturnTimeout;
+  } else if (result.phase == UfsRootPhase::Complete) {
+    gRootDiagnostic.stage = "root publication complete";
+  }
+  if (gPendingProvider) {
+    gPendingProvider->release();
+    gPendingProvider = nullptr;
+  }
+}
+#endif
+
 extern "C" bool pong_ufs_transport_start(IOService *provider) {
   if (gTransportAttempted) {
     IOLog("PONG_UFS: transport attempt already completed; skip duplicate match\n");
@@ -618,7 +977,7 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
   if (meta->getClassSize() != sizeof(IOBlockStorageDevice) || meta->getSuperClass() != &IOService::gMetaClass)
     return transportFailure("original storage class/parent ABI mismatch");
   if (!hostBringUp()) return false;
-  RootLayout layout;
+  RootLayout &layout = gRootLayout;
   const char *why = nullptr;
   if (!findRootLayout(&layout, &why)) return transportFailure(why);
   // The geometry is read from the board's own GPT instead of a captured Pong
@@ -648,13 +1007,37 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
     }
     if (!found) return transportFailure("required SHNGROOT window missing");
   }
-  for (unsigned index = 0; index < gRootWindowCount; ++index) {
+  // Publish in the reference order: SystemOS first, OS last, any other
+  // window in between. ufsBuildRootPlan also rejects duplicate names and a
+  // missing required window; the old loop started OS before SystemOS.
+  const char *names[4] = {};
+  for (unsigned index = 0; index < gRootWindowCount; ++index)
+    names[index] = gRootWindows[index].name;
+  UfsRootPlan plan;
+  if (!ufsBuildRootPlan(names, gRootWindowCount, plan))
+    return transportFailure("root window publication plan");
+#if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
+  gPublicationPlan = plan;
+  gPendingProvider = provider;
+  gPendingCount = gRootWindowCount;
+  PongUfsPublicationOps publication;
+  const UfsRootPublicationResult prepared = ufsPrepareRootWindows(publication, gRootWindowCount);
+  gRootDiagnostic.publicationPhase = static_cast<uint32_t>(prepared.phase);
+  gRootDiagnostic.publicationWindow = prepared.index;
+  if (prepared.phase != UfsRootPhase::Complete)
+    return transportFailure("root window preparation");
+  gRootDiagnostic.prepared = gRootWindowCount;
+  return true;
+#else
+  for (unsigned position = 0; position < plan.count; ++position) {
+    unsigned index = plan.order[position];
     OSSharedPtr<PongUfsBlock> block(new PongUfsBlock, OSNoRetain);
     if (!block || !block->init(nullptr, gRootWindows[index]) || !block->attach(provider))
       return transportFailure("block allocation/attachment");
     if (!block->start(provider)) { block->detach(provider); return transportFailure("block start"); }
   }
   return true;
+#endif
 }
 
 // Called from the WiFi worker; true only after the UFS transport reached LUN 0

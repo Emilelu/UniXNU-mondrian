@@ -140,6 +140,45 @@ python3 scripts/apply-audio27-wiring.py <tree> --anchor "<unix_startup.c 那一�
 
 写进去的是 `bsd/conf/files:109` 与 `:110` 两行（`PongAudioGeniI2c.c`、`PongAudioAmp.c`），
 `bsd/dev` 下九个文件（两个 `.c` 加七个头）。**只读别人的输出树**：验证都在 `/tmp` 副本上做。
+### 在真的 27 源树上走了一遍（2026-11-20 05:40 实测）
+
+前面几节是在 `/tmp` 里照 27 的形状搭的空树。这一节是把 `cp -a` 出来的**真源树**
+（`/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc`，`git log -1` = `ac9718f xnu-12377.121.6`）接上：
+
+```
+$ python3 scripts/apply-audio27-wiring.py /tmp/x27real --anchor "$(printf 'bsd/dev/unix_startup.c\t\t\tstandard')"
+audio conffiles: anchor line 'bsd/dev/unix_startup.c\t\t\tstandard'
+audio conffiles: pong_audio lines 0 -> 2
+audio conffiles: both entries listed
+audio wiring: sources 9 (added 9, refreshed 0, current 0)
+audio wiring: OK sources=9 conf=2
+
+$ python3 scripts/check-audio27-kernel-api.py /tmp/x27real | tail -1
+API OK 4/4 xnu-12377.121.6 ac9718f: PE_parse_boot_argn pexpert/pexpert/pexpert.h:351,
+  delay_for_interval osfmk/kern/clock.h:327, ml_io_map osfmk/arm/machine_routines.h:603,
+  ml_io_map_wcomb osfmk/arm/machine_routines.h:607
+
+$ grep -n PongAudio /tmp/x27real/bsd/conf/files
+109:bsd/dev/PongAudioGeniI2c.c			standard
+110:bsd/dev/PongAudioAmp.c			standard
+```
+
+也就是说：真树的锚点、两行 conf、九个文件、四个接口，一次全对；不需要先把树构建起来。
+
+### 为什么不在 27 源树外面直接编这两个 `.c`
+
+「拿真头文件编一遍胶水」听起来比桩更强，实测走不通一半：
+
+- `PongAudioGeniI2c.c` 用 `-nostdinc -ffreestanding -target arm64-apple-ios27.0` 加
+  `-I EXTERNAL_HEADERS -I bsd -I osfmk -I pexpert -I libkern -I SETUP -I osfmk/arm` 编得过
+  ——但它只 include 自己的头文件，能过说明的是「这个头自洽」，不是「胶水与内核兼容」。
+- `PongAudioAmp.c` 会走到 `osfmk/kern/assert.h` 的 `#include <mach_assert.h>`，而这个头是**构建时生成**的
+  （`SETUP/setup.sh`），源树里根本没有；再往下还有 `IOKit/IOInterrupts.h`（SDK 侧）与
+  `kern_types.h` 的 `clock_t` 重定义，都是构建自己的 include 顺序与生成头才能消掉的东西。
+
+结论：外面的编译**不能**当作 27 的判据，能当判据的只有两样——源码级检查（`API OK` / 迁移清单 / 符号表）
+和**构建产物**（`scripts/check-audio27-kernel.py`，见上一节）。真编译只有走真实构建一条路，
+而它由 Lead 的 F1 流水线负责；接线对不对，看那次的 `AUDIO27 OK` 或 `AUDIO27 FAILED`。
 ### 第零道闸：驱动宏 `XNU_PONG_AUDIO`
 
 `PongAudioAmp.c` 的整个函数体在一个 `#if` 里：`#if defined(PONG) || defined(XNU_PONG_AUDIO)`

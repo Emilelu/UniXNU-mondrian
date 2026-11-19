@@ -36,6 +36,27 @@ python3 scripts/tests/test-check-disk-space.py # 16 例
    并在 `docs/YIBIYA-FORK-REFERENCE.md` 之类登记处标注删除日期。
 4. **压虚拟盘**（见下节）。这一步才真正把空间还给 Windows。
 
+## 2.5 谁来删：`scripts/k60-janitor.py`
+
+`hard-41` 只回答「还剩多少」，它会在快满时阻断，但**从不回收**。回收由
+`scripts/k60-janitor.py` 负责，默认 dry run：
+
+```bash
+python3 scripts/k60-janitor.py                 # 打印计划，不删
+python3 scripts/k60-janitor.py --apply         # 执行（镜子属 root 时用 root 跑）
+python3 scripts/k60-janitor.py --apply --json  # 定时任务用
+```
+
+规则（`scripts/tests/test-disk-guards.py` 五项断言）：
+
+- 每个 `${前缀}-${8位日期+后缀}` 只留**最新 `--keep`（默认 2）个**，且只删比
+  `--days`（默认 3）更旧的——闲了一周的分支，它最后一次输出可能还要回答问题；
+- `/tmp` 只删超过 `--hours`（默认 24）的条目，**永不删符号链接**，
+  并且**保护被链接指向的构建树**（`/tmp/k60build`、`/tmp/fakeroot` 都指向树里）；
+- 镜子与输入（`k60build`、`gates-device`、`usb-cdc-mainline`、`gates-out`）写死在保护名单。
+
+2026-11-19 首次运行实测：`/opt` 94 → 24 GB、`/tmp` 30 → 13.7 GB，盘内 183 → 121 GB。
+
 ## 3. 压 WSL 虚拟盘（需要管理员）
 
 虚拟盘在 `D:\Android\wsl\Ubuntu-24.04\ext4.vhdx`。`diskpart` 必须提权，非管理员运行会

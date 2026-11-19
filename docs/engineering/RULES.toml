@@ -914,3 +914,11 @@ title = "文本断言不是编译器：未闭合注释让 22 条单测全过而 
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-present-stage-split.py"
 note = "撤销 pitched-copy 分支时留下未闭合 `/*`，Mac 侧报 `function definition is not allowed here`；插件侧头文件改动必须有一次真实语法检查，文本断言只证明字符串在文件里。"
+
+[[rule]]
+id = "P-246"
+kind = "pitfall"
+title = "有门禁不等于有人回收：25 个旧输出目录把虚拟盘涨到 181.8 GB"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-disk-guards.py"
+note = "scripts/k60-janitor.py 才是删除者；hard-41 只量余量。测试证明它保留最新 N 个、跳过符号链接、保护镜子与被链接的树。"

@@ -156,6 +156,17 @@ tree, the branch is level with its remote, and
 `python3 scripts/sync-device-input.py --check` reports no drift. The gates below
 then run automatically and must all pass.
 
+**Space is part of the check.** `hard-41` (`scripts/check-disk-space.py`) refuses
+to build when a filesystem is below its blocking line, but it only measures what
+is left — it never reclaims. Every experiment that writes a new `K60_OUT` needs a
+deleter, and that is `python3 scripts/k60-janitor.py --apply` (dry run without
+`--apply`; keep the newest two outputs of each prefix, never touch a `/tmp`
+symlink or the tree one points at, never touch a mirror). On 2026-11-19 the
+virtual disk reached 181.8 GB this way: twenty-five stale
+`power-conformance-battery-*` outputs (47.6 GB) plus 18.3 GB of old `/tmp`
+entries, while every gate stayed green. See `docs/engineering/DISK-HYGIENE.md`
+§2.5 and P-246.
+
 ## Gates
 
 `python3 scripts/check-rules.py` is the registry: it runs every check below and

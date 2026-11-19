@@ -1331,3 +1331,16 @@ teardown 的实现（本轮）：
 离线验证：两代站头各编译一次（16 头 ath11k-abi1 与 27 头 ath11k-abi27），产物 /opt/k60/trees/k60build/wifi/teardown16/libPongWifiNative.a 与 teardown27/libPongWifiNative.a 都是 12,098,984 / 12,099,064 字节；llvm-nm --defined-only 里两者都有 _pong_wifi_station_stop 与 _pong_wifi_net_stop。scripts/tests/test-wifi-sbl-mission.py 新增两条检查（「a requested stop quiesces the interface and releases the station」「events are installed before the station starts」），整套 summary: 0 failure(s)。
 
 本节不改变任何 Apple80211 形状：27 的 0x8e8/2048/540 事件仍在 feat/wifi-ios27-abi 上按 sheng 24A446 准备，等 fork 走到 bsd_init 再核对 selector 0 信封。
+
+
+## 43. 官方清单最后一项：归档自检进门禁（2026-11-19 14:58，c658df2b）
+
+官方 network 清单的「构建与验证」要求两件事：用 ar t 证明归档成员是真对象，用 nm --defined-only 证明入口点是定义而不是引用。此前 scripts/check-kernel-archives.py 只查 EXPECTED 表里的五个 defconfig 归档；wifi 归档走的是 XNU_PONG_WIFI_ARCHIVE 环境变量（build-strict.sh:195-219），完全在门禁之外——一个空归档或只有 import 的归档照样让链接成功、镜像过校验，而内核里没有 WiFi，这正是 P-190 的形状。
+
+本次改动（c658df2b）：
+- ENV_ARCHIVES 表：XNU_PONG_WIFI / XNU_PONG_WIFI_ARCHIVE / build/pong-wifi/libPongWifiNative.a / 入口 pong_wifi_start_optional / 后加 pong_wifi_net_stop。
+- parse_defined_symbols() 按 nm 的类型列判定，U 不算定义；inspect_archive() 用 ar t 数成员、用 nm 取定义集合。
+- 判定：归档在但无成员 → 失败；无入口符号 → 失败；无 pong_wifi_net_stop 只打 note（陈旧归档会造 P-207 式死锁，除 teardown 外不该拦构建）；环境变量指向的路径不存在 → 失败；未设环境变量且默认路径不存在 → skip（build-strict.sh:215 已在链接前拒绝这种配置，而门禁跑在所有线上）。
+- 自检四条新用例：wifi 键必须是 mondrian_wifi_defconfig 真键、import 不算定义、缺入口失败、有入口通过；WSL 内 14 case 0 failure。
+
+真机归档核对：teardown16 与 teardown27 的 libPongWifiNative.a 各 5 个成员、3507 个定义符号，pong_wifi_start_optional 与 pong_wifi_net_stop 都在（llvm-nm-18 / llvm-ar-18）。§42 的「组件存档登记」未覆盖项因此收窄为「board 仍用环境变量而不是 [components]/[kernel] archives 登记」，清单要求的两项归档自检已落到门禁。

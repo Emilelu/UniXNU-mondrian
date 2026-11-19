@@ -120,6 +120,19 @@ def judge(text, window):
         items.append(("FAIL", "rmtfs rw served", detail))
         missing_required += 1
 
+    # Which disk answered. The modem partitions live on their own LUN here, so a
+    # served read without this line cannot be told apart from a read off the
+    # wrong table (P-210).
+    volume = re.findall(r"K60UFS volume name=(\S+) lun=(\d+) first=(\d+) last=(\d+)", text)
+    if volume:
+        name, lun, vfirst, vlast = volume[0]
+        items.append(("PASS", "volume lun chosen",
+                      "name=%s lun=%s first=%s last=%s" % (name, lun, vfirst, vlast)))
+    elif served:
+        items.append(("FAIL", "volume lun chosen", "a read was served but no LUN was named"))
+        missing_required += 1
+    else:
+        items.append(("SKIP", "volume lun chosen", "no named read happened"))
     # Heap: k52 announces 0x34/1 on 0x101 and answers 0x22/0x23/0x24.
     announce = first(r"announced memshare service (\d+) instance (\d+) port (0x[0-9a-f]+)", text)
     if announce:
@@ -217,6 +230,7 @@ K60MODEM qrtr: announced rmtfs service 14 instance 1 port 0x102
 K60MODEM qrtr: rmtfs open path=/boot/modem_fs1 storage=1
 K60MODEM qrtr: rmtfs open path=/boot/modem_fs2 storage=2
 K60MODEM qrtr: rmtfs alloc storage=1 bytes=2621440 physical=0x8f000000
+K60UFS volume name=modemst1 lun=4 first=6 last=16389
 K60MODEM qrtr: rmtfs rw storage=1 direction=0 vectors=2 served
 K60MODEM qrtr: announced memshare service 52 instance 1 port 0x101
 K60MODEM qrtr: memshare request=0x24 client=1 bytes=0 result=0
@@ -246,9 +260,12 @@ FIXTURE_FAILED = FIXTURE_SHORT.replace("K60MODEM auth_reset ok", "K60MODEM auth_
 FIXTURE_REFUSED = FIXTURE_PASS.replace("vectors=2 served", "vectors=2 not-served")
 
 
+FIXTURE_NOLUN = FIXTURE_PASS.replace("K60UFS volume name=modemst1 lun=4 first=6 last=16389" + chr(10), "")
+
+
 def self_test():
     cases = (("PASS", FIXTURE_PASS), ("INVALID", FIXTURE_SHORT), ("FAILED", FIXTURE_FAILED),
-             ("FAILED", FIXTURE_REFUSED))
+             ("FAILED", FIXTURE_REFUSED), ("FAILED", FIXTURE_NOLUN))
     for expected, text in cases:
         verdict, items, observed = judge(text, WINDOW_DEFAULT)
         assert verdict == expected, (expected, verdict)
@@ -257,7 +274,7 @@ def self_test():
     verdict, items, observed = judge(FIXTURE_REFUSED, WINDOW_DEFAULT)
     rw = [item for item in items if item[1] == "rmtfs rw served"][0]
     assert rw[0] == "FAIL", rw
-    print("K60 FLIGHT JUDGE PASS four verdicts and the served/not-served guard")
+    print("K60 FLIGHT JUDGE PASS five verdicts, the served/not-served guard, the volume lun guard")
     return 0
 
 

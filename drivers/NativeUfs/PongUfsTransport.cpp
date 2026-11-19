@@ -698,6 +698,24 @@ extern "C" bool native_pong_ufs_read_named_volume (const char *name, uint64_t of
   uint32_t skip = 0, sectors = 0;
   if (!nativeVolumePlan (entryFirst[lun], entryLast[lun], 4096, offset, length,
       &sector, &skip, &sectors)) return false;
+  // Say where the read went. The modem partitions sit on a LUN of their own on
+  // this board, and a console that only says "served" cannot tell a correct read
+  // from one answered off the wrong table. Logged once per name and LUN so a
+  // scatter of reads does not flood the console.
+  static char lastVolumeName[kNativeVolumeNameMax + 1] = { 0 };
+  static unsigned lastVolumeLun = kNativeVolumeLunCount;
+  bool sameName = lastVolumeLun == lun;
+  for (unsigned index = 0; sameName; ++index) {
+    if (lastVolumeName[index] != name[index]) sameName = false;
+    if (!sameName || name[index] == 0) break;
+  }
+  if (!sameName) {
+    for (unsigned index = 0; index < kNativeVolumeNameMax; ++index) lastVolumeName[index] = name[index];
+    lastVolumeName[kNativeVolumeNameMax] = 0;
+    lastVolumeLun = lun;
+    IOLog("K60UFS volume name=%s lun=%u first=%llu last=%llu" "\n", name, lun,
+        entryFirst[lun], entryLast[lun]);
+  }
   size_t done = 0;
   for (uint32_t index = 0; index < sectors; ++index) {
     if (hostRead4k (static_cast<uint8_t> (lun), sector + index, 1, gScratch) != kIOReturnSuccess)

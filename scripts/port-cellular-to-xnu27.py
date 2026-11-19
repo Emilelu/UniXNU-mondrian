@@ -97,6 +97,23 @@ def series_fragment():
     ]) + chr(10)
 
 
+def conf_entries(patch_paths):
+    """Sources the patches install, in bsd/conf/files spelling.
+
+    The patches only add files under bsd/dev; nothing in them teaches the build
+    tree to compile those files (16 line: scripts/append-conffiles.py, P-171).
+    """
+    names = set()
+    for path in patch_paths:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("+++ b/"):
+                    name = line[6:].strip()
+                    if name.startswith("bsd/dev/") and name.endswith(".c"):
+                        names.add(name)
+    return [name + chr(9) * 3 + "standard" for name in sorted(names)]
+
+
 def write_port(out, tree, anchor_text):
     os.makedirs(out, exist_ok=True)
     image = read("0620-k60-modem-image.patch")
@@ -109,6 +126,14 @@ def write_port(out, tree, anchor_text):
             handle.write(body)
     with open(os.path.join(out, "series-port.txt"), "w", encoding="utf-8") as handle:
         handle.write(series_fragment())
+    with open(os.path.join(out, "conffiles-port.txt"), "w", encoding="utf-8") as handle:
+        handle.write(chr(10).join(conf_entries([
+            os.path.join(out, name) for name in (
+                "0626-k60-modem-image.patch",
+                "0627-k60-modem-qrtr.patch",
+                "0628-k60-ipa.patch",
+            )
+        ])) + chr(10))
     call_sites, problem = build_call_sites(tree, anchor_text)
     if call_sites is None:
         return problem
@@ -181,7 +206,19 @@ def self_test():
         if not entries or broken:
             print("K60 PORT27 FAIL series lines must be bare patch names: %r" % (broken,))
             return 1
-        print("K60 PORT27 PASS renumbering, anchor insertion, refusal, verification, series")
+        build = open(os.path.join(out, "conffiles-port.txt"),
+                     encoding="utf-8").read().splitlines()
+        names = [line.split(chr(9))[0] for line in build]
+        stray = [line for line in build
+                 if not line.endswith(chr(9) * 3 + "standard")
+                 or not line.startswith("bsd/dev/")
+                 or not line.split(chr(9))[0].endswith(".c")]
+        if (not build or len(set(build)) != len(build) or stray
+                or "bsd/dev/pong_modem_link.c" not in names):
+            print("K60 PORT27 FAIL build list is not one source per line: %r" % (stray,))
+            return 1
+        print("K60 PORT27 PASS renumbering, anchor insertion, refusal, verification, "
+              "series, build list")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)

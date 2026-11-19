@@ -238,6 +238,138 @@ def bom_case():
     expect(code == 2, "a missing directory is not a success")
 
 
+PLAYBACK_HEAD = "PongAudio: amp play done playing=2/2"
+
+
+def step_line(n, nbytes, opcode, token):
+    return ("PongAudio: playback step %d send bytes=%d opcode=0x%08x token=0x%08x rc=0"
+            % (n, nbytes, opcode, token))
+
+
+def rx_line(opcode, token, status, kind=1):
+    return ("PongAudio: glink adsp_apps rx bytes=32 kind=%d opcode=0x%08x "
+            "token=0x%08x status=%d src=2:0x1 dst=3:0x2001 echoed=0x00000000"
+            % (kind, opcode, token, status))
+
+
+def playback_run(speaker_status=0, clock_status=0, switch="on", sysst=0x0011,
+                 write_done=0, extra=()):
+    """One synthetic playback plan, shaped like the real console lines."""
+    plan = [(0, 296, 0x01001000, 0x02001005, 0),
+            (1, 168, 0x01001006, 0x02001005, 0),
+            (2, 408, 0x01001000, 0x02001005, speaker_status),
+            (3, 136, 0x01001006, 0x02001005, 0),
+            (4, 88, 0x01001006, 0x02001005, 0),
+            (5, 60, 0x0100100C, 0x02001001, 0),
+            (6, 76, 0x0100100F, 0x02001002, clock_status),
+            (7, 64, 0x01001001, 0x02001005, 0),
+            (8, 64, 0x01001001, 0x02001005, 0),
+            (9, 72, 0x01001002, 0x02001005, 1),
+            (10, 64, 0x01001002, 0x02001005, speaker_status),
+            (11, 64, 0x01001002, 0x02001005, 0)]
+    lines = ["K60PANIC: ring kept"]
+    # the judge needs >= 500 lines for F2, and a boot that reached playback has many
+    lines += ["K60USBLOG: keepalive %d" % i for i in range(520)]
+    for n, nbytes, opcode, reply_opcode, status in plan:
+        token = 0x00030000 + n
+        lines.append(step_line(n, nbytes, opcode, token))
+        lines.append(rx_line(reply_opcode, token, status, 6 if reply_opcode == 0x02001002 else 1))
+    if switch != "none":
+        read = "0x00000002" if switch == "on" else "0x00000000"
+        lines.append("PongAudio: amp spk switch gpio=52 on=%d cfg=0x00000204 io=0x%08x read=%s"
+                     % (1 if switch == "on" else 0,
+                        0x2 if switch == "on" else 0x0, read))
+    for amp in (0, 1):
+        lines.append("PongAudio: amp%d play pll=%d status=0x%04x faults=0x0000 tries=51"
+                     % (amp, 1 if sysst & 0x1 else 0, sysst))
+    lines.append("PongAudio: amp play done playing=%d/2" % (2 if switch == "on" else 0))
+    for _ in range(write_done):
+        lines.append(rx_line(0x05001004, 0x10000001, 0, 3))
+    lines.extend(extra)
+    return lines
+
+
+def playback_cases():
+    """The cc card is judged by a tool, so the tool itself is pinned here."""
+    meta = {"state": "captured-budget-complete", "complete": True,
+            "stopReason": "budget", "panicMarker": None}
+
+    code, report = mod.judge_playback(playback_run(), meta)
+    expect(code == 0, "a full playback run with the switch high passes")
+    expect(any("SUCCESS" in l for l in report), "the verdict line says SUCCESS")
+    expect(any("PLLS|CLKS" in l for l in report), "S6 reports the clock bits")
+
+    # K60PANIC: ring kept is a ring marker, not a panic; the healthy run carries it
+    expect(not any("F1" in l for l in report), "ring kept is not a panic")
+
+    # no plan at all is 'never ran', not a failure
+    code, report = mod.judge_playback(["K60USBLOG: keepalive"] * 600, meta)
+    expect(code == 2, "a capture without the playback plan is 'never ran'")
+
+    # S5: the switch must be high and must read back high
+    code, report = mod.judge_playback(playback_run(switch="none"), meta)
+    expect(code == 1, "a missing switch drive fails")
+    expect(any("S5" in l for l in report), "the missing switch is named S5")
+
+    code, report = mod.judge_playback(playback_run(switch="low"), meta)
+    expect(code == 1, "a switch never driven high fails")
+
+    # driven high but the pad reads back low: a different failure, reported apart
+    stuck = [l.replace("read=0x00000002", "read=0x00000000")
+             if l.startswith("PongAudio: amp spk switch") else l
+             for l in playback_run(switch="on")]
+    code, report = mod.judge_playback(stuck, meta)
+    expect(code == 1, "a switch that reads back low fails")
+    expect(any("reads back" in l for l in report), "the readback mismatch is named")
+
+    # F3: the I2S sink was refused
+    code, report = mod.judge_playback(playback_run(speaker_status=1), meta)
+    expect(code == 1, "a refused speaker open fails")
+    expect(any("F3" in l for l in report), "the refusal is named F3")
+
+    # F4: PRM would not give the bit clock
+    code, report = mod.judge_playback(playback_run(clock_status=2), meta)
+    expect(code == 1, "a refused clock vote fails")
+    expect(any("F4" in l for l in report), "the clock refusal is named F4")
+
+    # F1: a real panic fails even when every step succeeded
+    code, report = mod.judge_playback(playback_run(extra=["K60KEXC: esr=0x96000010"]), meta)
+    expect(code == 1, "a panic fails the run")
+    expect(any("F1" in l for l in report), "the panic is named F1")
+    code, _ = mod.judge_playback(playback_run(), {"state": "captured", "panicMarker": "K60PANIC"})
+    expect(code == 1, "a panicMarker in capture.json fails the run")
+
+    # F5: the ADSP dropped, so the run proves nothing
+    code, report = mod.judge_playback(playback_run(extra=["PongAudio: glink adsp_apps down"]), meta)
+    expect(code == 1, "a glink drop fails the run")
+    expect(any("F5" in l for l in report), "the drop is named F5")
+
+    # S1: the capture must be complete
+    code, report = mod.judge_playback(playback_run(), {"state": "captured-disconnected"})
+    expect(code == 1, "a disconnected capture fails")
+    expect(any("S1" in l for l in report), "the state is named S1")
+
+    # S6 is reported, not gated: a clean run with no clock bits still exits 0
+    code, report = mod.judge_playback(playback_run(sysst=0x0000), meta)
+    expect(code == 0, "no clock bits is a finding, not a failure")
+    expect(any("no clock bits" in l for l in report), "0x0000 is reported as no clock bits")
+    code, report = mod.judge_playback(playback_run(sysst=0x0020), meta)
+    expect(code == 0, "NOCLKS is a finding, not a failure")
+    expect(any("NOCLKS" in l for l in report), "0x0020 is reported as NOCLKS")
+
+    # S7: the DSP never consumed a period on any image so far
+    code, report = mod.judge_playback(playback_run(write_done=3), meta)
+    expect(any("WRITE_DONE replies=3" in l for l in report), "write-done replies are counted")
+
+    # the constants the card names, so a script edit cannot drift past this test
+    expect(mod.SPEAKER_OPEN_STEP == 2 and mod.SPEAKER_OPEN_BYTES == 408,
+           "step 2 is the 408-byte speaker open")
+    expect(mod.SPEAKER_START_STEP == 10, "step 10 is the speaker start")
+    expect(mod.CLOCK_STEP == 6 and mod.CLOCK_OPCODE == 0x0100100F, "step 6 votes the clock")
+    expect(mod.SPK_SWITCH_GPIO == 52 and mod.SPK_SWITCH_ON_IO == 2, "gpio52 reads 0x2 when on")
+    expect(mod.SYSST_CLOCKS == 0x11 and mod.SYSST_NOCLKS == 0x20, "SYSST bits match section 8")
+
+
 def severity_case():
     """Two runs are combined by need, not by numeric max: failure outranks absent."""
     expect(mod.severity(1) > mod.severity(2), "a failed run outranks a run that never started")
@@ -248,6 +380,7 @@ def severity_case():
 def main():
     cases()
     replay_cases()
+    playback_cases()
     bom_case()
     severity_case()
     if fails:

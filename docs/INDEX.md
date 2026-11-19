@@ -2,8 +2,10 @@
 
 > 唯一文档入口。目标：新接手的人 5 分钟内知道**先读什么、文档在哪、哪些已过时**。
 >
-> 最后更新：2026-11-12。本索引由 `scripts/check-doc-links.py` 校验：文中每个相对链接
-> 必须指向真实存在的文件。
+> 最后更新：2026-11-16。本索引由 `scripts/check-docs.py` 校验相对链接与登记覆盖；
+> 该检查不证明硬件结论或上机门禁覆盖完整。
+>
+> **先读当前审计：[2026-11-16 重新审视](audits/REASSESSMENT-2026-11-16.md)**。记录 WiFi/BT 证据边界、ADSP 发布链保护缺口、同步 partial 结果与逐提交研判欠账。
 
 ---
 
@@ -16,8 +18,8 @@
 | 2 | [`engineering/STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细与变更记录 |
 - 2026-11-19 iOS 迁移边界（只保留可转移的活）：[IOS-SCOPE](engineering/IOS-SCOPE.md)
 | 3 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
-| 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★35，从踩过的坑提炼的可执行规则 |
-| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-130，每条含症状/根因/判据/教训 |
+| 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，从踩过的坑提炼的可执行规则 |
+| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-248，每条含症状/根因/判据/教训 |
 
 **要做触摸/GPU 之前，额外读：**
 - [`research/EIGHT-STEPS.toml`](research/EIGHT-STEPS.toml) — 该硬件的八步证据，⑦ 未通过不得刷机
@@ -46,12 +48,12 @@ docs/
 
 | 文件 | 一句话摘要 |
 |---|---|
-| [`STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细 + 2026-11-11/11-12 变更记录（README 的详细版） |
+| [`STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细、重新审视结论与历史变更记录 |
 | [`EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程规范：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机 |
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
-| [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★35，每条含来源、硬规则、判别方法 |
-| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-130：症状 → 真因 → 判别 → 教训 |
+| [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
+| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-248：症状 → 真因 → 判别 → 教训 |
 | [`GPU-IOSURFACE-ROOT-CAUSE.md`](engineering/GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 加速失败的根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [`TAGS.md`](engineering/TAGS.md) | tag 策略：只留 boot-proven、main 基线、版本里程碑三种 |
 | [`PITFALL-TO-RULE-INDEX.md`](engineering/PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |

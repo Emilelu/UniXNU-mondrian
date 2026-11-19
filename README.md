@@ -8,6 +8,9 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 > 最后更新：2026-11-16。详细状态与变更记录见
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md)。
+>
+> **2026-11-16 重新审视**：见[审计报告](docs/audits/REASSESSMENT-2026-11-16.md)。WiFi c7 停在硬件 SBL/READY，BT d7 在 NVM 阶段总预算超时，ADSP 早期发布链曾缺少 rail 保护，owner 分支已恢复拒绝并提供宿主轨迹；功能实验暂缓，按报告中的条件继续。
+> 下表是本分支八步台账的生成视图，不是镜像放行证。`parked` 项可能被 flash 门禁略过，表中的「可刷机」不能单独授权上机；必须核对镜像所属分支、实际选中的硬件与实验预测。历史通过也不代表当前 HEAD 已重建上机。
 
 ## 八步流程进度
 
@@ -21,14 +24,14 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **亮度（12-bit DBV / 背光一致性）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **八步全通** |
 | **固件与启动链（UEFI / DarwinBoot / payload）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **八步全通** |
 | **按键（power / volume）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **八步全通** |
-| **蓝牙（QCA6490 / HCI over UART）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
-| **无线（QCA6490 / PCIe + MHI）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 进行中 |
-| **音频（WCD938x + AW88261 / ADSP PAS1）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **卡在 ⑦ 核验** |
+| **蓝牙（QCA6490 / HCI over UART）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 已暂停（flash 门禁不选择） |
+| **无线（QCA6490 / PCIe + MHI）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 已暂停（flash 门禁不选择） |
+| **音频（WCD938x + AW88261 / ADSP PAS1）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | 已暂停（flash 门禁不选择） |
 | **电池（IOPMPowerSource / PMIC GLINK）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **USB（DWC3 复合设备 / 控制台 / 回环）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **八步全通** |
 | **thermal** | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ◐ | ✅ | device-verified |
-| **蜂窝（X70 modem / DXE 载具 / QRTR）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
+| **蜂窝（X70 modem / DXE 载具 / QRTR）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | 进行中 |
 | **壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
@@ -39,19 +42,21 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 > ✅ 完成　◐ 部分　❌ 未完成　— 未建立记录
 >
-> 表格由 `scripts/render-eight-step-table.py` 从 `docs/research/EIGHT-STEPS.toml` 生成，`--check` 可校验 README 是否与数据一致。
+> 表格由 `scripts/render-eight-step-table.py` 从 `docs/research/EIGHT-STEPS.toml` 生成，`--check` 可校验两份 README 是否与数据一致。
 > 八步定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
 <!-- EIGHT-STEP-TABLE:END -->
 
 ## 构建
 
+实验构建统一使用本仓库的 `scripts/build-strict.sh`。先核对所属源树与隔离的输入/输出目录、提交并推送，再提供真实的固件卷：
+
 ```bash
-./unixnu build kernel -D .
+K60_REPO="$PWD" K60_DEVICE_INPUT="/path/to/isolated-device-input" \
+K60_OUT="/path/to/isolated-out" \
+bash scripts/build-strict.sh <experiment-tag> --fd /path/to/verified.fd
 ```
 
-产物：`build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`。
-
-本地构建脚本位于工作区（不在仓库内），流程见
+以上路径为占位符，不可原样执行。构建日志中的成功终态、`kernel.macho` 新哈希和镜像 manifest 必须同时核对；包装脚本退出 0 不单独代表构建成功。环境与产物路径见
 [`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md)。
 磁盘余量与 WSL 虚拟盘回收由门禁自动检查（`hard-41`），清理流程见
 [`docs/engineering/DISK-HYGIENE.md`](docs/engineering/DISK-HYGIENE.md)。
@@ -60,7 +65,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 构建/刷机前由两层检查把关，任一失败即中止：注册表 `scripts/check-rules.py`
 执行 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) 里登记的全部门禁
-（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 105 条）；严格构建入口
+（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 130 条）；严格构建入口
 `scripts/build-strict.sh` 内嵌下列检查：
 
 <!-- GATE-TABLE:BEGIN -->

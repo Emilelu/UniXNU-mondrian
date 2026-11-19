@@ -1555,6 +1555,39 @@ Lead 在 2026-11-20 02:46 裁决 (b)：授权本分支给 storage 加**只读**�
 - 与 k49 的差别只有源码：k50 含 `c612b474` 接回的 480 行探针尾巴与 EFS 数据面；k49 的那份镜像出自不可复现的 `/tmp` 树，作废。
 - 判据不变：S3（`power ok`/`auth_reset ok` 六行）、S4（`K60MODEM qrtr: dms revision`）、S5（verdict `ok`）、S6（`bridge enabled` + COACHZ 发布）；本代新增的观测点是 `rmtfs alloc ... physical=0x…`（低于 4 GiB）与随后 modem 是否真的发 `rmtfs rw`。
 
+### 3.41 k51（离线）：让 modem 真正读到 EFS 分区
+
+k50 已经能把 0x280000 字节的共享窗口挂给 modem，但 `rw` 一律回 result 1。k51 把读方向接上真实分区：`k60_qrtr_rmtfs_rw` 校验 storage 1..4 后，direction 0 用 `k60_efs_partition()` 取 `modemst1`/`modemst2`/`fsg`/`fsc`，逐 scatter 向量按 `block_offset × 512` 与 `block_length × 512` 直接读进共享窗口，成功后再 `k60_ipa_dma_clean`；direction 1 只做 invalidate，写仍然落在 boot 影子（与 Pong 的写语义一致）。
+
+读入路径用 `native_pong_ufs_read_named_volume(name, offset, buffer, length)`——Lead 于 2026-11-20 02:46 授权本分支给 storage 加只读块入口时定下的契约，函数本身在 `drivers/NativeUfs/PongUfsTransport.cpp`，按 GPT 名字定位分区（见 §3.39）。
+
+**链接期问题（第一次构建失败）**：bootstrap pass 报
+
+    Undefined symbols for architecture arm64:
+      "_native_pong_ufs_read_named_volume", referenced from:
+          _k60_qrtr_rmtfs_rw in pong_modem_link.o
+
+原因是 NativeUfs 属于组件归档，只有最终链接的 `-Wl,-force_load` 才把它带进来（`build-xnu-4k-baseline.sh:920` 起那一串 `KERNEL_EXTRA_ARCHIVES`），bootstrap pass 的链接命令里没有它。把它声明成 `__attribute__((weak))` 的**外部引用**仍然报同一个未定义符号（静态链接的可执行映像不接受悬空的弱引用），所以改成同一文件里的**弱定义**兜底：没有归档时返回 0（读被拒），最终链接里归档的强定义胜出。构建后 `llvm-nm` 显示 `fffffff007a83314 S _native_pong_ufs_read_named_volume`，落在传输层代码区（与 k50 的 `fffffff007a83214` 相邻），说明胜出的是强定义而不是兜底。
+
+| 项 | 值 |
+| --- | --- |
+| 源码提交 | `4ee719a7`（弱定义兜底）+ `3b47ba1e`（读接线） |
+| 构建树 | `/opt/k60/trees/cellular-k49`，`K60_OUT=/opt/k60/trees/cellular-k49-out` |
+| kernel.macho | `105,758,720` B `b89215d7599129ab232bed80a111ee318896456fc0dae9a60a72ad717932534f` |
+| COACHZ 记录 | 40 条 |
+| boot-modem-b-full.img | `201,895,936` B `861609876bf52115548adb99e30e90a8b7a50e3b8121e0e929d9e5b11f96e00d` |
+| payload.img | `5265525b13ee689827d6e1a23470ebaf4e440f46939e86d9553582b20634a129` |
+| payload.json | `644d6b9a28ad56ac411cae5b1dd6432148dc839f15b9e857ca87893d6fcd3fb9`（1,403 B） |
+| payload 内核 | `77bcba31d0a6e677918d661355604bfd3d08f7f971b7be76b5419a7f7bf59c78` |
+| ADT | `1e79e83728286427d2b3a34e3230d121803fbfa28e9e8d634debfe09a50e7bf7` |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| 启动行 | 30 条 588 B，`image-arg-audit: OK (30 arguments, 588 bytes)`；尾部 `k60_autoreset=300 applog=1 pong_modem=2` |
+| 布局 | kernel 560384 / ramdisk 201326592 / 解压 3145840 / DTB 4024 |
+| series | 230 条，指纹 `31c9bd6be2b50cdd` |
+| 0622 / 0623 | 144,813 B / 174,551 B |
+
+**判据**（本飞仍不指望 S4/S5）：`rmtfs open` 两条命中后应出现 `rmtfs alloc storage=1 bytes=2621440 physical=<低位>`（不再是 physical=0），随后出现 `rmtfs rw storage=1 direction=0 vectors=N not-served` 变成实际读成功、`rmtfs request` 计数继续增长；S3/S6 必须保持 PASS。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

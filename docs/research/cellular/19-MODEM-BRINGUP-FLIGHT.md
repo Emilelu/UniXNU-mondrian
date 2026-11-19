@@ -1690,6 +1690,27 @@ Pong 不是这样用的。
 | 构建树 | `/opt/k60/trees/cellular-k49`（Lead 提供），`K60_OUT=/opt/k60/trees/cellular-k49-out` |
 
 内核里能查到四处新串各一次：`smp2p stop released`、`ipa query=%#x reply=%#x at %u s`、` ipa=%#x`（2 次）、`announced memshare`；`llvm-nm` 有 6 个 smp2p 符号。
+### 3.45 k53 判据脚本（2026-11-20 05:12）
+
+判据不再现场 grep，一条命令给三档退出码（0 PASS / 1 FAILED / 2 INVALID）：
+
+```
+python3 scripts/judge-cellular-flight.py <evidence 目录> [--window 240]
+```
+
+每条判据打印 `PASS|FAIL|SKIP  项名  数字`，末尾打印观测窗口与 `VERDICT:`。窗口取日志里最大的 `wait %u s`；窗口不足且只是缺项 → INVALID，若是启动序列失败行、panic 或 S3/S6 缺行，无论窗口多短都判 FAILED。
+
+必过项：S3 六行、S6 两行、`rmtfs open`（fs1/fs2）、`alloc … physical != 0`、`rmtfs rw … served`、`announced memshare service 52`、`memshare request=0x22`、`memshare buffer physical < 0x100000000`、`assign … rc=0`、`smp2p stop released`。`0x23`/`0x24`/`ipa query` 记为 SKIP，modem 不问不判失败。
+
+`--self-test` 用三个内建夹具证明三档都走得到：`K60 FLIGHT JUDGE PASS three verdicts from three fixtures`。已对真实日志回归：k46（`usblog-20261119-162153`）→ INVALID（窗口 230 s）、k47 panic（`usblog-20261119-171436`）→ FAILED、k44 静默（`usblog-20261119-144720`）→ INVALID。
+
+### 3.46 sysmon 生命周期解码（2026-11-20 05:14，离线，无调用者）
+
+Pong 在 modem 链路上只收答复（`PongModemSysmon.h` 的 `sysmonModemServer`/`sysmonModemReceive` 解析 message 0x25 的 RESPONSE 并比对 transaction），事件由 `sysmonPoll()` 发到端口 0x103，目标是对端宣告的服务 43（modem 实例 0x1202、ADSP 实例 0x1402）。状态用原生 SSCTL 枚举：1 = AFTER_POWERUP、3 = AFTER_SHUTDOWN。
+
+新增 `drivers/PongCellular/K60ModemSysmon.h/.c`：`k60_sysmon_build_event()` 按 Pong 的 TLV 布局组包（TLV1 名字带长度字节、TLV2 状态、TLV3 transaction 回显、TLV 0x10 全零），`k60_sysmon_parse_reply()` 只接受响应型、同 message、同 transaction 的回复，TLV2 的 `<u16 error><u16 code>` 全零才算 ACK。
+
+宿主测试 `scripts/tests/test-k60-sysmon.c` 覆盖组包字节、四种拒绝（空间不足/空名/空指针/超长名）与答复解析（ACK、拒绝码 48、错 transaction、错 message、请求当答复、截断、缺 TLV2），输出 `K60 SYSMON PASS event, reply, refusals`，已进 `run-host-tests.sh`（现 28 行全绿）。**还没有调用者、没有进 0622** —— 留作 k54 的下一变量，避免现在改 0622 让 k53 的 170,373 B 溯源失真。
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

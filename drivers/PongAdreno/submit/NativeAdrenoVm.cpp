@@ -17,6 +17,11 @@ extern "C" {extern volatile uint64_t native_adreno_cache_stats[5];}
  * same rate, or because unmaps never happen. objects_ answers "how many are alive"; these
  * two answer "why". Until 2026-11-19 nothing counted either. */
 static volatile uint64_t k60_vm_maps, k60_vm_unmaps;
+/* The user client already keeps a call counter per kernel method and nothing read it (P-241
+ * again). BoAlloc/BoFree/BoImport are 2/4/16 in NativeAdrenoABI.h: with maps outnumbering
+ * unmaps 198 to 9, the next question is whether the translator never asks to free a buffer or
+ * asks and is refused, and those three counters plus BoFree's last status answer it directly. */
+extern "C" {extern volatile uint32_t native_adreno_method_stats[20][4];}
 /* 1 once the board proved the GPU's cacheable inner-shareable accesses coherent with the CPU's caches in both directions (the A740's
  * ADRENO_QUIRK_HAS_CACHED_COHERENT behind the dma-coherent GPU SMMU, which Linux maps with IOMMU_CACHE): a mapping with write-back
  * attributes then needs no CPU cache maintenance. 0 keeps every mapping maintained as before. Counters: maintenance passes skipped for
@@ -387,7 +392,7 @@ IOReturn NativeAdrenoVm::publishMapped()
             native_adreno_cache_stats[3]-calls_before,native_adreno_cache_stats[1]-bytes_before,
             (unsigned)(distrust_write_combined_?0:1),imported_bytes,owned_bytes,combined_bytes,combined_skipped,
             (unsigned)native_adreno_io_coherent,(unsigned long long)native_adreno_coherent_skips[2]);
-        IOLog("PONG VM: lifetime n=%u live=%llu maps=%llu unmaps=%llu outstanding=%lld\n", calls, (unsigned long long)objects_, (unsigned long long)k60_vm_maps, (unsigned long long)k60_vm_unmaps, (long long)(k60_vm_maps - k60_vm_unmaps));
+        IOLog("PONG VM: lifetime n=%u live=%llu maps=%llu unmaps=%llu outstanding=%lld alloc=%u free=%u freestatus=0x%x import=%u\n", calls, (unsigned long long)objects_, (unsigned long long)k60_vm_maps, (unsigned long long)k60_vm_unmaps, (long long)(k60_vm_maps - k60_vm_unmaps), (unsigned)native_adreno_method_stats[2][0], (unsigned)native_adreno_method_stats[4][0], (unsigned)native_adreno_method_stats[4][2], (unsigned)native_adreno_method_stats[16][0]);
     }
     return kIOReturnSuccess;
 }

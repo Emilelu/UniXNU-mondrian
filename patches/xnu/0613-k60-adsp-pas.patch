@@ -70,7 +70,7 @@ diff --git a/bsd/dev/pong_adsp_pas.c b/bsd/dev/pong_adsp_pas.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_adsp_pas.c
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,96 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* PAS calls for the K60 ADSP: the SMC glue only. The encoders live in the
 + * header so a host test can prove them without the device. */

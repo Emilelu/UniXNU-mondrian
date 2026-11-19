@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..e588f91
 --- /dev/null
 +++ b/configs/mondrian_wifi_defconfig
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,73 @@
 +# UniXNU Pong iOS 16 debug bring-up with standard XNU console capture.
 +# The boot packager selects 1..8 actual SM8475 CPU nodes (--cpus); PSCI starts them.
 +# Owner SystemCryptex remains mounted read-only at the path selected by the XNU hook.

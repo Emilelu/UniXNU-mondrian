@@ -1672,6 +1672,24 @@ Pong 不是这样用的。
 判据（上机后）：S3/S6 保持 PASS；`smp2p stop released was=` 出现且 `was` 值可读（说明残留被清掉）；
 `ipa query=` 一旦出现，就证明 modem 确实在等这个答复——那比 k44 的四分钟静默前进了一大步。
 风险写在明面：answer=1 不带时钟投票，如果 modem 需要 bit1 才继续，下一变量是让 IPA 真正投票后回 3。
+
+哈希（离线构建，2026-11-20 05:00）：
+
+| 项 | 值 |
+|---|---|
+| 源码提交 | `11458c12` |
+| kernel.macho | 105,762,816 B `2d591ea7e0f3b2b8fb751497a58cc6cdd03bcb3bd57966a72114f1dfe019ba29` |
+| boot-modem-b-full.img | 201,895,936 B `f9afac0d0603ed37b6d130fbc8e70ca8173439bfaa326df73e47d178ae80652e` |
+| payload.img | 201,326,592 B `d4869b3f079b1ee37dc48b81ff6569eff99e6b8c7fd085c40675ce8814be9fbd` |
+| payload.json | 1,403 B `e673e15f074d50be47967c23b335015cb95ccf140bc92ffeda5b9e7a2baa9129` |
+| payload 内 kernel | `263c7abababb6ecba5fa627f739a2660abec908dcf3fc27fb2555bf65309299a` |
+| ADT / DTB | `9ec00a0ffd71043f89306818a5d59509d93316e4890668078523171a1e7cb16c` / `2d044eaa…` |
+| 启动行 | 30 条 588 B，尾 `k60_autoreset=300 applog=1 pong_modem=2`（`image-arg-audit: OK`） |
+| 布局 | kernel 560384 / ramdisk 201326592 / 解压 3145840 / DTB 4024 |
+| series | 230 条 指纹 `e2ccf4db354b595b`；0622 170,373 B / 12 files、0623 174,551 B |
+| 构建树 | `/opt/k60/trees/cellular-k49`（Lead 提供），`K60_OUT=/opt/k60/trees/cellular-k49-out` |
+
+内核里能查到四处新串各一次：`smp2p stop released`、`ipa query=%#x reply=%#x at %u s`、` ipa=%#x`（2 次）、`announced memshare`；`llvm-nm` 有 6 个 smp2p 符号。
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1739,6 +1757,12 @@ Pong 不是这样用的。
     `kmem_alloc_contig` 的第五个参数 `max_pnum` 钉成 `(2^32-bytes)>>12`，只做了离线构建、**未上机**。
     k50（`08be7b8a…`）是同一份源码在 Lead 提供的 `/opt/k60/trees/cellular-k49` 树里重建的结果，
     另含 `c612b474` 接回的 480 行探针尾巴（§3.40），**未上机**。上机 slot 由 Lead 分配（本线排第三）。
+
+    k51（`86160987…`）把 EFS 读方向接上（§3.41，`3b47ba1e` 与弱定义兜底 `4ee719a7`），
+    k52（`0f63739a…`）宣告内存分享 0x34/1 端口 0x101 并回答 0x22/0x23/0x24（§3.43，`bddd74b9`），
+    k53（`f9afac0d…`）补上 Pong 的两个 SMP2P 值字：`master-kernel` 的停位在 `PAS_AUTH_AND_RESET` 前清掉、
+    `ipa` 条目的 bit0 以 1 作答（§3.44，`11458c12`）。三版都只做了离线构建与宿主测试，**均未上机**；
+    判据与风险写在各自小节。上机 slot 仍按 Lead 的安排（GPU → power w11 → cellular → audio），本线不自行 boot。
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 
 - 框架 `payload.py`/CLI 的通用性；本飞只使用已在 `feat/modem-carrier`（`92bb60f`）上实测过的 carrier 钩子（27 streams / 109,060,761 B declared）。

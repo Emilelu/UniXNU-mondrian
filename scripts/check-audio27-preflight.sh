@@ -62,6 +62,7 @@ run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "three edits dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
+run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "sheng abi checker is honest" python3 scripts/tests/test-sheng-abi.py
 
 xnu27=${XNU27_REPO:-}
@@ -75,6 +76,7 @@ if [ -z "$xnu27" ]; then
 fi
 if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
+	run "27 tree has no clashing symbols" python3 scripts/check-audio27-collisions.py "$xnu27"
 else
 	printf 'skip %-34s no 27 xnu tree (set XNU27_REPO)\n' "27 kernel interfaces are there"
 fi

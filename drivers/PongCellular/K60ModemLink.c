@@ -20,6 +20,7 @@
  * Every line starts with K60MODEM, and the whole probe is inert unless
  * pong_modem is set to 2 or more. */
 #include "K60ModemQrtr.h"
+#include "K60ModemRmtfs.h"
 #include "K60Smem.h"
 #include "QcomGlink.h"
 #include "K60PmicRail.h"
@@ -372,6 +373,39 @@ coachz_modem_data_receiver(void (*receiver)(uint32_t mux, const uint8_t *ip,
 	    receiver != NULL ? "registered" : "cleared");
 }
 
+
+/* The four EFS images the modem opens by name, numbered exactly as the
+ * reference numbers them (PongModemRmtfs.h). A name we do not know is not
+ * an error in the protocol: the answer is result 1, the modem retries or
+ * moves on, and the log names the path it asked for. */
+static const char *const k60_qrtr_rmtfs_images[K60_RMTFS_STORAGE_COUNT] = {
+	"/boot/modem_fs1",
+	"/boot/modem_fs2",
+	"/boot/modem_fsg",
+	"/boot/modem_fsc",
+};
+
+/* A byte compare, not strlen/memcmp: this file carries no libkern string
+ * header, and the name arrives with an explicit length. */
+static uint32_t
+k60_qrtr_rmtfs_storage(const char *path, size_t length)
+{
+	uint32_t i;
+
+	for (i = 0; i < K60_RMTFS_STORAGE_COUNT; i++) {
+		const char *name = k60_qrtr_rmtfs_images[i];
+		size_t at = 0;
+
+		while (at < length && name[at] != '\0' &&
+		    name[at] == path[at]) {
+			at++;
+		}
+		if (at == length && name[at] == '\0') {
+			return i + 1u;
+		}
+	}
+	return 0;
+}
 static void
 k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *data, uint32_t length)
 {
@@ -412,11 +446,65 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 	}
 	if (header.type == K60QrtrData) {
 		if (header.to_port == K60_QRTR_RMTFS_PORT) {
+			K60RmtfsRequest request;
+			uint8_t answer[64];
+			uint32_t id = 0;
+			uint32_t used;
+			uint16_t result = 0;
+			const void *value = NULL;
+			size_t value_bytes = 0;
+			int parsed;
+
 			++k60_qrtr_rmtfs_requests;
-			printf("K60MODEM qrtr: rmtfs request %u bytes type=%u msg=%u\n",
-			    header.size, header.size > 0 ? payload[0] : 0,
-			    header.size > 4 ? ((unsigned)payload[3] |
-			    (unsigned)payload[4] << 8) : 0);
+			parsed = k60_rmtfs_parse(payload, header.size, &request);
+			if (parsed != 0) {
+				printf("K60MODEM qrtr: rmtfs request %u bytes unreadable\n",
+				    header.size);
+				result = 2;
+			} else if (request.message == K60_RMTFS_OPEN) {
+				char shown[K60_RMTFS_MAX_PATH + 1];
+				size_t at;
+
+				id = k60_qrtr_rmtfs_storage(request.path, request.path_length);
+				for (at = 0; at < request.path_length; at++) {
+					shown[at] = request.path[at];
+				}
+				shown[at] = '\0';
+				printf("K60MODEM qrtr: rmtfs open path=%s storage=%u\n",
+				    shown, id);
+				if (id != 0) {
+					value = &id;
+					value_bytes = 4;
+				} else {
+					result = 1;
+				}
+			} else if (request.message == K60_RMTFS_CLOSE) {
+				printf("K60MODEM qrtr: rmtfs close storage=%u\n", request.storage);
+				value = &id;
+				value_bytes = 1;
+			} else if (request.message == K60_RMTFS_SYNC) {
+				printf("K60MODEM qrtr: rmtfs sync storage=%u\n", request.storage);
+				value = &id;
+				value_bytes = 1;
+			} else if (request.message == K60_RMTFS_ALLOC) {
+				printf("K60MODEM qrtr: rmtfs alloc storage=%u bytes=%u no-buffer\n",
+				    request.storage, request.alloc_bytes);
+				result = 1;
+			} else {
+				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u not-served\n",
+				    request.storage, request.direction, (unsigned)request.vectors);
+				result = 1;
+			}
+			if (parsed == 0) {
+				used = k60_rmtfs_build_reply(answer, sizeof(answer),
+				    request.message, request.transaction, result, value,
+				    value_bytes);
+				if (used == 0 || k60_qrtr_queue_reply(K60_QRTR_RMTFS_PORT,
+				    header.from_node, header.from_port, answer, used) != 0) {
+					printf("K60MODEM qrtr: rmtfs reply dropped (%u bytes)\n",
+					    used);
+				}
+			}
 		} else if (header.to_port == K60_QRTR_LOCATOR_PORT) {
 			uint8_t answer[K60_QRTR_MAX_PACKET];
 			uint32_t bytes;

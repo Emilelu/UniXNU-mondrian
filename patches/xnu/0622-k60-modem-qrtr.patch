@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1707 @@
+@@ -0,0 +1,1795 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1321,6 +1321,7 @@ index 0000000..1111111
 + * Every line starts with K60MODEM, and the whole probe is inert unless
 + * pong_modem is set to 2 or more. */
 +#include "pong_modem_qrtr.h"
++#include "K60ModemRmtfs.h"
 +#include "pong_smem.h"
 +#include "qcom_glink.h"
 +#include "pong_pmic_rail.h"
@@ -1673,6 +1674,39 @@ index 0000000..1111111
 +	    receiver != NULL ? "registered" : "cleared");
 +}
 +
++
++/* The four EFS images the modem opens by name, numbered exactly as the
++ * reference numbers them (PongModemRmtfs.h). A name we do not know is not
++ * an error in the protocol: the answer is result 1, the modem retries or
++ * moves on, and the log names the path it asked for. */
++static const char *const k60_qrtr_rmtfs_images[K60_RMTFS_STORAGE_COUNT] = {
++	"/boot/modem_fs1",
++	"/boot/modem_fs2",
++	"/boot/modem_fsg",
++	"/boot/modem_fsc",
++};
++
++/* A byte compare, not strlen/memcmp: this file carries no libkern string
++ * header, and the name arrives with an explicit length. */
++static uint32_t
++k60_qrtr_rmtfs_storage(const char *path, size_t length)
++{
++	uint32_t i;
++
++	for (i = 0; i < K60_RMTFS_STORAGE_COUNT; i++) {
++		const char *name = k60_qrtr_rmtfs_images[i];
++		size_t at = 0;
++
++		while (at < length && name[at] != '\0' &&
++		    name[at] == path[at]) {
++			at++;
++		}
++		if (at == length && name[at] == '\0') {
++			return i + 1u;
++		}
++	}
++	return 0;
++}
 +static void
 +k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *data, uint32_t length)
 +{
@@ -1713,11 +1747,65 @@ index 0000000..1111111
 +	}
 +	if (header.type == K60QrtrData) {
 +		if (header.to_port == K60_QRTR_RMTFS_PORT) {
++			K60RmtfsRequest request;
++			uint8_t answer[64];
++			uint32_t id = 0;
++			uint32_t used;
++			uint16_t result = 0;
++			const void *value = NULL;
++			size_t value_bytes = 0;
++			int parsed;
++
 +			++k60_qrtr_rmtfs_requests;
-+			printf("K60MODEM qrtr: rmtfs request %u bytes type=%u msg=%u\n",
-+			    header.size, header.size > 0 ? payload[0] : 0,
-+			    header.size > 4 ? ((unsigned)payload[3] |
-+			    (unsigned)payload[4] << 8) : 0);
++			parsed = k60_rmtfs_parse(payload, header.size, &request);
++			if (parsed != 0) {
++				printf("K60MODEM qrtr: rmtfs request %u bytes unreadable\n",
++				    header.size);
++				result = 2;
++			} else if (request.message == K60_RMTFS_OPEN) {
++				char shown[K60_RMTFS_MAX_PATH + 1];
++				size_t at;
++
++				id = k60_qrtr_rmtfs_storage(request.path, request.path_length);
++				for (at = 0; at < request.path_length; at++) {
++					shown[at] = request.path[at];
++				}
++				shown[at] = '\0';
++				printf("K60MODEM qrtr: rmtfs open path=%s storage=%u\n",
++				    shown, id);
++				if (id != 0) {
++					value = &id;
++					value_bytes = 4;
++				} else {
++					result = 1;
++				}
++			} else if (request.message == K60_RMTFS_CLOSE) {
++				printf("K60MODEM qrtr: rmtfs close storage=%u\n", request.storage);
++				value = &id;
++				value_bytes = 1;
++			} else if (request.message == K60_RMTFS_SYNC) {
++				printf("K60MODEM qrtr: rmtfs sync storage=%u\n", request.storage);
++				value = &id;
++				value_bytes = 1;
++			} else if (request.message == K60_RMTFS_ALLOC) {
++				printf("K60MODEM qrtr: rmtfs alloc storage=%u bytes=%u no-buffer\n",
++				    request.storage, request.alloc_bytes);
++				result = 1;
++			} else {
++				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u not-served\n",
++				    request.storage, request.direction, (unsigned)request.vectors);
++				result = 1;
++			}
++			if (parsed == 0) {
++				used = k60_rmtfs_build_reply(answer, sizeof(answer),
++				    request.message, request.transaction, result, value,
++				    value_bytes);
++				if (used == 0 || k60_qrtr_queue_reply(K60_QRTR_RMTFS_PORT,
++				    header.from_node, header.from_port, answer, used) != 0) {
++					printf("K60MODEM qrtr: rmtfs reply dropped (%u bytes)\n",
++					    used);
++				}
++			}
 +		} else if (header.to_port == K60_QRTR_LOCATOR_PORT) {
 +			uint8_t answer[K60_QRTR_MAX_PACKET];
 +			uint32_t bytes;
@@ -3006,3 +3094,310 @@ index 0000000..1111111
 +}
 +
 +#endif /* K60_HOST_TEST */
+diff --git a/bsd/dev/pong_modem_rmtfs.h b/bsd/dev/pong_modem_rmtfs.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_rmtfs.h
+@@ -0,0 +1,70 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* RMTFS: the storage service the modem asks for its EFS images before its RF
++ * and QMI stack can start. Pong blocks PAS_INIT_IMAGE until its native RFS
++ * storage is ready for exactly this reason (PongModemRuntime.cpp:271-277) and
++ * serves four images over QMI v1 service 14 (PongModemRmtfs.h:1-13).
++ *
++ * The wire layout follows linux-msm/rmtfs and the reference:
++ *   1 open   -- TLV 1 is the image path, the reply carries the storage id;
++ *   2 close  -- TLV 1 is the id;
++ *   3 rw     -- TLV 2 direction, TLV 3 the scatter list, TLV 4 force;
++ *   4 alloc  -- TLV 1 id, TLV 2 the size of the shared buffer;
++ *   5 sync   -- TLV 1 id, acknowledged with one zero byte.
++ * This file is protocol only: no buffer, no UFS, no SCM, so the kernel and the
++ * host test share one implementation of the parts that can be wrong on paper.
++ */
++#ifndef K60_MODEM_RMTFS_H
++#define K60_MODEM_RMTFS_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60_RMTFS_MAX_PATH 64u
++#define K60_RMTFS_MAX_VECS 8u
++#define K60_RMTFS_STORAGE_COUNT 4u
++#define K60_RMTFS_BLOCK 512u
++
++/* QMI v1 message numbers on service 14, in the order the reference
++ * dispatches them (PongModemRmtfs.h:84-145). */
++#define K60_RMTFS_OPEN 1u
++#define K60_RMTFS_CLOSE 2u
++#define K60_RMTFS_RW 3u
++#define K60_RMTFS_ALLOC 4u
++#define K60_RMTFS_SYNC 5u
++
++typedef struct {
++	uint32_t block_offset;
++	uint32_t physical;
++	uint32_t block_length;
++} K60RmtfsVec;
++
++typedef struct {
++	uint16_t message;
++	uint16_t transaction;
++	uint32_t storage;
++	uint32_t direction;
++	uint32_t force;
++	uint32_t alloc_bytes;
++	char path[K60_RMTFS_MAX_PATH];
++	size_t path_length;
++	size_t vectors;
++	K60RmtfsVec table[K60_RMTFS_MAX_VECS];
++} K60RmtfsRequest;
++
++/* Parses one request. Returns 0 when every field the message defines is
++ * present and well formed, -1 otherwise; a rejected request still carries the
++ * message number and transaction so the caller can answer with result 2. */
++int k60_rmtfs_parse(const void *bytes, size_t length, K60RmtfsRequest *out);
++
++/* Builds the response: a seven byte header, the four byte result TLV and,
++ * when the reference answers with one, the value TLV (type 0x10). */
++uint32_t k60_rmtfs_build_reply(uint8_t *out, size_t cap, uint16_t message,
++    uint16_t transaction, uint16_t result, const void *value, size_t value_bytes);
++
++/* Validates every scatter entry against one image and the shared window: the
++ * offsets and lengths count 512-byte blocks, and the physical address must lie
++ * inside the window the modem was given. Returns 0 when all entries fit. */
++int k60_rmtfs_check_vectors(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes);
++
++#endif /* K60_MODEM_RMTFS_H */
+diff --git a/bsd/dev/pong_modem_rmtfs.c b/bsd/dev/pong_modem_rmtfs.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_rmtfs.c
+@@ -0,0 +1,225 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#include "pong_modem_rmtfs.h"
++
++#include <string.h>
++
++#define K60_RMTFS_TYPE_REQUEST 0u
++#define K60_RMTFS_TYPE_RESPONSE 2u
++#define K60_RMTFS_TLV_RESULT 0x02u
++#define K60_RMTFS_TLV_VALUE 0x10u
++
++static uint16_t
++le16(const uint8_t *at)
++{
++	return (uint16_t)(at[0] | (uint16_t)at[1] << 8);
++}
++
++static uint32_t
++le32(const uint8_t *at)
++{
++	return (uint32_t)le16(at) | (uint32_t)le16(at + 2) << 16;
++}
++
++static void
++put16(uint8_t *at, uint16_t value)
++{
++	at[0] = (uint8_t)value;
++	at[1] = (uint8_t)(value >> 8);
++}
++
++/* One TLV walk over the region that starts after the seven byte header. */
++static const uint8_t *
++tlv(const uint8_t *tlvs, size_t length, uint8_t type, size_t *size)
++{
++	size_t at = 0;
++
++	while (at + 3 <= length) {
++		const uint8_t kind = tlvs[at];
++		const size_t span = le16(tlvs + at + 1);
++
++		if (at + 3 + span > length) {
++			return NULL;
++		}
++		if (kind == type) {
++			if (size != NULL) {
++				*size = span;
++			}
++			return tlvs + at + 3;
++		}
++		at += 3 + span;
++	}
++	return NULL;
++}
++
++static int
++take_word(const uint8_t *tlvs, size_t length, uint8_t type, uint32_t *out)
++{
++	size_t size = 0;
++	const uint8_t *field = tlv(tlvs, length, type, &size);
++
++	if (field == NULL || size != 4) {
++		return -1;
++	}
++	*out = le32(field);
++	return 0;
++}
++
++static int
++take_byte(const uint8_t *tlvs, size_t length, uint8_t type, uint32_t *out)
++{
++	size_t size = 0;
++	const uint8_t *field = tlv(tlvs, length, type, &size);
++
++	if (field == NULL || size != 1) {
++		return -1;
++	}
++	*out = field[0];
++	return 0;
++}
++
++int
++k60_rmtfs_parse(const void *bytes, size_t length, K60RmtfsRequest *out)
++{
++	const uint8_t *p = (const uint8_t *)bytes;
++	const uint8_t *tlvs;
++	size_t region;
++	size_t span = 0;
++	const uint8_t *field;
++	int rc = 0;
++
++	if (bytes == NULL || out == NULL || length < 7) {
++		return -1;
++	}
++	memset(out, 0, sizeof(*out));
++	if (p[0] != K60_RMTFS_TYPE_REQUEST) {
++		return -1;
++	}
++	out->transaction = le16(p + 1);
++	out->message = le16(p + 3);
++	region = le16(p + 5);
++	if (region > length - 7) {
++		return -1;
++	}
++	tlvs = p + 7;
++	switch (out->message) {
++	case K60_RMTFS_OPEN: {
++		field = tlv(tlvs, region, 1, &span);
++		if (field == NULL || span == 0 || span > K60_RMTFS_MAX_PATH) {
++			return -1;
++		}
++		if (field[span - 1] == 0) {
++			span--;
++		}
++		memcpy(out->path, field, span);
++		out->path_length = span;
++		break;
++	}
++	case K60_RMTFS_CLOSE:
++	case K60_RMTFS_SYNC:
++		rc = take_word(tlvs, region, 1, &out->storage);
++		break;
++	case K60_RMTFS_RW: {
++		size_t list_size = 0;
++		const uint8_t *list;
++
++		if (take_byte(tlvs, region, 2, &out->direction) != 0 ||
++		    take_byte(tlvs, region, 4, &out->force) != 0 ||
++		    take_word(tlvs, region, 1, &out->storage) != 0) {
++			rc = -1;
++			break;
++		}
++		list = tlv(tlvs, region, 3, &list_size);
++		if (list == NULL || list_size < 1) {
++			rc = -1;
++			break;
++		}
++		if (list[0] == 0 || list[0] > K60_RMTFS_MAX_VECS ||
++		    1u + (size_t)list[0] * 12u != list_size) {
++			rc = -1;
++			break;
++		}
++		out->vectors = list[0];
++		for (size_t i = 0; i < out->vectors; i++) {
++			const uint8_t *v = list + 1 + 12 * i;
++
++			out->table[i].block_offset = le32(v);
++			out->table[i].physical = le32(v + 4);
++			out->table[i].block_length = le32(v + 8);
++		}
++		break;
++	}
++	case K60_RMTFS_ALLOC:
++		if (take_word(tlvs, region, 1, &out->storage) != 0 ||
++		    take_word(tlvs, region, 2, &out->alloc_bytes) != 0) {
++			rc = -1;
++		}
++		break;
++	default:
++		rc = -1;
++		break;
++	}
++	return rc;
++}
++
++uint32_t
++k60_rmtfs_build_reply(uint8_t *out, size_t cap, uint16_t message,
++    uint16_t transaction, uint16_t result, const void *value, size_t value_bytes)
++{
++	size_t used = 7;
++	const uint8_t *payload = (const uint8_t *)value;
++
++	if (out == NULL || cap < 14) {
++		return 0;
++	}
++	if (value_bytes != 0 && (payload == NULL || cap < 14 + 3 + value_bytes)) {
++		return 0;
++	}
++	out[0] = K60_RMTFS_TYPE_RESPONSE;
++	put16(out + 1, transaction);
++	put16(out + 3, message);
++	/* Result TLV: error flag then the code, exactly as the reference sends. */
++	out[used++] = K60_RMTFS_TLV_RESULT;
++	put16(out + used, 4);
++	used += 2;
++	put16(out + used, result != 0 ? 1 : 0);
++	put16(out + used + 2, result);
++	used += 4;
++	if (result == 0 && value_bytes != 0) {
++		out[used++] = K60_RMTFS_TLV_VALUE;
++		put16(out + used, (uint16_t)value_bytes);
++		used += 2;
++		memcpy(out + used, payload, value_bytes);
++		used += value_bytes;
++	}
++	put16(out + 5, (uint16_t)(used - 7));
++	return (uint32_t)used;
++}
++
++int
++k60_rmtfs_check_vectors(const K60RmtfsRequest *request, uint64_t image_bytes,
++    uint64_t window_base, uint64_t window_bytes)
++{
++	if (request == NULL || image_bytes == 0 || window_bytes == 0) {
++		return -1;
++	}
++	if (request->vectors == 0 || request->vectors > K60_RMTFS_MAX_VECS) {
++		return -1;
++	}
++	for (size_t i = 0; i < request->vectors; i++) {
++		const uint64_t offset = (uint64_t)request->table[i].block_offset *
++		    K60_RMTFS_BLOCK;
++		const uint64_t span = (uint64_t)request->table[i].block_length *
++		    K60_RMTFS_BLOCK;
++		const uint64_t physical = request->table[i].physical;
++
++		if (span == 0 || offset > image_bytes || span > image_bytes - offset) {
++			return -1;
++		}
++		if (physical < window_base ||
++		    physical - window_base > window_bytes ||
++		    span > window_bytes - (physical - window_base)) {
++			return -1;
++		}
++	}
++	return 0;
++}

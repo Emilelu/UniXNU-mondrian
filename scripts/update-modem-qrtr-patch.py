@@ -57,6 +57,9 @@ FILES = [
      {'"K60ModemQrtr.h"': '"pong_modem_qrtr.h"', '"K60Smem.h"': '"pong_smem.h"',
       '"QcomGlink.h"': '"qcom_glink.h"',
       '"K60PmicRail.h"': '"pong_pmic_rail.h"'}),
+    ("drivers/PongCellular/K60ModemRmtfs.h", "bsd/dev/pong_modem_rmtfs.h", {}),
+    ("drivers/PongCellular/K60ModemRmtfs.c", "bsd/dev/pong_modem_rmtfs.c",
+     {'"K60ModemRmtfs.h"': '"pong_modem_rmtfs.h"'}),
 ]
 
 
@@ -115,6 +118,13 @@ def main() -> int:
                 break
         rebuilt.append(replacement if replacement is not None
                        else "diff --git " + section)
+    # A file added to FILES after the patch was first written still needs its
+    # own new-file section; append it instead of failing the run.
+    for source, carried, renames in FILES:
+        if carried in seen:
+            continue
+        rebuilt.append(section_for(carried, body(REPO / source, renames)))
+        seen.add(carried)
     missing = [c for _, c, _ in FILES if c not in seen]
     if missing:
         sys.exit("these carried files are not in %s: %s"

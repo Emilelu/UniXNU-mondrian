@@ -9,20 +9,25 @@
 #   2. the glue against the six-symbol kernel stub set
 #   3. the macro itself: three symbols with it, none without
 #   4. the glue's link-time needs against the wiring table
-#   5. the conf-files appender's host tests (the anchor miss must fail loudly)
-#   6. the wiring applier: copy, conf/files, the printed builder line, the hook
-#   7. the amplifier probe running on the host against a zero page
-#   8. the playback judge's host tests
-#   9. the amplifier side's host tests (979 cases)
-#  10. the wiring walked in order, hook included, on a tree without the button driver
-#  11. the 27 interface checker's own tests
-#  12. the four interfaces, against a real 27 XNU tree when one is on disk
-#      (XNU27_REPO overrides the search)
-#  13. the product checker's own tests, and - when XNU27_KERNEL names a built
-#      kernel or boot image - whether that product really carries the audio
-#  14. the sheng ABI checker's own tests
-#  15. sheng's audio host tests, and its ABI constants at that commit, when its checkout is reachable; the row names
-#      the commit it ran on, because a stale checkout passes just as quietly
+#   5. the glue's copy set against what the compiler opens
+#   6. the conf-files appender's host tests (the anchor miss must fail loudly)
+#   7. the wiring applier: copy, conf/files, the printed builder line, the hook
+#   8. the weak call site: links without the glue, runs with it
+#   9. the amplifier probe running on the host against a zero page
+#  10. the playback judge's host tests
+#  11. the amplifier side's host tests (979 cases)
+#  12. the wiring walked in order, hook included, on a tree without the button driver
+#  13. the 27 interface, product, collision and closure checkers' own tests
+#  14. the patch emitter's own tests
+#  15. the four interfaces and the symbol table, against a real 27 XNU tree when one is
+#      on disk (XNU27_REPO overrides the search), plus the 0531 patch regenerated from
+#      the same block and checked against its pinned digest
+#  16. - when XNU27_KERNEL names a built kernel or boot image - whether that product
+#      really carries the audio
+#  17. the sheng ABI checker's own tests
+#  18. sheng's audio host tests, and its ABI constants at that commit, when its checkout
+#      is reachable; the row names the commit it ran on, because a stale checkout passes
+#      just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -66,6 +71,7 @@ run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-a
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
+run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py
 run "sheng abi checker is honest" python3 scripts/tests/test-sheng-abi.py
 
 xnu27=${XNU27_REPO:-}
@@ -80,6 +86,7 @@ fi
 if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
 	run "27 tree has no clashing symbols" python3 scripts/check-audio27-collisions.py "$xnu27"
+	run "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd
 else
 	printf 'skip %-34s no 27 xnu tree (set XNU27_REPO)\n' "27 kernel interfaces are there"
 fi

@@ -48,11 +48,16 @@ ios27 = "{ios27}"
 """
 
 
-def build(root: pathlib.Path, rows: str, body: str = "#define X 1u\n") -> pathlib.Path:
+def build(root: pathlib.Path, rows: str, body: str = "#define X 1u\n",
+          extra: dict[str, str] | None = None) -> pathlib.Path:
     if root.exists():
         shutil.rmtree(root, ignore_errors=True)
     (root / "drv").mkdir(parents=True)
     (root / "drv" / "a.h").write_text(body, encoding="utf-8", newline="\n")
+    for name, text in (extra or {}).items():
+        target = root / "drv" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
     manifest = root / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(rows, encoding="utf-8", newline="\n")
@@ -116,6 +121,28 @@ def main() -> int:
     broken.write_text("[[contract]\n", encoding="utf-8", newline="\n")
     problems = module.verify(WORK / "good", broken)
     check("an unparseable manifest is reported", problems and "does not parse" in problems[0], str(problems))
+
+    def five(mirror: str, extra: dict[str, str] | None = None) -> pathlib.Path:
+        rows = "".join(row(id=f"m{i}", lane=lane) for i, lane in enumerate(sorted(module.LANES)))
+        rows += ROW.format(id="mirrored", lane="power", source="drv/a.h:1", expect="X 1u",
+                           dependence="none", ios27="nothing") + f'mirror = "{mirror}"\n'
+        return build(WORK / "mirror", rows, extra=extra)
+
+    ok = five("drv/b.h:1", {"b.h": "#define X 1u\n"})
+    problems = module.verify(WORK / "mirror", ok)
+    check("a satisfied mirror verifies", problems == [], str(problems))
+
+    drifted = five("drv/b.h:1", {"b.h": "#define X 2u\n"})
+    problems = module.verify(WORK / "mirror", drifted)
+    check("a mirror that drifted is refused", any("the second copy drifted" in p for p in problems), str(problems))
+
+    absent_mirror = five("drv/c.h:1")
+    problems = module.verify(WORK / "mirror", absent_mirror)
+    check("a missing mirror file is refused", any("mirror drv/c.h does not exist" in p for p in problems), str(problems))
+
+    shapeless = five("drv/b.h")
+    problems = module.verify(WORK / "mirror", shapeless)
+    check("a mirror without a line is refused", any("is not path:line" in p for p in problems), str(problems))
 
     real = REPO / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
     if real.is_file():

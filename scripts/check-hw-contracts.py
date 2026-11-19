@@ -74,6 +74,28 @@ def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
         expect = str(row.get("expect") or "")
         if expect and expect not in lines[want_line - 1]:
             problems.append(f"{label}: {rel}:{want_line} does not contain {expect!r}")
+        mirror = str(row.get("mirror") or "").strip()
+        if not mirror:
+            continue
+        if ":" not in mirror:
+            problems.append(f"{label}: mirror {mirror!r} is not path:line")
+            continue
+        mrel, _, mnumber = mirror.rpartition(":")
+        try:
+            mline = int(mnumber)
+        except ValueError:
+            problems.append(f"{label}: mirror line {mnumber!r} is not a number")
+            continue
+        mpath = root / mrel
+        if not mpath.is_file():
+            problems.append(f"{label}: mirror {mrel} does not exist")
+            continue
+        mlines = mpath.read_text(encoding="utf-8", errors="replace").splitlines()
+        if not 1 <= mline <= len(mlines):
+            problems.append(f"{label}: mirror {mrel} has {len(mlines)} lines, the row cites {mline}")
+            continue
+        if expect and expect not in mlines[mline - 1]:
+            problems.append(f"{label}: mirror {mrel}:{mline} does not contain {expect!r} (the second copy drifted)")
     covered = {str(row.get("lane") or "") for row in rows}
     for lane in sorted(LANES - covered):
         problems.append(f"no row covers the {lane} line")

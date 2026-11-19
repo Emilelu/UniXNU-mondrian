@@ -1,0 +1,31 @@
+# Mondrian iOS 27, stage 0 plus the Wi-Fi driver.
+#
+# This is configs/mondrian_ios27_defconfig with CONFIG_XNU_PONG_WIFI=y, kept as a
+# separate file so the 27 stage-0 kernel stays the default a first 24A446 boot
+# gets: board.toml keeps
+#   [os_overrides."ios-27.0.1-24A446".kernel] defconfig = "mondrian_ios27_defconfig"
+# and the 16 line keeps mondrian_wifi_defconfig. A wifi build is an explicit
+# choice:
+#   ./unixnu defconfig mondrian_ios27_wifi_defconfig --device ../k60-wifi
+#   XNU_PONG_WIFI_ARCHIVE=<libPongWifiNative.a> ./unixnu build kernel --device ../k60-wifi
+# build-strict.sh:202 turns CONFIG_XNU_PONG_WIFI=y into a -force_load and refuses
+# to link without the archive (scripts/build-strict.sh:212, :302).
+#
+# The arch profile (profiles/arch/arm64e) brings the 4 KiB tables and PAC; the OS
+# profile (profiles/os/ios-27.0.1-24A446) brings the Darwin 26 calls and the
+# prelink. Do not repeat them here.
+CONFIG_XNU_BUILD_ARCHIVES=y
+CONFIG_XNU_CRYPTO_BOOTSTRAP="source"
+CONFIG_XNU_DT_PANIC_REGION=y
+CONFIG_XNU_ARMVIRT_PLATFORM=n
+CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y
+
+# Stage 0 still stops at bsd_init: no root, no panel, no GPU.
+CONFIG_XNU_NATIVE_UFS=n
+CONFIG_XNU_NATIVE_ADRENO=n
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+
+# Wi-Fi: drivers/PongWifi with the 24A446 ABI. The driver reads its firmware and
+# board data through proprietary-files.txt and starts from the PCIe endpoint, so
+# it does not reopen the stage-0 storage or display boundary.
+CONFIG_XNU_PONG_WIFI=y

@@ -1446,3 +1446,12 @@ test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 �
 两代 ABI（16 与 27 的 nw_abi.h）都带 struct nw_wifi_status 的 tx_rate_100kbps 字段和 nw_wifi_status_get()，
 所以不需要弱导入：kRate 现在回答 st.state == NW_STA_UP ? st.tx_rate_100kbps / 10 : 0，未连接时仍是 0。
 
+## 51. 当前网络的信号取实时值
+
+参考实现（sheng 27，package/WifiNet.cpp 的 kCurrentNetwork 分支）在填完记录后覆盖 out.res.rssi = st.signal_dbm，
+并按 -95 dBm 的噪声底重算 snr；我们此前把扫描快照里的 signal_dbm 直接交给 daemon。扫描可能是几十秒前的，
+而当前网络的信号是设置页与状态栏画格子的依据，用快照会让“已连上但只剩一格”这种读数停在那里直到下一次扫描。
+
+现在两条路径（扫描表里找到当前 BSS、以及没扫描过直接加入的兜底）都在 fill_result 之后覆盖 rssi 与 snr；
+未连接时仍走原来的 ENOENT。16 与 27 两代头文件编译通过。
+

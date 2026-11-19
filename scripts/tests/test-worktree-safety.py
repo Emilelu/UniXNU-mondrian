@@ -41,19 +41,73 @@ def check(condition: bool, label: str, detail: str = "") -> None:
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False,
+        encoding="utf-8", errors="replace",
     )
 
 
+_BASH_FORM: str | None = None
+
+
+def _bash_forms(path: Path) -> dict[str, str]:
+    posix = path.resolve().as_posix()
+    drive = posix[0].lower()
+    return {
+        "native": posix,
+        "msys": "/" + drive + posix[2:],
+        "wsl": "/mnt/" + drive + posix[2:],
+    }
+
+
+def _bash_form() -> str:
+    """Which spelling of a Windows path this host's bash can actually open.
+
+    There is no single answer: MSYS bash wants "/e/x", the DSH winuxcmd shim
+    forwards argv untouched to a Linux bash and therefore wants "/mnt/e/x", and
+    a path that is already POSIX loses its backslashes on the way through.
+    Probe once with the real script and remember the spelling that works.
+    """
+    global _BASH_FORM
+    if _BASH_FORM:
+        return _BASH_FORM
+    if os.name != "nt":
+        _BASH_FORM = "native"
+        return _BASH_FORM
+    # Statting is not a usable probe: some shims translate the path for
+    # test(1) but hand the same string to bash unchanged. Run the real script
+    # with a read-only verb instead - 127 means this spelling cannot be opened.
+    for form, candidate in _bash_forms(GIT_SAFE).items():
+        probe = subprocess.run(["bash", candidate, "rev-parse", "--git-dir"],
+                               cwd=str(ROOT), capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+        if probe.returncode != 127 and "No such file" not in (probe.stderr or ""):
+            _BASH_FORM = form
+            return form
+    _BASH_FORM = "native"
+    return _BASH_FORM
+
+
+def bash_path(script: Path) -> str:
+    return _bash_forms(script)[_bash_form()]
+    posix = script.resolve().as_posix()
+    return "/" + posix[0].lower() + posix[2:]
+
+
 def run(script: Path, repo: Path, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
-    environment = {**os.environ, **(env or {})}
+    environment = {**os.environ, "PYTHONIOENCODING": "utf-8", **(env or {})}
+    if script.suffix != ".py" and _bash_form() == "wsl":
+        # A bash that forwards to WSL only passes through the variables listed
+        # in WSLENV, so K60_I_OWN_THIS_TREE / K60_SNAPSHOT_DIR would vanish and
+        # every ownership case would look refused.
+        forward = "K60_SNAPSHOT_DIR/p:K60_I_OWN_THIS_TREE:K60_AGENT_ID:PYTHONIOENCODING"
+        environment["WSLENV"] = (environment.get("WSLENV", "") + ":" + forward).lstrip(":")
     if script.suffix == ".py":
         command = [sys.executable, str(script), *args]
     else:
-        command = ["bash", str(script), *args]
+        command = ["bash", bash_path(script), *args]
     return subprocess.run(
         command, cwd=str(repo), capture_output=True, text=True, check=False,
-        env=environment,
+        env=environment, encoding="utf-8", errors="replace",
     )
 
 
@@ -63,7 +117,11 @@ def make_repo(root: Path) -> Path:
     git(repo, "init", "-q", "-b", "main")
     git(repo, "config", "user.email", "test@example.com")
     git(repo, "config", "user.name", "test")
-    (repo / "tracked.txt").write_text("original\n", encoding="utf-8")
+    # Windows text mode turns \n into \r\n; a CRLF payload makes the snapshot's
+    # patch unappliable in the clone, and git's own autocrlf rewrites the
+    # checkout under the fixture's feet. Pin both (P-184: the fixture broke).
+    git(repo, "config", "core.autocrlf", "false")
+    (repo / "tracked.txt").write_text("original\n", encoding="utf-8", newline="\n")
     git(repo, "add", "tracked.txt")
     git(repo, "commit", "-q", "-m", "initial")
     return repo
@@ -75,8 +133,8 @@ def test_snapshot_git_safe(root: Path) -> None:
     snaps.mkdir()
 
     # A tracked edit, a staged edit and an untracked file, all at once.
-    (repo / "tracked.txt").write_text("edited\n", encoding="utf-8")
-    (repo / "staged.txt").write_text("staged\n", encoding="utf-8")
+    (repo / "tracked.txt").write_text("edited\n", encoding="utf-8", newline="\n")
+    (repo / "staged.txt").write_text("staged\n", encoding="utf-8", newline="\n")
     git(repo, "add", "staged.txt")
     (repo / "untracked/deep/file.txt").parent.mkdir(parents=True)
     (repo / "untracked/deep/file.txt").write_text("untracked body\n", encoding="utf-8")
@@ -98,6 +156,10 @@ def test_snapshot_git_safe(root: Path) -> None:
     check((snap / "untracked/untracked/deep/file.txt").is_file(),
           "untracked/ preserves the nested path")
     check((snap / "restore.sh").is_file(), "restore.sh is written")
+    check("\r" not in (snap / "restore.sh").read_bytes().decode("utf-8"),
+          "restore.sh stays LF-only so bash can read it on any host")
+    check("\r" not in (snap / "HEAD.txt").read_bytes().decode("utf-8"),
+          "HEAD.txt stays LF-only so git checkout sees a real revision")
     check((snap / "HEAD.txt").is_file() and len((snap / "HEAD.txt").read_text().strip()) == 40,
           "HEAD.txt records the 40-char commit")
     check("tracked.txt" in (snap / "status.txt").read_text(encoding="utf-8"),
@@ -108,11 +170,15 @@ def test_snapshot_git_safe(root: Path) -> None:
     subprocess.run(["git", "clone", "-q", str(repo), str(clone)], check=False,
                    capture_output=True)
     git(clone, "checkout", "-q", (snap / "HEAD.txt").read_text().strip())
-    restore = subprocess.run(["bash", str(snap / "restore.sh")], cwd=str(clone),
-                             capture_output=True, text=True, check=False)
+    restore = subprocess.run(["bash", bash_path(snap / "restore.sh")], cwd=str(clone),
+                             capture_output=True, text=True, check=False,
+                             encoding="utf-8", errors="replace")
     check(restore.returncode == 0, "restore.sh runs", restore.stderr.strip())
-    check((clone / "tracked.txt").read_text(encoding="utf-8") == "edited\n",
-          "restore reproduces the tracked edit")
+    # Compare after normalising line endings: on drvfs the clone is written by
+    # one host's git and patched by the other's, so an all-LF payload can arrive
+    # as CRLF. The snapshot's content is what this case is about.
+    restored = (clone / "tracked.txt").read_bytes().replace(b"\r\n", b"\n").decode("utf-8")
+    check(restored == "edited\n", "restore reproduces the tracked edit", repr(restored[:40]))
     check((clone / "untracked/deep/file.txt").is_file(),
           "restore reproduces the untracked file")
 
@@ -133,18 +199,26 @@ def test_git_safe(root: Path) -> None:
     check(allowed.returncode == 0, "git-safe allows read-only git")
 
     # Ownership override must still snapshot first.
-    (repo / "tracked.txt").write_text("doomed\n", encoding="utf-8")
+    (repo / "tracked.txt").write_text("doomed\n", encoding="utf-8", newline="\n")
     owned = run(GIT_SAFE, repo, "checkout", "--", "tracked.txt",
                 env={**env, "K60_I_OWN_THIS_TREE": "1"})
     check(owned.returncode == 0, "git-safe allows a destructive command when the tree is owned",
           owned.stderr.strip())
     check((repo / "tracked.txt").read_text(encoding="utf-8") == "original\n",
           "the owned destructive command really discarded the edit")
-    snaps = [p for p in (root / "snaps-safe").iterdir() if p.is_dir()]
-    check(len(snaps) == 1, "a snapshot was taken before the discard", str(snaps))
-    if snaps:
-        check("+doomed" in (snaps[0] / "tracked.patch").read_text(encoding="utf-8"),
-              "the discarded edit is recoverable from the snapshot")
+    # More than one directory is legitimate: the system-wide git guard
+    # (/usr/local/bin/git) snapshots a dirty tree too, and in this throwaway repo
+    # it cannot find scripts/snapshot-worktree.py, so it writes its own
+    # "<stamp>-<repo>-fallback" copy. Two snapshots are the guard doing its job.
+    # The invariant is that the edit is recoverable and one snapshot restores.
+    snaps = sorted(p for p in (root / "snaps-safe").iterdir() if p.is_dir())
+    check(len(snaps) >= 1, "a snapshot was taken before the discard", str(snaps))
+    carrying = [p for p in snaps
+                if (p / "tracked.patch").is_file()
+                and "+doomed" in (p / "tracked.patch").read_text(encoding="utf-8")]
+    check(bool(carrying), "the discarded edit is recoverable from the snapshot", str(snaps))
+    check(any((p / "restore.sh").is_file() for p in snaps),
+          "the snapshot the tool took carries restore.sh", str(snaps))
 
 
 def test_tree_owner(root: Path) -> None:

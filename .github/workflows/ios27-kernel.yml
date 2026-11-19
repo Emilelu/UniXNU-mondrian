@@ -146,6 +146,12 @@ jobs:
           python3 scripts/check-bluetooth-runtime-gate.py --out "$UNIXNU_OUT/runtime-gate"
           python3 scripts/tests/test-bt-runtime-gate.py
 
+      - name: Check the addon prefixes
+        working-directory: device
+        run: |
+          python3 scripts/check-bluetooth-addon-prefixes.py --out "$UNIXNU_OUT/prefix-check"
+          python3 scripts/tests/test-bt-addon-prefixes.py
+
       - name: Collect the build summary
         if: always()
         run: |

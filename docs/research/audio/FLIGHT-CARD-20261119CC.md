@@ -33,6 +33,11 @@ cc 在 `drivers/PongAudio/PongAudioAmp.c`（0001）里补上
 本卡判定的镜像：`audio-probe-20261119cc`，
 `boot.img` sha256 `90051b6e68714e098792e4ec3527671df2aacc8c5b584d03a50ddfdb8ab9796c`。
 
+复现它需要三个数，都在同目录 `build-manifest.json` 里：构建时的仓库 HEAD `fcfb1c153e56fbfd1a04f2af968a1223e582ef20`
+（分支 `feat/audio-adsp-merge`，`dirty_files: 0`）、series 指纹 `50eb4fe8feea4db6`（230 个补丁，
+`file_sha256 999d0c271e521701a44df4bc011ae5578d87f9e6ee4652403fb15e6c2ec1a322`）、tag `audio-probe-20261119cc`。
+三者对上，`verify-boot-image` 通过，才等于这张卡判的那颗镜像。
+
 ## 3. 抓取
 
 ```

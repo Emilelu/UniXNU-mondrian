@@ -417,6 +417,9 @@ sh scripts/tests/portability/run-weak-hook.sh
 - 文件：`E:/k60-work/scratch/audio-27/k60-audio-amp-probe-call.patch`（876 B，sha256 `46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd`）
 - 在真 27 源树（`ac9718f xnu-12377.121.6`）的干净副本上 `git apply --check` → `APPLY CHECK OK`
 - 落位编号由 Lead 分配（不占号）；series 里建议名 `05xx-k60-audio-amp-probe-call.patch`
+- 重新生成：在 27 源树的干净副本上跑 `apply-audio27-wiring.py <copy> --hook-init`，
+  再 `git diff` 只取 `bsd/kern/bsd_init.c` 那一个文件；块本身来自 `INIT_BLOCK`（sha256 前 16 位
+  `c41d0c6743591c9d`），改块就必须重生成补丁，两者不许分头演化
 
 ### 空跑一遍：这条链路在一棵「像 27 的树」上走通
 

@@ -1417,3 +1417,13 @@ mission34 的事故不是算法错，而是两半用了不同的宽度：预编�
 test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 读），两套都是 0 failure；
 16 与 27 两代头文件重新编译通过。
 
+## 48. 请求 382（中止扫描）按参考实现接受
+
+参考实现（sheng 27，package/WifiNet.cpp:86 与 :671）把 382 当作“已接受”：已经在跑的扫描照常跑完并自己上报，
+用户态可以接受这种迟到的结果。我们的 SET 分支此前没有这个 case，382 落到 default，框架收到 EOPNOTSUPP，
+而参考实现返回 0——同一个请求在两条代码路径上成败相反。
+
+现在 PongWifiAbi.h 定义 PONG_REQUEST_ABORT_SCAN 382，PongWifiNet.cpp 的请求类型枚举用它定义 kAbortScan，
+并在 kScanCacheClear 一行之后单独返回 0（注释照抄参考实现的语义）。test-wifi-sbl-mission 新增一条检查
+把常量、枚举值和 case 三处钉住；16 与 27 两代头文件重新编译通过。
+

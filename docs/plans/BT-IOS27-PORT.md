@@ -1,7 +1,7 @@
 # K60 Bluetooth on iOS 27 (feat/ios27)
 
 Status: **source staged in the iOS 27 series, built on Linux CI, not flown.**
-Twenty patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0523) now live in
+Twenty-one patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0523, 0525) now live in
 `patches/xnu-12377/series`, the list the iOS 27 board actually selects, with
 the platform hooks rebased onto the 95d9c8a1 tree, an empty firmware carrier so
 0510 has its input, and the Bluetooth device-tree node now shipped in
@@ -108,23 +108,23 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 `soc:patches/xnu-12377/series`, `os:patches/xnu/series`, and
 `device:patches/xnu-12377/series`. The Bluetooth patches are now in the fourth.
 
-Validation: a fresh checkout of the pre-Bluetooth tree (vanilla xnu-12377 plus
-the arch, soc and os series, with the qbt files removed) was patched with this
-series in order; all twenty applied with no reject, and the results are
-byte-identical to the adaptation tree:
+Validation: the fresh base `12068a8` (vanilla xnu-12377 with 0500 and 0502b
+already applied) received the other nineteen patches in series order; all
+applied with no reject, and the results are byte-identical to the adaptation
+tree:
 
 | File | sha256 |
 | --- | --- |
-| `bsd/dev/qbt_k60.c` | `65e29a1afd5c3ee85b98cd1db2bdbe5f727a83422040f21fac0af758ba10a803` |
+| `bsd/dev/qbt_k60.c` | `f63e9249779e3bedca8f7a0a7b447d159ffc23f981b0fdaf21c09743abe38fcd` (2324 lines) |
 | `bsd/dev/qbt/qbt_transport.c` | `5a80bb039d91db1297400ceeb5cc583205ef192565ac78090655b20a98afc634` |
 | `bsd/dev/qbt/qbt_transport.h` | `b0cb4d138a8ee9c36cd8ac619e033ed0371607caf703546a8bab015304b56e54` |
 | `bsd/kern/kern_exec.c` | `39c1b5ebe32ed38f2937d1067a44c0799d07493c11c6cabd5be5987e52cde747` |
 | `bsd/kern/bsd_init.c` | `94c8e15f91e4beeb1c81589523d29e662d131f7da467a44a73a3a9f2fa74b3f3` |
-| `iokit/Kernel/MiniBluetooth.cpp` | `5a526df5da263777276e29e547c5fe1e5c652d5199b49ce1a1015e10bb78075f` |
+| `iokit/Kernel/MiniBluetooth.cpp` | `f668fcc3cc52cdaaba4f60e3d4368900c0b35a8757bb2f494f64afa40c2d8b82` (206 lines) |
 | `osfmk/arm64/k60_bt_blob.s` | `a0e788aacf276750a51372ed47abc90323f7f6d6e2b4dfe230d70611429d9784` |
 
 The series order is 0500, 0502b, 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
-0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522, 0523. There is no 0513.
+0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522, 0523, 0525. There is no 0513.
 
 ### 5.2 The firmware carrier
 
@@ -194,6 +194,17 @@ device-tree node added in `1e2e681`: the generated payload ADT carries
 part of the static contract instead of being created at runtime by
 MiniBluetooth. `kernel/kernel.macho` still carries both
 `com.apple.uart.sk.bluetooth` strings.
+
+0525 makes the series accept the names the porting page uses: `bluetooth=1`
+is an alias of `k60bt=1` (`k60bt` still wins when both are present), and
+`log-bluetooth=N` caps the driver log level, default 3. The patch was proven on
+hardware before this run: on 2026-11-19 16:31 the iOS 16.6.1 image carried only
+`bluetooth=1`, the ladder ran to `boot: return e=0 baud=3000000`, the
+controller reported version `0x12110201`, rampatch 146,068 B downloaded in 27
+TLV segments, and both UART.SK control names registered with `error=0`
+(evidence `usblog-20261119-163124` in the device repository). Run
+[44491451065](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44491451065)
+is the first iOS 27 build of the twenty-one-patch series.
 
 The run before 0522 stopped at `bsd/dev/qbt_k60.c:1851` with
 `call to undeclared function 'kmem_alloc_contig'`; 0522 fixes it (§3). The

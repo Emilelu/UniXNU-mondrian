@@ -76,6 +76,15 @@ int k60_rail_plan(const K60RailState *state, const K60RailPoint *target,
 int k60_rail_commit(K60RailState *state, const K60RailPoint *target,
     int readback_ok);
 
+/* Build the steps that return from attempted to confirmed after a failed
+ * readback. confirmed is the last known-good point and is never refused by
+ * the thermal gate: it was already admitted. Returns 0 on success, -1 for a
+ * null argument, -3 when capacity is too small (count stays 0) and -4 for an
+ * invalid point or a faster confirmed point with less voltage/bandwidth. */
+int k60_rail_rollback(const K60RailPoint *attempted,
+    const K60RailPoint *confirmed, K60RailStep *out, unsigned capacity,
+    unsigned *count);
+
 const char *k60_rail_stage_name(enum k60_rail_stage stage);
 
 #ifdef __cplusplus

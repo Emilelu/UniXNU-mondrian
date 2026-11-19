@@ -104,6 +104,22 @@ int k60_rail_commit(K60RailState *state, const K60RailPoint *target,
     return 0;
 }
 
+int k60_rail_rollback(const K60RailPoint *attempted,
+    const K60RailPoint *confirmed, K60RailStep *out, unsigned capacity,
+    unsigned *count)
+{
+    K60RailState from;
+
+    if (attempted == NULL || confirmed == NULL || out == NULL || count == NULL)
+        return -1;
+    *count = 0;
+    if (!k60_rail_valid(attempted) || !k60_rail_valid(confirmed)) return -4;
+    from.confirmed = *attempted;
+    /* The confirmed point was already admitted, so the thermal gate must not
+     * strand the hardware at a half-applied attempt. */
+    return k60_rail_plan(&from, confirmed, 1, out, capacity, count);
+}
+
 const char *k60_rail_stage_name(enum k60_rail_stage stage)
 {
     switch (stage) {

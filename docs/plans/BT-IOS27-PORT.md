@@ -273,6 +273,17 @@ channel log prefixes, the three `kern.qbt_*` sysctls, `K60BluetoothRadio`,
 the `/chosen` identity key, the `log-bluetooth` text and the four ADT
 properties.
 
+Run [44535919879](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44535919879)
+(head `b100115`, 2026-11-19T13:41:11Z to 13:53:07Z) is the first build of the
+twenty-five-patch series, 0527 included, and it passed. Run
+[44537777657](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44537777657)
+(head `125510a`) then passed with the whole check chain in one job: contract,
+GENI register model, shared interrupt controller, power ladder, runtime mount
+gate and addon prefixes, in that order, before the build summary is collected.
+The gate step is the one that matters for F3: it reads the defconfig and the
+series and refuses a build where `CONFIG_XNU_OWNER_DATA_MOUNT=y` is set without
+0526 and 0527.
+
 `feat/bt-ios27-port` is only the kernel and the device tree:
 `[payload.runtime]` is not enabled and 0521 is a blob stub, so "iOS 27
 baseline" does not mean "Bluetooth works on iOS 27".

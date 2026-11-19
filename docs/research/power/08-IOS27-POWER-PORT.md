@@ -25,7 +25,7 @@
 | `K60ThermalMap`（跳变点→等级→`allow_raise`/降档建议） | `drivers/PongPower/K60ThermalMap.c`，host 125 项 | **直接复用**；读数来源按 12377 的 tsens 节点名重接，策略不变 |
 | `K60ChargeAuth`（充电认证握手状态机） | `drivers/PongPower/K60ChargeAuth.c`，host 99 项（HMAC 向量另 5 项） | **直接复用**；只依赖 `K60ChargeCrypto` 回调与 PMIC 属性名，27 侧换属性号与 `read_random` 接线即可，协议本身不变 |
 | `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 十套件 1915 项 | **直接复用**；作为 iOS27 的第一道门 |
-| 跨版本搬运清单 `docs/research/power/CARRY.toml` + `scripts/check-power-carry.py` | 八个模块 16 个文件 872 项断言钉住哈希；`--target` 逐文件比对目标树的副本 | **直接复用**；iOS27 分支合并后跑 `python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27`——2026-11-20 实测六个 `SAME`、`K60ThermalMap` 三个 `MISS`（该树停在温控提交之前）。清单同时钉住四个判读器（handoff 33 / sleep 28 / mode1 14 / battery-mirror 17 例，夹具必须仍打印这个数）：同日实测 `judge-k60-mode1-console` 两个文件 `SAME`，`judge-k60-handoff-console` 与 `judge-k60-sleep-console` 的脚本与夹具都 `MISS` |
+| 跨版本搬运清单 `docs/research/power/CARRY.toml` + `scripts/check-power-carry.py` | 八个模块 16 个文件 872 项断言钉住哈希；`--target` 逐文件比对目标树的副本 | **直接复用**；iOS27 分支合并后跑 `python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27`——2026-11-20 实测六个 `SAME`、`K60ThermalMap` 三个 `MISS`（该树停在温控提交之前）。清单同时钉住四个判读器（handoff 33 / sleep 28 / mode1 14 / battery-mirror 21 例，夹具必须仍打印这个数）：同日实测 `judge-k60-mode1-console` 两个文件 `SAME`，`judge-k60-handoff-console` 与 `judge-k60-sleep-console` 的脚本与夹具都 `MISS` |
 | 硬件契约表 `docs/research/power/HW-CONTRACTS.toml` + `scripts/check-hw-contracts.py` | 5 条线（adsp/battery/charger/thermal/power）23 行，每行一条 `文件:行` 引用加必须出现在该行的文本；19 项测试（含 `mirror`：同一份文本存在于驱动与内核补丁两份副本时两行都核；`--render` 生成按 dependence 分组的 `HW-CONTRACTS-IOS27.md` 改线清单，手改即红） | **当作 27 线的改线清单**：`dependence` 是 none 的行原样照搬，macro/firmware/property-number/layout 的行按 12377 换值后必须同步改表，否则 `check-hw-contracts.py` 变红——先看到的是表，不是一周后才发现的错地址 |
 | iOS27 搬运前置检查 `scripts/check-ios27-power-preflight.py` | 一次读两棵树（本线 + `--tree`/`K60_IOS27_TREE` 指定的 27 检出），给出五类判定：tree、八个模块逐文件哈希、`sleep-report-guard`、`builder-route`、三个判读器是否已并入；18 项测试，退出 0/1/2 | **直接复用**；2026-11-20 对 `xnekom-ios27@ee910a78` 实测 **3 个阻塞**：`K60ThermalMap` 三文件缺、`0629-k60-sleep-trace.patch:7` 的 report 被 `#if defined(PONG)` 包住、`judge-k60-handoff-console.py`/`judge-k60-sleep-console.py` 未并入。同日这一行的 `0629` 已把门控改成驱动级宏 `K60_PLATFORM_SLEEP_REPORT`（补丁对 `xnu-8796` 的 `IOCPU.cpp` 能干净应用），门禁同时报警“提到 report 却没有这个宏”的形状；`builder-route` 已通过（该树 `board.toml` 已走 `build-xnu-generic.sh`） |
 | mode-1 只读 A 判据 | `scripts/judge-k60-mode1-console.py`，14 cases；检查 capture、late read 三域 enable、L3 15 行、无写行与 SpringBoard | **直接复用**；iOS27 改 header/寄存器名后重跑 |
@@ -84,7 +84,7 @@ python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27   # 列出
   `git apply --check` 通过，可以直接 cherry-pick，不必整支合并。
 - **bundle 通道已实测走通（2026-11-20，`f902a778` 的导出树）**：`git archive HEAD` 把 27 检出
   导到 scratch（不动它的 `.git`，不建工作树），`cp -a build/power-carry-bundle/. <导出树>/` 之后，
-  在**那份 27 代码上**直接得到 `power-carry: OK (8 modules, 16 files, 872 checks; 4 judge(s), 92 cases)`、
+  在**那份 27 代码上**直接得到 `power-carry: OK (8 modules, 16 files, 872 checks; 4 judge(s), 96 cases)`、
   `hw-contracts: 23 contract(s) across 5 lane(s)`、`power-host: OK (1915 checks in 10 suites)` 与
   `power-python: OK (7 suites)`（第四个判读器 `judge-k60-battery-mirror.py` 是之后加的，同一个入口）。也就是说 27 线不需要拉本分支、也不需要合并，就能先拿到全部离线证据；
   剩下的只有真机重接（属性号、`read_random`、读取路径）。

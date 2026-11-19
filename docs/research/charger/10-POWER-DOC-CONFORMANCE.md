@@ -553,11 +553,10 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   外接（我们的 `external` vs 镜像 USB `online`）与充电状态。容差沿用 `judge-battery.py` 的 C3 窗口
   （60 mV / 150 mA / 3.00 pp / 3 °C）。差值是 10、100、1000 倍时它会点名「这是单位滑了一档」而不是测量偏差；
   电流符号只作注记（官网 §4 第 2 步要求先确认符号约定），两条镜像信号（`status` 与 `online`）互相矛盾时，
-  与我们不一致也只算注记，两条都指向相反才判 FAIL。17 项 fixture 测试（含把容量写成 0.01%、温度写成
+  与我们不一致也只算注记，两条都指向相反才判 FAIL。21 项 fixture 测试（含把容量写成 0.01%、温度写成
   0.01 °C、电压偏 200 mV、两条信号同时相反、报告缺字段、非 JSON、纯文本读数）随
   `scripts/tests/run-k60-power-host.sh` 的 `battery-mirror` 套件运行，并作为第四个判读器进入
-  `CARRY.toml`（4 judges / 92 cases）。仍未接入的是**镜像读取器本身**：它需要同一硬件上跑 Linux 读
-  `/sys/class/power_supply`，K60 上只有 ADSP 固件，所以只能对读，不能在此实现。
+  `CARRY.toml`（4 judges / 96 cases）。**镜像读取器本身不做**：K60 上没有 Linux，`/sys/class/power_supply` 永远不存在，这一半的输入只能来自别人在同一 SoC 上跑的 Linux（sheng 仓库），本线不产出、也不假装能产出。判读器末行 `SIDES ours=… sheng=…` 把两侧分开：ours 是本机 console（自证），sheng 是外部报告，只有两侧都可用且一致时才可以引用为「与 Linux 读取器对齐过」。
   上机前不得宣称充电认证完成（§7.11 与 `docs/research/power/09-CHARGE-AUTH.md`）。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
   1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118f/boot.img`（sha256 `024466905dec75cbab5d2525f68936d6f18650a4b0d3aed6551d5ccc3df94c6e`）已于 2026-11-18 11:07 构建、11:13 上机，包含 `592523aa`/`6750c7bd`/`af759fe4`/`0bad0c61`；C1/C2 PASS、C3 对同会话 3 行低电流 Android 基线 PASS（`judge-android.txt`，|ΔV|=46mV、|ΔSOC|=1.00pp、|ΔT|=1.00°C），8 行全窗口在 11:56 符号修正后 FAIL（Android 原始正电流按 negative=charging 归一化为放电），见 §7.9/§7.10。上一版 image e（`8b1df...`）不含 `0bad0c61`（剩余时间按 charging 选择），已三次上机且 C1/C2 PASS，但 11:56 符号修正后其匹配电流 C3 PASS 全部作废（§7.10）；image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。

@@ -167,6 +167,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   **d1 的写回没有被硬件接受**：`apply d1 level=16 (2496000kHz) readback=ok state=130->130`，
   而采样里的 d1 `hw` 始终是 2.496 GHz，说明 P 域的行写入回读成功但 EPSS 不接受持续投票；
   同一轮 d2 没有产生写回。后续要么先清 DCVS 控制位再接管 d1/d2，要么承认 EPSS 独占大核簇。
+- mode 9（DCVS 控制位探针，已禁用）：对三域分别读控制位/单行/全行写入——Phase A 写单行 top/bottom 后恢复，Phase B 置 `DCVS_CTRL` bit0、写所有核行 top/bottom 后恢复行与控制位——原本用来解释 d1/d2 为什么不接受持续投票。2026-11-19 07:56 以 image t（`3300c1a7`，`k60_cpufreq=9`，boot.img sha256 `567d9b62…`，30 项 603 B）上机：fastboot 报 `Sending`/`Booting OKAY`，但 console 0 字节、`capture.json state=port-not-observed`、`returnedToFastboot=false`，设备状态 `none`，需强制复位。04:36 的 image u（mode 9 + 导入的 0617 thermal 补丁）是同一签名；两次唯一的共同因素是 mode 9，**温控补丁没有被证明有罪**。`3a0a5511` 在入口拒绝 9，探针代码保留待新的固件证据；d1/d2 归属问题仍未回答。
 - 帧下限接入（2026-11-19 05:07，image w）：采样线程每 16 ms 调 `pong_adreno_cp_pending()`（CP 环
   RPTR≠WPTR 表示本窗口有提交，DCVS 线程已用同一读数），把结果喂 `K60BoostPlan`，再把
   `k60_boost_frame_active()` 作为 `framing` 传给 `k60_cpufreq_governor_window`；官方 §5 :116 的
@@ -213,7 +214,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `hw` 是当次读到的硬件档位，不是写入结果。线程由 `kernel_thread_start` 启动，
   `K60Battery::cleanup` 调 `k60_cpufreq_sample_stop` 置标志退出；不写任何寄存器、不投票。
   mode 5 的 boost/framing 传 0，也不写硬件；写回在 mode 7（只降）和 mode 8（双向）。触摸/帧输入自 `cbdf382f`/`aa3bada7` 起接入采样线程，不是 mode 5 本身。
-- mode 4 与大于 9 的值直接打印 "modes 1-3, 5, 6, 7, 8 and 9 are implemented" 并返回。
+- mode 4、9 与大于 9 的值直接打印 "modes 1-3, 5, 6, 7 and 8 are implemented, mode 9 is disabled after two hangs" 并返回。
 - 调用点：`k60_physical_battery_start()` 开头做第一次读取；电池 `begin` 成功后
   （`K60Battery.cpp` 的同一入口）延迟 5 s 做第二次读取。这是当前 archive 唯一由
   userland 触发的 IOKit 入口；探针不需要 ADSP 租约，也不经过电池配置解析。
@@ -483,6 +484,13 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   判读：新的 CP 环采样与 `framing` 调用路径在真机上执行且没有 panic，mode 8 行为与 image s 一致；
   但启动全程没有 GPU 提交，帧下限没有触发，§5 :116 的 300 ms / 60 % 效果仍待有 GPU 负载的镜像验证。
 
+- 镜像 t 与 mode 9 卡死（2026-11-19 07:56，`E:/k60-work/evidence/power-conformance-mode9-20261119-0756`）：
+  image t 的 `boot.img` 201,887,744 B，sha256 `567d9b62290903afae7e6de000d9f219a9520f57b4f436660db23745183775d7`，参数
+  `k60_cpufreq=9`，30 项 603 B。`fastboot.log` 记录 `Sending 'boot.img' OKAY` 与 `Booting OKAY`，但 console.log
+  到 07:59 仍是 0 字节，`capture.json` 为 `state=port-not-observed`、`bytes=0`、`complete=false`、
+  `returnedToFastboot=false`，设备状态 `none`。04:36 的 image u（mode 9 + 0617 thermal）同一签名。
+  判读：卡死与 mode 9 的 DCVS 控制位/全行写入相关，与温控补丁无关；mode 9 已由 `3a0a5511` 禁用，不再上机。
+
 ## 7. 未实现 / 边界
 
 - 投票写集合已实现（mode 2/3，以及只降 d0 的 mode 6），并已在代码层加入 enable/档位守卫、
@@ -498,7 +506,8 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
   mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；触摸计数自 image x 起由补丁 0622 导出（CPU/GPU 线程消费；05:47 上机已抓到 `tb=1` 与 governor 抬档，硬件写窗口由 `9b8a36b6` 重开，但 100 s 上限由 `a0e8a060` 才去掉，image y/z 均未上机复测）、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
-  先到，没有 `sample stop`，也没有负载/温度/throttle 读数。
+  先到，没有 `sample stop`，也没有负载/温度/throttle 读数。mode 9（DCVS 控制位/全行写入探针）在 image u 与 image t
+  两次 0 字节卡死后由 `3a0a5511` 禁用，d1/d2 为何无视持续投票仍无答案。
 - 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。
 - 真机已有三次 mode 1 读数：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取

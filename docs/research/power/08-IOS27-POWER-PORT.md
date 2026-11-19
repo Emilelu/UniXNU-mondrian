@@ -25,6 +25,7 @@
 | `K60ThermalMap`（跳变点→等级→`allow_raise`/降档建议） | `drivers/PongPower/K60ThermalMap.c`，host 125 项 | **直接复用**；读数来源按 12377 的 tsens 节点名重接，策略不变 |
 | `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 八套件 1811 项 | **直接复用**；作为 iOS27 的第一道门 |
 | 跨版本搬运清单 `docs/research/power/CARRY.toml` + `scripts/check-power-carry.py` | 七个模块 14 个文件 773 项断言钉住哈希；`--target` 逐文件比对目标树的副本 | **直接复用**；iOS27 分支合并后跑 `python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27`——2026-11-20 实测六个 `SAME`、`K60ThermalMap` 三个 `MISS`（该树停在温控提交之前） |
+| iOS27 搬运前置检查 `scripts/check-ios27-power-preflight.py` | 一次读两棵树（本线 + `--tree`/`K60_IOS27_TREE` 指定的 27 检出），给出五类判定：tree、七个模块逐文件哈希、`sleep-report-guard`、`builder-route`、三个判读器是否已并入；18 项测试，退出 0/1/2 | **直接复用**；2026-11-20 对 `xnekom-ios27@ee910a78` 实测 **3 个阻塞**：`K60ThermalMap` 三文件缺、`0629-k60-sleep-trace.patch:7` 的 report 被 `#if defined(PONG)` 包住、`judge-k60-handoff-console.py`/`judge-k60-sleep-console.py` 未并入；`builder-route` 已通过（该树 `board.toml` 已走 `build-xnu-generic.sh`） |
 | mode-1 只读 A 判据 | `scripts/judge-k60-mode1-console.py`，14 cases；检查 capture、late read 三域 enable、L3 15 行、无写行与 SpringBoard | **直接复用**；iOS27 改 header/寄存器名后重跑 |
 | 平台睡眠判据（catalog ArmCpu 路线） | `scripts/judge-k60-sleep-console.py`，28 checks：ENABLE/ENTER/PREPARE/HALT/RESUME/REPORT/WAKE/NO-PANIC，并把 resume panic 与“唤醒后硬挂”分开 | **直接复用**；iOS27 用 catalog ArmCpu 重做睡眠后，判据不变，只换行文本与 PONG 门控 |
 | 只读 A 的现成镜像（iOS16） | image w11 离线构建于 2026-11-19 21:55，未上机：`E:/k60-work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B sha256 `6db4e6b7…`，kernel `069e7075…`，参数 30 项 601 B（`k60_cpufreq=1`，无 `applog=1`） | 等 slot 即可飞 A；iOS27 用同一判据重判 |
@@ -35,6 +36,26 @@
 | vendored `drivers/ArmCpu` + `0623/0624/0625` | iOS16 专用 | **不要逐行搬**；改用官方 catalog ArmCpu + sheng 的 xnu-12377 补丁 |
 | `K60PlatformSleep.cpp` | timer-only 板级 hook，iOS16 API | **适配**：换成 catalog `armcpu_sleep_register` 的板级回调与 iOS27 的 IOPMrootDomain 通知 |
 | ADSP/电池/充电认证 | 独立线（charge-auth 分支、battery §4） | 不在本清单；iOS27 另立 ADSP 端口 |
+
+### 2.1 搬运前置检查（2026-11-20）
+
+搬运清单只回答“七个模块的字节还在不在”。27 线另外踩过的三类坑不会让哈希变化，却会让一次
+27 飞行毫无结论，所以它们也进同一个检查：
+
+```sh
+K60_IOS27_TREE=E:/hackios/xnekom-ios27 python3 scripts/check-ios27-power-preflight.py
+```
+
+- **sleep-report-guard**：`patches/xnu/0629-k60-sleep-trace.patch:7` 与 `:61` 把两条 report
+  调用包在 `#if defined(PONG)` 里。27 线的机器 profile 不是 PONG（Lead 裁定：27 线不引入 PONG），
+  于是 report 静默消失、`judge-k60-sleep-console.py` 的 REPORT 判据永远 FAIL。修法是驱动级宏
+  （例如 `K60_PLATFORM_SLEEP_REPORT`），改的是 16 行的补丁，需 Lead 点头。
+- **builder-route**：调 27 树自己的 `scripts/pick-xnu-builder.sh board.toml`，要求它选
+  `build-xnu-generic.sh`。选到 16.6.1 的 `build-xnu-4k-baseline.sh` 就意味着 `MACHINE_CONFIGS=PONG`，
+  而 12377 源码没有 `pexpert/pexpert/arm64/PONG.h`，`make installhdrs` 直接停在
+  `Unsupported CURRENT_MACHINE_CONFIG PONG`（bt 线 2026-11-20 的 CI 诊断）。该树实测已通过。
+- **judges**：判读器是脚本，必须真的在 27 树里存在，否则飞行没有判据。只在本线存在时算阻塞，
+  两边都没有时只算警告（还没写的东西不该阻塞别人）。
 
 ## 3. iOS27 参考实现
 

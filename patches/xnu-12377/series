@@ -3,6 +3,12 @@
 # between 1 and 3 arguments". The only use is ucred.cr_label, which no userland
 # object reads, so non-Apple compilers keep the type discriminator.
 ptrauth-string-discriminator.patch
+# xnu ships its own copy of the SDK's Availability macros (EXTERNAL_HEADERS),
+# and that copy stops at __API_AVAILABLE. 12377 annotates its libsyscall
+# headers with __SPI_AVAILABLE, which only a Darwin 26 SDK defines, so the
+# Linux build stops in libcc_kext on gethostuuid.h. Keep the annotation but make
+# it empty: nothing in the kernel reads a SPI availability back out.
+availability-spi.patch
 # ArmCpu's weak_import sleep hook has no definition in any component; ld64-port
 # rejects the unresolved weak data symbol when the archive joins the kernel link.
 armcpu-sleep-hook.patch

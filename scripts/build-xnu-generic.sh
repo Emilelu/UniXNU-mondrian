@@ -788,6 +788,14 @@ PY_BINDINGS
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ROOT/build/boot-progress/libBootProgress.a"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ROOT/build/boot-progress/libBootProgress.a"
   fi
+  # K60 Wi-Fi: the 24A446 line links the same station archive the Pong builder links, so
+  # a wifi kernel keeps its driver without the 16.6.1 builder being selected.
+  if [ "${XNU_PONG_WIFI:-0}" = 1 ]; then
+    PONG_WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-$ROOT/build/pong-wifi/libPongWifiNative.a}
+    test -f "$PONG_WIFI_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$PONG_WIFI_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $PONG_WIFI_ARCHIVE"
+  fi
   KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES ${XNU_EXTRA_LD_ARCHIVES:-}"
   EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$KERNEL_EXTRA_ARCHIVES")
   EXTRA_MAKE_ARGS+=("XNU_EXTERNAL_KERNEL_ARCHIVES=$KERNEL_ARCHIVE_DEPENDENCIES")

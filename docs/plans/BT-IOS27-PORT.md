@@ -296,6 +296,47 @@ packing write in the model must turn the run red.
 Boundary: the model covers register semantics and the DMA queue, not real
 QUP/GENI timing, the SMMU or the pins.
 
+### 5.5 The shared interrupt controller check
+
+The second step-6 script on the official page checks SPI sharing: sheng
+splices the SPI registration out of `ArmCpu.cpp` and compiles it with
+`Sm8550Gcc.c`. Bluetooth takes INTID 619 (UART) and 240 (TLMM wake) from the
+same distributor that UFS and PCIe use, so a broken `armcpu_spi_attach` is not
+a Bluetooth-local failure.
+
+`drivers/ArmCpu/ArmCpu.cpp` keeps that code in two blocks: the owner table
+(`struct SpiOwner`, `gSpi[4]`, `gSpiUsed`, `gSpiRegistering`, `gDist`,
+`gBootAffinity`) from `/* Published SPI owners, following Sheng` to
+`class ArmCpu : public IOCPU`, and `armcpu_spi_attach` from
+`extern "C" IOReturn armcpu_spi_attach(` to `void ArmCpu::signalCPU`.
+`scripts/check-bluetooth-gic.py` splices both into
+`scripts/tests/fixtures/bt-gic-shared.c` at its extract marker; one slice
+would swallow the class declaration and fail on `OSSymbol` and `IOCPU`.
+
+The fixture models the GICD registers and provides the minimal `IOReturn`,
+`IOLock` and memory helpers. Two host adaptations matter: the `dsb sy`
+barrier becomes `__atomic_thread_fence(__ATOMIC_SEQ_CST)`, and the fixture
+carries no unused `panic` stub because the build uses `-Werror`.
+
+The run makes 43 assertions over 16 distributor writes: 619 attaches cold, the
+owner table records it, `S2CR` reads back with the low two bits set,
+`IROUTER` is `0x80000000`, `GICD_ISENABLER` is set, `GICD_ICENABLER` is
+cleared, the priority byte is `0xa0`, and the low word of `GICD_IROUTER` is
+written first. 620 gets its edge bit `(n%16)*2+1` in the config register. A
+duplicate owner returns `kIOReturnExclusiveAccess` without taking a slot,
+INTIDs 27, 1020 and 1024 are bad arguments, a null handler is not ready, the
+fifth owner exhausts the four slots, and eight threads that attach at once
+produce only defined return codes, with the success count equal to `gSpiUsed`.
+
+The CI job runs it right after the GENI step. The checker accepts both driver
+layouts: `drivers/ArmCpu/ArmCpu.cpp` on the device tree and
+`drivers/armcpu-darwin24/ArmCpu.cpp` in the fork.
+`scripts/tests/test-bt-gic-shared.py` covers 20 cases; removing the duplicate
+guard or the enable write turns the run red.
+
+Boundary: the model covers register semantics and the owner table, not real GIC
+timing, preemption or affinity, and `hardware_verified` stays false.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

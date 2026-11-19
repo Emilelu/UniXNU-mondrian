@@ -1438,11 +1438,30 @@ k47 的 panic 只指向一个旗标：`kmem_alloc_contig(..., KMA_DATA | KMA_ZER
 
 - **实机结果（2026-11-19 17:28，420 s 采集）**：不再 panic（`panicMarker` 为 null），S3 PASS / S4 FAIL / S5 FAIL / S6 PASS（证据 `E:/k60-work/evidence/usblog-20261119-172834`，capture `state=captured-disconnected`、`complete=false`、`bytes=217078`、`logSha256=ACB79AFD851558F6F4EA473E0A8B6839C9632DCEAE3633CCCDE5E40A8CD81EF3`、`stopReason=fastboot-return`、`lastDataAt=17:34:25`、`finishedAt=17:34:31`、`rc=5` 自行复位）。
 - 分配仍然落在 4 GiB 之上，八次全部如此：`rmtfs attempt 0 above 4 GiB (phys=0x90d5b3000)` … `attempt 7 above 4 GiB (phys=0x90e733000)`，随后 `rmtfs alloc storage=1 bytes=2621440 physical=0`，四分钟里 `rmtfs=3` 不变、没有 `rmtfs rw`。原因：`kmem_alloc_contig` 的第四参数是**对齐掩码**、第五个是 `max_pnum`（物理页上限），原来传 `0xfffff000` 与 `0` 都没有约束力，只有重试循环在筛。
-### 3.36 k49：把连续区钉在 4 GiB 以下（离线，构建中）
+### 3.36 k49：把连续区钉在 4 GiB 以下（离线，已构建，未上机）
 
 k48 的八行 `above 4 GiB` 说明重试筛不出来，必须让分配器直接给低页。k49 把 `kmem_alloc_contig` 的掩码改成 0、`max_pnum` 改成 `(ppnum_t)(((1ull << 32) - bytes) >> 12)`，其余不变；失败时仍回落到八次重试与 `ptoa_64(page) + bytes <= 1ull<<32` 的断言。
 
 判据：① `rmtfs attempt … above 4 GiB` 不再出现；② `rmtfs alloc … physical=0x…` 非零且小于 `0x100000000`；③ 是否出现 `rmtfs rw` 与 `vectors`；④ S3/S6 保持。若 `max_pnum` 分配直接失败（低区没有 2.5 MiB 连续页），下一个变量是复用 payload 预留的低区内存或把区缩小到 modem 实际分配的大小。
+
+**构建结果（2026-11-19 23:52，离线，未上机）**
+
+| 项 | 值 |
+| --- | --- |
+| 源码 | `feat/cellular` HEAD `04450c65` |
+| kernel.macho | 105,738,240 B `729b2238ff02937f9e31750c725dc37e4026a0778113bdc5c08c59d5204c6770` |
+| boot-modem-b-full.img | 201,895,936 B `e5a39992cd55185e4e9fa6d7a736697861a5233da6c73e8aa0a1c7e93aa701d6` |
+| payload.img | 201,326,592 B `0c6e7d7b7daa1b4c19571db9a38194696c29ed78e1332099a3030a903f8ddef0` |
+| payload.json | 1,403 B `7a53245e90cb1db81ad555453e6b440a86a8df5483e4a06e674136e7d78cd37f` |
+| 启动行 | 30 个参数、588 字节（`check-image-args.py --image` → `OK (30 arguments, 588 bytes)`） |
+| 布局 | `kernel=560384 ramdisk=201326592 解压=3145840 DTB=4024` OK |
+| 补丁集 | 230 条、指纹 `65872efa534971ca`；0622 = 131,838 B、0623 = 174,551 B |
+| COACHZ 符号 | 40 条；`_coachz_baseband_configure` fffffff007a8e118、`_coachz_baseband_enabled` fffffff007a89298 |
+
+第一版镜像带 `--kernel-arg pong_ipa=0`，`check-image-args.py` 判 **REFUSED**：`pong_ipa` 既不在 `board.toml` 的 `kernel_args` 里，也不在门禁的 `ALLOWED_ADDITIONS` 里。`K60Ipa` 缺省即 gated（k44 的 mode-3 镜像已按同一方式去掉该参数并正常上机），所以去掉它重建，启动行从 604 字节降到 588 字节、审计通过。上一版（含 `pong_ipa=0`）的 sha256 是 `5e3a6a95fb61b6e697d5da21ddf290073c14b400322ee8c171c9cc1d61038e27`，不是候选。
+
+构建在 `/tmp/k60-modem-20261117c` 树上完成（与 k41–k48 同一棵树）：`/opt/k60/trees/cellular-k49{,-out}` 由 root 持有、建不了；换到 `/home/emilelu/k60-build/k49-tree` 后 bootstrap 能过，但 `component-QcomBaseband` 要读上一轮编译记录 `tree/build/xnu/ios-obj/**/*.json`，记录里的 `-I` 是原树的绝对路径，新树没有这些记录。产物因此落在 `E:/k60-work/artifacts/modem-20261117k49/`，仓库里只有可重复生成它的源码与脚本。
+
 
 ## 5. 飞行顺序
 

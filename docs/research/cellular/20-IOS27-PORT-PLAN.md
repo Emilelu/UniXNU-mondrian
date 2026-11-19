@@ -137,6 +137,7 @@ python3 scripts/port-cellular-to-xnu27.py --tree <27 XNU 树> --out <输出目�
 - `0627` = 0622 原样，`0628` = 0623 原样；
 - `0629` 在 `kern_exec.c` 的锚点行前插入两段 probe（先 modem 后 IPA），再用 unified diff 生成；
 - 锚点缺失或命中多行 → 退出码 2 并打印命中次数；`--self-test` 在临时树里验证「重排 + 插入 + 拒绝」三件事（输出 `K60 PORT27 PASS renumbering, anchor insertion, refusal`）。
+- `--verify` 对产出的每个补丁跑 `git -C <27 树> apply --check`，逐条打印 `K60 PORT27 VERIFY 0626 ok`；锚点缺失时 0629 记 `skipped (not produced)`，其余三条照样验证，退出码仍是 2。
 
 2026-11-20 05:55 `--verify` 对真实 27 树实跑：
 

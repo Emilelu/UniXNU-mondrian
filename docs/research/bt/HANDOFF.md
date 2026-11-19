@@ -1143,3 +1143,13 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 检查脚本：scripts/check-bluetooth-dt.py 检查 dts，可选 --dtb（fdtget 逐属性）与 --payload（mcopy 取 ADT 后查字节），对 bt-0524 全过；scripts/tests/test-bt-0524-dt-node.py 15/0，错速率、重名、缺节点三种输入都会变红。
 - 参考仓（用户 m22039 指定）：t970（SM8250，tip 638dbda）与 zizhan（SM8475，tip 034a0b0）都没有蓝牙驱动；t970 userland/board_services18.py:84-89 直接把 bluetoothd 限制到 bluetooth/marconi-bt 节点；zizhan 可借的是 PongWifiPlatform.cpp:170-191 的 RPMh rail 投票（K60 qbt 目前不投 rail）与 make-pong-adt-ipados18.py:349-362 的 udid-version 2 经验（缺 WifiAddress 时 MG UniqueDeviceID 会阻塞数秒；K60 make-pong-adt.py:266 仍写死 version 1，属 OS 版本强相关，暂不动）。
 - 边界：构建与 ADT 证明，不是运行证明；没有飞行，没有新的硬件观测；蓝牙可用性仍受 item 52 的用户态结论限制。
+
+### 54. iOS 27 用户态首次离线构建：24A446 的 bluetoothd 与锁定的原件逐字节一致（2026-11-19 15:33）
+
+- 背景：新目标要求这条线为迁移到 iOS 27.0.1 做准备，用户态参考 sheng 最新代码。QcaBluetooth 的 native_ios27 适配器绑定 bluetoothd 的 SHA-256 与 UUID，所以第一步是确认我们的 24A446 IPSW 里的守护进程是否就是它锁定的那一份。
+- IPSW：https://updates.cdn-apple.com/2026FallFCS/3741bcd4-e0a6-43a7-bac1-74f363efb9ab/iPhone17,2_27.0.1_24A446_Restore.ipsw，12,314,041,166 B，下载到 /home/emilelu/ipsw/24A446.ipsw。根文件系统是 AEA 加密的 043-69909-664.dmg.aea（8,858,370,048 B）；用 blacktop/ipsw 3.1.749 的 ipsw fw aea 解出 043-69909-664.dmg（10,223,616,000 B），7z 取出 usr/sbin/bluetoothd（13,092,096 B）。
+- 结论：bluetoothd SHA-256 = cfd94854d0a2efd3ca4a2de6e55349f43fd0d274a4b8bfa9937f29d9f7208cb1，与 QcaBluetooth tools/native_ios27.py 的 ORIGINAL_SHA256 和 UUID 8E49197B-E6BC-3F3B-A8D3-DF4BEDD37F01 完全一致。适配器不需要重新定位。
+- 构建：在一台只有 Command Line Tools 的 Mac（Intel，iPhoneOS.sdk，codesign 为系统工具）上跑 fork 的 scripts/build-bluetooth-userspace.py，产出 bin/BlueTool（87,216 B，CDHash f3768896b52bb01e435f4f43a0078e8145eac408，sha256 2e775b80f3ca19b17e2fd78a5827bd252146621e32d64df803e3f49502ae524f）、bin/bluetoothd（重签，CDHash 7d6db4db44e30e52150c6ae63b3337f0f1fa6521，sha256 178444d651c734bdbff49b03503418b4c1264b45b80bc4c54a5d7dda13013d34；157 项 entitlement 保留）、lib/QcaBTType0.dylib（102,096 B，CDHash 4c000ee5244140a98ec23f1b11ec30b5fd12f15e，sha256 e815fe2f32a147b1f574ebccaf9e205503bbba41c723d184096fa3f0879147b7），并暂存 40 个 firmware/qca 文件。report 里 hardware_verified=false。
+- 环境适配（已随 fork 提交）：CLT 的 iPhoneOS.sdk 有 libxpc 但没有头文件，scripts/toolchain/xpc-shim/xpc/xpc.h 声明 BlueTool.c 用到的 13 个符号；组件的 tools/build-bluetool.py 不收额外编译参数，scripts/toolchain/qca-bluetooth-extra-flags.diff 加了 QCA_BT_EXTRA。完整 Xcode 两者都不需要。
+- 提交：fork Emilelu/UniXNU-mondrian 91d4123（toolchain 输入）、f16cca5（文档 §6.1），已推 emilelu/feat/bt-ios27-port。
+- 边界：构建与签名证明，不是运行证明；[payload.runtime] 仍未启用（会让 payload 构建去挂 24A446 系统镜像，属 F3）；没有飞行。

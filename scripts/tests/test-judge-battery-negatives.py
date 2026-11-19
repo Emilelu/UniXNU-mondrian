@@ -27,6 +27,11 @@ import subprocess
 import sys
 import tempfile
 
+# The verdict table is Chinese.  A GBK console cannot encode it, so print UTF-8
+# regardless of the locale the suite was started from.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 JUDGE = ROOT / "scripts" / "judge-battery.py"
 
@@ -68,8 +73,18 @@ def sample(voltage=4333, current=836, soc=(57, 30), temp=(35, 80), external=1,
 
 
 def run_judge(path: pathlib.Path, *extra: str):
+    # The judge prints Chinese verdict lines.  text=True alone decodes with the
+    # locale codec, which is GBK on this host's MSYS shell: every line then
+    # arrives mangled and every row reports MISMATCH.  Pin UTF-8 so the table
+    # reads the same from Windows and from WSL.
+    # The judge prints Chinese verdict lines.  text=True alone decodes with the
+    # locale codec, which is GBK on this host's MSYS shell: every line then
+    # arrives mangled and every row reports MISMATCH.  Pin UTF-8 on both sides
+    # of the pipe so the table reads the same from Windows and from WSL.
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
     proc = subprocess.run([sys.executable, str(JUDGE), "--log", str(path), *extra],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", env=env)
     verdicts = {}
     for line in (proc.stdout or "").splitlines():
         for name in CRITERIA:

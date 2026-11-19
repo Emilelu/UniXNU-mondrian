@@ -335,9 +335,24 @@ def main() -> int:
           "a.auth_upper!=8 && a.auth_upper!=0x10" in net)
     check("a join answers pending until the station finishes, and the newer daemon's credentials are read as the reference does",
           "kAssocPending = 0" in net and
-          "gAssocResult = kAssocPending; gUserJoin = true; gAssocModern27 = modern27;" in net and
+          "gAssocResult = kAssocPending; gJoinPending = true; gLinkSuppressed = false;" in net and
+          "gUserJoin = true; gAssocModern27 = modern27;" in net and
           "modern27 && a.key_length && !((a.key_cipher == 6 && a.key_length == 32)" in net and
-          "if (r) gAssocResult = kAssocFailed;" in net)
+          "if (r) { gAssocResult = kAssocFailed; gJoinPending = false; }" in net)
+    check("an explicit disconnect hides the link and answers a join that was waiting",
+          "void visible_status(nw_wifi_status &st)" in net and
+          "if (!gPower || gLinkSuppressed) {" in net and
+          "void post_link_down(bool involuntary, int reason)" in net and
+          "if (gJoinPending) {" in net and
+          "post_event(kEvSsidChanged, nullptr, 0);" in net and
+          "gLinkSuppressed = true; gAssocResult = kAssocFailed; gJoinPending = false;" in net and
+          "if (gLinkSuppressed) { log(6, \"wifi-net: link lost during an explicit disconnect: reason %d\", reason); return; }" in net)
+    check("a completion without a link and a lost link are reported as the reference does",
+          "if (result == NW_RES_OK && status.state != NW_STA_UP) {" in net and
+          "gAssocResult=kAssocFailed;gJoinPending=false;" in net and
+          "post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);break;" in net and
+          "void post_association_result()" in net and
+          "memcpy(done.attempts, current.bssid, 6);" in net)
     check("a join drains a link that is already up before asking the station",
           "int drain_disconnect()" in net and
           "for (unsigned waited = 0; waited < 2000; waited += 10)" in net and

@@ -165,6 +165,8 @@ struct { unsigned count, kicks, cleared, longest; bool kicked; } gStall;   // in
 int gAssocResult = kAssocPending;
 bool gAssocModern27;   // the last join arrived through the 0x290-byte 24A446 request
 bool gModern27Client;  // a 24A446-sized request arrived, so the daemon speaks the newer auth encoding
+bool gJoinPending;     // a join request is queued in the station and its completion has not arrived
+bool gLinkSuppressed;  // an explicit disconnect hides the link until a new join clears it
 unsigned gScanCursor, gScanning, gScanServed;
 nw_bss_info gSnap[64]; unsigned gSnapCount;   // the scan list frozen when a sweep completes, strongest first
 // The channels the radio last visited and when the link came up: the reference port's scan policy
@@ -174,6 +176,16 @@ uint64_t gSnapAtNs;      // when the frozen list was taken
 uint64_t gLinkUpMs;      // when the link came up, 0 while it is down
 uint64_t scan_clock_ns();
 static inline uint64_t scan_clock_ms() { return scan_clock_ns() / 1000000ull; }
+// After an explicit disconnect the station's snapshot keeps reporting the old network until the firmware
+// teardown finishes; the reference port hides it (visible_status) so the daemon does not read a link that
+// the user has already left. A new join clears the suppression.
+void visible_status(nw_wifi_status &st) {
+  nw_wifi_status_get(&st);
+  if (!gPower || gLinkSuppressed) {
+    st.state = NW_STA_IDLE; st.ssid_len = 0; memset(st.ssid, 0, sizeof st.ssid);
+    memset(st.bssid, 0, sizeof st.bssid); st.freq_mhz = 0; st.signal_dbm = 0;
+  }
+}
 thread_call_t gNotifications;
 pong_wifi_notification_queue gNotificationQueue;
 enum { NotifyControl=1, NotifyScan, NotifyAssociate, NotifyLost, NotifyFailed };
@@ -221,6 +233,24 @@ void post_link(bool up) {
   msg.dv[0].data_length = sizeof payload; msg.dv[0].data_ptr = &payload;
   pong_kev_post(&msg);
 }
+// A requested disconnect is announced now, not when the station finishes its firmware teardown (the
+// reference port's post_link_down): the link change carries involuntary=0, and the name events follow.
+void post_link_down(bool involuntary, int reason) {
+  post_link(false);
+  link_event ev{}; ev.down = 1; ev.involuntary = involuntary ? 1 : 0; ev.reason = static_cast<uint32_t>(reason);
+  post_event(kEvLinkChanged, &ev, sizeof ev);
+  post_event(kEvSsidChanged, nullptr, 0);
+  post_event(kEvBssidChanged, nullptr, 0);
+}
+// The association completion the daemon reads: 24A446 takes the 540-byte event, with the peer's address in
+// the first attempt slot as the reference port fills it, and the older daemon the empty payload.
+void post_association_result() {
+  if (!gAssocModern27) { post_event(kEvAssocDone, nullptr, 0); return; }
+  pong_assoc_event27 done{}; done.result = static_cast<uint32_t>(gAssocResult); done.has_result = 1;
+  nw_wifi_status current; nw_wifi_status_get(&current);
+  memcpy(done.attempts, current.bssid, 6);   // the first attempt slot, 52 bytes in the 540-byte event
+  post_event(kEvAssocDone, &done, sizeof done);
+}
 
 // Socket/ifnet delivery can synchronously cause output or interface queries.
 // The cooperative firmware dispatcher must remain free to drain that work.
@@ -247,18 +277,20 @@ void deliver_notifications(thread_call_param_t,thread_call_param_t) {
     if(!available)return;
     switch(event.kind) {
     case NotifyControl:
-      if(event.result&NotifyLinkDown)post_link(false);
+      if(event.result&NotifyLinkDown) {
+        // An explicit disconnect while a join waits leaves the daemon waiting for an association result
+        // the station will never post (the join it queued was replaced), so the failure is posted here.
+        post_link_down(false, 0);
+        if (gJoinPending) { gJoinPending = false; post_association_result(); }
+      }
       if(event.result&NotifyPower)post_event(kEvPowerChanged,nullptr,0);
       break;
     case NotifyScan:post_event(kEvScanDone,nullptr,0);break;
     case NotifyAssociate:
       if(event.result==NW_RES_OK)post_link(true);
-      if (gAssocModern27) {
-        // 24A446's assoc-done event is 540 bytes: the framework reads result at 0x214 and has_result
-        // at 0x218 to decide whether the join succeeded, so the payload cannot be the legacy empty one.
-        pong_assoc_event27 done{}; done.result = static_cast<uint32_t>(gAssocResult); done.has_result = 1;
-        post_event(kEvAssocDone, &done, sizeof done);
-      } else post_event(kEvAssocDone,nullptr,0);
+      // 24A446's assoc-done event is 540 bytes: the framework reads result at 0x214 and has_result
+      // at 0x218 to decide whether the join succeeded, so the payload cannot be the legacy empty one.
+      post_association_result();
       if(event.result==NW_RES_OK) {
         post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);
         link_event link={};link.rssi=event.rssi;link.noise=static_cast<uint16_t>(-95);link.snr=static_cast<uint16_t>(event.rssi+95);
@@ -269,13 +301,15 @@ void deliver_notifications(thread_call_param_t,thread_call_param_t) {
       break;
     case NotifyLost: {
       post_link(false);link_event link={};link.down=1;link.involuntary=1;link.reason=static_cast<uint32_t>(event.result);
-      post_event(kEvLinkChanged,&link,sizeof link);break;
+      post_event(kEvLinkChanged,&link,sizeof link);
+      // The name events follow every link change the reference port reports, so the daemon drops the old
+      // SSID/BSSID reading even when the loss was the access point's.
+      post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);break;
     }
     case NotifyFailed:
       post_link(false);
       if(event.result)post_event(kEvScanDone,nullptr,0);
-      if (gAssocModern27) { pong_assoc_event27 done{}; done.result = static_cast<uint32_t>(gAssocResult); done.has_result = 1; post_event(kEvAssocDone, &done, sizeof done); }
-      else post_event(kEvAssocDone,nullptr,0);
+      post_association_result();
       post_event(kEvPowerChanged,nullptr,0);break;
     }
   }
@@ -372,6 +406,20 @@ void cached_scan_done(thread_call_param_t,thread_call_param_t) { on_scan_done();
 void on_connect_done(int result) {
   nw_wifi_status status={};nw_wifi_status_get(&status);
   lck_mtx_lock(gLock);
+  gJoinPending = false;
+  if (!gPower || gLinkSuppressed) {
+    lck_mtx_unlock(gLock);
+    log(6, "wifi-net: ignore join completion after explicit disconnect: %d", result);
+    return;
+  }
+  if (result == NW_RES_OK && status.state != NW_STA_UP) {
+    // Authorization without the link standing would tell the daemon the join succeeded and draw bars
+    // for a link that is not there; the reference port ignores such a completion.
+    gAssocResult = kAssocFailed;
+    lck_mtx_unlock(gLock);
+    log(6, "wifi-net: ignore authorization without an active link");
+    return;
+  }
   gAssocResult=result==NW_RES_OK?kAssocOk:result==NW_RES_BAD_KEY?kAssocBadKey:result==NW_RES_TIMEOUT?kAssocTimeout:kAssocFailed;
   // NW_RES_OK follows actual key installation/STA_AUTHORIZED for WPA2.
   pong_wifi_notification event={NotifyAssociate,result,status.signal_dbm,gKeyed?1u:0u};
@@ -380,8 +428,9 @@ void on_connect_done(int result) {
   log(6,"wifi-net: join finished: module result %d",result);
 }
 void on_link_lost(int reason) {
+  if (gLinkSuppressed) { log(6, "wifi-net: link lost during an explicit disconnect: reason %d", reason); return; }
   log(6,"wifi-net: link lost: reason %d",reason);
-  lck_mtx_lock(gLock);gLinkUpMs=0;pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
+  lck_mtx_lock(gLock);gLinkUpMs=0;gAssocResult=kAssocFailed;gJoinPending=false;pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
 }
 // The station starts a join only from IDLE (nw_sta.c start_connect): a request that meets a link already up
 // is dropped, and the daemon would wait for an association event that never comes. Drain the old link first,
@@ -616,7 +665,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     const auto lease = pong_wifi_lease_snapshot(&gLease, lease_clock());
     return answer_bytes(rq, &lease, sizeof(lease), kernel);
   }
-  nw_wifi_status st; nw_wifi_status_get(&st);
+  nw_wifi_status st; visible_status(st);
   const int type = rq.req_type;
   // (not on the stack: the largest answer is 4824 bytes)
   union Out { uint8_t raw[5120]; channels_list chans; scan_result res; };
@@ -628,7 +677,9 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   uint32_t *w = reinterpret_cast<uint32_t *>(out.raw);
   if (set) {
     switch (type) {
-    case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]); if (!gPower) {nw_wifi_disconnect();pong_wifi_wake();} notify_locked(NotifyPower); return 0; }
+    case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]);
+      if (!gPower) { gLinkSuppressed = true; gAssocResult = kAssocFailed; gJoinPending = false; nw_wifi_disconnect(); pong_wifi_wake(); notify_locked(NotifyLinkDown); }
+      notify_locked(NotifyPower); return 0; }
     case kScanReq: case kScanReqMultiple: {
       if(!gPower)return ENETDOWN;
       if(rq.req_len<20)return EINVAL;
@@ -733,14 +784,15 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       if (modern27 && a.key_length && !((a.key_cipher == 6 && a.key_length == 32) ||
                                         (a.key_cipher == 10 && a.key_length >= 8 && a.key_length <= 63))) {
         memset(&a,0,sizeof(a)); return EINVAL; }
-      gAssocResult = kAssocPending; gUserJoin = true; gAssocModern27 = modern27; if (modern27) gModern27Client = true;
+      gAssocResult = kAssocPending; gJoinPending = true; gLinkSuppressed = false; gUserJoin = true; gAssocModern27 = modern27; if (modern27) gModern27Client = true;
       log(6, "wifi-net: join: ssid length %u, bssid given %d, key length %u cipher %u", a.ssid_length, hasBssid, a.key_length, a.key_cipher);
       gKeyed = hasKey; int r = nw_wifi_connect(a.ssid, a.ssid_length, hasBssid ? a.bssid : nullptr, hasKey ? pass : nullptr, hasKey ? keyLength : 0);
-      if (r) gAssocResult = kAssocFailed;   // the request never reached the station
+      if (r) { gAssocResult = kAssocFailed; gJoinPending = false; }   // the request never reached the station
       memset(pass, 0, sizeof pass); memset(&a, 0, sizeof a);
       if(!r)pong_wifi_wake();
       return r ? EINVAL : 0; }
-    case kDisassociate: case kDeauth: gUserJoin = true; gLinkUpMs = 0; log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
+    case kDisassociate: case kDeauth: gUserJoin = true; gLinkUpMs = 0; gLinkSuppressed = true; gAssocResult = kAssocFailed; gJoinPending = false;
+      log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
     case kScanCacheClear: case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return 0;
     case kAbortScan: return 0;   // accepted; a running scan still runs to its end (seconds) and reports it
     // Settings the module has no use for, that the wireless daemon sends at every state change (a property list, two flags): taking them

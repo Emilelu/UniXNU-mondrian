@@ -58,7 +58,7 @@
 | 外设投票所有权/引用计数、先停 DMA/中断再释放（:109） | 部分（离线） | `K60PowerVotePlan` 纯记账（host 58 项）；无消费者、不写 RSC/TCS |
 | OS 电源回调、休眠保存/恢复（:110） | 未实现 | 见 §5 平台睡眠 |
 | 目标稳压器、互连、温控顺序（:108） | 部分（离线） | 只有路线 A 的 TCS4 lcx/lmx 真实投票；CPU/GPU 电压、互连、温控无写路径；顺序与回滚见 `power/07-RAIL-ORDERING.md` |
-| 平台睡眠（:119-121） | 未实现 | `power/02-PLATFORM-SLEEP.md` 调研 + `K60SleepPlan` 掩码（host 53 项）；无 ArmCpuSleep、TLMM、PON、喂狗、背光/触摸恢复 |
+| 平台睡眠（:119-121） | 未实现 | `power/02-PLATFORM-SLEEP.md` 调研 + `K60SleepPlan` 纯逻辑（host 73 项：掩码、PON、deadline，以及 10 s 喂狗、wake-after、背光 2 帧/1500/600 ms、触摸 60 ms 重建）；无 ArmCpuSleep、TLMM、PON、喂狗、背光/触摸恢复 |
 | 负载下测量频率并逐项验证（:111） | 部分（只读） | mode 5 的 image l 已有 274 条真机采样：d0 从 1000 busy/top 档降到 0 busy/300 MHz，证明 16 ms 采样、按域取最忙 CPU、4 窗口降档链路；但 mode 5 的探针不写 EPSS，EPSS 硬件自身仍在 691.2/1555.2 MHz（d0）、2.496 GHz（d1）、2.9952 GHz（d2）之间移动；mode 7 的受限期写回（只降）已于 03:26 以 image r 上机：win=854 后写入 d0 level=9（1,324,800 kHz）、`state=81->69`、10 s 后恢复，硬件回到 1.5552 GHz；GPU 无真机读数，负载/温度/throttle 未测 |
 
 **温控与主动降温（2026-11-19 决定）**：只读实现已由 `feat/thermal-tsens` 验收——22 个传感器读数与 5 个温区校准正确，压力等级经 IOPMrootDomain 发布（2026-11-15 真机：`PongThermal: tsens0[3] cpuss-2 zone27 43.0 C`、`level trapping (3) published as Thermal_Level_Warning=3`）。它**不会**因过热执行降温：真正的冷却动作（cpufreq-cdev）未接，这是第 ⑧ 步不判完成的唯一原因。可抄性已排查：pong 无 thermal 动作；zizhan 的 `ZizhanTsensCore.h` 只读、仓库只有 inventory/readonly 脚本；sheng 的 `CpuFreqProbe.cpp` 无温度输入；Linux K60 的 `cpufreq-cdev` 是 Linux thermal framework 绑定，不能直接搬。降频与 120 fps 共用一份热预算，所以本轮决定 **方案 1（park）**：保留只读监控与等级上报，主动降温策略不做，⑧ 步不再以它为阻塞；重访触发是 GPU 120 fps 飞行完成并做一次热预算实测，届时用默认关闭的 `pong_thermal_cap=1` 做方案 2 的飞行测试。曾尝试把该分支的 0617 补丁导入本分支（image u：mode 9 + thermal），2026-11-19 04:36 上机后串口 0 字节、设备失联需强制复位；该导入已由 `27ceb919` 回滚，thermal 只留在自己的分支。后续用不含温控补丁的 image t（只含 mode 9）复测，07:56 同样 0 字节卡死，说明共同因素是 mode 9 而非温控补丁；mode 9 已由 `3a0a5511` 禁用。

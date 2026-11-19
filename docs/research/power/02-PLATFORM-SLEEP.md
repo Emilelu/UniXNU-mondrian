@@ -1,6 +1,6 @@
 # 平台睡眠（官网 §5 末段）调研
 
-状态：**调研记录 + 纯逻辑模块（host 53 项断言），未上机**。官网 `https://unixnu.com/zh/porting/power` 的平台睡眠段落
+状态：**调研记录 + 纯逻辑模块（host 73 项断言），未上机**。官网 `https://unixnu.com/zh/porting/power` 的平台睡眠段落
 （快照 `E:/k60-work/scratch/power-page-20261117.txt:119-121`）描述的是板级 XNU 睡眠 hook 与
 ArmCpu 挂起路径；本仓库当前没有任何实现。本文记录 sheng 参考实现的事实、K60 现场 FDT 能确认的
 硬件映射，以及真正实现前缺什么。
@@ -112,13 +112,20 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
   `k60_sleep_pin_usable`、`k60_sleep_mask_tlmm`（只清 target=AP 且可用引脚的
   enable，保留脚不动，容量不足返回 0 且不写输出）、`k60_sleep_pin_pending`、
   `k60_sleep_power_wakes`（PON bit7，实时或锁存）、`k60_sleep_swallow`、
-  `k60_sleep_deadline_reached`、`k60_sleep_woke_by`。
+  `k60_sleep_deadline_reached`、`k60_sleep_woke_by`，以及 2026-11-19 补上的唤醒路径数值：
+  `k60_sleep_watchdog_due`（睡眠中每 10 s 喂狗）、`k60_sleep_wake_after_ms`
+  （`platform-sleep-wake-after` 秒→毫秒）、`k60_sleep_backlight_ready`（两帧，最长
+  1500 ms，无帧计数 600 ms）、`k60_sleep_touch_reestablish`（报告间隔严格大于 60 ms
+  才重建触点，0 表示无接触）。
 - 没有开盖分支：K60 FDT 没有 hall 节点，`K60WakePower` 与 wake-after 是仅有的来源。
-- `scripts/tests/test-k60-sleep-plan.c`：53 项断言，覆盖保留区、非 AP target 不变、
-  已关闭位不变、容量不足不写、PON 实时/锁存、按键吞掉与释放、deadline、唤醒原因文本。
+- `scripts/tests/test-k60-sleep-plan.c`：73 项断言，覆盖保留区、非 AP target 不变、
+  已关闭位不变、容量不足不写、PON 实时/锁存、按键吞掉与释放、deadline、唤醒原因文本，
+  以及喂狗周期、wake-after 换算、背光两帧/1500/600 三条路径和触摸 60/61 ms 边界。
   运行：`cc -Wall -Wextra -Werror -std=c11 -o /tmp/tk60sleep scripts/tests/test-k60-sleep-plan.c drivers/PongPower/K60SleepPlan.c && /tmp/tk60sleep`
-  → `TESTS OK 53 checks (0 failures)`。
-- 模块没有调用者：没有 TLMM 映射、没有 PON 读取、没有 ArmCpu 注册；这些仍属 §5 的实现步骤。
+  → `TESTS OK 73 checks (0 failures)`。
+- 模块没有调用者：没有 TLMM 映射、没有 PON 读取、没有 ArmCpu 注册；喂狗、背光、
+  触摸三个判定也只是把官网数值钉进 host 断言，显示/触摸驱动与看门狗接管都还没接；
+  这些仍属 §5 的实现步骤。
   引脚总数 210 来自同一 TLMM IP 的参考值，现场 FDT 未给出，接板级 hook 时要先读硬件计数。
 
 ## 7. 边界

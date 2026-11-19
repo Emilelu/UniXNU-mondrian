@@ -634,13 +634,19 @@ void fill_result(scan_result24 &record, const nw_bss_info &b,uint64_t sampled_ns
   r.version = 1; fill_channel(r.ch, b.freq_mhz); r.noise_known = 1; r.noise = -95; r.rssi = b.signal_dbm; r.snr = b.signal_dbm + 95;
   r.beacon_interval = b.beacon_int; r.capability = b.caps; memcpy(r.bssid, b.bssid, 6); r.ssid_length = b.ssid_len; memcpy(r.ssid, b.ssid, 32);
   r.age_ms = b.age_ms;
-  static unsigned announced; r.elements_length = 0; unsigned used = 0;
+  static unsigned announced, withheld; r.elements_length = 0; unsigned used = 0, cc_len = 0;
   for (unsigned o = 0; o + 2 <= b.ie_len; o += 2 + b.ie[o + 1]) {
-    const unsigned len = b.ie[o + 1];
+    const unsigned id = b.ie[o], len = b.ie[o + 1];
     if (o + 2 + len > b.ie_len) break;   // a blob the station clamped at 384 ends in the middle of an element
-    if (r.elements_length + 2 + len <= sizeof r.elements) { memcpy(r.elements + r.elements_length, b.ie + o, 2 + len); r.elements_length += 2 + len; }
     used = o + 2 + len;
+    // CoreWiFi turns the country element into a regulatory triplet table. Every record the daemon has ever listed
+    // carries a 6-16 byte one; this access point's 5 GHz beacon carries a 42-byte padded element and that record is
+    // the only 5 GHz network the pane drops, so the padded element is withheld here. Test branch only: the probe
+    // K60F (target minus country) and K60B (carrier plus country) say the same thing in logs.
+    if (id == 7 && len > 12) { cc_len = len; continue; }
+    if (r.elements_length + 2 + len <= sizeof r.elements) { memcpy(r.elements + r.elements_length, b.ie + o, 2 + len); r.elements_length += 2 + len; }
   }
+  if (cc_len && withheld++ < 3) log(6, "wifi-net: country element of %u bytes withheld from the %u MHz record", cc_len, b.freq_mhz);
   if (used < b.ie_len && announced++ < 3) log(6, "wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served", b.ie_len - used, b.ie_len);
   r.rate_count = 0;
   // The station exposes real frame age at millisecond resolution. Sample

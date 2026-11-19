@@ -324,6 +324,10 @@ def main() -> int:
           "memmove(&gSnap[8], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
           "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
           'log(6, "wifi-net: probe %s = target minus element %u (%s, %u bytes removed, ie %u)"' in net)
+    check("a country element padded past twelve bytes is withheld from the served record",
+          "const unsigned id = b.ie[o], len = b.ie[o + 1];" in net and
+          "if (id == 7 && len > 12) { cc_len = len; continue; }" in net and
+          '"wifi-net: country element of %u bytes withheld from the %u MHz record"' in net)
     check("six probes swap one shared element's payload or cut the tail of the real record",
           'static const char *const cnm[6] = { "K60N", "K60O", "K60P", "K60Q", "K60R", "K60S" };' in net and
           "static const unsigned cid[6] = { 61, 192, 191, 45, 127, 0 };" in net and

@@ -324,13 +324,13 @@ void freeze_scan_list() {
   // The additive probes show which element spoils a record the daemon keeps; these five take the opposite
   // direction and remove one element group at a time from THIS access point's record. Whichever copy appears in
   // the Settings list names the element that has to leave the real record, without another flight. Test branch.
-  if (ti >= 0 && gSnapCount + 5 <= 64) {
+  if (ti >= 0 && gSnapCount + 8 <= 64) {
     const nw_bss_info t = gSnap[ti];
-    static const char *const snm[5] = { "K60F", "K60G", "K60H", "K60I", "K60J" };
-    static const char *const sshown[5] = { "country", "vht-tx-power", "power-constraint and TPC", "he-capabilities", "vendor" };
-    static const unsigned sid[5] = { 7, 195, 32, 255, 221 };
-    memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);
-    for (int k = 0; k < 5; k++) {
+    static const char *const snm[8] = { "K60F", "K60G", "K60H", "K60I", "K60J", "K60K", "K60L", "K60M" };
+    static const char *const sshown[8] = { "country", "vht-tx-power", "power-constraint and TPC", "he-capabilities", "vendor", "TPC report", "id 244", "TPC report and id 244" };
+    static const unsigned sid[8] = { 7, 195, 32, 255, 221, 35, 244, 244 };
+    memmove(&gSnap[8], &gSnap[0], gSnapCount * sizeof gSnap[0]);
+    for (int k = 0; k < 8; k++) {
       nw_bss_info q = t;
       q.ie_len = 0;
       unsigned o = 0, removed = 0;
@@ -344,6 +344,9 @@ void freeze_scan_list() {
         case 2: drop = id == 32 || id == 35; break;
         case 3: drop = id == 255 && len == 33; break;
         case 4: drop = id == 221 && len == 2; break;
+        case 5: drop = id == 35; break;
+        case 6: drop = id == 244; break;
+        case 7: drop = id == 35 || id == 244; break;
         }
         if (drop) removed += 2 + len;
         else if (q.ie_len + 2 + len <= sizeof q.ie) { memcpy(q.ie + q.ie_len, t.ie + o, 2 + len); q.ie_len += 2 + len; }
@@ -569,7 +572,11 @@ uint64_t scan_clock_ns() {
 // chance to appear in the same flight. The station's own association uses the access point's beacon directly,
 // not this record, so nothing on the air changes. Test branch only.
 static bool drop_scan_element(uint8_t id, uint32_t len) {
+  // The daemon keeps the 5200 MHz neighbours, whose element lists carry country, power-constraint (32), VHT tx power
+  // (195) and vendor elements as well, so those cannot be the whole story: what the kept 5 GHz lists do not carry is
+  // the TPC report (35) and element 244, so both leave here too together with the two legal defects below.
   if (id == 7) return true;               // 802.11d Country: wifid prints and merges networks by the country they carry
+  if (id == 35 || id == 244) return true; // TPC report / id 244: absent from every 5 GHz record the daemon kept
   if (id == 221 && len < 4) return true;  // vendor-specific without an OUI is not a legal element; wifid may refuse the record
   return false;
 }

@@ -316,10 +316,12 @@ def main() -> int:
           "if (id == 221 && len < 4) return true;" in net and
           "if (drop_scan_element(static_cast<uint8_t>(id), len)) { dropped = true; continue; }" in net and
           '"wifi-net: scan record elements filtered: kept %u of %u bytes"' in net)
-    check("five probes remove one element group at a time from the real record",
-          'static const char *const snm[5] = { "K60F", "K60G", "K60H", "K60I", "K60J" };' in net and
-          "static const unsigned sid[5] = { 7, 195, 32, 255, 221 };" in net and
+    check("eight probes remove one element group at a time from the real record",
+          'static const char *const snm[8] = { "K60F", "K60G", "K60H", "K60I", "K60J", "K60K", "K60L", "K60M" };' in net and
+          "static const unsigned sid[8] = { 7, 195, 32, 255, 221, 35, 244, 244 };" in net and
           "case 2: drop = id == 32 || id == 35; break;" in net and
+          "case 7: drop = id == 35 || id == 244; break;" in net and
+          "memmove(&gSnap[8], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
           "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
           'log(6, "wifi-net: probe %s = target minus element %u (%s, %u bytes removed, ie %u)"' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")

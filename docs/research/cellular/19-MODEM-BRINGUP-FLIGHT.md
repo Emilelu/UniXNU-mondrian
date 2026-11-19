@@ -926,6 +926,59 @@ modem 侧的 QRTR 端口是固件确定性分配的（表里 EFS 21、WDS 82、N
 若端口 96 也不答，下一变量是**在 modem 启动前就打开 IPCRTR**（把 open 提到 `modem ready` 判定之前）
 或补一个本地名称服务并把 `qrtr_ns` 的重放语义实现出来，而不是继续重试 lookup。
 
+#### 实机结果（2026-11-19 12:09，420 s 采集）
+
+- 证据 `E:/k60-work/evidence/usblog-20261119-120939`：capture `state=captured-disconnected`、
+  `complete=false`、267,422 B、`logSha256=EB019CE7EA07BEDE0DD4F28C9A8150A5C46D4514C7830FC04331AAA084CCE7B7`、
+  `stopReason=fastboot-return`、`resetMarker=K60 USBLOG: restart reason published`、
+  lastDataAt 12:15:33、finishedAt 12:15:39；300 s 的 autoreset 这次真的把板子送回 fastboot。
+- `check-modem-flight-log.py --phase b`：**S3 PASS / S4 FAIL / S5 FAIL / S6 PASS**，rc=1。
+- S3 与 k29–k37 完全同形：`:494 K60MODEM scm cmd=0x5 ok calls=181`、`:495 auth_reset ok`。
+- adopt 行 `:498 K60MODEM qrtr: glink adopt (probe) rx head=8 tail=0 avail=8 tx head=0 tail=0 cmd=0 p1=0x1 p2=0x7 …`
+  与 `:499 glink adopt dropped 8 stale bytes (head=8)`——环里仍是 Android 时代的一帧 VERSION 残料，丢弃逻辑照常生效。
+- S6：`:501 bridge enabled`、`:524 COACHZ baseband: 22 of 22 services published …`、`:525 channel up`；
+  `:795 COACHZ baseband: 22 s: 2 QMI services, 0 clients …` 与 QRTR 侧的服务计数一致。
+- 静态请求确实发了出去：`:944 K60MODEM qrtr: sent dms get_revision (static) to node 0 port 96 txn 1`
+  （40 s 处），随后 `:977 / :1018 / :1058` 的三个 wait 行仍是 `services=2 … dms=0`；
+  `:1099 verdict no reply services=2 node0=2 wanted=0 malformed=0 locator=2 dms=none polls=30000`。
+- 结论：请求离开 AP 之后没有任何应答，端口 96 在这份固件上**不回应**我们这条 IPCRTR 通道；六十秒窗口里
+  modem 一次新注册都没有。也就是说“晚注册”与“端口号错”这两个解释同时被压到很小：剩下的解释是
+  **我们的通道建立得太晚**（modem 的全部 QMI 服务在 `modem ready` 之前就注册完毕），或者
+  **modem 只向它记住的旧 AP 节点投递**。
+
+
+
+
+### 3.26 k39：四分钟窗口，每三十秒重问一次（离线，未上机）
+
+k38 的静态请求证明了两件事：包能从我们这边发出去（`:944` 的行就是它），以及 **modem 在六十秒里
+既不注册新服务、也不回答端口 96**。若服务是晚注册的，一次性的窗口注定错过；若 modem 根本不注册，
+长窗口只花时间不花别的。k39 因此只改“问多久、问几次”，不碰任何协议字段：
+
+| 项 | k38 | k39 |
+|---|---|---|
+| 窗口 | `K60_QRTR_POLLS 30000`（60 s） | `K60_QRTR_POLLS 120000`（240 s，2 ms 一拍；300 s 的 autoreset 仍留出一分钟给探针之后的启动） |
+| lookup | 两次（全量、DMS），60 s 内 | 每 `K60_QRTR_LOOKUP_PERIOD 15000`（30 s）一次，全量与 DMS 交替，最多 `K60_QRTR_LOOKUP_MAX 8` 次 |
+| 端口 96 | 40 s 处一次 | 同样每 30 s 一次，最多 `K60_QRTR_STATIC_MAX 8` 次，行里带序号 |
+
+源码提交 `918ba4055997d8ae27bf759d56a60354151890a3`；0622 重新生成 **103,126 B / 5 files**；
+`test-k60-modem-image.py` `TESTS OK 30 segments … table+patch agree`；`run-host-tests.sh` rc0（16 组 PASS）。
+
+| 项 | 值 |
+|---|---|
+| kernel | `E:/k60-work/artifacts/modem-20261117k39/kernel.macho`，105,734,144 B，`3d2dca35aea4cb09e4b1649858ec8a002c0bb4d40fe66f13da16826e2b5e6371`（`COACHZ` 40 条；`llvm-strings` 命中 `dms get_revision (static) #%u to node 0 port %u txn %u` 一次） |
+| boot image | `E:/k60-work/artifacts/modem-20261117k39/boot-modem-b-full.img`，201,895,936 B，`9f950b09ed525815133e3fb22efb3553db31a759edc57a4497a8347192a96ddb` |
+| payload | `2ddecae228e88c2207e197ec3becd6942cb318211a7f42e09d415be5cdac7318`，`payload.json` `a354599577a4c5ffae812258b9d0d80c24be07b1b15cda015518192e836e4446` |
+| payload 内的 kernel | `9c6943896deb3818fd45844f4895cf5f0730b64cde8c46971734eccdbdfa15cd` |
+| ADT | `719c7412ccd805cfe31c53beeb8af20a3a63707db67420bcfcb17df12f6a3b5b` |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| kernel_args 尾部 | `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0` |
+| 布局 | 560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-k39-b.py` rc0 OK |
+
+判据不变：S3 与 S6 必须保持 PASS，S4 要 `K60MODEM qrtr: dms revision …`，S5 要 verdict `ok`。
+四分钟里若出现服务 2 的 NEW_SERVER，探针会走既有的 `dms_found` 分支把请求发给公告的节点/端口，
+静态端口这条兜底只在前者没有时继续重试。若 k39 仍然零应答，下一变量不再是重试：要么**把 IPCRTR 的
+open 提到 `modem ready` 之前**，要么在 AP 侧实现最小的 QRTR 名称服务并把 `qrtr_ns` 的重放语义补上。
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
@@ -1041,9 +1094,9 @@ modem 侧的 QRTR 端口是固件确定性分配的（表里 EFS 21、WDS 82、N
     S4 FAIL 于 `verdict no reply services=2`——modem 在 10 s 内只注册了服务 66/0x2b，DMS 没出现（§3.24）。
     k37（`b920669f…`）已于 2026-11-19 11:21 飞过：S3 PASS（calls=181）、S6 PASS，但六十秒窗口里
     两次广播 lookup 零应答、服务停在 2 条（66 servreg 通知、0x2b 子系统控制），S4/S5 仍 FAIL（§3.24）。
-    下一飞用 k38 的 `E:/k60-work/artifacts/modem-20261117k38/boot-modem-b-full.img`（`ce6ffeb1…`，§3.25）：
-    40 s 后直接向 node 0 端口 96 发 DMS GetRevision（Android 现场记录过的固定端点）。S3/S6 必须保持，
-    S4 仍按 dms revision 判，S5 由同一份日志判读。
+    窗口拉到四分钟（120,000 次 poll），每 30 s 交替重发全量/DMS lookup，并在端口 96 上用同一节拍重发
+    DMS GetRevision（各最多 8 次）。k38（`ce6ffeb1…`）已于 2026-11-19 12:09 飞过：S3/S6 PASS，端口 96
+    的请求发出去但零应答（§3.25）。S3/S6 必须保持，S4 仍按 dms revision 判，S5 由同一份日志判读。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

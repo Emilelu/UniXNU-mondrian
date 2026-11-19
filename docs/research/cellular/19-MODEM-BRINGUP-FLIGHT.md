@@ -1763,7 +1763,7 @@ k46 的 modem 要的是 `/boot/modem_fs1` 与 `/boot/modem_fs2`；k51 起我们�
 
 k51/k53 的读入口只问 LUN 0，而这块板上 modemst1/modemst2/fsg/fsc 是 **sdf3–sdf6**
 （8 MiB / 8 MiB / 8 MiB / 1 MiB），unixnu 才是 sda38。于是查找必然落空，rmtfs 读被判 refused，
-日志里与「分区真的坏了」无法区分（P-210）。
+日志里与「分区真的坏了」无法区分（P-260）。
 
 k54 的三处改动：
 
@@ -1792,6 +1792,15 @@ NULL 表拒绝等），输出 'K60 NAMED VOLUME PASS names, unused slots, plans,
 源码提交 `2b2183a750330ace5ddb32fd13d774ed459ee1f7`。manifest 与 FLIGHT-README 在
 `E:/k60-work/artifacts/modem-20261117k54/`，README 把「EFS 在 sdf3–sdf6、另一条 LUN」写成前置事实，
 并写明 `K60UFS volume name=… lun=… first=… last=…` 的形状与 judge 的读法。
+
+**补记（2026-11-20 07:58）**
+
+- 这条坑原先占用 P-210，与 check-data-identity.py 那条同号；按 Lead 07:57 要求改成实测最大号 +1，
+  各分支 docs/engineering/PITFALLS.md 的最大值是 feat/power-ios27-carry 的 P-259，所以本坑现为 **P-260**
+  （RULES.toml 的 id/source 与本文件、judge-cellular-flight.py 的注释一并改）。
+- scripts/fly-cellular.py 的设备探针同时改成失败即拒：device_state() 在 k60-device.sh 起不来时捕获 OSError
+  并返回 [""]，空输出、错误行同样落到「不是 fastboot」；--self-test 现在也断言四种探测结果（空、fastboot、
+  错误行、起不来），输出 K60 FLY PASS manifest match, mismatch, missing image, state probe。
 
 ## 5. 飞行顺序
 

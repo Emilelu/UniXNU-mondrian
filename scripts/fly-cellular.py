@@ -80,8 +80,18 @@ def check_image(image, manifest):
 
 
 def device_state():
-    out = subprocess.run(["bash", os.path.join(REPO, "scripts", "k60-device.sh"),
-                          "state"], capture_output=True, text=True)
+    """Last line of k60-device.sh state, or [""] when the probe tells us nothing.
+
+    Every failure path has to land on something that is not "fastboot": a
+    missing script, an empty device list and an error line all mean the same
+    thing here, and none of them may read as permission to boot (P-260).
+    """
+    try:
+        out = subprocess.run(["bash", os.path.join(REPO, "scripts", "k60-device.sh"),
+                              "state"], capture_output=True, text=True)
+    except OSError as error:
+        print("probe   k60-device.sh could not run: %s" % error)
+        return [""]
     return (out.stdout or out.stderr).strip().splitlines()[-1:] or [""]
 
 
@@ -190,7 +200,30 @@ def self_test():
         if check_image(os.path.join(work, "absent.img"), None) == []:
             print("K60 FLY FAIL a missing image was accepted")
             return 1
-    print("K60 FLY PASS manifest match, mismatch, missing image")
+    class _Probe(object):
+        def __init__(self, stdout="", stderr="", rc=0):
+            self.stdout, self.stderr, self.returncode = stdout, stderr, rc
+
+    real_run = subprocess.run
+    try:
+        for stdout, stderr, want in (("", "", [""]),
+                                    ("", "fastboot", ["fastboot"]),
+                                    ("error text", "", ["error text"])):
+            subprocess.run = lambda *a, **k: _Probe(stdout, stderr)
+            if device_state() != want:
+                print("K60 FLY FAIL state probe %r gave %r" % (want, device_state()))
+                return 1
+
+        def _explode(*a, **k):
+            raise OSError("no such file")
+
+        subprocess.run = _explode
+        if device_state() != [""]:
+            print("K60 FLY FAIL a probe that cannot run did not come back empty")
+            return 1
+    finally:
+        subprocess.run = real_run
+    print("K60 FLY PASS manifest match, mismatch, missing image, state probe")
     return 0
 
 

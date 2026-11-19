@@ -122,7 +122,7 @@ def judge(text, window):
 
     # Which disk answered. The modem partitions live on their own LUN here, so a
     # served read without this line cannot be told apart from a read off the
-    # wrong table (P-210).
+    # wrong table (P-260).
     volume = re.findall(r"K60UFS volume name=(\S+) lun=(\d+) first=(\d+) last=(\d+)", text)
     if volume:
         name, lun, vfirst, vlast = volume[0]

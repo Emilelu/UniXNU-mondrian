@@ -4999,7 +4999,7 @@ lookup/DMS 块、verdict 与 `#endif /* K60_HOST_TEST */`）整段消失，而�
 
 Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`
 
-## P-210 — 判据假设了设备布局，而布局来自另一处事实
+## P-260 — 判据假设了设备布局，而布局来自另一处事实
 
 k51/k53 的存储读入口只问 LUN 0 的 GPT："unixnu" 与 "userdata" 都在那里，
 写代码时以为 modem 的四个 EFS 分区也在同一条盘上。实际设备上 modemst1/modemst2/fsg/fsc

@@ -122,7 +122,7 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
   已关闭位不变、容量不足不写、PON 实时/锁存、按键吞掉与释放、deadline、唤醒原因文本，
   以及喂狗周期、wake-after 换算、背光两帧/1500/600 三条路径和触摸 60/61 ms 边界。
   运行：`cc -Wall -Wextra -Werror -std=c11 -o /tmp/tk60sleep scripts/tests/test-k60-sleep-plan.c drivers/PongPower/K60SleepPlan.c && /tmp/tk60sleep`
-  → `TESTS OK 73 checks (0 failures)`。
+  → `TESTS OK 73 checks (0 failures)`。整套离线电源套件用 `bash scripts/tests/run-k60-power-host.sh` 一次跑完（六个套件 475 项，见 `00-POWER-PAGE-CONFORMANCE.md` §6）。
 - 模块没有调用者：没有 TLMM 映射、没有 PON 读取、没有 ArmCpu 注册；喂狗、背光、
   触摸三个判定也只是把官网数值钉进 host 断言，显示/触摸驱动与看门狗接管都还没接；
   这些仍属 §5 的实现步骤。

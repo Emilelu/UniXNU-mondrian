@@ -117,6 +117,13 @@
 - 2026-11-19 04:36 的 image u（`k60_cpufreq=9` + 导入的 0617 thermal 补丁，boot.img sha256 `fab4fe61…`，30 项 603 字节）与 07:56 的 image t（只含 mode 9、无温控补丁，boot.img sha256 `567d9b62…`，30 项 603 字节）**都未能启动**：fastboot 接受镜像，但 CDC-ACM 串口从未枚举（`capture.json state=port-not-observed`、0 字节、`returnedToFastboot=false`），设备失联直到强制复位。两次唯一的共同因素是 mode 9，温控补丁没有被证明有罪；`3a0a5511` 已在入口拒绝 9，thermal 导入仍由 `27ceb919` 回滚、只留在自己的分支。
 - 缺：GPU 真机读数与投票结果、负载/温度/throttle 读数、外设转换与恢复的逐项验证、重启行为记录、主动降温（已按方案 1 park）。
 - 状态：**部分**。
+- 离线纯逻辑套件一条命令可复现：`bash scripts/tests/run-k60-power-host.sh`（WSL/Linux，可选一个输出目录）
+  依次编译运行 CPU 目标档、GPU 目标档、boost 窗口、睡眠唤醒路径、外设投票和跨模块数值钉住 6 个套件，
+  共 475 项断言（154/123/40/73/58/27）。`test-k60-power-conformance.c` 用 `_Static_assert` 把官网 §5 的
+  1.25 倍余量、50 % GPU 目标、578 MHz 地板、1 s 触摸、300 ms/60 % 帧下限、50 ms GPU 唤醒、1 ms fence、
+  10 s 喂狗、两帧/1500/600 ms 背光与 60 ms 触摸间隔钉在跨模块位置；每个套件必须打印自己记录的数量，
+  数量漂移即失败。它只证明离线算术，不替代真机证据；ADSP/电池套件仍在
+  `scripts/tests/run-k60-handoff-host.sh`。
 
 ## 汇总
 

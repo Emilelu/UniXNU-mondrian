@@ -218,6 +218,6 @@ limits = [
   "Nothing has been measured on this board beyond the Android-side inventory.",
 ]
 next_action = [
-  "Read the Android modem partitions before writing any cellular code.",
+  "Read the Android modem partitions before writing any cellular code. Image cb (2026-11-19 20:55) replaces the speaker endpoint: the firmware module table shows 0x0700100E as an 8-byte stub and 0x0700100A I2S_SINK with 472 bytes of code, so the speaker graph moves to I2S_SINK with PARAM_I2S_INTF 0x08001019 and the PRM clock to 0x104 TER_MI2S_IBIT at 3.072 MHz, attribute COUPLE_NO; the AW88261 ACF register 0x0006 decodes to 48 kHz, 64FS, 32-bit Philips I2S. Not yet booted.",
 ]
 evidence = []

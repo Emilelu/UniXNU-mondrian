@@ -7,7 +7,10 @@
 # thermal trip map, the charge-auth protocol state machine, the HMAC vectors and
 # the cross-module pin of the numbers section 5 states.
 # Each suite must print exactly its recorded check count, so a test that stops
-# compiling its new cases fails here instead of passing silently.
+# compiling its new cases fails here instead of passing silently. The python half
+# (carry manifest, the three console judges, the ios27 preflight, the SMCCC text
+# gate, the ADSP image and MDT readers) runs after the C suites and must exit 0,
+# so a judge that stops matching its own fixtures cannot pass unseen.
 #
 # usage: run-k60-power-host.sh [OUTPUT_DIR]
 set -euo pipefail
@@ -48,3 +51,29 @@ run thermal 125 scripts/tests/test-k60-thermal-map.c \
 run charge-auth 99 scripts/tests/test-k60-charge-auth.c drivers/PongPower/K60ChargeAuth.c
 run charge-hmac 5 scripts/tests/test-k60-charge-hmac.c
 echo "power-host: OK ($total checks in 10 suites; portability preflight passed; binaries in $OUT)"
+
+# The python half of the line is a suite too: the judges and the carry manifest
+# rotted silently the last time nothing ran them (P-170, the charge-auth suites
+# shipped in the tree and no runner referenced them).
+python_suites=0
+run_py() {
+  local name=$1
+  shift
+  local out
+  if ! out=$("$@" 2>&1); then
+    printf '%s\n' "$out" | tail -20 >&2
+    echo "power-python: $name failed" >&2
+    exit 1
+  fi
+  python_suites=$((python_suites + 1))
+  printf '  %-14s %s\n' "$name" "$(printf '%s\n' "$out" | tail -1)"
+}
+run_py carry python3 scripts/tests/test-power-carry.py
+run_py handoff-judge python3 scripts/tests/test-judge-k60-handoff-console.py
+run_py sleep-judge python3 scripts/tests/test-judge-k60-sleep-console.py
+run_py mode1-judge python3 scripts/tests/test-judge-k60-mode1-console.py
+run_py ios27-preflight python3 scripts/tests/test-check-ios27-power-preflight.py
+run_py smccc python3 scripts/tests/test-k60-adsp-smccc.py
+run_py adsp-image python3 scripts/tests/test-k60-adsp-image.py
+run_py adsp-mdt python3 scripts/tests/test-k60-adsp-mdt.py --output "$OUT/mdt"
+echo "power-python: OK ($python_suites suites)"

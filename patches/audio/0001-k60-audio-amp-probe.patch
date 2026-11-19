@@ -810,7 +810,7 @@
 +	    rd(pad_window[index] + PONG_AUDIO_GPIO_IO));
 +	return high == on;
 +}
-++
++
 +/* I2C pads belong to the QUP15 function with a pull-up; the bus is idle-high.
 + * If the firmware already left them there, do not rewrite them. */
 +static bool

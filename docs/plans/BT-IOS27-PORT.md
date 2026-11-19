@@ -284,6 +284,16 @@ The gate step is the one that matters for F3: it reads the defconfig and the
 series and refuses a build where `CONFIG_XNU_OWNER_DATA_MOUNT=y` is set without
 0526 and 0527.
 
+Run [44540057095](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44540057095)
+(head `7b6f115`, attempt 2, 2026-11-19T14:05:44Z to 14:25:44Z) is the first
+run with every checker in place, the launchd job step included, and it passed
+all seventeen steps. Its first attempt failed before the build started: the
+`toolchain-linux-20261119` release had reverted to `draft`, so the asset URL
+answered 404 six times in a row. Publishing it again
+(`gh api -X PATCH repos/Emilelu/UniXNU-mondrian/releases/450511132 -F draft=false`)
+and rerunning was the whole fix; the retry loop in the workflow cannot rescue
+a draft, because a draft answers 404 to every client.
+
 `feat/bt-ios27-port` is only the kernel and the device tree:
 `[payload.runtime]` is not enabled and 0521 is a blob stub, so "iOS 27
 baseline" does not mean "Bluetooth works on iOS 27".

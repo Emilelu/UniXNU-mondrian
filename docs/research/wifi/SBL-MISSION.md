@@ -1142,3 +1142,11 @@ mission32 镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission32/boot.img\`�
 放大版已在 917c89ee 落地：两个构建脚本都从共享头生成 out/abi/nw_abi.h（uint8_t ie[384]; -> ie[1024];），station 的 #define IE_MAX 384 同步改成 1024，任一锚点不符就以 shared ABI element array differs 终止；下一次构建（mission33）自动带上它，mission32 的镜像仍按裁剪版交付。
 
 尾部残缺不是唯一判据：把 mission24 console 的每条记录按 TLV 走一遍（\`PongWifiNet.cpp:412\` 的循环本身就在第一个不完整元素处停下，所以清单长度就是可走到的位置），\`used = Σ(2+len)\`、\`leftover = ie - used\`，再看它在 Preferences 并集里是否被保留：38 条记录里 33 条 KEPT、其中 17 条同样有整段走不完的尾巴；5 条 DROPPED 全部有尾巴。两条被保留的 5 GHz 记录 leftover 分别是 33 B 与 51 B，目标记录是 66 B。也就是说「末尾停在半个元素」这件事 wifid 并不是一律拒绝，mission32 的裁剪是一次必要的合法性修复，但能不能把行拉回来还要看飞行结果；真正能指名道姓的仍是十三条探针（K60F..M 每条去掉一组元素），以及放大 ABI 的下一版。
+
+## §29 Mission33：元素区放大到 1024 字节
+
+Station 的 384 字节上限不只影响尾部，它决定了 wifid 能看到的整条记录。917c89ee 之后，两个构建脚本都从共享头生成 out/abi/nw_abi.h（ie[384] → ie[1024]），station 的 IE_MAX 同步 1024；station 归档用 build-ath11k-abi1.sh 重新构建为 /opt/k60/trees/k60build/wifi/ath11k-abi1/libPongAth11k.a（SHA256 6ef0058f…），生成源码里 #define IE_MAX 1024，SAE 探针五行仍在。
+
+mission33 镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission33/boot.img，201,887,744 B，SHA256 446d5332847590f644e54905783f2e064675ff130e3fba3d2bbe7612d7c85bb8，head 1e31b49a，args 31 条 / 602 B，check-image-args OK，verify-boot-image OK；归档 SHA256SUMS 记的 station 就是 abi1 的 6ef0058f，native 侧 abi/nw_abi.h 含 uint8_t ie[1024]。
+
+判读：目标 AP 的元素区在 384 上限下只能到 318 B，放大后应交付完整元素区（预计 ie≈642）。Emilelu_5G 出现即根因是 384 截断，生产修法就是保持放大；仍不出现则十三条探针照旧指名元素。mission32（fd80093a，裁剪版）在飞行前被 mission33 取代，artifact 目录已删，记 built-but-never-flown。

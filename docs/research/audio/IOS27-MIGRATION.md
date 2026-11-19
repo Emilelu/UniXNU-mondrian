@@ -72,7 +72,8 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    979 cases / 182 checks / `API OK 4/4` / `SHENG ABI OK 16/16` 全过。）这条命令还在
    **从远端重新 clone 的分支副本**里跑过一遍（`git clone --branch feat/audio-ios27-carry …`）：
    全 `ok`，说明这条分支自带它需要的一切，不依赖本仓工作树、16 线补丁或未提交文件。
-   三点取决于环境：`27 kernel interfaces are there` 与 `27 tree has no clashing symbols` 要一棵 27 源树（`XNU27_REPO`），
+   三行要一棵 27 源树（`XNU27_REPO`）：`27 kernel interfaces are there`、`27 tree has no clashing symbols`、
+   `27 patch emits unchanged`；
    `27 kernel carries the audio` 要一颗产物（`XNU27_KERNEL`），sheng 那两行要 sheng 检出
    （`SHENG_REPO`）；缺了会打印 `skip`，不算失败。
 2. 在 27 树里跑 `python3 scripts/check-audio-migration.py --copy <27树>/drivers/PongAudio`：

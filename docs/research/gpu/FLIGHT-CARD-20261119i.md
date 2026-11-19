@@ -103,4 +103,95 @@ PONG SCANOUT: frame=%llu prepare=%llu us offer_and_copy=%llu us total=%llu us ad
 
 ## 5. 结果登记
 
-（飞行后写在这里；`criteria-sha256` 在第一次写入时钉入，且必须单独占一行。）
+### 5.1 飞行事实
+
+- 镜像 `gpu-vaddr-20261119`，`boot.img 80951dce117ab8a1ebe988a640eac9ec8681cf36765cdbb51b38d9922d56b7eb`，
+  kernel `15bb2989260b09ff47d51f491329cd701dabe979e7e49a8c2d460c56cb7d38ae`（105,693,184 B），
+  payload kernel `143e12a0…`、payload adt `69c579d5…`，series 228 `frozen=87c38244…`，
+  插件复用 `metal-plugin-20261119p`，30 条参数 / 596 B，`image-arg-audit: OK`、`kernel archives: 4`、
+  `verify-boot-image: OK`。
+- 判据指纹由门禁自己的 `criteria_digest()` 计算并钉在 §5.9。
+- **第一次起飞无效**：`usblog-20261119-135243`（2,908 行）`MiniIOMobileFramebuffer` 0 条、
+  `Pong Metal: c0/0`——GPU 已经 `startup COMPLETE; hardware armed`、provider 已发布，但命令缓冲区
+  建了没提交。与 `usblog-20261119-090909`、`usblog-20261119-041606` 同一特征。
+  按 §4.1 判 **INVALID**，同一张镜像重飞。
+- **第二次起飞有效**：`usblog-20261119-135830`，`capture.json complete=true`，
+  `Pong Metal: c10/0 d10`、`MiniIOMobileFramebuffer: 5 frames in 52242 ms`、5 条 presenter 行、
+  3 条带 `addr=` 的内核行。`panic(` 0、`K60KEXC` 0、`crashed: backboardd` 0、`DeviceLost` 0、
+  `CP/SMMU fault` 0、`GPU copy not retired` 0。
+
+### 5.2 判据
+
+| 判据 | 结果 | 依据 |
+|---|---|---|
+| S1 无 panic / `K60KEXC` / backboardd 崩 | ✅ | 六项计数全 0 |
+| S2 ≥2 条带 `addr=`/`bytes=` 的 stage 行 | ✅ | 3 条 |
+| S3 ≥2 帧能 join 上 presenter 行 | ✅ | 3 帧（1、2、4） |
+| S4 打印 join 表 | ✅ | §5.3 |
+| S5 给出 H1 / H2 结论 | ✅ | **都不是**，见 §5.4 |
+| S6 面板仍 120 Hz | ✅ | `after the UI frame te 120/s … period 7618 us` |
+| S7 `imports==frames` | ✅ | 1→1、2→2、4→4、5→5 |
+
+失败规则：**无命中**（F2 有 `addr=`；F4 无 `DeviceLost`；F5 见 §5.4 的分布）。
+
+### 5.3 join 表
+
+| frame | addr | bytes | import | encode | submit | gpu | sum | copy |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `0x11ed56000` | 18432000 | **5000** | 1974 | 1902 | 1636 | 10512 | 12392 |
+| 2 | `0x123f4f000` | 18432000 | **46** | 319 | 302 | 22167 | 22834 | 22881 |
+| 4 | `0x123f4f000` | 18432000 | **74** | 352 | 493 | 23334 | 24253 | 24314 |
+
+未进表的第 3、5 帧没有内核行（采样节奏 4 帧 + 每 60 帧），只有 presenter 侧：
+帧 3 `import=4,709`、帧 5 `import=15,338`。
+
+### 5.4 结论：地址会重复，重复是便宜的 —— 保留映射不值这个价
+
+`distinct(addr) = %d`，帧数 = %d。重复的那一个地址 **`0x123f4f000` 出现在帧 2 与帧 4**，
+两次导入分别是 **46 µs 与 74 µs**——所以：
+
+- **不是 H1**：并非每帧一个新地址。
+- **不是 H2**：重复的地址上导入并不贵（F3 不命中）。
+- 真正的规律是：**贵的导入只发生在一个新地址的第一次触碰**（帧 1 的 `0x11ed56000` = 5,000 µs），
+  之后同一地址的导入都在 100 µs 以内。也就是说 `kIOMapAnywhere` 在 `release()` 之后会复用同一个 VA，
+  而 bridge 对同一个 VA 的导入是缓存住的。
+
+因此 **`KEPT-MAPPING.md` 里那套 token/evict 保留映射不该做**：它能省掉的只是「每个地址的第一次触碰」，
+在稳态里每帧只值几十微秒。这一条把一个看起来最大的优化项关掉了，也是这次飞行的主要价值。
+
+### 5.5 本次飞行暴露的新问题：`gpu` 变成双峰，慢的那一档约等于一帧
+
+同一张表里 `gpu` = 1,636 / 22,167 / 14,316 / 23,334 / 1,480 µs。快的一档（帧 1、5）≈1.5 ms，
+与 `FLIGHT-CARD-20261119d` 的对照实验（18.4 MB 单次拷贝 1,835 µs）吻合；
+慢的一档（帧 2、3、4）14–23 ms，且**恰好近似一帧的间隔**（`wait` 在 35–1,743 ms 之间）。
+
+`encode`（176–1,974 µs）与 `submit`（212–1,902 µs）都小，`sum` 与 `copy` 差 1,600–1,900 µs
+（`done` 与内核侧 `prepare`），所以慢的那一档不是我们的 CPU，而是**等 GPU 把这次 blit 做完**。
+下一个问题因此是「为什么同一个 18.4 MB 的 blit 有时 1.5 ms、有时 22 ms」，
+候选：GPU 频点、与上一帧的 fence 串行、或显示侧的 vblank 让 blit 排队。
+这三者都不需要 iOS 版本特性，属于可转移范围。
+
+### 5.6 本飞不能回答的问题
+
+- 不能回答帧率：5 帧 / 52 s，屏幕基本静止，`5 frames in 52242 ms (0 a second)`。
+- 不能回答「保留映射在长跑里是否会减少泄漏」：本飞只有 10 次提交，`outstanding` 还没有增长到
+  P-244 的量级（该问题已另起 `alloc=/free=` 读数，见 `NativeAdrenoVm.cpp` 的 `lifetime` 行）。
+- 不能回答 `import` 在**多 surface 交替**时是否会退回昂贵（本飞只有两个不同的扫描地址）。
+
+### 5.7 下一步
+
+1. 关掉 token/evict 这条线，把结论写回 `KEPT-MAPPING.md` 顶部（它现在是「已否决」而不是「待定」）。
+2. 追 §5.5 的 `gpu` 双峰：同一飞内按 `gpu` 分组，与 `wait`、`copy`、`frame` 编号对齐，
+   看慢的那几帧是否总是紧跟在一次 `wait` 很长的帧之后（若如此，就是 blit 排在上一帧后面）。
+3. 长跑（>300 帧）飞一次，读 `alloc=/free=/freestatus=` 判断 P-244 的泄漏归属。
+4. 这一飞**没有**让帧率变快，也没有让任何东西变慢：它只加了两个日志字段。
+
+### 5.8 判据自己的缺陷
+
+本卡的 S5 允许「H1' 」这一档（地址重复但便宜），判读器给 `rc=1` 表示「回答了问题但需要报告分布」。
+真正需要的是**一开始就把「地址复用已经生效」列为第三种可能**，否则判据里只有两个抽屉，
+拿到第三种情况时只能事后补写。这与 P-242 是同一族：判据要覆盖全部可能，而不只是自己想到的那两个。
+
+### 5.9 判据指纹
+
+- criteria-sha256: 855975bafe6217c5a07c611110f741e2bf91b21b41f50897369dd9f798533f54

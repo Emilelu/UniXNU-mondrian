@@ -128,6 +128,18 @@ jobs:
           python3 scripts/check-bluetooth-gic.py --out "$UNIXNU_OUT/gic-check"
           python3 scripts/tests/test-bt-gic-shared.py
 
+      - name: Check the power ladder
+        working-directory: device
+        run: |
+          set -eu
+          src=$(find "$UNIXNU_OUT" -path '*xnu-work/bsd/dev/qbt_k60.c' | head -1)
+          if [ -z "$src" ]; then
+            echo "power-check: no patched tree under $UNIXNU_OUT" >&2
+            exit 1
+          fi
+          python3 scripts/check-bluetooth-power.py --source "$src" --out "$UNIXNU_OUT/power-check"
+          python3 scripts/tests/test-bt-power-check.py
+
       - name: Collect the build summary
         if: always()
         run: |

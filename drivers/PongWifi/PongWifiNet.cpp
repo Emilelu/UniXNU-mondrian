@@ -700,6 +700,9 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     switch (type) {
     case kPower: { uint32_t in[6]; if(rq.req_len<12)return EINVAL; if (copy_in(rq, in, sizeof in, kernel)) return EFAULT; gUserJoin = true; gPower = in[2] != 0; log(6, "wifi-net: power set %u", in[2]);
       if (!gPower) { gLinkSuppressed = true; gAssocResult = kAssocFailed; gJoinPending = false; nw_wifi_disconnect(); pong_wifi_wake(); notify_locked(NotifyLinkDown); }
+      // The reference tells the station itself, so the radio really leaves the air on 24A446; the
+      // 22H374 daemon kept its proven behaviour (disconnect only) until a 27 daemon is seen.
+      if (gModern27Client) { nw_wifi_power(gPower ? 1 : 0); pong_wifi_wake(); }
       notify_locked(NotifyPower); return 0; }
     case kScanReq: case kScanReqMultiple: {
       if(!gPower)return ENETDOWN;

@@ -321,6 +321,8 @@ def main() -> int:
           "return copy_out(rq, &out.res, sizeof(out.res), kernel);" in net)
     check("the power answer follows the station state",
           "(gPower && st.state != NW_STA_OFF) ? 1 : 0" in net)
+    check("a 24A446 power switch reaches the station's own power path",
+          "if (gModern27Client) { nw_wifi_power(gPower ? 1 : 0); pong_wifi_wake(); }" in net)
     check("the current-network answer carries the live signal",
           net.count("out.res.rssi = st.signal_dbm;") == 2 and net.count("out.res.snr = st.signal_dbm > -95") == 2)
     check("the rate query reports the cached peer rate",

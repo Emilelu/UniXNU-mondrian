@@ -164,7 +164,7 @@ void probeDomain(unsigned domain, bool dump)
         pdmemVote = rd32(pdmem.va, pdmemOffset) & 0xffu;
         unmapWindow(&pdmem);
     }
-    IOLog("K60CpuFreq: d%u base=0x%llx enable=%u state=%u (%ukHz) dcvs=%u limit=0x%x cap=%ukHz vote=%u pdmem=%u rows=%u top=%ukHz level=%u mode1=read-only\n",
+    IOLog("K60CpuFreq: d%u base=0x%llx enable=%u state=%u (%ukHz) dcvs=%u limits=0x%x cap=%ukHz vote=%u pdmem=%u rows=%u top=%ukHz level=%u mode1=read-only\n",
         domain, static_cast<unsigned long long>(kDomainBase[domain]),
         rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u, state & 0xffu, stateKhz,
         control & 1u, hardwareLimit, hardwareCap, vote, pdmemVote, table.count,
@@ -200,6 +200,9 @@ void voteDomain(unsigned domain, unsigned mode, bool lowest)
     }
     enabled = rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u;
     dcvs = rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u;
+    /* 0x30c bit2 is the limits-mitigation status, not a static ceiling. The
+     * low byte of 0x20 is the frequency firmware currently allows. Observe
+     * only; clearing 0x308 would interfere with the IRQ owner. */
     hardwareLimit = rd32(window.va, K60_CPU_FREQ_REG_HARDWARE_LIMIT);
     pdmemOffset = k60_cpufreq_pdmem_offset(domain);
     pdmemMapped = pdmemOffset && mapWindow(&pdmem, kPdmemBase, kPdmemWindow);
@@ -221,7 +224,7 @@ void voteDomain(unsigned domain, unsigned mode, bool lowest)
     if (hardwareCap && hardwareCap < tableTop) {
         K60CpuFreqTable capped = {};
         if (!readTableCapped(&window, &capped, hardwareCap)) {
-            IOLog("K60CpuFreq: mode%u d%u vote skipped: hardware cap=%ukHz below table\n",
+            IOLog("K60CpuFreq: mode%u d%u vote skipped: limits cap=%ukHz below table\n",
                 mode, domain, hardwareCap);
             if (pdmemMapped) unmapWindow(&pdmem);
             unmapWindow(&window);
@@ -676,7 +679,7 @@ void samplerThread(void *, wait_result_t)
                 K60_CPU_FREQ_REG_DOMAIN_STATE), limit, top);
             if (cap != capLast[domain]) {
                 if (cap < top)
-                    IOLog("K60CpuFreq: d%u hardware cap=%ukHz limit=0x%x\n",
+                    IOLog("K60CpuFreq: d%u limits cap=%ukHz status=0x%x\n",
                         domain, cap, limit);
                 capLast[domain] = cap;
             }
@@ -685,7 +688,7 @@ void samplerThread(void *, wait_result_t)
                 static_cast<unsigned>(frameActive), cap);
             if (changed < 0) {
                 if (!capBlocked[domain]) {
-                    IOLog("K60CpuFreq: d%u hardware cap=%ukHz below table; no vote\n",
+                    IOLog("K60CpuFreq: d%u limits cap=%ukHz below table; no vote\n",
                         domain, cap);
                     capBlocked[domain] = true;
                 }

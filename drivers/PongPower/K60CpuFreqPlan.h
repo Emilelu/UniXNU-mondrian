@@ -47,11 +47,14 @@ extern "C" {
 #define K60_CPU_FREQ_REG_FREQ_LUT 0x100u
 #define K60_CPU_FREQ_REG_PERF_STATE 0x320u
 #define K60_CPU_FREQ_REG_L3_VOTE 0x90u
-#define K60_CPU_FREQ_REG_HARDWARE_LIMIT 0x30cu
+#define K60_CPU_FREQ_REG_LIMITS_STATUS 0x30cu
+#define K60_CPU_FREQ_REG_HARDWARE_LIMIT K60_CPU_FREQ_REG_LIMITS_STATUS
 
-/* Bit 2 of the hardware-limit register means the limit is active, as in the
- * zizhan SM8475 policy: the domain state then reports the ceiling the firmware
- * currently enforces. */
+/* 0x30c is REG_INTR_STATUS in the upstream qcom-cpufreq-hw driver; bit 2 is
+ * GT_IRQ_STATUS, the limits-mitigation (LMh/DCVS) event. While it is set the
+ * domain-state low byte reports the frequency the firmware currently allows.
+ * We only observe this status: 0x304/0x308 belong to the IRQ owner and must
+ * not be cleared from a polling probe. */
 #define K60_CPU_FREQ_HW_LIMIT_ACTIVE 4u
 
 /* PDMEM perf-lock votes. The live K60 device tree lists the three domains as

@@ -1702,7 +1702,9 @@ python3 scripts/judge-cellular-flight.py <evidence 目录> [--window 240]
 
 必过项：S3 六行、S6 两行、`rmtfs open`（fs1/fs2）、`alloc … physical != 0`、`rmtfs rw … served`、`announced memshare service 52`、`memshare request=0x22`、`memshare buffer physical < 0x100000000`、`assign … rc=0`、`smp2p stop released`。`0x23`/`0x24`/`ipa query` 记为 SKIP，modem 不问不判失败。
 
-`--self-test` 用三个内建夹具证明三档都走得到：`K60 FLIGHT JUDGE PASS three verdicts from three fixtures`。已对真实日志回归：k46（`usblog-20261119-162153`）→ INVALID（窗口 230 s）、k47 panic（`usblog-20261119-171436`）→ FAILED、k44 静默（`usblog-20261119-144720`）→ INVALID。
+`rmtfs rw` 看结果词本身：内核只印 `served`/`refused`/`not-served` 三种。旧写法 `vectors=(\d+) served` 会把 `not-served` 当成服务成功——`not-served` 以 `served` 结尾，子串匹配分辨不出来。现在按 token 精确比对，并对第四份夹具（把 PASS 夹具的 `served` 换成 `not-served`）断言该项必须 FAIL。
+
+`--self-test` 用四个内建夹具（PASS / INVALID / FAILED / refused-read）证明三档都走得到，并单独断言 `not-served` 不会被读成 served：`K60 FLIGHT JUDGE PASS four verdicts and the served/not-served guard`。已对真实日志回归：k46（`usblog-20261119-162153`）→ INVALID（窗口 230 s）、k47 panic（`usblog-20261119-171436`）→ FAILED、k44 静默（`usblog-20261119-144720`）→ INVALID。
 
 ### 3.46 sysmon 生命周期解码（2026-11-20 05:14，离线，无调用者）
 

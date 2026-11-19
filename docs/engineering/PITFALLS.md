@@ -5023,3 +5023,19 @@ Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`
 教训：**`git apply --check` 的 0 只证明「没有冲突」，不证明「补丁说了它该说的话」**。
 凡是生成补丁的脚本，都要另有一条结构性断言（目标路径集合、每个段落都必须有 `@@`），
 并且这条断言要跑在真实树上，而不是只在自测的合成树上。
+
+## P-207 — 判据把 `not-served` 读成了 `served`
+
+`scripts/judge-cellular-flight.py` 判断「modem 的读请求真的被服务了」时用的是
+`re.findall(r"rmtfs rw storage=(\d+) direction=(\d+) vectors=(\d+) served", text)`。
+内核那一行只换最后一个词：`… vectors=%u %s`，`%s` 是 `served`、`refused` 或 `not-served`。
+`not-served` **以 `served` 结尾**，所以拒绝也会命中这条正则——这正是 k51/k53 最该抓的失败被写成 PASS 的方式。
+
+`\b` 救不了：`not-served` 里 `served` 后面就是行尾，词边界成立。要按 token 精确比对：
+先抓 `(\S+)` 再与 `"served"` 比较。
+
+第四份夹具把 PASS 夹具的 `served` 换成 `not-served`，断言该项必须 FAIL，自测输出因此变成
+`K60 FLIGHT JUDGE PASS four verdicts and the served/not-served guard`。
+
+一般化的教训：**判据匹配的是一个「结论词」时，永远按 token 比对，不要按子串**。否定的写法
+（`not-`、`un`、`non-`、`-less`）几乎总是把肯定的词包在里面。

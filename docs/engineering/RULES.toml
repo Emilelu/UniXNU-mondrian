@@ -633,3 +633,12 @@ source = "docs/engineering/PITFALLS.md:P-206"
 statement = "被剥掉 hunk 的补丁会留下 ---/+++ 文件头而没有 @@ 段落，git apply --check 仍返回 0，于是「什么都不改却自称改这个文件」的段落通过了所有检查。生成补丁的脚本必须另有结构性断言（目标路径集合、每段都要有 @@），并在真实树上跑。"
 check = "grep -q 'file header has to go with it' scripts/port-cellular-to-xnu27.py"
 note = "2026-11-20 0626 从 0621 剥掉调用点 hunk 时留下 kern_exec.c 的 ---/+++ 两行，--verify 报 ok；check-ios27-readiness.py 的「目标必须落在 bsd/dev 之下」断言第一次跑就红。修法连文件头一起剥，0626 由 29,161 B 变 29,107 B、七个目标变六个。"
+
+
+[[rule]]
+id = "P-207"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-207"
+statement = "判据用子串匹配结论词时，否定写法会把肯定词包在里面：`not-served` 以 `served` 结尾，于是被拒绝的读请求被判成 PASS。结论词必须按 token 精确比对，并配一份否定夹具断言必须 FAIL。"
+check = "grep -q 'The outcome token decides' scripts/judge-cellular-flight.py"
+note = "2026-11-20 judge-cellular-flight.py 的 served 正则会命中 not-served（\b 也救不了）；第四份夹具把 served 换成 not-served 并断言该项 FAIL，自测输出改为 four verdicts and the served/not-served guard。"

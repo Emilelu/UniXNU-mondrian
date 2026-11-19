@@ -1562,3 +1562,22 @@ link_update 指向新回调。16/27 两代头文件编译 rc=0；test-wifi-sbl-m
 验证：16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 新增检查后 0 failure。27 上机时若事件仍不达，先核对
 这一处与 selector 0 信封。
 
+## 60. 在真实的 24A446 检出上编译，并用带宽度戳的 27 站点档案链接
+
+前几轮的 27 编译用的是 shim（package 指回 16 的树）。本轮在 sheng origin/main c8f92b2 的独立检出
+（/mnt/e/k60-work/impl/sheng27-full，git worktree --detach）上复现：该检出把 drivers/Ath12kWifi 钉在
+f087c7dd（27 的站点模块），但 worktree 里是空目录，首次构建报
+FileNotFoundError: .../drivers/Ath12kWifi/include/nw_abi.h；用符号链接指到 27 站点检出后即可编译。
+
+站点档案也重建成带戳的 27 版本：/opt/k60/trees/k60build/wifi/ath11k-abi27s/libPongAth11k.a
+（dabcf0b97d9dab2738f26709a889e8db16a8384e0ade5e694c3e720b61d03559，abi/nw_abi.stamp 为
+ie_bytes=2048 与 header_sha256=ec0b8227…，nw_sta_pong.c 的 IE_MAX 为 2048）。用它链接时构建日志里不再出现
+“has no abi/nw_abi.stamp”提示——宽度戳在这一代也生效。
+
+结果：teardown27full2 rc=0，产物 libPongWifiNative.a 12,102,400 字节
+（586228b4e4114722a7238ab7195b5d4915cf008095d2a3a3e32f25a75222864e），llvm-nm 里
+pong_wifi_station_stop 与 pong_wifi_net_stop 都在。编译命令与 16 的完全一致，只换 --ath11k 与
+PONG_SHENG_ROOT；说明驱动对 27 的 package 头文件没有额外依赖，需要变化的确实只在 ABI 形状。
+
+边界：27 头文件给 nw_board 末尾加了 diagnostics 字段；本驱动的定位初始化不写它，27 上为 0（不向固件
+索取接收统计），这是有意的默认值，等需要统计时再加开关。

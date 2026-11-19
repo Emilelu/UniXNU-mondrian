@@ -121,3 +121,15 @@ conf-files TESTS OK 6 cases / PROBE OK / judge TESTS OK / amplifier TESTS OK 979
 
 它接在预检里（`sheng abi checker is honest` = 脚本自身的 4 例，`sheng abi constants hold` = 对真检出的比对），
 所以 `sh scripts/check-audio27-preflight.sh` 一次就能回答「这份文档描述的 ABI 还在不在」。
+第 3 节的注入路径也进了门禁：`python3 scripts/check-sheng-inject.py --sheng <sheng 检出>` 读回七条事实——
+add-on 补丁里的源路径 `/private/var/ngpu/audio`、挂载点 `/System/Library/Audio/Plug-Ins/HAL`、参照包
+`BuiltinAudioPlugin.driver`、留下的可见点 `ShengAudio.driver/Info.plist`，`hal/ShengAudioPlugIn.c` 里的
+`keepImageResident`（:138），以及 `package/ShengAudioService.cpp` 两处沙箱授权（iOS 的
+`"audiomxd,mediaserverd"` :82 与 macOS 的 coreaudiod :80）。末行
+`SHENG INJECT OK 7/7 invariants (c8f92b2): patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch:19, …`
+把每条命中位置一起打出来，所以「还在」与「挪到别处了」分得开。
+
+这条检查同样拒绝静默回退：`--sheng` 指的树里没有那份补丁时报
+`… has no patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch; refusing to read another tree` 并退 1。
+预检里对应两行：`sheng inject checker is honest`（4 例）与 `sheng inject contract holds`（真检出）。
+

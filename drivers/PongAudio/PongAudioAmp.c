@@ -53,7 +53,14 @@
  *   (8) on device   not attempted
  */
 #include <pexpert/arm64/board_config.h>
-#if defined(PONG)
+/*
+ * Two ways in. 16.x defines PONG as a machine configuration
+ * (patches/xnu/zzzz-pong-machine.patch adds PONG.h and extends
+ * SUPPORTED_ARM64_MACHINE_CONFIGS). 27 keeps the stock machine configuration, so
+ * the same body is selected by the driver macro XNU_PONG_AUDIO: a board/config
+ * decision, not a machine one. Both reach this file; there is no second copy.
+ */
+#if defined(PONG) || defined(XNU_PONG_AUDIO)
 
 #include <kern/clock.h>
 #include <pexpert/pexpert.h>

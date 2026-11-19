@@ -33,6 +33,7 @@ run()
 
 run "migration list + pure C build" python3 scripts/check-audio-migration.py --compile
 run "glue vs six kernel symbols" sh scripts/tests/portability/run.sh
+run "driver macro really switches it" sh scripts/tests/portability/run-symbols.sh
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh

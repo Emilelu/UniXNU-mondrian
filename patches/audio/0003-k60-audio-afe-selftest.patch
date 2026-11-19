@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/pong_audio.c b/bsd/dev/pong_audio.c
-index 86ca152..f488054 100644
+index 86ca152..d197118 100644
 --- a/bsd/dev/pong_audio.c
 +++ b/bsd/dev/pong_audio.c
 @@ -43,6 +43,12 @@
@@ -67,6 +67,7 @@ index 86ca152..f488054 100644
 +
 +extern uint64_t kvtophys(vm_offset_t va);
 +extern vm_offset_t ml_io_map_wcomb(vm_offset_t, vm_size_t);
++#define PONG_CVP_PA		0x9ee00000u
 +
 +static bool
 +pong_audio_dma_lease(void)
@@ -77,9 +78,6 @@ index 86ca152..f488054 100644
 +	uint64_t pa = 0;
 +	uint64_t bytes = PONG_AUDIO_DMA_BYTES;
 +
-+	if (g_pong_audio.dma_pa != 0) {
-+		return true;
-+	}
 +	/* The pong fork (kmu1757/UniXNU-t970) keeps its periods in the CVP
 +	 * carveout: no processor starts CVP on this board, so those pages carry
 +	 * no owner and the DSP reads them through the apps SMMU without any
@@ -97,6 +95,9 @@ index 86ca152..f488054 100644
 +			return true;
 +		}
 +		printf("PongAudio: CVP carveout map failed; using the loader lease\n");
++	}
++	if (g_pong_audio.dma_pa != 0) {
++		return true;
 +	}
 +	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) == kSuccess &&
 +	    SecureDTGetProperty(chosen, "pong-audio-dma", &property, &size) == kSuccess &&
@@ -165,7 +166,6 @@ index 86ca152..f488054 100644
 + * before the graph runs (msm_audio_ion.c, IOCTL_MAP_HYP_ASSIGN), so issue the
 + * same assign call here and keep HLOS in the list: the write side has to stay
 + * able to fill the periods. */
-+#define PONG_CVP_PA		0x9ee00000u
 +#define PONG_SCM_ASSIGN_FNID	0x42000c16u
 +#define PONG_SCM_ASSIGN_ARGS	0x1117u
 +#define PONG_VMID_HLOS		0x03u

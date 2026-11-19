@@ -231,6 +231,37 @@ BlueTool. The wiring needed is `bluetooth_tool`,
 `bluetooth_target = "ios27"`, `audio_system_plugins = ["BTAudioHALPlugin.driver"]`
 and an OS image to mount.
 
+**What this branch now carries.** `scripts/build-bluetooth-userspace.py`
+stages the services through the component's `tools/build-userland.py`, and
+`scripts/stage-bluetooth-firmware.py` stages the pinned `hpbtfw*`/`hpnv*`
+pair under `firmware/qca`, both mirroring sheng's contract: the framework's
+`scripts/build-boot-runtime.py:254-272` mounts the OS image, runs the board
+script with `--os-root`, reads `report['directories']` and writes
+`bluetooth-service.json`. `scripts/tests/test-bt-userspace-stage.py` exercises
+that contract against a stub component with the real firmware manifest (12/0):
+directory map, runtime marker, staged firmware, corrupted-file rejection and
+unexpected-name rejection. The wiring is deliberately not enabled yet, because
+`[payload.runtime]` makes the payload build mount the 24A446 OS image, which
+belongs to F3. The block to add then is:
+
+```toml
+[components]
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "QcaBluetooth"]
+
+[payload.runtime]
+tool = "scripts/build-boot-runtime.py"
+target = "ios27"
+build = "24A446"
+bluetooth_tool = "scripts/build-bluetooth-userspace.py"
+bluetooth_target = "ios27"
+```
+
+`QcaBluetooth` resolves through `ctx.modules[('driver', 'QcaBluetooth')]`
+(`scripts/unixnu/runtime.py:77-80`) and reaches the stager as `--component`.
+The stager itself runs anywhere; building the staged `BlueTool` and
+`QcaBTType0.dylib` needs `xcrun iphoneos` and a real `codesign`, so the
+per-boot payload build with this block enabled runs on a macOS host.
+
 The iOS 16.6.1 line shows why this layer cannot be skipped. Stock 20G81 BlueTool
 never opens the transport at all: it blocks in a synchronous MobileGestalt call
 and dies on its own 30 s XPC watchdog, and 20G81's bluetoothd has no QCA support

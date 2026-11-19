@@ -4,12 +4,12 @@
 /build/
 /reference/
 /refer/
-/firmware/
-# The Bluetooth firmware set is vendor data pulled from the device; only its
-# manifest is tracked, so a clean checkout can still stage and verify the bytes.
-!firmware/bluetooth/
-firmware/bluetooth/*
-!firmware/bluetooth/manifest.json
+/firmware/*
+# The Bluetooth firmware set is vendor data pulled from the device, but it is
+# small and scripts/stage-bluetooth-firmware.py consumes it, so the whole set
+# is tracked and a clean checkout can stage and verify the bytes.
+!/firmware/bluetooth/
+!/firmware/bluetooth/**
 /artifacts/
 /evidence/
 *.ipsw

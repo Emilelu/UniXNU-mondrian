@@ -1197,3 +1197,14 @@ mission35 的两处改动已在真机上生效（ie 390 证明 1024 元素区两
 mission34（\`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img\`，201,887,744 B，SHA256 \`b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5\`，09:16 构建）只有一个变量：station 与 kext 都换成 1024 字节元素区（\`/opt/k60/trees/k60build/wifi/ath11k-abi1\`，\`#define IE_MAX 1024\`；native-sbl-mission34 的 \`abi/nw_abi.h\` 含 \`uint8_t ie[1024]\`，其 SHA256 \`81a5c2bdb563e759f9ddd4470288dad3977f1285837001e95a5541b39e54275c\` 与 build-manifest 的 \`wifi_archive\` 相同），记录照实携带 AP 的 42 字节国家 IE，19 条探针语义完整。所以它是「384 字节上限是否就是那一行消失的原因」最干净的一次判断：真实行出现即根因坐实、可直接收工；不出现则探针 K60B（国家）/K60D（目标元素）/K60J（厂商 221/2）指名下一个嫌疑。
 
 mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二发：届时扣留才是有证据的方向，且需要先把扣留从所有目标系探针里摘出去再飞。
+
+## §34 2026-11-19 10:30 384 从来不是线上格式的限制，而是我们自己 ABI 的限制
+
+把两处数组摆在一起看：
+
+- 线上记录 \`scan_result\`（\`drivers/PongWifi/PongWifiNet.cpp:89\`）是 \`uint16_t elements_length; uint8_t elements[1024];\`，\`static_assert(sizeof(scan_result) == 1164 && offsetof(elements) == 0x8c)\`（:119-120）。20G81 的 wifid 每次正是按 **1164 字节**取这条记录（\`native client type 11 get bytes=1164\`），也就是说 daemon 侧本来就预期最多 1024 字节元素。
+- 384 只出现在我们自己内部：station 的 \`src/nw_sta.c:14\` \`#define IE_MAX 384\`，扫描时 \`if (len > IE_MAX) len = IE_MAX;\`（:61）再把 \`ie_len/ie\` 放进 \`include/nw_abi.h:52 uint8_t ie[384];\`（:66）。
+
+所以目标 AP 的 390 字节元素区是**在我们自己的代码里**被截成 384 的，截断点落在某个元素的中间；线上那条「384 字节、走不到结尾」的记录不是 AP 发的，也不是 Apple 的格式，而是我们这个内部上限的产物。mission34 把 \`IE_MAX\` 与 \`nw_abi.h\` 一起抬到 1024（两侧同一次改动，见 §29 的引号包含证明），390 < 1024，记录因此第一次以 AP 原本的样子到达 wifid。这不是改协议，是我们自己的 ABI 追上它本来就在用的容量。
+
+对照：被 daemon 保留的两条 5 GHz 记录元素区是 307 与 361 字节，都在旧的 384 以内、也都能完整走到结尾；唯一被丢的那条正是唯一越过 384 的。这条相关性现在有了机制解释：截断的是我们，不是 AP。

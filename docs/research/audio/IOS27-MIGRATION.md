@@ -60,6 +60,9 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    期望 `OK: the migration list matches the driver directory`。
    再跑 `sh scripts/tests/portability/run.sh`：它用桩头文件把胶水文件 `PongAudioAmp.c` 编过，
    期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
+   这两条加上判据测试、功放 host 测试与（有 sheng 检出时的）audioreach 测试，可以用一条命令全跑：
+   `sh scripts/check-audio27-preflight.sh` → 五行 `ok` 与 `PREFLIGHT OK`（2026-11-20 03:0x 实测
+   979 cases / 182 checks 全过）。
 2. 在 27 树里跑 `python3 scripts/check-audio-migration.py --copy <27树>/drivers/PongAudio`：
    它按同一份清单复制 §1/§1b/§2 的 21 个文件与 `tests/` 的两个文件（共 23 个），分类检查不通过时
    直接拒绝复制。本仓实测 `--copy` 到空树后，`tests/run-tests.sh` 在副本里仍是 `TESTS OK 979 cases`。

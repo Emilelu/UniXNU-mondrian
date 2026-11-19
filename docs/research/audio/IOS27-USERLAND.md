@@ -55,7 +55,10 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 | `cd k60-audio-ios27-carry && sh scripts/tests/portability/run.sh` | `STUBS OK PongAudioAmp.c` | 内核侧胶水对六个符号的内核面 |
 | `python3 scripts/check-audio-migration.py --compile` | `OK: the migration list matches the driver directory` | 可搬清单与磁盘一致 |
 
-2026-11-20 03:0x 三条都实测通过（182 checks / STUBS OK / OK）。
+一条命令跑完上面几道（外加判据测试与功放 979 例）：`sh scripts/check-audio27-preflight.sh` →
+五行 `ok` 与 `PREFLIGHT OK`；sheng 检出不在旁边时那行是 `skip`，可用 `SHENG_REPO=` 指定。
+
+2026-11-20 03:0x 全部实测通过（182 checks / STUBS OK / OK / 979 cases）。
 
 ## 5. 接缝：内核侧给用户态什么
 

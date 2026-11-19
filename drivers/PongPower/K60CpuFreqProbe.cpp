@@ -116,12 +116,17 @@ void readRows(Window *window, uint32_t *rows)
         rows[i] = rd32(window->va, K60_CPU_FREQ_REG_FREQ_LUT + i * 4);
 }
 
-bool readTable(Window *window, K60CpuFreqTable *table)
+bool readTableCapped(Window *window, K60CpuFreqTable *table, uint32_t capKhz)
 {
     uint32_t rows[kLutRows];
 
     readRows(window, rows);
-    return k60_cpufreq_build_table(rows, kLutRows, 0, table) == 0;
+    return k60_cpufreq_build_table(rows, kLutRows, capKhz, table) == 0;
+}
+
+bool readTable(Window *window, K60CpuFreqTable *table)
+{
+    return readTableCapped(window, table, 0);
 }
 
 void dumpRows(const char *tag, const uint32_t *rows, unsigned count)
@@ -183,6 +188,8 @@ void voteDomain(unsigned domain, unsigned mode, bool lowest)
     unsigned index = 0, n, i, enabled, dcvs, restored, pdmemOffset;
     unsigned stateBefore, stateAfter, stateRestored;
     uint32_t topKhz = 0, pdmemOriginal = 0, pdmemAfter = 0;
+    uint32_t hardwareLimit = 0, hardwareCap = 0, tableTop = 0;
+    unsigned topIndex = 0;
     bool pdmemMapped;
     int ok;
 
@@ -193,6 +200,7 @@ void voteDomain(unsigned domain, unsigned mode, bool lowest)
     }
     enabled = rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u;
     dcvs = rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u;
+    hardwareLimit = rd32(window.va, K60_CPU_FREQ_REG_HARDWARE_LIMIT);
     pdmemOffset = k60_cpufreq_pdmem_offset(domain);
     pdmemMapped = pdmemOffset && mapWindow(&pdmem, kPdmemBase, kPdmemWindow);
     if (pdmemMapped) pdmemOriginal = rd32(pdmem.va, pdmemOffset);
@@ -201,6 +209,25 @@ void voteDomain(unsigned domain, unsigned mode, bool lowest)
         if (pdmemMapped) unmapWindow(&pdmem);
         unmapWindow(&window);
         return;
+    }
+    if (k60_cpufreq_pick_highest(&table, 0, &topIndex, &tableTop)) {
+        IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
+        if (pdmemMapped) unmapWindow(&pdmem);
+        unmapWindow(&window);
+        return;
+    }
+    hardwareCap = k60_cpufreq_hardware_cap(
+        rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE), hardwareLimit, tableTop);
+    if (hardwareCap && hardwareCap < tableTop) {
+        K60CpuFreqTable capped = {};
+        if (!readTableCapped(&window, &capped, hardwareCap)) {
+            IOLog("K60CpuFreq: mode%u d%u vote skipped: hardware cap=%ukHz below table\n",
+                mode, domain, hardwareCap);
+            if (pdmemMapped) unmapWindow(&pdmem);
+            unmapWindow(&window);
+            return;
+        }
+        table = capped;
     }
     if (lowest) {
         if (k60_cpufreq_pick_lowest(&table, &index, &topKhz)) {

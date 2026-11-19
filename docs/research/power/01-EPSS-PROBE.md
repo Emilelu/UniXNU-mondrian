@@ -67,7 +67,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 - 新增（2026-11-19）：t970/zizhan 的同 SoC 策略先写 PDMEM perf-lock（`0x17d09804/8/c`），
   再写 `perf_state`；K60 DT 的 `qcom,perf-lock-support` 与之一致。`K60CpuFreqPlan` 已加入
   `k60_cpufreq_pdmem_offset`/`k60_cpufreq_build_pdmem_vote`，探针 mode 2/3/6/7/8 先写 PDMEM、
-  恢复时写回原值；离线编译与 host 166 项通过，尚未上机。
+  恢复时写回原值；mode 10 另按 zizhan 的 L3 follow 策略让 L3 随最快域移动（boost 时到顶，写前保存、结束恢复），host/编译通过但未上机；离线编译与 host 184 项通过，尚未上机。
 - 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 已实现模式 1–3、
   只读采样模式 5 和降档写入模式 6（2/3 为带守卫的瞬态写入，6 只降 d0，均为未上机；
   5 为 16 ms 采样线程，不写寄存器），governor 核心由模式 5 的线程调用但仍不写回硬件。
@@ -111,6 +111,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   dcvs 控制位为 1 且该 domain 多于 1 核时，再按 `0x320 + 4×i` 写每核一行（K60 为 4/3/1 核，
   不是参考的 3/4/1）；**从不写 `DCVS_CTRL 0xb0`**，调用方缓冲区不足时返回 0 且一条都不写。
 - `k60_cpufreq_build_l3_vote`：L3 共享投票，写 `0x90`，值同样是 LUT 行号。
+- `k60_cpufreq_pick_at_least`：返回最低的不低于给定 kHz 的档位；全部低于目标时返回 -1，供 L3 跟随使用。
+- `k60_cpufreq_l3_target`：zizhan 的 L3 follow——取三个 domain 中最大的 `current/top` 比例，
+  把 L3 放在不低于“该比例 × L3 top”的最低档；`boost` 为真时直接取 L3 顶档。没有
+  有效 domain 比例时返回 -1，由调用方保持原值。
 - `k60_cpufreq_pdmem_offset`：PDMEM perf-lock 投票偏移，`0x804 + 4×domain`，domain≥3 返回 0。
 - `k60_cpufreq_build_pdmem_vote`：把 LUT 档位展开成一条 PDMEM 写（值即 LUT 行号）；
   探针先写 PDMEM 再写 `perf_state`，恢复路径把原值写回。
@@ -174,6 +178,12 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   **d1 的写回没有被硬件接受**：`apply d1 level=16 (2496000kHz) readback=ok state=130->130`，
   而采样里的 d1 `hw` 始终是 2.496 GHz，说明 P 域的行写入回读成功但 EPSS 不接受持续投票；
   同一轮 d2 没有产生写回。**不要清或置 DCVS 控制位来接管 d1/d2**：sheng 最新 `package/CpuFreqProbe.cpp:132-142` 的 `voteDomain` 只写 `perf_state 0x320`，仅当 `DCVS_CTRL 0xb0` bit0 已为 1 时写 `+4×i` 每核行，从不写 `0xb0`；我们主动置位的 mode 9 正是 image t/u 卡死的共同动作。当前结论是承认 EPSS 独占大核簇，或等新的固件证据。
+- mode 10（EPSS 写回 + L3 follow，2026-11-19）：沿用 mode 8 的 16 ms 采样、arm/restore 窗口和
+  三域 PDMEM/perf_state 写回，另外在每窗口按 `k60_cpufreq_l3_target` 计算 L3 目标并写 `0x90`。
+  L3 只在该窗口的最快 domain 比例或触摸 boost 改变时重写，首次写前保存原值，结束或线程
+  停止时恢复；回读不一致立即恢复并停用 L3 follow，域投票继续。L3 窗口为 `0x17d90000`，
+  LUT `0x100`，投票 `0x90`，与 zizhan 的 `pong_l3=2` 语义一致；默认关闭，只有
+  `k60_cpufreq=10` 才进入。host 184 项与编译通过，尚未上机。
 - mode 9（DCVS 控制位探针，已禁用）：对三域分别读控制位/单行/全行写入——Phase A 写单行 top/bottom 后恢复；Phase B **只在 `DCVS_CTRL` bit0 已为 1 时**写所有核行 top/bottom 后恢复行，否则只打印 `leaving the firmware control alone`，**不再写 `0xb0`**。2026-11-19 07:56 以 image t（`3300c1a7`，`k60_cpufreq=9`，boot.img sha256 `567d9b62…`，30 项 603 B）上机：fastboot 报 `Sending`/`Booting OKAY`，但 console 0 字节、`capture.json state=port-not-observed`、`returnedToFastboot=false`，设备状态 `none`，需强制复位。04:36 的 image u（mode 9 + 导入的 0617 thermal 补丁）是同一签名；两次唯一的共同因素是 mode 9，**温控补丁没有被证明有罪**。`3a0a5511` 在入口拒绝 9，探针代码保留待新的固件证据；sheng 最新从不写控制位，d1/d2 归属问题按 EPSS 独占大核簇处理。
 - 帧下限接入（2026-11-19 05:07，image w）：采样线程每 16 ms 调 `pong_adreno_cp_pending()`（CP 环
   RPTR≠WPTR 表示本窗口有提交，DCVS 线程已用同一读数），把结果喂 `K60BoostPlan`，再把
@@ -515,7 +525,8 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   恢复后硬件从 1.8048 GHz 回到 1.5552 GHz。但 d1 的 `apply d1 level=16 readback=ok` 之后 `state=130->130`、
   硬件仍是 2.496 GHz，说明大核簇的持续投票不被 EPSS 接受，d1/d2 仍由固件自主控制。2026-11-19 起
    PDMEM perf-lock 投票已接入（`0x17d09804/8/c`，先于 `perf_state`），离线 host/编译通过但未上机；
-   若成立，大核簇的持续投票可能由 PDMEM 而非 `perf_state` 承接。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
+   若成立，大核簇的持续投票可能由 PDMEM 而非 `perf_state` 承接。L3 follow（mode 10）同样
+   只做了 host/编译，未上机；它写的是 L3 共享投票，不改变大核簇的 perf_state 归属。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，

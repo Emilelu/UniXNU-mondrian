@@ -140,6 +140,12 @@ jobs:
           python3 scripts/check-bluetooth-power.py --source "$src" --out "$UNIXNU_OUT/power-check"
           python3 scripts/tests/test-bt-power-check.py
 
+      - name: Check the runtime mount gate
+        working-directory: device
+        run: |
+          python3 scripts/check-bluetooth-runtime-gate.py --out "$UNIXNU_OUT/runtime-gate"
+          python3 scripts/tests/test-bt-runtime-gate.py
+
       - name: Collect the build summary
         if: always()
         run: |

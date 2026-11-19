@@ -401,6 +401,9 @@ The consequence has to be stated plainly, because a green CI run is easy to
 misread: the run 44518998961 kernel carries none of these strings
 (`bluetooth-lib`, `bluetooth-bin`, `[bluetooth-runtime]`, all zero hits), and
 `scripts/check-bluetooth-kernel.py --expect-runtime` fails against it by design.
+`scripts/check-bluetooth-runtime-gate.py` turns that boundary into a test the
+build runs: the gate may stay closed without the mounts, but it may never open
+without them, so flipping `CONFIG_XNU_OWNER_DATA_MOUNT=y` cannot land silently.
 The flag exists so the F3 build, the first one with Data mounted, can assert the
 mounts instead of trusting a patch file. The iOS 16.6.1 line is the one that
 sets `CONFIG_XNU_OWNER_DATA_MOUNT=y` (`configs/mondrian_defconfig:43`), and

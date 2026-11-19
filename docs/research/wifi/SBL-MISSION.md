@@ -1255,3 +1255,16 @@ mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二�
 - 顺带发现：sheng 的 27 Wi-Fi 记录按 0x8e8 编写，但它自己的站仍按 384 截断元素区；宽 5 GHz 记录在他们那条线上也会被 wifid 丢掉。
 - 未验证的风险：24A446 的 IO80211 用户客户端 selector 0 信封（0x3c30 输入、0x3c00 输出）是否与 22H374 相同，手上没有 27 的 IO80211Family/wifid 二进制，无法离线确认；这是唯一还可能在 27 上挡住宿主绑定的形状。等 fork 走到 bsd_init 再取 27 的二进制核对。
 - 下一步：fork 的 ios27 分支能上机后，先跑 clean build 的八步流程，再按 mission36 的判据（设置页 Emilelu_5G 行、可加入、192.168.31.x 地址）验收。
+
+## §39 2026-11-19 14:00 24A446 扫描请求与能力位：命名扫描、频道表、缓存结果
+
+27 的扫描入口与 16 不是同一份请求。sheng 的 package/WifiScan.h 与 WifiNet.cpp（origin/main c8f92b2）给出三处必须照抄的形状，这一节记录它们在本驱动里的落点，全部离线验证，未上机（27 还没有可飞的内核）。
+
+1. 能力位（请求 12，12 字节）。24A446 读两位决定扫描会不会到达驱动：bit 22（byte 2 bit 6）让「点名扫描」通过，缺它 Apple80211Scan 立刻 -3903 返回，驱动根本收不到请求；bit 46（byte 5 bit 6）让框架等扫描完成事件（最多 20 秒）再读结果，缺它就立刻读空表。现在 12 字节请求由 pong_wifi_caps_fill() 填 {2,3,6,9,10,14,17,19,22,46}，19 字节请求仍走 22H374 的老位图，16 的行为一个字节都没动。
+2. 扫描请求 86（kScanReqMultiple，0x14e8 字节）。名字个数在 0x8，条目在 0xc（每条 40 字节：version、length、32 字节名字），扫描类型在 0x200（3 = 用手上已有的结果回答），频道在 0x210/0x214。请求 10 的频道个数在 0x44、表在 0x48，类型在 0x34（16 上没用到）。pong_scan_multiple_parse() 只取「恰好一个名字且无通配」时点名探测，否则全扫；pong_scan_frequencies() 把 12 字节频道项（flags 0x8 = 2.4 GHz，0x10 = 5 GHz，ch14=2484）折算成 MHz 去重后交给 nw_wifi_scan_frequencies。
+3. 频道表为什么必须用。sheng 的记录：WCN7850 上全频道扫描约 15.7 秒，超过框架等待的 12 秒，每次都是空表。所以点名扫描要按请求里的频道走，不能全扫。
+4. 27 站的新入口。Ath12kWifi f087c7dd 新增 int nw_wifi_scan_frequencies(const uint8_t *ssid, size_t len, const uint32_t *mhz, size_t count) 与 NW_WIFI_SCAN_FREQUENCIES_MAX 32；本驱动用 weak_import 声明它，站里没有这个符号（22H374 的 ath11k-abi1 归档）时退回 nw_wifi_scan，两个归档都能链。27 头文件里 nw_board 末尾多了 unsigned diagnostics，我们的 nw_board 实例是零初始化，不影响。
+
+离线证据：scripts/tests/pong-abi-selftest.c 的 31 项检查（扫描记录空间、540 字节关联完成事件、能力位、请求 86 解析、频道折算、去重与越界拒绝）在 scripts/tests/test-pong-abi.py 里编译运行通过；脚本另查头文件常量与 PongWifiNet.cpp 的落点，18 项检查 0 失败。test-wifi-sbl-mission.py 新增一条「24A446 扫描请求被解析出名字、类型与频道」，全套 0 失败。编译两遍都对：对 16 头（ath11k-abi1）与对 27 头（ath11k-abi27）都产出 libPongWifiNative.a。
+
+还没验证的仍是那一处：24A446 的 selector 0 信封（0x3c30 入 / 0x3c00 出）。它要等 fork 的 ios27 分支走到 bsd_init、拿到 27 的 IO80211Family 或 wifid 才能核对。kext 侧 24A446 的记录形状、请求解析与事件尺寸都已静态锁定，剩下的是绑定层。

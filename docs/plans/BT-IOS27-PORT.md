@@ -423,6 +423,17 @@ mounts instead of trusting a patch file. The iOS 16.6.1 line is the one that
 sets `CONFIG_XNU_OWNER_DATA_MOUNT=y` (`configs/mondrian_defconfig:43`), and
 0526/0527 are not in that series; they exist for the 27 line, waiting for the
 gate to open.
+Opening the gate is not one line. On the iOS 16.6.1 line the same switch comes
+with `XNU_OWNER_DATA_UFS=y` and three patches this branch does not carry:
+`ios16-native-ufs-personality.patch`, `zzzzzz-pong-writable-data.patch` and
+`zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ufs-data.patch`.
+`patches/xnu-12377/` holds the Bluetooth series plus `armcpu-sleep-hook.patch`
+and `ptrauth-string-discriminator.patch`, and
+`configs/mondrian_ios27_defconfig` sets `CONFIG_XNU_NATIVE_UFS=n`, so there is
+no UFS IOMedia to mount Data from even if the flag were flipped. The mount
+work therefore belongs to F3 (PongUfs, then the writable Data volume) together
+with the Bluetooth mounts, not to this branch alone.
+
 
 ### 5.8 The launchd job the runtime ships
 

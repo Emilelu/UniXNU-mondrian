@@ -43,6 +43,49 @@ sh scripts/tests/portability/run-deps.sh
 `sh scripts/tests/portability/run-deps.sh --object /tmp/unknown.o` 打印
 `FAIL: the glue needs k60_bogus_api, which IOS27-WIRING.md section 1 does not name` 并以 1 退出。
 
+### 这四个接口在 27 基线里确实还在（2026-11-20 实测）
+
+桩与链接级检查用的都是本仓写的头文件：它们证明「声明够了」，不证明「27 树真的还这么声明」。
+后者是树的事实，所以有一道只读检查，输入就是一棵真的 27 源树：
+
+```sh
+python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc
+#   ml_io_map            osfmk/arm/machine_routines.h:603  (maps a physical window ...)
+# API OK 4/4 xnu-12377.121.6 ac9718f
+```
+
+实测位置（`xnu-12377.121.6`，`ac9718f`）：
+
+| 符号 | 27 树里的声明 |
+| --- | --- |
+| `ml_io_map` | `osfmk/arm/machine_routines.h:603` |
+| `ml_io_map_wcomb` | `osfmk/arm/machine_routines.h:607` |
+| `PE_parse_boot_argn` | `pexpert/pexpert/pexpert.h:351` |
+| `delay_for_interval` | `osfmk/kern/clock.h:327` |
+
+脚本跳过生成头（`static_if.h`）、别的架构（`i386`/`x86`/`x86_64`）和本清单自己搬进去的
+`PongAudio*`/`K60*` 头。最后一条不是洁癖：在已接线的树上，`ml_io_map` 会先「命中」
+`bsd/dev/PongAudioRegs.h` 这个我们自己写的声明，检查就变成自证。剩下的风险只有
+`k60_pmic_glink_send_audio`（power 线）与 `printf`/`NSEC_PER_USEC` 这类稳定接口。
+
+### 两种布局：16 线种树，27 树原地构建
+
+两个脚本（`apply-audio27-wiring.py`、`add-audio-conffiles.py`）都认两种布局：
+
+- `<tree>/.cache/xnu-work/bsd/conf/files` —— 16 线构建脚本种出来的树；
+- `<tree>/bsd/conf/files` —— iOS 27 输出树，直接在内核源里构建。
+
+27 树没有 `bsd/dev/pong_buttons.c`，锚点只能用该树有的行，例如它自己第 108 行的
+`bsd/dev/unix_startup.c`（后接三个制表符与 `standard`）。在该树副本上实测：
+
+```sh
+python3 scripts/apply-audio27-wiring.py <tree> --anchor "<unix_startup.c 那一整行>"
+# audio conffiles: pong_audio lines 0 -> 2
+# audio wiring: OK sources=9 conf=2
+```
+
+写进去的是 `bsd/conf/files:109` 与 `:110` 两行（`PongAudioGeniI2c.c`、`PongAudioAmp.c`），
+`bsd/dev` 下九个文件（两个 `.c` 加七个头）。**只读别人的输出树**：验证都在 `/tmp` 副本上做。
 ### 第零道闸：驱动宏 `XNU_PONG_AUDIO`
 
 `PongAudioAmp.c` 的整个函数体在一个 `#if` 里：`#if defined(PONG) || defined(XNU_PONG_AUDIO)`

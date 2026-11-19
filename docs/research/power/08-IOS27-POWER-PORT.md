@@ -21,8 +21,8 @@
 | `K60BoostPlan`（触摸 1 s、4 窗 2 帧、300 ms/60%、fence 1 ms） | `drivers/PongPower/K60BoostPlan.c`，host 40 项 | **直接复用**；输入改为 iOS27 的触摸/帧通知 |
 | `K60SleepPlan`（TLMM 掩码、PON 位、wake-after、背光/触摸时序） | `drivers/PongPower/K60SleepPlan.c`，host 73 项 | **直接复用**；板级 hook 只替换 IOKit/ArmCpu 接线 |
 | `K60PowerVotePlan`（16 资源×32 owner） | `drivers/PongPower/K60PowerVotePlan.c`，host 58 项 | **直接复用**；消费者等外设驱动 |
-| `K60RailPlan`（稳压器→互连→频率→回读、温控门、回滚） | `drivers/PongPower/K60RailPlan.c`，host 107 项（conformance 套件） | **直接复用**；接真实 regulator/interconnect 消费者前保持纯规划 |
-| `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 七套件 1659 项 | **直接复用**；作为 iOS27 的第一道门 |
+| `K60RailPlan`（稳压器→互连→频率→回读、温控门、回滚） | `drivers/PongPower/K60RailPlan.c`，host 134 项（conformance 套件，含回滚） | **直接复用**；接真实 regulator/interconnect 消费者前保持纯规划 |
+| `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 七套件 1686 项 | **直接复用**；作为 iOS27 的第一道门 |
 | 现场事实：EPSS 三窗口 0x17d91000/2000/3000、L3 0x17d90000、4/3/1 核域 | `docs/research/power/01-EPSS-PROBE.md` | 复用；用 iOS27 的 ADT/FDT 复核地址与域映射 |
 | 现场事实：GPU 13 档 900–220 MHz、HFI 升序、GMU XO 19.2 MHz | `docs/research/power/04-GPU-FREQUENCY.md` | 复用；HFI 版本/命令号按 iOS27 固件复核 |
 | 现场事实：PMK8350 PON 0x13 IRQ 7 → SPI 481/INTID 513；TLMM 0x0f000000、汇总 SPI 208 | `docs/research/power/02-PLATFORM-SLEEP.md` §3 | 复用地址；PON 路由仍需驱动配置 |
@@ -46,7 +46,7 @@
 ## 4. 移植顺序
 
 1. **基线**：在 `feat/ios27` 上先构建不带电源新代码的镜像，确认 bsd_init、SpringBoard、USB console 都成立；记录 boot.img/kernel/payload 与 console。
-2. **策略先行**：把六个纯 C 模块和 host 套件原样带过去，先跑 `bash scripts/tests/run-k60-power-host.sh`；七套件数字必须与 iOS16 一致（1659），并确认新增的 `scripts/check-power-portability.py` 通过（六模块无 IOKit/XNU 依赖，freestanding C11 可编译）。这一步不需要设备。
+2. **策略先行**：把六个纯 C 模块和 host 套件原样带过去，先跑 `bash scripts/tests/run-k60-power-host.sh`；七套件数字必须与 iOS16 一致（1686），并确认新增的 `scripts/check-power-portability.py` 通过（六模块无 IOKit/XNU 依赖，freestanding C11 可编译）。这一步不需要设备。
 3. **组件替换**：用 catalog ArmCpu 替换 vendored `drivers/ArmCpu`；确认 `armcpu_sleep_register`、stats、board 回调的结构体大小与 iOS16 版本一致（56 B/48 B），不一致就按 12377 头文件改板级。
 4. **XNU 补丁**：把 sheng 的 12377 补丁按当前 12377 源树重放；只保留 hook、`arm_init_cpu(cpu_data_ptr, 0)`、secondary hook、IOPMrootDomain 清标志、sigp 恢复。不要带 0623/0624/0625。
 5. **板级 hook**：先 timer-only（无 PON），`platform-sleep=1` + `platform-sleep-wake-after=5`；prepare/restore 只累加计数，不在关中断上下文打印；唤醒后在安全上下文打一条 report。
@@ -58,7 +58,7 @@
 
 | 门 | 通过条件 |
 | --- | --- |
-| host | 七套件 1659 项全过；`check-power-portability.py` 报告 6 模块 freestanding C11 通过；`K60_POWER_SANITIZE=1` 的 ASan/UBSan 重跑通过；新增 iOS27 适配代码另有断言 |
+| host | 七套件 1686 项全过；`check-power-portability.py` 报告 6 模块 freestanding C11 通过；`K60_POWER_SANITIZE=1` 的 ASan/UBSan 重跑通过；新增 iOS27 适配代码另有断言 |
 | 静态 | kernel.macho 有 `_armcpu_sleep_register`、`_arm64_platform_sleep_hook`、板级 register/report 符号；无 `0624` 的 `k60_platform_sleep_boot_complete` |
 | 默认启动 | `platform-sleep=0` 到 SpringBoard，无 prepare/restore；300 s autoreset 正常 |
 | timer 睡眠 | `platform-sleep=1 platform-sleep-wake-after=5`：prepare=1、restore=1、last_intid=27、last_reason=timer，且 `IOCPUSleepKernel` 打印退出/`wake cpus done`，系统继续运行 |

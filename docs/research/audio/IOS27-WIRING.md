@@ -30,6 +30,19 @@ ASan/UBSan 无报错。⇒ 入口自门控、每条失败路径都有名字，27
 `dsb sy`，x86 宿主汇编器不认它，而解析、类型检查与 `-Werror` 警告照跑。
 桩的大小就是 27 树必须提供的内核面的**上界**——少一个符号，这个脚本就红。
 
+桩只能证明「声明够用」，不能证明「不需要更多符号」——所以还有一道链接级检查：
+```sh
+sh scripts/tests/portability/run-deps.sh
+# DEPS OK undefined=6, all named in IOS27-WIRING.md
+```
+它把 conf/files 会带的那两个文件（`PongAudioAmp.c` 与 `PongAudioGeniI2c.c`）用 `-DXNU_PONG_AUDIO` 编成对象，
+`ld -r` 合成一个 relocatable object 后逐个看未定义符号，凡是不在本表里的就失败，并点名缺哪一行。
+那「六」个里，27 树真正要提供的是四个内核接口（`ml_io_map`、`PE_parse_boot_argn`、`delay_for_interval`、`printf`），
+另两个是宿主 C 库的痕迹（常量字符串让 `printf` 变成 `puts`、栈保护）。
+反向也可复现：随便编一个引用未知内核 API 的对象，
+`sh scripts/tests/portability/run-deps.sh --object /tmp/unknown.o` 打印
+`FAIL: the glue needs k60_bogus_api, which IOS27-WIRING.md section 1 does not name` 并以 1 退出。
+
 ### 第零道闸：驱动宏 `XNU_PONG_AUDIO`
 
 `PongAudioAmp.c` 的整个函数体在一个 `#if` 里：`#if defined(PONG) || defined(XNU_PONG_AUDIO)`

@@ -550,7 +550,10 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；触摸计数自 image x 起由补丁 0622 导出（CPU/GPU 线程消费；05:47 上机已抓到 `tb=1` 与 governor 抬档，硬件写窗口由 `9b8a36b6` 重开，但 100 s 上限由 `a0e8a060` 才去掉，image y/z 均未上机复测）、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset
   先到，没有 `sample stop`，也没有负载/温度/throttle 读数。mode 9（DCVS 控制位/全行写入探针）在 image u 与 image t
   两次 0 字节卡死后由 `3a0a5511` 禁用，d1/d2 为何无视持续投票仍无答案。
-- 没有平台睡眠（`ShengSleep.cpp` 等价物）、没有 GPU 的 GMU 读取/HFI 投票（`GpuPowerProbe.cpp` 149 KB；现有纯逻辑规划 `docs/research/power/04-GPU-FREQUENCY.md`）、
+- 平台睡眠的等待路径与定时唤醒已实现（`ArmCpuSleep.h` + `K60PlatformSleep.cpp`，host 1038 项），
+  w9/w10 已到 `IOCPUSleepKernel` 并在 5 s 定时器上唤醒，但次级 CPU 的 `processor_start`
+  仍未走通，完整 resume 冻结到 iOS27；GPU 的 GMU 读取/HFI 投票在 `PongAdreno` 已有路径，
+  探针侧只有纯逻辑规划（`docs/research/power/04-GPU-FREQUENCY.md`）；
   外设供电投票只有纯记账模块（`K60PowerVotePlan`），没有真实消费者或轨道名。
 - 真机已有三次 mode 1 读数：d0 早期即启用；d1/d2 在辅核启动前读为 0，image j 延后读取
   已变为 `enable=1`（state 633.6/787.2 MHz、vote 16/19），所以三域均可读，早期 0 只是时序。
@@ -602,6 +605,22 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    mode 2/3 仍未执行。governor 写回随后由 mode 7（只降，image r 03:26）和 mode 8（双向，image s 03:58）
    在 d0 上跑通；d1/d2 的写回回读成功但硬件不跟随（EPSS 自主控制），因此下一步不是继续写大核簇，
    而是先决定是否清 DCVS 控制位接管，或记录为固件独占；d0 升档已证明不需要先接电压顺序。
+
+6. 2026-11-19 之后的下一次上机判据（先只读，后写入；任何一步失败即停）：
+   - 只读 A：`k60_cpufreq=1`，构建时去掉 `applog=1`，gate 必须 `OK (30 arguments, 603 bytes)`。
+     通过条件：console 出现 `mode=1 EPSS domains=3 cpus=8 lut-rows=40` 和三个 domain 的
+     `enable=1 ... rows=... top=... level=...`；L3 15 行；`limits=0x... cap=...` 有值；
+     没有 `vote`/`apply`/`pdmem` 写行；SpringBoard 起来、capture complete、无 panic。
+     判读重点：若 `limits` bit2 置位，`cap` 是否等于 `(state & 0xff) * 19200`，以及
+     bit2 在限频解除后是否仍锁存（我们不清 `0x308`）；若 bit2 清零，`cap` 应等于 `top`。
+   - 写入 B（仅在 A 通过且 Lead 明确批准后）：`k60_cpufreq=8` 或 `=10`，先 d0 单域。
+     mode 8 通过条件：`pdmem=` 在 `apply` 前出现且值等于目标 LUT 行；`readback=ok`；
+     d1/d2 至少各一次 `state` 变化（若仍不变，记录为 PDMEM 不被接受，停止继续写大核簇）；
+     `restore` 后 d0 回到写前值；无 panic、无 0 字节 console。mode 10 通过条件：
+     L3 投票随最快 domain 抬到目标档，`readback=ok`，restore 回原值。
+   - 中止：console 0 字节、无 Darwin banner、panic、`restore` 未出现、设备不回 fastboot；
+     保留 console 与 `capture.json`，不重试同一镜像。
+   - 睡眠不在本轮：w10 已证明等待/定时唤醒，但 `processor_start` 仍挂；iOS27 用 catalog ArmCpu + sheng xnu-12377 重做。
 
 ## 9. 参考
 

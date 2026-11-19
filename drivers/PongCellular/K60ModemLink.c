@@ -462,7 +462,13 @@ k60_qrtr_rmtfs_low_alloc(vm_size_t bytes, vm_offset_t *va, uint64_t *physical)
 		vm_offset_t address = 0;
 		ppnum_t page;
 
-		const ppnum_t ceiling = (ppnum_t)(((1ull << 32) - bytes) >> 12);
+		/* max_pnum counts physical pages, and a page is whatever this kernel
+		 * builds with: 16 KiB on the shipping line, 4 KiB on the tree the iOS 27
+		 * port uses. Divide by the real page size so the ceiling keeps meaning
+		 * "below four gigabytes" on both instead of assuming a 4 KiB shift. */
+		const uint64_t page_bytes = ptoa_64(1);
+		const ppnum_t ceiling =
+		    (ppnum_t)(((1ull << 32) - bytes) / page_bytes);
 
 		if (kmem_alloc_contig(kernel_map, &address, bytes, 0, ceiling,
 		    0, KMA_DATA | KMA_ZERO,

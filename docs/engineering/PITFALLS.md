@@ -7304,3 +7304,43 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 
 **教训**：让 `prune` 变得"有理由"的往往不是 prune，而是别人写坏的一条路径。凡是元数据
 "看起来失效"，先查是谁把它写成了另一侧 stat 不到的形式，再决定要不要清理。
+
+
+## P-259 — 文档里写死的数字和行号不会跟着代码走：引用了"当前值"的散文是最容易过期的一类文档
+
+**现象**：2026-11-19~20 这一周在本线抓到四处"文档还在描述上一个版本"的事实，每一处都是散文引用了一个
+会变的数，而不是引用代码位置：
+
+1. `docs/research/power/08-IOS27-POWER-PORT.md` 与 `00-POWER-PAGE-CONFORMANCE.md` 写着"七套件 1686 项全过"，
+   而当时 host 套件已经是八套件 1811 项（thermal 125 项并入后）。同一句话在 README 里也跟着错。
+2. 08 的矩阵行写着 0629 "只换行文本与 PONG 门控"，`scripts/judge-k60-sleep-console.py` 的注释也写 "PONG-gated"，
+   而补丁早就改成驱动级 `K60_PLATFORM_SLEEP_REPORT`——真按"PONG 门控"去读的人会以为 27 上报告必然消失。
+3. `docs/INDEX.md` 与 00 里写 `check-power-carry.py` 测试"15 项"，而它当时是 25 项（加了判读器之后 34 项），
+   且清单里根本没提三个判读器。
+4. `docs/engineering/BOOT-ARGS.md` 在 charge-auth 合并时按对方那份表取整，`k60_charge_auth` 那一行整行消失——
+   是 `check-boot-args.py` 的红把它抓回来的，不是读文档的人。
+
+**真因**：散文里写"当前值"（项数、行号、字节数、门控宏名）时，读者会当成现状，但没有任何程序读它；
+代码一动它就静默变成错误信息。而写"见 `file:line`"的引用在常量挪一行之后同样静默失效——
+文档看起来仍然有出处，只是出处指向了别的行。两种形态同一个病：**文档的描述与代码之间没有执行关系**。
+
+**判据**：凡是文档里出现的数字、宏名或 `文件:行` 引用，必须满足其一——
+由检查器生成，或落在 `docs/research/power/HW-CONTRACTS.toml` 这类机器核对表里（每行一条
+`文件:行` + 该行必须包含的文本），或由一个读同一份源码的门禁盯着（如 `check-boot-args.py` 盯 boot-args 表）。
+
+**修法**：
+
+1. 新增 `docs/research/power/HW-CONTRACTS.toml`：四条线 23 行，每行 `source = "文件:行"` 加
+   `expect = "必须出现在该行的文本"`，再加 `dependence`（none/macro/firmware/property-number/layout）
+   说明 27 侧要换的是什么，`ios27` 写动作。
+2. `scripts/check-hw-contracts.py` 逐行解析定位：文件缺失、行号越界、该行不含记录文本、id 重复、
+   dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 12 项回归
+   覆盖"常量挪了""引了第 9 行""整条线没人管"。
+3. 项数这类聚合值不要写死在散文里：要么写成"见 `run-k60-power-host.sh` 的输出"，要么由检查器比对
+   （`check-power-carry.py` 已经比对 CARRY.toml 的项数与 runner 的 `run <suite> <N>` 行、以及判读器用例数）。
+4. 宏名/门控写法改变时，同一个提交里改掉所有提到它的注释与文档（这次 `judge-k60-sleep-console.py` 的
+   REPORT 注释与 08 的行是一起改的）。
+
+**教训**：文档写"当前值"是最脆弱的引用形态，因为它不带地址、也没有读者会去验证；能写成
+"文件:行 + 该行文本"的，就让门禁去核，不能的，就改成指路而不是复述。一条数字在四处出现，就该有一处是生成的。
+

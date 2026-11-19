@@ -1,7 +1,8 @@
 # Hardware contracts this line owns, one row per fact that an OS port can
 # break silently. Every row is a citation: `source` is path:line and `expect`
 # must appear on that line, so a refactor that moves the constant turns the
-# checker red instead of leaving a stale address in a document.
+# checker red instead of leaving a stale address in a document (P-259:
+# scripts/check-hw-contracts.py is that pitfall's registered check).
 #
 # `dependence` says what an iOS 27 move has to re-check:
 #   none            - our own encoding, only both copies of the file must agree

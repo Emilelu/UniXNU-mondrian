@@ -44,3 +44,4 @@ armcpu-sleep-hook.patch
 # include; without it 12377 stops at qbt_k60.c: call to undeclared
 # function kmem_alloc_contig and undeclared KMA_* flags.
 0522-k60-bt-vm-kern-xnu.patch
+0523-k60-bt-transport-set-rate.patch

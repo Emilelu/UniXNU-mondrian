@@ -13,7 +13,8 @@
 #   6. the amplifier probe running on the host against a zero page
 #   7. the playback judge's host tests
 #   8. the amplifier side's host tests (979 cases)
-#   9. sheng's audio host tests, when its checkout is reachable; the row names
+#   9. the three edits walked in order against a tree without the button driver
+#  10. sheng's audio host tests, when its checkout is reachable; the row names
 #      the commit it ran on, because a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
@@ -44,6 +45,7 @@ run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
+run "three edits dry run" sh scripts/tests/test-wiring-dry-run.sh
 
 sheng=${SHENG_REPO:-}
 if [ -z "$sheng" ]; then

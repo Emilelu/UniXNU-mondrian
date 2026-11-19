@@ -163,6 +163,7 @@ uint32_t gRxNoBuffer, gRxChains, gRxLongest;   // frames dropped for want of a b
 struct { unsigned count, kicks, cleared, longest; bool kicked; } gStall;   // input thread stalls (check_input)   // frames handed to the stack, refused ones and the last refusal
 int gAssocResult = kAssocOk;
 bool gAssocModern27;   // the last join arrived through the 0x290-byte 24A446 request
+bool gModern27Client;  // a 24A446-sized request arrived, so the daemon speaks the newer auth encoding
 unsigned gScanCursor, gScanning, gScanServed;
 nw_bss_info gSnap[64]; unsigned gSnapCount;   // the scan list frozen when a sweep completes, strongest first
 thread_call_t gNotifications;
@@ -616,6 +617,9 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       uint32_t mhz[PONG_SCAN_FREQUENCIES_MAX]; uint32_t frequencies = 0;
       if (type == kScanReqMultiple) {
         if (pong_scan_multiple_parse(out.raw, held, &scanType, &ssid, &ssidLength)) return EINVAL;
+        // 0x14e8 bytes is the 24A446 scan request, a size no 22H374 client sends: from here on the
+        // daemon is the newer one, and its auth upper value is 0x10 where 22H374 used 0x8.
+        if (rq.req_len == PONG_SCAN_MULTIPLE_BYTES) gModern27Client = true;
         frequencies = pong_scan_frequencies(out.raw, held, PONG_SCAN_MULTIPLE_CHANNEL_COUNT,
                                             PONG_SCAN_MULTIPLE_CHANNELS, mhz);
       } else {
@@ -676,13 +680,15 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
           rq.req_len<keyOffset+a.key_length) {memset(&a,0,sizeof(a));return EINVAL;}
       // The station implements open/WPA2-personal, not enterprise or SAE.
       // Preserve native failure for unsupported authentication, not an open join.
-      if(a.auth_upper && a.auth_upper!=8) {memset(&a,0,sizeof(a));return EOPNOTSUPP;}
+      // 22H374 names WPA2 personal 0x8, 24A446 names it 0x10 (the reference port answers 0x10 on 27):
+      // both are the same personal WPA2 join here, anything else stays unsupported.
+      if(a.auth_upper && a.auth_upper!=8 && a.auth_upper!=0x10) {memset(&a,0,sizeof(a));return EOPNOTSUPP;}
       const bool hasBssid = (a.bssid[0] | a.bssid[1] | a.bssid[2] | a.bssid[3] | a.bssid[4] | a.bssid[5]) != 0;
       const bool hasKey = a.key_length != 0 && a.key_length <= 64; char pass[65]; memset(pass, 0, sizeof pass); if (hasKey) memcpy(pass, a.key, a.key_length);
       // cipher 6: the daemon already derived the pairwise master key (32 bytes); the module takes it as 64 hex digits
       unsigned keyLength = a.key_length;
       if (hasKey && a.key_cipher == 6 && a.key_length == 32) { static const char hex[] = "0123456789abcdef"; for (int i = 0; i < 32; i++) { pass[2 * i] = hex[a.key[i] >> 4]; pass[2 * i + 1] = hex[a.key[i] & 15]; } keyLength = 64; }
-      gAssocResult = kAssocFailed; gUserJoin = true; gAssocModern27 = modern27;
+      gAssocResult = kAssocFailed; gUserJoin = true; gAssocModern27 = modern27; if (modern27) gModern27Client = true;
       log(6, "wifi-net: join: ssid length %u, bssid given %d, key length %u cipher %u", a.ssid_length, hasBssid, a.key_length, a.key_cipher);
       gKeyed = hasKey; int r = nw_wifi_connect(a.ssid, a.ssid_length, hasBssid ? a.bssid : nullptr, hasKey ? pass : nullptr, hasKey ? keyLength : 0);
       memset(pass, 0, sizeof pass); memset(&a, 0, sizeof a);
@@ -713,7 +719,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   case kPower: w[0] = 1; w[1] = 1; w[2] = gPower ? 1 : 0; return copy_out(rq, w, 24, kernel);
   case kState: return answer_value(rq, static_cast<uint32_t>(gPower ? map_state(st.state) : 0), kernel);
   case kOpMode: return answer_value(rq, 1, kernel);   // station
-  case kAuthType: w[0] = 1; w[1] = 1; w[2] = gKeyed ? 0x8 : 0; return copy_out(rq, w, 16, kernel);   // {version, lower: open system, upper: WPA2 personal or none}
+  case kAuthType: w[0] = 1; w[1] = 1; w[2] = gKeyed ? (gModern27Client ? 0x10 : 0x8) : 0; w[3] = 0; return copy_out(rq, w, 16, kernel);   // {version, lower: open system, upper: WPA2 personal in the daemon's own encoding}
   case kPowerSave: return answer_value(rq, 0, kernel);
   // en0 is the physical infrastructure station, not P2P/AWDL. A physical
   // interface has role zero and no virtual parent. These discovery queries

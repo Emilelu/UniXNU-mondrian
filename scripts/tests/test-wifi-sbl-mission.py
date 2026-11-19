@@ -319,6 +319,9 @@ def main() -> int:
           "const uint32_t room = pong_scan_elements_room(request_bytes ? request_bytes : PONG_SCAN_RECORD_24A446);" in net and
           "scan_result24" not in net and
           "return copy_out(rq, &out.res, sizeof(out.res), kernel);" in net)
+    check("the newer daemon's auth encoding is accepted and answered",
+          "gModern27Client ? 0x10 : 0x8" in net and "rq.req_len == PONG_SCAN_MULTIPLE_BYTES" in net and
+          "a.auth_upper!=8 && a.auth_upper!=0x10" in net)
     check("the abort-scan request is accepted instead of falling through",
           "PONG_REQUEST_ABORT_SCAN 382u" in abi_hdr and "kAbortScan = PONG_REQUEST_ABORT_SCAN" in net and
           "case kAbortScan: return 0;" in net)

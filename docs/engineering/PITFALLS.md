@@ -7173,3 +7173,44 @@ cookie 的出处，两份同时改。新增 `scripts/tests/test-k60-adsp-smccc.p
    两件事，而后者才决定寄存器里还剩什么。
 2. **同一段代码存在两份时，判据要扫两份。** 源码副本给人读，patch 副本进内核；只修源码
    等于没修。P-249 的 GLINK 分歧是同一个形态的另一种表现。
+
+## P-256 — 管理目录里写成 `E:/` 的 gitdir 让每一棵工作树都变 prunable，`git worktree prune` 于是"有理由"下手
+
+**现象**：2026-11-20 04:13，在链接工作树 `E:/hackios/k60-charger`（它的 `.git` 是 gitfile）
+里执行 `git worktree prune`，主仓 `.git/worktrees/` 下 12 个兄弟工作树的管理目录被删除
+（k60-lead、k60-thermal、k60-usb、k60-wifi、k60-wifi-lead、k60-gpu-user、k60-hygiene、
+k60-ios-profile、k60-pitfalls、k60-refmine、k60-springboard、k60-ufs-verified，外加 k60-charger 自己）。
+工作树里的文件一个没动，丢的是每棵树的 `.git` 指针、index 和 HEAD 记录。
+
+**两个成因，是一对**：
+
+1. **路径写成了 `E:/` 形式。** 上一版修复脚本把 `<main>/.git/worktrees/<id>/gitdir` 写成
+   `E:/hackios/<name>/.git`。WSL 的 git stat 不到以 `E:/` 开头的路径，于是
+   `git worktree list` 把**每一棵**都标成 `prunable`。prune 的判据就是"gitfile 能不能解析"，
+   所以对它是十二个垃圾目录。正确的组合（两侧都实测过）：
+   - 管理目录 `gitdir` → `/mnt/e/hackios/<name>/.git`（WSL 能 stat）；
+   - 工作树自己的 `.git` → `gitdir: ../UniXNU-mondrian/.git/worktrees/<name>`（相对路径，
+     Windows git 与 WSL git 解析到同一处）。
+   改完后 `prunable` 归零，两侧的 `git status` / `git commit` 都照常。
+2. **守卫只在 WSL 里生效。** `/usr/local/bin/git` 那层守卫拦 `worktree prune`，但 Windows 侧
+   MSYS 的 `git` 没有守卫，prune 直接执行——这次就是这么发生的。
+
+**判据**：`git worktree list --porcelain | grep -c prunable` 必须是 0；不为 0 就说明有人把
+gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
+
+**修法**：
+
+1. 守卫里加一条硬拒：`--git-dir` 与 `--git-common-dir` 不同（即身处链接工作树）时，
+   `worktree prune` / `gc` / `repack` 直接 exit 128，连 `K60_I_OWN_ALL_TREES=1` 也不放行，
+   而且拒在快照之前，失败无副作用。只在主工作树根上放行。
+2. 用例必须**从链接工作树里跑**：`cd <linked worktree> && git worktree prune` 要被拒，并断言
+   `.git/worktrees/` 的内容字节不变。只在主仓测是假绿——这次就是这样漏掉的。
+3. Windows 侧不要碰 `prune`；确实要清理时先看 `git worktree list` 的 prunable 计数。
+
+**恢复**（这次实测）：内容都在，只是身份丢了。重建 admin 三件套（`gitdir` 用 `/mnt/e/` 形式、
+`commondir` 写 `../..`）、`git read-tree <sha>` 补索引（**不要** `git checkout`，
+那会覆盖未提交内容）。分支身份无法从 git 反推：refs 可能已被合并删除，树哈希也因为本地改动
+对不上，只能由各线自报。
+
+**教训**：让 `prune` 变得"有理由"的往往不是 prune，而是别人写坏的一条路径。凡是元数据
+"看起来失效"，先查是谁把它写成了另一侧 stat 不到的形式，再决定要不要清理。

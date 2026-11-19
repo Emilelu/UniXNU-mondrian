@@ -24,6 +24,20 @@
 `dsb sy`，x86 宿主汇编器不认它，而解析、类型检查与 `-Werror` 警告照跑。
 桩的大小就是 27 树必须提供的内核面的**上界**——少一个符号，这个脚本就红。
 
+### 第零道闸：机配置 `PONG`
+
+`PongAudioAmp.c` 与全部胶水都在 `#if defined(PONG)` 里（`PongAudioAmp.c:55-56`）。`PONG` 不是 XNU
+自带的机配置：16 系列靠 `patches/xnu/zzzz-pong-machine.patch` 新增 `pexpert/pexpert/arm64/PONG.h`，
+把 `SUPPORTED_ARM64_MACHINE_CONFIGS` 从 `BCM2837 T6000 T8101 T8103 VMAPPLE` 扩到含 `PONG`
+（补丁 :105-108），构建脚本再传 `MACHINE_CONFIGS=PONG`（`build-xnu-4k-baseline.sh:248`、
+`build-darwin24-linux.sh:97/117`）。
+
+⇒ 27 树如果没有这份机配置补丁，音频文件会**静默编空**：979 例 host 测试照样全绿，内核里一行
+`PongAudio:` 都没有。所以 27 的第一件事不是搬音频，而是让构建接受 `PONG`——bt 已报 main CI
+在 `MakeInc.kernel:22` 报 `Unsupported CURRENT_MACHINE_CONFIG PONG`、`pexpert/pexpert/arm64` 里
+没有 `PONG.h`。判读顺序也就定了：真机上没有 `amp probe start` 时，先查 `PONG` 与
+`MACHINE_CONFIGS`，不要先去怀疑 I2C。
+
 ## 2. 谁调用、哪一行证明它被调过
 
 | 函数 | 16 树的调用者 | 27 上的调用者 | 证明它跑过的日志行 |

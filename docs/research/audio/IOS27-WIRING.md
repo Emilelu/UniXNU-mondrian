@@ -83,6 +83,10 @@ python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3
 从 `nm -g --defined-only` 读出胶水**对外可见的十一个符号**（`pong_audio_amp_probe/play/stop`、
 `pong_geni_event/poll/prepare/start_read/start_read_bytes/start_write/start_write_bytes/timeout`），
 再到树里的 `bsd osfmk pexpert iokit libkern` 找同名项；命中就点名 `file:line` 并退 1。
+两处豁免都很窄：接线自己装进去的 `PongAudio*`/`PongCodec*` 文件，以及 `--hook-init` 改的那一个文件
+（按它写进去的注释 `K60 audio amplifier probe` 认）。没有第二条，一棵**钩对了**的树会报自己跟自己撞名——
+2026-11-20 05:56 实测就是这样被 preflight 抓到的；豁免之后输出 `(skipping the wiring hook: bsd/kern/bsd_init.c)`
++`COLLISION OK`，而在别处再写一份 `pong_audio_amp_probe` 仍然红。
 
 ```
 $ python3 scripts/check-audio27-collisions.py /tmp/x27real
@@ -282,7 +286,7 @@ sh scripts/tests/portability/run-symbols.sh
    :833-842），所以它到得了每个单元——这也正是上一条要避开的原因。
 
 
-### 一条命令：前两处改动 + 第三处的命令行
+### 一条命令：文件内的改动 + 第三处的命令行
 
 复制与 conf/files 是两次文件编辑，中间还可能因为锚点不对半途停下，所以合成一个入口。判据仍是两个数：
 进树了几个源文件、conf/files 认了几行。
@@ -293,8 +297,13 @@ python3 scripts/apply-audio27-wiring.py <tree> --anchor "<line>"    # 27 树
 python3 scripts/apply-audio27-wiring.py <tree>                      # 16 树：默认锚点
 # audio wiring: sources 9 (added 9, refreshed 0, current 0)
 # audio conffiles: pong_audio lines 0 -> 2
-# audio wiring: OK sources=9 conf=2
+# audio wiring: bsd_init not hooked (pass --hook-init); the glue compiles in and never runs
+# audio wiring: OK sources=9 conf=2 init=0
 ```
+
+末行带着 `init=`：0 表示没人调用它（下一节），1 表示 `bsd_init` 里已经有一处调用。
+**不加 `--hook-init` 时脚本会主动打一行说「编进去也不会跑」**，因为这两件事在没有这一行时
+在日志里长得一样。
 
 它只搬内核编译真正需要的那一束：两个 `.c` 与它们递归 include 到的 `PongAudio*.h`（当前 9 个文件）。
 `PongAudioAfe.h` 不在其中——16 线的 AFE 端点，本固件没有 AFE 服务，只随 host 测试走；
@@ -324,25 +333,74 @@ sh scripts/tests/portability/run-symbols.sh        # 宿主三连：off=0 / XNU_
 `out-baseline`。
 
 
-### 空跑一遍：三处改动在一棵「像 27 的树」上走通
+### 第四处改动（待批）：27 上谁调用它
 
-三处改动是**有顺序的**（复制 → 列进 conf/files → 编宏），单点检查都绿也可能整体走不通；
+前三处让胶水**编进内核**，但没有一处让它在启动时**跑起来**。16 树上是补丁替我们做的：
+`patches/audio/0001-k60-audio-amp-probe.patch:3508-3522` 在 `bsd/kern/bsd_init.c` 里插了一段
+
+```c
++#if 1
++	if (result == KERN_SUCCESS) {
++		extern int pong_audio_amp_probe(void);
++		(void)pong_audio_amp_probe();
++	}
++#endif
+```
+
+27 树没有这个补丁（补丁系列是 16 线的），所以这一段在 27 上没人写：胶水进树、编过、链过，
+开机一行日志都不会有——正是 P-171 那一族的静默形状，只不过这次静默的是整个子系统。
+
+因此 applier 带一个 **opt-in** 的 `--hook-init`，把调用点写进 `bsd/kern/bsd_init.c`：
+
+```sh
+python3 scripts/apply-audio27-wiring.py <tree> --anchor "<line>" --hook-init
+# audio wiring: init anchor line '\tbsd_init_kprintf("calling vfsinit\\n");\n'
+# audio wiring: bsd_init probe calls 0 -> 1
+# audio wiring: OK sources=9 conf=2 init=1
+```
+
+三个设计选择，都是为了让它可判定，而不是让它聪明：
+
+1. **锚点是 `bsd_init_kprintf("calling vfsinit\n");`**（27 的 xnu-12377.121.6 里在
+   `bsd/kern/bsd_init.c:701`，`bsd_init()` 开头）。一行、唯一、不随配置漂移；早于 `vfsinit()`
+   意味着此时 `printf` 已经可用（同一行上就是它），而探针只碰 MMIO、`delay_for_interval` 与 `printf`。
+   锚点行**回显**（`%r`，制表符可见）：钩错位置与没钩上，在日志里必须分得开。
+2. **不抄 16 线的 `if (result == KERN_SUCCESS)`**：27 的 `bsd_init()` 在那个位置没有 `result`。
+   抄形状可以，抄判断不行——那里根本没有条件可判。
+3. **不套 `#if defined(XNU_PONG_AUDIO)`**：那个宏只落在 `PongAudioAmp.o` 这一个对象上
+   （每目标 `CFLAGS_ADD`，见上一节），`bsd_init.c` 看不到它，套上去等于把调用点编译掉。
+   所以用 16 线同样的 `#if 1`，把「跑不跑」留给运行期：`pong_audio_probe=1` 才动手，
+   否则探针自己立刻返回。
+
+2026-11-20 05:54 在真 27 源树副本 `/tmp/x27real`（`ac9718f xnu-12377.121.6`）上实测：
+`bsd_init probe calls 0 -> 1`，写进 `701` 之后、`vfsinit();` 之前，`grep -c` 得 1；
+重跑打印 `bsd_init already hooked (probe calls 1)`。锚点不在树里时 exit 1 并给
+`pass --init-anchor with a line this tree has`，**先放源文件再失败**的顺序不变。
+
+**这一步还没批**：它改的是 `bsd/kern/bsd_init.c`，不在音频的树内，而且把「三处改动」变成了四处；
+所以默认不执行，preflight 也不会替你钩。要上就明确说一句，或者由 27 补丁系列的所有者写成补丁行。
+
+### 空跑一遍：这条链路在一棵「像 27 的树」上走通
+
+三处改动是**有顺序的**（复制 → 列进 conf/files → 编宏），第四处（`--hook-init`）接在后面，
+单点检查都绿也可能整体走不通；
 而 27 树恰好没有 16 线带的 `bsd/dev/pong_buttons.c`。`scripts/tests/test-wiring-dry-run.sh`
 在临时目录里造一棵这样的树（conf/files 里只有 `bsd/dev/vfs_syscalls.c` 这一行），把三处改动
 按顺序走一遍：默认锚点必须失败并提示 `--anchor`、命名锚点必须把计数从 0 推到 2、`--check` 必须同意、
+不带 `--hook-init` 时必须打出「编进去也不会跑」、带上之后 `bsd_init.c` 里必须正好一处调用、
 复制过来的 `tests/run-tests.sh` 必须仍报 979 例。判据一行：
 
 ```sh
 sh scripts/tests/test-wiring-dry-run.sh
-# DRYRUN OK files=23 conf=2 tests=TESTS OK 979 cases
+# DRYRUN OK files=23 conf=2 init=1 tests=TESTS OK 979 cases
 ```
 
-`check-audio27-preflight.sh` 已含这一步（输出行 `ok   three edits dry run`）。
+`check-audio27-preflight.sh` 已含这一步（输出行 `ok   wiring dry run`）。
 ## 2. 谁调用、哪一行证明它被调过
 
 | 函数 | 16 树的调用者 | 27 上的调用者 | 证明它跑过的日志行 |
 | --- | --- | --- | --- |
-| `pong_audio_amp_probe()` | 内核初始化，`patches/audio/0001-k60-audio-amp-probe.patch:3515`（`bsd_init.c`）调一次 | 同样是内核初始化，**没有任何用户态进程参与** | `PongAudio: amp probe start (read pass first, then a replay pass …)`（`PongAudioAmp.c:921`），收尾 `PongAudio: amp probe done found=%u/2 …`（:970） |
+| `pong_audio_amp_probe()` | 内核初始化，`patches/audio/0001-k60-audio-amp-probe.patch:3515`（`bsd_init.c`）调一次 | 同样是内核初始化（`--hook-init` 写进 `bsd/kern/bsd_init.c`，待批），**没有任何用户态进程参与** | `PongAudio: amp probe start (read pass first, then a replay pass …)`（`PongAudioAmp.c:921`），收尾 `PongAudio: amp probe done found=%u/2 …`（:970） |
 | `pong_audio_amp_play()` | 内核播放图启动之后，`patches/audio/0003-k60-audio-afe-selftest.patch:717` | 27 上由「启动扬声器图的那段代码」在第一个周期前调用；图不在本清单里，所以 27 的第一版只能由内核自检（`pong_audio=1`）当调用者 | `PongAudio: amp%u play pll=%u status=0x%04x …`（:819）→ `amp%u play unmuted volume=0x%03x`（:842）→ `amp play done playing=%u/2`（:887） |
 | `pong_audio_amp_stop()` | 停机路径 | 同上 | `PongAudio: amp%u stopped muted and powered down`（:866） |
 | `pong_audio_tdm_pads()` | `patches/audio/0003`:1497（`pong_audio_start()`） | 27 树若没有 pinctrl 框架，仍在初始化里手动 mux | `PongAudio: TDM pad %s gpio=%u cfg 0x%08x -> 0x%08x io=0x%08x` |

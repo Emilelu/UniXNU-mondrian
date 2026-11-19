@@ -347,6 +347,17 @@ sh scripts/tests/test-wiring-dry-run.sh
   （GPR 上限，`K60_AUDIO_GLINK_SEND_MAX`）；intent 20 条（`K60_AUDIO_GLINK_INTENT_COUNT`）；
   返回非零即发送失败；**音频从不自己打开通道**，只调用这个函数。
 - 因此 27 的验收顺序是：power 的传输先到 ⇒ 音频的图/探针才有发送路径；功放那半边任何时候都能先跑。
+`scripts/check-audio27-kernel-api.py` 除了四个接口，还会在树里找这个名字的定义并把结果打出来：
+
+```
+GLINK provider: not in this tree yet (k60_pmic_glink_send_audio belongs to the power
+  line; the glue links only after it lands)
+API OK 4/4 xnu-12377.121.6 ac9718f: …
+```
+
+命中时打 `GLINK provider: bsd/dev/K60PmicGlinkAudio.cpp defines …`。**这一行不是判据、不会让脚本变红**：
+provider 归 power，27 基线里现在没有它是正常的。它存在的意义是让「胶水还缺一个提供者」变成每次都能读到的
+事实，而不是文档里的一句愿望——等 power 把它搬进 27 树，这一行自己就变了，不需要谁来改脚本。
 
 ## 4. AFE 服务在 27 上不存在（`PongAudioAfe.h` 为什么只能随测试走）
 

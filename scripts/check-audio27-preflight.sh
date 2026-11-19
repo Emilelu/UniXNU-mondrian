@@ -26,9 +26,9 @@
 #  16. - when XNU27_KERNEL names a built kernel or boot image - whether that product
 #      really carries the audio
 #  17. the sheng ABI checker's own tests
-#  18. sheng's audio host tests, and its ABI constants at that commit, when its checkout
-#      is reachable; the row names the commit it ran on, because a stale checkout passes
-#      just as quietly
+#  18. sheng's audio host tests, its ABI constants and its add-on mount contract at that
+#      commit, when its checkout is reachable; the row names the commit it ran on, because
+#      a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -75,6 +75,7 @@ run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py
 run "27 series checker is honest" python3 scripts/tests/test-audio27-series.py
 run "sheng abi checker is honest" python3 scripts/tests/test-sheng-abi.py
+run "sheng inject checker is honest" python3 scripts/tests/test-sheng-inject.py
 
 xnu27=${XNU27_REPO:-}
 if [ -z "$xnu27" ]; then
@@ -134,6 +135,7 @@ if [ -n "$sheng" ] && [ -f "$sheng/scripts/check-audioreach-host.py" ]; then
 		printf 'ok   %-34s %s (%s)\n' "sheng audioreach host tests" \
 		    "$(printf '%s' "$out" | tail -1)" "$sha"
 		run "sheng abi constants hold" python3 scripts/check-sheng-abi.py --sheng "$sheng"
+		run "sheng inject contract holds" python3 scripts/check-sheng-inject.py --sheng "$sheng"
 	fi
 else
 	printf 'skip %-34s no sheng checkout (set SHENG_REPO)\n' "sheng audioreach host tests"

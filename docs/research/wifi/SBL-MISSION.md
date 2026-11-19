@@ -1344,3 +1344,19 @@ teardown 的实现（本轮）：
 - 自检四条新用例：wifi 键必须是 mondrian_wifi_defconfig 真键、import 不算定义、缺入口失败、有入口通过；WSL 内 14 case 0 failure。
 
 真机归档核对：teardown16 与 teardown27 的 libPongWifiNative.a 各 5 个成员、3507 个定义符号，pong_wifi_start_optional 与 pong_wifi_net_stop 都在（llvm-nm-18 / llvm-ar-18）。§42 的「组件存档登记」未覆盖项因此收窄为「board 仍用环境变量而不是 [components]/[kernel] archives 登记」，清单要求的两项归档自检已落到门禁。
+
+
+## 44. 官方参考要点的逐条核验（2026-11-19 15:10）
+
+官方 porting/network 的参考实现一节列了六条会咬人的事实。本轮把它们逐条落到树里的具体位置，作为 27 迁移前的基线证据。
+
+| 参考要点 | 我们的现状 | 证据 |
+|---|---|---|
+| 6 GHz 的 59 个被动频道占了扫描的大部分时间 | 站内扫描显式跳过 NL80211_BAND_6GHZ，注释写明原因；16 与 27 两棵树同一实现 | nw_sta.c:89-91（do_scan） |
+| 关联必须用 AP 自己的 HT/VHT 能力 | peer_caps() 从 AP beacon 取 HT/VHT capability，再按本机能力逐位收窄：LDPC、SGI20/40、STBC 双向、宽度位、波束成形全清 | nw_sta.c:262-308 |
+| 同上（速率表） | HT MCS 掩码与本机 rx_mask 逐字节取交集 | nw_sta.c:280 |
+| MAC 不能伪造，要用芯片给的地址 | platform 等 station 报出非零、非组播的 MAC 后才启动网络栈，并把 mac-address-wifi0 写进 /chosen；kext 设成 IOMACAddress 与 ifnet lladdr | PongWifiPlatform.cpp:812-816；PongWifiNet.cpp:1096 / :1106 / :1221 / :1242 |
+| 固件报 beacon 丢失先等 5 s，期间仍有帧就不算断 | nw_sta_link_lost() 在 NW_STA_UP 只记起点并等待，beacon_miss_check() 之后才 teardown | nw_sta.c 的 nw_sta_link_lost / beacon_miss_check |
+| 系统不保存网络口令 | 口令只随 join 请求出现一次，join 结构在 init/disconnect/power 里都用 memzero_explicit 清空 | nw_mainline.c 的 nw_mainline_init / nw_wifi_disconnect / nw_wifi_power |
+
+结论：六条里五条已经满足；第六条是一个不对称而不是缺陷——VHT MCS 表直接取 AP 的（nw_sta.c:297），只按流数收窄（:302 own_nss），没有像 HT（:280）那样与本机 vht_mcs 求交。这段代码属共享组件 Ath12kWifi，改它要那边出补丁并承担关联回归风险，因此在 27 迁移里记为观察项，不在 k60-wifi 内改。

@@ -704,6 +704,92 @@ k35 B 镜像（与 k34 只差这一层）：
 （`--coachz` 适配器没有编进来），因此这是一次有界的单变量实验。S3 必须保持 PASS，S4 仍按 `dms revision`
 判，S6 从 N/A 变成真判。
 
+#### 实机结果（2026-11-19 10:03，420 s 采集）
+
+- 镜像就是上表那一份 `2f989b28…`，10:03:33 起飞，10:09:27 采集结束；证据
+  `E:/k60-work/evidence/usblog-20261119-100331`，`capture.json` 记
+  `state=captured-disconnected`、`complete=false`、`bytes=182646`、
+  `logSha256=37BF3BFA0AAE2F07A8542552671613B023DE44151929C65A2B9206407372030C`、
+  `stopReason=fastboot-return`、`resetMarker=K60 USBLOG: restart reason published`、`lastDataAt=10:09:22`。
+  `K60AUTORESET: 300 s since boot; resetting to fastboot` 之后 USB 真的断开并回到 fastboot——这一次复位生效了，
+  与 k31 之后那次挂死不同。
+- 机械判读（`--phase b`）：**S3 PASS**、**S4 FAIL**（0 条 `dms revision`）、**S5 FAIL**（0 条 `verdict`）、
+  **S6 PASS**，rc=1。
+- S3 保持：`power ok cx=0x30000/6 mss=0x30060/7 xo=0x300b0/3`、`init_image ok metadata=0xb7ff0000 bytes=5884`、
+  `transport ok smp2p=0xe3070/340` + prepared、`mem_setup ok base=0x8bc00000 span=0x13200000`、
+  `scm cmd=0x5 ok calls=181`、`auth_reset ok`（第四次独立复现）。
+- adopt 行第一次把四个索引都带出来（console.log:498-499）：
+
+  ```
+  K60MODEM qrtr: glink adopt (probe) rx head=8 tail=0 avail=8 tx head=0 tail=0 cmd=0 p1=0x1 p2=0x7 w2=0 w3=0 w4=0 w5=0 w6=0 w7=0
+  K60MODEM qrtr: glink adopt dropped 8 stale bytes (head=8)
+  ```
+
+  即 adopt 时环里确实有 8 字节上一轮的残料（对端写指针 8，内容是 `cmd=0`、`p1=1`、`p2=7`，一个 VERSION 帧，来自 Android 时代的 SMEM），
+  §3.19 的丢弃逻辑按预期清掉它，随后 `opening IPCRTR as initiator`。
+- **S6 第一次真正判定并通过**：`K60MODEM baseband: bridge enabled`（:501）、
+  `COACHZ baseband: 22 of 22 services published (AppleBaseband, AppleBasebandPCIControl, 18 channels, the PDP manager, AppleIPAppender)`（:522）、
+  `K60MODEM baseband: data receiver registered`（:521），以及 `COACHZ pdp: plumb unit 0..3 family 2/30 result 0` 与
+  `COACHZ pdp: pdp_ip0..3 mux 1..4 registered result 0 (initially down)`（:504-520）。§3.21 的结论因此被实机确认：
+  组件链入后 AppleBaseband 家族与 PDP 管理器真的发布了。
+- **S4 失败点被硬件钉死**（console.log:523）：
+
+  ```
+  K60MODEM qrtr: glink poll rc=-5 at 2 rx avail=488 head=560 tail=72 tx head=32 tx tail=32 cmd=0x5 p1=0x1 p2=0x1 w2=0x80 w3=0 w4=0x10005 w5=0x1 w6=0x80 w7=0x1
+  ```
+
+  `cmd=0x5` 是 GLINK INTENT，`p1=0x1` 是 rcid，`p2=0x1` 是 pair 数；第一对是 **size=0x80、id=0**，
+  `w4/w5=0x10005/0x1` 是下一条消息的头（同样是 cmd 5、rcid 1、1 对），`w6/w7=0x80/0x1` 是第二对。
+  也就是说 modem 从 **id 0** 开始广告 128 字节接收缓冲，而不是从 1 开始。
+  `drivers/PongPower/QcomGlink.c:403` 的 `if (!size || !id) return QcomGlinkCorrupt;` 把合法的 id 0 判成损坏，
+  于是第三次 poll 就断了链路——这才是 S4 过不去的唯一原因（其余三个 Corrupt 出口都需要计数越界、同 id 忙碌或 48 槽用满，
+  通道刚打开不可能成立）。
+- 参照实现同样接受 0：Linux `qcom_glink_handle_intent()` 对每对做 `idr_alloc(&riids, intent, intent->id, intent->id + 1, ...)`，
+  0 是合法起点；`references/phk110-port/drivers/modem/hakios.mpss.c:2882-2897` 只把 words[0]/words[1] 存进 `their_intents`，
+  不做零值校验。修复见 §3.23。
+
+### 3.23 k36：接受 GLINK INTENT 的 id 0（离线，未上机）
+
+§3.22 的失败行说明 modem 从 **id 0** 开始编号接收缓冲。这不是设备异常：Linux 的
+`qcom_glink_handle_intent()` 对每一对都做 `idr_alloc(&riids, intent, intent->id, intent->id + 1, ...)`，
+0 是合法起点；`references/phk110-port/drivers/modem/hakios.mpss.c:2882-2897` 也只把 words[0]/words[1] 存进
+`their_intents`，不做零值校验。真正的协议错误是 **size 为 0**（一个没有字节的缓冲），id 为 0 不是。
+
+`drivers/PongPower/QcomGlink.c` 属充电线（`docs/engineering/TREE-OWNERS.toml:70`），本线不改它；内核编译的是
+0622 里的副本，所以修法落在生成器里的一行 delta：
+
+- `scripts/update-modem-qrtr-patch.py` 新增 `DELTA` 常量，键是源文件路径，值是一条 (old, new)；
+  `body()` 在改名之后应用它，并要求 old 在源文件里**恰好出现一次**——上游若改了这行，生成器会直接报错，
+  不会静默丢掉修正；
+- 改的是 `            if (!size || !id) return QcomGlinkCorrupt;` →
+  `            if (!size) return QcomGlinkCorrupt;  /* id 0 is a legal buffer number */`；
+- `scripts/tests/test-k60-modem-image.py` 不再自己复述 include 改名与 `k60m_glink_` 前缀，而是加载生成器并
+  用 `body()` 的输出与 0622 里的副本比较，因此三处 delta（include 名、符号前缀、id 0）只有一个来源；
+- 0622 重新生成后 98,655 B / 5 files；`test-k60-modem-image.py` 仍输出
+  `TESTS OK 30 segments … table+patch agree`，`test-k60-ipa-patch.py` 仍 `K60 IPA PATCH PASS`。
+
+行为验证（新增宿主测试 `scripts/tests/test-k60-glink-intent.py`）：它把生成器产出的 `qcom_glink.c` / `qcom_glink.h`
+写到临时目录，用 gcc 编进一个小 harness，然后喂两段字节流——
+
+- `id0`：VERSION、OPEN(`IPCRTR`)、INTENT(size 0x80, id 0)、INTENT(size 0x80, id 1)。期望不报损坏并把第一对存成 id 0，
+  实测 `poll=4 broken=0`、`remote id=0 size=128 busy=0`；
+- `size0`：INTENT(size 0, id 0)。期望仍然 `QcomGlinkCorrupt`，实测 `poll=-5 broken=1`——修复没有把真正的错误一起吞掉。
+
+输出：`K60 GLINK INTENT PASS id0 accepted, size0 rejected`。修复提交 `1a4055b3`。
+
+镜像状态（2026-11-19 10:32，**已打包、未上机**）：
+
+| 项 | 值 |
+|---|---|
+| kernel | `E:/k60-work/artifacts/modem-20261117k36/kernel.macho`，105,734,144 B，`b7d52a68bc45bc3a08c10b0c297cbeeeca001886971e8ec0224a5f661e8222eb`（`COACHZ` 40 条） |
+| boot image | `E:/k60-work/artifacts/modem-20261117k36/boot-modem-b-full.img`，201,895,936 B，`6f015eb672b9f759d398464b6d7b444ecb7e8eeb3bfb18978c8cc1353940e3e7` |
+| payload | `2dad8fd3d48a8e07affec36cc252d4dbcc89ac06fcfdddcfe766ae8355b79267`；payload.json `ff35bfcb…`；payload kernel `35a77d07c77790fc5f0781660f3a6e23a284e2871866b8d7178701506d2c6b1d`；ADT `6beda904aecf05b2b695e46901ba17e117cd59c8ec9ff78dc057e7f5f1345e13` |
+| FD / args / 布局 | `40c29d51…`；末尾 `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`；560,384 / 201,326,592 / 3,145,840 / 4,024 |
+| 校验 | `verify-k36-b.py` rc0 `verify-boot-image: OK`；`test-bootimg-layout.py` 布局全部正确 |
+
+判据不变：S3 必须保持 PASS；S4 要求 `K60MODEM qrtr: dms revision …` 出现（id 0 的 INTENT 不再中断 poll 是本飞的**唯一**
+变量，若仍失败，损坏行里的下一对才是新线索）；S6 仍要 `bridge enabled` 与 N>0 的发布行；S5 只有在 servloc 应答后才可能通过。
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -803,12 +889,11 @@ k35 B 镜像（与 k34 只差这一层）：
    坏消息是一条带单个 pair 的 GLINK INTENT（§3.17）。
    k32（`5571c7f2…`）**作废**：它的 adopt 诊断只挂在 transport 路径，B 形态总在 `mem_setup` 打印
    `transport remote glink fifo absent, defer IPCRTR` 并改走探针路径 adopt，那一行永远不会出现（§3.18 更正）。
-    下一飞用 k35 的 `E:/k60-work/artifacts/modem-20261117k35/boot-modem-b-full.img`（`2f989b28…`，§3.22）：
-    它在 k34 的基础上只多一件事——重新生成的 `.config` 让 `CONFIG_XNU_EXTRA_LD_ARCHIVES` 生效，QcomBaseband
-    真正链入（`COACHZ` 40 条、镜像 +151,552 B）。k34（`20fff9f2…`）因此**作废**：它的内核里只有 weak 兜底，
-    S6 必然 N/A（§3.21）。k35 与 k31 的其余差别是探针路径 adopt 行、head 非零时丢弃旧环、损坏行 32 字节，
-    以及 bridge 晚发布时的 `bridge enabled (poll N)` 行；S3 必须保持，S4 仍按 dms revision 判，
-    S5/S6 由同一份日志判读，S6 现在会真判。
+    k35（`2f989b28…`）已于 2026-11-19 10:03 飞过：S3 PASS（calls=181）、S6 首次 PASS、S4 仍 FAIL，失败行把
+    第一对 pair 钉成 `size=0x80 id=0`（§3.22），adopt 行的 8 字节旧残料被丢弃逻辑清掉（§3.19）。
+    下一飞用 k36 的 `E:/k60-work/artifacts/modem-20261117k36/boot-modem-b-full.img`（`6f015eb6…`，§3.23）：
+    它只把 0622 里那份 GLINK 副本的 `if (!size || !id)` 收窄成 `if (!size)`，`drivers/PongPower/QcomGlink.c` 本体不动。
+    S3 必须保持，S4 仍按 dms revision 判，S5/S6 由同一份日志判读。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

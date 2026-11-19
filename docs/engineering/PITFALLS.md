@@ -4778,7 +4778,7 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 一方说「mhi3/mhi4 的内核逐字节相同，所以变量只有内存窗口」，另一方说「内核
 不同」。两边都没量错文件，是**字段名错了**。
 
-**实测.** `E:\k60-work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
+**实测.** `E:\k60-work\artifacts` 下 11 张完全不同的镜像，`boot.json` 的
 `kernel_sha256` **全是** `83b52b566b9cd0e0a2f13854f7da4c67…`：
 
 ```
@@ -4970,3 +4970,31 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检查由各线的
 `judge-*.py` 自测承担；`docs/engineering/JUDGE-CONTRACT.md` 把「判据必须自证、
 负样本必须来自真实日志」写成契约）
+
+## P-205 — 一次编辑同时删掉 480 行，只有二十分钟后的构建才发现
+
+2026-11-20 的 `afa822ea`（"carry the EFS helper that names the four images"）本来只该把
+`K60ModemLink.c` 里的四名比较表换成 `k60_efs_storage_for_path()` 的调用。实际 diff 是
+`513 +-------------------`：文件在 `k60_qrtr_print_ring("glink adopt (transport)", ...)`
+那一行被切断，后面的 `k60_modem_qrtr_probe()`（约 480 行，包含 `pong_qrtr` 模式开关、
+lookup/DMS 块、verdict 与 `#endif /* K60_HOST_TEST */`）整段消失，而且没有换行结尾。
+
+三件事同时成立才让它通过了所有本地检查：
+
+1. `git diff --numstat` 显示 `513` 行删除，但没人看这个数字——提交信息只描述那三行改动。
+2. 文件仍然"语法上像一个 C 文件"，`grep`、`wc -l`、编辑器都不报错；只有编译器会在
+   `unterminated conditional directive` 上报，而编译器是二十分钟后才跑的。
+3. 生成器 `scripts/update-modem-qrtr-patch.py` 只检查 include 改名与 delta 命中，
+   不检查文件是否完整，于是把截断的文件原样写进了 0622。
+
+修法与护栏（`c612b474`）：尾巴从 `afa822ea^` 按锚点行原样接回（`git diff afa822ea^`
+现在只剩那 7 增 28 删的预期改动），生成器加两条拒绝——**条件编译指令必须配平**
+（`#if`/`#ifdef`/`#ifndef` 数 == `#endif` 数），以及 **carried 文件里不许残留未改名的
+`#include "K60…"`/`"Qcom…"`**。两条都在生成 0622 时跑，成本是毫秒，而不是一次完整构建。
+
+一般化的教训：**"替换一段"和"重写整个文件"在编辑器里长得一样**。凡是改动超过约 50 行的
+文件，改完必须做三件事之一：`git diff --numstat` 看一眼增删是否与意图同量级、
+`git diff <parent>` 确认剩余差异只有预期那几处、或者让脚本按锚点行做插入而不是整篇写回。
+本条与 P-194（整篇读回再整篇写回丢 1035 行）是同一个形状的第二次发作。
+
+Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`

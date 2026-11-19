@@ -617,3 +617,11 @@ source = "docs/engineering/PITFALLS.md:P-204"
 statement = "判据不能建立在「某个串出现 N 次」上：计数只回答有多少，不回答是什么。进程起没起看 xpcproxy/K60RV 生命周期行；崩溃看 crashed:/KX! 与具体进程名；格式串从源码抄并加词边界；判定行要自带判定所依据的字段值。"
 check = 'python3 scripts/check-docs.py'
 note = "2026-11-15 一天内三次同形错误：chronod 只出现 2 次被误判为没启动（实际 003207:1230 有 xpcproxy 拉起）；Too many corpses 被当 backboardd 判据（纯 thermal 日志自己就有 6 条）；svc= 与真实格式串 service %u 不符导致五个判据号全假阴性。"
+
+[[rule]]
+id = "P-205"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-205"
+statement = "一次编辑同时删掉几百行，本地检查全过、只有二十分钟后的构建才报 unterminated conditional directive。改超过约 50 行的文件后必须核对 git diff --numstat 的增删量级，或让脚本按锚点行插入而不是整篇写回。"
+check = "grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py"
+note = "2026-11-20 afa822ea 把 K60ModemLink.c 从 1977 行截到 1479 行，probe 函数与 #endif 一起消失；生成器当时不检查配平，把截断文件写进 0622。c612b474 接回尾巴并加配平与未改名 include 两条拒绝。"

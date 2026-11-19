@@ -40,6 +40,7 @@ question in `docs/research/audio/AMPS.md`.
 | `PongAudioPlayback.h` | The playback graph as an 11-step table: open/config speaker, open/config playback, config shmem, map, clock, prepare both graphs, start both graphs. Token `0x00030000 + step`, fixed opcodes and subgroup ids, pure constants and predicates; 0003 uses it from `pong_audio_play_send_step()` and `play_cases()` pins the whole table. |
 | `tests/test-pong-audio-geni-i2c.c` | Host unit test for the GENI state machine, the register map and every decision helper in `PongAudioPlan.h`, `PongCodecPlan.h`, `PongAudioAcf.h`, `PongAudioAmpProfile.h`, `PongAudioAmpReplay.h`, `PongAudioAfe.h`, `PongAudioTlmm.h`, `PongAudioRing.h` and `PongAudioPlayback.h` (956 assertions; 974 when `PONG_ACF_FILE` points at the real tuning blob). Sees the transport through the `PongGeniIo` function pointers, so it runs on the build machine with plain `cc`, no kernel headers. |
 | `tests/run-tests.sh` | Compiles the test with `-Wall -Wextra -Werror` and runs it; `CC=` overrides the compiler. |
+| `scripts/check-audio-sources.py` | Rebuilds `bsd/dev` from the real patch chain (0503 → 0504 → 0505 → 0001 → 0003) in a throwaway tree and compares the result with the copies here byte for byte. The kernel build reads the patches, not this directory, so a copy can drift and every other gate stays green — which is exactly what happened on 2026-11-20, when `PongAudioAmp.c` was 27 lines behind and had lost the speaker switch drive. `--write` copies the chain output back. |
 
 ## What it does, in order
 

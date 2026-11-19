@@ -53,7 +53,11 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
 
 ## 4. 迁移步骤与判据
 
-1. 先在本仓跑 `python3 scripts/check-audio-migration.py --compile`：它把第 1、2 节的清单
+1. 先在本仓跑 `python3 scripts/check-audio-sources.py`：它用真实补丁链重建 `bsd/dev`，再和
+   `drivers/PongAudio` 逐字节比对（2026-11-20 的漂移就是这样发现的：`PongAudioAmp.c` 的副本比
+   0001 的产物少 27 行，正好缺 `spk_switch_drive()`，而其余门禁全绿）。期望
+   `OK: drivers/PongAudio matches the patch chain`。
+   再跑 `python3 scripts/check-audio-migration.py --compile`：它把第 1、2 节的清单
    和 `drivers/PongAudio` 的实际文件逐一对照（目录里出现未分类文件、清单里的文件缺失、
    冻结项混进可搬表都会报错），再用 `-I.` 把五个纯 C 单元逐个 `-Wall -Wextra -Werror`
    编一遍；同时核对表里每个文件的行数（表与磁盘对不上就报错，防止文档变陈旧）。

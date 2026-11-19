@@ -1879,6 +1879,25 @@ fixture 提供 `IOReturn` 枚举、64 KiB `gMemory`、`read32`/`write32`/`waitCl
 
 ---
 
+
+### 7.37 launchd 作业检查：把「BlueTool 是 root」变成可失败断言（0527 之后）
+
+#### 7.37.1 问题
+
+`com.apple.BlueTool` 在 24A446 的 stock 作业里以 `mobile` 运行。内核的 `kern.qbt_power_on` 读即请求上电、EPERM 当成功，所以 `mobile` 作业拿到的永远是失败，BlueTool 停在 `Device not open yet` 直到被看门狗杀掉——bt-0525 的 console 就是这个形状（1914/1915 启动，1955 放弃，2894 退出）。
+
+#### 7.37.2 检查
+
+`scripts/check-bluetooth-launchd.py --report <stage>/report.json`：
+
+1. `launchd_job_overrides` 里必须有 `com.apple.BlueTool`，且 `UserName == 'root'`、`EnablePressuredExit is False`；
+2. 每个 override 的字段都必须落在 `{UserName: str, EnableTransactions: bool, EnablePressuredExit: bool, ThrottleInterval: int}` 里，类型用 `type(v) is` 严格比较（这是框架 `merge_launchd_cache()` 自己的规则，提前失败比在 payload 构建时炸掉好）；
+3. 给了 `--cache` 与 `--framework` 时，用框架的 `merge_launchd_cache()` 真跑一次合并，断言只有目标作业变化，Label/ProgramArguments/MachServices 不变。
+
+#### 7.37.3 结果
+
+24A446 的缓存 729 个作业、0 新增、1 个变化；合并后 BlueTool 为 UserName=root、EnablePressuredExit=False、ThrottleInterval=3。10 个宿主用例覆盖正常与六种坏输入。`hardware_verified=false`：launchd 是否读到这份文件，要等 Data 卷挂载门打开（0526/0527 所在的门）才能测。
+
 ## 8 八步账本沿革与 d8/0516 历史范围
 
 **历史实飞状态（2026-11-17 12:03 d9 FAIL；此后 0518 候选仅离线构建，见 §7.25）**：蓝牙账本当时保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。

@@ -1220,3 +1220,13 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 测试：`scripts/tests/test-bt-power-check.py` 18 例，全部靠改合成源触发：BT_EN 提前拉高、删掉 GENI start、删掉 `k60_uart_pins_idle()`、BT_EN 低电平改 50/200 ms、高电平改 50 ms、attach 传裸 SPI、阶梯里插 `pong_rpmh_vote`、冷启动改 `-EOPNOTSUPP`、删 `k60.powered`、把 `k60.powered` 提前到 BT_EN 拉低之前、关阶梯删 `k60_disarm_rx_wake()`、把 `k60_irq_mask` 挪到 `qbt_set_service` 之前、`K60_BT_UART_GIC_INTID` 改成字面量 587、UART SPI 改成 619；另有一例证明注释里出现 `rail` 不算投票（先剥注释再比 token）。
 - 事实修正：此前摘要记「代码是 50/50 ms、官方页 100/60」，实际当前树是 `100u` / `60u`（0517 已对齐官方），注释写着 `/* official: hold BT_EN low 100 ms */`。检查器按 100/60 断言。
 - 边界：这是文本检查，证明代码仍写着端口的决定，不证明硬件按这个顺序响应；时序与电平仍要靠飞行日志（bt-0525 的 480–1342 行是当前唯一一次完整阶梯证据）。
+
+### 61. 用户态 launchd 作业检查：暂存报告里的 BlueTool 是否变成 root（2026-11-19 22:05）
+
+- 动机：bt-0525 的飞行里 BlueTool 每次都以 `KE 100 101 xpcproxy /usr/sbin/BlueTool` 启动，停在 `Device not open yet`，30 s 后被看门狗杀。内核的 `kern.qbt_power_on` 是「读即请求上电、EPERM 当成功」，所以一个以 `mobile` 运行的作业拿不到这次上电。24A446 的 stock 作业 System/Library/LaunchDaemons/com.apple.BlueTool.plist（269 B）正是 `UserName = mobile`、`EnablePressuredExit = true`、`ThrottleInterval = 0`、`ProgramArguments = ['/usr/sbin/BlueTool', '-R']`。
+- 修复链：stager（QcaBluetooth tools/build-userland.py）在 report.json 写 `launchd_job_overrides = {'com.apple.BlueTool': {UserName: root, EnableTransactions: true, EnablePressuredExit: false, ThrottleInterval: 3}}`；框架 scripts/build-boot-runtime.py:150 的 `merge_launchd_cache()` 按 Label 唯一匹配只改这四个字段，`sign_launchd_cache()` 再签名；ios27 侧 0527 把 /private/var/ngpu/xpc 挂到 /System/Library/xpc，被改写的那份 cache 才生效。
+- 检查器：`scripts/check-bluetooth-launchd.py`。结构层断言 BlueTool 变 root、EnablePressuredExit 为 false、字段只在这四个白名单里且类型严格（`type(v) is`，"3" 与 1 都不算）；给了 `--cache` 与 `--framework` 时用框架自己的 `merge_launchd_cache()` 真跑一次合并，断言 Label/ProgramArguments/MachServices 不变、只有目标作业被改、别的作业一个都没动。`--out` 写 report.json（overrides、cache_checked、failures、hardware_verified=false）。
+- 实跑：`python3 scripts/check-bluetooth-launchd.py --report .../bt24/stage4/report.json --cache /home/emilelu/bt24/plists/System/Library/xpc/launchd.plist --framework /mnt/e/hackios/UniXNU` → `cache: 729 jobs, 0 added, 1 changed`、`bluetooth-launchd: OK`；合并后 BlueTool 为 UserName=root、EnablePressuredExit=False、ThrottleInterval=3，MachServices 与 ProgramArguments 原样。
+- 测试：`scripts/tests/test-bt-launchd-cache.py` 10 例：正常报告、缺 override、mobile override、pressured exit 仍开、未知字段、ThrottleInterval 写成字符串、bool 写成 int、真缓存合并、缓存里没有该作业、没有框架时只做结构检查。框架按 `../UniXNU` 定位（本地与 CI 的 `$GITHUB_WORKSPACE/UniXNU` 同形），找不到时打印 SKIP 而不是失败。
+- 边界：证明的是 stager 报告与框架合并函数一致，不证明 launchd 读到了这份文件；后者要等 Data 卷挂载门打开（0526/0527 所在的门），F3 之前不可测。
+

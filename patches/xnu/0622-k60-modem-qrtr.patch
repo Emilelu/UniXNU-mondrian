@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1975 @@
+@@ -0,0 +1,1977 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1739,7 +1739,9 @@ index 0000000..1111111
 +		vm_offset_t address = 0;
 +		ppnum_t page;
 +
-+		if (kmem_alloc_contig(kernel_map, &address, bytes, 0xfffff000ULL, 0,
++		const ppnum_t ceiling = (ppnum_t)(((1ull << 32) - bytes) >> 12);
++
++		if (kmem_alloc_contig(kernel_map, &address, bytes, 0, ceiling,
 +		    0, KMA_DATA | KMA_ZERO,
 +		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
 +			printf("K60MODEM qrtr: rmtfs cannot allocate %llu bytes\n",

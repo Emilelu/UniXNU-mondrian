@@ -438,7 +438,9 @@ k60_qrtr_rmtfs_low_alloc(vm_size_t bytes, vm_offset_t *va, uint64_t *physical)
 		vm_offset_t address = 0;
 		ppnum_t page;
 
-		if (kmem_alloc_contig(kernel_map, &address, bytes, 0xfffff000ULL, 0,
+		const ppnum_t ceiling = (ppnum_t)(((1ull << 32) - bytes) >> 12);
+
+		if (kmem_alloc_contig(kernel_map, &address, bytes, 0, ceiling,
 		    0, KMA_DATA | KMA_ZERO,
 		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
 			printf("K60MODEM qrtr: rmtfs cannot allocate %llu bytes\n",

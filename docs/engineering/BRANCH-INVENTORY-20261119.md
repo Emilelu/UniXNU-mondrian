@@ -72,3 +72,66 @@ main = `5d8a09a5`。`origin` 上未合入的分支 **49** 条，按线分组编�
 `yibiya/*` 13 条（remote `yibiya` = github.com/yibiya/UniXNU-mondromian 的镜像）、`yib/*` 13 条（本地镜像 `/mnt/e/k60-work/references/yibiya-upstream`）。这些是参考源，不合并、不改名、不删除。
 
 共 49 条。
+
+---
+
+## 收尾记录（2026-11-19 夜）
+
+`main` = `0a8042da`。上面 49 条编号里的每一条都走完了「合入 / 归档 / 保留」，现在是下面这个状态。
+
+### 仍然是活跃线、故意不合入 main（等各自里线推进）
+
+| 分支 | 领先提交 | 为什么不合 |
+|---|---|---|
+| `feat/adsp-carrier` | 33 | 里线还在推进 |
+| `feat/audio-adsp-merge` | 252 | 里线还在推进 |
+| `feat/cellular` | 232 | 里线还在推进 |
+| `feat/charge-auth` | 11 | 里线还在推进 |
+| `feat/wifi-ios27-abi` | 120 | 里线还在推进 |
+| `test/wifi-he-scan` | 64 | 里线还在推进 |
+
+### 已归档（`archive/` 前缀，保留历史，不参与合并）
+
+| `archive/audio-codec-20261119` | 5a8d8065 |
+| `archive/audio-merge-20261119` | a1a4af95 |
+| `archive/bt-d8-timing-model-20261119` | bce47bf9 |
+| `archive/bt-research-20261119` | 1f1b973a |
+| `archive/darwin24-main-20261103` | 10d1be3b |
+| `archive/docs-porting-gap-audit-20261119` | 9058b69a |
+| `archive/first-frame-20261107` | 70a1e4ca |
+| `archive/ios16-final-20261119` | 5d8a09a5 |
+| `archive/wifi-bringup-20261119` | 136f95c2 |
+| `archive/wifi-final-conclusion-20261119` | ea7f72d9 |
+| `archive/wifi-integration-20261119` | b4dbb3a0 |
+| `archive/wifi-ipa-rail-20261119` | 03ed7c99 |
+| `archive/wifi-mhi-preload-20261119` | 15953891 |
+| `archive/wifi-patch-sync-20261119` | 78d17a8c |
+| `archive/wifi-series-sync-20261119` | e1a46146 |
+| `archive/wifi6-wpa3-20261119` | c756371a |
+
+### 已完全合入 main（可从远端删除）
+
+`docs/pitfalls-p227`, `feat/adsp-handoff-owner`, `feat/adsp-pas`, `feat/buttons`, `feat/gpu-metal-hw`, `feat/gpu-yibiya`, `feat/pmic-rail`, `feat/repo-hygiene`, `feat/springboard`, `feat/thermal-tsens`, `feat/ufs-verified-table`, `feat/usb-console`, `fix/battery-sample-dirty`
+
+### 本轮合并里值得记住的四件事
+
+1. **`docs/*` 分支落后一千多提交时不要整分支合并。** 它们的冲突不是分歧，是 main 后来
+   把同一个问题答得更好（`PITFALLS.md` 673 行对 15 行、`EIGHT-STEPS.toml` 多 392 行、
+   `STATUS.md` 的 GPU 段还停在 11-13 的旧结论）。手工解一处就等于把 main 已经回答过的
+   问题再回答一遍。改为**只取增量**：`git diff --name-status main...branch | grep ^A`，
+   逐个断言 main 上没有才 checkout；`feat/judge-tools` 与 `feat/research-refindex` 的
+   九个增量文件**全部已在 main 上**，所以一条都没复制，直接判定为被替代。
+2. **取测试不取它依赖的函数，等于留下六个描述「没人拥有的代码」的红测试。**
+   `#42` 带的六个 `test-check-docs-*.py` 调 `check_index_reading_order` /
+   `check_ops_snapshots` / `check_tables` / `check_citations`，main 的 `check-docs.py`
+   里这四个函数不存在，所以这六个文件没有取。
+3. **分支自己的删除意图要和合并结果对账。** ios27 分支的 `scripts/legacy/README.md`
+   明写「`main` still carries the originals at their old paths」，但合并把四个设备侧
+   文件搬进了 `legacy/`——其中 `scripts/build-xnu-4k-baseline.sh`（设备副本 78,431 B，
+   带 SDKROOT 与平台归档列表）就是 main 的构建入口，`check-define-scope.py` 当场
+   `FileNotFoundError`。三个搬回原路径，只有 `patches/unixnu-core/k60-unixnu-core.patch`
+   留在 `legacy/`（`apply-core-patches.sh` 会遍历顶层每一个 `*.patch`，而它已无法应用）。
+4. **判断「树相同可删」必须比 tree hash。** `feat/first-frame-20261107`（361 ahead）
+   与 `chore/archive-darwin24-main-20261103`（208 ahead）与 main **没有共同祖先**，
+   差 5,944 / 965 个文件；按 ahead/behind 或文件数推断会得出相反的结论。
+

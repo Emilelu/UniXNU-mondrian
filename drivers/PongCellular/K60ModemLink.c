@@ -23,6 +23,7 @@
 #include "K60ModemEfs.h"
 #include "K60ModemMemshare.h"
 #include "K60ModemRmtfs.h"
+#include "K60ModemSmp2p.h"
 #include "K60Smem.h"
 #include "QcomGlink.h"
 #include "K60PmicRail.h"
@@ -153,8 +154,8 @@ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 #define K60_MODEM_GLINK_DESC     478u
 #define K60_MODEM_GLINK_OURS     479u
 #define K60_MODEM_GLINK_THEIRS   480u
-#define K60_MODEM_SMP2P_MAGIC    0x504d5324u
-#define K60_MODEM_SMP2P_ITEM_WORDS (20u + 20u * 16u) / 4u
+#define K60_MODEM_SMP2P_MAGIC    K60_SMP2P_MAGIC
+#define K60_MODEM_SMP2P_ITEM_WORDS (K60_SMP2P_ITEM_BYTES / 4u)
 #define K60_MODEM_GLINK_TX_BYTES 0x4000u
 
 /* Our receive intents: the DT asks for three groups (0x800x5, 0x2000x3,
@@ -172,6 +173,9 @@ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
 #define K60_QRTR_LOOKUP_MAX      8u
 #define K60_QRTR_STATIC_PERIOD   15000  /* and ask the recorded DMS port on the same beat */
 #define K60_QRTR_STATIC_MAX      8u
+/* Pong answers the modem's IPA clock question with bit 0 complete and
+ * bit 1 as the retained clock vote; 1 says complete without a claim. */
+#define K60_QRTR_IPA_ANSWER      1u
 /* The modem firmware boots asynchronously after AUTH_AND_RESET. Pong keeps a
  * worker polling until it is ready; a single boot has only this window, so
  * allow thirty seconds before declaring the modem absent. */
@@ -267,6 +271,16 @@ static unsigned k60_qrtr_rx_cmds[8];
 static unsigned k60_qrtr_lookup_replies;
 static unsigned k60_qrtr_rmtfs_requests;
 static int k60_qrtr_rmtfs_sent;
+/* Pong publishes two SMP2P entries before PAS and answers through them
+ * (PongModemControl.cpp:97-99, 139-164): master-kernel carries the AP-owned
+ * stop bit, ipa carries the modem's clock question. Keep both indices and the
+ * outbound item so the probe loop can answer. */
+static volatile uint32_t *k60_qrtr_smp2p_out;
+static int k60_qrtr_smp2p_stop_entry = -1;
+static int k60_qrtr_smp2p_ipa_entry = -1;
+static int k60_qrtr_ipa_replied;
+static unsigned k60_qrtr_ipa_queries;
+static uint32_t k60_qrtr_ipa_state;
 static int k60_qrtr_memshare_sent;
 static unsigned k60_qrtr_static_count;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
@@ -1002,6 +1016,27 @@ k60_smp2p_add_entry(volatile uint32_t *out, const char *name)
 	return (int)valid;
 }
 
+/* Pong never leaves the AP-owned stop bit set across a start: the Q6V5 reads
+ * bit 0 of master-kernel as stop, so releasing it is part of handing over a
+ * fresh session, not part of shutting one down. A stale bit left by an Android
+ * epoch is otherwise republished as if we meant it. */
+static void
+k60_smp2p_release_stop(volatile uint32_t *item)
+{
+	const uint32_t was = k60_smp2p_entry_word(item, k60_qrtr_smp2p_stop_entry);
+
+	if (k60_qrtr_smp2p_stop_entry < 0) {
+		return;
+	}
+	if (!k60_smp2p_update(item, k60_qrtr_smp2p_stop_entry, 1u, 0u)) {
+		return;
+	}
+	k60_smp2p_barrier();
+	printf("K60MODEM transport: smp2p stop released was=%#x now=%#x ipa=%#x\n",
+	    was, k60_smp2p_entry_word(item, k60_qrtr_smp2p_stop_entry),
+	    k60_smp2p_entry_word(item, k60_qrtr_smp2p_ipa_entry));
+}
+
 static int
 k60_transport_item(K60Smem *smem, K60SmemPartition *partition, uint16_t id,
     uint32_t bytes, uint32_t *offset, uint32_t *size)
@@ -1509,11 +1544,14 @@ k60_modem_transport_prepare(void)
 	k60_modem_fence();
 	out = (volatile uint32_t *)(window + offsets[0]);
 	k60_smp2p_init_out(out);
-	if (k60_smp2p_add_entry(out, "master-kernel") < 0 ||
-	    k60_smp2p_add_entry(out, "ipa") < 0) {
+	k60_qrtr_smp2p_stop_entry = k60_smp2p_add_entry(out, "master-kernel");
+	k60_qrtr_smp2p_ipa_entry = k60_smp2p_add_entry(out, "ipa");
+	k60_qrtr_smp2p_out = out;
+	if (k60_qrtr_smp2p_stop_entry < 0 || k60_qrtr_smp2p_ipa_entry < 0) {
 		printf("K60MODEM transport: smp2p entries full\n");
 		return -1;
 	}
+	k60_smp2p_release_stop(out);
 	desc = (volatile uint32_t *)(window + offsets[1]);
 	/* Only the AP-owned indices are reset; desc[0]/desc[3] belong to the
 	 * remote and must stay intact so a live FIFO is never mistaken for fresh. */
@@ -1908,7 +1946,7 @@ k60_modem_qrtr_probe(void)
 			/* tx.tail is the modem's read index: a value that trails our
 			 * head means it consumed what we sent; one that never moves
 			 * means the DATA never left the ring. */
-			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u replies=%u rmtfs=%u\n",
+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u replies=%u rmtfs=%u ipa=%#x\n",
 			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
 			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
 			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
@@ -1919,7 +1957,7 @@ k60_modem_qrtr_probe(void)
 			    k60_qrtr_link.dropped,
 			    k60_qrtr_rx_cmds[1], k60_qrtr_rx_cmds[2], k60_qrtr_rx_cmds[3],
 			    k60_qrtr_rx_cmds[4], k60_qrtr_lookup_replies,
-			    k60_qrtr_rmtfs_requests);
+			    k60_qrtr_rmtfs_requests, k60_qrtr_ipa_state);
 			if (i == 2500u) {
 				k60_qrtr_dump_intents();
 			}
@@ -1931,6 +1969,27 @@ k60_modem_qrtr_probe(void)
 				printf("K60MODEM qrtr: modem ready (smp2p items=%u) at %u s\n",
 				    seen, i / 500u);
 			}
+		}
+		/* The ipa entry is a question, not a state: the modem raises bit 0 to
+		 * ask whether the AP retains the IPA clock, and the answer is bit 0
+		 * (complete) plus bit 1 (vote) written into our own entry
+		 * (PongModemControl.cpp:139-147). Nothing here answered it, and a modem
+		 * that never receives the answer has no reason to bring the rest of its
+		 * stack up. Answer 1 first: complete, with no clock claim, because IPA
+		 * votes its own clock when it starts. */
+		if (k60_qrtr_smp2p_ipa_entry >= 0 && k60_qrtr_smp2p_out != NULL &&
+		    k60_smem_find(&smem, &partition, (uint16_t)items[3],
+		    &offsets[3], &sizes[3]) == K60SmemOk &&
+		    k60_smp2p_find((volatile uint32_t *)(window + offsets[3]), sizes[3],
+		    "ipa", &k60_qrtr_ipa_state) &&
+		    (k60_qrtr_ipa_state & 1u) != 0u && !k60_qrtr_ipa_replied) {
+			++k60_qrtr_ipa_queries;
+			k60_qrtr_ipa_replied = 1;
+			k60_smp2p_update(k60_qrtr_smp2p_out, k60_qrtr_smp2p_ipa_entry,
+			    3u, K60_QRTR_IPA_ANSWER);
+			k60_smp2p_barrier();
+			printf("K60MODEM qrtr: ipa query=%#x reply=%#x at %u s\n",
+			    k60_qrtr_ipa_state, K60_QRTR_IPA_ANSWER, i / 500u);
 		}
 		/* k42: the modem answers HELLO even when it ignores every lookup, so a
 		 * repeated HELLO is the only liveness probe we have. A count that keeps

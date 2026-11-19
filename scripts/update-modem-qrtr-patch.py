@@ -64,10 +64,11 @@ FILES = [
     ("drivers/PongPower/QcomGlink.h", "bsd/dev/qcom_glink.h", {}),
     ("drivers/PongPower/QcomGlink.c", "bsd/dev/qcom_glink.c",
      {'"QcomGlink.h"': '"qcom_glink.h"'}),
+    ("drivers/PongCellular/K60ModemSmp2p.h", "bsd/dev/pong_modem_smp2p.h", {}),
     ("drivers/PongCellular/K60ModemLink.c", "bsd/dev/pong_modem_link.c",
      {'"K60ModemQrtr.h"': '"pong_modem_qrtr.h"', '"K60ModemRmtfs.h"': '"pong_modem_rmtfs.h"',
       '"K60ModemEfs.h"': '"pong_modem_efs.h"', '"K60ModemMemshare.h"':
-      '"pong_modem_memshare.h"',
+      '"pong_modem_memshare.h"', '"K60ModemSmp2p.h"': '"pong_modem_smp2p.h"',
       '"K60Smem.h"': '"pong_smem.h"', '"QcomGlink.h"': '"qcom_glink.h"',
       '"K60PmicRail.h"': '"pong_pmic_rail.h"', '"K60ModemPas.h"': '"pong_modem_pas.h"'}),
     ("drivers/PongCellular/K60ModemRmtfs.h", "bsd/dev/pong_modem_rmtfs.h", {}),

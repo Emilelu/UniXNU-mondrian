@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,2195 @@
+@@ -0,0 +1,2254 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1324,6 +1324,7 @@ index 0000000..1111111
 +#include "pong_modem_efs.h"
 +#include "pong_modem_memshare.h"
 +#include "pong_modem_rmtfs.h"
++#include "pong_modem_smp2p.h"
 +#include "pong_smem.h"
 +#include "qcom_glink.h"
 +#include "pong_pmic_rail.h"
@@ -1454,8 +1455,8 @@ index 0000000..1111111
 +#define K60_MODEM_GLINK_DESC     478u
 +#define K60_MODEM_GLINK_OURS     479u
 +#define K60_MODEM_GLINK_THEIRS   480u
-+#define K60_MODEM_SMP2P_MAGIC    0x504d5324u
-+#define K60_MODEM_SMP2P_ITEM_WORDS (20u + 20u * 16u) / 4u
++#define K60_MODEM_SMP2P_MAGIC    K60_SMP2P_MAGIC
++#define K60_MODEM_SMP2P_ITEM_WORDS (K60_SMP2P_ITEM_BYTES / 4u)
 +#define K60_MODEM_GLINK_TX_BYTES 0x4000u
 +
 +/* Our receive intents: the DT asks for three groups (0x800x5, 0x2000x3,
@@ -1473,6 +1474,9 @@ index 0000000..1111111
 +#define K60_QRTR_LOOKUP_MAX      8u
 +#define K60_QRTR_STATIC_PERIOD   15000  /* and ask the recorded DMS port on the same beat */
 +#define K60_QRTR_STATIC_MAX      8u
++/* Pong answers the modem's IPA clock question with bit 0 complete and
++ * bit 1 as the retained clock vote; 1 says complete without a claim. */
++#define K60_QRTR_IPA_ANSWER      1u
 +/* The modem firmware boots asynchronously after AUTH_AND_RESET. Pong keeps a
 + * worker polling until it is ready; a single boot has only this window, so
 + * allow thirty seconds before declaring the modem absent. */
@@ -1568,6 +1572,16 @@ index 0000000..1111111
 +static unsigned k60_qrtr_lookup_replies;
 +static unsigned k60_qrtr_rmtfs_requests;
 +static int k60_qrtr_rmtfs_sent;
++/* Pong publishes two SMP2P entries before PAS and answers through them
++ * (PongModemControl.cpp:97-99, 139-164): master-kernel carries the AP-owned
++ * stop bit, ipa carries the modem's clock question. Keep both indices and the
++ * outbound item so the probe loop can answer. */
++static volatile uint32_t *k60_qrtr_smp2p_out;
++static int k60_qrtr_smp2p_stop_entry = -1;
++static int k60_qrtr_smp2p_ipa_entry = -1;
++static int k60_qrtr_ipa_replied;
++static unsigned k60_qrtr_ipa_queries;
++static uint32_t k60_qrtr_ipa_state;
 +static int k60_qrtr_memshare_sent;
 +static unsigned k60_qrtr_static_count;
 +static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
@@ -2303,6 +2317,27 @@ index 0000000..1111111
 +	return (int)valid;
 +}
 +
++/* Pong never leaves the AP-owned stop bit set across a start: the Q6V5 reads
++ * bit 0 of master-kernel as stop, so releasing it is part of handing over a
++ * fresh session, not part of shutting one down. A stale bit left by an Android
++ * epoch is otherwise republished as if we meant it. */
++static void
++k60_smp2p_release_stop(volatile uint32_t *item)
++{
++	const uint32_t was = k60_smp2p_entry_word(item, k60_qrtr_smp2p_stop_entry);
++
++	if (k60_qrtr_smp2p_stop_entry < 0) {
++		return;
++	}
++	if (!k60_smp2p_update(item, k60_qrtr_smp2p_stop_entry, 1u, 0u)) {
++		return;
++	}
++	k60_smp2p_barrier();
++	printf("K60MODEM transport: smp2p stop released was=%#x now=%#x ipa=%#x\n",
++	    was, k60_smp2p_entry_word(item, k60_qrtr_smp2p_stop_entry),
++	    k60_smp2p_entry_word(item, k60_qrtr_smp2p_ipa_entry));
++}
++
 +static int
 +k60_transport_item(K60Smem *smem, K60SmemPartition *partition, uint16_t id,
 +    uint32_t bytes, uint32_t *offset, uint32_t *size)
@@ -2810,11 +2845,14 @@ index 0000000..1111111
 +	k60_modem_fence();
 +	out = (volatile uint32_t *)(window + offsets[0]);
 +	k60_smp2p_init_out(out);
-+	if (k60_smp2p_add_entry(out, "master-kernel") < 0 ||
-+	    k60_smp2p_add_entry(out, "ipa") < 0) {
++	k60_qrtr_smp2p_stop_entry = k60_smp2p_add_entry(out, "master-kernel");
++	k60_qrtr_smp2p_ipa_entry = k60_smp2p_add_entry(out, "ipa");
++	k60_qrtr_smp2p_out = out;
++	if (k60_qrtr_smp2p_stop_entry < 0 || k60_qrtr_smp2p_ipa_entry < 0) {
 +		printf("K60MODEM transport: smp2p entries full\n");
 +		return -1;
 +	}
++	k60_smp2p_release_stop(out);
 +	desc = (volatile uint32_t *)(window + offsets[1]);
 +	/* Only the AP-owned indices are reset; desc[0]/desc[3] belong to the
 +	 * remote and must stay intact so a live FIFO is never mistaken for fresh. */
@@ -3209,7 +3247,7 @@ index 0000000..1111111
 +			/* tx.tail is the modem's read index: a value that trails our
 +			 * head means it consumed what we sent; one that never moves
 +			 * means the DATA never left the ring. */
-+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u replies=%u rmtfs=%u\n",
++			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u replies=%u rmtfs=%u ipa=%#x\n",
 +			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
 +			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
 +			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
@@ -3220,7 +3258,7 @@ index 0000000..1111111
 +			    k60_qrtr_link.dropped,
 +			    k60_qrtr_rx_cmds[1], k60_qrtr_rx_cmds[2], k60_qrtr_rx_cmds[3],
 +			    k60_qrtr_rx_cmds[4], k60_qrtr_lookup_replies,
-+			    k60_qrtr_rmtfs_requests);
++			    k60_qrtr_rmtfs_requests, k60_qrtr_ipa_state);
 +			if (i == 2500u) {
 +				k60_qrtr_dump_intents();
 +			}
@@ -3232,6 +3270,27 @@ index 0000000..1111111
 +				printf("K60MODEM qrtr: modem ready (smp2p items=%u) at %u s\n",
 +				    seen, i / 500u);
 +			}
++		}
++		/* The ipa entry is a question, not a state: the modem raises bit 0 to
++		 * ask whether the AP retains the IPA clock, and the answer is bit 0
++		 * (complete) plus bit 1 (vote) written into our own entry
++		 * (PongModemControl.cpp:139-147). Nothing here answered it, and a modem
++		 * that never receives the answer has no reason to bring the rest of its
++		 * stack up. Answer 1 first: complete, with no clock claim, because IPA
++		 * votes its own clock when it starts. */
++		if (k60_qrtr_smp2p_ipa_entry >= 0 && k60_qrtr_smp2p_out != NULL &&
++		    k60_smem_find(&smem, &partition, (uint16_t)items[3],
++		    &offsets[3], &sizes[3]) == K60SmemOk &&
++		    k60_smp2p_find((volatile uint32_t *)(window + offsets[3]), sizes[3],
++		    "ipa", &k60_qrtr_ipa_state) &&
++		    (k60_qrtr_ipa_state & 1u) != 0u && !k60_qrtr_ipa_replied) {
++			++k60_qrtr_ipa_queries;
++			k60_qrtr_ipa_replied = 1;
++			k60_smp2p_update(k60_qrtr_smp2p_out, k60_qrtr_smp2p_ipa_entry,
++			    3u, K60_QRTR_IPA_ANSWER);
++			k60_smp2p_barrier();
++			printf("K60MODEM qrtr: ipa query=%#x reply=%#x at %u s\n",
++			    k60_qrtr_ipa_state, K60_QRTR_IPA_ANSWER, i / 500u);
 +		}
 +		/* k42: the modem answers HELLO even when it ignores every lookup, so a
 +		 * repeated HELLO is the only liveness probe we have. A count that keeps
@@ -4493,3 +4552,146 @@ index 0000000..1111111
 +	}
 +	return 0;
 +}
+diff --git a/bsd/dev/pong_modem_smp2p.h b/bsd/dev/pong_modem_smp2p.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_smp2p.h
+@@ -0,0 +1,137 @@
++/*
++ * Shared memory point-to-point: the 340-byte item both sides publish.
++ *
++ * Both the AP-owned item (item 428) and the modem-owned item (item 435) use
++ * one layout: five header words, then sixteen 20-byte entries, each four
++ * little-endian name words and one value word.  The value word is a bitfield
++ * whose meaning belongs to the service that owns the entry: "slave-kernel"
++ * reports ready/fatal, "ipa" is a question the modem asks and the AP answers.
++ *
++ * These helpers only touch memory the caller already mapped; every write is
++ * ordered by the caller's own barrier, because the host test compiles on a
++ * different architecture than the kernel.
++ */
++
++#ifndef _K60_MODEM_SMP2P_H_
++#define _K60_MODEM_SMP2P_H_
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60_SMP2P_MAGIC          0x504d5324u
++#define K60_SMP2P_VERSION        1u
++#define K60_SMP2P_HEADER_WORDS   5u
++#define K60_SMP2P_ENTRY_WORDS    5u
++#define K60_SMP2P_ENTRIES        16u
++#define K60_SMP2P_ITEM_BYTES     (K60_SMP2P_HEADER_WORDS * 4u + K60_SMP2P_ENTRIES * K60_SMP2P_ENTRY_WORDS * 4u)
++#define K60_SMP2P_NAME_BYTES     16u
++
++/* Value word of one entry; out of range reads as zero so a caller can never
++ * reach outside the item it mapped. */
++static inline uint32_t
++k60_smp2p_entry_word(volatile uint32_t *item, int index)
++{
++	if (item == NULL || index < 0 || (uint32_t)index >= K60_SMP2P_ENTRIES) {
++		return 0;
++	}
++	return item[K60_SMP2P_HEADER_WORDS +
++	    (uint32_t)index * K60_SMP2P_ENTRY_WORDS + 4u];
++}
++
++/* Replace the masked bits of one entry's value word.  Returns 1 when it wrote,
++ * 0 when the index is outside the item. */
++static inline int
++k60_smp2p_update(volatile uint32_t *item, int index, uint32_t mask, uint32_t value)
++{
++	volatile uint32_t *word;
++
++	if (item == NULL || index < 0 || (uint32_t)index >= K60_SMP2P_ENTRIES) {
++		return 0;
++	}
++	word = &item[K60_SMP2P_HEADER_WORDS +
++	    (uint32_t)index * K60_SMP2P_ENTRY_WORDS + 4u];
++	*word = (*word & ~mask) | (value & mask);
++	return 1;
++}
++
++/* Header check: magic, version and a valid count that fits the item.  The
++ * processor ids in word two are the caller's business, because the AP item
++ * and the modem item legitimately name different local processors. */
++static inline int
++k60_smp2p_header(volatile uint32_t *item, size_t bytes, uint32_t *valid)
++{
++	uint32_t total;
++
++	if (item == NULL || bytes < K60_SMP2P_HEADER_WORDS * 4u) {
++		return 0;
++	}
++	if (item[0] != K60_SMP2P_MAGIC || (item[1] & 0xffu) != K60_SMP2P_VERSION) {
++		return 0;
++	}
++	total = item[3] & 0xffffu;
++	if (total > K60_SMP2P_ENTRIES || (item[3] >> 16) > total) {
++		return 0;
++	}
++	if (valid != NULL) {
++		*valid = item[3] >> 16;
++	}
++	return 1;
++}
++
++/* A name occupies all four name words: a shorter name is zero padded, and a
++ * longer one cannot match because the sixteenth byte is already fixed. */
++static inline int
++k60_smp2p_name_matches(const volatile uint32_t *entry, const char *name)
++{
++	unsigned i;
++
++	if (entry == NULL || name == NULL) {
++		return 0;
++	}
++	/* Read the name only as far as its terminator: a caller passes a string
++	 * literal, and the bytes past it are not ours to read. */
++	for (i = 0; i < K60_SMP2P_NAME_BYTES; i++) {
++		if (name[i] == '\0') {
++			break;
++		}
++		if ((uint8_t)(entry[i / 4u] >> (8u * (i % 4u))) !=
++		    (uint32_t)(uint8_t)name[i]) {
++			return 0;
++		}
++	}
++	/* The rest of the field is zero padded, so a stored byte there means the
++	 * entry names something longer than the name just compared. */
++	for (; i < K60_SMP2P_NAME_BYTES; i++) {
++		if ((uint8_t)(entry[i / 4u] >> (8u * (i % 4u))) != 0u) {
++			return 0;
++		}
++	}
++	return 1;
++}
++
++/* Find one entry by name and hand back its value word.  Returns 1 when the
++ * entry is present, 0 when it is not or the item header is not usable. */
++static inline int
++k60_smp2p_find(volatile uint32_t *item, size_t bytes, const char *name,
++    uint32_t *value)
++{
++	uint32_t valid = 0, i;
++
++	if (!k60_smp2p_header(item, bytes, &valid)) {
++		return 0;
++	}
++	for (i = 0; i < valid; i++) {
++		volatile uint32_t *entry = item + K60_SMP2P_HEADER_WORDS +
++		    i * K60_SMP2P_ENTRY_WORDS;
++
++		if (k60_smp2p_name_matches(entry, name)) {
++			if (value != NULL) {
++				*value = entry[4];
++			}
++			return 1;
++		}
++	}
++	return 0;
++}
++
++#endif /* _K60_MODEM_SMP2P_H_ */

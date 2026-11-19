@@ -348,10 +348,20 @@ carries) lands.
   `gated-on` when it is open; when open, the series must contain 0526 and 0527
   or the run fails. Add `--tree <patched xnu>` to also assert that
   `native_bt_runtime_prepare` still sits inside the `#if`.
-- `--expect-runtime` on an artifact: the built `kernel.macho` must contain the
-  string `[bluetooth-runtime]`. Today it has zero hits (run 44518998961,
-  93,077,504 bytes) while the 16.6.1 kernel has six hits of
-  `native_gpu_addon_prepare` — that difference is the gate.
+- `python3 scripts/check-bluetooth-kernel.py --kernel <kernel.macho>
+  --expect-runtime` — the flag lives in the kernel checker, not in the gate
+  checker, and it asserts the runtime's side of the contract: the two overlay
+  sources, the launchd-cache target and the log string. Against run
+  44518998961 it exits 1 with four failures — `/private/var/ngpu/bluetooth-lib`,
+  `/private/var/ngpu/bluetooth-bin`, `/System/Library/xpc/launchd.plist` and
+  `[bluetooth-runtime]` all absent — which is the gate, measured. The plain
+  contract check on the same binary passes 14 of 14, so only the runtime
+  needles are missing; that is why `--expect-runtime` stays off the stage-0
+  CI step.
+
+Both halves were re-measured on 2026-11-20: the gate checker printed
+`series: 25 entries`, `defconfig: CONFIG_XNU_OWNER_DATA_MOUNT=absent`,
+`state: gated-off` and wrote `gate_enabled: false` into its report.
 
 At runtime the line to look for on the console is
 `[bluetooth-runtime] library=5/0 executables=5/0 cache=5/0`, printed by

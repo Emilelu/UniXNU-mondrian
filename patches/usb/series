@@ -1,0 +1,11 @@
+# USB device-mode line (feat/usb-console). Consumed by board.toml indirectly:
+# board.toml only lists device:patches/xnu/series, so the authoritative entry
+# lives there as `../usb/<name>.patch`; this file records the line's own order.
+# Every patch here must also be appended to patches/xnu/series (merge fragment).
+0405-k60-usb-heartbeat.patch
+0406-k60-usb-composite.patch
+0407-k60-usb-endpoint-diag.patch
+0408-k60-usb-p2-structure.patch
+0409-k60-usb-console-restore.patch
+0410-k60-usb-vendor-loopback.patch
+0411-k60-usb-composite-beacon.patch

@@ -118,6 +118,13 @@ path = "/mnt/e/hackios/k60-ios-profile"
 owner = "ios-profile-agent"
 scope = ["docs/research/ios-profile"]
 
+# New line (2026-11-14): thermal / tsens research. Owns its own worktree; the
+# two registration files are append-only for this actor.
+[[tree]]
+path = "/mnt/e/hackios/k60-thermal"
+owner = "thermal-agent"
+scope = ["drivers/PongThermal", "docs/research/thermal", "patches/thermal", "docs/research/EIGHT-STEPS.toml", "porting.toml"]
+
 # Explicit Lead authorization relayed by the user on 2026-11-14.
 # Dedicated checkout; the shared touch checkout and other owners are unchanged.
 [[tree]]

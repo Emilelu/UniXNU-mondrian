@@ -1285,6 +1285,24 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$PONG_WIFI_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $PONG_WIFI_ARCHIVE"
   fi
+  if [ "${XNU_PONG_THERMAL:-0}" = 1 ]; then
+    # PongThermal: read-only tsens driver, pressure level and the mTPL publishing
+    # IOKit service (scripts/build-thermal-kext.sh, docs/research/thermal/07-INTEGRATION.md).
+    # This block must live here and not in KERNEL_EXTRA_ARCHIVES above: that one is
+    # inside "if [ \"$XNU_SOURCE_CORECRYPTO14\" = 1 ]" and the generated .config
+    # resolves that symbol to n for this board, so an archive added there would be
+    # force-loaded into a branch that never runs (P-190, scripts/check-kernel-archives.py).
+    # The assembled tree links only the drivers that components.toml selects, so
+    # PongThermal is not under $ROOT/drivers; point the builder at the device
+    # checkout that the tree's own patches/xnu link resolves to.
+    K60_XNU_TREE=$ROOT \
+      K60_THERMAL_SOURCES=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}/drivers/PongThermal \
+      bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
+    THERMAL_ARCHIVE=$ROOT/build/thermal-kext/libK60ThermalKext.a
+    test -f "$THERMAL_ARCHIVE"
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$THERMAL_ARCHIVE"
+    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $THERMAL_ARCHIVE"
+  fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a
     RAM_BLOCK_OBJECT=$ROOT/build/native-ram-block/NativeRamBlock.o

@@ -27,11 +27,14 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | **电池（IOPMPowerSource / PMIC GLINK）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | **USB（DWC3 复合设备 / 控制台 / 回环）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **八步全通** |
-| **温控（TSENS / thermal zone / 分级）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
+| **thermal** | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ◐ | ✅ | device-verified |
 | **蜂窝（X70 modem / DXE 载具 / QRTR）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
+| **壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | 可刷机（⑦ 已核验） |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| USB | — | — | — | — | — | — | — | ✅ | device-verified（未建八步记录） |
+| 基带 | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 
 > ✅ 完成　◐ 部分　❌ 未完成　— 未建立记录

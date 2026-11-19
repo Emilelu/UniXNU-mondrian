@@ -71,9 +71,9 @@ def main() -> int:
 
     # The written record: PITFALLS.md carries the entry, RULES.toml its gate.
     pitfalls = (ROOT / "docs" / "engineering" / "PITFALLS.md").read_text(encoding="utf-8")
-    check("## P-248" in pitfalls, "PITFALLS.md records the divergence as P-248")
+    check("## P-249" in pitfalls, "PITFALLS.md records the divergence as P-249")
     rules = (ROOT / "docs" / "engineering" / "RULES.toml").read_text(encoding="utf-8")
-    check('id = "P-248"' in rules, "RULES.toml registers P-248")
+    check('id = "P-249"' in rules, "RULES.toml registers P-249")
     check(TEST.is_file() and RUNNER.is_file(), "the intent suite and its runner exist")
 
     compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")

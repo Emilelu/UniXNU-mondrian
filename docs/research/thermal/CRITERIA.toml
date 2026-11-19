@@ -1,0 +1,455 @@
+# 上机判据（thermal 线）—— 交给脚本读的那一版
+#
+# 为什么要有这个文件：LEVEL-MAP.md §5.3 是一张「现象 → 判定」的人眼表，上机后要人翻日志
+# 对着看。2026-11-15 第一次真机启动已经暴露了人眼判据的两个盲点：32 路里丢了 1 行
+# （tsens0[3] cpuss-2 zone27）、等级行是发布层出现之前的老格式。这类细节靠眼睛对表
+# 会漏。这里把每条判据写成「日志正则 + 期望 + 失败解释」，用
+#
+#   python3 scripts/check-thermal-log.py --log <console.log> [--profile auto]
+#
+# 读。判据的每个正则都抄自 drivers/PongThermal 里的 printf 格式串，对应行号写在 why 里；
+# 驱动改了日志格式，这张表必须跟着改。sensor.coverage 的标签顺序与 K60ThermalKernel.h
+# 的 32 项表由 scripts/check-thermal-kernel-patch.py 交叉核对，改表不改这里会被门禁拦下。
+#
+# 字段：
+#   id        稳定标识；脚本输出、文档、提交信息都引它
+#   title     一句话说清在验什么
+#   profile   "*" = 每次启动都适用；否则只在 --profile 选中它时适用
+#   severity  required（不过就失败，退出码 1）/ advisory（只提示）
+#   kind      count（默认，配合 min/max）/ each（每行还要满足 must）/
+#             coverage（捕捉标签集合，配合 expected 与 max_missing）/
+#             pair（每条 published 行必须跟随一条同等级的 level 行）
+#   pattern   Python 正则，逐行 re.search
+#   min/max   匹配行数区间
+#   why       失败时脚本原样打印：为什么这条会失败、先去查哪里
+#   see       失败时第二行打印：该判据的文档出处（「不成立去哪节」）
+
+version = 1
+
+[log]
+# 不给 --log 时，脚本取这个目录下最新的 usblog-*/console.log
+evidence_root = "/mnt/e/k60-work/evidence"
+# console.log 内含 NUL 字节（console 采集路径的产物），必须按字节读再解码
+encoding = "utf-8"
+errors = "replace"
+
+# ---------------------------------------------------------------------------
+# 每次启动都必须成立（profile = "*"）
+# ---------------------------------------------------------------------------
+
+[[criterion]]
+id = "controller.count"
+title = "两个 tsens 控制器都打印了控制器行，且 TSENS_EN=1"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: tsens[01] tm=0x[0-9a-f]+ srot=0x[0-9a-f]+ ver=\d+\.\d+\.\d+ ctrl=0x[0-9a-f]+ enabled=1$'
+min = 2
+max = 2
+why = "少一行：那个控制器的 TM/SROT 窗口没映射上，pong_thermal.c:291 会打 window mapping failed，先看那一行。两行但 enabled=0：SROT_CTRL 的 TSENS_EN 没置位（pong_thermal.c:145 的 enabled 字段），此时采样结果不可信，不要用它做任何结论。"
+see = "08-KERNEL-DRIVER.md §3.1：控制器行格式与两个 tsens 常量"
+
+[[criterion]]
+id = "worker.polling"
+title = "采样线程起来了：polling 2 controllers every 1000 ms"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: polling 2 controllers every 1000 ms$'
+min = 1
+max = 1
+why = "这一行只在 kernel_thread_start 成功后打印（pong_thermal.c:306）。没有它说明启动退化成\"boot snapshot only\"：要么 worker thread failed（:309），要么 no controller mapped（:301）。两种失败都在 base 判据里各自有一条。"
+see = "08-KERNEL-DRIVER.md §3.1：polling 行"
+
+[[criterion]]
+id = "sensor.lines"
+title = "32 路传感器读数行（允许丢 1 行）"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: tsens[01]\[\d+\] [a-z0-9-]+ zone\d+ -?\d+\.\d C$'
+min = 31
+max = 32
+why = "应 32 行。31 行可接受：thermal-20261114f 的 console.log 丢了 tsens0[3] cpuss-2 zone27 整行（b'cpuss-2' 与 b'tsens0[3]' 全文计数为 0，不是截断、也不是 no-valid-reading），丢行位置正好夹着 pong_buttons 线程的 \"Pong keys\" 行 —— 控制台 sink 的并发丢行，不是传感器故障。少于 31：采样循环提前退出或整片窗口没映射；多于 32：sensor 表有重复。缺失的是哪一路见 sensor.coverage 的输出。"
+see = "08-KERNEL-DRIVER.md §5 第 2 条：31+1 丢行结论（tsens0[3] cpuss-2 那一次）"
+
+[[criterion]]
+id = "sensor.coverage"
+title = "32 个 zone 标签各出现一次，缺失的报出来"
+profile = "*"
+severity = "required"
+kind = "coverage"
+pattern = '^PongThermal: (tsens[01])\[(\d+)\] ([a-z0-9-]+) zone\d+ -?\d+\.\d C$'
+label_group = 3
+max_missing = 1
+expected = [
+  "aoss-0", "cpuss-0", "cpuss-1", "cpuss-2", "cpuss-3",
+  "cpu-1-0", "cpu-1-1", "cpu-1-2", "cpu-1-3", "cpu-1-4",
+  "cpu-1-5", "cpu-1-6", "cpu-1-7", "cpu-1-8", "gpuss-0", "gpuss-1",
+  "aoss-1", "cpu-0-0", "cpu-0-1", "cpu-0-2", "cpu-0-3",
+  "nspss-0", "nspss-1", "nspss-2", "video", "ddr",
+  "mdmss-0", "mdmss-1", "mdmss-2", "mdmss-3", "camera-0", "camera-1",
+]
+why = "这张表就是 K60ThermalKernel.h:132-165 的 32 项，顺序即驱动采样顺序。丢 1 路已在 sensor.lines 里解释为控制台丢行；丢 2 路以上或换了一路，先查那一站点的 TM 窗口读数，再查是不是 sensor 表被改过（scripts/check-thermal-kernel-patch.py 会比对标签顺序）。"
+see = "K60ThermalKernel.h:132-165 的 32 项表（与 check-thermal-kernel-patch.py 交叉核对）"
+
+[[criterion]]
+id = "domain.line"
+title = "五域温度行出现（little/big/gpu/npu/ddr，单位 mC）"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: little=-?\d+ big=-?\d+ gpu=-?\d+ npu=-?\d+ ddr=-?\d+ mC$'
+min = 1
+why = "pong_thermal.c:238，1℃ 桶变化或满 30 轮打一次。没有它说明 worker 进了循环但没算出任何域温度（32 路全无读数），配合 sensor.lines 一起看。"
+see = "08-KERNEL-DRIVER.md §3.1：域温度行格式"
+
+[[criterion]]
+id = "level.line"
+title = "等级行格式正确：level N/3 name (domains M/3); closest ..."
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level (?:0/3 nominal|1/3 moderate|2/3 heavy|3/3 trapping) \(domains [0-9]/3\); closest [a-z0-9-]+ -?\d+\.\d C, (?:every tier crossed|\d+\.\d C below tier [1-3])$'
+min = 1
+why = "pong_thermal.c:187 与 :193 两种 closest 形态。格式不对最常见的原因是刷了旧镜像（发布层出现前的内核只打 published 行，不打 level 行）—— 先核对 boot.json 里的 image 与 kernel sha256。"
+see = "LEVEL-MAP.md §5.3：等级行格式与三分支"
+
+[[criterion]]
+id = "level.consistent"
+title = "等级数字与名字一一对应"
+profile = "*"
+severity = "required"
+kind = "each"
+pattern = '^PongThermal: level \d/3 \w+ \(domains \d/3\); '
+must = '^PongThermal: level (?:0/3 nominal|1/3 moderate|2/3 heavy|3/3 trapping) \(domains [0-9]/3\); '
+why = "0/1/2/3 必须对应 nominal/moderate/heavy/trapping（K60ThermalLevel.c:47-49）。对不上说明 k60tl_level_name 的表被改坏，或等级越界（本层最大是 3）。"
+see = "LEVEL-MAP.md §3：zone 阶梯语义"
+
+[[criterion]]
+id = "published.line"
+title = "发布行出现：published as Thermal_Level_Warning=N"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level (?:nominal|moderate|heavy|trapping) \([0-3]\) published as Thermal_Level_Warning=[0-3]$'
+min = 1
+max = 1
+why = "pong_thermal_pm.cpp:112，只在等级变化时打（:87-89：pong_thermal_pm_have_last && level == last 就 return）。同等级只发一次是设计，不是丢行 —— 所以 min=1 证明发布层跑过，max=1 证明去重生效。冷机全程 0 档，恰好只该有一条。少一条：等级全程没变而第一轮 getPMRootDomain() 还是 NULL（root domain 在 IOKitBSDInit 之后才存在，08 篇 §7.4 第 1 条），或发布路径报错；先看有没有 level 行，有 level 无 published 就是发布层没跑。多一条：先去对照 level 行是否真的变了 —— bias 档中途真跨档时会合法地多出一条，那是信息不是误报；等级没变却发了两条，才是去重坏了（last_level/have_last 没记住）。"
+see = "08-KERNEL-DRIVER.md §7.4：发布层语义与去重"
+
+[[criterion]]
+id = "published.consistent"
+title = "发布行里的等级与值一致"
+profile = "*"
+severity = "required"
+kind = "each"
+pattern = '^PongThermal: level \w+ \(\d\) published as Thermal_Level_Warning=\d+$'
+must = '^PongThermal: level (?:nominal \(0\) published as Thermal_Level_Warning=0|moderate \(1\) published as Thermal_Level_Warning=1|heavy \(2\) published as Thermal_Level_Warning=2|trapping \(3\) published as Thermal_Level_Warning=3)$'
+why = "发布值就是板级等级原样发（pong_thermal_pm.cpp:100 的 value = (uint32_t)level），两者不等说明传参错了或发布层被改成映射到 Apple 值。"
+see = "LEVEL-MAP.md §4：发布值 = 阶梯值"
+
+[[criterion]]
+id = "published.follows-level"
+title = "每条 published 行都跟在同一等级的 level 行之后"
+profile = "*"
+severity = "required"
+kind = "pair"
+pattern = '^PongThermal: level \w+ \((\d)\) published as Thermal_Level_Warning=(\d+)$'
+level_pattern = '^PongThermal: level (\d)/3 \w+ '
+why = "发布去重只在等级变化时发（pong_thermal_pm.cpp:87-89），所以每次发布前的最后一条 level 行必须同等级。不同级说明发布点拿到了过期的等级值，或 level 行与发布点之间还有一次采样。"
+see = "LEVEL-MAP.md §4：发布值 = 阶梯值"
+
+# ---- 失败串：出现即失败 ------------------------------------------------
+
+[[criterion]]
+id = "fail.window-mapping"
+title = "没有 window mapping failed"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = 'window mapping failed'
+min = 0
+max = 0
+why = "pong_thermal.c:291：ml_io_map 失败。先看 SROT_HW_VER/SROT_CTRL 的物理地址是否还在 0x0c263000/0x0c222000（TM）与 0x0c265000/0x0c223000（SROT），以及 ADT 是否仍把它们交给内核。"
+see = "08-KERNEL-DRIVER.md §3.1：window mapping failed 分支"
+
+[[criterion]]
+id = "fail.no-controller"
+title = "没有 no controller mapped"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = 'no controller mapped; not polling'
+min = 0
+max = 0
+why = "pong_thermal.c:301：两个窗口都没映射上，只打了启动快照。配合 controller.count 为 0 一起看。"
+see = "08-KERNEL-DRIVER.md §3.1：no controller mapped 分支"
+
+[[criterion]]
+id = "fail.worker-thread"
+title = "没有 worker thread failed"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = 'worker thread failed; boot snapshot only'
+min = 0
+max = 0
+why = "pong_thermal.c:309：kernel_thread_start 失败，只剩启动快照。"
+see = "08-KERNEL-DRIVER.md §3.1：worker thread failed 分支"
+
+[[criterion]]
+id = "fail.disabled"
+title = "没有被 boot-arg 关掉"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = 'disabled by boot-arg pong_thermal=0'
+min = 0
+max = 0
+why = "pong_thermal.c:274：boot-args 里有 pong_thermal=0。检查启动参数，不要带着它做判据。"
+see = "08-KERNEL-DRIVER.md §3.1：pong_thermal=0 分支"
+
+[[criterion]]
+id = "fail.no-valid-reading"
+title = "没有 no-valid-reading"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = 'no-valid-reading'
+min = 0
+max = 0
+why = "pong_thermal.c:161：该路 STATUS 的 VALID 位没置起来或温度越界（±160℃，K60Tsens.c）。真空闲传感器也会读数，所以这里出现就是真问题：先看 raw 值的 VALID 位，再看 TM 窗口的 controller/clk 配置。"
+see = "08-KERNEL-DRIVER.md §3.1：no-valid-reading 分支"
+
+[[criterion]]
+id = "fail.no-zone-reading"
+title = "没有 no zone has a reading"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = 'no zone has a reading'
+min = 0
+max = 0
+why = "pong_thermal.c:182：32 路全无读数，closest 算不出来。这时 sensor.lines 必然是 0。"
+see = "08-KERNEL-DRIVER.md §3.1：no zone has a reading 分支"
+
+[[criterion]]
+id = "fail.sleeping-level"
+title = "没有 level 4/3"
+profile = "*"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level 4/3 '
+min = 0
+max = 0
+why = "k60tz_step 的最大值是 3（三档 zone），sleeping 只存在于域名表里，真出现说明等级算错。"
+see = "LEVEL-MAP.md §5.3：sleeping 只在三档全越过时出现"
+
+# ---------------------------------------------------------------------------
+# 冷机（不带 pong_thermal_bias）：应该全程 0
+# ---------------------------------------------------------------------------
+
+[[criterion]]
+id = "cold.bias-absent"
+title = "没有 bias 行（启动参数里没带）"
+profile = "cold"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: bias '
+min = 0
+max = 0
+why = "pong_thermal.c:280 只在 pong_thermal_bias 非 0 时打。带到冷机启动说明 boot-args 或 --profile 选错了。"
+see = "LEVEL-MAP.md §5.1：冷机判据"
+
+[[criterion]]
+id = "cold.level-zero"
+title = "冷机全程 level 0/3"
+profile = "cold"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level 0/3 nominal '
+min = 1
+why = "冷机 40–56℃ 离最低 trip 90℃（ddr）还差 34℃，不应到 1 档。到 1 档先怀疑读数被偏移或被伪造。"
+see = "LEVEL-MAP.md §5.1"
+
+[[criterion]]
+id = "cold.published-zero"
+title = "冷机发布 Thermal_Level_Warning=0"
+profile = "cold"
+severity = "required"
+kind = "count"
+pattern = 'published as Thermal_Level_Warning=0$'
+min = 1
+why = "冷机第一次发布必然是 0（root domain 出现后第一轮）。没有它说明发布层没跑，见 published.line。"
+see = "LEVEL-MAP.md §5.1"
+
+[[criterion]]
+id = "cold.no-high-level"
+title = "冷机没有 1/2/3 档"
+profile = "cold"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level [1-3]/3 '
+min = 0
+max = 0
+why = "同上：冷机离最低 trip 差 34℃。出现高档要先怀疑读数来源。"
+see = "LEVEL-MAP.md §5.1"
+
+# ---------------------------------------------------------------------------
+# bias 三档：+50000 / +75000 / +85000（LEVEL-MAP.md §5.2）
+#
+# 每档要同时满足：bias 行、目标等级行、同值发布行。等级行与发布行各自带
+# closest 的余量文案（below tier / every tier crossed），余量随冷机基线漂 ±2℃，
+# 所以余量只做 advisory，不做 required。
+# ---------------------------------------------------------------------------
+
+[[criterion]]
+id = "bias-50000.applied"
+title = "bias 50000 已生效"
+profile = "bias-50000"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: bias 50000 mC added to every reading \(validation only\)$'
+min = 1
+max = 1
+why = "pong_thermal.c:280。没有它：boot-args 没传进去（拼写、长度预算），或镜像还是 thermal-20261115a 之前的版本（bias 是这一版才加的）。"
+see = "LEVEL-MAP.md §5.2：bias=50000 期望 level 1/3"
+
+[[criterion]]
+id = "bias-50000.level"
+title = "+50000 推出 level 1/3"
+profile = "bias-50000"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level 1/3 moderate '
+min = 1
+why = "45℃ 基线 +50 K ≈ 95℃，越过 ddr 的 90℃ 第一档（K60ThermalZones.c:60 那一行），gpuss 的 95℃ 也刚好越过 → 板级 1 档。仍是 0：bias 没加到读数上；直接 2：基线偏高或某一路读数异常，先看域温度行。"
+see = "LEVEL-MAP.md §5.2：bias=50000 期望 level 1/3"
+
+[[criterion]]
+id = "bias-50000.published"
+title = "+50000 发布 Thermal_Level_Warning=1"
+profile = "bias-50000"
+severity = "required"
+kind = "count"
+pattern = 'published as Thermal_Level_Warning=1$'
+min = 1
+why = "等级变了发布层就要发一条（pong_thermal_pm.cpp:87-89）。有 level 行没有这一条 = 发布层在这一档没跟上。"
+see = "LEVEL-MAP.md §5.2：bias=50000 期望 level 1/3"
+
+[[criterion]]
+id = "bias-75000.applied"
+title = "bias 75000 已生效"
+profile = "bias-75000"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: bias 75000 mC added to every reading \(validation only\)$'
+min = 1
+max = 1
+why = "同 bias-50000.applied。"
+see = "LEVEL-MAP.md §5.2：bias=75000 期望 level 2/3"
+
+[[criterion]]
+id = "bias-75000.level"
+title = "+75000 推出 level 2/3"
+profile = "bias-75000"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level 2/3 heavy '
+min = 1
+why = "45℃ +75 K = 120℃，越过 115℃ 第二档（cpu-1-x、ddr、gpuss、nspss 都有 115℃）但未到 125℃ → 2 档。到 3 档说明基线 ≥50℃（drift）或某一路读数异常。"
+see = "LEVEL-MAP.md §5.2：bias=75000 期望 level 2/3"
+
+[[criterion]]
+id = "bias-75000.published"
+title = "+75000 发布 Thermal_Level_Warning=2"
+profile = "bias-75000"
+severity = "required"
+kind = "count"
+pattern = 'published as Thermal_Level_Warning=2$'
+min = 1
+why = "同 bias-50000.published。"
+see = "LEVEL-MAP.md §5.2：bias=75000 期望 level 2/3"
+
+[[criterion]]
+id = "bias-85000.applied"
+title = "bias 85000 已生效"
+profile = "bias-85000"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: bias 85000 mC added to every reading \(validation only\)$'
+min = 1
+max = 1
+why = "同 bias-50000.applied。"
+see = "LEVEL-MAP.md §5.2：bias=85000 期望 level 3/3"
+
+[[criterion]]
+id = "bias-85000.level"
+title = "+85000 推出 level 3/3"
+profile = "bias-85000"
+severity = "required"
+kind = "count"
+pattern = '^PongThermal: level 3/3 trapping '
+min = 1
+why = "45℃ +85 K = 130℃，越过 125℃ 第三档（所有三档 zone 的最后一档）→ 3 档。到不了 3 档说明基线偏低（<40℃）或 bias 没加满。"
+see = "LEVEL-MAP.md §5.2：bias=85000 期望 level 3/3"
+
+[[criterion]]
+id = "bias-85000.published"
+title = "+85000 发布 Thermal_Level_Warning=3"
+profile = "bias-85000"
+severity = "required"
+kind = "count"
+pattern = 'published as Thermal_Level_Warning=3$'
+min = 1
+why = "同 bias-50000.published。"
+see = "LEVEL-MAP.md §5.2：bias=85000 期望 level 3/3"
+
+[[criterion]]
+id = "bias-85000.every-tier-crossed"
+title = "+85000 出现 every tier crossed"
+profile = "bias-85000"
+severity = "advisory"
+kind = "count"
+pattern = 'every tier crossed$'
+min = 1
+why = "基线 ≥40℃ 时 130℃ 已越过全部档位，closest 的 margin < 0，打印 every tier crossed（pong_thermal.c:186-190）。基线更低时会打 below tier 3，属正常，所以只提示。"
+see = "LEVEL-MAP.md §5.2：bias=85000 期望 level 3/3"
+
+[[criterion]]
+id = "bias.profile-not-cold"
+title = "带了 bias 就不该有全程 0 档的发布"
+profile = "bias-50000"
+severity = "advisory"
+kind = "count"
+pattern = 'published as Thermal_Level_Warning=0$'
+min = 0
+max = 0
+why = "bias 在 init 里解析、线程启动前生效，第一轮读数就已偏移，所以发布的第一条不该是 0。出现 0 说明 bias 行与等级计算不同步。"
+see = "LEVEL-MAP.md §5.2"
+
+[[criterion]]
+id = "bias-75000.profile-not-cold"
+title = "带了 bias 就不该有 0 档发布"
+profile = "bias-75000"
+severity = "advisory"
+kind = "count"
+pattern = 'published as Thermal_Level_Warning=0$'
+min = 0
+max = 0
+why = "同 bias.profile-not-cold。"
+see = "LEVEL-MAP.md §5.2"
+
+[[criterion]]
+id = "bias-85000.profile-not-cold"
+title = "带了 bias 就不该有 0 档发布"
+profile = "bias-85000"
+severity = "advisory"
+kind = "count"
+pattern = 'published as Thermal_Level_Warning=0$'
+min = 0
+max = 0
+why = "同 bias.profile-not-cold。"
+see = "LEVEL-MAP.md §5.2"
+

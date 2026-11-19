@@ -27,7 +27,7 @@
 | `pong_metal` | GPU / Metal | 必须 == 1 | 未设 = 不发布 | 设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144） |
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |
 | `pong_gpu_coherent` | GPU / 提交 | 0 / 1 / 2（默认 2） | 2 = 跑探针 | 唯一有对方量化证据的一项：zizhan g40/g41 强制开后扫出 24–35 ms → 5–6 ms。用 1 绕过证明等于拿帧的正确性换速度 |
-| `pong_gpu_blit_probe` | GPU / 扫出 | `0` 关（默认开） | 开 = 首帧后跑一次对照 | 默认**开**：启动行已用 596 / 607 B，放不下新参数，所以只能默认开并给一个关的开关。它只在第一帧真实拷贝成功之后执行，代价约 25 ms 一次 |
+| `pong_gpu_blit_probe` | GPU / 扫出 | `1` 开（默认关） | 开 = 首帧后跑一次对照 | 已答完并默认**关**：对照实测两个目标都是 9–10 GB/s，固件帧缓冲不是慢的那个；带它的那次飞行以 CP/SMMU fault 收场（P-244），且它按源行距写目标会让那一帧斜切 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
 | `pong_ufs_readwrite` | 存储 | 真值 | 只读 | 写盘会改动 Data 卷 |
@@ -128,18 +128,21 @@
 ### `pong_gpu_blit_probe`
 
 - **所属**：GPU / 扫出（`[MTLCommandBuffer commit]` 里那次全屏 blit 的成本归因）
-- **接受值**：`0` 关；**未设时开**
-- **未设时**：开
+- **接受值**：`1` 开；**未设时关**
+- **未设时**：关
 - **作用**：`PongMetalScanout.h` 在第一帧真实拷贝成功之后，用同样的 API 形状再拷两次同样的字节：
   ① 客户端 surface → GPU 自有缓冲（`src-to-device`），② 该缓冲 → 固件帧缓冲（`device-to-scanout`）。
   三处独立测量（内核 `gpu=`、客户端 `G commit-to-complete`、合成器 `us each in the driver`）都指向
   12.6 ms / 18.4 MB = 1.5 GB/s，但没有任何一个能区分「目标端慢」「Turnip 的拷贝实现慢」「带宽本身慢」。
-  这一对照正是用来分开这三者的：若 `src-to-device` 快而 `device-to-scanout` 慢，慢的是目标端，
-  方向转 zizhan 的 `target`（拷进面板缓冲）；若两者都慢，慢的是拷贝实现
-- **陷阱**：它**没有** `=1` 才开的形态。原因是启动行卡在 596 / 607 字节，加 21 字节会超上限（见
-  `## 参数预算`）。想回到完全不插手的帧路径就加 `pong_gpu_blit_probe=0`。
-  另一个陷阱是它只在第一帧跑一次，所以日志里要么有一行、要么一行都没有；没有时先去查
-  `scanout copy …` 那一行在不在，不要直接读成「对照很便宜」
+  这一对照正是用来分开这三者的
+- **它已经回答完了，所以默认关**（2026-11-19，P-244）：`gpu-blitprobe2-20261119` 上实测
+  `bytes=18432000 src-to-device=1993 us device-to-scanout=1835 us`，两块目标分别是 9.25 GB/s 与
+  10.04 GB/s ⇒ **固件帧缓冲不是慢的那个**，对照没有剩余问题要问。同一次飞行最后以
+  `CP/SMMU fault` 收场（受管对象从 331 长到 951、字节从 276 MB 长到 557 MB），探针多写的那一帧
+  无法证明无辜；而且它按源行距写目标，会让**那一帧**斜切
+- **陷阱**：它只在第一帧跑一次，所以日志里要么有一行、要么一行都没有；没有时先去查
+  `scanout copy …` 那一行在不在，不要直接读成「对照很便宜」。启动行已用 596 / 607 B，
+  所以想打开它必须自己腾出 20 字节（见 `## 参数预算`）——这是有意的成本，不是遗漏
 - **源码**：`drivers/PongMetal/PongMetalScanout.h:114`
 - **源码**：`drivers/PongMetal/GpuScanoutPresenter.h:116`
 

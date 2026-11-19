@@ -78,10 +78,16 @@ def main():
     check("the copy span is stamped before the control",
           -1 < t2 < probe, "t2 at %d, control at %d" % (t2, probe))
 
-    check("the control defaults on", "bool blitProbe=true;" in scanout)
-    check("and can be turned off", '"pong_gpu_blit_probe=0"' in scanout)
-    check("the reason it has no =1 form is written down",
-          "596 of the 607 bytes" in scanout)
+    # The policy flipped on 2026-11-19 (P-244): the control answered its question (1,993 us and
+    # 1,835 us for the same 18,432,000 bytes, so the firmware frame buffer was never the slow
+    # target) and the flight that carried it ended in a CP/SMMU fault, so it is no longer on by
+    # default. These assert the new shape rather than deleting the cases.
+    check("the control defaults off", "bool blitProbe=false;" in scanout)
+    check("and opens only when asked for", '"pong_gpu_blit_probe=1"' in scanout)
+    check("the measured reason it is off is written down",
+          "1,993 us" in scanout and "1,835 us" in scanout)
+    check("and the fault that flight ended in is named",
+          "P-244" in scanout and "951" in scanout)
 
     # The gate gap: sysctlbyname("kern.bootargs") keys were invisible to check-boot-args.py,
     # so a driver could add an argument that no document mentions and the gate stayed green.
@@ -92,9 +98,9 @@ def main():
           "pong_gpu_scanout" in found and "pong_gpu_blit_probe" in found,
           "found %s" % sorted(found))
     check("the new key is documented", "### `pong_gpu_blit_probe`" in doc)
-    check("the documentation states the default", "**未设时**：开" in doc)
+    check("the documentation states the default", "**未设时**：关" in doc)
     check("and warns that one bad frame is expected",
-          "帧路径" in doc and "pong_gpu_blit_probe=0" in doc)
+          "斜切" in doc or "帧路径" in doc)
 
     if failures:
         print("TESTS FAILED: %d" % len(failures))

@@ -127,11 +127,17 @@ static void start(void *iokit,unsigned service,id<MTLDevice> device)
 {
     char args[4096];size_t argsLength=sizeof(args)-1;
     /* The control copies the same 18.4 MB two more ways, once, after the first real copy
-     * succeeds - roughly 25 ms on one frame. It has no boot argument because the boot line is
-     * full: 596 of the 607 bytes the firmware will accept are already in use, so a new
-     * `pong_gpu_blit_probe=1` would push 31 arguments past the ceiling. `pong_gpu_blit_probe=0`
-     * is still honoured for a flight that wants the frame path untouched. */
-    bool blitProbe=true;
+     * succeeds - roughly 25 ms on one frame.
+     *
+     * OFF BY DEFAULT since 2026-11-19 (P-244). The control answered its question in
+     * usblog-20261119-070345: 1,993 us into a device buffer and 1,835 us into the firmware
+     * frame buffer, so the target was never the slow part and there is nothing left to measure
+     * here. That same flight ended with a CP/SMMU fault after the mapped set grew to 951
+     * objects and 557 MB; the probe's extra full-frame write is not proven innocent, and it
+     * also shears one visible frame because it copies at the source pitch. A flight that wants
+     * it back sets `pong_gpu_blit_probe=1` on the boot line (the line is at 596 of 607 bytes,
+     * so this costs a decision, not a default). */
+    bool blitProbe=false;
     if(!sysctlbyname("kern.bootargs",args,&argsLength,nullptr,0)) {
         args[argsLength<sizeof(args)?argsLength:sizeof(args)-1]=0;
         const char key[]="pong_gpu_scanout=0";
@@ -144,12 +150,12 @@ static void start(void *iokit,unsigned service,id<MTLDevice> device)
             }
             option+=sizeof(key)-1;
         }
-        const char probeKey[]="pong_gpu_blit_probe=0";
+        const char probeKey[]="pong_gpu_blit_probe=1";
         option=args;
         while((option=strstr(option,probeKey))) {
             const char after=option[sizeof(probeKey)-1];
             if((option==args || option[-1]==' ' || option[-1]=='\t') &&
-               (!after || after==' ' || after=='\t')) { blitProbe=false;break; }
+               (!after || after==' ' || after=='\t')) { blitProbe=true;break; }
             option+=sizeof(probeKey)-1;
         }
     }

@@ -58,6 +58,8 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    冻结项混进可搬表都会报错），再用 `-I.` 把五个纯 C 单元逐个 `-Wall -Wextra -Werror`
    编一遍；同时核对表里每个文件的行数（表与磁盘对不上就报错，防止文档变陈旧）。
    期望 `OK: the migration list matches the driver directory`。
+   再跑 `sh scripts/tests/portability/run.sh`：它用桩头文件把胶水文件 `PongAudioAmp.c` 编过，
+   期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
 2. 在 27 树里跑 `python3 scripts/check-audio-migration.py --copy <27树>/drivers/PongAudio`：
    它按同一份清单复制 §1/§1b/§2 的 21 个文件与 `tests/` 的两个文件（共 23 个），分类检查不通过时
    直接拒绝复制。本仓实测 `--copy` 到空树后，`tests/run-tests.sh` 在副本里仍是 `TESTS OK 979 cases`。
@@ -84,6 +86,9 @@ power 搬完之后才可跑；音频侧自己的门禁是 `run-tests.sh` 与 `sc
 ——加 13 个头）拷进一个空目录，只给 `-I.`，用 `cc -std=gnu11 -Wall -Wextra -Werror -c`
 逐个编译，五个单元全部 `OK`、零内核头、零警告 ⇒ 第 1 节的「纯 C」不是分类推断，是实测。
 这条验证现在由 `scripts/check-audio-migration.py --compile` 复现。
+胶水文件另有 `scripts/tests/portability/run.sh`：桩头文件只声明 `ml_io_map`、`ml_io_map_wcomb`、
+`printf`、`delay_for_interval`、`NSEC_PER_USEC`、`PE_parse_boot_argn` 与三个类型，
+`PongAudioAmp.c` 在里面 `-Wall -Wextra -Werror` 编过（`STUBS OK`）。
 
 ## 6. 每一项在 27 上靠什么日志行证明
 

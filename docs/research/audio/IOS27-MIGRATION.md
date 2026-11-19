@@ -29,7 +29,7 @@ audio 线只搬「与 OS 无关」的东西：
 
 | 文件 | 行 | 依赖 | 说明 |
 | --- | --- | --- | --- |
-| `PongAudioAmp.c` | 984 | `ml_io_map`、`PE_parse_boot_argn`、`printf`、`clock` | 功放探针与播放档；这些接口在 iOS 27 仍在，只是调用点要重接 |
+| `PongAudioAmp.c` | 1011 | `ml_io_map`、`PE_parse_boot_argn`、`printf`、`clock` | 功放探针、播放档与扬声器开关（`spk_switch_drive()`）；这些接口在 iOS 27 仍在，只是调用点要重接 |
 | `PongAudioRegs.h` | 162 | 同上 | 寄存器地址与位域常量 |
 
 搬的时候只换接线（谁在什么时候调用 `pong_audio_amp_probe()` / `pong_audio_amp_play()`），不动实现。

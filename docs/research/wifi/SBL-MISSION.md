@@ -1455,3 +1455,12 @@ test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 �
 现在两条路径（扫描表里找到当前 BSS、以及没扫描过直接加入的兜底）都在 fill_result 之后覆盖 rssi 与 snr；
 未连接时仍走原来的 ENOENT。16 与 27 两代头文件编译通过。
 
+## 52. 电源查询跟站状态一起回答
+
+参考实现（sheng 27，package/WifiNet.cpp:676）回答 kPower 时用 gPower && st.state != NW_STA_OFF。我们此前只看
+自己的 gPower 标志：站处于 NW_STA_OFF（停站或组件停之后）而标志仍为 1 时回答 1，daemon 会以为射频已开，
+跳过重新使能，用户看到的是“开关是开的但没有网络”。
+
+现在回答 (gPower && st.state != NW_STA_OFF) ? 1 : 0；NW_STA_OFF 在两代 nw_abi.h 里都是枚举 0，不需要弱符号。
+电源设置的路径没有改动（仍走 disconnect + wake），这一条只改查询的回答。
+

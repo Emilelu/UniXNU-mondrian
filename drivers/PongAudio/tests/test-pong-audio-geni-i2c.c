@@ -2328,12 +2328,12 @@ afe_prm_cases(void)
     expect_eq(le32(p + 52), 0ul, "prm error code zero");
     expect_eq(le32(p + 56), PONG_AFE_PRM_MAX_CLOCKS, "prm one clock");
     expect_eq(le32(p + 60), PONG_AFE_CLOCK_TERT_TDM_IBIT, "prm clock id");
-    expect_eq(le32(p + 64), 12288000ul, "prm clock 12.288 MHz");
+    expect_eq(le32(p + 64), 3072000ul, "prm clock 3.072 MHz");
     expect_eq(le32(p + 68), PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE,
         "prm attribute 4");
     expect_eq(le32(p + 72), 0ul, "prm clock root zero");
     expect_eq(PONG_AFE_TDM_MAX_SLOTS, 8ul, "eight TDM slots on the bus");
-    expect_eq(PONG_AFE_TDM_CLK_HZ, 12288000ul, "TDM clock 12.288 MHz");
+    expect_eq(PONG_AFE_TDM_CLK_HZ, 3072000ul, "TDM clock 3.072 MHz");
     expect_eq(pong_afe_prm_clock_request(p, 75ul, PONG_AFE_CLOCK_TERT_TDM_IBIT,
         PONG_AFE_TDM_CLK_HZ, PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE, 0ul), 0ul,
         "prm clock request rejects a short buffer");
@@ -2566,7 +2566,7 @@ afe_plan_cases(void)
     }
     expect_eq(le32(p + 80), PONG_AFE_SLOTS, "plan group channels");
     expect_eq(le32(p + 84), PONG_AFE_RATE, "plan group rate");
-    expect_eq(le32(p + 88), PONG_AFE_SLOT_BITS, "plan group bits");
+    expect_eq(le32(p + 88), PONG_AFE_BIT_WIDTH, "plan group bits");
     expect_eq(le16(p + 92), PONG_AFE_SLOTS, "plan group slots");
     expect_eq(le16(p + 94), PONG_AFE_SLOT_BITS, "plan group slot bits");
     expect_eq(le32(p + 96), 3ul, "plan group slot mask");
@@ -2583,7 +2583,7 @@ afe_plan_cases(void)
     expect_eq(le16(p + 24), PONG_AFE_PORT_TERT_TDM_RX_0, "plan port id");
     expect_eq(le32(p + 56), PONG_AFE_SLOTS, "plan tdm channels");
     expect_eq(le32(p + 60), PONG_AFE_RATE, "plan tdm rate");
-    expect_eq(le32(p + 64), PONG_AFE_SLOT_BITS, "plan tdm bits");
+    expect_eq(le32(p + 64), PONG_AFE_BIT_WIDTH, "plan tdm bits");
     expect_eq(le16(p + 72), 1ul, "plan tdm sync source");
     expect_eq(le16(p + 78), 1ul, "plan tdm invert sync");
 

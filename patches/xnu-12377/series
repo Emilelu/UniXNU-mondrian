@@ -49,3 +49,5 @@ armcpu-sleep-hook.patch
 0526-k60-bt-runtime-mount.patch
 0527-k60-bt-launchd-cache.patch
 0530-k60-spi-availability.patch
+0531-k60-audio-amp-probe-call.patch
+0532-k60-cpu-start-completion.patch

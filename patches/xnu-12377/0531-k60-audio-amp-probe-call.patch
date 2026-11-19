@@ -1,0 +1,28 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index ffe7ce0..9b84d67 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -699,6 +699,23 @@ bsd_init(void)
+ 
+ 	/* Initialize the file systems. */
+ 	bsd_init_kprintf("calling vfsinit\n");
++#if 1
++	/*
++	 * K60 audio amplifier probe: the AW88261 answers a chip-id read over
++	 * AP-owned GENI I2C without the DSP. The switch is the boot argument
++	 * pong_audio_probe=1, read inside the probe; it is deliberately not
++	 * #if defined(XNU_PONG_AUDIO), because that macro reaches
++	 * PongAudioAmp.o only and would compile this call out. Ported from
++	 * the 16 line series, patches/audio/0001:3508-3522.
++	 */
++	{
++		extern int pong_audio_amp_probe(void) __attribute__((weak));
++
++		if (pong_audio_amp_probe != NULL) {
++			(void)pong_audio_amp_probe();
++		}
++	}
++#endif
+ 	vfsinit();
+ 
+ #if CONFIG_PROC_UUID_POLICY

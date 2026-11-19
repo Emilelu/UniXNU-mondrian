@@ -380,7 +380,7 @@ patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:p
 # build-k60-platform-archives.py drives those same recipes against the tree
 # this build just resolved, so the archives appear where the fileset step
 # looks for them.
-archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-k60-platform-archives.py --tree .", "build-fileset-release-reference.py --tree ."]
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-fileset-release-reference.py --tree ."]
 # Boot-record label. The object tree is BCM2837, the 4 KiB machine config this
 # profile builds; PONG belongs to the 16.6.1 line and would point the next
 # reader at a target this profile never produces.

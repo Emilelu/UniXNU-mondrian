@@ -52,6 +52,14 @@ import re
 import sys
 from pathlib import Path
 
+# The diagnoses are Chinese and the console here is GBK: without this the judge
+# dies with UnicodeEncodeError before printing a verdict (P-249 sibling).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, ValueError):
+        pass
+
 K60WALL_OK = re.compile(r'K60WALL catalogue bytes=(\d+) resid=(\d+) error=(\d+)')
 K60WALL_BAD = re.compile(r'K60WALL catalogue (?:open|read|create) error=|'
                          r'K60WALL catalogue size=-?\d+ resid=\d+ rejected')

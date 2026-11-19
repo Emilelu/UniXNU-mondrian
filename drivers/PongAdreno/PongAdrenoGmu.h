@@ -90,6 +90,16 @@ PongGpuStatus PongAdrenoGmuStartPower(PongGpuGmuDevice *,const PongPowerInputs *
 /* Vendor gen7_gpu_boot: fresh OOB_GPU acknowledgement followed by START10.
  * Keep OOB held while this port has no idle/slumber/resume owner. */
 PongGpuStatus PongAdrenoGmuHoldGpu(PongGpuGmuDevice *,PongGpuPowerResult *);
+/* Runtime GPU DCVS, after the power handshake: the CX GMU busy counter (19.2 MHz
+ * ticks while the GPU is busy) and the HFI GX_BW_PERF_VOTE (id 30) that the
+ * start vote already uses. Ported from UniXNU-zizhan's PongAdrenoGmu.c, itself
+ * from Linux a6xx_hw_init/gen7_start. Only a DCVS owner calls these; a refused
+ * vote leaves the HFI request pending, so the caller must stop voting.
+ */
+PongGpuStatus PongAdrenoGmuEnableBusyCounter(PongGpuGmuDevice *);
+PongGpuStatus PongAdrenoGmuBusyTicks(PongGpuGmuDevice *,uint64_t *ticks);
+PongGpuStatus PongAdrenoGmuSetLevel(PongGpuGmuDevice *,unsigned gpu_index,
+    unsigned bus_index,uint32_t *firmware_error);
 /* Another GPU level on the running GMU -- the same GX_BW_PERF_VOTE (HFI 30) the startup
  * vote uses, exactly as Linux's a6xx_gmu_set_freq does for a non-legacy GMU. Valid only
  * after the GX is up (PongAdrenoGmuHoldGpu succeeded). The DDR level is not changed: this

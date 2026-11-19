@@ -160,35 +160,45 @@ def main() -> int:
                     + sample(soc=(57, 30), temp=(35, 80))
                     + sample(soc=(57, 40), temp=(35, 85), kind="physical source updated")
                     + sample(soc=(57, 50), temp=(35, 90), kind="physical source updated"))
+    # K60 Android reports current_now negative while charging; C3 normalizes
+    # that to XNU's positive=charging before comparing sign or magnitude.
     android_ok = write("android-ok.tsv",
                        "# epoch voltage_mv current_ma soc_pct temp_c status\n"
-                       "1763000100 4330 830 57.2 35.7 2\n"
-                       "1763000101 4331 832 57.3 35.8 2\n"
-                       "1763000102 4332 834 57.4 35.9 2\n")
+                       "1763000100 4330 -830 57.2 35.7 2\n"
+                       "1763000101 4331 -832 57.3 35.8 2\n"
+                       "1763000102 4332 -834 57.4 35.9 2\n")
     check("C3 passes when both sides agree inside the window", triples, 0,
           ["C3 Android 同窗口 : PASS", "TOTAL: 3 PASS / 0 FAIL / 0 INVALID"],
           "--android", str(android_ok), "--window-start", "1763000000",
           "--window-end", "1763000200")
     android_far = write("android-far.tsv",
-                        "1763000100 4500 830 57.2 35.7 2\n"
-                        "1763000101 4501 832 57.3 35.8 2\n"
-                        "1763000102 4502 834 57.4 35.9 2\n")
+                        "1763000100 4500 -830 57.2 35.7 2\n"
+                        "1763000101 4501 -832 57.3 35.8 2\n"
+                        "1763000102 4502 -834 57.4 35.9 2\n")
     check("C3 fails when voltage differs by more than 60 mV", triples, 1,
           ["C3 Android 同窗口 : FAIL", "ΔV="],
           "--android", str(android_far), "--window-start", "1763000000",
           "--window-end", "1763000200")
     android_flip = write("android-flip.tsv",
-                         "1763000100 4330 -830 57.2 35.7 2\n"
-                         "1763000101 4331 -832 57.3 35.8 2\n"
-                         "1763000102 4332 -834 57.4 35.9 2\n")
+                         "1763000100 4330 830 57.2 35.7 2\n"
+                         "1763000101 4331 832 57.3 35.8 2\n"
+                         "1763000102 4332 834 57.4 35.9 2\n")
     check("C3 fails when charging current has the opposite sign", triples, 1,
           ["C3 Android 同窗口 : FAIL", "符号相反"],
           "--android", str(android_flip), "--window-start", "1763000000",
           "--window-end", "1763000200")
+    android_legacy = write("android-legacy.tsv",
+                           "1763000100 4330 830 57.2 35.7 2\n"
+                           "1763000101 4331 832 57.3 35.8 2\n"
+                           "1763000102 4332 834 57.4 35.9 2\n")
+    check("C3 accepts a positive=charging capture with the legacy flag", triples, 0,
+          ["C3 Android 同窗口 : PASS", "|ΔI|=6mA/±150mA"],
+          "--android", str(android_legacy), "--android-current-sign", "positive",
+          "--window-start", "1763000000", "--window-end", "1763000200")
     android_out = write("android-out.tsv",
-                        "1763009000 4330 830 57.2 35.7 2\n"
-                        "1763009001 4331 832 57.3 35.8 2\n"
-                        "1763009002 4332 834 57.4 35.9 2\n")
+                        "1763009000 4330 -830 57.2 35.7 2\n"
+                        "1763009001 4331 -832 57.3 35.8 2\n"
+                        "1763009002 4332 -834 57.4 35.9 2\n")
     check("C3 is INVALID when the Android samples are outside the window", triples, 2,
           ["C3 Android 同窗口 : INVALID"],
           "--android", str(android_out), "--window-start", "1763000000",
@@ -221,9 +231,9 @@ def main() -> int:
                  "usb_present: {p}\n")
     dmesg_ok = write("android-ok.dmesg",
                      dmesg_usb.format(t="6380.100000", p=1)
-                     + dmesg_fg.format(t="6380.688186", v=4332, i=350, temp=286)
-                     + dmesg_fg.format(t="6390.215558", v=4333, i=351, temp=287)
-                     + dmesg_fg.format(t="6400.215558", v=4334, i=352, temp=288))
+                     + dmesg_fg.format(t="6380.688186", v=4332, i=-350, temp=286)
+                     + dmesg_fg.format(t="6390.215558", v=4333, i=-351, temp=287)
+                     + dmesg_fg.format(t="6400.215558", v=4334, i=-352, temp=288))
     dmesg_xnu = write("dmesg-xnu.log", LEASE_OK + CHANNEL_UP
                       + sample(voltage=4332, current=350, soc=(100, 0), temp=(28, 60))
                       + sample(voltage=4333, current=351, soc=(100, 0), temp=(28, 70),
@@ -237,9 +247,9 @@ def main() -> int:
     # --- 14. dmesg has no status field, so the supply line stands in ------
     dmesg_unplugged = write("android-unplugged.dmesg",
                             dmesg_usb.format(t="6380.100000", p=0)
-                            + dmesg_fg.format(t="6380.688186", v=4332, i=350, temp=286)
-                            + dmesg_fg.format(t="6390.215558", v=4333, i=351, temp=287)
-                            + dmesg_fg.format(t="6400.215558", v=4334, i=352, temp=288))
+                            + dmesg_fg.format(t="6380.688186", v=4332, i=-350, temp=286)
+                            + dmesg_fg.format(t="6390.215558", v=4333, i=-351, temp=287)
+                            + dmesg_fg.format(t="6400.215558", v=4334, i=-352, temp=288))
     check("C3 fails when Android says unplugged but XNU says external", dmesg_xnu, 1,
           ["C3 Android 同窗口 : FAIL", "供电状态不一致"],
           "--android", str(dmesg_unplugged), "--window-start", "6380", "--window-end", "6420")

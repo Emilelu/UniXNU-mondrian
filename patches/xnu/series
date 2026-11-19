@@ -234,3 +234,7 @@ zzy-native-gpu-addon-mount.patch
 ../usb/0409-k60-usb-console-restore.patch
 ../usb/0410-k60-usb-vendor-loopback.patch
 ../usb/0411-k60-usb-composite-beacon.patch
+0622-k60-touch-activity.patch
+0623-k60-platform-sleep.patch
+0624-k60-platform-sleep-boot-complete.patch
+0625-k60-sleep-trace.patch

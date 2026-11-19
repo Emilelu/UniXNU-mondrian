@@ -71,6 +71,7 @@ def run():
     check('capacity(10000) = 100', capacity_centipercent_to_percent(10000), 100)
     check('capacity(5000) = 50', capacity_centipercent_to_percent(5000), 50)
     check('capacity(9950) = 100', capacity_centipercent_to_percent(9950), 100)
+    check('capacity(9900) = 99', capacity_centipercent_to_percent(9900), 99)
     check('capacity(49) = 0', capacity_centipercent_to_percent(49), 0)
     check('capacity(0) = 0', capacity_centipercent_to_percent(0), 0)
 

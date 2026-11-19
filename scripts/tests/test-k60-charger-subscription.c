@@ -270,6 +270,133 @@ int main(void)
         expect(k60_battmgr_sample(&rst, &smp) == 1, "a fresh cycle publishes after restart");
     }
 
+    /* 15. Plug, unplug and the charging/full states come from status plus
+     * external power, not from a fabricated conclusion. */
+    {
+        K60Battmgr p;
+        K60BatterySample sm;
+        const uint32_t all = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline) | BIT(K60BmUsbCurrent) |
+            BIT(K60BmTimeToFull) | BIT(K60BmTimeToEmpty);
+        k60_battmgr_init(&p, 1, 0, 0);
+        p.last_fresh = all;
+        p.value[K60BmStatus] = 1;
+        p.value[K60BmPresent] = 1;
+        p.value[K60BmCapacity] = 5000;
+        p.value[K60BmVoltage] = 4300000;
+        p.value[K60BmTemperature] = 3000;
+        p.value[K60BmFull] = 5000000;
+        p.value[K60BmDesign] = 5500000;
+        p.value[K60BmCycles] = 100;
+        p.value[K60BmUsbOnline] = 1;
+        p.value[K60BmUsbVoltage] = 5000000;
+        p.value[K60BmUsbCurrent] = 397000;
+        p.value[K60BmTimeToFull] = 3600;
+        p.value[K60BmTimeToEmpty] = 7200;
+        expect(k60_battmgr_sample(&p, &sm) == 1, "plugged pack returns a sample");
+        expect(sm.external == 1 && sm.charging == 1 && sm.full == 0,
+               "status 1 with USB is charging");
+        expect(sm.current_ma == 397 && sm.current_source == K60BatteryCurrentUsb,
+               "USB input current feeds the charging sample");
+        expect(sm.time_remaining_min == 60,
+               "charging uses time-to-full");
+
+        p.value[K60BmStatus] = 2;
+        p.value[K60BmUsbOnline] = 0;
+        p.value[K60BmUsbVoltage] = 0;
+        p.value[K60BmUsbCurrent] = 0;
+        expect(k60_battmgr_sample(&p, &sm) == 1, "unplugged pack returns a sample");
+        expect(sm.external == 0 && sm.charging == 0 && sm.usb_connected == 0,
+               "unplugged status 2 is discharging");
+        expect(sm.current_ma == 0 && sm.current_source == K60BatteryCurrentNone,
+               "unplugged sample has no charging current");
+        expect(sm.time_remaining_min == 120,
+               "discharging uses time-to-empty");
+
+        p.value[K60BmStatus] = 4;
+        p.value[K60BmUsbOnline] = 1;
+        p.value[K60BmUsbVoltage] = 5000000;
+        expect(k60_battmgr_sample(&p, &sm) == 1, "full pack returns a sample");
+        expect(sm.external == 1 && sm.charging == 0 && sm.full == 1,
+               "status 4 with USB is full");
+        expect(sm.time_remaining_min == 0, "full pack has zero time remaining");
+
+        p.value[K60BmStatus] = 2;
+        p.value[K60BmUsbOnline] = 1;
+        p.value[K60BmUsbVoltage] = 5000000;
+        p.value[K60BmUsbCurrent] = 0;
+        p.value[K60BmCurrent] = 0;
+        expect(k60_battmgr_sample(&p, &sm) == 1, "plugged but not charging returns a sample");
+        expect(sm.external == 1 && sm.charging == 0, "status 2 with USB is not charging");
+        expect(sm.time_remaining_min == 120,
+               "plugged but not charging uses time-to-empty");
+
+        p.value[K60BmStatus] = 1;
+        p.value[K60BmUsbOnline] = 0;
+        p.value[K60BmUsbVoltage] = 0;
+        expect(k60_battmgr_sample(&p, &sm) == 0,
+               "status 1 without external power is rejected");
+
+        p.value[K60BmStatus] = 2;
+        p.value[K60BmUsbOnline] = 1;
+        p.value[K60BmUsbVoltage] = 5000000;
+        p.value[K60BmCurrent] = 500000;
+        p.last_fresh |= BIT(K60BmCurrent);
+        expect(k60_battmgr_sample(&p, &sm) == 0,
+               "status 2 with positive current is rejected");
+    }
+
+    /* 16. Capacity consistency, adapter limits and the absent-pack snapshot
+     * must not invent measurements the wire did not carry. */
+    {
+        K60Battmgr c;
+        K60BatterySample cs;
+        const uint32_t all = BIT(K60BmStatus) | BIT(K60BmPresent) | BIT(K60BmCapacity) |
+            BIT(K60BmVoltage) | BIT(K60BmTemperature) | BIT(K60BmFull) |
+            BIT(K60BmDesign) | BIT(K60BmCycles) | BIT(K60BmUsbOnline) |
+            BIT(K60BmUsbVoltage) | BIT(K60BmWirelessOnline) | BIT(K60BmUsbCurrent) |
+            BIT(K60BmUsbAdapter) | BIT(K60BmUsbMaxCurrent) | BIT(K60BmUsbInputLimit) |
+            BIT(K60BmTimeToFull) | BIT(K60BmTimeToEmpty);
+        k60_battmgr_init(&c, 1, 0, 0);
+        c.last_fresh = all;
+        c.value[K60BmStatus] = 1;
+        c.value[K60BmPresent] = 1;
+        c.value[K60BmCapacity] = 5000;
+        c.value[K60BmVoltage] = 4300000;
+        c.value[K60BmTemperature] = 3000;
+        c.value[K60BmFull] = 5000000;
+        c.value[K60BmDesign] = 5500000;
+        c.value[K60BmCycles] = 100;
+        c.value[K60BmUsbOnline] = 1;
+        c.value[K60BmUsbVoltage] = 5000000;
+        c.value[K60BmUsbCurrent] = 397000;
+        c.value[K60BmUsbAdapter] = 1;
+        c.value[K60BmUsbMaxCurrent] = 3000000;
+        c.value[K60BmUsbInputLimit] = 2000000;
+        expect(k60_battmgr_sample(&c, &cs) == 1, "consistent capacity returns a sample");
+        expect(cs.current_mah == 2500, "50% of a 5000 mAh full charge is 2500 mAh");
+        expect(cs.adapter_mv == 5000 && cs.adapter_ma == 2000 && cs.adapter_type == 1,
+               "adapter input limit clamps the advertised current");
+
+        c.value[K60BmFull] = 9000000;
+        expect(k60_battmgr_sample(&c, &cs) == 0,
+               "full capacity above 1.5x design is rejected");
+        c.value[K60BmFull] = 2000000;
+        expect(k60_battmgr_sample(&c, &cs) == 0,
+               "full capacity below half design is rejected");
+        c.value[K60BmFull] = 5000000;
+
+        c.value[K60BmPresent] = 0;
+        expect(k60_battmgr_sample(&c, &cs) == 1, "absent pack still returns a snapshot");
+        expect(cs.present == 0 && cs.external == 1 && cs.charging == 0 &&
+               cs.current_source == K60BatteryCurrentNone,
+               "absent pack reports external power but no charge state");
+        expect(cs.capacity_hundredths == 0 && cs.full_mah == 0 && cs.current_mah == 0,
+               "absent pack has no fabricated measurement");
+    }
+
     if (fails) { printf("FAILURES %d\n", fails); return 1; }
     printf("TESTS OK %d\n", checks);
     return 0;

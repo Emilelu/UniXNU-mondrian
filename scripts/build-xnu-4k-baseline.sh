@@ -1221,6 +1221,15 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
     BOOTSTRAP_KERNEL_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE"
+    if [ "${XNU_ARMCPU:-0}" = 1 ]; then
+      # The battery archive carries the platform-sleep board hook, whose
+      # record is registered through armcpu_sleep_register. The bootstrap
+      # link loads the battery archive but skips PLATFORM_ARCHIVES, so the
+      # CPU archive has to be force-loaded here as well.
+      ARMCPU_ARCHIVE=$ROOT/build/armcpu/libArmCpu.a
+      test -f "$ARMCPU_ARCHIVE"
+      BOOTSTRAP_KERNEL_ARCHIVES="$BOOTSTRAP_KERNEL_ARCHIVES -Wl,-force_load,$ARMCPU_ARCHIVE"
+    fi
     if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
       # bsd/dev/pong_adsp_boot.c (0613) defines the owner reader's legacy
       # hook, which calls k60_adsp_reader_fat; that symbol lives in the

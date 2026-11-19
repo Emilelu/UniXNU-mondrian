@@ -1,0 +1,32 @@
+--- a/osfmk/arm64/cpu.c
++++ b/osfmk/arm64/cpu.c
+@@ -100,6 +100,8 @@
+ #else
+ extern void __attribute__((noreturn)) arm64_prepare_for_sleep(boolean_t deep_sleep);
+ #endif
++/* Pong: a board hook takes over the wait after the other cores are off. */
++void (*arm64_platform_sleep_hook)(boolean_t boot_cpu) = NULL;
+ extern void arm64_force_wfi_clock_gate(void);
+ #if defined(APPLETYPHOON)
+ // <rdar://problem/15827409>
+@@ -1082,6 +1085,10 @@
+ #if MONOTONIC
+ 		mt_sleep();
+ #endif /* MONOTONIC */
++		if (arm64_platform_sleep_hook != NULL) {
++			arm64_platform_sleep_hook(TRUE);
++			arm_init_cpu(cpu_data_ptr);
++		}
+ 		/* ARM64-specific preparation */
+ #if APPLEVIRTUALPLATFORM
+ 		arm64_prepare_for_sleep(true, cpu_data_ptr->cpu_number, ml_vtophys((vm_offset_t)&LowResetVectorBase));
+@@ -1116,6 +1123,9 @@
+ 			*(volatile uint32_t *)(cpu_data_ptr->coresight_base[CORESIGHT_ED] + ARM_DEBUG_OFFSET_DBGPRCR) = 0;
+ 		}
+ 
++		if (arm64_platform_sleep_hook != NULL) {
++			arm64_platform_sleep_hook(FALSE);
++		}
+ 		/* ARM64-specific preparation */
+ #if APPLEVIRTUALPLATFORM
+ 		arm64_prepare_for_sleep(true, cpu_data_ptr->cpu_number, ml_vtophys((vm_offset_t)&LowResetVectorBase));

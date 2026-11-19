@@ -1,0 +1,29 @@
+diff --git a/iokit/Kernel/IOPMrootDomain.cpp b/iokit/Kernel/IOPMrootDomain.cpp
+index 4a06407..7f8c1f5 100644
+--- a/iokit/Kernel/IOPMrootDomain.cpp
++++ b/iokit/Kernel/IOPMrootDomain.cpp
+@@ -857,6 +857,16 @@ OSDefineMetaClassAndFinalStructors( PMHaltWorker, OSObject )
+ #define super IOService
+ OSDefineMetaClassAndFinalStructors(IOPMrootDomain, IOService)
+ 
++static IOPMPowerStateQueue *gK60PowerStateQueue;
++
++extern "C" void
++k60_platform_sleep_boot_complete(void)
++{
++	if (gK60PowerStateQueue) {
++		gK60PowerStateQueue->submitPowerEvent(kPowerEventSystemBootCompleted);
++	}
++}
++
+ boolean_t
+ IOPMRootDomainGetWillShutdown(void)
+ {
+@@ -1733,6 +1743,7 @@ IOPMrootDomain::start( IOService * nub )
+ 		this, OSMemberFunctionCast(IOEventSource::Action, this,
+ 		&IOPMrootDomain::dispatchPowerEvent));
+ 	gIOPMWorkLoop->addEventSource(pmPowerStateQueue);
++	gK60PowerStateQueue = pmPowerStateQueue;
+ 
+ 	_aotMode = 0;
+ 	_aotTimerES = IOTimerEventSource::timerEventSource(this,

@@ -26,6 +26,7 @@ def main():
         default=Path('/Volumes/PongDev/Applications/Xcode.app/Contents/Developer'))
     a=p.parse_args();out=a.output_dir.resolve();out.mkdir(parents=True,exist_ok=True)
     source=ROOT/'drivers/PongAdreno'
+    power=ROOT/'drivers/PongPower'
     regs=(a.reference_dir/'gen7_reg.h').read_text() if a.reference_dir else (source/'PongAdrenoRegisters.h').read_text()
     needed=sorted(set(re.findall(r'\bGEN7_[A-Z0-9_]+\b',(source/'PongAdrenoGmu.c').read_text())))
     values={}
@@ -70,6 +71,18 @@ def main():
     cmd=commands[0].copy();cmd[cmd.index('-c')+1]=str(data);cmd[-1]=str(obj)
     subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
     framework=a.tree/'.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A'
+    # The DCVS level policy is plain C shared with the host test; compile it into
+    # this archive so the runtime thread and the test use one decision.
+    obj=out/'K60GpuFreqPlan.o'
+    cmd=commands[0].copy();cmd[cmd.index('-c')+1]=str(power/'K60GpuFreqPlan.c');cmd[-1]=str(obj)
+    cmd+=['-I'+str(power)]
+    subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
+    # The boost rules (touch hold, submit windows, fence bound) are the same
+    # plain C the host test asserts; the DCVS thread feeds them the ring state.
+    obj=out/'K60BoostPlan.o'
+    cmd=commands[0].copy();cmd[cmd.index('-c')+1]=str(power/'K60BoostPlan.c');cmd[-1]=str(obj)
+    cmd+=['-I'+str(power)]
+    subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
     obj=out/'PongAdrenoPlatform.o'
     cmd=['xcrun','clang++','-target','arm64-apple-ios16.0','-isysroot',sdk,
         '-mkernel','-ffreestanding','-fno-builtin','-fno-stack-protector','-mgeneral-regs-only',
@@ -81,14 +94,14 @@ def main():
         '-c',str(source/'PongAdrenoPlatform.cpp'),'-o',str(obj)]
     subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
     cpp_template=cmd.copy()
-    names=['PongAdrenoCp','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator','PongDsiPanel','K60Backlight']+['submit/'+n for n in [
+    names=['PongAdrenoCp','PongAdrenoDcvs','PongAdrenoNativeGlue','PongAdrenoScanout','PongAdrenoAccelerator','PongDsiPanel','K60Backlight']+['submit/'+n for n in [
         'NativeAdrenoBoard','NativeAdrenoClient','NativeAdrenoPublish','NativeAdrenoRing','NativeAdrenoCpInit','NativeAdrenoTimer','NativeAdrenoIrq','NativeAdrenoPwrup',
         'NativeAdrenoCpu','NativeAdrenoMemory','NativeAdrenoSmmuMemory',
         'NativeAdrenoSmmuContext','NativeAdrenoVm','NativeAdrenoSubmit','NativeAdrenoUserClient']]
     for name in names:
         obj=out/(Path(name).name+'.o');cmd=cpp_template.copy()
         cmd[cmd.index('-c')+1]=str(source/(name+'.cpp'));cmd[-1]=str(obj)
-        cmd+=['-I'+str(source/'submit')]
+        cmd+=['-I'+str(source/'submit'),'-I'+str(power)]
         subprocess.run(cmd,env=env,check=True);commands.append(cmd);objects.append(obj)
     # Sheng's late accelerator class: bind its genuine 20G81 IOAcceleratorES
     # ancestry, and defer its constructor until IOGPUFamily is loaded.

@@ -322,3 +322,73 @@ failed_gpu:
     d->poisoned=1;d->hfi.poisoned=1;
     return status;
 }
+/* Runtime DCVS, ported from UniXNU-zizhan PongAdrenoGmuEnableBusyCounter /
+ * PongAdrenoGmuBusyTicks / PongAdrenoGmuSetLevel (BSD-2-Clause-Patent). The
+ * counter counts 19.2 MHz CX XO cycles in which the GPU is busy; the select
+ * value 0x20 is the "CX busy" source. Only the counter setup writes; the two
+ * readers are read-only.
+ */
+PongGpuStatus PongAdrenoGmuEnableBusyCounter(PongGpuGmuDevice *d)
+{
+    if(!d)return PongGpuArgument;
+    if(!d->power_started || d->poisoned || d->hfi.poisoned)return PongGpuPrerequisite;
+    PongGpuGmuResult r={0};
+    PongGpuStatus status=healthy(d);
+    if(status)return status;
+    uint32_t select=0,enable=0;
+    if(core_write(d,GEN7_GPU_GMU_AO_GPU_CX_BUSY_MASK,0xff000000u,&r))return PongGpuIo;
+    if(core_read(d,GEN7_GMU_CX_GMU_POWER_COUNTER_SELECT_0,&select))return PongGpuIo;
+    if(core_write(d,GEN7_GMU_CX_GMU_POWER_COUNTER_SELECT_0,(select&~0xffu)|0x20u,&r))return PongGpuIo;
+    if(core_write(d,GEN7_GMU_CX_GMU_POWER_COUNTER_ENABLE,1u,&r))return PongGpuIo;
+    if(core_read(d,GEN7_GMU_CX_GMU_POWER_COUNTER_ENABLE,&enable) || (enable&1u)!=1u)
+        return PongGpuIo;
+    return PongGpuSuccess;
+}
+
+/* A 32-bit counter read across the two 16-bit halves can tear; re-read the high
+ * half and accept the sample only when both reads agree. */
+PongGpuStatus PongAdrenoGmuBusyTicks(PongGpuGmuDevice *d,uint64_t *ticks)
+{
+    if(!d || !ticks)return PongGpuArgument;
+    if(!d->power_started || d->poisoned || d->hfi.poisoned)return PongGpuPrerequisite;
+    for(unsigned attempt=0;attempt<4;attempt++) {
+        uint32_t low=0,high=0,verify=0;
+        if(core_read(d,GEN7_GMU_CX_GMU_POWER_COUNTER_XOCLK_0_H,&high) ||
+           core_read(d,GEN7_GMU_CX_GMU_POWER_COUNTER_XOCLK_0_L,&low) ||
+           core_read(d,GEN7_GMU_CX_GMU_POWER_COUNTER_XOCLK_0_H,&verify))return PongGpuIo;
+        if(high==verify){*ticks=((uint64_t)high<<32)|low;return PongGpuSuccess;}
+    }
+    return PongGpuBusy;
+}
+
+/* HFI GX_BW_PERF_VOTE: {vote type 1, GPU index, bandwidth index}. A refused
+ * vote leaves the request pending, so the HFI session is poisoned and the
+ * caller must stop voting until the next start.
+ */
+PongGpuStatus PongAdrenoGmuSetLevel(PongGpuGmuDevice *d,unsigned gpu_index,
+    unsigned bus_index,uint32_t *firmware_error)
+{
+    if(!d || !firmware_error)return PongGpuArgument;
+    if(!d->power_started || d->poisoned || d->hfi.poisoned)return PongGpuPrerequisite;
+    if(d->hfi.pending_header)return PongGpuBusy;
+    PongGpuStatus status=healthy(d);
+    if(status)return status;
+    uint32_t payload[3]={1,gpu_index,bus_index},header=0;
+    if(PongAdrenoHfiSend(&d->hfi,30,payload,3,&header)!=PongAdrenoHfiSuccess)return PongGpuIo;
+    uint64_t begin=0,now=0;
+    if(d->io.now_us(d->io.cookie,&begin))return PongGpuIo;
+    for(unsigned n=0;n<4000;n++) {
+        uint32_t output[16];size_t count=0;uint32_t error=0;
+        if(d->io.now_us(d->io.cookie,&now) || now<begin)return PongGpuIo;
+        if(now-begin>=100000)break;
+        PongAdrenoHfiStatus polled=PongAdrenoHfiPoll(&d->hfi,output,16,&count,&error);
+        if(polled==PongAdrenoHfiSuccess) {
+            *firmware_error=error;
+            return error?PongGpuPrerequisite:healthy(d);
+        }
+        if(polled!=PongAdrenoHfiEmpty)break;
+        if(d->io.wait_us(d->io.cookie,100))return PongGpuIo;
+    }
+    d->hfi.poisoned=1;
+    return PongGpuTimeout;
+}

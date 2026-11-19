@@ -16,6 +16,8 @@
 
 预算实例（2026-11-19，合并 `feat/120hz-panel` 时核算）：`board.toml` 当前 29 项 575 字节，`p120=1` 追加 7 字节为 582，`vsync=120` 追加 10 字节为 585；`p120=1` 叠加 `k60_backlight_control=1` 为 606，仍在 607 上限内；`vsync=120` 与 `k60_backlight_control=1` 同用会到 609，装不进同一张镜像——所以面板切档与背光控制改为**默认开启**，只保留 `p120=0` / `vsync=120` / `k60_backlight_control=0` 作为退出开关。
 
+探针镜像另有实测：2026-11-18 的 mode-1 探针为 30 项 603 字节（临时去掉 `applog=1`），余 4 字节；发布镜像仍以 `board.toml` 的完整参数为准。
+
 ## 一览
 
 | 参数 | 所属 | 接受值 | 未设时 | 陷阱 |
@@ -46,6 +48,14 @@
 | `pong_touch` | 触摸 | 真值 | 1 | 0 则整条触摸线不跑 |
 | `pong_init_path` | 启动链 | 路径 | 代码默认 | — |
 | `k60_autoreset` | 自检 | 秒 | 不重启 | 无看门狗时用于自动回环，2026-11-11 的可启动镜像带 300；排障期建议给足，否则崩在用户态也会立刻复位，抓不到日志 |
+| `pong_gpu_dcvs` | 电源 / GPU | 0 / 1 / 2 | 0（关闭） | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；1=16 ms 读 GMU XO 忙碌计数器并经 HFI id 30 投票，连续 8 次被拒停线程；2=再在启动时做一次升档投票并立即还原；image o 02:14 已上机（空闲、24 窗口、无投票）；image q 02:36 用 2 验证 HFI id 30 投票被接受（升档+还原各一次、错误码 0） |
+| `pong_gpu_max_level` | 电源 / GPU | 1..13 | 13 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`；DCVS 可投的最高档，越界回落 13，仅在 `pong_gpu_dcvs=1` 时读取 |
+| `pong_gpu_dcvs_min` | 电源 / GPU | 1..13 | 1 | 同上；空闲时允许降到的最低档，小于 1 夹到 1、大于最高档夹到最高档 |
+| `pong_gpu_dcvs_boost_ms` | 电源 / GPU | ≥ 0（毫秒） | 50 | 同上；GMU 忙碌计数从零转非零后唤醒档（两倍频率、至少 578 MHz）的保持时间，0 = 不保持 |
+| `k60_cpufreq` | 电源 / EPSS | 1/2/3/5/6/7/8 | 0（关闭） | `drivers/PongPower/K60CpuFreqProbe.cpp`；1=只读三域+L3，2=d0 最高非 turbo，3=三域+L3，5=16 ms `processor_info` 只读采样，6=d0 降到最低档（已上机），7=首个降档窗口起 10 s 按 governor 只降档写回并恢复（100 s 上限，已上机），8=同一窗口内双向写回并恢复（已上机）；2/3 为瞬态验证写（写前守卫、写后回读、立即恢复），4 被拒绝，9 已禁用（两次 0 字节卡死）；2/3 未上机，5 已于 2026-11-18 23:19 以 image l 只读上机（274 条样本），6 已于 2026-11-19 02:47 以 image n 上机，7 已于 03:26 以 image r 上机、8 已于 03:58 以 image s 上机（d0 双向生效，d1 写回不被 EPSS 接受）；探针镜像需去掉 `applog=1` 才不超 607 字节 |
+| `platform-sleep` | 电源 / 睡眠 | 0 / 1 | 0（关闭） | `drivers/ArmCpu/ArmCpu.cpp`；仅当值为 1、XNU 侧 `arm64_platform_sleep_hook` 存在且 GIC 映射成功时安装 hook，`quiesceCPU` 才进入 `ml_arm_sleep`；默认 0 时整条路径不安装，image z 用它做默认启动回归 |
+| `platform-sleep-wake-after` | 电源 / 睡眠 | 秒，0 = 不设期限 | 0 | 同上；启动核等待的绝对 CNTV 期限，与 10 s tick 取较小值。没有唤醒源也没有该期限时 hook 直接返回（`unarmed`），所以计时唤醒测试必须同时给 `platform-sleep=1` 和本参数 |
+| `k60_slp` | 电源 / 睡眠 | 秒，0 = 不触发 | 0 | `drivers/PongPower/K60PlatformSleep.cpp`；仅 bring-up 诊断用，非 0 时在板级 hook 注册后启动内核线程，等待指定秒数后调用 `IOPMrootDomain::sleepSystem()`，用于无人按电源键时验证 `platform-sleep=1`；w9/w10 已用它进入 `IOCPUSleepKernel`，但完整恢复挂死，发布镜像不应带它 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
@@ -502,6 +512,51 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 `CONTROL_TRIGGER` 仍然全面禁止**。2026-11-16 15:03 裁决撤回 C 与功能图批准；
 `adsp-20261116a` 被门禁拒绝，无 boot.img、未上机。下一次 rail-only 须先完成离线审计再由 Lead 决定，
 不增参数、不扩大到其它 DRV；参数字节数须从真实镜像量，不能沿用旧 592/593 B 估算。
+
+### `k60_cpufreq`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不探测） |
+| 取值 | 1 / 2 / 3 / 5 / 6 / 7 / 8（4 被拒绝，9 已禁用） |
+| 来源 | `drivers/PongPower/K60CpuFreqProbe.cpp`（`PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode))`）；`K60Battery.cpp:517` 在电池租约判断之前做第一次读取，`K60Battery.cpp:546-550` 在 `begin` 成功后 5 s 调用 `k60_cpufreq_probe_late()` |
+| 作用 | 1 = 只读 EPSS 三域与 L3（enable/state/vote/LUT 行）；2 = 只给 domain 0 投最高非 turbo 档；3 = 三域 + L3；5 = 内核线程每 16 ms 读 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，把每 CPU 的 user/system/idle/nice tick 差分后按域取最忙 CPU，喂 governor 并打印 busy/governor/hw，只读、不投票；6 = 只给 domain 0 投**最低**非 turbo 档（降档不需要抬压，是首次写入的最安全方向）。2/3/6 是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器原值，写后逐条回读，再立即写回原值；不会留下持续投票。6 在写后与恢复后各等 20 ms，日志追加 `state=<写前>-><写后>-><恢复后>`；7 = 复用 5 的采样线程，从第 10 秒起观察 governor，在首次出现 governor 档位低于已投档位的窗口（启动突发约 78–85 s 后才首次降档）起 10 秒内把后续**降档**决策写进 EPSS（升档请求只打印 `raise refused` 并退回已投档位，最多 16 票），每次写后回读并打印 `mode7 apply … state=<写前>-><写后>`，到 10 秒窗口结束、100 秒上限或线程停止时恢复所有写过的域并打印 `mode7 restore …`。7 只降不升，因此同样不涉及抬压；8 = 与 7 同一受限期窗口，但**双向**写回（升档也写），投票上限 32 次，DCVS 控制位每次投票重新读取，并每 64 窗口重试 d1/d2 的 `DOMAIN_STATE` 匹配（辅核启动前读到 0，无法查表）。依据是参考 `CpuFreqProbe.cpp:198-203, 293-296` 对升档也只写工作点、由 EPSS 固件完成电压过渡。8 只在 d0 成立：d1 的写回回读成功但 `state` 不变、硬件仍由固件自主变频；9 = DCVS 控制位/单行/全行写入探针，**已禁用**：image u 与 image t 两次带 9 启动都在串口出现前卡死（0 字节、`port-not-observed`），`3a0a5511` 在入口直接拒绝 9。 |
+
+**为什么默认关闭**：EPSS 是 CPU 频率/电压的现场控制点。官方 §5 要求 OS 明确外设电源投票的所有权与引用计数；在 governor、供电和温控路径接入之前，任何持续写都可能与固件或其它 owner 冲突。探针镜像必须确认设备独占空窗，首次只做 d0 单域。
+
+**陷阱**：`k60_cpufreq` 不在 `board.toml` 的默认参数里。探针镜像若保留 `applog=1`，命令行会超过 DarwinBoot 的 607 字节上限（实测 612 字节）；构建时必须临时去掉 `applog=1`，上机结束后恢复，并把该镜像视为探针镜像而非发布镜像。该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`，但参数 gate 仍会检查 board 契约的其余部分；image i/j/k 构建时 gate 尚未接受该名字。`k60_cpufreq=2/3` 的升档写入仍未上机；`k60_cpufreq=6` 已于 2026-11-19 02:47 以 image n 上机（d0 `state=81->15->81`、`readback=ok restored=1`），`k60_cpufreq=5` 已于 2026-11-18 23:19 以 image l 只读上机（159,147 B console，274 条 `sample win=`，d0 可降到 300 MHz，无 `sample stop`，因为 300 s autoreset 先到），23:53 又以 image m 复测 88 条。`k60_cpufreq=7` 已于 2026-11-19 03:26 以 image r 上机：`mode7 armed win=854 d0 level=9`、`apply d0 level=9 (1324800kHz) readback=ok state=81->69`，10 s 后 `restore domains=1 votes=1`，硬件回到 1.5552 GHz；它在首次降档窗口后 10 s 内改变运行频率，探针镜像应保留 300 s 的抓取预算，并确认设备独占空窗。首次写入建议用 6 而不是 2：降档不抬压，日志里的 `state` 三元组能直接说明写入与恢复是否生效。`k60_cpufreq=8` 已于 2026-11-19 03:58 以 image s 上机（console 165,881 B，sha256 `d98bdc30…`，277 条 `sample win=`）：d0 双向写回共 11 票后 `mode8 restore domains=2 votes=11`，升档 `state=81->94`、降档 `state=94->59`，恢复后硬件回到 1.5552 GHz；d1 `state=130->130` 且采样 hw 仍 2.496 GHz，因此 8 的升档能力只在 d0 成立。帧下限（§5 :116）自 image w 起接入：采样线程读 CP 环提交窗口喂 boost 规划，mode 8 的升档窗口把 60 % 下限写成投票；image w（sha256 `005b3095…`）05:07 上机 276 条样本全部 `fr=0`，启动全程没有 GPU 提交，下限未激活，`sample` 行末尾带 `fr=<0|1>`。触摸计数（补丁 `0622-k60-touch-activity.patch`）自 image x 起导出：计数变化喂 `k60_boost_touch()`，1 s 窗口内 governor 的 `boost` 把 P 域抬到 top；`sample` 行末尾再带 `tb=<0|1>`，触摸时日志打印 `touch boost active`/`released`。image x 于 05:47 上机触摸：12 条 `touch boost` 日志、7 条 `tb=1`、计数 1→7，d0 governor 被抬到 1,804,800 kHz；但 mode 8 的写窗口在 ~20 s 已 `restore domains=1 votes=5`，触摸（~121 s）没写进寄存器。commit `9b8a36b6` 给触摸/帧重开短窗口（触摸 1 s/63 窗口、帧 300 ms/19 窗口，总票数 32），日志打印 `touch window`/`frame window`，该重开路径进了 image y（sha256 `71141ac7…`），但所有投票仍受 `kApplyLatestEndWindow=6250`（100 s）限制；`a0e8a060` 让信号窗口不再受该上限（仍受 32 票预算），archive 137,384 B sha256 `b65a10f1…`，image z（sha256 `59921097…`，30 项 603 B）用这份代码构建，06:47 尝试上机时设备不在 fastboot，未上机。image ab（sha256 `a0563a08…`，kernel `e5a26b91…`，30 项 603 B）07:18 上机触摸成功：win=6937 `touch window span=63`，d0 `level=0 state=36->15` 后 `level=13 state=15->94`，win=6976 样本 `d0=1000/1804800kHz/hw1804800kHz … tb=1`，窗口末 `restore domains=3 votes=27`；第二触 win=7207 仅 5 票即 `votes=32`，暴露票数整轮累计；`boost` 当时只作用于共享簇，轻触摸抬不动 d0。commit `43af2a5c` 把票数改为每窗口重置、`boost` 对每个域取 top，host 154 项，archive 137,520 B（`5d6d1203…`），image ac（sha256 `0d5a5411…`，kernel `001003aa…`）07:34 与 07:43 两次上机，启动与 mode 8 写回正常（`restore domains=2 votes=9`/`votes=7`），但两次采集都没有触摸（276/273 条样本全 `tb=0`），轻触摸与第二触预算仍未验证。`k60_cpufreq=9` 于 2026-11-19 07:56 以 image t（只含 mode 9、无温控补丁，boot.img sha256 `567d9b62…`）上机：fastboot 报 `Booting OKAY`，但 console 0 字节、`capture.json state=port-not-observed`、`returnedToFastboot=false`，需强制复位；它与 04:36 的 image u（mode 9 + thermal）同一签名，共同因素是 mode 9 而非温控补丁，`3a0a5511` 已让入口拒绝 9。
+
+### `pong_gpu_dcvs`
+
+| 项 | 值 |
+|---|---|
+| 类型 | uint32 |
+| 默认 | 0（不启动 DCVS） |
+| 取值 | 0 = 关闭；1 = 启动 DCVS；2 = 启动并做一次 HFI 投票探针（升一档再立刻还原） |
+| 来源 | `drivers/PongAdreno/PongAdrenoDcvs.cpp`（`PE_parse_boot_argn("pong_gpu_dcvs", &on, sizeof(on))`）；`PongAdrenoPlatform.cpp` 在 Adreno 启动记录完成后调用 `pong_adreno_dcvs_start()`，CP 启动失败则不启动 |
+| 作用 | ≥1 = 起 16 ms 线程：读 GMU XO 忙碌计数器 → `k60_gpu_governor_window()` → HFI id 30 投 `{1, level, bus index}`（第三字为带宽档索引）；计数器从零转非零、或 2/4 提交窗口活跃且 GPU 空闲时先布防 50 ms 唤醒档（两倍频率、至少 578 MHz，日志 `DCVS prewake`）；连续 8 次投票被拒就停线程并毒化 HFI。=2 时另在进入循环前投一档（`DCVS probe up`）并立即还原（`DCVS probe restore`），用于无 GPU 负载时验证 HFI id 30 是否被接受。日志前缀 `PONG ADRENO: `，每 10 s 一条档位汇总；触摸计数变化后 1 s 内目标档强制为 top，并打印 `DCVS touch top`/`DCVS touch release`（计数与时间在参数里）。 |
+
+伴随参数（都未列入 board 契约，只有 `pong_gpu_dcvs`≥1 时才读取）：
+
+| 参数 | 默认 | 含义 |
+|---|---|---|
+| `pong_gpu_max_level` | 13 | DCVS 可投的最高档；越界（<1 或 >13）回落 13，`table.count = top` 所以它同时是档位表的顶 |
+| `pong_gpu_dcvs_min` | 1 | 空闲允许降到的最低档；<1 夹到 1，>最高档夹到最高档 |
+| `pong_gpu_dcvs_boost_ms` | 50 | 忙碌计数由零转非零、或提交窗口提前布防后的唤醒档保持毫秒数；0 = 立即回落，不再保持 |
+
+触摸保持不另设参数：窗口固定 1 s，与官网 §5 :115 的 `gpu-dcvs-boost-ms` 一致。`pong_gpu_dcvs=1` 时触摸会强制目标档为 top，窗口结束立刻回到 governor 的档位；`=2` 的启动探针不受触摸影响。
+
+**为什么默认关闭**：官方 §5 要求先处理稳压器/互连/温控顺序。DCVS 只发 HFI 投票，没有温度与电压顺序，
+帧信号已从 CP 环接入但没有 GPU 负载验证，触摸计数已接入但没有真机触摸；首次上机只验证计数器在动、投票是否被接受。
+
+**陷阱**：image o（2026-11-19）用探针 board（去掉 `applog=1`）+ `pong_handoff_publish=1` +
+`pong_gpu_dcvs=1`，共 30 项 606 字节，在 607 字节上限内；再加 `applog=1` 会超限。
+该参数已列入 `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS`。image o 已于 02:14 上机：
+线程启动、24 条空闲汇总、无投票、无 panic；因为整轮没有 GPU 提交，投票路径只有 `=2` 的探针能验证。
+image q（`pong_gpu_dcvs=2`，2026-11-19 02:36）返回
+`DCVS probe up result=0 a=0x200000000 b=0x1` 与 `DCVS probe restore result=0 a=0x100000000 b=0x0`：
+HFI id 30 的升档与还原投票都被固件接受（错误码 0），整轮仍空闲、29 条汇总窗口、无 panic。
 
 ### `pong_handoff_publish`
 

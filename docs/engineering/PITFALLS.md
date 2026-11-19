@@ -6892,3 +6892,44 @@ K60WALL catalogue size=772 resid=7420 rejected
 **Check.** `grep -n 'resid != 0' patches/xnu/0618-k60-wallpaper-seed.patch` 应为空；
 `python3 scripts/tests/test-judge-wallpaper-log.py` 必须包含 `size=772 resid=7420 rejected` 一例，
 且判定器对它打印 `diagnosis: resid 判据回归 …`（而不是泛泛的 §1）。
+
+## P-249
+
+**现象（2026-11-19，D9 合并审查）**
+0622-k60-modem-qrtr.patch（蜂窝线的 bsd/dev/qcom_glink.c）把 size 为 0 的
+intent 当成整条消息损坏：
+
+`c
+if (!size) return QcomGlinkCorrupt;   /* id 0 is a legal buffer number */
+`
+
+本树的 drivers/PongPower/QcomGlink.c 只丢那一条、继续处理后面的条目。两条线各自
+都有「理由写得很足」的注释，**合并时无论选哪边都能自圆其说**——这正是分歧会被静默
+「修回去」的条件。
+
+**真因**
+id 与 size 是两件事：id 0 是合法 intent id，size 0 表示发送方还没填这个槽位。
+整条列表判损坏，会把 DSP 一次广播里的其它有效 intent 一起扔掉，链路随后因为「没有可用
+intent」而停在 QcomGlinkAgain；只丢占位符则邻居照常可用。但「更严格」听上去总是更安全，
+所以下一次有人读这两份代码时，很容易把本树的实现改成蜂窝线的版本。
+
+**修法**
+1. drivers/PongPower/QcomGlink.c 的守卫旁写明 D9：来自哪个补丁、为什么这里保留
+   逐条丢弃（提交 142706ad）。
+2. scripts/tests/test-k60-glink-intent.c 用真实代码钉住语义：零长度 intent 后面跟一个
+   正常 intent，正常那个**能用来发数据**（qcom_glink_send 选中它的 id）、也能继续收数据；
+   另有「只有占位符」「占位符夹在两个有效之间」「后续 intent 消息不受影响」四种情形，共
+   70 项断言。用蜂窝线的写法做变异测试，这套断言失败 37 项——两种读法不会都通过。
+3. scripts/tests/run-k60-glink-host.sh 一条命令重跑；scripts/tests/test-k60-glink-d9.py
+   作为登记的门禁，同时检查源码守卫与上面那条文档记录。
+
+**教训**
+1. **「更严格」不是理由，语义才是。** 同一个字段的两种解读都自洽时，必须写清哪种是本树的
+   约定，以及为什么——否则合并冲突的解决方式取决于谁先看到。
+2. **分歧要有一个会失败的测试。** 只写注释的分歧，在下一次合并里等于没有记录；变异测试
+   （把对方的写法放回去，确认本树测试变红）才是「这条分歧是被选择的」的证据。
+3. 跨线的补丁共用同一份上游文件时，**分歧点要能被搜到**：注释里带上补丁名和 D9 编号，
+   比写「见上文」有用。
+4. 编号是全局的：本条最早写成 P-248，与 main 的 `vn_rdwr` 条目撞号，合并时整段被当成
+   同一处冲突——**先看对方占没占这个号，再写自己那条**。
+

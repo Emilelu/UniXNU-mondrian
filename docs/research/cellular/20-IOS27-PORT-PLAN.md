@@ -509,3 +509,50 @@ K60 READY DRIFT the patches leave bsd/dev: bsd/kern/kern_exec.c
 2. 18.3 是 27 特有的工作量，且**必须等 27 的 kext**；在那之前动它只能靠猜。
 3. 18.4 全部排在 18.2/18.3 之后，不要提前开工。
 4. 18.5 里「27 树 pin `QcomBaseband`」与本线的 `conffiles-port.txt` 是同一步的两个半边，落地时要一起做。
+
+## 19. carried 文件的两个 include：一个要跨线携带，一个不该带
+
+`check-ios27-readiness.py` 新加的「引用头文件审计」（每个 `+#include "…"` 必须由补丁集自己安装，或者在 27 树里找得到）第一次跑就把这件事翻出来：
+
+```
+K60 READY DRIFT 4 quoted include(s) resolve nowhere: pong_pmic_rail.h (pong_ipa.c)
+  pong_smem.h (pong_ipa.c) pong_pmic_rail.h (pong_modem_link.c) pong_smem.h (pong_modem_link.c)
+```
+
+两个头都不属于 cellular 的 0620..0623：
+
+| 头 | 16 线来源 | 大小 | 我们的调用点 |
+|---|---|---|---|
+| `pong_smem.h` | `patches/xnu/0611-k60-smem-handoff.patch`（`bsd/dev/pong_smem.h` + `.c`） | 25 + 151 行 | `K60ModemLink.c` 14 处、`K60Ipa.c` 3 处（`k60_smem_partition/find/alloc`） |
+| `pong_pmic_rail.h` | `patches/xnu/0613-k60-adsp-pas.patch`（`bsd/dev/pong_pmic_rail.h` + `.c`） | 60 + 243 行 | **零处**：`k60_rail_probe()` 在 `drivers/PongCellular/` 下没有任何调用者 |
+
+三个补丁 `git apply --check` 全绿，但 27 树既没有这两个文件，也没有能提供它们的补丁——这就是「补丁打得上 ≠ 编得过」。
+
+### 19.1 处理方式
+
+1. **`pong_smem` 携带**：0611 的这两个 section 只 include 自己（`pong_smem.c` 只有一行 include 自己的头，头只用 `<stdint.h>`），所以 `port-cellular-to-xnu27.py` 新增 `CARRY = (("0611-k60-smem-handoff.patch", ("bsd/dev/pong_smem.h", "bsd/dev/pong_smem.c")),)`，把这两段**逐字节**搬成 `0630-k60-smem.patch`（8,005 B），`conffiles-port.txt` 因此多一行 `bsd/dev/pong_smem.c`（19 条）。
+2. **`pong_pmic_rail` 不带**：`k60_rail_probe()` 零调用者，携带 246 行驱动只为满足一个 include 是把另一条线的代码拖进来。改成在生成时删掉这一行 include（`DROPPED_INCLUDE`），并让 readiness 断言「没有任何 ported 补丁还需要 pmic rail」。
+
+删一行不等于改一行：hunk 头里的行数必须跟着重算，否则 `git apply` 报 `corrupt patch at line 3561`。`drop_include()` 改成按 hunk 体重新数增删与上下文行，重写 `@@ -a,b +c,d @@`。
+
+### 19.2 结果
+
+```
+K60 READY ok   6 port artifacts, 19 build entries
+K60 READY ok   38 patch targets, all under bsd/dev
+K60 READY ok   all 38 sections create new files, no target twice
+K60 READY ok   19 quoted includes resolve inside the patch set or the tree
+K60 READY ok   no ported patch needs the pmic rail driver
+K60 READY OK every recorded expectation still holds
+```
+
+| 产物 | 大小 | 说明 |
+|---|---|---|
+| `0626-k60-modem-image.patch` | 29,107 B | 不变 |
+| `0627-k60-modem-qrtr.patch` | 170,701 B | 少了 pmic include |
+| `0628-k60-ipa.patch` | 174,480 B | 少了 pmic include |
+| `0630-k60-smem.patch` | 8,005 B | 0611 的 smem 对，逐字节 |
+| `series-port.txt` | 485 B | 五条 bare 名 + 注释 |
+| `conffiles-port.txt` | 681 B | 19 条 |
+
+`0629` 没重生成：它要等 27 树的 data mount 锚点，仓库里那份仍是对着真实树生成的。

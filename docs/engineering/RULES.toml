@@ -642,3 +642,11 @@ source = "docs/engineering/PITFALLS.md:P-207"
 statement = "判据用子串匹配结论词时，否定写法会把肯定词包在里面：`not-served` 以 `served` 结尾，于是被拒绝的读请求被判成 PASS。结论词必须按 token 精确比对，并配一份否定夹具断言必须 FAIL。"
 check = "grep -q 'The outcome token decides' scripts/judge-cellular-flight.py"
 note = "2026-11-20 judge-cellular-flight.py 的 served 正则会命中 not-served（\b 也救不了）；第四份夹具把 served 换成 not-served 并断言该项 FAIL，自测输出改为 four verdicts and the served/not-served guard。"
+
+[[rule]]
+id = "P-208"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-208"
+statement = "跨线携带的文件如果 include 了别条线的头，git apply --check 仍会全绿，但构建会在二十分钟后失败。携带集合要么把这些头一起搬过来，要么用调用点证据证明它没被用到并把 include 删掉；每个 +include 都要有「补丁集自装 or 目标树存在」的审计。"
+check = "grep -q 'quoted includes resolve inside the patch set' scripts/check-ios27-readiness.py"
+note = "2026-11-20 27 线的 0627/0628 include pong_smem.h 与 pong_pmic_rail.h（来自 16 线 0611/0613）：smem 有 17 处调用，逐字节搬成 0630；rail 零调用者，生成时删 include 并重算 hunk 行数。"

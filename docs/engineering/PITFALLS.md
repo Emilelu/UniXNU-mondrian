@@ -5039,3 +5039,25 @@ Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`
 
 一般化的教训：**判据匹配的是一个「结论词」时，永远按 token 比对，不要按子串**。否定的写法
 （`not-`、`un`、`non-`、`-less`）几乎总是把肯定的词包在里面。
+
+## P-208 — 补丁打得上不等于编得过：carried 文件 include 的头在另一条线的补丁里
+
+27 线的三个携带补丁 `0626/0627/0628` 对 27 树 `git apply --check` 全绿，`--verify` 也报 ok。
+但 27 树里根本没有 `pong_smem.h` 和 `pong_pmic_rail.h`：它们由 16 线的 `0611-k60-smem-handoff.patch`
+与 `0613-k60-adsp-pas.patch` 安装，而那两个补丁不属于 cellular 的 0620..0623，没有跟着搬。
+
+`git apply --check` 只验证「补丁能不能落到树上」，不验证「落下去之后能不能编」。这类缺口在二十分钟
+的内核构建里才会炸，而那时已经很难分清是移植错还是依赖缺。
+
+发现它的是 `scripts/check-ios27-readiness.py` 新加的引用审计：把补丁里每个 `+#include "…"` 拿出来，
+必须由补丁集自己安装、或者在目标树里找得到。第一次跑就报出四个：
+
+```
+K60 READY DRIFT 4 quoted include(s) resolve nowhere: pong_pmic_rail.h (pong_ipa.c) ...
+```
+
+处理原则是「查调用点，而不是照搬 include」：`k60_smem_*` 有 17 处调用，两个文件只 include 自己，
+于是整段搬成 `0630-k60-smem.patch`；`k60_rail_probe()` 零调用者，于是生成时删掉那行 include
+（删 `+` 行要按 hunk 体重算 `@@ -a,b +c,d @@`，否则 `corrupt patch`）。
+
+一般化的教训：**跨线携带文件时，依赖要么一起携带、要么证明它没被用到；「打得上」不是证据。**

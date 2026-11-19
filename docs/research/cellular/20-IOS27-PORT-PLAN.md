@@ -309,3 +309,40 @@ K60 READY OK every recorded expectation still holds
 
 本文的倾向是路线 1（与 16 线同一套维护责任，不把构建接线塞进补丁序列），但这一条要 Lead 定，
 因为 27 线的构建驱动不在本分支。
+
+## 15. 外部符号依赖：0628 的 IPA 需要一个不属于本线的驱动
+
+2026-11-20 06:14 审计：把 carried 源码里所有 `extern` 声明抽出来，逐个看它是否由我们自己定义。
+
+```sh
+grep -rhoE 'extern [a-zA-Z_].*\(' drivers/PongCellular/*.c drivers/PongCellular/*.h \
+  | sed 's/.*[ *]\([a-zA-Z_][a-zA-Z0-9_]*\) *(.*/\1/' | sort -u
+grep -rhoE '\b(native_[a-z_]+|pong_[a-z_]+)\(' drivers/PongCellular/*.c drivers/PongCellular/*.h | sort -u
+```
+
+结果分三类：
+
+| 类别 | 符号 | 27 线上从哪来 |
+|---|---|---|
+| 内核 API | `ml_io_map_unmappable`、`pmap_find_phys`、`flush_dcache64`、`delay` | 27 树自身（§4.1 已逐个核对过路径） |
+| 本线自备 | `k60_modem_scm_invoke`、`k60_modem_qrtr_probe`、`k60_modem_rails_vote`、`k60_modem_transport_prepare/stale`、`coachz_*` | carried 的 `bsd/dev/pong_*.c` 自己定义 |
+| **别的线** | `ArmSmmu4KBuild`、`ArmSmmu4KProgramDisabledContext` | **没有**：定义在 `drivers/PongAdreno/ArmSmmu4K/`，属 GPU 线 |
+| 弱兜底 | `native_pong_ufs_read_named_volume` | 无 `drivers/NativeUfs` 时走 0627 里的弱定义（§7.1） |
+
+`drivers/PongCellular/K60Ipa.c:737` / `:739` 是这两个符号的 `extern`，`:1036` / `:1066` 是调用点；
+`K60Ipa.c:675-676` 的注释已经写明「bsd/dev does not see the ArmSmmu4K headers」，所以结构体是本地镜像定义的。
+27 的 feeds 树是纯 XNU，`ls /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc/drivers` **不存在**，
+`grep -rl ArmSmmu4K` 在该树下零命中——也就是说 0629 的调用点解决之后，**0628 仍会在最终链接期缺这两个符号**。
+
+三条出路：
+
+1. GPU 线把 `drivers/PongAdreno/ArmSmmu4K/` 带到 27 线（连同我们提交 `b9de56b9` 的 writeback==2 放宽），
+   本线不动代码。这是唯一的「真功能」路线：IPA 要真的把 SMMU 表写进去。
+2. 照 `native_pong_ufs_read_named_volume` 的做法，在 `K60Ipa.c` 里加弱定义兜底（返回非 0，打印一行
+   `ipa smmu: no ArmSmmu4K in this kernel`）——27 stage-0 能链，IPA 的 SMMU 段确定性拒绝而不是链接失败。
+   代价：16 线要重生成 0623 并重建镜像（当前 k53 镜像 `f9afac0d…` 对应的 head 是 `11458c12`，改了就分叉），
+   所以要与 k53 的 slot 排期协调，不在它飞之前动。
+3. 27 侧先不编 IPA（`pong_ipa` 缺省即 gated，k44 mode3 已实测），把 0628 推迟到 F3/F4。
+
+本文倾向 **2 在 16 线先落地 + 1 在 27 线成立后自然胜出**（弱定义被强定义覆盖，与 UFS 读同一套机制），
+但改 `K60Ipa.c` 的时机要与 k53 飞行协调，属于 Lead 的排期决定。

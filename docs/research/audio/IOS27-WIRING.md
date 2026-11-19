@@ -18,6 +18,12 @@
 ⇒ 功放这一半（GENI I2C、ACF 回放、开关、SYSST）**不依赖 GLINK**，`PongAudioAmp.c` 可以单独编译、
 单独在 27 上跑出 `amp0 id=0x2113`。只有 AudioReach 图那半边需要 GLINK，而它不在本清单里。
 
+表里第一个函数**在宿主上真的跑过**：`sh scripts/tests/portability/run-probe.sh` 把零页当 MMIO 调用
+`pong_audio_amp_probe()`——`pong_audio_probe` 缺席时它返回 0 且一行不打印，传入 1 时打印
+`amp probe start` 并在第一个缺失的硬件答案处停下（零页 ⇒ `amp probe stop: GPLL0 not locked`），
+ASan/UBSan 无报错。⇒ 入口自门控、每条失败路径都有名字，27 上找不到日志时先怀疑门控与 `PONG`，
+而不是怀疑函数没被调到。
+
 这张表不是推断：`scripts/tests/portability/run.sh` 用只声明这六个符号与三个类型
 （`vm_offset_t` / `vm_size_t` / `boolean_t`）的桩头文件，把 `PongAudioAmp.c` 编过，
 输出 `STUBS OK PongAudioAmp.c`。用的是 `-fsyntax-only` 而不是 `-c`：文件里有 arm64 的

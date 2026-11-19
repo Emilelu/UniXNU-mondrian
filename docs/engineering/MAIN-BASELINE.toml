@@ -345,3 +345,19 @@ libs 阶段直接死。为什么修产物而不是打补丁：同一段参数列
 linux-arm64e-target.patch 改写，两条补丁不能共存（见 6aee6606）。
 本次尚未构建成功过：上一轮被合规注册表挡住，这一轮是首次用它跑 F1。
 """
+
+
+[[entry]]
+sha = "723caf19"
+state = "build-only"
+date = "2026-11-20"
+note = """把 __SPI_AVAILABLE 的定义放进 27 树自己（patches/xnu-12377/0530 → 
+EXTERNAL_HEADERS/Availability.h），而不是补 fakeroot。原因是实测量出来的：
+prepare-xnu.py 每次运行都从 EXTERNAL_HEADERS 重新拷贝 Availability*.h 到
+fakeroot，所以 ca58e28a 那种「修产物」的写法在 libs 之前就被覆盖——同一处
+gethostuuid.h:41 继续报语法错。同一次提交删掉了那个 helper 与它的调用，
+避免同时存在两个只有其中一个生效的机制（P-251 形状）。
+验证：xnu ac9718f 的 scratch 副本上 git apply --check OK；
+InstrProfiling.c 以 arm64e-apple-ios27.0 -mkernel -fsyntax-only 通过。
+尚未出图：这一版是首次带它跑 F1。
+"""

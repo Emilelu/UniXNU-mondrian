@@ -418,3 +418,29 @@ component: 条目在通用构建器下是空操作，而 build-fileset-release-r
 的那棵树的 build/，wrapper 把它挪到 unixnu 的 <tree>/build/ 下。
 尚未出图：这一版第一次让 27 的 archive 阶段有希望走完。
 """
+
+[[entry]]
+sha = "bfb8008e"
+state = "build-only"
+date = "2026-11-20"
+note = """把 0531-k60-audio-amp-probe-call.patch 的 hunk 上下文从三行收成一行，
+锚点只留 bsd_init_kprintf("calling vfsinit\n")。真因不是补丁写错，而是同一
+series 里排在它前面的 offline-component-load-probes.patch 在 vfsinit() 之后
+插了一整段 probe 块，等 0531 应用时原来的三行上下文已经不存在了：干净 feed
+（ac9718f）上 git apply --check 能过，因为那里还没插那段。
+尚未出图：这一版只让序列能走完，内核还没链接出来。
+"""
+
+
+[[entry]]
+sha = "30370cb9"
+state = "build-only"
+date = "2026-11-20"
+note = """上一条 bfb8008e 手写 hunk 头时把 0531 里 15 行说明性注释一起删了——那段
+注释是「为什么 call site 不能用 #if defined(XNU_PONG_AUDIO) 保护」的唯一记录：
+那个宏只到 PongAudioAmp.o，在 call site 用它保护会静默把调用编译掉。
+这次改成从 series 前缀重放里生成：在 scratch clone 里应用 0531 之前的全部补丁，
+把 bsd_init.c 改到目标内容，再让 git diff -U1 算 hunk 头，注释与上下文一起回来。
+行号随之从 699 变成 795，那是 0531 实际看到的树，不是干净 feed 的行号。
+尚未出图：这一版只让序列能走完，内核还没链接出来。
+"""

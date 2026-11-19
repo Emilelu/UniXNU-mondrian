@@ -57,6 +57,46 @@ def audit(label: str, text: str) -> None:
           "SMCCC" in text and "x4..x17" in text)
 
 
+def compile_probe() -> bool:
+    """Cross-compile the real wrapper when a target-capable clang exists.
+
+    The host cannot execute smc, but an aarch64 compile proves the operand and
+    clobber lists are legal and that the object still contains the call.  The
+    Windows host has no such clang, so its absence is a note, not a pass.
+    """
+    import shutil
+    import subprocess
+
+    clang = shutil.which("clang")
+    if not clang:
+        print("note: no clang on PATH; the aarch64 compile probe is skipped")
+        return True
+    stubs = ROOT / "build" / "smccc-gate" / "stubs"
+    (stubs / "pexpert").mkdir(parents=True, exist_ok=True)
+    (stubs / "sys").mkdir(parents=True, exist_ok=True)
+    for header in (stubs / "pexpert" / "pexpert.h", stubs / "sys" / "systm.h"):
+        header.write_text("int printf(const char *, ...);\n", encoding="utf-8")
+    out = stubs.parent / "K60AdspPas.o"
+    result = subprocess.run(
+        [clang, "--target=aarch64-none-elf", "-std=c11", "-O2", "-Wall", "-Wextra",
+         "-Werror", "-I", str(stubs), "-c",
+         str(ROOT / "drivers" / "PongPower" / "K60AdspPas.c"), "-o", str(out)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if "unknown target" in (result.stderr or "") or result.returncode == 127:
+        print("note: this clang has no aarch64 target; the compile probe is skipped")
+        return True
+    check("the wrapper compiles for aarch64 with -Werror", result.returncode == 0,
+          (result.stderr or "").strip()[:400])
+    if result.returncode == 0:
+        import subprocess as sp
+        disasm = sp.run([clang, "-S", "--target=aarch64-none-elf", "-O2", "-I", str(stubs),
+                         str(ROOT / "drivers" / "PongPower" / "K60AdspPas.c"), "-o", "-"],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace")
+        check("the object keeps the smc instruction", "smc\t#0" in (disasm.stdout or ""))
+        check("the object is not empty", out.is_file() and out.stat().st_size > 0)
+    return result.returncode == 0
+
+
 def main() -> int:
     for copy in COPIES:
         check(copy.name + " exists", copy.is_file(), str(copy))
@@ -84,6 +124,8 @@ def main() -> int:
     text = text_of(old)
     check("the old operand shape is rejected", READ_WRITE not in text)
     check("the old shape has no x8..x17 clobber", '"x17", "memory"' not in text)
+
+    compile_probe()
 
     verdict = f"TESTS OK {checks} checks" if failures == 0 else \
         f"TESTS OK {checks} checks ({failures} failure(s))"

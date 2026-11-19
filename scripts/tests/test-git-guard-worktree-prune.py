@@ -21,7 +21,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 GUARD = ROOT / "scripts" / "git-guard"
-WORK = ROOT / "build" / "git-guard-prune-tests"
+WORK = ROOT / "build" / ("git-guard-prune-tests-" + str(os.getpid()))
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 failures = 0
@@ -58,8 +58,7 @@ def tree_digest(path):
 
 
 def make_fixture(real_git):
-    if WORK.exists():
-        shutil.rmtree(WORK)
+    shutil.rmtree(WORK, ignore_errors=True)
     WORK.mkdir(parents=True)
     main = WORK / "main"
     linked = WORK / "linked"

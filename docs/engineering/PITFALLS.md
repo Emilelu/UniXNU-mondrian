@@ -7206,6 +7206,12 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 2. 用例必须**从链接工作树里跑**：`cd <linked worktree> && git worktree prune` 要被拒，并断言
    `.git/worktrees/` 的内容字节不变。只在主仓测是假绿——这次就是这样漏掉的。
 3. Windows 侧不要碰 `prune`；确实要清理时先看 `git worktree list` 的 prunable 计数。
+4. **这个指针只能照顾一侧。** 管理目录的 `gitdir` 写成 `/mnt/e/...`（WSL 能 stat、守卫在 WSL），
+   Windows 侧的 `git worktree list` 就会把同一棵树报成 prunable——但 Windows git 走的是工作树
+   自己的 `.git` 指针，所以 `status` / `commit` 照常可用。这个不对称就是新守卫只覆盖 WSL、
+   Windows 侧 prune 无人看守的原因：**清理动作只允许在有守卫的那一侧发起**。
+5. 恢复脚本要写这个形式，别写调用者给的形式：`scripts/repair-worktrees.py` 的 `wsl_gitdir()`
+   就是把 `E:/...` 翻成 `/mnt/e/...`，并有 host 测试盯住"修完不能还是 prunable"。
 
 **恢复**（这次实测）：内容都在，只是身份丢了。重建 admin 三件套（`gitdir` 用 `/mnt/e/` 形式、
 `commondir` 写 `../..`）、`git read-tree <sha>` 补索引（**不要** `git checkout`，

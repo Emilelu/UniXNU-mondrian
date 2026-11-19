@@ -22,7 +22,10 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TOOL = ROOT / "scripts" / "repair-worktrees.py"
-WORK = ROOT / "build" / "repair-worktrees-tests"
+# A unique directory per run: a leftover fixture from another host cannot be deleted
+# (the objects are owned by whoever built it), and a shared name turns that into a
+# spurious failure of the gate rather than of the tool (P-256).
+WORK = ROOT / "build" / ("repair-worktrees-tests-" + str(os.getpid()))
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 failures = 0
@@ -54,8 +57,7 @@ def load_tool():
 
 
 def fixture(git):
-    if WORK.exists():
-        shutil.rmtree(WORK)
+    shutil.rmtree(WORK, ignore_errors=True)
     main = WORK / "main"
     linked = WORK / "linked"
     main.mkdir(parents=True)
@@ -99,26 +101,44 @@ def main():
     check("the admin pointer uses the WSL-visible absolute form",
           pointer.startswith("/mnt/") and ":" not in pointer)
     check("the pointer is the one the helper computes", pointer, expected_pointer)
-    check("the pointer resolves to the worktree .git file",
-          os.path.normpath(pointer), os.path.normpath(str(linked / ".git")))
+    if sys.platform == "win32":
+        # Windows cannot follow /mnt/e, so the assertion is that the spelling is the
+        # exact translation of the same file, not that this host can resolve it.
+        check("the pointer is the /mnt translation of the worktree .git file",
+              pointer, "/mnt/" + str(linked).replace("\\", "/")[0].lower()
+              + str(linked).replace("\\", "/")[2:] + "/.git")
+    else:
+        check("the pointer resolves to the worktree .git file",
+              os.path.normpath(pointer), os.path.normpath(str(linked / ".git")))
     worktree_pointer = (linked / ".git").read_text(encoding="utf-8").strip()
     check("the worktree points back with a relative path",
           worktree_pointer.startswith("gitdir: ../") and ":" not in worktree_pointer[8:])
 
-    listed = run([git, "worktree", "list", "--porcelain"], main_dir).stdout
-    check("a tree repaired by the tool is not prunable", "prunable" not in listed)
+    # The recovery pointer is spelled for the host that owns the guard: WSL. Windows
+    # git resolves a worktree through that worktree's own .git file, not through the
+    # admin pointer, so commits keep working there - but its "worktree list" reports
+    # /mnt/e entries as prunable, and that asymmetry is the unguarded hazard P-256
+    # describes. Asserting "not prunable" on Windows would therefore be asserting the
+    # opposite of the design.
+    usable = run([git, "-C", str(linked), "rev-parse", "--abbrev-ref", "HEAD"], main_dir)
+    check("both hosts can still use the worktree through its own .git pointer",
+          usable.stdout.strip(), "side")
 
     if sys.platform == "win32":
-        print("note: /mnt/e gitdir visibility is WSL-specific; skip live list cases on Windows")
+        print("note: /mnt/e visibility and prunable marks are WSL-specific; "
+              "the worktree-list cases are skipped on Windows")
     else:
+        listed = run([git, "worktree", "list", "--porcelain"], main_dir).stdout
+        check("a tree repaired by the tool is not prunable under WSL", "prunable" not in listed)
+
         gitdir_file.write_text("E:/hackios/nowhere/.git\n", encoding="utf-8")
         prunable = module.prunable_worktrees(main_dir)
         check("an absolute foreign pointer makes the tree prunable", len(prunable) >= 1)
         check("the prunable entry names a worktree", bool(prunable))
 
-    module.write_admin(admin, linked, main_dir / ".git", "ref: refs/heads/side")
-    check("repairing with the tool clears the prunable mark",
-          module.prunable_worktrees(main_dir), [])
+        module.write_admin(admin, linked, main_dir / ".git", "ref: refs/heads/side")
+        check("repairing with the tool clears the prunable mark",
+              module.prunable_worktrees(main_dir), [])
 
     if failures:
         print("TESTS FAILED %d of %d" % (failures, checks))

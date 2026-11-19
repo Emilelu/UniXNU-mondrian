@@ -1486,6 +1486,33 @@ k46 的应答只到 open，k47–k49 把共享区和它的归属做完了，但 
 
 **2026-11-20 02:25 补充**：新增 k60_efs_copy()——按 K60EfsSpan 表在镜像与共享区之间搬字节，方向 0 是镜像到窗口（modem 读），方向 1 是窗口到镜像（modem 写）；每一段先过两侧边界，越界、空表、未知方向一律 -1。于是 rw 分支剩下的工作只是把两块真内存交给它。scripts/tests/test-k60-efs.c 增加读、写、越窗口、越镜像、空表、未知方向、NULL 七组断言，输出改为 K60 EFS PASS table, gpt names, scatter plan, copies, refusals。
 
+### 3.38 k50（离线）：存储数据面在宿主上闭合
+
+k49 的飞行没有走到存储服务，所以下一步先离线：把整条数据面写成可做宿主测试的代码，
+内核侧只留「一次真实的 UFS 读」这个接口。
+
+本轮落地（`drivers/PongCellular/K60ModemEfs.c`）：
+
+- `k60_efs_plan` 把 modem 的 scatter 表翻译成 `K60EfsSpan`；零长度项直接拒绝而不是跳过，
+  否则计划会在悄悄丢掉一个向量的同时报成功（`k60_rmtfs_check_vectors` 在线路上拒绝同一输入）。
+- `k60_efs_copy` 在两个方向上搬运计划，每一段都先在镜像与窗口两侧过界，再动字节。
+- `k60_efs_serve_read(request, read, context, ...)` 就是整条读路径：只接受读方向的 `rw`、
+  storage 1..4，先校验向量再计划，逐段回调读取，最后拷进窗口。内核现在只差「给一个 reader」。
+- `k60_efs_serve_write(request, image, ...)` 把写请求接纳进 boot-session 影子——Pong 也是这么做的：
+  写永远不落 flash，只需要被承认。
+
+`scripts/tests/test-k60-efs.c` 现在覆盖表、GPT 名、计划、两个拷贝方向、两条 serve 路径，
+外加 4000 例伪随机 sweep：断言 `check_vectors` 与 `plan` 对每个输入判断一致。输出
+`K60 EFS PASS table, gpt names, scatter plan, copies, serve, shadow, sweep, refusals`。
+
+提交：`07be6098`（表与计划）、`ea912d4e`（GPT 定位）、`ac9a6e04`（拷贝引擎）、
+`bc1a95c8`（计划拒绝零长度向量）、`6b441e03`（serve_read）、`7c870a17`（影子写）。
+
+仍然缺的一件事，而且不在这棵树里：UFS 读入口。`drivers/NativeUfs` 只导出
+`pong_ufs_transport_start`、`native_pong_ufs_volume_device`、`native_pong_ufs_data_volume_device`，
+没有「按分区名读块」的入口；要接线得在那儿加一个小 API，或者决定绕 bdev strategy 路径。
+`drivers/NativeUfs` 在 `docs/engineering/TREE-OWNERS.toml` 里没有登记主人，这个决定归 Lead。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

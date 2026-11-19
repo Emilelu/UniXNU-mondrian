@@ -383,6 +383,19 @@ void on_link_lost(int reason) {
   log(6,"wifi-net: link lost: reason %d",reason);
   lck_mtx_lock(gLock);gLinkUpMs=0;pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
 }
+// The station starts a join only from IDLE (nw_sta.c start_connect): a request that meets a link already up
+// is dropped, and the daemon would wait for an association event that never comes. Drain the old link first,
+// as the reference port does, and report a timeout instead of starting a join that cannot run.
+int drain_disconnect() {
+  nw_wifi_disconnect(); pong_wifi_wake();
+  for (unsigned waited = 0; waited < 2000; waited += 10) {
+    nw_wifi_status current; nw_wifi_status_get(&current);
+    if (current.state < NW_STA_AUTH) return 0;
+    IOSleep(10);
+  }
+  log(4, "wifi-net: disconnect did not drain within 2000 ms");
+  return ETIMEDOUT;
+}
 
 // What crosses the interface, for the traffic line: DHCP messages (type, transaction, offered address), ARP, TLS on port 443 and DNS, with
 // the first packet of each direction logged so a run shows what the network is actually used for.
@@ -706,6 +719,14 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       // cipher 6: the daemon already derived the pairwise master key (32 bytes); the module takes it as 64 hex digits
       unsigned keyLength = a.key_length;
       if (hasKey && a.key_cipher == 6 && a.key_length == 32) { static const char hex[] = "0123456789abcdef"; for (int i = 0; i < 32; i++) { pass[2 * i] = hex[a.key[i] >> 4]; pass[2 * i + 1] = hex[a.key[i] & 15]; } keyLength = 64; }
+      // A join while a link is up drains first (drain_disconnect): the station ignores a join request that
+      // arrives in any state other than IDLE, so switching networks from the pane would otherwise never run.
+      nw_wifi_status current; nw_wifi_status_get(&current);
+      if (current.state >= NW_STA_AUTH) {
+        log(6, "wifi-net: switching network: draining state %u", current.state);
+        if (drain_disconnect()) { memset(&a,0,sizeof(a)); gAssocResult = kAssocFailed; return ETIMEDOUT; }
+        gLinkUpMs = 0;
+      }
       // The reference rejects a credential it cannot interpret (cipher 6 carries the 32-byte PMK,
       // cipher 10 an 8..63-byte passphrase) instead of passing it on as a password or an open network.
       // 22H374 clients keep their previous acceptance; the newer daemon gets the strict set.

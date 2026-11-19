@@ -338,6 +338,11 @@ def main() -> int:
           "gAssocResult = kAssocPending; gUserJoin = true; gAssocModern27 = modern27;" in net and
           "modern27 && a.key_length && !((a.key_cipher == 6 && a.key_length == 32)" in net and
           "if (r) gAssocResult = kAssocFailed;" in net)
+    check("a join drains a link that is already up before asking the station",
+          "int drain_disconnect()" in net and
+          "for (unsigned waited = 0; waited < 2000; waited += 10)" in net and
+          'log(4, "wifi-net: disconnect did not drain within 2000 ms");' in net and
+          "if (drain_disconnect()) { memset(&a,0,sizeof(a)); gAssocResult = kAssocFailed; return ETIMEDOUT; }" in net)
     check("the abort-scan request is accepted instead of falling through",
           "PONG_REQUEST_ABORT_SCAN 382u" in abi_hdr and "kAbortScan = PONG_REQUEST_ABORT_SCAN" in net and
           "case kAbortScan: return 0;" in net)

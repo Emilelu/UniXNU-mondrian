@@ -70,6 +70,28 @@ series 行尾注释按 Lead 要求写「ported from 16 line 0620..0623」，方�
 | 0622 的 `k60_modem_map(K60_MODEM_IPCC_BASE, 0x1000)` | IPCC 寄存器块字节长度 | 寄存器块 4 KiB，与 VM 页无关 |
 | 0623 的 `0x1000` / `/4096u` / `K60_IPA_GSI_PAGE_SIZE` | GSI 的 TRE 粒度、SMMU4K 叶表粒度 | **硬件粒度**，16 KiB CPU 页不能改它 |
 
+### 4.2 头文件与内核宏：27 树全部可用（2026-11-20 06:02）
+
+八个 carried 文件共 `#include <...>` 13 个头文件，逐条在 27 树里 `find` 过：
+
+- 10 个内核头全部命中（`osfmk/arm/machine_routines.h`、`osfmk/vm/vm_kern.h`、`osfmk/kern/*.h`、`pexpert/pexpert.h`、`osfmk/mach/*.h` 等）；
+- 只有 `stdint.h` / `stddef.h` / `stdbool.h` 报 MISSING —— 那是编译器自带的，不进内核树。
+
+内核宏逐个核对（我们源码里实际用到的）：
+
+| 宏 | 27 树位置 | 结论 |
+|---|---|---|
+| `KMA_DATA` / `KMA_ZERO` / `KMA_NOFAIL` | `osfmk/vm/vm_kern.c` | 有，语义不变 |
+| `VM_KERN_MEMORY_IOKIT` | `osfmk/mach/vm_statistics.h` | 有 |
+| `VM_WIMG_DEFAULT` | `osfmk/arm/memory_types.h` | 有 |
+| `round_page` | `osfmk/mach/vm_param.h` | 有 |
+| `kernel_map` | `osfmk/vm/vm_kern.h` | 有 |
+
+两件值得写下来的事：
+
+1. **27 的 `PAGE_SHIFT` 是运行期变量**：`osfmk/mach/arm/vm_param.h:60-72` 里 `PAGE_SHIFT_CONST 12` 与 `extern int PAGE_SHIFT_CONST` 并存，`PAGE_SIZE` 由 `1 << PAGE_SHIFT` 得出。这从上游侧证实了 `>> 12` 在 27 上必错、`ptoa_64(1)` 必对——§4 的那次修改不是预防性洁癖。
+2. **`KMA_PERMANENT` 只剩 IPA 一处，是安全的**：`drivers/PongCellular/K60Ipa.c:892` 用它分配 IPA 的 filter/route 区，而该文件**没有任何 `kmem_free`**（`grep -n kmem_free K60Ipa.c` 空），生命周期到重启为止；k47 那次 panic 的死因是「永久映射 + 后释放」，RMTFS 那条路径已经去掉永久标志。
+
 ## 5. call site：不 apply 的原因不是行号，是上下文块在 27 上还不存在
 
 16 线的两处调用挂在 `main` 的 K60 data-mount 补丁（`0614`）里那段 `native_owner_data_stage = 3; vnode_lookup("/private/var", …)` 尾巴上。

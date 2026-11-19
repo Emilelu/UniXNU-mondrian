@@ -1700,3 +1700,56 @@ docs/INDEX.md、scripts/check-kernel-archives.py 上前进过，整份覆盖会�
 
 本轮 27 的构建是在 `--skip-gates` 下跑的（原因即上一条），并显式给了 `K60_DEVICE_INPUT` 的镜像。
 另：本机 `/opt/k60/trees` 在重启后整个消失，27 站与 27 kext 都是本轮重建的。
+
+## 65. 27 线要的不是移植 4 KiB 入口，而是拆掉三处设备侧遮蔽
+
+§64 的结论（把 4 KiB 入口移植到 12377）在 main 的 3cc8cbc9 之后作废：入口脚本现在按
+`board.toml [board] os_profile` 经 `scripts/pick-xnu-builder.sh` 分派，16.6.1 走 Pong 构建器
+（`MACHINE_CONFIGS=PONG`），其余（含 `ios-27.0.1-24A446`）走 `scripts/build-xnu-generic.sh`，
+即框架通用构建器的逐字副本。设备侧因此不再需要维护第二份构建器。
+
+真正挡住 27 链接的是三处遮蔽，全部在设备仓范围内修掉（f2af8a7b）：
+
+1. **`scripts/build-firehose.sh` 是 16 的副本。** 34 行、无条件 `xcodebuild`。`tree.py` 组装时按
+   root → soc → device 复制 `scripts/`，设备仓最后写，于是它盖住框架那份 60 行、带 Linux 分支
+   （`xcrun clang -mkernel` + `xcrun libtool -static`）的实现。27 构建的 `xcodebuild: command not
+   found` 就是这条。修法是整份换成框架文件（+32/−6），不是加条件判断。
+2. **`__SPI_AVAILABLE` 只有 Darwin 26 SDK 才有。** xnu 自带一份 SDK 头在
+   `EXTERNAL_HEADERS/Availability.h`，只定义到 `__API_AVAILABLE`；而 12377 的 libsyscall 已经在用
+   SPI 注解（`libsyscall/wrappers/gethostuuid.h:41`、`wrappers/spawn/spawn.h:64/73/76/78`）。
+   `scripts/linux/prepare-xnu.py` 每次构建都把 xnu 那份拷进 `fakeroot/usr/include`，所以改 fakeroot
+   不留痕（实测构建后再 grep 归 0）。修法只能进补丁系列：
+   `patches/xnu-12377/availability-spi.patch` 给 `__SPI_AVAILABLE(...)` 一个空定义。
+   这不是 wifi 专属的门，27 线上任何需要编 `libcc_kext` 的构建都会撞上。
+3. **通用构建器从不链接 wifi 档案。** `build-xnu-generic.sh` 在
+   `KERNEL_EXTRA_ARCHIVES` 追加 `XNU_EXTRA_LD_ARCHIVES` 之前补上和 Pong 构建器相同的分支：
+   `XNU_PONG_WIFI=1` → `-Wl,-force_load,$PONG_WIFI_ARCHIVE` 并把档案记进
+   `KERNEL_ARCHIVE_DEPENDENCIES`。整块位于 `XNU_SOURCE_CORECRYPTO14=1 && BOOTSTRAP=0` 内，
+   27 的 `.config` 满足（arch profile 给 `SOURCE_CORECRYPTO14=y`），bootstrap pass 按设计跳过。
+
+### 判据：链接成功不算证据
+
+`-force_load` 一个「对象被编空」的档案同样能链接成功，所以只看构建通过会把 audio 那类静默编空
+重演一遍。B2 的出口因此定成「27 内核镜像里已定义的 PongWifi 符号数 > 0」，工具是
+`scripts/check-wifi-symbols.py`（正则 `pong_wifi|PongWifi|pong_kev|pong_scan|pong_assoc|pong_sae`，
+`U` 未定义符号不计，0 个退 1，`nm` 读不了退 2），自测 `scripts/tests/test-wifi-symbols.py` 四例。
+在真实档案上先验证过工具本身：27 kext（`teardown27full2/libPongWifiNative.a`）报 30 个符号
+（PongWifi 4 / pong_sae 2 / pong_scan 4 / pong_wifi 20），16 kext 同为 30，无符号的系统库直接 FAIL。
+
+另按 lead 要求核过：`drivers/PongWifi` 里 `#if defined(PONG)` / `#ifdef PONG` / `CONFIG_PONG`
+命中 0，驱动编译单元不依赖 16 的机器配置宏。
+
+### 27 构建的当前状态
+
+命令（注意 cwd 必须是框架仓，`unixnu` 是框架里的 python 脚本）：
+
+```
+cd <framework> && XNU_PONG_WIFI=1 \
+  XNU_PONG_WIFI_ARCHIVE=/opt/k60/trees/k60build/wifi/teardown27full2/libPongWifiNative.a \
+  K60_DEVICE_INPUT=<device input> python3 unixnu build kernel --device <device repo> \
+  --os ios-27.0.1-24A446 --skip-gates
+```
+
+`availability-spi.patch` 已打；`libcc_kext.a` 生成后 cc_kext 过关；随后进入 bootstrap pass
+（生成编译记录）。本机慢在两点：`MAKEJOBS=-j${JOBS:-4}` 而源码在 `/mnt/e`（9p），实测约 6-7 个
+对象/分钟。跑完后用 `check-wifi-symbols.py` 数符号才算 B2 成立。

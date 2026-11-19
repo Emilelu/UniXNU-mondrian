@@ -1,0 +1,34 @@
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -2700,6 +2700,18 @@
+ }
+ 
+ /*
++ * K60: the firmware (Qualcomm's, through the boot loader) leaves the EL1
++ * physical timer in a state this kernel must not write. The iOS 16 line hit
++ * the same thing and skipped the write there (patches/xnu/
++ * zzzz-pong-virtual-timer.patch: "Pong's EL1 physical-timer write faults
++ * under the existing firmware. XNU uses CNTV throughout this path; leave the
++ * unavailable CNTP bank to ..."). Nothing in this kernel arms the physical
++ * timer -- interrupts come from CNTV -- so the write is a precaution only and
++ * skipping it costs nothing here. Set this to 0 to make the write again.
++ */
++#define K60_VIRTUAL_TIMER_SKIP_CNTP_CTL 1
++
++/*
+  * Turn timer on, unmask that interrupt.
+  */
+ static void
+@@ -2709,7 +2721,11 @@
+ 
+ 	__builtin_arm_wsr64(KERNEL_CNTV_CTL_EL0, cntvctl);
+ 	/* disable the physical timer as a precaution, as its registers reset to architecturally unknown values */
++	#if K60_VIRTUAL_TIMER_SKIP_CNTP_CTL
++	/* not ours to write on this board: see K60_VIRTUAL_TIMER_SKIP_CNTP_CTL above */
++	#else
+ 	__builtin_arm_wsr64("CNTP_CTL_EL0", CNTP_CTL_EL0_IMASKED);
++	#endif
+ #if HAS_APPLE_GENERIC_TIMER
+ 	__builtin_arm_wsr64("S3_1_C15_C13_4", CNTP_CTL_EL0_IMASKED);
+ #endif

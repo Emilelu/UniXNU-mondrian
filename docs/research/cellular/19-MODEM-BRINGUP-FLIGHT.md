@@ -790,7 +790,7 @@ k35 B 镜像（与 k34 只差这一层）：
 判据不变：S3 必须保持 PASS；S4 要求 `K60MODEM qrtr: dms revision …` 出现（id 0 的 INTENT 不再中断 poll 是本飞的**唯一**
 变量，若仍失败，损坏行里的下一对才是新线索）；S6 仍要 `bridge enabled` 与 N>0 的发布行；S5 只有在 servloc 应答后才可能通过。
 
-### 3.24 k37：六十秒窗口、重发 lookup 与每五秒的服务计数（离线，未上机）
+### 3.24 k37：六十秒窗口、重发 lookup 与每五秒的服务计数（2026-11-19 11:21 已上机）
 
 k36 的实机结果（2026-11-19 10:52:46，420 s 采集）换了一种失败形态：S3 PASS
 （`scm cmd=0x5 ok calls=181`、`auth_reset ok`），S6 PASS，**没有** `glink poll rc=-5`，也没有
@@ -850,6 +850,83 @@ k60_autoreset=300 这次确实把板子送回了 fastboot。
 `wait` 行：若 60 s 内服务数一直停在 2，说明 modem 根本不通过 QRTR 名称服务发布 DMS，
 下一变量应是 servloc 应答（modem 在 k36 里已两次向我们要 service 64），而不是重试 lookup。
 
+**实机结果（2026-11-19 11:21:26，420 s 采集）**：镜像 `E:/k60-work/artifacts/modem-20261117k37/boot-modem-b-full.img`
+（`b920669f…`），证据 `E:/k60-work/evidence/usblog-20261119-112126`，capture `state=captured-disconnected`、
+`complete=false`、270,708 B、`logSha256=12BBB36647457BADD28BC50CB2519B80070D169DD26800F39C55A3F2F938EE91`、
+`stopReason=fastboot-return`、resetMarker 存在（`lastDataAt` 11:27:17，`finishedAt` 11:27:22）。
+`check-modem-flight-log.py --phase b` 判读 **S3 PASS / S4 FAIL / S5 FAIL / S6 PASS**，rc=1。
+
+六十秒窗口里服务数一次都没动过，两次广播 lookup 连零终止记录都没回：
+
+```
+K60MODEM qrtr: channel up
+K60MODEM qrtr: sent hello from node 1 port 0xfffffffe
+K60MODEM qrtr: service 66 (0x42) instance 46081 node 0 port 2 cmd=0x4
+K60MODEM qrtr: service 43 (0x2b) instance 4610 node 0 port 1 cmd=0x4
+K60MODEM qrtr: announced servloc service 64 instance 0x101 port 0x100
+K60MODEM qrtr: sent new_lookup (0x0a) #1 service 0 to node 4294967295
+K60MODEM qrtr: wait 5 s services=2 wanted=0 dms=0 malformed=0
+…（10/15/20/25 s 相同）
+K60MODEM qrtr: sent new_lookup (0x0a) #2 service 2 to node 4294967295
+K60MODEM qrtr: wait 35 s … 55 s services=2 wanted=0 dms=0 malformed=0
+K60MODEM qrtr: verdict no reply services=2 node0=2 wanted=0 malformed=0 locator=2 dms=none polls=30000
+```
+
+两条 NEW_SERVER 的控制字段 `cmd=0x4` 与 `header.type` 一致（`K60QrtrNewServer = 4`，与 hakios
+`references/phk110-port/drivers/modem/hakios.mpss.c:3071` 的 `QRTR_NEW_SERVER = 4` 相同），
+所以记录本身合法，问题不是编号错。**广播 lookup 收不到应答是架构决定的**：§5.5 的 strace 显示
+`qrtr-lookup` 同样把 `0x0a` 发往控制端口，而回它的是 **AP 自己的 QRTR 名称服务**（内核 `qrtr_ns`，
+把收到的 NEW_SERVER 表逐条重放成 20 字节控制记录），不是 modem。我们的 XNU 侧没有这个名称服务，
+modem 又没有义务回答查询，于是零应答；`wanted=0` 也就成了必然。
+
+再看 Android 基线（`01-ANDROID-INVENTORY.md` §5.4.1）：那 36 条 node 0 的记录是 modem **开机时主动注册**
+的，Android 的 `qrtr_ns` 从早期启动就在监听，所以一条不漏；我们的 IPCRTR 通道要等 `auth_reset` 之后
+modem 就绪才建立（`modem ready (smp2p items=2)` 之后才 open），开机那一刻的注册广播全部落在无人监听的
+窗口里。k36/k37 看到的两条（servreg 通知 66、子系统控制 43）恰好是注册得晚、被我们赶上的两个。
+
+### 3.25 k38：服务枚举的兜底——直接问 Android 记录过的 DMS 端口（离线，未上机）
+
+既然 modem 的 QMI 服务注册发生在我们的通道存在之前，靠 NEW_SERVER 补不回 DMS；而 lookup 在架构上
+不该有回答，重试只是浪费窗口。k38 换一条**有本机实证**的路：`01-ANDROID-INVENTORY.md` §5.4.1 是在
+**这台设备、这份固件**上用 `qrtr-lookup` 抓的表，其中 `2 … node 0 port 96 Device Management Service`；
+modem 侧的 QRTR 端口是固件确定性分配的（表里 EFS 21、WDS 82、NAS 77、UIM 80 都在百位以内），
+所以第六十秒前若仍未发现服务 2，就直接向 `node 0:96` 发 DMS GetRevision。
+
+- `K60ModemQrtr.h` 增加 `#define K60_QRTR_DMS_STATIC_PORT 96u` 与状态字段 `dms_static`；
+- `K60ModemLink.c` 探针循环在 `i >= 20000`（40 s）且 `!dms_found && !dms_static` 时发送一次
+  `K60MODEM qrtr: sent dms get_revision (static) to node 0 port 96 txn N`，并把 `dms_node/dms_port`
+  置为 0/96，让既有的接收分支（`to_port=0x110 && from_node==dms_node && from_port==dms_port`）
+  能认下应答；`dms_requested` 同时置 1，避免真发现时重复发；
+- NEW_SERVER 行追加 `to=%u`（header 的目标节点），留下“modem 把注册发给谁”的现场；
+- 其余一切不变：窗口 60 s、两次广播 lookup、S3 判据、servloc 应答。
+
+代码提交 `a30755b0`，其首轮构建在 `pong_modem_link.c:1433` 报 `no member named 'dms_requested' in 'K60QrtrState'`（该标志是文件级 static，不是状态成员），由 `f9b1fa30` 改为写 `k60_qrtr_dms_requested`；0622 重新生成 **102,284 B / 5 files**；`test-k60-modem-qrtr.c` 仍是
+`TESTS OK 13 groups`，`test-k60-modem-image.py` 仍是 `TESTS OK 30 segments … table+patch agree`，
+`run-host-tests.sh` 全绿。
+
+已打包（2026-11-19 11:48，离线）：
+
+| 项 | 值 |
+|---|---|
+| kernel | `E:/k60-work/artifacts/modem-20261117k38/kernel.macho`，105,734,144 B，`7c7562cd23d3dffcf3d3e3601b7fa519fdb7f17d942ead36bb32ee3d724b1be0`（`COACHZ` 40 条） |
+| boot image | `E:/k60-work/artifacts/modem-20261117k38/boot-modem-b-full.img`，201,895,936 B，`ce6ffeb1c0ca97f9a96c27286657f15b08e80438b693d9368dbb95a7de33c9e8` |
+| payload | `e813e943d3128816a118eb8116a860065fe9d9ecab742c1fd04f276cd59fc669`，`payload.json` `94357b2ab5d2d7cfcd8858c5c15708c963acc1c1efce76f3eb48e038d7e6a3ec` |
+| payload 内的 kernel | `4a87debf65cc6a0c71c6d37f1f11b64c65ad55068b47a3a7d253828632e4654e`（`payload.json` 记的 `kernel_sha256` 是输入 macho 的 `7c7562cd…`） |
+| ADT | `72e15fb49b712432df22c981b5159358ed878f401735b1f863078b898a98d769` |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| kernel_args 尾部 | `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0` |
+| layout | 560,384 / 201,326,592 / 3,145,840 / 4,024 |
+
+静态核对：`llvm-strings` 有 `K60MODEM qrtr: sent dms get_revision (static) to node 0 port 96 txn %u` 一条、
+`COACHZ` 40 条；`llvm-nm` 的 `_k60_modem_qrtr_probe` 在 `fffffff007767d84`、
+`_coachz_baseband_configure` 在 `fffffff007a8c318`（都在 `__TEXT_EXEC,__text` external）；
+`verify-k38-b.py` rc0 `verify-boot-image: OK`，`test-bootimg-layout.py` 布局全部正确。
+
+判据：S3 与 S6 必须保持 PASS；S4 的新形态是 `dms revision …` 出现（来自端口 96 的应答）；
+若端口 96 也不答，下一变量是**在 modem 启动前就打开 IPCRTR**（把 open 提到 `modem ready` 判定之前）
+或补一个本地名称服务并把 `qrtr_ns` 的重放语义实现出来，而不是继续重试 lookup。
+
+
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
 判读是机械的：`python3 scripts/check-modem-flight-log.py --phase {p1,c,b} <console.log>`
@@ -883,7 +960,7 @@ k60_autoreset=300 这次确实把板子送回了 fastboot。
   `K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000`
   `K60MODEM auth_reset ok`，且此前出现 `K60MODEM scm cmd=0x5 ok calls=N`（k29 起会打印；`rc=-3` + `calls=` 达到上限仍是失败）
    实机结果见 §3.15（2026-11-19 06:23，k29 B 的 S3 PASS，`calls=182`）。
-- **S4**：auth 后 10 秒内出现 `K60MODEM qrtr: glink desc=` 与 `K60MODEM qrtr: dms revision `（后随非空版本串），且没有
+- **S4**：auth 后 60 秒窗口内出现 `K60MODEM qrtr: glink desc=` 与 `K60MODEM qrtr: dms revision `（后随非空版本串），且没有
   `K60MODEM qrtr: modem not ready`、`K60MODEM qrtr: dms revision missing`。
   实机结果见 §3.15：`glink desc` 出现，但随后 `channel up` → `channel down` → `glink poll rc=-5 at 2`，
   没有 dms revision，按 S4 判失败（F8）。
@@ -895,19 +972,28 @@ k60_autoreset=300 这次确实把板子送回了 fastboot。
   adopt 时另有一行 `glink adopt (probe) rx head=… tail=… avail=… tx head=… tail=… cmd=… w2..w7`，
   head 非 0 时紧跟 `glink adopt dropped N stale bytes (head=…)`（环里是上一会话残料，已被丢弃）。
   §3.18 的 k32 adopt 行只在 transport 路径，B 形态不会打印，不能作为判据。
+  k35 B（10:03）把损坏行钉成 `w2=0x80 w3=0`：modem 从 id 0 开始给 128 字节缓冲编号；k36 起
+  内核对 carried copy 只拒绝 `size==0`（§3.23），该失败形态随之消失。k36/k37 B 的 S4 失败变成
+  **modem 只注册了两条 NEW_SERVER**（§3.24），不再是 GLINK 解析问题；k38 起在 40 s 时直接向
+  Android 记录过的 `node 0:96`（DMS）发 GetRevision（§3.25）。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
   `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。`--phase b` 的 S5 组按这条判，
   `verdict` 字段允许是两个词（`no reply`）。
+  **注意架构**：`01-ANDROID-INVENTORY.md` §5.5 的 strace 显示 `qrtr-lookup` 把 `0x0a` 发到控制端口，
+  回答它的是 **AP 自己的 QRTR 名称服务**（逐条重放 NEW_SERVER 表），modem 没有回答查询的义务。
+  k37 B（11:21）六十秒内两次广播 lookup 零应答、服务数停在 2，正是这个架构的结果（§3.24）；
+  因此 S5 只能靠 modem **主动**注册的 NEW_SERVER 满足，而那些注册发生在我们的 IPCRTR 通道建立之前。
 - **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published`
   （组件原文格式串是 `COACHZ baseband: %d of %u services published (...)`）的 N 大于 0；只有 `bridge disabled`
   或 N=0 算失败。开关行有两个来源：探测开头打印的静态状态，以及 `cfb2917f` 起轮询中 `coachz_baseband_configure()`
   重试成功后的 `K60MODEM baseband: bridge enabled (poll N)`——组件在 IOResources 未就绪时会推迟发布，
   只判开头那一行会把“晚发布”误判成失败。
-  **但 S6 目前判不了**：§3.21 已查明本内核只链入 `coachz_baseband_*` 的 weak 兜底，`libQcomBaseband.a`
-  从来没被 force_load 进 kernel，因此任何镜像都不会打印 `COACHZ baseband: …`，`bridge enabled`
-  也永远不会出现。判读器因此把“有 `bridge disabled` 且全文没有任何 COACHZ 发布行”判为 **N/A**
-  （不算失败、不影响退出码），只有“组件在场却发布 0 个服务”或“有发布行却没有 bridge enabled”
-  才算失败。组件链入之后 N/A 会自动消失，判据恢复为上面的两条。
+  **历史**：§3.21 查明 k34 及之前的镜像只链入 `coachz_baseband_*` 的 weak 兜底（生成配置过期），
+  那些镜像永远不会打印 `COACHZ baseband: …`，判读器因此保留一条 N/A 规则（有 `bridge disabled`
+  且全文没有任何 COACHZ 发布行 ⇒ N/A，不算失败）。k35 起 `libQcomBaseband.a` 真正 force_load 进
+  内核（§3.21 的修复，`CONFIG_XNU_EXTRA_LD_ARCHIVES` 重新 defconfig 生效），k35 B（10:03）实测
+  `K60MODEM baseband: bridge enabled` 与 `COACHZ baseband: 22 of 22 services published`，S6 PASS；
+  k36、k37 同样 PASS。N/A 规则只在旧日志上触发，新镜像一律按上面两条判。
 
 ### 4.2 失败判据（一条失败即停，一次开机只归一类，不重试）
 
@@ -953,9 +1039,11 @@ k60_autoreset=300 这次确实把板子送回了 fastboot。
     第一对 pair 钉成 `size=0x80 id=0`（§3.22），adopt 行的 8 字节旧残料被丢弃逻辑清掉（§3.19）。
     k36（`6f015eb6…`）已于 2026-11-19 10:52 飞过：S3 PASS（calls=181）、S6 PASS，**rc=-5 消失**，
     S4 FAIL 于 `verdict no reply services=2`——modem 在 10 s 内只注册了服务 66/0x2b，DMS 没出现（§3.24）。
-    下一飞用 k37 的 `E:/k60-work/artifacts/modem-20261117k37/boot-modem-b-full.img`（`b920669f…`，§3.24）：
-    窗口改 60 s，lookup 广播重发两次（第二次只问 DMS），每 5 s 打印服务计数。S3 必须保持，
-    S4 仍按 dms revision 判，S5/S6 由同一份日志判读。
+    k37（`b920669f…`）已于 2026-11-19 11:21 飞过：S3 PASS（calls=181）、S6 PASS，但六十秒窗口里
+    两次广播 lookup 零应答、服务停在 2 条（66 servreg 通知、0x2b 子系统控制），S4/S5 仍 FAIL（§3.24）。
+    下一飞用 k38 的 `E:/k60-work/artifacts/modem-20261117k38/boot-modem-b-full.img`（`ce6ffeb1…`，§3.25）：
+    40 s 后直接向 node 0 端口 96 发 DMS GetRevision（Android 现场记录过的固定端点）。S3/S6 必须保持，
+    S4 仍按 dms revision 判，S5 由同一份日志判读。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

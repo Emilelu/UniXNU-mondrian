@@ -84,12 +84,16 @@ P-151 has no executable check or written waiver). Before a build: clean
    Where the divergence is too broad for cherry-picking, rebase onto the
    upstream branch and re-apply our additions on top.
 
-7. **Tags mark proven states, not progress.** Only three kinds are allowed:
+7. **Tags mark proven states, not progress.** Only four kinds are allowed:
    - `boot-proven-YYYYMMDD` - an image from this commit reached SpringBoard;
      the tag message carries its path, size, sha256 and the console log.
    - `snap-rN` - the commit registered as the `main` baseline in
      `docs/engineering/MAIN-BASELINE.toml` (iron rule 9).
    - `vX.Y.Z-...` - a release milestone referenced by the READMEs.
+   - a **release asset tag** - any tag whose name appears in a
+     `releases/download/<tag>/` URL under `.github/workflows/`. Deleting one
+     turns its release into a draft and breaks the workflow that fetches it, so
+     the gate reads the set out of the files instead of carrying a list (P-252).
 
    The rollback anchor for daily work is the pushed commit, not a tag;
    `scripts/check-snapshot-tag.py` refuses to create anything unless the tree

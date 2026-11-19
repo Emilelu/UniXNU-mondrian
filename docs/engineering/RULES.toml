@@ -999,3 +999,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-251"
 statement = "A gate that reads a config key nobody ever wrote returns 0 forever."
 check = "python3 scripts/check-patch-series.py && python3 scripts/tests/test-patch-series-baseline.py"
+
+[[rule]]
+id = "P-252"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-252"
+statement = "门禁建议删除不可逆的对象之前，必须先证明没有人依赖它；只按命名形状判断的门禁遇到「按引用关系合法」的 tag 时会给出破坏性建议"
+check = "python3 scripts/tests/test-snapshot-tag-release.py"

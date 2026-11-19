@@ -46,11 +46,15 @@ audio 线只搬「与 OS 无关」的东西：
 
 ## 4. 迁移步骤与判据
 
-1. 在 27 树新建 `drivers/PongAudio`，只拷第 1、2 节的 21 个文件。
-2. 跑 `drivers/PongAudio/tests/run-tests.sh`，期望 `TESTS OK 979 cases`。
-3. 跑 `drivers/PongAudio/tests/run-glink-multislot-tests.sh`，期望 `TESTS OK 800 cases`。
-4. 在 27 树加一个编译单元与一个初始化调用点（不进 `patches/xnu/0504`）。
-5. 判据：两套 host 测试全绿、内核编译 0 错、工作树不碰 main。
+1. 先在本仓跑 `python3 scripts/check-audio-migration.py --compile`：它把第 1、2 节的清单
+   和 `drivers/PongAudio` 的实际文件逐一对照（目录里出现未分类文件、清单里的文件缺失、
+   冻结项混进可搬表都会报错），再用 `-I.` 把五个纯 C 单元逐个 `-Wall -Wextra -Werror`
+   编一遍。期望 `OK: the migration list matches the driver directory`。
+2. 在 27 树新建 `drivers/PongAudio`，只拷第 1、2 节的文件（清单就是那条命令守的东西）。
+3. 跑 `drivers/PongAudio/tests/run-tests.sh`，期望 `TESTS OK 979 cases`。
+4. 跑 `drivers/PongAudio/tests/run-glink-multislot-tests.sh`，期望 `TESTS OK 800 cases`。
+5. 在 27 树加一个编译单元与一个初始化调用点（不进 `patches/xnu/0504`）。
+6. 判据：两套 host 测试全绿、内核编译 0 错、工作树不碰 main。
 
 ## 5. 现状
 

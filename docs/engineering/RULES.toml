@@ -591,7 +591,7 @@ id = "P-183"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-183"
 statement = "tag 门禁把「远端不可达」当成「未推送」，被删的 release tag 退回 draft"
-check = "python3 scripts/tests/test-snapshot-tag-release.py"
+check = "python3 scripts/tests/test-snapshot-tag-release.py && python3 scripts/tests/test-snapshot-tag-network.py"
 note = "The tag gate already reads three states plus the workflow-downloaded release tags; the phantom line here was the reader, not the rule."
 
 [[rule]]
@@ -599,7 +599,7 @@ id = "P-184"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-184"
 statement = "在共享检出里 `git checkout --` 销毁另一个 agent 的未提交改动"
-check = "python3 scripts/check-tree-owner.py --self-test"
+check = "python3 scripts/check-tree-owner.py --self-test && python3 scripts/tests/test-worktree-safety.py"
 note = "Ownership is checked before the write, and every refused or risky verb snapshots the tree first."
 
 [[rule]]
@@ -1148,11 +1148,3 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-258"
 statement = "A shared-metadata rewrite (worktree prune) run from a linked worktree deletes every admin dir whose gitdir was written for the other host; the guard must refuse it there, not only in the main checkout."
 check = "python3 scripts/tests/test-p258-worktree-prune.py"
-
-[[rule]]
-statement = "An unreachable remote is an unknown push state, not proof of a missing push; the cached confirmation is valid only for the same tag commit (network fixture)."
-check = "python3 scripts/tests/test-snapshot-tag-network.py"
-
-[[rule]]
-statement = "The snapshot taken before a destructive verb must be restorable on both hosts: LF-only metadata, an executable restore.sh and at least one recoverable copy."
-check = "python3 scripts/tests/test-worktree-safety.py"

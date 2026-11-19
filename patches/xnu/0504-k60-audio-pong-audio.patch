@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/pong_audio.c
-@@ -0,0 +1,1010 @@
+@@ -0,0 +1,1004 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent
 + *
 + * K60 audio core skeleton: ADSP/PAS1 + AudioReach GPR plumbing.
@@ -79,6 +79,9 @@
 +#define PONG_AUDIO_SID              0x1801u
 +#define PONG_AUDIO_DMA_BYTES        0x00010000u
 +#define PONG_AUDIO_TDM_CLK_HZ       3072000u
++/* audio_prm.h CLOCK_ID_TER_MI2S_IBIT: the tertiary MI2S bit clock the I2S
++ * sink endpoint runs on (Pong votes the same id for its speaker). */
++#define PONG_AUDIO_I2S_CLK_ID       0x104u
 +#define PONG_AUDIO_TDM_TX_LINES     3u
 +
 +/* ------------------------------------------------------------------------- */
@@ -245,7 +248,11 @@
 +#define AR_MOD_WR_SHMEM             0x07001000u
 +#define AR_MOD_PCM_CNV              0x07001003u
 +#define AR_MOD_PCM_DEC              0x07001005u
-+#define AR_MOD_TDM_SINK             0x0700100Eu
++/* 0x0700100E is an eight-byte registration stub in this ADSP image: the graph
++ * opens and starts, and the endpoint drives nothing. 0x0700100A is the I2S
++ * sink Pong drives its speaker with, and this image carries a 472-byte
++ * implementation of it. */
++#define AR_MOD_I2S_SINK             0x0700100Au
 +
 +/* TODO(k60): these instance IDs are copied from Pong's topology. They MUST
 + * be replaced by K60 ADSP graph enumeration before any graph is started
@@ -269,8 +276,7 @@
 +#define PARAM_MODULE_PROP           0x08001003u
 +#define PARAM_MODULE_CONN           0x08001004u
 +#define PARAM_SG_LIST               0x08001005u
-+#define PARAM_TDM_INTF              0x0800101Bu
-+#define PARAM_TDM_LANE              0x0800106Au
++#define PARAM_I2S_INTF              0x08001019u
 +#define PARAM_HW_EP_MF              0x08001017u
 +#define PARAM_FRAME_SIZE_FACTOR     0x08001018u
 +#define PARAM_PCM_OUTPUT            0x08001008u
@@ -287,20 +293,17 @@
 +#define STACK_SIZE                  8192u
 +#define OUT_PORT                    1u
 +#define IN_PORT                     2u
-+/* K60 TDM facts (M: live-fdt.dts:20574-20594): tert TDM RX, group 0x9020,
-+ * 12.288 MHz = 48 kHz * 32 bits * 8 slots, long sync, inverted, one BCLK
-+ * data delay, sync sourced internally, two active slots. */
-+#define TDM_LPAIF_TYPE              0u /* LPAIF */
-+#define TDM_INTF_TERTIARY           2u
-+#define TDM_SYNC_SRC_INTERNAL       1u
-+#define TDM_DATA_OE_ENABLE          1u
-+#define TDM_SLOT_MASK               3u
-+#define TDM_SLOTS_PER_FRAME         8u
-+#define TDM_SLOT_WIDTH_BITS         32u
-+#define TDM_SYNC_LONG               1u
-+#define TDM_SYNC_INVERT             1u
-+#define TDM_DATA_DELAY_ONE_BCLK     1u
-+#define TDM_LANE_MASK               1u
++/* K60 speaker facts: the tertiary MI2S pads (live-fdt.dts:5315-5375) carry
++ * mi2s2 sck/ws on GPIO121/123 and the two data lanes on GPIO122/124, and the
++ * amplifier's ACF programs I2SBCK as 64 FS with a 32-bit frame at 48 kHz
++ * (PongAudioAmpProfile.h:0x0006 = 0x34e8), which is Philips I2S with two
++ * 32-bit slots and a 3.072 MHz bit clock. Pong drives the same endpoint as the
++ * tertiary I2S sink on SD1, so the speaker subgraph names that module instead
++ * of a TDM sink the image does not implement. */
++#define I2S_LPAIF_TYPE              0u /* LPAIF */
++#define I2S_INTF_TERTIARY           2u
++#define I2S_SPEAKER_SD              2u /* SD1 */
++#define I2S_WS_INTERNAL             1u
 +#define INTERLEAVED                 1u
 +#define DEINTERLEAVED_UNPACKED      3u
 +
@@ -540,7 +543,7 @@
 +		SCENARIO_PLAYBACK };
 +	static const PongContainer c = { AR_SG_SPEAKER, POS_GLOBAL_DEV };
 +	static const PongModule m[] = {
-+		{ AR_MOD_TDM_SINK, AR_IID_SPEAKER, 1, 0 }
++		{ AR_MOD_I2S_SINK, AR_IID_SPEAKER, 1, 0 }
 +	};
 +	return pong_graph_open(out, capacity, port, token, &sg, &c, m, 1, NULL,
 +	    0);
@@ -593,22 +596,11 @@
 +	PongWriter w;
 +	pong_begin(&w, out, capacity, port, AR_APM_IID, token, AR_OP_SET_CFG);
 +	const uint32_t cmd = pong_cmd_payload_start(&w);
-+	uint32_t at = pong_param_begin(&w, AR_IID_SPEAKER, PARAM_TDM_INTF);
-+	pong_put32(&w, TDM_LPAIF_TYPE);
-+	pong_put32(&w, TDM_INTF_TERTIARY);
-+	pong_put16(&w, TDM_SYNC_SRC_INTERNAL);
-+	pong_put16(&w, TDM_DATA_OE_ENABLE);
-+	pong_put32(&w, TDM_SLOT_MASK);
-+	pong_put16(&w, TDM_SLOTS_PER_FRAME);
-+	pong_put16(&w, TDM_SLOT_WIDTH_BITS);
-+	pong_put16(&w, TDM_SYNC_LONG);
-+	pong_put16(&w, TDM_SYNC_INVERT);
-+	pong_put16(&w, TDM_DATA_DELAY_ONE_BCLK);
-+	pong_put16(&w, 0);
-+	pong_param_end(&w, at);
-+	at = pong_param_begin(&w, AR_IID_SPEAKER, PARAM_TDM_LANE);
-+	pong_put16(&w, TDM_LANE_MASK);
-+	pong_put16(&w, 0);
++	uint32_t at = pong_param_begin(&w, AR_IID_SPEAKER, PARAM_I2S_INTF);
++	pong_put32(&w, I2S_LPAIF_TYPE);
++	pong_put32(&w, I2S_INTF_TERTIARY);
++	pong_put16(&w, I2S_SPEAKER_SD);
++	pong_put16(&w, I2S_WS_INTERNAL);
 +	pong_param_end(&w, at);
 +	pong_hw_ep_mf(&w, AR_IID_SPEAKER, f);
 +	pong_frame_size_factor(&w, AR_IID_SPEAKER);
@@ -763,7 +755,9 @@
 +	pong_put32(&w, clock_id);
 +	if (hz != 0) {
 +		pong_put32(&w, hz);
-+		pong_put32(&w, 4);
++		/* COUPLE_NO: the bit clock is not derived from another clock,
++		 * which is the attribute Pong's working speaker path votes. */
++		pong_put32(&w, 1);
 +		pong_put32(&w, 0);
 +	}
 +	pong_set32(&w, at + 8, w.n - at - PARAM_HEADER);
@@ -995,7 +989,7 @@
 +	built += pong_ar_write(buf, sizeof(buf), PONG_AUDIO_GPR_PORT, 8,
 +	    0x10000000ull, 1, PONG_AUDIO_PERIOD_BYTES);
 +	built += pong_ar_prm_clock(buf, sizeof(buf), AR_PRM_IID, 9,
-+	    0x204u, PONG_AUDIO_TDM_CLK_HZ);
++	    PONG_AUDIO_I2S_CLK_ID, PONG_AUDIO_TDM_CLK_HZ);
 +	PongGprPacket p = { 0 };
 +	p.dst_domain = GPR_DOMAIN_ADSP;
 +	p.src_domain = GPR_DOMAIN_APPS;

@@ -456,7 +456,7 @@ index 1cf9c4c..94ccfd4 100644
 +		break;
 +	case PongPlayClock:
 +		bytes = pong_ar_prm_clock(packet, sizeof(packet),
-+		    AR_PRM_IID, token, PONG_AFE_CLOCK_TERT_TDM_IBIT,
++		    AR_PRM_IID, token, PONG_AUDIO_I2S_CLK_ID,
 +		    PONG_AUDIO_TDM_CLK_HZ);
 +		break;
 +	case PongPlayPrepareSpeaker:

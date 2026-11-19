@@ -64,6 +64,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   其他 = 19.2 MHz × L）。
 - 不同：参考的 CPU 数是 3/4/1（SM8550），K60 是 **4/3/1**。任何逐核 perf_state 行、
   quiet/boost 逻辑都必须按 K60 的核数改写，不能照抄。
+- 新增（2026-11-19）：t970/zizhan 的同 SoC 策略先写 PDMEM perf-lock（`0x17d09804/8/c`），
+  再写 `perf_state`；K60 DT 的 `qcom,perf-lock-support` 与之一致。`K60CpuFreqPlan` 已加入
+  `k60_cpufreq_pdmem_offset`/`k60_cpufreq_build_pdmem_vote`，探针 mode 2/3/6/7/8 先写 PDMEM、
+  恢复时写回原值；离线编译与 host 166 项通过，尚未上机。
 - 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 已实现模式 1–3、
   只读采样模式 5 和降档写入模式 6（2/3 为带守卫的瞬态写入，6 只降 d0，均为未上机；
   5 为 16 ms 采样线程，不写寄存器），governor 核心由模式 5 的线程调用但仍不写回硬件。
@@ -107,6 +111,9 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   dcvs 控制位为 1 且该 domain 多于 1 核时，再按 `0x320 + 4×i` 写每核一行（K60 为 4/3/1 核，
   不是参考的 3/4/1）；**从不写 `DCVS_CTRL 0xb0`**，调用方缓冲区不足时返回 0 且一条都不写。
 - `k60_cpufreq_build_l3_vote`：L3 共享投票，写 `0x90`，值同样是 LUT 行号。
+- `k60_cpufreq_pdmem_offset`：PDMEM perf-lock 投票偏移，`0x804 + 4×domain`，domain≥3 返回 0。
+- `k60_cpufreq_build_pdmem_vote`：把 LUT 档位展开成一条 PDMEM 写（值即 LUT 行号）；
+  探针先写 PDMEM 再写 `perf_state`，恢复路径把原值写回。
 - `k60_cpufreq_vote_allowed`：拒绝 enable=0、表为空、档位不在表内、写条数超限；`k60_cpufreq_check_readback`
   逐条比较回读值；`k60_cpufreq_build_restore` 用写前保存的原值生成恢复写集合。
 - `k60_cpufreq_governor_reset/governor_window`：参考 16 ms 循环的纯逻辑版——每个 domain 保存
@@ -506,7 +513,9 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   结束恢复，d0 `state=81->69` 后 `restore domains=1 votes=1`）。mode 8 于 04:00 以 image s 把升档也写进 d0：
   `apply d0 level=13 (1804800kHz) readback=ok state=81->94`，与降档交替 11 票后 `restore domains=2 votes=11`，
   恢复后硬件从 1.8048 GHz 回到 1.5552 GHz。但 d1 的 `apply d1 level=16 readback=ok` 之后 `state=130->130`、
-  硬件仍是 2.496 GHz，说明大核簇的持续投票不被 EPSS 接受，d1/d2 仍由固件自主控制。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
+  硬件仍是 2.496 GHz，说明大核簇的持续投票不被 EPSS 接受，d1/d2 仍由固件自主控制。2026-11-19 起
+   PDMEM perf-lock 投票已接入（`0x17d09804/8/c`，先于 `perf_state`），离线 host/编译通过但未上机；
+   若成立，大核簇的持续投票可能由 PDMEM 而非 `perf_state` 承接。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
   三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，

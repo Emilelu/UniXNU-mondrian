@@ -48,6 +48,7 @@
 |---|---|
 | [ENVIRONMENT.md](ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
 | [DISK-HYGIENE.md](DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据（hard-41）、回收顺序、WSL 虚拟盘压缩（需管理员） |
+| [AGENT-BUS.md](AGENT-BUS.md) | 协作通道：`scripts/k60-bus.py` 消息总线、游标、与 reply md 的分工 |
 | [BRANCH-INVENTORY-20261119.md](BRANCH-INVENTORY-20261119.md) | **分支全量盘点**（2026-11-19）：49 条未合入 main 的分支逐条编号，含 ahead/behind、文件数、内容、证据、被谁包含（git 祖先实测）与建议动作；用户逐条确认后按「先合 → 门禁全绿 → 删已合并」执行 |
 | [LOCAL-ASSETS.md](LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [REPO-INVENTORY.md](REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |

@@ -69,6 +69,7 @@ docs/
 | [`LOCAL-ASSETS.md`](engineering/LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 | [`DISK-HYGIENE.md`](engineering/DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据、回收顺序、WSL 虚拟盘压缩（需管理员） |
+| [`AGENT-BUS.md`](engineering/AGENT-BUS.md) | 协作通道：`scripts/k60-bus.py` 追加式消息总线、游标语义、与 reply md 的分工 |
 | [`BRANCH-INVENTORY-20261119.md`](engineering/BRANCH-INVENTORY-20261119.md) | 分支全量盘点：49 条未合入分支逐条列出 ahead/behind、内容、证据、被谁包含与建议动作（用户逐条确认用） |
 | [`PATCH-CATALOG.toml`](engineering/PATCH-CATALOG.toml) | **门禁数据源**：series 内每个补丁的用途与归属（`check-patch-series.py` 用它判“series 外的补丁未登记”） |
 | [`COMPONENT-PINS.toml`](engineering/COMPONENT-PINS.toml) | **门禁数据源**：catalog 与本地工作树不一致的组件及理由（`check-component-pin.py`，hard-40） |

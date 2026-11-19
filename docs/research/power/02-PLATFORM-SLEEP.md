@@ -143,7 +143,7 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
   GICD_ISPENDR 与 `should_wake()` 判定；被拒中断确认并计数，同一 INTID 在 1 ms 窗口
   内达到 1000 次即 masks 该线并返回 storm；结束时恢复保存的使能。其他核在
   `sleepCoreOff()` 里关 CNTV/GIC 后调用本仓库已有的 `psci_smp_cpu_off()`。
-- XNU 补丁 `patches/xnu/0623-k60-platform-sleep.patch`（33 行，接在 `0622` 之后）在
+- XNU 补丁 `patches/xnu/0627-k60-platform-sleep.patch`（33 行，接在 `0622` 之后）在
   `ml_arm_sleep` 启动核 `mt_sleep()` 之后调用 hook 并 `arm_init_cpu()`，在辅助核
   `arm64_prepare_for_sleep(true)` 之前调用 hook(FALSE)。没有 IOPMrootDomain 解锁块：
   `gSleepDisabledFlag` 默认为 0，当前树里也没有 `sleep-disabled` 属性；没有 sheng 的

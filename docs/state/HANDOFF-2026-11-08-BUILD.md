@@ -5,7 +5,7 @@
 
 ## 已完成
 1. `patches/xnu/0391-k60-embedded-init.patch` — 内核内嵌 49,424 B init-stub，写 `/private/var/pong/init`（vnode_open + vn_rdwr + current_proc）。
-2. `patches/xnu/0392-k60-weak-scanout-stubs.patch` — 三个 `__attribute__((weak))` scanout 符号，避免 bootstrap 链接找不到。
+2. `patches/xnu/0630-k60-weak-scanout-stubs.patch` — 三个 `__attribute__((weak))` scanout 符号，避免 bootstrap 链接找不到。
 3. 用户态 `init-stub2.c`（无 libmini、raw svc）已编译 49,424 B，逻辑：mkdir boot-jobs/empty-xpc → 复制 stock LaunchDaemons（过滤 webBookmarks）→ bindfs 到 `/System/Library/LaunchDaemons` 与 `/System/Library/xpc` → exec `/sbin/launchd.ios`。
 4. `k60_init_blob.h`（262 KB C 数组）在 `E:/k60-work/scratch/`。
 5. ADT 触摸坐标修复已推送（`3ace22d`）。

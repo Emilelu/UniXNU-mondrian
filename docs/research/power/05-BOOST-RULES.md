@@ -1,6 +1,6 @@
 # 触摸/帧/GPU 唤醒与 fence 规则（官网 §5 :115-117）
 
-状态：**规则模块 + host 40 项断言；触摸与帧输入已接线并在真机触发，触摸写回已在 image ab 上机成立（d0 `state=15->94`、`hw=1804800kHz`），票数预算与全簇 boost 由 `43af2a5c` 修正，image ac 待上机**（触摸计数补丁 `0622-k60-touch-activity.patch`，消费方 `aa3bada7`，重开窗口 `9b8a36b6`，预算/boost `43af2a5c`；GPU 预唤醒 `34ab1da1`，host 140）。
+状态：**规则模块 + host 40 项断言；触摸与帧输入已接线并在真机触发，触摸写回已在 image ab 上机成立（d0 `state=15->94`、`hw=1804800kHz`），票数预算与全簇 boost 由 `43af2a5c` 修正，image ac 待上机**（触摸计数补丁 `0626-k60-touch-activity.patch`，消费方 `aa3bada7`，重开窗口 `9b8a36b6`，预算/boost `43af2a5c`；GPU 预唤醒 `34ab1da1`，host 140）。
 官网 `https://unixnu.com/zh/porting/power` §5 在 CPU/GPU 调频之后还有四条规则
 （快照 `E:/k60-work/scratch/power-page-20261117.txt:115-117`）：
 
@@ -12,7 +12,7 @@
 
 ## 1. 已经接上的输入
 
-- 触摸：`patches/xnu/0622-k60-touch-activity.patch` 在 `bsd/dev/pong_input.c` 里加一个
+- 触摸：`patches/xnu/0626-k60-touch-activity.patch` 在 `bsd/dev/pong_input.c` 里加一个
   `uint32_t` 计数和 `pong_touch_report_count()`，每次 `pong_touch_post()` 入队后自增；
   CPU 采样线程与 GPU DCVS 线程每 16 ms 读这个计数，计数变化就是一次触摸报告。
 - GPU 提交：`pong_adreno_cp_pending()` 读 CP 环读写指针，采样线程每 16 ms 把

@@ -93,7 +93,9 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   non-zero number of PongWifi symbols, checked by scripts/check-wifi-symbols.py (exit 1 on
   zero, self-tested by scripts/tests/test-wifi-symbols.py). Build with --os
   ios-27.0.1-24A446 after scripts/install-os-profile.sh; with --os ipados-27.0.1-24A446 it
-  applies the 16 series and dies at osfmk/arm64/start.s:33.
+  applies the 16 series and dies at osfmk/arm64/start.s:33. scripts/build-wifi27-kernel.sh
+  runs that whole path in one command and finishes by counting symbols (5 cases in
+  scripts/tests/test-build-wifi27-kernel.py).
 - [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
   2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
   CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on

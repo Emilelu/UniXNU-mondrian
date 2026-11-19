@@ -1834,6 +1834,16 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 ---
 
+### 7.33 用户态暂存检查（0526）
+
+0523、0525 之后内核侧没有待补的功能缺口，剩下的判据在用户态：24A446 的三件套已经离线构建（HANDOFF item 54），但每次重建都需要一条可复跑的命令确认它们仍是 24A446 的、仍为 arm64e/iOS 27、仍链着 libxpc，并且固件仍与 manifest 一致。
+
+`scripts/check-bluetooth-userspace.py --stage DIR` 做这件事：解析 report.json 的五个字段（hardware_verified 必须为 false），解析 `userland/bin/bluetoothd`、`userland/bin/BlueTool` 与 `userland/lib/QcaBTType0.dylib` 的 Mach-O 头与加载命令（类型、arm64e、LC_BUILD_VERSION 的 platform/minos、LC_LOAD_DYLIB 里的 `/usr/lib/libxpc.dylib`），读 `QcaBluetooth.runtime` 的 native_input_sha256，并用 `firmware/bluetooth/manifest.json` 双向核对 `firmware/qca` 的文件名、字节数与哈希。重签后的 bluetoothd 哈希必须不同于原生输入，report 里的 native_input_sha256 才是 24A446 的锚点。
+
+实跑 `/mnt/e/hackios/k60-bt-work/bt24/stage4` 得 18 PASS / 0 FAIL；`scripts/tests/test-bt-userspace-check.py` 16 例覆盖各类拒绝路径。边界：静态检查，不证明签名被 iOS 接受、不证明运行。
+
+---
+
 ## 8 八步账本沿革与 d8/0516 历史范围
 
 **历史实飞状态（2026-11-17 12:03 d9 FAIL；此后 0518 候选仅离线构建，见 §7.25）**：蓝牙账本当时保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。

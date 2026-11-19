@@ -1172,8 +1172,18 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 
 - 背景：官方页 step 6 要求按板子跑蓝牙检查。K60 没有 sheng 那种 QcaBluetooth 用户态模型（Sm8550GeniUart/Sm8550QupDma/ArmSmmu4K 的寄存器桩），但内核这一半可以直接从产物验：控制名、三个 sysctl、电源/通道日志前缀、radio 服务类名，以及 payload ADT 里的静态节点。
 - 新增 `scripts/check-bluetooth-kernel.py`：`--kernel` 必填，检查 9 条内核字符串（`com.apple.uart.sk.bluetooth`、`com.apple.uart.bluetooth`、`[bluetooth power]`、`[bluetooth sk]`、`qbt_power_on`、`qbt_boot`、`qbt_firmware`、`K60BluetoothRadio`、`mac-address-bluetooth0`）；`--payload` 用 `mcopy` 取 `::/EFI/UniXNU/Payloads/kernel.macho.adt` 后查 4 条（`bluetooth`、`qcom,wcn6855-bt`、`transport-encoding`、`transport-speed`）；`--require TEXT` 供只有后续补丁才带的字符串（例如 0525 的 `log-bluetooth`）。`scripts/tests/test-bt-kernel-check.py` 7 例：完整内核通过、缺 sysctl 变红并点名、`--require` 命中/未命中、缺文件非零退出。
-- 实跑：iOS 16 的 `bt-out-0523` 内核（106,602,496 B）13 条全 PASS；iOS 27 的 CI 产物 run 44470953368（kernel.macho 93,077,504 B + payload.img 201,326,592 B）同样 13 条全 PASS，说明两棵树的发布契约一致。该 run 早于 0525，所以 `log-bluotool` 不参与判据；新构建应带 `--require log-bluetooth`。
+- 实跑：iOS 16 的 `bt-out-0523` 内核（106,602,496 B）13 条全 PASS；iOS 27 的 CI 产物 run 44470953368（kernel.macho 93,077,504 B + payload.img 201,326,592 B）同样 13 条全 PASS，说明两棵树的发布契约一致。该 run 早于 0525，所以 `log-bluetooth` 不参与判据；新构建应带 `--require log-bluetooth`。
 - 与 QcaBluetooth 用户态的接口（这次一并核对）：`src/qbt_transport.c:396-420` 与 `userland/BlueTool.c:18/23/42` 读 `kern.qbt_power_on`（读即请求上电，写返回 EPERM，pending 时 EBUSY）、`kern.qbt_boot`（等待 30 s 内的启动结果）、`kern.qbt_firmware`；K60 的 0500 从未改过这三处（`patches/xnu/0500-k60-bt-qbt-new-files.patch:2424-2460`），语义与 sheng 一致，所以换上 QcaBluetooth 的 BlueTool 不需要再改内核。
 - fork 侧组件落地：`drivers/QcaBluetooth` 改为子模块，钉在 `effe4ec5c57cd400a5f818b21c9903fef237edbc`（钉住的框架 `563595a` 的 `components.toml:496-511` 就是这一版；本机 `/mnt/e/hackios/UniXNU` 的主干目录里是 `22ff97f9`）。`feeds.py` 的 resolve 第 5 步先扫设备仓库的 `drivers/`，所以模块以 `('driver','QcaBluetooth')` 解析，和 sheng 一样不需要 feeds 条目；`runtime.py:76-80` 会把它的路径交给 runtime builder。board.toml 仍没有 `[payload.runtime]`，还没有东西调用它。
 - 提交：k60-bt `59b98ad4`（检查脚本 + 测试）；fork `c099dc1`（子模块）、`ba41c0f`（0525 文档）、`881555e`（ci 分支，仅两个 workflow 文件在 feat 之上）。CI：44491451065（head a650557）与 44492630013（head 881555e）。
 - 边界：这是产物级检查，不证明运行；ADT 检查依赖 mcopy；iOS 27 一侧仍无真机。
+
+### 57. 用户态暂存检查：Macho、链接与固件哈希一条命令验完（2026-11-19 17:20）
+
+- 背景：官方页 step 6 要求板级检查脚本。内核半边已有 `scripts/check-bluetooth-kernel.py`（item 56），用户态半边在 item 54 已离线构建出 24A446 的三件套，但没有可复跑的判据；这次补上静态检查器。
+- 脚本：`scripts/check-bluetooth-userspace.py --stage DIR [--manifest PATH] [--bluetoothd-sha256 HEX] [--target STR] [--require STR]`。检查 report.json（built、target、native_input_sha256、native_entitlements_preserved，且 hardware_verified 必须为 false）、`userland/bin/bluetoothd`（必须已重签，即哈希不同于原生输入；arm64e MH_EXECUTE；LC_BUILD_VERSION platform=iOS 且 minos 27.x）、`userland/bin/BlueTool`（arm64e、LC_LOAD_DYLIB 含 `/usr/lib/libxpc.dylib`、iOS 27、可选 `--require` 字符串）、`userland/lib/QcaBTType0.dylib`（arm64e MH_DYLIB）、`userland/bin/QcaBluetooth.runtime` 的 native_input_sha256、`firmware/qca` 与 manifest 双向一致（名字集合、字节数、sha256）。
+- Mach-O 解析：自带 32 字节头与 LC_LOAD_DYLIB(0xC)、LC_BUILD_VERSION(0x32)、LC_VERSION_MIN_IPHONEOS(0x24) 解析，不依赖 otool/llvm，CI 与 WSL 都能跑。
+- 实跑：`--stage /mnt/e/hackios/k60-bt-work/bt24/stage4 --require com.apple.BlueTool` 得到 18 PASS / 0 FAIL；BlueTool 87,216 B、bluetoothd 13,092,096 B（重签后 `178444d6...`，report 的原生输入仍是 `cfd94854...`）、QcaBTType0.dylib 102,096 B、firmware/qca 的 106 个 hp* 文件字节与哈希全部匹配。
+- 测试：`scripts/tests/test-bt-userspace-check.py` 16 例，覆盖 libxpc 缺失、minos 26、非 arm64e 的 bluetoothd、可执行文件冒充 dylib、report 四个字段被改、固件哈希不符、manifest 条目缺文件、marker 指向别的输入、`--require` 缺失，以及未重签的 bluetoothd。
+- 边界：静态检查，不证明签名被 iOS 接受、不证明能运行；manifest 只描述 `firmware/bluetooth` 树里的 hp* 文件，其它固件族不在覆盖范围内。
+

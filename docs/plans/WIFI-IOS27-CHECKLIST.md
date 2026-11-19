@@ -94,8 +94,15 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   zero, self-tested by scripts/tests/test-wifi-symbols.py). Build with --os
   ios-27.0.1-24A446 after scripts/install-os-profile.sh; with --os ipados-27.0.1-24A446 it
   applies the 16 series and dies at osfmk/arm64/start.s:33. scripts/build-wifi27-kernel.sh
-  runs that whole path in one command and finishes by counting symbols (5 cases in
+  runs that whole path in one command and finishes by counting symbols (6 cases in
   scripts/tests/test-build-wifi27-kernel.py).
+  Cost of a cold 27 kernel on this host, measured 2026-11-20: 2,154 sources under the xnu
+  work tree compile at roughly 2.7 objects per minute, so the bootstrap pass alone is 9-13
+  hours; only two to four clang processes run at once because the sources live on the 9p
+  share (listings of bsd/ cost 0.19 s there against 0.00 s on ext4). The second pass does
+  not repeat that work: XNU_BOOTSTRAP only gates the archive block at
+  scripts/build-xnu-generic.sh:604, so the compile flags are identical and make relinks
+  what the first pass already built.
 - [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
   2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
   CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on

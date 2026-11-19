@@ -13,7 +13,10 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 | AudioServerPlugIn bundle（`ShengAudio.driver`） | **UniXNU-sheng** `hal/ShengAudioPlugIn.c` | HAL 冻结：不重建，只把它的 CDHash 放进 trust cache |
 | 服务与 plug-in 的 ABI | **UniXNU-sheng** `package/ShengAudioAbi.h` | 接口不动；它是内核侧唯一需要对齐的用户态契约 |
 
-2026-11-20 03:0x 观察到的 sheng `main` 是 `a68ee4e`（"docs: record the keyboard cover device state"）。
+2026-11-20 04:1x 观察到的 sheng `main` 是 `c8f92b2`（"fix(touch): include the recorded Novatek validation"）。
+从 `a68ee4e` 到 `c8f92b2` 之间音频目录动过三处（见 §3 末尾），但 **ABI 头 `package/ShengAudioAbi.h` 逐字节未变**
+（88 行，sha256 `9ef369877cfae3d2255129f7fdf332448b71300a0fc840d6522ec83e09754b52`）——用户态契约没动，
+内核侧要对的仍是 §2 那些常量。
 
 ## 2. ABI（`package/ShengAudioAbi.h`，88 行）
 
@@ -42,10 +45,25 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 
 - 基准是系统自带的 `BuiltinAudioPlugin.driver`；可见点是我们的 `ShengAudio.driver/Info.plist`；挂载点是音频服务器会扫描的 HAL 目录。
 - 16 系列的同一补丁在 `patches/xnu/zzyd-sheng-audio-addon-mount.patch`，两代只是 addon 槽编号不同（27 上多了 `addon4_stage/status`）。
-- `hal/ShengAudioPlugIn.c`（703 行）实现 `AudioServerPlugIn`；`build-sheng-audio-hal.py` 用 macOS 的 CoreAudio 头 + iphoneos SDK
+- `hal/ShengAudioPlugIn.c`（`c8f92b2` 上 736 行，`a68ee4e` 时 703 行）实现 `AudioServerPlugIn`；`build-sheng-audio-hal.py` 用 macOS 的 CoreAudio 头 + iphoneos SDK
   编成 bundle 并写 `trust.json`（可执行文件 CDHash，给 owner trust cache）。脚本文档字符串已点名：**iPadOS 27 的音频服务器是
   `arm64e-apple-ios27.0`**，默认 target 仍是 `arm64-apple-ios17.0`。HAL 冻结的意思是：不重编这个 bundle，只确认 `trust.json`
   里那份 CDHash 在 27 的 trust cache 里。
+
+`c8f92b2` 之后这个 bundle 多了三处与 27 有关的行为（都不改 ABI）：
+
+- **自身常驻**：`Initialize()` 第一件事是 `keepImageResident()`（`hal/ShengAudioPlugIn.c:138`）——`dladdr` 取自己的
+  Mach-O 头，把除 `__LINKEDIT` 外的每个段 `mlock`。理由在源码注释里：音频服务器的 IO 线程每个周期都跑这段代码与数据，
+  被换出的页会算成 `PageFaultsOnIOThread` 过载；`mlock` 被拒（沙箱或限额）就静默继续。我们冻结的是 16 时代那个 bundle，
+  **没有这一版**——27 上一旦看到 IO 线程 page fault 的报错，这就是「用 sheng 新代码重编 bundle」的理由，而不是分叉一份。
+- **host clock 在 macOS 上放弃**：`setHostClock()` 在 `TARGET_OS_OSX` 下直接写 `host_clock_result = -2` 返回
+  （`hal/ShengAudioPlugIn.c:85`），因为 macOS 那个常量在代码签名的 `__TEXT,__const` 页里，改写会让驱动服务 helper 被 SIGKILL。
+  **iOS 分支不变**，27 上仍走 `dlsym` 取 `AudioGetHostClockFrequency` 那条路。
+- **沙箱白名单按平台分叉**：`ShengAudioService.cpp:80` 在 `XNU_TARGET_OS_OSX` 下给
+  `coreaudiod,com.apple.audio.Core-Audio-Driver-Service.helper`，iOS 分支仍是 `audiomxd,mediaserverd`（:82）——27 用后者。
+
+`scripts/build-sheng-audio-hal.py` 现在也能编 macOS bundle（`Contents/MacOS/ShengAudio`、改 `CFBundleSupportedPlatforms`），
+iOS 目标的路径与产物形状没变：仍是 `ShengAudio.driver/ShengAudio` + `trust.json`。
 
 ## 4. 可复核的基线（都不需要设备）
 
@@ -55,10 +73,11 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 | `cd k60-audio-ios27-carry && sh scripts/tests/portability/run.sh` | `STUBS OK PongAudioAmp.c` | 内核侧胶水对六个符号的内核面 |
 | `python3 scripts/check-audio-migration.py --compile` | `OK: the migration list matches the driver directory` | 可搬清单与磁盘一致 |
 
-一条命令跑完上面几道（外加判据测试与功放 979 例）：`sh scripts/check-audio27-preflight.sh` →
-五行 `ok` 与 `PREFLIGHT OK`；sheng 检出不在旁边时那行是 `skip`，可用 `SHENG_REPO=` 指定。
+一条命令跑完上面几道（外加 conf/files 追加器用例、符号表正反两跑、判据测试与功放 979 例）：
+`sh scripts/check-audio27-preflight.sh` → 八行 `ok` 与 `PREFLIGHT OK`；sheng 检出不在旁边时那行是 `skip`，可用 `SHENG_REPO=` 指定。
 
-2026-11-20 03:0x 全部实测通过（182 checks / STUBS OK / OK / 979 cases）。
+2026-11-20 04:1x 全部实测通过（sheng `c8f92b2` 上 182 checks / STUBS OK / SYMBOLS OK off=0 × 3 /
+conf-files TESTS OK 6 cases / PROBE OK / judge TESTS OK / amplifier TESTS OK 979 cases）。
 
 ## 5. 接缝：内核侧给用户态什么
 

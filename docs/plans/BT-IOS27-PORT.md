@@ -717,6 +717,33 @@ stays `3000000` here because the K60 clock cannot produce 3.2 Mbaud. That
 second number is why sheng's probe condition is not reusable verbatim: it
 requires 3200000, and copying it would leave the radio unpublished on this
 board.
+### 6.5 Enabling the runtime block needs a macOS payload host
+
+`[payload.runtime]` is not a Linux build. `scripts/unixnu/runtime.py:76-80`
+sets `request['os_image']` as soon as `bluetooth_tool` exists, and
+`scripts/build-boot-runtime.py` mounts that image with `hdiutil` — both
+`hdiutil info -plist` and `hdiutil attach -readonly` at `os_mount()`,
+lines 38 and 50-54 — then verifies every staged executable through
+`verified_cdhash()`, which needs `codesign --display --verbose=4` to print a
+CDHash (line 96). Neither tool exists on the Linux runner. The shims the
+workflow installs (`UniXNU/scripts/linux/codesign`) deliberately do nothing —
+"xnu's SETUP host tools and the kernel need no signature on this host" — so
+`bundle_cdhash()` would fail with `no CDHash for <path>` rather than
+silently produce an unsigned addon. The `plutil` shim is real (plistlib), so the
+launchd merge half would run; the mount and the signature halves would not.
+
+Enabling the block therefore moves the payload build to a macOS host, which is
+also where §6.1 was staged: `/home/emilelu/bt24/stage4` was produced on the LAN
+Mac against the 24A446 image. Two consequences for this branch:
+
+- The kernel CI keeps proving the series and the contract; it will not prove
+  the addon. A red run after enabling the block would be about the host, not
+  about the port.
+- F3 needs an explicit decision: run the payload target on macOS, or teach the
+  framework's Linux path to compute a CDHash itself (the CodeDirectory hash is
+  plain SHA-256/SHA-1 over the code directory; no signature is needed to read
+  it) and to reach a mounted OS root some other way.
+
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and
@@ -724,9 +751,10 @@ board.
    device-tree node. What remains is
    hardware: `qbt_k60_start` must actually run under iOS 27, which waits for
    `bsd_init`. To embed firmware first, see 5.2.
-2. `[payload.runtime]` wiring plus an OS image and `codesign` on the payload
-   host. The staging half is built (§6.1): enabling the block makes the payload
-   build emit the services instead of only the kernel.
+2. `[payload.runtime]` wiring, and a payload host that has `hdiutil` and a
+   working `codesign` (§6.5) — the Linux CI has neither. The staging half is
+   built (§6.1): enabling the block makes the payload build emit the services
+   instead of only the kernel.
 3. Hardware only once the fork's `ios27-arm64e` area reaches `bsd_init`.
 
 Until then the iOS 16.6.1 line stays the only hardware testbed, and every

@@ -157,6 +157,13 @@ diff -u <27 tree>/bsd/kern/kern_exec.c /tmp/kern_exec.27.c > 0627-kern-exec-call
 3. **sysmon 接线**（k54）：`K60ModemSysmon.*` 已写好并有宿主测试，但没有调用者、没进 0622；它属于版本无关的硬件契约，可以安全一起搬。
 4. **IPA 的 SMMU 口径**：`b9de56b9` 放宽了 `ArmSmmu4K` 对 Device-nGnRE（writeback=2）的限制，仍在 `drivers/PongAdreno/ArmSmmu4K/` 里，搬 27 前需要那棵树的主人确认它是否已经吸收。
 
+## 9.1 待办：IPA 运行期分配没有页上限
+
+`drivers/PongCellular/K60Ipa.c:892` 的 `kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0, ...)` 第 5 参数传 0，
+即不限制物理页，只靠分配后的 `ptoa_64(page)+bytes > 1<<36` 检查拒绝——命中就返回 `K60IpaRuntimeFailed`，不重试。
+16 线上没暴露（IPA 没打开过），27 的内存布局未必一样。若要补，照 RMTFS 的写法给 `max_pnum` 一个 36 位上界并保留一次重试；
+因为改的是 IPA 路径、本线当前无法上机验证，先记录不动。
+
 ## 10. 干跑记录（2026-11-20 05:32，只读）
 
 树：`/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc`（git `ac9718f`，`kern_exec.c` 9,078 行、`io_map.c` 117 行、`osfmk/arm` 与 16 线同布局）。

@@ -246,7 +246,8 @@ def render(manifest: dict) -> str:
     lines = [
         "# iOS 27 电源搬运清单（版本无关部分）。",
         "#",
-        "# 这七个纯 C 模块是对 https://unixnu.com/zh/porting/power 的可搬资产：它们不碰",
+        "# 这八个纯 C 模块（含充电认证状态机 K60ChargeAuth）是对 https://unixnu.com/zh/porting/power",
+        "# 的可搬资产：它们不碰",
         "# IOKit、不碰 MMIO、只依赖 stdint.h，host 套件把每一条策略钉死。iOS 27 的关键",
         "# 不是\"重写一遍\"，而是\"原样搬过去、先跑同一组断言、再只替换接线\"。",
         "#",

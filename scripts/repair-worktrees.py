@@ -223,7 +223,7 @@ def score_branches(main: Path, worktree: Path) -> list:
 
 
 def wsl_gitdir(worktree: Path) -> str:
-    """Return the absolute path spelling the WSL git guard can stat (P-256)."""
+    """Return the absolute path spelling the WSL git guard can stat (P-258)."""
     text = str(worktree / ".git").replace("\\", "/")
     if len(text) >= 3 and text[1:3] == ":/":
         return "/mnt/{}/{}".format(text[0].lower(), text[3:])
@@ -242,7 +242,7 @@ def write_admin(admin: Path, worktree: Path, gitdir: Path, head: str) -> None:
 
 
 def prunable_worktrees(main: Path) -> list:
-    """Trees this host's git would throw away: the precondition for P-256, not the cure."""
+    """Trees this host's git would throw away: the precondition for P-258, not the cure."""
     out = git(main, "worktree", "list", "--porcelain")
     prunable = []
     path = ""
@@ -357,7 +357,7 @@ def main() -> int:
 
     prunable = prunable_worktrees(main_dir)
     if prunable:
-        print("PRUNABLE {} tree(s) this host's git cannot stat - a prune run from here would delete them (P-256):"
+        print("PRUNABLE {} tree(s) this host's git cannot stat - a prune run from here would delete them (P-258):"
               .format(len(prunable)))
         for path in prunable:
             print("  {}".format(path))

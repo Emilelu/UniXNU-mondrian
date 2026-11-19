@@ -19,7 +19,7 @@
 - 2026-11-19 iOS 迁移边界（只保留可转移的活）：[IOS-SCOPE](engineering/IOS-SCOPE.md)
 | 3 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
 | 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，从踩过的坑提炼的可执行规则 |
-| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-257，每条含症状/根因/判据/教训 |
+| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-258，每条含症状/根因/判据/教训 |
 
 **要做触摸/GPU 之前，额外读：**
 - [`research/EIGHT-STEPS.toml`](research/EIGHT-STEPS.toml) — 该硬件的八步证据，⑦ 未通过不得刷机
@@ -54,7 +54,7 @@ docs/
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
 | [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
-| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-257：症状 → 真因 → 判别 → 教训 |
+| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-258：症状 → 真因 → 判别 → 教训 |
 | [`LINE-MAP.md`](engineering/LINE-MAP.md) | 逐行的“谁在做什么”地图：每条 bring-up 线对应的源码、补丁、证据与负责人 |
 | [`GPU-IOSURFACE-ROOT-CAUSE.md`](engineering/GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 加速失败的根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [`TAGS.md`](engineering/TAGS.md) | tag 策略：只留 boot-proven、main 基线、版本里程碑三种 |
@@ -137,7 +137,8 @@ docs/
 | [`power/05-BOOST-RULES.md`](research/power/05-BOOST-RULES.md) | **触摸/帧/GPU 唤醒/fence 规则**：官网 :115-117 的 1 s 触摸保持、4 窗口 2 帧的 60 % CPU 下限、GPU 双倍/578 MHz/50 ms、1 ms fence 预算，host 40 项；触摸计数（补丁 0622）与 CP 环提交窗口已接线，CPU/GPU 线程已消费；image ab 07:18 触摸把 d0 写到 state=15->94、hw=1804800kHz，票数改每窗口、boost 覆盖全簇（43af2a5c），fence 仍无消费者 |
 | [`power/06-FIRMWARE-MANIFEST.md`](research/power/06-FIRMWARE-MANIFEST.md) | **电源固件清单**：ADSP 26 段 + mdt 的完整 sha256、充电器 .ko、carrier FD/UEFI 输入；记录来源压缩包与缺失段 b24，声明整机清单与认证密钥仍无来源 |
 | [`power/07-RAIL-ORDERING.md`](research/power/07-RAIL-ORDERING.md) | **稳压器/互连/温控顺序**：审计现有 TCS4 lcx/lmx、触摸 IOVDD TCS3、GPU 电源表与投票账本；给出读状态→温控→电压→互连→频率→回读的顺序和 HR-01 边界 |
-| [`power/08-IOS27-POWER-PORT.md`](research/power/08-IOS27-POWER-PORT.md) | **iOS27 电源移植清单**：iOS16 平台睡眠停在完整恢复硬挂；列出七个纯 C 策略模块/八套 host 1811 项、K60 现场事实、catalog ArmCpu + sheng xnu-12377 补丁（927a458）的复用/重写矩阵、移植顺序与验收判据；七模块 freestanding portability preflight；`CARRY.toml` + `check-power-carry.py` 钉住 14 个文件哈希并可用 `--target` 比对 iOS27 检出，另钉住三个 console 判读器的哈希与夹具用例数（25 项测试）；`check-ios27-power-preflight.py` 把模块哈希、PONG report 门控、builder 路由与判读器是否随树带入合成一份 27 侧前置检查（18 项测试） |
+| [`power/08-IOS27-POWER-PORT.md`](research/power/08-IOS27-POWER-PORT.md) | **iOS27 电源移植清单**：iOS16 平台睡眠停在完整恢复硬挂；列出八个纯 C 策略模块/八套 host 1915 项、K60 现场事实、catalog ArmCpu + sheng xnu-12377 补丁（927a458）的复用/重写矩阵、移植顺序与验收判据；八模块 freestanding portability preflight；`CARRY.toml` + `check-power-carry.py` 钉住 16 个文件哈希并可用 `--target` 比对 iOS27 检出，另钉住三个 console 判读器的哈希与夹具用例数（25 项测试）；`check-ios27-power-preflight.py` 把模块哈希、PONG report 门控、builder 路由与判读器是否随树带入合成一份 27 侧前置检查（18 项测试） |
+| [`power/09-CHARGE-AUTH.md`](research/power/09-CHARGE-AUTH.md) | **充电认证移植**：官网 §4 :82-88 的 sheng `ShengChargeAuth.c` 状态机移植到 `K60ChargeAuth.c`（单电芯单电量计、适配器 SVID 0x2717/PDO2、18 诊断属性），host（仅状态机）99 项；已默认关闭地接入 `K60Battery` 串行队列与 HMAC-SHA256/`read_random` 回调，仅 property 7 值 6/7/8 启动；无 UCSI 数据角色、未上机 |
 | [`power/10-THERMAL-MAP.md`](research/power/10-THERMAL-MAP.md) | **温控跳变点地图（纯模型）**：现场 FDT 的 82 个温区/18 个冷却设备与 9 个 AP 侧可行动温区、90000/95000/110000/115000/125000 阶梯、最坏读数聚合与 `allow_raise`/两个 throttle 的派生规则；host 125 项（含与 `K60RailPlan` 温控门的交叉断言）；不读传感器、不下发冷却动作，主动降温仍按方案 1 park |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |

@@ -29,6 +29,59 @@ BLOB_PATCHES = [
 ]
 
 
+def applied_series() -> set[str]:
+    """Repository-relative patch paths the selected profile actually applies.
+
+    Mirrors scripts/unixnu/patches.py (walk [kernel] patch_series, resolve the
+    arch:/soc:/os:/device: prefix) and profiles.py:57-71 (merge
+    [os_overrides."<profile>"] over the board). Returns each series entry
+    resolved against the series file's own directory.
+    """
+    import copy
+    import tomllib
+
+    try:
+        with (REPO / "board.toml").open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, ValueError):
+        return set()
+
+    profile = data.get("board", {}).get("os_profile")
+    chosen = copy.deepcopy(data.get("os_overrides", {}).get(profile, {})) if profile else {}
+    chosen.pop("remove", None)
+    kernel = dict(data.get("kernel", {}))
+    kernel.update(chosen.get("kernel", {}))
+    series = kernel.get("patch_series") or ["device:patches/xnu/series"]
+    arch_name = kernel.get("arch") or data.get("board", {}).get("arch") or "arm64"
+
+    entries: set[str] = set()
+    for item in series:
+        prefix, sep, rest = str(item).partition(":")
+        if not sep:
+            prefix, rest = "device", str(item)
+        if prefix == "os" and profile:
+            series_file = REPO / "profiles" / "os" / str(profile) / rest
+        elif prefix == "arch":
+            series_file = REPO / "profiles" / "arch" / str(arch_name) / rest
+        elif prefix == "soc":
+            series_file = REPO / rest
+        else:
+            series_file = REPO / rest
+        if not series_file.is_file():
+            continue
+        base = series_file.parent
+        for line in series_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                rel = (base / line).resolve().relative_to(REPO.resolve())
+            except ValueError:
+                continue
+            entries.add(str(rel))
+    return entries
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -78,7 +131,13 @@ def main() -> int:
             "MAIN-BASELINE.toml 的 booted 条目里没有 [entry.blob_sha256]，本次只警告"
         )
 
+    in_series = applied_series()
+    scoped = [p for p in BLOB_PATCHES if not in_series or p in in_series]
     for rel in BLOB_PATCHES:
+        if in_series and rel not in in_series:
+            print(f"ℹ️  blob-patches: {rel} 不在当前 OS profile 的 series 里，本次不适用")
+
+    for rel in scoped:
         path = REPO / rel
         if not path.is_file():
             continue
@@ -99,7 +158,8 @@ def main() -> int:
     if problems:
         return 1
     print(
-        f"✅ blob-patches 通过（{len(BLOB_PATCHES)} 个嵌入 blob 补丁；分支 {branch}）"
+        f"✅ blob-patches 通过（{len(scoped)}/{len(BLOB_PATCHES)} 个嵌入 blob 补丁；"
+        f"当前 OS profile 的 series 里只有这些；分支 {branch}）"
     )
     return 0
 

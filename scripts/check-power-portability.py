@@ -22,6 +22,7 @@ MODULES = [
     "K60PowerVotePlan.c",
     "K60RailPlan.c",
     "K60ThermalMap.c",
+    "K60ChargeAuth.c",
 ]
 HEADERS = [name[:-2] + ".h" for name in MODULES]
 FORBIDDEN_INCLUDE = re.compile(

@@ -4,7 +4,7 @@
 > 文件、行号、测试与真机证据上；有缺口的地方必须写成缺口，不用“已覆盖”掩盖。
 > 取材：官网正文抓取自 2026-11-17，本地快照 `E:/k60-work/scratch/power-page-20261117.txt:68-81`；
 > 代码基线 `fix/power-doc-conformance`（从 `fix/battery-sample-dirty` 263ee626 切出）。
-> 边界：本文件只描述测量值发布；充电控制仍归固件，见文末 §9。官网 §4 还附有 Sheng PD/PPS/MiPPS 充电认证与 Linux 充电读取镜像（`:82-104`），属于主机控制充电器的独立实现，本板未纳入本驱动。官网 §5「实现调频与电源操作」是独立工作流：本分支只有离线模块（EPSS 探针/投票写集合/governor 核心、GPU 规划、平台睡眠掩码、外设投票记账），没有 governor 线程、GMU 读取、ArmCpuSleep 或真机读数；整页状态见 `docs/research/power/00-POWER-PAGE-CONFORMANCE.md`，CPU 起步见 `docs/research/power/01-EPSS-PROBE.md`。
+> 边界：本文件只描述测量值发布；充电控制仍归固件，见文末 §9。官网 §4 还附有 Sheng PD/PPS/MiPPS 充电认证与 Linux 充电读取镜像（`:82-104`），属于主机控制充电器的独立实现；K60 在 `feat/charge-auth` 分支已默认关闭地接入认证状态机，本驱动仍不取得充电控制。官网 §5「实现调频与电源操作」是独立工作流：本分支只有离线模块（EPSS 探针/投票写集合/governor 核心、GPU 规划、平台睡眠掩码、外设投票记账），没有 governor 线程、GMU 读取、ArmCpuSleep 或真机读数；整页状态见 `docs/research/power/00-POWER-PAGE-CONFORMANCE.md`，CPU 起步见 `docs/research/power/01-EPSS-PROBE.md`；充电认证移植见 `docs/research/power/09-CHARGE-AUTH.md`（独立 `feat/charge-auth` 分支，已默认关闭接线）。
 
 ## 0. 一句话结论
 
@@ -45,9 +45,9 @@ IOKit 级验证仍待完成。
 
 上游参考：2026-11-18 把 UniXNU-sheng fetch 到 `origin/main` `6c42e10`（2026-11-17），五个未闭项
 （电池电流属性 9、真机插拔、§5 CPU/GPU 调频与 platform sleep、§2/§3 DSP 与音频、§4 充电认证）；
-其中 §5 的 CPU 部分本分支已起步（只读 EPSS 探针 + 离线投票写集合；image i 于 2026-11-18 17:30 读到 d0 state=1.5552 GHz/vote=11、rows 14/17/20、top 1.8048/2.496/2.9952 GHz，d1/d2 因探针早于辅核启动读到 0，见 §7.11 与 `docs/research/power/01-EPSS-PROBE.md`），
+其中 §5 的 CPU 部分本分支已起步（只读 EPSS 探针 + 离线投票写集合，见 §7.11 与 `docs/research/power/01-EPSS-PROBE.md`），
 platform sleep 已有调研与纯逻辑掩码模块（`docs/research/power/02-PLATFORM-SLEEP.md`，host 53 项）但无 ArmCpu/板级 hook、未上机；外设投票有纯记账模块（`docs/research/power/03-POWER-VOTES.md`，host 58 项）但无消费者；GPU 频率有纯逻辑规划模块（`docs/research/power/04-GPU-FREQUENCY.md`，host 56 项）但无 GMU 读取、HFI 投票与 governor 线程；触摸/帧/fence 规则有纯逻辑模块（`docs/research/power/05-BOOST-RULES.md`，host 40 项）但无输入源与线程；电源相关固件哈希见 `docs/research/power/06-FIRMWARE-MANIFEST.md`；稳压器/互连/温控顺序审计见 `docs/research/power/07-RAIL-ORDERING.md`；
-这些在 sheng 上都有实现，K60 尚未接入；本文件此前「sheng 不含 `ShengChargeAuth.c`」的结论基于
+充电认证状态机已在独立 `feat/charge-auth` 分支移植（`K60ChargeAuth.c`，host（仅状态机）99 项，见 `docs/research/power/09-CHARGE-AUTH.md`），并默认关闭地接入 `K60Battery` 串行队列与 HMAC-SHA256/`read_random` 回调；仍无 UCSI 数据角色，未上机。UCSI 数据角色与真机插拔是剩余缺口；本文件此前「sheng 不含 `ShengChargeAuth.c`」的结论基于
 旧检出 `a68ee4e`/`1108068`，已作废。逐项对照见 §7.11；merge 由 lead 后续负责。
 
 ## 1. §4 开头：参考实现的选择（官网 :69-74）
@@ -244,7 +244,7 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | 服务重启 | host 部分验证 / 代码路径补齐 | 第 14 节“transport restart drops and republishes”验证 manager 重新 channel_up 后会丢弃旧 epoch 并重发；`begin()` 在 `K60Battery.cpp:429-437` 清除 `stopped`/`published` 等生命周期状态后再 `start`（commit `6750c7bd`，已包含在 image e/f），IOKit 级 stop/start 未在真机执行 |
 | 订阅 / 周期刷新 / 断链 stale | 已验证（断链真机未制造） | 订阅请求与 in-flight `K60Battmgr.c:81-85`/`:95`、通知 `:163-172`、应答校验与 `subscribed` 置位 `:174-182`；5 s 刷新 `K60Battery.cpp:420-426`；`transport.poll()<0` 取消定时器并 `stale()` `:382-397`，通道 down `:354-358`；`stale()` 保留最后值并置 `K60BatteryStale=true` `:152-159` |
 | 与 OEM/目标电量计逐项对照 | 部分（仅低电流 3 对 PASS） | image f 11:13 的同会话 3 行低电流基线 PASS（`judge-android.txt`：|ΔV|=46mV/±60mV、|ΔSOC|=1.00pp/±3pp、|ΔT|=1.00C/±3C；Android 侧 <100mA，电流未比较）；11:47 的 13 对匹配电流窗口归一化后 |ΔI|=29mA/±150mA，但 |ΔV|=119mV/±60mV，C3 FAIL；image e 两个匹配窗口在 11:56 符号修正后均 FAIL，旧 PASS 作废（§7.10） |
-| 固件充电所有权 | 边界已确认（上游有可移植参考） | 驱动只发布测量值，不写充电器、不改限流、不做 PD/PPS 认证（§9 与官网 :81）；主机控制充电的参考实现已在 `UniXNU-sheng` `origin/main` `6c42e10` 落地（`package/ShengChargeAuth.c`，提交 `2359a86`），K60 尚未接入（§7.11） |
+| 固件充电所有权 | 部分（已接线，默认关闭） | 驱动只发布测量值，不写充电器、不改限流，认证状态机默认关闭且不作为充电许可（§9 与官网 :81）；主机控制充电的参考实现已在 `UniXNU-sheng` `origin/main` `6c42e10` 落地（`package/ShengChargeAuth.c`，提交 `2359a86`），K60 已把状态机移植到独立 `feat/charge-auth` 分支（`K60ChargeAuth.c`，host（仅状态机）99 项），并以默认关闭方式接入 `K60Battery` 串行队列、HMAC-SHA256/`read_random` 回调与 property 7 的 6/7/8 门控；仍无 UCSI 数据角色与充电控制（§7.11 与 `docs/research/power/09-CHARGE-AUTH.md`） |
 
 ### 7.3 Route-c 实测数值（2026-11-17 23:18 boot）
 
@@ -490,9 +490,9 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 | --- | --- | --- |
 | C3 全窗口电流（电池电流属性 9） | `package/ShengBattmgr.c` 读属性 9 并计算 `s->current_ma = HAS(BmCurrent) ? -V(BmCurrent)/1000 : 0`（线序放电为正），`ShengBattery.cpp:219` 用 `setAmperage` 发布电芯电流 | 无：K60 的 ADSP 属性 9 不应答，`K60Battmgr.c:144-147` 跳过该字段，只能发布 USB 输入电流 |
 | 真机插拔/放电/超时/服务重启 | `package/tests/battmgr_host.c` 17,922 B 与 `scripts/check-battery-host.py`；真机记录 macOS 27.3 PC-USB 97 %/4865mV/1109mA 输入电流；sheng 也没有脚本化插拔证据 | host 第 15/16 节已覆盖状态转换（95 项断言）；真机仍未执行 |
-| §5 CPU/GPU 调频与 platform sleep | `package/CpuFreqProbe.cpp` 19,979 B（EPSS 模式 1-4、`kDomainBase {0x17d91000,0x17d92000,0x17d93000}`、`kL3Base 0x17d90000`、16 ms governor、touch boost 1000 ms、frame floor 300 ms）、`GpuPowerProbe.cpp` 148,992 B、`ShengSleep.cpp` 10,397 B（`platform-sleep=1`）、`QcomRpmh.c`/`QcomQmp.c`、`BoardClock.*` | 部分（真机只读）：`K60CpuFreqProbe.cpp` mode 1 已在 image i（2026-11-18 17:30 早读）、image j（17:55 电池 begin 后 5 s 延后读）和 image k（18:22 逐行读取）上机——image i d0 enable=1 state=1.5552 GHz vote=11 rows=14 top=1.8048 GHz，d1/d2 因辅核未启动读到 0，L3 vote=13 rows=15 top=1.7088 GHz；image j d1 enable=1 state=0.6336 GHz vote=16、d2 enable=1 state=0.7872 GHz vote=19，三域均可读；image k 再转储 d0/d1/d2/L3 的 66 条有效 LUT 档位（14/17/20/15 行，top 1.8048/2.496/2.9952/1.7088 GHz），所列 raw 行 cores=4/turbo=0；现场 FDT 的窗口与 sheng 相同，但 K60 为 4/3/1 核、sheng 为 3/4/1 核，见 `docs/research/power/01-EPSS-PROBE.md`。投票写集合（mode 2/3，写 `0x320`/`0x90`）已有 enable/档位守卫、写后回读和恢复原值（commit `42ca4421`，host 128 项），但**从未上机**；无 governor 线程、idle 统计、GPU 频率；platform sleep 有调研文档与纯逻辑模块 `docs/research/power/02-PLATFORM-SLEEP.md`，外设投票有纯记账模块 `docs/research/power/03-POWER-VOTES.md`；GPU 有纯逻辑规划模块 `docs/research/power/04-GPU-FREQUENCY.md`，触摸/帧/fence 有纯规则模块 `docs/research/power/05-BOOST-RULES.md`（均无消费者） |
+| §5 CPU/GPU 调频与 platform sleep | `package/CpuFreqProbe.cpp` 19,979 B（EPSS 模式 1-4、`kDomainBase {0x17d91000,0x17d92000,0x17d93000}`、`kL3Base 0x17d90000`、16 ms governor、touch boost 1000 ms、frame floor 300 ms）、`GpuPowerProbe.cpp` 148,992 B、`ShengSleep.cpp` 10,397 B（`platform-sleep=1`）、`QcomRpmh.c`/`QcomQmp.c`、`BoardClock.*` | 部分（仅离线）：只读 EPSS 探针 `K60CpuFreqProbe.cpp`（mode 1）与投票写集合（mode 2/3，写 `0x320`/`0x90`，**从未上机**），现场 FDT 已给出与 sheng 相同的窗口与 4/3/1 核映射，见 `docs/research/power/01-EPSS-PROBE.md`；无 governor 线程、idle 统计、GPU 频率；platform sleep 有调研文档与纯逻辑模块 `docs/research/power/02-PLATFORM-SLEEP.md`，外设投票有纯记账模块 `docs/research/power/03-POWER-VOTES.md`；GPU 有纯逻辑规划模块 `docs/research/power/04-GPU-FREQUENCY.md`，触摸/帧/fence 有纯规则模块 `docs/research/power/05-BOOST-RULES.md`（均无消费者） |
 | §2 DSP transport / §3 音频流 | `AdspProbe.cpp`、`QcomGlink.c/.h`、`AdspFirmware.c`、`ShengAudioReach.c/.h`、`ShengAudioService.cpp`、`AudioProbe.cpp`，host 测试 `audioreach_host.c`/`qcom_adsp_host.c` | 在未合并的 `feat/audio-adsp-merge`（145 个提交，HEAD `c74aea80`），不在本分支 |
-| §4 充电认证（PD/PPS/MiPPS） | `ShengChargeAuth.c` 13,630 B + `.h` 2,703 B（`2359a86`），SHA-256 认证两支电量计后认证 SVID `0x2717` 的适配器 PDO2，最多 10 次重试、间隔 200 ms；`ShengBattery.cpp` 串行队列内驱动；host 测试以 CommonCrypto 为对端 | 本分支无：`drivers/` 中 grep 不到 `ChargeAuth`/`charge_auth`/`2717`；`feat/charge-auth` 分支已有移植（host 85 项），尚未接入电池队列 |
+| §4 充电认证（PD/PPS/MiPPS） | `ShengChargeAuth.c` 13,630 B + `.h` 2,703 B（`2359a86`），SHA-256 认证两支电量计后认证 SVID `0x2717` 的适配器 PDO2，最多 10 次重试、间隔 200 ms；`ShengBattery.cpp` 串行队列内驱动；host 测试以 CommonCrypto 为对端 | 部分（已接线，默认关闭）：`feat/charge-auth` 的 `K60ChargeAuth.c` + host（仅状态机）99 项，单电芯单电量计、适配器 SVID/PDO2 与 18 诊断属性；已接 `K60Battery` 串行队列（52 字节缓冲、交替调度、超时隔离）与 HMAC-SHA256/`read_random` 回调（RFC 4231 向量 5 项）；仍无 UCSI 数据角色、未上机 |
 
 - `ShengPlatformPower.cpp`（8,229 B）不是可用的平台电源实现：它只做 PMGR ABI 资格验证，
   未实现的槽位会 `panic("ShengPlatformPower: unimplemented operation")`；platform sleep 由
@@ -506,7 +506,8 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   与本仓库一致，代码可复用。
 - 结论：五个未闭项在 sheng 上都有实现，但都不在 K60；本文件只映射官网 §4 的测量值发布，
   §5 的 CPU 部分已有离线探针与投票写集合（未上机），platform sleep 有调研文档但无代码，
-  GPU 的 GMU 读取/HFI 投票与充电认证仍需单独的工作流和新的镜像/真机验证。
+  充电认证状态机已移植并默认关闭地接入 K60Battery 串行队列，仍无 UCSI 数据角色；GPU 的 GMU 读取/HFI 投票与充电认证的
+  crypto/UCSI 路径仍需单独的工作流和新的镜像/真机验证。
 
 ## 8. Host 测试覆盖
 
@@ -526,11 +527,13 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
 
 ## 9. 边界：固件所有权与未闭项
 
-- 本驱动只发布测量值，不写充电器、不改电流限制、不做 PD/PPS 认证；固件继续拥有充电控制
-  （官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
+- 本驱动只发布测量值，不写充电器、不改电流限制；PD/PPS 认证状态机已移植并默认关闭地
+  接入串行队列，但本文件不把认证结果当作充电许可，也不具备 UCSI 数据角色。固件继续拥有
+  充电控制（官网 :81 的边界）。K60 的充电 IC 控制路径不在本文件范围内。
 - 官网 §4 的「sheng 的 PD、PPS 和 MiPPS」（`:82-88`）与「sheng Linux 充电读取镜像」
-  （`:89-104`）不属于本文件的测量值发布范围：本板 ADSP 固件拥有充电控制，驱动没有
-  充电器认证或主机控制路径。此前本文件按 2026-11-09 的旧检出（本地 `main` `a68ee4e`，
+  （`:89-104`）不属于本文件的测量值发布范围：本板 ADSP 固件拥有充电控制；驱动侧只有
+  默认关闭的认证请求路径，没有 UCSI 数据角色、没有设置 `host_ready` 的调用者，也没有
+  充电器控制路径。此前本文件按 2026-11-09 的旧检出（本地 `main` `a68ee4e`，
   当时记录的上游 `1108068`）判断「sheng 不含 `package/ShengChargeAuth.c`」——该结论已作废：
   2026-11-18 fetch 后 `origin/main` 为 `6c42e10`（2026-11-17），`package/ShengChargeAuth.c`
   13,630 B 与 `.h` 2,703 B 已在 `2359a86`（2026-11-16）落地，并由 `ShengBattery.cpp`
@@ -538,13 +541,15 @@ family 映射见 `:33-43`。USB 已连接但 adapter type 缺失时仍填 `kIOPS
   host 测试 `package/tests/charge_auth_host.c` 8,678 B 以 CommonCrypto 为对端，
   Linux 侧 `scripts/charge-sheng-linux.py` 复用同一状态机。`ShengBattmgr.c` 早先的
   `no Xiaomi extensions or charger writes` 注释和 `sheng.md:519-524` 的
-  `read unauthenticated` 都是认证实现之前的状态，不能作为当前结论。K60 接入仍需
-  board get/set `0x50`/`0x51` 属性、HMAC-SHA256 与 PD/PPS/MiPPS 合约、限值和温控策略，
-  属独立工作流（§7.11）。
+  `read unauthenticated` 都是认证实现之前的状态，不能作为当前结论。K60 已把该状态机
+  移植到独立 `feat/charge-auth` 分支的 `K60ChargeAuth.c`（提交 `5449a0bf`/`c6c0307a`，host（仅状态机，无 IOKit/GLINK 覆盖）99 项），
+  并默认关闭地接入 `K60Battery` 的串行队列（52 字节缓冲、与 manager 交替调度、超时隔离
+  与 HMAC-SHA256/`read_random` 回调）；仍无 TypeC/UCSI 数据角色与充电控制，
+  `host_ready` 没有设置者，PDO2 有效时 HostRole 等 5 s 后以 `-95` 失败。
+  上机前不得宣称充电认证完成（§7.11 与 `docs/research/power/09-CHARGE-AUTH.md`）。
 - 未闭项（必须在下一轮镜像与真机报告中关闭或明确保留）：
   1. 最终 battery-only 镜像 `E:/k60-work/artifacts/power-conformance-20261118f/boot.img`（sha256 `024466905dec75cbab5d2525f68936d6f18650a4b0d3aed6551d5ccc3df94c6e`）已于 2026-11-18 11:07 构建、11:13 上机，包含 `592523aa`/`6750c7bd`/`af759fe4`/`0bad0c61`；C1/C2 PASS、C3 对同会话 3 行低电流 Android 基线 PASS（`judge-android.txt`，|ΔV|=46mV、|ΔSOC|=1.00pp、|ΔT|=1.00°C），8 行全窗口在 11:56 符号修正后 FAIL（Android 原始正电流按 negative=charging 归一化为放电），见 §7.9/§7.10。上一版 image e（`8b1df...`）不含 `0bad0c61`（剩余时间按 charging 选择），已三次上机且 C1/C2 PASS，但 11:56 符号修正后其匹配电流 C3 PASS 全部作废（§7.10）；image d（`9e66ef...`）不含容量修正；§7.4 是 image c 的实测，§7.3 是改动前 route-c 对照。
   2. 真机插拔、放电、超时未执行；host 第 15 节已模拟插拔、充电/放电/full 状态转换和剩余时间选择（95 项），但不代替真机。服务重启的代码路径已补（`6750c7bd`，image e/f 包含），IOKit 级 stop/start 未上真机。
   3. C3 需要至少 3 对同方向、同电流、同电压状态的样本；image f 的低电流 3 对（11/0/92mA）PASS 但电流未比较；11:47 的 13 对匹配电流窗口归一化后 ΔI=29mA，但 ΔV=119mV 超差；image e 的旧匹配 PASS 在符号修正后全部 FAIL。12:57 第三次上机补充了同会话 `voltage_ocv` 采集：低电流 3 对 PASS（ocv |ΔV|=42mV、now |ΔV|=48mV），10 行全窗口仍 FAIL（ocv |ΔV|=81mV、now 74mV，且符号相反）。全窗口通过仍要求更稳定的同电流 Android 基线，不能把低电流 PASS 当作 C3 完成。
   4. `K60Raw*` 属性已发布；`K60BatterySmoke` 现在读取并核对 `K60BatteryValidFields`（必须非零）、`K60BatteryFailedFields`、`K60RawVoltageMicrovolts`（`/1000` 应等于 `Voltage`）、`K60RawCurrentMicroamps`（电池电流 `/1000` 应等于 `Amperage`；仅 USB 输入电流时改用 `K60RawUsbCurrentMicroamps / 1000`）和 `K60RawTemperatureHundredths`（应等于 `Temperature`）；标准 `CurrentCapacity`/`MaxCapacity` 现在按官网发布为百分比（`MaxCapacity=100`），`AppleRawCurrentCapacity`/`AppleRawMaxCapacity` 保留 mAh，smoke 同时校验这两组值；缺失电池首帧注册尚未在真机验证。
 - 设备状态（2026-11-18 13:04）：12:55 在 Android 完成同会话 OCV 采集（`android-ocv-20261118-125548`），12:57 第三次上机 image f（`imagef-ocv-20261118-125701`，`console.log` 257,482 B），13:02:37 采集以 `K60AUTORESET` 300 s 结束并发布 `restart reason published`；13:04 `k60-device.sh state` = none，`list-boot-watchers.ps1` 无 watcher。此前 12:28：image f 11:47 采集已于 11:52:33 完成（`K60AUTORESET` 300 s 后发布 `restart reason published`，见 §7.10）；controller 报 `returnedToFastboot=False`，随后设备回到 `fastboot`（`k60-device.sh state` = fastboot，serial 6033dbec），`list-boot-watchers.ps1` 当时无 watcher；12:14–12:24 设备在 Android（serial 6033dbec），完成 12:19 的状态/电流复核；12:15 启动的 k60-audio-adsp audio-probe-af watcher 于 12:26:46 引导（`E:/k60-work/evidence/audio-probe-af/run1-20261118-1215`，image `AAAD48173587…`，`boot.json` `bootAccepted=false`/`bootExitCode=-1`，12:27 `console.log` 0 B），12:28 `k60-device.sh state` = none，占机期间不抢。10:47 的 k60-audio-adsp audio-probe-ab watcher（`E:/k60-work/evidence/audio-probe-ab/run1-20261118-1035`）已结束；此前 09:26 的 audio-probe boot（`E:/k60-work/evidence/audio-probe-y/run1-20261118-0415`，:568 SOC=100.00%）只是一个独立 audio 镜像的用户可见 100% 电池显示，不是本分支 image e/f，不作为 §4 一致性证据。
-- 设备状态（2026-11-18 19:20）：19:14:10–19:19:37 第四次上机 image i（重复 EPSS mode 1，`E:/k60-work/evidence/power-conformance-epss-20261118-1913`），`boot.json` `bootAccepted=true`/`bootExitCode=0`，`console.log` 135,440 B sha256 `01f82fa0…`；`K60CpuFreq` 行 `:191–:195` 与 17:30 首次 image i 完全一致，CPU 1–7 在 `:205–:210` PSCI start PASS，电池首帧 `:472` SOC=89.00% 3973/4464mAh 4271mV 397mA 33.40°C、末帧 `:2183` SOC=88.00% 3928/4464mAh 4223mV 397mA 34.40°C；19:20 `k60-device.sh state` = fastboot，无 watcher。该次只做重复读数，不含写入/mode 2/3。

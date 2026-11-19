@@ -11,12 +11,12 @@
 —— 即长度 ≥607 或含非 ASCII 时 DarwinBoot 在 ReadFile/ParseKernel 之前直接返回，
 屏幕停在 REQUEST 阶段，**串口一个字节都不会出现**，设备自己回 fastboot。
 2026-11-14 的 bt 线 `usblog-20261114-bts1b-run1`（610 字节）就是这样 0 字节的。
-实测 board.toml 当前 29 项 575 字节（`unixnu build payload` 会按名覆盖后重新拼接）。
+实测 board.toml 当前 30 项 596 字节（2026-11-19 起含 `pong_metal=1` 与 `sheng-gpu-addon=1`，此前为 29 项 575 字节；`unixnu build payload` 会按名覆盖后重新拼接）。
 `payload.py:30-38 check_args()` 只拦 >1000，注释里的「1024-byte buffer」是过时的。
 
 预算实例（2026-11-19，合并 `feat/120hz-panel` 时核算）：`board.toml` 当前 29 项 575 字节，`p120=1` 追加 7 字节为 582，`vsync=120` 追加 10 字节为 585；`p120=1` 叠加 `k60_backlight_control=1` 为 606，仍在 607 上限内；`vsync=120` 与 `k60_backlight_control=1` 同用会到 609，装不进同一张镜像——所以面板切档与背光控制改为**默认开启**，只保留 `p120=0` / `vsync=120` / `k60_backlight_control=0` 作为退出开关。
 
-探针镜像另有实测：2026-11-18 的 mode-1 探针为 30 项 603 字节（临时去掉 `applog=1`），余 4 字节；发布镜像仍以 `board.toml` 的完整参数为准。
+探针镜像另有实测：2026-11-19 的 mode-1 探针 w11 为 30 项 601 字节（596 − 9 去掉 `applog=1` + 14 加入 `k60_cpufreq=1`），余 6 字节；2026-11-18 的旧探针记的是 603 字节，属当时那份参数表。发布镜像仍以 `board.toml` 的完整参数为准。
 
 ## 一览
 
@@ -25,6 +25,14 @@
 | `k60bt_delay` | 蓝牙 | 秒，上限 `K60_PROBE_MAX_DELAY_SECS` | `K60_PROBE_DELAY_SECS` | `0507-k60-bt-readonly-probe.patch:251`；只在 `k60.stage == 1` 时生效，让探针等 CDC 控制台开始收流后再碰 SE/GCC 寄存器，否则第一次访问就崩、日志留不下来 |
 | `k60bt_step` | 蓝牙 | 1..`K60_PROBE_MAX_STEP` | `K60_PROBE_MAX_STEP` | `0507:252`；小于 1 或大于上限都被夹回范围，用来把探针停在指定步而不是跑完 |
 | `k60bt_warm` | 蓝牙 | 真值 | 关闭 | `0510-k60-bt-firmware-addon.patch:221`；声明 PM8350 S10/S11/S12、PM8350C S1、PMR735A L7 已经上电，驱动不再自己投票 |
+
+| `bluetooth` | 蓝牙 | 必须 == 1 | 未设 = 不启动 | `0525-k60-bt-official-boot-args.patch:32`；官方契约的拼写，`k60bt` 仍然有效且**优先**（K60 拼写赢），两者都看 `MiniBluetooth.cpp:126` 与驱动入口 |
+| `log-bluetooth` | 蓝牙 | 0..6，超出夹回 6 | 继承 `k60_log_level` | `0525:41`；只改蓝牙那条日志的级别，启动时打一行 `boot: log-bluetooth=<n>`，方便把驱动自己的每一级证据打出来 |
+| `pong_bt_late` | 蓝牙 | 真值 | 关闭 | `0512-k60-bt-late-start.patch:111`；把真正的梯子（power_on + 固件下载）推迟到 K60DATA 挂载之后，失败时 console 与 `/private/var` 都还在，日志停在最后一行而不是整张镜像变哑 |
+| `pong_bt_smmu` | 蓝牙 | 必须 == 0 才关 | 开启 bypass | `0512:113`；只关掉 stream bypass 写，用来把这一次写与后面的固件 DMA 分开判 |
+| `pong_bt_rcg` | 蓝牙 | 必须 == 0 才关 | 开启投票 | `0512:115`；只关 root clock generator 投票，与上一条互不牵连 |
+| `pong_bt_noboot` | 蓝牙 | 真值 | 关闭（会 boot） | `0512:117`；跳过 `qbt_boot`，把失败点切到下载之前，用来判断「映射与线程是否已经成立」 |
+| `k60bt-runtime` | 蓝牙 | 必须 == 1 | 关闭 | `0526-k60-bt-runtime-mount.patch:24`；把 `bluetooth-lib`/`bluetooth-bin` 挂到 `/usr/lib` 与 `/usr/sbin`，而这一步依赖 ADT 里有 `bluetooth` 节点（27 的 `[os_overrides]` 目前不带它） |
 | `pong_adreno_start` | GPU 平台 | 必须 == 1 | 未设 = 不启动 | 缺它则整个 GPU 栈不运行，但日志里没有报错（P-145） |
 | `pong_metal` | GPU / Metal | 必须 == 1 | 未设 = 不发布 | 设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144） |
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |
@@ -56,6 +64,7 @@
 | `platform-sleep` | 电源 / 睡眠 | 0 / 1 | 0（关闭） | `drivers/ArmCpu/ArmCpu.cpp`；仅当值为 1、XNU 侧 `arm64_platform_sleep_hook` 存在且 GIC 映射成功时安装 hook，`quiesceCPU` 才进入 `ml_arm_sleep`；默认 0 时整条路径不安装，image z 用它做默认启动回归 |
 | `platform-sleep-wake-after` | 电源 / 睡眠 | 秒，0 = 不设期限 | 0 | 同上；启动核等待的绝对 CNTV 期限，与 10 s tick 取较小值。没有唤醒源也没有该期限时 hook 直接返回（`unarmed`），所以计时唤醒测试必须同时给 `platform-sleep=1` 和本参数 |
 | `k60_slp` | 电源 / 睡眠 | 秒，0 = 不触发 | 0 | `drivers/PongPower/K60PlatformSleep.cpp`；仅 bring-up 诊断用，非 0 时在板级 hook 注册后启动内核线程，等待指定秒数后调用 `IOPMrootDomain::sleepSystem()`，用于无人按电源键时验证 `platform-sleep=1`；w9/w10 已用它进入 `IOCPUSleepKernel`，但完整恢复挂死，发布镜像不应带它 |
+| `k60_charge_auth` | 充电 / 认证 | 必须 == 1 | 关闭 | `drivers/PongPower/K60Battery.cpp:562` 读参数、状态机在 `K60ChargeAuth.c`；1 = 对 PD 适配器做 Apple 充电认证握手（HMAC 挑战-响应，带 RFC 4231 向量覆盖的 host 用例），默认关闭。18 字节：596 B 基线加它到 614 B 超 607，只能在探针镜像里飞（去掉 `applog=1` 后 587 + 18 = 605）；该参数至今未上机 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |
@@ -453,6 +462,8 @@ pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10  +18 -> 620 超限
 两项合起来正好把 620 压到 607 以下（实测 589）。`k60_fontscale=0` **不是**让位项：
 `osfmk/console/video_console.c:2844` 要求 scale 在 2..4，0 会被忽略且长度不变。
 `k60_selftest_reboot=300`（23 字节）在未配置时本来就不在 board.toml 里。
+
+2026-11-19 起基线改为 30 项 596 字节（`pong_metal=1`、`sheng-gpu-addon=1` 加入，`k60_fontscale=3` 移除），余 11：上面那张以 575 为基线的表整体右移 21 字节，`pong_wifi=1`（+12）现在是 608、`k60_wifi_rsc` 系列因此全部超限，充电认证的 `k60_charge_auth=1`（+18）是 614。这几项只跑进探针镜像（去掉 `applog=1` 后 587：wifi 599、charge-auth 605 都装得下），或先按上面的让位项腾字节。
 
 ## 当前状态（2026-11-12）
 

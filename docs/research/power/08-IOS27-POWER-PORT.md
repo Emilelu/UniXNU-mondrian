@@ -7,7 +7,7 @@
 
 - iOS16（8796，16 KiB 页）上已经把等待路径推进到 `IOCPUSleepKernel`：w9 完成 prepare/restore 和 timer PPI 27 唤醒，随后在 secondary 状态上 panic；w10 把 secondary 提前置 Stopped 后仍然在 `processor_start` 阶段硬挂，console 停止、只能手动复位。
 - 这不是策略问题，而是 8796 的 `IOCPUSleepKernel`/ArmCpu 语义与我们的 vendored 驱动之间的耦合。继续在同一棵 8796 树上试错会反复消耗设备，而且这些行级补丁本来就不能直接用于 12377。
-- 版本无关的部分已经稳定：七个纯 C 规划模块（含温控跳变点地图）、八套 host 断言、现场 EPSS/GPU/PMIC 事实、板级参数与文档。iOS27 先搬这些，再接内核。
+- 版本无关的部分已经稳定：八个纯 C 规划模块（含温控跳变点地图）、八套 host 断言、现场 EPSS/GPU/PMIC 事实、板级参数与文档。iOS27 先搬这些，再接内核。
 
 ## 2. 复用矩阵
 
@@ -23,9 +23,10 @@
 | `K60PowerVotePlan`（16 资源×32 owner） | `drivers/PongPower/K60PowerVotePlan.c`，host 58 项 | **直接复用**；消费者等外设驱动 |
 | `K60RailPlan`（稳压器→互连→频率→回读、温控门、回滚） | `drivers/PongPower/K60RailPlan.c`，host 134 项（conformance 套件，含回滚） | **直接复用**；接真实 regulator/interconnect 消费者前保持纯规划 |
 | `K60ThermalMap`（跳变点→等级→`allow_raise`/降档建议） | `drivers/PongPower/K60ThermalMap.c`，host 125 项 | **直接复用**；读数来源按 12377 的 tsens 节点名重接，策略不变 |
-| `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 八套件 1811 项 | **直接复用**；作为 iOS27 的第一道门 |
-| 跨版本搬运清单 `docs/research/power/CARRY.toml` + `scripts/check-power-carry.py` | 七个模块 14 个文件 773 项断言钉住哈希；`--target` 逐文件比对目标树的副本 | **直接复用**；iOS27 分支合并后跑 `python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27`——2026-11-20 实测六个 `SAME`、`K60ThermalMap` 三个 `MISS`（该树停在温控提交之前）。清单同时钉住三个 console 判读器（handoff 33 / sleep 28 / mode1 14 例，夹具必须仍打印这个数）：同日实测 `judge-k60-mode1-console` 两个文件 `SAME`，`judge-k60-handoff-console` 与 `judge-k60-sleep-console` 的脚本与夹具都 `MISS` |
-| iOS27 搬运前置检查 `scripts/check-ios27-power-preflight.py` | 一次读两棵树（本线 + `--tree`/`K60_IOS27_TREE` 指定的 27 检出），给出五类判定：tree、七个模块逐文件哈希、`sleep-report-guard`、`builder-route`、三个判读器是否已并入；18 项测试，退出 0/1/2 | **直接复用**；2026-11-20 对 `xnekom-ios27@ee910a78` 实测 **3 个阻塞**：`K60ThermalMap` 三文件缺、`0629-k60-sleep-trace.patch:7` 的 report 被 `#if defined(PONG)` 包住、`judge-k60-handoff-console.py`/`judge-k60-sleep-console.py` 未并入。同日这一行的 `0629` 已把门控改成驱动级宏 `K60_PLATFORM_SLEEP_REPORT`（补丁对 `xnu-8796` 的 `IOCPU.cpp` 能干净应用），门禁同时报警“提到 report 却没有这个宏”的形状；`builder-route` 已通过（该树 `board.toml` 已走 `build-xnu-generic.sh`） |
+| `K60ChargeAuth`（充电认证握手状态机） | `drivers/PongPower/K60ChargeAuth.c`，host 99 项（HMAC 向量另 5 项） | **直接复用**；只依赖 `K60ChargeCrypto` 回调与 PMIC 属性名，27 侧换属性号与 `read_random` 接线即可，协议本身不变 |
+| `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 十套件 1915 项 | **直接复用**；作为 iOS27 的第一道门 |
+| 跨版本搬运清单 `docs/research/power/CARRY.toml` + `scripts/check-power-carry.py` | 八个模块 16 个文件 872 项断言钉住哈希；`--target` 逐文件比对目标树的副本 | **直接复用**；iOS27 分支合并后跑 `python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27`——2026-11-20 实测六个 `SAME`、`K60ThermalMap` 三个 `MISS`（该树停在温控提交之前）。清单同时钉住三个 console 判读器（handoff 33 / sleep 28 / mode1 14 例，夹具必须仍打印这个数）：同日实测 `judge-k60-mode1-console` 两个文件 `SAME`，`judge-k60-handoff-console` 与 `judge-k60-sleep-console` 的脚本与夹具都 `MISS` |
+| iOS27 搬运前置检查 `scripts/check-ios27-power-preflight.py` | 一次读两棵树（本线 + `--tree`/`K60_IOS27_TREE` 指定的 27 检出），给出五类判定：tree、八个模块逐文件哈希、`sleep-report-guard`、`builder-route`、三个判读器是否已并入；18 项测试，退出 0/1/2 | **直接复用**；2026-11-20 对 `xnekom-ios27@ee910a78` 实测 **3 个阻塞**：`K60ThermalMap` 三文件缺、`0629-k60-sleep-trace.patch:7` 的 report 被 `#if defined(PONG)` 包住、`judge-k60-handoff-console.py`/`judge-k60-sleep-console.py` 未并入。同日这一行的 `0629` 已把门控改成驱动级宏 `K60_PLATFORM_SLEEP_REPORT`（补丁对 `xnu-8796` 的 `IOCPU.cpp` 能干净应用），门禁同时报警“提到 report 却没有这个宏”的形状；`builder-route` 已通过（该树 `board.toml` 已走 `build-xnu-generic.sh`） |
 | mode-1 只读 A 判据 | `scripts/judge-k60-mode1-console.py`，14 cases；检查 capture、late read 三域 enable、L3 15 行、无写行与 SpringBoard | **直接复用**；iOS27 改 header/寄存器名后重跑 |
 | 平台睡眠判据（catalog ArmCpu 路线） | `scripts/judge-k60-sleep-console.py`，28 checks：ENABLE/ENTER/PREPARE/HALT/RESUME/REPORT/WAKE/NO-PANIC，并把 resume panic 与“唤醒后硬挂”分开 | **直接复用**；iOS27 用 catalog ArmCpu 重做睡眠后，判据不变，只换行文本；`0629` 的门控已从 `defined(PONG)` 改成 `K60_PLATFORM_SLEEP_REPORT`（2026-11-20），否则 27 框上两份 report 会被预处理器删掉 |
 | 只读 A 的现成镜像（iOS16） | image w11 离线构建于 2026-11-19 21:55，未上机：`E:/k60-work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B sha256 `6db4e6b7…`，kernel `069e7075…`，参数 30 项 601 B（`k60_cpufreq=1`，无 `applog=1`） | 等 slot 即可飞 A；iOS27 用同一判据重判 |
@@ -72,7 +73,7 @@ K60_IOS27_TREE=E:/hackios/xnekom-ios27 python3 scripts/check-ios27-power-preflig
 ## 4. 移植顺序
 
 1. **基线**：在 `feat/ios27` 上先构建不带电源新代码的镜像，确认 bsd_init、SpringBoard、USB console 都成立；记录 boot.img/kernel/payload 与 console。
-2. **策略先行**：把七个纯 C 模块和 host 套件原样带过去，先跑 `bash scripts/tests/run-k60-power-host.sh`；八套件数字必须与 iOS16 一致（1811），再跑 `python3 scripts/check-power-carry.py --target <iOS27 树>` 确认七个模块逐文件一致，并确认新增的 `scripts/check-power-portability.py` 通过（七模块无 IOKit/XNU 依赖，freestanding C11 可编译）。这一步不需要设备。
+2. **策略先行**：把八个纯 C 模块和 host 套件原样带过去，先跑 `bash scripts/tests/run-k60-power-host.sh`；十套件数字必须与 iOS16 一致（1915），再跑 `python3 scripts/check-power-carry.py --target <iOS27 树>` 确认八个模块逐文件一致，并确认新增的 `scripts/check-power-portability.py` 通过（八模块无 IOKit/XNU 依赖，freestanding C11 可编译）。这一步不需要设备。
 3. **组件替换**：用 catalog ArmCpu 替换 vendored `drivers/ArmCpu`；确认 `armcpu_sleep_register`、stats、board 回调的结构体大小与 iOS16 版本一致（56 B/48 B），不一致就按 12377 头文件改板级。
 4. **XNU 补丁**：把 sheng 的 12377 补丁按当前 12377 源树重放；只保留 hook、`arm_init_cpu(cpu_data_ptr, 0)`、secondary hook、IOPMrootDomain 清标志、sigp 恢复。不要带 0623/0624/0625。
 5. **板级 hook**：先 timer-only（无 PON），`platform-sleep=1` + `platform-sleep-wake-after=5`；prepare/restore 只累加计数，不在关中断上下文打印；唤醒后在安全上下文打一条 report。
@@ -84,7 +85,7 @@ K60_IOS27_TREE=E:/hackios/xnekom-ios27 python3 scripts/check-ios27-power-preflig
 
 | 门 | 通过条件 |
 | --- | --- |
-| host | 八套件 1811 项全过；`check-power-portability.py` 报告 7 模块 freestanding C11 通过；`K60_POWER_SANITIZE=1` 的 ASan/UBSan 重跑通过；新增 iOS27 适配代码另有断言 |
+| host | 十套件 1915 项全过；`check-power-portability.py` 报告 7 模块 freestanding C11 通过；`K60_POWER_SANITIZE=1` 的 ASan/UBSan 重跑通过；新增 iOS27 适配代码另有断言 |
 | 静态 | kernel.macho 有 `_armcpu_sleep_register`、`_arm64_platform_sleep_hook`、板级 register/report 符号；无 `0624` 的 `k60_platform_sleep_boot_complete` |
 | 默认启动 | `platform-sleep=0` 到 SpringBoard，无 prepare/restore；300 s autoreset 正常 |
 | timer 睡眠 | `platform-sleep=1 platform-sleep-wake-after=5`：prepare=1、restore=1、last_intid=27、last_reason=timer，且 `IOCPUSleepKernel` 打印退出/`wake cpus done`，系统继续运行 |

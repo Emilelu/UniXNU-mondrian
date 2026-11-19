@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run both P-256 regressions: linked-worktree refusal and WSL-visible gitdir."""
+"""Run both P-258 regressions: linked-worktree refusal and WSL-visible gitdir."""
 import os
 import pathlib
 import subprocess
@@ -11,4 +11,4 @@ for name in ("test-git-guard-worktree-prune.py", "test-repair-worktrees-relative
                             cwd=ROOT, env=ENV)
     if result.returncode:
         raise SystemExit(result.returncode)
-print("P-256: both linked-worktree regressions passed")
+print("P-258: both linked-worktree regressions passed")

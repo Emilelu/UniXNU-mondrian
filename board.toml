@@ -154,10 +154,13 @@ dram_size = "0x140000000"
 # interface already set" at libkern/amfi/amfi.c:11, which is what
 # boot-amfi.img (2026-10-31) and boot-amfi2.img (2026-11-01) both showed.
 #
-# These arguments are the measured payload of boot-0461-20261107.img (and of
-# boot-0442-20261107.img before it): 28 entries, debug=0x140, 581 bytes of a
-# 600-byte command line (docs/reference/PITFALLS-FROM-HISTORY.md pitfall 124).
-# Both images reached SpringBoard on the board, so this is the verified list.
+# These arguments descend from the measured payload of boot-0461-20261107.img
+# (and of boot-0442-20261107.img before it): that image had 28 entries,
+# debug=0x140, 581 bytes of a 600-byte command line
+# (docs/reference/PITFALLS-FROM-HISTORY.md pitfall 124) and reached SpringBoard,
+# which is why the list is trusted. The current list below is 30 entries,
+# 596 bytes of a 607-byte usable command line; the mode-1 probe image drops
+# applog=1 and adds k60_cpufreq=1, which is also 30 entries and 601 bytes.
 # Read the measured list back out of an image with a FAT directory walk over the
 # payload volume (/EFI/UniXNU/unixnu.toml, the `args = "..."` line); the boot img
 # header and payload offset for these images are documented in

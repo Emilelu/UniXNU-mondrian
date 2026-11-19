@@ -42,7 +42,7 @@ DARWIN_BOOT_LINE_MAX = 607
 # Additions that a per-line experiment may append to the board contract.  Every
 # name here must also be documented in docs/engineering/BOOT-ARGS.md.
 ALLOWED_ADDITIONS = {
-    "pong_wifi", "k60_wifi_rsc", "k60_wifi_stage", "pong_wifi_dma_mib",
+    "k60_charge_auth", "pong_wifi", "k60_wifi_rsc", "k60_wifi_stage", "pong_wifi_dma_mib",
     "pong_wifi_diag", "pong_wifi_test", "pong_wifi_alt", "pong_wifi_band",
     "pong_wifi_cycle", "k60bt", "k60bt_stage", "k60bt_warm",
     "pong_audio_probe", "pong_rail_probe", "pong_adsp", "pong_touch_se",

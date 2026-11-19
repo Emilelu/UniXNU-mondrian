@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The git guard must refuse `worktree prune` from a LINKED worktree (P-256).
+"""The git guard must refuse `worktree prune` from a LINKED worktree (P-258).
 
-P-203 and P-256 are the same command landing three times: on 2026-11-15 it took
+P-203 and P-258 are the same command landing three times: on 2026-11-15 it took
 twenty worktrees, on 2026-11-20 it took twelve more. Both times the guard was
 tested only from the main checkout, where the refusal does not fire, so the
 fixture was green while the command worked exactly where it hurt.

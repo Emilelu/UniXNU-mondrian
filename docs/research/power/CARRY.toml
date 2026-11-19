@@ -1,6 +1,7 @@
 # iOS 27 电源搬运清单（版本无关部分）。
 #
-# 这七个纯 C 模块是对 https://unixnu.com/zh/porting/power 的可搬资产：它们不碰
+# 这八个纯 C 模块（含充电认证状态机 K60ChargeAuth）是对 https://unixnu.com/zh/porting/power
+# 的可搬资产：它们不碰
 # IOKit、不碰 MMIO、只依赖 stdint.h，host 套件把每一条策略钉死。iOS 27 的关键
 # 不是"重写一遍"，而是"原样搬过去、先跑同一组断言、再只替换接线"。
 #
@@ -86,6 +87,16 @@ test = "scripts/tests/test-k60-thermal-map.c"
 files = [
   { path = "drivers/PongPower/K60ThermalMap.c", sha256 = "d067f1db307986c89e7245213b08999ab05f112e21779e8771d3294eba46cd28" },
   { path = "drivers/PongPower/K60ThermalMap.h", sha256 = "287eef279804e4ce987267be322b2c41881029011639e437b0dfc4c9f02eed92" },
+]
+
+[[module]]
+name = "K60ChargeAuth"
+suite = "charge-auth"
+checks = 99
+test = "scripts/tests/test-k60-charge-auth.c"
+files = [
+  { path = "drivers/PongPower/K60ChargeAuth.c", sha256 = "0df54e9d5b1f4955292cab068ce495197d6c6e09e7121e9f0e4cf2f1abdc4e86" },
+  { path = "drivers/PongPower/K60ChargeAuth.h", sha256 = "26c9d0cdeb81a6efbb4ea3bc1f7380b82374166203d6e98a60cee9ff547145ab" },
 ]
 
 [[judge]]

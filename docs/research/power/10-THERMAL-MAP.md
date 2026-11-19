@@ -121,12 +121,12 @@ int k60_thermal_advise(const K60ThermalReading *readings, unsigned count,
 bash scripts/tests/run-k60-power-host.sh
 ```
 
-八个套件共 **1811** 项（203/140/40/73/58/1038/134/125），其中 `thermal` 125 项
+十个套件共 **1915** 项（203/140/40/73/58/1038/134/125/99/5），其中 `thermal` 125 项
 （`scripts/tests/test-k60-thermal-map.c`）：名字表、13 个阶梯边界、9 个温区 × 3 个等级、
 错误码（空输出/空读数/超量/未知 zone）、每个等级的 `allow_raise` 与两个 throttle、
 最坏读数胜出与平局规则（同等级同温度取更小 zone、同 zone 取更高温度）、
 以及**与 `K60RailPlan` 的交叉断言**：`111000` 的读数让 `k60_rail_plan` 返回 `-2`（升档被拒），
-`96000` 的读数让它返回 0。`K60_POWER_SANITIZE=1` 重跑同一套（ASan/UBSan）也是 1811。
+`96000` 的读数让它返回 0。`K60_POWER_SANITIZE=1` 重跑同一套（ASan/UBSan）也是 1915。
 `scripts/check-power-portability.py` 现在编译 7 个 freestanding C11 模块，本模块包含在内。
 
 ## 7. 下一步（都要求确认，不是本文件的结论）

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The worktree repair tool must write an admin pointer BOTH hosts can stat (P-256).
+"""The worktree repair tool must write an admin pointer BOTH hosts can stat (P-258).
 
 The 2026-11-20 incident had two causes and this is the first one: the previous
 version of scripts/repair-worktrees.py wrote .git/worktrees/<id>/gitdir as the
@@ -24,7 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 TOOL = ROOT / "scripts" / "repair-worktrees.py"
 # A unique directory per run: a leftover fixture from another host cannot be deleted
 # (the objects are owned by whoever built it), and a shared name turns that into a
-# spurious failure of the gate rather than of the tool (P-256).
+# spurious failure of the gate rather than of the tool (P-258).
 WORK = ROOT / "build" / ("repair-worktrees-tests-" + str(os.getpid()))
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
@@ -117,7 +117,7 @@ def main():
     # The recovery pointer is spelled for the host that owns the guard: WSL. Windows
     # git resolves a worktree through that worktree's own .git file, not through the
     # admin pointer, so commits keep working there - but its "worktree list" reports
-    # /mnt/e entries as prunable, and that asymmetry is the unguarded hazard P-256
+    # /mnt/e entries as prunable, and that asymmetry is the unguarded hazard P-258
     # describes. Asserting "not prunable" on Windows would therefore be asserting the
     # opposite of the design.
     usable = run([git, "-C", str(linked), "rev-parse", "--abbrev-ref", "HEAD"], main_dir)

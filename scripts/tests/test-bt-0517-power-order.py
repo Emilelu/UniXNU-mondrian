@@ -184,7 +184,7 @@ def main() -> None:
           "line 236 is 0516", lines[SERIES_PREFIX_COUNT - 1])
     check(lines[SERIES_COUNT - 1] == PATCH_0517,
           "line 237 is 0517", lines[SERIES_COUNT - 1])
-    tail_ok = all(line.startswith(("0518-", "0519-", "0520-", "0523-"))
+    tail_ok = all(line.startswith(("0518-", "0519-", "0520-", "0523-", "0525-"))
                   for line in lines[SERIES_COUNT:])
     check(tail_ok, "candidate tail is 0517 optionally followed by later patches")
     prefix_sha = hashlib.sha256(

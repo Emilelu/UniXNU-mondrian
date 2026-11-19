@@ -177,7 +177,7 @@ def validate_inputs(artifact: Path, patches: Path) -> list[str]:
           "0516 at the candidate tail")
     tail_ok = len(lines) == SERIES_COUNT or (
         len(lines) > SERIES_COUNT
-        and all(line.startswith(("0517-", "0518-", "0519-", "0520-", "0523-"))
+        and all(line.startswith(("0517-", "0518-", "0519-", "0520-", "0523-", "0525-"))
                 for line in lines[SERIES_COUNT:]))
     check(tail_ok, "candidate tail is 0516 optionally followed by later patches")
     if not tail_ok:

@@ -110,11 +110,14 @@ def main() -> None:
 
     lines = [line.strip() for line in SERIES.read_text(encoding="utf-8").splitlines()
              if line.strip()]
-    check(len(lines) == SERIES_COUNT, "series count", str(len(lines)))
+    check(len(lines) >= SERIES_COUNT, "series count", str(len(lines)))
     check(lines[SERIES_COUNT - 1] == "0523-k60-bt-transport-set-rate.patch",
           "line 241 is 0523", lines[SERIES_COUNT - 1])
+    tail = lines[SERIES_COUNT:]
+    check(all(entry.startswith("0525-") for entry in tail),
+          "only 0525 may follow 0523", " ".join(tail))
     series_sha = hashlib.sha256(
-        ("\n".join(lines) + "\n").encode()).hexdigest()
+        ("\n".join(lines[:SERIES_COUNT]) + "\n").encode()).hexdigest()
     check(series_sha == SERIES_SHA256, "241-line series sha256", series_sha)
     prefix_sha = hashlib.sha256(
         ("\n".join(lines[:SERIES_PREFIX_COUNT]) + "\n").encode()).hexdigest()

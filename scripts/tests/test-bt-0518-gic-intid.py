@@ -167,7 +167,7 @@ def main() -> None:
     check(lines[SERIES_COUNT - 1] == PATCH_0518, "line 238 is 0518",
           lines[SERIES_COUNT - 1])
     check([line for line in lines[SERIES_COUNT:]
-           if not line.startswith(("0519-", "0520-", "0523-"))] == [],
+           if not line.startswith(("0519-", "0520-", "0523-", "0525-"))] == [],
           "only a later 051x/052x patch may follow 0518", str(lines[SERIES_COUNT:]))
     prefix_sha = hashlib.sha256(
         ("\n".join(lines[:SERIES_PREFIX_COUNT]) + "\n").encode()).hexdigest()

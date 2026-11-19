@@ -1497,3 +1497,16 @@ scripts/tests/test-wifi-sbl-mission.py 增加一项检查并 0 failure，test-po
 验证：scripts/tests/pong-abi-selftest.c 增加 11 项策略检查（50 项全过，0 failed）；test-pong-abi 32 项 0 failure；
 test-wifi-sbl-mission 增加结构检查后 0 failure；16 与 27 两代头文件编译 rc=0（teardown16/teardown27）。
 
+## 55. 加入过程中的结果回答 pending，24A446 的凭据按参考矩阵解释
+
+参考实现（sheng 27，package/WifiNet.cpp:94 与 :660）把关联结果从 kAssocPending = 0 开始：请求交给站之后，
+daemon 在加入过程中轮询 kAssociateResult 看到的是 0（有待完成），只有站拒绝时才写 kAssocFailed，连接完成后
+再由回调写 1/9/21。我们此前在 kAssociate 入口就写 kAssocFailed = 2，而 27 的关联完成事件里带的也是这个值，
+于是“正在加入”在 daemon 看来等于“已经失败”，27 上会表现为刚点加入就报错。
+
+同时参考实现在 :641 拒绝它无法解释的凭据：cipher 6 必须带 32 字节 PMK，cipher 10 必须是 8 到 63 字节的口令，
+其他组合直接 EINVAL，不当作口令、也不当作开放网络。我们对所有 22H374 客户端保持原来的宽容（zizhan 上机验证过），
+只对 24A446 的 0x290 请求启用严格矩阵。
+
+验证：test-wifi-sbl-mission 增加一项结构检查后 0 failure；16 与 27 两代头文件编译 rc=0。
+

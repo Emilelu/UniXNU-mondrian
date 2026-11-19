@@ -16,6 +16,9 @@ if [ -n "$OUT" ]; then mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); else OUT=$(mkte
 cd "$REPO"
 python3 scripts/check-power-portability.py
 CFLAGS=(-std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongPower)
+if [ "${K60_POWER_SANITIZE:-0}" != "0" ]; then
+  CFLAGS+=(-g -fsanitize=address,undefined -fno-omit-frame-pointer)
+fi
 total=0
 run() {
   local name=$1 expected=$2

@@ -1,0 +1,220 @@
+# Hardware contracts this line owns, one row per fact that an OS port can
+# break silently. Every row is a citation: `source` is path:line and `expect`
+# must appear on that line, so a refactor that moves the constant turns the
+# checker red instead of leaving a stale address in a document.
+#
+# `dependence` says what an iOS 27 move has to re-check:
+#   none            - our own encoding, only both copies of the file must agree
+#   macro           - a compile-time switch this tree controls
+#   firmware        - a number the DSP/firmware or the boot chain also knows
+#   property-number - a PMIC/channel property index that differs per OS image
+#   layout          - a struct/array shape shared with another component
+#
+# ios27 is the action the 27 line takes; "unchanged" means re-verify only.
+
+[[contract]]
+id = "adsp-owner"
+lane = "adsp"
+what = "GLINK battery-manager owner id the DSP request must carry"
+source = "drivers/PongPower/K60Battmgr.h:12"
+expect = "K60_BATTMGR_OWNER 32778u"
+dependence = "firmware"
+ios27 = "unchanged: the id lives in the DSP image, not in XNU"
+
+[[contract]]
+id = "adsp-request-bytes"
+lane = "adsp"
+what = "size of one battmgr request frame"
+source = "drivers/PongPower/K60Battmgr.h:13"
+expect = "K60_BATTMGR_REQUEST_BYTES 24u"
+dependence = "firmware"
+ios27 = "unchanged unless the DSP image changes"
+
+[[contract]]
+id = "adsp-notify-bytes"
+lane = "adsp"
+what = "size of one battmgr notify frame (the DSP's own ack length)"
+source = "drivers/PongPower/K60Battmgr.h:14"
+expect = "K60_BATTMGR_NOTIFY_BYTES 28u"
+dependence = "firmware"
+ios27 = "unchanged; the consumer accepts the length the DSP reports, not this constant"
+
+[[contract]]
+id = "adsp-model-bytes"
+lane = "adsp"
+what = "size of the battery model block"
+source = "drivers/PongPower/K60Battmgr.h:15"
+expect = "K60_BATTMGR_MODEL_BYTES 128u"
+dependence = "layout"
+ios27 = "re-check against the model block the 27 DSP image publishes"
+
+[[contract]]
+id = "handoff-magic"
+lane = "adsp"
+what = "magic of the authenticated handoff lease"
+source = "drivers/PongPower/K60BatteryConfig.h:14"
+expect = "K60_ADSP_HANDOFF_MAGIC 0x4842364bu"
+dependence = "none"
+ios27 = "copy with the driver"
+
+[[contract]]
+id = "handoff-version"
+lane = "adsp"
+what = "version of the handoff lease struct"
+source = "drivers/PongPower/K60BatteryConfig.h:15"
+expect = "K60_ADSP_HANDOFF_VERSION 1u"
+dependence = "none"
+ios27 = "copy with the driver"
+
+[[contract]]
+id = "handoff-bytes"
+lane = "adsp"
+what = "lease size the publisher writes and the consumer maps"
+source = "drivers/PongPower/K60BatteryConfig.h:16"
+expect = "K60_ADSP_HANDOFF_BYTES 104u"
+dependence = "none"
+ios27 = "both copies travel; the console judge asserts bytes=104"
+
+[[contract]]
+id = "handoff-property"
+lane = "adsp"
+what = "SMEM property name the lease is published under"
+source = "drivers/PongPower/K60BatteryConfig.h:17"
+expect = "k60-adsp-glink-handoff"
+dependence = "none"
+ios27 = "copy with the driver; nothing in the OS owns this name"
+
+[[contract]]
+id = "handoff-required-flags"
+lane = "adsp"
+what = "flags a consumer accepts (bit mask 15)"
+source = "drivers/PongPower/K60BatteryConfig.h:36"
+expect = "K60AdspHandoffRequired = 15u"
+dependence = "none"
+ios27 = "copy with the driver; the console judge asserts flags=15"
+
+[[contract]]
+id = "handoff-consumer-check"
+lane = "adsp"
+what = "the consumer refuses a lease without the required flags or epoch"
+source = "drivers/PongPower/K60PmicGlink.cpp:112"
+expect = "h.flags != K60AdspHandoffRequired"
+dependence = "none"
+ios27 = "keep the refusal; dropping it turns a stale lease into a silent adopt"
+
+[[contract]]
+id = "adsp-load-base"
+lane = "adsp"
+what = "link address of the ADSP image segments"
+source = "drivers/PongPower/K60AdspPas.h:23"
+expect = "K60_ADSP_LOAD_BASE 0x86300000ull"
+dependence = "firmware"
+ios27 = "re-derive from the 27 firmware image, not from this constant"
+
+[[contract]]
+id = "adsp-carveout"
+lane = "adsp"
+what = "board carveout the payload is copied to before release"
+source = "drivers/PongPower/K60AdspBoard.c:69"
+expect = "0x9fd00000"
+dependence = "firmware"
+ios27 = "re-check the carveout the 27 device tree publishes"
+
+[[contract]]
+id = "adsp-smc-clobber"
+lane = "adsp"
+what = "SMCCC register contract of the SCM wrapper (P-255)"
+source = "drivers/PongPower/K60AdspPas.c:38"
+expect = "\"x17\", \"memory\""
+dependence = "none"
+ios27 = "copy with the driver; scripts/tests/test-k60-adsp-smccc.py guards both copies"
+
+[[contract]]
+id = "battery-config-magic"
+lane = "battery"
+what = "magic of the persisted battery configuration block"
+source = "drivers/PongPower/K60BatteryConfig.h:11"
+expect = "K60_BATTERY_CONFIG_MAGIC 0x4342364bu"
+dependence = "layout"
+ios27 = "re-check before the 27 image reads an iOS 16 block"
+
+[[contract]]
+id = "battery-config-bytes"
+lane = "battery"
+what = "size of the persisted battery configuration block"
+source = "drivers/PongPower/K60BatteryConfig.h:13"
+expect = "K60_BATTERY_CONFIG_BYTES 112u"
+dependence = "layout"
+ios27 = "re-check with the magic above"
+
+[[contract]]
+id = "charger-auth-arg"
+lane = "charger"
+what = "boot argument that enables the charge-auth state machine"
+source = "drivers/PongPower/K60Battery.cpp:562"
+expect = "k60_charge_auth"
+dependence = "none"
+ios27 = "unchanged; 18 bytes, so it only fits a probe image on the 596-byte baseline"
+
+[[contract]]
+id = "thermal-trip-warm"
+lane = "thermal"
+what = "warm trip point in millidegrees"
+source = "drivers/PongPower/K60ThermalMap.h:57"
+expect = "K60_THERMAL_TRIP_WARM 90000"
+dependence = "firmware"
+ios27 = "re-check against the 27 thermal profile before trusting the ladder"
+
+[[contract]]
+id = "thermal-trip-junction"
+lane = "thermal"
+what = "junction trip point in millidegrees"
+source = "drivers/PongPower/K60ThermalMap.h:58"
+expect = "K60_THERMAL_TRIP_JUNCTION 95000"
+dependence = "firmware"
+ios27 = "same as warm"
+
+[[contract]]
+id = "thermal-trip-emergency"
+lane = "thermal"
+what = "emergency trip point in millidegrees"
+source = "drivers/PongPower/K60ThermalMap.h:59"
+expect = "K60_THERMAL_TRIP_EMERGENCY 110000"
+dependence = "firmware"
+ios27 = "same as warm"
+
+[[contract]]
+id = "thermal-trip-reset"
+lane = "thermal"
+what = "reset trip point in millidegrees"
+source = "drivers/PongPower/K60ThermalMap.h:60"
+expect = "K60_THERMAL_TRIP_RESET 115000"
+dependence = "firmware"
+ios27 = "same as warm"
+
+[[contract]]
+id = "thermal-trip-shutdown"
+lane = "thermal"
+what = "shutdown trip point in millidegrees"
+source = "drivers/PongPower/K60ThermalMap.h:61"
+expect = "K60_THERMAL_TRIP_SHUTDOWN 125000"
+dependence = "firmware"
+ios27 = "same as warm"
+
+[[contract]]
+id = "power-pdmem-vote-magic"
+lane = "power"
+what = "perf-lock PDMEM address family the vote writes through"
+source = "drivers/PongPower/K60CpuFreqPlan.h:61"
+expect = "0x17d09804"
+dependence = "firmware"
+ios27 = "re-derive from the 27 device tree node, not from this comment"
+
+[[contract]]
+id = "power-pdmem-vote-offset"
+lane = "power"
+what = "offset inside the perf-lock PDMEM window"
+source = "drivers/PongPower/K60CpuFreqPlan.h:66"
+expect = "K60_CPU_FREQ_PDMEM_VOTE_OFFSET 0x804u"
+dependence = "firmware"
+ios27 = "re-check with the magic above"

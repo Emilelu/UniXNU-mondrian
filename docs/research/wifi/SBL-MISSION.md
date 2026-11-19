@@ -1406,3 +1406,14 @@ mission34 的事故不是算法错，而是两半用了不同的宽度：预编�
 结果：test-pong-abi 31 checks 0 failure；test-wifi-sbl-mission summary: 0 failure(s)；
 16 与 27 两代头文件都编译通过（/opt/k60/trees/k60build/wifi/teardown16 与 teardown27）。
 
+## 47. 请求 10 的扫描类型也在 0x34
+
+参考实现（sheng 27，package/WifiNet.cpp 的 kScanReq 分支）在请求 10 里读四处：SSID 长度 0x10、SSID 0x14、
+扫描类型 0x34、信道数 0x44 / 信道表 0x48。我们的驱动此前只读了前三处中的两处，scanType 对请求 10 一直是 0，
+于是“type 3 直接用已有结果回答”的近路只对请求 86 生效，对请求 10 会多跑一次空口扫描。
+
+现在 PongWifiAbi.h 增加 PONG_SCAN_ONE_TYPE 0x34，驱动在 held >= 0x38 时把它读进来；请求 10 与 86 共享
+同一段缓存近路与信道过滤逻辑。测试方面：test-wifi-sbl-mission 新增一条检查（常量与读取语句都在），
+test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 读），两套都是 0 failure；
+16 与 27 两代头文件重新编译通过。
+

@@ -82,7 +82,7 @@ enum {
   kCardCaps = 12, kState = 13, kPhyMode = 14, kOpMode = 15, kRssi = 16, kNoise = 17, kPower = 19, kAssociate = 20, kAssociateResult = 21,
   kDisassociate = 22, kSupportedChannels = 27, kLocale = 28, kDeauth = 29, kDriverVersion = 43, kHardwareVersion = 44, kCountryCode = 51,
   kRadioInfo = 54, kWowEnabled = 70, kVirtualRole = 96, kVirtualParent = 97, kScanReqMultiple = 86, kScanCacheClear = 90, kCurrentNetwork = 103, kRssiBounds = 106, kChannelsInfo = 207, kHwSupportedChannels = 254,
-  kProperty = 383, kFlagA = 470, kFlagB = 471,
+  kAbortScan = PONG_REQUEST_ABORT_SCAN, kProperty = 383, kFlagA = 470, kFlagB = 471,
 };
 // events
 enum { kEvPowerChanged = 1, kEvSsidChanged = 2, kEvBssidChanged = 3, kEvLinkChanged = 4, kEvAssocDone = 9, kEvScanDone = 10, kEvRsnHandshakeDone = 20 };
@@ -690,6 +690,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       return r ? EINVAL : 0; }
     case kDisassociate: case kDeauth: gUserJoin = true; log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
     case kScanCacheClear: case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return 0;
+    case kAbortScan: return 0;   // accepted; a running scan still runs to its end (seconds) and reports it
     // Settings the module has no use for, that the wireless daemon sends at every state change (a property list, two flags): taking them
     // without effect is what a driver with nothing to configure does; refusing makes the daemon repeat them and log errors.
     case kProperty: {

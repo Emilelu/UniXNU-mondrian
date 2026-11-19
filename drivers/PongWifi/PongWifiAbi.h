@@ -93,6 +93,11 @@ static inline void pong_wifi_caps_fill(uint8_t caps[PONG_WIFI_CAPS_BYTES])
 #define PONG_SCAN_ONE_CHANNEL_COUNT 0x44u
 #define PONG_SCAN_ONE_CHANNELS 0x48u
 #define PONG_SCAN_ONE_TYPE 0x34u          /* request 10 carries its scan type here */
+
+/* The reference port answers request 382 by accepting it: a scan already running runs to its end
+   and reports itself, which the daemon tolerates. Without the case the request falls through to the
+   unsupported default and the framework sees an error where the reference sees success. */
+#define PONG_REQUEST_ABORT_SCAN 382u
 #define PONG_SCAN_MULTIPLE_CHANNEL_COUNT 0x210u
 #define PONG_SCAN_MULTIPLE_CHANNELS 0x214u
 #define PONG_SCAN_CHANNEL_ENTRY 12u

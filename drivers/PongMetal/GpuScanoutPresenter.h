@@ -87,7 +87,9 @@ public:
              * UNPITCHED copy; the only ways to get it are to remove the pitch change (own the
              * scanout buffer at the surface's pitch, which needs DPU programming to scan out) or
              * to stop copying at all. Recorded in P-243 so nobody re-adds this branch.
-             * A linear texture over the surface pages reads them with the surface's pitch and writes the scanout's pitch.
+             *
+             * A linear texture over the surface pages reads them with the surface's pitch and
+             * writes the scanout's pitch. */
             MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:frame.width
                                                                                        height:frame.height mipmapped:NO];
             d.storageMode = MTLStorageModeShared;

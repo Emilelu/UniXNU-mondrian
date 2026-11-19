@@ -1711,6 +1711,28 @@ Pong 在 modem 链路上只收答复（`PongModemSysmon.h` 的 `sysmonModemServe
 新增 `drivers/PongCellular/K60ModemSysmon.h/.c`：`k60_sysmon_build_event()` 按 Pong 的 TLV 布局组包（TLV1 名字带长度字节、TLV2 状态、TLV3 transaction 回显、TLV 0x10 全零），`k60_sysmon_parse_reply()` 只接受响应型、同 message、同 transaction 的回复，TLV2 的 `<u16 error><u16 code>` 全零才算 ACK。
 
 宿主测试 `scripts/tests/test-k60-sysmon.c` 覆盖组包字节、四种拒绝（空间不足/空名/空指针/超长名）与答复解析（ACK、拒绝码 48、错 transaction、错 message、请求当答复、截断、缺 TLV2），输出 `K60 SYSMON PASS event, reply, refusals`，已进 `run-host-tests.sh`（现 28 行全绿）。**还没有调用者、没有进 0622** —— 留作 k54 的下一变量，避免现在改 0622 让 k53 的 170,373 B 溯源失真。
+### 3.47 一次飞行一条命令：boot 与判读不再分开
+
+`scripts/fly-cellular.py` 把「起飞」和「判读」接成一条命令，剩下的顺序由它保证：
+
+```
+python3 scripts/fly-cellular.py --image <boot 镜像> --manifest <manifest.json> --seconds 420
+```
+
+它做的事，按顺序：
+
+1. 算镜像 sha256 与字节数，和 manifest 里 `image` 那条逐项比——不一致就 `REFUSED`（k49 那次带 `pong_ipa=0` 的镜像就是这样被拦下的）；
+2. 读 `scripts/k60-device.sh state`，不是 `fastboot` 就拒绝——起飞不改设备状态，那是另一条线的事；
+3. 调 `scripts/flash.sh`（铁则 8 的唯一入口，四道门禁与 CDC 采集都在里面），窗口默认 420 s；
+4. 在 `/mnt/e/k60-work/evidence` 找本次起飞之后出现的最新 `usblog-*`，打印 `console.log` 的字节数与 sha256；
+5. 调 `scripts/judge-cellular-flight.py` 并把它的退出码原样返回。
+
+退出码：0 PASS、1 FAILED、2 INVALID、3 拒绝（镜像/manifest 不符或设备状态不对）、4 没有出现证据目录。第 4 种以前是静默的：flash.sh 跑完但没抓到日志时，人只会看到「跑完了」，现在会明确报 `NO EVIDENCE`。
+
+两个不碰设备的用法：`--dry-run`（打印将要执行的命令行；设备不是 fastboot 时只提示，不当场拒绝）与 `--self-test`（拿临时镜像验 manifest 三项：相符、不符两项、文件不存在），输出 `K60 FLY PASS manifest match, mismatch, missing image`。
+
+对 k53 真实 manifest 干跑一次（2026-11-20 07:27）：sha256 `f9afac0d…`、201,895,936 B 与 manifest 相符，设备当前 `adb`，于是只打印「真实运行会拒绝」。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

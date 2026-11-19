@@ -18,6 +18,7 @@ import tempfile
 REPO = pathlib.Path(__file__).resolve().parents[2]
 APPLIER = REPO / "scripts/apply-audio27-wiring.py"
 ANCHOR_27 = "bsd/dev/vfs_syscalls.c\t\t\tstandard"
+ANCHOR_LAYOUT = "bsd/dev/unix_startup.c\t\t\tstandard"  # what a 27 tree does have
 ANCHOR_16 = "bsd/dev/pong_buttons.c\t\t\tstandard"
 KERNEL_SET = 9
 
@@ -102,6 +103,15 @@ def case_no_seed(root):
     code, out = run(root)
     assert code == 1, "an unseeded tree is not an XNU tree: " + out
     assert "not seeded" in out, out
+
+
+def case_layout_default_anchor(root):
+    conf = make_tree(root, inplace=True)
+    conf.write_text(conf.read_text() + ANCHOR_LAYOUT + "\n")
+    code, out = run(root)
+    assert code == 0, out
+    assert "OK sources=%d conf=2" % KERNEL_SET in out, out
+    assert listed(conf) == 2, conf.read_text()
 
 
 def case_inplace_tree(root):
@@ -203,6 +213,7 @@ CASES = [
     ("an unseeded tree is refused", case_no_seed),
     ("the frozen headers stay out", case_afe_stays_out),
     ("an in-place 27 tree is wired the same way", case_inplace_tree),
+    ("an in-place tree needs no anchor argument", case_layout_default_anchor),
     ("the hook calls the probe exactly once", case_hook_init),
     ("a run without the hook says so", case_hook_absent_is_loud),
     ("a hook with the wrong anchor fails", case_hook_wrong_anchor),

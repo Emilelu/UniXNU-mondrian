@@ -8,6 +8,11 @@ and a duplicate definition is a link error far from its cause. This script
 compiles the glue against the portability stubs to learn what it exports, then
 looks for those names anywhere in the kernel areas of the tree.
 
+Two exemptions, both narrow: files the wiring installs (PongAudio*/PongCodec*)
+and the one file apply-audio27-wiring.py --hook-init edits, recognised by the
+comment it writes. Without the second one, a correctly hooked tree reports a
+collision with its own call site.
+
 usage: check-audio27-collisions.py <xnu-tree>
 exit: 0 no clash, 1 a clash or an unreadable tree, 2 usage
 """
@@ -25,6 +30,7 @@ STUBS = REPO / "scripts/tests/portability"
 SOURCES = ["PongAudioAmp.c", "PongAudioGeniI2c.c"]
 AREAS = ("bsd", "osfmk", "pexpert", "iokit", "libkern")
 OURS = re.compile(r"^(PongAudio|PongCodec)")
+HOOK = "K60 audio amplifier probe"
 DSB = '__asm__ volatile("dsb sy" ::: "memory");'
 
 
@@ -59,8 +65,9 @@ def exported(work):
 
 
 def scan(root, names):
-    """{name: [file:line]}, ignoring the files the wiring itself installs."""
+    """({name: [file:line]}, skipped hook files), ignoring the wiring's own files."""
     hits = {}
+    skipped = []
     wanted = set(names)
     for area in AREAS:
         base = root / area
@@ -77,11 +84,14 @@ def scan(root, names):
                 body = path.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
+            if HOOK in body:
+                skipped.append(str(path.relative_to(root)))
+                continue
             for number, line in enumerate(body.splitlines(), 1):
                 for name in wanted:
                     if name in line:
                         hits.setdefault(name, []).append("%s:%d" % (path.relative_to(root), number))
-    return hits
+    return hits, skipped
 
 
 def main(argv):
@@ -96,7 +106,9 @@ def main(argv):
         return 1
     work = pathlib.Path(tempfile.mkdtemp(prefix="k60-coll-"))
     names = exported(work)
-    hits = scan(root, names)
+    hits, skipped = scan(root, names)
+    if skipped:
+        print("  (skipping the wiring hook: %s)" % ", ".join(sorted(skipped)))
     for name in names:
         if name in hits:
             print("  %-26s %s" % (name, ", ".join(hits[name][:4])))

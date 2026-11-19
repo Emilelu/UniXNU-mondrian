@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 """Host tests for scripts/check-audio27-collisions.py.
 
-Three properties: a tree without the names is green, a tree carrying one of them
-is red and says which, and something that is not a tree is refused instead of
-reported green.
+Four properties: a tree without the names is green, a tree carrying one of them
+is red and says which, the hook our applier writes is not counted as a clash
+(but a foreign definition beside it still is), and something that is not a tree
+is refused instead of reported green.
 """
 import pathlib
 import shutil
@@ -67,7 +68,38 @@ def case_not_a_tree():
         shutil.rmtree(root, ignore_errors=True)
 
 
-CASES = [case_clean, case_clash, case_not_a_tree]
+HOOK = """#if 1
+	/* K60 audio amplifier probe (drivers/PongAudio): the amplifiers answer a
+	 * chip-id read over AP-owned GENI I2C without the DSP. Inert unless the
+	 * image is booted with pong_audio_probe=1. */
+	{
+		extern int pong_audio_amp_probe(void);
+		(void)pong_audio_amp_probe();
+	}
+#endif
+"""
+
+
+def case_hook_is_not_a_clash():
+    root = tree()
+    hooked = root / "bsd/kern/bsd_init.c"
+    hooked.write_text(HOOK)
+    try:
+        code, out = run(root)
+        assert code == 0, "the wiring's own call site is not a collision: " + out
+        assert "skipping the wiring hook: bsd/kern/bsd_init.c" in out, out
+        # a foreign definition beside the hook still has to fail
+        (root / "osfmk").mkdir(parents=True, exist_ok=True)
+        (root / "osfmk/k60_clash.c").write_text("int pong_audio_amp_probe(void) { return 0; }\n")
+        code, out = run(root)
+        assert code == 1, out
+        assert "pong_audio_amp_probe" in out and "osfmk/k60_clash.c:1" in out, out
+        return "the hook is exempt, a second definition is not"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+CASES = [case_clean, case_clash, case_hook_is_not_a_clash, case_not_a_tree]
 
 
 def main():

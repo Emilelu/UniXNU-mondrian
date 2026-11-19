@@ -1123,3 +1123,18 @@ mission30（d33ffe06，国家 + 畸形厂商过滤，五条减法探针）因此
 判读：K60K/K60L/K60M 任一出现，35 或 244 就是过滤器，生产修法就是让它们离开记录；只有 K60A 出现而 Emilelu_5G 仍不见，则过滤器是共享元素的内容（HT/VHT/HE operation 的宽度与 80 MHz 频道结构不一致），下一版把 2.4 GHz 同族的 operation 内容换进目标记录再测。
 
 mission27/28/29/30 均建于 2026-11-19 07:12–07:57、从未飞行，已被 31 取代；四个 artifact 目录已删除，`check-bisect-coverage.py --prefix wifi-` 现在只剩 mission31 一条待飞。
+
+
+## 28. Mission32：元素区在 384 字节处被截断
+
+把 mission24 console 的 44 条 Preferences 列表取并集，38 条带元素清单的记录里 33 条 KEPT、5 条 DROPPED，唯一被丢的 5 GHz 记录仍是目标 \`c8:bf:4c:30:03:1c 5240 -51 cap 0x0511\`（Emilelu_5G）。两条被保留的 5 GHz 记录是 \`3a:16:5a:1f:fb:a5 5200 -77 ie 307\` 与 \`38:16:5a:4f:fb:a5 5200 -78 ie 361\`，元素号集合都含国家 7、功率约束 32、VHT 发射功率 195、厂商 221、HE 255，所以单条元素不可能是过滤器；TPC 报告 35 与 IE 244 也出现在被保留的 2.4 GHz 记录里（含同族 \`c8:bf:4c:30:03:1d\`），同样排除。两频段 RSN 逐字节相同（24 B：\`01 00000fac04 0100 00000fac04 0200 00000fac02 000fac08 8c00\`，group CCMP / pairwise CCMP / AKM PSK+SAE / caps 0x008c），安全类型也被排除。
+
+剩下的是元素区的形状：station 用 384 字节定长数组承载扫描元素（\`src/nw_sta.c:14 #define IE_MAX 384\`、\`:61 if (len > IE_MAX) len = IE_MAX;\`、\`:66 b.ie_len = len; memcpy(b.ie, ie, len);\`，ABI \`include/nw_abi.h:52 uint8_t ie[384];\`）。目标 5 GHz 记录报 \`ie 384\`（正好等于上限），但按 TLV 走到 318 B 就断了，剩 66 B 构不成完整元素；2.4 GHz 同族 347 B 走到底，两条被保留的 5 GHz 记录 307/361 B 也走到底。mission25 的两条探针与此一致：K60D（目标 + 载体完整 382 B 元素区）被保留，K60B（载体 + 我们 384 B 元素区）被丢——尾部残缺才是差异，而不是任何单条元素。
+
+代码 a9e8e399 删掉 mission31 的元素过滤器（35/244 在被保留的记录里同样存在，过滤理由不成立），\`fill_result()\` 改为只送到最后一个完整元素，并在发生裁剪时打印 \`wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served\`。站端源头未动：本次靠裁剪交付合法记录，如果仍不见行，下一版再把 \`IE_MAX\` 与 ABI 数组一起放大到 1024（station 与 kext 两处构建都要改）。
+
+十三条探针照旧送出（K60A 基线、K60B..E 加法、K60F..M 减法），所以这一次飞行同时回答两个问题：真实记录裁剪后是否出现，以及哪条探针复现。
+
+mission32 镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission32/boot.img\`，201,887,744 B，SHA256 fd80093a4ad199c5e265dc4e0c1d4f7f3b8e75ce197f73959ccf3f93ca02e9ba，参数 31 条 / 602 B，\`check-image-args\` OK，\`verify-boot-image\` OK，未飞；mission31 目录已删，\`check-bisect-coverage.py --prefix wifi-\` 只剩 mission32 一条待飞。
+
+判读：Emilelu_5G 出现，根因就是 384 字节截断，生产修法是交付完整或裁剪后的元素区；仍不出现，则把 ABI 数组放大后重测。

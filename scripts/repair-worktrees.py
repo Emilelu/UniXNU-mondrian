@@ -222,15 +222,36 @@ def score_branches(main: Path, worktree: Path) -> list:
     return ranked
 
 
+def wsl_gitdir(worktree: Path) -> str:
+    """Return the absolute path spelling the WSL git guard can stat (P-256)."""
+    text = str(worktree / ".git").replace("\\", "/")
+    if len(text) >= 3 and text[1:3] == ":/":
+        return "/mnt/{}/{}".format(text[0].lower(), text[3:])
+    return text
+
+
 def write_admin(admin: Path, worktree: Path, gitdir: Path, head: str) -> None:
     """Rebuild the admin trio and point the worktree at it."""
     admin.mkdir(parents=True, exist_ok=True)
     (admin / "logs").mkdir(exist_ok=True)
     (admin / "HEAD").write_text(head + "\n", encoding="utf-8")
-    (admin / "gitdir").write_text(str(worktree / ".git") + "\n", encoding="utf-8")
+    (admin / "gitdir").write_text(wsl_gitdir(worktree) + "\n", encoding="utf-8")
     (admin / "commondir").write_text(os.path.relpath(gitdir, admin) + "\n", encoding="utf-8")
     write_pointer(worktree / ".git",
                   "gitdir: {}\n".format(os.path.relpath(admin, worktree).replace("\\", "/")))
+
+
+def prunable_worktrees(main: Path) -> list:
+    """Trees this host's git would throw away: the precondition for P-256, not the cure."""
+    out = git(main, "worktree", "list", "--porcelain")
+    prunable = []
+    path = ""
+    for line in out.stdout.splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):].strip()
+        elif line.startswith("prunable"):
+            prunable.append(path)
+    return prunable
 
 
 def stored_head(admin: Path, main: Path) -> str:
@@ -334,11 +355,18 @@ def main() -> int:
             stuck += 1
             print("BROKEN  {}: {} ({})".format(worktree.name, status, worktree))
 
-    print("repair-worktrees: {} checked, {} broken, {} repaired".format(
-        len(worktrees), broken, repaired))
+    prunable = prunable_worktrees(main_dir)
+    if prunable:
+        print("PRUNABLE {} tree(s) this host's git cannot stat - a prune run from here would delete them (P-256):"
+              .format(len(prunable)))
+        for path in prunable:
+            print("  {}".format(path))
+
+    print("repair-worktrees: {} checked, {} broken, {} repaired, {} prunable".format(
+        len(worktrees), broken, repaired, len(prunable)))
     if args.check:
-        return 1 if broken else 0
-    return 1 if stuck else 0
+        return 1 if (broken or prunable) else 0
+    return 1 if (stuck or prunable) else 0
 
 
 if __name__ == "__main__":

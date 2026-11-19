@@ -1123,4 +1123,4 @@ waiver = "The guard is the build script's own freshness check (build-mode1-w11f.
 id = "P-256"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-256"
-check = "python3 scripts/tests/test-git-guard-worktree-prune.py"
+check = "python3 scripts/tests/test-p256-worktree-prune.py"

@@ -1523,3 +1523,18 @@ failed，成功则清掉 gLinkUpMs。22H374 的“切网”走同一条路径，
 
 验证：test-wifi-sbl-mission 增加一项结构检查后 0 failure；16 与 27 两代头文件编译 rc=0。
 
+## 57. 显式断开的语义：隐藏旧链路、补齐事件、回答等待中的加入
+
+参考实现在用户请求断开时并不只是调用 disconnect：它把链路标记为抑制（gLinkSuppressed），让状态查询把旧网络
+隐藏（visible_status 返回 IDLE，清空 ssid/bssid/频点/信号），立刻发出链路断开事件（involuntary=0）以及 SSID、
+BSSID 变更事件，并且在有加入请求排队时当场发出 540 字节的关联完成事件——否则 27 的 daemon 会一直等一个站不会
+再发的完成事件。掉线路径同样补发 SSID/BSSID 事件，并把关联结果写成 failed。
+
+本轮把这些搬进 PongWifiNet.cpp：新增 gJoinPending / gLinkSuppressed 与 visible_status()；kPower 关闭和
+kDisassociate/kDeauth 都走抑制路径并排队 NotifyLinkDown；NotifyControl 的 LinkDown 分支改发完整序列；关联与
+掉线完成统一由 post_association_result() 产出（24A446 的 attempts[0] 填入当前 bssid）；on_connect_done 忽略
+显式断开之后的完成，以及“授权成功但链路不在”（写 failed、不通知）。join 入口清抑制、置 pending，站拒绝时清
+pending。
+
+验证：16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 0 failure（新增一项检查）。
+

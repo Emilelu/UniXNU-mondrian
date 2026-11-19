@@ -511,6 +511,51 @@ sed -n '277,280p' scripts/build-k60-physical-battery.py
 
 ---
 
+## 9. 上机判读器（2026-11-20）
+
+本文件的 §0 写着「发布成功 ≠ 通道可用」，但证据是一份 100–160 KB 的 console：发布行的
+`bytes=104 flags=15`、消费者那行的 `adopting … epoch=`、通道 up 行和采样行分散在几百行里，
+肉眼检查时最容易把「已发布但 epoch 不匹配」「租约因压到 XNU 内存被拒」读成成功。
+`scripts/judge-k60-handoff-console.py` 把链路拆成七条有序判据，逐条打印证据行号。
+
+判据按启动顺序排列，任何一条 FAIL 都会打印 `diagnosis: the first broken link is …`：
+
+| 判据 | 通过条件 | 失败含义 |
+|---|---|---|
+| `CAPTURE` | `capture.json` 的 bytes 与文件一致、无 panic、state 不是 `port-not-observed` | 证据本身不可用；采集被主动切断（`stopReason=fastboot-return/timeout`）时只记 NOTE，判据只覆盖日志包含的窗口 |
+| `CHAIN` | `board ownership init ok rc=0` → `installed rc∈{0,1}` → `platform installed rc=0` → `published … epoch>0 bytes=104 flags=15` | 104 字节没有被发布，或发布的形状不是消费者要求的 |
+| `ADOPT` | `adopting authenticated PAS1 GLINK epoch=E`，E 与发布行相同，tx/rx 偏移非零 | 「已发布但从未被 adopt」= 通道不可用（§0 第 5 条） |
+| `CHANNEL` | `actual PMIC_RTR_ADSP_APPS channel up`，subscription-ack 不是 0/0 | 通道没起来或订阅没完成 |
+| `SAMPLE` | 通道 up 之后至少一条 `K60Battery: <kind> sample=… subscribed=N` | 通道起来了但没有采样 |
+| `NO-FAILURE` | 没有 `failed rc=`、租约重叠拒绝、`GLINK epoch never became ready`、`physical transport stopped error=` | 链路中某一段已经报错，即使后面的行看起来正常 |
+| `ORDER` | init < install < platform < publish < adopt < channel < sample | 行号顺序不对，说明读到的是上一轮或另一条通道的残留 |
+
+两条来自真实日志的宽容，都不是放宽标准而是读对语义：
+
+- `measured sign=0` 合法。channel-up 行由 `state(owner, ready)` 打印，此时
+  `manager.charging_current_sign` 还没被第一个采样写入；真实 console
+  `audio-probe-ax/run1-20261119-0100` 就是 `:518` 打 sign=0、`:696` 才有采样。
+  极性由采样行建立，up 行只要求不是 0/0 的订阅应答。
+- `subscription-ack=1/16` 也是合法的，字节数是 DSP 当次通知的长度，不是固定 28。
+
+用法与退出码：
+
+```sh
+python3 scripts/judge-k60-handoff-console.py <证据目录|console.log>
+# 0 PASS / 1 FAIL / 2 INVALID（目录缺 capture.json 或路径不存在）/ 4 用法错误
+```
+
+离线覆盖：`scripts/tests/test-judge-k60-handoff-console.py` 33 项断言，含健康链、缺发布行、
+`bytes=103`、`flags=14`、epoch 不匹配、已发布未 adopt、租约重叠、`platform rc=-5`、
+adopt 早于 publish、sample 早于 channel、被切断的采集（`fastboot-return`）、sign=0、
+BOM 的 capture.json、panic、空 console、缺 capture.json（INVALID）、缺路径（INVALID）。
+
+真实证据复核：`audio-probe-ax/run1-20261119-0100` 与 `audio-probe-aw/run1-20261118-2245`
+两条完整链路都判 PASS（发布 `:190`/`:189`，adopt `:194`/`:192`，channel `:518`/`:524`，
+采样 `:696`/`:755`），说明这份判读器不会给已经工作的链路制造假红。
+
+---
+
 ## 相关文档
 
 - [01-SYMBOL-MAP.md](../charger/01-SYMBOL-MAP.md) — `.ko` 的 675 个符号与 232 个函数

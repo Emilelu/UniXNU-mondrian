@@ -57,8 +57,20 @@ def build(target: Path, checks_in_runner: int = 3) -> Path:
         "files = [\n"
         f'  {{ path = "drivers/PongPower/Alpha.c", sha256 = "{ZERO}" }},\n'
         f'  {{ path = "drivers/PongPower/Alpha.h", sha256 = "{ZERO}" }},\n'
-        "]\n",
+        "]\n\n"
+        "[[judge]]\n"
+        'name = "judge-alpha"\n'
+        'path = "scripts/judge-alpha.py"\n'
+        f'sha256 = "{ZERO}"\n'
+        'test = "scripts/tests/test-judge-alpha.py"\n'
+        "cases = 2\n",
         encoding="utf-8",
+    )
+    (target / "scripts" / "judge-alpha.py").write_text(
+        "#!/usr/bin/env python3\nprint('judge-alpha: TOTAL PASS')\n", encoding="utf-8"
+    )
+    (target / "scripts" / "tests" / "test-judge-alpha.py").write_text(
+        "print('TESTS OK 2 cases (0 failure(s))')\n", encoding="utf-8"
     )
     result = subprocess.run([sys.executable, str(TOOL), "--repo", str(target), "--update"], **RUN)
     assert result.returncode == 0, result.stderr
@@ -143,6 +155,53 @@ def case_no_manifest() -> None:
     check("a missing manifest is unusable", result.returncode == 2, result.stdout)
 
 
+def case_judge_summary() -> None:
+    tree = build(WORK / "judges")
+    result = run("--repo", str(tree))
+    check("a tree with a judge verifies", result.returncode == 0, result.stderr)
+    check("the summary counts the judge", "1 judge(s)" in result.stdout, result.stdout)
+
+
+def case_judge_tampered() -> None:
+    tree = build(WORK / "judge-tampered")
+    (tree / "scripts" / "judge-alpha.py").write_text(
+        "#!/usr/bin/env python3\nprint('judge-alpha: silently edited')\n", encoding="utf-8"
+    )
+    result = run("--repo", str(tree))
+    check("an edited judge fails", result.returncode == 1, result.stdout)
+    check("the report names the judge", "judge judge-alpha" in result.stderr, result.stderr)
+
+
+def case_judge_case_count() -> None:
+    tree = build(WORK / "judge-cases")
+    (tree / "scripts" / "tests" / "test-judge-alpha.py").write_text(
+        "print('TESTS OK 3 cases (0 failure(s))')\n", encoding="utf-8"
+    )
+    result = run("--repo", str(tree))
+    check("a fixture suite that gained cases fails", result.returncode == 1, result.stdout)
+    check("the report names both counts", "manifest says 2 cases" in result.stderr, result.stderr)
+
+
+def case_judge_broken() -> None:
+    tree = build(WORK / "judge-broken")
+    (tree / "scripts" / "judge-alpha.py").write_text("def broken(:\n", encoding="utf-8")
+    result = run("--repo", str(tree))
+    check("a judge that does not compile fails", result.returncode == 1, result.stdout)
+    check("the report says so", "does not compile" in result.stderr, result.stderr)
+
+
+def case_judge_target_missing() -> None:
+    tree = build(WORK / "judge-source")
+    target = WORK / "judge-target"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(tree, target)
+    (target / "scripts" / "judge-alpha.py").unlink()
+    result = run("--repo", str(tree), "--target", str(target))
+    check("a target that lost the judge fails", result.returncode == 1, result.stdout)
+    check("the report says the judge is missing", "judge judge-alpha: scripts/judge-alpha.py is missing" in result.stderr, result.stderr)
+
+
 def main() -> int:
     WORK.mkdir(parents=True, exist_ok=True)
     for case in (
@@ -153,6 +212,11 @@ def main() -> int:
         case_target_drift,
         case_runner_count,
         case_portability,
+        case_judge_summary,
+        case_judge_tampered,
+        case_judge_case_count,
+        case_judge_broken,
+        case_judge_target_missing,
         case_no_manifest,
     ):
         case()

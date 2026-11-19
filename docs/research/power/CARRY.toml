@@ -4,10 +4,15 @@
 # IOKit、不碰 MMIO、只依赖 stdint.h，host 套件把每一条策略钉死。iOS 27 的关键
 # 不是"重写一遍"，而是"原样搬过去、先跑同一组断言、再只替换接线"。
 #
+# 另列三个判读器（scripts/judge-k60-*-console.py）：它们只吃 console 文本，同样
+# 与版本无关。搬过去先跑各自的夹具（33 / 28 / 14 例），再拿它读真机日志。
+#
 # 校验者：scripts/check-power-carry.py
 #   - 自带模式：文件存在、sha256 未漂移、套件数与 run-k60-power-host.sh 的记录
 #     一致、check-power-portability.py 仍然 freestanding 编译它；
-#   - --target <树>：逐文件比对目标树的副本，报告 same / missing / drift。
+#   - --target <树>：逐文件比对目标树的副本，报告 same / missing / drift；
+#   - 判读器：文件与夹具存在、自己可编译、夹具仍打印记录里的用例数（夹具缩水
+#     的判读器就是 P-204 说的那种"绿而盲"）。
 #
 # 改模块时先改代码，再 `python3 scripts/check-power-carry.py --update` 刷新哈希，
 # 并在同一个提交里同步 docs/research/power/08-IOS27-POWER-PORT.md 的矩阵行。
@@ -82,3 +87,24 @@ files = [
   { path = "drivers/PongPower/K60ThermalMap.c", sha256 = "d067f1db307986c89e7245213b08999ab05f112e21779e8771d3294eba46cd28" },
   { path = "drivers/PongPower/K60ThermalMap.h", sha256 = "287eef279804e4ce987267be322b2c41881029011639e437b0dfc4c9f02eed92" },
 ]
+
+[[judge]]
+name = "judge-k60-handoff-console"
+path = "scripts/judge-k60-handoff-console.py"
+sha256 = "788b8ac912f6ee5eff2812a190db1ee260860e40ec1854f49501001ad586f9d5"
+test = "scripts/tests/test-judge-k60-handoff-console.py"
+cases = 33
+
+[[judge]]
+name = "judge-k60-sleep-console"
+path = "scripts/judge-k60-sleep-console.py"
+sha256 = "722613d6756aa8008c6eb2e412c9ce23dc014ad598bc8b7c12f7a8f32b8894e0"
+test = "scripts/tests/test-judge-k60-sleep-console.py"
+cases = 28
+
+[[judge]]
+name = "judge-k60-mode1-console"
+path = "scripts/judge-k60-mode1-console.py"
+sha256 = "18a2c91a3d72d7d4716b0a9746fe710d2c61eb4cf237dc29cc0a1ffee50d507c"
+test = "scripts/tests/test-judge-k60-mode1-console.py"
+cases = 14

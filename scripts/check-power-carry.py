@@ -11,7 +11,10 @@ iOS 16 -> iOS 27 boundary unchanged. This gate keeps that promise checkable:
   * scripts/check-power-portability.py still compiles the module freestanding;
   * with --target, the copy in another checkout (E:/hackios/xnekom-ios27) is
     compared file by file, so a carry that dropped or edited one file is caught
-    before it reaches a build.
+    before it reaches a build;
+  * every listed judge is compilable and its fixture suite still prints the
+    recorded number of cases (a judge whose fixtures shrank reads a real console
+    the way P-204 warns about: green, and blind).
 
 No device access, no MMIO, no network.
 
@@ -41,6 +44,7 @@ MANIFEST = Path("docs/research/power/CARRY.toml")
 RUNNER = Path("scripts/tests/run-k60-power-host.sh")
 PORTABILITY = Path("scripts/check-power-portability.py")
 RUN_RE = re.compile(r"^run\s+(?P<suite>\S+)\s+(?P<checks>\d+)\s")
+CASES_RE = re.compile(r"TESTS OK\s+(?P<cases>\d+)\s+(?:case|check)")
 
 
 def repo_root() -> Path:
@@ -74,6 +78,31 @@ def load_manifest(root: Path) -> dict:
 
 def modules(manifest: dict) -> list[dict]:
     return list(manifest.get("module") or [])
+
+
+def judges(manifest: dict) -> list[dict]:
+    return list(manifest.get("judge") or [])
+
+
+def fixture_cases(root: Path, test: str) -> int | None:
+    """Run one fixture suite and return the case count it printed, or None."""
+    import subprocess
+
+    try:
+        done = subprocess.run(
+            [sys.executable, str(root / test)],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+            timeout=600,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = CASES_RE.findall(done.stdout or "")
+    return int(found[-1]) if found else None
 
 
 def verify(root: Path, manifest: dict, update: bool) -> tuple[list[str], list[str]]:
@@ -129,6 +158,42 @@ def verify(root: Path, manifest: dict, update: bool) -> tuple[list[str], list[st
             if want and got != want:
                 problems.append(f"{name}: {rel} changed (sha256 {got[:12]} != {want[:12]})")
         rows.append(f"OK   {name:<20} suite={suite:<12} checks={checks} files={len(files)}")
+    for entry in judges(manifest):
+        name = str(entry.get("name") or "?")
+        rel = str(entry.get("path") or "")
+        want = str(entry.get("sha256") or "")
+        cases = entry.get("cases")
+        test = str(entry.get("test") or "")
+        if not rel:
+            problems.append(f"judge {name}: names no path")
+            continue
+        path = root / rel
+        if not path.is_file():
+            problems.append(f"judge {name}: {rel} is missing")
+            continue
+        if not test:
+            problems.append(f"judge {name}: names no test")
+        elif not (root / test).is_file():
+            problems.append(f"judge {name}: test {test} is missing")
+        try:
+            compile(path.read_text(encoding="utf-8", errors="replace"), rel, "exec")
+        except SyntaxError as error:
+            problems.append(f"judge {name}: {rel} does not compile ({error.msg})")
+        got = sha256_file(path)
+        if update:
+            entry["sha256"] = got
+            want = got
+        if want and got != want:
+            problems.append(f"judge {name}: {rel} changed (sha256 {got[:12]} != {want[:12]})")
+        if test and (root / test).is_file():
+            seen_cases = fixture_cases(root, test)
+            if seen_cases is None:
+                problems.append(f"judge {name}: {test} printed no 'TESTS OK N cases/checks' line")
+            elif cases != seen_cases:
+                problems.append(
+                    f"judge {name}: manifest says {cases} cases, {test} prints {seen_cases}"
+                )
+        rows.append(f"OK   judge {name:<27} cases={cases} {rel}")
     if not modules(manifest):
         problems.append(f"{MANIFEST}: lists no modules")
     return rows, problems
@@ -157,6 +222,23 @@ def compare(root: Path, target: Path, manifest: dict) -> tuple[list[str], list[s
         if test and not (target / test).is_file():
             rows.append(f"MISS {name:<20} {test}")
             problems.append(f"{name}: test {test} is missing from {target}")
+    for entry in judges(manifest):
+        name = str(entry.get("name") or "?")
+        for rel in (str(entry.get("path") or ""), str(entry.get("test") or "")):
+            if not rel:
+                continue
+            copy = target / rel
+            if not copy.is_file():
+                rows.append(f"MISS judge {name:<21} {rel}")
+                problems.append(f"judge {name}: {rel} is missing from {target}")
+                continue
+            want = str(entry.get("sha256") or "")
+            got = sha256_file(copy)
+            if rel == str(entry.get("path") or "") and want and got != want:
+                rows.append(f"DRIFT judge {name:<20} {rel}")
+                problems.append(f"judge {name}: {rel} differs from the source tree")
+            else:
+                rows.append(f"SAME judge {name:<21} {rel}")
     return rows, problems
 
 
@@ -168,10 +250,15 @@ def render(manifest: dict) -> str:
         "# IOKit、不碰 MMIO、只依赖 stdint.h，host 套件把每一条策略钉死。iOS 27 的关键",
         "# 不是\"重写一遍\"，而是\"原样搬过去、先跑同一组断言、再只替换接线\"。",
         "#",
+        "# 另列三个判读器（scripts/judge-k60-*-console.py）：它们只吃 console 文本，同样",
+        "# 与版本无关。搬过去先跑各自的夹具（33 / 28 / 14 例），再拿它读真机日志。",
+        "#",
         "# 校验者：scripts/check-power-carry.py",
         "#   - 自带模式：文件存在、sha256 未漂移、套件数与 run-k60-power-host.sh 的记录",
         "#     一致、check-power-portability.py 仍然 freestanding 编译它；",
-        "#   - --target <树>：逐文件比对目标树的副本，报告 same / missing / drift。",
+        "#   - --target <树>：逐文件比对目标树的副本，报告 same / missing / drift；",
+        "#   - 判读器：文件与夹具存在、自己可编译、夹具仍打印记录里的用例数（夹具缩水",
+        "#     的判读器就是 P-204 说的那种\"绿而盲\"）。",
         "#",
         "# 改模块时先改代码，再 `python3 scripts/check-power-carry.py --update` 刷新哈希，",
         "# 并在同一个提交里同步 docs/research/power/08-IOS27-POWER-PORT.md 的矩阵行。",
@@ -190,6 +277,14 @@ def render(manifest: dict) -> str:
                 f'  {{ path = "{item.get("path", "")}", sha256 = "{item.get("sha256", "")}" }},'
             )
         lines.append("]")
+        lines.append("")
+    for entry in judges(manifest):
+        lines.append("[[judge]]")
+        lines.append(f'name = "{entry.get("name", "")}"')
+        lines.append(f'path = "{entry.get("path", "")}"')
+        lines.append(f'sha256 = "{entry.get("sha256", "")}"')
+        lines.append(f'test = "{entry.get("test", "")}"')
+        lines.append(f'cases = {entry.get("cases", 0)}')
         lines.append("")
     return "\n".join(lines)
 
@@ -232,9 +327,12 @@ def main() -> int:
         return 1
     total = sum(int(entry.get("checks") or 0) for entry in modules(manifest))
     files = sum(len(entry.get("files") or []) for entry in modules(manifest))
+    judged = len(judges(manifest))
+    judge_cases = sum(int(entry.get("cases") or 0) for entry in judges(manifest))
     suffix = f"; target {args.target} matches" if args.target is not None else ""
     print(
-        f"power-carry: OK ({len(modules(manifest))} modules, {files} files, {total} checks{suffix})"
+        f"power-carry: OK ({len(modules(manifest))} modules, {files} files, {total} checks; "
+        f"{judged} judge(s), {judge_cases} cases{suffix})"
     )
     return 0
 

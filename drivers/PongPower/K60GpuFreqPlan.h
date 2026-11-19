@@ -50,8 +50,9 @@ unsigned k60_gpu_level_for_khz(const K60GpuTable *table, uint64_t khz);
  * 0 on a missing table or a zero current level. No MMIO. */
 unsigned k60_gpu_wake_level(const K60GpuTable *table, unsigned current,
     uint64_t min_khz);
-/* HFI GX_BW_PERF_VOTE payload excluding the wire header: {1, level, bandwidth}.
- * Returns 3, or 0 when the level/bandwidth is outside the wire field. */
+/* HFI GX_BW_PERF_VOTE payload excluding the wire header: {1, level, bus index}.
+ * The bus index selects the preprogrammed bandwidth level, not a kB/s value.
+ * Returns 3, or 0 when the level or bus index is outside the wire field. */
 unsigned k60_gpu_vote_payload(unsigned level, unsigned bandwidth, uint32_t out[3]);
 
 /* Wake boost floor and the refusal budget the DCVS thread applies. */

@@ -331,23 +331,28 @@ void probeDcvsControl(unsigned domain)
         domain, control, table.level[topIndex], stateA, stateA * K60_CPU_FREQ_XO_KHZ,
         table.level[bottomIndex], stateB, stateB * K60_CPU_FREQ_XO_KHZ);
 
-    /* Phase B: every core row, control bit 0 set. */
-    if (!(control & 1u)) wr32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL, control | 1u);
-    for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, table.level[topIndex]);
-    IOSleep(50);
-    stateC = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
-    for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, table.level[bottomIndex]);
-    IOSleep(50);
-    stateD = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
-    for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, original[i]);
-    wr32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL, control);
-    IOSleep(50);
-    stateE = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
-    IOLog("K60CpuFreq: mode9 d%u b ctrl=0x%x rows=%u top -> %u (%ukHz) bottom -> %u (%ukHz) restored ctrl=0x%x state=%u (%ukHz)\n",
-        domain, control | 1u, n, stateC, stateC * K60_CPU_FREQ_XO_KHZ,
-        stateD, stateD * K60_CPU_FREQ_XO_KHZ,
-        rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL), stateE,
-        stateE * K60_CPU_FREQ_XO_KHZ);
+    /* Phase B: every core row, but never write DCVS_CTRL. Sheng's latest
+     * CpuFreqProbe.cpp votes the perf-state row and writes the per-core rows
+     * only when bit 0 is already set; setting it ourselves is what hung image
+     * t/u before the console. Respect the firmware's ownership. */
+    if (control & 1u) {
+        for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, table.level[topIndex]);
+        IOSleep(50);
+        stateC = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+        for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, table.level[bottomIndex]);
+        IOSleep(50);
+        stateD = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+        for (i = 0; i < n; ++i) wr32(window.va, all[i].offset, original[i]);
+        IOSleep(50);
+        stateE = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+        IOLog("K60CpuFreq: mode9 d%u b ctrl=0x%x rows=%u top -> %u (%ukHz) bottom -> %u (%ukHz) restored state=%u (%ukHz)\n",
+            domain, control, n, stateC, stateC * K60_CPU_FREQ_XO_KHZ,
+            stateD, stateD * K60_CPU_FREQ_XO_KHZ,
+            stateE, stateE * K60_CPU_FREQ_XO_KHZ);
+    } else {
+        IOLog("K60CpuFreq: mode9 d%u ctrl=0x%x bit0=0; leaving the firmware control alone\n",
+            domain, control);
+    }
     unmapWindow(&window);
 }
 

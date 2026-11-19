@@ -49,7 +49,7 @@
 | 订阅、周期刷新、断链 stale | 已验证（image f 12-14 条样本） |
 | 与 Android/OEM 对照（C3） | 部分：只有低电流 3 对 PASS；匹配电流窗口因属性 9 静默、XNU 只能发 USB 输入电流而 FAIL |
 | 真机插拔、放电、超时、服务重启 | 未完成（host 第 15/16 节只模拟状态转换） |
-| 充电认证 PD/PPS/MiPPS（:82-88） | 部分（仅移植，默认关闭）：sheng 的 `ShengChargeAuth.c` 已移植为 `K60ChargeAuth.c`（host 仅状态机 99 项、HMAC-SHA256 5 项 RFC 4231 向量），并默认关闭地接入 `K60Battery` 串行队列，只有 property 7 值 6/7/8 的 fresh sample 启动；`k60_charge_auth=1`（18 B）在 596 B 基线下会到 614 B 超过 607，本分支因此未启用该参数；无 UCSI 数据角色、未上机，K60 固件侧的认证字段与密钥没有来源 |
+| 充电认证 PD/PPS/MiPPS（:82-88） | 部分（仅移植，默认关闭）：sheng 的 `ShengChargeAuth.c` 已移植为 `K60ChargeAuth.c`（host 状态机 99 项 + HMAC-SHA256 5 项 RFC 4231 向量，已并入 `run-k60-power-host.sh` 的 1915 项 / 10 套件并作为 `CARRY.toml` 第八个模块随 27 线搬运），并默认关闭地接入 `K60Battery` 串行队列，只有 property 7 值 6/7/8 的 fresh sample 启动；`k60_charge_auth=1`（18 B）在 596 B 基线下会到 614 B 超过 607，本分支因此未启用该参数；无 UCSI 数据角色、未上机，K60 固件侧的认证字段与密钥没有来源 |
 | Linux 充电读取镜像（:89-104） | 未接入；参考脚本在 sheng 仓库 |
 
 ## §5 调频与电源操作（:105-121）

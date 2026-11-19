@@ -47,7 +47,7 @@ IOKit 级验证仍待完成。
 （电池电流属性 9、真机插拔、§5 CPU/GPU 调频与 platform sleep、§2/§3 DSP 与音频、§4 充电认证）；
 其中 §5 的 CPU 部分本分支已起步（只读 EPSS 探针 + 离线投票写集合，见 §7.11 与 `docs/research/power/01-EPSS-PROBE.md`），
 platform sleep 已有调研与纯逻辑掩码模块（`docs/research/power/02-PLATFORM-SLEEP.md`，host 53 项）但无 ArmCpu/板级 hook、未上机；外设投票有纯记账模块（`docs/research/power/03-POWER-VOTES.md`，host 58 项）但无消费者；GPU 频率有纯逻辑规划模块（`docs/research/power/04-GPU-FREQUENCY.md`，host 56 项）但无 GMU 读取、HFI 投票与 governor 线程；触摸/帧/fence 规则有纯逻辑模块（`docs/research/power/05-BOOST-RULES.md`，host 40 项）但无输入源与线程；电源相关固件哈希见 `docs/research/power/06-FIRMWARE-MANIFEST.md`；稳压器/互连/温控顺序审计见 `docs/research/power/07-RAIL-ORDERING.md`；
-充电认证状态机已在独立 `feat/charge-auth` 分支移植（`K60ChargeAuth.c`，host（仅状态机）99 项，见 `docs/research/power/09-CHARGE-AUTH.md`），并默认关闭地接入 `K60Battery` 串行队列与 HMAC-SHA256/`read_random` 回调；仍无 UCSI 数据角色，未上机。UCSI 数据角色与真机插拔是剩余缺口；本文件此前「sheng 不含 `ShengChargeAuth.c`」的结论基于
+充电认证状态机已在独立 `feat/charge-auth` 分支移植（`K60ChargeAuth.c`，host 99 项状态机 + 5 项 HMAC 向量，挂在共享 runner `scripts/tests/run-k60-power-host.sh`（1915 项 / 10 套件）并按第八个模块进 `CARRY.toml` 搬去 27 线，见 `docs/research/power/09-CHARGE-AUTH.md`），并默认关闭地接入 `K60Battery` 串行队列与 HMAC-SHA256/`read_random` 回调；仍无 UCSI 数据角色，未上机。UCSI 数据角色与真机插拔是剩余缺口；本文件此前「sheng 不含 `ShengChargeAuth.c`」的结论基于
 旧检出 `a68ee4e`/`1108068`，已作废。逐项对照见 §7.11；merge 由 lead 后续负责。
 
 ## 1. §4 开头：参考实现的选择（官网 :69-74）

@@ -1244,3 +1244,12 @@ mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二�
 - 日志量的观察（用户 m34694 的怀疑）：起飞到 12:40:20 共 437 KB ≈ 1.1 KB/s，其中 PongWifi 105,597 B（24%）、wifi-net 85,945 B（20%）、K60 USBLOG 轮询 12,876 B（3%）；这一飞桌面大约 6 分钟才出来，而 mission34b 约 3 分钟。尚未证明因果，但内核侧自动关联 + 每秒状态行是下一步要收紧的对象。
 - 后续（mission37 方向，未起飞）：① 把 association test 改成 boot-arg 开关且默认关闭，避免它抢在设置页之前关联；② 把 `wifi-net: en0 address …` 这类每秒状态行降到 30 秒或挂到同一个开关后面；③ 不再需要 kRssi 逐条日志时把它一起关掉。
 
+## §38 2026-11-19 13:25 iOS 27（24A446）ABI 迁移：扫描记录与关联事件落地（build-only）
+
+- 用户决定主线转向 iOS 27（fork 的 ios27 分支目标 27.0.1），先在 k60-wifi 开 feat/wifi-ios27-abi，只移植 Apple80211 ABI，不移植协议栈。
+- 参照 UniXNU-sheng origin/main c8f92b208068eeaa4cd2b0f592671f04ee70076e（board.toml os_profile = ipados-27.0.1-24A446）：扫描结果 0x8e8 = 2280 字节，元素区在 0x8c 处 2048 字节，元素区之后 68 字节填充，时间戳 0x8d0，尾部 16 字节；关联完成事件 540 字节，result 在 0x214，has_result 在 0x218；关联请求 0x290 字节（22H374 是 0x384，更旧是 0x250），字段偏移相同、只有尾部长度不同；kCardCaps 在 sheng 里是 12 字节。
+- 本分支新增 drivers/PongWifi/PongWifiAbi.h（两代常量、pong_scan_elements_room、540 字节事件结构，C 与 C++ 双向 static_assert），PongWifiNet.cpp 用一个 0x8e8 记录同时服务 1164 与 2280 请求：fill_result 按 rq.req_len 计算元素容量，时间戳落在 0x8d0；kScanResult 与 kCurrentNetwork 把 sizeof(out.res) 交给 copy_out 按请求截断；kAssociate 接受 0x250/0x290/0x384 三种长度并记录 gAssocModern27；关联完成事件在 24A446 下改为 540 字节 payload（result=gAssocResult，has_result=1），post_event 缓冲从 128 改为 16+540。
+- 构建证明：以 mission36 的参数在 WSL 里离线编译 /opt/k60/trees/k60build/wifi/native-abi27/libPongWifiNative.a 成功（scripts/build-k60-wifi-native.py，站档案 ath11k-abi1），说明 0x8e8 记录与 540 字节事件的 static_assert 在真实 ABI 头下成立；源码测试 summary: 0 failure(s)，check-boot-args 与 check-secrets 通过。
+- 刻意保留的限制：站侧 nw_abi.h 的元素区仍是 1024（IE_MAX 1024），所以 0x8e8 记录里 elements_length 最多 1024，剩下 2048-1024 字节按 0 处理；本 AP 的元素区约 390 字节，余量足够，而 1024 是 mission34b 已验证的尺寸。若将来遇到元素区超过 1024 的 AP，再同步把两处 ABI 抬到 2048。
+- 未验证的风险：24A446 的 IO80211 用户客户端 selector 0 信封（0x3c30 输入、0x3c00 输出）是否与 22H374 相同，手上没有 27 的 IO80211Family/wifid 二进制，无法离线确认；这是唯一还可能在 27 上挡住宿主绑定的形状。等 fork 走到 bsd_init 再取 27 的二进制核对。
+- 下一步：fork 的 ios27 分支能上机后，先跑 clean build 的八步流程，再按 mission36 的判据（设置页 Emilelu_5G 行、可加入、192.168.31.x 地址）验收。

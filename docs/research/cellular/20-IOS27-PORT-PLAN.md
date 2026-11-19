@@ -396,3 +396,27 @@ K60 READY ok   bsd/conf still lists no pong/glink source
 K60 READY ok   ArmSmmu4K still absent from the 27 tree
 K60 READY OK every recorded expectation still holds
 ```
+
+## 17. 剥掉一个 hunk 要连它的文件头一起剥
+
+`0626` 是「0620 的全部 + 0621 去掉调用点 hunk」。第一版 `strip_call_site()` 只从 `@@ -7834,2 +7834,10 @@`
+那一行截断，补丁末尾于是留下了：
+
+```
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+```
+
+没有 hunk。`git apply --check` 对这段返回 0（什么都不做），`--verify` 报 ok，所以 29,161 B / 七个 `+++`
+目标的产物被当成干净的。这不是无害的：它让 0626 自称碰 `kern_exec.c`，读者会以为调用点在这一条里，
+而真正的调用点是 0629。
+
+发现它的是 readiness 新加的结构不变量——三个补丁的所有 `+++ b/` 目标必须落在 `bsd/dev/` 之下：
+
+```
+K60 READY DRIFT the patches leave bsd/dev: bsd/kern/kern_exec.c
+```
+
+修法（`strip_call_site()` 内）：剥 hunk 时连同紧贴在它前面的 `---`、`+++` 与 `diff --git` 行一起剥掉，
+之后再清空行。0626 现在是 **29,107 B / 六个目标**，`--self-test`、`--verify`、readiness 全绿。
+本条的教训记在 P-206：`git apply --check` 的 0 只证明没有冲突，不证明补丁说了它该说的话。

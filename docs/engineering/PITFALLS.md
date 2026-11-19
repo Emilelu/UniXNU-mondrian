@@ -4998,3 +4998,28 @@ lookup/DMS 块、verdict 与 `#endif /* K60_HOST_TEST */`）整段消失，而�
 本条与 P-194（整篇读回再整篇写回丢 1035 行）是同一个形状的第二次发作。
 
 Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`
+
+## P-206 — 被剥掉的 hunk 留下了文件头，`git apply --check` 说没问题
+
+`0626-k60-modem-image.patch` 是把 16 线的 0620 与 0621 合起来、再去掉 0621 的调用点 hunk 得到的。
+`strip_call_site()` 从 `@@ -7834,2 +7834,10 @@` 那一行开始截断，于是补丁末尾留下了这样两行：
+
+```
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+```
+
+后面没有 hunk。这在 `git apply` 眼里是一个「什么都不改」的段落，所以 `git apply --check` 返回 0，
+`--verify` 也报 ok，产物被当成干净地生成了（29,161 B，七个 `+++` 目标）。
+
+它实际是一段**自称要改某个文件、却一个字节都不改**的补丁——和 P-257 那类「hunk 计数说谎」同源：
+读者会以为 `kern_exec.c` 的改动已经在这一条里，而真正的改动在 0629。
+发现它的是 `check-ios27-readiness.py` 新加的结构不变量：三个补丁的所有 `+++ b/` 目标都必须落在
+`bsd/dev/` 之下。第一次跑就红了：`K60 READY DRIFT the patches leave bsd/dev: bsd/kern/kern_exec.c`。
+
+修法：剥 hunk 时连它的 `---`/`+++`（以及 `diff --git`）一起剥掉，残行之后才清空行。
+0626 现在是 6 个目标、29,107 B；`--self-test` 与 readiness 都回绿。
+
+教训：**`git apply --check` 的 0 只证明「没有冲突」，不证明「补丁说了它该说的话」**。
+凡是生成补丁的脚本，都要另有一条结构性断言（目标路径集合、每个段落都必须有 `@@`），
+并且这条断言要跑在真实树上，而不是只在自测的合成树上。

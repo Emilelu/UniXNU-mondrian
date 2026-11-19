@@ -76,6 +76,27 @@ python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3
 `bsd/dev/PongAudioRegs.h` 这个我们自己写的声明，检查就变成自证。剩下的风险只有
 `k60_pmic_glink_send_audio`（power 线）与 `printf`/`NSEC_PER_USEC` 这类稳定接口。
 
+### 名字会不会撞车
+
+胶水要被放进一棵不是为它写的树里，而「名字看起来是私有的」不是证据：撞名会在链接阶段炸，
+离原因很远。`scripts/check-audio27-collisions.py <xnu-tree>` 用桩把头文件编译出两个真实对象，
+从 `nm -g --defined-only` 读出胶水**对外可见的十一个符号**（`pong_audio_amp_probe/play/stop`、
+`pong_geni_event/poll/prepare/start_read/start_read_bytes/start_write/start_write_bytes/timeout`），
+再到树里的 `bsd osfmk pexpert iokit libkern` 找同名项；命中就点名 `file:line` 并退 1。
+
+```
+$ python3 scripts/check-audio27-collisions.py /tmp/x27real
+COLLISION OK: 11 exported symbols, none of them in /tmp/x27real
+
+$ echo 'int pong_geni_poll(void) { return 0; }' > /tmp/x27clash/osfmk/kern/k60_clash.c
+$ python3 scripts/check-audio27-collisions.py /tmp/x27clash
+  pong_geni_poll             osfmk/kern/k60_clash.c:1
+COLLISION: 1 of 11 glue symbols already appear in /tmp/x27clash: pong_geni_poll
+```
+
+两处刻意的保守：只看**对外可见**的符号（`static` 的不管，它们撞不了），以及头文件里的声明也算命中
+——同一名字在树里另有一份声明，说明那个名字已经被别人占了，迟早冲突。装进 `bsd/dev` 的那几个
+`PongAudio*.c` 自己会被跳过，否则这条检查永远在报自己。
 ### 产物判据：这颗内核里到底有没有音频
 
 前面所有检查量的都是**源码和对象**：清单、桩、宏、链接需求、接口、空跑接线。它们合起来仍不能回答

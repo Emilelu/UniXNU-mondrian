@@ -31,6 +31,49 @@ def check(ok, what):
         print("  FAIL " + what)
 
 
+def sheng_number(text, name):
+    m = re.search(r"#define\s+%s\s+\(?(0x[0-9a-fA-F]+|\d+)" % name, text)
+    return int(m.group(1), 0) if m else None
+
+
+def check_reference():
+    """The 24A446 shapes were derived from the sheng port; compare them while that checkout exists."""
+    import os
+    repo = pathlib.Path(os.environ.get("K60_SHENG_REPO") or (ROOT.parent / "UniXNU-sheng"))
+    if not (repo / ".git").exists():
+        print("  SKIP the sheng 27 reference is not checked out")
+        return
+    def show(path):
+        r = subprocess.run(["git", "-C", str(repo), "show", "origin/main:" + path], capture_output=True, text=True)
+        return r.stdout if r.returncode == 0 else ""
+    result = show("package/WifiScanResult.h")
+    scan = show("package/WifiScan.h")
+    net = show("package/WifiNet.cpp")
+    if not result or not scan:
+        print("  SKIP origin/main does not carry the 27 wifi headers")
+        return
+    header = HEADER.read_text(encoding="utf-8")
+    for ours, theirs, name in (
+        ("PONG_SCAN_RECORD_24A446", "SHENG_WIFI_SCAN_RESULT_BYTES", "the record size"),
+        ("PONG_SCAN_ELEMENTS_OFFSET", "SHENG_WIFI_SCAN_ELEMENTS", "the element offset"),
+        ("PONG_SCAN_ELEMENTS_BYTES", "SHENG_WIFI_SCAN_ELEMENTS_BYTES", "the element bytes"),
+        ("PONG_SCAN_TIMESTAMP_OFFSET", "SHENG_WIFI_SCAN_TIMESTAMP", "the timestamp offset"),
+        ("PONG_WIFI_CAPS_BYTES", "SHENG_WIFI_CAPS_BYTES", "the capability answer size"),
+    ):
+        mine = sheng_number(header, ours)
+        ref = sheng_number(result if "SCAN" in theirs else scan, theirs)
+        check(mine is not None and mine == ref, "%s still matches the sheng port (%s)" % (name, theirs))
+    for anchor, what in (
+        ("0x8 the number of SSID entries", "the reference still puts the names at 0xc"),
+        ("0x200 the scan type", "the reference still puts the scan type at 0x200"),
+        ("0x210/0x214 the channels", "the reference still puts the channels at 0x210"),
+    ):
+        check(anchor in scan, what)
+    if net:
+        check("0x290" in net and "540" in net and "0x214" in net and "0x218" in net,
+              "the reference still uses the 0x290 request and the 540-byte completion event")
+
+
 def main():
     for path in (HEADER, NET, SELFTEST):
         if not path.is_file():
@@ -76,6 +119,8 @@ def main():
                 check(int(m.group(1)) >= 20, "the self-test runs at least twenty checks")
                 check(int(m.group(2)) == 0, "the self-test reports no failure")
             print("    " + run.stdout.strip().replace("\n", "\n    "))
+
+    check_reference()
 
     print("%d checks, %d failure(s)" % (checks, len(failures)))
     return 1 if failures else 0

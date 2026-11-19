@@ -59,6 +59,8 @@ def case_append():
         assert name in text, out
     assert text.count(ANCHOR) == 1, "the anchor line must survive once"
     assert "pong_audio lines 0 -> 2" in out, out
+    assert "anchor line" in out, "the matched line has to be echoed: " + out
+    assert ANCHOR.replace("\t", "\\t") in out, out
     shutil.rmtree(tree)
     return "append: 0 -> 2 lines, anchor kept"
 
@@ -98,6 +100,7 @@ def case_custom_anchor():
         assert name in text, out
     assert text.startswith(body), "the entries go after the line the caller named: " + text
     assert "pong_audio lines 0 -> 2" in out, out
+    assert anchor.replace("\t", "\\t") in out, "the named anchor is echoed: " + out
     shutil.rmtree(tree)
     return "custom anchor: a tree without the button driver still lists both"
 

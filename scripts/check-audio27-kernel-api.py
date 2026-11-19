@@ -158,7 +158,7 @@ def main(argv):
               "tree itself)" % argv[1])
         return 1
 
-    missing, drifted = [], []
+    missing, drifted, places = [], [], []
     for name in sorted(API):
         why, expected = API[name]
         hits = declarations(root, name)
@@ -166,6 +166,7 @@ def main(argv):
             missing.append(name)
             continue
         where, text = hits[0]
+        places.append("%s %s" % (name, where))
         found = canonical(text)
         expected = canonical(expected)
         if found != expected:
@@ -182,7 +183,8 @@ def main(argv):
         for line in drifted:
             print("API FAILED: " + line)
         return 1
-    print("API OK %d/%d %s" % (len(API), len(API), version(root)))
+    print("API OK %d/%d %s: %s"
+          % (len(API), len(API), version(root), ", ".join(places)))
     return 0
 
 

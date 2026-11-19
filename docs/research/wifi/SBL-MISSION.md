@@ -1208,3 +1208,15 @@ mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二�
 所以目标 AP 的 390 字节元素区是**在我们自己的代码里**被截成 384 的，截断点落在某个元素的中间；线上那条「384 字节、走不到结尾」的记录不是 AP 发的，也不是 Apple 的格式，而是我们这个内部上限的产物。mission34 把 \`IE_MAX\` 与 \`nw_abi.h\` 一起抬到 1024（两侧同一次改动，见 §29 的引号包含证明），390 < 1024，记录因此第一次以 AP 原本的样子到达 wifid。这不是改协议，是我们自己的 ABI 追上它本来就在用的容量。
 
 对照：被 daemon 保留的两条 5 GHz 记录元素区是 307 与 361 字节，都在旧的 384 以内、也都能完整走到结尾；唯一被丢的那条正是唯一越过 384 的。这条相关性现在有了机制解释：截断的是我们，不是 AP。
+
+## §35 2026-11-19 10:33 mission34 飞行：单变量镜像，但窗口内仍无人打开设置页
+
+镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img\` 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，09:16 构建；station \`/opt/k60/trees/k60build/wifi/ath11k-abi1\`（\`IE_MAX 1024\`），native \`81a5c2bd…\` 与 build-manifest 的 \`wifi_archive\` 一致，\`abi/nw_abi.h\` 含 \`uint8_t ie[1024]\`。整趟只有一个变量：元素区从 384 抬到 1024；国家 IE 照实下发，探针语义完整。
+
+飞行 10:33:06–10:48:33（boot.json imageSha256 B08A14F8…，captureArmed/bootAccepted/returnedToFastboot 全 true，bootExitCode 0），采集 \`E:/k60-work/evidence/usblog-20261119-103258/console.log\` 467,538 B / 6,949 行 / SHA256 591ebb97c8d5d78843f2efa35461878754c993cae2ebe6f1db3243dbf4cd4495；\`K60AUTORESET: 900 s since boot\` 结束后脚本尝试回 Android（日志里出现 \`Android up\`），但 10:50 复查时 USB 上既无 fastboot 也无 adb，需要用户看一眼手机。
+
+判读：\`lists of client=Preferences: 0\`、\`scan request 0\`、\`scan result served 0\`——和 mission35 一样，窗口内没有人打开设置页，wifid 没有发出扫描请求，pane 状态不存在可观察的面。因此 19 条探针（K60A..K60S，本次 carrier 又是 2.4 GHz 回退 \`96:de:f9:b6:be:7e\`，因冻结时 5 GHz 只有 1 条记录）全部「ABSENT」只是无列表的必然结果，不能读成「daemon 丢掉了它们」。
+
+可直接用的正面证据仍有一条：\`wifi-net: bss 9/10 5240 MHz -51 dBm age 552 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G\`，且全会话 \`incomplete element\` 计数为 0——在 1024 元素区下，这条记录第一次以完整、可解析的形态存在于 kext 侧（旧的 384 上限下它会停在 318 字节）。
+
+结论：mission34 不再欠飞行（P-218 清零），但 pane 判读依旧是 UNOBSERVED。要做到「显示并可用」，必须在一次 15 分钟窗口里有人打开 设置→无线局域网 并下拉刷新；设备内没有任何替代触发方式（/usr/bin 为空、无 uiopen/launchctl/notifyutil，wifid 的扫描请求只由设置页客户端产生）。

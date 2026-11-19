@@ -1102,3 +1102,24 @@ mission24 image still printed only the first 16 of them, which mission25 extends
 5 GHz 独有：国家 IE 7（42 B）、功率约束 32/1、TPC 报告 35/2、VHT 发射功率包络 195/5、HE capability 33 B（2.4 GHz 为 26 B）、厂商 221/2。mission27 把这几项逐个加回载体，一次一个，用「哪一条让载体行消失」定位真正的字段，再从真实记录里删掉或收窄。
 
 mission26（a978c829，只有一条 5 GHz 记录时回退到 2.4 GHz 载体）构建中途取消、未飞，镜像 wifi-20261118sbl-mission26 记为 built-not-flown。
+
+## §27 mission30/31：先看被保留的 5 GHz 记录带了什么
+
+2026-11-19 08:00–08:10。mission25 的口头判定（A/C/D 在、B/E 不在）只说明元素区是过滤器；mission27 的加法探针按「5 GHz 独有六项」设计，但缺一项离线证据：wifid 保留的其他 5 GHz 记录到底带不带这些元素。mission24 的 console（44 条 Preferences 列表、104 个 BSSID、57 个名字）把这一点补齐了。
+
+- 被保留的 5 GHz 记录是 5200 MHz -78 Rh1 与 5200 MHz -77（空 SSID），元素清单分别为 `0 1 3 5 7 32 195 70 51 48 221 11 45 61 191 192 127 221 255 255 255 255` 和 `0 1 3 5 7 32 195 70 51 48 11 45 61 191 192 127 221 255 255 255 255 221`。
+- 也就是说国家 IE 7、功率约束 32、VHT 发射功率 195、厂商 221、HE 255 都出现在被保留的 5 GHz 记录里，单独任何一条都不可能是过滤器。
+- 目标记录 `0 1 3 5 7 32 35 48 45 61 127 191 192 195 255 255 255 255 244 221 221 2` 比它们多出 TPC 报告 35 与 IE 244，另外多一条 255，以及长度为 2 的厂商 IE（221/2，没有 OUI）。
+
+方法上也有一条教训：只取最后一条 Preferences 列表比对时，大量记录显示 DROPPED，看起来像随机丢包；把 44 条列表取并集后，38 条有元素清单的记录里 33 条 KEPT，唯一被丢的 5 GHz 记录就是目标本身。逐条比对的结论必须基于并集。
+
+mission30（d33ffe06，国家 + 畸形厂商过滤，五条减法探针）因此在起飞前被 mission31 取代：
+
+- 真实记录送出前去掉 IE 7、IE 35、IE 244 与长度小于 4 的 221（`drop_scan_element()`）；
+- 减法探针扩到八条：K60F 去 7、K60G 去 195、K60H 去 32 和 35、K60I 去 255/33、K60J 去 221/2、K60K 去 35、K60L 去 244、K60M 去 35 和 244；
+- 加法探针仍是五条：K60A 是保留的 5 GHz 记录改名（基线），K60B..K60E 把目标的元素组逐组加回它；
+- mission31 镜像 `E:/k60-work/artifacts/wifi-20261118sbl-mission31/boot.img`，201,887,744 B，SHA256 4abbc2a23ce83369c39be644e81a27e4c3929dbad5f3fb8fb08dcf85c4aa9a94，参数 31 条 / 602 B，verify-boot-image OK，归档里同时含 scan record elements filtered 与 target minus element 两个字符串。
+
+判读：K60K/K60L/K60M 任一出现，35 或 244 就是过滤器，生产修法就是让它们离开记录；只有 K60A 出现而 Emilelu_5G 仍不见，则过滤器是共享元素的内容（HT/VHT/HE operation 的宽度与 80 MHz 频道结构不一致），下一版把 2.4 GHz 同族的 operation 内容换进目标记录再测。
+
+mission27/28/29/30 均建于 2026-11-19 07:12–07:57、从未飞行，已被 31 取代；四个 artifact 目录已删除，`check-bisect-coverage.py --prefix wifi-` 现在只剩 mission31 一条待飞。

@@ -1186,6 +1186,16 @@ k60_modem_qrtr_probe(void)
 		}
 		rc = k60_smem_find(&smem, &partition, (uint16_t)items[3],
 		    &offsets[3], &sizes[3]);
+		if (rc == K60SmemOk && (i % 500u) == 0u) {
+			/* Which comes first: the modem-created glink fifo or the
+			 * smp2p readiness item?  k37 and k38 opened the channel only
+			 * after both, and by then most QRTR registrations were gone;
+			 * the gap decides whether opening earlier is even possible. */
+			printf("K60MODEM qrtr: ready wait %u ms fifo=%u smp2p=%u items=%u
+",
+			    (unsigned)(i * K60_QRTR_POLL_US / 1000u),
+			    sizes[2], rc == K60SmemOk ? 1u : 0u, seen);
+		}
 		if (rc == K60SmemOk &&
 		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen) &&
 		    sizes[2] != 0) {

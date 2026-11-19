@@ -1279,7 +1279,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1485 @@
+@@ -0,0 +1,1495 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -2468,6 +2468,16 @@ index 0000000..1111111
 +		}
 +		rc = k60_smem_find(&smem, &partition, (uint16_t)items[3],
 +		    &offsets[3], &sizes[3]);
++		if (rc == K60SmemOk && (i % 500u) == 0u) {
++			/* Which comes first: the modem-created glink fifo or the
++			 * smp2p readiness item?  k37 and k38 opened the channel only
++			 * after both, and by then most QRTR registrations were gone;
++			 * the gap decides whether opening earlier is even possible. */
++			printf("K60MODEM qrtr: ready wait %u ms fifo=%u smp2p=%u items=%u
++",
++			    (unsigned)(i * K60_QRTR_POLL_US / 1000u),
++			    sizes[2], rc == K60SmemOk ? 1u : 0u, seen);
++		}
 +		if (rc == K60SmemOk &&
 +		    k60_qrtr_modem_ready(window, offsets[3], sizes[3], &seen) &&
 +		    sizes[2] != 0) {

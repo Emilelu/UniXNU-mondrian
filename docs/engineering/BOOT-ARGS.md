@@ -64,6 +64,7 @@
 | `platform-sleep` | 电源 / 睡眠 | 0 / 1 | 0（关闭） | `drivers/ArmCpu/ArmCpu.cpp`；仅当值为 1、XNU 侧 `arm64_platform_sleep_hook` 存在且 GIC 映射成功时安装 hook，`quiesceCPU` 才进入 `ml_arm_sleep`；默认 0 时整条路径不安装，image z 用它做默认启动回归 |
 | `platform-sleep-wake-after` | 电源 / 睡眠 | 秒，0 = 不设期限 | 0 | 同上；启动核等待的绝对 CNTV 期限，与 10 s tick 取较小值。没有唤醒源也没有该期限时 hook 直接返回（`unarmed`），所以计时唤醒测试必须同时给 `platform-sleep=1` 和本参数 |
 | `k60_slp` | 电源 / 睡眠 | 秒，0 = 不触发 | 0 | `drivers/PongPower/K60PlatformSleep.cpp`；仅 bring-up 诊断用，非 0 时在板级 hook 注册后启动内核线程，等待指定秒数后调用 `IOPMrootDomain::sleepSystem()`，用于无人按电源键时验证 `platform-sleep=1`；w9/w10 已用它进入 `IOCPUSleepKernel`，但完整恢复挂死，发布镜像不应带它 |
+| `k60_charge_auth` | 充电 / 认证 | 必须 == 1 | 关闭 | `drivers/PongPower/K60Battery.cpp:562` 读参数、状态机在 `K60ChargeAuth.c`；1 = 对 PD 适配器做 Apple 充电认证握手（HMAC 挑战-响应，带 RFC 4231 向量覆盖的 host 用例），默认关闭。18 字节：596 B 基线加它到 614 B 超 607，只能在探针镜像里飞（去掉 `applog=1` 后 587 + 18 = 605）；该参数至今未上机 |
 | `applog` | 调试 | 真值 | 关闭 | 让用户态日志走内核 console；不开时 SpringBoard 的崩溃原因只留在内核侧，`cs_invalid_page` 能看见但进程日志没有 |
 | `k60_selftest_reboot` | 自检 | 秒 | 不重启 | 手动测试时是浪费的 23 字节，可让位给 GPU 开关 |
 | `k60_console_export` | 调试 | 真值 | 关闭 | `0243-k60-console-export.patch` 把内核 console 导出到 USB EP0 | 与 `k60_usblog` 配合 |

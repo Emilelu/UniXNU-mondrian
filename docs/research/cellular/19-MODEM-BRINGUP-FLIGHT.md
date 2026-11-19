@@ -635,28 +635,74 @@ k34（`cfb2917f`）只加一段：重试块里若 `!bridge_reported && coachz_ba
 | 状态 | 已打包、未上机（k33 未飞即被取代） |
 | 判读 | `--phase b` 四组全过才算 B PASS；采集 420 s 以判定 autoreset |
 
-### 3.21 QcomBaseband 从未链入内核（2026-11-19 静态查明）
+### 3.21 QcomBaseband 没有链进内核：生成配置过期（2026-11-19 查明）
 
-等待设备期间把 S6 一路查到根：**内核里根本没有 QcomBaseband 组件，只有 weak 兜底。** 证据链：
+等待设备期间把 S6 一路查到根：**内核里没有 QcomBaseband 组件，只有 weak 兜底。** 证据链：
 
 - 构建产物存在：`/tmp/k60-modem-20261117c/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/qcom-baseband/libQcomBaseband.a`
   767,600 B（k34 构建 09:02 重写），`llvm-nm --defined-only` 给出 `T _coachz_baseband_configure`、
-  `T _coachz_baseband_enabled`，`llvm-strings` 有 40 条 `COACHZ`；
+  `T _coachz_baseband_enabled`，`llvm-strings` 有 40 条 `COACHZ`；其 272 个未定义符号在
+  `kernel.macho` 里**全部**有定义（逐个 diff，缺失 0），静态 force-load 在符号层面可链接；
 - 但 `llvm-strings kernel.macho | grep -c COACHZ` = **0**，`llvm-nm` 只看到七个间隔 8 字节的 `S` 符号
-  （`fffffff007762978/80/84/88/8c/94/98`），正是 0622 里 `__attribute__((weak))` 的兜底；
-- 树里的 `.config` 没有任何 `BASEBAND` 项，`scripts/check-kernel-archives.py` 的 `EXPECTED` 只列
-  battery/UFS/ARMCPU/ARMDT/ADRENO 五个 archive，也没有任何 Makefile 对 `libQcomBaseband.a` 做
-  `-Wl,-force_load`。
+  （`fffffff007762978/80/84/88/8c/94/98`），正是 0622 里 `__attribute__((weak))` 的兜底。
+
+**根因（更正 2026-11-19 09:40）**：链接配置本身是对的，问题在生成配置过期。
+
+- `configs/mondrian_defconfig:82` 早在 `c2ced39c`（2026-11-18 00:12）就有
+  `CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/qcom-baseband/libQcomBaseband.a"`；
+- `scripts/build-xnu-4k-baseline.sh:1181-1183` 确实把它拼进 `PLATFORM_ARCHIVES`，
+  `/opt/k60/trees/k60build/scripts/unixnu/kernel.py:18-27` 的 `xnu_env()` 会把 `CONFIG_XNU_*` 去掉前缀、
+  展开 `{tree}` 后放进环境；
+- 但构建树用的是 `/tmp/k60-modem-20261117c/mondrian/ipados-16.6.1-20G81/mondrian/.config`，
+  写于 2026-11-18 02:29 的 105 行版本，**不含该符号**；而 `unixnu build` 不重新生成配置
+  （`cli.py:306` 的 `cmd_defconfig` 只在 `release` 路径里），所以此后每次 `build kernel` 的
+  `XNU_EXTRA_LD_ARCHIVES` 都是空串，archive 从未进入链接行；
+- 验证：`./unixnu defconfig mondrian_defconfig -D /mnt/e/hackios/k60-cellular --out /tmp/k60-modem-20261117c`
+  之后 `.config` 只多 4 行（3 行注释 + 该符号，diff `105a106,109`），其余 105 行逐字节不变。
 
 影响：`coachz_baseband_configure()` 是空函数、`coachz_baseband_enabled()` 恒 0，AppleBaseband /
 AppleBasebandPCIControl / AppleBasebandPCIInterface / PDP manager / AppleIPAppender **一次都没发布过**；
 k30/k31 日志里只有 `bridge disabled`、没有任何 `COACHZ baseband:` 行，原因就是这个（不是 IOResources
 未就绪）。k34 的 `bridge enabled (poll N)` 只有在组件链入后才有意义。
 
-下一步（未做，需单独一轮）：按 `scripts/build-k60-platform-archives.py` 的做法在 kernel 链接行加
-`-Wl,-force_load,…/libQcomBaseband.a`，并在 `check-kernel-archives.py` 的 `EXPECTED` 里登记
-`(XNU_QCOM_BASEBAND, build/qcom-baseband/libQcomBaseband.a, coachz_baseband_configure)`；先在主机上确认
-符号解析与体积，再决定它与 K60 的 SM8475 集成 modem（不是 Coachz 的 PCIe/MHI）是否兼容。
+教训：**改 `configs/*_defconfig` 不会影响 `unixnu build`，除非先显式跑 `defconfig`（或走 `release`）**；
+判断一条 `CONFIG_XNU_*` 是否生效，看的是 out 目录里的 `.config`，不是仓库里的 defconfig。
+
+下一步：用重新生成的 `.config` 重建内核（k35），量 `COACHZ` 条数、`_coachz_baseband_configure` 是否
+变成 `T`、镜像体积变化；上机前仍要评估 Coachz PCIe/MHI 参考实现与 K60 SM8475 集成 modem 的差异。
+
+### 3.22 k35：把 QcomBaseband 真正链进内核（离线构建，未上机）
+
+§3.21 的根因是**生成配置过期**而不是接线缺失，所以不需要改链接脚本，只要重新生成 `.config` 再构建：
+
+- `./unixnu defconfig mondrian_defconfig -D /mnt/e/hackios/k60-cellular --out /tmp/k60-modem-20261117c`
+  之后 `.config` 只多 4 行（3 行注释 + `CONFIG_XNU_EXTRA_LD_ARCHIVES=...`，diff `105a106,109`），其余 105 行不变；
+- 用该配置重建（`build-k35-kernel.sh`）得到 `kernel.macho` 105,734,144 B（k34 是 105,582,592 B，**+151,552 B**），
+  sha256 `80fb13351479f0fecdb46b7e5e349d87524a61caba9bef221ff512ebab701f93`；
+- `llvm-strings kernel.macho | grep -c COACHZ` 从 **0 变成 40**；`llvm-nm -m` 显示
+  `_coachz_baseband_configure` 在 `(__TEXT_EXEC,__text) external`、地址 `fffffff007a8c078`，
+  `_coachz_baseband_enabled` 在 `fffffff007a871f8`。注意 `llvm-nm --defined-only` 对
+  `__TEXT_EXEC` 段统一打印字母 `S`（我们自己的 `_k60_modem_init_image` 也是 `S`，`fffffff007765478`），
+  所以判断链入与否要看段名与 `COACHZ` 字符串，不能只看字母；
+- 该 archive 的 272 个未定义符号在 `kernel.macho` 里全部有定义（缺失 0），静态 force-load 在符号层面可链接。
+
+k35 B 镜像（与 k34 只差这一层）：
+
+| 项 | 值 |
+|---|---|
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k35/boot-modem-b-full.img` 201,895,936 B `2f989b28acace59dc1162c45d14956bc24c7fe8c5c4a8eabf4ef4bac44b56fa1` |
+| kernel | `80fb1335…`（105,734,144 B）；payload kernel `f059d1232fc5b11cafcf5e150b43b8834764b9752a5a31d4184a1e06c52818b3` |
+| payload | `7ae83050869cf7f134eab7c97ea6ae969ddb4fbed830ebd8653ef04842c40fda` |
+| args | 末尾仍是 `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`；FD `40c29d513eab…` |
+| 布局 | 560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-boot-image.py` rc0 OK |
+
+上机期望与风险：`coachz_baseband_configure()` 现在会真正执行（`bb_init`/`bb_pdp_init`，然后
+`IOService::getResourceService()` + `registerService()`，源码 `build/qcom-baseband/src/baseband/coachz_baseband.cpp`，
+`registerService` 在 1144 行），日志应出现 `COACHZ baseband:` 行；若 IOResources 未就绪则走
+`patches/qcombaseband/0001-coachz-defer-publication.patch` 的延迟发布分支。它只是把 AppleBaseband 类发布出来、
+把 QRTR 包交给我们的 `bb_send` 回调（`coachz_baseband_qrtr` 在 1190 行），configure 阶段不碰 PCIe/MHI
+（`--coachz` 适配器没有编进来），因此这是一次有界的单变量实验。S3 必须保持 PASS，S4 仍按 `dms revision`
+判，S6 从 N/A 变成真判。
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
@@ -757,10 +803,12 @@ k30/k31 日志里只有 `bridge disabled`、没有任何 `COACHZ baseband:` 行�
    坏消息是一条带单个 pair 的 GLINK INTENT（§3.17）。
    k32（`5571c7f2…`）**作废**：它的 adopt 诊断只挂在 transport 路径，B 形态总在 `mem_setup` 打印
    `transport remote glink fifo absent, defer IPCRTR` 并改走探针路径 adopt，那一行永远不会出现（§3.18 更正）。
-   下一飞用 k34 的 `E:/k60-work/artifacts/modem-20261117k34/boot-modem-b-full.img`（`20fff9f2…`，§3.20）：
-   与 k31 的差别是探针路径 adopt 行、head 非零时丢弃旧环、损坏行 32 字节，以及 bridge 晚发布时的
-   `bridge enabled (poll N)` 行（k33 未飞即被 k34 取代）；S3 必须保持，S4 仍按 dms revision 判，
-   S5/S6 由同一份日志判读。
+    下一飞用 k35 的 `E:/k60-work/artifacts/modem-20261117k35/boot-modem-b-full.img`（`2f989b28…`，§3.22）：
+    它在 k34 的基础上只多一件事——重新生成的 `.config` 让 `CONFIG_XNU_EXTRA_LD_ARCHIVES` 生效，QcomBaseband
+    真正链入（`COACHZ` 40 条、镜像 +151,552 B）。k34（`20fff9f2…`）因此**作废**：它的内核里只有 weak 兜底，
+    S6 必然 N/A（§3.21）。k35 与 k31 的其余差别是探针路径 adopt 行、head 非零时丢弃旧环、损坏行 32 字节，
+    以及 bridge 晚发布时的 `bridge enabled (poll N)` 行；S3 必须保持，S4 仍按 dms revision 判，
+    S5/S6 由同一份日志判读，S6 现在会真判。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）

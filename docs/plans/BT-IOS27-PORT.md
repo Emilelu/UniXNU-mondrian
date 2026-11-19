@@ -478,6 +478,62 @@ The checker is textual plus a pure-python merge: it proves the report and the
 merge function agree, not that launchd read the file. That last step needs the
 Data mount open (5.7), which is why the two sections sit together.
 
+### 5.9 What closing the gate costs
+
+Since `3cc8cbc9` one repository carries both kernel builders:
+`scripts/build-xnu-4k-baseline.sh` dispatches on the `[board] os_profile`, the
+16.6.1 profile keeps the Pong builder, and every other profile goes through
+`scripts/build-xnu-generic.sh`. The iOS 27 kernel is built by the generic one,
+and that builder refuses the Data gate unless a chain of owner switches is
+already set. Every link is an `echo ... >&2; exit 1` in the same file, so the
+refusal happens before the patch series is even applied to the build.
+
+| Switch | What the builder demands |
+| --- | --- |
+| `XNU_OWNER_DATA_MOUNT` | Scratch Data requires authenticated original OS/owner metadata startup: `XNU_OWNER_BOOT_MANIFEST=1` |
+| `XNU_OWNER_BOOT_MANIFEST` | Owner boot metadata requires real authenticated owner root/cache startup: `XNU_OWNER_CACHE_STARTUP=1` |
+| `XNU_OWNER_CACHE_STARTUP` | Owner dyld startup selection requires authenticated actual cache mounting: `XNU_OWNER_CACHE_MOUNT=1` |
+| `XNU_OWNER_CACHE_MOUNT` | The offline SystemOS mount requires real independent owner root enforcement: `XNU_OWNER_ROOT_TRUST=1` |
+| `XNU_OWNER_ROOT_TRUST` | Owner root acceptance requires actual mounted-media binding and verified block storage: `XNU_OWNER_ROOT_AUDIT=1` and either `XNU_NATIVE_VIRTIO_BLOCK=1` or `XNU_SOURCE_STORAGE=1` |
+| `XNU_OWNER_ROOT_AUDIT` | The root-binding audit requires real owner-verified block crypto: `XNU_VERIFIED_ROOT_PROBE=1` or `XNU_SOURCE_STORAGE=1` |
+| `XNU_VERIFIED_ROOT_PROBE` | The owner crypto probe requires the qualified original prelinked crypto provider: `XNU_SOURCE_CORECRYPTO14=1` and `XNU_CRYPTO_BOOTSTRAP=prelinked` |
+| `XNU_NATIVE_RAM_BLOCK` | NativeRamBlock requires the qualified original storage/AES prelink closure: `XNU_SOURCE_STORAGE=1` or `XNU_NATIVE_AES=1` |
+
+The 16.6.1 builder could be talked into the gate from the other side: it carried
+`XNU_OWNER_DATA_UFS` and a `XNU_PONG_APFS_DEBUG` escape, and
+`configs/mondrian_defconfig:40-59` uses them. Neither knob exists in the
+generic builder, and `grep` over it finds no `DATA_UFS` at all, so the only
+route left on this profile is the storage and crypto closure: source storage
+carries the audit, the root trust, the cache chain and the Data volume, and
+virtio block plus the prelinked probe is the other combination the rules accept.
+
+`scripts/check-bluetooth-data-gate-chain.py` binds each rule by its message
+text, so a reworded rule fails the checker instead of quietly leaving the model,
+and then evaluates the chain against the selected defconfig. On the shipped
+profile it reports the door closed and prints what F3 has to set, in order:
+
+`@
+switch: XNU_OWNER_DATA_MOUNT=0
+backends: none declared
+state: closed -- expected on stage-0; the chain below is what F3 must close
+chain to open the gate:
+  XNU_OWNER_DATA_MOUNT: set XNU_OWNER_BOOT_MANIFEST=1 (alternative 1)
+  XNU_OWNER_BOOT_MANIFEST: set XNU_OWNER_CACHE_STARTUP=1 (alternative 1)
+  ...
+  XNU_VERIFIED_ROOT_PROBE: set XNU_SOURCE_CORECRYPTO14=1, XNU_CRYPTO_BOOTSTRAP=prelinked (alternative 1)
+`@
+
+A switch set without its prerequisite fails the checker with the builder's own
+sentence, which is the message F3 would otherwise read from a red CI run. Fifteen
+cases in `scripts/tests/test-bt-data-gate-chain.py` cover both accepted routes,
+each link removed in turn, a gate without a backend, the 16.6.1 knob the generic
+builder does not know, and a builder whose rule text changed.
+
+This is a builder-side chain, so "flip the defconfig line" is not the change the
+gate needs; the change is the storage and crypto closure underneath it. The
+checker reports `hardware_verified: false` for that reason: it proves the
+builder would accept the switch, not that a Data volume ever mounts.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

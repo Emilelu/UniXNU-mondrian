@@ -144,6 +144,49 @@ int main(void)
         16000000ull, 2067000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
     check("dcvs wake gone want", want, 1);
 
+    /* A pending submission wakes the GPU before the busy counter moves. */
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0, 16000000ull,
+        5000000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);
+    check("prewake arm", k60_gpu_dcvs_submit(&dcvs, &table, 5016000000ull, 50,
+        K60_GPU_WAKE_MIN_KHZ), 1);
+    check("prewake level", dcvs.wake_level, 7);
+    check("prewake count", dcvs.wakes, 1);
+    check("prewake end", (unsigned)(dcvs.wake_end_ns / 1000000ull), 5066);
+    check("prewake live", k60_gpu_dcvs_submit(&dcvs, &table, 5032000000ull, 50,
+        K60_GPU_WAKE_MIN_KHZ), 0);
+    check("prewake live count", dcvs.wakes, 1);
+    check("prewake window", k60_gpu_dcvs_window(&dcvs, &dgov, &table, 4800,
+        16000000ull, 5032000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want), 0);
+    check("prewake window want", want, 7);
+    check("prewake window count", dcvs.wakes, 1);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    check("prewake needs idle", k60_gpu_dcvs_submit(&dcvs, &table,
+        6000000000ull, 50, K60_GPU_WAKE_MIN_KHZ), 0);
+    check("prewake idle count", dcvs.wakes, 0);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 4);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0, 16000000ull,
+        6100000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);
+    check("prewake top clamp", k60_gpu_dcvs_submit(&dcvs, &table, 6116000000ull,
+        50, K60_GPU_WAKE_MIN_KHZ), 1);
+    check("prewake top level", dcvs.wake_level, 4);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 13, 13);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0, 16000000ull,
+        6200000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);
+    check("prewake at top", k60_gpu_dcvs_submit(&dcvs, &table, 6216000000ull,
+        50, K60_GPU_WAKE_MIN_KHZ), 0);
+
+    k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
+    (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0, 16000000ull,
+        6300000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);
+    check("prewake no boost", k60_gpu_dcvs_submit(&dcvs, &table, 6316000000ull,
+        0, K60_GPU_WAKE_MIN_KHZ), 0);
+    check("prewake null", k60_gpu_dcvs_submit(0, &table, 0, 50, 0), (unsigned)-1);
+    check("prewake null table", k60_gpu_dcvs_submit(&dcvs, 0, 0, 50, 0), (unsigned)-1);
+
     k60_gpu_dcvs_reset(&dcvs, &dgov, 1, 13);
     (void)k60_gpu_dcvs_window(&dcvs, &dgov, &table, 0, 16000000ull,
         3000000000ull, 50, K60_GPU_WAKE_MIN_KHZ, &want);

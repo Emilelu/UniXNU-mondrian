@@ -102,7 +102,8 @@ static void dcvs(void *,wait_result_t)
         uint64_t busy_ns=delta*kTickNsNumerator/kTickNsDenominator;
         if(busy_ns>ns)busy_ns=ns;
         /* Official :116 input: a submission is a CP ring that has not retired.
-         * The boost plan only counts the window; no CPU vote consumes it yet. */
+         * The CPU sampler reads the same signal for the 60 % floor; here the
+         * pending frame pre-wakes the GPU before the busy counter moves. */
         const int pending=pong_adreno_cp_pending();
         if(pending>0)++submits;
         const uint64_t now_ms=at/1000000ull;
@@ -121,6 +122,10 @@ static void dcvs(void *,wait_result_t)
                 (uint64_t(reports)<<32)|now_ms,submits);
             touchPrevious=touchActive;
         }
+        const int frameActive=k60_boost_frame_active(&boost,now_ms);
+        if(pending>0 && frameActive &&
+            k60_gpu_dcvs_submit(&dcvs,&table,at,boost_ms,K60_GPU_WAKE_MIN_KHZ)>0)
+            report("DCVS prewake",dcvs.wake_level,at,dcvs.wakes);
         if(want!=dcvs.level) {
             uint32_t error=0;
             const auto status=PongAdrenoGmuSetLevel(gmu,want,
@@ -139,7 +144,7 @@ static void dcvs(void *,wait_result_t)
                 dcvs.changes);
             report("DCVS frames",k60_boost_frame_count(&boost),
                 (uint64_t(k60_boost_cpu_floor_khz(kD0TopKhz))<<32)
-                    |unsigned(k60_boost_frame_active(&boost,now_ms)),
+                    |unsigned(frameActive),
                 submits);
             report_at=at+uint64_t(kReportMs)*1000000ull;win_busy=win_us=0;
         }

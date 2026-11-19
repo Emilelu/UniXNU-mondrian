@@ -77,6 +77,12 @@ typedef struct {
 /* Seat the thread at `floor`, clamp the window to [floor, top]. */
 void k60_gpu_dcvs_reset(K60GpuDcvs *dcvs, K60GpuGovernor *gov, unsigned floor,
     unsigned top);
+/* Arm the wake boost when a submission window is active and the GPU is idle:
+ * the 2x/578 MHz boost starts before the busy counter sees the work, so the
+ * first frame after idle is not rendered at the dropped clock. Returns 1 when
+ * armed, 0 when not needed, -1 on bad arguments. No MMIO. */
+int k60_gpu_dcvs_submit(K60GpuDcvs *dcvs, const K60GpuTable *table,
+    uint64_t now_ns, unsigned boost_ms, uint64_t wake_min_khz);
 /* One 16 ms window: feeds the governor, arms the wake boost when activity
  * resumes after idle, applies it while it has not expired, and clamps the
  * result to [floor, top]. Stores the level to vote in *want. Returns 0, or -1

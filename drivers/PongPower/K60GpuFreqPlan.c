@@ -136,6 +136,23 @@ void k60_gpu_dcvs_reset(K60GpuDcvs *dcvs, K60GpuGovernor *gov, unsigned floor,
     k60_gpu_governor_reset(gov, floor);
 }
 
+int k60_gpu_dcvs_submit(K60GpuDcvs *dcvs, const K60GpuTable *table,
+    uint64_t now_ns, unsigned boost_ms, uint64_t wake_min_khz)
+{
+    unsigned wake;
+    if (!dcvs || !table || table->count == 0) return -1;
+    if (dcvs->level < 1 || dcvs->level > dcvs->top) return -1;
+    if (!boost_ms || !dcvs->idle) return 0;
+    if (now_ns < dcvs->wake_end_ns) return 0;
+    wake = k60_gpu_wake_level(table, dcvs->level, wake_min_khz);
+    if (wake > dcvs->top) wake = dcvs->top;
+    if (wake <= dcvs->level) return 0;
+    dcvs->wake_level = wake;
+    dcvs->wake_end_ns = now_ns + (uint64_t)boost_ms * 1000000u;
+    dcvs->wakes++;
+    return 1;
+}
+
 int k60_gpu_dcvs_window(K60GpuDcvs *dcvs, K60GpuGovernor *gov,
     const K60GpuTable *table, uint64_t delta_ticks, uint64_t window_ns,
     uint64_t now_ns, unsigned boost_ms, uint64_t wake_min_khz, unsigned *want)
@@ -151,7 +168,7 @@ int k60_gpu_dcvs_window(K60GpuDcvs *dcvs, K60GpuGovernor *gov,
         if (boost_ms) {
             unsigned wake = k60_gpu_wake_level(table, dcvs->level, wake_min_khz);
             if (wake > dcvs->top) wake = dcvs->top;
-            if (wake > dcvs->level) {
+            if (wake > dcvs->level && now_ns >= dcvs->wake_end_ns) {
                 dcvs->wake_level = wake;
                 dcvs->wake_end_ns = now_ns + (uint64_t)boost_ms * 1000000u;
                 dcvs->wakes++;

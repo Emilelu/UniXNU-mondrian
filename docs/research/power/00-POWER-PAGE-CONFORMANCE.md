@@ -13,10 +13,10 @@
 
 | 输入 | 本分支状态 | 证据与缺口 |
 | --- | --- | --- |
-| DSP 固件/PAS ID、预留内存、邮箱、共享内存、时钟电源归属 | 部分 | Route A ADSP 启动在 image e/f 上 `rc=0`，PAS1 `epoch=1 flags=15`；`docs/research/charger/02-GLINK-CONTRACT.md`、`docs/plans/OFFICIAL-DRIVER-MAP.md:44` |
+| DSP 固件/PAS ID、预留内存、邮箱、共享内存、时钟电源归属 | 已验证（传输链）/部分（整节） | Route A ADSP 启动在 image e/f 上 `rc=0`，PAS1 `epoch=1 flags=15`；`docs/research/charger/02-GLINK-CONTRACT.md`、`docs/plans/OFFICIAL-DRIVER-MAP.md:44`。2026-11-20 起这条链有上机判读器：`scripts/judge-k60-handoff-console.py` 按 publish(epoch/104 B/flags=15) → 同 epoch adopt(非零 tx/rx) → 真实通道 up → 样本 的顺序判定，`audio-probe-ax/run1-20261119-0100` 与 `audio-probe-aw/run1-20261118-2245` 两份真机 console 都 PASS（33 项用例，见 `battery/PMIC-GLINK-SERVICE.md` §9）；载体分支把 PAS 载荷改到板级 carveout `0x9fd00000`，整节仍未覆盖音频端点与时钟归属 |
 | 音频 codec/功放、总线、时钟、路由、拓扑、格式、OS ABI | 委派 | 音频分支 `feat/audio-adsp-merge`（2026-11-18 时 HEAD `c74aea80`，145 commits ahead，未合并） |
 | 电池电量计/固件协议、属性 ID、单位、电流符号、通知 | 已验证（测量）/部分（全节） | `K60Battmgr.c`、`K60Battery.cpp`；`charger/04-PROP-MAP.md`；属性 9 静默、USB 输入电流边界见 §4 |
-| 电源时钟域、OPP 表、稳压器、固件投票、温控限制 | 部分（离线） | EPSS/GPU OPP 表现场 FDT 已确认；只有路线 A 的 TCS4 lcx/lmx 两条真实投票，CPU/GPU 电压与温控仍无写路径，见 `power/07-RAIL-ORDERING.md` |
+| 电源时钟域、OPP 表、稳压器、固件投票、温控限制 | 部分（离线） | EPSS/GPU OPP 表现场 FDT 已确认；只有路线 A 的 TCS4 lcx/lmx 两条真实投票，CPU/GPU 电压仍无写路径，见 `power/07-RAIL-ORDERING.md`。温控限制自 2026-11-20 有离线契约 `K60ThermalMap`（9 个 AP 侧 zone、90/95/110/115/125 °C 阶梯、`allow_raise` 直接喂 `k60_rail_plan` 的 `thermal_ok`，host 125 项，见 `power/10-THERMAL-MAP.md`）：它可以**拒绝**升压，但既不读传感器也不写寄存器——真机温度证据目前不可用（`power-conformance-thermal-20261119-0436` 的 capture 是 `port-not-observed`，0 字节 console） |
 | 固件清单记录来源和版本 | 部分 | `power/06-FIRMWARE-MANIFEST.md` 记录 ADSP 26 段/充电器 .ko/carrier FD 的哈希与来源；整机其他固件与认证密钥未覆盖 |
 
 ## §2 DSP 传输（:16-27）
@@ -25,7 +25,13 @@
   电池通道的登录/订阅/单请求/超时/断链 stale 已在 image e/f 上验证。
 - 官方列出的通道注册 API（`sheng_adsp_channel`）、560 字节上限、回调复制到有界队列、
   断链取消与重连协商属于**音频分支**的实现范围；本分支只消费电池通道。
-- 状态：**委派（音频分支）**，本分支不宣称 §2 完成。
+- 电池通道这一半现在可机器判读：`scripts/judge-k60-handoff-console.py` 把 `published authenticated PAS1 epoch=E bytes=104 flags=15`、
+  同 epoch 的 `adopting`（tx/rx 非零）、`actual PMIC_RTR_ADSP_APPS channel up` 与至少一条 `sample=` 串成一条链，
+  缺任何一环就指出第一个断点（只"发布成功"而没被 adopt 的 console 会被判成"通道不可用"，
+  这正是 `battery/HANDOFF-PUBLISH-SPEC.md` §0 第 5 条要求的区分）。两份真机 console PASS，33 项用例。
+- 其余（通道注册 API、560 字节上限、回调复制到有界队列、断链取消与重连协商）仍属**音频分支**范围，
+  本分支只消费电池通道。
+- 状态：**部分**（电池通道已验证并有了判读器，音频侧委派）。
 
 ## §3 音频流（:28-67）
 

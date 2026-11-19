@@ -88,14 +88,14 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 
 ## 5. Status of the plan
 
-1. **P0 - carry and stage the driver stack. Done.** Nineteen patches in
+1. **P0 - carry and stage the driver stack. Done.** Twenty patches in
    `patches/xnu-12377/series`; the iOS 16 `patches/xnu/series` is back to its
    pre-Bluetooth 227 lines.
 2. **P1 - assemble the patched xnu-12377 base. Done offline.** A tree built from
    vanilla plus the four series was used as the adaptation base; the adapted
    patches were then validated against it from scratch (§5.1).
 3. **P2 - port the platform hooks. Done offline** (§4). No build has run.
-4. **P3 - build and inspect. Done for the build half** (§5.3). The nineteen
+4. **P3 - build and inspect. Done for the build half** (§5.3). The twenty
    patches build and prelink on a Linux runner; hardware inspection waits for
    iOS 27 to reach `bsd_init`.
 5. **P4 - hardware only when iOS 27 reaches `bsd_init`.** Until then, every
@@ -109,19 +109,21 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 
 Validation: a fresh checkout of the pre-Bluetooth tree (vanilla xnu-12377 plus
 the arch, soc and os series, with the qbt files removed) was patched with this
-series in order; all nineteen applied with no reject, and the results are
+series in order; all twenty applied with no reject, and the results are
 byte-identical to the adaptation tree:
 
 | File | sha256 |
 | --- | --- |
-| `bsd/dev/qbt_k60.c` | `4b973811ed805820d8b59c1e10a624f260b1769bcf24280f546cfedcd5eedc62` |
+| `bsd/dev/qbt_k60.c` | `65e29a1afd5c3ee85b98cd1db2bdbe5f727a83422040f21fac0af758ba10a803` |
+| `bsd/dev/qbt/qbt_transport.c` | `5a80bb039d91db1297400ceeb5cc583205ef192565ac78090655b20a98afc634` |
+| `bsd/dev/qbt/qbt_transport.h` | `b0cb4d138a8ee9c36cd8ac619e033ed0371607caf703546a8bab015304b56e54` |
 | `bsd/kern/kern_exec.c` | `39c1b5ebe32ed38f2937d1067a44c0799d07493c11c6cabd5be5987e52cde747` |
 | `bsd/kern/bsd_init.c` | `94c8e15f91e4beeb1c81589523d29e662d131f7da467a44a73a3a9f2fa74b3f3` |
 | `iokit/Kernel/MiniBluetooth.cpp` | `5a526df5da263777276e29e547c5fe1e5c652d5199b49ce1a1015e10bb78075f` |
 | `osfmk/arm64/k60_bt_blob.s` | `a0e788aacf276750a51372ed47abc90323f7f6d6e2b4dfe230d70611429d9784` |
 
 The series order is 0500, 0502b, 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
-0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522. There is no 0513.
+0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522, 0523. There is no 0513.
 
 ### 5.2 The firmware carrier
 
@@ -149,7 +151,7 @@ line, identical sha256). It validates the NGPUADD2 container the same way
 `k60_addon_find` does at runtime, so a container that would fail on the device
 fails the build instead.
 
-### 5.3 First build: Linux CI, with the Bluetooth series
+### 5.3 Builds: Linux CI, with the Bluetooth series
 
 F1 and F2 no longer need a Mac: the framework's Linux path
 (`scripts/linux/setup-toolchain.py` plus
@@ -174,7 +176,17 @@ names, for example `[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth`,
 the 0520 alias `com.apple.uart.bluetooth`, `[bluetooth power]` and
 `K60 BT: no IOKit resource service; bluetooth not published`.
 
-The first run of this branch stopped at `bsd/dev/qbt_k60.c:1851` with
+Run [44466443708](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44466443708)
+(head `b689f94`, 2026-11-19T05:37:28Z to 05:52:57Z) then added 0523 and also
+succeeded: `kernel/kernel.macho` 93,077,504 B
+`04765d4eb2a1bb6c953ded6009af9733026477e6d4d2255332c76842eccd870b`,
+`payload/payload.img` 201,326,592 B
+`d571b254de20625c63441764ee3a80ca567ed55808add3aff1aabdf09aa2d7f1`.
+`xnu-patches.list` names 97 patches, with 0523 last, and the kernel carries
+the new `[bluetooth sk] TIOCSETA cflag=%#llx speed=%llu/%llu %s error=%d`
+log, so the client-requested reclock is linked.
+
+The run before 0522 stopped at `bsd/dev/qbt_k60.c:1851` with
 `call to undeclared function 'kmem_alloc_contig'`; 0522 fixes it (§3). The
 only errors left in the logs are the bootstrap pass, the documented false
 negative: the release reference link reports `RELEASE reference exit 2`,
@@ -218,9 +230,10 @@ it is already written.
 
 ## 7. What remains before "directly usable after migration"
 
-1. Run P3: build the kernel and confirm the patches appear in the kernel log
-   and `qbt_k60_start` is linked. Offline: no hardware proof. To embed
-   firmware first, see 5.2.
+1. P3's build half is done: two CI runs (§5.3) produced `kernel.macho` and
+   `payload.img` with the whole series, including the reclock. What remains is
+   hardware: `qbt_k60_start` must actually run under iOS 27, which waits for
+   `bsd_init`. To embed firmware first, see 5.2.
 2. `[payload.runtime]` wiring plus the OS image and signing inputs (§6).
 3. Hardware only once the fork's `ios27-arm64e` area reaches `bsd_init`.
 
@@ -231,8 +244,8 @@ kernel/firmware flight is recorded there (d11 PASS, d12 observation).
 
 - The fork's iOS 27 port has no Bluetooth phase and no BT component; this branch
   is ahead of the fork's own bring-up order.
-- The series applies, but nothing has compiled it. The first real build may still
-  find header or link differences that a textual apply cannot see.
+- The series compiles and prelinks on Linux CI, but nothing has run it on
+  hardware; runtime differences a build cannot see may still appear.
 - The carrier is an empty stub. A build from this branch links, but the kernel
   has no firmware to hand the controller until 0521 is refreshed with a real
   container (5.2).

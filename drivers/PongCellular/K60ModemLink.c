@@ -29,6 +29,13 @@
 /* QcomBaseband's C ABI (drivers/QcomBaseband/baseband/QcomBaseband.h). The
  * bridge is a separate component archive; keep the declarations here so this
  * file stays one patch hunk and does not depend on the archive's header path. */
+/* drivers/NativeUfs/PongUfsTransport.cpp: the one read-only block entry Lead
+ * authorised for this branch (2026-11-20 02:46). Declared here for the same
+ * reason the coachz functions are: the carried file must not depend on the
+ * C++ header, and the signature is the whole contract. */
+extern int native_pong_ufs_read_named_volume(const char *name, uint64_t offset,
+    uint8_t *buffer, size_t length);
+
 extern int coachz_baseband_enabled(void);
 extern void coachz_baseband_configure(void (*send)(uint32_t, uint32_t,
     uint32_t, const void *, uint32_t), void (*del_client)(uint32_t));
@@ -506,11 +513,38 @@ k60_qrtr_rmtfs_prepare(uint32_t bytes)
 	return k60_qrtr_rmtfs_physical;
 }
 
-/* A read-write request carries a scatter list whose physical column points
- * into the region alloc handed out. The shadow is the buffer itself for now:
- * the modem reads zeros until the UFS read lands in k48, and its writes stay
- * in RAM. Every vector is validated before a single byte moves, exactly as
- * the reference does. */
+/* A read is served from the EFS image the open named: the bytes come straight
+ * out of the GPT partition through the read-only entry NativeUfs exports,
+ * one vector at a time, so the shared window never has to hold the whole
+ * image. A write stays in the boot-session shadow, which is what the
+ * reference does: the buffer is the shadow and only the cache has to be
+ * invalidated. Every vector is validated before a single byte moves. */
+static int
+k60_qrtr_rmtfs_read(const K60RmtfsRequest *request)
+{
+	const char *name = k60_efs_partition(request->storage);
+	size_t i;
+
+	if (name == NULL) {
+		return -1;
+	}
+	for (i = 0; i < request->vectors; i++) {
+		const uint64_t offset =
+		    (uint64_t)request->table[i].block_offset * 512u;
+		const uint64_t length =
+		    (uint64_t)request->table[i].block_length * 512u;
+		uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
+		    (request->table[i].physical - k60_qrtr_rmtfs_physical));
+
+		if (length == 0 ||
+		    native_pong_ufs_read_named_volume(name, offset, shared,
+		    (size_t)length) == 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
 static int
 k60_qrtr_rmtfs_rw(const K60RmtfsRequest *request)
 {
@@ -532,17 +566,27 @@ k60_qrtr_rmtfs_rw(const K60RmtfsRequest *request)
 			return -1;
 		}
 	}
-	for (i = 0; i < request->vectors; i++) {
-		const uint64_t physical = request->table[i].physical;
-		const uint64_t length = (uint64_t)request->table[i].block_length * 512u;
-		uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
-		    (physical - k60_qrtr_rmtfs_physical));
-
-		if (request->direction != 0) {
-			k60_qrtr_rmtfs_invalidate(shared, (uint32_t)length);
-		} else {
-			k60_qrtr_rmtfs_clean(shared, (uint32_t)length);
+	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT) {
+		return -1;
+	}
+	if (request->direction == 0) {
+		if (k60_qrtr_rmtfs_read(request) != 0) {
+			return -1;
 		}
+		for (i = 0; i < request->vectors; i++) {
+			uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
+			    (request->table[i].physical - k60_qrtr_rmtfs_physical));
+			k60_qrtr_rmtfs_clean(shared,
+			    (uint32_t)request->table[i].block_length * 512u);
+		}
+		return 0;
+	}
+	for (i = 0; i < request->vectors; i++) {
+		uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
+		    (request->table[i].physical - k60_qrtr_rmtfs_physical));
+
+		k60_qrtr_rmtfs_invalidate(shared,
+		    (uint32_t)request->table[i].block_length * 512u);
 	}
 	return 0;
 }

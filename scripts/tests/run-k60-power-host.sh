@@ -54,7 +54,8 @@ echo "power-host: OK ($total checks in 10 suites; portability preflight passed; 
 
 # The python half of the line is a suite too: the judges and the carry manifest
 # rotted silently the last time nothing ran them (P-170, the charge-auth suites
-# shipped in the tree and no runner referenced them).
+# shipped in the tree and no runner referenced them). The ADSP python suites
+# (SMCCC, image, MDT) live in run-k60-handoff-host.sh, which is their entry.
 python_suites=0
 run_py() {
   local name=$1
@@ -73,7 +74,4 @@ run_py handoff-judge python3 scripts/tests/test-judge-k60-handoff-console.py
 run_py sleep-judge python3 scripts/tests/test-judge-k60-sleep-console.py
 run_py mode1-judge python3 scripts/tests/test-judge-k60-mode1-console.py
 run_py ios27-preflight python3 scripts/tests/test-check-ios27-power-preflight.py
-run_py smccc python3 scripts/tests/test-k60-adsp-smccc.py
-run_py adsp-image python3 scripts/tests/test-k60-adsp-image.py
-run_py adsp-mdt python3 scripts/tests/test-k60-adsp-mdt.py --output "$OUT/mdt"
 echo "power-python: OK ($python_suites suites)"

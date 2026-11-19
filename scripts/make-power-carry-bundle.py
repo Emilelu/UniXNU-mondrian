@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import pathlib
+import re
 import shutil
 import sys
 import tarfile
@@ -46,7 +47,15 @@ EXTRA = [
     "docs/research/power/10-THERMAL-MAP.md",
     "scripts/check-power-carry.py",
     "scripts/check-power-portability.py",
+    # its fixture exercises this gate end to end
+    "scripts/check-ios27-power-preflight.py",
+    # test-power-carry.py builds a nested bundle, so the tool travels too
+    "scripts/make-power-carry-bundle.py",
     "scripts/tests/run-k60-power-host.sh",
+    # The runner calls the python half too; a bundle without it would fail at
+    # the first suite in the target tree.
+    "scripts/tests/test-power-carry.py",
+    "scripts/tests/test-check-ios27-power-preflight.py",
 ]
 
 README = """# power carry bundle ({modules} modules, {judges} judges)
@@ -58,6 +67,11 @@ cp -a <this bundle>/. .
 python3 scripts/check-power-carry.py --target .
 bash scripts/tests/run-k60-power-host.sh build/power-host   # {checks} checks in {suites} suites
 ```
+
+That single command is also the acceptance test for the bundle itself: it prints
+`power-python: OK (5 suites)` after the C suites, so a copy that lost a test file or
+a header fails here instead of passing quietly. The 2026-11-20 build was run inside a
+bare bundle directory (no git) and passed both halves.
 
 Each judge keeps its own fixture; run them before reading a real console:
 
@@ -85,6 +99,77 @@ def load(path: pathlib.Path) -> dict:
         return tomllib.load(handle)
 
 
+RUNNER = "scripts/tests/run-k60-power-host.sh"
+
+
+def runner_deps() -> list[str]:
+    """Every source or test file the host runner compiles or calls.
+
+    The bundle has to be self-sufficient: a checkout that cannot fetch this
+    branch gets the runner too, and the runner fails on the first suite whose
+    file is missing (that is how the C suites were found absent).
+    """
+    text = (ROOT / RUNNER).read_text(encoding="utf-8")
+    joined = text.replace("\\\n", " ")
+    deps: list[str] = []
+    for line in joined.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(("run ", "run_py ")):
+            continue
+        words = stripped.split()
+        if words[0] == "run":
+            files = [w for w in words[3:] if not w.isdigit()]
+        else:
+            files = [w for w in words[2:] if "/" in w and not w.startswith('-')]
+        for rel in files:
+            if rel.startswith("scripts/") or rel.startswith("drivers/"):
+                if rel not in deps:
+                    deps.append(rel)
+    return deps
+
+
+INCLUDE_RE = re.compile(r'^\s*#\s*include\s*"([^"]+)"', re.MULTILINE)
+
+
+def include_closure(files: list[str], depth: int = 0) -> list[str]:
+    """Local headers reachable from the given files, relative to the repo root.
+
+    The C suites include ../../drivers/ArmCpu/ArmCpuSleep.h and friends, so a
+    bundle that copies only the test file does not compile in a foreign tree.
+    """
+    found: dict[str, None] = {}
+    if depth > 6:
+        return []
+    for rel in files:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        for match in INCLUDE_RE.finditer(path.read_text(encoding="utf-8", errors="replace")):
+            name = match.group(1)
+            if "/" not in name:
+                # the runner compiles with -I drivers/PongPower, so a bare name
+                # usually lives there
+                for base in (path.parent, ROOT / "drivers" / "PongPower"):
+                    if (base / name).is_file():
+                        target = (base / name).resolve()
+                        break
+                else:
+                    continue
+            else:
+                target = (path.parent / name).resolve()
+            try:
+                inner = target.relative_to(ROOT)
+            except ValueError:
+                continue
+            key = inner.as_posix()
+            if key.startswith(("drivers/", "scripts/")) and key not in found:
+                found[key] = None
+    nested = include_closure(list(found), depth + 1)
+    for key in nested:
+        found.setdefault(key, None)
+    return list(found)
+
+
 def pinned(manifest: dict) -> list[tuple[str, str]]:
     """(relative path, expected sha256) for every file the manifest names."""
     rows: list[tuple[str, str]] = []
@@ -99,6 +184,10 @@ def pinned(manifest: dict) -> list[tuple[str, str]]:
         if entry.get("test"):
             rows.append((str(entry["test"]), ""))
     for rel in EXTRA:
+        rows.append((rel, ""))
+    for rel in runner_deps():
+        rows.append((rel, ""))
+    for rel in include_closure([r for r, _ in rows if r.endswith((".c", ".h", ".cpp"))]):
         rows.append((rel, ""))
     seen: dict[str, str] = {}
     for rel, want in rows:

@@ -129,3 +129,25 @@ clang -target arm64-apple-ios16.0 -isysroot "$SDK" -mkernel -ffreestanding \
   -fsyntax-only drivers/PongPower/K60AdspBoard.c drivers/PongPower/K60AdspRouteA.c \
   drivers/PongPower/K60PmicRail.c
 printf "TESTS OK: arm64 Darwin kernel adapter syntax (not a link)\n"
+
+# The python half of this line: the SMCCC register contract (both the driver and
+# its patch copy), the image reader and the MDT planner. They live here rather
+# than in run-k60-power-host.sh because the first one judges a kernel patch and
+# none of them is part of the power carry set.
+python_suites=0
+run_py() {
+  local name=$1
+  shift
+  local out
+  if ! out=$("$@" 2>&1); then
+    printf '%s\n' "$out" | tail -20 >&2
+    echo "handoff-python: $name failed" >&2
+    exit 1
+  fi
+  python_suites=$((python_suites + 1))
+  printf '  %-12s %s\n' "$name" "$(printf '%s\n' "$out" | tail -1)"
+}
+run_py smccc python3 scripts/tests/test-k60-adsp-smccc.py
+run_py adsp-image python3 scripts/tests/test-k60-adsp-image.py
+run_py adsp-mdt python3 scripts/tests/test-k60-adsp-mdt.py --output "$OUT/mdt"
+echo "handoff-python: OK ($python_suites suites)"

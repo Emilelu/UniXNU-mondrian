@@ -1634,6 +1634,44 @@ k52 把这一层接上服务：宣告 `0x34` 实例 1 端口 `0x101`，并用与
 宿主测试 `scripts/tests/test-k60-memshare.c` 覆盖三种消息、四种拒绝码、应答字节布局（37 / 21 / 14 字节）与区域边界，输出 `K60 MEMSHARE PASS parse, replies, regions`；`test-k60-modem-image.py` 30 段一致、GLINK INTENT 与整套 host 测试全绿。
 
 **判据**（本飞仍不指望 S4/S5）：`announced memshare service 52` 出现在 RMTFS 宣告之后；若 modem 要堆，应看到 `memshare buffer va=… physical=<4 GiB 以下>`、`assign … rc=0` 与 `memshare request=0x22/0x23/0x24`；S3/S6 必须保持 PASS。
+### 3.44 k53（离线，构建中）：Pong 的两个 SMP2P 应答——停位与 IPA 时钟问答
+
+到此为止，我们发布的两条 SMP2P 条目（item 428 的 `master-kernel` 与 `ipa`）只是**声明**：
+`k60_smp2p_init_out()` 清表、`k60_smp2p_add_entry()` 写上名字，值字一直是 0，之后没有任何代码再写过它。
+Pong 不是这样用的。
+
+- `PongModemControl.cpp:97-99`：PAS 之前 `qcom_smp2p_add_entry(..., "master-kernel")` 与 `"ipa"`；
+- `PongModemControl.cpp:160-166` `pong_modem_control_request_stop()`：`qcom_smp2p_update(&c->smp2p, c->stop_entry, 1u, stop?1u:0u)`，
+  注释原文 “Q6V5 stop bit0 is owned by apps. No ready/ack bit is synthesized.” —— 停位归 AP，启动时必须由 AP 释放；
+- `PongModemControl.cpp:139-147`：modem 把 `ipa` 条目的 **bit 0** 拉起来就是在问“你保留 IPA 时钟吗”，
+  AP 回写 `bit0=完成, bit1=投票值`（`ipa_clock_on?3:1`），注释 “Nothing's IPA5.1 query is rising bit0. Reply complete=bit0, actual retained clock vote=bit1”；
+- `PongModemControl.cpp:168-172` 复位时把 `ipa` 值清 0。
+
+也就是说这两条通道是**问答**，不是状态广播。我们的 modem 从 k44 起就再没把 QMI 栈拉起来，
+而它唯一可能等的东西里，正好有这两个它开不了口就没法继续的答复。
+
+本轮把两件事都接上（单变量：不新增服务、不改传输）：
+
+1. 新增 `drivers/PongCellular/K60ModemSmp2p.h`：SMP2P 条目的布局与查找都是 `static inline`
+   （`K60_SMP2P_MAGIC 0x504d5324`、5 个头部字、16 个 20 字节条目、名字 16 字节零填充），
+   提供 `k60_smp2p_entry_word()`、`k60_smp2p_update()`、`k60_smp2p_header()`、
+   `k60_smp2p_name_matches()`、`k60_smp2p_find()`。名字比对只读到终止符为止，
+   之后要求字段剩余字节全零——第一版直接读到第 16 字节，把字符串字面量后面的栈内容也拿来比，宿主测试立刻抓到。
+2. `K60ModemLink.c`：记录两个条目索引与出站项指针；`k60_smp2p_release_stop()` 在 adopt 之前释放停位并打印
+   `smp2p stop released was=%#x now=%#x ipa=%#x`（`was` 就是上一轮 Android 留下的值，非零即证明确有残留）；
+   探针循环每 2500 次 poll（5 s）读一次 modem 侧的 `ipa` 条目，看到 bit 0 就回写
+   `K60_QRTR_IPA_ANSWER`（=1：完成、不主张时钟），打印 `ipa query=%#x reply=%#x at %u s`；
+   wait 行尾追加 `ipa=%#x`。
+3. 测试：`scripts/tests/test-k60-modem-smp2p.c`（`gcc -O1 -Wall -Wextra -Werror -Idrivers/PongCellular`）
+   覆盖查找、只搜有效条目、16 字节名、位掩码更新、头部四种拒绝、越界读，输出
+   `K60 SMP2P PASS names, lookup, words, header`；已进 `/mnt/e/k60-work/artifacts/run-host-tests.sh`。
+
+0622 重新生成 170,373 字节 / 12 个文件；`test-k60-modem-image.py` `TESTS OK 30 segments`；
+宿主套件 24 行全绿（含 `K60 EFS`、`K60 NAMED VOLUME`、`K60 MEMSHARE`、`K60 SMP2P`）。
+
+判据（上机后）：S3/S6 保持 PASS；`smp2p stop released was=` 出现且 `was` 值可读（说明残留被清掉）；
+`ipa query=` 一旦出现，就证明 modem 确实在等这个答复——那比 k44 的四分钟静默前进了一大步。
+风险写在明面：answer=1 不带时钟投票，如果 modem 需要 bit1 才继续，下一变量是让 IPA 真正投票后回 3。
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

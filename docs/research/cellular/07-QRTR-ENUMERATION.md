@@ -336,3 +336,18 @@ Pong 在 pas4 之前注册三个服务（`references/pong-baseband/PongModemRunt
 （宿主测试 `scripts/tests/test-k60-memshare.c`，输出 `K60 MEMSHARE PASS parse, replies, regions`），
 但**还没有宣告服务、也没有接分配器**：等 k51 上机确认读方向之后，再作为一个单变量上机。
 
+## 11. SMP2P 上的三条旁路通道
+
+QRTR 不是唯一被 modem 用来推进启动的信道。Pong 在 PAS 之前就发布了三条 SMP2P 条目，
+它们和 QRTR 的服务表没有任何关系，却能挡住整个 QMI 栈：
+
+| 条目 | 方向 | 语义 | Pong 证据 |
+|---|---|---|---|
+| `slave-kernel` | modem → AP | 位 1 ready、位 0 fatal | `PongModemControl.cpp:133-138` |
+| `master-kernel` | AP → modem | 位 0 = Q6V5 stop，归 AP 所有，启动时必须释放 | `PongModemControl.cpp:160-166` |
+| `ipa` | 双向问答 | modem 拉起位 0 询问时钟；AP 回位 0 完成 + 位 1 投票 | `PongModemControl.cpp:139-147` |
+
+我们的实现在 k52 之前只写名字不写值，等于把两个 AP 侧应答全吞掉；k53 补上了释放停位与回答时钟问答
+（`drivers/PongCellular/K60ModemSmp2p.h` + `K60ModemLink.c`）。这也是“modem 明明握手成功、
+QMI 栈却从不启动”这一现象目前最像的解释：QRTR 的 36 条服务是开机主动注册，错过就不再来，
+而 SMP2P 的问答是**同步**的——不回答，固件就停在原地。

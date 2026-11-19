@@ -1291,7 +1291,7 @@ k44 用 mode 3 分开这两者。
   “注册潮比我们早”，而是“QMI 栈根本没起来”。
 - adopt 行照旧：\`rx head=8 …\` 与 \`glink adopt dropped 8 stale bytes\`（Android 时代的 VERSION 残帧）。
 
-### 3.32 k45：问名称服务器，并把存储服务挂出去（离线，构建中）
+### 3.32 k45：问名称服务器，并把存储服务挂出去（2026-11-19 15:30 已上机）
 
 两条互不依赖的假设，用一次飞行同时读：
 
@@ -1326,6 +1326,20 @@ k44 用 mode 3 分开这两者。
 \`lookup reply\`/\`rmtfs request\` 行有没有出现。三条全零则说明 modem 连名称服务与存储服务都不问了，
 下一步转向 modem 侧状态（崩溃转储/子系统中止），而不是继续在 AP 侧加服务。
 
+实机结果（2026-11-19 15:30，420 s 采集）：
+
+- 证据 `E:/k60-work/evidence/usblog-20261119-153004`（console 217,101 B，supervisor rc=5，15:36:52 自行回到
+  fastboot）。判读 `python3 scripts/check-modem-flight-log.py --phase b`：**S3 PASS / S4 FAIL /
+  S5 FAIL（没有 verdict 行）/ S6 PASS**。
+- **modem 一看到服务 14 就开口要文件**：`console.log:528` `K60MODEM qrtr: announced rmtfs service 14
+  instance 1 port 0x102`，下一行 `:529` `K60MODEM qrtr: rmtfs request 25 bytes type=0 msg=1`。25 字节 =
+  7 字节 QMI v1 头 + TLV(3 + 15)，路径长 15，正是 `/boot/modem_fs1` 或 `/boot/modem_fs2` 的长度。
+  这一条 open 与 Pong 的顺序证据（RF init 在第一帧就请求读写文件，§3.32 第 2 条）完全对上。
+- 我们没有应答，于是整份日志里 `rmtfs request` 只出现 **1** 次；wait 行从 `:649 wait 5 s … rmtfs=1`
+  到 `:2549 wait 230 s … rmtfs=1` 再没动过。名称服务器端口 53 同样零应答（`replies=0`），服务数从 2
+  涨到 8 全是 HELLO 探针触发的重播（同一对 66/0x42 与 43/0x2b）。
+- 结论：k44 的“QMI 栈从未启动”与 Pong 的“RF 初始化立刻要读 EFS”是同一件事的两面——**AP 侧唯一缺的
+  就是 RMTFS 的应答**。§3.32 判据里“三条全零”没有发生：`rmtfs=` 非零且带着一条可解析的 open。
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1371,9 +1385,9 @@ k44 用 mode 3 分开这两者。
     k44（`02cd895f…`）按 mode 3 静默飞过（2026-11-19 14:46）：`wait 5 s` 与 `wait 230 s` 逐字节相同 ——
     `services=2 tx head=632 tail=632 rx head=960 tail=960 intents=0/30 msgs=44/17 rxcmd=2/1/0/2`，即完全不发就没有
     停摆，且四分钟里 modem 一条新服务也没注册（§3.31 实机结果）⇒ 不是注册窗口问题，是它的 QMI 栈从未启动。
-    下一飞是 k45 `E:/k60-work/artifacts/modem-20261117k45/boot-modem-b-full.img`（`04d2373f…`，§3.32）：
-    lookup 改问名称服务器端口 53，并宣告 RMTFS 14/1（端口 0x102）。看三条新读数——`replies=`、`rmtfs=`、
-    `lookup reply`/`rmtfs request` 行；S3/S6 必须保持，S4/S5 不指望。
+    k45（`04d2373f…`）已于 2026-11-19 15:30 飞过：S3/S6 PASS，名称服务器端口 53 零应答（`replies=0`），
+    但**宣告 RMTFS 后 modem 立刻发来一条 25 字节的 open**（路径 15 字节，§3.32 实机结果）⇒ 存储服务
+    就是 QMI 栈起不来的原因。下一飞是 k46：把 open 真正应答起来，后续的 alloc/rw 序列会自己暴露。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
     **2026-11-19 12:58 起本线待命**：用户计划等 fork 方在 iOS 27（27.0.1）上到达 bsd_init 后全面转过去；
     蓝牙线与基带线届时都迁到 iOS 27，本仓库的 ios27 分支由蓝牙线建立、Actions 已跑通一次。

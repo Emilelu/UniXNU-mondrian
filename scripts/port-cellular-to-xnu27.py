@@ -121,6 +121,29 @@ def conf_entries(patch_paths):
     return [name + chr(9) * 3 + "standard" for name in sorted(names)]
 
 
+# The probes belong immediately before the line that pushes the Data stage to 3,
+# so the stage assignment wins over the /private/var lookup that precedes it.
+ANCHOR_MARKERS = (("native_owner_data_stage",),
+                  ("native_owner_data_prepare", 'vnode_lookup("/private/var"'))
+
+
+def find_anchor(tree):
+    """Return the line that stages the Data mount, once the 27 tree has one."""
+    path = os.path.join(tree, "bsd", "kern", "kern_exec.c")
+    if not os.path.exists(path):
+        return None, "no bsd/kern/kern_exec.c under " + tree
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+    for markers in ANCHOR_MARKERS:
+        hits = [line.strip() for line in lines
+                if any(marker in line for marker in markers) and line.strip().endswith(";")]
+        if len(hits) == 1:
+            return hits[0], None
+        if len(hits) > 1:
+            return None, "anchor is ambiguous, %d candidates: %s" % (len(hits), " | ".join(hits))
+    return None, "no line stages the Data mount yet; pass --anchor with the line text"
+
+
 def write_port(out, tree, anchor_text):
     os.makedirs(out, exist_ok=True)
     image = read("0620-k60-modem-image.patch")
@@ -194,6 +217,28 @@ def self_test():
         if not missing or "matches 0 lines" not in missing:
             print("K60 PORT27 FAIL a missing anchor was not refused: %r" % (missing,))
             return 1
+        found, problem = find_anchor(work)
+        if found != "native_owner_data_stage = 3;" or problem:
+            print("K60 PORT27 FAIL auto anchor did not find the staging line: %r %r" % (found, problem))
+            return 1
+        twice = os.path.join(work, "dup")
+        os.makedirs(os.path.join(twice, "bsd", "kern"))
+        with open(os.path.join(twice, "bsd", "kern", "kern_exec.c"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("\tnative_owner_data_stage = 2;\n\tnative_owner_data_stage = 3;\n")
+        found, problem = find_anchor(twice)
+        if found is not None or "ambiguous" not in (problem or ""):
+            print("K60 PORT27 FAIL two staging lines were not refused: %r %r" % (found, problem))
+            return 1
+        bare = os.path.join(work, "bare")
+        os.makedirs(os.path.join(bare, "bsd", "kern"))
+        with open(os.path.join(bare, "bsd", "kern", "kern_exec.c"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("int exec_check(void) { return 0; }\n")
+        found, problem = find_anchor(bare)
+        if found is not None or "no line stages" not in (problem or ""):
+            print("K60 PORT27 FAIL a tree without the staging line was not refused: %r %r" % (found, problem))
+            return 1
         env = dict(os.environ, GIT_CEILING_DIRECTORIES=work)
         result = subprocess.run(
             ["git", "apply", "--check",
@@ -224,8 +269,8 @@ def self_test():
                 or "bsd/dev/pong_modem_link.c" not in names):
             print("K60 PORT27 FAIL build list is not one source per line: %r" % (stray,))
             return 1
-        print("K60 PORT27 PASS renumbering, anchor insertion, refusal, verification, "
-              "series, build list")
+        print("K60 PORT27 PASS renumbering, anchor insertion, auto anchor, refusal, "
+              "verification, series, build list")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -237,6 +282,8 @@ def main(argv):
     parser.add_argument("--out", help="directory to write the 27-line patches into")
     parser.add_argument("--anchor", default="native_owner_data_stage = 3;",
                         help="line in bsd/kern/kern_exec.c to insert the probes before")
+    parser.add_argument("--anchor-auto", action="store_true",
+                        help="find the Data-mount line in the tree instead of taking --anchor")
     parser.add_argument("--verify", action="store_true",
                         help="run git apply --check on every produced patch")
     parser.add_argument("--self-test", action="store_true")
@@ -245,7 +292,14 @@ def main(argv):
         return self_test()
     if not args.tree or not args.out:
         parser.error("--tree and --out are required unless --self-test")
-    problem = write_port(args.out, args.tree, args.anchor)
+    anchor = args.anchor
+    if args.anchor_auto:
+        anchor, problem = find_anchor(args.tree)
+        if problem:
+            print("K60 PORT27 FAIL " + problem)
+            return 2
+        print("K60 PORT27 anchor " + anchor)
+    problem = write_port(args.out, args.tree, anchor)
     if problem:
         print("K60 PORT27 FAIL " + problem)
         if args.verify:

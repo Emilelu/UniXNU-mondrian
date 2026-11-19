@@ -2,8 +2,9 @@
 # Offline only: no device access, no MMIO, no physical memory.
 #
 # Runs the pure-logic suites behind the official power page: the CPU and GPU
-# frequency plans, the boost rules, the sleep wake path, the peripheral vote
-# bookkeeping and the cross-module pin of the numbers section 5 states.
+# frequency plans, the boost rules, the sleep wake path, the ArmCpuSleep
+# interface, the peripheral vote bookkeeping and the cross-module pin of the
+# numbers section 5 states.
 # Each suite must print exactly its recorded check count, so a test that stops
 # compiling its new cases fails here instead of passing silently.
 #
@@ -33,7 +34,8 @@ run gpu-freq 140 scripts/tests/test-k60-gpu-freq-plan.c drivers/PongPower/K60Gpu
 run boost 40 scripts/tests/test-k60-boost-plan.c drivers/PongPower/K60BoostPlan.c
 run sleep 73 scripts/tests/test-k60-sleep-plan.c drivers/PongPower/K60SleepPlan.c
 run vote 58 scripts/tests/test-k60-power-vote-plan.c drivers/PongPower/K60PowerVotePlan.c
+run armcpu-sleep 1038 scripts/tests/test-armcpu-sleep.c
 run conformance 27 scripts/tests/test-k60-power-conformance.c \
   drivers/PongPower/K60BoostPlan.c drivers/PongPower/K60SleepPlan.c \
   drivers/PongPower/K60PowerVotePlan.c
-echo "power-host: OK ($total checks in 6 suites; binaries in $OUT)"
+echo "power-host: OK ($total checks in 7 suites; binaries in $OUT)"

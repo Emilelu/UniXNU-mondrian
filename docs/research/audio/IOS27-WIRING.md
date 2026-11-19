@@ -448,6 +448,22 @@ sh scripts/tests/portability/run-weak-hook.sh
   `27 patch emitter is honest`（生成器自带 5 例宿主测试）与
   `27 patch emits unchanged`（`XNU27_REPO` 在场时按上面那组参数真跑一遍）。
 
+### 第三份拷贝：系列里落地的那一份
+
+同一个调用块一共三份拷贝：applier 的 `INIT_BLOCK`（源）、我们交付的补丁文件、以及 Lead book 进
+`patches/xnu-12377/` 之后系列里那一份。前两份由上面两行钉住；第三份由 `scripts/check-audio27-series.py`
+钉住——它从 27 源树重新生成一遍，再与系列里的 `0531-*.patch` **逐字节**比较：
+
+```sh
+python3 scripts/check-audio27-series.py <27 源树> [--series DIR]   # 默认 /mnt/e/hackios/k60-gates/patches/xnu-12377，XNU27_SERIES 可改
+# SERIES OK 0531-k60-audio-amp-probe-call.patch 876 B sha256 46b3c0cd… matches the emitter
+```
+
+三种答案分开：`0` 一致、`1` 不一致或系列文件里没列它（列了才真的会被构建应用）、`3` 系列还没 book 它。
+`3` 在预检里是 `skip` 而不是绿行——「还没有」和「已经对了」必须长得不一样，否则等 Lead 落地那天，
+绿的到底是哪一种就没人分得出来。预检因此多两行：`27 series checker is honest`（5 例宿主测试）与
+`27 series carries the patch`（需要 `XNU27_REPO`；系列还没 book 时打印 skip）。
+
 ### 空跑一遍：这条链路在一棵「像 27 的树」上走通
 
 三处改动是**有顺序的**（复制 → 列进 conf/files → 编宏），第四处（`--hook-init`）接在后面，

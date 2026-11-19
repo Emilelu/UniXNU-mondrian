@@ -12,8 +12,10 @@ sources before and after the write, and a non-zero exit when it did not grow.
   python3 scripts/add-audio-conffiles.py <tree>           # append, exit 1 if it did not
   python3 scripts/add-audio-conffiles.py --check <tree>   # report the count only
 
-The anchor is the button driver, which a seeded tree carries from its own line;
-without it the tree is not seeded and nothing is written.
+The default anchor is the button driver, which the 16 series tree carries from
+its own line. A 27 tree has no button driver, so pass --anchor with a line that
+tree actually has - the count still decides, so a wrong anchor fails loudly
+instead of writing the entries somewhere nobody reads.
 """
 import argparse
 import pathlib
@@ -42,6 +44,8 @@ def main(argv):
     parser.add_argument("tree")
     parser.add_argument("--check", action="store_true",
                         help="do not write; fail when the entries are not listed")
+    parser.add_argument("--anchor", default=ANCHOR,
+                        help="conf/files line to list the entries after")
     args = parser.parse_args(argv[1:])
 
     tree = pathlib.Path(args.tree)
@@ -67,18 +71,20 @@ def main(argv):
         print("audio conffiles: both entries listed")
         return 0
 
-    if ANCHOR not in text:
+    if args.anchor not in text:
         report(before, before)
-        print("audio conffiles: anchor bsd/dev/pong_buttons.c missing, entries not added")
+        print("audio conffiles: anchor %s missing, entries not added"
+              % args.anchor.strip())
+        print("audio conffiles: pass --anchor with a line this tree has")
         return 1
 
-    block = ANCHOR
+    block = args.anchor
     for entry in ENTRIES:
         if entry.split("\t")[0] in text:
             continue
         block = block + "\n" + entry
-    if block != ANCHOR:
-        conf.write_text(text.replace(ANCHOR, block, 1))
+    if block != args.anchor:
+        conf.write_text(text.replace(args.anchor, block, 1))
 
     after = count(conf.read_text())
     report(before, after)

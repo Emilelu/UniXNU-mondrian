@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+"""Install the audio glue into a seeded XNU tree and list it in conf/files.
+
+The 27 migration is three edits: copy the sources, list them in bsd/conf/files,
+and compile them with XNU_PONG_AUDIO. The first two are file edits, and they
+are the two that a human forgets in the middle of a build, so they live here and
+run in one order that cannot half-apply silently:
+
+  python3 scripts/apply-audio27-wiring.py --check <tree>          # report only
+  python3 scripts/apply-audio27-wiring.py <tree> --anchor LINE    # 27 tree
+  python3 scripts/apply-audio27-wiring.py <tree>                  # 16 series
+
+<tree> is the repository the builder seeds: the kernel sources sit in
+<tree>/.cache/xnu-work, and bsd/conf/files there is what the build reads. The
+third edit is not a file edit - it is EXTRA_MAKE_ARGS on the builder call, so
+this script prints that line instead of touching the builder, which is a
+framework copy (scripts/refresh-xnu-generic.py rewrites the whole file).
+
+Only what the kernel build needs is copied: the two sources and the headers
+they include, transitively. PongAudioAfe.h is deliberately not among them - it
+is the 16 series AFE endpoint, this firmware has no AFE service, and it travels
+only with the host tests.
+
+The verdict is a count, like the conf/files appender it calls: the number of
+files in place and the number of conf/files lines naming them.
+"""
+import argparse
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+SOURCES = ("PongAudioAmp.c", "PongAudioGeniI2c.c")
+INCLUDE = re.compile(r'#include\s+"(Pong[^"]+)"')
+BUILDER_LINE = ("EXTRA_MAKE_ARGS=\"PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO\" "
+                "sh scripts/build-xnu-generic.sh")
+
+
+def kernel_set(src):
+    """The sources plus every Pong header they reach, relative to src."""
+    seen = []
+    stack = list(SOURCES)
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        path = src / name
+        if not path.is_file():
+            raise SystemExit("audio wiring: %s is missing from %s" % (name, src))
+        seen.append(name)
+        if name.endswith(".c"):
+            stack.extend(INCLUDE.findall(path.read_text(errors="replace")))
+    return sorted(seen)
+
+
+def install(files, src, dest_dir, check):
+    added = refreshed = current = 0
+    for name in files:
+        source = (src / name).read_bytes()
+        dest = dest_dir / name
+        if not dest.is_file():
+            added += 1
+        elif dest.read_bytes() != source:
+            refreshed += 1
+        else:
+            current += 1
+            continue
+        if not check:
+            shutil.copyfile(src / name, dest)
+    return added, refreshed, current
+
+
+def main(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("tree")
+    parser.add_argument("--check", action="store_true",
+                        help="report what is missing; write nothing")
+    parser.add_argument("--anchor", default=None,
+                        help="conf/files line to list the entries after")
+    args = parser.parse_args(argv[1:])
+
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    src = repo / "drivers/PongAudio"
+    tree = pathlib.Path(args.tree)
+    work = tree / ".cache/xnu-work"
+    if not (work / "bsd/dev").is_dir():
+        print("audio wiring: no seeded tree at %s (bsd/dev missing)" % work)
+        print("audio wiring: run the builder's fetch step first, or point at "
+              "the repository the builder seeds")
+        return 1
+
+    files = kernel_set(src)
+    added, refreshed, current = install(files, src, work / "bsd/dev", args.check)
+    print("audio wiring: sources %d (added %d, refreshed %d, current %d)"
+          % (len(files), added, refreshed, current))
+
+    command = [sys.executable, str(repo / "scripts/add-audio-conffiles.py"),
+               str(tree)]
+    if args.anchor:
+        command += ["--anchor", args.anchor]
+    if args.check:
+        command.append("--check")
+    code = subprocess.call(command)
+    if code != 0:
+        print("audio wiring: conf/files did not take the entries; the sources "
+              "are in place, so rerun with --anchor once")
+        return code
+
+    print("audio wiring: next, build with the macro on that one object only")
+    print("audio wiring: " + BUILDER_LINE)
+    print("audio wiring: then read the object: sh scripts/tests/portability/"
+          "run-symbols.sh --object <PongAudioAmp.o> --expect on")
+    print("audio wiring: OK sources=%d conf=2" % len(files))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -10,11 +10,12 @@
 #   3. the macro itself: three symbols with it, none without
 #   4. the glue's link-time needs against the wiring table
 #   5. the conf-files appender's host tests (the anchor miss must fail loudly)
-#   6. the amplifier probe running on the host against a zero page
-#   7. the playback judge's host tests
-#   8. the amplifier side's host tests (979 cases)
-#   9. the three edits walked in order against a tree without the button driver
-#  10. sheng's audio host tests, when its checkout is reachable; the row names
+#   6. the wiring applier: copy, conf/files and the printed builder line
+#   7. the amplifier probe running on the host against a zero page
+#   8. the playback judge's host tests
+#   9. the amplifier side's host tests (979 cases)
+#  10. the three edits walked in order against a tree without the button driver
+#  11. sheng's audio host tests, when its checkout is reachable; the row names
 #      the commit it ran on, because a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
@@ -42,6 +43,7 @@ run "glue vs six kernel symbols" sh scripts/tests/portability/run.sh
 run "driver macro really switches it" sh scripts/tests/portability/run-symbols.sh
 run "glue needs only the table" sh scripts/tests/portability/run-deps.sh
 run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
+run "one command applies the wiring" python3 scripts/tests/test-apply-audio27-wiring.py
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh

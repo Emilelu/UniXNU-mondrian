@@ -68,6 +68,9 @@
 | `launchd_unsecure_cache` | 启动链 | 真值 | 代码默认 | 允许未签名 launchd 缓存 | 与 `k60_launchd_cache` 同用 |
 | `k60_tolerate_cache_loader` | 启动链 | 真值 | 关闭 | `0314-k60-kern-exit-tolerate-and-clean.patch` 容忍缓存加载器失败 | — |
 | `k60_entitlement_allow` | 安全 | 真值 | 关闭 | `0330-k60-entitlement-allow.patch` 放宽 entitlement 检查 | — |
+| `k60-thermal` | 热管理 | 真值 | 1（开） | 发布 mTPL 的 IOKit 服务开关；`k60-thermal=0` 让 `k60_thermal_start()` 直接返回，不起两个 tsens 控制器 |
+| `pong_thermal` | 热管理 | 真值 | 1（开） | 内核内建 tsens 驱动（`bsd/dev/pong_thermal.c`）开关；0 则只留启动日志，不读传感器、不起轮询线程 |
+| `pong_thermal_bias` | 热管理 | 任意 int32（mC） | 0（不加） | 只给验证等级阶梯用：给所有有效读数加固定偏移；改变上报值、不改变硬件读数，也不是标定 |
 | `k60_skip_iosurface` | GPU/IOKit | 真值 | 关闭 | `0332-k60-skip-prelinked-load.patch` 跳过预链接的 IOSurface 加载 | P-13x：避免第二个 IOSurfaceRoot |
 | `k60_skip_firmware_mount` | 存储 | 真值 | 关闭 | `0320-k60-skip-firmware-mount.patch` 跳过 firmware 分区挂载 | 加快启动 |
 | `k60_panic_reset` | 诊断 | 真值 | 关闭 | `0334-k60-panic-reset-fastboot.patch` panic 后自动重启 | 调试循环用 |
@@ -569,3 +572,21 @@ legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不
 启动都有 `K60 CADENCE:` 行；`GCC_DISP_AHB off` 一行表示时钟门还没开，此时不会去读
 `DISPCC`/`MDSS`（避免对未上电模块做 MMIO，P-161/HR-01 同一个形状）。缺映射时打印
 `no GCC mapping` / `no DISPCC mapping` 后直接返回，不会 panic。
+
+### `pong_thermal_bias`
+
+| 项 | 值 |
+|---|---|
+| 类型 | int32（毫摄氏度） |
+| 默认 | 0（不加偏移） |
+| 来源 | `drivers/PongThermal/pong_thermal.c`（`PE_parse_boot_argn("pong_thermal_bias", &pong_thermal_bias_mc, sizeof(pong_thermal_bias_mc))`）|
+| 作用 | 非 0 时给每一路有效读数加这个偏移，再算五域温度与 zone 等级 |
+
+**为什么存在**：本板冷机读数 40–56℃（`docs/research/thermal/08-KERNEL-DRIVER.md` §5 的首次上机日志），
+离最低被动档 90℃ 还差 34℃，跑任何负载都到不了 level 1，等级阶梯就永远只能验 0 档。
+`pong_thermal_bias=50000` 把 45℃ 的板子抬到 95℃、`=75000` 抬到 120℃、`=85000` 抬到 130℃，
+于是 1/2/3 三档都能在冷机上看到（逐档算式见 `docs/research/thermal/LEVEL-MAP.md` §5.2）。
+**它不改硬件**：读窗口仍是只读，偏移只作用于内存里的读数；日志会打
+`PongThermal: bias N mC added to every reading (validation only)`，看到这行就说明数据是人为抬过的。
+**不要把它当标定**：本板没有 `qcom,tsens-calibration`，真正的标定系数不在 DT 里
+（`docs/research/thermal/01-SAME-HARDWARE.md` §4）。

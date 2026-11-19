@@ -50,7 +50,9 @@ def case_all_present():
         assert code == 0, out
         assert "API OK 4/4" in out, out
         assert "osfmk/arm/machine_routines.h:1" in out, out
+        assert "GLINK provider: not in this tree yet" in out, out
         return "all four declared: API OK 4/4"
+
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -113,6 +115,21 @@ def case_signature_drift():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def case_provider_present():
+    root = pathlib.Path(tempfile.mkdtemp(prefix="k60-api-"))
+    try:
+        build(root)
+        impl = root / ".cache/xnu-work/bsd/dev/K60PmicGlinkAudio.cpp"
+        impl.parent.mkdir(parents=True, exist_ok=True)
+        impl.write_text("int k60_pmic_glink_send_audio(const void *p, unsigned n) { return 0; }\n")
+        code, out = run(root)
+        assert code == 0, out
+        assert "GLINK provider: bsd/dev/K60PmicGlinkAudio.cpp defines" in out, out
+        return "glink provider found: named instead of assumed"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def case_unseeded():
     root = pathlib.Path(tempfile.mkdtemp(prefix="k60-api-"))
     try:
@@ -125,7 +142,8 @@ def case_unseeded():
 
 
 CASES = [case_all_present, case_one_missing, case_inplace_layout,
-         case_wired_headers_do_not_count, case_signature_drift, case_unseeded]
+         case_wired_headers_do_not_count, case_signature_drift, case_provider_present,
+         case_unseeded]
 
 
 def main():

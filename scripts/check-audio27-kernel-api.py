@@ -136,6 +136,34 @@ def canonical(text):
     return "%s %s(%s)" % (ret, name.group(1), ", ".join(arguments(flat)))
 
 
+PROVIDER = "k60_pmic_glink_send_audio"
+
+
+def provider(root):
+    """The file that defines the glink entry the glue calls, or None.
+
+    That entry belongs to the power line and is not in the 27 baseline yet, so
+    its absence is reported as a named gap rather than as a failure: the glue
+    links the day the provider lands.
+    """
+    for area in ("bsd/dev", "bsd/kern", "osfmk/arm64", "osfmk/kern", "iokit"):
+        base = root / area
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if path.suffix not in (".c", ".cpp", ".h", ".cc"):
+                continue
+            try:
+                if path.stat().st_size > 4 * 1024 * 1024:
+                    continue
+                body = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if PROVIDER in body:
+                return str(path.relative_to(root))
+    return None
+
+
 def version(root):
     try:
         done = subprocess.run(["git", "-C", str(root), "log", "-1", "--format=%s %h"],
@@ -183,6 +211,12 @@ def main(argv):
         for line in drifted:
             print("API FAILED: " + line)
         return 1
+    where = provider(root)
+    if where:
+        print("GLINK provider: %s defines %s" % (where, PROVIDER))
+    else:
+        print("GLINK provider: not in this tree yet (%s belongs to the power "
+              "line; the glue links only after it lands)" % PROVIDER)
     print("API OK %d/%d %s: %s"
           % (len(API), len(API), version(root), ", ".join(places)))
     return 0

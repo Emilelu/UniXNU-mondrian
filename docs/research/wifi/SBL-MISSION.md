@@ -1510,3 +1510,16 @@ daemon 在加入过程中轮询 kAssociateResult 看到的是 0（有待完成�
 
 验证：test-wifi-sbl-mission 增加一项结构检查后 0 failure；16 与 27 两代头文件编译 rc=0。
 
+## 56. 加入新网络前先排空旧链路
+
+站侧的 start_connect（nw_sta.c:536-537）只在 IDLE 或 SCANNING 状态开始一次加入；任何其他状态下这个请求
+被直接丢掉。我们此前收到 kAssociate 就直接 nw_wifi_connect，于是“已连接时在设置页改连另一个网络”会把请求
+排给一个不会运行的站任务：daemon 等关联事件等到自己超时，期间 kAssociateResult 一直是 pending。
+
+参考实现（sheng 27，package/WifiNet.cpp:227-238 与 :649-655）在加入前先排空：disconnect_user 后唤醒 worker，
+每 10 ms 读一次 nw_wifi_status，最多 2000 ms；状态仍到 AUTH 以上就返回 ETIMEDOUT，并且不把连接请求排进去。
+现在同样处理：drain_disconnect() 放在关联校验之后、nw_wifi_connect 之前；超时返回 ETIMEDOUT 并把关联结果写成
+failed，成功则清掉 gLinkUpMs。22H374 的“切网”走同一条路径，之前那条隐性等待超时的问题一并消失。
+
+验证：test-wifi-sbl-mission 增加一项结构检查后 0 failure；16 与 27 两代头文件编译 rc=0。
+

@@ -37,6 +37,8 @@
 | kPower | gPower && state != NW_STA_OFF | 同（§52） |
 | kAuthType | 27 回 0x10，22H374 回 0x8 | 按是否见过 24A446 请求自动选择（§49） |
 | 中止扫描 382 | 接受并返回 0 | 同（§48） |
+| kAssociateResult | 从 pending(0) 起步，站拒绝才写 failed，完成回调写结果 | 同（§55） |
+| 已连接时再次加入 | 先 drain_disconnect（2 s 内排空，超时 ETIMEDOUT）再排队 | 同（§56） |
 
 ## 4. 仍未验证的风险（按优先级）
 

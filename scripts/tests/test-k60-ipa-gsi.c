@@ -204,9 +204,59 @@ fail(const char *message)
     return 1;
 }
 
+static int
+test_geometry_decode(void)
+{
+    uint32_t restricted = 0xdeadbeefu;
+    uint32_t sram = 0xdeadbeefu;
+
+    /* PongModemIpaDma.h:227-232: 0x01000c00 is a 0x800 window over 0x6000. */
+    if (k60_ipa_gsi_decode_geometry(0x01000c00u, &restricted, &sram) != 0 ||
+        restricted != 0x800u || sram != 0x6000u) {
+        return fail("geometry decode");
+    }
+    /* Exactly 0x5000 bytes of SRAM with the window at zero is the floor. */
+    if (k60_ipa_gsi_decode_geometry(0x00000a00u, &restricted, &sram) != 0 ||
+        restricted != 0u || sram != 0x5000u) {
+        return fail("geometry floor");
+    }
+    /* One eight-byte unit below the floor is refused, but both outputs are
+     * still filled so the failure can be logged. */
+    restricted = 0xdeadbeefu;
+    sram = 0xdeadbeefu;
+    if (k60_ipa_gsi_decode_geometry(0x000009ffu, &restricted, &sram) == 0 ||
+        sram != 0x4ff8u) {
+        return fail("geometry short sram");
+    }
+    /* A window that cannot hold the SRAM block is refused the same way. */
+    if (k60_ipa_gsi_decode_geometry(0x1f000a00u, &restricted, &sram) == 0 ||
+        restricted != 0xf800u) {
+        return fail("geometry wide window");
+    }
+    if (k60_ipa_gsi_decode_geometry(0x16000a00u, &restricted, &sram) == 0 ||
+        restricted != 0xb000u) {
+        return fail("geometry window just over");
+    }
+    /* The last window that still fits: 0xaff * 8 = 0x57f8. */
+    if (k60_ipa_gsi_decode_geometry(0x0aff0a00u, &restricted, &sram) != 0 ||
+        restricted != 0x57f8u || sram != 0x5000u) {
+        return fail("geometry window just fits");
+    }
+    /* Null outputs are allowed; the judgement still happens. */
+    if (k60_ipa_gsi_decode_geometry(0x01000c00u, NULL, NULL) != 0 ||
+        k60_ipa_gsi_decode_geometry(0x00000000u, NULL, NULL) == 0) {
+        return fail("geometry null outputs");
+    }
+    printf("K60 IPA GSI geometry PASS\n");
+    return 0;
+}
+
 int
 main(void)
 {
+    if (test_geometry_decode() != 0) {
+        return 1;
+    }
     K60IpaGsi gsi;
     K60IpaGsiConfig config;
     K60IpaGsiCaps caps;

@@ -130,6 +130,14 @@ typedef struct {
     int initialized;
 } K60IpaGsi;
 
+/* Decode the geometry register at 0x40 the way PongModemIpaDma.h:227-232
+ * does: the low half counts eight-byte SRAM units, the high half counts
+ * eight-byte restricted-window units. Both outputs are filled before the pair
+ * is judged. Returns 0 when the SRAM is at least 0x5000 bytes and the window
+ * can hold it, -1 otherwise (K60IpaGsiNoDevice at the caller). */
+int k60_ipa_gsi_decode_geometry(uint32_t geometry, uint32_t *restricted,
+    uint32_t *sram_bytes);
+
 /* Bind a caller-owned context to its callbacks and DMA blocks. This clears
  * the 1 MiB ring and 0x8000 tables. It performs no MMIO. */
 int k60_ipa_gsi_init(K60IpaGsi *gsi, const K60IpaGsiConfig *config);

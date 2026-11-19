@@ -506,6 +506,25 @@ k60_ipa_gsi_completion(K60IpaGsi *gsi)
     return K60IpaNotReady;
 }
 
+int
+k60_ipa_gsi_decode_geometry(uint32_t geometry, uint32_t *restricted,
+    uint32_t *sram_bytes)
+{
+    uint32_t window = (geometry >> 16) * 8u;
+    uint32_t sram = (geometry & 0xffffu) * 8u;
+
+    if (restricted != NULL) {
+        *restricted = window;
+    }
+    if (sram_bytes != NULL) {
+        *sram_bytes = sram;
+    }
+    if (sram < 0x5000u || window > 0xffffu - 0x5000u) {
+        return -1;
+    }
+    return 0;
+}
+
 static int
 k60_ipa_gsi_init_headers(K60IpaGsi *gsi)
 {
@@ -519,13 +538,11 @@ k60_ipa_gsi_init_headers(K60IpaGsi *gsi)
     uint32_t back;
 
     geometry = k60_ipa_gsi_read_reg(gsi, 0x40u);
-    gsi->restricted = (geometry >> 16) * 8u;
-    gsi->sram_bytes = (geometry & 0xffffu) * 8u;
     /* Cold boot, before INIT_DRIVER transfers SRAM ownership to MPSS.
      * Native ipa_setup_apps_pipes starts with HDR_INIT_LOCAL; there is no
      * invented HPS pipeline-clear wait before the tables exist. */
-    if (gsi->sram_bytes < 0x5000u ||
-        gsi->restricted > 0xffffu - 0x5000u) {
+    if (k60_ipa_gsi_decode_geometry(geometry, &gsi->restricted,
+        &gsi->sram_bytes) != 0) {
         return k60_ipa_gsi_fail(gsi, K60IpaGsiNoDevice);
     }
     /* Match _ipa_init_sram_v3 on IPA5.1: two 4-byte canaries immediately

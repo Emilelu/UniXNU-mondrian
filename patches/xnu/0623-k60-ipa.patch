@@ -1841,7 +1841,7 @@ diff --git a/bsd/dev/pong_ipa_gsi.h b/bsd/dev/pong_ipa_gsi.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa_gsi.h
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,175 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA GSI 3.0 command DMA owner (M2, host-testable).
 + *
@@ -1974,6 +1974,14 @@ new file mode 100644
 +    int initialized;
 +} K60IpaGsi;
 +
++/* Decode the geometry register at 0x40 the way PongModemIpaDma.h:227-232
++ * does: the low half counts eight-byte SRAM units, the high half counts
++ * eight-byte restricted-window units. Both outputs are filled before the pair
++ * is judged. Returns 0 when the SRAM is at least 0x5000 bytes and the window
++ * can hold it, -1 otherwise (K60IpaGsiNoDevice at the caller). */
++int k60_ipa_gsi_decode_geometry(uint32_t geometry, uint32_t *restricted,
++    uint32_t *sram_bytes);
++
 +/* Bind a caller-owned context to its callbacks and DMA blocks. This clears
 + * the 1 MiB ring and 0x8000 tables. It performs no MMIO. */
 +int k60_ipa_gsi_init(K60IpaGsi *gsi, const K60IpaGsiConfig *config);
@@ -2013,7 +2021,7 @@ diff --git a/bsd/dev/pong_ipa_gsi.c b/bsd/dev/pong_ipa_gsi.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa_gsi.c
-@@ -0,0 +1,829 @@
+@@ -0,0 +1,846 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA GSI 3.0 command DMA owner, ported from PongModemIpaDma.h.
 + *
@@ -2522,6 +2530,25 @@ new file mode 100644
 +    return K60IpaNotReady;
 +}
 +
++int
++k60_ipa_gsi_decode_geometry(uint32_t geometry, uint32_t *restricted,
++    uint32_t *sram_bytes)
++{
++    uint32_t window = (geometry >> 16) * 8u;
++    uint32_t sram = (geometry & 0xffffu) * 8u;
++
++    if (restricted != NULL) {
++        *restricted = window;
++    }
++    if (sram_bytes != NULL) {
++        *sram_bytes = sram;
++    }
++    if (sram < 0x5000u || window > 0xffffu - 0x5000u) {
++        return -1;
++    }
++    return 0;
++}
++
 +static int
 +k60_ipa_gsi_init_headers(K60IpaGsi *gsi)
 +{
@@ -2535,13 +2562,11 @@ new file mode 100644
 +    uint32_t back;
 +
 +    geometry = k60_ipa_gsi_read_reg(gsi, 0x40u);
-+    gsi->restricted = (geometry >> 16) * 8u;
-+    gsi->sram_bytes = (geometry & 0xffffu) * 8u;
 +    /* Cold boot, before INIT_DRIVER transfers SRAM ownership to MPSS.
 +     * Native ipa_setup_apps_pipes starts with HDR_INIT_LOCAL; there is no
 +     * invented HPS pipeline-clear wait before the tables exist. */
-+    if (gsi->sram_bytes < 0x5000u ||
-+        gsi->restricted > 0xffffu - 0x5000u) {
++    if (k60_ipa_gsi_decode_geometry(geometry, &gsi->restricted,
++        &gsi->sram_bytes) != 0) {
 +        return k60_ipa_gsi_fail(gsi, K60IpaGsiNoDevice);
 +    }
 +    /* Match _ipa_init_sram_v3 on IPA5.1: two 4-byte canaries immediately

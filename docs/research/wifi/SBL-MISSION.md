@@ -1549,3 +1549,16 @@ link_update，但本驱动的 gEvents 只填了前四项，回调是空的——
 本轮：新增 on_link_update()，并把 gEvents 扩到七项（rx_flush/rx_packet 仍为 null，保持原有收包路径），
 link_update 指向新回调。16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 新增检查后 0 failure。
 
+## 59. 24A446 的事件改成两个描述符
+
+22H374 的 daemon 从 dv[0] 读 16 字节接口名加负载，这条路径在 mission34b/36 上机验证过；24A446 的参考实现
+（sheng 790232e 的 post_event）改成 dv[0] 为 16 字节名字、dv[1] 为负载，而且这次提交同时加入 540 字节关联完成
+事件，说明 27 的 daemon 按两个描述符取负载。
+
+本轮按代际切换：gModern27Client 为真时发两个描述符，否则保持已验证的单描述符形状。触发代际的入口除已有的
+0x14e8 扫描请求与 0x290 关联请求外，补上 0x8e8 的 kScanResult 与 kCurrentNetwork 请求，这样 27 的 daemon 在
+第一次扫描后就会走新形状。
+
+验证：16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 新增检查后 0 failure。27 上机时若事件仍不达，先核对
+这一处与 selector 0 信封。
+

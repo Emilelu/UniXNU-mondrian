@@ -3,13 +3,14 @@
 来源：2026-11-13 用户要求 ——「打了一堆 tag 到底哪些有用的？没用的就删掉，后面也不要乱加，只加有用的」。
 执行结果见本文末尾的保留清单。
 
-## 允许的三种 tag
+## 允许的四种 tag
 
 | 形态 | 含义 | 打的条件 |
 | --- | --- | --- |
 | `boot-proven-YYYYMMDD` | 这个提交编出来的镜像**在真机上进到了 SpringBoard** | tag message 必须带镜像路径、大小、sha256 和对应的 `console.log` 证据目录 |
 | `snap-rN` | 登记为 `main` 基线的提交（铁则 9） | 出现在 `docs/engineering/MAIN-BASELINE.toml` 的 `tag` 字段 |
 | `vX.Y.Z-...` | 版本里程碑（README 里引用） | 发布/里程碑时由人指定 |
+| release 资源 tag | CI 下载资源的 release 背后的 tag | 工作流里出现 `releases/download/<tag>/` URL（门禁直接读文件，P-252） |
 
 **禁止**：每轮、每次提交、每次实验都打 `snap-YYYYMMDD-HHMMSS` 这类时间戳 tag。
 日常回退锚点是被推送的提交（铁则 2），不是 tag。
@@ -25,7 +26,8 @@
 
 `scripts/check-snapshot-tag.py`（铁则 7）：
 
-1. 出现三种允许形态之外的 tag → 失败，并给出删除命令；
+1. 出现四种允许形态之外的 tag → 失败，并给出删除命令；
+   release 资源 tag 的名单从 `.github/workflows/*.yml` 里读，不写死在门禁里；
 2. 没有 `boot-proven-*`，或最近一个没推送到远端 → 失败；
 3. `MAIN-BASELINE.toml` 里登记的 tag 在本地不存在 → 失败。
 

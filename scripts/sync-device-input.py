@@ -9,6 +9,7 @@
 """
 import argparse
 import filecmp
+import json
 import os
 import shutil
 import subprocess
@@ -19,12 +20,17 @@ REPO = os.path.abspath(os.environ.get('K60_REPO')
                       or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 构建输入镜像。默认是共享目录；并行工作时用 K60_DEVICE_INPUT 指向自己的一份，
 # 否则谁最后同步谁就决定了别人构建用的补丁集（P-184 同类问题）。
-# 只读的 --check 允许用共享目录做对照（registry 的 iron-5 没有调用者镜像可用），
-# 但任何写操作都必须显式 K60_DEVICE_INPUT。
+# 构建输入镜像必须由调用者显式给出，读和写都一样。
+# 以前 --check 会回落到共享目录，于是 registry 里的 iron-5 拿**别人的**镜像去判你的树：
+# 2026-11-16 实测，不设该变量时 iron-4/iron-5/hard-33/P-165/P-166 报 5 条假红，
+# 设上同一个变量后全绿（787 文件一致）。判据缺输入时必须拒绝，不能替换
+# （P-190/P-207/P-220 同族：门禁自己找 fallback 而不是拒绝）。
 DEV = os.environ.get('K60_DEVICE_INPUT')
-if DEV is None and '--check' not in sys.argv[1:]:
-    sys.exit('sync-device-input: K60_DEVICE_INPUT is not set; refusing to write the shared device tree. Export your own mirror (P-184 sibling: the wifi line once forgot it and cross-polluted the shared tree).')
-DEV = DEV or '/opt/k60/trees/usb-cdc-mainline/device'
+if not DEV:
+    sys.exit('sync-device-input: K60_DEVICE_INPUT is not set; refusing to compare or write a '
+             'mirror the caller did not name. Export your own mirror (P-184: the wifi line once '
+             'cross-polluted the shared tree; 2026-11-16: an unset variable produced five false '
+             'reds in check-rules).')
 # 单一工作树时才写这份共享镜像。多 agent 并行时每人有自己的 K60_DEVICE_INPUT，
 # 若仍写同一个文件，最后同步的人就决定了别人 porting-gate 看到的 series
 # （2026-11-14 五个 agent 同时工作后实测：BT 的 0507 出现在 Lead 的树里）。
@@ -72,6 +78,35 @@ ITEMS = [
 MAC_BUILD_PRODUCTS = ('.a', '.o', '.dylib')
 MAC_BUILD_PRODUCT_NAMES = ('build.log', 'build-report.json')
 
+# bindings.json 是真正的输入（编译用的虚表绑定），但里面有一个字段是**产物回执**：
+# compiled_object_sha256 记的是上一次编译出来的 NativeUfs.o 的哈希。构建会把它
+# 重写成新的，于是镜像与仓库只差这一行，iron-5 就报「输入被改过」——而把它同步回去
+# 等于用旧产物冒充新输入，正是上面那段注释警告的事（P-188 同族）。
+# 所以比较时忽略这些字段：键集合相同、其余值相同，就算一致，并且**不覆盖**镜像，
+# 让镜像保留它真实编译出来的回执。
+VOLATILE_JSON_FIELDS = ('compiled_object_sha256',)
+
+
+def json_equal_ignoring_volatile(a, b):
+    """两个 JSON 对象除 VOLATILE_JSON_FIELDS 外完全相同时返回 True。"""
+    try:
+        with open(a, encoding='utf-8') as f:
+            left = json.load(f)
+        with open(b, encoding='utf-8') as f:
+            right = json.load(f)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    if set(left) != set(right):
+        return False
+    for key in left:
+        if key in VOLATILE_JSON_FIELDS:
+            continue
+        if left[key] != right[key]:
+            return False
+    return True
+
 
 def is_build_product(rel):
     if not rel.startswith('mac-build/'):
@@ -115,6 +150,10 @@ def main():
             s = os.path.join(REPO, rel)
             d = os.path.join(DEV, rel)
             if os.path.exists(d) and filecmp.cmp(s, d, shallow=False):
+                same += 1
+                continue
+            if rel.endswith('.json') and json_equal_ignoring_volatile(s, d):
+                # 只差构建回执字段：算一致，且不把镜像里的回执覆盖成仓库的旧值。
                 same += 1
                 continue
             if a.check:

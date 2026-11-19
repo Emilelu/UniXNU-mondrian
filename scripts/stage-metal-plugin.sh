@@ -33,4 +33,11 @@ for f in PongAdrenoMetal.clients PongAdrenoMetal.publish; do
     cp -p "$SRC/$f" "$DEST/$f"
 done
 
+# Metal looks up MetalPluginName on the accelerator and then asks the bundle for
+# MetalPluginClassName; the macOS build only declares NSPrincipalClass, which
+# loads the bundle without ever instantiating it.  Fix the staged copy so both
+# the blob generator and any flat reader see the keys.
+HERE=$(cd "$(dirname "$0")" && pwd)
+python3 "$HERE/ensure-metal-plugin-keys.py" "$DEST/Info.plist"
+
 echo "stage-metal-plugin: $DEST ($(du -sb "$DEST" | cut -f1) bytes, 6 files)"

@@ -1,6 +1,3 @@
-diff --git a/iokit/Kernel/MiniAcceleratorES.cpp b/iokit/Kernel/MiniAcceleratorES.cpp
-new file mode 100644
-index 0000000..5eec06b
 --- /dev/null
 +++ b/iokit/Kernel/MiniAcceleratorES.cpp
 @@ -0,0 +1,126 @@
@@ -144,18 +141,6 @@ index fe0dc35..f855666 100644
  
 diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
 index b50fe22..61e9954 100644
---- a/iokit/Kernel/MiniIOSurface.cpp
-+++ b/iokit/Kernel/MiniIOSurface.cpp
-@@ -1935,6 +1935,7 @@ native_pong_ui_services_start(void)
- 		return;
- 	}
- 	MiniIOMobileFramebufferStart(provider);
-+	MiniAcceleratorPublishStub(provider);
- }
- 
- #endif /* Pong development IOSurface */
-diff --git a/iokit/conf/files b/iokit/conf/files
-index 5425271..5b3dd51 100644
 --- a/iokit/conf/files
 +++ b/iokit/conf/files
 @@ -81,6 +81,7 @@ iokit/Kernel/IOGuardPageMemoryDescriptor.cpp		optional iokitcpp

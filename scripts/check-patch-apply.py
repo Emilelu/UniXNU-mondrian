@@ -50,6 +50,27 @@ def validate(path):
     return detail[0] if detail else 'git apply --numstat failed'
 
 
+def missing_from_series():
+    """Patches a series names but that no longer exist.
+
+    Folding a patch into the one that creates the same file deletes it; a series entry left
+    behind then breaks a build after the compiler has run. This is the other half of P-155.
+    """
+    gone = []
+    for base, _dirs, files in os.walk(os.path.join(ROOT, 'patches')):
+        if 'series' not in files:
+            continue
+        series = os.path.join(base, 'series')
+        with open(series, encoding='utf-8') as handle:
+            for line in handle:
+                name = line.strip()
+                if not name or name.startswith('#'):
+                    continue
+                if not os.path.exists(os.path.join(base, name)):
+                    gone.append(os.path.relpath(os.path.join(base, name), ROOT))
+    return gone
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--all', action='store_true', help='check every patch')
@@ -62,13 +83,24 @@ def main():
         return 0
 
     bad = []
+    absent = []
     for path in paths:
+        if not os.path.exists(os.path.join(ROOT, path)):
+            # A patch folded into the one that creates the file is deleted on purpose;
+            # the series check below is what must not then point at it.
+            absent.append(path)
+            continue
         problem = validate(path)
         if problem:
             bad.append((path, problem))
 
+    missing = missing_from_series()
+    for path in missing:
+        bad.append((path, 'listed in series but the file is gone'))
+
     if not bad:
-        print(f'✅ {len(paths)} 个改动的补丁都能被 git apply 解析（P-162）')
+        folded = f'，{len(absent)} 个已折入创建补丁' if absent else ''
+        print(f'✅ {len(paths) - len(absent)} 个改动的补丁都能被 git apply 解析（P-162）{folded}')
         return 0
 
     print(f'❌ {len(bad)} 个补丁不是合法 diff，提交前必须修好（P-162）')

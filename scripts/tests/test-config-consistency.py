@@ -212,5 +212,44 @@ class ConfigConsistencyTests(unittest.TestCase):
         self.assertIn("not allowed with argument", result.stderr)
 
 
+    def test_out_prefers_the_most_recently_generated_config(self) -> None:
+        self.defconfig.write_text("CONFIG_A=y\n", encoding="utf-8")
+        out = self.work / "out"
+        paths = []
+        for name in ("mondrian", "mondrian_wifi"):
+            config = out / "mondrian/ipados-16.6.1-20G81" / name / ".config"
+            config.parent.mkdir(parents=True)
+            config.write_text("CONFIG_A=y\n", encoding="utf-8")
+            paths.append(config)
+        newer = paths[-1]
+        stamp = newer.stat().st_mtime
+        os.utime(newer, (stamp + 10, stamp + 10))
+        result = self.run_check("--out", str(out), use_config=False)
+        self.assert_pass(result)
+        self.assertIn(str(newer), result.stdout)
+
+    def test_out_derives_the_defconfig_from_the_board_directory_name(self) -> None:
+        # mondrian_wifi/ is named after configs/mondrian_wifi_defconfig, so a
+        # run without --defconfig must grade against that file, not against
+        # the mondrian default (P-187).
+        fixture = CHECKER.parent.parent / "configs" / "mondrian_wifi_defconfig"
+        self.assertTrue(fixture.is_file(), "repo fixture missing")
+        out = self.work / "out"
+        config = out / "mondrian/ipados-16.6.1-20G81/mondrian_wifi/.config"
+        config.parent.mkdir(parents=True)
+        config.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+        before = self.snapshot()
+        result = subprocess.run(
+            [sys.executable, str(CHECKER), "--out", str(out)],
+            cwd=self.work, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        self.assertEqual(before, self.snapshot(), "checker modified fixture files")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("defconfig:", result.stdout)
+        self.assertIn("mondrian_wifi_defconfig", result.stdout)
+        self.assertIn(str(config), result.stdout)
+
 if __name__ == "__main__":
     unittest.main()

@@ -225,7 +225,7 @@
 
 ### 4.3 `patches/xnu/series` 与补丁文件（含 GPU/display/battery 补丁）
 
-`series` 是 216 行的有序清单，我们是 **216 行 / 8163 B**，上游终态 **216 行 / 8158 B**，差集恰好两行：上游多 `0603-k60-ui-diagnostic.patch`（7bb1fd297），我们多 `0392-k60-weak-scanout-stubs.patch`（第 209 行，`61544e3f6` 在上游删掉了它）。也就是说：**所有中间态的 series 提交都不需要照抄，只有这两行需要决策**。
+`series` 是 216 行的有序清单，我们是 **216 行 / 8163 B**，上游终态 **216 行 / 8158 B**，差集恰好两行：上游多 `0603-k60-ui-diagnostic.patch`（7bb1fd297），我们多 `0630-k60-weak-scanout-stubs.patch`（第 209 行，`61544e3f6` 在上游删掉了它）。也就是说：**所有中间态的 series 提交都不需要照抄，只有这两行需要决策**。
 
 `0603` 是纯新增（1,319 B，末尾追加），风险低。
 `0392-k60-weak-scanout-stubs` 不能删：`9f51b8b`（`fix(build): restore the weak scanout stubs…`）证明删掉之后我们的构建缺符号——上游能删是因为它的 `PongAdreno` 归档在这些符号上齐全，我们的构建脚本没有走到那条归档链。`61544e3f6` 因此判 `不可合`。

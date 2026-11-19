@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>dev.unixnu.pong.PongThermal</string>
+  <key>CFBundleName</key><string>PongThermal</string>
+  <key>CFBundleExecutable</key><string>PongThermal</string>
+  <key>CFBundlePackageType</key><string>KEXT</string>
+  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>OSBundleRequired</key><string>Root</string>
+  <key>IOKitPersonalities</key><dict>
+    <key>K60 tsens0 (TM + SROT)</key><dict>
+      <key>IOClass</key><string>K60ThermalSensor</string>
+      <key>IOProviderClass</key><string>IOPlatformDevice</string>
+      <key>IONameMatch</key><string>thermal-sensor@c263000</string>
+      <key>IOProbeScore</key><integer>1000</integer>
+    </dict>
+    <key>K60 tsens1 (TM + SROT)</key><dict>
+      <key>IOClass</key><string>K60ThermalSensor</string>
+      <key>IOProviderClass</key><string>IOPlatformDevice</string>
+      <key>IONameMatch</key><string>thermal-sensor@c265000</string>
+      <key>IOProbeScore</key><integer>1000</integer>
+    </dict>
+  </dict>
+</dict></plist>

@@ -14,6 +14,7 @@ These tests pin three things:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -44,7 +45,6 @@ def series_names(path: pathlib.Path) -> list[str]:
 
 def fingerprint(names: list[str], base: pathlib.Path) -> str:
     """Mirror the scripts' sha256(names + sizes)[:16]."""
-    import hashlib
     h = hashlib.sha256()
     for n in names:
         h.update(n.encode())

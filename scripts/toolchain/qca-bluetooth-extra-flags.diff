@@ -1,0 +1,20 @@
+--- a/tools/build-bluetool.py
++++ b/tools/build-bluetool.py
+@@ -3,6 +3,7 @@
+ import argparse
+ import hashlib
+ import json
++import os
+ from pathlib import Path
+ import plistlib
+ import re
+@@ -22,6 +23,9 @@
+ binary = out/'BlueTool'
+ cc = ['xcrun', '--sdk', SDK, 'clang', '-target', TARGET, '-isysroot', sdk,
+       '-O2', '-Wall', '-Wextra', '-Werror', '-fblocks', '-fstack-protector-strong', str(source), '-o', str(binary)]
++extra = os.environ.get('QCA_BT_EXTRA')
++if extra:
++    cc.extend(extra.split())
+ subprocess.run(cc, check=True)
+ entitlements = out/'BlueTool.entitlements.plist'
+ entitlements.write_bytes(plistlib.dumps({'com.apple.private.security.no-container': True}))

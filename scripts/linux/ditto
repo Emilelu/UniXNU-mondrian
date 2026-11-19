@@ -1,0 +1,26 @@
+#!/bin/sh
+# Minimal ditto(1) for a Linux build host.
+#
+# build-xnu-4k-baseline.sh uses `ditto SOURCE DESTINATION` to merge libplatform
+# headers into the kernel SDK. macOS's ditto preserves modes and merges into an
+# existing directory; `cp -a SOURCE/. DESTINATION/` does the same for that use.
+# The kernel build stops with "ditto: command not found" without this.
+#
+# Install it where the build finds it (the setup-toolchain prefix also works):
+#   sudo install -m 755 scripts/linux/ditto /usr/local/bin/ditto
+#
+# POSIX sh only; no flags are accepted because the framework does not use any.
+set -eu
+if [ "$#" -ne 2 ]; then
+	echo "ditto: only 'ditto SOURCE DESTINATION' is implemented on Linux" >&2
+	exit 2
+fi
+src=$1
+dst=$2
+if [ -d "$src" ]; then
+	mkdir -p "$dst"
+	cp -a "$src/." "$dst/"
+else
+	mkdir -p "$(dirname "$dst")"
+	cp -a "$src" "$dst"
+fi

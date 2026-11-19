@@ -1,0 +1,32 @@
+diff --git a/fileset_match.py b/fileset_match.py
+index c3e4206..9c0fb29 100755
+--- a/fileset_match.py
++++ b/fileset_match.py
+@@ -126,6 +126,17 @@ class Side:
+         return f"{section['segment']},{section['name']}" if section else '?'
+ 
+ 
++def section_kind(section):
++    """The section name of a `section_of` result, or None when the address is outside every section.
++
++    A reference kernel built here carries symbols that sit in no section
++    (absolute and linker-synthesised ones), so `section_of` answers '?' for
++    them; reading only the name after the separator keeps the check meaningful
++    instead of indexing past a separator that is not there.
++    """
++    return section.split(',', 1)[1] if ',' in section else None
++
++
+ class Matcher:
+     """Bind original functions to native functions; every bind must survive its checks."""
+ 
+@@ -314,7 +325,8 @@ class Matcher:
+                 if index + 1 < len(anchors) and anchors[index + 1] - target < 0x10000 and \
+                         pairs[anchors[index + 1]] - ref != anchors[index + 1] - target:
+                     continue
+-            if reference.section_of(ref).split(',')[1] != self.original.section_of(target).split(',')[1]:
++            ref_kind = section_kind(reference.section_of(ref))
++            if ref_kind is None or ref_kind != section_kind(self.original.section_of(target)):
+                 continue
+             name, addend = reference.name_at(ref)
+             if name is None or addend not in (0, 16) or (addend and not name.startswith('__ZTV')):

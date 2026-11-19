@@ -1,0 +1,12 @@
+diff --git a/iokit/Kernel/MiniIOSurface.cpp b/iokit/Kernel/MiniIOSurface.cpp
+--- a/iokit/Kernel/MiniIOSurface.cpp
++++ b/iokit/Kernel/MiniIOSurface.cpp
+@@ -856,7 +856,7 @@
+ 		return false;
+ 	}
+ 	setProperty(kIOUserClientClassKey, "IOSurfaceRootUserClient");
+-	setName("IOCoreSurfaceRoot");
++	setName("IOSurfaceRoot");
+ 	registerService();
+ 	return true;
+ }

@@ -214,6 +214,24 @@ def main():
         ('max-x', struct.pack('<I', 14400)), ('max-y', struct.pack('<I', 32000)),
         ('avdd-gpio', struct.pack('<I', 71)),
     ])
+    # K60 thermal: two tsens controllers, absolute bases (see above note on
+    # arm-io ranges). drivers/PongThermal/Info.plist matches these node names.
+    tsens0 = node('thermal-sensor@c263000', [
+        ('compatible', b'qcom,tsens-v2\0'),
+        ('pong,tsens-tm-base', struct.pack('<Q', 0x0c263000)),
+        ('pong,tsens-srot-base', struct.pack('<Q', 0x0c222000)),
+        ('pong,tsens-controller', struct.pack('<I', 0)),
+        ('#qcom,sensors', struct.pack('<I', 16)),
+        ('#thermal-sensor-cells', struct.pack('<I', 1)),
+    ])
+    tsens1 = node('thermal-sensor@c265000', [
+        ('compatible', b'qcom,tsens-v2\0'),
+        ('pong,tsens-tm-base', struct.pack('<Q', 0x0c265000)),
+        ('pong,tsens-srot-base', struct.pack('<Q', 0x0c223000)),
+        ('pong,tsens-controller', struct.pack('<I', 1)),
+        ('#qcom,sensors', struct.pack('<I', 16)),
+        ('#thermal-sensor-cells', struct.pack('<I', 1)),
+    ])
     tree = node('device-tree', [
         # Keys use the actual SM8475 PMIC-arbiter resources below.
         # iPhone X UI identity from HackiOS's Apple DT identity.h. The common
@@ -245,7 +263,7 @@ def main():
             ('ee', struct.pack('<I', 0)),
             ('pon-ppid', struct.pack('<I', 0x013)),
             ('volume-up-ppid', struct.pack('<I', 0x18d)),
-        ]), *([ufs] if args.ufs_probe else [])]),
+        ]), tsens0, tsens1, *([ufs] if args.ufs_probe else [])]),
         node('defaults', [('sleep-disabled', struct.pack('<I', 1))]),
         node('options'),
         node('product', [

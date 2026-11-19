@@ -1,0 +1,145 @@
+# telephony inventory: iPadOS 16.6.1 (20G81) OS volume vs iOS 16.6.1 (20G81) OS volume
+# generated 2026-11-14T20:55:27+08:00 in WSL, listings from 7z l -ba -slt on each APFS volume
+
+## listings
+-rw-r--r-- 1 root root 202385433 Nov 14 20:08 /tmp/ios_list.txt
+-rw-r--r-- 1 root root 182444644 Nov 14 19:54 /tmp/os_list.txt
+iPad lines: 6776328
+iOS  lines: 7555320
+
+## /Applications app bundles
+iPad: 134
+iOS : 141
+
+## apps only in iOS
+Path = Applications/ActivityMessagesApp.app
+Path = Applications/CarPlaySettings.app
+Path = Applications/CarPlaySplashScreen.app
+Path = Applications/CarPlayWallpaper.app
+Path = Applications/HealthPrivacyService.app
+Path = Applications/Jellyfish.app
+Path = Applications/MobilePhone.app
+Path = Applications/RemotePaymentPassActionsService.app
+Path = Applications/SleepLockScreen.app
+Path = Applications/SleepWidgetContainer.app
+
+## apps only in iPadOS
+Path = Applications/Greenfield-iPad.app
+Path = Applications/LoginUI.app
+Path = Applications/PassbookStub.app
+
+## MobilePhone.app
+iPad count: 0
+iOS  count: 115
+Path = Applications/MobilePhone.app
+Path = Applications/MobilePhone.app/de.lproj
+Path = Applications/MobilePhone.app/he.lproj
+Path = Applications/MobilePhone.app/ar.lproj
+Path = Applications/MobilePhone.app/el.lproj
+Path = Applications/MobilePhone.app/ja.lproj
+Path = Applications/MobilePhone.app/PHCallHistory.loctable
+Path = Applications/MobilePhone.app/PlugIns
+Path = Applications/MobilePhone.app/en.lproj
+Path = Applications/MobilePhone.app/uk.lproj
+Path = Applications/MobilePhone.app/es_419.lproj
+Path = Applications/MobilePhone.app/Favorites.loctable
+Path = Applications/MobilePhone.app/pt_PT.lproj
+Path = Applications/MobilePhone.app/es.lproj
+Path = Applications/MobilePhone.app/Base.lproj
+Path = Applications/MobilePhone.app/da.lproj
+Path = Applications/MobilePhone.app/MobilePhone.plist
+Path = Applications/MobilePhone.app/it.lproj
+Path = Applications/MobilePhone.app/bg.lproj
+Path = Applications/MobilePhone.app/sk.lproj
+Path = Applications/MobilePhone.app/zh_CN.lproj
+Path = Applications/MobilePhone.app/kk.lproj
+Path = Applications/MobilePhone.app/MPVoicemail.loctable
+Path = Applications/MobilePhone.app/ms.lproj
+Path = Applications/MobilePhone.app/_CodeSignature
+Path = Applications/MobilePhone.app/sv.lproj
+Path = Applications/MobilePhone.app/en_AU.lproj
+Path = Applications/MobilePhone.app/cs.lproj
+Path = Applications/MobilePhone.app/ko.lproj
+Path = Applications/MobilePhone.app/PHRecents.loctable
+Path = Applications/MobilePhone.app/no.lproj
+Path = Applications/MobilePhone.app/hu.lproj
+Path = Applications/MobilePhone.app/InfoPlist.loctable
+Path = Applications/MobilePhone.app/VoicemailUI.loctable
+Path = Applications/MobilePhone.app/tr.lproj
+Path = Applications/MobilePhone.app/pl.lproj
+Path = Applications/MobilePhone.app/MPKeypad.loctable
+Path = Applications/MobilePhone.app/fr_CA.lproj
+Path = Applications/MobilePhone.app/Info.plist
+Path = Applications/MobilePhone.app/General.loctable
+Path = Applications/MobilePhone.app/vi.lproj
+Path = Applications/MobilePhone.app/MobilePhone
+Path = Applications/MobilePhone.app/ru.lproj
+Path = Applications/MobilePhone.app/Dialer.loctable
+Path = Applications/MobilePhone.app/en_GB.lproj
+Path = Applications/MobilePhone.app/fr.lproj
+Path = Applications/MobilePhone.app/fi.lproj
+Path = Applications/MobilePhone.app/id.lproj
+Path = Applications/MobilePhone.app/nl.lproj
+Path = Applications/MobilePhone.app/th.lproj
+Path = Applications/MobilePhone.app/pt.lproj
+Path = Applications/MobilePhone.app/Voicemail.loctable
+Path = Applications/MobilePhone.app/PkgInfo
+Path = Applications/MobilePhone.app/PHCarPlay.loctable
+Path = Applications/MobilePhone.app/Assets.car
+Path = Applications/MobilePhone.app/ro.lproj
+Path = Applications/MobilePhone.app/zh_HK.lproj
+Path = Applications/MobilePhone.app/AppIcon60x60@2x.png
+Path = Applications/MobilePhone.app/hr.lproj
+Path = Applications/MobilePhone.app/hi.lproj
+Path = Applications/MobilePhone.app/ca.lproj
+Path = Applications/MobilePhone.app/zh_TW.lproj
+
+## telephony / messaging infrastructure (path exact match, both volumes)
+System/Library/Frameworks/CallKit.framework                              iPad=1 iOS=1
+System/Library/Frameworks/CoreTelephony.framework                        iPad=1 iOS=1
+System/Library/PrivateFrameworks/TelephonyUtilities.framework            iPad=1 iOS=1
+System/Library/PrivateFrameworks/TelephonyUI.framework                   iPad=1 iOS=1
+System/Library/PrivateFrameworks/TelephonyPreferences.framework          iPad=1 iOS=1
+System/Library/PrivateFrameworks/TelephonyXPCClient.framework            iPad=1 iOS=1
+System/Library/PrivateFrameworks/TelephonyXPCServer.framework            iPad=1 iOS=1
+System/Library/PrivateFrameworks/IPTelephony.framework                   iPad=1 iOS=1
+System/Library/PrivateFrameworks/CorePhoneNumbers.framework              iPad=1 iOS=1
+System/Library/PrivateFrameworks/PhoneNumbers.framework                  iPad=1 iOS=1
+System/Library/PrivateFrameworks/PhoneNumberResolver.framework           iPad=1 iOS=1
+System/Library/PrivateFrameworks/CallHistory.framework                   iPad=1 iOS=1
+System/Library/PrivateFrameworks/ChatKit.framework                       iPad=1 iOS=1
+System/Library/PrivateFrameworks/IMCore.framework                        iPad=1 iOS=1
+System/Library/PrivateFrameworks/IMDPersistence.framework                iPad=1 iOS=1
+System/Library/PrivateFrameworks/IMDaemonCore.framework                  iPad=1 iOS=1
+System/Library/PrivateFrameworks/IMSharedUtilities.framework             iPad=1 iOS=1
+System/Library/PrivateFrameworks/IMDMessageServices.framework            iPad=1 iOS=1
+System/Library/PrivateFrameworks/AppleBasebandManager.framework          iPad=1 iOS=1
+System/Library/PrivateFrameworks/AppleBasebandServices.framework         iPad=1 iOS=1
+System/Library/PrivateFrameworks/VisualVoicemail.framework               iPad=1 iOS=1
+System/Library/PrivateFrameworks/CommunicationsSetupUI.framework         iPad=1 iOS=1
+System/Library/PrivateFrameworks/BluetoothManager.framework              iPad=1 iOS=1
+Applications/MobileSMS.app                                               iPad=1 iOS=1
+Applications/InCallService.app                                           iPad=1 iOS=1
+Applications/MessagesViewService.app                                     iPad=1 iOS=1
+Applications/PeopleMessageService.app                                    iPad=1 iOS=1
+Applications/PeopleViewService.app                                       iPad=1 iOS=1
+Applications/DataActivation.app                                          iPad=1 iOS=1
+Applications/FieldTest.app                                               iPad=1 iOS=1
+Applications/CTCarrierSpaceAuth.app                                      iPad=1 iOS=1
+Applications/SIMSetupUIService.app                                       iPad=1 iOS=1
+System/Library/AccessibilityBundles/MobilePhone.axbundle                 iPad=1 iOS=1
+
+## LaunchDaemons: telephony-related
+com.apple.CommCenter.plist                               iPad=1 iOS=1
+com.apple.CommCenter-noncellular.plist                   iPad=1 iOS=1
+com.apple.CommCenterRootHelper.plist                     iPad=1 iOS=1
+com.apple.CommCenterMobileHelper.plist                   iPad=1 iOS=1
+com.apple.CallHistorySyncHelper.plist                    iPad=1 iOS=1
+com.apple.ThreadCommissionerService.plist                iPad=1 iOS=1
+LaunchDaemons total: iPad=477 iOS=491
+
+## Carrier Bundles
+iPad entries: 3046
+iOS  entries: 7140
+iPad roots: Path = System/Library/Carrier Bundles/iPad 
+iOS  roots: Path = System/Library/Carrier Bundles/iPhone 

@@ -2,8 +2,10 @@
 
 本目录是 K60 移植的核心工程文档，按主题分类。
 
-> 最后更新：2026-11-12。本文件由 `scripts/check-docs.py` 校验：
+> 最后更新：2026-11-16。本文件由 `scripts/check-docs.py` 校验：
 > 目录下每个 `.md` 都必须在此登记。
+>
+> 当前决策先读[2026-11-16 重新审视](../audits/REASSESSMENT-2026-11-16.md)：历史通过、当前实验与门禁实际覆盖必须分别核对。
 
 ---
 
@@ -11,18 +13,22 @@
 
 | 文件 | 内容 |
 |---|---|
-| [STATUS.md](STATUS.md) | **当前硬件状态明细** + 2026-11-11/11-12 变更记录（README 的详细版） |
+| [STATUS.md](STATUS.md) | **当前硬件状态明细** + 重新审视结论 + 历史变更记录（README 的详细版） |
+| [IOS27.md](IOS27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门、IPSW 与 kernelcache 哈希 |
 - [`BOOT-ARGS.md`](BOOT-ARGS.md) —— 每个 boot 参数的接受值、默认与陷阱；608 字节预算；三个 GPU 开关的串行依赖。
 | [EIGHT-STEP-SPEC.md](EIGHT-STEP-SPEC.md) | **八步流程规范**：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机。每步含目的/必做/证据格式/通过条件/反模式 |
 | [FIRMWARE-REBUILD.md](FIRMWARE-REBUILD.md) | **固件卷重建手册**：构建入口、为什么同一个 pin 三次重建得三个哈希（P-216）、`Mu_Basecore` 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭、下次重建的五步实验协议、DarwinBoot 只认固定属性名的硬约束 |
 | [BOOT-PROCEDURE.md](BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂 CDC-ACM 串口抓取 → `fastboot boot`；"控制台没出现"= 早启动挂死的硬证据；含二分回退配方 |
+| [IOS-SCOPE.md](IOS-SCOPE.md) | **iOS 迁移边界**（用户 2026-11-19 决定）：只保留可转移的活。本机四棵 SM8475 树里只有我们在 iOS 16，参考栈在 17.7.11–18.7.10；含可转移/停止清单、判据三条、迁移面统计 |
 
 ## 二、规则与坑
 
 | 文件 | 内容 |
 |---|---|
-| [HARD-RULES.md](HARD-RULES.md) | 铁则 ★1–★35，每条含来源、硬规则、判别方法 |
-| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-130：症状 → 真因 → 判别 → 教训 |
+| [HARD-RULES.md](HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
+| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-253：症状 → 真因 → 判别 → 教训 |
+| [`LINE-MAP.md`](LINE-MAP.md) | 逐行的“谁在做什么”地图：每条 bring-up 线的源码、补丁、证据与负责人 |
+| [GPU-IOSURFACE-ROOT-CAUSE.md](GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [PITFALL-TO-RULE-INDEX.md](PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |
 | [TOOLBOX.md](TOOLBOX.md) | 可复用工具与脚本清单 |
 | [PLAYBOOKS.md](PLAYBOOKS.md) | 操作手册 PB-1–PB-10 |
@@ -41,6 +47,9 @@
 | 文件 | 内容 |
 |---|---|
 | [ENVIRONMENT.md](ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
+| [DISK-HYGIENE.md](DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据（hard-41）、回收顺序、WSL 虚拟盘压缩（需管理员） |
+| [AGENT-BUS.md](AGENT-BUS.md) | 协作通道：`scripts/k60-bus.py` 消息总线、游标、与 reply md 的分工 |
+| [BRANCH-INVENTORY-20261119.md](BRANCH-INVENTORY-20261119.md) | **分支全量盘点**（2026-11-19）：49 条未合入 main 的分支逐条编号，含 ahead/behind、文件数、内容、证据、被谁包含（git 祖先实测）与建议动作；用户逐条确认后按「先合 → 门禁全绿 → 删已合并」执行 |
 | [LOCAL-ASSETS.md](LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [REPO-INVENTORY.md](REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 

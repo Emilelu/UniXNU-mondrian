@@ -1,0 +1,27 @@
+#!/bin/sh
+# Minimal sw_vers for the Linux XNU build host.
+#
+# makedefs/MakeInc.cmd sets HOST_OS_VERSION from `sw_vers -productVersion`.
+# Linux has no sw_vers, so the value was empty. 26.5 is the macOS release the
+# xnu-12377.121.6 line pairs with, which is also what the OS profile pins.
+#
+# Install it into PATH:
+#   sudo install -m 755 scripts/linux/sw_vers /usr/local/bin/sw_vers
+case "${1:-}" in
+-productName)
+	echo "macOS"
+	;;
+-productVersion)
+	echo "26.5"
+	;;
+-buildVersion)
+	echo "25F79"
+	;;
+"")
+	printf 'ProductName:\tmacOS\nProductVersion:\t26.5\nBuildVersion:\t25F79\n'
+	;;
+*)
+	echo "sw_vers: unsupported option: $1" >&2
+	exit 2
+	;;
+esac

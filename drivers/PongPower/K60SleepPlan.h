@@ -84,6 +84,27 @@ int k60_sleep_deadline_reached(uint64_t now_ms, uint64_t deadline_ms);
  * not entered). armcpu_reason is ArmCpu's last_reason. */
 const char *k60_sleep_woke_by(unsigned armcpu_reason, enum k60_wake_source source);
 
+/* While asleep the board hook feeds the firmware watchdog it took over every
+ * 10 s; a zero last_feed means it has not fed yet. */
+#define K60_SLEEP_WATCHDOG_FEED_MS 10000u
+int k60_sleep_watchdog_due(uint64_t now_ms, uint64_t last_feed_ms);
+
+/* platform-sleep-wake-after=<seconds>; 0 keeps the timer disabled. */
+uint64_t k60_sleep_wake_after_ms(unsigned seconds);
+
+/* The panel returns after two frames, capped at 1500 ms; without a frame
+ * counter the hook waits 600 ms and does not look at frames. */
+#define K60_SLEEP_BACKLIGHT_FRAMES 2u
+#define K60_SLEEP_BACKLIGHT_MAX_MS 1500u
+#define K60_SLEEP_BACKLIGHT_FALLBACK_MS 600u
+int k60_sleep_backlight_ready(unsigned frames, int frame_counting,
+    uint64_t elapsed_ms);
+
+/* A touch report gap longer than 60 ms re-establishes the contact position;
+ * exactly 60 ms is still the same stream. A zero last_report means no contact. */
+#define K60_SLEEP_TOUCH_GAP_MS 60u
+int k60_sleep_touch_reestablish(uint64_t now_ms, uint64_t last_report_ms);
+
 #ifdef __cplusplus
 }
 #endif

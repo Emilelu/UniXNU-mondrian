@@ -1,0 +1,63 @@
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -1595,12 +1595,17 @@
+     (void)ctx;
+     if (data) IOFreeData((void *)data, size);
+ }
++/* 2026-11-19 (0525): log-bluetooth=N caps the level.  3 preserves the
++ * pre-0525 output; the official porting contract uses 2 for a normal boot
++ * and 3 only when HCI tracing is wanted. */
++static int k60_log_level = 3;
++
+ static void k60_log(void *ctx, int level, const char *line) {
+     (void)ctx;
+ #ifdef KERNEL
+-    if (level <= 3) printf("[bluetooth] %s\n", line);
++    if (level <= k60_log_level) printf("[bluetooth] %s\n", line);
+ #else
+-    if (level <= 3) fprintf(stderr, "[bluetooth] %s\n", line);
++    if (level <= k60_log_level) fprintf(stderr, "[bluetooth] %s\n", line);
+ #endif
+ }
+ 
+@@ -2200,8 +2205,21 @@
+                                      __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return;
+     unsigned enabled = 0;
+     if (!PE_parse_boot_argn("k60bt", &enabled, sizeof(enabled)) || !enabled) {
+-        k60.started = 0;
+-        return;
++        /* 2026-11-19 (0525): the official contract enables the driver with
++         * bluetooth=1.  k60bt stays the K60 spelling and wins when present. */
++        if (!PE_parse_boot_argn("bluetooth", &enabled, sizeof(enabled)) ||
++            !enabled) {
++            k60.started = 0;
++            return;
++        }
++    }
++    {
++        unsigned level = (unsigned)k60_log_level;
++        char line[64];
++        if (PE_parse_boot_argn("log-bluetooth", &level, sizeof(level)))
++            k60_log_level = level > 6u ? 6 : (int)level;
++        snprintf(line, sizeof(line), "boot: log-bluetooth=%d", k60_log_level);
++        k60_log(NULL, 1, line);
+     }
+     /* 2026-11-15 (0511): blocker 1.  k60.stage used to default to 1, the S1c
+      * probe ladder, which clears registers in nine steps and returns before
+diff --git a/iokit/Kernel/MiniBluetooth.cpp b/iokit/Kernel/MiniBluetooth.cpp
+--- a/iokit/Kernel/MiniBluetooth.cpp
++++ b/iokit/Kernel/MiniBluetooth.cpp
+@@ -126,7 +126,11 @@
+ 		return;
+ 	}
+ 	if (!PE_parse_boot_argn("k60bt", &enabled, sizeof(enabled)) || enabled == 0) {
+-		return;
++		/* 0525: the official contract enables the driver with bluetooth=1. */
++		if (!PE_parse_boot_argn("bluetooth", &enabled, sizeof(enabled)) ||
++		    enabled == 0) {
++			return;
++		}
+ 	}
+ 	error = k60_bt_local_address(address);
+ 	if (error != 0) {

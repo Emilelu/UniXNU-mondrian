@@ -1,0 +1,138 @@
+diff --git a/docs/PAC_PROBE.md b/docs/PAC_PROBE.md
+index d0f41a4..a972030 100644
+--- a/docs/PAC_PROBE.md
++++ b/docs/PAC_PROBE.md
+@@ -29,7 +29,7 @@ that killed it.
+ | `FEAT APA=.. API=.. GPA=.. GPI=..` | nonzero on all four means FEAT_PAuth with address and generic keys |
+ | `FEAT APA3=.. GPA3=..` | the ISAR2 fallback; either set is enough |
+ | `RESULT no FEAT_PAuth` | no PAC: the ceiling is iOS 18 (arm64), stop the arm64e plan |
+-| `PAC: writing the five key pairs at EL1 ...` then a reset | the hypervisor traps the key registers (`HCR_EL2.APK/API`); arm64e is not usable here |
++| `PAC: writing the address key pairs at EL1 ...` then a reset | the hypervisor traps the key registers (`HCR_EL2.APK/API`); arm64e is not usable here |
+ | `KEY RB ok` | the keys read back; the hypervisor left them alone |
+ | `RESULT PACIA is a NOP` | the core claims PAuth but does not sign: unusable |
+ | `RESULT AUTIA did not restore` | signing happened but authentication does not round-trip |
+@@ -37,9 +37,29 @@ that killed it.
+ 
+ ## What it does to the machine
+ 
+-Writes `SCTLR_EL1` EnIA/EnIB/EnDA/EnDB, the five key pairs and one `PACIA` /
+-`AUTIA` pair, then halts. It runs before the loader, so nothing of the iOS 16
+-boot is touched, and it writes no storage.
++Writes `SCTLR_EL1` EnIA/EnIB/EnDA/EnDB, the address key pairs (and `APGA` only
++when `ISAR1.API` says the generic keys exist) and one `PACIA` / `AUTIA` pair,
++then halts. It runs before the loader, so nothing of the iOS 16 boot is touched,
++and it writes no storage.
++
++## First run, 2026-11-18
++
++```
++ISAR1 0x0010011101211052   ISAR2 0x0000000000000000
++FEAT APA 5  API 0          GPA 1  GPI 0
++RESULT no FEAT_PAuth -> arm64 only (max IOS 18)
++```
++
++The result was wrong twice over. `APA = 0b0101` is FEAT_PAuth with EPAC and
++PAuth2, so the core does implement pointer authentication; `API = 0` only means
++the *generic* keys are absent, and arm64e uses the address keys. The gate tested
++`apa && api && gpa && gpi`, which can never be true on this SoC, and the print
++read GPA/GPI from `[15:12]`/`[19:16]` — JSCVT and FCMA — instead of
++`[27:24]`/`[31:28]`.
++
++The probe now gates on `APA` (or `APA3`), labels the fields it actually reads,
++and skips `APGA` unless `API` says the generic keys exist. The key-register and
++`PACIA`/`AUTIA` steps never ran in this capture, so those remain unmeasured.
+ 
+ ## Limits
+ 
+diff --git a/shim/pac.c b/shim/pac.c
+index 3a70791..56879f4 100644
+--- a/shim/pac.c
++++ b/shim/pac.c
+@@ -2,8 +2,10 @@
+  * PAC gate: can this SoC run an arm64e (iOS 27) kernel?
+  *
+  * The arm64e route needs all of:
+- *   1. FEAT_PAuth in ID_AA64ISAR1_EL1 (APA/API, GPA/GPI) or ISAR2 (APA3/GPA3);
+- *   2. the five key registers writable at EL1 (a hypervisor that sets
++ *   1. FEAT_PAuth in ID_AA64ISAR1_EL1.APA (address keys: what arm64e uses) or
++ *      ISAR2.APA3. API/GPI describe the *generic* keys, which arm64e never
++ *      uses, so a core that answers API=0 is still usable;
++ *   2. the key registers writable at EL1 (a hypervisor that sets
+  *      HCR_EL2.APK/API traps them and this write reboots the phone);
+  *   3. PACIA/AUTIA actually changing a pointer at EL1 once SCTLR_EL1 EnIA is
+  *      set (on a core without PAuth they are NOP-space no-ops).
+@@ -67,13 +69,15 @@ static uint64_t autia(uint64_t p)
+ 	return out;
+ }
+ 
+-static int keys_ok(void)
++static int keys_ok(int generic)
+ {
+-	return APIA_lo() == 0x1111111111111111UL && APIA_hi() == 0x2222222222222222UL &&
+-	       APIB_lo() == 0x3333333333333333UL && APIB_hi() == 0x4444444444444444UL &&
+-	       APDA_lo() == 0x5555555555555555UL && APDA_hi() == 0x6666666666666666UL &&
+-	       APDB_lo() == 0x7777777777777777UL && APDB_hi() == 0x8888888888888888UL &&
+-	       APGA_lo() == 0x9999999999999999UL && APGA_hi() == 0xaaaaaaaaaaaaaaaaUL;
++	if (!(APIA_lo() == 0x1111111111111111UL && APIA_hi() == 0x2222222222222222UL &&
++	      APIB_lo() == 0x3333333333333333UL && APIB_hi() == 0x4444444444444444UL &&
++	      APDA_lo() == 0x5555555555555555UL && APDA_hi() == 0x6666666666666666UL &&
++	      APDB_lo() == 0x7777777777777777UL && APDB_hi() == 0x8888888888888888UL))
++		return 0;
++	/* Generic keys exist only when ISAR1.API says so; arm64e never uses them. */
++	return !generic || (APGA_lo() == 0x9999999999999999UL && APGA_hi() == 0xaaaaaaaaaaaaaaaaUL);
+ }
+ 
+ void pac_probe(void)
+@@ -83,7 +87,8 @@ void pac_probe(void)
+ 	uint64_t mmfr0 = RSR("id_aa64mmfr0_el1");
+ 	uint64_t el = RSR("CurrentEL") >> 2;
+ 	uint32_t apa = (isar1 >> 4) & 0xf, api = (isar1 >> 8) & 0xf;
+-	uint32_t gpa = (isar1 >> 12) & 0xf, gpi = (isar1 >> 16) & 0xf;
++	/* GPA is [27:24] and GPI [31:28]; [15:12] is JSCVT and [19:16] FCMA. */
++	uint32_t gpa = (isar1 >> 24) & 0xf, gpi = (isar1 >> 28) & 0xf;
+ 	uint32_t apa3 = (isar2 >> 4) & 0xf, gpa3 = (isar2 >> 8) & 0xf;
+ 	uint64_t in = 0x0000000012345678UL, signed_p, restored;
+ 	uint64_t sctlr;
+@@ -97,20 +102,38 @@ void pac_probe(void)
+ 	con_hex2("FEAT", "APA3", apa3, "GPA3", gpa3);
+ 	con_hex2("MMFR0", "tg4=", (uint32_t)(mmfr0 & 0xf), "tg16=", (uint32_t)((mmfr0 >> 20) & 0xf));
+ 
+-	if (!((apa && api && gpa && gpi) || (apa3 && gpa3))) {
++	/* APA != 0 is FEAT_PAuth with the address keys arm64e needs (0b0101 here
++	   is PAuth + EPAC + PAuth2). API/GPI cover the generic keys, which this
++	   core does not implement and arm64e never uses. */
++	if (!(apa || apa3)) {
+ 		con_line("PAC: RESULT no FEAT_PAuth -> arm64 only (max iOS 18)");
+ 		goto halt;
+ 	}
+ 	con_line("PAC: FEAT_PAuth present");
++	if (!api)
++		con_line("PAC: address keys only (API=0 is normal for arm64e)");
+ 
+-	con_line("PAC: writing the five key pairs at EL1 ...");
++	con_line("PAC: dumping the state the write starts from");
++	con_hex64("SCTLR", RSR("sctlr_el1"));
++	con_hex64("VBAR", RSR("vbar_el1"));
++	con_line("PAC: write APIA ...");
+ 	APIA_set(0x1111111111111111UL, 0x2222222222222222UL);
++	con_hex64("APIA lo", APIA_lo());
++	con_line("PAC: write APIB ...");
+ 	APIB_set(0x3333333333333333UL, 0x4444444444444444UL);
++	con_hex64("APIB lo", APIB_lo());
++	con_line("PAC: write APDA ...");
+ 	APDA_set(0x5555555555555555UL, 0x6666666666666666UL);
++	con_hex64("APDA lo", APDA_lo());
++	con_line("PAC: write APDB ...");
+ 	APDB_set(0x7777777777777777UL, 0x8888888888888888UL);
+-	APGA_set(0x9999999999999999UL, 0xaaaaaaaaaaaaaaaaUL);
++	con_hex64("APDB lo", APDB_lo());
++	if (api) {
++		con_line("PAC: write APGA ...");
++		APGA_set(0x9999999999999999UL, 0xaaaaaaaaaaaaaaaaUL);
++	}
+ 	__asm__ volatile("isb");
+-	con_str("KEY RB", keys_ok() ? "ok (read back what was written)" : "MISMATCH");
++	con_str("KEY RB", keys_ok(api) ? "ok (read back what was written)" : "MISMATCH");
+ 
+ 	sctlr = RSR("sctlr_el1");
+ 	con_hex64("SCTLR before", sctlr);

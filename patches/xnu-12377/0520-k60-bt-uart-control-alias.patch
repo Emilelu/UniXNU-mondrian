@@ -1,0 +1,93 @@
+diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
+index a0f37ca..1a00c09 100644
+--- a/bsd/dev/qbt/qbt_transport.c
++++ b/bsd/dev/qbt/qbt_transport.c
+@@ -143,6 +143,7 @@ static LCK_GRP_DECLARE(bt_sk_grp,"unixnu.bt.uart.sk");
+ static LCK_MTX_DECLARE(bt_sk_lock,&bt_sk_grp);
+ static struct {
+     kern_ctl_ref ctl;
++    kern_ctl_ref ctl_alias;
+     bool connected,creating,closing;
+     kern_nexus_t nexus;
+     uint32_t unit,spec[3];
+@@ -391,7 +392,7 @@ static errno_t bt_sk_create(const uint32_t spec[3],pid_t pid,nexus_controller_t
+ }
+ 
+ /* Kernel control. */
+-static errno_t bt_sk_connect(kern_ctl_ref ref __unused,struct sockaddr_ctl *sac,void **unitinfo)
++static errno_t bt_sk_connect(kern_ctl_ref ref,struct sockaddr_ctl *sac,void **unitinfo)
+ {
+     lck_mtx_lock(&bt_sk_lock);
+     if(bt_sk.connected) {lck_mtx_unlock(&bt_sk_lock);return EBUSY;}
+@@ -399,7 +400,8 @@ static errno_t bt_sk_connect(kern_ctl_ref ref __unused,struct sockaddr_ctl *sac,
+     bt_sk_termios_default();
+     lck_mtx_unlock(&bt_sk_lock);
+     bt_sk_count(2);
+-    printf("[bluetooth sk] connect unit=%u pid=%d\n",sac->sc_unit,proc_pid(current_proc()));
++    printf("[bluetooth sk] connect unit=%u pid=%d control=%s\n",sac->sc_unit,proc_pid(current_proc()),
++        (ref==bt_sk.ctl_alias)?"com.apple.uart.bluetooth":"com.apple.uart.sk.bluetooth");
+     /* A client on a stopped controller restarts it; failures reach the client through I/O status. */
+     if(bt_sk.boot>0 && bt_ops.power)(void)bt_ops.power(bt_ops.context,true);
+     return 0;
+@@ -547,6 +549,20 @@ void qbt_transport_power_result(bool enabled,int error,const char *firmware,uint
+         strlcpy(reg.ctl_name,"com.apple.uart.sk.bluetooth",sizeof(reg.ctl_name));
+         error=ctl_register(&reg,&bt_sk.ctl);
+         printf("[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=%d firmware=%s speed=%u\n",error,firmware,speed);
++        /* 0520: stock BlueTool defaults to com.apple.uart.bluetooth, so the
++         * same transport is registered under that name too. A failure here
++         * is not fatal: bluetoothd itself asks for the sk name. */
++        if(!error) {
++            int alias_error;
++            memset(&reg,0,sizeof(reg));
++            reg.ctl_flags=CTL_FLAG_REG_SOCK_STREAM;
++            reg.ctl_connect=bt_sk_connect;reg.ctl_disconnect=bt_sk_disconnect;reg.ctl_send=bt_sk_send;
++            reg.ctl_setopt=bt_sk_setopt;reg.ctl_getopt=bt_sk_getopt;
++            strlcpy(reg.ctl_name,"com.apple.uart.bluetooth",sizeof(reg.ctl_name));
++            alias_error=ctl_register(&reg,&bt_sk.ctl_alias);
++            printf("[bluetooth sk] ctl_register com.apple.uart.bluetooth error=%d\n",alias_error);
++            if(alias_error)bt_sk.ctl_alias=NULL;
++        }
+ #ifdef KERNEL
+         bt_power_nodes_register();
+ #endif
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 813d521..28bbcc5 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2051,6 +2051,36 @@ grade:
+ 		goto bad;
+ 	}
+ 
++	/* K60 0520: launchd starts the Bluetooth daemons through xpcproxy and
++	 * their arguments decide which kernel control BlueTool opens, so keep
++	 * the first four of them in the console. */
++	{
++		const char *k60_base = (imgp->ip_vp != NULL && imgp->ip_vp->v_name != NULL) ?
++		    imgp->ip_vp->v_name : p->p_comm;
++
++		if (strcmp(k60_base, "BlueTool") == 0 || strcmp(k60_base, "bluetoothd") == 0) {
++			char *k60_arg = imgp->ip_startargv;
++			char *k60_end = imgp->ip_endargv;
++			int k60_i;
++
++			printf("K60ARG %s argc=%d", k60_base, imgp->ip_argc);
++			for (k60_i = 0; k60_i < 4 && k60_arg != NULL && k60_arg < k60_end; k60_i++) {
++				int k60_len = 0;
++
++				while (k60_arg + k60_len < k60_end && k60_len < 64 &&
++				    k60_arg[k60_len] != '\0') {
++					k60_len++;
++				}
++				printf(" [%.*s]", k60_len, k60_arg);
++				if (k60_arg + k60_len >= k60_end) {
++					break;
++				}
++				k60_arg += k60_len + 1;
++			}
++			printf("\n");
++		}
++	}
++
+ 	AUDIT_ARG(argv, imgp->ip_startargv, imgp->ip_argc,
+ 	    imgp->ip_endargv - imgp->ip_startargv);
+ 	AUDIT_ARG(envv, imgp->ip_endargv, imgp->ip_envc,

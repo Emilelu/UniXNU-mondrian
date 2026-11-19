@@ -21,6 +21,7 @@
 import io
 import json
 import hashlib
+import glob
 import os
 import re
 import struct
@@ -39,14 +40,27 @@ SERIES = REPO + '/patches/xnu/series'
 if not os.path.exists(SERIES):
     SERIES = WORK + '/scratch/SERIES-FINAL.txt'
 PACK = WORK + '/scratch/packv15.sh'
-XNU_WORK = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-            'ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work')
-KERNEL = ('/opt/k60/trees/k60build/out-baseline/mondrian/'
-          'ipados-16.6.1-20G81/mondrian/kernel/kernel.macho')
+# 内核产物必须由调用者指名（K60_OUT），不许写死一棵共享 out：早先这里钉死
+# /opt/k60/trees/k60build/out-baseline，那棵 out 一被清理，[F] 就报
+# 「kernel.macho 存在 missing」——看着像没构建，其实是在量一个已经删掉的
+# 目录（P-190/P-230 同族：门禁自己挑了一个没人指名的对象来判）。
+# 板级目录名跟着 defconfig 走（mondrian / mondrian_wifi），所以按 glob 取
+# 最新产物，而不是拼死路径。
+_OUT = os.environ.get('K60_OUT')
+KERNEL = None
+if _OUT:
+    _hits = sorted(glob.glob(os.path.join(_OUT, '**', 'kernel', 'kernel.macho'), recursive=True),
+                   key=os.path.getmtime, reverse=True)
+    if _hits:
+        KERNEL = _hits[0]
 # 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
 # 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
-DEV = (os.environ.get('K60_DEVICE_INPUT')
-       or '/opt/k60/trees/usb-cdc-mainline/device') + '/patches/xnu'
+# 未设置时不再在 import 期 sys.exit：那会让 scripts/tests/test-series-fingerprint.py
+# 之类「import 本模块再调 series_fingerprint()」的测试连函数都拿不到
+# （AttributeError: no attribute 'series_fingerprint'），红的是测试而不是真问题。
+# 拒绝照旧，只是推迟到真正要比对镜像的 [X] 段：DEV 为 None 时那里直接记一条硬失败。
+_INPUT_ENV = os.environ.get('K60_DEVICE_INPUT')
+DEV = (_INPUT_ENV + '/patches/xnu') if _INPUT_ENV else None
 LEDGER = WORK + '/ledger.jsonl'
 # 铁则 9 的基线账本。它按 series 指纹记「这一套补丁曾经真的上机启动过」，
 # 而 ledger.jsonl 是跨 worktree 全局的，别的分支飞一次就会把「上次成功」
@@ -436,7 +450,7 @@ else:
     if b'v10guard' in blob:
         ok('B', 'init 形态', 'v10guard 变体')
     else:
-        bad('B', 'init 形态', 'len=%d，无 v10guard 标记（当前部署的是 52376 B 自助式版本）' % len(blob), hard=False)
+        bad('B', 'init 形态', 'len=%d，无 v10guard 标记（当前部署的是 %d B 自助式版本）' % (len(blob), len(blob)), hard=False)
 
 
 # ============ A. boot-args ============
@@ -502,6 +516,10 @@ except Exception as e:
 # ============ X. 同步 ============
 sec('X', '同步与真相源（P-44 / P-90）')
 try:
+    if DEV is None:
+        raise RuntimeError('K60_DEVICE_INPUT is not set; refusing to judge this tree against a '
+                           'mirror the caller did not name (2026-11-16: the silent fallback turned '
+                           'one unset variable into five false reds in check-rules)')
     nbad = 0
     for f in sorted(os.listdir(REPO + '/patches/xnu')):
         if not f.endswith('.patch'):
@@ -582,7 +600,11 @@ else:
 
 # ============ F. 内核新鲜度 ============
 sec('F', '内核新鲜度')
-if os.path.exists(KERNEL):
+if not _OUT:
+    bad('F', 'kernel.macho 存在', '未指名 K60_OUT，跳过（P-207：不判没人指名的产物）', hard=False)
+elif not KERNEL:
+    bad('F', 'kernel.macho 存在', '%s 下没有任何 kernel/kernel.macho' % _OUT)
+elif os.path.exists(KERNEL):
     age = time.time() - os.path.getmtime(KERNEL)
     ok('F', '10 分钟内', '%.0fs' % age) if age < 600 else bad('F', '10 分钟内', '%.0fs 前' % age, hard=False)
 else:

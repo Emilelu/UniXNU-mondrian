@@ -1,0 +1,242 @@
+# 补丁目录：series 之外的每个 .patch 都要在这里说明去处。
+#
+# patches/xnu/ 下的文件比 series 多（2026-11-17：series 227 条、目录 268 个），
+# 多出来的 41 个不是垃圾也不是自动可删：它们随初始导入 6dcb7da0 进来，
+# 与约 20 个兄弟检出里的同名文件逐字节相同（共享补丁库），其中一部分是历史编号/改名留下的副本，
+# 一部分是真正退役的实验补丁。scripts/check-patch-series.py 要求：
+#   series 之外的每个 .patch 必须出现在本文件里；status 只能是 retired / renumbered / library；
+#   retired 与 renumbered 必须写 evidence（移除或改名的提交）。
+#
+# 新增补丁时：要么加进 series，要么在这里登记并写清为什么不用。
+
+[[patch]]
+file = "0240-k60-sandbox-policy-always.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0242-k60-entitlements-include-shim.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0330-k60-entitlement-any.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0335-k60-setprop-guard.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0336-k60-setprop-report.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0338-k60-panic-flush.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0391-k60-embedded-init.patch"
+status = "renumbered"
+replaced_by = "0401-k60-embedded-init.patch"
+evidence = "3dcee896"
+note = "0391 在同一提交里被重编号为 0401（内容另有修订）。"
+
+[[patch]]
+file = "0393-k60-panel-bringup.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0396-k60-cryptex-app-access2.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0397-k60-cryptex-path-redirect.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0399-k60-input-defaults.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0401-k60-touch-off.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0402-k60-touch-gcc-window.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0403-k60-pid26-slide.patch"
+status = "renumbered"
+replaced_by = "0400-k60-pid26-slide.patch"
+evidence = "9f9fff73"
+note = "0403 与现用的 0400 逐字节相同（sha256 一致），属旧编号副本。"
+
+[[patch]]
+file = "0404-k60-metal-deploy.patch"
+status = "retired"
+evidence = "50f4644b"
+note = "金属部署补丁在移植 yibiya UI/launchd 修复时从 series 移除。"
+
+[[patch]]
+file = "0603-k60-ui-diagnostic.patch"
+status = "retired"
+evidence = "efe8b670"
+note = "UI 诊断补丁在「把 board 契约与补丁序列移出 picker」时移除。"
+
+[[patch]]
+file = "0610-k60-metal-seeds.patch"
+status = "retired"
+evidence = "3a8d61d8"
+note = "合并 yibiya GPU 线时由 0610-k60-metal-plugin-deploy.patch 取代。"
+
+[[patch]]
+file = "external-archive-dependencies.patch"
+status = "renumbered"
+replaced_by = "ios16-external-archive-dependencies.patch"
+evidence = "6dcb7da0"
+note = "series 只列 ios16- 前缀的那一份；本文件是无前缀原名，内容与现用版不同（未验证等价）。"
+
+[[patch]]
+file = "native-aes-personality.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "offline-pgz-alignment-probe.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "pgz-aligned-validation.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "public-entitlements-header.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "published-freezer-condition.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzyb-native-cryptex-os-view.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzyc-owner-skip-launch-constraints.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzz-boot-progress.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzz-pong-writable-data.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-init-envp-plumbing.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-upstream-oct22.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-container-path.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-goodix-resume.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-bitbang-probe.patch"
+status = "retired"
+evidence = "e0825c66"
+note = "六个一次性触摸探针补丁一并退役。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-pad-level.patch"
+status = "retired"
+evidence = "e0825c66"
+note = "六个一次性触摸探针补丁一并退役。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-reset-level.patch"
+status = "retired"
+evidence = "e0825c66"
+note = "六个一次性触摸探针补丁一并退役。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-settings-pmsg.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-frame-probe.patch"
+status = "retired"
+evidence = "e0825c66"
+note = "六个一次性触摸探针补丁一并退役。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-miso-pull.patch"
+status = "retired"
+evidence = "e0825c66"
+note = "六个一次性触摸探针补丁一并退役。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-spmi-probe.patch"
+status = "retired"
+evidence = "e0825c66"
+note = "六个一次性触摸探针补丁一并退役。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-quiet-watch.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-union-lower-directory.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ufs-data.patch"
+status = "library"
+note = "自初始导入 6dcb7da0 起存在，从未进入本仓 series；与兄弟检出中的同名文件逐字节相同，未应用。"
+
+[[patch]]
+file = "0622-k60-iosurface-root-name.patch"
+status = "retired"
+evidence = "771be289"
+note = "把 MiniIOSurface 的 setName 从 IOCoreSurfaceRoot 改成 IOSurfaceRoot；771be289 判定这会把 UI foundation 补丁创建的 mini surface root 顶掉，已移出 series。"
+
+[[patch]]
+file = "0623-k60-iosurface-root-class-name.patch"
+status = "retired"
+evidence = "771be289"
+note = "把 class IOCoreSurfaceRoot 改名；与 0622 同一动机，771be289 一并移出 series。"

@@ -23,6 +23,13 @@ surface=a.translator/'crates/metal2vulkan-runtime/src/buffer_texture.rs'
 if 'surface_row_padding' not in surface.read_text():
     subprocess.run(['git','apply',str(ROOT/'patches/metal2vulkan/0009-pong-owned-iosurface-row-padding.patch')],
         cwd=a.translator,check=True)
+# 0013 keeps the per-draw state (viewports, scissors, specialization) in the encoder
+# instead of allocating a copy per draw.  Without it a single draw was observed
+# allocating thousands of times before nmb_render_draw returned.
+render=a.translator/'crates/metal2vulkan-runtime/src/render.rs'
+if 'PerViewport' not in render.read_text():
+    subprocess.run(['git','apply',str(ROOT/'patches/metal2vulkan/0013-data-a-live-fewer-allocations-a-draw.patch')],
+        cwd=a.translator,check=True)
 env=dict(os.environ,DEVELOPER_DIR=str(a.developer_dir),IPHONEOS_DEPLOYMENT_TARGET='16.6.1')
 sdk=subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'],env=env,text=True).strip()
 frontend=out/'PongMetalFrontend.o'
@@ -41,8 +48,14 @@ manifest.write_text('\n'.join([
     'libc="0.2"','[profile.release]','panic="unwind"','debug=0','',
 ]))
 env['PATH']='/Users/desktop/.cargo/bin:'+env['PATH']
-env['SDKROOT']=sdk
+# Never export SDKROOT: rustc's host cc reads it for *every* link step, so an
+# iPhoneOS value makes the x86_64 host build fail with "missing required
+# architecture x86_64".  The iOS sysroot goes to the iOS target only, below.
 env['RUSTFLAGS']='-C link-arg=-miphoneos-version-min=16.6.1'
+env['CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS']='-Clink-arg=-isysroot -Clink-arg='+sdk
+host_sdk=subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],env=env,text=True).strip()
+env['CC_x86_64_apple_darwin']='clang'
+env['CFLAGS_x86_64_apple_darwin']='-isysroot '+host_sdk
 cargo=['cargo','build','--release','--manifest-path',str(manifest),
     '--target','aarch64-apple-ios','--target-dir',str(out/'target')]
 with (out/'cargo-build.log').open('w') as log:

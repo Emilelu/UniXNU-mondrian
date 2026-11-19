@@ -2,10 +2,24 @@
 
 UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualcomm **SM8475**).
 
-**Current target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
+> **Branch `feat/ios27`:** iOS **27.0.1 (24A446)** as an **iPhone 16 Pro Max
+> (iPhone17,2)**, arm64e, on xnu-12377 with the Darwin 26 calls. `main` remains
+> the iOS 16.6.1 (20G81) port. See
+> [`docs/engineering/IOS27.md`](docs/engineering/IOS27.md).
+
+**`main` target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
+
+> **What the Bluetooth baseline does not include (feat/bt-ios27-port):** this
+> branch is the kernel and the device tree only. `[payload.runtime]` is not
+> enabled and 0521 is a blob stub, so "iOS 27 baseline" does not mean
+> "Bluetooth works on iOS 27". See
+> [`docs/plans/BT-IOS27-PORT.md`](docs/plans/BT-IOS27-PORT.md) section 5.3.
 
 > Last updated: 2026-11-16. Detailed status and change log:
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md).
+>
+> **2026-11-16 reassessment**: see the [audit report](docs/audits/REASSESSMENT-2026-11-16.md). WiFi c7 stopped at hardware SBL/READY, BT d7 exhausted the overall boot budget during NVM, and the early ADSP publisher was found to lack the rail guard. Its owner branch has restored refusal and supplied a host trace. Functional experiments remain on hold until the report's conditions are met.
+> The table below is a generated view of this branch's eight-step ledger, not an image release approval. The flash gate can omit `parked` items, so “Ready to flash” alone does not authorize a device test: verify the image's source branch, the hardware actually selected by the gate, and the experiment prediction. Historical passes do not prove that the current HEAD was rebuilt and booted.
 
 [中文版](README.md)
 
@@ -14,48 +28,59 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 <!-- EIGHT-STEP-TABLE:BEGIN -->
 | Hardware | ① Same model | ② Official | ③ Reverse | ④ Wide search | ⑤ Plan | ⑥ Deep dive | ⑦ Local verify | ⑧ On device | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| **触摸（Goodix GT9916R / BERLIN）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **GPU（Adreno 730v3 / Metal）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **storage** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **display** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **bootchain** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
-| **buttons** | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **bluetooth** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **wifi** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | In progress |
-| **audio** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | **Blocked at ⑦** |
-| **battery** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
-| **充电 / 电池协议（qti_battery_charger + pmic_glink）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **Touch (Goodix GT9916R / BERLIN)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **GPU (Adreno 730v3 / Metal)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **存储（UFS 3.1 / unixnu 三窗分区）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **显示（m11a 面板 / DSI / 背光 / 120Hz）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **亮度（12-bit DBV / 背光一致性）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **固件与启动链（UEFI / DarwinBoot / payload）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **按键（power / volume）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **蓝牙（QCA6490 / HCI over UART）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Parked (flash gate excludes it) |
+| **无线（QCA6490 / PCIe + MHI）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | Parked (flash gate excludes it) |
+| **音频（WCD938x + AW88261 / ADSP PAS1）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Parked (flash gate excludes it) |
+| **电池（IOPMPowerSource / PMIC GLINK）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **Charging / battery protocol (qti_battery_charger + pmic_glink)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **USB（DWC3 复合设备 / 控制台 / 回环）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
+| **thermal** | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ◐ | ✅ | device-verified |
+| **蜂窝（X70 modem / DXE 载具 / QRTR）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | In progress |
+| **壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| thermal | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| Power | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
+| Diagnostics | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | USB | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| 基带 | — | — | — | — | — | — | — | — | planned |
+| Baseband | — | — | — | — | — | — | — | — | planned |
 | DSP | — | — | — | — | — | — | — | — | planned |
 
 > ✅ done　◐ partial　❌ not done　— no record
 >
-> 表格由 `scripts/render-eight-step-table.py` 从 `docs/research/EIGHT-STEPS.toml` 生成，`--check` 可校验 README 是否与数据一致。
-> 八步定义见 [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)。
+> Generated by `scripts/render-eight-step-table.py` from `docs/research/EIGHT-STEPS.toml`; `--check` verifies both README files against the data.
+> Step definitions: [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md).
 <!-- EIGHT-STEP-TABLE:END -->
 
 ## Building
 
+Use this repository's `scripts/build-strict.sh` for experiments. Verify the source checkout and isolated input/output directories, commit and push the inputs, then supply the actual verified firmware volume:
+
 ```bash
-./unixnu build kernel -D .
+K60_REPO="$PWD" K60_DEVICE_INPUT="/path/to/isolated-device-input" \
+K60_OUT="/path/to/isolated-out" \
+bash scripts/build-strict.sh <experiment-tag> --fd /path/to/verified.fd
 ```
 
 Output: `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`.
 
 Local build scripts live in the workspace (not in this repository); see
 [`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md) for the flow.
+Free space and WSL virtual-disk reclamation are checked by a gate (`hard-41`); the
+cleanup procedure is in
+[`docs/engineering/DISK-HYGIENE.md`](docs/engineering/DISK-HYGIENE.md).
 
 ## Gates
 
 Two layers of checks run before build or flash; any failure aborts: the registry
 `scripts/check-rules.py` runs every check registered in
 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) (iron rules, gated
-pitfalls, upstream triage, input sync, snapshot tags — currently 84); the strict
+pitfalls, upstream triage, input sync, snapshot tags — currently 136); the strict
 build entry point `scripts/build-strict.sh` embeds these checks:
 
 <!-- GATE-TABLE:BEGIN -->
@@ -109,6 +134,8 @@ table row naming a nonexistent script, fails the build.
 | `scripts/` | Build and check tooling (all gates and checks; see "Gates") |
 | `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
 | `docs/engineering/` | Hard rules, pitfalls, hardware truth, eight-step spec |
+| `docs/engineering/IOS-SCOPE.md` | iOS migration scope: transferable work only (user decision, 2026-11-19) |
+| `docs/engineering/BRANCH-INVENTORY-20261119.md` | Unmerged branches: numbered by line for a merge/archive decision |
 | `docs/research/` | Eight-step evidence (`EIGHT-STEPS.toml`) and research checklist (`SOURCES.toml`) |
 
 ## Four-layer repository model
@@ -137,7 +164,7 @@ table row naming a nonexistent script, fails the build.
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
 | [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why the same sources give the same bytes, the two volumes in the field, P-154 today, and the rebuild experiment protocol |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
-| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-229 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-253 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) — Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing

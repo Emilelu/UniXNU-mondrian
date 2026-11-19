@@ -5,26 +5,39 @@
   * K60 (mondrian) panel contract.
   *
 - * The panel is 1440 x 3200, DSC video mode, 60 Hz. CoreAnimation takes its canvas
-+ * The panel is 1440 x 3200, DSC video mode, 120 Hz. CoreAnimation takes its canvas
++ * The panel is 1440 x 3200, DSC video mode, 60 Hz (120 Hz when requested). CoreAnimation takes its canvas
   * from the mode this display publishes; a canvas that is not the panel's own
   * pixel grid -- an iPhone-shaped 1125 x 2436, or the 1170 x 2532 of the 8 Plus
   * class -- makes WindowServer's BoundingPathBitmap assert, because the bounds it
-@@ -119,6 +119,8 @@
+@@ -119,6 +119,9 @@
   */
  #define K60_PANEL_WIDTH         1440
  #define K60_PANEL_HEIGHT        3200
-+/* P1 fixed 120 Hz: 1000000000 / 120 = 8,333,333 ns per refresh. */
++/* P1: the m11a timing switch runs only when the experiment requests it. */
 +#define K60_PANEL_REFRESH_HZ    120
  static TUNABLE(uint32_t, gK60Panel, "k60_panel", 1);
++static TUNABLE(uint32_t, gK60Panel120, "p120", 0);
  
  /* The boot framebuffer is the K60 panel at its native size. */
-@@ -190,6 +192,10 @@
+@@ -186,10 +189,22 @@
+ 	absolutetime_to_nanoseconds(absolute, &ns);
+ 	return ns / 1000;
+ }
++
++extern "C" uint32_t pong_panel_refresh_hz(void);
+ 
  static inline uint32_t
  refreshHz(void)
  {
-+	/* P1: K60 panel is fixed at 120 Hz; vsync periods derive from this. */
++	uint32_t reported = 0;
++
++	/* P1: publish the requested 120 Hz mode at start; the panel driver logs
++	 * the separately measured INTF1 rate. */
 +	if (k60PanelNative()) {
-+		return K60_PANEL_REFRESH_HZ;
++		reported = pong_panel_refresh_hz();
++	}
++	if (reported >= 1 && reported <= 240) {
++		return reported;
 +	}
  	return gRefreshHz >= 1 && gRefreshHz <= 240 ? gRefreshHz : kFBRefreshHz;
  }

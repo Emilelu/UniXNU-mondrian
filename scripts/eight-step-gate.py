@@ -31,6 +31,14 @@ import subprocess
 import re
 import sys
 
+# GBK 控制台（Windows 默认）打不出 '\u274c'：门禁最后那行结论自己先死在 print 上，
+# 调用方看到的是空 stdout 加一个 traceback，判据全变成"没有输出"（同 P-248 壁纸判定器）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, ValueError):
+        pass
+
 try:
     import tomllib
 except ImportError:

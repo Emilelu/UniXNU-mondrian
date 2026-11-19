@@ -5,7 +5,23 @@ extern "C" volatile uint32_t native_adreno_trace_stage;
 extern "C" {int (*native_adreno_dram_read32)(uint64_t,uint32_t *);int (*native_adreno_cached_read32)(uint64_t,uint32_t *);
     int (*native_adreno_line_audit)(uint64_t,size_t,uint32_t *,uint32_t *);}
 #include <string.h>
+#include <kern/clock.h>
 #include <IOKit/IOLib.h>
+/* Probe of the per-submission cache pass (2026-11-18): four flights put a constant 10.2-11.5 ms inside [MTLCommandBuffer commit] that
+ * no copy shape moved. publishMapped() maintains the whole extent of every mapped BO while preemption is disabled, so its cost is
+ * proportional to the mapped set and not to the commands. It printed nothing before, so the split between what this pass touches and
+ * what the submission actually references was unknown. Every 32nd call reports both, so the next flight measures the cost instead of
+ * inferring it from source. */
+extern "C" {extern volatile uint64_t native_adreno_cache_stats[5];}
+/* P-244 asks whether the mapping count grows because the translator maps and unmaps at the
+ * same rate, or because unmaps never happen. objects_ answers "how many are alive"; these
+ * two answer "why". Until 2026-11-19 nothing counted either. */
+static volatile uint64_t k60_vm_maps, k60_vm_unmaps;
+/* The user client already keeps a call counter per kernel method and nothing read it (P-241
+ * again). BoAlloc/BoFree/BoImport are 2/4/16 in NativeAdrenoABI.h: with maps outnumbering
+ * unmaps 198 to 9, the next question is whether the translator never asks to free a buffer or
+ * asks and is refused, and those three counters plus BoFree's last status answer it directly. */
+extern "C" {extern volatile uint32_t native_adreno_method_stats[20][4];}
 /* 1 once the board proved the GPU's cacheable inner-shareable accesses coherent with the CPU's caches in both directions (the A740's
  * ADRENO_QUIRK_HAS_CACHED_COHERENT behind the dma-coherent GPU SMMU, which Linux maps with IOMMU_CACHE): a mapping with write-back
  * attributes then needs no CPU cache maintenance. 0 keeps every mapping maintained as before. Counters: maintenance passes skipped for
@@ -236,7 +252,7 @@ IOReturn NativeAdrenoVm::map(NativeAdrenoMemory *memory,unsigned upper,uint64_t 
     checked=memory->holdForDevice();if(checked)return checked;
     Mapping *record=nullptr;for(size_t i=0;i<NativeAdrenoVmMaxObjects;++i)if(!mappings_[i].memory){record=&mappings_[i];break;}
     if(!record) {memory->quarantine();return fail(ArmSmmu4KStateMismatch);}
-    *record={memory,0,iova,memory->spanCount(),0,permissions,writeback,shareability,0};++objects_;
+    *record={memory,0,iova,memory->spanCount(),0,permissions,writeback,shareability,0};++objects_;++k60_vm_maps;
     if(coherentMapping(writeback))native_adreno_coherent_skips[0]=native_adreno_coherent_skips[0]+1;
     else {
         checked=memory->publishForDevice(0,memory->bytes(),permissions&ArmSmmu4KWrite,distrust_write_combined_);
@@ -300,7 +316,7 @@ IOReturn NativeAdrenoVm::unmap(uint64_t handle)
     clock.lap(1,4);
     if(record->memory->retireAfterQuiescence()!=kIOReturnSuccess)return fail(ArmSmmu4KStateMismatch);
     clock.lap(1,5);clock.done(1,record->memory->bytes());
-    *record={};--objects_;result_.complete=true;return kIOReturnSuccess;
+    *record={};--objects_;++k60_vm_unmaps;result_.complete=true;return kIOReturnSuccess;
 }
 IOReturn NativeAdrenoVm::describe(uint64_t handle,uint64_t *iova,size_t *bytes,
     unsigned *permissions) const
@@ -331,11 +347,52 @@ IOReturn NativeAdrenoVm::invalidateTlb()
 IOReturn NativeAdrenoVm::publishMapped()
 {
     if(!attached_ || poisoned_)return kIOReturnNotReady;
+    static uint32_t calls;
+    /* Sample the first few submissions as well as every 32nd: an idle flight can present only a
+     * handful of frames, and a cadence that needs 32 calls then reports nothing at all, which makes
+     * the cost unjudgeable rather than zero (P-233, already paid for once on the scanout report). */
+    const bool sample=(++calls<=4 || !(calls&31));
+    unsigned objects=0,imported=0,combined=0,owned=0;
+    uint64_t bytes=0,began=0;
+    /* Which class of mapping is the maintenance really spent on? The totals above say 135 MiB and 610
+     * calls per submission, but not whether that is the imported frames the CPU just wrote, the owned
+     * pages, or write-combined BOs maintained only because distrust latched. Counting per class stops
+     * the next conclusion from being another ratio between two numbers that describe different things
+     * (P-237). */
+    uint64_t imported_bytes=0,owned_bytes=0,combined_bytes=0,combined_skipped=0;
+    uint64_t calls_before=0,bytes_before=0;
+    if(sample) {
+        began=mach_absolute_time();
+        calls_before=native_adreno_cache_stats[3];bytes_before=native_adreno_cache_stats[1];
+    }
     for(size_t i=0;i<NativeAdrenoVmMaxObjects;++i) {
         const Mapping &m=mappings_[i];
         if(!m.memory)continue;
         if(coherentMapping(m.writeback) || importedUntouched(m.memory)) {native_adreno_coherent_skips[2]=native_adreno_coherent_skips[2]+1;continue;}
+        if(sample) {
+            ++objects;bytes+=m.memory->bytes();
+            if(m.memory->imported()) {++imported;imported_bytes+=m.memory->bytes();}
+            else if(m.memory->writeCombined()) {
+                ++combined;
+                /* publishForDevice() returns without touching a write-combined BO unless the submission
+                 * layer has distrusted it, so this is the difference between "visited" and "maintained". */
+                if(distrust_write_combined_)combined_bytes+=m.memory->bytes();else combined_skipped+=m.memory->bytes();
+            }
+            else {++owned;owned_bytes+=m.memory->bytes();}
+        }
         if(m.memory->publishForDevice(0,m.memory->bytes(),true,distrust_write_combined_))return fail(ArmSmmu4KIoError);
+    }
+    if(sample) {
+        uint64_t nanoseconds=0;
+        absolutetime_to_nanoseconds(mach_absolute_time()-began,&nanoseconds);
+        /* skips[2] is this call's cumulative count of mappings publishMapped() did not touch, so a
+         * flight shows whether the coherence skip actually ran instead of only that the ms got smaller. */
+        IOLog("PONG VM: publish sample n=%u objects=%u imported=%u owned=%u combined=%u bytes=%llu us=%llu calls=%llu cachebytes=%llu trusted=%u ibytes=%llu obytes=%llu wbytes=%llu wskipped=%llu coherent=%u skipped=%llu\n",
+            (unsigned)calls,objects,imported,owned,combined,bytes,nanoseconds/1000,
+            native_adreno_cache_stats[3]-calls_before,native_adreno_cache_stats[1]-bytes_before,
+            (unsigned)(distrust_write_combined_?0:1),imported_bytes,owned_bytes,combined_bytes,combined_skipped,
+            (unsigned)native_adreno_io_coherent,(unsigned long long)native_adreno_coherent_skips[2]);
+        IOLog("PONG VM: lifetime n=%u live=%llu maps=%llu unmaps=%llu outstanding=%lld alloc=%u free=%u freestatus=0x%x import=%u\n", calls, (unsigned long long)objects_, (unsigned long long)k60_vm_maps, (unsigned long long)k60_vm_unmaps, (long long)(k60_vm_maps - k60_vm_unmaps), (unsigned)native_adreno_method_stats[2][0], (unsigned)native_adreno_method_stats[4][0], (unsigned)native_adreno_method_stats[4][2], (unsigned)native_adreno_method_stats[16][0]);
     }
     return kIOReturnSuccess;
 }

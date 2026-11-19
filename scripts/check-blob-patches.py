@@ -25,6 +25,7 @@ BLOB_PATCHES = [
     "patches/xnu/0340-k60-uilib-deploy.patch",
     "patches/xnu/0391-k60-embedded-init.patch",
     "patches/xnu/0401-k60-embedded-init.patch",
+    "patches/xnu/0616-k60-init-legacy-helper.patch",
 ]
 
 

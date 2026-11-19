@@ -307,6 +307,30 @@ if [ -n "$K60_METAL_PLUGIN_DIR" ] && [ -d "$K60_METAL_PLUGIN_DIR" ] && \
   python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/gen-k60-metal-blob.py" \
     --plugin-dir "$K60_METAL_PLUGIN_DIR" --assembly --output "$K60_METAL_ASM" \
     >&2 || { echo 'k60_metal_blob generation failed' >&2; exit 1; }
+elif [ -f "patches/xnu/0610-k60-metal-plugin-deploy.patch" ]; then
+  # 0610 wires osfmk/conf/files.arm64 to k60_metal_blob.s unconditionally, so
+  # a kernel without the GPU addon (the wifi C cell) must still provide the
+  # symbols. Emit an empty K60M container: k60_metal_deploy() rejects count 0
+  # before touching the Data volume, so the C cell carries no metal bytes and
+  # prints one 'K60METAL bad count 0' line at data-mount.
+  K60_METAL_ASM=$ROOT/.cache/xnu-work/osfmk/arm64/k60_metal_blob.s
+  mkdir -p "$(dirname "$K60_METAL_ASM")"
+  cat > "$K60_METAL_ASM" <<'EOF'
+/* Generated stub: no GPU addon in this configuration - do not edit. */
+.data
+.globl _k60_metal_blob
+.p2align 3
+_k60_metal_blob:
+    .byte 0x4b,0x36,0x30,0x4d,0x00,0x00,0x00,0x00
+.globl _k60_metal_blob_len
+.p2align 3
+_k60_metal_blob_len:
+    .quad 8
+.globl _k60_metal_blob_modes
+.p2align 3
+_k60_metal_blob_modes:
+    .short 0
+EOF
 fi
 # 0620: the ADSP firmware carrier travels inside the kernel the same way
 # (P-197: the firmware volume has no loader). build-strict stages the
@@ -395,8 +419,13 @@ if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && 
 fi
 if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
   # Compile the active Pong transport before linking.
-  python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
-    --tree "$ROOT" --skip-image-verification
+  if [ "${XNU_NATIVE_UFS_VERIFIED_ROOT:-0}" = 1 ]; then
+    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
+      --tree "$ROOT" --skip-image-verification --verified-root
+  else
+    python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-ufs-probe-macos.py" \
+      --tree "$ROOT" --skip-image-verification
+  fi
 fi
 if [ "${XNU_NATIVE_RAM_BLOCK:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ] && [ -z "${XNU_BOOTSTRAP:-}" ]; then
   # Compile the RAM-block Data backend before linking. The link stage tests for
@@ -985,6 +1014,12 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$CONSTANT_UPLOADS_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $CONSTANT_UPLOADS_ARCHIVE"
   fi
+  if [ "${XNU_PONG_WIFI:-0}" = 1 ]; then
+    PONG_WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-$ROOT/build/pong-wifi/libPongWifiNative.a}
+    test -f "$PONG_WIFI_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$PONG_WIFI_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $PONG_WIFI_ARCHIVE"
+  fi
   if [ "${XNU_ARMVIRT_PLATFORM:-0}" = 1 ]; then
     ARMVIRT_ARCHIVE=$ROOT/build/armvirt-platform/libArmVirtPlatform.a
     test -f "$ARMVIRT_ARCHIVE"
@@ -1186,6 +1221,15 @@ if [ "$PONG_ADRENO_PLATFORM" = 1 ]; then
     PONG_GPU_ARCHIVE=$ROOT/build/pong-adreno/libPongAdrenoPlatform.a
     test -f "$PONG_GPU_ARCHIVE"
     BOOTSTRAP_KERNEL_ARCHIVES="-L$KERNEL_SDKROOT/usr/local/lib/kernel -lfirehose_kernel $PONG_GPU_ARCHIVE"
+    if [ "${XNU_ARMCPU:-0}" = 1 ]; then
+      # The battery archive carries the platform-sleep board hook, whose
+      # record is registered through armcpu_sleep_register. The bootstrap
+      # link loads the battery archive but skips PLATFORM_ARCHIVES, so the
+      # CPU archive has to be force-loaded here as well.
+      ARMCPU_ARCHIVE=$ROOT/build/armcpu/libArmCpu.a
+      test -f "$ARMCPU_ARCHIVE"
+      BOOTSTRAP_KERNEL_ARCHIVES="$BOOTSTRAP_KERNEL_ARCHIVES -Wl,-force_load,$ARMCPU_ARCHIVE"
+    fi
     if [ "${XNU_K60_PHYSICAL_BATTERY:-0}" = 1 ]; then
       # bsd/dev/pong_adsp_boot.c (0613) defines the owner reader's legacy
       # hook, which calls k60_adsp_reader_fat; that symbol lives in the
@@ -1234,6 +1278,30 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
     test -f "$BATTERY_ARCHIVE"
     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$BATTERY_ARCHIVE"
     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $BATTERY_ARCHIVE"
+  fi
+  if [ "${XNU_PONG_WIFI:-0}" = 1 ]; then
+    PONG_WIFI_ARCHIVE=${XNU_PONG_WIFI_ARCHIVE:-$ROOT/build/pong-wifi/libPongWifiNative.a}
+    test -f "$PONG_WIFI_ARCHIVE"
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$PONG_WIFI_ARCHIVE"
+    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $PONG_WIFI_ARCHIVE"
+  fi
+  if [ "${XNU_PONG_THERMAL:-0}" = 1 ]; then
+    # PongThermal: read-only tsens driver, pressure level and the mTPL publishing
+    # IOKit service (scripts/build-thermal-kext.sh, docs/research/thermal/07-INTEGRATION.md).
+    # This block must live here and not in KERNEL_EXTRA_ARCHIVES above: that one is
+    # inside "if [ \"$XNU_SOURCE_CORECRYPTO14\" = 1 ]" and the generated .config
+    # resolves that symbol to n for this board, so an archive added there would be
+    # force-loaded into a branch that never runs (P-190, scripts/check-kernel-archives.py).
+    # The assembled tree links only the drivers that components.toml selects, so
+    # PongThermal is not under $ROOT/drivers; point the builder at the device
+    # checkout that the tree's own patches/xnu link resolves to.
+    K60_XNU_TREE=$ROOT \
+      K60_THERMAL_SOURCES=${PONG_NATIVE_DRIVER_SOURCE:-$ROOT}/drivers/PongThermal \
+      bash "$ROOT/scripts/build-thermal-kext.sh" --no-export-list
+    THERMAL_ARCHIVE=$ROOT/build/thermal-kext/libK60ThermalKext.a
+    test -f "$THERMAL_ARCHIVE"
+    PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$THERMAL_ARCHIVE"
+    PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $THERMAL_ARCHIVE"
   fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a

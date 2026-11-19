@@ -18,6 +18,16 @@ static void check(const char *name, long got, long want)
     }
 }
 
+/* The vote set must never carry the firmware-owned DCVS control register. */
+static unsigned control_writes(const K60CpuFreqWrite *writes, unsigned count)
+{
+    unsigned i, hits = 0;
+
+    for (i = 0; i < count; ++i)
+        if (writes[i].offset == K60_CPU_FREQ_REG_DCVS_CTRL) ++hits;
+    return hits;
+}
+
 /* 0x40040028: source 1, four cores, L 40 -> 768 MHz.
  * 0x4001006E: source 1, one core (turbo), L 110 -> 2112 MHz. */
 #define ROW_A 0x00040000u /* source 0 -> GPLL0/2 = 300 MHz */
@@ -71,6 +81,42 @@ int main(void)
     check("pick_cap_index", index, 1);
     check("pick_cap_khz", khz, 768000);
     check("pick_cap_below", k60_cpufreq_pick_highest(&table, 200000, &index, &khz), -1);
+    check("pick_lowest", k60_cpufreq_pick_lowest(&table, &index, &khz), 0);
+    check("pick_lowest_index", index, 0);
+    check("pick_lowest_khz", khz, 300000);
+    check("pick_lowest_null", k60_cpufreq_pick_lowest(NULL, &index, &khz), -1);
+    {
+        K60CpuFreqTable empty = {};
+        check("pick_lowest_empty", k60_cpufreq_pick_lowest(&empty, &index, &khz), -1);
+    }
+
+    check("pick_at_least_exact", k60_cpufreq_pick_at_least(&table, 768000, &index, &khz), 0);
+    check("pick_at_least_exact_index", index, 1);
+    check("pick_at_least_above", k60_cpufreq_pick_at_least(&table, 500000, &index, &khz), 0);
+    check("pick_at_least_above_index", index, 1);
+    check("pick_at_least_below", k60_cpufreq_pick_at_least(&table, 200000, &index, &khz), 0);
+    check("pick_at_least_below_index", index, 0);
+    check("pick_at_least_none", k60_cpufreq_pick_at_least(&table, 2000000, &index, &khz), -1);
+    check("pick_at_least_null", k60_cpufreq_pick_at_least(NULL, 300000, &index, &khz), -1);
+    {
+        K60CpuFreqTable l3 = {};
+        const uint32_t tops[3] = {1804800, 2496000, 2995200};
+        const uint32_t idle[3] = {1804800, 2496000, 2995200};
+        const uint32_t half[3] = {900000, 1248000, 1497600};
+        const uint32_t zero[3] = {0, 0, 0};
+        l3.khz[0] = 300000; l3.khz[1] = 600000; l3.khz[2] = 1200000; l3.khz[3] = 1708800;
+        l3.count = 4;
+        check("l3_target_top", k60_cpufreq_l3_target(&l3, idle, tops, 0, &index, &khz), 0);
+        check("l3_target_top_index", index, 3);
+        check("l3_target_top_khz", khz, 1708800);
+        check("l3_target_half", k60_cpufreq_l3_target(&l3, half, tops, 0, &index, &khz), 0);
+        check("l3_target_half_index", index, 2);
+        check("l3_target_half_khz", khz, 1200000);
+        check("l3_target_boost", k60_cpufreq_l3_target(&l3, half, tops, 1, &index, &khz), 0);
+        check("l3_target_boost_index", index, 3);
+        check("l3_target_zero", k60_cpufreq_l3_target(&l3, zero, tops, 0, &index, &khz), -1);
+        check("l3_target_null", k60_cpufreq_l3_target(NULL, idle, tops, 0, &index, &khz), -1);
+    }
 
     check("build_cap", k60_cpufreq_build_table(kRows, 5, 1000000, &table), 0);
     check("build_cap_count", table.count, 2);
@@ -92,14 +138,47 @@ int main(void)
     check("target_idle", k60_cpufreq_target(&clock, 4, 100, 0, 0, 0, 0), 0);
     /* Frame floor is 60% of the top = 921.6 MHz -> level 2 (960 MHz). */
     check("target_frame", k60_cpufreq_target(&clock, 0, 0, 0, 0, 1, 0), 2);
-    /* Shared clusters: boost pins the top, quiet holds at least the half. */
+    /* Boost pins the top on every domain; quiet holds at least the half on
+     * the shared clusters only. */
     check("target_boost", k60_cpufreq_target(&clock, 0, 0, 1, 1, 0, 0), 4);
+    check("target_boost_boot", k60_cpufreq_target(&clock, 0, 0, 0, 1, 0, 0), 4);
     check("target_quiet", k60_cpufreq_target(&clock, 0, 0, 1, 0, 0, 0), 1);
     check("target_quiet_done", k60_cpufreq_target(&clock, 0, 0, 1, 0, 0,
         K60_CPU_FREQ_QUIET_WINDOWS), 0);
-    /* The boot cluster never takes the shared-cluster floors. */
-    check("target_boot_boost", k60_cpufreq_target(&clock, 0, 0, 0, 1, 0, 0), 0);
+    /* The boot cluster never takes the shared-cluster quiet floor. */
+    check("target_boot_quiet", k60_cpufreq_target(&clock, 0, 0, 0, 0, 0, 0), 0);
     check("target_empty", k60_cpufreq_target(NULL, 0, 0, 0, 0, 0, 0), 0);
+    /* A 1 GHz ceiling keeps the table at 960 MHz (index 2). With current above
+     * the ceiling the need is measured from the capped top: 960 x 0.5 x 1.25
+     * = 600 MHz, so the decision drops to 768 MHz. */
+    check("target_cap_half", k60_cpufreq_target_capped(&clock, 1000000, 4, 500,
+        0, 0, 0, 0), 1);
+    check("target_cap_hispeed", k60_cpufreq_target_capped(&clock, 1000000, 4, 950,
+        0, 0, 0, 0), 2);
+    check("target_cap_boost", k60_cpufreq_target_capped(&clock, 1000000, 0, 0,
+        1, 1, 0, 0), 2);
+    check("target_cap_low", k60_cpufreq_target_capped(&clock, 500000, 4, 950,
+        0, 0, 0, 0), 0);
+    check("target_cap_below", k60_cpufreq_target_capped(&clock, 200000, 4, 950,
+        0, 0, 0, 0), 5);
+    check("target_cap_zero", k60_cpufreq_target_capped(&clock, 0, 4, 500,
+        0, 0, 0, 0), 2);
+    check("target_cap_null", k60_cpufreq_target_capped(NULL, 1000000, 4, 500,
+        0, 0, 0, 0), 0);
+
+    /* 0x81 is 129 x 19.2 MHz = 2476.8 MHz; the limit bit makes it a ceiling,
+     * and a ceiling above the table top cannot raise the table. */
+    check("hwcap_active", k60_cpufreq_hardware_cap(0x81, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 2476800);
+    check("hwcap_off", k60_cpufreq_hardware_cap(0x81, 0, 2995200), 2995200);
+    check("hwcap_zero_state", k60_cpufreq_hardware_cap(0, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 2995200);
+    check("hwcap_above_top", k60_cpufreq_hardware_cap(0xff, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 2995200);
+    check("hwcap_below_table_top", k60_cpufreq_hardware_cap(0x81,
+        K60_CPU_FREQ_HW_LIMIT_ACTIVE, 2000000), 2000000);
+    check("hwcap_low", k60_cpufreq_hardware_cap(1, K60_CPU_FREQ_HW_LIMIT_ACTIVE,
+        2995200), 19200);
 
     {
         unsigned current = 4, down = 0, i;
@@ -140,6 +219,7 @@ int main(void)
         check("votes_d0_core1_offset", writes[1].offset, 0x324);
         check("votes_d0_core3_offset", writes[3].offset, 0x32c);
         check("votes_d0_core3_value", writes[3].value, 9);
+        check("votes_d0_never_control", control_writes(writes, n), 0);
         n = k60_cpufreq_build_votes(1, 1, 3, writes, K60_CPU_FREQ_MAX_WRITES);
         check("votes_d1_dcvs_count", n, 3);
         n = k60_cpufreq_build_votes(2, 1, 3, writes, K60_CPU_FREQ_MAX_WRITES);
@@ -151,6 +231,46 @@ int main(void)
         check("l3_vote_offset", writes[0].offset, 0x90);
         check("l3_vote_value", writes[0].value, 5);
         check("l3_vote_no_capacity", k60_cpufreq_build_l3_vote(5, writes, 0), 0);
+    }
+
+    {
+        K60CpuFreqWrite writes[K60_CPU_FREQ_MAX_WRITES], restore[K60_CPU_FREQ_MAX_WRITES];
+        uint32_t original[K60_CPU_FREQ_MAX_WRITES] = {11, 12, 13, 14};
+        uint32_t readback[K60_CPU_FREQ_MAX_WRITES] = {0};
+        K60CpuFreqTable empty = clock;
+        unsigned n, i;
+
+        n = k60_cpufreq_build_votes(0, 1, clock.level[4], writes, K60_CPU_FREQ_MAX_WRITES);
+        check("guard_ok", k60_cpufreq_vote_allowed(1, &clock, clock.level[4], n), 1);
+        check("guard_disabled", k60_cpufreq_vote_allowed(0, &clock, clock.level[4], n), 0);
+        empty.count = 0;
+        check("guard_empty", k60_cpufreq_vote_allowed(1, &empty, clock.level[4], n), 0);
+        check("guard_unlisted", k60_cpufreq_vote_allowed(1, &clock, 39, n), 0);
+        check("guard_no_writes", k60_cpufreq_vote_allowed(1, &clock, clock.level[4], 0), 0);
+        check("guard_oversize", k60_cpufreq_vote_allowed(1, &clock, clock.level[4], 9), 0);
+        check("guard_null", k60_cpufreq_vote_allowed(1, NULL, clock.level[4], n), 0);
+
+        for (i = 0; i < n; ++i) readback[i] = writes[i].value;
+        check("readback_ok", k60_cpufreq_check_readback(writes, readback, n), 1);
+        readback[2] = 0;
+        check("readback_mismatch", k60_cpufreq_check_readback(writes, readback, n), 0);
+        readback[2] = writes[2].value;
+        check("readback_zero", k60_cpufreq_check_readback(writes, readback, 0), 0);
+        check("readback_null_writes", k60_cpufreq_check_readback(NULL, readback, n), 0);
+        check("readback_null_values", k60_cpufreq_check_readback(writes, NULL, n), 0);
+        check("readback_oversize", k60_cpufreq_check_readback(writes, readback, 9), 0);
+
+        n = k60_cpufreq_build_restore(writes, original, n, restore, K60_CPU_FREQ_MAX_WRITES);
+        check("restore_count", n, 4);
+        check("restore_offset0", restore[0].offset, 0x320);
+        check("restore_offset3", restore[3].offset, 0x32c);
+        check("restore_value0", restore[0].value, 11);
+        check("restore_value3", restore[3].value, 14);
+        check("restore_tight", k60_cpufreq_build_restore(writes, original, 4, restore, 3), 0);
+        check("restore_null_original", k60_cpufreq_build_restore(writes, NULL, 4, restore,
+            K60_CPU_FREQ_MAX_WRITES), 0);
+        check("restore_zero", k60_cpufreq_build_restore(writes, original, 0, restore,
+            K60_CPU_FREQ_MAX_WRITES), 0);
     }
 
     {
@@ -168,12 +288,34 @@ int main(void)
         k60_cpufreq_governor_reset(&gov, 0);
         check("gov_boost_up", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 1, 0), 1);
         check("gov_boost_level", gov.current[1], 4);
+        check("gov_boost_boot_up", k60_cpufreq_governor_window(&gov, &clock, 0, 0, 1, 0), 1);
+        check("gov_boost_boot_level", gov.current[0], 4);
         for (i = 0; i < K60_CPU_FREQ_DOWN_WINDOWS - 1; ++i)
             check("gov_release_hold", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 0);
         check("gov_release_lands", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 1);
         check("gov_release_level", gov.current[1], 1);
+        /* A quiet shared cluster must walk down to the bottom and stay there:
+         * the down-steps that release the half-top floor must not re-arm it. */
+        k60_cpufreq_governor_reset(&gov, 0);
+        for (i = 0; i < 24; ++i)
+            (void)k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0);
+        check("gov_quiet_settles", gov.current[1], 0);
+        check("gov_quiet_stays", k60_cpufreq_governor_window(&gov, &clock, 1, 0, 0, 0), 0);
+        check("gov_quiet_level", gov.current[1], 0);
         check("gov_bad_domain", k60_cpufreq_governor_window(&gov, &clock, 3, 0, 0, 0), -1);
         check("gov_null", k60_cpufreq_governor_window(NULL, &clock, 0, 0, 0, 0), -1);
+
+        /* The same down latch runs under a hardware ceiling, and a ceiling
+         * below the table refuses every level instead of clamping upward. */
+        k60_cpufreq_governor_reset(&gov, 4);
+        for (i = 0; i < K60_CPU_FREQ_DOWN_WINDOWS - 1; ++i)
+            check("gov_cap_deferred", k60_cpufreq_governor_window_capped(&gov,
+                &clock, 0, 950, 0, 0, 1000000), 0);
+        check("gov_cap_lands", k60_cpufreq_governor_window_capped(&gov, &clock,
+            0, 950, 0, 0, 1000000), 1);
+        check("gov_cap_level", gov.current[0], 2);
+        check("gov_cap_below", k60_cpufreq_governor_window_capped(&gov, &clock,
+            0, 0, 0, 0, 100000), -1);
     }
 
     {
@@ -201,6 +343,76 @@ int main(void)
             k60_cpufreq_domain_busy(idle, K60_CPU_FREQ_CPUS, 16000000, 3), 0);
         check("domain_null", k60_cpufreq_domain_busy(NULL, 8, 16000000, 0), 0);
         check("domain_zero_count", k60_cpufreq_domain_busy(idle, 0, 16000000, 0), 0);
+    }
+
+    {
+        const uint32_t previous[4] = {100, 200, 300, 0};
+        const uint32_t current[4] = {150, 260, 700, 0};
+        uint64_t idle = 0, elapsed = 0;
+
+        check("tick_delta_ok", k60_cpufreq_tick_delta(previous, current, &idle, &elapsed), 0);
+        check("tick_delta_idle", idle, 400);
+        check("tick_delta_elapsed", elapsed, 510);
+
+        {
+            const uint32_t wrap_prev[4] = {0, 0, 0xfffffff0u, 0};
+            const uint32_t wrap_cur[4] = {8, 0, 0x10, 0};
+
+            idle = 0;
+            elapsed = 0;
+            check("tick_delta_wrap", k60_cpufreq_tick_delta(wrap_prev, wrap_cur, &idle, &elapsed), 0);
+            check("tick_delta_wrap_idle", idle, 32);
+            check("tick_delta_wrap_elapsed", elapsed, 40);
+        }
+
+        idle = 0;
+        elapsed = 0;
+        check("tick_delta_still", k60_cpufreq_tick_delta(previous, previous, &idle, &elapsed), -1);
+        check("tick_delta_null", k60_cpufreq_tick_delta(NULL, current, &idle, &elapsed), -1);
+    }
+
+    {
+        uint64_t idle[K60_CPU_FREQ_CPUS];
+        uint64_t elapsed[K60_CPU_FREQ_CPUS];
+
+        for (unsigned c = 0; c < K60_CPU_FREQ_CPUS; ++c) {
+            idle[c] = 16000000;
+            elapsed[c] = 16000000;
+        }
+        idle[1] = 8000000;
+        check("elapsed_domain0_busiest",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 0), 500);
+        check("elapsed_domain1_idle",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 1), 0);
+        idle[7] = 4000000;
+        check("elapsed_domain2_prime",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 2), 750);
+        check("elapsed_bad_domain",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 3), 0);
+        check("elapsed_null",
+            k60_cpufreq_domain_busy_elapsed(NULL, elapsed, K60_CPU_FREQ_CPUS, 0), 0);
+        check("elapsed_zero_count",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, 0, 0), 0);
+        elapsed[1] = 0;
+        idle[1] = 0;
+        check("elapsed_zero_window",
+            k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 0), 0);
+    }
+
+    {
+        K60CpuFreqWrite w[2] = {};
+        check("pdmem_offset0", k60_cpufreq_pdmem_offset(0), 0x804);
+        check("pdmem_offset1", k60_cpufreq_pdmem_offset(1), 0x808);
+        check("pdmem_offset2", k60_cpufreq_pdmem_offset(2), 0x80c);
+        check("pdmem_bad_domain", k60_cpufreq_pdmem_offset(3), 0);
+        check("pdmem_build", k60_cpufreq_build_pdmem_vote(1, 16, w, 2), 1);
+        check("pdmem_build_offset", w[0].offset, 0x808);
+        check("pdmem_build_value", w[0].value, 16);
+        check("pdmem_build_bad_domain", k60_cpufreq_build_pdmem_vote(3, 16, w, 2), 0);
+        check("pdmem_build_bad_level",
+            k60_cpufreq_build_pdmem_vote(0, K60_CPU_FREQ_LUT_ROWS, w, 2), 0);
+        check("pdmem_build_tight", k60_cpufreq_build_pdmem_vote(0, 3, w, 0), 0);
+        check("pdmem_build_null", k60_cpufreq_build_pdmem_vote(0, 3, NULL, 2), 0);
     }
 
     printf("%s %u checks (%u failure%s)\n", failures ? "TESTS FAILED" : "TESTS OK",

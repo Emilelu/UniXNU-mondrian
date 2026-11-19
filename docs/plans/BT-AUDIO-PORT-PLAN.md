@@ -2,6 +2,7 @@
 
 > 范围：**只读调研 + 本文件**。没有改 `patches/`、`series`、`drivers/`、`userland/`、`board.toml`、`dts/`、`uefi-mondrian` 或任何构建脚本。
 > 目标机：Redmi K60（小米代号 `mondrian`，SM8475 / `qcom,cape`），目标系统 iPadOS 16.6.1 / 20G81（Darwin 22）。
+> **iOS 27 分支：** 本文的 iOS 16 结论仍是硬件事实来源；系统版本强相关的移植见 [`BT-IOS27-PORT.md`](BT-IOS27-PORT.md)（`feat/ios27`，iOS 27.0.1 / 24A446 / xnu-12377）。
 > 参照：`UniXNU-pong` 的 **main 分支（iPadOS 18 / 22H374 / Darwin 24）** 的 `migration/ipados18/services*.md` 共 21 篇；pong 是同一颗 SM8475（Nothing Phone (2)），但 main 是 iPadOS 18，不是 K60 的 20G81。硬件事实可借，ABI 不能照抄。
 > K60 硬件值的来源：`E:/k60-work/reports/live-6033dbec-fdt.dtb`（serial `6033dbec`，本文件写作时逐节点解析，以下简称 `FDT`）；其余引用见正文 `文件:行`。
 

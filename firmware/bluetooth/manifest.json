@@ -1,0 +1,430 @@
+{
+ "commit": "device-pull-2026-11-14",
+ "files": {
+  "hpbtfw20.tlv": {
+   "bytes": 201560,
+   "sha256": "b7fcf643ee458eab7bb21e7324b915e8772f81ee9d222e039425fa65f614f929"
+  },
+  "hpbtfw21.tlv": {
+   "bytes": 146068,
+   "sha256": "8ccb65437781f31e52ea065c0e71f0c3a0e876ef56f7abec20020f63da5fbe72"
+  },
+  "hpnv20.b2f": {
+   "bytes": 6319,
+   "sha256": "8123eb79091283012abc377d653a1f08de8c440510230b94782428a7539af815"
+  },
+  "hpnv20.b3b": {
+   "bytes": 6319,
+   "sha256": "48a7e7afcef84bb800b120adf72bfe1a79f07334dacb5ec177bb0d87e307a183"
+  },
+  "hpnv20.b4b": {
+   "bytes": 6319,
+   "sha256": "daf3521f5ba69b0b650877cb4d845fed11eb0afe2289716d8bc05de77d210881"
+  },
+  "hpnv20.b59": {
+   "bytes": 6319,
+   "sha256": "8123eb79091283012abc377d653a1f08de8c440510230b94782428a7539af815"
+  },
+  "hpnv20.b5a": {
+   "bytes": 6319,
+   "sha256": "8123eb79091283012abc377d653a1f08de8c440510230b94782428a7539af815"
+  },
+  "hpnv20.b6a": {
+   "bytes": 6319,
+   "sha256": "48a7e7afcef84bb800b120adf72bfe1a79f07334dacb5ec177bb0d87e307a183"
+  },
+  "hpnv20.b6b": {
+   "bytes": 6319,
+   "sha256": "48a7e7afcef84bb800b120adf72bfe1a79f07334dacb5ec177bb0d87e307a183"
+  },
+  "hpnv20.b8b": {
+   "bytes": 6319,
+   "sha256": "f7083e3ab32a040369087bc4166bdf4baa7392200b171a6d4ae2f10be3bf3817"
+  },
+  "hpnv20.b8d": {
+   "bytes": 6319,
+   "sha256": "f7083e3ab32a040369087bc4166bdf4baa7392200b171a6d4ae2f10be3bf3817"
+  },
+  "hpnv20.b90": {
+   "bytes": 6319,
+   "sha256": "daf3521f5ba69b0b650877cb4d845fed11eb0afe2289716d8bc05de77d210881"
+  },
+  "hpnv20.bin": {
+   "bytes": 6319,
+   "sha256": "a48f55389677340a8b4a9a0531e606172909e506e1dfdbe460b684e285a830bf"
+  },
+  "hpnv20g.b2f": {
+   "bytes": 6329,
+   "sha256": "9f8d45009f5da828ea2df444048fcd77640c54db49aea183c20a52a3b85e822b"
+  },
+  "hpnv20g.b3b": {
+   "bytes": 6329,
+   "sha256": "4264b3d7a0510fe158f1a8977fc80df4770c4fea10f17131ee615e8eab050d01"
+  },
+  "hpnv20g.b59": {
+   "bytes": 6329,
+   "sha256": "9f8d45009f5da828ea2df444048fcd77640c54db49aea183c20a52a3b85e822b"
+  },
+  "hpnv20g.b5a": {
+   "bytes": 6329,
+   "sha256": "9f8d45009f5da828ea2df444048fcd77640c54db49aea183c20a52a3b85e822b"
+  },
+  "hpnv20g.b6a": {
+   "bytes": 6329,
+   "sha256": "4264b3d7a0510fe158f1a8977fc80df4770c4fea10f17131ee615e8eab050d01"
+  },
+  "hpnv20g.b6b": {
+   "bytes": 6329,
+   "sha256": "4264b3d7a0510fe158f1a8977fc80df4770c4fea10f17131ee615e8eab050d01"
+  },
+  "hpnv20g.b8b": {
+   "bytes": 6329,
+   "sha256": "d8b4cd38613dde3e7e72a24280ee231a14a61833956016d1357608f5d598baab"
+  },
+  "hpnv20g.b8d": {
+   "bytes": 6329,
+   "sha256": "d8b4cd38613dde3e7e72a24280ee231a14a61833956016d1357608f5d598baab"
+  },
+  "hpnv20g.bin": {
+   "bytes": 6329,
+   "sha256": "41192727f175139b21dbc5d57aa179f1753a2f51a89961030e7b9836f6bc3653"
+  },
+  "hpnv21.b10c": {
+   "bytes": 6610,
+   "sha256": "5ef40c572077cd6038023cd202a82d04eb5baf1823d89a3f145379a9e879ec2a"
+  },
+  "hpnv21.b111": {
+   "bytes": 6610,
+   "sha256": "5ef40c572077cd6038023cd202a82d04eb5baf1823d89a3f145379a9e879ec2a"
+  },
+  "hpnv21.b5a": {
+   "bytes": 6610,
+   "sha256": "038097c7c1edc84a8f55c9a326c787820bac62e46a2b4b69914cb9257194318c"
+  },
+  "hpnv21.b8b": {
+   "bytes": 6602,
+   "sha256": "bfce85dd7e2b2ad692fb819769be1d792e794074e24fe999671b9e49de033b22"
+  },
+  "hpnv21.b8c": {
+   "bytes": 6602,
+   "sha256": "bfce85dd7e2b2ad692fb819769be1d792e794074e24fe999671b9e49de033b22"
+  },
+  "hpnv21.b8d": {
+   "bytes": 6602,
+   "sha256": "bfce85dd7e2b2ad692fb819769be1d792e794074e24fe999671b9e49de033b22"
+  },
+  "hpnv21.b98": {
+   "bytes": 6610,
+   "sha256": "e921125372aed0eae7b0addfa97f35cf9ed694c7253ba25497e0310261549715"
+  },
+  "hpnv21.b9a": {
+   "bytes": 6602,
+   "sha256": "6fd31758e963ad30f16b41c90ad1e17dc9c287f3132c6f386ba098cdb77044c7"
+  },
+  "hpnv21.b9b": {
+   "bytes": 6602,
+   "sha256": "bacab7345f02c4f34b7e95fef09be941bef82569781507a5ad42aaff41d3a859"
+  },
+  "hpnv21.b9e": {
+   "bytes": 6602,
+   "sha256": "6fd31758e963ad30f16b41c90ad1e17dc9c287f3132c6f386ba098cdb77044c7"
+  },
+  "hpnv21.b9f": {
+   "bytes": 6602,
+   "sha256": "bacab7345f02c4f34b7e95fef09be941bef82569781507a5ad42aaff41d3a859"
+  },
+  "hpnv21.ba0": {
+   "bytes": 6602,
+   "sha256": "bacab7345f02c4f34b7e95fef09be941bef82569781507a5ad42aaff41d3a859"
+  },
+  "hpnv21.ba1": {
+   "bytes": 6602,
+   "sha256": "42490412f0e5d496d2fb53f07c43a1a091309e557dfdc15d572cef508b480c82"
+  },
+  "hpnv21.ba2": {
+   "bytes": 6602,
+   "sha256": "42490412f0e5d496d2fb53f07c43a1a091309e557dfdc15d572cef508b480c82"
+  },
+  "hpnv21.ba3": {
+   "bytes": 6610,
+   "sha256": "3f5205d041655061b6527526125625730a1adcc23cce1080ffd47ca962cea1ec"
+  },
+  "hpnv21.ba4": {
+   "bytes": 6610,
+   "sha256": "3f5205d041655061b6527526125625730a1adcc23cce1080ffd47ca962cea1ec"
+  },
+  "hpnv21.ba6": {
+   "bytes": 6602,
+   "sha256": "6fd31758e963ad30f16b41c90ad1e17dc9c287f3132c6f386ba098cdb77044c7"
+  },
+  "hpnv21.ba7": {
+   "bytes": 6610,
+   "sha256": "038097c7c1edc84a8f55c9a326c787820bac62e46a2b4b69914cb9257194318c"
+  },
+  "hpnv21.ba8": {
+   "bytes": 6602,
+   "sha256": "1782af492c717c14329a21660214eca35d56e092404a715aeb9edf57c8ae5b10"
+  },
+  "hpnv21.ba9": {
+   "bytes": 6602,
+   "sha256": "6fd31758e963ad30f16b41c90ad1e17dc9c287f3132c6f386ba098cdb77044c7"
+  },
+  "hpnv21.baa": {
+   "bytes": 6610,
+   "sha256": "a87e57ed03132ddf162f24d828721cbd2a582ee852c0b0ef92579b87db76b118"
+  },
+  "hpnv21.bab": {
+   "bytes": 6610,
+   "sha256": "27ce4f6928d11a4f54c239cbb64b20293d7242bb8599d01622830e66f8b70d85"
+  },
+  "hpnv21.bac": {
+   "bytes": 6602,
+   "sha256": "89ba2bdec010d85468d72a5bbb6ac2487c71a5dd712507ec72e68472b2398c8f"
+  },
+  "hpnv21.bad": {
+   "bytes": 6602,
+   "sha256": "89ba2bdec010d85468d72a5bbb6ac2487c71a5dd712507ec72e68472b2398c8f"
+  },
+  "hpnv21.bb0": {
+   "bytes": 6610,
+   "sha256": "e921125372aed0eae7b0addfa97f35cf9ed694c7253ba25497e0310261549715"
+  },
+  "hpnv21.bb1": {
+   "bytes": 6610,
+   "sha256": "038097c7c1edc84a8f55c9a326c787820bac62e46a2b4b69914cb9257194318c"
+  },
+  "hpnv21.bb2": {
+   "bytes": 6610,
+   "sha256": "b81198ea5a9831758c786086ce3da644596d1bc32d1bec221e10a26d7665e30b"
+  },
+  "hpnv21.bb3": {
+   "bytes": 6610,
+   "sha256": "14eb40f000d4fbb1b947a5d38d89632025825a5255f56dd9117a6d8d0413a9dd"
+  },
+  "hpnv21.bb5": {
+   "bytes": 6602,
+   "sha256": "89ba2bdec010d85468d72a5bbb6ac2487c71a5dd712507ec72e68472b2398c8f"
+  },
+  "hpnv21.bb6": {
+   "bytes": 6602,
+   "sha256": "89ba2bdec010d85468d72a5bbb6ac2487c71a5dd712507ec72e68472b2398c8f"
+  },
+  "hpnv21.bb7": {
+   "bytes": 6638,
+   "sha256": "3e23423d4fae3ff486e8e7e4ba8b58d418338805f0a6749a41c5153b38fc99f2"
+  },
+  "hpnv21.bb8": {
+   "bytes": 6602,
+   "sha256": "4571b7c2d0a059b2cb2c62874fcdbdf87af21f3bcddad9dc24c686ee83e5bd57"
+  },
+  "hpnv21.bb9": {
+   "bytes": 6602,
+   "sha256": "b23efc416fc11f4bf5c9e5b81965e89705c7d5c2edc3b3873f7be5a28ba0dbe1"
+  },
+  "hpnv21.bba": {
+   "bytes": 6602,
+   "sha256": "89ba2bdec010d85468d72a5bbb6ac2487c71a5dd712507ec72e68472b2398c8f"
+  },
+  "hpnv21.bbb": {
+   "bytes": 6678,
+   "sha256": "50fafd9c645fa33064d369c90a2dde1474f12f5b3893936220cb68903e64431a"
+  },
+  "hpnv21.bbc": {
+   "bytes": 6670,
+   "sha256": "d2552b0a79dcef3ac08865f601b37fef7173a9d559c1ee7805f4f658ea55eabc"
+  },
+  "hpnv21.bbd": {
+   "bytes": 6670,
+   "sha256": "d2552b0a79dcef3ac08865f601b37fef7173a9d559c1ee7805f4f658ea55eabc"
+  },
+  "hpnv21.bbe": {
+   "bytes": 6602,
+   "sha256": "89ba2bdec010d85468d72a5bbb6ac2487c71a5dd712507ec72e68472b2398c8f"
+  },
+  "hpnv21.bc0": {
+   "bytes": 6602,
+   "sha256": "6fd31758e963ad30f16b41c90ad1e17dc9c287f3132c6f386ba098cdb77044c7"
+  },
+  "hpnv21.bc1": {
+   "bytes": 6602,
+   "sha256": "bacab7345f02c4f34b7e95fef09be941bef82569781507a5ad42aaff41d3a859"
+  },
+  "hpnv21.bc2": {
+   "bytes": 6610,
+   "sha256": "e921125372aed0eae7b0addfa97f35cf9ed694c7253ba25497e0310261549715"
+  },
+  "hpnv21.bin": {
+   "bytes": 6602,
+   "sha256": "bacab7345f02c4f34b7e95fef09be941bef82569781507a5ad42aaff41d3a859"
+  },
+  "hpnv21g.b10c": {
+   "bytes": 6450,
+   "sha256": "44d1a7c11313e82852ae60038ba33657423652c349d13b82246d192b5efffb01"
+  },
+  "hpnv21g.b111": {
+   "bytes": 6450,
+   "sha256": "44d1a7c11313e82852ae60038ba33657423652c349d13b82246d192b5efffb01"
+  },
+  "hpnv21g.b5a": {
+   "bytes": 6450,
+   "sha256": "602ebbc48a65fe3f25c0fa5636b29a5046421e48ee82af01b6204ed9f4eb0763"
+  },
+  "hpnv21g.b8b": {
+   "bytes": 6442,
+   "sha256": "e38c500938a1be61be1fbe686ec7ed61f49c98482d2422130f2af8370f858991"
+  },
+  "hpnv21g.b8c": {
+   "bytes": 6442,
+   "sha256": "e38c500938a1be61be1fbe686ec7ed61f49c98482d2422130f2af8370f858991"
+  },
+  "hpnv21g.b8d": {
+   "bytes": 6442,
+   "sha256": "e38c500938a1be61be1fbe686ec7ed61f49c98482d2422130f2af8370f858991"
+  },
+  "hpnv21g.b98": {
+   "bytes": 6450,
+   "sha256": "051ae729c3b1e6f7beeb3b886857a5be50f39f90ebdef68f6325474218b43b7a"
+  },
+  "hpnv21g.b9a": {
+   "bytes": 6442,
+   "sha256": "21d71ce3a3f076e2bf080f6aaa0ee924f4d9918bdcb76164db4bb496da179347"
+  },
+  "hpnv21g.b9b": {
+   "bytes": 6442,
+   "sha256": "e2bc61dd8152e640a6f8f0ec2eb91403e02b97cc60ba455dd584e425de361552"
+  },
+  "hpnv21g.b9e": {
+   "bytes": 6442,
+   "sha256": "21d71ce3a3f076e2bf080f6aaa0ee924f4d9918bdcb76164db4bb496da179347"
+  },
+  "hpnv21g.b9f": {
+   "bytes": 6442,
+   "sha256": "e2bc61dd8152e640a6f8f0ec2eb91403e02b97cc60ba455dd584e425de361552"
+  },
+  "hpnv21g.ba0": {
+   "bytes": 6442,
+   "sha256": "e2bc61dd8152e640a6f8f0ec2eb91403e02b97cc60ba455dd584e425de361552"
+  },
+  "hpnv21g.ba1": {
+   "bytes": 6442,
+   "sha256": "618e9b14cbedc41cbb6021bc4520ec568b0770d68437d0f239c981b2f964938f"
+  },
+  "hpnv21g.ba2": {
+   "bytes": 6442,
+   "sha256": "618e9b14cbedc41cbb6021bc4520ec568b0770d68437d0f239c981b2f964938f"
+  },
+  "hpnv21g.ba3": {
+   "bytes": 6450,
+   "sha256": "7d961c54175e93ecf53245465fa87ff98aca42918a3f36a6bd69f7af518f9e60"
+  },
+  "hpnv21g.ba4": {
+   "bytes": 6450,
+   "sha256": "7d961c54175e93ecf53245465fa87ff98aca42918a3f36a6bd69f7af518f9e60"
+  },
+  "hpnv21g.ba6": {
+   "bytes": 6442,
+   "sha256": "21d71ce3a3f076e2bf080f6aaa0ee924f4d9918bdcb76164db4bb496da179347"
+  },
+  "hpnv21g.ba7": {
+   "bytes": 6450,
+   "sha256": "602ebbc48a65fe3f25c0fa5636b29a5046421e48ee82af01b6204ed9f4eb0763"
+  },
+  "hpnv21g.ba8": {
+   "bytes": 6442,
+   "sha256": "a3cd13d825cabf08084c517452e68778f2a268a1080f34a875aecbe1fed3795f"
+  },
+  "hpnv21g.ba9": {
+   "bytes": 6442,
+   "sha256": "21d71ce3a3f076e2bf080f6aaa0ee924f4d9918bdcb76164db4bb496da179347"
+  },
+  "hpnv21g.baa": {
+   "bytes": 6450,
+   "sha256": "ebce52b4e79f83d306008d95fab03ec14a0d07e38442961ff491d542b4236c4e"
+  },
+  "hpnv21g.bab": {
+   "bytes": 6450,
+   "sha256": "d3d7c218b118228db9a63afaad4a6c08f50494e36ace5002215f999e9c31f135"
+  },
+  "hpnv21g.bac": {
+   "bytes": 6442,
+   "sha256": "55d61c2bef797997395b7be2cb190c4ada09370fe456603f003843ba21be6060"
+  },
+  "hpnv21g.bad": {
+   "bytes": 6442,
+   "sha256": "55d61c2bef797997395b7be2cb190c4ada09370fe456603f003843ba21be6060"
+  },
+  "hpnv21g.bb0": {
+   "bytes": 6450,
+   "sha256": "051ae729c3b1e6f7beeb3b886857a5be50f39f90ebdef68f6325474218b43b7a"
+  },
+  "hpnv21g.bb1": {
+   "bytes": 6450,
+   "sha256": "602ebbc48a65fe3f25c0fa5636b29a5046421e48ee82af01b6204ed9f4eb0763"
+  },
+  "hpnv21g.bb2": {
+   "bytes": 6450,
+   "sha256": "8c86b2ff2197eae90ee7305b94b168ddef507474f2ebb2494237ebb06c352ba6"
+  },
+  "hpnv21g.bb3": {
+   "bytes": 6526,
+   "sha256": "f1c1d33779aa5e8ddd389146b94e528322be5670747c5a3c80917b758a142d05"
+  },
+  "hpnv21g.bb5": {
+   "bytes": 6442,
+   "sha256": "55d61c2bef797997395b7be2cb190c4ada09370fe456603f003843ba21be6060"
+  },
+  "hpnv21g.bb6": {
+   "bytes": 6442,
+   "sha256": "55d61c2bef797997395b7be2cb190c4ada09370fe456603f003843ba21be6060"
+  },
+  "hpnv21g.bb7": {
+   "bytes": 6478,
+   "sha256": "14a69418632b30fc9948b1e4b95bb5a75a2ce28908af578ef9b7b0dee5aaa17f"
+  },
+  "hpnv21g.bb8": {
+   "bytes": 6442,
+   "sha256": "317e63519916c31b18861d2ed02e6ab33985e9702b318b65238282eaf185f36c"
+  },
+  "hpnv21g.bb9": {
+   "bytes": 6442,
+   "sha256": "db9b56bd248d7bd9c276ba534af4abc2485e6f9df4ca665b9d36b6e2ce01c3e6"
+  },
+  "hpnv21g.bba": {
+   "bytes": 6442,
+   "sha256": "55d61c2bef797997395b7be2cb190c4ada09370fe456603f003843ba21be6060"
+  },
+  "hpnv21g.bbb": {
+   "bytes": 6518,
+   "sha256": "2bcc17491d443e30951968096e7b1549747d89b47633a83373dbd2508b14d148"
+  },
+  "hpnv21g.bbc": {
+   "bytes": 6510,
+   "sha256": "34fd73739ca8920c115a3a887f4315603345e11cdacb3985a8525c67b70e6499"
+  },
+  "hpnv21g.bbd": {
+   "bytes": 6510,
+   "sha256": "34fd73739ca8920c115a3a887f4315603345e11cdacb3985a8525c67b70e6499"
+  },
+  "hpnv21g.bbe": {
+   "bytes": 6442,
+   "sha256": "55d61c2bef797997395b7be2cb190c4ada09370fe456603f003843ba21be6060"
+  },
+  "hpnv21g.bc0": {
+   "bytes": 6442,
+   "sha256": "21d71ce3a3f076e2bf080f6aaa0ee924f4d9918bdcb76164db4bb496da179347"
+  },
+  "hpnv21g.bc1": {
+   "bytes": 6442,
+   "sha256": "e2bc61dd8152e640a6f8f0ec2eb91403e02b97cc60ba455dd584e425de361552"
+  },
+  "hpnv21g.bc2": {
+   "bytes": 6450,
+   "sha256": "051ae729c3b1e6f7beeb3b886857a5be50f39f90ebdef68f6325474218b43b7a"
+  },
+  "hpnv21g.bin": {
+   "bytes": 6442,
+   "sha256": "e2bc61dd8152e640a6f8f0ec2eb91403e02b97cc60ba455dd584e425de361552"
+  }
+ },
+ "repository": "local:/mnt/e/k60-work/firmware/qca6490-bt"
+}

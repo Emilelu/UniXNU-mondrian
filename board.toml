@@ -198,11 +198,12 @@ kernel_args = [
   "cs_enforcement_disable=1", "pong_software_keybag=1", "disable_exc_resource=1",
   "pong_ufs_readwrite=1", "k60_console_export=1", "k60_usblog=2", "pong_data_mount=1",
   "pong_data_rw=1", "amfi_get_out_of_my_way=1",
-  "pong_init_path=/private/var/pong/init", "epoch=1793709100", "k60_fontscale=3",
+  "pong_init_path=/private/var/pong/init", "epoch=1793709100",
   "k60_skip_firmware_mount=1", "k60_tolerate_cache_loader=1", "launchd_unsecure_cache=1",
   "xpcproxy_idversion=1", "k60_init_blob=1", "k60_launchd_cache=1", "k60_entitlement_allow=1",
   "k60_skip_iosurface=1", "k60_panic_reset=1", "pong_adreno_start=1",
-  "pong_metal=2", "k60_autoreset=300", "applog=1",
+  "pong_metal=1", "pong_gpu_scanout=1", "sheng-gpu-addon=1",
+  "k60_autoreset=300", "applog=1",
 ]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
@@ -314,3 +315,89 @@ button-names = ["hold", "voldown", "volup"]
 
 [adt.buttons.u32]
 home-button-type = 2
+
+[package]
+# The framework checkout this board is built against.
+unixnu = "../UniXNU"
+
+[package.defconfig]
+"ipados-16.6.1-20G81" = "mondrian_defconfig"
+"ios-27.0.1-24A446" = "mondrian_ios27_defconfig"
+
+
+# ---------------------------------------------------------------------------
+# iOS 27.0.1 (24A446) stage 0.
+#
+# `unixnu build --os ios-27.0.1-24A446` merges this table over everything above
+# (scripts/unixnu/profiles.py:57-71); without `--os` none of it is read. The
+# defaults above are the measured iOS 16.6.1 board that reaches SpringBoard, so
+# `main` stays the bootable baseline (iron rule 9) and the 27 line builds
+# beside it instead of replacing it.
+#
+# `--os ios-27.0.1-24A446` rather than `--os 27` on purpose: after
+# scripts/install-os-profile.sh copies this profile into the framework
+# checkout, `resolve_os` would match both `ipados-27.0.1-24A446` and this one
+# and refuse the ambiguous major version.
+#
+# Every value below is the stage-0 set from `docs/engineering/IOS27.md`: the
+# kernel must reach bsd_init before any storage, display or GPU argument
+# exists, so PongUfs, the Pong archives and the 30-argument SpringBoard command
+# line are all absent here on purpose.
+[os_overrides."ios-27.0.1-24A446"]
+# Keys this profile does not have. `remove` takes dotted paths.
+remove = [
+  # Stage 0 builds no Pong driver tree: PongUfs and its pong_native_driver_source
+  # recipe come back in F3. Everything else above (the DarwinBoot window, the
+  # unique_chip_id seed) is a board contract both profiles share.
+  "kernel.pong_native_driver_source",
+]
+
+[os_overrides."ios-27.0.1-24A446".board]
+description = "Redmi K60 (mondrian/SM8475): iOS 27.0.1 (iPhone17,2) bring-up"
+
+[os_overrides."ios-27.0.1-24A446".components]
+# No PongUfs at stage 0; it returns in F3.
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
+
+[os_overrides."ios-27.0.1-24A446".kernel]
+defconfig = "mondrian_ios27_defconfig"
+config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "os:configs/ios.config"]
+# The arch and OS layers bring arm64e, the 4 KiB tables, the Darwin 26 calls and
+# the prelink. The device series carries two upstream patches
+# (ptrauth-string-discriminator, armcpu-sleep-hook) and the Bluetooth series
+# 0500-0523; patches/xnu-12377/series is the order of record.
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:patches/xnu/series", "device:patches/xnu-12377/series"]
+# The fileset reference builds here without --lto: cctools-port's ld64 reads no
+# LLVM bitcode and the pinned LLVM 24 has no llvm-link, so the LTO variant stays
+# a macOS/Xcode 26 artifact. patches/unixnu-core/fileset-reference-linux.patch
+# stubs its two LLVM profile-runtime calls.
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-fileset-release-reference.py --tree ."]
+# Boot-record label. The object tree is BCM2837, the 4 KiB machine config this
+# profile builds; PONG belongs to the 16.6.1 line and would point the next
+# reader at a target this profile never produces.
+driver_records = "DEVELOPMENT_ARM64_BCM2837"
+
+[os_overrides."ios-27.0.1-24A446".payload]
+title = "iOS 27"
+# Stage 0: reach bsd_init before any storage, display or GPU argument exists.
+# `native-source-storage=1` / `native-ufs-root=1` come back with PongUfs in F3.
+# This is cupid's stage-0 list: same 24A446 profile, same arm64e kernel, same
+# debug flags - the combination that reached BSD init on SM8450.
+# serial=3 replaces k60_usblog=2: the 12377 console is the firmware one.
+kernel_args = [
+  "-v", "serial=3", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
+  "use_contiguous_hint=0", "amfi_get_out_of_my_way=1",
+]
+
+[os_overrides."ios-27.0.1-24A446".payload.adt]
+# T8140 = iPhone 16 Pro Max (iPhone17,2, D94AP): the OS profile's identity.
+chip_id = "8140"
+# /chosen/random-seed decides the physmap slide, and a random one kills about
+# one build in three in pmap_map_bd in a way that reads as memory corruption.
+# The reference board table pins 64 bytes of 0x11 and xnu-12377 reads four
+# 64-byte seeds, so the value repeats. Pinning it also makes the image
+# reproducible. Stage 0 only; a shipped system must not carry a published seed.
+random_seed = "11"
+# The OS volume UUID of the 24A446 iPhone17,2 root, from the profile. It is not
+# the 16.6.1 Data UUID above: this is the volume the 27 root mount matches.
+root_match_volume_uuid = "E3F4AED0-4454-4D5B-833C-E27E99C4F67B"

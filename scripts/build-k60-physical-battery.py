@@ -368,19 +368,12 @@ def main():
                      'K60AdspRouteA.c',
                      'K60HandoffPublish.c', 'K60HandoffRuntime.cpp',
                      'K60PmicGlink.cpp', 'K60CpuFreqPlan.c', 'K60CpuFreqProbe.cpp',
-                     'K60ChargeAuth.c', 'K60Battery.cpp', str(generated)):
+                     'K60PlatformSleep.cpp',
+                     'K60Battery.cpp', str(generated)):
             path = Path(file) if Path(file).is_absolute() else source / file
             obj = out / (path.stem + '.o')
             cpp = path.suffix == '.cpp'
             command = ['xcrun', 'clang++' if cpp else 'clang', *common]
-            if path.name == 'K60Battery.cpp':
-                # libkern/crypto/sha2.h includes corecrypto/ccsha2.h. The kernel
-                # build keeps those headers in its staged EXTERNAL_HEADERS; this
-                # archive compiles outside the tree, so add that directory only
-                # for the one translation unit that hashes (charge authentication).
-                external = tree / '.cache/xnu-work/EXTERNAL_HEADERS'
-                if external.is_dir():
-                    command += ['-I' + str(external)]
             # The kernel has no C++ runtime, so a static destructor must not
             # lower to __cxa_atexit. The kernel build uses the same flag.
             command += ['-fno-exceptions', '-fno-rtti', '-fno-stack-check', '-std=gnu++17', '-fblocks',

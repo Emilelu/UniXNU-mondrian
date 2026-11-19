@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -27,6 +28,11 @@ AGENTS = REPO / "AGENTS.md"
 
 PITFALL_HEADING = re.compile(r"^#{2,3}\s*P-(\d{3})")
 HARD_HEADING = re.compile(r"^##\s*★(\d+)", re.MULTILINE)
+# `### 铁则 9` is the original Chinese heading; `### Iron rule 9` is the English
+# rewrite. Both are accepted so translating AGENTS.md does not turn the coverage
+# check vacuous - a heading the regex misses used to mean "no rule declared",
+# which passes silently instead of failing loudly.
+IRON_HEADING = re.compile(r"^###\s*(?:铁则|Iron[ _]rule)\s*(\d+)", re.MULTILINE)
 
 
 def load_registry() -> dict:
@@ -38,7 +44,7 @@ def iron_rules_in_agents() -> set[str]:
     if not AGENTS.is_file():
         return set()
     text = AGENTS.read_text(encoding="utf-8", errors="replace")
-    return {f"iron-{n}" for n in re.findall(r"^###\s*铁则\s*(\d+)", text, re.MULTILINE)}
+    return {f"iron-{n}" for n in IRON_HEADING.findall(text)}
 
 
 def pitfalls_in_log() -> set[str]:
@@ -57,9 +63,19 @@ def hard_rules_in_doc() -> set[str]:
 
 
 def run_check(command: str) -> tuple[bool, str]:
-    result = subprocess.run(command, shell=True, cwd=str(REPO),
-                            capture_output=True, text=True, check=False)
-    output = (result.stdout + result.stderr).strip().splitlines()
+    # text=True alone decodes with the host locale (GBK on this machine), so a
+    # check that prints UTF-8 or a stray non-ASCII byte kills the whole registry
+    # with UnicodeDecodeError instead of reporting that check as failed. The
+    # registry must be able to *report* a broken check, never die of one.
+    # The children are Python too, and on this host the default codec is GBK:
+    # a check that prints Chinese dies with UnicodeEncodeError inside itself and
+    # reports as a failure of the thing it was checking. Force UTF-8 down the
+    # whole tree so the registry grades verdicts, not console encodings.
+    child_env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    result = subprocess.run(command, shell=True, cwd=str(REPO), env=child_env,
+                            capture_output=True, text=True, check=False,
+                            encoding="utf-8", errors="replace")
+    output = ((result.stdout or "") + (result.stderr or "")).strip().splitlines()
     tail = output[-1] if output else "(no output)"
     return result.returncode == 0, tail
 
@@ -93,13 +109,27 @@ def main() -> int:
     registered = {rule["id"] for rule in rules}
     problems: list[str] = []
 
-    # Coverage: every declared iron rule must be registered.
-    for rule_id in sorted(iron_rules_in_agents() - registered):
+    # Coverage: every declared iron rule must be registered. An empty set means
+    # the heading format changed and the rest of this block proves nothing, so
+    # that case is a failure rather than a pass.
+    declared = iron_rules_in_agents()
+    if not declared:
+        problems.append("AGENTS.md declares no iron rule heading "
+                        "(expected '### 铁则 N' or '### Iron rule N'); "
+                        "coverage would be vacuous")
+    for rule_id in sorted(declared - registered):
         problems.append(f"AGENTS.md 声明了 {rule_id} 但 RULES.toml 没有登记检查")
+
+    # Same trap for the pitfall log: a translated or reordered file whose
+    # headings stop matching would otherwise report "no new pitfalls".
+    logged = pitfalls_in_log()
+    if PITFALLS.is_file() and not logged:
+        problems.append("PITFALLS.md contains no 'P-nnn' heading; the pitfall "
+                        "coverage check would be vacuous")
 
     # Coverage: every pitfall newer than the grandfather line must be registered.
     grand = int(registry.get("grandfather_through", 0))
-    for pitfall in sorted(pitfalls_in_log() - registered):
+    for pitfall in sorted(logged - registered):
         if int(pitfall.split("-")[1]) > grand:
             problems.append(f"{pitfall} 没有登记检查也没有 waiver（PITFALLS.md 里的新坑必须有门禁）")
 

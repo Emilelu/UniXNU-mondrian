@@ -1059,7 +1059,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 - **30 秒判定**：新 stage 一上机就 0 日志 → 先查它是否漏过了某个危险调用，
   而不是怀疑新功能本身。
 
-### P-70 **K60 触摸 SPI 引脚角色：MISO 是 GPIO 17，不是 16**
+### P-70 **K60 触摸 SPI 引脚角色：历史排列扫描不足以确定 MISO**
 
 - **背景**：FDT 的 `qupv3_se4_spi_active` 只给出引脚**集合**
   `pins = "gpio16\0gpio17\0gpio18\0gpio19"`（function `qup4`），
@@ -1075,27 +1075,13 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   PERM8  miso=17 mosi=18 clk=16 cs=19  -> ff ff ff ff   ★
   其余 22 种                            -> 00 00 00 00
   ```
-  **两个 `ff` 的共同点是 `miso=17`** → **MISO 实际在 GPIO 17**。
+  两个全 `ff` 读数共同使用了 `miso=17`，但在当时未验证供电、复位、片选、时序和电气方向；读数可能是该引脚上的偏置电平，不能据此确认 MISO 角色。
 
-- **`ff ff ff ff` 的意义**：MISO 被拉高。SPI 空闲态（CS 未选中或芯片未驱动）
-  通常是**高电平**，说明这条线**终于连到芯片侧**了；而 `00` 说明那条线根本不是 MISO
-  （悬空被拉低或接错）。
+- **历史读数的意义**：全 `ff` / 全 `00` 只记录当时采样结果。需结合有效 rail、已知 lane 角色、reset/CS 时序和实测时钟波形，才能区分从设备响应、偏置或错线。
 
-- **修正**：`pins[]` 的 MISO/MOSI 位置需要交换：
-  ```c
-  // 原（错）：MISO=pins[0]=16, MOSI=pins[1]=17
-  // 新（对）：MISO=pins[1]=17, MOSI=pins[0]=16
-  ```
-  剩余 CLK/CS 还需在 `miso=17` 的 6 种组合里确认（PERM6 `mosi=16 clk=18 cs=19`
-  最符合 Qualcomm 标准顺序）。
+- **结论（2026-11-14 15:09 上机确认）**：实际生效的映射是 **MISO 16 / MOSI 17 / CLK 18 / CS 19**（`board.toml` 的 `bitbang-pins`），即旧扫描判为 `00 00 00 00` 的那一档。旧扫描之所以把 `miso=17` 的两档读成全 `ff`，是因为当时芯片根本没有进入可应答状态——真正的缺口是**从未发 `0x91/0x01` 坐标使能**（yibiya `631efc3`，落库 `0143b465`），补上后同一套引脚立即出触点。所以旧扫描给出的"MISO=17"结论是错的，它把"芯片不应答时的偏置电平"当成了角色证据。验证记录见 `docs/research/EIGHT-STEPS.toml` 的 touch 第 ⑦⑧ 步（`usblog-20261114-150931`：`goodix: COORD-ON ack=80`、八条 `goodix: type=1`、四条 `Pong touch HID: type=1`、SpringBoard 254、无 panic 标记）。
 
-- **通用教训**：
-  **FDT 的 pinctrl `pins` 属性只保证"这四根线属于这个 SE"，不保证顺序。**
-  在写 bitbang 或手搓 SPI 前，必须用排列扫描（24 种）实测确定角色，
-  不能从别的板子照抄。一次扫描就能省掉多轮猜测。
-
-- **30 秒判定**：bitbang 读全 `00` → MISO 选错；读全 `ff` → MISO 大概率对了，
-  但芯片没响应（需查 CS/CLK 或供电）。
+- **通用教训**：FDT 的 pinctrl `pins` 属性说明控制器的 pin set，不提供 SPI 信号角色。不要用盲目排列扫描推断 MISO；先查有出处的 SoC/pinctrl 路由，再用已知有效设备应答与实测波形验证。偏置跟随只说明该测量条件下采样线电平随配置变化，不单独证明芯片未供电。
 
 ### P-71 **不要只看 `status` 字段判完成度 —— 必须读 `services.md` 的实测记录**
 
@@ -3945,13 +3931,11 @@ strings 里 "M11HTC":  present      <- 同上
 
 ## P-163 一根 SPI 线的电平要配两种偏置才有意义
 
-单次读到全 1 或全 0 都不能说明芯片是否应答：那条线可能是悬空的。判定方法是同一条线
-分别加上拉和下拉各测一次——读数跟随偏置就是悬空，读数不跟随才是真有驱动源。
+单次读到全 1 或全 0 都不能说明芯片是否应答。比较上拉/下拉时若采样值随配置变化，只能说明该测量条件下输入读数受偏置影响；还需验证测量的是正确物理信号、引脚方向与 mux、器件状态及波形，才能判断线路是否高阻或被从设备驱动。
 
-本项目实测（`docs/research/touch/GROUND-TRUTH.md` 的"两三种偏置"表）：上拉全 1、
-下拉全 0，据此把"时钟太快/模式不对/片选错/复位没松"整类猜测一次性排除，直接定位到
-供电缺失。检查方式：`grep 'K60BB frame' <usblog>/console.log` 看两种偏置下的
-`miso` 计数是否分别等于位数的全 1 与 0。
+历史实验（见 `docs/research/touch/GROUND-TRUTH.md`）记录旧 lane tuple 下，上拉读全 1、下拉读全 0。这说明当时的采样电平跟随偏置；它不能排除 lane 角色、时钟/模式、片选或复位问题，也不能直接证明 IOVDD 缺失。
+
+**这个坑后来真的踩了**：本项目当时据此把整类"时钟/模式/片选/复位"猜测排除、直接判为供电缺失，而真因是驱动从未发 `0x91/0x01` 坐标使能（yibiya `631efc3`，落库 `0143b465`）；补上后芯片在同一条供电条件下立即出触点（2026-11-14 15:09 上机，见 touch 第 ⑦⑧ 步）。所以偏置测试只能回答"这条线此刻是否被外部驱动"，不能回答"是哪个原因让它不被驱动"。
 
 ## P-164 写在启动开头的横幅会被当成结论
 
@@ -4771,6 +4755,50 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
 （旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
 载体实现见 `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
+
+## P-198 — 后加的补丁可以把前面补丁的 blob 变成链接器垃圾
+
+**现象.** `patches/xnu/0401-k60-embedded-init.patch` 的 `k60_init_blob`（52,456 B）与
+`k60_varpack_blob`（14,636 B）编进内核后，镜像里
+`grep -a -c "genuine stock wallpaper aliases" kernel.macho` = 0，上机跑的还是 34,904 B 的
+v24dp init。
+
+**根因.** `patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978` 把
+`k60_install_embedded_init(&k60_init_resid)` 整个换成了 `k60_install_legacy_init()`（P-182 的
+修法），0401 的两个数组只剩声明、没有引用点，被链接器当死代码丢掉。series 里两条补丁都
+"应用成功"，门禁只查补丁能不能打上，不查数组有没有人用。
+
+**修法/教训.** 改嵌入 blob 前先 grep 系列尾部有没有补丁替换调用点；判断一个 blob 是否生效
+看镜像（`grep -a` 内核/镜像里的字符串）而不是看补丁是否应用。真正生效的壁纸修复走内核数据侧
+（`0618-k60-wallpaper-seed.patch`：`k60_mkdir_paths[]` 加目录 + `k60_wallpaper_stage()` 复制
+`Collections~ipad.plist`）。
+
+**Check.** `grep -a -c "genuine stock wallpaper aliases" <kernel.macho>` 应为 0（0616 起该
+blob 不生效）；生效判据是镜像里有 `K60WALL` 串、上机日志 `K60WALL catalogue bytes=772 resid=0
+error=0`。
+
+## P-199 — `check-tree-owner` 默认把操作者当成 lead
+
+**现象.** 子代理在自己名下的 checkout 里跑 `scripts/check-rules.py`，其它 77 条全绿，只有
+`iron-11` 报 `/mnt/e/hackios/k60-springboard belongs to springboard-agent, not lead, and holds 1
+uncommitted path(s)`，看起来像"别人占了我的树"，实际那 1 个未提交文件就是自己刚改的。
+
+**根因.** `scripts/check-tree-owner.py:44` `ACTOR = os.environ.get("K60_AGENT_ID", "lead")`：没设
+环境变量时一律当成 lead。子代理的对话里没有这个变量，于是每一次带未提交改动的门禁运行都会把
+自己认成入侵者。`build-strict.sh` 也不设置它，所以"改完文件直接构建"同样会被拦（铁则只要求
+构建前先提交，这条规则因此是双保险，但报错指向的 actor 是错的）。
+
+**修法/教训.** 子代理跑门禁或构建时显式带上自己的身份：
+
+```sh
+export K60_AGENT_ID=springboard-agent
+```
+
+看到 `belongs to <自己>, not lead` 时先怀疑环境变量，不要去找 lead 要人。
+
+**Check.** `K60_AGENT_ID=<线名>-agent python3 scripts/check-tree-owner.py` 在干净树上退出 0，在
+自己名下带未提交改动时也退出 0；不带变量时才报上面那条。
+
 
 ## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
 
@@ -5988,6 +6016,140 @@ P-207（门禁不许判陈旧产物）。
 `PITFALLS.md` 里从未存在过（`git log --all -S "P-187"` 零命中），是悬空引用，
 真正该指的是 P-225。
 
+## P-226
+
+**标题：整份取一侧的冲突解决会连另一侧的非重叠新增一起吃掉，git 之后一声不响**
+
+2026-11-16 的 `02014e2`（`merge: take origin/main into feat/wifi-bringup`）把
+`scripts/build-strict.sh` 的冲突**按整份取一侧**解决，结果 wifi 线在这个文件里的**四块**东西
+一起消失，而构建照旧 `BUILD OK`：
+
+| 消失的块 | 后果 |
+| --- | --- |
+| `board_dir()`（按 `.config` 找板目录） | 回落到硬编码 `mondrian/`，wifi-only 的 `mondrian_wifi/.config` 再也找不到 |
+| `freeze()` 的 `__pycache__` prune | 构建自己 import 脚本 → 重写 `.pyc` → 末尾 `cmp` 不等 → 整轮判废（P-224 的形状） |
+| `# --- wifi archive ---` 整块（`XNU_PONG_WIFI` 检测 + `die`） | `XNU_PONG_WIFI=1` 不再被校验，没有归档也能出图 |
+| 内核里的 `_pong_wifi_start_optional` 断言 | 归档没链进内核也不会有人喊（P-190 的形状） |
+
+**为什么 git 没喊**：这三件事 git 都做了，且都没错——
+
+1. 它**报了冲突**（`scripts/build-strict.sh` 在九个冲突文件里）；
+2. 它给出的三方合并结果其实**是对的**：`git merge-tree --write-tree 276f69d 207e108`
+   得到的树 `b3447083` 里 `board_dir()` 与 `__pycache__` **都在**（各 1 处和 2 处）；
+3. 丢东西发生在**人解冲突**那一步：`02014e2:scripts/build-strict.sh` 与 `207e108`（main）
+   的差异只有两行 manifest 字段（`wifi_archive` / `wifi_archive_path`）——也就是说当时的解法是
+   「拿 main 的整份文件，再把这两行加回去」。相对我们那一侧（`276f69d`，350 行）它少了四块，
+   相对 main（344 行）只多两行，合并后 346 行。
+
+所以这不是「git 静默覆盖」，而是**「整份取一侧」这种解法本身的形状**：只要冲突文件里还有
+另一侧的**非重叠新增**，取整份就等于把它们删掉，而删掉之后 git 认为冲突已解决，不会再有提示，
+`git diff` 也只会显示「相对 main 多了两行」这种看起来无害的结果。
+
+**当时的代价**：`wifi-20261116c7` 因此被判废（`frozen inputs changed`，唯一差异是九个
+`scripts/__pycache__/*.pyc`，见 P-224），随后 `c05ebb7` 靠人肉记忆把四块补回来。判废信息里
+只写了「frozen inputs changed」，没有一个字指向「这四块曾经存在过」。
+
+**修法（三道，缺一不可）**
+
+1. **解冲突时不整份取。** 要么按 hunk 解，要么取整份之后**立刻**与「被取的那一侧」和「自己这一侧」
+   各 diff 一次：`git diff <ours> -- <file>` 与 `git diff <theirs> -- <file>` 都看一遍，
+   确认自己这一侧的每一块都能在结果里找到。本次如果做了这一步，`grep -c board_dir()` 会立刻归零。
+2. **关键脚本要有「这段必须存在」的断言式门禁。** 记忆不是门禁。本次新增
+   `scripts/check-build-strict-blocks.py`：断言 `board_dir()` 存在且按两个配置键排序、
+   `K60_BOARD_DIR` 指向坏目录要 `die`、`freeze()` 有字节码 prune、`$M/.config` 守卫在、
+   gate-table 标记成对、选了 wifi 归档就必须有内核侧 `_pong_wifi_start_optional` 断言。
+   配套 `scripts/tests/test-build-strict-blocks.py` 九个用例，其中六个是**反向验证**：
+   逐块删掉，门禁必须变红。
+3. **区分两种 merge 风险。** 「行级冲突」git 会喊，人只要不漏看就不会丢东西；「整段/整份替换型
+   覆盖」git 不喊，而且合并后的 `git diff --stat` 往往很好看（本次是 `44 insertions(+), 1
+   deletion(-)`）。后者的唯一可靠发现方式是**与两侧各 diff 一次**，以及**用门禁断言块的存在**。
+
+**四条教训**
+
+1. **冲突解决是「合并」的一部分，不是「合并之后的事」。** 提交 merge commit 之前，关键文件必须
+   与两个父各 diff 一次；只跑 `git diff --check`（查冲突标记）挡不住这一类。
+2. **「取一侧」只能用于「这一侧整体更新」的文件。** 判据：另一侧对该文件是否有**任何**新增块？
+   有就不能整份取。文档类可以整份取一侧再补，脚本类不行。
+3. **门禁要断言「存在」，不要断言「没坏」。** `bash -n` 通过、构建成功、manifest 有字段，
+   都不能证明某段逻辑还在——本次构建 100% 成功。断言必须点名「这一段必须在」。
+4. **判废/失败信息要指到「少了什么」，而不只是「哪里不对」。** `frozen inputs changed` 这句话
+   成立，但它没能让人想到「四块逻辑被吃掉了」，于是补回来的依据是记忆而不是证据。
+
+关联：P-224（冻结输入把构建自己的产物算进去 —— 本次丢的正是那段 prune）、P-225（`board_dir()`
+的判据）、P-190（认不出名字就静默跳过）、P-202（`.config` 缺失时 `sed` 静默返回空）、
+P-205（新增门禁必须同时进 README 门禁表）。
+
+## P-227
+
+**标题：一个必失败的检查把后面的检查变成了从未执行过的代码**
+
+2026-11-16 之前，每一次完整的固件构建都停在
+
+```
+The Device DTB is Missing in "Resources/DTBs"!
+```
+
+而这句话出现在 EDK2 阶段**成功之后**（日志里上一行是 `0061 Images Verified`）。FD 已经
+编出来了，boot.img 却从来没产出过；唯一出路是手工从 `Build/.../FV` 里把
+`SILICIUM_UEFI.fd` 捞出来自己打镜像。所以这个现象被当成「这台机器少一个文件」，没有人
+去看它后面还有什么。
+
+`create_android_boot_img()` 里，DTB 检查之后紧接着是
+
+```python
+"--ramdisk",    "Resources/ramdisk",
+```
+
+而 `Resources/ramdisk` 从来没有存在过。`git log -S'Resources/ramdisk' -- build_uefi.py`
+只命中两个提交：`f92c387`（`mondrianPkg init`，写下这一行）和 `5b67dba`（把它改成
+可选）。`f92c387` 带进来的 `Resources/` 树是 Configs、DTBs（只有 `pong.dtb`/`pong.dts`）、
+MuPatches、Pictures、Scripts —— 既没有 `ramdisk`，也没有 `mondrian.dtb`。
+**两行都是那一天写下的，DTB 那一行先失败，于是 ramdisk 那一行从上线起就没有执行过。**
+
+把 DTB 补齐之后（`ccd0644`），第一次越过了那道检查，紧接着撞上的是
+
+```
+mkbootimg.py: error: argument --ramdisk: can't open 'Resources/ramdisk':
+[Errno 2] No such file or directory: 'Resources/ramdisk'
+```
+
+——同一个函数里相邻两条语句，相隔一年半的提交历史，同一个形状。
+
+修法两笔：`ccd0644` 补 `Resources/DTBs/mondrian.dtb`（dtc 从 `dts/mondrian.dts` 编，
+4,024 B，与框架 `out-baseline` 的 `hardware.dtb` 逐字节相同）并把检查从「文件不存在」
+改成「不存在或 ≤1 KiB」，日志直说「这不是缺文件，是 `append_dtb` 开着」；
+`5b67dba` 让 ramdisk 只在文件真的存在时才传给 mkbootimg（`mkbootimg.py` 对缺省 ramdisk
+写 `ramdisk_size = 0`，是合法的 header v4 镜像）。修后 `build_uefi.py -d mondrian -r DEBUG`
+一次跑通，产出 `Mu-mondrian.img` 565,248 B。
+
+门禁：`scripts/check-firmware-inputs.py` 静态解析同级 `uefi-mondrian/build_uefi.py` 里
+每一个 `Resources/...` 字面量，要求它**要么在检出里存在，要么被绑定变量上的
+`is_file () / exists () / is_dir ()` 守卫**；两者都不是就 FAIL 并点名行号。反向验证：
+拿 `5b67dba^` 的脚本配一份补好 DTB 的 `Resources/`，它精确报
+`build_uefi.py:347: "Resources/ramdisk" … nothing checks for it`；拿 `ccd0644^` 的脚本
+报 `:331`。当前树上只留一条 note（`Resources/ramdisk` 缺但在守卫后面），八条用例守住
+「守卫必须绑在同一个变量上」「句子里的路径不算输入」。
+
+**三条教训**
+
+1. **一串前置检查里，第一个必失败的那个会让后面全部变成从未执行过的代码。** 判据不是
+   「这些检查写得好不好」，而是「它们有没有机会运行」。写下一串检查时要问：如果第一条
+   永远为假，后面几条等于不存在；那么第一条的失败信息就必须承担「后面还有多少没跑过」
+   这件事，而不是只说「缺一个文件」。（P-190 是同一个形状：`KERNEL_EXTRA_ARCHIVES` 整段
+   嵌在一个永远不成立的分支里。）
+2. **判断「这段代码有没有跑过」不能看它存在，要看它的失败分支有没有出现过。** 这段代码
+   在仓库里躺了一年半、被 `git blame` 认得、被 review 看过，但它一次都没有执行。能证明
+   它跑过的证据只有一种：它自己的失败信息在日志里出现过。凡是要断言「这条路径已验证」，
+   就得拿出那一条日志；拿不出来就是没跑过。
+3. **修好前一个检查之后，必须重跑整条链并把新暴露的断点全部走一遍，而不是只修刚撞到的
+   那个。** 这次如果只补 DTB 就收工，下一个人会在同一天撞上 ramdisk，再下一天撞上下一个。
+   正确做法是「修一处 ⇒ 重跑到下一个断点 ⇒ 再修」，直到一次跑通为止；跑通之后还要把
+   这条链上所有「因为前面必失败所以从没跑过」的输入列出来，一次性补成守卫。
+
+关联：P-190（检查挡住检查的原始形状）、P-205（写进文档的名字/编号必须能被对账）、
+P-217（门禁读同级 `uefi-mondrian` 的先例，`K60_UEFI_REPO` 覆盖同名环境变量）、
+P-224（分支上修好不回 main 等于没修：DTB 那一笔如果不单独提交，ramdisk 这一笔永远暴露不出来）。
+
 ## P-228
 
 **标题：兼容层无条件重放 IRQ，于是「handler 被调用过」被当成了「硬件中断到达了」**
@@ -6008,11 +6170,18 @@ void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_
 **无条件的。** 每毫秒把 64 个已注册 IRQ 全部置 pending，与硬件有没有拉中断线毫无关系。于是
 `irq entered` 出现一次只能证明「这个 handler 被调度器跑过一次」，不能证明 MSI 到过。
 
-真正的硬件判据是另一条打点：`PongWifiPlatform.cpp:682` 的
-`if (!irqSeen && __atomic_load_n(&msiArrivals, ...)) { ... log(6, "QCA6490 MSI delivered by GIC"); }`，
-而 `msiArrivals` 只在 `irq()` 里 `dbi.r(MsiStatus)` 读到非零时才自增。c7 的
-`grep -ac "MSI delivered"` = **0** —— 这才是「MSI 没到」的证据，而且它一直是有效的。
-我先把无效判据当成结论，又反过来用「irq entered 出现过」去否证有效的判据，方向错了两次。
+**2026-11-16 重新审视后的第二次纠正：缺失日志也不能证明 MSI 没到。**
+`msiArrivals` 只在真正的 GIC 回调中读到 `dbi.r(MsiStatus)` 非零时才自增，这个计数与
+软件重放的 MHI handler 不同；但 `QCA6490 MSI delivered by GIC` 的打印不在失败路径上。
+在实验源树 `E:/hackios/k60-wifi/drivers/PongWifi/PongWifiPlatform.cpp:690`，
+`nw_wifi_start()` 返回错误就 `goto done`；`:692` 才进入检查计数并打印该行的循环。
+c7 在初始化中返回 `-110`，因此根本不会执行这条打印。日志 0 命中不能判断计数是否非零，
+更不能证明 MSI 到达或未到达。必须在实际超时点采集 GIC 入口计数、pending 读回和上下文，
+并与兼容层重放的次数分开。此处收回旧版「缺失日志一直是有效反证」的结论。
+
+同样，`er_ctxt->rp` 的初值由主机写入；CPU 读到它未变化，只证明本次 CPU 观察值没变。
+设备是否读过上下文、DMA 写入及缓存可见性仍需独立验证。完整证据边界见
+[2026-11-16 重新审视](../audits/REASSESSMENT-2026-11-16.md)。
 
 **四条教训**
 
@@ -6096,3 +6265,833 @@ def test_the_current_series_is_proven_by_the_book(self):
 
 **关联**：P-165（构建期间 registry 继承逃生开关）、P-222（全局账本把别处的成功当本树证据）、
 P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（证据与对象不对应）。
+
+## P-230
+
+**判据缺输入时不允许替换成一个「默认」镜像：三个门禁把「没给」变成了「拿别人的判你的」**
+
+2026-11-16 实测：在 `k60-gates` main（`cf550a93`）上直接跑 `python3 scripts/check-rules.py`，
+不设 `K60_DEVICE_INPUT`，结果是 **iron-4 / iron-5 / hard-33 / P-165 / P-166 五条红**；
+同一条命令加上 `K60_DEVICE_INPUT=/opt/k60/trees/gates-device` 后 **106 条登记、失败 0、waiver 37，全绿**。
+也就是说那五条红与仓库状态无关，只与「操作者忘了给变量」有关。
+
+根因是三处静默回落，各自写法略有不同但同一形状：
+
+- `scripts/sync-device-input.py:24-27` 只要带 `--check` 就允许 `DEV = DEV or '/opt/k60/trees/usb-cdc-mainline/device'`，
+  注释还写着「registry 的 iron-5 没有调用者镜像可用」——这正是把缺陷写成了设计。
+- `scripts/porting-gate.py:48` `DEV = (os.environ.get('K60_DEVICE_INPUT') or '/opt/...') + '/patches/xnu'`。
+- `scripts/check-build-applied.py:29` `pathlib.Path(os.environ.get("K60_DEVICE_INPUT", "/opt/..."))`。
+
+三条都遵循「缺输入 ⇒ 换一个输入」，于是判据的对象从「调用者的镜像」漂移成「别人最后同步的那份」。
+这和 P-190（缺输入被变成可信的值）、P-207（门禁去判陈旧产物）、P-220（fallback 到别的分支的存根）是同一族，
+只是这次 fallback 落在**路径**而不是产物或时间戳上。
+
+四条教训：
+
+1. **判据的输入必须由调用者命名**。缺了就拒绝并说清怎么给，不能替换；替换会让「红」和「绿」都失去意义
+   （这次是假红，若共享镜像恰好一致就会变成假绿，更危险）。
+2. **注释里写下的「为什么可以回落」要当作缺陷读**。`--check` 允许共享目录的那条注释，把当时的权宜
+   固化成了契约，后续所有人都按它理解。
+3. **一个变量出现五条红时，先怀疑变量**。五条红跨四个不同判据却同时出现，本身就是「共同输入有问题」的信号；
+   我当时的第一反应是去查同步，浪费了一轮。
+4. **修复要连带把「默认值」从代码里删掉**，否则下一个人照样能写回 `os.environ.get(..., '/opt/...')`。
+   新测试 `scripts/tests/test-device-input-must-be-named.py` 逐条 grep 三个脚本，既断言拒绝行为，
+   也断言不再出现共享默认路径。
+
+## P-231
+
+**Metal 进度判据必须从格式串读，`c` 才是提交次数；`first frame presented` 是软件合成的兜底**
+
+2026-11-18 两次同镜像上机（`usblog-20261118-014232` / `usblog-20261118-101832`）读同一行 `Pong Metal: S …`：
+
+- 第一次误读：把 `p` 当 present、`M` 当映射计数，进而推出「帧被丢弃 / descriptor 风暴是循环」两个错误结论。
+- 查 `NativeBridgeMetalFrontend.mm:1604` 的格式串后真相是 `c=commit/gCommitFailures`、`p=gPipelines`、`D=gDraws`、`F=gFullScreenPasses`、`M=gBiggestPass>>10`（KB）。
+- 两飞都是 **`c0/0`** ⇒ Metal 一次都没 commit；而成功那飞的 `K60 DISPLAY: first frame presented` 与 `MiniIOSurface: 2 big surfaces made` 来自**软件合成**，不是 Metal。
+
+四条教训：
+1. 任何「字段含义」结论先 `grep` 格式串，再对表；不许按位置猜（P-204 的同族）。
+2. 里程碑判据必须能区分两条渲染路径：软件合成出帧 ≠ Metal 出帧；只有 `c>0` 才算 Metal。
+3. 同一镜像两次结果不同 ⇒ 单次上机只证明「存在性」，稳定性要连续两次同判据一致。
+4. 日志必须整份读完再定性；只 grep 命中会把 77% 的正文当成噪声。
+
+守卫：`python3 scripts/tests/test-metal-trace-semantics.py`。文档：`docs/research/gpu/METAL-SUMMARY-FIELDS.md`。
+
+## P-232
+
+**症状**：`patches/metal2vulkan/` 里有 12 个补丁，其中 10 个从未出现在任何构建脚本里。
+它们看起来像修法（含 `0013-data-a-live-fewer-allocations-a-draw`、`0015/0016-draw-*-kept`
+这一族「每 draw 分配次数」收敛补丁），实际二进制里一条都没有，而现场症状正是「一次 draw
+之后大量 `IOMemoryDescriptor` 映射、`nmb_render_draw` 不返回」。
+
+**成因**：`scripts/build-pong-metal-bridge.py` 只 apply `0008` 与 `0009`（两处都带
+`check=True`，所以失败会响）；其余补丁从被搬进仓库那天起就没有接入点，也没有任何清单
+声明它们「不启用」。这与 P-183（资产没人用）、P-221（回执没人读）是同一形状：**仓库里存在
+并被文档提及，不等于构建产物里有。**
+
+**修法**：新增 `scripts/check-metal2vulkan-patches.py`——每个补丁必须要么被某个构建脚本
+按文件名引用，要么在 `patches/metal2vulkan/DATA-A-LIVE.md` 的「未启用」小节里显式声明；
+否则失败。当前 12/12 有归属（`0008`/`0009` 已应用，其余 10 条已声明并写明启用前置条件）。
+守卫 `scripts/tests/test-check-metal2vulkan-patches.py` 5 例（命名即通过、无人应用即失败、
+已声明通过、小节外的提及不算、空目录是错误不是通过）。
+
+**教训**：
+1. 「补丁在树里」必须配一张「谁 apply 它」的账；没有账的补丁等于注释。
+2. 一个目录的资产数与被使用的资产数要能对账，差集必须被显式解释。
+3. 遇到「症状与某个未启用补丁同名」时，第一件事是查它是否真的进了二进制，而不是先改代码。
+4. 声明「未启用」时要写清启用前置条件（先在 pin 住的 translator 上 `git apply --check`、
+   给出应用前后行为差异），否则下一个人只会把它当成待办清单。
+
+## P-233
+
+**第三次复发（2026-11-19 09:15，`gpu-submit-20261119`）**：同一个形状换了个文件又发生一次。
+`drivers/PongAdreno/submit/NativeAdrenoSubmit.cpp:179` 是 `if(!(++probed&31))`，而
+`usblog-20261119-091547` 这一飞只有约 15 次 GPU 提交，于是 `PONG SUB` 一行都没打；判读器输出
+`submit samples: 0` 并按 F2 打印「the probe did not reach the image or did not run」，而
+`strings kernel.macho | grep -Fc "prevsub_count=%u prevsub_total=%u us"` = 1 证明探针就在镜像里。
+结论：**同一句教训写两遍没有用，必须变成门禁**。见下面「修法（第三版）」。
+
+
+**现象（2026-11-18 16:19，`gpu-import-scope-20261118`）**：飞行完整（231,325 B / 3,400 行、
+`capture.json` `complete=true`、supervisor rc=0、`K60KEXC` 0），但按卡判 S2–S8 全部 FAIL，
+原因是**一条 `scanout frames=` 报告行都没有**；而卡的 F2 把「没有 `sum=`」归因为
+「新插件没上机」，产物核对却证明插件在机上：镜像内核里 `sum=%llu us` /
+`imports=%llu import=` / `encode=%llu us submit=` 各命中 1 次，日志里有 2 条
+`Pong Metal: actual GPU scanout copy completed status=0x0`。
+
+**真因**：报告行原本 `if(!(copies%60))` —— 每 60 帧一条。而这次玩家态只有
+`MiniIOMobileFramebuffer: 22 frames in 54713 ms (0 a second)`，`copies` 永远到不了 60。
+卡自己 §3 写「每 60 帧一条」，S8 却要求「≥2 条样本」：**判据与采样节奏没有一起设计**，
+两者在 ≤5 fps 的飞行里互斥，于是任何一次这样长度的飞行都注定判不出来。
+
+**修法**：`drivers/PongMetal/PongMetalScanout.h` 改成
+`if(copies<=8 || !(copies%10))`（前 8 帧每帧一条，之后每 10 帧一条），
+`scripts/tests/test-frame-stage-timing.py` 用 `assertIn('if(copies<=8 || !(copies%10))')` 钉住它；
+新卡 `docs/research/gpu/FLIGHT-CARD-20261118k.md` 的 S2/S3 直接按新节奏写。
+
+**修法（第三版，2026-11-19）**：把它做成门禁而不是再写一遍教训——
+`scripts/check-probe-cadence.py` 扫 `drivers/`，凡是「采样门 + 紧随其后的报告调用」而条件里
+没有早采样逃生口（`<= k` / `< k`）的就判失败；页对齐掩码 `& 4095`/`% 4096` 明确排除，否则
+`NativeRamBlock.cpp:216` 与 `NativeUfs/PongUfsTransport.cpp:520` 会被误报。
+自测 `scripts/tests/test-check-probe-cadence.py` 用临时树双向证明：`!(++probed & 31)` 与
+`!(copies % 60)` 必须失败，加 `++probed <= 4 ||` 必须通过，`& 4095` 必须通过。
+门禁在真实树上当前 0 命中，所以**只有自测能证明它抓得住**——这正是 P-242 那条「门禁零命中
+不等于门禁有效」的应用。同一次修复把 `NativeAdrenoSubmit.cpp` 的节奏改成
+`if(++probed<=4 || !(probed&31))`。
+
+**教训**：
+1. 判据要「每条样本」还是「末条样本」，必须和采样频率一起算：`需要的样本数 × 采样间隔`
+   必须小于飞行时长，否则判据在设计上就不可能成立。
+2. 采样节奏属于**判据**，不属于实现细节。写在卡里的「每 N 帧一条」就是判据的一部分，
+   改节奏要改卡，改卡要改测试。
+3. 「某一类行一条都没有」有两种完全不同的原因：代码没上机，或代码上机但采样没触发。
+   区分它们只需一次产物核对（`strings` 内核找格式串），不要先改代码。
+4. 失败规则里写「归因为 X」之前，先确认 X 能用**独立证据**否证；F2 这次的归因错了，
+   如果不是产物核对拦住，下一步会去重编一张根本没问题的插件。
+
+## P-234
+
+**现象（2026-11-18 17:15，`gpu-import-scope2-20261118`）**：报告行形如
+`scanout frames=300 at 202.931 s; last frame: wait=129 us copy=23 us done=0 us; imports=300 import=65 us encode=367 us submit=12008 us gpu=11043 us sum=23483 us`。
+按字面读，`copy` 只有 23 µs，而它内部四段加起来 23,483 µs —— **外层比内层小一千倍**，
+自相矛盾。当时的直觉解释是「`copy` 变快了，说明缓存删对了」，若照此写结论，
+就会得到「搬运已经免费，瓶颈全在 GPU」的完全错误归因。
+
+**真因**：`drivers/PongMetal/PongMetalScanout.h` 的 `snprintf` 把外层三段写成
+`(unsigned long long)lastWait/1000`、`lastCopy/1000`、`lastDone/1000`，
+但格式串仍是 `wait=%llu us copy=%llu us done=%llu us`。所以那三个字段实际是**毫秒**，
+四个内层段才是真微秒。换算后 `copy=23` 是 23 ms，`sum=23,483 µs` 与它相差 +1.8%，
+两边一致、判据 S6 才有意义。
+
+**修法**：去掉三处 `/1000`，整行统一微秒；`scripts/tests/test-present-stage-split.py` 增加
+两例：`'lastWait/1000' not in scanout and 'lastCopy/1000' not in scanout and 'lastDone/1000' not in scanout`、
+以及 `scanout.count('%llu us') >= 8`（单位与标签必须同时成立）。
+
+**教训**：
+1. **标签也是数据**。`%llu us` 里的 `us` 和被打印的变量是同一个断言的两半，
+   改单位必须同时改标签，否则日志本身就在撒谎。
+2. 判据里出现「外层小于内层」这种**结构性矛盾**时，先怀疑测量而不是先解释现象：
+   `sum > copy` 在物理上不可能，它不是性能发现，是缺陷信号。
+3. 数字单位不统一时，比较只能在同一个单位里做；`copy`（毫秒）对 `sum`（微秒）的任何
+   百分比都是错的，必须先换算再判 S5/S6/S8。
+4. 一条日志的字段越多，越要有一条测试钉住「字段数 × 单位 × 顺序」；只钉字段名不钉单位，
+   等于把最容易错的一半留空。
+
+## P-235
+
+**现象（2026-11-18 18:16，`gpu-stride-20261118`）**：把「跨 pitch 时用线性纹理搬运」换成
+「逐行 `copyFromBuffer`」，理由是「纹理会让翻译层每帧新建一个 Vulkan image，而 buffer 拷贝不会」。
+实测每帧 **慢了 14.6 ms**：`encode` 从 389 µs 涨到 15,040 µs（3,200 条命令 × ~4.7 µs 编码），
+`copy` 从 23.0 ms 涨到 37.6 ms；而被怀疑的 `submit` 在同一对照里是 11,478 µs → 11,483 µs，
+**只差 5 µs**。也就是说：被优化掉的东西不是成本，真正的成本一点没动。
+
+**真因**：成本不在「有没有分配 image」，而在**每帧要编码多少条命令**。3,200 条命令的编码开销
+（逐条参数校验、翻译、写命令缓冲）比一张线性纹理的一次 untile 命令高两个数量级。
+`submit` 则是每次 `commit` 在翻译层的固定开销（`command_buffer/mod.rs:1538 commit_now` →
+`submit_batch`），与搬运形状、搬运量都无关，这也解释了 `r(submit,gpu)=0.007`。
+
+**修法**：保留纹理路径作为 pitch 变化时的主路径，行循环只留给「设备无法把该 stride 表达成
+线性纹理」的兜底（`frame.stride % minimumLinearTextureAlignmentForPixelFormat != 0`）；
+并把「跑的是哪一种形状」写进日志——`scanout copy <shape> source=%zu scanout=%zu rows=%u`，
+`shape ∈ {single run, texture untile, per row}`。此前两飞都看不出用的是哪一种，
+形状名缺失本身就是缺陷。
+
+**教训**：
+1. **「删掉一次分配」不等于「删掉那段开销」**。任何以「少做一次分配」为理由的优化，
+   必须先量出那次分配在整段里的占比；本例里它连 1% 都不到。
+2. **单变量实验要能读出变量**。用户态代码里的分支如果不在日志里报出自己，
+   实验就无法归因；先加形状上报，再做形状对比。
+3. **判据要给出方向，但结论要看对照**。S6 的门槛（≤6,000 µs）方向对了，
+   单飞却只能证明「没变好」；把两飞的逐项中位数并排，才能得出「逐行更差 14.6 ms」。
+4. **固定开销要去它自己的层里量**。外层已经证明 `submit` 与形状、与 GPU 都不相关，
+   再在外层调搬运就是浪费飞行；下一步必须进 `commit_now`/`submit_batch` 内部打点。
+
+## P-236
+
+**现象（2026-11-18, image `gpu-texture-20261118`, 日志 `usblog-20261118-185517`）**：
+这一飞完整（176,781 B / 2,966 行、`capture.json complete=true`、supervisor rc=0、
+`K60KEXC` 0、panic 0），判决脚本却报 `F2 HIT` + `VERDICT: FAIL (S2..S8)`。
+可日志里连一条 `scanout` 都没有：`MiniIOMobileFramebuffer: N frames` 整行不存在，
+客户端停在 `Pong Metal: c0/0 d0 …`——合成器一次也没提交帧，`present()` 从未执行。
+同一张镜像 9 分钟后重飞出了 359 帧、拿到 PASS。
+
+**真因**：判据层与有效性层混在一起。判据（S2 要有形状行、S6 要 ≤2,000 µs…）的前提是
+「这一飞真的跑到了被测路径」。零帧的日志里所有性能判据都"不满足"，于是脚本把它们
+全判成失败，连 F 规则也一起命中——结论指向镜像，而实际指向一次启动意外。
+
+**修法**：`scripts/judge-gpu-flight.py` 的 `validity()` 把有效性单独成层并先判：
+`frames>0`、`client_commits>0`、`scanout_lines>0` 三者齐备才算有效；
+`--require-valid` 在无效时以 3 退出，让下游脚本无法把无效日志继续判成失败。
+`scripts/tests/test-judge-gpu-flight.py` 13 例覆盖（零帧无效、22 帧但零提交仍无效、
+正常飞行有效、`--require-valid` 退出码 3/0、日志缺失退出 2）。
+
+**教训**：
+1. **判据失败与没有数据是两件事**。零帧必须先判"无效"，不能算任何 F 规则命中；
+   否则一次启动抖动会被记成一次"功能退化"，把后续归因带偏。
+2. **有效性层要自带判据**。"有帧"不能用"日志存在"代替——`MiniIOMobileFramebuffer` 行、
+   客户端 `c<n>`、`scanout` 行三者是三条独立证据，缺一条就说清缺哪条。
+3. **同一张镜像要允许重飞**。9 分钟后的重飞推翻了前一次的结论，说明单次启动失败
+   不足以判定镜像；重飞成本远低于按错误结论改代码。
+
+## P-237
+
+**现象（2026-11-18, image `gpu-publish-probe-20261118`, 日志 `usblog-20261118-201603`）**：
+探针报 `PONG VM: publish sample n=2688 objects=613 … us=10107 calls=565 cachebytes=139517952`。
+据此算出「565 次维护 / 2688 次提交 ⇒ 每次提交只清 52 KB」，
+进而断定「10 ms 的耗时按对象数增长、与维护字节无关」，还写进了上机卡并据以否证 F6。
+
+**真因**：计数器语义读错。`calls`/`cachebytes` 是**单次被抽样调用**前后读取的
+全局计数差（`NativeAdrenoVm.cpp` 在该次 `publishMapped()` 循环前后取 `stats[3]`/`stats[1]`），
+不是开机累计，也不是最近 32 次的累计。用 `cachebytes / n` 得 52 KB 是无量纲拼接：
+分子是"这一次调用"的维护量，分母是"这个 `NativeAdrenoVm` 至今的调用次数"。
+反证很直接：84 个样本里 `calls` 有 **24 对**相邻样本变小、`cachebytes` 也有 **24 对**变小
+（83 对相邻样本中 25 对至少一项变小；`n=480 calls=538` → `n=512 calls=412`），
+累计值不可能变小；真实量级是 **calls 中位 610、cachebytes 中位 135.3 MiB**。
+
+**修法**：`scripts/judge-gpu-flight.py` 的 `window_report()` 把窗口语义写死在输出里——
+统计相邻样本计数变小的对数、列出「相同 objects/bytes/calls/cachebytes 而耗时不同」的样本组，
+并显式打印禁止用 `cachebytes/n` 或 `us/objects` 推算。13 例测试覆盖。
+上机卡 `FLIGHT-CARD-20261118n.md` §5.2 撤回 52 KB 与「按对象耗时」结论，
+并把「按 `buffers[]` 限缩维护」的正确性论证标为未建立（`referenced` 只是 indirect-buffer 字节）。
+
+**教训**：
+1. **读计数器先问窗口**：累加值、单次差、区间差是三种量，混用会给出数量级错误的结论。
+   一个能自证的检查是「这个量会不会变小」——会变小就绝不可能是累计值。
+2. **别用两个不同窗口的量做除法**。`cachebytes / n` 这种式子看起来像"每次提交的开销"，
+   实际是把一次调用的字节配上了全部调用的次数。
+3. **相同输入不同耗时是重要信号，不是噪声**。84 个样本在 objects/bytes/calls/cachebytes
+   几乎一致的情况下分成 ≈3.1 ms（22 个）与 ≈10.3 ms（62 个）两簇，且序列交错
+   （不是预热）。这说明耗时是**状态相关**的，任何"按对象数线性增长"的模型都解释不了；
+   下一步要先分辨状态（频率/被抢占/实际维护页数），再谈优化。
+
+## P-238
+
+**现象（2026-11-18 晚）**：连续三次上机窗口消失，`fastboot devices` 与 `adb devices` 都空，
+只有 `USB Serial Device (COM5)` 还在。第一次归因为"设备自己掉线"，直到用户指出
+（m40682，verbatim）「fastboot消失就是其他agent抢到了boot」。
+
+**真因**：上机入口没有跨进程的单写者。`capture-k60-usblog.ps1` 的互斥体是
+`Local\K60-CDC-ACM-Capture`——`Local\` 是**每会话**命名空间，既不跨 Windows 会话，
+也不跨不同的检出；`boot-and-capture.ps1` 自己完全不持锁；`flash.sh` 在探测 claim 之前
+就先 `adb reboot bootloader`。于是两个 agent 可以同时走到 `fastboot boot`，
+后者的抓取对着已经换了镜像的设备。
+
+**修法**：机器级 claim（`E:\k60-work\state\k60-device-boot.lock`），
+`scripts/k60-boot-lock.ps1` 用 `FileShare.None` 独占句柄（进程退出即由内核释放，
+不需要死锁清理），`boot-and-capture.ps1` 在碰设备前获取、`finally` 释放、
+拿不到以 rc=6 退出且**不发出 boot**；`flash.sh` 只要求 `K60_AGENT_ID` 署名（缺失 rc=7），
+**不再自己探测锁、也不再自己 `adb reboot bootloader`** —— 重启交给 supervisor 在 claim 之内用
+`-RebootToFastboot` 做。`scripts/tests/test-boot-lock.py` 11 例执行验证；
+`scripts/check-boot-procedure.py` 的 B2 检查禁止 `flash.sh` 出现 `flock`/`reboot bootloader`。
+
+**第二版修法（第一版是错的）**：第一版让 `flash.sh` 用 `flock -n "$LOCK" -c true` 预探 claim。
+这是**假安全**：`flock` 是 POSIX 劝告锁，supervisor 持有的是 Windows `FileShare::None` 句柄，
+两者不是同一锁域，探测代码在语义上根本无法看到对方的持有者。实测在 WSL 上 `flock` 会以
+rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**挂载方式的偶然**，不是锁约定；
+换一个挂载方式或换一个调用方就会退化成"永远空闲"。因此判据改成只钉安全方向：
+`test-boot-lock.py` 的 `a shell-side flock never looks free while the claim is held` 断言
+持有期间 shell 探测**绝不会**成功获取。
+
+**教训**：
+1. **先到先得的规则必须先有单写者**。"谁先抢到谁用"在共享资源上等价于"谁都没同步"；
+   规则改动要连同互斥一起改，否则新规则本身就是缺陷。
+2. **`Local\` 不是机器级**。命名互斥体的作用域写错时，保护看起来存在、实际只在
+   自己的会话里成立；判断互斥是否有效，要问"另一个会话/另一个检出能不能进来"。
+3. **抢占点要在不可逆动作之前**。`adb reboot bootloader` 已经把别人的抓取打断了，
+   事后再检测 claim 只能报错、无法补救。
+4. **匿名占用等于没有归属**。事后追查"是谁飞的那一枪"必须有署名；缺 actor 就拒绝，
+   比允许一个 `unknown` 更省事。
+5. **一个锁域只留一个实现者**。加了 `flock` 预探之后，"竞争会被拒绝"这句话在代码里
+   成立、在运行时从不成立——假安全比没有保护更贵，因为它会让人停止怀疑。
+   守则：锁的探测与获取必须是同一个 API；跨语言的第二个探测点只允许是"报告持有者"，
+   不允许参与放行判断。
+
+## P-239
+
+**用块切分做登记表 union 会吃掉块外的尾行：P-230 的 check 就这样没了，构建被自己人拦下**
+
+2026-11-19 把 `consolidate/20261119` 合进 `feat/gpu-metal-hw` 时，`docs/engineering/RULES.toml`
+两边都只追加了 `[[rule]]` 块，于是我用「按 `[[rule]]` 切块 → 按编号排序 → 合并」的 union
+统一它们。P-230 的 `check = "python3 scripts/tests/test-device-input-must-be-named.py"`
+那一行在冲突近侧的最后一个块之后，切分器不认为它属于任何块，就把它一起丢了。
+结果是 117 条规则里有 1 条既没有 `check` 也没有 `waiver`，`check-rules.py` 报
+
+```
+❌ 覆盖缺口：
+   - P-230 既没有 check 也没有 waiver
+```
+
+`unixnu build` 随即 `build refused: the compliance registry failed`，整次构建作废。
+
+真因不是「不小心」，而是**切分器假设了块的边界等于字段的边界**。冲突近侧的文本
+在最后一块之后还可能有合法的字段行（这里是块尾多出来的 `check`），按块切就会丢。
+同一形状也适用于 `MAIN-BASELINE.toml` 的 `[[entry]]`：我第一次 union 时还因为
+正则插入了 `[[entry]]` 头，造出一个没有 `sha` 的空 entry，只能从 merge stage 重建。
+
+修法与教训：
+
+1. union 之后**必须重新断言 schema**，而不是相信切分。这里断言的是
+   「每条规则有 `check` 或 `waiver`、id 唯一、家族内编号递增、`check` 指向的文件存在」，
+   落成 `python3 scripts/tests/test-rule-registry-schema.py`（新增，独立于合并脚本，
+   因此手改也能被抓到）。
+2. 恢复 P-230 的 `source`/`check`/`note` 三个字段，并把这段经过写进它的 `note`，
+   让下一个人知道这行为什么曾经消失。
+3. 顺手把 `P-193` 与 `P-194` 的登记顺序纠正过来（`P-193` 原本登记在 `P-194` 之后），
+   新测试才有意义：编号顺序本身就是 union 插错位置的可观察信号。
+4. 一个「登记表合并」的正确形状是：读两边的 TOML、按 id 合并成 dict、再整文件重写；
+   用正则切片只有在能证明切分覆盖了整个冲突近侧时才安全。
+
+## P-240
+
+**现象（2026-11-19，`usblog-20261118-233946`）**：`[MTLCommandBuffer commit]` 里稳定有 6.6–10.1 ms
+查不出处，逐类探针显示每次提交都在维护 93.2 MiB 的**导入帧**（`ibytes/cachebytes=1.00`），
+而 `NativeAdrenoVm::publishMapped()` 与 `acquireImported()` 里明明写着
+`if (coherentMapping(m.writeback) || importedUntouched(m.memory)) continue;` ——
+按那段代码，导入帧本该被跳过。
+
+**真因**：那两个判据都要求 `native_adreno_io_coherent` 非零，而**全仓没有任何地方给它赋值**。
+它被 `NativeAdrenoVm.cpp:20` 与 `NativeAdrenoUserClient.cpp:20` 声明了两次、被读了三处
+（`NativeAdrenoVm.cpp:21`/`:25` 两个 helper、`NativeAdrenoUserClient.cpp:268` 一个内联判据），
+定义只有 `extern "C" {volatile uint32_t native_adreno_io_coherent;}` 这一行——那既不是赋值也不是
+带初始值的定义。于是三处跳过判据全部是死代码，每次提交照旧清 93.2 MiB。
+读了这段代码也看不出来：代码本身没错，缺的是**生产者**。
+
+**修法**：
+1. 把 zizhan 的 `coherenceProbe()` 移植进 `drivers/PongAdreno/PongAdrenoNativeGlue.cpp`：
+   分配 4 页、经 `importTask` + `vm->map` 交给 GPU、先用 `CP_MEMCPY` 读一遍再用
+   `CP_WAIT_MEM_WRITES` 写回，两个方向都对着**真实 DRAM**核对（读方向要求 CPU 脏行仍在 cache
+   而 DRAM 仍是旧值；写方向要求 GPU 的写回在 CPU 侧可见）。两个方向都过才置位。
+2. 赋值必须发生在 `native_adreno_publish()` **之前**，否则第一个提交用不到它。
+3. `pong_gpu_coherent`：2=跑探针（默认）、1=强制开、0=关；`1` 是给实验留的，不是给结论留的。
+4. 真机首次证据：`PONG ADRENO: IO coherence on (pong_gpu_coherent=2, probe d64/64 a1 r1024/0
+   w1024/1024 s0 k6)` —— `r1024/0` 是「GPU 读到 1024 个字，而按物理地址直读 DRAM 是 0 个」，
+   这一条才是相干性的证据，不是猜的。
+
+**教训**：
+1. **判据存在 ≠ 判据生效。** 一个 `extern` 标志只要有人读、没人写，读它的分支就永远走不到；
+   code review 看不出来，因为每一行都对。
+2. **「谁给它赋值」必须能回答。** 门禁应当问的是生产者，而不是声明次数：现在
+   `scripts/tests/test-gpu-coherence-probe.py` 断言赋值存在、且在发布之前。
+3. **量化收益要抄那条有数的。** zizhan 注释写着强制开后扫出 24–35 ms → 5–6 ms，这正是我们
+   量到的区间；同一个病、同一副药，先照抄再谈改进。
+4. **探针要给六个数，不是一个布尔。** `d/a/r/w/s/k` 里 `k` 指向停在第几阶段，
+   探针报 off 时才能判断是读方向没过、写方向没过，还是 CP 根本没跑起来。
+
+## P-241
+
+**现象（2026-11-19，`usblog-20261119-044558`）**：GPU 帧率只有 8.4 fps，
+`present()` 只占 17–25 ms，其余 ~48 ms 在客户端绘制里，但日志里**一条客户端计时都没有**。
+`Pong Metal:` 状态行只有 5 s / 20 s / 60 s 三条，200 s 的飞行在 60 s 之后完全静默。
+
+**真因**：两件独立的事，形状相同——「测量写好了，没有人调用」。
+1. `NativeBridgeMetalFrontend.mm:1606` 的 `native_bridge_metal_telemetry()`（行 T/G/J/V/K，
+   含每次 commit 的 `ctc`、pipeline 编译累计、surface flush 累计）在**全仓没有任何调用点**，
+   声明在头文件里等一个永远不会来的消费者。
+2. `PongMetalPlugin.mm` 的观测节奏是 `for(unsigned seconds:{5u,20u,60u})`——
+   只覆盖启动窗口，而 120 fps 要回答的是**稳态**。
+
+**修法**：
+1. 在插件里加 `streamTelemetry()`：取表、按 `\n` 切行、逐行 `report()`（行 ≤90 字符，
+   塞进 768 字节的 `report()` 不会截断）。
+2. 节奏改成 `{5u,20u,60u,120u,180u}`，60 s 起每轮附带流一次计时表。
+
+**教训**：
+1. **「没有数据」和「没有问题」必须能区分。** 一飞下来客户端的 48 ms 是空白，
+   不是因为客户端快，而是因为没人量它。凡是判据要回答的问题，先确认有为它服务的一行日志。
+2. **一个只声明不调用的测量函数，等于没有测量。** 与 P-240（只声明不复位的开关）
+   是同一族：**接口的存在不构成通路**。门禁要查调用点，不查定义。
+3. **采样窗口必须覆盖判据声称的时间段。** 5/20/60 s 采样配上「跑满 120 fps」的判据，
+   天生不可能证伪——它只看得见启动。判据写「稳态」就必须采到稳态。
+4. **观测节奏要和不可靠的重飞解耦。** 多采几个点几乎不花成本（一行 90 字符），
+   少采却是整次飞行作废。
+
+## P-242
+
+**现象（2026-11-19，加入 `pong_gpu_blit_probe` 时）**：给 `drivers/PongMetal/PongMetalScanout.h`
+加了一个新的启动行开关，然后跑 `scripts/check-boot-args.py`，它报
+`✅ BOOT-ARGS.md 覆盖 config 30 / 源码 24 个参数` —— **24 这个数没有变**，
+说明新键根本没被看见。同一个文件里早就有 `pong_gpu_scanout`，也是同一种读法，
+只是当年靠人记着补了文档，不是靠门禁。
+
+**真因**：门禁只用一条正则 `PE_parse_boot_argn\s*\(\s*"([^"]+)"` 找参数名。
+而有一整类驱动不调用 `PE_parse_boot_argn`，而是自己拿启动行
+（`sysctlbyname("kern.bootargs")`）去匹配一个 `key=value` 字面量。
+这类键对门禁**完全不可见**：加多少都不会红，删多少也不会红。
+
+**修法**：给门禁补一条针对这种字面量的正则
+`\[\s*\]\s*=\s*"([A-Za-z0-9_.-]+)=`，命中 `const char key[]="pong_gpu_scanout=0"` 与
+`const char probeKey[]="pong_gpu_blit_probe=0"` 两处的键名。
+补完立刻从 24 变成 25，并报出 `❌ BOOT-ARGS.md 缺少 1 个参数: pong_gpu_blit_probe (drivers/)`
+—— 也就是说这条漏洞此前一直开着，只是没人往这条路上加东西。
+
+**教训**：
+
+1. **门禁数出来的数量不变，就是新东西没被看见的第一信号。** 加参数后先看那个计数有没有动；
+   没动的绿灯比红灯更危险，因为它看起来像通过。
+2. **按调用形式扫描的门禁，等于把「用别的方式做同一件事」排除在覆盖范围之外。**
+   写扫描器前先问：这件事在这个仓库里有几种写法？每种都要有对应模式，或者扫不到时必须报错而不是跳过。
+3. 这是 P-240（判据存在 ≠ 判据生效）与 P-241（只声明不调用的测量等于没测量）的第三张脸：
+   **判据存在 ≠ 判据覆盖**。同一个「看起来有保护其实没有」的形状，已经三次出现在
+   完全不同的地方（赋值者、调用点、扫描模式），所以它不是个别疏忽，而是默认写法。
+4. 修法自身的回归测试要断言「用另一种写法加的键也能被看见」，而不是断言「原来的键还在」。
+   `scripts/tests/test-gpu-blit-probe.py` 里那两条
+   （`the boot-arg gate scans literals a driver matches itself` / `it therefore sees this driver's keys`）
+   就是为此写的。
+
+## P-243
+
+**现象（2026-11-19，`gpu-blitprobe2-20261119` 之后）**
+对照实验证明同样 18,432,000 字节的一次纯 `copyFromBuffer` 只要 1,993 µs（到 GPU 缓冲）/
+1,835 µs（到固件帧缓冲），而真实路径的 `gpu` 段是 5,302 µs、`present()` 12,631 µs，
+差在拷贝的**形状**：真实路径要把 surface 的 5888 字节行距摊成帧缓冲的 5760。
+看上去最直接的修法是「一条命令同时带 `sourceBytesPerRow` 和 `destinationBytesPerRow`」——
+`copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:`。
+
+**真因**
+这条路同时被两件事堵死：
+1. **Vulkan 没有带行距的 buffer→buffer 拷贝**。`vkCmdCopyBuffer` 只接受紧排的 `VkBufferCopy`，
+   要带 pitch 必须走 image，也就是「buffer→image→buffer」，而我们现在的纹理 untile
+   已经是这个形状的最优写法（image 直接别名到 surface 页，零拷贝）。所以照抄 Metal 的
+   带行距重载**不可能**比现路径快，只会多一层。
+2. **我们的 bridge 根本没实现那个 selector**。`NBBlitEncoder`（`drivers/PongMetal/NativeBridgeMetalFrontend.mm:754-800`）
+   只实现了 `copyFromBuffer:toBuffer:`、`fillBuffer:`、三个纹理方向和 `synchronizeResource:`；
+   Rust 侧 `drivers/PongMetal/bridge/NativeMetalObjects.rs:1999` 也只有
+   `nmb_blit_copy_buffer`（无行距）。调用未实现的 selector 会抛
+   `unrecognized selector sent to instance`，直接打死 backboardd。
+
+**修法**
+- 撤掉这条分支，并在 `GpuScanoutPresenter.h` 的 pitch-change 分支里写明为什么它不是选项；
+- 加一条测试 `no blit selector the bridge does not implement is called`，断言源码里不再出现
+  带行距的调用形状，也不再有 `pitchedUsable`；
+- 真正能拿回那 10.7 ms 的两条路只剩：**消除行距差**（自己拥有 5888 行距的扫描缓冲，
+  由 DPU 直接扫出——即 zizhan 的 `db[]`，见 `docs/research/gpu/ZIZHAN-DBUF.md`），
+  或者**不再拷贝**（零拷贝扫出）。
+
+**教训**
+1. 「用一条命令解决」在 Metal 上成立，不等于在 Vulkan/Turnip 上成立——抄 API 之前先问
+   目标后端有没有对应的原语。
+2. 一个 selector 存不存在，要去 bridge 的实现里数，不要按 Metal 头文件的形状假设；
+   用没实现的 selector 不是「慢」，是崩。
+3. 对照实验量出来的 1.9 ms 是**无行距**拷贝的下限；把它当成「带行距拷贝的目标值」会得出
+   一条根本不存在的优化路径。测量值必须和被测形状绑定着引用。
+
+## P-244
+
+**现象（2026-11-19，`usblog-20261119-070345`，镜像 `gpu-blitprobe2-20261119`）**
+日志 14,580 行里有 **10,100 行 `DeviceLost`**，从 30.3 % 一直刷到结尾；同一位置之前两行是
+`PONG ADRENO: CP/SMMU fault; retain BOs result=1 a=0x40000000000 b=0x80000000000000`（出现两次），
+之后是 `Pong Metal: GPU scanout copy failed; mappings retained status=0x4` 与
+`PONG SCANOUT: GPU copy not retired; retain pages and previous frame ... status=0xe00002bc`。
+`PONG VM: publish sample` 的 `objects` 从 331 单调长到 **951**、`bytes` 从 276 MB 长到 **557 MB**，
+正好在长到 951 时 GPU 挂死。同一晚另外两飞（`usblog-20261119-044558`、`usblog-20261119-055934`）
+`DeviceLost` 各 0 次。
+
+**真因（已证与未证分开写）**
+1. 已证：受管对象集合在长跑里单调增长，并在约 950 个对象、557 MB 之后出现 CP/SMMU 故障；
+   故障后 `DeviceLost` 以每秒约 1450 行的速度空转，渲染永久停止。所以这一飞「1000 帧 / 7.16 fps」
+   的窗口在故障点就结束了，**之后 70 % 的日志不是「很慢」，是「没有画面」**。
+2. 未证：增长来自哪一层。现有证据指向每帧新建的线性纹理（`copyFromTexture` 前的
+   `newTextureWithDescriptor:` + `copyFromBuffer:`），它每帧经 bridge 建一个 KMD BO；
+   `NativeAdrenoVm::mappings_` 的槽位只在 `unmap(handle)` 时清空，若这条路径没人调
+   `BoFree`/`unmap`，槽位与 BO 就都留在表里。**这是假设，不是结论**，下一步要数
+   `mappings_` 的分配/释放次数与 `native_adreno_method_stats[NativeAdrenoMethodBoFree][0]`。
+
+**修法方向**
+1. 判据口径：任何「长跑帧率」的判据必须先证明 GPU 还活着（`DeviceLost` 计数为 0 或
+   `scanout frames=` 仍在增长），否则量到的是死设备的空转（P-236 的同一形状：有效性必须先判）。
+2. 泄漏本身要让 BO/映射的生命周期可数：`BoAlloc` 与 `BoFree` 的计数差必须回到 0，
+   把它做成门禁或每飞行一次的日志行。
+3. 在修好之前不要让长跑飞行以「帧率」为结论——它会先撞故障。
+
+**教训**：1. 「很慢」与「已经死了」在日志里长得一样，只有计数器和对象的单调性把它们分开。
+2. 一个只增不减的集合是定时炸弹，不是性能问题；`objects` 与 `bytes` 应当和帧率一起被记录。
+3. 我先量出 7.16 fps 就写进卡片，直到翻到第 4,421 行才发现那台设备已经不再渲染——判据要能回答
+   「这个窗口里被测对象还在工作吗」。
+
+## P-245
+
+**现象（2026-11-19，`gpu-submit-20261119` 第一次构建）**：Mac 侧插件构建报
+`drivers/PongMetal/GpuScanoutPresenter.h:133:43: error: function definition is not allowed here`
+和 `20 errors generated`，而在这之前：仓库里 22 条 `test-present-stage-split.py` 断言全过、
+14 条 `test-presenter-import-scope.py` 全过、`check-boot-args` / `check-rule-registry` /
+`check-readme` / `check-docs` 全绿，纯内核构建也成功过两次。
+
+**真因**：撤销 pitched-copy 分支时留下一个**未闭合的 `/*` 注释**（`} else {` 之后那段说明
+没有 `*/`），预处理器把后续所有成员吞进注释，于是第 133 行的函数定义变成了「函数里的函数」。
+所有单元测试都是**文本匹配**（`assert 'copyFromTexture' in text`、`assert 'pitchedUsable' not in text`），
+而唯一能真正解析这个头文件的编译器只在 Mac 上，且只在「重建 Metal 插件」时才被调用；
+纯内核路径（`build-xnu-4k-baseline.sh`）根本不编译它。
+
+**修法**：补上 `*/`（`2c81314d`）。结构性的修法是别再让「只跑文本断言」通过——凡是**插件侧**
+头文件改动，交付前必须至少有一次 `xcrun clang++ -fsyntax-only`（Mac 可达时），
+或把该文件纳入 `scripts/build-pong-metal-plugin.py` 的 `--check` 干跑。
+
+**教训**：
+1. `assert "X" in text` 只证明**字符串在文件里**，不证明文件能编译。一个注释就能让 22 条
+   断言全过而 20 个编译错误存在——这与 P-240/P-241/P-242 是同一族：**检查存在 ≠ 检查覆盖**。
+2. 「最快的门禁」有盲区：内核构建不编译插件头，于是插件侧的语法错误只在 Mac 那一步暴露。
+   分阶段的流水线必须为每个阶段的输入各自设一个能编译它的门禁。
+3. 撤销一个分支时，注释比代码更容易留下残骸：删代码用整段替换，不要只删条件分支。
+
+## P-246
+
+**现象（2026-11-19，用户报「wsl 的 vhdx 怎么突然暴涨这么多」）**：虚拟盘
+`D:\Android\wsl\Ubuntu-24.04\ext4.vhdx` 涨到 **181.8 GB**，而盘内实际数据只有 183 GB
+（其中 `/opt` 94 GB、`/home` 52 GB、`/tmp` 30 GB）。可回收的部分：
+
+| 位置 | 大小 | 真因 |
+| --- | --- | --- |
+| `/opt/k60/trees/power-conformance-battery-*` | 25 个目录 **47.6 GB** | 电源线每做一次实验就新建一个 `K60_OUT`，从不删 |
+| `/tmp` | **18.3 GB** 的 7,101 项 | 铁则 1 写着「/tmp 不放持久物」，但没人清理 |
+| 昨天的一次性提取目录（`aw-x`/`au-x`/`as-x`/…） | 2.5 GB | 同上 |
+
+**真因**：不是哪一次构建太大，而是**没有任何东西负责删除**。门禁 `hard-41`
+（`scripts/check-disk-space.py`）只看「还剩多少」，它会在快满时阻断，但不会回收；
+于是每条线都在用完就走的路径上不断新建输出，直到用户发现虚拟盘暴涨。
+
+**修法**：`scripts/k60-janitor.py`——默认 dry run，`--apply` 才删；规则是
+
+1. 每个 `${前缀}-${8位日期+后缀}` 只留**最新 `--keep`（默认 2）个**，而且只删比
+   `--days`（默认 3）更旧的；一个闲了一周的分支，它最后一次输出可能还要用来回答问题。
+2. `/tmp` 只删超过 `--hours`（默认 24）的条目，**永不删符号链接**。
+3. 镜像与输入（`k60build`、`gates-device`、`usb-cdc-mainline`）写死在保护名单里。
+4. **被 `/tmp` 符号链接指向的构建树也保护**——这条是测试逼出来的：
+   `/tmp/k60build`、`/tmp/fakeroot` 指向构建树，删掉链接会悄悄弄坏 shim，删掉目标同样。
+
+实测回收：`/opt` 94 → 24 GB、`/tmp` 30 → 13.7 GB，盘内 183 → 121 GB；
+`fstrim` 后虚拟盘再还给 Windows（见 `DISK-HYGIENE.md` §3）。
+
+**教训**：
+
+1. 「有门禁」不等于「有人回收」。`hard-41` 量的是余量，是**症状**；输出目录的生命周期
+   没人管才是**病因**，两者都要有实现者（同族 P-240：判据存在 ≠ 判据生效）。
+2. 每做一次实验就新建一个输出目录是合理的工作方式，但它要求一个**配套的删除者**；
+   没有删除者的命名约定，等于把清理工作外包给未来的某个人。
+3. 保护名单要包括**间接引用**：符号链接、镜子、输入树。只保护链接本身是假保护——
+   这是新测试 `test_symlink_in_tmp_is_never_removed` 抓到的。
+4. 空间问题的第一手证据是 `du -x -d1`（`-x` 保证不跨 `/mnt` 把 Windows 盘算进来）与
+   `fsutil sparse queryflag`；只看 `ls -la` 的逻辑大小会得出相反结论。
+
+## P-247
+
+**现象（2026-11-19，`gpu-pitchoff-20261119` / `gpu-perf-20261119`）**
+连续三飞写下「稳态中位」这类判据，实测却只有 4–5 条样本：屏幕静止，`Pong Metal: c8/0 d8`、
+`MiniIOMobileFramebuffer: 4 frames in 110000 ms`。判读器按 P-236 判 INVALID，于是
+「升档有没有用」这个问题**一次都没被回答**，而每次都要先构建、再等设备窗口、再飞一次。
+
+**真因**
+判据隐含了「设备上恰好有东西在动画」这个前提，而那不是我们能控制的条件。驱动每 10 帧打一条
+stage 行（`copies<=8 || !(copies%10)`），静止屏永远到不了 10 帧，样本数因此恒为 0–4。
+这是「判据存在 ≠ 判据可触发」的第三种脸：P-240 缺赋值者、P-241 缺调用点、P-242 缺覆盖，
+这里是**缺一个能自己制造样本的入口**。
+
+**修法**
+`drivers/PongMetal/PongMetalScanout.h`：见到 `gperf=` 时在第一帧真实拷贝成功之后、
+内核 `PongScanoutComplete` retire 映射之前，把同一次 `present()` 重复 24 次并逐次打印
+`scanout bench n=<i>/24 import=… gpu=… sum=… status=…`；`gbench=N` 可覆盖（上限 120），
+`status` 非 0 立即中止。`scripts/judge-gpu-perf.py` 优先用 bench 行取中位，并在有 ≥8 条
+bench 样本时允许屏幕静止。
+
+**教训**
+1. 性能判据要自带样本源。依赖外部活动的判据，在设备静止时不是「失败」而是「没测到」，
+   而「没测到」花掉的是整轮构建加一次上机。
+2. 基准要放在**映射还有效**的窗口里（首帧成功后、`PongScanoutComplete` 之前），
+   否则测的是已被 `release()` 的页 —— 那正是 P-244 的来路。
+3. 判读器必须能区分「没有 bench 行」与「bench 全失败」：前者是镜像没带代码，后者是拷贝坏了。
+
+## P-248 — `vn_rdwr` 的 `resid` 是剩余空间，不是已传输字节
+
+**现象.** 0618 的壁纸种子把 772 B 的 `Collections~ipad.plist` 读进 8192 B 缓冲，判据写成
+`if (length <= 0 || resid != 0)`，上机日志：
+
+```txt
+K60WALL catalogue size=772 resid=7420 rejected
+```
+
+`length` 算对了（772），但 `resid != 0` 恒真 ⇒ 任何小于 8 KiB 的文件都被判成 rejected，
+种子从未落盘（springboard-20261115a，`usblog-20261115-132805/console.log:480`）。
+
+**根因.** `bsd/vfs/vfs_vnops.c:1013-1015`（feed 树 `feeds/xnu-c465a9f8`）：
+`if (aresid) { *aresid = uio_resid(auio); assert(*aresid <= len); }` —— `uio_resid` 是
+**uio 里还没搬的字节数**，即缓冲区剩余空间。8 KiB 缓冲读 772 B 文件 ⇒ `resid = 7420`，
+`resid = 0` 只在**读满整个缓冲**时出现（那是截断，不是成功）。
+
+**一次运行里有两个不同量**，别混用：
+
+| 方向 | 调用后 `resid` 的含义 | 成功形态 |
+|---|---|---|
+| 读 | 缓冲区**剩余**空间 | `length = 8192 - resid` > 0 |
+| 写 | **没写出去**的剩余字节 | `resid == 0`（全部写出） |
+
+所以 `K60WALL catalogue bytes=772 resid=0 error=0` 的 `resid` 是**写侧**的 0（772 B 全写出），
+与读侧的 7420 不矛盾；拿读侧 resid 判成功必然把正常文件判死。
+
+**修法.** 删除 `|| resid != 0`，只保留 `length <= 0` 与 `error` 检查（一行改动，hunk 行数不变）。
+代价：>8 KiB 的 catalog 会被静默截断——当前 772 B 远未触及，真要防就改成先 stat 取 size 再
+按 size 分配，而不是拿 resid 当尺寸判据。
+
+**同形（P-204 的第四例）.** 这是「把某个数字当成另一种语义」的又一例：
+`resid` 看着像「还剩多少没读」，其实在写侧才表示「还剩多少没写」；
+字段语义必须**从源码抄**（`uio_resid` 的赋值点），不能从名字猜。
+
+**Check.** `grep -n 'resid != 0' patches/xnu/0618-k60-wallpaper-seed.patch` 应为空；
+`python3 scripts/tests/test-judge-wallpaper-log.py` 必须包含 `size=772 resid=7420 rejected` 一例，
+且判定器对它打印 `diagnosis: resid 判据回归 …`（而不是泛泛的 §1）。
+
+## P-249
+
+**现象（2026-11-19，D9 合并审查）**
+0622-k60-modem-qrtr.patch（蜂窝线的 bsd/dev/qcom_glink.c）把 size 为 0 的
+intent 当成整条消息损坏：
+
+`c
+if (!size) return QcomGlinkCorrupt;   /* id 0 is a legal buffer number */
+`
+
+本树的 drivers/PongPower/QcomGlink.c 只丢那一条、继续处理后面的条目。两条线各自
+都有「理由写得很足」的注释，**合并时无论选哪边都能自圆其说**——这正是分歧会被静默
+「修回去」的条件。
+
+**真因**
+id 与 size 是两件事：id 0 是合法 intent id，size 0 表示发送方还没填这个槽位。
+整条列表判损坏，会把 DSP 一次广播里的其它有效 intent 一起扔掉，链路随后因为「没有可用
+intent」而停在 QcomGlinkAgain；只丢占位符则邻居照常可用。但「更严格」听上去总是更安全，
+所以下一次有人读这两份代码时，很容易把本树的实现改成蜂窝线的版本。
+
+**修法**
+1. drivers/PongPower/QcomGlink.c 的守卫旁写明 D9：来自哪个补丁、为什么这里保留
+   逐条丢弃（提交 142706ad）。
+2. scripts/tests/test-k60-glink-intent.c 用真实代码钉住语义：零长度 intent 后面跟一个
+   正常 intent，正常那个**能用来发数据**（qcom_glink_send 选中它的 id）、也能继续收数据；
+   另有「只有占位符」「占位符夹在两个有效之间」「后续 intent 消息不受影响」四种情形，共
+   70 项断言。用蜂窝线的写法做变异测试，这套断言失败 37 项——两种读法不会都通过。
+3. scripts/tests/run-k60-glink-host.sh 一条命令重跑；scripts/tests/test-k60-glink-d9.py
+   作为登记的门禁，同时检查源码守卫与上面那条文档记录。
+
+**教训**
+1. **「更严格」不是理由，语义才是。** 同一个字段的两种解读都自洽时，必须写清哪种是本树的
+   约定，以及为什么——否则合并冲突的解决方式取决于谁先看到。
+2. **分歧要有一个会失败的测试。** 只写注释的分歧，在下一次合并里等于没有记录；变异测试
+   （把对方的写法放回去，确认本树测试变红）才是「这条分歧是被选择的」的证据。
+3. 跨线的补丁共用同一份上游文件时，**分歧点要能被搜到**：注释里带上补丁名和 D9 编号，
+   比写「见上文」有用。
+4. 编号是全局的：本条最早写成 P-248，与 main 的 `vn_rdwr` 条目撞号，合并时整段被当成
+   同一处冲突——**先看对方占没占这个号，再写自己那条**。
+
+## P-250
+
+**现象（2026-11-19，power 线合并后）**
+`patches/xnu/series` 里出现两个 `0624`：power 分支的
+`0624-k60-platform-sleep-boot-complete.patch` 与 main 已有的
+`0624-k60-quiet-managed-page-report.patch`。同一份清单里 `0622`/`0623` 也各指向
+两个不同文件（已死的 iosurface 改名对 + 分支的 touch-activity/platform-sleep）。
+
+构建没坏。补丁是按文件名 apply 的，两个 `0624` 各自解析到自己的文件，八步门禁
+54 项通过，`check-patch-apply.py --all` 报 326 个补丁全部合法。**正因为没坏，
+它会长期活着**：读文档的人看到「0624」无法判断指哪个，下一次 rebase 也可能把
+两条当成一条。
+
+同一天新写的 `scripts/check-series-numbering.py` 第一次运行就抓到了另一处更老的
+同形缺陷：`0392-k60-dyld-cache-probe.patch`（`bsd/kern/kern_exec.c`）与
+`0392-k60-weak-scanout-stubs.patch`（`iokit/Kernel/MiniIOMobileFramebuffer.cpp`）
+是两个毫无关系的改动，共用一个号、都没有后缀，已经存在了至少一周，三份文档以
+「0392」分别指它们。
+
+**真因**
+合并把分支的 series 尾部原样追加。追加是「保住对方每条补丁」的正确做法，但它
+**没有分配新号**这一步——两条线各自从空号往下编号，撞车是必然的，只是撞在哪里
+不确定。而所有现存门禁量的都是「每个条目能否解析到真实文件」
+（`check-patch-apply.py` 的 `missing_from_series()`）与「改动量是否与预期一致」
+（`check-patch-series.py`），**没有一条量「一个号是否只指一件事」**。
+
+编号在这里不是审美问题：`patches/xnu/series` 是有序清单，顺序本身是契约
+（P-155 一整族都在讲这个），而号是唯一能在散文里指代某条补丁的东西。
+
+**修法**
+1. 撞号的那四条 power 补丁顺延到空号：`0622`→`0626`、`0623`→`0627`、
+   `0624`→`0628`、`0625`→`0629`；更老的 `0392-k60-weak-scanout-stubs` → `0630`。
+   先改文件名、再改 series、最后全树替换 `.md/.toml/.py/.sh` 里的引用
+   （`scripts/check-patch-apply.py` 的 `missing_from_series()` 会在任何一步做漏时
+   立刻报「listed in series but the file is gone」）。
+2. 新门禁 `scripts/check-series-numbering.py`：同一 series 里一个号出现两次，
+   必须恰好有一条带字母后缀（`0334`/`0334b`、`0502`/`0502b` 是历史性的、刻意
+   的，`-b` 表示同一次改动的第二个补丁）。两条都带后缀同样算歧义——没有东西
+   说明哪个先。7 个用例在 `scripts/tests/test-series-numbering.py`。
+3. 门禁扫**每一个** `patches/*/series`，不只是 `patches/xnu/`：`patches/wifi/`
+   有 12 条、`patches/usb/` 有 7 条，同样会撞。
+
+**教训**
+1. **「能构建」不是编号正确的证据。** 按文件名 apply 的构建系统对重号完全免疫，
+   所以重号只能靠一个专门看编号的门禁发现。这与 P-204「用计数代替语义」同族：
+   门禁量了「存在」，没量「唯一」。
+2. **合并要分配新号，不是只追加。** 追加保住了内容，但把「两个独立编号空间」
+   留在了同一份清单里。合并清单类文件时，冲突解决的最后一步应该是重新编号。
+3. **新门禁第一次运行就该拿真树跑。** 我写它是为了 `0624`，它却抓到了存在更久的
+   `0392`——如果只用构造的 fixture 验证，这个真实缺陷不会被发现。测试里因此保留了
+   一条 `the live series is clean` 用例，直接跑真树。
+4. **改号要同时改文档。** `docs/research/EIGHT-STEPS.toml`、
+   `docs/state/HANDOFF-2026-11-08-BUILD.md`、
+   `docs/research/evidence/SA-UPSTREAM-REVIEW-20261112.md` 都点名过旧文件名；
+   只改 series 会让这三处指向不存在的文件，而没有任何门禁会因此变红。
+
+## P-251 — 门禁读的配置键从来没存在过，于是它每次都返回 0
+
+**现象**
+`scripts/check-patch-series.py` 是 P-155 的门禁：把 `patches/xnu/series` 里每个改
+`bsd/kern/kern_exec.c` 的补丁的增删行求和，与基线比对，任何位移都该在构建前变红。
+它每次运行的真实输出是：
+
+```
+  · 42 个补丁改 bsd/kern/kern_exec.c：+1830/-51 → 净 +1779
+  · RULES.toml 未记录基线；把 expected_kern_exec_delta = 1779 写进去即开始生效
+✅ kern_exec.c 行数预算检查跳过（无基线）
+```
+
+退出码 0。`check-rules.py` 因此一直报 P-155 通过。
+
+**真因**
+`main` 的 `docs/engineering/RULES.toml` **顶层从来没有 `expected_kern_exec_delta`
+这个键**——`git log -S expected_kern_exec_delta -- docs/engineering/RULES.toml` 在本
+仓历史里找不到任何一个添加它的提交。`tomllib` 对缺失的键返回 `None`，代码于是走
+「没有基线就跳过」分支并返回 0。
+
+「没有基线就跳过」本身是合理的（新克隆可能还没有基线），问题在于**没有任何东西
+区分「还没建立基线」与「基线永远不会存在」**：两种情况下输出完全一样，退出码
+完全一样，而登记表里 P-155 一直显示有检查。
+
+审计分支 `docs/porting-gap-audit` 上是有这个键的（`expected_kern_exec_delta = 1713`，
+2026-11-17 实测 41 个补丁）。那份 RULES.toml 与 main 的差异太大，合并时被整体取
+HEAD，键随之丢失——**这正是「取 HEAD 保住了内容、丢掉了配置」的形态**。
+
+**修法**
+1. 把键加回 `RULES.toml` 顶层，值取**当前实测** 1779（42 个补丁），不取分支那份
+   过时的 1713：基线的职责是让「下一次非预期位移」变红，而不是让第一次运行就因
+   为历史原因变红。
+2. 新测试 `scripts/tests/test-patch-series-baseline.py`（5 例）钉住三件事：
+   - 键在**真实** RULES.toml 的顶层可达，且是整数；
+   - 键的值等于**真实** series 现在量出来的净行数（任何一边过时就报错）；
+   - 基线不匹配时门禁返回 1 而不是 0（构造一个假仓库验证）。
+3. P-155 的 `check` 改成复合命令：门禁本身 + 这个钉住基线存在性的测试。只改门禁
+   不够——门禁在缺基线时仍然是「正确」的返回 0，只有测试能断言「基线必须存在」。
+
+**教训**
+1. **「登记了检查」不等于「检查在跑」。** `check-rules.py` 只看退出码；一个读到
+   缺失配置就返回 0 的脚本，在登记表里与一个真正在跑的脚本无法区分。这是 P-190
+   （整段代码在死分支里）与 P-204（用计数代替语义）的第三种形态：**键不存在**。
+2. **「没有基线就跳过」必须与「基线存在且匹配」有不同的可观测输出。** 现在两者
+   都返回 0；正确形状是跳过时也计入一个 `skipped` 计数，并在 `check-rules.py` 的
+   汇总里单列，让「长期跳过」变成可见债务而不是绿色。
+3. **合并大改的配置文件时，要逐个确认对方的顶层键还在。** 取 HEAD 保住了 132 条
+   规则，却悄悄丢了一个键；diff 里它只是一行，而它的缺失让一整条门禁失效。
+4. **测试必须量真树。** 三个用例读的是真实 `RULES.toml` 与真实 `patches/xnu/series`，
+   所以下一次有人改了 series 却忘了更新基线，测试会红。构造的 fixture 只能验证
+   门禁的逻辑，验证不了「本仓库的基线还对不对」。
+
+## P-252 — 门禁让操作者删掉一个 CI 依赖的 tag
+
+**症状**：`scripts/check-snapshot-tag.py` 连续两次判 `toolchain-linux-20261119`
+为「不属于三种允许形态」的垃圾 tag，并打印删除命令；照做之后
+`.github/workflows/ios27-kernel.yml:39` 的
+`releases/download/toolchain-linux-20261119/unixnu-linux-20261119.tar.gz`
+取不到资源，release 退回 draft 状态。`gh release view` 实测该资产
+68,589,703 B、sha256 `b29926ae…`、已被下载 29 次。
+
+**真因**：门禁把「允许的 tag」写成了三种**命名形态**，而仓库里合法存在的第四种
+不是一种命名，是一种**引用关系**——某个工作流按 tag 名下载 release 资源。
+门禁只比对字符串形状，就无法表达「谁依赖它」；于是它把「我认不出」说成
+「这是垃圾」，并让操作者执行不可逆的破坏。这与 P-190「认不出名字就静默跳过」、
+P-251「读一个从未存在的配置键」是同一族：门禁判断的对象与实际语义不是同一件事。
+
+**修法**：
+1. `release_tags()` 扫 `.github/workflows/*.yml|yaml` 里的
+   `releases/download/([^/\s"')]+)/`，把命中的 tag 视为允许，并打印是哪个
+   工作流在下载它。
+2. 名单从文件读，不写死在门禁里——tag 改名或工作流改地址时，门禁自动跟。
+3. `scripts/tests/test-snapshot-tag-release.py` 5 例：被下载的 tag 命中、
+   没被下载的 tag 不命中、没有 workflows 目录不崩、三种命名形态仍匹配、
+   真树里该 tag 仍在。
+
+**教训**：
+1. **门禁说「删掉」之前必须先答「谁在用它」**。一个只按字符串形状判断的门禁，
+   在遇到「按引用关系合法」的东西时，给出的建议一定是破坏性的。
+2. **不可逆动作的门禁要额外宽一档**：`git push origin --delete <tag>` 会连
+   release 一起报废，这类建议的门槛应该是「证明没人依赖」，不是「我认不出」。
+3. 与 P-183 同族：门禁遇到自己不理解的状态时，正确输出是「待确认」而不是
+   「失败并给出操作命令」。
+
+> 这一条的症状是「文档怎么写都过不了门禁」。同族：P-242（判据点名一条不可能出现的日志）、
+> P-251（门禁读的配置键从来没存在过）、P-253（本条）。
+
+## P-253
+
+**现象**：`scripts/check-doc-citations.py` 在 `docs/research/ios-profile/FEASIBILITY.md:113`
+报「引用目标不存在：`configs/ios.c`」——而那一行写的是 `configs/ios.config`，
+而且每改一次文档就换个错法：把路径写成最正确的形式，它依然报错。
+
+**真因**：`CITE_RE` 的扩展名候选表里 `c` 排在前面，路径部分是**非贪婪**的，
+于是 `configs/ios.config` 在 `configs/ios.c` 处就满足了「路径 + `.c`」，剩下
+`onfig` 被当成后文。门禁于是去查一个从不存在的文件，而**文档无论怎么写都过不了**。
+
+**这个错误有两个方向，都踩过**：
+
+1. 直接加 `(?![\w])` 让扩展名在词边界结束 —— 修掉了假阳性，但 `configs/ios.config`
+   因为退不回去（没有第二个点）而**整条不再被扫描**，从「误报」变成「漏报」，
+   门禁计数从 305 掉到 300 却仍报 ✅。
+2. 把 `config` 放进候选表并排在 `c` 之前，同时保留词边界 —— 两个方向都对：
+   `configs/ios.config` 整体命中，`blobs/x.c` 仍是 `blobs/x.c`。
+
+**修法**：`config` 进候选表且先于 `c`；扩展名后加 `(?![\w])`；新增
+`scripts/tests/test-doc-citations-ext.py`（六例：`.config` 不截断、`.patch` 仍命中、
+`.c` 仍命中、行号范围仍分开捕获、表格行仍被扫、别的仓库前缀仍被忽略）。
+
+**教训**：
+
+1. **候选表里短前缀排在长前缀前面，等于给长前缀判了死刑。** 任何「`A|B` 且 `B`
+   是 `A` 的前缀」的正则都在做同一件事，扩展名、后缀、单位、语言标签都会中招。
+2. **加一个限制条件不等于修好它**：`(?![\w])` 把误报变成漏报，而漏报在门禁里的
+   输出是 ✅。修完必须看**总数变化的方向**，不能只看「新增问题 0 处」。
+3. **「文档怎么写都过不了」是门禁 bug 的判据，不是文档 bug 的判据。** 当修一行
+   文档只能把报错换个形状时，先怀疑抽取器（与 P-242、P-251 同族）。
+4. 收紧基线时必须看清新增项是谁的：`configs/ios.config` 等四条是**框架**的
+   `profiles/os/<name>/configs/`，设备仓文档描述「要去那边建什么」，不是笔误，
+   所以进基线而不是改写句子。
+

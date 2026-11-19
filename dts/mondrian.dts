@@ -80,6 +80,41 @@
 		period-buffer-limit = <0x1 0x00000000>;
 	};
 
+	/*
+	 * Wi-Fi as a device tree fact, not as a driver: /sbin/launchd starts the
+	 * wireless daemon com.apple.wifid only on a device whose device tree has a
+	 * node named "wlan" (or a compatible of "marconi-wifi")
+	 * (_LimitLoadToDeviceTree in com.apple.wifid.plist). wifid is what the
+	 * Settings pane talks to; without it the pane exists but never lists a
+	 * network.
+	 *
+	 * The node carries no register window on purpose: the station is driven by
+	 * PongWifi over MHI and the firmware, and this node exists so the daemon
+	 * matches. The ADT export ignores a node without reg, so nothing is mapped.
+	 */
+	wlan {
+		compatible = "marconi-wifi", "pong,qca6490-wifi";
+		device_type = "wlan";
+		unixnu,adt-name = "wlan";
+	};
+	 * Bluetooth controller, exported before userland so BlueTool and
+	 * bluetoothd find it at /arm-io/bluetooth: devicetree.py turns every
+	 * enabled root node carrying unixnu,adt-name into an /arm-io child.
+	 * The K60 carries a QCA6490/WCN6855-class part, so the compatible is the
+	 * mainline same-silicon binding, not the WCN7850 one from the sheng
+	 * example. The QUPV3 source is 48 MHz: 3.2 Mbaud has no exact divisor,
+	 * qbt_boot leaves the link at 3.0 Mbaud, and the node advertises what the
+	 * hardware actually runs.
+	 */
+	bluetooth {
+		device_type = "bluetooth";
+		compatible = "qcom,wcn6855-bt";
+		unixnu,adt-name = "bluetooth";
+		transport-encoding = <1>;
+		transport-speed = <3000000>;
+		status = "okay";
+	};
+
 	ufs@1d84000 {
 		compatible = "qcom,sm8475-ufshc";
 		status = "okay";

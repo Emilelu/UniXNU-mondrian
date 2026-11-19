@@ -22,6 +22,7 @@
 extern "C" const uint8_t PongAdrenoGmuFirmware[];
 extern "C" const size_t PongAdrenoGmuFirmwareBytes;
 extern "C" void pong_ramoops_diagnostic_write(const char *,int);
+extern "C" int pong_adreno_dcvs_start(void);
 extern "C" void pong_rpmh_lock(void);
 extern "C" void pong_rpmh_unlock(void);
 namespace {
@@ -544,6 +545,21 @@ static void run(void *,wait_result_t)
     if(ps)return;
     auto cp_status=PongAdrenoCpStart(&gmu);
     record("CP/user-client startup",cp_status,gr.core_version,gr.hfi_version);
+    if(!cp_status) {
+        /* The startup vote asks for one GPU level and never revisits it, so a boot
+         * runs at whatever the device tree's initial-pwrlevel said regardless of the
+         * workload. t970 (z164) sends the same GX_BW_PERF_VOTE again once GX is up;
+         * this is that vote, and it is the only moment it is legal (the message needs
+         * the GMU running and the GX powered, which is exactly what CpStart waited for).
+         * Default off: without gperf nothing changes, because raising a clock
+         * changes power and heat and that is not a decision a default should make. */
+        unsigned perf=0;
+        if(PE_parse_boot_argn("gperf",&perf,sizeof(perf)) && perf>0) {
+            PongGpuPowerResult vote={};
+            auto voted=PongAdrenoGmuVotePerf(&gmu,perf,&vote);
+            record("GPU level vote from gperf",voted,gmu.perf_gpu_index,gmu.perf_bus_index);
+        }
+    }
     if(cp_status)record("GX clock state after CP failure",rd(windows[PongGpuClock],0x90a8),
         (uint64_t(rd(windows[PongGpuClock],0))<<32)|rd(windows[PongGpuClock],0x1000),
         (uint64_t(rd(windows[PongGpuClock],4))<<32)|rd(windows[PongGpuClock],0x1004));
@@ -551,6 +567,10 @@ static void run(void *,wait_result_t)
      * or from the last stage that happened to print (P-164). */
     record(cp_status?"startup FAILED at CP/user-client":"startup COMPLETE; hardware armed",
         cp_status,gr.core_version,gr.hfi_version);
+    /* Runtime DCVS is opt-in: it votes HFI and rewrites the GMU counter while
+     * the GPU is live, so a probe enables it with pong_gpu_dcvs=1. A failed CP
+     * start has no session to vote in. */
+    if(!cp_status)pong_adreno_dcvs_start();
 }
 static void worker(void *parameter,wait_result_t result)
 {
@@ -558,6 +578,12 @@ static void worker(void *parameter,wait_result_t result)
     thread_terminate(current_thread());
     thread_block(THREAD_CONTINUE_NULL);
 }
+}
+/* The DCVS thread lives in PongAdrenoDcvs.cpp so this file keeps the startup
+ * order and the thread keeps the hardware session pointer. */
+extern "C" PongGpuGmuDevice *pong_adreno_gmu_device(void)
+{
+    return &gmu;
 }
 extern "C" int pong_touch_iovdd_enable(void)
 {

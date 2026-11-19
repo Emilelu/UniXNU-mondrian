@@ -46,13 +46,13 @@ ALLOWED_ADDITIONS = {
     "pong_wifi_diag", "pong_wifi_test", "pong_wifi_alt", "pong_wifi_band",
     "pong_wifi_cycle", "k60bt", "k60bt_stage", "k60bt_warm",
     "pong_audio_probe", "pong_rail_probe", "pong_adsp", "pong_touch_se",
-    "sheng-gpu-addon", "k60_usbvend",
     "pong_modem", "k60_wallpaper_reset",
     "k60_backlight", "k60_backlight_control", "k60_backlight_invert",
     "pong_thermal_bias",
     "pong_handoff_publish",
-    "k60_charge_auth",
-    "gprobe",
+    "k60_cpufreq",
+    "pong_gpu_dcvs",
+    "gprobe", "p120", "vsync", "gperf",
 }
 
 # Values that are never acceptable in an experiment image, with the reason.

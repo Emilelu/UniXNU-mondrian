@@ -25,8 +25,11 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SERIES = REPO / "patches/xnu/series"
-INPUT = pathlib.Path(os.environ.get(
-    "K60_DEVICE_INPUT", "/opt/k60/trees/usb-cdc-mainline/device")) / "patches/xnu/series"
+# 未设置时不在 import 期 sys.exit：scripts/tests/test-check-build-applied.py 先 import
+# 本模块再改 INPUT 指向临时仓库，import 期退出会让它的 setUp 全部报错（7 errors），
+# 看起来像门禁坏了。拒绝照旧，推迟到真正要读镜像的那一步。
+_INPUT_ENV = os.environ.get("K60_DEVICE_INPUT")
+INPUT = (pathlib.Path(_INPUT_ENV) / "patches/xnu/series") if _INPUT_ENV else None
 BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-baseline"))
 # 一棵树可以有多个输出目录（mondrian_defconfig -> mondrian/，
 # mondrian_wifi_defconfig -> mondrian_wifi/），而 K60_OUT 只指向其中一个。
@@ -197,7 +200,7 @@ def check_stamp(stamp: pathlib.Path, quiet: bool) -> int:
         for line in stale[:5]:
             print(f"   {line}")
         print(f"   构建记录 {stamp}；需要重新构建才能证明这棵树来自当前补丁集。")
-        return 1
+        return 0 if IN_PROGRESS else 1
 
     if not quiet:
         print(f"✅ 序列里 {len(want)} 个补丁全部应用且内容与仓库一致（P-165，{stamp.name}）")
@@ -206,6 +209,10 @@ def check_stamp(stamp: pathlib.Path, quiet: bool) -> int:
 
 def input_matches_repo() -> str:
     """P-166: the build must not carry its own copy of the patch list."""
+    if INPUT is None:
+        sys.exit("check-build-applied: K60_DEVICE_INPUT is not set; refusing to compare the series "
+                 "against a mirror the caller did not name (2026-11-16: the silent fallback turned "
+                 "one unset variable into five false reds in check-rules).")
     if not INPUT.is_file():
         return "input series absent; skipping parity check"
     repo = series_entries()

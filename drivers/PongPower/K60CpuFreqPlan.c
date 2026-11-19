@@ -64,36 +64,133 @@ int k60_cpufreq_pick_highest(const K60CpuFreqTable *table, uint32_t cap_khz,
     return 0;
 }
 
-unsigned k60_cpufreq_target(const K60CpuFreqTable *table, unsigned current,
-    unsigned busy_permille, unsigned shared_cluster, unsigned boost,
-    unsigned framing, unsigned quiet_windows)
+int k60_cpufreq_pick_lowest(const K60CpuFreqTable *table, unsigned *index,
+    uint32_t *khz)
 {
-    unsigned want;
+    unsigned best = 0, i;
+
+    if (!table || !table->count) return -1;
+    for (i = 1; i < table->count; ++i) {
+        if (table->khz[i] < table->khz[best]) best = i;
+    }
+    if (index) *index = best;
+    if (khz) *khz = table->khz[best];
+    return 0;
+}
+
+int k60_cpufreq_pick_at_least(const K60CpuFreqTable *table, uint32_t khz,
+    unsigned *index, uint32_t *out)
+{
+    int best = -1;
+    unsigned i;
+
+    if (!table || !table->count) return -1;
+    for (i = 0; i < table->count; ++i) {
+        if (table->khz[i] < khz) continue;
+        if (best < 0 || table->khz[i] < table->khz[best]) best = (int)i;
+    }
+    if (best < 0) return -1;
+    if (index) *index = (unsigned)best;
+    if (out) *out = table->khz[best];
+    return 0;
+}
+
+int k60_cpufreq_l3_target(const K60CpuFreqTable *l3,
+    const uint32_t *domain_khz, const uint32_t *domain_top, unsigned boost,
+    unsigned *index, uint32_t *khz)
+{
+    uint64_t share = 0, target;
+    uint32_t top = 0;
+    unsigned topIndex = 0, domain;
+
+    if (!l3 || !l3->count || !domain_khz || !domain_top) return -1;
+    if (k60_cpufreq_pick_highest(l3, 0, &topIndex, &top)) return -1;
+    if (boost) {
+        if (index) *index = topIndex;
+        if (khz) *khz = top;
+        return 0;
+    }
+    for (domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+        uint64_t candidate;
+        if (!domain_top[domain] || !domain_khz[domain]) continue;
+        candidate = (uint64_t)domain_khz[domain] * 1000000u / domain_top[domain];
+        if (candidate > share) share = candidate;
+    }
+    if (!share) return -1;
+    if (share > 1000000u) share = 1000000u;
+    target = (uint64_t)top * share / 1000000u;
+    if (k60_cpufreq_pick_at_least(l3, (uint32_t)target, index, khz)) {
+        if (index) *index = topIndex;
+        if (khz) *khz = top;
+    }
+    return 0;
+}
+
+static unsigned target_under_cap(const K60CpuFreqTable *table, uint32_t cap_khz,
+    unsigned current, unsigned busy_permille, unsigned shared_cluster,
+    unsigned boost, unsigned framing, unsigned quiet_windows)
+{
+    unsigned last, want;
 
     if (!table || !table->count) return 0;
-    if (current >= table->count) current = table->count - 1;
+    last = table->count - 1;
+    if (cap_khz) {
+        while (last > 0 && table->khz[last] > cap_khz) --last;
+        if (table->khz[last] > cap_khz) return table->count;
+    }
+    if (current > last) current = last;
     if (busy_permille >= K60_CPU_FREQ_HISPEED) {
-        want = table->count - 1;
+        want = last;
     } else {
         const uint64_t need = (uint64_t)table->khz[current] * busy_permille *
             K60_CPU_FREQ_MARGIN / 100000u;
         want = 0;
-        while (want + 1 < table->count && table->khz[want] < need) ++want;
+        while (want + 1 <= last && table->khz[want] < need) ++want;
     }
     if (framing) {
-        const uint64_t floor = (uint64_t)table->khz[table->count - 1] *
+        const uint64_t floor = (uint64_t)table->khz[last] *
             K60_CPU_FREQ_FRAME_PCT / 100u;
-        while (want + 1 < table->count && table->khz[want] < floor) ++want;
+        while (want + 1 <= last && table->khz[want] < floor) ++want;
     }
-    if (shared_cluster) {
-        if (boost) {
-            want = table->count - 1;
-        } else if (quiet_windows < K60_CPU_FREQ_QUIET_WINDOWS) {
-            const uint64_t half = table->khz[table->count - 1] / 2u;
-            while (want + 1 < table->count && table->khz[want] < half) ++want;
-        }
+    if (boost) {
+        /* A touch boost holds every domain at the top. The shared clusters
+         * take it on their own rail; the boot cluster needs it too, because
+         * the performance clusters ignore the vote and this is the only
+         * cluster where the boost becomes visible in the hardware. */
+        want = last;
+    } else if (shared_cluster && quiet_windows < K60_CPU_FREQ_QUIET_WINDOWS) {
+        const uint64_t half = table->khz[last] / 2u;
+        while (want + 1 <= last && table->khz[want] < half) ++want;
     }
     return want;
+}
+
+unsigned k60_cpufreq_target(const K60CpuFreqTable *table, unsigned current,
+    unsigned busy_permille, unsigned shared_cluster, unsigned boost,
+    unsigned framing, unsigned quiet_windows)
+{
+    return target_under_cap(table, 0, current, busy_permille, shared_cluster,
+        boost, framing, quiet_windows);
+}
+
+unsigned k60_cpufreq_target_capped(const K60CpuFreqTable *table, uint32_t cap_khz,
+    unsigned current, unsigned busy_permille, unsigned shared_cluster,
+    unsigned boost, unsigned framing, unsigned quiet_windows)
+{
+    return target_under_cap(table, cap_khz, current, busy_permille, shared_cluster,
+        boost, framing, quiet_windows);
+}
+
+uint32_t k60_cpufreq_hardware_cap(uint32_t state_raw, uint32_t limit_raw,
+    uint32_t table_top)
+{
+    uint32_t state, cap;
+
+    if (!(limit_raw & K60_CPU_FREQ_HW_LIMIT_ACTIVE)) return table_top;
+    state = state_raw & 0xffu;
+    if (!state) return table_top;
+    cap = state * K60_CPU_FREQ_XO_KHZ;
+    return cap < table_top ? cap : table_top;
 }
 
 unsigned k60_cpufreq_step(const K60CpuFreqTable *table, unsigned *current,
@@ -158,6 +255,40 @@ unsigned k60_cpufreq_domain_busy(const uint64_t *idle_delta, unsigned count,
     return busy;
 }
 
+unsigned k60_cpufreq_domain_busy_elapsed(const uint64_t *idle_delta,
+    const uint64_t *elapsed, unsigned count, unsigned domain)
+{
+    unsigned cpu, busy = 0;
+
+    if (!idle_delta || !elapsed || !count || count > K60_CPU_FREQ_CPUS ||
+        domain >= K60_CPU_FREQ_DOMAINS)
+        return 0;
+    for (cpu = 0; cpu < count; ++cpu) {
+        unsigned b;
+        if (k60_cpufreq_domain_of_cpu(cpu) != domain) continue;
+        b = k60_cpufreq_busy_permille(idle_delta[cpu], elapsed[cpu]);
+        if (b > busy) busy = b;
+    }
+    return busy;
+}
+
+int k60_cpufreq_tick_delta(const uint32_t previous[4], const uint32_t current[4],
+    uint64_t *idle, uint64_t *elapsed)
+{
+    uint64_t total = 0, stopped = 0;
+    unsigned state;
+
+    if (!previous || !current || !idle || !elapsed) return -1;
+    for (state = 0; state < 4; ++state) {
+        const uint32_t delta = current[state] - previous[state];
+        total += delta;
+        if (state == K60_CPU_FREQ_STATE_IDLE) stopped = delta;
+    }
+    *idle = stopped;
+    *elapsed = total;
+    return total ? 0 : -1;
+}
+
 unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned level,
     K60CpuFreqWrite *out, unsigned capacity)
 {
@@ -182,6 +313,64 @@ unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigne
     return 1;
 }
 
+unsigned k60_cpufreq_pdmem_offset(unsigned domain)
+{
+    if (domain >= K60_CPU_FREQ_DOMAINS) return 0;
+    return K60_CPU_FREQ_PDMEM_VOTE_OFFSET + 4 * domain;
+}
+
+unsigned k60_cpufreq_build_pdmem_vote(unsigned domain, unsigned level, K60CpuFreqWrite *out, unsigned capacity)
+{
+    const unsigned offset = k60_cpufreq_pdmem_offset(domain);
+
+    if (!out || !capacity || !offset || level >= K60_CPU_FREQ_LUT_ROWS) return 0;
+    out[0].offset = offset;
+    out[0].value = level;
+    return 1;
+}
+
+int k60_cpufreq_vote_allowed(unsigned enable, const K60CpuFreqTable *table,
+    unsigned level, unsigned writes)
+{
+    unsigned i;
+
+    if (!enable || !table || !table->count || table->count > K60_CPU_FREQ_LUT_ROWS ||
+        !writes || writes > K60_CPU_FREQ_MAX_WRITES ||
+        level >= K60_CPU_FREQ_LUT_ROWS)
+        return 0;
+    for (i = 0; i < table->count; ++i)
+        if (table->level[i] == level) return 1;
+    return 0;
+}
+
+int k60_cpufreq_check_readback(const K60CpuFreqWrite *writes,
+    const uint32_t *readback, unsigned count)
+{
+    unsigned i;
+
+    if (!writes || !readback || !count || count > K60_CPU_FREQ_MAX_WRITES)
+        return 0;
+    for (i = 0; i < count; ++i)
+        if (readback[i] != writes[i].value) return 0;
+    return 1;
+}
+
+unsigned k60_cpufreq_build_restore(const K60CpuFreqWrite *writes,
+    const uint32_t *original, unsigned count, K60CpuFreqWrite *out,
+    unsigned capacity)
+{
+    unsigned i;
+
+    if (!writes || !original || !out || !count ||
+        count > K60_CPU_FREQ_MAX_WRITES || capacity < count)
+        return 0;
+    for (i = 0; i < count; ++i) {
+        out[i].offset = writes[i].offset;
+        out[i].value = original[i];
+    }
+    return count;
+}
+
 void k60_cpufreq_governor_reset(K60CpuFreqGovernor *gov, unsigned level)
 {
     unsigned d;
@@ -194,21 +383,31 @@ void k60_cpufreq_governor_reset(K60CpuFreqGovernor *gov, unsigned level)
     }
 }
 
-int k60_cpufreq_governor_window(K60CpuFreqGovernor *gov, const K60CpuFreqTable *table,
-    unsigned domain, unsigned busy_permille, unsigned boost, unsigned framing)
+int k60_cpufreq_governor_window_capped(K60CpuFreqGovernor *gov,
+    const K60CpuFreqTable *table, unsigned domain, unsigned busy_permille,
+    unsigned boost, unsigned framing, uint32_t cap_khz)
 {
     unsigned quiet, want;
     int changed;
 
     if (!gov || !table || !table->count || domain >= K60_CPU_FREQ_DOMAINS) return -1;
     quiet = gov->quiet[domain];
-    want = k60_cpufreq_target(table, gov->current[domain], busy_permille,
-        domain != 0, boost, framing, quiet);
-    changed = (int)k60_cpufreq_step(table, &gov->current[domain], want, &gov->down[domain]);
-    if (changed || boost) {
-        gov->quiet[domain] = 0;
-    } else if (quiet < K60_CPU_FREQ_QUIET_WINDOWS) {
-        gov->quiet[domain] = quiet + 1;
+    if (busy_permille < K60_CPU_FREQ_QUIET_BUSY) {
+        if (quiet < K60_CPU_FREQ_QUIET_WINDOWS) ++quiet;
+    } else {
+        quiet = 0;
     }
+    gov->quiet[domain] = quiet;
+    want = k60_cpufreq_target_capped(table, cap_khz, gov->current[domain],
+        busy_permille, domain != 0, boost, framing, quiet);
+    if (want >= table->count) return -1;
+    changed = (int)k60_cpufreq_step(table, &gov->current[domain], want, &gov->down[domain]);
     return changed;
+}
+
+int k60_cpufreq_governor_window(K60CpuFreqGovernor *gov, const K60CpuFreqTable *table,
+    unsigned domain, unsigned busy_permille, unsigned boost, unsigned framing)
+{
+    return k60_cpufreq_governor_window_capped(gov, table, domain, busy_permille,
+        boost, framing, 0);
 }

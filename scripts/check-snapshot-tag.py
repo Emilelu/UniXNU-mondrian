@@ -10,6 +10,10 @@ Allowed tag kinds (AGENTS.md iron rule 7):
   boot-proven-YYYYMMDD  - an image from this commit reached SpringBoard
   snap-rN               - the commit registered as the main baseline (iron 9)
   vX.Y.Z-...            - a release milestone the READMEs point at
+  a release tag         - any tag a workflow downloads an asset from, i.e. its
+                          name appears in `releases/download/<tag>/` under
+                          `.github/workflows/`. Read off the files rather than
+                          listed here, so the rule cannot drift (P-252).
 
 Checks:
   1. no tag outside those three patterns (catches per-commit/per-round spam)
@@ -33,6 +37,34 @@ ALLOWED = (
     re.compile(r'^snap-r\d+$'),
     re.compile(r'^v\d+\.\d+\.\d+'),
 )
+
+RELEASE_URL = re.compile(r"releases/download/([^/\s\"')]+)/")
+WORKFLOWS = os.path.join(REPO, '.github', 'workflows')
+
+
+def release_tags():
+    """Tags a workflow downloads an asset from.
+
+    Deleting one turns its release into a draft and breaks that workflow, so the
+    gate must read the answer out of the files instead of carrying a list that
+    goes stale the moment a tag is renamed (P-252).
+    """
+    found = {}
+    try:
+        names = sorted(os.listdir(WORKFLOWS))
+    except OSError:
+        return found
+    for name in names:
+        if not name.endswith(('.yml', '.yaml')):
+            continue
+        path = os.path.join(WORKFLOWS, name)
+        try:
+            body = open(path, encoding='utf-8').read()
+        except OSError:
+            continue
+        for tag in RELEASE_URL.findall(body):
+            found.setdefault(tag, []).append(name)
+    return found
 
 
 def git(*args):
@@ -167,7 +199,15 @@ def check():
     tags = [t for t in git('tag').split('\n') if t.strip()]
     problems = []
 
-    bad = [t for t in tags if not any(p.match(t) for p in ALLOWED)]
+    # A tag a workflow downloads from is load-bearing even though it matches
+    # none of the three naming patterns; deleting it drafts the release (P-252).
+    release = release_tags()
+    bad = [t for t in tags
+           if not any(p.match(t) for p in ALLOWED) and t not in release]
+    for t in tags:
+        if t in release and not any(p.match(t) for p in ALLOWED):
+            print('  ℹ️  %s 是 release 资源 tag（%s 下载它），保留'
+                  % (t, ', '.join(sorted(set(release[t])))))
     if bad:
         problems.append('有 %d 个不属于「上机验证 / main 基线 / 版本里程碑」的 tag：' % len(bad))
         for t in bad[:8]:
@@ -210,11 +250,12 @@ def check():
         print('     tag 规则见 AGENTS.md 铁则 7 与 docs/engineering/TAGS.md')
         return 1
 
-    print('  ✅ 快照策略通过：%d 个 tag（boot-proven %d / 基线 %d / 版本 %d），最近 boot-proven %s%s'
+    print('  ✅ 快照策略通过：%d 个 tag（boot-proven %d / 基线 %d / 版本 %d / release %d），最近 boot-proven %s%s'
           % (len(tags),
              len([t for t in tags if t.startswith('boot-proven-')]),
              len([t for t in tags if t.startswith('snap-r')]),
              len([t for t in tags if t.startswith('v')]),
+             len(release),
              sorted(proven)[-1],
              '（远端未核实）' if is_pushed(sorted(proven)[-1]) is None else ' 已推送'))
     return 0

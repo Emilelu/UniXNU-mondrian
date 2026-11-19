@@ -25,6 +25,9 @@
 #include "K60ChargeAuth.h"
 #include "K60BatteryProtocol.generated.h"
 
+/* Implemented in K60CpuFreqProbe.cpp; called before the workloop is torn down. */
+extern "C" void k60_cpufreq_sample_stop(void);
+
 namespace {
 constexpr uint32_t kPollMs = 20, kRefreshMs = 5000, kRequestMs = 3000, kChannelMs = 5000;
 constexpr unsigned kPropertyNumbers = 39;
@@ -600,6 +603,7 @@ IOReturn K60Battery::shutdownAction(OSObject *owner, void *, void *, void *, voi
 }
 void K60Battery::cleanup()
 {
+    k60_cpufreq_sample_stop();
     /* runAction owns the same gate as every timer/GLINK callback. Cancellation
      * alone does not serialize with an action already running on the loop. */
     if (loop) loop->runAction(shutdownAction, this);
@@ -633,11 +637,16 @@ void K60Battery::free()
 /* Read-only EPSS probe, gated by its own k60_cpufreq boot argument; it needs
  * neither the ADSP lease nor the battery configuration below. */
 extern "C" void k60_cpufreq_probe(void);
+extern "C" void k60_cpufreq_probe_late(void);
+extern "C" void k60_platform_sleep_register(void);
 
 extern "C" void k60_physical_battery_start(void)
 {
     static unsigned attempted;
     k60_cpufreq_probe();
+    /* The sleep hook records its board before ArmCpu parses platform-sleep;
+     * it needs neither the ADSP lease nor the battery configuration. */
+    k60_platform_sleep_register();
     unsigned enabled = 1;
     PE_parse_boot_argn("k60_battery", &enabled, sizeof(enabled));
     if (!enabled || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
@@ -663,6 +672,16 @@ extern "C" void k60_physical_battery_start(void)
         IOLog("K60Battery: source setup rejected; no power-source publication\n");
         return;
     }
+    /* Probe-only second EPSS pass: the first pass runs before ArmCpu starts
+     * the secondary CPUs, so domains 1 and 2 can still read as disabled.
+     * Gate it on the same boot argument and never vote from here. */
+    unsigned probeMode = 0;
+    PE_parse_boot_argn("k60_cpufreq", &probeMode, sizeof(probeMode));
+    if (probeMode == 1) {
+        IOSleep(5000);
+        k60_cpufreq_probe_late();
+    }
+
     /* The builtin service retains its one owner reference for the epoch.
      * Timers only exist after the hardware lease is verified. */
 }

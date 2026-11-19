@@ -30,6 +30,10 @@
 | SA-03 | WiFi 实现差距调研 | 2026-11-12 11:37 | `docs/research/wifi/GAP-ANALYSIS.md` | `file:docs/research/wifi/FIRMWARE.md` | landed | PENDING |
 | SA-04 | charger .ko reverse engineering (symbol map, glink contract, key paths) | 2026-11-14 11:44 | `docs/research/charger/02-GLINK-CONTRACT.md` | `grep:docs/research/charger/02-GLINK-CONTRACT.md:battery_charger` | landed | a53cb04 |
 | SA-05 | charger prop map and open-question closure (04/05) | 2026-11-14 13:02 | `docs/research/charger/04-PROP-MAP.md` | `grep:docs/research/charger/04-PROP-MAP.md:battery_prop_map` | landed | 3d05e43 |
+| SA-06 | thermal 线同型号/官方/反编译/广查四步调研 | 2026-11-14 12:50 | `docs/research/thermal/04-ANDROID-EVIDENCE.md` | `file:drivers/PongThermal/K60Tsens.c` | landed | bdf2d5c |
+
+| SA-08 | independent WiFi/BT evidence boundary audit | 2026-11-16 15:00 | `docs/audits/REASSESSMENT-2026-11-16.md` | `grep:docs/audits/REASSESSMENT-2026-11-16.md:No root cause is established.` | landed | db6fd5dd7160a06a67a1c39b5e10b8e19c5804fd |
+| SA-07 | full-sync and exact upstream candidate audit | 2026-11-16 15:00 | `docs/audits/REASSESSMENT-2026-11-16.md` | `grep:docs/audits/REASSESSMENT-2026-11-16.md:598 unique reference-source candidates` | landed | db6fd5dd7160a06a67a1c39b5e10b8e19c5804fd |
 | SA-CONFIG-CONSISTENCY | defconfig vs generated .config checker | 2026-11-12 19:35 | `docs/research/evidence/SA-CONFIG-CONSISTENCY.md` | `grep:docs/research/evidence/SA-CONFIG-CONSISTENCY.md:.config` | landed | `faacc2d` |
 | SA-BOOT-EVIDENCE | boot evidence audit: battery image reached SpringBoard, k60_touch_se=19 killed touch | 2026-11-12 19:35 | `docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md` | `grep:docs/research/evidence/SA-BOOT-EVIDENCE-20261112.md:k60_touch_se` | landed | `faacc2d` |
 

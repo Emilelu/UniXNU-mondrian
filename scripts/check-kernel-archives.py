@@ -38,6 +38,9 @@ EXPECTED = (
     ("XNU_ARMCPU", "build/armcpu/libArmCpu.a", "ArmCpu10prepareGic"),
     ("XNU_ARM_DT_PLATFORM", "build/armdt-platform/libArmDTPlatform.a", "ArmDTPlatform"),
     ("XNU_NATIVE_ADRENO", "build/native-adreno/libNativeAdreno.a", "NativeAdreno"),
+    # Off by default (CONFIG_XNU_PONG_THERMAL=n); when switched on this row is
+    # what catches the archive being force-loaded into a branch that never runs.
+    ("XNU_PONG_THERMAL", "build/thermal-kext/libK60ThermalKext.a", "k60_thermal_start"),
 )
 
 

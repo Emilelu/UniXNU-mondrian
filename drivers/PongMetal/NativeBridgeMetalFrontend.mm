@@ -722,7 +722,9 @@ static void waitForResource(id resource) {
 }
 - (void)drawPrimitives:(MTLPrimitiveType)t vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i baseInstance:(NSUInteger)b {
  gDraws++;self.commandBuffer->encodedWork.draws++;
+ if(gDraws.load()<=4)NBLOG(@"K60DRAW enter draws=%llu",(unsigned long long)gDraws.load());
  [self check:nmb_render_draw(self.handle,t,(uint32_t)s,(uint32_t)n,(uint32_t)i,(uint32_t)b) what:"drawPrimitives"];
+ if(gDraws.load()<=4)NBLOG(@"K60DRAW leave draws=%llu",(unsigned long long)gDraws.load());
 }
 - (void)drawPrimitives:(MTLPrimitiveType)t vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i {
  [self drawPrimitives:t vertexStart:s vertexCount:n instanceCount:i baseInstance:0];
@@ -904,7 +906,11 @@ static void scheduled(void *context);
 - (void)addScheduledHandler:(MTLCommandBufferHandler)block {if(block)@synchronized(self){[_scheduledHandlers addObject:[block copy]];}}
 - (void)addCompletedHandler:(MTLCommandBufferHandler)block {if(block)@synchronized(self){[_completedHandlers addObject:[block copy]];}}
 // A drawable (RenderBox's CAMetalLayer path) is presented once the GPU has written it: this runtime's scheduling comes before completion.
-- (void)presentDrawable:(id<MTLDrawable>)drawable {[self addCompletedHandler:^(id<MTLCommandBuffer>){[drawable present];}];}
+- (void)presentDrawable:(id<MTLDrawable>)drawable {
+ static std::atomic<uint64_t> k60PdSeen{0};
+ if(k60PdSeen.fetch_add(1)==0)NBLOG(@"K60CB first presentDrawable");
+ [self addCompletedHandler:^(id<MTLCommandBuffer>){[drawable present];}];
+}
 - (void)presentDrawable:(id<MTLDrawable>)drawable atTime:(CFTimeInterval)time {[self addCompletedHandler:^(id<MTLCommandBuffer>){[drawable presentAtTime:time];}];}
 - (void)enqueue {}
 - (void)event:(id<MTLEvent>)event value:(uint64_t)value signal:(bool)signal {
@@ -1018,6 +1024,8 @@ static void completed(void *context) {
 @implementation NBQueue
 - (void)dealloc {nmb_queue_release(_handle);}
 - (id<MTLCommandBuffer>)commandBuffer {
+ static std::atomic<uint64_t> k60CbSeen{0};
+ if(k60CbSeen.fetch_add(1)==0)NBLOG(@"K60CB first command buffer requested");
  NmbCommandBuffer *handle=nmb_command_buffer_new(_handle);
  if(!handle){NBLOG(@"native-metal: commandBuffer refused: %@",lastError());return nil;}
  NBCommandBuffer *commandBuffer=[NBCommandBuffer new];commandBuffer.handle=handle;commandBuffer.queue=self;return (id<MTLCommandBuffer>)commandBuffer;
@@ -1260,6 +1268,9 @@ static bool pipelineArchives(NSArray *list,std::vector<NmbBinaryArchive *> &arch
 // creation threw and iconservicesagent aborted while rasterizing symbol glyphs. The GPU has no memory of its own; it shares the system's.
 - (uint64_t)dedicatedMemorySize {return 0;}
 - (uint64_t)sharedMemorySize {return [NSProcessInfo processInfo].physicalMemory;}
+// Core Image/MPS's CIMetalDeviceGetLimits reads gpuCoreCount. This is board topology, not a runtime query: SM8475's
+// A730 has four SP/CCU blocks, as against the eight of the A740 board the original frontend was written for.
+- (NSUInteger)gpuCoreCount {return 4;}
 - (BOOL)isLowPower {return NO;}
 - (BOOL)isRemovable {return NO;}
 - (BOOL)isHeadless {return NO;}
@@ -1512,6 +1523,9 @@ static BOOL flagArgAnswer(id,SEL cmd,NSUInteger arg) {return askAnswer(cmd,arg)!
 static void installAnswers(Class cls) {
  uint32_t kind=0;
  for(size_t i=0;const char *name=nmb_device_answer_selector(i,&kind);i++) {
+  // Board methods were installed first. Do not probe the runtime's generic absent answer for a selector the qualified
+  // frontend already implements.
+  if(class_getInstanceMethod([NBDeviceMethods class],sel_registerName(name)))continue;
   SEL sel=sel_registerName(name);uint64_t value=0;
   switch(kind) {
   case NMB_ANSWER_COUNT: case NMB_ANSWER_FLAG:

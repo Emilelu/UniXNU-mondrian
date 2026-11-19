@@ -400,7 +400,12 @@ static int receive_one(QcomGlink *g)
             rx_peek(&g->rx, 8 + 8 * i, pair, 8);
             if (!c) continue;
             const uint32_t size = le32(pair), id = le32(pair + 4);
-            if (!size) {g->dropped++; continue;} /* id 0 is a valid GLINK intent; only a zero-size placeholder is useless */
+            /* D9: carried from the modem line's 0622-k60-modem-qrtr.patch, which
+             * rejects the whole intent list with QcomGlinkCorrupt.  Dropping the
+             * one placeholder and keeping the rest is the stricter reading here:
+             * id 0 is a valid GLINK intent, so a zero-size entry is a placeholder
+             * the sender never filled, not corruption of its neighbours. */
+            if (!size) {g->dropped++; continue;}
             unsigned slot = QCOM_GLINK_MAX_REMOTE_INTENTS;
             for (unsigned k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k)
                 if (c->remote[k].valid && c->remote[k].id == id) {slot = k; break;}

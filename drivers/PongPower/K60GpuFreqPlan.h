@@ -42,9 +42,60 @@ unsigned k60_gpu_target(const K60GpuTable *table, unsigned current,
 void k60_gpu_governor_reset(K60GpuGovernor *gov, unsigned floor);
 int k60_gpu_governor_window(K60GpuGovernor *gov, const K60GpuTable *table,
     unsigned busy_permille, unsigned idle_ms);
-/* HFI GX_BW_PERF_VOTE payload excluding the wire header: {1, level, bandwidth}.
- * Returns 3, or 0 when the level/bandwidth is outside the wire field. */
+/* Lowest 1-based level whose OPP is at or above khz, or the top level when no
+ * OPP reaches it. 0 on a missing/empty table. No MMIO. */
+unsigned k60_gpu_level_for_khz(const K60GpuTable *table, uint64_t khz);
+/* Wake boost floor (official section 5: 2x the pre-idle clock, at least
+ * 578 MHz, for 50 ms). Returns the 1-based level, clamped to the table top;
+ * 0 on a missing table or a zero current level. No MMIO. */
+unsigned k60_gpu_wake_level(const K60GpuTable *table, unsigned current,
+    uint64_t min_khz);
+/* HFI GX_BW_PERF_VOTE payload excluding the wire header: {1, level, bus index}.
+ * The bus index selects the preprogrammed bandwidth level, not a kB/s value.
+ * Returns 3, or 0 when the level or bus index is outside the wire field. */
 unsigned k60_gpu_vote_payload(unsigned level, unsigned bandwidth, uint32_t out[3]);
+
+/* Wake boost floor and the refusal budget the DCVS thread applies. */
+#define K60_GPU_WAKE_MIN_KHZ 578000u
+#define K60_GPU_STOP_REFUSALS 8u
+
+/* Runtime state of the GPU DCVS thread: the hardware level, the wake boost and
+ * the counters the 10 s summary prints. The governor keeps its own level; both
+ * move together on a successful vote. */
+typedef struct {
+    unsigned level;
+    unsigned floor;
+    unsigned top;
+    unsigned wake_level;
+    uint64_t wake_end_ns;
+    unsigned idle_ms;
+    int idle;
+    unsigned wakes;
+    unsigned changes;
+    unsigned refused;
+} K60GpuDcvs;
+
+/* Seat the thread at `floor`, clamp the window to [floor, top]. */
+void k60_gpu_dcvs_reset(K60GpuDcvs *dcvs, K60GpuGovernor *gov, unsigned floor,
+    unsigned top);
+/* Arm the wake boost when a submission window is active and the GPU is idle:
+ * the 2x/578 MHz boost starts before the busy counter sees the work, so the
+ * first frame after idle is not rendered at the dropped clock. Returns 1 when
+ * armed, 0 when not needed, -1 on bad arguments. No MMIO. */
+int k60_gpu_dcvs_submit(K60GpuDcvs *dcvs, const K60GpuTable *table,
+    uint64_t now_ns, unsigned boost_ms, uint64_t wake_min_khz);
+/* One 16 ms window: feeds the governor, arms the wake boost when activity
+ * resumes after idle, applies it while it has not expired, and clamps the
+ * result to [floor, top]. Stores the level to vote in *want. Returns 0, or -1
+ * on bad arguments or a governor failure. No MMIO, no vote. */
+int k60_gpu_dcvs_window(K60GpuDcvs *dcvs, K60GpuGovernor *gov,
+    const K60GpuTable *table, uint64_t delta_ticks, uint64_t window_ns,
+    uint64_t now_ns, unsigned boost_ms, uint64_t wake_min_khz, unsigned *want);
+/* Record the vote for `want`: a success moves both levels, a refusal counts.
+ * Returns 1 when the thread should stop (K60_GPU_STOP_REFUSALS refusals in a
+ * row), 0 to continue. */
+int k60_gpu_dcvs_voted(K60GpuDcvs *dcvs, K60GpuGovernor *gov, unsigned want,
+    int accepted);
 #ifdef __cplusplus
 }
 #endif

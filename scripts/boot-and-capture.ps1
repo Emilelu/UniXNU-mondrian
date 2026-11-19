@@ -8,11 +8,16 @@ param(
     [int]$ReopenSeconds=120,
     [int]$PanicGraceSeconds=30,
     [int]$WaitFastboot=0,
+    [switch]$RebootToFastboot,
     [string]$OutDir,
     [string]$Fastboot='D:\Android\platform-tools\fastboot.exe',
-    [string]$Serial='6033dbec'
+    [string]$Adb='D:\Android\platform-tools\adb.exe',
+    [string]$Serial='6033dbec',
+    [string]$Actor='',
+    [string]$LockPath='E:\k60-work\state\k60-device-boot.lock'
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'k60-boot-lock.ps1')
 if (-not (Test-Path -LiteralPath $Image -PathType Leaf)) { throw "image not found: $Image" }
 if (-not (Test-Path -LiteralPath $Fastboot -PathType Leaf)) { throw "fastboot not found: $Fastboot" }
 $Image=(Resolve-Path -LiteralPath $Image).Path
@@ -28,6 +33,7 @@ $bootText=Join-Path $OutDir 'fastboot.log'
 $metaPath=Join-Path $OutDir 'capture.json'
 $bootRecord=Join-Path $OutDir 'boot.json'
 $reader=$null; $bootRc=-1; $bootAccepted=$false; $returned=$false; $lastError=$null
+$bootClaim=$null; $bootBusy=$false
 $started=Get-Date
 $meta=[ordered]@{ image=$Image; imageSha256=$imageSha; serial=$Serial; startedAt=$started.ToString('o'); captureArmed=$false; bootAccepted=$false; bootExitCode=-1; returnedToFastboot=$false }
 function Invoke-Fastboot([string[]]$Arguments) {
@@ -40,7 +46,40 @@ function Test-TargetFastboot {
     $probe=Invoke-Fastboot @('devices')
     return ($probe.code -eq 0 -and $probe.text -match ('(?m)^'+[regex]::Escape($Serial)+'\s+fastboot\s*$'))
 }
+function Invoke-Adb([string[]]$Arguments) {
+    $prev=$ErrorActionPreference; $ErrorActionPreference='Continue'
+    try { $text=(& $Adb @Arguments 2>&1 | Out-String); $rc=$LASTEXITCODE }
+    finally { $ErrorActionPreference=$prev }
+    return [pscustomobject]@{ text=$text; code=$rc }
+}
+function Test-TargetAdb {
+    if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) { return $false }
+    $probe=Invoke-Adb @('devices')
+    return ($probe.text -match ('(?m)^'+[regex]::Escape($Serial)+'\s+(device|recovery|sideload)\s*$'))
+}
 try {
+    if ([string]::IsNullOrWhiteSpace($Actor)) {
+        throw 'K60_BOOT_ACTOR_REQUIRED: pass -Actor from K60_AGENT_ID; lock attribution cannot be anonymous'
+    }
+    try {
+        $bootClaim = Enter-K60BootLock -Path $LockPath -Actor $Actor -Serial $Serial -Image $Image
+    } catch {
+        if ($_.Exception.Message -like 'K60_BOOT_BUSY:*') { $bootBusy = $true }
+        throw
+    }
+    if ($RebootToFastboot -and -not (Test-TargetFastboot)) {
+        if (-not (Test-TargetAdb)) { throw "target $Serial is neither in fastboot nor reachable by adb" }
+        # The reboot happens INSIDE the claim: a reboot outside it would tear down
+        # another actor's capture, and the loser would read an image it never booted.
+        Write-Host 'Rebooting the target into fastboot under the claim.'
+        $reboot=Invoke-Adb @('-s',$Serial,'reboot','bootloader')
+        $reboot.text | Set-Content -LiteralPath $bootText -Encoding UTF8
+        $deadline=(Get-Date).AddSeconds([Math]::Max($WaitFastboot,60))
+        while (-not (Test-TargetFastboot)) {
+            if ((Get-Date) -ge $deadline) { throw "target $Serial did not reach fastboot after adb reboot bootloader" }
+            Start-Sleep -Seconds 1
+        }
+    }
     if (-not (Test-TargetFastboot)) { throw "target $Serial is not in fastboot" }
     Write-Host "Image: $Image`nSHA256: $imageSha`nEvidence: $OutDir"
     $engine=Join-Path $PSHOME 'powershell.exe'
@@ -102,18 +141,23 @@ try {
 } catch {
     $lastError=$_.Exception.Message; Write-Host "Boot supervision error: $lastError"
 } finally {
-    if ($reader) {
-        $reader.Refresh()
-        if (-not $reader.HasExited) {
-            'supervisor stopped' | Set-Content -LiteralPath $stopFile -Encoding ASCII
-            $end=(Get-Date).AddSeconds(5)
-            while (-not $reader.HasExited -and (Get-Date) -lt $end) { Start-Sleep -Milliseconds 100; $reader.Refresh() }
-            if (-not $reader.HasExited) { $reader.Kill(); $reader.WaitForExit() }
+    try {
+        if ($reader) {
+            $reader.Refresh()
+            if (-not $reader.HasExited) {
+                'supervisor stopped' | Set-Content -LiteralPath $stopFile -Encoding ASCII
+                $end=(Get-Date).AddSeconds(5)
+                while (-not $reader.HasExited -and (Get-Date) -lt $end) { Start-Sleep -Milliseconds 100; $reader.Refresh() }
+                if (-not $reader.HasExited) { $reader.Kill(); $reader.WaitForExit() }
+            }
         }
+        $meta.bootAccepted=$bootAccepted; $meta.bootExitCode=$bootRc
+        $meta.returnedToFastboot=$returned; $meta.error=$lastError; $meta.finishedAt=(Get-Date).ToString('o')
+        $meta.bootClaimBusy=$bootBusy; $meta.actor=$Actor
+        $meta | ConvertTo-Json | Set-Content -LiteralPath $bootRecord -Encoding UTF8
+    } finally {
+        if ($bootClaim) { Exit-K60BootLock -Claim $bootClaim }
     }
-    $meta.bootAccepted=$bootAccepted; $meta.bootExitCode=$bootRc
-    $meta.returnedToFastboot=$returned; $meta.error=$lastError; $meta.finishedAt=(Get-Date).ToString('o')
-    $meta | ConvertTo-Json | Set-Content -LiteralPath $bootRecord -Encoding UTF8
 }
 if (Test-Path -LiteralPath $metaPath) {
     $capture=Get-Content -Raw -LiteralPath $metaPath | ConvertFrom-Json
@@ -121,6 +165,8 @@ if (Test-Path -LiteralPath $metaPath) {
     if ($capture.bytes -gt 0) { Get-Content -LiteralPath (Join-Path $OutDir 'console.log') -Tail 40 }
 } else { Write-Host 'Console verdict: collector metadata missing; no kernel diagnosis is supported.' }
 Write-Host "Evidence: $OutDir"
+# 6 = another actor holds the machine-wide claim; the boot was never issued.
+if ($bootBusy) { Write-Host 'Boot claim refused: another actor is booting the device; no fastboot boot was issued.'; exit 6 }
 if ($lastError -or -not $bootAccepted) { exit 1 }
 if (-not $capture -or $capture.bytes -eq 0) { exit 2 }
 if ($returned) { exit 5 }

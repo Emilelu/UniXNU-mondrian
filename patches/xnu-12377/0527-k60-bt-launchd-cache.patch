@@ -1,0 +1,48 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8633,15 +8633,18 @@
+ /* The Bluetooth runtime that scripts/build-bluetooth-userspace.py stages travels in the
+  * same boot addon as the GPU plugin, but it has to appear under the standard system paths:
+  * launchd policy and dyld's library lookup both key off them. With boot-arg
+- * k60bt-runtime=1 the addon is unpacked below /private/var/ngpu and two read-only unions
+- * are mounted over the sealed system, the library over /usr/lib and the executables over
+- * /usr/sbin, after the Data mount and before launchd starts. A missing source only records
++ * k60bt-runtime=1 the addon is unpacked below /private/var/ngpu and three read-only unions
++ * are mounted over the sealed system: the library over /usr/lib, the executables over
++ * /usr/sbin and the launchd cache over /System/Library/xpc, after the Data mount and before
++ * launchd starts. A missing source only records
+  * its stage, so an image without the runtime boots as before. Kept out of
+  * native_gpu_addon_prepare(), which returns early unless gpu-addon=1. */
+ volatile int native_bt_runtime_lib_stage = 0;
+ volatile int native_bt_runtime_lib_status = -1;
+ volatile int native_bt_runtime_bin_stage = 0;
+ volatile int native_bt_runtime_bin_status = -1;
++volatile int native_bt_runtime_xpc_stage = 0;
++volatile int native_bt_runtime_xpc_status = -1;
+ static void
+ native_bt_runtime_prepare(proc_t p, user_addr_t scratch)
+ {
+@@ -8660,8 +8663,20 @@
+ 		    sizeof(bin_point), "/usr/sbin/notifyd", "/usr/sbin/QcaBluetooth.runtime",
+ 		    &native_bt_runtime_bin_stage, &native_bt_runtime_bin_status);
+ 	}
+-	printf("[bluetooth-runtime] library=%d/%d executables=%d/%d\n", native_bt_runtime_lib_stage,
+-	    native_bt_runtime_lib_status, native_bt_runtime_bin_stage, native_bt_runtime_bin_status);
++	/* iPadOS 27 imports its daemon jobs from this precompiled dictionary and xpcproxy
++	 * enforces the job's user, so the owner overlay carries the merged cache with the
++	 * BlueTool job rewritten to root. The detached signature next to it is checked
++	 * against the trust cache, so both files travel in the addon. */
++	static const char xpc_source[] = "/private/var/ngpu/xpc", xpc_point[] = "/System/Library/xpc";
++	if (native_bt_runtime_bin_stage == 5 && !native_bt_runtime_bin_status) {
++		native_gpu_addon_mount(p, scratch, 0xD00, xpc_source, sizeof(xpc_source), xpc_point,
++		    sizeof(xpc_point), "/System/Library/xpc/foreground_user_endpoints.plist",
++		    "/System/Library/xpc/launchd.plist", &native_bt_runtime_xpc_stage,
++		    &native_bt_runtime_xpc_status);
++	}
++	printf("[bluetooth-runtime] library=%d/%d executables=%d/%d cache=%d/%d\n",
++	    native_bt_runtime_lib_stage, native_bt_runtime_lib_status, native_bt_runtime_bin_stage,
++	    native_bt_runtime_bin_status, native_bt_runtime_xpc_stage, native_bt_runtime_xpc_status);
+ }
+ 
+ /* The deletable system apps (Weather, Notes, Calendar, ...) ship in the OS volume's /private/var/staged_system_apps. A restore copies

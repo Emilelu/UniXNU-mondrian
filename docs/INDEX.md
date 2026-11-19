@@ -49,6 +49,7 @@ docs/
 | 文件 | 一句话摘要 |
 |---|---|
 | [`STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细、重新审视结论与历史变更记录 |
+| [`IOS27.md`](engineering/IOS27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门与 IPSW 哈希；`--os ios-27.0.1-24A446` 选择 |
 | [`EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程规范：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机 |
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
@@ -108,6 +109,11 @@ docs/
 | `wifi/DARWINBOOT-POOL.md` | **WiFi 死因收窄②**：DarwinBoot 三处内存节点（ReadFile 的 AllocatePool / AllocateWindow 4.5 GiB 连续窗口 / FreePool(Image)）逐行失败形态与打印、board.toml:235 与 5120 MiB arena 的窗口算术对账、一次上机分开 pool 通道的判据 + 固件打印提案 |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
+| `bt/RESEARCH.md` | **蓝牙八步 ①②③**：QCA6490 走 GENI UART 的硬件真值、官方组件分工、与 iOS 27 用户态的对齐点 |
+| `bt/HANDOFF.md` | **蓝牙线交接**：从 0516 到 0525 的每一步、每次飞行的判据与缺口、恢复时的第一步 |
+| `bt/S4-SPEC.md` | **蓝牙 S4 规格与沿革**：传输层 ABI、电源节点、改速、官方启动参数，逐条带文件:行与产物哈希 |
+| `bt/MARCONI-AOP-GAP.md` | **marconi-bt 的真实身份**：三个 AOP/SPU 控制通道驱动，不是 HCI 端点 |
+| `plans/BT-USERLAND-COMPARE.md` | **用户态难度对比**：iOS 16 伪装路线与 iOS 27 重定位路线的估时与不可迁移性 |
 
 | [`battery/HANDOFF-PUBLISH.md`](research/battery/HANDOFF-PUBLISH.md) | **ADSP 交接发布者**：早期钩子、持续所有权、只读live发现/104字节发布、通知资格与离线测试；平台adapter已接线，板级资源与停机证明仍缺 |
 | [`battery/INTEGRATION-ORDER.md`](research/battery/INTEGRATION-ORDER.md) | **ADSP 交接集成时间轴**：六步与 IOKitBSDInit/电池/root 挂载的前后界限、默认关闭门控、零交接访问宿主断言和未来检查清单 |
@@ -139,6 +145,7 @@ docs/
 | `springboard/APPEX-REGISTRATION.md` | **小组件 .appex 零 spawn 离线取证（收窄版）**：注册链角色盘点、LS/MobileInstallation 注册库缺失、C1–C4 取舍与上机判据 |
 | `11-KEY-EVIDENCE-RING.md` | 关键证据闭环清单 |
 | `GENI-ACCESS-PRECONDITIONS.md` | GENI 引擎可访问性前置条件 |
+| [`ios-mondrian-traps.md`](research/ios-mondrian-traps.md) | **Same phone, second port**: 16 KiB granule, the 9 GiB window and its four rules, a pinned physmap seed, the splash FB alias, the 607-byte boot-args ceiling, SPMI PPID, and the slot a failed boot deactivates |
 | [`REFERENCE-INDEX.md`](research/REFERENCE-INDEX.md) | **参考仓库事实索引（人读）**：42 个参考仓库逐条 文件:行 + 可信度，按供电/音频/WiFi/触摸/显示/GPU/存储/USB/电池分区；机器可读部分同源进 `SOURCES.toml` |
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。

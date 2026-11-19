@@ -1,0 +1,146 @@
+diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
+index ca5ab16..a0f37ca 100644
+--- a/bsd/dev/qbt/qbt_transport.c
++++ b/bsd/dev/qbt/qbt_transport.c
+@@ -18,6 +18,114 @@
+ #include <kern/sync_sema.h>
+ #include <kern/task.h>
+ #define BT_SK_FIFO 8192u
++
++/* Apple's iOS 16 Bluetooth stack powers the controller through /dev/btreset,
++ * /dev/btwake and /dev/btpoweroff, published there by
++ * com.apple.driver.AppleBluetooth (class BTReset).  That kext is not part of
++ * this kernel, so BlueTool's first power request fails with ENOENT and it
++ * exits before it ever opens the SK channel.  These three nodes are a probe
++ * shim: every operation is logged and reports success, which reveals the
++ * request sequence the real implementation has to honour.
++ */
++#ifdef KERNEL
++#include <sys/conf.h>
++#include <sys/uio.h>
++#include <miscfs/devfs/devfs.h>
++
++#define BT_POWER_NODES 3
++static const char *bt_power_names[BT_POWER_NODES] = {"btreset", "btwake", "btpoweroff"};
++static int bt_power_major = -1;
++
++static const char *
++bt_power_name(dev_t dev)
++{
++	int m = minor(dev);
++	return (m >= 0 && m < BT_POWER_NODES) ? bt_power_names[m] : "bt?";
++}
++
++static int
++bt_power_open(dev_t dev, int flags, int devtype, struct proc *p)
++{
++	printf("[bluetooth power] %s open flags=%#x pid=%d\n",
++	    bt_power_name(dev), flags, proc_pid(p));
++	return 0;
++}
++
++static int
++bt_power_close(dev_t dev, int flags, int devtype, struct proc *p)
++{
++	printf("[bluetooth power] %s close pid=%d\n", bt_power_name(dev), proc_pid(p));
++	return 0;
++}
++
++/* Drain whatever BlueTool writes: a boot script can be several kilobytes. */
++static int
++bt_power_write(dev_t dev, struct uio *uio, int flags)
++{
++	char buf[32];
++	user_ssize_t total = uio_resid(uio);
++	size_t shown = MIN((size_t)total, sizeof(buf));
++	int error = 0;
++
++	if (shown != 0) {
++		error = uiomove(buf, (int)shown, uio);
++	}
++	printf("[bluetooth power] %s write %lld bytes %02x %02x %02x %02x\n",
++	    bt_power_name(dev), (long long)total,
++	    shown > 0 ? (unsigned char)buf[0] : 0,
++	    shown > 1 ? (unsigned char)buf[1] : 0,
++	    shown > 2 ? (unsigned char)buf[2] : 0,
++	    shown > 3 ? (unsigned char)buf[3] : 0);
++	while (error == 0 && uio_resid(uio) > 0) {
++		size_t take = MIN((size_t)uio_resid(uio), sizeof(buf));
++		error = uiomove(buf, (int)take, uio);
++	}
++	return error;
++}
++
++static int
++bt_power_ioctl(dev_t dev, u_long cmd, caddr_t data, int fflag, struct proc *p)
++{
++	uint32_t word = 0;
++	if (data != NULL) {
++		word = *(uint32_t *)data;
++	}
++	printf("[bluetooth power] %s ioctl cmd=%#lx size=%lu dir=%lu num=%lu word=%#x\n",
++	    bt_power_name(dev), cmd, (cmd >> 16) & 0x1fffu, (cmd >> 29) & 7u,
++	    (cmd >> 8) & 0xffu, word);
++	return 0;
++}
++
++static const struct cdevsw bt_power_cdevsw = {
++	.d_open = bt_power_open, .d_close = bt_power_close, .d_read = eno_rdwrt,
++	.d_write = bt_power_write, .d_ioctl = bt_power_ioctl, .d_stop = eno_stop,
++	.d_reset = eno_reset, .d_select = eno_select, .d_mmap = eno_mmap,
++	.d_strategy = eno_strat, .d_type = 0,
++};
++
++static void
++bt_power_nodes_register(void)
++{
++	int major, i;
++
++	if (bt_power_major >= 0) {
++		return;
++	}
++	major = cdevsw_add(-1, &bt_power_cdevsw);
++	if (major < 0) {
++		printf("[bluetooth power] cdevsw_add failed %d\n", major);
++		return;
++	}
++	for (i = 0; i < BT_POWER_NODES; i++) {
++		if (devfs_make_node(makedev(major, i), DEVFS_CHAR, UID_ROOT,
++		    GID_WHEEL, 0666, bt_power_names[i]) == NULL) {
++			printf("[bluetooth power] node %s failed\n", bt_power_names[i]);
++		}
++	}
++	bt_power_major = major;
++	printf("[bluetooth power] nodes ready major=%d\n", major);
++}
++#endif /* KERNEL */
+ static struct qbt_transport_ops bt_ops;
+ static uint32_t bt_sk_speed=115200;
+ static uint64_t bt_sk_kicks_tx,bt_sk_kicks_rx;
+@@ -439,6 +547,9 @@ void qbt_transport_power_result(bool enabled,int error,const char *firmware,uint
+         strlcpy(reg.ctl_name,"com.apple.uart.sk.bluetooth",sizeof(reg.ctl_name));
+         error=ctl_register(&reg,&bt_sk.ctl);
+         printf("[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=%d firmware=%s speed=%u\n",error,firmware,speed);
++#ifdef KERNEL
++        bt_power_nodes_register();
++#endif
+     }
+     lck_mtx_lock(&bt_sk_lock);
+     if(firmware) strlcpy(bt_sk.firmware,firmware,sizeof(bt_sk.firmware));
+diff --git a/iokit/Kernel/MiniBluetooth.cpp b/iokit/Kernel/MiniBluetooth.cpp
+index 86b7b94..115d6db 100644
+--- a/iokit/Kernel/MiniBluetooth.cpp
++++ b/iokit/Kernel/MiniBluetooth.cpp
+@@ -38,7 +38,11 @@
+ extern "C" int k60_bt_local_address(uint8_t address[6]);
+ 
+ #define K60_BT_TRANSPORT_ENCODING 1u
+-#define K60_BT_TRANSPORT_SPEED    3200000u
++/* The QUPV3 source is 48 MHz and the controller's rate table has no
++ * exact divisor for 3.2 Mbaud on this board; qbt_boot leaves the link
++ * at 3.0 Mbaud (K60_BT_RUN_BAUD).  BlueTool programs the transport with
++ * this value, so advertise the rate the link actually runs at. */
++#define K60_BT_TRANSPORT_SPEED    3000000u
+ 
+ class K60BluetoothRadio : public IOService
+ {

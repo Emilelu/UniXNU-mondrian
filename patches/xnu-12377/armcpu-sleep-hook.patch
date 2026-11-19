@@ -1,0 +1,17 @@
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -71,5 +71,13 @@
+ #endif /* HIBERNATION */
+ 
++/*
++ * ArmCpu declares this weak_import and assigns its platform sleep routine when
++ * the board asks for sleep. ld64-port rejects an undefined weak data symbol
++ * when the kext archive is linked into the kernel, so the kernel provides the
++ * storage; nothing in XNU calls through it.
++ */
++void (*arm64_platform_sleep_hook)(boolean_t) = NULL;
++
+ #if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR) || defined(KERNEL_INTEGRITY_PV_CTRR)
+ #include <arm64/amcc_rorgn.h>
+ #endif

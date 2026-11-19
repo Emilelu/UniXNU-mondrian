@@ -1,0 +1,179 @@
+diff --git a/bsd/dev/qbt/qbt_transport.h b/bsd/dev/qbt/qbt_transport.h
+--- a/bsd/dev/qbt/qbt_transport.h
++++ b/bsd/dev/qbt/qbt_transport.h
+@@ -11,6 +11,9 @@
+     void (*wake)(void *);
+     /* Queue power transition on the UART worker; never call back inline. */
+     int (*power)(void *, bool);
++    /* Reclock the physical line for a client TIOCSETA.  Called without the
++     * transport lock; may sleep.  NULL keeps the bring-up speed. */
++    int (*set_rate)(void *, uint32_t baud);
+ };
+ extern volatile uint32_t qbt_transport_activity[4];
+ int qbt_transport_init(const struct qbt_transport_ops *);
+diff --git a/bsd/dev/qbt/qbt_transport.c b/bsd/dev/qbt/qbt_transport.c
+--- a/bsd/dev/qbt/qbt_transport.c
++++ b/bsd/dev/qbt/qbt_transport.c
+@@ -463,11 +463,26 @@
+     if((uint32_t)opt==0x80487414u) {             /* TIOCSETA */
+         if(len!=sizeof(struct bt_termios64)) return EINVAL;
+         const struct bt_termios64 *t=data;
+-        /* The line is fixed at 8N1 RTS/CTS and the operating speed set in the bring-up. */
+-        bool ok=(t->cflag&(0x300|0x400|0x1000))==0x300 && (t->cflag&0x30000)==0x30000 &&
+-            t->ispeed==bt_sk_speed && t->ospeed==bt_sk_speed;
+-        printf("[bluetooth sk] TIOCSETA cflag=%#llx speed=%llu/%llu %s\n",t->cflag,t->ispeed,t->ospeed,ok?"accepted":"unsupported");
+-        if(!ok) return EINVAL;
++        /* The line is fixed at 8N1 RTS/CTS. 0523: when a client asks for a
++         * different speed the board reclockes the GENI engine through the
++         * set_rate hook instead of only remembering the request, so the
++         * controller is really reached at the rate the client believes it
++         * negotiated.  The hook may sleep; no transport lock is held here. */
++        bool framing=(t->cflag&(0x300|0x400|0x1000))==0x300 && (t->cflag&0x30000)==0x30000;
++        uint32_t speed=(uint32_t)t->ispeed;
++        errno_t e=0;
++        if(!framing || t->ispeed!=t->ospeed || !speed) e=EINVAL;
++        else if(speed!=bt_sk_speed) {
++            e=bt_ops.set_rate?bt_ops.set_rate(bt_ops.context,speed):EINVAL;
++            if(!e) {
++                lck_mtx_lock(&bt_sk_lock);
++                bt_sk_speed=speed;
++                bt_sk_termios_default();
++                lck_mtx_unlock(&bt_sk_lock);
++            }
++        }
++        printf("[bluetooth sk] TIOCSETA cflag=%#llx speed=%llu/%llu %s error=%d\n",t->cflag,t->ispeed,t->ospeed,e?"unsupported":"accepted",e);
++        if(e) return e;
+         lck_mtx_lock(&bt_sk_lock);bt_sk.termios=*t;lck_mtx_unlock(&bt_sk_lock);
+         return 0;
+     }
+diff --git a/bsd/dev/qbt_k60.c b/bsd/dev/qbt_k60.c
+--- a/bsd/dev/qbt_k60.c
++++ b/bsd/dev/qbt_k60.c
+@@ -46,6 +46,7 @@
+ #include <sys/kauth.h>
+ #include <kern/clock.h>
+ #include <kern/thread.h>
++#include <kern/locks.h>
+ #include <pexpert/pexpert.h>
+ #include <pexpert/device_tree.h>
+ #include <IOKit/IOLib.h>
+@@ -292,6 +293,10 @@
+     unsigned baud;
+     bool resources;
+     bool powered;
++    bool ready;          /* 0523: boot finished, the link may be reclocked */
++    uint32_t rate_request;   /* 0523: client TIOCSETA waiting for the worker */
++    uint32_t rate_done;      /* 0523: the worker finished rate_request */
++    int rate_error;
+     bool gated;
+     bool clocked;
+     bool serial_irq;
+@@ -309,6 +314,12 @@
+ };
+ 
+ static struct k60_bt_state k60;
++#ifdef KERNEL
++/* 0523: serialises the worker's engine turn against a client TIOCSETA that
++ * reclocks the link. */
++static LCK_GRP_DECLARE(k60_rate_grp, "unixnu.bt.k60.rate");
++static LCK_MTX_DECLARE(k60_rate_lock, &k60_rate_grp);
++#endif
+ 
+ /* Forward declarations for functions used before their definitions. */
+ static void k60_wait_until(void *ctx, uint64_t deadline);
+@@ -1163,6 +1174,42 @@
+     if (!e) k60.baud = baud;
+     return e;
+ }
++
++/* 0523: TIOCSETA from a client may ask for a speed other than the bring-up
++ * one.  The request is executed by the worker, which owns the engine during
++ * its service turns; the client blocks until the worker reports the result or
++ * two seconds pass.  Calling k60_uart_speed from the client thread instead
++ * would race the worker's pump. */
++#ifdef KERNEL
++static int k60_transport_set_rate(void *ctx, uint32_t baud) {
++    (void)ctx;
++    if (!k60.powered || !k60.ready) return ENODEV;
++    if (!baud) return EINVAL;
++    if (baud == k60.baud) return 0;
++    lck_mtx_lock(&k60_rate_lock);
++    if (!k60.powered || !k60.ready) { lck_mtx_unlock(&k60_rate_lock); return ENODEV; }
++    k60.rate_request = baud;
++    k60.rate_done = 0;
++    k60.rate_error = 0;
++    k60_wake(NULL);
++    int e = 0;
++    struct timespec timeout = { 2, 0 };
++    while (!k60.rate_done && !e)
++        e = msleep(&k60.rate_done, &k60_rate_lock, PZERO, "k60bt-rate", &timeout);
++    int result = e ? -e : k60.rate_error;
++    k60.rate_request = 0;
++    lck_mtx_unlock(&k60_rate_lock);
++    char line[96];
++    snprintf(line, sizeof(line), "transport: set_rate %u error=%d", baud, result);
++    k60_log(NULL, 1, line);
++    return result < 0 ? -result : result;
++}
++#else
++static int k60_transport_set_rate(void *ctx, uint32_t baud) {
++    (void)ctx;
++    return baud ? ENOTSUP : EINVAL;
++}
++#endif
+ 
+ /* Small local string helpers: the XNU kernel does not guarantee the full
+  * libc string API in every BSD compile unit. */
+@@ -1942,6 +1989,7 @@
+     if (k60.clocked) (void)k60_stop_engine();
+     k60_serial_clock(false);
+     k60.powered = false;
++    k60.ready = false;
+     k60.gated = false;
+     __atomic_store_n(&k60.rx_wake, 0u, __ATOMIC_RELEASE);
+     return e;
+@@ -2019,7 +2067,8 @@
+     k60.core = qbt_create(&k60_platform);
+     if (!k60.core) return;
+     if (k60.stage == 1) k60_probe_mark("probe: core created");
+-    struct qbt_transport_ops transport = { .context = NULL, .wake = k60_wake, .power = k60_request_power };
++    struct qbt_transport_ops transport = { .context = NULL, .wake = k60_wake,
++        .power = k60_request_power, .set_rate = k60_transport_set_rate };
+     if (qbt_transport_init(&transport)) return;
+     if (k60.stage == 1) k60_probe_mark("probe: transport ready");
+ #ifdef KERNEL
+@@ -2075,6 +2124,7 @@
+     }
+     if (e) (void)k60_bt_power_off();
+     k60_power_result(true, e);
++    k60.ready = k60.powered;
+     uint64_t health = k60_now_ns(NULL) + 1000000000ULL;
+     uint64_t close_at = 0;
+     for (;;) {
+@@ -2085,6 +2135,16 @@
+             k60_power_result(command == 1, e);
+         }
+         if (k60.powered) {
++#ifdef KERNEL
++            lck_mtx_lock(&k60_rate_lock);
++            if (k60.rate_request) {
++                uint32_t requested = k60.rate_request;
++                k60.rate_request = 0;
++                k60.rate_error = k60_uart_speed(NULL, requested);
++                k60.rate_done = 1;
++                wakeup(&k60.rate_done);
++            }
++#endif
+             k60_pump(NULL);
+             bool active = qbt_transport_active();
+             if (active != k60.service) {
+@@ -2109,6 +2169,9 @@
+                 k60_power_result(false, error);
+                 close_at = 0;
+             }
++#ifdef KERNEL
++            lck_mtx_unlock(&k60_rate_lock);
++#endif
+         }
+         uint64_t t = k60_now_ns(NULL);
+         if (t >= health) health = t + 1000000000ULL;

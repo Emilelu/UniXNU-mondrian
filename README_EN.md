@@ -2,7 +2,18 @@
 
 UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualcomm **SM8475**).
 
-**Current target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
+> **Branch `feat/ios27`:** iOS **27.0.1 (24A446)** as an **iPhone 16 Pro Max
+> (iPhone17,2)**, arm64e, on xnu-12377 with the Darwin 26 calls. `main` remains
+> the iOS 16.6.1 (20G81) port. See
+> [`docs/engineering/IOS27.md`](docs/engineering/IOS27.md).
+
+**`main` target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
+
+> **What the Bluetooth baseline does not include (feat/bt-ios27-port):** this
+> branch is the kernel and the device tree only. `[payload.runtime]` is not
+> enabled and 0521 is a blob stub, so "iOS 27 baseline" does not mean
+> "Bluetooth works on iOS 27". See
+> [`docs/plans/BT-IOS27-PORT.md`](docs/plans/BT-IOS27-PORT.md) section 5.3.
 
 > Last updated: 2026-11-16. Detailed status and change log:
 > [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md).

@@ -1,39 +1,14 @@
-# K60 now targets Darwin 22 / iOS 16. These override the main repository feeds.
-[[source]]
-name = "xnu"
-kind = "refer"
-git = "https://github.com/apple-oss-distributions/xnu.git"
-ref = "xnu-8796.141.3"
-commit = "1b191cb58250d0705d8a51287127505aa4bc0789"
-darwin = "22.6.0"
-version = "8796.141.3"
-driverkit_tag = "xnu-8796.101.5"
-trustcache_tag = "xnu-8796.101.5"
-
-[[source]]
-name = "libplatform"
-kind = "refer"
-git = "https://github.com/apple-oss-distributions/libplatform.git"
-ref = "libplatform-292.100.1"
-commit = "1b2b22f2e37384af2c562bd95d5e93ce2e192451"
-
-[[source]]
-name = "libdispatch"
-kind = "refer"
-git = "https://github.com/apple-oss-distributions/libdispatch.git"
-ref = "libdispatch-1325.120.2"
-commit = "ca80d30399cf4854d3b970076f83dde4a6e74e78"
-
-[[source]]
-name = "AvailabilityVersions"
-kind = "refer"
-git = "https://github.com/apple-oss-distributions/AvailabilityVersions.git"
-ref = "AvailabilityVersions-121"
-commit = "f3b52ca75ee842a8ac593bd7b03f9f4768c15755"
-
 # SM8475 platform resources shared with any other board on this SoC.
+#
+# The OS profile (profiles/os/ios-27.0.1-24A446) pins xnu-12377.121.6 and the
+# macOS 26.5 release libraries. This branch must not override them with the
+# old 8796 pins: the driverkit/trustcache tags above the profile are for the
+# 20G81 line and do not build against 12377.
 [[source]]
 name = "sm8475"
 kind = "soc"
-git = "https://github.com/Emilelu/UniXNU-sm8475-common"
-commit = "d0c90f1e2f8d570b48030ec5062aef59d0040121"
+git = "https://github.com/xNekom/UniXNU-sm8475-common"
+# The reviewed commit of this port's SoC repository (branch feat/xnu-12377,
+# which adds patches/xnu-12377/series). Emilelu/UniXNU-sm8475-common does not
+# carry it, so the feed names the published fork and pins the commit:
+commit = "20a30fd623dbcfacdd71350a24fae67a2158884f"

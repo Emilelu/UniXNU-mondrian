@@ -1,0 +1,35 @@
+diff --git a/libkern/os/base.h b/libkern/os/base.h
+--- a/libkern/os/base.h
++++ b/libkern/os/base.h
+@@ -355,7 +355,14 @@
+ #if __has_feature(ptrauth_calls)
+ #include <ptrauth.h>
+ #define OS_PTRAUTH_SIGNED_PTR(type) __ptrauth(ptrauth_key_process_independent_data, 1, ptrauth_string_discriminator(type))
++#ifdef __apple_build_version__
+ #define OS_PTRAUTH_SIGNED_PTR_AUTH_NULL(type) __ptrauth(ptrauth_key_process_independent_data, 1, ptrauth_string_discriminator(type), "authenticates-null-values")
++#else
++/* Upstream clang rejects the four-argument form; the type discriminator is
++ * what the kernel signs and authenticates with, and no userland object reads
++ * ucred, so this keeps one consistent spelling on the Linux toolchain. */
++#define OS_PTRAUTH_SIGNED_PTR_AUTH_NULL(type) __ptrauth(ptrauth_key_process_independent_data, 1, ptrauth_string_discriminator(type))
++#endif
+ #define OS_PTRAUTH_DISCRIMINATOR(str) ptrauth_string_discriminator(str)
+ #define __ptrauth_only
+ #else //  __has_feature(ptrauth_calls)
+diff --git a/iokit/IOKit/IOCircularDataQueueImplementation.h b/iokit/IOKit/IOCircularDataQueueImplementation.h
+--- a/iokit/IOKit/IOCircularDataQueueImplementation.h
++++ b/iokit/IOKit/IOCircularDataQueueImplementation.h
+@@ -306,7 +306,13 @@
+ #if __has_feature(ptrauth_calls)
+ #include <ptrauth.h>
+ #define OS_PTRAUTH_SIGNED_PTR(type) __ptrauth(ptrauth_key_process_independent_data, 1, ptrauth_string_discriminator(type))
++#ifdef __apple_build_version__
+ #define OS_PTRAUTH_SIGNED_PTR_AUTH_NULL(type) __ptrauth(ptrauth_key_process_independent_data, 1, ptrauth_string_discriminator(type), "authenticates-null-values")
++#else
++/* See libkern/os/base.h: Apple clang's four-argument spelling does not parse
++ * on the Linux toolchain. */
++#define OS_PTRAUTH_SIGNED_PTR_AUTH_NULL(type) __ptrauth(ptrauth_key_process_independent_data, 1, ptrauth_string_discriminator(type))
++#endif
+ #define OS_PTRAUTH_DISCRIMINATOR(str) ptrauth_string_discriminator(str)
+ #define __ptrauth_only
+ #else //  __has_feature(ptrauth_calls)

@@ -13,3 +13,7 @@
 - [storage/RESEARCH.md](storage/RESEARCH.md) — 存储结论层：UFS PHY `0x1d80000` + `qmp-v4-cape`、控制器/ICE/HWKM、与 liuqin 的双源交叉验证、只读待核对项
 - [memory/RESEARCH.md](memory/RESEARCH.md) — 内存布局结论层：DDR 保留区与寄存器窗口，以及**跨板边界**（DXE Heap / Kernel 绝不可跨板抄）
 - [POWER-RPMH-LDOC2.md](touch/POWER-RPMH-LDOC2.md) — `pm8350c_l2`（触摸 IOVDD 1.8 V）如何从 AP 侧通过 RPMh TCS3 投票点亮：硬件常量、v2 寄存器布局、11 步投票序列、ACK 之后的 observer 验证、Berlin D 上电时序、SPI 引脚角色、八个已知陷阱
+- [bt/RESEARCH.md](bt/RESEARCH.md) — 蓝牙结论层：QCA6490 的 GENI UART 真值、固件族、官方组件分工
+- [bt/HANDOFF.md](bt/HANDOFF.md) — 蓝牙线交接：每一步的判据、缺口与恢复第一步
+- [bt/S4-SPEC.md](bt/S4-SPEC.md) — 蓝牙 S4 规格与沿革：传输层 ABI、电源节点、改速、官方启动参数
+- [bt/MARCONI-AOP-GAP.md](bt/MARCONI-AOP-GAP.md) — marconi-bt 是 AOP/SPU 控制通道，不是 HCI 端点

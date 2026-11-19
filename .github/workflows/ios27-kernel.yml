@@ -1,0 +1,192 @@
+name: iOS 27 kernel (Linux build)
+
+# Builds the F1 artifacts of the ios27 area on a GitHub-hosted Linux runner:
+# the arm64e kernel, then payload.img. The toolchain is the prebuilt
+# /opt/unixnu-linux that scripts/linux/setup-toolchain.py produces on
+# Ubuntu 24.04 (clang-24 with the xnu builtins, cctools-port ld64, mig, iig,
+# lzfse), published as a release asset of this repository, so the job never
+# spends hours compiling LLVM.
+
+on:
+  push:
+    branches: [main, feat/bt-ios27-port]
+  workflow_dispatch:
+    inputs:
+      framework_ref:
+        description: "UniXNU framework commit to build against"
+        type: string
+        default: "563595abedfdfa413ad583b66b6176d82007e633"
+      build_boot_image:
+        description: "Also build the firmware volume and boot.img (needs a staged uefi-mondrian)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios27-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  f1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      UNIXNU_TOOLCHAIN: /opt/unixnu-linux
+      UNIXNU_OUT: /home/runner/ios27-out
+      UNIXNU_JOBS: "4"
+      TOOLCHAIN_URL: https://github.com/Emilelu/UniXNU-mondrian/releases/download/toolchain-linux-20261119/unixnu-linux-20261119.tar.gz
+      TOOLCHAIN_SHA256: b29926aef9938d2c540bfd01f3341bede457db9efed98f78f79735c7c86f85ee
+      FRAMEWORK_REF: ${{ inputs.framework_ref || '563595abedfdfa413ad583b66b6176d82007e633' }}
+    steps:
+      - name: Check out the device
+        uses: actions/checkout@v4
+        with:
+          path: device
+          fetch-depth: 1
+
+      - name: Check out the framework
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          ref: ${{ env.FRAMEWORK_REF }}
+          path: UniXNU
+          fetch-depth: 1
+          submodules: false
+
+      - name: Fetch the prelink tool
+        run: git -C UniXNU submodule update --init --depth 1 kits/XnuPrelink
+
+      - name: Install the host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config ninja-build python3 python3-dev \
+            xz-utils libssl-dev zlib1g-dev libbsd-dev uuid-dev llvm-dev libclang-dev \
+            device-tree-compiler git patch flex bison bzip2 cpio rsync curl wget \
+            ca-certificates tcsh unifdef cmake clang lld mtools
+
+      - name: Install the Linux kernel toolchain
+        run: |
+          # A freshly published release asset can answer 404 for a minute while
+          # the CDN catches up; curl --retry does not retry 404, so loop here.
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fL --retry 3 -o /tmp/unixnu-linux.tar.gz "$TOOLCHAIN_URL"; then
+              break
+            fi
+            echo "toolchain download failed (attempt $attempt), retrying in 30s" >&2
+            sleep 30
+          done
+          echo "$TOOLCHAIN_SHA256  /tmp/unixnu-linux.tar.gz" | sha256sum -c -
+          sudo tar -C /opt -xzf /tmp/unixnu-linux.tar.gz
+          /opt/unixnu-linux/llvm/bin/clang --version | head -2
+
+      - name: Install the macOS tool shims
+        run: |
+          sudo install -m 755 UniXNU/scripts/linux/xcrun  /usr/bin/xcrun
+          sudo install -m 755 UniXNU/scripts/linux/plutil /usr/bin/plutil
+          sudo install -m 755 UniXNU/scripts/linux/codesign /usr/bin/codesign
+          sudo install -m 755 device/scripts/linux/ditto  /usr/local/bin/ditto
+          sudo install -m 755 device/scripts/linux/sw_vers /usr/local/bin/sw_vers
+          if [ -e /usr/sbin/sysctl.procps ]; then sudo rm -f /usr/sbin/sysctl; else sudo mv /usr/sbin/sysctl /usr/sbin/sysctl.procps; fi
+          sudo install -m 755 device/scripts/linux/sysctl /usr/sbin/sysctl
+          xcrun --version; sw_vers
+
+      - name: Report the host
+        run: |
+          nproc; free -h | head -2; df -h / /tmp | tail -2
+          git -C UniXNU log --oneline -1
+          git -C device log --oneline -1
+          git -C UniXNU status --short | head -20
+
+      - name: Build the kernel and the payload
+        working-directory: device
+        env:
+          UNIXNU: ${{ github.workspace }}/UniXNU
+        run: sh scripts/build-ios27-linux.sh
+
+      - name: Check the Bluetooth contract
+        working-directory: device
+        run: |
+          set -eu
+          OUT="$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27"
+          kernel="$OUT/kernel/kernel.macho"
+          payload="$OUT/payload/payload.img"
+          python3 scripts/check-bluetooth-kernel.py --kernel "$kernel" --payload "$payload" --require log-bluetooth
+
+      - name: Check the GENI engine against the register model
+        working-directory: device
+        run: |
+          set -eu
+          python3 scripts/check-bluetooth-geni.py --out "$UNIXNU_OUT/geni-check"
+          python3 scripts/tests/test-bt-geni-model.py
+
+      - name: Check the shared interrupt controller
+        working-directory: device
+        run: |
+          set -eu
+          python3 scripts/check-bluetooth-gic.py --out "$UNIXNU_OUT/gic-check"
+          python3 scripts/tests/test-bt-gic-shared.py
+
+      - name: Check the power ladder
+        working-directory: device
+        run: |
+          set -eu
+          src=$(find "$UNIXNU_OUT" -path '*xnu-work/bsd/dev/qbt_k60.c' | head -1)
+          if [ -z "$src" ]; then
+            echo "power-check: no patched tree under $UNIXNU_OUT" >&2
+            exit 1
+          fi
+          python3 scripts/check-bluetooth-power.py --source "$src" --out "$UNIXNU_OUT/power-check"
+          python3 scripts/tests/test-bt-power-check.py
+
+      - name: Check the runtime mount gate
+        working-directory: device
+        run: |
+          python3 scripts/check-bluetooth-runtime-gate.py --out "$UNIXNU_OUT/runtime-gate"
+          python3 scripts/tests/test-bt-runtime-gate.py
+
+      - name: Check the addon prefixes
+        working-directory: device
+        run: |
+          python3 scripts/check-bluetooth-addon-prefixes.py --framework "$GITHUB_WORKSPACE/UniXNU/scripts/build-boot-runtime.py" --out "$UNIXNU_OUT/prefix-check"
+          python3 scripts/tests/test-bt-addon-prefixes.py
+
+      - name: Collect the build summary
+        if: always()
+        run: |
+          OUT="$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27"
+          mkdir -p "$UNIXNU_OUT/summary"
+          S="$UNIXNU_OUT/summary/build-summary.txt"
+          {
+            echo "# ios27 F1 build ${{ github.run_id }}.${{ github.run_attempt }}"
+            echo "device: $(git -C device rev-parse HEAD)"
+            echo "framework: $(git -C UniXNU rev-parse HEAD)"
+            echo
+            for log in "$OUT"/logs/*.log; do
+              [ -f "$log" ] || continue
+              echo "===== $(basename "$log") ($(wc -c < "$log") bytes) ====="
+              grep -n -m 40 -E 'error:|Undefined symbols|ld: |\*\*\* |cannot find|No such file' "$log" || true
+              echo '--- tail ---'
+              tail -n 60 "$log"
+              echo
+            done
+          } > "$S" 2>&1 || true
+          ls -l "$OUT/kernel" "$OUT/payload" 2>/dev/null || true
+          tail -n 60 "$S"
+
+      - name: Upload the artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-f1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /home/runner/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.macho
+            /home/runner/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.json
+            /home/runner/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/payload/payload.img
+            /home/runner/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/boot/boot.img
+            /home/runner/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/xnu-patches.list
+            /home/runner/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/xnu-inputs.json
+            /home/runner/ios27-out/summary/build-summary.txt
+          if-no-files-found: warn
+          retention-days: 30

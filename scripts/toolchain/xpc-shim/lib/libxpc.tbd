@@ -1,0 +1,10 @@
+--- !tapi-tbd
+tbd-version: 4
+targets: [ arm64e-ios ]
+install-name: '/usr/lib/libxpc.dylib'
+current-version: 1.0
+compatibility-version: 1.0
+exports:
+  - targets: [ arm64e-ios ]
+    symbols: [ _xpc_connection_create_mach_service, _xpc_get_type, _xpc_dictionary_create_reply, _xpc_dictionary_get_string, _xpc_dictionary_get_value, _xpc_dictionary_set_int64, _xpc_dictionary_set_string, _xpc_dictionary_get_remote_connection, _xpc_connection_send_message, _xpc_release, _xpc_connection_set_target_queue, _xpc_connection_set_event_handler, _xpc_connection_resume, _xpc_type_dictionary, _xpc_type_connection ]
+...

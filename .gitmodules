@@ -1,3 +1,6 @@
 [submodule "drivers/NativeMetal"]
 	path = drivers/NativeMetal
 	url = https://github.com/UniXNU/NativeMetal.git
+[submodule "drivers/QcaBluetooth"]
+	path = drivers/QcaBluetooth
+	url = https://github.com/UniXNU/QcaBluetooth.git

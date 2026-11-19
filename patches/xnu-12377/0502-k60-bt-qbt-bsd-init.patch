@@ -1,0 +1,17 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 5bc65a1..9f20542 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1323,6 +1323,12 @@ bsd_autoconf(void)
+ 	extern void native_legacy_display_late_probe(void);
+ 	native_legacy_display_late_probe();
+ #endif
++	/* K60 Bluetooth / QcaBluetooth board backend.  The worker is fail-closed
++	 * and waits for the boot argument k60bt=1. */
++	if (result == KERN_SUCCESS) {
++		extern void qbt_k60_start(void);
++		qbt_k60_start();
++	}
+ 	return result;
+ }
+ 

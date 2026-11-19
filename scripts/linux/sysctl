@@ -1,0 +1,36 @@
+#!/bin/sh
+# Darwin-shaped sysctl for the Linux XNU build host.
+#
+# XNU's Makefile and makedefs call the absolute path /usr/sbin/sysctl for
+# hw.physicalcpu, hw.logicalcpu and hw.memsize. Linux's procps sysctl knows
+# none of those keys, so the baseline build read empty numbers and stopped at
+# "non-numeric second argument to 'wordlist'".
+#
+# Install it over the procps binary, keeping the original:
+#   sudo mv /usr/sbin/sysctl /usr/sbin/sysctl.procps
+#   sudo install -m 755 scripts/linux/sysctl /usr/sbin/sysctl
+#
+# Every request this does not answer is forwarded to the procps binary, so
+# net.* and kernel.* writes still work as before.
+set -u
+if [ "${1:-}" = "-n" ]; then
+	case "${2:-}" in
+	hw.physicalcpu | hw.logicalcpu | hw.ncpu)
+		nproc
+		exit 0
+		;;
+	hw.memsize)
+		awk '/^MemTotal:/ { printf "%d\n", $2 * 1024 }' /proc/meminfo
+		exit 0
+		;;
+	hw.pagesize)
+		getconf PAGESIZE
+		exit 0
+		;;
+	esac
+fi
+if [ -x /usr/sbin/sysctl.procps ]; then
+	exec /usr/sbin/sysctl.procps "$@"
+fi
+echo "sysctl: unsupported request: $*" >&2
+exit 1

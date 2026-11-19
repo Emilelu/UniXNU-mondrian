@@ -40,7 +40,7 @@
  			}
  			p->offset = dictNumber(pd, "IOSurfacePlaneOffset", dictNumber(pd, "IOSurfacePlaneBase", (uint32_t) needed));
  			p->extendedPixels[0] = dictNumber(pd, "IOSurfacePlaneExtendedPixelsOnLeft", 0);
-@@ -567,12 +584,20 @@
+@@ -567,27 +584,35 @@
  	if (bpe == 0) {
  		bpe = planeCount ? s->planes[0].bytesPerElement : defaultBytesPerElement(format);
  	}
@@ -48,10 +48,25 @@
 +		s->release();
 +		return NULL;
 +	}
- 	bpr = dictNumber(props, "IOSurfaceBytesPerRow", 0);
+ 	/* One pitch only (2026-11-19): the compositor asks for IOSurfaceBytesPerRow = 5888 (1472x4,
+ 	 * 32-pixel aligned) while the panel scans 5760, and that 128-byte gap is the only reason the
+ 	 * scanout blit needs a linear texture instead of one copyFromBuffer: measured 46 ms of encode
+ 	 * for a frame whose plain 18.4 MB copy takes 1.9 ms. The flight g surface table shows this key
+ 	 * is where the gap enters (sid=15 bpr=5888 planes=0, while our own canvases are 5760), so the
+ 	 * request is answered with the pitch we can scan and the client is told the same number through
+ 	 * IOSurfaceGetBytesPerRow. If a caller cannot honour the reported pitch the picture shears,
+ 	 * which is why pong_surface_pitch=0 restores the old behaviour. */
+ 	uint32_t onePitch=1;
+ 	(void) PE_parse_boot_argn("pong_surface_pitch", &onePitch, sizeof onePitch);
+ 	const uint64_t askedRowBytes = dictNumber(props, "IOSurfaceBytesPerRow", 0);
+ 	bpr = onePitch ? 0 : askedRowBytes;
  	if (bpr == 0) {
- 		bpr = planeCount ? s->planes[0].bytesPerRow
+ 		bpr = (planeCount && !onePitch) ? s->planes[0].bytesPerRow
  		    : alignUp((uint64_t) ((width + ew - 1) / ew) * bpe, MINISURF_ROW_ALIGN);
+ 	}
+ 	if (onePitch && askedRowBytes != bpr) {
+ 		printf("MiniIOSurface: row bytes asked=%llu reported=%llu (one pitch only)%c",
+ 		    (unsigned long long) askedRowBytes, (unsigned long long) bpr, 10);
  	}
  	if (planeCount == 0) {
 +		if (bpr < (uint64_t)((width + ew - 1) / ew) * bpe) {

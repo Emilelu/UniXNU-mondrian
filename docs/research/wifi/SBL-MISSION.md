@@ -1538,3 +1538,14 @@ pending。
 
 验证：16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 0 failure（新增一项检查）。
 
+## 58. 站侧信号刷新现在会变成链路变更事件
+
+设备端每 3 dB 的缓存信号变化由 nw_mainline_signal_update 上报；两代 nw_abi.h 的 nw_wifi_events 都带
+link_update，但本驱动的 gEvents 只填了前四项，回调是空的——daemon 只拿到关联那一刻的信号，之后不再更新。
+
+参考实现（package/WifiNet.cpp:278-283 on_link_update）把回调搬成链路变更：不在供电、抑制中、链路非 UP 或
+信号非负时不发；否则发 link_event（rssi、noise -95、snr = rssi + 95，down=0）。
+
+本轮：新增 on_link_update()，并把 gEvents 扩到七项（rx_flush/rx_packet 仍为 null，保持原有收包路径），
+link_update 指向新回调。16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 新增检查后 0 failure。
+

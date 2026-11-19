@@ -1,9 +1,34 @@
 #!/bin/bash
 # Offline only: never accesses a device or physical memory.
+#
+# usage: run-k60-handoff-host.sh DURABLE_OUTPUT PRE_0619_XNU_TREE
+#
+# PRE_0619_XNU_TREE must be a .cache/xnu-work tree that predates 0619/0620: the
+# integration cases below apply the 0611 predecessor of the handoff pair
+# themselves, so a tree that already carries 0619 fails halfway with
+# "canonical source differs" - a message that points at the code instead of at
+# the input. The check below refuses such a tree up front and says why.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${1:?usage: run-k60-handoff-host.sh DURABLE_OUTPUT PRE_0619_XNU_TREE}
 XNU=${2:?a supported pre-0619 .cache/xnu-work tree is required}
+if [ ! -d "$XNU" ]; then
+  echo "run-k60-handoff-host.sh: not a directory: $XNU" >&2
+  exit 2
+fi
+if [ -e "$XNU/bsd/dev/pong_adsp_startup.c" ] ||
+   grep -qs "k60_adsp_handoff_publish" "$XNU/bsd/dev/pong_handoff.h" 2>/dev/null; then
+  cat >&2 <<'MSG'
+run-k60-handoff-host.sh: this tree already contains 0619/0620 (bsd/dev/pong_adsp_startup.c
+or k60_adsp_handoff_publish in bsd/dev/pong_handoff.h).
+The integration cases apply the 0611 predecessor of the handoff pair themselves, so they
+need a tree that predates that series entry; on a newer one they stop with
+"canonical source differs", which reads like a code error instead of the wrong input.
+Pass a clean pre-0619 tree as the second argument, e.g.
+  .../<older-build>/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work
+MSG
+  exit 2
+fi
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 exec > >(tee "$OUT/host-tests.log") 2>&1

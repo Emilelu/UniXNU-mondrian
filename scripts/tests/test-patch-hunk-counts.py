@@ -101,11 +101,21 @@ def main() -> int:
     check("a consistent patch passes", result.returncode, 0)
     check("the pass line names the rule", "P-257" in result.stdout, True)
 
-    for name, text in (("short.patch", SHORT), ("long.patch", LONG)):
-        result = run(write(name, text))
-        check(f"{name} is refused", result.returncode, 1)
-        check(f"{name} reports the disagreement", "carries" in result.stdout, True)
-        check(f"{name} names the declared count", "declares +" in result.stdout, True)
+    # Direction 1: the header declares FEWER lines than the body carries. This is
+    # the dangerous direction - git apply exits 0 and writes only the declared
+    # count, so the tail of the file disappears without a message (0613 lost
+    # k60_adsp_scm_tried this way, wifi/0007 lost its last two lines).
+    result = run(write("declared-fewer.patch", SHORT))
+    check("a header that declares fewer lines than the body is refused", result.returncode, 1)
+    check("it says the body carries more than the header declares",
+          "carries" in result.stdout and "declares +" in result.stdout, True)
+
+    # Direction 2: the header declares MORE lines than the body carries. The hunk
+    # would swallow whatever follows it, so this must be refused too.
+    result = run(write("declared-more.patch", LONG))
+    check("a header that declares more lines than the body is refused", result.returncode, 1)
+    check("it names both counts for the long side",
+          "carries" in result.stdout and "declares +" in result.stdout, True)
 
     result = run(write("unified.patch", UNIFIED))
     check("a two-file plain unified diff parses", result.returncode, 0)

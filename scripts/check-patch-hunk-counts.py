@@ -93,19 +93,20 @@ def hunk_problems(path: pathlib.Path) -> list[str]:
     return problems
 
 
-def patches(explicit: list[str]) -> list[pathlib.Path]:
+def patches(explicit: list[str], root: pathlib.Path) -> list[pathlib.Path]:
     if explicit:
         return [pathlib.Path(item) for item in explicit]
-    return sorted(p for p in (ROOT / "patches").rglob("*.patch") if p.is_file())
+    return sorted(p for p in (root / "patches").rglob("*.patch") if p.is_file())
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", help="patch files (default: every patches/**/*.patch)")
+    parser.add_argument("--root", default=str(ROOT), help="repository to scan (default: this checkout)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
-    files = patches(args.paths)
+    files = patches(args.paths, pathlib.Path(args.root))
     problems: list[str] = []
     for path in files:
         problems.extend(hunk_problems(path))

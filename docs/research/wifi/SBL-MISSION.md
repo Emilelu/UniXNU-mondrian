@@ -1464,3 +1464,17 @@ test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 �
 现在回答 (gPower && st.state != NW_STA_OFF) ? 1 : 0；NW_STA_OFF 在两代 nw_abi.h 里都是枚举 0，不需要弱符号。
 电源设置的路径没有改动（仍走 disconnect + wake），这一条只改查询的回答。
 
+## 53. 扫描记录在交出时打戳，年龄按站侧测量值扣减
+
+参考实现（sheng 27，package/WifiNet.cpp:505 与 package/WifiScanResult.h 的 sheng_wifi_scan_result_stamp）
+在记录交出时读连续时钟，时间戳写成 now_ns - age_ms * 1000000，元素区按“请求长度减去 0x8c”留出容量；
+它对年龄不做任何取整。我们此前把扫描冻结那一刻的时钟（sampled_ns）传进 fill_result，再按
+(age_ms + 1) * 1000000 向上取整后相减：一是同一份缓存被服务几十秒后时间戳仍停在冻结时刻，CoreWiFi
+看到的结果不会随时间变旧；二是“向上取整”让旧观测比真实帧最多新 1 ms，方向正好反了。
+
+现在 fill_result 自己读 scan_clock_ns()，用 b.age_ms 的精确值相减（不取整），把 now 在调用点测量、
+在 bss_get 之后立刻打戳的顺序与参考实现对齐；三个调用点（kScanResult 的逐条服务、kCurrentNetwork 的
+扫描表命中、以及没扫描直接加入的兜底）都不再传采样时间。请求长度与元素容量的换算本来就和参考一致，
+这一节只改时间戳。16 与 27 两代头文件编译通过（teardown16/teardown27 rc=0），
+scripts/tests/test-wifi-sbl-mission.py 增加一项检查并 0 failure，test-pong-abi 32 项 0 failure。
+

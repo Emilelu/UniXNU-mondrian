@@ -11,6 +11,7 @@ keep a mistyped invocation from producing a kernel nobody checked.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,6 +70,15 @@ def an_unknown_argument_is_refused():
     out = run("--nope")
     assert out.returncode == 2, (out.returncode, out.stderr)
     assert "unknown argument" in out.stderr, out.stderr
+
+
+@case
+def the_kernel_search_reaches_into_the_object_tree():
+    # out/<board>/<os>/<defconfig>/tree/build/xnu/ios-obj/<machine>/mach... is seven
+    # levels below the output root; a shallower find silently answers "no kernel".
+    depths = [int(n) for n in re.findall(r"-maxdepth (\d+)", text())]
+    assert depths, "the script no longer searches for the kernel"
+    assert min(depths) >= 7, depths
 
 
 def main() -> int:

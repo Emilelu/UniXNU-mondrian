@@ -65,9 +65,9 @@ print(board.get('board', {}).get('name', 'mondrian'))
 PY
 )
 OUT_ROOT=$FRAMEWORK/out/$BOARD/$OS_PROFILE
-MACH=${WIFI27_MACH:-$(find "$OUT_ROOT" -maxdepth 5 -name 'mach.development.*.unstripped.noctf' -newer "$ARCHIVE" 2>/dev/null | head -1)}
+MACH=${WIFI27_MACH:-$(find "$OUT_ROOT" -maxdepth 8 -name 'mach.development.*.unstripped.noctf' -newer "$ARCHIVE" 2>/dev/null | head -1)}
 if [ -z "$MACH" ]; then
-  MACH=$(find "$OUT_ROOT" -maxdepth 5 -name 'mach.development.*.unstripped.noctf' 2>/dev/null | head -1)
+  MACH=$(find "$OUT_ROOT" -maxdepth 8 -name 'mach.development.*.unstripped.noctf' 2>/dev/null | head -1)
 fi
 test -n "$MACH" || { echo "build-wifi27-kernel: no linked kernel under $OUT_ROOT" >&2; exit 3; }
 echo "build-wifi27-kernel: linked kernel $MACH"

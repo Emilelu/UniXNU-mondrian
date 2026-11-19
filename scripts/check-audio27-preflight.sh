@@ -20,7 +20,8 @@
 #      (XNU27_REPO overrides the search)
 #  13. the product checker's own tests, and - when XNU27_KERNEL names a built
 #      kernel or boot image - whether that product really carries the audio
-#  14. sheng's audio host tests, when its checkout is reachable; the row names
+#  14. the sheng ABI checker's own tests
+#  15. sheng's audio host tests, and its ABI constants at that commit, when its checkout is reachable; the row names
 #      the commit it ran on, because a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
@@ -61,6 +62,7 @@ run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "three edits dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
+run "sheng abi checker is honest" python3 scripts/tests/test-sheng-abi.py
 
 xnu27=${XNU27_REPO:-}
 if [ -z "$xnu27" ]; then
@@ -104,6 +106,7 @@ if [ -n "$sheng" ] && [ -f "$sheng/scripts/check-audioreach-host.py" ]; then
 		sha=$(git -C "$sheng" rev-parse --short HEAD 2>/dev/null || echo unknown)
 		printf 'ok   %-34s %s (%s)\n' "sheng audioreach host tests" \
 		    "$(printf '%s' "$out" | tail -1)" "$sha"
+		run "sheng abi constants hold" python3 scripts/check-sheng-abi.py --sheng "$sheng"
 	fi
 else
 	printf 'skip %-34s no sheng checkout (set SHENG_REPO)\n' "sheng audioreach host tests"

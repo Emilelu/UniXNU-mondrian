@@ -1179,3 +1179,13 @@ mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission
 补充：boot 早期有 4 次 \`native client type 103 get bytes=1164 -> 0\`（返回码 0 = 成功），每次都紧跟在 withheld 行之后，说明 daemon 确实读走了记录，只是没有触发 settlement observer 的列表日志；因此「0 条 Preferences」等于「没人打开设置页」，不等于「daemon 没读记录」。
 
 判读 UNOBSERVED。教训：设置页那一步必须有人在，而且要落在窗口内；下一趟要么等用户确认在手机前再飞，要么把采集窗口拉到 25 分钟以上并在检测到 Preferences 列表后提前收尾。mission34（b08a14f8）保留为「只测 1024 元素区」的单变量对照，仍欠一次飞行或需要删除。
+
+## §32 2026-11-19 10:19 wifid 20G81 的离线拆解：列表删除路径只剩 WAPI 一条
+
+对 \`E:/k60-work/scratch/wifid-20G81\`（2,606,496 B，SHA256 96a3c5df…，arm64e）做两跳 xref：cstring → \`__os_log_fmt\` 描述符 → \`__TEXT,__text\` 的 adrp/add 立即数解码，并用 LC_FUNCTION_STARTS 划函数边界（笔记 \`E:/k60-work/scratch/wifid-filter-notes.md\`，171 行）。
+
+结论：整份 wifid 里按「记录字段」删掉一条扫描 BSS 的只有 **WAPI 过滤器**。谓词在 0x1000a8274，取 scan record 字典（\`WiFiNetwork\` +0x10）的 key \`"WAPI"\`（CFNumber/SInt32），缺失按 0 处理；\`(v & 3) == 3 && (v & 0xc) != 0\`（即 v ∈ {7, 11, 15}）时丢弃。两个丢弃点：\`__WiFiDeviceProcessScanDoneEvent\`（0x100059828，门 \`ldrb w8,[x19,#0xa8]\`，循环 0x100059c10 打 \`"%s: filtered out WAPI network %@"\` 后不 append）与 \`__processScanBeaconCacheEntry\`（0x100052034，0x100052138 同一谓词，无门）。旁证 \`WiFiDeviceAssociateAsyncWithCommand\`（0x1000526f8）用它判 WAPI，\`WiFiDeviceSetWapiEnabled\`（0x1000569dc）写 device+0x1690。
+
+负结果（省掉重复排查）：之前怀疑的六条 5 GHz/hidden/SSID 字符串**都不在列表删除路径上**——\`"%s: ignoring hidden network"\`（0x1001ec50c，引用点 0x10015a028）属于 \`WiFiPerfPerAssoc.m\` 的指标采样；\`invalid 5ghzSsid\`（0x1001ef303）、\`companion network …\`（0x1001ef02a）、\`2Ghz scanned network…\`（0x1001ef406）、\`Correspondng 5GHz network\`（0x1001ee53f）、\`guess1..4\`（0x1001efaf6）都属于 WiFiIDSSyncEngine 的 BSSID 猜测与口令继承，与列表无关；\`_nomap\`/\`(IE check)\`（0x100036d40/0x100036d70）是 GEO 质量上报。
+
+意义：我们的记录没有 WAPI 标记（key 缺失 ⇒ v=0 ⇒ 保留），所以 **wifid 里不存在「按元素/频道/SSID 后缀丢弃」的路径**；mission25 的 B/E 两条探针被丢，最简解释仍是它们携带的目标元素区在旧 384 上限下被截断成不完整尾部（mission35 的 trim + 1024 元素区 + 扣留 42 字节国家 IE 正好把这一条修掉）。因此下一步仍是让带着干净记录的 mission35 在有人看设置页时飞一次；\`K60J\`（目标减 221/2）保留作为「畸形厂商元素」的对照，不是当前首选。

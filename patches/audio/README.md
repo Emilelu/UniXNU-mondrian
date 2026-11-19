@@ -192,3 +192,5 @@ constant; the pre-image synthesis is the only thing that needs to change.
 
 BSD-2-Clause-Patent, following the two references the code is derived from
 (`references/pong-power/GeniI2c.c`, `references/phk110-port/drivers/audio/hakios.speaker.c`).
+
+Image bt keeps the br lend/reclaim chain but adds `pong_audio_hold=1` (lend, then stay silent) and extends the AW88261 SYSST poll to 200 ms, separating the transfer from the firmware reading the period.

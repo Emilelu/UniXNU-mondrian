@@ -564,4 +564,4 @@ artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入
 
 [hardware.charger.step.device]
 done = false
-evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。"
+evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。；br 真机（console 1,693 行、106,803 B、logSha256 88C6FB03…、state=captured-disconnected）里探针的 SCM 借还全部 rc=0、探针 WRITE_DONE 到达，但第一条真实周期在第三次 `SCM lend ... rc=0` 之后立刻断流，无 send begin、无 panic；bt 加 `pong_audio_hold=1` 在借出后不发送，并把放大器 SYSST 轮询提到 50×4 ms。"

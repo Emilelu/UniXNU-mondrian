@@ -81,6 +81,12 @@ python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27   # 列出
   `.c/.h`、测试文件与用例数；`check-power-carry.py --target` 会按哈希说 SAME/DRIFT/MISS。
 - 只想先要温控那一块时，三个提交（`d1ddea39`、`92c56173`、`9554ab7e`）的合并 diff 在 27 树上
   `git apply --check` 通过，可以直接 cherry-pick，不必整支合并。
+- 拿不到分支时还有一个不看 git 的通道：
+  `python3 scripts/make-power-carry-bundle.py` 按 `CARRY.toml` 把 8 个模块、3 个判读器、它们的测试
+  与三份文档复制成 `build/power-carry-bundle/`（路径与仓库一致，附 `MANIFEST.sha256` 与 README）。
+  在目标树里 `cp -a build/power-carry-bundle/. .` 之后再跑 `check-power-carry.py --target .`，
+  每个文件应报 SAME。该工具本身由 `scripts/tests/test-power-carry.py` 覆盖（建包、逐文件哈希、
+  把包当 target 通过、改一个字节必须被拒）。
 
 ## 3. iOS27 参考实现
 

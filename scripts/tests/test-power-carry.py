@@ -7,6 +7,7 @@ list, and a target tree that lost or edited a file must each turn it red.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -148,6 +149,50 @@ def case_portability() -> None:
     check("the report names the list", "not in the portability module list" in result.stderr, result.stderr)
 
 
+def bundle(out: Path) -> subprocess.CompletedProcess:
+    if out.exists():
+        shutil.rmtree(out)
+    return subprocess.run([sys.executable, str(ROOT / "scripts" / "make-power-carry-bundle.py"),
+                           "--out", str(out)], **RUN)
+
+
+def case_bundle_covers_manifest() -> None:
+    # CARRY.toml can be compared against a tree; only the bundle can move the bytes
+    # to a checkout that cannot fetch this branch (08-IOS27-POWER-PORT.md 2.2).
+    out = WORK / "bundle"
+    result = bundle(out)
+    check("the carry bundle builds", result.returncode == 0, result.stderr)
+    recorded = (out / "MANIFEST.sha256").read_text(encoding="utf-8").splitlines()
+    check("the bundle records every file it copied", len(recorded) > 10, str(len(recorded)))
+    drifted = []
+    for line in recorded:
+        want, _, rel = line.partition("  ")
+        copy = out / rel
+        if not copy.is_file():
+            drifted.append(f"{rel} missing")
+            continue
+        got = hashlib.sha256(copy.read_bytes()).hexdigest()
+        if got != want:
+            drifted.append(rel)
+    check("every bundled file matches its recorded hash", not drifted, ", ".join(drifted[:3]))
+    compared = run("--target", str(out))
+    check("the checker accepts the bundle as a target", compared.returncode == 0, compared.stderr)
+    check("the bundle reads as SAME everywhere", "SAME" in compared.stdout and "DRIFT" not in compared.stdout)
+
+
+def case_bundle_tamper() -> None:
+    out = WORK / "bundle-tamper"
+    result = bundle(out)
+    check("the tamper fixture built its bundle", result.returncode == 0, result.stderr)
+    victim = out / "drivers" / "PongPower" / "K60ThermalMap.c"
+    check("the bundled thermal map is present", victim.is_file(), str(victim))
+    if victim.is_file():
+        victim.write_text(victim.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        compared = run("--target", str(out))
+        check("an edited bundle is refused", compared.returncode == 1, compared.stdout)
+        check("the refusal names the drifted file", "differs" in compared.stderr, compared.stderr)
+
+
 def case_no_manifest() -> None:
     tree = build(WORK / "nomanifest")
     (tree / "docs" / "research" / "power" / "CARRY.toml").unlink()
@@ -217,6 +262,8 @@ def main() -> int:
         case_judge_case_count,
         case_judge_broken,
         case_judge_target_missing,
+        case_bundle_covers_manifest,
+        case_bundle_tamper,
         case_no_manifest,
     ):
         case()

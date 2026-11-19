@@ -71,6 +71,7 @@ docs/
 | [`DISK-HYGIENE.md`](engineering/DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据、回收顺序、WSL 虚拟盘压缩（需管理员） |
 | [`AGENT-BUS.md`](engineering/AGENT-BUS.md) | 协作通道：`scripts/k60-bus.py` 追加式消息总线、游标语义、与 reply md 的分工 |
 | [`BRANCH-INVENTORY-20261119.md`](engineering/BRANCH-INVENTORY-20261119.md) | 分支全量盘点：49 条未合入分支逐条列出 ahead/behind、内容、证据、被谁包含与建议动作（用户逐条确认用） |
+| [`XNU-16-TO-27-PATCH-LADDER.md`](engineering/XNU-16-TO-27-PATCH-LADDER.md) | 内核补丁阶梯：16.6.1 的 236 条逐条对到 27 的 94 条，缺失项按 F2/F3 分栏，每条带文件:行证据 |
 | [`PATCH-CATALOG.toml`](engineering/PATCH-CATALOG.toml) | **门禁数据源**：series 内每个补丁的用途与归属（`check-patch-series.py` 用它判“series 外的补丁未登记”） |
 | [`COMPONENT-PINS.toml`](engineering/COMPONENT-PINS.toml) | **门禁数据源**：catalog 与本地工作树不一致的组件及理由（`check-component-pin.py`，hard-40） |
 | [`DOC-CITATIONS-BASELINE.toml`](engineering/DOC-CITATIONS-BASELINE.toml) | **门禁数据源**：文档 `file:line` 引用的历史欠账基线（`check-doc-citations.py --update-baseline` 重生成） |

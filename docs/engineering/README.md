@@ -50,6 +50,7 @@
 | [DISK-HYGIENE.md](DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据（hard-41）、回收顺序、WSL 虚拟盘压缩（需管理员） |
 | [AGENT-BUS.md](AGENT-BUS.md) | 协作通道：`scripts/k60-bus.py` 消息总线、游标、与 reply md 的分工 |
 | [BRANCH-INVENTORY-20261119.md](BRANCH-INVENTORY-20261119.md) | **分支全量盘点**（2026-11-19）：49 条未合入 main 的分支逐条编号，含 ahead/behind、文件数、内容、证据、被谁包含（git 祖先实测）与建议动作；用户逐条确认后按「先合 → 门禁全绿 → 删已合并」执行 |
+| [XNU-16-TO-27-PATCH-LADDER.md](XNU-16-TO-27-PATCH-LADDER.md) | **内核补丁阶梯**：16.6.1 的 236 条对 27 线的 94 条（arch 65 + soc 0 + os 4 + device 25），逐条判定；F2 缺 PSCI SMP 胶水与物理定时器写，F3/F4 缺失项分栏；依据为 pristine 12377 对照与 series 成员资格 |
 | [LOCAL-ASSETS.md](LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [REPO-INVENTORY.md](REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 

@@ -1036,6 +1036,36 @@ k60_modem_transport_stale(void)
 	return 0;
 }
 
+/* Print the first unread GLINK message as eight little-endian words.
+ * A peer that has just booted writes nothing before our first VERSION, so at
+ * adopt the remote write index is the discriminator: zero means a clean ring,
+ * anything else means the ring still holds the previous session (the modem
+ * does not have to clear its own index when it reboots). */
+static void
+k60_qrtr_print_ring(const char *tag, const QcomGlinkFifo *rx)
+{
+	uint8_t m[32] = {0};
+	uint32_t w[8] = {0}, avail = 0, head = 0, tail = 0, b;
+
+	if (rx->data != NULL && rx->head != NULL && rx->tail != NULL) {
+		avail = qcom_glink_rx_avail(rx);
+		head = *rx->head;
+		tail = *rx->tail;
+		for (b = 0; b < 32u && b < avail; ++b) {
+			m[b] = rx->data[(tail + b) % rx->length];
+		}
+	}
+	for (b = 0; b < 8u; ++b) {
+		const uint32_t at = b * 4u;
+
+		w[b] = (uint32_t)m[at] | ((uint32_t)m[at + 1] << 8) |
+		    ((uint32_t)m[at + 2] << 16) | ((uint32_t)m[at + 3] << 24);
+	}
+	printf("K60MODEM qrtr: %s rx head=%u tail=%u avail=%u cmd=%#x p1=%#x p2=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
+	    tag, head, tail, avail, (unsigned)(w[0] & 0xffffu),
+	    (unsigned)(w[0] >> 16), w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
+}
+
 /* Adopt the AP-owned GLINK pair and open IPCRTR as the initiator. Pong does
  * this after PAS_INIT_IMAGE and before PAS_MEM_SETUP, not after AUTH. */
 static int
@@ -1069,25 +1099,9 @@ k60_modem_glink_start(volatile uint8_t *window, uint32_t desc_offset,
 		printf("K60MODEM glink: adopt rc=%d\n", rc);
 		return rc;
 	}
-	/* A peer that has just booted writes nothing before our first VERSION,
-	 * so the head value and the ring's first words separate a fresh
-	 * boot-time burst from a ring still holding the previous session.
-	 * Words are little-endian: w0 = cmd | param1 << 16, w1 = param2,
-	 * w2/w3 = the first INTENT pair (size/id), w4/w5 = the next header. */
-	{
-		uint32_t w[8], b;
-
-		for (b = 0; b < 8u; ++b) {
-			const uint32_t at = b * 4u;
-
-			w[b] = (uint32_t)rx.data[at] | ((uint32_t)rx.data[at + 1] << 8) |
-			    ((uint32_t)rx.data[at + 2] << 16) |
-			    ((uint32_t)rx.data[at + 3] << 24);
-		}
-		printf("K60MODEM qrtr: glink adopt tx tail=%u rx head=%u rx w0=%#x w1=%#x w2=%#x w3=%#x w4=%#x w5=%#x w6=%#x w7=%#x\n",
-		    (unsigned)*tx.tail, (unsigned)*rx.head, w[0], w[1], w[2], w[3],
-		    w[4], w[5], w[6], w[7]);
-	}
+	/* A peer that has just booted writes nothing before our first
+	 * VERSION, so the ring is clean exactly when its head is zero. */
+	k60_qrtr_print_ring("glink adopt (transport)", &rx);
 	k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
 	    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,
 	    &callbacks, NULL, 1);
@@ -1199,6 +1213,21 @@ k60_modem_qrtr_probe(void)
 		if (rc != QcomGlinkOk) {
 			printf("K60MODEM qrtr: glink adopt rc=%d\n", rc);
 			return -1;
+		}
+		/* This is the path a B flight takes: transport_prepare defers
+		 * IPCRTR when the modem has not published item 480 yet. The ring
+		 * may still hold the previous session, and the modem's write
+		 * index is not ours to clear, so a non-zero head here cannot be
+		 * a reply to anything we have sent - drop it instead of replaying
+		 * another session's handshake as if it were ours. */
+		k60_qrtr_print_ring("glink adopt (probe)", &rx);
+		if (*rx.head != 0u) {
+			const uint32_t stale = qcom_glink_rx_avail(&rx);
+
+			*rx.tail = *rx.head;
+			k60_modem_fence();
+			printf("K60MODEM qrtr: glink adopt dropped %u stale bytes (head=%u)\n",
+			    stale, (unsigned)*rx.head);
 		}
 		k60_qrtr_channel = qcom_glink_channel(&k60_qrtr_link, "IPCRTR",
 		    K60_QRTR_INTENT_SIZE, K60_QRTR_INTENT_COUNT, k60_qrtr_intents,

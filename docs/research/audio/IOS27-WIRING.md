@@ -143,6 +143,21 @@ sh scripts/tests/portability/run-symbols.sh        # 宿主三连：off=0 / XNU_
 所以不存在写死 16 线产物路径的问题；以后若加读产物的检查，路径必须取 `K60_OUT`，不许钉
 `out-baseline`。
 
+
+### 空跑一遍：三处改动在一棵「像 27 的树」上走通
+
+三处改动是**有顺序的**（复制 → 列进 conf/files → 编宏），单点检查都绿也可能整体走不通；
+而 27 树恰好没有 16 线带的 `bsd/dev/pong_buttons.c`。`scripts/tests/test-wiring-dry-run.sh`
+在临时目录里造一棵这样的树（conf/files 里只有 `bsd/dev/vfs_syscalls.c` 这一行），把三处改动
+按顺序走一遍：默认锚点必须失败并提示 `--anchor`、命名锚点必须把计数从 0 推到 2、`--check` 必须同意、
+复制过来的 `tests/run-tests.sh` 必须仍报 979 例。判据一行：
+
+```sh
+sh scripts/tests/test-wiring-dry-run.sh
+# DRYRUN OK files=23 conf=2 tests=TESTS OK 979 cases
+```
+
+`check-audio27-preflight.sh` 已含这一步（输出行 `ok   three edits dry run`）。
 ## 2. 谁调用、哪一行证明它被调过
 
 | 函数 | 16 树的调用者 | 27 上的调用者 | 证明它跑过的日志行 |

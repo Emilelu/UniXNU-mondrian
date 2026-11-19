@@ -105,7 +105,88 @@ k60_modem_carrier_ok(const void *at, size_t bytes)
 	return 1;
 }
 
+
+/* Memory ownership handoff (SCM service 0x0c, command 0x16).
+ *
+ * The RMTFS storage service cannot touch its 2.5 MiB buffer until the pages
+ * are assigned to the modem, and SCM wants the whole request described inside
+ * one 4 KiB record. PongModemMemshare.h:26-49 is the reference: physical and
+ * rounded size at the front, the source VMID list at 64, 24-byte destination
+ * entries at 128, and three (size, pointer) words at 192/200/208. The layout
+ * is copied rather than derived, so the host test pins every offset. */
+#define K60M_SCM_SVC_MEM 0x0cu
+#define K60M_SCM_MEM_ASSIGN 0x16u
+#define K60M_VMID_HLOS 3u
+#define K60M_VMID_MSS 15u
+#define K60M_ASSIGN_RECORD 4096u
+/* Ownership bits, matching Pong's from/to masks (1 = HLOS, 2 = MSS). */
+#define K60M_OWNER_HLOS 1u
+#define K60M_OWNER_MSS 2u
+
+static inline void
+k60_modem_put_le(uint8_t *at, uint64_t value, unsigned bytes)
+{
+	unsigned i;
+
+	for (i = 0; i < bytes; i++) {
+		at[i] = (uint8_t)(value >> (8 * i));
+	}
+}
+
+static inline int
+k60_modem_assign_record(uint8_t *record, size_t cap, uint64_t physical,
+    uint32_t bytes, unsigned from, unsigned to, uint64_t scratch,
+    uint32_t *sources_out, uint32_t *destinations_out)
+{
+	uint32_t sources = 0;
+	uint32_t destinations = 0;
+	unsigned bit;
+	size_t i;
+
+	if (record == NULL || cap < K60M_ASSIGN_RECORD || bytes == 0 ||
+	    physical == 0) {
+		return -1;
+	}
+	if ((from & ~(K60M_OWNER_HLOS | K60M_OWNER_MSS)) != 0 ||
+	    (to & ~(K60M_OWNER_HLOS | K60M_OWNER_MSS)) != 0 ||
+	    from == 0 || to == 0) {
+		return -1;
+	}
+	for (i = 0; i < K60M_ASSIGN_RECORD; i++) {
+		record[i] = 0;
+	}
+	k60_modem_put_le(record, physical, 8);
+	k60_modem_put_le(record + 8, ((uint64_t)bytes + 4095u) & ~(uint64_t)4095u,
+	    8);
+	for (bit = 1; bit <= 2; bit <<= 1) {
+		const uint32_t vmid = bit == K60M_OWNER_HLOS ? K60M_VMID_HLOS :
+		    K60M_VMID_MSS;
+
+		if ((from & bit) != 0) {
+			k60_modem_put_le(record + 64 + 4 * sources, vmid, 4);
+			sources++;
+		}
+		if ((to & bit) != 0) {
+			k60_modem_put_le(record + 128 + 24 * destinations, vmid, 4);
+			k60_modem_put_le(record + 132 + 24 * destinations,
+			    (bit == K60M_OWNER_HLOS && to != 3) ? 7u : 6u, 4);
+			destinations++;
+		}
+	}
+	k60_modem_put_le(record + 192, sources * 4u, 8);
+	k60_modem_put_le(record + 200, scratch + 128u, 8);
+	k60_modem_put_le(record + 208, destinations * 24u, 8);
+	if (sources_out != NULL) {
+		*sources_out = sources;
+	}
+	if (destinations_out != NULL) {
+		*destinations_out = destinations;
+	}
+	return 0;
+}
+
 int k60_modem_auth_and_reset(void);
+
 int k60_modem_init_image(uint64_t phys);
 int k60_modem_mem_setup(uint64_t base, uint64_t span);
 int k60_modem_shutdown(void);

@@ -43,12 +43,6 @@ sh "$ROOT/scripts/apply-core-patches.sh" "$UNIXNU"
 cd "$UNIXNU"
 python3 ./unixnu fetch --device "$ROOT"
 python3 ./unixnu defconfig mondrian_ios27_defconfig --device "$ROOT"
-# The fakeroot this line seeds carries a Darwin-24 era Availability.h; the 27
-# headers call __SPI_AVAILABLE, which is a parse error when undefined. Repair
-# the build product here rather than patching the compiler argument list that
-# patches/unixnu-core/linux-arm64e-target.patch already rewrites.
-FAKEROOT="$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/fakeroot"
-python3 "$ROOT/scripts/fix-fakeroot-availability.py" "$FAKEROOT"
 python3 ./unixnu build kernel --device "$ROOT" "$@"
 python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
 

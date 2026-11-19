@@ -48,3 +48,4 @@ armcpu-sleep-hook.patch
 0525-k60-bt-official-boot-args.patch
 0526-k60-bt-runtime-mount.patch
 0527-k60-bt-launchd-cache.patch
+0530-k60-spi-availability.patch

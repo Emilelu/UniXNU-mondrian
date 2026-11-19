@@ -1,19 +1,19 @@
 diff --git a/scripts/unixnu/ipsw.py b/scripts/unixnu/ipsw.py
-index de3ef3c..62c3deb 100644
+index 527cd554..13fefb0f 100644
 --- a/scripts/unixnu/ipsw.py
 +++ b/scripts/unixnu/ipsw.py
-@@ -16,8 +16,10 @@ import json
- import os
+@@ -12,8 +12,10 @@ import io
+ import json
  import platform
  import plistlib
 +import shutil
  import struct
  import subprocess
 +import tempfile
- import threading
  import time
  import urllib.error
-@@ -327,8 +329,8 @@ class Ipsw:
+ import urllib.request
+@@ -198,8 +200,8 @@ class Ipsw:
  def decrypt_aea(path):
      """Decrypt an AEA archive beside it (name without .aea), cached with the sha256 of both files.
  
@@ -24,7 +24,7 @@ index de3ef3c..62c3deb 100644
      """
      out = path.with_suffix('')
      record = out.with_suffix(out.suffix + '.json')
-@@ -338,7 +340,26 @@ def decrypt_aea(path):
+@@ -209,7 +211,26 @@ def decrypt_aea(path):
                  and data.get('size') == out.stat().st_size:
              return out
      if platform.system() != 'Darwin':

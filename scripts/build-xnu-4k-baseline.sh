@@ -3,6 +3,18 @@ set -euo pipefail
 trap 'echo "build-xnu-4k-baseline.sh: line $LINENO: $BASH_COMMAND failed" >&2' ERR
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
+
+# Two lines live in this repository now. This script is the 16.6.1 builder: it
+# carries MACHINE_CONFIGS=PONG, the Sleep/wifi/thermal hooks and every K60
+# archive, none of which exist in the 12377 tree, where `make installhdrs` stops
+# with `Unsupported CURRENT_MACHINE_CONFIG PONG`. The iOS 27 stage-0 needs the
+# generic UniXNU builder instead, so board.toml decides which one runs. The
+# choice lives in scripts/pick-xnu-builder.sh because a test has to drive it.
+CHOSEN_BUILDER=$(sh "$ROOT/scripts/pick-xnu-builder.sh" "$ROOT/board.toml" 2>/dev/null || true)
+if [ -n "${CHOSEN_BUILDER:-}" ] && [ "$CHOSEN_BUILDER" != "$ROOT/scripts/build-xnu-4k-baseline.sh" ] && [ -f "$CHOSEN_BUILDER" ]; then
+  echo "build-xnu: [board] os_profile is not the 16.6.1 line; using $CHOSEN_BUILDER" >&2
+  exec bash "$CHOSEN_BUILDER" "$@"
+fi
 # xnu's SETUP tools are host binaries, but MakeInc.cmd resolves HOST_CC with
 # `xcrun -find clang`, which on Linux returns the CLT's Darwin cross clang - it targets
 # arm64e-apple-macos and cannot find <stdio.h>/<libc.h> in the kernel fakeroot. The

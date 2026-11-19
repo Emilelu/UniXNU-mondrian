@@ -234,6 +234,9 @@ static unsigned k60_qrtr_hello_probes;
  * picture (DATA, HELLO, BYE, NEW_SERVER, DEL_SERVER, DEL_CLIENT) instead of a
  * single total. */
 static unsigned k60_qrtr_rx_cmds[8];
+static unsigned k60_qrtr_lookup_replies;
+static unsigned k60_qrtr_rmtfs_requests;
+static int k60_qrtr_rmtfs_sent;
 static unsigned k60_qrtr_static_count;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
     uint32_t length, uint32_t ip_version);
@@ -383,8 +386,38 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 	if (header.type < 8u) {
 		++k60_qrtr_rx_cmds[header.type];
 	}
+	/* A name server answers a lookup with NEW_LOOKUP records of its own: one
+	 * service, instance, node and port per record. k37 never saw one because
+	 * every query went to the control port; the name server listens on
+	 * K60_QRTR_NS_PORT. Treat the answer exactly like a registration. */
+	if (header.type == K60QrtrNewLookup && header.size == K60_QRTR_CONTROL_BYTES) {
+		const uint32_t service = (uint32_t)payload[4] | (uint32_t)payload[5] << 8 |
+		    (uint32_t)payload[6] << 16 | (uint32_t)payload[7] << 24;
+		const uint32_t instance = (uint32_t)payload[8] | (uint32_t)payload[9] << 8 |
+		    (uint32_t)payload[10] << 16 | (uint32_t)payload[11] << 24;
+		const uint32_t node = (uint32_t)payload[12] | (uint32_t)payload[13] << 8 |
+		    (uint32_t)payload[14] << 16 | (uint32_t)payload[15] << 24;
+		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
+		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
+
+		++k60_qrtr_lookup_replies;
+		printf("K60MODEM qrtr: lookup reply service %u instance %u node %u port %u\n",
+		    service, instance, node, port);
+		coachz_baseband_new_server(service, instance, node, port);
+		if (service == K60_QRTR_DMS_SERVICE && port != 0) {
+			k60_qrtr_state.dms_node = node;
+			k60_qrtr_state.dms_port = port;
+			k60_qrtr_state.dms_found = 1;
+		}
+	}
 	if (header.type == K60QrtrData) {
-		if (header.to_port == K60_QRTR_LOCATOR_PORT) {
+		if (header.to_port == K60_QRTR_RMTFS_PORT) {
+			++k60_qrtr_rmtfs_requests;
+			printf("K60MODEM qrtr: rmtfs request %u bytes type=%u msg=%u\n",
+			    header.size, header.size > 0 ? payload[0] : 0,
+			    header.size > 4 ? ((unsigned)payload[3] |
+			    (unsigned)payload[4] << 8) : 0);
+		} else if (header.to_port == K60_QRTR_LOCATOR_PORT) {
 			uint8_t answer[K60_QRTR_MAX_PACKET];
 			uint32_t bytes;
 
@@ -1414,7 +1447,7 @@ k60_modem_qrtr_probe(void)
 			/* tx.tail is the modem's read index: a value that trails our
 			 * head means it consumed what we sent; one that never moves
 			 * means the DATA never left the ring. */
-			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u\n",
+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u replies=%u rmtfs=%u\n",
 			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
 			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
 			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
@@ -1424,7 +1457,8 @@ k60_modem_qrtr_probe(void)
 			    k60_qrtr_link.rx_messages, k60_qrtr_link.tx_messages,
 			    k60_qrtr_link.dropped,
 			    k60_qrtr_rx_cmds[1], k60_qrtr_rx_cmds[2], k60_qrtr_rx_cmds[3],
-			    k60_qrtr_rx_cmds[4]);
+			    k60_qrtr_rx_cmds[4], k60_qrtr_lookup_replies,
+			    k60_qrtr_rmtfs_requests);
 			if (i == 2500u) {
 				k60_qrtr_dump_intents();
 			}
@@ -1490,6 +1524,34 @@ k60_modem_qrtr_probe(void)
 				}
 			}
 		}
+		/* Pong starts the modem only after its storage service answers; the
+		 * modem may be waiting for exactly that before it brings its QMI
+		 * stack up. Announce the service and log whatever it asks. */
+		if (k60_qrtr_server_sent && !k60_qrtr_rmtfs_sent) {
+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
+			uint32_t rmtfs_node = k60_qrtr_state.remote_node;
+
+			if (rmtfs_node == K60_QRTR_CONTROL_PORT ||
+			    rmtfs_node == K60_QRTR_AP_NODE) {
+				rmtfs_node = K60_QRTR_BROADCAST_NODE;
+			}
+			if (k60_qrtr_build_new_server(packet, sizeof(packet),
+			    K60_QRTR_RMTFS_SERVICE, K60_QRTR_RMTFS_INSTANCE,
+			    rmtfs_node, K60_QRTR_RMTFS_PORT) != 0) {
+				const int send_rc = qcom_glink_send(&k60_qrtr_link,
+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
+
+				if (send_rc == QcomGlinkOk) {
+					k60_qrtr_rmtfs_sent = 1;
+					printf("K60MODEM qrtr: announced rmtfs service %u instance %u port %#x\n",
+					    K60_QRTR_RMTFS_SERVICE, K60_QRTR_RMTFS_INSTANCE,
+					    K60_QRTR_RMTFS_PORT);
+				} else if (send_rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: rmtfs announce rc=%d\n", send_rc);
+					return send_rc;
+				}
+			}
+		}
 		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
 		    !k60_qrtr_server_sent) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
@@ -1525,7 +1587,9 @@ k60_modem_qrtr_probe(void)
 		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
 		    i >= (int)k60_qrtr_lookup_next) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
-			const uint32_t to_node = K60_QRTR_BROADCAST_NODE;
+			const uint32_t to_node = ((k60_qrtr_lookup_count & 1u) != 0u) ?
+			    K60_QRTR_BROADCAST_NODE : 0u;
+			const uint32_t to_port = K60_QRTR_NS_PORT;
 			uint32_t built;
 			uint32_t service = 0;
 			uint32_t instance = 0;
@@ -1534,8 +1598,8 @@ k60_modem_qrtr_probe(void)
 				service = K60_QRTR_DMS_SERVICE;
 				instance = 0;
 			}
-			built = k60_qrtr_build_lookup_service(packet, sizeof(packet),
-			    to_node, service, instance);
+			built = k60_qrtr_build_lookup_at(packet, sizeof(packet),
+			    to_node, to_port, service, instance);
 			if (built != 0) {
 				const int send_rc = qcom_glink_send(&k60_qrtr_link,
 				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
@@ -1544,8 +1608,8 @@ k60_modem_qrtr_probe(void)
 					k60_qrtr_lookup_sent = 1;
 					++k60_qrtr_lookup_count;
 					k60_qrtr_lookup_next = (unsigned)i + K60_QRTR_LOOKUP_PERIOD;
-					printf("K60MODEM qrtr: sent new_lookup (0x0a) #%u service %u to node %u\n",
-					    k60_qrtr_lookup_count, service, to_node);
+					printf("K60MODEM qrtr: sent new_lookup (0x0a) #%u service %u to node %u port %u\n",
+					    k60_qrtr_lookup_count, service, to_node, to_port);
 				} else if (send_rc != QcomGlinkAgain) {
 					printf("K60MODEM qrtr: lookup send rc=%d\n", send_rc);
 					return send_rc;

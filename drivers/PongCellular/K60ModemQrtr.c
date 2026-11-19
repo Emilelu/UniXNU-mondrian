@@ -72,20 +72,28 @@ k60_qrtr_build_hello(uint8_t *out, size_t cap)
  * k36's unicast-to-node-0 lookup was never answered, so the probe now sends
  * both forms to the broadcast node. */
 uint32_t
-k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
-    uint32_t service, uint32_t instance)
+k60_qrtr_build_lookup_at(uint8_t *out, size_t cap, uint32_t to_node,
+    uint32_t to_port, uint32_t service, uint32_t instance)
 {
 	if (out == NULL || cap < K60_QRTR_LOOKUP_BYTES) {
 		return 0;
 	}
 	put_header(out, K60QrtrNewLookup, K60_QRTR_AP_NODE, K60_QRTR_CONTROL_PORT,
-	    to_node, K60_QRTR_CONTROL_PORT, K60_QRTR_CONTROL_BYTES);
+	    to_node, to_port, K60_QRTR_CONTROL_BYTES);
 	put32(out + K60_QRTR_HEADER_BYTES + 0, K60QrtrNewLookup);
 	put32(out + K60_QRTR_HEADER_BYTES + 4, service);
 	put32(out + K60_QRTR_HEADER_BYTES + 8, instance);
 	put32(out + K60_QRTR_HEADER_BYTES + 12, 0);
 	put32(out + K60_QRTR_HEADER_BYTES + 16, 0);
 	return K60_QRTR_LOOKUP_BYTES;
+}
+
+uint32_t
+k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
+    uint32_t service, uint32_t instance)
+{
+	return k60_qrtr_build_lookup_at(out, cap, to_node, K60_QRTR_CONTROL_PORT,
+	    service, instance);
 }
 
 uint32_t

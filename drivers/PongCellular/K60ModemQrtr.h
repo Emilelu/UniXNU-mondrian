@@ -23,7 +23,13 @@
 #define K60_QRTR_HEADER_BYTES   32u
 #define K60_QRTR_CONTROL_BYTES  20u
 #define K60_QRTR_LOOKUP_BYTES   (K60_QRTR_HEADER_BYTES + K60_QRTR_CONTROL_BYTES)
-#define K60_QRTR_CONTROL_PORT   0xfffffffeu  /* the name service's port */
+#define K60_QRTR_CONTROL_PORT   0xfffffffeu  /* control messages: hello, new server */
+#define K60_QRTR_NS_PORT        53u          /* where a node's name server listens */
+/* The modem reads its NV through a storage service that the AP must host;
+ * Pong registers the same service (14/1) before it starts PAS. */
+#define K60_QRTR_RMTFS_SERVICE   14u
+#define K60_QRTR_RMTFS_INSTANCE  1u
+#define K60_QRTR_RMTFS_PORT      0x102u
 #define K60_QRTR_BROADCAST_NODE 0xffffffffu  /* "every node", what a lookup is sent to */
 #define K60_QRTR_AP_NODE        1u           /* this AP's QRTR node id */
 #define K60_QRTR_FIRST_PORT     0x4000u      /* first port we hand out */
@@ -117,6 +123,11 @@ uint32_t k60_qrtr_build_hello(uint8_t *out, size_t cap);
 uint32_t k60_qrtr_build_lookup(uint8_t *out, size_t cap, uint32_t to_node);
 uint32_t k60_qrtr_build_lookup_service(uint8_t *out, size_t cap, uint32_t to_node,
     uint32_t service, uint32_t instance);
+/* Same lookup, but addressed to an explicit port. A name server is reached on
+ * K60_QRTR_NS_PORT, not on the control port: k37 broadcast lookups to the
+ * control port for a full minute and no node answered. */
+uint32_t k60_qrtr_build_lookup_at(uint8_t *out, size_t cap, uint32_t to_node,
+    uint32_t to_port, uint32_t service, uint32_t instance);
 /* NEW_SERVER for one local service: announces where the AP listens. */
 uint32_t k60_qrtr_build_new_server(uint8_t *out, size_t cap, uint32_t service,
     uint32_t instance, uint32_t to_node, uint32_t port);

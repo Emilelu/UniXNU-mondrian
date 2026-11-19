@@ -29,7 +29,10 @@
 5. **发布成功 ≠ 通道可用**。消费者在 `K60PmicGlink.cpp:57-87` 的 `discover()` 里会拿
    SMEM 里的**真实条目**和 lease 逐项比对，并用 SMP2P 判定远端就绪；任何一项不符就
    `error=-21/-22/-23` 退出。也就是说：**ADSP 必须先跑起来、SMP2P 必须先就绪**，
-   发布者不能只写 104 个字节就完事（见 §10）。
+   发布者不能只写 104 个字节就完事（见 §10）。上机时这条判据由
+   `scripts/judge-k60-handoff-console.py` 检查：`CHAIN` 通过只说明发布成功，
+   必须再看到 `ADOPT`、`CHANNEL`、`SAMPLE` 三条才算通道可用
+   （见 [PMIC-GLINK-SERVICE.md](PMIC-GLINK-SERVICE.md) §9）。
 6. **`k60_handoff_build()` 自己不持有 TCSR 硬件互斥量**：`K60Smem.c` 里的
    `acquire()`/`release()`（`:17-22`、`:28-33`）只有 `dmb osh` 屏障，没有写
    `0x1f43000`。调用者必须在调用前后自己持锁（照 `K60PmicGlink.cpp:38-56` 的

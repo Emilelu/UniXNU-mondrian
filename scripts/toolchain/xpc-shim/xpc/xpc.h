@@ -7,10 +7,10 @@ typedef void *xpc_object_t;
 typedef xpc_object_t xpc_connection_t;
 typedef void (^xpc_handler_t)(xpc_object_t);
 typedef uint64_t xpc_connection_mach_service_flags_t;
-extern const struct _xpc_type_s _xpc_type_dictionary;
-extern const struct _xpc_type_s _xpc_type_connection;
-#define XPC_TYPE_DICTIONARY (&_xpc_type_dictionary)
-#define XPC_TYPE_CONNECTION (&_xpc_type_connection)
+extern const struct _xpc_type_s xpc_type_dictionary;
+extern const struct _xpc_type_s xpc_type_connection;
+#define XPC_TYPE_DICTIONARY (&xpc_type_dictionary)
+#define XPC_TYPE_CONNECTION (&xpc_type_connection)
 #define XPC_CONNECTION_MACH_SERVICE_LISTENER ((xpc_connection_mach_service_flags_t)1)
 xpc_type_t xpc_get_type(xpc_object_t);
 xpc_object_t xpc_dictionary_create_reply(xpc_object_t);

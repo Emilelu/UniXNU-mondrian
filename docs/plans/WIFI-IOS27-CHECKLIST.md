@@ -139,8 +139,11 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   [os_overrides."ios-27.0.1-24A446"] is what selects the 12377 series; with --os
   ipados-27.0.1-24A446 the 16 series is applied and apple-only-cpu-tunables.patch fails
   at osfmk/arm64/start.s:33.
-- [ ] D2 scripts/build-xnu-4k-baseline.sh does not exist on 27; the 4 KiB tables come
-  from profiles/arch/arm64e there.
+- [ ] D2 the 16 builder's machine configuration does not exist on 27. 12377 has no
+  config/MASTER.arm64.PONG (the arch profile adds MASTER.arm64.bcm2837 instead), so a
+  build that forces MACHINE_CONFIGS=PONG dies with "Unsupported CURRENT_MACHINE_CONFIG
+  PONG" in MakeInc.kernel before any driver is compiled. That is why the same entry
+  script dispatches: 16.6.1 keeps PONG, 27 runs build-xnu-generic.sh on BCM2837.
 - [ ] D3 configs/mondrian_ios27_defconfig deliberately sets CONFIG_XNU_NATIVE_UFS=n,
   CONFIG_XNU_NATIVE_ADRENO=n and CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n (stage 0 stops at
   bsd_init). Wifi must not depend on any of them; our driver needs only the

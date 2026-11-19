@@ -26,7 +26,7 @@ RULES = REPO / "docs" / "engineering" / "RULES.toml"
 PITFALLS = REPO / "docs" / "engineering" / "PITFALLS.md"
 AGENTS = REPO / "AGENTS.md"
 
-PITFALL_HEADING = re.compile(r"^#{2,3}\s*P-(\d{3})")
+PITFALL_HEADING = re.compile(r"^#{2,3}\s*P-(\d{3})", re.MULTILINE)
 HARD_HEADING = re.compile(r"^##\s*★(\d+)", re.MULTILINE)
 # `### 铁则 9` is the original Chinese heading; `### Iron rule 9` is the English
 # rewrite. Both are accepted so translating AGENTS.md does not turn the coverage
@@ -51,7 +51,7 @@ def pitfalls_in_log() -> set[str]:
     if not PITFALLS.is_file():
         return set()
     text = PITFALLS.read_text(encoding="utf-8", errors="replace")
-    return {f"P-{n}" for n in PITFALL_HEADING.findall(text, re.MULTILINE)}
+    return {f"P-{n}" for n in PITFALL_HEADING.findall(text)}
 
 
 def hard_rules_in_doc() -> set[str]:

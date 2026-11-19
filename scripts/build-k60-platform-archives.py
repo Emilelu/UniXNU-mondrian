@@ -66,6 +66,8 @@ env.update(
     CROSS_EXTRA_FLAGS='-mllvm -disable-atexit-based-global-dtor-lowering',
     CCC_OVERRIDE_OPTIONS='# +-Wno-missing-designated-field-initializers +-Wno-unused-but-set-global',
     XNU_DARWIN=_args.darwin, XNU_VERSION=_args.xnu_version,
+    # The vendor recipes hardcode arm64-apple-ios16.0; the 27 line builds arm64e.
+    K60_PLATFORM_TARGET_TRIPLE=_args.triple,
     PONG_NATIVE_DRIVER_SOURCE=str(DRIVER),
     PONG_HARDWARE_DTB=str(TREE / 'build/xnu/ios-dst/hardware.dtb'),
 )
@@ -113,6 +115,14 @@ for subdir, script, libname in SCRIPTS:
         results.append((libname, None, f'rc={r.returncode}'))
         continue
     lib = TREE / 'build' / subdir / libname
+    # The recipe writes under the tree it was handed; take that copy whenever it
+    # exists, otherwise a stale archive from an earlier run satisfies the check
+    # below and the freshly built one is silently ignored.
+    strayed_now = XNU / 'build' / subdir / libname
+    if strayed_now.is_file():
+        lib.parent.mkdir(parents=True, exist_ok=True)
+        strayed_now.replace(lib)
+        print('  TAKEN', strayed_now, '->', lib, lib.stat().st_size, 'bytes')
     if lib.exists():
         print('  BUILT', lib, lib.stat().st_size, 'bytes')
         results.append((libname, lib, 'ok'))

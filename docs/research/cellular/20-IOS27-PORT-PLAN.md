@@ -116,6 +116,22 @@ diff -u <27 tree>/bsd/kern/kern_exec.c /tmp/kern_exec.27.c > 0627-kern-exec-call
 `scripts/port-cellular-to-xnu27.py` 的缺省锚点就是这个字符串，语句名一致时不用带 `--anchor`；
 若 27 用了别的写法（`stage = 2`、`kNativeOwnerDataStageWritable` 等），用 `--anchor "<原文>"` 指给新行。
 
+### 5.2 锚点可以自动找（`--anchor-auto`）
+
+等 Lead 的 data-mount 落地期间，生成器已经把「找锚点」做成一条命令的一半：
+
+```sh
+python3 scripts/port-cellular-to-xnu27.py --tree <27树> --out patches/xnu-12377 --anchor-auto
+```
+
+`find_anchor()` 分两级找：先找含 `native_owner_data_stage` 且以 `;` 结尾的行（探针要紧贴把 stage 推到 3 的那一行），
+找不到再退到 `native_owner_data_prepare(` 或 `vnode_lookup("/private/var"`。恰好一行才返回，
+零行说 `no line stages the Data mount yet`（当前真实 27 树就是这条），两行及以上说 `anchor is ambiguous`
+并列出行原文——**绝不猜**。找到时先打印 `K60 PORT27 anchor <原文>`，再照常写 0626/0627/0628/0629。
+
+自测覆盖三种树（一行、两行、零行），输出 `K60 PORT27 PASS renumbering, anchor insertion, auto anchor, refusal,
+verification, series, build list`；readiness 里 `anchor lines=0` 一行仍是 note，不影响 exit code。
+
 ## 6. `0621-k60-io-submap-budget` 在 27 上没有对应物
 
 16 线的 `osfmk/arm/io_map.c` 有一张所有调用者共用的 8 MiB `io_submap`，`kmem_alloc(io_submap, …, KMA_NOFAIL)` 撑爆时会 panic（P-219），所以才把宏抬到 32 MiB。

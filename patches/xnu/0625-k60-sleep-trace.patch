@@ -1,0 +1,79 @@
+--- a/iokit/Kernel/IOCPU.cpp
++++ b/iokit/Kernel/IOCPU.cpp
+@@ -55,6 +55,14 @@
+ extern "C" void sched_override_available_cores_for_sleep(void);
+ extern "C" void sched_restore_available_cores_after_sleep(void);
+ 
++#if defined(PONG)
++/* Optional reports from the board and ArmCpu sleep cores. Both only log, and
++ * both are called after console_resume(); calling them earlier would write to
++ * the console with interrupts masked. */
++extern "C" void armcpu_sleep_report(void) __attribute__((weak));
++extern "C" void k60_platform_sleep_report(void) __attribute__((weak));
++#endif
++
+ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 
+ static IOLock *gIOCPUsLock;
+@@ -232,10 +240,13 @@
+ 	IOPMrootDomain  *rootDomain = IOService::getPMRootDomain();
+ 
+ 	printf("IOCPUSleepKernel enter\n");
++	printf("K60TRACE: sleep enter cpus=%u\n", gIOCPUs->getCount());
+ 	sched_override_available_cores_for_sleep();
++	printf("K60TRACE: sched override done\n");
+ 
+ 	rootDomain->tracePoint( kIOPMTracePointSleepPlatformActions );
+ 	IOPlatformActionsPreSleep();
++	printf("K60TRACE: platform actions done\n");
+ 	rootDomain->tracePoint( kIOPMTracePointSleepCPUs );
+ 
+ 	numCPUs = gIOCPUs->getCount();
+@@ -257,6 +268,7 @@
+ 
+ 	// Sleep the CPUs.
+ 	ml_set_is_quiescing(true);
++	printf("K60TRACE: quiescing set\n");
+ 	cnt = numCPUs;
+ 	while (cnt--) {
+ 		target = OSDynamicCast(IOCPU, gIOCPUs->getObject(cnt));
+@@ -270,12 +282,15 @@
+ #if defined(__x86_64__)
+ 			currentShutdownTarget = target;
+ #endif
++			printf("K60TRACE: halt cpu %u state=%d\n", (unsigned)target->getCPUNumber(), (int)target->getCPUState());
+ 			target->haltCPU();
+ 		}
+ 	}
+ 
+ 	assert(bootCPU != NULL);
+ 	assert(cpu_number() == master_cpu);
++
++	printf("K60TRACE: secondaries done\n");
+ 
+ 	console_suspend();
+ 
+@@ -298,6 +313,15 @@
+ 	rootDomain->start_watchdog_timer();
+ 
+ 	console_resume();
++	printf("K60TRACE: resumed\n");
++#if defined(PONG)
++	if (armcpu_sleep_report != NULL) {
++		armcpu_sleep_report();
++	}
++	if (k60_platform_sleep_report != NULL) {
++		k60_platform_sleep_report();
++	}
++#endif
+ 
+ 	rootDomain->tracePoint( kIOPMTracePointWakeCPUs );
+ 
+@@ -323,6 +347,7 @@
+ 	sched_restore_available_cores_after_sleep();
+ 
+ 	thread_kern_set_pri(self, old_pri);
++	printf("K60TRACE: wake cpus done\n");
+ 	printf("IOCPUSleepKernel exit\n");
+ }
+ 

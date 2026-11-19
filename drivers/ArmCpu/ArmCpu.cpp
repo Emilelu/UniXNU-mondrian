@@ -282,7 +282,9 @@ static void sleepBootWait(void)
 
 static void armcpuPlatformSleep(boolean_t bootCpu)
 {
-  IOLog("ArmCpu: platform sleep hook boot=%u\n", bootCpu ? 1 : 0);
+  /* This runs with interrupts masked and the console suspended. Never log
+   * here: the K60 USB log treats console I/O from an interrupt-disabled
+   * context as a panic, and the wait path would die before it starts. */
   if (!bootCpu) sleepCoreOff();
   armcpu_sleep_stats.phase = 1;
   sleepBootWait();
@@ -296,6 +298,17 @@ extern "C" int armcpu_sleep_register(const struct armcpu_sleep_board *board)
    * dropping the board and having no way to register it later. */
   __atomic_store_n(&gSleepBoard, const_cast<struct armcpu_sleep_board *>(board), __ATOMIC_RELEASE);
   return gSleepEnabled ? KERN_SUCCESS : KERN_NOT_SUPPORTED;
+}
+
+extern "C" void armcpu_sleep_report(void)
+{
+  IOLog("ArmCpu: sleep report phase=%u entries=%u spurious=%u last_intid=%u last_reason=%u cpu_off=%u asleep_ticks=%llu masked=%u ticks=%u unarmed=%u\n",
+      armcpu_sleep_stats.phase, armcpu_sleep_stats.entries,
+      armcpu_sleep_stats.spurious, armcpu_sleep_stats.last_intid,
+      armcpu_sleep_stats.last_reason, armcpu_sleep_stats.cpu_off_failures,
+      (unsigned long long)armcpu_sleep_stats.asleep_ticks,
+      armcpu_sleep_stats.masked, armcpu_sleep_stats.ticks,
+      armcpu_sleep_stats.unarmed);
 }
 
 bool ArmCpu::mapGic(void)
@@ -698,11 +711,11 @@ void ArmCpu::enableCPUTimeBase(bool enabled)
 
 void ArmCpu::quiesceCPU(void)
 {
-  IOLog("ArmCpu: quiesce CPU %u state=%d sleep=%u quiescing=%u\n", logicalId,
-      getCPUState(), gSleepEnabled ? 1 : 0, ml_is_quiescing() ? 1 : 0);
+  /* No logging here: this runs from processor_offline with interrupts masked
+   * and, for the boot CPU, the console already suspended. Report after the
+   * resume path re-enables both. */
   if (gSleepEnabled && ml_is_quiescing() && &ml_arm_sleep != nullptr) {
     // Boot core: waits in armcpuPlatformSleep; others: PSCI CPU_OFF inside.
-    IOLog("ArmCpu: CPU %u entering ml_arm_sleep\n", logicalId);
     ml_arm_sleep();
   }
   enableCPUTimeBase(false);

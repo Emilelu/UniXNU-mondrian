@@ -35,9 +35,19 @@
  * only the value types and inline helpers. */
 extern "C" int armcpu_sleep_register(const struct armcpu_sleep_board *board);
 
+/* Implemented in the XNU patch 0624 beside IOPMrootDomain::start(). A kernel
+ * thread has no user-client entitlement, so IOPMrootDomain::setProperties()
+ * refuses the System Boot Complete key with kIOReturnNotPermitted; this helper
+ * submits the same power event directly on the root-domain queue. */
+extern "C" void k60_platform_sleep_boot_complete(void);
+
 static volatile unsigned gPrepares;
 static volatile unsigned gRestores;
 static volatile unsigned gTicks;
+
+/* prepare/should_wake/restore/tick run with interrupts masked and the console
+ * suspended. Logging from any of them panics the K60 USB log, so they only
+ * count; k60_platform_sleep_report() prints the counters after resume. */
 
 /* Diagnostic only: the official entry is the power key, but a bring-up run
  * needs a deterministic trigger while the PON SPI is still unrouted. The boot
@@ -50,35 +60,41 @@ static void k60_sleep_trigger_thread(void *arg, wait_result_t)
     IOPMrootDomain *pm = IOService::getPMRootDomain();
     IOLog("K60Sleep: diagnostic trigger after %u s pm=%p\n", seconds, pm);
     if (pm != nullptr) {
-        const IOReturn rc = pm->sleepSystem();
-        IOLog("K60Sleep: sleepSystem rc=0x%x\n", rc);
+        /* The demand path refuses while systemBooting is still set. That flag
+         * is cleared only by the kPowerEventSystemBootCompleted power event
+         * that userland powerd normally publishes; this board has no such
+         * publisher yet, so the bring-up trigger submits the event through the
+         * XNU helper and retries the demand request while PM dispatches it.
+         * It is guarded by k60_slp like the rest of the trigger. */
+        k60_platform_sleep_boot_complete();
+        IOLog("K60Sleep: boot complete event submitted\n");
+        for (unsigned attempt = 0; attempt < 10; attempt++) {
+            IOSleep(200);
+            const IOReturn rc = pm->sleepSystem();
+            IOLog("K60Sleep: sleepSystem attempt %u rc=0x%x\n", attempt + 1, rc);
+            if (rc == kIOReturnSuccess) break;
+        }
     }
 }
 
 static void k60_sleep_prepare(void)
 {
-    const unsigned n = __atomic_add_fetch(&gPrepares, 1, __ATOMIC_RELAXED);
-    IOLog("K60Sleep: prepare #%u; timer-only wake (platform-sleep-wake-after)\n", n);
+    __atomic_add_fetch(&gPrepares, 1, __ATOMIC_RELAXED);
 }
 
-static int k60_sleep_should_wake(uint32_t intid)
+static int k60_sleep_should_wake(uint32_t)
 {
-    IOLog("K60Sleep: should_wake intid=%u -> no (no board wake source registered yet)\n", intid);
     return 0;
 }
 
 static void k60_sleep_restore(void)
 {
-    const unsigned n = __atomic_add_fetch(&gRestores, 1, __ATOMIC_RELAXED);
-    IOLog("K60Sleep: restore #%u (prepares=%u ticks=%u)\n", n,
-        __atomic_load_n(&gPrepares, __ATOMIC_RELAXED),
-        __atomic_load_n(&gTicks, __ATOMIC_RELAXED));
+    __atomic_add_fetch(&gRestores, 1, __ATOMIC_RELAXED);
 }
 
 static void k60_sleep_tick(void)
 {
-    const unsigned n = __atomic_add_fetch(&gTicks, 1, __ATOMIC_RELAXED);
-    IOLog("K60Sleep: tick #%u (no hardware watchdog endpoint in tree)\n", n);
+    __atomic_add_fetch(&gTicks, 1, __ATOMIC_RELAXED);
 }
 
 static const struct armcpu_sleep_board k60SleepBoard = {
@@ -90,6 +106,15 @@ static const struct armcpu_sleep_board k60SleepBoard = {
     k60_sleep_tick,
     K60_SLEEP_TICK_S,
 };
+
+/* Runs from IOCPUSleepKernel after console_resume(), so IOLog is safe here. */
+extern "C" void k60_platform_sleep_report(void)
+{
+    IOLog("K60Sleep: report prepares=%u restores=%u ticks=%u\n",
+        __atomic_load_n(&gPrepares, __ATOMIC_RELAXED),
+        __atomic_load_n(&gRestores, __ATOMIC_RELAXED),
+        __atomic_load_n(&gTicks, __ATOMIC_RELAXED));
+}
 
 /* Called from k60_physical_battery_start(), which runs before ArmCpu parses
  * platform-sleep. The record is therefore handed over unconditionally and the

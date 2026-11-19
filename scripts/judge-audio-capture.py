@@ -263,6 +263,178 @@ def judge_replay(lines):
     return 0, report
 
 
+# The playback path of the cc image (PongAudioAmp.c / pong_audio.c). Auto-judged
+# here so the flight card never asks a human to eyeball a status word.
+MARK_STEP = re.compile(
+    r"PongAudio: playback step (\d+) send bytes=(\d+) opcode=0x([0-9a-fA-F]{8})"
+    r" token=0x([0-9a-fA-F]{8})")
+MARK_RX = re.compile(
+    r"PongAudio: glink adsp_apps rx bytes=(\d+) kind=(\d+)"
+    r" opcode=0x([0-9a-fA-F]{8}) token=0x([0-9a-fA-F]{8}) status=(\d+)")
+MARK_SWITCH = re.compile(
+    r"PongAudio: amp spk switch gpio=(\d+) on=(\d) cfg=0x([0-9a-fA-F]{8})"
+    r" io=0x([0-9a-fA-F]{8}) read=0x([0-9a-fA-F]{8})")
+MARK_AMP_PLAY = re.compile(
+    r"PongAudio: amp(\d) play pll=(\d) status=0x([0-9a-fA-F]{4})"
+    r" faults=0x([0-9a-fA-F]{4}) tries=(\d+)")
+
+# Steps of the playback plan (pong_ar_ playwright in pong_audio.c): 2 opens the
+# speaker graph with 408 bytes, 6 asks PRM for the bit clock, 10 starts the
+# speaker graph, 11 starts the playback graph.
+SPEAKER_OPEN_STEP, SPEAKER_OPEN_BYTES = 2, 408
+SPEAKER_START_STEP = 10
+CLOCK_STEP = 6
+CLOCK_OPCODE = 0x0100100F
+PRM_DONE_OPCODE = 0x02001002
+WRITE_DONE_OPCODE = 0x05001004
+SPK_SWITCH_GPIO = 52
+SPK_SWITCH_ON_IO = 0x2
+# AW88261 SYSST: PLLS 1<<0, CLKS 1<<4, NOCLKS 1<<5 (AMPS.md section 8).
+SYSST_CLOCKS = 0x11
+SYSST_NOCLKS = 0x20
+HEALTHY_STATES = ("captured", "captured-budget-complete")
+PANIC_MARKERS = ("K60KEXC", "K60PANICFMT", "K60PANICARGS", "panic(cpu")
+
+
+def judge_playback(lines, meta):
+    """Return (exit code, report lines) for the cc card. Pure, like judge()."""
+    report = []
+    text = "\n".join(lines)
+    steps = {}
+    for step, nbytes, opcode, token in MARK_STEP.findall(text):
+        steps.setdefault(int(step), []).append((int(nbytes), int(opcode, 16), token.lower()))
+    status = {}
+    for _bytes, _kind, opcode, token, st in MARK_RX.findall(text):
+        status.setdefault(token.lower(), []).append((int(opcode, 16), int(st)))
+    switches = MARK_SWITCH.findall(text)
+    plays = MARK_AMP_PLAY.findall(text)
+    write_done = text.count("opcode=0x%08x" % WRITE_DONE_OPCODE)
+    down = [l for l in lines if "glink adsp_apps down" in l]
+    panics = [m for m in PANIC_MARKERS if m in text]
+
+    report.append("capture.json       : state=%s complete=%s stopReason=%s panicMarker=%s"
+                  % (meta.get("state"), meta.get("complete"), meta.get("stopReason"),
+                     meta.get("panicMarker")))
+    report.append("console lines      : %d" % len(lines))
+    report.append("playback steps seen: %s" % sorted(steps))
+    report.append("spk switch lines   : %d %s" % (len(switches), switches))
+    report.append("amp play lines     : %d %s" % (len(plays), plays))
+    report.append("WRITE_DONE replies : %d" % write_done)
+    report.append("glink down lines   : %d" % len(down))
+    report.append("panic markers      : %s" % (panics or "none"))
+
+    if not steps:
+        report.append("PLAYBACK VERDICT: the playback plan never ran")
+        return 2, report
+
+    problems = []
+    notes = []
+
+    # F2: the capture must have reached the playback plan at all.
+    if len(lines) < 500:
+        problems.append("F2 console has %d lines, want >= 500" % len(lines))
+
+    # F1: a panic or a reset in the middle of the run.
+    if panics:
+        problems.append("F1 panic marker in the log: %s" % ", ".join(panics))
+    if meta.get("panicMarker"):
+        problems.append("F1 capture.json panicMarker=%s" % meta.get("panicMarker"))
+
+    # F5: the ADSP link dropped, so the run says nothing about the endpoint.
+    if down:
+        problems.append("F5 glink adsp_apps down (the run is void)")
+
+    # S1: the capture itself is complete.
+    if meta.get("state") not in HEALTHY_STATES:
+        problems.append("S1 capture state=%s" % meta.get("state"))
+
+    def step_status(step, want_opcode):
+        """Return (sent, status) for one plan step, or None when it is absent."""
+        runs = steps.get(step) or []
+        if not runs:
+            return None
+        nbytes, opcode, token = runs[0]
+        replies = [st for op, st in status.get(token, []) if op == want_opcode]
+        return (nbytes, opcode, replies[0] if replies else None)
+
+    # S2: the speaker graph opens as an I2S sink.
+    got = step_status(SPEAKER_OPEN_STEP, 0x02001005)
+    if got is None:
+        problems.append("S2 playback step %d never ran" % SPEAKER_OPEN_STEP)
+    else:
+        nbytes, _opcode, st = got
+        if nbytes != SPEAKER_OPEN_BYTES:
+            problems.append("S2 speaker open sent %d bytes, want %d"
+                            % (nbytes, SPEAKER_OPEN_BYTES))
+        if st is None:
+            problems.append("S2 the speaker open got no basic result")
+        elif st != 0:
+            problems.append("F3 speaker open status=%d" % st)
+
+    # S3: the speaker graph starts on its own.
+    got = step_status(SPEAKER_START_STEP, 0x02001005)
+    if got is None:
+        problems.append("S3 playback step %d never ran" % SPEAKER_START_STEP)
+    else:
+        _nbytes, _opcode, st = got
+        if st is None:
+            problems.append("S3 the speaker start got no basic result")
+        elif st != 0:
+            problems.append("F3 speaker start status=%d" % st)
+
+    # S4: PRM granted the bit clock. The clock id itself is pinned in the image
+    # (flight card P3); the log only shows that the request was answered.
+    got = step_status(CLOCK_STEP, PRM_DONE_OPCODE)
+    if got is None:
+        problems.append("S4 playback step %d never ran" % CLOCK_STEP)
+    else:
+        _nbytes, opcode, st = got
+        if opcode != CLOCK_OPCODE:
+            problems.append("S4 step %d carried opcode 0x%08x, want 0x%08x"
+                            % (CLOCK_STEP, opcode, CLOCK_OPCODE))
+        if st is None:
+            problems.append("S4 the PRM clock request got no PRM done")
+        elif st != 0:
+            problems.append("F4 PRM clock status=%d" % st)
+
+    # S5: the speaker switch is actually driven high.
+    high = [(g, on, rd) for g, on, _cfg, _io, rd in switches
+            if int(g) == SPK_SWITCH_GPIO and on == "1"]
+    if not high:
+        problems.append("S5 no 'amp spk switch gpio=%d on=1' line" % SPK_SWITCH_GPIO)
+    else:
+        _g, _on, rd = high[-1]
+        if int(rd, 16) != SPK_SWITCH_ON_IO:
+            problems.append("S5 switch reads back 0x%s, want 0x%08x"
+                            % (rd, SPK_SWITCH_ON_IO))
+
+    # S6: does the amplifier see a bit clock? Reported, not gated: a clean run
+    # with status=0x0000 is a real finding and the next image is built on it.
+    for amp, pll, st, _faults, _tries in plays:
+        value = int(st, 16)
+        if value & SYSST_CLOCKS == SYSST_CLOCKS:
+            notes.append("S6 amp%s status=0x%04x: PLLS|CLKS set, the bit clock reached it"
+                         % (amp, value))
+        elif value & SYSST_NOCLKS:
+            notes.append("S6 amp%s status=0x%04x: NOCLKS, no bit clock" % (amp, value))
+        else:
+            notes.append("S6 amp%s status=0x%04x pll=%s: no clock bits" % (amp, value, pll))
+    if not plays:
+        notes.append("S6 no 'ampN play' line")
+    notes.append("S7 WRITE_DONE replies=%d (0 means the DSP never consumed a period)"
+                 % write_done)
+
+    for line in notes:
+        report.append("   " + line)
+    for line in problems:
+        report.append("  - " + line)
+    if problems:
+        report.append("PLAYBACK VERDICT: FAILED (%d problem(s))" % len(problems))
+        return 1, report
+    report.append("PLAYBACK VERDICT: SUCCESS - speaker open/start and the PRM clock "
+                  "answered, switch high")
+    return 0, report
+
 def severity(code):
     """Rank the three outcomes by how much attention they need.
 
@@ -276,13 +448,20 @@ def severity(code):
 def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     replay = "--replay" in argv[1:]
+    playback = "--playback" in argv[1:]
     if not args:
-        sys.stderr.write("usage: judge-audio-capture.py [--replay] <evidence-dir> [...]\n")
+        sys.stderr.write(
+        "usage: judge-audio-capture.py [--replay] [--playback] <evidence-dir> [...]\n")
         return 2
     worst = 0
     for directory in args:
         lines, meta = read_capture(directory)
         code, report = judge(lines, meta)
+        if playback:
+            play_code, play_report = judge_playback(lines, meta)
+            report = report + play_report
+            if severity(play_code) > severity(code):
+                code = play_code
         if replay:
             replay_code, replay_report = judge_replay(lines)
             report = report + replay_report

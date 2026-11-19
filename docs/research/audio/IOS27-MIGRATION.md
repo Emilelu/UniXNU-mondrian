@@ -62,3 +62,21 @@ PRM 时钟 12.288 MHz → 3.072 MHz 两处、group/port bit width 32 → 16 两�
 （`PongAudioGeniI2c` / `PongCodecLpi` / `PongCodecMacro` / `PongCodecProbe` / `PongCodecSwr`）
 拷进一个空目录，只给 `-I.`，用 `cc -std=gnu11 -Wall -Wextra -Werror -c` 逐个编译，
 五个全部 `OK`、零内核头、零警告 ⇒ 第 1 节的「纯 C」不是分类推断，是实测。
+
+## 6. 每一项在 27 上靠什么日志行证明
+
+27 stage-0 只走到 `bsd_init`，音频结论不可能在那之前出现——**下表每一项的前置条件都是 F4
+（内核走到 `bsd_init` 并开始跑 PongAudio 代码）**，没有 F4 就没有任何一条可判。有了 F4 之后，
+每项用一行日志证伪或证实，仍然可以喂给 `scripts/judge-audio-capture.py`：
+
+| 项 | 27 上的证明行 | 判读 |
+| --- | --- | --- |
+| GENI I2C 通路 | `PongAudio: amp0 id=0x2113 chip=AW88261` | id 在已知表即通，超时计数非零即断 |
+| ACF 两半回放 | `PongAudio: amp replay done amp0=60 amp1=60 written=120 mismatched=0` | `mismatched=0` 且 dev_index 与地址配对（0x34→1、0x35→0） |
+| 扬声器开关 | `PongAudio: amp spk switch gpio=52 on=1 … read=0x00000002` | 回读 0x2 才算拉高 |
+| I2S 端点 / 位时钟 | `--playback` 判据 S2/S3/S4 + `ampN play status=0x0011` | S 全过、status 含 PLLS\|CLKS 才算拿到时钟 |
+| PCM 周期 | `WRITE_DONE replies=` > 0 | 0 表示 DSP 没消费，与 16.x 上的八轮结论同形 |
+
+这些行在 27 上第一次出现的位置由 ROUTE-A 的 stage 定义决定，本表只钉「用哪一行判」，
+不假设它出现的时机。
+

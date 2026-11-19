@@ -45,26 +45,41 @@ powershell -NoProfile -ExecutionPolicy Bypass -File E:/hackios/k60-audio-adsp/sc
 
 ## 4. 判据
 
+判读只用工具，不看人眼：
+
+```
+python3 scripts/judge-audio-capture.py --playback <证据目录>
+```
+
+退出码 0 = 成功，1 = 跑到播放图但失败，2 = 播放图没跑。脚本只读 `console.log` 与
+`capture.json`，下面每一条都对应报告里的一行，不需要任何人工目视。
+
 **成功（S，全部满足才算这一飞可判读）**
 
-- **S1** `capture.json` 的 `state` 为 `captured` 或 `captured-budget-complete`，且 `console.log` ≥ 500 行。
-- **S2** 出现 `PongAudio: playback step 2`（speaker open，408 B）且其 rx `status=0`。
-- **S3** 出现 `PongAudio: playback step 10`（speaker START）且其 rx `status=0`。
-- **S4** 出现 PRM 时钟票（`clock` 步）且 rx `status=0`，并记下请求里的 clock id（应为 `0x104`）。
-- **S5** 出现 `PongAudio: amp spk switch gpio=52 on=1` 且同一行的 `read=0x00000002`（开关真的拉高）。
-- **S6** 记下 `amp0/1 play` 行的 `status=` 值：`0x0011`（PLLS|CLKS）或 `unmuted` 出现即扬声器拿到了位时钟；
-  `0x0000` 仍无时钟；`0x0020` 表示 NOCLKS 回来了。
+- **S1** `capture.json` 的 `state` 为 `captured` 或 `captured-budget-complete`（脚本行 `S1 capture state=`）。
+- **S2** 出现 `PongAudio: playback step 2 send bytes=408 opcode=0x01001000 token=…`，且该 token 收到
+  `glink adsp_apps rx … opcode=0x02001005 status=0`（speaker open 被接受）。
+- **S3** 出现 `PongAudio: playback step 10 send bytes=64 opcode=0x01001002 token=…`，且该 token 的
+  rx `status=0`（speaker START 被接受）。
+- **S4** 出现 `PongAudio: playback step 6 send bytes=76 opcode=0x0100100f token=…`，且该 token 收到
+  `opcode=0x02001002 status=0`（PRM 时钟票被接受）。**clock id 0x104 不在日志里**，它由镜像钉住（P3），
+  本卡不把它当运行时判据。
+- **S5** 出现 `PongAudio: amp spk switch gpio=52 on=1 cfg=… io=… read=0x00000002`（开关真的拉高）。
+- **S6** 记录型、不 gate：`PongAudio: amp0/1 play pll=… status=0x… faults=… tries=…`。
+  `0x0011`（PLLS|CLKS）= 位时钟到了功放；`0x0020` = NOCLKS；`0x0000` = 时钟位全无。
+  同一份报告还给出 `WRITE_DONE replies=`（`opcode=0x05001004` 的条数，0 表示 DSP 没消费过一个周期）。
 
-**失败（F，任一命中即判 FAIL，并在 §5 记下命中的是哪一条）**
+**失败（F，任一命中即判 FAIL）**
 
-- **F1** 出现 panic、`K60KEXC`、或抓取被复位中断（`panicMarker` 非空 / 设备中途掉线）。
+- **F1** 日志出现 `K60KEXC` / `K60PANICFMT` / `K60PANICARGS` / `panic(cpu`，或 `capture.json` 的
+  `panicMarker` 非空（`K60PANIC: ring kept` 只是保留环标记，不算 panic）。
 - **F2** `console.log` < 500 行或零字节（启动没到播放图）。
-- **F3** speaker open / START 任一步 rx `status≠0`（I2S_SINK 被拒）。
-- **F4** PRM 时钟票 rx `status≠0`（0x104 不被接受）。
+- **F3** step 2 或 step 10 的 rx `status≠0`（I2S_SINK 被拒）。
+- **F4** step 6 的 PRM `status≠0`（0x104 不被接受）。
 - **F5** 出现 `glink adsp_apps down`（ADSP 掉线，本轮证据无效，需重飞同镜像）。
 
 ## 5. 结果登记
 
-criteria-sha256: c21dd05af4d19ee22027e5d6ed332c6765baa19239c00962a998b50c9e70e4d0
+criteria-sha256: 88c086494db35348d8d0179c78c798ac52993ac2cee74799b847822600ee71f1
 
 （上机后填写：镜像名、boot.img sha256、证据目录、S1–S6 与 F1–F5 的实测值、amp 的 SYSST、判决。）

@@ -601,10 +601,10 @@
 +		return;
 +	}
 +	if (state->play_step == (unsigned)PongPlayPreparePlayback) {
-+		/* Keep this run focused on the mapped PCM path. Starting the
-+		 * TDM speaker here could make a write-side failure ambiguous. */
-+		printf("PongAudio: isolation probe; skipping speaker START and starting playback only\n");
-+		pong_audio_play_send_step(state, PongPlayStartPlayback);
++		/* A paired START was refused with status 1 while single STARTs
++		 * were accepted, so bring the TDM speaker up on its own. */
++		printf("PongAudio: speaker START follows the playback prepare\n");
++		pong_audio_play_send_step(state, PongPlayStartSpeaker);
 +		return;
 +	}
 +	if (state->play_step == (unsigned)PongPlayClock) {

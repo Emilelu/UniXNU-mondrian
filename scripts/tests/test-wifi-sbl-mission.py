@@ -324,6 +324,13 @@ def main() -> int:
           "memmove(&gSnap[8], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
           "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
           'log(6, "wifi-net: probe %s = target minus element %u (%s, %u bytes removed, ie %u)"' in net)
+    check("six probes swap one shared element's payload or cut the tail of the real record",
+          'static const char *const cnm[6] = { "K60N", "K60O", "K60P", "K60Q", "K60R", "K60S" };' in net and
+          "static const unsigned cid[6] = { 61, 192, 191, 45, 127, 0 };" in net and
+          "memcpy(q.ie + to + 2, c.ie + co + 2, t.ie[to + 1]);" in net and
+          "memmove(&gSnap[6], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
+          'log(6, "wifi-net: probe %s = target with %s (%s, %u bytes changed, ie %u)"' in net and
+          "if (gSnapCount > 45) gSnapCount = 45;" in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

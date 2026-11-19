@@ -32,7 +32,9 @@ def main():
     if branch not in ("main", "HEAD"):
         target = git("rev-parse", "--short", "main").strip()
         print("ℹ️  iron-9  在分支 %s 上，按 main (%s) 校验" % (branch, target))
-    text = BOOK.read_text() if BOOK.is_file() else ""
+    # Explicit UTF-8: the baseline book is Chinese and Windows defaults to GBK,
+    # which turns this gate into a UnicodeDecodeError instead of a verdict.
+    text = BOOK.read_text(encoding="utf-8") if BOOK.is_file() else ""
     known = {e["sha"]: e for e in entries(text)}
     problems, notes = [], []
 

@@ -1189,3 +1189,11 @@ mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission
 负结果（省掉重复排查）：之前怀疑的六条 5 GHz/hidden/SSID 字符串**都不在列表删除路径上**——\`"%s: ignoring hidden network"\`（0x1001ec50c，引用点 0x10015a028）属于 \`WiFiPerfPerAssoc.m\` 的指标采样；\`invalid 5ghzSsid\`（0x1001ef303）、\`companion network …\`（0x1001ef02a）、\`2Ghz scanned network…\`（0x1001ef406）、\`Correspondng 5GHz network\`（0x1001ee53f）、\`guess1..4\`（0x1001efaf6）都属于 WiFiIDSSyncEngine 的 BSSID 猜测与口令继承，与列表无关；\`_nomap\`/\`(IE check)\`（0x100036d40/0x100036d70）是 GEO 质量上报。
 
 意义：我们的记录没有 WAPI 标记（key 缺失 ⇒ v=0 ⇒ 保留），所以 **wifid 里不存在「按元素/频道/SSID 后缀丢弃」的路径**；mission25 的 B/E 两条探针被丢，最简解释仍是它们携带的目标元素区在旧 384 上限下被截断成不完整尾部（mission35 的 trim + 1024 元素区 + 扣留 42 字节国家 IE 正好把这一条修掉）。因此下一步仍是让带着干净记录的 mission35 在有人看设置页时飞一次；\`K60J\`（目标减 221/2）保留作为「畸形厂商元素」的对照，不是当前首选。
+
+## §33 2026-11-19 10:22 先飞 mission34：单变量，且保留真实的国家元素
+
+mission35 的两处改动已在真机上生效（ie 390 证明 1024 元素区两侧一致；42 字节国家 IE 被扣留的日志出现三次），但它同时改了两个变量，而且扣留本身可能有害：被 daemon 保留的两条 5 GHz 记录都带 6 字节国家 IE，CoreWiFi 把国家元素翻译成管制三元组，缺了它，5 GHz 信道可能被判成未知管制域，于是记录仍被丢掉——这会用一个新原因掩盖真正的修复。它还把两条探针变成空转：K60F（真实记录减国家元素）与修好后的真实记录完全相同，K60B（保留记录加我们的国家元素）在服务前就被扣留吃掉。
+
+mission34（\`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img\`，201,887,744 B，SHA256 \`b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5\`，09:16 构建）只有一个变量：station 与 kext 都换成 1024 字节元素区（\`/opt/k60/trees/k60build/wifi/ath11k-abi1\`，\`#define IE_MAX 1024\`；native-sbl-mission34 的 \`abi/nw_abi.h\` 含 \`uint8_t ie[1024]\`，其 SHA256 \`81a5c2bdb563e759f9ddd4470288dad3977f1285837001e95a5541b39e54275c\` 与 build-manifest 的 \`wifi_archive\` 相同），记录照实携带 AP 的 42 字节国家 IE，19 条探针语义完整。所以它是「384 字节上限是否就是那一行消失的原因」最干净的一次判断：真实行出现即根因坐实、可直接收工；不出现则探针 K60B（国家）/K60D（目标元素）/K60J（厂商 221/2）指名下一个嫌疑。
+
+mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二发：届时扣留才是有证据的方向，且需要先把扣留从所有目标系探针里摘出去再飞。

@@ -29,21 +29,29 @@ PATCH = REPO / "patches/xnu/0622-k60-modem-qrtr.patch"
 # same replacement to all five files before comparing.
 RENAME = ("qcom_glink_", "k60m_glink_")
 
-# The carried GLINK stack diverges from drivers/PongPower/QcomGlink.c by one
-# line, deliberately.  On the k35 B flight the modem advertised its IPCRTR
-# receive intents with ids starting at 0:
+# The carried GLINK stack once diverged from drivers/PongPower/QcomGlink.c by
+# one line.  On the k35 B flight the modem advertised its IPCRTR receive
+# intents with ids starting at 0:
 #     cmd=0x5 p1=0x1 p2=0x1 w2=0x80 w3=0x0   (next frame: w6=0x80 w7=0x1)
 # Linux's qcom_glink_handle_intent() stores id 0 (idr_alloc(id, id + 1)) and
 # hakios stores every pair unvalidated, so zero is a legal buffer number;
-# calling it corruption stalled the handshake at poll 2.  The charger line owns
-# QcomGlink.c (TREE-OWNERS.toml:70) and should adopt the same line; until it
-# does, this generator applies it to the kernel's copy only.
+# calling it corruption stalled the handshake at poll 2.  The charger line has
+# since adopted the fix on its own terms (QcomGlink.c:408 drops the placeholder
+# and keeps the rest of the frame: `if (!size) {g->dropped++; continue;}`).
+# The delta below therefore carries only the pre-adoption file: once the source
+# contains the adopted line the generator skips it, and the carried copy is the
+# same bytes as drivers/PongPower/QcomGlink.c.  Delete this delta when the
+# branch has rebased onto the merged line.
 DELTA = {
     "drivers/PongPower/QcomGlink.c": (
         "            if (!size || !id) return QcomGlinkCorrupt;",
         "            if (!size) return QcomGlinkCorrupt;  /* id 0 is a legal buffer number */",
     ),
 }
+
+# What drivers/PongPower/QcomGlink.c looks like once the owning line adopts the
+# fix (power line, commit 142706ad).  Its presence means the delta is spent.
+ADOPTED = "if (!size) {g->dropped++; continue;}"
 
 # (local source, carried path, {local include: carried include})
 FILES = [
@@ -73,10 +81,13 @@ def body(source: Path, renames: dict) -> list:
     key = source.resolve().relative_to(REPO).as_posix()
     if key in DELTA:
         old, new = DELTA[key]
-        if text.count(old) != 1:
-            sys.exit("%s: the carried-copy delta matches %d times, expected 1; "
-                     "re-read the source before regenerating" % (key, text.count(old)))
-        text = text.replace(old, new)
+        if text.count(old) == 1:
+            text = text.replace(old, new)
+        elif ADOPTED in text:
+            pass  # the owning line fixed it; the carried copy needs no delta
+        else:
+            sys.exit("%s: neither the pre-adoption line nor the adopted fix is "
+                     "present; re-read the source before regenerating" % key)
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()

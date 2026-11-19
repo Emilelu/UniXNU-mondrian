@@ -126,7 +126,8 @@ paths = ["drivers/PongWifi/**", "configs/*wifi*", "patches/wifi/**", "scripts/*w
 inputs = ["Identify the network hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for network."]
 procedure = ["Follow the network stage in the porting guide and record the actual commands."]
-findings = ["IOS27 认证编码（2026-11-19 15:45）：22H374 用 0x8 记个人版 WPA2，参考实现的 27 侧用 0x10；我们的关联校验只收 0x8，会拒掉 27 的加入。现在用 0x14e8 / 0x290 请求判断对端是新 daemon，kAuthType 分别回答 0x10 与 0x8，校验同时接受两者。",
+findings = ["IOS27 速率查询（2026-11-19 15:50）：参考实现用缓存的 tx_rate_100kbps 回答 kRate，我们此前固定 54；两代 ABI 都带该字段与 nw_wifi_status_get()，现在按连接状态回答真实速率。",
+  "IOS27 认证编码（2026-11-19 15:45）：22H374 用 0x8 记个人版 WPA2，参考实现的 27 侧用 0x10；我们的关联校验只收 0x8，会拒掉 27 的加入。现在用 0x14e8 / 0x290 请求判断对端是新 daemon，kAuthType 分别回答 0x10 与 0x8，校验同时接受两者。",
   "IOS27 请求382（2026-11-19 15:40）：参考实现把中止扫描当作已接受并返回 0，我们此前落到 default 返回 EOPNOTSUPP；现在定义 PONG_REQUEST_ABORT_SCAN 382 并在 SET 分支接受，测试钉住常量、枚举与 case 三处。",
   "IOS27 请求10（2026-11-19 15:34）：参考实现在请求 10 的 0x34 读扫描类型，我们的驱动此前对它置 0，缓存近路只对请求 86 生效；现在增加 PONG_SCAN_ONE_TYPE 并按 held>=0x38 读取，两套测试与参考漂移段同步钉住。",
   "IOS27 关联布局（2026-11-19 15:30）：24A446 的 0x290 请求与 22H374 的 0x384、legacy 的 0x250 共用同一网络前缀；三种布局移进 PongWifiAbi.h 并由宿主机编译器钉住偏移（0x7c/0x30/0x34/0x3c、0x250/0x0c、0x290/0x10、0x384/0x10/0x34/0x4c），kext 结构与之逐字段断言相等，参考漂移测试同时对 sheng 的 static_assert 复核。",

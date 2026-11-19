@@ -1438,3 +1438,11 @@ test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 �
 字节的关联请求时置位，kAuthType 在置位后回答 0x10、否则仍是 0x8；关联校验同时接受 8 与 0x10，其他值照旧
 不支持。这样 22H374 的行为逐字节不变，27 侧不需要靠猜。
 
+## 50. 速率查询回答缓存的对端速率
+
+参考实现（sheng 27，package/WifiNet.cpp:690）用 st.tx_rate_100kbps / 10 回答 kRate。我们此前固定回答 54，
+在 20 MHz HE 上偏低、在 80 MHz VHT 上偏低一个数量级，设置页与状态栏看到的速率因此与链路无关。
+
+两代 ABI（16 与 27 的 nw_abi.h）都带 struct nw_wifi_status 的 tx_rate_100kbps 字段和 nw_wifi_status_get()，
+所以不需要弱导入：kRate 现在回答 st.state == NW_STA_UP ? st.tx_rate_100kbps / 10 : 0，未连接时仍是 0。
+

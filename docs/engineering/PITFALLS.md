@@ -7095,3 +7095,36 @@ P-251「读一个从未存在的配置键」是同一族：门禁判断的对象
    `profiles/os/<name>/configs/`，设备仓文档描述「要去那边建什么」，不是笔误，
    所以进基线而不是改写句子。
 
+## P-254
+
+**症状**：干净的 `main` 上 `scripts/check-rules.py` 直接拒绝构建——
+`PITFALLS.md contains no 'P-nnn' heading; the pitfall coverage check would be vacuous`。
+wifi 线在 `feat/wifi-ios27-tree` 上跑 `unixnu build kernel` 时被它挡住；同一份文件用
+带 `re.MULTILINE` 的正则能扫出 151 条三位编号。
+
+**真因**：两处，缺一不可。
+
+- `scripts/check-rules.py:29` 的 `PITFALL_HEADING = re.compile(r"^#{2,3}\s*P-(\d{3})")`
+  **没有编译标志**，而行首锚点 `^` 在非 MULTILINE 模式下只匹配字符串开头。
+- 同一个文件的 `pitfalls_in_log()` 写的是 `PITFALL_HEADING.findall(text, re.MULTILINE)`。
+  `findall` 的第二个位置参数是 **pos（起始扫描位置）**，不是标志；`re.MULTILINE` 的整数值
+  恰好是 8，于是扫描从第 8 个字符开始、锚点永远不成立，返回空集。
+
+空集触发「覆盖检查会是空洞的」这条守卫，守卫本身没错——错的是它读到的输入。
+
+**修法**：正则带上 `re.MULTILINE`，调用处只传文本；新增
+`scripts/tests/test-check-rules-pitfall-headings.py`，三条断言分别钉住
+「正则确实是 MULTILINE 编译的」（查 `flags`，不是查行为）、「调用处不再把标志当 pos」、
+「真文件里能读到 P-253/P-254」。
+
+**教训**：
+
+1. **同一个文件里同形的缺陷要一次改完。** 十九行之上 `IRON_HEADING` 的注释已经写着
+   「a heading the regex misses used to mean 'no rule declared', which passes silently
+   instead of failing loudly」——同一个坑换到 `PITFALL_HEADING` 又踩了一次。
+2. **「读到空集」和「本来就没有新项」必须能区分。** 这条守卫做对了（空集报错而不是通过），
+   但它只覆盖了「整个文件一条都没读到」；`\d{3}` 让两位旧编号（P-63、P-70）被静默跳过，
+   那一半仍然是空集与「没有」同形。
+3. **语义相近的常量恰好是小整数时，只能断言它的名字/标志位。** `re.MULTILINE == 8` 让
+   「传标志」看起来像「从第 8 个字符开始扫」，一行代码同时是两种含义。测试查
+   `flags & re.MULTILINE`，不查「扫出来对不对」——后者在样例字符串上仍然可能通过。

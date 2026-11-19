@@ -463,7 +463,7 @@ waiver = """Waiver: checkable once every series patch's anchors are declared as 
 id = "iron-9"
 kind = "iron"
 source = "AGENTS.md:铁则 9"
-statement = "main 只放可启动基线；未上机的改动走分支，且每个 main 提交都要在 MAIN-BASELINE.toml 登记"
+statement = "main 只放已登记的基线（state=booted 需上机证据，state=build-only 需写清为什么没上机）；上机由 Lead 独占调度，其他 agent 不得私自 boot；每个会进镜像的 main 提交都要在 MAIN-BASELINE.toml 登记"
 check = "python3 scripts/check-main-baseline.py"
 
 [[rule]]
@@ -1013,3 +1013,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-253"
 statement = "The citation regex let configs/ios.config match as configs/ios.c because a shorter extension preceded a longer one that starts with it; the gate then reported a missing file that no document could fix."
 check = "python3 scripts/tests/test-doc-citations-ext.py"
+
+[[rule]]
+id = "P-254"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-254"
+statement = "The pitfall-heading scan must compile its pattern with re.MULTILINE and must not pass a flag where findall takes a position"
+check = "python3 scripts/tests/test-check-rules-pitfall-headings.py"

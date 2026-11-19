@@ -142,6 +142,16 @@ def main() -> int:
             SECONDARIES, RESUMED, ARMCPU_REPORT, SLEEP_REPORT]
     case("w10 hard hang", hang, 1, "the w10 hard hang",
          capture={"complete": True, "state": "captured", "stopReason": "budget"})
+    # A budget cut before the sleep was even entered is not the w10 hang: the
+    # classification must follow the first broken link, not the stop reason.
+    case("budget cut before enter", [ENABLE, ARMED, "Time 0x6ae9d430 Message IOCPUSleepKernel enter"],
+         1, "the first broken link is ENTER",
+         capture={"complete": True, "state": "captured", "stopReason": "budget"})
+    check("budget cut does not claim the w10 hang",
+          "the w10 hard hang" not in run([ENABLE, ARMED], name="budget cut before enable",
+                                         capture={"complete": True, "state": "captured",
+                                                  "stopReason": "budget"}).stdout)
+
     # Wake reported but the kernel never returned from IOCPUSleepKernel.
     case("no exit line", healthy()[:-1], 0, "TOTAL  PASS")
     check("no exit line is noted", "IOCPUSleepKernel never exited"

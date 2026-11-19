@@ -287,7 +287,10 @@ def judge(console: pathlib.Path, capture: pathlib.Path | None) -> tuple[bool, in
               f"{spurious.group('cpu')} at {spurious.group('file')}:{spurious.group('line')} - "
               "a secondary left its halt loop without the wake event the catalog ArmCpu "
               "expects (processor_sleep from the target context)")
-    elif wake is None and (arm_report is not None or stop_reason in {"budget", "timeout"}):
+    elif wake is None and arm_report is not None and sleep_report is not None:
+        # Both reports printed and the wake line never followed: the failure is
+        # after the resume.  A console that was cut by a budget before the sleep
+        # report reached anything is diagnosed by its first broken link instead.
         print("diagnosis: the kernel stopped after the sleep report - the secondaries were "
               "never woken (the w10 hard hang); this is a post-resume livelock, not a "
               "missing wake source")

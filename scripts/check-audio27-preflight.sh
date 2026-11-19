@@ -15,7 +15,10 @@
 #   8. the playback judge's host tests
 #   9. the amplifier side's host tests (979 cases)
 #  10. the three edits walked in order against a tree without the button driver
-#  11. sheng's audio host tests, when its checkout is reachable; the row names
+#  11. the 27 interface checker's own tests
+#  12. the four interfaces, against a real 27 XNU tree when one is on disk
+#      (XNU27_REPO overrides the search)
+#  13. sheng's audio host tests, when its checkout is reachable; the row names
 #      the commit it ran on, because a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
@@ -48,6 +51,22 @@ run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "three edits dry run" sh scripts/tests/test-wiring-dry-run.sh
+run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
+
+xnu27=${XNU27_REPO:-}
+if [ -z "$xnu27" ]; then
+	for candidate in /opt/k60/trees/ios27-out/feeds/xnu-* "$repo/../xnu"; do
+		if [ -f "$candidate/bsd/conf/files" ] || [ -f "$candidate/.cache/xnu-work/bsd/conf/files" ]; then
+			xnu27=$candidate
+			break
+		fi
+		done
+fi
+if [ -n "$xnu27" ]; then
+	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
+else
+	printf 'skip %-34s no 27 xnu tree (set XNU27_REPO)\n' "27 kernel interfaces are there"
+fi
 
 sheng=${SHENG_REPO:-}
 if [ -z "$sheng" ]; then

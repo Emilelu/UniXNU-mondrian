@@ -15,7 +15,7 @@ board.
 Usage:
   scripts/check-bluetooth-geni.py
   scripts/check-bluetooth-geni.py --patch patches/xnu/0500-k60-bt-qbt-new-files.patch
-  scripts/check-bluetooth-geni.py --tree <xnu work tree> --out /tmp/geni-report
+  scripts/check-bluetooth-geni.py --tree <xnu work tree> --out out/geni-report
 """
 import argparse
 import hashlib

@@ -92,6 +92,7 @@ static inline void pong_wifi_caps_fill(uint8_t caps[PONG_WIFI_CAPS_BYTES])
 /* Channels a scan asks for, in both request shapes: 12 bytes each {version, channel, flags}. */
 #define PONG_SCAN_ONE_CHANNEL_COUNT 0x44u
 #define PONG_SCAN_ONE_CHANNELS 0x48u
+#define PONG_SCAN_ONE_TYPE 0x34u          /* request 10 carries its scan type here */
 #define PONG_SCAN_MULTIPLE_CHANNEL_COUNT 0x210u
 #define PONG_SCAN_MULTIPLE_CHANNELS 0x214u
 #define PONG_SCAN_CHANNEL_ENTRY 12u

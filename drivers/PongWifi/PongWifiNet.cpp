@@ -621,6 +621,9 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       } else {
         if (held < 20) return EINVAL;
         memcpy(&ssidLength, out.raw + 16, 4); ssid = out.raw + 20;
+        // The request-10 prefix is the reference port's layout: the scan type sits at 0x34, and the
+        // type 3 shortcut (answer from the results already held) has to work on this shape too.
+        if (held >= PONG_SCAN_ONE_TYPE + 4u) memcpy(&scanType, out.raw + PONG_SCAN_ONE_TYPE, 4);
         frequencies = pong_scan_frequencies(out.raw, held, PONG_SCAN_ONE_CHANNEL_COUNT,
                                             PONG_SCAN_ONE_CHANNELS, mhz);
       }

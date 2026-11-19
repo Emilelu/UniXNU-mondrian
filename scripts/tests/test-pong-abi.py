@@ -82,6 +82,7 @@ def check_reference():
     if net:
         check("0x290" in net and "540" in net and "0x214" in net and "0x218" in net,
               "the reference still uses the 0x290 request and the 540-byte completion event")
+        check("out.raw + 0x34" in net, "the reference still reads the request-10 scan type at 0x34")
 
 
 def main():

@@ -319,6 +319,9 @@ def main() -> int:
           "const uint32_t room = pong_scan_elements_room(request_bytes ? request_bytes : PONG_SCAN_RECORD_24A446);" in net and
           "scan_result24" not in net and
           "return copy_out(rq, &out.res, sizeof(out.res), kernel);" in net)
+    check("request 10 takes its scan type from the same place the reference does",
+          "PONG_SCAN_ONE_TYPE 0x34u" in abi_hdr and
+          "memcpy(&scanType, out.raw + PONG_SCAN_ONE_TYPE, 4);" in net)
     check("a 24A446 scan request is parsed for its names, type and channels",
           "if (type == kScanReqMultiple) {" in net and
           "pong_scan_multiple_parse(out.raw, held, &scanType, &ssid, &ssidLength)" in net and

@@ -1119,3 +1119,13 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 日志状态：只剩 bootstrap pass 的已知假阴性（release reference 先 `exit 2` 去掉 67 个 unavailable forced exports，再次链接 `exit 0`）；ArmCpu、ArmDTPlatform 的 `-Werror` arm64e 对象审计通过。
 - 边界：这是构建/预链接证明，不是运行证明。iOS 27 在 SM8475 上仍未到 `bsd_init`，P4 不启动；蓝牙本体继续按 item 50 待命。
 - 记录位置：fork `docs/plans/BT-IOS27-PORT.md` §5.3、fork `porting.toml` 的 `ios27-arm64e` findings；提交 `786fde0`。
+
+
+### 52. 0523：客户端改速真正落到 UART（2026-11-19 13:48）
+
+- 背景：用户 m21660 授权继续与系统版本无关的内核工作。0520 之后已知的内核功能缺口只剩一个：TIOCSETA 只保存 termios，从不把新速率写进 GENI，BlueTool/bluetoothd 即使连接成功，改速请求也到不了硬件。
+- 设计：transport ops 新增 `int (*set_rate)(void *, uint32_t baud)`。TIOCSETA 仍先校验 cflag 与 8N1；speed 与当前不同才调 hook，成功才更新 `bt_sk_speed` 与 termios，失败返回 EINVAL。改速必须在 worker（GENI 所有者）里做：客户端持 `k60_rate_lock`、写 `rate_request`、`msleep(&k60.rate_done, ..., 2 s)` 等结果；worker 在 `k60.powered` 块内先取锁、调 `k60_uart_speed(NULL, requested)`、`wakeup`；power off 清 `k60.ready`。未上电或未就绪返回 ENODEV。
+- 补丁：`patches/xnu/0523-k60-bt-transport-set-rate.patch`，sha256 `8240dcbf0fc9563a4cae6b6405278553ab4689a6760c919421448d65d8ee8575`，7,189 B，11 个 hunk，只碰 `qbt_transport.h`、`qbt_transport.c`、`qbt_k60.c`。series 241 行，sha256 `c1e23a54a5b1a4ba3fed3efef47b5f5650f246e9d14b39dc3a35195dd638c03d`；0519/0520 字节未变。两棵树都 `git apply --check` 通过：iOS 16 结果 `qbt_k60.c` 2,302 行 `276bcf7decc8858e62febc9eb73be1c489fedd43e58164b0a0bd5b02266f7cea`，ios27 2,306 行 `65e29a1afd5c3ee85b98cd1db2bdbe5f727a83422040f21fac0af758ba10a803`，transport 613 行 `5a80bb039d91db1297400ceeb5cc583205ef192565ac78090655b20a98afc634`。
+- 测试：新增 `scripts/tests/test-bt-0523-transport-set-rate.py` 36/0；旧套件 0516 82/0、0517 53/0、0518 36/0、0519 29/0、0520 24/0。
+- iOS 16 构建：`bt-0523-transport-set-rate`，`built_at` 2026-11-19T13:48:47+08:00，repo head `6b25953ee67ccd31090b9781244bb66240fb8df0`、dirty 0；boot.img `865f3ede1c192cfec046a5bf5f93a0e8fadf819559587dc0c5fe47418a4d0208`（201,887,744 B）、kernel_built `fbf5ffcc3680ea5495a18ce5884a44318fa00c3078c692fed1859a3c92fa251d`、payload `f813342682ae6624efb8528edce6c66eba0b213d98d87aa54b810be6e13f03e3`、payload_kernel `9fd1ceb797021f475f68349f2bd421f5622b192ec554b5fbffe079a3083270bc`、ADT `6fd846b12645a4363b64feccd7f0cbbff74b0e0488e82001f05c7ad13bd44ce6`、dtb `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`、fd `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`、bt_blob `febdc20d44ff23559b6012dc78f12e4287025cdc34463f868e64e9373c592037`；kernel.log:274 = 0523；verify-boot-image OK、image-arg-audit 31/598、八步 bluetooth 通过。未飞行：改速只有真实客户端触发，悬空飞行没有判据。
+- 边界：只证明客户端改速路径存在，且编译、链接、打包通过；不证明任何客户端真的改速成功，不证明蓝牙可用。

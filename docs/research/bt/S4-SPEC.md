@@ -1797,6 +1797,14 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 - 结论：D12-C 形态（argv 合法、无 connect、无电源节点）；但计划要求的"至少一次 connect"未出现，按探针门槛未达记录。0519 的电源节点从未被打开；0520 的别名错配不是本次 exit=1 的直接原因。
 - 边界：只证明 BlueTool 在打开传输前被看门狗杀死；不证明卡点（XPC、平台探测、设备树读取），不证明蓝牙可用。内核栈自 d11 起未变。
 
+### 7.29 0523 传输改速（2026-11-19 13:48，内核侧收口）
+
+- 缺口：TIOCSETA 只保存 termios，GENI 仍停在 bring-up 速率；真实客户端改速不会生效。
+- 补丁：`patches/xnu/0523-k60-bt-transport-set-rate.patch`（sha256 `8240dcbf…`，11 hunk）给 transport ops 加 `set_rate`，TIOCSETA 在 cflag/8N1 校验后调它，成功才采纳新速率；实现放在 worker 里（GENI 所有者），客户端用 `k60_rate_lock` + `msleep(&k60.rate_done)` 等最多 2 s，power off 清 `k60.ready`。
+- 验证：series 241 行 `c1e23a54…`；两棵树 `git apply --check` 通过；测试 0523 36/0，旧套件未变（0516 82、0517 53、0518 36、0519 29、0520 24）。
+- 产物：`bt-0523-transport-set-rate`，boot.img `865f3ede…`，kernel.log:274 记录 0523，verify-boot-image OK、image-arg-audit 31/598。未飞行，因为没有客户端会触发改速。
+- 边界：不证明改速成功，不证明蓝牙可用。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

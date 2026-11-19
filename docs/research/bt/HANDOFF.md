@@ -1230,3 +1230,15 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 测试：`scripts/tests/test-bt-launchd-cache.py` 10 例：正常报告、缺 override、mobile override、pressured exit 仍开、未知字段、ThrottleInterval 写成字符串、bool 写成 int、真缓存合并、缓存里没有该作业、没有框架时只做结构检查。框架按 `../UniXNU` 定位（本地与 CI 的 `$GITHUB_WORKSPACE/UniXNU` 同形），找不到时打印 SKIP 而不是失败。
 - 边界：证明的是 stager 报告与框架合并函数一致，不证明 launchd 读到了这份文件；后者要等 Data 卷挂载门打开（0526/0527 所在的门），F3 之前不可测。
 
+
+### 62. stock BlueTool 的 -R 只是监听：`Device not open yet` 来自 XPC 脚本路径（2026-11-19 22:15）
+
+bt-0525 的 console 以 `Device not open yet, use 'device' to open it.` 结束，之前一直读成「BlueTool 启动失败」。反汇编 20G81 的 `/usr/sbin/BlueTool`（Mach-O arm64e，`LC_MAIN` `0x10001c110`，文件偏移 = vmaddr − `0x100000000`）之后，这个判断要改。
+
+- `-R` 不碰任何传输：`getopt` `0x10001c4b0` 的 `case 'R'` 只置 `0x100931f3c` 的冷复位标志，然后尾跳 `0x100041c48` —— `xpc_connection_create_mach_service("com.apple.BlueTool", _dispatch_main_q, 1)`（`0x100041c68`）→ 事件处理器 → `resume` → `CFRunLoopRun` → `return 0`。闭包只有五个函数，没有 IOService 调用、没有设备树读取、没有打印。plist 里的 `-R  - Cold Reset.` 是模式开关，不是动作。
+- 那句话来自 XPC 脚本路径：`RunBuiltinScript`（`0x1000420fc`）带 `script`=`boot`/`init` 走到 `runCommandForCurrentConfig`（`0x100015fa4`，调用点 `0x100042b98`），它调 `getChipset`（`0x100040e98`），后者在 `0x1000410a0` 调 `0x100018be0` 读 HCI local version。三个打印点（`0x100018cec`、`0x100018b90`、`0x100018fa4`）都由 `[0x100931fe0 + 0x408] == 0`（传输已打开标志）把关。
+- 只有 `device` 命令会打开传输：命令表 `0x10092cb20` 把 `device` 映到 `0x10001ca84`。UART 路线是 `socket(AF_SYSTEM, 1, 2)` → `ioctl(0xc0644e03, {name})` → `connect()`（`0x10001da38`），即 `com.apple.uart.bluetooth` kernel control，不是 IOService。AppleBT 路线（`transport-encoding` 6）匹配 `AppleBTHci`；PCIe 路线（7）匹配 `AppleConvergedIPCInterface` 加 `ACIPCInterfaceProtocol = hci`；其余（含默认 8）都是 UART。
+- `transport-encoding`、`transport-speed`、`local-mac-address` 都经 `IORegistryEntrySearchCFProperty` 在名字匹配 `bluetooth`（先试 `marconi-bt`）的节点 `IODeviceTree` 平面递归取。
+- 对本线的意义：Data 挂载门打开后 `/usr/sbin/BlueTool` 就是暂存的适配器（0526 挂 `bluetooth-bin`），launchd 作业也已是 root（0527 挂 cache）。适配器答同一个 mach 服务，但把 `RunCommand` 做成 stub，丢掉 `RunExternalScript`、`btaddress`、真 manufacturer/firmware，也没有实现上面的传输打开序列 —— 这是有意为之：传输由内核 `qbt_k60` 驱动。代价是迁移只能验证到「bluetoothd 与适配器对话」这一层；若 daemon 需要自己打开的 HCI 直通，这一层还得补 `device` 命令。该问题在 Data 挂载门打开前无法回答。
+
+- 边界：以上全部来自静态反汇编与 24A446/20G81 二进制，没有在设备上验证；不产生新补丁，也不改内核。

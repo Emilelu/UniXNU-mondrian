@@ -1898,6 +1898,13 @@ fixture 提供 `IOReturn` 枚举、64 KiB `gMemory`、`read32`/`write32`/`waitCl
 
 24A446 的缓存 729 个作业、0 新增、1 个变化；合并后 BlueTool 为 UserName=root、EnablePressuredExit=False、ThrottleInterval=3。10 个宿主用例覆盖正常与六种坏输入。`hardware_verified=false`：launchd 是否读到这份文件，要等 Data 卷挂载门打开（0526/0527 所在的门）才能测。
 
+### 7.38 stock BlueTool 的 -R 是纯监听（2026-11-19）
+
+- 目的：bt-0525 的 `Device not open yet, use 'device' to open it.` 曾被读成 BlueTool 启动失败，需确认它到底在哪个路径打印、传输由谁打开。
+- 方法：反汇编 20G81 `/usr/sbin/BlueTool`（arm64e，`LC_MAIN` `0x10001c110`），逐函数定位 `getopt` 分支、mach 服务创建、打印点与 `device` 命令。
+- 结论：`-R` 只做 `xpc_connection_create_mach_service("com.apple.BlueTool")` 加 run loop；打印来自 `RunBuiltinScript` → `runCommandForCurrentConfig` → `getChipset` → `0x100018be0`，由传输标志把关；传输只由 `device` 命令经 `AF_SYSTEM` socket 打开 `com.apple.uart.bluetooth`。
+- 影响：适配器的设计成立（传输在内核），但要验证到 HCI 直通仍需 Data 挂载门打开后在真机看 `bluetoothd` 的行为。
+- 证据：本项无新补丁、无新脚本；结论写进 fork `docs/plans/BT-IOS27-PORT.md` §6.3 与 `porting.toml` 的 ios27-arm64e findings。
 ## 8 八步账本沿革与 d8/0516 历史范围
 
 **历史实飞状态（2026-11-17 12:03 d9 FAIL；此后 0518 候选仅离线构建，见 §7.25）**：蓝牙账本当时保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。

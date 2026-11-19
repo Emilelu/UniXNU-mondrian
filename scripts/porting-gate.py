@@ -68,6 +68,12 @@ LEDGER = WORK + '/ledger.jsonl'
 BOOK = REPO + '/docs/engineering/MAIN-BASELINE.toml'
 
 QUICK = '--quick' in sys.argv
+# `--for-build` answers "may I run the compiler", not "may I write the device".
+# The kernel-exists and series-changed checks below are flash preconditions: on a
+# line that has never been built they are true by construction, and the build is
+# what turns them around. Asking them before the first build deadlocks, and the
+# deadlock pushes people to skip the gate entirely.
+FOR_BUILD = '--for-build' in sys.argv
 FORCE_NEW = '--force-new-series' in sys.argv
 
 fails, warns = [], []
@@ -374,7 +380,11 @@ else:
             ok('S', '补丁集变了（特性分支允许试错，合回 main 前必须重新上机）',
                '%s on %s' % (detail, branch))
         else:
-            bad('S', '补丁集变了 —— 必须显式确认', detail)
+            if FOR_BUILD:
+                bad('S', '补丁集变了（构建期不拦：本地没有旧内核可比，首次构建后落账）',
+                    detail, hard=False)
+            else:
+                bad('S', '补丁集变了 —— 必须显式确认', detail)
 
     # 与上一批 series 的差异行数
     prev = WORK + '/scratch/.last-series'
@@ -603,7 +613,11 @@ sec('F', '内核新鲜度')
 if not _OUT:
     bad('F', 'kernel.macho 存在', '未指名 K60_OUT，跳过（P-207：不判没人指名的产物）', hard=False)
 elif not KERNEL:
-    bad('F', 'kernel.macho 存在', '%s 下没有任何 kernel/kernel.macho' % _OUT)
+    if FOR_BUILD:
+        bad('F', 'kernel.macho 存在',
+            '%s 下还没有 kernel/kernel.macho：本次构建就会产出它' % _OUT, hard=False)
+    else:
+        bad('F', 'kernel.macho 存在', '%s 下没有任何 kernel/kernel.macho' % _OUT)
 elif os.path.exists(KERNEL):
     age = time.time() - os.path.getmtime(KERNEL)
     ok('F', '10 分钟内', '%.0fs' % age) if age < 600 else bad('F', '10 分钟内', '%.0fs 前' % age, hard=False)

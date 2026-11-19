@@ -85,6 +85,21 @@ K60AdspOwnerLease 保持 uint32_t version, bytes, flags, epoch 加 void *token�
 
 commit 与 Published 状态切换受同一非阻塞 API gate 保护；重入 abort/publish 不能在属性成功后撤销资源。Published 后 abort 是 no-op，资源/token 持续保留。新启动、DSP crash/reset 后的恢复协议未实现。
 
+## SMC 调用约定（2026-11-20）
+
+PAS 的 `k60_scm_call()` 是直接内联 `smc #0` 的包装器（`drivers/PongPower/K60AdspPas.c`，
+同样的代码也以 `+` 行存在于 `patches/xnu/0613-k60-adsp-pas.patch`）。它必须按 SMCCC 1.x
+声明寄存器：`x0..x7` 全部读写（参数进、结果与 payload 状态出，preempt 时 `x6` 还回传
+session cookie），`x8..x17` 与 `memory` 进 clobber 列表。只把 `x0..x3` 当输出的旧写法
+让编译器有权把活值留在 `x4..x17`，一次成功或被打断的 SMC 之后那些值可能已经变了——
+症状是 PAS 之后随机位置的数据损坏，不是编译错误。
+
+这条契约与 OS 版本无关（SMCCC 是固件 ABI），所以由
+`scripts/tests/test-k60-adsp-smccc.py` 守：两份代码各有且仅有一个 `smc #0` 站点、操作数与
+clobber 行齐全、旧的输入-only 形状必须消失，并用合成旧文件证明门禁会红。判据是文本级
+的（host 上无法执行 `smc`），但它扫的是**两份会分别进内核和被人阅读的副本**，这正是
+[P-255](../../engineering/PITFALLS.md) 记下的失败形态。
+
 ## 返回与可观察结果
 
 | 层/情况 | 结果 |

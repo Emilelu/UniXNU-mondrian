@@ -1020,3 +1020,10 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-254"
 statement = "The pitfall-heading scan must compile its pattern with re.MULTILINE and must not pass a flag where findall takes a position"
 check = "python3 scripts/tests/test-check-rules-pitfall-headings.py"
+
+[[rule]]
+id = "P-255"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-255"
+statement = "The SMCCC wrapper declares only x0..x3 as outputs, so the compiler may keep live values in x4..x17 across the smc; both the driver copy and the patch copy must use one contract."
+check = "python3 scripts/tests/test-k60-adsp-smccc.py"

@@ -1282,3 +1282,19 @@ sheng 的 27 版本（origin/main c8f92b2，package/WifiNet.cpp）把两条路�
 离线证据：test-pong-abi.py 新增「ioctl 路接受与 24A446 扫描请求等长的请求」，28 项检查 0 失败；对 16 头（ath11k-abi1）与 27 头（ath11k-abi27）都编译出 libPongWifiNative.a；四套 host 套件 0 失败。
 
 还剩两件事没有证据：一是 27 的 selector 0 信封（0x3c30/0x3c00）现在看只在 16 上用到，27 不需要它，但仍要等 27 的 IO80211Family/wifid 才能下定论；二是 sheng 在 27 上还带了一个签名的 launchd 服务 unixnu-wpa_supplicant 与 org.unixnu.wifi.control 控制端点，那是他们的用户态 supplicant 方案，我们的内核四步握手不需要它，但 27 的 wifid 是否要求那个服务存在，要等第一次上机才知道。
+
+## §41 2026-11-19 14:20 参考线切换：内核看 t970 + zizhan，用户态仍看 sheng
+
+用户指示（2026-11-19 14:18）：kmu1757/UniXNU-t970 是 Pong 的 fork、代码更新，内核/驱动参考转向它和 zizhan；用户态继续参考 sheng。
+
+三条参考线现在的分工：
+
+1. kmu1757/UniXNU-t970（Pong fork，HEAD 638dbda「z166 wifi-start-marks」）：board.toml 的 os_profile = ipados-18.7.10-22H374，drivers/PongWifi 是 Chengdong-Yu/pong-wifi 子模块（钉在 d2e33ca）。它自己的新东西在 drivers/T970Wifi：6743 字节的 T970WifiNetGlue.cpp（pong_wifi_net_prepare / pong_wifi_net_start，用 OSMetaClass::preModLoad + PongWifiNetStaticInit + postModLoad 注册 PongWifiNet.cpp 的 IOService，与 USB 网的 en1 共用）、44,305 字节的 T970WifiWpa3.c 与 5,927 字节头文件、两个 host 测试（14,622 / 19,445 字节），以及 z165 链路监视与 z166 wifi-start-marks 两个提交。
+2. UniXNU-zizhan（HEAD 034a0b0，同样 22H374）：drivers/PongWifi 是普通目录（607faeb1），作同 SoC 的驱动写法参考。
+3. UniXNU-sheng（origin/main c8f92b2，24A446）：仍是用户态与 24A446 ABI 的唯一来源。
+
+对 27 准备的影响：t970 与 zizhan 都不是 27 树，它们的 Apple80211 ABI 仍是 22H374 代。pong-wifi d2e33ca 的 PongWifiNet.cpp 只有 775 行，scan_result 还是 1164 字节、elements[1024]、SSID 偏移 0x60、age 0x84，走 if_ioctl:444 与 :581 的 user client 隧道。我们在 feat/wifi-ios27-abi 上做的 0x8e8 / 2048 元素区 / 540 字节事件 / 请求 86 已经领先它一代；27 的形状只能继续以 sheng 为准。t970 能给的是内核侧工程写法（glue 分层、链路监视、启动标记）和 WPA3。
+
+WPA3 的重要更正：此前「没有任何 hakios 设备有 WPA3」只在「已发布特性」层面成立。t970 带着一份完整的洁净室 WPA3-Personal 实现（BSD-2-Clause，文件头写明 Copyright (c) 2026 PongWifi contributors）：SAE 组 19、H2E（PW3_SAE_H2E_STATUS 126）、抗泛洪（PW3_SAE_ANTI_CLOG_STATUS 76）、EID 扩展（PW3_SAE_EID_EXT_TOKEN 93），含 SHA-256/HMAC/HKDF/KDF-SHA256、AES-128-CMAC、BIP-CMAC-128 校验、P-256 的 on-curve/add/scalar_mul/SSWU，以及 pw3_sae_derive_pwe_hnp / derive_pt_h2e / derive_pwe_h2e / commit_begin / process_peer_commit / build_confirm / verify_confirm 与 pw3_rsn_info（akm 8 = SAE、mfpc/mfpr/use_mfp/use_h2e）。它不依赖 Apple80211，是纯 802.11 层；下次解冻 WPA3 时起点是这份代码，不是空白。
+
+本轮不动 PongWifiNet.cpp 的 ABI 形状：t970 的 ABI 更老，没有可抄的新形状。改动只落在记录里，等 fork 的 ios27 分支走到 bsd_init 再按 sheng 的 27 形状核对。

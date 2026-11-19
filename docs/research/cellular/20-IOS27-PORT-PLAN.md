@@ -238,6 +238,13 @@ rc=2
 
 2026-11-20 05:41 对真实 27 树跑过：三个只加文件的补丁全部 `git apply --check` rc=0；`0629` 因为锚点还不存在而按设计拒绝（退出码 2）。
 
+
+**series 行格式（2026-11-20 06:08 修正）**：`series-port.txt` 一度把注释写在文件名后面，那是错的——
+两个消费方都按「整行就是路径」解析：16 线 `scripts/porting-gate.py:416` 对整个 series 做 `.split()`，
+27 线 `check-blob-patches.py:60-80` 只跳过以 `#` 开头的行、其余整行当相对路径。行尾注释会被当成文件名。
+现在注释全部独占一行，`--self-test` 也加了守卫：任何非注释行含空格或不以 `.patch` 结尾即失败
+（输出 `K60 PORT27 PASS renumbering, anchor insertion, refusal, verification, series`）。
+另外 `series-port.txt` 改为**先写后验锚点**：锚点缺失时它照样产出，方便先把 series 准备好。
 ## 13. 就绪检查：scripts/check-ios27-readiness.py
 
 §4、§4.1、§4.2 的每一条都是「某天在某个 27 树上量到的」，27 树会往前走。把测量值写死在脚本里，

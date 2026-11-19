@@ -324,13 +324,32 @@ sh scripts/tests/portability/run-symbols.sh
 3. **宏**：唯一正确的落点是**每目标文件**的编译标志，不是全局变量：
 
    ```sh
-   # build-xnu-generic.sh 的 :375/:520 已经是这种写法；EXTRA_MAKE_ARGS 透传给 make。
-   EXTRA_MAKE_ARGS="PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO" sh scripts/build-xnu-generic.sh
+   # 点号名变量不能 export，用命令前缀给进程环境；启动 shell 必须是 bash。
+   PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 bash scripts/build-xnu-generic.sh
    ```
 
    理由是「可转移」这三个字：全局 `EXTRA_CFLAGS` 会把 `-DXNU_PONG_AUDIO` 塞给**每一个**对象，
    于是「音频的宏开没开」不再是这一条线的性质，任何一处的行为变化都可能是别人编进来的；
    每目标文件写法把定义钉在 `PongAudioAmp.c` 上，别的单元看不到它，判据才可证。
+
+   为什么是这个形态，而不是把 `EXTRA_MAKE_ARGS` 放进环境：`scripts/build-xnu-generic.sh:166` 是
+   `EXTRA_MAKE_ARGS=()`，环境里的同名变量会被这一行清掉，于是
+   `EXTRA_MAKE_ARGS="PongAudioAmp.o_CFLAGS_ADD=…" sh scripts/build-xnu-generic.sh` 是**静默无效**的：
+   宏不定义、胶水编空、构建照样绿（P-245）。点号名变量不是合法的 shell 标识符，不能 `export`，
+   但可以写成命令前缀作为进程环境；`make` 会把环境变量导入成同名变量，生成的
+   `bsd/conf/Makefile` 对每个对象只写 `+=`（`SETUP/config/mkmakefile.c`），所以环境值是**追加**
+   而不是覆盖，`makedefs/MakeInc.rule:521` 的 `$($@_CFLAGS_ADD)` 是消费点。**启动的 shell 必须是
+   bash**：dash 会丢掉点号名环境变量（实测 `sh` 下到达 make 的是 0，`bash` 下是 1），而脚本头本来
+   就是 `#!/usr/bin/env bash`，写成 `sh scripts/…` 就正好落进静默无效。三种写法在同一份复刻 `:166`
+   重置的 harness 上实测：
+
+   | 写法 | make 看到的 `PongAudioAmp.o_CFLAGS_ADD` |
+   | --- | --- |
+   | `EXTRA_MAKE_ARGS="…" sh scripts/build-xnu-generic.sh` | 空（无效） |
+   | `PongAudioAmp.o_CFLAGS_ADD=… bash scripts/build-xnu-generic.sh` | `-DXNU_PONG_AUDIO=1` |
+   | 两者同时 | 仍是 `-DXNU_PONG_AUDIO=1`（不叠加） |
+
+   `scripts/tests/test-audio27-define.py` 把这几行钉住，预检里是一行 `ok   define delivery is honest`。
    `scripts/build-xnu-generic.sh` 是框架构建器的**逐字副本**，`scripts/refresh-xnu-generic.py`
    刷新会整体覆盖（只留文件头），所以不往里面加行——用上面的变量，或由上游把这条写进构建器。
 
@@ -452,7 +471,7 @@ sh scripts/tests/portability/run-weak-hook.sh
 
 交付的补丁（`git diff` 形态，17 行，只碰 `bsd/kern/bsd_init.c`）：
 
-- 文件：`E:/k60-work/scratch/audio-27/k60-audio-amp-probe-call.patch`（876 B，sha256 `46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd`）
+- 文件：`E:/k60-work/scratch/audio-27/k60-audio-amp-probe-call.patch`（806 B，sha256 `3665a972557f4b15bcc232124e46f3984c2e5cec781d838845f0366b28eb8da4`，`-U1`：调用点前后各一行上下文）
 - 在真 27 源树（`ac9718f xnu-12377.121.6`）的干净副本上 `git apply --check` → `APPLY CHECK OK`
 - 落位编号由 Lead 分配：**`0531-k60-audio-amp-probe-call.patch`**（2026-11-20 06:34，`patches/xnu-12377/`；
   0530 是 SPI availability，之后的新 27 补丁从 0532 起）。Lead 复制这个文件、插进 series、`git apply --check`
@@ -461,8 +480,8 @@ sh scripts/tests/portability/run-weak-hook.sh
 
   ```sh
   python3 scripts/emit-audio27-patch.py <27 源树> --out /tmp/0531.patch \
-      --expect 46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd --check
-  # audio patch: /tmp/0531.patch 876 B sha256 46b3c0cd…
+      --expect 3665a972557f4b15bcc232124e46f3984c2e5cec781d838845f0366b28eb8da4 --check
+  # audio patch: /tmp/0531.patch 806 B sha256 3665a972…
   # audio patch: APPLY CHECK OK
   ```
 
@@ -481,17 +500,18 @@ sh scripts/tests/portability/run-weak-hook.sh
 
 ```sh
 python3 scripts/check-audio27-series.py <27 源树> [--series DIR]   # 默认 /mnt/e/hackios/k60-gates/patches/xnu-12377，XNU27_SERIES 可改
-# SERIES OK 0531-k60-audio-amp-probe-call.patch 876 B sha256 46b3c0cd… matches the emitter
+# SERIES NOTE: 0531-k60-audio-amp-probe-call.patch differs in bytes (series 5ad782de…, emitter 3665a972…); the inserted code matches
+# SERIES OK 0531-k60-audio-amp-probe-call.patch 453 B sha256 5ad782de… inserts the emitter code
 ```
 
 三种答案分开：`0` 一致、`1` 不一致或系列文件里没列它（列了才真的会被构建应用）、`3` 系列还没 book 它。
 `3` 在预检里是 `skip` 而不是绿行——「还没有」和「已经对了」必须长得不一样，否则等 Lead 落地那天，
 绿的到底是哪一种就没人分得出来。预检因此多两行：
 **2026-11-20 07:19 Lead 已 book**：`/mnt/e/hackios/k60-gates/patches/xnu-12377/0531-k60-audio-amp-probe-call.patch`
-（876 B，sha256 `46b3c0cd…`），`series:52` 有这一行，系列里的字节与生成器逐字节相同，于是那一行从 `skip` 变绿：
+（453 B，sha256 `5ad782dea8f22fb40e6cc10050274d4d65cf0a72387e86f19ca1f1ed3a9de544`），`series:52` 有这一行，系列里的字节与生成器不同（Lead 那份是 `-U1` 加一行注释），但插入的代码相同——门禁比代码、不比字节，于是那一行从 `skip` 变绿：
 
 ```
-ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 876 B sha256 46b3c0cd… matches the emitter
+ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 453 B sha256 5ad782de… inserts the emitter code
 ```
 
 这条门禁现在每一次预检都会重新证明「系列里那份 = 生成器那份」，Lead 以后改 series 时不会静默漂移。
@@ -504,7 +524,7 @@ ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch
 
 ```
 SERIES ORDER OK: 2 earlier patch(es) touch the same files, none inside the call site context
-SERIES OK 0531-k60-audio-amp-probe-call.patch 876 B sha256 46b3c0cd… matches the emitter
+SERIES OK 0531-k60-audio-amp-probe-call.patch 806 B sha256 3665a972… matches the emitter
 ```
 
 实测：真实系列里排在它前面、也改 `bsd/kern/bsd_init.c` 的是 `0502-k60-bt-qbt-bsd-init.patch`（hunk 在 1323）

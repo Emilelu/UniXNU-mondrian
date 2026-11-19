@@ -70,7 +70,7 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
    这几条加上判据测试、功放 host 测试与（有 sheng 检出时的）audioreach 测试，可以用一条命令全跑：
    `sh scripts/check-audio27-preflight.sh` → 首行 `repo <path> <branch> @ <sha>`（量的是哪棵树），
-   随后二十八行 `ok`、一行随环境的 `skip`（`27 kernel carries the audio`，要 `XNU27_KERNEL`）与 `PREFLIGHT OK`。每一行自带它量的那棵树的身份：xnu27 那行带
+   随后二十九行 `ok`、一行随环境的 `skip`（`27 kernel carries the audio`，要 `XNU27_KERNEL`）与 `PREFLIGHT OK`。每一行自带它量的那棵树的身份：xnu27 那行带
    `xnu-12377.121.6 ac9718f` 与四个接口各自的 `file:line`，sheng 那两行带 `(c8f92b2)`，
    `27 kernel carries the audio` 报产物自己的大小与 sha256。（2026-11-20 05:3x 实测
    979 cases / 182 checks / `API OK 4/4` / `SHENG ABI OK 16/16` 全过。）这条命令还在
@@ -78,8 +78,8 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    全 `ok`，说明这条分支自带它需要的一切，不依赖本仓工作树、16 线补丁或未提交文件。
    四行要一棵 27 源树（`XNU27_REPO`）：`27 kernel interfaces are there`、`27 tree has no clashing symbols`、
    `27 patch emits unchanged`、`27 series carries the patch`。最后一行装的是第三份拷贝：同一个调用块
-   在系列里落地之后，它必须与生成器现算的字节逐字节相同（`SERIES OK 0531-… 876 B sha256 46b3c0cd… matches
-   the emitter`）；系列还没 book 它时打印 `skip … the Lead books it and the emitter is the source`，
+   在系列里落地之后，它必须与生成器现算的**代码**相同（`SERIES NOTE …` 后接 `SERIES OK 0531-… 453 B sha256 5ad782de… inserts
+   the emitter code`）；上下文宽度与注释文风是交付决定，门禁不比字节；系列还没 book 它时打印 `skip … the Lead books it and the emitter is the source`，
    而不是绿一行。系列目录默认 `/mnt/e/hackios/k60-gates/patches/xnu-12377`，`XNU27_SERIES` 可改；
    另两行要 sheng 检出：`sheng abi constants hold` 与 `sheng inject contract holds`（见 IOS27-USERLAND.md 第 7 节）；
    `27 kernel carries the audio` 要一颗产物（`XNU27_KERNEL`），sheng 那两行要 sheng 检出

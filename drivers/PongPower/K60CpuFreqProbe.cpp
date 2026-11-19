@@ -13,10 +13,12 @@
  * votes every domain and L3, 5 samples idle time read-only, 6 votes domain 0
  * down to its lowest level, 7 runs the idle sampler and applies the governor's
  * down steps inside a bounded window, then restores the original votes, and 8
- * does the same in both directions. Mode 9 (dcvs control bit plus every core
- * row) is disabled: both images that carried it, one with the thermal patch
- * and one without, hung before the console appeared, so the probe is the
- * common factor and must not run again without new firmware evidence.
+ * does the same in both directions. Mode 10 follows the same votes and also
+ * moves the L3 shared vote with the fastest domain, as the zizhan policy does.
+ * Mode 9 (dcvs control bit plus every core row) is disabled: both images that
+ * carried it, one with the thermal patch and one without, hung before the
+ * console appeared, so the probe is the common factor and must not run again
+ * without new firmware evidence.
  * Touch and frame activity re-arm a short window (1 s and 300 ms) so the
  * section 5 :115-:116 holds can reach the registers after boot.
  * Raises are safe to place because the EPSS
@@ -428,6 +430,7 @@ constexpr unsigned kApplyArmWindow = 625;
 constexpr unsigned kApplySpanWindows = 625;
 constexpr unsigned kApplyLatestEndWindow = 6250;
 constexpr unsigned kApplyMaxVotes = 32;
+constexpr unsigned kL3FollowMode = 10;
 /* Official section 5 :115 holds the performance cluster for one second after
  * a touch; section 5 :116 holds the CPU floor for 300 ms after a frame. Both
  * windows are re-armed by their own signal, not only by the boot-time down
@@ -445,6 +448,14 @@ struct Applied {
     bool touched;
     bool pdmemTouched;
 };
+
+void restoreL3(Window *l3, uint32_t original, bool *touched)
+{
+    if (!*touched) return;
+    if (l3->va) wr32(l3->va, K60_CPU_FREQ_REG_L3_VOTE, original);
+    *touched = false;
+    barrier();
+}
 
 unsigned restoreApplied(Window *windows, Window *pdmem, Applied *applied)
 {
@@ -495,6 +506,12 @@ void samplerThread(void *, wait_result_t)
     K60CpuFreqTable tables[K60_CPU_FREQ_DOMAINS] = {};
     Window windows[K60_CPU_FREQ_DOMAINS] = {};
     Window pdmem = {};
+    Window l3Window = {};
+    K60CpuFreqTable l3Table = {};
+    bool l3Ready = false;
+    uint32_t l3Original = 0;
+    bool l3Touched = false;
+    unsigned l3Voted = 0;
     K60CpuFreqGovernor gov = {};
     Applied applied[K60_CPU_FREQ_DOMAINS] = {};
     bool ready[K60_CPU_FREQ_DOMAINS] = {};
@@ -553,6 +570,20 @@ void samplerThread(void *, wait_result_t)
             static_cast<unsigned long long>(kPdmemBase));
     else
         IOLog("K60CpuFreq: PDMEM unavailable; perf-lock votes skipped\n");
+    if (applyMode == kL3FollowMode) {
+        unsigned l3TopIndex = 0;
+        uint32_t l3TopKhz = 0;
+        if (mapWindow(&l3Window, kL3Base, kL3Window) && readTable(&l3Window, &l3Table)) {
+            l3Ready = k60_cpufreq_pick_highest(&l3Table, 0, &l3TopIndex, &l3TopKhz) == 0;
+            if (l3Ready)
+                IOLog("K60CpuFreq: mode10 L3 follow rows=%u top=%ukHz\n",
+                    l3Table.count, l3TopKhz);
+        }
+        if (!l3Ready) {
+            if (l3Window.map) unmapWindow(&l3Window);
+            IOLog("K60CpuFreq: mode10 L3 follow unavailable; domain votes continue\n");
+        }
+    }
     IOLog("K60CpuFreq: sample start every=%ums log-every=%u domains=%u apply=%u\n",
         kSampleSleepMs, kSampleLogWindows, K60_CPU_FREQ_DOMAINS, applyMode);
     while (!sSampleStop) {
@@ -768,10 +799,52 @@ void samplerThread(void *, wait_result_t)
                     forceVote[domain] = false;
                 }
             }
+            if (applyMode == kL3FollowMode && l3Ready) {
+                uint32_t domainKhz[K60_CPU_FREQ_DOMAINS] = {};
+                uint32_t domainTop[K60_CPU_FREQ_DOMAINS] = {};
+                unsigned targetIndex = 0;
+                uint32_t targetKhz = 0;
+
+                for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+                    if (!ready[domain] || !tables[domain].count) continue;
+                    domainKhz[domain] = tables[domain].khz[gov.current[domain]];
+                    domainTop[domain] = tables[domain].khz[tables[domain].count - 1];
+                }
+                if (k60_cpufreq_l3_target(&l3Table, domainKhz, domainTop,
+                        static_cast<unsigned>(touchActive), &targetIndex, &targetKhz) == 0 &&
+                    (!l3Touched || targetIndex != l3Voted)) {
+                    K60CpuFreqWrite l3Write[1] = {};
+                    uint32_t l3Readback[1] = {};
+                    unsigned l3N = k60_cpufreq_build_l3_vote(l3Table.level[targetIndex], l3Write, 1);
+
+                    if (l3N && k60_cpufreq_vote_allowed(1, &l3Table, l3Table.level[targetIndex], l3N)) {
+                        bool l3Ok;
+                        if (!l3Touched) {
+                            l3Original = rd32(l3Window.va, l3Write[0].offset);
+                            l3Touched = true;
+                        }
+                        wr32(l3Window.va, l3Write[0].offset, l3Write[0].value);
+                        barrier();
+                        l3Readback[0] = rd32(l3Window.va, l3Write[0].offset);
+                        l3Ok = k60_cpufreq_check_readback(l3Write, l3Readback, l3N) != 0;
+                        if (!l3Ok) {
+                            restoreL3(&l3Window, l3Original, &l3Touched);
+                            l3Ready = false;
+                            IOLog("K60CpuFreq: mode10 L3 level=%u readback=mismatch; follow disabled\n",
+                                l3Table.level[targetIndex]);
+                        } else {
+                            l3Voted = targetIndex;
+                            IOLog("K60CpuFreq: mode10 L3 level=%u (%ukHz) readback=ok\n",
+                                l3Table.level[targetIndex], targetKhz);
+                        }
+                    }
+                }
+            }
             if (armed && (window >= applyStart + applySpan ||
                     (!signalArmed && window >= kApplyLatestEndWindow) ||
                     appliedVotes >= kApplyMaxVotes)) {
                 unsigned domains = restoreApplied(windows, &pdmem, applied);
+                restoreL3(&l3Window, l3Original, &l3Touched);
                 IOLog("K60CpuFreq: mode%u restore domains=%u votes=%u\n",
                     applyMode, domains, appliedVotes);
                 armed = false;
@@ -794,12 +867,14 @@ void samplerThread(void *, wait_result_t)
     }
     if (apply) {
         unsigned domains = restoreApplied(windows, &pdmem, applied);
+        restoreL3(&l3Window, l3Original, &l3Touched);
         IOLog("K60CpuFreq: mode%u restore domains=%u votes=%u\n",
             applyMode, domains, appliedVotes);
     }
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
         if (windows[domain].map) unmapWindow(&windows[domain]);
     if (pdmem.map) unmapWindow(&pdmem);
+    if (l3Window.map) unmapWindow(&l3Window);
     IOLog("K60CpuFreq: sample stop win=%llu\n", static_cast<unsigned long long>(window));
 }
 
@@ -827,8 +902,8 @@ extern "C" void k60_cpufreq_probe(void)
 
     PE_parse_boot_argn("k60_cpufreq", &mode, sizeof(mode));
     if (!mode || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
-    if (mode == 4 || mode == 9 || mode > 9) {
-        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5, 6, 7 and 8 are implemented, mode 9 is disabled after two hangs\n", mode);
+    if (mode == 4 || mode == 9 || mode > 10) {
+        IOLog("K60CpuFreq: mode=%u ignored; modes 1-3, 5, 6, 7, 8 and 10 are implemented, mode 9 is disabled after two hangs\n", mode);
         return;
     }
     IOLog("K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u\n",
@@ -858,7 +933,7 @@ extern "C" void k60_cpufreq_probe(void)
         startSampler(0);
         return;
     }
-    if (mode == 7 || mode == 8) {
+    if (mode == 7 || mode == 8 || mode == kL3FollowMode) {
         probeAll(false);
         startSampler(mode);
         return;

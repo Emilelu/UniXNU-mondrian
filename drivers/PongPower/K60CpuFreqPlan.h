@@ -85,6 +85,20 @@ int k60_cpufreq_pick_highest(const K60CpuFreqTable *table, uint32_t cap_khz,
 int k60_cpufreq_pick_lowest(const K60CpuFreqTable *table, unsigned *index,
     uint32_t *khz);
 
+/* Lowest entry whose frequency is at least khz. Returns 0 on success and -1
+ * when the table is empty or every entry is below khz. */
+int k60_cpufreq_pick_at_least(const K60CpuFreqTable *table, uint32_t khz,
+    unsigned *index, uint32_t *out);
+
+/* L3 follow target from the same-SoC reference policy: take the largest domain
+ * share (current / top, in millionths) and place L3 at the lowest level at or
+ * above that share of the L3 top. boost selects the top row. Returns 0 on
+ * success, -1 for a missing table or when no domain has a valid top/current
+ * pair. */
+int k60_cpufreq_l3_target(const K60CpuFreqTable *l3,
+    const uint32_t *domain_khz, const uint32_t *domain_top, unsigned boost,
+    unsigned *index, uint32_t *khz);
+
 /* One governor window. busy_permille is the busiest CPU of the domain;
  * boost pins the top for every domain (touch hold). shared_cluster is 0 for
  * the boot cluster (domain 0) and 1 for the others,

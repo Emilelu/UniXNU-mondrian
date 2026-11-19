@@ -78,6 +78,54 @@ int k60_cpufreq_pick_lowest(const K60CpuFreqTable *table, unsigned *index,
     return 0;
 }
 
+int k60_cpufreq_pick_at_least(const K60CpuFreqTable *table, uint32_t khz,
+    unsigned *index, uint32_t *out)
+{
+    int best = -1;
+    unsigned i;
+
+    if (!table || !table->count) return -1;
+    for (i = 0; i < table->count; ++i) {
+        if (table->khz[i] < khz) continue;
+        if (best < 0 || table->khz[i] < table->khz[best]) best = (int)i;
+    }
+    if (best < 0) return -1;
+    if (index) *index = (unsigned)best;
+    if (out) *out = table->khz[best];
+    return 0;
+}
+
+int k60_cpufreq_l3_target(const K60CpuFreqTable *l3,
+    const uint32_t *domain_khz, const uint32_t *domain_top, unsigned boost,
+    unsigned *index, uint32_t *khz)
+{
+    uint64_t share = 0, target;
+    uint32_t top = 0;
+    unsigned topIndex = 0, domain;
+
+    if (!l3 || !l3->count || !domain_khz || !domain_top) return -1;
+    if (k60_cpufreq_pick_highest(l3, 0, &topIndex, &top)) return -1;
+    if (boost) {
+        if (index) *index = topIndex;
+        if (khz) *khz = top;
+        return 0;
+    }
+    for (domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+        uint64_t candidate;
+        if (!domain_top[domain] || !domain_khz[domain]) continue;
+        candidate = (uint64_t)domain_khz[domain] * 1000000u / domain_top[domain];
+        if (candidate > share) share = candidate;
+    }
+    if (!share) return -1;
+    if (share > 1000000u) share = 1000000u;
+    target = (uint64_t)top * share / 1000000u;
+    if (k60_cpufreq_pick_at_least(l3, (uint32_t)target, index, khz)) {
+        if (index) *index = topIndex;
+        if (khz) *khz = top;
+    }
+    return 0;
+}
+
 unsigned k60_cpufreq_target(const K60CpuFreqTable *table, unsigned current,
     unsigned busy_permille, unsigned shared_cluster, unsigned boost,
     unsigned framing, unsigned quiet_windows)

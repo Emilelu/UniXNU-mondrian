@@ -269,6 +269,54 @@ int main(void)
     to = rail_point(0, 900000, 200);
     check_i("rail commit invalid rc", k60_rail_commit(&rail, &to, 1), -4);
 
+    /* A failed readback rolls back to the last confirmed point in the reverse
+     * of the way it went up. */
+    K60RailPoint failed, safe;
+    failed = rail_point(2000000, 900000, 200);
+    safe = rail_point(1000000, 800000, 100);
+    n = 99;
+    rc = k60_rail_rollback(&failed, &safe, rail_steps, 8, &n);
+    check_i("rail rollback rc", rc, 0);
+    check("rail rollback steps", n, 4);
+    check("rail rollback stage 0", (unsigned)rail_steps[0].stage, K60RailFrequency);
+    check("rail rollback stage 1", (unsigned)rail_steps[1].stage, K60RailInterconnect);
+    check("rail rollback stage 2", (unsigned)rail_steps[2].stage, K60RailRegulator);
+    check("rail rollback stage 3", (unsigned)rail_steps[3].stage, K60RailReadback);
+    check("rail rollback frequency khz", rail_steps[0].khz, 1000000);
+    check("rail rollback regulator uv", rail_steps[2].uv, 800000);
+    check("rail rollback interconnect bw", rail_steps[1].bw, 100);
+
+    failed = rail_point(500000, 700000, 50);
+    n = 99;
+    rc = k60_rail_rollback(&failed, &safe, rail_steps, 8, &n);
+    check_i("rail rollback up rc", rc, 0);
+    check("rail rollback up steps", n, 4);
+    check("rail rollback up stage 0", (unsigned)rail_steps[0].stage, K60RailRegulator);
+    check("rail rollback up stage 1", (unsigned)rail_steps[1].stage, K60RailInterconnect);
+    check("rail rollback up stage 2", (unsigned)rail_steps[2].stage, K60RailFrequency);
+    check("rail rollback up stage 3", (unsigned)rail_steps[3].stage, K60RailReadback);
+
+    n = 99;
+    rc = k60_rail_rollback(&safe, &safe, rail_steps, 8, &n);
+    check_i("rail rollback same rc", rc, 0);
+    check("rail rollback same count", n, 0);
+
+    check_i("rail rollback null attempted", k60_rail_rollback(NULL, &safe, rail_steps, 8, &n), -1);
+    check_i("rail rollback null confirmed", k60_rail_rollback(&failed, NULL, rail_steps, 8, &n), -1);
+    check_i("rail rollback null out", k60_rail_rollback(&failed, &safe, NULL, 8, &n), -1);
+    check_i("rail rollback null count", k60_rail_rollback(&failed, &safe, rail_steps, 8, NULL), -1);
+    check_i("rail rollback invalid attempted", k60_rail_rollback(&(K60RailPoint){0, 800000, 100}, &safe, rail_steps, 8, &n), -4);
+    check_i("rail rollback invalid confirmed", k60_rail_rollback(&failed, &(K60RailPoint){0, 800000, 100}, rail_steps, 8, &n), -4);
+
+    failed = rail_point(2000000, 900000, 200);
+    n = 99;
+    rc = k60_rail_rollback(&failed, &safe, rail_steps, 3, &n);
+    check_i("rail rollback short capacity rc", rc, -3);
+    check("rail rollback short capacity count", n, 0);
+    rc = k60_rail_rollback(&failed, &safe, rail_steps, 4, &n);
+    check_i("rail rollback exact capacity rc", rc, 0);
+    check("rail rollback exact capacity count", n, 4);
+
     if (failures) printf("TESTS FAILED %u failures / %u checks\n", failures, checks);
     else printf("TESTS OK %u checks (0 failures)\n", checks);
     return failures ? 1 : 0;

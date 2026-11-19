@@ -512,12 +512,19 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
         ['xcrun', '-f', 'clang'], env=env, text=True).strip()
     resource = subprocess.check_output([clang, '-print-resource-dir'], text=True).strip() + '/include'
     overlay = ROOT / 'drivers/PongWifi/ath11k/compat'
+    # The scan record has to carry every element the access point sends. The shared ABI copies 384 bytes,
+    # which cut this access point's 5 GHz element list off in the middle of an element (SBL-MISSION.md 28),
+    # so both builds use an enlarged copy generated here from the shared header; the station's IE_MAX follows it.
+    abi = out / 'abi'; abi.mkdir(exist_ok=True)
+    hdr = (shared / 'include/nw_abi.h').read_text()
+    if hdr.count('uint8_t ie[384];') != 1: raise RuntimeError('shared ABI element array differs')
+    (abi / 'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];', 'uint8_t ie[1024];'))
     flags = ['-target', 'arm64-apple-ios16.0', '-mkernel', '-O2', '-g0', '-ffreestanding',
         '-fno-builtin', '-fno-common', '-fno-strict-aliasing', '-fwrapv', '-fno-stack-protector',
         '-fno-delete-null-pointer-checks', '-mgeneral-regs-only', '-std=gnu11',
         '-Wno-incompatible-pointer-types', '-Wno-error', '-Wno-unused-value',
         '-nostdinc', '-isystem', str(shared / 'shim/libc'), '-isystem', resource,
-        '-I', str(overlay), '-include', 'PongCompat.h', '-I', str(shared / 'shim/include'),
+        '-I', str(overlay), '-I', str(abi), '-include', 'PongCompat.h', '-I', str(shared / 'shim/include'),
         '-I', str(pinned), '-I', str(linux / 'include'), '-I', str(linux / 'include/uapi'),
         '-I', str(shared / 'include'), '-I', str(shared / 'src'),
         '-I', str(gen), '-I', str(out), '-I', str(source.parent), '-I', str(ROOT / 'drivers/PongWifi/ath11k'),
@@ -528,6 +535,9 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     jobs += [(mhi / (n + '.c'), out / ('mhi_' + n + '.o'), ['-I', str(mhi)]) for n in ('init', 'main', 'pm', 'boot')]
     # WPA station nonces use Darwin's entropy source, not a timer/counter.
     sta = (shared / 'src/nw_sta.c').read_text()
+    # The station clamps its element copy at IE_MAX; the enlarged ABI carries 1024 bytes, so keep the whole list.
+    if sta.count('#define IE_MAX 384') != 1: raise RuntimeError('shared station IE_MAX differs')
+    sta = sta.replace('#define IE_MAX 384', '#define IE_MAX 1024')
     begin = sta.index('static void make_nonce(u8 *out) {')
     end = sta.index('static void derive_ptk(void)', begin)
     sta = sta[:begin] + 'extern void PongWifiRandom(void *, size_t);\nstatic void make_nonce(u8 *out) { PongWifiRandom(out, 32); }\n' + sta[end:]

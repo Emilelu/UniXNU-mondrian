@@ -347,6 +347,15 @@ def main() -> int:
           "jobs += [(ROOT / 'drivers/PongWifi/ath11k/pong_sae.c', out / 'pong_sae.o', [])]" in text and
           (ROOT / "scripts" / "tests" / "test-pong-sae.py").is_file())
 
+    native_src = (ROOT / "scripts" / "build-k60-wifi-native.py").read_text(encoding="utf-8")
+    check("both builds carry a 1024-byte element array and the station clamp follows it",
+          "uint8_t ie[1024];" in text and "uint8_t ie[1024];" in native_src and
+          "raise RuntimeError('shared ABI element array differs')" in text and
+          "raise RuntimeError('shared ABI element array differs')" in native_src and
+          "sta.replace('#define IE_MAX 384', '#define IE_MAX 1024')" in text and
+          "'-I', str(abi), '-include', 'PongCompat.h'," in text and
+          "'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include')" in native_src)
+
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

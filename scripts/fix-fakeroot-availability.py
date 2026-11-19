@@ -18,6 +18,10 @@ of the build, so it is repaired at the point it is created.
 
     python3 scripts/fix-fakeroot-availability.py <fakeroot> [--check]
 
+A header counts as done only when it carries this script's marker: mentioning
+`__SPI_AVAILABLE` is not defining it (availability internals name the macro in a
+conditional that this platform does not take).
+
 Exit: 0 = every Availability.h now defines the family (or already did),
 1 = still missing after the edit, 2 = no Availability.h found (wrong path).
 """
@@ -27,6 +31,8 @@ import sys
 from pathlib import Path
 
 MACROS = ("__SPI_AVAILABLE", "__SPI_DEPRECATED", "__SPI_DEPRECATED_WITH_REPLACEMENT")
+
+MARKER = "scripts/fix-fakeroot-availability.py"
 
 BLOCK = """
 
@@ -72,7 +78,7 @@ def main(argv: list[str]) -> int:
     edited, already, missing = [], [], []
     for header in headers:
         text = header.read_text(encoding="utf-8", errors="replace")
-        if "__SPI_AVAILABLE" in text:
+        if MARKER in text:
             already.append(header)
             continue
         if check_only:

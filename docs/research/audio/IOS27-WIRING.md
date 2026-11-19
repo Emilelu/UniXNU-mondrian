@@ -494,7 +494,26 @@ python3 scripts/check-audio27-series.py <27 源树> [--series DIR]   # 默认 /m
 ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 876 B sha256 46b3c0cd… matches the emitter
 ```
 
-这条门禁现在每一次预检都会重新证明「系列里那份 = 生成器那份」，Lead 以后改 series 时不会静默漂移。`27 series checker is honest`（5 例宿主测试）与
+这条门禁现在每一次预检都会重新证明「系列里那份 = 生成器那份」，Lead 以后改 series 时不会静默漂移。
+### 顺序也算一遍：前面有没有人改这几行
+
+0531 的 hunk 靠上下文行定位（`bsd_init_kprintf("calling vfsinit\n");`）。如果系列里排在它前面的某个补丁
+也改这几行，那么 0531 单独 `git apply --check` 能过、按系列顺序排到它时却过不去。
+所以 `check-audio27-series.py` 现在多做一件事：把系列文件里排在 0531 之前的每一项，按文件取 hunk 覆盖的
+旧文件行区间，与 0531 自己的区间直接比（unified hunk 本来就带三行上下文，不必再放宽）：
+
+```
+SERIES ORDER OK: 2 earlier patch(es) touch the same files, none inside the call site context
+SERIES OK 0531-k60-audio-amp-probe-call.patch 876 B sha256 46b3c0cd… matches the emitter
+```
+
+实测：真实系列里排在它前面、也改 `bsd/kern/bsd_init.c` 的是 `0502-k60-bt-qbt-bsd-init.patch`（hunk 在 1323）
+与 `0509-k60-bt-s3-identity-publish.patch`（1316），而 0531 在 699 —— 两个函数相隔六百多行。
+另在真树副本上把整条系列按顺序重放过一遍（个别 bt 补丁因缺前置源文件不过），0531 仍然落在
+`bsd_init()` 那句 `calling vfsinit` 之后，探针调用在 `bsd_init.c:712-715`。
+
+哪天有人把改这几行的补丁排到前面，这一行会变成 `SERIES FAILED: <补丁> edits bsd/kern/bsd_init.c:<行>…`；
+宿主测试里两例正是这么造的（远处改一行 → OK；改到调用点那几行 → FAILED），共 7 例。`27 series checker is honest`（5 例宿主测试）与
 `27 series carries the patch`（需要 `XNU27_REPO`；系列还没 book 时打印 skip）。
 
 ### 空跑一遍：这条链路在一棵「像 27 的树」上走通

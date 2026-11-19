@@ -44,6 +44,19 @@ except Exception as e:
 
 # drivers
 src = set()
+
+# Kernel-side arguments live inside patches, not in drivers/: a patch that adds
+# PE_parse_boot_argn("pong_x", ...) is exactly as real as one in a driver, but until
+# 2026-11-19 only drivers/** was scanned, so pong_surface_pitch slipped through while the
+# gate reported a clean count (the same shape as P-242: a check that does not cover the
+# path it names).
+for p in glob.glob(os.path.join(ROOT, 'patches/**/*.patch'), recursive=True):
+    try:
+        t = io.open(p, encoding='utf-8', errors='ignore').read()
+    except Exception:
+        continue
+    for m in re.finditer(r'PE_parse_boot_argn\s*\(\s*"([^"]+)"', t):
+        src.add(m.group(1))
 for p in glob.glob(os.path.join(ROOT, 'drivers/**/*'), recursive=True):
     if not p.endswith(('.c', '.cpp', '.mm', '.h')):
         continue
@@ -67,7 +80,36 @@ SKIP = {
     'disable_exc_resource', 'epoch',
 }
 
-missing = sorted((cfg | src) - documented - SKIP)
+# The debt ledger: arguments a patch introduces but the document does not cover yet. Scanning
+# patches/** on 2026-11-19 surfaced 42 at once, so they are accepted as a fixed list rather than
+# silently ignored. The list may not grow; documenting one means deleting its line and lowering
+# `count`. A stale line (already documented) is also a failure, because it hides the progress.
+PENDING_PATH = os.path.join(ROOT, 'docs/engineering/BOOT-ARGS-PENDING.toml')
+pending = set()
+pending_ceiling = 0
+if os.path.exists(PENDING_PATH):
+    try:
+        ledger = tl.load(io.open(PENDING_PATH, 'rb'))
+        pending_ceiling = int(ledger.get('count', 0))
+        pending = set(entry.get('name', '') for entry in ledger.get('pending', []))
+        pending.discard('')
+    except Exception as e:
+        print('  ❌ BOOT-ARGS-PENDING.toml 解析失败: %s' % e)
+        sys.exit(1)
+
+stale = sorted(pending & documented)
+if stale:
+    print('  ❌ BOOT-ARGS-PENDING.toml 里 %d 个参数已经文档化，请删掉它们并把 count 减下来:'
+          % len(stale))
+    for name in stale:
+        print('      %s' % name)
+    sys.exit(1)
+if len(pending) > pending_ceiling:
+    print('  ❌ BOOT-ARGS-PENDING.toml 长到 %d 条，超过它记录的 count=%d；这份债只允许减少'
+          % (len(pending), pending_ceiling))
+    sys.exit(1)
+
+missing = sorted((cfg | src) - documented - SKIP - pending)
 if missing:
     print('  ❌ BOOT-ARGS.md 缺少 %d 个参数:' % len(missing))
     for m in missing:

@@ -69,4 +69,88 @@ printf("MiniIOSurface: surface made sid=%u %ux%u bpr=%u planes=%u alloc=%llu ask
 
 ## 5. 结果登记
 
-（飞行后写在这里；`criteria-sha256` 在第一次写入时钉入，且必须单独占一行。）
+### 5.1 这一飞的事实
+
+| 项 | 值 |
+|---|---|
+| 镜像 | `gpu-surface-20261119`，`boot.img 8e2456a8bcbe9f09fe27fa68123affdd8f63b1193cbbd6f3543b125f056f7679` |
+| 内核 | `4ef869c8949a92c2d2d79fd95533cbaadd9eae4dd1f5d0d7458268b05e9036a4`（105,693,184 B） |
+| 证据 | `usblog-20261119-114545`，supervisor rc=0，未因 panic/复位中断 |
+| 有效性 | `compositor=69 frames · client_commits=288 · scanout_lines=22` ⇒ 有效，且有动画 |
+| 面板 | `K60 PANEL: INTF1 after the UI frame te 120/s frames 120/s over 500 ms (frames 281->341) … period 7447 us` |
+| 异常 | `panic(` 0、`K60KEXC` 0、`DeviceLost` 0、`crashed: backboardd` 0 |
+
+### 5.2 判据
+
+| 编号 | 判据 | 结果 |
+|---|---|---|
+| **S1** | 无 panic / `K60KEXC` / `DeviceLost` / backboardd 崩 | ✅ |
+| **S2** | `surface made` ≥ 3 行 | ✅ **19 行** |
+| **S3** | 存在 `bpr=5888`，或证明画布来自别处 | ✅ `sid=15 1440x3200 bpr=5888 planes=0 alloc=18841600` |
+| **S4** | `asked ≠ bpr` 时数值被记录 | ✅ 两条（见 5.3） |
+| **S5** | 形状行仍出现 | ✅ `texture untile (source 5888 scanout 5760)` |
+| **S6** | 面板 ≥ 110 Hz | ✅ 120 Hz（`period 7447 us`） |
+| **S7** | `imports == frames` | ✅ |
+
+**判决：PASS。** 无 F 规则命中。（第一次判读报 S6 FAIL 是判读器的正则写错：真实行是
+`K60 PANEL: INTF1 after the UI frame te 120/s`，而判读器找的是 `panel after UI: N Hz`。
+两处都改了，重判 PASS。这是 P-242 的又一次实例：判据存在不等于判据覆盖真实格式。）
+
+### 5.3 答案：5888 来自 `IOSurfaceBytesPerRow`，而且是 `planes=0` 那条路
+
+19 块 surface 的完整清单（`sid` 顺序即创建顺序）：
+
+```
+sid=1..4   128x128  bpr=196   planes=2 alloc=28672
+sid=5      128x128  bpr=512   planes=0 alloc=69632
+sid=6      256x1    bpr=2048  planes=0 alloc=20480
+sid=7      4096x1   bpr=16384 planes=0 alloc=135168
+sid=8..11  2x30     bpr=64    planes=0 alloc=4096
+sid=12     3584x3584 bpr=3584 planes=2 alloc=19267584
+sid=13     72x52    bpr=160   planes=0 alloc=12288
+sid=14     900x150  bpr=1824  planes=0 alloc=274432
+sid=15     1440x3200 bpr=5888 planes=0 alloc=18841600   <-- 扫描的画布
+sid=16     1440x3200 bpr=5760 planes=0 alloc=18432000   <-- 我们自己的两块
+sid=17     1440x3200 bpr=5760 planes=0 alloc=18432000
+sid=18     432x960  bpr=1728  planes=0 alloc=1658880
+sid=19     24x132   bpr=128   planes=0 alloc=73728
+```
+
+两条 `plane pitch asked≠reported` 是 `asked=1440 reported=1472` 与 `asked=432 reported=448`
+—— 也就是**我上一飞改的那段确实执行了**，只是它管的是 `planes≥1` 的 surface（sid=1–4、
+sid=12），而扫描画布 `sid=15` 是 `planes=0`，走的是另一条分支：
+
+```c
+bpr = dictNumber(props, "IOSurfaceBytesPerRow", 0);   /* <-- 5888 从这里进来，客户端给的 */
+if (bpr == 0) {
+    bpr = planeCount ? s->planes[0].bytesPerRow
+        : alignUp((uint64_t) ((width + ew - 1) / ew) * bpe, MINISURF_ROW_ALIGN);
+}
+```
+
+⇒ **合成器显式要求 `IOSurfaceBytesPerRow = 5888`（1472×4，32 像素对齐）**，我们在这一层照单全收。
+`sid=16/17` 是 `1440x3200 bpr=5760`，说明**我们自己**创建的画布本来就是 5760 —— 行距差只在
+客户端要走的那一块上。
+
+### 5.4 因此下一飞改哪里（一次性、可回滚）
+
+把 `IOSurfaceBytesPerRow` 也纳入「只报一个行距」的策略：忽略请求值，一律
+`alignUp(width*bpe, MINISURF_ROW_ALIGN)`（1440×4=5760 本来就是 64 的倍数），请求值不同时打印
+`MiniIOSurface: row bytes asked=%llu reported=%llu (one pitch only)`。
+
+风险与判据：客户端的正确性依赖「创建者报什么它用什么」，所以本飞必须**同时**看
+(a) 形状是否变成 `single run`、(b) `encode` 是否从 46 ms 掉到 1 ms 量级、
+(c) **画面是否斜切**——(c) 只能由用户目视，或由下一张卡描述的像素校验来判，
+不得由「帧还在出」代替。
+
+### 5.5 不能说明的事
+
+- 不能说明「消除行距差一定安全」——客户端是否尊重我们回报的行距，本飞没有验证。
+- 不能说明帧率有任何改善：本飞只加了一行日志，`copy` 仍是 5–55 ms 量级。
+
+### 5.6 判据指纹
+
+- criteria-sha256: 2019c891d9dd0fed95c752bd1a1b7430296b9dfbdedabb180adaea8ca86724de
+
+判据一节（`## 4. 判据` 到 `## 5. 结果登记`）在本镜像构建之前写定，飞行后只追加本节；
+指纹由 `scripts/check-flight-card.py` 自己的 `criteria_digest()` 计算。

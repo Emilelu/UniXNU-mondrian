@@ -27,6 +27,7 @@
 | `pong_metal` | GPU / Metal | 必须 == 1 | 未设 = 不发布 | 设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144） |
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |
 | `pong_gpu_coherent` | GPU / 提交 | 0 / 1 / 2（默认 2） | 2 = 跑探针 | 唯一有对方量化证据的一项：zizhan g40/g41 强制开后扫出 24–35 ms → 5–6 ms。用 1 绕过证明等于拿帧的正确性换速度 |
+| `pong_surface_pitch` | GPU / 扫出 | `0` 关（默认 `1` 开） | 关 = 照客户端请求的 `IOSurfaceBytesPerRow` 分配 | 开时一律按 `alignUp(width*bpe, 64)` 回报，客户端经 `IOSurfaceGetBytesPerRow` 得到同一个数。行距差（5888 vs 5760）是扫描 blit 只能走线性纹理的唯一原因，实测那一段 `encode` 46 ms 而同样 18.4 MB 的普通拷贝 1.9 ms；若调用方不尊重回报值，画面会斜切，这是它保留开关的原因 |
 | `pong_gpu_blit_probe` | GPU / 扫出 | `1` 开（默认关） | 开 = 首帧后跑一次对照 | 已答完并默认**关**：对照实测两个目标都是 9–10 GB/s，固件帧缓冲不是慢的那个；带它的那次飞行以 CP/SMMU fault 收场（P-244），且它按源行距写目标会让那一帧斜切 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
@@ -124,6 +125,20 @@
 - **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:149`
 - **源码**：`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:151`
 - **源码**：`drivers/PongAdreno/submit/NativeAdrenoVm.cpp:359`
+
+### `pong_surface_pitch`
+
+- **所属**：`drivers/PongAdreno/`（宏）与 `MiniIOSurface`（`surfaceCreate()`，经 xnu 补丁）
+- **接受值**：`0` 或 `1`；未设时按 **1**（关闭一个行距）
+- **作用**：`1` 时忽略客户端给的 `IOSurfaceBytesPerRow`，把 `bpr` 算成
+  `alignUp(width * bytesPerElement, MINISURF_ROW_ALIGN)`，并在请求值不同时打印
+  `MiniIOSurface: row bytes asked=%llu reported=%llu (one pitch only)`。
+  `0` 时回到「客户端要多少给多少」。
+- **为什么**：2026-11-19 的 `gpu-surface-20261119` 飞行枚举了 19 块 surface，
+  其中扫描画布是 `sid=15 1440x3200 bpr=5888 planes=0 alloc=18841600`，而我们自己创建的两块
+  是 `bpr=5760`。5888 只能来自 `dictNumber(props, "IOSurfaceBytesPerRow", 0)` 这一行。
+- **陷阱**：客户端是否尊重回报的行距**尚未在真机验证**；不尊重则画面斜切。
+  判据必须包含「画面正确」这一条，而且不得用「帧还在出」代替它。
 
 ### `pong_gpu_blit_probe`
 

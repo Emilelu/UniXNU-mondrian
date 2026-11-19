@@ -1268,3 +1268,17 @@ mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二�
 离线证据：scripts/tests/pong-abi-selftest.c 的 31 项检查（扫描记录空间、540 字节关联完成事件、能力位、请求 86 解析、频道折算、去重与越界拒绝）在 scripts/tests/test-pong-abi.py 里编译运行通过；脚本另查头文件常量与 PongWifiNet.cpp 的落点，18 项检查 0 失败。test-wifi-sbl-mission.py 新增一条「24A446 扫描请求被解析出名字、类型与频道」，全套 0 失败。编译两遍都对：对 16 头（ath11k-abi1）与对 27 头（ath11k-abi27）都产出 libPongWifiNative.a。
 
 还没验证的仍是那一处：24A446 的 selector 0 信封（0x3c30 入 / 0x3c00 出）。它要等 fork 的 ios27 分支走到 bsd_init、拿到 27 的 IO80211Family 或 wifid 才能核对。kext 侧 24A446 的记录形状、请求解析与事件尺寸都已静态锁定，剩下的是绑定层。
+
+## §40 2026-11-19 14:15 27 的绑定路径：framework 走的是网卡 ioctl，不是 selector 0 的 user client
+
+这一节改掉了 §38/§39 里「等拿到二进制核对 selector 0 信封」的假设：27 上 wifid 根本不走那条信道。
+
+sheng 的 27 版本（origin/main c8f92b2，package/WifiNet.cpp）把两条路都写在一处：`if_ioctl(ifnet_t, cmd, data)` 处理 SIOCGA80211 / SIOCSA80211，请求体就是 apple80211req；同一个 `apple80211()` 又被一个 `kKernelRequest` 伪 ifp 的 user client 隧道调用，日志里用 `uc` 与 `ioctl` 两种前缀区分来源。他们在 27 的 `IO80211Interface::newUserClient` 里直接返回 kIOReturnUnsupported 并记一行「a user client of type %u was asked for: none offered (ioctl path)」——27 上接口的 IOKit 用户客户端是关掉的，wifid 的扫描、关联、状态查询全部经网卡的 if_ioctl 到达驱动。
+
+我们这边早就两条路都有：PongWifiNet.cpp:811 的 if_ioctl 处理 SIOCGA80211/SIOCSA80211，Pong80211UserClient 的 selector 0 隧道走同一个 apple80211()。16（22H374）上 wifid 走 user client；27 上会走 ioctl，不需要新增绑定层，只需要让 ioctl 路的长度限制容得下 27 的请求。
+
+改掉的那一处：if_ioctl 原来写死 `len>5120` 就返回 EINVAL，而 27 的扫描请求 86 是 0x14e8 = 5352 字节（比 5120 多 232 字节）。在 ioctl 路上这会直接把每一次点名扫描变成 EINVAL，而且发生在 pong_scan_multiple_parse 之前，日志里只会看到一条 request 失败。现在上限是 PONG_SCAN_REQUEST_MAX（0x14e8），申请与拷贝都按这个长度，解析只读前 0x214 + 64*12 字节，仍在 5120 的 out.raw 之内。
+
+离线证据：test-pong-abi.py 新增「ioctl 路接受与 24A446 扫描请求等长的请求」，28 项检查 0 失败；对 16 头（ath11k-abi1）与 27 头（ath11k-abi27）都编译出 libPongWifiNative.a；四套 host 套件 0 失败。
+
+还剩两件事没有证据：一是 27 的 selector 0 信封（0x3c30/0x3c00）现在看只在 16 上用到，27 不需要它，但仍要等 27 的 IO80211Family/wifid 才能下定论；二是 sheng 在 27 上还带了一个签名的 launchd 服务 unixnu-wpa_supplicant 与 org.unixnu.wifi.control 控制端点，那是他们的用户态 supplicant 方案，我们的内核四步握手不需要它，但 27 的 wifid 是否要求那个服务存在，要等第一次上机才知道。

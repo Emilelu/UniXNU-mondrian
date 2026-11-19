@@ -87,3 +87,12 @@
 - 关闭一个 16 专属项时，在 `docs/research/gpu/` 的对应用例里写明「按 IOS-SCOPE 第 4 节停止」，
   不要只删待办——删了下次会有人重新发现它。
 - 相关门禁与判读器留在原地：它们是工具，不属于任何一代 OS。
+
+## 7. GPU 路线判定：不转 GLES（用户 2026-11-19）
+
+`xNekom/ios-mondrian`（POCO F5 Pro，同 SM8475，iOS 16 用户态）确实在更新，但它那套 GPU 是
+**OpenGL ES**（`gpu-surface-fix` 分支：接受 CoreAnimation 的 surface、拒绝 wrapper selector、
+用 Mesa/EAGL），不是 Metal。用户明确判定：**GLES 远不如 UniXNU 的 Metal，GPU 不走那条路线。**
+
+因此该仓库只作为**用户态**参考（entitlement 注入、launchd/assetsd、Safari/WebKit 黑屏、
+键盘焦点），不作为 GPU/扫出参考。GPU 侧参考源仍是 `kmu1757/UniXNU-t970` + `UniXNU-zizhan`。

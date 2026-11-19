@@ -6237,6 +6237,14 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 
 ## P-233
 
+**第三次复发（2026-11-19 09:15，`gpu-submit-20261119`）**：同一个形状换了个文件又发生一次。
+`drivers/PongAdreno/submit/NativeAdrenoSubmit.cpp:179` 是 `if(!(++probed&31))`，而
+`usblog-20261119-091547` 这一飞只有约 15 次 GPU 提交，于是 `PONG SUB` 一行都没打；判读器输出
+`submit samples: 0` 并按 F2 打印「the probe did not reach the image or did not run」，而
+`strings kernel.macho | grep -Fc "prevsub_count=%u prevsub_total=%u us"` = 1 证明探针就在镜像里。
+结论：**同一句教训写两遍没有用，必须变成门禁**。见下面「修法（第三版）」。
+
+
 **现象（2026-11-18 16:19，`gpu-import-scope-20261118`）**：飞行完整（231,325 B / 3,400 行、
 `capture.json` `complete=true`、supervisor rc=0、`K60KEXC` 0），但按卡判 S2–S8 全部 FAIL，
 原因是**一条 `scanout frames=` 报告行都没有**；而卡的 F2 把「没有 `sum=`」归因为
@@ -6253,6 +6261,16 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 `if(copies<=8 || !(copies%10))`（前 8 帧每帧一条，之后每 10 帧一条），
 `scripts/tests/test-frame-stage-timing.py` 用 `assertIn('if(copies<=8 || !(copies%10))')` 钉住它；
 新卡 `docs/research/gpu/FLIGHT-CARD-20261118k.md` 的 S2/S3 直接按新节奏写。
+
+**修法（第三版，2026-11-19）**：把它做成门禁而不是再写一遍教训——
+`scripts/check-probe-cadence.py` 扫 `drivers/`，凡是「采样门 + 紧随其后的报告调用」而条件里
+没有早采样逃生口（`<= k` / `< k`）的就判失败；页对齐掩码 `& 4095`/`% 4096` 明确排除，否则
+`NativeRamBlock.cpp:216` 与 `NativeUfs/PongUfsTransport.cpp:520` 会被误报。
+自测 `scripts/tests/test-check-probe-cadence.py` 用临时树双向证明：`!(++probed & 31)` 与
+`!(copies % 60)` 必须失败，加 `++probed <= 4 ||` 必须通过，`& 4095` 必须通过。
+门禁在真实树上当前 0 命中，所以**只有自测能证明它抓得住**——这正是 P-242 那条「门禁零命中
+不等于门禁有效」的应用。同一次修复把 `NativeAdrenoSubmit.cpp` 的节奏改成
+`if(++probed<=4 || !(probed&31))`。
 
 **教训**：
 1. 判据要「每条样本」还是「末条样本」，必须和采样频率一起算：`需要的样本数 × 采样间隔`

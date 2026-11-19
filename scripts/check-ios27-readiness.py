@@ -384,6 +384,24 @@ def self_test():
     return 0
 
 
+CONF_ANCHOR = "bsd/dev/unix_startup.c"
+
+
+def conf_anchor(tree):
+    # Every carried .c is appended to bsd/conf/files right after this line
+    # (Lead decision 2026-11-20 07:41). If the line moves the appender has
+    # nothing to hang on, so say so here instead of failing at build time.
+    for name in ("files", "files.arm64"):
+        path = os.path.join(tree, "bsd", "conf", name)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                words = line.split()
+                if words and words[0] == CONF_ANCHOR:
+                    return name
+    return None
+
 def check_pristine(tree):
     drift = 0
     for name, expected, reason in PATCH_EXPECT:
@@ -498,6 +516,12 @@ def check_pristine(tree):
     if drift:
         print('K60 READY CHANGED %d expectation(s) drifted' % drift)
         return 1
+    anchor_file = conf_anchor(tree)
+    if anchor_file:
+        print("K60 READY ok   the conffiles appender anchor %s is in %s" % (CONF_ANCHOR, anchor_file))
+    else:
+        drifted += 1
+        print("K60 READY DRIFT the conffiles appender anchor %s is missing from bsd/conf" % CONF_ANCHOR)
     print('K60 READY OK every recorded expectation still holds')
     return 0
 

@@ -5024,7 +5024,7 @@ Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`
 凡是生成补丁的脚本，都要另有一条结构性断言（目标路径集合、每个段落都必须有 `@@`），
 并且这条断言要跑在真实树上，而不是只在自测的合成树上。
 
-## P-207 — 判据把 `not-served` 读成了 `served`
+## P-207 — 判据把 `not-served` 读成了 `served`：否定词以肯定词结尾，子串匹配必错
 
 `scripts/judge-cellular-flight.py` 判断「modem 的读请求真的被服务了」时用的是
 `re.findall(r"rmtfs rw storage=(\d+) direction=(\d+) vectors=(\d+) served", text)`。

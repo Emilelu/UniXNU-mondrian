@@ -341,6 +341,11 @@ K60 READY OK every recorded expectation still holds
 本文的倾向是路线 1（与 16 线同一套维护责任，不把构建接线塞进补丁序列），但这一条要 Lead 定，
 因为 27 线的构建驱动不在本分支。
 
+### 14.1 Lead 裁决（2026-11-20 07:41）
+
+`bsd/conf/files` 的追加锚点定为 `bsd/dev/unix_startup.c`（27 树 `bsd/conf/files:108` 有这一行）。构建侧的追加器由 Lead 写，本线只交 `conffiles-port.txt`；作为交换，`scripts/check-ios27-readiness.py` 把这一行本身当成期望：它不见了就报
+`K60 READY DRIFT the conffiles appender anchor bsd/dev/unix_startup.c is missing from bsd/conf`，而不是等构建期才发现没有东西可以挂靠。
+
 ## 15. 外部符号依赖：0628 的 IPA 需要一个不属于本线的驱动
 
 2026-11-20 06:14 审计：把 carried 源码里所有 `extern` 声明抽出来，逐个看它是否由我们自己定义。
@@ -556,6 +561,10 @@ K60 READY OK every recorded expectation still holds
 | `conffiles-port.txt` | 681 B | 19 条 |
 
 `0629` 没重生成：它要等 27 树的 data mount 锚点，仓库里那份仍是对着真实树生成的。
+
+### 19.3 Lead 裁决（2026-11-20 07:41）：0630 保留
+
+`0630-k60-smem.patch` 不移交 power/adsp 线。等他们真把 `0611`/`0613` 整体搬到 27 时，删 `0630` 一个文件即可，`0626`–`0629` 一行不动（`0627`/`0628` 里对 `pong_smem.h` 的 include 由那次搬运自己满足）。
 
 ## 20. 编译前的第二道检查：150 个头文件在 27 树里都在
 

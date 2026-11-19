@@ -64,8 +64,8 @@ main = `5d8a09a5`。`origin` 上未合入的分支 **49** 条，按线分组编�
 | 45 | `docs/reassess-bringup` | 3/15 | 12 | 11-16 复评报告 | 文档 | test/bt-d8-timing-model | 合入 |
 | 46 | `docs/pitfalls-p227` | 3/17 | 7 | P-227 坑登记 | 文档 | — | 合入 |
 | 47 | `feat/ios-profile` | 3/175 | 8 | OS profile 决策文档 | 文档 | — | 合入 27 基线 |
-| 48 | `feat/first-frame-20261107` | 361/575 | 0 | 早期首帧分支（树与 main 完全相同） | 已吸收 | — | 归档 |
-| 49 | `chore/archive-darwin24-main-20261103` | 208/575 | 0 | Darwin 24 归档分支（树与 main 相同） | 已吸收 | feat/first-frame-20261107 | 归档 |
+| 48 | `feat/first-frame-20261107` | 361/575 | 5,944 | 早期首帧分支：**与 main 无共同祖先**的独立谱系（2026-11-07），差 5,944 文件 | 历史谱系 | — | 归档（不可按「树相同」删除） |
+| 49 | `chore/archive-darwin24-main-20261103` | 208/575 | 965 | Darwin 24 归档分支：**与 main 无共同祖先**（2026-11-01），差 965 文件 | 历史谱系 | — | 归档（不可按「树相同」删除） |
 
 ## 其它 remote（不参与）
 

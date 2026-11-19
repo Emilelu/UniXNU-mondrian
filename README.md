@@ -60,7 +60,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 构建/刷机前由两层检查把关，任一失败即中止：注册表 `scripts/check-rules.py`
 执行 [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) 里登记的全部门禁
-（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 84 条）；严格构建入口
+（铁则、坑门禁、上游研判、输入同步、快照 tag 等，当前 105 条）；严格构建入口
 `scripts/build-strict.sh` 内嵌下列检查：
 
 <!-- GATE-TABLE:BEGIN -->
@@ -140,7 +140,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | [`docs/engineering/IOS-SCOPE.md`](docs/engineering/IOS-SCOPE.md) | iOS 迁移边界：只保留可转移的活（用户 2026-11-19 决定） |
 | [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | 固件卷重建手册：谁在构建、为什么同源同字节、现场两个卷、P-154 现状与重建实验协议 |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★37 |
-| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-247 |
+| [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-248 |
 | [`docs/engineering/GPU-IOSURFACE-ROOT-CAUSE.md`](docs/engineering/GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 根因：`IOSurfaceRoot` 注册名不匹配 |
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) —— 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB

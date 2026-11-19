@@ -238,3 +238,4 @@ zzy-native-gpu-addon-mount.patch
 0518-k60-bt-gic-intid.patch
 0519-k60-bt-userspace-power-nodes.patch
 0520-k60-bt-uart-control-alias.patch
+0523-k60-bt-transport-set-rate.patch

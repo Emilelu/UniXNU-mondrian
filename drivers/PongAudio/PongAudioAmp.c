@@ -755,7 +755,7 @@ static bool amp_found[2];
 #define AW_I2SCFG1              0x13u
 #define AW_I2SCFG1_TXEN         (1u << 6)
 #define AW_SYSST_PLL_CHECK      (AW_SYSST_PLLS | AW_SYSST_CLKS)
-#define PONG_AMP_SYSST_TRIES    10u
+#define PONG_AMP_SYSST_TRIES    50u
 
 /* One register, read, cleared and set by mask, written back. The replay pass
  * uses the same shape for its three merged registers. */
@@ -814,7 +814,7 @@ amp_play_one(unsigned index, uint8_t address)
 			locked = true;
 			break;
 		}
-		wait_us(2000);
+		wait_us(4000);
 	}
 	printf("PongAudio: amp%u play pll=%u status=0x%04x faults=0x%04x tries=%u\n",
 	    index, locked ? 1u : 0u, status, (unsigned)(status & AW_SYSST_FAULTS),

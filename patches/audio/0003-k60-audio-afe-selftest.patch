@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1262 @@ int pong_audio_status(void);
+@@ -898,6 +933,1273 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -535,6 +535,17 @@
 +	if (pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
 +		printf("PongAudio: PCM slot %u lend refused\n", slot);
 +		return false;
++	}
++	/* A control experiment: hand the page over, then stay silent. When the
++	 * kernel survives, the transfer itself is harmless and the reset has to
++	 * come from the firmware reading the period. */
++	if (PE_parse_boot_argn("pong_audio_hold", NULL, 0)) {
++		printf("PongAudio: PCM slot %u lend held; not sending\n", slot);
++		state->slot_busy[slot] = true;
++		state->slot_token[slot] = token;
++		state->slot_age[slot] = 0;
++		state->inflight++;
++		return true;
 +	}
 +	printf("PongAudio: PCM slot %u send begin bytes=%u\n", slot, bytes);
 +	const int rc = k60_pmic_glink_send_audio(packet, bytes);

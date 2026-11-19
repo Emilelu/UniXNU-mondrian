@@ -16,6 +16,8 @@
 | `k60bt_step` | 蓝牙 | 1..`K60_PROBE_MAX_STEP` | `K60_PROBE_MAX_STEP` | `0507:252`；小于 1 或大于上限都被夹回范围，用来把探针停在指定步而不是跑完 |
 | `k60bt_warm` | 蓝牙 | 真值 | 关闭 | `0510-k60-bt-firmware-addon.patch:221`；声明 PM8350 S10/S11/S12、PM8350C S1、PMR735A L7 已经上电，驱动不再自己投票 |
 | `pong_bt_late` | 蓝牙 | 真值 | 关闭（早启动） | `0512-k60-bt-late-start.patch`；1 = 完整阶梯等到 K60DATA 挂载后的 deploy 点才启动，失败也留得下控制台与 /private/var |
+| `bluetooth` | 蓝牙 | 真值 | 关闭 | `0525-k60-bt-official-boot-args.patch`；官方蓝牙移植页的开关拼写，等价于 `k60bt=1`；两者同时出现时 `k60bt` 优先 |
+| `log-bluetooth` | 蓝牙 | 0..6，夹到范围 | 3 | `0525`；把 `k60_log()` 的上限从固定 3 改成该值，启动时打印一行 `[bluetooth] boot: log-bluetooth=N` |
 | `pong_bt_smmu` | 蓝牙 | 0 = 跳过 | 1（照常写 stream bypass） | `0512`；关掉 `k60_smmu_bypass()`，用来把「BT SID 与 UFS 同一 bypass 组」这一假设单独关断 |
 | `pong_bt_rcg` | 蓝牙 | 0 = 跳过 | 1（照常改 SE 速率） | `0512`；跳过 `k60_gcc_set_se_rate()` 的两个调用点，用来关断「共享 RCG 复位停掉 UFS 参考时钟」 |
 | `pong_bt_noboot` | 蓝牙 | 真值 | 关闭 | `0512`；1 = 上电/时钟/QUP 照跑但整段 `qbt_boot()` 固件下载不执行 |
@@ -234,6 +236,16 @@
 `bt-s2-20261114b` 就是这样一个负向对照：控制台里一条 `K60 BT` 都没有。
 这也是 S4 负向对照 `bt-s4-20261114b` 要带 `k60bt=1` 的原因：只有进了这条线，`addon: no GpuAddon property`
 才会出现。
+
+### `bluetooth` / `log-bluetooth`（0525）
+
+| 项 | 值 |
+| --- | --- |
+| 取值 | `bluetooth` 真值；`log-bluetooth` 0..6 |
+| 默认 | `bluetooth` 关闭（仍认 `k60bt`）；`log-bluetooth` = 3 |
+| 来源 | `patches/xnu/0525-k60-bt-official-boot-args.patch`：`qbt_k60_start()` 与 `iokit/Kernel/MiniBluetooth.cpp` 的发布门都接受 `bluetooth`，`k60_log()` 读该上限 |
+| 作用 | `bluetooth=1` 是官方移植页 step 6 的开关拼写，等价于 `k60bt=1`（`k60bt` 优先）；`log-bluetooth=N` 把日志上限从固定 3 改成 N，启动后的 `[bluetooth] boot: log-bluetooth=N` 行可作判据 |
+| 陷阱 | 默认仍为 3，0525 之前的镜像输出逐行不变；官方页给正常启动写 2，此时所有 3 级行（HCI 明细、部分 addon 提示）会消失。命令行总长上限 607 字节：`k60bt=1` 换 `bluetooth=1` 只多 3 字节，再加 `log-bluetooth=2` 会多 16 字节，现役 defconfig 的 598 字节基线装不下两者 |
 
 ### `k60bt_stage`
 

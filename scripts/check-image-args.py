@@ -57,6 +57,10 @@ ALLOWED_ADDITIONS = {
     # Each defaults to the 0511 behaviour, so an image without them is byte
     # for byte the same kernel path (see scripts/tests/test-k60-bt-0512-late-start.py).
     "pong_bt_late", "pong_bt_smmu", "pong_bt_rcg", "pong_bt_noboot",
+    # 0525: the spelling the official Bluetooth porting page uses, plus its
+    # log cap.  bluetooth=1 is an alias of k60bt=1 (k60bt wins when both are
+    # present) and log-bluetooth=N replaces the fixed level of three.
+    "bluetooth", "log-bluetooth",
 }
 
 # Values that are never acceptable in an experiment image, with the reason.

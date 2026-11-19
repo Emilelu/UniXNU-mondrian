@@ -777,6 +777,13 @@ k35 B 镜像（与 k34 只差这一层）：
 
 输出：`K60 GLINK INTENT PASS id0 accepted, size0 rejected`。修复提交 `1a4055b3`。
 
+**2026-11-20 修订（Lead 裁决）**：size 为 0 的 intent 不再当协议错误。power 线 `142706ad` 的选择是丢这一条、
+继续解同一帧（`if (!size) {g->dropped++; continue;}`），本线的 carried 副本改为同一语义，理由是「一条空缓冲」与
+「整条链路必须停」之间没有必然关系，而丢弃可测、可计。测试随之从两段流变三段：`id0`（不变）、`drop`
+（INTENT(size 0, id 0) 后面跟 INTENT(size 0x80, id 1)，断言后者仍被存成 id 1、`broken=0 dropped=1`）、
+`size0`（只有空 intent，断言 `broken=0`、什么都没存）。实测 `poll=4 / 4 / 3`，输出
+`K60 GLINK INTENT PASS id0 accepted, drop keeps the link, size0 stores nothing`；0622 因此变成 131,856 B / 7 files。
+
 镜像状态（2026-11-19 10:32，**已打包、未上机**）：
 
 | 项 | 值 |

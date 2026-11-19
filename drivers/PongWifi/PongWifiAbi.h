@@ -167,17 +167,73 @@ static inline uint32_t pong_scan_frequencies(const uint8_t *req, uint32_t size, 
     return n;
 }
 
+/* Association requests. All three generations carry the same network prefix; only the
+ * fields before it and the trailing remainder differ, so the driver can read any of them
+ * through one flat layout and copy at most PONG_ASSOC_FIELDS_BYTES.
+ *   legacy 592 (0x250): 16-bit authentication fields, network at 0x0c
+ *   24A446 656 (0x290): 32-bit authentication fields, network at 0x10
+ *   22H374 0x384:       the 24A446 prefix with a longer remainder */
+struct pong_assoc_parameters {
+    uint32_t ssid_length;
+    uint8_t ssid[32];
+    uint8_t bssid[6], unused[2];
+    uint32_t key_version, key_length, key_cipher;
+    uint16_t key_flags, key_index;
+    uint8_t key[64];
+};
+
+struct pong_assoc_request_legacy {
+    uint32_t version; uint16_t mode, auth_lower, auth_upper, unused;
+    struct pong_assoc_parameters network;
+    uint8_t rest[0x250 - 0x88];
+};
+
+struct pong_assoc_request_24a446 {
+    uint32_t version; uint16_t mode, unused; uint32_t auth_lower, auth_upper;
+    struct pong_assoc_parameters network;
+    uint8_t rest[0x290 - 0x8c];
+};
+
+struct pong_assoc_request_22h374 {
+    uint32_t version; uint16_t mode, unused; uint32_t auth_lower, auth_upper;
+    struct pong_assoc_parameters network;
+    uint8_t rest[0x384 - 0x8c];
+};
+
 #if defined(__cplusplus)
-static_assert(sizeof(struct pong_assoc_event27) == 540 &&
-              offsetof(struct pong_assoc_event27, result) == 0x214 &&
-              offsetof(struct pong_assoc_event27, has_result) == 0x218,
-              "24A446 association event");
+#define PONG_ABI_ASSERT(cond, why) static_assert(cond, why)
 #else
-_Static_assert(sizeof(struct pong_assoc_event27) == 540,
-               "24A446 association event size");
-_Static_assert(offsetof(struct pong_assoc_event27, result) == 0x214,
-               "24A446 association event result offset");
-_Static_assert(offsetof(struct pong_assoc_event27, has_result) == 0x218,
-               "24A446 association event validity offset");
+#define PONG_ABI_ASSERT(cond, why) _Static_assert(cond, why)
 #endif
+
+PONG_ABI_ASSERT(sizeof(struct pong_assoc_event27) == 540,
+                "24A446 association event size");
+PONG_ABI_ASSERT(offsetof(struct pong_assoc_event27, result) == 0x214,
+                "24A446 association event result offset");
+PONG_ABI_ASSERT(offsetof(struct pong_assoc_event27, has_result) == 0x218,
+                "24A446 association event validity offset");
+
+PONG_ABI_ASSERT(sizeof(struct pong_assoc_parameters) == 0x7c &&
+                offsetof(struct pong_assoc_parameters, key) == 0x3c &&
+                offsetof(struct pong_assoc_parameters, key_length) == 0x30 &&
+                offsetof(struct pong_assoc_parameters, key_cipher) == 0x34,
+                "association network prefix");
+
+PONG_ABI_ASSERT(sizeof(struct pong_assoc_request_legacy) == 0x250 &&
+                offsetof(struct pong_assoc_request_legacy, network) == 0x0c,
+                "legacy association layout");
+
+PONG_ABI_ASSERT(sizeof(struct pong_assoc_request_24a446) == 0x290 &&
+                offsetof(struct pong_assoc_request_24a446, network) == 0x10 &&
+                offsetof(struct pong_assoc_request_24a446, network) + offsetof(struct pong_assoc_parameters, ssid_length) == 0x10 &&
+                offsetof(struct pong_assoc_request_24a446, network) + offsetof(struct pong_assoc_parameters, bssid) == 0x34 &&
+                offsetof(struct pong_assoc_request_24a446, network) + offsetof(struct pong_assoc_parameters, key) == 0x4c,
+                "24A446 association layout");
+
+PONG_ABI_ASSERT(sizeof(struct pong_assoc_request_22h374) == 0x384 &&
+                offsetof(struct pong_assoc_request_22h374, network) + offsetof(struct pong_assoc_parameters, ssid_length) == 0x10 &&
+                offsetof(struct pong_assoc_request_22h374, network) + offsetof(struct pong_assoc_parameters, bssid) == 0x34 &&
+                offsetof(struct pong_assoc_request_22h374, network) + offsetof(struct pong_assoc_parameters, key) == 0x4c,
+                "22H374 association layout");
+
 #endif

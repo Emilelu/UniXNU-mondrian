@@ -131,6 +131,14 @@ struct link_event { uint8_t down, unused0[3]; int32_t rssi; uint16_t snr, noise;
 static_assert(__builtin_offsetof(scan_result, ssid_length) == 0x60 && __builtin_offsetof(scan_result, age_ms) == 0x84,
               "scan result field offsets");
 static_assert(sizeof(assoc_request) == 592 && __builtin_offsetof(assoc_request, key) == 0x48, "association layout");
+// These two structs must agree field for field with the host-tested shapes in PongWifiAbi.h;
+// a silent mismatch would decode a 24A446 request with the wrong offsets and nothing else would fail.
+static_assert(__builtin_offsetof(assoc_request,ssid_length)==__builtin_offsetof(pong_assoc_request_legacy,network)+__builtin_offsetof(struct pong_assoc_parameters,ssid_length) &&
+  __builtin_offsetof(assoc_request,bssid)==__builtin_offsetof(pong_assoc_request_legacy,network)+__builtin_offsetof(struct pong_assoc_parameters,bssid) &&
+  __builtin_offsetof(assoc_request,key)==__builtin_offsetof(pong_assoc_request_legacy,network)+__builtin_offsetof(struct pong_assoc_parameters,key),"legacy association fields match the ABI header");
+static_assert(__builtin_offsetof(assoc_request24,ssid_length)==__builtin_offsetof(pong_assoc_request_24a446,network)+__builtin_offsetof(struct pong_assoc_parameters,ssid_length) &&
+  __builtin_offsetof(assoc_request24,bssid)==__builtin_offsetof(pong_assoc_request_24a446,network)+__builtin_offsetof(struct pong_assoc_parameters,bssid) &&
+  __builtin_offsetof(assoc_request24,key)==__builtin_offsetof(pong_assoc_request_24a446,network)+__builtin_offsetof(struct pong_assoc_parameters,key),"24A446 association fields match the ABI header");
 static_assert(sizeof(channels_list) == 4824, "channel list layout");
 static_assert(sizeof(link_event) == 32, "link event layout");
 

@@ -24,6 +24,19 @@ int main(void)
     CHECK(offsetof(struct pong_assoc_event27, result) == 0x214, "the result sits at 0x214");
     CHECK(offsetof(struct pong_assoc_event27, has_result) == 0x218, "its validity flag sits at 0x218");
 
+    /* Association requests: the reference port's three layouts, checked by the host compiler. */
+    CHECK(sizeof(struct pong_assoc_parameters) == 0x7c, "the network prefix is 0x7c bytes");
+    CHECK(offsetof(struct pong_assoc_parameters, key_length) == 0x30 && offsetof(struct pong_assoc_parameters, key_cipher) == 0x34, "key length and cipher sit at 0x30 and 0x34");
+    CHECK(offsetof(struct pong_assoc_parameters, key) == 0x3c, "the key starts at 0x3c of the prefix");
+    CHECK(sizeof(struct pong_assoc_request_legacy) == 0x250 && offsetof(struct pong_assoc_request_legacy, network) == 0x0c, "the legacy request is 0x250 bytes with the network at 0x0c");
+    CHECK(sizeof(struct pong_assoc_request_24a446) == 0x290 && offsetof(struct pong_assoc_request_24a446, network) == 0x10, "the 24A446 request is 0x290 bytes with the network at 0x10");
+    CHECK(offsetof(struct pong_assoc_request_24a446, network) + offsetof(struct pong_assoc_parameters, ssid_length) == 0x10 &&
+          offsetof(struct pong_assoc_request_24a446, network) + offsetof(struct pong_assoc_parameters, bssid) == 0x34, "ssid length and bssid sit at 0x10 and 0x34");
+    CHECK(offsetof(struct pong_assoc_request_24a446, network) + offsetof(struct pong_assoc_parameters, key) == 0x4c &&
+          offsetof(struct pong_assoc_request_24a446, network) + offsetof(struct pong_assoc_parameters, key) + 64 == PONG_ASSOC_FIELDS_BYTES, "the 24A446 key ends at the field limit");
+    CHECK(sizeof(struct pong_assoc_request_22h374) == PONG_ASSOC_REQUEST_22H374 &&
+          offsetof(struct pong_assoc_request_22h374, network) + offsetof(struct pong_assoc_parameters, key) == 0x4c, "the 22H374 request keeps the same field offsets");
+
     /* Card capabilities: the two scan bits decide whether a named scan reaches this driver. */
     uint8_t caps[PONG_WIFI_CAPS_BYTES];
     pong_wifi_caps_fill(caps);

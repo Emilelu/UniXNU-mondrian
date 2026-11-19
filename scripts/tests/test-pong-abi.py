@@ -63,6 +63,16 @@ def check_reference():
         mine = sheng_number(header, ours)
         ref = sheng_number(result if "SCAN" in theirs else scan, theirs)
         check(mine is not None and mine == ref, "%s still matches the sheng port (%s)" % (name, theirs))
+    for ours, needle, name in (
+        ("PONG_ASSOC_REQUEST_LEGACY", "0x250", "the legacy association request"),
+        ("PONG_ASSOC_REQUEST_24A446", "0x290", "the 24A446 association request"),
+    ):
+        mine = sheng_number(header, ours)
+        check(mine is not None and needle in net, "%s still matches the sheng port (%s)" % (name, needle))
+    check("sizeof(assoc_parameters) == 0x7c" in net and "sizeof(assoc_request27) == 656" in net and
+          "sizeof(assoc_request) == 592" in net and "sizeof(assoc_event27) == 540" in net,
+          "the reference still pins the association sizes and field offsets")
+
     for anchor, what in (
         ("0x8 the number of SSID entries", "the reference still puts the names at 0xc"),
         ("0x200 the scan type", "the reference still puts the scan type at 0x200"),

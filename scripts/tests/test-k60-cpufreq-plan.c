@@ -90,6 +90,34 @@ int main(void)
         check("pick_lowest_empty", k60_cpufreq_pick_lowest(&empty, &index, &khz), -1);
     }
 
+    check("pick_at_least_exact", k60_cpufreq_pick_at_least(&table, 768000, &index, &khz), 0);
+    check("pick_at_least_exact_index", index, 1);
+    check("pick_at_least_above", k60_cpufreq_pick_at_least(&table, 500000, &index, &khz), 0);
+    check("pick_at_least_above_index", index, 1);
+    check("pick_at_least_below", k60_cpufreq_pick_at_least(&table, 200000, &index, &khz), 0);
+    check("pick_at_least_below_index", index, 0);
+    check("pick_at_least_none", k60_cpufreq_pick_at_least(&table, 2000000, &index, &khz), -1);
+    check("pick_at_least_null", k60_cpufreq_pick_at_least(NULL, 300000, &index, &khz), -1);
+    {
+        K60CpuFreqTable l3 = {};
+        const uint32_t tops[3] = {1804800, 2496000, 2995200};
+        const uint32_t idle[3] = {1804800, 2496000, 2995200};
+        const uint32_t half[3] = {900000, 1248000, 1497600};
+        const uint32_t zero[3] = {0, 0, 0};
+        l3.khz[0] = 300000; l3.khz[1] = 600000; l3.khz[2] = 1200000; l3.khz[3] = 1708800;
+        l3.count = 4;
+        check("l3_target_top", k60_cpufreq_l3_target(&l3, idle, tops, 0, &index, &khz), 0);
+        check("l3_target_top_index", index, 3);
+        check("l3_target_top_khz", khz, 1708800);
+        check("l3_target_half", k60_cpufreq_l3_target(&l3, half, tops, 0, &index, &khz), 0);
+        check("l3_target_half_index", index, 2);
+        check("l3_target_half_khz", khz, 1200000);
+        check("l3_target_boost", k60_cpufreq_l3_target(&l3, half, tops, 1, &index, &khz), 0);
+        check("l3_target_boost_index", index, 3);
+        check("l3_target_zero", k60_cpufreq_l3_target(&l3, zero, tops, 0, &index, &khz), -1);
+        check("l3_target_null", k60_cpufreq_l3_target(NULL, idle, tops, 0, &index, &khz), -1);
+    }
+
     check("build_cap", k60_cpufreq_build_table(kRows, 5, 1000000, &table), 0);
     check("build_cap_count", table.count, 2);
     check("build_cap_top", table.khz[1], 768000);

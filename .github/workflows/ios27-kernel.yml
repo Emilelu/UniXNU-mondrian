@@ -149,7 +149,7 @@ jobs:
       - name: Check the addon prefixes
         working-directory: device
         run: |
-          python3 scripts/check-bluetooth-addon-prefixes.py --out "$UNIXNU_OUT/prefix-check"
+          python3 scripts/check-bluetooth-addon-prefixes.py --framework "$GITHUB_WORKSPACE/UniXNU/scripts/build-boot-runtime.py" --out "$UNIXNU_OUT/prefix-check"
           python3 scripts/tests/test-bt-addon-prefixes.py
 
       - name: Collect the build summary

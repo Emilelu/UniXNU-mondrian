@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -61,7 +62,12 @@ def run_check(command: str) -> tuple[bool, str]:
     # check that prints UTF-8 or a stray non-ASCII byte kills the whole registry
     # with UnicodeDecodeError instead of reporting that check as failed. The
     # registry must be able to *report* a broken check, never die of one.
-    result = subprocess.run(command, shell=True, cwd=str(REPO),
+    # The children are Python too, and on this host the default codec is GBK:
+    # a check that prints Chinese dies with UnicodeEncodeError inside itself and
+    # reports as a failure of the thing it was checking. Force UTF-8 down the
+    # whole tree so the registry grades verdicts, not console encodings.
+    child_env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    result = subprocess.run(command, shell=True, cwd=str(REPO), env=child_env,
                             capture_output=True, text=True, check=False,
                             encoding="utf-8", errors="replace")
     output = ((result.stdout or "") + (result.stderr or "")).strip().splitlines()

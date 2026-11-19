@@ -744,6 +744,15 @@ Mac against the 24A446 image. Two consequences for this branch:
   plain SHA-256/SHA-1 over the code directory; no signature is needed to read
   it) and to reach a mounted OS root some other way.
 
+
+`scripts/check-bluetooth-payload-host.py` turns this into a report instead of a
+guess: it names the board block and its `bluetooth_tool`, checks that the
+framework really mounts through `hdiutil` and reads a CDHash, and asks the host
+itself — `codesign` must print `CDHash=` for a probe binary, which the shim does
+not. On WSL it reports the block absent, the framework correct and the host
+unable, and exits 0 as a report; `--require` and `--require-runtime` gate a host
+that is meant to build. `scripts/tests/test-bt-payload-host.py` covers 12 cases.
+
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and

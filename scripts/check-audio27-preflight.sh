@@ -64,6 +64,7 @@ run "glue needs only the table" sh scripts/tests/portability/run-deps.sh
 run "glue copy set matches the compiler" python3 scripts/check-audio27-closure.py
 run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
 run "conf-files hook is honest" python3 scripts/tests/test-conf-files-hook.py
+run "define delivery is honest" python3 scripts/tests/test-audio27-define.py
 run "one command applies the wiring" python3 scripts/tests/test-apply-audio27-wiring.py
 run "weak hook links either way" sh scripts/tests/portability/run-weak-hook.sh
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
@@ -91,7 +92,7 @@ fi
 if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
 	run "27 tree has no clashing symbols" python3 scripts/check-audio27-collisions.py "$xnu27"
-	run "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd
+	run "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 3665a972557f4b15bcc232124e46f3984c2e5cec781d838845f0366b28eb8da4
 	# The series copy is a third copy of the same block. It exists only after
 	# the Lead books it; exit 3 means "not booked yet", which is a skip and
 	# not a failure, so a quiet absence cannot hide as a green line.

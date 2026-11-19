@@ -55,8 +55,14 @@ def load_wiring(path):
     return module
 
 
-def emit(tree, wiring):
-    """Return (patch text, hooked text) or raise LookupError with the reason."""
+def emit(tree, wiring, context=1):
+    """Return (patch text, hooked text) or raise LookupError with the reason.
+
+    The default is one line of context, not three. The call site sits in
+    bsd_init(), a function the Bluetooth patches already edit, and a -U3 hunk
+    was measured failing inside the real sequence while applying cleanly on a
+    pristine tree. One line keeps the anchor and nothing else.
+    """
     path = tree / wiring.INIT_FILE
     if not path.is_file():
         raise LookupError("no %s under %s" % (wiring.INIT_FILE, tree))
@@ -77,7 +83,7 @@ def emit(tree, wiring):
     hooked = text[:at] + wiring.INIT_BLOCK + text[at:]
     diff = difflib.unified_diff(
         text.splitlines(True), hooked.splitlines(True),
-        fromfile="a/" + wiring.INIT_FILE, tofile="b/" + wiring.INIT_FILE, n=3)
+        fromfile="a/" + wiring.INIT_FILE, tofile="b/" + wiring.INIT_FILE, n=context)
     diff = add_function(diff, text.splitlines())
     head = ["diff --git a/%s b/%s\n" % (wiring.INIT_FILE, wiring.INIT_FILE),
             "index %s..%s 100644\n" % (blob(text)[:7], blob(hooked)[:7])]
@@ -91,6 +97,9 @@ def main(argv):
     parser.add_argument("--expect", help="digest the patch must have")
     parser.add_argument("--check", action="store_true",
                         help="also ask git whether the patch applies")
+    parser.add_argument("--context", type=int, default=1,
+                        help="context lines per hunk (1 is the series form: the"
+                             " sequence edits this function around the call)")
     parser.add_argument("--wiring", default=None,
                         help="apply-audio27-wiring.py to take the block from")
     args = parser.parse_args(argv[1:])
@@ -99,7 +108,7 @@ def main(argv):
     wiring_path = pathlib.Path(args.wiring) if args.wiring else here / "apply-audio27-wiring.py"
     tree = pathlib.Path(args.tree)
     try:
-        patch, stripped = emit(tree, load_wiring(wiring_path))
+        patch, stripped = emit(tree, load_wiring(wiring_path), args.context)
     except LookupError as error:
         print("audio patch: %s" % error, file=sys.stderr)
         return 1

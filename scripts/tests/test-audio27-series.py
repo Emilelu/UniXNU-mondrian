@@ -82,13 +82,23 @@ def main():
 
     drifted = work / "drifted"
     drifted.mkdir()
-    (drifted / NAME).write_bytes(good.replace(b"pong_audio_probe=1", b"pong_audio_probe=0", 1))
+    (drifted / NAME).write_bytes(good.replace(b"__attribute__((weak))", b"__attribute__((weak, unused))", 1))
     (drifted / "series").write_text(NAME + "\n")
     code, out = run(sys.executable, str(CHECK), str(root), "--series", str(drifted))
     assert code == 1, out
-    assert "differs from the emitter" in out and "SERIES FAILED" in out, out
+    assert "inserts different code" in out and "SERIES FAILED" in out, out
     cases += 1
-    print("  ok   a drifted series copy is named")
+    print("  ok   a drifted series copy is named by the code it inserts")
+
+    commented = work / "commented"
+    commented.mkdir()
+    (commented / NAME).write_bytes(good.replace(b"K60 audio amplifier probe", b"K60 audio amp probe", 1))
+    (commented / "series").write_text(NAME + chr(10))
+    code, out = run(sys.executable, str(CHECK), str(root), "--series", str(commented))
+    assert code == 0, out
+    assert "SERIES NOTE" in out and "inserts the emitter" in out, out
+    cases += 1
+    print("  ok   a comment-only difference is a note, not a failure")
 
     unlisted = work / "unlisted"
     unlisted.mkdir()

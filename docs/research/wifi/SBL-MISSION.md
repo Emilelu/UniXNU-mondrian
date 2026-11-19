@@ -1150,3 +1150,5 @@ Station 的 384 字节上限不只影响尾部，它决定了 wifid 能看到的
 mission33 镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission33/boot.img，201,887,744 B，SHA256 446d5332847590f644e54905783f2e064675ff130e3fba3d2bbe7612d7c85bb8，head 1e31b49a，args 31 条 / 602 B，check-image-args OK，verify-boot-image OK；归档 SHA256SUMS 记的 station 就是 abi1 的 6ef0058f，native 侧 abi/nw_abi.h 含 uint8_t ie[1024]。
 
 判读：目标 AP 的元素区在 384 上限下只能到 318 B，放大后应交付完整元素区（预计 ie≈642）。Emilelu_5G 出现即根因是 384 截断，生产修法就是保持放大；仍不出现则十三条探针照旧指名元素。mission32（fd80093a，裁剪版）在飞行前被 mission33 取代，artifact 目录已删，记 built-but-never-flown。
+
+两半用的是同一份生成头这件事有实证：station 的编译参数里 `-I overlay -I abi -I shim/include ... -I shared/include`（`build-k60-ath11k.py:527-529`），`clang -E` 对一个只含 `#include "nw_abi.h"` 的探针文件解析出的就是 `ath11k-abi1/abi/nw_abi.h`；kext 侧 `-I abi` 排在 `-I shared/drivers/Ath12kWifi/include` 之前（`build-k60-wifi-native.py:110`），而 `drivers/PongWifi/` 下没有同名头可以抢先，所以两个目标文件看到的都是 1024 字节数组。station 的 `IE_MAX 1024` 与 ABI 的 `ie[1024]` 因此是同一次改动的两半，不存在「station 写 1024、kext 只读 384」的越界路径。

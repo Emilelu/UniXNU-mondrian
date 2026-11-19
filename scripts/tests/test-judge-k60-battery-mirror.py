@@ -102,6 +102,17 @@ def main():
     case("real pair passes", 0, ("PASS VOLTAGE   4156 mV vs 4156000 uV/1000 = 4156 mV",
                                  "PASS TEMP", "PASS EXTERNAL", "TOTAL  PASS"))
     case("current sign is a note", 0, ("TOTAL  PASS", "current sign differs"))
+    case("sides name the external evidence", 0,
+         ("SIDES  ours=ok sheng=contradictory",
+          "the mirror disagrees with itself (status=Discharging, usb online=1); side=sheng"))
+    case("our own side contradicts itself", 1,
+         ("ours=contradictory", "side=ours"),
+         console=write("console-self.log", sample_line(charging="1", external="0") + "\n"))
+    case("a missing side is named", 2, ("sheng=missing", "side=sheng"),
+         mirror=write("mirror-missingside.json",
+                      json.dumps({"readings": ["[charge supply] qcom-battmgr-usb online=1"]})))
+    case("a missing console side is named", 2, ("ours=missing", "side=ours"),
+         console=write("console-none.log", "Fastboot: boot\n"))
     case("capacity in hundredths of a percent", 1,
          ("FAIL SOC", "off by 1/100x"),
          mirror=write("mirror-cap-hundredths.json", report(capacity="7305")))

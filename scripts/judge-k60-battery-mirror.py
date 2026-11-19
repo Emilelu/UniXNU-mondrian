@@ -34,6 +34,17 @@ Criteria:
   EXTERNAL  our external flag agrees with the mirror's usb online flag
   CHARGING  our charging/full flags do not contradict BOTH mirror signals
             (status and the usb online flag); one contradicting signal is a note
+  SIDES     printed last: ours=<ok|missing|contradictory> sheng=<same>, where
+            contradictory means that side disagrees with itself (our charging=1
+            with external=0; the mirror's status against its own usb online)
+
+The two inputs are NOT peers, and the verdict says so. Our console line is
+self-evidence: this driver printed it. The sheng report is external evidence: it
+came from someone else's Linux boot on the same SoC, and this repository neither
+produces nor can produce it (no Linux exists on a K60, so /sys/class/power_supply
+can never appear there). A result therefore prints a SIDES line naming which side
+was missing and which side contradicted itself, and only a run where both sides
+are usable and agree may be quoted as "aligned with the Linux reader".
 
 Deliberate leniencies, both proven against the real sheng report:
   - the reference report carries usb online=1 together with bat
@@ -161,25 +172,35 @@ def factor_note(ours, theirs, ours_unit, theirs_unit):
 def judge(console_path, mirror_path):
     checks = []
     notes = []
+    sides = {"ours": "not-read", "sheng": "not-read"}
 
     def record(name, ok, detail):
         checks.append({"name": name, "ok": ok, "detail": detail})
 
     sample = parse_console(read_text(console_path))
     if sample is None:
-        record("CONSOLE", False, "no 'K60Battery: ... sample=' line in this console")
-        return checks, notes, "INVALID"
+        record("CONSOLE", False, "no 'K60Battery: ... sample=' line in this console; side=ours")
+        sides["ours"] = "missing"
+        return checks, notes, "INVALID", sides
     record("CONSOLE", True, "sample=%d SOC=%d.%02d%%" % (
         sample["sample"], sample["soc"] // 100, sample["soc"] % 100))
+    sides["ours"] = "ok"
+    if (sample["charging"] or sample["full"]) and not sample["external"]:
+        sides["ours"] = "contradictory"
+        notes.append("we publish charging=%d full=%d with external=0; that is this side "
+                     "disagreeing with itself, side=ours"
+                     % (sample["charging"], sample["full"]))
 
     mirror, problems = parse_mirror(mirror_path)
     if problems:
         for problem in problems:
-            record("MIRROR", False, problem)
-        return checks, notes, "INVALID"
+            record("MIRROR", False, problem + "; side=sheng")
+        sides["sheng"] = "missing"
+        return checks, notes, "INVALID", sides
     battery, usb = mirror["battery"], mirror["usb"]
     record("MIRROR", True, "bat supply %d field(s), usb supply %d field(s)" % (
         len(battery), len(usb)))
+    sides["sheng"] = "ok"
 
     unparseable = []
     capacity = as_int(battery["capacity"], "capacity", unparseable)
@@ -192,7 +213,7 @@ def judge(console_path, mirror_path):
         record("SOC", delta <= SOC_TOL_HUNDREDTHS,
                "%d.%02d%% vs %d%% (capacity*100) delta=%d.%02dpp%s" % (
                    sample["soc"] // 100, sample["soc"] % 100, capacity,
-                   delta // 100, delta % 100, extra))
+                   delta // 100, delta % 100, extra if extra else ""))
 
     microvolts = as_int(battery["voltage_now"], "voltage_now", unparseable)
     if microvolts is not None:
@@ -203,7 +224,7 @@ def judge(console_path, mirror_path):
             extra = factor_note(sample["voltage_mv"], theirs, "millivolts", "microvolts")
         record("VOLTAGE", delta <= V_TOL_MV,
                "%d mV vs %d uV/1000 = %d mV delta=%d mV%s" % (
-                   sample["voltage_mv"], microvolts, theirs, delta, extra))
+                   sample["voltage_mv"], microvolts, theirs, delta, extra or " side=both"))
 
     microamps = as_int(battery["current_now"], "current_now", unparseable)
     if microamps is not None:
@@ -215,7 +236,7 @@ def judge(console_path, mirror_path):
             extra = factor_note(ours, theirs, "milliamps", "microamps")
         record("CURRENT", delta <= I_TOL_MA,
                "|%d| mA vs |%d| uA/1000 = %d mA delta=%d mA%s" % (
-                   sample["current_ma"], microamps, theirs, delta, extra))
+                   sample["current_ma"], microamps, theirs, delta, extra or " side=both"))
         if (sample["current_ma"] < 0) != (microamps < 0):
             notes.append("current sign differs (ours %d mA, mirror %d uA): a sign is a "
                          "protocol convention, not a fault (page §4 step 2)"
@@ -232,7 +253,8 @@ def judge(console_path, mirror_path):
         record("TEMP", delta <= T_TOL_HUNDREDTHS,
                "%d.%02dC vs %d (tenths)*10 = %d.%02dC delta=%d.%02dC%s" % (
                    sample["temp_hundredths"] // 100, abs(sample["temp_hundredths"] % 100),
-                   tenths, int(theirs / 100), abs(theirs % 100), delta // 100, delta % 100, extra))
+                   tenths, int(theirs / 100), abs(theirs % 100), delta // 100, delta % 100,
+                   extra or " side=both"))
 
     online = usb.get("online")
     usb_online = None
@@ -240,8 +262,10 @@ def judge(console_path, mirror_path):
         value = as_int(online, "usb online", unparseable)
         if value is not None:
             usb_online = value != 0
-            record("EXTERNAL", (sample["external"] != 0) == usb_online,
-                   "our external=%d, mirror usb online=%d" % (sample["external"], value))
+            agrees = (sample["external"] != 0) == usb_online
+            record("EXTERNAL", agrees,
+                   "our external=%d, mirror usb online=%d%s" % (
+                       sample["external"], value, "" if agrees else " side=both"))
     else:
         notes.append("the mirror carries no usb supply; the external flag is unchecked")
 
@@ -253,8 +277,8 @@ def judge(console_path, mirror_path):
         says_discharging = status.strip().lower() == "discharging"
         if ours and says_discharging and usb_online is False:
             record("CHARGING", False,
-                   "we publish charging=%d full=%d but the mirror says status=%s with usb online=0"
-                   % (sample["charging"], sample["full"], status))
+                   "we publish charging=%d full=%d but the mirror says status=%s with usb online=0; "
+                   "side=both" % (sample["charging"], sample["full"], status))
         else:
             record("CHARGING", True, "our charging=%d full=%d, mirror status=%s" % (
                 sample["charging"], sample["full"], status))
@@ -270,9 +294,17 @@ def judge(console_path, mirror_path):
         notes.append("we publish %s=%d, the mirror publishes no equivalent field"
                      % (field, sample[field]))
 
+    if status is not None and usb_online is not None:
+        says_charging = status.strip().lower() in ("charging", "full")
+        if (says_charging and not usb_online) or (status.strip().lower() == "discharging" and usb_online):
+            sides["sheng"] = "contradictory"
+            notes.append("the mirror disagrees with itself (status=%s, usb online=%d); side=sheng - "
+                         "its charging evidence cannot be quoted against the Linux reader"
+                         % (status, 1 if usb_online else 0))
+
     if any(not check["ok"] and check["name"] == "MIRROR" for check in checks):
-        return checks, notes, "INVALID"
-    return checks, notes, "PASS" if all(check["ok"] for check in checks) else "FAIL"
+        return checks, notes, "INVALID", sides
+    return checks, notes, ("PASS" if all(check["ok"] for check in checks) else "FAIL"), sides
 
 
 def main(argv):
@@ -290,11 +322,12 @@ def main(argv):
             print("judge-k60-battery-mirror: not a file: %s" % path, file=sys.stderr)
             return 2
 
-    checks, notes, verdict = judge(console_path, mirror_path)
+    checks, notes, verdict, sides = judge(console_path, mirror_path)
     for check in checks:
         print("%s %-9s %s" % ("PASS" if check["ok"] else "FAIL", check["name"], check["detail"]))
     for note in notes:
         print("       - %s" % note)
+    print("SIDES  ours=%s sheng=%s" % (sides["ours"], sides["sheng"]))
     print("TOTAL  %s" % verdict)
     if verdict == "PASS":
         return 0

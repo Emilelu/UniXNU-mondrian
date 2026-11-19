@@ -6,7 +6,9 @@
 # 不是"重写一遍"，而是"原样搬过去、先跑同一组断言、再只替换接线"。
 #
 # 另列四个判读器（scripts/judge-k60-*.py）：它们只吃 console 与镜像文本，同样
-# 与版本无关。搬过去先跑各自的夹具（33 / 28 / 14 / 17 例），再拿它读真机日志。
+# 与版本无关。搬过去先跑各自的夹具（33 / 28 / 14 / 21 例），再拿它读真机日志。
+# 判读器的输入不平权：ours 是本机 console（自证），sheng 是外部 Linux 报告
+# （sheng 仓库 reports/sheng-linux-charge-*.json，本机不产出、也无法产出）。
 #
 # 校验者：scripts/check-power-carry.py
 #   - 自带模式：文件存在、sha256 未漂移、套件数与 run-k60-power-host.sh 的记录
@@ -123,6 +125,6 @@ cases = 14
 [[judge]]
 name = "judge-k60-battery-mirror"
 path = "scripts/judge-k60-battery-mirror.py"
-sha256 = "292048a750f8632e84890791147ebf9791fca02649c9c1c578b6a6a8a0954368"
+sha256 = "d2a9aa0a437de2e1eafc65ffaf8641b5d1ba12110e5782f72d6a9c4e06b9edb5"
 test = "scripts/tests/test-judge-k60-battery-mirror.py"
-cases = 17
+cases = 21

@@ -1912,6 +1912,17 @@ fixture 提供 `IOReturn` 枚举、64 KiB `gMemory`、`read32`/`write32`/`waitCl
 - 结论：bluetoothd 只发 `RunBuiltinScript`（script/btaddress）与 `RunCommand`（command），只读 `result`/`firmware`/`manufacturer`/`output`；HCI 由它自己经 `/dev/*.bluetooth`、`Apple*` IOService 或 `com.apple.uart.sk.bluetooth` 通道打开。
 - 影响：适配器不必实现传输；内核 `qbt_transport.c` 已注册该 kernel control（第 565 行）与 nexus provider（第 372 行），0520 的别名在第 577 行。剩余工作是 Data 挂载门后的真机验证，而不是协议层补齐。
 - 证据：无新补丁、无新脚本；结论写进 fork `docs/plans/BT-IOS27-PORT.md` §6.4 与 `porting.toml` 的 ios27-arm64e findings。
+### 7.40 payload 宿主能力检查（item 64，2026-11-19）
+
+打开 `[payload.runtime]` 的代价不在设备仓而在宿主：`scripts/unixnu/runtime.py` 只要看到 `bluetooth_tool` 就把 `request['os_image']` 置上，`scripts/build-boot-runtime.py` 的 `os_mount()` 用 `hdiutil info -plist` / `hdiutil attach -readonly`（第 39、52 行）挂镜像，`verified_cdhash()` 再靠 `codesign --display --verbose=4`（第 96 行）取 CDHash。CI 装的 `UniXNU/scripts/linux/codesign` 是刻意空操作（"the kernel need no signature on this host"），`bundle_cdhash()` 会以 `no CDHash` 失败，而不是悄悄产出未签名的 addon；`plutil` shim 是真的（plistlib），所以只有 launchd 合并那半边能在 Linux 上跑。
+
+`scripts/check-bluetooth-payload-host.py` 把这条依赖变成可读的报告：板级块是否存在、框架是否真的用这两个工具、宿主是否具备（`codesign` 必须能对探针打出 `CDHash=`）。本机 WSL 实测三条结论与上面一致，退出 0（只报告）；`--require` 与 `--require-runtime` 是给真正要构建的宿主用的门。12 例测试覆盖。
+
+结论：F3 的 payload 目标在 macOS 上跑，或框架补一条 Linux 的 CDHash 路径；在那之前 `[payload.runtime]` 保持关闭，本支的 CI 只证明系列与契约，不证明 addon。
+
+
+---
+
 ## 8 八步账本沿革与 d8/0516 历史范围
 
 **历史实飞状态（2026-11-17 12:03 d9 FAIL；此后 0518 候选仅离线构建，见 §7.25）**：蓝牙账本当时保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。

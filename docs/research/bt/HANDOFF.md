@@ -1256,3 +1256,13 @@ bt-0525 的 console 以 `Device not open yet, use 'device' to open it.` 结束�
 - 边界：全部来自静态反汇编；行号按 verify0527b 的 `bsd/dev/qbt/qbt_transport.c` 核对过（372/565/577 一致）。未上机。
 
 - 补一条：`transport-encoding` 的取值就是路线选择器。stock BlueTool 把 6 当 AppleBT、7 当 PCIe、其余当 UART；sheng 的 `package/BluetoothProbe.cpp` 把条件写成 `wire == 1 && baud == 3200000`，`scripts/check-bluetooth-runtime.py:159` 把这对值标成 `H4 UART.SK`。所以 `<1>` 就是 H4 over UART.SK，正是本线要的路线；本线 `transport-speed` 仍是 `3000000`（48 MHz 源出不了 3.2M），这也说明 sheng 的发布条件不能照抄 —— 它要求 3200000，照抄会让 radio 在本板上根本不发布。
+
+## 64. payload 宿主能力检查（2026-11-19）
+
+新增 `scripts/check-bluetooth-payload-host.py`（与 fork 同文件、同测试）。
+
+- 目的：`[payload.runtime]` 一旦打开，框架就强制挂载 OS 镜像并逐件校验签名（`scripts/unixnu/runtime.py` 设 `request['os_image']`，`scripts/build-boot-runtime.py` 的 `os_mount()` 走 `hdiutil`、`verified_cdhash()` 走 `codesign --display`）。Linux 上的 shim 是空操作，所以这一步在 WSL/CI 上必然失败。检查器把「板级配置、框架源码、宿主工具」三段分开报，避免把宿主缺失读成蓝牙回归。
+- 检查项：`[payload.runtime]` 是否存在、有没有 `bluetooth_tool`/`bluetooth_target`；框架脚本是否真的用 `hdiutil` 挂载、是否真的读 CDHash；宿主上 `hdiutil` 与 `codesign` 是否存在，且 `codesign --display` 能对探针二进制打出 `CDHash=`。`--require` 在宿主不满足时退出 1，`--require-runtime` 在板级没开该块时退出 1；`--out` 写 `report.json`（`ready`、三段明细、`hardware_verified=false`）。
+- 本机实测（WSL）：`board: [payload.runtime] absent`、`framework: hdiutil mount yes, codesign CDHash yes`、`host: hdiutil missing, codesign /usr/bin/codesign, CDHash no`、`verdict: cannot build the runtime addon on this host`。两条失败正是 Linux shim 的行为，退出 0（只报告）。
+- 测试 `scripts/tests/test-bt-payload-host.py` 12 例：缺块、`--require-runtime`、完整块、块缺 `bluetooth_tool`、框架不挂 hdiutil、框架不读 CDHash、缺 hdiutil、盲目 codesign、`--require` 通过/失败、`report.json` 字段、探针缺失。
+- 边界：只读配置、源码与宿主，不碰设备、内核与产物；宿主判定是能力探测，不代表构建真的跑过（`hardware_verified=false`）。

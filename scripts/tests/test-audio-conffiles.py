@@ -3,11 +3,11 @@
 """Host tests for scripts/add-audio-conffiles.py.
 
 The script exists because a silent anchor miss is indistinguishable from a
-successful run without reading conf/files. These cases hold it to the three
-outcomes that matter: it lists both entries, it is idempotent, and it fails
-loudly - with the count printed - when the anchor or a source is absent.
+successful run without reading conf/files. These cases hold it to the four
+outcomes that matter: it lists both entries, it is idempotent, it takes an
+anchor the caller names, and it fails loudly - with the count printed - when
+the anchor or a source is absent.
 """
-import os
 import pathlib
 import shutil
 import subprocess
@@ -33,10 +33,12 @@ def make_tree(conf_body, sources=SOURCES):
     return root
 
 
-def run(tree, check=False):
+def run(tree, check=False, anchor=None):
     argv = [sys.executable, str(SCRIPT)]
     if check:
         argv.append("--check")
+    if anchor is not None:
+        argv.extend(["--anchor", anchor])
     argv.append(str(tree))
     proc = subprocess.run(argv, capture_output=True, text=True)
     return proc.returncode, proc.stdout + proc.stderr
@@ -75,9 +77,27 @@ def case_anchor_missing():
     rc, out = run(tree)
     assert rc == 1, out
     assert "anchor" in out and "0 -> 0" in out, out
+    assert "--anchor" in out, "the message must say how to fix it: " + out
     assert conf_text(tree) == body, "nothing may be written without the anchor"
     shutil.rmtree(tree)
-    return "anchor missing: exit 1, count printed, no write"
+    return "anchor missing: exit 1, count printed, --anchor suggested, no write"
+
+
+def case_custom_anchor():
+    body = "bsd/dev/pong_audio_probe.c\t\t\tstandard\n"
+    tree = make_tree(body)
+    rc, out = run(tree)  # the default anchor is absent from this tree
+    assert rc == 1, out
+    anchor = body.strip()
+    rc, out = run(tree, anchor=anchor)
+    assert rc == 0, out
+    text = conf_text(tree)
+    for name in SOURCES:
+        assert name in text, out
+    assert text.startswith(body), "the entries go after the line the caller named: " + text
+    assert "pong_audio lines 0 -> 2" in out, out
+    shutil.rmtree(tree)
+    return "custom anchor: a tree without the button driver still lists both"
 
 
 def case_source_missing():
@@ -112,8 +132,8 @@ def case_unseeded_tree():
     return "unseeded tree: exit 1"
 
 
-CASES = [case_append, case_idempotent, case_anchor_missing, case_source_missing,
-         case_check_mode, case_unseeded_tree]
+CASES = [case_append, case_idempotent, case_anchor_missing, case_custom_anchor,
+         case_source_missing, case_check_mode, case_unseeded_tree]
 
 
 def main():

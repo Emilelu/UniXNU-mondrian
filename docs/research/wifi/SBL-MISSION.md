@@ -1176,7 +1176,7 @@ mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission
 
 但整趟没有一条 \`scan request\`，也没有任何 \`WiFiScanObserverNetwork\` 列表（Preferences 与 configd 都是 0）：wifid 一次扫描请求都没发，所以既没有 daemon 侧列表可对照，也没有真实行被观察。19 条探针每轮都生成（本次 carrier 是 2417 MHz \`96:de:f9:b6:be:7e\`，冻结时 5 GHz 记录还没出现，走的是 2.4 GHz 回退），只是没有人打开设置页。
 
-补充：boot 早期有 4 次 \`native client type 103 get bytes=1164 -> 0\`（返回码 0 = 成功），每次都紧跟在 withheld 行之后，说明 daemon 确实读走了记录，只是没有触发 settlement observer 的列表日志；因此「0 条 Preferences」等于「没人打开设置页」，不等于「daemon 没读记录」。
+更正（2026-11-19 10:26）：先前把 boot 早期的 4 次 native client type 103 get bytes=1164 -> 0 读成「daemon 读走了扫描记录」是错的——103 在 Apple80211 枚举里是 kCurrentNetwork（PongWifiNet.cpp:76），返回的是当前已加入网络的那条 1164 字节记录，不是扫描表。按请求类型统计四趟采集（脚本 E:/k60-work/scratch/type-counts.sh）：mission16 有类型 10×1、11×1、103×28，mission24 有 10×1、11×1、103×22，mission25 有 10×1、11×1、103×24，而 mission35 是 10×0、11×0、103×8。也就是说这一趟 wifid 连一次扫描请求都没发（类型 10 为 0），扫描结果也从未被取走（类型 11 为 0），采集里的 scan starts on 42 channels 全是 station 自己的漫游扫描，与 daemon 无关。所以「0 条 Preferences」在这里是「daemon 没扫描」，不能当成「读了记录但没记日志」；设置页必须由人打开，这是硬前提。
 
 判读 UNOBSERVED。教训：设置页那一步必须有人在，而且要落在窗口内；下一趟要么等用户确认在手机前再飞，要么把采集窗口拉到 25 分钟以上并在检测到 Preferences 列表后提前收尾。mission34（b08a14f8）保留为「只测 1024 元素区」的单变量对照，仍欠一次飞行或需要删除。
 

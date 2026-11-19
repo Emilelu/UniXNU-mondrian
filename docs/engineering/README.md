@@ -16,6 +16,7 @@
 | [EIGHT-STEP-SPEC.md](EIGHT-STEP-SPEC.md) | **八步流程规范**：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机。每步含目的/必做/证据格式/通过条件/反模式 |
 | [FIRMWARE-REBUILD.md](FIRMWARE-REBUILD.md) | **固件卷重建手册**：构建入口、为什么同一个 pin 三次重建得三个哈希（P-216）、`Mu_Basecore` 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭、下次重建的五步实验协议、DarwinBoot 只认固定属性名的硬约束 |
 | [BOOT-PROCEDURE.md](BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂 CDC-ACM 串口抓取 → `fastboot boot`；"控制台没出现"= 早启动挂死的硬证据；含二分回退配方 |
+| [IOS-SCOPE.md](IOS-SCOPE.md) | **iOS 迁移边界**（用户 2026-11-19 决定）：只保留可转移的活。本机四棵 SM8475 树里只有我们在 iOS 16，参考栈在 17.7.11–18.7.10；含可转移/停止清单、判据三条、迁移面统计 |
 
 ## 二、规则与坑
 

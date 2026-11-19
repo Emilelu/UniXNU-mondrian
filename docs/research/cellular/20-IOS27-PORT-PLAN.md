@@ -609,3 +609,58 @@ python3 scripts/check-ios27-deps.py \
 ```
 
 缺一个头 = 27 改了名或删了它，先回头看 16 线那处调用，再决定是改 include 还是携带实现。
+
+## 21. 交接清单：27 侧落地需要做的四件事（按顺序）
+
+这一节写给接手 27 树的人。全部命令都在 /opt 的 27 树旁边执行，仓库侧只需要 `patches/xnu-12377/`。
+
+### 21.1 打补丁
+
+```sh
+cd <27 tree>
+git apply -p1 <repo>/patches/xnu-12377/0626-k60-modem-image.patch
+git apply -p1 <repo>/patches/xnu-12377/0627-k60-modem-qrtr.patch
+git apply -p1 <repo>/patches/xnu-12377/0628-k60-ipa.patch
+git apply -p1 <repo>/patches/xnu-12377/0630-k60-smem.patch
+# 0629 需要 data mount 锚点，见 21.3
+```
+
+四个补丁都只新建 `bsd/dev/pong_*.{h,c}` 与 `bsd/dev/qcom_glink.{h,c}`，不改任何既有文件，所以 git apply 只有新增，没有冲突面。
+
+### 21.2 构建期追加 conffiles
+
+`bsd/conf/files` 在 27 树里没有这些条目（`pong_` / `qcom_glink` 计数为 0），打完补丁直接构建会在链接期报 `Undefined symbols`。`conffiles-port.txt` 是现成的 19 行：
+
+```
+bsd/dev/pong_modem_link.c			standard
+...
+```
+
+按 27 构建流水线自己的方式追加（16 线是 `scripts/append-conffiles.py`，锚点 `bsd/dev/unix_startup.c`，见 P-171「conf/files 的 hunk 不能在第 7 步锚定」）。**不要**在补丁里带 `bsd/conf/files` 的 hunk。
+
+### 21.3 两个调用点（0629）
+
+27 树现在**还没有** Data 挂载阶段（`native_owner_data_stage` 0 行命中），所以 0629 无从生成。等 27 树有了那一行：
+
+```sh
+python3 scripts/port-cellular-to-xnu27.py --tree <27 tree> --out patches/xnu-12377 --anchor-auto
+# 或显式：--anchor "<把 stage 推到 3 的那一行原文>"
+```
+
+工具会先打印命中的锚点原文，再生成 `0629-kern-exec-call-sites.patch`；锚点 0 行或 2 行以上直接 exit 2，不会产出半截补丁。两个 probe 分别由 0626（`k60_modem_probe_from_handoff`）与 0628（`k60_ipa_probe_from_handoff`）提供——readiness 有断言，改名前会先红。
+
+### 21.4 第一次起飞前的两条检查
+
+```sh
+python3 scripts/check-ios27-readiness.py --tree <27 tree>
+python3 scripts/check-ios27-deps.py --deps <16 tree>/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT \
+  --work <16 tree>/.cache/xnu-work --tree <27 tree>
+```
+
+两条都该是 ok。第一次 27 起飞的预期见 §7.1：存储读会**优雅拒绝**（27 没有 `drivers/NativeUfs`，弱定义兜底返回 0），所以 `rmtfs rw ... refused` 是这一阶段的正常结果，不是失败；真正的失败是 panic、S3/S6 缺行或 `rmtfs` 一行都没有。
+
+### 21.5 交接面之外
+
+- 27 的 `board.toml` / `drivers/QcomBaseband` pin 不属本线（§18 表格第 5 行）。
+- `drivers/PongAdreno/ArmSmmu4K` 属 GPU 线；IPA 需要的两个符号在本线用弱定义兜底，等 k53 判读后才落。
+- 0629 之外不需要再动 `kern_exec.c`；IPA 的 `kmem_alloc_contig` 上界与重试也在 k53 之后。

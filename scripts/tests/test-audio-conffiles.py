@@ -128,6 +128,23 @@ def case_check_mode():
     return "check mode: 1 before, 0 after"
 
 
+def case_default_anchor_follows_layout():
+    seeded = make_tree("bsd/dev/pong_buttons.c\t\t\tstandard\n")
+    rc, out = run(seeded)
+    assert rc == 0, out
+    assert "anchor line 'bsd/dev/pong_buttons.c" in out, out
+    assert "pong_audio lines 0 -> 2" in out, out
+    shutil.rmtree(seeded)
+    body = "bsd/dev/unix_startup.c\t\t\tstandard\n"
+    tree = make_tree(body, inplace=True)
+    rc, out = run(tree)
+    assert rc == 0, out
+    assert "anchor line 'bsd/dev/unix_startup.c" in out, out
+    assert "pong_audio lines 0 -> 2" in out, out
+    shutil.rmtree(tree)
+    return "the default anchor follows the layout"
+
+
 def case_inplace_tree():
     body = "bsd/dev/unix_startup.c\t\t\tstandard\n"
     tree = make_tree(body, inplace=True)
@@ -152,7 +169,7 @@ def case_unseeded_tree():
 
 CASES = [case_append, case_idempotent, case_anchor_missing, case_custom_anchor,
          case_source_missing, case_check_mode, case_inplace_tree,
-         case_unseeded_tree]
+         case_default_anchor_follows_layout, case_unseeded_tree]
 
 
 def main():

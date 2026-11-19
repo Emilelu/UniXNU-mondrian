@@ -17,16 +17,19 @@ Two layouts are supported, because the two series seed differently:
   python3 scripts/add-audio-conffiles.py <tree>           # append, exit 1 if it did not
   python3 scripts/add-audio-conffiles.py --check <tree>   # report the count only
 
-The default anchor is the button driver, which the 16 series tree carries from
-its own line. A 27 tree has no button driver, so pass --anchor with a line that
-tree actually has - the count still decides, so a wrong anchor fails loudly
-instead of writing the entries somewhere nobody reads.
+The default anchor follows the layout: a seeded 16 series tree carries the button
+driver from its own line; a 27 tree builds in place and has no button driver, so
+there the default is the line that baseline does have (bsd/dev/unix_startup.c,
+conf/files:108 in xnu-12377.121.6). Either way the anchor is echoed with %r and
+the count decides, so a wrong anchor fails loudly instead of writing the entries
+somewhere nobody reads. --anchor overrides both.
 """
 import argparse
 import pathlib
 import sys
 
-ANCHOR = "bsd/dev/pong_buttons.c\t\t\tstandard"
+ANCHOR = "bsd/dev/pong_buttons.c\t\t\tstandard"        # 16 series, seeded layout
+INPLACE_ANCHOR = "bsd/dev/unix_startup.c\t\t\tstandard"  # 27, in-place layout
 ENTRIES = [
     "bsd/dev/PongAudioGeniI2c.c\t\t\tstandard",
     "bsd/dev/PongAudioAmp.c\t\t\tstandard",
@@ -57,8 +60,9 @@ def main(argv):
     parser.add_argument("tree")
     parser.add_argument("--check", action="store_true",
                         help="do not write; fail when the entries are not listed")
-    parser.add_argument("--anchor", default=ANCHOR,
-                        help="conf/files line to list the entries after")
+    parser.add_argument("--anchor", default=None,
+                        help="conf/files line to list the entries after; "
+                             "defaults to the one this layout has")
     args = parser.parse_args(argv[1:])
 
     tree = pathlib.Path(args.tree)
@@ -67,6 +71,8 @@ def main(argv):
         print("audio conffiles: no bsd/conf/files under %s (neither .cache/xnu-work "
               "nor the tree itself; tree not seeded)" % tree)
         return 1
+    if args.anchor is None:
+        args.anchor = INPLACE_ANCHOR if work == tree else ANCHOR
     conf = work / "bsd/conf/files"
 
     text = conf.read_text()

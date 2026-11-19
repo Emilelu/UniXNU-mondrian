@@ -9,8 +9,12 @@
 #include <libkern/c++/OSSymbol.h>
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
+#include "ArmCpuSleep.h"
 
 extern "C" void rtclock_intr(unsigned int);
+extern "C" void (*arm64_platform_sleep_hook)(boolean_t) __attribute__((weak));
+extern "C" void ml_arm_sleep(void) __attribute__((weak, noreturn));
+extern "C" boolean_t ml_is_quiescing(void);
 extern "C" void psci_smp_init(void);
 extern "C" kern_return_t psci_smp_start_cpu(int);
 extern "C" void psci_smp_cpu_running(void);
@@ -34,6 +38,18 @@ static SpiOwner gSpi[4];
 static uint32_t gSpiUsed,gSpiRegistering;
 static uintptr_t gDist;
 static uint64_t gBootAffinity;
+
+/* Platform sleep (official power page 5, platform-sleep=1): the boot core
+ * waits here for a board wake source; the other cores take PSCI CPU_OFF.
+ * Ported from UniXNU/ArmCpu ArmCpuSleep.h and ArmCpu.cpp, BSD-2-Clause-Patent. */
+static bool gSleepEnabled;
+static uint32_t gSleepWakeAfterS;
+static struct armcpu_sleep_board *gSleepBoard;
+static uint64_t gCounterHz;
+static const uint32_t kVirtualTimerPpi = 27;
+static const uint32_t kGicdIsenabler = 0x100, kGicdIcenabler = 0x180, kGicdIspendr = 0x200;
+volatile struct armcpu_sleep_stats armcpu_sleep_stats;
+uint32_t armcpu_sleep_last_cpu_off_rc;
 
 class ArmCpu : public IOCPU {
  OSDeclareDefaultStructors(ArmCpu)
@@ -87,6 +103,196 @@ static bool waitClear(uintptr_t base, unsigned offset, uint32_t mask)
     if (counter() - started > frequency / 10) return false;
   }
   return true;
+}
+
+static struct armcpu_sleep_board *sleepBoard(void)
+{
+  return __atomic_load_n(&gSleepBoard, __ATOMIC_ACQUIRE);
+}
+
+static int sleepIsWakeSource(const struct armcpu_sleep_board *board, uint32_t intid)
+{
+  if (board == nullptr || board->wake_spis == nullptr) return 0;
+  for (uint32_t i = 0; i < board->wake_spi_count; ++i)
+    if (board->wake_spis[i] == intid) return 1;
+  return 0;
+}
+
+static void sleepCoreOff(void)
+{
+  uint64_t value = 2; // CNTV_CTL: timer off
+  __asm__ volatile("msr cntv_ctl_el0, %0\n\tisb" :: "r"(value) : "memory");
+  value = 0;
+  __asm__ volatile("msr icc_igrpen1_el1, %0\n\tdsb sy\n\tisb" :: "r"(value) : "memory");
+  armcpu_sleep_last_cpu_off_rc = 0;
+  psci_smp_cpu_off();
+}
+
+static void sleepArmTimer(uint64_t at)
+{
+  uint64_t ctl = (at == ARMCPU_SLEEP_NEVER) ? 2 : 1;
+  __asm__ volatile("msr cntv_cval_el0, %0\n\tisb" :: "r"(at) : "memory");
+  __asm__ volatile("msr cntv_ctl_el0, %0\n\tisb" :: "r"(ctl) : "memory");
+}
+
+static uint32_t sleepIar1(void)
+{
+  uint64_t value;
+  __asm__ volatile("mrs %0, icc_iar1_el1" : "=r"(value));
+  return static_cast<uint32_t>(value & 0xffffffu);
+}
+
+static void sleepAcknowledge(uint32_t intid)
+{
+  if (intid >= 1020) return;
+  uint64_t value = intid;
+  __asm__ volatile("msr icc_eoir1_el1, %0\n\tisb" :: "r"(value) : "memory");
+}
+
+static void sleepMaskLine(uint32_t intid)
+{
+  if (gDist == 0 || intid < 32 || intid > 1019) return;
+  write32(gDist, kGicdIcenabler + 4 * (intid / 32), 1u << (intid % 32));
+  waitClear(gDist, kGicdIcenabler + 4 * (intid / 32), 0x80000000u);
+}
+
+static void sleepBootWait(void)
+{
+  __asm__ volatile("msr daifset, #15" ::: "memory");
+  armcpu_sleep_stats.entries++;
+  armcpu_sleep_stats.phase = 2;
+
+  struct armcpu_sleep_board *board = sleepBoard();
+  if (gDist == 0) {
+    armcpu_sleep_stats.unarmed++;
+    armcpu_sleep_stats.phase = 5;
+    return;
+  }
+
+  uint32_t words = ((read32(gDist, 4) & 31u) + 1u);
+  if (words > ARMCPU_SLEEP_SPI_WORDS) words = ARMCPU_SLEEP_SPI_WORDS;
+  uint32_t saved[ARMCPU_SLEEP_SPI_WORDS] = {};
+  uint32_t keep[ARMCPU_SLEEP_SPI_WORDS] = {};
+  for (uint32_t w = 1; w < words; ++w)
+    saved[w] = read32(gDist, kGicdIsenabler + 4 * w);
+  if (board != nullptr && board->wake_spis != nullptr)
+    armcpu_sleep_keep(saved, board->wake_spis, board->wake_spi_count, keep);
+
+  uint64_t started = counter();
+  uint64_t wakeAt = armcpu_sleep_deadline(started, gSleepWakeAfterS, gCounterHz);
+  if (!armcpu_sleep_armed(keep) && wakeAt == ARMCPU_SLEEP_NEVER) {
+    armcpu_sleep_stats.unarmed++;
+    armcpu_sleep_stats.phase = 5;
+    return;
+  }
+
+  uint64_t tickTicks = (board != nullptr && board->tick_s != 0)
+      ? static_cast<uint64_t>(board->tick_s) * gCounterHz : 0;
+  uint64_t tickAt = tickTicks != 0 ? started + tickTicks : ARMCPU_SLEEP_NEVER;
+
+  for (uint32_t w = 1; w < words; ++w) {
+    write32(gDist, kGicdIcenabler + 4 * w, 0xffffffffu);
+    waitClear(gDist, kGicdIcenabler + 4 * w, 0x80000000u);
+  }
+  for (uint32_t w = 1; w < words; ++w) {
+    if (keep[w] == 0) continue;
+    write32(gDist, kGicdIsenabler + 4 * w, keep[w]);
+    waitClear(gDist, kGicdIsenabler + 4 * w, 0x80000000u);
+  }
+
+  if (board != nullptr && board->prepare != nullptr) board->prepare();
+  sleepArmTimer(armcpu_sleep_next(wakeAt, tickAt));
+  uint64_t group = 1;
+  __asm__ volatile("msr icc_igrpen1_el1, %0\n\tdsb sy\n\tisb" :: "r"(group) : "memory");
+  armcpu_sleep_stats.phase = 3;
+
+  uint32_t lastIntid = ARMCPU_SLEEP_SPURIOUS;
+  uint32_t lastReason = ArmcpuWakeNone;
+  struct armcpu_sleep_storm storm = {};
+  for (;;) {
+    __asm__ volatile("wfi" ::: "memory");
+    uint32_t intid = sleepIar1();
+    if (intid >= 1020) continue;
+
+    if (intid == kVirtualTimerPpi) {
+      uint32_t pending[ARMCPU_SLEEP_SPI_WORDS] = {};
+      for (uint32_t w = 1; w < words; ++w)
+        pending[w] = read32(gDist, kGicdIspendr + 4 * w);
+      uint32_t source = armcpu_sleep_pending_source(pending, keep);
+      if (source != ARMCPU_SLEEP_SPURIOUS && sleepIsWakeSource(board, source) &&
+          board->should_wake != nullptr && board->should_wake(source)) {
+        lastIntid = source;
+        lastReason = ArmcpuWakeSource;
+        break;
+      }
+      enum armcpu_timer_event event =
+          armcpu_sleep_timer(counter(), wakeAt, &tickAt, tickTicks);
+      if (event == ArmcpuTimerWake) {
+        lastIntid = intid;
+        lastReason = ArmcpuWakeTimer;
+        break;
+      }
+      if (event == ArmcpuTimerTick) {
+        if (board != nullptr && board->tick != nullptr) board->tick();
+        armcpu_sleep_stats.ticks++;
+        sleepArmTimer(armcpu_sleep_next(wakeAt, tickAt));
+      }
+      sleepAcknowledge(intid);
+      continue;
+    }
+
+    if (sleepIsWakeSource(board, intid) && board->should_wake != nullptr &&
+        board->should_wake(intid)) {
+      lastIntid = intid;
+      lastReason = ArmcpuWakeSource;
+      break;
+    }
+    sleepAcknowledge(intid);
+    armcpu_sleep_stats.spurious++;
+    if (armcpu_sleep_storm(&storm, intid, counter(), gCounterHz / 1000)) {
+      sleepMaskLine(intid);
+      armcpu_sleep_stats.masked++;
+      lastIntid = intid;
+      lastReason = ArmcpuWakeStorm;
+      break;
+    }
+  }
+
+  armcpu_sleep_stats.phase = 4;
+  uint64_t off = 0;
+  __asm__ volatile("msr icc_igrpen1_el1, %0\n\tdsb sy\n\tisb" :: "r"(off) : "memory");
+  sleepArmTimer(ARMCPU_SLEEP_NEVER);
+  if (board != nullptr && board->restore != nullptr) board->restore();
+  for (uint32_t w = 1; w < words; ++w) {
+    write32(gDist, kGicdIcenabler + 4 * w, 0xffffffffu);
+    waitClear(gDist, kGicdIcenabler + 4 * w, 0x80000000u);
+  }
+  for (uint32_t w = 1; w < words; ++w) {
+    if (saved[w] == 0) continue;
+    write32(gDist, kGicdIsenabler + 4 * w, saved[w]);
+    waitClear(gDist, kGicdIsenabler + 4 * w, 0x80000000u);
+  }
+  armcpu_sleep_stats.last_intid = lastIntid;
+  armcpu_sleep_stats.last_reason = lastReason;
+  armcpu_sleep_stats.asleep_ticks = counter() - started;
+  armcpu_sleep_stats.phase = 5;
+}
+
+static void armcpuPlatformSleep(boolean_t bootCpu)
+{
+  if (!bootCpu) sleepCoreOff();
+  armcpu_sleep_stats.phase = 1;
+  sleepBootWait();
+}
+
+extern "C" int armcpu_sleep_register(const struct armcpu_sleep_board *board)
+{
+  if (board == nullptr) return KERN_INVALID_ARGUMENT;
+  /* The only board caller runs from IOKitBSDInit, before ArmCpu parses
+   * platform-sleep. Keep the record and report the hook state instead of
+   * dropping the board and having no way to register it later. */
+  __atomic_store_n(&gSleepBoard, const_cast<struct armcpu_sleep_board *>(board), __ATOMIC_RELEASE);
+  return gSleepEnabled ? KERN_SUCCESS : KERN_NOT_SUPPORTED;
 }
 
 bool ArmCpu::mapGic(void)
@@ -245,6 +451,18 @@ bool ArmCpu::prepareGic(void)
   IOLog("ArmCpu: wake boot redistributor\n");
   if (!wakeRedistributor(true)) { IOLog("ArmCpu: boot redistributor not ready\n"); return false; }
   gDist=dist;gBootAffinity=affinity&0xff00ffffffULL;
+  uint64_t frequency = 0;
+  __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(frequency));
+  gCounterHz = frequency;
+  uint32_t platformSleep = 0, wakeAfter = 0;
+  PE_parse_boot_argn("platform-sleep", &platformSleep, sizeof(platformSleep));
+  PE_parse_boot_argn("platform-sleep-wake-after", &wakeAfter, sizeof(wakeAfter));
+  gSleepWakeAfterS = wakeAfter;
+  if (platformSleep == 1 && &arm64_platform_sleep_hook != nullptr) {
+    gSleepEnabled = true;
+    arm64_platform_sleep_hook = &armcpuPlatformSleep;
+    IOLog("ArmCpu: platform sleep enabled wake-after=%u s\n", wakeAfter);
+  }
   return true;
 }
 
@@ -477,6 +695,10 @@ void ArmCpu::enableCPUTimeBase(bool enabled)
 
 void ArmCpu::quiesceCPU(void)
 {
+  if (gSleepEnabled && ml_is_quiescing() && &ml_arm_sleep != nullptr) {
+    // Boot core: waits in armcpuPlatformSleep; others: PSCI CPU_OFF inside.
+    ml_arm_sleep();
+  }
   enableCPUTimeBase(false);
   uint64_t value = 0;
   __asm__ volatile("msr icc_igrpen1_el1, %0\n\tdsb sy\n\tisb" :: "r"(value) : "memory");

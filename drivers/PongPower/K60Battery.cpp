@@ -510,11 +510,15 @@ void K60Battery::free()
  * neither the ADSP lease nor the battery configuration below. */
 extern "C" void k60_cpufreq_probe(void);
 extern "C" void k60_cpufreq_probe_late(void);
+extern "C" void k60_platform_sleep_register(void);
 
 extern "C" void k60_physical_battery_start(void)
 {
     static unsigned attempted;
     k60_cpufreq_probe();
+    /* The sleep hook records its board before ArmCpu parses platform-sleep;
+     * it needs neither the ADSP lease nor the battery configuration. */
+    k60_platform_sleep_register();
     unsigned enabled = 1;
     PE_parse_boot_argn("k60_battery", &enabled, sizeof(enabled));
     if (!enabled || __atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;

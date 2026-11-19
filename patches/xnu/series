@@ -226,3 +226,4 @@ zzy-native-gpu-addon-mount.patch
 0620-k60-adsp-blob.patch
 0621-k60-io-submap-budget.patch
 0622-k60-touch-activity.patch
+0623-k60-platform-sleep.patch

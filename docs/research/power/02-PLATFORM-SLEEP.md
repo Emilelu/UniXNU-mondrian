@@ -221,12 +221,25 @@ w10 什么都不打印、系统硬挂、用户手动复位。靠“这一轮有�
 - REPORT 已过、WAKE 未过、`stopReason` 是 budget/timeout → **w10 硬挂**：唤醒源已经
   起作用，问题在唤醒之后（不是“没有唤醒源”）。
 
-真实 console 复核（2026-11-20）：w8 → FAIL HALT（`the halt loop never reported
-completion`，console 停在 halt cpu 6）；w9 → FAIL，诊断为 resume panic；w10 → FAIL，
-诊断为 w10 硬挂。三者都是“看起来在推进”，判据把它们分开了。测试
-`scripts/tests/test-judge-k60-sleep-console.py` 26 项（含上述三份真实 console 与
-wake-after=0、halt 乱序、重复 halt、phase 错、spurious>0、BOM capture 等合成用例），
-Windows 宿主与 WSL 都是 26/26。
+把十一张镜像的 console 全部跑一遍，判据给出的第一条断链比人工叙述更清楚：
+
+| 镜像 | 判据结论 |
+|---|---|
+| z、w-press | INVALID：这两次根本没开 `platform-sleep`（z 是默认参数到 SpringBoard 的对照） |
+| w | ENABLE：开了睡眠但没有武装诊断触发 |
+| w2、w3、w4、w5 | ENTER：开了也武装了，但从未进入 `IOCPUSleepKernel` |
+| w7、w8 | HALT：halt 循环没有跑完（w8 的 console 停在 `halt cpu 6`） |
+| w9 | FAIL，诊断为 resume panic（`Spurious wakeup of cpu 1 @IOCPU.cpp:334`） |
+| w10 | FAIL，诊断为唤醒后硬挂（report 打完了，`wake cpus done` 永远没来） |
+
+判读器本身也踩过一个“过度分类”的坑：第一版只要 `stopReason=budget` 且没有
+`wake cpus done` 就报“w10 硬挂”，于是 w2 这种**连 ENTER 都没到**的 console 也被
+说成“唤醒后硬挂”。现在该诊断要求两份 report 都已出现，否则按第一条断链报；
+回归用例 `budget cut before enter` 钉住这一点。
+
+测试 `scripts/tests/test-judge-k60-sleep-console.py` 28 项（含上述真实 console 与
+wake-after=0、halt 乱序、重复 halt、phase 错、spurious>0、BOM capture、
+budget 截断等合成用例），Windows 宿主与 WSL 都是 28/28。
 
 ## 10. 参考
 

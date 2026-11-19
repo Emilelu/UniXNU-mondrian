@@ -1,0 +1,32 @@
+# Data volume (/private/var seed) comparison, iPadOS 16.6.1 vs iOS 16.6.1, generated 2026-11-14T21:03:56+08:00
+# source: 7z l -ba -slt of /opt/k60/osroot/os.raw (iPad) and /opt/k60/ios/096-56967-082.dmg (iPhone)
+
+## private/var top level
+iPad entries: 28   iOS entries: 28
+-- only in iPadOS:
+-- only in iOS:
+
+## private/var/mobile/Library
+-- only in iPadOS:
+-- only in iOS:
+
+## paths that a first boot creates (absent from BOTH system volumes)
+private/var/mobile/Library/SMS                                         iPad=0 iOS=0
+private/var/mobile/Library/CallHistory                                 iPad=0 iOS=0
+private/var/mobile/Library/Logs/CallHistory                            iPad=0 iOS=0
+private/var/mobile/Library/Preferences/com.apple.mobilephone.plist     iPad=0 iOS=0
+
+## private/var/wireless and other seed anchors
+private/var/wireless                                 iPad=1 iOS=1
+private/var/wireless/baseband_data                   iPad=1 iOS=1
+private/var/wireless/Library                         iPad=1 iOS=1
+private/var/msgs                                     iPad=1 iOS=1
+private/var/msgs/bounds                              iPad=1 iOS=1
+private/var/protected/trustd                         iPad=1 iOS=1
+private/var/Keychains                                iPad=1 iOS=1
+private/var/MobileDevice/ProvisioningProfiles        iPad=1 iOS=1
+
+## volume metadata
+iPad  OS: SydneyG20G81.J120J121J207J208OS.apfs uuid c5daf029-2070-4f68-b3cc-1d1320344cf0 files 133773 dirs 111127
+iOS   OS: SydneyG20G81.N104OS.apfs            uuid dbff1cb9-4016-4cd8-88f5-f6b13f3c1080 files 139897 dirs 135924
+board.toml root_match_volume_uuid = C5DAF029-2070-4F68-B3CC-1D1320344CF0 (the iPad volume)

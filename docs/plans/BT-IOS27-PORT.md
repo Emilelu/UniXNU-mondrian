@@ -413,6 +413,38 @@ sets `CONFIG_XNU_OWNER_DATA_MOUNT=y` (`configs/mondrian_defconfig:43`), and
 0526/0527 are not in that series; they exist for the 27 line, waiting for the
 gate to open.
 
+### 5.8 The launchd job the runtime ships
+
+The mount in 5.7 is only half of the fix; the other half is what the mounted
+`launchd.plist` contains. Stock 24A446 runs `com.apple.BlueTool` as `mobile`
+(`UserName`, `EnablePressuredExit: true`, `ThrottleInterval: 0`), and a job in
+that session cannot write `kern.qbt_power_on`, so the adapter answers `EPERM`
+and BlueTool waits for a device it will never be allowed to open. That is the
+`Device not open yet` line in the bt-0525 console, repeated until the watchdog
+kills it.
+
+The userspace stager reports the change it wants:
+
+```json
+{"com.apple.BlueTool": {"UserName": "root", "EnableTransactions": true,
+                        "EnablePressuredExit": false, "ThrottleInterval": 3}}
+```
+
+and the framework's `merge_launchd_cache()` applies exactly those four fields to
+the one job whose `Label` matches, leaving `ProgramArguments`, `MachServices`
+and every other job untouched; `sign_launchd_cache()` then signs the result.
+`scripts/check-bluetooth-launchd.py` checks that chain: structurally, that the
+report asks for root and pressured-exit-off and uses only supported fields; and,
+given the OS cache plus a framework checkout, by running the real merge and
+proving that one job changed and nothing else did. Ten cases in
+`scripts/tests/test-bt-launchd-cache.py` cover a missing override, a `mobile`
+override, a string `ThrottleInterval`, a bool given as an int, a cache without
+the job, and a merge that has no framework to run.
+
+The checker is textual plus a pure-python merge: it proves the report and the
+merge function agree, not that launchd read the file. That last step needs the
+Data mount open (5.7), which is why the two sections sit together.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

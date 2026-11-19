@@ -815,6 +815,10 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       const uint64_t sampled_ns=scan_clock_ns();
       if (!nw_wifi_bss_get(i, &b) && !memcmp(b.bssid, st.bssid, 6)) {
         fill_result(out.res, b,sampled_ns,rq.req_len);
+        // The scan record is a snapshot; the daemon's current-network answer is what the bars follow,
+        // so answer with the live peer signal the station refreshes instead of the sweep's value.
+        out.res.rssi = st.signal_dbm;
+        out.res.snr = st.signal_dbm > -95 && st.signal_dbm < 0 ? st.signal_dbm + 95 : 0;
         return copy_out(rq, &out.res, sizeof(out.res), kernel);
       }
     }
@@ -823,6 +827,8 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     memset(&b, 0, sizeof b); memcpy(b.bssid, st.bssid, 6); b.ssid_len = st.ssid_len; memcpy(b.ssid, st.ssid, 32); b.freq_mhz = st.freq_mhz; b.signal_dbm = st.signal_dbm;
     b.caps = static_cast<uint16_t>(0x0001 | (gKeyed ? 0x0010 : 0)); b.beacon_int = 100;
     fill_result(out.res, b, scan_clock_ns(), rq.req_len);
+    out.res.rssi = st.signal_dbm;
+    out.res.snr = st.signal_dbm > -95 && st.signal_dbm < 0 ? st.signal_dbm + 95 : 0;
     return copy_out(rq, &out.res, sizeof(out.res), kernel); }
   default: log_unhandled(false, type, rq, kernel); return EOPNOTSUPP;
   }

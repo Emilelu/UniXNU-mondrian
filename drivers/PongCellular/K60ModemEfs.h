@@ -70,4 +70,12 @@ int k60_efs_serve_read(const K60RmtfsRequest *request, K60EfsRead read,
     void *context, uint8_t *image, size_t image_bytes, uint8_t *window,
     size_t window_bytes, uint64_t window_base);
 
+/* Serves the write direction into a boot-session shadow: the bytes land in
+ * 'image' and nothing reaches the flash. Pong does the same (a write only ever
+ * reaches the shadow), so a modem write is acknowledged without a UFS writer.
+ * Returns 0 when the image now holds the bytes, -1 otherwise. */
+int k60_efs_serve_write(const K60RmtfsRequest *request, uint8_t *image,
+    size_t image_bytes, const uint8_t *window, size_t window_bytes,
+    uint64_t window_base);
+
 #endif /* K60_MODEM_RMTFS_EFS */

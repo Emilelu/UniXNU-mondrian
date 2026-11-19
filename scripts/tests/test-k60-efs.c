@@ -262,6 +262,57 @@ test_serve_read(void)
 	    window, sizeof window, window_base) == -1, "a NULL reader is refused");
 }
 
+static void
+test_serve_write(void)
+{
+	K60RmtfsRequest request;
+	uint8_t image[0x4000];
+	uint8_t window[0x800];
+	const uint64_t window_base = 0xaf000000ull;
+
+	memset(image, 0, sizeof image);
+	memset(window, 0x5a, sizeof window);
+	memset(&request, 0, sizeof request);
+	request.message = K60_RMTFS_RW;
+	request.storage = 2;
+	request.direction = 1;
+	request.vectors = 1;
+	request.table[0].block_offset = 0x1e;
+	request.table[0].physical = (uint32_t)(window_base + 0x80);
+	request.table[0].block_length = 1;
+
+	check(k60_efs_serve_write(&request, image, sizeof image, window,
+	    sizeof window, window_base) == 0, "a shadow write is accepted");
+	check(image[0x3c00] == 0x5a && image[0x3c00 + 0x1ff] == 0x5a,
+	    "the written blocks land in the image");
+	check(image[0x3c00 - 1] == 0x00, "nothing outside the span changes");
+
+	request.direction = 0;
+	check(k60_efs_serve_write(&request, image, sizeof image, window,
+	    sizeof window, window_base) == -1,
+	    "the read direction does not reach the writer");
+	request.direction = 1;
+
+	request.storage = 0;
+	check(k60_efs_serve_write(&request, image, sizeof image, window,
+	    sizeof window, window_base) == -1, "storage zero is refused");
+	request.storage = 3;
+
+	request.table[0].block_offset = 0x20;
+	check(k60_efs_serve_write(&request, image, sizeof image, window,
+	    sizeof window, window_base) == -1,
+	    "a span past the image is refused");
+	request.table[0].block_offset = 0x1e;
+
+	request.table[0].block_length = 0;
+	check(k60_efs_serve_write(&request, image, sizeof image, window,
+	    sizeof window, window_base) == -1, "a zero-length span is refused");
+	request.table[0].block_length = 1;
+
+	check(k60_efs_serve_write(&request, image, sizeof image, NULL,
+	    sizeof window, window_base) == -1, "a NULL window is refused");
+}
+
 static uint32_t
 mix(uint32_t *state)
 {
@@ -338,11 +389,12 @@ main(void)
 	test_plan();
 	test_copy();
 	test_serve_read();
+	test_serve_write();
 	test_sweep();
 	if (failures != 0) {
 		printf("K60 EFS FAIL %d checks\n", failures);
 		return 1;
 	}
-	printf("K60 EFS PASS table, gpt names, scatter plan, copies, serve, sweep, refusals\n");
+	printf("K60 EFS PASS table, gpt names, scatter plan, copies, serve, shadow, sweep, refusals\n");
 	return 0;
 }

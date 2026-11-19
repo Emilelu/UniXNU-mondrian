@@ -21,7 +21,7 @@
 表里第一个函数**在宿主上真的跑过**：`sh scripts/tests/portability/run-probe.sh` 把零页当 MMIO 调用
 `pong_audio_amp_probe()`——`pong_audio_probe` 缺席时它返回 0 且一行不打印，传入 1 时打印
 `amp probe start` 并在第一个缺失的硬件答案处停下（零页 ⇒ `amp probe stop: GPLL0 not locked`），
-ASan/UBSan 无报错。⇒ 入口自门控、每条失败路径都有名字，27 上找不到日志时先怀疑门控与 `PONG`，
+ASan/UBSan 无报错。⇒ 入口自门控、每条失败路径都有名字，27 上找不到日志时先怀疑驱动宏 `XNU_PONG_AUDIO` 与门控，
 而不是怀疑函数没被调到。
 
 这张表不是推断：`scripts/tests/portability/run.sh` 用只声明这六个符号与三个类型
@@ -30,19 +30,38 @@ ASan/UBSan 无报错。⇒ 入口自门控、每条失败路径都有名字，27
 `dsb sy`，x86 宿主汇编器不认它，而解析、类型检查与 `-Werror` 警告照跑。
 桩的大小就是 27 树必须提供的内核面的**上界**——少一个符号，这个脚本就红。
 
-### 第零道闸：机配置 `PONG`
+### 第零道闸：驱动宏 `XNU_PONG_AUDIO`
 
-`PongAudioAmp.c` 与全部胶水都在 `#if defined(PONG)` 里（`PongAudioAmp.c:55-56`）。`PONG` 不是 XNU
-自带的机配置：16 系列靠 `patches/xnu/zzzz-pong-machine.patch` 新增 `pexpert/pexpert/arm64/PONG.h`，
-把 `SUPPORTED_ARM64_MACHINE_CONFIGS` 从 `BCM2837 T6000 T8101 T8103 VMAPPLE` 扩到含 `PONG`
-（补丁 :105-108），构建脚本再传 `MACHINE_CONFIGS=PONG`（`build-xnu-4k-baseline.sh:248`、
-`build-darwin24-linux.sh:97/117`）。
+`PongAudioAmp.c` 的整个函数体在一个 `#if` 里：`#if defined(PONG) || defined(XNU_PONG_AUDIO)`
+（`PongAudioAmp.c:62`，带 7 行注释说明两种来路）。两个宏是**同一份实现的两个开关**，不是两条路径：
 
-⇒ 27 树如果没有这份机配置补丁，音频文件会**静默编空**：979 例 host 测试照样全绿，内核里一行
-`PongAudio:` 都没有。所以 27 的第一件事不是搬音频，而是让构建接受 `PONG`——bt 已报 main CI
-在 `MakeInc.kernel:22` 报 `Unsupported CURRENT_MACHINE_CONFIG PONG`、`pexpert/pexpert/arm64` 里
-没有 `PONG.h`。判读顺序也就定了：真机上没有 `amp probe start` 时，先查 `PONG` 与
-`MACHINE_CONFIGS`，不要先去怀疑 I2C。
+- 16.x 用 `PONG`，它是**机配置**：`patches/xnu/zzzz-pong-machine.patch` 新增
+  `pexpert/pexpert/arm64/PONG.h`，把 `SUPPORTED_ARM64_MACHINE_CONFIGS` 从
+  `BCM2837 T6000 T8101 T8103 VMAPPLE` 扩到含 `PONG`（补丁 :105-108），构建脚本再传
+  `MACHINE_CONFIGS=PONG`（`build-xnu-4k-baseline.sh:248`、`build-darwin24-linux.sh:97/117`）。
+- 27 不引入 `PONG`。机配置决定 `arm_init`、platform expert 与中断控制器接线；bring-up 阶段
+  另造一份机配置等于同时动两个未知量。音频改用**驱动级宏** `XNU_PONG_AUDIO`，由 board/config
+  打开，与机配置解耦，27 基线继续 `BCM2837`。
+
+宏没打开会怎样：文件仍然编译通过，只是编成**空翻译单元**——「静默编空」。979 例 host 测试照旧
+全绿，内核里一行 `PongAudio:` 都没有。所以验证不看日志，看符号表：
+
+```sh
+sh scripts/tests/portability/run-symbols.sh
+# SYMBOLS OK off=0 XNU_PONG_AUDIO=3 PONG=3
+```
+
+它用真实代码生成编译这个文件（`cc -c`；为此 sed 掉唯一那条 `__asm__ volatile("dsb sy" ::: "memory");`
+——`PongAudioAmp.c:98`，x86 宿主汇编器不认），再用 `nm -g --defined-only` 数导出符号：
+
+| 编译开关 | 导出符号 | 含义 |
+| --- | --- | --- |
+| 无 | 0 | 宏没开 ⇒ 内核里没有音频胶水，正是要防的静默编空 |
+| `-DXNU_PONG_AUDIO` | 3（含 `T pong_audio_amp_probe`） | 27 线打开 |
+| `-DPONG` | 3 | 16 线打开，与上一行等价 |
+
+这条同时是反向用例：若有人把 `#if` 写坏、让代码漏到宏外面，`off` 就不再是 0，门禁立刻红。
+`scripts/check-audio27-preflight.sh` 把它列为独立一行（`ok   driver macro really switches it`）。
 
 ## 2. 谁调用、哪一行证明它被调过
 

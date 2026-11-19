@@ -34,15 +34,22 @@ audio 线只搬「与 OS 无关」的东西：
 
 搬的时候只换接线（谁在什么时候调用 `pong_audio_amp_probe()` / `pong_audio_amp_play()`），不动实现。
 
+## 1b. 只为 host 测试随行
+
+| 文件 | 行 | 说明 |
+| --- | --- | --- |
+| `PongAudioAfe.h` | 705 | AFE/TDM 参数表。本机固件里没有 AFE 服务（25 个 blob 对齐扫描零命中，v1/v2 封装都被 status=2 拒），所以**内核接线不许调用它**；但 `tests/test-pong-audio-geni-i2c.c:30` include 了它、979 个用例覆盖它的编码器，测试搬过去就必须带上它 |
+
 ## 3. 不搬
 
 | 对象 | 为什么不搬 |
 | --- | --- |
-| `PongAudioAfe.h`（705 行） | AFE/TDM 参数表：本机固件里没有 AFE 服务（25 个 blob 对齐扫描零命中），v1/v2 封装都被 status=2 拒 |
 | `patches/xnu/0504-k60-audio-pong-audio.patch` | AudioReach 图 + GPR 编解码 + 端点选择，绑 iOS 16 树的文件位置与 `bsd/conf` 接线 |
 | `patches/audio/0003-k60-audio-afe-selftest.patch` | 自检/探针脚本，依赖 0504 的结构 |
 | `firmware/adsp`（adsp.b00..b25） | 固件 blob，按目标版本另配 |
 | `PongAudio.driver` HAL bundle | HAL 层冻结，按 sheng 在 27 重接 |
+
+AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
 
 ## 4. 迁移步骤与判据
 
@@ -53,15 +60,21 @@ audio 线只搬「与 OS 无关」的东西：
    期望 `OK: the migration list matches the driver directory`。
 2. 在 27 树新建 `drivers/PongAudio`，只拷第 1、2 节的文件（清单就是那条命令守的东西）。
 3. 跑 `drivers/PongAudio/tests/run-tests.sh`，期望 `TESTS OK 979 cases`。
-4. 跑 `drivers/PongAudio/tests/run-glink-multislot-tests.sh`，期望 `TESTS OK 800 cases`。
+4. 可选：等 power 线把 `drivers/PongPower/QcomGlink.c` 与 `K60AudioGlink.c` 迁到 27 树之后，
+   再跑 `drivers/PongAudio/tests/run-glink-multislot-tests.sh`（期望 `TESTS OK 800 cases`）。
+   这套件编的是 PongPower 的传输源，不随本清单走。
 5. 在 27 树加一个编译单元与一个初始化调用点（不进 `patches/xnu/0504`）。
-6. 判据：两套 host 测试全绿、内核编译 0 错、工作树不碰 main。
+6. 判据：`run-tests.sh` 与 `scripts/tests/test-judge-audio-capture.py` 全绿、内核编译 0 错、工作树不碰 main。
 
 ## 5. 现状
 
 2026-11-20 02:03 在本仓实测：`run-tests.sh` = `TESTS OK 979 cases`，
 `run-glink-multislot-tests.sh` = `TESTS OK 800 cases`（本轮修了 4 处 bz 遗留断言：
 PRM 时钟 12.288 MHz → 3.072 MHz 两处、group/port bit width 32 → 16 两处）。
+
+`run-glink-multislot-tests.sh` 不属于本清单：它编译 `drivers/PongPower/QcomGlink.c` 与
+`K60AudioGlink.c`，那是 power 线的传输源，音频分支带上它就会跨线复制。所以 27 树里它要等
+power 搬完之后才可跑；音频侧自己的门禁是 `run-tests.sh` 与 `scripts/tests/test-judge-audio-capture.py`。
 
 同一时间做了可搬性的独立验证：把第 1 节的 18 个文件（5 个 .c 模块
 —— `PongAudioGeniI2c` / `PongCodecLpi` / `PongCodecMacro` / `PongCodecProbe` / `PongCodecSwr`

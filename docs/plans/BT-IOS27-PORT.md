@@ -347,6 +347,42 @@ text `libxpc.tbd` stub, because it ships no `-lxpc` library either; and
 links a real `LC_LOAD_DYLIB /usr/lib/libxpc.dylib` instead of leaving the XPC
 symbols unresolved. A full Xcode install needs none of them.
 
+### 6.2 What bluetoothd actually looks for
+
+`marconi-trace` disassembled the 20G81 daemon (file offset = vmaddr −
+0x100000000) to settle why the console shows, in this order:
+
+```
+could not find BT_DEVICE_ADDRESS env variable      main 0x1000268c4 (getenv, needs 17 chars)
+marconi-bt: Unable to match bluetooth service ...  main 0x1000269cc -> helper 0x100027940
+marconi-bt: Not a valid MAC address (all 00s).     helper 0x100027b78 (6-byte global at 0x100847070)
+bluetooth: Got local-mac-address: ee:98:c5:8a:6b:4e  main 0x1000269dc, same helper
+```
+
+The helper matches by **name only**: `IOServiceNameMatching(name)` builds
+`{IONameMatch: name}`, `IOServiceGetMatchingService(kIOMainPortDefault, ...)`
+resolves it, then `IORegistryEntrySearchCFProperty(service, "IODeviceTree",
+CFSTR "local-mac-address", kCFAllocatorDefault, kIORegistryIterateRecursively)`
+reads 6 bytes of `CFData`. Two calls are made: `marconi-bt` first, `bluetooth`
+second. The first fails and prints both errors with the `marconi-bt` prefix; the
+second succeeds on the node this branch publishes and `setenv`s
+`BT_DEVICE_ADDRESS`.
+
+Consequences, which correct the earlier reading of that console:
+
+- **The MAC is already sourced.** The two `marconi-bt` lines are the *first*
+  lookup failing, not a verdict on the address. The `bluetooth` node carries
+  `local-mac-address` and the daemon reads it.
+- **A `marconi-bt` alias would only silence a log line.** Nothing downstream
+  depends on that name: the address comes from the second lookup either way, and
+  `kIORegistryIterateRecursively` would find the property on an ancestor anyway.
+  Adding the alias therefore changes no behaviour and is not worth a patch.
+- The remaining daemon-side gate is elsewhere: `UniXNU-pong/userland/board_services18.py:84-89`
+  limits `com.apple.bluetoothd` with `_LimitLoadToDeviceTree = ['bluetooth', 'marconi-bt']`
+  and states *"requires a real Pong Bluetooth transport; none implemented"*. That
+  is a userland-generator decision, not a device-tree fact, and this branch does
+  not inherit it.
+
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and

@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1227 @@ int pong_audio_status(void);
+@@ -898,6 +933,1229 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -196,14 +196,23 @@
 +static const uint32_t g_pong_scm_hlos_first[3] = { PONG_VMID_HLOS,
 +	PONG_VMID_LPASS, PONG_VMID_ADSP_HEAP };
 +
-+/* The monitor rejects a destination list that leaves the owner out or that
-+ * lists the VMs out of order: the EVA audio-lesson client assigns
-+ * {HLOS, CDSP_Q6} with RWX perms on this very platform (msm_cvp_dsp.c:145).
-+ * Every variant below is a legal framing question, so try them in order and
-+ * keep the first answer the monitor accepts. */
++/* The monitor refuses a destination list that contains HLOS next to the audio
++ * VMs: image bi tried five framings (HLOS first with read/write, with read/
++ * write/execute and with the audio VMs in read/write/execute; HLOS plus one
++ * audio VM) and every one came back rc=-2 with x1=0x56, while the list that
++ * leaves HLOS out was accepted. That accepted form is the one image bg proved
++ * the DSP can read, but it also takes the page away from the kernel, which then
++ * faults on the first store into the period.
++ *
++ * So ownership travels with the period instead of staying put: the slot is lent
++ * to LPASS and ADSP_HEAP just before its write command, and taken back to HLOS
++ * when the write-done answer arrives. One slot is in flight at a time, so the
++ * page being copied into is always one HLOS still owns. */
++
 +static int
-+pong_audio_scm_try(uint64_t pa, uint64_t bytes, const uint32_t *vmids,
-+    const uint32_t *perms, unsigned count, const char *label)
++pong_audio_scm_transfer(uint64_t pa, uint64_t bytes, const uint32_t *src_vmids,
++    unsigned src_count, const uint32_t *dst_vmids, const uint32_t *dst_perms,
++    unsigned dst_count, const char *label)
 +{
 +	struct pong_scm_mem_info *mem =
 +	    (struct pong_scm_mem_info *)(void *)g_pong_scm_page;
@@ -212,79 +221,57 @@
 +	    (struct pong_scm_perm_info *)(void *)(g_pong_scm_page + 0x080);
 +	uint64_t *ext = (uint64_t *)(void *)(g_pong_scm_page + 0x100);
 +	const uint64_t base = kvtophys((vm_offset_t)(uintptr_t)g_pong_scm_page);
-+	uint64_t x0 = 0;
-+	uint64_t x1 = 0;
++	uint64_t x0 = 0, x1 = 0;
 +	unsigned i;
 +	int rc;
 +
++	if (base == 0) {
++		printf("PongAudio: SCM %s skipped: page not mapped\n", label);
++		return -1;
++	}
 +	memset(g_pong_scm_page, 0, sizeof(g_pong_scm_page));
 +	mem->addr = pa;
 +	mem->size = bytes;
-+	src[0] = PONG_VMID_HLOS;
-+	for (i = 0; i < count; i++) {
-+		dst[i].vmid = vmids[i];
-+		dst[i].perm = perms[i];
++	for (i = 0; i < src_count; i++) {
++		src[i] = src_vmids[i];
 +	}
-+	ext[0] = 4u;
++	for (i = 0; i < dst_count; i++) {
++		dst[i].vmid = dst_vmids[i];
++		dst[i].perm = dst_perms[i];
++	}
++	ext[0] = (uint64_t)src_count * 4u;
 +	ext[1] = base + 0x080u;
-+	ext[2] = (uint64_t)count * sizeof(*dst);
++	ext[2] = (uint64_t)dst_count * sizeof(*dst);
 +	flush_dcache64((uint64_t)(uintptr_t)g_pong_scm_page,
 +	    sizeof(g_pong_scm_page), 0);
 +	rc = pong_audio_scm_call5(PONG_SCM_ASSIGN_FNID, PONG_SCM_ASSIGN_ARGS,
 +	    base, 16u, base + 0x040u, base + 0x100u, &x0, &x1);
-+	printf("PongAudio: SCM assign %s pa=0x%llx bytes=0x%llx rc=%d x0=0x%llx x1=0x%llx\n",
++	printf("PongAudio: SCM %s pa=0x%llx bytes=0x%llx rc=%d x0=0x%llx x1=0x%llx\n",
 +	    label, (unsigned long long)pa, (unsigned long long)bytes, rc,
 +	    (unsigned long long)x0, (unsigned long long)x1);
 +	return rc;
 +}
 +
 +static int
-+pong_audio_scm_assign(uint64_t pa, uint64_t bytes)
++pong_audio_scm_lend(uint64_t pa, uint64_t bytes)
 +{
-+	static const uint32_t two_lp[2] = { PONG_VMID_HLOS, PONG_VMID_LPASS };
-+	static const uint32_t two_heap[2] = { PONG_VMID_HLOS,
-+	    PONG_VMID_ADSP_HEAP };
-+	static const uint32_t dsp_only[2] = { PONG_VMID_LPASS,
-+	    PONG_VMID_ADSP_HEAP };
-+	static const uint32_t rwx_all[3] = { 7u, 7u, 7u };
-+	static const uint32_t rw_all[3] = { 6u, 6u, 6u };
-+	static const uint32_t rwx_rw[3] = { 7u, 6u, 6u };
-+	const uint64_t base = kvtophys((vm_offset_t)(uintptr_t)g_pong_scm_page);
-+	int rc;
++	static const uint32_t src[1] = { PONG_VMID_HLOS };
++	static const uint32_t dst[2] = { PONG_VMID_LPASS, PONG_VMID_ADSP_HEAP };
++	static const uint32_t perms[2] = { PONG_SCM_PERM_RW, PONG_SCM_PERM_RW };
 +
-+	if (base == 0) {
-+		printf("PongAudio: SCM assign skipped: page not mapped\n");
-+		return -1;
-+	}
-+	rc = pong_audio_scm_try(pa, bytes, g_pong_scm_hlos_first, rwx_rw, 3u,
-+	    "hlos-first rw");
-+	if (rc == 0) {
-+		return 0;
-+	}
-+	rc = pong_audio_scm_try(pa, bytes, g_pong_scm_hlos_first, rwx_all, 3u,
-+	    "hlos-first rwx");
-+	if (rc == 0) {
-+		return 0;
-+	}
-+	rc = pong_audio_scm_try(pa, bytes, g_pong_scm_hlos_first, rw_all, 3u,
-+	    "hlos-first rw-all");
-+	if (rc == 0) {
-+		return 0;
-+	}
-+	rc = pong_audio_scm_try(pa, bytes, two_lp, rwx_rw, 2u, "hlos+lpass");
-+	if (rc == 0) {
-+		return 0;
-+	}
-+	rc = pong_audio_scm_try(pa, bytes, two_heap, rwx_rw, 2u, "hlos+heap");
-+	if (rc == 0) {
-+		return 0;
-+	}
-+	/* Last resort: the form that moves the page out of HLOS. It answered
-+	 * the DSP, so the audio VMs do get the page, but the kernel then
-+	 * cannot fill the periods (external abort at the first copy). */
-+	rc = pong_audio_scm_try(pa, bytes, dsp_only, rw_all, 2u,
-+	    "lpass+heap (HLOS loses the page)");
-+	return rc;
++	return pong_audio_scm_transfer(pa, bytes, src, 1u, dst, perms, 2u,
++	    "lend");
++}
++
++static int
++pong_audio_scm_reclaim(uint64_t pa, uint64_t bytes)
++{
++	static const uint32_t src[2] = { PONG_VMID_LPASS, PONG_VMID_ADSP_HEAP };
++	static const uint32_t dst[1] = { PONG_VMID_HLOS };
++	static const uint32_t perms[1] = { 7u };
++
++	return pong_audio_scm_transfer(pa, bytes, src, 2u, dst, perms, 1u,
++	    "reclaim");
 +}
 +
 +static void
@@ -525,6 +512,12 @@
 +	if (state->playback_frames == 0u) {
 +		printf("PongAudio: PCM slot %u copy done\n", slot);
 +	}
++	if (pong_audio_scm_lend(state->dma_pa +
++	    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES,
++	    PONG_PLAY_PERIOD_BYTES) != 0) {
++		printf("PongAudio: PCM slot %u lend refused\n", slot);
++		return false;
++	}
 +	printf("PongAudio: PCM slot %u send begin bytes=%u\n", slot, bytes);
 +	const int rc = k60_pmic_glink_send_audio(packet, bytes);
 +	if (rc != K60_PMIC_GLINK_AUDIO_OK) {
@@ -557,6 +550,10 @@
 +
 +	if (bytes == 0u) {
 +		printf("PongAudio: PCM zero-byte probe encode failed\n");
++		return;
++	}
++	if (pong_audio_scm_lend(state->dma_pa, PONG_PLAY_PERIOD_BYTES) != 0) {
++		printf("PongAudio: PCM zero-byte probe lend refused\n");
 +		return;
 +	}
 +	printf("PongAudio: PCM zero-byte probe send bytes=%u address=0x%llx\n",
@@ -730,6 +727,11 @@
 +			printf("PongAudio: PCM write done for an unknown slot address=0x%llx\n",
 +			    (unsigned long long)answer->address);
 +			return true;
++		}
++		if (pong_audio_scm_reclaim(state->dma_pa +
++		    (uint64_t)slot * PONG_PLAY_PERIOD_BYTES,
++		    PONG_PLAY_PERIOD_BYTES) != 0) {
++			printf("PongAudio: PCM slot %u reclaim failed\n", slot);
 +		}
 +		state->slot_busy[slot] = false;
 +		state->slot_token[slot] = 0;
@@ -1277,7 +1279,7 @@
  static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
-@@ -936,6 +2120,37 @@ pong_audio_start(void)
+@@ -936,6 +2120,36 @@ pong_audio_start(void)
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -1286,8 +1288,7 @@
 +		g_pong_audio.refusal_printed = true;
 +		return -1;
 +	}
-+	(void)pong_audio_scm_assign(g_pong_audio.dma_pa,
-+	    PONG_AUDIO_DMA_BYTES);
++	printf("PongAudio: PCM slots stay HLOS-owned; each write lends its slot\n");
 +	pong_audio_ring_reset();
 +	unsigned int group_probe = 0;
 +	g_pong_audio.afe_group_probe = PE_parse_boot_argn("pong_audio_group_probe",

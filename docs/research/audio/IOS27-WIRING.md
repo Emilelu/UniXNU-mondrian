@@ -76,6 +76,44 @@ python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3
 `bsd/dev/PongAudioRegs.h` 这个我们自己写的声明，检查就变成自证。剩下的风险只有
 `k60_pmic_glink_send_audio`（power 线）与 `printf`/`NSEC_PER_USEC` 这类稳定接口。
 
+### 产物判据：这颗内核里到底有没有音频
+
+前面所有检查量的都是**源码和对象**：清单、桩、宏、链接需求、接口、空跑接线。它们合起来仍不能回答
+一个问题——真正要上机的那颗 27 内核里，音频代码到底在不在。这正是 P-251 的形状：门禁全绿，产物里
+没有那个东西。而 27 stage-0 现在只到 bsd_init，F4 之前没有任何音频日志可以读，所以这一条必须从
+**产物的字节**里取：
+
+```sh
+python3 scripts/check-audio27-kernel.py <kernel.macho | boot.img | PongAudioAmp.o>
+# audio27 kernel: boot.img 201,895,936 B sha256 90051b6e6871
+# audio27 kernel: strings 3/3 (boot argument, probe start, probe done)
+# audio27 kernel: symbols unreadable (nm: … file format not recognized); the strings decide
+# AUDIO27 OK boot.img
+```
+
+判据是三样东西，缺一个就 exit 1 并点名：
+
+| 类别 | 内容 |
+| --- | --- |
+| 启动参数 | `pong_audio_probe`（探针唯一的入口开关） |
+| 证据行 | `amp probe start` / `amp probe done found=` |
+| 符号 | `pong_audio_amp_probe` / `pong_audio_amp_play` / `pong_audio_amp_stop` |
+
+符号先试 `llvm-nm-18`、`llvm-nm`、`nm`：GNU nm 根本读不了 Mach-O（实测 `file format not
+recognized`），而「文件被 strip 了」与「拿错工具了」在日志里长得一样，所以不可读时把 nm 的原话
+打进那一行，并让字符串单独决定结论——half evidence 不许冒充 full evidence。
+
+两次真实产物的正反结果：显示线的 `kernel.macho`（54,181,888 B，sha256 438de64f08af）→
+`strings 0/3` + `symbols 0/3` + `AUDIO27 FAILED`；16 线 cc 的 `boot.img`（201,895,936 B，
+sha256 90051b6e6871）→ `strings 3/3` + `AUDIO27 OK`。
+
+预检里它是一行：给了 `XNU27_KERNEL` 就跑，不给就打印 `skip`。27 的 F1 产物一出来，
+第一件事就是用这条命令量一遍：
+
+```sh
+XNU27_KERNEL=<built kernel> sh scripts/check-audio27-preflight.sh
+```
+
 ### 两种布局：16 线种树，27 树原地构建
 
 两个脚本（`apply-audio27-wiring.py`、`add-audio-conffiles.py`）都认两种布局：

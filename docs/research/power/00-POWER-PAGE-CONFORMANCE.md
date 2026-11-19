@@ -121,7 +121,7 @@
 - 离线纯逻辑套件一条命令可复现：`bash scripts/tests/run-k60-power-host.sh`（WSL/Linux，可选一个输出目录）
   先跑 `scripts/check-power-portability.py`（五个策略模块必须无 IOKit/XNU 依赖、能以 freestanding C11 编译），
   再依次编译运行 CPU 目标档、GPU 目标档、boost 窗口、睡眠唤醒路径、外设投票、ArmCpuSleep 接口和
-  跨模块数值钉住 7 个套件，共 1530 项断言（154/140/40/73/58/1038/27）。`test-k60-power-conformance.c` 用 `_Static_assert` 把官网 §5 的
+  跨模块数值钉住 7 个套件，共 1530 项断言（154/140/40/73/58/1038/27）；设 `K60_POWER_SANITIZE=1` 可加 ASan/UBSan 重跑同一套。`test-k60-power-conformance.c` 用 `_Static_assert` 把官网 §5 的
   1.25 倍余量、50 % GPU 目标、578 MHz 地板、1 s 触摸、300 ms/60 % 帧下限、50 ms GPU 唤醒、1 ms fence、
   10 s 喂狗、两帧/1500/600 ms 背光与 60 ms 触摸间隔钉在跨模块位置；每个套件必须打印自己记录的数量，
   数量漂移即失败。它只证明离线算术，不替代真机证据；ADSP/电池套件仍在

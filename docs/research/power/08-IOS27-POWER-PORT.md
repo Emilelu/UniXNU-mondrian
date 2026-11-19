@@ -54,7 +54,7 @@
 
 | 门 | 通过条件 |
 | --- | --- |
-| host | 七套件 1530 项全过；`check-power-portability.py` 报告 5 模块 freestanding C11 通过；新增 iOS27 适配代码另有断言 |
+| host | 七套件 1530 项全过；`check-power-portability.py` 报告 5 模块 freestanding C11 通过；`K60_POWER_SANITIZE=1` 的 ASan/UBSan 重跑通过；新增 iOS27 适配代码另有断言 |
 | 静态 | kernel.macho 有 `_armcpu_sleep_register`、`_arm64_platform_sleep_hook`、板级 register/report 符号；无 `0624` 的 `k60_platform_sleep_boot_complete` |
 | 默认启动 | `platform-sleep=0` 到 SpringBoard，无 prepare/restore；300 s autoreset 正常 |
 | timer 睡眠 | `platform-sleep=1 platform-sleep-wake-after=5`：prepare=1、restore=1、last_intid=27、last_reason=timer，且 `IOCPUSleepKernel` 打印退出/`wake cpus done`，系统继续运行 |

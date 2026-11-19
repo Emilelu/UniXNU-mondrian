@@ -898,7 +898,7 @@
 +	return true;
 +}
 +
-++static bool
++static bool
 +pong_audio_smmu_lease(uint16_t sid)
 +{
 +	uint32_t scr0, idr0, idr1, idr2, value, smr_keep = 0, s2cr_keep = 0;

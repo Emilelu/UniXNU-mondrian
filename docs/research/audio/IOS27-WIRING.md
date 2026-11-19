@@ -101,6 +101,22 @@ COLLISION: 1 of 11 glue symbols already appear in /tmp/x27clash: pong_geni_poll
 两处刻意的保守：只看**对外可见**的符号（`static` 的不管，它们撞不了），以及头文件里的声明也算命中
 ——同一名字在树里另有一份声明，说明那个名字已经被别人占了，迟早冲突。装进 `bsd/dev` 的那几个
 `PongAudio*.c` 自己会被跳过，否则这条检查永远在报自己。
+### 拷贝清单必须等于编译器打开的清单
+
+`apply-audio27-wiring.py` 决定拷什么，靠的是读 `#include "Pong…"`；那是对源码的一种读法，不是编译器的答案。两者只要有一处不同——某个头文件再去 include 另一个头文件、或者某个源改用尖括号——applier 在树里拷九个文件，构建停在第十个上，而树里没有任何东西说明原因。
+
+`scripts/check-audio27-closure.py` 把同样两个源交给 `cc -MM`（对着 `scripts/tests/portability` 的桩头），比较两个集合：
+
+```
+$ python3 scripts/check-audio27-closure.py
+CLOSURE OK: 7 headers, the applier copies what the compiler opens
+```
+
+- 编译器打开、applier 不拷 → 红，并点名：`CLOSURE: the compiler opens PongAudioExtra.h; the applier does not copy it`。
+- applier 拷了、编译器没打开 → 只打印 `copied but never opened: …`，不红：那是多余的重量，不是坏构建。
+- 这一轮它抓到的真问题：`kernel_set()` 原来只递归 `.c`，头文件再 include 的头文件不会被跟随，于是「transitively」在文档里成立、在代码里不成立；宿主用例 `a header reached only through another header is copied` 把新行为钉住。
+- 四例夹具：仓库自身绿、尖括号 include 被点名、头文件链被跟随、编译器拒绝时报 refusal。注意 refusal 只能由 `#include` 一个不存在的头触发——纯语法错 `-MM` 也能过，因为它只做预处理。
+
 ### 产物判据：这颗内核里到底有没有音频
 
 前面所有检查量的都是**源码和对象**：清单、桩、宏、链接需求、接口、空跑接线。它们合起来仍不能回答

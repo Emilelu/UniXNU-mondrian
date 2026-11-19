@@ -21,7 +21,8 @@
 #  14. the patch emitter's own tests
 #  15. the four interfaces and the symbol table, against a real 27 XNU tree when one is
 #      on disk (XNU27_REPO overrides the search), plus the 0531 patch regenerated from
-#      the same block and checked against its pinned digest
+#      the same block and checked against its pinned digest, and - once the Lead books
+#      it in patches/xnu-12377 - the series copy against the same emitter
 #  16. - when XNU27_KERNEL names a built kernel or boot image - whether that product
 #      really carries the audio
 #  17. the sheng ABI checker's own tests
@@ -72,6 +73,7 @@ run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py
+run "27 series checker is honest" python3 scripts/tests/test-audio27-series.py
 run "sheng abi checker is honest" python3 scripts/tests/test-sheng-abi.py
 
 xnu27=${XNU27_REPO:-}
@@ -87,6 +89,19 @@ if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
 	run "27 tree has no clashing symbols" python3 scripts/check-audio27-collisions.py "$xnu27"
 	run "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd
+	# The series copy is a third copy of the same block. It exists only after
+	# the Lead books it; exit 3 means "not booked yet", which is a skip and
+	# not a failure, so a quiet absence cannot hide as a green line.
+	out=$(python3 scripts/check-audio27-series.py "$xnu27" 2>&1)
+	rc=$?
+	if [ "$rc" -eq 3 ]; then
+		printf 'skip %-34s %s\n' "27 series carries the patch" "$(printf '%s' "$out" | tail -1)"
+	elif [ "$rc" -ne 0 ]; then
+		printf 'FAIL %-34s %s\n' "27 series carries the patch" "$(printf '%s' "$out" | tail -1)"
+		fail=1
+	else
+		printf 'ok   %-34s %s\n' "27 series carries the patch" "$(printf '%s' "$out" | tail -1)"
+	fi
 else
 	printf 'skip %-34s no 27 xnu tree (set XNU27_REPO)\n' "27 kernel interfaces are there"
 fi

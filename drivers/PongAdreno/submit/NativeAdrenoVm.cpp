@@ -13,6 +13,10 @@ extern "C" {int (*native_adreno_dram_read32)(uint64_t,uint32_t *);int (*native_a
  * what the submission actually references was unknown. Every 32nd call reports both, so the next flight measures the cost instead of
  * inferring it from source. */
 extern "C" {extern volatile uint64_t native_adreno_cache_stats[5];}
+/* P-244 asks whether the mapping count grows because the translator maps and unmaps at the
+ * same rate, or because unmaps never happen. objects_ answers "how many are alive"; these
+ * two answer "why". Until 2026-11-19 nothing counted either. */
+static volatile uint64_t k60_vm_maps, k60_vm_unmaps;
 /* 1 once the board proved the GPU's cacheable inner-shareable accesses coherent with the CPU's caches in both directions (the A740's
  * ADRENO_QUIRK_HAS_CACHED_COHERENT behind the dma-coherent GPU SMMU, which Linux maps with IOMMU_CACHE): a mapping with write-back
  * attributes then needs no CPU cache maintenance. 0 keeps every mapping maintained as before. Counters: maintenance passes skipped for
@@ -243,7 +247,7 @@ IOReturn NativeAdrenoVm::map(NativeAdrenoMemory *memory,unsigned upper,uint64_t 
     checked=memory->holdForDevice();if(checked)return checked;
     Mapping *record=nullptr;for(size_t i=0;i<NativeAdrenoVmMaxObjects;++i)if(!mappings_[i].memory){record=&mappings_[i];break;}
     if(!record) {memory->quarantine();return fail(ArmSmmu4KStateMismatch);}
-    *record={memory,0,iova,memory->spanCount(),0,permissions,writeback,shareability,0};++objects_;
+    *record={memory,0,iova,memory->spanCount(),0,permissions,writeback,shareability,0};++objects_;++k60_vm_maps;
     if(coherentMapping(writeback))native_adreno_coherent_skips[0]=native_adreno_coherent_skips[0]+1;
     else {
         checked=memory->publishForDevice(0,memory->bytes(),permissions&ArmSmmu4KWrite,distrust_write_combined_);
@@ -307,7 +311,7 @@ IOReturn NativeAdrenoVm::unmap(uint64_t handle)
     clock.lap(1,4);
     if(record->memory->retireAfterQuiescence()!=kIOReturnSuccess)return fail(ArmSmmu4KStateMismatch);
     clock.lap(1,5);clock.done(1,record->memory->bytes());
-    *record={};--objects_;result_.complete=true;return kIOReturnSuccess;
+    *record={};--objects_;++k60_vm_unmaps;result_.complete=true;return kIOReturnSuccess;
 }
 IOReturn NativeAdrenoVm::describe(uint64_t handle,uint64_t *iova,size_t *bytes,
     unsigned *permissions) const
@@ -383,6 +387,7 @@ IOReturn NativeAdrenoVm::publishMapped()
             native_adreno_cache_stats[3]-calls_before,native_adreno_cache_stats[1]-bytes_before,
             (unsigned)(distrust_write_combined_?0:1),imported_bytes,owned_bytes,combined_bytes,combined_skipped,
             (unsigned)native_adreno_io_coherent,(unsigned long long)native_adreno_coherent_skips[2]);
+        IOLog("PONG VM: lifetime n=%u live=%llu maps=%llu unmaps=%llu outstanding=%lld\n", calls, (unsigned long long)objects_, (unsigned long long)k60_vm_maps, (unsigned long long)k60_vm_unmaps, (long long)(k60_vm_maps - k60_vm_unmaps));
     }
     return kIOReturnSuccess;
 }

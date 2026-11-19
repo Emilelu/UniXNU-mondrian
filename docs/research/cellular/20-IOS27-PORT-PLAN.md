@@ -59,6 +59,16 @@ diff -u <27 tree>/bsd/kern/kern_exec.c /tmp/kern_exec.27.c > 0627-kern-exec-call
 
 顺序不能反：modem 的 probe 读 payload FAT 里的 `md0`，IPA 的 probe 复用同一份 metadata。
 
+### 5.1 锚点契约（给 27 侧 data-mount 用）
+
+16 线两段 probe 的位置不是随便挑的：它们嵌在 `native_owner_data_prepare(proc_t p, user_addr_t scratch)`
+里（函数起于 16 线构建树的 `bsd/kern/kern_exec.c:7803`），紧贴数据卷从「只读准备」切到可写阶段的
+`native_owner_data_stage = 3;`（同文件 :7941）之前——因为基带要求 Data 已挂载才能读 EFS。
+
+所以 27 侧只要满足一条：**新写的 data-mount 里把 stage 推进到 3 的那一行之前**，插两段 probe。
+`scripts/port-cellular-to-xnu27.py` 的缺省锚点就是这个字符串，语句名一致时不用带 `--anchor`；
+若 27 用了别的写法（`stage = 2`、`kNativeOwnerDataStageWritable` 等），用 `--anchor "<原文>"` 指给新行。
+
 ## 6. `0621-k60-io-submap-budget` 在 27 上没有对应物
 
 16 线的 `osfmk/arm/io_map.c` 有一张所有调用者共用的 8 MiB `io_submap`，`kmem_alloc(io_submap, …, KMA_NOFAIL)` 撑爆时会 panic（P-219），所以才把宏抬到 32 MiB。

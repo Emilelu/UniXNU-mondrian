@@ -70,6 +70,13 @@ def main():
         path = write(tmp, VALID + sub_line(10, 30000))
         check('frames without a scanout line is still INVALID', judge.report(path) == 3)
 
+        # Layer 1b (P-244): a lost device must not be judged as a slow device.
+        path = write(tmp, VALID + stage() + sub_line(64, 64 * 3000) +
+                     'PONG ADRENO: CP/SMMU fault; retain BOs result=1\n' +
+                     'native-metal: commandBuffer refused: command buffer: DeviceLost\n' * 20)
+        check('a flight whose Metal device died is INVALID', judge.report(path) == 3,
+              'the last 70%% of usblog-20261119-070345 was 10,100 DeviceLost lines and no frames')
+
         # Layer 2: the probe never reached the image.
         path = write(tmp, VALID + stage())
         out = judge.report(path)

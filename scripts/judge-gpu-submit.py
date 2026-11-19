@@ -25,6 +25,7 @@ KMD_SHARE_KERNEL = 0.60      # F3: at or above this the kernel owns it
 KMD_SHARE_UPSTREAM = 0.20    # F4: below this the translator owns it
 
 MIF = re.compile(r'MiniIOMobileFramebuffer:\s*(\d+)\s*frames in\s*(\d+)\s*ms')
+DEVICE_LOST = re.compile(r'DeviceLost')
 CLIENT = re.compile(r'Pong Metal: c(\d+)/0 d(\d+)')
 SCANOUT = re.compile(r'scanout frames=(\d+) at ([\d.]+) s; last frame: wait=(\d+) us copy=(\d+) us done=(\d+) us;'
                      r' imports=(\d+) import=(\d+) us encode=(\d+) us submit=(\d+) us gpu=(\d+) us sum=(\d+) us')
@@ -45,6 +46,11 @@ def validity(text):
     commits = max((int(m.group(1)) for m in CLIENT.finditer(text)), default=0)
     scan = len(SCANOUT.findall(text))
     reasons = []
+    # P-244: a lost Metal device keeps logging at ~1450 lines a second while nothing renders.
+    # "very slow" and "already dead" look identical unless this is checked first.
+    if DEVICE_LOST.search(text):
+        reasons.append('the Metal device was declared lost during the flight (DeviceLost x%d);'
+                       ' a dead device keeps logging without rendering' % len(DEVICE_LOST.findall(text)))
     if frames < 1:
         reasons.append('no compositor frame line with N>=1')
     if commits < 1:

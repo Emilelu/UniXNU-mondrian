@@ -93,6 +93,32 @@ SpringBoard 下一次合成就会覆盖。若这一帧之后屏幕**仍然**是�
 
 ## 5. 结果登记
 
+> **2026-11-19 追认（P-244）：这一飞按现行口径应判 INVALID，不是 PASS。**
+> 判读器 `scripts/judge-gpu-submit.py` 现在把「出现 `DeviceLost`」列为有效性的第一条，
+> 重跑本飞输出 `verdict: INVALID ... DeviceLost x10100`。当时记的 PASS 只覆盖了 GPU 还活着的
+> 139.6 s；10,100 行 `DeviceLost` 的 70 % 日志里**没有任何画面**。下面 §5.1–§5.9 的数值仍然成立，
+> 但适用范围一律是「前 1000 帧、GPU 未挂死的那段」，不能当作稳态帧率结论。
+
+### 5.10 这一飞的窗口本身是坏的：GPU 在第 1000 帧挂死（P-244）
+
+`usblog-20261119-070345` 的 14,580 行里有 10,100 行 `DeviceLost`，从 30.3 % 一直刷到结尾。
+挂死前两行是 `PONG ADRENO: CP/SMMU fault; retain BOs result=1 a=0x40000000000 b=0x80000000000000`
+（两次），随后 `Pong Metal: GPU scanout copy failed; mappings retained status=0x4` 与
+`PONG SCANOUT: GPU copy not retired; retain pages and previous frame ... status=0xe00002bc`。
+
+`PONG VM: publish sample` 的受管对象从 331 单调长到 951、字节从 276 MB 长到 557 MB，
+正是在 951 个对象时故障。同一晚另外两飞（`044558`、`055934`）`DeviceLost` 各 0 次。
+
+因此 §5 里所有「帧率」结论只覆盖到第 1000 帧：**7.16 fps 是活着的窗口的平均值**，
+而日志后 70 % 不是「很慢」，是「没有画面」。§5.7 的分位表同样取自这个窗口，仍然有效，
+但它的适用范围必须写成「GPU 活着的 139.6 s」。
+
+这张卡还带了一次性对照探针，它会在第一帧往固件帧缓冲多写一遍 18,432,000 字节（§5.6 已记的
+斜切副作用）。故障是否由它引起**未证**：泄漏在两飞里都存在，只是这一飞跑得足够久。
+在查清之前，对照探针改为默认关闭（`pong_gpu_blit_probe=1` 才开），不再随每张镜像跑。
+
+
+
 （飞行后写在这里；`criteria-sha256` 在第一次写入时钉入。）
 
 - criteria-sha256: c08fd7beb17dca584a8fc72fb9491291599f65eaa1bedc591c541e323b4c139e

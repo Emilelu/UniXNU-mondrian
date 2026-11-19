@@ -6589,3 +6589,36 @@ rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**
    用没实现的 selector 不是「慢」，是崩。
 3. 对照实验量出来的 1.9 ms 是**无行距**拷贝的下限；把它当成「带行距拷贝的目标值」会得出
    一条根本不存在的优化路径。测量值必须和被测形状绑定着引用。
+
+## P-244
+
+**现象（2026-11-19，`usblog-20261119-070345`，镜像 `gpu-blitprobe2-20261119`）**
+日志 14,580 行里有 **10,100 行 `DeviceLost`**，从 30.3 % 一直刷到结尾；同一位置之前两行是
+`PONG ADRENO: CP/SMMU fault; retain BOs result=1 a=0x40000000000 b=0x80000000000000`（出现两次），
+之后是 `Pong Metal: GPU scanout copy failed; mappings retained status=0x4` 与
+`PONG SCANOUT: GPU copy not retired; retain pages and previous frame ... status=0xe00002bc`。
+`PONG VM: publish sample` 的 `objects` 从 331 单调长到 **951**、`bytes` 从 276 MB 长到 **557 MB**，
+正好在长到 951 时 GPU 挂死。同一晚另外两飞（`usblog-20261119-044558`、`usblog-20261119-055934`）
+`DeviceLost` 各 0 次。
+
+**真因（已证与未证分开写）**
+1. 已证：受管对象集合在长跑里单调增长，并在约 950 个对象、557 MB 之后出现 CP/SMMU 故障；
+   故障后 `DeviceLost` 以每秒约 1450 行的速度空转，渲染永久停止。所以这一飞「1000 帧 / 7.16 fps」
+   的窗口在故障点就结束了，**之后 70 % 的日志不是「很慢」，是「没有画面」**。
+2. 未证：增长来自哪一层。现有证据指向每帧新建的线性纹理（`copyFromTexture` 前的
+   `newTextureWithDescriptor:` + `copyFromBuffer:`），它每帧经 bridge 建一个 KMD BO；
+   `NativeAdrenoVm::mappings_` 的槽位只在 `unmap(handle)` 时清空，若这条路径没人调
+   `BoFree`/`unmap`，槽位与 BO 就都留在表里。**这是假设，不是结论**，下一步要数
+   `mappings_` 的分配/释放次数与 `native_adreno_method_stats[NativeAdrenoMethodBoFree][0]`。
+
+**修法方向**
+1. 判据口径：任何「长跑帧率」的判据必须先证明 GPU 还活着（`DeviceLost` 计数为 0 或
+   `scanout frames=` 仍在增长），否则量到的是死设备的空转（P-236 的同一形状：有效性必须先判）。
+2. 泄漏本身要让 BO/映射的生命周期可数：`BoAlloc` 与 `BoFree` 的计数差必须回到 0，
+   把它做成门禁或每飞行一次的日志行。
+3. 在修好之前不要让长跑飞行以「帧率」为结论——它会先撞故障。
+
+**教训**：1. 「很慢」与「已经死了」在日志里长得一样，只有计数器和对象的单调性把它们分开。
+2. 一个只增不减的集合是定时炸弹，不是性能问题；`objects` 与 `bytes` 应当和帧率一起被记录。
+3. 我先量出 7.16 fps 就写进卡片，直到翻到第 4,421 行才发现那台设备已经不再渲染——判据要能回答
+   「这个窗口里被测对象还在工作吗」。

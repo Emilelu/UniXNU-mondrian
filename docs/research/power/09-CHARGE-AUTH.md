@@ -113,10 +113,11 @@ uint32_t k60_charge_auth_wait_ms(const K60ChargeAuth *, uint64_t now_ms);
 `scripts/tests/test-k60-charge-auth.c`，99 项，0 失败；ASan/UBSan 下同结果（只测状态机）：
 
 ```sh
-cc -Wall -Wextra -Werror -std=c11 -Idrivers/PongPower \
-  scripts/tests/test-k60-charge-auth.c drivers/PongPower/K60ChargeAuth.c -o /tmp/tca
-/tmp/tca   # TESTS OK 99 checks (0 failures)
+bash scripts/tests/run-k60-power-host.sh build/charge-auth   # charge-auth 99 项 + charge-hmac 5 项
 ```
+
+两套断言都挂在共享 runner 上（`run charge-auth 99 …` / `run charge-hmac 5 …`），所以掉项会让
+`power-host: OK (1915 checks in 10 suites)` 直接失败；单独编译只为看输出，产物不要放 `/tmp`（铁则 1）。
 
 覆盖：PD 类型 6/7/8 分类与 5/9 拒绝、单/双电量计 ack、challenge→digest→mark、
 适配器 SVID/PDO2 分支、9 次重试后 tries=10/result=`-60`、reconnect 后旧应答被吞掉、

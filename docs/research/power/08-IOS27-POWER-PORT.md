@@ -66,6 +66,7 @@
 - **不要在关中断/console suspended 上下文 IOLog**：iOS16 的 K60 USB log 会把它当 panic（w8 的 `Console I/O from interrupt-disabled context`）。只累加计数，唤醒后在 `console_resume` 之后打印。
 - **secondary 状态**：w9 的 `Spurious wakeup of cpu 1` 是 secondary 在 CPU_OFF 前没有置 Stopped；w10 置了 Stopped 仍在 `processor_start` 处硬挂，说明状态位不是充分条件。iOS27 先读 catalog ArmCpu 的 `haltCPU` 实现，按它的 `processor_exit`/`processor_sleep` 语义接。
 - **启动核 haltCPU**：iOS16 的 `IOCPUSleepKernel` 对每个 target 都调 `haltCPU`，包括启动核；我们的旧实现因此在启动核上进了 `ml_arm_sleep` 并等待其他核。iOS27 要确认 12377 的调用点，不能假设 8796 的行为。
+- **catalog ArmCpu 的 haltCPU 只写状态**：`E:/hackios/ArmCpu/ArmCpu.cpp:1227-1233` 的注释说明它等 `processor_sleep()` 从目标核自己的上下文把核带下去（`cpu_sleep → quiesceCPU`），`haltCPU()` 只 `setCPUState(kIOCPUStateStopped)`。8796 的 generic `IOCPUSleepKernel` 没有 `processor_sleep`，只有 `haltCPU`；我们把 `haltCPU` 改成 `processor_exit_reason` 来补偿，w9 的 Spurious wakeup 和 w10 的 `processor_start` 硬挂就是这条错配。iOS27 先确认 12377 是否有 `processor_sleep`；没有就按 sheng 补丁/AppleARMSMP 的调用点改，不要只改 `haltCPU`。
 - **两个参数**：12377 的 `arm_init_cpu(cpu_data_ptr, 0)` 与 8796 的一个参数不同；补丁重放时按 12377 签名。
 - **4 KiB**：策略模块不关心页大小，但 ADSP/GPU/共享内存的缓冲区、DMA 与 prelink 都按 4 KiB 重算；不要把 16 KiB 的常量带过去。
 - **iPhone17,2 是身份**：它只提供 iOS27 profile/kernelcache/prelink fixture（cupid 已用它到 bsd_init），不是把系统移植到 iPhone 16 Pro Max 硬件；K60 的 UFS/显示/触摸/PMIC 仍按本板事实。

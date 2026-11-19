@@ -980,6 +980,26 @@ k38 的静态请求证明了两件事：包能从我们这边发出去（`:944` 
 静态端口这条兜底只在前者没有时继续重试。若 k39 仍然零应答，下一变量不再是重试：要么**把 IPCRTR 的
 open 提到 `modem ready` 之前**，要么在 AP 侧实现最小的 QRTR 名称服务并把 `qrtr_ns` 的重放语义补上。
 
+**实机结果（2026-11-19 13:21，420 s 采集）**：镜像 `9f950b09…`。证据
+`E:/k60-work/evidence/usblog-20261119-132104`，capture `state=captured-disconnected`、`complete=false`、
+207,839 B、logSha256 `CB9C4AC536AE3BBD6896C7471AFC503FA58CBC7BFB68DAE5C1B1058530953EA9`、
+`stopReason=fastboot-return`、resetMarker 存在、lastDataAt 13:26:55。
+判读 `--phase b`：**S3 PASS / S4 FAIL / S5 FAIL / S6 PASS**，rc=1。
+
+- 230 秒里一共发出 **8 次**端口 96 的 DMS GetRevision（最后一条 `#8 txn 8`）与 **8 次**全量/DMS 交替的广播
+  lookup，每一次的 wait 行都是 `services=2 wanted=0 dms=0 malformed=0`；没有任何 `glink poll rc`、没有
+  channel down、没有 dms revision。
+- COACHZ 组件自己的计数从第 1 秒到第 233 秒也一直是 `2 QMI services`，与探针的 `services=2` 相互印证：
+  不是我们漏读，是 modem 确实只暴露这两个。
+- **没有 verdict 行**：循环要到 240 s 才打印 verdict，而 `k60_autoreset=300` 在探针走到 230 s 时就复位了
+  （`K60AUTORESET: 300 s since boot` 紧接着 `K60 USBLOG: restart reason published`）。所以 S5 的 FAIL
+  在这一飞里是“没有结论行”，不是“结论是 no reply”——下一飞若要 S5 可判，窗口要么缩到 180 s，要么
+  让 autoreset 晚于探针结束。
+
+结论：**重复询问没有意义**，两种解释被这一飞分开——modem 既不回答 lookup（没有名称服务或不该我们问），
+也只在开机那一次把 QMI 服务注册给“当时在听的人”。因此下一变量确定是**把 open 提前**（§3.28），
+而不是再加长窗口或再换端口。
+
 ### 3.27 待命：k39 已打包、k40 只有源码（2026-11-19 12:58）
 
 用户要求本线先收尾待命：等 fork 我们仓库的那位外国开发者在 iOS 27（目标 27.0.1）上取得突破性进展
@@ -1094,6 +1114,93 @@ k41 的备忘（未写一行代码，恢复时照此改）：
   （`QcomGlinkCorrupt`）⇒ GLINK 消息解析；下一飞只加 RX 快照（cmd/param1/param2），不动 PAS/电源。
   2026-11-19 06:23 的 k29 B 属于这一类（§3.15）。
 
+### 3.28 k41：fifo 出现就 open IPCRTR（离线，未上机）
+
+k39 的四分钟证明重复询问没有用（§3.26 实机结果）。k41 换的是顺序而不是次数：不再等 `modem ready`，
+只要 SMEM 里 modemnvm_factory 的 glink fifo（item 480，`sizes[2] != 0`）出现，就 adopt 并 open IPCRTR——
+目标是把自己挂进“modem 开机注册 QMI 服务”的那段广播里。
+
+改动（`0054c575`，K60ModemLink.c 四处）：
+
+1. 就绪循环的退出条件从“smp2p ready && sizes[2] != 0”收窄成 `if (sizes[2] != 0) break;`；
+2. 未就绪时打印 `K60MODEM qrtr: fifo at %u ms, smp2p not ready yet; opening IPCRTR early`；
+3. 轮询块每 2500 次（5 s）复检一次 readiness，就绪时打印 `K60MODEM qrtr: modem ready (smp2p items=%u) at %u s`；
+4. wait 行追加 `tx head=%u tail=%u`——tx tail 是远端读指针（desc[0]），能看出 modem 有没有真的收走我们的包。
+
+同一提交顺手修掉 k40（`bcf277dc`）留下的编译错误：那条 `ready wait` 的格式串里是裸换行，k40 的内核从未编到
+这个文件所以没暴露。教训记在这里：**构建被中途 kill 时，已提交但没编译过的代码等于没验证**。
+
+| 文件 | 值 |
+| --- | --- |
+| 0622 生成 | 104,896 B / 5 files |
+| kernel | `E:/k60-work/artifacts/modem-20261117k41/kernel.macho`，105,734,144 B，`6ae49f463bb13764c0f5d758416ee757468692169cd6b861089aa67f631c7abe` |
+| boot image | `E:/k60-work/artifacts/modem-20261117k41/boot-modem-b-full.img`，201,895,936 B，`b6e6987e9c8b7a0f7a1e71d008508a640ca855bdeb42e3c3ea01001d0ed915ef` |
+| payload | `8f13139b885f9fe518ec0a8fdd49bdf3ce8f52392994694d77b4a255fb325ca2`（payload.json `155284ec52ed0b3cde7bbb314dcd17e38ec932e2ba552a44b8cfd209c028e3bc`） |
+| payload 内 kernel | `37d7af8178edc1da99fe567aa6b6956ed841be166349140a5b2f4744cbcc3686` |
+| FD / DTB | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` / `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| boot-args | 末尾 `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`（与 k36–k39 同） |
+| 布局 | 560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-k41-b.py` rc0 `verify-boot-image: OK` |
+| 静态证据 | `llvm-strings` 命中 `opening IPCRTR early` 1 次、`tx head=%u tail=%u` 2 次、`ready wait %u ms` 1 次；COACHZ 40 条 |
+
+判据：S3/S6 必须保持 PASS；**新的判据是顺序**——日志里 `fifo at … opening IPCRTR early` 必须出现在
+`modem ready` 之前。S4 仍按 `K60MODEM qrtr: dms revision` 判。
+
+风险与回退：提前 open 可能撞上“smp2p 还没就绪”的 SMEM 访问（最坏是 channel down 或一次 panic），日志里
+`fifo at … ms` 会先给出间隙有多大；若这一飞死在 open 之前，下一版把提前量收紧到“fifo 出现后再等 N 毫秒”。
+回退镜像仍是 k18 的 `1ae178bb…`。S5 在 240 s 窗口 + 300 s autoreset 下拿不到 verdict 行，这一飞不指望 S5。
+
+**实机结果（2026-11-19 13:37，420 s 采集）**：镜像 `b6e6987e…`，`bootAccepted=true`，serial `6033dbec`。
+证据 `E:/k60-work/evidence/usblog-20261119-133717`，capture `state=captured-disconnected`、`complete=false`、
+208,820 B、logSha256 `1807A8CE414EABB98C7D9E95E427DD531DD22930AB59B0ED5D6F883DE8DCE1B0`、
+`stopReason=fastboot-return`、resetMarker 存在、lastDataAt 13:43:08。判读 **S3 PASS / S4 FAIL / S5 FAIL / S6 PASS**，rc=1。
+
+- **提前 open 成功**：`:496` 打印 `fifo at 24 ms, smp2p not ready yet; opening IPCRTR early`，`:499`
+  `opening IPCRTR as initiator`，`:652` 才 `modem ready (smp2p items=2) at 5 s`——我们比 modem 就绪早约 5 秒挂上
+  IPCRTR，正是这一飞要的顺序。adopt 仍丢弃 8 字节 Android 残帧（`:497-498`）。
+- **服务仍是两条**：`:526` `service 66 (0x42) instance 46081 node 0 port 2 cmd=0x4 to=1`、`:527`
+  `service 43 (0x2b) instance 4610 node 0 port 1 cmd=0x4 to=1`，此后 230 秒再没有第三条 NEW_SERVER；
+  8 次 lookup 与 8 次端口 96 的 GetRevision 全部零应答，wait 行始终 `services=2 wanted=0 dms=0 malformed=0`。
+- **新事实：modem 不再读我们的 TX 环**。wait 行的 `tx head/tail` 从 5 秒的 `760/760` 走到 `888/888`（约 30–35 秒），
+  之后就固定成 `head 涨、tail 停在 888`：`1272/888`、`1400/888`、`1528/888`、`1656/888`。即 modem 吞下前
+  几百字节后就不再消费，后面所有请求都躺在环里。没有 channel down、没有 `glink poll rc`、没有 panic。
+
+结论：**“注册潮发生在我们 open 之前”这个解释被否掉了**——早 5 秒挂上去，看到的还是同样两条服务；
+真正的新线索是 modem 的 GLINK 消费端在半分钟内停摆。下一变量因此从“什么时候 open”转为
+“modem 为什么不再读、我们有没有发出它期待的确认/通知”（§3.29）。
+### 3.29 k42：modem 的消费端诊断与 HELLO 存活探针（离线，未上机）
+
+k41 把 open 提前到 24 ms，结果只是把矛盾照得更清楚：服务仍是两条，而且 wait 行的 `tx tail` 从 888 起不再动，
+`tx head` 一路涨到 1656。同一份日志里还有一条被忽略的事实——**lookup 只有在我们收到 HELLO_ACK 之后才发**，
+而 8 次 lookup 都发出去了，说明 modem 对 HELLO（类型 2）确实应答。于是有两种互斥解释：
+
+1. **modem 停止服务链路**：它读了几百字节之后不再读，后面的包都躺在环里；
+2. **我们把索引读错了**：`desc[0]` 未必是 modem 的读指针（也可能是缓存值），modem 一直在读，只是不回 lookup。
+
+而 lookup 本身很可能从一开始就被设计错了方向：QRTR 的 NEW_LOOKUP 由**名称服务**回答，Android 上的名称服务
+是 AP 自己的 `qrtr_ns`（§5.5 的 strace 已经证明回答者是 AP），modem 没有义务回答。k42 因此不再试图
+“问出服务”，而是先把这两件事分开量出来：
+
+- wait 行扩展为 `tx head/tail`、`rx avail/head/tail`、`intents=busy/valid`、`local=advertised/count`、
+  `msgs=rx/tx`、`dropped`，每 5 秒一条；第 5 秒那次额外打印远端 intent 表与本地 intent 表（各槽的 id/size/busy、
+  advertised/busy/done）。远端表一直有 free 槽而 `tx tail` 不动 ⇒ 解释 2；远端槽全部 busy 或 valid 归零 ⇒ 解释 1。
+- 每 10 秒重发一次 HELLO 并打印 `hello probe #N, acks=M`。acks 继续涨 ⇒ modem 的 QRTR 任务活着、我们的写也能被看见；
+  acks 停在某个值 ⇒ modem 真的安静了。
+
+判据：S3/S6 必须保持 PASS；本飞不指望 S4/S5。要读的是 `hello probe` 的 acks 曲线与 `intents=` 的走向。
+
+改动提交：`4b240a65`（wait 行、intent 表、环读数）、`059dbcca`（HELLO 探针）；0622 重新生成 108,451 B / 5 files；
+主机测试（modem image 30 segments、GLINK INTENT、IPA PATCH、FW LAYOUT、FLIGHT LOG）全绿。
+
+| 项目 | 值 |
+|---|---|
+| kernel | `d3c4e733adcbfb3e70db5a306c1dcdfcf51de2466399649acace015f6f823eb7`（105,734,144 B，COACHZ 字符串 40 条，`hello probe` 2 条） |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k42/boot-modem-b-full.img` 201,895,936 B `6411fb069a1d3c972b68e84be0622de4952d4c72e0837db8cae7605273bf4765` |
+| payload | `059d70e844869ca8f306a4d26ba42e994b219f3d644210b9f072a569036ce515` |
+| payload.json | `f8ce68a6fc2e400de64912e0e6d89152deee5946ec25caaaadd61686ca93161c` |
+| payload 内 kernel | `e47b26408ba2268af80d765bb1b13bc4bc17a2e7983c536fdf4905b2c03deaf5` |
+| adt | `363c7d1006d5e6e5d5284e506de61a1346a41857815410bbe55b86ef26506254`；dtb `2d044eaa…`；fd `40c29d51…` |
+| kernel args 尾 | `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0` |
+| 状态 | 已打包、未上机（manifest-k42.json 与 FLIGHT-README.md 同目录） |
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1127,7 +1234,13 @@ k41 的备忘（未写一行代码，恢复时照此改）：
     两次广播 lookup 零应答、服务停在 2 条（66 servreg 通知、0x2b 子系统控制），S4/S5 仍 FAIL（§3.24）。
     窗口拉到四分钟（120,000 次 poll），每 30 s 交替重发全量/DMS lookup，并在端口 96 上用同一节拍重发
     DMS GetRevision（各最多 8 次）。k38（`ce6ffeb1…`）已于 2026-11-19 12:09 飞过：S3/S6 PASS，端口 96
-    的请求发出去但零应答（§3.25）。S3/S6 必须保持，S4 仍按 dms revision 判，S5 由同一份日志判读。
+    的请求发出去但零应答（§3.25）。k39（`9f950b09…`）已于 2026-11-19 13:21 飞过：230 秒里 8 次端口 96
+    请求 + 8 次 lookup 全部零应答、服务恒为 2，且 300 s autoreset 在探针走到 230 s 时就复位，verdict 行没
+    来得及打印（§3.26 实机结果）。k41（`b6e6987e…`）按“提前挂上去”飞过（2026-11-19 13:37）：`fifo at 24 ms`
+    就 open、比 `modem ready at 5 s` 早五秒，服务仍是两条，且 wait 行显示 `tx head` 涨而 `tx tail` 停在 888（§3.28
+    实机结果）。这否掉了“注册潮在 open 之前”，把问题推到“modem 是否真的不再读我们的环”。k42 因此只加诊断：
+    wait 行带 `rx avail/head/tail`、`intents=busy/valid`、`local=advertised/count`、`msgs`，第 5 秒 dump 两张 intent 表，
+    并每 10 秒重发 HELLO 记 `hello probe #N, acks=M`（§3.29）。S3/S6 必须保持，S4/S5 本飞不指望。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
     **2026-11-19 12:58 起本线待命**：用户计划等 fork 方在 iOS 27（27.0.1）上到达 bsd_init 后全面转过去；
     蓝牙线与基带线届时都迁到 iOS 27，本仓库的 ios27 分支由蓝牙线建立、Actions 已跑通一次。

@@ -91,7 +91,9 @@ def main() -> None:
     lines = [line.strip() for line in SERIES.read_text(encoding="utf-8").splitlines()
              if line.strip()]
     tail_ok = len(lines) == SERIES_COUNT or (
-        len(lines) == SERIES_COUNT + 1 and lines[SERIES_COUNT].startswith("0520-"))
+        len(lines) <= SERIES_COUNT + 2
+        and lines[SERIES_COUNT].startswith("0520-")
+        and all(line.startswith("0523-") for line in lines[SERIES_COUNT + 1:]))
     check(tail_ok, "series is 239 lines plus at most the 0520 tail",
           f"{len(lines)} lines, last {lines[-1]}")
     check(lines[SERIES_PREFIX_COUNT - 1] == PATCH_0518, "line 238 is 0518",

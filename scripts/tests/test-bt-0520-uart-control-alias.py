@@ -86,7 +86,9 @@ def main() -> None:
 
     lines = [line.strip() for line in SERIES.read_text(encoding="utf-8").splitlines()
              if line.strip()]
-    check(len(lines) == SERIES_COUNT, "series count", str(len(lines)))
+    check(len(lines) >= SERIES_COUNT, "series count", str(len(lines)))
+    check(all(line.startswith("0523-") for line in lines[SERIES_COUNT:]),
+          "only 0523 may follow 0520", str(lines[SERIES_COUNT:]))
     check(lines[SERIES_PREFIX_COUNT - 1] == "0519-k60-bt-userspace-power-nodes.patch",
           "line 239 is 0519", lines[SERIES_PREFIX_COUNT - 1])
     check(lines[SERIES_COUNT - 1] == "0520-k60-bt-uart-control-alias.patch",

@@ -10,7 +10,8 @@
 #   3. the macro itself: three symbols with it, none without
 #   4. the glue's link-time needs against the wiring table
 #   5. the glue's copy set against what the compiler opens
-#   6. the conf-files appender's host tests (the anchor miss must fail loudly)
+#   6. the conf-files appender's host tests (the anchor miss must fail loudly), and the
+#      chaining hook the builder points at, which ends with one verdict line
 #   7. the wiring applier: copy, conf/files, the printed builder line, the hook
 #   8. the weak call site: links without the glue, runs with it
 #   9. the amplifier probe running on the host against a zero page
@@ -62,6 +63,7 @@ run "driver macro really switches it" sh scripts/tests/portability/run-symbols.s
 run "glue needs only the table" sh scripts/tests/portability/run-deps.sh
 run "glue copy set matches the compiler" python3 scripts/check-audio27-closure.py
 run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
+run "conf-files hook is honest" python3 scripts/tests/test-conf-files-hook.py
 run "one command applies the wiring" python3 scripts/tests/test-apply-audio27-wiring.py
 run "weak hook links either way" sh scripts/tests/portability/run-weak-hook.sh
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh

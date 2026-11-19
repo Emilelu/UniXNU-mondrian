@@ -1321,7 +1321,7 @@ index 0000000..1111111
 + * Every line starts with K60MODEM, and the whole probe is inert unless
 + * pong_modem is set to 2 or more. */
 +#include "pong_modem_qrtr.h"
-+#include "K60ModemRmtfs.h"
++#include "pong_modem_rmtfs.h"
 +#include "pong_smem.h"
 +#include "qcom_glink.h"
 +#include "pong_pmic_rail.h"

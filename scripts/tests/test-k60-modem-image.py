@@ -285,19 +285,10 @@ def main(argv):
         problems += fail("%s missing" % PATCH_QRTR.relative_to(REPO))
     else:
         carried = added_files(PATCH_QRTR.read_text(encoding="utf-8"))
-        qrtr_pairs = [
-            ("drivers/PongCellular/K60ModemQrtr.h", "bsd/dev/pong_modem_qrtr.h", {}),
-            ("drivers/PongCellular/K60ModemQrtr.c", "bsd/dev/pong_modem_qrtr.c",
-             {'"K60ModemQrtr.h"': '"pong_modem_qrtr.h"'}),
-            ("drivers/PongPower/QcomGlink.h", "bsd/dev/qcom_glink.h", {}),
-            ("drivers/PongPower/QcomGlink.c", "bsd/dev/qcom_glink.c",
-             {'"QcomGlink.h"': '"qcom_glink.h"'}),
-            ("drivers/PongCellular/K60ModemLink.c", "bsd/dev/pong_modem_link.c",
-             {'"K60ModemQrtr.h"': '"pong_modem_qrtr.h"', '"K60Smem.h"': '"pong_smem.h"',
-              '"QcomGlink.h"': '"qcom_glink.h"',
-              '"K60PmicRail.h"': '"pong_pmic_rail.h"'}),
-        ]
         gen = qrtr_generator()
+        # The pair table is the generator FILES list itself: a newly carried
+        # file cannot be checked against a stale include map this way.
+        qrtr_pairs = list(gen.FILES)
         for repo_rel, patch_rel, include_map in qrtr_pairs:
             local = REPO / repo_rel
             if patch_rel not in carried:

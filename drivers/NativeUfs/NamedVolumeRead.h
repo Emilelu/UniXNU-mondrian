@@ -61,3 +61,27 @@ static inline bool nativeVolumePlan (uint64_t firstLba, uint64_t lastLba,
   if (sectors != nullptr) *sectors = static_cast<uint32_t> (count);
   return true;
 }
+
+// The K60 publishes six UFS LUNs, and the modem EFS partitions (modemst1,
+// modemst2, fsg, fsc) do not live on the LUN that carries unixnu/userdata:
+// on the device they are sdf3..sdf6 while unixnu is sda38. The lookup therefore
+// has to try every LUN and accept only one claimant. 8 covers the six the
+// firmware exposes with two spare slots.
+static constexpr unsigned kNativeVolumeLunCount = 8;
+
+// Pick the LUN that reported the name. found[i] is non-zero for a hit.
+// Returns 1 with *lun set; 0 when nothing matched or two LUNs claimed the name.
+static inline int nativeVolumeUniqueLun (const uint8_t *found, unsigned count,
+  unsigned *lun)
+{
+  if (found == nullptr) return 0;
+  unsigned hits = 0, pick = 0;
+  for (unsigned i = 0; i < count; ++i) {
+    if (!found[i]) continue;
+    pick = i;
+    if (++hits > 1) return 0;
+  }
+  if (hits != 1) return 0;
+  if (lun != nullptr) *lun = pick;
+  return 1;
+}

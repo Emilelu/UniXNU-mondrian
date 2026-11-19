@@ -627,54 +627,81 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
 // cellular branch on 2026-11-20, on condition that no existing export changes
 // signature or body. It uses the GPT geometry, the CRC and the sector helpers
 // RootLayout.h already trusts, and it never writes.
-extern "C" bool native_pong_ufs_read_named_volume (const char *name, uint64_t offset,
-  uint8_t *buffer, size_t length)
+// One LUN: 1 when its GPT names the partition exactly once, 0 when the LUN has
+// no usable GPT or does not name it, -1 when the table itself is malformed or
+// names it twice.
+static int findNamedVolumeOnLun (uint8_t lun, const char *name,
+  uint64_t *entryFirstOut, uint64_t *entryLastOut)
 {
-  if (name == nullptr || name[0] == '\0' || buffer == nullptr || length == 0) return false;
-  unsigned nameLength = 0;
-  while (name[nameLength]) {
-    if (nameLength >= kNativeVolumeNameMax) return false;
-    ++nameLength;
-  }
-  if (hostRead4k (0, 1, 1, gScratch) != kIOReturnSuccess) return false;
-  if (le32 (gScratch) != 0x20494645U || le32 (gScratch + 4) != 0x54524150U) return false;
+  if (hostRead4k (lun, 1, 1, gScratch) != kIOReturnSuccess) return 0;
+  if (le32 (gScratch) != 0x20494645U || le32 (gScratch + 4) != 0x54524150U) return 0;
   const uint32_t headerBytes = le32 (gScratch + 12);
   if (le32 (gScratch + 8) != 0x00010000 || headerBytes < 92 || headerBytes > 4096 ||
       le32 (gScratch + 20) != 0 || le64 (gScratch + 24) != 1 ||
       rootCrc32 (gScratch, headerBytes, true) != le32 (gScratch + 16) ||
-      le32 (gScratch + 84) != kNativeVolumeEntryBytes) return false;
+      le32 (gScratch + 84) != kNativeVolumeEntryBytes) return -1;
   const uint64_t entriesLba = le64 (gScratch + 72);
   const uint32_t count = le32 (gScratch + 80);
   const uint64_t first = le64 (gScratch + 40), last = le64 (gScratch + 48);
   const uint64_t backup = le64 (gScratch + 32);
   const uint32_t entriesCrc = le32 (gScratch + 88);
-  if (entriesLba < 2 || entriesLba > 64 || count == 0 || count > 128) return false;
+  if (entriesLba < 2 || entriesLba > 64 || count == 0 || count > 128) return -1;
   const uint32_t blocks = (count * kNativeVolumeEntryBytes + 4095) / 4096;
-  if (blocks > kDataMax / 4096) return false;
-  if (first < entriesLba + blocks || last < first || backup <= last || backup > UINT32_MAX ||
-      backup - last <= blocks) return false;
-  if (hostRead4k (0, entriesLba, blocks, gScratch) != kIOReturnSuccess) return false;
-  if (rootCrc32 (gScratch, count * kNativeVolumeEntryBytes) != entriesCrc) return false;
+  if (blocks > kDataMax / 4096) return -1;
+  if (first < entriesLba + blocks || last < first || backup <= last ||
+      backup > UINT32_MAX || backup - last <= blocks) return -1;
+  if (hostRead4k (lun, entriesLba, blocks, gScratch) != kIOReturnSuccess) return -1;
+  if (rootCrc32 (gScratch, count * kNativeVolumeEntryBytes) != entriesCrc) return -1;
   bool found = false;
   uint64_t entryFirst = 0, entryLast = 0;
   for (uint32_t index = 0; index < count; ++index) {
     const uint8_t *entry = gScratch + index * kNativeVolumeEntryBytes;
     if (!nativeVolumeEntryUsed (entry)) continue;
     const uint64_t candidateFirst = le64 (entry + 32), candidateLast = le64 (entry + 40);
-    if (candidateFirst < first || candidateLast < candidateFirst || candidateLast > last) return false;
+    if (candidateFirst < first || candidateLast < candidateFirst || candidateLast > last) return -1;
     if (!nativeVolumeNameMatches (entry, name)) continue;
-    if (found) return false;                     // duplicate names are refused
+    if (found) return -1;                       // duplicate names are refused
     entryFirst = candidateFirst;
     entryLast = candidateLast;
     found = true;
   }
-  if (!found) return false;
+  if (!found) return 0;
+  if (entryFirstOut != nullptr) *entryFirstOut = entryFirst;
+  if (entryLastOut != nullptr) *entryLastOut = entryLast;
+  return 1;
+}
+
+extern "C" bool native_pong_ufs_read_named_volume (const char *name, uint64_t offset,
+  uint8_t *buffer, size_t length)
+{
+  if (name == nullptr || name[0] == 0 || buffer == nullptr || length == 0) return false;
+  unsigned nameLength = 0;
+  while (name[nameLength]) {
+    if (nameLength >= kNativeVolumeNameMax) return false;
+    ++nameLength;
+  }
+  // The modem EFS partitions sit on a different LUN from unixnu/userdata on the
+  // K60 (sdf3..sdf6 against sda38), so every LUN is asked and exactly one may
+  // answer. A LUN whose GPT is unusable fails the whole lookup: reading the
+  // partition off a table we could not verify is worse than refusing.
+  uint8_t claimed[kNativeVolumeLunCount] = { 0 };
+  uint64_t entryFirst[kNativeVolumeLunCount] = { 0 };
+  uint64_t entryLast[kNativeVolumeLunCount] = { 0 };
+  for (uint8_t lun = 0; lun < kNativeVolumeLunCount; ++lun) {
+    const int status = findNamedVolumeOnLun (lun, name, &entryFirst[lun], &entryLast[lun]);
+    if (status < 0) return false;
+    claimed[lun] = status == 1 ? 1 : 0;
+  }
+  unsigned lun = 0;
+  if (!nativeVolumeUniqueLun (claimed, kNativeVolumeLunCount, &lun)) return false;
   uint64_t sector = 0;
   uint32_t skip = 0, sectors = 0;
-  if (!nativeVolumePlan (entryFirst, entryLast, 4096, offset, length, &sector, &skip, &sectors)) return false;
+  if (!nativeVolumePlan (entryFirst[lun], entryLast[lun], 4096, offset, length,
+      &sector, &skip, &sectors)) return false;
   size_t done = 0;
   for (uint32_t index = 0; index < sectors; ++index) {
-    if (hostRead4k (0, sector + index, 1, gScratch) != kIOReturnSuccess) return false;
+    if (hostRead4k (static_cast<uint8_t> (lun), sector + index, 1, gScratch) != kIOReturnSuccess)
+      return false;
     const size_t available = 4096 - skip;
     const size_t room = length - done;
     const size_t take = available < room ? available : room;

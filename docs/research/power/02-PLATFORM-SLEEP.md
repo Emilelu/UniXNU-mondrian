@@ -192,7 +192,43 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
 - §5 的 CPU 探针/投票（`docs/research/power/01-EPSS-PROBE.md`）与本文件是两条线，
   不要混为“§5 已完成”。
 
-## 9. 参考
+## 9. 上机判读器（2026-11-20）
+
+平台睡眠一共飞了十一张镜像（z、w、w2–w10），每张的结论都是从 40 KB console 里
+用眼睛挑出来的，而 w9 与 w10 的尾巴几乎一样：两者都打印到
+`K60TRACE: resumed` 与两行 report，w9 随后 panic `Spurious wakeup of cpu 1 @IOCPU.cpp:334`，
+w10 什么都不打印、系统硬挂、用户手动复位。靠“这一轮有没有注意到那两行的差别”来判断，
+不是判据。`scripts/judge-k60-sleep-console.py` 把这段尾巴变成机械判定：
+
+| 判据 | 通过条件 |
+|---|---|
+| CAPTURE | `capture.json` 可读、字节数与 console 一致；`complete=false` 但 `state=captured` 且有 `stopReason` 时按“截断窗口”接受（fastboot 返回、超时都属正常） |
+| ENABLE | `ArmCpu: platform sleep enabled wake-after=N s` 且 N>0，`K60Sleep: diagnostic trigger armed` 存在；**完全没有这一行时判 INVALID**（这张镜像没开睡眠，不是失败） |
+| ENTER | `Message IOCPUSleepKernel enter` 与 `K60TRACE: sleep enter cpus=8` |
+| PREPARE | `sched override done` → `platform actions done` → `quiescing set` 按序出现 |
+| HALT | 每个 secondary 一行 `halt cpu N state=3`，N 严格降序且不重复，末尾 `secondaries done` |
+| RESUME | `K60TRACE: resumed` 在挂起之后 |
+| REPORT | `ArmCpu: sleep report phase=5 entries>=1 spurious=0` 与 `K60Sleep: report prepares>=1 restores>=1` |
+| WAKE | `K60TRACE: wake cpus done`（w10 缺的就是这一行） |
+| NO-PANIC | 没有 `K60PANIC`/`panic(cpu` |
+
+退出码仍与其它判读器一致：0 PASS、1 FAIL、2 INVALID、4 用法错误。失败时按已知的两种
+形态给诊断，而不是只说“停住了”：
+
+- 出现 `Spurious wakeup of cpu N @file:line` → **resume panic**：secondary 在 catalog
+  ArmCpu 的约定下离开 halt 循环却没有真正的唤醒事件（它期待目标上下文里的
+  `processor_sleep`）。
+- REPORT 已过、WAKE 未过、`stopReason` 是 budget/timeout → **w10 硬挂**：唤醒源已经
+  起作用，问题在唤醒之后（不是“没有唤醒源”）。
+
+真实 console 复核（2026-11-20）：w8 → FAIL HALT（`the halt loop never reported
+completion`，console 停在 halt cpu 6）；w9 → FAIL，诊断为 resume panic；w10 → FAIL，
+诊断为 w10 硬挂。三者都是“看起来在推进”，判据把它们分开了。测试
+`scripts/tests/test-judge-k60-sleep-console.py` 26 项（含上述三份真实 console 与
+wake-after=0、halt 乱序、重复 halt、phase 错、spurious>0、BOM capture 等合成用例），
+Windows 宿主与 WSL 都是 26/26。
+
+## 10. 参考
 
 - 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:119-121`。
 - sheng：`origin/main` `package/ShengSleep.h`、`ShengSleep.cpp`、

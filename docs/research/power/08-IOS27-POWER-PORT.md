@@ -26,6 +26,7 @@
 | `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 八套件 1811 项 | **直接复用**；作为 iOS27 的第一道门 |
 | 跨版本搬运清单 `docs/research/power/CARRY.toml` + `scripts/check-power-carry.py` | 七个模块 14 个文件 773 项断言钉住哈希；`--target` 逐文件比对目标树的副本 | **直接复用**；iOS27 分支合并后跑 `python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27`——2026-11-20 实测六个 `SAME`、`K60ThermalMap` 三个 `MISS`（该树停在温控提交之前） |
 | mode-1 只读 A 判据 | `scripts/judge-k60-mode1-console.py`，14 cases；检查 capture、late read 三域 enable、L3 15 行、无写行与 SpringBoard | **直接复用**；iOS27 改 header/寄存器名后重跑 |
+| 平台睡眠判据（catalog ArmCpu 路线） | `scripts/judge-k60-sleep-console.py`，26 checks：ENABLE/ENTER/PREPARE/HALT/RESUME/REPORT/WAKE/NO-PANIC，并把 resume panic 与“唤醒后硬挂”分开 | **直接复用**；iOS27 用 catalog ArmCpu 重做睡眠后，判据不变，只换行文本与 PONG 门控 |
 | 只读 A 的现成镜像（iOS16） | image w11 离线构建于 2026-11-19 21:55，未上机：`E:/k60-work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B sha256 `6db4e6b7…`，kernel `069e7075…`，参数 30 项 601 B（`k60_cpufreq=1`，无 `applog=1`） | 等 slot 即可飞 A；iOS27 用同一判据重判 |
 | 现场事实：EPSS 三窗口 0x17d91000/2000/3000、L3 0x17d90000、4/3/1 核域 | `docs/research/power/01-EPSS-PROBE.md` | 复用；用 iOS27 的 ADT/FDT 复核地址与域映射 |
 | 现场事实：GPU 13 档 900–220 MHz、HFI 升序、GMU XO 19.2 MHz | `docs/research/power/04-GPU-FREQUENCY.md` | 复用；HFI 版本/命令号按 iOS27 固件复核 |

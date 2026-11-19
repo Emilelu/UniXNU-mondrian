@@ -1152,3 +1152,16 @@ mission33 镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission33/boot.img，201
 判读：目标 AP 的元素区在 384 上限下只能到 318 B，放大后应交付完整元素区（预计 ie≈642）。Emilelu_5G 出现即根因是 384 截断，生产修法就是保持放大；仍不出现则十三条探针照旧指名元素。mission32（fd80093a，裁剪版）在飞行前被 mission33 取代，artifact 目录已删，记 built-but-never-flown。
 
 两半用的是同一份生成头这件事有实证：station 的编译参数里 `-I overlay -I abi -I shim/include ... -I shared/include`（`build-k60-ath11k.py:527-529`），`clang -E` 对一个只含 `#include "nw_abi.h"` 的探针文件解析出的就是 `ath11k-abi1/abi/nw_abi.h`；kext 侧 `-I abi` 排在 `-I shared/drivers/Ath12kWifi/include` 之前（`build-k60-wifi-native.py:110`），而 `drivers/PongWifi/` 下没有同名头可以抢先，所以两个目标文件看到的都是 1024 字节数组。station 的 `IE_MAX 1024` 与 ABI 的 `ie[1024]` 因此是同一次改动的两半，不存在「station 写 1024、kext 只读 384」的越界路径。
+
+
+## §30 mission34：把共用元素的「内容」也变成探针（2026-11-19 09:16）
+
+mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission34 取代，artifact 目录已删除，记 built-but-never-flown。
+
+新代码 d91cfc2a（`drivers/PongWifi/PongWifiNet.cpp`）：`freeze_scan_list()` 排序后把表压到 45 条给 19 个探针留位（`if (gSnapCount > 45) gSnapCount = 45;`），并加第三组 6 个探针 K60N..K60S。前五条把两条记录都有的元素的**载荷**从守护进程会保留的 carrier 拷进目标记录：HT operation（61）、VHT operation（192）、VHT capabilities（191）、HT capabilities（45）、extended capabilities（127）；只有长度相同才拷（`memcpy(q.ie + to + 2, c.ie + co + 2, t.ie[to + 1])`），结构不动、偏移不变。K60S 是 mission32 没飞过的裁剪对照：把目标记录尾部不完整元素切掉后再交付。
+
+为什么需要第三组：减法探针（K60F..K60M）会造出真实 AP 不会发的记录——少了 HT/VHT operation 的结构本身就不合法，命中可能只是「结构残缺」而不是「这个元素有罪」；换载荷保持结构合法，命中就直接指向内容。三组合起来（加一个元素 / 减一个元素 / 换一个元素的载荷）才能把过滤器夹到单个元素。
+
+镜像：`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img` 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，head d91cfc2a，args 31 条 / 602 B（`image-arg-audit: OK`），`verify-boot-image: OK`；native 归档里 `wifi-net: probe %s = target with %s` 存在，station 仍是 abi1 的 6ef0058f（`#define IE_MAX 1024`）。
+
+判读：`judge-wifi-mission34.py` 打印 19 条探针各自的 KEPT/ABSENT 与真实 Emilelu_5G 行；`mission34-checklist.md` 是给人看的步骤。真名行出现即设置页这一项关闭；只出现某条探针则那条探针改动的元素就是过滤器。

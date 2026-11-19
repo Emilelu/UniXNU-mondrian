@@ -427,12 +427,12 @@ artifact_check = "verify-boot-image: OK；check-image-args: OK（31 参数/602 B
 
 [hardware.wifi.step.device]
 done = true
-evidence = "2026-11-19 08:50 mission33 构建并校验（head 1e31b49a，未飞）：boot.img 201,887,744 B SHA256 446d5332…，args 31/602，verify-boot-image OK；station 归档 6ef0058f（IE_MAX 1024）、native abi/nw_abi.h ie[1024]；mission32 裁剪版飞行前被取代并删除。"
+evidence = "2026-11-19 09:16 mission34 构建并校验（head d91cfc2a，未飞）：boot.img 201,887,744 B SHA256 b08a14f8…，args 31/602，verify-boot-image OK；19 条探针（5 加 / 8 减 / 6 换载荷与裁剪对照），表压到 45 条留位；mission33 未飞即被取代、artifact 已删。"
 
 [hardware.wifi.step.device.prediction]
-success = "mission33（head 1e31b49a）：1024 字节元素区交付完整记录后，真实 Emilelu_5G 出现在设置页（同时看 K60A..K60M 哪条也出现，用探针命名同一原因）。"
+success = "mission34（head d91cfc2a）：真实 Emilelu_5G 出现在设置页（1024 元素区交付完整记录即根因），同时用 19 条探针里出现的标签复核同一元素。"
 
-failure = "裁剪后 Emilelu_5G 仍不见，且只有 K60A 出现：384 截断不是全部原因，下一版把 station IE_MAX 与 nw_abi.h 的 ie[384] 一起放大到 1024（两处构建同改）再测。"
+failure = "Emilelu_5G 仍不见，但有探针被保留：那条探针改动的元素就是过滤器，下一版只改真实记录里的这一处；若 19 条全部落选，则过滤器不在元素层，转向 wifid 的记录级校验（长度/时间戳/去重）再设计实验。"
 
 
 [hardware.audio]

@@ -11,12 +11,12 @@
 —— 即长度 ≥607 或含非 ASCII 时 DarwinBoot 在 ReadFile/ParseKernel 之前直接返回，
 屏幕停在 REQUEST 阶段，**串口一个字节都不会出现**，设备自己回 fastboot。
 2026-11-14 的 bt 线 `usblog-20261114-bts1b-run1`（610 字节）就是这样 0 字节的。
-实测 board.toml 当前 29 项 575 字节（`unixnu build payload` 会按名覆盖后重新拼接）。
+实测 board.toml 当前 30 项 596 字节（2026-11-19 起含 `pong_metal=1` 与 `sheng-gpu-addon=1`，此前为 29 项 575 字节；`unixnu build payload` 会按名覆盖后重新拼接）。
 `payload.py:30-38 check_args()` 只拦 >1000，注释里的「1024-byte buffer」是过时的。
 
 预算实例（2026-11-19，合并 `feat/120hz-panel` 时核算）：`board.toml` 当前 29 项 575 字节，`p120=1` 追加 7 字节为 582，`vsync=120` 追加 10 字节为 585；`p120=1` 叠加 `k60_backlight_control=1` 为 606，仍在 607 上限内；`vsync=120` 与 `k60_backlight_control=1` 同用会到 609，装不进同一张镜像——所以面板切档与背光控制改为**默认开启**，只保留 `p120=0` / `vsync=120` / `k60_backlight_control=0` 作为退出开关。
 
-探针镜像另有实测：2026-11-18 的 mode-1 探针为 30 项 603 字节（临时去掉 `applog=1`），余 4 字节；发布镜像仍以 `board.toml` 的完整参数为准。
+探针镜像另有实测：2026-11-19 的 mode-1 探针 w11 为 30 项 601 字节（596 − 9 去掉 `applog=1` + 14 加入 `k60_cpufreq=1`），余 6 字节；2026-11-18 的旧探针记的是 603 字节，属当时那份参数表。发布镜像仍以 `board.toml` 的完整参数为准。
 
 ## 一览
 
@@ -453,6 +453,8 @@ pong_wifi=1 k60_wifi_rsc=2 k60_wifi_stage=10  +18 -> 620 超限
 两项合起来正好把 620 压到 607 以下（实测 589）。`k60_fontscale=0` **不是**让位项：
 `osfmk/console/video_console.c:2844` 要求 scale 在 2..4，0 会被忽略且长度不变。
 `k60_selftest_reboot=300`（23 字节）在未配置时本来就不在 board.toml 里。
+
+2026-11-19 起基线改为 30 项 596 字节（`pong_metal=1`、`sheng-gpu-addon=1` 加入，`k60_fontscale=3` 移除），余 11：上面那张以 575 为基线的表整体右移 21 字节，`pong_wifi=1`（+12）现在是 608、`k60_wifi_rsc` 系列因此全部超限，充电认证的 `k60_charge_auth=1`（+18）是 614。这几项只跑进探针镜像（去掉 `applog=1` 后 587：wifi 599、charge-auth 605 都装得下），或先按上面的让位项腾字节。
 
 ## 当前状态（2026-11-12）
 

@@ -43,7 +43,7 @@
 | 订阅、周期刷新、断链 stale | 已验证（image f 12-14 条样本） |
 | 与 Android/OEM 对照（C3） | 部分：只有低电流 3 对 PASS；匹配电流窗口因属性 9 静默、XNU 只能发 USB 输入电流而 FAIL |
 | 真机插拔、放电、超时、服务重启 | 未完成（host 第 15/16 节只模拟状态转换） |
-| 充电认证 PD/PPS/MiPPS（:82-88） | 部分（仅移植）：sheng 的 `ShengChargeAuth.c` 已移植到 `feat/charge-auth`（host 85 项，未接入电池队列）；本分支仍未接线，K60 固件侧的认证字段与密钥没有来源 |
+| 充电认证 PD/PPS/MiPPS（:82-88） | 部分（仅移植，默认关闭）：sheng 的 `ShengChargeAuth.c` 已移植为 `K60ChargeAuth.c`（host 仅状态机 99 项、HMAC-SHA256 5 项 RFC 4231 向量），并默认关闭地接入 `K60Battery` 串行队列，只有 property 7 值 6/7/8 的 fresh sample 启动；`k60_charge_auth=1`（18 B）在 596 B 基线下会到 614 B 超过 607，本分支因此未启用该参数；无 UCSI 数据角色、未上机，K60 固件侧的认证字段与密钥没有来源 |
 | Linux 充电读取镜像（:89-104） | 未接入；参考脚本在 sheng 仓库 |
 
 ## §5 调频与电源操作（:105-121）
@@ -143,7 +143,7 @@ GPU DCVS 也已接上 GMU XO 忙碌计数器、HFI id 30 投票与 16 ms 线程�
 触摸/帧信号（§5 :115-:117）已接：触摸计数补丁 `0622` 与 CPU/GPU 消费方 `aa3bada7` 已进 image x（05:47 拿到 `tb=1`、计数 1→7，但写窗口先关）；`9b8a36b6` 重开窗口、`a0e8a060` 去掉 100 s 上限、`a6a51bc5` 强制首票，image ab 于 07:18 把 d0 写到 `state=15->94`、`hw=1804800kHz`（`restore domains=3 votes=27`）；`43af2a5c` 再把票数改为每窗口重置、`boost` 覆盖每个域，image ac 于 07:34/07:43 两次上机但窗口内没有触摸（276/273 条 `tb=0`），轻触摸与预算仍未验证；帧下限自 image w 起从 CP 环采样（276 条 `fr=0`）。mode 8 于 03:58 以 image s 把升档也写进 d0：`apply d0 level=13 (1804800kHz) readback=ok state=81->94`，与降档交替 11 票后 `restore domains=2 votes=11`；但 d1 的 `apply level=16 readback=ok` 之后 `state=130->130`、硬件仍是 2.496 GHz，EPSS 对大核簇的自主控制没有被这条路径接管，d1/d2 的写回应视为无效。
 版本无关的 CPU 策略继续补齐：PDMEM perf-lock（`0x17d09804/8/c`）、L3 follow（`0x17d90000` + `0x90`）与 `0x30c` bit2（GT_IRQ_STATUS）+ `0x20` 限频上限夹取均已接进 `K60CpuFreqPlan`/探针（host 203 项、七套件 1686 项；`K60RailPlan` 的 134 项顺序/回滚断言也在此套件内），但都没有上机；下次有确认的测试计划时再验证。只读 A 的判据已固化为 `scripts/judge-k60-mode1-console.py`（14 cases；检查 capture、late read 三域 enable、L3 15 行、无写行与 SpringBoard，cap 公式只作 NOTE）。
 
-温控只读线在 `feat/thermal-tsens` 已验收（22 传感器、等级发布），主动降温按方案 1 park，本分支不接线（导入尝试以 `27ceb919` 回滚）。电池插拔暂缓；充电认证移植已在 `feat/charge-auth` 分支（未接入）。
+温控只读线在 `feat/thermal-tsens` 已验收（22 传感器、等级发布），主动降温按方案 1 park，本分支不接线（导入尝试以 `27ceb919` 回滚）。电池插拔暂缓；充电认证移植已在 `feat/charge-auth` 分支（默认关闭接入；18 B 的参数装不进 596 B 基线剩下的 11 B）。
 
 ## 参考
 

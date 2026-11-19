@@ -6095,6 +6095,77 @@ P-207（门禁不许判陈旧产物）。
 的判据）、P-190（认不出名字就静默跳过）、P-202（`.config` 缺失时 `sed` 静默返回空）、
 P-205（新增门禁必须同时进 README 门禁表）。
 
+## P-227
+
+**标题：一个必失败的检查把后面的检查变成了从未执行过的代码**
+
+2026-11-16 之前，每一次完整的固件构建都停在
+
+```
+The Device DTB is Missing in "Resources/DTBs"!
+```
+
+而这句话出现在 EDK2 阶段**成功之后**（日志里上一行是 `0061 Images Verified`）。FD 已经
+编出来了，boot.img 却从来没产出过；唯一出路是手工从 `Build/.../FV` 里把
+`SILICIUM_UEFI.fd` 捞出来自己打镜像。所以这个现象被当成「这台机器少一个文件」，没有人
+去看它后面还有什么。
+
+`create_android_boot_img()` 里，DTB 检查之后紧接着是
+
+```python
+"--ramdisk",    "Resources/ramdisk",
+```
+
+而 `Resources/ramdisk` 从来没有存在过。`git log -S'Resources/ramdisk' -- build_uefi.py`
+只命中两个提交：`f92c387`（`mondrianPkg init`，写下这一行）和 `5b67dba`（把它改成
+可选）。`f92c387` 带进来的 `Resources/` 树是 Configs、DTBs（只有 `pong.dtb`/`pong.dts`）、
+MuPatches、Pictures、Scripts —— 既没有 `ramdisk`，也没有 `mondrian.dtb`。
+**两行都是那一天写下的，DTB 那一行先失败，于是 ramdisk 那一行从上线起就没有执行过。**
+
+把 DTB 补齐之后（`ccd0644`），第一次越过了那道检查，紧接着撞上的是
+
+```
+mkbootimg.py: error: argument --ramdisk: can't open 'Resources/ramdisk':
+[Errno 2] No such file or directory: 'Resources/ramdisk'
+```
+
+——同一个函数里相邻两条语句，相隔一年半的提交历史，同一个形状。
+
+修法两笔：`ccd0644` 补 `Resources/DTBs/mondrian.dtb`（dtc 从 `dts/mondrian.dts` 编，
+4,024 B，与框架 `out-baseline` 的 `hardware.dtb` 逐字节相同）并把检查从「文件不存在」
+改成「不存在或 ≤1 KiB」，日志直说「这不是缺文件，是 `append_dtb` 开着」；
+`5b67dba` 让 ramdisk 只在文件真的存在时才传给 mkbootimg（`mkbootimg.py` 对缺省 ramdisk
+写 `ramdisk_size = 0`，是合法的 header v4 镜像）。修后 `build_uefi.py -d mondrian -r DEBUG`
+一次跑通，产出 `Mu-mondrian.img` 565,248 B。
+
+门禁：`scripts/check-firmware-inputs.py` 静态解析同级 `uefi-mondrian/build_uefi.py` 里
+每一个 `Resources/...` 字面量，要求它**要么在检出里存在，要么被绑定变量上的
+`is_file () / exists () / is_dir ()` 守卫**；两者都不是就 FAIL 并点名行号。反向验证：
+拿 `5b67dba^` 的脚本配一份补好 DTB 的 `Resources/`，它精确报
+`build_uefi.py:347: "Resources/ramdisk" … nothing checks for it`；拿 `ccd0644^` 的脚本
+报 `:331`。当前树上只留一条 note（`Resources/ramdisk` 缺但在守卫后面），八条用例守住
+「守卫必须绑在同一个变量上」「句子里的路径不算输入」。
+
+**三条教训**
+
+1. **一串前置检查里，第一个必失败的那个会让后面全部变成从未执行过的代码。** 判据不是
+   「这些检查写得好不好」，而是「它们有没有机会运行」。写下一串检查时要问：如果第一条
+   永远为假，后面几条等于不存在；那么第一条的失败信息就必须承担「后面还有多少没跑过」
+   这件事，而不是只说「缺一个文件」。（P-190 是同一个形状：`KERNEL_EXTRA_ARCHIVES` 整段
+   嵌在一个永远不成立的分支里。）
+2. **判断「这段代码有没有跑过」不能看它存在，要看它的失败分支有没有出现过。** 这段代码
+   在仓库里躺了一年半、被 `git blame` 认得、被 review 看过，但它一次都没有执行。能证明
+   它跑过的证据只有一种：它自己的失败信息在日志里出现过。凡是要断言「这条路径已验证」，
+   就得拿出那一条日志；拿不出来就是没跑过。
+3. **修好前一个检查之后，必须重跑整条链并把新暴露的断点全部走一遍，而不是只修刚撞到的
+   那个。** 这次如果只补 DTB 就收工，下一个人会在同一天撞上 ramdisk，再下一天撞上下一个。
+   正确做法是「修一处 ⇒ 重跑到下一个断点 ⇒ 再修」，直到一次跑通为止；跑通之后还要把
+   这条链上所有「因为前面必失败所以从没跑过」的输入列出来，一次性补成守卫。
+
+关联：P-190（检查挡住检查的原始形状）、P-205（写进文档的名字/编号必须能被对账）、
+P-217（门禁读同级 `uefi-mondrian` 的先例，`K60_UEFI_REPO` 覆盖同名环境变量）、
+P-224（分支上修好不回 main 等于没修：DTB 那一笔如果不单独提交，ramdisk 这一笔永远暴露不出来）。
+
 ## P-228
 
 **标题：兼容层无条件重放 IRQ，于是「handler 被调用过」被当成了「硬件中断到达了」**
@@ -6115,11 +6186,18 @@ void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_
 **无条件的。** 每毫秒把 64 个已注册 IRQ 全部置 pending，与硬件有没有拉中断线毫无关系。于是
 `irq entered` 出现一次只能证明「这个 handler 被调度器跑过一次」，不能证明 MSI 到过。
 
-真正的硬件判据是另一条打点：`PongWifiPlatform.cpp:682` 的
-`if (!irqSeen && __atomic_load_n(&msiArrivals, ...)) { ... log(6, "QCA6490 MSI delivered by GIC"); }`，
-而 `msiArrivals` 只在 `irq()` 里 `dbi.r(MsiStatus)` 读到非零时才自增。c7 的
-`grep -ac "MSI delivered"` = **0** —— 这才是「MSI 没到」的证据，而且它一直是有效的。
-我先把无效判据当成结论，又反过来用「irq entered 出现过」去否证有效的判据，方向错了两次。
+**2026-11-16 重新审视后的第二次纠正：缺失日志也不能证明 MSI 没到。**
+`msiArrivals` 只在真正的 GIC 回调中读到 `dbi.r(MsiStatus)` 非零时才自增，这个计数与
+软件重放的 MHI handler 不同；但 `QCA6490 MSI delivered by GIC` 的打印不在失败路径上。
+在实验源树 `E:/hackios/k60-wifi/drivers/PongWifi/PongWifiPlatform.cpp:690`，
+`nw_wifi_start()` 返回错误就 `goto done`；`:692` 才进入检查计数并打印该行的循环。
+c7 在初始化中返回 `-110`，因此根本不会执行这条打印。日志 0 命中不能判断计数是否非零，
+更不能证明 MSI 到达或未到达。必须在实际超时点采集 GIC 入口计数、pending 读回和上下文，
+并与兼容层重放的次数分开。此处收回旧版「缺失日志一直是有效反证」的结论。
+
+同样，`er_ctxt->rp` 的初值由主机写入；CPU 读到它未变化，只证明本次 CPU 观察值没变。
+设备是否读过上下文、DMA 写入及缓存可见性仍需独立验证。完整证据边界见
+[2026-11-16 重新审视](../audits/REASSESSMENT-2026-11-16.md)。
 
 **四条教训**
 

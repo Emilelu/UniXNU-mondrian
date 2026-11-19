@@ -173,7 +173,7 @@ diff --git a/bsd/dev/pong_ipa.c b/bsd/dev/pong_ipa.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.c
-@@ -0,0 +1,1405 @@
+@@ -0,0 +1,1404 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path M0 skeleton plus M1 firmware staging.
 + *
@@ -205,7 +205,6 @@ new file mode 100644
 +#include <vm/pmap.h>
 +#include <vm/vm_kern.h>
 +#include <arm/caches_internal.h>
-+#include "pong_pmic_rail.h" /* the kernel copy is pong_pmic_rail.h */
 +#include "pong_smem.h" /* the kernel copy is pong_smem.h */
 +
 +/* osfmk/arm/machine_routines.h:703; declared here keeps the include path out

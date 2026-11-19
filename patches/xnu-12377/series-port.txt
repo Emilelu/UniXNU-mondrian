@@ -5,6 +5,8 @@
 0627-k60-modem-qrtr.patch
 # born as 16 line 0623
 0628-k60-ipa.patch
+# born as 16 line 0611: pong_smem only, nothing calls k60_rail_probe
+0630-k60-smem.patch
 # born as the 16 line 0621/0624 call sites
 0629-kern-exec-call-sites.patch
 # 0621-k60-io-submap-budget is not carried: the 27 io_map.c has no io_submap

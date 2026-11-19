@@ -15,4 +15,5 @@ bsd/dev/pong_modem_memshare.c			standard
 bsd/dev/pong_modem_pas.c			standard
 bsd/dev/pong_modem_qrtr.c			standard
 bsd/dev/pong_modem_rmtfs.c			standard
+bsd/dev/pong_smem.c			standard
 bsd/dev/qcom_glink.c			standard

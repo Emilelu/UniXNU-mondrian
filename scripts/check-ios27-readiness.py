@@ -90,12 +90,17 @@ def anchor_state(tree):
 
 ARTIFACT_DIR = os.path.join(REPO, 'patches', 'xnu-12377')
 ARTIFACTS = ['0626-k60-modem-image.patch', '0627-k60-modem-qrtr.patch',
-             '0628-k60-ipa.patch', 'series-port.txt', 'conffiles-port.txt']
+             '0628-k60-ipa.patch',
+             '0630-k60-smem.patch', 'series-port.txt', 'conffiles-port.txt']
+
+
+def patch_artifacts():
+    return [n for n in ARTIFACTS if n.endswith(".patch")]
 
 
 def sourced_from_patches():
     names = set()
-    for name in ARTIFACTS[:3]:
+    for name in patch_artifacts():
         path = os.path.join(ARTIFACT_DIR, name)
         if not os.path.exists(path):
             continue
@@ -138,7 +143,7 @@ def smmu_in_tree(tree):
 def patch_targets():
     """Every path the three ported patches touch, from their diff headers."""
     names = set()
-    for name in ARTIFACTS[:3]:
+    for name in patch_artifacts():
         path = os.path.join(ARTIFACT_DIR, name)
         if not os.path.exists(path):
             continue
@@ -165,7 +170,7 @@ def probe_symbols():
 def patch_sections():
     """Per patch: the files it touches and how many of its sections are new files."""
     result = []
-    for name in ARTIFACTS[:3]:
+    for name in patch_artifacts():
         path = os.path.join(ARTIFACT_DIR, name)
         if not os.path.exists(path):
             continue
@@ -178,6 +183,33 @@ def patch_sections():
                     targets.append(line[6:].strip())
         result.append((name, targets, fresh))
     return result
+
+
+def quoted_includes():
+    """Every #include "x" the ported patches add, with the file that adds it."""
+    pairs = []
+    for name in patch_artifacts():
+        path = os.path.join(ARTIFACT_DIR, name)
+        if not os.path.exists(path):
+            continue
+        current = ''
+        with open(path, encoding='utf-8', errors='replace') as handle:
+            for line in handle:
+                if line.startswith('+++ b/'):
+                    current = line[6:].strip()
+                elif line.startswith('+#include "'):
+                    header = line.split('"')[1]
+                    pairs.append((current, header))
+    return pairs
+
+
+def installed_headers():
+    """Headers the patch set itself installs, by basename."""
+    names = set()
+    for target in patch_targets():
+        if target.endswith('.h'):
+            names.add(os.path.basename(target))
+    return names
 
 
 def compare(expected, actual):
@@ -277,6 +309,27 @@ def main(argv):
         print('K60 READY DRIFT ' + '; '.join(missing_probes))
     else:
         print('K60 READY ok   both probe symbols are defined by the patches')
+    pairs = quoted_includes()
+    own = installed_headers()
+    unresolved = sorted({(src, hdr) for src, hdr in pairs
+                         if hdr not in own and not include_present(args.tree, hdr)})
+    if not pairs:
+        drift += 1
+        print('K60 READY DRIFT no carried file includes anything')
+    elif unresolved:
+        drift += 1
+        print('K60 READY DRIFT %d quoted include(s) resolve nowhere: %s'
+              % (len(unresolved),
+                 ' '.join('%s (%s)' % (h, os.path.basename(f)) for f, h in unresolved[:4])))
+    else:
+        print('K60 READY ok   %d quoted includes resolve inside the patch set or the tree'
+              % len({h for _f, h in pairs}))
+    rail = [t for t in patch_artifacts() if "pong_pmic_rail" in open(os.path.join(ARTIFACT_DIR, t), encoding="utf-8").read()]
+    if rail:
+        drift += 1
+        print("K60 READY DRIFT a ported patch still needs pong_pmic_rail: " + " ".join(rail))
+    else:
+        print("K60 READY ok   no ported patch needs the pmic rail driver")
     wired = conf_entries_in_tree(args.tree)
     if wired:
         drift += 1

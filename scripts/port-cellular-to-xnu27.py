@@ -13,6 +13,7 @@ This tool produces the 27-line set mechanically:
   0627-k60-modem-qrtr.patch     <- 0622, unchanged
   0628-k60-ipa.patch            <- 0623, unchanged
   0629-kern-exec-call-sites.patch <- both probes, re-anchored by line
+  0630-k60-smem.patch        <- the 16 line pong_smem pair from 0611, verbatim
 
 0621's call-site hunk and 0624 are dropped from the copies because 0629 replaces
 them. 0621-k60-io-submap-budget is not carried at all: the 27 io_map.c has no
@@ -22,6 +23,7 @@ io_submap or IO_MAP_SIZE (see docs/research/cellular/20-IOS27-PORT-PLAN.md).
 import argparse
 import difflib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +33,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATCHES = os.path.join(ROOT, "patches", "xnu")
 
 CALL_SITE_HEADER = "@@ -7834,2 +7834,10 @@"
+
+# The carried modem and IPA sources include pong_smem.h, which the 16 line gets
+# from 0611.  Those two files are self-contained (only their own header plus
+# stdint), so the 27 line carries them verbatim instead of porting all of 0611.
+# pong_pmic_rail.h is different: the carried files include it but call nothing
+# from it (k60_rail_probe has no caller under drivers/PongCellular), so the
+# include is dropped rather than dragging a second line's driver along.
+CARRY = (("0611-k60-smem-handoff.patch", ("bsd/dev/pong_smem.h", "bsd/dev/pong_smem.c")),)
+DROPPED_INCLUDE = '+#include "pong_pmic_rail.h"'
+
 
 PROBES = [
     ("\t/* 0629: hand the modem carveout to the secure monitor once Data is mounted."
@@ -98,6 +110,8 @@ def series_fragment():
         "0627-k60-modem-qrtr.patch",
         "# born as 16 line 0623",
         "0628-k60-ipa.patch",
+        "# born as 16 line 0611: pong_smem only, nothing calls k60_rail_probe",
+        "0630-k60-smem.patch",
         "# born as the 16 line 0621/0624 call sites",
         "0629-kern-exec-call-sites.patch",
         "# 0621-k60-io-submap-budget is not carried: the 27 io_map.c has no io_submap",
@@ -121,8 +135,74 @@ def conf_entries(patch_paths):
     return [name + chr(9) * 3 + "standard" for name in sorted(names)]
 
 
-# The probes belong immediately before the line that pushes the Data stage to 3,
-# so the stage assignment wins over the /private/var lookup that precedes it.
+def carry_sections(name, targets):
+    """The named file sections of a 16-line patch, byte for byte."""
+    text = read(name)
+    chunks, current, keep = [], None, False
+    for line in text.splitlines(True):
+        if line.startswith("diff --git "):
+            if current is not None and keep:
+                chunks.append(current)
+            current, keep = line, False
+        elif current is not None:
+            current += line
+            if line.startswith("+++ b/"):
+                keep = line[6:].strip() in targets
+    if current is not None and keep:
+        chunks.append(current)
+    found = set()
+    for chunk in chunks:
+        for field in chunk.splitlines():
+            if field.startswith("+++ b/"):
+                found.add(field[6:].strip())
+    missing = [t for t in targets if t not in found]
+    if missing:
+        raise SystemExit("%s no longer carries %s" % (name, " ".join(missing)))
+    return "".join(chunks)
+
+
+def drop_include(text):
+    """Remove an added include line and keep the hunk's counts honest.
+
+    Deleting a '+' line without touching the header is exactly the corrupt patch
+    the first version of this function produced, so the counts are recounted
+    from the body instead of assumed."""
+    out, header, body = [], None, []
+
+    def flush():
+        if header is None:
+            return
+        match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)", header)
+        if not match:
+            out.append(header + chr(10))
+            out.extend(body)
+            return
+        added = sum(1 for line in body if line.startswith("+"))
+        removed = sum(1 for line in body if line.startswith("-"))
+        context = sum(1 for line in body if line.startswith(" ") or line.strip() == "")
+        out.append("@@ -%s,%d +%s,%d @@%s%s" % (match.group(1), removed + context,
+                                                 match.group(3), added + context,
+                                                 match.group(5), chr(10)))
+        out.extend(body)
+
+    for line in text.splitlines(True):
+        if line.startswith("@@ "):
+            flush()
+            header, body = line.rstrip(chr(10)), []
+        elif header is not None and line.startswith(DROPPED_INCLUDE):
+            continue
+        elif header is not None and line.startswith(("diff --git ", "+++ b/", "--- a/")):
+            flush()
+            header, body = None, []
+            out.append(line)
+        elif header is not None:
+            body.append(line)
+        else:
+            out.append(line)
+    flush()
+    return "".join(out)
+
+
 ANCHOR_MARKERS = (("native_owner_data_stage",),
                   ("native_owner_data_prepare", 'vnode_lookup("/private/var"'))
 
@@ -148,9 +228,11 @@ def write_port(out, tree, anchor_text):
     os.makedirs(out, exist_ok=True)
     image = read("0620-k60-modem-image.patch")
     pas = strip_call_site(read("0621-k60-modem-pas.patch"))
+    carried = "".join(carry_sections(name, files) for name, files in CARRY)
     targets = {"0626-k60-modem-image.patch": image + "\n" + pas,
-               "0627-k60-modem-qrtr.patch": read("0622-k60-modem-qrtr.patch"),
-               "0628-k60-ipa.patch": read("0623-k60-ipa.patch")}
+               "0627-k60-modem-qrtr.patch": drop_include(read("0622-k60-modem-qrtr.patch")),
+               "0628-k60-ipa.patch": drop_include(read("0623-k60-ipa.patch")),
+               "0630-k60-smem.patch": carried}
     for name, body in targets.items():
         with open(os.path.join(out, name), "w", encoding="utf-8") as handle:
             handle.write(body)
@@ -162,6 +244,7 @@ def write_port(out, tree, anchor_text):
                 "0626-k60-modem-image.patch",
                 "0627-k60-modem-qrtr.patch",
                 "0628-k60-ipa.patch",
+                "0630-k60-smem.patch",
             )
         ])) + chr(10))
     call_sites, problem = build_call_sites(tree, anchor_text)
@@ -176,7 +259,8 @@ def write_port(out, tree, anchor_text):
 def verify(tree, out):
     """Run git apply --check for every patch that was produced."""
     wanted = ["0626-k60-modem-image.patch", "0627-k60-modem-qrtr.patch",
-              "0628-k60-ipa.patch", "0629-kern-exec-call-sites.patch"]
+              "0628-k60-ipa.patch", "0629-kern-exec-call-sites.patch",
+              "0630-k60-smem.patch"]
     seen = 0
     for name in wanted:
         path = os.path.join(out, name)
@@ -305,7 +389,7 @@ def main(argv):
         if args.verify:
             verify(args.tree, args.out)
         return 2
-    print("K60 PORT27 OK wrote 0626, 0627, 0628, 0629 and series-port.txt to " + args.out)
+    print("K60 PORT27 OK wrote 0626..0630 and series-port.txt to " + args.out)
     if not args.verify:
         return 0
     return verify(args.tree, args.out)

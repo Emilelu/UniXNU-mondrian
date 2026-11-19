@@ -1275,13 +1275,13 @@ k44 用 mode 3 分开这两者。
 与我们的应用层流量无关；若 rx 一直增长或服务继续出现 ⇒ 是我们的周期流量触发的，下一步按探针频率二分。
 实机结果（2026-11-19 14:46，420 s 采集）：
 
-- 镜像 \`E:/k60-work/artifacts/modem-20261117k44/boot-modem-b-full-qrtr3.img\`
-  （\`02cd895fc023a7de194746b16507438ca3a58c657f2e41c93aed4cef34df438f\`），args 尾 \`pong_modem=2 pong_qrtr=3\`；
-  证据 \`E:/k60-work/evidence/usblog-20261119-144720\`，capture \`captured-disconnected\`、complete=false、213,341 B、
-  logSha256 \`9420C41A308EFFD64783655500AB1551EAACFC8E22F4DFDD6C7A2A7541651F1D\`、stopReason \`fastboot-return\`、
+- 镜像 `E:/k60-work/artifacts/modem-20261117k44/boot-modem-b-full-qrtr3.img`
+  （`02cd895fc023a7de194746b16507438ca3a58c657f2e41c93aed4cef34df438f`），args 尾 `pong_modem=2 pong_qrtr=3`；
+  证据 `E:/k60-work/evidence/usblog-20261119-144720`，capture `captured-disconnected`、complete=false、213,341 B、
+  logSha256 `9420C41A308EFFD64783655500AB1551EAACFC8E22F4DFDD6C7A2A7541651F1D`、stopReason `fastboot-return`、
   resetMarker 存在。判读 S3 PASS / S4 FAIL / S5 FAIL / S6 PASS。
-- **静默基线**：\`wait 5 s services=2 wanted=0 dms=0 malformed=0 tx head=632 tail=632 rx avail=0 head=960 tail=960
-  intents=0/30 local=4/4 lbusy=0 ldone=0 msgs=44/17 dropped=0 rxcmd=2/1/0/2\`；\`wait 230 s\` **逐字节相同**。
+- **静默基线**：`wait 5 s services=2 wanted=0 dms=0 malformed=0 tx head=632 tail=632 rx avail=0 head=960 tail=960
+  intents=0/30 local=4/4 lbusy=0 ldone=0 msgs=44/17 dropped=0 rxcmd=2/1/0/2`；`wait 230 s` **逐字节相同**。
   整个四分钟里 modem 只送来 2 条 NEW_SERVER（66/0x42 与 43/0x2b）、1 条 HELLO 应答、2 条 DATA，
   其余什么都没有；两个环都停在握手结束时的位置。
 - 结论一：k42/k43 里 35–45 秒后的“停摆”（rx head 冻结、intents 涨到 30/30、tx tail 不动）**是我们自己的
@@ -1289,20 +1289,20 @@ k44 用 mode 3 分开这两者。
 - 结论二（更重要）：modem 的 QRTR 表**从一开始就只有两条服务**，它不会在后续四分钟里补上 QMI 那一批。
   Android 记录的 36 条（EFS 21 / WDS 1 / UIM 11 / NAS 3 / PDS 16 …）在我们的窗口里从未出现，所以问题不是
   “注册潮比我们早”，而是“QMI 栈根本没起来”。
-- adopt 行照旧：\`rx head=8 …\` 与 \`glink adopt dropped 8 stale bytes\`（Android 时代的 VERSION 残帧）。
+- adopt 行照旧：`rx head=8 …` 与 `glink adopt dropped 8 stale bytes`（Android 时代的 VERSION 残帧）。
 
 ### 3.32 k45：问名称服务器，并把存储服务挂出去（2026-11-19 15:30 已上机）
 
 两条互不依赖的假设，用一次飞行同时读：
 
-1. **名称服务器端口**。k37 的两分钟广播 lookup 全部发往控制端口 \`0xfffffffe\`；QRTR 的名称服务器
-   监听在 \`K60_QRTR_NS_PORT\`（53）。k45 的 lookup 改为 \`node 0 port 53\` 与 \`broadcast port 53\` 交替，
-   并把收到的 \`NEW_LOOKUP\`（类型 0x0a，20 字节一条）解析成服务发现，行格式
-   \`K60MODEM qrtr: lookup reply service %u instance %u node %u port %u\`；wait 行尾加 \`replies=%u\`。
-2. **存储服务**。Pong 在启动 modem 之前就把 RMTFS（QMI 服务 14 / 实例 1，端口 \`0x102\`）注册好；
-   它记录的 modem 第一次 NV 访问发生在 \`PAS4\` 启动以前。我们从未挂过这个服务。k45 在 servloc 之后
-   追加 \`K60MODEM qrtr: announced rmtfs service 14 instance 1 port 0x102\`，并对任何发往 \`0x102\` 的 DATA
-   打印 \`rmtfs request %u bytes type=%u msg=%u\`（wait 行尾 \`rmtfs=%u\`）。**本飞只观测不应答**：
+1. **名称服务器端口**。k37 的两分钟广播 lookup 全部发往控制端口 `0xfffffffe`；QRTR 的名称服务器
+   监听在 `K60_QRTR_NS_PORT`（53）。k45 的 lookup 改为 `node 0 port 53` 与 `broadcast port 53` 交替，
+   并把收到的 `NEW_LOOKUP`（类型 0x0a，20 字节一条）解析成服务发现，行格式
+   `K60MODEM qrtr: lookup reply service %u instance %u node %u port %u`；wait 行尾加 `replies=%u`。
+2. **存储服务**。Pong 在启动 modem 之前就把 RMTFS（QMI 服务 14 / 实例 1，端口 `0x102`）注册好；
+   它记录的 modem 第一次 NV 访问发生在 `PAS4` 启动以前。我们从未挂过这个服务。k45 在 servloc 之后
+   追加 `K60MODEM qrtr: announced rmtfs service 14 instance 1 port 0x102`，并对任何发往 `0x102` 的 DATA
+   打印 `rmtfs request %u bytes type=%u msg=%u`（wait 行尾 `rmtfs=%u`）。**本飞只观测不应答**：
    如果 modem 开始要文件，下一版才实现读/写/iovec 与共享缓冲。
 
 镜像与哈希（2026-11-19 15:09 构建，源码 `5abc29b99de356d3c8375a3aefedc61d3423559d`）：
@@ -1322,8 +1322,8 @@ k44 用 mode 3 分开这两者。
 内核字符串已确认四条新诊断各出现一次：`announced rmtfs service`、`rmtfs request`、
 `lookup reply service`、`replies=%u rmtfs=%u`。
 
-判据：S3/S6 保持；新增三条可读事实——\`replies=\` 是否非零、\`rmtfs=\` 是否非零、以及
-\`lookup reply\`/\`rmtfs request\` 行有没有出现。三条全零则说明 modem 连名称服务与存储服务都不问了，
+判据：S3/S6 保持；新增三条可读事实——`replies=` 是否非零、`rmtfs=` 是否非零、以及
+`lookup reply`/`rmtfs request` 行有没有出现。三条全零则说明 modem 连名称服务与存储服务都不问了，
 下一步转向 modem 侧状态（崩溃转储/子系统中止），而不是继续在 AP 侧加服务。
 
 实机结果（2026-11-19 15:30，420 s 采集）：
@@ -1340,6 +1340,58 @@ k44 用 mode 3 分开这两者。
   涨到 8 全是 HELLO 探针触发的重播（同一对 66/0x42 与 43/0x2b）。
 - 结论：k44 的“QMI 栈从未启动”与 Pong 的“RF 初始化立刻要读 EFS”是同一件事的两面——**AP 侧唯一缺的
   就是 RMTFS 的应答**。§3.32 判据里“三条全零”没有发生：`rmtfs=` 非零且带着一条可解析的 open。
+### 3.33 k46：应答存储服务的 open（2026-11-19 16:21 已上机）
+
+k45 的实机结果把问题收窄到一条消息：modem 在 RMTFS 宣告后立刻发来 25 字节的 open，我们没回。k46 只做一件事——
+把这条 open 应答起来，并让后续序列自己说话。
+
+改动（提交 10f6f19e、46734396、062d84cc）：
+
+1. 新增 `drivers/PongCellular/K60ModemRmtfs.h/.c`：QMI v1 的 open/close/rw/alloc/sync 解析与应答构造，
+   自包含 LE/TLV，不复用 QRTR 的编解码，便于主机测试（`scripts/tests/test-k60-rmtfs.c`）。
+2. `K60ModemLink.c` 的 RMTFS 分支：open 命中四个镜像名之一就回 4 字节存储 id（未知路径回 result 1）；
+   close/sync 回 1 字节 0；alloc 打印后回 result 1（没有缓冲，留给 k47）；rw 打印方向与向量数后回 result 1。
+   应答经 `k60_qrtr_queue_reply(K60_QRTR_RMTFS_PORT, from_node, from_port, answer, used)` 排队，
+   由既有的 `k60_qrtr_flush_replies()` 发出。
+3. 生成器把两个新文件带进内核补丁（`bsd/dev/pong_modem_rmtfs.c`），并把 `K60ModemRmtfs.h` 重命名为
+   `pong_modem_rmtfs.h`；`scripts/append-conffiles.py` 同步登记，否则链接期报
+   `Undefined symbols for architecture arm64: _k60_rmtfs_build_reply, _k60_rmtfs_parse`。
+
+哈希：
+
+| 项目 | 值 |
+| --- | --- |
+| 内核 | `05dd0a8621351a25741b19ba765d14cc80b7c0186df86409df8df05e773581af`，105,738,240 B |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k46/boot-modem-b-full.img`，201,895,936 B，`dbeacd6a86387e0993c1b5550be38e34828767fada9e4fce48af9e993f30c26b` |
+| payload.img | `abc6fb724deb355828417f30438346f8521efdc3cbb464b3aef2f1303a7aee8f` |
+| payload.json | `1e5596116ed7416cc9d5f39d217230155794159526d4d421ab1ee819accbd3b6` |
+| ADT | `3e9313793aef5c725ec8ee24cf05cd1b0988dd18d9aa465eadef17e946a3dafb` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| 启动参数尾部 | `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`（`pong_qrtr` 缺省 2） |
+| 布局 | kernel=560384 payload=201326592 解压=3145840 DTB=4024 |
+| 符号 | `_coachz_baseband_configure` fffffff007a8da38、`_coachz_baseband_enabled` fffffff007a88bb8，COACHZ 40 条 |
+
+判据：S3/S6 保持；若 open 被正确应答，modem 会继续发 alloc 或 rw（日志出现
+`rmtfs alloc storage=… bytes=… no-buffer` 或 `rmtfs rw storage=… direction=… vectors=… not-served`），
+而不是像 k45 那样在一条 open 之后彻底安静。S4/S5 仍不指望——DMS 要等 QMI 栈真正起来。
+
+实机结果（2026-11-19 16:21，420 s 采集）：
+
+- 证据 `E:/k60-work/evidence/usblog-20261119-162153`（console 216,060 B，capture state=captured-disconnected、
+  complete=false、logSha256 `0B56420E69FFE7EE95113D14D85283AB8D5113EAD1F4875A8FFA2138D61AB2CD`、
+  stopReason=fastboot-return、lastDataAt 16:27:44、supervisor rc=5 自行回 fastboot）。
+  判读 `python3 scripts/check-modem-flight-log.py --phase b`：**S3 PASS / S4 FAIL / S5 FAIL / S6 PASS**。
+- 应答生效：`console.log:530` 宣告 RMTFS 之后，`:531` `rmtfs open path=/boot/modem_fs1 storage=1`、
+  `:532` `rmtfs open path=/boot/modem_fs2 storage=2`、`:533` `rmtfs alloc storage=1 bytes=2621440 no-buffer`。
+  **2,621,440 = 0x280000**，与 Pong `PongModemRmtfs.h` 的 `RmtfsBytes=0x280000` 完全一致——它要的就是 Pong
+  预读进 RAM 的那块区域。除 k45 已见的一条 open 外，这是第一次看到 modem 在存储服务上走出第二步。
+- 之后不再前进：wait 行从 `:654 wait 5 s … rmtfs=3` 到 `:2542 wait 230 s … rmtfs=3` 不变，
+  `services=2` 也始终是 66/0x42 与 43/0x2b；`rx head` 冻在 1384、`intents` 从 0/30 慢慢占到 30/30，
+  即 alloc 被我们拒绝（result 1）之后它就不再发 rw。
+- 结论：RMTFS 的 open 应答确实解开了第一道门；**下一个变量是共享缓冲**——分配 2.5 MiB、用 SCM 0x0c/0x16
+  把它归给 MSS、把物理地址作为 alloc 的返回值，随后按 rw 的 scatter 表在缓冲与四个镜像之间搬运。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1387,7 +1439,10 @@ k44 用 mode 3 分开这两者。
     停摆，且四分钟里 modem 一条新服务也没注册（§3.31 实机结果）⇒ 不是注册窗口问题，是它的 QMI 栈从未启动。
     k45（`04d2373f…`）已于 2026-11-19 15:30 飞过：S3/S6 PASS，名称服务器端口 53 零应答（`replies=0`），
     但**宣告 RMTFS 后 modem 立刻发来一条 25 字节的 open**（路径 15 字节，§3.32 实机结果）⇒ 存储服务
-    就是 QMI 栈起不来的原因。下一飞是 k46：把 open 真正应答起来，后续的 alloc/rw 序列会自己暴露。
+    就是 QMI 栈起不来的原因。k46（`dbeacd6a…`）已按 §3.33 打包：open 回存储 id、close/sync 回成功、
+    alloc 与 rw 先只打印并回 result 1，后续的 alloc/rw 序列会自己暴露；S3/S6 必须保持。
+    已飞（2026-11-19 16:21）：open fs1/fs2 均被应答，modem 随即要 **2,621,440 字节**（= Pong 的 0x280000），
+    alloc 被拒后四分钟不再前进（`rmtfs=3`）。下一个变量是把这块共享缓冲分配并交给 MSS（§3.33 实机结果）。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
     **2026-11-19 12:58 起本线待命**：用户计划等 fork 方在 iOS 27（27.0.1）上到达 bsd_init 后全面转过去；
     蓝牙线与基带线届时都迁到 iOS 27，本仓库的 ios27 分支由蓝牙线建立、Actions 已跑通一次。

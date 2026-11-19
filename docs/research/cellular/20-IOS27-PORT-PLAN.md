@@ -132,6 +132,18 @@ python3 scripts/port-cellular-to-xnu27.py --tree <27树> --out patches/xnu-12377
 自测覆盖三种树（一行、两行、零行），输出 `K60 PORT27 PASS renumbering, anchor insertion, auto anchor, refusal,
 verification, series, build list`；readiness 里 `anchor lines=0` 一行仍是 note，不影响 exit code。
 
+### 5.3 一个「补丁之间会不会打架」的不变量
+
+三条补丁都是新增文件，所以各自 `git apply --check` 通过并不等于**顺序打完**也通过——两个补丁若都
+新建 `bsd/dev/pong_modem_link.c`，第二条必然失败，而逐条检查永远看不见。readiness 因此多了一行：
+
+```
+K60 READY ok   all 36 sections create new files, no target twice
+```
+
+判据是「每个 `+++ b/` 段落都有一个 `new file mode` 与它配对」加上「路径集合两两不交」。任一不成立就
+`DRIFT` 并点名是哪个补丁的几比几、或哪个文件被两条补丁同时碰（`patch_sections()`）。
+
 ## 6. `0621-k60-io-submap-budget` 在 27 上没有对应物
 
 16 线的 `osfmk/arm/io_map.c` 有一张所有调用者共用的 8 MiB `io_submap`，`kmem_alloc(io_submap, …, KMA_NOFAIL)` 撑爆时会 panic（P-219），所以才把宏抬到 32 MiB。

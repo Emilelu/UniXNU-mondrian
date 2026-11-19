@@ -328,6 +328,22 @@ int main(void)
             k60_cpufreq_domain_busy_elapsed(idle, elapsed, K60_CPU_FREQ_CPUS, 0), 0);
     }
 
+    {
+        K60CpuFreqWrite w[2] = {};
+        check("pdmem_offset0", k60_cpufreq_pdmem_offset(0), 0x804);
+        check("pdmem_offset1", k60_cpufreq_pdmem_offset(1), 0x808);
+        check("pdmem_offset2", k60_cpufreq_pdmem_offset(2), 0x80c);
+        check("pdmem_bad_domain", k60_cpufreq_pdmem_offset(3), 0);
+        check("pdmem_build", k60_cpufreq_build_pdmem_vote(1, 16, w, 2), 1);
+        check("pdmem_build_offset", w[0].offset, 0x808);
+        check("pdmem_build_value", w[0].value, 16);
+        check("pdmem_build_bad_domain", k60_cpufreq_build_pdmem_vote(3, 16, w, 2), 0);
+        check("pdmem_build_bad_level",
+            k60_cpufreq_build_pdmem_vote(0, K60_CPU_FREQ_LUT_ROWS, w, 2), 0);
+        check("pdmem_build_tight", k60_cpufreq_build_pdmem_vote(0, 3, w, 0), 0);
+        check("pdmem_build_null", k60_cpufreq_build_pdmem_vote(0, 3, NULL, 2), 0);
+    }
+
     printf("%s %u checks (%u failure%s)\n", failures ? "TESTS FAILED" : "TESTS OK",
         checks, failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;

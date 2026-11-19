@@ -1,6 +1,6 @@
 # 平台睡眠（官网 §5 末段）调研
 
-状态：**ArmCpu 等待路径 + XNU hook + 板级 hook 已实现，host 73 + 1038 项断言，未上机**。官网
+状态：**ArmCpu 等待路径 + XNU hook + 板级 hook 已实现，host 73 + 1038 项断言，image z 默认启动已上机（SpringBoard），platform-sleep=1 待上机**。官网
 `https://unixnu.com/zh/porting/power` 的平台睡眠段落（快照 `E:/k60-work/scratch/power-page-20261117.txt:119-121`）
 描述的是板级 XNU 睡眠 hook 与 ArmCpu 挂起路径。2026-11-19 已把 UniXNU/ArmCpu 组件的
 `ArmCpuSleep.h` 与等待路径移植进本仓库的 vendored `drivers/ArmCpu`，补丁 `0623` 提供 XNU 侧
@@ -163,13 +163,18 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
   image z（默认不带 `platform-sleep`）随后构建成功：boot.img 201,887,744 B sha256
   `b167d4f9…`、kernel `df50f894…`、payload `facd5bc5…`；`llvm-nm` 在 kernel 里看到
   `_armcpu_sleep_register`、`_k60_platform_sleep_register`、`_arm64_platform_sleep_hook`。
-  未上机。
+  image z 默认参数（不带 `platform-sleep`）于 2026-11-19 10:12:21 启动，10:17:43 由
+  `k60_autoreset=300` 复位回 fastboot：console 168,735 B sha256 `4ec7b2c6…`、2491 行，
+  SpringBoard 已运行，`capture.json` 的 `panicMarker` 为 null，`K60Sleep: board hook registered rc=46`
+  （`KERN_NOT_SUPPORTED`，即 hook 未安装）且没有 prepare/restore 行，证明默认关闭没有改变
+  启动路径。`platform-sleep=1 platform-sleep-wake-after=5` 的 5 s 睡眠/唤醒待测。
 
 ## 8. 边界
 
-- 已实现的是等待路径与 XNU 接线，不是“平台睡眠已验收”：image z 必须先在默认参数下
-  正常启动，证明 hook 只在 `platform-sleep=1` 时生效；随后才用
-  `platform-sleep=1 platform-sleep-wake-after=5` 做一次 5 s 睡眠/唤醒。
+- 已实现的是等待路径与 XNU 接线，不是“平台睡眠已验收”：image z 默认参数已于
+  2026-11-19 10:12 启动到 SpringBoard（console 168,735 B sha256 `4ec7b2c6…`，2491 行，
+  panicMarker null），证明 hook 只在 `platform-sleep=1` 时生效；下一步用
+  `platform-sleep=1 platform-sleep-wake-after=5` 做 5 s 睡眠/唤醒。
 - 电源键唤醒仍缺 SPMI/PDC 到 SPI 481 的路由与 PON 锁存清除；看门狗没有可写的固件
   端点（`IOWatchdog` 只是软件 check-in 服务），tick 只记录；背光 1500/600 ms 与触摸
   60 ms 恢复要等显示/触摸分支提供回调。以上都不影响 timer 路径的首次验证。

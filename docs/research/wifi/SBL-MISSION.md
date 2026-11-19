@@ -1360,3 +1360,29 @@ teardown 的实现（本轮）：
 | 系统不保存网络口令 | 口令只随 join 请求出现一次，join 结构在 init/disconnect/power 里都用 memzero_explicit 清空 | nw_mainline.c 的 nw_mainline_init / nw_wifi_disconnect / nw_wifi_power |
 
 结论：六条里五条已经满足；第六条是一个不对称而不是缺陷——VHT MCS 表直接取 AP 的（nw_sta.c:297），只按流数收窄（:302 own_nss），没有像 HT（:280）那样与本机 vht_mcs 求交。这段代码属共享组件 Ath12kWifi，改它要那边出补丁并承担关联回归风险，因此在 27 迁移里记为观察项，不在 k60-wifi 内改。
+
+## 45. 元素宽度戳：站点档案与 kext 必须同意
+
+mission34 的事故不是算法错，而是两半用了不同的宽度：预编译站点档案（IE_MAX 1024）链接进刚编译的 kext（ie[2048]），
+记录在 1024 处被截断，于是又出现“元素列表在元素中间结束”。
+
+现在两个构建器都会把自己的宽度写下来，kext 构建在链接前对比：
+
+- 站点：scripts/build-k60-ath11k.py 在 abi/ 下多写一个 nw_abi.stamp，内容为 ie_bytes=2048 与生成头文件的 sha256；
+- kext：scripts/build-k60-wifi-native.py 读 <ath11k 目录>/abi/nw_abi.stamp，缺失时打印提示（旧档案仍可链接，
+  但会被提醒重建），ie_bytes 不等于 2048 时直接 RuntimeError 并指名 P-230，不产出档案。
+
+离线证据（2026-11-19 15:15，27 头文件 ath12kwifi27）：
+
+| 步骤 | 结果 |
+|---|---|
+| 站点构建 /opt/k60/trees/k60build/wifi/ath11k-stamp | libPongAth11k.a sha256 77d255f4b8fe30abc255c411275ef915698edc11220d76d782cc425da4b31f60，stamp ie_bytes=2048 |
+| kext 构建 native-stamp（指向上面档案） | libPongWifiNative.a sha256 77b421b28ca395b9561294f747ba337a6e98c3db5df22c694afd0c7b885e8243，rc 0 |
+| 反例 ath11k-badstamp（戳改成 ie_bytes=1024） | rc 1，RuntimeError: station archive ... carries ie_bytes=1024 but this build carries 2048: rebuild the station (P-230)，未产出档案 |
+
+测试：scripts/tests/test-wifi-sbl-mission.py 新增 “the station build records the element width the kext build checks”，
+整个套件 summary: 0 failure(s)。
+
+已知边界：本改动之前构建的档案（含 mission33-36 用的 ath11k-abi1、ath11k-abi27）没有戳，只能得到提示；
+下一次重建站点时会自动带上，之后任何跨宽度的混用都会被拒绝。
+

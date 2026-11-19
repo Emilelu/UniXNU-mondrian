@@ -6056,3 +6056,103 @@ def test_the_current_series_is_proven_by_the_book(self):
 **关联**：P-165（构建期间 registry 继承逃生开关）、P-222（全局账本把别处的成功当本树证据）、
 P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（证据与对象不对应）。
 
+### P-230 扫描记录的 384 字节内部上限把元素区截在半个元素里，daemon 丢掉整条记录
+
+- **症状**：设置页 Wi-Fi 列表里唯独缺 5 GHz 那一行；驱动侧记录完整、关联、DHCP 都正常。
+- **触发条件**：AP 的元素区大于 384 字节（本机 AP 5 GHz 是 390 字节）时，station 的 IE_MAX 384 把它截断。
+- **为什么当初走错**：一直以为 384 是 Apple80211 线上格式的限制，去查 wifid 的过滤逻辑、查元素内容，都没往自己的 ABI 看。
+- **正确做法**：把 station 的 IE_MAX 与 nw_abi.h 的 ie[] 一起抬到 1024（线上记录本来就是 elements[1024]、sizeof 1164）；两侧必须同改，靠 -I 顺序保证读到同一份生成的 nw_abi.h。
+- **证据**：mission34 飞行 2026-11-19 12:00 前后：记录报 ie 390、incomplete-element 0 次，设置页列表出现 Emilelu_5G（12 条 Preferences 列表、19 条探针全部保留），judge 打印 VERDICT: PANE CLOSED；lifecycle PASS BSSID c8:bf:4c:30:03:1c IPv4=1 lease=3/3。
+- **30 秒判定**：看到「记录字段/元素内容被过滤」的结论先问：这条记录到 daemon 手里时还是 AP 原本的长度吗？
+
+### P-231 wifid 里那组 5GHz/hidden/companion 字符串不在列表过滤路径上，唯一按字段丢的是 WAPI
+
+- **症状**：按字符串猜过滤逻辑，猜了四轮都不对。
+- **触发条件**：离线反汇编 wifid 找「谁把这条记录丢了」。
+- **为什么当初走错**：strings 里出现 invalid 5ghzSsid / companion network / ignoring hidden network，就默认它们是列表过滤。
+- **正确做法**：两跳 xref（cstring → __os_log_fmt 描述符 → adrp/add）后确认：hidden 那条属于 WiFiPerfPerAssoc 指标采样，其余五条属于 WiFiIDSSyncEngine 的 BSSID 猜测与口令继承；列表路径上唯一按记录字段丢弃的是 WAPI 过滤器（谓词 0x1000a8274，v ∈ {7,11,15} 丢弃）。
+- **证据**：E:/k60-work/scratch/wifid-filter-notes.md（171 行）；SBL-MISSION §32。
+- **30 秒判定**：先问「这个字符串被哪条指令引用、在哪个函数里」，再问「它是不是列表路径」。
+
+### P-232 Apple80211 请求类型 103 是当前网络，不是扫描结果；用 10/11 计数才知道 daemon 有没有扫描
+
+- **症状**：看到 native client type 103 get bytes=1164 就以为 daemon 读走了扫描记录，把 UNOBSERVED 误判成「读了但没记日志」。
+- **触发条件**：控制台里出现 1164 字节的 get。
+- **为什么当初走错**：1164 正好是 scan_result 的大小，103 又没在枚举里逐条核对。
+- **正确做法**：103 = kCurrentNetwork（PongWifiNet.cpp:76）；扫描请求是类型 10、扫描结果是类型 11。判读前先统计这三类计数：有人打开设置页时才有 10/11，否则恒为 0。
+- **证据**：mission16/24/25 都是 10×1、11×1；mission35 是 10×0、11×0 —— 所以那趟 daemon 根本没扫描。§31 已更正，commit 83ee786d。
+- **30 秒判定**：任何「daemon 读到了」的说法，先用类型 10/11 计数验证。
+
+### P-233 设置页列表只能由人打开设置产生：wifid 只在该客户端请求时才扫描，设备里没有替代触发
+
+- **症状**：镜像飞了 15 分钟，日志里 0 条 Preferences 列表、0 次 scan request，判读不了。
+- **触发条件**：没有人在这 15 分钟窗口内打开 设置 → 无线局域网。
+- **为什么当初走错**：以为设备自己能触发扫描，或者以为 auto-join 会顺带刷新列表。
+- **正确做法**：接受「人必须在场」：/usr/bin 为空，/usr/sbin 只有 notifyd 和 wifid，没有 uiopen/launchctl/notifyutil；起飞前先确认人已就位，窗口只有 15 分钟（k60_autoreset=900）。
+- **证据**：mission35（09:37）与 mission34（10:33）两趟都是 0 次类型 10；第三趟有人操作后立刻出现 12 条列表。
+- **30 秒判定**：起飞前问一句：谁在这 15 分钟里看着手机？
+
+### P-234 TOML 基本字符串里塞裸换行会毁掉整份 EIGHT-STEPS；必须写两字符的 
+ 转义
+
+- **症状**：tomllib 报 Illegal character "
+" (line 430)，门禁全红。
+- **触发条件**：用 Python 往 evidence = "…" 里插入换行。
+- **为什么当初走错**：把 markdown 的换行写法直接搬进 TOML 字符串。
+- **正确做法**：TOML 基本字符串只能写 \n 两字符；改完立刻 tomllib.loads 验证，失败就用 git-safe.sh checkout 恢复再重做。
+- **证据**：2026-11-19 记录脚本事故；修复脚本 E:/k60-work/scratch/fix-es-m35.py。
+- **30 秒判定**：任何 TOML 编辑后先跑一次 tomllib。
+
+### P-235 记录脚本的替换锚点必须唯一且整行：一次无 count 的正则能改掉八条预测
+
+- **症状**：EIGHT-STEPS 里八条 failure 行被同一句话覆盖，porting 的 findings 插到别的 area。
+- **触发条件**：re.sub(r'failure = "[^\n]*', …) 没写 count，或 'findings = [' 这种在每个 area 都出现的锚点。
+- **为什么当初走错**：以为锚点足够独特、以为只替换第一处。
+- **正确做法**：锚点用「该 area 独有的完整首项」，替换后 grep -c 核对次数；需要整行替换时把正则收敛到行尾，或先按 section 切片再替换；改坏就用 git-safe.sh 恢复快照再重做。
+- **证据**：2026-11-19 两次事故：porting.toml findings 插到第 17 行、EIGHT-STEPS 8 条 failure 被覆盖；快照 20261119-095833。
+- **30 秒判定**：替换脚本写完先 dry-run 打 count，再落盘。
+
+### P-236 MSYS 会在双引号命令里展开 $VAR 与 $_，把 ops_bash 一行命令拆坏
+
+- **症状**：ls "$DIR" 列出的是仓库根目录；PowerShell 一行命令报 not recognized as the name of a cmdlet。
+- **触发条件**：在 ops_bash 的 command 里用双引号包住含 $VAR/$_ 的命令，或直接调 powershell -Command。
+- **为什么当初走错**：以为宿主 shell 会把变量原样传给内层解释器。
+- **正确做法**：命令行只做一次调用：把逻辑写进 .sh（WSL 用）或 .ps1（PowerShell 用）文件，ops_bash 只负责 bash <file>。
+- **证据**：2026-11-19 多次；空 image 参数导致 check-image-args 报错、Get-CimInstance 一行命令失败。
+- **30 秒判定**：命令里出现 $ 或 $_ → 改成脚本文件。
+
+### P-237 WSL 里用错 python 会把 /mnt/e 变成 E:\mnt\e
+
+- **症状**：FileNotFoundError: E:\mnt\e\...，或 judge 读不到控制台。
+- **触发条件**：在 WSL 里调用 MSYS/Windows 的 python3 而不是 /usr/bin/python3。
+- **为什么当初走错**：PATH 里 interop 的 python3 排在前面。
+- **正确做法**：WSL 脚本里一律写 /usr/bin/python3，路径一律用 /mnt/e/...；宿主侧脚本反过来不要用 /mnt 路径。
+- **证据**：mission17 judge 失败、2026-11-19 mission35 judge。
+- **30 秒判定**：看到 E:\mnt\e 就是踩了这条。
+
+### P-238 k60_autoreset=900 是共享默认，飞行窗口被硬限制在 15 分钟
+
+- **症状**：想等用户慢一点，发现改 board.toml 会影响所有线的飞行。
+- **触发条件**：把窗口拉长到 25 分钟以上的需求。
+- **为什么当初走错**：以为可以给单个镜像加 kernel arg。
+- **正确做法**：不动 board.toml 的共享默认；15 分钟内必须有人操作。要更长需要专属 boot arg，但命令行已用 602/607 字节，加不进去。
+- **证据**：E:/hackios/k60-wifi/board.toml:203；image-arg-audit 602 字节。
+- **30 秒判定**：任何「延长窗口」的提议先算 boot-args 预算。
+
+### P-239 诊断镜像里的「修复」会把自己的探针吃掉，让对照失去意义
+
+- **症状**：mission35 扣留 42 字节国家 IE 后，K60F（目标减国家）与修好的真实记录重合，K60B 的国家元素在服务前就被扣掉。
+- **触发条件**：在服务路径上做过滤，同时用探针测同一个字段。
+- **为什么当初走错**：把「修复」和「诊断」叠在同一版镜像里，没先算探针语义。
+- **正确做法**：一版镜像只改一个变量；过滤器要么只在探针副本里生效，要么先飞不带过滤的版本。
+- **证据**：SBL-MISSION §33；mission35 的探针语义退化。
+- **30 秒判定**：加过滤器前先问：它会不会把哪条探针变成空转？
+
+### P-240 check-bisect-coverage 在没有 PYTHONIOENCODING=utf-8 时自己崩在 gbk 编码上
+
+- **症状**：UnicodeEncodeError: 'gbk' codec can't encode character '❌'。
+- **触发条件**：中文 Windows 宿主直接跑该脚本。
+- **为什么当初走错**：脚本用 emoji 输出，宿主默认编码是 gbk。
+- **正确做法**：跑门禁时带 PYTHONIOENCODING=utf-8；纯 ASCII 输出不作为修法（会丢信息）。
+- **证据**：2026-11-19 P-218 检查。
+- **30 秒判定**：门禁脚本报 gbk → 先加环境变量。

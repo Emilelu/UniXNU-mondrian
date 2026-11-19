@@ -11,7 +11,10 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CHECK = os.path.join(ROOT, 'scripts', 'check-bluetooth-gic.py')
-SOURCE = os.path.join(ROOT, 'drivers', 'ArmCpu', 'ArmCpu.cpp')
+SOURCE = next(os.path.join(ROOT, c) for c in
+                ('drivers/ArmCpu/ArmCpu.cpp',
+                 'drivers/armcpu-darwin24/ArmCpu.cpp')
+                if os.path.exists(os.path.join(ROOT, c)))
 FIXTURE = os.path.join(ROOT, 'scripts', 'tests', 'fixtures', 'bt-gic-shared.c')
 
 CASES = 0

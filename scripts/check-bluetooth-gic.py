@@ -72,8 +72,13 @@ def main():
     args = parser.parse_args()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    source_path = args.source or os.path.join(
-        args.tree or root, 'drivers', 'ArmCpu', 'ArmCpu.cpp')
+    source_path = args.source
+    if not source_path:
+        for candidate in ('drivers/ArmCpu/ArmCpu.cpp',
+                           'drivers/armcpu-darwin24/ArmCpu.cpp'):
+            source_path = os.path.join(args.tree or root, candidate)
+            if os.path.exists(source_path):
+                break
     fixture_path = args.fixture or os.path.join(
         root, 'scripts', 'tests', 'fixtures', 'bt-gic-shared.c')
     if not os.path.exists(source_path):

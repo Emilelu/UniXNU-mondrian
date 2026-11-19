@@ -19,8 +19,9 @@ include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
 defconfig = "mondrian_ios27_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "os:configs/ios.config"]
 # The arch and OS layers bring arm64e, the 4 KiB tables, the Darwin 26 calls
-# and the prelink. The device series carries only ptrauth-string-discriminator.patch,
-# which keeps Apple clang's four-argument __ptrauth out of the Linux build.
+# and the prelink. The device series carries two upstream patches
+# (ptrauth-string-discriminator, armcpu-sleep-hook) and the Bluetooth series
+# 0500-0523; patches/xnu-12377/series is the order of record.
 patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:patches/xnu/series", "device:patches/xnu-12377/series"]
 # The fileset reference (the prelink's comparison kernel) builds here without
 # --lto: cctools-port's ld64 reads no LLVM bitcode and the pinned LLVM 24 has no

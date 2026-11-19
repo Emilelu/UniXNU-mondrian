@@ -213,3 +213,4 @@ python3 scripts/render-eight-step-table.py --check
 - 2026-11-19 `submit` 那 3.0 ms 到底是内核还是转译器：给一个从 11-18 起就没有读者的计数器装上读者 —— [飞行卡 e](research/gpu/FLIGHT-CARD-20261119e.md) · [STATUS](engineering/STATUS.md)
 - 2026-11-19 证明 GPU SMMU 的 IO coherence，让每次提交不再清 93 MiB 导入帧（抄 zizhan 的探针，此前三处跳过判据是死代码）：[飞行卡 b](research/gpu/FLIGHT-CARD-20261119b.md)
 - 2026-11-19 同一个 18.4 MB 拷进两个不同目标，用来分开「目标端慢」与「拷贝实现慢」：[飞行卡 d](research/gpu/FLIGHT-CARD-20261119d.md)
+- 2026-11-19 让 surface 只报一个行距，验证 untile 与它 5.3 ms 能否一起消失：[飞行卡 f](research/gpu/FLIGHT-CARD-20261119f.md)

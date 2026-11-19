@@ -4378,6 +4378,25 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 证据：`git branch -f feat/touch-power 3330e1c` 恢复分支；`git worktree list` 显示
 `E:/hackios/k60-lead 84523c0 [feat/pmic-rail]`。
 
+**补充（2026-11-20，把 P-184 从"散文"变成可执行门禁时踩到的）**：
+
+1. 恢复路径本身会静默失效。`scripts/snapshot-worktree.py` 在 Windows 文本模式下写
+   `HEAD.txt`/`status.txt` 会变成 CRLF，于是 `restore.sh` 执行的是
+   `git checkout $'<sha>\r'`——版本号不存在、`git apply` 报
+   `does not match index`，脚本因为 `2>/dev/null || true` 一路成功退出，最后打印
+   "restored from …" 而文件还是原样。**快照写盘必须 `newline="\n"`**，且夹具要断言
+   `HEAD.txt` 与 `restore.sh` 里没有 `\r`。
+2. 夹具在 Windows 宿主上 13 红、WSL 上 1 红，全是环境而非工具：MSYS bash 打不开
+   `E:/x/y.sh`（要 `/e/x/y.sh`），DSH 的 winuxcmd bash 又把 argv 原样转给 Linux bash
+   （要 `/mnt/e/x/y.sh`），而且**只转发 `WSLENV` 里列出的变量**——`K60_I_OWN_THIS_TREE`
+   因此消失，所有"拥有者可破坏"的用例都看着像被拒。修法是先探一次（用只读动词跑真脚本，
+   127 = 这种拼法打不开），再按探测结果拼路径，并把需要的变量加进 `WSLENV`。
+3. 夹具自己的仓库要 `core.autocrlf=false` 且 `write_text(..., newline="\n")`，否则
+   提交的是 LF、检出的却是 CRLF，快照 patch 带着 CRLF，克隆里 apply 失败——**测的就不是工具**。
+4. 目录数不能断言恰好 1 个：系统级 `/usr/local/bin/git`（git-guard）也会给脏树做快照，
+   在一次性仓库里找不到 `scripts/snapshot-worktree.py`，于是多写一个 `<时间戳>-<树名>-fallback`。
+   该断言的是"改动可恢复且至少一个快照带 restore.sh"。
+
 ### P-185 新检出缺的不是代码，是"只在构建副本里才存在"的工具链与 fakeroot
 
 从 `main` 切一个 `git worktree` 出来，代码是全的，构建却会在第三步莫名其妙地 127 / 找不到头文件：

@@ -488,6 +488,27 @@ statement = "An embedded binary blob inside a patch is code: a changed blob need
 check = "python3 scripts/check-blob-patches.py"
 
 [[rule]]
+id = "P-182"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-182"
+statement = "The four persistent Data-side helper files must be normalized before comparing boots; reverting the kernel alone does not restore prior disk state."
+waiver = "Offline gates cannot inspect persistent files on the device or prove the required two boots against an existing Data state. The blob-patch hash gate covers source identity; until boot evidence records all four Data-file hashes before and after each flight, normalization remains a supervisor-recorded manual check."
+
+[[rule]]
+id = "P-183"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-183"
+statement = "An unreachable remote is an unknown tag-push state, not proof that the tag was never pushed; a cached confirmation is valid only for the same tag commit."
+check = "python3 scripts/tests/test-snapshot-tag-network.py"
+
+[[rule]]
+id = "P-184"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-184"
+statement = "Shared checkouts need an explicit owner and destructive operations must snapshot before they run."
+check = "python3 scripts/tests/test-worktree-safety.py"
+
+[[rule]]
 id = "P-185"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-185"

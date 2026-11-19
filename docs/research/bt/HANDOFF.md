@@ -1209,3 +1209,14 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 实跑：`python3 scripts/check-bluetooth-gic.py --out /tmp/gic-report` 得 43 条断言、16 次分发器写，`bluetooth-gic-check: OK (43 assertion(s), 16 write(s))`。
 - 测试：`scripts/tests/test-bt-gic-shared.py` 20 例。除正常路径外，删掉 `for(uint32_t i=0;i<used;i++)if(gSpi[i].id==intid)result=kIOReturnExclusiveAccess;` 后必须失败（第二次登记 619 会成功），删掉 `write32(gDist,0x100+word,bit);` 后必须失败，缺源文件、fixture 无标记、空树三种拒绝也覆盖。
 - 边界：模型只模拟分发器寄存器语义与 owner 表，不模拟真实 GIC 时序、不模拟中断抢占与亲和性；`hardware_verified` 永远是 false。它证明「登记与分发逻辑在给定寄存器语义下正确」，不证明 619 在板子上真的进得来（那要飞行日志里的 `[bluetooth hci]` 计数）。
+
+
+### 60. 电源阶梯检查：把官方 step 2 的顺序变成可失败断言（2026-11-19 21:00）
+
+- 背景：官方页 step 6 的第三个脚本是 `check-wcn-power.py`，sheng 的做法是把 `WcnPower.h` 与 `package/WifiProbe.cpp` 的票数代码拼起来，断言 `sheng_wcn_power_get/put` 的每射频一票、rail 失败、pmic 失败与 `EINVAL`。K60 没有 sheng 那套共享 WCN 电源对象（0511：PMIC rail 由 RPMh/RSC 管、RSC 不可读，阶梯从不投票），所以要检查的不是票数，而是官方 step 2 的顺序本身：BT_EN 低 → 串口时钟 → QUP 引擎 → 中断 → BT_EN 高 → 引脚 → GENI start。
+- 检查器：`scripts/check-bluetooth-power.py`。读 `bsd/dev/qbt_k60.c`（`--source` 可换），用花括号配平抽出 `k60_bt_power_on()` 与 `k60_bt_power_off()`，断言 17 条开阶梯步骤与 7 条关阶梯步骤都存在且按官方顺序出现，另加 12 条不变量。
+- 断言：`K60_BT_UART_GIC_SPI` 587、`K60_TLMM_GIC_SPI` 208、两个 `*_GIC_INTID` 都写成 `(32u + SPI)`、两处 `armcpu_spi_attach` 传 INTID 而不是裸 SPI；四个延时 `K60_BT_EN_LOW_MS` 100、`K60_BT_EN_HIGH_MS` 60、`K60_BT_OFF_MS` 100、`K60_WLAN_OFF_DISCHARGE_MS` 100；两段阶梯（去掉注释后）不出现 `rpmh`/`spmi`/`pmic`；冷启动打 `rails not voted` 且不返回 `-EOPNOTSUPP`；`k60.powered = true` 出现在 `IOSleep(K60_BT_EN_LOW_MS)` 之后（失败时才能走 cleanup）。
+- 实跑：`python3 scripts/check-bluetooth-power.py --tree /home/emilelu/verify0526a` 与 iOS 16 的 `.../tree/.cache/xnu-work` 各 `bluetooth-power: OK (22 check(s))`，`--out` 写 `report.json`（passed、checks、hardware_verified=false）。
+- 测试：`scripts/tests/test-bt-power-check.py` 18 例，全部靠改合成源触发：BT_EN 提前拉高、删掉 GENI start、删掉 `k60_uart_pins_idle()`、BT_EN 低电平改 50/200 ms、高电平改 50 ms、attach 传裸 SPI、阶梯里插 `pong_rpmh_vote`、冷启动改 `-EOPNOTSUPP`、删 `k60.powered`、把 `k60.powered` 提前到 BT_EN 拉低之前、关阶梯删 `k60_disarm_rx_wake()`、把 `k60_irq_mask` 挪到 `qbt_set_service` 之前、`K60_BT_UART_GIC_INTID` 改成字面量 587、UART SPI 改成 619；另有一例证明注释里出现 `rail` 不算投票（先剥注释再比 token）。
+- 事实修正：此前摘要记「代码是 50/50 ms、官方页 100/60」，实际当前树是 `100u` / `60u`（0517 已对齐官方），注释写着 `/* official: hold BT_EN low 100 ms */`。检查器按 100/60 断言。
+- 边界：这是文本检查，证明代码仍写着端口的决定，不证明硬件按这个顺序响应；时序与电平仍要靠飞行日志（bt-0525 的 480–1342 行是当前唯一一次完整阶梯证据）。

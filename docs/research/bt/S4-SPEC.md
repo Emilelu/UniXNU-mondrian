@@ -1865,6 +1865,18 @@ fixture 提供 `IOReturn` 枚举、64 KiB `gMemory`、`read32`/`write32`/`waitCl
 
 `scripts/check-bluetooth-gic.py` 默认读 `drivers/ArmCpu/ArmCpu.cpp`（`--source` 可换），`--out DIR` 写 `report.json` 与 `output.txt`，`hardware_verified` 恒为 false。实跑得 43 条断言、16 次分发器写，`bluetooth-gic-check: OK`；`scripts/tests/test-bt-gic-shared.py` 20 例，其中删掉重复 owner 守卫或删掉使能写都必须变红。边界：模型只模拟分发器寄存器语义与 owner 表，不模拟真实 GIC 时序、抢占与亲和性。
 
+### 7.36 电源阶梯检查：官方 step 2 的顺序作为断言（0526 之后）
+
+官方页 step 6 的第三个脚本是 `check-wcn-power.py`（sheng 的每射频一票、rail 失败、pmic 失败、`EINVAL`）。K60 没有那套共享 WCN 电源对象：0511 起 `k60_bt_power_on()` 从不投票 PMIC rail（RPMh/RSC 不可读），冷启动只打一行 `power: cold boot, rails not voted (k60bt_warm=0)` 就继续。所以这里要检查的是官方 step 2 的顺序本身。
+
+`scripts/check-bluetooth-power.py` 读 `bsd/dev/qbt_k60.c`（`--source` 可换），用花括号配平抽出 `k60_bt_power_on()` 与 `k60_bt_power_off()`，断言 17 条开阶梯步骤与 7 条关阶梯步骤都存在且按官方顺序出现：map 寄存器窗口 → `k60_uart_pins_idle()` → BT_EN 低 → `IOSleep(K60_BT_EN_LOW_MS)` → WLAN_EN 放电 → BT_SW_CTRL 转输入 → `k60_serial_clock(true)` → `k60_stop_engine()` → `k60_prepare_engine()` → UART 中断 → 唤醒中断 → `k60_xo_pulse()` → BT_EN 高 → `k60_xo_release()` → `IOSleep(K60_BT_EN_HIGH_MS)` → `k60_uart_pins_active()` → `qbt_geni_start()`。
+
+另加 12 条不变量：`K60_BT_UART_GIC_SPI` 587 与 `K60_TLMM_GIC_SPI` 208、两个 `*_GIC_INTID` 写成 `(32u + SPI)`、两处 `armcpu_spi_attach` 传 INTID 而非裸 SPI（0518 的 off-by-32）、四个延时 100/60/100/100 ms、两段阶梯去掉注释后不含 `rpmh`/`spmi`/`pmic`、冷启动打 `rails not voted` 且不返回 `-EOPNOTSUPP`、`k60.powered = true` 在 BT_EN 拉低之后。
+
+实跑两棵树（`/home/emilelu/verify0526a` 与 iOS 16 的 `.../tree/.cache/xnu-work`）各 22 条 PASS。`scripts/tests/test-bt-power-check.py` 18 例，靠改合成源触发：顺序打乱、步骤删除、延时改值、裸 SPI、阶梯里插 `pong_rpmh_vote`、冷启动拒绝、cleanup 标志缺失或提前、关阶梯漏掉 `k60_disarm_rx_wake()`、`k60_irq_mask` 挪位、INTID 写字面量；另有一例证明注释里的 `rail` 不算投票。
+
+边界：文本检查，证明代码仍写着端口的决定，不证明硬件按此响应；时序与电平的唯一证据仍是 bt-0525 飞行日志的 480–1342 行。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

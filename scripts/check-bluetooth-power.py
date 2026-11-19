@@ -6,11 +6,10 @@
 unixnu.com/zh/porting/bluetooth step 2 fixes the order: BT_EN low, serial
 clock, QUP engine, interrupts, BT_EN high, pins, GENI start.  The K60 backend
 carries that order in k60_bt_power_on()/k60_bt_power_off() in
-bsd/dev/qbt_k60.c, plus two local deviations that must stay visible:
-
-  * the delays are 50/50 ms here, not the 100/60 ms of the page;
-  * the ladder never votes a PMIC rail (0511: RPMh/RSC is out of reach), so a
-    cold boot only logs that the rails were not voted.
+bsd/dev/qbt_k60.c, plus one local deviation that must stay visible: the
+ladder never votes a PMIC rail (0511: RPMh/RSC is out of reach), so a cold
+boot only logs that the rails were not voted.  0517 aligned the two settle
+delays with the page (100 ms low, 60 ms high).
 
 This checker reads the source, extracts both functions and asserts the order
 and the invariants.  It is a text check: it proves the code still says what

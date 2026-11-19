@@ -462,7 +462,7 @@ K60 READY DRIFT the patches leave bsd/dev: bsd/kern/kern_exec.c
 | 页面说的层 | 我们的对应物 | 状态 |
 |---|---|---|
 | SoC 与板级：电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | `drivers/PongCellular/K60ModemBoot.c`（PAS 四步）、`K60ModemPas.c`（SCM smc）、`K60ModemLink.c`（SMP2P/GLINK/QRTR）、`K60ModemRmtfs.c`、`K60ModemMemshare.c`、`K60ModemEfs.c`、`K60ModemGpt.c` | 有；EFS 读的宿主侧闭合，设备侧未验证 |
-| 控制桥：QMUX 帧、QMI 客户端分配、服务发现与回复路由 | `drivers/QcomBaseband`（`component:QcomBaseband`，`board.toml:14/21` 已选）、`patches/qcombaseband/0001-coachz-defer-publication.patch` | 有；27 树要重新 pin 子模块提交 |
+| 控制桥：QMUX 帧、QMI 客户端分配、服务发现与回复路由 | `QcomBaseband` 组件（`components.toml:564`，pin `dd0199cf`，产物 `libQcomBaseband.a`；`board.toml:14/21` 已选）、`patches/qcombaseband/0001-coachz-defer-publication.patch` | 有；27 树要重新 pin 组件 |
 | iOS 接口：基带服务、通道、异步读写、启动交互 | QcomBaseband 的 appleservice 类（内核里 `COACHZ baseband: %d of %u services published`，22 个） | 有；类名/方法号要按 iOS 27 的 kext 重核 |
 | 数据通路：IPA/GSI、QMAP mux、网卡收发 | `K60Ipa.c`、`K60IpaGsi.c`、`K60IpaQmi.c`（`INIT_DRIVER` 154 字节、`INIT_COMPLETE` 构造器都在） | 有代码，设备上一次都没打开过（`pong_ipa` 门控） |
 
@@ -499,7 +499,7 @@ K60 READY DRIFT the patches leave bsd/dev: bsd/kern/kern_exec.c
 | 页面要求 | 我们 |
 |---|---|
 | `QcomBaseband` 进组件选择，`component:QcomBaseband` 归档 | `board.toml:14`（include）与 `:21`（archives）已有 |
-| 更新时 `components.toml` 与 submodule 同提交 | 16 线已 pin；**27 树要重新 pin**（27 侧目前还没有 `drivers/QcomBaseband`） |
+| 更新时 `components.toml` 与 submodule 同提交 | 16 线 pin 写在 `scripts/build-qcom-baseband.py` 的 docstring（`dd0199cf`）；源不在本仓库，由 `UniXNU/components.toml:564` 的 `QcomBaseband` 条目 fetch 到 `drivers/QcomBaseband`，产物 `build/qcom-baseband/libQcomBaseband.a`。**27 树要重新 pin**（27 侧目前还没有这个组件） |
 | `scripts/build-qcom-baseband.py --coachz` | 已有，27 侧要跟着 conffiles 追加一起接 |
 | `porting.toml` 分别记录 modem 启动、QMI、SIM 身份、网络注册、数据、复位、eSIM | `porting.toml` 的 cellular 区已记「启动」与「QMI 枚举」；SIM/注册/数据/eSIM 尚未记（没做过） |
 
@@ -661,6 +661,6 @@ python3 scripts/check-ios27-deps.py --deps <16 tree>/build/xnu/ios-obj/DEVELOPME
 
 ### 21.5 交接面之外
 
-- 27 的 `board.toml` / `drivers/QcomBaseband` pin 不属本线（§18 表格第 5 行）。
+- 27 的 `board.toml` 与 `QcomBaseband` 组件 pin 不属本线（§18 表格第 5 行）：该驱动是组件目录 fetch 来的，本仓库只有 `patches/qcombaseband/`。本线交的是随补丁走的东西——`0626`/`0627`/`0628`/`0630`、`series-port.txt`、`conffiles-port.txt`。
 - `drivers/PongAdreno/ArmSmmu4K` 属 GPU 线；IPA 需要的两个符号在本线用弱定义兜底，等 k53 判读后才落。
 - 0629 之外不需要再动 `kern_exec.c`；IPA 的 `kmem_alloc_contig` 上界与重试也在 k53 之后。

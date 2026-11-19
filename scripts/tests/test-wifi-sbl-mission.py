@@ -275,7 +275,7 @@ def main() -> int:
           "if (tables > 3) return;" in net)
     check("the scan log says how many records the daemon read",
           "unsigned gScanCursor, gScanning, gScanServed;" in net and
-          "gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns,rq.req_len);" in net and
+          "gScanCursor++; ++gScanServed; fill_result(out.res, b,rq.req_len);" in net and
           'log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s"' in net and
           "gScanCursor = 0; gScanServed = 0; return EIO;" in net)
     check("the supported channel list reports both bands",
@@ -325,6 +325,11 @@ def main() -> int:
           net.count("out.res.rssi = st.signal_dbm;") == 2 and net.count("out.res.snr = st.signal_dbm > -95") == 2)
     check("the rate query reports the cached peer rate",
           "st.state == NW_STA_UP ? st.tx_rate_100kbps / 10 : 0" in net)
+    check("a record is stamped when it is handed out, from the age the station measures",
+          "const uint64_t now_ns = scan_clock_ns();" in net and
+          "const uint64_t age_ns = uint64_t(b.age_ms) * 1000000ull;" in net and
+          "record.timestamp_ns = now_ns > age_ns ? now_ns - age_ns : 0;" in net and
+          "sampled_ns" not in net)
     check("the newer daemon's auth encoding is accepted and answered",
           "gModern27Client ? 0x10 : 0x8" in net and "rq.req_len == PONG_SCAN_MULTIPLE_BYTES" in net and
           "a.auth_upper!=8 && a.auth_upper!=0x10" in net)

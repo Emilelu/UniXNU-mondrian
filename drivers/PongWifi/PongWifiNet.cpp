@@ -497,7 +497,7 @@ uint64_t scan_clock_ns() {
 // no element inventory shows. Serve the record the access point sent, ended at the last complete element. The
 // station's own association uses the beacon directly, not this record, so nothing on the air changes. Test
 // branch only.
-void fill_result(scan_result &record, const nw_bss_info &b,uint64_t sampled_ns,uint32_t request_bytes) {
+void fill_result(scan_result &record, const nw_bss_info &b,uint32_t request_bytes) {
   memset(&record, 0, sizeof record);scan_result &r=record;
   r.version = 1; fill_channel(r.ch, b.freq_mhz); r.noise_known = 1; r.noise = -95; r.rssi = b.signal_dbm; r.snr = b.signal_dbm + 95;
   r.beacon_interval = b.beacon_int; r.capability = b.caps; memcpy(r.bssid, b.bssid, 6); r.ssid_length = b.ssid_len; memcpy(r.ssid, b.ssid, 32);
@@ -514,11 +514,13 @@ void fill_result(scan_result &record, const nw_bss_info &b,uint64_t sampled_ns,u
   }
   if (used < b.ie_len && announced++ < 3) log(6, "wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served", b.ie_len - used, b.ie_len);
   r.rate_count = 0;
-  // The station exposes real frame age at millisecond resolution. Sample
-  // the clock BEFORE querying it and round age upward, so this estimate
-  // never makes an old cached observation newer than the actual frame.
-  const uint64_t age_ns=(uint64_t(b.age_ms)+1)*1000000ull;
-  record.timestamp_ns=sampled_ns>age_ns?sampled_ns-age_ns:0;
+  // The record says when the network was heard, not when it was sampled: the hand-out clock minus the
+  // age the station measures at this bss_get, exactly as the reference port stamps it
+  // (sheng_wifi_scan_result_stamp). Rounding the age upward made an old observation look newer than
+  // the frame, and a frozen sample time left a cached list looking stale while it was served.
+  const uint64_t now_ns = scan_clock_ns();
+  const uint64_t age_ns = uint64_t(b.age_ms) * 1000000ull;
+  record.timestamp_ns = now_ns > age_ns ? now_ns - age_ns : 0;
 }
 int copy_out(const apple80211req &rq, const void *src, size_t size, bool kernel = false) {
   if (rq.req_len == 0 || !rq.req_data) return EINVAL;
@@ -791,12 +793,11 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     if (gScanCursor < static_cast<unsigned>(count)) {
       if (gSnapCount) b = gSnap[gScanCursor]; else bad = nw_wifi_bss_get(static_cast<int>(gScanCursor), &b) != 0;
     }
-    const uint64_t sampled_ns=scan_clock_ns();
     if (gScanCursor >= static_cast<unsigned>(count) || bad) {   // after the last record
       static unsigned ends;
       if (++ends % 16 == 1) log(6, "wifi-net: scan result end after serving %u of %d records", gScanServed, count);
       gScanCursor = 0; gScanServed = 0; return EIO; }
-    gScanCursor++; ++gScanServed; fill_result(out.res, b,sampled_ns,rq.req_len);
+    gScanCursor++; ++gScanServed; fill_result(out.res, b,rq.req_len);
     // A 5 GHz record the daemon drops despite being served is a field problem, so print its encoded words.
     if (b.freq_mhz >= 3000 && gScanServed <= 6) {
       const uint32_t *wds = reinterpret_cast<const uint32_t *>(&out.res);
@@ -814,9 +815,8 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     if (st.state < NW_STA_ASSOC) return ENOENT;
     nw_bss_info b; const int count = nw_wifi_bss_count();
     for (int i = 0; i < count; i++) {
-      const uint64_t sampled_ns=scan_clock_ns();
       if (!nw_wifi_bss_get(i, &b) && !memcmp(b.bssid, st.bssid, 6)) {
-        fill_result(out.res, b,sampled_ns,rq.req_len);
+        fill_result(out.res, b,rq.req_len);
         // The scan record is a snapshot; the daemon's current-network answer is what the bars follow,
         // so answer with the live peer signal the station refreshes instead of the sweep's value.
         out.res.rssi = st.signal_dbm;
@@ -828,7 +828,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     // describe it from the link's own state. Answering "no such network" while associated makes the wireless daemon think the link is gone.
     memset(&b, 0, sizeof b); memcpy(b.bssid, st.bssid, 6); b.ssid_len = st.ssid_len; memcpy(b.ssid, st.ssid, 32); b.freq_mhz = st.freq_mhz; b.signal_dbm = st.signal_dbm;
     b.caps = static_cast<uint16_t>(0x0001 | (gKeyed ? 0x0010 : 0)); b.beacon_int = 100;
-    fill_result(out.res, b, scan_clock_ns(), rq.req_len);
+    fill_result(out.res, b, rq.req_len);
     out.res.rssi = st.signal_dbm;
     out.res.snr = st.signal_dbm > -95 && st.signal_dbm < 0 ? st.signal_dbm + 95 : 0;
     return copy_out(rq, &out.res, sizeof(out.res), kernel); }

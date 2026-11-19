@@ -63,6 +63,10 @@ python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3
 | `PE_parse_boot_argn` | `pexpert/pexpert/pexpert.h:351` |
 | `delay_for_interval` | `osfmk/kern/clock.h:327` |
 
+它检查两件事：名字还在，以及**声明的形状**与胶水的假设一致（返回类型与每个参数的类型；参数名不同不算漂移）。
+少了或改了形状就报 `SIGNATURE CHANGED` 并打印两者——`delay_for_interval(uint32_t)` 这种少一个参数的情形，
+桩头文件看不见，只有真树能看见。
+
 脚本跳过生成头（`static_if.h`）、别的架构（`i386`/`x86`/`x86_64`）和本清单自己搬进去的
 `PongAudio*`/`K60*` 头。最后一条不是洁癖：在已接线的树上，`ml_io_map` 会先「命中」
 `bsd/dev/PongAudioRegs.h` 这个我们自己写的声明，检查就变成自证。剩下的风险只有

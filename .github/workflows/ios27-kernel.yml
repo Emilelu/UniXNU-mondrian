@@ -9,7 +9,7 @@ name: iOS 27 kernel (Linux build)
 
 on:
   push:
-    branches: [main, feat/bt-ios27-port]
+    branches: [main]
   workflow_dispatch:
     inputs:
       framework_ref:

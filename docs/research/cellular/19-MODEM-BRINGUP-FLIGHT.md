@@ -1519,6 +1519,16 @@ FILES 增加 `K60ModemEfs.h/.c`（include 改名为 `pong_modem_efs.h`），`scr
 增加 `bsd/dev/pong_modem_efs.c`。0622 现为 **122,748 B / 9 files**，`test-k60-modem-image.py`
 TESTS OK 30 segments，整套宿主测试（含 IPA、SMMU、FLIGHT LOG 回归）全绿。
 
+### 3.39 k50（离线）：存储数据面的内核入口
+
+Lead 在 2026-11-20 02:46 裁决 (b)：授权本分支给 storage 加**只读**块入口，契约是只加新函数、不改既有导出签名或函数体、只读、名字查表沿用 `RootLayout.h` 的 GPT 几何、必须带宿主测试（名字不存在 / 越界 / 长度为 0 三种拒绝）、scope 声明写清楚。`drivers/NativeUfs` 在 `TREE-OWNERS.toml` 里没有主人，所以这个入口只能由本分支持有。
+
+三样东西落地：`drivers/NativeUfs/NamedVolumeRead.h` 是不碰设备的纯逻辑（`nativeVolumeEntryUsed`、`nativeVolumeNameMatches`、`nativeVolumePlan`，名字按 GPT 的 36 个 UTF-16LE 码元比较，满 36 字符时没有终止符）；`scripts/tests/test-k60-named-volume.c` 在宿主上断言名字匹配、未用槽、首块/非对齐/末块计划与三种拒绝，输出 `K60 NAMED VOLUME PASS names, unused slots, plans, refusals`；`drivers/NativeUfs/PongUfsTransport.cpp` 末尾加 `extern "C" bool native_pong_ufs_read_named_volume (const char *name, uint64_t offset, uint8_t *buffer, size_t length)`，先校验 GPT 头的 revision/CRC/entrySize，再读 entry 数组并校验数组 CRC，跳过未用槽、拒绝重名，最后按 `nativeVolumePlan` 逐扇区 `hostRead4k` 拷出。全过程无写、无状态、不改任何既有函数。
+
+上一轮 k50 构建在 `bsd/dev/pong_modem_efs.o` 上停住：`pong_modem_efs.h:18: fatal error: 'K60ModemRmtfs.h' file not found`——生成器只给 `K60ModemEfs.h` 做了文件名重命名，没有处理它 include 的存储头。修法是把 `'"K60ModemRmtfs.h"': '"pong_modem_rmtfs.h"'` 加进这两个 carried 条目的重命名表，并在 `scripts/update-modem-qrtr-patch.py` 的 `body()` 里加一条护栏：carried 文件里还留着 `#include "K60…"` 或 `#include "Qcom…"` 就直接退出，不再让一次二十分钟的构建来发现它。0622 重新生成后是 122,751 B / 9 files，`test-k60-modem-image.py` TESTS OK 30 segments。
+
+还没做的只有接线：`K60ModemLink.c` 的 rw 分支要改成调用 `k60_efs_serve_read`，并把 `k60_efs_read_ufs` 回调接到这个新导出；接线前要先确认本机 LUN 0 的 GPT 里确有 `modemst1`/`modemst2`/`fsg`/`fsc` 四个分区（Android 布局里它们在 LUN 0，SHNGROOT 镜像里没有）。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

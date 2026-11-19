@@ -7251,6 +7251,12 @@ bsd/dev/pong_adsp_pas.c:90:4: error: expected identifier or '('
 1. "能解析"不等于"自洽"。门禁只调 `--numstat` 时，它保护的是解析器，不是构建。
 2. 静默截断比报错危险：文件仍然生成、构建仍然继续，错误出现在下游最远的地方。
 3. 补丁是代码，拼完要像代码一样验：计数、`git apply`、再 grep 一个只有尾部才有的符号。
+4. 门禁本身要两个方向都测：**声明少于体**是静默截断（危险的一侧），**声明多于体**会把下一节吞进
+   hunk。只测一边的门禁，换一个方向就瞎。
+5. 同一族的另一半是**隐式前提**：`scripts/tests/run-k60-handoff-host.sh` 一直要求"0619 之前的树"，
+   却只写在文档里，于是给错树时的报错是 `canonical source differs`——像代码错，实际是输入错。
+   现在脚本开头直接查 `bsd/dev/pong_adsp_startup.c` 与 `k60_adsp_handoff_publish`，不满足就
+   `exit 2` 并说明该给什么样的树。前提写进代码，失败信息才会指向真正的原因。
 
 ## P-258 — 管理目录里写成 `E:/` 的 gitdir 让每一棵工作树都变 prunable，`git worktree prune` 于是"有理由"下手
 

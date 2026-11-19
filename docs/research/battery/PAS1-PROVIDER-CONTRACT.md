@@ -132,8 +132,10 @@ clobber 行齐全、旧的输入-only 形状必须消失，并用合成旧文件
 `ab39a7898f86e2b52f22d3f1f043d4d0122a24de3a2606ba9208d85aeec6bef2`，`llvm-nm` 里
 55 个 `k60_adsp_*` 符号、43 条 `K60PAS` 字符串。
 `scripts/tests/run-k60-handoff-host.sh` 报 24 个 "TESTS OK"，但它需要一个**0619 之前**的
-XNU 树（它要把 0611 的前身补丁自己打上去；给它一棵已含 0619 的树会报
-`canonical source differs`）。
+XNU 树：用例会自己把 0611 的前身补丁打上去。这个前提现在写进了脚本——开头检查
+`bsd/dev/pong_adsp_startup.c` 是否存在、`bsd/dev/pong_handoff.h` 里有没有
+`k60_adsp_handoff_publish`，命中任一条就 `exit 2` 并打印"本脚本要在 0619 之前的树上跑"，
+而不是跑到一半抛 `canonical source differs`（那个报错指向代码，实际是输入错）。
 
 ## 返回与可观察结果
 

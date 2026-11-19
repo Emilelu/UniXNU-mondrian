@@ -247,10 +247,20 @@ the GPU addon carrier, mounts `/private/var/ngpu/bluetooth-lib` over
 `/usr/sbin/notifyd`, owning `/usr/sbin/QcaBluetooth.runtime`). It sits outside
 `native_gpu_addon_prepare()` because that function returns early when the GPU
 addon argument is absent, which is the case on K60. Without the argument the
-patch is inert, so the baseline build is unchanged. Run
-[44516786407](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44516786407)
-is the first build of the twenty-two-patch series; it queues behind the earlier
-runs on the same concurrency group.
+patch is inert, so the baseline build is unchanged.
+
+Run [44516786407](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44516786407)
+(head `e8a61f5`) was cancelled by the concurrency group before it built.
+Run [44518998961](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44518998961)
+(head `33f5229`, 2026-11-19T11:55:09Z to 12:12:31Z, 17m22s) is the first
+successful build of the twenty-two-patch series: every step passed,
+`kernel/kernel.macho` is
+`4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86` and
+`payload/payload.img` is 192 MiB. The "Check the Bluetooth contract" step
+reported fourteen passes, covering the two UART control names, the power and
+channel log prefixes, the three `kern.qbt_*` sysctls, `K60BluetoothRadio`,
+the `/chosen` identity key, the `log-bluetooth` text and the four ADT
+properties.
 
 `feat/bt-ios27-port` is only the kernel and the device tree:
 `[payload.runtime]` is not enabled and 0521 is a blob stub, so "iOS 27

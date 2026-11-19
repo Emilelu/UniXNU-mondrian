@@ -68,19 +68,32 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   drivers/PongWifi tree. Exit: scripts/tests/test-wifi-sbl-mission.py and
   test-pong-abi.py print 0 failure(s), and compile-teardown2.sh builds the kext against
   both nw_abi.h generations (16 header + ath11k-abi1, 27 header + ath11k-abi27).
-- [ ] B2 [DEV] Port the 4 KiB entry to 12377. This is a port, not a run (2026-11-20):
-  the framework always runs the device repository's scripts/build-xnu-4k-baseline.sh
-  (UniXNU scripts/unixnu/kernel.py:172), and that script is the 16 one - XNU_TAG
-  defaults to xnu-8796.141.3, XNU_COMMIT to 1b191cb5, XNU_DARWIN is 22.6.0, and
-  :247-248 plus :1424-1425 hard-code MACHINE_CONFIGS=PONG. On the 27 tree the run
-  stops at logs/kernel-bootstrap.log:70 with
-  "MakeInc.kernel:22: *** Unsupported CURRENT_MACHINE_CONFIG PONG. Stop.", before any
-  wifi code. The work: retarget the machine config (DEVELOPMENT_ARM64_BCM2837 class),
-  the pins (xnu-12377.121.6 / ac9718fb) and keep the XNU_PONG_WIFI=1 ->
-  -Wl,-force_load,$PONG_WIFI_ARCHIVE path. Exit: the script links libPongWifiNative.a
-  into the 27 kernel and the prelink report names the archive. Also note the build must
-  use --os ios-27.0.1-24A446 (after scripts/install-os-profile.sh); with --os
-  ipados-27.0.1-24A446 it applies the 16 series and dies at osfmk/arm64/start.s:33.
+- [ ] B2 [DEV] Run the 27 kernel through the generic builder and prove the driver is in
+  it. The builder question is settled by main's 3cc8cbc9: scripts/build-xnu-4k-baseline.sh
+  now dispatches on board.toml [board] os_profile through scripts/pick-xnu-builder.sh, so
+  the 16.6.1 line keeps the Pong builder (MACHINE_CONFIGS=PONG) and every other profile -
+  including ios-27.0.1-24A446 - runs scripts/build-xnu-generic.sh, the framework builder,
+  which has no PONG.h to find. Three things still stood between that and a 27 link, all
+  device-side and all fixed on feat/wifi-ios27-tree:
+  (a) scripts/build-firehose.sh was the 16 copy (34 lines, unconditional xcodebuild) and,
+  because tree assembly copies the device repository last, it shadowed the framework's
+  Linux-capable version (60 lines, xcrun clang + libtool). It is now the framework file
+  byte for byte.
+  (b) xnu ships its own Availability macros in EXTERNAL_HEADERS/Availability.h and that
+  copy stops at __API_AVAILABLE, while 12377's libsyscall headers annotate with
+  __SPI_AVAILABLE (gethostuuid.h:41, spawn/spawn.h:64-78), which only a Darwin 26 SDK
+  defines. prepare-xnu.py copies that header into the fakeroot on every build, so the
+  build died in libcc_kext on gethostuuid.h and no fakeroot edit survived. Fixed by
+  patches/xnu-12377/availability-spi.patch (empty fallback definition) in the device series.
+  (c) the generic builder never linked a wifi archive. scripts/build-xnu-generic.sh now
+  arms the same XNU_PONG_WIFI=1 -> -Wl,-force_load,$PONG_WIFI_ARCHIVE path the Pong
+  builder has.
+  Exit, and this is the part that matters: a successful link is not proof - -force_load
+  over an archive whose objects were compiled out also links. The 27 image must define a
+  non-zero number of PongWifi symbols, checked by scripts/check-wifi-symbols.py (exit 1 on
+  zero, self-tested by scripts/tests/test-wifi-symbols.py). Build with --os
+  ios-27.0.1-24A446 after scripts/install-os-profile.sh; with --os ipados-27.0.1-24A446 it
+  applies the 16 series and dies at osfmk/arm64/start.s:33.
 - [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
   2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
   CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on

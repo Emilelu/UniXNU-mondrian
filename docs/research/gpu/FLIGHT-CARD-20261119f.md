@@ -65,4 +65,77 @@
 
 ## 5. 结果登记
 
-（飞行后写在这里；`criteria-sha256` 在第一次写入时钉入。）
+### 5.1 这一飞的事实
+
+| 项 | 值 |
+|---|---|
+| 镜像 | `gpu-pitch-20261119`，`boot.img 7c1398b41ed6a20d4b4db8fc0dc7d5351174f505cd82801fba91b803258148a2` |
+| 内核 | `fdf291f785aeb85b6cfb20e36ad1d7e39db35f692aae7872171bbcbcfa4bea0c`（105,693,184 B，与 `build-manifest.json` 的 `kernel_built` 逐字节相同） |
+| 固件卷 | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
+| 证据 | `usblog-20261119-111003`，239,529 B，`complete=true`，supervisor rc=0，actor `lead` |
+| 有效性 | `MiniIOMobileFramebuffer: 7 frames in 52495 ms`、客户端 `c…`、`scanout frames=3` ⇒ 有效 |
+| 异常 | `panic(` 0、`K60KEXC` 0、`DeviceLost` 0 |
+
+改动确实进了镜像：`grep -abo "plane pitch asked" boot.img` 在偏移 2,914,556 命中，内核 `strings`
+也命中同一条格式串。**所以这不是「补丁没进镜像」，而是那段代码没被执行。**
+
+### 5.2 判据
+
+| 编号 | 判据 | 结果 |
+|---|---|---|
+| **S1** | 无 panic / `K60KEXC` / `DeviceLost` | ✅ |
+| **S2** | 恰好一条 `MiniIOSurface: plane pitch asked=… reported=…` | ❌ **0 条** |
+| **S3** | 形状变为 `scanout copy single run` | ❌ 仍是 `scanout copy texture untile source=5888 scanout=5760 rows=3200` |
+| **S4** | `encode` < 1,000 µs 且 `gpu` < 2,500 µs | ❌ 首帧 `encode=681,731 µs`、`gpu=3,114 µs`；第 2 帧 `encode=588`、`gpu=2,779`；第 3 帧 `encode=46,087`、`gpu=5,176` |
+| **S5** | `copy` < 10,000 µs | ❌ 718,072 / 4,856 / 54,924 µs（首帧冷启动，后两帧仍在 5–55 ms 之间） |
+| **S6** | `imports == frames` | ✅ 3/3 |
+| **S7** | 画面正确性由用户目视 | 未判（本飞没有改变任何画面内容） |
+
+**F 规则命中：F2**（「一条 pitch 行都没有 ⇒ 改动没有生效，先查是谁创建了扫描 surface，
+不要再改 pitch」），以及 F3 的实质（仍是 `texture untile` 且没有任何 `reported=5760`）。
+
+**判决：FAIL（S2、S3、S4、S5；F2 命中）。**
+
+### 5.3 为什么没生效（这一飞真正学到的东西）
+
+`MiniIOSurface` 在本飞只打印了一行：
+
+```
+MiniIOSurface: 2 big surfaces made, 6262 us each: … memory not kept as somebody else had it 0 times …
+```
+
+也就是**只有两块大 surface 走了 mini 驱动**（那两块是预链接缓存的载体，不是合成器的画布）。
+我改的那段在 `MiniIOSurface` 的**逐平面**创建路径里
+（`patches/xnu/zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch:534-535`）：
+
+```c
+p->bytesPerRow = alignUp((uint64_t) ((p->width + pew - 1) / pew) * p->bytesPerElement, MINISURF_ROW_ALIGN);
+if (asked != p->bytesPerRow) printf("MiniIOSurface: plane pitch asked=%llu reported=%llu (one pitch only)%c", asked, p->bytesPerRow, 10);
+```
+
+一段都没执行 ⇒ 合成器那块 5888 行距的 surface **不是从这条路径创建的**。
+`scanout copy texture untile source=5888` 是它存在过的直接证据，所以下一步不是继续改
+pitch，而是先回答「这块 surface 是谁建的、5888 是谁给的」。
+
+### 5.4 下一步（按代价排序）
+
+1. **给 surface 创建的全部入口加一行（只加日志，不改行为）**：在 `MiniIOSurface` 里凡
+   返回 surface 的地方都打 `MiniIOSurface: created bpr=%u w=%u h=%u caller=%s`，这样
+   下一飞能直接看出扫描 surface 是否经由 mini 驱动、走的是哪条路径。
+2. **查 `IOSurfaceRootUserClient`**：`k60_skip_iosurface=1` 跳过的是预链接 kext 的构造器，
+   mini 驱动之后接管类名；但用户态仍可能通过 `IOSurfaceRoot` 的 user client 直接
+   `create_surface` 并自带 `IOSurfacePlaneBytesPerRow`，那条路如果不经过逐平面循环，
+   我的改动就永远打不到。要读的是 `MiniIOSurface` 里 `externalMethod` / `createSurface`
+   的分发，而不是 `newUserClient`。
+3. 若确认 5888 来自一个我们无法改的调用方，就接受现状，把力气转到
+   `docs/research/gpu/ZIZHAN-DBUF.md` §6 的零拷贝路线（自有扫描缓冲 + DPU），
+   那条路根本不看行距差。
+
+### 5.5 这一飞不能说明的事
+
+- **不能**说明「行距差不可消除」——改动没有执行，等于没测。
+- **不能**给帧率结论：屏幕是静止的（7 帧 / 52 s），`copy` 的 718 ms 是冷启动帧。
+  按 P-236，本飞的帧率数据不具代表性，只用于 S2/S3 这两条**结构性**判据。
+
+
+`criteria-sha256: c9a88620babed35d2be43b75b902495f434946269348cbc4b20ce55a83107ff7`（本卡在构建之前写、飞行之后只追加 §5，判据一节未改动；由 `scripts/check-flight-card.py` 自己的 `criteria_digest()` 计算并回填。）

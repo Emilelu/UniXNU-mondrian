@@ -12,6 +12,7 @@ classified, or (with --compile) when a "pure C" file stops compiling alone.
 Usage:
   python3 scripts/check-audio-migration.py            # classification check
   python3 scripts/check-audio-migration.py --compile  # plus a standalone build
+  python3 scripts/check-audio-migration.py --copy DIR # the migration itself
 
 --compile copies the pure set into a temporary directory, gives the compiler
 -I. and nothing else, and builds each translation unit with
@@ -155,14 +156,46 @@ def compile_pure():
     return errors
 
 
+TESTS = ["run-tests.sh", "test-pong-audio-geni-i2c.c"]
+
+
+def copy_set(dest):
+    """The migration itself: the same list, copied where the 27 tree wants it.
+
+    Nothing here decides anything new - it walks the three lists above so the
+    copy can never disagree with what the check just approved. The glink runner
+    stays out on purpose: it compiles drivers/PongPower, which is power's source.
+    """
+    src = os.path.join(REPO, DRIVER)
+    os.makedirs(dest, exist_ok=True)
+    tests_dest = os.path.join(dest, "tests")
+    os.makedirs(tests_dest, exist_ok=True)
+    copied = 0
+    for name in PURE + GLUE + TESTS_ONLY:
+        shutil.copy(os.path.join(src, name), os.path.join(dest, name))
+        copied += 1
+    for name in TESTS:
+        shutil.copy(os.path.join(src, "tests", name), os.path.join(tests_dest, name))
+        copied += 1
+    os.chmod(os.path.join(tests_dest, "run-tests.sh"), 0o755)
+    print("copied %d file(s) into %s" % (copied, dest))
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("--compile", action="store_true",
                         help="also build each pure C unit with -I. only")
+    parser.add_argument("--copy", metavar="DIR",
+                        help="copy the listed files into DIR/drivers/PongAudio")
     args = parser.parse_args(argv[1:])
     errors = classify()
     if args.compile:
         errors += compile_pure()
+    if args.copy:
+        if errors:
+            return fail("refusing to copy while the classification is broken")
+        errors += copy_set(args.copy)
     if errors:
         print("FAILED: %d problem(s)" % errors)
         return 1

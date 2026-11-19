@@ -28,10 +28,10 @@ cc 在 `drivers/PongAudio/PongAudioAmp.c`（0001）里补上
 | P4 | 0001 新增 `spk_switch_drive()`，play 后拉高、stop 后拉低 | 是（0001 = 133,116 B / 3,521 行 / sha256 76154f07…） |
 | P5 | 真实前像 apply 链（0503/0504/0505 → 0001 → 0003）通过，产物 2,559 行 | 是 |
 | P6 | `check-patch-apply.py --all` 通过（313 补丁可解析），docs 门禁 0 | 是 |
-| P7 | `verify-boot-image: OK` | 待填（构建中） |
+| P7 | `verify-boot-image: OK` | 是 |
 
 本卡判定的镜像：`audio-probe-20261119cc`，
-`boot.img` sha256 待填（构建完成后写入）。
+`boot.img` sha256 `90051b6e68714e098792e4ec3527671df2aacc8c5b584d03a50ddfdb8ab9796c`。
 
 ## 3. 抓取
 
@@ -65,6 +65,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File E:/hackios/k60-audio-adsp/sc
 
 ## 5. 结果登记
 
-criteria-sha256: 待填
+criteria-sha256: c21dd05af4d19ee22027e5d6ed332c6765baa19239c00962a998b50c9e70e4d0
 
 （上机后填写：镜像名、boot.img sha256、证据目录、S1–S6 与 F1–F5 的实测值、amp 的 SYSST、判决。）

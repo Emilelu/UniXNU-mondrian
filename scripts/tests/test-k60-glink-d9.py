@@ -91,7 +91,7 @@ def main() -> int:
         script = wsl_path(RUNNER)
         run = subprocess.run(
             [wsl, "-d", os.environ.get("K60_WSL_DISTRO", "Ubuntu-24.04"), "--",
-             "bash", script, "/tmp/k60-glink-host"],
+             "bash", script],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             env=dict(os.environ, PYTHONIOENCODING="utf-8"))
         print(run.stdout.strip())

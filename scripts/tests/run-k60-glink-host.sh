@@ -11,7 +11,9 @@
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${1:-}
-if [ -n "$OUT" ]; then mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); else OUT=$(mktemp -d); fi
+# The default output lives under build/, which is ignored: iron rule 1 forbids a
+# durable artefact in /tmp, and a throwaway directory here is still a build product.
+if [ -n "$OUT" ]; then mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); else OUT="$REPO/build/glink-host"; mkdir -p "$OUT"; fi
 cd "$REPO"
 CFLAGS=(-std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongPower)
 cc "${CFLAGS[@]}" scripts/tests/test-k60-glink-intent.c \

@@ -105,7 +105,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   超过窗口按 0 忙处理，结果上限 1000。
 - `k60_cpufreq_build_votes`：把「一个档位」展开成参考的写集合——总是写 `perf_state 0x320`，
   dcvs 控制位为 1 且该 domain 多于 1 核时，再按 `0x320 + 4×i` 写每核一行（K60 为 4/3/1 核，
-  不是参考的 3/4/1）；调用方缓冲区不足时返回 0 且一条都不写。
+  不是参考的 3/4/1）；**从不写 `DCVS_CTRL 0xb0`**，调用方缓冲区不足时返回 0 且一条都不写。
 - `k60_cpufreq_build_l3_vote`：L3 共享投票，写 `0x90`，值同样是 LUT 行号。
 - `k60_cpufreq_vote_allowed`：拒绝 enable=0、表为空、档位不在表内、写条数超限；`k60_cpufreq_check_readback`
   逐条比较回读值；`k60_cpufreq_build_restore` 用写前保存的原值生成恢复写集合。
@@ -166,8 +166,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   11 票后 `mode8 restore domains=2 votes=11`，恢复后 d0 硬件从 1.8048 GHz 回到 1.5552 GHz。
   **d1 的写回没有被硬件接受**：`apply d1 level=16 (2496000kHz) readback=ok state=130->130`，
   而采样里的 d1 `hw` 始终是 2.496 GHz，说明 P 域的行写入回读成功但 EPSS 不接受持续投票；
-  同一轮 d2 没有产生写回。后续要么先清 DCVS 控制位再接管 d1/d2，要么承认 EPSS 独占大核簇。
-- mode 9（DCVS 控制位探针，已禁用）：对三域分别读控制位/单行/全行写入——Phase A 写单行 top/bottom 后恢复，Phase B 置 `DCVS_CTRL` bit0、写所有核行 top/bottom 后恢复行与控制位——原本用来解释 d1/d2 为什么不接受持续投票。2026-11-19 07:56 以 image t（`3300c1a7`，`k60_cpufreq=9`，boot.img sha256 `567d9b62…`，30 项 603 B）上机：fastboot 报 `Sending`/`Booting OKAY`，但 console 0 字节、`capture.json state=port-not-observed`、`returnedToFastboot=false`，设备状态 `none`，需强制复位。04:36 的 image u（mode 9 + 导入的 0617 thermal 补丁）是同一签名；两次唯一的共同因素是 mode 9，**温控补丁没有被证明有罪**。`3a0a5511` 在入口拒绝 9，探针代码保留待新的固件证据；d1/d2 归属问题仍未回答。
+  同一轮 d2 没有产生写回。**不要清或置 DCVS 控制位来接管 d1/d2**：sheng 最新 `package/CpuFreqProbe.cpp:132-142` 的 `voteDomain` 只写 `perf_state 0x320`，仅当 `DCVS_CTRL 0xb0` bit0 已为 1 时写 `+4×i` 每核行，从不写 `0xb0`；我们主动置位的 mode 9 正是 image t/u 卡死的共同动作。当前结论是承认 EPSS 独占大核簇，或等新的固件证据。
+- mode 9（DCVS 控制位探针，已禁用）：对三域分别读控制位/单行/全行写入——Phase A 写单行 top/bottom 后恢复；Phase B **只在 `DCVS_CTRL` bit0 已为 1 时**写所有核行 top/bottom 后恢复行，否则只打印 `leaving the firmware control alone`，**不再写 `0xb0`**。2026-11-19 07:56 以 image t（`3300c1a7`，`k60_cpufreq=9`，boot.img sha256 `567d9b62…`，30 项 603 B）上机：fastboot 报 `Sending`/`Booting OKAY`，但 console 0 字节、`capture.json state=port-not-observed`、`returnedToFastboot=false`，设备状态 `none`，需强制复位。04:36 的 image u（mode 9 + 导入的 0617 thermal 补丁）是同一签名；两次唯一的共同因素是 mode 9，**温控补丁没有被证明有罪**。`3a0a5511` 在入口拒绝 9，探针代码保留待新的固件证据；sheng 最新从不写控制位，d1/d2 归属问题按 EPSS 独占大核簇处理。
 - 帧下限接入（2026-11-19 05:07，image w）：采样线程每 16 ms 调 `pong_adreno_cp_pending()`（CP 环
   RPTR≠WPTR 表示本窗口有提交，DCVS 线程已用同一读数），把结果喂 `K60BoostPlan`，再把
   `k60_boost_frame_active()` 作为 `framing` 传给 `k60_cpufreq_governor_window`；官方 §5 :116 的
@@ -489,7 +489,12 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   `k60_cpufreq=9`，30 项 603 B。`fastboot.log` 记录 `Sending 'boot.img' OKAY` 与 `Booting OKAY`，但 console.log
   到 07:59 仍是 0 字节，`capture.json` 为 `state=port-not-observed`、`bytes=0`、`complete=false`、
   `returnedToFastboot=false`，设备状态 `none`。04:36 的 image u（mode 9 + 0617 thermal）同一签名。
-  判读：卡死与 mode 9 的 DCVS 控制位/全行写入相关，与温控补丁无关；mode 9 已由 `3a0a5511` 禁用，不再上机。
+  判读：卡死与 mode 9 **主动写 DCVS 控制位**相关，与温控补丁无关；mode 9 已由 `3a0a5511` 禁用，不再上机。
+
+- sheng 最新对比（2026-11-19，`origin/main c8f92b2`，`package/CpuFreqProbe.cpp:132-142`）：
+  `voteDomain` 只写 `perf_state 0x320`；仅当 `DCVS_CTRL 0xb0` bit0 已为 1 时写 `+4×i` 每核行，
+  从不写 `0xb0`。我们的 `probeDcvsControl` 原 Phase B 主动置 bit0，是 image t/u 0 字节的共同动作；
+  已改为仅在 bit0 已置时写行（否则 `leaving the firmware control alone`），mode 9 仍禁用。
 
 ## 7. 未实现 / 边界
 

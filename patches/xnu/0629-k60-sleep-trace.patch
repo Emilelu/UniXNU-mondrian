@@ -1,10 +1,18 @@
 --- a/iokit/Kernel/IOCPU.cpp
 +++ b/iokit/Kernel/IOCPU.cpp
-@@ -55,6 +55,14 @@
+@@ -55,6 +55,22 @@
  extern "C" void sched_override_available_cores_for_sleep(void);
  extern "C" void sched_restore_available_cores_after_sleep(void);
  
-+#if defined(PONG)
++#ifndef K60_PLATFORM_SLEEP_REPORT
++/* A driver-level switch, not a machine config. The 27 profile is not PONG, so a
++ * PONG guard would compile these calls away and the platform-sleep judge could
++ * never see a report (P-255 family: a guard that looks harmless). A build that
++ * wants them silent passes -DK60_PLATFORM_SLEEP_REPORT=0. */
++#define K60_PLATFORM_SLEEP_REPORT 1
++#endif
++
++#if K60_PLATFORM_SLEEP_REPORT
 +/* Optional reports from the board and ArmCpu sleep cores. Both only log, and
 + * both are called after console_resume(); calling them earlier would write to
 + * the console with interrupts masked. */
@@ -15,7 +23,7 @@
  /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
  
  static IOLock *gIOCPUsLock;
-@@ -232,10 +240,13 @@
+@@ -232,10 +248,13 @@
  	IOPMrootDomain  *rootDomain = IOService::getPMRootDomain();
  
  	printf("IOCPUSleepKernel enter\n");
@@ -29,7 +37,7 @@
  	rootDomain->tracePoint( kIOPMTracePointSleepCPUs );
  
  	numCPUs = gIOCPUs->getCount();
-@@ -257,6 +268,7 @@
+@@ -257,6 +276,7 @@
  
  	// Sleep the CPUs.
  	ml_set_is_quiescing(true);
@@ -37,7 +45,7 @@
  	cnt = numCPUs;
  	while (cnt--) {
  		target = OSDynamicCast(IOCPU, gIOCPUs->getObject(cnt));
-@@ -270,12 +282,15 @@
+@@ -270,12 +290,15 @@
  #if defined(__x86_64__)
  			currentShutdownTarget = target;
  #endif
@@ -53,12 +61,12 @@
  
  	console_suspend();
  
-@@ -298,6 +313,15 @@
+@@ -298,6 +321,15 @@
  	rootDomain->start_watchdog_timer();
  
  	console_resume();
 +	printf("K60TRACE: resumed\n");
-+#if defined(PONG)
++#if K60_PLATFORM_SLEEP_REPORT
 +	if (armcpu_sleep_report != NULL) {
 +		armcpu_sleep_report();
 +	}
@@ -69,7 +77,7 @@
  
  	rootDomain->tracePoint( kIOPMTracePointWakeCPUs );
  
-@@ -323,6 +347,7 @@
+@@ -323,6 +355,7 @@
  	sched_restore_available_cores_after_sleep();
  
  	thread_kern_set_pri(self, old_pri);

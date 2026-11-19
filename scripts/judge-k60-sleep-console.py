@@ -214,8 +214,9 @@ def judge(console: pathlib.Path, capture: pathlib.Path | None) -> tuple[bool, in
     ok = arm_report is not None and sleep_report is not None
     if arm_report is None:
         notes.append("no 'ArmCpu: sleep report' line after the resume "
-                     "(the weak report hook is PONG-gated in 0629-k60-sleep-trace.patch, "
-                     "so a build with another machine profile silently loses it)")
+                     "(0629-k60-sleep-trace.patch gates the weak hook on "
+                     "K60_PLATFORM_SLEEP_REPORT; a build that sets it to 0, or a tree "
+                     "still carrying the old defined(PONG) guard, silently loses it)")
     else:
         group = arm_report[1]
         if int(group.group("phase")) != EXPECTED_PHASE:

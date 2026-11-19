@@ -5,9 +5,11 @@ The carry manifest (docs/research/power/CARRY.toml) only proves that the seven
 pure C modules still hash the same. Three other failures have already cost
 rounds of work on the 27 line, and each of them is visible offline:
 
-  * the sleep-trace patch guards its report calls with `#if defined(PONG)`, but
-    the 27 profile is not PONG, so both reports vanish and the platform-sleep
-    judge can never pass (P-255 family: a guard that looks harmless);
+  * the sleep-trace patch used to guard its report calls with `#if defined(PONG)`;
+    the 27 profile is not PONG, so both reports vanished and the platform-sleep
+    judge could never pass (P-255 family: a guard that looks harmless). The guard
+    is now `#if K60_PLATFORM_SLEEP_REPORT`, and a patch that drops the macro is
+    reported too, because a bare `#if` is the same silent deletion in a new coat;
   * the 16.6.1 builder pins MACHINE_CONFIGS=PONG, and the 12377 source has no
     pexpert/pexpert/arm64/PONG.h, so `make installhdrs` stops with
     `Unsupported CURRENT_MACHINE_CONFIG PONG`; board.toml must route to the
@@ -121,6 +123,7 @@ def check_report_guard(tree: Path) -> tuple[str, str]:
     if not series.is_file():
         return WARN, "no patches/xnu/series in the 27 tree"
     offenders = []
+    unmacroed = []
     for line in series.read_text(encoding="utf-8", errors="replace").splitlines():
         entry = line.strip()
         if not entry or entry.startswith("#"):
@@ -135,13 +138,20 @@ def check_report_guard(tree: Path) -> tuple[str, str]:
                    if "#if defined(PONG)" in row or "#ifdef PONG" in row]
         if guarded:
             offenders.append(f"{entry}:{guarded[0]}")
+        elif "K60_PLATFORM_SLEEP_REPORT" not in text:
+            unmacroed.append(entry)
     if offenders:
         return BLOCK, ("the report calls are behind #if defined(PONG) ("
                        + ", ".join(offenders)
                        + "); the 27 profile is not PONG, so both reports vanish "
                          "and the sleep judge can never pass — move the guard to a "
                          "driver-level macro such as K60_PLATFORM_SLEEP_REPORT")
-    return PASS, "the sleep reports are not behind a PONG guard"
+    if unmacroed:
+        return WARN, ("the report calls carry no K60_PLATFORM_SLEEP_REPORT macro ("
+                      + ", ".join(unmacroed)
+                      + "); an unguarded call is fine, but a later `#if` without the "
+                        "macro silently deletes it again — keep the driver-level switch")
+    return PASS, "the sleep reports are behind the driver-level macro, not a machine config"
 
 
 def path_inside(path: Path, root: Path) -> bool:

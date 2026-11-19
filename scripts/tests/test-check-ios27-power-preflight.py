@@ -58,7 +58,8 @@ def make_device(base: Path) -> Path:
 
 
 def make_tree(base: Path, *, module: bool = True, guard: bool = False,
-              builder: str = "generic", judges: bool = True, picker: bool = True) -> Path:
+              macro: bool = True, builder: str = "generic", judges: bool = True,
+              picker: bool = True) -> Path:
     tree = base / "ios27"
     for rel in ("drivers/PongPower", "patches/xnu", "scripts"):
         (tree / rel).mkdir(parents=True)
@@ -68,6 +69,11 @@ def make_tree(base: Path, *, module: bool = True, guard: bool = False,
     patch = "--- a/x\n+++ b/x\n"
     if guard:
         patch += '@@ -1,0 +1,2 @@\n+#if defined(PONG)\n+    armcpu_sleep_report();\n'
+    elif macro:
+        body = ["+#ifndef K60_PLATFORM_SLEEP_REPORT", "+#define K60_PLATFORM_SLEEP_REPORT 1",
+                "+#endif", "+#if K60_PLATFORM_SLEEP_REPORT", "+    k60_platform_sleep_report();",
+                "+#endif"]
+        patch += "@@ -1,0 +1,%d @@\n" % len(body) + "\n".join(body) + "\n"
     else:
         patch += '@@ -1,0 +1 @@\n+    k60_platform_sleep_report();\n'
     (tree / "patches" / "xnu" / "0629-k60-sleep-trace.patch").write_text(patch, encoding="utf-8", newline="\n")
@@ -112,6 +118,7 @@ WORK.mkdir(parents=True, exist_ok=True)
 case("clean tree", expect_rc=0, expect="ios27-power-preflight: PASS")
 case("missing module", expect_rc=1, expect="missing drivers/PongPower/K60Probe.c", module=False)
 case("pong guard", expect_rc=1, expect="K60_PLATFORM_SLEEP_REPORT", guard=True)
+case("no driver macro", expect_rc=0, expect="keep the driver-level switch", macro=False)
 case("sixteen builder", expect_rc=1, expect="Unsupported CURRENT_MACHINE_CONFIG PONG", builder="pong")
 case("no picker", expect_rc=1, expect="3cc8cbc9", picker=False)
 case("missing judges", expect_rc=1, expect="judge-k60-handoff-console.py", judges=False)

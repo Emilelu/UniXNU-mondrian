@@ -136,8 +136,8 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 
 `K60CpuFreqProbe`（默认关闭，boot arg `k60_cpufreq` 选模式）：
 
-- mode 1（只读）：映射三个 domain 窗口与 L3，读 LUT/enable/state/dcvs/vote，
-  **不写任何寄存器、不轮询**；每个 domain 打印 `base/enable/state(kHz)/dcvs/vote/rows/top/level`，
+- mode 1（只读）：映射三个 domain 窗口与 L3，读 LUT/enable/state/dcvs/0x30c/vote，
+  **不写任何寄存器、不轮询**；每个 domain 打印 `base/enable/state(kHz)/dcvs/limit/cap/vote/rows/top/level`，
   L3 打印 `vote/rows/top/level`。早期读取随后按解析顺序逐行打印
   `row=<i> raw=0x<...> khz=<...> cores=<...> turbo=<...>`（L3 前缀 `L3 row=`），
   每域最多 `table.count` 行；电池 `begin` 成功后 5 s，`k60_cpufreq_probe_late()`
@@ -535,7 +535,8 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    PDMEM perf-lock 投票已接入（`0x17d09804/8/c`，先于 `perf_state`），离线 host/编译通过但未上机；
    若成立，大核簇的持续投票可能由 PDMEM 而非 `perf_state` 承接。L3 follow（mode 10）同样
    只做了 host/编译，未上机；它写的是 L3 共享投票，不改变大核簇的 perf_state 归属。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
-  三个 domain 均 `enable=1`。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
+  三个 domain 均 `enable=1`。2026-11-19 15:25 起 mode 1 还打印 `0x30c` 原始值与按 zizhan 规则算出的 cap；下一次只读启动即可确认 K60 的
+  bit2/state 语义，尚未上机。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
   mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；触摸计数自 image x 起由补丁 0622 导出（CPU/GPU 线程消费；05:47 上机已抓到 `tb=1` 与 governor 抬档，硬件写窗口由 `9b8a36b6` 重开，但 100 s 上限由 `a0e8a060` 才去掉，image y/z 均未上机复测）、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset

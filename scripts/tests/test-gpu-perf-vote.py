@@ -178,5 +178,19 @@ def main():
     return 1 if failures else 0
 
 
+
+# --- P-247 regression: the bench must not live inside the blit-control branch ---
+@case("bench_not_inside_the_control_branch")
+def bench_not_inside_the_control_branch():
+    """The first version put the loop inside `if(blitProbe && runBlitProbe(...))`, so the
+    bench ran only when the control was on and the flight came back with zero samples again.
+    """
+    text = SCANOUT.read_text(encoding="utf-8")
+    control = text.index("scanout blit control could not run")
+    bench = text.index("if(context->bench)")
+    assert bench > control, "the bench block sits inside the blit-control branch again"
+    assert text.index("lastCopy=span(t1,t2)") > bench, "the bench must run before the copy is timed"
+
+
 if __name__ == "__main__":
     sys.exit(main())

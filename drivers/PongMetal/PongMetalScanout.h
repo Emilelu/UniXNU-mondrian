@@ -65,6 +65,10 @@ static void *serve(void *opaque)
                         (unsigned long long)context->presenter->probeSourceToDeviceUs(),
                         (unsigned long long)context->presenter->probeDeviceToScanoutUs());
                     report(control,0);
+} else if(context->blitProbe) {
+                    report("scanout blit control could not run",0);
+                }
+
                 
                 /* A bounded repeat of the same copy, so the blit can be measured without
                  * waiting for something on the device to animate. Every flight before this
@@ -95,9 +99,6 @@ static void *serve(void *opaque)
                         struct timespec pause={0,2000000};
                         nanosleep(&pause,nullptr);
                     }
-                }
-} else if(context->blitProbe) {
-                    report("scanout blit control could not run",0);
                 }
             }
             lastCopy=span(t1,t2);

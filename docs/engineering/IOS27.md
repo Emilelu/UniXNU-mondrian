@@ -344,10 +344,12 @@ carries) lands.
 **Criterion.** Judge the gate, not the build, with either of:
 
 - `python3 scripts/check-bluetooth-runtime-gate.py --out <dir>` — the
-  `state` field is `gated-off` when the defconfig leaves the gate closed and
-  `gated-on` when it is open; when open, the series must contain 0526 and 0527
-  or the run fails. Add `--tree <patched xnu>` to also assert that
-  `native_bt_runtime_prepare` still sits inside the `#if`.
+  `state` field reads `gated-off` when the defconfig leaves the switch closed
+  and `active` when it is open (`gate_enabled` is the same fact as a boolean);
+  when open, the series must contain 0526 and 0527 or the run fails. Add
+  `--tree <patched xnu>` to also assert that `native_bt_runtime_prepare` still
+  sits inside the `#if`; on `/home/emilelu/verify0527b` it reports
+  `prepare_in_gate: true`.
 - `python3 scripts/check-bluetooth-kernel.py --kernel <kernel.macho>
   --expect-runtime` — the flag lives in the kernel checker, not in the gate
   checker, and it asserts the runtime's side of the contract: the two overlay
@@ -359,9 +361,12 @@ carries) lands.
   needles are missing; that is why `--expect-runtime` stays off the stage-0
   CI step.
 
-Both halves were re-measured on 2026-11-20: the gate checker printed
-`series: 25 entries`, `defconfig: CONFIG_XNU_OWNER_DATA_MOUNT=absent`,
-`state: gated-off` and wrote `gate_enabled: false` into its report.
+Both halves were re-measured on 2026-11-20. On this branch the gate checker
+printed `series: 25 entries`, `defconfig: CONFIG_XNU_OWNER_DATA_MOUNT=absent`,
+`state: gated-off` and wrote `gate_enabled: false`; pointed at the 16.6.1
+defconfig (`configs/mondrian_defconfig`) it prints `state: active` with
+`gate_enabled: true` and no failures, which is the shape a flipped switch must
+produce before the mounts are trusted.
 
 At runtime the line to look for on the console is
 `[bluetooth-runtime] library=5/0 executables=5/0 cache=5/0`, printed by

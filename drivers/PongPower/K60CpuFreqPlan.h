@@ -47,6 +47,12 @@ extern "C" {
 #define K60_CPU_FREQ_REG_FREQ_LUT 0x100u
 #define K60_CPU_FREQ_REG_PERF_STATE 0x320u
 #define K60_CPU_FREQ_REG_L3_VOTE 0x90u
+#define K60_CPU_FREQ_REG_HARDWARE_LIMIT 0x30cu
+
+/* Bit 2 of the hardware-limit register means the limit is active, as in the
+ * zizhan SM8475 policy: the domain state then reports the ceiling the firmware
+ * currently enforces. */
+#define K60_CPU_FREQ_HW_LIMIT_ACTIVE 4u
 
 /* PDMEM perf-lock votes. The live K60 device tree lists the three domains as
  * 0x17d09804/0x17d09808/0x17d0980c with qcom,perf-lock-support, inside the
@@ -107,6 +113,18 @@ int k60_cpufreq_l3_target(const K60CpuFreqTable *l3,
 unsigned k60_cpufreq_target(const K60CpuFreqTable *table, unsigned current,
     unsigned busy_permille, unsigned shared_cluster, unsigned boost,
     unsigned framing, unsigned quiet_windows);
+
+/* Same decision under a hardware ceiling. cap_khz 0 means no cap; a cap below
+ * the table's lowest entry returns table->count, which is not a valid level. */
+unsigned k60_cpufreq_target_capped(const K60CpuFreqTable *table, uint32_t cap_khz,
+    unsigned current, unsigned busy_permille, unsigned shared_cluster,
+    unsigned boost, unsigned framing, unsigned quiet_windows);
+
+/* The firmware ceiling the same-SoC policy reads: when bit 2 of the limit
+ * register is set and the domain state is non-zero, the state is the current
+ * ceiling. Otherwise the table top stands. */
+uint32_t k60_cpufreq_hardware_cap(uint32_t state_raw, uint32_t limit_raw,
+    uint32_t table_top);
 
 /* Apply a target with the reference down-delay latch. *down must persist
  * between windows. Returns 1 when *current changed. */
@@ -207,6 +225,12 @@ void k60_cpufreq_governor_reset(K60CpuFreqGovernor *gov, unsigned level);
  * when the level changed, 0 when it did not, and -1 for a bad argument. */
 int k60_cpufreq_governor_window(K60CpuFreqGovernor *gov, const K60CpuFreqTable *table,
     unsigned domain, unsigned busy_permille, unsigned boost, unsigned framing);
+
+/* The same window under a hardware ceiling; -1 means the cap is below the
+ * table and no vote can satisfy it. */
+int k60_cpufreq_governor_window_capped(K60CpuFreqGovernor *gov,
+    const K60CpuFreqTable *table, unsigned domain, unsigned busy_permille,
+    unsigned boost, unsigned framing, uint32_t cap_khz);
 
 #ifdef __cplusplus
 }

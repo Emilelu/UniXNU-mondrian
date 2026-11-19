@@ -531,6 +531,8 @@ void samplerThread(void *, wait_result_t)
     uint32_t previous[K60_CPU_FREQ_CPUS][K60_CPU_FREQ_STATES] = {};
     uint64_t idle[K60_CPU_FREQ_CPUS] = {}, elapsed[K60_CPU_FREQ_CPUS] = {};
     unsigned busy[K60_CPU_FREQ_DOMAINS] = {};
+    uint32_t capLast[K60_CPU_FREQ_DOMAINS] = {};
+    bool capBlocked[K60_CPU_FREQ_DOMAINS] = {};
     K60BoostState boost = {};
     int frameActive = 0, framePrevious = 0;
     uint32_t touchReports = 0;
@@ -631,12 +633,34 @@ void samplerThread(void *, wait_result_t)
             touchActive = k60_boost_touch_active(&boost, boostNow);
         }
         for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
+            uint32_t top, cap, limit;
+            int changed;
+
             if (!ready[domain]) continue;
             busy[domain] = k60_cpufreq_domain_busy_elapsed(idle, elapsed,
                 K60_CPU_FREQ_CPUS, domain);
-            (void)k60_cpufreq_governor_window(&gov, &tables[domain], domain,
-                busy[domain], static_cast<unsigned>(touchActive),
-                static_cast<unsigned>(frameActive));
+            top = tables[domain].khz[tables[domain].count - 1];
+            limit = rd32(windows[domain].va, K60_CPU_FREQ_REG_HARDWARE_LIMIT);
+            cap = k60_cpufreq_hardware_cap(rd32(windows[domain].va,
+                K60_CPU_FREQ_REG_DOMAIN_STATE), limit, top);
+            if (cap != capLast[domain]) {
+                if (cap < top)
+                    IOLog("K60CpuFreq: d%u hardware cap=%ukHz limit=0x%x\n",
+                        domain, cap, limit);
+                capLast[domain] = cap;
+            }
+            changed = k60_cpufreq_governor_window_capped(&gov, &tables[domain],
+                domain, busy[domain], static_cast<unsigned>(touchActive),
+                static_cast<unsigned>(frameActive), cap);
+            if (changed < 0) {
+                if (!capBlocked[domain]) {
+                    IOLog("K60CpuFreq: d%u hardware cap=%ukHz below table; no vote\n",
+                        domain, cap);
+                    capBlocked[domain] = true;
+                }
+            } else {
+                capBlocked[domain] = false;
+            }
         }
         if (frameActive != framePrevious) {
             const uint32_t top = tables[0].count ? tables[0].khz[tables[0].count - 1] : 0;

@@ -1513,10 +1513,10 @@ k49 的飞行没有走到存储服务，所以下一步先离线：把整条数�
 没有「按分区名读块」的入口；要接线得在那儿加一个小 API，或者决定绕 bdev strategy 路径。
 `drivers/NativeUfs` 在 `docs/engineering/TREE-OWNERS.toml` 里没有登记主人，这个决定归 Lead。
 
-补记（\`afa822ea\`）：EFS 模块已经作为调用者进入 carried 集。\`K60ModemLink.c\` 不再自己维护
-四张镜像名的比较表，改调 \`k60_efs_storage_for_path()\`；\`scripts/update-modem-qrtr-patch.py\` 的
-FILES 增加 \`K60ModemEfs.h/.c\`（include 改名为 \`pong_modem_efs.h\`），\`scripts/append-conffiles.py\`
-增加 \`bsd/dev/pong_modem_efs.c\`。0622 现为 **122,748 B / 9 files**，\`test-k60-modem-image.py\`
+补记（`afa822ea`）：EFS 模块已经作为调用者进入 carried 集。`K60ModemLink.c` 不再自己维护
+四张镜像名的比较表，改调 `k60_efs_storage_for_path()`；`scripts/update-modem-qrtr-patch.py` 的
+FILES 增加 `K60ModemEfs.h/.c`（include 改名为 `pong_modem_efs.h`），`scripts/append-conffiles.py`
+增加 `bsd/dev/pong_modem_efs.c`。0622 现为 **122,748 B / 9 files**，`test-k60-modem-image.py`
 TESTS OK 30 segments，整套宿主测试（含 IPA、SMMU、FLIGHT LOG 回归）全绿。
 
 ## 5. 飞行顺序

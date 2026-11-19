@@ -1131,7 +1131,7 @@ k60_modem_qrtr_probe(void)
 	QcomGlinkFifo tx, rx;
 	const QcomGlinkClient callbacks = {k60_qrtr_state_cb, k60_qrtr_receive_cb};
 	uint32_t i, seen = 0;
-	int enabled = 0, rc;
+	int enabled = 0, rc, bridge_reported = 0;
 
 	if (!PE_parse_boot_argn("pong_modem", &enabled, sizeof(enabled)) || enabled < 2) {
 		return 0;   /* default: not one byte is touched */
@@ -1244,8 +1244,9 @@ k60_modem_qrtr_probe(void)
 		printf("K60MODEM qrtr: GLINK already opened by transport\n");
 	}
 	printf("K60MODEM qrtr: opening IPCRTR as initiator\n");
+	bridge_reported = coachz_baseband_enabled() != 0;
 	printf("K60MODEM baseband: bridge %s\n",
-	    coachz_baseband_enabled() ? "enabled" : "disabled");
+	    bridge_reported ? "enabled" : "disabled");
 	coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
 	for (i = 0; i < K60_QRTR_POLLS; i++) {
 		const int polls = qcom_glink_poll(&k60_qrtr_link);
@@ -1287,6 +1288,13 @@ k60_modem_qrtr_probe(void)
 			 * retry once a second instead of latching the first failure. */
 			coachz_baseband_configure(k60_baseband_send, k60_baseband_del_client);
 			coachz_baseband_report(i / 500u);
+			/* The bridge state is printed once before the loop, before the
+			 * provider can publish. Announce the transition too, or a late
+			 * publication is invisible to the S6 criterion. */
+			if (!bridge_reported && coachz_baseband_enabled()) {
+				bridge_reported = 1;
+				printf("K60MODEM baseband: bridge enabled (poll %u)\n", i);
+			}
 		}
 		if (k60_qrtr_up && !k60_qrtr_hello_sent) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];

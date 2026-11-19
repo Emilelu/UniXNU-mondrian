@@ -3,7 +3,7 @@
 # Machine-readable closure ledger for the K60 audio line.
 #
 # Rule (user, 2026-11-17 00:24): no image may be offered for a boot while any
-# item below is "open" or "blocking". scripts/check-audio-closure.py enforces
+# item below is "open" or "blocking Image bz reverts the speaker module to 0x0700100E and sends 16-bit samples in 32-bit slots with long sync and a 3.072 MHz clock vote.". scripts/check-audio-closure.py enforces
 # this and exits 1, so the rule is a tool, not a promise.
 #
 # Item fields:

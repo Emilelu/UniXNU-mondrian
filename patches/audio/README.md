@@ -193,4 +193,4 @@ constant; the pre-image synthesis is the only thing that needs to change.
 BSD-2-Clause-Patent, following the two references the code is derived from
 (`references/pong-power/GeniI2c.c`, `references/phk110-port/drivers/audio/hakios.speaker.c`).
 
-Image bt keeps the br lend/reclaim chain but adds `pong_audio_hold=1` (lend, then stay silent) and extends the AW88261 SYSST poll to 200 ms, separating the transfer from the firmware reading the period.
+Image bt keeps the br lend/reclaim chain but adds `pong_audio_hold=1` (lend, then stay silent) and extends the AW88261 SYSST poll to 200 ms, separating the transfer from the firmware reading the period. Image by swaps the speaker module to the mainline AUDIO_IF_SINK id 0x0700117C and the DSP refuses the graph at steps 7/9/10 (status 1), so the firmware wants 0x0700100E; image bz keeps that id and aligns the TDM configuration with the device tree and the amplifier: 16-bit samples inside 32-bit slots, long sync (sync_mode 1), and a 3.072 MHz bit-clock vote instead of 12.288 MHz. Patch 0001 is 132,030 B, 3,494 lines, sha256 eaafc6ad.

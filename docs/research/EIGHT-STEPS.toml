@@ -13,7 +13,7 @@
 # 维护纪律：状态只能按实际证据升级，不能为了让门禁通过而填。
 
 [hardware.touch]
-status = "active"
+status = "active Image bz keeps AR_MOD_TDM_SINK 0x0700100E and aligns the TDM config with the device tree: 16-bit samples in 32-bit slots, long sync, 3.072 MHz bit clock (0001 = 132,030 B, 3,494 lines, sha256 eaafc6ad)."
 paths = ["drivers/PongPower/", "patches/xnu/zzzz", "patches/xnu/0399", "board.toml"]
 name = "触摸（Goodix GT9916R / BERLIN）"
 

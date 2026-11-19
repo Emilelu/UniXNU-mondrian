@@ -18,6 +18,16 @@ static void check(const char *name, long got, long want)
     }
 }
 
+/* The vote set must never carry the firmware-owned DCVS control register. */
+static unsigned control_writes(const K60CpuFreqWrite *writes, unsigned count)
+{
+    unsigned i, hits = 0;
+
+    for (i = 0; i < count; ++i)
+        if (writes[i].offset == K60_CPU_FREQ_REG_DCVS_CTRL) ++hits;
+    return hits;
+}
+
 /* 0x40040028: source 1, four cores, L 40 -> 768 MHz.
  * 0x4001006E: source 1, one core (turbo), L 110 -> 2112 MHz. */
 #define ROW_A 0x00040000u /* source 0 -> GPLL0/2 = 300 MHz */
@@ -150,6 +160,7 @@ int main(void)
         check("votes_d0_core1_offset", writes[1].offset, 0x324);
         check("votes_d0_core3_offset", writes[3].offset, 0x32c);
         check("votes_d0_core3_value", writes[3].value, 9);
+        check("votes_d0_never_control", control_writes(writes, n), 0);
         n = k60_cpufreq_build_votes(1, 1, 3, writes, K60_CPU_FREQ_MAX_WRITES);
         check("votes_d1_dcvs_count", n, 3);
         n = k60_cpufreq_build_votes(2, 1, 3, writes, K60_CPU_FREQ_MAX_WRITES);

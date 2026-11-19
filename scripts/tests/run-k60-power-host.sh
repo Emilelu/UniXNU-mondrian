@@ -33,7 +33,7 @@ run() {
   fi
   total=$((total + expected))
 }
-run cpufreq 154 scripts/tests/test-k60-cpufreq-plan.c drivers/PongPower/K60CpuFreqPlan.c
+run cpufreq 155 scripts/tests/test-k60-cpufreq-plan.c drivers/PongPower/K60CpuFreqPlan.c
 run gpu-freq 140 scripts/tests/test-k60-gpu-freq-plan.c drivers/PongPower/K60GpuFreqPlan.c
 run boost 40 scripts/tests/test-k60-boost-plan.c drivers/PongPower/K60BoostPlan.c
 run sleep 73 scripts/tests/test-k60-sleep-plan.c drivers/PongPower/K60SleepPlan.c

@@ -84,8 +84,12 @@ new file mode 100644
 +
 +static int k60_scm_called;
 +
-+/* R8..x7 are the SMCCC argument registers; the secure monitor writes both the
-+ * result (x0) and the payload status (x1) back through the same registers. */
++/* x0..x7 are the SMCCC argument registers. The secure monitor writes the
++ * result (x0), the payload status (x1) and, when it preempts a call, a session
++ * cookie (x6) back through the same registers, and SMCCC 1.x lets it clobber
++ * x4..x17. Declaring only x0..x3 as outputs let the compiler keep live values
++ * in x4..x17 across the smc, so every argument register is read-write and
++ * x8..x17 are clobbered (the shape Linux arm_smccc_smc uses). */
 +static int
 +k60_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c,
 +    uint64_t *rx0, uint64_t *rx1)
@@ -100,9 +104,11 @@ new file mode 100644
 +	register uint64_t x7 __asm__("x7") = 0;
 +
 +	__asm__ volatile("smc #0"
-+	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
-+	    : "r"(x4), "r"(x5), "r"(x6), "r"(x7)
-+	    : "memory");
++	    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x5),
++	      "+r"(x6), "+r"(x7)
++	    :
++	    : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16",
++	      "x17", "memory");
 +
 +	k60_scm_called = 1;
 +	*rx0 = x0;

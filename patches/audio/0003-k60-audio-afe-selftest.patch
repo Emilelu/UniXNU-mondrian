@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1221 @@ int pong_audio_status(void);
+@@ -898,6 +933,1227 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -623,6 +623,12 @@
 +			printf("PongAudio: playback graph started; PCM streaming\n");
 +		} else {
 +			printf("PongAudio: playback graph started without the speaker; streaming the slots anyway\n");
++		}
++		/* Both graphs now run, so the TDM interface supplies the bit clock the
++		 * amplifiers lock their PLL to; unmute them here, once. */
++		if (state->play_speaker_started) {
++			extern int pong_audio_amp_play(void);
++			(void)pong_audio_amp_play();
 +		}
 +		/* Probe the command path before the first real period: a zero byte
 +		 * write never touches the buffer, so an answer here separates the

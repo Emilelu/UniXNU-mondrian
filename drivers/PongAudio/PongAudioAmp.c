@@ -29,9 +29,12 @@
  *     ULS_HMUTE, and the transmit enable bit is cleared. No bit clock runs, so
  *     nothing here can reach the speaker.
  *
- * WHAT IT DOES NOT DO: no LPASS access, no ADSP/PAS1/GPR call, no ACF file read
- * at boot (both profiles are compiled in), no PLL or SYSST wait, no playback.
- * Those need the ADSP and stay blocked (AMPS.md sections 7 and 9).
+ * WHAT IT DOES NOT DO BY ITSELF: no LPASS access, no ADSP/PAS1/GPR call, no ACF
+ * file read at boot (both profiles are compiled in), and nothing is unmuted at
+ * boot. pong_audio_amp_play()/pong_audio_amp_stop() are the only paths that leave
+ * the mute; the playback patch calls them after the DSP graph has started the TDM
+ * interface, because the bit clock the PLL locks to comes from there (AMPS.md
+ * sections 7 and 9).
  *
  * GATING: the probe runs only when the image is booted with pong_audio_probe=1.
  * Without the argument this file is inert: one boot-arg lookup and a return. The
@@ -74,6 +77,8 @@ extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
  * (patches/audio/0001-k60-audio-amp-probe.patch). Declared here so the file
  * compiles under -Wmissing-prototypes without a second header. */
 int pong_audio_amp_probe(void);
+int pong_audio_amp_play(void);
+void pong_audio_amp_stop(void);
 
 #define PONG_AUDIO_IO_PAGE      ((vm_offset_t)PONG_AUDIO_WINDOW_SIZE)
 #define PONG_AUDIO_PIN_COUNT    8u
@@ -737,6 +742,168 @@ amp_replay_one(unsigned index, uint8_t address)
 	return ok;
 }
 
+/* ---- playback ------------------------------------------------------------ */
+
+/* The probe runs once at bsd_init, from the boot thread. The audio thread comes
+ * back here later, after the DSP has started the TDM interface and its bit clock
+ * exists. Pads, serial engine and the two parts stay configured between the two
+ * calls, so the only state that has to survive is which parts answered. */
+static bool amp_ready;
+static bool amp_found[2];
+
+#define AW_REG_SYSINT           0x02u   /* read twice to clear */
+#define AW_I2SCFG1              0x13u
+#define AW_I2SCFG1_TXEN         (1u << 6)
+#define AW_SYSST_PLL_CHECK      (AW_SYSST_PLLS | AW_SYSST_CLKS)
+#define PONG_AMP_SYSST_TRIES    10u
+
+/* One register, read, cleared and set by mask, written back. The replay pass
+ * uses the same shape for its three merged registers. */
+static int
+amp_update(uint8_t address, uint8_t reg, uint16_t clear_mask, uint16_t set_mask)
+{
+	uint16_t value = 0;
+
+	if (amp_read(address, reg, &value) != 0) {
+		printf("PongAudio: amp 0x%x cannot read 0x%02x before the update\n",
+		    address, reg);
+		return -1;
+	}
+	value = (uint16_t)((value & (uint16_t)~clear_mask) | set_mask);
+	return amp_write(address, reg, value);
+}
+
+/* M: aw88261.c:390-400. Reading the interrupt status clears it; two reads make
+ * sure the second one sees it empty. */
+static int
+amp_clear_interrupts(uint8_t address)
+{
+	uint16_t value = 0;
+	const int first = amp_read(address, AW_REG_SYSINT, &value);
+	const int second = amp_read(address, AW_REG_SYSINT, &value);
+
+	return (first == 0 && second == 0) ? 0 : -1;
+}
+
+/* M: aw88261.c:1030-1090 the power-on order. Leave power-down, give the chip two
+ * milliseconds, release the amplifier, wait one more, then wait for the PLL to
+ * lock on the bit clock the running TDM interface supplies. Without that clock
+ * the status never carries PLLS|CLKS and the part stays muted. */
+static bool
+amp_play_one(unsigned index, uint8_t address)
+{
+	const uint16_t *profile = pong_amp_profile_for_addr(address);
+	uint16_t value = 0, status = 0;
+	uint32_t volume;
+	unsigned tries;
+	bool locked = false;
+
+	if (amp_update(address, AW_REG_SYSCTRL, PONG_ACF_SYSCTRL_PWDN, 0) != 0) {
+		printf("PongAudio: amp%u play cannot leave power-down\n", index);
+		return false;
+	}
+	wait_us(2000);
+	if (amp_update(address, AW_REG_SYSCTRL, PONG_ACF_SYSCTRL_AMPPD, 0) != 0) {
+		printf("PongAudio: amp%u play cannot release the amplifier\n", index);
+		return false;
+	}
+	wait_us(1000);
+	for (tries = 0; tries < PONG_AMP_SYSST_TRIES; ++tries) {
+		if (amp_read(address, AW_REG_SYSST, &status) == 0 &&
+		    (status & AW_SYSST_PLL_CHECK) == AW_SYSST_PLL_CHECK) {
+			locked = true;
+			break;
+		}
+		wait_us(2000);
+	}
+	printf("PongAudio: amp%u play pll=%u status=0x%04x faults=0x%04x tries=%u\n",
+	    index, locked ? 1u : 0u, status, (unsigned)(status & AW_SYSST_FAULTS),
+	    tries + 1u);
+	if (!locked) {
+		/* No bit clock: put the part back the way the probe left it. */
+		(void)amp_update(address, AW_REG_SYSCTRL, 0, PONG_ACF_SYSCTRL_AMPPD);
+		(void)amp_update(address, AW_REG_SYSCTRL, 0, PONG_ACF_SYSCTRL_PWDN);
+		return false;
+	}
+
+	/* Transmit feedback on (M: aw88261.c:1078), ultrasonic mute off, then the
+	 * ACF volume back into 0x05 and the mute bit cleared. The volume write keeps
+	 * the top six bits of the register, exactly as the replay does. */
+	(void)amp_update(address, AW_I2SCFG1, 0, AW_I2SCFG1_TXEN);
+	(void)amp_update(address, AW_REG_SYSCTRL, PONG_ACF_SYSCTRL_ULS_HMUTE, 0);
+	volume = profile != 0 ? (uint32_t)(profile_reg(profile, AW_REG_SYSCTRL2) &
+	    PONG_REPLAY_VOL_MASK) : 0u;
+	if (amp_read(address, AW_REG_SYSCTRL2, &value) == 0) {
+		(void)amp_write(address, AW_REG_SYSCTRL2,
+		    (uint16_t)((value & PONG_REPLAY_VOL_KEEP) | volume));
+	}
+	(void)amp_update(address, AW_REG_SYSCTRL, PONG_ACF_SYSCTRL_HMUTE, 0);
+	(void)amp_clear_interrupts(address);
+	printf("PongAudio: amp%u play unmuted volume=0x%03x\n", index, volume);
+	return true;
+}
+
+/* M: aw88261.c:1095-1120 the stop order: clear the interrupts, force the
+ * ultrasonic mute, mute with the 90 dB value, close the transmit path, wait a
+ * millisecond, then release the amplifier and power the part down. */
+static void
+amp_stop_one(unsigned index, uint8_t address)
+{
+	uint16_t value = 0;
+
+	(void)amp_clear_interrupts(address);
+	(void)amp_update(address, AW_REG_SYSCTRL, 0, PONG_ACF_SYSCTRL_ULS_HMUTE);
+	if (amp_read(address, AW_REG_SYSCTRL2, &value) == 0) {
+		(void)amp_write(address, AW_REG_SYSCTRL2,
+		    (uint16_t)((value & PONG_REPLAY_VOL_KEEP) |
+		    (pong_replay_db_to_reg(PONG_REPLAY_MUTE_VOL) & PONG_REPLAY_VOL_MASK)));
+	}
+	(void)amp_update(address, AW_REG_SYSCTRL, 0, PONG_ACF_SYSCTRL_HMUTE);
+	(void)amp_update(address, AW_I2SCFG1, AW_I2SCFG1_TXEN, 0);
+	wait_us(1000);
+	(void)amp_update(address, AW_REG_SYSCTRL, 0, PONG_ACF_SYSCTRL_AMPPD);
+	(void)amp_update(address, AW_REG_SYSCTRL, 0, PONG_ACF_SYSCTRL_PWDN);
+	printf("PongAudio: amp%u stopped muted and powered down\n", index);
+}
+
+/* Called from the playback path once the TDM speaker graph runs. Returns the
+ * number of parts that reached an unmuted state; zero means no bit clock and
+ * both parts back in power-down. */
+int
+pong_audio_amp_play(void)
+{
+	const uint8_t addresses[2] = { PONG_AUDIO_AMP_ADDR0, PONG_AUDIO_AMP_ADDR1 };
+	unsigned index, playing = 0;
+
+	if (!amp_ready) {
+		printf("PongAudio: amp play skipped; the probe did not bring the bus up\n");
+		return -1;
+	}
+	for (index = 0; index < 2u; ++index) {
+		if (amp_found[index] && amp_play_one(index, addresses[index])) {
+			++playing;
+		}
+	}
+	printf("PongAudio: amp play done playing=%u/2\n", playing);
+	return (int)playing;
+}
+
+void
+pong_audio_amp_stop(void)
+{
+	const uint8_t addresses[2] = { PONG_AUDIO_AMP_ADDR0, PONG_AUDIO_AMP_ADDR1 };
+	unsigned index;
+
+	if (!amp_ready) {
+		return;
+	}
+	for (index = 0; index < 2u; ++index) {
+		if (amp_found[index]) {
+			amp_stop_one(index, addresses[index]);
+		}
+	}
+}
+
 /* ---- entry point -------------------------------------------------------- */
 
 int
@@ -805,6 +972,12 @@ pong_audio_amp_probe(void)
 	    gcc_misses);
 	printf("PongAudio: amp replay done amp0=%u amp1=%u written=%u mismatched=%u failed=%u transfers=%u\n",
 	    replay0, replay1, replay_written, replay_mismatched, replay_failed, bus.done);
+
+	/* The playback path can only act for a part that answered, and only once the
+	 * engine is up; both facts are recorded here, not re-probed later. */
+	amp_found[0] = found0 != 0;
+	amp_found[1] = found1 != 0;
+	amp_ready = true;
 	return (int)(found0 + found1);
 }
 

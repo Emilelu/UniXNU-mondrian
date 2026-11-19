@@ -162,21 +162,34 @@ XNU27_KERNEL=<built kernel> sh scripts/check-audio27-preflight.sh
 - `<tree>/.cache/xnu-work/bsd/conf/files` —— 16 线构建脚本种出来的树；
 - `<tree>/bsd/conf/files` —— iOS 27 输出树，直接在内核源里构建。
 
-**锚点就是 `bsd/dev/unix_startup.c` 那一行**（该树 `bsd/conf/files:108`，后接三个制表符与 `standard`）。
-不是 `bsd/dev/pong_buttons.c`：27 树没有这个文件，它只存在于 16 线的补丁系列里——下一个迁移的人
-看到默认锚点失败时，第一反应会是「锚点选错了」，所以这里写死。
+**默认锚点跟着布局走**：种树布局用 `bsd/dev/pong_buttons.c`（16 线补丁自带的那一行），
+原地构建的 27 树用 `bsd/dev/unix_startup.c`（该树 `bsd/conf/files:108`，后接三个制表符与 `standard`）。
+`--anchor` 仍然可以盖掉两者。这样写是因为 27 树没有 `pong_buttons.c`：它只在 16 线的补丁系列里，
+而下一个迁移的人看到默认锚点失败时，第一反应会是「锚点选错了」，不是「布局不同」。
 
 锚点行必须**回显**：`audio conffiles: anchor line '…'`（`repr` 形式，制表符可见）。只报
 `lines 0 -> 2` 而不回显，等于没锚上（条目写进了别的段落）与锚上了在日志里长得一样——
 P-171/P-245 那一族就是这样漏过去的。失败路径的顺序也不许改：先放源文件，再因锚点缺失退出 1。
 
-在该树副本上实测：
+因为默认锚点跟着布局走，27 的构建钩子不需要外壳脚本，直接指向追加器就行
+（`scripts/build-xnu-generic.sh:15-18` 每打完一轮补丁就调一次 `K60_CONF_FILES_HOOK`）：
 
 ```sh
-python3 scripts/apply-audio27-wiring.py <tree> --anchor "<unix_startup.c 那一整行>"
+# 27 build driver
+K60_CONF_FILES_HOOK=<repo>/scripts/add-audio-conffiles.py sh scripts/build-xnu-generic.sh
+```
+
+注意那一行是 `[ -n … ] && python3 … || echo "K60: conf/files hook failed"`——**失败只打印、不中断**，
+所以追加器自己必须靠计数退出（它确实如此），而真正的兜底是产物判据
+（`check-audio27-kernel.py`：没有音频的内核直接 `AUDIO27 FAILED`）。
+
+在真 27 树副本上实测（不带 `--anchor`，走布局默认）：
+
+```sh
+python3 scripts/apply-audio27-wiring.py <tree> --hook-init
 # audio conffiles: anchor line 'bsd/dev/unix_startup.c\t\t\tstandard'
 # audio conffiles: pong_audio lines 0 -> 2
-# audio wiring: OK sources=9 conf=2
+# audio wiring: OK sources=9 conf=2 init=1
 ```
 
 写进去的是 `bsd/conf/files:109` 与 `:110` 两行（`PongAudioGeniI2c.c`、`PongAudioAmp.c`），

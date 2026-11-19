@@ -67,6 +67,24 @@ static bool waitClear(uintptr_t base, unsigned offset, uint32_t bits)
   return !(read32(base, offset) & bits);
 }
 
+/* ArmCpu.cpp carries the platform sleep hook beside the SPI owners, so the
+   fragment names two sleep types. The model needs them complete, not their
+   behaviour. */
+struct armcpu_sleep_board {
+    void (*prepare)(void);
+    int (*should_wake)(uint32_t);
+    void (*restore)(void);
+    const uint32_t *wake_spis;
+    uint32_t wake_spi_count;
+    void (*tick)(void);
+    uint32_t tick_s;
+};
+struct armcpu_sleep_stats {
+    uint32_t phase, entries, spurious, last_intid, last_reason, cpu_off_failures;
+    uint64_t asleep_ticks;
+    uint32_t masked, ticks, unarmed;
+};
+
 /* @@EXTRACT@@ */
 
 static unsigned gHits;

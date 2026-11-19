@@ -295,3 +295,23 @@ note = """main 的默认 OS profile 从 iOS 16.6.1 换成 iOS 27.0.1（用户决
 两态）」。欠账：这一版还没有构建过，下一次 strict 构建（默认 profile 即 27）是它的
 首次产物检验；27 的首次上机判据见 docs/engineering/IOS27.md 的 F2 阶段门。
 """
+
+
+[[entry]]
+sha = "3cc8cbc9"
+state = "build-only"
+date = "2026-11-20"
+note = """一个仓库同时承载两条线的内核构建器（scripts/build-xnu-4k-baseline.sh 按
+board.toml 的 [board] os_profile dispatch 到 scripts/build-xnu-generic.sh）。
+为什么必须动构建路径：装配树把框架、SoC、本仓依次覆盖，本仓同名文件会顶掉框架的
+通用构建器；只留 Pong 构建器则 27 树在 `make installhdrs` 报
+`Unsupported CURRENT_MACHINE_CONFIG PONG`（12377 的 pexpert/pexpert/arm64 无 PONG.h，
+CI run 44591014076 的真错行），只留通用构建器则 16.6.1 线丢掉 MACHINE_CONFIGS=PONG、
+Sleep/wifi/thermal 三个钩子与全部 K60 归档。
+为什么是 build-only：①27 stage-0 按设计停在 bsd_init，这一版是它的首次产物检验而不是
+可启动成果；②16.6.1 线没有被重新构建，dispatch 只在该 profile 下让原构建器继续跑，
+它的内核输入逐字节未变，仍然引用 b48613d（baseline-20261116a）的上机证据；③通用构建器
+是框架 4eaf2b9d 的逐字副本，不带任何 K60 符号，因此它进镜像的部分就是框架原物。
+同一链上的另外两个提交不登记：e162e0dd 只改 bt 的宿主测试与夹具、72e5edec 只改门禁
+正则，两者都不进镜像。
+"""

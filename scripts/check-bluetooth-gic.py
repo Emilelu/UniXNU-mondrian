@@ -104,8 +104,13 @@ def main():
         unit_path = os.path.join(work, 'unit.cc')
         binary = os.path.join(work, 'unit')
         open(unit_path, 'w', encoding='utf-8').write(unit)
+        # The model compiles a slice of ArmCpu.cpp: a global the slice carries
+        # (the platform sleep hook sits beside the SPI owners) but the
+        # assertions never touch is expected, so unused-variable stays quiet.
         build = subprocess.run([compiler, '-std=c++17', '-O1', '-g', '-Wall',
-                                '-Wextra', '-Werror', '-pthread',
+                                '-Wextra', '-Werror',
+                                '-Wno-unused-variable',
+                                '-Wno-unused-const-variable', '-pthread',
                                 '-fsanitize=address,undefined', unit_path,
                                 '-o', binary],
                                capture_output=True, text=True)

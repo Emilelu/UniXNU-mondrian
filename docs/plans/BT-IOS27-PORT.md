@@ -337,6 +337,36 @@ guard or the enable write turns the run red.
 Boundary: the model covers register semantics and the owner table, not real GIC
 timing, preemption or affinity, and `hardware_verified` stays false.
 
+## 5.6 The power ladder check
+
+The third official step-6 script is the power check. Sheng's version asserts the
+shared WCN votes (`sheng_wcn_power_get`/`put`, one vote per radio). K60 has no
+such object: since 0511 the ladder never votes a PMIC rail (RPMh/RSC is out of
+reach), so a cold boot only logs `power: cold boot, rails not voted
+(k60bt_warm=0)` and continues. What is checkable here is the order of step 2 of
+the page.
+
+`scripts/check-bluetooth-power.py` extracts `k60_bt_power_on()` and
+`k60_bt_power_off()` from `bsd/dev/qbt_k60.c` by brace matching and asserts the
+seventeen power-on steps and seven power-off steps in the official order: map
+the windows, park the UART pins, BT_EN low, hold 100 ms, WLAN discharge,
+BT_SW_CTRL as input, serial clock, stop and prepare the engine, attach the two
+interrupts, pulse XO, BT_EN high, release XO, hold 60 ms, mux the pins, start
+GENI. Twelve invariants follow: 587 and 208 with `(32u + SPI)`, the attach calls
+taking an INTID, the four delays 100/60/100/100 ms, no `rpmh`/`spmi`/`pmic`
+token in either body once comments are stripped, a cold boot that logs instead
+of returning `-EOPNOTSUPP`, and `k60.powered = true` after BT_EN goes low.
+
+Both trees pass 22 checks. `scripts/tests/test-bt-power-check.py` runs 18 cases
+against synthetic sources: reordered steps, dropped steps, retuned delays, a bare
+SPI, a rail vote inside the ladder, a refused cold boot, a missing or early
+cleanup flag, a power-off that keeps the wake armed, a moved `k60_irq_mask`, and
+a literal INTID. One case proves a comment that mentions a rail is not a vote.
+
+The check is textual: it proves the code still says what the port decided, not
+that the hardware followed. The timing and level evidence remains the bt-0525
+console, lines 480-1342.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

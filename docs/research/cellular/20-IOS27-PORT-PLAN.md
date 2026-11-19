@@ -59,7 +59,7 @@ diff -u <27 tree>/bsd/kern/kern_exec.c /tmp/kern_exec.27.c > 0627-kern-exec-call
 - VM 初始化后：`kmem_alloc(kernel_map, …, KMA_NOFAIL | KMA_PAGEABLE | KMA_IO)`，再 `pmap_map`。
 
 也就是说 27 上没有「一张固定大小的子图」这回事，P-219 的失败模式不再以同样形式存在，这个补丁**应当判为 not-applicable 而不是搬**。
-真正要复查的是另一件事：早期那条路径受 `virtual_space_start`/`virtual_space_end` 这块由 `pmap_startup()` 给出的窗口约束（`osfmk/vm/vm_resident.c:2352`），窗口多大目前没测过——如果 27 上继续在 exec 阶段调 `ml_io_map`，要确认这块窗口够用。
+我们的调用点都在 exec 之后（`startup_phase >= STARTUP_SUB_KMEM`），走的是 `kmem_alloc(kernel_map, …)` 那条分支，所以早期 `virtual_space_start` 窗口（由 `osfmk/vm/vm_resident.c:2352` 的 `pmap_startup()` 给出）与我们无关；27 上唯一的余量问题退化成「`kernel_map` 够不够」，与 16 线同一量级。
 
 ## 7. 生成产物的重建链
 

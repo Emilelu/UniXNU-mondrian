@@ -451,3 +451,61 @@ K60 READY DRIFT the patches leave bsd/dev: bsd/kern/kern_exec.c
 修法（`strip_call_site()` 内）：剥 hunk 时连同紧贴在它前面的 `---`、`+++` 与 `diff --git` 行一起剥掉，
 之后再清空行。0626 现在是 **29,107 B / 六个目标**，`--self-test`、`--verify`、readiness 全绿。
 本条的教训记在 P-206：`git apply --check` 的 0 只证明没有冲突，不证明补丁说了它该说的话。
+
+## 18. 对照 [基带与移动网络适配](https://unixnu.com/zh/porting/baseband) 的五步：我们有什么、缺什么
+
+这一节把官方页面（Coachz/SC7180 示例）的五节逐条映射到本线现状。左边是页面要求，右边是仓库里的对应物；
+「缺」的那列只写**没有实现**的，不写「还没上机」。
+
+### 18.1 划分实现层
+
+| 页面说的层 | 我们的对应物 | 状态 |
+|---|---|---|
+| SoC 与板级：电源、时钟、保留内存、固件启动、中断、DMA、EFS/NV | `drivers/PongCellular/K60ModemBoot.c`（PAS 四步）、`K60ModemPas.c`（SCM smc）、`K60ModemLink.c`（SMP2P/GLINK/QRTR）、`K60ModemRmtfs.c`、`K60ModemMemshare.c`、`K60ModemEfs.c`、`K60ModemGpt.c` | 有；EFS 读的宿主侧闭合，设备侧未验证 |
+| 控制桥：QMUX 帧、QMI 客户端分配、服务发现与回复路由 | `drivers/QcomBaseband`（`component:QcomBaseband`，`board.toml:14/21` 已选）、`patches/qcombaseband/0001-coachz-defer-publication.patch` | 有；27 树要重新 pin 子模块提交 |
+| iOS 接口：基带服务、通道、异步读写、启动交互 | QcomBaseband 的 appleservice 类（内核里 `COACHZ baseband: %d of %u services published`，22 个） | 有；类名/方法号要按 iOS 27 的 kext 重核 |
+| 数据通路：IPA/GSI、QMAP mux、网卡收发 | `K60Ipa.c`、`K60IpaGsi.c`、`K60IpaQmi.c`（`INIT_DRIVER` 154 字节、`INIT_COMPLETE` 构造器都在） | 有代码，设备上一次都没打开过（`pong_ipa` 门控） |
+
+### 18.2 启动 modem 并建立 QMI
+
+页面要求的顺序是：记录电源/复位/时钟/互连/中断/固件内存/SMMU → 加载 MBA/MPSS 并提供原厂 FSG/EFS → 确认 SMP2P 就绪 → 建 GLINK/QRTR、跟踪服务发布 → IPA 在 modem 启动前配置、`ipa-setup-ready` 后建 GSI 端点、再走 QMI `INIT_DRIVER`/`INIT_COMPLETE`。
+
+| 页面步骤 | 我们的证据 | 状态 |
+|---|---|---|
+| 电源/复位/时钟 | k41–k53 的 S3 六行（`power ok cx=… mss=… xo=…`、`init_image ok metadata=`、`mem_setup ok base=`、`auth_reset ok`） | 设备验证 |
+| 原厂 FSG/EFS | RMTFS 服务 14/1 端口 `0x102` + `k60_efs_*` 拷贝引擎 + `native_pong_ufs_read_named_volume` | 协议与拷贝在宿主闭合；k51/k53 待飞 |
+| SMP2P 就绪与两个应答 | `K60ModemSmp2p.h`：停位释放、`ipa` 条目的时钟问答（`bit0` 完成 / `bit1` 投票） | k53 待飞 |
+| GLINK/QRTR 与服务发布 | k31–k45：名称服务器端口 53、RMTFS 宣告后 modem 立刻 open（25 字节） | 设备验证到「会开口要 EFS」 |
+| IPA 先于 modem 启动、`ipa-setup-ready` 后建 GSI | `K60Ipa.c:1170/1364` 的 `pong_ipa` 门控、`K60IpaGsi.c:541` 的冷启动注释 | **顺序未按页面执行**：我们都把 IPA 关着，先让 modem 跑起来 |
+| QMI `INIT_DRIVER`/`INIT_COMPLETE` | `K60IpaQmi.c:174/218`（154 字节与应答解析） | 构造器有，没接线 |
+
+结论：2 的前半（modem 起得来、QRTR 通、服务能宣告）已经走在页面的路线上；IPA 那一段我们刻意反过来做——
+先把 QMI/EFS 打通，再打开 IPA，因为 K60 的 IPA 从来没用一次性打开成功过（k47 的 panic 与 k48 的 4 GiB 问题都在那一侧）。
+
+### 18.3 接入 iOS 桥接层
+
+页面要求：发布 `AppleBaseband`、`AppleBasebandPCIControl` 与每通道 `AppleBasebandPCIInterface`，用 `ABPInterfaceProtocol` 匹配 `pbl`/`sahara`/`qmux1`/`qmux2`，按目标 OS 核对 UserClient 类名、方法号、参数大小与异步完成参数；`coachz_baseband_configure(send, del_client)` 转发服务变化；CTL 分配 QMI 客户端与本地 QRTR 端口；BSP 激活、VINYL Tape 与运营商包分段的应答规则；DT 里加 `/chosen/coachz-baseband`、`/baseband`、`baseband-chipset` 与根节点 `compatible`。
+
+我们这边：22 个服务已由 QcomBaseband 发布（k6x 的 console 行），`board.toml` 把 `QcomBaseband` 进了 `include` 与 `archives`，DT 侧有 `pong-*` 节点与 `baseband-*` 属性。**缺的是「按 iOS 27 核对」**：27 stage-0 起来后，类名、方法号、参数大小、异步完成参数、`ABPInterfaceProtocol` 名称表都要对 27 的 kext 重新过一遍——这是 27 线第一次真正需要 iOS 侧代码的时刻，也是本线目前唯一必须等 27 树的东西。
+
+### 18.4 接通移动数据
+
+页面要求：`kOnline`、NAS 注册/驻留/附着、DPM 打开 IPA 硬件端口、WDA raw IP/QMAPv4、端点 `{3,4}`→`{4,1}`、WDS 绑定 QMAP mux、`pdp_ip0..3`（MTU 1492）、按 mux 分发、收发/断开/飞行模式/modem 复位逐项验证、eSIM 的 UIM/APDU 与 VINYL。
+
+我们这边：**一项都没开始**。这不是遗漏，是顺序——27 stage-0 的 SpringBoard 都还没打通，数据面要等基带在 27 上重新跑到「modem 持续运行、QMI 服务响应」之后。计划里它排在 k53 判读、IPA 打开、SIM 身份读取之后。
+
+### 18.5 构建与记录
+
+| 页面要求 | 我们 |
+|---|---|
+| `QcomBaseband` 进组件选择，`component:QcomBaseband` 归档 | `board.toml:14`（include）与 `:21`（archives）已有 |
+| 更新时 `components.toml` 与 submodule 同提交 | 16 线已 pin；**27 树要重新 pin**（27 侧目前还没有 `drivers/QcomBaseband`） |
+| `scripts/build-qcom-baseband.py --coachz` | 已有，27 侧要跟着 conffiles 追加一起接 |
+| `porting.toml` 分别记录 modem 启动、QMI、SIM 身份、网络注册、数据、复位、eSIM | `porting.toml` 的 cellular 区已记「启动」与「QMI 枚举」；SIM/注册/数据/eSIM 尚未记（没做过） |
+
+### 18.6 这张表对 27 迁移的直接影响
+
+1. 27 侧第一飞能覆盖的只有 18.2 的前半（起 modem、QRTR、RMTFS），与 16 线同一套判据——`judge-cellular-flight.py` 不依赖 OS 版本。
+2. 18.3 是 27 特有的工作量，且**必须等 27 的 kext**；在那之前动它只能靠猜。
+3. 18.4 全部排在 18.2/18.3 之后，不要提前开工。
+4. 18.5 里「27 树 pin `QcomBaseband`」与本线的 `conffiles-port.txt` 是同一步的两个半边，落地时要一起做。

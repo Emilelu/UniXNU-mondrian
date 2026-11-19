@@ -1392,6 +1392,43 @@ k45 的实机结果把问题收窄到一条消息：modem 在 RMTFS 宣告后立
 - 结论：RMTFS 的 open 应答确实解开了第一道门；**下一个变量是共享缓冲**——分配 2.5 MiB、用 SCM 0x0c/0x16
   把它归给 MSS、把物理地址作为 alloc 的返回值，随后按 rw 的 scatter 表在缓冲与四个镜像之间搬运。
 
+### 3.34 k47：给 modem 一块它自己也拥有的共享区（离线，构建中）
+
+k46 的实机结果给出了明确的下一步：open 应答之后 modem 立刻要 2,621,440 字节（0x280000，与 Pong 的
+RmtfsBytes 相同），我们回 result 1，它就不再前进。k47 把这块区域真正做出来。
+
+改动（提交 0d95a3db）：
+
+1. **分配**：`kmem_alloc_contig()` 在 4 GiB 以下找一块连续内存，失败就带着物理地址重试八次（内核第一次
+   给出的连续块常常在 4 GiB 之上，而 modem 拿到的地址是 32 位）。每次重试都打印实际物理地址，不静默。
+2. **归属**：另外分配 64 KiB 作为 SCM 记录页，用 `k60_modem_assign_record()` 组 HLOS → HLOS|MSS 的记录
+   （源 vmid 3，目标 vmid 3 与 15，权限 7/6），再用新建的 `k60_modem_assign_call()` 发 SCM 0x0c/0x16
+   （`k60_modem_scm_call()` 从三个参数扩展到四个，x5 正是这条调用需要的第四个缓冲区）。类型字沿用本树
+   已验证的 PAS 打包器（count=4、四个 VAL）；若监控程序要求 RO/RW 缓冲类型，`scm mem_assign` 的返回码会
+   在日志里写明，不会假装成功。
+3. **应答**：alloc 回 8 字节物理基址（Pong 回的是基址，不是请求长度）。rw 的 scatter 逐项校验偏移与长度
+   都在共享区内，方向 0（AP→modem）做 clean，方向 1（modem→AP）做 invalidate；影子区暂时就是这块零页，
+   真实 UFS 内容留给 k48。新增日志行：`rmtfs buffer va=… physical=…`、`rmtfs assign record sources=…
+   destinations=…`、`scm mem_assign rc=…`、`rmtfs alloc … physical=…`、`rmtfs rw … served/refused`。
+
+判据：S3/S6 保持；看 modem 在拿到物理地址后是否继续发 rw（出现 `rmtfs rw` 行）。三种结果分别指向
+下一步——(a) 出现 rw 行 ⇒ 共享区打通，k48 换成真实 UFS 内容；(b) 无 rw 但 `scm mem_assign` 返回非零 ⇒
+先修归属调用；(c) channel down / modem 复位 ⇒ 共享区没有映射进 MSS，同样是归属问题。S4/S5 仍不指望。
+
+哈希：
+
+| 项目 | 值 |
+| --- | --- |
+| 内核 | `482a0399004a2e13a85fc3ceff82fdce5177750cc1967d5ee6d8baa5469e5911`，105,738,240 B |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k47/boot-modem-b-full.img`，201,895,936 B，`7ba9b39baa4a2cdf66cadafd8dbbf78b7f77ccdfa0dea3f685f723d30462ba5d` |
+| payload.img | `e694cc14edf0ae06b23f73c81e93256ebe3557e971b138c3fa7dbf10ff23e89f` |
+| payload.json | `99941ab594ef74b4004b1c6e35ca82e6a37f722223b5b238abb85e10a55d4377` |
+| ADT | `5d132c9e23ac06a60937a3de93df8e40129d3b8c6f7639b0949358ccfba30a3c` |
+| DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
+| FD | `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| 符号 | `_coachz_baseband_configure` fffffff007a8e118、`_coachz_baseband_enabled` fffffff007a89298，COACHZ 40 条 |
+| 内核字符串 | `rmtfs buffer`/`rmtfs assign record`/`scm mem_assign`/`rmtfs rw storage` 共 6 次命中 |
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

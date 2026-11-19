@@ -592,6 +592,51 @@ Consequences, which correct the earlier reading of that console:
   is a userland-generator decision, not a device-tree fact, and this branch does
   not inherit it.
 
+### 6.3 What the stock BlueTool does, and why the adapter replaces it
+
+The `Device not open yet, use 'device' to open it.` line in the bt-0525 console
+looked like a startup failure. Disassembling `20G81`'s `/usr/sbin/BlueTool`
+(Mach-O arm64e, `LC_MAIN` `0x10001c110`, file offset = vmaddr − `0x100000000`)
+shows it is not: `-R` never touches a transport.
+
+- `getopt` at `0x10001c4b0` handles `c:hf:F:R`. `case 'R'` sets the cold-reset
+  flag at `0x100931f3c` and tail-jumps to `0x100041c48`, which is
+  `xpc_connection_create_mach_service("com.apple.BlueTool", _dispatch_main_q, 1)`
+  (`0x100041c68`) → event handler → `resume` → `CFRunLoopRun` → `return 0`. The
+  closure has five functions and no IOService call, no device-tree read, no
+  print. The `-R  - Cold Reset.` string in the plist is a mode switch, not an
+  action.
+- The message comes from the XPC script path instead: a `RunBuiltinScript`
+  message (`0x1000420fc`) with `script` = `boot`/`init` reaches
+  `runCommandForCurrentConfig` (`0x100015fa4`, called at `0x100042b98`), which
+  calls `getChipset` (`0x100040e98`), which calls `0x100018be0` at
+  `0x1000410a0` to read the HCI local version. Every one of the three sites
+  that prints the line (`0x100018cec`, `0x100018b90`, `0x100018fa4`) is guarded
+  by `[0x100931fe0 + 0x408] == 0`, the transport-open flag.
+- Only the `device` command opens a transport: the command table at
+  `0x10092cb20` maps `device` to `0x10001ca84`. The UART route uses
+  `socket(AF_SYSTEM, 1, 2)` then `ioctl(0xc0644e03, {name})` then `connect()`
+  (`0x10001da38`), i.e. the `com.apple.uart.bluetooth` kernel control — not an
+  IOService. The AppleBT route (`transport-encoding` 6) matches
+  `AppleBTHci`; the PCIe route (7) matches `AppleConvergedIPCInterface` with
+  `ACIPCInterfaceProtocol = hci`. Anything else, including the value 8 that
+  the daemon falls back to, is the UART route.
+- `transport-encoding`, `transport-speed` and `local-mac-address` are read
+  through `IORegistryEntrySearchCFProperty` on the `IODeviceTree` plane of the
+  service matching the name `bluetooth` (`marconi-bt` is tried first).
+
+So the chain this branch ships is the right shape and the console line was the
+wrong diagnosis: with the Data mount gate open, `/usr/sbin/BlueTool` is not the
+stock binary at all — 0526 mounts the staged `bluetooth-bin` over `/usr/sbin`,
+and 0527 mounts the launchd cache that runs it as `root`. The adapter answers
+the same mach service and the same four keys, but it stubs `RunCommand`, drops
+`RunExternalScript`, `btaddress` and the real manufacturer/firmware lookups,
+and never implements the transport-open sequence above. That is a deliberate
+trade: the transport is driven by `qbt_k60` in the kernel, so the adapter does
+not need it. It does mean the migration is validated only as far as
+`bluetoothd` talking to the adapter; if the daemon needs HCI passthrough
+through the transport it opened itself, this layer has to grow a `device`
+command. That question can only be answered once the Data mount gate is open.
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and

@@ -14,6 +14,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${1:-}
 if [ -n "$OUT" ]; then mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); else OUT=$(mktemp -d); fi
 cd "$REPO"
+python3 scripts/check-power-portability.py
 CFLAGS=(-std=c11 -O1 -Wall -Wextra -Werror -I drivers/PongPower)
 total=0
 run() {
@@ -38,4 +39,4 @@ run armcpu-sleep 1038 scripts/tests/test-armcpu-sleep.c
 run conformance 27 scripts/tests/test-k60-power-conformance.c \
   drivers/PongPower/K60BoostPlan.c drivers/PongPower/K60SleepPlan.c \
   drivers/PongPower/K60PowerVotePlan.c
-echo "power-host: OK ($total checks in 7 suites; binaries in $OUT)"
+echo "power-host: OK ($total checks in 7 suites; portability preflight passed; binaries in $OUT)"

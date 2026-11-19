@@ -124,6 +124,29 @@ sh scripts/tests/portability/run-symbols.sh
    要先把那七条拼回来再追加；:841 以 `CFLAGS_EXTRA` 交给内核 `make`（`MACHINE_CONFIGS=BCM2837`，
    :833-842），所以它到得了每个单元——这也正是上一条要避开的原因。
 
+
+### 一条命令：前两处改动 + 第三处的命令行
+
+复制与 conf/files 是两次文件编辑，中间还可能因为锚点不对半途停下，所以合成一个入口。判据仍是两个数：
+进树了几个源文件、conf/files 认了几行。
+
+```sh
+python3 scripts/apply-audio27-wiring.py --check <tree>              # 只报缺什么，不写
+python3 scripts/apply-audio27-wiring.py <tree> --anchor "<line>"    # 27 树
+python3 scripts/apply-audio27-wiring.py <tree>                      # 16 树：默认锚点
+# audio wiring: sources 9 (added 9, refreshed 0, current 0)
+# audio conffiles: pong_audio lines 0 -> 2
+# audio wiring: OK sources=9 conf=2
+```
+
+它只搬内核编译真正需要的那一束：两个 `.c` 与它们递归 include 到的 `PongAudio*.h`（当前 9 个文件）。
+`PongAudioAfe.h` 不在其中——16 线的 AFE 端点，本固件没有 AFE 服务，只随 host 测试走；
+`K60PmicGlinkAudio.h` 也不在——发给 ADSP 的那一端归 power 线。第三处改动不是文件编辑，所以它只把
+构建命令行打出来（`PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO`），不去改 `build-xnu-generic.sh`
+（框架逐字副本，见上一项）。锚点不对时它先把源文件放好、再报 `pass --anchor` 并 exit 1，重跑一次就补齐，
+所以中途停下是可见且可续的。宿主用例 `scripts/tests/test-apply-audio27-wiring.py`：锚点缺失必须失败、
+命名锚点后只列两行、`--check` 不写、过期头文件被刷新、未 seed 的树被拒、冻结头文件不进树（6 例），
+`check-audio27-preflight.sh` 里是一行 `ok   one command applies the wiring`。
 验证不看日志，看产物，而且正反两跑都要给：
 
 ```sh

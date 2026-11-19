@@ -65,7 +65,7 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    再跑 `sh scripts/tests/portability/run.sh`：它用桩头文件把胶水文件 `PongAudioAmp.c` 编过，
    期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
    这几条加上判据测试、功放 host 测试与（有 sheng 检出时的）audioreach 测试，可以用一条命令全跑：
-   `sh scripts/check-audio27-preflight.sh` → 十行 `ok` 与 `PREFLIGHT OK`（2026-11-20 04:2x 实测
+   `sh scripts/check-audio27-preflight.sh` → 十一行 `ok` 与 `PREFLIGHT OK`（2026-11-20 04:2x 实测
    979 cases / 182 checks 全过）。这条命令还在**从远端重新 clone 的分支副本**里跑过一遍
    （`git clone --branch feat/audio-ios27-carry …`，`SHENG_REPO=/mnt/e/hackios/UniXNU-sheng`）：
    九行全 `ok`，说明这条分支自带它需要的一切，不依赖本仓工作树、16 线补丁或未提交文件。

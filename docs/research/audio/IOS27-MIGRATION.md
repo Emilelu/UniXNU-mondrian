@@ -66,13 +66,15 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
    这几条加上判据测试、功放 host 测试与（有 sheng 检出时的）audioreach 测试，可以用一条命令全跑：
    `sh scripts/check-audio27-preflight.sh` → 首行 `repo <path> <branch> @ <sha>`（量的是哪棵树），
-   随后十五行 `ok` 与 `PREFLIGHT OK`（xnu27 那行带 `xnu-12377.121.6 ac9718f`，sheng 那行带 `(c8f92b2)`；
-   `27 kernel carries the audio` 在没有 `XNU27_KERNEL` 时打印 `skip`，给了就跑产物判据）（2026-11-20 05:1x 实测
-   979 cases / 182 checks / `API OK 4/4` 全过）。这条命令还在**从远端重新 clone 的分支副本**里跑过一遍
-   （`git clone --branch feat/audio-ios27-carry …`，`SHENG_REPO=/mnt/e/hackios/UniXNU-sheng`）：
+   随后十七行 `ok` 与 `PREFLIGHT OK`。每一行自带它量的那棵树的身份：xnu27 那行带
+   `xnu-12377.121.6 ac9718f` 与四个接口各自的 `file:line`，sheng 那两行带 `(c8f92b2)`，
+   `27 kernel carries the audio` 报产物自己的大小与 sha256。（2026-11-20 05:3x 实测
+   979 cases / 182 checks / `API OK 4/4` / `SHENG ABI OK 16/16` 全过。）这条命令还在
+   **从远端重新 clone 的分支副本**里跑过一遍（`git clone --branch feat/audio-ios27-carry …`）：
    全 `ok`，说明这条分支自带它需要的一切，不依赖本仓工作树、16 线补丁或未提交文件。
-   两行取决于环境：`27 kernel interfaces are there` 要一棵 27 源树（`XNU27_REPO` 可指定），
-   `sheng audioreach host tests` 要 sheng 检出；缺了会打印 `skip`，不算失败。
+   三行取决于环境：`27 kernel interfaces are there` 要一棵 27 源树（`XNU27_REPO`），
+   `27 kernel carries the audio` 要一颗产物（`XNU27_KERNEL`），sheng 那两行要 sheng 检出
+   （`SHENG_REPO`）；缺了会打印 `skip`，不算失败。
 2. 在 27 树里跑 `python3 scripts/check-audio-migration.py --copy <27树>/drivers/PongAudio`：
    它按同一份清单复制 §1/§1b/§2 的 21 个文件与 `tests/` 的两个文件（共 23 个），分类检查不通过时
    直接拒绝复制。本仓实测 `--copy` 到空树后，`tests/run-tests.sh` 在副本里仍是 `TESTS OK 979 cases`。

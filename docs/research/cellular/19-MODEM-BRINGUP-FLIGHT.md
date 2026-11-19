@@ -515,6 +515,55 @@ m[b] = rx->data[(tail + b) % rx->length];
 | 判据 | S3 必须保持 PASS；S4 仍要求 `dms revision`。新的 rx 行必须显示 `tail` 处真实的最旧消息：`cmd` 是 0～15 的命令号且 `p1/p2` 不再是全 0（若仍是全 0，说明取样或打印仍有错） |
 | 状态 | 已打包、未上机；与 k30 只差快照取样端 |
 
+**实机结果（2026-11-19 07:49，S3 PASS / S4 FAIL）**：证据 `E:/k60-work/evidence/usblog-20261119-074912`，
+console 220,975 B，sha256 `09aea18d11d6aefa212e1de3e562032a9d82b238a5fb01229bddc97b9ced56bd`，
+capture 完整（`captured-budget-complete`、stopReason budget、无 panic、有 restart marker）。
+`check-modem-flight-log.py --phase b` 判 S3 PASS、S4 FAIL（dms revision 0 条）。
+S3 行与 k29/k30 相同，`scm cmd=0x5 ok calls=181` 是第三次独立复现 auth_reset。
+
+取样端修复生效：失败行变成
+
+```
+K60MODEM qrtr: glink poll rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0x1
+```
+
+即环头最旧一条是 **GLINK INTENT（cmd=5）**，`param1=1`（rcid）、`param2=1`（一个 pair）。
+`QcomGlink.c:393-421` 的 INTENT 分支只有四种 `QcomGlinkCorrupt` 出口：`:394` 计数越界、
+`:403` pair 的 size 或 id 为 0、`:407` 同 id 已在 busy、`:411` 48 个槽全满。通道刚打开，
+槽不可能满，所以嫌疑集中在 `:403`：要么这条 INTENT 真的带 0 pair，要么我们从 0 开始读到的
+576+72 字节根本不是本次会话的环，而是上一次会话留下的残料。区分它需要两样 k31 没打印的东西：
+adopt 瞬间的 `desc[0]/desc[3]` 与环首 32 字节，以及配对本身的 size/id（`0x1 0x1` 之后没有打印）。
+
+
+### 3.18 k32：adopt 时的环状态与 32 字节损坏快照（离线，未上机）
+
+k31 的失败行把坏消息定位到了命令号，但没有打印判据点本身：`cmd=0x5`（INTENT）、`p1=0x1`（rcid）、
+`p2=0x1`（一个 pair）。`QcomGlink.c:393-421` 的 INTENT 分支只有四个 `QcomGlinkCorrupt` 出口——
+`:394` 计数越界、`:403` pair 的 size 或 id 为 0、`:407` 同 id 已在 busy、`:411` 48 个远端槽全满。
+通道刚打开，槽不可能满；剩下的是 `:403`（真的零 pair）与“环里是上一次会话的残料、对齐早已错位”两种互斥解释。
+
+k32（`55259825`）**不改任何行为**，只加两处诊断：
+
+1. `qcom_glink_adopt()` 成功后立刻打印 `desc[0]`（modem 侧 tx tail）、`desc[3]`（modem 侧 rx head）与环首
+   32 字节（8 个小端 u32；此刻 `*rx.tail` 必为 0，这是 adopt 的前置条件）。新会话在我们发出 VERSION 之前
+   不可能已经排好 648 字节的完整握手；如果此处 head 已非 0 且 `w0` 不是 VERSION/OPEN 的命令号，
+   说明环里是旧会话的残料。
+2. 损坏路径的 8 字节快照扩到 32 字节，**保留原前缀**（`glink poll rc=… at … rx avail=… head=… tail=… cmd=… p1=… p2=…`）
+   以便 `check-modem-flight-log.py` 与既有 `grep` 不失效，并追加 `tx head=… tx tail=…` 与 `w2..w7`。
+   字布局：`w0 = cmd | p1 << 16`、`w1 = p2`、`w2/w3 = 第一个 INTENT pair 的 size/id`、`w4/w5 = 下一条消息头`。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `55259825`（"feat(cellular): dump the GLINK ring at adopt and on corruption"） |
+| 主机验证 | 0622 96,781 B / 5 files；`test-k60-modem-image.py` TESTS OK 30 segments；`test-k60-ipa-patch.py` PASS；`run-host-tests.sh` rc0（含 FLIGHT LOG） |
+| kernel | `E:/k60-work/artifacts/modem-20261117k32/kernel.macho`，105,582,592 B，sha256 `f9c915aa361075277a6bf33a123ba0167cd72638e53474c9793033fedd6152ad` |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k32/boot-modem-b-full.img`，201,895,936 B，sha256 `5571c7f293021c54f7b0f6c43799f028e3953875542db9cb701a65e619f5d145` |
+| payload | `95d4cd30e3f68932829743e3b62cd4c9a445a63f1d44fdd0b079f7bee271807d`（json `b7560ab4488857f1d315620cc4b714989dde7f3d38d2b9bc00415eebd04b22a7`）；payload kernel `8a6749c6ce873217b8b2e2a832ebcbfd8c662e47a8a59e42240f5b86508395fb`；adt `7b3119fb3dff370460c1ed6d655c2db484c4fdb82d7bb471b9b6a92e87c74c73` |
+| args | 末尾 `pong_modem=2 pong_ipa=0`；FD `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386` |
+| 布局 | 560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-boot-image.py` rc0 OK |
+| 判据 | S3 必须保持 PASS；S4 仍要求 `dms revision`。新行只用于在“旧会话残料”和“真实零 pair”之间定性，不改变 S4 的通过条件 |
+| 状态 | 已打包、未上机；与 k31 只差两处诊断打印 |
+
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
@@ -555,7 +604,10 @@ m[b] = rx->data[(tail + b) % rx->length];
   没有 dms revision，按 S4 判失败（F8）。
   k30 起，失败行会带 `rx avail=… head=… tail=… cmd=… p1=… p2=…`（§3.16），用于区分 VERSION/OPEN/INTENT/DATA 分支。
   k30 B（07:26）实测 S3 PASS、S4 FAIL，但该行取样在 `head`，`cmd/p1/p2` 全 0，不能用于分支判断；
-  k31 起改从 `tail` 取样（§3.17），该行的 `cmd/p1/p2` 才代表环头最旧消息。
+  k31 起改从 `tail` 取样（§3.17），该行的 `cmd/p1/p2` 才代表环头最旧消息；
+  k31 B（07:49）实测 S3 PASS、S4 FAIL，该行是 `cmd=0x5 p1=0x1 p2=0x1`，即一条 GLINK INTENT；
+  k32 起该行还带 `tx head/tx tail` 与 `w2..w7`（§3.18），`w2/w3` 就是这条 INTENT 的 pair size/id，
+  adopt 时另有一行 `glink adopt tx tail=… rx head=… rx w0=…`
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
   `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。
 - **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published` 的 N 大于 0；bridge disabled 或 N=0 都算失败。
@@ -595,8 +647,12 @@ m[b] = rx->data[(tail + b) % rx->length];
    （`channel up` → `channel down` → `glink poll rc=-5 at 2`，无 dms revision，§3.15）。
    **k30 B 已飞（2026-11-19 07:26）**：S3 PASS（`calls=179`、`auth_reset ok`），S4 FAIL，失败行
    `glink poll rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0 p1=0 p2=0`；快照读的是 `head`，因此全 0（§3.16）。
-   下一飞用 k31 的 `E:/k60-work/artifacts/modem-20261117k31/boot-modem-b-full.img`（`e9b43266…`，§3.17）：
-   与 k30 只差快照取样端（tail），S3 必须保持，S4 仍按 dms revision 判，新的 rx 行必须显示真实命令号。
+   **k31 B 已飞（2026-11-19 07:49）**：S3 PASS（`calls=181`、`auth_reset ok`），S4 FAIL，失败行
+   `glink poll rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0x1`——tail 取样生效，
+   坏消息是一条带单个 pair 的 GLINK INTENT（§3.17）。
+   下一飞用 k32 的 `E:/k60-work/artifacts/modem-20261117k32/boot-modem-b-full.img`（`5571c7f2…`，§3.18）：
+   与 k31 只差两处诊断（adopt 时的 head/环首 32 字节、损坏行的 32 字节与 tx 环），行为不变；
+   S3 必须保持，S4 仍按 dms revision 判，新行用于判定 pair 是否为 0、环是否仍是旧会话残料。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

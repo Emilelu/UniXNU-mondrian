@@ -68,10 +68,13 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   再写 `perf_state`；K60 DT 的 `qcom,perf-lock-support` 与之一致。`K60CpuFreqPlan` 已加入
   `k60_cpufreq_pdmem_offset`/`k60_cpufreq_build_pdmem_vote`，探针 mode 2/3/6/7/8 先写 PDMEM、
   恢复时写回原值；mode 10 另按 zizhan 的 L3 follow 策略让 L3 随最快域移动（boost 时到顶，写前保存、结束恢复），host/编译通过但未上机；离线编译与 host 203 项通过。
-- 新增（2026-11-19）：zizhan 的硬件上限——每窗口读 `0x30c`，bit2 置位且 `0x20` 非零时，
-  上限 = min(table top, `(0x20 & 0xff) × 19.2 MHz`)；`k60_cpufreq_target_capped` 与
+- 新增（2026-11-19）：`0x30c` 是 EPSS 的 `REG_INTR_STATUS`，bit2 是上游
+  `qcom-cpufreq-hw.c` 定义的 `GT_IRQ_STATUS`（limits mitigation 事件），不是静态的
+  “硬件上限”位；zizhan 的 bit2 + `0x20` 规则与此一致。bit2 置位且 `0x20` 非零时，用
+  `(0x20 & 0xff) × 19.2 MHz` 作为本窗口上限；`k60_cpufreq_target_capped` 与
   `k60_cpufreq_governor_window_capped` 在该上限内选档，cap 低于最低档时返回无效档/`-1`
-  并拒绝投票。探针只在 cap 变化时打印；host 203 项通过，尚未上机。
+  并拒绝投票。我们只读该状态，不写 `0x304/0x308`（IRQ enable/clear 属于 IRQ owner）；
+  探针只在 cap 变化时打印；host 203 项通过，尚未上机。
 - 参考的模式 1–4：只读、domain 0 请求、全 domain + L3 请求、governor。K60 已实现模式 1–3、
   只读采样模式 5 和降档写入模式 6（2/3 为带守卫的瞬态写入，6 只降 d0，均为未上机；
   5 为 16 ms 采样线程，不写寄存器），governor 核心由模式 5 的线程调用但仍不写回硬件。
@@ -124,9 +127,10 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   探针先写 PDMEM 再写 `perf_state`，恢复路径把原值写回。
 - `k60_cpufreq_vote_allowed`：拒绝 enable=0、表为空、档位不在表内、写条数超限；`k60_cpufreq_check_readback`
   逐条比较回读值；`k60_cpufreq_build_restore` 用写前保存的原值生成恢复写集合。
-- `k60_cpufreq_hardware_cap`：读 `0x30c` bit2 与 `0x20` 低字节，bit2 置位且 state 非零时
-  返回 min(table top, state×19.2 MHz)，否则返回 table top。
-- `k60_cpufreq_target_capped`/`governor_window_capped`：在硬件上限内选档/走 4 窗口降档；
+- `k60_cpufreq_hardware_cap`：读 `0x30c`（REG_INTR_STATUS）bit2（GT_IRQ_STATUS）与 `0x20` 低字节，
+  bit2 置位且 state 非零时返回 min(table top, state×19.2 MHz)，否则返回 table top。它只观察，
+  不清中断状态。
+- `k60_cpufreq_target_capped`/`governor_window_capped`：在该 limits 上限内选档/走 4 窗口降档；
   cap 低于最低档时 target 返回 table count、governor 返回 `-1`，探针跳过该域投票。
 - `k60_cpufreq_governor_reset/governor_window`：参考 16 ms 循环的纯逻辑版——每个 domain 保存
   当前档、降档计数、quiet 计数；忙 90% 立即升，降档连续 4 窗口才落地；共享簇在 busy<100
@@ -137,15 +141,15 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
 `K60CpuFreqProbe`（默认关闭，boot arg `k60_cpufreq` 选模式）：
 
 - mode 1（只读）：映射三个 domain 窗口与 L3，读 LUT/enable/state/dcvs/0x30c/vote，
-  **不写任何寄存器、不轮询**；每个 domain 打印 `base/enable/state(kHz)/dcvs/limit/cap/vote/rows/top/level`，
+  **不写任何寄存器、不轮询**；每个 domain 打印 `base/enable/state(kHz)/dcvs/limits/cap/vote/rows/top/level`，
   L3 打印 `vote/rows/top/level`。早期读取随后按解析顺序逐行打印
   `row=<i> raw=0x<...> khz=<...> cores=<...> turbo=<...>`（L3 前缀 `L3 row=`），
   每域最多 `table.count` 行；电池 `begin` 成功后 5 s，`k60_cpufreq_probe_late()`
   再做一次只读摘要读取（日志 `late read begin/end`），让 d1/d2 在辅核启动后可见；
   延后读取不重复逐行 dump。它不是轮询，也不写寄存器。
-- 所有 voteDomain 路径（mode 2/3/6/7）在选档前读 `0x30c`：bit2 置位且 cap 低于表顶时用 cap 重建 LUT，
-  cap 低于最低档时跳过投票并打印 `hardware cap=… below table`；这样 §5 :108 的温控 ceiling 也约束写入路径，
-  不只约束 governor。
+- 所有 voteDomain 路径（mode 2/3/6/7）在选档前读 `0x30c`（REG_INTR_STATUS）的 bit2：置位且 cap
+  低于表顶时用 cap 重建 LUT，cap 低于最低档时跳过投票并打印 `limits cap=… below table`；这样 §5 :108 的
+  温控 ceiling 也约束写入路径，不只约束 governor。
 - mode 2：只给 domain 0 投最高非 turbo 档（参考的 mode 2 语义）。
 - mode 3：三个 domain 都投最高非 turbo 档，再投 L3（参考的 mode 3 语义）。
 - mode 2/3 的写入是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器的原值，写后逐条回读，
@@ -194,7 +198,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   L3 只在该窗口的最快 domain 比例或触摸 boost 改变时重写，首次写前保存原值，结束或线程
   停止时恢复；回读不一致立即恢复并停用 L3 follow，域投票继续。L3 窗口为 `0x17d90000`，
   LUT `0x100`，投票 `0x90`，与 zizhan 的 `pong_l3=2` 语义一致；默认关闭，只有
-  `k60_cpufreq=10` 才进入。host 203 项与编译通过，尚未上机。硬件上限夹取也在同一采样循环里生效。
+  `k60_cpufreq=10` 才进入。host 203 项与编译通过，尚未上机。限频上限夹取也在同一采样循环里生效。
 - mode 9（DCVS 控制位探针，已禁用）：对三域分别读控制位/单行/全行写入——Phase A 写单行 top/bottom 后恢复；Phase B **只在 `DCVS_CTRL` bit0 已为 1 时**写所有核行 top/bottom 后恢复行，否则只打印 `leaving the firmware control alone`，**不再写 `0xb0`**。2026-11-19 07:56 以 image t（`3300c1a7`，`k60_cpufreq=9`，boot.img sha256 `567d9b62…`，30 项 603 B）上机：fastboot 报 `Sending`/`Booting OKAY`，但 console 0 字节、`capture.json state=port-not-observed`、`returnedToFastboot=false`，设备状态 `none`，需强制复位。04:36 的 image u（mode 9 + 导入的 0617 thermal 补丁）是同一签名；两次唯一的共同因素是 mode 9，**温控补丁没有被证明有罪**。`3a0a5511` 在入口拒绝 9，探针代码保留待新的固件证据；sheng 最新从不写控制位，d1/d2 归属问题按 EPSS 独占大核簇处理。
 - 帧下限接入（2026-11-19 05:07，image w）：采样线程每 16 ms 调 `pong_adreno_cp_pending()`（CP 环
   RPTR≠WPTR 表示本窗口有提交，DCVS 线程已用同一读数），把结果喂 `K60BoostPlan`，再把
@@ -538,8 +542,9 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    PDMEM perf-lock 投票已接入（`0x17d09804/8/c`，先于 `perf_state`），离线 host/编译通过但未上机；
    若成立，大核簇的持续投票可能由 PDMEM 而非 `perf_state` 承接。L3 follow（mode 10）同样
    只做了 host/编译，未上机；它写的是 L3 共享投票，不改变大核簇的 perf_state 归属。mode 1 已完成早读、延后读取和有效 LUT 行转储，延后读取的
-  三个 domain 均 `enable=1`。2026-11-19 15:25 起 mode 1 还打印 `0x30c` 原始值与按 zizhan 规则算出的 cap；下一次只读启动即可确认 K60 的
-  bit2/state 语义，尚未上机。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
+  三个 domain 均 `enable=1`。2026-11-19 15:25 起 mode 1 还打印 `0x30c`（REG_INTR_STATUS，bit2 =
+  GT_IRQ_STATUS）原始值与按该规则算出的 cap；下一次只读启动要确认 bit2 是电平还是锁存，以及 `0x20` 低字节
+  是否实时反映限频后的频率。我们不清 `0x308`，所以若 bit2 锁存，cap 可能保持到固件清除；尚未上机。记录中的 `vote` 是只读到的原寄存器值，并非探针写入。
 - governor 核心此前没有线程；mode 5 增加了 `processor_info` 的 16 ms 采样线程和逐 CPU 差分，
   2026-11-18 23:19 image l 已把这个线程跑上真机：274 条 `sample win=`、d0 可降到 300 MHz，
   mode 7/8 已把决策写回 EPSS（mode 8 双向，03:58 image s）；帧信号已从 CP 环采样并作为 `framing` 进入 governor（05:07 image w，276 条样本全部 `fr=0`，启动全程无 GPU 提交，下限未激活）；触摸计数自 image x 起由补丁 0622 导出（CPU/GPU 线程消费；05:47 上机已抓到 `tb=1` 与 governor 抬档，硬件写窗口由 `9b8a36b6` 重开，但 100 s 上限由 `a0e8a060` 才去掉，image y/z 均未上机复测）、没有 10 s 统计窗口、没有温度/throttle 读数；300 s autoreset

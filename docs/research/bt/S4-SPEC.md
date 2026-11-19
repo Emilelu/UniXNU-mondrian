@@ -1805,6 +1805,16 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 - 产物：`bt-0523-transport-set-rate`，boot.img `865f3ede…`，kernel.log:274 记录 0523，verify-boot-image OK、image-arg-audit 31/598。未飞行，因为没有客户端会触发改速。
 - 边界：不证明改速成功，不证明蓝牙可用。
 
+### 7.30 蓝牙 DT 节点与 /arm-io/bluetooth（2026-11-19 14:22，构建验证）
+
+- 契约：官方页 step 4 要求静态 bluetooth 节点 + local-mac-address + /chosen/mac-address-bluetooth0 + 同名 IOService。节点属性 device_type="bluetooth"、compatible="qcom,wcn6855-bt"、unixnu,adt-name="bluetooth"、transport-encoding=<1>、transport-speed=<3000000>、status="okay"。
+- 为什么 compatible 不是 sheng 的 wcn7850-bt：K60 是 QCA6490/WCN6855 系；mainline 同硅绑定是 qcom,wcn6855-bt（BT-AUDIO-PORT-PLAN.md:79 的 uart20 先例）。
+- 为什么 3000000：QUPV3 源 48 MHz，3.2 Mbaud 无整数分频；qbt_boot 的 K60_BT_RUN_BAUD=3000000 是实际链路速率，DT 必须与发布值一致。
+- 机制：devicetree.py:368-380 把带 unixnu,adt-name 的根节点导出成 /arm-io/<name>；MiniBluetooth 的 k60_bt_node 复用该节点，不再重建。
+- 产物：bt-0524-dt-node boot.img 57d8f964…；hardware.dtb 4,207 B，fdtget 六属性齐全；payload ADT 16,292 B 含 bluetooth/compatible/transport-speed。iOS 27 CI run 44470953368 的产物 ADT 同样含节点。
+- 检查：scripts/check-bluetooth-dt.py（dts/dtb/payload 三层）与 scripts/tests/test-bt-0524-dt-node.py 15/0。
+- 边界：静态契约与打包证明；未飞行，未证明运行时 bluetoothd 使用该节点。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

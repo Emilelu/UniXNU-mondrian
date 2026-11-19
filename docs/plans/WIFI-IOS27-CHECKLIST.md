@@ -62,22 +62,26 @@ Rewritten 2026-11-20, when main itself became the 27 line.
 
 ## B. What the 27 kernel line must gain before wifi can even link
 
-- [ ] B1 [DEV] Put the 24A446 ABI on the branch feat/wifi-ios27-tree: the six files
+- [x] B1 [DEV] Put the 24A446 ABI on the branch feat/wifi-ios27-tree (done 2026-11-20): the six files
   (PongWifiNet.cpp, PongWifiPlatform.cpp, PongWifiAbi.h, PongWifiScanPolicy.h,
   ath11k/pong_sae.c, ath11k/pong_sae.h) plus their host tests, on top of main's
   drivers/PongWifi tree. Exit: scripts/tests/test-wifi-sbl-mission.py and
   test-pong-abi.py print 0 failure(s), and compile-teardown2.sh builds the kext against
   both nw_abi.h generations (16 header + ath11k-abi1, 27 header + ath11k-abi27).
-- [ ] B2 [DEV] Prove the 4 KiB entry on the 27 line: main already carries
+- [ ] B2 [DEV] Prove the 4 KiB entry on the 27 line. This checkout's framework is
+  unfetched (`python3 unixnu status --device ../k60-wifi` reports "SoC sm8475 is not
+  cached"), so the run starts with `python3 unixnu fetch`; the wiring itself is main's:
   scripts/build-xnu-4k-baseline.sh with the XNU_PONG_WIFI=1 path
   (-Wl,-force_load,$PONG_WIFI_ARCHIVE), so this is a run, not a port. Exit: the script
   links libPongWifiNative.a into the 27 kernel and the prelink report names the archive.
-- [ ] B3 [DEV] Wire wifi into the 27 side without touching the 16 default: main already
-  has configs/mondrian_wifi_defconfig (CONFIG_XNU_PONG_WIFI=y,
-  CONFIG_XNU_BUILD_ARCHIVES=y) and configs/mondrian-wifi-sm8475.json, while
-  mondrian_ios27_defconfig does not name wifi. Exit: a 27 wifi defconfig (or fragment)
-  selects both switches, board.toml's 27 override still builds the stage-0 kernel
-  unchanged when wifi is off, and build-strict.sh selects libPongWifiNative.a with it on.
+- [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
+  2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
+  CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on
+  mondrian_ios27_defconfig, so a first 24A446 boot still gets the stage-0 kernel.
+  scripts/tests/test-wifi-ios27-config.py asserts the ten properties that matter (both
+  switches, the stage-0 boundary kept, the 27 override unchanged, the 16 mapping
+  unchanged, build-strict.sh reading the .config and exporting the archive, the link
+  force-loading it, and the refusal when the switch is on without an archive).
 - [ ] B4 [SOC] Confirm the 12377 kernel exports what the driver links against:
   kev_post_msg, mbuf_allocpacket, ifnet_input, IOService/IOUserClient.
   The IO80211 side is ours: PongWifiNet.cpp:1153-1173 defines IO80211Controller and

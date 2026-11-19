@@ -149,6 +149,24 @@ def patch_targets():
     return sorted(names)
 
 
+def patch_sections():
+    """Per patch: the files it touches and how many of its sections are new files."""
+    result = []
+    for name in ARTIFACTS[:3]:
+        path = os.path.join(ARTIFACT_DIR, name)
+        if not os.path.exists(path):
+            continue
+        targets, fresh = [], 0
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("new file mode"):
+                    fresh += 1
+                elif line.startswith("+++ b/"):
+                    targets.append(line[6:].strip())
+        result.append((name, targets, fresh))
+    return result
+
+
 def compare(expected, actual):
     """Drift is any measured rc that differs from the recorded one."""
     return expected == actual
@@ -224,6 +242,22 @@ def main(argv):
         print('K60 READY DRIFT the patches leave bsd/dev: ' + ' '.join(stray[:5]))
     else:
         print('K60 READY ok   %d patch targets, all under bsd/dev' % len(targets))
+    sections = patch_sections()
+    seen, twice, partial = {}, [], []
+    for name, names, fresh in sections:
+        if fresh != len(names):
+            partial.append("%s %d/%d" % (name, fresh, len(names)))
+        for target in names:
+            seen.setdefault(target, []).append(name)
+    twice = sorted(t for t, owners in seen.items() if len(owners) > 1)
+    if partial:
+        drift += 1
+        print('K60 READY DRIFT sections that are not new files: ' + ' '.join(partial))
+    elif twice:
+        drift += 1
+        print('K60 READY DRIFT two patches touch the same file: ' + ' '.join(twice[:3]))
+    else:
+        print('K60 READY ok   all %d sections create new files, no target twice' % len(seen))
     wired = conf_entries_in_tree(args.tree)
     if wired:
         drift += 1

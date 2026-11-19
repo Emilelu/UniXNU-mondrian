@@ -202,3 +202,23 @@ reason = "门禁输出落在 mktemp -d 的临时目录里，trap EXIT 时删除�
 [[allow]]
 path = "scripts/check-build-applied.py::/tmp/usb-cdc-mainline/device/patches/xnu/series"
 reason = "门禁比较的是构建输入序列，输入镜像本身就在 /tmp/usb-cdc-mainline（见文件头注释），不是持久存放点"
+
+[[allow]]
+path = "scripts/k60-janitor.py::/tmp/k60build"
+reason = "这里不是往 /tmp 存东西，而是把 /tmp 下指向构建树的符号链接列为永不删除的对象（P-246）"
+
+[[allow]]
+path = "scripts/k60-janitor.py::/tmp/usb-cdc-mainline"
+reason = "这里不是往 /tmp 存东西，而是把 /tmp 下指向构建树的符号链接列为永不删除的对象（P-246）"
+
+[[allow]]
+path = "scripts/k60-janitor.py::/tmp/fakeroot"
+reason = "这里不是往 /tmp 存东西，而是把 /tmp 下指向构建树的符号链接列为永不删除的对象（P-246）"
+
+[[allow]]
+path = "scripts/tests/test-disk-guards.py::/tmp/k60build"
+reason = "这里不是往 /tmp 存东西，而是把 /tmp 下指向构建树的符号链接列为永不删除的对象（P-246）"
+
+[[allow]]
+path = "scripts/tests/test-disk-guards.py::/tmp/fakeroot"
+reason = "这里不是往 /tmp 存东西，而是把 /tmp 下指向构建树的符号链接列为永不删除的对象（P-246）"

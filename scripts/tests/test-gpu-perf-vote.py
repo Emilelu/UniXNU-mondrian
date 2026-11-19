@@ -14,7 +14,9 @@ import os
 import pathlib
 import sys
 
-ROOT = pathlib.Path(os.environ.get("K60_REPO") or "E:/hackios/k60-gates")
+# The checkout is supplied by the caller (the gate runs every line of this file from the
+# tree it is judging); a literal path here would judge a different tree than the one asked.
+ROOT = pathlib.Path(os.environ.get("K60_REPO") or pathlib.Path(__file__).resolve().parents[2])
 GMU_C = ROOT / "drivers/PongAdreno/PongAdrenoGmu.c"
 GMU_H = ROOT / "drivers/PongAdreno/PongAdrenoGmu.h"
 PLATFORM = ROOT / "drivers/PongAdreno/PongAdrenoPlatform.cpp"

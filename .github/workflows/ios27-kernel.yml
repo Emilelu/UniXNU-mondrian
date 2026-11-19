@@ -8,6 +8,8 @@ name: iOS 27 kernel (Linux build)
 # spends hours compiling LLVM.
 
 on:
+  push:
+    branches: [main, feat/bt-ios27-port]
   workflow_dispatch:
     inputs:
       framework_ref:
@@ -36,6 +38,7 @@ jobs:
       UNIXNU_JOBS: "4"
       TOOLCHAIN_URL: https://github.com/Emilelu/UniXNU-mondrian/releases/download/toolchain-linux-20261119/unixnu-linux-20261119.tar.gz
       TOOLCHAIN_SHA256: b29926aef9938d2c540bfd01f3341bede457db9efed98f78f79735c7c86f85ee
+      FRAMEWORK_REF: ${{ inputs.framework_ref || '563595abedfdfa413ad583b66b6176d82007e633' }}
     steps:
       - name: Check out the device
         uses: actions/checkout@v4
@@ -47,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: UniXNU/UniXNU
-          ref: ${{ inputs.framework_ref }}
+          ref: ${{ env.FRAMEWORK_REF }}
           path: UniXNU
           fetch-depth: 1
           submodules: false
@@ -94,6 +97,15 @@ jobs:
           UNIXNU: ${{ github.workspace }}/UniXNU
         run: sh scripts/build-ios27-linux.sh
 
+      - name: Check the Bluetooth contract
+        working-directory: device
+        run: |
+          set -eu
+          OUT="$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27"
+          kernel="$OUT/kernel/kernel.macho"
+          payload="$OUT/payload/payload.img"
+          python3 scripts/check-bluetooth-kernel.py --kernel "$kernel" --payload "$payload" --require log-bluetooth
+
       - name: Collect the build summary
         if: always()
         run: |
@@ -108,7 +120,9 @@ jobs:
             for log in "$OUT"/logs/*.log; do
               [ -f "$log" ] || continue
               echo "===== $(basename "$log") ($(wc -c < "$log") bytes) ====="
-              tail -n 200 "$log"
+              grep -n -m 40 -E 'error:|Undefined symbols|ld: |\*\*\* |cannot find|No such file' "$log" || true
+              echo '--- tail ---'
+              tail -n 60 "$log"
               echo
             done
           } > "$S" 2>&1 || true

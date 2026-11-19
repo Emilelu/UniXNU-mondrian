@@ -36,6 +36,9 @@ esac
 UNIXNU_OUT=${UNIXNU_OUT:-$HOME/ios27-out}
 export UNIXNU_OUT
 
+# UniXNU resolves profiles/os/<name> from its own tree; install ours first.
+bash "$ROOT/scripts/install-os-profile.sh" "$UNIXNU"
+
 sh "$ROOT/scripts/apply-core-patches.sh" "$UNIXNU"
 cd "$UNIXNU"
 python3 ./unixnu fetch --device "$ROOT"

@@ -78,6 +78,14 @@ def case_extra_fails(tmp):
     assert "K60: conf-files hook FAILED: extra0 exited 3" in done.stdout, done.stdout
 
 
+def case_extra_missing(tmp):
+    tree = seed(tmp / "missing")
+    done = run(tree, extra=str(tmp / "no-such-appender.py"))
+    assert done.returncode == 1, done.stdout
+    assert "is not on this machine" in done.stdout, done.stdout
+    assert "extra0=" in done.stdout, done.stdout
+
+
 def case_unseeded(tmp):
     tree = tmp / "bare"
     tree.mkdir()
@@ -87,7 +95,8 @@ def case_unseeded(tmp):
 
 
 def main():
-    cases = [case_ok, case_missing_anchor, case_extra_ok, case_extra_fails, case_unseeded]
+    cases = [case_ok, case_missing_anchor, case_extra_ok, case_extra_fails,
+             case_extra_missing, case_unseeded]
     root = pathlib.Path(tempfile.mkdtemp(prefix="confhook-"))
     try:
         for case in cases:

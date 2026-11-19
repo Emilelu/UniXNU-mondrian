@@ -78,6 +78,9 @@ def main(argv):
     steps = [("audio", audio)]
     extras = [item for item in os.environ.get("K60_CONF_FILES_HOOK_EXTRA", "").split(":") if item]
     for index, extra in enumerate(extras):
+        if not os.path.exists(extra):
+            print("K60: conf-files hook FAILED: extra%d=%s is not on this machine" % (index, extra))
+            return 1
         command = [sys.executable, extra] if extra.endswith(".py") else [extra]
         steps.append(("extra%d" % index, command))
     for name, command in steps:

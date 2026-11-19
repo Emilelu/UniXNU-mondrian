@@ -14,8 +14,10 @@ run in one order that cannot half-apply silently:
 <tree> is either the repository the builder seeds (kernel sources under
 <tree>/.cache/xnu-work) or an iOS 27 output tree that builds in place; bsd/conf/files
 in whichever one holds bsd/ is what the build reads. The
-third edit is not a file edit - it is EXTRA_MAKE_ARGS on the builder call, so
-this script prints that line instead of touching the builder, which is a
+third edit is not a file edit - it is one make variable in the builder call
+environment. The builder resets its EXTRA_MAKE_ARGS array at :166, so the same
+name there is dropped; see test-audio27-define.py. This script prints that
+line instead of touching the builder, which is a
 framework copy (scripts/refresh-xnu-generic.py rewrites the whole file).
 
 A fourth edit decides whether any of this runs: the glue is called once from
@@ -41,8 +43,8 @@ import sys
 
 SOURCES = ("PongAudioAmp.c", "PongAudioGeniI2c.c")
 INCLUDE = re.compile(r'#include\s+"(Pong[^"]+)"')
-BUILDER_LINE = ("EXTRA_MAKE_ARGS=\"PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO\" "
-                "sh scripts/build-xnu-generic.sh")
+BUILDER_LINE = ("PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 "
+                "bash scripts/build-xnu-generic.sh")
 INIT_FILE = "bsd/kern/bsd_init.c"
 INIT_ANCHOR = '\tbsd_init_kprintf("calling vfsinit\\n");\n'
 INIT_BLOCK = (

@@ -6,7 +6,15 @@ One block has three copies: the applier's INIT_BLOCK (the source of truth),
 the patch this lane handed over, and the copy the 27 series carries once the
 Lead books it.  The first two are pinned by test-emit-audio27-patch.py and the
 preflight's digest row.  This script covers the third: it emits the patch
-again from a 27 tree and compares the bytes with the file in the series.
+again from a 27 tree and compares what the two *insert*.
+
+Not the bytes.  Context width and comment prose are delivery decisions: the
+booked copy of 0531 is a -U1 hunk with a one-line comment, because three lines
+of context did not survive the patches ahead of it in the real series while the
+same hunk applied cleanly on a pristine tree.  A gate that demanded our bytes
+would push the patch back to a form that does not apply -- the gate must not
+tell the integrator how much context to keep.  What must match is the code: the
+weak declaration, the null check, the call.
 
 Exit codes: 0 the two agree, 1 they differ or the patch is not listed in the
 series file, 3 the series has not booked the patch yet (nothing to compare,
@@ -42,6 +50,35 @@ def listed(series, name):
             return True
     return False
 
+
+
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+LINE_COMMENT = re.compile(r"//[^\n]*")
+
+
+def inserted(text):
+    """The lines a patch adds, in order; file banners are not additions."""
+    out = []
+    for line in text.splitlines():
+        if line.startswith("+++ ") or line.startswith("--- "):
+            continue
+        if line.startswith("+"):
+            out.append(line[1:])
+    return out
+
+
+def code_core(lines):
+    """The code alone: comments and every whitespace character removed.
+
+    Formatting is a style decision -- the booked copy writes the null check and
+    its call on one line, the emitter writes three -- so the comparison is on
+    the token stream.  The block holds no string literals, which is what makes
+    dropping all whitespace safe here; a literal with a space in it would
+    compare equal to one without.
+    """
+    text = BLOCK_COMMENT.sub("", "\n".join(lines))
+    text = LINE_COMMENT.sub("", text)
+    return re.sub(r"\s+", "", text)
 
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -147,12 +184,23 @@ def main(argv):
 
     booked = patch.read_bytes()
     want = emitted.encode("utf-8")
-    if booked != want:
-        print("SERIES FAILED: %s differs from the emitter (series %s, emitter %s);"
-              " regenerate with scripts/emit-audio27-patch.py"
+    same_bytes = booked == want
+    if not same_bytes:
+        theirs = code_core(inserted(booked.decode("utf-8", "replace")))
+        ours = code_core(inserted(emitted))
+        if theirs != ours:
+            at = next((i for i in range(min(len(theirs), len(ours)))
+                       if theirs[i] != ours[i]), min(len(theirs), len(ours)))
+            print("SERIES FAILED: %s inserts different code (first difference at"
+                  " character %d): series ...%r, emitter ...%r"
+                  % (patch.name, at + 1, theirs[max(0, at - 20):at + 20],
+                     ours[max(0, at - 20):at + 20]))
+            return 1
+        print("SERIES NOTE: %s differs in bytes (series %s, emitter %s); the"
+              " inserted code matches once comments, formatting and context are"
+              " set aside"
               % (patch.name, hashlib.sha256(booked).hexdigest()[:16],
                  hashlib.sha256(want).hexdigest()[:16]))
-        return 1
 
     state = listed(series, patch.name)
     if state is False:
@@ -163,8 +211,9 @@ def main(argv):
     if order(series, patch) == 1:
         return 1
 
-    print("SERIES OK %s %d B sha256 %s matches the emitter%s"
+    print("SERIES OK %s %d B sha256 %s %s%s"
           % (patch.name, len(booked), hashlib.sha256(booked).hexdigest(),
+             "matches the emitter" if same_bytes else "inserts the emitter's code",
              "" if state else " (no series file here)"))
     return 0
 

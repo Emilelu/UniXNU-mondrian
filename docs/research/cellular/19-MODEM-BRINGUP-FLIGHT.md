@@ -564,6 +564,48 @@ k32（`55259825`）**不改任何行为**，只加两处诊断：
 | 判据 | S3 必须保持 PASS；S4 仍要求 `dms revision`。新行只用于在“旧会话残料”和“真实零 pair”之间定性，不改变 S4 的通过条件 |
 | 状态 | 已打包、未上机；与 k31 只差两处诊断打印 |
 
+**更正（2026-11-19 08:30）：k32 的 adopt 诊断打错了路径，镜像作废。** 那行打印只挂在
+`k60_modem_glink_start()`（transport 路径，源码第 1087 行）；而 B 形态每次都在 `mem_setup` 打印
+`K60MODEM transport remote glink fifo absent, defer IPCRTR`，真正的 adopt 发生在探针路径
+（`K60ModemLink.c:1212`）。证据：`git show 55259825:drivers/PongCellular/K60ModemLink.c | grep -n 'glink adopt'`
+只列出 1087 与 1200 两行，探针函数切片内命中 0 次。因此 k32 的 adopt 行在 B 飞行中不可能出现，
+由 §3.19 的 k33 取代。
+
+### 3.19 k33：探针路径的 adopt 诊断与旧环残料丢弃（离线，未上机）
+
+k31 的失败行（`rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0x1`）已经说明坏消息是
+一条只有一个 pair 的 GLINK INTENT，但还缺两样东西：adopt 那一刻对端写指针是多少，以及 tx 环是否也在
+重放旧数据。k33 由两个提交组成：
+
+1. `52c741a8` "fix(cellular): drop a stale GLINK ring at adopt"：把环形打印抽成
+   `k60_qrtr_print_ring()`，两条 adopt 路径都调用；探针路径在 adopt 成功后打印
+   `K60MODEM qrtr: glink adopt (probe) …`，**若 `*rx.head` 非 0，则把我们的读指针 `*rx.tail` 对齐到它**
+   （`k60_modem_fence()` 后）并打印 `K60MODEM qrtr: glink adopt dropped N stale bytes (head=…)`。
+2. `979bf601` "feat(cellular): print both GLINK queue indices at adopt"：打印行同时带 tx 环的
+   head/tail（`desc[1]`/`desc[0]`）与环首 8 个小端 u32，格式
+   `K60MODEM qrtr: %s rx head=%u tail=%u avail=%u tx head=%u tail=%u cmd=%#x p1=%#x p2=%#x w2=… w7=%#x`。
+
+丢弃为什么安全：`qcom_glink_adopt()` 的前置条件是我们的两个索引为 0，而 `k60_modem_transport_prepare()`
+（`K60ModemLink.c:933-938`）只清 AP-owned 的 `desc[1]`（tx head）与 `desc[2]`（rx tail）；`desc[0]`/`desc[3]`
+是 modem 的读/写指针，跨热启动留在 SMEM 里——hakios 的同名步骤（`hakios.mpss.c:2656-2673`）同样只清那两个。
+在我们发出第一条 VERSION 之前，modem 不可能已经排好一条 648 字节的、指向本通道的完整握手，所以 adopt 时
+`rx.head` 非零只能是上一会话（甚至 Android）的残料；k30 与 k31 两次失败行逐字节相同，也正符合“每次重放同一段
+残料”。tx 环的这一侧本轮**只观测不重置**（`tx tail` 若也非零，说明 `desc[0]` 同样过期，留到 k34 一起清），
+保持单变量。
+
+| 项 | 值 |
+|---|---|
+| 源码 | `52c741a8` + `979bf601`（"feat(cellular): print both GLINK queue indices at adopt"） |
+| 主机验证 | 0622 98,216 B / 5 files（52c741a8 后为 98,049 B）；`test-k60-modem-image.py` TESTS OK 30 segments；`test-k60-ipa-patch.py` PASS；`run-host-tests.sh` rc0（QMAP/QMI/SERVER/TRANSPORT/QRTR/FLIGHT LOG 全绿） |
+| kernel | `E:/k60-work/artifacts/modem-20261117k33/kernel.macho`，105,582,592 B，sha256 `5b84e7c561b64c6882dab7d63359dad991265f941535175c4233ef1bfc94cf61`；`llvm-strings` 命中 `glink adopt (probe)`、`glink adopt (transport)`、`glink adopt dropped %u stale bytes (head=%u)` |
+| 镜像 | `E:/k60-work/artifacts/modem-20261117k33/boot-modem-b-full.img`，201,895,936 B，sha256 `d467eee47ae7e21f0d70210119b3b92a5be55bef9a91be39c41c749c72676a54` |
+| payload | `ae943899297d27890f8acb945c775b6f3a968ae9de0e8fc96c033b6c1cfef040`（json `97864e04223d6a39bbacca16b35b17065a7265c58cd311c533fadfd67b348b86`）；payload kernel `db5d04035fc6cba8144e3fc2ebc4809ed3893d2e89acd29622988a201c6d2207`；adt `43b356612a51f2587d06b5fff8b7bbcdaeaf55b0e72c7f65e87d53f805cfc7c7` |
+| args | 末尾 `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0`；FD `40c29d513eab0dca410c36bceeef936244cf2a20c3233f48bbbaa8ae69a07386`；carrier `1b4631a6…` |
+| 布局 | 560,384 / 201,326,592 / 3,145,840 / 4,024；`verify-boot-image.py` rc0 OK，`test-bootimg-layout.py` OK |
+| 判据 | S3 必须保持 PASS；S4 仍要求 `dms revision`。adopt 行与 `dropped … stale bytes` 行用于判定残料假设，不改变 S4 的通过条件 |
+| 采集 | 本次 `flash.sh` 的采集秒数由 300 改为 **420**：autoreset 在 300 s 触发，过去两次采集都在复位行之后 1.3 s 结束，无法判定 `PE_k60_reset_now()` 是否真的复位；多观察 120 s，USB 断开即复位生效 |
+| 状态 | 已打包、未上机 |
+
 
 ## 4. 预先写死的判据（S1–S6 / F1–F7）
 
@@ -606,8 +648,10 @@ k32（`55259825`）**不改任何行为**，只加两处诊断：
   k30 B（07:26）实测 S3 PASS、S4 FAIL，但该行取样在 `head`，`cmd/p1/p2` 全 0，不能用于分支判断；
   k31 起改从 `tail` 取样（§3.17），该行的 `cmd/p1/p2` 才代表环头最旧消息；
   k31 B（07:49）实测 S3 PASS、S4 FAIL，该行是 `cmd=0x5 p1=0x1 p2=0x1`，即一条 GLINK INTENT；
-  k32 起该行还带 `tx head/tx tail` 与 `w2..w7`（§3.18），`w2/w3` 就是这条 INTENT 的 pair size/id，
-  adopt 时另有一行 `glink adopt tx tail=… rx head=… rx w0=…`
+  k33 起该行还带 `tx head/tx tail` 与 `w2..w7`（§3.19），`w2/w3` 就是这条 INTENT 的 pair size/id；
+  adopt 时另有一行 `glink adopt (probe) rx head=… tail=… avail=… tx head=… tail=… cmd=… w2..w7`，
+  head 非 0 时紧跟 `glink adopt dropped N stale bytes (head=…)`（环里是上一会话残料，已被丢弃）。
+  §3.18 的 k32 adopt 行只在 transport 路径，B 形态不会打印，不能作为判据。
 - **S5**：`K60MODEM plan rows=30` 存在，且 `K60MODEM qrtr: verdict ok services=` 的
   `services` 大于 0、`node0` 不小于 1；不能是 `verdict no reply`。
 - **S6**：`K60MODEM baseband: bridge enabled` 存在，且 `COACHZ baseband: N of M services published` 的 N 大于 0；bridge disabled 或 N=0 都算失败。
@@ -650,9 +694,11 @@ k32（`55259825`）**不改任何行为**，只加两处诊断：
    **k31 B 已飞（2026-11-19 07:49）**：S3 PASS（`calls=181`、`auth_reset ok`），S4 FAIL，失败行
    `glink poll rc=-5 at 2 rx avail=576 head=648 tail=72 cmd=0x5 p1=0x1 p2=0x1`——tail 取样生效，
    坏消息是一条带单个 pair 的 GLINK INTENT（§3.17）。
-   下一飞用 k32 的 `E:/k60-work/artifacts/modem-20261117k32/boot-modem-b-full.img`（`5571c7f2…`，§3.18）：
-   与 k31 只差两处诊断（adopt 时的 head/环首 32 字节、损坏行的 32 字节与 tx 环），行为不变；
-   S3 必须保持，S4 仍按 dms revision 判，新行用于判定 pair 是否为 0、环是否仍是旧会话残料。
+   k32（`5571c7f2…`）**作废**：它的 adopt 诊断只挂在 transport 路径，B 形态总在 `mem_setup` 打印
+   `transport remote glink fifo absent, defer IPCRTR` 并改走探针路径 adopt，那一行永远不会出现（§3.18 更正）。
+   下一飞用 k33 的 `E:/k60-work/artifacts/modem-20261117k33/boot-modem-b-full.img`（`d467eee4…`，§3.19）：
+   与 k31 的差别是探针路径 adopt 行、head 非零时丢弃旧环、损坏行 32 字节；S3 必须保持，S4 仍按 dms revision 判。
+   采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
 
 ## 6. 本飞不验证（明确写死，不算“已知缺陷”）
 

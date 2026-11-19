@@ -80,14 +80,21 @@ def build_call_sites(tree, anchor_text):
 
 
 def series_fragment():
-    return "\n".join([
+    # One path per line, comments on their own lines: both the 16-line parser
+    # (patches/xnu/series via .split()) and the 27-line one (whole line = path)
+    # treat anything after the name as part of the filename.
+    return chr(10).join([
         "# iOS 27 line: ported from 16 line 0620..0623, call sites merged into 0629",
-        "0626-k60-modem-image.patch        # ported from 16 line 0620 + 0621 file sections",
-        "0627-k60-modem-qrtr.patch         # ported from 16 line 0622",
-        "0628-k60-ipa.patch               # ported from 16 line 0623",
-        "0629-kern-exec-call-sites.patch  # ported from 16 line 0621/0624 call sites",
+        "# born as 16 line 0620 plus the 0621 file sections",
+        "0626-k60-modem-image.patch",
+        "# born as 16 line 0622",
+        "0627-k60-modem-qrtr.patch",
+        "# born as 16 line 0623",
+        "0628-k60-ipa.patch",
+        "# born as the 16 line 0621/0624 call sites",
+        "0629-kern-exec-call-sites.patch",
         "# 0621-k60-io-submap-budget is not carried: the 27 io_map.c has no io_submap",
-    ]) + "\n"
+    ]) + chr(10)
 
 
 def write_port(out, tree, anchor_text):
@@ -100,14 +107,14 @@ def write_port(out, tree, anchor_text):
     for name, body in targets.items():
         with open(os.path.join(out, name), "w", encoding="utf-8") as handle:
             handle.write(body)
+    with open(os.path.join(out, "series-port.txt"), "w", encoding="utf-8") as handle:
+        handle.write(series_fragment())
     call_sites, problem = build_call_sites(tree, anchor_text)
     if call_sites is None:
         return problem
     with open(os.path.join(out, "0629-kern-exec-call-sites.patch"), "w",
               encoding="utf-8") as handle:
         handle.write(call_sites)
-    with open(os.path.join(out, "series-port.txt"), "w", encoding="utf-8") as handle:
-        handle.write(series_fragment())
     return None
 
 
@@ -167,7 +174,14 @@ def self_test():
         if verify(work, out) != 0:
             print("K60 PORT27 FAIL verify disagreed with the generated patches")
             return 1
-        print("K60 PORT27 PASS renumbering, anchor insertion, refusal, verification")
+        entries = [line for line in series_fragment().splitlines()
+                   if line and not line.startswith("#")]
+        broken = [line for line in entries
+                  if " " in line or not line.endswith(".patch")]
+        if not entries or broken:
+            print("K60 PORT27 FAIL series lines must be bare patch names: %r" % (broken,))
+            return 1
+        print("K60 PORT27 PASS renumbering, anchor insertion, refusal, verification, series")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)

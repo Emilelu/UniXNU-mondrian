@@ -13,7 +13,12 @@ Phases:
       S4 requires the QRTR glink descriptor and a DMS revision, S5 a node-0
       reply with at least one wanted service, S6 the published bridge
 
-Exit status is 0 only when every group of the requested phase passes.
+S6 is reported as N/A when the log carries a "bridge disabled" line and no
+COACHZ publication line at all: such a kernel links only the weak
+coachz_baseband_* fallbacks, so nothing can ever publish and a missing bridge is
+a build fact rather than a flight failure (doc19 section 4.1).
+
+Exit status is 0 only when every judged group of the requested phase passes.
 """
 import argparse
 import re
@@ -177,14 +182,23 @@ def check_b(text):
             s5.append("verdict reports node0=%s, expected at least 1" % match[2])
 
     s6 = []
-    problem = one_line(text, "K60MODEM baseband: bridge enabled")
-    if problem:
-        s6.append(problem)
-    match, problem = one_match(PUBLISHED_RE, text, "COACHZ baseband publication line")
-    if problem:
-        s6.append(problem)
-    elif int(match[0]) == 0:
-        s6.append("COACHZ published 0 services")
+    published = PUBLISHED_RE.search(text)
+    enabled = "K60MODEM baseband: bridge enabled" in text
+    disabled = "K60MODEM baseband: bridge disabled" in text
+    if published is None and not enabled and disabled:
+        # Not judgeable in this build, and not a flight failure: the kernel
+        # links only the weak coachz_baseband_* fallbacks, so no
+        # libQcomBaseband.a publication line can ever appear (doc19 S6).
+        s6 = None
+    else:
+        problem = one_line(text, "K60MODEM baseband: bridge enabled")
+        if problem:
+            s6.append(problem)
+        match, problem = one_match(PUBLISHED_RE, text, "COACHZ baseband publication line")
+        if problem:
+            s6.append(problem)
+        elif int(match[0]) == 0:
+            s6.append("COACHZ published 0 services")
     return [("S3", s3), ("S4", s4), ("S5", s5), ("S6", s6)]
 
 
@@ -203,6 +217,9 @@ def main(argv=None):
     groups = {"p1": check_p1, "c": check_c, "b": check_b}[args.phase](text)
     failures = 0
     for name, problems in groups:
+        if problems is None:
+            print("%s: N/A (QcomBaseband is not linked)" % name)
+            continue
         verdict = "PASS" if not problems else "FAIL"
         if not args.quiet or problems:
             print("%s: %s" % (name, verdict))

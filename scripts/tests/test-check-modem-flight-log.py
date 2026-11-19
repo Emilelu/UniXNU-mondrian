@@ -74,4 +74,13 @@ expect("b-bridge-disabled", "b", B_GOOD.replace(
     "K60MODEM baseband: bridge disabled\n"), 1, "S6: FAIL")
 expect("b-published-zero", "b", B_GOOD.replace("6 of 6 services published", "0 of 6 services published"),
        1, "published 0 services")
-print("K60 FLIGHT LOG PASS p1 c b s5 s6 negative-cases")
+# A build that carries only the weak coachz_* fallbacks cannot publish anything,
+# so a missing bridge there must read as "not judgeable", not as a flight failure.
+UNLINKED = (B_GOOD.replace("K60MODEM baseband: bridge enabled (poll 500)\n",
+                           "K60MODEM baseband: bridge disabled\n")
+                  .replace("COACHZ baseband: 6 of 6 services published (AppleBaseband, "
+                           "AppleBasebandPCIControl, 4 channels, the PDP manager, AppleIPAppender)\n", ""))
+expect("b-bridge-na", "b", UNLINKED, 0, "S6: N/A")
+expect("b-no-bridge-lines", "b", UNLINKED.replace(
+    "K60MODEM baseband: bridge disabled\n", ""), 1, "S6: FAIL")
+print("K60 FLIGHT LOG PASS p1 c b s5 s6 s6-na negative-cases")

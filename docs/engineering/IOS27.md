@@ -61,6 +61,51 @@ better starting point than cupid:
 - Goodix touch on QUPv3 SPI, verified on this board.
 - The SPMI v7 key map and the PAC probe (`ios-mondrian/shim/pac.c`).
 
+## The two series are not one series
+
+`patches/xnu/series` (the iOS 16.6.1 line) and `patches/xnu-12377/series`
+(this line) are two patch sets, not one set with different OS parameters.
+
+| | `patches/xnu/series` | `patches/xnu-12377/series` |
+| --- | --- | --- |
+| Entries | 236 on `main`, 227 here | 24 (2 upstream + 22 Bluetooth) |
+| Kernel | xnu-8796 (Darwin 22) | xnu-12377 (Darwin 26 calls) |
+| Page granule | Apple's 16 KiB baseline, forced to 4 KiB on K60 by `native-4k-bootstrap-capacity.patch`, `native-4k-signature-hash-cache.patch` and `native-4k-user-abi.patch` | 4 KiB from the 12377 machine config: `PONG.h` never defines `__ARM_16K_PG__`, so `ARM_PGSHIFT` is 12 (`scripts/check-ios27-granules.sh` asserts it) |
+| Selected by | `main` | `feat/ios27` and this branch |
+
+Both K60 kernels run with 4 KiB pages, but they get there differently. The 16
+line starts from an Apple kernel that assumes 16 KiB and patches the arithmetic
+back to 4 KiB (`vm_map_set_page_shift` in `bsd/kern/mach_loader.c`,
+`PAGE_SHIFT_CONST` in `osfmk/arm/arm_init.c`). The 12377 line never had
+16 KiB in the first place: the K60 machine config header
+(`pexpert/pexpert/arm64/PONG.h`) does not define `__ARM_16K_PG__`, so
+`osfmk/arm64/proc_reg.h` yields `ARM_PGSHIFT` 12. Only `VMAPPLE.h` and
+`H13.h` define it.
+
+Most iOS 16 entries do not apply to 12377 at all: the code they patch was
+rewritten (KPI layers, `pmap`, the arm64 machine config, the storage stack). A
+patch that does apply usually needs its context and often its API re-derived —
+see §4 of `docs/plans/BT-IOS27-PORT.md` for what that looked like for the
+Bluetooth series.
+
+## What "iOS 27 baseline" means here
+
+`configs/mondrian_ios27_defconfig` is a **stage-0** configuration: it stops at
+`bsd_init`. Its own comment says so:
+
+```
+# Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3
+CONFIG_XNU_NATIVE_UFS=n
+CONFIG_XNU_NATIVE_ADRENO=n
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+```
+
+So "the iOS 27 baseline" means **the kernel reaches `bsd_init`**, not "hardware
+works on iOS 27". Storage, display, GPU, touch and every peripheral still have
+to be ported to the 27 ABIs (F3 and later, §Phases). Reading a green build or a
+`bsd_init` boot as "27 is usable" is the mistake this section exists to
+prevent.
+
 ## Components come from the catalog
 
 `drivers/ArmCpu` and `drivers/ArmDTPlatform` used to exist in this repository

@@ -1,7 +1,7 @@
 # K60 Bluetooth on iOS 27 (feat/ios27)
 
 Status: **source staged in the iOS 27 series, built on Linux CI, not flown.**
-Twenty-one patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0523, 0525) now live in
+Twenty-two patches (0500, 0502b, 0501, 0502, 0507-0512, 0514-0523, 0525, 0526) now live in
 `patches/xnu-12377/series`, the list the iOS 27 board actually selects, with
 the platform hooks rebased onto the 95d9c8a1 tree, an empty firmware carrier so
 0510 has its input, and the Bluetooth device-tree node now shipped in
@@ -96,7 +96,7 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
    vanilla plus the four series was used as the adaptation base; the adapted
    patches were then validated against it from scratch (§5.1).
 3. **P2 - port the platform hooks. Done offline** (§4); the Linux CI builds of §5.3 now compile and link them.
-4. **P3 - build and inspect. Done for the build half** (§5.3). The twenty
+4. **P3 - build and inspect. Done for the build half** (§5.3). The twenty-two
    patches build and prelink on a Linux runner; hardware inspection waits for
    iOS 27 to reach `bsd_init`.
 5. **P4 - hardware only when iOS 27 reaches `bsd_init`.** Until then, every
@@ -109,7 +109,7 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 `device:patches/xnu-12377/series`. The Bluetooth patches are now in the fourth.
 
 Validation: the fresh base `12068a8` (vanilla xnu-12377 with 0500 and 0502b
-already applied) received the other nineteen patches in series order; all
+already applied) received the other twenty patches in series order; all
 applied with no reject, and the results are byte-identical to the adaptation
 tree:
 
@@ -118,13 +118,13 @@ tree:
 | `bsd/dev/qbt_k60.c` | `f63e9249779e3bedca8f7a0a7b447d159ffc23f981b0fdaf21c09743abe38fcd` (2324 lines) |
 | `bsd/dev/qbt/qbt_transport.c` | `5a80bb039d91db1297400ceeb5cc583205ef192565ac78090655b20a98afc634` |
 | `bsd/dev/qbt/qbt_transport.h` | `b0cb4d138a8ee9c36cd8ac619e033ed0371607caf703546a8bab015304b56e54` |
-| `bsd/kern/kern_exec.c` | `39c1b5ebe32ed38f2937d1067a44c0799d07493c11c6cabd5be5987e52cde747` |
+| `bsd/kern/kern_exec.c` | `5da7db94674a84c14a4ee29b57c7f3a1dd61fb208e5644318edad071914836ff` |
 | `bsd/kern/bsd_init.c` | `94c8e15f91e4beeb1c81589523d29e662d131f7da467a44a73a3a9f2fa74b3f3` |
 | `iokit/Kernel/MiniBluetooth.cpp` | `f668fcc3cc52cdaaba4f60e3d4368900c0b35a8757bb2f494f64afa40c2d8b82` (206 lines) |
 | `osfmk/arm64/k60_bt_blob.s` | `a0e788aacf276750a51372ed47abc90323f7f6d6e2b4dfe230d70611429d9784` |
 
 The series order is 0500, 0502b, 0501, 0502, 0507, 0508, 0509, 0510, 0511, 0512, 0514,
-0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522, 0523, 0525. There is no 0513.
+0515, 0516, 0517, 0518, 0519, 0520, 0521, 0522, 0523, 0525, 0526. There is no 0513.
 
 ### 5.2 The firmware carrier
 
@@ -237,6 +237,20 @@ because the extension rules further down `.gitignore` had left four NVM files
 untracked while the manifest listed all 106 entries. `fea097e` moves
 `check-bluetooth-dt.py`, `check-bluetooth-userspace.py` and their tests here
 from the iOS 16 line; both run on this tree (15 and 16 cases).
+
+0526 adds the runtime mount the userspace layer needs: when the boot
+argument `k60bt-runtime=1` is present, `native_bt_runtime_prepare()` installs
+the GPU addon carrier, mounts `/private/var/ngpu/bluetooth-lib` over
+`/usr/lib` (visible through `/usr/lib/dyld`, owning
+`/usr/lib/QcaBTType0.dylib`) and, only when that mount succeeded, mounts
+`/private/var/ngpu/bluetooth-bin` over `/usr/sbin` (visible through
+`/usr/sbin/notifyd`, owning `/usr/sbin/QcaBluetooth.runtime`). It sits outside
+`native_gpu_addon_prepare()` because that function returns early when the GPU
+addon argument is absent, which is the case on K60. Without the argument the
+patch is inert, so the baseline build is unchanged. Run
+[44516786407](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44516786407)
+is the first build of the twenty-two-patch series; it queues behind the earlier
+runs on the same concurrency group.
 
 `feat/bt-ios27-port` is only the kernel and the device tree:
 `[payload.runtime]` is not enabled and 0521 is a blob stub, so "iOS 27

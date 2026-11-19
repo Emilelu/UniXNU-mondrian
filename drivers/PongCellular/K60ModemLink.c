@@ -133,9 +133,15 @@ extern void delay(int microseconds);
 #define K60_QRTR_INTENT_SIZE     0x4400u
 #define K60_QRTR_INTENT_COUNT    4u
 #define K60_QRTR_POLL_US         2000
-#define K60_QRTR_POLLS           30000  /* sixty seconds of verdict polling: the modem registers its QMI
-                                        * services one NEW_SERVER at a time as they come up, and k36
-                                        * saw only service 66/0x2b in the first ten seconds */
+#define K60_QRTR_POLLS           120000 /* four minutes of verdict polling: after AUTH_AND_RESET the
+                                        * modem restarts its firmware and registers its QMI services
+                                        * one NEW_SERVER at a time, late. k36 saw two of them in ten
+                                        * seconds and k37 two in sixty, so both windows closed long
+                                        * before DMS appeared; ask again instead of giving up. */
+#define K60_QRTR_LOOKUP_PERIOD   15000  /* ask every thirty seconds */
+#define K60_QRTR_LOOKUP_MAX      8u
+#define K60_QRTR_STATIC_PERIOD   15000  /* and ask the recorded DMS port on the same beat */
+#define K60_QRTR_STATIC_MAX      8u
 /* The modem firmware boots asynchronously after AUTH_AND_RESET. Pong keeps a
  * worker polling until it is ready; a single boot has only this window, so
  * allow thirty seconds before declaring the modem absent. */
@@ -155,6 +161,8 @@ static unsigned k60_qrtr_lookup_count;
 static unsigned k60_qrtr_lookup_next;
 static int k60_qrtr_dms_requested;
 static uint16_t k60_qrtr_dms_transaction;
+static unsigned k60_qrtr_static_next;
+static unsigned k60_qrtr_static_count;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
     uint32_t length, uint32_t ip_version);
 static unsigned k60_modem_data_drops;
@@ -1350,19 +1358,21 @@ k60_modem_qrtr_probe(void)
 				}
 			}
 		}
-		/* k36 showed two spontaneous registrations (service 66 and 0x2b) and
-		 * no answer to the unicast lookup within ten seconds. Ask twice, an
-		 * all-services query first and a DMS-targeted one thirty seconds
-		 * later, and keep the answer window at sixty seconds. */
+		/* k36 saw two spontaneous registrations (service 66 and 0x2b) and no
+		 * answer to the unicast lookup within ten seconds; k37 asked twice in
+		 * sixty seconds and still heard nothing. Keep asking for four minutes,
+		 * alternating an all-services query with a DMS-targeted one, because a
+		 * service that registers at the fourth minute is still a service. */
 		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
-		    k60_qrtr_lookup_count < 2u && i >= (int)k60_qrtr_lookup_next) {
+		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
+		    i >= (int)k60_qrtr_lookup_next) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
 			const uint32_t to_node = K60_QRTR_BROADCAST_NODE;
 			uint32_t built;
 			uint32_t service = 0;
 			uint32_t instance = 0;
 
-			if (k60_qrtr_lookup_count != 0u) {
+			if ((k60_qrtr_lookup_count & 1u) != 0u) {
 				service = K60_QRTR_DMS_SERVICE;
 				instance = 0;
 			}
@@ -1375,7 +1385,7 @@ k60_modem_qrtr_probe(void)
 				if (send_rc == QcomGlinkOk) {
 					k60_qrtr_lookup_sent = 1;
 					++k60_qrtr_lookup_count;
-					k60_qrtr_lookup_next = (unsigned)i + 15000u;
+					k60_qrtr_lookup_next = (unsigned)i + K60_QRTR_LOOKUP_PERIOD;
 					printf("K60MODEM qrtr: sent new_lookup (0x0a) #%u service %u to node %u\n",
 					    k60_qrtr_lookup_count, service, to_node);
 				} else if (send_rc != QcomGlinkAgain) {
@@ -1415,7 +1425,8 @@ k60_modem_qrtr_probe(void)
 		 * Android inventory recorded for DMS on this very device (01-ANDROID-
 		 * INVENTORY.md 5.4.1: service 2, node 0, port 96). */
 		if (k60_qrtr_hello_sent && !k60_qrtr_state.dms_found &&
-		    !k60_qrtr_state.dms_static && i >= 20000) {
+		    k60_qrtr_static_count < K60_QRTR_STATIC_MAX &&
+		    i >= (int)k60_qrtr_static_next) {
 			uint8_t query[K60_QMI_HEADER];
 			uint16_t transaction = ++k60_qrtr_dms_transaction;
 
@@ -1432,8 +1443,11 @@ k60_modem_qrtr_probe(void)
 					k60_qrtr_state.dms_static = 1;
 					k60_qrtr_dms_requested = 1;
 					k60_qrtr_state.dms_sent = 1;
-					printf("K60MODEM qrtr: sent dms get_revision (static) to node 0 port %u txn %u\n",
-					    K60_QRTR_DMS_STATIC_PORT, transaction);
+					++k60_qrtr_static_count;
+					k60_qrtr_static_next = (unsigned)i + K60_QRTR_STATIC_PERIOD;
+					printf("K60MODEM qrtr: sent dms get_revision (static) #%u to node 0 port %u txn %u\n",
+					    k60_qrtr_static_count, K60_QRTR_DMS_STATIC_PORT,
+					    transaction);
 				} else if (rc != QcomGlinkAgain) {
 					printf("K60MODEM qrtr: dms static send rc=%d\n", rc);
 					return rc;

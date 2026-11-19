@@ -280,6 +280,7 @@ static void sleepBootWait(void)
 
 static void armcpuPlatformSleep(boolean_t bootCpu)
 {
+  IOLog("ArmCpu: platform sleep hook boot=%u\n", bootCpu ? 1 : 0);
   if (!bootCpu) sleepCoreOff();
   armcpu_sleep_stats.phase = 1;
   sleepBootWait();
@@ -695,8 +696,11 @@ void ArmCpu::enableCPUTimeBase(bool enabled)
 
 void ArmCpu::quiesceCPU(void)
 {
+  IOLog("ArmCpu: quiesce CPU %u state=%d sleep=%u quiescing=%u\n", logicalId,
+      getCPUState(), gSleepEnabled ? 1 : 0, ml_is_quiescing() ? 1 : 0);
   if (gSleepEnabled && ml_is_quiescing() && &ml_arm_sleep != nullptr) {
     // Boot core: waits in armcpuPlatformSleep; others: PSCI CPU_OFF inside.
+    IOLog("ArmCpu: CPU %u entering ml_arm_sleep\n", logicalId);
     ml_arm_sleep();
   }
   enableCPUTimeBase(false);

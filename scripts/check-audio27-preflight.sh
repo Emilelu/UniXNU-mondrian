@@ -7,7 +7,8 @@
 # Runs, in order:
 #   1. the migration list against the driver directory and the five pure C units
 #   2. the glue against the six-symbol kernel stub set
-#   3. the playback judge's own host tests
+#   3. the conf-files appender's own host tests (the anchor miss must fail loudly,
+#      and the playback judge's host tests
 #   4. the amplifier side's host tests (979 cases)
 #   5. sheng's audio host tests, when its checkout is reachable
 # Prints one line per check and exits non-zero on the first failure.
@@ -34,6 +35,7 @@ run()
 run "migration list + pure C build" python3 scripts/check-audio-migration.py --compile
 run "glue vs six kernel symbols" sh scripts/tests/portability/run.sh
 run "driver macro really switches it" sh scripts/tests/portability/run-symbols.sh
+run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh

@@ -21,6 +21,7 @@
 #include <sys/sockio.h>
 #include <net/ethernet.h>
 #include "PongWifiAbi.h"
+#include "PongWifiScanPolicy.h"
 #include <net/if.h>
 #include <net/if_media.h>
 #include <net/if_ether.h>
@@ -166,6 +167,13 @@ bool gAssocModern27;   // the last join arrived through the 0x290-byte 24A446 re
 bool gModern27Client;  // a 24A446-sized request arrived, so the daemon speaks the newer auth encoding
 unsigned gScanCursor, gScanning, gScanServed;
 nw_bss_info gSnap[64]; unsigned gSnapCount;   // the scan list frozen when a sweep completes, strongest first
+// The channels the radio last visited and when the link came up: the reference port's scan policy
+// (PongWifiScanPolicy.h) decides from these whether a request may take the radio off channel.
+pong_scan_air gScanAir;
+uint64_t gSnapAtNs;      // when the frozen list was taken
+uint64_t gLinkUpMs;      // when the link came up, 0 while it is down
+uint64_t scan_clock_ns();
+static inline uint64_t scan_clock_ms() { return scan_clock_ns() / 1000000ull; }
 thread_call_t gNotifications;
 pong_wifi_notification_queue gNotificationQueue;
 enum { NotifyControl=1, NotifyScan, NotifyAssociate, NotifyLost, NotifyFailed };
@@ -279,6 +287,7 @@ void notify_locked(unsigned events) {
 // The daemon reads the list one record per call. A live table that gains or loses entries between two calls
 // shifts the cursor and cuts its copy short (mission16: "served 32 of 33"), so a completed sweep is frozen.
 void freeze_scan_list() {
+  gSnapAtNs = scan_clock_ns();
   const int count = nw_wifi_bss_count(); gSnapCount = 0;
   for (int i = 0; i < count && gSnapCount < 64; i++) {
     nw_bss_info b; if (nw_wifi_bss_get(i, &b)) continue;
@@ -366,12 +375,13 @@ void on_connect_done(int result) {
   gAssocResult=result==NW_RES_OK?kAssocOk:result==NW_RES_BAD_KEY?kAssocBadKey:result==NW_RES_TIMEOUT?kAssocTimeout:kAssocFailed;
   // NW_RES_OK follows actual key installation/STA_AUTHORIZED for WPA2.
   pong_wifi_notification event={NotifyAssociate,result,status.signal_dbm,gKeyed?1u:0u};
+  gLinkUpMs = result == NW_RES_OK ? scan_clock_ms() : 0;
   queue_notification_locked(event);lck_mtx_unlock(gLock);
   log(6,"wifi-net: join finished: module result %d",result);
 }
 void on_link_lost(int reason) {
   log(6,"wifi-net: link lost: reason %d",reason);
-  lck_mtx_lock(gLock);pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
+  lck_mtx_lock(gLock);gLinkUpMs=0;pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
 }
 
 // What crosses the interface, for the traffic line: DHCP messages (type, transaction, offered address), ARP, TLS on port 443 and DNS, with
@@ -640,12 +650,17 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       // The results already held are what was asked for: read them from the start, run no scan.
       if (scanType == PONG_SCAN_TYPE_CACHED && nw_wifi_bss_count() > 0) {
         gScanCursor = 0; gScanServed = 0; gResultsShown = 24; return 0; }
-      // joining or joined: a scan takes the radio off channel for seconds and the access point's beacons and handshake frames are missed, so
-      // the daemon gets the last results instead
-      if (st.state >= NW_STA_AUTH && nw_wifi_bss_count() > 0) {
+      // The reference port's scan policy (PongWifiScanPolicy.h): while a join is under way, and for 15 s
+      // after the link came up, the radio stays on the access point's channel and the request is answered
+      // from the held networks; on a settled link it goes on the air unless every channel it names was
+      // already scanned in the last 20 s.
+      const uint64_t now_ms = scan_clock_ms();
+      const int link = st.state >= NW_STA_UP ? PONG_LINK_UP : st.state >= NW_STA_AUTH ? PONG_LINK_JOINING : PONG_LINK_NONE;
+      const uint64_t link_ms = (gLinkUpMs && now_ms >= gLinkUpMs) ? now_ms - gLinkUpMs : 0;
+      if (!pong_scan_on_air(&gScanAir, link, link_ms, nw_wifi_bss_count() > 0, mhz, frequencies, now_ms)) {
         if (!gCachedScan) gCachedScan = thread_call_allocate(cached_scan_done, nullptr);
         if (!gCachedScan) return ENOMEM;
-        static unsigned answered; if (++answered <= 8 || answered % 64 == 0) log(6, "wifi-net: scan %u while joined: answered from the cache", answered);
+        static unsigned answered; if (++answered <= 8 || answered % 64 == 0) log(6, "wifi-net: scan %u answered from the held networks (link %d, up %llu s)", answered, link, static_cast<unsigned long long>(link_ms / 1000));
         gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 24; uint64_t at; clock_interval_to_deadline(2000, kMillisecondScale, &at); thread_call_enter_delayed(gCachedScan, at); return 0; }
       gScanning = 1; gScanCursor = 0; gScanServed = 0; gResultsShown = 0;
       // A scan of every band took 15.7 s on this radio, past the 12 s the framework waits, so the
@@ -653,6 +668,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       const bool asked = frequencies != 0 && nw_wifi_scan_frequencies != nullptr;
       if (asked ? nw_wifi_scan_frequencies(ssid, ssidLength, mhz, frequencies)
                 : nw_wifi_scan(ssidLength ? ssid : nullptr, ssidLength)) { gScanning = 0; return EBUSY; }
+      pong_scan_air_mark(&gScanAir, mhz, frequencies, now_ms);
       pong_wifi_wake();return 0; }
     case kAssociate: {
       if(!gPower)return ENETDOWN;
@@ -696,7 +712,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       memset(pass, 0, sizeof pass); memset(&a, 0, sizeof a);
       if(!r)pong_wifi_wake();
       return r ? EINVAL : 0; }
-    case kDisassociate: case kDeauth: gUserJoin = true; log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
+    case kDisassociate: case kDeauth: gUserJoin = true; gLinkUpMs = 0; log(6, "wifi-net: leave"); nw_wifi_disconnect();pong_wifi_wake(); notify_locked(NotifyLinkDown); return 0;
     case kScanCacheClear: case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return 0;
     case kAbortScan: return 0;   // accepted; a running scan still runs to its end (seconds) and reports it
     // Settings the module has no use for, that the wireless daemon sends at every state change (a property list, two flags): taking them
@@ -790,8 +806,19 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   case kScanResult: {
     const int count = gSnapCount ? static_cast<int>(gSnapCount) : nw_wifi_bss_count();
     nw_bss_info b; bool bad = false;
-    if (gScanCursor < static_cast<unsigned>(count)) {
-      if (gSnapCount) b = gSnap[gScanCursor]; else bad = nw_wifi_bss_get(static_cast<int>(gScanCursor), &b) != 0;
+    // A held network that has not been heard for a minute is passed over (the reference port's policy):
+    // one whose access point went out of range leaves the list instead of being handed out forever. The
+    // frozen list carries the age each record had when the sweep ended, so the time since is added back.
+    const uint64_t now_ns = scan_clock_ns();
+    while (gScanCursor < static_cast<unsigned>(count)) {
+      if (gSnapCount) b = gSnap[gScanCursor];
+      else if (nw_wifi_bss_get(static_cast<int>(gScanCursor), &b)) { bad = true; break; }
+      if (gSnapCount) {
+        const uint64_t held_ns = uint64_t(b.age_ms) * 1000000ull + (now_ns > gSnapAtNs ? now_ns - gSnapAtNs : 0);
+        b.age_ms = held_ns / 1000000ull > 0xffffffffull ? 0xffffffffu : static_cast<uint32_t>(held_ns / 1000000ull);
+      }
+      if (!pong_scan_held_stale(b.age_ms)) break;
+      ++gScanCursor;
     }
     if (gScanCursor >= static_cast<unsigned>(count) || bad) {   // after the last record
       static unsigned ends;

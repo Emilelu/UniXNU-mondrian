@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "PongWifiAbi.h"
+#include "PongWifiScanPolicy.h"
 
 static unsigned checks, failed;
 #define CHECK(cond, what) do { checks++; if (!(cond)) { failed++; printf("FAIL: %s (line %d)\n", what, __LINE__); } } while (0)
@@ -98,6 +99,25 @@ int main(void)
     CHECK(pong_scan_frequencies(one, sizeof one, PONG_SCAN_ONE_CHANNEL_COUNT, PONG_SCAN_ONE_CHANNELS, mhz) == 0, "more channels than are read is every band");
     put32(one + PONG_SCAN_ONE_CHANNEL_COUNT, 3);
     CHECK(pong_scan_frequencies(one, PONG_SCAN_ONE_CHANNELS + 12, PONG_SCAN_ONE_CHANNEL_COUNT, PONG_SCAN_ONE_CHANNELS, mhz) == 0, "a list past the bytes copied is every band");
+
+    /* The scan policy: a joined link keeps the radio on the access point's channel while the join runs
+     * and for the settle window, and a network not heard for a minute leaves the list. */
+    struct pong_scan_air air;
+    memset(&air, 0, sizeof air);
+    uint32_t chans[2] = { 2412, 5240 };
+    CHECK(pong_scan_held_stale(PONG_SCAN_HELD_MS) == 0, "a record at the held limit is still fresh");
+    CHECK(pong_scan_held_stale(PONG_SCAN_HELD_MS + 1) == 1, "a record past the limit is stale");
+    CHECK(pong_scan_on_air(&air, PONG_LINK_NONE, 0, 1, NULL, 0, 1000) == 1, "a scan with no link goes on the air");
+    CHECK(pong_scan_on_air(&air, PONG_LINK_JOINING, 0, 1, chans, 2, 1000) == 0, "a scan while joining stays off the air");
+    CHECK(pong_scan_on_air(&air, PONG_LINK_UP, PONG_SCAN_LINK_SETTLE_MS - 1, 1, chans, 2, 1000) == 0, "a scan inside the settle window stays off the air");
+    CHECK(pong_scan_on_air(&air, PONG_LINK_UP, PONG_SCAN_LINK_SETTLE_MS, 1, chans, 2, 1000) == 1, "a settled link scans a channel it has not visited");
+    CHECK(pong_scan_on_air(&air, PONG_LINK_UP, PONG_SCAN_LINK_SETTLE_MS, 0, chans, 2, 1000) == 1, "with nothing held a scan always goes on the air");
+    pong_scan_air_mark(&air, chans, 2, 5000);
+    CHECK(pong_scan_air_recent(air.at_ms[0], 5000 + PONG_SCAN_RESCAN_MS - 1) == 1, "a channel scanned a moment ago is recent");
+    CHECK(pong_scan_on_air(&air, PONG_LINK_UP, 60000, 1, chans, 2, 5000 + PONG_SCAN_RESCAN_MS) == 1, "after the rescan window the channel is visited again");
+    CHECK(pong_scan_on_air(&air, PONG_LINK_UP, 60000, 1, chans, 1, 5100) == 0, "the same channel is not rescanned inside the window");
+    pong_scan_air_mark(&air, NULL, 0, 9000);
+    CHECK(pong_scan_on_air(&air, PONG_LINK_UP, 60000, 1, chans, 2, 9500) == 0, "a full-band scan covers every channel briefly");
 
     printf("%u checks passed, %u failed\n", checks, failed);
     return failed ? 1 : 0;

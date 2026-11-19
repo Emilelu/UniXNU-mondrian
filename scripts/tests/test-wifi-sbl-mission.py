@@ -336,6 +336,16 @@ def main() -> int:
     check("the abort-scan request is accepted instead of falling through",
           "PONG_REQUEST_ABORT_SCAN 382u" in abi_hdr and "kAbortScan = PONG_REQUEST_ABORT_SCAN" in net and
           "case kAbortScan: return 0;" in net)
+    policy_hdr = (ROOT / "drivers" / "PongWifi" / "PongWifiScanPolicy.h").read_text(encoding="utf-8")
+    check("the scan policy keeps the radio on channel during a join and drops stale records",
+          '#include "PongWifiScanPolicy.h"' in net and
+          "pong_scan_on_air(&gScanAir, link, link_ms" in net and
+          "pong_scan_air_mark(&gScanAir, mhz, frequencies, now_ms);" in net and
+          "pong_scan_held_stale(b.age_ms)" in net and
+          "gLinkUpMs = result == NW_RES_OK ? scan_clock_ms() : 0;" in net and
+          "PONG_SCAN_HELD_MS 60000u" in policy_hdr and
+          "PONG_SCAN_LINK_SETTLE_MS 15000u" in policy_hdr and
+          "PONG_SCAN_RESCAN_MS 20000u" in policy_hdr)
     check("request 10 takes its scan type from the same place the reference does",
           "PONG_SCAN_ONE_TYPE 0x34u" in abi_hdr and
           "memcpy(&scanType, out.raw + PONG_SCAN_ONE_TYPE, 4);" in net)

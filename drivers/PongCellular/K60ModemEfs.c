@@ -104,3 +104,40 @@ k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
 	}
 	return (int)written;
 }
+
+int
+k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
+    uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes)
+{
+	if (spans == NULL || image == NULL || window == NULL || count == 0) {
+		return -1;
+	}
+	if (direction != K60_EFS_TO_WINDOW && direction != K60_EFS_TO_IMAGE) {
+		return -1;
+	}
+	for (size_t i = 0; i < count; i++) {
+		const K60EfsSpan *span = &spans[i];
+
+		if ((uint64_t)span->bytes > image_bytes ||
+		    span->image_offset > image_bytes - span->bytes) {
+			return -1;
+		}
+		if ((uint64_t)span->bytes > window_bytes ||
+		    span->buffer_offset > window_bytes - span->bytes) {
+			return -1;
+		}
+		for (uint32_t b = 0; b < span->bytes; b++) {
+			uint64_t from = direction == K60_EFS_TO_WINDOW ?
+			    span->image_offset + b : span->buffer_offset + b;
+			uint64_t to = direction == K60_EFS_TO_WINDOW ?
+			    span->buffer_offset + b : span->image_offset + b;
+
+			if (direction == K60_EFS_TO_WINDOW) {
+				window[to] = image[from];
+			} else {
+				image[to] = window[from];
+			}
+		}
+	}
+	return 0;
+}

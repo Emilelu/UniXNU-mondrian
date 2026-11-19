@@ -45,4 +45,15 @@ typedef struct {
 int k60_efs_plan(const K60RmtfsRequest *request, uint64_t image_bytes,
     uint64_t window_base, uint64_t window_bytes, K60EfsSpan *out, size_t cap);
 
+/* Performs the copies a plan describes. direction 0 moves bytes from the image
+ * into the shared window (the modem reads the image), direction 1 moves them
+ * back (the modem writes it). 'image' and 'window' carry the whole image and
+ * the whole window, so a span indexes them directly; every span must stay
+ * inside both. Returns 0, or -1 when a span leaves a buffer or nothing is
+ * planned. */
+#define K60_EFS_TO_WINDOW 0
+#define K60_EFS_TO_IMAGE  1
+int k60_efs_copy(const K60EfsSpan *spans, size_t count, int direction,
+    uint8_t *image, size_t image_bytes, uint8_t *window, size_t window_bytes);
+
 #endif /* K60_MODEM_RMTFS_EFS */

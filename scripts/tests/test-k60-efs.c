@@ -122,16 +122,69 @@ static void test_plan(void)
 	    K60_RMTFS_MAX_VECS) == -1, "only rw requests are planned");
 }
 
+static void
+test_copy(void)
+{
+	uint8_t image[0x4000];
+	uint8_t window[0x800];
+	K60EfsSpan spans[2];
+
+	for (size_t i = 0; i < sizeof image; i++) {
+		image[i] = (uint8_t)(i * 7u + 3u);
+	}
+	memset(window, 0, sizeof window);
+	spans[0].image_offset = 0x2000;
+	spans[0].buffer_offset = 0x100;
+	spans[0].bytes = 0x40;
+	spans[1].image_offset = 0x2100;
+	spans[1].buffer_offset = 0x200;
+	spans[1].bytes = 0x20;
+
+	check(k60_efs_copy(spans, 2, K60_EFS_TO_WINDOW, image, sizeof image, window,
+	    sizeof window) == 0, "the plan copies into the window");
+	check(window[0x100] == image[0x2000] &&
+	    window[0x13f] == image[0x203f], "first span lands where it says");
+	check(window[0x200] == image[0x2100] &&
+	    window[0x21f] == image[0x211f], "second span lands where it says");
+
+	/* The modem writes the image: the same spans run the other way. */
+	image[0x2000] = 0xaa;
+	image[0x203f] = 0xbb;
+	check(k60_efs_copy(spans, 2, K60_EFS_TO_IMAGE, image, sizeof image, window,
+	    sizeof window) == 0, "the plan copies back into the image");
+	check(image[0x2000] == window[0x100] && image[0x203f] == window[0x13f],
+	    "the write direction restores the image");
+
+	spans[0].bytes = 0x41;
+	spans[0].buffer_offset = sizeof window - 0x20;
+	check(k60_efs_copy(spans, 1, K60_EFS_TO_WINDOW, image, sizeof image, window,
+	    sizeof window) == -1, "a span past the window is refused");
+	spans[0].buffer_offset = 0x100;
+	spans[0].image_offset = sizeof image - 0x10;
+	spans[0].bytes = 0x40;
+	check(k60_efs_copy(spans, 1, K60_EFS_TO_WINDOW, image, sizeof image, window,
+	    sizeof window) == -1, "a span past the image is refused");
+	spans[0].image_offset = 0x2000;
+	spans[0].bytes = 0x40;
+	check(k60_efs_copy(spans, 0, K60_EFS_TO_WINDOW, image, sizeof image, window,
+	    sizeof window) == -1, "an empty plan copies nothing");
+	check(k60_efs_copy(spans, 1, 7, image, sizeof image, window,
+	    sizeof window) == -1, "an unknown direction is refused");
+	check(k60_efs_copy(NULL, 1, K60_EFS_TO_WINDOW, image, sizeof image, window,
+	    sizeof window) == -1, "a NULL plan is refused");
+}
+
 int
 main(void)
 {
 	test_table();
 	test_names();
 	test_plan();
+	test_copy();
 	if (failures != 0) {
 		printf("K60 EFS FAIL %d checks\n", failures);
 		return 1;
 	}
-	printf("K60 EFS PASS table, gpt names, scatter plan, refusals\n");
+	printf("K60 EFS PASS table, gpt names, scatter plan, copies, refusals\n");
 	return 0;
 }

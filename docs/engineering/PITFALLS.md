@@ -6640,3 +6640,28 @@ rc=66 失败（9p 打开文件时撞上 Windows 的共享冲突），但那是**
 2. 一个只增不减的集合是定时炸弹，不是性能问题；`objects` 与 `bytes` 应当和帧率一起被记录。
 3. 我先量出 7.16 fps 就写进卡片，直到翻到第 4,421 行才发现那台设备已经不再渲染——判据要能回答
    「这个窗口里被测对象还在工作吗」。
+
+## P-245
+
+**现象（2026-11-19，`gpu-submit-20261119` 第一次构建）**：Mac 侧插件构建报
+`drivers/PongMetal/GpuScanoutPresenter.h:133:43: error: function definition is not allowed here`
+和 `20 errors generated`，而在这之前：仓库里 22 条 `test-present-stage-split.py` 断言全过、
+14 条 `test-presenter-import-scope.py` 全过、`check-boot-args` / `check-rule-registry` /
+`check-readme` / `check-docs` 全绿，纯内核构建也成功过两次。
+
+**真因**：撤销 pitched-copy 分支时留下一个**未闭合的 `/*` 注释**（`} else {` 之后那段说明
+没有 `*/`），预处理器把后续所有成员吞进注释，于是第 133 行的函数定义变成了「函数里的函数」。
+所有单元测试都是**文本匹配**（`assert 'copyFromTexture' in text`、`assert 'pitchedUsable' not in text`），
+而唯一能真正解析这个头文件的编译器只在 Mac 上，且只在「重建 Metal 插件」时才被调用；
+纯内核路径（`build-xnu-4k-baseline.sh`）根本不编译它。
+
+**修法**：补上 `*/`（`2c81314d`）。结构性的修法是别再让「只跑文本断言」通过——凡是**插件侧**
+头文件改动，交付前必须至少有一次 `xcrun clang++ -fsyntax-only`（Mac 可达时），
+或把该文件纳入 `scripts/build-pong-metal-plugin.py` 的 `--check` 干跑。
+
+**教训**：
+1. `assert "X" in text` 只证明**字符串在文件里**，不证明文件能编译。一个注释就能让 22 条
+   断言全过而 20 个编译错误存在——这与 P-240/P-241/P-242 是同一族：**检查存在 ≠ 检查覆盖**。
+2. 「最快的门禁」有盲区：内核构建不编译插件头，于是插件侧的语法错误只在 Mac 那一步暴露。
+   分阶段的流水线必须为每个阶段的输入各自设一个能编译它的门禁。
+3. 撤销一个分支时，注释比代码更容易留下残骸：删代码用整段替换，不要只删条件分支。

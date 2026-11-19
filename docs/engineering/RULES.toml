@@ -906,3 +906,11 @@ title = "GPU 长跑会先挂死再变慢：DeviceLost 之后 70 % 的日志是�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-judge-gpu-submit.py"
 note = "受管对象 331→951、字节 276→557 MB 后 CP/SMMU 故障；任何长跑帧率判据必须先证明被测设备还活着"
+
+[[rule]]
+id = "P-245"
+kind = "pitfall"
+title = "文本断言不是编译器：未闭合注释让 22 条单测全过而 20 个编译错误还在"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-present-stage-split.py"
+note = "撤销 pitched-copy 分支时留下未闭合 `/*`，Mac 侧报 `function definition is not allowed here`；插件侧头文件改动必须有一次真实语法检查，文本断言只证明字符串在文件里。"

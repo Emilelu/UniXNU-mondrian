@@ -222,3 +222,46 @@ K60MODEM qrtr: verdict ok services=36 node0=36 wanted=5 malformed=0 polls=N
 | `patches/xnu/0622-k60-modem-qrtr.patch` | 把上述 5 个源文件落进 `bsd/dev/` |
 | `scripts/append-conffiles.py` | 注册 `pong_modem_qrtr.c`、`pong_modem_link.c`、`qcom_glink.c` |
 | `scripts/tests/test-k60-modem-qrtr.c` | 6 组宿主测试 |
+| `scripts/tests/test-k60-modem-qrtr.c` | 6 组宿主测试 |
+
+## 10. 实机结论与外部参考复核（2026-11-19）
+
+### 10.1 硬件已经把“枚举”这条路探到底
+
+k35 起 QcomBaseband 组件真的链进内核（22/22 服务发布，S6 PASS），此后每一次 B 形态飞行都在同一处收尾：
+
+| 飞行 | 窗口 | 看到什么 |
+|---|---|---|
+| k36 | 10 s | 只有两条 NEW_SERVER：`66 (0x42) instance 46081 port 2`、`43 (0x2b) instance 4610 port 1` |
+| k37 | 60 s | 两条广播 `NEW_LOOKUP`（全量 + service 2）零应答，服务数不变 |
+| k38 | 60 s | 直接向 Android 记录的 DMS 固定端口 96 发 `GetRevision`，仍然零应答 |
+| k39 | 240 s | 8 次交替 lookup + 8 次固定端口请求，服务数始终 2；240 s 循环被 300 s autoreset 截断 |
+| k41 | 240 s | 把 IPCRTR 的 open 提前到 glink fifo 出现后 24 ms（比 smp2p ready 早 5 秒），服务仍是 2 |
+| k42 | 240 s | modem 一开始给足 30 个接收缓冲，随后在 35–45 秒**不再读环、不再回 RX_DONE** |
+| k43 | 240 s | mode 0（不发 lookup、不碰固定端口）复现同一停摆 ⇒ 与那两类请求无关 |
+
+### 10.2 为什么“问服务”在这块板上注定问不到
+
+`01-ANDROID-INVENTORY.md` §5.5 的 strace 显示：Android 上 `qrtr-lookup` 发出的 `0x0a NEW_LOOKUP` 由 **AP 自己的 qrtr_ns**（内核里的名称服务，逐条重放它收到的 NEW_SERVER 表）回答，modem 没有回答 lookup 的义务。
+而 modem 的 QMI 服务是开机时**主动注册**的广播：它注册时我们这条 IPCRTR 通道还不存在（要等 AUTH_AND_RESET 之后 glink fifo 才出现），广播就丢了。k41 把 open 提前到 fifo 出现后 24 ms 也没赶上，说明注册发生得更早，甚至可能在 modem 固件 init 阶段、glink 通道建立之前。
+
+因此“忠实枚举”需要的是**AP 侧常驻的 QRTR 名称服务 + 常驻 worker**（Pong 的形态：`PongModemQrtr.cpp:108` 的 worker 一直 poll，`:245` 注明所有 GLINK 调用都在同一个 owner 线程），而不是一次 boot 窗口里的探针。
+备选是绕开枚举、直接按 Android 记录的固定端口表连（DMS 96、EFS 21、WDS 82、NAS 77、UIM 80）——
+快，但换固件就可能错，只能作为兜底。
+
+### 10.3 外部参考复核（2026-11-19）
+
+用户指定转向三份更新的参考：`kmu1757/UniXNU-t970`、`qiumochen/UniXNU-zizhan`（用户态仍参考 sheng）。
+
+| 仓库 | 是什么 | 对基带的意义 |
+|---|---|---|
+| `qiumochen/UniXNU-zizhan` | 小米 MIX Fold 2（**SM8475，与本板同 SoC**），Pong 派生 | 它的 `porting.toml` cellular 区写着 “No cellular implementation or device verification has been performed in this repository”，下一步也只是“盘点 modem 传输”——**同 SoC 的兄弟也没有做过基带**，抄不到枚举实现 |
+| `kmu1757/UniXNU-t970` | 三星 Tab S7+ / S20+（SM8250），Pong 派生、代码更新 | 驱动走 submodule；没有 `QcomGlink`，也没有 cellular 实现，价值在 GPU/用户态与构建组织 |
+| `UniXNU/UniXNU-sheng` | 小米平板 6S Pro（SM8550），官方维护 | 用户态参考（`migration/ipados18`、`kits/`），与基带无关 |
+
+唯一直接相关的一条：zizhan 的 `drivers/PongPower/QcomGlink.c`（455 行，与我们 525 行的实现同源但更早重写）
+在 INTENT 分支里**对每一对 (size, id) 一律入表，不校验 id 是否为 0**；表满时驱逐“空闲且更小”的槽位并
+`dropped++`，而不是判定流损坏（注释引用 `UniXNU-sheng 552b674`）。这与我们 0622 里那条
+`if (!size)` 的 delta 结论一致：**id 0 是合法的缓冲编号，不是坏帧**——k35 的硬件日志（w2=0x80、w3=0）
+正是这个形态。
+

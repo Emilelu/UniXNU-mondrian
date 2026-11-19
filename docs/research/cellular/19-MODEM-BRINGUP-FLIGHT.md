@@ -1243,6 +1243,36 @@ k43 因此只加一个启动参数，不改协议行为：
 
 注意：启动参数烘在镜像里（`flash.sh` 不接受额外的内核参数），所以这一飞要单独做一版带 `pong_qrtr=0` 的镜像；
 源码与 0622 与默认镜像完全一致，差别只在 payload 的 kernel args。
+
+**实机结果（2026-11-19 14:23，420 s 采集，mode 0）**：镜像
+`E:/k60-work/artifacts/modem-20261117k43/boot-modem-b-full-qrtr0.img` `a68313aa…`（payload `96efea97…`）。
+证据 `E:/k60-work/evidence/usblog-20261119-142306`，capture `state=captured-disconnected`、`complete=false`、
+214,474 B、logSha256 `193B6965C0A25EEE8796737F277666E9C61EA3B041AC4BCE7AB19F061122060D`、`stopReason=fastboot-return`、
+lastDataAt 14:28:56。判读 **S3 PASS / S4 FAIL / S5 FAIL / S6 PASS**。关键读数是 wait 行：
+
+- 5 秒：`services=2 … tx head=632 tail=632 rx avail=0 head=960 tail=960 intents=0/30 local=4/4 lbusy=0 ldone=0 msgs=44/17`。
+- 85 秒：`services=8 … tx head=1256 tail=896 rx head=1416 tail=1416 intents=5/30 … msgs=53/31`。
+- 230 秒：`tx head=2264 tail=896 … intents=19/30 … msgs=53/45`。
+
+两件事因此定下来：**（1）停摆与 lookup、固定端口 DMS 无关**——mode 0 这两类流量一次都没发，modem 仍在
+约 35–45 秒后停止读取（rx 冻结在 53 条消息、1416 字节）并停止回 RX_DONE（`intents` 里 busy 只增不减，
+每 10 秒一次的 HELLO 探针各吃掉一个缓冲）。**（2）modem 的重播只发生在前 40 秒**：每次 HELLO 触发一轮
+66/0x42 与 43/0x2b 的 NEW_SERVER，服务计数 2→4→6→8 后不再变化，之后 18 次 HELLO 探针连一次重播都换不来。
+
+剩下两种解释：我们的周期流量（HELLO 与 servloc 宣告）把它说死，或者它自己走完启动序列就进了一个不应答的状态。
+k44 用 mode 3 分开这两者。
+
+### 3.31 k44：无声模式与接收直方图（离线，未上机）
+
+- `pong_qrtr=3`：只发一次 HELLO，之后**不再发任何东西**（不发探针、不 lookup、不碰固定端口），只继续 poll 与打印。
+  mode 1 只看 lookup、mode 2 加固定 DMS、mode 3 全静默；这一组把“我们说什么”与“它停不停”彻底解耦。
+- wait 行再补 `rxcmd=D/H/B/N`（DATA / HELLO / BYE / NEW_SERVER 四类各多少条），用来读 53 条消息到底是什么。
+  如果它们几乎都是 NEW_SERVER，说明 modem 的注册潮本来就集中在前 40 秒；如果里面有 DATA 或 BYE，
+  则要看是哪个 port 在说话。
+- 行为上仍不改协议：mode 3 只是不主动发，收到什么照旧处理与回复。
+
+判据：S3/S6 保持。若 mode 3 下 rx 仍在 53 条附近停住 ⇒ 停摆是 modem 自己的问题（或 GLINK 基础层），
+与我们的应用层流量无关；若 rx 一直增长或服务继续出现 ⇒ 是我们的周期流量触发的，下一步按探针频率二分。
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1283,7 +1313,10 @@ k43 因此只加一个启动参数，不改协议行为：
     实机结果）。k42（`6411fb06…`）按诊断飞过（2026-11-19 14:04）：30 个远端 intent 一开始全 free，同一对服务
     （66/0x42 与 43/0x2b）被 HELLO 探针触发重播四次，之后 `rx head` 冻在 1448、busy 单调涨到 **30/30** ⇒ modem 的 GLINK
     接收端在 35–45 秒后停摆（§3.29 实机结果）。k43 因此加 `pong_qrtr` 启动参数（0 = 只发 HELLO、1 = 加 lookup、
-    2 = 再加固定端口 DMS），先用 mode 0 判断停摆是不是我们自己的请求造成的（§3.30）；S3/S6 必须保持，S4/S5 不指望。
+    2 = 再加固定端口 DMS），先用 mode 0 判断停摆是不是我们自己的请求造成的（§3.30）。mode 0 已飞（2026-11-19 14:23）：
+    lookup 与固定端口 DMS 一次都没发，modem 仍在 35–45 秒后停读、停回 RX_DONE ⇒ 停摆与那两类请求无关。
+    下一飞是 k44 `pong_qrtr=3`（只发一次 HELLO，之后完全静默）加接收直方图 `rxcmd=`，用来看清是我们自己的周期
+    流量把它说死，还是它自己走完启动序列就不应酬了（§3.31）；S3/S6 必须保持，S4/S5 不指望。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
     **2026-11-19 12:58 起本线待命**：用户计划等 fork 方在 iOS 27（27.0.1）上到达 bsd_init 后全面转过去；
     蓝牙线与基带线届时都迁到 iOS 27，本仓库的 ios27 分支由蓝牙线建立、Actions 已跑通一次。

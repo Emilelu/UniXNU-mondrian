@@ -172,6 +172,29 @@ spk_switch_mute(void)
 	return muted;
 }
 
+/* The switch sits between the amplifiers and the speaker; the vendor driver
+ * requests it low at probe and only the speaker path raises it
+ * (aw882xx.c:1711-1717 GPIOF_OUT_INIT_LOW, mixer_paths_waipio_mtp.xml:2132).
+ * The probe leaves it low on purpose, so the play path has to raise it and the
+ * stop path has to drop it again, or an unmuted part drives nothing. */
+static bool
+spk_switch_drive(bool on)
+{
+	const uint32_t index = PadSpkSwitch;
+	const uint32_t current = rd(pad_window[index]);
+	const uint32_t cfg = pong_audio_spksw_cfg(current);
+	const uint32_t io = pong_audio_spksw_io(on);
+	bool high;
+
+	wr(pad_window[index] + PONG_AUDIO_GPIO_IO, io);
+	wr(pad_window[index], cfg);
+	high = pong_audio_pad_out_high(rd(pad_window[index] + PONG_AUDIO_GPIO_IO));
+	printf("PongAudio: amp spk switch gpio=%u on=%d cfg=0x%08x io=0x%08x read=0x%08x\n",
+	    probe_pads[index], on ? 1 : 0, cfg, io,
+	    rd(pad_window[index] + PONG_AUDIO_GPIO_IO));
+	return high == on;
+}
+
 /* I2C pads belong to the QUP15 function with a pull-up; the bus is idle-high.
  * If the firmware already left them there, do not rewrite them. */
 static bool
@@ -885,6 +908,9 @@ pong_audio_amp_play(void)
 		}
 	}
 	printf("PongAudio: amp play done playing=%u/2\n", playing);
+	if (playing != 0) {
+		(void)spk_switch_drive(true);
+	}
 	return (int)playing;
 }
 
@@ -902,6 +928,7 @@ pong_audio_amp_stop(void)
 			amp_stop_one(index, addresses[index]);
 		}
 	}
+	(void)spk_switch_drive(false);
 }
 
 /* ---- entry point -------------------------------------------------------- */

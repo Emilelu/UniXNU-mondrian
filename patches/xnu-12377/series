@@ -45,3 +45,4 @@ armcpu-sleep-hook.patch
 # function kmem_alloc_contig and undeclared KMA_* flags.
 0522-k60-bt-vm-kern-xnu.patch
 0523-k60-bt-transport-set-rate.patch
+0525-k60-bt-official-boot-args.patch

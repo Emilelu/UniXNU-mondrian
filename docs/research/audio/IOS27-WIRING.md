@@ -63,6 +63,29 @@ sh scripts/tests/portability/run-symbols.sh
 这条同时是反向用例：若有人把 `#if` 写坏、让代码漏到宏外面，`off` 就不再是 0，门禁立刻红。
 `scripts/check-audio27-preflight.sh` 把它列为独立一行（`ok   driver macro really switches it`）。
 
+### 在 27 树上打开它：三处改动
+
+宏是开关，落到树上要三处配合，缺一处就是静默编空。三处都在**构建侧**，不动机配置：
+
+1. **源文件落位**：`drivers/PongAudio/` 的两个编译单元进内核树——
+   `PongAudioAmp.c` 与它直接调用的 `PongAudioGeniI2c.c`（宿主探针同样要链这两个，
+   `run-probe.sh` 就是这么链的），随行头文件由 `python3 scripts/check-audio-migration.py --copy DIR`
+   按清单复制，避免手抄漏项。
+2. **bsd/conf/files**：`scripts/append-conffiles.py` 的 `ENTRIES` 里加两行
+   `bsd/dev/PongAudioAmp.c			standard` 与 `bsd/dev/PongAudioGeniI2c.c			standard`。
+   这个 hook 是 P-171 的产物（补丁锚不住 `conf/files`），构建驱动在补丁全部应用后调它；
+   它要求锚点 `bsd/dev/pong_buttons.c` 已在树里，否则打印 `anchor missing, entries not added`
+   并原样退出——那说明按键驱动没搬，音频也进不去。
+3. **宏**：`scripts/build-xnu-generic.sh` 的 `EXTRA_MAKE_ARGS` 里加
+   `EXTRA_MAKE_ARGS+=("PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO")`。
+   用**每目标文件**的 `_CFLAGS_ADD`（该脚本 :375/:520 已是这个写法），不往全局
+   `EXTRA_CFLAGS` 里塞——宏只属于音频胶水，别的文件不该看见它。
+
+验证不看日志，看产物：未链接的 `PongAudioAmp.o` 导出 3 个符号、含
+`T pong_audio_amp_probe`；宏漏了就是 0 个。真机上再对 `amp probe start`
+（`PongAudioAmp.c:921`）——两者的区别是「内核里有没有这段代码」与「这段代码跑没跑到」，
+先证前者。
+
 ## 2. 谁调用、哪一行证明它被调过
 
 | 函数 | 16 树的调用者 | 27 上的调用者 | 证明它跑过的日志行 |

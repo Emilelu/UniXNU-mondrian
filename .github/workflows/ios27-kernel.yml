@@ -114,6 +114,13 @@ jobs:
           payload="$OUT/payload/payload.img"
           python3 scripts/check-bluetooth-kernel.py --kernel "$kernel" --payload "$payload" --require log-bluetooth
 
+      - name: Check the GENI engine against the register model
+        working-directory: device
+        run: |
+          set -eu
+          python3 scripts/check-bluetooth-geni.py --out "$UNIXNU_OUT/geni-check"
+          python3 scripts/tests/test-bt-geni-model.py
+
       - name: Collect the build summary
         if: always()
         run: |

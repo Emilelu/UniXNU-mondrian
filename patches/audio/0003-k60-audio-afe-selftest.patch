@@ -299,6 +299,11 @@
 +	}
 +}
 +
++/* Set by pong_audio_smmu_lease(): once the audio stream reads physical
++ * addresses, the periods stay in HLOS memory and no ownership handoff is
++ * needed. Until then the per-period SCM lending stays as the fallback. */
++static bool g_pong_smmu_leased;
++
 +static void
 +pong_audio_play_reap_slots(PongAudioState *state)
 +{
@@ -446,11 +451,6 @@
 + * real period, so a live machine here separates the write command from the
 + * memory the DSP would have to read. */
 +static bool g_pong_probe_only;
-+
-+/* Set by pong_audio_smmu_lease(): once the audio stream reads physical
-+ * addresses, the periods stay in HLOS memory and no ownership handoff is
-+ * needed. Until then the per-period SCM lending stays as the fallback. */
-+static bool g_pong_smmu_leased;
 +
 +static bool
 +pong_audio_play_submit_slot(PongAudioState *state)

@@ -39,7 +39,7 @@ run boost 40 scripts/tests/test-k60-boost-plan.c drivers/PongPower/K60BoostPlan.
 run sleep 73 scripts/tests/test-k60-sleep-plan.c drivers/PongPower/K60SleepPlan.c
 run vote 58 scripts/tests/test-k60-power-vote-plan.c drivers/PongPower/K60PowerVotePlan.c
 run armcpu-sleep 1038 scripts/tests/test-armcpu-sleep.c
-run conformance 27 scripts/tests/test-k60-power-conformance.c \
+run conformance 107 scripts/tests/test-k60-power-conformance.c \
   drivers/PongPower/K60BoostPlan.c drivers/PongPower/K60SleepPlan.c \
-  drivers/PongPower/K60PowerVotePlan.c
+  drivers/PongPower/K60PowerVotePlan.c drivers/PongPower/K60RailPlan.c
 echo "power-host: OK ($total checks in 7 suites; portability preflight passed; binaries in $OUT)"

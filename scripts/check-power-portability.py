@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guard the power policy modules that must survive the iOS27 move.
 
-The CPU/GPU/boost/sleep/vote plans are pure C: no IOKit, no XNU, no MMIO.
+The CPU/GPU/boost/sleep/vote/rail plans are pure C: no IOKit, no XNU, no MMIO.
 This check fails if one of them grows a platform include or symbol, and it
 compiles every module freestanding so an accidental libc/IOKit dependency is
 caught before the iOS27 tree inherits it.
@@ -19,6 +19,7 @@ MODULES = [
     "K60BoostPlan.c",
     "K60SleepPlan.c",
     "K60PowerVotePlan.c",
+    "K60RailPlan.c",
 ]
 HEADERS = [name[:-2] + ".h" for name in MODULES]
 FORBIDDEN_INCLUDE = re.compile(

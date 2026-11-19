@@ -17,6 +17,7 @@
 #include "../../drivers/PongPower/K60BoostPlan.h"
 #include "../../drivers/PongPower/K60SleepPlan.h"
 #include "../../drivers/PongPower/K60PowerVotePlan.h"
+#include "../../drivers/PongPower/K60RailPlan.h"
 
 _Static_assert(K60_CPU_FREQ_MARGIN == 125u, "official CPU margin is 1.25x");
 _Static_assert(K60_CPU_FREQ_DOWN_WINDOWS == 4u, "four quiet windows before a drop");
@@ -42,6 +43,21 @@ static void check(const char *name, unsigned got, unsigned want)
 {
     checks++;
     if (got != want) { failures++; printf("FAIL %s: got %u want %u\n", name, got, want); }
+}
+
+static void check_i(const char *name, int got, int want)
+{
+    checks++;
+    if (got != want) { failures++; printf("FAIL %s: got %d want %d\n", name, got, want); }
+}
+
+static K60RailPoint rail_point(uint32_t khz, uint32_t uv, uint32_t bw)
+{
+    K60RailPoint point;
+    point.khz = khz;
+    point.uv = uv;
+    point.bw = bw;
+    return point;
 }
 
 int main(void)
@@ -99,6 +115,159 @@ int main(void)
     check("release step stop-dma", (unsigned)(strcmp(k60_vote_step_name(steps[0]), "stop-dma") == 0), 1);
     check("release step mask-irq", (unsigned)(strcmp(k60_vote_step_name(steps[1]), "mask-irq") == 0), 1);
     check("release step drop-vote", (unsigned)(strcmp(k60_vote_step_name(steps[2]), "drop-vote") == 0), 1);
+
+    /* A work-point transition follows regulator -> interconnect -> frequency
+     * on the way up, frequency -> interconnect -> regulator on the way down,
+     * and commits only after a successful readback. */
+    K60RailState rail;
+    K60RailPoint from, to;
+    K60RailStep rail_steps[8];
+    unsigned n;
+    int rc;
+
+    from = rail_point(1000000, 800000, 100);
+    k60_rail_reset(&rail, &from);
+    check("rail initial khz", rail.confirmed.khz, 1000000);
+    check("rail valid", (unsigned)k60_rail_valid(&from), 1);
+    check("rail valid rejects null", (unsigned)k60_rail_valid(NULL), 0);
+    check("rail valid rejects zero khz", (unsigned)k60_rail_valid(&(K60RailPoint){0, 800000, 100}), 0);
+    check("rail valid accepts zero bw", (unsigned)k60_rail_valid(&(K60RailPoint){1000000, 800000, 0}), 1);
+
+    to = rail_point(2000000, 900000, 200);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail up rc", rc, 0);
+    check("rail up steps", n, 4);
+    check("rail up stage 0", (unsigned)rail_steps[0].stage, K60RailRegulator);
+    check("rail up stage 1", (unsigned)rail_steps[1].stage, K60RailInterconnect);
+    check("rail up stage 2", (unsigned)rail_steps[2].stage, K60RailFrequency);
+    check("rail up stage 3", (unsigned)rail_steps[3].stage, K60RailReadback);
+    check("rail up regulator uv", rail_steps[0].uv, 900000);
+    check("rail up interconnect bw", rail_steps[1].bw, 200);
+    check("rail up frequency khz", rail_steps[2].khz, 2000000);
+    check("rail up readback khz", rail_steps[3].khz, 2000000);
+
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 3, &n);
+    check_i("rail short capacity rc", rc, -3);
+    check("rail short capacity count", n, 0);
+
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 0, rail_steps, 8, &n);
+    check_i("rail thermal refusal rc", rc, -2);
+    check("rail thermal refusal count", n, 0);
+
+    to = rail_point(500000, 700000, 50);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 0, rail_steps, 8, &n);
+    check_i("rail down rc", rc, 0);
+    check("rail down steps", n, 4);
+    check("rail down stage 0", (unsigned)rail_steps[0].stage, K60RailFrequency);
+    check("rail down stage 1", (unsigned)rail_steps[1].stage, K60RailInterconnect);
+    check("rail down stage 2", (unsigned)rail_steps[2].stage, K60RailRegulator);
+    check("rail down stage 3", (unsigned)rail_steps[3].stage, K60RailReadback);
+
+    to = from;
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail same rc", rc, 0);
+    check("rail same count", n, 0);
+
+    to = rail_point(2000000, 700000, 200);
+    check_i("rail high freq low uv", k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n), -4);
+    to = rail_point(2000000, 900000, 50);
+    check_i("rail high freq low bw", k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n), -4);
+
+    to = rail_point(1000000, 900000, 100);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail uv up rc", rc, 0);
+    check("rail uv up steps", n, 2);
+    check("rail uv up stage 0", (unsigned)rail_steps[0].stage, K60RailRegulator);
+    check("rail uv up stage 1", (unsigned)rail_steps[1].stage, K60RailReadback);
+
+    to = rail_point(1000000, 800000, 50);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail bw down rc", rc, 0);
+    check("rail bw down steps", n, 2);
+    check("rail bw down stage 0", (unsigned)rail_steps[0].stage, K60RailInterconnect);
+    check("rail bw down stage 1", (unsigned)rail_steps[1].stage, K60RailReadback);
+
+    to = rail_point(1000000, 900000, 50);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail uv up bw down rc", rc, 0);
+    check("rail uv up bw down steps", n, 3);
+    check("rail uv up bw down stage 0", (unsigned)rail_steps[0].stage, K60RailRegulator);
+    check("rail uv up bw down stage 1", (unsigned)rail_steps[1].stage, K60RailInterconnect);
+    check("rail uv up bw down stage 2", (unsigned)rail_steps[2].stage, K60RailReadback);
+
+    to = rail_point(1000000, 700000, 200);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail uv down bw up rc", rc, 0);
+    check("rail uv down bw up steps", n, 3);
+    check("rail uv down bw up stage 0", (unsigned)rail_steps[0].stage, K60RailInterconnect);
+    check("rail uv down bw up stage 1", (unsigned)rail_steps[1].stage, K60RailRegulator);
+    check("rail uv down bw up stage 2", (unsigned)rail_steps[2].stage, K60RailReadback);
+
+    to = rail_point(1000000, 700000, 50);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail both down rc", rc, 0);
+    check("rail both down steps", n, 3);
+    check("rail both down stage 0", (unsigned)rail_steps[0].stage, K60RailInterconnect);
+    check("rail both down stage 1", (unsigned)rail_steps[1].stage, K60RailRegulator);
+    check("rail both down stage 2", (unsigned)rail_steps[2].stage, K60RailReadback);
+
+    to = rail_point(1000000, 900000, 200);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n);
+    check_i("rail both up rc", rc, 0);
+    check("rail both up steps", n, 3);
+    check("rail both up stage 0", (unsigned)rail_steps[0].stage, K60RailRegulator);
+    check("rail both up stage 1", (unsigned)rail_steps[1].stage, K60RailInterconnect);
+    check("rail both up stage 2", (unsigned)rail_steps[2].stage, K60RailReadback);
+
+    to = rail_point(2000000, 900000, 200);
+    k60_rail_reset(&rail, &from);
+    check_i("rail commit refused rc", k60_rail_commit(&rail, &to, 0), -1);
+    check("rail commit refused keeps khz", rail.confirmed.khz, 1000000);
+    check_i("rail commit rc", k60_rail_commit(&rail, &to, 1), 0);
+    check("rail commit new khz", rail.confirmed.khz, 2000000);
+    n = 99;
+    check_i("rail committed plan rc", k60_rail_plan(&rail, &to, 1, rail_steps, 8, &n), 0);
+    check("rail committed plan count", n, 0);
+
+    check_i("rail plan null state", k60_rail_plan(NULL, &to, 1, rail_steps, 8, &n), -1);
+    check_i("rail plan null target", k60_rail_plan(&rail, NULL, 1, rail_steps, 8, &n), -1);
+    check_i("rail plan null out", k60_rail_plan(&rail, &to, 1, NULL, 8, &n), -1);
+    check_i("rail plan null count", k60_rail_plan(&rail, &to, 1, rail_steps, 8, NULL), -1);
+    check_i("rail commit null state", k60_rail_commit(NULL, &to, 1), -1);
+    check_i("rail commit null target", k60_rail_commit(&rail, NULL, 1), -1);
+
+    k60_rail_reset(NULL, &from);
+    k60_rail_reset(&rail, NULL);
+    check("rail reset null zeroes", rail.confirmed.khz, 0);
+    k60_rail_reset(&rail, &(K60RailPoint){0, 800000, 100});
+    check("rail reset invalid zeroes", rail.confirmed.uv, 0);
+
+    check("rail stage regulator", (unsigned)(strcmp(k60_rail_stage_name(K60RailRegulator), "regulator") == 0), 1);
+    check("rail stage interconnect", (unsigned)(strcmp(k60_rail_stage_name(K60RailInterconnect), "interconnect") == 0), 1);
+    check("rail stage frequency", (unsigned)(strcmp(k60_rail_stage_name(K60RailFrequency), "frequency") == 0), 1);
+    check("rail stage readback", (unsigned)(strcmp(k60_rail_stage_name(K60RailReadback), "readback") == 0), 1);
+    check("rail stage unknown", (unsigned)(strcmp(k60_rail_stage_name((enum k60_rail_stage)99), "unknown") == 0), 1);
+    check("rail stage count", K60RailStageCount, 4);
+
+    k60_rail_reset(&rail, &from);
+    to = rail_point(2000000, 900000, 200);
+    n = 99;
+    rc = k60_rail_plan(&rail, &to, 1, rail_steps, 4, &n);
+    check_i("rail exact capacity rc", rc, 0);
+    check("rail exact capacity count", n, 4);
+    to = rail_point(0, 900000, 200);
+    check_i("rail commit invalid rc", k60_rail_commit(&rail, &to, 1), -4);
 
     if (failures) printf("TESTS FAILED %u failures / %u checks\n", failures, checks);
     else printf("TESTS OK %u checks (0 failures)\n", checks);

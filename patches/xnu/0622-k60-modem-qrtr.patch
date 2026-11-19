@@ -2712,7 +2712,7 @@ index 0000000..1111111
 +				    K60_QRTR_DMS_STATIC_PORT, query, sizeof(query));
 +				if (rc == QcomGlinkOk) {
 +					k60_qrtr_state.dms_static = 1;
-+					k60_qrtr_state.dms_requested = 1;
++					k60_qrtr_dms_requested = 1;
 +					k60_qrtr_state.dms_sent = 1;
 +					printf("K60MODEM qrtr: sent dms get_revision (static) to node 0 port %u txn %u\n",
 +					    K60_QRTR_DMS_STATIC_PORT, transaction);

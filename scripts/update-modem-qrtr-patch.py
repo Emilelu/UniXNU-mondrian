@@ -72,9 +72,10 @@ FILES = [
     ("drivers/PongCellular/K60ModemRmtfs.h", "bsd/dev/pong_modem_rmtfs.h", {}),
     ("drivers/PongCellular/K60ModemRmtfs.c", "bsd/dev/pong_modem_rmtfs.c",
      {'"K60ModemRmtfs.h"': '"pong_modem_rmtfs.h"'}),
-    ("drivers/PongCellular/K60ModemEfs.h", "bsd/dev/pong_modem_efs.h", {}),
+    ("drivers/PongCellular/K60ModemEfs.h", "bsd/dev/pong_modem_efs.h",
+     {'"K60ModemRmtfs.h"': '"pong_modem_rmtfs.h"'}),
     ("drivers/PongCellular/K60ModemEfs.c", "bsd/dev/pong_modem_efs.c",
-     {'"K60ModemEfs.h"': '"pong_modem_efs.h"'}),
+     {'"K60ModemEfs.h"': '"pong_modem_efs.h"', '"K60ModemRmtfs.h"': '"pong_modem_rmtfs.h"'}),
 ]
 
 
@@ -95,6 +96,11 @@ def body(source: Path, renames: dict) -> list:
         else:
             sys.exit("%s: neither the pre-adoption line nor the adopted fix is "
                      "present; re-read the source before regenerating" % key)
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith('#include "K60') or stripped.startswith('#include "Qcom'):
+            sys.exit("%s carries an include the renames leave behind: %s"
+                     % (source.name, stripped))
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()

@@ -50,7 +50,7 @@
 | 与 Android/OEM 对照（C3） | 部分：只有低电流 3 对 PASS；匹配电流窗口因属性 9 静默、XNU 只能发 USB 输入电流而 FAIL |
 | 真机插拔、放电、超时、服务重启 | 未完成（host 第 15/16 节只模拟状态转换） |
 | 充电认证 PD/PPS/MiPPS（:82-88） | 部分（仅移植，默认关闭）：sheng 的 `ShengChargeAuth.c` 已移植为 `K60ChargeAuth.c`（host 状态机 99 项 + HMAC-SHA256 5 项 RFC 4231 向量，已并入 `run-k60-power-host.sh` 的 1915 项 / 10 套件并作为 `CARRY.toml` 第八个模块随 27 线搬运），并默认关闭地接入 `K60Battery` 串行队列，只有 property 7 值 6/7/8 的 fresh sample 启动；`k60_charge_auth=1`（18 B）在 596 B 基线下会到 614 B 超过 607，本分支因此未启用该参数；无 UCSI 数据角色、未上机，K60 固件侧的认证字段与密钥没有来源 |
-| Linux 充电读取镜像（:89-104） | 未接入；参考脚本在 sheng 仓库 |
+| Linux 充电读取镜像（:89-104） | 对读已接入（读取器本体不实现）：`scripts/judge-k60-battery-mirror.py` 把我们的 sample 行与 sheng 的镜像报告按同一基准单位比对（容量/电压/电流幅值/温度/外接/充电状态，容差 60 mV、150 mA、3.00 pp、3 °C），差值为 10/100/1000 倍时点名单位滑档；17 项 fixture，随 power runner 的 `battery-mirror` 套件运行并作为第四个判读器进入 `CARRY.toml`（4 judges / 92 cases）。镜像读取器需要同机 Linux 的 `/sys/class/power_supply`，K60 只有 ADSP 固件，故只对读 |
 
 ## §5 调频与电源操作（:105-121）
 
@@ -130,8 +130,8 @@
   跨模块数值钉住、温控跳变点地图与充电认证状态机（含 HMAC 向量）共 10 个套件，合计 1915 项断言（203/140/40/73/58/1038/134/125）；设 `K60_POWER_SANITIZE=1` 可加 ASan/UBSan 重跑同一套。`test-k60-power-conformance.c` 用 `_Static_assert` 把官网 §5 的
   1.25 倍余量、50 % GPU 目标、578 MHz 地板、1 s 触摸、300 ms/60 % 帧下限、50 ms GPU 唤醒、1 ms fence、
   10 s 喂狗、两帧/1500/600 ms 背光与 60 ms 触摸间隔钉在跨模块位置；每个套件必须打印自己记录的数量，
-  数量漂移即失败。C 套件之后同一条命令再跑 python 那半——carry 清单、三个控制台判读器、27 预检，
-  与硬件契约表核对（`HW-CONTRACTS.toml`，23 行 file:line 引用），共 6 个套件——并打印 `power-python: OK (6 suites)`，任一退出非零即整个 runner 失败。判读器没有
+  数量漂移即失败。C 套件之后同一条命令再跑 python 那半——carry 清单、四个控制台判读器、27 预检，
+  与硬件契约表核对（`HW-CONTRACTS.toml`，23 行 file:line 引用），共 7 个套件——并打印 `power-python: OK (7 suites)`，任一退出非零即整个 runner 失败。判读器没有
   runner 引用时会静默腐烂（充电认证套件就这样躺了一轮），所以两半都挂在这一个入口上。ADSP 那三个
   python 套件（SMCCC 文本门、image 与 MDT 读取器）挂在 `run-k60-handoff-host.sh`——第一个判的是内核
   补丁，三个都不在 power 的搬运集里。它只证明离线逻辑，不替代真机证据；ADSP/电池上机套件仍在
@@ -145,7 +145,7 @@
   检查器自带 25 项测试（`scripts/tests/test-power-carry.py`）。
 - 27 侧前置检查：`scripts/check-ios27-power-preflight.py`（18 项测试）把四件事合成一份输出——
   七个模块的哈希、`0629-k60-sleep-trace.patch` 里 report 是否仍被 `#if defined(PONG)` 包住、
-  27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、三个判读器是否已并入。
+  27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、四个判读器是否已并入。
   2026-11-20 对 `xnekom-ios27@ee910a78` 实测 3 个阻塞（温控三文件缺、PONG 门控、两个判读器缺），
   builder 路由已通过。
 

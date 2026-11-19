@@ -94,7 +94,7 @@ depends on the headers 0508 adds. Applying 0509 on 0500+0502b alone fails at
 2. **P1 - assemble the patched xnu-12377 base. Done offline.** A tree built from
    vanilla plus the four series was used as the adaptation base; the adapted
    patches were then validated against it from scratch (§5.1).
-3. **P2 - port the platform hooks. Done offline** (§4). No build has run.
+3. **P2 - port the platform hooks. Done offline** (§4); the Linux CI builds of §5.3 now compile and link them.
 4. **P3 - build and inspect. Done for the build half** (§5.3). The twenty
    patches build and prelink on a Linux runner; hardware inspection waits for
    iOS 27 to reach `bsd_init`.

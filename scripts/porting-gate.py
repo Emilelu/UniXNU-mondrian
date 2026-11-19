@@ -55,12 +55,12 @@ if _OUT:
         KERNEL = _hits[0]
 # 构建输入镜像里的补丁目录。必须和 sync-device-input.py 写到的地方一致，
 # 否则『未同步』检查是在拿真文件和一条过时的 /tmp 路径比（P-185）。
+# 未设置时不再在 import 期 sys.exit：那会让 scripts/tests/test-series-fingerprint.py
+# 之类「import 本模块再调 series_fingerprint()」的测试连函数都拿不到
+# （AttributeError: no attribute 'series_fingerprint'），红的是测试而不是真问题。
+# 拒绝照旧，只是推迟到真正要比对镜像的 [X] 段：DEV 为 None 时那里直接记一条硬失败。
 _INPUT_ENV = os.environ.get('K60_DEVICE_INPUT')
-if not _INPUT_ENV:
-    sys.exit('porting-gate: K60_DEVICE_INPUT is not set; refusing to judge this tree against a '
-             'mirror the caller did not name. Export your own mirror (2026-11-16: the silent '
-             'fallback turned one unset variable into five false reds in check-rules).')
-DEV = _INPUT_ENV + '/patches/xnu'
+DEV = (_INPUT_ENV + '/patches/xnu') if _INPUT_ENV else None
 LEDGER = WORK + '/ledger.jsonl'
 # 铁则 9 的基线账本。它按 series 指纹记「这一套补丁曾经真的上机启动过」，
 # 而 ledger.jsonl 是跨 worktree 全局的，别的分支飞一次就会把「上次成功」
@@ -516,6 +516,10 @@ except Exception as e:
 # ============ X. 同步 ============
 sec('X', '同步与真相源（P-44 / P-90）')
 try:
+    if DEV is None:
+        raise RuntimeError('K60_DEVICE_INPUT is not set; refusing to judge this tree against a '
+                           'mirror the caller did not name (2026-11-16: the silent fallback turned '
+                           'one unset variable into five false reds in check-rules)')
     nbad = 0
     for f in sorted(os.listdir(REPO + '/patches/xnu')):
         if not f.endswith('.patch'):

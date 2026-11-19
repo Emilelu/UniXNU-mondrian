@@ -1197,4 +1197,15 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 测试：`scripts/tests/test-bt-geni-model.py` 26 例。除正常路径外，把模型里被断言的打包写入 `wr(g,G_TX_PACK0,0x4380e)` 改成 `0x4380f` 后必须失败——只改 `G_RFR_OFF` 之类的宏不会变红，因为模型只比较写入值；另覆盖缺 patch（报 missing patch）与空树两种拒绝。
 - 边界：模型只模拟寄存器语义与 DMA 队列，不模拟真实 QUP/GENI 时序、不模拟 SMMU 与引脚；`hardware_verified` 永远是 false。它证明的是「引擎源码在给定寄存器语义下的行为符合预期」，不证明控制器可驱动。
 
+### 59. GIC SPI 共享检查：把 armcpu_spi_attach 放进分发器模型（2026-11-19 20:45）
 
+- 背景：官方页 step 6 的第二个脚本是 `check-bluetooth-shared.py`，sheng 的做法是从 `drivers/ArmCpu/ArmCpu.cpp` 里截出 SPI 登记代码、和 `Sm8550Gcc.c` 一起编，断言 `armcpu_spi_attach` / `armcpu_spi_share` / `armcpu_spi_mask` / 分发与 GIC 使能位。K60 的蓝牙 SPI 是 619（UART）与 240（TLMM wake），它们和 UFS、PCIe 共用同一个分发器，登记错一次不是蓝牙自己的事，所以这一步必须做。
+- 抽取：`ArmCpu.cpp` 的 SPI 代码是两段不连续的块——`/* Published SPI owners, following Sheng` 到 `class ArmCpu : public IOCPU`（`struct SpiOwner`、`gSpi[4]`、`gSpiUsed`、`gSpiRegistering`、`gDist`、`gBootAffinity`），加 `extern "C" IOReturn armcpu_spi_attach(` 到 `void ArmCpu::signalCPU`（登记、编程、分发）。第一次尝试用单段（到 `signalCPU`）把整个 `class ArmCpu` 声明也吞进去，编译报 `OSSymbol` / `IOCPU` 未定义——两段拼接才是对的。
+- 模型：`scripts/tests/fixtures/bt-gic-shared.c`（185 行，含 EXTRACT 标记）。前半给 `IOReturn` 枚举、64 KiB `gMemory`、`read32`/`write32`/`waitClear`、`armcpu_gic_ready` 与最小 `IOLock`；后半 43 条断言。
+- 编译适配：`__asm__ volatile("dsb sy":::"memory");` 换成 `__atomic_thread_fence(__ATOMIC_SEQ_CST);`（x86 上没有 `dsb`，clang 报 `invalid instruction mnemonic 'dsb'`）；fixture 里不能留未用的 `panic` stub，`-Werror` 会报 `unused function`。
+- 断言：619 冷态登记成功、owner 表记录、`S2CR` 低两位为 3、`IROUTER` 为 `0x80000000`、`GICD_ISENABLER` 置位、`GICD_ICENABLER` 清位、优先级字节 `0xa0`、`GICD_IROUTER` 低字先写；620 的边沿位 `(n%16)*2+1` 置位与清位；重复 owner 得 `kIOReturnExclusiveAccess` 且不占槽；27/1020/1024 得 `kIOReturnBadArgument`；null handler 得 `kIOReturnNotReady`；四槽满后第五个得 `kIOReturnNoResources`；`gDist=0` 与 `armcpu_gic_ready=0` 得 `kIOReturnNotReady`；8 线程并发登记只产生定义好的返回码、成功数等于 `gSpiUsed`、无重复 INTID。
+- 生产代码事实（`drivers/ArmCpu/ArmCpu.cpp`，526 行）：`armcpu_spi_attach` 用 `__atomic_compare_exchange_n(&gSpiRegistering,...)` 做单飞，先写 `0x180+word` 清使能并等 `waitClear(gDist,0,1u<<31)`，再写 `0x80+word` 使能、`0x400+intid` 优先级字节 `0xa0`、`0xc00+(intid/16)*4` 的 `(intid%16)*2+1` 边沿位、`0x6000+8*intid` 为 `gBootAffinity`，最后写 `0x100+word` 使能；分发在 `ArmCpu::interrupt` 里按 `gSpi` 线性查找，未登记就 `panic("ArmCpu: unowned SPI %u",intid)`。
+- 检查器：`scripts/check-bluetooth-gic.py`。默认读 `drivers/ArmCpu/ArmCpu.cpp`（`--source` 可换），把两段拼进 fixture 的标记处，用 clang（缺则 gcc）加 `-std=c++17 -fsanitize=address,undefined -Werror` 编译运行；`--out DIR` 写 `report.json`（passed、assertions、distributor_writes、hardware_verified=false、source/fragment/fixture 三个 sha256）与 `output.txt`。
+- 实跑：`python3 scripts/check-bluetooth-gic.py --out /tmp/gic-report` 得 43 条断言、16 次分发器写，`bluetooth-gic-check: OK (43 assertion(s), 16 write(s))`。
+- 测试：`scripts/tests/test-bt-gic-shared.py` 20 例。除正常路径外，删掉 `for(uint32_t i=0;i<used;i++)if(gSpi[i].id==intid)result=kIOReturnExclusiveAccess;` 后必须失败（第二次登记 619 会成功），删掉 `write32(gDist,0x100+word,bit);` 后必须失败，缺源文件、fixture 无标记、空树三种拒绝也覆盖。
+- 边界：模型只模拟分发器寄存器语义与 owner 表，不模拟真实 GIC 时序、不模拟中断抢占与亲和性；`hardware_verified` 永远是 false。它证明「登记与分发逻辑在给定寄存器语义下正确」，不证明 619 在板子上真的进得来（那要飞行日志里的 `[bluetooth hci]` 计数）。

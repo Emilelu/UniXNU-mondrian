@@ -1852,6 +1852,19 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 
 实跑得 64 条断言、36 个寄存器，`bluetooth-geni-check: OK`；`scripts/tests/test-bt-geni-model.py` 26 例覆盖各场景与三种拒绝路径，其中「改坏被断言的打包写入必须变红」是这套检查的核心约束。边界：模型只模拟寄存器语义与 DMA 队列，不模拟真实 QUP/GENI 时序、SMMU 或引脚。
 
+
+### 7.35 GIC SPI 共享检查：登记与分发对分发器模型（0526 之后）
+
+官方页 step 6 的第二个脚本检查 SPI 共享：sheng 从 `drivers/ArmCpu/ArmCpu.cpp` 截出 SPI 登记代码、和 `Sm8550Gcc.c` 一起编，断言 `armcpu_spi_attach` / `armcpu_spi_share` / `armcpu_spi_mask` / 分发与 GIC 使能位。K60 的蓝牙 SPI 是 619（UART）与 240（TLMM wake），和 UFS、PCIe 共用同一个分发器，登记错一次不是蓝牙自己的事。
+
+`ArmCpu.cpp` 的 SPI 代码是两段不连续的块：`/* Published SPI owners, following Sheng` 到 `class ArmCpu : public IOCPU`（`struct SpiOwner`、`gSpi[4]`、`gSpiUsed`、`gSpiRegistering`、`gDist`、`gBootAffinity`），加 `extern "C" IOReturn armcpu_spi_attach(` 到 `void ArmCpu::signalCPU`。检查器把这两段拼进 `scripts/tests/fixtures/bt-gic-shared.c` 的 `/* `EXTRACT` */` 标记处；单段抽取会把整个 `class ArmCpu` 声明也带进来，编译报 `OSSymbol` / `IOCPU` 未定义。
+
+fixture 提供 `IOReturn` 枚举、64 KiB `gMemory`、`read32`/`write32`/`waitClear`、`armcpu_gic_ready` 与最小 `IOLock`，后半 43 条断言。编译时 `__asm__ volatile("dsb sy":::"memory");` 换成 `__atomic_thread_fence(__ATOMIC_SEQ_CST);`（x86 上没有 `dsb`），fixture 不能留未用的 `panic` stub（`-Werror` 报 `unused function`）。
+
+断言覆盖：619 冷态登记、owner 表、`S2CR` 低两位 3、`IROUTER` `0x80000000`、`GICD_ISENABLER` 置位、`GICD_ICENABLER` 清位、优先级字节 `0xa0`、`GICD_IROUTER` 低字先写；620 边沿位 `(n%16)*2+1` 置位与清位；重复 owner 得 `kIOReturnExclusiveAccess` 且不占槽；27/1020/1024 得 `kIOReturnBadArgument`；null handler 得 `kIOReturnNotReady`；四槽满后第五个得 `kIOReturnNoResources`；`gDist=0` 与 `armcpu_gic_ready=0` 得 `kIOReturnNotReady`；8 线程并发登记只产生定义好的返回码、成功数等于 `gSpiUsed`、无重复 INTID。
+
+`scripts/check-bluetooth-gic.py` 默认读 `drivers/ArmCpu/ArmCpu.cpp`（`--source` 可换），`--out DIR` 写 `report.json` 与 `output.txt`，`hardware_verified` 恒为 false。实跑得 43 条断言、16 次分发器写，`bluetooth-gic-check: OK`；`scripts/tests/test-bt-gic-shared.py` 20 例，其中删掉重复 owner 守卫或删掉使能写都必须变红。边界：模型只模拟分发器寄存器语义与 owner 表，不模拟真实 GIC 时序、抢占与亲和性。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

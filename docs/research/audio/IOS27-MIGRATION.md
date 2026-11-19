@@ -62,10 +62,11 @@ audio 线只搬「与 OS 无关」的东西：
 `run-glink-multislot-tests.sh` = `TESTS OK 800 cases`（本轮修了 4 处 bz 遗留断言：
 PRM 时钟 12.288 MHz → 3.072 MHz 两处、group/port bit width 32 → 16 两处）。
 
-同一时间做了可搬性的独立验证：把 `drivers/PongAudio` 里 21 个头和 5 个纯 C 模块
-（`PongAudioGeniI2c` / `PongCodecLpi` / `PongCodecMacro` / `PongCodecProbe` / `PongCodecSwr`）
-拷进一个空目录，只给 `-I.`，用 `cc -std=gnu11 -Wall -Wextra -Werror -c` 逐个编译，
-五个全部 `OK`、零内核头、零警告 ⇒ 第 1 节的「纯 C」不是分类推断，是实测。
+同一时间做了可搬性的独立验证：把第 1 节的 18 个文件（5 个 .c 模块
+—— `PongAudioGeniI2c` / `PongCodecLpi` / `PongCodecMacro` / `PongCodecProbe` / `PongCodecSwr`
+——加 13 个头）拷进一个空目录，只给 `-I.`，用 `cc -std=gnu11 -Wall -Wextra -Werror -c`
+逐个编译，五个单元全部 `OK`、零内核头、零警告 ⇒ 第 1 节的「纯 C」不是分类推断，是实测。
+这条验证现在由 `scripts/check-audio-migration.py --compile` 复现。
 
 ## 6. 每一项在 27 上靠什么日志行证明
 

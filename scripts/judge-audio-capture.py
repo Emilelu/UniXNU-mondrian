@@ -463,6 +463,24 @@ def judge_playback(lines, meta):
     notes.append("S7 WRITE_DONE replies=%d (0 means the DSP never consumed a period)"
                  % write_done)
 
+    # S8: which buffer the PCM path would have written into, and whether the
+    # pages could be lent to the DSP at all. Reported, not gated: the previous
+    # images stop before a period is sent, and the line is what tells the next
+    # build which handoff to fix.
+    if "PCM buffer in the CVP carveout" in text:
+        where = "CVP carveout"
+    elif "low DMA lease pa=" in text:
+        where = "loader lease"
+    elif "low DMA allocated pa=" in text:
+        where = "kernel allocation"
+    elif "low DMA unavailable" in text:
+        where = "none"
+    else:
+        where = "not reported"
+    notes.append("S8 PCM buffer=%s lend refused=%d held=%d"
+                 % (where, text.count("lend refused"),
+                    text.count("lend held; not sending")))
+
     for line in notes:
         report.append("   " + line)
     for line in problems:

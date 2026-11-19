@@ -76,6 +76,16 @@ iOS 目标的路径与产物形状没变：仍是 `ShengAudio.driver/ShengAudio`
 一条命令跑完上面几道（外加 conf/files 追加器用例、符号表正反两跑、判据测试与功放 979 例）：
 `sh scripts/check-audio27-preflight.sh` → 八行 `ok` 与 `PREFLIGHT OK`；sheng 检出不在旁边时那行是 `skip`，可用 `SHENG_REPO=` 指定。
 
+2026-11-20 04:35 复核过一遍：在临时目录 `git clone --shared` 本仓、`git fetch` 后 `checkout FETCH_HEAD`
+（= `origin/main` `c8f92b2`），逐条对上面点名的行号——`ShengAudioAbi.h` 88 行、
+`sha256 9ef369877cfae3d2255129f7fdf332448b71300a0fc840d6522ec83e09754b52`、
+`hal/ShengAudioPlugIn.c` 736 行且 `keepImageResident()` 在 :138、host clock `-2` 在 :85、
+`package/ShengAudioService.cpp` 的 macOS 白名单在 :80（iOS 分支 :82）、
+`scripts/build-sheng-audio-hal.py` 的文档字符串点名 `arm64e-apple-ios27.0`、`check-audioreach-host.py`
+`PASS audioreach: 182 checks`。**注意**：`/mnt/e/hackios/UniXNU-sheng` 的工作副本停在 `a68ee4e`
+（相对 `origin/main` ahead 484 / behind 795），所以在预检里要 `SHENG_REPO` 指到新的 clone，
+否则跑的是旧树。
+
 2026-11-20 04:1x 全部实测通过（sheng `c8f92b2` 上 182 checks / STUBS OK / SYMBOLS OK off=0 × 3 /
 conf-files TESTS OK 6 cases / PROBE OK / judge TESTS OK / amplifier TESTS OK 979 cases）。
 

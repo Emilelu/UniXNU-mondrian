@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1285 @@ int pong_audio_status(void);
+@@ -898,6 +933,1266 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -858,66 +858,47 @@
 + * and the ADSP resets. Lease the top context bank as a stage-1 bypass bank,
 + * the same handoff the Pong reference performs for its DMA buffer, and leave
 + * every other stream and bank alone. */
-+static volatile uint32_t *g_pong_smmu_pages[3];
-+static uint32_t g_pong_smmu_page_base[3];
++/* The register block spans one megabyte; map it once. Paging it four
++ * kilobytes at a time ran out of slots while the lease walked seventy-five
++ * banks, which is why the first scans stopped after two. */
++static volatile uint32_t *g_pong_smmu_regs;
 +
 +static volatile uint32_t *
-+pong_smmu_page(uint32_t off)
++pong_smmu_registers(void)
 +{
-+	const uint32_t base = off & ~0xfffu;
-+	unsigned i;
-+
-+	for (i = 0; i < 3u; i++) {
-+		if (g_pong_smmu_pages[i] != NULL &&
-+		    g_pong_smmu_page_base[i] == base) {
-+			return g_pong_smmu_pages[i];
-+		}
++	if (g_pong_smmu_regs == NULL) {
++		g_pong_smmu_regs = (volatile uint32_t *)ml_io_map(0x15000000u,
++		    0x100000u);
 +	}
-+	for (i = 0; i < 3u; i++) {
-+		if (g_pong_smmu_pages[i] == NULL) {
-+			break;
-+		}
-+	}
-+	if (i == 3u) {
-+		return NULL;
-+	}
-+	volatile uint32_t *page = (volatile uint32_t *)ml_io_map(0x15000000u + base,
-+	    0x1000);
-+
-+	if (page == NULL) {
-+		return NULL;
-+	}
-+	g_pong_smmu_pages[i] = page;
-+	g_pong_smmu_page_base[i] = base;
-+	return page;
++	return g_pong_smmu_regs;
 +}
 +
 +static bool
 +pong_smmu_read32(uint32_t off, uint32_t *value)
 +{
-+	volatile uint32_t *page = pong_smmu_page(off);
++	volatile uint32_t *regs = pong_smmu_registers();
 +
-+	if (page == NULL) {
++	if (regs == NULL || off > 0x100000u - 4u) {
 +		return false;
 +	}
-+	*value = page[(off & 0xfffu) / 4u];
++	*value = regs[off / 4u];
 +	return true;
 +}
 +
 +static bool
 +pong_smmu_write32(uint32_t off, uint32_t value)
 +{
-+	volatile uint32_t *page = pong_smmu_page(off);
++	volatile uint32_t *regs = pong_smmu_registers();
 +
-+	if (page == NULL) {
++	if (regs == NULL || off > 0x100000u - 4u) {
 +		return false;
 +	}
-+	page[(off & 0xfffu) / 4u] = value;
++	regs[off / 4u] = value;
 +	__asm__ volatile("dsb sy" ::: "memory");
 +	return true;
 +}
 +
-+static bool
+++static bool
 +pong_audio_smmu_lease(uint16_t sid)
 +{
 +	uint32_t scr0, idr0, idr1, idr2, value, smr_keep = 0, s2cr_keep = 0;

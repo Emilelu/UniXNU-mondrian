@@ -1,0 +1,51 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8600,6 +8600,39 @@
+ 	native_gestalt_cache_drop(p, scratch);
+ 	native_ls_store_drop(p, scratch);
+ }
++/* The Bluetooth runtime that scripts/build-bluetooth-userspace.py stages travels in the
++ * same boot addon as the GPU plugin, but it has to appear under the standard system paths:
++ * launchd policy and dyld's library lookup both key off them. With boot-arg
++ * k60bt-runtime=1 the addon is unpacked below /private/var/ngpu and two read-only unions
++ * are mounted over the sealed system, the library over /usr/lib and the executables over
++ * /usr/sbin, after the Data mount and before launchd starts. A missing source only records
++ * its stage, so an image without the runtime boots as before. Kept out of
++ * native_gpu_addon_prepare(), which returns early unless gpu-addon=1. */
++volatile int native_bt_runtime_lib_stage = 0;
++volatile int native_bt_runtime_lib_status = -1;
++volatile int native_bt_runtime_bin_stage = 0;
++volatile int native_bt_runtime_bin_status = -1;
++static void
++native_bt_runtime_prepare(proc_t p, user_addr_t scratch)
++{
++	uint32_t enabled = 0;
++	if (!PE_parse_boot_argn("k60bt-runtime", &enabled, sizeof(enabled)) || enabled != 1) {
++		return;
++	}
++	native_gpu_addon_install(p, scratch);
++	static const char lib_source[] = "/private/var/ngpu/bluetooth-lib", lib_point[] = "/usr/lib";
++	static const char bin_source[] = "/private/var/ngpu/bluetooth-bin", bin_point[] = "/usr/sbin";
++	native_gpu_addon_mount(p, scratch, 0xD00, lib_source, sizeof(lib_source), lib_point, sizeof(lib_point),
++	    "/usr/lib/dyld", "/usr/lib/QcaBTType0.dylib", &native_bt_runtime_lib_stage,
++	    &native_bt_runtime_lib_status);
++	if (native_bt_runtime_lib_stage == 5 && !native_bt_runtime_lib_status) {
++		native_gpu_addon_mount(p, scratch, 0xD00, bin_source, sizeof(bin_source), bin_point,
++		    sizeof(bin_point), "/usr/sbin/notifyd", "/usr/sbin/QcaBluetooth.runtime",
++		    &native_bt_runtime_bin_stage, &native_bt_runtime_bin_status);
++	}
++	printf("[bluetooth-runtime] library=%d/%d executables=%d/%d\n", native_bt_runtime_lib_stage,
++	    native_bt_runtime_lib_status, native_bt_runtime_bin_stage, native_bt_runtime_bin_status);
++}
+ 
+ /* The deletable system apps (Weather, Notes, Calendar, ...) ship in the OS volume's /private/var/staged_system_apps. A restore copies
+  * them into the Data volume, where SystemAppMigrator installs them during the first-boot data migration; until then only the
+@@ -8974,6 +9007,7 @@
+ 		qbt_k60_late_start();
+ 	}
+ 	if (!error) native_gpu_addon_prepare(p, scratch);
++	if (!error) native_bt_runtime_prepare(p, scratch);
+ 	if (!error) native_staged_apps_prepare(p, scratch, data_mount);
+ done:
+ 	if (data_root) vnode_put(data_root);

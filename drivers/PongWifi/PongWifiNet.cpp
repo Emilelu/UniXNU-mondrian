@@ -38,6 +38,9 @@ extern "C" {
 #include <sys/proc.h>
 #include <stdarg.h>
 #include "nw_abi.h"
+
+extern "C" void pong_wifi_net_stop(void);
+extern "C" void pong_wifi_station_stop(void);
 #include "PongWifiLease.h"
 #include "PongWifiNotify.h"
 #include <pexpert/pexpert.h>
@@ -1022,6 +1025,14 @@ class IONetworkStackUserClient : public IOUserClient {
       char text[200] = "?";
       if (OSSerialize *s = OSSerialize::withCapacity(512)) { if (properties && properties->serialize(s)) strlcpy(text, s->text(), sizeof text); s->release(); }
       log(6, "wifi-net: network stack command %s", text);
+      // A registry write carrying pong-wifi-stop asks the interface to quiesce and the station to stop.
+      bool stopCommand = false;
+      for (const char *q = text; *q && !stopCommand; ++q)
+        stopCommand = __builtin_strncmp(q, "pong-wifi-stop", 14) == 0;
+      if (stopCommand) {
+        log(6, "wifi-net: station stop requested by the network stack client");
+        pong_wifi_net_stop(); pong_wifi_station_stop();
+      }
     }
     return kIOReturnUnsupported;
   }
@@ -1186,6 +1197,21 @@ extern "C" void pong_wifi_net_failed(void) {
   pong_wifi_notification_reset(&gNotificationQueue);
   if(gIf) { pong_wifi_notification event={NotifyFailed,scanning?1:0,0,0};queue_notification_locked(event); }
   lck_mtx_unlock(gLock);
+}
+
+// The teardown order the wiring guide asks for is: stop accepting requests,
+// cancel the asynchronous work, then stop the station component. The last
+// step runs on the platform worker, which calls nw_wifi_stop when asked to.
+// The DMA arena is the one thing that cannot be released without a reset.
+extern "C" void pong_wifi_net_stop(void) {
+  if (!gLock) return;
+  lck_mtx_lock(gLock);
+  __atomic_store_n(&gFailed,true,__ATOMIC_RELEASE); gPower = false;
+  gScanning = 0; gScanCursor = 0; gAssocResult = kAssocFailed;
+  if (gCachedScan) thread_call_cancel(gCachedScan);
+  pong_wifi_notification_reset(&gNotificationQueue);
+  lck_mtx_unlock(gLock);
+  log(6, "wifi-net: interface quiesced; no new scan or join is accepted");
 }
 
 // Called once the module has a station interface and a hardware address.

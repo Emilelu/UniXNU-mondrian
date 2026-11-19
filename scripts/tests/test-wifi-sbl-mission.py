@@ -372,6 +372,21 @@ def main() -> int:
           "'-I', str(abi), '-include', 'PongCompat.h'," in text and
           "'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include')" in native_src)
 
+    check("a requested stop quiesces the interface and releases the station",
+          'extern "C" void pong_wifi_station_stop(void);' in net_src and
+          'extern "C" void pong_wifi_net_stop(void) {' in net_src and
+          'pong_wifi_net_stop(); pong_wifi_station_stop();' in net_src and
+          '__builtin_strncmp(q, "pong-wifi-stop", 14) == 0' in net_src and
+          ' volatile uint32_t stopRequested;' in platform and
+          'bool cleanStop=false;' in platform and
+          'if(__atomic_load_n(&stopRequested,__ATOMIC_ACQUIRE)){cleanStop=true;break;}' in platform and
+          'if(cleanStop){nw_wifi_stop();' in platform and
+          'extern "C" void pong_wifi_station_stop(void) {' in platform)
+
+    check("events are installed before the station starts",
+          platform.index('if(!pong_wifi_net_prepare())') < platform.index('nw_wifi_start(&platform,&board)') and
+          'nw_wifi_set_events(&gEvents)' in net_src)
+
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

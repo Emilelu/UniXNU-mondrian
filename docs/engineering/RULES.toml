@@ -6,6 +6,18 @@
 # 非预期的位移」变红，所以取当前真值。
 expected_kern_exec_delta = 1779
 
+# 覆盖检查的起点。check-rules.py 一直 `registry.get("grandfather_through", 0)`，
+# 而 main 上从来没有写过这个键 ⇒ grand 恒为 0，「起点之后的坑必须有门禁」退化成
+# 「所有坑都必须有门禁」，一次性报出 49 条老条目，构建因此被拒（P-256）。
+# 这个数不是猜的：ad527fd0e（2026-11-12 17:41，引入这段覆盖的提交）里的
+# PITFALLS.md 最大编号就是 P-155，所以 P-155 及以下正是「门禁能覆盖时就已经
+# 存在的坑」。复算命令：
+#   git show ad527fd0e:docs/engineering/PITFALLS.md | grep -oE '^#{2,3} P-[0-9]{3}' | sort | tail -1
+# 高于这一行的坑必须带 check 或带理由的 waiver；scripts/tests/test-rules-grandfather.py
+# 会把这个数与该提交重新比对，手改无效。
+grandfather_through = 155
+
+
 [[rule]]
 id = "iron-1"
 kind = "iron"
@@ -1020,3 +1032,98 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-254"
 statement = "The pitfall-heading scan must compile its pattern with re.MULTILINE and must not pass a flag where findall takes a position"
 check = "python3 scripts/tests/test-check-rules-pitfall-headings.py"
+
+[[rule]]
+id = "P-172"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-172"
+statement = "上游 commits 不能整文件 pick 到本地 K60 fork 的构建脚本"
+waiver = "The pick is a review decision on a diff that only exists while a fetch is in flight; no offline gate can tell a whole-file pick from a hand merge without the upstream tree, and check-pick-shrink.py only bounds how far a tracked local file may shrink."
+
+[[rule]]
+id = "P-173"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-173"
+statement = "用错误的产物路径推翻一个正确的实现"
+waiver = "Whether the graded artefact is the one the build just wrote depends on the build log and the tree it names; check-blob-patches.py and check-build-applied.py cover the artefacts that have recorded hashes, and the rest is a human reading the log."
+
+[[rule]]
+id = "P-174"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-174"
+statement = "main 被当成工作区：实验性改动直接压在稳定基线上"
+waiver = "Enforced by iron-9 (check-main-baseline.py) and by review; this entry records the historical violations, which no gate can re-judge."
+
+[[rule]]
+id = "P-175"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-175"
+statement = "内核命令行在开机过程中会被换掉——找 pmd0 必须在 md0 创建之前读"
+waiver = "The ordering is observable only on a booted device (the command line mutates before md0 exists); check-boot-args.py already covers the argument set offline."
+
+[[rule]]
+id = "P-176"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-176"
+statement = "FD 编出来找不到 payload：{tree}/package 里的旧 UniXNUPkg 顶掉了 vendored 副本"
+waiver = "A stale package directory lives inside an untracked build tree, so the gate would have to inspect every build output; scripts/verify-boot-img-payload.py covers the produced image."
+
+[[rule]]
+id = "P-177"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-177"
+statement = "--kernelcache 不换内核，--kernel 才换"
+waiver = "A build-time command-line choice; verify-boot-img-payload.py already fails when the payload's kernel hash is not the one the build reports."
+
+[[rule]]
+id = "P-178"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-178"
+statement = "上机对照：一次只换一个产物，且每个产物都要有可验证的替换入口"
+waiver = "Controlled-variable flight discipline is a supervisor action (one boot lock, one image); the evidence layout is checked by the boot procedure gate, not by a code test."
+
+[[rule]]
+id = "P-179"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-179"
+statement = "initproc exited … ns=2 code=0xb 是 SIGSEGV，不是 AMFI 拒绝 exec"
+waiver = "Decoding a panic namespace and subcode needs the console of the flight that failed; no offline gate can attribute a subcode without the text."
+
+[[rule]]
+id = "P-181"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-181"
+statement = "构建失败时旧 kernel.macho 还在，grep 一行日志会把它当成新产物"
+waiver = "check-build-applied.py compares the kernel's marker mtime against the build's own stamp, so the stale-artefact half is covered; the other half is reading the right log line, which is review."
+
+[[rule]]
+id = "P-182"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-182"
+statement = "0401 的新内嵌 init 毒化 Data：换 blob 就是换代码，只能靠上机"
+check = "python3 scripts/check-blob-patches.py"
+note = "The only proof a new embedded blob works is a boot; the gate that can say so offline is the one that refuses a changed blob without a new baseline."
+
+[[rule]]
+id = "P-183"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-183"
+statement = "tag 门禁把「远端不可达」当成「未推送」，被删的 release tag 退回 draft"
+check = "python3 scripts/tests/test-snapshot-tag-release.py"
+note = "The tag gate already reads three states plus the workflow-downloaded release tags; the phantom line here was the reader, not the rule."
+
+[[rule]]
+id = "P-184"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-184"
+statement = "在共享检出里 `git checkout --` 销毁另一个 agent 的未提交改动"
+check = "python3 scripts/check-tree-owner.py --self-test"
+note = "Ownership is checked before the write, and every refused or risky verb snapshots the tree first."
+
+[[rule]]
+id = "P-256"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-256"
+statement = "check-rules.py 读的 grandfather_through 从来没有被写过，「起点之后」因此退化成「全部」"
+check = "python3 scripts/tests/test-rules-grandfather.py"
+note = "The key now records a measured line (P-155, the last pitfall logged when ad527fd0e added this coverage); the test recomputes it from that commit so the number cannot drift, and asserts that removing the key turns the registry red again."

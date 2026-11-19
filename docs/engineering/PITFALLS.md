@@ -7128,3 +7128,41 @@ wifi 线在 `feat/wifi-ios27-tree` 上跑 `unixnu build kernel` 时被它挡住�
 3. **语义相近的常量恰好是小整数时，只能断言它的名字/标志位。** `re.MULTILINE == 8` 让
    「传标志」看起来像「从第 8 个字符开始扫」，一行代码同时是两种含义。测试查
    `flags & re.MULTILINE`，不查「扫出来对不对」——后者在样例字符串上仍然可能通过。
+
+## P-256 `check-rules.py` 读的 `grandfather_through` 从来没有被写过，于是「起点之后」退化成「全部」
+
+**症状**
+干净 main 上跑 `scripts/check-rules.py`，报 60 条
+`P-nnn 没有登记检查也没有 waiver（PITFALLS.md 里的新坑必须有门禁）`，
+最老的是 P-100。合规注册表因此拒绝每一次构建（`unixnu: build refused: the
+compliance registry failed`），而这条覆盖检查本身看起来"在工作"。
+
+**真因**
+`scripts/check-rules.py:131` 是 `grand = int(registry.get("grandfather_through", 0))`，
+而 `docs/engineering/RULES.toml` 的顶层**只有** `expected_kern_exec_delta` 与 `rule`
+两个键。`git log -S grandfather_through -- scripts/check-rules.py
+docs/engineering/RULES.toml` 只找到引入与改写**读**的那个提交，没有一次写**键**的提交。
+`get(..., 0)` 把"没配置"变成了"起点是 0"，于是判据从「P-151 之后必须有门禁」
+悄悄变成「所有坑都必须有门禁」——49 条早就存在的老条目（P-100..P-149）与九条
+当年没配门禁的（P-172..P-181）一起变红。
+
+**修法**
+1. 写出这个键，并且**用测量而不是猜**：`ad527fd0e`（2026-11-12 17:41，引入这段覆盖
+   的提交）里的 `PITFALLS.md` 最大编号是 **P-155**，所以 155 正是"门禁能覆盖时就已经
+   存在"的那一批。`RULES.toml` 现在写 `grandfather_through = 155`，注释里带复算命令。
+2. 高于 155 且确实没有可执行门禁的九条（P-172..P-179、P-181）各补一条写清理由的
+   `waiver`；能落到真门禁的三条补 `check`：P-182 → `check-blob-patches.py`（换了 blob
+   就是换了代码，只能靠上机）、P-183 → `test-snapshot-tag-gate.py`、P-184 →
+   `check-tree-owner.py --self-test`。
+3. `scripts/tests/test-rules-grandfather.py` 把这个数与该提交重新比对（手改无效），
+   并断言"删掉这个键"会重新变红——否则下一个人把键删了，门禁又静默退化。
+
+**教训**
+1. `dict.get(key, 0)` 是这条坑的形状：**默认值不是"没有默认"，是"一个具体的判据"**。
+   `0` 在这里意味着"从第一个坑开始"，而不是"不检查"。
+2. 门禁里每一个配置键都要有一个"键缺失时行为"的用例；`get(key)` 与 `get(key, 0)`
+   在测试里必须能区分（与 P-251「登记了检查 ≠ 检查在跑」同族）。
+3. 门禁报出的条目数量级本身就是线索：一次报 60 条老条目，正常答案不是"补 60 条
+   门禁"，而是"起点读错了"。
+4. 起点这类"历史边界"必须能从仓库里复算（提交 + 命令），不能写成别人无法验证的
+   约定；本坑的 151 就曾是这种约定，实际测出来是 155。

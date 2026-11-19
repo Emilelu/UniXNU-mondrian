@@ -463,7 +463,7 @@ waiver = """Waiver: checkable once every series patch's anchors are declared as 
 id = "iron-9"
 kind = "iron"
 source = "AGENTS.md:铁则 9"
-statement = "main 只放可启动基线；未上机的改动走分支，且每个 main 提交都要在 MAIN-BASELINE.toml 登记"
+statement = "main 只放已登记的基线（state=booted 需上机证据，state=build-only 需写清为什么没上机）；上机由 Lead 独占调度，其他 agent 不得私自 boot；每个会进镜像的 main 提交都要在 MAIN-BASELINE.toml 登记"
 check = "python3 scripts/check-main-baseline.py"
 
 [[rule]]

@@ -4,11 +4,11 @@ schema_version = 2
 name = "mondrian"
 soc = "SM8475"
 soc_source = "sm8475"
-os_profile = "ipados-16.6.1-20G81"
+os_profile = "ios-27.0.1-24A446"
 description = "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up"
 kit = "mondrian"
 
-# The kernel and prelink inputs live in the OS profile (profiles/os/ipados-16.6.1-20G81),
+# The kernel and prelink inputs live in the OS profile (profiles/os/<os_profile>),
 # the SM8475 resources in the SoC source, and the board wiring in dts/mondrian.dts.
 [components]
 include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "PongUfs"]
@@ -324,23 +324,25 @@ unixnu = "../UniXNU"
 
 
 # ---------------------------------------------------------------------------
-# iOS 27.0.1 (24A446) stage 0.
+# iOS 27.0.1 (24A446) is the default; iOS 16.6.1 (20G81) is the override.
 #
-# `unixnu build --os ios-27.0.1-24A446` merges this table over everything above
-# (scripts/unixnu/profiles.py:57-71); without `--os` none of it is read. The
-# defaults above are the measured iOS 16.6.1 board that reaches SpringBoard, so
-# `main` stays the bootable baseline (iron rule 9) and the 27 line builds
-# beside it instead of replacing it.
+# The top-level tables above are the iOS 27.0.1 stage-0 board: arm64e, 4 KiB
+# pages, xnu-12377, and the seven-argument command line that reaches BSD init.
+# That is what `unixnu build` produces with no `--os` argument, because this
+# branch's job is the 27 line (user decision, 2026-11-19).
+#
+# The iOS 16.6.1 board that reached SpringBoard is still here: with
+# `--os ipados-16.6.1-20G81` the loader finds no override for that profile
+# (scripts/unixnu/profiles.py:57-71: `overrides.get(os_name, {})`), so the
+# 16.6.1 keys are simply the ones the 27 override rewrites. The two profiles are
+# proven equivalent to the boards they came from by
+# `scripts/tests/test-board-profiles.py`; the boot evidence for the 16.6.1 side
+# is the `state = "booted"` entry for 081dc2f8 in docs/engineering/MAIN-BASELINE.toml.
 #
 # `--os ios-27.0.1-24A446` rather than `--os 27` on purpose: after
 # scripts/install-os-profile.sh copies this profile into the framework
 # checkout, `resolve_os` would match both `ipados-27.0.1-24A446` and this one
 # and refuse the ambiguous major version.
-#
-# Every value below is the stage-0 set from `docs/engineering/IOS27.md`: the
-# kernel must reach bsd_init before any storage, display or GPU argument
-# exists, so PongUfs, the Pong archives and the 30-argument SpringBoard command
-# line are all absent here on purpose.
 [os_overrides."ios-27.0.1-24A446"]
 # Keys this profile does not have. `remove` takes dotted paths.
 remove = [

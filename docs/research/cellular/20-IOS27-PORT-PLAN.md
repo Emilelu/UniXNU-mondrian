@@ -20,12 +20,21 @@
 
 `series` 里它们的顺序（16 线第 225–230 行）是：0620、0621-pas、0622、0623、0624、0621-io-submap。
 
-## 3. 编号撞车，搬过去必须先重排
+## 3. 编号撞车，搬过去必须先重排（Lead 2026-11-20 05:40 批准）
 
-`main` 自己有一条 `0621-k60-io-submap-budget`，与我们的 `0621-k60-modem-pas` 同号；`0622`/`0623`/`0624` 同理。
-27 线的 `patches/xnu-12377/series` 目前只用到 `05xx`（BT 那一串），`06xx` 全空，所以这条线整体顺延到 **0626 起**、保持相对顺序即可，不与任何已存在的号相撞。
-顺延只改文件名与 `series` 里的行，不改补丁内容。
+27 线的 `patches/xnu-12377/series` 与 16 线的 `patches/xnu/series` 是两个独立命名空间，`06xx` 在 27 线上全空（现有只到 `05xx`），所以：
 
+| 16 线 | 27 线 | 内容 |
+|---|---|---|
+| 0620 + 0621 的新增部分 | `0626-k60-modem-image.patch` | 镜像段表 + `pong_modem_boot.c`/`pong_modem_pas.{c,h}` |
+| 0622 | `0627-k60-modem-qrtr.patch` | QRTR / GLINK / RMTFS / EFS / memshare / SMP2P |
+| 0623 | `0628-k60-ipa.patch` | IPA 十一对文件 |
+| 0621 / 0624 的两处调用 | `0629-kern-exec-call-sites.patch` | 合成一个补丁 |
+| 0621-k60-io-submap-budget | 不搬 | 见 §6 |
+
+series 行尾注释按 Lead 要求写「ported from 16 line 0620..0623」，方便两线对账。
+把 0621 的新增部分并进 0626 而不是另开一号，是因为 Lead 批的三个号要正好对应三组只加文件的补丁；
+若要 0621 单独占号，只改 `scripts/port-cellular-to-xnu27.py` 里的映射表即可（§12）。
 ## 4. 页大小：唯一的硬编码已拆掉
 
 16 线是 16 KiB 页，27 线用 4 KiB 页。盘点下来只有一处按 4 KiB 写死：
@@ -60,6 +69,11 @@ diff -u <27 tree>/bsd/kern/kern_exec.c /tmp/kern_exec.27.c > 0627-kern-exec-call
 
 也就是说 27 上没有「一张固定大小的子图」这回事，P-219 的失败模式不再以同样形式存在，这个补丁**应当判为 not-applicable 而不是搬**。
 我们的调用点都在 exec 之后（`startup_phase >= STARTUP_SUB_KMEM`），走的是 `kmem_alloc(kernel_map, …)` 那条分支，所以早期 `virtual_space_start` 窗口（由 `osfmk/vm/vm_resident.c:2352` 的 `pmap_startup()` 给出）与我们无关；27 上唯一的余量问题退化成「`kernel_map` 够不够」，与 16 线同一量级。
+
+**结论：这个补丁不搬**（not-applicable）。
+
+27 上的等价机制就是上面两条分支本身：早期 `virtual_space_start`（`pmap_startup()` 给出的窗口），之后 `kmem_alloc(kernel_map, …)`。
+16 线的 0626 号（`0621-k60-io-submap-budget`）在 27 上**没有对应的 062x**，看到清单时不要以为漏搬了。
 
 ## 7. 生成产物的重建链
 
@@ -108,3 +122,20 @@ diff -u <27 tree>/bsd/kern/kern_exec.c /tmp/kern_exec.27.c > 0627-kern-exec-call
 4. `io-submap` 判 not-applicable，改为量一次 `virtual_space_start` 窗口（§6）；
 5. 第一飞只用 `pong_modem` + `pong_qrtr=2`，判据沿用 `scripts/judge-cellular-flight.py`——它只看日志行，与 OS 版本无关。
 
+## 12. 生成器：scripts/port-cellular-to-xnu27.py
+
+把重排与 call site 重生成做成一条命令，避免手抄：
+
+```
+python3 scripts/port-cellular-to-xnu27.py --tree <27 XNU 树> --out <输出目录>
+python3 scripts/port-cellular-to-xnu27.py --tree <27 XNU 树> --out <输出目录> --anchor "native_owner_data_stage = 3;"
+```
+
+缺省锚点就是 data-mount 块里那行；Lead 落地后指向新行号即可。它做四件事：
+
+- `0626` = 0620 全文 + 0621 去掉 call-site hunk 后的部分；
+- `0627` = 0622 原样，`0628` = 0623 原样；
+- `0629` 在 `kern_exec.c` 的锚点行前插入两段 probe（先 modem 后 IPA），再用 unified diff 生成；
+- 锚点缺失或命中多行 → 退出码 2 并打印命中次数；`--self-test` 在临时树里验证「重排 + 插入 + 拒绝」三件事（输出 `K60 PORT27 PASS renumbering, anchor insertion, refusal`）。
+
+2026-11-20 05:41 对真实 27 树跑过：三个只加文件的补丁全部 `git apply --check` rc=0；`0629` 因为锚点还不存在而按设计拒绝（退出码 2）。

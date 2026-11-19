@@ -1740,7 +1740,7 @@ index 0000000..1111111
 +		ppnum_t page;
 +
 +		if (kmem_alloc_contig(kernel_map, &address, bytes, 0xfffff000ULL, 0,
-+		    0, KMA_DATA | KMA_ZERO | KMA_PERMANENT,
++		    0, KMA_DATA | KMA_ZERO,
 +		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
 +			printf("K60MODEM qrtr: rmtfs cannot allocate %llu bytes\n",
 +			    (unsigned long long)bytes);

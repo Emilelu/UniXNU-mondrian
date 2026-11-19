@@ -716,6 +716,11 @@ void ArmCpu::quiesceCPU(void)
    * resume path re-enables both. */
   if (gSleepEnabled && ml_is_quiescing() && &ml_arm_sleep != nullptr) {
     // Boot core: waits in armcpuPlatformSleep; others: PSCI CPU_OFF inside.
+    // IOCPUSleepKernel's wake loop restarts only CPUs it sees as Stopped; a
+    // secondary that still reports Running makes it panic as a spurious wake.
+    if (logicalId != static_cast<uint32_t>(ml_get_boot_cpu_number())) {
+      setCPUState(kIOCPUStateStopped);
+    }
     ml_arm_sleep();
   }
   enableCPUTimeBase(false);

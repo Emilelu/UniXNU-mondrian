@@ -5,12 +5,16 @@
 #   sh scripts/check-audio27-preflight.sh
 #
 # Runs, in order:
-#   1. the migration list against the driver directory and the five pure C units
+#   1. the migration list, including the one-guard rule for the driver macro
 #   2. the glue against the six-symbol kernel stub set
-#   3. the conf-files appender's own host tests (the anchor miss must fail loudly,
-#      and the playback judge's host tests
-#   4. the amplifier side's host tests (979 cases)
-#   5. sheng's audio host tests, when its checkout is reachable
+#   3. the macro itself: three symbols with it, none without
+#   4. the glue's link-time needs against the wiring table
+#   5. the conf-files appender's host tests (the anchor miss must fail loudly)
+#   6. the amplifier probe running on the host against a zero page
+#   7. the playback judge's host tests
+#   8. the amplifier side's host tests (979 cases)
+#   9. sheng's audio host tests, when its checkout is reachable; the row names
+#      the commit it ran on, because a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -57,7 +61,9 @@ if [ -n "$sheng" ] && [ -f "$sheng/scripts/check-audioreach-host.py" ]; then
 		printf 'FAIL %-34s %s\n' "sheng audioreach host tests" "$(printf '%s' "$out" | tail -1)"
 		fail=1
 	else
-		printf 'ok   %-34s %s\n' "sheng audioreach host tests" "$(printf '%s' "$out" | tail -1)"
+		sha=$(git -C "$sheng" rev-parse --short HEAD 2>/dev/null || echo unknown)
+		printf 'ok   %-34s %s (%s)\n' "sheng audioreach host tests" \
+		    "$(printf '%s' "$out" | tail -1)" "$sha"
 	fi
 else
 	printf 'skip %-34s no sheng checkout (set SHENG_REPO)\n' "sheng audioreach host tests"

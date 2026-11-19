@@ -19,7 +19,7 @@
 - 2026-11-19 iOS 迁移边界（只保留可转移的活）：[IOS-SCOPE](engineering/IOS-SCOPE.md)
 | 3 | [`engineering/EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程的完整定义（目的/必做/证据/通过条件/反模式） |
 | 4 | [`engineering/HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，从踩过的坑提炼的可执行规则 |
-| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-249，每条含症状/根因/判据/教训 |
+| 5 | [`engineering/PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-251，每条含症状/根因/判据/教训 |
 
 **要做触摸/GPU 之前，额外读：**
 - [`research/EIGHT-STEPS.toml`](research/EIGHT-STEPS.toml) — 该硬件的八步证据，⑦ 未通过不得刷机
@@ -53,7 +53,8 @@ docs/
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
 | [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
-| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-249：症状 → 真因 → 判别 → 教训 |
+| [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-251：症状 → 真因 → 判别 → 教训 |
+| [`LINE-MAP.md`](engineering/LINE-MAP.md) | 逐行的“谁在做什么”地图：每条 bring-up 线对应的源码、补丁、证据与负责人 |
 | [`GPU-IOSURFACE-ROOT-CAUSE.md`](engineering/GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 加速失败的根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [`TAGS.md`](engineering/TAGS.md) | tag 策略：只留 boot-proven、main 基线、版本里程碑三种 |
 | [`PITFALL-TO-RULE-INDEX.md`](engineering/PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |
@@ -68,6 +69,9 @@ docs/
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 | [`DISK-HYGIENE.md`](engineering/DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据、回收顺序、WSL 虚拟盘压缩（需管理员） |
 | [`BRANCH-INVENTORY-20261119.md`](engineering/BRANCH-INVENTORY-20261119.md) | 分支全量盘点：49 条未合入分支逐条列出 ahead/behind、内容、证据、被谁包含与建议动作（用户逐条确认用） |
+| [`PATCH-CATALOG.toml`](engineering/PATCH-CATALOG.toml) | **门禁数据源**：series 内每个补丁的用途与归属（`check-patch-series.py` 用它判“series 外的补丁未登记”） |
+| [`COMPONENT-PINS.toml`](engineering/COMPONENT-PINS.toml) | **门禁数据源**：catalog 与本地工作树不一致的组件及理由（`check-component-pin.py`，hard-40） |
+| [`DOC-CITATIONS-BASELINE.toml`](engineering/DOC-CITATIONS-BASELINE.toml) | **门禁数据源**：文档 `file:line` 引用的历史欠账基线（`check-doc-citations.py --update-baseline` 重生成） |
 | [`README.md`](engineering/README.md) | 本目录的简介与阅读顺序 |
 
 ---
@@ -78,6 +82,8 @@ docs/
 |---|---|
 | [`EIGHT-STEPS.toml`](research/EIGHT-STEPS.toml) | **门禁数据源**：逐硬件的 ①~⑧ 证据、⑦ 三类核验、⑧ success/failure 预测 |
 | [`SOURCES.toml`](research/SOURCES.toml) | **门禁数据源**：每个子系统必须考察的参考源，逐条填 `examined` + `finding` |
+| [`LINE-RESEARCH-MAP.md`](research/LINE-RESEARCH-MAP.md) | 每条研究线当前查到哪一步、下一步出口判据是什么 |
+| [`wifi/MHI-AMSS-PROTOCOL.md`](research/wifi/MHI-AMSS-PROTOCOL.md) | MHI/AMSS 协议逐字段拆解：为什么 c7/c8 停在 READY 而没有 AMSS 下载证据 |
 | `01-same-hardware.md` | 触摸调研 ① 同型 |
 | `02-official-docs.md` | 触摸调研 ② 官方 |
 | `03-reverse-and-device-data.md` | 触摸调研 ③ 反编译/取证 |
@@ -155,6 +161,7 @@ docs/
 
 | 文件 | 说明 |
 |---|---|
+| [`SHENGUFS-VERIFIED-TABLE-PORT.md`](plans/SHENGUFS-VERIFIED-TABLE-PORT.md) | 把 sheng 的已验证 UFS 根策略表搬进 PongUfs 的方案与出口判据 |
 | `plans/GPU-ENABLE-PLAN.md` | Adreno 730 scanout 启用方案（47 KB，6 章节） |
 | [`plans/BACKLOG.md`](plans/BACKLOG.md) | **白天待办**：上游追平（全动态查询）+ P0~P3 实现优先级 |
 | [`plans/GPU-TODO.md`](plans/GPU-TODO.md) | **GPU/Metal 待办**：官方 AdrenoMetal 8 个性能提交、pong-metal 中间层 diff、内核侧对齐、缺失文件清单 |
@@ -175,6 +182,8 @@ docs/
 | `audits/FORK-REVIEW.md` | Fork 巡查与吸收记录 |
 | `audits/REFERENCE-WALL-AUDIT-2026-11-02.md` | 对照 ios-sweet-k60 已验证墙的审计 |
 | `audits/USERLAND-ROUTES-2026-11-02.md` | 三种 userland 路线对比 |
+| [`audits/PORTING-GAP-AUDIT-2026-11-16.md`](audits/PORTING-GAP-AUDIT-2026-11-16.md) | 移植疏漏审计（2026-11-17 快照，G1–G8 + 逐条修正）：文档与门禁数据源之间的差距清单。**注意：本文的 P 编号是 2026-11-17 的编号空间，与当前 PITFALLS.md 不同号** |
+| [`ops/README.md`](ops/README.md) | `docs/ops/` 是 2026-11-12 的上游快照，本文件说明它与 engineering/ 的关系（不是权威，别按它判定） |
 | 其余 | 见目录 |
 
 ---

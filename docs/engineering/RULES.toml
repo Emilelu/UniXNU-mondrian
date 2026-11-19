@@ -1,3 +1,11 @@
+# P-155 的行数预算基线。check-patch-series.py 从本文件顶层读这个键；
+# 它在 main 上从未存在过，于是每次运行都打印「未记录基线…跳过」并返回 0
+# —— 门禁登记了，却什么也没检查（P-190/P-204 同形）。
+# 2026-11-19 实测：42 个 series 补丁改 bsd/kern/kern_exec.c，净 +1779。
+# 审计分支记的是 1713（当时 41 个补丁），已过时；基线只负责让「下一次
+# 非预期的位移」变红，所以取当前真值。
+expected_kern_exec_delta = 1779
+
 [[rule]]
 id = "iron-1"
 kind = "iron"
@@ -98,7 +106,7 @@ id = "P-155"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-155"
 statement = "Adding lines to an early kern_exec.c patch breaks every later patch."
-check = "python3 scripts/check-patch-series.py"
+check = "python3 scripts/check-patch-series.py && python3 scripts/tests/test-patch-series-baseline.py"
 
 [[rule]]
 id = "hard-1"
@@ -984,3 +992,10 @@ source = "docs/engineering/PITFALLS.md:P-250"
 statement = "A number in patches/*/series may name only one patch; a repeated number must carry a letter suffix on exactly one of the two."
 check = "python3 scripts/tests/test-series-numbering.py"
 note = "Two 0624 entries and a pair of bare 0392 entries survived a green build because patches apply by filename. The gate scans every series file, and its live-tree case is what found the older 0392 collision."
+
+[[rule]]
+id = "P-251"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-251"
+statement = "A gate that reads a config key nobody ever wrote returns 0 forever."
+check = "python3 scripts/check-patch-series.py && python3 scripts/tests/test-patch-series-baseline.py"

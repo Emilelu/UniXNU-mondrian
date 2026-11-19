@@ -74,6 +74,10 @@ That single command is also the acceptance test for the bundle itself: it prints
 a header fails here instead of passing quietly. The 2026-11-20 build was run inside a
 bare bundle directory (no git) and passed both halves.
 
+The bundle also carries every file `docs/research/power/HW-CONTRACTS.toml` cites, so
+`python3 scripts/check-hw-contracts.py` answers with 23 verified contracts inside the
+copy - those files are the ones the 27 line rewires.
+
 Each judge keeps its own fixture; run them before reading a real console:
 
 ```sh
@@ -171,6 +175,29 @@ def include_closure(files: list[str], depth: int = 0) -> list[str]:
     return list(found)
 
 
+CONTRACTS = "docs/research/power/HW-CONTRACTS.toml"
+
+
+def cite_closure() -> list[str]:
+    """Every file the hardware-contract table cites, so the table can be checked here.
+
+    docs/research/power/HW-CONTRACTS.toml is a list of file:line citations, and
+    the bundle carries the checker for it. A bundle that shipped the table but
+    not the lines it cites would ship a check that can only fail, so the cited
+    sources travel too - they are also the files the 27 line has to rewire.
+    """
+    path = ROOT / CONTRACTS
+    if not path.is_file():
+        return []
+    rows: list[str] = []
+    for row in load(path).get("contract", []):
+        source = str(row.get("source") or "")
+        rel = source.rpartition(":")[0]
+        if rel and rel not in rows:
+            rows.append(rel)
+    return rows
+
+
 def pinned(manifest: dict) -> list[tuple[str, str]]:
     """(relative path, expected sha256) for every file the manifest names."""
     rows: list[tuple[str, str]] = []
@@ -187,6 +214,8 @@ def pinned(manifest: dict) -> list[tuple[str, str]]:
     for rel in EXTRA:
         rows.append((rel, ""))
     for rel in runner_deps():
+        rows.append((rel, ""))
+    for rel in cite_closure():
         rows.append((rel, ""))
     for rel in include_closure([r for r, _ in rows if r.endswith((".c", ".h", ".cpp"))]):
         rows.append((rel, ""))

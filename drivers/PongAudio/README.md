@@ -149,7 +149,11 @@ actually driven. It prints `PLAYBACK VERDICT: SUCCESS` or `FAILED (N problem(s))
 with one line per problem, names the failure as F1-F5, and reports the amplifier
 `status` (0x0011 PLLS|CLKS, 0x0020 NOCLKS, 0x0000 no clock bits) plus the
 `WRITE_DONE` count without gating on either - a clean run with no clock is a real
-finding, not a failed capture. Any card whose criteria a human had to eyeball is
+finding, not a failed capture. The same report names the PCM buffer the run had
+(`CVP carveout`, `loader lease`, `kernel allocation`, `none`, or `not reported`
+for an image without the line) and counts the refused lends (`lend refused`,
+`lend held; not sending`), which is what tells the next build whether the pages
+ever reached the DSP. Any card whose criteria a human had to eyeball is
 a card this tool does not yet cover.
 
 ## Host tests

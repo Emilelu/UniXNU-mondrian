@@ -45,6 +45,7 @@ EXTRA = [
     "docs/research/power/08-IOS27-POWER-PORT.md",
     "docs/research/power/09-CHARGE-AUTH.md",
     "docs/research/power/10-THERMAL-MAP.md",
+    "docs/research/power/HW-CONTRACTS.toml",
     "scripts/check-power-carry.py",
     "scripts/check-power-portability.py",
     # its fixture exercises this gate end to end
@@ -69,7 +70,7 @@ bash scripts/tests/run-k60-power-host.sh build/power-host   # {checks} checks in
 ```
 
 That single command is also the acceptance test for the bundle itself: it prints
-`power-python: OK (5 suites)` after the C suites, so a copy that lost a test file or
+`power-python: OK (6 suites)` after the C suites, so a copy that lost a test file or
 a header fails here instead of passing quietly. The 2026-11-20 build was run inside a
 bare bundle directory (no git) and passed both halves.
 

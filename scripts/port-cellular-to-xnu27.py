@@ -57,6 +57,13 @@ def strip_call_site(text):
     for index, line in enumerate(lines):
         if line.startswith(CALL_SITE_HEADER):
             kept = lines[:index]
+            # The hunk's file header has to go with it: a section that keeps
+            # "--- a/bsd/kern/kern_exec.c" and "+++ b/..." but no hunk
+            # claims a file and applies nothing, which reads as a lying count.
+            while kept and (kept[-1].startswith("+++ b/")
+                            or kept[-1].startswith("--- a/")
+                            or kept[-1].startswith("diff --git ")):
+                kept.pop()
             while kept and kept[-1].strip() == "":
                 kept.pop()
             return "".join(kept) + "\n"

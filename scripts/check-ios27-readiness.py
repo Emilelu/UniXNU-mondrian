@@ -134,6 +134,21 @@ def smmu_in_tree(tree):
     return bool(found.stdout.strip())
 
 
+
+def patch_targets():
+    """Every path the three ported patches touch, from their diff headers."""
+    names = set()
+    for name in ARTIFACTS[:3]:
+        path = os.path.join(ARTIFACT_DIR, name)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding='utf-8') as handle:
+            for line in handle:
+                if line.startswith('+++ b/'):
+                    names.add(line[6:].strip())
+    return sorted(names)
+
+
 def compare(expected, actual):
     """Drift is any measured rc that differs from the recorded one."""
     return expected == actual
@@ -199,6 +214,16 @@ def main(argv):
         else:
             print('K60 READY ok   %d port artifacts, %d build entries'
                   % (len(ARTIFACTS), len(entries)))
+    targets = patch_targets()
+    stray = [t for t in targets if not t.startswith('bsd/dev/')]
+    if not targets:
+        drift += 1
+        print('K60 READY DRIFT the patches list no file at all')
+    elif stray:
+        drift += 1
+        print('K60 READY DRIFT the patches leave bsd/dev: ' + ' '.join(stray[:5]))
+    else:
+        print('K60 READY ok   %d patch targets, all under bsd/dev' % len(targets))
     wired = conf_entries_in_tree(args.tree)
     if wired:
         drift += 1

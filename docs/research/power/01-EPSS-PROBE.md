@@ -523,6 +523,34 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   `returnedToFastboot=false`，设备状态 `none`。04:36 的 image u（mode 9 + 0617 thermal）同一签名。
   判读：卡死与 mode 9 **主动写 DCVS 控制位**相关，与温控补丁无关；mode 9 已由 `3a0a5511` 禁用，不再上机。
 
+- 镜像 w11（**离线构建，未上机**，2026-11-19 21:55，构建树 `/home/emilelu/k60-build/power-mode1-w11`）：
+  `E:/k60-work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B，sha256
+  `6db4e6b78bdab557d4f34b17aaf6a25caa9990d564faf94ef18853fbde589844`；
+  kernel.macho 129,146,880 B，sha256 `069e70752164c9d26a4d782d774d4f4e0b4a6768b1b447cd5dba5af317e33cc9`；
+  payload.img 201,326,592 B，sha256 `bd8ed29dd420be2829d68f9b3887b29976a3b0b3f79a3bf1c9dd40bc0cf2e63f`。
+  参数 30 项 601 B，含 `k60_cpufreq=1`，不含 `applog=1`；对探针 board 快照
+  （`/mnt/e/k60-work/scratch/board.toml.mode1.probe`，即去掉 `applog=1` 的副本）跑
+  `check-image-args.py` 得 `OK (30 arguments, 601 bytes)`。**601 而不是 603**：
+  board 契约在这两天加了 `pong_metal=1` 与 `sheng-gpu-addon=1`，30 项共 596 B；
+  去掉 `applog=1`（9 B）后只剩 11 B 空间，只够 `k60_cpufreq=1`（13 B 换 9 B，净 +4）。
+  因此本轮探针镜像**不带** `pong_handoff_publish=1`——同时加会变成 31 项 624 B，超过 607 B 上限；
+  mode 1 只读不需要 ADSP handoff。
+  离线校验：`verify-boot-img-payload.py` OK（payload @557056、201,326,592 B；payload 内 kernel
+  probe-patched `30a058f274b3c4cb…`，payload.json 记录 pre-patch `069e7075…`；ADT 16,132 B
+  `721fb484eb01800b…`，DTB 4,124 B）；boot.img 内含
+  `K60CpuFreq: mode=%u EPSS domains=%u cpus=%u lut-rows=%u`、`limits=0x%x cap=%ukHz`、
+  `late read begin` 各 1 处；未剥离内核 `mach.development.pong.unstripped` 有
+  `_k60_cpufreq_hardware_cap`、`_k60_cpufreq_target_capped`、`_k60_cpufreq_probe_late`；
+  打包的 archive 145,920 B sha256 `708602a0…`，内含 55 个 `k60_cpufreq` 符号。
+  `boot.json` 的 `hardware_tested` 仍为 `false`，**没有任何真机读数**，等 Lead 给 slot 后用
+  `judge-k60-mode1-console.py` 判 A。
+- 构建教训（w11）：同样的 XNU 编译放在 `/mnt/e`（drvfs/9p）上 57 分钟只产出约 240 个 `.o`
+  （约 5 个/90 s，8 个 clang 各占 4–10% CPU、负载 9–10 但 83% 空闲），换到 ext4
+  `/home/emilelu/k60-build` 后 7 分钟就到 673 个、13 分钟到 950 个——瓶颈是 9p 写延迟而不是 CPU。
+  另外 `pkill -f build-mode1-w11d.sh` / `pkill -f build-xnu-4k-baseline.sh` 都停不掉旧构建
+  （make 会重造子进程），只有按 **OUT 路径** `pgrep -f /mnt/e/k60-work/build/power-mode1-w11`
+  再 TERM/KILL 才干净（29 个 pid 一次清掉）。
+
 - sheng 最新对比（2026-11-19，`origin/main c8f92b2`，`package/CpuFreqProbe.cpp:132-142`）：
   `voteDomain` 只写 `perf_state 0x320`；仅当 `DCVS_CTRL 0xb0` bit0 已为 1 时写 `+4×i` 每核行，
   从不写 `0xb0`。我们的 `probeDcvsControl` 原 Phase B 主动置 bit0，是 image t/u 0 字节的共同动作；
@@ -607,7 +635,9 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
    而是先决定是否清 DCVS 控制位接管，或记录为固件独占；d0 升档已证明不需要先接电压顺序。
 
 6. 2026-11-19 之后的下一次上机判据（先只读，后写入；任何一步失败即停）：
-   - 只读 A：`k60_cpufreq=1`，构建时去掉 `applog=1`，gate 必须 `OK (30 arguments, 603 bytes)`。
+   - 只读 A：`k60_cpufreq=1`，构建时去掉 `applog=1`，gate 必须 `OK (30 arguments, 601 bytes)`
+     （2026-11-19 21:55 的 image w11 就是这个形状；旧记录的 603 B 来自加 `pong_metal=1`/
+     `sheng-gpu-addon=1` 之前的 board 契约。再叠加 `pong_handoff_publish=1` 会到 31 项 624 B，超限）。
      通过条件：console 出现 `mode=1 EPSS domains=3 cpus=8 lut-rows=40` 和三个 domain 的
      `enable=1 ... rows=... top=... level=...`；L3 15 行；`limits=0x... cap=...` 有值；
      没有 `vote`/`apply`/`pdmem` 写行；SpringBoard 起来、capture complete、无 panic。

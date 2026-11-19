@@ -112,3 +112,15 @@ power 搬完之后才可跑；音频侧自己的门禁是 `run-tests.sh` 与 `sc
 这些行在 27 上第一次出现的位置由 ROUTE-A 的 stage 定义决定，本表只钉「用哪一行判」，
 不假设它出现的时机。
 
+判据不用人眼看日志：一次捕捉目录就是全部输入，退出码三档——
+
+```sh
+python3 scripts/judge-audio-capture.py --playback E:/k60-work/evidence/usblog-<ts>/
+# 0 = PASS（扬声器图 open/start 与 PRM 时钟都应答、开关读回 0x2）
+# 1 = FAIL（走到了那段分支，某条判据没过）
+# 2 = INVALID（没有可判的东西：日志缺失/为空，或分支根本没跑）
+```
+
+目录里的日志名不必须是 `console.log`——手工并目录后叫 `console-1.log` 或 `<ts>.log`
+也能判，脚本取最大的 `*.log`；空目录给 2，不会伪装成 0 或 1。
+

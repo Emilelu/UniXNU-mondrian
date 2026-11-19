@@ -977,4 +977,10 @@ source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-k60-glink-d9.py"
 note = "本树逐条丢弃（QcomGlink.c D9 守卫），蜂窝线 0622 整条判损坏；test-k60-glink-intent.c 70 项断言，改用对方写法会失败 37 项"
 
-
+[[rule]]
+id = "P-250"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-250"
+statement = "A number in patches/*/series may name only one patch; a repeated number must carry a letter suffix on exactly one of the two."
+check = "python3 scripts/tests/test-series-numbering.py"
+note = "Two 0624 entries and a pair of bare 0392 entries survived a green build because patches apply by filename. The gate scans every series file, and its live-tree case is what found the older 0392 collision."

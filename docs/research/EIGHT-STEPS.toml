@@ -229,7 +229,7 @@ catalog_checked = true
 catalog_result = "components.toml 无显示组件；官方走 IOMobileFramebuffer ABI，由框架提供。显示时序属板级，不是组件。"
 [hardware.display.step.plan]
 done = true
-evidence = "方案：先打首帧再谈 GPU。弱桩 patches/xnu/0392-k60-weak-scanout-stubs.patch 保证 Adreno archive 未链接时 pong_scanout_* 仍有定义（weak，被真实 archive 覆盖），见 P-140。"
+evidence = "方案：先打首帧再谈 GPU。弱桩 patches/xnu/0630-k60-weak-scanout-stubs.patch 保证 Adreno archive 未链接时 pong_scanout_* 仍有定义（weak，被真实 archive 覆盖），见 P-140。"
 
 [hardware.display.step.deep]
 done = true

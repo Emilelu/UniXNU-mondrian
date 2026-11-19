@@ -6933,3 +6933,58 @@ intent」而停在 QcomGlinkAgain；只丢占位符则邻居照常可用。但�
 4. 编号是全局的：本条最早写成 P-248，与 main 的 `vn_rdwr` 条目撞号，合并时整段被当成
    同一处冲突——**先看对方占没占这个号，再写自己那条**。
 
+## P-250
+
+**现象（2026-11-19，power 线合并后）**
+`patches/xnu/series` 里出现两个 `0624`：power 分支的
+`0624-k60-platform-sleep-boot-complete.patch` 与 main 已有的
+`0624-k60-quiet-managed-page-report.patch`。同一份清单里 `0622`/`0623` 也各指向
+两个不同文件（已死的 iosurface 改名对 + 分支的 touch-activity/platform-sleep）。
+
+构建没坏。补丁是按文件名 apply 的，两个 `0624` 各自解析到自己的文件，八步门禁
+54 项通过，`check-patch-apply.py --all` 报 326 个补丁全部合法。**正因为没坏，
+它会长期活着**：读文档的人看到「0624」无法判断指哪个，下一次 rebase 也可能把
+两条当成一条。
+
+同一天新写的 `scripts/check-series-numbering.py` 第一次运行就抓到了另一处更老的
+同形缺陷：`0392-k60-dyld-cache-probe.patch`（`bsd/kern/kern_exec.c`）与
+`0392-k60-weak-scanout-stubs.patch`（`iokit/Kernel/MiniIOMobileFramebuffer.cpp`）
+是两个毫无关系的改动，共用一个号、都没有后缀，已经存在了至少一周，三份文档以
+「0392」分别指它们。
+
+**真因**
+合并把分支的 series 尾部原样追加。追加是「保住对方每条补丁」的正确做法，但它
+**没有分配新号**这一步——两条线各自从空号往下编号，撞车是必然的，只是撞在哪里
+不确定。而所有现存门禁量的都是「每个条目能否解析到真实文件」
+（`check-patch-apply.py` 的 `missing_from_series()`）与「改动量是否与预期一致」
+（`check-patch-series.py`），**没有一条量「一个号是否只指一件事」**。
+
+编号在这里不是审美问题：`patches/xnu/series` 是有序清单，顺序本身是契约
+（P-155 一整族都在讲这个），而号是唯一能在散文里指代某条补丁的东西。
+
+**修法**
+1. 撞号的那四条 power 补丁顺延到空号：`0622`→`0626`、`0623`→`0627`、
+   `0624`→`0628`、`0625`→`0629`；更老的 `0392-k60-weak-scanout-stubs` → `0630`。
+   先改文件名、再改 series、最后全树替换 `.md/.toml/.py/.sh` 里的引用
+   （`scripts/check-patch-apply.py` 的 `missing_from_series()` 会在任何一步做漏时
+   立刻报「listed in series but the file is gone」）。
+2. 新门禁 `scripts/check-series-numbering.py`：同一 series 里一个号出现两次，
+   必须恰好有一条带字母后缀（`0334`/`0334b`、`0502`/`0502b` 是历史性的、刻意
+   的，`-b` 表示同一次改动的第二个补丁）。两条都带后缀同样算歧义——没有东西
+   说明哪个先。7 个用例在 `scripts/tests/test-series-numbering.py`。
+3. 门禁扫**每一个** `patches/*/series`，不只是 `patches/xnu/`：`patches/wifi/`
+   有 12 条、`patches/usb/` 有 7 条，同样会撞。
+
+**教训**
+1. **「能构建」不是编号正确的证据。** 按文件名 apply 的构建系统对重号完全免疫，
+   所以重号只能靠一个专门看编号的门禁发现。这与 P-204「用计数代替语义」同族：
+   门禁量了「存在」，没量「唯一」。
+2. **合并要分配新号，不是只追加。** 追加保住了内容，但把「两个独立编号空间」
+   留在了同一份清单里。合并清单类文件时，冲突解决的最后一步应该是重新编号。
+3. **新门禁第一次运行就该拿真树跑。** 我写它是为了 `0624`，它却抓到了存在更久的
+   `0392`——如果只用构造的 fixture 验证，这个真实缺陷不会被发现。测试里因此保留了
+   一条 `the live series is clean` 用例，直接跑真树。
+4. **改号要同时改文档。** `docs/research/EIGHT-STEPS.toml`、
+   `docs/state/HANDOFF-2026-11-08-BUILD.md`、
+   `docs/research/evidence/SA-UPSTREAM-REVIEW-20261112.md` 都点名过旧文件名；
+   只改 series 会让这三处指向不存在的文件，而没有任何门禁会因此变红。

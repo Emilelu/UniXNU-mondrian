@@ -211,7 +211,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   CP 环没有出现提交窗口，帧下限一次也没有激活；同一轮 mode 8 仍执行
   `apply d0 level=13 (1804800kHz) readback=ok state=81->94`、`apply d1 level=6/0 …`，
   `restore domains=2 votes=3`。因此调用路径已上机验证，**激活条件（真实 GPU 提交）仍未验证**。
-- 触摸保持接入（2026-11-19 05:47，image x）：补丁 `0622-k60-touch-activity.patch` 在
+- 触摸保持接入（2026-11-19 05:47，image x）：补丁 `0626-k60-touch-activity.patch` 在
   `bsd/dev/pong_input.c` 导出 `pong_touch_report_count()`；采样线程把计数变化喂
   `k60_boost_touch()`，再把 `k60_boost_touch_active()` 作为 governor 的 `boost`。image x 上机后
   触摸屏幕，日志出现 `mode8 touch boost active win=7561 reports=1` 与

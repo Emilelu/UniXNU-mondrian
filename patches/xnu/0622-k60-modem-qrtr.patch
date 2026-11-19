@@ -1279,7 +1279,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1518 @@
+@@ -0,0 +1,1591 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1444,6 +1444,64 @@ index 0000000..1111111
 +static int k60_qrtr_dms_requested;
 +static uint16_t k60_qrtr_dms_transaction;
 +static unsigned k60_qrtr_static_next;
++/* k42: the remote intent table and the rings are the other half of the
++ * story. k60m_glink_send only succeeds while the modem keeps advertising and
++ * releasing buffers, so a frozen tx tail plus a full remote table means the
++ * modem stopped servicing the link rather than that our packet was wrong. */
++static void
++k60_qrtr_intent_counts(unsigned *remote_busy, unsigned *remote_valid,
++    unsigned *local_advertised, unsigned *local_count)
++{
++	unsigned busy = 0, valid = 0, advertised = 0, count = 0, k;
++
++	if (k60_qrtr_channel != NULL) {
++		count = k60_qrtr_channel->intent_count;
++		for (k = 0; k < count && k < QCOM_GLINK_MAX_LOCAL_INTENTS; ++k) {
++			if (k60_qrtr_channel->local[k].advertised) {
++				++advertised;
++			}
++		}
++		for (k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k) {
++			if (!k60_qrtr_channel->remote[k].valid) {
++				continue;
++			}
++			++valid;
++			if (k60_qrtr_channel->remote[k].busy) {
++				++busy;
++			}
++		}
++	}
++	if (remote_busy != NULL) *remote_busy = busy;
++	if (remote_valid != NULL) *remote_valid = valid;
++	if (local_advertised != NULL) *local_advertised = advertised;
++	if (local_count != NULL) *local_count = count;
++}
++
++static void
++k60_qrtr_dump_intents(void)
++{
++	unsigned k;
++
++	if (k60_qrtr_channel == NULL) {
++		return;
++	}
++	for (k = 0; k < QCOM_GLINK_MAX_REMOTE_INTENTS; ++k) {
++		if (!k60_qrtr_channel->remote[k].valid) {
++			continue;
++		}
++		printf("K60MODEM qrtr: remote intent %u id=%u size=%u busy=%u\n", k,
++		    k60_qrtr_channel->remote[k].id, k60_qrtr_channel->remote[k].size,
++		    k60_qrtr_channel->remote[k].busy);
++	}
++	for (k = 0; k < k60_qrtr_channel->intent_count &&
++	    k < QCOM_GLINK_MAX_LOCAL_INTENTS; ++k) {
++		printf("K60MODEM qrtr: local intent %u advertised=%u busy=%u done=%u\n",
++		    k, k60_qrtr_channel->local[k].advertised,
++		    k60_qrtr_channel->local[k].busy,
++		    k60_qrtr_channel->local[k].done_pending);
++	}
++}
++
 +static unsigned k60_qrtr_static_count;
 +static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
 +    uint32_t length, uint32_t ip_version);
@@ -2601,14 +2659,29 @@ index 0000000..1111111
 +		}
 +		coachz_baseband_poll();
 +		if (i != 0u && i % 2500u == 0u) {
++			unsigned rbusy = 0, rvalid = 0, ladvertised = 0, lcount = 0;
++			uint32_t rxavail = 0, rxhead = 0, rxtail = 0;
++
++			k60_qrtr_intent_counts(&rbusy, &rvalid, &ladvertised, &lcount);
++			if (k60_qrtr_link.rx.head != NULL && k60_qrtr_link.rx.tail != NULL) {
++				rxavail = k60m_glink_rx_avail(&k60_qrtr_link.rx);
++				rxhead = (unsigned)*k60_qrtr_link.rx.head;
++				rxtail = (unsigned)*k60_qrtr_link.rx.tail;
++			}
 +			/* tx.tail is the modem's read index: a value that trails our
 +			 * head means it consumed what we sent; one that never moves
 +			 * means the DATA never left the ring. */
-+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u\n",
++			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u msgs=%u/%u dropped=%u\n",
 +			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
 +			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
 +			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
-+			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u);
++			    k60_qrtr_link.tx.tail != NULL ? (unsigned)*k60_qrtr_link.tx.tail : 0u,
++			    rxavail, rxhead, rxtail, rbusy, rvalid, ladvertised, lcount,
++			    k60_qrtr_link.rx_messages, k60_qrtr_link.tx_messages,
++			    k60_qrtr_link.dropped);
++			if (i == 2500u) {
++				k60_qrtr_dump_intents();
++			}
 +			if (!ready_reported &&
 +			    k60_smem_find(&smem, &partition, (uint16_t)items[3],
 +			    &offsets[3], &sizes[3]) == K60SmemOk &&

@@ -49,7 +49,7 @@
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1242 @@ int pong_audio_status(void);
+@@ -898,6 +933,1281 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -321,7 +321,8 @@
 +		/* A timed-out period must go back to the HLOS before the next
 +		 * memcpy touches the buffer, or that copy takes an external
 +		 * abort the way image bg did. */
-+		if (pong_audio_scm_reclaim(state->dma_pa,
++		if (!g_pong_smmu_leased &&
++		    pong_audio_scm_reclaim(state->dma_pa,
 +		    PONG_AUDIO_DMA_BYTES) != 0) {
 +			printf("PongAudio: PCM slot %u timeout reclaim failed\n", i);
 +		}
@@ -446,6 +447,11 @@
 + * memory the DSP would have to read. */
 +static bool g_pong_probe_only;
 +
++/* Set by pong_audio_smmu_lease(): once the audio stream reads physical
++ * addresses, the periods stay in HLOS memory and no ownership handoff is
++ * needed. Until then the per-period SCM lending stays as the fallback. */
++static bool g_pong_smmu_leased;
++
 +static bool
 +pong_audio_play_submit_slot(PongAudioState *state)
 +{
@@ -527,7 +533,8 @@
 +	/* The DSP validates the whole mapping, not only the write address:
 +	 * lending one slot left the rest of the 64 KiB region on the HLOS
 +	 * side and the firmware died while answering the first period. */
-+	if (pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
++	if (!g_pong_smmu_leased &&
++	    pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
 +		printf("PongAudio: PCM slot %u lend refused\n", slot);
 +		return false;
 +	}
@@ -565,7 +572,8 @@
 +		printf("PongAudio: PCM zero-byte probe encode failed\n");
 +		return;
 +	}
-+	if (pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
++	if (!g_pong_smmu_leased &&
++	    pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
 +		printf("PongAudio: PCM zero-byte probe lend refused\n");
 +		return;
 +	}
@@ -742,7 +750,8 @@
 +			    (unsigned long long)answer->address);
 +			return true;
 +		}
-+		if (pong_audio_scm_reclaim(state->dma_pa,
++		if (!g_pong_smmu_leased &&
++		    pong_audio_scm_reclaim(state->dma_pa,
 +		    PONG_AUDIO_DMA_BYTES) != 0) {
 +			printf("PongAudio: PCM slot %u reclaim failed\n", slot);
 +		}
@@ -849,7 +858,6 @@
 + * and the ADSP resets. Lease the top context bank as a stage-1 bypass bank,
 + * the same handoff the Pong reference performs for its DMA buffer, and leave
 + * every other stream and bank alone. */
-+static bool g_pong_smmu_leased;
 +static volatile uint32_t *g_pong_smmu_pages[3];
 +static uint32_t g_pong_smmu_page_base[3];
 +
@@ -992,7 +1000,7 @@
 +	 * handoff reserves one bank for pass-through and leaves every
 +	 * firmware stream group and every other bank alone. */
 +	bank = 0xffffffffu;
-+	for (i = 0; i < 8u && bank == 0xffffffffu; i++) {
++	for (i = 0; i + 2u < banks && bank == 0xffffffffu; i++) {
 +		const unsigned candidate = banks - 1u - i;
 +		bool used = false;
 +		unsigned j;
@@ -1031,8 +1039,39 @@
 +		}
 +	}
 +	if (bank == 0xffffffffu) {
++		unsigned shown = 0;
++
 +		printf("PongAudio: SMMU lease refused: no free context bank below %u\n",
 +		    banks);
++		for (i = 0; i + 2u < banks && shown < 12u; i++) {
++			uint32_t sctlr = 0, cbar = 0, bank_cfg = 0;
++			bool referenced = false;
++			unsigned j;
++			const unsigned candidate = banks - 1u - i;
++
++			if (!pong_smmu_read32((pages + candidate) * 4096u, &sctlr) ||
++			    !pong_smmu_read32(0x1000u + 4u * candidate, &cbar) ||
++			    !pong_smmu_read32(0x1800u + 4u * candidate, &bank_cfg)) {
++				break;
++			}
++			for (j = 0; j < count; j++) {
++				uint32_t smr = 0, s2cr = 0;
++
++				if (!pong_smmu_read32(0x800u + 4u * j, &smr) ||
++				    !pong_smmu_read32(0xc00u + 4u * j, &s2cr)) {
++					break;
++				}
++				if ((smr & 0x80000000u) != 0u &&
++				    ((s2cr >> 16) & 3u) == 0u &&
++				    (s2cr & 0xffu) == candidate) {
++					referenced = true;
++					break;
++				}
++			}
++			shown++;
++			printf("PongAudio: SMMU bank %u sctlr=0x%08x cbar=0x%08x cfg=0x%08x used=%u\n",
++			    candidate, sctlr, cbar, bank_cfg, referenced ? 1u : 0u);
++		}
 +		return false;
 +	}
 +	if (!pong_smmu_read32((pages + bank) * 4096u, &value) || (value & 1u) != 0u) {
@@ -1301,7 +1340,7 @@
 +		g_pong_audio.refusal_printed = true;
 +		return -1;
 +	}
-+	printf("PongAudio: PCM slots stay HLOS-owned; each write lends the buffer\n");
++	printf("PongAudio: PCM slots stay HLOS-owned; the SMMU bypass or a per-period lend carries them\n");
 +	pong_audio_ring_reset();
 +	unsigned int group_probe = 0;
 +	g_pong_audio.afe_group_probe = PE_parse_boot_argn("pong_audio_group_probe",

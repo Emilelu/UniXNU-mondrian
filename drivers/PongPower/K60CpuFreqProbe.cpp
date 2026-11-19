@@ -141,6 +141,7 @@ void probeDomain(unsigned domain, bool dump)
     uint32_t rows[kLutRows] = {};
     unsigned index = 0, pdmemOffset = k60_cpufreq_pdmem_offset(domain);
     uint32_t topKhz = 0, stateKhz = 0, state, control, vote, pdmemVote = 0;
+    uint32_t hardwareLimit = 0, hardwareCap = 0;
 
     if (!mapWindow(&window, kDomainBase[domain], kDomainWindow)) {
         IOLog("K60CpuFreq: d%u nomap base=0x%llx\n", domain,
@@ -149,17 +150,20 @@ void probeDomain(unsigned domain, bool dump)
     }
     state = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE);
     control = rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL);
+    hardwareLimit = rd32(window.va, K60_CPU_FREQ_REG_HARDWARE_LIMIT);
     vote = rd32(window.va, K60_CPU_FREQ_REG_PERF_STATE) & 0xffu;
     if (state & 0xffu) stateKhz = (state & 0xffu) * K60_CPU_FREQ_XO_KHZ;
     if (readTable(&window, &table)) k60_cpufreq_pick_highest(&table, 0, &index, &topKhz);
+    hardwareCap = k60_cpufreq_hardware_cap(state, hardwareLimit, topKhz);
     if (pdmemOffset && mapWindow(&pdmem, kPdmemBase, kPdmemWindow)) {
         pdmemVote = rd32(pdmem.va, pdmemOffset) & 0xffu;
         unmapWindow(&pdmem);
     }
-    IOLog("K60CpuFreq: d%u base=0x%llx enable=%u state=%u (%ukHz) dcvs=%u vote=%u pdmem=%u rows=%u top=%ukHz level=%u mode1=read-only\n",
+    IOLog("K60CpuFreq: d%u base=0x%llx enable=%u state=%u (%ukHz) dcvs=%u limit=0x%x cap=%ukHz vote=%u pdmem=%u rows=%u top=%ukHz level=%u mode1=read-only\n",
         domain, static_cast<unsigned long long>(kDomainBase[domain]),
         rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u, state & 0xffu, stateKhz,
-        control & 1u, vote, pdmemVote, table.count, topKhz, index);
+        control & 1u, hardwareLimit, hardwareCap, vote, pdmemVote, table.count,
+        topKhz, index);
     if (dump && table.count) {
         readRows(&window, rows);
         dumpRows("", rows, table.count);

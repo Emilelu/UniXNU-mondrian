@@ -427,12 +427,12 @@ artifact_check = "verify-boot-image: OK；check-image-args: OK（31 参数/602 B
 
 [hardware.wifi.step.device]
 done = true
-evidence = "2026-11-19 09:37 mission35 飞行（head d5c03c0d）：console 488,000 B / 7,196 行 / SHA256 6385bad4…；5240 记录报 ie 390（1024 元素区两端生效），42 字节国家 IE 被扣留 3 次；但 0 条 scan request、0 条 Preferences 列表，判读 UNOBSERVED。\n\n2026-11-19 09:16 mission34 构建并校验（head d91cfc2a，未飞）：boot.img 201,887,744 B SHA256 b08a14f8…，args 31/602，verify-boot-image OK；19 条探针（5 加 / 8 减 / 6 换载荷与裁剪对照），表压到 45 条留位；mission33 未飞即被取代、artifact 已删。"
+evidence = "2026-11-19 11:53 mission34b 飞行关掉 pane（head d91cfc2a，镜像 wifi-20261118sbl-mission34 b08a14f8…，只含 1024 字节元素区）：console 1,023,926 B / 12,632 行 / SHA256 75af24fb…；38 条 scan request、3,901 行 WiFiScanObserverNetwork、12 条 Preferences 列表，Emilelu_5G（c8:bf:4c:30:03:1c，RSSI -52）出现在列表里，19 条探针全保留；同趟 lifecycle PASS（state=6、IPv4=1、lease 3/3、en0 192.168.31.232）。用户目视确认全部行都在。\n\n2026-11-19 09:37 mission35 飞行（head d5c03c0d）：console 488,000 B / 7,196 行 / SHA256 6385bad4…；5240 记录报 ie 390，42 字节国家 IE 被扣留 3 次；0 条 scan request、0 条 Preferences 列表，判读 UNOBSERVED。"
 
 [hardware.wifi.step.device.prediction]
-success = "mission35 重飞（head d5c03c0d）：真实 Emilelu_5G 出现在设置页，说明 1024 元素区与扣留 42 字节国家 IE 的组合就是根因；K60A..K60S 里出现的标签用来复核是哪一项起作用。"
+success = "mission36（干净镜像，去掉 19 条探针与国家 IE 扣留，只留 1024 元素区 + kRssi 日志）：设置页仍列出 Emilelu_5G 且能加入拿到 192.168.31.x；日志里每次 kRssi 请求都带返回值，状态栏格子那条链有据可查。"
 
-failure = "重飞后 Emilelu_5G 仍不见但探针里出现了某几条：以探针为准去改真实记录；如果连 scan request 都没有，说明设置页那一步又没发生，不要据此下结论。"
+failure = "干净镜像里 Emilelu_5G 又消失——说明探针本身影响了 daemon 的列表，重建记录对照；若 0 条 scan request，说明设置页那一步没发生，不要据此下结论。"
 
 
 [hardware.audio]

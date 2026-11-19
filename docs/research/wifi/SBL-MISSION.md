@@ -1127,21 +1127,21 @@ mission27/28/29/30 均建于 2026-11-19 07:12–07:57、从未飞行，已被 31
 
 ## 28. Mission32：元素区在 384 字节处被截断
 
-把 mission24 console 的 44 条 Preferences 列表取并集，38 条带元素清单的记录里 33 条 KEPT、5 条 DROPPED，唯一被丢的 5 GHz 记录仍是目标 \`c8:bf:4c:30:03:1c 5240 -51 cap 0x0511\`（Emilelu_5G）。两条被保留的 5 GHz 记录是 \`3a:16:5a:1f:fb:a5 5200 -77 ie 307\` 与 \`38:16:5a:4f:fb:a5 5200 -78 ie 361\`，元素号集合都含国家 7、功率约束 32、VHT 发射功率 195、厂商 221、HE 255，所以单条元素不可能是过滤器；TPC 报告 35 与 IE 244 也出现在被保留的 2.4 GHz 记录里（含同族 \`c8:bf:4c:30:03:1d\`），同样排除。两频段 RSN 逐字节相同（24 B：\`01 00000fac04 0100 00000fac04 0200 00000fac02 000fac08 8c00\`，group CCMP / pairwise CCMP / AKM PSK+SAE / caps 0x008c），安全类型也被排除。
+把 mission24 console 的 44 条 Preferences 列表取并集，38 条带元素清单的记录里 33 条 KEPT、5 条 DROPPED，唯一被丢的 5 GHz 记录仍是目标 c8:bf:4c:30:03:1c 5240 -51 cap 0x0511（Emilelu_5G）。两条被保留的 5 GHz 记录是 3a:16:5a:1f:fb:a5 5200 -77 ie 307 与 38:16:5a:4f:fb:a5 5200 -78 ie 361，元素号集合都含国家 7、功率约束 32、VHT 发射功率 195、厂商 221、HE 255，所以单条元素不可能是过滤器；TPC 报告 35 与 IE 244 也出现在被保留的 2.4 GHz 记录里（含同族 c8:bf:4c:30:03:1d），同样排除。两频段 RSN 逐字节相同（24 B：01 00000fac04 0100 00000fac04 0200 00000fac02 000fac08 8c00，group CCMP / pairwise CCMP / AKM PSK+SAE / caps 0x008c），安全类型也被排除。
 
-剩下的是元素区的形状：station 用 384 字节定长数组承载扫描元素（\`src/nw_sta.c:14 #define IE_MAX 384\`、\`:61 if (len > IE_MAX) len = IE_MAX;\`、\`:66 b.ie_len = len; memcpy(b.ie, ie, len);\`，ABI \`include/nw_abi.h:52 uint8_t ie[384];\`）。目标 5 GHz 记录报 \`ie 384\`（正好等于上限），但按 TLV 走到 318 B 就断了，剩 66 B 构不成完整元素；2.4 GHz 同族 347 B 走到底，两条被保留的 5 GHz 记录 307/361 B 也走到底。mission25 的两条探针与此一致：K60D（目标 + 载体完整 382 B 元素区）被保留，K60B（载体 + 我们 384 B 元素区）被丢——尾部残缺才是差异，而不是任何单条元素。
+剩下的是元素区的形状：station 用 384 字节定长数组承载扫描元素（src/nw_sta.c:14 #define IE_MAX 384、:61 if (len > IE_MAX) len = IE_MAX;、:66 b.ie_len = len; memcpy(b.ie, ie, len);，ABI include/nw_abi.h:52 uint8_t ie[384];）。目标 5 GHz 记录报 ie 384（正好等于上限），但按 TLV 走到 318 B 就断了，剩 66 B 构不成完整元素；2.4 GHz 同族 347 B 走到底，两条被保留的 5 GHz 记录 307/361 B 也走到底。mission25 的两条探针与此一致：K60D（目标 + 载体完整 382 B 元素区）被保留，K60B（载体 + 我们 384 B 元素区）被丢——尾部残缺才是差异，而不是任何单条元素。
 
-代码 a9e8e399 删掉 mission31 的元素过滤器（35/244 在被保留的记录里同样存在，过滤理由不成立），\`fill_result()\` 改为只送到最后一个完整元素，并在发生裁剪时打印 \`wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served\`。站端源头未动：本次靠裁剪交付合法记录，如果仍不见行，下一版再把 \`IE_MAX\` 与 ABI 数组一起放大到 1024（station 与 kext 两处构建都要改）。
+代码 a9e8e399 删掉 mission31 的元素过滤器（35/244 在被保留的记录里同样存在，过滤理由不成立），fill_result() 改为只送到最后一个完整元素，并在发生裁剪时打印 wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served。站端源头未动：本次靠裁剪交付合法记录，如果仍不见行，下一版再把 IE_MAX 与 ABI 数组一起放大到 1024（station 与 kext 两处构建都要改）。
 
 十三条探针照旧送出（K60A 基线、K60B..E 加法、K60F..M 减法），所以这一次飞行同时回答两个问题：真实记录裁剪后是否出现，以及哪条探针复现。
 
-mission32 镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission32/boot.img\`，201,887,744 B，SHA256 fd80093a4ad199c5e265dc4e0c1d4f7f3b8e75ce197f73959ccf3f93ca02e9ba，参数 31 条 / 602 B，\`check-image-args\` OK，\`verify-boot-image\` OK，未飞；mission31 目录已删，\`check-bisect-coverage.py --prefix wifi-\` 只剩 mission32 一条待飞。
+mission32 镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission32/boot.img，201,887,744 B，SHA256 fd80093a4ad199c5e265dc4e0c1d4f7f3b8e75ce197f73959ccf3f93ca02e9ba，参数 31 条 / 602 B，check-image-args OK，verify-boot-image OK，未飞；mission31 目录已删，check-bisect-coverage.py --prefix wifi- 只剩 mission32 一条待飞。
 
 判读：Emilelu_5G 出现，根因就是 384 字节截断，生产修法是交付完整或裁剪后的元素区；仍不出现，则把 ABI 数组放大后重测。
 
 放大版已在 917c89ee 落地：两个构建脚本都从共享头生成 out/abi/nw_abi.h（uint8_t ie[384]; -> ie[1024];），station 的 #define IE_MAX 384 同步改成 1024，任一锚点不符就以 shared ABI element array differs 终止；下一次构建（mission33）自动带上它，mission32 的镜像仍按裁剪版交付。
 
-尾部残缺不是唯一判据：把 mission24 console 的每条记录按 TLV 走一遍（\`PongWifiNet.cpp:412\` 的循环本身就在第一个不完整元素处停下，所以清单长度就是可走到的位置），\`used = Σ(2+len)\`、\`leftover = ie - used\`，再看它在 Preferences 并集里是否被保留：38 条记录里 33 条 KEPT、其中 17 条同样有整段走不完的尾巴；5 条 DROPPED 全部有尾巴。两条被保留的 5 GHz 记录 leftover 分别是 33 B 与 51 B，目标记录是 66 B。也就是说「末尾停在半个元素」这件事 wifid 并不是一律拒绝，mission32 的裁剪是一次必要的合法性修复，但能不能把行拉回来还要看飞行结果；真正能指名道姓的仍是十三条探针（K60F..M 每条去掉一组元素），以及放大 ABI 的下一版。
+尾部残缺不是唯一判据：把 mission24 console 的每条记录按 TLV 走一遍（PongWifiNet.cpp:412 的循环本身就在第一个不完整元素处停下，所以清单长度就是可走到的位置），used = Σ(2+len)、leftover = ie - used，再看它在 Preferences 并集里是否被保留：38 条记录里 33 条 KEPT、其中 17 条同样有整段走不完的尾巴；5 条 DROPPED 全部有尾巴。两条被保留的 5 GHz 记录 leftover 分别是 33 B 与 51 B，目标记录是 66 B。也就是说「末尾停在半个元素」这件事 wifid 并不是一律拒绝，mission32 的裁剪是一次必要的合法性修复，但能不能把行拉回来还要看飞行结果；真正能指名道姓的仍是十三条探针（K60F..M 每条去掉一组元素），以及放大 ABI 的下一版。
 
 ## §29 Mission33：元素区放大到 1024 字节
 
@@ -1168,13 +1168,13 @@ mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission
 
 ## §31 2026-11-19 09:37 mission35：1024 字节元素区与 42 字节国家 IE 在真机上生效，但没有人打开设置页
 
-镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission35/boot.img\` 201,887,744 B，SHA256 7b654920e7c86d518381382342b20c2f95e6715aa1c1185459973e5deb108cc6，head d5c03c0d，09:33 构建，args 31 条 / 602 B（\`image-arg-audit: OK\`、\`verify-boot-image: OK\`）；station 是 abi1 的 6ef0058f（\`#define IE_MAX 1024\`，\`struct bss … ie[IE_MAX]\`），native 归档里 \`withheld from\` 存在。
+镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission35/boot.img 201,887,744 B，SHA256 7b654920e7c86d518381382342b20c2f95e6715aa1c1185459973e5deb108cc6，head d5c03c0d，09:33 构建，args 31 条 / 602 B（image-arg-audit: OK、verify-boot-image: OK）；station 是 abi1 的 6ef0058f（#define IE_MAX 1024，struct bss … ie[IE_MAX]），native 归档里 withheld from 存在。
 
-飞行 09:37:33–09:52（boot.json startedAt 09:37:33.569，captureArmed/bootAccepted/returnedToFastboot 全 true），采集 \`E:/k60-work/evidence/usblog-20261119-093727/console.log\` 488,000 B / 7,196 行 / SHA256 6385bad479509de9609bd450231bcd2dfda67336c78491fce8cd0a7a88f46c8c。
+飞行 09:37:33–09:52（boot.json startedAt 09:37:33.569，captureArmed/bootAccepted/returnedToFastboot 全 true），采集 E:/k60-work/evidence/usblog-20261119-093727/console.log 488,000 B / 7,196 行 / SHA256 6385bad479509de9609bd450231bcd2dfda67336c78491fce8cd0a7a88f46c8c。
 
-两处改动都在真机上生效：\`wifi-net: bss 9/17 5240 MHz -52 dBm age 2041 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G\` —— 记录报 ie 390，已超过旧的 384 上限，说明 1024 元素区在 station 与 kext 两端一致；\`wifi-net: country element of 42 bytes withheld from the 5240 MHz record\` 出现 3 次，42 字节的填充国家 IE 没有进入下发的记录。
+两处改动都在真机上生效：wifi-net: bss 9/17 5240 MHz -52 dBm age 2041 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G —— 记录报 ie 390，已超过旧的 384 上限，说明 1024 元素区在 station 与 kext 两端一致；wifi-net: country element of 42 bytes withheld from the 5240 MHz record 出现 3 次，42 字节的填充国家 IE 没有进入下发的记录。
 
-但整趟没有一条 \`scan request\`，也没有任何 \`WiFiScanObserverNetwork\` 列表（Preferences 与 configd 都是 0）：wifid 一次扫描请求都没发，所以既没有 daemon 侧列表可对照，也没有真实行被观察。19 条探针每轮都生成（本次 carrier 是 2417 MHz \`96:de:f9:b6:be:7e\`，冻结时 5 GHz 记录还没出现，走的是 2.4 GHz 回退），只是没有人打开设置页。
+但整趟没有一条 scan request，也没有任何 WiFiScanObserverNetwork 列表（Preferences 与 configd 都是 0）：wifid 一次扫描请求都没发，所以既没有 daemon 侧列表可对照，也没有真实行被观察。19 条探针每轮都生成（本次 carrier 是 2417 MHz 96:de:f9:b6:be:7e，冻结时 5 GHz 记录还没出现，走的是 2.4 GHz 回退），只是没有人打开设置页。
 
 更正（2026-11-19 10:26）：先前把 boot 早期的 4 次 native client type 103 get bytes=1164 -> 0 读成「daemon 读走了扫描记录」是错的——103 在 Apple80211 枚举里是 kCurrentNetwork（PongWifiNet.cpp:76），返回的是当前已加入网络的那条 1164 字节记录，不是扫描表。按请求类型统计四趟采集（脚本 E:/k60-work/scratch/type-counts.sh）：mission16 有类型 10×1、11×1、103×28，mission24 有 10×1、11×1、103×22，mission25 有 10×1、11×1、103×24，而 mission35 是 10×0、11×0、103×8。也就是说这一趟 wifid 连一次扫描请求都没发（类型 10 为 0），扫描结果也从未被取走（类型 11 为 0），采集里的 scan starts on 42 channels 全是 station 自己的漫游扫描，与 daemon 无关。所以「0 条 Preferences」在这里是「daemon 没扫描」，不能当成「读了记录但没记日志」；设置页必须由人打开，这是硬前提。
 
@@ -1182,19 +1182,19 @@ mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission
 
 ## §32 2026-11-19 10:19 wifid 20G81 的离线拆解：列表删除路径只剩 WAPI 一条
 
-对 \`E:/k60-work/scratch/wifid-20G81\`（2,606,496 B，SHA256 96a3c5df…，arm64e）做两跳 xref：cstring → \`__os_log_fmt\` 描述符 → \`__TEXT,__text\` 的 adrp/add 立即数解码，并用 LC_FUNCTION_STARTS 划函数边界（笔记 \`E:/k60-work/scratch/wifid-filter-notes.md\`，171 行）。
+对 E:/k60-work/scratch/wifid-20G81（2,606,496 B，SHA256 96a3c5df…，arm64e）做两跳 xref：cstring → __os_log_fmt 描述符 → __TEXT,__text 的 adrp/add 立即数解码，并用 LC_FUNCTION_STARTS 划函数边界（笔记 E:/k60-work/scratch/wifid-filter-notes.md，171 行）。
 
-结论：整份 wifid 里按「记录字段」删掉一条扫描 BSS 的只有 **WAPI 过滤器**。谓词在 0x1000a8274，取 scan record 字典（\`WiFiNetwork\` +0x10）的 key \`"WAPI"\`（CFNumber/SInt32），缺失按 0 处理；\`(v & 3) == 3 && (v & 0xc) != 0\`（即 v ∈ {7, 11, 15}）时丢弃。两个丢弃点：\`__WiFiDeviceProcessScanDoneEvent\`（0x100059828，门 \`ldrb w8,[x19,#0xa8]\`，循环 0x100059c10 打 \`"%s: filtered out WAPI network %@"\` 后不 append）与 \`__processScanBeaconCacheEntry\`（0x100052034，0x100052138 同一谓词，无门）。旁证 \`WiFiDeviceAssociateAsyncWithCommand\`（0x1000526f8）用它判 WAPI，\`WiFiDeviceSetWapiEnabled\`（0x1000569dc）写 device+0x1690。
+结论：整份 wifid 里按「记录字段」删掉一条扫描 BSS 的只有 **WAPI 过滤器**。谓词在 0x1000a8274，取 scan record 字典（WiFiNetwork +0x10）的 key "WAPI"（CFNumber/SInt32），缺失按 0 处理；(v & 3) == 3 && (v & 0xc) != 0（即 v ∈ {7, 11, 15}）时丢弃。两个丢弃点：__WiFiDeviceProcessScanDoneEvent（0x100059828，门 ldrb w8,[x19,#0xa8]，循环 0x100059c10 打 "%s: filtered out WAPI network %@" 后不 append）与 __processScanBeaconCacheEntry（0x100052034，0x100052138 同一谓词，无门）。旁证 WiFiDeviceAssociateAsyncWithCommand（0x1000526f8）用它判 WAPI，WiFiDeviceSetWapiEnabled（0x1000569dc）写 device+0x1690。
 
-负结果（省掉重复排查）：之前怀疑的六条 5 GHz/hidden/SSID 字符串**都不在列表删除路径上**——\`"%s: ignoring hidden network"\`（0x1001ec50c，引用点 0x10015a028）属于 \`WiFiPerfPerAssoc.m\` 的指标采样；\`invalid 5ghzSsid\`（0x1001ef303）、\`companion network …\`（0x1001ef02a）、\`2Ghz scanned network…\`（0x1001ef406）、\`Correspondng 5GHz network\`（0x1001ee53f）、\`guess1..4\`（0x1001efaf6）都属于 WiFiIDSSyncEngine 的 BSSID 猜测与口令继承，与列表无关；\`_nomap\`/\`(IE check)\`（0x100036d40/0x100036d70）是 GEO 质量上报。
+负结果（省掉重复排查）：之前怀疑的六条 5 GHz/hidden/SSID 字符串**都不在列表删除路径上**——"%s: ignoring hidden network"（0x1001ec50c，引用点 0x10015a028）属于 WiFiPerfPerAssoc.m 的指标采样；invalid 5ghzSsid（0x1001ef303）、companion network …（0x1001ef02a）、2Ghz scanned network…（0x1001ef406）、Correspondng 5GHz network（0x1001ee53f）、guess1..4（0x1001efaf6）都属于 WiFiIDSSyncEngine 的 BSSID 猜测与口令继承，与列表无关；_nomap/(IE check)（0x100036d40/0x100036d70）是 GEO 质量上报。
 
-意义：我们的记录没有 WAPI 标记（key 缺失 ⇒ v=0 ⇒ 保留），所以 **wifid 里不存在「按元素/频道/SSID 后缀丢弃」的路径**；mission25 的 B/E 两条探针被丢，最简解释仍是它们携带的目标元素区在旧 384 上限下被截断成不完整尾部（mission35 的 trim + 1024 元素区 + 扣留 42 字节国家 IE 正好把这一条修掉）。因此下一步仍是让带着干净记录的 mission35 在有人看设置页时飞一次；\`K60J\`（目标减 221/2）保留作为「畸形厂商元素」的对照，不是当前首选。
+意义：我们的记录没有 WAPI 标记（key 缺失 ⇒ v=0 ⇒ 保留），所以 **wifid 里不存在「按元素/频道/SSID 后缀丢弃」的路径**；mission25 的 B/E 两条探针被丢，最简解释仍是它们携带的目标元素区在旧 384 上限下被截断成不完整尾部（mission35 的 trim + 1024 元素区 + 扣留 42 字节国家 IE 正好把这一条修掉）。因此下一步仍是让带着干净记录的 mission35 在有人看设置页时飞一次；K60J（目标减 221/2）保留作为「畸形厂商元素」的对照，不是当前首选。
 
 ## §33 2026-11-19 10:22 先飞 mission34：单变量，且保留真实的国家元素
 
 mission35 的两处改动已在真机上生效（ie 390 证明 1024 元素区两侧一致；42 字节国家 IE 被扣留的日志出现三次），但它同时改了两个变量，而且扣留本身可能有害：被 daemon 保留的两条 5 GHz 记录都带 6 字节国家 IE，CoreWiFi 把国家元素翻译成管制三元组，缺了它，5 GHz 信道可能被判成未知管制域，于是记录仍被丢掉——这会用一个新原因掩盖真正的修复。它还把两条探针变成空转：K60F（真实记录减国家元素）与修好后的真实记录完全相同，K60B（保留记录加我们的国家元素）在服务前就被扣留吃掉。
 
-mission34（\`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img\`，201,887,744 B，SHA256 \`b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5\`，09:16 构建）只有一个变量：station 与 kext 都换成 1024 字节元素区（\`/opt/k60/trees/k60build/wifi/ath11k-abi1\`，\`#define IE_MAX 1024\`；native-sbl-mission34 的 \`abi/nw_abi.h\` 含 \`uint8_t ie[1024]\`，其 SHA256 \`81a5c2bdb563e759f9ddd4470288dad3977f1285837001e95a5541b39e54275c\` 与 build-manifest 的 \`wifi_archive\` 相同），记录照实携带 AP 的 42 字节国家 IE，19 条探针语义完整。所以它是「384 字节上限是否就是那一行消失的原因」最干净的一次判断：真实行出现即根因坐实、可直接收工；不出现则探针 K60B（国家）/K60D（目标元素）/K60J（厂商 221/2）指名下一个嫌疑。
+mission34（E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img，201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，09:16 构建）只有一个变量：station 与 kext 都换成 1024 字节元素区（/opt/k60/trees/k60build/wifi/ath11k-abi1，#define IE_MAX 1024；native-sbl-mission34 的 abi/nw_abi.h 含 uint8_t ie[1024]，其 SHA256 81a5c2bdb563e759f9ddd4470288dad3977f1285837001e95a5541b39e54275c 与 build-manifest 的 wifi_archive 相同），记录照实携带 AP 的 42 字节国家 IE，19 条探针语义完整。所以它是「384 字节上限是否就是那一行消失的原因」最干净的一次判断：真实行出现即根因坐实、可直接收工；不出现则探针 K60B（国家）/K60D（目标元素）/K60J（厂商 221/2）指名下一个嫌疑。
 
 mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二发：届时扣留才是有证据的方向，且需要先把扣留从所有目标系探针里摘出去再飞。
 
@@ -1202,21 +1202,33 @@ mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二�
 
 把两处数组摆在一起看：
 
-- 线上记录 \`scan_result\`（\`drivers/PongWifi/PongWifiNet.cpp:89\`）是 \`uint16_t elements_length; uint8_t elements[1024];\`，\`static_assert(sizeof(scan_result) == 1164 && offsetof(elements) == 0x8c)\`（:119-120）。20G81 的 wifid 每次正是按 **1164 字节**取这条记录（\`native client type 11 get bytes=1164\`），也就是说 daemon 侧本来就预期最多 1024 字节元素。
-- 384 只出现在我们自己内部：station 的 \`src/nw_sta.c:14\` \`#define IE_MAX 384\`，扫描时 \`if (len > IE_MAX) len = IE_MAX;\`（:61）再把 \`ie_len/ie\` 放进 \`include/nw_abi.h:52 uint8_t ie[384];\`（:66）。
+- 线上记录 scan_result（drivers/PongWifi/PongWifiNet.cpp:89）是 uint16_t elements_length; uint8_t elements[1024];，static_assert(sizeof(scan_result) == 1164 && offsetof(elements) == 0x8c)（:119-120）。20G81 的 wifid 每次正是按 **1164 字节**取这条记录（native client type 11 get bytes=1164），也就是说 daemon 侧本来就预期最多 1024 字节元素。
+- 384 只出现在我们自己内部：station 的 src/nw_sta.c:14 #define IE_MAX 384，扫描时 if (len > IE_MAX) len = IE_MAX;（:61）再把 ie_len/ie 放进 include/nw_abi.h:52 uint8_t ie[384];（:66）。
 
-所以目标 AP 的 390 字节元素区是**在我们自己的代码里**被截成 384 的，截断点落在某个元素的中间；线上那条「384 字节、走不到结尾」的记录不是 AP 发的，也不是 Apple 的格式，而是我们这个内部上限的产物。mission34 把 \`IE_MAX\` 与 \`nw_abi.h\` 一起抬到 1024（两侧同一次改动，见 §29 的引号包含证明），390 < 1024，记录因此第一次以 AP 原本的样子到达 wifid。这不是改协议，是我们自己的 ABI 追上它本来就在用的容量。
+所以目标 AP 的 390 字节元素区是**在我们自己的代码里**被截成 384 的，截断点落在某个元素的中间；线上那条「384 字节、走不到结尾」的记录不是 AP 发的，也不是 Apple 的格式，而是我们这个内部上限的产物。mission34 把 IE_MAX 与 nw_abi.h 一起抬到 1024（两侧同一次改动，见 §29 的引号包含证明），390 < 1024，记录因此第一次以 AP 原本的样子到达 wifid。这不是改协议，是我们自己的 ABI 追上它本来就在用的容量。
 
 对照：被 daemon 保留的两条 5 GHz 记录元素区是 307 与 361 字节，都在旧的 384 以内、也都能完整走到结尾；唯一被丢的那条正是唯一越过 384 的。这条相关性现在有了机制解释：截断的是我们，不是 AP。
 
 ## §35 2026-11-19 10:33 mission34 飞行：单变量镜像，但窗口内仍无人打开设置页
 
-镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img\` 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，09:16 构建；station \`/opt/k60/trees/k60build/wifi/ath11k-abi1\`（\`IE_MAX 1024\`），native \`81a5c2bd…\` 与 build-manifest 的 \`wifi_archive\` 一致，\`abi/nw_abi.h\` 含 \`uint8_t ie[1024]\`。整趟只有一个变量：元素区从 384 抬到 1024；国家 IE 照实下发，探针语义完整。
+镜像 E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，09:16 构建；station /opt/k60/trees/k60build/wifi/ath11k-abi1（IE_MAX 1024），native 81a5c2bd… 与 build-manifest 的 wifi_archive 一致，abi/nw_abi.h 含 uint8_t ie[1024]。整趟只有一个变量：元素区从 384 抬到 1024；国家 IE 照实下发，探针语义完整。
 
-飞行 10:33:06–10:48:33（boot.json imageSha256 B08A14F8…，captureArmed/bootAccepted/returnedToFastboot 全 true，bootExitCode 0），采集 \`E:/k60-work/evidence/usblog-20261119-103258/console.log\` 467,538 B / 6,949 行 / SHA256 591ebb97c8d5d78843f2efa35461878754c993cae2ebe6f1db3243dbf4cd4495；\`K60AUTORESET: 900 s since boot\` 结束后脚本尝试回 Android（日志里出现 \`Android up\`），但 10:50 复查时 USB 上既无 fastboot 也无 adb，需要用户看一眼手机。
+飞行 10:33:06–10:48:33（boot.json imageSha256 B08A14F8…，captureArmed/bootAccepted/returnedToFastboot 全 true，bootExitCode 0），采集 E:/k60-work/evidence/usblog-20261119-103258/console.log 467,538 B / 6,949 行 / SHA256 591ebb97c8d5d78843f2efa35461878754c993cae2ebe6f1db3243dbf4cd4495；K60AUTORESET: 900 s since boot 结束后脚本尝试回 Android（日志里出现 Android up），但 10:50 复查时 USB 上既无 fastboot 也无 adb，需要用户看一眼手机。
 
-判读：\`lists of client=Preferences: 0\`、\`scan request 0\`、\`scan result served 0\`——和 mission35 一样，窗口内没有人打开设置页，wifid 没有发出扫描请求，pane 状态不存在可观察的面。因此 19 条探针（K60A..K60S，本次 carrier 又是 2.4 GHz 回退 \`96:de:f9:b6:be:7e\`，因冻结时 5 GHz 只有 1 条记录）全部「ABSENT」只是无列表的必然结果，不能读成「daemon 丢掉了它们」。
+判读：lists of client=Preferences: 0、scan request 0、scan result served 0——和 mission35 一样，窗口内没有人打开设置页，wifid 没有发出扫描请求，pane 状态不存在可观察的面。因此 19 条探针（K60A..K60S，本次 carrier 又是 2.4 GHz 回退 96:de:f9:b6:be:7e，因冻结时 5 GHz 只有 1 条记录）全部「ABSENT」只是无列表的必然结果，不能读成「daemon 丢掉了它们」。
 
-可直接用的正面证据仍有一条：\`wifi-net: bss 9/10 5240 MHz -51 dBm age 552 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G\`，且全会话 \`incomplete element\` 计数为 0——在 1024 元素区下，这条记录第一次以完整、可解析的形态存在于 kext 侧（旧的 384 上限下它会停在 318 字节）。
+可直接用的正面证据仍有一条：wifi-net: bss 9/10 5240 MHz -51 dBm age 552 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G，且全会话 incomplete element 计数为 0——在 1024 元素区下，这条记录第一次以完整、可解析的形态存在于 kext 侧（旧的 384 上限下它会停在 318 字节）。
 
 结论：mission34 不再欠飞行（P-218 清零），但 pane 判读依旧是 UNOBSERVED。要做到「显示并可用」，必须在一次 15 分钟窗口里有人打开 设置→无线局域网 并下拉刷新；设备内没有任何替代触发方式（/usr/bin 为空、无 uiopen/launchctl/notifyutil，wifid 的扫描请求只由设置页客户端产生）。
+
+## 36. mission34b：设置页 5 GHz 行出现，pane 关闭
+
+- 镜像：wifi-20261118sbl-mission34（boot.img 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，head d91cfc2a，args 31/602，verify-boot-image OK）。只改了 station 的 1024 字节元素区，没有扣留国家 IE。
+- 飞行：11:53:17 起飞，K60AUTORESET: 900 s since boot 结束；boot.json accepted/returned true；控制台 E:/k60-work/evidence/usblog-20261119-115312/console.log 1,023,926 B / 12,632 行 / SHA256 75af24fb5497e7d8c1f4871f39f6cd49ded9407830d1bbb49d2d506bb90a6fa3。
+- 观察者：38 条 scan request、3,901 行 WiFiScanObserverNetwork、12 条 Preferences 列表、52 个不同 BSSID。
+- 结果：真实记录出现——<WiFiScanObserverNetwork : 0x14b13d2d0 SSID='Emilelu_5G' BSSID='c8:bf:4c:30:03:1c' RSSI=-52>；judge-wifi-mission34.py 打印 REAL Emilelu_5G row: SEEN / VERDICT: PANE CLOSED；19 条探针 K60A..K60S 全部被 daemon 保留。
+- 可用性同一趟成立：wifi: connecting to c8:bf:4c:30:03:1c on 5240 MHz、wifi: connected、WiFi lifecycle test PASS: reconnected BSSID c8:bf:4c:30:03:1c state=6 IPv4=1 lease=3/3、wifi-net: en0 address 192.168.31.232, packets in 1632 out 1897。用户目视确认「全都有」。
+- 结论：5 GHz 行的根因就是我们自己 ABI 的 384 字节上限（§34）；1024 字节元素区是生产修复。mission35 的国家 IE 扣留没有必要，不进生产。
+- 新开的两条观察（本轮未解）：
+  - 状态栏 Wi-Fi 只显示一格，而设置页满格。设置页读的是记录里的 RSSI（-52/-47 dBm，满格强度）；状态栏走 kRssi（Apple80211 IOC 16），整趟只被问过 1 次（native client type 16 get，type 106 也 1 次），驱动按 PongWifiNet.cpp:853-856 回 version 1 / radios 1 / unit 0(dBm) / 各链 -47。所以要么状态栏没刷新，要么它读的不是 kRssi；下一版镜像给每次 kRssi 请求加日志，并记录当前网络记录的 rssi/age。
+  - 触摸在复位前几分钟无响应。控制台 41 条 Pong touch HID: touch detection mode，最后一条在第 13,830 行（全文 14,029 行），之后约 200 行才 autoreset，说明触摸驱动到关机前仍在工作，症状更像关机/teardown 路径，不属于 Wi-Fi。

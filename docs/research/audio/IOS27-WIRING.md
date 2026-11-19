@@ -171,17 +171,42 @@ XNU27_KERNEL=<built kernel> sh scripts/check-audio27-preflight.sh
 `lines 0 -> 2` 而不回显，等于没锚上（条目写进了别的段落）与锚上了在日志里长得一样——
 P-171/P-245 那一族就是这样漏过去的。失败路径的顺序也不许改：先放源文件，再因锚点缺失退出 1。
 
-因为默认锚点跟着布局走，27 的构建钩子不需要外壳脚本，直接指向追加器就行
-（`scripts/build-xnu-generic.sh:15-18` 每打完一轮补丁就调一次 `K60_CONF_FILES_HOOK`）：
+### 你说的那个钩子：`scripts/k60-conf-files-hook.py`
+
+`scripts/build-xnu-generic.sh:15-18` 每打完一轮补丁就调一次 `K60_CONF_FILES_HOOK`，那一行有三个问题：
+
+```sh
+if [ -n "${K60_CONF_FILES_HOOK:-}" ] && [ -f "${K60_CONF_FILES_HOOK}" ]; then
+  python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || echo "K60: conf/files hook failed"
+fi
+```
+
+① 它用 `python3` 调用，所以钩子必须是 Python 文件；② 失败被 `|| echo` 吞掉，只剩一行没人 grep 的日志
+（P-245 原来的形状）；③ 这个变量只能放一个路径，而音频与 power 都要往同一个 `conf/files` 里加行。
+
+所以构建驱动指向的是**串接钩子**而不是追加器本身：
 
 ```sh
 # 27 build driver
-K60_CONF_FILES_HOOK=<repo>/scripts/add-audio-conffiles.py sh scripts/build-xnu-generic.sh
+K60_CONF_FILES_HOOK=<repo>/scripts/k60-conf-files-hook.py sh scripts/build-xnu-generic.sh
+# 需要时：K60_CONF_FILES_HOOK_EXTRA=<另一个 owner 的追加器>[:<再一个>]
+# 需要时：K60_CONF_FILES_ANCHOR=<一行这棵树真的有的>（转给音频追加器）
 ```
 
-注意那一行是 `[ -n … ] && python3 … || echo "K60: conf/files hook failed"`——**失败只打印、不中断**，
-所以追加器自己必须靠计数退出（它确实如此），而真正的兜底是产物判据
+它先跑音频追加器，再依次跑 `K60_CONF_FILES_HOOK_EXTRA` 里冒号分隔的各个 owner（`.py` 用同一个解释器启动），
+最后自己数一遍 `conf/files` 里 `PongAudio` 的行数并打一行判决：
+
+```
+K60: conf-files hook ok audio=2 extra=0 tree=/path/to/tree
+```
+
+任一步非零或行数不足两行时是 `K60: conf-files hook FAILED: <步骤> exited <n>` 并退 1。
+退 1 仍然会被构建脚本吞掉——但日志里「没有那句 `conf-files hook ok`」现在就是证据：
+绿构建加上没有这句，等于这棵内核里没有音频条目；而真正的兜底仍是产物判据
 （`check-audio27-kernel.py`：没有音频的内核直接 `AUDIO27 FAILED`）。
+
+宿主测试 `scripts/tests/test-conf-files-hook.py` 五例（写成功、锚点缺失、额外 owner 成功、额外 owner 失败、
+没种树），预检里是 `conf-files hook is honest`。
 
 在真 27 树副本上实测（不带 `--anchor`，走布局默认）：
 
@@ -461,7 +486,15 @@ python3 scripts/check-audio27-series.py <27 源树> [--series DIR]   # 默认 /m
 
 三种答案分开：`0` 一致、`1` 不一致或系列文件里没列它（列了才真的会被构建应用）、`3` 系列还没 book 它。
 `3` 在预检里是 `skip` 而不是绿行——「还没有」和「已经对了」必须长得不一样，否则等 Lead 落地那天，
-绿的到底是哪一种就没人分得出来。预检因此多两行：`27 series checker is honest`（5 例宿主测试）与
+绿的到底是哪一种就没人分得出来。预检因此多两行：
+**2026-11-20 07:19 Lead 已 book**：`/mnt/e/hackios/k60-gates/patches/xnu-12377/0531-k60-audio-amp-probe-call.patch`
+（876 B，sha256 `46b3c0cd…`），`series:52` 有这一行，系列里的字节与生成器逐字节相同，于是那一行从 `skip` 变绿：
+
+```
+ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 876 B sha256 46b3c0cd… matches the emitter
+```
+
+这条门禁现在每一次预检都会重新证明「系列里那份 = 生成器那份」，Lead 以后改 series 时不会静默漂移。`27 series checker is honest`（5 例宿主测试）与
 `27 series carries the patch`（需要 `XNU27_REPO`；系列还没 book 时打印 skip）。
 
 ### 空跑一遍：这条链路在一棵「像 27 的树」上走通

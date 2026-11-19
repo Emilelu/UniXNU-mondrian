@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/pong_audio.c b/bsd/dev/pong_audio.c
-index 86ca152..d197118 100644
+index 86ca152..9aad6c6 100644
 --- a/bsd/dev/pong_audio.c
 +++ b/bsd/dev/pong_audio.c
 @@ -43,6 +43,12 @@
@@ -51,7 +51,7 @@ index 86ca152..d197118 100644
  } PongAudioState;
  
  static PongAudioState g_pong_audio;
-@@ -898,6 +933,1300 @@ int pong_audio_status(void);
+@@ -898,6 +933,1330 @@ int pong_audio_status(void);
  int pong_audio_selftest(void);
  extern int aw882xx_bootstrap(void);
  
@@ -83,7 +83,7 @@ index 86ca152..d197118 100644
 +	 * no owner and the DSP reads them through the apps SMMU without any
 +	 * ownership handoff. The live FDT reserves cvp_region@9ee00000 (no-map,
 +	 * 7 MiB). pong_audio_lease=1 selects the loader lease instead. */
-+	if (PE_parse_boot_argn("pong_audio_lease", NULL, 0) == false) {
++	if (PE_parse_boot_argn("pong_audio_cvp", NULL, 0)) {
 +		vm_offset_t va = ml_io_map_wcomb((vm_offset_t)PONG_CVP_PA,
 +		    (vm_size_t)PONG_AUDIO_DMA_BYTES);
 +		if (va != 0) {
@@ -276,9 +276,36 @@ index 86ca152..d197118 100644
 +	return rc;
 +}
 +
++static bool g_pong_scm_shared;
++
++/* One assign at start, with no source list: LPASS and ADSP_HEAP are added
++ * next to HLOS instead of replacing it. Stock msm_audio_ion moves the page
++ * (source HLOS) and then HLOS aborts on its own copy; the add-only form is
++ * the one that leaves both readers and writers in place. */
++static int
++pong_audio_scm_share(uint64_t pa, uint64_t bytes)
++{
++	static const uint32_t dst[2] = { PONG_VMID_LPASS, PONG_VMID_ADSP_HEAP };
++	static const uint32_t perms[2] = { PONG_SCM_PERM_RW, PONG_SCM_PERM_RW };
++	int rc;
++
++	if (g_pong_scm_shared) {
++		return 0;
++	}
++	rc = pong_audio_scm_transfer(pa, bytes, NULL, 0u, dst, perms, 2u,
++	    "share");
++	if (rc == 0) {
++		g_pong_scm_shared = true;
++	}
++	return rc;
++}
++
 +static int
 +pong_audio_scm_lend(uint64_t pa, uint64_t bytes)
 +{
++	if (g_pong_scm_shared) {
++		return 0;
++	}
 +	if (PE_parse_boot_argn("pong_audio_scm", NULL, 0) == false) {
 +		/* The carveout needs no handoff; the assign path stays behind
 +		 * pong_audio_scm=1 for the loader lease. */
@@ -295,6 +322,9 @@ index 86ca152..d197118 100644
 +static int
 +pong_audio_scm_reclaim(uint64_t pa, uint64_t bytes)
 +{
++	if (g_pong_scm_shared) {
++		return 0;
++	}
 +	if (PE_parse_boot_argn("pong_audio_scm", NULL, 0) == false) {
 +		return 0;
 +	}
@@ -1352,7 +1382,7 @@ index 86ca152..d197118 100644
  static void
  pong_audio_worker(void *arg __unused, wait_result_t wait __unused)
  {
-@@ -936,6 +2265,36 @@ pong_audio_start(void)
+@@ -936,6 +2295,37 @@ pong_audio_start(void)
  	if (!pong_audio_map()) {
  		return -1;
  	}
@@ -1361,7 +1391,8 @@ index 86ca152..d197118 100644
 +		g_pong_audio.refusal_printed = true;
 +		return -1;
 +	}
-+	printf("PongAudio: PCM slots stay HLOS-owned; the SMMU bypass or a per-period lend carries them\n");
++	printf("PongAudio: PCM buffer shared with the DSP by an add-only assign; the SMMU bypass carries it\n");
++	(void)pong_audio_scm_share(g_pong_audio.dma_pa, PONG_AUDIO_DMA_BYTES);
 +	pong_audio_ring_reset();
 +	unsigned int group_probe = 0;
 +	g_pong_audio.afe_group_probe = PE_parse_boot_argn("pong_audio_group_probe",
@@ -1389,7 +1420,7 @@ index 86ca152..d197118 100644
  	printf("PongAudio: skeleton stage=ADSP_WINDOWS (PAS1 loader TODO)\n");
  	/* TODO(k60): implement PongAudio.cpp:511-588 (PAS1 authenticated
  	 * load, SMP2P, GLINK, GPR) before touching any ADSP register. */
-@@ -947,23 +2306,93 @@ int
+@@ -947,23 +2337,93 @@ int
  pong_audio_stop(void)
  {
  	g_pong_audio.service_ready = false;

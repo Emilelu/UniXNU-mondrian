@@ -618,6 +618,9 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
      d1/d2 至少各一次 `state` 变化（若仍不变，记录为 PDMEM 不被接受，停止继续写大核簇）；
      `restore` 后 d0 回到写前值；无 panic、无 0 字节 console。mode 10 通过条件：
      L3 投票随最快 domain 抬到目标档，`readback=ok`，restore 回原值。
+     注意：当前 mode 8/10 的投票路径会按 A 读到的 `limits` cap 重建 LUT；若 A 显示
+     bit2 锁存且 `cap < top`，先把 cap 视为未确认，不要用 B 的成绩判断 d1/d2 是否接受
+     PDMEM，直到 `0x308` 的清除归属明确或把 cap 夹取关掉。
    - 中止：console 0 字节、无 Darwin banner、panic、`restore` 未出现、设备不回 fastboot；
      保留 console 与 `capture.json`，不重试同一镜像。
    - 睡眠不在本轮：w10 已证明等待/定时唤醒，但 `processor_start` 仍挂；iOS27 用 catalog ArmCpu + sheng xnu-12377 重做。

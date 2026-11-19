@@ -1386,3 +1386,23 @@ mission34 的事故不是算法错，而是两半用了不同的宽度：预编�
 已知边界：本改动之前构建的档案（含 mission33-36 用的 ath11k-abi1、ath11k-abi27）没有戳，只能得到提示；
 下一次重建站点时会自动带上，之后任何跨宽度的混用都会被拒绝。
 
+## 46. 关联请求的三种布局在宿主机上钉死
+
+24A446 的关联请求是 0x290 字节，网络前缀在 0x10；22H374 是 0x384，同一个前缀；legacy 是 0x250，前缀在 0x0c。
+三种布局的网络字段偏移完全相同，驱动因此只用一个扁平结构解码并只读 PONG_ASSOC_FIELDS_BYTES（到 key[64] 的 0x8c）。
+
+此前这些偏移只写在 PongWifiNet.cpp 的 static_assert 里，宿主机测试看不到。现在：
+
+- drivers/PongWifi/PongWifiAbi.h 新增 pong_assoc_parameters、pong_assoc_request_legacy、pong_assoc_request_24a446、
+  pong_assoc_request_22h374，并用 PONG_ABI_ASSERT（C++ 走 static_assert，C 走 _Static_assert）钉住
+  0x7c / 0x3c / 0x30 / 0x34、592 / 0x250 / 0x0c、0x290 / 0x10、0x384；
+- PongWifiNet.cpp 的 assoc_request 与 assoc_request24 增加与头文件逐字段相等的断言，
+  两边若漂移构建就会报错，而不是在空口上解码错位；
+- scripts/tests/pong-abi-selftest.c 增加 8 条宿主机检查（前缀、key_length/key_cipher、三种总长与前缀偏移、
+  key 结束位置等于字段上限）；
+- scripts/tests/test-pong-abi.py 的参考漂移段新增两条：我们的 PONG_ASSOC_REQUEST_LEGACY/24A446 仍等于 sheng 的
+  0x250/0x290，且 sheng 仍钉着 0x7c/656/592/540。
+
+结果：test-pong-abi 31 checks 0 failure；test-wifi-sbl-mission summary: 0 failure(s)；
+16 与 27 两代头文件都编译通过（/opt/k60/trees/k60build/wifi/teardown16 与 teardown27）。
+

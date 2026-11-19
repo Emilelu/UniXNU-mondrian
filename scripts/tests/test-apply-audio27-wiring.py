@@ -60,6 +60,7 @@ def case_named_anchor(root):
     code, out = run(root, "--anchor", ANCHOR_27)
     assert code == 0, out
     assert "OK sources=%d conf=2" % KERNEL_SET in out, out
+    assert "anchor line" in out, "the anchor has to be echoed: " + out
     assert listed(conf) == 2, conf.read_text()
     assert "PongAudioAmp.c" in conf.read_text()
     assert "PongAudioGeniI2c.c" in conf.read_text()
@@ -107,6 +108,7 @@ def case_inplace_tree(root):
     code, out = run(root, "--anchor", ANCHOR_27)
     assert code == 0, out
     assert "OK sources=%d conf=2" % KERNEL_SET in out, out
+    assert "anchor line" in out, "the anchor has to be echoed: " + out
     assert listed(conf) == 2, conf.read_text()
     assert len(audio_files(root, inplace=True)) == KERNEL_SET
 

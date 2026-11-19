@@ -27,6 +27,12 @@ repo=$(cd "$here/.." && pwd)
 cd "$repo" || exit 1
 fail=0
 
+# Which tree did this measure? A green line that cannot name its commit is the
+# same evidence as a green line on the wrong object.
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+sha=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+printf 'repo %s %s @ %s\n' "$repo" "$branch" "$sha"
+
 run()
 {
 	name=$1

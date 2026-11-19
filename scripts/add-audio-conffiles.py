@@ -77,7 +77,12 @@ def main(argv):
         print("audio conffiles: not in the tree, so not listed: %s" % ", ".join(missing))
         return 1
 
+    matched = next((line for line in text.splitlines()
+                    if line.strip() == args.anchor.strip()), None)
+
     if args.check:
+        if matched is not None:
+            print("audio conffiles: anchor line %r" % matched)
         report(before, before)
         if before < len(SOURCES):
             print("audio conffiles: %d of %d entries listed" % (before, len(SOURCES)))
@@ -85,12 +90,13 @@ def main(argv):
         print("audio conffiles: both entries listed")
         return 0
 
-    if args.anchor not in text:
+    if matched is None:
         report(before, before)
         print("audio conffiles: anchor %s missing, entries not added"
               % args.anchor.strip())
         print("audio conffiles: pass --anchor with a line this tree has")
         return 1
+    print("audio conffiles: anchor line %r" % matched)
 
     block = args.anchor
     for entry in ENTRIES:

@@ -116,6 +116,7 @@ extern "C" boolean_t PE_parse_boot_arg_str(const char *arg_string, char *arg_ptr
 #include "RootQueue.h"
 #include "RootCommands.h"
 #include "RootLayout.h"
+#include "NamedVolumeRead.h"
 
 static bool transportFailure(const char *why) {
   gHost.ready = false;
@@ -618,4 +619,69 @@ extern "C" bool pong_ufs_transport_start(IOService *provider) {
     if (!block->start(provider)) { block->detach(provider); return transportFailure("block start"); }
   }
   return true;
+}
+
+// The storage service the modem opens its EFS images through has to read a GPT
+// partition by name. drivers/NativeUfs had no per-partition read entry and no
+// owner in TREE-OWNERS.toml; Lead authorised this one read-only function for the
+// cellular branch on 2026-11-20, on condition that no existing export changes
+// signature or body. It uses the GPT geometry, the CRC and the sector helpers
+// RootLayout.h already trusts, and it never writes.
+extern "C" bool native_pong_ufs_read_named_volume (const char *name, uint64_t offset,
+  uint8_t *buffer, size_t length)
+{
+  if (name == nullptr || name[0] == '\0' || buffer == nullptr || length == 0) return false;
+  unsigned nameLength = 0;
+  while (name[nameLength]) {
+    if (nameLength >= kNativeVolumeNameMax) return false;
+    ++nameLength;
+  }
+  if (hostRead4k (0, 1, 1, gScratch) != kIOReturnSuccess) return false;
+  if (le32 (gScratch) != 0x20494645U || le32 (gScratch + 4) != 0x54524150U) return false;
+  const uint32_t headerBytes = le32 (gScratch + 12);
+  if (le32 (gScratch + 8) != 0x00010000 || headerBytes < 92 || headerBytes > 4096 ||
+      le32 (gScratch + 20) != 0 || le64 (gScratch + 24) != 1 ||
+      rootCrc32 (gScratch, headerBytes, true) != le32 (gScratch + 16) ||
+      le32 (gScratch + 84) != kNativeVolumeEntryBytes) return false;
+  const uint64_t entriesLba = le64 (gScratch + 72);
+  const uint32_t count = le32 (gScratch + 80);
+  const uint64_t first = le64 (gScratch + 40), last = le64 (gScratch + 48);
+  const uint64_t backup = le64 (gScratch + 32);
+  const uint32_t entriesCrc = le32 (gScratch + 88);
+  if (entriesLba < 2 || entriesLba > 64 || count == 0 || count > 128) return false;
+  const uint32_t blocks = (count * kNativeVolumeEntryBytes + 4095) / 4096;
+  if (blocks > kDataMax / 4096) return false;
+  if (first < entriesLba + blocks || last < first || backup <= last || backup > UINT32_MAX ||
+      backup - last <= blocks) return false;
+  if (hostRead4k (0, entriesLba, blocks, gScratch) != kIOReturnSuccess) return false;
+  if (rootCrc32 (gScratch, count * kNativeVolumeEntryBytes) != entriesCrc) return false;
+  bool found = false;
+  uint64_t entryFirst = 0, entryLast = 0;
+  for (uint32_t index = 0; index < count; ++index) {
+    const uint8_t *entry = gScratch + index * kNativeVolumeEntryBytes;
+    if (!nativeVolumeEntryUsed (entry)) continue;
+    const uint64_t candidateFirst = le64 (entry + 32), candidateLast = le64 (entry + 40);
+    if (candidateFirst < first || candidateLast < candidateFirst || candidateLast > last) return false;
+    if (!nativeVolumeNameMatches (entry, name)) continue;
+    if (found) return false;                     // duplicate names are refused
+    entryFirst = candidateFirst;
+    entryLast = candidateLast;
+    found = true;
+  }
+  if (!found) return false;
+  uint64_t sector = 0;
+  uint32_t skip = 0, sectors = 0;
+  if (!nativeVolumePlan (entryFirst, entryLast, 4096, offset, length, &sector, &skip, &sectors)) return false;
+  size_t done = 0;
+  for (uint32_t index = 0; index < sectors; ++index) {
+    if (hostRead4k (0, sector + index, 1, gScratch) != kIOReturnSuccess) return false;
+    const size_t available = 4096 - skip;
+    const size_t room = length - done;
+    const size_t take = available < room ? available : room;
+    memcpy (buffer + done, gScratch + skip, take);
+    done += take;
+    skip = 0;
+    if (done == length) break;
+  }
+  return done == length;
 }

@@ -361,6 +361,22 @@ def playback_cases():
     code, report = mod.judge_playback(playback_run(write_done=3), meta)
     expect(any("WRITE_DONE replies=3" in l for l in report), "write-done replies are counted")
 
+    # S8: which buffer the PCM path had, and whether the pages could be lent.
+    # Reported, not gated - the next build needs the line to know what to fix.
+    for marker, want in (
+            ("PongAudio: PCM buffer in the CVP carveout pa=0x9ee00000 size=0x10000",
+             "CVP carveout"),
+            ("PongAudio: low DMA lease pa=0x9ee00000 size=0x10000", "loader lease"),
+            ("PongAudio: low DMA allocated pa=0x9ee00000 size=0x10000", "kernel allocation"),
+            ("PongAudio: low DMA unavailable: no handoff", "none")):
+        code, report = mod.judge_playback(playback_run(extra=[marker]), meta)
+        expect(code == 0, "the buffer path is reported, not gated")
+        expect(any("S8 PCM buffer=" + want in l for l in report), "S8 names " + want)
+    code, report = mod.judge_playback(playback_run(extra=["PongAudio: PCM slot 0 lend refused"]), meta)
+    expect(any("lend refused=1" in l for l in report), "a refused lend is counted")
+    code, report = mod.judge_playback(playback_run(), meta)
+    expect(any("S8 PCM buffer=not reported" in l for l in report),
+           "an image without the line says so")
     # the constants the card names, so a script edit cannot drift past this test
     expect(mod.SPEAKER_OPEN_STEP == 2 and mod.SPEAKER_OPEN_BYTES == 408,
            "step 2 is the 408-byte speaker open")

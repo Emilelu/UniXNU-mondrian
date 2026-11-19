@@ -326,8 +326,8 @@
 +		/* A timed-out period must go back to the HLOS before the next
 +		 * memcpy touches the buffer, or that copy takes an external
 +		 * abort the way image bg did. */
-+		if (+		    pong_audio_scm_reclaim(state->dma_pa,
-+		    +		    PONG_AUDIO_DMA_BYTES) != 0) {
++		if (pong_audio_scm_reclaim(state->dma_pa,
++		    PONG_AUDIO_DMA_BYTES) != 0) {
 +			printf("PongAudio: PCM slot %u timeout reclaim failed\n", i);
 +		}
 +		state->slot_busy[i] = false;
@@ -532,7 +532,7 @@
 +	/* The DSP validates the whole mapping, not only the write address:
 +	 * lending one slot left the rest of the 64 KiB region on the HLOS
 +	 * side and the firmware died while answering the first period. */
-+	if (+	    pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) { != 0) {
++	if (pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
 +		printf("PongAudio: PCM slot %u lend refused\n", slot);
 +		return false;
 +	}
@@ -570,7 +570,7 @@
 +		printf("PongAudio: PCM zero-byte probe encode failed\n");
 +		return;
 +	}
-+	if (+	    pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) { != 0) {
++	if (pong_audio_scm_lend(state->dma_pa, PONG_AUDIO_DMA_BYTES) != 0) {
 +		printf("PongAudio: PCM zero-byte probe lend refused\n");
 +		return;
 +	}
@@ -747,8 +747,8 @@
 +			    (unsigned long long)answer->address);
 +			return true;
 +		}
-+		if (+		    pong_audio_scm_reclaim(state->dma_pa,
-+		    +		    PONG_AUDIO_DMA_BYTES) != 0) {
++		if (pong_audio_scm_reclaim(state->dma_pa,
++		    PONG_AUDIO_DMA_BYTES) != 0) {
 +			printf("PongAudio: PCM slot %u reclaim failed\n", slot);
 +		}
 +		state->slot_busy[slot] = false;

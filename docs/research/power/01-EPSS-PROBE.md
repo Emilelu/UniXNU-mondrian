@@ -143,6 +143,9 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   每域最多 `table.count` 行；电池 `begin` 成功后 5 s，`k60_cpufreq_probe_late()`
   再做一次只读摘要读取（日志 `late read begin/end`），让 d1/d2 在辅核启动后可见；
   延后读取不重复逐行 dump。它不是轮询，也不写寄存器。
+- 所有 voteDomain 路径（mode 2/3/6/7）在选档前读 `0x30c`：bit2 置位且 cap 低于表顶时用 cap 重建 LUT，
+  cap 低于最低档时跳过投票并打印 `hardware cap=… below table`；这样 §5 :108 的温控 ceiling 也约束写入路径，
+  不只约束 governor。
 - mode 2：只给 domain 0 投最高非 turbo 档（参考的 mode 2 语义）。
 - mode 3：三个 domain 都投最高非 turbo 档，再投 L3（参考的 mode 3 语义）。
 - mode 2/3 的写入是**瞬态验证写**：写前检查 enable 与档位，保存每个目标寄存器的原值，写后逐条回读，

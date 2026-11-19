@@ -496,22 +496,22 @@ sh scripts/tests/portability/run-weak-hook.sh
 
 同一个调用块一共三份拷贝：applier 的 `INIT_BLOCK`（源）、我们交付的补丁文件、以及 Lead book 进
 `patches/xnu-12377/` 之后系列里那一份。前两份由上面两行钉住；第三份由 `scripts/check-audio27-series.py`
-钉住——它从 27 源树重新生成一遍，再与系列里的 `0531-*.patch` **逐字节**比较：
+钉住——它从 27 源树重新生成一遍，再与系列里的 `0531-*.patch` 比较**插入的代码**（块注释、行注释与空白先去掉）。字节和上下文宽度只打附注：那是交付决定，不是契约。
 
 ```sh
 python3 scripts/check-audio27-series.py <27 源树> [--series DIR]   # 默认 /mnt/e/hackios/k60-gates/patches/xnu-12377，XNU27_SERIES 可改
-# SERIES NOTE: 0531-k60-audio-amp-probe-call.patch differs in bytes (series 5ad782de…, emitter 3665a972…); the inserted code matches
-# SERIES OK 0531-k60-audio-amp-probe-call.patch 453 B sha256 5ad782de… inserts the emitter code
+# SERIES NOTE: 0531-k60-audio-amp-probe-call.patch differs in bytes (series <digest>, emitter 3665a972…); the inserted code matches
+# SERIES OK 0531-k60-audio-amp-probe-call.patch <size> B sha256 <digest> inserts the emitter code
 ```
 
 三种答案分开：`0` 一致、`1` 不一致或系列文件里没列它（列了才真的会被构建应用）、`3` 系列还没 book 它。
 `3` 在预检里是 `skip` 而不是绿行——「还没有」和「已经对了」必须长得不一样，否则等 Lead 落地那天，
 绿的到底是哪一种就没人分得出来。预检因此多两行：
 **2026-11-20 07:19 Lead 已 book**：`/mnt/e/hackios/k60-gates/patches/xnu-12377/0531-k60-audio-amp-probe-call.patch`
-（453 B，sha256 `5ad782dea8f22fb40e6cc10050274d4d65cf0a72387e86f19ca1f1ed3a9de544`），`series:52` 有这一行，系列里的字节与生成器不同（Lead 那份是 `-U1` 加一行注释），但插入的代码相同——门禁比代码、不比字节，于是那一行从 `skip` 变绿：
+，`series:52` 有这一行。系列里的字节与生成器不同（Lead 那份是 `-U1` 加一行注释，之后又重发过一次），大小与摘要因此会跟着 Lead 每次重剪而变，所以**文档不钉那两个数**：只要插入的代码相同，那一行就从 `skip` 变绿。最近一次实测是 1033 B / sha256 `983f1e2e…`：
 
 ```
-ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 453 B sha256 5ad782de… inserts the emitter code
+ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 1033 B sha256 983f1e2e… inserts the emitter code
 ```
 
 这条门禁现在每一次预检都会重新证明「系列里那份 = 生成器那份」，Lead 以后改 series 时不会静默漂移。

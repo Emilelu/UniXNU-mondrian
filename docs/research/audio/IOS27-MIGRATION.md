@@ -78,7 +78,7 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    全 `ok`，说明这条分支自带它需要的一切，不依赖本仓工作树、16 线补丁或未提交文件。
    四行要一棵 27 源树（`XNU27_REPO`）：`27 kernel interfaces are there`、`27 tree has no clashing symbols`、
    `27 patch emits unchanged`、`27 series carries the patch`。最后一行装的是第三份拷贝：同一个调用块
-   在系列里落地之后，它必须与生成器现算的**代码**相同（`SERIES NOTE …` 后接 `SERIES OK 0531-… 453 B sha256 5ad782de… inserts
+   在系列里落地之后，它必须与生成器现算的**代码**相同（`SERIES NOTE …` 后接 `SERIES OK 0531-… <size> B sha256 <digest> inserts
    the emitter code`）；上下文宽度与注释文风是交付决定，门禁不比字节；系列还没 book 它时打印 `skip … the Lead books it and the emitter is the source`，
    而不是绿一行。系列目录默认 `/mnt/e/hackios/k60-gates/patches/xnu-12377`，`XNU27_SERIES` 可改；
    另两行要 sheng 检出：`sheng abi constants hold` 与 `sheng inject contract holds`（见 IOS27-USERLAND.md 第 7 节）；

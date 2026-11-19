@@ -80,6 +80,6 @@ python3 scripts/judge-audio-capture.py --playback <证据目录>
 
 ## 5. 结果登记
 
-criteria-sha256: 88c086494db35348d8d0179c78c798ac52993ac2cee74799b847822600ee71f1
+criteria-sha256: d0f22b081caeebf335239b8cdffd04910cdfaafc2c9fcc6d76e3fb3283d963c9
 
 （上机后填写：镜像名、boot.img sha256、证据目录、S1–S6 与 F1–F5 的实测值、amp 的 SYSST、判决。）

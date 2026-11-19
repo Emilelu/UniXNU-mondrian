@@ -268,6 +268,34 @@ and dies on its own 30 s XPC watchdog, and 20G81's bluetoothd has no QCA support
 in its chip table. Replacing that userland is the whole job on iOS 16; on iOS 27
 it is already written.
 
+### 6.1 Demonstrated against 24A446
+
+On 2026-11-19 the stager built the whole layer against the 24A446 root file
+system. The daemon extracted from the IPSW
+(`043-69909-664.dmg.aea` → `043-69909-664.dmg`, `usr/sbin/bluetoothd`) is
+byte-identical to the locked original: SHA-256
+`cfd94854d0a2efd3ca4a2de6e55349f43fd0d274a4b8bfa9937f29d9f7208cb1`, UUID
+`8E49197B-E6BC-3F3B-A8D3-DF4BEDD37F01`. The native adapter therefore needs no
+re-targeting for this OS build.
+
+| Output | Bytes | CDHash | SHA-256 |
+| --- | --- | --- | --- |
+| `bin/BlueTool` | 87,216 | `f3768896b52bb01e435f4f43a0078e8145eac408` | `2e775b80f3ca19b17e2fd78a5827bd252146621e32d64df803e3f49502ae524f` |
+| `bin/bluetoothd` | 13,092,096 | `7d6db4db44e30e52150c6ae63b3337f0f1fa6521` | `178444d651c734bdbff49b03503418b4c1264b45b80bc4c54a5d7dda13013d34` |
+| `lib/QcaBTType0.dylib` | 102,096 | `4c000ee5244140a98ec23f1b11ec30b5fd12f15e` | `e815fe2f32a147b1f574ebccaf9e205503bbba41c723d184096fa3f0879147b7` |
+
+The report records `native_entitlements_preserved: true` with 157
+entitlements on the re-signed daemon, and `hardware_verified: false` — nothing
+here has run on a device. The firmware manifest staged 40 `hpbtfw*`/`hpnv*`
+files under `firmware/qca`.
+
+The build host was a Mac with Command Line Tools only, which needed two
+adaptations, both carried in `scripts/toolchain/` (see its README): a minimal
+`xpc/xpc.h` shim, because that SDK ships `libxpc` without headers, and
+`qca-bluetooth-extra-flags.diff`, because the component's
+`tools/build-bluetool.py` took no extra compiler flags. A full Xcode install
+needs neither.
+
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: three CI runs (§5.3) produced `kernel.macho` and
@@ -275,7 +303,9 @@ it is already written.
    device-tree node. What remains is
    hardware: `qbt_k60_start` must actually run under iOS 27, which waits for
    `bsd_init`. To embed firmware first, see 5.2.
-2. `[payload.runtime]` wiring plus the OS image and signing inputs (§6).
+2. `[payload.runtime]` wiring plus an OS image and `codesign` on the payload
+   host. The staging half is built (§6.1): enabling the block makes the payload
+   build emit the services instead of only the kernel.
 3. Hardware only once the fork's `ios27-arm64e` area reaches `bsd_init`.
 
 Until then the iOS 16.6.1 line stays the only hardware testbed, and every

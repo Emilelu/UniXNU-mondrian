@@ -121,6 +121,13 @@ jobs:
           python3 scripts/check-bluetooth-geni.py --out "$UNIXNU_OUT/geni-check"
           python3 scripts/tests/test-bt-geni-model.py
 
+      - name: Check the shared interrupt controller
+        working-directory: device
+        run: |
+          set -eu
+          python3 scripts/check-bluetooth-gic.py --out "$UNIXNU_OUT/gic-check"
+          python3 scripts/tests/test-bt-gic-shared.py
+
       - name: Collect the build summary
         if: always()
         run: |

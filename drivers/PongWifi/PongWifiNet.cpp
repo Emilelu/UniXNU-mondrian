@@ -88,7 +88,7 @@ enum {
 // events
 enum { kEvPowerChanged = 1, kEvSsidChanged = 2, kEvBssidChanged = 3, kEvLinkChanged = 4, kEvAssocDone = 9, kEvScanDone = 10, kEvRsnHandshakeDone = 20 };
 // results of an association, as the framework numbers them
-enum { kAssocOk = 1, kAssocFailed = 2, kAssocTimeout = 9, kAssocBadKey = 21 };
+enum { kAssocPending = 0, kAssocOk = 1, kAssocFailed = 2, kAssocTimeout = 9, kAssocBadKey = 21 };
 
 struct channel { uint32_t version, channel, flags; };
 struct channels_list { uint32_t version, count; channel list[401]; uint32_t unused; };           // 4824 bytes
@@ -162,7 +162,7 @@ bool gKeyed;   // the last join used a passphrase
 uint32_t gRxFrames, gRxErrors; int gRxLastError;
 uint32_t gRxNoBuffer, gRxChains, gRxLongest;   // frames dropped for want of a buffer, frames that took a chain, the longest frame
 struct { unsigned count, kicks, cleared, longest; bool kicked; } gStall;   // input thread stalls (check_input)   // frames handed to the stack, refused ones and the last refusal
-int gAssocResult = kAssocOk;
+int gAssocResult = kAssocPending;
 bool gAssocModern27;   // the last join arrived through the 0x290-byte 24A446 request
 bool gModern27Client;  // a 24A446-sized request arrived, so the daemon speaks the newer auth encoding
 unsigned gScanCursor, gScanning, gScanServed;
@@ -706,9 +706,16 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       // cipher 6: the daemon already derived the pairwise master key (32 bytes); the module takes it as 64 hex digits
       unsigned keyLength = a.key_length;
       if (hasKey && a.key_cipher == 6 && a.key_length == 32) { static const char hex[] = "0123456789abcdef"; for (int i = 0; i < 32; i++) { pass[2 * i] = hex[a.key[i] >> 4]; pass[2 * i + 1] = hex[a.key[i] & 15]; } keyLength = 64; }
-      gAssocResult = kAssocFailed; gUserJoin = true; gAssocModern27 = modern27; if (modern27) gModern27Client = true;
+      // The reference rejects a credential it cannot interpret (cipher 6 carries the 32-byte PMK,
+      // cipher 10 an 8..63-byte passphrase) instead of passing it on as a password or an open network.
+      // 22H374 clients keep their previous acceptance; the newer daemon gets the strict set.
+      if (modern27 && a.key_length && !((a.key_cipher == 6 && a.key_length == 32) ||
+                                        (a.key_cipher == 10 && a.key_length >= 8 && a.key_length <= 63))) {
+        memset(&a,0,sizeof(a)); return EINVAL; }
+      gAssocResult = kAssocPending; gUserJoin = true; gAssocModern27 = modern27; if (modern27) gModern27Client = true;
       log(6, "wifi-net: join: ssid length %u, bssid given %d, key length %u cipher %u", a.ssid_length, hasBssid, a.key_length, a.key_cipher);
       gKeyed = hasKey; int r = nw_wifi_connect(a.ssid, a.ssid_length, hasBssid ? a.bssid : nullptr, hasKey ? pass : nullptr, hasKey ? keyLength : 0);
+      if (r) gAssocResult = kAssocFailed;   // the request never reached the station
       memset(pass, 0, sizeof pass); memset(&a, 0, sizeof a);
       if(!r)pong_wifi_wake();
       return r ? EINVAL : 0; }

@@ -333,6 +333,11 @@ def main() -> int:
     check("the newer daemon's auth encoding is accepted and answered",
           "gModern27Client ? 0x10 : 0x8" in net and "rq.req_len == PONG_SCAN_MULTIPLE_BYTES" in net and
           "a.auth_upper!=8 && a.auth_upper!=0x10" in net)
+    check("a join answers pending until the station finishes, and the newer daemon's credentials are read as the reference does",
+          "kAssocPending = 0" in net and
+          "gAssocResult = kAssocPending; gUserJoin = true; gAssocModern27 = modern27;" in net and
+          "modern27 && a.key_length && !((a.key_cipher == 6 && a.key_length == 32)" in net and
+          "if (r) gAssocResult = kAssocFailed;" in net)
     check("the abort-scan request is accepted instead of falling through",
           "PONG_REQUEST_ABORT_SCAN 382u" in abi_hdr and "kAbortScan = PONG_REQUEST_ABORT_SCAN" in net and
           "case kAbortScan: return 0;" in net)

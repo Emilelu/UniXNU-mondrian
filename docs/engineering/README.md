@@ -44,6 +44,7 @@
 |---|---|
 | [ENVIRONMENT.md](ENVIRONMENT.md) | 构建环境、工具链路径、SSH 主机 |
 | [DISK-HYGIENE.md](DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据（hard-41）、回收顺序、WSL 虚拟盘压缩（需管理员） |
+| [BRANCH-INVENTORY-20261119.md](BRANCH-INVENTORY-20261119.md) | 未合入 main 的 49 条分支：按线分组编号，逐条确认合入或归档；含合并/删除口径 |
 | [LOCAL-ASSETS.md](LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [REPO-INVENTORY.md](REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 

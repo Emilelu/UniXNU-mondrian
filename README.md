@@ -135,6 +135,7 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 | [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | 八步流程规范 |
 | [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md) | 启动流程唯一入口（铁则 8）：先挂串口抓取再 `fastboot boot` |
 | [`docs/engineering/IOS-SCOPE.md`](docs/engineering/IOS-SCOPE.md) | iOS 迁移边界：只保留可转移的活（用户 2026-11-19 决定） |
+| [`docs/engineering/BRANCH-INVENTORY-20261119.md`](docs/engineering/BRANCH-INVENTORY-20261119.md) | 未合入 main 的分支清单：按线分组编号，逐条确认合入或归档 |
 | [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | 固件卷重建手册：谁在构建、为什么同源同字节、现场两个卷、P-154 现状与重建实验协议 |
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | 铁则 ★1–★37 |
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | 坑记录 P-01–P-247 |

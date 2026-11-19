@@ -65,6 +65,7 @@ docs/
 | [`LOCAL-ASSETS.md`](engineering/LOCAL-ASSETS.md) | 本地资源索引（参考仓库、固件、镜像） |
 | [`REPO-INVENTORY.md`](engineering/REPO-INVENTORY.md) | 全部 git 仓库清单与用途 |
 | [`DISK-HYGIENE.md`](engineering/DISK-HYGIENE.md) | 磁盘卫生：空间门禁判据、回收顺序、WSL 虚拟盘压缩（需管理员） |
+| [`BRANCH-INVENTORY-20261119.md`](engineering/BRANCH-INVENTORY-20261119.md) | 未合入 main 的分支清单：按线分组编号，逐条确认合入或归档 |
 | [`README.md`](engineering/README.md) | 本目录的简介与阅读顺序 |
 
 ---

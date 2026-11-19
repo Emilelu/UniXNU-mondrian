@@ -114,6 +114,7 @@ table row naming a nonexistent script, fails the build.
 | `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
 | `docs/engineering/` | Hard rules, pitfalls, hardware truth, eight-step spec |
 | `docs/engineering/IOS-SCOPE.md` | iOS migration scope: transferable work only (user decision, 2026-11-19) |
+| `docs/engineering/BRANCH-INVENTORY-20261119.md` | Unmerged branches: numbered by line for a merge/archive decision |
 | `docs/research/` | Eight-step evidence (`EIGHT-STEPS.toml`) and research checklist (`SOURCES.toml`) |
 
 ## Four-layer repository model

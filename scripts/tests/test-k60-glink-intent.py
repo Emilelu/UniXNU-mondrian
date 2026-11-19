@@ -12,16 +12,26 @@ stores that id (idr_alloc(id, id + 1) in qcom_glink_handle_intent()) and hakios
 stores every pair unvalidated, so zero is legal; drivers/PongPower/QcomGlink.c
 treated it as corruption and the link went down.
 
+Two behaviours are fixed in the copy that ships:
+
+  * an intent numbered zero is a legal buffer number, so it is stored;
+  * an intent whose size is zero carries nothing, so it is dropped and the link
+    keeps running - it is NOT corruption.  This is the power line's semantics
+    (142706ad: g->dropped++; continue;), and the point of the second stream is
+    that the next, well formed intent is still processed.
+
 The kernel compiles a copy of the GLINK stack out of 0622 under the k60m_ prefix,
 so the fix lives in scripts/update-modem-qrtr-patch.py's DELTA and must be tested
 in the copy that actually ships.  This test regenerates that copy, compiles it
-with a small harness and drives two byte streams through it:
+with a small harness and drives three byte streams through it:
 
   id0   VERSION, OPEN(IPCRTR), INTENT(size 0x80, id 0), INTENT(size 0x80, id 1)
         must not report corruption, and the first pair must be stored as id 0,
+  drop  VERSION, OPEN(IPCRTR), INTENT(size 0, id 0), INTENT(size 0x80, id 1)
+        must not report corruption either: the empty intent is counted as
+        dropped and the intent after it is still stored as id 1,
   size0 VERSION, OPEN(IPCRTR), INTENT(size 0, id 0)
-        must still report QcomGlinkCorrupt, because a buffer with no bytes is a
-        real protocol error and the fix must not swallow it.
+        must not report corruption and must store nothing.
 
 Run: python3 scripts/tests/test-k60-glink-intent.py
 """
@@ -75,7 +85,8 @@ int main(int argc, char **argv)
     static uint32_t desc[4];
     static uint8_t txbuf[1024];
     static uint8_t storage[4 * 0x4400];
-    const int size_zero = argc > 1 && strcmp(argv[1], "size0") == 0;
+    const char *mode = argc > 1 ? argv[1] : "id0";
+    const int with_zero = strcmp(mode, "size0") == 0 || strcmp(mode, "drop") == 0;
     const char *name = "IPCRTR";
     const uint32_t n = (uint32_t)strlen(name) + 1;
 
@@ -84,8 +95,9 @@ int main(int argc, char **argv)
     head(QCOM_GLINK_OPEN, 1, n);
     memcpy(rxbuf + w_at, name, n);
     w_at += (n + 7u) & ~7u;
-    intent(1, size_zero ? 0u : 0x80u, 0);
-    if (!size_zero)
+    /* drop: an empty intent first, then a well formed one; size0: only empty. */
+    intent(1, with_zero ? 0u : 0x80u, 0);
+    if (strcmp(mode, "size0") != 0)
         intent(1, 0x80u, 1);
 
     QcomGlinkFifo tx = {&desc[1], &desc[0], txbuf, sizeof txbuf};
@@ -103,7 +115,7 @@ int main(int argc, char **argv)
         return 2;
     }
     const int rc = k60m_glink_poll(&g);
-    printf("poll=%d broken=%u\n", rc, g.broken);
+    printf("poll=%d broken=%u dropped=%u\n", rc, g.broken, g.dropped);
     for (unsigned i = 0; i < QCOM_GLINK_MAX_REMOTE_INTENTS; ++i)
         if (chan->remote[i].valid)
             printf("remote id=%u size=%u busy=%u\n", chan->remote[i].id,
@@ -128,6 +140,8 @@ def build(tmp):
     text = "\n".join(source)
     if "if (!size || !id) return QcomGlinkCorrupt;" in text:
         raise SystemExit("FAIL the carried copy still rejects id 0")
+    if "g->dropped++; continue;" not in text:
+        raise SystemExit("FAIL the carried copy does not drop an empty intent")
     (tmp / "qcom_glink.h").write_text("\n".join(header) + "\n", encoding="utf-8")
     (tmp / "qcom_glink.c").write_text(text + "\n", encoding="utf-8")
     (tmp / "harness.c").write_text(HARNESS, encoding="utf-8")
@@ -141,26 +155,50 @@ def build(tmp):
     return exe
 
 
+def run(exe, mode):
+    done = subprocess.run([str(exe), mode], capture_output=True, text=True)
+    if done.returncode != 0:
+        print(done.stdout)
+        raise SystemExit("FAIL the %s stream did not run" % mode)
+    return done.stdout
+
+
 def main():
     with tempfile.TemporaryDirectory() as name:
         tmp = Path(name)
         exe = build(tmp)
 
-        ok = subprocess.run([str(exe), "id0"], capture_output=True, text=True)
-        if ok.returncode != 0 or "poll=-5" in ok.stdout or "broken=0" not in ok.stdout:
-            print(ok.stdout)
+        id0 = run(exe, "id0")
+        if "poll=-5" in id0 or "broken=0" not in id0:
+            print(id0)
             raise SystemExit("FAIL an INTENT with id 0 is still called corruption")
-        if "remote id=0 size=128 busy=0" not in ok.stdout:
-            print(ok.stdout)
+        if "remote id=0 size=128 busy=0" not in id0:
+            print(id0)
             raise SystemExit("FAIL the id 0 buffer was not stored")
-        print("K60 GLINK INTENT id0 accepted: " + ok.stdout.splitlines()[0])
+        print("K60 GLINK INTENT id0 accepted: " + id0.splitlines()[0])
 
-        bad = subprocess.run([str(exe), "size0"], capture_output=True, text=True)
-        if "poll=%d" % CORRUPT not in bad.stdout or "broken=1" not in bad.stdout:
-            print(bad.stdout)
-            raise SystemExit("FAIL a zero-length buffer is no longer rejected")
+        drop = run(exe, "drop")
+        if "poll=-5" in drop or "broken=0" not in drop:
+            print(drop)
+            raise SystemExit("FAIL an empty intent still stops the link")
+        if "remote id=0 " in drop:
+            print(drop)
+            raise SystemExit("FAIL the empty intent was stored as a buffer")
+        if "remote id=1 size=128 busy=0" not in drop:
+            print(drop)
+            raise SystemExit("FAIL the intent after the empty one was not processed")
+        print("K60 GLINK INTENT drop: " + drop.splitlines()[0])
 
-    print("K60 GLINK INTENT PASS id0 accepted, size0 rejected")
+        size0 = run(exe, "size0")
+        if "poll=-5" in size0 or "broken=0" not in size0:
+            print(size0)
+            raise SystemExit("FAIL an empty intent alone still stops the link")
+        if "remote id=" in size0:
+            print(size0)
+            raise SystemExit("FAIL an empty intent alone was stored")
+        print("K60 GLINK INTENT size0: " + size0.splitlines()[0])
+
+    print("K60 GLINK INTENT PASS id0 accepted, drop keeps the link, size0 stores nothing")
     return 0
 
 

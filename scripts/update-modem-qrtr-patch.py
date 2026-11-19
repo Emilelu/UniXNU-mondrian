@@ -38,14 +38,17 @@ RENAME = ("qcom_glink_", "k60m_glink_")
 # calling it corruption stalled the handshake at poll 2.  The charger line has
 # since adopted the fix on its own terms (QcomGlink.c:408 drops the placeholder
 # and keeps the rest of the frame: `if (!size) {g->dropped++; continue;}`).
-# The delta below therefore carries only the pre-adoption file: once the source
-# contains the adopted line the generator skips it, and the carried copy is the
-# same bytes as drivers/PongPower/QcomGlink.c.  Delete this delta when the
-# branch has rebased onto the merged line.
+# The delta below therefore carries the adopted semantics into the pre-adoption
+# file: an empty intent is dropped and the frame keeps being decoded, which is
+# what scripts/tests/test-k60-glink-intent.py measures (the intent after the
+# empty one must still be stored).  Once the source contains the adopted line
+# the generator skips it, and the carried copy is the same bytes as
+# drivers/PongPower/QcomGlink.c.  Delete this delta when the branch has rebased
+# onto the merged line.
 DELTA = {
     "drivers/PongPower/QcomGlink.c": (
         "            if (!size || !id) return QcomGlinkCorrupt;",
-        "            if (!size) return QcomGlinkCorrupt;  /* id 0 is a legal buffer number */",
+        "            if (!size) {g->dropped++; continue;}  /* id 0 is legal; an empty intent carries nothing */",
     ),
 }
 

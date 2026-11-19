@@ -56,9 +56,9 @@
 | 帧：4 窗口中 2 个有提交时 CPU 各域 300 ms 内不低于 60 %（:116） | 部分（已接线，未触发） | `K60BoostPlan` 4 窗口/2 帧/300 ms/60 % 规则（host 40 项）；CPU 采样线程每 16 ms 读 `pong_adreno_cp_pending()` 喂 boost，再把 `k60_boost_frame_active()` 作为 `framing` 传给 governor，mode 8 的升档窗口会把它写成 perf-state 投票（commit `cbdf382f`，archive `9f119715`）；image w 05:07 上机 276 条样本全部 `fr=0`——启动全程 CP 环没有提交窗口，下限一次也没激活；真实 GPU 负载下的 300 ms/60 % 效果仍未验证 |
 | fence 等待睡眠到中断、最长 1 ms（:117） | 部分（离线） | `K60BoostPlan` 1 ms 预算函数（host 40 项）；提交路径未改 |
 | 外设投票所有权/引用计数、先停 DMA/中断再释放（:109） | 部分（离线） | `K60PowerVotePlan` 纯记账（host 58 项）；无消费者、不写 RSC/TCS |
-| OS 电源回调、休眠保存/恢复（:110） | 未实现 | 见 §5 平台睡眠 |
+| OS 电源回调、休眠保存/恢复（:110） | 部分（等待路径已实现，未上机） | `ArmCpu::quiesceCPU` 在 `platform-sleep=1` 时进入 `ml_arm_sleep`，GIC 使能保存/恢复与 PSCI CPU_OFF 已接；OS 通知到睡眠入口的完整链仍未上机，见下行 |
 | 目标稳压器、互连、温控顺序（:108） | 部分（离线） | 只有路线 A 的 TCS4 lcx/lmx 真实投票；CPU/GPU 电压、互连、温控无写路径；顺序与回滚见 `power/07-RAIL-ORDERING.md` |
-| 平台睡眠（:119-121） | 未实现 | `power/02-PLATFORM-SLEEP.md` 调研 + `K60SleepPlan` 纯逻辑（host 73 项：掩码、PON、deadline，以及 10 s 喂狗、wake-after、背光 2 帧/1500/600 ms、触摸 60 ms 重建）；无 ArmCpuSleep、TLMM、PON、喂狗、背光/触摸恢复 |
+| 平台睡眠（:119-121） | 部分（已实现，未上机） | `power/02-PLATFORM-SLEEP.md`：`ArmCpuSleep.h` + `ArmCpu.cpp` 等待路径（GIC 使能保存/恢复、CNTV 期限、timer PPI 27、storm 掩码、PSCI CPU_OFF），XNU hook `0623`，板级 `K60PlatformSleep.cpp`（timer-only，10 s tick，prepare/restore 日志）；`test-armcpu-sleep.c` 1038 项 + `K60SleepPlan` 73 项，七套件 1530 项全过；archive 140,048 B `f867efca…`；PON SPI 481/INTID 513 路由、看门狗喂狗、背光/触摸恢复仍未接，image z 已构建（boot.img `b167d4f9…`、kernel `df50f894…`、payload `facd5bc5…`，201,887,744 B），kernel 符号 `_armcpu_sleep_register`/`_k60_platform_sleep_register`/`_arm64_platform_sleep_hook` 已确认，未上机 |
 | 负载下测量频率并逐项验证（:111） | 部分（只读） | mode 5 的 image l 已有 274 条真机采样：d0 从 1000 busy/top 档降到 0 busy/300 MHz，证明 16 ms 采样、按域取最忙 CPU、4 窗口降档链路；但 mode 5 的探针不写 EPSS，EPSS 硬件自身仍在 691.2/1555.2 MHz（d0）、2.496 GHz（d1）、2.9952 GHz（d2）之间移动；mode 7 的受限期写回（只降）已于 03:26 以 image r 上机：win=854 后写入 d0 level=9（1,324,800 kHz）、`state=81->69`、10 s 后恢复，硬件回到 1.5552 GHz；GPU 无真机读数，负载/温度/throttle 未测 |
 
 **温控与主动降温（2026-11-19 决定）**：只读实现已由 `feat/thermal-tsens` 验收——22 个传感器读数与 5 个温区校准正确，压力等级经 IOPMrootDomain 发布（2026-11-15 真机：`PongThermal: tsens0[3] cpuss-2 zone27 43.0 C`、`level trapping (3) published as Thermal_Level_Warning=3`）。它**不会**因过热执行降温：真正的冷却动作（cpufreq-cdev）未接，这是第 ⑧ 步不判完成的唯一原因。可抄性已排查：pong 无 thermal 动作；zizhan 的 `ZizhanTsensCore.h` 只读、仓库只有 inventory/readonly 脚本；sheng 的 `CpuFreqProbe.cpp` 无温度输入；Linux K60 的 `cpufreq-cdev` 是 Linux thermal framework 绑定，不能直接搬。降频与 120 fps 共用一份热预算，所以本轮决定 **方案 1（park）**：保留只读监控与等级上报，主动降温策略不做，⑧ 步不再以它为阻塞；重访触发是 GPU 120 fps 飞行完成并做一次热预算实测，届时用默认关闭的 `pong_thermal_cap=1` 做方案 2 的飞行测试。曾尝试把该分支的 0617 补丁导入本分支（image u：mode 9 + thermal），2026-11-19 04:36 上机后串口 0 字节、设备失联需强制复位；该导入已由 `27ceb919` 回滚，thermal 只留在自己的分支。后续用不含温控补丁的 image t（只含 mode 9）复测，07:56 同样 0 字节卡死，说明共同因素是 mode 9 而非温控补丁；mode 9 已由 `3a0a5511` 禁用。
@@ -115,11 +115,12 @@
    （`E:/k60-work/artifacts/power-conformance-20261119o/boot.img`，201,887,744 B，sha256
    `b8e44043…`，kernel `d2b246bc…`；参数 gate OK，30 项 605 字节；`pong_gpu_dcvs=1` 默认关闭），o/q 均已上机，只缺负载驱动的升档闭环。
 - 2026-11-19 04:36 的 image u（`k60_cpufreq=9` + 导入的 0617 thermal 补丁，boot.img sha256 `fab4fe61…`，30 项 603 字节）与 07:56 的 image t（只含 mode 9、无温控补丁，boot.img sha256 `567d9b62…`，30 项 603 字节）**都未能启动**：fastboot 接受镜像，但 CDC-ACM 串口从未枚举（`capture.json state=port-not-observed`、0 字节、`returnedToFastboot=false`），设备失联直到强制复位。两次唯一的共同因素是 mode 9，温控补丁没有被证明有罪；`3a0a5511` 已在入口拒绝 9，thermal 导入仍由 `27ceb919` 回滚、只留在自己的分支。
+- 平台睡眠于 2026-11-19 落地：`ArmCpuSleep.h` + `ArmCpu.cpp` 等待路径（保存 GICD_ISENABLER、只留唤醒源、CNTV 期限、timer PPI 27、storm 掩码、PSCI CPU_OFF）、XNU hook `0623`、板级 `K60PlatformSleep.cpp`（timer-only，10 s tick）；`test-armcpu-sleep.c` 1038 项，七套件 1530 项全过，battery archive 140,048 B `f867efca…`。image z 首次 bootstrap 链接只带 GPU/电池 archive，电池新增的 `armcpu_sleep_register` 未定义，407ea557 在电池之前补 `-force_load libArmCpu.a` 后重建成功：boot.img 201,887,744 B sha256 `b167d4f9…`、kernel `df50f894…`、payload `facd5bc5…`，kernel 符号 `_armcpu_sleep_register`/`_k60_platform_sleep_register`/`_arm64_platform_sleep_hook` 都在；默认启动与 `platform-sleep=1 platform-sleep-wake-after=5` 的 5 s 睡眠都还没上机。PON SPI 481/INTID 513 路由、看门狗喂狗、背光/触摸恢复仍缺。
 - 缺：GPU 真机读数与投票结果、负载/温度/throttle 读数、外设转换与恢复的逐项验证、重启行为记录、主动降温（已按方案 1 park）。
 - 状态：**部分**。
 - 离线纯逻辑套件一条命令可复现：`bash scripts/tests/run-k60-power-host.sh`（WSL/Linux，可选一个输出目录）
-  依次编译运行 CPU 目标档、GPU 目标档、boost 窗口、睡眠唤醒路径、外设投票和跨模块数值钉住 6 个套件，
-  共 475 项断言（154/123/40/73/58/27）。`test-k60-power-conformance.c` 用 `_Static_assert` 把官网 §5 的
+  依次编译运行 CPU 目标档、GPU 目标档、boost 窗口、睡眠唤醒路径、外设投票、ArmCpuSleep 接口和
+  跨模块数值钉住 7 个套件，共 1530 项断言（154/140/40/73/58/1038/27）。`test-k60-power-conformance.c` 用 `_Static_assert` 把官网 §5 的
   1.25 倍余量、50 % GPU 目标、578 MHz 地板、1 s 触摸、300 ms/60 % 帧下限、50 ms GPU 唤醒、1 ms fence、
   10 s 喂狗、两帧/1500/600 ms 背光与 60 ms 触摸间隔钉在跨模块位置；每个套件必须打印自己记录的数量，
   数量漂移即失败。它只证明离线算术，不替代真机证据；ADSP/电池套件仍在
@@ -128,7 +129,7 @@
 ## 汇总
 
 排除 §2/§3（音频分支）后，本分支的完成度估计：§1 约 80 %、§4 约 85 %、
-§5 约 80 %、§6 约 60 %；整页（含音频与充电认证）仍远未闭环。离线部分已经
+§5 约 82 %（平台睡眠已实现、未上机）、§6 约 60 %；整页（含音频与充电认证）仍远未闭环。离线部分已经
 把 OPP/EPSS、GPU 规划、boost、投票账本、睡眠掩码、固件清单和稳压器顺序审计
 补齐；EPSS 写入守卫、回读与恢复、mode 5 的 16 ms 只读采样、mode 6 的只降 d0 写入路径均已离线
 补齐（host 154 项），mode 5 已于 23:19（274 条）与 23:53（image m，88 条）两次上机，mode 6 已于 02:47（image n）完成首次真机写入；

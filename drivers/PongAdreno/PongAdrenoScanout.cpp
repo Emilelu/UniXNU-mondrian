@@ -194,9 +194,17 @@ extern "C" int pong_scanout_frame(IOMemoryDescriptor *source,size_t offset,uint3
         absolutetime_to_nanoseconds(prepared-began,&prepare);
         absolutetime_to_nanoseconds(finished-prepared,&wait);
         absolutetime_to_nanoseconds(finished-began,&total);
-        char text[220];int n=snprintf(text,sizeof(text),
-            "PONG SCANOUT: frame=%llu prepare=%llu us offer_and_copy=%llu us total=%llu us\n",
-            pending.id,prepare/1000,wait/1000,total/1000);
+        /* addr/bytes are the mapping this frame handed the presenter. The
+         * presenter imports that user VA into a Metal buffer, and the import
+         * costs 63 us on some frames and 15000 us on others (usblog-20261119-125434,
+         * 18.4 MB). Without the address a log cannot say whether the expensive
+         * ones are the frames that got a fresh VA, which decides whether the fix
+         * is a kept mapping or something inside the bridge. */
+        char text[260];int n=snprintf(text,sizeof(text),
+            "PONG SCANOUT: frame=%llu prepare=%llu us offer_and_copy=%llu us total=%llu us addr=0x%llx bytes=%llu\n",
+            pending.id,prepare/1000,wait/1000,total/1000,
+            (unsigned long long)(pending.map?pending.map->getVirtualAddress():0),
+            (unsigned long long)(pending.map?pending.map->getLength():0));
         if(n>0)IOLog("%s",text);
     }
     if(pending.map)pending.map->release();

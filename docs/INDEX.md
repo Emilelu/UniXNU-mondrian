@@ -215,3 +215,4 @@ python3 scripts/render-eight-step-table.py --check
 - 2026-11-19 证明 GPU SMMU 的 IO coherence，让每次提交不再清 93 MiB 导入帧（抄 zizhan 的探针，此前三处跳过判据是死代码）：[飞行卡 b](research/gpu/FLIGHT-CARD-20261119b.md)
 - 2026-11-19 同一个 18.4 MB 拷进两个不同目标，用来分开「目标端慢」与「拷贝实现慢」：[飞行卡 d](research/gpu/FLIGHT-CARD-20261119d.md)
 - 2026-11-19 让 surface 只报一个行距，验证 untile 与它 5.3 ms 能否一起消失：[飞行卡 f](research/gpu/FLIGHT-CARD-20261119f.md)
+- 2026-11-19 帧拿到的映射地址是新的还是旧的：用来分开「保留映射能救 import」与「地址不是变量」：[飞行卡 i](research/gpu/FLIGHT-CARD-20261119i.md)

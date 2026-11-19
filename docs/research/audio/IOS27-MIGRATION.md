@@ -70,7 +70,8 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
    这几条加上判据测试、功放 host 测试与（有 sheng 检出时的）audioreach 测试，可以用一条命令全跑：
    `sh scripts/check-audio27-preflight.sh` → 首行 `repo <path> <branch> @ <sha>`（量的是哪棵树），
-   随后十三行 `ok` 与 `PREFLIGHT OK`（xnu27 那行带 `xnu-12377.121.6 ac9718f`，sheng 那行带 `(c8f92b2)`）（2026-11-20 05:1x 实测
+   随后十五行 `ok` 与 `PREFLIGHT OK`（xnu27 那行带 `xnu-12377.121.6 ac9718f`，sheng 那行带 `(c8f92b2)`；
+   `27 kernel carries the audio` 在没有 `XNU27_KERNEL` 时打印 `skip`，给了就跑产物判据）（2026-11-20 05:1x 实测
    979 cases / 182 checks / `API OK 4/4` 全过）。这条命令还在**从远端重新 clone 的分支副本**里跑过一遍
    （`git clone --branch feat/audio-ios27-carry …`，`SHENG_REPO=/mnt/e/hackios/UniXNU-sheng`）：
    全 `ok`，说明这条分支自带它需要的一切，不依赖本仓工作树、16 线补丁或未提交文件。

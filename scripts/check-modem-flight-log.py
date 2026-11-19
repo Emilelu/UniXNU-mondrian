@@ -10,7 +10,8 @@ Phases:
   c   metadata-only diagnostic (pong_modem=3): init_image and mem_setup, no
       power, no transport, no auth_reset
   b   full bring-up (pong_modem=2): S3 requires power/init/transport/mem/auth,
-      S4 requires the QRTR glink descriptor and a DMS revision
+      S4 requires the QRTR glink descriptor and a DMS revision, S5 a node-0
+      reply with at least one wanted service, S6 the published bridge
 
 Exit status is 0 only when every group of the requested phase passes.
 """
@@ -27,6 +28,9 @@ TRANSPORT_RE = re.compile(
     r"tx=0x[0-9a-fA-F]+/\d+")
 MEM_RE = re.compile(r"K60MODEM mem_setup ok base=0x([0-9a-fA-F]+) span=0x([0-9a-fA-F]+)")
 DMS_RE = re.compile(r"K60MODEM qrtr: dms revision (\S+)")
+VERDICT_RE = re.compile(
+    r"K60MODEM qrtr: verdict (.+?) services=(\d+) node0=(\d+)")
+PUBLISHED_RE = re.compile(r"COACHZ baseband: (\d+) of (\d+) services published")
 
 FAILED_LINES = (
     "K60MODEM power failed",
@@ -159,7 +163,29 @@ def check_b(text):
         problem = absent(text, needle)
         if problem:
             s4.append(problem)
-    return [("S3", s3), ("S4", s4)]
+
+    s5 = []
+    match, problem = one_match(VERDICT_RE, text, "K60MODEM qrtr: verdict line")
+    if problem:
+        s5.append(problem)
+    else:
+        if match[0] != "ok":
+            s5.append("verdict is %r, expected ok" % match[0])
+        if int(match[1]) == 0:
+            s5.append("verdict reports services=0")
+        if int(match[2]) < 1:
+            s5.append("verdict reports node0=%s, expected at least 1" % match[2])
+
+    s6 = []
+    problem = one_line(text, "K60MODEM baseband: bridge enabled")
+    if problem:
+        s6.append(problem)
+    match, problem = one_match(PUBLISHED_RE, text, "COACHZ baseband publication line")
+    if problem:
+        s6.append(problem)
+    elif int(match[0]) == 0:
+        s6.append("COACHZ published 0 services")
+    return [("S3", s3), ("S4", s4), ("S5", s5), ("S6", s6)]
 
 
 def main(argv=None):

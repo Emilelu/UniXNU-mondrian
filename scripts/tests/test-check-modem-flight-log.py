@@ -19,6 +19,9 @@ K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000
 K60MODEM auth_reset ok
 K60MODEM qrtr: glink desc=0x80a00000 intents=3
 K60MODEM qrtr: dms revision MPSS.DE.2.0.c1-CN
+K60MODEM qrtr: verdict ok services=37 node0=1 wanted=7 malformed=0 locator=3 dms=MPSS.DE.2.0.c1-CN polls=12
+K60MODEM baseband: bridge enabled (poll 500)
+COACHZ baseband: 6 of 6 services published (AppleBaseband, AppleBasebandPCIControl, 4 channels, the PDP manager, AppleIPAppender)
 """
 
 C_GOOD = """K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884
@@ -62,4 +65,13 @@ expect("b-no-transport", "b", B_GOOD.replace("K60MODEM transport ok smp2p=0x809e
        1, "expected exactly one K60MODEM transport ok line")
 expect("b-no-dms", "b", B_GOOD.replace("K60MODEM qrtr: dms revision MPSS.DE.2.0.c1-CN\n", ""),
        1, "S4: FAIL")
-print("K60 FLIGHT LOG PASS p1 c b negative-cases")
+expect("b-no-verdict", "b", B_GOOD.replace("K60MODEM qrtr: verdict ok services=37 ", "K60MODEM qrtr: verdict no reply services=0 "),
+       1, "verdict is")
+expect("b-verdict-zero", "b", B_GOOD.replace("verdict ok services=37", "verdict ok services=0"),
+       1, "services=0")
+expect("b-bridge-disabled", "b", B_GOOD.replace(
+    "K60MODEM baseband: bridge enabled (poll 500)\n",
+    "K60MODEM baseband: bridge disabled\n"), 1, "S6: FAIL")
+expect("b-published-zero", "b", B_GOOD.replace("6 of 6 services published", "0 of 6 services published"),
+       1, "published 0 services")
+print("K60 FLIGHT LOG PASS p1 c b s5 s6 negative-cases")

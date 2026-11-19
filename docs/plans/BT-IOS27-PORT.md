@@ -213,6 +213,35 @@ negative: the release reference link reports `RELEASE reference exit 2`,
 removes 67 unavailable forced exports and links again with exit 0. ArmCpu and
 ArmDTPlatform pass their `-Werror` arm64e object audits.
 
+Runs [44491451065](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44491451065)
+(15m29s) and [44492630013](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44492630013)
+(27m50s) then built the same series from the `ci/ios27-kernel` branch. The first
+attempt with the contract step,
+[44497671661](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44497671661), failed
+after 2m13s before compiling anything: `unixnu: missing file:
+.../UniXNU/profiles/os/ios-27.0.1-24A446/profile.toml`. The profile install line
+had been dropped from `scripts/build-ios27-linux.sh` when the CI branch was
+rebuilt, so `38d7404` carries the workflow onto this branch and restores the
+line. A second early failure, run 44508116480, was `curl: (22) ... 404` on the
+toolchain: the release asset had been uploaded as a draft, whose URL answers
+404, and the CDN kept answering 404 for a while after publication; `e837ab4`
+retries the download instead of trusting `curl --retry`. Run
+[44508963818](https://github.com/Emilelu/UniXNU-mondrian/actions/runs/44508963818)
+(head `e837ab4`, 14m02s) then passed every step, including "Check the
+Bluetooth contract", which runs `scripts/check-bluetooth-kernel.py` over the
+built kernel and payload.
+
+The workflow now lives on this branch, so `ci/ios27-kernel` has no unique
+content and is deleted. `020dbb5` re-includes `firmware/bluetooth/qca/*.bin`,
+because the extension rules further down `.gitignore` had left four NVM files
+untracked while the manifest listed all 106 entries. `fea097e` moves
+`check-bluetooth-dt.py`, `check-bluetooth-userspace.py` and their tests here
+from the iOS 16 line; both run on this tree (15 and 16 cases).
+
+`feat/bt-ios27-port` is only the kernel and the device tree:
+`[payload.runtime]` is not enabled and 0521 is a blob stub, so "iOS 27
+baseline" does not mean "Bluetooth works on iOS 27".
+
 What this proves: the Bluetooth series compiles and links into an arm64e
 xnu-12377 kernel that the profile's prelink step accepts, so the build half of
 P3 is closed. What it does not prove: no hardware has run this kernel, iOS 27
@@ -320,7 +349,7 @@ symbols unresolved. A full Xcode install needs none of them.
 
 ## 7. What remains before "directly usable after migration"
 
-1. P3's build half is done: three CI runs (§5.3) produced `kernel.macho` and
+1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and
    `payload.img` with the whole series, including the reclock and the
    device-tree node. What remains is
    hardware: `qbt_k60_start` must actually run under iOS 27, which waits for

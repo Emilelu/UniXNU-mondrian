@@ -26,7 +26,7 @@
 | 文件 | 内容 |
 |---|---|
 | [HARD-RULES.md](HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
-| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-256：症状 → 真因 → 判别 → 教训 |
+| [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-257：症状 → 真因 → 判别 → 教训 |
 | [`LINE-MAP.md`](LINE-MAP.md) | 逐行的“谁在做什么”地图：每条 bring-up 线的源码、补丁、证据与负责人 |
 | [GPU-IOSURFACE-ROOT-CAUSE.md](GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [PITFALL-TO-RULE-INDEX.md](PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |

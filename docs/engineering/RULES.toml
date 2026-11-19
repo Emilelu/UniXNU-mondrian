@@ -1124,3 +1124,10 @@ id = "P-256"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-256"
 check = "python3 scripts/tests/test-p256-worktree-prune.py"
+
+[[rule]]
+id = "P-257"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-257"
+statement = "拼出来的补丁没有重算 hunk 计数时，git apply 不报错而是按声明行数截断文件；--numstat 门禁看不见，必须逐 hunk 比对声明值与实际行数"
+check = "python3 scripts/tests/test-patch-hunk-counts.py"

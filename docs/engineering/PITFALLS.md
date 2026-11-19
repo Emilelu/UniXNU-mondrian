@@ -7220,3 +7220,43 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 
 **教训**：让 `prune` 变得"有理由"的往往不是 prune，而是别人写坏的一条路径。凡是元数据
 "看起来失效"，先查是谁把它写成了另一侧 stat 不到的形式，再决定要不要清理。
+
+## P-257 — 拼出来的补丁没有重算 hunk 计数：`git apply` 不报错，直接把文件截断
+
+**现象**：2026-11-20 给 carrier 合并试制分支拼 `patches/xnu/0613-k60-adsp-pas.patch` 时，
+按文件逐段取舍，新增了 6 行（SMCCC 注释和 operand 续行），hunk 头却仍是 `@@ -0,0 +1,90 @@`。
+`scripts/check-patch-apply.py`（P-162，跑 `git apply --numstat`）绿，`git apply` 也绿，
+生成的 `bsd/dev/pong_adsp_pas.c` 却只有 90 行：尾部 `k60_adsp_scm_tried()` 整段消失，
+编译器报
+
+```
+bsd/dev/pong_adsp_pas.c:90:4: error: expected identifier or '('
+```
+
+报错指向被截断的 C 文件，不指向补丁。同样形状还有两处：P-255 自己（`fbff5da5` 改了
+0613 的 SMC 段 6 行，计数没跟着改，本分支一直是 90/96；因为改完没有再构建，才没变成
+一次失败的构建），以及 `patches/wifi/0007-configs-mondrian-wifi-defconfig.patch`
+（声明 71、实有 73，wifi 线的 defconfig 被静默丢了最后两行）。
+
+**根因**：
+
+1. `git apply --numstat` 只回答"能不能解析"，不比较 hunk 体与头的数字；
+2. `git apply` 按头部声明的行数消费 hunk，多出来的 `+` 行被静默丢弃
+   （实测：空仓库里应用坏补丁，rc=0，文件 90 行）；
+3. 手工拼补丁（三方合并逐段取舍）时，头部计数是最容易忘记重算的东西。
+
+**修法**：
+
+1. `scripts/check-patch-hunk-counts.py`：逐个 hunk 数 ` ` / `-` / `+`，与
+   `@@ -a,b +c,d @@` 比对，默认扫 `patches/**/*.patch`；纯文本、秒级。
+2. 拼完补丁必须跑一次；`scripts/fix_613_counts.py` 那种"按实际体重写计数"的脚本
+   把重算变成机械动作，别靠眼睛。
+3. 用例 `scripts/tests/test-patch-hunk-counts.py`（10 项）：一致通过；少报/多报都拒
+   并打印声明值与实有值；两文件纯 unified diff（没有 `diff --git`、带空行分隔）必须
+   能解析——这条是解析器自己的回归，第一版把 `--- a/...` 当成了删除行。
+
+**教训**：
+
+1. "能解析"不等于"自洽"。门禁只调 `--numstat` 时，它保护的是解析器，不是构建。
+2. 静默截断比报错危险：文件仍然生成、构建仍然继续，错误出现在下游最远的地方。
+3. 补丁是代码，拼完要像代码一样验：计数、`git apply`、再 grep 一个只有尾部才有的符号。

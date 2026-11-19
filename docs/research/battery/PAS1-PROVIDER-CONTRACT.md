@@ -106,6 +106,35 @@ clobber 行齐全、旧的输入-only 形状必须消失，并用合成旧文件
 `test-k60-adsp-smccc.py`；那条门禁还要求注释里同时出现 `SMCCC` 与 `x4..x17`，因为下一个人
 需要读到的理由是“监视器可以改写这些寄存器”，而不是一串 clobber 名字。
 
+### 把载体分支构建起来（2026-11-20，离线试制）
+
+在空 `K60_OUT` 里构建合入 `feat/adsp-carrier` 的树，除了常规 defconfig/tree/kernel
+之外还有五处只能靠日志发现的输入：
+
+1. **`os_profile` 决定构建器，`unixnu --os` 不覆盖它。** 要 16.6.1 的 PONG 构建器，
+   得在 defconfig 之前把 `[board] os_profile` 改成 `ipados-16.6.1-20G81`，并且**再拷一份到
+   `<tree>/tree/board.toml`**。`build-xnu-4k-baseline.sh` 从 `$ROOT/board.toml` 读，
+   树里没有这份文件时 `pick-xnu-builder.sh` 得到空串、静默切到 generic 构建器，最后报的是
+   "ArmCpu bring-up requires the real source provider and a real platform driver"。
+2. **fakeroot 的 `Availability.h` 缺 `__SPI_AVAILABLE`。** 它由 `prepare-xnu-source.py`
+   生成；`prepare-xnu.py libs` 编 `InstrProfiling.c` 时会被 libsyscall 的 `gethostuuid.h`
+   顶成 `expected function body after function declarator`。补一条
+   `#define __SPI_AVAILABLE(...)` 后能生成 `libcc_kext.a`（19,800 B），构建器看到它存在就跳过这步。
+3. **GPU 固件不在设备树里**：`PONG_ADRENO_FIRMWARE_DIR` 必须指向有 `gmu_gen70000.bin`
+   的目录（例如 k60-charger 的 `.cache/firmware/k60-gpu`）。
+4. **电池归档必须放进构建树**：`<tree>/tree/build/k60-battery/libK60PhysicalBattery.a`，
+   放在设备树根部不起作用（`build-xnu-4k-baseline.sh:1254` 的 `test -f` 会失败）。
+5. **0613 的 hunk 计数**：拼完补丁要重算，否则 `git apply` 静默截断
+   `bsd/dev/pong_adsp_pas.c`（[P-257](../../engineering/PITFALLS.md)），截断后的报错是
+   `pong_adsp_pas.c:90:4: error: expected identifier or '('`。
+
+满足这些之后，试制分支在空树上构建成功：`kernel.macho` 129,150,976 B、sha256
+`ab39a7898f86e2b52f22d3f1f043d4d0122a24de3a2606ba9208d85aeec6bef2`，`llvm-nm` 里
+55 个 `k60_adsp_*` 符号、43 条 `K60PAS` 字符串。
+`scripts/tests/run-k60-handoff-host.sh` 报 24 个 "TESTS OK"，但它需要一个**0619 之前**的
+XNU 树（它要把 0611 的前身补丁自己打上去；给它一棵已含 0619 的树会报
+`canonical source differs`）。
+
 ## 返回与可观察结果
 
 | 层/情况 | 结果 |

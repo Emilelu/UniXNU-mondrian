@@ -75,4 +75,5 @@ run_py sleep-judge python3 scripts/tests/test-judge-k60-sleep-console.py
 run_py mode1-judge python3 scripts/tests/test-judge-k60-mode1-console.py
 run_py ios27-preflight python3 scripts/tests/test-check-ios27-power-preflight.py
 run_py hw-contracts python3 scripts/check-hw-contracts.py
+run_py battery-mirror python3 scripts/tests/test-judge-k60-battery-mirror.py
 echo "power-python: OK ($python_suites suites)"

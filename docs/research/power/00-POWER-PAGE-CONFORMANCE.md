@@ -141,6 +141,8 @@ GPU DCVS 也已接上 GMU XO 忙碌计数器、HFI id 30 投票与 16 ms 线程�
 （只降、首个降档窗口后 10 s、最多 16 票、结束恢复原值、升档拒绝）：`armed win=854` 后 d0
 `state=81->69`、`readback=ok`，10 s 后 `restore domains=1 votes=1`，硬件回到 1.5552 GHz；升档仍须先接电压/互连/温控顺序，
 触摸/帧信号（§5 :115-:117）已接：触摸计数补丁 `0622` 与 CPU/GPU 消费方 `aa3bada7` 已进 image x（05:47 拿到 `tb=1`、计数 1→7，但写窗口先关）；`9b8a36b6` 重开窗口、`a0e8a060` 去掉 100 s 上限、`a6a51bc5` 强制首票，image ab 于 07:18 把 d0 写到 `state=15->94`、`hw=1804800kHz`（`restore domains=3 votes=27`）；`43af2a5c` 再把票数改为每窗口重置、`boost` 覆盖每个域，image ac 于 07:34/07:43 两次上机但窗口内没有触摸（276/273 条 `tb=0`），轻触摸与预算仍未验证；帧下限自 image w 起从 CP 环采样（276 条 `fr=0`）。mode 8 于 03:58 以 image s 把升档也写进 d0：`apply d0 level=13 (1804800kHz) readback=ok state=81->94`，与降档交替 11 票后 `restore domains=2 votes=11`；但 d1 的 `apply level=16 readback=ok` 之后 `state=130->130`、硬件仍是 2.496 GHz，EPSS 对大核簇的自主控制没有被这条路径接管，d1/d2 的写回应视为无效。
+版本无关的 CPU 策略继续补齐：PDMEM perf-lock（`0x17d09804/8/c`）、L3 follow（`0x17d90000` + `0x90`）与 `0x30c` bit2 + `0x20` 硬件上限夹取均已接进 `K60CpuFreqPlan`/探针（host 203 项、七套件 1579 项），但都没有上机；下次有确认的测试计划时再验证。
+
 温控只读线在 `feat/thermal-tsens` 已验收（22 传感器、等级发布），主动降温按方案 1 park，本分支不接线（导入尝试以 `27ceb919` 回滚）。电池插拔暂缓；充电认证移植已在 `feat/charge-auth` 分支（未接入）。
 
 ## 参考

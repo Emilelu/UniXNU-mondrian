@@ -97,12 +97,17 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   runs that whole path in one command and finishes by counting symbols (6 cases in
   scripts/tests/test-build-wifi27-kernel.py).
   Cost of a cold 27 kernel on this host, measured 2026-11-20: 2,154 sources under the xnu
-  work tree compile at roughly 2.7 objects per minute, so the bootstrap pass alone is 9-13
-  hours; only two to four clang processes run at once because the sources live on the 9p
-  share (listings of bsd/ cost 0.19 s there against 0.00 s on ext4). The second pass does
-  not repeat that work: XNU_BOOTSTRAP only gates the archive block at
-  scripts/build-xnu-generic.sh:604, so the compile flags are identical and make relinks
-  what the first pass already built.
+  work tree compile at 2.7-4.4 objects per minute, so the bootstrap pass alone is 8-13
+  hours. Do not chase the filesystem: three tests settled that the wall clock is the make
+  graph, not I/O. A copy of the whole tree on ext4 recompiled from zero at the same rate
+  (rsync of 482 MB, 927 objects carried over, then every object rebuilt), so relocation
+  buys nothing and loses the work already done. Forcing MAKEFLAGS=-j8 on the outer make
+  changed nothing either. The cause is visible in the log: the outer make at
+  scripts/build-xnu-generic.sh:841 passes MAKEJOBS to the sub-make without a jobserver, so
+  the sub-make prints "jobserver unavailable: using -j1" (33 times) and compiles one file
+  at a time while eight cores idle at load 3. The second pass is cheap: XNU_BOOTSTRAP only
+  gates the archive block at scripts/build-xnu-generic.sh:604, so the compile flags are
+  identical and make relinks what the first pass already built.
 - [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
   2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
   CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on

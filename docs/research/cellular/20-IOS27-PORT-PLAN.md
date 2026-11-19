@@ -45,6 +45,31 @@ series 行尾注释按 Lead 要求写「ported from 16 line 0620..0623」，方�
 
 其余位置都是页大小自适应的：`round_page()`/`ptoa_64()`/`pmap_find_phys()` 按内核自己的页大小工作；`K60_MODEM_PROBE_PAGE 0x1000` 是映射长度，`ml_io_map` 会向上取整；**`K60_IPA_GSI_PAGE_SIZE 0x1000` 不能改**——那是 GSI 硬件的 TRE 环粒度（`_Static_assert(K60_IPA_GSI_TRE_BYTES * K60_IPA_GSI_TRE_COUNT == 0x1000)`），与 VM 页无关。
 
+### 4.1 27 侧 API 与 4 KiB 常量的逐项核对（2026-11-20 06:00）
+
+四个补丁共引用 8 个内核符号，逐个在 `/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc` 里查过：
+
+| 符号 | 27 树里的位置 | 结论 |
+|---|---|---|
+| `ml_io_map_unmappable` | `osfmk/arm/machine_routines.h:611` | 有，签名不变 |
+| `kmem_alloc_contig` | `osfmk/vm/vm_kern_xnu.h` | 有；第 5 参数仍是 `max_pnum` |
+| `ptoa_64` | `osfmk/vm/vm_kern.c` 等 | 有，唯一 VM 页换算点已改用它 |
+| `flush_dcache64` | `osfmk/arm/caches_internal.h:43`（实现 `osfmk/arm64/caches_asm.s:440`） | 有 |
+| `pmap_find_phys` | `osfmk/arm64/pmap.c` 等 | 有 |
+| `PE_parse_boot_argn` | `osfmk/console/video_console.c` 等 | 有 |
+| `kernel_map` / `kmem_free` | `osfmk/vm/vm_kern.c` | 有 |
+| SMC 调用 | **27 树没有 `scmCall`** | 不受影响：我们自带 `__asm__ volatile("smc #0" ...)`（`drivers/PongCellular/K60ModemPas.c:34`），从 Pong 那套 `scmCall` 依赖里摘出来了 |
+
+4 KiB 常量盘点（只有第一条曾是风险，已修）：
+
+| 位置 | 性质 | 判断 |
+|---|---|---|
+| `k60_qrtr_rmtfs_low_alloc()` 的 `>> 12` / `ptoa_64(1)` | VM 页 | **已改**为 `ptoa_64(1)`，16 KiB 与 4 KiB 内核同义 |
+| `K60_MODEM_PROBE_PAGE 0x1000` | `ml_io_map_unmappable` 的**字节长度**（只看 carveout 头部的载体） | 不是页粒度，16 KiB 内核下照样映射 |
+| `K60M_ASSIGN_RECORD 4096u` | SCM 内存归属记录的 scratch 尺寸（Pong 原样 4 KiB 记录） | 与页大小无关 |
+| 0622 的 `k60_modem_map(K60_MODEM_IPCC_BASE, 0x1000)` | IPCC 寄存器块字节长度 | 寄存器块 4 KiB，与 VM 页无关 |
+| 0623 的 `0x1000` / `/4096u` / `K60_IPA_GSI_PAGE_SIZE` | GSI 的 TRE 粒度、SMMU4K 叶表粒度 | **硬件粒度**，16 KiB CPU 页不能改它 |
+
 ## 5. call site：不 apply 的原因不是行号，是上下文块在 27 上还不存在
 
 16 线的两处调用挂在 `main` 的 K60 data-mount 补丁（`0614`）里那段 `native_owner_data_stage = 3; vnode_lookup("/private/var", …)` 尾巴上。

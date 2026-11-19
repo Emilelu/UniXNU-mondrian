@@ -3,8 +3,8 @@
 #
 # Runs the pure-logic suites behind the official power page: the CPU and GPU
 # frequency plans, the boost rules, the sleep wake path, the ArmCpuSleep
-# interface, the peripheral vote bookkeeping and the cross-module pin of the
-# numbers section 5 states.
+# interface, the peripheral vote bookkeeping, the rail ordering model, the
+# thermal trip map and the cross-module pin of the numbers section 5 states.
 # Each suite must print exactly its recorded check count, so a test that stops
 # compiling its new cases fails here instead of passing silently.
 #
@@ -42,4 +42,6 @@ run armcpu-sleep 1038 scripts/tests/test-armcpu-sleep.c
 run conformance 134 scripts/tests/test-k60-power-conformance.c \
   drivers/PongPower/K60BoostPlan.c drivers/PongPower/K60SleepPlan.c \
   drivers/PongPower/K60PowerVotePlan.c drivers/PongPower/K60RailPlan.c
-echo "power-host: OK ($total checks in 7 suites; portability preflight passed; binaries in $OUT)"
+run thermal 125 scripts/tests/test-k60-thermal-map.c \
+  drivers/PongPower/K60ThermalMap.c drivers/PongPower/K60RailPlan.c
+echo "power-host: OK ($total checks in 8 suites; portability preflight passed; binaries in $OUT)"

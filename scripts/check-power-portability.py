@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Guard the power policy modules that must survive the iOS27 move.
 
-The CPU/GPU/boost/sleep/vote/rail plans are pure C: no IOKit, no XNU, no MMIO.
+The CPU/GPU/boost/sleep/vote/rail plans and the thermal trip map are pure C:
+no IOKit, no XNU, no MMIO.
 This check fails if one of them grows a platform include or symbol, and it
 compiles every module freestanding so an accidental libc/IOKit dependency is
 caught before the iOS27 tree inherits it.
@@ -20,6 +21,7 @@ MODULES = [
     "K60SleepPlan.c",
     "K60PowerVotePlan.c",
     "K60RailPlan.c",
+    "K60ThermalMap.c",
 ]
 HEADERS = [name[:-2] + ".h" for name in MODULES]
 FORBIDDEN_INCLUDE = re.compile(
@@ -58,7 +60,8 @@ for name in MODULES:
         "-Wall", "-Wextra", "-Werror", "-I", str(POWER),
         "-fsyntax-only", str(path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
     if result.returncode != 0:
         print(f"POWER PORTABILITY FAILED: {name}", file=sys.stderr)
         print(result.stderr, file=sys.stderr)

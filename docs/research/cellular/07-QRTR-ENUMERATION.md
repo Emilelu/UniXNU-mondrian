@@ -282,3 +282,30 @@ k35 起 QcomBaseband 组件真的链进内核（22/22 服务发布，S6 PASS）�
 
 由此，枚举工作的下一步不再是“怎么问”，而是“让 modem 把 QMI 栈拉起来”。k45 并行的两个假设：
 名称服务器端口（53，而不是控制端口）与 AP 侧存储服务（Pong 在启动 modem 之前就挂好的 RMTFS 14/1）。
+
+### 10.5 RMTFS 需要什么：Pong 的存储服务与内存分享原语（2026-11-19 静态查明）
+
+Pong 的 RMTFS 是 QMI v1、服务 14 / 实例 **0**（`PongModemRmtfs.h` 注释），端口 `0x102`，
+伺候四个 EFS 分区：`/boot/modem_fs1`→`modemst1.bin`、`modem_fs2`→`modemst2.bin`、
+`modem_fsg`→`fsg.bin`、`modem_fsc`→`fsc.bin`；读走 `pong_ufs_factory_nv()`（真实 UFS 分区），
+写只进本次启动的影子，绝不落原厂 NV。缓冲 `RmtfsBytes = 0x280000`（2.5 MiB），低 4 GiB、
+CPU 可访问的同时交给 modem。
+
+把一块物理页交给 modem 的原语在 `PongModemMemshare.h:26-49`，关键三行：
+
+```
+const uint32_t types=7u|(QCOM_SCM_RO<<4)|(QCOM_SCM_RO<<8)|(QCOM_SCM_RO<<12);
+const Result result=scmCall(0x0c,0x16,types,scratch,16,scratch+64,scratch+192);
+```
+
+即 SCM 服务 `0x0c`、命令 `0x16`，四个缓冲区都在 PAS 阶段就分配好的 64 KiB metadata scratch 里：
+偏移 0 放物理地址、8 放按页取整的字节数、64 起是源 VMID 列表（HLOS = 3）、128 起是目标
+（MSS_MSA = 15 或 HLOS = 3，权限 6/7 表示读写）、192/200/208 放三段记录的（长度, 指针）元数据。
+我们的 `k60_modem_scm_call()`（K60ModemPas.c:50）已经是 8 寄存器 + 8 个返回值的形态，
+但要传三个指针还得把 `d`/`e` 两个参数补上——这是 k46 的第一块砖。
+
+顺序上 Pong 是先等 `pong_rfs_ready()`（原生 Data 卷挂好）、再 `PAS_INIT_IMAGE`，
+注释原文：*RF initialization can request readwrite files immediately, so do not authenticate/start it
+against an unmounted native Data namespace*（`PongModemRuntime.cpp:271-277`）。这解释了 k44 的静默基线：
+modem 的 QMI/RF 栈要读 NV 才能起来，而我们既没挂 RMTFS，也没把缓冲交给它。
+

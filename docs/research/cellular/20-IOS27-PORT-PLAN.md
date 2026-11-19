@@ -274,3 +274,38 @@ K60 READY OK every recorded expectation still holds
 漂移路径也验过：指向 16 线 feed 树时它报 `K60 READY DRIFT 0621-k60-io-submap-budget.patch expected rc=1 got rc=0`、
 `K60 READY CHANGED 1 expectation(s) drifted`、退出码 1；`--self-test` 输出 `K60 READY PASS expectations compared, drift detected`，已进宿主套件。
 
+## 14. 构建接线：补丁只放文件，`bsd/conf/files` 要另一条腿
+
+2026-11-20 06:11 审计三个 port 补丁的实际文件表（脚本内 `conf_entries()` 直接读补丁的 `+++ b/` 行）：
+
+| 补丁 | 字节 | 文件 |
+|---|---|---|
+| `0626-k60-modem-image.patch` | 29,161 | 6 个（`pong_modem_image/pas/boot/table`） |
+| `0627-k60-modem-qrtr.patch` | 170,730 | 12 个（`pong_modem_qrtr/link/rmtfs/memshare/efs/smp2p` + `qcom_glink`） |
+| `0628-k60-ipa.patch` | 174,551 | 19 个（`pong_ipa*` 14 个 + `pong_mdt`） |
+
+三个补丁**全是新文件**，没有一个 hunk 动 `bsd/conf/files`、`board.toml` 或 `scripts/`。
+16 线能编，是因为构建驱动在种子之后补了一次：
+`scripts/append-conffiles.py`（`ANCHOR = "bsd/dev/pong_buttons.c\t\t\tstandard"`，条目 25 条），
+注释写明 P-171「a conf/files hunk cannot be anchored at patch time (the tree is rebuilt)」。
+
+27 树 `bsd/conf/files`、`files.arm64`、`files.x86_64` 里 `pong_`/`qcom_glink` 计数都是 **0**
+（`grep -rn 'pong_' /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc/bsd/conf/` 无输出），
+所以即使 0629 的调用点打上去了，链接也只会得到一堆 `Undefined symbols`。
+
+工具现在同时产出 `conffiles-port.txt`（18 行，`bsd/dev/<源>.c` + 三个制表符 + `standard`，从补丁文件表推出，不是手抄），
+`--self-test` 加了守则：空表、重复行、缺制表符、不以 `.c` 起头、缺 `pong_modem_link.c` 都失败
+（输出 `K60 PORT27 PASS renumbering, anchor insertion, refusal, verification, series, build list`）。
+
+两条落地路线，等 Lead 裁决：
+
+1. **构建期追加**（照 16 线）：在 27 的构建驱动里加一步，把 `conffiles-port.txt` 的 18 行插到某个稳定锚点之后。
+   需要先在 27 树里挑一行已存在的 `bsd/dev/*.c ... standard` 当锚点——16 线的
+   `bsd/dev/pong_buttons.c` 在 27 的 stage-0 里并不存在，锚点得重新选，且这一步同时决定
+   「谁负责在 27 线上维护这张表」。
+2. **补丁自带**（新增 0630）：把 18 行作为一个追加式 hunk 打进 series。
+   27 的 feeds 树是钉死的 commit（`xnu-12377.121.6` / `ac9718f`），文件尾部的上下文稳定，
+   P-171 的顾虑在这里不成立；代价是以后主线上游一改 `bsd/conf/files` 尾部，就要跟着 rebase。
+
+本文的倾向是路线 1（与 16 线同一套维护责任，不把构建接线塞进补丁序列），但这一条要 Lead 定，
+因为 27 线的构建驱动不在本分支。

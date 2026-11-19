@@ -1905,6 +1905,13 @@ fixture 提供 `IOReturn` 枚举、64 KiB `gMemory`、`read32`/`write32`/`waitCl
 - 结论：`-R` 只做 `xpc_connection_create_mach_service("com.apple.BlueTool")` 加 run loop；打印来自 `RunBuiltinScript` → `runCommandForCurrentConfig` → `getChipset` → `0x100018be0`，由传输标志把关；传输只由 `device` 命令经 `AF_SYSTEM` socket 打开 `com.apple.uart.bluetooth`。
 - 影响：适配器的设计成立（传输在内核），但要验证到 HCI 直通仍需 Data 挂载门打开后在真机看 `bluetoothd` 的行为。
 - 证据：本项无新补丁、无新脚本；结论写进 fork `docs/plans/BT-IOS27-PORT.md` §6.3 与 `porting.toml` 的 ios27-arm64e findings。
+### 7.39 bluetoothd 与 BlueTool 的 XPC 契约（2026-11-19）
+
+- 目的：确认适配器（`com.apple.BlueTool` 服务端）需要满足哪些请求与回复键，以及 HCI 由谁打开。
+- 方法：反汇编 24A446 `bluetoothd`，定位 mach 服务创建点、消息构造 helper、回复键读取点与传输探测函数。
+- 结论：bluetoothd 只发 `RunBuiltinScript`（script/btaddress）与 `RunCommand`（command），只读 `result`/`firmware`/`manufacturer`/`output`；HCI 由它自己经 `/dev/*.bluetooth`、`Apple*` IOService 或 `com.apple.uart.sk.bluetooth` 通道打开。
+- 影响：适配器不必实现传输；内核 `qbt_transport.c` 已注册该 kernel control（第 565 行）与 nexus provider（第 372 行），0520 的别名在第 577 行。剩余工作是 Data 挂载门后的真机验证，而不是协议层补齐。
+- 证据：无新补丁、无新脚本；结论写进 fork `docs/plans/BT-IOS27-PORT.md` §6.4 与 `porting.toml` 的 ios27-arm64e findings。
 ## 8 八步账本沿革与 d8/0516 历史范围
 
 **历史实飞状态（2026-11-17 12:03 d9 FAIL；此后 0518 候选仅离线构建，见 §7.25）**：蓝牙账本当时保留 `bt-0516-uart-clock` 候选记录；0516 已在用户授权后执行一次 `fastboot boot`，但 NVM 第一次 7 段、fallback 21 段仍 `ret=-60`，`power=1 result=-60`，按预声明判据 FAIL；d8 保持失败观测与回滚基线（boot `0297012d…`）。⑧仍为 false；0516 不是足够修复。

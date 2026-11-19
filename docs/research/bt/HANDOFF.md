@@ -1242,3 +1242,15 @@ bt-0525 的 console 以 `Device not open yet, use 'device' to open it.` 结束�
 - 对本线的意义：Data 挂载门打开后 `/usr/sbin/BlueTool` 就是暂存的适配器（0526 挂 `bluetooth-bin`），launchd 作业也已是 root（0527 挂 cache）。适配器答同一个 mach 服务，但把 `RunCommand` 做成 stub，丢掉 `RunExternalScript`、`btaddress`、真 manufacturer/firmware，也没有实现上面的传输打开序列 —— 这是有意为之：传输由内核 `qbt_k60` 驱动。代价是迁移只能验证到「bluetoothd 与适配器对话」这一层；若 daemon 需要自己打开的 HCI 直通，这一层还得补 `device` 命令。该问题在 Data 挂载门打开前无法回答。
 
 - 边界：以上全部来自静态反汇编与 24A446/20G81 二进制，没有在设备上验证；不产生新补丁，也不改内核。
+
+### 63. bluetoothd 与 BlueTool 的协议，以及 HCI 到底由谁打开（2026-11-19 22:35）
+
+反汇编 24A446 的 `bluetoothd`（arm64e，`__TEXT` 在 `0x100000000`，文件偏移 = vmaddr − `0x100000000`）回答 62 留下的问题：适配器要满足什么，传输由谁打开。
+
+- **bluetoothd 是客户端**。它有九处 `xpc_connection_create_mach_service`，只有一个指向 `com.apple.BlueTool`（`0x100401b90`，在构造器 `0x100401b64` 里），带 set_event_handler / set_context / set_finalizer_f，然后 `resume`（`0x100401dec`）。两个调用点：`0x1004d25e0`（脚本）与 `0x1004d2f38`（命令）。
+- **只有两种消息**，都带 `kMsgId` 与 `kMsgArgs`（helper `0x1001226b0`），用 `xpc_connection_send_message_with_reply_sync`（`0x100401ea8`）发送：`RunBuiltinScript` 带 `{"script": boot|init|deepsleep, "btaddress": <addr>}`（`0x1004d2444`，btaddress 仅当地址非零），`RunCommand` 带 `{"command": <string>}`（`0x1004d2dc0`）。没有 `device`、没有 `status`、没有 `RunExternalScript`，也没有任何 data 设置。
+- **只读四个回复键**：`result`（`get_int64`，`0x1004d2a08`）、`firmware`（`get_string`，`0x1004d2aa4`）、`manufacturer`（`get_int64`，`0x1004d2ab8`，与 firmware 一起格式化成 `%lld/%s`，`0x1004d2af8`）、`output`（`get_string`，`0x1004d3124`，只记日志）。不重试，回复里也没有传输句柄。
+- **HCI 是 bluetoothd 自己的**。探测函数 `0x1001f3d28` 找 `/dev/cu.bluetooth`、`/dev/uart.bluetooth`、`marconi-bt` 与 `bluetooth` 两个 IOService、以及 UART.SK 通道（`os_channel_create("com.apple.uart.sk.bluetooth")`，`0x1009ec56c`，前面是 `CTLIOCGINFO`/`connect`/`IOAOSSKYSETCHANNELSPEC`/`IOAOSSKYGETCHANNELUUID` 序列）；另有 `AppleBluetoothModule`（`0x1002631b0`）、`AppleConvergedIPCOLYBTControl`（`0x10026329c`）、`AppleBTMgmt`（`0x1002e5410`）、`AppleBTHci`（`0x100334eb0`）、Sunrise PCIe（`0x100265d84`）作为可选节点。
+- **对本线的意义**：适配器对 BlueTool 这一层足够（`result=0`、`manufacturer=29`、firmware、output 就是全部契约）；传输在内核侧已经具备 —— `bsd/dev/qbt/qbt_transport.c` 用 `ctl_register` 注册 `com.apple.uart.sk.bluetooth`（第 565 行），并用 `kern_nexus_controller_register_provider`（第 372 行）提供 `os_channel_create` 需要解析的 provider，0520 又加了 `com.apple.uart.bluetooth` 别名（第 577 行）给 stock BlueTool 的默认名。也就是说 HCI 不需要经过 BlueTool。
+
+- 边界：全部来自静态反汇编；行号按 verify0527b 的 `bsd/dev/qbt/qbt_transport.c` 核对过（372/565/577 一致）。未上机。

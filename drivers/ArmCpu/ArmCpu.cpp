@@ -20,6 +20,8 @@ extern "C" kern_return_t psci_smp_start_cpu(int);
 extern "C" void psci_smp_cpu_running(void);
 extern "C" void psci_smp_cpu_off(void) __attribute__((noreturn));
 extern "C" void pong_cpu_startup_finished(IOCPUInterruptController *);
+/* processor.h in the installed kernel SDK omits this declaration. */
+extern "C" kern_return_t processor_exit_reason(processor_t, processor_reason_t, uint32_t);
 extern "C" {
 volatile uint32_t armcpu_registered, armcpu_gic_ready;
 volatile uint64_t armcpu_timer_interrupts, armcpu_ipi_interrupts;
@@ -714,7 +716,14 @@ void ArmCpu::quiesceCPU(void)
 
 void ArmCpu::haltCPU(void)
 {
-  quiesceCPU();
+  /* IOCPUSleepKernel calls this on the boot core for every target. The target
+   * must go down from its own context: processor_offline -> cpu_sleep ->
+   * quiesceCPU -> ml_arm_sleep. Calling quiesceCPU here would quiesce the
+   * boot core instead and then wait forever for the other cores' tokens. */
+  if (machProcessor != nullptr) {
+    processor_exit_reason(machProcessor, REASON_SYSTEM, 0);
+    return;
+  }
   setCPUState(kIOCPUStateStopped);
   __asm__ volatile("msr daifset, #15" ::: "memory");
   for (;;) __asm__ volatile("wfi");

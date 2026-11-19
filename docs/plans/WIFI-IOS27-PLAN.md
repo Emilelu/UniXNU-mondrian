@@ -25,6 +25,19 @@
 - host 自检：pong-abi-selftest.c 31 项、test-pong-abi.py 28 项、test-pong-he、test-pong-sae 全过；参考漂移检查会在 sheng 检出存在时对照 0x8e8/2048/0x8d0/12 等常量。
 - 27 的 teardown：PongWifiPlatform.cpp:68 的 stopRequested、worker 循环头 :811、:836 的 nw_wifi_stop；PongWifiNet.cpp:1206 的 pong_wifi_net_stop 与 :1028 的 pong-wifi-stop 属性入口。两代站头各编译一次，llvm-nm 见 _pong_wifi_station_stop 与 _pong_wifi_net_stop（SBL-MISSION §42）。
 
+## 3.1 已对齐的应答面（2026-11-19 16:30）
+
+| 应答 | 参考实现的做法 | 我们现在的做法 |
+|---|---|---|
+| kScanResult 时间戳 | 交出记录时取 now，减 age_ms*1e6，无四舍五入（WifiScanResult.h stamp） | PongWifiNet.cpp:500 fill_result 内取 scan_clock_ns()，去掉采样时刻与 +1 ms（§53） |
+| 何时上空口 | WifiScanPolicy.h：建链中/建链后 15 s 不上，整段 20 s 内不重扫，其它情况对“没扫过的频道”扫描 | PongWifiScanPolicy.h 逐条移植，kScanReq 用 pong_scan_on_air 判定（§54） |
+| 陈旧记录 | age_ms ≥ 60 s 的记录不再交出 | kScanResult 跳过 stale；冻结列表补回采样后经过的时间（§54） |
+| kRate | 链路 UP 时 tx_rate_100kbps/10 | 同（§50） |
+| kCurrentNetwork 信号 | 覆盖为 st.signal_dbm 与 snr | 两条路径都覆盖（§51） |
+| kPower | gPower && state != NW_STA_OFF | 同（§52） |
+| kAuthType | 27 回 0x10，22H374 回 0x8 | 按是否见过 24A446 请求自动选择（§49） |
+| 中止扫描 382 | 接受并返回 0 | 同（§48） |
+
 ## 4. 仍未验证的风险（按优先级）
 
 1. selector 0 信封（0x3c30 进 / 0x3c00 出）：16 的 wifid 用 user client；27 是否完全不碰 selector 0 还没有二进制可证。拿到 24A446 的 IO80211Family 与 wifid 后第一件事就是核对这一处。
@@ -32,6 +45,9 @@
 3. 6 GHz：官方 WCN7850 页面写明 59 个被动频道要跳过；我们的扫描请求解析目前不区分 6 GHz，27 上要把 PONG_SCAN_FREQUENCIES 的上限与频道表按 band 过滤。
 4. 系统不能保存网络口令（官方页面已写），27 上用户每次开机要重连；这不是缺陷，不要写成 WiFi 回归。
 5. t970 与 zizhan 都是 22H374 树，27 的形状只能继续以 sheng 为准；不要把它们的 ABI 抄回来。
+6. 频道表 flag：参考的 27 kSupportedChannels 用静态 known 表并给每条加 0x80；我们沿用 zizhan 的做法动态列举、不加额外位（CWFChannel 比较完整 flag word）。27 上若成员判定不过，再考虑加 0x80，不要在 22H374 上先改。
+7. SET kPower 我们只断链清站（与 zizhan 同），参考还调用 nw_wifi_power 关掉站；改成关站需要 27 上机验证，否则可能让 22H374 的电源切换失效。
+8. 硬件版本字符串写实际芯片（QCA6490 / WCN6855），参考写 WCN7850；这是设备事实，不当作 ABI 抄。
 
 ## 5. 上线路径
 

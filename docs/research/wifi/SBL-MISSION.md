@@ -1165,3 +1165,17 @@ mission33（446d5332，head 1e31b49a）未飞就在飞行窗到来前被 mission
 镜像：`E:/k60-work/artifacts/wifi-20261118sbl-mission34/boot.img` 201,887,744 B，SHA256 b08a14f8936e07e45fb117e330a82ae6654b25a9caaadb24a5c2a2a2929ef3a5，head d91cfc2a，args 31 条 / 602 B（`image-arg-audit: OK`），`verify-boot-image: OK`；native 归档里 `wifi-net: probe %s = target with %s` 存在，station 仍是 abi1 的 6ef0058f（`#define IE_MAX 1024`）。
 
 判读：`judge-wifi-mission34.py` 打印 19 条探针各自的 KEPT/ABSENT 与真实 Emilelu_5G 行；`mission34-checklist.md` 是给人看的步骤。真名行出现即设置页这一项关闭；只出现某条探针则那条探针改动的元素就是过滤器。
+
+## §31 2026-11-19 09:37 mission35：1024 字节元素区与 42 字节国家 IE 在真机上生效，但没有人打开设置页
+
+镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission35/boot.img\` 201,887,744 B，SHA256 7b654920e7c86d518381382342b20c2f95e6715aa1c1185459973e5deb108cc6，head d5c03c0d，09:33 构建，args 31 条 / 602 B（\`image-arg-audit: OK\`、\`verify-boot-image: OK\`）；station 是 abi1 的 6ef0058f（\`#define IE_MAX 1024\`，\`struct bss … ie[IE_MAX]\`），native 归档里 \`withheld from\` 存在。
+
+飞行 09:37:33–09:52（boot.json startedAt 09:37:33.569，captureArmed/bootAccepted/returnedToFastboot 全 true），采集 \`E:/k60-work/evidence/usblog-20261119-093727/console.log\` 488,000 B / 7,196 行 / SHA256 6385bad479509de9609bd450231bcd2dfda67336c78491fce8cd0a7a88f46c8c。
+
+两处改动都在真机上生效：\`wifi-net: bss 9/17 5240 MHz -52 dBm age 2041 bssid c8:bf:4c:30:03:1c ie 390 cap 0511 cc CN Emilelu_5G\` —— 记录报 ie 390，已超过旧的 384 上限，说明 1024 元素区在 station 与 kext 两端一致；\`wifi-net: country element of 42 bytes withheld from the 5240 MHz record\` 出现 3 次，42 字节的填充国家 IE 没有进入下发的记录。
+
+但整趟没有一条 \`scan request\`，也没有任何 \`WiFiScanObserverNetwork\` 列表（Preferences 与 configd 都是 0）：wifid 一次扫描请求都没发，所以既没有 daemon 侧列表可对照，也没有真实行被观察。19 条探针每轮都生成（本次 carrier 是 2417 MHz \`96:de:f9:b6:be:7e\`，冻结时 5 GHz 记录还没出现，走的是 2.4 GHz 回退），只是没有人打开设置页。
+
+补充：boot 早期有 4 次 \`native client type 103 get bytes=1164 -> 0\`（返回码 0 = 成功），每次都紧跟在 withheld 行之后，说明 daemon 确实读走了记录，只是没有触发 settlement observer 的列表日志；因此「0 条 Preferences」等于「没人打开设置页」，不等于「daemon 没读记录」。
+
+判读 UNOBSERVED。教训：设置页那一步必须有人在，而且要落在窗口内；下一趟要么等用户确认在手机前再飞，要么把采集窗口拉到 25 分钟以上并在检测到 Preferences 列表后提前收尾。mission34（b08a14f8）保留为「只测 1024 元素区」的单变量对照，仍欠一次飞行或需要删除。

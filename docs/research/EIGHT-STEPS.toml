@@ -427,12 +427,12 @@ artifact_check = "verify-boot-image: OK；check-image-args: OK（31 参数/602 B
 
 [hardware.wifi.step.device]
 done = true
-evidence = "2026-11-19 09:16 mission34 构建并校验（head d91cfc2a，未飞）：boot.img 201,887,744 B SHA256 b08a14f8…，args 31/602，verify-boot-image OK；19 条探针（5 加 / 8 减 / 6 换载荷与裁剪对照），表压到 45 条留位；mission33 未飞即被取代、artifact 已删。"
+evidence = "2026-11-19 09:37 mission35 飞行（head d5c03c0d）：console 488,000 B / 7,196 行 / SHA256 6385bad4…；5240 记录报 ie 390（1024 元素区两端生效），42 字节国家 IE 被扣留 3 次；但 0 条 scan request、0 条 Preferences 列表，判读 UNOBSERVED。\n\n2026-11-19 09:16 mission34 构建并校验（head d91cfc2a，未飞）：boot.img 201,887,744 B SHA256 b08a14f8…，args 31/602，verify-boot-image OK；19 条探针（5 加 / 8 减 / 6 换载荷与裁剪对照），表压到 45 条留位；mission33 未飞即被取代、artifact 已删。"
 
 [hardware.wifi.step.device.prediction]
-success = "mission34（head d91cfc2a）：真实 Emilelu_5G 出现在设置页（1024 元素区交付完整记录即根因），同时用 19 条探针里出现的标签复核同一元素。"
+success = "mission35 重飞（head d5c03c0d）：真实 Emilelu_5G 出现在设置页，说明 1024 元素区与扣留 42 字节国家 IE 的组合就是根因；K60A..K60S 里出现的标签用来复核是哪一项起作用。"
 
-failure = "Emilelu_5G 仍不见，但有探针被保留：那条探针改动的元素就是过滤器，下一版只改真实记录里的这一处；若 19 条全部落选，则过滤器不在元素层，转向 wifid 的记录级校验（长度/时间戳/去重）再设计实验。"
+failure = "重飞后 Emilelu_5G 仍不见但探针里出现了某几条：以探针为准去改真实记录；如果连 scan request 都没有，说明设置页那一步又没发生，不要据此下结论。"
 
 
 [hardware.audio]

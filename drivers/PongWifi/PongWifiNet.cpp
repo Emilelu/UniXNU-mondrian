@@ -257,167 +257,6 @@ void freeze_scan_list() {
     while (at && gSnap[at - 1].signal_dbm < b.signal_dbm) { gSnap[at] = gSnap[at - 1]; at--; }
     gSnap[at] = b; gSnapCount++;
   }
-  // Nineteen probes are served in front of the sweep below; keeping room for them here is cheaper than a bigger
-  // table, and the records that lose their place are the weakest ones, which the pane shows last anyway.
-  if (gSnapCount > 45) gSnapCount = 45;
-  // mission24 proved the daemon drops this record whatever it is called and whatever its BSSID prefix: both
-  // copies were served at positions 2 and 3, the daemon read every record of the sweep, and neither appeared in
-  // its list. So a field of the record is the filter. The next image serves five probes built from a record the
-  // daemon does keep (the carrier) and this access point's record (the target): if replacing the carrier's
-  // elements with ours drops it, the elements are the cause; if replacing our elements with the carrier's brings
-  // the target back, the same is proven from the other side. Capability is probed the same way. Test branch only.
-  int ti = -1, ci = -1;
-  for (unsigned i = 0; i < gSnapCount; i++) {
-    const nw_bss_info &b = gSnap[i];
-    if (b.ssid_len < 2) continue;
-    if (ti < 0 && b.freq_mhz >= 3000 && b.ssid_len >= 7 && !memcmp(b.ssid, "Emilelu", 7)) { ti = static_cast<int>(i); continue; }
-    if (ci < 0 && (b.caps & 0x0001)) ci = static_cast<int>(i);
-  }
-  if (ti >= 0) {   // mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz
-    for (unsigned i = 0; i < gSnapCount; i++) {
-      const nw_bss_info &b = gSnap[i];
-      if (static_cast<int>(i) == ti || b.freq_mhz >= 3000) continue;
-      if (b.ssid_len == 7 && !memcmp(b.ssid, "Emilelu", 7)) { ci = static_cast<int>(i); break; }
-    }
-  }
-  if (ci >= 0) {   // otherwise a carrier the daemon has already listed: CMCC8888 came from the mission22 log
-    for (unsigned i = 0; i < gSnapCount; i++) {
-      const nw_bss_info &b = gSnap[i];
-      if (static_cast<int>(i) == ti) continue;
-      if (b.ssid_len >= 8 && !memcmp(b.ssid, "CMCC8888", 8)) { ci = static_cast<int>(i); break; }
-    }
-  }
-  if (ti >= 0 && ci >= 0 && gSnapCount + 5 <= 64) {
-    const nw_bss_info t = gSnap[ti], c = gSnap[ci];
-    static const char *const nm[5] = { "K60A", "K60B", "K60C", "K60D", "K60E" };
-    // mission25 separated the fields: carrier + our elements was dropped, carrier + our capability was kept, and
-    // the target record carrying the carrier's elements was kept. So the filter is one of the target's information
-    // elements, not the capability and not the channel. This image adds exactly one of them to a kept record.
-    static const unsigned want[5] = { 7, 195, 32, 255, 221 };
-    static const char *const shown[5] = { "country", "vht-tx-power", "power-constraint", "he-capabilities", "vendor" };
-    nw_bss_info pr[5];
-    memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);
-    for (int k = 0; k < 5; k++) {
-      nw_bss_info q = c;
-      unsigned o = 0, added = 0;
-      while (o + 2 <= t.ie_len) {
-        const unsigned id = t.ie[o], len = t.ie[o + 1];
-        if (o + 2 + len > t.ie_len) break;
-        bool pick = id == want[k];
-        if (id == 255) pick = pick && len == 33;
-        if (id == 221) pick = pick && len == 2;
-        if (pick && q.ie_len + 2 + len <= sizeof q.ie) {
-          memcpy(q.ie + q.ie_len, t.ie + o, 2 + len);
-          q.ie_len += 2 + len;
-          added += 2 + len;
-        }
-        o += 2 + len;
-      }
-      q.ssid_len = 4;   // every probe name is four characters
-      memset(q.ssid, 0, sizeof q.ssid); memcpy(q.ssid, nm[k], 4);
-      q.bssid[5] = static_cast<uint8_t>(q.bssid[5] ^ (0x40 + k));
-      gSnap[k] = q; gSnapCount++;
-      log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
-          nm[k], q.freq_mhz, q.bssid[0], q.bssid[1], q.bssid[2], q.bssid[3], q.bssid[4], q.bssid[5]);
-      log(6, "wifi-net: probe %s = carrier + element %u (%s, %u bytes added, ie %u)", nm[k], want[k], shown[k], added, q.ie_len);
-    }
-  } else {
-    log(6, "wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)", ti, ci, gSnapCount);
-  }
-  // The additive probes show which element spoils a record the daemon keeps; these five take the opposite
-  // direction and remove one element group at a time from THIS access point's record. Whichever copy appears in
-  // the Settings list names the element that has to leave the real record, without another flight. Test branch.
-  if (ti >= 0 && gSnapCount + 8 <= 64) {
-    const nw_bss_info t = gSnap[ti];
-    static const char *const snm[8] = { "K60F", "K60G", "K60H", "K60I", "K60J", "K60K", "K60L", "K60M" };
-    static const char *const sshown[8] = { "country", "vht-tx-power", "power-constraint and TPC", "he-capabilities", "vendor", "TPC report", "id 244", "TPC report and id 244" };
-    static const unsigned sid[8] = { 7, 195, 32, 255, 221, 35, 244, 244 };
-    memmove(&gSnap[8], &gSnap[0], gSnapCount * sizeof gSnap[0]);
-    for (int k = 0; k < 8; k++) {
-      nw_bss_info q = t;
-      q.ie_len = 0;
-      unsigned o = 0, removed = 0;
-      while (o + 2 <= t.ie_len) {
-        const unsigned id = t.ie[o], len = t.ie[o + 1];
-        if (o + 2 + len > t.ie_len) break;
-        bool drop = false;
-        switch (k) {
-        case 0: drop = id == 7; break;
-        case 1: drop = id == 195; break;
-        case 2: drop = id == 32 || id == 35; break;
-        case 3: drop = id == 255 && len == 33; break;
-        case 4: drop = id == 221 && len == 2; break;
-        case 5: drop = id == 35; break;
-        case 6: drop = id == 244; break;
-        case 7: drop = id == 35 || id == 244; break;
-        }
-        if (drop) removed += 2 + len;
-        else if (q.ie_len + 2 + len <= sizeof q.ie) { memcpy(q.ie + q.ie_len, t.ie + o, 2 + len); q.ie_len += 2 + len; }
-        o += 2 + len;
-      }
-      q.ssid_len = 4;
-      memset(q.ssid, 0, sizeof q.ssid); memcpy(q.ssid, snm[k], 4);
-      q.bssid[5] = static_cast<uint8_t>(q.bssid[5] ^ (0x45 + k));
-      gSnap[k] = q; gSnapCount++;
-      log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
-          snm[k], q.freq_mhz, q.bssid[0], q.bssid[1], q.bssid[2], q.bssid[3], q.bssid[4], q.bssid[5]);
-      log(6, "wifi-net: probe %s = target minus element %u (%s, %u bytes removed, ie %u)", snm[k], sid[k], sshown[k], removed, q.ie_len);
-    }
-  }
-  // Removing a structural element makes a record that no real access point would send, so the last direction
-  // swaps the PAYLOAD of an element both records carry (HT/VHT operation, HT/VHT capabilities, extended
-  // capabilities) from the kept carrier into this access point's record, at the same offset and length. A copy
-  // that appears in the Settings list names the element whose content is the filter. K60S is the control the
-  // trim experiment of mission32 never flew: the target with its trailing incomplete element cut. Test branch.
-  if (ti >= 0 && ci >= 0 && gSnapCount + 6 <= 64) {
-    const nw_bss_info t = gSnap[ti], c = gSnap[ci];
-    static const char *const cnm[6] = { "K60N", "K60O", "K60P", "K60Q", "K60R", "K60S" };
-    static const unsigned cid[6] = { 61, 192, 191, 45, 127, 0 };
-    static const char *const cshown[6] = { "ht-operation", "vht-operation", "vht-capabilities", "ht-capabilities", "extended-capabilities", "trailing element cut" };
-    memmove(&gSnap[6], &gSnap[0], gSnapCount * sizeof gSnap[0]);
-    for (int k = 0; k < 6; k++) {
-      nw_bss_info q = t;
-      unsigned changed = 0;
-      if (k == 5) {
-        unsigned o = 0, used = 0;
-        while (o + 2 <= q.ie_len) {
-          const unsigned len = q.ie[o + 1];
-          if (o + 2 + len > q.ie_len) break;
-          used = o + 2 + len; o += 2 + len;
-        }
-        changed = q.ie_len - used;
-        q.ie_len = used ? used : q.ie_len;
-      } else {
-        unsigned o = 0, to = 0, co = 0;
-        bool have_t = false, have_c = false;
-        while (o + 2 <= t.ie_len) {
-          const unsigned id = t.ie[o], len = t.ie[o + 1];
-          if (o + 2 + len > t.ie_len) break;
-          if (id == cid[k]) { to = o; have_t = true; }
-          o += 2 + len;
-        }
-        o = 0;
-        while (o + 2 <= c.ie_len) {
-          const unsigned id = c.ie[o], len = c.ie[o + 1];
-          if (o + 2 + len > c.ie_len) break;
-          if (id == cid[k]) { co = o; have_c = true; }
-          o += 2 + len;
-        }
-        if (have_t && have_c && t.ie[to + 1] == c.ie[co + 1]) {
-          memcpy(q.ie + to + 2, c.ie + co + 2, t.ie[to + 1]);
-          changed = t.ie[to + 1];
-        }
-      }
-      q.ssid_len = 4;
-      memset(q.ssid, 0, sizeof q.ssid); memcpy(q.ssid, cnm[k], 4);
-      q.bssid[5] = static_cast<uint8_t>(q.bssid[5] ^ (0x20 + k));
-      gSnap[k] = q; gSnapCount++;
-      log(6, "wifi-net: synthetic copy %s of the %u MHz record with bssid %02x:%02x:%02x:%02x:%02x:%02x",
-          cnm[k], q.freq_mhz, q.bssid[0], q.bssid[1], q.bssid[2], q.bssid[3], q.bssid[4], q.bssid[5]);
-      log(6, "wifi-net: probe %s = target with %s (%s, %u bytes changed, ie %u)",
-          cnm[k], k == 5 ? "its tail cut" : "the carrier payload", cshown[k], changed, q.ie_len);
-    }
-  }
 }
 // The scan list counted by band. The Settings pane builds its list from these records, so a band that is
 // missing here cannot appear there, and the strongest few per band say what the radio actually heard.
@@ -634,19 +473,13 @@ void fill_result(scan_result24 &record, const nw_bss_info &b,uint64_t sampled_ns
   r.version = 1; fill_channel(r.ch, b.freq_mhz); r.noise_known = 1; r.noise = -95; r.rssi = b.signal_dbm; r.snr = b.signal_dbm + 95;
   r.beacon_interval = b.beacon_int; r.capability = b.caps; memcpy(r.bssid, b.bssid, 6); r.ssid_length = b.ssid_len; memcpy(r.ssid, b.ssid, 32);
   r.age_ms = b.age_ms;
-  static unsigned announced, withheld; r.elements_length = 0; unsigned used = 0, cc_len = 0;
+  static unsigned announced; r.elements_length = 0; unsigned used = 0;
   for (unsigned o = 0; o + 2 <= b.ie_len; o += 2 + b.ie[o + 1]) {
     const unsigned id = b.ie[o], len = b.ie[o + 1];
     if (o + 2 + len > b.ie_len) break;   // a blob the station clamped at 384 ends in the middle of an element
     used = o + 2 + len;
-    // CoreWiFi turns the country element into a regulatory triplet table. Every record the daemon has ever listed
-    // carries a 6-16 byte one; this access point's 5 GHz beacon carries a 42-byte padded element and that record is
-    // the only 5 GHz network the pane drops, so the padded element is withheld here. Test branch only: the probe
-    // K60F (target minus country) and K60B (carrier plus country) say the same thing in logs.
-    if (id == 7 && len > 12) { cc_len = len; continue; }
     if (r.elements_length + 2 + len <= sizeof r.elements) { memcpy(r.elements + r.elements_length, b.ie + o, 2 + len); r.elements_length += 2 + len; }
   }
-  if (cc_len && withheld++ < 3) log(6, "wifi-net: country element of %u bytes withheld from the %u MHz record", cc_len, b.freq_mhz);
   if (used < b.ie_len && announced++ < 3) log(6, "wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served", b.ie_len - used, b.ie_len);
   r.rate_count = 0;
   // The station exposes real frame age at millisecond resolution. Sample
@@ -852,7 +685,11 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
   }
   case kRssi: case kNoise: {   // {version, radios, unit (0: dBm), per chain[4], aggregate, extension per chain[4], its aggregate}
     if (type == kRssi && st.state != NW_STA_UP) return ENOENT;
-    const uint32_t v = static_cast<uint32_t>(type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95);
+    const int32_t dbm = type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95;
+    // The status bar draws its bars from this query, not from the scan record, so every answer is logged with the
+    // value it carried: a bar count that disagrees with the record can then be read off one console.
+    static unsigned asks; if (asks++ < 60) log(6, "wifi-net: %s query -> %d dBm (link state %d)", type == kRssi ? "rssi" : "noise", dbm, static_cast<int>(st.state));
+    const uint32_t v = static_cast<uint32_t>(dbm);
     w[0] = 1; w[1] = 1; w[2] = 0; for (int i = 3; i < 13; i++) w[i] = v; return copy_out(rq, w, 13 * 4, kernel); }
   case kRate: return answer_value(rq, st.state == NW_STA_UP ? 54 : 0, kernel);
   case kTxPower: return answer_value(rq, 15, kernel);

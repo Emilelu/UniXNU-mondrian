@@ -302,39 +302,15 @@ def main() -> int:
           'snprintf(ids + at, sizeof ids - at, "%s%u/%u"' in net and
           'log(6, "wifi-net: rsn %02x:%02x:%02x:%02x:%02x:%02x %u bytes %s"' in net and
           "const unsigned rn = rsn < 24 ? rsn : 24;" in net)
-    check("five probes add one target element each to a kept record",
-          'static const char *const nm[5] = { "K60A", "K60B", "K60C", "K60D", "K60E" };' in net and
-          "static const unsigned want[5] = { 7, 195, 32, 255, 221 };" in net and
-          "if (id == 255) pick = pick && len == 33;" in net and
-          "if (id == 221) pick = pick && len == 2;" in net and
-          "memcpy(q.ie + q.ie_len, t.ie + o, 2 + len);" in net and
-          'log(6, "wifi-net: probe %s = carrier + element %u (%s, %u bytes added, ie %u)"' in net)
-    check("the probe falls back to the 2.4 GHz record and names a sweep with no pair",
-          'mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz' in net and
-          '"wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)"' in net)
-    check("the record stops before an incomplete element and keeps every element the access point sent",
+    check("the production record path serves every element the access point sent",
           "if (o + 2 + len > b.ie_len) break;" in net and
           "drop_scan_element" not in net and
-          '"wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served"' in net)
-    check("eight probes remove one element group at a time from the real record",
-          'static const char *const snm[8] = { "K60F", "K60G", "K60H", "K60I", "K60J", "K60K", "K60L", "K60M" };' in net and
-          "static const unsigned sid[8] = { 7, 195, 32, 255, 221, 35, 244, 244 };" in net and
-          "case 2: drop = id == 32 || id == 35; break;" in net and
-          "case 7: drop = id == 35 || id == 244; break;" in net and
-          "memmove(&gSnap[8], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
-          "memmove(&gSnap[5], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
-          'log(6, "wifi-net: probe %s = target minus element %u (%s, %u bytes removed, ie %u)"' in net)
-    check("a country element padded past twelve bytes is withheld from the served record",
-          "const unsigned id = b.ie[o], len = b.ie[o + 1];" in net and
-          "if (id == 7 && len > 12) { cc_len = len; continue; }" in net and
-          '"wifi-net: country element of %u bytes withheld from the %u MHz record"' in net)
-    check("six probes swap one shared element's payload or cut the tail of the real record",
-          'static const char *const cnm[6] = { "K60N", "K60O", "K60P", "K60Q", "K60R", "K60S" };' in net and
-          "static const unsigned cid[6] = { 61, 192, 191, 45, 127, 0 };" in net and
-          "memcpy(q.ie + to + 2, c.ie + co + 2, t.ie[to + 1]);" in net and
-          "memmove(&gSnap[6], &gSnap[0], gSnapCount * sizeof gSnap[0]);" in net and
-          'log(6, "wifi-net: probe %s = target with %s (%s, %u bytes changed, ie %u)"' in net and
-          "if (gSnapCount > 45) gSnapCount = 45;" in net)
+          '"wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served"' in net and
+          "synthetic copy" not in net and "K60A" not in net and "withheld" not in net and
+          "memmove(&gSnap[" not in net)
+    check("every rssi and noise query logs the value it answers with",
+          "const int32_t dbm = type == kRssi ? static_cast<int32_t>(st.signal_dbm) : -95;" in net and
+          '"wifi-net: %s query -> %d dBm (link state %d)"' in net)
     he_src = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.c").read_text(encoding="utf-8")
     he_hdr = (ROOT / "drivers" / "PongWifi" / "ath11k" / "pong_he.h").read_text(encoding="utf-8")
     check("the station announces an HE capability element",

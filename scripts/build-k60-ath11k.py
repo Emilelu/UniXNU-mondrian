@@ -518,7 +518,9 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     abi = out / 'abi'; abi.mkdir(exist_ok=True)
     hdr = (shared / 'include/nw_abi.h').read_text()
     if hdr.count('uint8_t ie[384];') != 1: raise RuntimeError('shared ABI element array differs')
-    (abi / 'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];', 'uint8_t ie[1024];'))
+    # 24A446's scan record carries 2048 element bytes at 0x8c; the station's own bss keeps the same area
+    # so a wide 5 GHz record is not cut inside an element (the 384 clamp that dropped Emilelu_5G, P-230).
+    (abi / 'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];', 'uint8_t ie[2048];'))
     flags = ['-target', 'arm64-apple-ios16.0', '-mkernel', '-O2', '-g0', '-ffreestanding',
         '-fno-builtin', '-fno-common', '-fno-strict-aliasing', '-fwrapv', '-fno-stack-protector',
         '-fno-delete-null-pointer-checks', '-mgeneral-regs-only', '-std=gnu11',
@@ -537,7 +539,7 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     sta = (shared / 'src/nw_sta.c').read_text()
     # The station clamps its element copy at IE_MAX; the enlarged ABI carries 1024 bytes, so keep the whole list.
     if sta.count('#define IE_MAX 384') != 1: raise RuntimeError('shared station IE_MAX differs')
-    sta = sta.replace('#define IE_MAX 384', '#define IE_MAX 1024')
+    sta = sta.replace('#define IE_MAX 384', '#define IE_MAX 2048')
     begin = sta.index('static void make_nonce(u8 *out) {')
     end = sta.index('static void derive_ptk(void)', begin)
     sta = sta[:begin] + 'extern void PongWifiRandom(void *, size_t);\nstatic void make_nonce(u8 *out) { PongWifiRandom(out, 32); }\n' + sta[end:]

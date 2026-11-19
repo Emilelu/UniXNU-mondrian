@@ -106,7 +106,7 @@ def main():
  abi=out/'abi';abi.mkdir(exist_ok=True)
  hdr=(shared/'drivers/Ath12kWifi/include/nw_abi.h').read_text()
  if hdr.count('uint8_t ie[384];')!=1:raise RuntimeError('shared ABI element array differs')
- (abi/'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];','uint8_t ie[1024];'))
+ (abi/'nw_abi.h').write_text(hdr.replace('uint8_t ie[384];','uint8_t ie[2048];'))
  flags=['-target','arm64-apple-ios16.0','-isysroot',sdk,'-mkernel','-ffreestanding','-fno-builtin','-fno-exceptions','-fno-rtti','-fno-stack-protector','-mgeneral-regs-only','-std=gnu++17','-fblocks','-O2','-DKERNEL=1','-DKERNEL_PRIVATE=1','-DXNU_KERNEL_PRIVATE=1','-DARM64_BOARD_CONFIG_PONG=1','-I'+str(framework/'PrivateHeaders'),'-I'+str(framework/'Headers'),'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include'),'-I'+str(shared/'package'),'-I'+str(out),'-Wno-deprecated-declarations']
  objects=[]
  for name in ('PongWifiPlatform','PongWifiNet'):

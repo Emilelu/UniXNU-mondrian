@@ -138,4 +138,15 @@ python3 scripts/port-cellular-to-xnu27.py --tree <27 XNU 树> --out <输出目�
 - `0629` 在 `kern_exec.c` 的锚点行前插入两段 probe（先 modem 后 IPA），再用 unified diff 生成；
 - 锚点缺失或命中多行 → 退出码 2 并打印命中次数；`--self-test` 在临时树里验证「重排 + 插入 + 拒绝」三件事（输出 `K60 PORT27 PASS renumbering, anchor insertion, refusal`）。
 
+2026-11-20 05:55 `--verify` 对真实 27 树实跑：
+
+```
+K60 PORT27 FAIL anchor 'native_owner_data_stage = 3;' matches 0 lines, need exactly one
+K60 PORT27 VERIFY 0626 ok
+K60 PORT27 VERIFY 0627 ok
+K60 PORT27 VERIFY 0628 ok
+K60 PORT27 VERIFY 0629 skipped (not produced)
+rc=2
+```
+
 2026-11-20 05:41 对真实 27 树跑过：三个只加文件的补丁全部 `git apply --check` rc=0；`0629` 因为锚点还不存在而按设计拒绝（退出码 2）。

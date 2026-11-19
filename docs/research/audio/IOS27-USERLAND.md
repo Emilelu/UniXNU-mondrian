@@ -106,3 +106,18 @@ conf-files TESTS OK 6 cases / PROBE OK / judge TESTS OK / amplifier TESTS OK 979
 2. `arm64e` 目标：HAL 冻结时 bundle 是 16 时代编的；若 27 的音频服务器拒绝加载，先看 CDHash/架构，再考虑重编。
 3. `lead_frames` 与 300 ms 的余量是按 16.x 的 IO 周期定的；27 的音频服务器首轮跑起来后，用控制页的
    `ahead_min/max`、`behind_min/max`、`io_frames` 校正，不要先改内核。
+
+## 7. 这份文档里的数字有门禁
+
+`ShengAudioAbi.h` 的十六个常量（类名、magic、三块内存类型、四个方向选择器、`SetHostClock = 4`、
+`PERIOD_FRAMES 480`、`RING_FRAMES 65536`、`DIAG_OFFSET 2048` / `TRACE_OFFSET 2560` 与各自的槽数）
+由 `python3 scripts/check-sheng-abi.py --sheng <sheng 检出>` 逐条比对，末行 `SHENG ABI OK 16/16 constants (c8f92b2)`
+自带它读的那个 commit。比较前把空白归一化：**重排不算漂移，改值才算**——sheng 换个排版不该让这条线变红，
+换掉一个选择器号则必须红。
+
+显式给出 `--sheng`（或 `SHENG_REPO`）而那棵树里没有 `package/ShengAudioAbi.h` 时，脚本报
+`refusing to read another tree` 并退 1，不会退回到旁边某个旧 clone 继续报绿：
+今天已经出现过「门禁量的是另一棵树」的假绿两次（P-251、P-256），静默回退正是那种形状。
+
+它接在预检里（`sheng abi checker is honest` = 脚本自身的 4 例，`sheng abi constants hold` = 对真检出的比对），
+所以 `sh scripts/check-audio27-preflight.sh` 一次就能回答「这份文档描述的 ABI 还在不在」。

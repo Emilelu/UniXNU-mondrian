@@ -1631,3 +1631,72 @@ flags 字——CWFChannel 比较完整 flag word，参考实现给每条加 0x80
 
 边界：若 27 的 wifid 在任何扫描请求之前就问频道表，它仍会拿到 102 条（代际检测尚未发生）——
 这只会多给条目，不会少给。频道表 flag 0x80 的问题保持未决。
+
+## 64. 27 ABI 落到新 main（B1/B3 完成），4 KiB 入口卡在 16 的机器配置（B2）
+
+2026-11-20 的新格局：旧 main 归档成 `archive/ios16-20261120`，新 main 就是 iOS 27 stage-0 线，
+`feat/bt-ios27-port` 已删。24A446 的 ABI 因此要「重放」到新 main 上，而不是把旧分支并进来——
+旧分支（feat/wifi-ios27-abi，ea54f59e）相对 merge-base 7663471a9 独有 42 个提交，其中 wifi 相关的
+只有六个驱动文件，其余是文档与测试。
+
+### B1：24A446 ABI 已在新 main 上（99116f9a + 5b8a31ab）
+
+分支 `feat/wifi-ios27-tree`（基于 origin/main）。六个文件：`PongWifiAbi.h`（新 248 行）、
+`PongWifiNet.cpp`（+492）、`PongWifiPlatform.cpp`（12）、`PongWifiScanPolicy.h`（新 71）、
+`ath11k/pong_sae.c`（38）、`ath11k/pong_sae.h`（34）；构建脚本 `build-k60-ath11k.py`（2048 元素 +
+宽度戳）、`build-k60-wifi-native.py`、`check-kernel-archives.py`（保留 main 已有的 XNU_PONG_THERMAL 行）；
+六个测试；SBL-MISSION §38-§63 与清单、INDEX、CREDITS 同步。
+
+为什么 INDEX/CREDITS 只补行不覆盖：main 相对 merge-base 只在 CREDITS.md、board.toml、configs/、
+docs/INDEX.md、scripts/check-kernel-archives.py 上前进过，整份覆盖会丢掉那些前进。
+
+验证：`test-wifi-sbl-mission.py` 0 failure；`test-pong-abi.py` 32 checks 0 failure；
+`test-pong-sae.py` 17 checks 0 failure；`test-check-kernel-archives.py` 14 cases；
+`compile-teardown2.sh` 出 `teardown16 rc=0` / `teardown27 rc=0`。
+
+### B3：27 线的 wifi 开关（825f5fdd + d3c39628）
+
+`configs/mondrian_ios27_wifi_defconfig` = 27 stage-0 全套 + `CONFIG_XNU_PONG_WIFI=y`。board.toml 的
+27 默认仍是 `mondrian_ios27_defconfig`，所以 stage-0 首次启动拿到的内核不变；要用 wifi 就显式
+`unixnu defconfig mondrian_ios27_wifi_defconfig --os ios-27.0.1-24A446`。
+
+`scripts/tests/test-wifi-ios27-config.py` 断言十项：两个开关、stage-0 边界保持、27 默认未改、
+16 映射未改、`build-strict.sh:202` 读 `.config` 的那行、`:212` 无档案即拒绝、`:216-217` 导出、
+`build-xnu-4k-baseline.sh:1017-1020` 的 `-force_load,$PONG_WIFI_ARCHIVE`、16 默认不被牵连。
+
+### B2：4 KiB 入口不是「跑一次」，是「搬到 12377 才能跑」
+
+这一轮把 B2 从「跑一下」改判成「要移植」，证据三步：
+
+1. 27 的 profile 必须先装进框架：`bash scripts/install-os-profile.sh` 把 `profiles/os/ios-27.0.1-24A446`
+   复制进 UniXNU，之后 `--os ios-27.0.1-24A446` 才可解析（不装时框架只认 `ipados-27.0.1-24A446`，
+   而那是无设备覆盖的表）。
+2. 不能用 `--os ipados-27.0.1-24A446` 跑：设备侧覆盖键是 `ios-27.0.1-24A446`（board.toml:329-344）。
+   用它跑时打的是 16 的 `patches/xnu/apple-only-cpu-tunables.patch`，在 12377 树上
+   `osfmk/arm64/start.s:33` 就直接失败。换成设备覆盖后日志里打的是 12377 系列
+   （`bcm2837-machine-config.patch`、`local-availability.patch`、`native-4k-bootstrap-capacity.patch` 等），
+   这一步是对的。
+3. 卡点在下一条：框架在 Linux 上无条件跑设备仓的 `scripts/build-xnu-4k-baseline.sh`
+   （`scripts/unixnu/kernel.py:172`），而这个脚本是 16 的：`XNU_TAG` 默认 `xnu-8796.141.3`、
+   `XNU_COMMIT` 默认 `1b191cb5…`、`XNU_DARWIN=22.6.0`，并且 `:247-248`、`:1424-1425` 两处把
+   `MACHINE_CONFIGS=PONG` 写死。于是 27 树上停在
+   `MakeInc.kernel:22: *** Unsupported CURRENT_MACHINE_CONFIG PONG. Stop.`
+   （`logs/kernel-bootstrap.log:70`），发生在任何 wifi 代码参与之前。
+
+结论：B2 的剩余工作是把 4 KiB 入口移植到 12377 / arm64e（机器配置改为 `DEVELOPMENT_ARM64_BCM2837`
+一类、pins 换成 12377.121.6 / ac9718fb、保留 `XNU_PONG_WIFI=1 -> -force_load` 那条链接路径），不是跑一次。
+在它完成之前，27 线的 wifi 只有离线证据：27 头的 kext（`teardown27full2/libPongWifiNative.a`，
+12,102,632 B，含 `_pong_wifi_station_stop` / `_pong_wifi_net_stop`）与 27 站（`ath11k-abi27s`，
+`ie_bytes=2048`、`IE_MAX 2048`）。
+
+### 顺带记录的框架缺口
+
+`scripts/check-rules.py` 的 `PITFALL_HEADING` 少 `re.MULTILINE`，而调用处又把 `re.MULTILINE` 当
+`findall` 的第二位置参数传（= pos 8），所以 `pitfalls_in_log()` 恒为空集：干净 main 上 registry 也会报
+「PITFALLS.md contains no 'P-nnn' heading」，`unixnu build` 因此拒绝构建。实测同一份台账，加
+`re.MULTILINE` 后能读出 151 条三位编号。修对之后又会露出 P-173…P-184 等 30+ 条历史坑既无 check
+也无 waiver——这是 main 线的账，wifi 线只在自己分支上临时验证过两行修法并随即还原，没有把红灯
+带进本轮门禁证据。
+
+本轮 27 的构建是在 `--skip-gates` 下跑的（原因即上一条），并显式给了 `K60_DEVICE_INPUT` 的镜像。
+另：本机 `/opt/k60/trees` 在重启后整个消失，27 站与 27 kext 都是本轮重建的。

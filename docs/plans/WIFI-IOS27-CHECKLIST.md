@@ -68,12 +68,19 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   drivers/PongWifi tree. Exit: scripts/tests/test-wifi-sbl-mission.py and
   test-pong-abi.py print 0 failure(s), and compile-teardown2.sh builds the kext against
   both nw_abi.h generations (16 header + ath11k-abi1, 27 header + ath11k-abi27).
-- [ ] B2 [DEV] Prove the 4 KiB entry on the 27 line. This checkout's framework is
-  unfetched (`python3 unixnu status --device ../k60-wifi` reports "SoC sm8475 is not
-  cached"), so the run starts with `python3 unixnu fetch`; the wiring itself is main's:
-  scripts/build-xnu-4k-baseline.sh with the XNU_PONG_WIFI=1 path
-  (-Wl,-force_load,$PONG_WIFI_ARCHIVE), so this is a run, not a port. Exit: the script
-  links libPongWifiNative.a into the 27 kernel and the prelink report names the archive.
+- [ ] B2 [DEV] Port the 4 KiB entry to 12377. This is a port, not a run (2026-11-20):
+  the framework always runs the device repository's scripts/build-xnu-4k-baseline.sh
+  (UniXNU scripts/unixnu/kernel.py:172), and that script is the 16 one - XNU_TAG
+  defaults to xnu-8796.141.3, XNU_COMMIT to 1b191cb5, XNU_DARWIN is 22.6.0, and
+  :247-248 plus :1424-1425 hard-code MACHINE_CONFIGS=PONG. On the 27 tree the run
+  stops at logs/kernel-bootstrap.log:70 with
+  "MakeInc.kernel:22: *** Unsupported CURRENT_MACHINE_CONFIG PONG. Stop.", before any
+  wifi code. The work: retarget the machine config (DEVELOPMENT_ARM64_BCM2837 class),
+  the pins (xnu-12377.121.6 / ac9718fb) and keep the XNU_PONG_WIFI=1 ->
+  -Wl,-force_load,$PONG_WIFI_ARCHIVE path. Exit: the script links libPongWifiNative.a
+  into the 27 kernel and the prelink report names the archive. Also note the build must
+  use --os ios-27.0.1-24A446 (after scripts/install-os-profile.sh); with --os
+  ipados-27.0.1-24A446 it applies the 16 series and dies at osfmk/arm64/start.s:33.
 - [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
   2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
   CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on
@@ -114,7 +121,11 @@ Rewritten 2026-11-20, when main itself became the 27 line.
 
 - [ ] D1 patches/xnu/series (227 entries / 271 files, 16 KiB pages) does not apply to 12377. Most
   rows are ios16-*, native-4k-*, offline-* and mockfs-*; they belong to the 16 test
-  bed. The 27 line record is patches/xnu-12377/series (24 entries).
+  bed. The 27 line record is patches/xnu-12377/series (24 entries). The trap is the OS
+  key: a 27 build must pass --os ios-27.0.1-24A446, because board.toml's
+  [os_overrides."ios-27.0.1-24A446"] is what selects the 12377 series; with --os
+  ipados-27.0.1-24A446 the 16 series is applied and apple-only-cpu-tunables.patch fails
+  at osfmk/arm64/start.s:33.
 - [ ] D2 scripts/build-xnu-4k-baseline.sh does not exist on 27; the 4 KiB tables come
   from profiles/arch/arm64e there.
 - [ ] D3 configs/mondrian_ios27_defconfig deliberately sets CONFIG_XNU_NATIVE_UFS=n,

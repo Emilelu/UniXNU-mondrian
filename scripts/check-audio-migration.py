@@ -56,6 +56,42 @@ def fail(message):
     return 1
 
 
+ROW = re.compile(r"\|\s*`([^`]+)`(?:\s*/\s*`([^`]+)`)?\s*\|\s*([0-9/ ]+?)\s*\|")
+
+
+def line_counts(doc):
+    """The table carries a line count per file; drift there means a stale document."""
+    errors = 0
+    covered = set()
+    tables = doc.split("## 1.")[1].split("## 3.")[0]
+    for line in tables.splitlines():
+        found = ROW.match(line.strip())
+        if not found:
+            continue
+        first, second, numbers = found.group(1), found.group(2), found.group(3)
+        names = [first] + ([first[:-2] + second] if second else [])
+        claims = [n for n in numbers.replace("/", " ").split() if n.isdigit()]
+        if len(claims) != len(names):
+            errors += fail("the row for %s has %d line count(s) for %d file(s)"
+                           % (first, len(claims), len(names)))
+            continue
+        for name, claimed in zip(names, claims):
+            covered.add(name)
+            real = os.path.join(REPO, DRIVER, name)
+            if not os.path.isfile(real):
+                errors += fail("%s is in the table but not on disk" % name)
+                continue
+            with open(real, "r", encoding="utf-8", errors="replace") as handle:
+                lines = sum(1 for _ in handle)
+            if lines != int(claimed):
+                errors += fail("%s has %d lines, the table says %s"
+                               % (name, lines, claimed))
+    for name in PURE + GLUE:
+        if name not in covered:
+            errors += fail("%s carries no line count in the tables" % name)
+    print("line counts: %d file(s) checked against the tables" % len(covered))
+    return errors
+
 def classify():
     errors = 0
     driver_dir = os.path.join(REPO, DRIVER)
@@ -86,6 +122,8 @@ def classify():
     for name in PURE + GLUE:
         if name in frozen_section:
             errors += fail("%s appears in the do-not-copy table" % name)
+
+    errors += line_counts(doc)
 
     total = len(PURE) + len(GLUE)
     print("files: %d portable (%d pure C, %d glue), %d frozen"

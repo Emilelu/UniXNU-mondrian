@@ -96,6 +96,12 @@ def body(source: Path, renames: dict) -> list:
         else:
             sys.exit("%s: neither the pre-adoption line nor the adopted fix is "
                      "present; re-read the source before regenerating" % key)
+    opens = sum(1 for line in text.split("\n")
+                if line.startswith(("#if ", "#ifdef ", "#ifndef ")))
+    closes = sum(1 for line in text.split("\n") if line.startswith("#endif"))
+    if opens != closes:
+        sys.exit("%s has %d conditional directives and %d #endif; a truncated "
+                 "tail silently compiles nothing" % (source.name, opens, closes))
     for line in text.split("\n"):
         stripped = line.strip()
         if stripped.startswith('#include "K60') or stripped.startswith('#include "Qcom'):

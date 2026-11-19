@@ -19,6 +19,9 @@
  * carries the read-only PON RT_STS bit (0x80) and the 60 ms touch rules.
  */
 #include <IOKit/IOLib.h>
+#include <IOKit/IOService.h>
+#include <IOKit/pwr_mgt/RootDomain.h>
+#include <kern/thread.h>
 #include <pexpert/pexpert.h>
 #include "../ArmCpu/ArmCpuSleep.h"
 
@@ -35,6 +38,22 @@ extern "C" int armcpu_sleep_register(const struct armcpu_sleep_board *board);
 static volatile unsigned gPrepares;
 static volatile unsigned gRestores;
 static volatile unsigned gTicks;
+
+/* Diagnostic only: the official entry is the power key, but a bring-up run
+ * needs a deterministic trigger while the PON SPI is still unrouted. The boot
+ * argument is short because the K60 command line is at its size ceiling. */
+static void k60_sleep_trigger_thread(void *arg, wait_result_t)
+{
+    const uint32_t seconds = (uint32_t)(uintptr_t)arg;
+
+    IOSleep(seconds * 1000);
+    IOPMrootDomain *pm = IOService::getPMRootDomain();
+    IOLog("K60Sleep: diagnostic trigger after %u s pm=%p\n", seconds, pm);
+    if (pm != nullptr) {
+        const IOReturn rc = pm->sleepSystem();
+        IOLog("K60Sleep: sleepSystem rc=0x%x\n", rc);
+    }
+}
 
 static void k60_sleep_prepare(void)
 {
@@ -83,4 +102,17 @@ extern "C" void k60_platform_sleep_register(void)
     if (__atomic_exchange_n(&attempted, 1u, __ATOMIC_ACQ_REL)) return;
     const int rc = armcpu_sleep_register(&k60SleepBoard);
     IOLog("K60Sleep: board hook registered rc=%d (0 hook installed; -2 until platform-sleep=1 is parsed)\n", rc);
+
+    uint32_t trigger = 0;
+    if (PE_parse_boot_argn("k60_slp", &trigger, sizeof(trigger)) && trigger != 0) {
+        thread_t thread = THREAD_NULL;
+        const kern_return_t kr = kernel_thread_start(k60_sleep_trigger_thread,
+            (void *)(uintptr_t)trigger, &thread);
+        if (kr == KERN_SUCCESS) {
+            IOLog("K60Sleep: diagnostic trigger armed %u s\n", trigger);
+            thread_deallocate(thread);
+        } else {
+            IOLog("K60Sleep: diagnostic trigger failed kr=0x%x\n", kr);
+        }
+    }
 }

@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/iokit/Kernel/MiniIOSurface.cpp
-@@ -0,0 +1,1851 @@
+@@ -0,0 +1,1850 @@
 +/*
 + * MiniIOSurface: a stand-in for Apple's closed IOSurface.kext (see MiniIOSurface.h).
 + *
@@ -530,10 +530,9 @@
 +			p->bytesPerElement = (uint16_t) dictNumber(pd, "IOSurfacePlaneBytesPerElement", bpe ? bpe : 1);
 +			p->elementWidth = (uint8_t) pew;
 +			p->elementHeight = (uint8_t) peh;
-+			p->bytesPerRow = dictNumber(pd, "IOSurfacePlaneBytesPerRow", 0);
-+			if (p->bytesPerRow == 0) {
-+				p->bytesPerRow = alignUp((uint64_t) ((p->width + pew - 1) / pew) * p->bytesPerElement, MINISURF_ROW_ALIGN);
-+			}
++			const uint64_t asked = dictNumber(pd, "IOSurfacePlaneBytesPerRow", 0);
++			p->bytesPerRow = alignUp((uint64_t) ((p->width + pew - 1) / pew) * p->bytesPerElement, MINISURF_ROW_ALIGN);
++			if (asked != p->bytesPerRow) printf("MiniIOSurface: plane pitch asked=%llu reported=%llu (one pitch only)%c", asked, p->bytesPerRow, 10);
 +			p->size = dictNumber(pd, "IOSurfacePlaneSize", 0);
 +			if (p->size == 0) {
 +				p->size = p->bytesPerRow * ((p->height + peh - 1) / peh);

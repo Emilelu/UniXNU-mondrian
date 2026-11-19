@@ -1815,6 +1815,16 @@ Lead 的 21:26 裁决要求 artifact_check 与 manifest→payload 映射同时�
 - 检查：scripts/check-bluetooth-dt.py（dts/dtb/payload 三层）与 scripts/tests/test-bt-0524-dt-node.py 15/0。
 - 边界：静态契约与打包证明；未飞行，未证明运行时 bluetoothd 使用该节点。
 
+### 7.31 0525 官方启动参数与首次 qbt_boot=0（2026-11-19 16:31，真机 PASS）
+
+- 缺口：官方页 step 6 的开关名是 `bluetooth=1` / `log-bluetooth=2`，K60 只有 `k60bt=1`。
+- 补丁：`patches/xnu/0525-k60-bt-official-boot-args.patch`（sha256 `411b2a3d…`，3 hunk）：`k60bt` 优先、`bluetooth` 兜底；`log-bluetooth` 夹 0..6 并设 `k60_log_level`（默认 3）；MiniBluetooth 发布门同时接受两者。系列 242 行 `ad158cf5…`。
+- 命令行预算：DarwinBoot 上限 607 字节；基线 598，加两个参数变 618 被拒，所以本次只带 `bluetooth=1 pong_bt_late=1`（602 字节）。`log-bluetooth` 的飞行判据要等下一次腾出空间。
+- 门禁：`check-image-args.py` 的 ALLOWED_ADDITIONS 补 `bluetooth`/`log-bluetooth`，`BOOT-ARGS.md` 建档；复检 OK（31 参数、602 字节）。
+- 产物与飞行：bt-0525-official-args boot.img `65038517…`；证据 `usblog-20261119-163124`（252,499 B，logSha256 `FCA2376F…`）。console 里 `bluetooth=1` 拉起完整阶梯，qbt_boot 首次 `return e=0 baud=3000000`（`:1342`），控制器版本 0x12110201，rampatch 146,068 B/27 段、NVM、HCI reset、BD_ADDR 全过；`:1345`/`:1346` 两个控制名注册，`:1347` 电源节点 major=17。
+- 用户态不变：BlueTool `-R` 仍打印 `Device not open yet` 后被 30 s 看门狗杀死（`:2894`），没有 connect。
+- 边界：内核链路端到端成功；蓝牙可用性与传输打开仍未证明。
+
 ---
 
 ## 8 八步账本沿革与 d8/0516 历史范围

@@ -658,6 +658,53 @@ not need it. It does mean the migration is validated only as far as
 `bluetoothd` talking to the adapter; if the daemon needs HCI passthrough
 through the transport it opened itself, this layer has to grow a `device`
 command. That question can only be answered once the Data mount gate is open.
+### 6.4 What bluetoothd asks BlueTool for, and where HCI really comes from
+
+Disassembling the same `24A446` `bluetoothd` (arm64e, `__TEXT` at
+`0x100000000`, file offset = vmaddr − `0x100000000`) answers the question
+section 6.3 left open.
+
+- **bluetoothd is a client, not a listener.** It creates
+  `xpc_connection_create_mach_service` nine times; exactly one names
+  `com.apple.BlueTool` (`0x100401b90`, in the constructor `0x100401b64`), with
+  client flags, `set_event_handler`, `set_context`, `set_finalizer_f`, then
+  `resume` (`0x100401dec`). Two call sites build that connection:
+  `0x1004d25e0` (script sender) and `0x1004d2f38` (command sender).
+- **Two message shapes.** Both carry `kMsgId` and `kMsgArgs` (helper
+  `0x1001226b0`) and are sent with
+  `xpc_connection_send_message_with_reply_sync` (`0x100401ea8`):
+  `RunBuiltinScript` with `{"script": <boot|init|deepsleep>, "btaddress": <addr>}`
+  (`0x1004d2444`; `btaddress` only when the local buffer is non-zero), and
+  `RunCommand` with `{"command": <string>}` (`0x1004d2dc0`). Nothing else — no
+  `device`, no `status`, no `RunExternalScript`, and no byte or data setter.
+- **Four reply keys.** `result` (`get_int64`, `0x1004d2a08`; zero means success
+  and re-logs otherwise), `firmware` (`get_string`, `0x1004d2aa4`),
+  `manufacturer` (`get_int64`, `0x1004d2ab8`, formatted as `%lld/%s` with the
+  firmware at `0x1004d2af8`), and `output` (`get_string`, `0x1004d3124`, logged
+  as `Command "%s", Response "%s"`). There is no retry and no transport
+  handle in any reply.
+- **HCI is bluetoothd's own business.** Its probe at `0x1001f3d28` looks for
+  `/dev/cu.bluetooth`, `/dev/uart.bluetooth`, the `marconi-bt` and `bluetooth`
+  IOservices, and the UART.SK channel (`os_channel_create("com.apple.uart.sk.bluetooth")`,
+  `0x1009ec56c` after the `CTLIOCGINFO`/`connect`/`IOAOSSKYSETCHANNELSPEC`/
+  `IOAOSSKYGETCHANNELUUID` sequence). It also opens `AppleBluetoothModule`
+  (`0x1002631b0`), `AppleConvergedIPCOLYBTControl` (`0x10026329c`),
+  `AppleBTMgmt` (`0x1002e5410`), `AppleBTHci` (`0x100334eb0`) and the Sunrise
+  PCIe node (`0x100265d84`) when they exist.
+
+Two consequences for this port, both testable without hardware:
+
+1. **The adapter is sufficient for the BlueTool stage.** `result = 0` clears
+   the status, `manufacturer = 29` plus a firmware string produce the
+   `29/<fw>` version, and `output` is only logged. That is every key
+   bluetoothd reads.
+2. **The transport is already on the kernel side.** `bsd/dev/qbt/qbt_transport.c`
+   registers the `com.apple.uart.sk.bluetooth` kernel control
+   (`ctl_register`, line 565) and, through `kern_nexus_controller_register_provider`
+   (line 372), the provider that `os_channel_create` resolves; 0520 added the
+   `com.apple.uart.bluetooth` alias (line 577) for stock BlueTool's default
+   name. So the route bluetoothd can take on this port is the one the kernel
+   already exposes, and no HCI bytes need to pass through BlueTool.
 ## 7. What remains before "directly usable after migration"
 
 1. P3's build half is done: the CI runs in §5.3 produced `kernel.macho` and

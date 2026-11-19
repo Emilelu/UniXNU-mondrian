@@ -399,3 +399,22 @@ component: 条目在通用构建器下是空操作，而 build-fileset-release-r
 的那棵树的 build/，wrapper 把它挪到 unixnu 的 <tree>/build/ 下。
 尚未出图：这一版第一次让 27 的 archive 阶段有希望走完。
 """
+
+
+[[entry]]
+sha = "89e05fc7"
+state = "build-only"
+date = "2026-11-20"
+note = """27 profile 的内核档案里加了一条 build-k60-platform-archives.py，并用它
+编出 libArmDTPlatform.a 与 libArmCpu.a。原因是实测出来的：框架 components.toml
+里 ArmDTPlatform / ArmCpu 的 build = None，所以 [kernel].archives 里那两个
+component: 条目在通用构建器下是空操作，而 build-fileset-release-reference.py
+随后要读 tree/build/armdt-platform/libArmDTPlatform.a —— 16.6.1 线之所以没这个
+坑，是它自己的构建脚本先跑了两条 vendor 配方。
+同一次提交把那个脚本参数化（--tree/--driver/--fakeroot/--triple/--darwin/
+--version 全部可传，默认从 UNIXNU_SDKROOT/DARWIN_TRIPLE 继承内核构建的 env），
+并处理两处实测的不匹配：vendor 配方读 <它拿到的树>/.cache/fakeroot，而 unixnu
+把 fakeroot 放在上一级，用符号链接桥接而不是复制 36 MB；配方把产物写进它拿到
+的那棵树的 build/，wrapper 把它挪到 unixnu 的 <tree>/build/ 下。
+尚未出图：这一版第一次让 27 的 archive 阶段有希望走完。
+"""

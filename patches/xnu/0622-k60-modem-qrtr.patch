@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,2013 @@
+@@ -0,0 +1,2195 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1322,6 +1322,7 @@ index 0000000..1111111
 + * pong_modem is set to 2 or more. */
 +#include "pong_modem_qrtr.h"
 +#include "pong_modem_efs.h"
++#include "pong_modem_memshare.h"
 +#include "pong_modem_rmtfs.h"
 +#include "pong_smem.h"
 +#include "qcom_glink.h"
@@ -1567,6 +1568,7 @@ index 0000000..1111111
 +static unsigned k60_qrtr_lookup_replies;
 +static unsigned k60_qrtr_rmtfs_requests;
 +static int k60_qrtr_rmtfs_sent;
++static int k60_qrtr_memshare_sent;
 +static unsigned k60_qrtr_static_count;
 +static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
 +    uint32_t length, uint32_t ip_version);
@@ -1722,6 +1724,15 @@ index 0000000..1111111
 + * allocation is retried, because the first contiguous block the kernel hands
 + * out can sit above the 4 GiB line; every refusal is logged with its
 + * physical address instead of being hidden. */
++static vm_offset_t k60_qrtr_memshare_buffer;
++static uint64_t k60_qrtr_memshare_physical;
++static uint32_t k60_qrtr_memshare_bytes;
++static uint32_t k60_qrtr_memshare_node;
++static uint32_t k60_qrtr_memshare_port;
++static unsigned k60_qrtr_memshare_requests;
++static unsigned k60_qrtr_memshare_allocations;
++static unsigned k60_qrtr_memshare_releases;
++
 +static vm_offset_t k60_qrtr_rmtfs_buffer;
 +static uint64_t k60_qrtr_rmtfs_physical;
 +static uint64_t k60_qrtr_rmtfs_bytes;
@@ -1786,13 +1797,43 @@ index 0000000..1111111
 +	__asm__ volatile("dsb sy" : : : "memory");
 +}
 +
-+static uint64_t
-+k60_qrtr_rmtfs_prepare(uint32_t bytes)
++/* Both services hand pages across the same SCM primitive (0x0c/0x16) and the
++ * same 64 KiB metadata scratch: RMTFS lends its window to the modem for file
++ * reads, the memory share service lends it as a heap. */
++static int
++k60_qrtr_assign_pages(uint64_t physical, uint32_t bytes, unsigned from,
++    unsigned to)
 +{
 +	uint8_t *record;
 +	uint32_t sources = 0;
 +	uint32_t destinations = 0;
++	int rc;
 +
++	if (k60_qrtr_rmtfs_scratch == 0 &&
++	    k60_qrtr_rmtfs_low_alloc(65536, &k60_qrtr_rmtfs_scratch,
++	    &k60_qrtr_rmtfs_scratch_physical) != 0) {
++		printf("K60MODEM qrtr: no assignment scratch for %#llx\n",
++		    (unsigned long long)physical);
++		return -1;
++	}
++	record = (uint8_t *)k60_qrtr_rmtfs_scratch;
++	if (k60_modem_assign_record(record, 4096, physical, bytes, from, to,
++	    k60_qrtr_rmtfs_scratch_physical, &sources, &destinations) != 0) {
++		printf("K60MODEM qrtr: assign record refused physical=%#llx bytes=%u\n",
++		    (unsigned long long)physical, bytes);
++		return -1;
++	}
++	k60_qrtr_rmtfs_clean(record, 4096);
++	rc = k60_modem_assign_call(k60_qrtr_rmtfs_scratch_physical);
++	printf("K60MODEM qrtr: assign physical=%#llx bytes=%u from=%u to=%u rc=%d sources=%u destinations=%u\n",
++	    (unsigned long long)physical, bytes, from, to, rc, sources,
++	    destinations);
++	return rc == 0 ? 0 : -1;
++}
++
++static uint64_t
++k60_qrtr_rmtfs_prepare(uint32_t bytes)
++{
 +	if (k60_qrtr_rmtfs_physical != 0) {
 +		return k60_qrtr_rmtfs_physical;
 +	}
@@ -1808,21 +1849,9 @@ index 0000000..1111111
 +	printf("K60MODEM qrtr: rmtfs buffer va=%#llx physical=%#llx bytes=%u\n",
 +	    (unsigned long long)k60_qrtr_rmtfs_buffer,
 +	    (unsigned long long)k60_qrtr_rmtfs_physical, bytes);
-+	if (k60_qrtr_rmtfs_low_alloc(65536, &k60_qrtr_rmtfs_scratch,
-+	    &k60_qrtr_rmtfs_scratch_physical) != 0) {
-+		printf("K60MODEM qrtr: rmtfs no assignment scratch; answering anyway\n");
-+		return k60_qrtr_rmtfs_physical;
-+	}
-+	record = (uint8_t *)k60_qrtr_rmtfs_scratch;
-+	if (k60_modem_assign_record(record, 4096, k60_qrtr_rmtfs_physical, bytes,
-+	    K60M_OWNER_HLOS, K60M_OWNER_HLOS | K60M_OWNER_MSS,
-+	    k60_qrtr_rmtfs_scratch_physical, &sources, &destinations) == 0) {
-+		k60_qrtr_rmtfs_clean(record, 4096);
-+		printf("K60MODEM qrtr: rmtfs assign record sources=%u destinations=%u\n",
-+		    sources, destinations);
-+		(void)k60_modem_assign_call(k60_qrtr_rmtfs_scratch_physical);
-+	} else {
-+		printf("K60MODEM qrtr: rmtfs assign record refused\n");
++	if (k60_qrtr_assign_pages(k60_qrtr_rmtfs_physical, bytes,
++	    K60M_OWNER_HLOS, K60M_OWNER_HLOS | K60M_OWNER_MSS) != 0) {
++		printf("K60MODEM qrtr: rmtfs assignment failed; answering anyway\n");
 +	}
 +	return k60_qrtr_rmtfs_physical;
 +}
@@ -1902,6 +1931,84 @@ index 0000000..1111111
 +		k60_qrtr_rmtfs_invalidate(shared,
 +		    (uint32_t)request->table[i].block_length * 512u);
 +	}
++	return 0;
++}
++
++/* The memory share service keeps one region for the modem: the reference
++ * reuses it only when the size, node and port all match, and refuses a second
++ * client rather than handing out a second window. */
++static uint64_t
++k60_qrtr_memshare_allocate(uint32_t bytes, uint32_t node, uint32_t port)
++{
++	vm_offset_t address = 0;
++	uint64_t physical = 0;
++
++	if (k60_qrtr_memshare_physical != 0) {
++		if (bytes == k60_qrtr_memshare_bytes && node == k60_qrtr_memshare_node &&
++		    port == k60_qrtr_memshare_port) {
++			return k60_qrtr_memshare_physical;
++		}
++		printf("K60MODEM qrtr: memshare busy bytes=%u node=%u port=%#x\n",
++		    k60_qrtr_memshare_bytes, k60_qrtr_memshare_node,
++		    k60_qrtr_memshare_port);
++		return 0;
++	}
++	if (bytes == 0 || bytes > K60_MEMSHARE_MAXIMUM) {
++		printf("K60MODEM qrtr: memshare %u bytes out of range\n", bytes);
++		return 0;
++	}
++	if (k60_qrtr_rmtfs_low_alloc((vm_size_t)round_page(bytes), &address,
++	    &physical) != 0) {
++		return 0;
++	}
++	if (k60_memshare_region_ok(physical, bytes, 1ull << 32) != 0) {
++		printf("K60MODEM qrtr: memshare region %#llx bytes=%u refused\n",
++		    (unsigned long long)physical, bytes);
++		kmem_free(kernel_map, address, round_page(bytes));
++		return 0;
++	}
++	k60_qrtr_memshare_buffer = address;
++	k60_qrtr_memshare_physical = physical;
++	k60_qrtr_memshare_bytes = bytes;
++	k60_qrtr_memshare_node = node;
++	k60_qrtr_memshare_port = port;
++	printf("K60MODEM qrtr: memshare buffer va=%#llx physical=%#llx bytes=%u node=%u port=%#x\n",
++	    (unsigned long long)address, (unsigned long long)physical, bytes, node,
++	    port);
++	if (k60_qrtr_assign_pages(physical, bytes, K60M_OWNER_HLOS,
++	    K60M_OWNER_HLOS | K60M_OWNER_MSS) != 0) {
++		printf("K60MODEM qrtr: memshare assignment failed; answering anyway\n");
++	}
++	return physical;
++}
++
++/* Handing the extent back costs the ownership reversal first, then the pages:
++ * the reference frees the buffer only after the modem's half is revoked. */
++static int
++k60_qrtr_memshare_release(uint64_t physical, uint32_t bytes, uint32_t node,
++    uint32_t port)
++{
++	if (k60_qrtr_memshare_physical == 0) {
++		return -1;
++	}
++	if (physical != k60_qrtr_memshare_physical ||
++	    bytes != k60_qrtr_memshare_bytes || node != k60_qrtr_memshare_node ||
++	    port != k60_qrtr_memshare_port) {
++		printf("K60MODEM qrtr: memshare release mismatch physical=%#llx bytes=%u node=%u port=%#x\n",
++		    (unsigned long long)physical, bytes, node, port);
++		return -1;
++	}
++	if (k60_qrtr_assign_pages(physical, bytes, K60M_OWNER_MSS,
++	    K60M_OWNER_HLOS) != 0) {
++		return -1;
++	}
++	kmem_free(kernel_map, k60_qrtr_memshare_buffer,
++	    round_page(k60_qrtr_memshare_bytes));
++	k60_qrtr_memshare_buffer = 0;
++	k60_qrtr_memshare_physical = 0;
++	k60_qrtr_memshare_bytes = 0;
++	k60_qrtr_memshare_node = 0;
++	k60_qrtr_memshare_port = 0;
 +	return 0;
 +}
 +
@@ -2023,6 +2130,54 @@ index 0000000..1111111
 +					printf("K60MODEM qrtr: rmtfs reply dropped (%u bytes)\n",
 +					    used);
 +				}
++			}
++		} else if (header.to_port == K60_MEMSHARE_PORT) {
++			K60MemshareRequest request;
++			uint8_t answer[64];
++			uint32_t used;
++			uint32_t error = K60_MEMSHARE_ERROR_NONE;
++			uint64_t physical = 0;
++			uint32_t extent = 0;
++			int parsed;
++
++			++k60_qrtr_memshare_requests;
++			parsed = k60_memshare_parse(payload, header.size, &request);
++			if (parsed != 0) {
++				printf("K60MODEM qrtr: memshare request %u bytes unreadable\n",
++				    header.size);
++				return;
++			}
++			error = request.error;
++			if (error == K60_MEMSHARE_ERROR_NONE &&
++			    request.message == K60_MEMSHARE_ALLOCATE) {
++				physical = k60_qrtr_memshare_allocate(request.bytes,
++				    header.from_node, header.from_port);
++				++k60_qrtr_memshare_allocations;
++				if (physical != 0) {
++					extent = request.bytes;
++				} else {
++					error = K60_MEMSHARE_ERROR_NO_MEMORY;
++				}
++			} else if (error == K60_MEMSHARE_ERROR_NONE &&
++			    request.message == K60_MEMSHARE_FREE) {
++				if (k60_qrtr_memshare_release(request.physical,
++				    request.extent_bytes, header.from_node,
++				    header.from_port) == 0) {
++					++k60_qrtr_memshare_releases;
++				} else {
++					error = K60_MEMSHARE_ERROR_TRANSFER;
++				}
++			}
++			printf("K60MODEM qrtr: memshare request=%#x client=%u bytes=%u result=%u\n",
++			    request.message, request.client, request.bytes, error);
++			used = k60_memshare_build_reply(answer, sizeof(answer),
++			    request.transaction, request.message, error,
++			    K60_MEMSHARE_MAXIMUM, &request.sequence, physical,
++			    extent);
++			if (used == 0 || k60_qrtr_queue_reply(K60_MEMSHARE_PORT,
++			    header.from_node, header.from_port, answer, used) != 0) {
++				printf("K60MODEM qrtr: memshare reply dropped (%u bytes)\n",
++				    used);
 +			}
 +		} else if (header.to_port == K60_QRTR_LOCATOR_PORT) {
 +			uint8_t answer[K60_QRTR_MAX_PACKET];
@@ -3189,6 +3344,33 @@ index 0000000..1111111
 +		 * sixty seconds and still heard nothing. Keep asking for four minutes,
 +		 * alternating an all-services query with a DMS-targeted one, because a
 +		 * service that registers at the fourth minute is still a service. */
++		/* The reference registers the heap share service right after storage, so
++		 * the modem sees the same three services Pong offers. */
++		if (k60_qrtr_rmtfs_sent && !k60_qrtr_memshare_sent) {
++			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
++			uint32_t memshare_node = k60_qrtr_state.remote_node;
++
++			if (memshare_node == K60_QRTR_CONTROL_PORT ||
++			    memshare_node == K60_QRTR_AP_NODE) {
++				memshare_node = K60_QRTR_BROADCAST_NODE;
++			}
++			if (k60_qrtr_build_new_server(packet, sizeof(packet),
++			    K60_MEMSHARE_SERVICE, K60_MEMSHARE_INSTANCE,
++			    memshare_node, K60_MEMSHARE_PORT) != 0) {
++				const int send_rc = k60m_glink_send(&k60_qrtr_link,
++				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
++
++				if (send_rc == QcomGlinkOk) {
++					k60_qrtr_memshare_sent = 1;
++					printf("K60MODEM qrtr: announced memshare service %u instance %u port %#x\n",
++					    K60_MEMSHARE_SERVICE, K60_MEMSHARE_INSTANCE,
++					    K60_MEMSHARE_PORT);
++				} else if (send_rc != QcomGlinkAgain) {
++					printf("K60MODEM qrtr: memshare announce rc=%d\n", send_rc);
++					return send_rc;
++				}
++			}
++		}
 +		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
 +		    (qrtr_mode == 1 || qrtr_mode == 2) &&
 +		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
@@ -3952,6 +4134,362 @@ index 0000000..1111111
 +		if (at == length && name[at] == '\0') {
 +			return storage;
 +		}
++	}
++	return 0;
++}
+diff --git a/bsd/dev/pong_modem_memshare.h b/bsd/dev/pong_modem_memshare.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_memshare.h
+@@ -0,0 +1,84 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Memshare, service 0x34 instance 1 on port 0x101.
++
++ * Pong registers three services to the modem before pas4: the servloc
++ * locator (0x40/0x101), heap memory share (0x34/0x101) and storage (14/1).
++ * The memory share is how the modem asks the AP for a contiguous region and
++ * how it hands it back; the transfer itself is the SCM 0x0c/0x16 ownership
++ * call this branch already carries in K60ModemPas.h.
++
++ * The wire shapes follow references/pong-baseband/PongModemMemshare.h: a QMI
++ * v1 request (type 0), seven byte header, little endian TLVs.  A query (0x24)
++ * reports the client limit, an allocate (0x22) asks for bytes and answers with
++ * a sequence number plus a 13 byte extent, and a free (0x23) hands back an
++ * extent that must match the one still held.  Rejections use QMI error 48
++ * (invalid argument), 2 (no memory), 3 (ownership transfer failed) or 71
++ * (message not supported), exactly as the reference does.
++ */
++#ifndef K60_MODEM_MEMSHARE_H
++#define K60_MODEM_MEMSHARE_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define K60_MEMSHARE_SERVICE            0x34u
++#define K60_MEMSHARE_INSTANCE           1u
++#define K60_MEMSHARE_PORT               0x101u
++
++#define K60_MEMSHARE_QUERY              0x24u
++#define K60_MEMSHARE_ALLOCATE           0x22u
++#define K60_MEMSHARE_FREE               0x23u
++
++#define K60_MEMSHARE_MAXIMUM            0x500000u   /* five megabytes */
++#define K60_MEMSHARE_ALIGNMENT_LIMIT    11u
++#define K60_MEMSHARE_CLIENT             1u
++#define K60_MEMSHARE_CLIENT_LIMIT       2u
++#define K60_MEMSHARE_EXTENT_BYTES       13u
++#define K60_MEMSHARE_EXTENT_VERSION     1u
++
++#define K60_MEMSHARE_ERROR_NONE         0u
++#define K60_MEMSHARE_ERROR_NO_MEMORY    2u
++#define K60_MEMSHARE_ERROR_TRANSFER     3u
++#define K60_MEMSHARE_ERROR_ARGUMENT     48u
++#define K60_MEMSHARE_ERROR_UNSUPPORTED  71u
++
++enum {
++	K60MemshareOk = 0,
++	K60MemshareBadArgument = -1,
++	K60MemshareMalformed = -2,
++};
++
++typedef struct {
++	uint16_t message;
++	uint16_t transaction;
++	uint32_t client;
++	uint32_t processor;
++	uint32_t sequence;
++	uint32_t bytes;             /* allocate: the size asked for */
++	uint32_t alignment;
++	uint64_t physical;          /* free: the extent handed back */
++	uint32_t extent_bytes;
++	uint32_t error;             /* non zero: answer with this code, not memory */
++} K60MemshareRequest;
++
++/* Parses one request.  The protocol rejections the reference decides while
++ * parsing (wrong client, a processor id, a bad alignment, an extent that does
++ * not match the shape) are reported in out->error with a zero return, so the
++ * caller answers with that code instead of allocating.  A malformed header or
++ * a missing required TLV is K60MemshareMalformed. */
++int k60_memshare_parse(const void *bytes, size_t length, K60MemshareRequest *out);
++
++/* Builds the response.  error is one of the codes above; a successful query
++ * carries the client limit, a successful allocate carries the sequence and the
++ * extent, and nothing else carries a value TLV.  Returns the message length or
++ * zero when the buffer is too small. */
++size_t k60_memshare_build_reply(uint8_t *out, size_t capacity,
++    uint16_t transaction, uint16_t message, uint32_t error, uint32_t maximum,
++    const uint32_t *sequence, uint64_t physical, uint32_t bytes);
++
++/* Rounding and bounds the reference applies to a region before it is handed
++ * over: 4096 byte pages, no zero length, and every page below the ceiling.
++ * Returns 0 when the region is acceptable. */
++int k60_memshare_region_ok(uint64_t physical, uint32_t bytes, uint64_t ceiling);
++
++#endif
+diff --git a/bsd/dev/pong_modem_memshare.c b/bsd/dev/pong_modem_memshare.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/pong_modem_memshare.c
+@@ -0,0 +1,260 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++/* Memshare request parsing and response building.  Self contained: the seven
++ * byte QMI header and the TLVs are little endian, and the shapes are the ones
++ * references/pong-baseband/PongModemMemshare.h uses. */
++
++#include "pong_modem_memshare.h"
++
++static uint16_t
++k60_memshare_le16(const uint8_t *at)
++{
++	return (uint16_t)((uint16_t)at[0] | ((uint16_t)at[1] << 8));
++}
++
++static uint32_t
++k60_memshare_le32(const uint8_t *at)
++{
++	return (uint32_t)k60_memshare_le16(at) |
++	    ((uint32_t)k60_memshare_le16(at + 2) << 16);
++}
++
++static uint64_t
++k60_memshare_le64(const uint8_t *at)
++{
++	return (uint64_t)k60_memshare_le32(at) |
++	    ((uint64_t)k60_memshare_le32(at + 4) << 32);
++}
++
++static void
++k60_memshare_put16(uint8_t *at, uint16_t value)
++{
++	at[0] = (uint8_t)(value & 0xffu);
++	at[1] = (uint8_t)(value >> 8);
++}
++
++static void
++k60_memshare_put32(uint8_t *at, uint32_t value)
++{
++	k60_memshare_put16(at, (uint16_t)(value & 0xffffu));
++	k60_memshare_put16(at + 2, (uint16_t)(value >> 16));
++}
++
++static void
++k60_memshare_put64(uint8_t *at, uint64_t value)
++{
++	k60_memshare_put32(at, (uint32_t)(value & 0xffffffffu));
++	k60_memshare_put32(at + 4, (uint32_t)(value >> 32));
++}
++
++/* A required TLV: present with exactly four bytes.  An optional one may be
++ * absent (returns 0 with *found cleared) but must still be four bytes when
++ * the modem sent it. */
++static int
++k60_memshare_u32(const uint8_t *tlvs, size_t bytes, uint8_t tag, uint32_t *value,
++    int *found)
++{
++	size_t at = 0;
++
++	if (found != NULL) {
++		*found = 0;
++	}
++	while (at + 3u <= bytes) {
++		const uint8_t type = tlvs[at];
++		const uint16_t length = k60_memshare_le16(tlvs + at + 1);
++
++		if (at + 3u + length > bytes) {
++			return K60MemshareMalformed;
++		}
++		if (type == tag) {
++			if (length != 4u) {
++				return K60MemshareMalformed;
++			}
++			*value = k60_memshare_le32(tlvs + at + 3);
++			if (found != NULL) {
++				*found = 1;
++			}
++			return K60MemshareOk;
++		}
++		at += 3u + length;
++	}
++	return K60MemshareOk;
++}
++
++int
++k60_memshare_parse(const void *bytes, size_t length, K60MemshareRequest *out)
++{
++	const uint8_t *data = (const uint8_t *)bytes;
++	const uint8_t *tlvs;
++	size_t payload;
++	int found;
++
++	if (bytes == NULL || out == NULL || length < 7u) {
++		return K60MemshareBadArgument;
++	}
++	if (data[0] != 0u) {
++		return K60MemshareMalformed;               /* not a request */
++	}
++	payload = (size_t)k60_memshare_le16(data + 5);
++	if (7u + payload > length) {
++		return K60MemshareMalformed;
++	}
++	tlvs = data + 7;
++	out->transaction = k60_memshare_le16(data + 1);
++	out->message = k60_memshare_le16(data + 3);
++	out->client = 0;
++	out->processor = 0;
++	out->sequence = 0;
++	out->bytes = 0;
++	out->alignment = 0;
++	out->physical = 0;
++	out->extent_bytes = 0;
++	out->error = K60_MEMSHARE_ERROR_NONE;
++
++	if (out->message == K60_MEMSHARE_QUERY) {
++		if (k60_memshare_u32(tlvs, payload, 1, &out->client, NULL) != 0) {
++			return K60MemshareMalformed;
++		}
++		if (k60_memshare_u32(tlvs, payload, 0x10, &out->processor,
++		    &found) != 0) {
++			return K60MemshareMalformed;
++		}
++		if (out->client > K60_MEMSHARE_CLIENT_LIMIT || out->processor != 0u) {
++			out->error = K60_MEMSHARE_ERROR_ARGUMENT;
++		}
++		return K60MemshareOk;
++	}
++
++	if (out->message == K60_MEMSHARE_ALLOCATE) {
++		if (k60_memshare_u32(tlvs, payload, 1, &out->bytes, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 2, &out->client, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 3, &out->processor, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 4, &out->sequence, NULL) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 0x11, &out->alignment,
++		    &found) != 0) {
++			return K60MemshareMalformed;
++		}
++		if (out->client != K60_MEMSHARE_CLIENT || out->processor != 0u ||
++		    out->alignment > K60_MEMSHARE_ALIGNMENT_LIMIT) {
++			out->error = K60_MEMSHARE_ERROR_ARGUMENT;
++		} else if (out->bytes == 0u || out->bytes > K60_MEMSHARE_MAXIMUM) {
++			out->error = K60_MEMSHARE_ERROR_NO_MEMORY;
++		}
++		return K60MemshareOk;
++	}
++
++	if (out->message == K60_MEMSHARE_FREE) {
++		size_t at = 0;
++		int have_extent = 0;
++
++		/* no client TLV means any client may hand the extent back */
++		out->client = 0xffffffffu;
++		if (k60_memshare_u32(tlvs, payload, 0x10, &out->client, &found) != 0 ||
++		    k60_memshare_u32(tlvs, payload, 0x11, &out->processor,
++		    &found) != 0) {
++			return K60MemshareMalformed;
++		}
++		while (at + 3u <= payload) {
++			const uint8_t type = tlvs[at];
++			const uint16_t extent = k60_memshare_le16(tlvs + at + 1);
++
++			if (at + 3u + extent > payload) {
++				return K60MemshareMalformed;
++			}
++			if (type == 1u) {
++				if (extent != K60_MEMSHARE_EXTENT_BYTES ||
++				    tlvs[at + 3] != K60_MEMSHARE_EXTENT_VERSION) {
++					return K60MemshareMalformed;
++				}
++				out->physical = k60_memshare_le64(tlvs + at + 4);
++				out->extent_bytes = k60_memshare_le32(tlvs + at + 12);
++				have_extent = 1;
++			}
++			at += 3u + extent;
++		}
++		if (!have_extent) {
++			return K60MemshareMalformed;
++		}
++		if (out->processor != 0u ||
++		    (out->client != 0xffffffffu && out->client != K60_MEMSHARE_CLIENT)) {
++			out->error = K60_MEMSHARE_ERROR_ARGUMENT;
++		}
++		return K60MemshareOk;
++	}
++
++	out->error = K60_MEMSHARE_ERROR_UNSUPPORTED;
++	return K60MemshareOk;
++}
++
++size_t
++k60_memshare_build_reply(uint8_t *out, size_t capacity, uint16_t transaction,
++    uint16_t message, uint32_t error, uint32_t maximum, const uint32_t *sequence,
++    uint64_t physical, uint32_t bytes)
++{
++	size_t used;
++
++	if (out == NULL || capacity < 14u) {
++		return 0;
++	}
++	out[0] = 2u;                                   /* response */
++	k60_memshare_put16(out + 1, transaction);
++	k60_memshare_put16(out + 3, message);
++	out[7] = 0x02u;                                /* result TLV */
++	k60_memshare_put16(out + 8, 4);
++	k60_memshare_put16(out + 10, error != 0u ? 1u : 0u);
++	k60_memshare_put16(out + 12, (uint16_t)error);
++	used = 14u;
++
++	if (error != 0u) {
++		goto done;
++	}
++	if (message == K60_MEMSHARE_QUERY) {
++		if (capacity < used + 7u) {
++			return 0;
++		}
++		out[used++] = 0x10u;
++		k60_memshare_put16(out + used, 4);
++		used += 2;
++		k60_memshare_put32(out + used, maximum);
++		used += 4;
++	} else if (message == K60_MEMSHARE_ALLOCATE) {
++		if (capacity < used + 7u + 16u) {
++			return 0;
++		}
++		out[used++] = 0x10u;
++		k60_memshare_put16(out + used, 4);
++		used += 2;
++		k60_memshare_put32(out + used,
++		    sequence != NULL ? *sequence : 0u);
++		used += 4;
++		out[used++] = 0x11u;
++		k60_memshare_put16(out + used, K60_MEMSHARE_EXTENT_BYTES);
++		used += 2;
++		out[used++] = K60_MEMSHARE_EXTENT_VERSION;
++		k60_memshare_put64(out + used, physical);
++		used += 8;
++		k60_memshare_put32(out + used, bytes);
++		used += 4;
++	}
++
++done:
++	k60_memshare_put16(out + 5, (uint16_t)(used - 7u));
++	return used;
++}
++
++int
++k60_memshare_region_ok(uint64_t physical, uint32_t bytes, uint64_t ceiling)
++{
++	uint64_t rounded;
++
++	if (physical == 0u || bytes == 0u || (physical & 0xfffu) != 0u) {
++		return -1;
++	}
++	rounded = ((uint64_t)bytes + 4095u) & ~(uint64_t)4095u;
++	if (rounded == 0u || physical + rounded < physical) {
++		return -1;
++	}
++	if (physical + rounded > ceiling) {
++		return -1;
 +	}
 +	return 0;
 +}

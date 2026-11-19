@@ -22,6 +22,7 @@ ENTRIES = [
     "bsd/dev/pong_modem_qrtr.c\t\t\tstandard",
     "bsd/dev/pong_modem_link.c\t\t\tstandard",
     "bsd/dev/pong_modem_rmtfs.c\t\t\tstandard",
+    "bsd/dev/pong_modem_memshare.c\t\t\tstandard",
     "bsd/dev/pong_modem_efs.c\t\t\tstandard",
     "bsd/dev/pong_ipa.c\t\t\tstandard",
     "bsd/dev/pong_mdt.c\t\t\tstandard",

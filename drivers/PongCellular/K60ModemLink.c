@@ -21,6 +21,7 @@
  * pong_modem is set to 2 or more. */
 #include "K60ModemQrtr.h"
 #include "K60ModemEfs.h"
+#include "K60ModemMemshare.h"
 #include "K60ModemRmtfs.h"
 #include "K60Smem.h"
 #include "QcomGlink.h"
@@ -266,6 +267,7 @@ static unsigned k60_qrtr_rx_cmds[8];
 static unsigned k60_qrtr_lookup_replies;
 static unsigned k60_qrtr_rmtfs_requests;
 static int k60_qrtr_rmtfs_sent;
+static int k60_qrtr_memshare_sent;
 static unsigned k60_qrtr_static_count;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
     uint32_t length, uint32_t ip_version);
@@ -421,6 +423,15 @@ k60_qrtr_rmtfs_storage(const char *path, size_t length)
  * allocation is retried, because the first contiguous block the kernel hands
  * out can sit above the 4 GiB line; every refusal is logged with its
  * physical address instead of being hidden. */
+static vm_offset_t k60_qrtr_memshare_buffer;
+static uint64_t k60_qrtr_memshare_physical;
+static uint32_t k60_qrtr_memshare_bytes;
+static uint32_t k60_qrtr_memshare_node;
+static uint32_t k60_qrtr_memshare_port;
+static unsigned k60_qrtr_memshare_requests;
+static unsigned k60_qrtr_memshare_allocations;
+static unsigned k60_qrtr_memshare_releases;
+
 static vm_offset_t k60_qrtr_rmtfs_buffer;
 static uint64_t k60_qrtr_rmtfs_physical;
 static uint64_t k60_qrtr_rmtfs_bytes;
@@ -485,13 +496,43 @@ k60_qrtr_rmtfs_invalidate(const void *at, uint32_t bytes)
 	__asm__ volatile("dsb sy" : : : "memory");
 }
 
-static uint64_t
-k60_qrtr_rmtfs_prepare(uint32_t bytes)
+/* Both services hand pages across the same SCM primitive (0x0c/0x16) and the
+ * same 64 KiB metadata scratch: RMTFS lends its window to the modem for file
+ * reads, the memory share service lends it as a heap. */
+static int
+k60_qrtr_assign_pages(uint64_t physical, uint32_t bytes, unsigned from,
+    unsigned to)
 {
 	uint8_t *record;
 	uint32_t sources = 0;
 	uint32_t destinations = 0;
+	int rc;
 
+	if (k60_qrtr_rmtfs_scratch == 0 &&
+	    k60_qrtr_rmtfs_low_alloc(65536, &k60_qrtr_rmtfs_scratch,
+	    &k60_qrtr_rmtfs_scratch_physical) != 0) {
+		printf("K60MODEM qrtr: no assignment scratch for %#llx\n",
+		    (unsigned long long)physical);
+		return -1;
+	}
+	record = (uint8_t *)k60_qrtr_rmtfs_scratch;
+	if (k60_modem_assign_record(record, 4096, physical, bytes, from, to,
+	    k60_qrtr_rmtfs_scratch_physical, &sources, &destinations) != 0) {
+		printf("K60MODEM qrtr: assign record refused physical=%#llx bytes=%u\n",
+		    (unsigned long long)physical, bytes);
+		return -1;
+	}
+	k60_qrtr_rmtfs_clean(record, 4096);
+	rc = k60_modem_assign_call(k60_qrtr_rmtfs_scratch_physical);
+	printf("K60MODEM qrtr: assign physical=%#llx bytes=%u from=%u to=%u rc=%d sources=%u destinations=%u\n",
+	    (unsigned long long)physical, bytes, from, to, rc, sources,
+	    destinations);
+	return rc == 0 ? 0 : -1;
+}
+
+static uint64_t
+k60_qrtr_rmtfs_prepare(uint32_t bytes)
+{
 	if (k60_qrtr_rmtfs_physical != 0) {
 		return k60_qrtr_rmtfs_physical;
 	}
@@ -507,21 +548,9 @@ k60_qrtr_rmtfs_prepare(uint32_t bytes)
 	printf("K60MODEM qrtr: rmtfs buffer va=%#llx physical=%#llx bytes=%u\n",
 	    (unsigned long long)k60_qrtr_rmtfs_buffer,
 	    (unsigned long long)k60_qrtr_rmtfs_physical, bytes);
-	if (k60_qrtr_rmtfs_low_alloc(65536, &k60_qrtr_rmtfs_scratch,
-	    &k60_qrtr_rmtfs_scratch_physical) != 0) {
-		printf("K60MODEM qrtr: rmtfs no assignment scratch; answering anyway\n");
-		return k60_qrtr_rmtfs_physical;
-	}
-	record = (uint8_t *)k60_qrtr_rmtfs_scratch;
-	if (k60_modem_assign_record(record, 4096, k60_qrtr_rmtfs_physical, bytes,
-	    K60M_OWNER_HLOS, K60M_OWNER_HLOS | K60M_OWNER_MSS,
-	    k60_qrtr_rmtfs_scratch_physical, &sources, &destinations) == 0) {
-		k60_qrtr_rmtfs_clean(record, 4096);
-		printf("K60MODEM qrtr: rmtfs assign record sources=%u destinations=%u\n",
-		    sources, destinations);
-		(void)k60_modem_assign_call(k60_qrtr_rmtfs_scratch_physical);
-	} else {
-		printf("K60MODEM qrtr: rmtfs assign record refused\n");
+	if (k60_qrtr_assign_pages(k60_qrtr_rmtfs_physical, bytes,
+	    K60M_OWNER_HLOS, K60M_OWNER_HLOS | K60M_OWNER_MSS) != 0) {
+		printf("K60MODEM qrtr: rmtfs assignment failed; answering anyway\n");
 	}
 	return k60_qrtr_rmtfs_physical;
 }
@@ -601,6 +630,84 @@ k60_qrtr_rmtfs_rw(const K60RmtfsRequest *request)
 		k60_qrtr_rmtfs_invalidate(shared,
 		    (uint32_t)request->table[i].block_length * 512u);
 	}
+	return 0;
+}
+
+/* The memory share service keeps one region for the modem: the reference
+ * reuses it only when the size, node and port all match, and refuses a second
+ * client rather than handing out a second window. */
+static uint64_t
+k60_qrtr_memshare_allocate(uint32_t bytes, uint32_t node, uint32_t port)
+{
+	vm_offset_t address = 0;
+	uint64_t physical = 0;
+
+	if (k60_qrtr_memshare_physical != 0) {
+		if (bytes == k60_qrtr_memshare_bytes && node == k60_qrtr_memshare_node &&
+		    port == k60_qrtr_memshare_port) {
+			return k60_qrtr_memshare_physical;
+		}
+		printf("K60MODEM qrtr: memshare busy bytes=%u node=%u port=%#x\n",
+		    k60_qrtr_memshare_bytes, k60_qrtr_memshare_node,
+		    k60_qrtr_memshare_port);
+		return 0;
+	}
+	if (bytes == 0 || bytes > K60_MEMSHARE_MAXIMUM) {
+		printf("K60MODEM qrtr: memshare %u bytes out of range\n", bytes);
+		return 0;
+	}
+	if (k60_qrtr_rmtfs_low_alloc((vm_size_t)round_page(bytes), &address,
+	    &physical) != 0) {
+		return 0;
+	}
+	if (k60_memshare_region_ok(physical, bytes, 1ull << 32) != 0) {
+		printf("K60MODEM qrtr: memshare region %#llx bytes=%u refused\n",
+		    (unsigned long long)physical, bytes);
+		kmem_free(kernel_map, address, round_page(bytes));
+		return 0;
+	}
+	k60_qrtr_memshare_buffer = address;
+	k60_qrtr_memshare_physical = physical;
+	k60_qrtr_memshare_bytes = bytes;
+	k60_qrtr_memshare_node = node;
+	k60_qrtr_memshare_port = port;
+	printf("K60MODEM qrtr: memshare buffer va=%#llx physical=%#llx bytes=%u node=%u port=%#x\n",
+	    (unsigned long long)address, (unsigned long long)physical, bytes, node,
+	    port);
+	if (k60_qrtr_assign_pages(physical, bytes, K60M_OWNER_HLOS,
+	    K60M_OWNER_HLOS | K60M_OWNER_MSS) != 0) {
+		printf("K60MODEM qrtr: memshare assignment failed; answering anyway\n");
+	}
+	return physical;
+}
+
+/* Handing the extent back costs the ownership reversal first, then the pages:
+ * the reference frees the buffer only after the modem's half is revoked. */
+static int
+k60_qrtr_memshare_release(uint64_t physical, uint32_t bytes, uint32_t node,
+    uint32_t port)
+{
+	if (k60_qrtr_memshare_physical == 0) {
+		return -1;
+	}
+	if (physical != k60_qrtr_memshare_physical ||
+	    bytes != k60_qrtr_memshare_bytes || node != k60_qrtr_memshare_node ||
+	    port != k60_qrtr_memshare_port) {
+		printf("K60MODEM qrtr: memshare release mismatch physical=%#llx bytes=%u node=%u port=%#x\n",
+		    (unsigned long long)physical, bytes, node, port);
+		return -1;
+	}
+	if (k60_qrtr_assign_pages(physical, bytes, K60M_OWNER_MSS,
+	    K60M_OWNER_HLOS) != 0) {
+		return -1;
+	}
+	kmem_free(kernel_map, k60_qrtr_memshare_buffer,
+	    round_page(k60_qrtr_memshare_bytes));
+	k60_qrtr_memshare_buffer = 0;
+	k60_qrtr_memshare_physical = 0;
+	k60_qrtr_memshare_bytes = 0;
+	k60_qrtr_memshare_node = 0;
+	k60_qrtr_memshare_port = 0;
 	return 0;
 }
 
@@ -722,6 +829,54 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 					printf("K60MODEM qrtr: rmtfs reply dropped (%u bytes)\n",
 					    used);
 				}
+			}
+		} else if (header.to_port == K60_MEMSHARE_PORT) {
+			K60MemshareRequest request;
+			uint8_t answer[64];
+			uint32_t used;
+			uint32_t error = K60_MEMSHARE_ERROR_NONE;
+			uint64_t physical = 0;
+			uint32_t extent = 0;
+			int parsed;
+
+			++k60_qrtr_memshare_requests;
+			parsed = k60_memshare_parse(payload, header.size, &request);
+			if (parsed != 0) {
+				printf("K60MODEM qrtr: memshare request %u bytes unreadable\n",
+				    header.size);
+				return;
+			}
+			error = request.error;
+			if (error == K60_MEMSHARE_ERROR_NONE &&
+			    request.message == K60_MEMSHARE_ALLOCATE) {
+				physical = k60_qrtr_memshare_allocate(request.bytes,
+				    header.from_node, header.from_port);
+				++k60_qrtr_memshare_allocations;
+				if (physical != 0) {
+					extent = request.bytes;
+				} else {
+					error = K60_MEMSHARE_ERROR_NO_MEMORY;
+				}
+			} else if (error == K60_MEMSHARE_ERROR_NONE &&
+			    request.message == K60_MEMSHARE_FREE) {
+				if (k60_qrtr_memshare_release(request.physical,
+				    request.extent_bytes, header.from_node,
+				    header.from_port) == 0) {
+					++k60_qrtr_memshare_releases;
+				} else {
+					error = K60_MEMSHARE_ERROR_TRANSFER;
+				}
+			}
+			printf("K60MODEM qrtr: memshare request=%#x client=%u bytes=%u result=%u\n",
+			    request.message, request.client, request.bytes, error);
+			used = k60_memshare_build_reply(answer, sizeof(answer),
+			    request.transaction, request.message, error,
+			    K60_MEMSHARE_MAXIMUM, &request.sequence, physical,
+			    extent);
+			if (used == 0 || k60_qrtr_queue_reply(K60_MEMSHARE_PORT,
+			    header.from_node, header.from_port, answer, used) != 0) {
+				printf("K60MODEM qrtr: memshare reply dropped (%u bytes)\n",
+				    used);
 			}
 		} else if (header.to_port == K60_QRTR_LOCATOR_PORT) {
 			uint8_t answer[K60_QRTR_MAX_PACKET];
@@ -1888,6 +2043,33 @@ k60_modem_qrtr_probe(void)
 		 * sixty seconds and still heard nothing. Keep asking for four minutes,
 		 * alternating an all-services query with a DMS-targeted one, because a
 		 * service that registers at the fourth minute is still a service. */
+		/* The reference registers the heap share service right after storage, so
+		 * the modem sees the same three services Pong offers. */
+		if (k60_qrtr_rmtfs_sent && !k60_qrtr_memshare_sent) {
+			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
+			uint32_t memshare_node = k60_qrtr_state.remote_node;
+
+			if (memshare_node == K60_QRTR_CONTROL_PORT ||
+			    memshare_node == K60_QRTR_AP_NODE) {
+				memshare_node = K60_QRTR_BROADCAST_NODE;
+			}
+			if (k60_qrtr_build_new_server(packet, sizeof(packet),
+			    K60_MEMSHARE_SERVICE, K60_MEMSHARE_INSTANCE,
+			    memshare_node, K60_MEMSHARE_PORT) != 0) {
+				const int send_rc = qcom_glink_send(&k60_qrtr_link,
+				    k60_qrtr_channel, packet, K60_QRTR_LOOKUP_BYTES);
+
+				if (send_rc == QcomGlinkOk) {
+					k60_qrtr_memshare_sent = 1;
+					printf("K60MODEM qrtr: announced memshare service %u instance %u port %#x\n",
+					    K60_MEMSHARE_SERVICE, K60_MEMSHARE_INSTANCE,
+					    K60_MEMSHARE_PORT);
+				} else if (send_rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: memshare announce rc=%d\n", send_rc);
+					return send_rc;
+				}
+			}
+		}
 		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
 		    (qrtr_mode == 1 || qrtr_mode == 2) &&
 		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&

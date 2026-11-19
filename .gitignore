@@ -31,6 +31,9 @@
 *.o
 *.a
 *.dylib
+# The extension rules below would drop the .bin half of the Bluetooth
+# firmware set that the negation above re-includes; keep those tracked.
+!/firmware/bluetooth/qca/*.bin
 *.metallib
 *.air
 *.kc

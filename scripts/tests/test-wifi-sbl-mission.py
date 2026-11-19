@@ -460,6 +460,11 @@ def main() -> int:
           'msg.dv[0].data_length = sizeof name; msg.dv[0].data_ptr = name;' in net_src and
           'msg.dv[1].data_length = static_cast<uint32_t>(length); msg.dv[1].data_ptr = const_cast<void *>(payload);' in net_src and
           net_src.count('if (rq.req_len == PONG_SCAN_RECORD_24A446) gModern27Client = true;') == 2)
+    check("a 24A446 event is logged with its size and result",
+          'wifi-net: event %u bytes %u -> %d' in net_src and
+          'if (code != kEvScanDone) log(6, "wifi-net: event %u bytes %u -> %d"' in net_src)
+    check("the link settle window starts where the reference starts it",
+          "gLinkUpMs = up ? scan_clock_ms() : 0;" in net_src)
 
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0

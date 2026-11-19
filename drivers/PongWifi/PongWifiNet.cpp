@@ -222,7 +222,8 @@ void post_event(uint32_t code, const void *payload, size_t length) {
     char name[16] = "en0";
     msg.dv[0].data_length = sizeof name; msg.dv[0].data_ptr = name;
     msg.dv[1].data_length = static_cast<uint32_t>(length); msg.dv[1].data_ptr = const_cast<void *>(payload);
-    pong_kev_post(&msg);
+    const int error = pong_kev_post(&msg);
+    if (code != kEvScanDone) log(6, "wifi-net: event %u bytes %u -> %d", code, static_cast<unsigned>(length), error);
     return;
   }
   uint8_t data[16 + sizeof(pong_assoc_event27)]; if (length > sizeof data - 16) length = sizeof data - 16;
@@ -232,6 +233,7 @@ void post_event(uint32_t code, const void *payload, size_t length) {
 }
 // link state for the network configuration: the interface's flags and the stack's own link events
 void post_link(bool up) {
+  gLinkUpMs = up ? scan_clock_ms() : 0;
   if (!gIf) return;
   lck_mtx_lock(gLock);
   if (gLease.up != up) pong_wifi_lease_link(&gLease, up);

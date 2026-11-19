@@ -42,7 +42,7 @@
 ## 4. 移植顺序
 
 1. **基线**：在 `feat/ios27` 上先构建不带电源新代码的镜像，确认 bsd_init、SpringBoard、USB console 都成立；记录 boot.img/kernel/payload 与 console。
-2. **策略先行**：把五个纯 C 模块和 host 套件原样带过去，先跑 `bash scripts/tests/run-k60-power-host.sh`；七套件数字必须与 iOS16 一致（1530）。这一步不需要设备。
+2. **策略先行**：把五个纯 C 模块和 host 套件原样带过去，先跑 `bash scripts/tests/run-k60-power-host.sh`；七套件数字必须与 iOS16 一致（1530），并确认新增的 `scripts/check-power-portability.py` 通过（五模块无 IOKit/XNU 依赖，freestanding C11 可编译）。这一步不需要设备。
 3. **组件替换**：用 catalog ArmCpu 替换 vendored `drivers/ArmCpu`；确认 `armcpu_sleep_register`、stats、board 回调的结构体大小与 iOS16 版本一致（56 B/48 B），不一致就按 12377 头文件改板级。
 4. **XNU 补丁**：把 sheng 的 12377 补丁按当前 12377 源树重放；只保留 hook、`arm_init_cpu(cpu_data_ptr, 0)`、secondary hook、IOPMrootDomain 清标志、sigp 恢复。不要带 0623/0624/0625。
 5. **板级 hook**：先 timer-only（无 PON），`platform-sleep=1` + `platform-sleep-wake-after=5`；prepare/restore 只累加计数，不在关中断上下文打印；唤醒后在安全上下文打一条 report。
@@ -54,7 +54,7 @@
 
 | 门 | 通过条件 |
 | --- | --- |
-| host | 七套件 1530 项全过；新增 iOS27 适配代码另有断言 |
+| host | 七套件 1530 项全过；`check-power-portability.py` 报告 5 模块 freestanding C11 通过；新增 iOS27 适配代码另有断言 |
 | 静态 | kernel.macho 有 `_armcpu_sleep_register`、`_arm64_platform_sleep_hook`、板级 register/report 符号；无 `0624` 的 `k60_platform_sleep_boot_complete` |
 | 默认启动 | `platform-sleep=0` 到 SpringBoard，无 prepare/restore；300 s autoreset 正常 |
 | timer 睡眠 | `platform-sleep=1 platform-sleep-wake-after=5`：prepare=1、restore=1、last_intid=27、last_reason=timer，且 `IOCPUSleepKernel` 打印退出/`wake cpus done`，系统继续运行 |

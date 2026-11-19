@@ -109,7 +109,7 @@ docs/
 | [`power/05-BOOST-RULES.md`](research/power/05-BOOST-RULES.md) | **触摸/帧/GPU 唤醒/fence 规则**：官网 :115-117 的 1 s 触摸保持、4 窗口 2 帧的 60 % CPU 下限、GPU 双倍/578 MHz/50 ms、1 ms fence 预算，host 40 项；触摸计数（补丁 0622）与 CP 环提交窗口已接线，CPU/GPU 线程已消费；image ab 07:18 触摸把 d0 写到 state=15->94、hw=1804800kHz，票数改每窗口、boost 覆盖全簇（43af2a5c），fence 仍无消费者 |
 | [`power/06-FIRMWARE-MANIFEST.md`](research/power/06-FIRMWARE-MANIFEST.md) | **电源固件清单**：ADSP 26 段 + mdt 的完整 sha256、充电器 .ko、carrier FD/UEFI 输入；记录来源压缩包与缺失段 b24，声明整机清单与认证密钥仍无来源 |
 | [`power/07-RAIL-ORDERING.md`](research/power/07-RAIL-ORDERING.md) | **稳压器/互连/温控顺序**：审计现有 TCS4 lcx/lmx、触摸 IOVDD TCS3、GPU 电源表与投票账本；给出读状态→温控→电压→互连→频率→回读的顺序和 HR-01 边界 |
-| [`power/08-IOS27-POWER-PORT.md`](research/power/08-IOS27-POWER-PORT.md) | **iOS27 电源移植清单**：iOS16 平台睡眠停在完整恢复硬挂；列出五个纯 C 策略模块/七套 host 1530 项、K60 现场事实、catalog ArmCpu + sheng xnu-12377 补丁（927a458）的复用/重写矩阵、移植顺序与验收判据 |
+| [`power/08-IOS27-POWER-PORT.md`](research/power/08-IOS27-POWER-PORT.md) | **iOS27 电源移植清单**：iOS16 平台睡眠停在完整恢复硬挂；列出五个纯 C 策略模块/七套 host 1530 项、K60 现场事实、catalog ArmCpu + sheng xnu-12377 补丁（927a458）的复用/重写矩阵、移植顺序与验收判据；新增五模块 freestanding portability preflight |
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |
 | `memory/RESEARCH.md` | **内存布局结论层（本板真值）**：DDR 保留区与寄存器窗口，以及跨板边界——DXE Heap `0xC7000000` 与 Kernel `0xBB000000` 绝不可跨板抄 |

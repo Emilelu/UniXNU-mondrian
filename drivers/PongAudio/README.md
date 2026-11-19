@@ -141,6 +141,17 @@ or `REPLAY VERDICT: FAILED (N problem(s))` with one line per problem. A log with
 replay pass at all (image j) reports `the replay pass never ran` and exits 2, which is
 why run 1's evidence still judges SUCCESS without the flag.
 
+`--playback` judges the playback card instead (the cc image): step 2 opens the
+speaker graph with 408 bytes and must come back `status=0`, step 10 starts it,
+step 6 asks PRM for the bit clock and must get `opcode=0x02001002 status=0`, and
+`amp spk switch gpio=52 on=1 ... read=0x00000002` proves the speaker switch is
+actually driven. It prints `PLAYBACK VERDICT: SUCCESS` or `FAILED (N problem(s))`
+with one line per problem, names the failure as F1-F5, and reports the amplifier
+`status` (0x0011 PLLS|CLKS, 0x0020 NOCLKS, 0x0000 no clock bits) plus the
+`WRITE_DONE` count without gating on either - a clean run with no clock is a real
+finding, not a failed capture. Any card whose criteria a human had to eyeball is
+a card this tool does not yet cover.
+
 ## Host tests
 
 `PongAudioGeniI2c.c` is a state machine fed by scratchpad-only MMIO, so it can be
@@ -150,13 +161,13 @@ and checks the exact command words the engine would see:
 ```
 wsl.exe -e bash -lc 'cd /mnt/e/hackios/k60-audio-merge && sh drivers/PongAudio/tests/run-tests.sh'
 # cc -std=gnu11 -Wall -Wextra -Werror ... && ./test-pong-audio-geni-i2c
-# TESTS OK 956 cases
+# TESTS OK 979 cases
 ```
 
 It must be run from WSL: the Windows side of this machine has no `cc`, `gcc` or
 `clang` on PATH, and the first attempt fails with `command not found`.
 
-What the 956 cases buy, given that nothing can be measured on hardware yet:
+What the 979 cases buy, given that nothing can be measured on hardware yet:
 
 - the read transaction is two commands — a one-byte pointer write with
   `STOP_STRETCH` held, then a read with no stop. A `CMD_DONE` in the write phase

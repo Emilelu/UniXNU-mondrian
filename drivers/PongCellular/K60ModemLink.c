@@ -230,6 +230,10 @@ k60_qrtr_dump_intents(void)
 }
 
 static unsigned k60_qrtr_hello_probes;
+/* k43: every received message by type, so the stall window can be read as a
+ * picture (DATA, HELLO, BYE, NEW_SERVER, DEL_SERVER, DEL_CLIENT) instead of a
+ * single total. */
+static unsigned k60_qrtr_rx_cmds[8];
 static unsigned k60_qrtr_static_count;
 static void (*k60_modem_data_receiver)(uint32_t mux, const uint8_t *ip,
     uint32_t length, uint32_t ip_version);
@@ -375,6 +379,9 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 	(void)channel;
 	if (k60_qrtr_parse(data, length, &header, &payload) != K60QrtrOk) {
 		return;
+	}
+	if (header.type < 8u) {
+		++k60_qrtr_rx_cmds[header.type];
 	}
 	if (header.type == K60QrtrData) {
 		if (header.to_port == K60_QRTR_LOCATOR_PORT) {
@@ -1407,7 +1414,7 @@ k60_modem_qrtr_probe(void)
 			/* tx.tail is the modem's read index: a value that trails our
 			 * head means it consumed what we sent; one that never moves
 			 * means the DATA never left the ring. */
-			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u\n",
+			printf("K60MODEM qrtr: wait %u s services=%u wanted=%u dms=%u malformed=%u tx head=%u tail=%u rx avail=%u head=%u tail=%u intents=%u/%u local=%u/%u lbusy=%u ldone=%u msgs=%u/%u dropped=%u rxcmd=%u/%u/%u/%u\n",
 			    i / 500u, k60_qrtr_state.services, k60_qrtr_state.wanted,
 			    k60_qrtr_state.dms_found, k60_qrtr_state.malformed,
 			    k60_qrtr_link.tx.head != NULL ? (unsigned)*k60_qrtr_link.tx.head : 0u,
@@ -1415,7 +1422,9 @@ k60_modem_qrtr_probe(void)
 			    rxavail, rxhead, rxtail, rbusy, rvalid, ladvertised, lcount,
 			    lbusy, ldone,
 			    k60_qrtr_link.rx_messages, k60_qrtr_link.tx_messages,
-			    k60_qrtr_link.dropped);
+			    k60_qrtr_link.dropped,
+			    k60_qrtr_rx_cmds[1], k60_qrtr_rx_cmds[2], k60_qrtr_rx_cmds[3],
+			    k60_qrtr_rx_cmds[4]);
 			if (i == 2500u) {
 				k60_qrtr_dump_intents();
 			}
@@ -1432,7 +1441,10 @@ k60_modem_qrtr_probe(void)
 		 * repeated HELLO is the only liveness probe we have. A count that keeps
 		 * rising while tx tail stands still proves the tail is not the modem's
 		 * read pointer; one that stops proves the modem really went quiet. */
-		if (k60_qrtr_hello_sent && i != 0u && i % 5000u == 0u) {
+		/* Mode 3 is the quiet control: one HELLO and then silence, so the next
+		 * flight shows whether our own periodic traffic is what silences the
+		 * modem about forty seconds in. */
+		if (qrtr_mode != 3 && k60_qrtr_hello_sent && i != 0u && i % 5000u == 0u) {
 			uint8_t probe[K60_QRTR_LOOKUP_BYTES];
 
 			if (k60_qrtr_build_hello(probe, sizeof(probe)) != 0) {
@@ -1509,7 +1521,8 @@ k60_modem_qrtr_probe(void)
 		 * alternating an all-services query with a DMS-targeted one, because a
 		 * service that registers at the fourth minute is still a service. */
 		if (k60_qrtr_hello_sent && k60_qrtr_state.hello_acks != 0 &&
-		    qrtr_mode >= 1 && k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
+		    (qrtr_mode == 1 || qrtr_mode == 2) &&
+		    k60_qrtr_lookup_count < K60_QRTR_LOOKUP_MAX &&
 		    i >= (int)k60_qrtr_lookup_next) {
 			uint8_t packet[K60_QRTR_LOOKUP_BYTES];
 			const uint32_t to_node = K60_QRTR_BROADCAST_NODE;
@@ -1570,7 +1583,7 @@ k60_modem_qrtr_probe(void)
 		 * Android inventory recorded for DMS on this very device (01-ANDROID-
 		 * INVENTORY.md 5.4.1: service 2, node 0, port 96). */
 		if (k60_qrtr_hello_sent && !k60_qrtr_state.dms_found &&
-		    qrtr_mode >= 2 && k60_qrtr_static_count < K60_QRTR_STATIC_MAX &&
+		    qrtr_mode == 2 && k60_qrtr_static_count < K60_QRTR_STATIC_MAX &&
 		    i >= (int)k60_qrtr_static_next) {
 			uint8_t query[K60_QMI_HEADER];
 			uint16_t transaction = ++k60_qrtr_dms_transaction;

@@ -40,6 +40,7 @@
 | kAssociateResult | 从 pending(0) 起步，站拒绝才写 failed，完成回调写结果 | 同（§55） |
 | 已连接时再次加入 | 先 drain_disconnect（2 s 内排空，超时 ETIMEDOUT）再排队 | 同（§56） |
 | 显式断开 | 隐藏旧链路（visible_status），立刻发链路/SSID/BSSID 事件，等待中的加入收到关联完成 | 同（§57） |
+| 链路信号 | link_update 回调转成 kEvLinkChanged（rssi、noise -95、snr） | 同（§58） |
 
 ## 4. 仍未验证的风险（按优先级）
 

@@ -1759,6 +1759,40 @@ k46 的 modem 要的是 `/boot/modem_fs1` 与 `/boot/modem_fs2`；k51 起我们�
 
 这条改动**不在 k53 镜像里**（k53 由 `11458c12` 构建）：k53 飞起来时 `rmtfs rw … refused` 应被读成「已知的 LUN 偏差」，而不是「EFS 数据面不通」。要在设备上验证读通路，需要 k54。
 
+### 3.49 k54（离线，构建中）：读对盘——EFS 在另一条 LUN 上
+
+k51/k53 的读入口只问 LUN 0，而这块板上 modemst1/modemst2/fsg/fsc 是 **sdf3–sdf6**
+（8 MiB / 8 MiB / 8 MiB / 1 MiB），unixnu 才是 sda38。于是查找必然落空，rmtfs 读被判 refused，
+日志里与「分区真的坏了」无法区分（P-210）。
+
+k54 的三处改动：
+
+1. 'native_pong_ufs_read_named_volume' 对 8 条 LUN 逐个读 GPT 找名字，恰好一条声称拥有才读
+   （'nativeVolumeUniqueLun'），两条都声称有就整体拒绝；任何一条 LUN 的 GPT 校验失败也整体拒绝。
+2. 每次成功读出打印一行 'K60UFS volume name=… lun=… first=… last=…'（同一 name+lun 只打印一次）。
+3. 'scripts/judge-cellular-flight.py' 增加 "volume lun chosen" 项：出现过 rmtfs 读却没有这行 → FAIL；
+   夹具从四份变五份（'FIXTURE_NOLUN'），自测输出
+   'K60 FLIGHT JUDGE PASS five verdicts, the served/not-served guard, the volume lun guard'。
+
+宿主测试：'test-k60-named-volume.c' 增 7 条（无命中、唯一命中不是第一个、两条命中拒绝、全部命中拒绝、
+NULL 表拒绝等），输出 'K60 NAMED VOLUME PASS names, unused slots, plans, lun choice, refusals'。
+
+**构建结果（2026-11-20 07:47，离线，未上机）**
+
+| 产物 | 字节 | sha256 |
+|---|---|---|
+| kernel.macho | 105,762,816 | `ab770b8cd7d07492bf57ea772b9bc31e00df3c97e4b2e7759317d0e5045ca3b7` |
+| boot-modem-b-full.img | 201,895,936 | `f38a7c9e5d28cbf06402bb9a6788e965fe0ec99009f0df84031d781d31a864d8` |
+| payload.img | 201,326,592 | `08b9dd67a738ba4812dc8662066ed1cdfcbbb6c1354d00a09f56dc56ff29f450` |
+| payload.json | 1,403 | `3ac9c60ff77a168f3876292ef8c948fa010a1d4ed651f8e0732bc726226e415d` |
+| adt | — | `0646fb13959fdba90ed057a6cf245b73490c7dec2b218cce11caf21c55477aac` |
+
+启动行 30 条 588 B（尾 `k60_autoreset=300 applog=1 pong_modem=2`，`image-arg-audit: OK`），
+布局 560384/201326592/3145840/4024，series 230 条指纹 `e2ccf4db354b595b`，0622 170,373 B / 12 files。
+源码提交 `2b2183a750330ace5ddb32fd13d774ed459ee1f7`。manifest 与 FLIGHT-README 在
+`E:/k60-work/artifacts/modem-20261117k54/`，README 把「EFS 在 sdf3–sdf6、另一条 LUN」写成前置事实，
+并写明 `K60UFS volume name=… lun=… first=… last=…` 的形状与 judge 的读法。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

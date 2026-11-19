@@ -4998,3 +4998,22 @@ lookup/DMS 块、verdict 与 `#endif /* K60_HOST_TEST */`）整段消失，而�
 本条与 P-194（整篇读回再整篇写回丢 1035 行）是同一个形状的第二次发作。
 
 Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`
+
+## P-210 — 判据假设了设备布局，而布局来自另一处事实
+
+k51/k53 的存储读入口只问 LUN 0 的 GPT："unixnu" 与 "userdata" 都在那里，
+写代码时以为 modem 的四个 EFS 分区也在同一条盘上。实际设备上 modemst1/modemst2/fsg/fsc
+是 sdf3–sdf6（另一条 LUN，8 MiB/8 MiB/8 MiB/1 MiB），sda38 才是 unixnu。于是在这块板上，
+查找必然落空、rmtfs 读必然 refused，而日志里看不出原因——它说的 "refused" 与
+"分区真的坏了" 是同一句话。
+
+判据（以及驱动）可以假设的只有它自己验证过的事实。设备布局要么来自在同一台机器上读到的
+分区表，要么来自仓库里记录过的实测；两者都没有时，代码必须去问，而不是默认 0 号盘。
+
+修法两层：`native_pong_ufs_read_named_volume` 对 8 条 LUN 逐个查 GPT，恰好一条声称有该名字才读，
+两条都声称有就拒绝（`nativeVolumeUniqueLun`）；另外每次成功读出一行
+`K60UFS volume name=… lun=… first=… last=…`，让判据能区分 "读对了盘" 与 "从错误的表里读"。
+`scripts/judge-cellular-flight.py` 的 "volume lun chosen" 项：出现过 rmtfs 读却没有这行 → FAIL。
+
+一般化的教训：**凡是 "在哪块盘/哪个地址/哪个节点" 这类事实，要么当场读出来，要么写进仓库；
+不要让代码里的默认值冒充设备事实。** 默认值不会报错，只会安静地读错地方。

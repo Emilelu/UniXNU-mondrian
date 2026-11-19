@@ -29,6 +29,7 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **USB（DWC3 复合设备 / 控制台 / 回环）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **All eight steps pass** |
 | **温控（TSENS / thermal zone / 分级）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | **蜂窝（X70 modem / DXE 载具 / QRTR）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 电源 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | 诊断 | — | — | — | — | — | — | — | ✅ | device-verified (no record) |

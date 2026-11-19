@@ -749,3 +749,51 @@ artifact_check = "payload 内 mdir 列出 27 个流，payload.json 记录文件�
 [hardware.cellular.step.device]
 done = false
 evidence = "从未上机：载具与属性都只在离线验收里成立，modem 未启动过，QRTR 也没有过任何一次成功注册。"
+
+[hardware.springboard]
+status = "active"
+paths = ["patches/xnu/0340", "patches/xnu/0401", "patches/xnu/0616", "patches/xnu/0618", "userland/ui_compat.c", "userland/build.py", "scripts/gen-var-skel.py", "scripts/tests/test-init-blob.py", "docs/research/springboard/"]
+name = "壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）"
+
+[hardware.springboard.step.same_model]
+done = true
+evidence = """同型参考：yibiya 9269d7728 做过 wallpaper native stock restore，但该提交整文件覆盖 patches/xnu/0340-k60-uilib-deploy.patch，不能直接 cherry-pick（docs/engineering/PITFALLS.md:3789 P-151）。本仓库自己的上机记录 docs/ops/PITFALLS.md:1132-1139（P-75）给出同机型实测：cand16 原生锁屏出现但壁纸全黑、stock-wallpaper bind 与 aliases=4 均成功、cand18 existing-content=1。"""
+
+[hardware.springboard.step.official]
+done = true
+evidence = """官方 ABI 与官方实现：调用点 userland/ui_compat.c:700-716 使用 WKWallpaperBundle initWithURL: 与 WKSystemShellWallpaperManager setLockScreenWallpaperRepresenting:mirrorToHomeScreen:completion:（completion type encoding v36@0:8@16B24@?28，ABI 校验在 userland/ui_compat.c:718-726）；官方二进制位于 OS 卷 System/Library/PrivateFrameworks/WallpaperKit.framework 与 Applications/PosterBoard.app/PosterBoard（119,520 B，含 /Library/Wallpaper/ 与 createPosterConfigurationForProviderIdentifier:posterDescriptorIdentifier:completion:）；素材格式由 /Library/Wallpaper/Stills/iPad/*.wallpaper/Wallpaper.plist 定义（identifier / thumbnailImageFileName / fullSizeImageFileName / assets.lockAndHome，实测样本 7410.WWDC_2022-1024w-1366h@2x~ipad.wallpaper，P-75 docs/ops/PITFALLS.md:1132-1139 记录同机型原生提交路径）。"""
+
+[hardware.springboard.step.decompile]
+done = true
+evidence = """二进制取证：SpringBoard（112,528 B）无壁纸路径串，只有 entitlement com.apple.private.wallpaperkit.service.migration，故壁纸选择不在 SpringBoard；PosterBoard 直接读 /Library/Wallpaper/ 与 /private/var/mobile/Library/SpringBoard/；boot-jobs blob（235,412 B）含 com.apple.PosterBoard.plist 与 com.apple.notificationcenter.widgetcontrollerconnection；WallpaperKit 主二进制在 dyld shared cache 内、静态不可见，只能走运行时 API 路径。嵌入 blob 谱系：init blob 52,376 B = userland/init.c@2101281 消息集 + 0406 var.pack 回退路径；UI blob 113,904 B = ui_compat.c@50f4644（28 条 Pong UI 消息，src_only=0）。"""
+
+[hardware.springboard.step.wide]
+done = true
+catalog_checked = true
+catalog_result = """UniXNU/components.toml 25 个组件无壁纸/SpringBoard 相关项；本线依赖 OS 窗自带的 WallpaperKit/PosterBoard，不是组件。广查结论：OS 窗 /Library/Wallpaper 完整（9 个 .wallpaperCollection + Stills/iPad 下 17+ 个 bundle，含 7410 WWDC 2022），故"壁纸源未部署"假设不成立；Data 卷 var.pack（14,526 B / 133 条）无任何 wallpaper/poster 条目；OS 窗 /private/var/mobile/Library 无 SpringBoard 目录。"""
+evidence = "同 SoC 兄弟移植无 SpringBoard 线可参考；yibiya 的 wallpaper native restore 是唯一同型实现（见 P-151 的覆盖风险）。"
+
+[hardware.springboard.step.plan]
+done = true
+evidence = """方案见 docs/research/springboard/WALLPAPER-CHAIN.md §4。F1（已实施）：部署 HEAD 版 libpong-ui.dylib，patches/xnu/0340-k60-uilib-deploy.patch 的 k60_uilib_blob 113,904 -> 113,472 B，让 select_initial_wallpaper() 在 existing==-1 或 boot-arg k60_wallpaper_reset=1 时用原生 WallpaperKit 提交 7410。F2（已实施，但被 0616 顶掉，不生效）：var.skel 增两条目录行 + 0401 换 HEAD init（含 wallpaper_directory()/wallpaper_aliases()），结果 52,456 B init + 14,636 B varpack；patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978 把 0401 的 installer 调用换成 34,904 B v24dp 助手（P-182），0401 的两个数组无人引用被链接器丢弃（kernel.macho 中 genuine stock wallpaper aliases = 0）。F3（已实施，生效项）：patches/xnu/0618-k60-wallpaper-seed.patch 在 native_owner_data_prepare 的 k60_mkdir_paths[] 增 /private/var/pong/{stock-wallpaper,stock-wallpaper/Collections,Wallpaper}，并在 mkdir 循环后 k60_wallpaper_stage() 把真实 /Library/Wallpaper/Collections/Collections~ipad.plist（772 B）复制到目标，使 v24dp init 的两道 guard（userland/init-v24dp.c:328-343/:344-348）通过。F4（不建议）：删 views 表需重编 init blob，host 无签名能力且对像素无帮助。F5（单独立项）：恢复 chronod 会回到 v80 REC 的反复超时。"""
+
+[hardware.springboard.step.deep]
+done = true
+evidence = """深挖五条结论：一，两行 SKIP 是 init 的两道 guard 在 mount 之前 continue（userland/init.c@2101281:368-371、:373-378），与 bindfs 能力无关，日志不能证明 bindfs 好坏。二，设备 init 无 wallpaper_directory()（HEAD userland/init.c:368-375 才有），故 /private/var/pong/stock-wallpaper 永不创建。三，纯黑主因是设备 UI 库不含壁纸选择代码（ui_compat.c@50f4644），不是 SpringBoard 崩。四，桌面小组件主因是 userland/build.py:40-45 BOOT_SKIP 跳过 com.apple.chronod（widget extension discovery repeatedly times out before the first UI）。五，"换壁纸后进不去系统"缺当次日志，候选机制 A（WallpaperKit 写 Data 侧 store 后启动期读不到资产）与 B（views 的 mount 阶段 hang，先例 docs/reference/ISSUES.md:325-327 v7probe 第 5 条）待日志裁决。六，0616 顶掉 0401 调用点使 F2 的 blob 成为死代码（P-182/P-198），判断 blob 是否生效必须 grep 镜像而不是看补丁是否应用。"""
+
+[hardware.springboard.step.verify]
+done = true
+local_verified = true
+evidence = """host 核验（2026-11-14）：python3 userland/build.py ui --sdk /opt/k60/sdk/iPhoneOS16.5.sdk --out /tmp/k60-ui-out 零错误产出 libpong-ui.dylib 113,472 B；签名 LC_CODE_SIGNATURE fade0cc0 / CodeDirectory fade0c02 / pagesize shift 12（4K 页），满足 userland/build.py:73-110 native_init_signature；嵌入 0340 后数组与 dylib 逐字节相同（sha256 8e37468e...），strings 37 条 Pong UI 含 submitting genuine wallpaper 7410 与 wallpaper existing-content；git apply --numstat 解析 9509+6+1 行；scripts/check-blob-patches.py 对 0340 报"与最近一次上机基线不同"（feat/springboard 分支判 warning，通过）。F2 核验：scripts/gen-var-skel.py 逐字节复现原 var.skel（sha256 04051ce5...，129 行 / 6,498 B），加两条目录行后 132 行 / 6,608 B（sha256 151ce31c...，小于 userland/build.py:338 的 65,536 上限）；python3 userland/build.py init_blob --out /tmp/f2-init-out --sdk /opt/k60/sdk/iPhoneOS16.5.sdk --var-skel /tmp/f2-varskel/pong/var.skel 产出 init 52,456 B（sha256 079a087b...）/ varpack 14,636 B，抽回与输入逐字节相同，hunk +1,4378 / +1,1225 与 #define 52456 / 14636 一致。"""
+static_check = """静态对照：ui_compat.c:628-661 existing_wallpaper 用 wallpaperConfigurationForVariant:includingValuesForTypes:（ABI @ 参数 qQ，mask 0x3f）判 wallpaperImage/wallpaperOriginalImage/wallpaperColor/proceduralWallpaperOptions，configuration 为 nil 返回 -1；ui_compat.c:669-741 select_initial_wallpaper 在 !restore && existing!=0 时直接 return，否则校验 7410 的 Wallpaper.plist identifier、thumbnail/fullSize 实际存在、WKWallpaperBundle 与 setter 的 ABI 后才提交。7410 bundle 的 Wallpaper.plist（663 B）与四个 heic 文件在 /opt/k60/osroot/os.raw 内实测齐全。"""
+unit_test = """F1：嵌入 blob 的 strings 与 dylib 字节一致性：113,472 B、sha256 8e37468e...，与 /tmp/k60-ui-out/libpong-ui.dylib 逐字节相同。F2：scripts/tests/test-init-blob.py 16 用例全绿（三个数组长度与 #define 一致、PONGJOB1 split/join 往返逐字节、var.skel 唯一且含两条 0755 root:root 壁纸目录、改写后 hunk 行数自洽、init 为 thin arm64 MH_EXECUTE ncmds=15）。"""
+artifact_check = """0618：88 行 / 3,409 B，临时 git 仓库 git apply --check 与 git apply 均通过（K60WALL 5 处），strict 构建 springboard-20261114e 通过（series=225，boot.img sha256 3748387823d0a86968d54296f1a1941a88ff62f8abbe6fd942a242c27be35954，201,887,744 B；镜像里 K60WALL=5、Pong UI:=39、genuine stock wallpaper aliases=0 证明 0401 blob 已被 0616 顶掉）。0340 补丁 diff 3,873 insertions / 3,909 deletions（仅该文件）；新 blob 含 37 条 Pong UI 消息，其中壁纸相关 8 条（existing-content / genuine wallpaper asset present / bootstrap SKIP 四种 / submitting genuine wallpaper 7410 / 7410 路径串）。0401 补丁 1,669,114 B / 25,360 行（旧 1,668,068 B / 25,344 行），三个 new-file hunk 为 4378 / 19623 / 1225 行；新 init strings 含 wallpaper view directories unavailable / stock wallpaper view SKIP / wallpaper alias conflict / genuine stock wallpaper aliases 四组新消息。"""
+
+[hardware.springboard.step.device]
+done = false
+evidence = "未上机（铁则：禁止自行 boot，交 Lead 在用户明确同意后执行）。上机计划：刷 springboard-20261115a（含新 0340 + 0618，已用 --kernel-arg k60_wallpaper_reset=1 构建，args 30 个 597 字节；manifest.kernel_args_requested 自证），抓 K60WALL catalogue 行、Pong init: boot view 行与 Pong UI 壁纸三行日志；判据是日志不再出现 wallpaper aliases SKIP / optional boot view SKIP（v24dp 无 aliases 函数，不要等 genuine stock wallpaper aliases= 行）。"
+
+[hardware.springboard.step.device.prediction]
+success = "日志出现 K60WALL catalogue bytes=772 resid=0 error=0 且无 wallpaper aliases SKIP / optional boot view SKIP；Pong UI: wallpaper existing-content=-1 restore-stock=1 -> Pong UI: genuine wallpaper asset ... present=1 -> Pong UI: submitting genuine wallpaper 7410 native lock+home path=...，解锁后锁屏/主屏可见 WWDC 2022 壁纸；下一次普通启动 existing!=0 保留该壁纸。"
+failure = "若仍黑且日志为 genuine wallpaper bootstrap SKIP（native 20G81 WallpaperKit ABI unavailable / native bundle rejected），说明设备上的 WallpaperKit 与 20G81 SDK 头不一致，需按 P-75 的 ABI 记录逐个核对 selector；若日志停在 existing-content=1 且 restore-stock=0，说明 boot-arg 未生效（检查 board.toml kernel_args 与 FAT args 是否含 k60_wallpaper_reset=1）。"
+

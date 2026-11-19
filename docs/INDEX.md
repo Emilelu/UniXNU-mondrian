@@ -114,6 +114,9 @@ docs/
 | `display/RESEARCH.md` | **显示结论层（本板真值）**：面板 m11a 1440x3200 DSC cmd 单 DSI 三档 60·90·120、5 条供电轨、DSI `0xae94000` / PHY `0xae94400` / MDP `0xae00000`、XML 缺口与已转派的 owner |
 | `storage/RESEARCH.md` | **存储结论层（本板真值）**：UFS PHY `0x1d80000` + `qcom,ufs-phy-qmp-v4-cape`、控制器 `0x1d84000` / ICE / HWKM、IRQ SPI 265、与 liuqin 的双源交叉验证 |
 | `memory/RESEARCH.md` | **内存布局结论层（本板真值）**：DDR 保留区与寄存器窗口，以及跨板边界——DXE Heap `0xC7000000` 与 Kernel `0xBB000000` 绝不可跨板抄 |
+| `springboard/RESEARCH.md` | **壁纸上机判读卡**：0618 K60WALL / v24dp boot view / F1 7410 提交三组日志原文 → 结论，含半成功形态 |
+| `springboard/WALLPAPER-CHAIN.md` | **壁纸链完整取证**：OS 窗 /Library/Wallpaper 实存、两行 SKIP 在 mount 前、P-27/P-198、F1–F5 方案与 host 验证 |
+| `springboard/APPEX-REGISTRATION.md` | **小组件 .appex 零 spawn 离线取证（收窄版）**：注册链角色盘点、LS/MobileInstallation 注册库缺失、C1–C4 取舍与上机判据 |
 | `11-KEY-EVIDENCE-RING.md` | 关键证据闭环清单 |
 | `GENI-ACCESS-PRECONDITIONS.md` | GENI 引擎可访问性前置条件 |
 | [`REFERENCE-INDEX.md`](research/REFERENCE-INDEX.md) | **参考仓库事实索引（人读）**：42 个参考仓库逐条 文件:行 + 可信度，按供电/音频/WiFi/触摸/显示/GPU/存储/USB/电池分区；机器可读部分同源进 `SOURCES.toml` |

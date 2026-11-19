@@ -4772,6 +4772,50 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 （旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
 载体实现见 `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
 
+## P-198 — 后加的补丁可以把前面补丁的 blob 变成链接器垃圾
+
+**现象.** `patches/xnu/0401-k60-embedded-init.patch` 的 `k60_init_blob`（52,456 B）与
+`k60_varpack_blob`（14,636 B）编进内核后，镜像里
+`grep -a -c "genuine stock wallpaper aliases" kernel.macho` = 0，上机跑的还是 34,904 B 的
+v24dp init。
+
+**根因.** `patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978` 把
+`k60_install_embedded_init(&k60_init_resid)` 整个换成了 `k60_install_legacy_init()`（P-182 的
+修法），0401 的两个数组只剩声明、没有引用点，被链接器当死代码丢掉。series 里两条补丁都
+"应用成功"，门禁只查补丁能不能打上，不查数组有没有人用。
+
+**修法/教训.** 改嵌入 blob 前先 grep 系列尾部有没有补丁替换调用点；判断一个 blob 是否生效
+看镜像（`grep -a` 内核/镜像里的字符串）而不是看补丁是否应用。真正生效的壁纸修复走内核数据侧
+（`0618-k60-wallpaper-seed.patch`：`k60_mkdir_paths[]` 加目录 + `k60_wallpaper_stage()` 复制
+`Collections~ipad.plist`）。
+
+**Check.** `grep -a -c "genuine stock wallpaper aliases" <kernel.macho>` 应为 0（0616 起该
+blob 不生效）；生效判据是镜像里有 `K60WALL` 串、上机日志 `K60WALL catalogue bytes=772 resid=0
+error=0`。
+
+## P-199 — `check-tree-owner` 默认把操作者当成 lead
+
+**现象.** 子代理在自己名下的 checkout 里跑 `scripts/check-rules.py`，其它 77 条全绿，只有
+`iron-11` 报 `/mnt/e/hackios/k60-springboard belongs to springboard-agent, not lead, and holds 1
+uncommitted path(s)`，看起来像"别人占了我的树"，实际那 1 个未提交文件就是自己刚改的。
+
+**根因.** `scripts/check-tree-owner.py:44` `ACTOR = os.environ.get("K60_AGENT_ID", "lead")`：没设
+环境变量时一律当成 lead。子代理的对话里没有这个变量，于是每一次带未提交改动的门禁运行都会把
+自己认成入侵者。`build-strict.sh` 也不设置它，所以"改完文件直接构建"同样会被拦（铁则只要求
+构建前先提交，这条规则因此是双保险，但报错指向的 actor 是错的）。
+
+**修法/教训.** 子代理跑门禁或构建时显式带上自己的身份：
+
+```sh
+export K60_AGENT_ID=springboard-agent
+```
+
+看到 `belongs to <自己>, not lead` 时先怀疑环境变量，不要去找 lead 要人。
+
+**Check.** `K60_AGENT_ID=<线名>-agent python3 scripts/check-tree-owner.py` 在干净树上退出 0，在
+自己名下带未提交改动时也退出 0；不带变量时才报上面那条。
+
+
 ## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
 
 **现象.** 2026-11-15 两个 agent 拿 `boot.json` 比对镜像，得出互相矛盾的结论：
@@ -6731,3 +6775,42 @@ bench 样本时允许屏幕静止。
 2. 基准要放在**映射还有效**的窗口里（首帧成功后、`PongScanoutComplete` 之前），
    否则测的是已被 `release()` 的页 —— 那正是 P-244 的来路。
 3. 判读器必须能区分「没有 bench 行」与「bench 全失败」：前者是镜像没带代码，后者是拷贝坏了。
+
+## P-248 — `vn_rdwr` 的 `resid` 是剩余空间，不是已传输字节
+
+**现象.** 0618 的壁纸种子把 772 B 的 `Collections~ipad.plist` 读进 8192 B 缓冲，判据写成
+`if (length <= 0 || resid != 0)`，上机日志：
+
+```txt
+K60WALL catalogue size=772 resid=7420 rejected
+```
+
+`length` 算对了（772），但 `resid != 0` 恒真 ⇒ 任何小于 8 KiB 的文件都被判成 rejected，
+种子从未落盘（springboard-20261115a，`usblog-20261115-132805/console.log:480`）。
+
+**根因.** `bsd/vfs/vfs_vnops.c:1013-1015`（feed 树 `feeds/xnu-c465a9f8`）：
+`if (aresid) { *aresid = uio_resid(auio); assert(*aresid <= len); }` —— `uio_resid` 是
+**uio 里还没搬的字节数**，即缓冲区剩余空间。8 KiB 缓冲读 772 B 文件 ⇒ `resid = 7420`，
+`resid = 0` 只在**读满整个缓冲**时出现（那是截断，不是成功）。
+
+**一次运行里有两个不同量**，别混用：
+
+| 方向 | 调用后 `resid` 的含义 | 成功形态 |
+|---|---|---|
+| 读 | 缓冲区**剩余**空间 | `length = 8192 - resid` > 0 |
+| 写 | **没写出去**的剩余字节 | `resid == 0`（全部写出） |
+
+所以 `K60WALL catalogue bytes=772 resid=0 error=0` 的 `resid` 是**写侧**的 0（772 B 全写出），
+与读侧的 7420 不矛盾；拿读侧 resid 判成功必然把正常文件判死。
+
+**修法.** 删除 `|| resid != 0`，只保留 `length <= 0` 与 `error` 检查（一行改动，hunk 行数不变）。
+代价：>8 KiB 的 catalog 会被静默截断——当前 772 B 远未触及，真要防就改成先 stat 取 size 再
+按 size 分配，而不是拿 resid 当尺寸判据。
+
+**同形（P-204 的第四例）.** 这是「把某个数字当成另一种语义」的又一例：
+`resid` 看着像「还剩多少没读」，其实在写侧才表示「还剩多少没写」；
+字段语义必须**从源码抄**（`uio_resid` 的赋值点），不能从名字猜。
+
+**Check.** `grep -n 'resid != 0' patches/xnu/0618-k60-wallpaper-seed.patch` 应为空；
+`python3 scripts/tests/test-judge-wallpaper-log.py` 必须包含 `size=772 resid=7420 rejected` 一例，
+且判定器对它打印 `diagnosis: resid 判据回归 …`（而不是泛泛的 §1）。

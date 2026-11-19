@@ -567,6 +567,25 @@ statement = "A firmware capability must be proven in the firmware repo before a 
 check = "python3 scripts/check-docs.py"
 
 [[rule]]
+id = "P-198"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-198"
+statement = "A later patch can replace an earlier patch's installer call and turn its embedded blob into linker garbage."
+waiver = """blob 是否真的进了内核只能从构建产物判定（grep 镜像里的特征串），门禁在干净检出上跑、没有镜像；
+   要机器判定需要写一个跨 series 的调用图模型：收集每个 k60_*_blob 补丁定义的安装函数，若后续补丁删掉了它的
+   调用点（0616 对 0401 就是这种形态）就把该 blob 标为死代码。这条模型本身可以写，但判据还要人判「该 blob 是否
+   仍被期望生效」，故先记 waiver；当前由 porting-gate 的 B 段与镜像 strings 人工核对兜底。"""
+
+[[rule]]
+id = "P-199"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-199"
+statement = "A gate that defaults its actor to the root agent must be told who is acting."
+waiver = """判据是「子代理是否 export 了 K60_AGENT_ID」，属于调用者的环境而不是仓库状态；
+   可检查的形式是让 build-strict.sh / check-rules.py 在未设置时拒绝以子代理身份运行，但那会挡住 lead 本人的日常使用。
+   当前由错误信息（check-tree-owner.py 在成功行里回显 ACTOR）与 PITFALLS 记录兜底。"""
+
+[[rule]]
 id = "P-200"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-200"
@@ -930,3 +949,13 @@ title = "判据要自带样本源：屏幕静止时「稳态中位」永远采�
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-gpu-perf-vote.py"
 note = "gperf 触发 24 次有界基准（PongMetalScanout.h），judge 优先用 bench 行取中位"
+
+[[rule]]
+id = "P-248"
+kind = "pitfall"
+title = "vn_rdwr 的 resid 是剩余空间，不是已传输字节"
+source = "docs/engineering/PITFALLS.md:P-248"
+statement = "vn_rdwr 的 resid 是 uio 剩余空间（读侧=缓冲剩余、写侧=未写出字节），不是已传输字节数；用读侧 resid 判成功会把任何小于缓冲的文件判死。"
+check = "python3 scripts/tests/test-judge-wallpaper-log.py"
+note = "0618 壁纸种子写 if (length <= 0 || resid != 0)，8 KiB 缓冲读 772 B 文件 resid=7420 恒非 0，种子从未落盘（usblog-20261115-132805:480 K60WALL catalogue size=772 resid=7420 rejected）。"
+

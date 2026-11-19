@@ -39,6 +39,9 @@ EXTRA = [
     ('root/Library/Caches', 0o700, 0, 0), ('root/Library/Preferences', 0o700, 0, 0),
     ('root/Library/Logs', 0o700, 0, 0), ('db/timezone', 0o755, 0, 0),
     ('cores', 0o1775, 0, 0),
+    # Wallpaper view mount points (P-75): the helper binds /Library/Wallpaper
+    # onto these, and an absent target turns both views into a SKIP.
+    ('pong/stock-wallpaper', 0o755, 0, 0), ('pong/Wallpaper', 0o755, 0, 0),
 ]
 SKIP_TOP = ('staged_system_apps', 'MobileAsset')
 

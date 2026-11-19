@@ -432,6 +432,16 @@ void on_link_lost(int reason) {
   log(6,"wifi-net: link lost: reason %d",reason);
   lck_mtx_lock(gLock);gLinkUpMs=0;gAssocResult=kAssocFailed;gJoinPending=false;pong_wifi_notification event={NotifyLost,reason,0,0};queue_notification_locked(event);lck_mtx_unlock(gLock);
 }
+// The station refreshes the cached peer signal every time it moves three dB (nw_mainline.c
+// nw_mainline_signal_update). The reference port turns that callback into a link change so the
+// bars follow the link; without it the event table leaves link_update null and the daemon keeps
+// the signal it read at association.
+void on_link_update(const nw_wifi_status *status) {
+  if (!gPower || gLinkSuppressed || status->state != NW_STA_UP || status->signal_dbm >= 0) return;
+  link_event event{}; event.rssi = status->signal_dbm;
+  event.noise = static_cast<uint16_t>(-95); event.snr = status->signal_dbm > -95 ? status->signal_dbm + 95 : 0;
+  post_event(kEvLinkChanged, &event, sizeof event);
+}
 // The station starts a join only from IDLE (nw_sta.c start_connect): a request that meets a link already up
 // is dropped, and the daemon would wait for an association event that never comes. Drain the old link first,
 // as the reference port does, and report a timeout instead of starting a join that cannot run.
@@ -537,7 +547,7 @@ void on_rx(const uint8_t *eth, size_t length) {
   const errno_t e = ifnet_input(gIf, m, &inc);
   if (e) { gRxErrors++; gRxLastError = e; } else gRxFrames++;
 }
-const struct nw_wifi_events gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx };
+const struct nw_wifi_events gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx, nullptr, nullptr, on_link_update };
 
 // ---- the interface ----
 errno_t if_output(ifnet_t, mbuf_t m) {

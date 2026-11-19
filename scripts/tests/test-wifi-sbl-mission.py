@@ -447,6 +447,12 @@ def main() -> int:
           platform.index('if(!pong_wifi_net_prepare())') < platform.index('nw_wifi_start(&platform,&board)') and
           'nw_wifi_set_events(&gEvents)' in net_src)
 
+    check("the peer signal refresh reaches the daemon as a link change",
+          'void on_link_update(const nw_wifi_status *status) {' in net_src and
+          'gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx, nullptr, nullptr, on_link_update }' in net_src and
+          'event.rssi = status->signal_dbm;' in net_src and
+          'post_event(kEvLinkChanged, &event, sizeof event);' in net_src)
+
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

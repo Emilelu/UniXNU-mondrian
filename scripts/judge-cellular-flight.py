@@ -106,13 +106,18 @@ def judge(text, window):
                       "%d alloc line(s), none with a physical address" % len(allocs)))
         missing_required += 1
 
-    served = re.findall(r"rmtfs rw storage=(\d+) direction=(\d+) vectors=(\d+) served", text)
-    refused = re.findall(r"rmtfs rw storage=(\d+) direction=(\d+) vectors=(\d+) (?:refused|not-served)", text)
+    # The outcome token decides: a bare 'served' search would count 'not-served'
+    # as a served read, because the word is a suffix of the refusal.
+    rw = re.findall(r"rmtfs rw storage=(\d+) direction=(\d+) vectors=(\d+) (\S+)", text)
+    served = [entry for entry in rw if entry[3] == "served"]
     if served:
-        items.append(("PASS", "rmtfs rw served", "%d read(s), e.g. storage=%s direction=%s vectors=%s" % ((len(served),) + served[0])))
+        items.append(("PASS", "rmtfs rw served",
+                      "%d read(s), e.g. storage=%s direction=%s vectors=%s" % ((len(served),) + served[0][:3])))
     else:
-        items.append(("FAIL", "rmtfs rw served",
-                      "%d rw line(s), none served" % (len(served) + len(refused))))
+        detail = "%d rw line(s), none served" % len(rw)
+        if rw:
+            detail += " (last: storage=%s direction=%s vectors=%s %s)" % rw[-1]
+        items.append(("FAIL", "rmtfs rw served", detail))
         missing_required += 1
 
     # Heap: k52 announces 0x34/1 on 0x101 and answers 0x22/0x23/0x24.
@@ -238,15 +243,21 @@ K60MODEM qrtr: wait 60 s services=2 wanted=0 dms=0 malformed=0
 """
 
 FIXTURE_FAILED = FIXTURE_SHORT.replace("K60MODEM auth_reset ok", "K60MODEM auth_reset failed rc=-3")
+FIXTURE_REFUSED = FIXTURE_PASS.replace("vectors=2 served", "vectors=2 not-served")
 
 
 def self_test():
-    cases = (("PASS", FIXTURE_PASS, 0), ("INVALID", FIXTURE_SHORT, 2), ("FAILED", FIXTURE_FAILED, 1))
-    for expected, text, code in cases:
+    cases = (("PASS", FIXTURE_PASS), ("INVALID", FIXTURE_SHORT), ("FAILED", FIXTURE_FAILED),
+             ("FAILED", FIXTURE_REFUSED))
+    for expected, text in cases:
         verdict, items, observed = judge(text, WINDOW_DEFAULT)
         assert verdict == expected, (expected, verdict)
         assert len(items) > 5
-    print("K60 FLIGHT JUDGE PASS three verdicts from three fixtures")
+    # A refused read must never be read as a served one: 'not-served' ends with 'served'.
+    verdict, items, observed = judge(FIXTURE_REFUSED, WINDOW_DEFAULT)
+    rw = [item for item in items if item[1] == "rmtfs rw served"][0]
+    assert rw[0] == "FAIL", rw
+    print("K60 FLIGHT JUDGE PASS four verdicts and the served/not-served guard")
     return 0
 
 

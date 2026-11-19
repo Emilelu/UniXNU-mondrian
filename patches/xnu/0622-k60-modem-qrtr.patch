@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,1795 @@
+@@ -0,0 +1,1972 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1407,6 +1407,10 @@ index 0000000..1111111
 +
 +#include <pexpert/pexpert.h>
 +#include <sys/systm.h>
++#include <mach/vm_param.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++#include "K60ModemPas.h"
 +
 +/* osfmk/arm/machine_routines.h:703 (same declaration K60AdspBoot.c uses). */
 +extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys, vm_size_t size, uint32_t flags);
@@ -1707,6 +1711,159 @@ index 0000000..1111111
 +	}
 +	return 0;
 +}
++
++/* The modem's storage service wants one contiguous region it can map into
++ * its own address space. Two facts decide the placement: the address it gets
++ * back is a 32-bit value, so the memory must live below 4 GiB; and the MSS
++ * reaches it through the IOMMU, so SCM 0x0c/0x16 has to move the ownership of
++ * those pages from HLOS to HLOS|MSS before the modem touches them. The
++ * allocation is retried, because the first contiguous block the kernel hands
++ * out can sit above the 4 GiB line; every refusal is logged with its
++ * physical address instead of being hidden. */
++static vm_offset_t k60_qrtr_rmtfs_buffer;
++static uint64_t k60_qrtr_rmtfs_physical;
++static uint64_t k60_qrtr_rmtfs_bytes;
++static vm_offset_t k60_qrtr_rmtfs_scratch;
++static uint64_t k60_qrtr_rmtfs_scratch_physical;
++static unsigned k60_qrtr_rmtfs_allocations;
++
++static int
++k60_qrtr_rmtfs_low_alloc(vm_size_t bytes, vm_offset_t *va, uint64_t *physical)
++{
++	unsigned tries;
++
++	for (tries = 0; tries < 8; tries++) {
++		vm_offset_t address = 0;
++		ppnum_t page;
++
++		if (kmem_alloc_contig(kernel_map, &address, bytes, 0xfffff000ULL, 0,
++		    0, KMA_DATA | KMA_ZERO | KMA_PERMANENT,
++		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++			printf("K60MODEM qrtr: rmtfs cannot allocate %llu bytes\n",
++			    (unsigned long long)bytes);
++			return -1;
++		}
++		page = pmap_find_phys(kernel_pmap, (addr64_t)address);
++		if (page != 0 && ptoa_64(page) + bytes <= (1ull << 32)) {
++			*va = address;
++			*physical = ptoa_64(page);
++			return 0;
++		}
++		printf("K60MODEM qrtr: rmtfs attempt %u above 4 GiB (phys=%#llx)\n",
++		    tries, page == 0 ? 0ull : (unsigned long long)ptoa_64(page));
++		kmem_free(kernel_map, address, bytes);
++	}
++	return -1;
++}
++
++static void
++k60_qrtr_rmtfs_clean(const void *at, uint32_t bytes)
++{
++	const uintptr_t start = (uintptr_t)at & ~(uintptr_t)63u;
++	const uintptr_t end = ((uintptr_t)at + bytes + 63u) & ~(uintptr_t)63u;
++	uintptr_t line;
++
++	for (line = start; line < end; line += 64u) {
++		__asm__ volatile("dc cvac, %0" : : "r"(line) : "memory");
++	}
++	__asm__ volatile("dsb sy" : : : "memory");
++}
++
++static void
++k60_qrtr_rmtfs_invalidate(const void *at, uint32_t bytes)
++{
++	const uintptr_t start = (uintptr_t)at & ~(uintptr_t)63u;
++	const uintptr_t end = ((uintptr_t)at + bytes + 63u) & ~(uintptr_t)63u;
++	uintptr_t line;
++
++	for (line = start; line < end; line += 64u) {
++		__asm__ volatile("dc civac, %0" : : "r"(line) : "memory");
++	}
++	__asm__ volatile("dsb sy" : : : "memory");
++}
++
++static uint64_t
++k60_qrtr_rmtfs_prepare(uint32_t bytes)
++{
++	uint8_t *record;
++	uint32_t sources = 0;
++	uint32_t destinations = 0;
++
++	if (k60_qrtr_rmtfs_physical != 0) {
++		return k60_qrtr_rmtfs_physical;
++	}
++	if (bytes == 0 || bytes > (8u << 20)) {
++		printf("K60MODEM qrtr: rmtfs alloc %u bytes out of range\n", bytes);
++		return 0;
++	}
++	if (k60_qrtr_rmtfs_low_alloc((vm_size_t)round_page(bytes),
++	    &k60_qrtr_rmtfs_buffer, &k60_qrtr_rmtfs_physical) != 0) {
++		return 0;
++	}
++	k60_qrtr_rmtfs_bytes = bytes;
++	printf("K60MODEM qrtr: rmtfs buffer va=%#llx physical=%#llx bytes=%u\n",
++	    (unsigned long long)k60_qrtr_rmtfs_buffer,
++	    (unsigned long long)k60_qrtr_rmtfs_physical, bytes);
++	if (k60_qrtr_rmtfs_low_alloc(65536, &k60_qrtr_rmtfs_scratch,
++	    &k60_qrtr_rmtfs_scratch_physical) != 0) {
++		printf("K60MODEM qrtr: rmtfs no assignment scratch; answering anyway\n");
++		return k60_qrtr_rmtfs_physical;
++	}
++	record = (uint8_t *)k60_qrtr_rmtfs_scratch;
++	if (k60_modem_assign_record(record, 4096, k60_qrtr_rmtfs_physical, bytes,
++	    K60M_OWNER_HLOS, K60M_OWNER_HLOS | K60M_OWNER_MSS,
++	    k60_qrtr_rmtfs_scratch_physical, &sources, &destinations) == 0) {
++		k60_qrtr_rmtfs_clean(record, 4096);
++		printf("K60MODEM qrtr: rmtfs assign record sources=%u destinations=%u\n",
++		    sources, destinations);
++		(void)k60_modem_assign_call(k60_qrtr_rmtfs_scratch_physical);
++	} else {
++		printf("K60MODEM qrtr: rmtfs assign record refused\n");
++	}
++	return k60_qrtr_rmtfs_physical;
++}
++
++/* A read-write request carries a scatter list whose physical column points
++ * into the region alloc handed out. The shadow is the buffer itself for now:
++ * the modem reads zeros until the UFS read lands in k48, and its writes stay
++ * in RAM. Every vector is validated before a single byte moves, exactly as
++ * the reference does. */
++static int
++k60_qrtr_rmtfs_rw(const K60RmtfsRequest *request)
++{
++	size_t i;
++
++	if (k60_qrtr_rmtfs_physical == 0) {
++		return -1;
++	}
++	for (i = 0; i < request->vectors; i++) {
++		const uint64_t offset = (uint64_t)request->table[i].block_offset * 512u;
++		const uint64_t physical = request->table[i].physical;
++		const uint64_t length = (uint64_t)request->table[i].block_length * 512u;
++
++		if (physical < k60_qrtr_rmtfs_physical ||
++		    physical - k60_qrtr_rmtfs_physical > k60_qrtr_rmtfs_bytes ||
++		    length > k60_qrtr_rmtfs_bytes - (physical - k60_qrtr_rmtfs_physical) ||
++		    offset > k60_qrtr_rmtfs_bytes ||
++		    length > k60_qrtr_rmtfs_bytes - offset) {
++			return -1;
++		}
++	}
++	for (i = 0; i < request->vectors; i++) {
++		const uint64_t physical = request->table[i].physical;
++		const uint64_t length = (uint64_t)request->table[i].block_length * 512u;
++		uint8_t *shared = (uint8_t *)(k60_qrtr_rmtfs_buffer +
++		    (physical - k60_qrtr_rmtfs_physical));
++
++		if (request->direction != 0) {
++			k60_qrtr_rmtfs_invalidate(shared, (uint32_t)length);
++		} else {
++			k60_qrtr_rmtfs_clean(shared, (uint32_t)length);
++		}
++	}
++	return 0;
++}
++
 +static void
 +k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *data, uint32_t length)
 +{
@@ -1788,9 +1945,29 @@ index 0000000..1111111
 +				value = &id;
 +				value_bytes = 1;
 +			} else if (request.message == K60_RMTFS_ALLOC) {
-+				printf("K60MODEM qrtr: rmtfs alloc storage=%u bytes=%u no-buffer\n",
-+				    request.storage, request.alloc_bytes);
-+				result = 1;
++				uint64_t physical = k60_qrtr_rmtfs_prepare(
++				    request.alloc_bytes);
++
++				++k60_qrtr_rmtfs_allocations;
++				printf("K60MODEM qrtr: rmtfs alloc storage=%u bytes=%u physical=%#llx\n",
++				    request.storage, request.alloc_bytes,
++				    (unsigned long long)physical);
++				if (physical != 0) {
++					value = &physical;
++					value_bytes = 8;
++				} else {
++					result = 1;
++				}
++			} else if (request.message == K60_RMTFS_RW) {
++				const int served = k60_qrtr_rmtfs_rw(&request);
++
++				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u %s\n",
++				    request.storage, request.direction,
++				    (unsigned)request.vectors,
++				    served == 0 ? "served" : "refused");
++				if (served != 0) {
++					result = 1;
++				}
 +			} else {
 +				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u not-served\n",
 +				    request.storage, request.direction, (unsigned)request.vectors);

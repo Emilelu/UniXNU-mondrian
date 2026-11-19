@@ -190,6 +190,7 @@ int k60_modem_auth_and_reset(void);
 int k60_modem_init_image(uint64_t phys);
 int k60_modem_mem_setup(uint64_t base, uint64_t span);
 int k60_modem_shutdown(void);
+int k60_modem_assign_call(uint64_t scratch);
 
 /* True when the kernel glue reached the secure monitor at least once; the
  * boot log uses it to separate "SCM refused" from "SCM never called". */

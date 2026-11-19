@@ -48,7 +48,7 @@ static int k60_modem_scm_called;
 
 static int
 k60_modem_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
-    uint64_t c, uint64_t *rx0, uint64_t *rx1, unsigned *calls_out)
+    uint64_t c, uint64_t d, uint64_t *rx0, uint64_t *rx1, unsigned *calls_out)
 {
 	uint64_t regs[8];
 	uint64_t context = 0;
@@ -63,7 +63,7 @@ k60_modem_scm_call(uint32_t fn, uint32_t arginfo, uint64_t a, uint64_t b,
 		regs[2] = a;
 		regs[3] = b;
 		regs[4] = c;
-		regs[5] = 0;
+		regs[5] = d;
 		regs[6] = context;
 		regs[7] = 0;
 		k60_modem_scm_called = 1;
@@ -90,7 +90,7 @@ k60_modem_pas_call(uint32_t cmd, uint32_t arginfo, uint64_t a, uint64_t b,
 	uint64_t x0 = 0, x1 = 0;
 	unsigned calls = 0;
 	int r = k60_modem_scm_call(k60_modem_scm_fn(K60M_SCM_SVC_PIL, cmd),
-	    arginfo, a, b, c, &x0, &x1, &calls);
+	    arginfo, a, b, c, 0, &x0, &x1, &calls);
 
 	if (r != K60ModemPasOk) {
 		printf("K60MODEM scm cmd=%#x rc=%d calls=%u x0=%#llx x1=%#llx\n", cmd, r,
@@ -98,6 +98,32 @@ k60_modem_pas_call(uint32_t cmd, uint32_t arginfo, uint64_t a, uint64_t b,
 	} else if (calls > K60M_SCM_LOG_CALLS) {
 		printf("K60MODEM scm cmd=%#x ok calls=%u\n", cmd, calls);
 	}
+	return r;
+}
+
+/* SCM 0x0c/0x16 asks the monitor to move the ownership of a physical range
+ * between the AP and the modem. The record, the source vmid list and the
+ * destination list are the three buffers the call references; they were
+ * built by k60_modem_assign_record() in a 4 KiB scratch page. The type word
+ * marks all four arguments as plain values, which is the shape the sibling
+ * PAS calls already use on this monitor. A refusal is reported, never
+ * papered over: the caller still answers the modem with the physical
+ * address and the flight tells us whether access worked. */
+int
+k60_modem_assign_call(uint64_t scratch)
+{
+	uint64_t x0 = 0, x1 = 0;
+	unsigned calls = 0;
+	const uint32_t arginfo = k60_modem_scm_args(4, K60M_SCM_VAL, K60M_SCM_VAL,
+	    K60M_SCM_VAL);
+	int r = k60_modem_scm_call(k60_modem_scm_fn(K60M_SCM_SVC_MEM,
+	    K60M_SCM_MEM_ASSIGN), arginfo, scratch, 16, scratch + 64,
+	    scratch + 192, &x0, &x1, &calls);
+
+	printf("K60MODEM scm mem_assign rc=%d calls=%u x0=%#llx x1=%#llx scratch=%#llx
+",
+	    r, calls, (unsigned long long)x0, (unsigned long long)x1,
+	    (unsigned long long)scratch);
 	return r;
 }
 

@@ -874,3 +874,11 @@ source = "docs/engineering/PITFALLS.md:P-240"
 statement = """check-bisect-coverage 在没有 PYTHONIOENCODING=utf-8 时自己崩在 gbk 编码上"""
 waiver = """跑门禁时带 PYTHONIOENCODING=utf-8。"""
 note = """2026-11-19 P-218 检查。"""
+
+[[rule]]
+id = "P-241"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-241"
+statement = """内核 association test 自己连上的网络没有经过设置页保存，状态栏只显示一格"""
+waiver = """production 镜像默认关闭内核侧自动关联；状态栏与设置页格数不一致时先看连接是谁触发的。"""
+note = """2026-11-19 mission36 飞行；用户重连后满格。"""

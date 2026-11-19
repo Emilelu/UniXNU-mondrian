@@ -816,7 +816,10 @@ errno_t if_ioctl(ifnet_t, unsigned long cmd, void *data) {
     // A user-page fault must not retain the driver state lock: scan/join
     // completions on the station worker need that lock too. The native
     // user-client tunnel already uses this copy-before/after-lock pattern.
-    if(len>5120 || (len && !rq->req_data))return EINVAL;
+    // A 24A446 scan request is 0x14e8 bytes (PongWifiAbi.h), past the 5120 this path used to
+    // accept: the framework reaches the driver by ioctl on this generation, so refusing that
+    // length turns every named scan into EINVAL before it is parsed.
+    if(len>PONG_SCAN_REQUEST_MAX || (len && !rq->req_data))return EINVAL;
     void *bytes=len?IOMallocZeroData(len):nullptr;
     if(len && !bytes)return ENOMEM;
     struct Buffer {void *p;size_t n;~Buffer(){if(p){bzero(p,n);IOFreeData(p,n);}}} buffer{bytes,len};

@@ -103,6 +103,8 @@ def main():
           "the driver asks how much room the request leaves")
     check("sizeof(pong_assoc_event27)" in net, "the completion event is posted at its 24A446 size")
     check("nw_wifi_scan_frequencies" in net, "the driver asks the station for the named channels")
+    check("#define PONG_SCAN_REQUEST_MAX 0x14e8u" in text and "len>PONG_SCAN_REQUEST_MAX" in net,
+          "the ioctl path accepts a request as long as the 24A446 scan request")
 
     with tempfile.TemporaryDirectory() as td:
         exe = pathlib.Path(td) / "pong-abi-selftest"

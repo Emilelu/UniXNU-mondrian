@@ -81,6 +81,7 @@ static inline void pong_wifi_caps_fill(uint8_t caps[PONG_WIFI_CAPS_BYTES])
  * results already held), 0x210/0x214 the channels. airportd sends it for a saved network it
  * counts as hidden; a scan that only names networks cannot find one that does not broadcast. */
 #define PONG_SCAN_MULTIPLE_BYTES 0x14e8u
+#define PONG_SCAN_REQUEST_MAX 0x14e8u   /* the ioctl path accepts the largest request it may see */
 #define PONG_SCAN_SSID_COUNT 0x8u
 #define PONG_SCAN_SSIDS 0xcu
 #define PONG_SCAN_SSID_ENTRY 40u

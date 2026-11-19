@@ -141,6 +141,28 @@ diff -u <27 tree>/bsd/kern/kern_exec.c /tmp/kern_exec.27.c > 0627-kern-exec-call
 
 搬到 27 树后先跑两台生成器，再跑 `scripts/tests/test-k60-modem-image.py`（30 段、地址连续）——这两步能证明 carried 副本与源码一致，不需要编内核。
 
+### 7.1 27 上存储数据面会「优雅地拒绝」，不会链接失败
+
+`0627`（= 16 线的 0622）里，`k60_qrtr_rmtfs_rw` 的块读走 `native_pong_ufs_read_named_volume()`，
+而 27 树没有 `drivers/NativeUfs`。0622 里那是一个**同文件弱定义兜底**（`__attribute__((weak))` 外部引用在静态映像里不成立，k51 链接期踩过）：
+
+```c
++native_pong_ufs_read_named_volume(const char *name, uint64_t offset,
++    uint8_t *buffer, size_t length)
++{
++	(void)name; (void)offset; (void)buffer; (void)length;
++	return 0;
++}
+```
+
+调用点是 `if (native_pong_ufs_read_named_volume(...) == 0) { return -1; }`，所以 27 stage-0 的行为是：
+
+- 内核**能编能链**（不需要先搬 `drivers/NativeUfs`）；
+- modem 的 RMTFS 读请求会拿到 `result 1`（拒绝），而不是 panic 或脏数据；
+- 等到 UFS 只读入口搬过来、`KERNEL_EXTRA_ARCHIVES` 里的强定义胜出，同一份 `0627` 不改一行就变成真读。
+
+代价是**静默**：兜底那句不打印，飞行日志里只会看到 modem 的 rw 没被服务。等 k54 上机前要给它补一行 `printf`（`printf` 在内核里可用），否则 27 上分不清「UFS 没搬」和「分区名不对」。这条已记入 §9 的待办。
+
 ## 8. 搬之前就能在 16 线上做掉的验证
 
 | 项 | 命令 | 期望 |

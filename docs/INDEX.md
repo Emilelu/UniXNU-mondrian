@@ -89,6 +89,11 @@ docs/
 | `wifi/BLOB-RESIDENCY.md` | **11.19 MB 固件 blob 与装载边界**：最窄余量 1.14×（117 MB 镜像 vs `ReadFile` 128 MB），可证伪判断、五格判别矩阵、全家族实测段表与 `z0` 上机判决（silent） |
 | `audio/RESEARCH.md` | **音频八步 ①②③**：Pong 的 ADSP PAS1 + AudioReach/PRM + WCD938x（约 107 KB）、官方无组件、K60 待测项 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
+| `bt/RESEARCH.md` | **蓝牙八步 ①②③**：QCA6490 走 GENI UART 的硬件真值、官方组件分工、与 iOS 27 用户态的对齐点 |
+| `bt/HANDOFF.md` | **蓝牙线交接**：从 0516 到 0525 的每一步、每次飞行的判据与缺口、恢复时的第一步 |
+| `bt/S4-SPEC.md` | **蓝牙 S4 规格与沿革**：传输层 ABI、电源节点、改速、官方启动参数，逐条带文件:行与产物哈希 |
+| `bt/MARCONI-AOP-GAP.md` | **marconi-bt 的真实身份**：三个 AOP/SPU 控制通道驱动，不是 HCI 端点 |
+| `plans/BT-USERLAND-COMPARE.md` | **用户态难度对比**：iOS 16 伪装路线与 iOS 27 重定位路线的估时与不可迁移性 |
 
 | [`battery/HANDOFF-PUBLISH.md`](research/battery/HANDOFF-PUBLISH.md) | **ADSP 交接发布者**：早期钩子、持续所有权、只读live发现/104字节发布、通知资格与离线测试；平台adapter已接线，板级资源与停机证明仍缺 |
 | [`battery/INTEGRATION-ORDER.md`](research/battery/INTEGRATION-ORDER.md) | **ADSP 交接集成时间轴**：六步与 IOKitBSDInit/电池/root 挂载的前后界限、默认关闭门控、零交接访问宿主断言和未来检查清单 |

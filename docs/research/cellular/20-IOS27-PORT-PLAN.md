@@ -556,3 +556,56 @@ K60 READY OK every recorded expectation still holds
 | `conffiles-port.txt` | 681 B | 19 条 |
 
 `0629` 没重生成：它要等 27 树的 data mount 锚点，仓库里那份仍是对着真实树生成的。
+
+## 20. 编译前的第二道检查：150 个头文件在 27 树里都在
+
+§19 的教训是「补丁打得上 ≠ 编得过」。补丁集内部的自洽（引用审计）解决了其中一半——补丁之间互相提供的头；另一半是**补丁依赖的目标树头文件**，这类缺失只有编译器会告诉你，而且是在二十分钟的构建之后。
+
+### 20.1 方法
+
+16 线的构建树给每个目标文件留了 `.d` 依赖清单，里面是编译器真正打开过的绝对路径：
+
+```
+<tree>/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/pong_modem_link.d
+<tree>/.cache/xnu-work/bsd/dev/pong_modem_link.c
+<tree>/.cache/xnu-work/bsd/sys/proc.h
+```
+
+（注意 `<tree>/.cache/xnu-work` 是打完补丁的工作副本，仓库里的同名文件不是编译器看到的那个。）把 `.cache/xnu-work/` 之后的部分当成相对路径，逐个问 27 树有没有。
+
+自身的文件（`pong_*`、`qcom_glink*`）跳过：它们由补丁集安装，那条由 §19 的引用审计负责。
+
+### 20.2 结果
+
+```
+K60 DEPS OK 150 headers from 8 objects, none missing
+```
+
+150 个系统头文件（`bsd/`、`osfmk/`、`libkern/`、`pexpert/`、`iokit/`、`EXTERNAL_HEADERS/`）在 27 树里都还在原路径。这不能证明 API 语义没变（签名、结构体布局、宏的含义都可能变），但能证明**路径这一层不需要为 27 改一行 include**。
+
+同一个工具跑在 16 线自己身上是 0 缺失，这是它该有的对照组。
+
+### 20.3 一道跑的还有「打得进去」
+
+```
+0626-k60-modem-image.patch   rc=0
+0627-k60-modem-qrtr.patch    rc=0
+0628-k60-ipa.patch           rc=0
+0630-k60-smem.patch          rc=0
+```
+
+四个补丁对真实 27 树 `git apply --check` 全绿（`0629` 仍要锚点）。`0627`/`0628` 在删掉 pmic include、重算 hunk 头之后重新验过。
+
+### 20.4 什么时候再跑
+
+27 树每次更新（换 xnu 版本、重新 pin component）后跑这两条，顺序固定：
+
+```sh
+python3 scripts/check-ios27-readiness.py --tree <27 tree>
+python3 scripts/check-ios27-deps.py \
+  --deps <16 tree>/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT \
+  --work <16 tree>/.cache/xnu-work \
+  --tree <27 tree>
+```
+
+缺一个头 = 27 改了名或删了它，先回头看 16 线那处调用，再决定是改 include 还是携带实现。

@@ -232,6 +232,22 @@ unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigne
     return 1;
 }
 
+unsigned k60_cpufreq_pdmem_offset(unsigned domain)
+{
+    if (domain >= K60_CPU_FREQ_DOMAINS) return 0;
+    return K60_CPU_FREQ_PDMEM_VOTE_OFFSET + 4 * domain;
+}
+
+unsigned k60_cpufreq_build_pdmem_vote(unsigned domain, unsigned level, K60CpuFreqWrite *out, unsigned capacity)
+{
+    const unsigned offset = k60_cpufreq_pdmem_offset(domain);
+
+    if (!out || !capacity || !offset || level >= K60_CPU_FREQ_LUT_ROWS) return 0;
+    out[0].offset = offset;
+    out[0].value = level;
+    return 1;
+}
+
 int k60_cpufreq_vote_allowed(unsigned enable, const K60CpuFreqTable *table,
     unsigned level, unsigned writes)
 {

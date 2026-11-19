@@ -48,6 +48,14 @@ extern "C" {
 #define K60_CPU_FREQ_REG_PERF_STATE 0x320u
 #define K60_CPU_FREQ_REG_L3_VOTE 0x90u
 
+/* PDMEM perf-lock votes. The live K60 device tree lists the three domains as
+ * 0x17d09804/0x17d09808/0x17d0980c with qcom,perf-lock-support, inside the
+ * 0x17d09000 page. The t970 and zizhan SM8475 policies write this vote before
+ * the perf-state row; a bare perf-state write is ignored by the shared
+ * clusters. The offset is relative to the PDMEM page, not the domain window. */
+#define K60_CPU_FREQ_PDMEM_BASE 0x17d09000ull
+#define K60_CPU_FREQ_PDMEM_VOTE_OFFSET 0x804u
+
 typedef struct {
     uint32_t khz[K60_CPU_FREQ_LUT_ROWS]; /* ascending, turbo rows removed */
     uint8_t level[K60_CPU_FREQ_LUT_ROWS]; /* LUT row each frequency came from */
@@ -140,6 +148,15 @@ typedef struct {
 unsigned k60_cpufreq_build_votes(unsigned domain, unsigned dcvs_ctrl, unsigned level,
     K60CpuFreqWrite *out, unsigned capacity);
 unsigned k60_cpufreq_build_l3_vote(unsigned level, K60CpuFreqWrite *out, unsigned capacity);
+
+/* PDMEM perf-lock write for one domain. Returns the offset inside the PDMEM
+ * page (0x804 + 4 * domain), or 0 for a bad domain. */
+unsigned k60_cpufreq_pdmem_offset(unsigned domain);
+
+/* Build the one-entry PDMEM vote. Returns 1, or 0 for a bad domain/level or a
+ * missing output buffer. level is a hardware LUT row index, as with votes. */
+unsigned k60_cpufreq_build_pdmem_vote(unsigned domain, unsigned level,
+    K60CpuFreqWrite *out, unsigned capacity);
 
 /* Safety guard for a write set: the domain must be enabled, the level must be
  * one of the table's hardware rows, and the write count must fit. The probe

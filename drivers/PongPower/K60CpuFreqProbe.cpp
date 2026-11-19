@@ -63,8 +63,10 @@ namespace {
 
 constexpr uint64_t kDomainBase[K60_CPU_FREQ_DOMAINS] = {0x17d91000, 0x17d92000, 0x17d93000};
 constexpr uint64_t kL3Base = 0x17d90000;
+constexpr uint64_t kPdmemBase = K60_CPU_FREQ_PDMEM_BASE;
 constexpr uint32_t kDomainWindow = 0x1000;
 constexpr uint32_t kL3Window = 0x4000;
+constexpr uint32_t kPdmemWindow = 0x1000;
 constexpr unsigned kLutRows = K60_CPU_FREQ_LUT_ROWS;
 
 struct Window {
@@ -80,6 +82,14 @@ uint32_t rd32(uintptr_t base, uint32_t reg)
 void wr32(uintptr_t base, uint32_t reg, uint32_t value)
 {
     *reinterpret_cast<volatile uint32_t *>(base + reg) = value;
+}
+
+/* The reference policies write PDMEM first and order both writes before the
+ * next read. Without this barrier the perf-state row can become visible while
+ * the perf-lock vote is still in flight. */
+void barrier()
+{
+    __asm__ volatile("dsb oshst" ::: "memory");
 }
 
 bool mapWindow(Window *window, uint64_t base, uint32_t bytes)
@@ -124,10 +134,11 @@ void dumpRows(const char *tag, const uint32_t *rows, unsigned count)
 void probeDomain(unsigned domain, bool dump)
 {
     Window window = {};
+    Window pdmem = {};
     K60CpuFreqTable table = {};
     uint32_t rows[kLutRows] = {};
-    unsigned index = 0;
-    uint32_t topKhz = 0, stateKhz = 0, state, control, vote;
+    unsigned index = 0, pdmemOffset = k60_cpufreq_pdmem_offset(domain);
+    uint32_t topKhz = 0, stateKhz = 0, state, control, vote, pdmemVote = 0;
 
     if (!mapWindow(&window, kDomainBase[domain], kDomainWindow)) {
         IOLog("K60CpuFreq: d%u nomap base=0x%llx\n", domain,
@@ -139,10 +150,14 @@ void probeDomain(unsigned domain, bool dump)
     vote = rd32(window.va, K60_CPU_FREQ_REG_PERF_STATE) & 0xffu;
     if (state & 0xffu) stateKhz = (state & 0xffu) * K60_CPU_FREQ_XO_KHZ;
     if (readTable(&window, &table)) k60_cpufreq_pick_highest(&table, 0, &index, &topKhz);
-    IOLog("K60CpuFreq: d%u base=0x%llx enable=%u state=%u (%ukHz) dcvs=%u vote=%u rows=%u top=%ukHz level=%u mode1=read-only\n",
+    if (pdmemOffset && mapWindow(&pdmem, kPdmemBase, kPdmemWindow)) {
+        pdmemVote = rd32(pdmem.va, pdmemOffset) & 0xffu;
+        unmapWindow(&pdmem);
+    }
+    IOLog("K60CpuFreq: d%u base=0x%llx enable=%u state=%u (%ukHz) dcvs=%u vote=%u pdmem=%u rows=%u top=%ukHz level=%u mode1=read-only\n",
         domain, static_cast<unsigned long long>(kDomainBase[domain]),
         rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u, state & 0xffu, stateKhz,
-        control & 1u, vote, table.count, topKhz, index);
+        control & 1u, vote, pdmemVote, table.count, topKhz, index);
     if (dump && table.count) {
         readRows(&window, rows);
         dumpRows("", rows, table.count);
@@ -153,14 +168,16 @@ void probeDomain(unsigned domain, bool dump)
 void voteDomain(unsigned domain, unsigned mode, bool lowest)
 {
     Window window = {};
+    Window pdmem = {};
     K60CpuFreqTable table = {};
     K60CpuFreqWrite writes[K60_CPU_FREQ_MAX_WRITES] = {};
     K60CpuFreqWrite restore[K60_CPU_FREQ_MAX_WRITES] = {};
     uint32_t original[K60_CPU_FREQ_MAX_WRITES] = {};
     uint32_t readback[K60_CPU_FREQ_MAX_WRITES] = {};
-    unsigned index = 0, n, i, enabled, dcvs, restored;
+    unsigned index = 0, n, i, enabled, dcvs, restored, pdmemOffset;
     unsigned stateBefore, stateAfter, stateRestored;
-    uint32_t topKhz = 0;
+    uint32_t topKhz = 0, pdmemOriginal = 0, pdmemAfter = 0;
+    bool pdmemMapped;
     int ok;
 
     if (!mapWindow(&window, kDomainBase[domain], kDomainWindow)) {
@@ -170,19 +187,25 @@ void voteDomain(unsigned domain, unsigned mode, bool lowest)
     }
     enabled = rd32(window.va, K60_CPU_FREQ_REG_ENABLE) & 1u;
     dcvs = rd32(window.va, K60_CPU_FREQ_REG_DCVS_CTRL) & 1u;
+    pdmemOffset = k60_cpufreq_pdmem_offset(domain);
+    pdmemMapped = pdmemOffset && mapWindow(&pdmem, kPdmemBase, kPdmemWindow);
+    if (pdmemMapped) pdmemOriginal = rd32(pdmem.va, pdmemOffset);
     if (!readTable(&window, &table)) {
         IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
+        if (pdmemMapped) unmapWindow(&pdmem);
         unmapWindow(&window);
         return;
     }
     if (lowest) {
         if (k60_cpufreq_pick_lowest(&table, &index, &topKhz)) {
             IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
+            if (pdmemMapped) unmapWindow(&pdmem);
             unmapWindow(&window);
             return;
         }
     } else if (k60_cpufreq_pick_highest(&table, 0, &index, &topKhz)) {
         IOLog("K60CpuFreq: d%u vote skipped: no non-turbo table\n", domain);
+        if (pdmemMapped) unmapWindow(&pdmem);
         unmapWindow(&window);
         return;
     }
@@ -191,24 +214,41 @@ void voteDomain(unsigned domain, unsigned mode, bool lowest)
     if (!k60_cpufreq_vote_allowed(enabled, &table, table.level[index], n)) {
         IOLog("K60CpuFreq: mode%u d%u vote skipped: enable=%u table=%u level=%u writes=%u\n",
             mode, domain, enabled, table.count, table.level[index], n);
+        if (pdmemMapped) unmapWindow(&pdmem);
         unmapWindow(&window);
         return;
     }
     for (i = 0; i < n; ++i) original[i] = rd32(window.va, writes[i].offset);
     stateBefore = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
+    if (pdmemMapped) {
+        K60CpuFreqWrite vote = {};
+        if (k60_cpufreq_build_pdmem_vote(domain, table.level[index], &vote, 1) == 1)
+            wr32(pdmem.va, vote.offset, vote.value);
+    }
     for (i = 0; i < n; ++i) wr32(window.va, writes[i].offset, writes[i].value);
+    barrier();
     for (i = 0; i < n; ++i) readback[i] = rd32(window.va, writes[i].offset);
+    if (pdmemMapped) pdmemAfter = rd32(pdmem.va, pdmemOffset) & 0xffu;
     ok = k60_cpufreq_check_readback(writes, readback, n);
     IOSleep(20);
     stateAfter = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
     restored = k60_cpufreq_build_restore(writes, original, n, restore,
         K60_CPU_FREQ_MAX_WRITES);
     for (i = 0; i < restored; ++i) wr32(window.va, restore[i].offset, restore[i].value);
+    if (pdmemMapped) wr32(pdmem.va, pdmemOffset, pdmemOriginal);
+    barrier();
     IOSleep(20);
     stateRestored = rd32(window.va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
     IOLog("K60CpuFreq: mode%u vote d%u level=%u (%ukHz) dcvs=%u writes=%u readback=%s restored=%u state=%u->%u->%u\n",
         mode, domain, table.level[index], topKhz, dcvs, n,
         ok ? "ok" : "mismatch", restored, stateBefore, stateAfter, stateRestored);
+    if (pdmemMapped) {
+        IOLog("K60CpuFreq: mode%u d%u pdmem=%u->%u->%u\n", mode, domain,
+            pdmemOriginal & 0xffu, pdmemAfter, rd32(pdmem.va, pdmemOffset) & 0xffu);
+        unmapWindow(&pdmem);
+    } else {
+        IOLog("K60CpuFreq: mode%u d%u pdmem=unmapped\n", mode, domain);
+    }
     unmapWindow(&window);
 }
 
@@ -400,11 +440,13 @@ constexpr unsigned kFrameSpanWindows = 19;
 struct Applied {
     K60CpuFreqWrite writes[K60_CPU_FREQ_MAX_WRITES];
     uint32_t originals[K60_CPU_FREQ_MAX_WRITES];
+    uint32_t pdmemOriginal;
     unsigned count;
     bool touched;
+    bool pdmemTouched;
 };
 
-unsigned restoreApplied(Window *windows, Applied *applied)
+unsigned restoreApplied(Window *windows, Window *pdmem, Applied *applied)
 {
     unsigned domains = 0;
 
@@ -413,9 +455,15 @@ unsigned restoreApplied(Window *windows, Applied *applied)
         if (!a->touched) continue;
         for (unsigned i = 0; i < a->count; ++i)
             wr32(windows[domain].va, a->writes[i].offset, a->originals[i]);
+        if (a->pdmemTouched && pdmem->va) {
+            const unsigned offset = k60_cpufreq_pdmem_offset(domain);
+            if (offset) wr32(pdmem->va, offset, a->pdmemOriginal);
+            a->pdmemTouched = false;
+        }
         a->touched = false;
         ++domains;
     }
+    barrier();
     return domains;
 }
 
@@ -446,6 +494,7 @@ void samplerThread(void *, wait_result_t)
 {
     K60CpuFreqTable tables[K60_CPU_FREQ_DOMAINS] = {};
     Window windows[K60_CPU_FREQ_DOMAINS] = {};
+    Window pdmem = {};
     K60CpuFreqGovernor gov = {};
     Applied applied[K60_CPU_FREQ_DOMAINS] = {};
     bool ready[K60_CPU_FREQ_DOMAINS] = {};
@@ -499,6 +548,11 @@ void samplerThread(void *, wait_result_t)
         if (!matched)
             IOLog("K60CpuFreq: d%u state=%u not in table; apply disabled\n", domain, state);
     }
+    if (mapWindow(&pdmem, kPdmemBase, kPdmemWindow))
+        IOLog("K60CpuFreq: PDMEM base=0x%llx votes=0x804/0x808/0x80c\n",
+            static_cast<unsigned long long>(kPdmemBase));
+    else
+        IOLog("K60CpuFreq: PDMEM unavailable; perf-lock votes skipped\n");
     IOLog("K60CpuFreq: sample start every=%ums log-every=%u domains=%u apply=%u\n",
         kSampleSleepMs, kSampleLogWindows, K60_CPU_FREQ_DOMAINS, applyMode);
     while (!sSampleStop) {
@@ -637,8 +691,8 @@ void samplerThread(void *, wait_result_t)
             for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain) {
                 K60CpuFreqWrite set[K60_CPU_FREQ_MAX_WRITES] = {};
                 uint32_t readback[K60_CPU_FREQ_MAX_WRITES] = {};
-                uint32_t before, after;
-                unsigned n, i;
+                uint32_t before, after, pdmemAfter = 0;
+                unsigned n, i, pdmemOffset = k60_cpufreq_pdmem_offset(domain);
                 bool ok;
 
                 if (!ready[domain] || !applyReady[domain]) continue;
@@ -674,20 +728,37 @@ void samplerThread(void *, wait_result_t)
                     }
                     applied[domain].count = n;
                     applied[domain].touched = true;
+                    if (pdmem.va && pdmemOffset) {
+                        applied[domain].pdmemOriginal = rd32(pdmem.va, pdmemOffset);
+                        applied[domain].pdmemTouched = true;
+                    }
+                }
+                if (pdmem.va && pdmemOffset) {
+                    K60CpuFreqWrite vote = {};
+                    if (k60_cpufreq_build_pdmem_vote(domain, tables[domain].level[gov.current[domain]],
+                        &vote, 1) == 1)
+                        wr32(pdmem.va, vote.offset, vote.value);
                 }
                 for (i = 0; i < n; ++i) wr32(windows[domain].va, set[i].offset, set[i].value);
+                barrier();
                 for (i = 0; i < n; ++i) readback[i] = rd32(windows[domain].va, set[i].offset);
+                if (pdmem.va && pdmemOffset) pdmemAfter = rd32(pdmem.va, pdmemOffset) & 0xffu;
                 ok = k60_cpufreq_check_readback(set, readback, n) != 0;
                 ++appliedVotes;
                 IOSleep(1);
                 after = rd32(windows[domain].va, K60_CPU_FREQ_REG_DOMAIN_STATE) & 0xffu;
-                IOLog("K60CpuFreq: mode%u apply d%u level=%u (%ukHz) busy=%u writes=%u readback=%s state=%u->%u\n",
+                IOLog("K60CpuFreq: mode%u apply d%u level=%u (%ukHz) busy=%u writes=%u pdmem=%u readback=%s state=%u->%u\n",
                     applyMode, domain, tables[domain].level[gov.current[domain]],
-                    tables[domain].khz[gov.current[domain]], busy[domain], n,
+                    tables[domain].khz[gov.current[domain]], busy[domain], n, pdmemAfter,
                     ok ? "ok" : "mismatch", before, after);
                 if (!ok) {
                     for (i = 0; i < n; ++i)
                         wr32(windows[domain].va, set[i].offset, applied[domain].originals[i]);
+                    if (applied[domain].pdmemTouched && pdmem.va && pdmemOffset) {
+                        wr32(pdmem.va, pdmemOffset, applied[domain].pdmemOriginal);
+                        applied[domain].pdmemTouched = false;
+                    }
+                    barrier();
                     applied[domain].touched = false;
                     applyReady[domain] = false;
                     gov.current[domain] = votedIndex[domain];
@@ -700,7 +771,7 @@ void samplerThread(void *, wait_result_t)
             if (armed && (window >= applyStart + applySpan ||
                     (!signalArmed && window >= kApplyLatestEndWindow) ||
                     appliedVotes >= kApplyMaxVotes)) {
-                unsigned domains = restoreApplied(windows, applied);
+                unsigned domains = restoreApplied(windows, &pdmem, applied);
                 IOLog("K60CpuFreq: mode%u restore domains=%u votes=%u\n",
                     applyMode, domains, appliedVotes);
                 armed = false;
@@ -722,12 +793,13 @@ void samplerThread(void *, wait_result_t)
         }
     }
     if (apply) {
-        unsigned domains = restoreApplied(windows, applied);
+        unsigned domains = restoreApplied(windows, &pdmem, applied);
         IOLog("K60CpuFreq: mode%u restore domains=%u votes=%u\n",
             applyMode, domains, appliedVotes);
     }
     for (unsigned domain = 0; domain < K60_CPU_FREQ_DOMAINS; ++domain)
         if (windows[domain].map) unmapWindow(&windows[domain]);
+    if (pdmem.map) unmapWindow(&pdmem);
     IOLog("K60CpuFreq: sample stop win=%llu\n", static_cast<unsigned long long>(window));
 }
 

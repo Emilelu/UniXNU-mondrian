@@ -51,8 +51,12 @@ sh scripts/tests/portability/run-deps.sh
 ```sh
 python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc
 #   ml_io_map            osfmk/arm/machine_routines.h:603  (maps a physical window ...)
-# API OK 4/4 xnu-12377.121.6 ac9718f
+# API OK 4/4 xnu-12377.121.6 ac9718f: ml_io_map osfmk/arm/machine_routines.h:603, …
 ```
+
+这一行自带两样东西：版本与提交（`xnu-12377.121.6` + `ac9718f`），以及每个名字的 `file:line`。
+理由很实际——「绿了，但量的是另一棵树 / 另一个提交」与「真的绿了」在事后从一条不带出处的日志里
+分不出来（P-251、P-256 都是这么来的）。
 
 实测位置（`xnu-12377.121.6`，`ac9718f`）：
 
@@ -79,11 +83,19 @@ python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3
 - `<tree>/.cache/xnu-work/bsd/conf/files` —— 16 线构建脚本种出来的树；
 - `<tree>/bsd/conf/files` —— iOS 27 输出树，直接在内核源里构建。
 
-27 树没有 `bsd/dev/pong_buttons.c`，锚点只能用该树有的行，例如它自己第 108 行的
-`bsd/dev/unix_startup.c`（后接三个制表符与 `standard`）。在该树副本上实测：
+**锚点就是 `bsd/dev/unix_startup.c` 那一行**（该树 `bsd/conf/files:108`，后接三个制表符与 `standard`）。
+不是 `bsd/dev/pong_buttons.c`：27 树没有这个文件，它只存在于 16 线的补丁系列里——下一个迁移的人
+看到默认锚点失败时，第一反应会是「锚点选错了」，所以这里写死。
+
+锚点行必须**回显**：`audio conffiles: anchor line '…'`（`repr` 形式，制表符可见）。只报
+`lines 0 -> 2` 而不回显，等于没锚上（条目写进了别的段落）与锚上了在日志里长得一样——
+P-171/P-245 那一族就是这样漏过去的。失败路径的顺序也不许改：先放源文件，再因锚点缺失退出 1。
+
+在该树副本上实测：
 
 ```sh
 python3 scripts/apply-audio27-wiring.py <tree> --anchor "<unix_startup.c 那一整行>"
+# audio conffiles: anchor line 'bsd/dev/unix_startup.c\t\t\tstandard'
 # audio conffiles: pong_audio lines 0 -> 2
 # audio wiring: OK sources=9 conf=2
 ```

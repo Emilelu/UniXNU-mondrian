@@ -210,12 +210,23 @@ errno_t if_set_bpf_tap(ifnet_t, bpf_tap_mode mode, bpf_packet_func callback) {
   return 0;
 }
 
-// ---- events to the framework: class IEEE 802.11 (6), subclass 1, data starting with the interface name ----
+// ---- events to the framework: class IEEE 802.11 (6), subclass 1 ----
+// Two shapes, chosen by the daemon generation. 22H374 reads the interface name and the payload out of
+// one descriptor (name first); 24A446 reads them from two (name, then payload). The reference port made
+// that change in the same commit that added the 540-byte association event, and the older shape is the
+// one this device's pane was proven with, so the generation decides rather than a blanket switch.
 void post_event(uint32_t code, const void *payload, size_t length) {
-  uint8_t data[16 + sizeof(pong_assoc_event27)]; if (length > sizeof data - 16) length = sizeof data - 16;
-  memset(data, 0, 16); snprintf(reinterpret_cast<char *>(data), 16, "en0"); if (length) memcpy(data + 16, payload, length);
   struct kev_msg msg; memset(&msg, 0, sizeof msg);
   msg.vendor_code = KEV_VENDOR_APPLE; msg.kev_class = 6; msg.kev_subclass = 1; msg.event_code = code;
+  if (gModern27Client) {
+    char name[16] = "en0";
+    msg.dv[0].data_length = sizeof name; msg.dv[0].data_ptr = name;
+    msg.dv[1].data_length = static_cast<uint32_t>(length); msg.dv[1].data_ptr = const_cast<void *>(payload);
+    pong_kev_post(&msg);
+    return;
+  }
+  uint8_t data[16 + sizeof(pong_assoc_event27)]; if (length > sizeof data - 16) length = sizeof data - 16;
+  memset(data, 0, 16); snprintf(reinterpret_cast<char *>(data), 16, "en0"); if (length) memcpy(data + 16, payload, length);
   msg.dv[0].data_length = static_cast<uint32_t>(16 + length); msg.dv[0].data_ptr = data;
   pong_kev_post(&msg);
 }
@@ -894,6 +905,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
       for (unsigned i = 0; i < n && i < 4; i++) log(6, "wifi-net: channel %u: number %u flags 0x%x", frequencies[i], out.chans.list[i].channel, out.chans.list[i].flags); }
     out.chans.count = n; return copy_out(rq, &out.chans, sizeof out.chans, kernel); }
   case kScanResult: {
+    if (rq.req_len == PONG_SCAN_RECORD_24A446) gModern27Client = true;   // a 24A446 daemon asks for the 2280-byte record
     const int count = gSnapCount ? static_cast<int>(gSnapCount) : nw_wifi_bss_count();
     nw_bss_info b; bool bad = false;
     // A held network that has not been heard for a minute is passed over (the reference port's policy):
@@ -929,6 +941,7 @@ int apple80211(bool set, apple80211req &rq, bool kernel = false) {
     if (count <= 40 || gScanServed <= 3 || gScanServed % 8 == 0) log(6, "wifi-net: scan result served %u of %d: %u MHz, %d dBm, %.*s", gScanServed, count, b.freq_mhz, b.signal_dbm, b.ssid_len, reinterpret_cast<const char *>(b.ssid));
     return copy_out(rq, &out.res, sizeof(out.res), kernel); }
   case kCurrentNetwork: {
+    if (rq.req_len == PONG_SCAN_RECORD_24A446) gModern27Client = true;
     if (st.state < NW_STA_ASSOC) return ENOENT;
     nw_bss_info b; const int count = nw_wifi_bss_count();
     for (int i = 0; i < count; i++) {

@@ -453,6 +453,12 @@ def main() -> int:
           'event.rssi = status->signal_dbm;' in net_src and
           'post_event(kEvLinkChanged, &event, sizeof event);' in net_src)
 
+    check("a 24A446 daemon reads events from two descriptors",
+          'if (gModern27Client) {' in net_src and
+          'msg.dv[0].data_length = sizeof name; msg.dv[0].data_ptr = name;' in net_src and
+          'msg.dv[1].data_length = static_cast<uint32_t>(length); msg.dv[1].data_ptr = const_cast<void *>(payload);' in net_src and
+          net_src.count('if (rq.req_len == PONG_SCAN_RECORD_24A446) gModern27Client = true;') == 2)
+
     print("summary: %d failure(s)" % len(FAILS))
     return 1 if FAILS else 0
 

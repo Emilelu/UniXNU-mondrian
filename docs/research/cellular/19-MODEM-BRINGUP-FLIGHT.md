@@ -1201,6 +1201,48 @@ k41 把 open 提前到 24 ms，结果只是把矛盾照得更清楚：服务仍�
 | adt | `363c7d1006d5e6e5d5284e506de61a1346a41857815410bbe55b86ef26506254`；dtb `2d044eaa…`；fd `40c29d51…` |
 | kernel args 尾 | `k60_autoreset=300 applog=1 pong_modem=2 pong_ipa=0` |
 | 状态 | 已打包、未上机（manifest-k42.json 与 FLIGHT-README.md 同目录） |
+
+**实机结果（2026-11-19 14:04，420 s 采集）**：镜像 `6411fb06…`。证据 `E:/k60-work/evidence/usblog-20261119-140442`，
+capture `state=captured-disconnected`、`complete=false`、214,843 B、logSha256
+`0955BBD9E253146B4DA9D0EF9FA3ED56A0D85EEA8EC24FA391564982D7F497E3`、`stopReason=fastboot-return`、
+lastDataAt 14:10:34。判读 **S3 PASS / S4 FAIL / S5 FAIL / S6 PASS**，rc=1——但这一飞的价值在 wait 行。
+
+- **远端 intent 表是满的**：5 秒时 `intents=0/30 local=4/4 msgs=46/19 tx 760/760 rx head=976 tail=976`；modem 一开始
+  就给了 30 个接收缓冲（id 0–15 各 128 B，id 16–29 各 512 B，全部 free），说明通道握手是健康的。
+- **同一对服务被反复重播**：`service 66 (0x42) instance 46081 node 0 port 2` 与
+  `service 43 (0x2b) instance 4610 node 0 port 1` 在 5/10/20/30 秒各出现一次，`services` 计数因此从 2 爬到 8
+  （2→4→6→8），**没有任何一条新服务**。每次重播都紧跟一次 HELLO 探针，即 modem 把我们的 HELLO 当成“重新宣告”。
+- **modem 在约 35 秒后彻底停手**：`rx head` 停在 1448、`msgs` 的 rx 停在 57 不再增长；探针 #4 到 #21 共 18 次 HELLO
+  都没有再触发重播（`acks` 恒为 1，它只统计 modem 自己发的 HELLO）。
+- **它也不再确认我们的发送**：`intents` 的 busy 从 0 单调涨到 **30/30**（最后一对出现在 215 s 的
+  `tx head=3216 tail=1152 … intents=30/30 msgs=57/60`），即从约 45 秒起没有一个 RX_DONE 回来；
+  `tx tail` 因此冻在 1152，而 `tx head` 一路涨到 3224。30 个缓冲全部占满之后 `qcom_glink_send` 只能返回
+  `QcomGlinkAgain`，后续请求全部躺在环里。
+
+结论修正：k41 看到的“tail 冻结”不是索引读错——**是 modem 的 GLINK 接收端（读 + 回 RX_DONE）在开机约 35–45 秒后
+整体停摆**。而 k41 与 k42 的差别只有诊断代码，所以停摆与我们的 wait 打印无关；剩下的怀疑对象是 30 秒后
+我们主动发出的那些请求（lookup / 固定端口 DMS）本身。k43 用 `pong_qrtr` 启动参数把这三类流量拆开：
+0 = 只发 HELLO 探针、1 = 加 lookup、2 = 再加固定端口 DMS（默认 2）。
+### 3.30 k43：用 pong_qrtr 把三类流量拆开（离线，未上机）
+
+k42 证明 modem 的 GLINK 接收端在开机约 35–45 秒后停摆（不再读、不再回 RX_DONE，30 个远端 intent 全部占满）。
+k41 与 k42 唯一的差别是诊断代码，所以停摆不是打印造成的；剩下的嫌疑是**我们自己发出去的东西**——
+两轮广播 lookup、固定端口 96 的 DMS GetRevision、以及每 10 秒一次的 HELLO 重发。
+
+k43 因此只加一个启动参数，不改协议行为：
+
+- `pong_qrtr`：`0` = 只发 HELLO 探针（不做 lookup、不发 DMS）；`1` = 加 lookup；`2` = 再加固定端口 96 的
+  DMS 请求（默认 2，与 k42 相同）。参数缺省时保持 2，所以不带这个参数的老镜像语义不变。
+- wait 行再补两个数：`lbusy`、`ldone`——本地 4 个接收 intent 的占用与待回 RX_DONE 数，用来确认“我们这一侧”
+  没有把对端堵住（k42 的 5 秒快照里它们都是 0）。
+- `sent hello` 行尾带上 `mode=%d`，一眼能看出这一飞跑的是哪一档。
+
+判据：S3/S6 保持 PASS；本飞不指望 S4/S5。要看的是 **`intents=` 是否还会涨到 30/30** 与 **`rx head` 是否在 35 秒后
+仍不动**——mode 0 下 modem 照样停 ⇒ 停摆与我们的请求无关（更像它自己的固件侧超时）；mode 0 下它一直健康 ⇒
+被告就是 lookup 或固定端口 DMS，再按 mode 1 / mode 2 二分。
+
+注意：启动参数烘在镜像里（`flash.sh` 不接受额外的内核参数），所以这一飞要单独做一版带 `pong_qrtr=0` 的镜像；
+源码与 0622 与默认镜像完全一致，差别只在 payload 的 kernel args。
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、
@@ -1238,9 +1280,10 @@ k41 把 open 提前到 24 ms，结果只是把矛盾照得更清楚：服务仍�
     请求 + 8 次 lookup 全部零应答、服务恒为 2，且 300 s autoreset 在探针走到 230 s 时就复位，verdict 行没
     来得及打印（§3.26 实机结果）。k41（`b6e6987e…`）按“提前挂上去”飞过（2026-11-19 13:37）：`fifo at 24 ms`
     就 open、比 `modem ready at 5 s` 早五秒，服务仍是两条，且 wait 行显示 `tx head` 涨而 `tx tail` 停在 888（§3.28
-    实机结果）。这否掉了“注册潮在 open 之前”，把问题推到“modem 是否真的不再读我们的环”。k42 因此只加诊断：
-    wait 行带 `rx avail/head/tail`、`intents=busy/valid`、`local=advertised/count`、`msgs`，第 5 秒 dump 两张 intent 表，
-    并每 10 秒重发 HELLO 记 `hello probe #N, acks=M`（§3.29）。S3/S6 必须保持，S4/S5 本飞不指望。
+    实机结果）。k42（`6411fb06…`）按诊断飞过（2026-11-19 14:04）：30 个远端 intent 一开始全 free，同一对服务
+    （66/0x42 与 43/0x2b）被 HELLO 探针触发重播四次，之后 `rx head` 冻在 1448、busy 单调涨到 **30/30** ⇒ modem 的 GLINK
+    接收端在 35–45 秒后停摆（§3.29 实机结果）。k43 因此加 `pong_qrtr` 启动参数（0 = 只发 HELLO、1 = 加 lookup、
+    2 = 再加固定端口 DMS），先用 mode 0 判断停摆是不是我们自己的请求造成的（§3.30）；S3/S6 必须保持，S4/S5 不指望。
    采集秒数由 300 改为 **420**，用于在 `k60_autoreset=300` 复位后多观察 120 s（USB 断开即 PSCI `SYSTEM_RESET` 生效）。
     **2026-11-19 12:58 起本线待命**：用户计划等 fork 方在 iOS 27（27.0.1）上到达 bsd_init 后全面转过去；
     蓝牙线与基带线届时都迁到 iOS 27，本仓库的 ios27 分支由蓝牙线建立、Actions 已跑通一次。

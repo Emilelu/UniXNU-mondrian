@@ -350,10 +350,11 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 		const uint32_t port = (uint32_t)payload[16] | (uint32_t)payload[17] << 8 |
 		    (uint32_t)payload[18] << 16 | (uint32_t)payload[19] << 24;
 
-		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u cmd=%#x\n",
+		printf("K60MODEM qrtr: service %u (%#x) instance %u node %u port %u cmd=%#x to=%u\n",
 		    service, service, instance, node, port,
 		    (unsigned)payload[0] | (unsigned)payload[1] << 8 |
-		    (unsigned)payload[2] << 16 | (unsigned)payload[3] << 24);
+		    (unsigned)payload[2] << 16 | (unsigned)payload[3] << 24,
+		    header.to_node);
 		coachz_baseband_new_server(service, instance, node, port);
 	}
 	if (header.type == K60QrtrDelServer && header.size == K60_QRTR_CONTROL_BYTES) {
@@ -1404,6 +1405,37 @@ k60_modem_qrtr_probe(void)
 					    transaction);
 				} else if (rc != QcomGlinkAgain) {
 					printf("K60MODEM qrtr: dms send rc=%d\n", rc);
+					return rc;
+				}
+			}
+		}
+		/* k37 answered no lookup and announced only two services in sixty
+		 * seconds: the modem's QMI services registered during bring-up, when
+		 * nothing was listening on the AP side. Fall back to the port the
+		 * Android inventory recorded for DMS on this very device (01-ANDROID-
+		 * INVENTORY.md 5.4.1: service 2, node 0, port 96). */
+		if (k60_qrtr_hello_sent && !k60_qrtr_state.dms_found &&
+		    !k60_qrtr_state.dms_static && i >= 20000) {
+			uint8_t query[K60_QMI_HEADER];
+			uint16_t transaction = ++k60_qrtr_dms_transaction;
+
+			if (transaction == 0) {
+				transaction = ++k60_qrtr_dms_transaction;
+			}
+			k60_qrtr_state.dms_node = 0;
+			k60_qrtr_state.dms_port = K60_QRTR_DMS_STATIC_PORT;
+			if (k60_qmi_build_dms_revision(query, sizeof(query), transaction) != 0) {
+				k60_qrtr_state.dms_transaction = transaction;
+				rc = k60_qrtr_send_data_packet(K60_QRTR_DMS_PORT, 0,
+				    K60_QRTR_DMS_STATIC_PORT, query, sizeof(query));
+				if (rc == QcomGlinkOk) {
+					k60_qrtr_state.dms_static = 1;
+					k60_qrtr_state.dms_requested = 1;
+					k60_qrtr_state.dms_sent = 1;
+					printf("K60MODEM qrtr: sent dms get_revision (static) to node 0 port %u txn %u\n",
+					    K60_QRTR_DMS_STATIC_PORT, transaction);
+				} else if (rc != QcomGlinkAgain) {
+					printf("K60MODEM qrtr: dms static send rc=%d\n", rc);
 					return rc;
 				}
 			}

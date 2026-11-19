@@ -39,6 +39,11 @@
 #define K60_QRTR_LOCATOR_PORT   0x100u
 #define K60_QRTR_DMS_PORT       0x110u
 #define K60_QRTR_DMS_SERVICE    2u
+/* The modem registers its QMI services while it boots, before our GLINK
+ * channel exists; Android's kernel nameserver catches those announcements and
+ * a late channel does not. The inventory taken on this device puts DMS on
+ * node 0 port 96, so that port is the fallback when nothing is announced. */
+#define K60_QRTR_DMS_STATIC_PORT 96u
 #define K60_QRTR_SERVLOC_SERVICE 0x40u
 #define K60_QRTR_SERVLOC_INSTANCE 0x101u
 
@@ -98,6 +103,8 @@ typedef struct {
 	/* DMS service 2 endpoint and its GetRevision exchange. */
 	uint32_t dms_node, dms_port, dms_found;
 	uint32_t dms_transaction, dms_sent, dms_answered, dms_errors;
+	/* 1 once the request went to the fixed port the Android inventory saw. */
+	uint32_t dms_static;
 	uint32_t locator_requests;
 	uint32_t revision_bytes;
 	char revision[128];

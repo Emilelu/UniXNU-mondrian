@@ -565,34 +565,26 @@ void fill_channel(channel &c, uint32_t mhz) {
 uint64_t scan_clock_ns() {
   uint64_t ns=0;absolutetime_to_nanoseconds(mach_continuous_time(),&ns);return ns;
 }
-// wifid keeps this access point's 2.4 GHz record and drops the 5 GHz one although both are served, so a
-// field of the 5 GHz record is the filter. The probes of mission27/28 accept one element group back at a time
-// (K60B..K60E) and remove one group at a time from the real record (K60F..K60J); until one of them names the
-// group, this build also strips the element below from every record it hands over, so the real SSID has a
-// chance to appear in the same flight. The station's own association uses the access point's beacon directly,
-// not this record, so nothing on the air changes. Test branch only.
-static bool drop_scan_element(uint8_t id, uint32_t len) {
-  // The daemon keeps the 5200 MHz neighbours, whose element lists carry country, power-constraint (32), VHT tx power
-  // (195) and vendor elements as well, so those cannot be the whole story: what the kept 5 GHz lists do not carry is
-  // the TPC report (35) and element 244, so both leave here too together with the two legal defects below.
-  if (id == 7) return true;               // 802.11d Country: wifid prints and merges networks by the country they carry
-  if (id == 35 || id == 244) return true; // TPC report / id 244: absent from every 5 GHz record the daemon kept
-  if (id == 221 && len < 4) return true;  // vendor-specific without an OUI is not a legal element; wifid may refuse the record
-  return false;
-}
+// The 5 GHz record of this access point is the only one of 38 records the daemon drops, and its element blob is the
+// one the station clamps: the 2.4 GHz record carries 347 bytes and parses to the end, the 5 GHz record reports 384
+// bytes (the size of the station's copy) and its element walk stops after 318, leaving 66 bytes that never form a
+// whole element. A list that ends in the middle of an element is a malformed record, and that is the one difference
+// no element inventory shows. Serve the record the access point sent, ended at the last complete element. The
+// station's own association uses the beacon directly, not this record, so nothing on the air changes. Test
+// branch only.
 void fill_result(scan_result24 &record, const nw_bss_info &b,uint64_t sampled_ns) {
   memset(&record, 0, sizeof record);scan_result &r=record.legacy;
   r.version = 1; fill_channel(r.ch, b.freq_mhz); r.noise_known = 1; r.noise = -95; r.rssi = b.signal_dbm; r.snr = b.signal_dbm + 95;
   r.beacon_interval = b.beacon_int; r.capability = b.caps; memcpy(r.bssid, b.bssid, 6); r.ssid_length = b.ssid_len; memcpy(r.ssid, b.ssid, 32);
   r.age_ms = b.age_ms;
-  static unsigned announced; bool dropped = false; r.elements_length = 0;
+  static unsigned announced; r.elements_length = 0; unsigned used = 0;
   for (unsigned o = 0; o + 2 <= b.ie_len; o += 2 + b.ie[o + 1]) {
-    const unsigned id = b.ie[o], len = b.ie[o + 1];
-    if (o + 2 + len > b.ie_len) break;
-    if (drop_scan_element(static_cast<uint8_t>(id), len)) { dropped = true; continue; }
+    const unsigned len = b.ie[o + 1];
+    if (o + 2 + len > b.ie_len) break;   // a blob the station clamped at 384 ends in the middle of an element
     if (r.elements_length + 2 + len <= sizeof r.elements) { memcpy(r.elements + r.elements_length, b.ie + o, 2 + len); r.elements_length += 2 + len; }
+    used = o + 2 + len;
   }
-  if (dropped && announced++ < 3) log(6, "wifi-net: scan record elements filtered: kept %u of %u bytes", r.elements_length, b.ie_len);
+  if (used < b.ie_len && announced++ < 3) log(6, "wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served", b.ie_len - used, b.ie_len);
   r.rate_count = 0;
   // The station exposes real frame age at millisecond resolution. Sample
   // the clock BEFORE querying it and round age upward, so this estimate

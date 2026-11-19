@@ -312,10 +312,10 @@ def main() -> int:
     check("the probe falls back to the 2.4 GHz record and names a sweep with no pair",
           'mission25 found only one 5 GHz record in the air: fall back to the same access point on 2.4 GHz' in net and
           '"wifi-net: no probe pair this sweep (target %d, carrier %d, %u records)"' in net)
-    check("the record filter drops the country element before the record leaves the driver",
-          "if (id == 221 && len < 4) return true;" in net and
-          "if (drop_scan_element(static_cast<uint8_t>(id), len)) { dropped = true; continue; }" in net and
-          '"wifi-net: scan record elements filtered: kept %u of %u bytes"' in net)
+    check("the record stops before an incomplete element and keeps every element the access point sent",
+          "if (o + 2 + len > b.ie_len) break;" in net and
+          "drop_scan_element" not in net and
+          '"wifi-net: scan record tail %u of %u bytes is an incomplete element and is not served"' in net)
     check("eight probes remove one element group at a time from the real record",
           'static const char *const snm[8] = { "K60F", "K60G", "K60H", "K60I", "K60J", "K60K", "K60L", "K60M" };' in net and
           "static const unsigned sid[8] = { 7, 195, 32, 255, 221, 35, 244, 244 };" in net and

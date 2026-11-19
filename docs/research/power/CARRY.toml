@@ -1,0 +1,84 @@
+# iOS 27 电源搬运清单（版本无关部分）。
+#
+# 这七个纯 C 模块是对 https://unixnu.com/zh/porting/power 的可搬资产：它们不碰
+# IOKit、不碰 MMIO、只依赖 stdint.h，host 套件把每一条策略钉死。iOS 27 的关键
+# 不是"重写一遍"，而是"原样搬过去、先跑同一组断言、再只替换接线"。
+#
+# 校验者：scripts/check-power-carry.py
+#   - 自带模式：文件存在、sha256 未漂移、套件数与 run-k60-power-host.sh 的记录
+#     一致、check-power-portability.py 仍然 freestanding 编译它；
+#   - --target <树>：逐文件比对目标树的副本，报告 same / missing / drift。
+#
+# 改模块时先改代码，再 `python3 scripts/check-power-carry.py --update` 刷新哈希，
+# 并在同一个提交里同步 docs/research/power/08-IOS27-POWER-PORT.md 的矩阵行。
+version = 1
+
+[[module]]
+name = "K60CpuFreqPlan"
+suite = "cpufreq"
+checks = 203
+test = "scripts/tests/test-k60-cpufreq-plan.c"
+files = [
+  { path = "drivers/PongPower/K60CpuFreqPlan.c", sha256 = "59c8d765ff141b9d978d56969518a13d7dec1db348616e07fa61d2f2d5d8b2fd" },
+  { path = "drivers/PongPower/K60CpuFreqPlan.h", sha256 = "72b2fb83091d47e0336056d20b9c60b46f2830193a0e778efd4bba8917543d40" },
+]
+
+[[module]]
+name = "K60GpuFreqPlan"
+suite = "gpu-freq"
+checks = 140
+test = "scripts/tests/test-k60-gpu-freq-plan.c"
+files = [
+  { path = "drivers/PongPower/K60GpuFreqPlan.c", sha256 = "01e48d6af40d3f860375dd4676fa6e86ef0e3a50d909ca102ec73ad1e7c880f8" },
+  { path = "drivers/PongPower/K60GpuFreqPlan.h", sha256 = "2a8a74997a833d65ebb442b7ca1cd71f086a65f50b18f7a8273d8f2858feaf18" },
+]
+
+[[module]]
+name = "K60BoostPlan"
+suite = "boost"
+checks = 40
+test = "scripts/tests/test-k60-boost-plan.c"
+files = [
+  { path = "drivers/PongPower/K60BoostPlan.c", sha256 = "6ec0f561bac91409b5a49ae906f9d75c3b01abdddf27a8e5954b7109fed28736" },
+  { path = "drivers/PongPower/K60BoostPlan.h", sha256 = "dca18dfc663a3e29b1598658f96973461714f98fee0d6c31ec4d7ecd62230d05" },
+]
+
+[[module]]
+name = "K60SleepPlan"
+suite = "sleep"
+checks = 73
+test = "scripts/tests/test-k60-sleep-plan.c"
+files = [
+  { path = "drivers/PongPower/K60SleepPlan.c", sha256 = "d9b3a2a1e5e83a767f9323c58b320948cfc7c558dfae1b637f696aae40d3e5d4" },
+  { path = "drivers/PongPower/K60SleepPlan.h", sha256 = "a0da8c526d7b24bcbc70c5609761b7d05a4293735b92eb37fb23b350287800a3" },
+]
+
+[[module]]
+name = "K60PowerVotePlan"
+suite = "vote"
+checks = 58
+test = "scripts/tests/test-k60-power-vote-plan.c"
+files = [
+  { path = "drivers/PongPower/K60PowerVotePlan.c", sha256 = "71e364e7aaf8e69aca8665ae5141ee0556970be4e09ca7c461cfa873c767b26c" },
+  { path = "drivers/PongPower/K60PowerVotePlan.h", sha256 = "f5d7c1155a7ff347fc1114e154ba936f2fd6787a230353f6921ee36f4735a2bf" },
+]
+
+[[module]]
+name = "K60RailPlan"
+suite = "conformance"
+checks = 134
+test = "scripts/tests/test-k60-power-conformance.c"
+files = [
+  { path = "drivers/PongPower/K60RailPlan.c", sha256 = "9918c3e7f8599d323de55520ca7623e7acf935e8dbf85b07c0fb6419e1e17611" },
+  { path = "drivers/PongPower/K60RailPlan.h", sha256 = "4be5a3cb6293c95586bdbf74604f0b1cea9e80cd2f357e082557bd8aad0a0643" },
+]
+
+[[module]]
+name = "K60ThermalMap"
+suite = "thermal"
+checks = 125
+test = "scripts/tests/test-k60-thermal-map.c"
+files = [
+  { path = "drivers/PongPower/K60ThermalMap.c", sha256 = "d067f1db307986c89e7245213b08999ab05f112e21779e8771d3294eba46cd28" },
+  { path = "drivers/PongPower/K60ThermalMap.h", sha256 = "287eef279804e4ce987267be322b2c41881029011639e437b0dfc4c9f02eed92" },
+]

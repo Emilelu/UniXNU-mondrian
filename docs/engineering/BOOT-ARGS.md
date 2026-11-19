@@ -29,6 +29,7 @@
 | `pong_gpu_coherent` | GPU / 提交 | 0 / 1 / 2（默认 2） | 2 = 跑探针 | 唯一有对方量化证据的一项：zizhan g40/g41 强制开后扫出 24–35 ms → 5–6 ms。用 1 绕过证明等于拿帧的正确性换速度 |
 | `pong_surface_pitch` | GPU / 扫出 | `1` 开（默认 `0` 关） | 关 = 照客户端请求的 `IOSurfaceBytesPerRow` 分配（当前行为） | 开时一律按 `alignUp(width*bpe, 64)` 回报，客户端经 `IOSurfaceGetBytesPerRow` 得到同一个数。行距差（5888 vs 5760）是扫描 blit 只能走线性纹理的唯一原因，实测那一段 `encode` 46 ms 而同样 18.4 MB 的普通拷贝 1.9 ms；若调用方不尊重回报值，画面会斜切，这是它保留开关的原因 |
 | `pong_gpu_blit_probe` | GPU / 扫出 | `1` 开（默认关） | 开 = 首帧后跑一次对照 | 已答完并默认**关**：对照实测两个目标都是 9–10 GB/s，固件帧缓冲不是慢的那个；带它的那次飞行以 CP/SMMU fault 收场（P-244），且它按源行距写目标会让那一帧斜切 |
+| `gperf` | GPU / 提交 | `1`..`13`（默认不投） | 未设 = 只投一次启动票、此后永不复访 | GX 起来之后按 `gperf=N` 重投同一条 `GX_BW_PERF_VOTE`（HFI id 30）。功率与发热随档位变化，所以默认不动；`0` 与 `>13` 被当成调用方 bug 拒发，`14` 是表长不是档位 |
 | `pong_gpu_pool_mib` | GPU | 任意 uint | 代码默认 | — |
 | `pong_metal_opens` | GPU / Metal | 任意 uint | 代码默认 | — |
 | `pong_ufs_readwrite` | 存储 | 真值 | 只读 | 写盘会改动 Data 卷 |
@@ -165,6 +166,27 @@ CPU 数字更好看不构成让它做默认值的理由；要开就自己写 `po
   所以想打开它必须自己腾出 20 字节（见 `## 参数预算`）——这是有意的成本，不是遗漏
 - **源码**：`drivers/PongMetal/PongMetalScanout.h:114`
 - **源码**：`drivers/PongMetal/GpuScanoutPresenter.h:116`
+
+### `gperf`
+
+- **所属**：`drivers/PongAdreno/`（GMU 运行期调档）
+- **接受值**：`1`..`13`；`0` 与大于 `13` 的值被 `PongAdrenoGmuVotePerf()` 以 `PongGpuArgument` 拒绝
+- **未设时**：不投票 —— 启动时那一次 `default_gpu_index` 是全程唯一的票
+- **作用**：`PongAdrenoPlatform.cpp` 在 `PongAdrenoCpStart()` 成功之后（即 GMU 已持有 GX 域、
+  GX 时钟已开）读这个参数，非零就调 `PongAdrenoGmuVotePerf(&gmu,perf,…)`，向 GMU 发
+  `{ack type 1, GX 档位, DDR 档位}` 到 HFI id 30（`GX_BW_PERF_VOTE`），成功后打印
+  `GPU level vote from gperf` 一行（含 settle 后的 `perf_gpu_index` 与 `perf_bus_index`）
+- **为什么需要**：`PongAdrenoPower.c:186-187` 只投一次启动票（`table.default_gpu_index=2`，
+  注释 `DT initial-pwrlevel11 -> ascending wire index2`），**此后永不改档**；perf 表 14 档
+  （`performance[0]=14` 是项数、`[1]=3` 是每档 word 数，`PongAdrenoPowerLevels[13-i]` 映射到
+  索引 0=关 / **13=最高**）。t970 的 z164 在 GX 起来后重投同一条消息，本参数是它在 K60 上的入口
+- **陷阱**：升档改变功耗与发热，**不该由默认值决定**；投票只在 CP 起来之后合法（那之前 GMU 还没
+  接管 GX，发出去要么被拒要么挂死启动）；同一时刻只允许一个未完成的 HFI 头
+  （`hfi.pending_header` 时返回 `PongGpuBusy` 而不是排队）；1 秒等不到回复即 `PongGpuTimeout`，
+  不会无限轮询。DDR 档位始终沿用启动票的值，这个参数只动 GX 档
+- **源码**：`drivers/PongAdreno/PongAdrenoPlatform.cpp:558`
+- **源码**：`drivers/PongAdreno/PongAdrenoGmu.c:242`
+- **源码**：`drivers/PongAdreno/PongAdrenoPower.c:186`
 
 ### `pong_gpu_pool_mib`
 

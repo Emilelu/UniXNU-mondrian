@@ -231,10 +231,54 @@ PongGpuStatus PongAdrenoGmuStartPower(PongGpuGmuDevice *d,const PongPowerInputs 
         if(!acknowledged) {status=PongGpuTimeout;goto failed;}
     }
     status=healthy(d);if(status)goto failed;
+    d->perf_gpu_index=tables.default_gpu_index;
+    d->perf_bus_index=tables.default_bus_index;
     d->power_started=1;r->phase=5;return PongGpuSuccess;
 failed:
     d->poisoned=1;d->hfi.poisoned=1;d->power_started=0;
     return status;
+}
+
+PongGpuStatus PongAdrenoGmuVotePerf(PongGpuGmuDevice *d,unsigned gpu_index,PongGpuPowerResult *r)
+{
+    if(!d || !r)return PongGpuArgument;
+    *r=(PongGpuPowerResult){0};r->resources_must_retain=1;
+    /* Level 0 is the off entry and 13 is the top of the 14-level table the startup vote
+     * built; anything outside that is a caller bug, not a firmware question. */
+    if(gpu_index<1 || gpu_index>13)return PongGpuArgument;
+    if(!d->power_started || !d->gpu_held || d->poisoned || d->hfi.poisoned)
+        return PongGpuPrerequisite;
+    if(d->hfi.pending_header)return PongGpuBusy;
+    PongGpuStatus status=healthy(d);
+    if(status)return status;
+    uint64_t begin=0,last=0,now=0;
+    if(d->io.now_us(d->io.cookie,&begin))return PongGpuIo;
+    /* The same message the default vote sends, one field changed: {ack type 1, GX level,
+     * DDR level}. The DDR level stays whatever startup voted. */
+    uint32_t vote[3]={1,gpu_index,d->perf_bus_index};
+    r->phase=1;
+    r->transport=PongAdrenoHfiSend(&d->hfi,30,vote,3,&r->header);
+    if(r->header)++r->published;
+    if(r->transport!=PongAdrenoHfiSuccess)return PongGpuIo;
+    last=begin;
+    for(unsigned n=0;n<10000;n++) {
+        if(d->io.now_us(d->io.cookie,&now) || now<last)return PongGpuIo;
+        last=now;
+        if(now-begin>=1000000)return PongGpuTimeout;
+        status=healthy(d);if(status)return status;
+        uint32_t output[16];size_t count=0;
+        ++r->polls;
+        r->transport=PongAdrenoHfiPoll(&d->hfi,output,16,&count,&r->firmware_error);
+        if(r->transport==PongAdrenoHfiSuccess) {
+            ++r->acknowledged;
+            d->perf_gpu_index=gpu_index;
+            ++d->perf_votes;
+            r->phase=2;return PongGpuSuccess;
+        }
+        if(r->transport!=PongAdrenoHfiEmpty)return PongGpuIo;
+        if(d->io.wait_us(d->io.cookie,100))return PongGpuIo;
+    }
+    return PongGpuTimeout;
 }
 
 PongGpuStatus PongAdrenoGmuHoldGpu(PongGpuGmuDevice *d,PongGpuPowerResult *r)

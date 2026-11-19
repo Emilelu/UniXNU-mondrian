@@ -613,6 +613,13 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
      没有 `vote`/`apply`/`pdmem` 写行；SpringBoard 起来、capture complete、无 panic。
      判读重点：若 `limits` bit2 置位，`cap` 是否等于 `(state & 0xff) * 19200`，以及
      bit2 在限频解除后是否仍锁存（我们不清 `0x308`）；若 bit2 清零，`cap` 应等于 `top`。
+     只读 A 的判据已固化为 `scripts/judge-k60-mode1-console.py`：
+     `python3 scripts/judge-k60-mode1-console.py <evidence-dir|console.log>`；它只读证据，检查
+     capture 完整、late read 三域 `enable=1`、`limits/cap/rows/top/level`、L3 15 行、没有写行、
+     SpringBoard；exit 0/1/2/4 对应 PASS/FAIL/INVALID/用法。cap 公式（bit2 时
+     `cap==(state&0xff)*19200`，清零时 `cap==top`）只作为 NOTE，因为 bit2 可能锁存、
+     `0x308` 清除归属未定；判据测试 `scripts/tests/test-judge-k60-mode1-console.py` 14 cases PASS。
+     旧 image j/k 日志没有 limits/cap，会被判为 pre-limits format（FAIL），必须用当前探针重建镜像。
    - 写入 B（仅在 A 通过且 Lead 明确批准后）：`k60_cpufreq=8` 或 `=10`，先 d0 单域。
      mode 8 通过条件：`pdmem=` 在 `apply` 前出现且值等于目标 LUT 行；`readback=ok`；
      d1/d2 至少各一次 `state` 变化（若仍不变，记录为 PDMEM 不被接受，停止继续写大核簇）；

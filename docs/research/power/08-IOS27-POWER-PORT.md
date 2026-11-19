@@ -23,6 +23,7 @@
 | `K60PowerVotePlan`（16 资源×32 owner） | `drivers/PongPower/K60PowerVotePlan.c`，host 58 项 | **直接复用**；消费者等外设驱动 |
 | `K60RailPlan`（稳压器→互连→频率→回读、温控门、回滚） | `drivers/PongPower/K60RailPlan.c`，host 134 项（conformance 套件，含回滚） | **直接复用**；接真实 regulator/interconnect 消费者前保持纯规划 |
 | `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 七套件 1686 项 | **直接复用**；作为 iOS27 的第一道门 |
+| mode-1 只读 A 判据 | `scripts/judge-k60-mode1-console.py`，14 cases；检查 capture、late read 三域 enable、L3 15 行、无写行与 SpringBoard | **直接复用**；iOS27 改 header/寄存器名后重跑 |
 | 现场事实：EPSS 三窗口 0x17d91000/2000/3000、L3 0x17d90000、4/3/1 核域 | `docs/research/power/01-EPSS-PROBE.md` | 复用；用 iOS27 的 ADT/FDT 复核地址与域映射 |
 | 现场事实：GPU 13 档 900–220 MHz、HFI 升序、GMU XO 19.2 MHz | `docs/research/power/04-GPU-FREQUENCY.md` | 复用；HFI 版本/命令号按 iOS27 固件复核 |
 | 现场事实：PMK8350 PON 0x13 IRQ 7 → SPI 481/INTID 513；TLMM 0x0f000000、汇总 SPI 208 | `docs/research/power/02-PLATFORM-SLEEP.md` §3 | 复用地址；PON 路由仍需驱动配置 |

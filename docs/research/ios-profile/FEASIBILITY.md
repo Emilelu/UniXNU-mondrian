@@ -110,12 +110,12 @@ evidence/abi-and-kernel.txt:55-64（三份解压内核 strings 计数）：
 | 步 | 内容 | 证据来源（file:line / URL） | 预计风险 |
 | --- | --- | --- | --- |
 | S1 | 选机型：arm64 → A11（iPhone10,1/10,3/10,6, d2xxap）；arm64e → iPhone12,1 或任意 A12+ | api.ipsw.me 设备表（本报告 §1.4）；evidence/abi-and-kernel.txt:28-33、:50-53 | 低。arm64e 要连 profiles/arch/arm64e 一起换（§1.3），构建基座变化大 |
-| S2 | 写 profiles/os/ios-16.6.1-20G81/（profile.toml + configs/ios.config + patches/xnu/series），字段值按 §1.2 表 | 模板 = ipados-16.6.1-20G81/profile.toml 全文；BuildManifest identity（/tmp/ev/BuildManifest.plist 已解出）；profiles.py:19-27 证明目录名可直接选中 | 中。prelink roots 33 项按 iPad 20G81 kernelcache 调出（profile.toml:33），iPhone 内核的组件集合不同，roots/slide/early_security_init 要重调 |
+| S2 | 写 profiles/os/ios-16.6.1-20G81/（profile.toml + `configs/ios.config` + patches/xnu/series），字段值按 §1.2 表 | 模板 = ipados-16.6.1-20G81/profile.toml 全文；BuildManifest identity（/tmp/ev/BuildManifest.plist 已解出）；profiles.py:19-27 证明目录名可直接选中 | 中。prelink roots 33 项按 iPad 20G81 kernelcache 调出（profile.toml:33），iPhone 内核的组件集合不同，roots/slide/early_security_init 要重调 |
 | S3 | board.toml os_profile 切换 + [payload.adt] 身份（model/target-type/compatible/product-id/idiom/display-scale/root_match_volume_uuid） | board.toml:7（os_profile）、:218-219（chip_id / root_match_volume_uuid）；profile.toml:54-57、:88、:96、:108；make-pong-adt.py:150-174 | 中。product-id 必须查 libMobileGestalt 产品表（profile.toml:105-106 注释），填错=音频路由等全部退化 |
 | S4 | [ipsw] 五元组换 iPhone 值 + [ipsw.sha256] pin | ipsw.py:100-102（无 [ipsw] 直接报错）、:121-128（版本/product/DeviceClass/ApChipID/ApBoardID 四重校验）、:141-168（sidecar + sha256 pin） | 低。纯数据，BuildManifest 已解出（iPhone12,1 ApChipID 0x8030/ApBoardID 0x04；A11 ApChipID 0x8015/ApBoardID 0x0E） |
 | S5 | 构建链路径去硬编码：build-strict.sh:68 `M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian`；check-build-env.py:27、check-config-consistency.py:28 的 K60_SDK_RELATIVE；k60-make-data-seed.py:110 --profile 默认值 | build-strict.sh:66-70 实读；scripts/check-*.py 实读 | 低-中。7 处字符串替换，漏一处=gate 报 stale/missing |
 | S6 | prelink 重调：kernelcache_sha256 换 iPhone/A11 内核；slide 重推（autoslide 依赖 native 段表）；early_security_init 若 iPhone 内核要求则补 | kernel.py:192-224（pin 校验 :204-206）；emit_prelink_autoslide.py（K60 __DATA 0x150000 vs 20G81 0xb0000 的教训） | **高**。iPhone 内核是 arm64e（subtype 0x2，abi-and-kernel.txt:52）——K60 内核 arm64 与 arm64e kernelcache **不能混装**（prelink 组件 ABI 必须一致）；A11 内核是 arm64（:53）才与 K60 内核同类 |
-| S7 | Data 种子重建（macOS 步骤）+ userdata 重建（Linux 可做，udif.py 支持 LZFSE/zlib/bzip2） | k60-make-data-seed.py:116（darwin-only）；scripts/unixnu/userdata.py:47-103（非 Darwin 走 udif）；docs/plans/DOCS-CORE-ALL.md:135/:144 | 低。流程不变，仅输入换 iOS 的 OS/SystemOS dmg |
+| S7 | Data 种子重建（macOS 步骤）+ userdata 重建（Linux 可做，udif.py 支持 LZFSE/zlib/bzip2） | k60-make-data-seed.py:116（darwin-only）；框架检出的 userdata.py:47-103（scripts/unixnu 不在本仓）（非 Darwin 走 udif）；docs/plans/DOCS-CORE-ALL.md:135/:144 | 低。流程不变，仅输入换 iOS 的 OS/SystemOS dmg |
 | S8 | 电话功能验证（上机） | —— | **卡死点：与本报告范围无关的 QcomBaseband/modem 链**（C3/C7）。换 iOS 不推进它 |
 
 ### 4.2 哪一步会卡死

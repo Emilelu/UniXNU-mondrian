@@ -44,8 +44,8 @@ CITE_RE = re.compile(
     # `foo:drivers/x.cpp` 是别的仓库里的路径（pong:/zizhan:/mzyxsl: 等），不是本仓的
     r'(?<![\w/.-])(?<!:)('
     r'(?:docs|drivers|patches|scripts|configs|dts|package|blobs|kits)'
-    r'/[A-Za-z0-9_./@+-]+?\.(?:md|py|cpp|cc|h|hpp|sh|c|toml|patch|json|plist|'
-    r'txt|yml|yaml|dylib|xml|dtb|dtsi|inc|s)'
+    r'/[A-Za-z0-9_./@+-]+?\.(?:md|py|cpp|cc|h|hpp|sh|toml|patch|json|plist|'
+    r'txt|yml|yaml|dylib|xml|dtb|dtsi|inc|config|c|s)(?![\w])'
     r'|board\.toml|porting\.toml'
     r')(?::(\d+)(?:-(\d+))?)?')
 

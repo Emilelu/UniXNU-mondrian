@@ -29,7 +29,7 @@ audio 线只搬「与 OS 无关」的东西：
 
 | 文件 | 行 | 依赖 | 说明 |
 | --- | --- | --- | --- |
-| `PongAudioAmp.c` | 1011 | `ml_io_map`、`PE_parse_boot_argn`、`printf`、`clock` | 功放探针、播放档与扬声器开关（`spk_switch_drive()`）；这些接口在 iOS 27 仍在，只是调用点要重接 |
+| `PongAudioAmp.c` | 1018 | `ml_io_map`、`PE_parse_boot_argn`、`printf`、`clock` | 功放探针、播放档与扬声器开关（`spk_switch_drive()`）；这些接口在 iOS 27 仍在，只是调用点要重接 |
 | `PongAudioRegs.h` | 162 | 同上 | 寄存器地址与位域常量 |
 
 搬的时候只换接线（谁在什么时候调用 `pong_audio_amp_probe()` / `pong_audio_amp_play()`），不动实现。
@@ -93,7 +93,7 @@ power 搬完之后才可跑；音频侧自己的门禁是 `run-tests.sh` 与 `sc
 ——加 13 个头）拷进一个空目录，只给 `-I.`，用 `cc -std=gnu11 -Wall -Wextra -Werror -c`
 逐个编译，五个单元全部 `OK`、零内核头、零警告 ⇒ 第 1 节的「纯 C」不是分类推断，是实测。
 这条验证现在由 `scripts/check-audio-migration.py --compile` 复现。
-搬之前还要有 `PONG` 机配置：胶水整体在 `#if defined(PONG)` 里，缺它会把音频静默编空
+搬之前要让构建打开驱动宏 `XNU_PONG_AUDIO`：胶水整体在 `#if defined(PONG) || defined(XNU_PONG_AUDIO)` 里，两个宏都不开就会把音频静默编空（27 不引入 `PONG` 机配置，见 IOS27-WIRING.md 第零道闸）
 （细节与判读顺序见 [IOS27-WIRING.md](IOS27-WIRING.md) §1「第零道闸」）。
 胶水文件另有 `scripts/tests/portability/run.sh`：桩头文件只声明 `ml_io_map`、`ml_io_map_wcomb`、
 `printf`、`delay_for_interval`、`NSEC_PER_USEC`、`PE_parse_boot_argn` 与三个类型，

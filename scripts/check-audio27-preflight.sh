@@ -10,11 +10,11 @@
 #   3. the macro itself: three symbols with it, none without
 #   4. the glue's link-time needs against the wiring table
 #   5. the conf-files appender's host tests (the anchor miss must fail loudly)
-#   6. the wiring applier: copy, conf/files and the printed builder line
+#   6. the wiring applier: copy, conf/files, the printed builder line, the hook
 #   7. the amplifier probe running on the host against a zero page
 #   8. the playback judge's host tests
 #   9. the amplifier side's host tests (979 cases)
-#  10. the three edits walked in order against a tree without the button driver
+#  10. the wiring walked in order, hook included, on a tree without the button driver
 #  11. the 27 interface checker's own tests
 #  12. the four interfaces, against a real 27 XNU tree when one is on disk
 #      (XNU27_REPO overrides the search)
@@ -59,7 +59,7 @@ run "one command applies the wiring" python3 scripts/tests/test-apply-audio27-wi
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
-run "three edits dry run" sh scripts/tests/test-wiring-dry-run.sh
+run "wiring dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py

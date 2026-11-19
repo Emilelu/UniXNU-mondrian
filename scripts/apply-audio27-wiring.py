@@ -18,6 +18,12 @@ third edit is not a file edit - it is EXTRA_MAKE_ARGS on the builder call, so
 this script prints that line instead of touching the builder, which is a
 framework copy (scripts/refresh-xnu-generic.py rewrites the whole file).
 
+A fourth edit decides whether any of this runs: the glue is called once from
+bsd/kern/bsd_init.c, the way the 16 series patch does it. That file is not ours,
+so the step is opt-in (--hook-init) and prints the line it anchored on, because
+"hooked in the wrong place" and "not hooked" read the same in a log otherwise
+(P-171). Without it the glue compiles in and never runs.
+
 Only what the kernel build needs is copied: the two sources and the headers
 they include, transitively. PongAudioAfe.h is deliberately not among them - it
 is the 16 series AFE endpoint, this firmware has no AFE service, and it travels
@@ -37,6 +43,20 @@ SOURCES = ("PongAudioAmp.c", "PongAudioGeniI2c.c")
 INCLUDE = re.compile(r'#include\s+"(Pong[^"]+)"')
 BUILDER_LINE = ("EXTRA_MAKE_ARGS=\"PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO\" "
                 "sh scripts/build-xnu-generic.sh")
+INIT_FILE = "bsd/kern/bsd_init.c"
+INIT_ANCHOR = '\tbsd_init_kprintf("calling vfsinit\\n");\n'
+INIT_BLOCK = (
+    "#if 1\n"
+    "\t/* K60 audio amplifier probe (drivers/PongAudio): the amplifiers answer a\n"
+    "\t * chip-id read over AP-owned GENI I2C without the DSP. Inert unless the\n"
+    "\t * image is booted with pong_audio_probe=1. */\n"
+    "\t{\n"
+    "\t\textern int pong_audio_amp_probe(void);\n"
+    "\t\t(void)pong_audio_amp_probe();\n"
+    "\t}\n"
+    "#endif\n"
+)
+CALL = "pong_audio_amp_probe()"
 
 
 def resolve_tree(tree):
@@ -81,6 +101,35 @@ def install(files, src, dest_dir, check):
     return added, refreshed, current
 
 
+def hook_init(work, check, anchor=INIT_ANCHOR):
+    """Call the probe once from bsd_init, and say which line that was."""
+    path = work / INIT_FILE
+    if not path.is_file():
+        print("audio wiring: no %s under %s; nothing to hook" % (INIT_FILE, work))
+        return 1
+    text = path.read_text(errors="replace")
+    calls = text.count(CALL)
+    if calls:
+        print("audio wiring: bsd_init already hooked (probe calls %d)" % calls)
+        return 0
+    if anchor not in text:
+        print("audio wiring: init anchor %r missing, bsd_init not hooked" % anchor)
+        print("audio wiring: pass --init-anchor with a line this tree has")
+        return 1
+    print("audio wiring: init anchor line %r" % anchor)
+    if check:
+        print("audio wiring: bsd_init probe calls %d (check mode: would be 1)"
+              % calls)
+        return 0
+    path.write_text(text.replace(anchor, anchor + INIT_BLOCK, 1))
+    after = path.read_text(errors="replace").count(CALL)
+    print("audio wiring: bsd_init probe calls %d -> %d" % (calls, after))
+    if after != 1:
+        print("audio wiring: the hook did not land exactly once")
+        return 1
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("tree")
@@ -88,6 +137,10 @@ def main(argv):
                         help="report what is missing; write nothing")
     parser.add_argument("--anchor", default=None,
                         help="conf/files line to list the entries after")
+    parser.add_argument("--hook-init", action="store_true",
+                        help="also call the probe once from bsd/kern/bsd_init.c")
+    parser.add_argument("--init-anchor", default=INIT_ANCHOR,
+                        help="bsd_init.c line to put the call after")
     args = parser.parse_args(argv[1:])
 
     repo = pathlib.Path(__file__).resolve().parents[1]
@@ -118,11 +171,23 @@ def main(argv):
               "are in place, so rerun with --anchor once")
         return code
 
+    hooked = 0
+    if args.hook_init:
+        code = hook_init(work, args.check, args.init_anchor)
+        if code != 0:
+            print("audio wiring: the sources are in place and listed; only the "
+                  "bsd_init call is missing")
+            return code
+        hooked = 0 if args.check else 1
+    else:
+        print("audio wiring: bsd_init not hooked (pass --hook-init); the glue "
+              "compiles in and never runs")
+
     print("audio wiring: next, build with the macro on that one object only")
     print("audio wiring: " + BUILDER_LINE)
     print("audio wiring: then read the object: sh scripts/tests/portability/"
           "run-symbols.sh --object <PongAudioAmp.o> --expect on")
-    print("audio wiring: OK sources=%d conf=2" % len(files))
+    print("audio wiring: OK sources=%d conf=2 init=%d" % (len(files), hooked))
     return 0
 
 

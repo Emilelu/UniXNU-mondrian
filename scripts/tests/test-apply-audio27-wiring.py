@@ -124,6 +124,60 @@ def case_afe_stays_out(root):
         "the glink writer belongs to the power line"
 
 
+def seed_bsd_init(root, inplace=False, anchor=True):
+    work = root if inplace else root / ".cache/xnu-work"
+    (work / "bsd/kern").mkdir(parents=True, exist_ok=True)
+    path = work / "bsd/kern/bsd_init.c"
+    body = "\t/* Initialize the file systems. */\n"
+    body += '\tbsd_init_kprintf("calling vfsinit\\n");\n' if anchor else "\treturn 0;\n"
+    path.write_text(body)
+    return path
+
+
+def case_hook_init(root):
+    conf = make_tree(root)
+    init = seed_bsd_init(root)
+    code, out = run(root, "--hook-init", "--anchor", ANCHOR_27)
+    assert code == 0, out
+    assert "init anchor line" in out, "the init anchor has to be echoed: " + out
+    assert "probe calls 0 -> 1" in out, out
+    assert "init=1" in out, out
+    assert init.read_text().count("pong_audio_amp_probe()") == 1, init.read_text()
+    assert "pong_audio_probe=1" in init.read_text(), "the runtime gate has to be named"
+    # second run: idempotent, still one call
+    code, out = run(root, "--hook-init", "--anchor", ANCHOR_27)
+    assert code == 0, out
+    assert "already hooked" in out, out
+    assert init.read_text().count("pong_audio_amp_probe()") == 1, init.read_text()
+    assert listed(conf) == 2, conf.read_text()
+
+
+def case_hook_absent_is_loud(root):
+    make_tree(root)
+    seed_bsd_init(root)
+    code, out = run(root, "--anchor", ANCHOR_27)
+    assert code == 0, out
+    assert "not hooked (pass --hook-init)" in out, \
+        "a run that will never execute the glue has to say so: " + out
+    assert "init=0" in out, out
+
+
+def case_hook_wrong_anchor(root):
+    make_tree(root)
+    init = seed_bsd_init(root, anchor=False)
+    code, out = run(root, "--hook-init", "--anchor", ANCHOR_27)
+    assert code == 1, "an anchor the tree does not have fails loudly: " + out
+    assert "pass --init-anchor" in out, out
+    assert "pong_audio_amp_probe()" not in init.read_text(), init.read_text()
+
+
+def case_hook_without_bsd_init(root):
+    make_tree(root)
+    code, out = run(root, "--hook-init", "--anchor", ANCHOR_27)
+    assert code == 1, out
+    assert "nothing to hook" in out, out
+
+
 CASES = [
     ("a 27 tree without the button driver fails loudly", case_unnamed_anchor),
     ("a named anchor lists both entries, once", case_named_anchor),
@@ -132,6 +186,10 @@ CASES = [
     ("an unseeded tree is refused", case_no_seed),
     ("the frozen headers stay out", case_afe_stays_out),
     ("an in-place 27 tree is wired the same way", case_inplace_tree),
+    ("the hook calls the probe exactly once", case_hook_init),
+    ("a run without the hook says so", case_hook_absent_is_loud),
+    ("a hook with the wrong anchor fails", case_hook_wrong_anchor),
+    ("a tree without bsd_init is refused", case_hook_without_bsd_init),
 ]
 
 

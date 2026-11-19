@@ -1140,3 +1140,5 @@ mission32 镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission32/boot.img\`�
 判读：Emilelu_5G 出现，根因就是 384 字节截断，生产修法是交付完整或裁剪后的元素区；仍不出现，则把 ABI 数组放大后重测。
 
 放大版已在 917c89ee 落地：两个构建脚本都从共享头生成 out/abi/nw_abi.h（uint8_t ie[384]; -> ie[1024];），station 的 #define IE_MAX 384 同步改成 1024，任一锚点不符就以 shared ABI element array differs 终止；下一次构建（mission33）自动带上它，mission32 的镜像仍按裁剪版交付。
+
+尾部残缺不是唯一判据：把 mission24 console 的每条记录按 TLV 走一遍（\`PongWifiNet.cpp:412\` 的循环本身就在第一个不完整元素处停下，所以清单长度就是可走到的位置），\`used = Σ(2+len)\`、\`leftover = ie - used\`，再看它在 Preferences 并集里是否被保留：38 条记录里 33 条 KEPT、其中 17 条同样有整段走不完的尾巴；5 条 DROPPED 全部有尾巴。两条被保留的 5 GHz 记录 leftover 分别是 33 B 与 51 B，目标记录是 66 B。也就是说「末尾停在半个元素」这件事 wifid 并不是一律拒绝，mission32 的裁剪是一次必要的合法性修复，但能不能把行拉回来还要看飞行结果；真正能指名道姓的仍是十三条探针（K60F..M 每条去掉一组元素），以及放大 ABI 的下一版。

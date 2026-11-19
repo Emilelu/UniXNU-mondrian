@@ -1138,3 +1138,5 @@ mission27/28/29/30 均建于 2026-11-19 07:12–07:57、从未飞行，已被 31
 mission32 镜像 \`E:/k60-work/artifacts/wifi-20261118sbl-mission32/boot.img\`，201,887,744 B，SHA256 fd80093a4ad199c5e265dc4e0c1d4f7f3b8e75ce197f73959ccf3f93ca02e9ba，参数 31 条 / 602 B，\`check-image-args\` OK，\`verify-boot-image\` OK，未飞；mission31 目录已删，\`check-bisect-coverage.py --prefix wifi-\` 只剩 mission32 一条待飞。
 
 判读：Emilelu_5G 出现，根因就是 384 字节截断，生产修法是交付完整或裁剪后的元素区；仍不出现，则把 ABI 数组放大后重测。
+
+放大版已在 917c89ee 落地：两个构建脚本都从共享头生成 out/abi/nw_abi.h（uint8_t ie[384]; -> ie[1024];），station 的 #define IE_MAX 384 同步改成 1024，任一锚点不符就以 shared ABI element array differs 终止；下一次构建（mission33）自动带上它，mission32 的镜像仍按裁剪版交付。

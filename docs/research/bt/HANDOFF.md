@@ -1254,3 +1254,5 @@ bt-0525 的 console 以 `Device not open yet, use 'device' to open it.` 结束�
 - **对本线的意义**：适配器对 BlueTool 这一层足够（`result=0`、`manufacturer=29`、firmware、output 就是全部契约）；传输在内核侧已经具备 —— `bsd/dev/qbt/qbt_transport.c` 用 `ctl_register` 注册 `com.apple.uart.sk.bluetooth`（第 565 行），并用 `kern_nexus_controller_register_provider`（第 372 行）提供 `os_channel_create` 需要解析的 provider，0520 又加了 `com.apple.uart.bluetooth` 别名（第 577 行）给 stock BlueTool 的默认名。也就是说 HCI 不需要经过 BlueTool。
 
 - 边界：全部来自静态反汇编；行号按 verify0527b 的 `bsd/dev/qbt/qbt_transport.c` 核对过（372/565/577 一致）。未上机。
+
+- 补一条：`transport-encoding` 的取值就是路线选择器。stock BlueTool 把 6 当 AppleBT、7 当 PCIe、其余当 UART；sheng 的 `package/BluetoothProbe.cpp` 把条件写成 `wire == 1 && baud == 3200000`，`scripts/check-bluetooth-runtime.py:159` 把这对值标成 `H4 UART.SK`。所以 `<1>` 就是 H4 over UART.SK，正是本线要的路线；本线 `transport-speed` 仍是 `3000000`（48 MHz 源出不了 3.2M），这也说明 sheng 的发布条件不能照抄 —— 它要求 3200000，照抄会让 radio 在本板上根本不发布。

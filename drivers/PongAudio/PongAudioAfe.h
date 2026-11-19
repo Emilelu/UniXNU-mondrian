@@ -126,16 +126,17 @@ pong_audio_error_name(int status)
 
 /* Bit clock id and attribute (V: audio_prm.h:457,570). The rate is rate x
  * slot_width x bus slots, computed by the machine driver from
- * qcom,tdm-max-slots (V: msm_common.c:407-417), which is 8 on this board:
- * 48000 x 32 x 8 = 12.288 MHz. The DT property qcom,msm-cpudai-tdm-clk-rate
+ * qcom,tdm-max-slots (V: msm_common.c:407-417); this board drives two slots:
+ * 48000 x 32 x 2 = 3.072 MHz. The DT property qcom,msm-cpudai-tdm-clk-rate
  * is not read by the waipio machine driver, so its 1.536 MHz is a dead value. */
 #define PONG_AFE_CLOCK_TERT_TDM_IBIT      0x204u
 #define PONG_AFE_CLOCK_ATTRIBUTE_NOCOUPLE 4u
 #define PONG_AFE_RATE                     48000u
 #define PONG_AFE_SLOT_BITS                32u
+#define PONG_AFE_BIT_WIDTH                16u
 #define PONG_AFE_SLOTS                    2u
 #define PONG_AFE_TDM_MAX_SLOTS            8u   /* V: live FDT qcom,tdm-max-slots */
-#define PONG_AFE_TDM_CLK_HZ               (PONG_AFE_RATE * PONG_AFE_SLOT_BITS * PONG_AFE_TDM_MAX_SLOTS)
+#define PONG_AFE_TDM_CLK_HZ               (PONG_AFE_RATE * PONG_AFE_SLOT_BITS * PONG_AFE_SLOTS)
 #define PONG_AFE_MAX_CHANNELS             8u   /* M: q6afe.h:40 */
 
 /* GPR wire constants (M: apr.h:96-108). */
@@ -651,7 +652,7 @@ pong_afe_step_packet(uint8_t *out, size_t bytes, unsigned step, uint32_t token)
         ports[0] = PONG_AFE_PORT_TERT_TDM_RX_0;
         n = pong_afe_group_tdm(payload, sizeof(payload),
             PONG_AFE_GROUP_TERT_TDM_RX, ports, PONG_AFE_SLOTS, PONG_AFE_RATE,
-            PONG_AFE_SLOT_BITS, (uint16_t)PONG_AFE_SLOTS,
+            PONG_AFE_BIT_WIDTH, (uint16_t)PONG_AFE_SLOTS,
             (uint16_t)PONG_AFE_SLOT_BITS, 3u);
         if (n == 0u) {
             return 0u;
@@ -670,7 +671,7 @@ pong_afe_step_packet(uint8_t *out, size_t bytes, unsigned step, uint32_t token)
     }
     if (step == (unsigned)PongAfeStepPortTdm) {
         n = pong_afe_tdm(payload, sizeof(payload), PONG_AFE_SLOTS, PONG_AFE_RATE,
-            PONG_AFE_SLOT_BITS, 0u, 0u, 1u, (uint16_t)PONG_AFE_SLOTS, 0u, 1u,
+            PONG_AFE_BIT_WIDTH, 0u, 1u, 1u, (uint16_t)PONG_AFE_SLOTS, 0u, 1u,
             1u, (uint16_t)PONG_AFE_SLOT_BITS, 3u);
         if (n == 0u) {
             return 0u;

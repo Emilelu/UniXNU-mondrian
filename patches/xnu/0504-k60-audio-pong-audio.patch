@@ -78,7 +78,7 @@
 +#define PONG_AOSS_SIZE              0x00000400u
 +#define PONG_AUDIO_SID              0x1801u
 +#define PONG_AUDIO_DMA_BYTES        0x00010000u
-+#define PONG_AUDIO_TDM_CLK_HZ       12288000u
++#define PONG_AUDIO_TDM_CLK_HZ       3072000u
 +#define PONG_AUDIO_TDM_TX_LINES     3u
 +
 +/* ------------------------------------------------------------------------- */
@@ -245,7 +245,7 @@
 +#define AR_MOD_WR_SHMEM             0x07001000u
 +#define AR_MOD_PCM_CNV              0x07001003u
 +#define AR_MOD_PCM_DEC              0x07001005u
-+#define AR_MOD_TDM_SINK             0x0700117Cu
++#define AR_MOD_TDM_SINK             0x0700100Eu
 +
 +/* TODO(k60): these instance IDs are copied from Pong's topology. They MUST
 + * be replaced by K60 ADSP graph enumeration before any graph is started

@@ -1588,6 +1588,24 @@ k50 已经能把 0x280000 字节的共享窗口挂给 modem，但 `rw` 一律回
 
 **判据**（本飞仍不指望 S4/S5）：`rmtfs open` 两条命中后应出现 `rmtfs alloc storage=1 bytes=2621440 physical=<低位>`（不再是 physical=0），随后出现 `rmtfs rw storage=1 direction=0 vectors=N not-served` 变成实际读成功、`rmtfs request` 计数继续增长；S3/S6 必须保持 PASS。
 
+### 3.42 k52（离线，未构建）：内存分享的协议层
+
+k51 之后 modem 还缺的第二样东西是堆：Pong 在 pas4 前注册 0x34/1 端口 0x101 的内存分享服务，
+modem 用 0x22 申请一块连续内存、0x23 归还，所有权转移与 §3.40 的 SCM 记录同一原语。
+本节只有协议层，没有宣告服务、没有接分配器——先让 k51 的读方向单独上机。
+
+| 消息 | 请求 TLV | 应答 TLV |
+| --- | --- | --- |
+| 0x22 申请 | 1 字节数 / 2 客户端 / 3 处理器 / 4 序列号 / 0x11 对齐 | 0x10 序列号 / 0x11 extent（版本 1 + 物理地址 + 字节数） |
+| 0x24 查询 | 1 客户端 | 0x10 上限 0x500000 |
+| 0x23 归还 | 1 extent（13 字节） | 只有结果 TLV |
+
+拒绝码与参照一致：48 参数错、2 没内存、3 所有权转移失败、71 不支持。
+实现 `drivers/PongCellular/K60ModemMemshare.h/.c`（解析、应答、区间校验），
+宿主测试 `scripts/tests/test-k60-memshare.c` 输出 `K60 MEMSHARE PASS parse, replies, regions`；
+提交 `db7a9f89`。判据（将来）：宣告行出现后，若 modem 发 0x24 说明它认了这个服务；
+发 0x22 则要看到分配在 4 GiB 以下、SCM 记录成功、应答里的 extent 与分配一致。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

@@ -267,10 +267,10 @@ k35 起 QcomBaseband 组件真的链进内核（22/22 服务发布，S6 PASS）�
 
 ### 10.4 k44 的静默基线：不是窗口问题，是 QMI 栈没起来（2026-11-19 14:46）
 
-\`pong_qrtr=3\` 只发一次 HELLO，之后四分钟一个字节也不发（镜像
-\`E:/k60-work/artifacts/modem-20261117k44/boot-modem-b-full-qrtr3.img\`，证据
-\`E:/k60-work/evidence/usblog-20261119-144720\`）。结果：\`wait 5 s\` 与 \`wait 230 s\` 逐字节相同——
-\`services=2 tx head=632 tail=632 rx head=960 tail=960 intents=0/30 msgs=44/17 rxcmd=2/1/0/2\`。
+`pong_qrtr=3` 只发一次 HELLO，之后四分钟一个字节也不发（镜像
+`E:/k60-work/artifacts/modem-20261117k44/boot-modem-b-full-qrtr3.img`，证据
+`E:/k60-work/evidence/usblog-20261119-144720`）。结果：`wait 5 s` 与 `wait 230 s` 逐字节相同——
+`services=2 tx head=632 tail=632 rx head=960 tail=960 intents=0/30 msgs=44/17 rxcmd=2/1/0/2`。
 
 两条推论：
 
@@ -308,4 +308,31 @@ const Result result=scmCall(0x0c,0x16,types,scratch,16,scratch+64,scratch+192);
 注释原文：*RF initialization can request readwrite files immediately, so do not authenticate/start it
 against an unmounted native Data namespace*（`PongModemRuntime.cpp:271-277`）。这解释了 k44 的静默基线：
 modem 的 QMI/RF 栈要读 NV 才能起来，而我们既没挂 RMTFS，也没把缓冲交给它。
+
+## 10.6 第三个服务：内存分享（0x34 / 0x101）
+
+Pong 在 pas4 之前注册三个服务（`references/pong-baseband/PongModemRuntime.cpp:315-317`，
+本树副本见 `E:/k60-work/refs/pong-baseband/`）：
+
+| 服务 | 实例 | 端口 | 作用 |
+| --- | --- | --- | --- |
+| 0x40 名址服务器 | 0x101 | 0x101 | 把服务 id 解析成节点/端口 |
+| 0x34 内存分享 | 1 | 0x101 | 把一块连续内存交给 modem，再收回 |
+| 14 存储 | 1 | 0x102 | 读写 EFS 镜像 |
+
+我们目前只宣告了 0x40 与 14。内存分享的线上形状（`PongModemMemshare.h`）是 QMI v1：
+
+- 0x22 申请：TLV 1 = 字节数、2 = 客户端、3 = 处理器（必须 0）、4 = 序列号、0x11 = 对齐（≤ 11）；
+  回 TLV 0x10 = 序列号、0x11 = 13 字节 extent（版本 1 + 物理地址 8 + 字节数 4）。
+- 0x24 查询：TLV 1 = 客户端（≤ 2），回 0x10 = 上限（0x500000）。
+- 0x23 归还：TLV 1 = 13 字节 extent，且必须与仍持有的那块逐字节相同。
+- 拒绝码：48 参数错、2 没内存、3 所有权转移失败、71 不支持。
+
+所有权转移就是 §10 里那条 SCM 记录（`0x0c/0x16`，源 HLOS=3、目标 MSS=15，权限 7/6），
+所以内存分享与 RMTFS 共用同一块 64 KiB 的元数据 scratch 和同一套归属原语；
+区别只在 RMTFS 的窗口是给 modem 读写文件用，内存分享的窗口是 modem 自己当堆用。
+
+本分支已把三种消息的解析、应答与区间校验写成 `drivers/PongCellular/K60ModemMemshare.h/.c`
+（宿主测试 `scripts/tests/test-k60-memshare.c`，输出 `K60 MEMSHARE PASS parse, replies, regions`），
+但**还没有宣告服务、也没有接分配器**：等 k51 上机确认读方向之后，再作为一个单变量上机。
 

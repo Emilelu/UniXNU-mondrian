@@ -115,7 +115,7 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 |---|---|
 | `UniXNU/UniXNU` | 框架、`components.toml` 组件目录（25 个组件）、`porting-record.py` 校验器、文档站 |
 | `UniXNU/UniXNU-pong` | 官方 Pong 设备仓库 |
-| `UniXNU/UniXNU-sheng` | 官方 sheng 设备（SM8550，Novatek 触摸 + GPU 调度） |
+| `UniXNU/UniXNU-sheng` | 官方 sheng 设备（SM8550，Novatek 触摸 + GPU 调度） | `package/WifiScanPolicy.h` 的扫描策略按 BSD-2-Clause-Patent 移植为 `drivers/PongWifi/PongWifiScanPolicy.h`：60 s 未听到的记录不再交出、建链中与建链后 15 s 不上空口、20 s 重扫窗口；24A446 的扫描与关联 ABI 形状也以 `package/WifiNet.cpp` 为准 |
 | `UniXNU/UniXNU-zizhan` | 同 SoC SM8475 设备（ST FTS 触摸 + Adreno 730） |
 | `Emilelu/UniXNU-sm8475-common` | SM8475 SoC 公共层（本项目的 SoC 仓库） |
 | `UniXNU/UniXNU-sm8550-common` | SM8550 SoC 公共层（`Sm8550Platform` 组件） |

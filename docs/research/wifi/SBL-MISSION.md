@@ -1478,3 +1478,22 @@ test-pong-abi 的参考漂移段新增一条（sheng 仍然从 out.raw + 0x34 �
 这一节只改时间戳。16 与 27 两代头文件编译通过（teardown16/teardown27 rc=0），
 scripts/tests/test-wifi-sbl-mission.py 增加一项检查并 0 failure，test-pong-abi 32 项 0 failure。
 
+## 54. 扫描策略照参考实现移植：陈旧记录不再交出，建链期间不上空口
+
+参考实现（sheng 27，package/WifiScanPolicy.h）给出三条策略。我们此前只有一条粗规则（站状态到 AUTH 以上就一律从缓存回答）：
+链路稳定之后永远不会再扫描，设置页刷新看不到新出现的网络，auto-join 也扫不到；同时冻结列表里的记录永远不会变旧，
+一分钟前听过、接入点已经离开的记录会一直交出去。
+
+现在把策略移植为 drivers/PongWifi/PongWifiScanPolicy.h（BSD-2-Clause-Patent，常量与判定逐条对齐）：
+
+- PONG_SCAN_HELD_MS 60000：服务扫描结果时跳过 age_ms 超过 60 s 的记录。冻结列表保存采样时刻，服务时把经过的时间
+  加回 age，记录因此会按时变旧；之前冻结之后 age 停在采样那一刻。
+- PONG_SCAN_LINK_SETTLE_MS 15000：建链中（状态低于 UP）与建链后 15 s 内不上空口，回答缓存里的网络。
+- PONG_SCAN_RESCAN_MS 20000：链路稳定后，只有请求里存在“最近 20 s 没扫过的信道”才上空口；整段扫描记在 every_ms。
+
+驱动侧接入点：on_connect_done 成功时记下 gLinkUpMs，链路丢失与断开时清零；kScanReq 用 pong_scan_on_air 决定上空口
+还是回答缓存，真正上空口后 pong_scan_air_mark 记下这批信道。gSnapAtNs 记录冻结列表的时刻，服务时据此补上老化。
+
+验证：scripts/tests/pong-abi-selftest.c 增加 11 项策略检查（50 项全过，0 failed）；test-pong-abi 32 项 0 failure；
+test-wifi-sbl-mission 增加结构检查后 0 failure；16 与 27 两代头文件编译 rc=0（teardown16/teardown27）。
+

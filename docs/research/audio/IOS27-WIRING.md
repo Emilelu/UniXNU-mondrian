@@ -416,10 +416,24 @@ sh scripts/tests/portability/run-weak-hook.sh
 
 - 文件：`E:/k60-work/scratch/audio-27/k60-audio-amp-probe-call.patch`（876 B，sha256 `46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd`）
 - 在真 27 源树（`ac9718f xnu-12377.121.6`）的干净副本上 `git apply --check` → `APPLY CHECK OK`
-- 落位编号由 Lead 分配（不占号）；series 里建议名 `05xx-k60-audio-amp-probe-call.patch`
-- 重新生成：在 27 源树的干净副本上跑 `apply-audio27-wiring.py <copy> --hook-init`，
-  再 `git diff` 只取 `bsd/kern/bsd_init.c` 那一个文件；块本身来自 `INIT_BLOCK`（sha256 前 16 位
-  `c41d0c6743591c9d`），改块就必须重生成补丁，两者不许分头演化
+- 落位编号由 Lead 分配：**`0531-k60-audio-amp-probe-call.patch`**（2026-11-20 06:34，`patches/xnu-12377/`；
+  0530 是 SPI availability，之后的新 27 补丁从 0532 起）。Lead 复制这个文件、插进 series、`git apply --check`
+  复验并登记 MAIN-BASELINE 与 sync；音频分支只留生成器与源。
+- 重新生成用生成器，不要 `git diff` 手抄：
+
+  ```sh
+  python3 scripts/emit-audio27-patch.py <27 源树> --out /tmp/0531.patch \
+      --expect 46b3c0cd4a35cb739712a1e42ea974735ba60b014fac19798e957354ae51f4bd --check
+  # audio patch: /tmp/0531.patch 876 B sha256 46b3c0cd…
+  # audio patch: APPLY CHECK OK
+  ```
+
+  它读 `INIT_BLOCK`（sha256 前 16 位 `c41d0c6743591c9d`），在内存里插进 `bsd/kern/bsd_init.c` 生成补丁；
+  `--expect` 钉住 digest——块改了、补丁没跟着改，这一行立刻红。已接线的树会先把块剥掉再生成
+  （`the tree already carries the hook; emitted from its stripped form`），所以「先 wire 再 emit」
+  与「干净树 emit」拿到同一份字节。块与补丁不许分头演化，预检里两行盯着它：
+  `27 patch emitter is honest`（生成器自带 5 例宿主测试）与
+  `27 patch emits unchanged`（`XNU27_REPO` 在场时按上面那组参数真跑一遍）。
 
 ### 空跑一遍：这条链路在一棵「像 27 的树」上走通
 

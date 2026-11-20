@@ -87,8 +87,10 @@ python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27   # 列出
 - **bundle 通道已实测走通（2026-11-20，`f902a778` 的导出树）**：`git archive HEAD` 把 27 检出
   导到 scratch（不动它的 `.git`，不建工作树），`cp -a build/power-carry-bundle/. <导出树>/` 之后，
   在**那份 27 代码上**直接得到 `power-carry: OK (8 modules, 16 files, 872 checks; 4 judge(s), 96 cases)`、
-  `hw-contracts: 23 contract(s) across 5 lane(s)`、`power-host: OK (1915 checks in 10 suites)` 与
-  `power-python: OK (9 suites)`（第四个判读器 `judge-k60-battery-mirror.py`、`wire-props` 与 `prop-numbers` 是之后加的，同一个入口）。也就是说 27 线不需要拉本分支、也不需要合并，就能先拿到全部离线证据；
+  `hw-contracts: 24 contract(s) across 5 lane(s)`、`power-host: OK (1915 checks in 10 suites)` 与
+  `power-python: OK (10 suites)`。同一个 bundle 在一个没有 `.git`、也没有仓库其余部分的空目录里跑同一条命令，
+  两半都过（10 个 C 套件 1915 项 + 10 个 python 套件，含 `fdt-props` 22 项），所以它是自足的，不是靠仓库兜底；
+  也就是说 27 线不需要拉本分支、也不需要合并，就能先拿到全部离线证据；
   剩下的只有真机重接（属性号、`read_random`、读取路径）。
 - 拿不到分支时还有一个不看 git 的通道：
   `python3 scripts/make-power-carry-bundle.py` 按 `CARRY.toml` 把 8 个模块、4 个判读器、它们的测试

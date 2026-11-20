@@ -21,6 +21,6 @@ why_open = "the loader is not the defect: its three member conditions (MH_EXECUT
 id = "prelink-map-unresolved"
 what = "the prelink map still has owner-target references with no address and sites redirected to the panic stub"
 state = "open"
-evidence = "kernel.json for the round-17d image: 28 bundles / 384 unresolved references, 29 bundles / 2262 items / 2688 sites on _unixnu_fileset_unmapped (osfmk/kern/debug.c:2585)"
+evidence = "kernel.json for the round-17d image, three different counts that were being quoted as one: 28 bundles / 384 unresolved owner-target items (133 distinct addresses, 650 reference sites) and 29 bundles / 2262 items (946 distinct functions, 2688 reference sites) redirected to _unixnu_fileset_unmapped (osfmk/kern/debug.c:2585). The bundle/entry sums are what len() counts; the address and site counts come from the same report and are larger, so a sentence that says '384 references' is wrong in either direction"
 source = "/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.json"
 why_open = "counts alone do not say which sites are reachable, and the official arm64e page says an iPadOS 27 kernelcache's kext code calls straight into the kernel, so the arm64 prelink step may not be the right instrument here at all -- that has to be settled with evidence, not by assuming the sites are dead"

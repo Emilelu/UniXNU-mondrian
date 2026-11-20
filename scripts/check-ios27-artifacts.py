@@ -242,7 +242,7 @@ def prelink_state(record):
     two of them are literals: runtime_qualified and loadable are hardcoded False
     (fileset_emit.py:741). So a False here is not a verdict about this build, and
     a True would not be evidence either. What *is* countable is the mapping:
-    unresolved owner-target symbols and the reference sites redirected to
+    unresolved owner-target items and the items redirected to
     `_unixnu_fileset_unmapped`, which is a real panic stub
     (osfmk/kern/debug.c:2585). Neither number may be assumed unreachable, so
     structural checks report them and the flight gate refuses while they exist.
@@ -290,10 +290,15 @@ def check(board, chip_id, unique_chip_id):
             # "note", not "ok": an image whose prelink map still points at the
             # panic stub is a structurally valid fileset, and calling that ok is
             # how a build that cannot boot gets reported as passing (P-277).
+            # "items", not "symbols" or "sites": this counts owner-target
+            # pairs, one per bundle/symbol entry in the report. The distinct
+            # addresses and the reference-site counts are larger and are named
+            # in the ledger rather than guessed at here (P-281).
             print(f'note prelink: mapping_complete={prelink["mapping_complete"]}, '
-                  f'{prelink["missing_refs"]} unmapped symbols in {prelink["missing_bundles"]} bundles, '
-                  f'{prelink["stubbed_refs"]} sites on the panic stub in {prelink["stubbed_bundles"]} bundles, '
-                  f'loadable={prelink["loadable"]}')
+                  f'{prelink["missing_refs"]} unresolved owner-target items in '
+                  f'{prelink["missing_bundles"]} bundles, '
+                  f'{prelink["stubbed_refs"]} items redirected to the panic stub in '
+                  f'{prelink["stubbed_bundles"]} bundles, loadable={prelink["loadable"]}')
 
     with tempfile.TemporaryDirectory(prefix='ios27-artifacts-') as name:
         directory = Path(name)
@@ -416,10 +421,10 @@ def flight_ready(result, blockers):
         problems.append(f'the shipped loader refuses the collection ({violation})')
     if result['kind'].startswith('MH_FILESET'):
         if prelink.get('missing_refs'):
-            problems.append(f'{prelink["missing_refs"]} owner-target references have no address '
+            problems.append(f'{prelink["missing_refs"]} owner-target items have no address '
                             f'in the prelink map ({prelink["missing_bundles"]} bundles)')
         if prelink.get('stubbed_refs'):
-            problems.append(f'{prelink["stubbed_refs"]} reference sites are redirected to the '
+            problems.append(f'{prelink["stubbed_refs"]} items are redirected to the '
                             f'_unixnu_fileset_unmapped panic stub ({prelink["stubbed_bundles"]} bundles)')
     problems += [f'blocker {e.get("id", "?")}: {e.get("what", "(no description)")}'
                  for e in blockers]

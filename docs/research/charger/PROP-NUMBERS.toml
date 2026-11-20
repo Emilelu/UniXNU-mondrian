@@ -1,0 +1,166 @@
+# 16 → 27 属性号对照（电池/充电），每行必须可判定
+#
+# 三档结论，只允许这三个字面值：
+#   same          两侧可打开、取到的值相同
+#   differs-known 两侧不同，且 who_changes 写明了谁改（空 = 直接判 FAIL）
+#   unknown       至少一侧打不开或取不到；该行同时进 PENDING 清单，交 Lead 决定是否派人翻固件
+#
+# 引用规则（P-259）：路径只能指向本仓或 27 检出里能打开的文件；指向别处（sheng、构建树）
+# 必须加 external: 前缀，这样下一个人 grep 不到时知道它是外部证据，而不是以为它过期了。
+#
+# 判据由 scripts/check-prop-numbers.py 执行：kind="key" 逐符号核对两侧文件里的那一行，
+# kind="wire-table" 直接解析两侧 K60Battmgr.c 的 fields[] 逐项比对。
+schema = 1
+checked_by = "python3 scripts/check-prop-numbers.py"
+tree27 = "E:/hackios/xnekom-ios27"
+#
+# 27 侧路径写成 "27:<相对路径>"，由 tree27 拼根：本机是 E:/hackios/xnekom-ios27，WSL 下自动换成
+# /mnt/e/hackios/xnekom-ios27。写死一边的绝对路径会让另一个宿主上 18 行全部查不到（2026-11-20 实测）。
+
+
+[[row]]
+id = "iokit-current-capacity"
+kind = "key"
+what = "kIOPMPSCurrentCapacityKey"
+side16 = { value = "kIOPMPSCurrentCapacityKey", source = "drivers/PongPower/K60Battery.cpp:129" }
+side27 = { value = "kIOPMPSCurrentCapacityKey", source = "27:drivers/PongPower/K60Battery.cpp:108" }
+verdict = "same"
+note = "两侧同名符号；27 报同名键，XNU 12377 的 IOPM.h 仍定义（external:/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc/iokit/IOKit/pwr_mgt/IOPM.h）"
+
+[[row]]
+id = "iokit-max-capacity"
+kind = "key"
+what = "kIOPMPSMaxCapacityKey"
+side16 = { value = "kIOPMPSMaxCapacityKey", source = "drivers/PongPower/K60Battery.cpp:129" }
+side27 = { value = "kIOPMPSMaxCapacityKey", source = "27:drivers/PongPower/K60Battery.cpp:108" }
+verdict = "same"
+
+[[row]]
+id = "iokit-voltage"
+kind = "key"
+what = "kIOPMPSVoltageKey"
+side16 = { value = "kIOPMPSVoltageKey", source = "drivers/PongPower/K60Battery.cpp:129" }
+side27 = { value = "kIOPMPSVoltageKey", source = "27:drivers/PongPower/K60Battery.cpp:108" }
+verdict = "same"
+
+[[row]]
+id = "iokit-amperage"
+kind = "key"
+what = "kIOPMPSAmperageKey"
+side16 = { value = "kIOPMPSAmperageKey", source = "drivers/PongPower/K60Battery.cpp:129" }
+side27 = { value = "kIOPMPSAmperageKey", source = "27:drivers/PongPower/K60Battery.cpp:108" }
+verdict = "same"
+
+[[row]]
+id = "iokit-cycle-count"
+kind = "key"
+what = "kIOPMPSCycleCountKey"
+side16 = { value = "kIOPMPSCycleCountKey", source = "drivers/PongPower/K60Battery.cpp:130" }
+side27 = { value = "kIOPMPSCycleCountKey", source = "27:drivers/PongPower/K60Battery.cpp:109" }
+verdict = "same"
+
+[[row]]
+id = "iokit-time-remaining"
+kind = "key"
+what = "kIOPMPSTimeRemainingKey"
+side16 = { value = "kIOPMPSTimeRemainingKey", source = "drivers/PongPower/K60Battery.cpp:130" }
+side27 = { value = "kIOPMPSTimeRemainingKey", source = "27:drivers/PongPower/K60Battery.cpp:109" }
+verdict = "same"
+
+[[row]]
+id = "iokit-temperature"
+kind = "key"
+what = "kIOPMPSBatteryTemperatureKey"
+side16 = { value = "kIOPMPSBatteryTemperatureKey", source = "drivers/PongPower/K60Battery.cpp:130" }
+side27 = { value = "kIOPMPSBatteryTemperatureKey", source = "27:drivers/PongPower/K60Battery.cpp:109" }
+verdict = "same"
+
+[[row]]
+id = "iokit-fully-charged"
+kind = "key"
+what = "kIOPMFullyChargedKey"
+side16 = { value = "kIOPMFullyChargedKey", source = "drivers/PongPower/K60Battery.cpp:148" }
+side27 = { value = "kIOPMFullyChargedKey", source = "27:drivers/PongPower/K60Battery.cpp:127" }
+verdict = "same"
+
+[[row]]
+id = "iokit-adapter-details"
+kind = "key"
+what = "kIOPMPSAdapterDetailsKey"
+side16 = { value = "kIOPMPSAdapterDetailsKey", source = "drivers/PongPower/K60Battery.cpp:150" }
+side27 = { value = "kIOPMPSAdapterDetailsKey", source = "27:drivers/PongPower/K60Battery.cpp:129" }
+verdict = "same"
+
+[[row]]
+id = "iokit-adapter-family"
+kind = "key"
+what = "kIOPMPSAdapterDetailsFamilyKey"
+side16 = { value = "kIOPMPSAdapterDetailsFamilyKey", source = "drivers/PongPower/K60Battery.cpp:153" }
+side27 = { value = "kIOPMPSAdapterDetailsFamilyKey", source = "27:drivers/PongPower/K60Battery.cpp:132" }
+verdict = "same"
+
+[[row]]
+id = "iokit-adapter-amperage"
+kind = "key"
+what = "kIOPMPSAdapterDetailsAmperageKey"
+side16 = { value = "kIOPMPSAdapterDetailsAmperageKey", source = "drivers/PongPower/K60Battery.cpp:154" }
+side27 = { value = "kIOPMPSAdapterDetailsAmperageKey", source = "27:drivers/PongPower/K60Battery.cpp:133" }
+verdict = "same"
+
+[[row]]
+id = "iokit-adapter-watts"
+kind = "key"
+what = "kIOPMPSAdapterDetailsWattsKey"
+side16 = { value = "kIOPMPSAdapterDetailsWattsKey", source = "drivers/PongPower/K60Battery.cpp:154" }
+side27 = { value = "kIOPMPSAdapterDetailsWattsKey", source = "27:drivers/PongPower/K60Battery.cpp:133" }
+verdict = "same"
+
+[[row]]
+id = "literal-instant-amperage"
+kind = "key"
+what = "\"InstantAmperage\" 字符串属性"
+side16 = { value = "InstantAmperage", source = "drivers/PongPower/K60Battery.cpp:130" }
+side27 = { value = "InstantAmperage", source = "27:drivers/PongPower/K60Battery.cpp:109" }
+verdict = "same"
+note = "非 kIOPM 符号，但仍要两侧一致，否则 27 上读不到瞬时电流"
+
+[[row]]
+id = "literal-nominal-charge-capacity"
+kind = "key"
+what = "\"NominalChargeCapacity\" 字符串属性"
+side16 = { value = "NominalChargeCapacity", source = "drivers/PongPower/K60Battery.cpp:131" }
+side27 = { value = "NominalChargeCapacity", source = "27:drivers/PongPower/K60Battery.cpp:110" }
+verdict = "same"
+
+[[row]]
+id = "literal-design-capacity"
+kind = "key"
+what = "\"DesignCapacity\" 字符串属性"
+side16 = { value = "DesignCapacity", source = "drivers/PongPower/K60Battery.cpp:131" }
+side27 = { value = "DesignCapacity", source = "27:drivers/PongPower/K60Battery.cpp:110" }
+verdict = "same"
+
+[[row]]
+id = "literal-raw-current"
+kind = "key"
+what = "\"AppleRawCurrentCapacity\" 字符串属性"
+side16 = { value = "AppleRawCurrentCapacity", source = "drivers/PongPower/K60Battery.cpp:140" }
+side27 = { value = "AppleRawCurrentCapacity", source = "27:drivers/PongPower/K60Battery.cpp:119" }
+verdict = "same"
+
+[[row]]
+id = "literal-raw-max"
+kind = "key"
+what = "\"AppleRawMaxCapacity\" 字符串属性"
+side16 = { value = "AppleRawMaxCapacity", source = "drivers/PongPower/K60Battery.cpp:140" }
+side27 = { value = "AppleRawMaxCapacity", source = "27:drivers/PongPower/K60Battery.cpp:119" }
+verdict = "same"
+
+[[row]]
+id = "wire-battmgr-table"
+kind = "wire-table"
+what = "battmgr wire 属性下标（19 字段）"
+side16 = { value = "19 fields", source = "drivers/PongPower/K60Battmgr.c:23" }
+side27 = { value = "19 fields", source = "27:drivers/PongPower/K60Battmgr.c:23" }
+verdict = "same"
+note = "两侧 fields[] 逐项相等才判 same；下标本身的语义见 charger/WIRE-PROPS.toml"

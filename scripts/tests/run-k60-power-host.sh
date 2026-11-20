@@ -77,4 +77,5 @@ run_py ios27-preflight python3 scripts/tests/test-check-ios27-power-preflight.py
 run_py hw-contracts python3 scripts/check-hw-contracts.py
 run_py battery-mirror python3 scripts/tests/test-judge-k60-battery-mirror.py
 run_py wire-props python3 scripts/tests/test-check-battmgr-wire.py
+run_py prop-numbers python3 scripts/tests/test-check-prop-numbers.py
 echo "power-python: OK ($python_suites suites)"

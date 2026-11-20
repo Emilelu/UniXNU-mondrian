@@ -85,12 +85,18 @@ prelink segments, so a symbol-level resolver cannot name any of the 133
 targets. Until the input changes, the 946 sites are not "possibly dead"; they
 are the only outcome the instrument can produce.
 
-The same run finds one target, `0xfffffff007044478`, that is still in the
-input `__TEXT` and in no output segment. That is a translation defect
-independent of the symbol question, so it is recorded in
-[IOS27.md](IOS27.md) under "The one target the prelink did not move" and
-asserted by `scripts/check-ios27-prelink-closure.py --require-translated`
-instead of being folded into this ledger.
+That same reading first called `0xfffffff007044478` a translation defect: it
+fits the input `__TEXT` and not the output `__TEXT`. It is not one. The
+report's `segment_layout` lists only the kernel entry's segments; the address
+lands in the collection's coalesced `__PRELINK_TEXT`, owned by
+`com.apple.driver.AppleARMWatchdogTimer`. Reclassified against the collection's
+own segments, no target is untranslated. The assertion that replaces the claim
+is narrower and still checks the failure that matters: no rebased target may lie
+inside the input `__TEXT` and outside every output segment.
+`scripts/check-ios27-prelink-closure.py --collection ... --require-translated`
+does that (47,141 rebases on the pinned inputs, none inside the input `__TEXT`)
+and refuses without `--collection`. Recorded in [IOS27.md](IOS27.md) under
+"The target that looked untranslated" instead of being folded into this ledger.
 
 ## Recommendations
 
@@ -105,8 +111,9 @@ instead of being folded into this ledger.
    (`scripts/check-xnu27-storage-link.py`) and the entry assertion
    (`scripts/check-ios27-storage-vtable.py --require-entry`). Its closing
    condition is three checks in one run: the F3 switch is on, the prelink
-   reports zero untranslated targets (`--require-translated`), and the 190-slot
-   entry assertion passes on the built collection.
+   reports no rebased target inside the input `__TEXT`
+   (`--require-translated --collection`), and the 190-slot entry assertion
+   passes on the built collection.
 4. If route D is selected, add a second entry for the parent-binding order,
    with the `SourceStorage.cpp` line numbers above and the scratch replay as
    its evidence, and leave it open until a board run shows the class resolving.

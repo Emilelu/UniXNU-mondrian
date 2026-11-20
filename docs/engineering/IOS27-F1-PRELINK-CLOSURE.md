@@ -43,20 +43,29 @@ map of address to count, so `len(map)` is the number of distinct addresses and
 the sum of the values is the number of references. The gate currently prints the
 first number and calls it references.
 
-Classified against the report's own `segment_layout` for the output collection
-(`missing_address_space = "output collection"`), the 133 addresses are:
+Classified against the output collection's own segments, the 133 addresses are:
 
 | output segment | addresses |
 | --- | --- |
 | `__DATA` | 101 |
 | `__DATA_CONST` | 31 |
-| outside every output segment | 1 |
+| `__PRELINK_TEXT` | 1 |
 
-The one outside address is `0xfffffff007044478`. It fits the input `__TEXT`
+The `__PRELINK_TEXT` address is `0xfffffff007044478`, owner
+`com.apple.driver.AppleARMWatchdogTimer`. An earlier edition of this page
+called it a translation defect because it fits the input `__TEXT`
 (`0xfffffff007004000` + `0x1a0000`) and not the output `__TEXT`
-(`0xfffffff007184000` + `0x1a0000`): one owner target never left the input
-address space. That is a translation defect on top of the missing-symbol
-problem, and it is reported separately by the checker.
+(`0xfffffff007184000` + `0x1a0000`), but the report's `segment_layout` lists
+only `com.apple.kernel`'s own segments, not the coalesced `__PRELINK_TEXT`
+(`0xfffffff00700c000` + `0xce4000`) where the address actually lands. The
+defect did not exist; what remains is the assertion below.
+
+The checker also reads the collection's chained rebases (format 8) and fails
+while any target lies inside the input `__TEXT` and outside every output
+segment (`--collection ... --require-translated`). On the pinned inputs that is
+47,141 targets and none inside the input `__TEXT`. The decoder is a classifier,
+not an oracle: on Apple's own 24A446 kernelcache it returns 783 targets, 355
+outside every segment, so outside counts alone are not evidence.
 
 ## Why the names cannot come back
 
@@ -83,10 +92,13 @@ this page:
 1. The report counts as distinct symbols and as references, separately.
 2. The kernel entry's filetype, load command count and `LC_SYMTAB.nsyms`.
 3. The `vmsize` of every `__PRELINK_*` and `__PLK_*` segment.
-4. The target distribution over the report's own address space.
+4. The target distribution over the output collection's segments when
+   `--collection` is given; the report's own layout covers only the kernel entry.
 5. How many targets have a defined symbol at their exact address.
-6. How many targets still sit inside the input `__TEXT`; `--require-translated`
-   fails while any remain.
+6. How many targets still sit inside the input `__TEXT` and outside every output
+   segment, and how many chained rebases the collection carries;
+   `--require-translated` fails while any remain and refuses to judge without
+   `--collection`.
 
 On the two inputs above it prints:
 

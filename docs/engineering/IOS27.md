@@ -448,10 +448,11 @@ had.
 
 **Where this stands (2026-11-20):** the storage preflight is `pending` while
 `CONFIG_XNU_NATIVE_UFS` is off, and pending is not a pass. Against this
-branch's configs it fails on one thing only: 190/190 slots agree with Apple's
-table, both report bindings (collection and kernelcache) match, and one target,
-`0xfffffff007044478`, is still inside the input `__TEXT` instead of the
-output layout.
+branch's configs it passes: the 190 slots agree with Apple's table, both report
+bindings (collection and kernelcache) match, and `--require-translated` with
+`--collection` finds no target inside the input `__TEXT`. An earlier draft of
+this page said one target was left there; see "The target that looked
+untranslated" below for why that reading was wrong.
 
 The link experiment in the previous section ends with eleven undefined
 IOBlockStorageDevice symbols. Two ways out were on the table: bind them (A) or
@@ -892,24 +893,40 @@ change is in the framework, and the K60 initrd/ramoops/config deltas live in
 `uefi-mondrian`'s vendored `Platforms/Xiaomi/UniXNUPkg`, which resolves ahead of
 the framework's copy.
 
-## The one target the prelink did not move
+## The target that looked untranslated
 
-The round-17d map has 133 distinct owner targets with no address. All but one
-sit in the output collection's `__DATA` or `__DATA_CONST`; the exception is
-`0xfffffff007044478`, which fits the input `__TEXT`
-(`0xfffffff007004000` + `0x1a0000`) and no output segment
-(`0xfffffff007184000` + `0x1a0000`). It is a rebinding defect, separate from
-the missing symbol table: the target was never translated, so naming the symbol
-would not move it, and moving it would not name the symbol.
+The round-17d map has 133 distinct owner targets with no address. An earlier
+reading placed all but one in the output collection's `__DATA` or
+`__DATA_CONST` and called `0xfffffff007044478` a rebinding defect, because it
+fits the input `__TEXT` (`0xfffffff007004000` + `0x1a0000`) and not the output
+`__TEXT` (`0xfffffff007184000` + `0x1a0000`). That reading was wrong, and the
+mistake is worth keeping: the report's `statistics.segment_layout` lists only
+`com.apple.kernel`'s own segments, while the collection also carries the
+coalesced `__PRELINK_*` and `__PLK_*` ranges. The address sits in the output
+`__PRELINK_TEXT` (`0xfffffff00700c000` + `0xce4000`); its owner,
+`com.apple.driver.AppleARMWatchdogTimer`, runs in that segment, so the address
+is where it belongs. Classified against the collection's own segments, the 133
+targets are 101 in `__DATA`, 31 in `__DATA_CONST` and 1 in `__PRELINK_TEXT`,
+and none is untranslated.
 
-`scripts/check-ios27-prelink-closure.py --require-translated` fails while any
-such target remains; on the pinned inputs it exits 1 and prints the address.
+What survives is a narrower assertion: after rebinding, no target may lie inside
+the input kernel's `__TEXT` and outside every output segment.
+`scripts/check-ios27-prelink-closure.py --collection <built collection>
+--require-translated` enforces it. It reads the collection's chained rebases
+(format 8, `LC_DYLD_CHAINED_FIXUPS`): on the pinned inputs that is 47,141
+targets, none inside the input `__TEXT`. Without `--collection` it refuses to
+judge instead of passing on the report alone.
+
+The rebase reader classifies, it does not certify: the same decoder run over
+Apple's own 24A446 kernelcache returns 783 targets, 355 of them outside every
+segment of that image, so an "outside" count is not evidence by itself. The
+test is only membership in the input `__TEXT`.
 
 Opening the storage line is a separate gate, and its closing condition is three
 checks in one run: `CONFIG_XNU_NATIVE_UFS=y` in the resolved config,
-`--require-translated` reporting no target left in the input `__TEXT`, and
-`scripts/check-ios27-storage-vtable.py --require-entry` passing on the built
-collection.
+`--require-translated --collection` reporting no target left in the input
+`__TEXT`, and `scripts/check-ios27-storage-vtable.py --require-entry` passing
+on the built collection.
 
 ## Traps
 

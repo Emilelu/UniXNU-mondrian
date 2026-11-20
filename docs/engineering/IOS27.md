@@ -381,6 +381,32 @@ The script reports and stops: selecting the component in `board.toml` and linkin
 archive from the 27 builder stay with the owners of those files, so the table above still
 shows four gaps.
 
+Linking is the other half, and it does not hold yet. Adding the archive to the recorded kernel
+link turns fourteen undefined symbols into twenty-six. Eleven of the twelve new ones belong to
+`IOBlockStorageDevice`: `__ZTV20IOBlockStorageDevice`, its meta-class, `init`, `@free` and
+the five dispatch slots the vtable names. The twelfth, `_armcpu_timer_interrupts`, comes from
+`NativeUfs.o` and disappears once `libArmCpu.a` is force-loaded beside it.
+
+The cause is structural rather than a missing file. The 16.6.1 kernel is one `MH_EXECUTE`
+image that defines those eleven symbols itself (`llvm-nm --defined-only` lists
+`__ZTV20IOBlockStorageDevice` and ten more). On 27 the same classes ship in the separate
+fileset entry `com.apple.iokit.IOStorageFamily`: the class-name strings sit at file offsets
+0xa0f345, 0xa0f7e3 and 0xa0f7fd, all inside that entry, and the kernel proper therefore cannot
+resolve a vtable that lives in a sibling entry. Three ways out, none of them free: bind the
+eleven imports to the addresses the prelinked entry exports, which is what
+`scripts/bind-ios16-storage.py` does for 16.6.1 off `mac-build/storage-abi/interface-audit.json`;
+ship the driver as its own kext entry instead of force-loading it into the kernel; or give the
+link a stub object for the class. Until one of them lands, `XNU_NATIVE_UFS=1` fails at the
+link on 27, and a green kernel build only means the switch is still off.
+
+To reproduce the check: read
+`build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.LDFLAGS` (NUL-separated), run the recorded
+`clang++` with `-target arm64e-apple-ios27.0` and the Apple `ld` from
+`/opt/unixnu-linux/CommandLineTools/usr/bin` on `PATH` (the recorded line expects the build's
+own shim), append `-Wl,-filelist,link.filelist -o <out>`, and diff the undefined symbols with
+and without `-Wl,-force_load,libNativeUfs.a`.
+
+
 
 ## Framework patches this branch carries
 

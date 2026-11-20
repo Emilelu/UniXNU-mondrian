@@ -68,7 +68,7 @@ def case_match():
     root = tree(pathlib.Path(tempfile.mkdtemp()) / "x")
     code, out = run(root)
     assert code == 0, out
-    assert "STUBS OK 5/5 declarations match" in out, out
+    assert "STUBS OK 6/6 declarations and constants match" in out, out
 
 
 def case_drift():
@@ -79,6 +79,21 @@ def case_drift():
     assert code == 1, out
     assert "STUB DRIFT: delay_for_interval" in out, out
     assert "uint64_t, uint64_t" in out and "uint32_t, uint32_t" in out, out
+
+
+def case_constant_drift():
+    """The delay constant scales every wait; a wrong one is silent."""
+    same = CLOCK.replace("#define NSEC_PER_USEC 1000ull", "#define NSEC_PER_USEC 1000")
+    root = tree(pathlib.Path(tempfile.mkdtemp()) / "x", clock=same)
+    code, out = run(root)
+    assert code == 0, out
+
+    wrong = CLOCK.replace("#define NSEC_PER_USEC 1000ull", "#define NSEC_PER_USEC 1000000")
+    root = tree(pathlib.Path(tempfile.mkdtemp()) / "x", clock=wrong)
+    code, out = run(root)
+    assert code == 1, out
+    assert "STUB DRIFT: NSEC_PER_USEC" in out, out
+    assert "1000000" in out, out
 
 
 def case_macro_is_not_a_declaration():
@@ -105,7 +120,8 @@ def case_not_a_tree():
 
 
 def main():
-    cases = [case_match, case_drift, case_macro_is_not_a_declaration,
+    cases = [case_match, case_drift, case_constant_drift,
+             case_macro_is_not_a_declaration,
              case_missing_name, case_not_a_tree]
     for case in cases:
         case()

@@ -16,18 +16,20 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   patch sets that main carries side by side; the 27 profile's patch_series is
   arch:patches/xnu/series + soc:patches/xnu-12377/series + os:patches/xnu/series +
   device:patches/xnu-12377/series. Most 16 entries do not apply to 12377 unchanged.
-- The 27 side has exactly one network patch: 0542-k60-association-event-cluster.patch
-  lifts the IEEE80211 class to a cluster mbuf, because kev_post_msg_internal drops any
-  message over MLEN and the 24A446 association event is 540 bytes. The rest of
-  patches/xnu-12377/series is ptrauth, armcpu-sleep-hook and the 0500-0526 k60-bt-qbt-*
-  Bluetooth series. drivers/PongWifi is present in main as the proven 16 tree, and the
-  24A446 ABI is carried on top of it (branch feat/wifi-ios27-tree), so wifi still moves as
-  a tree plus six files, not as patches/wifi/*.
-- Reference sources are fixed by iron rule 12: userland follows UniXNU-sheng, and the
-  kernel and driver layers must consult it as well - same os_profile
-  ipados-27.0.1-24A446, 25 series entries. docs/research/wifi/SHENG-KERNEL-REFERENCE.md
-  audits them against our 31 and names the two that decide Wi-Fi questions (the 540-byte
-  event and the launchd cache that C2 asks about).
+- The 27 side has one Wi-Fi-specific kernel patch: 0542-k60-association-event-cluster.patch.
+  The event carries a 24 B kernel header, 16 B en0 name descriptor and 540 B result; the
+  old code rejected totals over configuration-derived MLEN, while the patch permits Apple
+  IEEE80211 events up to MCLBYTES and allocates a cluster when needed. The actual patch
+  applies to the pinned 12377 source and its offline regression compares the original and
+  patched block. The remaining series entries cover ptrauth, Bluetooth, CPU/boot and other
+  K60 work; see the per-entry audit in docs/research/wifi/SHENG-KERNEL-REFERENCE.md.
+  drivers/PongWifi is carried as a tree plus six ABI files, not as patches/wifi/*.
+- Reference sources include UniXNU-sheng for the kernel and driver layers, as required
+  by the lead's audit request (separate from agent-message iron rule 12). Both trees use
+  the same iOS 27 family; sheng origin/main is pinned at c8f92b208068eeaa4cd2b0f592671f04ee70076e
+  for this audit. docs/research/wifi/SHENG-KERNEL-REFERENCE.md compares all 25 sheng
+  series entries with our 31; it separates the 540-byte event fix from sheng's chosen
+  launchd-cache/supplicant integration, which does not establish a universal C2 requirement.
 - The SoC layer is xNekom/UniXNU-sm8475-common feat/xnu-12377 (20a30fd6), pinned by
   main's unixnu.lock as [source.sm8475] commit =
   20a30fd623dbcfacdd71350a24fae67a2158884f.
@@ -77,7 +79,7 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   both nw_abi.h generations (16 header + ath11k-abi1, 27 header + ath11k-abi27).
 - [x] B2 [DEV] Run the 27 kernel through the generic builder and prove the driver is in
   it (done 2026-11-20 for the driver half; a clean link without the scratch stubs still
-  waits on [SOC] psci_smp_* and the fork's 27 station archive, see the exit note below). The builder question is settled by main's 3cc8cbc9: scripts/build-xnu-4k-baseline.sh
+  waits on the fork's 27 station archive and on the prelink/DarwinBoot blockers below). The builder question is settled by main's 3cc8cbc9: scripts/build-xnu-4k-baseline.sh
   now dispatches on board.toml [board] os_profile through scripts/pick-xnu-builder.sh, so
   the 16.6.1 line keeps the Pong builder (MACHINE_CONFIGS=PONG) and every other profile -
   including ios-27.0.1-24A446 - runs scripts/build-xnu-generic.sh, the framework builder,
@@ -91,8 +93,10 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   copy stops at __API_AVAILABLE, while 12377's libsyscall headers annotate with
   __SPI_AVAILABLE (gethostuuid.h:41, spawn/spawn.h:64-78), which only a Darwin 26 SDK
   defines. prepare-xnu.py copies that header into the fakeroot on every build, so the
-  build died in libcc_kext on gethostuuid.h and no fakeroot edit survived. Fixed by
-  patches/xnu-12377/availability-spi.patch (empty fallback definition) in the device series.
+  build died in libcc_kext on gethostuuid.h and no fakeroot edit survived. Main carries
+  the canonical fix as 0530-k60-spi-availability.patch (an empty fallback for
+  __SPI_AVAILABLE and the two SPI deprecation macros); this branch briefly had its own
+  availability-spi.patch, which was deleted when the merge showed it was the same hunk.
   (c) the generic builder never linked a wifi archive. scripts/build-xnu-generic.sh now
   arms the same XNU_PONG_WIFI=1 -> -Wl,-force_load,$PONG_WIFI_ARCHIVE path the Pong
   builder has.
@@ -110,14 +114,18 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   which only the 16.6.1 kernel exports (weak declarations do not work under arm64e - taking
   a function's address needs authentication and ld still reports it undefined - so
   --no-host-hooks compiles both waits out behind PONG_WIFI_HOST_HOOKS). After that the
-  driver contributes no undefined symbol. What still stops a clean 27 link is not wifi:
-  psci_smp_* and pong_cpu_startup_finished (12377 has no osfmk/arm64/psci_smp.c; the 16
-  patch also creates PONG.h and does not apply), the two llvm profile internals in an
-  arm64 libcc_kext.a, and nw_wifi_power / nw_wifi_scan_frequencies from the fork's 27
-  station. To count the symbols anyway, a scratch-only stub archive defined those nine
-  names for one link (never committed, never flown): 35,613,936 B image, 30 PongWifi
-  symbols, -force_load visible in the link command. Proof of the driver, not a shippable
-  kernel. The 27 image must define a
+  driver contributes no undefined symbol. What still stops a clean 27 link is not wifi.
+  The psci_smp_* and pong_cpu_startup_finished symbols are not a 12377 export gap: our
+  drivers/ArmCpu/ArmCpu.cpp fork referenced them while the catalog component:ArmCpu calls
+  psciCall directly. Main now carries the real 0540-k60-psci-smp.patch and
+  0541-k60-virtual-timer-guard.patch. libcc_kext.a is already arm64e, so its two llvm
+  profile internals are no longer a blocker. The remaining kernel-side input is the
+  fork's 27 station archive (nw_wifi_power / nw_wifi_scan_frequencies); the remaining
+  platform-side blockers are on main: the F1 prelink panics on stubs and DarwinBoot does
+  not yet accept arm64e MH_FILESET. To count the symbols anyway, a scratch-only stub
+  archive defined nine names for one link (never committed, never flown): 35,613,936 B
+  image, 30 PongWifi symbols, -force_load visible in the link command. Proof of the
+  driver, not a shippable kernel. The 27 image must define a
   non-zero number of PongWifi symbols, checked by scripts/check-wifi-symbols.py (exit 1 on
   zero, self-tested by scripts/tests/test-wifi-symbols.py), and
   scripts/check-wifi-station-api.py cross-checks the nw_wifi_* the archive leaves undefined
@@ -171,8 +179,9 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   The IO80211 side is ours: PongWifiNet.cpp:1153-1173 defines IO80211Controller and
   IO80211Interface as local stubs over IOService/IONetworkInterface, so the driver does
   not link against Apple IO80211Family at all; only 27 wifid talks to the real one.
-  The same pass found the one export that was not enough: kev_post_msg accepted the
-  symbol but refused the message (see the header fact on 0542).
+  Symbol presence alone did not establish event delivery: the original kev_post_msg
+  code rejects the 580 B envelope. Patch 0542 and its executable allocation/copy regression
+  cover that kernel limit; subscriber delivery still needs runtime verification.
 - [ ] B5 [SOC] 4 KiB pages: the 27 kernel uses 4 KiB tables, the 16 driver was written
   against 16 KiB. Exit: the archive builds with the 27 page shift and the selftest
   offsetof asserts still hold.
@@ -191,29 +200,25 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   IO80211Family binary is disassembled and the two lengths are read from the
   externalMethod dispatch table; the driver outCapacity check is then set to that
   number and a request of that size is answered.
-- [ ] C2 [SOC] Does 27 wifid require the signed launchd unixnu-wpa_supplicant /
-  org.unixnu.wifi.control service (sheng route), or does it accept any correct
-  Apple80211 ABI (ours)?
-  Answered in principle 2026-11-20 from sheng: bsd/kern/kern_exec.c's
-  native_gpu_addon_prepare() mounts /private/var/ngpu/xpc over /System/Library/xpc for
-  foreground_user_endpoints.plist and launchd.plist, and /private/var/ngpu/wifi-bin over
-  /usr/libexec for launchd_cache_loader and unixnu-wpa_supplicant, because xpcproxy's
-  policy requires a system executable entry point and the detached signature is checked
-  against the trust cache. Ours already has that machinery in
-  patches/xnu-12377/0527-k60-bt-launchd-cache.patch (same two xpc files, /usr/sbin for
-  QcaBluetooth.runtime). So the remaining work is a 27-userland change - one more
-  /usr/libexec entry and one job - not driver code.
-  Exit: launchctl print on 27 shows the service, or the console shows wifid scanning with
-  our kext alone.
+- [ ] C2 [SOC] Determine whether the target 24A446 wifid requires a signed launchd
+  supplicant/service or can use the Apple80211 ABI directly.
+  sheng's sheng-wifi-launchd-cache.patch documents its own /usr/libexec/unixnu-wpa_supplicant
+  integration, not a universal requirement. Its check-wifi-launchd.py builds and signs a
+  cache but reports hardware_service_started=False. Our 0527 patch supplies reusable
+  XPC-cache mount machinery for Bluetooth; that does not prove Wi-Fi needs the same service.
+  Exit: inspect the actual 24A446 Wi-Fi userspace path or obtain runtime evidence showing
+  whether wifid scans with our kext alone / requires the service. Keep unchecked until then.
 - [ ] C3 [DEV] kSupportedChannels flag word: the reference sets 0x80; we enumerate the
-  live list without it (as zizhan does). Exit: on 27, Settings lists the 5 GHz row; if
-  it does not, add 0x80 behind the gModern27Client gate and re-check.
+  live list without it (as zizhan does). Exit: inspect the actual 24A446 Wi-Fi binary or
+  obtain 27 wifid channel logs that establish the flag semantics, then verify the 5 GHz
+  Settings row. A missing row alone does not justify adding 0x80; retain the current flags
+  until the target-system evidence identifies the required value.
 
 ## D. Not true on 27 (do not carry these over)
 
 - [ ] D1 patches/xnu/series (227 entries / 271 files, 16 KiB pages) does not apply to 12377. Most
   rows are ios16-*, native-4k-*, offline-* and mockfs-*; they belong to the 16 test
-  bed. The 27 line record is patches/xnu-12377/series (24 entries). The trap is the OS
+  bed. The 27 line record is patches/xnu-12377/series (31 entries). The trap is the OS
   key: a 27 build must pass --os ios-27.0.1-24A446, because board.toml's
   [os_overrides."ios-27.0.1-24A446"] is what selects the 12377 series; with --os
   ipados-27.0.1-24A446 the 16 series is applied and apple-only-cpu-tunables.patch fails
@@ -225,13 +230,14 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   script dispatches: 16.6.1 keeps PONG, 27 runs build-xnu-generic.sh on BCM2837.
 - [ ] D3 configs/mondrian_ios27_defconfig deliberately sets CONFIG_XNU_NATIVE_UFS=n,
   CONFIG_XNU_NATIVE_ADRENO=n and CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n (stage 0 stops at
-  bsd_init). Wifi must not depend on any of them; our driver needs only the
-  ArmDTPlatform and NativeUfs hooks, which is why 0004/0005 are the only wifi patches
-  whose targets still exist.
-- [ ] D4 The 16 line answers "wifi-net: supported channels 102: 2.4 GHz 14, 5/6 GHz 88"
-  because 59 passive 6 GHz entries are in the station list; the 24A446 path hides them,
-  so a 27 log must read 88 (14 + 74), or 102 only before the first scan request sets
-  gModern27Client.
+  bsd_init). Wifi must not depend on them: the 27 archive is built with
+  --no-host-hooks, which drops the pong_ufs_ready and k60_usblog_console_up waits, so
+  stage 0 does not need NativeUfs. 0004/0005 are the only wifi patches whose targets
+  still exist; the driver tree itself is carried whole.
+- [ ] D4 The 16 line reports 102 channels: 14 at 2.4 GHz, 29 at 5 GHz and 59 passive
+  6 GHz entries. The 24A446 path hides the 59 passive entries, so after generation detection
+  the expected count is 43 (14 + 29), not 88. A query before gModern27Client latches may
+  still report 102; confirm the actual 27 wifid request order from its binary/log.
 - [ ] D5 The 16 line kAuthType answers 0x8; 27 answers 0x10. A 27 log showing 0x8 means
   gModern27Client never latched: look for a 0x14e8 scan request or a 0x290 join before
   blaming the password.
@@ -241,9 +247,10 @@ Rewritten 2026-11-20, when main itself became the 27 line.
 
 ## E. Bring-up order once the fork reaches bsd_init
 
-- [ ] E1 [DEV] Build a 27 image with CONFIG_XNU_PONG_WIFI=y and fly it with the console
-  attached. Exit: "wifi-net: station start" and "wifi: radio ... applied" in the
-  console; a boot that dies before bsd_init is a kernel problem, not a wifi one.
+- [ ] E1 [DEV] Hand the Lead a verified 27 image with CONFIG_XNU_PONG_WIFI=y for a
+  scheduled device boot with console capture attached. Exit: "wifi-net: station start"
+  and "wifi: radio ... applied"; a boot that dies before bsd_init is a kernel result,
+  not a Wi-Fi observation. Only the Lead owns the device slot.
 - [ ] E2 [DEV] Open Settings -> Wi-Fi by hand inside the 15-minute window
   (k60_autoreset=900). Exit: a WiFiScanObserverNetwork line naming Emilelu_5G with
   BSSID c8:bf:4c:30:03:1c and a negative RSSI.

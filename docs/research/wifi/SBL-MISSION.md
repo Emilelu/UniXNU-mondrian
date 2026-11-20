@@ -1953,10 +1953,10 @@ waiver」在合并后消失，因为它们本来就在 main 的 `RULES.toml` 里
 ### 68.3 0542：540 字节的关联结果在 27 内核上会被丢掉
 
 12377 的 `kev_post_msg_internal()`（合并前源码 `.cache/xnu-work/bsd/kern/kern_event.c`，`total_size > MLEN`
-那段紧挨 `m = m_get(wait, MT_DATA)`）把 5 个描述符的总长和 `MLEN`（256 B）比，超过就直接 `EMSGSIZE`。
+那段紧挨 `m = m_get(wait, MT_DATA)`）把 5 个描述符的总长和 `MLEN` 比，超过就直接 `EMSGSIZE`；`MLEN` 不是固定 256 B（`bsd/sys/mbuf.h:631,674` 由配置相关的 `_MSIZE` 扣除 header 得出）。
 24A446 的关联结果是 540 字节的 `pong_assoc_event27`，我们 `PongWifiNet.cpp:68` 又把 `_kev_post_msg`
 绑成 `pong_kev_post`——也就是说：**符号在、消息进不去**，真 27 内核上每次关联结果都会被内核丢掉，
-而 wifid 在等一个永远不来的 kevent。
+而用户态在等一个永远不来的 kevent。该事件的完整信封是 24 B 内核头 + 16 B `en0` 描述符 + 540 B 结果 = 580 B。
 
 sheng 已经解过：`sheng-wifi-association-event.patch` 把 `KEV_VENDOR_APPLE` + `KEV_IEEE80211_CLASS`
 这一类放宽到 `MCLBYTES`，超过 `MLEN` 时用 `m_getcl` 分配簇，并对每个描述符做上限检查。
@@ -1970,7 +1970,7 @@ sheng 已经解过：`sheng-wifi-association-event.patch` 把 `KEV_VENDOR_APPLE`
 ### 68.4 §67.4 的更正
 
 §67.4 把 `_psci_smp_*` 与 `_pong_cpu_startup_finished` 记成「12377 缺 Apple SMP 入口」，**这是错的**。
-leads 实测：那六个符号全部来自我们自己 fork 的 `drivers/ArmCpu/ArmCpu.cpp`（779 行）遮蔽了 catalog 的
+lead 实测：`_psci_smp_*` 的四个未解析符号与 `_pong_cpu_startup_finished` 共五个，来自我们自己 fork 的 `drivers/ArmCpu/ArmCpu.cpp`（779 行）遮蔽 catalog 的
 `component:ArmCpu`（catalog 版自带 `psciCall(hvc, 0xc4000003, …)`，不引用这两个符号）；12377 里
 `LowResetVectorBase`、`ResetHandlerData`、`monitor_call(MONITOR_SET_ENTRY,…)` 都在
 （`osfmk/arm64/start.s:103`、`:143`、`osfmk/arm64/cpu.c:1222-1227`）。
@@ -1981,19 +1981,79 @@ main 的 `d7cf3300` 已经补了真实现（`0540-k60-psci-smp.patch`，241 行�
 同理，`libcc_kext.a` 也不需要按 arm64e 重编：lead 实测它现在每个成员都是 `cputype=0x100000c
 cpusubtype=0x80000002`（arm64e），我们那条 ld 警告属于早期产物。
 
-### 68.5 B4 关闭，C2 有答案
+### 68.5 B4 的符号判据关闭，C2 仍未回答
 
 `llvm-nm --defined-only` 在链接出的 27 镜像上找到 `_kev_post_msg`、`_mbuf_allocpacket`、`_ifnet_input`
 三个都定义——B4 的出口判据达成（脚手架补的 stub 不影响这三个内核侧符号）。
 
-C2（27 wifid 要不要签名 launchd）在 sheng 那边有现成答案：
-`sheng-wifi-launchd-cache.patch` 在 `bsd/kern/kern_exec.c` 的 `native_gpu_addon_prepare()` 里把
-`/private/var/ngpu/xpc` 挂到 `/System/Library/xpc`（只覆盖 `foreground_user_endpoints.plist` 与
-`launchd.plist`），把 `/private/var/ngpu/wifi-bin` 挂到 `/usr/libexec`（只覆盖 `launchd_cache_loader` 与
-`unixnu-wpa_supplicant`），理由是 xpcproxy 的系统策略要求系统可执行入口、且 detached 签名要过 trust cache。
-我们已经有同一套机器——`patches/xnu-12377/0527-k60-bt-launchd-cache.patch`（蓝牙线写的，同样两个 xpc 文件，
-`/usr/sbin` 给 `QcaBluetooth.runtime`）。**所以 wifi 侧不需要新写挂载，只需要加一条 `/usr/libexec` 与一个 job，
-这属 27 用户态线。**
+C2（27 wifid 要不要签名 launchd）**没有**被 sheng 证明。`sheng-wifi-launchd-cache.patch` 在
+`bsd/kern/kern_exec.c` 的 `native_gpu_addon_prepare()` 里把 `/private/var/ngpu/xpc` 挂到
+`/System/Library/xpc`、把 `/private/var/ngpu/wifi-bin` 挂到 `/usr/libexec`，并传入
+`foreground_user_endpoints.plist`、`launchd.plist`、`launchd_cache_loader`、`unixnu-wpa_supplicant` 作为
+挂载后检查的路径。12377 的 `native_gpu_addon_mount()`（`bsd/kern/kern_exec.c:8187`）挂的是整个目录
+（`MNT_RDONLY | MNT_UNION`），`:8203` 的路径参数是存在性检查，不是文件白名单。它只能说明 sheng 选择了这套
+supplicant/launchd-cache 集成，不能推出所有 24A446 wifid 都必须如此；`check-wifi-launchd.py:31-33` 只是构造
+job，`:111-115` 明确 `hardware_service_started=False`。我们已有可复用的挂载基础
+`patches/xnu-12377/0527-k60-bt-launchd-cache.patch`，但 C2 保持 open，先取目标用户态或运行时证据。
 
 详细审计（sheng 25 条 series 逐条对位、我们 31 条里哪些它已经解过）在
 `docs/research/wifi/SHENG-KERNEL-REFERENCE.md`。
+
+## 69. 0542 的可执行回归与参考审计（2026-11-20）
+
+### 69.1 关联事件补丁的四层证据
+
+1. `patch --dry-run --fuzz=0 -p1` 在合并前的 12377 源码上通过，Hunk #1 落在 8912 行（offset -1）。
+2. `scripts/tests/test-wifi-association-event.py` 把真实补丁应用到 `scripts/tests/fixtures/wifi-event/` 的原始
+   `kern_event.c` 片段，编译未打补丁与已打补丁两份可执行文件。
+3. 未打补丁的版本先证明它拒绝 16 + 540 B 事件；已打补丁的版本在 `MLEN=224` 与 `MLEN=256` 两种配置下各过
+   19 项检查：580 B 总消息走簇分配、普通类仍受 `MLEN` 限制、恰好 `MCLBYTES` 接受而加一字节拒绝、
+   描述符长度使 `maximum - total_size` 下溢时拒绝、零长度中止、分配失败返回 `ENOMEM`。
+4. 它只覆盖大小、分配与拷贝，不覆盖 socket 订阅者实际收到事件，也不替代设备上的关联与 wifid 观察。
+
+`series` 已把 0542 排在 0541 之后；重复的 `availability-spi.patch` 已删除，保留 main 的 0530。因此本线在
+12377 上新增的 Wi-Fi 内核补丁只有 0542 一条。
+
+### 69.2 25 条对 31 条的审计结果
+
+sheng `origin/main` 的 series 是 **25** 条，不是 18；18 只数了带 `sheng-` 前缀的部分。与 Wi-Fi 的关系：
+
+- 直接 Wi-Fi **2** 条：#12 关联事件，已被 0542 等价解决；#10 launchd cache，只与 0527 的 xpc 部分重叠，
+  `/usr/libexec/unixnu-wpa_supplicant` 与 job 仍未解。
+- 共用加载器 **1** 条（#11 蓝牙运行时，同一 `native_gpu_addon_mount` helper）。
+- Wi-Fi 用户态前置 **2** 条：#5 的 1981 行 bringup，#6 的 dyld 4K fixup。
+- 其余 20 条是诊断、调度、音频、存储、AppSync 与 checkpoint，与本线无关。
+
+我们 31 条里只有 0542 是直接 Wi-Fi；0526/0527 是加载器机制（由蓝牙线持有），0540/0532 对位的是 catalog
+ArmCpu 与我们自己的 fork，不是 sheng。相对 sheng 的唯一重复发明是 0542，但那是带署名的有意移植。
+
+### 69.3 必须降级的两个「已解」结论
+
+1. **bringup 不是整条等价。** sheng #5 除了到 `bsd_init` 的机配置，还带 47 位用户地址空间（`T0SZ_USER 17`）、
+   4 KiB pmap 几何、16-bit ASID、GPU sandbox 放行、bindfs、dyld 4K fixup 与 OS* 空值安全。我们的
+   `bcm2837-machine-config.patch` + 0540 + 0541 只覆盖到 `bsd_init`；27 用户态一开就会撞 47 位 VA/4K fixup。
+   这些是「尚未实现」，不是「已用等价物替代」。
+2. **平台睡眠不是等价。** `armcpu-sleep-hook.patch:13` 只定义 `arm64_platform_sleep_hook = NULL`，
+   `ArmCpu.cpp:477-479` 赋值，但 XNU 没有调用点；sheng #25 有定义、两处调用、CPU 信号恢复与
+   `platform-sleep=1` 解除禁用。我们的 `platform-sleep=1` 实际不生效。
+
+### 69.4 C2 / C3 维持 open
+
+`sheng-wifi-launchd-cache.patch` 把整个目录挂到 `/System/Library/xpc` 与 `/usr/libexec`
+（`kern_exec.c:8187`，`MNT_RDONLY | MNT_UNION`），四个路径是挂载后存在性检查（`:8203`），不是文件白名单。
+它记录 sheng 的 supplicant 选择，不证明 stock 24A446 wifid 必须走同一服务；`check-wifi-launchd.py:31-33`
+只构造并签名缓存，`:111-115` 报告 `hardware_service_started=False`。C2 仍缺目标用户态或运行时证据。
+C3 同理：没有 24A446 二进制或 27 wifid 频道日志前，不动 `kSupportedChannels` 的 0x80 位。
+`porting.toml` 的 network 区按这些边界改写，不使用「已上机」措辞。
+
+### 69.5 三条外部阻断（Lead 2026-11-20 口径）
+
+合并后 Lead 把三件事定了性：① `psci_smp_*` 与 `pong_cpu_startup_finished` 归 Lead，根因是我们 fork 的
+`drivers/ArmCpu/ArmCpu.cpp` 遮蔽 catalog 的 `component:ArmCpu`，main 的 0540/0541 才是实修，12377 的导出面
+本身不缺；② `libcc_kext.a` 的每个成员都已是 arm64e，不需要按 27 内核重编；③ 24A446 wifid 的
+`kSupportedChannels` 不在 pin 的 kernelcache 里（305 个 kext 无无线 kext，用户态在加密的
+`043-68526-711.dmg.aea`），C3 保持 open。
+
+因此 27 线剩下的阻断不在 wifi 驱动里：main 的 F1 仍有真实的 prelink panic（stubs），DarwinBoot 尚不接受
+arm64e MH_FILESET；E1-E4 仍需要设备，而设备只由 Lead 调度。27 内核的干净链接还要等 fork 的 27 站归档
+（`nw_wifi_power` / `nw_wifi_scan_frequencies`）。

@@ -293,7 +293,7 @@ scripts/judge-audio-capture.py`；驱动不再比那一位 → `no mode comparis
 
 ```
 COMMANDS NOTE: scripts/build-xnu-generic.sh is not in this tree; the gates checkout holds it at /mnt/e/hackios/k60-gates/scripts/build-xnu-generic.sh
-COMMANDS OK 98 citation(s) resolve (3 followed into another checkout), 22 audio tool(s) are cited, 21 of them answer --help　（carry 树实测；adsp 树页面多，同一个工具给出 136 / 17 / 22 / 21）
+COMMANDS OK <citations> citation(s) resolve (…), <tools> audio tool(s) are cited, <help> of them answer --help　（数字随页面增长；carry 与 adsp 的页面数不同，读数也不同）
 ```
 
 宿主 `scripts/tests/test-audio27-commands.py` **六例**：全部兑现 / 页面指向不存在的文件 / 借口的位置缺那份文件（红）/
@@ -305,10 +305,10 @@ COMMANDS OK 98 citation(s) resolve (3 followed into another checkout), 22 audio 
 
 静态数行不行。预检的行不全由 `run "名字"` 打出：`optional_row`、`seam_row` 两个 helper 按 rc 打 `ok`/`skip`/`FAIL`，另有十几处裸 `printf`。按调用点数只得到 49，真实是 51——差的那两行正好是「取不到就 skip」的那类。
 
-所以让脚本数自己。头部一行 `ROWS_EXPECTED=51`，末尾一段外壳带 `K60_PREFLIGHT_INNER=1` 把自己再跑一遍，只数 `^(ok|skip|FAIL) ` 开头的行：与常量不符就打 `ROWS FAILED 50 rows printed, 51 declared` 再打 `PREFLIGHT FAILED` 退 1；相符时末行是
+所以让脚本数自己。头部一行 `ROWS_EXPECTED` 是唯一口径，末尾一段外壳带 `K60_PREFLIGHT_INNER=1` 把自己再跑一遍，只数 `^(ok|skip|FAIL) ` 开头的行：与常量不符就打 `ROWS FAILED <printed> rows printed, <declared> declared` 再打 `PREFLIGHT FAILED` 退 1；相符时末行是
 
 ```
-PREFLIGHT OK 51 rows (50 ok, 1 skip, 0 FAIL), as declared
+PREFLIGHT OK <N> rows (<ok> ok, <skip> skip, <fail> FAIL), as declared
 ```
 
 末行仍以 `PREFLIGHT OK` 开头，别处的 `grep` 和 `tail -1` 不用改。
@@ -316,13 +316,13 @@ PREFLIGHT OK 51 rows (50 ok, 1 skip, 0 FAIL), as declared
 另外两处散文由 `scripts/check-audio27-rows.py` 钉住：读同一个 `ROWS_EXPECTED`，要求 ① 脚本里还留着那句比对（否则常量本身也成了散文）② 每个音频页面里「N 行 ok」「M 行 skip」加起来等于它 ③ `porting.toml` 的「N host rows plus one skip」里 N+1 等于它。中文数字（十、两）也认。读数：
 
 ```
-ROWS NOTE: docs/research/audio/IOS27-MIGRATION.md:69 counts 52 ok and 1 skip
-ROWS OK 53 rows declared, counted the same in 1 page claim(s) and the record
+ROWS NOTE: <page>:<line> counts <ok> ok and <skip> skip
+ROWS OK <N> rows declared, counted the same in <k> page claim(s) and the record
 ```
 
 顺手抓到的旧账：`IOS27-USERLAND.md:84` 写着「八行 ok」——那是预检只有八行时的说法，一直没人改。现在那句不写数字，只说末行是 `PREFLIGHT OK N rows (…), as declared`，N 就是脚本头部的常量。
 
-预检两行：`row count gate is honest`（宿主用例 `scripts/tests/test-audio27-rows.py`，六例）与 `row count holds`。
+预检两行：`row count gate is honest`（宿主用例 `scripts/tests/test-audio27-rows.py`，九例）与 `row count holds`。
 
 ### 文档里引用的日志行，必须真是驱动会打印的
 
@@ -885,7 +885,7 @@ sh scripts/tests/test-wiring-dry-run.sh
 # DRYRUN OK files=23 conf=2 init=1 tests=TESTS OK 979 cases
 ```
 
-`check-audio27-preflight.sh` 已含这一步（输出行 `ok   wiring dry run`）。
+`check-audio27-preflight.sh` 已含这一步（输出行 `ok   wiring dry run`）。两个套件都接受一个工作目录参数：不给时自己建临时目录并清理，给了就用调用者的目录、不删；`tmp/host` 一路传下去，所以并发跑也各有各的二进制。预检的 `ok   host suite four times at once` 就是 `scripts/tests/test-audio27-host-concurrency.py`（三例）同时起四份，断言没有 `Text file busy`。
 ## 2. 谁调用、哪一行证明它被调过
 
 | 函数 | 16 树的调用者 | 27 上的调用者 | 证明它跑过的日志行 |

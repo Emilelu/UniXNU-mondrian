@@ -1,0 +1,26 @@
+diff --git a/scripts/build-ios27-linux.sh b/scripts/build-ios27-linux.sh
+--- a/scripts/build-ios27-linux.sh
++++ b/scripts/build-ios27-linux.sh
+@@ -46,11 +46,19 @@
+ # Seam 1 (P-266): K60 carries the conf/files entries for in-tree drivers in a
+ # hook rather than in a patch, because a hunk cannot survive the tree being
+ # re-seeded. The builder calls it after .cache/xnu-work exists; all this has to
+-# do is name it. Left unset when it is not on disk -- a hook that aborted on an
+-# owner whose sources are not in this tree would make stage 0 unbuildable.
+-if [ -f "$ROOT/scripts/k60-conf-files-hook.py" ]; then
++# do is name it. Stage 0 intentionally links no lane objects by default.
++if [ -n "${K60_CONF_FILES_HOOK:-}" ]; then
++	if [ ! -f "$K60_CONF_FILES_HOOK" ]; then
++		echo "build-ios27-linux: K60_CONF_FILES_HOOK is not a file: $K60_CONF_FILES_HOOK" >&2
++		exit 2
++	fi
++elif [ -f "$ROOT/scripts/k60-conf-files-hook.py" ]; then
+ 	K60_CONF_FILES_HOOK="$ROOT/scripts/k60-conf-files-hook.py"
++else
++	echo "build-ios27-linux: no conf/files hook in this tree; stage 0 links no lane objects"
++fi
++if [ -n "${K60_CONF_FILES_HOOK:-}" ]; then
+ 	export K60_CONF_FILES_HOOK
+ fi
+ 
+ # Seam 2 (P-260): the audio driver wants -DXNU_PONG_AUDIO for its own object

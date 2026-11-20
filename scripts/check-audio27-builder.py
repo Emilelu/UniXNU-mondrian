@@ -5,8 +5,10 @@ The 27 line builds through scripts/build-ios27-linux.sh, which ends in
 `unixnu build kernel`. Three seams there break with a green build, so each
 one gets its own verdict (`--seam hook|define|framework`):
 
-  hook       the driver passes K60_CONF_FILES_HOOK, pointed at this tree's
-             scripts/k60-conf-files-hook.py. Without it bsd/conf/files never
+  hook       the driver passes K60_CONF_FILES_HOOK, pointed at its own
+             scripts/k60-conf-files-hook.py, which must exist in --tree.
+             A copy in this audio checkout does not satisfy the driver.
+             Without it bsd/conf/files never
              lists the two sources and the glue is not compiled at all.
   define     the driver passes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1.
              The array form is reset at scripts/build-xnu-generic.sh:166
@@ -16,8 +18,9 @@ one gets its own verdict (`--seam hook|define|framework`):
              run(['bash', script], ..., env=env). If that ever becomes a
              curated environment, both variables above stop at the CLI.
 
-Exit codes: 0 wired and consistent, or not wired yet (the message says so),
-1 a wired file is wrong, 3 nothing to measure (driver or framework absent).
+Exit codes: 0 wired and consistent, 1 a wired file is wrong, 3 nothing to
+measure (driver, hook or framework absent, or the driver does not name the
+variable yet). A waiting seam therefore prints skip, never ok.
 """
 
 import argparse
@@ -83,32 +86,44 @@ def bash_shebang(text):
 
 
 def exported(text, name, pattern):
-    """True when the variable reaches the kernel line through the environment.
+    """Check the shell variable's state at the first kernel command.
 
-    Two shapes count: `export NAME=value` on one line, and `NAME=value`
-    followed by a bare `export NAME`.  The second is what the 27 driver does,
-    because the value is a path built at run time and the export sits inside
-    the same `if` that checks the file exists.  A later `unset NAME` cancels
-    either shape.  Comments are not code, so they are dropped first.
+    Only an exact assignment followed by an export (or one exported
+    assignment) counts. A later assignment, unset, or export after the kernel
+    command must not turn a broken handoff green. Comments are ignored.
     """
-    code = code_only(text)
-    if re.search(r"^\s*export\s+%s=%s[\"\']?\s*$" % (re.escape(name), pattern),
-                 code, re.MULTILINE):
-        return True
-    assign = re.search(r"^\s*%s=%s[\"\']?\s*$" % (re.escape(name), pattern),
-                       code, re.MULTILINE)
-    bare = re.search(r"^\s*export\s+%s\s*$" % re.escape(name), code, re.MULTILINE)
-    if not (assign and bare and bare.start() > assign.start()):
+    lines = code_only(text).splitlines()
+    kernel = next((index for index, line in enumerate(lines) if "build kernel" in line), None)
+    if kernel is None:
         return False
-    if re.search(r"^\s*unset\s+%s\b" % re.escape(name), code[bare.end():],
-                 re.MULTILINE):
-        return False
-    return True
+
+    expected = re.compile(pattern)
+    assignment = re.compile(r"^\s*(export\s+)?%s=(.*?)\s*$" % re.escape(name))
+    unset = re.compile(r"^\s*unset\s+%s(?:\s|$)" % re.escape(name))
+    bare_export = re.compile(r"^\s*export\s+%s\s*$" % re.escape(name))
+    matches = False
+    is_exported = False
+    for line in lines[:kernel]:
+        if unset.match(line):
+            matches = False
+            is_exported = False
+            continue
+        found = assignment.match(line)
+        if found:
+            value = found.group(2).strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("\"", "'"):
+                value = value[1:-1]
+            matches = expected.fullmatch(value) is not None
+            is_exported = is_exported or bool(found.group(1))
+            continue
+        if bare_export.match(line):
+            is_exported = matches
+    return matches and is_exported
 
 
-def seam_hook(text, here):
+def seam_hook(text, tree):
     if HOOK not in text:
-        return 0, ("BUILDER: not wired yet (%s never names %s); without it bsd/conf/files keeps the "
+        return 3, ("BUILDER: not wired yet (%s never names %s); without it bsd/conf/files keeps the "
                    "two sources unlisted and the glue is not compiled" % (DRIVER, HOOK))
     inline = hands_over(kernel_lines(text), HOOK, HOOK_TAIL)
     ok = inline or exported(text, HOOK, "[^ ]*" + re.escape(HOOK_TAIL))
@@ -121,15 +136,17 @@ def seam_hook(text, here):
                        "so the chaining hook never runs" % (DRIVER, HOOK))
         return 1, ("BUILDER FAILED: %s sets %s but not to %s, so the appender that counts the entries "
                    "is not the one called" % (DRIVER, HOOK, HOOK_TAIL))
-    if not (here / HOOK_TAIL).is_file():
-        return 1, "BUILDER FAILED: this tree has no %s to point at" % HOOK_TAIL
+    target = tree / HOOK_TAIL
+    if not target.is_file():
+        return 3, ("BUILDER: hook not present -> seam inert (%s); the checker checkout is not "
+                   "the driver target" % target)
     where = "on the kernel line" if inline else "through the environment"
     return 0, "BUILDER OK: %s takes %s=%s %s" % (DRIVER, HOOK, HOOK_TAIL, where)
 
 
 def seam_define(text):
     if DEFINE not in text:
-        return 0, ("BUILDER: not wired yet (%s never passes %s=%s); PongAudioAmp.c compiles to nothing "
+        return 3, ("BUILDER: not wired yet (%s never passes %s=%s); PongAudioAmp.c compiles to nothing "
                    "and the build stays green" % (DRIVER, DEFINE, VALUE))
     if hands_over(kernel_lines(text), DEFINE, VALUE):
         return 0, "BUILDER OK: %s takes %s=%s in the env prefix" % (DRIVER, DEFINE, VALUE)
@@ -162,16 +179,18 @@ def seam_framework(unixnu):
 
 def main(argv):
     parser = argparse.ArgumentParser(description="check the seams that carry the audio define")
-    parser.add_argument("--gates", help="k60-gates checkout (default $K60_GATES or ../k60-gates)")
+    parser.add_argument("--tree", "--gates", dest="tree",
+                        help="checkout the driver runs from (default $K60_REPO, $K60_GATES or ../k60-gates)")
     parser.add_argument("--unixnu", help="framework checkout (default $UNIXNU or ../UniXNU)")
     parser.add_argument("--seam", choices=SEAMS, action="append",
                         help="one seam per call; default is all three, one line each")
     options = parser.parse_args(argv)
 
     here = pathlib.Path(__file__).resolve().parents[1]
-    gates = pathlib.Path(options.gates or os.environ.get("K60_GATES") or here.parent / "k60-gates")
+    tree = pathlib.Path(options.tree or os.environ.get("K60_REPO")
+                        or os.environ.get("K60_GATES") or here.parent / "k60-gates")
     unixnu = pathlib.Path(options.unixnu or os.environ.get("UNIXNU") or here.parent / "UniXNU")
-    driver = gates / DRIVER
+    driver = tree / DRIVER
     seams = options.seam or list(SEAMS)
 
     codes = []
@@ -179,9 +198,9 @@ def main(argv):
         if seam == "framework":
             code, message = seam_framework(unixnu)
         elif not driver.is_file():
-            code, message = 3, "BUILDER: no build driver at %s (set K60_GATES)" % driver
+            code, message = 3, "BUILDER: no build driver at %s (set K60_REPO or pass --tree)" % driver
         elif seam == "hook":
-            code, message = seam_hook(read(driver), here)
+            code, message = seam_hook(read(driver), tree)
         else:
             code, message = seam_define(read(driver))
         print(message)

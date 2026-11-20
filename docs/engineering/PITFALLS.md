@@ -7420,19 +7420,20 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 
 **修法**：
 
-1. `scripts/check-console-contract.py`：`PAIRS` 里 13 对线——电池样本、通道 up、adopt、
+1. `scripts/check-console-contract.py`：`PAIRS` 里 31 对线——电池样本、通道 up、adopt、
    lease 成功/失败、blocked、failure、睡眠 enabled/report、`0629` 的两条 `K60TRACE`、
    mode-1 的两条——每对写 (产出方文件, 判读器文件, 正则属性名, 两边共有的锚点,
    `%s` 的填充词)；打印调用由 `CALLS` 按对声明（睡眠 trace 行是补丁里的 `printf`）。格式串**按锚点找、不按行号找**，所以在文件里挪动
    `IOLog` 不会误报；正则用 `importlib` 从判读器模块里取，不复制一份。
 2. `synthesise()` 把 `%u/%d/%02u/%x/%s` 换成合理值后整行匹配；`c_strings()` 把一条
    `IOLog(...)` 里被折行的多个字面量拼起来（真实格式串都是跨行写的）。
-3. `scripts/tests/test-check-console-contract.py`（12 项）：锚点之外改名必须被正则拒；
+3. `scripts/tests/test-check-console-contract.py`（18 项）：锚点之外改名必须被正则拒；
    锚点什么都不打印必须拒；判读器没有该正则必须拒；锚点被删掉仍匹配必须拒；
    `--root` 在别的检出上必须给同一个判决（本仓绿、空树 rc 2）。
 4. 挂在 `scripts/tests/run-k60-power-host.sh` 的 `run_py console-contract` 上，
    `power-python: OK (13 suites)`；bundle 的 `EXTRA` 带上检查器和它的用例，
    RULES 的 P-259 检查链末尾追加这条，避免它只在本仓绿。
+5. `coverage_problems()` 把判读器里**还没配对**的正则也变成红：判读器新增一条正则而没人写产出方，等于一条永远不会匹配的判读标准。例外只能写在 `EXEMPT` 里并给出理由（安卓 dmesg、stock xnu 的固定文案、`vprintf` 透传的运行时格式串、系统 userland 输出），理由为空与没写例外同罪，例外指向的属性消失也要报「已不存在」——否则豁免会一直挂着保护一个已经不存在的对象（P-179 的形状）。
 
 **教训**：一个判读器读的不是设备，是**另一个文件里的字符串**。只要这份字符串有两份拷贝，
 就必须有一处同时读两边的检查——否则最坏的情况不是判读器报错，而是它对正确的设备报错。

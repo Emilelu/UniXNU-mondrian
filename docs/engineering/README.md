@@ -27,6 +27,7 @@
 |---|---|
 | [HARD-RULES.md](HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
 | [PITFALLS.md](PITFALLS.md) | 坑记录 P-01–P-254：症状 → 真因 → 判别 → 教训 |
+| [PITFALL-IDS.md](PITFALL-IDS.md) | 坑号分配表：号码由 Lead 统一分配；各线只看得到自己 worktree 的 `origin/main`，2026-11-20 三条线各写了一个 P-283 |
 | [`LINE-MAP.md`](LINE-MAP.md) | 逐行的“谁在做什么”地图：每条 bring-up 线的源码、补丁、证据与负责人 |
 | [GPU-IOSURFACE-ROOT-CAUSE.md](GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [PITFALL-TO-RULE-INDEX.md](PITFALL-TO-RULE-INDEX.md) | 坑 → 铁则反查表 |

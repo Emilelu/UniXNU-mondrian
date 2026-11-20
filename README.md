@@ -103,6 +103,7 @@ bash scripts/build-strict.sh <experiment-tag> --fd /path/to/verified.fd
 2. **先查官方组件目录**：动手写驱动前必须查 `UniXNU/components.toml`
    与 [驱动仓库列表](https://unixnu.com/zh/drivers/repositories)，避免重复造轮子。
 3. **坑必记录**：[`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md)。
+   坑号先由 Lead 在 [`docs/engineering/PITFALL-IDS.md`](docs/engineering/PITFALL-IDS.md) 分配再落库：各线只看得到自己 worktree 的 `origin/main`，同一天三条线各写了一个 P-283 就是代价。
 4. **改动后及时 commit，阶段性成果及时 push。**
 
 ## 结构

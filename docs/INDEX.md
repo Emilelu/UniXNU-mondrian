@@ -55,6 +55,7 @@ docs/
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
 | [`HARD-RULES.md`](engineering/HARD-RULES.md) | 铁则 ★1–★37，每条含来源、硬规则、判别方法 |
 | [`PITFALLS.md`](engineering/PITFALLS.md) | 坑记录 P-01–P-254：症状 → 真因 → 判别 → 教训 |
+| [`PITFALL-IDS.md`](engineering/PITFALL-IDS.md) | 坑号分配表：谁占哪个号，为什么必须由 Lead 统一分配（三条线同日各写了一个 P-283） |
 | [`LINE-MAP.md`](engineering/LINE-MAP.md) | 逐行的“谁在做什么”地图：每条 bring-up 线对应的源码、补丁、证据与负责人 |
 | [`GPU-IOSURFACE-ROOT-CAUSE.md`](engineering/GPU-IOSURFACE-ROOT-CAUSE.md) | GPU Metal 加速失败的根因：用户态按注册名找 `IOSurfaceRoot`，mini 实现注册成 `IOCoreSurfaceRoot` |
 | [`TAGS.md`](engineering/TAGS.md) | tag 策略：只留 boot-proven、main 基线、版本里程碑三种 |

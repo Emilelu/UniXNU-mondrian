@@ -49,7 +49,7 @@ def main():
     t = BASE.replace('docs/research/audio/RESEARCH.md:11-23',
                      'docs/research/audio/RESEARCH.md:99999', 1)
     cases.append(expect('unresolved line is named', t, 1, 'RESEARCH.md:99999'))
-    t = BASE.replace('recorded_at = "2026-11-21T03:37:00"\n', '', 1)
+    t = re.sub(r'recorded_at = "[^"]*"\n', '', BASE, count=1)
     cases.append(expect('missing recorded_at is named', t, 1, 'recorded_at=YYYY-MM-DDTHH:MM:SS'))
     t = BASE.replace('artifact_check = [', 'artifact_check_missing = [', 1)
     cases.append(expect('verify missing a class is named', t, 1, 'has no artifact_check'))

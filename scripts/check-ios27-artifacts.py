@@ -110,6 +110,40 @@ def macho(path):
     return len(data), flags, 'MH_EXECUTE'
 
 
+SEGMENT_CMD = 0x19
+UNIXTHREAD_CMD = 5
+
+
+def segments(data, at):
+    """The LC_SEGMENT_64 list of one header, read the way the loader reads it."""
+    ncmds, sizeofcmds = struct.unpack_from('<II', data, at + 16)
+    pos, end, found = at + 32, at + 32 + sizeofcmds, []
+    for _ in range(ncmds):
+        if pos + 8 > end:
+            break
+        cmd, size = struct.unpack_from('<II', data, pos)
+        if cmd == SEGMENT_CMD and size >= 72:
+            vmaddr, vmsize, fileoff, filesize = struct.unpack_from('<QQQQ', data, pos + 24)
+            initprot, = struct.unpack_from('<I', data, pos + 60)
+            if vmsize:
+                found.append({'address': vmaddr, 'size': vmsize, 'fileoff': fileoff,
+                              'filesize': filesize, 'protection': initprot})
+        pos += size
+    return found
+
+
+def entry_pc(data, at):
+    """The LC_UNIXTHREAD program counter of one header, or None."""
+    ncmds, = struct.unpack_from('<I', data, at + 16)
+    pos = at + 32
+    for _ in range(ncmds):
+        cmd, size = struct.unpack_from('<II', data, pos)
+        if cmd == UNIXTHREAD_CMD and size >= 288:
+            return struct.unpack_from('<Q', data, pos + 272)[0]
+        pos += size
+    return None
+
+
 def loader_contract(path):
     """Check the collection against what the loader compares, not against taste.
 
@@ -128,23 +162,51 @@ def loader_contract(path):
     `com.apple.kernel` at 0x80000002 -- so the loader refused the image before
     the ADT or XNU ran. That is a defect in our collection, not in the loader,
     which is why this is a conformance check and not a relax-the-guard patch.
+
+    Three more clauses come from the same function: the indexed header must sit
+    at the VA its entry advertises, the member's entry PC must equal the
+    collection's, and every member segment must be covered by a parent segment
+    with matching protection and the file-offset relation
+    `child.fileoff == parent.fileoff + child.address - parent.address`. Those
+    are checked here too, because a loader that accepts the header and then maps
+    the wrong segments fails later and looks like a kernel bug.
+
+    Note what the fourth clause does *not* establish: Apple's own 24A446
+    kernelcache fails it (`com.apple.kernel` entry 0xffffffe00eb1c000 against the
+    collection's 0xfffffff00b42c000), while our stamped collection passes it.
+    So entry equality is this loader's own stricter rule, not an Apple
+    invariant, and the gate checks the rule our loader implements -- which is
+    the rule that decides whether *our* image boots.
     """
     data = path.read_bytes()
     _, _, outer_subtype, filetype, ncmds, _, _, _ = struct.unpack_from('<8I', data, 0)
     if filetype != MH_FILESET:
         return {'conformant': True, 'violations': [], 'note': 'MH_EXECUTE, no children to compare'}
     pos, violations, entries = 32, [], 0
+    outer_segments = segments(data, 0)
+    outer_entry = entry_pc(data, 0)
     for _ in range(ncmds):
         cmd, size = struct.unpack_from('<II', data, pos)
         if cmd == LC_FILESET_ENTRY:
+            entry_vmaddr, fileoff = struct.unpack_from('<QQ', data, pos + 8)
             entry_id, = struct.unpack_from('<I', data, pos + 24)
             name_at = pos + entry_id
             name = data[name_at:data.index(b'\0', name_at)].decode('utf-8', 'replace')
-            fileoff, = struct.unpack_from('<Q', data, pos + 16)
             entries += 1
             child_subtype, = struct.unpack_from('<I', data, fileoff + 8)
             child_type, = struct.unpack_from('<I', data, fileoff + 12)
             child_flags, = struct.unpack_from('<I', data, fileoff + 24)
+            # Every indexed header must be loaded at the VA the entry claims, or
+            # XNU would map a header that is not where the entry says it is.
+            covered = any(
+                fileoff >= parent['fileoff']
+                and fileoff - parent['fileoff'] <= parent['filesize']
+                and 32 <= parent['filesize'] - (fileoff - parent['fileoff'])
+                and entry_vmaddr == parent['address'] + fileoff - parent['fileoff']
+                for parent in outer_segments)
+            if not covered:
+                violations.append(f'{name}: header 0x{fileoff:x} is not covered by any '
+                                  f'parent segment at 0x{entry_vmaddr:x}')
             if name == 'com.apple.kernel':
                 if child_type != MH_EXECUTE:
                     violations.append(f'{name}: filetype {child_type}, not MH_EXECUTE')
@@ -154,6 +216,27 @@ def loader_contract(path):
                         f'collection {outer_subtype:#010x}')
                 if not child_flags & MH_DYLIB_IN_CACHE:
                     violations.append(f'{name}: MH_DYLIB_IN_CACHE is not set')
+                member_entry = entry_pc(data, fileoff)
+                if member_entry != outer_entry:
+                    violations.append(
+                        f'{name}: entry {member_entry if member_entry is None else hex(member_entry)}'
+                        f' does not equal the collection entry '
+                        f'{outer_entry if outer_entry is None else hex(outer_entry)}')
+                for child in segments(data, fileoff):
+                    if not any(
+                            child['address'] >= parent['address']
+                            and child['address'] - parent['address'] <= parent['size']
+                            and child['size'] <= parent['size'] - (child['address'] - parent['address'])
+                            and (child['protection'] & ~parent['protection']) == 0
+                            and (child['filesize'] == 0
+                                 or (child['address'] - parent['address'] <= parent['filesize']
+                                     and child['filesize'] <= parent['filesize'] - (
+                                         child['address'] - parent['address'])
+                                     and child['fileoff'] == parent['fileoff'] + child['address']
+                                     - parent['address']))
+                            for parent in outer_segments):
+                        violations.append(f'{name}: segment 0x{child["address"]:x}'
+                                          f'+0x{child["size"]:x} is not covered by a parent')
         pos += size
     note = (f'{entries} entries, collection cpusubtype {outer_subtype:#010x}, '
             f'{len(violations)} loader violation(s)')

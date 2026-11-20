@@ -57,34 +57,66 @@ def macho_header(filetype, subtype=CPU_SUBTYPE_ARM64E, flags=0x200001,
                        len(commands), len(blob), flags, 0) + blob + names
 
 
+PARENT_VA = 0x100000000
+CHILD_BODY = 32 + 72 + 288     # header, one LC_SEGMENT_64, one LC_UNIXTHREAD
+ENTRY_PC = PARENT_VA + 0x100
+
+
+def segment_command(address, size, fileoff, filesize, protection=7):
+    name = b'__PRELINK_TEXT'.ljust(16, b'\0')
+    return struct.pack('<II16sQQQQIIII', 0x19, 72, name, address, size, fileoff, filesize,
+                       protection, protection, 0, 0)
+
+
+def unixthread_command(pc):
+    # arm_thread_state64 is 34 registers; the PC is the 33rd, at offset 272.
+    body = struct.pack('<II', 6, 68) + struct.pack('<34Q', *([0] * 32), pc, 0)
+    assert len(body) + 8 == 288
+    return struct.pack('<II', 5, 288) + body
+
+
 def fileset_collection(outer_subtype=0xc0000002, child_subtype=0xc0000002,
                        child_flags=0x80200001, child_type=MH_EXECUTE, entries=2):
-    """A collection shaped like Apple's: header, N entries, then N child headers.
+    """A collection shaped like Apple's, loader rule included.
 
-    The loader compares three fields of the `com.apple.kernel` child against the
-    outer header, so the fixture has to carry real child headers at real file
-    offsets -- a self-referencing entry would silently test nothing.
+    The loader does not only compare three fields of `com.apple.kernel`: it also
+    requires every indexed header to sit at the VA its entry advertises (covered
+    by a parent segment), the member's entry PC to equal the collection's, and
+    every member segment to be covered by a parent segment with the same
+    file-offset relation. A fixture without a real parent segment would test
+    only the three fields while the gate checks six things, so this builds the
+    whole shape: one parent segment, N entries, N child headers (each with its
+    own segment and thread), and a shared entry PC.
     """
     names = [b'com.apple.kernel'] + [f'entry{i}'.encode() for i in range(1, entries)]
     name_blob = b''.join(name + b'\0' for name in names)
-    commands = 32 * len(names)
+    commands = 72 + 32 * len(names) + 288
     names_at = 32 + commands
-    children_at = [names_at + len(name_blob) + 32 * i for i in range(len(names))]
-    body = b''
+    children_at = [names_at + len(name_blob) + CHILD_BODY * i for i in range(len(names))]
+    total = children_at[-1] + CHILD_BODY
+
+    body = segment_command(PARENT_VA, total + 0x1000, 0, total)
     prefix = 0
     for index, name in enumerate(names):
-        entry_id = names_at + prefix - (32 + 32 * index)
-        body += struct.pack('<IIQQII', LC_FILESET_ENTRY, 32, 0, children_at[index], entry_id, 0)
+        entry_id = names_at + prefix - (32 + 72 + 32 * index)
+        body += struct.pack('<IIQQII', LC_FILESET_ENTRY, 32, PARENT_VA + children_at[index],
+                            children_at[index], entry_id, 0)
         prefix += len(name) + 1
+    body += unixthread_command(ENTRY_PC)
+
     header = struct.pack('<8I', MH_MAGIC_64, CPU_TYPE_ARM64, outer_subtype, MH_FILESET,
-                         len(names), commands, 0, 0)
+                         len(names) + 2, commands, 0, 0)
     children = b''
     for index in range(len(names)):
         same_child = index == 0
-        children += struct.pack('<8I', MH_MAGIC_64, CPU_TYPE_ARM64,
-                                child_subtype if same_child else outer_subtype,
-                                child_type if same_child else 11,
-                                0, 0, child_flags if same_child else 0x80200001, 0)
+        child_header = struct.pack('<8I', MH_MAGIC_64, CPU_TYPE_ARM64,
+                                   child_subtype if same_child else outer_subtype,
+                                   child_type if same_child else 11,
+                                   2, CHILD_BODY, child_flags if same_child else 0x80200001, 0)
+        children += (child_header
+                     + segment_command(PARENT_VA + children_at[index], 0x1000,
+                                       children_at[index], 0x100, protection=5)
+                     + unixthread_command(ENTRY_PC))
     return header + body + name_blob + children
 
 

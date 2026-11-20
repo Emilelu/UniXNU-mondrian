@@ -1,0 +1,26 @@
+# Pitfall number allocation
+
+Three lanes claimed `P-283` on 2026-11-20 (wifi registered it in its own
+`RULES.toml`, cellular and audio wrote it into their documents). None of them
+could see the others: each works in its own worktree and `scripts/next-pitfall-id.py`
+reads only `origin/main` of *that* worktree, where the largest number is still
+`P-282`. That is a coordination gap, not a lane error, so from now on the Lead
+allocates numbers in this file and the lanes read it before writing one.
+
+| id | owner | subject |
+| --- | --- | --- |
+| P-281 | lead | a counter is named after what it is summed from |
+| P-282 | lead | a label the toolchain cannot emit is not the loader's fault |
+| P-283 | wifi | an archive that passes arch/provenance can still be a stub container |
+| P-284 | cellular | a preflight that must stay pending cannot borrow the flight ledger's verdict |
+| P-285 | audio | a bare `void *` across an io boundary compiles and links; only a type pair does not |
+
+Rules:
+
+1. Ask for the number in the message you report to the Lead; do not take one from
+   `next-pitfall-id.py` while `main`'s maximum is behind another lane's work.
+2. The number is reserved here first, then landed in `RULES.toml` and
+   `PITFALLS.md` by whoever owns the lane, on the lane's own branch.
+3. This file is the only place that records a reservation; a number that appears
+   nowhere here is not allocated, and `scripts/check-pitfall-numbers.py` treats a
+   duplicate as a failure.

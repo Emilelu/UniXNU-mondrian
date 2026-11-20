@@ -1437,3 +1437,59 @@ readback, refusals, wrap`。
 `verify-27-line.sh` 在克隆里对**装进补丁的**源做 `-fsyntax-only`（判据是「补丁集里的文本能编译」）；
 `run-host-tests.sh` 在**本检出**上跑全部测试与自测（判据是「这些行为还对」）。两者不重叠：前者防 P-269
 那种「只加文件的补丁」，后者防行为回归。
+
+## 37. 参考源补上内核层：sheng 的 17 条逐条裁决（2026-11-20 12:45）
+
+Lead 12:30 第 5 条与铁则 12 点名同一件事：内核层与驱动层的参考源必须包含 sheng，而且不许只写「参考过」。
+全文放在 `docs/research/cellular/21-SHENG-REFERENCE.md`，这里只记结论与它对本线的三处改动。
+
+### 37.1 测到的坐标
+
+`UniXNU-sheng` HEAD `a68ee4e`，`board.toml:9` 的 `os_profile = "ipados-27.0.1-24A446"`——与我们**同一个
+OS profile**。它的 `patches/xnu-12377/series` 是 **18 行、17 条补丁**（第 1 行是注释），此前记的「0 条」与
+「18 条补丁」都不准。
+
+### 37.2 17 条的裁决分布
+
+对**我们的 27 种子树**（`.cache/xnu-work`，git `ac9718f`）跑 `git apply --check`：**12 条 ok、5 条 reject**。
+reject 的五条是 `zzzz-sheng-ipados27-bringup.patch`（`bsd_init.c:800`）、`sheng-bluetooth-runtime.patch`
+（`kern_exec.c:8711`）、`sheng-cache-input-diagnostic.patch`（`exception.c:1064`）、
+`sheng-bluetooth-exit-diagnostic.patch`（`kern_exit.c:1650`）、`sheng-appsync-runtime.patch`
+（`kern_exec.c:8727`）——除 bringup 外都是 16 线 addon 段在 27 上还没落造成的上下文漂移，不是语义冲突。
+
+裁决：**picked 0 条、deferred 2 条、not-applicable 15 条**。deferred 的两条是
+`zzzz-sheng-ipados27-bringup.patch` 里的 `sheng_sigp_recover`（配 `zzzzzzzzzz-sheng-sigp-reinit-assert.patch`
+成对）与 `T0SZ_USER != T0SZ_BOOT`。
+
+### 37.3 为什么 sigp 那条不进 F3 的读通路判据
+
+`sheng_sigp_recover()` 的注释说的是「I/O 线程发给某个核的唤醒 IPI 被静默丢掉」，前提是**读要等另一个核
+被唤醒**。我们的读不等：`k60_modem_probe_from_handoff()`（`K60ModemBoot.c:178`）在
+`native_owner_data_prepare()` 的 exec 线程上下文里同步跑四分钟轮询，`hostRead4k` →
+`hostScsi(..., 1000000)`（`RootCommands.h:274-300`）刷命令等完成，不靠中断也不靠工作环。
+
+仍然存在的是同根因的第二个面：目标核 `SIGPdisabled` 未清时 `cpu_signal_internal`（`cpu_common.c:441`）
+返回 `KERN_FAILURE`，pmap 侧调用点多数只记 rc 不中止 ⇒ TLB/DCache 维护被静默跳过。所以 deferred 的触发条件
+写成三条可观测项（跨核超时 panic、同镜像重飞才一致的 EFS 字节、间歇 `refused` + `smp2p stop released` 按时出现），
+而不是「以后可能有用」。
+
+### 37.4 T0SZ_USER：逐字搬是 no-op（P-270）
+
+定义那一行的门是 `#if defined(BCM2837) && !defined(__ARM_16K_PG__) && defined(__arm64e__)`，`#else` 是
+`#define T0SZ_USER T0SZ_BOOT`。我们的板没有 BCM2837 ⇒ `T0SZ_USER == T0SZ_BOOT` ⇒
+`#if T0SZ_USER != T0SZ_BOOT` 包住的 `TCR_EL1_KVA_ENTRY`、`arm_init` 的 `set_tcr`、`start.s` 的
+`MSR_TCR_EL1_X1` 三处全部被预处理器丢掉。**能 apply、能编译、行为一点不变。**
+
+我们自己的数：4 KiB（`__ARM_16K_PG__` 未定义）⇒ `T0SZ_BOOT` 是 25 或 26 ⇒
+`pmap_pt_attr_4k.pta_root_level = (T0SZ_BOOT - 16) / 9 = 1`（`pmap.c:282-284`）⇒ 用户 VA 38/39 位。
+sheng 的注释说 arm64e 用户态期望 PAC 落在 46 位以上（libobjc 用 43 位掩码剥 isa）——`pta_root_level = 0` 才是 47 位，
+会连带改 `pt_attr_twig_offmask` 与 commpage 层级。**决定权在 Lead**：要让这段生效必须有意去掉 BCM2837 门，
+那是改语义不是移植；而 F1 已在这套 4 KiB 基线上跑到 bsd_init，改用户 VA 宽度会让 F1 的结论作废。
+判据留在文档里：若 F1 停在 dyld 且用户地址全在 `0x1_0000_0000` 以下，就是这一条。
+
+### 37.5 三处落档
+
+- 新文档 `docs/research/cellular/21-SHENG-REFERENCE.md`（139 行，17 条表 + 两条重点 + 三条可借形状 + 边界）。
+- `docs/engineering/PITFALLS.md` 新增 **P-270**「逐字搬一段被平台宏门住的改动，等于什么都没搬」，
+  `RULES.toml` 登记（check 指向 21 号文档里的那句 `T0SZ_USER == T0SZ_BOOT`）。
+- 本文 §21.7 那句边界同样适用于 21 号文档：**`apply ok` 只说明文本能落盘，不说明编译过，更不说明构建树可用。**

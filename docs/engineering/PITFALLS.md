@@ -5191,3 +5191,24 @@ K60_HOST_TEST` 引 `<stdio.h>` 而不是 `pexpert/pexpert.h`），所以这条�
 教训：「补丁能 apply」只证明文本能落盘，不证明它能编译；一条只加文件的补丁尤其危险，因为它连链接期都进不去。
 
 套件本身也进了仓库：`scripts/run-host-tests.sh`（此前只在 `/mnt/e/k60-work/artifacts/`，`cd` 写死 16 线，27 线因此一次都没跑过），`K60 HOST PASS 30 suite(s), 2 skipped`。
+
+## P-270 — 逐字搬一段被平台宏门住的改动，等于什么都没搬
+
+sheng 的 `zzzz-sheng-ipados27-bringup.patch` 里有整套 `T0SZ_USER` 机制：`proc_reg.h` 的
+`#define T0SZ_USER 17ULL`、`TCR_EPD0_DISABLE`、`TCR_EL1_KVA_ENTRY`，`arm_init.c` 的 `set_tcr(...)`，
+`start.s` 的 `MSR_TCR_EL1_X1`，以及 `pmap_pt_attr_4k_user` 与 `pmap_user_va_bits`。看起来正是我们
+arm64e + 4 KiB 该要的东西——我们 `pta_root_level = (T0SZ_BOOT - 16) / 9 = 1`，用户 VA 只有 38/39 位。
+
+但定义那一行的门是 `#if defined(BCM2837) && !defined(__ARM_16K_PG__) && defined(__arm64e__)`，`#else` 是
+`#define T0SZ_USER T0SZ_BOOT`。BCM2837 是 sheng 的虚拟平台，我们的板没有这个宏 ⇒ `T0SZ_USER == T0SZ_BOOT`
+⇒ `#if T0SZ_USER != T0SZ_BOOT` 包住的三处全部被预处理器丢掉。**整段复制过来能编译、能 apply、行为一点不变。**
+
+这类改动比搬错更难发现：它不会失败，不会报错，只会让人以为已经处理过。判据不在补丁正文里，在**门**上——
+搬任何一段带 `#if defined(<平台宏>)` 的代码之前，先 grep 自己树里那个宏有没有定义。
+
+同一条也解释了为什么「参考过 sheng」不算参考：17 条补丁里有 12 条能 apply 到我们的 27 种子树，但其中真正
+影响行为的只有那些门在我们树上成立的部分。
+
+对照表在 `docs/research/cellular/21-SHENG-REFERENCE.md` §21.4。真要生效必须**有意去掉 BCM2837 门**，
+那是改语义、不是移植，得由 Lead 裁决。
+

@@ -714,3 +714,12 @@ source = "docs/engineering/PITFALLS.md:P-269"
 statement = "补丁能 apply 只证明文本能落盘；只加文件的补丁必须让宿主编译器看一遍，否则语法错误可以活一整天。"
 check = "grep -q 'every installed source parses on the host' scripts/verify-27-line.sh"
 note = "2026-11-20 0628 的弱定义诊断多了一对引号和一个裸反斜杠，一行 stray backslash 进了仓库，直到用 16 线的宿主编译器跑一遍才暴露。"
+
+[[rule]]
+id = "P-270"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-270"
+statement = "搬一段带 #if defined(<平台宏>) 的参考代码之前先确认自己树里那个宏存在；否则搬过来是 no-op，比搬错更难发现。"
+check = "grep -q 'T0SZ_USER == T0SZ_BOOT' docs/research/cellular/21-SHENG-REFERENCE.md"
+note = "2026-11-20 sheng 的 T0SZ_USER 整套被 defined(BCM2837) 门住，逐字搬到 mondrian 上编译能过、行为一点不变。"
+

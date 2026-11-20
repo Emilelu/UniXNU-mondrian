@@ -7436,10 +7436,47 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
    锚点什么都不打印必须拒；判读器没有该正则必须拒；锚点被删掉仍匹配必须拒；
    `--root` 在别的检出上必须给同一个判决（本仓绿、空树 rc 2）。
 4. 挂在 `scripts/tests/run-k60-power-host.sh` 的 `run_py console-contract` 上，
-   `power-python: OK (15 suites)`；bundle 的 `EXTRA` 带上检查器和它的用例，
+    `power-python: OK`（套件总数以 00-POWER-PAGE-CONFORMANCE.md 为准）；bundle 的 `EXTRA` 带上检查器和它的用例，
    RULES 的 P-259 检查链末尾追加这条，避免它只在本仓绿。
 5. 同一个阈值窗口被两个判读器各写一份、再被判据文档写第三份时，三份都要被一处可执行检查读：`scripts/check-judge-thresholds.py` 同时载入 `judge-battery.py` 与 `judge-k60-battery-mirror.py`，要求四个容差相等、每个都被真正读取（定义了没人用等于死常量），并要求判据文档里出现由代码渲染出来的那句话（`±60 mV / ±150 mA / ±3 pp / ±3 °C`）。漂移的方向最坏：镜像判读器保留旧窗口，同一对样本一个判读器放过、另一个不放。
 
 6. `coverage_problems()` 把判读器里**还没配对**的正则也变成红：判读器新增一条正则而没人写产出方，等于一条永远不会匹配的判读标准。例外只能写在 `EXEMPT` 里并给出理由（安卓 dmesg、stock xnu 的固定文案、`vprintf` 透传的运行时格式串、系统 userland 输出），理由为空与没写例外同罪，例外指向的属性消失也要报「已不存在」——否则豁免会一直挂着保护一个已经不存在的对象（P-179 的形状）。
+## P-262 — 判读器的退出码也是判据的一部分，而 argparse 的 2 和 INVALID 撞车
+
+**症状**：2026-11-20 想把五个判读器的退出码写成一张表时，发现这张表只在文档里成立。
+`judge-battery.py`、`judge-k60-handoff-console.py`、`judge-k60-mode1-console.py`、
+`judge-k60-sleep-console.py`、`judge-k60-battery-mirror.py` 的 docstring 都写着
+「0 PASS / 1 FAIL / 2 INVALID / 4 usage error」，但两处对不上：`argparse` 对坏参数默认
+`sys.exit(2)`——正是 INVALID；而 console 路径不存在时，`judge-battery.py` 与
+`judge-k60-mode1-console.py` 返 4（usage），另外三个返 2（INVALID）。于是同一条命令打错一个字母，
+自动化以为「没证据」；同一台设备没抓到日志，两个判读器说「你命令打错了」、三个说「没证据」，
+而这两件事的下一步动作完全不同：一个是改参数重跑，一个是重飞。
+
+**真因**：退出码被当成实现细节写进 docstring，而它是自动化唯一的接口。`argparse` 的约定
+（2 = 命令行用法错误）与本项目（2 = INVALID）同码不同义，默认行为于是把两类事实压成同一个数字；
+每个判读器又各自决定「输入不存在」算哪一类，五个文件因此有三种读法。
+
+**判据**：判读器的每个整数出口都必须能被一处检查读出来，并且只有一张表：
+0 PASS / 1 FAIL / 2 INVALID（含输入不存在）/ 4 usage error（永不是判据）。
+一张表的意思是可执行地成立，不是五份 docstring 都这么写。
+
+**修法**：
+
+1. 五个判读器改用本地的 `class _ArgumentParser(argparse.ArgumentParser)`，
+   `error()` 打印用法后抛 `SystemExit(4)`——把 argparse 的默认 2 让出来给 INVALID。
+2. 输入不存在统一返 2（INVALID）并在 stderr 写明 `INVALID, not a usage error`；
+   这一条原来是纪律，现在由检查按真实调用验证。
+3. `scripts/check-judge-exit-codes.py` 双向读：静态用 `ast` 收集模块里所有整数出口
+   （`return N`、`raise SystemExit(N)`、`sys.exit(N)`），要求 docstring 的 Exit 行把每个都写上、
+   且不写没出现过的码（0/1 经判决变量到达，允许隐含）；动态两次调用——坏参数必须 4、
+   不存在的输入必须 2。12 项用例在 `scripts/tests/test-check-judge-exit-codes.py`。
+4. 判读器自己的套件里有两处旧期望（「missing log exits 4」「no arguments exit 2」），
+   同批改成新口径；判读器改动后 `scripts/check-power-carry.py --update` 刷新 CARRY.toml 的
+   四个判读器哈希，否则 `check-power-carry.py` 报「manifest says …, the tree has …」。
+5. 挂在 runner 的 `run_py judge-exit-codes`、bundle 的 `EXTRA` 和 RULES 的 P-259 检查链上，
+   免得它只在本仓成立。
+
+**教训**：判据的表达方式不只有判据行，还有退出码、stderr 用词和「这一步红代表重飞还是重跑」。
+一个数字被两种含义共用时，读的人只会看到自己期待的那一种。
 **教训**：一个判读器读的不是设备，是**另一个文件里的字符串**。只要这份字符串有两份拷贝，
 就必须有一处同时读两边的检查——否则最坏的情况不是判读器报错，而是它对正确的设备报错。

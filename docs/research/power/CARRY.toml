@@ -104,27 +104,27 @@ files = [
 [[judge]]
 name = "judge-k60-handoff-console"
 path = "scripts/judge-k60-handoff-console.py"
-sha256 = "788b8ac912f6ee5eff2812a190db1ee260860e40ec1854f49501001ad586f9d5"
+sha256 = "7340e6a77f61b76a2e83b27d9e0dcf404ba76e729f1e48a98ddf76033725f2cb"
 test = "scripts/tests/test-judge-k60-handoff-console.py"
 cases = 33
 
 [[judge]]
 name = "judge-k60-sleep-console"
 path = "scripts/judge-k60-sleep-console.py"
-sha256 = "722613d6756aa8008c6eb2e412c9ce23dc014ad598bc8b7c12f7a8f32b8894e0"
+sha256 = "6185aac66e23d5bab371613b20dd7e96453f7d40afa3f54f60f6c85bffbe22b0"
 test = "scripts/tests/test-judge-k60-sleep-console.py"
 cases = 28
 
 [[judge]]
 name = "judge-k60-mode1-console"
 path = "scripts/judge-k60-mode1-console.py"
-sha256 = "18a2c91a3d72d7d4716b0a9746fe710d2c61eb4cf237dc29cc0a1ffee50d507c"
+sha256 = "555ec2800d817b20d871a9764ff66d2b4043ff76da4e34da73922decd01e87c6"
 test = "scripts/tests/test-judge-k60-mode1-console.py"
 cases = 14
 
 [[judge]]
 name = "judge-k60-battery-mirror"
 path = "scripts/judge-k60-battery-mirror.py"
-sha256 = "d2a9aa0a437de2e1eafc65ffaf8641b5d1ba12110e5782f72d6a9c4e06b9edb5"
+sha256 = "6f2e4471d048495374d0e2fe8dd312767e21240c9c988bc07da8098161f35265"
 test = "scripts/tests/test-judge-k60-battery-mirror.py"
 cases = 21

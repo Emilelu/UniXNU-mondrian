@@ -31,6 +31,7 @@ Usage: python3 scripts/check-readme.py   (exit 0 = consistent)
 import importlib.util
 import io
 import os
+import argparse
 import re
 import sys
 from datetime import date
@@ -120,29 +121,50 @@ def _range_claim(text, prefix_re, label):
     return int(m.group(1)) if m else None
 
 
-def check_ranges():
-    """The ★1-★N / P-01-P-M claims equal the real highest headings."""
+def check_ranges(fix=False):
+    """The ★1-★N / P-01-P-M claims equal the real highest headings.
+
+    With fix=True the claim is rewritten instead of reported: the numbers are
+    owned by HARD-RULES.md and PITFALLS.md, and a human retyping them is what
+    P-259 was about.
+    """
     problems = []
     if not (README.exists() and HARD_RULES.exists() and PITFALLS.exists()):
         return problems
-    zh, en = read(README), read(README_EN)
     star_re = re.compile(r'^## ★(\d+)', re.M)
     pit_re = re.compile(r'^## P-(\d+)', re.M)
     actual_star = _max_heading(read(HARD_RULES), star_re)
     actual_pit = _max_heading(read(PITFALLS), pit_re)
+    texts = {'README.md': read(README), 'README_EN.md': read(README_EN)}
     claims = [
-        ('README.md', zh, r'铁则 ★1–★(\d+)', actual_star, 'HARD-RULES'),
-        ('README.md', zh, r'坑记录 P-01–P-(\d+)', actual_pit, 'PITFALLS'),
-        ('README_EN.md', en, r'Hard rules ★1–★(\d+)', actual_star, 'HARD-RULES'),
-        ('README_EN.md', en, r'Pitfall log P-01–P-(\d+)', actual_pit, 'PITFALLS'),
+        ('README.md', r'铁则 ★1–★(\d+)', actual_star, 'HARD-RULES'),
+        ('README.md', r'坑记录 P-01–P-(\d+)', actual_pit, 'PITFALLS'),
+        ('README_EN.md', r'Hard rules ★1–★(\d+)', actual_star, 'HARD-RULES'),
+        ('README_EN.md', r'Pitfall log P-01–P-(\d+)', actual_pit, 'PITFALLS'),
     ]
-    for fname, text, pat, actual, doc in claims:
-        claimed = _range_claim(text, re.compile(pat), doc)
-        if claimed is None:
+    fixed = False
+    for fname, pat, actual, doc in claims:
+        text = texts[fname]
+        m = re.compile(pat).search(text)
+        if m is None:
             problems.append('%s 缺少 %s 的编号范围声明' % (fname, doc))
-        elif claimed != actual:
+            continue
+        if int(m.group(1)) == actual:
+            continue
+        replacement = m.group(0)[:m.start(1) - m.start(0)] + str(actual)
+        if fix:
+            texts[fname] = text[:m.start(0)] + replacement + text[m.end(0):]
+            print('fixed %s: %s -> %s (%s.md 实际最大号 %s)'
+                  % (fname, m.group(0), replacement, doc, actual))
+            fixed = True
+        else:
             problems.append('%s 声明 %s，但 %s.md 实际最大号是 %s'
-                            % (fname, re.search(pat, text).group(0), doc, actual))
+                            % (fname, m.group(0), doc, actual))
+    if fix and fixed:
+        for fname, text in texts.items():
+            path = REPO / fname
+            if path.read_text() != text:
+                path.write_text(text)
     return problems
 
 
@@ -223,7 +245,7 @@ def check_eight_step_table():
     return problems
 
 
-def run_checks(repo=None):
+def run_checks(repo=None, fix=False):
     global REPO, README, README_EN, STATUS, HARD_RULES, PITFALLS, BUILD_STRICT, EIGHT_STEPS
     if repo is not None:
         REPO = Path(repo)
@@ -237,14 +259,20 @@ def run_checks(repo=None):
     problems = []
     problems += check_links()
     problems += check_dates()
-    problems += check_ranges()
+    problems += check_ranges(fix=fix)
     problems += check_gate_table()
     problems += check_eight_step_table()
     return problems
 
 
 def main():
-    problems = run_checks()
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument('--fix', action='store_true',
+                    help='rewrite the ★/P range claims from the actual headings')
+    ap.add_argument('--repo', help='repository root (default: the one holding this script)')
+    args = ap.parse_args()
+    run_checks(repo=args.repo, fix=args.fix)
+    problems = run_checks(repo=args.repo)
     if problems:
         for p in problems:
             print('❌ %s' % p)

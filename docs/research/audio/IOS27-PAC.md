@@ -1,14 +1,14 @@
 # iOS 27 的 PAC 对音频接缝的影响
 
 这份笔记只回答两件事：PAC 打开后，音频代码里哪些行为会变；sheng 的 addon-mount 补丁是不是要先有 PAC。
-结论先行，证据按「谁在做什么」列在后面。它不含任何构建或上机读数，理由见最后一节。
+结论先行，证据按「谁在做什么」列在后面。它不含任何上机读数；字节层对照只在本机离线编译，边界见最后一节。
 
 ## 结论
 
 - 音频代码在 PAC 下没有新的硬件准入要求。它不执行 `smc`，不读写密钥寄存器，不做 `msr`/`mrs`/`tlbi`，也不把指针值写进设备寄存器；它做的是 `ml_io_map()` 之后的 volatile MMIO 读写、`dsb sy`、`delay_for_interval()`、`PE_parse_boot_argn()` 和 `printf()`。
 - PAC 唯一会改写音频执行面的地方是四处 io 表和 0531 的弱符号调用点。io 表按类型拷贝，签名与验证成对；弱调用点在链接期生成 `$auth_ptr$ia` 存根，缺定义是链接错误，不是运行时认证失败。
 - 五组密钥可写、PACIA/AUTIA 不陷入，是**启动前置**：任一条不成立，内核到不了 `bsd_init`，音频行根本不会出现。所以「出现音频行」只能弱地说明这两条在已经走过的路径上成立，不能反推 PAC 整条链完整。
-- 这棵 27 树目前只换 `-arch arm64e`，没有编译器 ptrauth 插桩（全树 `fptrauth` 零命中），所以 PAC 现在影响的是启动期密钥与链接 ABI，而不是 C 代码里的指针签名。
+- 这棵 27 树在源码层只换 `-arch arm64e`、没有 `-fptrauth-*` 旗标（全树 `fptrauth` 零命中）；但 arm64e 目标本身会插桩。同一份源用 `--target=arm64-apple-ios27.0` 与 `--target=arm64e-apple-ios27.0` 各编一次，`PongAudioGeniI2c.o` 从 2808 B 变成 2856 B，`PongAudioAmp.o` 从 23512 B 变成 23560 B；Amp 在填 io 表时用 `paciza` 给两个函数指针签名，Geni 通过表调用时用 `blraaz`。所以 PAC 既影响启动期密钥与链接 ABI，也真的改写 C 代码里的指针槽。
 - sheng 的 `zzyd-sheng-audio-addon-mount.patch` 不依赖 PAC：它只传 proc、scratch、整数、字符串和两个 `volatile int` 的地址。它真正的依赖是 `native_gpu_addon_mount()` 与 addon2/addon3 链。
 
 ## 一、PAC 在这棵树上是怎么开的
@@ -93,11 +93,24 @@ native_gpu_addon_mount(p, scratch, 0xa00, audio_source, sizeof(audio_source),
 ## 六、复现（只读）
 
 ```sh
-grep -rn fptrauth <xnu-27-tree> | wc -l                     # 0：没有插桩旗标
+grep -rn fptrauth <xnu-27-tree> | wc -l                     # 0：源码层没有 -fptrauth 旗标；arm64e 目标仍会插桩，见上一节
 sed -n 373p <xnu-27-tree>/makedefs/MakeInc.def               # arm64e 只换 -arch
 grep -c 'smc\|msr\|mrs\|tlbi' drivers/PongAudio/PongAudioAmp.c drivers/PongAudio/PongAudioGeniI2c.c
 sed -n 40,110p UniXNU/patches/xnu-12377/native-pac-keys.patch       # 十词密钥与五组 msr
 ```
+
+### 字节层对照
+
+本机 Linux 上的 clang 24.0.0git 不接受 `-arch`（`unsupported option '-arch'`），所以两次编译用显式目标：`--target=arm64-apple-ios27.0` 与 `--target=arm64e-apple-ios27.0`。其余参数相同：`-ffreestanding -std=gnu11 -O2 -c -DXNU_PONG_AUDIO=1 -I scripts/tests/portability -I drivers/PongAudio`；`PongAudioAmp.c` 另加 `-isysroot /opt/k60/sdk/iPhoneOS16.5.sdk`。
+
+| 源 | arm64 | arm64e | arm64e 里的 ptrauth 指令 |
+| --- | --- | --- | --- |
+| `PongAudioGeniI2c.c` | 2808 B `a857bb61edd12d79b0c1099d4ea2305ba9b4e7c3c175fb4f0d51fc4eec61ad0c` | 2856 B `b3b3d28cd12bb5b8de76af666f65a52b604ee7633d065063d6da66edba418da7` | 62 条：8 `pacibsp`、45 `blraaz`、8 `retab`、1 `autibsp` |
+| `PongAudioAmp.c` | 23512 B `0ea7a51a4fe6d2f56d1844c5763f9354ae693a6dae806b7c0d990367b35386e3` | 23560 B `e83c822033cbc3d8ca342a8591db7c1164cd431dc0c6b9a2340b600e9da980d1` | 22 条：10 `pacibsp`、9 `retab`、1 `autibsp`、2 `paciza` |
+
+两个对象的符号名与类型集合相同，地址随代码增长而平移；重定位类型集合也相同（Geni 只有一条到 `_pong_geni_event` 的 `BR26`；Amp 是 235 条 `PAGOF12`、196 条 `PAGE21`、80 条 `ADDEND`、192 条 `BR26`），没有 `__AUTH` 段，也没有 authenticated-pointer 重定位。因此这里变的是**指令流与表里的签名指针值**，不是链接器插入的签名槽。
+
+具体到 io 表：`PongAudioAmp.c:511-512` 的 `io.read = se_rd; io.write = se_wr;` 在 arm64e 里编译成先 `paciza` 两条指针、再用 `fmov`/`mov.d` 写进栈上的 `PongGeniIo`；`PongAudioGeniI2c.c` 里通过 `io.read`/`io.write` 的调用从 `blr` 变成 `blraaz`。函数入口多出 `pacibsp`，正常返回改成 `retab`，尾调用前多一条 `autibsp` 和认证失败的 `eor`/`tbz`/`brk #0xc471` 检查。这些差异都能追到 ptrauth：源码层没有插桩旗标，arm64e 目标仍然签名返回地址与函数指针。
 
 ## 七、这两句现在由代码保证
 
@@ -112,5 +125,5 @@ sed -n 40,110p UniXNU/patches/xnu-12377/native-pac-keys.patch       # 十词密�
 
 - 没有实机证据：没有验证 EL1 真能写五组密钥、PACIA/AUTIA 真不陷入、SoC 的 FEAT_PAuth 真打开。这些只能在有串口的上机上区分；失败时内核到不了 `bsd_init`，音频行不会给出额外信息。
 - `native-pac-keys.patch` 只是被 profile 引用。它有没有应用到某次构建、那次构建有没有过，本文不判。
-- 音频源没有插桩，所以「插桩后仍然成立」是从类型形状推的，不是编出来的读数；真要确认，得等一条打开 `-fptrauth-calls` 的构建，那时本文 §五 的三条就是判据。
+- 上面的对象对照证明 arm64e 目标会签名返回地址、给 io 表指针做 `paciza`、把表调用变成 `blraaz`；它不证明这些签名在真内核里通过认证，也不证明 `-fptrauth-calls` 的全树判别一致。后者仍要等一条打开该旗标的构建，本文 §五 的三条是判据。
 - P-282 是同一类推理错误：产物里读不到某个标签，可能只是本地工具链发不出这个值。不要把「我们的产物看着没问题」当成消费方判错的证据；这里每一次「没有 `fptrauth`」也要先确认 clang 能表达那个旗标，再谈产物。

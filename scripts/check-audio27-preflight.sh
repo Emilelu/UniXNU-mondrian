@@ -24,7 +24,9 @@
 #      on disk (XNU27_REPO overrides the search), plus the 0531 patch regenerated from
 #      the same block and checked against its pinned digest, and - once the Lead books
 #      it in patches/xnu-12377 - the series copy against the same emitter
-#  16. the 27 driver hands over the hook and the per-object define, when a
+#  16. the 27 driver hands over the conf-files hook and the per-object define, and
+#      the framework still passes its whole environment through - one row each,
+#      because any of the three can break while the build stays green - when a
 #      k60-gates checkout is reachable (K60_GATES)
 #  17. - when XNU27_KERNEL names a built kernel or boot image - whether that product
 #      really carries the audio
@@ -59,6 +61,21 @@ run()
 	printf 'ok   %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)"
 }
 
+# A seam checker has three verdicts that are not failures: wired (0), waiting
+# (0 with "not wired yet"), and nothing to measure (3). The row keeps them apart,
+# so "the driver does not carry it yet" never reads as a green line about wiring.
+seam_row()
+{
+	name=$1
+	shift
+	out=$(python3 scripts/check-audio27-builder.py "$@" 2>&1)
+	rc=$?
+	case "$rc" in
+	0) printf 'ok   %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)" ;;
+	3) printf 'skip %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)" ;;
+	*) printf 'FAIL %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)"; fail=1 ;;
+	esac
+}
 run "migration list + pure C build" python3 scripts/check-audio-migration.py --compile
 run "glue vs six kernel symbols" sh scripts/tests/portability/run.sh
 run "driver macro really switches it" sh scripts/tests/portability/run-symbols.sh
@@ -131,10 +148,15 @@ if [ -z "$sheng" ]; then
 fi
 gates=${K60_GATES:-}
 if [ -n "$gates" ] && [ -f "$gates/scripts/build-ios27-linux.sh" ]; then
-	run "27 driver delivers the define" python3 scripts/check-audio27-builder.py --gates "$gates"
+	seam_row "27 driver takes the conf hook" --gates "$gates" --seam hook
+	seam_row "27 driver takes the define" --gates "$gates" --seam define
 else
-	printf 'skip %-34s no k60-gates checkout (set K60_GATES)'
+	printf 'skip %-34s no k60-gates checkout (set K60_GATES)\n' "27 driver takes the conf hook"
+	printf 'skip %-34s no k60-gates checkout (set K60_GATES)\n' "27 driver takes the define"
 fi
+# The framework seam does not depend on the driver, so it is measured even
+# when there is no k60-gates checkout to read.
+seam_row "framework passes env to builder" --seam framework
 if [ -n "$sheng" ] && [ -f "$sheng/scripts/check-audioreach-host.py" ]; then
 	out=$(cd "$sheng" && python3 scripts/check-audioreach-host.py 2>&1)
 	rc=$?

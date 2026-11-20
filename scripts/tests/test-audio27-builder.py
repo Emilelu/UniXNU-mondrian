@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Host cases for scripts/check-audio27-builder.py.
+"""Host cases for scripts/check-audio27-builder.py, one per seam verdict.
 
-Each case writes a small k60-gates-shaped tree and a framework-shaped tree,
-then asks the checker what it sees. The point is that every failure this
-checker can report is reproduced here: a claim without a case is a claim that
-will rot the first time the driver changes shape.
+Every verdict this checker can print is reproduced here, because a claim
+without a case is a claim that rots the first time the driver changes shape.
 """
 
 import pathlib
@@ -31,54 +29,63 @@ FRAMEWORK = chr(10).join([
     "",
 ])
 
-
-def tree(root, driver=DRIVER, framework=FRAMEWORK):
-    gates = root / "gates"
-    (gates / "scripts").mkdir(parents=True, exist_ok=True)
-    (gates / "scripts" / "build-ios27-linux.sh").write_text(driver, encoding="utf-8")
-    unixnu = root / "UniXNU"
-    (unixnu / "scripts" / "unixnu").mkdir(parents=True, exist_ok=True)
-    (unixnu / "scripts" / "unixnu" / "kernel.py").write_text(framework, encoding="utf-8")
-    return gates, unixnu
-
-
-def call(gates, unixnu):
-    done = subprocess.run([sys.executable, str(CHECKER), "--gates", str(gates), "--unixnu", str(unixnu)],
-                          capture_output=True, text=True)
-    return done.returncode, done.stdout + done.stderr
-
-
 WIRED = DRIVER.replace(
     "python3 ./unixnu build kernel",
     "env \"K60_CONF_FILES_HOOK=$ROOT/scripts/k60-conf-files-hook.py\" "
     "\"PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1\" python3 ./unixnu build kernel")
 
 
+def tree(root, driver=DRIVER, framework=FRAMEWORK, unixnu=True):
+    gates = root / "gates"
+    (gates / "scripts").mkdir(parents=True, exist_ok=True)
+    (gates / "scripts" / "build-ios27-linux.sh").write_text(driver, encoding="utf-8")
+    framework_root = root / "UniXNU"
+    if unixnu:
+        (framework_root / "scripts" / "unixnu").mkdir(parents=True, exist_ok=True)
+        (framework_root / "scripts" / "unixnu" / "kernel.py").write_text(framework, encoding="utf-8")
+    return gates, framework_root
+
+
+def call(gates, framework_root, seam):
+    done = subprocess.run([sys.executable, str(CHECKER), "--gates", str(gates),
+                           "--unixnu", str(framework_root), "--seam", seam],
+                          capture_output=True, text=True)
+    return done.returncode, (done.stdout + done.stderr).strip()
+
+
 def case_not_wired():
     with tempfile.TemporaryDirectory() as tmp:
-        gates, unixnu = tree(pathlib.Path(tmp))
-        code, out = call(gates, unixnu)
-        assert code == 0, out
-        assert "not wired yet" in out, out
-        assert "compiles in and never runs" in out, out
+        gates, framework_root = tree(pathlib.Path(tmp))
+        code, out = call(gates, framework_root, "hook")
+        assert code == 0 and "not wired yet" in out and "never names" in out, out
+        code, out = call(gates, framework_root, "define")
+        assert code == 0 and "compiles to nothing" in out, out
+        code, out = call(gates, framework_root, "framework")
+        assert code == 0 and "hands dict(os.environ)" in out, out
 
 
 def case_wired():
     with tempfile.TemporaryDirectory() as tmp:
-        gates, unixnu = tree(pathlib.Path(tmp), driver=WIRED)
-        code, out = call(gates, unixnu)
-        assert code == 0, out
-        assert "BUILDER OK" in out, out
-        assert "kernel.py:2" in out, out
+        gates, framework_root = tree(pathlib.Path(tmp), driver=WIRED)
+        for seam, needle in ((("hook"), "takes K60_CONF_FILES_HOOK"),
+                             (("define"), "in the env prefix"),
+                             (("framework"), "kernel.py:2")):
+            code, out = call(gates, framework_root, seam)
+            assert code == 0 and "BUILDER OK" in out and needle in out, (seam, out)
 
 
-def case_hook_missing():
+def case_hook_dropped():
     with tempfile.TemporaryDirectory() as tmp:
         broken = WIRED.replace("\"K60_CONF_FILES_HOOK=$ROOT/scripts/k60-conf-files-hook.py\" ", "")
-        gates, unixnu = tree(pathlib.Path(tmp), driver=broken)
-        code, out = call(gates, unixnu)
+        gates, framework_root = tree(pathlib.Path(tmp), driver=broken)
+        code, out = call(gates, framework_root, "hook")
+        assert code == 0, out  # the driver stopped naming it at all: waiting, not failing
+        comment = WIRED.replace("python3 ./unixnu build kernel",
+                                "# K60_CONF_FILES_HOOK is wired below" + chr(10) + "python3 ./unixnu build kernel")
+        gates, framework_root = tree(pathlib.Path(tmp) / "again", driver=comment)
+        code, out = call(gates, framework_root, "hook")
         assert code == 1, out
-        assert "without K60_CONF_FILES_HOOK" in out, out
+        assert "elsewhere" in out, out
 
 
 def case_define_exported_by_dash():
@@ -89,31 +96,37 @@ def case_define_exported_by_dash():
             "env \"K60_CONF_FILES_HOOK=$ROOT/scripts/k60-conf-files-hook.py\" ")
         broken = broken.replace("cd \"$ROOT/../UniXNU\"",
                                 "export PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" + chr(10) + "cd \"$ROOT/../UniXNU\"")
-        gates, unixnu = tree(pathlib.Path(tmp), driver=broken)
-        code, out = call(gates, unixnu)
+        gates, framework_root = tree(pathlib.Path(tmp), driver=broken)
+        code, out = call(gates, framework_root, "define")
         assert code == 1, out
-        assert "without PongAudioAmp.o_CFLAGS_ADD" in out, out
+        assert "dash" in out, out
 
 
 def case_framework_replaces_environment():
     with tempfile.TemporaryDirectory() as tmp:
         narrow = FRAMEWORK.replace("env = dict(os.environ)", "env = {}")
-        gates, unixnu = tree(pathlib.Path(tmp), driver=WIRED, framework=narrow)
-        code, out = call(gates, unixnu)
-        assert code == 1, out
-        assert "no longer starts from" in out, out
+        gates, framework_root = tree(pathlib.Path(tmp), driver=WIRED, framework=narrow)
+        code, out = call(gates, framework_root, "framework")
+        assert code == 1 and "no longer starts from" in out, out
+
+
+def case_framework_absent():
+    with tempfile.TemporaryDirectory() as tmp:
+        gates, framework_root = tree(pathlib.Path(tmp), driver=WIRED, unixnu=False)
+        code, out = call(gates, framework_root, "framework")
+        assert code == 3 and "no framework checkout" in out, out
 
 
 def case_no_gates():
     with tempfile.TemporaryDirectory() as tmp:
-        code, out = call(pathlib.Path(tmp) / "absent", pathlib.Path(tmp) / "UniXNU")
-        assert code == 3, out
-        assert "no build driver" in out, out
+        for seam in ("hook", "define"):
+            code, out = call(pathlib.Path(tmp) / "absent", pathlib.Path(tmp) / "UniXNU", seam)
+            assert code == 3 and "no build driver" in out, (seam, out)
 
 
 def main():
-    cases = [case_not_wired, case_wired, case_hook_missing, case_define_exported_by_dash,
-             case_framework_replaces_environment, case_no_gates]
+    cases = [case_not_wired, case_wired, case_hook_dropped, case_define_exported_by_dash,
+             case_framework_replaces_environment, case_framework_absent, case_no_gates]
     for case in cases:
         case()
     print("TESTS OK %d cases" % len(cases))

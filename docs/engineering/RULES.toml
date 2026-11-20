@@ -336,6 +336,14 @@ statement = "One checkout has one owner; destructive git never runs in a tree th
 check = "python3 scripts/check-tree-owner.py"
 
 [[rule]]
+id = "iron-12"
+kind = "iron"
+source = "AGENTS.md:铁则 12"
+statement = "给其他 agent 的消息一律先发 steer，只有目标不在运行、steer 被拒时才发同一内容的 followup；steer 成功就不要再补一条 followup"
+check = "python3 scripts/check-agent-messaging.py"
+note = "2026-11-20：四条线在按 Lead 已经作废的指令工作——替换指令走了 followup，排在各自当前轮次后面，等落地时那一轮已经做完。steer 在最近的可处理步骤边界介入，是唯一能真正改道的投递方式。"
+
+[[rule]]
 id = "hard-39"
 kind = "hard"
 source = "scripts/check-repo-paths.py"

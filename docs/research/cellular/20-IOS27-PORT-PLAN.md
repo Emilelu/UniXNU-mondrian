@@ -840,9 +840,33 @@ conffiles 仍 19 条（没有新增文件，所以条目表不动）。
 把弱定义删掉再跑，实测报 `weak lines=0`（漂移路径是验证过的，不是只写了断言）。
 
 
-一条写记录时踩到的教训（与代码无关，但同类错误会再犯）：@BT@porting.toml@BT@ 的 @BT@evidence@BT@ 条目是**单行内联表**，
-TOML 1.0 不允许 @BT@{ … }@BT@ 跨行，所以把 @BT@kind@BT@ / @BT@reference@BT@ / @BT@result@BT@ 拆成两行写会在
-@BT@tomllib@BT@ 里报 @BT@Invalid initial character for a key part@BT@，行号指向的是那条目自己的第一行，很容易误以为是编码或转义问题。
-插入后先 @BT@tomllib.loads()@BT@ 再落盘，坏内容就不会进仓库。
+一条写记录时踩到的教训（与代码无关，但同类错误会再犯）：`porting.toml` 的 `evidence` 条目是**单行内联表**，
+TOML 1.0 不允许 `{ … }` 跨行，所以把 `kind` / `reference` / `result` 拆成两行写会在
+`tomllib` 里报 `Invalid initial character for a key part`，行号指向的是那条目自己的第一行，很容易误以为是编码或转义问题。
+插入后先 `tomllib.loads()` 再落盘，坏内容就不会进仓库。
 遗留：`feat/cellular` 上 `K60Ipa.c` 仍是裸 `extern`——k54 镜像由那条线构建，
 判读前不改它，避免镜像无法由 HEAD 复现；等 16 线也落这处改动时，那边的 0623 会一起变，series 指纹随之更新。
+
+## 27. 门禁接上共享追加器：`--appender` 与两条实测（2026-11-20 09:30）
+
+Lead 09:23 裁决：`verify-27-line.sh` 当构建前门禁，但**副本不能代替**真树上那一次追加；
+追加器由 Lead 在 `k60-gates/scripts/append-conffiles.py` 落，加 `--verify` / `--apply` 两个模式，
+门禁与构建共用同一份逻辑。
+
+本线的接法：`scripts/verify-27-line.sh` 增加 `--appender <py>`。给了就走共享实现
+（`python3 <appender> --verify <clone> <conffiles-port.txt>`，非 0 即 `K60 TRIAL FAILED the shared appender refused the clone`），
+没给就仍走脚本内嵌的那段 python（保持可在没有共享实现时独立使用）。
+
+三路实测（种子树 `.cache/xnu-work`）：
+
+| 路径 | 结果 | 退出码 |
+|---|---|---|
+| 不给 `--appender`（内嵌） | `K60 TRIAL ok   appended 19 build entries, bsd/conf now lists 19` → `K60 TRIAL PASS` | 0 |
+| 桩 `--verify` 返回 0 | `K60 TRIAL ok   the shared appender accepted the clone` → PASS | 0 |
+| 桩返回 1 | `K60 TRIAL FAILED the shared appender refused the clone` | 1 |
+
+退出码必须直接测（`bash … > log 2>&1; echo $?`），不能接 `| tail`——管道会把 `$?` 换成 tail 的状态，
+我第一版就是这么「测」的，三路全是 0，看起来像拒绝路径没生效。
+
+待办：构建脚本 `scripts/build-ios27-linux.sh` 的插入点在 `defconfig`（第 45 行）与
+`unixnu build kernel`（第 46 行）之间；该文件在 `k60-gates`（owner = lead），本线只给片段，不代改。

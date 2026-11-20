@@ -7,18 +7,20 @@
 # Nothing is written to the tree that is passed in: the clone is made with
 # --shared, so the objects are reused and only the working files are copied.
 #
-# usage: bash scripts/verify-27-line.sh --tree <xnu-work> [--patches <dir>] [--keep]
+# usage: bash scripts/verify-27-line.sh --tree <xnu-work> [--patches <dir>] [--appender <py>] [--keep]
 set -u
 
 TREE=""
 PATCHES="$(cd "$(dirname "$0")/.." && pwd)/patches/xnu-12377"
 KEEP=0
+APPENDER=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--tree) TREE="$2"; shift 2 ;;
 		--patches) PATCHES="$2"; shift 2 ;;
+		--appender) APPENDER="$2"; shift 2 ;;
 		--keep) KEEP=1; shift ;;
-		*) echo "usage: $0 --tree <xnu-work> [--patches <dir>] [--keep]" >&2; exit 2 ;;
+		*) echo "usage: $0 --tree <xnu-work> [--patches <dir>] [--appender <py>] [--keep]" >&2; exit 2 ;;
 	esac
 done
 [ -n "$TREE" ] || { echo "usage: $0 --tree <xnu-work>" >&2; exit 2; }
@@ -51,6 +53,11 @@ for name in 0626-k60-modem-image 0627-k60-modem-qrtr 0628-k60-ipa \
 	fi
 done
 
+if [ -n "$APPENDER" ]; then
+	python3 "$APPENDER" --verify "$T" "$PATCHES/conffiles-port.txt" || {
+		echo "K60 TRIAL FAILED the shared appender refused the clone"; exit 1; }
+	echo "K60 TRIAL ok   the shared appender accepted the clone"
+else
 python3 - "$T" "$PATCHES/conffiles-port.txt" <<'PY'
 import pathlib
 import sys
@@ -84,6 +91,7 @@ if added != len(entries):
     print("K60 TRIAL FAILED only %d of %d entries were appended" % (added, len(entries)))
     sys.exit(1)
 PY
+fi
 status=$?
 [ $status -eq 0 ] || exit $status
 echo "K60 TRIAL PASS seed, five patches and the build entries on one clone"

@@ -11,7 +11,7 @@ uint32_t, so a 64-bit argument at the call site would have passed every host
 gate and truncated on the device.
 
   python3 scripts/check-audio27-stubs.py <xnu-tree>
-  # STUBS OK 5/5 declarations match xnu-12377.121.6 ac9718f
+  # STUBS OK 6/6 declarations and constants match xnu-12377.121.6 ac9718f
 
 The comparison is the same canonical form check-audio27-kernel-api.py uses:
 return type plus parameter types, parameter names ignored.
@@ -34,6 +34,10 @@ def api_module():
 
 NAMES = ("ml_io_map", "ml_io_map_wcomb", "PE_parse_boot_argn",
          "delay_for_interval", "printf")
+# The one constant the glue scales its delay by. A stub that says 1000 where
+# the kernel says 1000000 would keep every host gate green and make the
+# settling delays a thousand times short on the device.
+CONSTANTS = {"NSEC_PER_USEC": "NSEC_PER_USEC"}
 
 
 def stub_text(name):
@@ -60,6 +64,43 @@ def looks_like_prototype(name, text):
     if not head:
         return False
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_ \t*]*$", head))
+
+
+def stub_constant(name):
+    """The #define value in the stub headers, or None."""
+    base = HERE.parent / "scripts/tests/portability"
+    pattern = re.compile(r"^\s*#\s*define\s+%s\s+(\S+)" % re.escape(name))
+    for path in sorted(base.rglob("*.h")):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            hit = pattern.match(line)
+            if hit:
+                return path.relative_to(base), hit.group(1)
+    return None, None
+
+
+def tree_constant(root, name):
+    """Where the tree defines the constant, and its value."""
+    pattern = re.compile(r"^\s*#\s*define\s+%s\s+(\S+)" % re.escape(name))
+    for area in ("osfmk/mach", "osfmk/kern", "bsd/sys"):
+        base = root / area
+        if not base.is_dir():
+            continue
+        for path in sorted(base.glob("*.h")):
+            try:
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            for index, line in enumerate(lines):
+                hit = pattern.match(line)
+                if hit:
+                    return "%s:%d" % (path.relative_to(root), index + 1), hit.group(1)
+    return None, None
+
+
+def number(text):
+    """1000ull and 1000 are the same constant with a suffix."""
+    digits = re.match(r"[0-9]+", text or "")
+    return digits.group(0) if digits else (text or "")
 
 
 def main(argv):
@@ -89,13 +130,27 @@ def main(argv):
         if want != found:
             drifted.append("%s: the stub (%s) says %s, %s says %s"
                             % (name, where, want, hits[0][0], found))
+    for name in CONSTANTS:
+        where, value = stub_constant(name)
+        if value is None:
+            missing.append("no stub defines %s" % name)
+            continue
+        tree_where, tree_value = tree_constant(root, name)
+        if tree_value is None:
+            missing.append("the tree does not define %s" % name)
+            continue
+        compared += 1
+        if number(value) != number(tree_value):
+            drifted.append("%s: the stub (%s) says %s, %s says %s"
+                            % (name, where, value, tree_where, tree_value))
+    total = len(NAMES) + len(CONSTANTS)
     if missing or drifted:
         for line in missing + drifted:
             print("STUB DRIFT: %s" % line)
         print("STUBS FAILED: %d declaration(s) compared, %d missing, %d drifted"
               % (compared, len(missing), len(drifted)))
         return 1
-    print("STUBS OK %d/%d declarations match %s" % (compared, len(NAMES),
+    print("STUBS OK %d/%d declarations and constants match %s" % (compared, total,
                                                         api.version(root)))
     return 0
 

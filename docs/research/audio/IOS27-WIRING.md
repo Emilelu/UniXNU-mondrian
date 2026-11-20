@@ -322,7 +322,7 @@ ROWS OK <N> rows declared, counted the same in <k> page claim(s) and the record
 
 顺手抓到的旧账：`IOS27-USERLAND.md:84` 写着「八行 ok」——那是预检只有八行时的说法，一直没人改。现在那句不写数字，只说末行是 `PREFLIGHT OK N rows (…), as declared`，N 就是脚本头部的常量。
 
-预检两行：`row count gate is honest`（宿主用例 `scripts/tests/test-audio27-rows.py`，九例）与 `row count holds`。
+预检两行：`row count gate is honest`（宿主用例 `scripts/tests/test-audio27-rows.py`，十二例）与 `row count holds`。
 
 ### 文档里引用的日志行，必须真是驱动会打印的
 

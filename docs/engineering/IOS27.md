@@ -222,12 +222,28 @@ is 272 bytes, and loaded the stashed `x29`/`x30` 16 bytes low, so the panic's
 `X29`/`X30` and the IRQ return path were garbage.
 
 The probe now uses `op2` 0..3 for A/B and D/A-B and 0..1 for A-G, fixes the
-frame arithmetic, and prints `SCTLR`, `TTBR0` and `TCR` in every panic, so the
+frame arithmetic, and prints `SCTLR`, `VBAR`, `TTBR0` and `TCR` in every panic, so the
 next data abort says which map produced it. The corrected image and its sha are
 recorded in `porting.toml`; it has not been booted, so the key read-back and the
 `PACIA`/`AUTIA` round trip are still unmeasured. An unallocated `msr` should
 raise an undefined instruction, not a data abort, so the abort itself also stays
 open until that capture has an `ELR`.
+
+Reading the next capture:
+
+| Line | Meaning | What follows |
+| --- | --- | --- |
+| `KEY RB ok` | every written key read back at EL1 | the `PACIA`/`AUTIA` lines decide |
+| `KEY RB MISMATCH` | a write was ignored or routed elsewhere | stop: the keys are not usable at EL1 |
+| `PACIA is a NOP` | `EnIA` is set and the pointer did not change | stop: no usable PAC at EL1 |
+| `AUTIA did not restore` | signing happened, authentication did not | stop: PAC unusable |
+| `RESULT OK arm64e-capable at EL1` | all three F0 steps measured | F2 |
+| `PANIC SYNC` | a fault before the result | decode the next row |
+| `ELR`, `VBAR`, `SCTLR`, `TTBR0`, `TCR` | the faulting instruction and the map in use | `ELR - (VBAR - 0x1000)` is the offset into `shim.elf`; `aarch64-linux-gnu-addr2line -e shim.elf <offset>` names the function |
+
+The subtraction is needed because the image is linked at 0 and ABL loads it
+wherever it chooses; `VBAR` is the vector table at image + 0x1000, so it also
+gives the load base. `SCTLR.M` says whether the MMU was on at the fault.
 
 The probe lives in `ios-mondrian`'s `shim/`, and that checkout is worked in
 parallel for the iOS 16 line, so the fix travels as

@@ -258,6 +258,23 @@ which no printf prints`，退出码 1；删掉那行又回到 0。
 时给 NOTE / 没有 docs 目录 / 没有格式串），预检里是两行：`ok   logline checker is honest` 与
 `ok   27 pages quote printed lines`。
 
+### 页面里的 `file:line` 也是一个承诺
+
+日志行对得上格式串还不够：页面还写着 `PongAudioAmp.c:955` 是那行 `amp probe start`。在它上面加十行，
+承诺就断了，而所有门禁照绿——读者跳到 955 行只看到空行，于是认为驱动不打印。
+
+`scripts/check-audio27-lines.py` 钉住五处锚点（`:63` 的宏开关、`:105` 的 `dsb sy`、`:111` 的
+`delay_for_interval`、`:955` 的探针横幅、`:1004` 的 `amp probe done`），每处要求「该行含该 token」；
+再把两份页面里所有 `PongAudioAmp.c:NNN` 引用与锚点集合比对——引用了一个没人钉的行号就算失败，
+因为它要么过期、要么从未被验证。
+
+第一次跑就抓到三处过期引用（`PongAudioAmp.c` 的 `:62`→`:63`、`:98`→`:105`、`:921`→`:955`，都是文件长到 1,018 行之后
+留下的）。现在 `LINES OK 5 anchors hold and 5 citation(s) point at them`；token 被挪走时报
+`LINES FAILED: … no longer holds 'amp probe start'; the token is on line(s) nowhere`，引用没被钉住时报
+`… cites PongAudioAmp.c:<一个没人钉住的行号>, which no anchor covers (anchors: [63, 105, 111, 955, 1004])`。
+
+宿主用例 `scripts/tests/test-audio27-lines.py` 五例，预检里两行：`ok   27 line citations are honest` 与
+`ok   27 pages cite live lines`。
 ### 两种布局：16 线种树，27 树原地构建
 
 两个脚本（`apply-audio27-wiring.py`、`add-audio-conffiles.py`）都认两种布局：
@@ -364,7 +381,7 @@ $ grep -n PongAudio /tmp/x27real/bsd/conf/files
 ### 第零道闸：驱动宏 `XNU_PONG_AUDIO`
 
 `PongAudioAmp.c` 的整个函数体在一个 `#if` 里：`#if defined(PONG) || defined(XNU_PONG_AUDIO)`
-（`PongAudioAmp.c:62`，带 7 行注释说明两种来路）。两个宏是**同一份实现的两个开关**，不是两条路径：
+（`PongAudioAmp.c:63`，带 7 行注释说明两种来路）。两个宏是**同一份实现的两个开关**，不是两条路径：
 
 - 16.x 用 `PONG`，它是**机配置**：`patches/xnu/zzzz-pong-machine.patch` 新增
   `pexpert/pexpert/arm64/PONG.h`，把 `SUPPORTED_ARM64_MACHINE_CONFIGS` 从
@@ -383,7 +400,7 @@ sh scripts/tests/portability/run-symbols.sh
 ```
 
 它用真实代码生成编译这个文件（`cc -c`；为此 sed 掉唯一那条 `__asm__ volatile("dsb sy" ::: "memory");`
-——`PongAudioAmp.c:98`，x86 宿主汇编器不认），再用 `nm -g --defined-only` 数导出符号：
+——`PongAudioAmp.c:105`，x86 宿主汇编器不认），再用 `nm -g --defined-only` 数导出符号：
 
 | 编译开关 | 导出符号 | 含义 |
 | --- | --- | --- |
@@ -542,7 +559,7 @@ sh scripts/tests/portability/run-symbols.sh        # 宿主三连：off=0 / XNU_
 
 `probe=1` 与 `probe=0` 是同一个问题的两个答案：前者证明宏真的进了这次编译，后者证明这张
 计数表本身会动（不会永远打印同一个数）。两者都在 `check-audio27-preflight.sh` 里。
-真机上再对 `amp probe start`（`PongAudioAmp.c:921`）——两者的区别是「内核里有没有这段代码」
+真机上再对 `amp probe start`（`PongAudioAmp.c:955`）——两者的区别是「内核里有没有这段代码」
 与「这段代码跑没跑」，先证前者。
 
 本清单的门禁不读任何 out 树（迁移清单、桩、符号、宿主探针、判据测试都在临时目录或宿主上跑），
@@ -764,7 +781,7 @@ sh scripts/tests/test-wiring-dry-run.sh
 
 | 函数 | 16 树的调用者 | 27 上的调用者 | 证明它跑过的日志行 |
 | --- | --- | --- | --- |
-| `pong_audio_amp_probe()` | 内核初始化，`patches/audio/0001-k60-audio-amp-probe.patch:3515`（`bsd_init.c`）调一次 | 同样是内核初始化（`--hook-init` 写进 `bsd/kern/bsd_init.c`；内容已批，承载走 27 补丁系列），**没有任何用户态进程参与** | `PongAudio: amp probe start (read pass first, then a replay pass …)`（`PongAudioAmp.c:921`），收尾 `PongAudio: amp probe done found=%u/2 …`（:970） |
+| `pong_audio_amp_probe()` | 内核初始化，`patches/audio/0001-k60-audio-amp-probe.patch:3515`（`bsd_init.c`）调一次 | 同样是内核初始化（`--hook-init` 写进 `bsd/kern/bsd_init.c`；内容已批，承载走 27 补丁系列），**没有任何用户态进程参与** | `PongAudio: amp probe start (read pass first, then a replay pass …)`（`PongAudioAmp.c:955`），收尾 `PongAudio: amp probe done found=%u/2 …`（:970） |
 | `pong_audio_amp_play()` | 内核播放图启动之后，`patches/audio/0003-k60-audio-afe-selftest.patch:717` | 27 上由「启动扬声器图的那段代码」在第一个周期前调用；图不在本清单里，所以 27 的第一版只能由内核自检（`pong_audio=1`）当调用者 | `PongAudio: amp%u play pll=%u status=0x%04x …`（:819）→ `amp%u play unmuted volume=0x%03x`（:842）→ `amp play done playing=%u/2`（:887） |
 | `pong_audio_amp_stop()` | 停机路径 | 同上 | `PongAudio: amp%u stopped muted and powered down`（:866） |
 | `pong_audio_tdm_pads()` | `patches/audio/0003`:1497（`pong_audio_start()`） | 27 树若没有 pinctrl 框架，仍在初始化里手动 mux | `PongAudio: TDM pad %s gpio=%u cfg 0x%08x -> 0x%08x io=0x%08x` |

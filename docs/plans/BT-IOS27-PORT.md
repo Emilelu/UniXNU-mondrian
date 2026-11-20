@@ -525,6 +525,28 @@ Two more inputs were read rather than run:
   Bluetooth kexts: those kexts sit outside the resolution set rather than
   being confirmed healthy by it.
 
+### 5.10 What the porting page asks for, and what is executable here
+
+The page ends with three commands of its own — `check-bluetooth-platform.py`,
+`check-bluetooth-shared.py`, `check-wcn-power.py` — and none of them exists in
+this repository. The contract is therefore translated rather than copied:
+
+| Page step | What it asks for | Enforced here by | State |
+| --- | --- | --- | --- |
+| 1 hardware inputs | UART, DMA stream, GPIOs, clock and rate from the DTS | `check-bluetooth-dt.py` (node shape); `check-bluetooth-geni.py`, `check-bluetooth-gic.py` (what the driver actually programs) | node: green; geni/gic: CI only, not run here |
+| 2 power path | the fixed order, shared WCN votes | `check-bluetooth-power.py` asserts the order and the 100/60 ms settles in `k60_bt_power_on()`/`k60_bt_power_off()` | order: green in CI; the shared vote is not asserted — the ladder logs that it votes no PMIC rail |
+| 3 worker thread | bytes between transport and transmit, sleep to the earlier deadline | nothing offline | runtime only |
+| 4 publish the controller | DT node, `local-mac-address`, `/chosen` key, IOService named `bluetooth` | `check-bluetooth-dt.py`; `check-bluetooth-kernel.py` (the identity key and class name) | green on the built kernel; the ADT half needs a payload |
+| 5 native stack | `payload.runtime`, staged BlueTool/bluetoothd, mounts, AKS chip id | `check-bluetooth-runtime-gate.py`, `check-bluetooth-addon-prefixes.py`, `check-bluetooth-launchd.py`, `check-bluetooth-userspace.py` | gated-off by design; `board.toml` carries no `payload.runtime` block on this branch |
+| 6 build and verify | boot arguments, `[bluetooth] state=2 error=0`, one `bluetoothd` | boot arguments are documented in `docs/engineering/BOOT-ARGS.md`; the two log lines are device evidence | no offline check for either |
+
+Two consequences for whoever flies this next. The page's expected log lines
+are the acceptance criteria, and they are written down in
+`docs/research/bt/RESEARCH.md:175` and `:177` — but as prose, not as a
+parser, so a flight has to read them by eye until a checker exists. And
+"run the page's three commands" is not possible here at all; the table above
+is the translation, which is why §5.9 lists what ran and what it could not.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

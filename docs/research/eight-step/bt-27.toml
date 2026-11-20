@@ -1,0 +1,68 @@
+# Bluetooth on iOS 27.0.1 (24A446): the seven research steps.
+# The fragment intentionally stops before step.device; a merge keeps the
+# ledger's existing device block and its prediction.
+
+[hardware.bluetooth]
+revisit = "stage-0 SpringBoard, or an F1/F2 signal that yields a bootable 24A446 payload"
+name = "蓝牙（QCA6490 / HCI over UART）"
+status = "parked"
+paths = ["dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "patches/xnu-12377/series", "/mnt/e/hackios/QcaBluetooth"]
+why = "2026-11-21 re-read for the 27 line: the series, the DT node and the static checks exist, but no 24A446 payload, no stage-0 SpringBoard and no single bluetoothd start have been observed. The 18.x d8 experiment stopped in the NVM budget; this record does not inherit that device run. The only green 27 kernel build is CI 44518998961, whose head 33f5229 is not an ancestor of this branch."
+label = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
+files = ["docs/plans/BT-IOS27-PORT.md", "dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "patches/xnu-12377/series"]
+plan = "Do not flash. Close the four gates in step.verify.plan and then record a device run with the exact head sha."
+
+[hardware.bluetooth.step.same_model]
+done = true
+recorded_at = "2026-11-21T03:40:00+08:00"
+evidence = "No same-model target runs iPadOS 27: the search covers the SM8475 / Redmi K60 trees and finds no second 27 implementation. t970 is a QCA6390 / QUP0 SE6 board on iPadOS 18, so its four patches are a transport contrast only (docs/plans/BT-IOS27-PORT.md:556-560). zizhan is an iPadOS 18 product-id counterexample, not a 27 implementation (docs/plans/BT-IOS27-PORT.md:562-569). The nearest 27 reference is sheng's two xnu-12377 runtime patches."
+files = ["docs/plans/BT-IOS27-PORT.md"]
+plan = "Keep t970 as the SE6-versus-SE20 contrast and zizhan as the product-id failure mode; neither is a same-model proof."
+
+[hardware.bluetooth.step.official]
+done = true
+recorded_at = "2026-11-21T03:41:00+08:00"
+evidence = "Page UniXNU/docs/zh/porting/bluetooth.md:19-31 labels its table as sheng's values, and UniXNU/docs/zh/porting/bluetooth.md:21 says to read the target DTS, so 0x898000, SE6, GIC493, 51.2 MHz, 3.2 Mbaud and hmtbtfw20.tlv are reference values, not this board's. Our node dts/mondrian.dts:109-116 declares device_type bluetooth, compatible qcom,wcn6855-bt, unixnu,adt-name bluetooth, encoding 1 (H4), speed 3000000 and status okay; scripts/check-bluetooth-dt.py:101-107 enforces speed equals K60_BT_RUN_BAUD and encoding 1. The seven-step power order (UniXNU/docs/zh/porting/bluetooth.md:46-55) is checked by scripts/check-bluetooth-power.py:4-8. The worker and transport model (UniXNU/docs/zh/porting/bluetooth.md:60-67) is the qbt engine in the 0500-0523 series, with the GENI model at docs/plans/BT-IOS27-PORT.md:306-329. The payload.runtime requirement (UniXNU/docs/zh/porting/bluetooth.md:87-106) is not wired: board.toml has no [payload.runtime], so the framework will not stage BlueTool or bluetoothd, and it will not mount the OS image (docs/plans/BT-IOS27-PORT.md:614-620). The three named checks (UniXNU/docs/zh/porting/bluetooth.md:113-115) do not exist here; five equivalents exist (docs/plans/BT-IOS27-PORT.md:528-548). The expected state=2 / error=0 and one bluetoothd (UniXNU/docs/zh/porting/bluetooth.md:126-128) have not been observed."
+files = ["UniXNU/docs/zh/porting/bluetooth.md", "dts/mondrian.dts", "scripts/check-bluetooth-dt.py", "docs/plans/BT-IOS27-PORT.md"]
+plan = "The uncovered requirement is payload.runtime; wire it before the first 27 payload, and do not treat the five static checks as a substitute."
+
+[hardware.bluetooth.step.decompile]
+done = true
+recorded_at = "2026-11-21T03:42:00+08:00"
+evidence = "Local facts: the six DT properties are at dts/mondrian.dts:109-116; the native stack is still off in configs/mondrian_ios27_defconfig:17-21; QcaBluetooth is pinned at revision 22ff97f93416452335bb61badb14c762da653487 in UniXNU/components.toml:494-508 with sheng as the only verified device. The 24A446 kernelcache is pinned and its IOStorageFamily entry is at fileoff 0xa0e670, but no 24A446 bluetoothd has been extracted (docs/plans/BT-IOS27-PORT.md:580-583). 20G81 bluetoothd imports MGGetProductType (docs/plans/BT-IOS27-PORT.md:578-579), which is why zizhan's product-id SIGSEGV is the relevant failure mode (docs/plans/BT-IOS27-PORT.md:562-569)."
+files = ["dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "UniXNU/components.toml", "docs/plans/BT-IOS27-PORT.md"]
+plan = "Extract 24A446 bluetoothd and BlueTool, then diff their MobileGestalt imports against 20G81 before answering product-id."
+
+[hardware.bluetooth.step.wide]
+done = true
+recorded_at = "2026-11-21T03:43:00+08:00"
+catalog_checked = true
+catalog_result = "46 个字段逐个核对：QcaBluetooth 组件元数据、五个 runtime identifier、DT 接线与 series 接线；没有第二个 27 消费者。"
+evidence = "UniXNU/components.toml:494-508 declares QcaBluetooth at revision 22ff97f93416452335bb61badb14c762da653487, path drivers/QcaBluetooth, os_abi ipados-27.0.1-24A446, verified_devices sheng-only, and runtime identifiers qbt_transport, com.apple.uart.sk.bluetooth, kern.qbt_boot, kern.qbt_power_on and kern.qbt_firmware. A catalog search found no second 27 consumer; 46 fields were checked (component metadata, five runtime identifiers, DT and series wiring)."
+files = ["UniXNU/components.toml", "docs/plans/BT-IOS27-PORT.md"]
+plan = "If a second 27 board selects it, re-run the same 46-field check; sheng-only verification is not a K60 runtime proof."
+
+[hardware.bluetooth.step.plan]
+done = true
+recorded_at = "2026-11-21T03:44:00+08:00"
+evidence = "The order of record is docs/plans/BT-IOS27-PORT.md:107-127: 23 patches in four layers, with the device series carrying 0500-0523. The 0521 blob is a 106-entry manifest, not the 113-file payload (docs/plans/BT-IOS27-PORT.md:129-153). CI 44518998961 built the 23-patch kernel at 93,077,504 B, sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86 (docs/plans/BT-IOS27-PORT.md:265-274), but its head 33f5229 is not an ancestor of a2a75813 (git merge-base --is-ancestor returned 1). This tip also sets CONFIG_XNU_NATIVE_UFS=y at configs/mondrian_ios27_defconfig:21 while build/native-ufs/libNativeUfs.a is absent, so a build from this tip would stop in storage before Bluetooth."
+files = ["docs/plans/BT-IOS27-PORT.md", "configs/mondrian_ios27_defconfig", "board.toml"]
+plan = "For a BT-only compile use the 33f5229 config with NativeUfs off, or land the F3 archive; log the exact head sha, because this branch cannot reproduce the CI build."
+
+[hardware.bluetooth.step.deep]
+done = true
+recorded_at = "2026-11-21T03:45:00+08:00"
+evidence = "The prelink closure has 38 bundles and none is Bluetooth (docs/plans/BT-IOS27-PORT.md:523-526); the 28 missing and 29 stubbed entries are owner-target references, not Apple's Bluetooth kexts, so they neither prove nor disprove Bluetooth. The 0521 blob is an empty 106-entry manifest, not the 113-file payload (docs/plans/BT-IOS27-PORT.md:129-153 and docs/plans/BT-IOS27-PORT.md:511-513). 24A446 bluetoothd is not extracted, so the product-id answer remains unproven (docs/plans/BT-IOS27-PORT.md:580-586). The storage line's PENDING-safe entry prints the switch state last and refuses a half-set switch (scripts/check-ios27-storage-preflight.py:18-25); Bluetooth has no equivalent entry."
+files = ["docs/plans/BT-IOS27-PORT.md", "scripts/check-ios27-storage-preflight.py"]
+plan = "A BT preflight must fail on a missing [payload.runtime], a missing 24A446 bluetoothd, an ADT without one of the six properties, or a half-set F3/F4 switch."
+
+[hardware.bluetooth.step.verify]
+done = true
+recorded_at = "2026-11-21T03:46:00+08:00"
+local_verified = true
+evidence = "Static only: five checks pass on the 27 image (docs/plans/BT-IOS27-PORT.md:481-499); the GENI model has 64 assertions over 36 registers and 26 test cases (docs/plans/BT-IOS27-PORT.md:306-329); the three checks the page names are absent (docs/plans/BT-IOS27-PORT.md:528-548). No [bluetooth] state=2 error=0 line, no single [bluetooth proc] line and no hardware run have been observed."
+static_check = "scripts/check-bluetooth-dt.py:101-107 ties transport-speed to K60_BT_RUN_BAUD and encoding to 1; test-bluetooth-dt.py, test-bt-0524-dt-node.py, test-bt-geni-model.py, test-bt-power-check.py and test-bt-kernel-check.py pass."
+unit_test = "14 test-bt-* files exist under scripts/tests; the GENI model has 26 cases over 36 registers and 64 assertions (docs/plans/BT-IOS27-PORT.md:306-329)."
+artifact_check = "CI 44518998961 kernel is 93,077,504 B, sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86; five contract checks pass (docs/plans/BT-IOS27-PORT.md:481-499). No boot and no 24A446 payload."
+files = ["docs/plans/BT-IOS27-PORT.md", "scripts/check-bluetooth-dt.py", "scripts/check-bluetooth-kernel.py"]
+plan = "Stop at compile plus static. Flight needs all four: (a) a build of this tip or a BT-only config; (b) F1 loader accepts MH_FILESET and the F2 prelink map closes; (c) payload.runtime, the ADT export, 24A446 bluetoothd and product-id are wired; (d) the device prints [bluetooth] state=2 error=0 and exactly one [bluetooth proc] bluetoothd. Missing any one leaves this open."

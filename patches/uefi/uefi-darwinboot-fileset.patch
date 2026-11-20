@@ -37,10 +37,10 @@ index 3abb574..4e27f7f 100644
  
  #endif
 diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
-index 7add2ff..910d89b 100644
+index 7add2ff..d120fb9 100644
 --- a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
 +++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
-@@ -129,50 +129,106 @@ STATIC
+@@ -129,50 +129,108 @@ STATIC
  EFI_STATUS
  ParseKernel (CONST UINT8 *Data, UINTN Size, KERNEL *Kernel)
  {
@@ -76,17 +76,18 @@ index 7add2ff..910d89b 100644
 +  SEGMENT      *Segment;
 +  BOOLEAN      HasEntry;
 +  BOOLEAN      Executable;
++  BOOLEAN      Fileset;
 +
 +  if ((Size < 32) || (U32 (Data) != 0xfeedfacf) || (U32 (Data + 4) != 0x100000c)) {
-     return EFI_UNSUPPORTED;
-   }
--  if (U32 (Data + 20) > Size - 32) { return EFI_LOAD_ERROR; }
++    return EFI_UNSUPPORTED;
++  }
 +
 +  /* cpusubtype carries capability bits in [31:24]; 2 is ARM64E. */
 +  SubType  = U32 (Data + 8) & 0x00ffffff;
 +  FileType = U32 (Data + 12);
 +  if ((SubType != 0) && (SubType != 2)) { return EFI_UNSUPPORTED; }
 +
++  Fileset = (BOOLEAN)(FileType == 0xc);
 +  Header = Data;
 +  HeaderOffset = 0;
 +  if (FileType == 0xc) {
@@ -126,8 +127,9 @@ index 7add2ff..910d89b 100644
 +      return EFI_UNSUPPORTED;
 +    }
 +  } else if (FileType != 2) {
-+    return EFI_UNSUPPORTED;
-+  }
+     return EFI_UNSUPPORTED;
+   }
+-  if (U32 (Data + 20) > Size - 32) { return EFI_LOAD_ERROR; }
 +
 +  if (U32 (Header + 20) > Size - HeaderOffset - 32) { return EFI_LOAD_ERROR; }
    ZeroMem (Kernel, sizeof (*Kernel));
@@ -175,7 +177,36 @@ index 7add2ff..910d89b 100644
        HasEntry = TRUE;
      }
      Offset += Length;
-@@ -787,6 +843,9 @@ Boot (
+@@ -191,6 +249,15 @@ ParseKernel (CONST UINT8 *Data, UINTN Size, KERNEL *Kernel)
+           (Kernel->Segments[Other].Address < Segment->Address + Segment->Size)) { return EFI_LOAD_ERROR; }
+     }
+   }
++  if (Fileset) {
++    /*
++     * XNU reads the outer MH_FILESET header at VM_KERNEL_LINK_ADDRESS (the
++     * kernel's hardcoded link address) when the inner header carries
++     * MH_DYLIB_IN_CACHE. The window therefore starts at the link address and
++     * the collection is copied at vmaddr - link, as iBoot lays it out.
++     */
++    Kernel->Base = 0xfffffff007004000ULL;
++  }
+   if (!Executable || (Kernel->Entry & 3) || (Kernel->Base & EFI_PAGE_MASK) ||
+       (Kernel->Base > MAX_UINT64 - WINDOW_SIZE) ||
+       (Kernel->End - Kernel->Base > WINDOW_SIZE - SIZE_2MB)) { return EFI_LOAD_ERROR; }
+@@ -776,6 +843,12 @@ Boot (
+   Stage = L"COPY PAYLOAD";
+   DiagDrawVideo (Stage, 0, Video);
+   ZeroMem ((VOID *)(UINTN)Address, (UINTN)Used);
++  // The collection image is a memory image: the outer fileset header sits at
++  // vmaddr - link and every entry follows. XNU's first arm_init check reads
++  // that header, so copy it with the segments instead of only the inner
++  // kernel.
++  if ((Kernel.End - Kernel.Base) > ImageSize) { Status = EFI_COMPROMISED_DATA; goto Fail; }
++  CopyMem ((VOID *)(UINTN)Address, Image, (UINTN)(Kernel.End - Kernel.Base));
+   // The MMU-off transition must run inside the identity-mapped owned window,
+   // independently of the firmware's dynamically loaded PE image placement.
+   CopyMem ((VOID *)(UINTN)TrampolineAddress, (VOID *)(UINTN)DarwinEnter, TrampolineBytes);
+@@ -787,6 +860,9 @@ Boot (
               (UINT8 *)Image + Kernel.Segments[Index].FileOffset, (UINTN)Kernel.Segments[Index].FileSize);
    }
    Args = (DARWIN_BOOT_ARGS *)(UINTN)ArgsAddress;
@@ -185,7 +216,7 @@ index 7add2ff..910d89b 100644
    Args->Revision = 2;
    Args->Version = 2;
    Args->VirtualBase = Kernel.Base;
-@@ -943,7 +1002,7 @@ DarwinBootEntry (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+@@ -943,7 +1019,7 @@ DarwinBootEntry (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
    if (!EFI_ERROR (Status)) {
      // Explicit, volatile replacement for the qualified FD's older loader.
      // Unloading this driver restores it; no firmware or phone storage changes.

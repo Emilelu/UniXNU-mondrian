@@ -25,10 +25,15 @@ rounds of work on the 27 line, and each of them is visible offline:
 This script reads both trees and says which of those still hold. It never
 writes, never boots, never touches the network.
 
+A 27 checkout that has not carried the lane core across yet is not a failure:
+it has no bsd/dev/PongPower* anchor, so there is nothing to judge. That state
+prints PENDING and exits 0. Once the anchor exists, a missing judge, a missing
+table or a drifted value is a blocker.
+
 usage:
   python3 scripts/check-ios27-power-preflight.py
   python3 scripts/check-ios27-power-preflight.py --tree E:/hackios/xnekom-ios27
-exit: 0 clean, 1 blockers, 2 unusable input
+exit: 0 clean or PENDING (no lane anchor), 1 blockers, 2 unusable input
 """
 from __future__ import annotations
 
@@ -64,6 +69,7 @@ TABLES = (Path("docs/research/power/CARRY.toml"),
            Path("docs/research/power/27-WORKORDER.md"))
 DEFCONFIG = Path("configs") / "mondrian_ios27_defconfig"
 DEFCONFIG_SWITCHES = ("CONFIG_XNU_K60_PHYSICAL_BATTERY", "CONFIG_XNU_PONG_THERMAL")
+LANE_ANCHORS = ("PongPower*", "pong_power*")
 REPORT_CALLS = ("k60_platform_sleep_report", "armcpu_sleep_report")
 
 PASS, WARN, BLOCK = "PASS", "WARN", "BLOCKER"
@@ -113,6 +119,28 @@ def check_tree(tree: Path) -> str:
     if missing:
         raise Unusable("not a device checkout: missing " + ", ".join(missing))
     return str(tree)
+
+
+def lane_anchor(tree: Path) -> Path | None:
+    """The 27 tree carries the lane core under bsd/dev.
+
+    A checkout without that anchor has nothing to judge: none of the judges or
+    tables can describe code that is not there. That is PENDING, not FAILED.
+    """
+    dev = tree / "bsd" / "dev"
+    if not dev.is_dir():
+        return None
+    for pattern in LANE_ANCHORS:
+        for path in sorted(dev.glob(pattern)):
+            if path.exists():
+                return path
+    return None
+
+
+def absent_lane_files(tree: Path) -> tuple[list[str], list[str]]:
+    judges = [name for name in JUDGES if not (tree / "scripts" / name).is_file()]
+    tables = [rel.as_posix() for rel in TABLES if not (tree / rel).is_file()]
+    return judges, tables
 
 
 def check_carry(tree: Path, modules: dict[str, list[tuple[str, str]]]) -> list[tuple[str, str, str]]:
@@ -426,7 +454,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"❌ input                  {error}")
         print(f"ios27-power-preflight: INVALID ({error})")
         return 2
-    rows: list[tuple[str, str, str]] = [(PASS, "tree", detail)]
+    anchor = lane_anchor(tree)
+    if anchor is None:
+        judges, tables = absent_lane_files(tree)
+        print(f"PENDING: the 27 tree does not carry this lane yet "
+              f"({len(judges)} judges, {len(tables)} tables absent)")
+        print("ios27-power-preflight: PENDING (no bsd/dev/PongPower* anchor; exit 0)")
+        return 0
+    rows: list[tuple[str, str, str]] = [
+        (PASS, "tree", f"{detail}; lane anchor {anchor.relative_to(tree).as_posix()}")
+    ]
     rows.extend(check_carry(tree, modules))
     for name, check in (("sleep-report-guard", check_report_guard),
                         ("builder-route", check_builder),

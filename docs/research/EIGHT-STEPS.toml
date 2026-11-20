@@ -807,6 +807,7 @@ failure = "若仍黑且日志为 genuine wallpaper bootstrap SKIP（native 20G81
 
 [hardware.power]
 status = "active"
+image_os = "ipados-16.6.1-20G81"
 name = "电源（EPSS / CPU·L3 工作点）"
 paths = [
     "drivers/PongPower/K60CpuFreqPlan.c",

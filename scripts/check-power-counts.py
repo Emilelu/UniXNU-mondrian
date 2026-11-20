@@ -12,6 +12,7 @@ somewhere else, so this gate reads the owner and the sentence:
   "N 个控制台判读器"                            <- docs/research/power/CARRY.toml
   "power-python: OK (N suites)"                <- the run_py lines of the same runner
   "N 行 file:line 引用、M 行带独立第二来源"        <- docs/research/power/HW-CONTRACTS.toml
+  "[hardware.power].image_os"                  <- board.toml [package.defconfig] + W11-IMAGE.toml
 
 A sentence that disappears is a failure, not a pass: otherwise renaming a
 heading silently drops the coverage, which is how P-179's gates went hollow.
@@ -29,6 +30,9 @@ DOC = "docs/research/power/00-POWER-PAGE-CONFORMANCE.md"
 CARRY = "docs/research/power/CARRY.toml"
 CONTRACTS = "docs/research/power/HW-CONTRACTS.toml"
 RUNNER = "scripts/tests/run-k60-power-host.sh"
+EIGHT_STEPS = "docs/research/EIGHT-STEPS.toml"
+BOARD = "board.toml"
+W11_IMAGE = "docs/research/charger/W11-IMAGE.toml"
 
 DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
           "六": 6, "七": 7, "八": 8, "九": 9}
@@ -147,6 +151,28 @@ def verify(root):
         if int(match.group("seconds")) != seconds:
             problems.append("%s says %s rows carry an independent second source, the table has %d"
                             % (DOC, match.group("seconds"), seconds))
+
+    power = tomllib.loads((root / EIGHT_STEPS).read_text(encoding="utf-8")).get("hardware", {}).get("power", {})
+    image_os = power.get("image_os")
+    if not image_os:
+        problems.append("%s [hardware.power] has no image_os; a note cannot say which OS an image belongs to"
+                        % EIGHT_STEPS)
+    profiles = tomllib.loads((root / BOARD).read_text(encoding="utf-8")).get("package", {}).get("defconfig", {})
+    if image_os and image_os not in profiles:
+        problems.append("%s [hardware.power].image_os is %r, not a key of board.toml [package.defconfig] (%s)"
+                        % (EIGHT_STEPS, image_os, ", ".join(sorted(profiles))))
+    image = tomllib.loads((root / W11_IMAGE).read_text(encoding="utf-8")).get("image", {})
+    if image_os and image.get("os_profile") != image_os:
+        problems.append("%s says os_profile=%r, [hardware.power].image_os is %r"
+                        % (W11_IMAGE, image.get("os_profile"), image_os))
+    digest = image.get("sha256")
+    verify = power.get("step", {}).get("verify", {})
+    artifact = " ".join(str(verify.get(key) or "") for key in ("evidence", "artifact_check"))
+    if not digest:
+        problems.append("%s has no [image].sha256" % W11_IMAGE)
+    elif digest not in artifact:
+        problems.append("%s sha256 is not quoted in [hardware.power.step.verify]; the ledger names no image"
+                        % W11_IMAGE)
     return problems
 
 

@@ -1,0 +1,26 @@
+# w11 飞行镜像的身份记录。
+#
+# 这份文件不是说明文：scripts/check-power-counts.py 会把它和
+# [hardware.power].image_os、board.toml 的 [package.defconfig] 键、
+# 以及 verify.artifact_check 里的 sha256 逐项对上。F2 之后 27 镜像也会
+# 进同一张账本，"这张镜像属于哪个 OS" 必须由机器判，不能靠旁边一句注。
+#
+# 取值来源：docs/research/charger/W11-FLIGHT-PACK.md:23-32 的镜像身份表。
+
+[image]
+os_profile = "ipados-16.6.1-20G81"
+boot_img = "E:/k60-work/artifacts/power-conformance-20261119w11/boot.img"
+bytes = 201887744
+sha256 = "6db4e6b78bdab557d4f34b17aaf6a25caa9990d564faf94ef18853fbde589844"
+kernel_slot_bytes = 551032
+kernel_slot_sha256 = "00c466e5e7cf470cc037ccaefe30b8d9a2a374e37640417c800dbd264a8d2be4"
+payload_bytes = 201326592
+payload_offset = 557056
+payload_sha256 = "bd8ed29dd420be2829d68f9b3887b29976a3b0b3f79a3bf1c9dd40bc0cf2e63f"
+kernel_macho_bytes = 129146880
+kernel_macho_sha256 = "30a058f274b3c4cbcfc88515ef4bbf6ef45adf47124af16aa0a54966b9345a90"
+kernel_macho_adt_bytes = 16132
+kernel_macho_adt_sha256 = "721fb484eb01800b5e1e0a94bb47db1edbdaf636d53ecdcff83659caa2be3853"
+boot_args_count = 30
+boot_args_bytes = 601
+hardware_tested = false

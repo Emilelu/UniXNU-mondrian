@@ -43,6 +43,9 @@ DEFAULT_OUT = "build/power-carry-bundle"
 # Files the target tree needs in order to run and re-check the carry at all.
 EXTRA = [
     MANIFEST,
+    # check-power-counts.py binds [hardware.power].image_os to these two
+    "docs/research/EIGHT-STEPS.toml",
+    "board.toml",
     "docs/research/power/00-POWER-PAGE-CONFORMANCE.md",
     "docs/research/power/08-IOS27-POWER-PORT.md",
     "docs/research/power/09-CHARGE-AUTH.md",
@@ -55,6 +58,9 @@ EXTRA = [
     "docs/research/charger/PROP-NUMBERS.toml",
     "docs/research/charger/PROP-NUMBERS.md",
     "docs/research/charger/WIRE-PROPS.toml",
+    "docs/research/charger/W11-IMAGE.toml",
+    "docs/research/charger/P257-PICK-LIST.md",
+    "docs/research/eight-step/power-27.toml",
     "docs/research/charger/04-PROP-MAP.md",
     "scripts/check-battmgr-wire.py",
     "scripts/tests/test-check-battmgr-wire.py",

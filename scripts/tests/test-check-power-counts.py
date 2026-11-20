@@ -36,7 +36,7 @@ run_py two python3 scripts/tests/test-two.py
 echo "power-python: OK (\u0024python_suites suites)"
 """
 
-DOC = """# conformance
+DOC = r"""# conformance
 
 先跑 \`check-power-portability.py\`（两个策略模块必须无 IOKit 依赖），
 再依次运行共 2 个套件，合计 7 项断言（3/4）。
@@ -59,6 +59,23 @@ checks = 4
 [[judge]]
 name = "judge-one"
 cases = 1
+"""
+
+EIGHT = """[hardware.power]
+image_os = "ipados-16.6.1-20G81"
+
+[hardware.power.step.verify]
+artifact_check = '''w11 sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'''
+"""
+
+BOARD = """[package.defconfig]
+"ipados-16.6.1-20G81" = "mondrian_defconfig"
+"ios-27.0.1-24A446" = "mondrian_ios27_defconfig"
+"""
+
+W11 = """[image]
+os_profile = "ipados-16.6.1-20G81"
+sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 """
 
 CONTRACTS = """[[contract]]
@@ -85,6 +102,10 @@ def fixture(base):
     (base / "docs" / "research" / "power" / "00-POWER-PAGE-CONFORMANCE.md").write_text(DOC, encoding="utf-8", newline="\n")
     (base / "docs" / "research" / "power" / "CARRY.toml").write_text(CARRY, encoding="utf-8", newline="\n")
     (base / "docs" / "research" / "power" / "HW-CONTRACTS.toml").write_text(CONTRACTS, encoding="utf-8", newline="\n")
+    (base / "docs" / "research" / "EIGHT-STEPS.toml").write_text(EIGHT, encoding="utf-8", newline="\n")
+    (base / "board.toml").write_text(BOARD, encoding="utf-8", newline="\n")
+    (base / "docs" / "research" / "charger").mkdir(parents=True, exist_ok=True)
+    (base / "docs" / "research" / "charger" / "W11-IMAGE.toml").write_text(W11, encoding="utf-8", newline="\n")
     return base
 
 
@@ -123,10 +144,8 @@ def main():
     spec = importlib.util.spec_from_file_location("power_counts", TOOL)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    check("chinese 二十四 is 24", module.chinese("二十四") == 24)
-    check("chinese 十 is 10", module.chinese("十") == 10)
-    check("chinese 两 is 2", module.chinese("两") == 2)
-    check("number reads arabic", module.number("12") == 12)
+    check("numerals", module.chinese("二十四") == 24 and module.chinese("十") == 10
+          and module.chinese("两") == 2 and module.number("12") == 12)
 
     case("healthy", expect_rc=0, expect="2 C suite(s) / 7 checks")
     case("total", lambda b: replace_in(b, DOC_REL, "合计 7 项断言", "合计 8 项断言"),
@@ -150,6 +169,18 @@ def main():
     case("a second source dropped from the table",
          lambda b: replace_in(b, CONTRACTS_REL, "second = [", "replaces = ["),
          expect="the table has 0")
+    case("image_os is not a board profile",
+         lambda b: replace_in(b, "docs/research/EIGHT-STEPS.toml",
+                              'image_os = "ipados-16.6.1-20G81"', 'image_os = "ipados-99.0"'),
+         expect="not a key of board.toml")
+    case("the w11 record names another OS",
+         lambda b: replace_in(b, "docs/research/charger/W11-IMAGE.toml",
+                              'os_profile = "ipados-16.6.1-20G81"', 'os_profile = "ios-27.0.1-24A446"'),
+         expect="says os_profile")
+    case("the w11 sha is not in the ledger",
+         lambda b: replace_in(b, "docs/research/EIGHT-STEPS.toml",
+                              "w11 sha256 aaaaa", "w11 sha256 bbbbb"),
+         expect="sha256 is not quoted")
 
     bare = WORK / "no-runner"
     (bare / "docs" / "research" / "power").mkdir(parents=True, exist_ok=True)

@@ -121,7 +121,7 @@ def make_device(base: Path, *, contract: bool = False, console: bool = False,
 
 def make_tree(base: Path, *, console: str | None = None, module: bool = True,
               patch: str = CLEAN_SLEEP_PATCH, builder: str = "generic", judges: bool = True,
-              tables: bool = True, picker: bool = True,
+              tables: bool = True, picker: bool = True, anchor: bool = True,
               contract_body: str | None = None,
               wire_body: str | None = None,
               defconfig: str | None = None) -> Path:
@@ -129,6 +129,10 @@ def make_tree(base: Path, *, console: str | None = None, module: bool = True,
     for rel in ("drivers/PongPower", "patches/xnu", "scripts"):
         (tree / rel).mkdir(parents=True)
     (tree / "board.toml").write_text('[machine]\nos_profile = "ios27"\n', encoding="utf-8", newline="\n")
+    if anchor:
+        (tree / "bsd" / "dev").mkdir(parents=True)
+        (tree / "bsd" / "dev" / "PongPowerLane.c").write_text(
+            "/* lane core */\n", encoding="utf-8", newline="\n")
     (tree / "configs").mkdir()
     (tree / "configs" / "mondrian_ios27_defconfig").write_text(
         defconfig or "# stage 0\nCONFIG_XNU_NATIVE_UFS=n\n", encoding="utf-8", newline="\n")
@@ -203,6 +207,14 @@ def case(name: str, *, expect_rc: int, expect: str = "", device_ok: bool = True,
 WORK.mkdir(parents=True, exist_ok=True)
 
 case("clean tree", expect_rc=0, expect="ios27-power-preflight: PASS")
+case("no lane anchor is pending", expect_rc=0,
+     expect="PENDING: the 27 tree does not carry this lane yet (4 judges, 8 tables absent)",
+     anchor=False, judges=False, tables=False)
+case("no lane anchor ignores complete tables", expect_rc=0,
+     expect="PENDING: the 27 tree does not carry this lane yet (0 judges, 0 tables absent)",
+     anchor=False)
+case("lane anchor makes missing judges a blocker", expect_rc=1,
+     expect="judge-k60-handoff-console.py", anchor=True, judges=False)
 case("stage0 archives not linked", expect_rc=0,
      expect="stage 0 does not link CONFIG_XNU_K60_PHYSICAL_BATTERY")
 case("stage0 both archives linked", expect_rc=0,

@@ -38,7 +38,8 @@ def _through_contents_api(url):
     parts = urllib.parse.urlsplit(url)
     if parts.hostname != RAW_HOST:
         raise SystemExit(f'no fallback for {url}')
-    _, _, tag, path = parts.path.split('/', 3)
+    _, _, _, rest = parts.path.split('/', 3)
+    tag, _, path = rest.partition('/')
     api = f'{CONTENTS}/{urllib.parse.quote(path)}?ref={tag}'
     payload = json.loads(_request(api))
     if payload.get('encoding') != 'base64':

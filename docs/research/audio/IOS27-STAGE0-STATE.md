@@ -50,6 +50,18 @@ test ! -e "$K60_GATES/scripts/k60-conf-files-hook.py" && ! grep -n 'PongAudio' "
 
 整跑还需要一个框架检出（`UNIXNU=` 指路，默认 `/tmp/UniXNU`）：没有时 `framework passes env to builder` 一行 `skip`，不是失败。
 
+### 0. 七步记录本身
+
+音频的七步记录在 `docs/research/eight-step/audio-27.toml`；只读检查：
+
+```sh
+python3 scripts/check-audio27-eight-step.py
+```
+
+期望 `AUDIO27 EIGHT-STEP OK: 7 steps, ... no device step`。它只查记录形状与引用（七步、每步
+`recorded_at`、`evidence` 数组、official 的 `docs/zh` 章节、verify 三类检查、没有 device 步），
+不构建，也不证明音频能出声。
+
 ### 1. 产物里真的没有音频
 
 ```sh

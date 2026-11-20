@@ -6,6 +6,11 @@ device_type, compatible, unixnu,adt-name, transport-encoding and
 transport-speed.  This script reads the source dts, and optionally the built
 dtb and the ADT inside a payload, so a change cannot silently drop a property.
 
+With --driver it also refuses the node advertising a rate the driver does not
+run: the node's transport-speed must equal K60_BT_RUN_BAUD in the patch that
+programs the UART, and the encoding must stay 1 (H4).  Neither file can drift
+without the other noticing.
+
 Exit code 0 = every requested input passed; 1 = at least one check failed.
 """
 
@@ -53,12 +58,20 @@ def node_block(text, name):
     return None
 
 
+def dts_value(text, prop):
+    body = node_block(text, 'bluetooth') or ''
+    match = re.search(r'^\s*' + re.escape(prop) + r'\s*=\s*(.+?);\s*$', body, re.M)
+    if not match:
+        return None
+    return match.group(1).strip().strip('<>')
+
+
 def check_dts(path):
     text = open(path, encoding='utf-8').read()
     body = node_block(text, 'bluetooth')
     check(body is not None, f'{path}: root bluetooth node exists')
     if body is None:
-        return
+        return text
     for prop, want in EXPECTED.items():
         match = re.search(r'^\s*' + re.escape(prop) + r'\s*=\s*(.+?);\s*$',
                           body, re.M)
@@ -73,6 +86,25 @@ def check_dts(path):
     reserved = {'bluetooth', 'wlan', 'pci', 'usb'}
     duplicates = [n for n in set(names) if names.count(n) > 1]
     check(not duplicates, f'{path}: adt names unique (duplicates: {duplicates})')
+    return text
+
+
+def check_driver(path, dts_text):
+    """The node must advertise the rate the driver actually programs."""
+    if not os.path.exists(path):
+        check(False, f'{path}: driver source exists')
+        return
+    text = open(path, encoding='utf-8').read()
+    match = re.search(r'#define\s+K60_BT_RUN_BAUD\s+(\d+)u?', text)
+    run = int(match.group(1)) if match else None
+    check(run is not None, f'{path}: K60_BT_RUN_BAUD is defined')
+    speed = dts_value(dts_text, 'transport-speed')
+    if run is not None:
+        check(speed is not None and speed.isdigit() and int(speed) == run,
+              f'{path}: K60_BT_RUN_BAUD {run} matches transport-speed {speed}')
+    encoding = dts_value(dts_text, 'transport-encoding')
+    check(encoding == '1',
+          f'{path}: transport-encoding {encoding} is H4 (1), the framing the driver writes')
 
 
 def check_dtb(path):
@@ -118,8 +150,11 @@ def main():
     parser.add_argument('--dts', default='dts/mondrian.dts')
     parser.add_argument('--dtb')
     parser.add_argument('--payload')
+    parser.add_argument('--driver', help='patch that defines K60_BT_RUN_BAUD')
     args = parser.parse_args()
-    check_dts(args.dts)
+    text = check_dts(args.dts)
+    if args.driver:
+        check_driver(args.driver, text)
     if args.dtb:
         check_dtb(args.dtb)
     if args.payload:

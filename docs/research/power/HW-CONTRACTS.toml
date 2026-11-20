@@ -37,6 +37,18 @@
 # thermal ladder rows are the values that command prints for /soc/thermal-zones.
 # The walker has its own fixture suite (scripts/tests/test-read-fdt-props.py, 22
 # checks) because a second source nobody can re-read is not a source.
+#
+# Every row also states what the iOS 27 checkout holds, because "27 is the same as
+# 16" is two copies of one fact and two copies drift (P-259). Three fields:
+#   same27 = "same" | "drift" | "unchecked"
+#   copy27 = "path:line"   (relative to tree27; omitted only when unchecked)
+#   why27  = "..."         (required for drift and unchecked: what 27 holds instead)
+# The gate re-opens copy27 in the tree named by tree27 and requires `expect` on that
+# line for "same"; a "drift" claim is refused once the 27 copy already carries the
+# text, so the table cannot quietly keep claiming a gap it closed. A file the 27 tree
+# does not have yet is "unchecked" with the reason - not a silent pass.
+
+tree27 = "E:/hackios/xnekom-ios27"
 
 [roots]
 hackios = "E:/hackios"
@@ -54,7 +66,8 @@ second = [
   { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:16", expect = "SHENG_BATTMGR_OWNER 32778u" },
 ]
 second_note = "the vendor-side Linux implementation of the same DSP battery protocol names the same owner; its comment also says 32779 is the USB-C port manager on the same channel"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60Battmgr.h:12"
 [[contract]]
 id = "adsp-request-bytes"
 lane = "adsp"
@@ -67,6 +80,8 @@ second = [
   { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:25", expect = "SHENG_BATTMGR_REQUEST_BYTES 24u" },
 ]
 second_note = "the same 24-byte request frame in the vendor-side reader"
+same27 = "same"
+copy27 = "drivers/PongPower/K60Battmgr.h:13"
 [[contract]]
 id = "battery-owner-usbc-neighbour"
 lane = "battery"
@@ -79,7 +94,8 @@ second = [
   { source = "external:hackios/UniXNU-sheng/package/ShengBattery.cpp:30", expect = "The USB-C owner (32779) shares this channel" },
 ]
 second_note = "sheng routes the same channel to QcomDwc3 for UCSI and raised its max message to 560 B to fit those frames (ea15446); we have no USB-C driver yet, so the counter is the only trace"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60Battmgr.c:161"
 [[contract]]
 id = "adsp-notify-bytes"
 lane = "adsp"
@@ -92,7 +108,8 @@ second = [
   { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:26", expect = "SHENG_BATTMGR_ENABLE_BYTES 28u" },
 ]
 second_note = "the vendor reader sizes its enable frame at 28 B too; the name differs, so this corroborates the frame size and not the frame kind"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60Battmgr.h:14"
 [[contract]]
 id = "adsp-model-bytes"
 lane = "adsp"
@@ -101,7 +118,8 @@ source = "drivers/PongPower/K60Battmgr.h:15"
 expect = "K60_BATTMGR_MODEL_BYTES 128u"
 dependence = "layout"
 ios27 = "re-check against the model block the 27 DSP image publishes"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60Battmgr.h:15"
 [[contract]]
 id = "handoff-magic"
 lane = "adsp"
@@ -110,7 +128,8 @@ source = "drivers/PongPower/K60BatteryConfig.h:14"
 expect = "K60_ADSP_HANDOFF_MAGIC 0x4842364bu"
 dependence = "none"
 ios27 = "copy with the driver"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60BatteryConfig.h:14"
 [[contract]]
 id = "handoff-version"
 lane = "adsp"
@@ -119,7 +138,8 @@ source = "drivers/PongPower/K60BatteryConfig.h:15"
 expect = "K60_ADSP_HANDOFF_VERSION 1u"
 dependence = "none"
 ios27 = "copy with the driver"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60BatteryConfig.h:15"
 [[contract]]
 id = "handoff-bytes"
 lane = "adsp"
@@ -128,7 +148,8 @@ source = "drivers/PongPower/K60BatteryConfig.h:16"
 expect = "K60_ADSP_HANDOFF_BYTES 104u"
 dependence = "none"
 ios27 = "both copies travel; the console judge asserts bytes=104"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60BatteryConfig.h:16"
 [[contract]]
 id = "handoff-property"
 lane = "adsp"
@@ -137,7 +158,8 @@ source = "drivers/PongPower/K60BatteryConfig.h:17"
 expect = "k60-adsp-glink-handoff"
 dependence = "none"
 ios27 = "copy with the driver; nothing in the OS owns this name"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60BatteryConfig.h:17"
 [[contract]]
 id = "handoff-required-flags"
 lane = "adsp"
@@ -146,7 +168,8 @@ source = "drivers/PongPower/K60BatteryConfig.h:36"
 expect = "K60AdspHandoffRequired = 15u"
 dependence = "none"
 ios27 = "copy with the driver; the console judge asserts flags=15"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60BatteryConfig.h:36"
 [[contract]]
 id = "handoff-consumer-check"
 lane = "adsp"
@@ -155,7 +178,8 @@ source = "drivers/PongPower/K60PmicGlink.cpp:112"
 expect = "h.flags != K60AdspHandoffRequired"
 dependence = "none"
 ios27 = "keep the refusal; dropping it turns a stale lease into a silent adopt"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60PmicGlink.cpp:112"
 [[contract]]
 id = "adsp-load-base"
 lane = "adsp"
@@ -169,7 +193,8 @@ second = [
   { bytes = "external:k60work/firmware/adsp/adsp.b00", offset = 24, hex = "00003086" },
 ]
 second_note = "the firmware's own ELF32 header: e_entry at offset 0x18 is 0x86300000, the link address our loader copies to"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60AdspPas.h:23"
 [[contract]]
 id = "adsp-carveout"
 lane = "adsp"
@@ -183,7 +208,8 @@ second = [
   { source = "external:hackios/UniXNU-zizhan/drivers/PongPower/PongAdsp.cpp:50", expect = "kAdspBase = 0x9fd00000" },
 ]
 second_note = "another SM8475 board reserves the same carveout in its device tree and its ADSP loader uses it as the copy target"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60AdspBoard.c:69"
 [[contract]]
 id = "adsp-smc-clobber"
 lane = "adsp"
@@ -195,7 +221,9 @@ expect = "\"x17\", \"memory\""
 mirror = "patches/xnu/0613-k60-adsp-pas.patch:111"
 dependence = "none"
 ios27 = "copy with the driver; scripts/tests/test-k60-adsp-smccc.py guards both copies"
-
+same27 = "drift"
+copy27 = "drivers/PongPower/K60AdspPas.c:1"
+why27 = "27 侧的 k60_scm_call 仍只把 x0..x3 声明为被破坏、x4..x7 当输入、clobber 只有 memory（P-255 未过去）；同步时把这段连同 5 行注释一起搬，并同时改 patches/xnu/0613 那份副本"
 [[contract]]
 id = "battery-config-magic"
 lane = "battery"
@@ -204,7 +232,8 @@ source = "drivers/PongPower/K60BatteryConfig.h:11"
 expect = "K60_BATTERY_CONFIG_MAGIC 0x4342364bu"
 dependence = "layout"
 ios27 = "re-check before the 27 image reads an iOS 16 block"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60BatteryConfig.h:11"
 [[contract]]
 id = "battery-config-bytes"
 lane = "battery"
@@ -213,7 +242,8 @@ source = "drivers/PongPower/K60BatteryConfig.h:13"
 expect = "K60_BATTERY_CONFIG_BYTES 112u"
 dependence = "layout"
 ios27 = "re-check with the magic above"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60BatteryConfig.h:13"
 [[contract]]
 id = "charger-auth-arg"
 lane = "charger"
@@ -222,7 +252,9 @@ source = "drivers/PongPower/K60Battery.cpp:562"
 expect = "k60_charge_auth"
 dependence = "none"
 ios27 = "unchanged; 18 bytes, so it only fits a probe image on the 596-byte baseline"
-
+same27 = "drift"
+copy27 = "drivers/PongPower/K60Battery.cpp:1"
+why27 = "27 侧 K60Battery.cpp 不读 k60_charge_auth——认证线整体未搬，27 上这个参数不存在"
 [[contract]]
 id = "thermal-trip-warm"
 lane = "thermal"
@@ -235,7 +267,8 @@ second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 115844, hex = "00015f90" },
 ]
 second_note = "the device's own flattened device tree: /soc/thermal-zones/ddr/trips/ddr0-config carries 90000"
-
+same27 = "unchecked"
+why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
 id = "thermal-trip-junction"
 lane = "thermal"
@@ -248,7 +281,8 @@ second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 111028, hex = "00017318" },
 ]
 second_note = "the device's own flattened device tree: /soc/thermal-zones/gpuss-0/trips/tj_cfg carries 95000"
-
+same27 = "unchecked"
+why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
 id = "thermal-trip-emergency"
 lane = "thermal"
@@ -261,7 +295,8 @@ second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 106704, hex = "0001adb0" },
 ]
 second_note = "the device's own flattened device tree: /soc/thermal-zones/cpu-1-0/trips/cpu4-emerg0-cfg carries 110000"
-
+same27 = "unchecked"
+why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
 id = "thermal-trip-reset"
 lane = "thermal"
@@ -274,7 +309,8 @@ second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 105328, hex = "0001c138" },
 ]
 second_note = "the device's own flattened device tree: /soc/thermal-zones/aoss-0/trips/reset-mon-cfg carries 115000"
-
+same27 = "unchecked"
+why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
 id = "thermal-trip-shutdown"
 lane = "thermal"
@@ -287,7 +323,8 @@ second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 99796, hex = "0001e848" },
 ]
 second_note = "the device's own flattened device tree: /soc/thermal-zones/pa/trips/thermal-engine-config0 carries 125000"
-
+same27 = "unchecked"
+why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
 id = "power-pdmem-vote-magic"
 lane = "power"
@@ -301,7 +338,8 @@ second = [
   { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:56", expect = "+0x804+4*index" },
 ]
 second_note = "the same SoC's EPSS driver maps the perf-lock window at 0x17d09000 and writes at +0x804; 0x17d09000 + 0x804 = 0x17d09804"
-
+same27 = "same"
+copy27 = "drivers/PongPower/K60CpuFreqPlan.h:61"
 [[contract]]
 id = "power-pdmem-vote-offset"
 lane = "power"
@@ -314,3 +352,5 @@ second = [
   { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:56", expect = "+0x804+4*index" },
 ]
 second_note = "the same offset inside the perf-lock window, in the independent EPSS driver"
+same27 = "same"
+copy27 = "drivers/PongPower/K60CpuFreqPlan.h:66"

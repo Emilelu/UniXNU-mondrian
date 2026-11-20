@@ -13,39 +13,39 @@ or the count of sources searched when none exists (see the table's reason).
 
 ## none (8)
 
-| id | lane | what | source | second source | 27 action |
-| --- | --- | --- | --- | --- | --- |
-| handoff-magic | adsp | magic of the authenticated handoff lease | drivers/PongPower/K60BatteryConfig.h:14 |  | copy with the driver |
-| handoff-version | adsp | version of the handoff lease struct | drivers/PongPower/K60BatteryConfig.h:15 |  | copy with the driver |
-| handoff-bytes | adsp | lease size the publisher writes and the consumer maps | drivers/PongPower/K60BatteryConfig.h:16 |  | both copies travel; the console judge asserts bytes=104 |
-| handoff-property | adsp | SMEM property name the lease is published under | drivers/PongPower/K60BatteryConfig.h:17 |  | copy with the driver; nothing in the OS owns this name |
-| handoff-required-flags | adsp | flags a consumer accepts (bit mask 15) | drivers/PongPower/K60BatteryConfig.h:36 |  | copy with the driver; the console judge asserts flags=15 |
-| handoff-consumer-check | adsp | the consumer refuses a lease without the required flags or epoch | drivers/PongPower/K60PmicGlink.cpp:112 |  | keep the refusal; dropping it turns a stale lease into a silent adopt |
-| adsp-smc-clobber | adsp | SMCCC register contract of the SCM wrapper (P-255) | drivers/PongPower/K60AdspPas.c:38 |  | copy with the driver; scripts/tests/test-k60-adsp-smccc.py guards both copies |
-| charger-auth-arg | charger | boot argument that enables the charge-auth state machine | drivers/PongPower/K60Battery.cpp:562 |  | unchanged; 18 bytes, so it only fits a probe image on the 596-byte baseline |
+| id | lane | what | source | second source | 27 copy | 27 action |
+| --- | --- | --- | --- | --- | --- | --- |
+| handoff-magic | adsp | magic of the authenticated handoff lease | drivers/PongPower/K60BatteryConfig.h:14 |  | same `drivers/PongPower/K60BatteryConfig.h:14` | copy with the driver |
+| handoff-version | adsp | version of the handoff lease struct | drivers/PongPower/K60BatteryConfig.h:15 |  | same `drivers/PongPower/K60BatteryConfig.h:15` | copy with the driver |
+| handoff-bytes | adsp | lease size the publisher writes and the consumer maps | drivers/PongPower/K60BatteryConfig.h:16 |  | same `drivers/PongPower/K60BatteryConfig.h:16` | both copies travel; the console judge asserts bytes=104 |
+| handoff-property | adsp | SMEM property name the lease is published under | drivers/PongPower/K60BatteryConfig.h:17 |  | same `drivers/PongPower/K60BatteryConfig.h:17` | copy with the driver; nothing in the OS owns this name |
+| handoff-required-flags | adsp | flags a consumer accepts (bit mask 15) | drivers/PongPower/K60BatteryConfig.h:36 |  | same `drivers/PongPower/K60BatteryConfig.h:36` | copy with the driver; the console judge asserts flags=15 |
+| handoff-consumer-check | adsp | the consumer refuses a lease without the required flags or epoch | drivers/PongPower/K60PmicGlink.cpp:112 |  | same `drivers/PongPower/K60PmicGlink.cpp:112` | keep the refusal; dropping it turns a stale lease into a silent adopt |
+| adsp-smc-clobber | adsp | SMCCC register contract of the SCM wrapper (P-255) | drivers/PongPower/K60AdspPas.c:38 |  | drift `drivers/PongPower/K60AdspPas.c:1` | copy with the driver; scripts/tests/test-k60-adsp-smccc.py guards both copies |
+| charger-auth-arg | charger | boot argument that enables the charge-auth state machine | drivers/PongPower/K60Battery.cpp:562 |  | drift `drivers/PongPower/K60Battery.cpp:1` | unchanged; 18 bytes, so it only fits a probe image on the 596-byte baseline |
 
 ## firmware (13)
 
-| id | lane | what | source | second source | 27 action |
-| --- | --- | --- | --- | --- | --- |
-| adsp-owner | adsp | GLINK battery-manager owner id the DSP request must carry | drivers/PongPower/K60Battmgr.h:12 | independent, 1 citation(s) | unchanged: the id lives in the DSP image, not in XNU |
-| adsp-request-bytes | adsp | size of one battmgr request frame | drivers/PongPower/K60Battmgr.h:13 | independent, 1 citation(s) | unchanged unless the DSP image changes |
-| battery-owner-usbc-neighbour | battery | the battery manager channel also carries the USB-C port manager (32779); our decoder keeps only 32778 and counts everything else as ignored | drivers/PongPower/K60Battmgr.c:161 | independent, 1 citation(s) | route by owner: if the 27 line ever adds UCSI, 32779 frames must go to the USB-C driver instead of falling into ignored++ |
-| adsp-notify-bytes | adsp | size of one battmgr notify frame (the DSP's own ack length) | drivers/PongPower/K60Battmgr.h:14 | independent, 1 citation(s) | unchanged; the consumer accepts the length the DSP reports, not this constant |
-| adsp-load-base | adsp | link address of the ADSP image segments | drivers/PongPower/K60AdspPas.h:23 | independent, 1 citation(s) | re-derive from the 27 firmware image, not from this constant |
-| adsp-carveout | adsp | board carveout the payload is copied to before release | drivers/PongPower/K60AdspBoard.c:69 | independent, 2 citation(s) | re-check the carveout the 27 device tree publishes |
-| thermal-trip-warm | thermal | warm trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:57 | independent, 1 citation(s) | re-check against the 27 thermal profile before trusting the ladder |
-| thermal-trip-junction | thermal | junction trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:58 | independent, 1 citation(s) | same as warm |
-| thermal-trip-emergency | thermal | emergency trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:59 | independent, 1 citation(s) | same as warm |
-| thermal-trip-reset | thermal | reset trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:60 | independent, 1 citation(s) | same as warm |
-| thermal-trip-shutdown | thermal | shutdown trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:61 | independent, 1 citation(s) | same as warm |
-| power-pdmem-vote-magic | power | perf-lock PDMEM address family the vote writes through | drivers/PongPower/K60CpuFreqPlan.h:61 | independent, 2 citation(s) | re-derive from the 27 device tree node, not from this comment |
-| power-pdmem-vote-offset | power | offset inside the perf-lock PDMEM window | drivers/PongPower/K60CpuFreqPlan.h:66 | independent, 1 citation(s) | re-check with the magic above |
+| id | lane | what | source | second source | 27 copy | 27 action |
+| --- | --- | --- | --- | --- | --- | --- |
+| adsp-owner | adsp | GLINK battery-manager owner id the DSP request must carry | drivers/PongPower/K60Battmgr.h:12 | independent, 1 citation(s) | same `drivers/PongPower/K60Battmgr.h:12` | unchanged: the id lives in the DSP image, not in XNU |
+| adsp-request-bytes | adsp | size of one battmgr request frame | drivers/PongPower/K60Battmgr.h:13 | independent, 1 citation(s) | same `drivers/PongPower/K60Battmgr.h:13` | unchanged unless the DSP image changes |
+| battery-owner-usbc-neighbour | battery | the battery manager channel also carries the USB-C port manager (32779); our decoder keeps only 32778 and counts everything else as ignored | drivers/PongPower/K60Battmgr.c:161 | independent, 1 citation(s) | same `drivers/PongPower/K60Battmgr.c:161` | route by owner: if the 27 line ever adds UCSI, 32779 frames must go to the USB-C driver instead of falling into ignored++ |
+| adsp-notify-bytes | adsp | size of one battmgr notify frame (the DSP's own ack length) | drivers/PongPower/K60Battmgr.h:14 | independent, 1 citation(s) | same `drivers/PongPower/K60Battmgr.h:14` | unchanged; the consumer accepts the length the DSP reports, not this constant |
+| adsp-load-base | adsp | link address of the ADSP image segments | drivers/PongPower/K60AdspPas.h:23 | independent, 1 citation(s) | same `drivers/PongPower/K60AdspPas.h:23` | re-derive from the 27 firmware image, not from this constant |
+| adsp-carveout | adsp | board carveout the payload is copied to before release | drivers/PongPower/K60AdspBoard.c:69 | independent, 2 citation(s) | same `drivers/PongPower/K60AdspBoard.c:69` | re-check the carveout the 27 device tree publishes |
+| thermal-trip-warm | thermal | warm trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:57 | independent, 1 citation(s) | unchecked | re-check against the 27 thermal profile before trusting the ladder |
+| thermal-trip-junction | thermal | junction trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:58 | independent, 1 citation(s) | unchecked | same as warm |
+| thermal-trip-emergency | thermal | emergency trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:59 | independent, 1 citation(s) | unchecked | same as warm |
+| thermal-trip-reset | thermal | reset trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:60 | independent, 1 citation(s) | unchecked | same as warm |
+| thermal-trip-shutdown | thermal | shutdown trip point in millidegrees | drivers/PongPower/K60ThermalMap.h:61 | independent, 1 citation(s) | unchecked | same as warm |
+| power-pdmem-vote-magic | power | perf-lock PDMEM address family the vote writes through | drivers/PongPower/K60CpuFreqPlan.h:61 | independent, 2 citation(s) | same `drivers/PongPower/K60CpuFreqPlan.h:61` | re-derive from the 27 device tree node, not from this comment |
+| power-pdmem-vote-offset | power | offset inside the perf-lock PDMEM window | drivers/PongPower/K60CpuFreqPlan.h:66 | independent, 1 citation(s) | same `drivers/PongPower/K60CpuFreqPlan.h:66` | re-check with the magic above |
 
 ## layout (3)
 
-| id | lane | what | source | second source | 27 action |
-| --- | --- | --- | --- | --- | --- |
-| adsp-model-bytes | adsp | size of the battery model block | drivers/PongPower/K60Battmgr.h:15 |  | re-check against the model block the 27 DSP image publishes |
-| battery-config-magic | battery | magic of the persisted battery configuration block | drivers/PongPower/K60BatteryConfig.h:11 |  | re-check before the 27 image reads an iOS 16 block |
-| battery-config-bytes | battery | size of the persisted battery configuration block | drivers/PongPower/K60BatteryConfig.h:13 |  | re-check with the magic above |
+| id | lane | what | source | second source | 27 copy | 27 action |
+| --- | --- | --- | --- | --- | --- | --- |
+| adsp-model-bytes | adsp | size of the battery model block | drivers/PongPower/K60Battmgr.h:15 |  | same `drivers/PongPower/K60Battmgr.h:15` | re-check against the model block the 27 DSP image publishes |
+| battery-config-magic | battery | magic of the persisted battery configuration block | drivers/PongPower/K60BatteryConfig.h:11 |  | same `drivers/PongPower/K60BatteryConfig.h:11` | re-check before the 27 image reads an iOS 16 block |
+| battery-config-bytes | battery | size of the persisted battery configuration block | drivers/PongPower/K60BatteryConfig.h:13 |  | same `drivers/PongPower/K60BatteryConfig.h:13` | re-check with the magic above |

@@ -45,11 +45,13 @@ source = "{source}"
 expect = "{expect}"
 dependence = "{dependence}"
 ios27 = "{ios27}"
+{extra}
 """
 
 
 def build(root: pathlib.Path, rows: str, body: str = "#define X 1u\n",
-          extra: dict[str, str] | None = None) -> pathlib.Path:
+          extra: dict[str, str] | None = None, tree: dict[str, str] | None = None,
+          tree27: bool = True) -> pathlib.Path:
     if root.exists():
         shutil.rmtree(root, ignore_errors=True)
     (root / "drv").mkdir(parents=True)
@@ -58,18 +60,47 @@ def build(root: pathlib.Path, rows: str, body: str = "#define X 1u\n",
         target = root / "drv" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8", newline="\n")
+    # The 27 copy is a real directory here, so a row's same27 claim is re-opened
+    # exactly the way it is on the device tree (P-259: two copies drift).
+    side = root / "tree27"
+    side.mkdir(parents=True, exist_ok=True)
+    (side / "drv").mkdir(parents=True, exist_ok=True)
+    (side / "drv" / "a.h").write_text(body, encoding="utf-8", newline="\n")
+    for name, text in (tree or {}).items():
+        target = side / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
     manifest = root / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(rows, encoding="utf-8", newline="\n")
+    header = f"tree27 = \"{side.as_posix()}\"\n\n" if tree27 else ""
+    manifest.write_text(header + rows, encoding="utf-8", newline="\n")
     return manifest
 
 
 def row(**kw) -> str:
-    base = dict(id="x", lane="power", source="drv/a.h:1", expect="X 1u",
-                dependence="none", ios27="nothing")
-    base.update(kw)
-    return ROW.format(**base)
+    return fmt(**kw)
 
+
+class _Defaults(dict):
+    def __missing__(self, key):
+        return ""
+
+
+def fmt(**kw) -> str:
+    """One [[contract]] row with the same27 fields the gate now demands."""
+    base = dict(id="x", lane="power", source="drv/a.h:1", expect="X 1u",
+                dependence="none", ios27="nothing", extra="",
+                same27="same", copy27="drv/a.h:1", why27="")
+    base.update(kw)
+    lines = ['same27 = "%s"' % base["same27"]]
+    if base["copy27"]:
+        lines.append('copy27 = "%s"' % base["copy27"])
+    if base["why27"]:
+        lines.append('why27 = "%s"' % base["why27"])
+    if base["extra"]:
+        lines.append(base["extra"])
+    base["extra"] = "\n".join(lines)
+    return ROW.format_map(_Defaults(base))
 
 def main() -> int:
     module = load()
@@ -124,7 +155,7 @@ def main() -> int:
 
     def five(mirror: str, extra: dict[str, str] | None = None) -> pathlib.Path:
         rows = "".join(row(id=f"m{i}", lane=lane) for i, lane in enumerate(sorted(module.LANES)))
-        rows += ROW.format(id="mirrored", lane="power", source="drv/a.h:1", expect="X 1u",
+        rows += fmt(id="mirrored", lane="power", source="drv/a.h:1", expect="X 1u",
                            dependence="none", ios27="nothing") + f'mirror = "{mirror}"\n'
         return build(WORK / "mirror", rows, extra=extra)
 
@@ -148,7 +179,7 @@ def main() -> int:
         rows = "".join(row(id=f"s{i}", lane=lane) for i, lane in enumerate(sorted(module.LANES)))
         return build(WORK / name, rows + extra)
 
-    fw_row = ROW.format(id="fw", lane="power", source="drv/a.h:1", expect="X 1u",
+    fw_row = fmt(id="fw", lane="power", source="drv/a.h:1", expect="X 1u",
                         dependence="firmware", ios27="nothing")
 
     bare = lanes_and(fw_row, "fw-bare")
@@ -199,6 +230,34 @@ def main() -> int:
           str(module.hostpath("E:/k60-work/x")).replace("\\", "/").endswith("k60-work/x"),
           str(module.hostpath("E:/k60-work/x")))
 
+    # The same27 claim is the one this gate was extended for: "27 is the same as 16"
+    # is two copies of one fact, and the gate re-opens the copy instead of trusting it.
+    drifted = build(WORK / "same-drift", row(), tree={"drv/a.h": "#define X 2u\n"})
+    problems = module.verify(WORK / "same-drift", drifted)
+    check("a same27 row whose 27 copy moved is refused",
+          any("the copies drifted" in p for p in problems), str(problems))
+
+    flipped = build(WORK / "same-flipped", row(same27="drift", why27="27 has no such line"))
+    problems = module.verify(WORK / "same-flipped", flipped)
+    check("a drift claim the 27 copy contradicts is refused",
+          any("flip it to same" in p for p in problems), str(problems))
+
+    silent = build(WORK / "same-silent", row(same27="unchecked"))
+    problems = module.verify(WORK / "same-silent", silent)
+    check("an unchecked row has to say why",
+          any("needs why27" in p for p in problems), str(problems))
+
+    honest = build(WORK / "same-honest", row(same27="unchecked", copy27="",
+                                            why27="27 has no such file yet"))
+    problems = module.verify(WORK / "same-honest", honest)
+    check("a documented unchecked row passes",
+          not [p for p in problems if "why27" in p or "same27" in p or "copy27" in p],
+          str(problems))
+
+    bare27 = build(WORK / "same-no-tree", row(), tree27=False)
+    problems = module.verify(WORK / "same-no-tree", bare27)
+    check("a same claim without tree27 is refused",
+          any("needs tree27" in p for p in problems), str(problems))
     real = REPO / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
     if real.is_file():
         problems = module.verify(REPO, real)

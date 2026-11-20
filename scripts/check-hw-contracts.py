@@ -34,6 +34,7 @@ REL = "docs/research/power/HW-CONTRACTS.toml"
 LANES = {"adsp", "battery", "charger", "thermal", "power"}
 DEPENDENCE = {"none", "macro", "firmware", "property-number", "layout"}
 FIELDS = ("id", "lane", "what", "source", "expect", "dependence", "ios27")
+VERDICTS27 = ("same", "drift", "unchecked")
 DRIVE = re.compile(r"^([A-Za-z]):[\\/]")
 
 
@@ -157,6 +158,65 @@ def bytes_problems(label: str, entry: dict, root: pathlib.Path, roots: dict) -> 
     return []
 
 
+
+
+def checked27(label: str, row: dict, tree27) -> list[str]:
+    """Every row states what the 27 copy holds, and the gate re-opens that copy. Aimed at
+    the rows whose whole claim is "27 is the same as 16": that claim is two copies of one
+    fact, and two copies drift (P-259)."""
+    problems: list[str] = []
+    verdict = str(row.get("same27") or "").strip()
+    if not verdict:
+        problems.append(f"{label}: does not say whether the 27 copy is the same "
+                        f"(same27 = same | drift | unchecked)")
+        return problems
+    if verdict not in VERDICTS27:
+        problems.append(f"{label}: same27 {verdict!r} is not one of {list(VERDICTS27)}")
+        return problems
+    why = str(row.get("why27") or "").strip()
+    if verdict in ("drift", "unchecked") and not why:
+        problems.append(f"{label}: same27 = {verdict} needs why27, saying what the 27 copy holds")
+    copy = str(row.get("copy27") or "").strip()
+    if verdict == "unchecked":
+        if copy:
+            problems.append(f"{label}: same27 = unchecked cannot also cite copy27")
+        return problems
+    if ":" not in copy:
+        problems.append(f"{label}: copy27 {copy!r} is not path:line")
+        return problems
+    if tree27 is None:
+        problems.append(f"{label}: the manifest needs tree27 to check copy27")
+        return problems
+    rel, _, number = copy.rpartition(":")
+    try:
+        line = int(number)
+    except ValueError:
+        problems.append(f"{label}: copy27 line {number!r} is not a number")
+        return problems
+    path = pathlib.Path(tree27) / rel
+    if not path.is_file():
+        problems.append(f"{label}: the 27 tree has no {rel}")
+        return problems
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as error:
+        problems.append(f"{label}: cannot read the 27 copy {rel}: {error}")
+        return problems
+    expect = str(row.get("expect") or "")
+    found = [i + 1 for i, text in enumerate(lines) if expect and expect in text]
+    if verdict == "same":
+        if not 1 <= line <= len(lines):
+            problems.append(f"{label}: the 27 copy {rel} has {len(lines)} lines, the row cites {line}")
+        elif expect and expect not in lines[line - 1]:
+            problems.append(f"{label}: 27 {rel}:{line} does not contain {expect!r} (copy27 says same, "
+                            f"the copies drifted)")
+    elif not found:
+        pass
+    else:
+        problems.append(f"{label}: the 27 copy already carries {expect!r} at line(s) {found[:3]}; "
+                        f"same27 = drift is stale, flip it to same")
+    return problems
+
 def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
     problems: list[str] = []
     try:
@@ -171,6 +231,8 @@ def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
     roots = data.get("roots") or {}
     if not isinstance(roots, dict):
         return [f"{manifest}: [roots] is not a table"]
+    tree27 = data.get("tree27")
+    tree27 = hostpath(str(tree27)) if tree27 else None
     seen: dict[str, int] = {}
     for index, row in enumerate(rows, 1):
         label = str(row.get("id") or f"row {index}")
@@ -231,6 +293,7 @@ def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
                             problems.append(
                                 f"{label}: mirror {mrel}:{mline} does not contain {expect!r} (the second copy drifted)")
         problems += second_problems(label, row, root, roots)
+        problems += checked27(label, row, tree27)
     covered = {str(row.get("lane") or "") for row in rows}
     for lane in sorted(LANES - covered):
         problems.append(f"no row covers the {lane} line")
@@ -276,12 +339,14 @@ def render(root: pathlib.Path, manifest: pathlib.Path) -> str:
             continue
         out.append(f"## {dependence} ({len(group)})")
         out.append("")
-        out.append("| id | lane | what | source | second source | 27 action |")
-        out.append("| --- | --- | --- | --- | --- | --- |")
+        out.append("| id | lane | what | source | second source | 27 copy | 27 action |")
+        out.append("| --- | --- | --- | --- | --- | --- | --- |")
         for row in group:
             cells = [str(row.get(key) or "").replace("|", "\\|")
                      for key in ("id", "lane", "what", "source")]
             cells.append(second_note(row).replace("|", "\\|"))
+            copy = str(row.get("copy27") or "").strip()
+            cells.append((str(row.get("same27") or "") + (f" `{copy}`" if copy else "")).replace("|", "\\|"))
             cells.append(str(row.get("ios27") or "").replace("|", "\\|"))
             out.append("| " + " | ".join(cells) + " |")
         out.append("")
@@ -333,8 +398,11 @@ def main() -> int:
     lanes = sorted({str(row["lane"]) for row in rows})
     independent = sum(1 for row in rows if isinstance(row.get("second"), list) and row["second"])
     pending = sum(1 for row in rows if isinstance(row.get("second_unavailable"), dict))
+    checked = [row for row in rows if str(row.get("same27") or "") in ("same", "drift")]
+    same27 = sum(1 for row in checked if str(row.get("same27")) == "same")
     print(f"✅ hw-contracts: {len(rows)} contract(s) across {len(lanes)} lane(s) match the lines they cite "
-          f"({independent} with an independent second source, {pending} documented as not found)")
+          f"({independent} with an independent second source, {pending} documented as not found; "
+          f"{len(checked)} re-opened in the 27 copy: {same27} same, {len(checked) - same27} drift)")
     return 0
 
 

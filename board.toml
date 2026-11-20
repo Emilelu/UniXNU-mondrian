@@ -112,7 +112,7 @@ trust_cache_sha256 = []
 # that reached BSD init on SM8450.
 kernel_args = [
   "-v", "serial=3", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
-  "use_contiguous_hint=0", "amfi_get_out_of_my_way=1",
+  "use_contiguous_hint=0", "amfi_get_out_of_my_way=1", "k60_fontscale=3",
 ]
 
 [payload."adt"]

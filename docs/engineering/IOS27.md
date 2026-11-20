@@ -275,6 +275,57 @@ and `docs/PAC_PROBE.md` and changes nothing unless `PAC_PROBE=1` is exported
 copy of that shim, never in the shared checkout, so its `out/` stays the iOS 16
 line's.
 
+## The crypto provider the Data gate needs
+
+`scripts/check-bluetooth-data-gate-chain.py` prints what the 27 defconfig still lacks
+before `CONFIG_XNU_OWNER_DATA_MOUNT` can be switched on. The first rule in that
+chain is `XNU_VERIFIED_ROOT_PROBE`, which requires two values:
+
+- `XNU_SOURCE_CORECRYPTO14=1`, already supplied by
+  `profiles/arch/arm64e/configs/common.config:2`;
+- `XNU_CRYPTO_BOOTSTRAP=prelinked`, currently overridden to `"source"` by
+  `configs/mondrian_ios27_defconfig:12` while the OS profile asks for `prelinked`
+  at `profiles/os/ios-27.0.1-24A446/configs/ios.config:1`.
+
+Prelinked changes one compile flag, not the patch series:
+`scripts/build-xnu-generic.sh:184-201` rebuilds `prng_random.o` with
+`prng_random.o_CFLAGS_ADD=-UXNU_SOURCE_CORECRYPTO14`. Replaying the recorded 24C
+compile command with `-D` gives a 53,856-byte object holding
+`source_corecrypto14_bootstrap`, `source_corecrypto14_start_once` and
+`corecrypto_kext_start`; with `-U` the object is 42,672 bytes and none of the
+three symbols exist. So prelinked removes the kernel-side starter entirely, and
+the boot kernel collection has to carry `com.apple.kec.corecrypto`.
+
+It does. Run 44518998961's `kernel.macho` is an `MH_FILESET` with 32
+`LC_FILESET_ENTRY` records, and the last one is `com.apple.kec.corecrypto`
+(`scripts/check-xnu27-crypto-provider.py --kernel ... --mode prelinked` prints
+`bluetooth-crypto-provider: OK`). The 16.6.1 line is the opposite shape: its
+`kernel.macho` is `MH_EXECUTE` with no fileset, which is why that line runs
+`source` and links `libcorecrypto_kernel_noasm-namespaced.a`
+(`scripts/build-xnu-generic.sh:606-610`).
+
+Two traps in reading that artifact:
+
+- `LC_FILESET_ENTRY` is `0x80000035`, not `0x80000033` (`0x33` is
+  `LC_DYLD_EXPORTS_TRIE`); a parser using the wrong constant reports zero
+  entries on a collection that has 32.
+- `entry_id` is an offset from the start of its own load command, so the name
+  sits at `command_offset + entry_id`. Reading it as a file offset yields empty
+  names.
+
+Prelinked is a build configuration the host can check today; it is not a runtime
+guarantee. With it the kernel starts no corecrypto of its own, so the provider
+exists only once the kext that owns the entry has started; a root probe that
+runs earlier sees no crypto. That ordering is the first thing F3 has to measure
+on the board, and the checker reports `hardware_verified: false` for exactly
+that reason.
+
+The one-line change is not applied here: `configs/mondrian_ios27_defconfig:12`
+would become `CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"`, and that line is the
+only one that moves. The kernel series and the framework patches stay as they
+are, so a build either links the same kernel minus the starter or fails at the
+first kext that needs the provider.
+
 ## Framework patches this branch carries
 
 `scripts/apply-core-patches.sh` applies every top-level

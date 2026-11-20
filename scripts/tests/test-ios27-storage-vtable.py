@@ -74,8 +74,15 @@ def word(address, diversity, authenticated=1):
     return (authenticated << 63) | (diversity << 32) | target
 
 
-def table(rows):
-    out = 'slot\tkind\tmethod\tsource_diversity\n'
+PIN = '7edb88fbae296fb7c8ce2f64e115e116e566d51c'
+
+
+def table(rows, commit=PIN):
+    out = '# pin: IOStorageFamily IOStorageFamily-337.100.1\n'
+    if commit:
+        out += f'# commit: {commit}\n'
+    out += '# source: profiles/os/ios-27.0.1-24A446/profile.toml\n'
+    out += 'slot\tkind\tmethod\tsource_diversity\n'
     for slot, kind, method, div in rows:
         out += f'{slot}\t{kind}\t{method}\t{div:#x}\n'
     return out
@@ -124,6 +131,27 @@ def main():
     # 1b. the entry assertion covers every property, not just the count
     done = run(args + ['--require-entry'], tmp)
     case('--require-entry passes on a matching entry', done.returncode == 0, done.stdout)
+
+    # 1c. the table is tied to the pin it came from
+    profile = tmp / 'profile.toml'
+    profile.write_text('[[source]]\nname = "IOStorageFamily"\n'
+                       'ref = "IOStorageFamily-337.100.1"\n'
+                       f'commit = "{PIN}"\n')
+    done = run(args + ['--profile', str(profile)], tmp)
+    case('the table pin matches the profile', done.returncode == 0, done.stdout)
+
+    moved = tmp / 'moved.toml'
+    moved.write_text('[[source]]\nname = "IOStorageFamily"\n'
+                     'commit = "0000000000000000000000000000000000000000"\n')
+    done = run(args + ['--profile', str(moved)], tmp)
+    case('a moved pin turns the table red',
+         done.returncode == 1 and 'table pin' in done.stdout, done.stdout)
+
+    unpinned = tmp / 'unpinned.tsv'
+    unpinned.write_text(table(rows, commit=None))
+    done = run(args[:-1] + [str(unpinned)], tmp)
+    case('a table that records no pin is red',
+         done.returncode == 1 and 'records no' in done.stdout, done.stdout)
 
     def unauth_image(placement):
         return macho([('__TEXT', 0xFFFFFFF007A00000, 0x1000, 0),

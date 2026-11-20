@@ -30,6 +30,7 @@ import argparse
 import json
 import struct
 import sys
+import tomllib
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -44,6 +45,9 @@ LC_SEGMENT_64 = 0x19
 LC_FILESET_ENTRY = 0x80000035
 KERNEL_BASE = 0xFFFFFFF007004000
 MASK30 = 0x3FFFFFFF
+DEFAULT_PROFILE = (Path(__file__).resolve().parents[1]
+                   / 'profiles/os/ios-27.0.1-24A446/profile.toml')
+SOURCE_NAME = 'IOStorageFamily'
 
 
 class Failure(Exception):
@@ -114,7 +118,7 @@ def read_table(path, slots):
     rows = []
     for line in path.read_text().splitlines():
         line = line.strip()
-        if not line or line.startswith('slot\t'):
+        if not line or line.startswith('#') or line.startswith('slot\t'):
             continue
         parts = line.split('\t')
         if len(parts) != 4:
@@ -127,6 +131,38 @@ def read_table(path, slots):
         if row['slot'] != index:
             raise Failure(f'table row {index} claims slot {row["slot"]}')
     return rows
+
+
+def table_pin(path):
+    """The commit the table was generated from, as `# commit: <sha>` in its head."""
+    for line in Path(path).read_text(encoding='utf-8').splitlines():
+        if not line.startswith('#'):
+            continue
+        key, _, value = line[1:].strip().partition(':')
+        if key.strip() == 'commit':
+            return value.strip()
+    return None
+
+
+def check_pin(table_path, profile_path, source_name):
+    """A moved pin must invalidate the table, not silently outlive it."""
+    commit = table_pin(table_path)
+    if not commit:
+        raise Failure(f'table {table_path} records no "# commit:" line, '
+                      'so a moved pin cannot invalidate it')
+    profile = Path(profile_path)
+    if not profile.is_file():
+        raise Failure(f'pin source {profile} not found')
+    document = tomllib.loads(profile.read_text(encoding='utf-8'))
+    for source in document.get('source', []):
+        if source.get('name') == source_name:
+            pinned = source.get('commit')
+            if not pinned:
+                raise Failure(f'{profile}: source {source_name} has no commit')
+            if pinned != commit:
+                raise Failure(f'table pin {commit} != profile pin {pinned} ({source_name})')
+            return pinned
+    raise Failure(f'{profile}: no [[source]] named {source_name}')
 
 
 def classify(image, kernel, address):
@@ -151,6 +187,10 @@ def main(argv=None):
     parser.add_argument('--table', default=str(Path(__file__).resolve().parents[1]
                                               / 'docs/engineering/ios27-storage-vtable.tsv'))
     parser.add_argument('--slots', type=int, default=0, help='require this many slots')
+    parser.add_argument('--profile', default=str(DEFAULT_PROFILE),
+                        help='profile.toml that pins the source the table came from')
+    parser.add_argument('--source-name', default=SOURCE_NAME,
+                        help='[[source]] name to compare the table pin with')
     parser.add_argument('--out')
     parser.add_argument('--require-match', action='store_true',
                         help='exit 1 unless every slot is 一致')
@@ -176,6 +216,7 @@ def main(argv=None):
         kernel = find(root, 'com.apple.kernel')
         if kernel is None:
             raise Failure('no com.apple.kernel entry to resolve external methods')
+        check_pin(table_path, args.profile, args.source_name)
         rows = read_table(table_path, args.slots)
         vtable = int(args.vtable, 0)
         offset = va_to_offset(image, vtable, len(rows) * 8)

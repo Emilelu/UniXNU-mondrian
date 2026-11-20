@@ -3,8 +3,9 @@
 
 docs/research/power/LANE-CONFORMANCE.toml is the answer to "each lane, line by
 line, against the official page, with evidence". Six things make such a table
-survive: the quote must exist in the page (otherwise somebody is remembering a
-sentence that was never there), the evidence must be a file that exists, a
+survive: the quote must exist in the page section the row names (otherwise
+somebody is remembering a sentence that was never there, or reading it out of
+another section), the evidence must be a file that exists, a
 verified row must name the line in that file which proves it (otherwise any
 unrelated file passes), that line may not be the quoted sentence itself, a lane
 may not sit at "partial" without a reason, and two rows in the same lane may not
@@ -33,7 +34,7 @@ MIN_PROOF = 8
 HEADER = """# 四条线 + Power 对官网页面的逐条对齐（生成物）
 
 由 `python3 scripts/check-lane-conformance.py --render` 生成，**不要手改**：改
-`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对六件事——引用的句子确实在页面上、
+`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对六件事——引用的句子确实在页面、且在该行写的节里；
 证据文件确实存在、`verified` 行写的那行证据确实在文件里、证据行不能又是页面要求本身、
 非 `verified` 的行写了理由、同一 lane 里同一句要求没有被两行重复引用（P-259）。
 
@@ -81,6 +82,20 @@ def evidence_line(row):
     return text
 
 
+def section_block(body, section):
+    """Return the named top-level section, heading included, or None."""
+    text = str(section or "").strip()
+    if not text:
+        return None
+    match = re.search(r"^##[ \t]+%s\.(?=[ \t]|$)" % re.escape(text), body, re.M)
+    if not match:
+        return None
+    rest = body[match.end():]
+    following = re.search(r"^#{1,2}[ \t]+", rest, re.M)
+    end = match.end() + (following.start() if following else len(rest))
+    return body[match.start():end]
+
+
 def verify(root, table_path):
     table = tomllib.loads(read(table_path))
     rows = table.get("row") or []
@@ -113,11 +128,18 @@ def verify(root, table_path):
             problems.append("%s: status %s needs a why" % (label, status))
         if status == "verified" and str(row.get("why") or "").strip():
             pass  # a note on a verified row is fine, it is not the reason it is partial
+        section = str(row.get("section") or "")
+        anchor = str(row.get("anchor") or "")
+        block = section_block(body, section) if body and section else None
+        if body and section and block is None:
+            problems.append("%s: the page has no section %s" % (label, section))
         requirement = str(row.get("requirement") or "").strip()
         if not requirement:
             problems.append("%s: no requirement quoted" % label)
         elif body and requirement not in body:
             problems.append("%s: the page does not carry %r" % (label, requirement))
+        elif body and block is not None and requirement not in block:
+            problems.append("%s: the page carries %r outside section %s" % (label, requirement, section))
         if requirement:
             key = (lane, requirement)
             earlier = seen_requirements.get(key)
@@ -125,14 +147,13 @@ def verify(root, table_path):
                 problems.append("%s: %r is already quoted by %s in the same lane; split the page sentence into the clauses it lists" % (label, requirement, earlier))
             else:
                 seen_requirements[key] = label
-        section = str(row.get("section") or "")
-        anchor = str(row.get("anchor") or "")
-        if body and section:
-            if not re.search(r"^##+ %s\. " % re.escape(section), body, re.M):
-                problems.append("%s: the page has no section %s" % (label, section))
         if body and anchor:
-            if "{%s}" % anchor.lstrip("#") not in body and "{#%s}" % anchor.lstrip("#") not in body:
+            name = anchor.lstrip("#")
+            markers = ("{%s}" % name, "{#%s}" % name)
+            if not any(marker in body for marker in markers):
                 problems.append("%s: the page has no anchor %s" % (label, anchor))
+            elif block is not None and not any(marker in block for marker in markers):
+                problems.append("%s: the page has anchor %s outside section %s" % (label, anchor, section))
         target, _ = evidence_path(root, row.get("evidence"))
         if target is None:
             pass  # an external: citation cannot be opened here, and says so

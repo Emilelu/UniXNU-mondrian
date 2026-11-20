@@ -2,10 +2,11 @@
 """Fixture tests for scripts/check-lane-conformance.py.
 
 The gate exists so the per-lane table cannot quote a sentence the page never
-carries, cite evidence that is not there, claim "verified" without naming the
-line in that evidence which proves it, cite the quoted sentence as its own
-proof, sit at "partial" without saying why, or re-use one page sentence in two
-rows of the same lane.
+carries or carries only in another section, cite evidence that is not there,
+claim "verified" without naming the line in that evidence which proves it, cite
+the quoted sentence as its own proof, sit at "partial" without saying why,
+re-use one page sentence in two rows of the same lane, or attach an anchor that
+belongs to another section.
 These cases prove each of those refusals plus the healthy path, and that the
 repository table itself still verifies against the page copy.
 """
@@ -98,9 +99,10 @@ def build(name, rows, page=PAGE, with_evidence=True):
 
 def lanes(extra="", **kw):
     sentences = ("一句要求甲。", "一句要求乙。", "一句要求丙。", "一句要求丁。", "一句要求戊。")
+    sections = ("1", "2", "3", "1", "1")
     rows = []
     for index, lane in enumerate(("adsp", "battery", "charger", "thermal", "power")):
-        values = {"requirement": sentences[index]}
+        values = {"requirement": sentences[index], "section": sections[index]}
         values.update(kw)
         rows.append(row(id="r%d" % index, lane=lane, **values))
     return "".join(rows) + extra
@@ -122,6 +124,18 @@ def main():
     problems = module.verify(root, table)[1]
     check("a quote the page does not carry is refused",
           any("the page does not carry" in p for p in problems), str(problems))
+
+    root, table = build("quote-section", lanes(row(lane="power", section="1",
+                                                  requirement="一句要求乙。")))
+    problems = module.verify(root, table)[1]
+    check("a quote carried only by another section is refused",
+          any("outside section 1" in p for p in problems), str(problems))
+
+    root, table = build("anchor-section", lanes(row(lane="power", section="1", anchor="#dsp",
+                                                    requirement="一句要求甲。")))
+    problems = module.verify(root, table)[1]
+    check("an anchor carried only by another section is refused",
+          any("anchor #dsp outside section 1" in p for p in problems), str(problems))
 
     root, table = build("section", lanes(row(lane="power", section="9")))
     problems = module.verify(root, table)[1]

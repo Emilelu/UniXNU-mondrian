@@ -1,7 +1,7 @@
 # 四条线 + Power 对官网页面的逐条对齐（生成物）
 
 由 `python3 scripts/check-lane-conformance.py --render` 生成，**不要手改**：改
-`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对六件事——引用的句子确实在页面上、
+`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对六件事——引用的句子确实在页面、且在该行写的节里；
 证据文件确实存在、`verified` 行写的那行证据确实在文件里、证据行不能又是页面要求本身、
 非 `verified` 的行写了理由、同一 lane 里同一句要求没有被两行重复引用（P-259）。
 

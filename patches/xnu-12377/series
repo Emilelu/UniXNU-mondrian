@@ -101,3 +101,10 @@ armcpu-sleep-hook.patch
 # The same stage-0 console, told to raise the SError/PANIC text through the
 # early display path so a trap before BSD init is still readable.
 0543-k60-ios27-panel-console.patch
+
+# The reference kernel compiles the vendored corecrypto assembler, which only
+# used the portable v0.4s spelling for Apple clang; upstream clang rejects the
+# q-register form, so a clean build stops there. Distinct from 0533 above: that
+# one fixes XNU's own arm64_isa_compatibility.h, this one the vendored
+# corecrypto sources. Picked from xNekom feat/ios27 (ce6ed904), renumbered.
+0545-k60-corecrypto-vector-crypto.patch

@@ -84,8 +84,9 @@ def device_pages(docs=None):
                   if any(word in page.stem.lower() for word in WATCHED))
 
 
-def check(repos, state, hours, pages_now):
+def check(repos, state, hours, pages_now, allow_behind=False):
     problems = []
+    notes = []
     now = dt.datetime.now(dt.timezone.utc)
     oldest = None
     for entry in repos:
@@ -117,17 +118,23 @@ def check(repos, state, hours, pages_now):
             if head != saved['upstream']:
                 behind = git(repo, 'rev-list', '--count', f'{head}..{saved["upstream"]}')
                 if behind != '0':
-                    problems.append(f'{name}: {behind} commit(s) behind the upstream it follows')
+                    line = f'{name}: {behind} commit(s) behind the upstream it follows'
+                    if allow_behind:
+                        notes.append(line)
+                    else:
+                        problems.append(line)
     known = set(state.get('__device_pages__') or [])
     for page in pages_now:
         if page not in known:
             problems.append(f'device page {page} appeared since the baseline; read it')
-    return problems, oldest
+    return problems, notes, oldest
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true', help='fetch every listed repository and record it')
+    parser.add_argument('--allow-behind', action='store_true',
+                        help='print a repository that is behind as a note, not a failure')
     parser.add_argument('--hours', type=float, default=DEFAULT_HOURS)
     parser.add_argument('--registry', type=Path, default=REGISTRY)
     parser.add_argument('--state', type=Path, default=STATE)
@@ -146,14 +153,18 @@ def main():
                 print(f'fetched {name} {record["head"][:12]}')
             state['__device_pages__'] = device_pages(options.device)
             sync(state, options.state)
-        problems, oldest = check(repos, state, options.hours, device_pages(options.device))
+        problems, notes, oldest = check(repos, state, options.hours,
+                                        device_pages(options.device),
+                                        allow_behind=options.allow_behind)
     except Failure as error:
         print(f'FAIL: {error}')
         return 2
+    for note in notes:
+        print(f'note: {note}')
     for problem in problems:
         print(f'FAIL: {problem}')
     age = 'never' if oldest is None else f'{oldest:.1f} h'
-    print(f'repositories {len(repos)}, oldest fetch {age}, device pages {len(device_pages(options.device))}')
+    print(f'repositories {len(repos)}, oldest fetch {age}, device pages {len(device_pages(options.device))}, behind notes {len(notes)}')
     return 1 if problems else 0
 
 

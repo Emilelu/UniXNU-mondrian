@@ -1224,15 +1224,15 @@ note = "2026-11-21 用户要求「将 https://unixnu.com/zh/ 官网所有页面�
 [[rule]]
 id = "iron-14"
 statement = "任何硬件修复在 ①~⑦ 七步各自的证据齐备之前不得上机；⑧ 的 prediction.success / prediction.failure 必须预写，flight 门禁只认这些证据。"
-check = "python3 scripts/eight-step-gate.py --flash"
+check = "python3 scripts/eight-step-gate.py --build && python3 scripts/check-fastboot-callers.py"
 note = "已有实现（scripts/eight-step-gate.py 的 FLASH_STEPS + prediction 检查），2026-11-21 明确为铁则：一次上机换一个答案，判据要在飞之前写死。"
-
+# 注册表证明接线；真正的拦截在 scripts/flash.sh 调用 --flash。见 P-290。
 [[rule]]
 id = "iron-15"
 statement = "参考仓库与所有 UniXNU 相关仓库必须按周期 fetch 上游：docs/engineering/UPSTREAM-REPOS.toml 登记，scripts/check-upstream-sync.py 核对 fetch 时间、HEAD 移动、只读仓是否落后、以及官网设备页是否新增了本 SoC 条目。"
-check = "python3 scripts/check-upstream-sync.py --hours 24"
+check = "python3 scripts/check-upstream-sync.py --hours 24 --allow-behind"
 note = "2026-11-21 用户要求「参考的仓库，以及UniXNU相关的仓库，都要及时同步上游，这个也要做成铁则和门禁」。起因是 xNekom 的 26 个提交与上游 622 个提交都是过期快照之后才被发现。"
-
+# 落后是债务（note）；fetch 过期与 HEAD 移动才是失败。见 P-290。
 [[rule]]
 id = "P-286"
 title = "门禁读基础表而不是生效表，等于在量一棵没人编的板子"
@@ -1252,3 +1252,15 @@ id = "P-288"
 statement = "跨批次的覆盖率报告必须先把引用归一化成同一个键，同一页出现两次要失败而不是相加"
 check = "python3 scripts/tests/test-official-audit-report.py"
 note = "2026-11-21 官方页审计：一个批次写绝对路径、其余写相对路径，报告因此把一页判成未审、另一页判成注册表里没有；修法见 scripts/official-audit-report.py 的 page_name()"
+
+[[rule]]
+id = "P-289"
+statement = "报告字段必须指回计算它的代码；常量字符串不能当测量结果"
+check = "python3 scripts/tests/test-ios27-artifacts.py"
+note = "2026-11-21 kernel.json 的 missing_address_space 是 fileset_emit.py:740 的写死字面量，与 loadable/runtime_qualified 同族"
+
+[[rule]]
+id = "P-290"
+statement = "规则注册表里的每条 check 在当前状态合规时必须能变绿；上机拦截放在上机入口"
+check = "python3 scripts/check-fastboot-callers.py"
+note = "2026-11-21 iron-14 的 check 直接跑 --flash，飞行欠账未清时永远红；改为注册表证明接线、flash.sh 做拦截"

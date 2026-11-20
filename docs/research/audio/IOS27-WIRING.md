@@ -43,6 +43,10 @@ sh scripts/tests/portability/run-deps.sh
 `sh scripts/tests/portability/run-deps.sh --object /tmp/unknown.o` 打印
 `FAIL: the glue needs k60_bogus_api, which IOS27-WIRING.md section 1 does not name` 并以 1 退出。
 
+**27 的构建比这里严**：同一对源在 `-Wall -Wextra -Werror` 下、gcc 与 clang 各编两遍（驱动宏开与关）都干净，
+`sh scripts/tests/portability/run-warnings.sh` 打 `WARNINGS OK 8 builds, both sources, macro on and off`。
+宿主先变红，比在 27 构建里撞一个 warning 便宜；这条和符号表一样，量的都是「27 会拿到什么」。
+
 ### 这四个接口在 27 基线里确实还在（2026-11-20 实测）
 
 桩与链接级检查用的都是本仓写的头文件：它们证明「声明够了」，不证明「27 树真的还这么声明」。

@@ -202,3 +202,7 @@ reason = "门禁输出落在 mktemp -d 的临时目录里，trap EXIT 时删除�
 [[allow]]
 path = "scripts/check-build-applied.py::/tmp/usb-cdc-mainline/device/patches/xnu/series"
 reason = "门禁比较的是构建输入序列，输入镜像本身就在 /tmp/usb-cdc-mainline（见文件头注释），不是持久存放点"
+
+[[allow]]
+path = "scripts/w1-capture-plan.sh::/tmp/unit-desc-L5.bin"
+reason = "打印的 Android 设备侧 /data/local/tmp 输出路径，不是主机 /tmp；只作 -D 原始描述符，随后 pull 到 CAP 持久目录"

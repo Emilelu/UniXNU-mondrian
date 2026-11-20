@@ -301,6 +301,8 @@ W2 只看 offset 0 的 16 字节；F3 要看**完整 4 KiB 超级块**，storage
 如果 W2 的 16 字节匹配而完整 4 KiB 不匹配：先查读取长度/offset/window 是否真的覆盖 4 KiB，再查是否把不同 storage 的窗口混用；
 如果完整 4 KiB 匹配而 modem 不继续：进入 11.2，不要回头改 EFS 字节。
 
+完整字段表、哈希与 unknown 字段处理见 [`23-W2-FULL-SUPERBLOCK.md`](23-W2-FULL-SUPERBLOCK.md)。
+
 ### 11.2 W3/W4：modem 是否继续
 
 - **W3**：同一 storage 出现第二次 `rmtfs rw`，且 offset 与第一次不同；`fsg`/`fsc` 也被 open。只有一次读、之后再无请求 ⇒ 内容被 modem 判为无效，或请求根本没被接受。

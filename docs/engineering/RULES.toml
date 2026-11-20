@@ -658,6 +658,22 @@ check = "python3 scripts/check-w1-lun-preflight.py"
 note = "The wrapper is the in-line preflight entry, not a flight-ledger writer: it maps the judge's PENDING exit 2 to 0 and leaves FAIL 1 fatal. The judge's standalone CLI keeps 0/2/1. Missing capture is printed as PENDING and never blocks the build; a malformed or contradictory capture still fails. Three fixtures exercise pass, pending and fail."
 
 [[rule]]
+id = "gate-w2-full"
+kind = "gate"
+source = "docs/research/cellular/23-W2-FULL-SUPERBLOCK.md"
+statement = "A 16-byte EFS head match is necessary but not sufficient; a full 4096-byte block must match its per-storage fields, zero padding and data/full sha256, and a short capture is PENDING rather than PASS."
+check = "python3 scripts/tests/test-efs-full.py"
+note = "The judge is scripts/check-efs-full.py. The tests use synthetic blocks only; the real Android captures stay outside the repository because they can carry modem identity/calibration data."
+
+[[rule]]
+id = "gate-capture-bundle"
+kind = "gate"
+source = "docs/research/cellular/23-W2-FULL-SUPERBLOCK.md"
+statement = "The post-capture check must compose W1, W2 and the full-block judge from local files only, and must not turn missing optional evidence into PASS."
+check = "python3 scripts/tests/test-capture-bundle.py"
+note = "scripts/check-capture-bundle.py never calls adb; missing --console or --efs-block is SKIP, missing W1 legs or README is PENDING, and a disagreement is FAIL."
+
+[[rule]]
 id = "P-284"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-284"

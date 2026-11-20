@@ -1057,3 +1057,43 @@ K60MODEM qrtr: rmtfs rw storage=%u direction=%u bytes=%u head=%02x%02x…（前 
 - 结论：cellular 进 27 时 `QcomBaseband` **不是可选项而是链接前提**——`0627` 的 `K60ModemLink.c` 调 `coachz_baseband_*`，
   没有它就在链接期 `Undefined symbols`。这和 Lead「等 cellular 真进 27 再加 include+archives」一致，
   只是把「什么时候算真进」钉死为「F3 的第一次链接」。
+
+## 30. 调用点位置的判据：应用成功不等于落在该落的地方（2026-11-20 10:24）
+
+0629 能 `git apply --check` 通过，只证明上下文对得上；它不证明插入块落在
+`if (error) goto done;` 之后、`native_owner_data_stage = 3;` 之前——若锚点被选到另一个 `= 3`，
+补丁照样干净地打上，而基带在 Data 挂载之前就去读 EFS。所以把「位置」从意图变成可执行判据。
+
+### 30.1 新脚本 `scripts/check-call-site-placement.py`
+
+`--tree <xnu-work> [--stage 3] [--window 30] [--self-test]`，五条断言：
+
+| # | 断言 | 不成立时的输出 |
+|---|---|---|
+| 1 | `native_owner_data_stage = 3;` 恰好一行 | `appears N times, need exactly one` |
+| 2 | 每个探针恰好一个调用点（声明另计） | `has N call site(s) and M declaration(s)` |
+| 3 | 先 modem 后 ipa | `k60_modem_probe_from_handoff is called after k60_ipa_probe_from_handoff` |
+| 4 | 两者都在 stage 行之上、且不超过 30 行 | `is 37 lines above the stage, window is 30` |
+| 5 | 两者都在最近一个 `goto done;` 之后（没有守卫时降级为 note） | `runs before the error guard above the stage` |
+
+`--self-test` 六夹具：good / swapped（顺序反）/ double（两行 stage=3）/ order（探针被挪到 stage 之后）/
+far（守卫与 stage 之间塞 40 行）/ 缺文件，输出
+`K60 PLACEMENT PASS stage line, both probes, order, window, guard`。
+
+### 30.2 接进三段路试跑
+
+`scripts/verify-27-line.sh` 在五个补丁应用之后、追加 confiles 之前调用它，失败即
+`K60 TRIAL FAILED the call-site block is not where the contract puts it`。种子树实测：
+
+```
+K60 TRIAL ok   0629-kern-exec-call-sites applies
+K60 PLACEMENT ok   both probes run after the guard and before stage 3
+K60 TRIAL ok   the call-site block sits between the guard and stage 3
+K60 TRIAL ok   appended 19 build entries, bsd/conf now lists 19
+K60 TRIAL PASS seed, five patches and the build entries on one clone
+```
+
+### 30.3 教训（P-265）
+
+第一版脚本按「名字 + 左括号」数调用点，把 0629 块内的 `extern int …(void);` 也算进去，
+于是正确的补丁被判成「调用了两次」。判据要能分「声明」与「调用」，否则它只会惩罚正确的产物。

@@ -674,3 +674,11 @@ source = "docs/engineering/PITFALLS.md:P-264"
 statement = "结构不变量要写明例外：call-site 补丁修改既有文件、不在 bsd/dev 之下，属于设计之内而不是漂移。"
 check = "grep -q 'CALL_SITE_TARGET' scripts/check-ios27-readiness.py"
 note = "2026-11-20 0629 一出现，「全在 bsd/dev、全是新文件」两条不变量立即报 DRIFT。"
+
+[[rule]]
+id = "P-265"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-265"
+statement = "数调用点要先分清声明：块内 extern 声明同样带名字和括号，只数出现次数会把正确位置判成重复。"
+check = "grep -q 'need one call' scripts/check-call-site-placement.py"
+note = "2026-11-20 第一版把 0629 的块内声明当成第二个调用点。"

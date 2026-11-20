@@ -223,5 +223,84 @@ W1（哪个盘） -> W2 头 16 字节 -> W2 完整 4 KiB -> W3/W4（modem 是否
 - W1 仍 `PENDING` 时，本文的 storage→分区对应只是内容参照；不要把它写成
   控制器 LUN 证据。
 
-本文只定义判据和判官，不改驱动、不构建、不上机。W1 与完整 4 KiB 采集都还是
-待采集项；F3 的三条 stage-0 blocker 未关闭前没有飞行窗口。
+## 8. 采集之后谁判谁签
+
+这一节固定角色，避免把「脚本 PASS」误当成「可以起飞」。
+
+### 8.1 分工
+
+| 步骤 | 谁做 | 入口 | 产物 | 自动判？ |
+|---|---|---|---|---|
+| 1. 设备只读采集 | **Lead**（设备权限唯一持有者） | `scripts/w1-capture-plan.sh` 打印的命令；在 Android 侧执行 adb | CAP 下的 `device-link.txt`、`unit-desc-*.bin`、`README.txt`、可选 `sdf3..6.bin` / console | 否 |
+| 2. W1 控制器 LUN | 脚本 | `scripts/check-w1-lun-evidence.py` | PASS / PENDING / FAIL | 是 |
+| 3. W2 头 16 字节 | 脚本 | `scripts/judge-cellular-flight.py` | PASS / FAIL / INVALID | 是，但只覆盖 offset 0 的 16 字节 |
+| 4. W2 完整 4 KiB | 脚本 | `scripts/check-efs-full.py` | PASS / PENDING / FAIL | 是 |
+| 5. 组合 | 脚本 | `scripts/check-capture-bundle.py` | 每项一行 + `OVERALL` | 是，仅限本地文件 |
+| 6. provenance 与形状 | **人**（Lead 签，lane 只核对本地文件） | 看 README 的 serial/build/UTC、`xxd`、by-name 对照 | 签核备注 | 否 |
+| 7. 飞行账本 / F3 | **Lead** | `IOS27-FLIGHT-BLOCKERS.toml` 与飞行账本 | open / closed | 否 |
+
+采集脚本本身只打印计划，不执行 adb；`check-capture-bundle.py` 也不调用 adb。
+所以「脚本 PASS」只证明**给定的本地文件彼此一致**，不证明文件来自哪台设备，
+更不证明可以起飞。
+
+### 8.2 三种判决怎么读
+
+- **PASS**：已提供的 W1 腿齐全且一致，README 非空；W2 若提供也必须一致。
+  如果输出里 `W2 FULL  SKIP`，只能签「W1 + 已提供的 W2 头」，不能签「W2
+  完整块 PASS」。
+- **FAIL**：至少一项矛盾或畸形。先读该项的第一条 reason，再决定是重采还是停查；
+  **不要**为了变绿修改 `check-efs-full.py` 的参照表。一个错位移的样本会报成
+  `0x00 LE32 is 0x00000000, expected 0x00000010`，这不是 EFS 状态，是采集 offset
+  错了。
+- **PENDING**：缺文件或短读，退出码 2。它不是「块内容错」的反证，也不是允许
+  猜值的许可；把缺的那一腿补上再判。
+- 组合判决的优先级固定为 **FAIL > PENDING > PASS**。只要有一项 FAIL，整体就是
+  FAIL；只有缺项且无矛盾才是 PENDING。
+
+### 8.3 fsc 全零：看着像失败，实际是正确
+
+`storage 4` 对应 Android by-name `fsc`（参照文件 `sdf6.bin`），其 4096 字节
+**全零是正确形状**：`check-efs-full.py --storage 4` 应判 PASS，组合判官也应把
+它算作已提供且通过。
+
+必须人看的是「零属于哪个 storage」：
+
+- `storage 4` 全零 → PASS，不要因为「没有数据」而改判 PENDING/FAIL；
+- `storage 1/2/3` 全零 → FAIL，不能套用 fsc 的例外；
+- `sdf3..sdf6` 只是内容参照，不是控制器 LUN 证据；W1 的 LUN 仍以 Leg A/B 为准。
+
+### 8.4 合成输入的一次自证
+
+设备窗口之前，先用不含真实 EFS 数据的合成输入跑通整条 AUTOCHECK：
+
+```sh
+python3 scripts/tests/test-capture-autocheck-e2e.py
+```
+
+它构造三个假采集，并打印三种判决：
+
+1. **PASS**：Leg A `0:0:0:5`、Leg B `index=5 enable=1`、README 齐全，再加
+   synthetic console 里的正确 16 字节头
+   `1000000003000000d801000020faa9c4`；`OVERALL: PASS`。
+2. **FAIL**：同一个 W1，加一个把 storage 1 头整体后移 512 字节的合成块；判官报
+   `W2 FULL FAIL    storage=1: 0x00 LE32 is 0x00000000, expected 0x00000010`，
+   `OVERALL: FAIL`。这说明「错位移」会被字段级 reason 指出来，而不是笼统报坏。
+3. **PENDING**：只给 Leg A + README，故意缺 Leg B；判官报
+   `Leg B: unit-desc.bin / unit-desc-*.bin is absent`，`OVERALL: PENDING`。
+
+这个自证只使用合成头、零数据和仓库里的 synthetic console fixture；不调用 adb，
+不读取真实 EFS 镜像，也不能替代设备采集。它证明的是**链路会正确区分三种判决并
+指出缺项/错项**，不是 W1/W2 的硬件结论。
+
+### 8.5 签核边界
+
+- 采集由 Lead 做，lane 不自行 boot、不自行 adb、不把合成 fixture 当设备证据。
+- 脚本自动判可以签「本地文件一致」；provenance、storage 对照、fsc 全零是否属于
+  当前设备，必须由人看过后写进签核备注。
+- 只有 Lead 能把 W1/W2 写进飞行账本或宣布 F3 可开始；`check-capture-bundle.py`
+  不写账本，也不改 blocker 状态。
+- F3 仍等三条 stage-0 blocker 关闭；W1 控制器 LUN 和完整 4 KiB 采集仍
+  `PENDING`，不得为了变绿放宽。
+
+本文只定义判据、判官和签核边界，不改驱动、不构建、不上机。W1 与完整 4 KiB
+采集都还是待采集项；F3 的三条 stage-0 blocker 未关闭前没有飞行窗口。

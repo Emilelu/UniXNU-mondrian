@@ -8,6 +8,7 @@ list, and a target tree that lost or edited a file must each turn it red.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -188,6 +189,18 @@ def case_bundle_covers_manifest() -> None:
     lost = [path for path in sources if not (out / path).is_file()]
     check("the bundle ships every C source its runner compiles", bool(sources) and not lost,
           ", ".join(lost[:3]) or "the runner lists no C suites")
+    # The pair gate reads the driver that prints a line and the judge that parses it, so a
+    # bundle that ships the gate without either side ships a check that can only fail (P-261).
+    spec = importlib.util.spec_from_file_location(
+        "console_contract", ROOT / "scripts" / "check-console-contract.py")
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    sides = []
+    for _name, emitter, judge, _attr, _anchor, _fill in gate.PAIRS:
+        sides.extend([emitter, judge])
+    missing = [rel for rel in sides if not (out / rel).is_file()]
+    check("the bundle ships both sides of every judged console line",
+          bool(sides) and not missing, ", ".join(missing[:3]) or "the pair gate lists no pairs")
     compared = run("--target", str(out))
     check("the checker accepts the bundle as a target", compared.returncode == 0, compared.stderr)
     check("the bundle reads as SAME everywhere", "SAME" in compared.stdout and "DRIFT" not in compared.stdout)

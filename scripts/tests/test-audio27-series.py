@@ -106,9 +106,24 @@ def main():
     (unlisted / "series").write_text("0530-k60-spi-availability.patch\n")
     code, out = run(sys.executable, str(CHECK), str(root), "--series", str(unlisted))
     assert code == 1, out
-    assert "does not list it" in out, out
+    assert "does not list it" in out and "no comment says why" in out, out
     cases += 1
-    print("  ok   a patch nobody lists is a failure")
+    print("  ok   a patch nobody lists, unremarked, is a failure")
+
+    held = work / "held"
+    held.mkdir()
+    (held / NAME).write_bytes(good)
+    (held / "series").write_text(
+        "# " + NAME + " is deliberately NOT listed: the kernel link cannot" + chr(10) +
+        "# resolve its call site yet." + chr(10) +
+        "0530-k60-spi-availability.patch" + chr(10))
+    code, out = run(sys.executable, str(CHECK), str(root), "--series", str(held))
+    assert code == 0, out
+    assert "SERIES HOLD: " + NAME in out, out
+    assert "the series file says why" in out, out
+    assert "held, not listed" in out, out
+    cases += 1
+    print("  ok   a hold the series explains is a state, not a failure")
 
 
     far = work / "far"

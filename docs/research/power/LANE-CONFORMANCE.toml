@@ -123,6 +123,15 @@ requirement = "使用前确认目标协议的单位和充电电流符号"
 evidence = "docs/research/charger/PROP-NUMBERS.toml"
 status = "verified"
 why = "18 行 16→27 属性号逐行判定，全部 same"
+[[row]]
+id = "battery-device-verification"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "验证插拔电源、充放电、响应超时和服务重启"
+evidence = "docs/research/charger/07-DEVICE-CRITERIA.md"
+status = "partial"
+why = "C1/C2/C3 判据与判读器都在，真插拔、放电、超时与服务重启一次没做；上机只由 Lead 排"
 
 [[row]]
 id = "charger-independent-protocol"
@@ -193,6 +202,45 @@ requirement = "为外设电源投票明确所有权和引用计数"
 evidence = "drivers/PongPower/K60RailPlan.c"
 status = "verified"
 why = ""
+[[row]]
+id = "power-cpu-idle-sampling"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "每 16 ms 读取调度器记录的各 CPU 空闲时间"
+evidence = "docs/research/power/01-EPSS-PROBE.md"
+status = "verified"
+why = ""
+
+[[row]]
+id = "power-touch-boost-hold"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "直到最后一次报告后 1 s"
+evidence = "docs/research/power/05-BOOST-RULES.md"
+status = "verified"
+why = ""
+
+[[row]]
+id = "power-frame-rule"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "最近 4 个窗口中有 2 个有 GPU 提交时"
+evidence = "docs/research/power/05-BOOST-RULES.md"
+status = "verified"
+why = ""
+
+[[row]]
+id = "power-fence-wait"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "最长 1 ms"
+evidence = "docs/research/power/04-GPU-FREQUENCY.md"
+status = "partial"
+why = "1 ms 睡眠预算写进了规则与 host 断言，但 fence 仍无消费者，未上机"
 
 [[row]]
 id = "build-interface"

@@ -103,8 +103,8 @@ sed -n 40,110p UniXNU/patches/xnu-12377/native-pac-keys.patch       # 十词密�
 
 §三.2 与 §三.3 不再只是读代码得出的判断：音频线自己的预检里多了两条断言，量的是同一批文件。
 
-- `python3 scripts/check-audio27-fptrs.py --repo .` 把四处 io 表按类型签名解析回来：每一对 `read`/`write` 的参数与返回值成对（`write` 多一个 `value`）、首参是 `void *`、每对有自己的 `ctx` 字段，并且每个成员至少被调用一次、调用点的首参就是「接收者 + 该对的 ctx」；多出来的函数指针表与裸 `void *` 跨层传递都失败。读数 `FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides`，反例由 `python3 scripts/tests/test-audio27-fptrs.py` 的十六个用例逐个打红。
-- `python3 scripts/check-audio27-weak-link.py --tree <k60-gates>` 读**有效**系列判断 0531 是否被选中：只在未选中时打印 `NOTE audio: switch off, the call site is not linked`；选中时要求链接清单里有 `PongAudioAmp.o`、符号表里真有定义，源码里的 `__attribute__((weak))` 与理由只算 policy note，不放行。今天 gates 的系列是 HOLD，读数就是那行 NOTE；换成音频仓自己那份列出 0531 的系列则退 1，并点名 `0531 is unconditional (#if 1)` 与缺哪份链接证据。
+- `python3 scripts/check-audio27-fptrs.py --repo .` 把四处 io 表按类型签名解析回来：每一对 `read`/`write` 的参数与返回值成对（`write` 多一个 `value`）、首参是 `void *`、每对有自己的 `ctx` 字段，并且每张表除成对的 read/write 与各自的 ctx 外没有别的成员（多一个回调、多一个 `void *` 或其他字段都会点名失败）、每个成员至少被调用一次、调用点的首参就是「接收者 + 该对的 ctx」；多出来的函数指针表与裸 `void *` 跨层传递也都失败。读数 `FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides`，反例由 `python3 scripts/tests/test-audio27-fptrs.py` 的十九个用例逐个打红；其中一个真的把 `void *opaque` 加进表并在 `PongAudioGeniI2c.c` 里跨层赋值，门禁按字段名打红。
+- `python3 scripts/check-audio27-weak-link.py --tree <k60-gates>` 读**有效**系列判断 0531 是否被选中：只在未选中时打印 `NOTE audio: switch off, the call site is not linked`；选中时要求链接清单里有 `PongAudioAmp.o`、符号表里真有定义，源码里的 `__attribute__((weak))` 与理由只算 policy note，不放行。今天 gates 的系列是 HOLD，读数就是那行 NOTE；换成音频仓自己那份列出 0531 的系列则退 1，并点名 `0531 is unconditional (#if 1)` 与缺哪份链接证据。选中却没人定义时，它还打印 `an undefined weak reference is a link error ... not a silent run-time fallback`：这是链接错误，不是运行时静默。
 
 两条只挂在 `scripts/check-audio27-preflight.sh` 里（`PAC IO signatures`、`PAC IO negative cases`、`PAC weak-link cases`、`PAC weak-link selection` 四行），不进全局 blockers：stage 0 按设计没有音频 lane 对象，把它们挂到全局，一次本不该带音频的构建就会看起来像回归。只想跑这四行时用 `sh scripts/check-audio27-preflight.sh --pac-only`。
 
@@ -113,3 +113,4 @@ sed -n 40,110p UniXNU/patches/xnu-12377/native-pac-keys.patch       # 十词密�
 - 没有实机证据：没有验证 EL1 真能写五组密钥、PACIA/AUTIA 真不陷入、SoC 的 FEAT_PAuth 真打开。这些只能在有串口的上机上区分；失败时内核到不了 `bsd_init`，音频行不会给出额外信息。
 - `native-pac-keys.patch` 只是被 profile 引用。它有没有应用到某次构建、那次构建有没有过，本文不判。
 - 音频源没有插桩，所以「插桩后仍然成立」是从类型形状推的，不是编出来的读数；真要确认，得等一条打开 `-fptrauth-calls` 的构建，那时本文 §五 的三条就是判据。
+- P-282 是同一类推理错误：产物里读不到某个标签，可能只是本地工具链发不出这个值。不要把「我们的产物看着没问题」当成消费方判错的证据；这里每一次「没有 `fptrauth`」也要先确认 clang 能表达那个旗标，再谈产物。

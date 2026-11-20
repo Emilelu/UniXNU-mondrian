@@ -1097,3 +1097,24 @@ K60 TRIAL PASS seed, five patches and the build entries on one clone
 
 第一版脚本按「名字 + 左括号」数调用点，把 0629 块内的 `extern int …(void);` 也算进去，
 于是正确的补丁被判成「调用了两次」。判据要能分「声明」与「调用」，否则它只会惩罚正确的产物。
+
+### 30.4 同一分类器被 readiness 复用，集成模式第一次真正跑通
+
+`check-ios27-readiness.py` 的 `call_sites()` 原来按出现次数数（`body.count(name)`），
+集成树里每个探针同样命中两次，于是「已经打好的树」被判成
+`K60 READY DRIFT call sites are not exactly once` —— P-265 的第二份副本。
+现在 readiness 用 importlib 加载 `check-call-site-placement.py` 的 `inspect()`，两边共用一个分类器，
+顺带把「顺序 / 窗口 / 守卫」三条也带进集成模式。
+
+第一次用**真实集成树**跑集成模式（`verify-27-line.sh --keep` 留的副本，五个补丁 + 19 条 conffiles 全在）：
+
+```
+K60 READY ok   all 39 patch targets exist in the tree
+K60 READY ok   all 19 build entries are in bsd/conf
+K60 READY ok   both probes sit between the error guard and stage 3
+K60 READY ok   the data mount anchor line is still there
+K60 READY ok   only our own sources name ArmSmmu4KBuild, the weak fallback is what answers
+K60 READY OK the integrated tree carries every ported patch and its wiring
+```
+
+这六行是 27 线第一次「补丁 + 构建表 + 探针位置 + 锚点 + 弱定义」同时在树里被测过；此前集成模式只有合成树覆盖。

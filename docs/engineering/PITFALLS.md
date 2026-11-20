@@ -5114,3 +5114,8 @@ call-site 补丁天生修改既有文件，不变量写得太强时，正确产�
 
 教训：判断「调用了几次」不能只数符号出现次数，得先分清声明与调用；`extern` 就写在块里，是最容易漏的一种。
 自测夹具里现在每处都同时放声明与调用，防止回退。
+
+同一个陷阱的第二份副本在 `check-ios27-readiness.py`：`call_sites()` 用 `body.count(name)` 数整份
+`kern_exec.c`，集成树里每个探针同样出现两次，于是「已经打好的树」被判成
+`K60 READY DRIFT call sites are not exactly once`。现在 readiness 用 importlib 加载
+`check-call-site-placement.py` 的 `inspect()`，两边共用一个分类器，判据不会在两个工具里分叉。

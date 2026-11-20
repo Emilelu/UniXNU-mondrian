@@ -839,5 +839,10 @@ conffiles 仍 19 条（没有新增文件，所以条目表不动）。
 `+__attribute__((weak))` 与两个入口名，否则 `K60 READY DRIFT the 27 set no longer answers for …`。
 把弱定义删掉再跑，实测报 `weak lines=0`（漂移路径是验证过的，不是只写了断言）。
 
+
+一条写记录时踩到的教训（与代码无关，但同类错误会再犯）：@BT@porting.toml@BT@ 的 @BT@evidence@BT@ 条目是**单行内联表**，
+TOML 1.0 不允许 @BT@{ … }@BT@ 跨行，所以把 @BT@kind@BT@ / @BT@reference@BT@ / @BT@result@BT@ 拆成两行写会在
+@BT@tomllib@BT@ 里报 @BT@Invalid initial character for a key part@BT@，行号指向的是那条目自己的第一行，很容易误以为是编码或转义问题。
+插入后先 @BT@tomllib.loads()@BT@ 再落盘，坏内容就不会进仓库。
 遗留：`feat/cellular` 上 `K60Ipa.c` 仍是裸 `extern`——k54 镜像由那条线构建，
 判读前不改它，避免镜像无法由 HEAD 复现；等 16 线也落这处改动时，那边的 0623 会一起变，series 指纹随之更新。

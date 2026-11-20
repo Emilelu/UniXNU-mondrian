@@ -589,14 +589,11 @@ sh scripts/tests/portability/run-symbols.sh
 `scripts/check-audio27-builder.py` 查这三样，读数来自**真的驱动与真的框架**，不是本文档的副本。
 预检里它们是三行，一行一处接缝——三处断掉的样子不同，混成一行就分不出是哪一处：
 
-驱动还没接的时候，前两行是**等待态**（`not wired yet`，退出码 0）：明说驱动没接，胶水会编进去但永远不会跑。
-**2026-11-20 10:28 Lead 接完两处**，同一份驱动现在读数是：
+检查器的树必须明确：`--tree` 指向实际 k60-gates 检出（默认先看 `K60_REPO`，再看 `K60_GATES`，最后才用仓旁的 `k60-gates`）。钩子文件必须在这棵被检树里；音频仓有同名文件不算。
 
-```
-ok   27 driver takes the conf hook      BUILDER OK: scripts/build-ios27-linux.sh takes K60_CONF_FILES_HOOK=scripts/k60-conf-files-hook.py through the environment
-ok   27 driver takes the define         BUILDER OK: scripts/build-ios27-linux.sh takes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 in the env prefix
-ok   framework passes env to builder    BUILDER OK: scripts/unixnu/kernel.py:175 hands dict(os.environ) to the device builder
-```
+无可量的接缝现在返回 3，并在预检中显示 `skip`。驱动根本没提这个变量，或驱动写了默认钩子路径但目标文件不在树里，都不能显示 `ok`。只有接缝确实交给构建链才返回 0。
+
+当前 stage 0 的实况是：`27 driver takes the conf hook` 为 `skip`（驱动树没有 `scripts/k60-conf-files-hook.py`，原因是 stage 0 有意不链接音频 lane 对象）；`27 driver takes the define` 与 `framework passes env to builder` 为 `ok`。没有 `XNU27_KERNEL` 时产物行也是 `skip`——两行 skip 都不表示接线通过，也不表示产物带音频。Stage-0 范围由板级 `board.toml` 决定；缺 hook 不是当前阶段的产物缺陷。
 
 驱动里的两处分别是 `build-ios27-linux.sh:51-54`（`if [ -f … ]` 里先赋值再 `export K60_CONF_FILES_HOOK`）与
 `:59-60`（`env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" python3 ./unixnu build kernel`）。
@@ -610,7 +607,9 @@ ok   framework passes env to builder    BUILDER OK: scripts/unixnu/kernel.py:175
 如果它在别处被赋值、但没送到 `build kernel` 这条命令上，报的是 `BUILDER FAILED: … names … elsewhere but the kernel line does not carry it`。
 在 `#!/bin/sh` 里 `export` 点号名仍是 `FAIL`（dash 直接拒绝），提示改用 `env` 前缀。第三处在没有框架检出时打 `skip`，不冒充绿。
 
-`scripts/tests/test-audio27-builder.py` 的八个用例把这几种形状各复现一遍：等待态三行、接好三行、
+当前驱动仅在目标文件存在时设置 hook；缺失时静默跳过。若要让缺失状态在构建开始前可见，提案 `docs/research/audio/STAGE0-HOOK-STATUS.patch` 会对显式给出的无效路径报错，并在默认 hook 缺失时打印 stage-0 说明。它没有应用到共享 gates。`scripts/tests/test-audio27-hook-status.py` 只在临时副本中 `git apply --check`、应用提案并运行截取的 hook 块，覆盖 5 种存在/缺失组合；不执行构建。
+
+`scripts/tests/test-audio27-builder.py` 的十个用例把这几种形状各复现一遍：驱动未命名接缝、接好三行、被检树缺 hook、默认树选择与显式 `--tree` 覆盖、
 「别处赋值但没送到」（FAIL）、「只在注释里」（FAIL）、「赋值后单独 export」（OK）、「赋了又 unset」（FAIL）、
 `#!/bin/sh` 里 export 点号名（FAIL）、框架改成 `env = {}`（FAIL）、驱动与框架都不在（skip）。
 

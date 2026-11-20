@@ -8,6 +8,7 @@ tree fails loudly instead of being rediscovered patch by patch.
 import argparse
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 
@@ -288,6 +289,31 @@ def placement(tree):
     return module.inspect(tree)
 
 
+def host_parse(tree):
+    """Every source the patches install, seen by a compiler.
+
+    Applying a patch is a text operation. Nothing on this line compiled the C it
+    installs until the 27 trial did, and a stray backslash survived a day that way.
+    gcc is optional here: without it this is a note, not drift.
+    """
+    gcc = shutil.which('gcc')
+    if gcc is None:
+        return None, 'gcc is not on PATH, so the sources were not parsed'
+    sources = [os.path.join(tree, e) for e in conffile_entries() or []
+               if e.endswith('.c') and os.path.exists(os.path.join(tree, e))]
+    include = os.path.join(tree, 'bsd', 'dev')
+    failures = []
+    for source in sources:
+        proc = subprocess.run(
+            [gcc, '-fsyntax-only', '-std=c11', '-DK60_HOST_TEST',
+             '-I' + include, source],
+            capture_output=True, text=True)
+        if proc.returncode != 0:
+            first = (proc.stderr.strip().splitlines() or ['no diagnostic'])[0]
+            failures.append('%s: %s' % (os.path.basename(source), first))
+    return failures, None
+
+
 def check_integrated(tree):
     """The other half: a tree the patches and the build wiring already reached."""
     drift = 0
@@ -345,6 +371,15 @@ def check_integrated(tree):
         print('K60 READY DRIFT anchor lines=%s, expected exactly one' % anchors)
     else:
         print('K60 READY ok   the data mount anchor line is still there')
+    failures, parse_note = host_parse(tree)
+    if parse_note:
+        print('K60 READY note %s' % parse_note)
+    elif failures:
+        drift += 1
+        print('K60 READY DRIFT %d installed source(s) do not parse: %s'
+              % (len(failures), '; '.join(failures[:2])))
+    else:
+        print('K60 READY ok   every installed source parses on the host')
     owners = smmu_definitions(tree)
     if owners:
         print('K60 READY note ArmSmmu4K arrived with %s: the weak fallback can go'

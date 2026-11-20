@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "inspected_on": "2026-11-20",
+  "inspection_revision": "eb019542124694299b27b160487a88aa09797acb",
+  "scope": "Read-only inspection of existing local archives and source. No compilation, kernel build, prelink or device run.",
+  "references": {
+    "sheng_origin_main": "c8f92b208068eeaa4cd2b0f592671f04ee70076e",
+    "station_source_revision": "f087c7ddac07e945f20d199dbaf6c95c6db3346a"
+  },
+  "commands": {
+    "digest": "sha256sum <archive>",
+    "member_headers": "llvm-readobj-18 --file-headers <archive>",
+    "api_definitions": "llvm-nm-18 --defined-only --extern-only --format=posix <archive>",
+    "api_imports": "llvm-nm-18 --extern-only --format=posix <archive>",
+    "header_seal": "sha256sum <station-output>/abi/nw_abi.h <driver-output>/abi/nw_abi.h"
+  },
+  "required_defined_symbols": [
+    "_nw_wifi_power",
+    "_nw_wifi_scan_frequencies"
+  ],
+  "station_candidates": [
+    {
+      "path": "/opt/k60/trees/k60build/wifi/ath11k-abi27/libPongAth11k.a",
+      "sha256": "e11869c674d26cb0a7e5162702dc024b13f5e734e37afc9b4a3a09d3b6a3bc61",
+      "member": "PongAth11k-linked.o",
+      "cpu_type": "0x0100000c",
+      "cpu_subtype": "ARM64_ALL (0x0)",
+      "defined_required_symbols": [],
+      "legacy_scan_definition": "_nw_wifi_scan T 529bc 0",
+      "accepted": false
+    },
+    {
+      "path": "/opt/k60/trees/k60build/wifi/ath11k-abi27e/libPongAth11k.a",
+      "sha256": "8bc323b63e4ad3fde07a2db7ac30e93cd37b1cfcd0165bdee1419452e85a8e59",
+      "member": "PongAth11k-linked.o",
+      "cpu_type": "0x0100000c",
+      "cpu_subtype": "ARM64E (0x2)",
+      "defined_required_symbols": [],
+      "legacy_scan_definition": "_nw_wifi_scan T 52e3c 0",
+      "accepted": false
+    },
+    {
+      "path": "/opt/k60/trees/k60build/wifi/ath11k-abi27s/libPongAth11k.a",
+      "sha256": "58c75ff63cab23cddd977ca5f92414ddf61c03ae53a9d412153723fe971f8710",
+      "member": "PongAth11k-linked.o",
+      "cpu_type": "0x0100000c",
+      "cpu_subtype": "ARM64_ALL (0x0)",
+      "defined_required_symbols": [],
+      "legacy_scan_definition": "_nw_wifi_scan T 529bc 0",
+      "accepted": false
+    }
+  ],
+  "driver_candidate": {
+    "path": "/opt/k60/trees/k60build/wifi/teardown27g/libPongWifiNative.a",
+    "sha256": "8e8175a52c11ca33c37b1343b377e409437d0abef5253b2b7e3ab0b8cb44047a",
+    "all_members_arm64e": true,
+    "members": [
+      "PongAth11k-linked.o",
+      "PongWifiPlatform.o",
+      "PongWifiNet.late.o",
+      "PongWifiFirmware.o",
+      "PongQcomRpmh.o",
+      "ArmSmmu4K.o",
+      "ArmSmmu4KContext.o",
+      "ArmSmmu4KProgram.o"
+    ],
+    "unresolved_required_symbols": [
+      "_nw_wifi_power U 0 0",
+      "_nw_wifi_scan_frequencies U 0 0"
+    ],
+    "accepted_as_complete_27_archive": false
+  },
+  "generated_header": {
+    "station": "/opt/k60/trees/k60build/wifi/ath11k-abi27e/abi/nw_abi.h",
+    "driver": "/opt/k60/trees/k60build/wifi/teardown27g/abi/nw_abi.h",
+    "sha256": "ec0b822703afa6e3c8b66e6d0cc4d7a7c676ae18c95def171d65e2e1848cdba8",
+    "observed_stamp": {
+      "ie_bytes": 2048,
+      "header_sha256": "ec0b822703afa6e3c8b66e6d0cc4d7a7c676ae18c95def171d65e2e1848cdba8"
+    },
+    "sidecars_match": true,
+    "archive_build_binding_proven": false
+  },
+  "source_only": {
+    "definition_locations": [
+      "E:/k60-work/impl/ath12kwifi27/src/nw_mainline.c:223",
+      "E:/k60-work/impl/ath12kwifi27/src/nw_mainline.c:266"
+    ],
+    "probe_only_tools": [
+      "E:/k60-work/impl/ath12kwifi27/tools/build-ath12k.sh",
+      "E:/k60-work/impl/ath12kwifi27/tools/check-mac80211.py"
+    ],
+    "limitation": "Definitions in source and per-unit compile probes do not supply a complete station archive or prove which header its members consumed."
+  },
+  "conclusion": "None of the three existing station candidates satisfies the complete arm64e 24A446 station contract. Need a packaged mac80211/cfg80211 station with both real API definitions, matching target and a generated-header build record.",
+  "historical_kernel": {
+    "status": "Historical scratch-link observation only; not retained as reproducible build evidence here.",
+    "wifi_symbol_count": 30,
+    "used_nine_scratch_definitions": true,
+    "bootable": false,
+    "built_by_current_wrapper": false
+  }
+}

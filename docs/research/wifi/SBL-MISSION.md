@@ -1267,21 +1267,29 @@ mission35 不删，改为「若 K60B 被丢、而 K60F 被保留」时的第二�
 
 离线证据：scripts/tests/pong-abi-selftest.c 的 31 项检查（扫描记录空间、540 字节关联完成事件、能力位、请求 86 解析、频道折算、去重与越界拒绝）在 scripts/tests/test-pong-abi.py 里编译运行通过；脚本另查头文件常量与 PongWifiNet.cpp 的落点，18 项检查 0 失败。test-wifi-sbl-mission.py 新增一条「24A446 扫描请求被解析出名字、类型与频道」，全套 0 失败。编译两遍都对：对 16 头（ath11k-abi1）与对 27 头（ath11k-abi27）都产出 libPongWifiNative.a。
 
-还没验证的仍是那一处：24A446 的 selector 0 信封（0x3c30 入 / 0x3c00 出）。它要等 fork 的 ios27 分支走到 bsd_init、拿到 27 的 IO80211Family 或 wifid 才能核对。kext 侧 24A446 的记录形状、请求解析与事件尺寸都已静态锁定，剩下的是绑定层。
+这些检查只锁定参考布局与本驱动实现，不能把未验证范围缩成一个绑定层。实际 24A446 的传输路径、扫描与关联请求/事件、能力位消费行为仍需要匹配的 caller/parser 或运行时证据；见参考契约审计。
 
-## §40 2026-11-19 14:15 27 的绑定路径：framework 走的是网卡 ioctl，不是 selector 0 的 user client
+## §40 2026-11-19 14:15 绑定路径：参考实现的 ioctl 选择不能推广成 24A446 的普遍路径
 
-这一节改掉了 §38/§39 里「等拿到二进制核对 selector 0 信封」的假设：27 上 wifid 根本不走那条信道。
+（2026-11-20 只读复核修正了本节的推断。原文从 sheng 的条件编译选择推出「27 上 wifid 根本不走 user client」，
+这一推广超出了证据范围；实现与长度修复保留，目标路径仍待证据。）
 
-sheng 的 27 版本（origin/main c8f92b2，package/WifiNet.cpp）把两条路都写在一处：`if_ioctl(ifnet_t, cmd, data)` 处理 SIOCGA80211 / SIOCSA80211，请求体就是 apple80211req；同一个 `apple80211()` 又被一个 `kKernelRequest` 伪 ifp 的 user client 隧道调用，日志里用 `uc` 与 `ioctl` 两种前缀区分来源。他们在 27 的 `IO80211Interface::newUserClient` 里直接返回 kIOReturnUnsupported 并记一行「a user client of type %u was asked for: none offered (ioctl path)」——27 上接口的 IOKit 用户客户端是关掉的，wifid 的扫描、关联、状态查询全部经网卡的 if_ioctl 到达驱动。
+sheng 的 `origin/main c8f92b20` 在 `package/WifiNet.cpp` 的非 macOS 分支拒绝 user client，macOS 分支则保留
+selector-0，并同时保留 `if_ioctl` 的 SIOCGA80211/SIOCSA80211 路径。两种来源共用同一个 `apple80211()`。
+这证明参考实现同时维护两条路径、其平台选择可在分支间不同，不能证明 stock 24A446 wifid 普遍只走 ioctl。
 
-我们这边早就两条路都有：PongWifiNet.cpp:811 的 if_ioctl 处理 SIOCGA80211/SIOCSA80211，Pong80211UserClient 的 selector 0 隧道走同一个 apple80211()。16（22H374）上 wifid 走 user client；27 上会走 ioctl，不需要新增绑定层，只需要让 ioctl 路的长度限制容得下 27 的请求。
+我们这边也两条路都有：`PongWifiNet.cpp:811` 的 if_ioctl 与 `Pong80211UserClient` 的 selector-0 隧道。
+原 if_ioctl 的 `len>5120` 上限确实容不下参考 request-86 的 0x14e8 (5352) 字节，现在上限是
+`PONG_SCAN_REQUEST_MAX`；这是实现层面的必要修复，不构成目标 transport 已确认。
 
-改掉的那一处：if_ioctl 原来写死 `len>5120` 就返回 EINVAL，而 27 的扫描请求 86 是 0x14e8 = 5352 字节（比 5120 多 232 字节）。在 ioctl 路上这会直接把每一次点名扫描变成 EINVAL，而且发生在 pong_scan_multiple_parse 之前，日志里只会看到一条 request 失败。现在上限是 PONG_SCAN_REQUEST_MAX（0x14e8），申请与拷贝都按这个长度，解析只读前 0x214 + 64*12 字节，仍在 5120 的 out.raw 之内。
+22H374 的 selector-0 已使用 0x3c30 输入与 0x3c00 payload 容量（`PongWifiNet.cpp:1038-1049`）。0x3c00 是容量，
+不是固定返回量：scalar GET 可回 4 B，SET 回 0（`:1095-1097,1123-1149`）。`newUserClient` 只建立连接，
+长度契约在 selector 调用及其 caller/receiver，不能只凭一个假定的 dispatch table 推断。
 
-离线证据：test-pong-abi.py 新增「ioctl 路接受与 24A446 扫描请求等长的请求」，28 项检查 0 失败；对 16 头（ath11k-abi1）与 27 头（ath11k-abi27）都编译出 libPongWifiNative.a；四套 host 套件 0 失败。
+离线证据只能证明实现接受参考大小：test-pong-abi 的长度与布局检查、16/27 头文件两遍编译均通过。实际 24A446
+的 caller/transport、请求大小、输出容量与实际返回量仍待匹配的目标二进制或运行时证据；见
+[参考契约审计](SHENG-KERNEL-REFERENCE.md#h-契约差异与最小补证)。C1 保持 open。
 
-还剩两件事没有证据：一是 27 的 selector 0 信封（0x3c30/0x3c00）现在看只在 16 上用到，27 不需要它，但仍要等 27 的 IO80211Family/wifid 才能下定论；二是 sheng 在 27 上还带了一个签名的 launchd 服务 unixnu-wpa_supplicant 与 org.unixnu.wifi.control 控制端点，那是他们的用户态 supplicant 方案，我们的内核四步握手不需要它，但 27 的 wifid 是否要求那个服务存在，要等第一次上机才知道。
 
 ## §41 2026-11-19 14:20 参考线切换：内核看 t970 + zizhan，用户态仍看 sheng
 
@@ -1553,7 +1561,7 @@ link_update 指向新回调。16/27 两代头文件编译 rc=0；test-wifi-sbl-m
 
 22H374 的 daemon 从 dv[0] 读 16 字节接口名加负载，这条路径在 mission34b/36 上机验证过；24A446 的参考实现
 （sheng 790232e 的 post_event）改成 dv[0] 为 16 字节名字、dv[1] 为负载，而且这次提交同时加入 540 字节关联完成
-事件，说明 27 的 daemon 按两个描述符取负载。
+事件。这只证明参考 producer 使用两个描述符，不能反推目标 daemon 必须按该形状消费。
 
 本轮按代际切换：gModern27Client 为真时发两个描述符，否则保持已验证的单描述符形状。触发代际的入口除已有的
 0x14e8 扫描请求与 0x290 关联请求外，补上 0x8e8 的 kScanResult 与 kCurrentNetwork 请求，这样 27 的 daemon 在
@@ -1562,25 +1570,19 @@ link_update 指向新回调。16/27 两代头文件编译 rc=0；test-wifi-sbl-m
 验证：16/27 两代头文件编译 rc=0；test-wifi-sbl-mission 新增检查后 0 failure。27 上机时若事件仍不达，先核对
 这一处与 selector 0 信封。
 
-## 60. 在真实的 24A446 检出上编译，并用带宽度戳的 27 站点档案链接
+## 60. 27 头文件编译与完整 station 归档必须分别验收
 
-前几轮的 27 编译用的是 shim（package 指回 16 的树）。本轮在 sheng origin/main c8f92b2 的独立检出
-（/mnt/e/k60-work/impl/sheng27-full，git worktree --detach）上复现：该检出把 drivers/Ath12kWifi 钉在
-f087c7dd（27 的站点模块），但 worktree 里是空目录，首次构建报
-FileNotFoundError: .../drivers/Ath12kWifi/include/nw_abi.h；用符号链接指到 27 站点检出后即可编译。
+对 sheng 的 package 头文件编译以及带宽度戳的归档链接，只证明当时构建接受了对应头文件与
+`ie_bytes=2048`。构建器实际仍使用 16 线 `nw_sta.c` 源码清单；它不因此成为完整的 27 mac80211/cfg80211
+station。最新只读检查见 [归档取证](evidence/ios27-station-contract.json)：三个既有 station 候选都不定义
+`nw_wifi_power` 与 `nw_wifi_scan_frequencies`，其中只有一个是 arm64e；驱动归档 `teardown27g` 仍把二者记为 `U`。
 
-站点档案也重建成带戳的 27 版本：/opt/k60/trees/k60build/wifi/ath11k-abi27s/libPongAth11k.a
-（dabcf0b97d9dab2738f26709a889e8db16a8384e0ade5e694c3e720b61d03559，abi/nw_abi.stamp 为
-ie_bytes=2048 与 header_sha256=ec0b8227…，nw_sta_pong.c 的 IE_MAX 为 2048）。用它链接时构建日志里不再出现
-“has no abi/nw_abi.stamp”提示——宽度戳在这一代也生效。
+源代码 `nw_mainline.c:223,266` 有真实函数体，但现有两个 tools 脚本只做 host/单元编译探针，不提供完整打包配方。
+生成头文件的摘要与宽度戳匹配，也不能把旁车文件绑定到归档成员实际消费的头文件。下一项输入必须是完整 arm64e
+station 归档、共同生成头文件，以及绑定源码/目标/成员/头文件的构建记录；验收步骤见
+[参考契约审计](SHENG-KERNEL-REFERENCE.md#h-契约差异与最小补证)。
 
-结果：teardown27full2 rc=0，产物 libPongWifiNative.a 12,102,400 字节
-（586228b4e4114722a7238ab7195b5d4915cf008095d2a3a3e32f25a75222864e），llvm-nm 里
-pong_wifi_station_stop 与 pong_wifi_net_stop 都在。编译命令与 16 的完全一致，只换 --ath11k 与
-PONG_SHENG_ROOT；说明驱动对 27 的 package 头文件没有额外依赖，需要变化的确实只在 ABI 形状。
-
-边界：27 头文件给 nw_board 末尾加了 diagnostics 字段；本驱动的定位初始化不写它，27 上为 0（不向固件
-索取接收统计），这是有意的默认值，等需要统计时再加开关。
+27 头文件的 `nw_board.diagnostics` 仍由本驱动零初始化；这一默认值不改变上述归档缺口。
 
 ## 61. 24A446 的电源开关交给站侧，22H374 保持原样
 
@@ -2054,6 +2056,21 @@ C3 同理：没有 24A446 二进制或 27 wifid 频道日志前，不动 `kSuppo
 `kSupportedChannels` 不在 pin 的 kernelcache 里（305 个 kext 无无线 kext，用户态在加密的
 `043-68526-711.dmg.aea`），C3 保持 open。
 
-因此 27 线剩下的阻断不在 wifi 驱动里：main 的 F1 仍有真实的 prelink panic（stubs），DarwinBoot 尚不接受
-arm64e MH_FILESET；E1-E4 仍需要设备，而设备只由 Lead 调度。27 内核的干净链接还要等 fork 的 27 站归档
-（`nw_wifi_power` / `nw_wifi_scan_frequencies`）。
+Wi-Fi 归档契约本身仍未满足：现有归档缺两个现代 station API，源码检查与宽度戳不能关闭它。历史的 30 个驱动符号来自
+带九个 scratch 定义的链接，只保留为历史观察，不作为当前 wrapper 构建证明。
+
+Lead 报告的 F1 prelink/panic-stub 与 DarwinBoot arm64e MH_FILESET 是后续平台关卡，须与无桩 raw link 分开。
+E1-E4 只由 Lead 调度。实际归档检查和最小缺失输入集中在
+[参考契约审计](SHENG-KERNEL-REFERENCE.md#h-契约差异与最小补证)；快速门禁通过也不等于全量规则门禁通过。
+
+### 69.6 只读契约复核
+
+两份独立复核（launchd、频道/ABI）都确认：参考实现的布局与选择不等于目标 24A446 已接受。修正了四处推断：
+
+1. sheng 的 ioctl/user-client 是条件编译选择，不能推广为 stock 24A446 的统一路径。
+2. sheng 的 scan/result 与 capability 来源包含 IO80211 26C5035r（macOS），不能无条件当作 24A446 wire 证据。
+3. 两个描述符是 producer 行为，不能反推 consumer 要求。
+4. `5/0` 只证明挂载与路径可见；sheng 的蓝牙报告记录了 loader 交付后 PID 1 仍报 `No service cache`。
+
+可证明/不可证明的逐项表与最小补证在 [参考契约审计 §H](SHENG-KERNEL-REFERENCE.md#h-契约差异与最小补证)。
+C1-C3 与完整 station 归档均保持 open。

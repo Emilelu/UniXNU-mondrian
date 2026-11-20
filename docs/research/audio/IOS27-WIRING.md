@@ -225,6 +225,41 @@ python3 scripts/triage-audio27.py E:/k60-work/evidence/usblog-<ts>/ \
 不给 `--kernel` 时它不猜：说 `pass --kernel`，因为不带镜像这两件事在日志里长得一样。
 它只读：不 boot、不写、不改任何东西，退出码沿用判决的 0/1/2。
 
+### 启动参数只有一个名字：六处必须同名
+
+探针只在 `pong_audio_probe=1` 时动手（`drivers/PongAudio/PongAudioAmp.c` 的 951 行是那句判空调用）。
+这个字面量同时出现在六个地方，任何一处漂移都会让一次飞行读起来像硬件结论：
+
+| 位置 | 漂了会怎样 |
+| --- | --- |
+| 驱动 ``PE_parse_boot_argn("pong_audio_probe", …)`` | 换名字 = 老命令行的开关没人读，探针一行不打印 |
+| `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS` | 名字不在白名单 = 镜像参数审计拒绝这行，命令行里根本没有它 |
+| `scripts/judge-audio-capture.py` 的提示 | 提示让操作者设一个没人读的开关 |
+| `scripts/triage-audio27.py` 的 `NEXT` | 同上，而且是在已经白飞一次之后才说 |
+| 本页的「启动参数」行 | 读者照着设，但页面与代码不是同一个名字 |
+| `docs/engineering/BOOT-ARGS.md` 的条目 | 仓里的 `check-boot-args.py` 直接红：驱动读了一个文档没覆盖的参数 |
+
+`scripts/check-audio27-bootargs.py` 把这六处一起量：从驱动里取名字与**要求的值**（`mode != 1u` 的那个 1），
+再要求其余五处出现同一个 `名字=值`。读数：
+
+```sh
+python3 scripts/check-audio27-bootargs.py
+# BOOTARGS OK 1 call(s) name pong_audio_probe=1 in the driver, the allow list,
+#   the judge hint, the triage hint and the wiring page
+```
+
+反向各有名字：白名单删掉它 → `… is absent from ALLOWED_ADDITIONS in scripts/check-image-args.py, so the
+image audit drops the flag the driver reads`；判官提示换成别的参数 → `no 'pong_audio_probe=1' in
+scripts/judge-audio-capture.py`；驱动不再比那一位 → `no mode comparison decides the value`；页面丢了那行 →
+`… has no 启动参数 row naming pong_audio_probe`。宿主 `scripts/tests/test-audio27-bootargs.py` 八例把这几条钉住。
+
+文档那处不是假想：2026-11-20 11:30 实测，27 迁移这棵树的 `BOOT-ARGS.md` 里**没有** `pong_audio_probe`
+条目，`python3 scripts/check-boot-args.py` 直接报「缺少 1 个参数」，而音频自己的门禁当时还是绿的（它只量代码）。
+补上条目后才两边一致；`check-boot-args.py` 也进了预检（`boot arguments are documented`），这样「驱动读了、
+文档没写」不会再只靠人记得。共享仓 `k60-gates` 里那份 `BOOT-ARGS.md` 仍是旧的，条目由 Lead 决定何时进 main。
+
+预检里因此多三行：`boot argument checker is honest`（八例）、`audio boot argument is wired`（这门禁本身）、
+`boot arguments are documented`（仓里原有的覆盖门禁）。三行都不看设备、不 boot。
 ### 文档里引用的日志行，必须真是驱动会打印的
 
 27 的两份页面反复告诉读者「看哪一行输出」。但一行被引用、却没有任何 `printf` 能打印出来时，

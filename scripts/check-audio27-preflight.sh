@@ -111,6 +111,7 @@ run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "wiring dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
+run "27 include checker is honest" python3 scripts/tests/test-audio27-includes.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py
@@ -129,6 +130,7 @@ if [ -z "$xnu27" ]; then
 fi
 if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
+run "27 tree still has the headers" python3 scripts/check-audio27-includes.py "$xnu27"
 	run "27 tree has no clashing symbols" python3 scripts/check-audio27-collisions.py "$xnu27"
 	optional_row "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 3665a972557f4b15bcc232124e46f3984c2e5cec781d838845f0366b28eb8da4
 	# The series copy is a third copy of the same block. It exists only after

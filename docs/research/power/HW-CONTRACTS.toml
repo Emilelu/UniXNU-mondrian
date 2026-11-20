@@ -35,7 +35,7 @@
 # scripts/read-fdt-props.py <dump> --node <path> --prop <name> --hex` walks the
 # flattened device tree and prints exactly the hex a row records, and the five
 # thermal ladder rows are the values that command prints for /soc/thermal-zones.
-# The walker has its own fixture suite (scripts/tests/test-read-fdt-props.py, 22
+# The walker has its own fixture suite (scripts/tests/test-read-fdt-props.py, 27
 # checks) because a second source nobody can re-read is not a source.
 #
 # Every row also states what the iOS 27 checkout holds, because "27 is the same as
@@ -256,6 +256,33 @@ same27 = "drift"
 copy27 = "drivers/PongPower/K60Battery.cpp:1"
 why27 = "27 侧 K60Battery.cpp 不读 k60_charge_auth——认证线整体未搬，27 上这个参数不存在"
 [[contract]]
+id = "charger-wire-opcodes"
+lane = "charger"
+what = "owner id and opcodes of the authentication exchange on the battery manager channel (get/set, digest verdicts, VDM state)"
+source = "drivers/PongPower/K60ChargeAuth.c:8"
+expect = "Owner = 32778, Get = 0x50, Set = 0x51"
+dependence = "firmware"
+ios27 = "unchanged; the 27 side speaks the same firmware protocol, so these numbers travel with the file and must never be re-derived from the 27 tree's own constants"
+second_unavailable = { tried = [
+  "external:hackios/UniXNU-sheng - the clone at a68ee4e carries no *Charge* file at all (docs/research/charger/10-POWER-DOC-CONFORMANCE.md cites ShengChargeAuth.c from 2359a86)",
+  "external:k60work/firmware/qti_battery_charger_main_m81.ko - the module exposes XM_PROP_AUTHENTIC / class_attr_verify_digest names, but its .rodata holds no contiguous opcode table we can cite",
+  "the xiaomi-mipps-auth upstream named in the header comment is not cloned anywhere under E:/hackios",
+], why = "the opcode values come from Xiaomi's mipps-auth protocol; the artefact that would settle them is a checkout of that upstream (or sheng 2359a86, where ShengChargeAuth.c lived) - until then the host suite only proves our encoder agrees with itself" }
+same27 = "unchecked"
+why27 = "the 27 tree carries no drivers/PongPower/K60ChargeAuth.c yet (the charge-auth line has not travelled); re-open this row when it lands"
+
+[[contract]]
+id = "charger-diagnostic-properties"
+lane = "charger"
+what = "the 18 diagnostic property numbers, in the order the state machine walks them; a shifted entry reads the neighbouring property and still prints a plausible value"
+source = "drivers/PongPower/K60ChargeAuth.c:11"
+expect = "0x17, 0x19, 0x16, 0x32, 0x33, 0x2b, 0x31, 0xe7"
+dependence = "property-number"
+ios27 = "re-check every number against the 27 PMIC before trusting a diagnostic readout; the array order is the walk order, not a set"
+same27 = "unchecked"
+why27 = "the 27 tree carries no drivers/PongPower/K60ChargeAuth.c yet (the charge-auth line has not travelled); re-open this row when it lands"
+
+[[contract]]
 id = "charger-request-bytes"
 lane = "charger"
 what = "size of one authentication request frame the state machine hands to the battery manager's serialized queue"
@@ -263,17 +290,6 @@ source = "drivers/PongPower/K60ChargeAuth.h:14"
 expect = "K60_CHARGE_REQUEST_BYTES 52u"
 dependence = "layout"
 ios27 = "copy the header with the module; if the 27 side serializes a different frame length, this constant and the queue slot size move together"
-same27 = "unchecked"
-why27 = "the 27 tree carries no drivers/PongPower/K60ChargeAuth.h yet (the charge-auth line has not travelled); re-open this row when it lands"
-
-[[contract]]
-id = "charger-state-order"
-lane = "charger"
-what = "state enum order: each enumerator's numeric value is the protocol step, so reordering them renumbers the wire without any compiler complaint"
-source = "drivers/PongPower/K60ChargeAuth.h:16"
-expect = "K60ChargeIdle, K60ChargeGaugeCheck, K60ChargeGaugeChallenge, K60ChargeGaugeDigest"
-dependence = "layout"
-ios27 = "copy the enum as-is; the host suite pins the sequence, so a reordering only survives if the suite is edited in the same commit"
 same27 = "unchecked"
 why27 = "the 27 tree carries no drivers/PongPower/K60ChargeAuth.h yet (the charge-auth line has not travelled); re-open this row when it lands"
 

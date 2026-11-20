@@ -3,12 +3,6 @@
 # between 1 and 3 arguments". The only use is ucred.cr_label, which no userland
 # object reads, so non-Apple compilers keep the type discriminator.
 ptrauth-string-discriminator.patch
-# xnu ships its own copy of the SDK's Availability macros (EXTERNAL_HEADERS),
-# and that copy stops at __API_AVAILABLE. 12377 annotates its libsyscall
-# headers with __SPI_AVAILABLE, which only a Darwin 26 SDK defines, so the
-# Linux build stops in libcc_kext on gethostuuid.h. Keep the annotation but make
-# it empty: nothing in the kernel reads a SPI availability back out.
-availability-spi.patch
 # ArmCpu's weak_import sleep hook has no definition in any component; ld64-port
 # rejects the unresolved weak data symbol when the archive joins the kernel link.
 armcpu-sleep-hook.patch
@@ -99,3 +93,9 @@ armcpu-sleep-hook.patch
 # write; the 16 line hit the same thing. Nothing here arms CNTP -- interrupts
 # come from CNTV -- so skipping the precaution costs nothing.
 0541-k60-virtual-timer-guard.patch
+# The IEEE80211 event class may not use the ordinary MLEN ceiling: the 24A446
+# association result is a 540-byte pong_assoc_event27, and kev_post_msg_internal
+# returned EMSGSIZE for anything over MLEN, so the driver's event was dropped
+# inside the kernel while every symbol and test stayed green. Reference:
+# sheng's sheng-wifi-association-event.patch, BSD-2-Clause-Patent.
+0542-k60-association-event-cluster.patch

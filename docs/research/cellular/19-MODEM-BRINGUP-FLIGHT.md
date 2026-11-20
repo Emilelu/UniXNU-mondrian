@@ -1819,6 +1819,23 @@ script resets 推上 main 先占，改为 **P-261**。取号口径也变成一�
 python3 scripts/next-pitfall-id.py 取 origin/main 与本分支的较大值 +1（当前输出
 K60 PITFALL next P-263 (main P-260, tree P-262)）。
 
+### 3.51 门禁的取证口径：--only 只管那一条（2026-11-20 08:35）
+
+`python3 scripts/check-rules.py --only P-nnn` 只执行该条规则自己的 check 字符串，
+**不跑跨条目的门禁**。P-205 就是跨条目的：它比对 README 里「坑记录 P-01–P-nnn」这一行与
+PITFALLS.md 的实际最大号。main 上把 P-261/P-262 登记进 RULES 并跑 --only P-261 得到 ✅ 之后，
+P-205 仍然红（README 还写着 P-260），只有单独跑 check-readme.py 才看得见。
+
+所以「登记一条新坑」的完整取证是三步，缺一步都可能是假绿：
+
+1. python3 scripts/check-rules.py --only P-nnn —— 这条登记自己的 check 能复现；
+2. python3 scripts/check-readme.py —— 坑号计数那一行（P-205）跟着改；
+3. python3 scripts/tests/test-k60-flight-fixtures.py 等夹具测试 —— 判据行为本身没有退化。
+
+本轮序列：48f70f44 登记两条规则 → main 上 P-205 红 → 一行 README 修正（本地 abfbd262 因基线是
+P-256 在 main 上冲突，Lead 按 theirs 解成 P-262，落成 189e3cb7）。feat/pitfall-id-guard 与
+feat/readme-pitfall-262 两分支都已删，内容等价存在于 main。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

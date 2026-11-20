@@ -24,18 +24,21 @@ sha256 `b6216d66d4a72e86bcc8dd3f15ccec8245025d9ed6ad833f207cea525b2a8891`）与
 它完全不看链接输入：内核里有哪些归档、归档是不是同一架构、符号是不是临时桩提供的。
 这恰好是我们这条线三次假绿的所在地。
 
-## 2. 五种历史失败形态与可判定性
+## 2. 五种历史失败形态：逐条判据
 
-| 形态 | 证据 | 现有 gate 能否拦 | 补什么能在飞行前判 |
+每条只有两档：**离线能判**（有命令或可 grep 的字形，出图前就能停）或 **只能预声明**
+（运行时结果，飞行前把 expect/forbid 写进板级 profile，飞行后按预声明判读）。没有第三档。
+
+| 形态 | 二选一 | 判据（命令或日志字形） | 谁 / 何时 |
 |---|---|---|---|
-| S1 静默：console 0 字节、`port-not-observed`、`fastboot-return` | c0 `usblog-20261115-213221`（`DARWINBOOT-POOL.md:238-256`）；z0、mhi3/mhi4（`BOOT-DEATH-BISECT.md:37-38,144-147,200`） | 否。结构全对；c0 的死因是配置里写了 32 MiB seed 的 Data 卷 UUID（P-152），内核在 USB 控制台起来前就 self-panic | 对**镜像里的内核**比对 Data 卷 UUID 与设备最新 `PongDataWindow` 日志，而不是只比 defconfig（`scripts/check-data-identity.py:1-24` 已在做前半段） |
-| S2 驱动起来但端口没出现 | `usblog-20261118-005525`（143,253 B / 2,079 行）：到 SpringBoard、`ath11k: failed to power up mhi: -110`、无接口；机制 `SBL-QUEUE.md:169-176` | 否。这是运行时结果，不是镜像属性 | 预声明验收行（见 §5.3） |
-| S3 错架构归档被静默丢弃 | 27 内核 arm64e、归档 arm64，ld 只打 `ignoring file … built for iOS-arm64`，符号数 0（SBL §67.1） | 否 | 读 `linkarchives`，对每个 `-force_load` 归档断言 cputype/subtype 等于内核（见 §5.1） |
-| S4 临时桩提供链接符号 | 九个 scratch 定义让 35,613,936 B 镜像链接成功（SBL §67.5） | 否 | 同一份 `linkarchives` 里做来源白名单（见 §5.1） |
-| S5 镜像身份混淆 | z0 117,305,344 B 与 66 MB 的 C 格不符；trial a2 没有 series 指纹（P-201） | 部分。已比 `kernel_sha256`，但不能说明是哪个源码树、哪份配置产的 | 构建记录带 series 指纹与配置名；见 §5.2 |
+| S1 静默：console 0 字节、`port-not-observed`、`fastboot-return`（c0 `usblog-20261115-213221`，`DARWINBOOT-POOL.md:238-256`；z0、mhi3/mhi4，`BOOT-DEATH-BISECT.md:37-38,144-147,200`） | 离线能判 | `python3 scripts/check-data-identity.py`：每个开 `CONFIG_XNU_OWNER_DATA_MOUNT=y` 的 defconfig 必须点名最新 `PongDataWindow` 日志里的 UUID；再加一步 `strings <kernel.macho>` 找同一个 UUID，镜像里搜不到或搜到另一个（c0 的 `6DCCF70A…`）即停。无设备日志时 SKIP，不猜。 | 本线在 build 后、提交飞行申请前跑；Lead 出图时复核 |
+| S2 驱动起来但端口没出现（`usblog-20261118-005525`，143,253 B / 2,079 行，`ath11k: failed to power up mhi: -110`；机制 `SBL-QUEUE.md:169-176`） | 只能预声明 | 飞行前在板级 profile 写 expect/forbid：expect `wifi-net: station start`，forbid `failed to power up mhi`；飞行后本线只用三类结论 `accepted` / `port-not-observed` / `died-before-<marker>`。字形就是 `ath11k: failed to power up mhi: -110` 与接口出现/消失。 | Lead 飞行前声明并上机；本线飞行后读 console |
+| S3 错架构归档被静默丢弃（27 内核 arm64e、归档 arm64，ld 只打 `ignoring file … built for iOS-arm64`，SBL §67.1） | 离线能判 | `python3 scripts/check-wifi27-link-inputs.py --link-record <obj>/mach.development.bcm2837.linkarchives --allow-root <tree> --allow-root /opt/k60/trees/k60build/wifi` 必须有 `PASS arch: … arm64e`；输出 `is not arm64e`，或日志里出现 `ignoring file … built for iOS-arm64`，即停。 | 本线在 link 后、打包前跑 |
+| S4 临时桩提供链接符号（九个 scratch 定义，SBL §67.5） | 离线能判 | 同一命令必须有 `PASS stubs: no scratch stub symbols`；出现 `defines the scratch stub <sym>` 即停。改名逃不掉：`libStub27.a` 复制成 `libInputs.a` 仍按符号名失败（P-283）。 | 本线在 link 后、打包前跑 |
+| S5 镜像身份混淆（z0 117,305,344 B 与 66 MB 的 C 格不符；trial a2 没有 series 指纹，P-201） | 离线能判 | `python3 scripts/porting-gate.py --quick` 必须有 `PASS series 指纹`；`payload.json` 的 `kernel_sha256` 与字节数必须等于实际内核和这次 series/defconfig 的记录，缺指纹或大小不符即停。 | 本线 build 后跑；Lead 出图时复核 |
 
-结论：**五种里四种可以在飞行前离线判定**（S1、S3、S4、S5），S2 只能靠预声明的验收行；
-把 S2 写成更强的结构检查是方向性错误。
+这张表就是结论：S1、S3、S4、S5 出图前离线判，S2 只能靠预声明；把 S2 写成更强的结构检查是
+方向性错误。
 
 ## 3. 链接输入其实是可读的
 
@@ -49,7 +52,7 @@ sha256 `b6216d66d4a72e86bcc8dd3f15ccec8245025d9ed6ad833f207cea525b2a8891`）与
 
 也就是说 S3/S4 不是「需要新仪器」，而是「已经有账本没人对账」。
 
-## 4. 建议加在 gate 本身的两条断言（不是 blocker 条目）
+## 4. 建议加在 gate 本身的三条断言（不是 blocker 条目）
 
 ### 4.1 归档架构一致（S3）
 
@@ -67,30 +70,37 @@ sha256 `b6216d66d4a72e86bcc8dd3f15ccec8245025d9ed6ad833f207cea525b2a8891`）与
 
 现有 `IOS27-FLIGHT-BLOCKERS.toml` 是**全局**账本：任一条 open 就拒绝**所有** 27 镜像飞行。
 把 Wi-Fi 归档契约写成 open 条目，会连没有 `CONFIG_XNU_PONG_WIFI=y` 的 stage-0 试飞一起拒掉。
-要么给条目加适用条件（例如 `applies_when` 指定配置键），要么把上面两条放进 gate 的结构检查。
+要么给条目加适用条件（例如 `applies_when` 指定配置键），要么把上面三条放进 gate 的结构检查。
 后者更简单，也不改账本语义。
 
 ### 4.4 已实现：`scripts/check-wifi27-link-inputs.py`
 
-两条断言都落成一条命令，输入就是内核构建自己留下的 `linkarchives`，不需要重新构建：
+三条断言都落成一条命令，输入就是内核构建自己留下的 `linkarchives`，不需要重新构建：
 
 ```sh
 python3 scripts/check-wifi27-link-inputs.py --link-record <obj>/mach.development.bcm2837.linkarchives \
-    --allow-root /tmp/<tree> --allow-root /opt/k60/trees/k60build/wifi
+    --allow-root /tmp/<tree> --allow-root /opt/k60/trees/k60build/wifi \
+    --ar /usr/bin/llvm-ar-18 --nm /usr/bin/llvm-nm-18
 ```
 
 - **arch**：每个成员的 cputype/subtype 必须等于内核；归档不存在或为空都 refuse，不跳过。
 - **provenance**：每个 `-force_load`（以及记录里的 `.a`、能按 `-L` 解析的 `-l`）必须落在声明根内，
   或出现在带 sha256 的 `--declared` 清单里，且不匹配 `--forbid`（默认 `libStub|stub[0-9]|/scratch/`）。
+- **stubs**：每个存在的归档用 `llvm-nm --defined-only` 读符号，出现 `_psci_smp_init`、
+  `_psci_smp_start_cpu`、`_psci_smp_cpu_running`、`_psci_smp_cpu_off`、
+  `_pong_cpu_startup_finished` 任一个就点名归档与符号 refuse；nm 读不了退 2。改名归档也拦得住
+  （`libStub27.a` → `libInputs.a`，P-283）。
 
-对真实记录三跑（`--ar llvm-ar-18`）：
+对真实记录三跑（`--ar /usr/bin/llvm-ar-18 --nm /usr/bin/llvm-nm-18`）：
 
 ```
 PASS arch: 6 archives, arm64e          # 在构建原样记录里去掉 libStub27.a 那一行
-PASS provenance: 6 archives declared    rc=0
+PASS provenance: 6 archives declared
+PASS stubs: no scratch stub symbols     rc=0
 
 PASS arch: 7 archives, arm64e          # 构建原样写下的记录
 FAIL provenance: /mnt/e/k60-work/scratch/libStub27.a is named like a scratch stub
+FAIL stubs: … defines the scratch stub _psci_smp_init …
                                         rc=1
 FAIL arch: /opt/k60/trees/k60build/wifi/ath11k-abi27s/libPongAth11k.a(PongAth11k-linked.o) is not arm64e
 PASS provenance: 1 archives declared    rc=1（真实 arm64 归档当负例）
@@ -98,9 +108,9 @@ PASS provenance: 1 archives declared    rc=1（真实 arm64 归档当负例）
 
 这正是 §4.3 的选择：它只读这条线自己的链接账本，没有 Wi-Fi 归档的 stage-0 镜像不会被它拒绝。
 全局 `IOS27-FLIGHT-BLOCKERS.toml` 保持不动；坏例的五个形态（成员非 arm64e、符号缺失、stamp 与 header
-不一致等）分别由本脚本的 7 个用例和 `test-wifi-station-archive.py` 的 5 个用例钉住。
+不一致等）分别由本脚本的 9 个用例（含改名归档一例）和 `test-wifi-station-archive.py` 的 5 个用例钉住。
 
-## 5. 不进 gate 的两条数据检查
+## 5. 判据细节：三条不在 gate 里完成、但出图前要跑的检查
 
 ### 5.1 Data 卷 UUID 对镜像比对（S1）
 
@@ -133,8 +143,8 @@ sha256sum /mnt/e/hackios/k60-gates/scripts/check-ios27-artifacts.py   # b6216d66
 wc -l /mnt/e/hackios/k60-wifi/scripts/check-ios27-artifacts.py       # 232, 无 --flight-ready
 cat '<obj>/mach.development.bcm2837.link/mach.development.bcm2837.linkarchives'
 
-# 链接输入两条断言（§4.4）：6 个归档 arm64e 且都在声明根内才是 0
+# 链接输入三条断言（§4.4）：6 个归档 arm64e、都在声明根内、且不含桩符号才是 0
 python3 scripts/check-wifi27-link-inputs.py --link-record '<obj>/…linkarchives' \
     --allow-root /tmp/ios27ext4 --allow-root /opt/k60/trees/k60build/wifi
-python3 scripts/tests/test-wifi27-link-inputs.py    # 7 cases
+python3 scripts/tests/test-wifi27-link-inputs.py    # 9 cases
 ```

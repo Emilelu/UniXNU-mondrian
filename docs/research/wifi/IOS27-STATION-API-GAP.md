@@ -66,3 +66,19 @@
 
 关闭动作只有两种：证据落进上表「24A446 消费证据」列，或 Lead 明确把该项降级为「线内打包要求」。
 不得用 16/22H374 的行为代替 24A446 的证据。
+
+## 最小可编译补丁的形态（不实现）
+
+这套树里没有站 ABI 的整数版本号：`include/nw_abi.h` 只有 include guard；唯一的版本号是
+`include/nw_control.h:13` 的 `NW_CONTROL_VERSION 1`，那是 userspace 控制线，与这两个入口无关。
+站 ABI 的版本锚是 `abi/nw_abi.stamp` 的 `ie_bytes=2048` 与 `header_sha256`；两个函数都已在头里
+声明、不改变 `struct nw_bss_info` 布局，所以 **stamp 与版本号都不动**，要动的只是「谁定义这两个
+符号」。`abi27e` 缺的不是声明，是它的源集合仍是 16 的（`scripts/build-k60-ath11k.py:720-722`
+没有 `src/nw_mainline.c`）。
+
+| API | 头里的声明（已存在，不改） | 最小可编译补丁的形状 |
+|---|---|---|
+| `nw_wifi_power` | `abi/nw_abi.h:79` `void nw_wifi_power(int enabled);` | 在 `scripts/build-k60-ath11k.py` 的 `sta` 变换（`:546-718`）里给 16 站追加 `void nw_wifi_power(int enabled) { (void)enabled; }`，只补链接；语义版是把 27 的 `src/nw_mainline.c:266` 加进 `common_sources`（`:720-722`），代价是整份 27 的 cfg80211/mac80211 源集合。 |
+| `nw_wifi_scan_frequencies` | `abi/nw_abi.h:73`，上限 `:72` `NW_WIFI_SCAN_FREQUENCIES_MAX 32` | 同一位置追加 `int nw_wifi_scan_frequencies(const uint8_t *ssid, size_t len, const uint32_t *mhz, size_t count) { if (count > NW_WIFI_SCAN_FREQUENCIES_MAX) return -EINVAL; return nw_wifi_scan(ssid, len); }`，忽略 `mhz`、只补链接；语义版是编译 `src/nw_mainline.c:223`。 |
+
+两行都只是形状：桩实现能过链接，不能关闭上面两行；哪一版成立仍取决于 F2/SpringBoard 的日志字形。

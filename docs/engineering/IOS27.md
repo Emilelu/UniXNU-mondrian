@@ -456,3 +456,24 @@ same problem.
 Structure passes: 32 fileset entries, collection `cpusubtype 0xc0000002`, **0 loader violations**. `scripts/check-prelink-hazards.py` says 94 unpinned addresses in 21 bundles, all covered by a segment, **0 outside every segment** -- so no unpinned pointer can fault on its first read in this build.
 
 Flight is still refused, by one blocker: `prelink-map-unresolved`. 94 data items have no address (silent if wrong, because the kit leaves the original target in place) and 203 items jump to `_unixnu_fileset_unmapped`, which panics with the caller address. Both sets are smaller than the non-LTO build's 384/2,262 because the LTO reference resolved the rest.
+
+### Build 20, 2026-11-21
+
+Sixteen of the nineteen unpinned data globals now carry a reviewed pairing
+(`scripts/k60-fileset-pair.py` folds them into `kernel.map.json` and recomputes
+the kit signature; every target is re-verified with `llvm-nm-18` against the
+native kernel before it is written). The unpinned data residue fell from 94
+addresses in 21 bundles to **3 in 3 bundles**, all still inside a segment and
+none outside every segment.
+
+| | build 19 | build 20 |
+| --- | --- | --- |
+| kernel.macho | `5ce4965ff4ab` | `652237c6bf54` |
+| boot.img | `8ea5d26d` | `5c060f27` |
+| unpinned data | 94 / 21 bundles | **3 / 3 bundles** |
+| stubbed function sites | 203 / 25 bundles | 203 / 25 bundles |
+
+The three left are `0xfffffff007044478`, `0xfffffff00b72fce8` and
+`0xfffffff00b739538`; no structure inside the IPSW names them, so they stay
+unreviewed until a symbol-bearing artifact of the same build family arrives.
+Flight is still refused, by design.

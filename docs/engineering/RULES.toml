@@ -1134,3 +1134,19 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-260"
 statement = "A variable the build script resets to empty made the switch in the documentation always ineffective: the flag never reached the compile command."
 waiver = "the gate lives in the audio lane, not here: scripts/tests/test-audio27-define.py runs as the preflight row define delivery is honest in k60-audio-adsp and k60-audio-ios27-carry, and it reads the builder rather than a copy. Register a real check here once that branch merges; until then a copy in this repository would grade a tree nobody builds."
+
+[[rule]]
+id = "P-261"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-261"
+statement = "判据或驱动假设了设备布局（哪块盘、哪个地址、哪个节点），而布局来自另一处事实：只问 LUN 0 的 GPT，modem 的四个 EFS 分区在另一条 LUN，查找必然落空、日志只能说 refused，与真的坏了无法区分。"
+check = 'grep -q "volume lun chosen" scripts/judge-cellular-flight.py'
+note = "2026-11-20 k51/k53 的 native_pong_ufs_read_named_volume 硬编码 hostRead4k(0,1,1,…)；实测 modemst1/modemst2/fsg/fsc = sdf3..sdf6（8/8/8/1 MiB），unixnu = sda38。改为逐个 LUN 查 GPT、恰好一条命中才读，并打印 K60UFS volume name=… lun=…。；原拟 P-260，因 audio 线 2d1dd5fc 先占 main 上的 P-260 而顺延为 P-261。"
+
+[[rule]]
+id = "P-262"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-262"
+statement = "判据把「缺一行」既当没发生又当还没轮到：短窗日志里启动行缺失被判成失败，而它可能只是还没打印。只有正面证据（failed 行、panic）能越过窗口，其余缺行先看最长 wait 秒数是否到 240。"
+check = 'grep -q "hard = bool(refusals) or panic" scripts/judge-cellular-flight.py'
+

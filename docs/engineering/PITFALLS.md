@@ -7184,3 +7184,39 @@ docs/engineering/RULES.toml` 只找到引入与改写**读**的那个提交，�
 **证据**：`scripts/build-xnu-generic.sh:166`；`makedefs/MakeInc.rule:521`；`makedefs/MakeInc.kernel:312`；harness 三行实测 `make sees: [-DFROM_CONF]` / `[-DXNU_PONG_AUDIO=1 -DFROM_CONF]` / 同第二行（两者同时给不叠加）；`docs/research/audio/IOS27-WIRING.md` §3；27 预检行 `define delivery is honest`（`TESTS OK 6 cases`）。
 
 **下次 30 秒判定**：看到「文档说设置某个环境变量就能打开开关」，先在那条命令**真正执行的位置** grep 变量名有没有被重置或覆盖，再看编译命令里有没有那个 `-D`（或对象里有没有那个符号）。只有文档、没有编译命令证据的开关，等于没打开——与 P-251「登记了检查 ≠ 检查在跑」同族。
+
+## P-261 — 判据假设了设备布局，而布局来自另一处事实
+
+k51/k53 的存储读入口只问 LUN 0 的 GPT："unixnu" 与 "userdata" 都在那里，
+写代码时以为 modem 的四个 EFS 分区也在同一条盘上。实际设备上 modemst1/modemst2/fsg/fsc
+是 sdf3–sdf6（另一条 LUN，8 MiB/8 MiB/8 MiB/1 MiB），sda38 才是 unixnu。于是在这块板上，
+查找必然落空、rmtfs 读必然 refused，而日志里看不出原因——它说的 "refused" 与
+"分区真的坏了" 是同一句话。
+
+判据（以及驱动）可以假设的只有它自己验证过的事实。设备布局要么来自在同一台机器上读到的
+分区表，要么来自仓库里记录过的实测；两者都没有时，代码必须去问，而不是默认 0 号盘。
+
+修法两层：`native_pong_ufs_read_named_volume` 对 8 条 LUN 逐个查 GPT，恰好一条声称有该名字才读，
+两条都声称有就拒绝（`nativeVolumeUniqueLun`）；另外每次成功读出一行
+`K60UFS volume name=… lun=… first=… last=…`，让判据能区分 "读对了盘" 与 "从错误的表里读"。
+`scripts/judge-cellular-flight.py` 的 "volume lun chosen" 项：出现过 rmtfs 读却没有这行 → FAIL。
+
+一般化的教训：**凡是 "在哪块盘/哪个地址/哪个节点" 这类事实，要么当场读出来，要么写进仓库；
+不要让代码里的默认值冒充设备事实。** 默认值不会报错，只会安静地读错地方。
+
+## P-262 — 缺一行到底是「失败」还是「还没到」，先问窗口，别先问阶段
+
+scripts/judge-cellular-flight.py 起初把「启动六行或桥接两行缺失」直接判成 FAILED，理由是
+「序列没走到这一步」。这在满窗日志上等价于失败，在短窗上却是误判：60 秒的抓包与 60 秒的挂死
+在日志里长得一模一样，桥接那两行本来就还没打印。Lead 2026-11-20 05:13 的原话是三档退出码，
+「console 只到 60 s 必须是 INVALID 而不是 k53 失败」。
+
+改法：只有正面证据（K60MODEM <step> failed 行或 panic）能越过窗口直接判 FAILED；其余缺行
+一律先看最长 wait N s 是否达到 240 秒，够了才判 FAILED，不够就是 INVALID。
+
+一般化的教训：判据里「缺行」是二义的——它既可能是「没发生」，也可能是「还没轮到这里」。
+只有带时间戳的观察窗口能把两者分开；没有窗口就下结论，等于把没观测当成没实现。
+
+回归：scripts/tests/fixtures/ 下四份真实形状的控制台（pass / refused / nolun / short），
+scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
+

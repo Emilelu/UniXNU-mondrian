@@ -1175,3 +1175,63 @@ K60 READY OK the integrated tree carries every ported patch and its wiring
 `static`（上面那条条件编译对）。判据因此多了一类 `conditional`，输出
 `K60 SYMBOLS ok   1 symbol(s) are static in their own file, live only under another configuration`。
 这条修法留在了工具里，没有留成一次性的例外清单。
+
+
+## 32. F3 之前要补的两个打包前提：一个管链接，一个管字节（2026-11-20 10:58）
+
+§31 把「链接会不会红」量化成 7 个 `coachz_baseband_*` 符号。问到底，F3 之前缺的是两件性质不同的
+东西：一件不补就连不上，另一件不补就算连上也读不出字节。两件都不在 27 profile 里，而且能在
+`k60-gates/board.toml` 里指出是被哪一行拿掉的。
+
+### 32.1 链接：7 个符号的两条来路都被关了
+
+16 线拿到那 7 个符号，靠的不是组件清单——`board.toml:21` 的 `archives` 只有
+`component:ArmDTPlatform`、`component:ArmCpu`、`component:PongUfs`。它是靠
+`kernel.pong_native_driver_source`（`board.toml:45`）把整棵 `drivers/` 编进内核的：framework 把这个
+键赋成 `PONG_NATIVE_DRIVER_SOURCE` 环境变量（`board.toml:40-44` 的注释写明由 `scripts/unixnu/kernel.py:191`
+赋值），`build-xnu-4k-baseline.sh:250` 之后才找得到 ArmDT provider。
+
+27 profile 把这条键整条 `remove` 了（`board.toml:346-353`），`.components.include` 里也没有
+`QcomBaseband`（`:358-360` 只有 `ArmDTPlatform`、`ArmCpu`、`XnuPrelink`）⇒ 7 个符号在 27 上既没有驱动树
+也没有组件，链接期就是 `Undefined symbols: _coachz_baseband_configure …`。
+
+组件路线是现成的，只是要加两处：`include` 加 `QcomBaseband`，`archives` 加 `component:QcomBaseband`
+（`components.toml` 里它的 `build = ["build-qcom-baseband.py"]`、输出 `build/qcom-baseband/libQcomBaseband.a`）。
+两处必须同时加，因为 `scripts/unixnu/kernel.py:126-137` 的规则是：`archives` 里出现任何 `component:` 就进
+**显式模式**，只构建被点名的组件（加依赖），并且随后用 `missing` 检查把「该有却没列」的组件点名报错。
+27 的 `archives` 已经含两条 `component:`（`board.toml:383`），所以它本来就在显式模式里。
+
+### 32.2 数据：`PongUfs` 不在 27 的 include 里
+
+`board.toml:359` 的注释就是答案：「No PongUfs at stage 0; it returns in F3」；`:392` 记着
+`native-source-storage=1` / `native-ufs-root=1` 也随它一起回来。PongUfs 在 16 线是 `archives` 里的
+`component:PongUfs`（`:21`），27 的 include 里没有它（`:360`）。它缺席时，我们自己的弱定义
+（`K60ModemLink.c:42-52`，返回 0）生效，每次 rmtfs 读都 `refused`，日志里只剩 `refused` 一个词。
+
+**一处待核实，不当结论用**：`native_pong_ufs_read_named_volume` 的强定义究竟由 `libShengUfs.a` 里哪个
+`.cpp` 产出。`components.toml` 给 PongUfs 的 `source_files` 只写 `["NativeUfs.cpp"]`，而本仓同一函数族的
+实现在 `drivers/NativeUfs/NamedVolumeRead.cpp`；两者是否同一份源码，要看一次符号表或克隆，不能按名字
+推断。这条不影响「PongUfs 必须进 27」的判断，只影响验收时该去哪找带地址的强符号。
+
+### 32.3 顺序与验收行
+
+顺序是死的：链接先、字节后。链接不通，内核到不了能读盘的阶段；链接通了但没有 PongUfs，
+W1 那行 `K60UFS volume name=modemst1 lun=5 first=…` 根本不会出现——它由 PongUfs 侧打印，我们这侧
+看不到它就没有第二种解释。这也是 §29 把「先证 EFS 字节」写成 W1–W4 的理由：`served` 只证明没拒绝。
+
+四条验收行，都不需要新代码，只看 `board.toml` 与被构建的 `kernel.macho`：
+
+1. 27 profile 的 `.components.include` 同时含 `PongUfs` 与 `QcomBaseband`；
+2. 同 profile 的 `.components.archives` 同时含 `component:PongUfs` 与 `component:QcomBaseband`
+   （16 线只有前者，后者是 27 新增的）；
+3. `kernel.macho` 里 `_coachz_baseband_configure` 与 `_native_pong_ufs_read_named_volume` 都是强符号、带地址；
+4. 控制台出现 W1 且 `lun=5`（`lun=0` 是 k54 之前的死因），才进入 W2 的字节比对。
+
+### 32.4 一条随 k55 走的小改动
+
+弱定义现在既不打印也不说明原因：27 stage 上 EFS 读被拒时只剩 `refused`，与「通道找错了」长得一样。
+给它加一行诊断（例如 `K60MODEM efs: no named-volume reader in this kernel`）属于本分支，随 k55 一起走；
+k54 的镜像必须能由当时的 HEAD 复现，所以不再回改。
+
+边界：`k60-gates` 是 main，冻结条款未解。这两处 `board.toml` 何时落、由谁落按 Lead 10:05 的裁决走，
+本线只写清楚补哪两处、怎么算补上了。

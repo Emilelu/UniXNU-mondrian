@@ -259,6 +259,28 @@ def main() -> int:
     problems = module.verify(WORK / "same-no-tree", bare27)
     check("a same claim without tree27 is refused",
           any("needs tree27" in p for p in problems), str(problems))
+    # P-276: a row can name the preflight verdict that backs it, but the name has to be
+    # one the tool actually computes. A typo would otherwise read as "the preflight agrees".
+    pf = build(WORK / "preflight-ok", row(extra='preflight = ["check_alpha"]'))
+    tool = WORK / "preflight-ok" / "scripts" / "check-ios27-power-preflight.py"
+    tool.parent.mkdir(parents=True, exist_ok=True)
+    tool.write_text("def check_alpha():\n    return 'PASS', 'ok'\n", encoding="utf-8", newline="\n")
+    problems = module.verify(WORK / "preflight-ok", pf)
+    check("a row naming a real preflight verdict passes",
+          not [p for p in problems if "preflight" in p], str(problems))
+
+    missing = build(WORK / "preflight-gone", row(extra='preflight = ["check_alpha"]'))
+    problems = module.verify(WORK / "preflight-gone", missing)
+    check("a preflight claim with no tool is refused",
+          any("is missing, so preflight check_alpha" in p for p in problems), str(problems))
+
+    typo = build(WORK / "preflight-typo", row(extra='preflight = ["check_missing"]'))
+    tools_dir = WORK / "preflight-typo" / "scripts"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(tool, tools_dir / "check-ios27-power-preflight.py")
+    problems = module.verify(WORK / "preflight-typo", typo)
+    check("a row naming a preflight function that does not exist is refused",
+          any("has no check_missing" in p for p in problems), str(problems))
     # --against opens the row's own path in the other tree, so the same27 column cannot
     # stay hand-written prose: the run has to agree with it, and a claim it contradicts
     # is red whether the claim is "same", "drift" or "unchecked".
@@ -266,6 +288,21 @@ def main() -> int:
     check("a computed row reports the text it found",
           module.computed27(one, WORK / "good") == ("same", "drv/a.h:1"),
           str(module.computed27(one, WORK / "good")))
+
+    # A row whose 27 side is a different file/line must be computed there, not at our
+    # source line: the two copies of one patch may sit at different offsets (P-259).
+    (WORK / "copy27" / "drv").mkdir(parents=True, exist_ok=True)
+    (WORK / "copy27" / "drv" / "c.h").write_text("/* a */\nX 1u\n", encoding="utf-8", newline="\n")
+    copied = {"id": "x", "source": "drv/a.h:1", "expect": "X 1u", "same27": "same",
+              "copy27": "drv/c.h:2"}
+    check("computed27 opens the line copy27 names",
+          module.computed27(copied, WORK / "copy27") == ("same", "drv/c.h:2"),
+          str(module.computed27(copied, WORK / "copy27")))
+    (WORK / "copy27" / "drv" / "c.h").write_text("/* a */\nX 2u\n", encoding="utf-8", newline="\n")
+    check("computed27 reports drift at the copy27 line",
+          module.computed27(copied, WORK / "copy27")[0] == "drift"
+          and "drv/c.h:2 does not contain" in module.computed27(copied, WORK / "copy27")[1],
+          str(module.computed27(copied, WORK / "copy27")))
 
     problems, report = module.against_problems({"contract": [one]}, WORK / "same-drift" / "tree27")
     check("a claim the other tree contradicts is refused",

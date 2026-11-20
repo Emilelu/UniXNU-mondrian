@@ -63,9 +63,9 @@ expect = "K60_BATTMGR_OWNER 32778u"
 dependence = "firmware"
 ios27 = "unchanged: the id lives in the DSP image, not in XNU"
 second = [
-  { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:16", expect = "SHENG_BATTMGR_OWNER 32778u" },
+  { source = "external:k60work/references/UniXNU-sheng/package/ShengBattmgr.h:16", expect = "SHENG_BATTMGR_OWNER 32778u" },
 ]
-second_note = "the vendor-side Linux implementation of the same DSP battery protocol names the same owner; its comment also says 32779 is the USB-C port manager on the same channel"
+second_note = "sheng 的板级 XNU 实现（BSD-2-Clause）对同一套 DSP 电池协议用了同一个 owner; its comment also says 32779 is the USB-C port manager on the same channel"
 same27 = "same"
 copy27 = "drivers/PongPower/K60Battmgr.h:12"
 [[contract]]
@@ -77,7 +77,7 @@ expect = "K60_BATTMGR_REQUEST_BYTES 24u"
 dependence = "firmware"
 ios27 = "unchanged unless the DSP image changes"
 second = [
-  { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:25", expect = "SHENG_BATTMGR_REQUEST_BYTES 24u" },
+  { source = "external:k60work/references/UniXNU-sheng/package/ShengBattmgr.h:27", expect = "SHENG_BATTMGR_REQUEST_BYTES 24u" },
 ]
 second_note = "the same 24-byte request frame in the vendor-side reader"
 same27 = "same"
@@ -91,7 +91,7 @@ expect = "le32(data) != K60_BATTMGR_OWNER"
 dependence = "firmware"
 ios27 = "route by owner: if the 27 line ever adds UCSI, 32779 frames must go to the USB-C driver instead of falling into ignored++"
 second = [
-  { source = "external:hackios/UniXNU-sheng/package/ShengBattery.cpp:30", expect = "The USB-C owner (32779) shares this channel" },
+  { source = "external:k60work/references/UniXNU-sheng/package/ShengBattery.cpp:33", expect = "The USB-C owner (32779) shares this channel" },
 ]
 second_note = "sheng routes the same channel to QcomDwc3 for UCSI and raised its max message to 560 B to fit those frames (ea15446); we have no USB-C driver yet, so the counter is the only trace"
 same27 = "same"
@@ -105,9 +105,9 @@ expect = "K60_BATTMGR_NOTIFY_BYTES 28u"
 dependence = "firmware"
 ios27 = "unchanged; the consumer accepts the length the DSP reports, not this constant"
 second = [
-  { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:26", expect = "SHENG_BATTMGR_ENABLE_BYTES 28u" },
+  { source = "external:k60work/references/UniXNU-sheng/package/ShengBattmgr.h:28", expect = "SHENG_BATTMGR_ENABLE_BYTES 28u" },
 ]
-second_note = "the vendor reader sizes its enable frame at 28 B too; the name differs, so this corroborates the frame size and not the frame kind"
+second_note = "sheng 把它的 enable 帧也定为 28 B; the name differs, so this corroborates the frame size and not the frame kind"
 same27 = "same"
 copy27 = "drivers/PongPower/K60Battmgr.h:14"
 [[contract]]
@@ -223,7 +223,7 @@ dependence = "none"
 ios27 = "copy with the driver; scripts/tests/test-k60-adsp-smccc.py guards both copies"
 same27 = "drift"
 copy27 = "drivers/PongPower/K60AdspPas.c:1"
-why27 = "27 侧的 k60_scm_call 仍只把 x0..x3 声明为被破坏、x4..x7 当输入、clobber 只有 memory（P-255 未过去）；同步时把这段连同 5 行注释一起搬，并同时改 patches/xnu/0613 那份副本"
+why27 = "27 侧的 k60_scm_call 仍只把 x0..x3 声明为 +r、x4..x7 当只读输入、clobber 只有 memory（P-255 未过去）。因果链：只读输入在 asm 之后被编译器认为仍是原值，所以跨一次 SMC 的活跃值可以留在 x4..x7，密钥字也可以被当作仍在该寄存器而省掉重装；SMCCC 1.x 允许 monitor 破坏 x4..x17（PAS 的 session cookie 就回在 x6）。27 线一旦在 EL1 早期先做 PAS、再写 APIAKey/APIBKey/APDAKey/APDBKey/APGAKey，写进密钥寄存器的就可能是陈旧或错位的字，此后每条 PACIA/AUTIA 都对不上，表现为离 SMC 很远的认证陷入。修法与 Linux arm_smccc_smc 相同：x0..x7 全部 +r，x8..x17 clobber，再加 memory；同步时把这段连同 5 行注释一起搬，并同时改 patches/xnu/0613 那份副本"
 [[contract]]
 id = "battery-config-magic"
 lane = "battery"
@@ -264,10 +264,11 @@ expect = "Owner = 32778, Get = 0x50, Set = 0x51"
 dependence = "firmware"
 ios27 = "unchanged; the 27 side speaks the same firmware protocol, so these numbers travel with the file and must never be re-derived from the 27 tree's own constants"
 second_unavailable = { tried = [
-  "external:hackios/UniXNU-sheng - the clone at a68ee4e carries no *Charge* file at all (docs/research/charger/10-POWER-DOC-CONFORMANCE.md cites ShengChargeAuth.c from 2359a86)",
+  "external:k60work/references/UniXNU-sheng/package/ShengChargeAuth.c:5 - the canonical checkout (bc05635) does carry the line, and it is byte-identical to ours; it is also the file we ported from, so it proves the port, not the protocol (see docs/research/power/11-SHENG-REFERENCE.md section 3)",
+  "external:hackios/UniXNU-sheng - the stale clone at a68ee4e carries no *Charge* file at all; searching it is how this row first recorded 'not found'",
   "external:k60work/firmware/qti_battery_charger_main_m81.ko - the module exposes XM_PROP_AUTHENTIC / class_attr_verify_digest names, but its .rodata holds no contiguous opcode table we can cite",
   "the xiaomi-mipps-auth upstream named in the header comment is not cloned anywhere under E:/hackios",
-], why = "the opcode values come from Xiaomi's mipps-auth protocol; the artefact that would settle them is a checkout of that upstream (or sheng 2359a86, where ShengChargeAuth.c lived) - until then the host suite only proves our encoder agrees with itself" }
+], why = "the opcode values come from Xiaomi's mipps-auth protocol; the artefact that would settle them is an independent checkout of that upstream - sheng's file is our own origin, so citing it as a second source would be self-reference, and until then the host suite only proves our encoder agrees with itself" }
 same27 = "unchecked"
 why27 = "the 27 tree carries no drivers/PongPower/K60ChargeAuth.c yet (the charge-auth line has not travelled); re-open this row when it lands"
 
@@ -325,8 +326,9 @@ dependence = "firmware"
 ios27 = "re-check against the 27 thermal profile before trusting the ladder"
 second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 115844, hex = "00015f90" },
+  { source = "external:k60work/references/UniXNU-sheng/package/ThermalLevel.h:65", expect = "{90000, 2000}" },
 ]
-second_note = "the device's own flattened device tree: /soc/thermal-zones/ddr/trips/ddr0-config carries 90000"
+second_note = "the device's own flattened device tree (/soc/thermal-zones/ddr/trips/ddr0-config) and the SM8550 board's ladder in sheng's ThermalLevel.h (same OS target, different SoC); sheng's trips belong to its CPU/GPU zones, so this corroborates the number, not the zone"
 same27 = "unchecked"
 why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
@@ -339,8 +341,9 @@ dependence = "firmware"
 ios27 = "same as warm"
 second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 111028, hex = "00017318" },
+  { source = "external:k60work/references/UniXNU-sheng/package/ThermalLevel.h:65", expect = "{95000, 2000}" },
 ]
-second_note = "the device's own flattened device tree: /soc/thermal-zones/gpuss-0/trips/tj_cfg carries 95000"
+second_note = "the device's own flattened device tree (/soc/thermal-zones/gpuss-0/trips/tj_cfg) and sheng's CPU ladder at 95 degrees (our row is the gpuss-0 zone, sheng's is a CPU input group, so the value matches and the domain does not)"
 same27 = "unchecked"
 why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
@@ -353,8 +356,9 @@ dependence = "firmware"
 ios27 = "same as warm"
 second = [
   { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 106704, hex = "0001adb0" },
+  { source = "external:k60work/references/UniXNU-sheng/package/ThermalLevel.h:65", expect = "{110000, 1000}" },
 ]
-second_note = "the device's own flattened device tree: /soc/thermal-zones/cpu-1-0/trips/cpu4-emerg0-cfg carries 110000"
+second_note = "the device's own flattened device tree (/soc/thermal-zones/cpu-1-0/trips/cpu4-emerg0-cfg) and sheng's critical trip at 110 degrees with the same 1-degree hysteresis"
 same27 = "unchecked"
 why27 = "27 树还没有 drivers/PongPower/K60ThermalMap.h（该文件随这条线的提交过去），bundle 落地后再把这一行改成 same"
 [[contract]]
@@ -394,10 +398,11 @@ expect = "0x17d09804"
 dependence = "firmware"
 ios27 = "re-derive from the 27 device tree node, not from this comment"
 second = [
+  { source = "external:hackios/UniXNU-zizhan/drivers/ArmCpu/PongCpuPolicy.h:173", expect = "IODeviceMemory::withRange(0x17d09000,4096)" },
+  { source = "external:hackios/UniXNU-zizhan/drivers/ArmCpu/PongCpuPolicy.h:164", expect = "+0x804+4*index" },
   { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:84", expect = "IODeviceMemory::withRange(0x17d09000,4096)" },
-  { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:56", expect = "+0x804+4*index" },
 ]
-second_note = "the same SoC's EPSS driver maps the perf-lock window at 0x17d09000 and writes at +0x804; 0x17d09000 + 0x804 = 0x17d09804"
+second_note = "zizhan is the same SoC (SM8475): its EPSS driver maps the perf-lock window at 0x17d09000 and writes at +0x804; t970 is SM8250 (another board, same EPSS driver lineage) and maps the same window, so the address is not board-specific. 0x17d09000 + 0x804 = 0x17d09804"
 same27 = "same"
 copy27 = "drivers/PongPower/K60CpuFreqPlan.h:61"
 [[contract]]
@@ -409,20 +414,95 @@ expect = "K60_CPU_FREQ_PDMEM_VOTE_OFFSET 0x804u"
 dependence = "firmware"
 ios27 = "re-check with the magic above"
 second = [
+  { source = "external:hackios/UniXNU-zizhan/drivers/ArmCpu/PongCpuPolicy.h:164", expect = "+0x804+4*index" },
   { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:56", expect = "+0x804+4*index" },
 ]
-second_note = "the same offset inside the perf-lock window, in the independent EPSS driver"
+second_note = "the same offset inside the perf-lock window, on the same-SoC (SM8475) zizhan board and on t970 (SM8250) as a second board"
 same27 = "same"
 copy27 = "drivers/PongPower/K60CpuFreqPlan.h:66"
 
 [[contract]]
 id = "sleep-report-guard"
 lane = "power"
-what = "the driver-level switch around the two sleep report calls; a machine-config macro deletes them silently on any board that is not that config, and the sleep judge's REPORT criterion can then never pass"
+what = "the default definition of the driver-level switch around the two sleep report calls; a machine-config macro deletes them silently on any board that is not that config, and the sleep judge's REPORT criterion can then never pass"
 source = "patches/xnu/0629-k60-sleep-trace.patch:12"
 expect = "#define K60_PLATFORM_SLEEP_REPORT 1"
 dependence = "macro"
-ios27 = "replace the 27 copy's #if defined(PONG) with #if K60_PLATFORM_SLEEP_REPORT (both the declaration block at :7 and the call site); otherwise the 27 kernel still builds and the reports are compiled out"
+preflight = ["check_report_guard"]
+ios27 = "define K60_PLATFORM_SLEEP_REPORT in the 27 copy; without it the two guards below cannot compile the reports in"
 same27 = "drift"
 copy27 = "patches/xnu/0629-k60-sleep-trace.patch:7"
-why27 = "the 27 copy still opens with #if defined(PONG) at :7 and gates the call at :61; on the 12377 frame PONG is not defined, so both reports vanish and the judge can only report a missing REPORT"
+why27 = "the 27 copy has no K60_PLATFORM_SLEEP_REPORT at all: it opens with #if defined(PONG) at :7 and gates the calls at :61, so on the 12377 frame PONG is not defined and both reports vanish"
+
+[[contract]]
+id = "sleep-report-declarations"
+lane = "power"
+what = "the weak declarations of the two sleep report functions; guarding these with a machine config removes the calls' only declaration, so the call site cannot be compiled in even when the macro is defined"
+source = "patches/xnu/0629-k60-sleep-trace.patch:15"
+expect = "#if K60_PLATFORM_SLEEP_REPORT"
+dependence = "macro"
+preflight = ["check_report_guard"]
+ios27 = "replace the 27 copy's #if defined(PONG) at :7 with #if K60_PLATFORM_SLEEP_REPORT around the armcpu_sleep_report / k60_platform_sleep_report declarations"
+same27 = "drift"
+copy27 = "patches/xnu/0629-k60-sleep-trace.patch:7"
+why27 = "the 27 copy's declaration block is behind #if defined(PONG) at :7; a copy that only defines the macro still has no declarations when PONG is undefined"
+
+[[contract]]
+id = "sleep-report-call-site"
+lane = "power"
+what = "the guarded call sites of the two sleep reports after console_resume(); this guard is independent of the declaration block and of the macro definition"
+source = "patches/xnu/0629-k60-sleep-trace.patch:69"
+expect = "#if K60_PLATFORM_SLEEP_REPORT"
+dependence = "macro"
+preflight = ["check_report_guard"]
+ios27 = "replace the 27 copy's #if defined(PONG) at :61 (closed at :68) with #if K60_PLATFORM_SLEEP_REPORT; defining the macro and fixing the declarations still leaves the calls compiled out"
+same27 = "drift"
+copy27 = "patches/xnu/0629-k60-sleep-trace.patch:61"
+why27 = "the 27 copy gates the two report calls with #if defined(PONG) at :61; a copy that defines the macro but leaves this guard still compiles the calls out, which is why the preflight scans every PONG line in the patch"
+[[contract]]
+id = "sleep-report-declaration-armcpu"
+lane = "power"
+what = "the weak declaration of armcpu_sleep_report, the ArmCpu half of the sleep report pair"
+source = "patches/xnu/0629-k60-sleep-trace.patch:19"
+expect = 'extern "C" void armcpu_sleep_report(void)'
+dependence = "macro"
+preflight = ["check_report_guard"]
+ios27 = "the 27 copy declares it at :11 under #if defined(PONG); this line has to stay declared independently of the machine config"
+same27 = "same"
+copy27 = "patches/xnu/0629-k60-sleep-trace.patch:11"
+
+[[contract]]
+id = "sleep-report-declaration-k60"
+lane = "power"
+what = "the weak declaration of k60_platform_sleep_report, the board half of the sleep report pair"
+source = "patches/xnu/0629-k60-sleep-trace.patch:20"
+expect = 'extern "C" void k60_platform_sleep_report(void)'
+dependence = "macro"
+preflight = ["check_report_guard"]
+ios27 = "the 27 copy declares it at :12 under #if defined(PONG); a macro-only fix leaves this declaration compiled out"
+same27 = "same"
+copy27 = "patches/xnu/0629-k60-sleep-trace.patch:12"
+
+[[contract]]
+id = "sleep-report-call-armcpu"
+lane = "power"
+what = "the call to the ArmCpu sleep report after console_resume()"
+source = "patches/xnu/0629-k60-sleep-trace.patch:71"
+expect = "armcpu_sleep_report();"
+dependence = "macro"
+preflight = ["check_report_guard"]
+ios27 = "the 27 copy calls it at :63 inside #if defined(PONG); fixing the declarations but not this guard still drops the report"
+same27 = "same"
+copy27 = "patches/xnu/0629-k60-sleep-trace.patch:63"
+
+[[contract]]
+id = "sleep-report-call-k60"
+lane = "power"
+what = "the call to the board sleep report after console_resume()"
+source = "patches/xnu/0629-k60-sleep-trace.patch:74"
+expect = "k60_platform_sleep_report();"
+dependence = "macro"
+preflight = ["check_report_guard"]
+ios27 = "the 27 copy calls it at :66 inside #if defined(PONG); the judge observes the board report, so this guard alone can fail the criterion"
+same27 = "same"
+copy27 = "patches/xnu/0629-k60-sleep-trace.patch:66"

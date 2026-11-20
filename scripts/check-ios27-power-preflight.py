@@ -132,6 +132,82 @@ def check_carry(tree: Path, modules: dict[str, list[tuple[str, str]]]) -> list[t
     return rows
 
 
+HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
+DIRECTIVE = re.compile(r"\s*#\s*([a-z]+)\b\s*(.*)")
+SITE = re.compile(r"\b(?:" + "|".join(REPORT_CALLS) + r")\s*\(")
+PONG_DEF = re.compile(r"defined\s*\(\s*PONG\s*\)|defined\s+PONG|\bPONG\b")
+
+
+def target_hunks(text: str):
+    """Yield the rows of each hunk that survive into the target file.
+
+    A removed row is already gone: it can neither open a guard nor carry a call.
+    Context and added rows are the postimage of that hunk. Hunks stay separate,
+    because an #endif between two hunks is not in the diff at all.
+    """
+    old = new = 0
+    rows: list[tuple[int, str, bool]] = []
+    for number, row in enumerate(text.splitlines(), 1):
+        if header := HUNK.match(row):
+            if rows:
+                yield rows
+            old = int(header.group(1)) if header.group(1) is not None else 1
+            new = int(header.group(2)) if header.group(2) is not None else 1
+            rows = []
+        elif old or new:
+            prefix = row[:1]
+            if prefix == " ":
+                rows.append((number, row[1:], False))
+                old, new = old - 1, new - 1
+            elif prefix == "-":
+                old -= 1
+            elif prefix == "+":
+                rows.append((number, row[1:], True))
+                new -= 1
+    if rows:
+        yield rows
+
+
+def pong_branch(kind: str, condition: str) -> bool:
+    """True when a PONG build takes this branch, i.e. the report is PONG-only."""
+    if kind == "ifdef":
+        return condition == "PONG"
+    if kind != "if" or "PONG" not in condition:
+        return False
+    negated = r"!\s*(?:defined\s*\(\s*PONG\s*\)|PONG\b)"
+    zeroed = r"(?:defined\s*\(\s*PONG\s*\)|PONG\b)\s*==\s*0\b"
+    if re.search(negated, condition) or re.search(zeroed, condition):
+        return False
+    return bool(PONG_DEF.search(condition))
+
+
+def report_guards(text: str) -> tuple[list[int], bool]:
+    """Line numbers of positive PONG guards around a report declaration or call."""
+    guards: list[int] = []
+    has_report = False
+    for rows in target_hunks(text):
+        stack: list[tuple[bool, int]] = []
+        for number, row, _ in rows:
+            directive = DIRECTIVE.match(row)
+            if directive:
+                kind, condition = directive.groups()
+                condition = condition.strip()
+                if kind in ("if", "ifdef", "ifndef"):
+                    stack.append((pong_branch(kind, condition), number))
+                elif kind == "elif" and stack:
+                    stack[-1] = (pong_branch("if", condition), number)
+                elif kind == "else" and stack:
+                    stack[-1] = (False, number)
+                elif kind == "endif" and stack:
+                    stack.pop()
+            elif SITE.search(row):
+                has_report = True
+                positive = [start for is_pong, start in stack if is_pong]
+                if positive:
+                    guards.append(positive[-1])
+    return guards, has_report
+
+
 def check_report_guard(tree: Path) -> tuple[str, str]:
     series = tree / SERIES
     if not series.is_file():
@@ -146,17 +222,16 @@ def check_report_guard(tree: Path) -> tuple[str, str]:
         if not path_inside(patch, tree) or not patch.is_file():
             continue
         text = patch.read_text(encoding="utf-8", errors="replace")
-        if not any(call in text for call in REPORT_CALLS):
+        if not SITE.search(text):
             continue
-        guarded = [n for n, row in enumerate(text.splitlines(), 1)
-                   if "#if defined(PONG)" in row or "#ifdef PONG" in row]
-        if guarded:
-            offenders.append(f"{entry}:{guarded[0]}")
-        elif "K60_PLATFORM_SLEEP_REPORT" not in text:
+        guards, has_report = report_guards(text)
+        if guards:
+            offenders.extend(f"{entry}:{start}" for start in dict.fromkeys(guards))
+        elif has_report and "K60_PLATFORM_SLEEP_REPORT" not in text:
             unmacroed.append(entry)
     if offenders:
-        return BLOCK, ("the report calls are behind #if defined(PONG) ("
-                       + ", ".join(offenders)
+        return BLOCK, ("the sleep report declarations or calls are behind "
+                       "#if defined(PONG) (" + ", ".join(offenders)
                        + "); the 27 profile is not PONG, so both reports vanish "
                          "and the sleep judge can never pass — move the guard to a "
                          "driver-level macro such as K60_PLATFORM_SLEEP_REPORT")
@@ -264,7 +339,7 @@ def check_contracts(tree: Path, device: Path) -> tuple[str, str]:
 def check_console(tree: Path, device: Path) -> tuple[str, str]:
     """The judges match strings the drivers print. Read both sides *in the 27 tree*: a
     print this line renames would leave its judge reporting INVALID for a device that
-    printed its line perfectly, and only the pair shows it (P-261)."""
+    printed its line perfectly, and only the pair shows it (P-273)."""
     tool = device / "scripts" / "check-console-contract.py"
     if not tool.is_file():
         return WARN, "no check-console-contract.py here to check the 27 tree against"

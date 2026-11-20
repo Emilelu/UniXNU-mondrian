@@ -84,8 +84,12 @@ def judges(manifest: dict) -> list[dict]:
     return list(manifest.get("judge") or [])
 
 
-def fixture_cases(root: Path, test: str) -> int | None:
-    """Run one fixture suite and return the case count it printed, or None."""
+def fixture_cases(root: Path, test: str) -> tuple[int | None, int | None]:
+    """Run one fixture suite and return (case count it printed or None, exit code).
+
+    The exit code matters: a fixture suite that lost an assert still prints a
+    case count, so counting alone would call a broken suite green.
+    """
     import subprocess
 
     try:
@@ -100,9 +104,9 @@ def fixture_cases(root: Path, test: str) -> int | None:
             timeout=600,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
+        return None, None
     found = CASES_RE.findall(done.stdout or "")
-    return int(found[-1]) if found else None
+    return (int(found[-1]) if found else None), done.returncode
 
 
 def verify(root: Path, manifest: dict, update: bool) -> tuple[list[str], list[str]]:
@@ -186,9 +190,13 @@ def verify(root: Path, manifest: dict, update: bool) -> tuple[list[str], list[st
         if want and got != want:
             problems.append(f"judge {name}: {rel} changed (sha256 {got[:12]} != {want[:12]})")
         if test and (root / test).is_file():
-            seen_cases = fixture_cases(root, test)
+            seen_cases, status = fixture_cases(root, test)
             if seen_cases is None:
                 problems.append(f"judge {name}: {test} printed no 'TESTS OK N cases/checks' line")
+            elif status != 0:
+                problems.append(
+                    f"judge {name}: {test} exited {status} with {seen_cases} cases printed; a suite that fails still prints its count"
+                )
             elif cases != seen_cases:
                 problems.append(
                     f"judge {name}: manifest says {cases} cases, {test} prints {seen_cases}"

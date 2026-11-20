@@ -23,6 +23,7 @@ exit 0 every row verified / 1 problems / 2 manifest unusable
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import pathlib
 import re
@@ -34,6 +35,7 @@ REL = "docs/research/power/HW-CONTRACTS.toml"
 LANES = {"adsp", "battery", "charger", "thermal", "power"}
 DEPENDENCE = {"none", "macro", "firmware", "property-number", "layout"}
 FIELDS = ("id", "lane", "what", "source", "expect", "dependence", "ios27")
+PREFLIGHT_TOOL = "scripts/check-ios27-power-preflight.py"
 VERDICTS27 = ("same", "drift", "unchecked")
 DRIVE = re.compile(r"^([A-Za-z]):[\\/]")
 
@@ -218,12 +220,18 @@ def checked27(label: str, row: dict, tree27) -> list[str]:
     return problems
 
 def computed27(row: dict, tree: pathlib.Path) -> tuple[str, str]:
-    """What a real tree actually holds for this row's source line: same, drift, moved
-    (the line is out of range) or missing. This is the computed counterpart of the
-    hand-written same27 claim, and it opens the row's own path rather than copy27."""
+    """What a real tree actually holds for this row: same, drift, moved (the line is out
+    of range) or missing. This is the computed counterpart of the hand-written same27
+    claim. A same/drift row is opened at its copy27 line, because that is the side the
+    claim names; an unchecked row has no 27-side line yet, so its source is tried."""
     source = str(row.get("source") or "")
     if source.startswith("external:"):
         return "skipped", source
+    # A row with copy27 names where the text lives in the 27 tree. For same/drift rows
+    # that side is the claim under test; the source line is our own (16-line) copy and
+    # its offset may legitimately differ (P-259: the copies may move independently).
+    if row.get("copy27") and str(row.get("same27") or "") in ("same", "drift"):
+        source = str(row["copy27"])
     if ":" not in source:
         return "missing", source
     rel, _, number = source.rpartition(":")
@@ -272,6 +280,50 @@ def against_problems(data: dict, tree: pathlib.Path) -> tuple[list[str], list[st
     return problems, report
 
 
+def preflight_functions(root: pathlib.Path) -> set[str] | None:
+    """Top-level check_* functions of the 27 preflight, or None when it is absent."""
+    path = root / PREFLIGHT_TOOL
+    if not path.is_file():
+        return None
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except (SyntaxError, ValueError):
+        return set()
+    return {node.name for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("check_")}
+
+
+def preflight_problems(label: str, row: dict, functions: set[str] | None) -> list[str]:
+    """A row that claims a preflight verdict must name a function that exists.
+
+    P-276: a judgement that only lives in the preflight, with no contract row
+    behind it, is a judgement nobody reviews. The reverse link - the coverage
+    table's backed_by - is checked by scripts/check-preflight-coverage.py; this
+    is the forward half, so a row cannot name a function the tool does not have.
+    """
+    names = row.get("preflight")
+    if names is None:
+        return []
+    if not isinstance(names, list) or not names:
+        return [f"{label}: preflight must be a non-empty array of check_* function names"]
+    problems: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        if not isinstance(name, str) or not name.startswith("check_"):
+            problems.append(f"{label}: preflight entry {name!r} is not a check_* function name")
+            continue
+        if name in seen:
+            problems.append(f"{label}: preflight names {name} twice")
+            continue
+        seen.add(name)
+        if functions is None:
+            problems.append(f"{label}: {PREFLIGHT_TOOL} is missing, so preflight {name} cannot be checked")
+        elif name not in functions:
+            problems.append(f"{label}: {PREFLIGHT_TOOL} has no {name} (the row names a verdict nothing computes)")
+    return problems
+
+
 def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
     problems: list[str] = []
     try:
@@ -288,6 +340,7 @@ def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
         return [f"{manifest}: [roots] is not a table"]
     tree27 = data.get("tree27")
     tree27 = hostpath(str(tree27)) if tree27 else None
+    preflight_fns = preflight_functions(root)
     seen: dict[str, int] = {}
     for index, row in enumerate(rows, 1):
         label = str(row.get("id") or f"row {index}")
@@ -298,6 +351,7 @@ def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
             problems.append(f"{label}: lane {row.get('lane')!r} is not one of {sorted(LANES)}")
         if str(row.get("dependence") or "") not in DEPENDENCE:
             problems.append(f"{label}: dependence {row.get('dependence')!r} is not one of {sorted(DEPENDENCE)}")
+        problems += preflight_problems(label, row, preflight_fns)
         if label in seen:
             problems.append(f"{label}: duplicate id (also row {seen[label]})")
         seen.setdefault(label, index)

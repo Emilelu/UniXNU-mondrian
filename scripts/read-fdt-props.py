@@ -94,7 +94,7 @@ def read_tree(path):
     if stack:
         raise DtbError("the structure block ended with %d node(s) still open" % len(stack))
     # A walker that misreads the padding finds the root and nothing else, and the
-    # result below looks exactly like "the device has no such node" (P-260).
+    # result below looks exactly like "the device has no such node" (P-272).
     if len(order) < 2 and size_struct > 64:
         raise DtbError("%s carries %d bytes of structure block but the walker found "
                        "%d node(s); a real tree has dozens - the parser, not the dump, is wrong"
@@ -141,7 +141,7 @@ def main(argv=None):
         shown = [path for path in order if not args.contains or args.contains in path]
         for path in shown:
             print(path)
-        # A zero here is the shape P-260 warns about: say the total out loud so
+        # A zero here is the shape P-272 warns about: say the total out loud so
         # "no such node" and "the filter matched nothing" never look the same.
         if args.contains:
             print("read-fdt-props: %d of %d node(s) contain %r"

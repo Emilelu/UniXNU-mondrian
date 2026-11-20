@@ -46,7 +46,7 @@ CHANNEL_UP_BAD_CONST = (
     "K60Battery: actual PMIC_RTR_ADSP_APPS channel up; measured sign=1 "
     "subscription-ack=2/24\n"
 )
-# The real shape of the sample line, from K60Battery.cpp:209-214.
+# Match the sample format emitted by K60Battery.cpp.
 def sample(voltage=4333, current=836, soc=(57, 30), temp=(35, 80), external=1,
            charging=1, full=0, subscribed=1, kind="physical source published",
            generations=1, source="usb"):
@@ -88,7 +88,7 @@ def main() -> int:
         problems = []
         if rc != want_rc:
             problems.append(f"rc={rc} want={want_rc}")
-        if f"[exit {want_rc}]" in out is False:
+        if f"[exit {want_rc}]" not in out:
             problems.append("verdict line does not carry [exit N]")
         for word in want_words:
             if word not in out:
@@ -175,6 +175,15 @@ def main() -> int:
           ["C3 Android 同窗口 : PASS", "TOTAL: 3 PASS / 0 FAIL / 0 INVALID"],
           "--android", str(android_ok), "--window-start", "1763000000",
           "--window-end", "1763000200")
+    # Hold the other inputs within the window while crossing the voltage edge.
+    for delta, rc, verdict in ((60, 0, "PASS"), (61, 1, "FAIL")):
+        edge = write(f"android-{delta}mv.tsv", "".join(
+            f"{epoch} {4333 + delta} -836 57.3 35.8 2\n"
+            for epoch in range(1763000100, 1763000103)))
+        check(f"C3 is {verdict} at a {delta} mV voltage delta", triples, rc,
+              [f"C3 Android 同窗口 : {verdict}", f"|ΔV|={delta}mV/±60mV"],
+              "--android", str(edge), "--window-start", "1763000000",
+              "--window-end", "1763000200")
     android_far = write("android-far.tsv",
                         "1763000100 4500 -830 57.2 35.7 2\n"
                         "1763000101 4501 -832 57.3 35.8 2\n"

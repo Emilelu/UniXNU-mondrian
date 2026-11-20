@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -190,7 +191,7 @@ def case_bundle_covers_manifest() -> None:
     check("the bundle ships every C source its runner compiles", bool(sources) and not lost,
           ", ".join(lost[:3]) or "the runner lists no C suites")
     # The pair gate reads the driver that prints a line and the judge that parses it, so a
-    # bundle that ships the gate without either side ships a check that can only fail (P-261).
+    # bundle that ships the gate without either side ships a check that can only fail (P-273).
     spec = importlib.util.spec_from_file_location(
         "console_contract", ROOT / "scripts" / "check-console-contract.py")
     gate = importlib.util.module_from_spec(spec)
@@ -201,6 +202,21 @@ def case_bundle_covers_manifest() -> None:
     missing = [rel for rel in sides if not (out / rel).is_file()]
     check("the bundle ships both sides of every judged console line",
           bool(sides) and not missing, ", ".join(missing[:3]) or "the pair gate lists no pairs")
+    readme = (out / "README.md").read_text(encoding="utf-8")
+    shipped_runner = (out / "scripts/tests/run-k60-power-host.sh").read_text(encoding="utf-8")
+    c_counts = [int(line.split()[2]) for line in shipped_runner.splitlines() if line.startswith("run ")]
+    py_count = sum(line.startswith("run_py ") for line in shipped_runner.splitlines())
+    check("the bundle README counts host C checks, not only CARRY checks",
+          bool(c_counts) and f"# {sum(c_counts)} checks in {len(c_counts)} suites" in readme)
+    check("the bundle README counts the shipped Python suites",
+          py_count > 0 and f"power-python: OK ({py_count} suites)" in readme)
+    power_dir = out / "docs/research/power"
+    contracts = tomllib.loads((power_dir / "HW-CONTRACTS.toml").read_text(encoding="utf-8"))["contract"]
+    check("the bundle README counts contract rows rather than matching their spelling",
+          bool(contracts) and f"contains {len(contracts)} contract rows" in readme)
+    judges = tomllib.loads((power_dir / "CARRY.toml").read_text(encoding="utf-8"))["judge"]
+    check("the bundle README lists every CARRY judge fixture with its count", bool(judges) and all(
+          f'python3 {judge["test"]}  # {judge["cases"]} cases' in readme for judge in judges))
     compared = run("--target", str(out))
     check("the checker accepts the bundle as a target", compared.returncode == 0, compared.stderr)
     check("the bundle reads as SAME everywhere", "SAME" in compared.stdout and "DRIFT" not in compared.stdout)
@@ -253,6 +269,16 @@ def case_judge_case_count() -> None:
     check("the report names both counts", "manifest says 2 cases" in result.stderr, result.stderr)
 
 
+def case_judge_failed_suite() -> None:
+    tree = build(WORK / "judge-failed")
+    (tree / "scripts" / "tests" / "test-judge-alpha.py").write_text(
+        "print('TESTS OK 2 cases (1 failure(s))')\nraise SystemExit(1)\n", encoding="utf-8"
+    )
+    result = run("--repo", str(tree))
+    check("a fixture suite that exits non-zero fails", result.returncode == 1, result.stdout)
+    check("the report says the suite failed", "exited 1" in result.stderr, result.stderr)
+
+
 def case_judge_broken() -> None:
     tree = build(WORK / "judge-broken")
     (tree / "scripts" / "judge-alpha.py").write_text("def broken(:\n", encoding="utf-8")
@@ -286,6 +312,7 @@ def main() -> int:
         case_judge_summary,
         case_judge_tampered,
         case_judge_case_count,
+        case_judge_failed_suite,
         case_judge_broken,
         case_judge_target_missing,
         case_bundle_covers_manifest,

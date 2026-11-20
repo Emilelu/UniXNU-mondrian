@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import pathlib
 import re
 import shutil
@@ -72,6 +73,16 @@ EXTRA = [
     "scripts/tests/test-check-judge-thresholds.py",
     "scripts/check-criteria-cites.py",
     "scripts/tests/test-check-criteria-cites.py",
+    "scripts/check-preflight-coverage.py",
+    "scripts/tests/test-check-preflight-coverage.py",
+    "scripts/check-pitfall-numbers.py",
+    "scripts/tests/test-check-pitfall-numbers.py",
+    "docs/research/power/PREFLIGHT-COVERAGE.toml",
+    "docs/research/power/PREFLIGHT-COVERAGE.md",
+    "docs/engineering/PITFALLS.md",
+    "docs/engineering/RULES.toml",
+    "docs/research/power/11-SHENG-REFERENCE.md",
+    "docs/research/power/12-ARM64E-EVIDENCE.md",
     "scripts/check-judge-exit-codes.py",
     "scripts/tests/test-check-judge-exit-codes.py",
     "docs/research/charger/07-DEVICE-CRITERIA.md",
@@ -93,29 +104,31 @@ EXTRA = [
 
 README = """# power carry bundle ({modules} modules, {judges} judges)
 
-Mirrors repository paths. From the target tree root:
+Mirrors repository paths. Verify in a disposable target copy, not in the live
+27 checkout. From the copy root:
 
 ```sh
 cp -a <this bundle>/. .
 python3 scripts/check-power-carry.py --target .
-bash scripts/tests/run-k60-power-host.sh build/power-host   # {checks} checks in {suites} suites
+bash scripts/tests/run-k60-power-host.sh build/power-host   # {c_checks} checks in {c_suites} suites
 ```
 
-That single command is also the acceptance test for the bundle itself: it prints
-`power-python: OK (6 suites)` after the C suites, so a copy that lost a test file or
-a header fails here instead of passing quietly. The 2026-11-20 build was run inside a
-bare bundle directory (no git) and passed both halves.
+The runner accepts the bundle only when both halves pass. It prints
+`power-python: OK ({py_suites} suites)` after the C suites. It does not require Git
+metadata, but it still reads the external references configured in the tables.
 
-The bundle also carries every file `docs/research/power/HW-CONTRACTS.toml` cites, so
-`python3 scripts/check-hw-contracts.py` answers with 23 verified contracts inside the
-copy - those files are the ones the 27 line rewires.
+`docs/research/power/HW-CONTRACTS.toml` contains {contracts} contract rows. The bundle
+ships their repository-local sources and mirrors; `python3 scripts/check-hw-contracts.py`
+also needs the configured firmware evidence and reference trees. Its `--against` mode
+is a snapshot of the untouched 27 lines: the patch copies in this bundle move those
+lines, so re-record each row's `copy27` after an overlay before reading a disagreement
+as a regression. A pass on an overlay describes 27 code plus the driver and patch
+copies in this bundle, not the untouched 27 checkout or a device run.
 
-Each judge keeps its own fixture; run them before reading a real console:
+Run the CARRY judges' fixtures before reading a real console:
 
 ```sh
-python3 scripts/tests/test-judge-k60-handoff-console.py   # 33 cases
-python3 scripts/tests/test-judge-k60-sleep-console.py     # 28 cases
-python3 scripts/tests/test-judge-k60-mode1-console.py     # 14 cases
+{judge_list}
 ```
 
 See docs/research/power/08-IOS27-POWER-PORT.md section 2 for what still has to be
@@ -235,12 +248,11 @@ def console_closure() -> list[str]:
 
     The bundle carries check-console-contract.py and its fixtures, so it needs the
     driver that prints each line and the judge that parses it. Listing those paths
-    here instead of reading them would be a second copy of the fact (P-261).
+    here instead of reading them would be a second copy of the fact (P-273).
     """
     tool = ROOT / "scripts" / "check-console-contract.py"
     if not tool.is_file():
         return []
-    import importlib.util
     spec = importlib.util.spec_from_file_location("console_contract", tool)
     module = importlib.util.module_from_spec(spec)
     try:
@@ -285,6 +297,25 @@ def pinned(manifest: dict) -> list[tuple[str, str]]:
     return list(seen.items())
 
 
+def readme_numbers(root: pathlib.Path, manifest: dict) -> dict:
+    """Read the host-suite counts and contract rows from the packaged inputs."""
+    spec = importlib.util.spec_from_file_location(
+        "power_counts", ROOT / "scripts" / "check-power-counts.py")
+    counts = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(counts)
+    suites = counts.runs(root)
+    return {
+        "c_suites": len(suites),
+        "c_checks": sum(checks for _, checks in suites),
+        "py_suites": len(counts.python_runs(root)),
+        "contracts": len(load(root / CONTRACTS).get("contract", [])),
+        "judge_list": "\n".join(
+            f'python3 {entry["test"]}  # {entry["cases"]} cases'
+            for entry in manifest.get("judge", [])
+        ),
+    }
+
+
 def build(out: pathlib.Path) -> tuple[int, list[str]]:
     manifest = load(ROOT / MANIFEST)
     rows = pinned(manifest)
@@ -304,11 +335,9 @@ def build(out: pathlib.Path) -> tuple[int, list[str]]:
             problems.append(f"{rel}: manifest says {want[:12]}, the tree has {got[:12]}")
         lines.append(f"{got}  {rel}")
     (out / "MANIFEST.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    suites = len(manifest.get("module", []))
-    checks = sum(int(entry.get("checks") or 0) for entry in manifest.get("module", []))
     (out / "README.md").write_text(
         README.format(modules=len(manifest.get("module", [])), judges=len(manifest.get("judge", [])),
-                      checks=checks, suites=suites + 2),
+                      **readme_numbers(out, manifest)),
         encoding="utf-8", newline="\n")
     return (1 if problems else 0), problems
 

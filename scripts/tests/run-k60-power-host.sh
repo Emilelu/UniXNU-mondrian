@@ -75,6 +75,7 @@ run_py sleep-judge python3 scripts/tests/test-judge-k60-sleep-console.py
 run_py mode1-judge python3 scripts/tests/test-judge-k60-mode1-console.py
 run_py ios27-preflight python3 scripts/tests/test-check-ios27-power-preflight.py
 run_py hw-contracts python3 scripts/check-hw-contracts.py
+run_py battery-judge python3 scripts/tests/test-judge-battery.py
 run_py battery-mirror python3 scripts/tests/test-judge-k60-battery-mirror.py
 run_py wire-props python3 scripts/tests/test-check-battmgr-wire.py
 run_py prop-numbers python3 scripts/tests/test-check-prop-numbers.py
@@ -83,6 +84,8 @@ run_py counts python3 scripts/tests/test-check-power-counts.py
 run_py judge-thresholds python3 scripts/tests/test-check-judge-thresholds.py
 run_py criteria-cites python3 scripts/tests/test-check-criteria-cites.py
 run_py judge-exit-codes python3 scripts/tests/test-check-judge-exit-codes.py
+run_py preflight-coverage python3 scripts/tests/test-check-preflight-coverage.py
+run_py pitfall-numbers python3 scripts/tests/test-check-pitfall-numbers.py
 run_py boot-img python3 scripts/tests/test-extract-boot-img.py
 run_py console-contract python3 scripts/tests/test-check-console-contract.py
 echo "power-python: OK ($python_suites suites)"

@@ -6,7 +6,7 @@
 # 不是"重写一遍"，而是"原样搬过去、先跑同一组断言、再只替换接线"。
 #
 # 另列四个判读器（scripts/judge-k60-*.py）：它们只吃 console 与镜像文本，同样
-# 与版本无关。搬过去先跑各自的夹具（33 / 28 / 14 / 21 例），再拿它读真机日志。
+# 与版本无关。搬过去先跑各自的夹具（见对应条目的 test 与 cases），再拿它读真机日志。
 # 判读器的输入不平权：ours 是本机 console（自证），sheng 是外部 Linux 报告
 # （sheng 仓库 reports/sheng-linux-charge-*.json，本机不产出、也无法产出）。
 #
@@ -14,8 +14,8 @@
 #   - 自带模式：文件存在、sha256 未漂移、套件数与 run-k60-power-host.sh 的记录
 #     一致、check-power-portability.py 仍然 freestanding 编译它；
 #   - --target <树>：逐文件比对目标树的副本，报告 same / missing / drift；
-#   - 判读器：文件与夹具存在、自己可编译、夹具仍打印记录里的用例数（夹具缩水
-#     的判读器就是 P-204 说的那种"绿而盲"）。
+#   - 判读器：文件与夹具存在、自己可编译、夹具退出 0 且打印记录里的用例数
+#     （夹具缩水或有失败的判读器不能过门禁）。
 #
 # 改模块时先改代码，再 `python3 scripts/check-power-carry.py --update` 刷新哈希，
 # 并在同一个提交里同步 docs/research/power/08-IOS27-POWER-PORT.md 的矩阵行。
@@ -127,4 +127,4 @@ name = "judge-k60-battery-mirror"
 path = "scripts/judge-k60-battery-mirror.py"
 sha256 = "6f2e4471d048495374d0e2fe8dd312767e21240c9c988bc07da8098161f35265"
 test = "scripts/tests/test-judge-k60-battery-mirror.py"
-cases = 21
+cases = 23

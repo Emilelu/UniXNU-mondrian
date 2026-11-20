@@ -119,6 +119,12 @@ def main():
     case("temp in hundredths of a degree", 1,
          ("FAIL TEMP", "off by 1/10x"),
          mirror=write("mirror-temp-hundredths.json", report(temp="2340")))
+    for delta, rc, verdict in ((60, 0, "PASS"), (61, 1, "FAIL")):
+        case(f"voltage at {delta} mV is {verdict}", rc,
+             (f"{verdict} VOLTAGE", f"delta={delta} mV", f"TOTAL  {verdict}"),
+             console=write(f"console-{delta}mv.log", sample_line(
+                 voltage=str(4156 + delta), current="1452", charging="1") + "\n"),
+             mirror=write(f"mirror-{delta}mv.json", report(status="Charging")))
     case("voltage off by 200 mV", 1, ("FAIL VOLTAGE", "delta=200 mV"),
          console=write("console-v.log", sample_line(voltage="4356") + "\n"))
     case("usb online disagrees", 1, ("FAIL EXTERNAL",),

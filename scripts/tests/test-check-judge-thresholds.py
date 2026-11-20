@@ -35,6 +35,27 @@ DOC = """# criteria
 C3 阈值：±60 mV / ±150 mA / ±3 pp / ±3 °C（判读器常量）。
 """
 
+CARRY = """version = 1
+
+[[module]]
+name = "K60Demo"
+checks = 3
+files = [
+  { path = "drivers/PongPower/K60Demo.c", sha256 = "00" },
+]
+
+[[judge]]
+name = "judge-k60-demo-console"
+cases = 7
+"""
+
+CARRY_DOC = """# ios 27 port
+
+power-carry: OK (1 modules, 1 files, 3 checks; 1 judge(s), 7 cases)
+
+判读器夹具：demo 7 例
+"""
+
 failures = 0
 checks = 0
 
@@ -62,6 +83,7 @@ def tree(name, *, v=60, copy_v=60, doc=DOC, drop_copy=None, unused=False, judge=
         shutil.rmtree(base, ignore_errors=True)
     (base / "scripts").mkdir(parents=True)
     (base / "docs" / "research" / "charger").mkdir(parents=True)
+    (base / "docs" / "research" / "power").mkdir(parents=True)
     (base / "scripts" / "judge-battery.py").write_text(judge.format(v=v), encoding="utf-8", newline="\n")
     text = JUDGE.format(v=copy_v)
     if drop_copy:
@@ -71,6 +93,10 @@ def tree(name, *, v=60, copy_v=60, doc=DOC, drop_copy=None, unused=False, judge=
     (base / "scripts" / "judge-k60-battery-mirror.py").write_text(text, encoding="utf-8", newline="\n")
     (base / "docs" / "research" / "charger" / "07-DEVICE-CRITERIA.md").write_text(
         doc, encoding="utf-8", newline="\n")
+    (base / "docs" / "research" / "power" / "CARRY.toml").write_text(
+        CARRY, encoding="utf-8", newline="\n")
+    (base / "docs" / "research" / "power" / "08-IOS27-POWER-PORT.md").write_text(
+        CARRY_DOC, encoding="utf-8", newline="\n")
     return base
 
 
@@ -132,6 +158,26 @@ def main():
     check("a missing criteria doc is refused",
           any("07-DEVICE-CRITERIA.md is missing" in p for p in module.verify(nodoc)))
 
+    stale_carry = tree("carry-stale")
+    page = stale_carry / "docs" / "research" / "power" / "08-IOS27-POWER-PORT.md"
+    page.write_text(CARRY_DOC.replace("7 cases", "6 cases"), encoding="utf-8", newline="\n")
+    problems = module.verify(stale_carry)
+    check("a page whose carry totals moved is refused",
+          any("no longer quotes the carry manifest" in p for p in problems), str(problems))
+
+    stale_cases = tree("carry-cases")
+    page = stale_cases / "docs" / "research" / "power" / "08-IOS27-POWER-PORT.md"
+    page.write_text(CARRY_DOC.replace("demo 7 例", "demo 6 例"), encoding="utf-8", newline="\n")
+    problems = module.verify(stale_cases)
+    check("a page whose judge fixture counts moved is refused",
+          any("no longer states the judge fixture counts" in p for p in problems), str(problems))
+
+    no_carry = tree("carry-missing")
+    (no_carry / "docs" / "research" / "power" / "CARRY.toml").unlink()
+    problems = module.verify(no_carry)
+    check("a missing carry manifest is refused",
+          any("CARRY.toml is missing" in p for p in problems), str(problems))
+
     nojudge = tree("no-mirror")
     (nojudge / "scripts" / "judge-k60-battery-mirror.py").unlink()
     check("a missing mirror judge is refused",
@@ -146,6 +192,8 @@ def main():
     check("the cli exits 0 on agreement", result.returncode == 0, result.stderr)
     check("the cli prints the window it checked", "±60 mV / ±150 mA / ±3 pp / ±3 °C" in result.stdout,
           result.stdout)
+    check("the cli prints the carry totals it rendered",
+          "CARRY 1 modules / 1 files / 3 checks / 1 judge(s) / 7 cases" in result.stdout, result.stdout)
 
     result = run(bad)
     check("the cli exits 1 on a moved copy", result.returncode == 1, result.stdout)

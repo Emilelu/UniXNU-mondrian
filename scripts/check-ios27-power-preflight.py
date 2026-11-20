@@ -60,7 +60,8 @@ TABLES = (Path("docs/research/power/CARRY.toml"),
           Path("docs/research/charger/PROP-NUMBERS.toml"),
           Path("docs/research/charger/PROP-NUMBERS.md"),
           Path("docs/research/power/LANE-CONFORMANCE.toml"),
-          Path("docs/research/power/LANE-CONFORMANCE.md"))
+          Path("docs/research/power/LANE-CONFORMANCE.md"),
+           Path("docs/research/power/27-WORKORDER.md"))
 REPORT_CALLS = ("k60_platform_sleep_report", "armcpu_sleep_report")
 
 PASS, WARN, BLOCK = "PASS", "WARN", "BLOCKER"
@@ -256,7 +257,8 @@ def check_contracts(tree: Path, device: Path) -> tuple[str, str]:
         return PASS, f"{summary} in the 27 tree"
     more = f" and {len(off) - 4} more" if len(off) > 4 else ""
     return WARN, (f"{summary} in the 27 tree; the 27 line still has to change "
-                  + ", ".join(off[:4]) + more)
+                  + ", ".join(off[:4]) + more
+                  + " (the ordered list is docs/research/power/27-WORKORDER.md)")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -297,6 +297,54 @@ def main() -> int:
           cli.returncode == 1 and "the tree says drift" in cli.stderr,
           f"rc {cli.returncode} {cli.stderr.strip()[-200:]}")
 
+    # The work order turns the computed verdicts into something a lane can act on, and it
+    # is generated for the same reason the checklist is: a hand-edited work order stops
+    # matching the tree it describes (P-259).
+    wo = build(WORK / "workorder", "".join([
+        row(id="keep"),
+        row(id="diff", source="drv/d.h:1", expect="X 1u", same27="drift", copy27="drv/d.h:1",
+            why27="the 27 copy holds a placeholder instead of the macro"),
+        row(id="gone", source="drv/b.h:1", expect="Y 2u", same27="unchecked", copy27="",
+            why27="the file has not travelled yet"),
+    ]), extra={"b.h": "#define Y 2u\n", "d.h": "#define X 1u\n"},
+        tree={"drv/d.h": "/* placeholder */\n"})
+    text = module.render_workorder(WORK / "workorder", wo)
+    check("the work order shows a drifted row with our line and the 27 line",
+          "### diff" in text and "#define X 1u" in text and "placeholder" in text,
+          text[:300])
+    check("the work order names a file the 27 tree lacks",
+          "### gone" in text and "drv/b.h" in text, text[:300])
+    check("the work order does not list rows the 27 copy already matches",
+          "### keep" not in text, text[:300])
+
+    target = WORK / "workorder" / module.WORKORDER
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8", newline="\n")
+    check("a work order that matches the tree is accepted",
+          module.workorder_problems(WORK / "workorder", wo) == [],
+          str(module.workorder_problems(WORK / "workorder", wo)))
+    target.write_text("hand edited\n", encoding="utf-8", newline="\n")
+    check("a hand-edited work order is refused",
+          any("is stale" in problem for problem in module.workorder_problems(WORK / "workorder", wo)),
+          str(module.workorder_problems(WORK / "workorder", wo)))
+    check("a missing work order is reported",
+          any("is missing" in problem for problem in module.workorder_problems(WORK / "good", good)),
+          str(module.workorder_problems(WORK / "good", good)))
+    no27 = build(WORK / "no27wo", row(), tree27=False)
+    check("without a 27 tree the work order is not policed",
+          module.workorder_problems(WORK / "no27wo", no27) == [],
+          str(module.workorder_problems(WORK / "no27wo", no27)))
+
+    written = WORK / "wo-cli" / "WO.md"
+    cli = subprocess.run([sys.executable, str(REPO / "scripts" / "check-hw-contracts.py"),
+                          "--workorder", str(written), "--manifest", str(wo)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    check("--workorder writes the list it computed",
+          cli.returncode == 0 and written.is_file()
+          and "### diff" in written.read_text(encoding="utf-8"),
+          f"rc {cli.returncode} {cli.stderr.strip()[-200:]}")
+
     real = REPO / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
     if real.is_file():
         problems = module.verify(REPO, real)

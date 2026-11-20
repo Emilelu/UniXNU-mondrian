@@ -50,6 +50,7 @@ EXTRA = [
     "docs/research/power/HW-CONTRACTS-IOS27.md",
     "docs/research/power/LANE-CONFORMANCE.toml",
     "docs/research/power/LANE-CONFORMANCE.md",
+    "docs/research/power/27-WORKORDER.md",
     "docs/research/charger/PROP-NUMBERS.toml",
     "docs/research/charger/PROP-NUMBERS.md",
     "docs/research/charger/WIRE-PROPS.toml",

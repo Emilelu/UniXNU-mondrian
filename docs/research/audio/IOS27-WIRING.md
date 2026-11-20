@@ -358,6 +358,25 @@ sh scripts/tests/portability/run-symbols.sh
    要先把那七条拼回来再追加；:841 以 `CFLAGS_EXTRA` 交给内核 `make`（`MACHINE_CONFIGS=BCM2837`，
    :833-842），所以它到得了每个单元——这也正是上一条要避开的原因。
 
+### 谁把这行交进构建：27 构建驱动的那一处
+
+上面那条命令是人手敲的；真正跑 27 构建的是 `scripts/build-ios27-linux.sh`，它最后一步是
+`python3 ./unixnu build kernel --device "$ROOT" "$@"`。这条链上有三处接缝，断掉时构建都是绿的：
+
+| 接缝 | 断了会怎样 | 检查器认的形态 |
+| --- | --- | --- |
+| 驱动把不把 `K60_CONF_FILES_HOOK` 交给内核构建 | 追加器从不运行，`bsd/conf/files` 没有那两行，胶水不编进内核，构建照样绿 | `build kernel` 那一行带 `K60_CONF_FILES_HOOK=…/scripts/k60-conf-files-hook.py`，或 bash 版驱动自己 `export` |
+| 驱动把不把 `PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1` 交进去 | 宏不定义，`PongAudioAmp.c` 编空（979 例仍然全绿） | 同一个 `env` 前缀里带这一对；bash 驱动可以 `export`，`#!/bin/sh` 不行 |
+| 框架还把不把自己的环境交给设备构建器 | 上面两个变量止步于 CLI | `scripts/unixnu/kernel.py` 里 `env = dict(os.environ)` 与 `run(['bash', script], …, env=env)` 都还在 |
+
+`scripts/check-audio27-builder.py` 一次查这三样，读数来自**真的驱动与真的框架**，不是本文档的副本。
+现在预检里那一行是
+`ok   27 driver delivers the define   BUILDER: not wired yet (…)`——驱动由 Lead 在 F1 之后接，
+没接上时它说的是「胶水会编进去但永远不会跑」，而不是给一句绿了就算。接上以后同一行变成
+`BUILDER OK: … takes K60_CONF_FILES_HOOK and PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 (framework hands its environment through scripts/unixnu/kernel.py:175)`。
+只接了钩子、漏了宏（或反过来）会红并点名缺的那个；框架哪天改成自造环境，第三列那条也会红——
+`scripts/tests/test-audio27-builder.py` 的六个用例把这几种形状各复现一遍（含 dash 里 `export` 一个点号名这种写法）。
+
 
 ### 一条命令：文件内的改动 + 第三处的命令行
 

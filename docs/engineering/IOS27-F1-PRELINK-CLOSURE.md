@@ -85,6 +85,8 @@ this page:
 3. The `vmsize` of every `__PRELINK_*` and `__PLK_*` segment.
 4. The target distribution over the report's own address space.
 5. How many targets have a defined symbol at their exact address.
+6. How many targets still sit inside the input `__TEXT`; `--require-translated`
+   fails while any remain.
 
 On the two inputs above it prints:
 

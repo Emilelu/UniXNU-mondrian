@@ -1,8 +1,8 @@
 # Review: the flight gate against the storage line
 
 Scope: `docs/engineering/IOS27-FLIGHT-BLOCKERS.toml` and
-`scripts/check-ios27-artifacts.py --flight-ready` on main at 3c1a7b27 (the
-gate landed in d97884c9). This page reviews what the gate proves, what the two
+`scripts/check-ios27-artifacts.py --flight-ready` on main at 2aea3759 (the
+gate landed in d97884c9; the counting fix is 2aea3759). This page reviews what the gate proves, what the two
 open blockers actually count, and where the storage line has no entry at all.
 No edit was made to either file.
 
@@ -36,17 +36,18 @@ references. For the 44518998961 report:
 | missing owner targets | 133 | 650 |
 | sites on the panic stub | 946 | 2688 |
 
-The gate prints the distinct column and the ledger calls it references. The
-round-17d line in the ledger reads "28 bundles / 384 unresolved references, 29
-bundles / 2262 items / 2688 sites": 384 is the distinct-target count for that
-build, 2262 is the distinct-site count, and 2688 is the reference count, so the
-last two labels are the wrong way round. `flight_ready()` then prints
-`384 owner-target references have no address` (scripts/check-ios27-artifacts.py:355-357).
+The gate used to print the distinct column under the name "references", and the
+round-17d line read "28 bundles / 384 unresolved references, 29 bundles / 2262
+items / 2688 sites". Main fixed both in 2aea3759: the ledger now names missing =
+28 bundles / 384 items / 133 distinct addresses / 650 reference sites and
+stubbed = 29 bundles / 2262 items / 946 distinct functions / 2688 reference
+sites, and `flight_ready()` prints items. The lesson is P-281: a counter is
+named after what is summed, not after what the reader expects.
 
-This is not a cosmetic bug. "650 references" and "133 symbols" lead to different
-questions: the first asks which sites execute, the second asks which symbols the
-map could not name. Both numbers are worth printing; only one of them is
-currently in the ledger.
+That still matters when reading a report. "650 references" and "133 addresses"
+answer different questions: the first asks how often the map refers to the
+target, the second asks which symbols it could not name. The gate now prints
+the item count, which is neither of those; the ledger carries all three.
 
 ## The gate cannot see the storage line
 
@@ -86,20 +87,26 @@ are the only outcome the instrument can produce.
 
 The same run finds one target, `0xfffffff007044478`, that is still in the
 input `__TEXT` and in no output segment. That is a translation defect
-independent of the symbol question, and it deserves its own line in the
-evidence field rather than being folded into a count.
+independent of the symbol question, so it is recorded in
+[IOS27.md](IOS27.md) under "The one target the prelink did not move" and
+asserted by `scripts/check-ios27-prelink-closure.py --require-translated`
+instead of being folded into this ledger.
 
 ## Recommendations
 
-1. Rename `missing_refs`/`stubbed_refs` or print both the distinct and the
-   total counts; state which one the ledger quotes.
-2. Fix the round-17d wording: 384 symbols, 2262 sites, 2688 references.
-3. Add the storage blocker in the same change that flips
-   `CONFIG_XNU_NATIVE_UFS=y`, not before -- an open entry now would block F2
-   for a line that is deliberately off. The entry should name
-   `scripts/check-xnu27-source-storage.py` and `scripts/check-xnu27-storage-link.py`
-   as its evidence, and say that `CONFIG_XNU_OWNER_DATA_MOUNT=y` requires the
-   whole chain in [IOS27.md](IOS27.md) section 5.9.
+1. Resolved in 2aea3759: the ledger now names items, distinct addresses and
+   reference sites separately, and the gate prints items. The lesson is P-281.
+2. Resolved in 2aea3759: the round-17d line now reads 384 items / 133 distinct
+   addresses / 650 reference sites.
+3. Do not add a storage entry to this ledger. When F3 flips
+   `CONFIG_XNU_NATIVE_UFS=y`, attach the storage checks as an independent
+   preflight instead: the source-storage gaps
+   (`scripts/check-xnu27-source-storage.py`), the link imports
+   (`scripts/check-xnu27-storage-link.py`) and the entry assertion
+   (`scripts/check-ios27-storage-vtable.py --require-entry`). Its closing
+   condition is three checks in one run: the F3 switch is on, the prelink
+   reports zero untranslated targets (`--require-translated`), and the 190-slot
+   entry assertion passes on the built collection.
 4. If route D is selected, add a second entry for the parent-binding order,
    with the `SourceStorage.cpp` line numbers above and the scratch replay as
    its evidence, and leave it open until a board run shows the class resolving.
@@ -110,7 +117,7 @@ evidence field rather than being folded into a count.
 ## Verdict
 
 The gate is correctly conservative about what it can see, and its two open
-blockers are real. Its counts are distinct addresses labelled as references, and
-its blind spot is the whole storage line: at F2 that is the right choice, at F3
-it would let a storage-less image pass. The fixes above are small and belong
-with the F3 switch, not before it.
+blockers are real. The counting is fixed in 2aea3759. Its blind spot is the
+whole storage line: at F2 that is the right choice, at F3 it would let a
+storage-less image pass, so storage gets its own preflight when the switch
+flips rather than a line in this ledger.

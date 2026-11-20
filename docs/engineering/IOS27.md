@@ -885,6 +885,25 @@ change is in the framework, and the K60 initrd/ramoops/config deltas live in
 `uefi-mondrian`'s vendored `Platforms/Xiaomi/UniXNUPkg`, which resolves ahead of
 the framework's copy.
 
+## The one target the prelink did not move
+
+The round-17d map has 133 distinct owner targets with no address. All but one
+sit in the output collection's `__DATA` or `__DATA_CONST`; the exception is
+`0xfffffff007044478`, which fits the input `__TEXT`
+(`0xfffffff007004000` + `0x1a0000`) and no output segment
+(`0xfffffff007184000` + `0x1a0000`). It is a rebinding defect, separate from
+the missing symbol table: the target was never translated, so naming the symbol
+would not move it, and moving it would not name the symbol.
+
+`scripts/check-ios27-prelink-closure.py --require-translated` fails while any
+such target remains; on the pinned inputs it exits 1 and prints the address.
+
+Opening the storage line is a separate gate, and its closing condition is three
+checks in one run: `CONFIG_XNU_NATIVE_UFS=y` in the resolved config,
+`--require-translated` reporting no target left in the input `__TEXT`, and
+`scripts/check-ios27-storage-vtable.py --require-entry` passing on the built
+collection.
+
 ## Traps
 
 - **The prelink is bound to two hashes** (kernelcache and native kernel) and the

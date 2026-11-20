@@ -76,9 +76,14 @@ class Harness(unittest.TestCase):
 
     def test_a_linked_archive_is_ok(self):
         self.archived.write_text('')
-        run = self.run_check(control_rc='0', archive_rc='0')
+        out = self.dir / 'success-report.json'
+        run = self.run_check('--out', str(out), control_rc='0', archive_rc='0')
         self.assertEqual(run.returncode, 0)
         self.assertIn('bluetooth-storage-link: OK', run.stdout)
+        report = json.loads(out.read_text())
+        self.assertEqual(report['archive_rc'], 0)
+        self.assertEqual(report['new_symbols'], [])
+        self.assertEqual(report['storage_imports'], [])
 
     def test_unchanged_undefined_symbols_are_not_new(self):
         self.archived.write_text(CONTROL)

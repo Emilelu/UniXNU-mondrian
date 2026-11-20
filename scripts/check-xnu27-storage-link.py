@@ -8,9 +8,12 @@ cannot satisfy. Running the recorded link twice (control, then force_load the
 archive) makes that measurable without a device.
 """
 import argparse
+import atexit
+import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 DEFAULT_ARCHIVE = 'build/native-ufs/libNativeUfs.a'
@@ -91,9 +94,13 @@ def main():
         if not archive.is_file():
             archive = args.tree / DEFAULT_ARCHIVE
 
+    scratch_owner = tempfile.TemporaryDirectory(prefix='k60-storage-link-')
+    atexit.register(scratch_owner.cleanup)
+    scratch = Path(scratch_owner.name)
+
     if args.dry_run:
         for label, item in (('control', None), ('archive', archive)):
-            args_list, _ = linker_arguments(args.tree, item, Path('/tmp/kernel-' + label))
+            args_list, _ = linker_arguments(args.tree, item, scratch / ('kernel-' + label))
             print(' '.join(args_list))
         print('bluetooth-storage-link: dry run')
         return 0
@@ -113,12 +120,8 @@ def main():
         control_err = args.control_stderr.read_text(errors='replace')
         archive_err = args.archive_stderr.read_text(errors='replace')
     else:
-        if not archive.is_file():
-            print(f'FAIL archive {archive} not found')
-            print('bluetooth-storage-link: FAILED')
-            return 1
-        control_rc, control_err, _ = link(args.tree, None, Path('/tmp/kernel-control'))
-        archive_rc, archive_err, _ = link(args.tree, archive, Path('/tmp/kernel-archive'))
+        control_rc, control_err, _ = link(args.tree, None, scratch / 'kernel-control')
+        archive_rc, archive_err, _ = link(args.tree, archive, scratch / 'kernel-archive')
 
     control = parse_undefined(control_err)
     with_archive = parse_undefined(archive_err)
@@ -133,6 +136,19 @@ def main():
         print(f'  {row["class"]:<14} {row["symbol"]}')
         for referrer in row['referenced_from']:
             print(f'                 from {referrer}')
+
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({
+            'archive': str(archive),
+            'control_rc': control_rc,
+            'archive_rc': archive_rc,
+            'control_undefined': sorted(control),
+            'archive_undefined': sorted(with_archive),
+            'new_symbols': rows,
+            'storage_imports': [r['symbol'] for r in storage],
+            'hardware_verified': False,
+        }, indent=2) + '\n')
 
     if archive_rc == 0:
         print(f'linked {archive.name} into the recorded kernel link')
@@ -151,20 +167,6 @@ def main():
     else:
         verdict = 'the recorded link fails after the archive'
     print(verdict)
-
-    if out is not None:
-        import json
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({
-            'archive': str(archive),
-            'control_rc': control_rc,
-            'archive_rc': archive_rc,
-            'control_undefined': sorted(control),
-            'archive_undefined': sorted(with_archive),
-            'new_symbols': rows,
-            'storage_imports': [r['symbol'] for r in storage],
-            'hardware_verified': False,
-        }, indent=2) + '\n')
 
     failed = bool(storage or new) or (control_rc != 0 and archive_rc != 0)
     if failed and args.require_linkable:

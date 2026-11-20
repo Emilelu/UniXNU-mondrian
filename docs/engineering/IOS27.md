@@ -448,3 +448,11 @@ same problem.
   slide; the FAT image around it still differs in the directory timestamps
   mtools writes at build time. Stage 0 only: a shipped system must not carry a
   seed published in this repository.
+
+### Build 19, 2026-11-21
+
+`sh scripts/build-ios27-linux.sh` on the LTO reference produced a consistent pack: kernel `5ce4965ff4ab`, payload 201,326,592 B, firmware volume `a33d028349ba`, `boot.img` 201,895,936 B sha256 `8ea5d26dbcf5ee92773043c8e079316f1358adcbc924e4c2a10483844a02cf80`.
+
+Structure passes: 32 fileset entries, collection `cpusubtype 0xc0000002`, **0 loader violations**. `scripts/check-prelink-hazards.py` says 94 unpinned addresses in 21 bundles, all covered by a segment, **0 outside every segment** -- so no unpinned pointer can fault on its first read in this build.
+
+Flight is still refused, by one blocker: `prelink-map-unresolved`. 94 data items have no address (silent if wrong, because the kit leaves the original target in place) and 203 items jump to `_unixnu_fileset_unmapped`, which panics with the caller address. Both sets are smaller than the non-LTO build's 384/2,262 because the LTO reference resolved the rest.

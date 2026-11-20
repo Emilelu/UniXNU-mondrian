@@ -23,9 +23,15 @@ decision = "closed 2026-11-20: the evidence landed in reply-abi-subtype-20261120
 id = "prelink-map-unresolved"
 what = "the prelink map still has owner-target references with no address and sites redirected to the panic stub"
 state = "open"
-evidence = "kernel.json for the round-17d image, three different counts that were being quoted as one: 28 bundles / 384 unresolved owner-target items (133 distinct addresses, 650 reference sites) and 29 bundles / 2262 items (946 distinct functions, 2688 reference sites) redirected to _unixnu_fileset_unmapped (osfmk/kern/debug.c:2585). The bundle/entry sums are what len() counts; the address and site counts come from the same report and are larger, so a sentence that says '384 references' is wrong in either direction"
-source = "/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.json"
-why_open = """Two residues, both read from kernel.json after the LTO reference: (1) 19 distinct data addresses / 95 pointer sites are NOT stubbed. rebind() in fileset_segmented.py returns the target unchanged when it has no pairing, so these pointers keep whatever the mapping produced and nothing reports them at run time; measured against the output collection, 13 targets land inside an unrelated native segment and 6 land outside every segment, and AMFI -- the early_security_init bundle -- owns two of them. The report field missing_address_space says output collection, but fileset_emit.py:740 writes that string literally: it is a label, not a measurement, so the address space of these values is itself unproven (P-289). (2) 131 function addresses / 205 sites ARE redirected to _unixnu_fileset_unmapped, which reports the call site. Neither class is a config gap: CONFIG_XNU_* never reaches XNU option resolution (unixnu/kernel.py:17-26 forwards it as an environment variable), the bundles come from KERNEL_CONFIGS=DEVELOPMENT (scripts/build-xnu-generic.sh:147 and :840), and 23 mac_*.o, _amfi*, _image4_v2_interface* and 36 _apfs* are already in this kernel. The control that rules the option theory out: CONFIG_ECC_LOGGING and CONFIG_IMAGEBOOT_IMG4 are on while _ecc_* and _image4_v2_evaluate are absent from both our kernel and refer/xnu. Closing needs names for the 19 data targets (the pinned kernelcache has LC_SYMTAB nsyms 0) or reviewed per-site bindings with recorded evidence, and the six outside-segment slots must fail closed."""
+evidence = """build 19, 2026-11-21: kernel.macho sha256 5ce4965ff4ab, 32 fileset entries, 0 loader violations. check-prelink-hazards: 94 unpinned addresses in 21 bundles, all covered by one of 174 segments, 0 outside every segment."""
+why_open = """Two measured classes of residue, neither closed.
+
+Data pairing: 94 owner-target items in 21 bundles have no address in the map. They are data addresses (gMetaClass globals and friends). rebind() in fileset_segmented.py returns the original target when it has no pairing, so these pointers are neither stubbed nor reported -- the first dereference is the only symptom. The LTO reference 71d351ce cut this from the non-LTO figure of 384 items; what remains is a naming gap, not a map gap.
+
+Function stubs: 203 items in 25 bundles jump to _unixnu_fileset_unmapped, which panics with the caller address. That is the wanted behaviour (a named call site instead of a hang), but each site still has to be shown unreachable before the map counts as closed.
+
+Closing needs the 19 distinct names (the pinned 24A446 kernel.macho has LC_SYMTAB nsyms 0, so the reference cannot supply them) or a per-site binding with a reason, plus a review of every stubbed call site."""
+
 decision = "open: the 95 data items keep a stale original address and are not stubbed"
 [[blocker]]
 id = "firmware-fileset-provider"

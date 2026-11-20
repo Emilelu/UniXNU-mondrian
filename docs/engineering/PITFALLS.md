@@ -5301,7 +5301,7 @@ Check: `python3 scripts/tests/test-record-boot.py`（4 例）与 registry `id = 
    「这个 0 是读数还是缺席」，表达不了就是 INVALID。
 3. 三态比两态贵，但两态会把「没测」悄悄记成「通过」——那正是最贵的一种假绿。
 
-Check: `python3 scripts/tests/test-judge-battery.py`（16 例）与 registry `id = "P-212"`。
+Check: `python3 scripts/tests/test-judge-battery.py`（24 例）与 registry `id = "P-212"`。
 
 ## P-213
 
@@ -7334,7 +7334,7 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
    `expect = "必须出现在该行的文本"`，再加 `dependence`（none/macro/firmware/property-number/layout）
    说明 27 侧要换的是什么，`ios27` 写动作。
 2. `scripts/check-hw-contracts.py` 逐行解析定位：文件缺失、行号越界、该行不含记录文本、id 重复、
-   dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 49 项回归
+   dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 54 项回归
    覆盖"常量挪了""引了第 9 行""整条线没人管""第二份副本漂了""清单被手改""27 副本已同而表仍说 drift"。
 3. 项数这类聚合值不要写死在散文里：要么写成"见 `run-k60-power-host.sh` 的输出"，要么由检查器比对
    （`check-power-carry.py` 比对 CARRY.toml 的模块/判读器项数与 runner 的 `run <suite> <N>` 行；
@@ -7372,7 +7372,7 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 **教训**：文档写"当前值"是最脆弱的引用形态，因为它不带地址、也没有读者会去验证；能写成
 "文件:行 + 该行文本"的，就让门禁去核，不能的，就改成指路而不是复述。一条数字在四处出现，就该有一处是生成的。
 
-## P-260 — 解析二进制结构得到「0 项」时，结构与不存在在日志里同形
+## P-272 — 解析二进制结构得到「0 项」时，结构与不存在在日志里同形
 
 **症状**：2026-11-20 给温控契约找第二来源，手写 FDT 遍历器去读真机 dump
 `E:/k60-work/reports/live-6033dbec-fdt.dtb`（919,210 B，v17 扁平设备树）。程序退出码 0、
@@ -7407,7 +7407,7 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 **教训**：有结构就有「解析成功但结果为空」这一档，而它和「真的没有」在日志里不可区分。
 让程序先数一遍已知存在的锚，再回答内容；让每个空集合都带着「一共多少」一起出现。
 
-## P-261 — 判读器解析的字符串和打印它的那行格式串是同一事实的两份拷贝
+## P-273 — 判读器解析的字符串和打印它的那行格式串是同一事实的两份拷贝
 
 **症状**：2026-11-20 查判读器覆盖时发现，`scripts/judge-battery.py` 用正则匹配捕获到的控制台，
 而 `drivers/PongPower/K60Battery.cpp` 用 `IOLog` 打印那些行。两边从来没有一起被检查过：
@@ -7425,9 +7425,9 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 
 **修法**：
 
-1. `scripts/check-console-contract.py`：`PAIRS` 里 31 对线——电池样本、通道 up、adopt、
-   lease 成功/失败、blocked、failure、睡眠 enabled/report、`0629` 的两条 `K60TRACE`、
-   mode-1 的两条——每对写 (产出方文件, 判读器文件, 正则属性名, 两边共有的锚点,
+1. `scripts/check-console-contract.py`：`PAIRS` 里 31 对线（电池样本、通道 up、adopt、lease、blocked、failure、
+   睡眠 enabled/report、`0629` 的 `K60TRACE`、mode-1 的 header/domain/apply/vote/pdmem/restore/l3 等；完整清单以 `PAIRS` 为准），
+   每对写 (产出方文件, 判读器文件, 正则属性名, 两边共有的锚点,
    `%s` 的填充词)；打印调用由 `CALLS` 按对声明（睡眠 trace 行是补丁里的 `printf`）。格式串**按锚点找、不按行号找**，所以在文件里挪动
    `IOLog` 不会误报；正则用 `importlib` 从判读器模块里取，不复制一份。
 2. `synthesise()` 把 `%u/%d/%02u/%x/%s` 换成合理值后整行匹配；`c_strings()` 把一条
@@ -7441,7 +7441,11 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 5. 同一个阈值窗口在仓库里有四份拷贝——两个判读器的常量、镜像判读器自己 docstring 里的四句说明、判据文档里的那一行——四份都要被一处可执行检查读：`scripts/check-judge-thresholds.py` 同时载入 `judge-battery.py` 与 `judge-k60-battery-mirror.py`，要求四个容差相等、每个都被真正读取（定义了没人用等于死常量），要求判据文档里出现由代码渲染出来的那句话（`±60 mV / ±150 mA / ±3 pp / ±3 °C`），并要求 docstring 里那四句仍写着现算出来的数字（改常量不改句子就红）。漂移的方向最坏：镜像判读器保留旧窗口，同一对样本一个判读器放过、另一个不放。
 
 6. `coverage_problems()` 把判读器里**还没配对**的正则也变成红：判读器新增一条正则而没人写产出方，等于一条永远不会匹配的判读标准。例外只能写在 `EXEMPT` 里并给出理由（安卓 dmesg、stock xnu 的固定文案、`vprintf` 透传的运行时格式串、系统 userland 输出），理由为空与没写例外同罪，例外指向的属性消失也要报「已不存在」——否则豁免会一直挂着保护一个已经不存在的对象（P-179 的形状）。
-## P-262 — 判读器的退出码也是判据的一部分，而 argparse 的 2 和 INVALID 撞车
+
+**教训**：一个判读器读的不是设备，是**另一个文件里的字符串**。只要这份字符串有两份拷贝，
+就必须有一处同时读两边的检查——否则最坏的情况不是判读器报错，而是它对正确的设备报错。
+
+## P-274 — 判读器的退出码也是判据的一部分，而 argparse 的 2 和 INVALID 撞车
 
 **症状**：2026-11-20 想把五个判读器的退出码写成一张表时，发现这张表只在文档里成立。
 `judge-battery.py`、`judge-k60-handoff-console.py`、`judge-k60-mode1-console.py`、
@@ -7478,5 +7482,36 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 
 **教训**：判据的表达方式不只有判据行，还有退出码、stderr 用词和「这一步红代表重飞还是重跑」。
 一个数字被两种含义共用时，读的人只会看到自己期待的那一种。
-**教训**：一个判读器读的不是设备，是**另一个文件里的字符串**。只要这份字符串有两份拷贝，
-就必须有一处同时读两边的检查——否则最坏的情况不是判读器报错，而是它对正确的设备报错。
+
+
+## P-276 — 只在预检里拦下的判定，等于还没落地的判定
+
+**症状**：2026-11-20 给 27 预检加「0629 是否还开着 `#if defined(PONG)`」这一判定后，预检在
+`E:/hackios/xnekom-ios27` 上阻塞了，契约表 `docs/research/power/HW-CONTRACTS.toml` 里却一行都没有
+`sleep-report-guard`。后果不是“少了一行文档”：生成的 `docs/research/power/27-WORKORDER.md` 是**从契约表
+算出来的**，所以 27 那条线拿到的待办单里根本没有这一项。预检红着，待办单却是完整的。
+
+**根因**：预检是一个“检查清单”，契约表是“事实清单”。写预检的人当时只想让预检红起来，没想到
+第二个消费者（工作单生成器）只认契约表。同一份判定有两个消费者，却只有一个写入口。
+
+**判据**：预检里每一个 `check_*` 都要能在别处找到落地：要么是契约表里的一行（硬件事实），要么是一个
+能独立跑的门禁脚本；两者都没有时，必须写清“为什么这个判定不需要独立落地”。没实现的判定要进
+**滚动待办**，而不是当它不存在。
+
+**修法**：
+
+1. `docs/research/power/PREFLIGHT-COVERAGE.toml` 一行一个 `check_*`，字段
+   `function` / `what` / `backed_by`（契约行 id）/ `gate`（独立门禁）/ `why`（无落地时的理由，
+   ≥ 20 字）/ `planned` + `next`（还没实现）。
+2. `scripts/check-preflight-coverage.py` 反向核对：预检里存在但表里没有的函数直接红（
+   “the preflight checks it, but no [[item]] row says where it lands”），`backed_by` 指的 id 必须在
+   契约表里真实存在，`gate` 指的文件必须存在，`planned` 行不许已经写了 `function`/`gate`。
+3. `--render` 生成 `PREFLIGHT-COVERAGE.md`（含“滚动待办”一节），手工改动会被判 stale——同 P-259。
+4. 发现新的“只在预检里拦”的判定时，**先加契约行再加预检**，顺序反过来就会漏掉工作单。
+5. 夹具在 `scripts/tests/test-check-preflight-coverage.py`，挂进 runner 的
+   `run_py preflight-coverage`、bundle 的 `EXTRA` 与 RULES 的 P-259 检查链。
+6. 这张表就是滚动待办本身：没实现的判定要写 `planned` 与 `next`，不许删掉一行假装它不存在；
+   实现了就把 `function`/`gate` 补上并从待办里移出。
+
+**教训**：一个判定被两个消费者读，就必须有一个写入口。预检红着而待办单是完整的，比预检不红更危险——
+后者至少会被人打开看一眼。

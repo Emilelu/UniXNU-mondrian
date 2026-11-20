@@ -131,9 +131,9 @@
   1.25 倍余量、50 % GPU 目标、578 MHz 地板、1 s 触摸、300 ms/60 % 帧下限、50 ms GPU 唤醒、1 ms fence、
   10 s 喂狗、两帧/1500/600 ms 背光与 60 ms 触摸间隔钉在跨模块位置；每个套件必须打印自己记录的数量，
   数量漂移即失败。C 套件之后同一条命令再跑 python 那半——carry 清单、四个控制台判读器、27 预检，
-  与硬件契约表核对（`HW-CONTRACTS.toml`，30 行 file:line 引用、13 行带独立第二来源；同一份表 `--against <27 检出>`
+  与硬件契约表核对（`HW-CONTRACTS.toml`，36 行 file:line 引用、13 行带独立第二来源；同一份表 `--against <27 检出>`
   会把每行的 source 在另一棵树里真打开，把 27 侧结论从手写改成算出来的；`--workorder` 再把同一批结论写成 27 侧待办 `27-WORKORDER.md`）、再把那些第二来源
-  逐字节读回来（`read-fdt-props.py` 自己 22 项用例）、从一张 `boot.img` 反推内核槽/payload/卷内内核并重算哈希（`extract-boot-img.py`，30 项用例）、并核对本节自己引用的数字（`check-power-counts.py` 17 项用例）、把每个判读器用的正则和打印它的那行格式串对起来（`check-console-contract.py`，31 对线、18 项用例；每个判读器正则要么配了对，要么在 `EXEMPT` 里写明理由，新增一条没人配对的正则会判红；睡眠 trace 行来自 `0629` 补丁里的 `printf`，按对声明调用）、核对两个判读器与判据文档里的 C3 阈值窗口（`check-judge-thresholds.py`，17 项用例（含判读器自己 docstring 里那四句窗口说明））、把判据总表里每条判据的 `file:line` 证据行对它真正打印的那一行（`check-criteria-cites.py`，18 项用例；C1/C2 曾指向一个发原始数字的代码块，而 sample 行早已移到 `:290`）、并把五个判读器的退出码表一次跑一遍（`check-judge-exit-codes.py`，12 项用例；argparse 默认的 2 与 INVALID 同码，拼错参数和「没证据」在自动化里长得一样），共 16 个套件（`wire-props` 把 `charger/WIRE-PROPS.toml` 的 19 个 wire 属性号与驱动表、反编译表、厂商 `.rodata` 三处对齐，并能用 `--against <27 检出>` 逐字段比对两张 `fields[]` 表；`prop-numbers` 逐行判定 `charger/PROP-NUMBERS.toml` 的 18 个 16→27 属性号，结论只允许 相同 / 不同且已知谁改 / 查不到）——并打印 `power-python: OK (16 suites)`，任一退出非零即整个 runner 失败。判读器没有
+  逐字节读回来（`read-fdt-props.py` 自己 27 项用例）、从一张 `boot.img` 反推内核槽/payload/卷内内核并重算哈希（`extract-boot-img.py`，30 项用例）、并核对本节自己引用的数字（`check-power-counts.py` 17 项用例）、把每个判读器用的正则和打印它的那行格式串对起来（`check-console-contract.py`，31 对线、18 项用例；每个判读器正则要么配了对，要么在 `EXEMPT` 里写明理由，新增一条没人配对的正则会判红；睡眠 trace 行来自 `0629` 补丁里的 `printf`，按对声明调用）、核对两个判读器与判据文档里的 C3 阈值窗口（`check-judge-thresholds.py`，21 项用例（含判读器自己 docstring 里那四句窗口说明，并把 `CARRY.toml` 的总数与逐判读器用例数渲染成 08 页里的那两句话））、把判据总表里每条判据的 `file:line` 证据行对它真正打印的那一行（`check-criteria-cites.py`，18 项用例；C1/C2 曾指向一个发原始数字的代码块，而 sample 行早已移到 `:290`）、把五个判读器的退出码表一次跑一遍（`check-judge-exit-codes.py`，12 项用例；argparse 默认的 2 与 INVALID 同码，拼错参数和「没证据」在自动化里长得一样）、并核对预检里每一个判定都落地了（`check-preflight-coverage.py`，20 项用例，见 P-276：只在预检里拦、契约表里没有行的判定会生成一份「看起来完整」的 27 待办单）、并禁止手动顺延坑号（`check-pitfall-numbers.py`，27 项用例；同一编号在两个树上指两件事、RULES 指了不存在的条目都判红），共 19 个套件（`battery-judge` 24 个用例，C3 的 ±60 mV 边界就在其中；`wire-props` 把 `charger/WIRE-PROPS.toml` 的 19 个 wire 属性号与驱动表、反编译表、厂商 `.rodata` 三处对齐，并能用 `--against <27 检出>` 逐字段比对两张 `fields[]` 表；`prop-numbers` 逐行判定 `charger/PROP-NUMBERS.toml` 的 18 个 16→27 属性号，结论只允许 相同 / 不同且已知谁改 / 查不到）——并打印 `power-python: OK (19 suites)`，任一退出非零即整个 runner 失败。判读器没有
   runner 引用时会静默腐烂（充电认证套件就这样躺了一轮），所以两半都挂在这一个入口上。ADSP 那三个
   python 套件（SMCCC 文本门、image 与 MDT 读取器）挂在 `run-k60-handoff-host.sh`——第一个判的是内核
   补丁，三个都不在 power 的搬运集里。它只证明离线逻辑，不替代真机证据；ADSP/电池上机套件仍在
@@ -144,12 +144,12 @@
   `E:/hackios/xnekom-ios27` 实测六个模块 `SAME`、`K60ThermalMap` 三个 `MISS`：那份 iOS27
   检出停在温控提交之前，合并即可。清单同时钉住四个 console 判读器（handoff 33 / sleep 28 / mode1 14 / battery-mirror 21 例）：
   判读器搬过去先跑夹具，夹具打印的用例数与清单不符即失败，因为缩水的夹具就是 P-204 那种"绿而盲"。
-  检查器自带 34 项测试（`scripts/tests/test-power-carry.py`）。
-- 27 侧前置检查：`scripts/check-ios27-power-preflight.py`（22 项测试）把五件事合成一份输出——
-  七个模块的哈希、`0629-k60-sleep-trace.patch` 里 report 是否仍被 `#if defined(PONG)` 包住、
-  27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、四个判读器是否已并入、七份契约表
+  检查器自带 37 项测试（`scripts/tests/test-power-carry.py`）。
+- 27 侧前置检查：`scripts/check-ios27-power-preflight.py`（52 项测试）把预检的各类判定合成一份输出——
+  八个模块的哈希、`0629-k60-sleep-trace.patch` 里 report 是否仍被 `#if defined(PONG)` 包住、
+  27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、四个判读器是否已并入、八份契约表
   （`CARRY.toml`、`HW-CONTRACTS.toml` 与它生成的 `-IOS27.md`、`PROP-NUMBERS.toml` 与 `.md`、
-  `LANE-CONFORMANCE.toml` 与 `.md`）是否随树带入——只搬了模块没搬表的树有代码却没有改线清单。
+  `LANE-CONFORMANCE.toml` 与 `.md`、`27-WORKORDER.md`）是否随树带入——只搬了模块没搬表的树有代码却没有改线清单。
 - 逐条对齐官网页面的表是 `docs/research/power/LANE-CONFORMANCE.toml`（24 行，adsp 5 / battery 7 /
   charger 1 / thermal 2 / power 9），`python3 scripts/check-lane-conformance.py` 核对三件事：
   `requirement` 的句子必须真的出现在 `docs/zh/porting/power.md` 那一节（防止凭记忆引一句不存在的话）、

@@ -236,7 +236,7 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 
 | Phase | Work | Exit |
 | --- | --- | --- |
-| F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth measured on the board on 2026-11-18 (`ISAR1` `APA=0b0101`, `API=0`: the address keys arm64e uses, no generic keys); the key-register write and the `PACIA`/`AUTIA` round trip still need one boot with the fixed probe |
+| F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth read on one core on 2026-11-18 (`ISAR1` `APA=0b0101` = FPACCOMBINE, `API=0`, `GPA=1` from the raw value; the probe's own GPA/GPI line is misread, see `docs/research/power/12-ARM64E-EVIDENCE.md`); seven cores, an image hash, the key-register write and the `PACIA`/`AUTIA` round trip still need a boot with the fixed probe |
 | F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-granules.sh` passes |
 | F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI; the userdata image is built | OS volume matched, APFS mounted, `launchd` execs |
@@ -254,14 +254,16 @@ FEAT APA 5  API 0          GPA 1  GPI 0
 RESULT no FEAT_PAuth -> arm64 only (max IOS 18)
 ```
 
-The verdict line is wrong and the probe was wrong with it. `APA = 0b0101` is
-FEAT_PAuth with EPAC and PAuth2; `API = 0` only says the *generic* keys are
-missing, and arm64e authenticates code and data pointers with the address keys
-(APIA/APIB/APDA/APDB). The probe's gate required `apa && api && gpa && gpi`, and
-printed GPA/GPI from `[15:12]`/`[19:16]` (JSCVT/FCMA) instead of
-`[27:24]`/`[31:28]`.
+The verdict line is the probe's gate, not the hardware's answer. `APA = 0b0101`
+is FPACCOMBINE (PAuth and FPAC), not EPAC plus PAuth2; `API = 0` leaves the
+address group satisfied by APA, and the generic group is satisfied by `GPA = 1`.
+The probe required all four fields (`apa && api && gpa && gpi`), and printed
+GPA/GPI from `[15:12]`/`[19:16]` (JSCVT/FCMA) instead of `[27:24]`/`[31:28]`, so
+that printed line is not a measurement. The corrected decode and the five hard
+requirements live in `docs/research/power/12-ARM64E-EVIDENCE.md`.
 
-So the hardware side is answered: SM8475 has PAC, as Armv9 requires. What the
+The captured core does report FEAT_PAuth; seven cores and an image hash are
+still missing, so this is one observation, not a device-level PASS. What the
 capture does **not** contain is the second and third steps — the key registers
 read back at EL1 and `PACIA`/`AUTIA` changing a pointer — because the probe
 stopped at its own gate. Those are one boot away with the fixed probe, and the

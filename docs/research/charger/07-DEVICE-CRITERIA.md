@@ -221,7 +221,7 @@ python3 scripts/judge-battery.py --log <usblog-dir> --android dmesg-android.txt 
 `:行号 ΔV=…mV/±60mV` 形状的明细；没有两侧同时 ≥100 mA 的窗口时明确写「|ΔI| 未比」。
 `--android` 两种输入按内容自动识别（§3.1 的转写 TSV 与 Android dmesg）。
 
-自测 `python3 scripts/tests/test-judge-battery.py`（20 例：lease 未发布的 INVALID、
+自测 `python3 scripts/tests/test-judge-battery.py`（24 例：lease 未发布的 INVALID、
 `subscribed=0` 的 FAIL、只有首帧不判失败、电压越界、`temp=0.00C` 视为未就绪、
 `subscription-ack=0/0` 与 `2/24` 两种常量形态、C3 四种结局、C3 被 C1 拦住、
 dmesg 通道 PASS 与供电不一致 FAIL、两侧都有稳态负载时才比电流）。两个离线限制写在

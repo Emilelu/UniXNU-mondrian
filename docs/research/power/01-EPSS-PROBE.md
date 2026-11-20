@@ -251,6 +251,11 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `6365d83`（2026-10-31）整段回退到 mode 4 governor（触摸保持、帧地板、hispeed 跳档），核里转发 interval 实例的
   补丁一并删掉，实测数据留在项目笔记里（late-frame 门限 8 ms 把 boost 从 1503 降到 162）。我们的 mode 5 是
   K60 自己的只读采样模式，两者只是编号撞名：查 sheng 的 mode 5 结论时不要套到我们这套编号上，反之亦然。
+
+  **空闲口径的判读准则**：sheng 的 27 bringup 补丁记下过一个假象——空闲核不会收到 IPI，`SIGPdisabled` 于是让它满速自旋，
+  “每个 cluster 在空闲桌面上都读出 busy=100%”。我们走 `processor_info(PROCESSOR_CPU_LOAD_INFO)`，不受这一条直接影响，
+  但准则是通用的：**读到 100% 忙时，先怀疑采样口径，再怀疑负载**。sheng 加内核函数 `sheng_cpu_idle_mach()` 是因为板级 kext
+  看不到 `struct processor`，那是“取不到数”时的做法，不是更准的读数。
 - mode 4、9 与大于 9 的值直接打印 "modes 1-3, 5, 6, 7 and 8 are implemented, mode 9 is disabled after two hangs" 并返回。
 - 调用点：`k60_physical_battery_start()` 开头做第一次读取；电池 `begin` 成功后
   （`K60Battery.cpp` 的同一入口）延迟 5 s 做第二次读取。这是当前 archive 唯一由

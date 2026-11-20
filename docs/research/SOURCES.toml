@@ -261,6 +261,18 @@ why = "本次 ①②④ 调研记录与解锁链"
 examined = "2026-11-12"
 finding = "解锁链是 PAS1 -> GLINK -> PMIC GLINK -> 电池协议 -> IOPMPowerSource，跳不过去。官方 power 页给了六步流程与单位转换（电压电流微转毫、容量 0.01% 转百分比、秒转分钟），并强调必须先确认目标协议的充电电流符号。官方组件目录里没有电池组件，实现全在 UniXNU-sheng 的板级 package/ 下。"
 
+[[subsystem.battery.required]]
+path = "references/UniXNU-sheng/package/ShengBattmgr.h"
+why = "同一颗 PMIC 上电池管理器的 GLINK 帧常量（铁则 12：内核/驱动层参考必须包含 sheng）。canonical 检出 bc05635，不是 E:/hackios/UniXNU-sheng 那份落后 795 的旧 clone"
+examined = "2026-11-20"
+finding = """`SHENG_BATTMGR_OWNER 32778u`（:16，注释写明 32779 是 USB-C 端口管理器、共用同一条通道）、`SHENG_BATTMGR_REQUEST_BYTES 24u`（:27）、`SHENG_BATTMGR_ENABLE_BYTES 28u`（:28），三个数与我们 `K60Battmgr.h:12-14` 全同；opcode 表 :19-:25 是 0x04/0x07 请求与通知、0x30 BATTERY_GET、0x32 USB_GET、0x33 USB_SET、0x50/0x51 BOARD_GET/SET（注释：板级自有属性，同一请求/应答形状，走油量与充电状态）。字段枚举 BmStatus…BmFields 共 31 项，含 BmUsbAdapter/BmUsbLimit/BmUsbMax/BmChargeType/BmThermalLevel/BmChargeCurrent/BmRealType/BmPowerMax/BmPdVerified/BmAuthentic/BmSlaveAuthentic/BmInputSuspend —— 我们只取其中 19 项，这解释了 27 侧 `fields[]` 为什么可以只搬一个常量下标。"""
+
+[[subsystem.battery.required]]
+path = "references/UniXNU-sheng/package/ShengChargeAuth.c"
+why = "我们 `drivers/PongPower/K60ChargeAuth.c` 的移植来源；用来区分「出处」与「独立第二来源」"
+examined = "2026-11-20"
+finding = """`enum {Owner = 32778, Get = 0x50, Set = 0x51, VerifyDigest = 1, Authentic = 3, SlaveAuthentic = 0xa5, PdVerified = 0x18, VdmState = 0x1a};`（:5）与 `diagnostic_properties[18] = {0x17, 0x19, 0x16, 0x32, 0x33, 0x2b, 0x31, 0xe7, 0x1b, 0x1c, 0x1d, 0x1e, 0x20, 0x23, 0x8f, 0x0d, 0x0e, 0x0f}`（:7-10）与我们 `K60ChargeAuth.c:8`、`:10-13` 逐字节相同。**正因为相同，它不能当第二来源**：我们的文件是它的移植，引用它等于自证。契约表里这三行因此保持 second_unavailable，要一个独立的 xiaomi-mipps-auth 检出才能定。见 docs/research/power/11-SHENG-REFERENCE.md 3.3。"""
+
 [subsystem.launchd]
 why = "launchd pid 1：hw.target 身份链、服务缓存"
 
@@ -307,6 +319,24 @@ path = "docs/research/audio/ADSP-RAIL-SAMPLER-AUDIT.md"
 why = "ADSP rail-only采样器的DRV-2几何、请求与实际供电证据边界、唯一入口与失败单次审计"
 examined = "2026-11-16"
 finding = "固定Xiaomi mondrian-s-oss 989b27aa8391a2ede9b067b53877c4c3343955fe核对caps、五类TCS、slot/command stride、TCS_STATUS与CMD_STATUS、enable/msgid；Linux固定提交交叉核验v2.7/v3。9个helper及10个KERNEL entry合成案例复现覆盖缺失、忽略状态、失败重试和cache remap。未改driver/patch；测试exit0是反例复现，不是合规或上机通过。TCS非零只证明请求留痕，不授权供电/SCM；访问许可与AOP聚合/ARC生效状态仍阻塞。"
+
+[[subsystem.power.required]]
+path = "references/UniXNU-sheng/package/ThermalLevel.h"
+why = "同一 OS 目标（24A446）的异 SoC 板（SM8550）的三档温控阶梯（铁则 12）；用来交叉验证我们 `K60ThermalMap.h:57-59` 的 90/95/110"
+examined = "2026-11-20"
+finding = """`thermal_level_cpu_trips[3] = {{90000, 2000}, {95000, 2000}, {110000, 1000}}`（:65）、GPU 侧 `{{85000, 1000}, {90000, 1000}, {110000, 1000}}`（:66），hysteresis 2000/1000 m°C；输入组按 CPU_D0/D1/D2 + GPU 取（:63-64）。三档与我们的 warm 90000 / junction 95000 / emergency 110000 相同，但**没有 115000 与 125000**（全仓 0 处），所以 reset-mon 与 thermal-engine 两档只能靠本机 FDT。注意 sheng 没有一条温控内核补丁，这段是 kext 侧读 mainline sm8550 dtsi 的 trip。"""
+
+[[subsystem.power.required]]
+path = "references/UniXNU-sheng/package/CpuFreqProbe.cpp"
+why = "sheng 的 16 ms 调频器实现（空闲采样、frame 规则、触摸 boost），与我们 mode-5 只读采样同名不同物"
+examined = "2026-11-20"
+finding = """它直写 EPSS 寄存器而不走 PDMEM 投票：`kDomainBase[3] = {0x17d91000, 0x17d92000, 0x17d93000}`（:76）、`kL3Base = 0x17d90000`（:78）、`kRegFreqLut 0x100` / `kRegPerfState 0x320` / `kRegL3Vote 0x90` / `kLutEntries 40`（:80-81）。全仓 0 处 pdmem / 0x17d09，所以我们 `power-pdmem-vote-magic 0x17d09804` 与 `offset 0x804` 不能拿它作第二来源 —— 这是两条不同的实现路线，不是同一事实的两份拷贝。它取空闲时间走内核补丁暴露的 `sheng_cpu_idle_mach()`（:61 声明），而我们走 `processor_info(PROCESSOR_CPU_LOAD_INFO)`（`K60CpuFreqProbe.cpp:637`）。"""
+
+[[subsystem.power.required]]
+path = "references/UniXNU-sheng/patches/xnu-12377/zzye-sheng-cpu-idle.patch"
+why = "板级代码看不到 struct processor 时，内核侧要把空闲时间暴露成什么形状；含一条我们也会踩的采样假象"
+examined = "2026-11-20"
+finding = """26 行，在 `osfmk/kern/processor.c` 加 C 链接的 `uint64_t sheng_cpu_idle_mach(int cpu)`：`cpu_to_processor(cpu)` 后调 `recount_processor_usage(&p->pr_recount, &usage, &idle)`，`PROCESSOR_NULL` 返回 0。配套在 `zzzz-sheng-ipados27-bringup.patch` 里的 `sheng_sigp_recover()` 与注释给出关键判读准则：一个空闲核收不到 IPI，`SIGPdisabled` 会让它满速自旋，于是“每个 cluster 在空闲桌面上读出 busy=100%”。读数满忙时先怀疑采样口径，再怀疑负载。"""
 
 [[subsystem.audio.required]]
 path = "references/pong-power/ShengAudioReach.c"

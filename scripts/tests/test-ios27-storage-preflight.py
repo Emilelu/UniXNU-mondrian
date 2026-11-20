@@ -238,6 +238,12 @@ def main():
     case('a table that is not 190 rows is red', done.returncode == 1, done.stdout)
     case('the row count is named', 'table has 189 rows, expected 190' in done.stdout, done.stdout)
 
+    done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache),
+                    '--report', str(good), '--table', str(table), '--vtable', hex(VTABLE),
+                    '--slots', '189'])
+    case('the slot count cannot be lowered from the command line', done.returncode != 0,
+         done.stdout + done.stderr)
+
     done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache)] + base)
     case('switch on without a report is red', done.returncode == 1, done.stdout)
     case('the missing report is named', 'no --report supplied' in done.stdout, done.stdout)

@@ -8,7 +8,7 @@ must satisfy all three closing conditions:
 
   1. CONFIG_XNU_NATIVE_UFS resolves to 1 and board.toml includes NativeUfs;
   2. the 190-slot vtable assertion passes on the built collection
-     (--require-entry with --slots 190);
+     (--require-entry; this entry fixes the slot count at 190);
   3. the prelink report describes this run and has zero untranslated targets
      (--require-translated): the report's input kernelcache and the collection
      it wrote must both be the files supplied here.
@@ -49,7 +49,7 @@ except ModuleNotFoundError:  # pragma: no cover - the Linux host has 3.11+
 
 DEFAULT_PROFILE = 'ios-27.0.1-24A446'
 DEFAULT_VTABLE = '0xfffffff008314d88'
-DEFAULT_SLOTS = 190
+SLOTS = 190  # fixed by the contract; not a command line choice
 
 
 def parse_config(path):
@@ -139,7 +139,6 @@ def main(argv=None):
     parser.add_argument('--report', help='kernel.json from the prelink emitter')
     parser.add_argument('--vtable', default=DEFAULT_VTABLE)
     parser.add_argument('--table')
-    parser.add_argument('--slots', type=int, default=DEFAULT_SLOTS)
     parser.add_argument('--out')
     args = parser.parse_args(argv)
 
@@ -179,7 +178,7 @@ def main(argv=None):
     if collection is not None and collection.is_file():
         command = [sys.executable, str(scripts / 'check-ios27-storage-vtable.py'),
                    '--kernelcache', str(collection), '--vtable', args.vtable,
-                   '--slots', str(args.slots), '--require-entry']
+                   '--slots', str(SLOTS), '--require-entry']
         if args.table:
             command += ['--table', args.table]
         entry_rc, output = run(command)
@@ -293,7 +292,7 @@ def main(argv=None):
             'collection': str(collection) if collection else None,
             'kernelcache': str(cache) if cache else None,
             'report': str(report) if report else None,
-            'slots': args.slots,
+            'slots': SLOTS,
             'binding': binding,
             'entry': {'ran': entry_rc is not None, 'rc': entry_rc},
             'translated': {'ran': translated_rc is not None, 'rc': translated_rc},

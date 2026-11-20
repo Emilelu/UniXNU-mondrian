@@ -324,6 +324,23 @@ def main():
                  {'kind': 'MH_FILESET, 2 entries', 'prelink': {'missing_refs': 0, 'stubbed_refs': 0},
                   'contract': module.loader_contract(mismatch)}, [])
 
+    # The loader contract must be computed before the optional kernel.json is
+    # read: an absent report once left it unbound and check() died with
+    # UnboundLocalError instead of a clean verdict (P-280). Helper-level tests
+    # cannot see statement order, so assert it on the source.
+    source = (ROOT / 'scripts/check-ios27-artifacts.py').read_text(encoding='utf-8').splitlines()
+    contract_at = next((i for i, line in enumerate(source)
+                        if line.strip() == 'contract = loader_contract(kernel)'), None)
+    report_at = next((i for i, line in enumerate(source)
+                      if line.strip() == "report = board / 'kernel/kernel.json'"), None)
+    tests.check('checker.contract_is_computed', contract_at is not None, 'no contract assignment')
+    tests.check('checker.contract_before_report', contract_at is not None and report_at is not None
+                and contract_at < report_at,
+                f'contract at {contract_at}, report at {report_at}')
+    tests.check('checker.contract_is_not_nested',
+                contract_at is not None and not source[contract_at].startswith('        '),
+                'the contract is computed inside the report branch')
+
     print(f'{tests.checks - len(tests.failures)}/{tests.checks} checks passed')
     for failure in tests.failures:
         print(f'FAIL {failure}')

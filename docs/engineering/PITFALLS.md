@@ -5072,3 +5072,25 @@ K60 READY DRIFT 4 quoted include(s) resolve nowhere: pong_pmic_rail.h (pong_ipa.
 自动切换）：`K60 READY DRIFT 0629-kern-exec-call-sites.patch: patch file missing; generate it with --anchor-auto once the tree stages the data mount`。
 
 教训：清单文件与目录必须逐项对齐，且「还没生成」是一个要显式说出来的状态，不是沉默的空缺。
+
+## P-263 — 自动寻锚把同一个变量的每一次赋值都算成候选
+
+@BT@find_anchor()@BT@ 用 @BT@native_owner_data_stage@BT@ in line 匹配、取 @BT@;@BT@ 结尾的行。27 种子树的 @BT@bsd/kern/kern_exec.c@BT@ 里这个变量出现五次
+（8152 定义、9015 @BT@= 1@BT@、9032 @BT@= 2@BT@、9035 @BT@= 3@BT@、9046 @BT@= 4@BT@），工具报
+@BT@K60 PORT27 FAIL anchor is ambiguous, 5 candidates@BT@ —— 而正确的锚点只有一行：把它推到 3 的那行。
+变量是阶梯，不是唯一行；「同一个名字出现多次」正是它该被收窄的原因，而不是拒绝的理由。
+
+修法：候选多于一行时先按 @BT@STAGE_THREE = re.compile(r"native_owner_data_stage\s*=\s*3\s*;")@BT@ 过滤，
+只剩一行才返回；收窄后仍多行才报 ambiguous。自测里放了一棵 0→4 的阶梯树，断言解析到 3；两行 @BT@= 3@BT@ 才必须失败。
+
+## P-264 — 「全在 bsd/dev、全是新文件」把 call-site 补丁判成漂移
+
+readiness 的两条结构不变量——所有 @BT@+++ b/@BT@ 目标都在 @BT@bsd/dev/@BT@、每个段落都带 @BT@new file mode@BT@——在 0629 出现的第一秒就红：
+@BT@K60 READY DRIFT the patches leave bsd/dev: bsd/kern/kern_exec.c@BT@ 与 @BT@K60 READY DRIFT sections that are not new files: 0629-kern-exec-call-sites.patch 0/1@BT@。
+call-site 补丁天生修改既有文件，不变量写得太强时，正确产物会被当成漂移。
+
+修法：允许唯一例外 @BT@CALL_SITE_TARGET = 'bsd/kern/kern_exec.c'@BT@，且它只能由 0629 改、段落允许不是新文件；
+同时把 0621 的 @BT@rc=1@BT@ 期望改成「只在锚点缺席时断言」，因为种子树里 0621 打得上正是它该有的行为。
+
+教训：结构不变量要能说出「哪一条补丁是例外、为什么」，否则它只会训练人去调期望值。
+

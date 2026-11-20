@@ -658,3 +658,19 @@ source = "docs/engineering/PITFALLS.md:P-209"
 statement = "系列清单里列出的补丁名必须与目录逐项对齐；「还没生成」要显式报出来。readiness 的已集成模式会在反向检查时把这种缺口报成 DRIFT 并给出生辰手势。"
 check = "grep -q 'generate it with --anchor-auto' scripts/check-ios27-readiness.py"
 note = "2026-11-20 series-port.txt 列了 0629 但文件不存在（等 data-mount 锚点），pristine 模式的产物清单不覆盖系列。"
+
+[[rule]]
+id = "P-263"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-263"
+statement = "自动寻锚要认「把变量推到目标值的那一行」，不是这个变量出现过的每一行；候选多于一行的先收窄再判断。"
+check = "grep -q 'STAGE_THREE' scripts/port-cellular-to-xnu27.py"
+note = "2026-11-20 27 种子树里 native_owner_data_stage 出现五次，--anchor-auto 报 ambiguous 5 candidates。"
+
+[[rule]]
+id = "P-264"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-264"
+statement = "结构不变量要写明例外：call-site 补丁修改既有文件、不在 bsd/dev 之下，属于设计之内而不是漂移。"
+check = "grep -q 'CALL_SITE_TARGET' scripts/check-ios27-readiness.py"
+note = "2026-11-20 0629 一出现，「全在 bsd/dev、全是新文件」两条不变量立即报 DRIFT。"

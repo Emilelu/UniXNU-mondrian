@@ -699,7 +699,7 @@ python3 scripts/check-ios27-readiness.py --tree <27 树>
 
 rc=0 就可以开始第一次带基带的内核构建；rc=1 的每一行都写明是哪一条期望变了。
 
-## 20. 27 侧 conffiles 的实测差（2026-11-20 08:37）
+## 23. 27 侧 conffiles 的实测差（2026-11-20 08:37）
 
 实测对象：`/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree`。
 种子后的 `.cache/xnu-work/bsd/conf/files` 目前 `pong_` 计数为 0，
@@ -749,3 +749,38 @@ rc=0 就可以开始第一次带基带的内核构建；rc=1 的每一行都写�
 并断言五份产物的 `+++ b/` 目标集合与 `conffiles-port.txt` 逐项相等。
 追加器落地后，`patch_artifacts()` 里那条`27 树 bsd/conf 计数为 0`的期望会 DRIFT，
 提醒我们把期望值改成 19。
+
+## 24. 数据挂载的锚点在种子树里已经有了：0629 生成并可应用（2026-11-20 08:50）
+
+§20 量出 27 侧 conffiles 缺 18 条，前提是「补丁要先打进去」。打补丁需要 0629，而 0629 要等 Data mount 的锚点；
+Lead 07:41 说「锚点我这边还没有，别等」。现在种子树的 `.cache/xnu-work` 里它已经在了。
+
+实测（tree = /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work）：
+
+| 事实 | 数值 |
+|---|---|
+| `bsd/kern/kern_exec.c` 行数 | 10,234 |
+| `native_owner_data_stage` 出现 | 5 处：8152 `= 0`（定义）、9015 `= 1`、9032 `= 2`、9035 `= 3`、9046 `if (!error) ... = 4` |
+| `--anchor-auto` 首次结果 | `anchor is ambiguous, 5 candidates` |
+| 收窄后的锚点 | 9035 `native_owner_data_stage = 3;` |
+| 0629 | 1,274 B，hunk `@@ -9029,12 +9029,28 @@` |
+| 插入位置 | `if (error) goto done;` 与 `native_owner_data_stage = 3;` 之间（与 §5.1 契约一致） |
+| 五个补丁 `git apply --check` | 全部 OK（0626 / 0627 / 0628 / 0629 / 0630） |
+
+三处修正：
+
+1. `find_anchor()` 收窄：候选多于一行时先按 `STAGE_THREE = re.compile(r"native_owner_data_stage\s*=\s*3\s*;")` 过滤，
+   只剩一行才返回，仍多行才报 ambiguous。变量走 0→1→2→3→4，只有「推到 3」那行在 Data 挂上之后执行；
+   插在 `= 1`/`= 2` 会把探针放进重试与回滚路径。
+2. `verify()` 改用绝对路径：相对路径加 `git -C tree` 会让 git 在树内找补丁，报
+   `error: can't open patch 'patches/xnu-12377/0626-k60-modem-image.patch'`；改 `os.path.abspath()` 后 5/5 ok。
+3. readiness 的两条不变量原来是「所有 `+++ b/` 目标都在 `bsd/dev`」「每个段落都是新文件」，call-site 补丁天生违反：
+   现在允许唯一例外 `bsd/kern/kern_exec.c`，且必须只由 0629 改、段落允许不是新文件；0621 的 `rc=1` 期望只在锚点缺席时断言
+   （种子树里它 apply 成功是正确行为，不是漂移）。
+
+结果：
+
+- 种子树：`K60 READY OK every recorded expectation still holds`（39 个目标、call-site 只改 kern_exec.c、0629 已生成）
+- feed 树：同样绿（`anchor lines=0` 只是 note）
+- 工具自测：`K60 PORT27 PASS renumbering, anchor insertion, auto anchor, refusal, verification, series, build list`
+- 「先 apply 五个补丁 → 再追加 19 条 conffiles → 再编译」这条路第一次具备可执行的全部输入。

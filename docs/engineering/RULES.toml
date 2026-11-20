@@ -640,3 +640,11 @@ source = "docs/engineering/PITFALLS.md:P-261"
 statement = "判据或驱动假设了设备布局（哪块盘、哪个地址、哪个节点），而布局来自另一处事实：只问 LUN 0 的 GPT，modem 的四个 EFS 分区在另一条 LUN，查找必然落空、日志只能说 refused，与真的坏了无法区分。"
 check = 'grep -q "volume lun chosen" scripts/judge-cellular-flight.py'
 note = "2026-11-20 k51/k53 的 native_pong_ufs_read_named_volume 硬编码 hostRead4k(0,1,1,…)；实测 modemst1/modemst2/fsg/fsc = sdf3..sdf6（8/8/8/1 MiB），unixnu = sda38。改为逐个 LUN 查 GPT、恰好一条命中才读，并打印 K60UFS volume name=… lun=…。；原拟 P-260，因 audio 线 2d1dd5fc 先占 main 上的 P-260 而顺延为 P-261。"
+
+[[rule]]
+id = "P-271"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-271"
+statement = "A served result does not verify EFS bytes; compare the reported prefix with an independent reference for the same storage and offset."
+check = "python3 scripts/judge-cellular-flight.py --self-test"
+note = "k55 requires a matched 16-byte prefix explicitly; legacy captures keep SKIP when no sample exists. A row that lost its outcome word is evidence, not a summary: legacy and strict both fail it. Synthetic fixture LUN values do not establish controller truth."

@@ -65,6 +65,12 @@ owner = "cellular-agent"
 scope = ["drivers/PongCellular", "docs/research/cellular", "patches/cellular", "patches/xnu/0620-k60-modem-image.patch", "patches/xnu/0621-k60-modem-pas.patch"]
 
 [[tree]]
+path = "/mnt/e/k60-work/wt-k55"
+owner = "cellular-agent"
+scope = ["drivers/PongCellular", "patches/xnu/0622-k60-modem-qrtr.patch", "scripts", "docs/research/cellular", "docs/engineering", "porting.toml"]
+note = "Isolated k55 candidate; k54 source remains unchanged in k60-cellular."
+
+[[tree]]
 path = "/mnt/e/hackios/k60-charger"
 owner = "charger-agent"
 scope = ["drivers/PongPower", "docs/research/charger"]

@@ -1836,6 +1836,55 @@ P-205 仍然红（README 还写着 P-260），只有单独跑 check-readme.py �
 P-256 在 main 上冲突，Lead 按 theirs 解成 P-262，落成 189e3cb7）。feat/pitfall-id-guard 与
 feat/readme-pitfall-262 两分支都已删，内容等价存在于 main。
 
+### 3.52 判据要读的是字节，不是结果词：W2 的打印行进 k55（2026-11-20 15:40）
+
+doc20 §29 把 F3 的第一条判据定成「EFS 字节与独立来源逐字节一致」（W2），但 k54 里的
+`k60_qrtr_rmtfs_rw` 只打 `storage/direction/vectors` 与 `served|refused`。`served` 只说明
+这条请求没有被拒绝，它不说被搬动的是哪 4096 字节、从哪个偏移来。判 k54 时这一项必须是
+SKIP 而不是 FAIL——k54 镜像由 `ab770b8c…` 那一版构建、必须能由 HEAD 复现，所以这一行进 k55。
+
+打印分两层。摘要行每次 RW 一条，带 vector 0 的 offset/bytes，W3 靠它看同一 storage 的第二次读：
+
+    K60MODEM qrtr: rmtfs rw storage=1 direction=0 vectors=2 served offset=0 bytes=4096
+
+样例行每个 storage 一条，取自全部向量搬完之后：
+
+    K60MODEM qrtr: rmtfs rw storage=1 direction=0 offset=0 bytes=4096 head=1000000003000000d801000020faa9c4
+
+- 只在读方向（`direction == 0`）、向量非空、storage 落在 1..`K60_EFS_IMAGE_COUNT`、
+  影子缓冲已分配时打印；`static uint8_t shown[K60_EFS_IMAGE_COUNT + 1]` 保证每个 storage
+  只出现一行，采集再长也不会把日志刷满。
+- `head` 是那 16 字节的小写十六进制，正好 32 个字符；输入不足 16 字节时拒绝取样，**不补零**。
+- 取样前先确认整张目标表都落在窗口内，再挑一个 offset 为 0、且头 16 字节没有被后续向量
+  覆盖的向量；W3 的第二次读因此不会被第一次的复制冒充。
+- **offset 必须打**：四份 EFS 的第一次读都是偏移 0，W3 要看的是同一个 storage 的第二次读；
+  没有 offset，两行日志分不出是哪一次。
+- 兜底诊断：`K60MODEM qrtr: rmtfs read of modemst1 offset=0 bytes=4096 refused
+  (an absent native UFS lands here)`，每进程一次。
+
+判据侧（`scripts/judge-cellular-flight.py`）的 `efs bytes` 条目逐字段校验：storage 1..4、
+direction 0、offset 0、bytes ≥512 且为 512 的整数倍、恰好 32 位小写十六进制、同一 storage
+有 served 且向量非空的读、head 等于该 storage 的独立参照。一个 storage 对上就够，出错的
+样例行逐条 FAIL。没有样例行时默认 SKIP（兼容 k54），k55 的飞行命令带 `--require-efs-bytes`
+把它变成 FAIL。
+
+摘要行只认 `served|refused|not-served` 三种结果词（可跟 offset/bytes）。第四段是别的 token
+就不是摘要：一行 `... vectors=2 head=deadbeef` 曾经被宽松的 `\S+` 当成摘要丢掉，只有它时
+legacy 返回 PASS、旁边有有效样例时 strict 也 PASS。现在这类失去结果词的行进入样例校验，
+legacy 与 strict 都判 FAIL；反例夹具 `k60-flight-badhead.log` 同时跑两种模式。
+
+夹具六份 / 九次运行（pass legacy+strict、refused、nolun、short、nohead legacy+strict、
+badhead legacy+strict）；`test-k60-flight-fixtures.py` 输出
+`K60 FIXTURES PASS nine runs over six synthetic console fixtures`。历史日志回归不变：k46
+`usblog-20261119-162153` → INVALID（窗口 230 s）、k47 → FAILED、k44 → INVALID。
+
+`patches/xnu/0622-k60-modem-qrtr.patch` 由 `python3 scripts/update-modem-qrtr-patch.py` 重生成：
+175,127 B / 12 files；`--check` 报 `0622 OK`，`test-k60-modem-image.py` 30 segments OK。
+
+**这行不证明的事**：它只比较每个 storage 的前 16 字节，不是 4096 字节全等；也不证明 modem
+拿这些字节通过了 NV 校验，不证明偏移语义对（offset 只是请求里的 `block_offset * 512`）。
+LUN 真值仍是 PENDING（W1）：夹具里的 `lun=4` 是合成输入，不能当控制器事实。
+
 ## 5. 飞行顺序
 
 1. **C（诊断）**：`pong_modem=3`，只到 `mem_setup`，不发 `auth_reset`；断言 `init_image`/`mem_setup` 两行、

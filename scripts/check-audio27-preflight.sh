@@ -41,6 +41,34 @@
 #      commit, when its checkout is reachable; the row names the commit it ran on, because
 #      a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
+ROWS_EXPECTED=53
+
+# The rows are printed by whatever prints them, so the count is taken from the
+# file the run leaves behind rather than from a counter every site has to keep.
+if [ -z "${K60_PREFLIGHT_INNER:-}" ]; then
+	inner=$(mktemp)
+	K60_PREFLIGHT_INNER=1 sh "$0" "$@" > "$inner" 2>&1
+	status=$?
+	sed '/^PREFLIGHT OK$/d' "$inner"
+	rows=$(grep -cE '^(ok|skip|FAIL) ' "$inner" || true)
+	ok=$(grep -c '^ok ' "$inner" || true)
+	skip=$(grep -c '^skip ' "$inner" || true)
+	failed=$(grep -c '^FAIL ' "$inner" || true)
+	rm -f "$inner"
+	if [ "$status" -ne 0 ]; then
+		exit "$status"
+	fi
+	if [ "$rows" -ne "$ROWS_EXPECTED" ]; then
+		printf 'ROWS FAILED %s rows printed, %s declared\n' "$rows" "$ROWS_EXPECTED"
+		echo "PREFLIGHT FAILED"
+		exit 1
+	fi
+	printf 'PREFLIGHT OK %s rows (%s ok, %s skip, %s FAIL), as declared\n' \
+	    "$rows" "$ok" "$skip" "$failed"
+	exit 0
+fi
+
+
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
@@ -130,6 +158,8 @@ run "audio boot argument is wired" python3 scripts/check-audio27-bootargs.py
 run "boot arguments are documented" python3 scripts/check-boot-args.py
 run "commands gate is honest" python3 scripts/tests/test-audio27-commands.py
 run "27 command citations resolve" python3 scripts/check-audio27-commands.py .
+run "row count gate is honest" python3 scripts/tests/test-audio27-rows.py
+run "row count holds" python3 scripts/check-audio27-rows.py .
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py

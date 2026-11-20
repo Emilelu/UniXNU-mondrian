@@ -78,4 +78,5 @@ run_py hw-contracts python3 scripts/check-hw-contracts.py
 run_py battery-mirror python3 scripts/tests/test-judge-k60-battery-mirror.py
 run_py wire-props python3 scripts/tests/test-check-battmgr-wire.py
 run_py prop-numbers python3 scripts/tests/test-check-prop-numbers.py
+run_py fdt-props python3 scripts/tests/test-read-fdt-props.py
 echo "power-python: OK ($python_suites suites)"

@@ -22,7 +22,13 @@ park 的是**动作**，不是**契约**。iOS 27 迁移要带走的是「多少
 ## 2. 现场事实（`E:/k60-work/reports/live-6033dbec-fdt.dts`）
 
 反编译自 `E:/k60-work/reports/live-6033dbec-fdt.dtb`（dtc），82 个 `thermal-zones`、
-18 个 `cooling-devices`，全部带 trip。AP 侧可行动的温区与读温来源：
+18 个 `cooling-devices`，全部带 trip。这些 trip 值不是从反编译文本里抄的，可以直接从这个 dump 读回来：
+`python3 scripts/read-fdt-props.py E:/k60-work/reports/live-6033dbec-fdt.dtb --node /soc/thermal-zones/ddr/trips/ddr0-config --prop temperature --hex`
+→ `00015f90`（90000）。同一个命令换成 `gpuss-0/trips/tj_cfg`、`cpu-1-0/trips/cpu4-emerg0-cfg`、
+`aoss-0/trips/reset-mon-cfg`、`pa/trips/thermal-engine-config0` 就是阶梯剩下的四档；`--list --contains thermal-zones`
+列出全部温区。`HW-CONTRACTS.toml` 的五条 `second` 字节区间用的就是这五组十六进制，门禁逐字节比对它们。
+
+AP 侧可行动的温区与读温来源：
 
 | 温区 | 读温来源 | 备注 |
 | --- | --- | --- |

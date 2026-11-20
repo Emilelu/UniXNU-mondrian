@@ -55,6 +55,8 @@ EXTRA = [
     "docs/research/charger/04-PROP-MAP.md",
     "scripts/check-battmgr-wire.py",
     "scripts/tests/test-check-battmgr-wire.py",
+    "scripts/read-fdt-props.py",
+    "scripts/tests/test-read-fdt-props.py",
     "drivers/PongPower/K60Battmgr.c",
     "drivers/PongPower/K60Battmgr.h",
     "scripts/check-power-carry.py",

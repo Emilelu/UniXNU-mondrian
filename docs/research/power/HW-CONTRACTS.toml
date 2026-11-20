@@ -30,6 +30,13 @@
 #   second_unavailable = { tried = ["...", "..."], why = "..." }
 # with at least two searched sources and a why that names the artefact that would
 # settle it - "cannot be verified" alone is not a reason (Lead, 2026-11-20).
+#
+# A byte-range source is re-readable rather than trusted: `python3
+# scripts/read-fdt-props.py <dump> --node <path> --prop <name> --hex` walks the
+# flattened device tree and prints exactly the hex a row records, and the five
+# thermal ladder rows are the values that command prints for /soc/thermal-zones.
+# The walker has its own fixture suite (scripts/tests/test-read-fdt-props.py, 22
+# checks) because a second source nobody can re-read is not a source.
 
 [roots]
 hackios = "E:/hackios"

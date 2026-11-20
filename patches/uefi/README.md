@@ -8,7 +8,7 @@ never lists them, and the UEFI tree already carries the applied result.
 |---|---|---|
 | `uefi-unixnu-bootstrap.patch` | 3 | Earliest bootstrap: BootShim stack base, `mondrian.dsc`, `pong.fdf`. Superseded by the payload patch below |
 | `uefi-payload.patch` | 14 | Full payload support: `PongBootMemoryDxe` (boot memory + initrd handoff), `PongInitrdTest`, `PongPayloadProbe`, Silicium `Sec` changes, BootShim, dsc/fdf |
-| `uefi-darwinboot-fileset.patch` | 2 | `DarwinBoot`: accepts the arm64e `cpusubtype` and an `MH_FILESET` kernel collection by loading its `com.apple.kernel` entry, lets the driver replace the older loader in the FD, and drops from EL2 to EL1 before the kernel entry |
+| `uefi-darwinboot-fileset.patch` | 2 | `DarwinBoot`: accepts the arm64e `cpusubtype` and an `MH_FILESET` kernel collection by loading its `com.apple.kernel` entry, lets the driver replace the older loader in the FD, and publishes the Darwin 26 `boot_args` layout (1024-byte command line, `bootFlags` at `0x470`, `memSizeActual` at `0x478`) with the structure zeroed |
 
 Apply order if rebuilding the UEFI tree from scratch:
 

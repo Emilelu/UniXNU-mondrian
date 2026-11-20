@@ -1,0 +1,35 @@
+# Prelink hazard allowlist (valid TOML: only comments and keys below).
+#
+# kernel.json lists every owner-target address the prelink kit could not pair
+# ("missing"). The kit does NOT redirect those pointers: rebind() in
+# fileset_segmented.py returns the original target when it has no pairing, so a
+# wrong data pointer stays wrong and silent. scripts/check-prelink-hazards.py
+# separates the two risks:
+#
+#   * outside every segment of the collection  -> hard fault risk (the first
+#     read is garbage or a data abort). Each such address MUST have a [[slot]]
+#     entry with a reason and a review.
+#   * inside a segment -> not proven correct (it may point into an unrelated
+#     segment) but it cannot fault on the read, so it is reported as a count.
+#
+# Silence is a failure; an empty list is a valid, visible claim that the current
+# image has no outside-segment slot. Delete entries that no longer appear in the
+# report: a list that keeps describing a previous image is the same bug class as
+# a rule that can never go red (P-290).
+#
+# Entry shape:
+#
+#   [[slot]]
+#   bundle  = "com.apple.driver.AppleMobileFileIntegrity"
+#   address = "0xfffffff007e60000"
+#   reason  = "why this pointer is safe to leave unpinned"
+#   review  = "who checked, and against what"
+#
+# State on 2026-11-21: the 24A446 stage-0 kernel built after the LTO reference
+# landed has 0 addresses outside every segment (94 unpinned addresses, all
+# covered). The earlier 6 outside-segment slots belonged to the pre-LTO image,
+# so no entries are needed yet.
+
+schema_version = 1
+reviewed_image = "24A446 stage-0, kernel built 2026-11-20 after the LTO reference"
+outside_segments_expected = 0

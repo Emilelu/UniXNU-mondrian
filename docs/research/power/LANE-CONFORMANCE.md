@@ -65,7 +65,7 @@
 | `power-vote-refcount` | 5 | 引用计数 | `drivers/PongPower/K60PowerVotePlan.c`<br>`state->counts[resource] = (uint16_t)(state->counts[resource] + 1);` | verified | count 与 owner 位一一对应，K60PowerVotePlan.h:47 写明 count 等于 owner 位数；release 递减 |
 | `power-idle-cadence` | 5 | 每 16 ms | `drivers/PongPower/K60CpuFreqProbe.cpp`<br>`constexpr unsigned kSampleSleepMs = 16;` | verified | governorThread 以 IOSleep(kSampleSleepMs) 采样；16 ms 与页面的窗口一致 |
 | `power-idle-source` | 5 | 读取调度器记录的各 CPU 空闲时间 | `drivers/PongPower/K60CpuFreqProbe.cpp`<br>`if (processor_info(processor_array[cpu], PROCESSOR_CPU_LOAD_INFO, &host,` | verified | 逐 CPU 读 PROCESSOR_CPU_LOAD_INFO 的 cpu_ticks[]，再用 tick_delta 求 idle/elapsed；:637 |
-| `power-touch-boost-hold` | 5 | 直到最后一次报告后 1 s | `docs/research/power/05-BOOST-RULES.md`<br>`直到最后一次报告后 1 s` | verified | — |
-| `power-frame-rule` | 5 | 最近 4 个窗口中有 2 个有 GPU 提交时 | `docs/research/power/05-BOOST-RULES.md`<br>`最近 4 个窗口中有 2 个有 GPU 提交时` | verified | — |
-| `power-fence-wait` | 5 | 最长 1 ms | `docs/research/power/05-BOOST-RULES.md`<br>`最长 1 ms（gpu-pause-us）` | partial | 1 ms 睡眠预算写进了规则与 host 断言，但 fence 仍无消费者，未上机 |
+| `power-touch-boost-hold` | 5 | 直到最后一次报告后 1 s | `drivers/PongPower/K60BoostPlan.c`<br>`return now_ms - state->last_touch_ms < K60_BOOST_TOUCH_MS;` | verified | K60_BOOST_TOUCH_MS=1000u；主机断言 5999 ms 仍生效、6000 ms 失效，9000 再次报告后 9500 仍生效 |
+| `power-frame-rule` | 5 | 最近 4 个窗口中有 2 个有 GPU 提交时 | `drivers/PongPower/K60BoostPlan.c`<br>`if (k60_boost_frame_count(state) < K60_BOOST_FRAME_MIN) return 0;` | verified | K60_BOOST_WINDOWS=4u、K60_BOOST_FRAME_MIN=2u、K60_BOOST_FRAME_MS=300u；主机断言第 4 个窗口计数 2 时生效，332 ms 失效，滑动后只保留最后 4 窗 |
+| `power-fence-wait` | 5 | 最长 1 ms | `drivers/PongPower/K60BoostPlan.c`<br>`return now_us - start_us <= K60_BOOST_FENCE_US;` | partial | K60_BOOST_FENCE_US=1000u 与主机断言（1000 µs 内、1001 µs 外）已存在，但仍无 fence 消费者，未上机 |
 | `build-interface` | 6 | 构建并验证接口 | `scripts/judge-k60-mode1-console.py`<br>`K60CpuFreq: mode=1 EPSS domains=3 cpus=8 lut-rows=40` | verified | — |

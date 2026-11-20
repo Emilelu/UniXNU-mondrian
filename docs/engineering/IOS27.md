@@ -399,7 +399,9 @@ ship the driver as its own kext entry instead of force-loading it into the kerne
 link a stub object for the class. Until one of them lands, `XNU_NATIVE_UFS=1` fails at the
 link on 27, and a green kernel build only means the switch is still off.
 
-To reproduce the check: read
+`scripts/check-xnu27-storage-link.py` runs that comparison: it links the recorded kernel twice, reports every new undefined symbol with its class and referrers, and writes the delta to `report.json`. On the 24A446 object tree it exits 0 with `gap` and lists the eleven imports; `--require-linkable` turns the gap into a failure, so the day a bindings object lands the checker starts failing and has to be retired.
+
+To reproduce the check by hand: read
 `build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.LDFLAGS` (NUL-separated), run the recorded
 `clang++` with `-target arm64e-apple-ios27.0` and the Apple `ld` from
 `/opt/unixnu-linux/CommandLineTools/usr/bin` on `PATH` (the recorded line expects the build's

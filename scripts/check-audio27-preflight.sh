@@ -96,6 +96,8 @@ run "migration list + pure C build" python3 scripts/check-audio-migration.py --c
 run "glue vs six kernel symbols" sh scripts/tests/portability/run.sh
 run "driver macro really switches it" sh scripts/tests/portability/run-symbols.sh
 run "glue needs only the table" sh scripts/tests/portability/run-deps.sh
+run "glue builds without warnings" sh scripts/tests/portability/run-warnings.sh
+run "warnings gate is honest" python3 scripts/tests/test-warnings-gate.py
 run "glue copy set matches the compiler" python3 scripts/check-audio27-closure.py
 run "conf-files appender is loud" python3 scripts/tests/test-audio-conffiles.py
 run "conf-files hook is honest" python3 scripts/tests/test-conf-files-hook.py

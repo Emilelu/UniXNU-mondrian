@@ -7545,3 +7545,7 @@ flag) yet」；`CPU_SUBTYPE_ARM64E_KERNEL_PTRAUTH_ABI_MASK = 0x40000000` 只在 
 现在这条判据是 `scripts/check-uefi-volume.py`：读 `[FV.FvMain]`、跟着 `!include` 递归、按 `[section]` 限制作用域，然后要求每个必需驱动既**被列出**又**有 `.efi`**；只要一个不满足就退 1，平台读不到退 2。六个自检里包含「列了但没编」与「include 出现在别的 FV section 里」两个假通过方向。
 
 一般化：**多份报告互相矛盾时，不要投票，去读决定它的那个文件链和那个产物**；并且把这次读法变成门禁，让下一次不必再投票。
+
+第二例，同一晚：一份审计报告说「`dts/mondrian.dts` 里 0 处 `unixnu,cluster-type`，所以 SM8475 的核簇没有声明」。那个文件确实 0 处——它只有一行 `/include/ "sm8475.dtsi"`，八个 cpu 节点的 cluster-type 全在被包含的 SoC dtsi 里（`sm8475.dtsi:22-59`），编出来的 `hardware.dtb` 里也确实有 8 处。判据在包含链和产物里，不在被审计的那一个文件里。
+
+两次的错法是同一个：**把一个文件的独立程度当成了事实的独立程度**。

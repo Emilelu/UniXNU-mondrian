@@ -76,7 +76,27 @@ adb shell 'command -v sg_inq >/dev/null && sg_inq -p 0x83 "$(readlink -f /dev/bl
 REPO="${K60_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 python3 "$REPO/scripts/check-w1-lun-evidence.py" "$CAP" --expect-lun 5; RC=$?
 printf 'judge_rc=%s\n' "$RC"
-exit "$RC"
+
+# AUTOCHECK: local files only; no adb and no device access in this step.
+# It composes the W1 judge with the W2 console/full-block judges when present.
+# Set K60_CONSOLE=<log> for W2 headers and K60_EFS_BLOCKS="1=... 2=..." for
+# full 4096-byte blocks. Missing families print SKIP, not a fake PASS.
+AUTO=()
+[ -s "$CAP/device-link.txt" ] && AUTO+=(--leg-a "$CAP/device-link.txt")
+[ -s "$CAP/unit-desc-L5.bin" ] && AUTO+=(--leg-b "$CAP/unit-desc-L5.bin")
+[ -s "$CAP/README.txt" ] && AUTO+=(--readme "$CAP/README.txt")
+[ -s "$CAP/proc-scsi-scsi.txt" ] && AUTO+=(--proc "$CAP/proc-scsi-scsi.txt")
+if [ -n "${K60_CONSOLE:-}" ]; then AUTO+=(--console "$K60_CONSOLE"); fi
+for pair in ${K60_EFS_BLOCKS:-}; do AUTO+=(--efs-block "$pair"); done
+if [ ${#AUTO[@]} -eq 0 ]; then
+  printf 'bundle_rc=2 (no local capture files)\n'
+  BRC=2
+else
+  python3 "$REPO/scripts/check-capture-bundle.py" "${AUTO[@]}"; BRC=$?
+fi
+printf 'bundle_rc=%s\n' "$BRC"
+if [ "$RC" -ne 0 ]; then exit "$RC"; fi
+exit "$BRC"
 PLAN
 
 printf '%s\n' 'run on a device with adb root; Lead runs this, not the lane'

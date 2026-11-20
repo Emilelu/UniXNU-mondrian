@@ -45,7 +45,11 @@ def main():
           "plan reads the H:C:T:L device link")
     check("desc -t 2 -i 5 -s 0 -r -D" in PLAN and "UFS_TOOL" in PLAN,
           "plan reads Unit Descriptor index 5")
-    check("check-w1-lun-evidence.py" in PLAN, "plan ends at the judge")
+    check("check-w1-lun-evidence.py" in PLAN, "plan includes the W1 judge")
+    check("check-capture-bundle.py" in PLAN and "AUTOCHECK" in PLAN,
+          "plan advertises the local-only composed auto-check")
+    check("K60_EFS_BLOCKS" in PLAN and "K60_CONSOLE" in PLAN,
+          "auto-check documents optional full-block and console inputs")
     check(PLAN.count("# EXPECT") >= 8, "every evidence command has EXPECT")
     check(PLAN.count("# IF") >= 6, "every evidence command has IF")
     check("# LEG A" in PLAN and "# LEG B" in PLAN and "# LEG C" in PLAN,

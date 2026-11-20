@@ -13,6 +13,8 @@
 | C2 | 四属性可读 | `K60Battery.cpp:209-214` | 电压/电流/容量/温度四条各在 §2.2 区间 | 1 行（首帧） |
 | C3 | 与 Android 同窗口一致 | 两侧样本配对 | 充电状态一致、时刻差 ≤10 s、四条偏差 ≤ 阈值 | ≥3 对有效样本 |
 
+C3 阈值：±60 mV / ±150 mA / ±3 pp / ±3 °C（判读器常量；`scripts/check-judge-thresholds.py` 按代码核对这一行，改代码不改这里就红）。
+
 **启动前置**：同一份 usblog 必须含 `K60Handoff: published authenticated PAS1 epoch=N bytes=104 flags=15`
 （`K60HandoffRuntime.cpp:57`，在兄弟树 k60-adsp-handoff / k60-gates / k60-display / k60-lead；本树 k60-charger 只有消费者）。
 没有这一行就不要判 C1：Battery 侧必然打 `K60Battery: blocked rc=-4: ...`（`K60Battery.cpp:432`），

@@ -58,10 +58,14 @@ armcpu-sleep-hook.patch
 # `Undefined symbols for architecture arm64e: "_pong_audio_amp_probe", referenced
 # from: _bsd_init in bsd_init.o; l_pong_audio_amp_probe$auth_ptr$ia$42271 in
 # bsd_init.o` (snapshot-build.log:1173089, round 15). Stage 0 has no audio: the file
-# stays here so the audio lane can list it again once PongAudioAmp.o is force-loaded
-# into the link and the symbol has a definition, which is what makes the probe
-# observable. A definition that returns 0 would not do: `AUDIO27 OK` has to tell
-# "not wired" from "wired to an empty shell".
+# stays here so the audio lane can list it again once the object that defines the
+# probe is really in the link. The test is not "the conf/files hook is fixed" --
+# 406198f5 fixed the hook's placement, yet scripts/k60-conf-files-hook.py is still
+# absent, so PongAudioAmp.o is still never compiled and the symbol still has no
+# definition. List this patch again only when
+# `grep -c 'PongAudioAmp.o' <tree>/build/xnu/snapshot-obj/RELEASE_ARM64_BCM2837/link.filelist`
+# is at least 1. A definition that returns 0 would not do either: `AUDIO27 OK` has
+# to tell "not wired" from "wired to an empty shell".
 0532-k60-cpu-start-completion.patch
 # arm64_isa_compatibility.h emits the q-register spellings (sha256su0 q0, q1)
 # unless __apple_build_version__ > 5010000, i.e. unless Apple's assembler is

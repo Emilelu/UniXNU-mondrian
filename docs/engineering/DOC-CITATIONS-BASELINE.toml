@@ -43,7 +43,6 @@ allowed_missing_targets = [
   "drivers/DarwinBoot/.../BootArgs.h",
   "drivers/DarwinBoot24/DarwinBootPkg/Driver/DarwinBoot.c",
   "drivers/FuxiFtsTouch/FtsProtocol.c",
-  "drivers/PongAudio/PongAudioPlan.h",
   "drivers/PongCellular/K60ModemLink.c",
   "drivers/PongPower/K60AdspBoot.c",
   "drivers/PongPower/PongIOAudio2.h",

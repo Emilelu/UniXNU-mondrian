@@ -45,7 +45,7 @@ audio 线只搬「与 OS 无关」的东西：
 | 对象 | 为什么不搬 |
 | --- | --- |
 | `patches/xnu/0504-k60-audio-pong-audio.patch` | AudioReach 图 + GPR 编解码 + 端点选择，绑 iOS 16 树的文件位置与 `bsd/conf` 接线 |
-| `patches/audio/0003-k60-audio-afe-selftest.patch` | 自检/探针脚本，依赖 0504 的结构 |
+| `adsp:patches/audio/0003-k60-audio-afe-selftest.patch` | 自检/探针脚本，依赖 0504 的结构 |
 | `firmware/adsp`（adsp.b00..b25） | 固件 blob，按目标版本另配 |
 | `PongAudio.driver` HAL bundle | HAL 层冻结，按 sheng 在 27 重接 |
 
@@ -66,7 +66,7 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    期望 `STUBS OK PongAudioAmp.c`（六个内核符号 + 三个类型的内核面）。
    这几条加上判据测试、功放 host 测试与（有 sheng 检出时的）audioreach 测试，可以用一条命令全跑：
    `sh scripts/check-audio27-preflight.sh` → 首行 `repo <path> <branch> @ <sha>`（量的是哪棵树），
-   随后五十二行 `ok`、一行随环境的 `skip`（`27 kernel carries the audio`，要 `XNU27_KERNEL`）。启动参数那三行（`boot argument checker is honest`、`audio boot argument is wired`、`boot arguments are documented`）量的是同一个名字在六处是否一致：驱动里的 `PE_parse_boot_argn`、镜像参数白名单、判官与 triage 的提示、接线页的「启动参数」行，以及 `BOOT-ARGS.md` 的条目。 其中两行看 `K60_GATES`——`27 driver takes the conf hook` 与 `27 driver takes the define` 量的是 `k60-gates` 里那份 27 构建驱动有没有把钩子与每目标宏交进构建，没接时说的是 `not wired yet` 而不是给一句绿；没给 `K60_GATES` 时这两行变 `skip`，总数就是四十八行 `ok` / 三行 `skip`。第三处接缝 `framework passes env to builder` 不依赖驱动，永远量。不过它要有框架检出（默认 `/tmp/UniXNU`，`UNIXNU=` 可指路）：没有时这一行变 `skip`，总数就是四十九行 `ok` / 两行 `skip`——干净 clone 的实测就是这个形状。整跑以 `PREFLIGHT OK` 收尾。若 `XNU27_REPO` 指的树已经被系列按顺序打到 0531，`27 patch emits unchanged` 会打 `skip`（emitter 退出 3，原文 `… nothing to emit`）：那棵树已经是「系列形态」，不是本块形态，没有可重新生成的东西。每一行自带它量的那棵树的身份：xnu27 那行带
+   整跑五十三行，`ok` 与 `skip` 的分配取决于这台机器。钩子已接、只缺内置内核时是五十二行 `ok`、一行 `skip`（`27 kernel carries the audio` 要 `XNU27_KERNEL`）；stage 0 的驱动按设计没有那个钩子，于是 `27 driver takes the conf hook` 读 `seam inert` 并 `skip`，这时是五十一行 `ok`、两行 `skip`。第三处接缝启动参数那三行（`boot argument checker is honest`、`audio boot argument is wired`、`boot arguments are documented`）量的是同一个名字在六处是否一致：驱动里的 `PE_parse_boot_argn`、镜像参数白名单、判官与 triage 的提示、接线页的「启动参数」行，以及 `BOOT-ARGS.md` 的条目。 其中两行看 `K60_GATES`——`27 driver takes the conf hook` 与 `27 driver takes the define` 量的是 `k60-gates` 里那份 27 构建驱动有没有把钩子与每目标宏交进构建，没接时说的是 `not wired yet` 而不是给一句绿；不依赖驱动，永远量。不过它要有框架检出（默认 `/tmp/UniXNU`，`UNIXNU=` 可指路）：没有时这一行也 `skip`，总数不变。 `framework passes env to builder` 不依赖驱动，永远量。不过它要有框架检出（默认 `/tmp/UniXNU`，`UNIXNU=` 可指路）：没有时这一行也 `skip`。这几行 `skip` 都不表示接线通过。整跑以 `PREFLIGHT OK` 收尾。若 `XNU27_REPO` 指的树已经被系列按顺序打到 0531，`27 patch emits unchanged` 会打 `skip`（emitter 退出 3，原文 `… nothing to emit`）：那棵树已经是「系列形态」，不是本块形态，没有可重新生成的东西。每一行自带它量的那棵树的身份：xnu27 那行带
    `xnu-12377.121.6 ac9718f` 与四个接口各自的 `file:line`，`27 stubs match the declarations` 带同一版本的 `STUBS OK 6/6`（桩头写得比内核宽，宿主编译就看不见窄化，见 WIRING 的桩一节），sheng 那两行带 `(c8f92b2)`，
    `27 kernel carries the audio` 报产物自己的大小与 sha256。（2026-11-20 05:3x 实测
    979 cases / 182 checks / `API OK 4/4` / `SHENG ABI OK 16/16` 全过。）这条命令还在
@@ -85,7 +85,7 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    直接拒绝复制。本仓实测 `--copy` 到空树后，`tests/run-tests.sh` 在副本里仍是 `TESTS OK 979 cases`。
 3. 跑 `drivers/PongAudio/tests/run-tests.sh`，期望 `TESTS OK 979 cases`。
 4. 可选：等 power 线把 `drivers/PongPower/QcomGlink.c` 与 `K60AudioGlink.c` 迁到 27 树之后，
-   再跑 `drivers/PongAudio/tests/run-glink-multislot-tests.sh`（期望 `TESTS OK 800 cases`）。
+   再跑 `adsp:drivers/PongAudio/tests/run-glink-multislot-tests.sh`（期望 `TESTS OK 800 cases`）。
    这套件编的是 PongPower 的传输源，不随本清单走。
 5. 在 27 树加一个编译单元与一个初始化调用点（不进 `patches/xnu/0504`）；接哪个点、还缺什么
    依赖，见 [IOS27-WIRING.md](IOS27-WIRING.md)。

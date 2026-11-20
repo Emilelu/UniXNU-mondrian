@@ -9,16 +9,16 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 | 层 | 住在哪 | 27 上怎么处理 |
 | --- | --- | --- |
 | 功放 bring-up、PCM 提交、日志 | 本仓 `drivers/PongAudio` + 0001/0003 补丁 | 只搬纯 C 与 host 测试（见迁移清单），接线见 WIRING |
-| IOKit 音频服务（`ShengAudio` 类） | **UniXNU-sheng** `package/AudioProbe.cpp`、`package/ShengAudioService.cpp` | 直接用 sheng 的最新代码，不复制 |
+| IOKit 音频服务（`ShengAudio` 类） | **UniXNU-sheng** `sheng:package/AudioProbe.cpp`、`sheng:package/ShengAudioService.cpp` | 直接用 sheng 的最新代码，不复制 |
 | AudioServerPlugIn bundle（`ShengAudio.driver`） | **UniXNU-sheng** `hal/ShengAudioPlugIn.c` | HAL 冻结：不重建，只把它的 CDHash 放进 trust cache |
-| 服务与 plug-in 的 ABI | **UniXNU-sheng** `package/ShengAudioAbi.h` | 接口不动；它是内核侧唯一需要对齐的用户态契约 |
+| 服务与 plug-in 的 ABI | **UniXNU-sheng** `sheng:package/ShengAudioAbi.h` | 接口不动；它是内核侧唯一需要对齐的用户态契约 |
 
 2026-11-20 04:1x 观察到的 sheng `main` 是 `c8f92b2`（"fix(touch): include the recorded Novatek validation"）。
-从 `a68ee4e` 到 `c8f92b2` 之间音频目录动过三处（见 §3 末尾），但 **ABI 头 `package/ShengAudioAbi.h` 逐字节未变**
+从 `a68ee4e` 到 `c8f92b2` 之间音频目录动过三处（见 §3 末尾），但 **ABI 头 `sheng:package/ShengAudioAbi.h` 逐字节未变**
 （88 行，sha256 `9ef369877cfae3d2255129f7fdf332448b71300a0fc840d6522ec83e09754b52`）——用户态契约没动，
 内核侧要对的仍是 §2 那些常量。
 
-## 2. ABI（`package/ShengAudioAbi.h`，88 行）
+## 2. ABI（`sheng:package/ShengAudioAbi.h`，88 行）
 
 - 类名 `"ShengAudio"`，magic `0x53484155`（`'SHAU'`），`SHENG_AUDIO_VERSION 1`。
 - 48 kHz；输出 2 声道、输入 1 声道；`SHENG_AUDIO_PERIOD_FRAMES 480`（10 ms）；
@@ -34,7 +34,7 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 
 ## 3. 注入路径（sheng 的补丁里已有，27 原始树里没有）
 
-`patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch`（`bsd/kern/kern_exec.c`）在原有三个 addon 槽之后加第四个：
+`sheng:patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch`（`bsd/kern/kern_exec.c`）在原有三个 addon 槽之后加第四个：
 
     static const char audio_source[] = "/private/var/ngpu/audio",
                       audio_point[] = "/System/Library/Audio/Plug-Ins/HAL";
@@ -46,20 +46,20 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 - 基准是系统自带的 `BuiltinAudioPlugin.driver`；可见点是我们的 `ShengAudio.driver/Info.plist`；挂载点是音频服务器会扫描的 HAL 目录。
 - **它不是一条能单独打的补丁**（2026-11-20 实测）：把 27 原始树（`ac9718f xnu-12377.121.6`）拷一份后
   `git apply --check` 直接报 `error: patch failed: bsd/kern/kern_exec.c:8139`——它的上下文是
-  `native_gpu_addon1..3`，而原始树里 `native_gpu_addon` 命中 **0 次**。把 sheng 的 37 项系列按 `series`
-  顺序重放也只应用了 8 项，`zzyd`、`zzzz-sheng-ipados27-bringup`（`bsd/kern/bsd_init.c:800`）等都失败；
-  说明这套补丁是**增量叠在 sheng 自己的树上**，不是对上游 12377 的可重放序列。
+  `native_gpu_addon1..3`，而原始树里 `native_gpu_addon` 命中 **0 次**。这条单补丁失败只能证明它需要前置 addon 机制；
+  本轮的 25 项清单是同一基准下的设备系列审查，不能把旧实验里包含非条目的重放计数混进来。
+  所需完整框架与系列能否重放，仍由组装内核系列的人验证。
   ⇒ 27 上要走到这条注入，必须由组装内核系列的人把 addon 链一并带上（或另写一条只做音频的单用途补丁）；
   HAL 注入当前冻结，音频侧只提供这条契约与判据。
-- 16 系列的同一补丁在 `patches/xnu/zzyd-sheng-audio-addon-mount.patch`，两代只是 addon 槽编号不同（27 上多了 `addon4_stage/status`）。
+- 16 系列的同一补丁在 `sheng:patches/xnu/zzyd-sheng-audio-addon-mount.patch`，两代只是 addon 槽编号不同（27 上多了 `addon4_stage/status`）。
 - `hal/ShengAudioPlugIn.c`（`c8f92b2` 上 736 行，`a68ee4e` 时 703 行）实现 `AudioServerPlugIn`；`build-sheng-audio-hal.py` 用 macOS 的 CoreAudio 头 + iphoneos SDK
   编成 bundle 并写 `trust.json`（可执行文件 CDHash，给 owner trust cache）。脚本文档字符串已点名：**iPadOS 27 的音频服务器是
   `arm64e-apple-ios27.0`**，默认 target 仍是 `arm64-apple-ios17.0`。HAL 冻结的意思是：不重编这个 bundle，只确认 `trust.json`
   里那份 CDHash 在 27 的 trust cache 里。
 
-`c8f92b2` 之后这个 bundle 多了三处与 27 有关的行为（都不改 ABI）：
+从 `a68ee4e` 对照到 `c8f92b2`，源码有三处值得 27 重接时复核的行为（不改变这里核对的 ABI 常量）：
 
-- **自身常驻**：`Initialize()` 第一件事是 `keepImageResident()`（`hal/ShengAudioPlugIn.c:138`）——`dladdr` 取自己的
+- **尝试锁页**：`keepImageResident()` 定义在 `hal/ShengAudioPlugIn.c:138`，`Initialize()` 在 :158 调用它；`dladdr` 取自己的
   Mach-O 头，把除 `__LINKEDIT` 外的每个段 `mlock`。理由在源码注释里：音频服务器的 IO 线程每个周期都跑这段代码与数据，
   被换出的页会算成 `PageFaultsOnIOThread` 过载；`mlock` 被拒（沙箱或限额）就静默继续。我们冻结的是 16 时代那个 bundle，
   **没有这一版**——27 上一旦看到 IO 线程 page fault 的报错，这就是「用 sheng 新代码重编 bundle」的理由，而不是分叉一份。
@@ -76,18 +76,19 @@ iOS 目标的路径与产物形状没变：仍是 `ShengAudio.driver/ShengAudio`
 
 | 命令 | 期望 | 说明 |
 | --- | --- | --- |
-| `cd UniXNU-sheng && python3 scripts/check-audioreach-host.py` | `PASS audioreach: 182 checks` | ASan/UBSan 编 `package/tests/audioreach_host.c`（162 行），核对图管理命令的包长、参数块布局与 DSP 参考客户端一致 |
+| `python3 sheng:scripts/check-audioreach-host.py`（在 `UniXNU-sheng` 里跑） | `PASS audioreach: 182 checks` | ASan/UBSan 编 `sheng:package/tests/audioreach_host.c`（162 行），核对图管理命令的包长、参数块布局与 DSP 参考客户端一致 |
 | `cd k60-audio-ios27-carry && sh scripts/tests/portability/run.sh` | `STUBS OK PongAudioAmp.c` | 内核侧胶水对六个符号的内核面 |
 | `python3 scripts/check-audio-migration.py --compile` | `OK: the migration list matches the driver directory` | 可搬清单与磁盘一致 |
 
 一条命令跑完上面几道（外加 conf/files 追加器用例、符号表正反两跑、判据测试与功放 979 例）：
-`sh scripts/check-audio27-preflight.sh` → 末行 `PREFLIGHT OK N rows (…), as declared`，N 就是脚本头部的 `ROWS_EXPECTED`；sheng 检出不在旁边时那行是 `skip`，可用 `SHENG_REPO=` 指定。
+`sh scripts/check-audio27-preflight.sh` → 末行 `PREFLIGHT OK N rows (…), as declared`，N 就是脚本头部的 `ROWS_EXPECTED`；
+sheng 检出缺失时四条依赖检查各有一行 `skip`（参考清单、host tests、ABI、注入）。可用 `SHENG_REPO=` 显式指定；显式位置缺失时不换另一棵树。
 
 2026-11-20 04:35 复核过一遍：在临时目录 `git clone --shared` 本仓、`git fetch` 后 `checkout FETCH_HEAD`
 （= `origin/main` `c8f92b2`），逐条对上面点名的行号——`ShengAudioAbi.h` 88 行、
 `sha256 9ef369877cfae3d2255129f7fdf332448b71300a0fc840d6522ec83e09754b52`、
-`hal/ShengAudioPlugIn.c` 736 行且 `keepImageResident()` 在 :138、host clock `-2` 在 :85、
-`package/ShengAudioService.cpp` 的 macOS 白名单在 :80（iOS 分支 :82）、
+`hal/ShengAudioPlugIn.c` 736 行，`keepImageResident()` 定义在 :138、调用在 :158，host clock `-2` 在 :85、
+`sheng:package/ShengAudioService.cpp` 的 macOS 白名单在 :80（iOS 分支 :82）、
 `scripts/build-sheng-audio-hal.py` 的文档字符串点名 `arm64e-apple-ios27.0`、`check-audioreach-host.py`
 `PASS audioreach: 182 checks`。**注意**：`/mnt/e/hackios/UniXNU-sheng` 的工作副本停在 `a68ee4e`
 （相对 `origin/main` ahead 484 / behind 795），所以在预检里要 `SHENG_REPO` 指到新的 clone，
@@ -123,24 +124,39 @@ conf-files TESTS OK 6 cases / PROBE OK / judge TESTS OK / amplifier TESTS OK 979
 自带它读的那个 commit。比较前把空白归一化：**重排不算漂移，改值才算**——sheng 换个排版不该让这条线变红，
 换掉一个选择器号则必须红。
 
-显式给出 `--sheng`（或 `SHENG_REPO`）而那棵树里没有 `package/ShengAudioAbi.h` 时，脚本报
+显式给出 `--sheng`（或 `SHENG_REPO`）而那棵树里没有 `sheng:package/ShengAudioAbi.h` 时，脚本报
 `refusing to read another tree` 并退 1，不会退回到旁边某个旧 clone 继续报绿：
 今天已经出现过「门禁量的是另一棵树」的假绿两次（P-251、P-256），静默回退正是那种形状。
 
 它接在预检里（`sheng abi checker is honest` = 脚本自身的 4 例，`sheng abi constants hold` = 对真检出的比对），
 所以 `sh scripts/check-audio27-preflight.sh` 一次就能回答「这份文档描述的 ABI 还在不在」。
-第 3 节的注入路径也进了门禁：`python3 scripts/check-sheng-inject.py --sheng <sheng 检出>` 读回九条事实——
-add-on 补丁里的源路径 `/private/var/ngpu/audio`、挂载点 `/System/Library/Audio/Plug-Ins/HAL`、参照包
-`BuiltinAudioPlugin.driver`、留下的可见点 `ShengAudio.driver/Info.plist`，`hal/ShengAudioPlugIn.c` 里的
-`keepImageResident`（:138），以及 `package/ShengAudioService.cpp` 两处沙箱授权（iOS 的
-`"audiomxd,mediaserverd"` :82 与 macOS 的 coreaudiod :80），以及这条补丁**叠在 addon 链上**的两条证据
-（`+volatile int native_gpu_addon4_stage = 0` 与上下文里的 `native_gpu_addon3_stage = 0`——后一条也是
-「它不是独立补丁」的机器判据）。末行
-`SHENG INJECT OK 9/9 invariants (c8f92b2): patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch:19, …`
+第 3 节的注入路径也进了门禁：`python3 scripts/check-sheng-inject.py --sheng <sheng 检出>` 读回
+**八条必需事实加一条随树变化的事实**——add-on 补丁里的源路径 `/private/var/ngpu/audio`、挂载点
+`/System/Library/Audio/Plug-Ins/HAL`、参照包 `BuiltinAudioPlugin.driver`、留下的可见点
+`ShengAudio.driver/Info.plist`，`hal/ShengAudioPlugIn.c` 里的 `keepImageResident` 名字（定义 :138、调用 :158），
+`sheng:package/ShengAudioService.cpp` 的 iOS 沙箱授权 `"audiomxd,mediaserverd"`（:82），以及这条补丁
+**叠在 addon 链上**的两条证据（`+volatile int native_gpu_addon4_stage = 0` 与上下文里的
+`native_gpu_addon3_stage = 0`——后一条也是「它不是独立补丁」的机器判据）。末行
+`SHENG INJECT OK 9/9 invariants (c8f92b2): sheng:patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch:19, …`
 把每条命中位置一起打出来，所以「还在」与「挪到别处了」分得开。
 
-这条检查同样拒绝静默回退：`--sheng` 指的树里没有那份补丁时报
-`… has no patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch; refusing to read another tree` 并退 1。
-预检里对应两行：`sheng inject checker is honest`（5 例，含「不再叠在 addon 链上」那一例）与
-`sheng inject contract holds`（真检出）。
+那条随树变化的（versioned）事实是 macOS 分支的同一处授权
+（`"coreaudiod,com.apple.audio.Core-Audio-Driver-Service.helper"`，:80）。这是编译时 OS 分支选择的用户客户端沙箱授权。
+iOS 检查不要求 macOS 分支存在；缺席时门禁先打
+`SHENG INJECT NOTE: … ; upstream main carries it, this tree does not`，再把末行改成
+`SHENG INJECT OK 8/9 invariants, 1 versioned fact(s) absent`，保留差异。这个结果只说明八条 iOS 源码事实满足；
+沙箱授权不证明 HAL 已加载，函数名存在也不证明调用成功或页面常驻。`mlock` 被拒后源码会继续，仍需运行证据。
+其余八条不在这份宽容里：`keepImageResident` 缺席就是 FAILED，因为本次选定的新源码基准包含它。
+宿主 `scripts/tests/test-sheng-inject.py` 七例，其中两例钉住这条静态边界
+（只带 iOS 授权的树退 0 且带 NOTE；把 `keepImageResident` 改名则退 1）。
 
+**参考检出必须是带全部契约事实的那份克隆**：本机持久克隆是
+`E:/k60-work/UniXNU-sheng`（HEAD `c8f92b208068eeaa4cd2b0f592671f04ee70076e`，2026-11-20 与上游 main 对齐）。
+预检优先选它并把同一个 `SHENG_REPO` 导出给命令引用、参考清单、host tests、ABI 与注入检查；显式指定的 `SHENG_REPO` 优先。不要指 `/mnt/e/hackios/UniXNU-sheng`：那份 HEAD `a68ee4e` 是另一条线，
+`hal/ShengAudioPlugIn.c` 没有 `keepImageResident`、`ShengAudioService.cpp` 只剩 iOS 授权，指着它会红——
+这是门禁在说那棵树缺契约，不是它挑树。换一棵树不是把检查放宽的理由：`SHENG_REPO` 只换位置，不换要求。
+
+这条检查同样拒绝静默回退：`--sheng` 指的树里没有那份补丁时报
+`… has no sheng:patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch; refusing to read another tree` 并退 1。
+预检里对应两行：`sheng inject checker is honest`（七例，含「不再叠在 addon 链上」那一例）与
+`sheng inject contract holds`（真检出）。

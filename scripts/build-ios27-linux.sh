@@ -40,6 +40,11 @@ BOARD_DIR="$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27"
 # UniXNU resolves profiles/os/<name> from its own tree; install ours first.
 bash "$ROOT/scripts/install-os-profile.sh" "$UNIXNU"
 
+# Memory geometry costs a second and fails before the kernel build. XNU builds
+# the physmap from /chosen/dram-base and dram-size, so an arena that crosses a
+# hole between the banks this phone reports boots into nothing (P-231).
+python3 "$ROOT/scripts/check-ios27-geometry.py"
+
 sh "$ROOT/scripts/apply-core-patches.sh" "$UNIXNU"
 cd "$UNIXNU"
 python3 ./unixnu fetch --device "$ROOT"

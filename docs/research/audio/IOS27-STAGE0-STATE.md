@@ -29,6 +29,14 @@
 - `k60-gates/board.toml:352`：从 `remove` 数组里删掉 `"kernel.pong_native_driver_source"`（`remove` 块可以整块删掉）。
 - `k60-gates/scripts/`：放入 `k60-conf-files-hook.py` 和它调用的 `add-audio-conffiles.py`（音频仓同名文件；后者在 `:34-35` 写 `bsd/dev/PongAudioGeniI2c.c`、`bsd/dev/PongAudioAmp.c` 两行），`build-ios27-linux.sh:52` 才会看见钩子并设 `K60_CONF_FILES_HOOK`。
 
+谁能验（第三条同时读 `conf/files`；三行都成立才是 stage 0）：
+
+```sh
+sed -n '360p' "$K60_GATES/board.toml"          # include 里没有 PongUfs
+sed -n '352p' "$K60_GATES/board.toml"          # remove 里有 kernel.pong_native_driver_source
+test ! -e "$K60_GATES/scripts/k60-conf-files-hook.py" && ! grep -n 'PongAudio' "$XNU27_TREE/bsd/conf/files" && echo 'stage 0: hook absent, conf/files has no PongAudio line'
+```
+
 这三条只关掉 stage 0 的惰性，不放行 0531：系列仍按 `patches/xnu-12377/series:52` 的注释，先强制加载 `PongAudioAmp.o`，再列调用点补丁。改完后对产物重跑 `scripts/check-audio27-kernel.py`，读到 `strings 3/3` 与 `symbols 3/3` 才算音频真的进了构建。
 
 ## 二、三分钟自证

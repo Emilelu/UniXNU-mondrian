@@ -126,7 +126,7 @@ e6c4c60  ci: touch the OS window workflow so forks register it
 | `UniXNU/QcomGeniSpi` | **GENI SPI 控制器**（`GeniSpi.c:80` 有 `use_dma` 分支、`:113-118` DMA 模式切换）——触摸 SPI 层的官方解 |
 | `UniXNU/ShengNovatekTouch` | Novatek NT36532 触摸协议（不同芯片，架构参考） |
 | `UniXNU/ShengHidInput` | `NativeHidInput.cpp`：touch → IOHIDDevice 上报架构 |
-| `UniXNU/ArmSmmu4K` | SMMU 4 KiB 页表 kit |
+| `UniXNU/ArmSmmu4K` | SMMU 4 KiB 页表 kit；16.6.1 线由 `libPongAdrenoPlatform.a` 提供，24A446 stage-0 内核不链 Adreno 平台，故按 MIT 把 `ArmSmmu4K.c`/`ArmSmmu4KContext.c`/`ArmSmmu4KProgram.c` 编进 `libPongWifiNative.a`（`--smmu4k-kit`） |
 | `UniXNU/ArmCpu` | ARM GIC 与定时器 |
 | `UniXNU/ArmDTPlatform` | 设备树平台专家 |
 | `UniXNU/DarwinBoot` | UEFI XNU loader |

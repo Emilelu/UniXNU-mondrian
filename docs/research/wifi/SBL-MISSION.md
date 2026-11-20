@@ -1814,3 +1814,94 @@ ArmDTPlatform 与 ArmCpu 两个归档从同版本的 27 产物树借来放进 `b
 `XNU_PONG_WIFI=1` + `-Wl,-force_load` 的钩子在 `build-xnu-generic.sh` 里就位。拿到
 `build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf` 之后，
 `scripts/check-wifi-symbols.py` 的符号计数才是 B2 的判据。
+
+## 67. 27 内核第一次链接出镜像：三处驱动侧修正，一处必须说明的脚手架
+
+判据是 lead 定的：不是「编译通过」，而是「27 内核镜像里 PongWifi 符号计数 >0」。2026-11-20 拿到镜像：
+`mach.development.bcm2837.unstripped.noctf` 35,613,936 B，`scripts/check-wifi-symbols.py` 报
+`wifi symbols: 30 (PongWifi=4, pong_sae=2, pong_scan=4, pong_wifi=20)`，exit 0。
+链接命令行里 `-Wl,-force_load,…/libPongWifiNative.a` 确实出现（linkarchives 文件可查），
+所以这 30 个符号不是别处来的。
+
+### 67.1 归档必须是 arm64e，否则整份被 ld 丢弃
+
+27 内核是 arm64e（arch profile arm64e 给 `ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64e`），而两个构建脚本一直写死
+`arm64-apple-ios16.0`。链接时 ld 只打两行警告就继续，符号全为 0：
+
+```
+ld: warning: ignoring file …/libPongWifiNative.a, building for iOS-arm64e but attempting to link with file built for iOS-arm64
+```
+
+这是最容易被误判成「驱动没编进去」的一种失败——镜像链接成功、`-force_load` 生效、警告不显眼、符号一个都没有。
+两个脚本因此各加 `--target`（默认仍是 `arm64-apple-ios16.0`，16 线行为不变）；
+`build-k60-ath11k.py` 里 `ld -r` 的 `-arch arm64` 也改成从 target 推导，
+因为 `ld -r` 以 arm64 运行时会把 arm64e 成员全部丢掉，libtool 于是产出空表 of contents 的归档。
+arm64e 下还追加 `-U__apple_build_version__`：`os/base.h` 见到该宏就选四参数 `__ptrauth` 形式（`sys/ucred.h:109` 经
+`OS_PTRAUTH_SIGNED_PTR_AUTH_NULL`），只有 Apple 出货 clang 接受，本工具链（clang 24.0.0git）只认三参数。
+
+### 67.2 SMMU 4 KiB kit：27 stage-0 内核没有 Adreno 平台
+
+驱动做 DMA 隔离时调 `ArmSmmu4KBuild` / `ArmSmmu4KProgramDisabledContext`（`PongWifiPlatform.cpp:482`）。
+16 线这两个符号由 `libPongAdrenoPlatform.a`（`CONFIG_XNU_PONG_ADRENO_PLATFORM=y`）提供；
+27 的 `configs/mondrian_ios27_defconfig` 关掉了 Adreno，通用构建器里也没有这个开关，于是它们成了 undefined。
+
+先试错的一条路要记下来：通用构建器有个 `XNU_SMMU4K_PROBE` 槽位（`build-xnu-generic.sh:621` force_load
+`build/smmu4k-probe/libArmSmmu4KProbe.a`），看着正合适，把 kit 编进去也确实进了链接（日志 6 次），
+但它同时是「探针入口」语义——`:809` 会改 bsd_init 去调 `_native_smmu4k_probe`，而 kit 没有这个符号；
+另外还缺 `ArmSmmu4KEncodeContext` / `ArmSmmu4KValidateContextReadback`（`ArmSmmu4KContext.c:24/:72`）。
+那个槽位是给探针用的，不是给「补 kit 符号」用的。
+
+正解是 `build-k60-wifi-native.py --smmu4k-kit`：把 `drivers/PongAdreno/ArmSmmu4K` 的
+`ArmSmmu4K.c`、`ArmSmmu4KContext.c`、`ArmSmmu4KProgram.c` 用同一套 flags 编进驱动归档（MIT，已记 CREDITS）。
+注释里写死一条禁令：绝不可在同时 force_load Adreno 平台的内核上打开——一个链接里两份定义。
+
+### 67.3 两个 16 专用内核钩子：arm64e 下 weak 引用救不了
+
+`PongWifiPlatform.cpp` 的 worker 开跑前要等 `k60_usblog_console_up()`（usblog 补丁导出）与
+`pong_ufs_ready()`（PongUfs 导出）。27 stage-0 既没有 USB 控制台补丁也没有 UFS，两个符号都不存在。
+
+第一版把它们声明成 `__attribute__((weak))` 再判空，**失败**：arm64e 取函数地址要认证，
+ld 仍报 undefined，还多出 `l_k60_usblog_console_up$auth_ptr$ia$42271` 这种认证指针符号。
+改成编译期开关：`PONG_WIFI_HOST_HOOKS`（默认 1，16 线行为不变），27 构建传
+`build-k60-wifi-native.py --no-host-hooks` → `-DPONG_WIFI_HOST_HOOKS=0`，
+两段等待整段编掉，`#else` 只留一行 `PongWifi: host console and UFS hooks absent; starting the cold link alone`。
+实测重建后归档里 `k60_usblog_console_up` / `pong_ufs_ready` 的引用各 0 次。
+
+### 67.4 剩下的 undefined 全部不是 wifi 的
+
+三处修完之后，27 链接的 undefined 只剩四类，全部有主：
+
+- `_psci_smp_init` / `_psci_smp_start_cpu` / `_psci_smp_cpu_running` / `_psci_smp_cpu_off` /
+  `_pong_cpu_startup_finished`：引用方是 `libArmCpu.a(ArmCpu.o)`。12377 树没有 `osfmk/arm64/psci_smp.c`；
+  16 线靠 `patches/xnu/zzzzzzzzzzzzzzzzzzzzz-pong-psci-smp.patch`（512 行）提供，该补丁同时新建
+  `pexpert/pexpert/arm64/PONG.h`，在 12377 上 `git apply --check` 直接失败。属 [SOC]。
+- `___llvm_profile_get_size_for_buffer_internal` / `___llvm_profile_write_buffer_internal`：
+  `libcc_kext.a` 是 arm64 编的，27 内核是 arm64e，ld 警告后丢弃。属 27 线框架。
+- `_nw_wifi_power` / `_nw_wifi_scan_frequencies`：27 站（fork 的 mac80211/cfg80211 版）才有的 API，
+  我们链的 `ath11k-abi27e` 是「16 的 `nw_sta.c` 实现 + 27 头文件」的混合体。属 [SOC]/27 线。
+- 关掉 ArmCpu 不是出路：`XNU_ARMCPU=0` / `XNU_ARM_DT_PLATFORM=0` 时通用构建器自己拒绝，
+  末行 `Architectural timer entry requires the actual ArmCpu interrupt provider`。
+
+### 67.5 为了拿到镜像而用的脚手架，必须写明它不是修法
+
+上面三类缺口都不在 wifi 里，但链接是整体的，缺一个符号就出不了镜像。为了先把「驱动是否真的进了内核」这条判据
+跑出来，本轮用一个**只存在于 scratch** 的 stub 归档（`/mnt/e/k60-work/scratch/libStub27.a`，源码 `stub27.c`）
+以 `XNU_EXTRA_LD_ARCHIVES=-Wl,-force_load,…libStub27.a` 接进链接。它定义了那 9 个符号，函数体全返回 0/1。
+
+它**没有进仓库，也不能进**：它会让内核在真机上带着假的 PSCI SMP 与假的 UEFI/站接口跑起来。
+它的唯一用途是让 `check-wifi-symbols.py` 能对一个真实链接出来的 27 镜像计数。
+判据因此分两层，汇报时不要混：
+
+1. 驱动侧已证明：arm64e 归档、SMMU kit、钩子开关三处修完，wifi 不再贡献任何 undefined 符号。
+2. 整镜像已证明（带脚手架）：35,613,936 B 的 27 内核里 30 个 PongWifi 符号，`-force_load` 在链接命令行上。
+3. 不带脚手架出镜像，要等 [SOC] 的 psci/ArmCpu 与 27 站归档——不是 wifi 线能单独关掉的。
+
+### 67.6 顺带落的两个工具
+
+- `scripts/check-wifi-station-api.py`：读 kext 归档的 nm 输出，取其中未定义的 `nw_wifi_*`，
+  到 `--station` 目录的 `src/*.c` 里找定义，缺一个就 exit 1（档案/目录不可读 exit 2）。
+  对 `teardown27g` 与 fork 的 27 站实测 `2 referenced, 2 defined, 0 missing`。
+  它挡的是「头文件承诺了新 API、链进来的站归档还是旧的」这种只在链接期暴露的错配。
+- `scripts/tests/test-wifi-ios27-link.py`：7 例，覆盖 `--smmu4k-kit` 默认不编 kit、kit 目标进 libtool 行、
+  两个钩子在宏后面（且归档里不许再有 weak 声明）、`--no-host-hooks` 真的追加宏、站 API 检查的正反例。
+  注意它必须在 WSL 的 `/usr/bin/python3` 下跑：假 nm 是 sh 脚本，Windows python 报 WinError 193。

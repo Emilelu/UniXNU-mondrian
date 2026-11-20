@@ -89,9 +89,31 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   arms the same XNU_PONG_WIFI=1 -> -Wl,-force_load,$PONG_WIFI_ARCHIVE path the Pong
   builder has.
   Exit, and this is the part that matters: a successful link is not proof - -force_load
-  over an archive whose objects were compiled out also links. The 27 image must define a
+  over an archive whose objects were compiled out also links, and so does one whose objects
+  are the wrong CPU subtype: the 27 kernel is arm64e while both builders defaulted to
+  arm64-apple-ios16.0, and ld only warned "ignoring file … built for iOS-arm64" before
+  linking a kernel with zero driver symbols. Both scripts now take --target, and
+  build-k60-ath11k.py derives the ld -r arch from it (ld -r run as arm64 drops every
+  arm64e member and libtool then writes an empty archive). Two more wifi-side undefined
+  symbols had to be closed: ArmSmmu4KBuild / ArmSmmu4KProgramDisabledContext, which the
+  16.6.1 line gets from libPongAdrenoPlatform.a and the stage-0 line does not link
+  (--smmu4k-kit compiles drivers/PongAdreno/ArmSmmu4K into the driver; never arm it on a
+  kernel that force-loads the Adreno platform), and pong_ufs_ready / k60_usblog_console_up,
+  which only the 16.6.1 kernel exports (weak declarations do not work under arm64e - taking
+  a function's address needs authentication and ld still reports it undefined - so
+  --no-host-hooks compiles both waits out behind PONG_WIFI_HOST_HOOKS). After that the
+  driver contributes no undefined symbol. What still stops a clean 27 link is not wifi:
+  psci_smp_* and pong_cpu_startup_finished (12377 has no osfmk/arm64/psci_smp.c; the 16
+  patch also creates PONG.h and does not apply), the two llvm profile internals in an
+  arm64 libcc_kext.a, and nw_wifi_power / nw_wifi_scan_frequencies from the fork's 27
+  station. To count the symbols anyway, a scratch-only stub archive defined those nine
+  names for one link (never committed, never flown): 35,613,936 B image, 30 PongWifi
+  symbols, -force_load visible in the link command. Proof of the driver, not a shippable
+  kernel. The 27 image must define a
   non-zero number of PongWifi symbols, checked by scripts/check-wifi-symbols.py (exit 1 on
-  zero, self-tested by scripts/tests/test-wifi-symbols.py). Build with --os
+  zero, self-tested by scripts/tests/test-wifi-symbols.py), and
+  scripts/check-wifi-station-api.py cross-checks the nw_wifi_* the archive leaves undefined
+  against the station tree (2 referenced, 2 defined on the fork's 27 tree). Build with --os
   ios-27.0.1-24A446 after scripts/install-os-profile.sh; with --os ipados-27.0.1-24A446 it
   applies the 16 series and dies at osfmk/arm64/start.s:33. scripts/build-wifi27-kernel.sh
   runs that whole path in one command and finishes by counting symbols (6 cases in

@@ -21,8 +21,11 @@ so the check needs no build of its own:
         [--kernel-arch arm64e] [--declared <file>] [--ar <llvm-ar>]
 
 Exit 0 when both assertions hold, 1 when an input breaks one of them, 2 when
-the record or a tool cannot be read. This is a lane preflight, not a flight
-blocker: a Wi-Fi archive must not refuse a stage-0 image that carries none.
+the record or a tool cannot be read. This is the lane preflight entry: one
+command runs both assertions and the exit status is their conjunction. It is
+deliberately not an entry in docs/engineering/IOS27-FLIGHT-BLOCKERS.toml:
+that ledger decides whether a whole image may fly, and a Wi-Fi input must not
+refuse a stage-0 image that carries no Wi-Fi archive at all.
 """
 
 from __future__ import annotations

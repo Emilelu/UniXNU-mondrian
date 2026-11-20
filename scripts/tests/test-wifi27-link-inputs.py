@@ -133,6 +133,16 @@ def a_missing_archive_is_a_refusal_not_a_skip():
 
 
 @case
+def a_missing_record_is_named_and_refused():
+    root = Path(tempfile.mkdtemp())
+    missing = root / "no-such-linkarchives"
+    code, out, err = run(root, missing, fake_ar(root), ["--allow-root", str(root)])
+    assert code == 2, (code, out, err)
+    assert "FAIL record:" in err and str(missing) in err, err
+    assert "PASS" not in out, out
+
+
+@case
 def a_dash_l_is_resolved_through_the_L_flag():
     root = Path(tempfile.mkdtemp())
     archive(root, "libfirehose_kernel.a")

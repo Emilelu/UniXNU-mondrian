@@ -111,6 +111,27 @@ def main() -> int:
     check("an anchor the pattern does not use is refused",
           any("proves nothing" in problem for problem in problems), str(problems))
 
+    # The sleep trace lines come out of the xnu patch with printf(), not IOLog. The call is
+    # declared per pair, so the gate must find the format there and must not silently fall
+    # back to IOLog when the pair says otherwise.
+    trace = find(WORK / "trace", "0629.patch")
+    trace.write_text('+\tprintf("K60TRACE: sleep enter cpus=%u\\n", gIOCPUs->getCount());\n',
+                     encoding="utf-8", newline="\n")
+    (trace.parent / "judge.py").write_text(
+        "import re\nTRACE_ENTER_RE = re.compile(r'K60TRACE: sleep enter cpus=(\\d+)')\n",
+        encoding="utf-8", newline="\n")
+    printed = (("trace", "0629.patch", "judge.py", "TRACE_ENTER_RE", "K60TRACE: sleep enter cpus=", ()),)
+    module.CALLS["trace"] = "printf"
+    try:
+        problems = module.verify(trace.parent, printed)
+        check("a printf pair is found by its own call", problems == [], str(problems))
+        module.CALLS["trace"] = "IOLog"
+        problems = module.verify(trace.parent, printed)
+        check("a pair that names the wrong call is refused",
+              any("no IOLog format" in problem for problem in problems), str(problems))
+    finally:
+        module.CALLS.pop("trace", None)
+
     # --root points at another checkout of the same repository, so it is exercised against
     # the real one and against an empty directory.
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}

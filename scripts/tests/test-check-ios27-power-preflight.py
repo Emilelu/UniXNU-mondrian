@@ -118,7 +118,9 @@ def make_tree(base: Path, *, console: str | None = None, module: bool = True, gu
     elif macro:
         body = ["+#ifndef K60_PLATFORM_SLEEP_REPORT", "+#define K60_PLATFORM_SLEEP_REPORT 1",
                 "+#endif", "+#if K60_PLATFORM_SLEEP_REPORT", "+    k60_platform_sleep_report();",
-                "+#endif"]
+                "+#endif",
+                '+	printf("K60TRACE: sleep enter cpus=%u\\n", gIOCPUs->getCount());',
+                '+	printf("K60TRACE: resumed\\n");']
         patch += "@@ -1,0 +1,%d @@\n" % len(body) + "\n".join(body) + "\n"
     else:
         patch += '@@ -1,0 +1 @@\n+    k60_platform_sleep_report();\n'
@@ -138,6 +140,10 @@ def make_tree(base: Path, *, console: str | None = None, module: bool = True, gu
         (tree / "drivers" / "PongPower" / "K60Battery.cpp").write_text(
             console, encoding="utf-8", newline="\n")
         shutil.copyfile(ROOT / "scripts" / "judge-battery.py", tree / "scripts" / "judge-battery.py")
+        # the trace pairs need the real sleep judge: a placeholder judge carries no regex, so
+        # the fixture would report a broken pair where the code is fine
+        shutil.copyfile(ROOT / "scripts" / "judge-k60-sleep-console.py",
+                        tree / "scripts" / "judge-k60-sleep-console.py")
     if wire_body is not None:
         (tree / "drivers" / "PongPower" / "K60Battmgr.h").write_text(BATT_H, encoding="utf-8", newline="\n")
         (tree / "drivers" / "PongPower" / "K60Battmgr.c").write_text(wire_body, encoding="utf-8", newline="\n")

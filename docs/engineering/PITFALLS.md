@@ -7420,9 +7420,10 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 
 **修法**：
 
-1. `scripts/check-console-contract.py`：`PAIRS` 里 7 对线——电池样本、通道 up、adopt、
-   lease 成功/失败、blocked、failure——每对写 (产出方文件, 判读器文件, 正则属性名,
-   两边共有的锚点, `%s` 的填充词)。格式串**按锚点找、不按行号找**，所以在文件里挪动
+1. `scripts/check-console-contract.py`：`PAIRS` 里 13 对线——电池样本、通道 up、adopt、
+   lease 成功/失败、blocked、failure、睡眠 enabled/report、`0629` 的两条 `K60TRACE`、
+   mode-1 的两条——每对写 (产出方文件, 判读器文件, 正则属性名, 两边共有的锚点,
+   `%s` 的填充词)；打印调用由 `CALLS` 按对声明（睡眠 trace 行是补丁里的 `printf`）。格式串**按锚点找、不按行号找**，所以在文件里挪动
    `IOLog` 不会误报；正则用 `importlib` 从判读器模块里取，不复制一份。
 2. `synthesise()` 把 `%u/%d/%02u/%x/%s` 换成合理值后整行匹配；`c_strings()` 把一条
    `IOLog(...)` 里被折行的多个字面量拼起来（真实格式串都是跨行写的）。

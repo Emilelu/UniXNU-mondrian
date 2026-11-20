@@ -37,7 +37,23 @@ PAIRS = (
      "BLOCKED_RE", "no authenticated exclusive PAS1/SMEM/GLINK", ()),
     ("battery-failure", "drivers/PongPower/K60Battery.cpp", "scripts/judge-battery.py",
      "FAILURE_RE", "hardware sample unavailable", ("the lease never arrived",)),
+    ("sleep-enabled", "drivers/ArmCpu/ArmCpu.cpp", "scripts/judge-k60-sleep-console.py",
+     "ENABLED_RE", "platform sleep enabled wake-after=", ()),
+    ("sleep-report", "drivers/PongPower/K60PlatformSleep.cpp", "scripts/judge-k60-sleep-console.py",
+     "SLEEP_REPORT_RE", "K60Sleep: report prepares=", ()),
+    ("sleep-trace-enter", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "TRACE_ENTER_RE", "K60TRACE: sleep enter cpus=", ()),
+    ("sleep-trace-resumed", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "RESUME_RE", "K60TRACE: resumed", ()),
+    ("mode1-late-begin", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "LATE_BEGIN_RE", "late read begin (mode 1)", ()),
+    ("mode1-domain", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "DOMAIN_RE", "mode1=read-only", ()),
 )
+
+# The sleep trace lines are printed from inside the xnu patch with printf(); every other
+# pair comes out of a driver through IOLog. The call is a property of the pair, not a guess.
+CALLS = {"sleep-trace-enter": "printf", "sleep-trace-resumed": "printf"}
 
 ESCAPES = {"n": "\n", "t": "\t", "0": "\0", "r": "\r", "\\": "\\", '"': '"'}
 
@@ -68,10 +84,10 @@ def c_strings(text: str, open_paren: int) -> str:
     return "".join(pieces)
 
 
-def find_format(text: str, anchor: str) -> str | None:
+def find_format(text: str, anchor: str, call: str = "IOLog") -> str | None:
     """The format is not addressed by line number: it is found by the literal the judge
-    requires, so moving the IOLog around the file does not break this gate."""
-    for match in re.finditer(r"IOLog\(", text):
+    requires, so moving the print around the file does not break this gate."""
+    for match in re.finditer(re.escape(call) + r"\(", text):
         fmt = c_strings(text, match.end() - 1)
         if anchor in fmt:
             return fmt
@@ -149,9 +165,10 @@ def verify(root: pathlib.Path, pairs=PAIRS, require_files: bool = True) -> list[
                 kind = "emitter" if not emitted.is_file() else "judge"
                 problems.append(f"{name}: the {kind} {which} does not exist")
             continue
-        fmt = find_format(emitted.read_text(encoding="utf-8", errors="replace"), anchor)
+        call = CALLS.get(name, "IOLog")
+        fmt = find_format(emitted.read_text(encoding="utf-8", errors="replace"), anchor, call)
         if fmt is None:
-            problems.append(f"{name}: no IOLog format in {emitter} contains {anchor!r}; "
+            problems.append(f"{name}: no {call} format in {emitter} contains {anchor!r}; "
                             f"the judge waits for a line nothing prints")
             continue
         try:

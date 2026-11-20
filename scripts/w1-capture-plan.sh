@@ -15,6 +15,15 @@ CAP="${K60_W1_CAPTURE_DIR:-/mnt/e/k60-work/evidence/w1-lun-$(date +%Y%m%d-%H%M%S
 mkdir -p "$CAP"
 printf 'capture=%s\n' "$CAP"
 
+# Provenance is a host-side write inside CAP, not a device write.
+# The W1 judge treats a missing or empty README.txt as PENDING, never PASS.
+{
+  printf 'purpose=W1 LUN read-only capture\n'
+  printf 'captured_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'adb_serial=%s\n' "$(adb get-serialno 2>/dev/null || true)"
+  printf 'source=Android adb read-only; no block-device write\n'
+} > "$CAP/README.txt"
+
 # LEG A1: resolve modemst1 to its block node.
 # EXPECT: one /dev/block/sdX[N] path; RANGE: X a-z, N digits.
 # IF: empty -> write PENDING and still run Leg B; do not guess sdf.

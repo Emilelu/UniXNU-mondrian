@@ -50,6 +50,8 @@ def main():
           "plan advertises the local-only composed auto-check")
     check("K60_EFS_BLOCKS" in PLAN and "K60_CONSOLE" in PLAN,
           "auto-check documents optional full-block and console inputs")
+    check('README.txt' in PLAN and 'adb get-serialno' in PLAN,
+          "plan records capture provenance for the W1 judge")
     check(PLAN.count("# EXPECT") >= 8, "every evidence command has EXPECT")
     check(PLAN.count("# IF") >= 6, "every evidence command has IF")
     check("# LEG A" in PLAN and "# LEG B" in PLAN and "# LEG C" in PLAN,

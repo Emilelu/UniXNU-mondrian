@@ -545,6 +545,20 @@ ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch
 ```
 
 这条门禁现在每一次预检都会重新证明「系列里那份 = 生成器那份」，Lead 以后改 series 时不会静默漂移。
+### 如果系列先打上了：两边都不许再写一次
+
+真实 27 流水线里 0531 由系列打，手工 `--hook-init` 只是没有系列时的路。两条路撞在一起时：
+
+- applier 先数 `pong_audio_amp_probe()`：已有 1 处就打 `bsd_init already hooked (probe calls 1)` 并**不写**，退出 0；
+- emitter 认出「树里有调用、但不是本块的写法」→ 退出 **3** 并打
+  `bsd_init.c already calls the probe outside this block (the series form); nothing to emit`；
+- 预检里 `27 patch emits unchanged` 因此从 `ok` 变 `skip`（`optional_row` 把 3 当「没有可量的东西」，既不冒充红也不冒充绿）。
+
+2026-11-20 08:40 在一棵「按系列顺序打到 0531」的树上实测过：applier 报
+`bsd_init already hooked (probe calls 1)`、调用行数前后都是 1，emitter 退出 3。
+那棵树是把 `series` 逐条往一份纯净的上游副本上打出来的（44 条里 15 条应用成功，
+0531 落在 `bsd/kern/bsd_init.c:716-719`；其余 29 条是别的线的前置文件不在裸源树里，不是音频的事）。
+
 ### 顺序也算一遍：前面有没有人改这几行
 
 0531 的 hunk 靠上下文行定位（`bsd_init_kprintf("calling vfsinit\n");`）。如果系列里排在它前面的某个补丁

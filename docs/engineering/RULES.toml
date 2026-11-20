@@ -1164,3 +1164,9 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-265"
 statement = "conf/files 钩子挂在 .cache/xnu-work 克隆之前，于是每次都答 tree not seeded、被 || echo 吞成一行日志；音频源从未进 conf/files，pong_audio_amp_probe 一直是弱引用未定义，构建报成功而产物检查器报 FAILED。调用点移到最终 make 之前，失败必须终止构建，刷新脚本要把它插回去。"
 check = 'grep -q "conf-files hook failed" scripts/build-xnu-generic.sh && python3 scripts/tests/test-conf-files-hook-placement.py'
+
+[[rule]]
+id = "P-275"
+statement = "设备树在工具链里只有一个消费者且在第八步；必须先跑 dtc 再开始构建。"
+check = "python3 scripts/check-device-tree.py --out ${K60_OUT:-/opt/k60/trees/ios27-out} --quiet && python3 scripts/tests/test-device-tree.py"
+note = "P-275：585fe75a 手工解冲突时丢了 /* 开头，dts/mondrian.dts 带语法错过了一整天，所有门禁全绿，因为没有任何门禁解析它。第一个消费者是 payload 步的 dtc。修法：e1b6c15f 补回注释开头 + check-device-tree.py 成为早期消费者（0 过 / 1 dtc 拒绝 / 2 树找不到）。"

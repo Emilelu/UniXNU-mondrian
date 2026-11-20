@@ -7251,3 +7251,52 @@ scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
 **门禁的调用时机本身是一个必须验证的断言。** 挂在树生成之前的钩子、挂在产物生成之后的检查、
 挂在配置读取之前的默认值——它们不报错，只永远沉默。判断一个门禁是否可能在空转，问一句就够：
 它依赖的那件东西，在这一行代码执行时存在吗？
+
+## P-275 — 设备树在整个工具链里只有一个消费者，而它在第八步
+
+`dts/mondrian.dts` 只被一处读：payload 步的 `compile_hardware()`
+（`scripts/unixnu/devicetree.py:407-411`）跑 `dtc` 生成 `device-tree/hardware.dtb`。
+仓库里没有第二个解析者——`grep -rln "dtc" scripts/` 在设备仓里零命中，`RULES.toml` 里
+没有任何 dts 检查。
+
+于是合并提交 `585fe75a`（2026-11-19 23:00）解 wlan/bluetooth 冲突时，wlan 节点取自
+16.6.1 侧、bluetooth 的注释正文与节点取自分支侧，**而分支那段的 `/*` 开头没活下来**。
+从第 100 行起是一段没有开头的注释正文：
+
+    };            <- wlan 结束
+     * Bluetooth controller, exported before userland so BlueTool and
+     ...
+     */
+    bluetooth { ... };
+
+这个文件带着这个错误过了一整天。所有门禁全绿，因为**没有任何门禁读它**。第一个发现它
+的消费者是构建的第 8 步：
+
+    Error: .../dts/mondrian.dts:100.5-6 syntax error
+    FATAL ERROR: Unable to parse input tree
+    unixnu: /usr/bin/dtc failed (1)
+
+它挡住的也不只是 27 线——16.6.1 读同一个文件，同样编不过。一个只影响一条线的缺陷会被
+那条线的门禁抓到；一个影响所有线、但所有线都只在最后一步才读它的缺陷，会同时挡住所有线，
+而每条线都以为是自己的问题。
+
+为什么没人核对：`585fe75a` 是一次手工解冲突，两个父提交各自都是合法的——`125510a3` 里
+`/*` 在第 84 行，`4e0794a0` 里根本没有 bluetooth 段。**合并后的文件是唯一没有经过任何
+编译器/解析器的产物**，而「解冲突」这个动作本身没有任何校验。P-265 说「门禁的调用时机
+本身是一个必须验证的断言」，这一条是它的另一半：**一个没有早期消费者的输入，等于一个没有
+门禁的输入。**
+
+修法两件：
+1. `e1b6c15f` 补回 `/*`（+2 行），dtc 现在过，产出 4307 字节 dtb，`/arm-io/bluetooth` 仍在。
+2. `scripts/check-device-tree.py` 成为那个缺失的早期消费者。它读 `board.toml` 的
+   `[device_tree]`，按框架同一套前缀规则（`scripts/unixnu/profiles.py:68-83`）解析
+   `source` 与每一个 `include_dirs`，然后跑真的 `dtc`。三种退出码分开：
+   0 = dtc 接受、1 = dtc 拒绝（原样打印它的行列信息，那才是重点）、2 = 树找不到
+   （与「树是坏的」是两个问题，不能混）。`soc:` 那层 include 在取回的 feed 里，所以
+   没有 `--soc` 时它去 `--out/feeds/UniXNU-*-common-*` 里找真正含有所需 include 的那一个，
+   找不到就退 2 而不是宣布树没问题——**「找不到」与「不需要」必须给出不同的退出码**，
+   这正是 P-266 的形状。
+
+`scripts/tests/test-device-tree.py` 八例全部喂真文件给真 dtc，其中一例就是 585fe75a 的
+原形（把 `/*` 删掉），一例是不平衡花括号，一例是 feed 里没有那个 include。桩掉 dtc 的测试
+会在坏树上通过——这正是这个缺陷当初活下来的方式。

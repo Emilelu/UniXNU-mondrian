@@ -1,0 +1,102 @@
+# iOS 27.0.1 (24A446) eight-step ledger — assembled, do not hand-edit.
+#
+# One [hardware.<item>] block per line, steps 1-7 only: step 8 (device) is
+# written by the Lead after a flight, because it needs a boot that happened.
+# Regenerate with: python3 scripts/assemble-27-eight-step.py
+
+schema_version = 1
+
+[hardware.cellular]
+name = "蜂窝（X70 modem / DXE 载具 / QRTR）"
+status = "planned"
+why = "研究线：27 的载具、QRTR/EFS 与 IPA 代码已有离线判据和宿主测试，但 27 设备仓还没有 0626–0630，data-mount 锚点未落，也没有任何一次 modem 上机；因此不进构建门禁，W1/W2/F3 全部保持 PENDING"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
+
+[hardware.cellular.step.same_model]
+done = true
+evidence = "27 线的载具不是把 modem 编进内核，而是把固件当外部载具放进固定物理窗口：16 线六个补丁在 27 上重排为 0626 镜像段表 + pong_modem_boot/pas、0627 QRTR/GLINK/RMTFS/EFS/memshare/SMP2P、0628 IPA 十一对、0629 两处调用、0630 smem，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:14-19 与同文件 :29-32。27 的 UEFI 侧以 27 个 modem.bNN.lzma 流和固定窗口 0x8bc00000/0x13200000 对齐，见同文件 :602-608。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.official]
+done = true
+evidence = "页面要求逐条对照，缺一条就写缺口，不用「本板 na」掩盖：\n- /mnt/e/hackios/UniXNU/docs/zh/porting/baseband.md:22-31 要求先完成平台内存与 DMA，再按四步启动 modem，结果必须是 modem 持续运行、QMI 响应、IPA 初始化完成。16 线已有 /mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemBoot.c:82-164 的五步、/mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemLink.c:423-429 的 storage 名映射、/mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemEfs.c:149 的读服务；27 线还没有 0626–0630 与 data mount，故 27 尚未满足。\n- /mnt/e/hackios/UniXNU/docs/zh/porting/baseband.md:25 要求原厂 FSG/EFS/NV 并核对摘要，同页第 29 行要求 proprietary-files.txt 记录固件来源、哈希与打包路径。当前 proprietary-files.txt:1-7 只有 iOS 16.6.1 的 KernelCache/DeviceTree/StaticTrustCache/Cryptex1 条目，没有任何 modem/fsg/fsc/modemst 条目，这是 F3 前必须补的缺口，不是 na。\n- /mnt/e/hackios/UniXNU/docs/zh/porting/baseband.md:56 明确 EFS 写入在 bring-up 阶段只保存在内存、重启后重新加载原厂数据。/mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemEfs.h:92-95 正是 boot-session shadow：写方向 ACK 但不落盘；这与该页一致，但不能宣称持久化。\n- /mnt/e/hackios/UniXNU/docs/zh/guide/userdata.md:60-85 要求 Data 卷来自 payload seed、按目标布局扩种子，同页第 82 行说 seed 大小变化会改变持久化身份并初始化新 Data store；/mnt/e/hackios/UniXNU/docs/zh/concepts/userdata.md:68-70 说持久 store 从 userdata 末尾窗口提供，窗口不适用时内核拒绝 seed。本板 na 的部分：modem EFS 不走 userdata Data store，它走 modemst1/modemst2/fsg/fsc 四个独立分区，见 /mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemEfs.c:12-17 与 /mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemGpt.h:4-5；依赖的部分：PAS 必须在 native Data 挂载之后，27 的 data-mount 尚未落，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:95-99，所以 F3 不能开始。\n- /mnt/e/hackios/UniXNU/docs/zh/drivers/qcom-baseband.md:7-9 要求板级提供 modem 启动、固件、电源、DMA、GLINK/QRTR 与 rmtfs，组件只提供桥；16 线实现正在这些位置，27 侧搬运清单见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:29-32。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.decompile]
+done = false
+evidence = "只做到「27 载体与 UFS 描述符形状」这一层：27 个 modem.bNN.lzma 流的 13 字节头、declared 尺寸与 109,060,761 B 总量已与 UEFI 表逐条对齐，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:14-19 与同文件 :316-318。27 UEFI feed mu_basecore-8f10084c 的 UFS_UNIT_DESC 前五字节已按 packed 结构逐行核对，见 /mnt/e/k60-work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:227-244。未完成的是 modem 固件内部的 GLINK/QRTR 服务表：没有服务号、通道名或初始化顺序的反汇编，不能把「27 流能打进去」当成「服务表已懂」。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.wide]
+done = true
+catalog_checked = true
+evidence = "先查组件目录再写驱动。/mnt/e/hackios/UniXNU/components.toml:563-581 的 QcomBaseband 是 SC7180 IPA v4.2 的 QMUX/QRTR/QMI CTL/SAHARA/AppleBaseband/IPA-GSI-QMAP 桥，board_dependencies 明确把 modem 启动、固件、电源、DMA、GLINK/QRTR、rmtfs 留给板级；同文件第 575 行 verified_devices 为空。27 stage-0 的 board.toml:358-360 只 include ArmDTPlatform/ArmCpu/XnuPrelink，不含 QcomBaseband；board.toml:359 注明 PongUfs 到 F3 才回来。/mnt/e/hackios/UniXNU/components.toml:555-560 是 ShengUfs/NativeUfs，不是可直接复用的 PongUfs 组件。结论：传输层语义可参考，Pong 载具、EFS 服务与 27 的 4 KiB 适配必须自建，没有现成轮子可复用。"
+catalog_result = "QcomBaseband 只提供 SC7180 IPA v4.2 的传输层语义，verified_devices 为空；PongUfs/NativeUfs 是 Sheng 路线的存储实现，不是本板 27 的 PongUfs 组件；27 stage-0 的 include 只有 ArmDTPlatform/ArmCpu/XnuPrelink。载具、EFS 与 4 KiB 适配必须自建。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.plan]
+done = true
+evidence = "27 的落地顺序已定：先把 Lead 的 data-mount 补丁搬到 27，再在 native_owner_data_stage 推进到 3 的那一行之前插 k60_modem_probe_from_handoff 与 k60_ipa_probe_from_handoff，然后生成 0629；0626/0627/0628/0630 只新增文件，可先打。生成器与锚点契约见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:95-99 与同文件 :109-117。对真实 27 树逐条 git apply --check 的结果是 0626/0627/0628/0630 rc=0、0629 等锚点，见同文件 :602-608；当前 27 树仍没有 native_owner_data_stage，见同文件 :654-661。0629 的两个入口分别由 0626 与 0628 提供，否则链接期未定义，见同文件 :147-148。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.deep]
+done = true
+evidence = "三条深挖结论。第一，27 的 PAGE_SHIFT 是运行期变量，16 线唯一的硬编码 >>12 已改成 /ptoa_64(1)，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:38-46；K60_IPA_GSI_PAGE_SIZE 0x1000 是 GSI TRE 硬件粒度，不是 VM 页，见同文件 :38-46。第二，27 的 rmtfs 读走 native_pong_ufs_read_named_volume 的同文件弱定义；27 没有 drivers/NativeUfs 时它返回 0，调用点把 ==0 当失败，于是 RMTFS 读被拒绝为 result 1，能编能链但静默，见同文件 :177-195。第三，IPA 的 /mnt/e/k60-work/wt-k55/drivers/PongCellular/K60Ipa.c:1402 仍是返回 not-ready 的 stub，KMA_PERMANENT 只剩 IPA 一处，见同文件 :90-93；27 的 Data 命名空间要求 PAS 在 Data 挂载之后，见同文件 :208-211。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.verify]
+done = false
+local_verified = true
+evidence = "三条证据门全部还是 PENDING，不能写成 PASS：\n- W1 控制器 LUN：Leg A 读 /sys/class/block/<sdX>/device 规范路径末段 H:C:T:L 的第四字段，Leg B 读 UFS Unit Descriptor IDN 0x02 的 byte2 bUnitIndex 与 byte3 bLUEnable；A=5、B byte2=5/byte3=1 才 PASS，只有 A 是 PENDING，A=5 而 B=4 或 enable=0 是 FAIL，没有 bsg/工具也是 PENDING。判据见 /mnt/e/k60-work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:144-146，判官见 /mnt/e/k60-work/wt-k55/scripts/check-w1-lun-evidence.py:1，退出码 0/2/1。\n- W2 完整 4 KiB：不是只比 offset 0 的 16 字节头，而是 storage 1..4 各取 4096 字节，十个头部 LE32、0x28 label、0x2f、四个尾部 LE32、0x40..0x1ff 全零、0x200..0xfff data sha256 与完整 sha256 全部匹配；缺文件或短于 4096 是 PENDING，任一字段或哈希不符是 FAIL，头 16 字节对而整块错仍是 FAIL。判据见 /mnt/e/k60-work/wt-k55/docs/research/cellular/23-W2-FULL-SUPERBLOCK.md:99-110 与同文件 :117-133，判官见 /mnt/e/k60-work/wt-k55/scripts/check-efs-full.py:1。\n- F3 真实 modem/RF：W1 PASS 且 W2 PASS 后，才看同一 storage 的第二次 rmtfs rw、fsg/fsc 被 open、K60MODEM qrtr 服务数从 2 涨到 >2、RMTFS 14/1 端口 0x102 有请求/应答，再看 PAS4 的 auth_reset/init_image/mem_setup、dms revision、verdict ok、bridge enabled 与 COACHZ 发布；EFS 4 KiB 全对但无 PAS4/RF/QMI 时查固件/EFS 版本，不能回头改字节。判据见 /mnt/e/k60-work/wt-k55/docs/research/cellular/22-W1-READONLY-CAPTURE.md:279-284 与同文件 :306-322。F3 的前置是 PongUfs 进 27 package、QcomBaseband 进 include/archives、27 data-mount 锚点落地；当前 board.toml:358-360 没有 PongUfs，见同文件 :333-337。\n当前 blocker 状态：loader-rejects-fileset 与 firmware-fileset-provider 已 closed，见 docs/engineering/IOS27-FLIGHT-BLOCKERS.toml:12-20 与同文件 :30-37；prelink-map-unresolved 仍 open，见同文件 :22-29。W1/W2/F3 只关各自证据门，不能关闭 prelink blocker；后者要独立修。\n哪一条通过才能关：W1 的判官退 0 才关 W1；W2 的判官退 0 才关 W2；F3 的 PAS4/RF 行全部出现且无 panic 才关 F3。当前没有 w1-lun-* 设备采集，也没有完整 4 KiB 块，故 verify.done=false。"
+static_check = "27 UEFI feed mu_basecore-8f10084c 的 Ufs.h 第 32 行是 #pragma pack(1)，同文件第 874-878 行的 Length/DescType/UnitIdx/LunEn/BootLunId 都是 UINT8，声明顺序就是 byte0..4；UfsPassThru.c 第 996-1008 行循环 Index 0..7 调 UfsRwDeviceDesc，并在第 1004 行比较 LunEn==0x1。Linux v6.12 commit adc218676eef 的 include/ufs/ufs.h 第 207-216 行独立定义 byte2 UNIT_INDEX/byte3 LU_ENABLE，ufshcd.c 第 3637-3703 行按字节拷贝。上述行号的逐条引文见 /mnt/e/k60-work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:227-244 与 /mnt/e/k60-work/wt-k55/docs/research/cellular/W1-DECISION-SHEET.md:249-256。"
+unit_test = "本地已通过：/mnt/e/k60-work/wt-k55/scripts/tests/test-w1-lun-evidence.py:1 的 20 个 W1 用例；/mnt/e/k60-work/wt-k55/scripts/tests/test-efs-full.py:1 的 12 个完整 4 KiB 用例；/mnt/e/k60-work/wt-k55/scripts/tests/test-capture-bundle.py:1 的 8 个组合用例；/mnt/e/k60-work/wt-k55/scripts/tests/test-capture-autocheck-e2e.py:1 的 PASS/FAIL/PENDING 三态自证。判官与夹具的读数见 /mnt/e/k60-work/wt-k55/docs/research/cellular/23-W2-FULL-SUPERBLOCK.md:282-289。"
+artifact_check = "离线产物检查：/mnt/e/k60-work/wt-k55/scripts/check-efs-full.py:1 对四个 4096 B 参照文件逐 storage 校验并通过；/mnt/e/k60-work/wt-k55/scripts/judge-cellular-flight.py:1 对 16 字节头与九个合成 console 夹具通过；/mnt/e/k60-work/wt-k55/scripts/check-capture-bundle.py:1 对 W1/W2/完整块三态合成输入给出 PASS/PENDING/FAIL 并拒绝把缺项当 PASS。没有真实设备采集，故这些只能证明判据实现，不是 W1/W2/F3 的硬件结论。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.wifi]
+name = "无线（QCA6490 / PCIe + MHI）"
+label = "WiFi（QCA6490 / WCN6855）"
+status = "active"
+why = "2026-11-21：24A446 Wi-Fi 线只做离线契约与验收工具，不构建、不上机；C1/C2/C3 仍 open，完整 arm64e station 归档尚不存在。见 docs/plans/WIFI-IOS27-CHECKLIST.md:76 与 docs/research/wifi/IOS27-STATION-API-GAP.md:39。"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复；本文件的 active 只表示 Wi-Fi 27 迁移线在离线推进，不改变 k60-gates 全局条目的 parked 状态"
+
+[hardware.wifi.step.same_model]
+done = true
+evidence = "Pong 是 SM8475 + QCA6490，与 K60 同 SoC 同芯片：docs/research/wifi/RESEARCH.md:21；K60 实测端点 17CB:1103、BAR0 0x60200000/2 MiB、subsystem 0x0108 见 docs/research/wifi/RESEARCH.md:153-155 与 E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1。板级冷启动逐段对应 drivers/PongWifi/PongWifiPlatform.cpp:355-388（训练）、drivers/PongWifi/PongWifiPlatform.cpp:412-414（BAR）、drivers/PongWifi/PongWifiPlatform.cpp:468-492（MSI 与 SMMU）。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.official]
+done = true
+evidence = "逐页核对（页面要求 → 本板落点 / 为什么 na）：\n- E:/hackios/UniXNU/docs/zh/porting/network.md:30-38 的 PCIe 六步（窗口、复位、参考时钟、稳压器、互连投票、SMMU stream、MSI 路由）→ drivers/PongWifi/PongWifiPlatform.cpp:376-388 训练、drivers/PongWifi/PongWifiPlatform.cpp:412-414 BAR、drivers/PongWifi/PongWifiPlatform.cpp:468-492 MSI 与 ArmSmmu4KBuild；本板端点是 17cb:1103、MSI SPI140，不照抄页面的 17cb:1107/SPI141（E:/hackios/UniXNU/docs/zh/porting/network.md:92-93，drivers/PongWifi/PongWifiPlatform.cpp:815-825）。\n- E:/hackios/UniXNU/docs/zh/porting/network.md:46-61 的回调与所有权：lx_platform 的 dma_alloc/dma_map/dma_sync/fw_get、nw_board 的 BAR/配置空间/MSI、先装 events 再启动 → drivers/PongWifi/ath11k/PongAth11k.c:55 要求五个 DMA/固件回调齐全，drivers/PongWifi/PongWifiNet.cpp:563 定义 gEvents；固件加载说明在 docs/research/wifi/RESEARCH.md:57（本树没有独立的 PongWifiFirmware.cpp 源文件，归档成员来自历史构建）。\n- E:/hackios/UniXNU/docs/zh/porting/network.md:63 要求固件与 QRTR 服务启动后扫描产生 BSS → 16 线只到 MHI READY，随后 mhi_sync_power_up 超时 -110，见 docs/research/wifi/SBL-QUEUE.md:167-174；27 线未飞行，因此这一条只到“回调具备、运行未验”，不是已满足。\n- E:/hackios/UniXNU/docs/zh/porting/network.md:67-68 的 OS 接口 nw_wifi_scan/connect/tx 与 MAC/信道/监管/请求布局 → drivers/PongWifi/PongWifiNet.cpp:758-760（扫描二选一）、drivers/PongWifi/PongWifiNet.cpp:815（connect）、drivers/PongWifi/PongWifiNet.cpp:900-912（频道表）；选择器表在 drivers/PongWifi/PongWifiNet.cpp:82-84。\n- E:/hackios/UniXNU/docs/zh/porting/network.md:70-77 要求选 Ath12kWifi 并在构建树检查链接 → 本板是 QCA6490/ath11k，官方组件不覆盖（见 wide 步）；本板构建侧用 scripts/build-k60-wifi-native.py:133-160 收集对象、scripts/build-k60-wifi-native.py:181 libtool 打包，输入检查用 scripts/check-wifi27-link-inputs.py:56-81。\n- E:/hackios/UniXNU/docs/zh/porting/network.md:95-97 的参考策略（不扫 6 GHz、关联用对端 HT/VHT、忽略 beacon 丢失并丢 VHT MCS10/11）→ 本板只在 gModern27Client 置位后隐藏 >=5925（drivers/PongWifi/PongWifiNet.cpp:900-912），首次应答仍列 6 GHz；后两条本板未实现，na（27 station 尚未产出，不把 sheng 的策略当成本板事实）。\n- E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:51-52 的 24A446 关联结果 540 B、结果/有效位在 0x214/0x218 → drivers/PongWifi/PongWifiNet.cpp:258-264、drivers/PongWifi/PongWifiNet.cpp:304-306 构造并投递 pong_assoc_event27，内核侧由 patches/xnu-12377/0542-k60-association-event-cluster.patch:22-43 放宽到 MCLBYTES。\n- E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:36-49 的 sheng 集成（/arm-io/wlan、128 MiB DMA、签名 supplicant、launchd 缓存、/private/var/ngpu 固件）→ 本板只有 dts/mondrian.dts:85-98 的 wlan 节点；supplicant/launchd 属 C2 且 open（docs/research/wifi/SHENG-KERNEL-REFERENCE.md:81-103），固件走 vendor 分区而非 sheng 路径，na。\n- E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:62-64 的 sheng-wifi=5 等启动参数 → 本板用 XNU_PONG_WIFI 构建开关而不是该参数，na（scripts/build-wifi27-kernel.sh:48-56）。\n- E:/hackios/UniXNU/docs/zh/porting/platform.md:23-39 的 CPU/GIC/PSCI/定时器/DTS → patches/xnu-12377/series:91（0540 PSCI SMP）、patches/xnu-12377/series:95（0541 虚拟定时器守卫）；设备树 dts/mondrian.dts:85-98。\n- E:/hackios/UniXNU/docs/zh/porting/platform.md:62-66 的 DMA 地址宽度/IOVA/SMMU stream/context/缓存策略 → drivers/PongWifi/PongWifiPlatform.cpp:468-492、drivers/PongWifi/PongWifiPlatform.cpp:544（exclusive SID 0x1c01、native 4 KiB 页）。\n- E:/hackios/UniXNU/docs/zh/porting/drivers.md:63-88 的接入七步与 llvm-ar t / llvm-nm --defined-only 检查已链接实现 → scripts/check-wifi-station-archive.py:37-123 把成员架构、两个 API 与 stamp 绑成一条命令；E:/hackios/UniXNU/docs/zh/porting/drivers.md:97 的记录要求落在 porting.toml:151-199。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.decompile]
+done = true
+evidence = "离线反汇编与实测身份：K60 端点 17CB:1103、BAR0 0x60200000+2 MiB、subsystem 0x0108 已在 2026-11-14 实测（docs/research/wifi/RESEARCH.md:153-155，E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1）；wifid 20G81 的列表删除路径已离线拆到只剩 WAPI 一条（docs/research/wifi/SBL-MISSION.md:1183，§32）。24A446 的 wifid/IO80211Family 不在 pinned kernelcache，反汇编边界见 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186 的 C3 阶梯；本步只对可得二进制完成，未把 20G81 的结论移植到 24A446。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.wide]
+done = true
+evidence = "官方目录只覆盖 ath12k 一代：E:/hackios/UniXNU/components.toml:473 的 Ath12kWifi 面向 qcc2072/qcn9274/wcn7850（WiFi 7），K60 是 QCA6490/WCN6855（ath11k 族），MHI 通道、CE 数量、HAL ring 与 WMI 命令集不同，复用会把板级差异藏进组件（docs/research/wifi/RESEARCH.md:110-112）。同 SoC 的 Pong 与 mainline ath11k 是可用参考；nw_abi.h 只借形状不借实现。结论：官方组件不可直接用，本线自建 ath11k 路径。"
+catalog_checked = true
+catalog_result = "components.toml:473 的 Ath12kWifi 绑定 ath12k/WiFi 7（qcc2072/qcn9274/wcn7850）；K60 的 QCA6490/WCN6855 是 ath11k，MHI/QRTR/CE/WMI 不同，不能作为本板组件；只能参考同 SoC 的 Pong 与 mainline ath11k。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.plan]
+done = true
+evidence = "27 线的前置条件与出口写在 docs/plans/WIFI-IOS27-CHECKLIST.md:76（B 节：链接前必须拿到的 27 内核/归档/构建器条件）与 docs/plans/WIFI-IOS27-CHECKLIST.md:166（C 节：只有 24A446 二进制能定的形状）；板级寄存器与 IOVA 计划在 docs/plans/WIFI-PORT-PLAN.md:15，当前状态与下一步在 porting.toml:151-199。方案顺序：先补完整 arm64e station 归档，再用 scripts/build-wifi27-kernel.sh 链接并数符号；C1/C2/C3 不以 16/22H374 代替。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.deep]
+done = true
+evidence = "深挖结果落在三份记录：docs/research/wifi/SBL-MISSION.md:1706（§65 三处设备侧遮蔽）、docs/research/wifi/SBL-MISSION.md:1926（§68 合并与 0542）、docs/research/wifi/SBL-MISSION.md:2004（§69 0542 四层证据与 25 对 31 审计）；docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186（§I C3 的 0x80 离线阶梯）与 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:148（H.1 最小补证）；docs/research/wifi/IOS27-STATION-API-GAP.md:39（两个 API 的关闭条件）与 docs/research/wifi/IOS27-STATION-API-GAP.md:70（最小补丁形态）。另：0542 的基线拒绝/补丁通过由 scripts/tests/test-wifi-association-event.py:39-61 钉住；站归档契约由 scripts/check-wifi-station-archive.py:37-123 实现。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.verify]
+done = true
+evidence = "本地已验证（离线，不含构建与上机）：\n1) /usr/bin/python3 scripts/check-wifi-station-archive.py <libPongAth11k.a> --ar llvm-ar --nm llvm-nm —— 成员必须 arm64e（scripts/check-wifi-station-archive.py:105-107）、_nw_wifi_power 与 _nw_wifi_scan_frequencies 必须已定义（scripts/check-wifi-station-archive.py:37）、abi/nw_abi.stamp 的 ie_bytes=2048 且 header_sha256 对齐 abi/nw_abi.h（scripts/check-wifi-station-archive.py:111-123）；exit 0/1/2。\n2) /usr/bin/python3 scripts/tests/test-wifi-station-archive.py —— 5 例固定五种假绿，见 scripts/tests/test-wifi-station-archive.py:85-119。\n3) /usr/bin/python3 scripts/check-wifi27-link-inputs.py --link-record <linkarchives> --allow-root <tree> --allow-root /opt/k60/trees/k60build/wifi --ar <llvm-ar> --nm <llvm-nm> —— arch/provenance/stubs 三条断言，stub 符号见 scripts/check-wifi27-link-inputs.py:56、forced load 解析见 scripts/check-wifi27-link-inputs.py:81、符号检查见 scripts/check-wifi27-link-inputs.py:208；9 例见 scripts/tests/test-wifi27-link-inputs.py:75-176。\n实测：ath11k-abi27e（sha256 8bc323b63e4ad3fde07a2db7ac30e93cd37b1cfcd0165bdee1419452e85a8e59）成员 PASS arm64e、stamp PASS、两个 API FAIL，rc=1；teardown27g 的 8 个成员全 ARM64E 且两符号为 U；历史 linkarchives 原样 FAIL provenance 与 stubs（libStub27.a），改名 libInputs.a 仍 FAIL stubs。没有候选归档通过完整契约，也没有 stub-free 27 镜像。\nC1/C2/C3 的 open 边界：C1 只到 22H374 的 selector/ioctl 形状与 sheng macOS 分支参考，目标 24A446 传输未证就停在 open；C2 只到挂载/路径可见（5/0）与 job 定义，服务是否启动、信任是否附加未证就停在 open；C3 只到 L0（字段位置与 sheng 写入点）与 L1b（16/22H374 行为），没有 24A446 consumer 的 GET 27/254 证据就停在 open。三者都不得用 16/22H374 结果替代。"
+local_verified = true
+static_check = "scripts/check-wifi-station-archive.py:105-123 检查成员架构、两个 station API 与 stamp/header 绑定；scripts/check-wifi27-link-inputs.py:56-208 检查 forced load 解析、来源白名单与五个桩符号。"
+unit_test = "scripts/tests/test-wifi-station-archive.py:85-119 五例；scripts/tests/test-wifi27-link-inputs.py:75-176 九例；scripts/tests/test-wifi-association-event.py:39-61 基线与补丁在 MLEN 224/256 下各 19 项检查。"
+artifact_check = "ath11k-abi27e（sha256 8bc323b6…）：成员 arm64e、stamp ie_bytes=2048/header_sha256 ec0b8227… 通过，两个 station API 缺失，rc=1。teardown27g（sha256 8e8175a5…）：8 个 ARM64E 成员，两符号为 U。历史 link 记录：arch 7 个通过，provenance 与 stubs 失败。没有候选归档通过完整契约。"
+recorded_at = "2026-11-21"

@@ -1408,3 +1408,32 @@ source(s) do not parse: pong_modem_image.c: … In function ‘broken’` + `CHA
 
 0623 177,932 → 177,924 B，0628 177,861 → 177,853 B（各 −8 B，正是两处 `"" "` 变成一处 `"`）。
 其余四个补丁与 `conffiles-port.txt` 不变；readiness 仍 `K60 READY OK`。
+
+## 36. 宿主测试套件进了仓库：`scripts/run-host-tests.sh`（2026-11-20 12:30）
+
+### 36.1 为什么现在才进
+
+这套命令在 `/mnt/e/k60-work/artifacts/run-host-tests.sh` 里活了几个星期，59 行、`cd` 写死 16 线路径。
+按铁则 5，一个能通过但不在仓库里的检查对读仓库的人是隐形的；更直接的是 P-269——27 线的 C 之所以
+从没被编译过，正因为这套命令只存在于 scratch 且只指向 16 线。它不是便利脚本，是门禁。
+
+### 36.2 形状
+
+`bash scripts/run-host-tests.sh [--list]`，`REPO` 由脚本自身位置推出（不写死路径），二进制默认进
+`build/host-tests`，`K60_HOST_TEST_OUT` 可覆盖。两张表：`TESTS`（C/C++，每行 `名字|编译参数|源文件`）
+与 `PY_TESTS`（`名字|命令`）。**源文件不在本检出就 skip 并计数，不算失败**——同一份脚本要在 16 线与
+27 线上跑，两条线带的驱动不一样（27 线没有 `PongAdreno/ArmSmmu4K`、16 线没有 `K60Ipa.h` 的上界 inline）。
+结尾一行 `K60 HOST PASS <n> suite(s), <m> skipped` 或 `K60 HOST FAILED <k> of <n>`。
+
+### 36.3 27 线实测
+
+`K60 HOST PASS 30 suite(s), 2 skipped, binaries in /mnt/e/k60-work/artifacts/tests27`。skip 的两条是
+`test-k60-flight-fixtures.py` 与 `next-pitfall-id.py`——它们在 `feat/cellular`/main 上，27 线还没有。
+27 线独有的 `test-k60-ipa-runtime-ceiling.c` 在表里，输出 `K60 IPA RUNTIME CEILING PASS bound, 
+readback, refusals, wrap`。
+
+### 36.4 与试跑脚本的分工
+
+`verify-27-line.sh` 在克隆里对**装进补丁的**源做 `-fsyntax-only`（判据是「补丁集里的文本能编译」）；
+`run-host-tests.sh` 在**本检出**上跑全部测试与自测（判据是「这些行为还对」）。两者不重叠：前者防 P-269
+那种「只加文件的补丁」，后者防行为回归。

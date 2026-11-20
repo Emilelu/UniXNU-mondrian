@@ -368,6 +368,20 @@ Two facts that keep the table honest. The 16.6.1 builder already links
 And the 27 line builds on Linux, where nothing compiles `drivers/NativeUfs` yet, so
 the component row needs a host recipe as well as the selection.
 
+The host half of that last sentence has a recipe on this branch:
+`scripts/build-native-ufs-linux.py` compiles the three units with the flags of a recorded
+IOKit compile, adds `-D XNU_NATIVE_UFS=1 -D XNU_SOURCE_STORAGE=1` plus
+`build/storage-abi/include`, and archives `libNativeUfs.a` with `llvm-ar`. Against the
+24A446 tree it produces `NativeUfs.o` 212,256 bytes, `PongUfsTransport.o` 331,112 bytes,
+`verified_root.o` 10,936 bytes and a 556,720-byte archive, within eight bytes of the
+archive the 16.6.1 recipe builds. Without `build/storage-abi/include` the transport unit
+stops at `IOKit/storage/IOBlockStorageDevice.h`, so that include is not optional for it;
+the script prints a note rather than failing because the other two units do not need it.
+The script reports and stops: selecting the component in `board.toml` and linking the
+archive from the 27 builder stay with the owners of those files, so the table above still
+shows four gaps.
+
+
 ## Framework patches this branch carries
 
 `scripts/apply-core-patches.sh` applies every top-level

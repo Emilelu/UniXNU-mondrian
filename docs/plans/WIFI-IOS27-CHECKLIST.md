@@ -68,8 +68,9 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   drivers/PongWifi tree. Exit: scripts/tests/test-wifi-sbl-mission.py and
   test-pong-abi.py print 0 failure(s), and compile-teardown2.sh builds the kext against
   both nw_abi.h generations (16 header + ath11k-abi1, 27 header + ath11k-abi27).
-- [ ] B2 [DEV] Run the 27 kernel through the generic builder and prove the driver is in
-  it. The builder question is settled by main's 3cc8cbc9: scripts/build-xnu-4k-baseline.sh
+- [x] B2 [DEV] Run the 27 kernel through the generic builder and prove the driver is in
+  it (done 2026-11-20 for the driver half; a clean link without the scratch stubs still
+  waits on [SOC] psci_smp_* and the fork's 27 station archive, see the exit note below). The builder question is settled by main's 3cc8cbc9: scripts/build-xnu-4k-baseline.sh
   now dispatches on board.toml [board] os_profile through scripts/pick-xnu-builder.sh, so
   the 16.6.1 line keeps the Pong builder (MACHINE_CONFIGS=PONG) and every other profile -
   including ios-27.0.1-24A446 - runs scripts/build-xnu-generic.sh, the framework builder,

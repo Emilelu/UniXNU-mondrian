@@ -52,6 +52,29 @@ def listed(series, name):
 
 
 
+def comment_about(series, name):
+    """The first comment line of the series file that names this patch.
+
+    A hold is a decision, not an omission.  On 2026-11-20 the Lead unlisted
+    0531 and wrote why in the series file: this tree's ld64 rejects an
+    undefined weak function reference in the static/dynamic image the kernel
+    is linked as (clang does emit N_WEAK_REF; the auth pointer stub
+    l_pong_audio_amp_probe$auth_ptr$ia still has no target), so the call site
+    can only be listed once PongAudioAmp.o is force-loaded and the symbol has a
+    definition.  A gate that called that a failure would push the lane to
+    re-list a patch that breaks the link; a gate that said nothing would let
+    the omission go unexplained.  So: name the reason, quote it, and hold.
+    """
+    index = series / "series"
+    if not index.is_file():
+        return None
+    for line in index.read_text(errors="replace").splitlines():
+        text = line.strip()
+        if text.startswith("#") and name in text:
+            return text.lstrip("# ")
+    return None
+
+
 BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 LINE_COMMENT = re.compile(r"//[^\n]*")
 
@@ -181,6 +204,10 @@ def main(argv):
     except LookupError as error:
         print("series: cannot emit from %s: %s" % (args.tree, error))
         return 1
+    except emitter.NotEmitted as error:
+        print("series: %s; nothing to compare, and that is not a failure"
+              % error)
+        return 3
 
     booked = patch.read_bytes()
     want = emitted.encode("utf-8")
@@ -203,18 +230,24 @@ def main(argv):
                  hashlib.sha256(want).hexdigest()[:16]))
 
     state = listed(series, patch.name)
+    hold = None
     if state is False:
-        print("SERIES FAILED: %s is in %s but the series file does not list it,"
-              " so the build never applies it" % (patch.name, series))
-        return 1
+        hold = comment_about(series, patch.name)
+        if hold is None:
+            print("SERIES FAILED: %s is in %s but the series file does not list"
+                  " it and no comment says why, so the build never applies it and"
+                  " nothing tells the next reader" % (patch.name, series))
+            return 1
+        print("SERIES HOLD: %s sits in %s unlisted, and the series file says why:"
+              " %r" % (patch.name, series, hold))
 
-    if order(series, patch) == 1:
+    if state and order(series, patch) == 1:
         return 1
 
     print("SERIES OK %s %d B sha256 %s %s%s"
           % (patch.name, len(booked), hashlib.sha256(booked).hexdigest(),
              "matches the emitter" if same_bytes else "inserts the emitter's code",
-             "" if state else " (no series file here)"))
+             "" if state else (" (held, not listed)" if hold else " (no series file here)")))
     return 0
 
 

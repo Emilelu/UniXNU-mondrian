@@ -1353,3 +1353,37 @@ kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0,
 0623 由 `scripts/gen-ipa-patch.py` 重生（175,356 → 177,932 B），0628 由 `port-cellular-to-xnu27.py` 重生
 （175,285 → 177,861 B），其余四个补丁字节不变。`scripts/verify-27-line.sh` 仍然 `K60 TRIAL PASS`。
 16 线 `feat/cellular` 的 `K60Ipa.c` 一行没动，k54（boot `f38a7c9e…`）仍可由 HEAD 复现；这条修法随 k55 落 16 线。
+
+## 35. 27 线的 C 从来没被编译过：一行 stray backslash 与补上的门禁（2026-11-20 12:00）
+
+### 35.1 现象
+
+0628 在 11:15 到 11:55 之间带着一行语法错误：两个弱定义兜底的诊断写成了
+`printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "` + 反斜杠 + `n");`。`"" "` 把字符串切成三段，反斜杠落在
+字面量外面，gcc 报 `stray backslash in program`。两处（`K60Ipa.c` 754 与 768）都是这一行。
+
+### 35.2 为什么整条链没发现
+
+它进仓库的路径是：改 `drivers/PongCellular/K60Ipa.c` → `gen-ipa-patch.py` 重新生成 0623 →
+`port-cellular-to-xnu27.py` 生成 0628 → `git apply --check` 通过 → readiness 全绿 → 提交。这一串里没有一步编译过
+这段 C：`apply --check` 只比文本，`gen-ipa-patch` 只拼补丁，readiness 只查记号，`verify-27-line.sh` 到今早为止
+只 apply、追加 conffiles、算 extern。而 27 线**没有**宿主测试运行器（`scripts/run-host-tests.sh` 只在 16 线），
+所以那 18 个源在这一侧一次都没被编译器看过。弱定义兜底是 11:15 落的，等于说这段代码在 HEAD 上躺了 45 分钟。
+
+### 35.3 抓到它的方法
+
+把 16 线那份 `run-host-tests.sh` 的 `cd` 改成指向 27 线工作树再跑（它本来就是同一批源文件、同一批测试）。
+`-DK60_HOST_TEST -Wall -Wextra -Werror` 立刻在两行上报错。问题不在「谁的代码错」，在「哪一侧有编译器」。
+
+### 35.4 补上的门禁
+
+`scripts/verify-27-line.sh` 在五个补丁全部 apply、调用点判据通过之后，把克隆里的 `bsd/dev/pong_*.c` 与
+`qcom_glink.c` 逐个跑 `gcc -fsyntax-only -std=c11 -DK60_HOST_TEST -I<clone>/bsd/dev`，每装一个源文件就让它过一遍
+宿主编译器，失败即 `K60 TRIAL FAILED <file> does not parse`。补丁集里每个源都带宿主 shim（`#ifdef K60_HOST_TEST`
+引 `<stdio.h>` 而不是 `pexpert/pexpert.h`），所以这条不需要 16 线的头文件树。真实树上的输出：
+`K60 TRIAL ok   every installed source parses on the host`，其后 conffiles 与 externs 两步照旧。
+
+### 35.5 修完的尺寸
+
+0623 177,932 → 177,924 B，0628 177,861 → 177,853 B（各 −8 B，正是两处 `"" "` 变成一处 `"`）。
+其余四个补丁与 `conffiles-port.txt` 不变；readiness 仍 `K60 READY OK`。

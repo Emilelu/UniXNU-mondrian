@@ -706,3 +706,11 @@ source = "docs/engineering/PITFALLS.md:P-268"
 statement = "给「上限」类参数传 0 之前先读语义：在这一处 0 表示不设上限；而事后检查代替不了事前约束。"
 check = "grep -q 'k60_ipa_runtime_ceiling' scripts/check-ios27-readiness.py"
 note = "2026-11-20 27 线 K60Ipa.c 的 kmem_alloc_contig 第五参一直是 0，k48 在 RMTFS 上先撞过同一个形状。"
+
+[[rule]]
+id = "P-269"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-269"
+statement = "补丁能 apply 只证明文本能落盘；只加文件的补丁必须让宿主编译器看一遍，否则语法错误可以活一整天。"
+check = "grep -q 'every installed source parses on the host' scripts/verify-27-line.sh"
+note = "2026-11-20 0628 的弱定义诊断多了一对引号和一个裸反斜杠，一行 stray backslash 进了仓库，直到用 16 线的宿主编译器跑一遍才暴露。"

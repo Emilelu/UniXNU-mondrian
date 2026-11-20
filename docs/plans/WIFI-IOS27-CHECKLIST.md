@@ -45,9 +45,13 @@ Rewritten 2026-11-20, when main itself became the 27 line.
 - [DEV] can be done in this device repository, offline, today.
 - Exit criteria name the exact log line or field value that closes the step.
 
-## A. Shapes already landed on feat/wifi-ios27-abi (done, build-verified)
+## A. Reference layouts implemented and checked offline
 
-- [x] A1 24A446 scan record: 0x8e8 bytes, elements[2048] at 0x8c, timestamp at 0x8d0.
+These checks establish the implementation and its fixtures. They do not establish the
+wire contract of the actual 24A446 consumer. The sheng scan/result and capability
+references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence.
+
+- [x] A1 Reference scan record: 0x8e8 bytes, elements[2048] at 0x8c, timestamp at 0x8d0.
   Exit: the static_assert on sizeof(scan_result) == PONG_SCAN_RECORD_24A446 compiles,
   and the host selftest prints "50 checks passed, 0 failed".
 - [x] A2 Association request 0x290, completion event 540 bytes (result at 0x214,
@@ -77,92 +81,43 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   drivers/PongWifi tree. Exit: scripts/tests/test-wifi-sbl-mission.py and
   test-pong-abi.py print 0 failure(s), and compile-teardown2.sh builds the kext against
   both nw_abi.h generations (16 header + ath11k-abi1, 27 header + ath11k-abi27).
-- [x] B2 [DEV] Run the 27 kernel through the generic builder and prove the driver is in
-  it (done 2026-11-20 for the driver half; a clean link without the scratch stubs still
-  waits on the fork's 27 station archive and on the prelink/DarwinBoot blockers below). The builder question is settled by main's 3cc8cbc9: scripts/build-xnu-4k-baseline.sh
-  now dispatches on board.toml [board] os_profile through scripts/pick-xnu-builder.sh, so
-  the 16.6.1 line keeps the Pong builder (MACHINE_CONFIGS=PONG) and every other profile -
-  including ios-27.0.1-24A446 - runs scripts/build-xnu-generic.sh, the framework builder,
-  which has no PONG.h to find. Three things still stood between that and a 27 link, all
-  device-side and all fixed on feat/wifi-ios27-tree:
-  (a) scripts/build-firehose.sh was the 16 copy (34 lines, unconditional xcodebuild) and,
-  because tree assembly copies the device repository last, it shadowed the framework's
-  Linux-capable version (60 lines, xcrun clang + libtool). It is now the framework file
-  byte for byte.
-  (b) xnu ships its own Availability macros in EXTERNAL_HEADERS/Availability.h and that
-  copy stops at __API_AVAILABLE, while 12377's libsyscall headers annotate with
-  __SPI_AVAILABLE (gethostuuid.h:41, spawn/spawn.h:64-78), which only a Darwin 26 SDK
-  defines. prepare-xnu.py copies that header into the fakeroot on every build, so the
-  build died in libcc_kext on gethostuuid.h and no fakeroot edit survived. Main carries
-  the canonical fix as 0530-k60-spi-availability.patch (an empty fallback for
-  __SPI_AVAILABLE and the two SPI deprecation macros); this branch briefly had its own
-  availability-spi.patch, which was deleted when the merge showed it was the same hunk.
-  (c) the generic builder never linked a wifi archive. scripts/build-xnu-generic.sh now
-  arms the same XNU_PONG_WIFI=1 -> -Wl,-force_load,$PONG_WIFI_ARCHIVE path the Pong
-  builder has.
-  Exit, and this is the part that matters: a successful link is not proof - -force_load
-  over an archive whose objects were compiled out also links, and so does one whose objects
-  are the wrong CPU subtype: the 27 kernel is arm64e while both builders defaulted to
-  arm64-apple-ios16.0, and ld only warned "ignoring file … built for iOS-arm64" before
-  linking a kernel with zero driver symbols. Both scripts now take --target, and
-  build-k60-ath11k.py derives the ld -r arch from it (ld -r run as arm64 drops every
-  arm64e member and libtool then writes an empty archive). Two more wifi-side undefined
-  symbols had to be closed: ArmSmmu4KBuild / ArmSmmu4KProgramDisabledContext, which the
-  16.6.1 line gets from libPongAdrenoPlatform.a and the stage-0 line does not link
-  (--smmu4k-kit compiles drivers/PongAdreno/ArmSmmu4K into the driver; never arm it on a
-  kernel that force-loads the Adreno platform), and pong_ufs_ready / k60_usblog_console_up,
-  which only the 16.6.1 kernel exports (weak declarations do not work under arm64e - taking
-  a function's address needs authentication and ld still reports it undefined - so
-  --no-host-hooks compiles both waits out behind PONG_WIFI_HOST_HOOKS). After that the
-  driver contributes no undefined symbol. What still stops a clean 27 link is not wifi.
-  The psci_smp_* and pong_cpu_startup_finished symbols are not a 12377 export gap: our
-  drivers/ArmCpu/ArmCpu.cpp fork referenced them while the catalog component:ArmCpu calls
-  psciCall directly. Main now carries the real 0540-k60-psci-smp.patch and
-  0541-k60-virtual-timer-guard.patch. libcc_kext.a is already arm64e, so its two llvm
-  profile internals are no longer a blocker. The remaining kernel-side input is the
-  fork's 27 station archive (nw_wifi_power / nw_wifi_scan_frequencies); the remaining
-  platform-side blockers are on main: the F1 prelink panics on stubs and DarwinBoot does
-  not yet accept arm64e MH_FILESET. To count the symbols anyway, a scratch-only stub
-  archive defined nine names for one link (never committed, never flown): 35,613,936 B
-  image, 30 PongWifi symbols, -force_load visible in the link command. Proof of the
-  driver, not a shippable kernel. The 27 image must define a
-  non-zero number of PongWifi symbols, checked by scripts/check-wifi-symbols.py (exit 1 on
-  zero, self-tested by scripts/tests/test-wifi-symbols.py), and
-  scripts/check-wifi-station-api.py cross-checks the nw_wifi_* the archive leaves undefined
-  against the station tree (2 referenced, 2 defined on the fork's 27 tree). Build with --os
-  ios-27.0.1-24A446 after scripts/install-os-profile.sh; with --os ipados-27.0.1-24A446 it
-  applies the 16 series and dies at osfmk/arm64/start.s:33. scripts/build-wifi27-kernel.sh
-  runs that whole path in one command and finishes by counting symbols (6 cases in
-  scripts/tests/test-build-wifi27-kernel.py).
-  Cost of a cold 27 kernel on this host, measured 2026-11-20: 2,154 sources under the xnu
-  work tree compile at 2.7-4.4 objects per minute, so the bootstrap pass alone is 8-13
-  hours. Do not chase the filesystem: three tests settled that the wall clock is the make
-  graph, not I/O. A copy of the whole tree on ext4 recompiled from zero at the same rate
-  (rsync of 482 MB, 927 objects carried over, then every object rebuilt), so relocation
-  buys nothing and loses the work already done. Forcing MAKEFLAGS=-j8 on the outer make
-  changed nothing either. The cause is visible in the log: the outer make at
-  scripts/build-xnu-generic.sh:841 passes MAKEJOBS to the sub-make without a jobserver, so
-  the sub-make prints "jobserver unavailable: using -j1" (33 times) and compiles one file
-  at a time while eight cores idle at load 3. The second pass is cheap: XNU_BOOTSTRAP only
-  gates the archive block at scripts/build-xnu-generic.sh:604, so the compile flags are
-  identical and make relinks what the first pass already built.
-  Two more things bite before that check can run on a fresh 27 tree, and neither is the driver:
-  an uninitialised submodule and an executable-bit-only dirty reference tree. The first is
-  drivers/QcaBluetooth/.git pointing at a worktree admin directory that no longer exists, which
-  makes git submodule foreach fatal and unixnu stop with git failed (128); re-running
-  git submodule update --init drivers/QcaBluetooth fixes it. The second is refer/corecrypto-2023
-  reporting 1798 modified files that are all mode 100644 -> 100755 with zero content change,
-  because the 9p copy marks everything executable; build-corecrypto-14.py:36 refuses that as
-  'The crypto reference must stay immutable' until git config core.fileMode false is set in the
-  assembled tree. The 27 board's own archive list also names component:ArmDTPlatform and
-  component:ArmCpu, but neither carries a build recipe in components.toml, so archive_plan() skips
-  them and build-fileset-release-reference.py then fails on the missing
-  build/armdt-platform/libArmDTPlatform.a; the 16.6.1 list has no release-reference step, which is
-  why this only shows on 27. Finally the target version disagrees with itself: version_env() sets
-  UNIXNU_IOS_VERSION from the profile (27.0.1) while linux_env() pins DARWIN_TRIPLE to
-  arm64-apple-ios17.0, so kernel_target.check_object expects (2, 27<<16) and rejects the objects it
-  just built. Until the framework makes the triple follow the profile, a 27 run has to force both
-  sides to 17.0. Tracked in SBL-MISSION.md 66.
+- [x] B2 [DEV] Historical driver-symbol criterion only. A scratch link produced
+  non-zero PongWifi definitions, but it used nine scratch definitions and is not a
+  bootable or reproducible current-build acceptance. A stub-free raw link still needs
+  a complete arm64e station archive. F1 prelink/panic-stub and DarwinBoot arm64e
+  MH_FILESET issues are downstream platform gates, separate from that raw link.
+  Main 3cc8cbc9 dispatches build-xnu-4k-baseline.sh by board.toml os_profile: 16.6.1
+  keeps PONG, ios-27.0.1-24A446 uses build-xnu-generic.sh with BCM2837. The device
+  fixes retained here are the Linux-capable build-firehose.sh, canonical
+  0530-k60-spi-availability.patch and the XNU_PONG_WIFI force-load hook. The driver
+  has no PONG machine-configuration conditional that silently compiles it out.
+  Both archive builders accept --target; use arm64e for the 27 kernel. An arm64
+  archive can be ignored while the rest of a kernel links, so a successful link alone
+  is insufficient. build-k60-ath11k.py derives the ld -r architecture from the target.
+  For stage 0, --smmu4k-kit adds ArmSmmu4K objects that the 16 line gets from the
+  Adreno archive; do not use it when the kernel already force-loads those definitions.
+  --no-host-hooks removes the pong_ufs_ready and k60_usblog_console_up waits behind
+  PONG_WIFI_HOST_HOOKS. These options close platform imports, not the station gap.
+  Main 0540/0541 answers imports from our ArmCpu fork, which shadowed catalog ArmCpu;
+  that was not an intrinsic 12377 export gap. Lead's current libcc_kext.a is arm64e.
+  Read-only inspection accepts none of the three existing station candidates. The only
+  arm64e one still defines neither nw_wifi_power nor nw_wifi_scan_frequencies;
+  teardown27g imports both. Source definitions in nw_mainline.c do not prove packaging.
+  scripts/check-wifi-station-api.py searches source text (its expression also matches
+  prototypes), so a green result is supplementary only. The archive evidence and
+  acceptance inputs are in SHENG-KERNEL-REFERENCE.md section H.1 and
+  docs/research/wifi/evidence/ios27-station-contract.json.
+  scripts/build-wifi27-kernel.sh consumes an existing driver archive, runs the kernel
+  build with --os ios-27.0.1-24A446, then counts symbols; it compiles neither station
+  nor driver archive. Its six host cases verify the wrapper, not a completed build.
+  On relocation, rewrite absolute paths in generated make/dependency/compile records
+  together with the whole tree. The earlier partial move cannot support a claim that
+  ext4 buys nothing; the later complete move was materially faster. Missing jobserver
+  propagation is a separate issue. Do not promise a universal cold-build duration.
+  Fresh-tree prerequisites include valid submodule admin directories, immutable
+  reference content (separate mode-only drift), actual ArmCpu/ArmDTPlatform archives
+  and aligned target/deployment settings. Historical workarounds in SBL-MISSION
+  section 66 are not current framework acceptance; recheck the selected revision.
 - [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
   2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
   CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on
@@ -178,28 +133,35 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   the scratch stubs used to get that image linked do not affect the answer.
   The IO80211 side is ours: PongWifiNet.cpp:1153-1173 defines IO80211Controller and
   IO80211Interface as local stubs over IOService/IONetworkInterface, so the driver does
-  not link against Apple IO80211Family at all; only 27 wifid talks to the real one.
+  not link against Apple IO80211Family. This does not prove which transport or framework
+  the actual 24A446 userspace consumer uses.
   Symbol presence alone did not establish event delivery: the original kev_post_msg
   code rejects the 580 B envelope. Patch 0542 and its executable allocation/copy regression
   cover that kernel limit; subscriber delivery still needs runtime verification.
 - [ ] B5 [SOC] 4 KiB pages: the 27 kernel uses 4 KiB tables, the 16 driver was written
   against 16 KiB. Exit: the archive builds with the 27 page shift and the selftest
-  offsetof asserts still hold.
+  offsetof asserts still hold. This is a page/DMA/SMMU check, independent of B6 width.
 - [x] B6 [DEV] Re-run the width stamp against the 27 station archive (done 2026-11-20).
   Exit: teardown rc=0 with no "has no abi/nw_abi.stamp" note. Verified both ways: the
   stamped 27 station (ie_bytes=2048, header_sha256 ec0b8227...) rebuilds the kext with
   rc=0 and zero stamp notes, while the ath11k-badstamp fixture (ie_bytes=1024) stops the
   build with "carries ie_bytes=1024 but this build carries 2048: rebuild the station".
   The negative case is the point: a kext at 2048 over a station at 1024 disagrees about
-  where elements end, and nothing at link time notices. SBL-MISSION.md 67.7.
+  where elements end, and nothing at link time notices. The builder checks ie_bytes,
+  not header_sha256; matching sidecars alone do not bind an archive to its build header
+  or establish the two modern station API definitions. SBL-MISSION.md 67.7.
 
 ## C. The one shape only the 24A446 binary can settle
 
-- [ ] C1 [SOC] Selector-0 envelope: 27 IO80211Interface::newUserClient may be
-  0x3c30 in / 0x3c00 out instead of the 16 line 0x2000 / 0x1f00. Exit: the 24A446
-  IO80211Family binary is disassembled and the two lengths are read from the
-  externalMethod dispatch table; the driver outCapacity check is then set to that
-  number and a request of that size is answered.
+- [ ] C1 [SOC] Establish the actual 24A446 caller transport, then its envelope.
+  Our existing 22H374 selector-0 path already accepts 0x3c30 input with a payload
+  capacity of 0x3c00 at +8 and a 40-byte request at +0x3c08. Output capacity is not a
+  fixed returned length: scalar GET can return 4 bytes and SET zero. newUserClient
+  establishes a connection; it does not by itself establish the selector length
+  contract. sheng's non-macOS branch refuses user clients while its macOS branch keeps
+  one alongside ioctl. Exit: matching 24A446 caller/receiver analysis, or a target
+  trace showing ioctl versus selector, request type, input size, output capacity,
+  actual output size and return code. Do not infer a universal ioctl-only path.
 - [ ] C2 [SOC] Determine whether the target 24A446 wifid requires a signed launchd
   supplicant/service or can use the Apple80211 ABI directly.
   sheng's sheng-wifi-launchd-cache.patch documents its own /usr/libexec/unixnu-wpa_supplicant
@@ -208,11 +170,15 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   XPC-cache mount machinery for Bluetooth; that does not prove Wi-Fi needs the same service.
   Exit: inspect the actual 24A446 Wi-Fi userspace path or obtain runtime evidence showing
   whether wifid scans with our kext alone / requires the service. Keep unchecked until then.
-- [ ] C3 [DEV] kSupportedChannels flag word: the reference sets 0x80; we enumerate the
-  live list without it (as zizhan does). Exit: inspect the actual 24A446 Wi-Fi binary or
-  obtain 27 wifid channel logs that establish the flag semantics, then verify the 5 GHz
-  Settings row. A missing row alone does not justify adding 0x80; retain the current flags
-  until the target-system evidence identifies the required value.
+- [ ] C3 [DEV] kSupportedChannels flag word: sheng sets 0x80 on every entry of its static
+  20-channel supported answer (package/WifiNet.cpp:695-699); we enumerate the live list
+  without it (PongWifiNet.cpp:900-918). Exit is a ladder, not one log: L0 (field, writer,
+  Ath12k uninvolved) is done; L1 disassembles the 16.6.1 wifid selector-27/254 reply
+  parser for an 0x80 mask; L2 needs the 24A446 consumer binary; L3 is an on-device GET 27
+  with the same-BSSID scan/current flags and the Settings row. Evidence at L0 or L1b keeps
+  C3 open. Do not add 0x80 until the target-generation consumer is identified; a missing
+  row alone is not evidence. Ladder and boundary: docs/research/wifi/SHENG-KERNEL-REFERENCE.md
+  section I.
 
 ## D. Not true on 27 (do not carry these over)
 
@@ -241,9 +207,10 @@ Rewritten 2026-11-20, when main itself became the 27 line.
 - [ ] D5 The 16 line kAuthType answers 0x8; 27 answers 0x10. A 27 log showing 0x8 means
   gModern27Client never latched: look for a 0x14e8 scan request or a 0x290 join before
   blaming the password.
-- [ ] D6 Event descriptors: 16 posts one descriptor (16-byte en0 name + payload), 27
-  posts two (name, then payload). A 27 daemon that logs "event 6 bytes 0" is reading
-  the old shape.
+- [ ] D6 Event descriptors: our legacy path posts one descriptor (name + payload),
+  while the reference-aligned modern path posts two. This is producer behaviour; it
+  does not establish what the target daemon requires. Check the received wire envelope
+  and subscriber result before diagnosing a 24A446 event failure.
 
 ## E. Bring-up order once the fork reaches bsd_init
 
@@ -270,3 +237,14 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   schema builds from source_files only, so this needs a schema extension first. The
   archive is still selected by CONFIG_XNU_PONG_WIFI / XNU_PONG_WIFI_ARCHIVE, and
   scripts/check-kernel-archives.py now inspects it.
+
+## G. 飞行判据与本线的关系
+
+- 权威 gate 是 `E:/hackios/k60-gates/scripts/check-ios27-artifacts.py`（395 行，
+  sha256 `b6216d66…`）。本仓那份 232 行、没有 `--flight-ready`、不读 blockers 账本；
+  它不能当判决，等 merge 刷新，不要手抄。
+- 该 gate 检查镜像自洽（头、fileset、载荷重放、ADT、boot.img、prelink 计数、open blockers），
+  **不读链接输入**。本线五种历史失败里，错架构归档、桩链接、镜像身份三类对它不可见。
+  复核与两条建议断言：`docs/research/wifi/FLIGHT-CRITERIA-REVIEW.md`。
+- 不要直接给 `IOS27-FLIGHT-BLOCKERS.toml` 加 Wi-Fi 归档条目：那是全局账本，一条 open
+  会让所有 27 镜像拒飞，包括没有 `CONFIG_XNU_PONG_WIFI=y` 的 stage-0 试飞。

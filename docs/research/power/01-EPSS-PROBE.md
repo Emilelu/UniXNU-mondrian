@@ -246,6 +246,11 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `hw` 是当次读到的硬件档位，不是写入结果。线程由 `kernel_thread_start` 启动，
   `K60Battery::cleanup` 调 `k60_cpufreq_sample_stop` 置标志退出；不写任何寄存器、不投票。
   mode 5 的 boost/framing 传 0，也不写硬件；写回在 mode 7（只降）和 mode 8（双向）。触摸/帧输入自 `cbdf382f`/`aa3bada7` 起接入采样线程，不是 mode 5 本身。
+
+  **同名不同物**：sheng 自己的「CPU mode 5」是 interval perfcontrol 与 GPU late-frame boost 那一套，它在
+  `6365d83`（2026-10-31）整段回退到 mode 4 governor（触摸保持、帧地板、hispeed 跳档），核里转发 interval 实例的
+  补丁一并删掉，实测数据留在项目笔记里（late-frame 门限 8 ms 把 boost 从 1503 降到 162）。我们的 mode 5 是
+  K60 自己的只读采样模式，两者只是编号撞名：查 sheng 的 mode 5 结论时不要套到我们这套编号上，反之亦然。
 - mode 4、9 与大于 9 的值直接打印 "modes 1-3, 5, 6, 7 and 8 are implemented, mode 9 is disabled after two hangs" 并返回。
 - 调用点：`k60_physical_battery_start()` 开头做第一次读取；电池 `begin` 成功后
   （`K60Battery.cpp` 的同一入口）延迟 5 s 做第二次读取。这是当前 archive 唯一由

@@ -210,12 +210,14 @@ K60 READY ok   all 36 sections create new files, no target twice
 3. **sysmon 接线**（k54）：`K60ModemSysmon.*` 已写好并有宿主测试，但没有调用者、没进 0622；它属于版本无关的硬件契约，可以安全一起搬。
 4. **IPA 的 SMMU 口径**：`b9de56b9` 放宽了 `ArmSmmu4K` 对 Device-nGnRE（writeback=2）的限制，仍在 `drivers/PongAdreno/ArmSmmu4K/` 里，搬 27 前需要那棵树的主人确认它是否已经吸收。
 
-## 9.1 待办：IPA 运行期分配没有页上限
+## 9.1 IPA 运行期分配没有页上限（27 线已修，见 §34）
 
 `drivers/PongCellular/K60Ipa.c:892` 的 `kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0, ...)` 第 5 参数传 0，
 即不限制物理页，只靠分配后的 `ptoa_64(page)+bytes > 1<<36` 检查拒绝——命中就返回 `K60IpaRuntimeFailed`，不重试。
 16 线上没暴露（IPA 没打开过），27 的内存布局未必一样。若要补，照 RMTFS 的写法给 `max_pnum` 一个 36 位上界并保留一次重试；
 因为改的是 IPA 路径、本线当前无法上机验证，先记录不动。
+
+**2026-11-20 11:45 更新**：27 线已经落了这个修法（§34），0623 与 0628 重新生成；16 线（`feat/cellular`）的 `K60Ipa.c` 一行没动，因为 k54 镜像必须能由 HEAD 复现，随 k55 一起落。
 
 ## 10. 干跑记录（2026-11-20 05:32，只读）
 
@@ -1294,3 +1296,60 @@ k54 的镜像必须能由当时的 HEAD 复现，所以不再回改。
 全是强定义。另有 `__ZZ33native_pong_ufs_read_named_volumeE13lastVolumeLun` 与 `…E14lastVolumeName` 两个函数内
 静态量，说明 k54 里跑的是 `2b2183a7` 那版带 LUN 去重的 `PongUfsTransport.cpp`。27 侧没有这条强定义，只有
 0628 的两个 weak 定义兜住 SMMU、`pong_modem_link.c:42-52` 兜住 reader。
+
+## 34. IPA 分配器的上界：0 不是「默认」，是「不设界」（2026-11-20 11:45）
+
+### 34.1 缺陷
+
+`drivers/PongCellular/K60Ipa.c` 原来是这一行：
+
+```c
+kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0,
+    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT)
+```
+
+27 树的声明写着（`osfmk/vm/vm_kern_xnu.h:570`）：`@param max_pnum  The maximum page number to allocate, or 0.`，
+而 `osfmk/vm/vm_resident.c:2015-2016` 把 0 翻译成 `max_pnum = PPNUM_MAX`。所以第五参传 0 不是「最小」也不是
+「按默认」，是「整条物理内存随你挑」。旧代码在事后用 `ptoa_64(page) + bytes > (1ull << 36)` 拦：命中就
+`return K60IpaRuntimeFailed`——页已经从分配器手里拿走、没有 `kmem_free`、没有重试、没有日志。k48 在 RMTFS 上
+是同一个形状：八次分配全在 4 GiB 以上（`attempt 7 … phys=0x90e733000`），然后 `alloc … physical=0`。
+
+### 34.2 改法
+
+- `K60Ipa.h` 加两个 inline 与 `K60_IPA_RUNTIME_DMA_LIMIT = 1ull << 36`：
+  `k60_ipa_runtime_ceiling(bytes, page_bytes, *ceiling)` 返回「page × page_bytes + bytes 仍在界内」的最大物理页号；
+  `k60_ipa_runtime_address_fits(physical, bytes)` 是同一窗口的回读判断，带 `physical + bytes > physical` 防回绕。
+  放头文件是因为两者都是纯整数运算，宿主测试不进内核就能跑。
+- `k60_ipa_runtime_alloc` 先算 ceiling 再把它交给第五参；分配失败或回读越界就 `kmem_free` 还页后重试一次，
+  两次都不行打 `K60IPA runtime alloc failed bytes= mask= attempts=`。`KMA_PERMANENT` 去掉——k47 的 panic 就是
+  「永久映射被 `kmem_free`」（`vm_map.c:7940`）。
+- 请求本身不可能满足时（bytes 为 0、页大小取不到、bytes ≥ 2^36）先打 `K60IPA runtime alloc refused bytes= limit=`，
+  再返回 `K60IpaBadArgument`，不走进分配器。
+
+### 34.3 两个数字只能留一个
+
+早先的草稿把 ceiling 写成 `(1ull << 32) - bytes`，而代码自己的拒绝线是 `1ull << 36`。两个数并排放着，等于
+「上界说 4 GiB、回读说 64 GiB」：ceiling 严于回读时，回读那半永远不触发，日志里那句 `limit=` 就成了假话；
+反过来 ceiling 松了，回读才会兜住。这里取代码里已有的 2^36（IPA 的总线解码宽度），并让 ceiling 与回读共用
+同一个宏 `K60_IPA_RUNTIME_DMA_LIMIT`，测试也按它写。教训不是「36 对 32 错」，而是「同一个界只能有一个真值」。
+
+### 34.4 宿主测试
+
+`scripts/tests/test-k60-ipa-runtime-ceiling.c`（`gcc -std=c11 -O1 -Wall -Wextra -Werror -Idrivers/PongCellular`）：
+四个真实尺寸（4 KiB、16 KiB 页、1 MiB ring、20 MiB 表）逐个断言「ceiling×页 + bytes ≤ 界」「再高一页就越界」
+「最高合法地址 fits」「第一个非法地址不 fits」；4 KiB 请求必须给出 `2^24 - 1`，20 MiB 请求必须把上界压到
+`2^24 - 0x1400` 页；拒绝零字节、零页大小、空输出指针、等于与大于 2^36 的请求；回读拒绝 0、恰好到界、越一字节、
+以及 `UINT64_MAX - 0xfff` 这种会回绕的和。输出 `K60 IPA RUNTIME CEILING PASS bound, readback, refusals, wrap`。
+
+### 34.5 门禁
+
+`scripts/check-ios27-readiness.py` 新增 `RUNTIME_BOUND` 与 `runtime_bound()`，在 0628 里要求四个记号：两个 inline 的
+名字、带 `(ppnum_t)ceiling` 的那次调用、重试前的 `kmem_free(kernel_map, address, bytes);`。真实树输出
+`K60 READY ok   the IPA allocator asks for a bounded page number`；把那次 cast 改回 0 实测报
+`K60 READY DRIFT the 27 IPA allocator lost its bound` 与 `CHANGED 1 expectation(s) drifted`，改回后整份全绿。
+
+### 34.6 边界
+
+0623 由 `scripts/gen-ipa-patch.py` 重生（175,356 → 177,932 B），0628 由 `port-cellular-to-xnu27.py` 重生
+（175,285 → 177,861 B），其余四个补丁字节不变。`scripts/verify-27-line.sh` 仍然 `K60 TRIAL PASS`。
+16 线 `feat/cellular` 的 `K60Ipa.c` 一行没动，k54（boot `f38a7c9e…`）仍可由 HEAD 复现；这条修法随 k55 落 16 线。

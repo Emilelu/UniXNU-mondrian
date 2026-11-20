@@ -5154,3 +5154,18 @@ out/libNativeUfs.a`），而它只被 `build-xnu-4k-baseline.sh:432-441` 调用�
 教训：把一个开关从一个构建脚本搬到另一个，必须连它的生产者一起搬；验证方式不是「脚本提到了这个文件」，
 而是「有没有一行在写这个文件」。
 
+## P-268 — 传 0 给「上限」参数，等于不设上限
+
+`kmem_alloc_contig` 的第五个参数叫 `max_pnum`。27 树的 `osfmk/vm/vm_kern_xnu.h:570` 写着 `The maximum page number to
+allocate, or 0`，`osfmk/vm/vm_resident.c:2015` 把它翻成 `if (max_pnum == 0) max_pnum = PPNUM_MAX`：0 不是「最小」、
+不是「按默认」、不是「自动」，是「整条物理内存随你挑」。`drivers/PongCellular/K60Ipa.c` 一直传 0，然后靠事后一条
+`ptoa_64(page) + bytes > (1ull << 36)` 发现问题——问题确实被发现了，但那时页已经从分配器手里拿走，
+`KMA_PERMANENT` 还让它们退不回去（k47 的 panic 就是永久映射被 `kmem_free`，`vm_map.c:7940`）。RMTFS 那边同样
+是先在 k48 撞上 `attempt 7 … phys=0x90e733000` 才改成有界。
+
+`scripts/check-ios27-readiness.py` 的 `runtime_bound()` 盯 0628 里的四个记号：两个 inline 的名字、带
+`(ppnum_t)ceiling` 的那次调用、重试前的 `kmem_free(kernel_map, address, bytes);`。把那个 cast 改回 0 实测报
+`K60 READY DRIFT the 27 IPA allocator lost its bound`。
+
+教训：给「上限」类参数填 0 之前先读一行的语义——同名参数在不同 API 里可以是「不限制」，也可以是「取默认」；
+而且事后检查代替不了事前约束，它只能在已经拿到不合法的东西之后再拒绝。

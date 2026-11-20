@@ -108,3 +108,9 @@ armcpu-sleep-hook.patch
 # one fixes XNU's own arm64_isa_compatibility.h, this one the vendored
 # corecrypto sources. Picked from xNekom feat/ios27 (ce6ed904), renumbered.
 0545-k60-corecrypto-vector-crypto.patch
+
+# 8x16 glyphs on a 1440x3200 panel cannot be read from a photograph, and the
+# panic text is the only evidence Stage 0 produces. k60_fontscale=3 makes the
+# console 60x66 cells of 24x48 pixels; without the argument every path is the
+# stock one. Picked from xNekom feat/ios27 (5aeba69a), renumbered.
+0544-k60-console-font-scale.patch

@@ -3,7 +3,8 @@
 
 The gate exists so the per-lane table cannot quote a sentence the page never
 carries, cite evidence that is not there, claim "verified" without naming the
-line in that evidence which proves it, or sit at "partial" without saying why.
+line in that evidence which proves it, sit at "partial" without saying why, or
+re-use one page sentence in two rows of the same lane.
 These cases prove each of those refusals plus the healthy path, and that the
 repository table itself still verifies against the page copy.
 """
@@ -25,6 +26,8 @@ PAGE = """# 电源
 ## 1. 确认目标接口
 
 一句要求甲。
+一句要求丁。
+一句要求戊。
 
 ## 2. {#dsp} 实现 DSP 传输
 
@@ -93,9 +96,13 @@ def build(name, rows, page=PAGE, with_evidence=True):
 
 
 def lanes(extra="", **kw):
-    rows = "".join(row(id="r%d" % index, lane=lane, **kw) for index, lane in enumerate(
-        ("adsp", "battery", "charger", "thermal", "power")))
-    return rows + extra
+    sentences = ("一句要求甲。", "一句要求乙。", "一句要求丙。", "一句要求丁。", "一句要求戊。")
+    rows = []
+    for index, lane in enumerate(("adsp", "battery", "charger", "thermal", "power")):
+        values = {"requirement": sentences[index]}
+        values.update(kw)
+        rows.append(row(id="r%d" % index, lane=lane, **values))
+    return "".join(rows) + extra
 
 
 def main():
@@ -181,6 +188,11 @@ def main():
     root, table = build("dupid", lanes() + row(id="r0", lane="power"))
     problems = module.verify(root, table)[1]
     check("a duplicate id is refused", any("duplicate id" in p for p in problems), str(problems))
+
+    root, table = build("dupreq", lanes() + row(id="dupe", lane="power", requirement="一句要求戊。"))
+    problems = module.verify(root, table)[1]
+    check("a second row in the same lane quoting the same sentence is refused",
+          any("already quoted" in p for p in problems), str(problems))
 
     root, table = build("thin", row(id="r0", lane="power"))
     problems = module.verify(root, table)[1]

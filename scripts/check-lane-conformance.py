@@ -2,11 +2,12 @@
 """Check the per-lane conformance table against the official page it quotes.
 
 docs/research/power/LANE-CONFORMANCE.toml is the answer to "each lane, line by
-line, against the official page, with evidence". Four things make such a table
+line, against the official page, with evidence". Five things make such a table
 survive: the quote must exist in the page (otherwise somebody is remembering a
 sentence that was never there), the evidence must be a file that exists, a
 verified row must name the line in that file which proves it (otherwise any
-unrelated file passes), and a lane may not sit at "partial" without a reason.
+unrelated file passes), a lane may not sit at "partial" without a reason, and
+two rows in the same lane may not quote the same sentence.
 
 Render the reader-facing summary with --render.
 """
@@ -31,8 +32,9 @@ MIN_PROOF = 8
 HEADER = """# 四条线 + Power 对官网页面的逐条对齐（生成物）
 
 由 `python3 scripts/check-lane-conformance.py --render` 生成，**不要手改**：改
-`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对四件事——引用的句子确实在页面上、
-证据文件确实存在、`verified` 行写的那行证据确实在文件里、非 `verified` 的行写了理由（P-259）。
+`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对五件事——引用的句子确实在页面上、
+证据文件确实存在、`verified` 行写的那行证据确实在文件里、非 `verified` 的行写了理由、
+同一 lane 里同一句要求没有被两行重复引用（P-259）。
 
 页面：`docs/zh/porting/power.md`（unixnu.com/zh/porting/power）。
 """
@@ -83,6 +85,7 @@ def verify(root, table_path):
     rows = table.get("row") or []
     problems, judged = [], []
     seen = set()
+    seen_requirements = {}
     if not rows:
         problems.append("the table carries no row")
     target_page, page_error = page_text(table)
@@ -114,6 +117,13 @@ def verify(root, table_path):
             problems.append("%s: no requirement quoted" % label)
         elif body and requirement not in body:
             problems.append("%s: the page does not carry %r" % (label, requirement))
+        if requirement:
+            key = (lane, requirement)
+            earlier = seen_requirements.get(key)
+            if earlier:
+                problems.append("%s: %r is already quoted by %s in the same lane; split the page sentence into the clauses it lists" % (label, requirement, earlier))
+            else:
+                seen_requirements[key] = label
         section = str(row.get("section") or "")
         anchor = str(row.get("anchor") or "")
         if body and section:

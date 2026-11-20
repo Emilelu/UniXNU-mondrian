@@ -114,7 +114,8 @@ references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence
   (arch + provenance); it is a lane preflight, not a global flight blocker. The arm64e
   candidate ath11k-abi27e is otherwise complete and only lacks the two APIs:
   nw_wifi_power at E:/k60-work/impl/ath12kwifi27/src/nw_mainline.c:266 and
-  nw_wifi_scan_frequencies at :223.
+  nw_wifi_scan_frequencies at :223. The per-API decision table, including why neither
+  is proven necessary for 24A446, is docs/research/wifi/IOS27-STATION-API-GAP.md.
   scripts/build-wifi27-kernel.sh consumes an existing driver archive, runs the kernel
   build with --os ios-27.0.1-24A446, then counts symbols; it compiles neither station
   nor driver archive. Its six host cases verify the wrapper, not a completed build.

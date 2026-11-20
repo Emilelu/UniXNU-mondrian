@@ -444,6 +444,69 @@ vtable is unproven. Shipping the driver as its own kext entry is the route that 
 Apple itself does; the bindings route now carries an extra unknown that the 16.6.1 line never
 had.
 
+## What the storage exports say
+
+The link experiment in the previous section ends with eleven undefined
+IOBlockStorageDevice symbols. Two ways out were on the table: bind them (A) or
+ship the driver as its own fileset entry (B). The choice is not a matter of
+taste, it is one question about the artifact:
+
+> Does com.apple.iokit.IOStorageFamily export those symbols?
+
+`scripts/check-ios27-storage-exports.py` answers it for any kernelcache,
+prelinked kernel or kernel-collection member, offline:
+
+```sh
+python3 scripts/check-ios27-storage-exports.py \
+  --kernelcache out/ipsw/24A446/kernelcache.decompressed --out out/storage-exports.json
+```
+
+It walks the fileset entries, reads every export trie and symbol table, and
+reports per symbol whether an entry exports it (with the address), defines it
+in a symbol table, or holds nothing but the string. Exit status is 0 for both
+answers; `--require-exported` is for the day the artifact is supposed to
+carry them.
+
+| Input | Shape | Entries with an export trie | Symbols |
+| --- | --- | --- | --- |
+| `kernelcache.decompressed` (24A446, pinned by `kernelcache_sha256`) | MH_FILESET, 305 entries | 0 | none exported, none defined |
+| our prelinked `kernel.macho` (run 44518998961) | MH_FILESET, 32 entries | 0 | none exported, none defined |
+| iOS 16.6.1 `kernel.macho` (control) | MH_EXECUTE, 50,123 symbols | 0 | all eleven defined, e.g. `__ZTV20IOBlockStorageDevice` at `0xfffffff0060fbf50` |
+
+The control matters: on the 16.6.1 kernel the reader finds every symbol, so a
+"nothing" answer is a fact about the artifact and not about the reader. Both
+27 artifacts answer `not-exported`: not one of the 305 Apple entries
+carries an export trie or a symbol table, and IOStorageFamily itself has
+`nsyms 0`, no `LC_DYLD_INFO_ONLY`, no `LC_DYLD_EXPORTS_TRIE`. Apple links
+the kernel collection itself, so there is no sibling-symbol namespace left in
+the shipped file to bind against.
+
+Consequence:
+
+- **A is out** for this artifact. It needs exported addresses, and the only
+  copy of them was in Apple's build tree.
+- **B is the route**: NativeUfs becomes its own fileset entry, the way real iOS
+  storage drivers ship. The cost is that the kext packaging path has no
+  evidence yet; the builder only knows how to `-force_load` archives into
+  `com.apple.kernel`.
+- **C (a stub) stays forbidden**: a stub that always succeeds makes "no
+  storage" and "broken storage" the same sentence.
+
+### The constant that cost a rebuild
+
+The first version of this reader reported "0 fileset entries" for a kernel that
+has 32 of them. It used `0x80000033` as `LC_FILESET_ENTRY`; that value is
+`LC_DYLD_EXPORTS_TRIE`. The fileset entry is `0x80000035`. Two traps sit
+behind that one number:
+
+- the name is not at the file offset in `entry_id`: `entry_id` is relative to
+  the start of the load command, so the name begins at `command + entry_id`;
+- the name strings do exist in the file either way, which is why the wrong
+  constant still looked plausible: `strings` finds
+  `com.apple.kec.corecrypto` whether or not a fileset entry carries it.
+
+The remembering aid is the pair: 0x33 trie, 0x35 entry.
+
 ## Framework patches this branch carries
 
 `scripts/apply-core-patches.sh` applies every top-level

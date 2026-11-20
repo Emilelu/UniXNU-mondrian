@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 REFERENCE_RELATIVE = Path('build/xnu/fileset-reference/mach.release.bcm2837.unstripped.noctf')
-CARRIED_RELATIVE = Path('blobs/xnu-fileset-reference/mach.release.bcm2837.unstripped.noctf')
+CARRIED_RELATIVE = Path('scripts/xnu-fileset-reference/mach.release.bcm2837.unstripped.noctf')
 
 
 def digest(path):

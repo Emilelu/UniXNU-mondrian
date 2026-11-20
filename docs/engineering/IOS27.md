@@ -212,30 +212,40 @@ translation fault level 2, read), `FAR 0x80000008`. The capture does not include
 before `mmu_enable`, and ABL enters with the MMU off, where a translation fault
 should be impossible.
 
-Disassembling the image offline found a defect that invalidates the key step
-whatever the abort was. The `KEY_REGS` table was shifted one `op2`: "APIA" wrote
-APIAKEYHI and APIBKEYLO, "APIB" wrote APIBKEYHI and `S3_0_C2_C1_4` — an encoding
-the architecture does not allocate — and the D and A-G pairs were shifted the
-same way. APIAKEYLO, APDAKEYLO, APDBKEYLO and APGAKEYLO were never written. The
-same image also restored the exception frame with `add sp, #240` where the frame
-is 272 bytes, and loaded the stashed `x29`/`x30` 16 bytes low, so the panic's
+Disassembling that image offline found a defect that invalidated the key step.
+The `KEY_REGS` table was shifted one `op2`: "APIA" wrote APIAKEYHI and
+APIBKEYLO, "APIB" wrote APIBKEYHI and `S3_0_C2_C1_4` — an encoding the
+architecture does not allocate — and the D and A-G pairs were shifted the same
+way. APIAKEYLO, APDAKEYLO, APDBKEYLO and APGAKEYLO were never written. The same
+image also restored the exception frame with `add sp, #240` where the frame is
+272 bytes, and loaded the stashed `x29`/`x30` 16 bytes low, so the panic's
 `X29`/`X30` and the IRQ return path were garbage.
 
-The probe now uses `op2` 0..3 for A/B and D/A-B and 0..1 for A-G, fixes the
-frame arithmetic, and prints `SCTLR`, `VBAR`, `TTBR0` and `TCR` in every panic, so the
-next data abort says which map produced it. The corrected image and its sha are
-recorded in `porting.toml`; it has not been booted, so the key read-back and the
-`PACIA`/`AUTIA` round trip are still unmeasured. An unallocated `msr` should
-raise an undefined instruction, not a data abort, so the abort itself also stays
-open until that capture has an `ELR`.
+The corrected image ran to the end on 2026-11-20 (`shim-boot.img`, sha in
+`porting.toml`):
 
-Reading the next capture:
+```
+SCTLR before 0x30D00988   SCTLR after 0xF0D00988
+KEY RB ok (read back what was written)
+PAC in 0x12345678         PAC out 0x12345678
+RESULT PACIA is a NOP -> no usable PAC at EL1
+```
+
+The address keys are writable and hold what was written at EL1, but `PACIA`
+does not sign even with `SCTLR_EL1` EnIA/EnIB/EnDA/EnDB set. The firmware
+disabled pointer authentication for the lower exception levels before handing
+off (SCR_EL3.API, or a fuse); EL1 cannot change that. The earlier data abort did
+not recur, so it lived in the probe's own key/frame path, not in a hypervisor
+trap. An arm64e kernel can still execute with every PAC instruction as a NOP,
+which leaves it unauthenticated; F2 is the test of whether XNU tolerates that.
+
+Reading a capture:
 
 | Line | Meaning | What follows |
 | --- | --- | --- |
 | `KEY RB ok` | every written key read back at EL1 | the `PACIA`/`AUTIA` lines decide |
 | `KEY RB MISMATCH` | a write was ignored or routed elsewhere | stop: the keys are not usable at EL1 |
-| `PACIA is a NOP` | `EnIA` is set and the pointer did not change | stop: no usable PAC at EL1 |
+| `PACIA is a NOP` | `EnIA` is set and the pointer did not change | PAuth is off for EL1; an arm64e kernel runs unauthenticated |
 | `AUTIA did not restore` | signing happened, authentication did not | stop: PAC unusable |
 | `RESULT OK arm64e-capable at EL1` | all three F0 steps measured | F2 |
 | `PANIC SYNC` | a fault before the result | decode the next row |

@@ -799,3 +799,22 @@ Lead 07:41 说「锚点我这边还没有，别等」。现在种子树的 `.cac
 
 这一步把「补丁打得上」「conffiles 追得上」「条目指向的源真的存在」三件事合到一次可重放的动作里，
 也解释了 §20.3 的顺序坑：追加器看不到的源会被静默跳过，所以追加必须排在 `git apply` 之后。
+
+## 25. 追加器本身就是我们仓里的那份：锚点要换，且它是共享件（2026-11-20 09:05）
+
+27 树 `scripts/append-conffiles.py` 与本仓 `scripts/append-conffiles.py`（以及 `UniXNU-mondrian` 那份）逐字同源，
+第 12 行都是 `ANCHOR = "bsd/dev/pong_buttons.c\t\t\tstandard"`（源码里是字面 `\t`，运行时才是制表符）。
+`pong_buttons.c` 来自 16 线补丁，27 的 0626–0630 不装它 ⇒ 27 上这个锚点必然缺失，
+脚本只会打印 `conffiles: anchor missing, entries not added` 并返回 1。
+
+两个事实合起来决定改法：
+
+1. 锚点必须换成种子后确实存在的行（27 的 `bsd/conf/files` 第 108 行 `bsd/dev/unix_startup.c\t\t\tstandard`，与 Lead 07:41 裁决一致）；
+2. 条目表必须按线取：27 用 `patches/xnu-12377/conffiles-port.txt`（19 条，由补丁自装），16 线仍用原来的 8 条。
+
+最小改动草案（未入仓，归 Lead 裁决；只在副本上验证过）：`ANCHOR` 换成 `unix_startup.c`，`ENTRIES` 改为
+「`<repo>/patches/xnu-12377/conffiles-port.txt` 存在则读它，否则退回原 8 条 `LEGACY`」。副本验证：19 条全部列出，
+`bsd/conf/files` 由 1 行变 20 行（锚点 + 19），二次运行打印 `all entries already listed`，幂等。
+
+另有一条与顺序相关的行为已在本节 §20.3 记过、这里再点一次：追加器对「源不在 `.cache/xnu-work`」的条目是**静默跳过**
+（只有产生 `dropped` 时才打印），所以 `git apply` 必须排在追加之前——`scripts/verify-27-line.sh` 把这层顺序写成了断言。

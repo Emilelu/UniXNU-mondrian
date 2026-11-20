@@ -55,6 +55,10 @@ def load_wiring(path):
     return module
 
 
+class NotEmitted(Exception):
+    """The tree is hooked, just not by this block: nothing to emit."""
+
+
 def emit(tree, wiring, context=1):
     """Return (patch text, hooked text) or raise LookupError with the reason.
 
@@ -74,8 +78,12 @@ def emit(tree, wiring, context=1):
     stripped = False
     if wiring.CALL in text:
         if wiring.INIT_BLOCK not in text:
-            raise LookupError("%s carries a probe call this block did not write"
-                              % wiring.INIT_FILE)
+            # 0531 in the series writes its own form of the call. A tree that
+            # already carries one is not broken: the emitter has nothing to add,
+            # and exit 3 keeps it apart from a tree that needs fixing.
+            raise NotEmitted("%s already calls the probe outside this block "
+                             "(the series form); nothing to emit"
+                             % wiring.INIT_FILE)
         # a tree the applier already wired: emit from the form before the block
         text = text.replace(wiring.INIT_BLOCK, "", 1)
         stripped = True
@@ -109,6 +117,9 @@ def main(argv):
     tree = pathlib.Path(args.tree)
     try:
         patch, stripped = emit(tree, load_wiring(wiring_path), args.context)
+    except NotEmitted as error:
+        print("audio patch: %s" % error, file=sys.stderr)
+        return 3
     except LookupError as error:
         print("audio patch: %s" % error, file=sys.stderr)
         return 1

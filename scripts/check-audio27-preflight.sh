@@ -47,6 +47,22 @@ branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
 sha=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 printf 'repo %s %s @ %s\n' "$repo" "$branch" "$sha"
 
+# Exit 3 means "nothing to measure here", not "wrong": the emitter needs a
+# pristine tree, and the series copy may not be booked yet. Skipping keeps those
+# apart from a red line, and keeps a quiet absence from reading as green.
+optional_row()
+{
+	name=$1
+	shift
+	out=$("$@" 2>&1)
+	rc=$?
+	case "$rc" in
+	0) printf 'ok   %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)" ;;
+	3) printf 'skip %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)" ;;
+	*) printf 'FAIL %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)"; fail=1 ;;
+	esac
+}
+
 run()
 {
 	name=$1
@@ -111,7 +127,7 @@ fi
 if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
 	run "27 tree has no clashing symbols" python3 scripts/check-audio27-collisions.py "$xnu27"
-	run "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 3665a972557f4b15bcc232124e46f3984c2e5cec781d838845f0366b28eb8da4
+	optional_row "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 3665a972557f4b15bcc232124e46f3984c2e5cec781d838845f0366b28eb8da4
 	# The series copy is a third copy of the same block. It exists only after
 	# the Lead books it; exit 3 means "not booked yet", which is a skip and
 	# not a failure, so a quiet absence cannot hide as a green line.

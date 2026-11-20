@@ -5183,29 +5183,11 @@ allocate, or 0`，`osfmk/vm/vm_resident.c:2015` 把它翻成 `if (max_pnum == 0)
 抓到它的是 16 线那份测试清单：把它 `sed` 成指向 27 线工作树再跑，`-DK60_HOST_TEST -Wall -Wextra -Werror` 立刻
 在两行上报错。这说明问题不在「谁的代码错」，而在「哪一侧有编译器」。
 
-现在 `scripts/verify-27-line.sh` 在补丁全部 apply、调用点判据通过之后，把克隆里 `bsd/dev/pong_*.c` 与
+现在两处：`scripts/verify-27-line.sh` 在补丁全部 apply、调用点判据通过之后，把克隆里 `bsd/dev/pong_*.c` 与
 `qcom_glink.c` 逐个 `gcc -fsyntax-only -std=c11 -DK60_HOST_TEST -I<clone>/bsd/dev`，**每装一个源文件就让它过一遍
 宿主编译器**，失败即 `K60 TRIAL FAILED <file> does not parse`。补丁集里每个源都带宿主 shim（`#ifdef
 K60_HOST_TEST` 引 `<stdio.h>` 而不是 `pexpert/pexpert.h`），所以这条不需要 16 线的头文件树。
 
 教训：「补丁能 apply」只证明文本能落盘，不证明它能编译；一条只加文件的补丁尤其危险，因为它连链接期都进不去。
 
-## P-269 — 只打补丁不等于编译过
-
-0628 在 2026-11-20 11:15 到 11:55 之间带着一行语法错误：两个弱定义兜底的诊断写成
-`printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "` + 反斜杠 + `n");`——`"" "` 把字符串切成三段，
-反斜杠落在字面量外面，gcc 报 `stray '\' in program`。它进仓库的路径是：改 `drivers/PongCellular/K60Ipa.c` →
-`gen-ipa-patch.py` 重新生成 0623 → `port-cellular-to-xnu27.py` 生成 0628 → `git apply --check` 通过 → 提交。
-整条路上没有任何一步编译过这段 C：`apply --check` 只比文本，`gen-ipa-patch` 只拼补丁，readiness 只查记号。
-27 线当时**没有**宿主测试运行器（`scripts/run-host-tests.sh` 只在 16 线），所以那 18 个源文件在这一侧一次都没被
-编译器看过。
-
-抓到它的是 16 线那份测试清单：把它 `sed` 成指向 27 线工作树再跑，`-DK60_HOST_TEST -Wall -Wextra -Werror` 立刻
-在两行上报错。这说明问题不在「谁的代码错」，而在「哪一侧有编译器」。
-
-现在 `scripts/verify-27-line.sh` 在补丁全部 apply、调用点判据通过之后，把克隆里 `bsd/dev/pong_*.c` 与
-`qcom_glink.c` 逐个 `gcc -fsyntax-only -std=c11 -DK60_HOST_TEST -I<clone>/bsd/dev`，**每装一个源文件就让它过一遍
-宿主编译器**，失败即 `K60 TRIAL FAILED <file> does not parse`。补丁集里每个源都带宿主 shim（`#ifdef
-K60_HOST_TEST` 引 `<stdio.h>` 而不是 `pexpert/pexpert.h`），所以这条不需要 16 线的头文件树。
-
-教训：「补丁能 apply」只证明文本能落盘，不证明它能编译；一条只加文件的补丁尤其危险，因为它连链接期都进不去。
+套件本身也进了仓库：`scripts/run-host-tests.sh`（此前只在 `/mnt/e/k60-work/artifacts/`，`cd` 写死 16 线，27 线因此一次都没跑过），`K60 HOST PASS 30 suite(s), 2 skipped`。

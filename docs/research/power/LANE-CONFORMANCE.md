@@ -18,7 +18,7 @@
 | `dsp-channel-name` | 2 | 通道名、接收缓冲大小和打开方向采用目标服务协议的定义 | `drivers/PongPower/K60BatteryConfig.h`<br>`#define K60_ADSP_HANDOFF_PROPERTY "k60-adsp-glink-handoff"` | verified | 通道名在 :17；104 字节 handoff 记录在 :16，RX 偏移/长度在 :27；打开调用在 K60Battery.cpp:585 使用这份 config |
 | `dsp-send-result` | 2 | 处理 `sheng_adsp_send` 返回值 | `drivers/PongPower/K60Battery.cpp`<br>`if (rc != QcomGlinkOk) {stale("GLINK send refused"); return;}` | verified | — |
 | `dsp-channel-open` | 2 | 通道能够打开 | `drivers/PongPower/K60Battery.cpp`<br>`if (!transport.open(config, handoff, callbacks, this)) {` | verified | 打开失败时打印 transport initialization rejected 并返回 false，不发布服务 |
-| `dsp-request-timeout` | 2 | 完成一次有超时的请求/响应 | `drivers/PongPower/K60Battery.cpp`<br>`if (self->waitingSince && milliseconds() - self->waitingSince >= kRequestMs) {` | verified | kRequestMs 是 3000 ms；requestTimer 也在 :426 设了同一超时，超时后标记 stale 并重开通道 |
+| `dsp-request-timeout` | 2 | 完成一次有超时的请求/响应 | `drivers/PongPower/K60Battery.cpp`<br>`509: if (self->waitingSince && milliseconds() - self->waitingSince >= kRequestMs) {` | verified | kRequestMs 是 3000 ms；requestTimer 也在 :426 设了同一超时，超时后标记 stale 并重开通道 |
 | `dsp-channel-reconnect` | 2 | 报告失败并重连 | `drivers/PongPower/K60Battery.cpp`<br>`if (!self->transport.reopen()) {self->transport.close(); return;}` | verified | GLINK send 失败在 :423 报告并返回；重开失败就关闭，避免把旧通道当成新会话 |
 
 ## battery（18 行）
@@ -62,7 +62,7 @@
 | id | § | 页面要求 | 证据 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `power-epss-lut` | 5 | 读取目标 LUT、参考时钟和使能状态 | `drivers/PongPower/K60CpuFreqProbe.cpp`<br>`rows[i] = rd32(window->va, K60_CPU_FREQ_REG_FREQ_LUT + i * 4);` | partial | LUT 在 :116 读、使能在 :169 读；参考时钟是 K60CpuFreqPlan.h:30 的 19.2 MHz 常量，不是从硬件读回，所以这一行只覆盖读取路径的一半 |
-| `power-domain-busiest` | 5 | 频域跟随其中最忙的 CPU | `drivers/PongPower/K60CpuFreqPlan.c`<br>`if (b > busy) busy = b;` | verified | 按域取最大而不是平均；:270 的 elapsed 形式也用同一规则 |
+| `power-domain-busiest` | 5 | 频域跟随其中最忙的 CPU | `drivers/PongPower/K60CpuFreqPlan.c`<br>`253: if (b > busy) busy = b;` | verified | 按域取最大而不是平均；:270 的 elapsed 形式也用同一规则 |
 | `power-headroom` | 5 | 留 1.25 倍余量 | `drivers/PongPower/K60CpuFreqPlan.h`<br>`#define K60_CPU_FREQ_MARGIN 125u` | verified | 125/100 在 K60CpuFreqPlan.c:145-146 参与目标频率计算 |
 | `power-down-window` | 5 | 连续四个较闲的窗口后才降频 | `drivers/PongPower/K60CpuFreqPlan.c`<br>`if (++*down >= K60_CPU_FREQ_DOWN_WINDOWS) {` | verified | K60_CPU_FREQ_DOWN_WINDOWS 是 4u；*down 跨窗口保留，升频时清零 |
 | `power-sleep-resume` | 5 | 休眠/唤醒时保存所需状态，恢复时钟与映射 | `scripts/judge-k60-sleep-console.py`<br>`K60Sleep: report prepares>=1 restores>=1` | partial | 报告行只证明 prepare/restore 与 report；判据里的 WAKE_RE（K60TRACE: wake cpus done）在 w10 从未打印并硬挂，w9 在 IOCPU.cpp:334 报 Spurious wakeup of cpu 1，02-PLATFORM-SLEEP.md 也记着完整恢复在 secondary processor_start 硬挂 |

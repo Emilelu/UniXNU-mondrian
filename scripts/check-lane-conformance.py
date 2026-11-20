@@ -78,8 +78,31 @@ def evidence_path(root, evidence):
 
 
 def evidence_line(row):
+    """Return (proof, line) — line is None unless the cell starts with "7: ".
+
+    An unaddressed proof only has to occur somewhere in the evidence file. A
+    "7: " prefix pins it to line 7, which is how a row keeps proving the right
+    statement when the same words appear twice (an early guard and the function
+    that enforces it) and a plain search would still pass after the guard moved.
+    """
     text = str(row.get("evidence_line") or "").strip()
-    return text
+    match = re.match(r"^(\d+):[ \t]+(.*)$", text, re.S)
+    if match:
+        return match.group(2).strip(), int(match.group(1))
+    return text, None
+
+
+def evidence_at(target, proof, lineno):
+    """Check a line-addressed proof; return a problem sentence or None."""
+    if lineno is None:
+        return None
+    lines = read(target).splitlines()
+    if lineno > len(lines):
+        return "the evidence has only %d line(s), so line %d does not exist" % (len(lines), lineno)
+    actual = lines[lineno - 1].strip()
+    if actual != proof:
+        return "line %d is %r, not the proof %r" % (lineno, actual, proof)
+    return None
 
 
 def section_block(body, section):
@@ -159,7 +182,7 @@ def verify(root, table_path):
             pass  # an external: citation cannot be opened here, and says so
         elif not target.exists():
             problems.append("%s: evidence %s does not exist" % (label, row.get("evidence")))
-        proof = evidence_line(row)
+        proof, lineno = evidence_line(row)
         if proof and requirement and proof == requirement:
             problems.append("%s: evidence_line is the requirement itself; cite the implementation, not the page" % label)
         if status == "verified" and not proof:
@@ -172,6 +195,10 @@ def verify(root, table_path):
                 problems.append("%s: evidence_line %r is too short to identify a line" % (label, proof))
             elif proof not in proof_body:
                 problems.append("%s: evidence %s does not contain %r" % (label, row.get("evidence"), proof))
+            else:
+                addressed = evidence_at(target, proof, lineno)
+                if addressed:
+                    problems.append("%s: evidence %s: %s" % (label, row.get("evidence"), addressed))
         judged.append((label, lane, section, status, row))
     covered = {lane for _, lane, _, _, _ in judged}
     for lane in LANES:
@@ -199,9 +226,10 @@ def render(judged):
         for label, _, section, status, row in rows:
             why = str(row.get("why") or "").strip().replace("|", "/")
             evidence = "`%s`" % row.get("evidence", "")
-            proof = evidence_line(row)
+            proof, lineno = evidence_line(row)
             if proof:
-                evidence += "<br>`%s`" % proof.replace("|", "\\|")
+                shown = "%d: %s" % (lineno, proof) if lineno else proof
+                evidence += "<br>`%s`" % shown.replace("|", "\\|")
             lines.append("| `%s` | %s | %s | %s | %s | %s |"
                          % (label, section, row.get("requirement", ""), evidence,
                             status, why or "—"))

@@ -90,7 +90,7 @@ def build(name, rows, page=PAGE, with_evidence=True):
     if with_evidence:
         target = root / "drv" / "evidence.c"
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("int x; /* fixture proof */" + chr(10), encoding="utf-8", newline="")
+        target.write_text("int x; /* fixture proof */" + chr(10) + "int y; /* second line */" + chr(10), encoding="utf-8", newline="")
     table = root / "table.toml"
     header = 'page_root = "%s"' % str(page_dir).replace("\\", "/") + chr(10) + 'page = "power.md"' + chr(10)
     table.write_text(header + rows, encoding="utf-8", newline="")
@@ -178,6 +178,20 @@ def main():
     problems = module.verify(root, table)[1]
     check("an evidence line the file does not carry is refused",
           any("does not contain" in p for p in problems), str(problems))
+
+    root, table = build("addressed", lanes(row(lane="power", evidence_line="1: int x; /* fixture proof */")))
+    problems = module.verify(root, table)[1]
+    check("an evidence line with the right line number verifies", problems == [], str(problems))
+
+    root, table = build("misaddressed", lanes(row(lane="power", evidence_line="2: int x; /* fixture proof */")))
+    problems = module.verify(root, table)[1]
+    check("an evidence line whose number does not hold the proof is refused",
+          any("not the proof" in p for p in problems), str(problems))
+
+    root, table = build("past-end", lanes(row(lane="power", evidence_line="9: int x; /* fixture proof */")))
+    problems = module.verify(root, table)[1]
+    check("a line number past the end of the evidence is refused",
+          any("does not exist" in p for p in problems), str(problems))
 
     root, table = build("shortproof", lanes(row(lane="power", evidence_line="x")))
     problems = module.verify(root, table)[1]

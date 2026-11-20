@@ -1172,4 +1172,11 @@ source = "docs/engineering/PITFALLS.md:P-267"
 statement = "重放用的树不是构建用的树：缺一层 series，后面的补丁就会因为上下文不存在而「失败」，而真正的构建里一条都没失败过。"
 check = "python3 scripts/tests/test-bt-data-gate-chain.py"
 note = "The test's missing-layer case asserts the checker refuses a layer list that names a file which is not there, instead of silently grading the layers it can see. The 101-applied / 98-planned difference was traced to the soc layer living on another ref of UniXNU-sm85-common."
+[[rule]]
+id = "P-268"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-268"
+statement = "表记了指纹却没记它属于哪个 pin，pin 一动表就静默过期：生成的对照表必须把来源 commit 写进表头，并由检查器与 profile 的 [[source]] 比对，缺表头也算红。"
+check = "python3 scripts/tests/test-ios27-storage-vtable.py"
+note = "Three cases: the head matches the profile, a moved pin fails with 'table pin ... != profile pin ...', and a table without a head fails because it can never go stale. Against the pinned kernelcache the checker still reports 190/190 and a zero tail."
 

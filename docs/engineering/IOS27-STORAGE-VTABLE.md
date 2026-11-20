@@ -85,3 +85,11 @@ The TSV is the source side. It was read from the object built from the pinned
 `__const 0x530`, each slot word carries its discriminator, and the method names
 come from the section relocations. The kernelcache side is re-derived on every
 run, so a different build cannot inherit this page's answer.
+## The table names its pin
+
+The table is generated from a pinned source, so it records that pin in its head:
+`# pin: IOStorageFamily IOStorageFamily-337.100.1`, `# commit: 7edb88fb...` and the
+profile it came from. `check-ios27-storage-vtable.py` reads the head and compares the
+commit with the `[[source]]` entry in `profiles/os/ios-27.0.1-24A446/profile.toml`; a
+moved pin, a missing head or a missing profile is a failure, so the table cannot
+outlive the source it compares against.

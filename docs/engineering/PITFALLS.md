@@ -7303,3 +7303,24 @@ context」——少了这一层，os 层的上下文当然对不上。算术也�
 
 回归：`python3 -c` 解析 board.toml 得计划列表，与构建日志的 `== kernel: patch` 列表逐行 diff，
 差额必须能被「摘掉的补丁 + 另一棵树里的补丁」解释完（本次 4 条）。
+## P-268 — 表记了指纹，却没有记这个指纹属于哪个 pin
+
+`docs/engineering/ios27-storage-vtable.tsv` 有 190 行逐槽数据，每行是槽位、类别、方法名和
+16 位判别子。它没有一句话说这些数来自哪个 commit。于是 `profile.toml` 里
+`IOStorageFamily` 的 `commit` 一改，表不会报错，只会安静地过期——而它正是用来证明
+「190 个槽全对上」的那张表。
+
+这类表有一个共同形状：**数值是真的，来源是隐含的。** 隐含的来源不会自己失效，所以表
+永远通过，直到有人拿另一份源码重生成它、发现数字全变。把它和 P-266 区分开：P-266 是
+「常量在文件里不等于在那里有意义」；P-268 是「记录了一个数，却没记录这个数属于谁」。
+
+修法不是补一句注释，而是让检查器读两个地方：表头的 `# commit:` 与 `profile.toml` 的
+`[[source]] commit`，不一致就红；表头缺失也红——没有表头的表永远无法失效，这本身就是
+缺陷。当前表头三行：
+
+    # pin: IOStorageFamily IOStorageFamily-337.100.1
+    # commit: 7edb88fbae296fb7c8ce2f64e115e116e566d51c
+    # source: profiles/os/ios-27.0.1-24A446/profile.toml
+
+回归：`scripts/check-ios27-storage-vtable.py` 的三个新用例（pin 一致通过、pin 移动红、
+无表头红），全套 20 例；对 pinned kernelcache 仍是 190/190、尾三字为零。

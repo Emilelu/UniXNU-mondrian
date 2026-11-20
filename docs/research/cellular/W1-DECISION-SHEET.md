@@ -225,7 +225,17 @@ python3 scripts/check-w1-lun-preflight.py --evidence $CAP; echo PREFLIGHT_RC=$?
 27 UEFI feed `mu_basecore-8f10084c`，HEAD `cfb93724a06ff86ff5ba971413368a7809ee42a5`：
 
 - `MdePkg/Include/IndustryStandard/Ufs.h:32` 是 `#pragma pack(1)`，结构按字节紧排。
-- `Ufs.h:873-893` 的 `UFS_UNIT_DESC` 前五个字段依次是 `UINT8 Length`、`DescType`、`UnitIdx`、`LunEn`、`BootLunId`，即 byte0..4。
+- `Ufs.h:873-893` 的 `UFS_UNIT_DESC` 前五个字段依次是 `UINT8 Length`、`DescType`、`UnitIdx`、`LunEn`、`BootLunId`；逐行定义在 `Ufs.h:874`/`:875`/`:876`/`:877`/`:878`，即 byte0..4：
+
+  | byte | 字段 | 27 UEFI 行 | 类型 |
+  |---|---|---|---|
+  | 0 | `Length` | `Ufs.h:874` | `UINT8` |
+  | 1 | `DescType` | `Ufs.h:875` | `UINT8` |
+  | 2 | `UnitIdx` | `Ufs.h:876` | `UINT8` |
+  | 3 | `LunEn` | `Ufs.h:877` | `UINT8` |
+  | 4 | `BootLunId` | `Ufs.h:878` | `UINT8` |
+
+  `Ufs.h:32` 的 `#pragma pack(1)` 加五个单字节字段，声明顺序就是字节偏移；这不是从 Linux 源码推的。
 - `Ufs.h:658-667` 的 `UFS_DESC_IDN` 把 `UfsUnitDesc` 定义为 `0x02`。
 - `MdeModulePkg/Bus/Ufs/UfsPassThruDxe/UfsPassThru.c:996-1008` 用 `sizeof(UFS_UNIT_DESC)`、循环 `Index=0..7`，调用
   `UfsRwDeviceDesc(Private, TRUE, UfsUnitDesc, (UINT8)Index, 0, &UnitDescriptor, &UnitDescriptorSize)`；

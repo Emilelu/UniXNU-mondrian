@@ -84,7 +84,18 @@ Linux 的常量也在同一位置（`include/ufs/ufs.h`）：`QUERY_DESC_IDN_UNI
 - `MdePkg/Include/IndustryStandard/Ufs.h:32`：`#pragma pack(1)`，所以结构体没有对齐填充；
 - `Ufs.h:873-893`：`UFS_UNIT_DESC` 的前五个字段依次是
   `UINT8 Length; UINT8 DescType; UINT8 UnitIdx; UINT8 LunEn; UINT8 BootLunId;`，
-  即 byte 0/1/2/3/4；`UnitIdx` 就是 `bUnitIndex`，`LunEn` 就是 `bLUEnable`；
+  即 byte 0/1/2/3/4；逐行定义在 `Ufs.h:874`/`:875`/`:876`/`:877`/`:878`：
+
+  | byte | 字段 | 27 UEFI 行 | 类型 |
+  |---|---|---|---|
+  | 0 | `Length` | `Ufs.h:874` | `UINT8` |
+  | 1 | `DescType` | `Ufs.h:875` | `UINT8` |
+  | 2 | `UnitIdx` | `Ufs.h:876` | `UINT8` |
+  | 3 | `LunEn` | `Ufs.h:877` | `UINT8` |
+  | 4 | `BootLunId` | `Ufs.h:878` | `UINT8` |
+
+  `Ufs.h:32` 的 `#pragma pack(1)` 和五个单字节字段保证声明顺序就是字节偏移；
+  `UnitIdx` 就是 `bUnitIndex`，`LunEn` 就是 `bLUEnable`；
 - `Ufs.h:658-667`：`UfsUnitDesc = 0x02`（`UFS_DESC_IDN`，即 IDN `0x02`）；
 - `UfsPassThru.c:996-1007`：`UfsRwDeviceDesc(Private, TRUE, UfsUnitDesc, Index, 0,
   &UnitDescriptor, &UnitDescriptorSize)` 真的发出 QUERY READ DESCRIPTOR；随后

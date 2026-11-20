@@ -5053,3 +5053,21 @@ k54 的判读里这一项只能是 SKIP。
 
 规则：判据要落在**被搬运的东西**上，不落在**这次搬运的结论**上。打印量可以靠每 storage 一行
 和静态去重压住，但不能因为「日志会变长」就把证据换成结论词。
+
+## P-283 — 永远为红的门禁等于没有门禁
+
+W1 的控制器 LUN 在拿到设备采集前不可能定案；第一次把它接进线内 preflight 时，
+judge 的 PENDING（退出码 2）被当成失败。于是每次构建 preflight 都红，而红的原因
+不是代码坏了，是证据还没有。红门禁一旦长期为红，所有人都会学会绕过它；真正出现
+矛盾时也看不见。这与 P-251/P-279 同族。
+
+规则：门禁必须把「还没有证据」和「证据互相矛盾」分成两种结果。缺腿 = PENDING，
+打印缺哪一腿并退 0；两腿矛盾、字段畸形、越界值 = FAIL，退非 0；证据齐全且一致
+= PASS。不能为了变绿放宽判据，也不能把 PENDING 改写成 PASS。
+
+实现：`scripts/check-w1-lun-preflight.py` 把 judge 的 2 映射为 0、1 保持 1；
+`scripts/tests/test-w1-lun-preflight.py` 用 pass/pending/fail 三份夹具断言 0/0/1，
+并保留 judge 独立 CLI 的 0/2/1。门禁只在 `--device`/`K60_REPO` 指向本分支时执行；
+它不写飞行账本。
+
+Check: `python3 scripts/tests/test-w1-lun-preflight.py`

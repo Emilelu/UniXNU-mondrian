@@ -152,8 +152,9 @@ xxd -g1 -l 16 "$CAP/unit-desc-L5.bin" > "$CAP/unit-desc-L5-hex.txt" 2>&1 || \
 | 3 | `bLUEnable` | `0x01` | 必须是 enabled |
 | 4 | `bBootLunID` | 0..2 | 记录，不当作 LUN 编号 |
 
-字段偏移来自 27 UEFI feed 的 packed `UFS_UNIT_DESC`（`Ufs.h:873-893`），
-并由 Linux v6.12 的 `ufshcd_read_desc_param()` 按字节切片独立闭合
+字段偏移来自 27 UEFI feed 的 packed `UFS_UNIT_DESC`：`Ufs.h:874`/`:875`/`:876`/`:877`/`:878`
+逐行定义 `Length`/`DescType`/`UnitIdx`/`LunEn`/`BootLunId`，`Ufs.h:32` 的
+`#pragma pack(1)` 保证没有对齐填充；并由 Linux v6.12 的 `ufshcd_read_desc_param()` 按字节切片独立闭合
 （`drivers/ufs/core/ufshcd.c:3637-3703`，commit
 `adc218676eef25575469234709c2d87185ca223a`）。这两个字段都是单字节，
 没有端序问题。

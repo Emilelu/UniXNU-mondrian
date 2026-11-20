@@ -277,8 +277,20 @@ def judge(console: pathlib.Path, capture: pathlib.Path | None) -> tuple[bool, in
     return True, 0 if verdict == "PASS" else 1
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse exits 2 for a usage error, but 2 means INVALID here.
+
+    A typo in a flag would then be indistinguishable from "the capture carried
+    nothing to judge", which is the one distinction this exit table exists for.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print("%s: error: %s" % (self.prog, message), file=sys.stderr)
+        raise SystemExit(4)
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="judge the K60 ADSP handoff console")
+    parser = _ArgumentParser(description="judge the K60 ADSP handoff console")
     parser.add_argument("path", type=pathlib.Path)
     args = parser.parse_args()
     path: pathlib.Path = args.path

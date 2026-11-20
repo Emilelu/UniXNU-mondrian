@@ -235,8 +235,20 @@ def _print_criteria(results):
             print("  - " + note)
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse exits 2 for a usage error, but 2 means INVALID here.
+
+    A typo in a flag would then be indistinguishable from "the capture carried
+    nothing to judge", which is the one distinction this exit table exists for.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print("%s: error: %s" % (self.prog, message), file=sys.stderr)
+        raise SystemExit(4)
+
 def main():
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         description="Judge the K60 EPSS mode-1 A flight from console and capture evidence.")
     parser.add_argument("target", nargs="?",
                         help="evidence directory or console.log path")
@@ -256,8 +268,8 @@ def main():
         log_path = path
         capture_path = path.with_name("capture.json")
     if not log_path.is_file():
-        print("k60-mode1: no console.log at %s" % log_path, file=sys.stderr)
-        return 4
+        print("k60-mode1: no console.log at %s -- INVALID, not a usage error" % log_path, file=sys.stderr)
+        return 2
 
     data = log_path.read_bytes()
     text = data.decode("utf-8", "replace")

@@ -82,6 +82,7 @@ run_py fdt-props python3 scripts/tests/test-read-fdt-props.py
 run_py counts python3 scripts/tests/test-check-power-counts.py
 run_py judge-thresholds python3 scripts/tests/test-check-judge-thresholds.py
 run_py criteria-cites python3 scripts/tests/test-check-criteria-cites.py
+run_py judge-exit-codes python3 scripts/tests/test-check-judge-exit-codes.py
 run_py boot-img python3 scripts/tests/test-extract-boot-img.py
 run_py console-contract python3 scripts/tests/test-check-console-contract.py
 echo "power-python: OK ($python_suites suites)"

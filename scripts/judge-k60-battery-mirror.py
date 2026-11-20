@@ -54,7 +54,7 @@ Deliberate leniencies, both proven against the real sheng report:
   - the current sign is a per-protocol convention (page §4 step 2 asks for it to
     be confirmed before use); the judge compares magnitude and prints both signs.
 
-Exit: 0 PASS, 1 FAIL, 2 INVALID (an input is unusable) or usage.
+Exit: 0 PASS, 1 FAIL, 2 INVALID (an input is unusable), 4 usage error (never a verdict).
 """
 
 import argparse
@@ -307,8 +307,20 @@ def judge(console_path, mirror_path):
     return checks, notes, ("PASS" if all(check["ok"] for check in checks) else "FAIL"), sides
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse exits 2 for a usage error, but 2 means INVALID here.
+
+    A typo in a flag would then be indistinguishable from "the capture carried
+    nothing to judge", which is the one distinction this exit table exists for.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print("%s: error: %s" % (self.prog, message), file=sys.stderr)
+        raise SystemExit(4)
+
 def main(argv):
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         description="Compare a K60 battery sample against a sheng Linux charge mirror")
     parser.add_argument("console", help="console.log carrying K60Battery sample lines")
     parser.add_argument("--mirror", required=True,

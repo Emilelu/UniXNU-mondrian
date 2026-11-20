@@ -468,8 +468,20 @@ def resolve_log(target: pathlib.Path):
     return target if target.is_file() else None
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse exits 2 for a usage error, but 2 means INVALID here.
+
+    A typo in a flag would then be indistinguishable from "the capture carried
+    nothing to judge", which is the one distinction this exit table exists for.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print("%s: error: %s" % (self.prog, message), file=sys.stderr)
+        raise SystemExit(4)
+
 def main() -> int:
-    ap = argparse.ArgumentParser(
+    ap = _ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("log", nargs="?", type=pathlib.Path,
                     help="console.log path, or a usblog directory containing console.log")
@@ -493,8 +505,8 @@ def main() -> int:
         return 4
     log = resolve_log(target)
     if log is None:
-        print(f"battery-judge: no console.log at {target}", file=sys.stderr)
-        return 4
+        print(f"battery-judge: no console.log at {target} -- INVALID, not a usage error", file=sys.stderr)
+        return 2
 
     data, lines = read_lines(log)
     samples = parse_samples(lines)

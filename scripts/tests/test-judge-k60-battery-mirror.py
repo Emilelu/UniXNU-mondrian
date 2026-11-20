@@ -149,7 +149,7 @@ def main():
                               "--mirror", str(WORK / "nope.json")], **RUN)
     check("missing inputs exit 2", missing.returncode, 2)
     usage = subprocess.run([sys.executable, str(JUDGE)], **RUN)
-    check("no arguments exit 2", usage.returncode, 2)
+    check("no arguments is a usage error", usage.returncode, 4)
 
     print("TESTS OK %d checks (%d failure(s))" % (checks, failures))
     return 1 if failures else 0

@@ -266,14 +266,14 @@ def main() -> int:
           "--android", str(android_ok), "--window-start", "1763000000",
           "--window-end", "1763000200")
 
-    # --- 11. a missing log is a usage error, never a verdict --------------
+    # --- 11. a missing log is INVALID, never a verdict ---------------------
     cases += 1
     proc = subprocess.run([sys.executable, str(JUDGE), "--log", str(tmp / "nope.log")],
                           capture_output=True, text=True, encoding="utf-8",
                           errors="replace",
                           env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-    ok = proc.returncode == 4 and "[exit" not in (proc.stdout or "")
-    print(f"{'PASS' if ok else 'FAIL'} a missing log exits 4 and prints no verdict")
+    ok = proc.returncode == 2 and "[exit" not in (proc.stdout or "")
+    print(f"{'PASS' if ok else 'FAIL'} a missing log exits 2 (INVALID) and prints no verdict")
     if not ok:
         failures += 1
         print(f"      rc={proc.returncode} stdout={proc.stdout!r} stderr={proc.stderr!r}")

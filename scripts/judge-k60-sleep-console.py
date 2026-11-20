@@ -301,8 +301,20 @@ def judge(console: pathlib.Path, capture: pathlib.Path | None) -> tuple[bool, in
     return False, 1
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse exits 2 for a usage error, but 2 means INVALID here.
+
+    A typo in a flag would then be indistinguishable from "the capture carried
+    nothing to judge", which is the one distinction this exit table exists for.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print("%s: error: %s" % (self.prog, message), file=sys.stderr)
+        raise SystemExit(4)
+
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         description="Judge a K60 platform-sleep console against the resume criteria.")
     parser.add_argument("path", nargs="?",
                         help="an evidence directory (console.log + capture.json) or a console.log")

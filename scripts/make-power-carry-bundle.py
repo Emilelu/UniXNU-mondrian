@@ -72,6 +72,8 @@ EXTRA = [
     "scripts/tests/test-check-judge-thresholds.py",
     "scripts/check-criteria-cites.py",
     "scripts/tests/test-check-criteria-cites.py",
+    "scripts/check-judge-exit-codes.py",
+    "scripts/tests/test-check-judge-exit-codes.py",
     "docs/research/charger/07-DEVICE-CRITERIA.md",
     "scripts/tests/test-check-console-contract.py",
     "drivers/PongPower/K60Battmgr.c",

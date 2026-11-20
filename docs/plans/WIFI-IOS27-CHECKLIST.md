@@ -108,6 +108,23 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   at a time while eight cores idle at load 3. The second pass is cheap: XNU_BOOTSTRAP only
   gates the archive block at scripts/build-xnu-generic.sh:604, so the compile flags are
   identical and make relinks what the first pass already built.
+  Two more things bite before that check can run on a fresh 27 tree, and neither is the driver:
+  an uninitialised submodule and an executable-bit-only dirty reference tree. The first is
+  drivers/QcaBluetooth/.git pointing at a worktree admin directory that no longer exists, which
+  makes git submodule foreach fatal and unixnu stop with git failed (128); re-running
+  git submodule update --init drivers/QcaBluetooth fixes it. The second is refer/corecrypto-2023
+  reporting 1798 modified files that are all mode 100644 -> 100755 with zero content change,
+  because the 9p copy marks everything executable; build-corecrypto-14.py:36 refuses that as
+  'The crypto reference must stay immutable' until git config core.fileMode false is set in the
+  assembled tree. The 27 board's own archive list also names component:ArmDTPlatform and
+  component:ArmCpu, but neither carries a build recipe in components.toml, so archive_plan() skips
+  them and build-fileset-release-reference.py then fails on the missing
+  build/armdt-platform/libArmDTPlatform.a; the 16.6.1 list has no release-reference step, which is
+  why this only shows on 27. Finally the target version disagrees with itself: version_env() sets
+  UNIXNU_IOS_VERSION from the profile (27.0.1) while linux_env() pins DARWIN_TRIPLE to
+  arm64-apple-ios17.0, so kernel_target.check_object expects (2, 27<<16) and rejects the objects it
+  just built. Until the framework makes the triple follow the profile, a 27 run has to force both
+  sides to 17.0. Tracked in SBL-MISSION.md 66.
 - [x] B3 [DEV] Wire wifi into the 27 side without touching the 16 default (done
   2026-11-20): configs/mondrian_ios27_wifi_defconfig carries every stage-0 switch plus
   CONFIG_XNU_PONG_WIFI=y, and board.toml keeps the 27 default on

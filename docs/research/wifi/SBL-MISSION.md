@@ -1755,3 +1755,62 @@ cd <framework> && XNU_PONG_WIFI=1 \
 对象/分钟。跑完后用 `check-wifi-symbols.py` 数符号才算 B2 成立。整条路径已封装成
 `scripts/build-wifi27-kernel.sh`（导出两个变量、按设备 OS 键调用、最后数符号；
 契约测试 `scripts/tests/test-build-wifi27-kernel.py` 五例）。
+
+## 66. 27 构建走到归档与链接：四处不在驱动里的摩擦
+
+B2 的出口判据是「27 内核镜像里 PongWifi 符号计数 > 0」，不是「编译通过」。要把这句话做成可执行的检查，
+先得让整条 27 构建路径真正跑起来；这一节记的是路径上挡住它的东西，它们都不在 `drivers/PongWifi` 里。
+
+### 66.1 门禁先红：坑登记缺口露出来了
+
+`python3 scripts/check-rules.py` 在干净 main 上报 P-100、P-101、P-102、P-103、P-185、P-206「没有登记检查也没有 waiver」。
+这是 `72e5edec` 给 `PITFALL_HEADING` 补上 `re.MULTILINE` 之后才看见的：此前正则一条都匹配不上，覆盖检查一直在空转。
+27 构建因此只能用 `--skip-gates` 跑；红的是 main 的账，不由 wifi 线补。
+
+### 66.2 蓝牙子模块的悬空 gitfile 会让驱动一步都走不动
+
+`drivers/QcaBluetooth/.git` 里写的是 `gitdir: ../../../UniXNU-mondrian/.git/worktrees/k60-wifi/modules/drivers/QcaBluetooth`，
+那个 admin 目录并不存在，于是 `git submodule foreach` 直接 `fatal: not a git repository: …`，`unixnu build` 起手就 `git failed (128)`。
+把旧目录挪走、按 `.gitmodules` 的 url 重新 `git submodule update --init drivers/QcaBluetooth` 即恢复（effe4ec5）。
+这一步在 `feeds.update_submodules()` 的路上，任何线都躲不开。
+
+### 66.3 corecrypto 参考树的 1798 个「修改」全是权限位
+
+`build-corecrypto-14.py:36` 要求 `refer/corecrypto-2023` 的 `git status --porcelain` 为空，否则
+`SystemExit('The crypto reference must stay immutable')`。组装树里那 1798 个文件全是
+`old mode 100644 / new mode 100755`，插入删除 0 行——文件经 9p 复制到 E: 时被统一加上可执行位。
+`git -C <tree>/refer/corecrypto-2023 config core.fileMode false` 之后归零，归档步骤继续。
+同一棵组装树里 edk2 也脏（8265 项），只是本步没有用到它。
+
+### 66.4 27 线的目标版本自相矛盾
+
+`scripts/unixnu/kernel.py` 的 `version_env()` 用 os profile 的 `ios_version`（`27.0.1`）设 `UNIXNU_IOS_VERSION`，
+同一文件的 `linux_env()` 却把 `DARWIN_TRIPLE` 写死成 `arm64-apple-ios17.0`。
+`scripts/kernel_target.py:13` 于是期望 `(2, 27<<16)`，编出来的对象是 `(2, 17<<16)`，
+`archive-03-build-libpthread-kernel` 直接退出：`source_pthread_bootstrap.o: deployment (2, 1114112), expected (2, 1769472)`。
+正解是让 `DARWIN_TRIPLE` 跟 profile 走。本轮为了让已经编好的对象不作废，把两边统一到工具链真实版本 17.0（套一个
+`version_env` 包装，只在运行期生效，没有改框架仓）。
+
+### 66.5 27 板的归档清单要两个没人编的归档
+
+`board.toml` 的 27 覆盖把 `archives` 写成 corecrypto 两遍、`component:ArmDTPlatform`、`component:ArmCpu`、libpthread、
+`build-fileset-release-reference.py --tree .`。但 `components.toml` 里的 ArmDTPlatform 与 ArmCpu 只有 `outputs`、没有 `build` 配方，
+`archive_plan()` 只把「有 build 且 build_stage=kernel」的组件排进计划，于是这两个归档谁都没编；随后 release-reference 步骤
+去 `file_hash(build/armdt-platform/libArmDTPlatform.a)` 时 `FileNotFoundError`。16 线的清单里没有这一步，所以这个洞只在 27 线露出来。
+
+### 66.6 外层 make 没有 jobserver，8 核空转
+
+`build-xnu-generic.sh` 的 `make -C .cache/xnu-work …` 把 `MAKEJOBS=-j${JOBS:-4}` 交给子 make，外层 make 自己不带 `-j`，
+子 make 便打 `jobserver unavailable: using -j1`（一次构建 66-68 次），并发退化成 1。
+三次实验排除了「换文件系统能救」：整棵树 rsync 到 ext4（482 MB、927 个对象）后全量重编、速率不变；
+`MAKEFLAGS=-j8` 传给外层 make 无效；`ls -R bsd/` 在 9p 是 0.19 s、ext4 是 0.01 s，差距不足以解释 4-6 对象/分钟。
+给外层 make 补 `-j"${JOBS:-4}"` 之后仍有 jobserver 告警（子 make 的规则没有 `+` 前缀），实测并发稳定在 5-6 个 clang。
+真修法在 xnu 的 make 规则里加 `+`，或在调用处传 `MAKEFLAGS=--jobserver-auth`，属框架/上游，不由设备仓改。
+
+### 66.7 现在的状态
+
+归档阶段已经跑过 corecrypto 两遍与 libpthread（`build/corecrypto-2023/*.a`、`build/libpthread-kernel/libpthread_kernel.a`），
+ArmDTPlatform 与 ArmCpu 两个归档从同版本的 27 产物树借来放进 `build/`；正式 pass（`XNU_BOOTSTRAP=0`）正在重编并准备链接，
+`XNU_PONG_WIFI=1` + `-Wl,-force_load` 的钩子在 `build-xnu-generic.sh` 里就位。拿到
+`build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf` 之后，
+`scripts/check-wifi-symbols.py` 的符号计数才是 B2 的判据。

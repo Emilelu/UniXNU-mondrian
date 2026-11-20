@@ -128,78 +128,11 @@ iOS 27.0.1）不是同一颗 SoC、也不是同一个 OS 产品。它证明“�
 非 Apple SoC 上执行签名路径”，**不能**证明 SM8475 的 EL1 能写五组密钥寄存器，也不能替代
 每核 PACIA/AUTIA。它是机制旁证，不是本板测量。
 
-## 4. 最小判据（只定义，不实现）
+## 4. 探针判据
 
-每条都要求：寄存器名、期望值、失败形状、要打印的那行。判词与测量分开——测量只打印原始值，
-判词单独一行，避免再出现“判读层的 bug 变成被测对象的结论”（P-274 的同一形状）。
-
-### P0 每个核重读 ID 寄存器
-
-- 读：每个核 `MRS ID_AA64ISAR1_EL1`、`MRS ID_AA64ISAR2_EL1`，同时打印 `MPIDR_EL1`。
-- 打印：两个 64 位原值 + 解码后的 APA/API/GPA/GPI（偏移见 §2；ISAR2 打印 APA3/GPA3）。
-- 通过（逐核）：`(APA|API) != 0` **且** `(GPA|GPI) != 0`；或 `(APA3 != 0 && GPA3 != 0)`。
-- 失败：某一核两组里有零组。**不得**要求四个字段都非零，也不得只测一个核。
-- 记录：镜像路径、大小、sha256、串口原文、每核一行。
-
-### P1 五组密钥寄存器（10 个 MSR）
-
-- 写/读：`APIAKeyLo_EL1`/`APIAKeyHi_EL1`、`APIBKey*`、`APDAKey*`、`APDBKey*`、
-  `APGAKey*` 各写一个 128 位图样（五组不同），立即读回。
-- 同时记录 `SCTLR_EL1` 的四个使能位：PACIA[31]、PACIB[30]、PACDA[27]、PACDB[13]
-  （`proc_reg.h:613-624`；就是页面里的 EnIA/EnIB/EnDA/EnDB）。它们是**四个独立位**，
-  不是 `[31:28]` 一个半字节：`[29:28]` 是 RES1（`proc_reg.h:610`），
-  `[31:28]=0xF` 不代表 EnDA/EnDB 已开。
-- 时序：XNU 之前读一次（预期 0），XNU 起来后再读一次（预期四位全 1）。
-- 通过：五组 128 位读回相等，且 XNU 之后四位全 1。
-- 失败：`MSR` 处同步异常 `ESR_EL1.EC=0x18`（MSR/MRS 陷入，ISS 给出 op0/op1/CRn/CRm/op2 与 Rt）；
-  读回不等；或 XNU 之后使能位仍为 0。
-- 写密钥只在 XNU 之前的那次测量里做：XNU 起来后不要改活密钥再恢复——那组密钥已经
-  签过指针，改写会让在途签名失效。
-
-### P2 每核 PACIA/AUTIA 往返（EL1 和 EL0）
-
-- 前置：先确认 PACIA[31] 已置 1。`EnIA=0` 时 `PACIA` 按架构是 NOP，“指针没变”不是缺 PAC 的证据。
-- EL1：取局部对象地址 `p`，`s = PACIA(p, modifier)`，检查 `s != p`，再 `AUTIA(s, modifier) == p`。
-- A/B：同一次运行里 `PACIB(p, modifier)` 必须与 `s` 不同；`AUTIB(PACIA(p))` 不得还原成 `p`
-  （跨密钥不通过）。**不要**靠重写 APIBKey 制造差异。
-- 每核：8 个核都跑；同一 `(p, modifier, key)` 的签名值在各核之间必须相同——密钥集是每启动
-  一组、写给每个 CPU 的（§3.4），不同就说明那个核没装上。
-- EL0：同一往返从用户态跑一遍并绑核；密钥 EL0 读不到，也不需要读（EL0/EL1 共用一组，`arm64e.md:52-54`）。
-- 失败形状：`PACIA` 处 `ESR_EL1.EC=0x00`（指令 UNDEFINED，ISS=0）；或 `AUTIA` 还原出的不是 `p`；
-  或两组密钥都出现 `s == p`。`HCR_EL2` 的两个位都是**置 1 生效**：API=1 使 PAC 指令
-  UNDEFINED，APK=1 使密钥寄存器访问陷入 EL2（EC=0x18）——EL1 读不到 HCR_EL2，只能由
-  这两个形状反推。页面 `arm64e.md:24` 写的是“清除 APK/API 会使访问陷入”，与 ARM ARM
-  相反；`pac-probe-arm64e-gate.patch:60-61` 的“置位即陷入”才是对的那一侧。
-- 用错修饰值（或错密钥）制造一次认证失败，形状必须原样记录：FPACCOMBINE 在分支或加载那条
-  指令上同步异常，`ESR_EL1.EC` 是 `ESR_EC_PAC_FAIL`；pre-FPAC 不异常，坏指针在**使用**时
-  才 `IABORT_EL1`/`DABORT_EL1`（`platform_tests.c:2050-2071` 就按这两种形状写断言）。
-  APA=0b0101 与 API 的 5 是同一个 FPACCOMBINE 编码（XNU 的枚举建在 API 上，APA 侧只有掩码，
-  `proc_reg.h:3159-3167`）；内核的 `gARM_FEAT_FPACCOMBINE` 由 API 置位（§3.4），本核 API=0，
-  所以两种形状都要能解释。
-- 证据行：`PAC core=%u mpidr=%llx el=%u p=%llx s=%llx back=%llx s_b=%llx`。
-
-### P3 SoC 支持页
-
-- 两个不同的门：`arm64e.md:21` 要求“SoC 仓库列在 SoC 支持页”，而 `soc-support.md` 是流程页，
-  只在 `:126-134` 把 SM8550 当示例；`arm64e.md:29-31` 的“受支持设备”表是另一件事，只有
-  sheng/SM8550/开发中。本仓 `feeds.toml:7-14` 固定了 `xNekom/UniXNU-sm8475-common`
-  （commit `20a30fd…`），仓库存在，但两页都没有点名它。
-- 通过：SoC 支持页点名 SM8475/该仓库，且 F0-P2 的结果按 `arm64e.md:25` 记进 `porting.toml`。
-- 失败：两页仍只有 SM8550；或入了表但三项结果没有 `file:line` 依据。
-
-### P4 运行期 TCR 的两个 granule
-
-- 构建常量（`porting.toml` 的 granules 证据）：`TCR_EL1_BOOT=0x00000022a5192519`，
-  `T0SZ=T1SZ=25`（39 位 VA），`TG0=0b00`、`TG1=0b10`，`ARM_PGBYTES=4096`，
-  `ARM_PGSHIFT=12`；`scripts/check-ios27-granules.sh:35-40` 断言的就是这两个字段。
-- 运行期：pmap 初始化后、以及第一次返回用户态后各读一次 `TCR_EL1`，只比字段：
-  `TG0 [15:14] == 0b00`、`TG1 [31:30] == 0b10`。**不要**拿整个寄存器跟 `TCR_EL1_BOOT` 比：
-  ASID/IRGN/ORGN/SH/EPD/TBI/IPS 在运行期会合法地变；也不要把 TG0 与 TG1 当同一个编码——
-  TG0 的 4 KiB 是 `0b00`，TG1 的 4 KiB 是 `0b10`，两个值本来就不相等。
-- 通过：F2 的 stage-0 镜像到 `bsd_init`，两处日志里两个字段都对。
-- 失败：pmap 初始化 panic；任一字段不是 4 KiB 的编码。
-- 16.6.1 的 4 KiB 启动（§3.1）说明 SoC 能做，不替代这里的字段检查。
-
+P0–P4 的完整判据（寄存器读写名、期望值/不变式、可区分的失败形状、能证明/不能证明、八核普查与
+“Census, not sample”）在 `docs/research/charger/ARM64E-PROBE.md`。这里不再复制判据：两处各写一套
+期望值，改一处就会留一处旧的。§1–§3 的捕获、限制与 sheng 旁证仍以本文为准。
 ## 5. 对电源线意味着什么
 
 1. **任何契约行都不得声称“本板支持 PAC”。** `docs/research/power/HW-CONTRACTS.toml` 的

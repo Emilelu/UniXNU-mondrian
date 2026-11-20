@@ -9,11 +9,12 @@
 
 | # | 判据 | 证据行 | 成立条件 | 最少命中 |
 | --- | --- | --- | --- | --- |
-| C1 | 订阅成立 | `K60Battery.cpp:276`（channel up）+ `:209-214`（sample 行尾 `subscribed=`） | `subscription-ack=1/16`，且随后出现 `subscribed=1` | 1 行 channel up + 1 行 sample |
-| C2 | 四属性可读 | `K60Battery.cpp:209-214` | 电压/电流/容量/温度四条各在 §2.2 区间 | 1 行（首帧） |
+| C1 | 订阅成立 | `K60Battery.cpp:442`（channel up）+ `:290`（sample 行尾 `subscribed=`） | `subscription-ack=1/16`，且随后出现 `subscribed=1` | 1 行 channel up + 1 行 sample |
+| C2 | 四属性可读 | `K60Battery.cpp:290` | 电压/电流/容量/温度四条各在 §2.2 区间 | 1 行（首帧） |
 | C3 | 与 Android 同窗口一致 | 两侧样本配对 | 充电状态一致、时刻差 ≤10 s、四条偏差 ≤ 阈值 | ≥3 对有效样本 |
 
 C3 阈值：±60 mV / ±150 mA / ±3 pp / ±3 °C（判读器常量；`scripts/check-judge-thresholds.py` 按代码核对这一行，改代码不改这里就红）。
+证据行里的 `file:line` 不是装饰：`scripts/check-criteria-cites.py` 拿判读器/打印方配对表里的锚串在驱动里现算行号，表里写错或代码挪走都判红（2026-11-20 这两个格子还指向一个发原始数字的代码块，而 sample 行在 `:290`）。
 
 **启动前置**：同一份 usblog 必须含 `K60Handoff: published authenticated PAS1 epoch=N bytes=104 flags=15`
 （`K60HandoffRuntime.cpp:57`，在兄弟树 k60-adsp-handoff / k60-gates / k60-display / k60-lead；本树 k60-charger 只有消费者）。

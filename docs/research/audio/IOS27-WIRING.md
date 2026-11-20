@@ -89,11 +89,11 @@ python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3
 
 上面这一节量的是「27 树里声明还在、形状没变」。但如果 `scripts/tests/portability` 里的桩头写得比内核宽，宿主编译就永远看不见那个差异——两条线各自全绿，真机上才截断。2026-11-20 就有一处：桩说 `void delay_for_interval(uint64_t interval, uint64_t scale)`，而 `osfmk/kern/clock.h:327` 是 `extern void delay_for_interval(uint32_t interval, uint32_t scale_factor)`。胶水的调用点在 `PongAudioAmp.c:111`，传的是 `uint32_t us` 与 `NSEC_PER_USEC`（`1000ull`），所以那条 64 位声明把「第二个参数在真机上要窄化成 32 位」这件事整个盖住了。同一轮还把 `int PE_parse_boot_argn(...)` 改成 `boolean_t`（`pexpert/pexpert/pexpert.h:351`），把 `printf` 的来源注释指到 `osfmk/kern/misc_protos.h:183`（`bsd/sys/systm.h` 里没有它），把 `NSEC_PER_USEC` 的来源注释指到 `osfmk/mach/clock_types.h:84`。
 
-`scripts/check-audio27-stubs.py <xnu-tree>` 把桩里这五条声明（`ml_io_map`、`ml_io_map_wcomb`、`PE_parse_boot_argn`、`delay_for_interval`、`printf`）与真树逐一比对；比较的是同一个规范形（返回类型加每个参数类型，参数名不算），和 `check-audio27-kernel-api.py` 用同一把尺子：
+`scripts/check-audio27-stubs.py <xnu-tree>` 把桩里这五条声明（`ml_io_map`、`ml_io_map_wcomb`、`PE_parse_boot_argn`、`delay_for_interval`、`printf`）与常数 `NSEC_PER_USEC`（`1000ull`，胶水用它把微秒换成 `delay_for_interval` 的单位；常数写错比声明写错更安静）与真树逐一比对；比较的是同一个规范形（返回类型加每个参数类型，参数名不算），和 `check-audio27-kernel-api.py` 用同一把尺子：
 
 ```sh
 python3 scripts/check-audio27-stubs.py /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc
-# STUBS OK 5/5 declarations match xnu-12377.121.6 ac9718f
+# STUBS OK 6/6 declarations and constants match xnu-12377.121.6 ac9718f
 ```
 
 把桩改回 64 位就如实报红（自测过）：

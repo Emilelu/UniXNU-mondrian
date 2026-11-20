@@ -7,6 +7,9 @@ is permanently red, and a permanently red gate is ignored.  The judge keeps its
 three-state CLI (0 PASS, 2 PENDING, 1 FAIL); this wrapper maps PENDING to 0 and
 leaves only a contradictory or malformed capture as a build failure.
 
+This is the in-line build preflight entry.  It only reads the judge's verdict;
+it does not add or update an entry in the flight ledger.
+
 By default the newest `w1-lun-*` directory under the K60 evidence root is used.
 Set K60_W1_EVIDENCE to one capture directory, or K60_W1_EVIDENCE_ROOT to a
 different root.  A missing capture is a PENDING result, not an error.

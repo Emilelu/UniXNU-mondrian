@@ -1,0 +1,1 @@
+device -> /sys/devices/platform/soc/1d84000.ufshc/host0/target0:0:0/0:0:0:5

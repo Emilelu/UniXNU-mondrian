@@ -4999,7 +4999,29 @@ lookup/DMS 块、verdict 与 `#endif /* K60_HOST_TEST */`）整段消失，而�
 
 Check: `grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py`
 
-## P-260 — 判据假设了设备布局，而布局来自另一处事实
+取号口径（2026-11-20 08:10，Lead 裁决后补）：坑号是 main 的全局资源，分支各自数会打架。
+本坑原拟 P-260，因 audio 线的 `2d1dd5fc docs(gate): log P-260, the switch a build script resets`
+先占了 main 上的 P-260 而顺延为 P-261。取号前先看 main：
+`git show origin/main:docs/engineering/PITFALLS.md | grep -o "P-[0-9]{3}" | sort -u | tail -1`，
+再与本分支取大，`scripts/next-pitfall-id.py` 把这两步合成一条命令。
+
+## P-262 — 缺一行到底是「失败」还是「还没到」，先问窗口，别先问阶段
+
+scripts/judge-cellular-flight.py 起初把「启动六行或桥接两行缺失」直接判成 FAILED，理由是
+「序列没走到这一步」。这在满窗日志上等价于失败，在短窗上却是误判：60 秒的抓包与 60 秒的挂死
+在日志里长得一模一样，桥接那两行本来就还没打印。Lead 2026-11-20 05:13 的原话是三档退出码，
+「console 只到 60 s 必须是 INVALID 而不是 k53 失败」。
+
+改法：只有正面证据（K60MODEM <step> failed 行或 panic）能越过窗口直接判 FAILED；其余缺行
+一律先看最长 wait N s 是否达到 240 秒，够了才判 FAILED，不够就是 INVALID。
+
+一般化的教训：判据里「缺行」是二义的——它既可能是「没发生」，也可能是「还没轮到这里」。
+只有带时间戳的观察窗口能把两者分开；没有窗口就下结论，等于把没观测当成没实现。
+
+回归：scripts/tests/fixtures/ 下四份真实形状的控制台（pass / refused / nolun / short），
+scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
+
+## P-261 — 判据假设了设备布局，而布局来自另一处事实
 
 k51/k53 的存储读入口只问 LUN 0 的 GPT："unixnu" 与 "userdata" 都在那里，
 写代码时以为 modem 的四个 EFS 分区也在同一条盘上。实际设备上 modemst1/modemst2/fsg/fsc

@@ -122,7 +122,7 @@ def judge(text, window):
 
     # Which disk answered. The modem partitions live on their own LUN here, so a
     # served read without this line cannot be told apart from a read off the
-    # wrong table (P-260).
+    # wrong table (P-261).
     volume = re.findall(r"K60UFS volume name=(\S+) lun=(\d+) first=(\d+) last=(\d+)", text)
     if volume:
         name, lun, vfirst, vlast = volume[0]
@@ -207,8 +207,11 @@ def judge(text, window):
 
     if missing_required == 0:
         return "PASS", items, observed
-    hard = any(state == "FAIL" and name in dict(BOOT + BRIDGE) for state, name, _ in items)
-    hard = hard or refusals or panic
+    # Only positive evidence of a failure outranks the window: a refusal line or
+    # a panic. A boot-stage line that simply has not appeared yet is not evidence,
+    # because a 60 s capture and a 60 s hang look identical (Lead 2026-11-20 05:13:
+    # a console that stops at 60 s must read INVALID, never FAILED).
+    hard = bool(refusals) or panic
     if hard:
         return "FAILED", items, observed
     if observed < window:
@@ -257,6 +260,10 @@ K60MODEM qrtr: wait 60 s services=2 wanted=0 dms=0 malformed=0
 """
 
 FIXTURE_FAILED = FIXTURE_SHORT.replace("K60MODEM auth_reset ok", "K60MODEM auth_reset failed rc=-3")
+# A capture that dies before the bridge is not a verdict: at 60 s the two bridge
+# lines have simply not been printed yet.
+FIXTURE_EARLY = FIXTURE_SHORT.replace("K60MODEM baseband: bridge enabled" + chr(10), "")
+FIXTURE_EARLY = FIXTURE_EARLY.replace("COACHZ baseband: 22 of 22 services published" + chr(10), "")
 FIXTURE_REFUSED = FIXTURE_PASS.replace("vectors=2 served", "vectors=2 not-served")
 
 
@@ -265,7 +272,7 @@ FIXTURE_NOLUN = FIXTURE_PASS.replace("K60UFS volume name=modemst1 lun=4 first=6 
 
 def self_test():
     cases = (("PASS", FIXTURE_PASS), ("INVALID", FIXTURE_SHORT), ("FAILED", FIXTURE_FAILED),
-             ("FAILED", FIXTURE_REFUSED), ("FAILED", FIXTURE_NOLUN))
+             ("FAILED", FIXTURE_REFUSED), ("FAILED", FIXTURE_NOLUN), ("INVALID", FIXTURE_EARLY))
     for expected, text in cases:
         verdict, items, observed = judge(text, WINDOW_DEFAULT)
         assert verdict == expected, (expected, verdict)
@@ -274,7 +281,7 @@ def self_test():
     verdict, items, observed = judge(FIXTURE_REFUSED, WINDOW_DEFAULT)
     rw = [item for item in items if item[1] == "rmtfs rw served"][0]
     assert rw[0] == "FAIL", rw
-    print("K60 FLIGHT JUDGE PASS five verdicts, the served/not-served guard, the volume lun guard")
+    print("K60 FLIGHT JUDGE PASS six verdicts, the served/not-served guard, the volume lun guard, the early-capture guard")
     return 0
 
 

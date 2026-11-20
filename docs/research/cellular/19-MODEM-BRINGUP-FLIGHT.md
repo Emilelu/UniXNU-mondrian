@@ -1763,7 +1763,7 @@ k46 的 modem 要的是 `/boot/modem_fs1` 与 `/boot/modem_fs2`；k51 起我们�
 
 k51/k53 的读入口只问 LUN 0，而这块板上 modemst1/modemst2/fsg/fsc 是 **sdf3–sdf6**
 （8 MiB / 8 MiB / 8 MiB / 1 MiB），unixnu 才是 sda38。于是查找必然落空，rmtfs 读被判 refused，
-日志里与「分区真的坏了」无法区分（P-260）。
+日志里与「分区真的坏了」无法区分（P-261）。
 
 k54 的三处改动：
 
@@ -1796,11 +1796,28 @@ NULL 表拒绝等），输出 'K60 NAMED VOLUME PASS names, unused slots, plans,
 **补记（2026-11-20 07:58）**
 
 - 这条坑原先占用 P-210，与 check-data-identity.py 那条同号；按 Lead 07:57 要求改成实测最大号 +1，
-  各分支 docs/engineering/PITFALLS.md 的最大值是 feat/power-ios27-carry 的 P-259，所以本坑现为 **P-260**
+  各分支 docs/engineering/PITFALLS.md 的最大值是 feat/power-ios27-carry 的 P-259，所以本坑现为 **P-261**
   （RULES.toml 的 id/source 与本文件、judge-cellular-flight.py 的注释一并改）。
 - scripts/fly-cellular.py 的设备探针同时改成失败即拒：device_state() 在 k60-device.sh 起不来时捕获 OSError
   并返回 [""]，空输出、错误行同样落到「不是 fastboot」；--self-test 现在也断言四种探测结果（空、fastboot、
   错误行、起不来），输出 K60 FLY PASS manifest match, mismatch, missing image, state probe。
+
+### 3.50 判据的回归语料：四份真实形状的控制台（2026-11-20 08:05）
+
+scripts/judge-cellular-flight.py 原来的自测只有内联片段，片段里桥接两行总是齐全，掩盖了一个真问题：
+**短窗日志里缺失的启动行被当成失败**。现在 scripts/tests/fixtures/ 存四份与内核打印形状一致的控制台
+（k60-flight-{pass,refused,nolun,short}.log，含每 5 秒一条完整「K60MODEM qrtr: wait N s …」行），
+scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0 / 1 / 1 / 2，输出
+K60 FIXTURES PASS four console captures judged end to end。
+
+随之改了判定语义：只有正面证据（K60MODEM <step> failed 行、panic）能越过窗口直接判 FAILED；
+其余缺行先看最长 wait N s 是否到 240 秒——不够就是 INVALID。这条写成了坑 **P-262**，
+并在 --self-test 里加了第六份夹具（删掉桥接两行的短窗日志，必须 INVALID）。
+
+坑号顺延：布局那条原拟 P-260，因 audio 线把 2d1dd5fc docs(gate): log P-260, the switch a build
+script resets 推上 main 先占，改为 **P-261**。取号口径也变成一条命令：
+python3 scripts/next-pitfall-id.py 取 origin/main 与本分支的较大值 +1（当前输出
+K60 PITFALL next P-263 (main P-260, tree P-262)）。
 
 ## 5. 飞行顺序
 

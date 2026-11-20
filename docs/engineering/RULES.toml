@@ -627,9 +627,16 @@ check = "grep -q 'conditional directives' scripts/update-modem-qrtr-patch.py"
 note = "2026-11-20 afa822ea 把 K60ModemLink.c 从 1977 行截到 1479 行，probe 函数与 #endif 一起消失；生成器当时不检查配平，把截断文件写进 0622。c612b474 接回尾巴并加配平与未改名 include 两条拒绝。"
 
 [[rule]]
-id = "P-260"
+id = "P-262"
 kind = "pitfall"
-source = "docs/engineering/PITFALLS.md:P-260"
+source = "docs/engineering/PITFALLS.md:P-262"
+statement = "判据把「缺一行」既当没发生又当还没轮到：短窗日志里启动行缺失被判成失败，而它可能只是还没打印。只有正面证据（failed 行、panic）能越过窗口，其余缺行先看最长 wait 秒数是否到 240。"
+check = 'grep -q "hard = bool(refusals) or panic" scripts/judge-cellular-flight.py'
+
+[[rule]]
+id = "P-261"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-261"
 statement = "判据或驱动假设了设备布局（哪块盘、哪个地址、哪个节点），而布局来自另一处事实：只问 LUN 0 的 GPT，modem 的四个 EFS 分区在另一条 LUN，查找必然落空、日志只能说 refused，与真的坏了无法区分。"
 check = 'grep -q "volume lun chosen" scripts/judge-cellular-flight.py'
-note = "2026-11-20 k51/k53 的 native_pong_ufs_read_named_volume 硬编码 hostRead4k(0,1,1,…)；实测 modemst1/modemst2/fsg/fsc = sdf3..sdf6（8/8/8/1 MiB），unixnu = sda38。改为逐个 LUN 查 GPT、恰好一条命中才读，并打印 K60UFS volume name=… lun=…。"
+note = "2026-11-20 k51/k53 的 native_pong_ufs_read_named_volume 硬编码 hostRead4k(0,1,1,…)；实测 modemst1/modemst2/fsg/fsc = sdf3..sdf6（8/8/8/1 MiB），unixnu = sda38。改为逐个 LUN 查 GPT、恰好一条命中才读，并打印 K60UFS volume name=… lun=…。；原拟 P-260，因 audio 线 2d1dd5fc 先占 main 上的 P-260 而顺延为 P-261。"

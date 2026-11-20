@@ -78,7 +78,13 @@ def main():
     allowlist()
     covered = board(image, {'b': {'0x100000100': 1}})
     rc = module.main([str(covered)])
-    ok('pass.covered_address', rc == 0, f'rc={rc}')
+    ok('fail.covered_address_without_pairing', rc == 1, f'rc={rc}')
+
+    allowlist('[[pairing]]\naddress = "0x100000100"\ntarget = "__ZTV9OSObject"\n'
+              'reason = "class metaclass we define ourselves"\n'
+              'review = "lead, 2026-11-21"\n')
+    rc = module.main([str(covered)])
+    ok('pass.covered_address_reviewed', rc == 0, f'rc={rc}')
 
     allowlist()
     outside = board(image, {'b': {'0x200000000': 1}})

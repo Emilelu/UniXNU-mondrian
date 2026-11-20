@@ -105,7 +105,7 @@ def reviewed(path):
         raise Failure(f'{path} is missing; an empty allowlist still has to exist')
     with open(path, 'rb') as handle:
         data = tomllib.load(handle)
-    slots = {}
+    slots, pairs = {}, {}
     for entry in data.get('slot') or []:
         for key in ('bundle', 'address', 'reason', 'review'):
             if not entry.get(key):
@@ -114,7 +114,15 @@ def reviewed(path):
         if pair in slots:
             raise Failure(f'{path}: {pair} is listed twice')
         slots[pair] = entry
-    return slots
+    for entry in data.get('pairing') or []:
+        for key in ('address', 'target', 'reason', 'review'):
+            if not entry.get(key):
+                raise Failure(f'{path}: a pairing entry is missing {key}')
+        address = entry['address']
+        if address in pairs:
+            raise Failure(f'{path}: {address} is paired twice')
+        pairs[address] = entry
+    return slots, pairs
 
 
 def main(argv=None):
@@ -131,7 +139,7 @@ def main(argv=None):
 
     record = json.loads(report.read_text())
     result = census(record, kernel.read_bytes())
-    allow = reviewed(ALLOWLIST)
+    allow, pairing = reviewed(ALLOWLIST)
 
     print(f'unpinned: {result["total"]} address(es) in {len(record.get("missing") or {})} '
           f'bundle(s); {result["covered"]} covered by one of {result["segments"]} segment(s), '
@@ -141,6 +149,18 @@ def main(argv=None):
         for bundle, address in result['outside']:
             mark = 'reviewed' if (bundle, address) in allow else 'UNREVIEWED'
             print(f'  {mark:10s} {bundle} {address}')
+        for address in sorted({address for addresses in (record.get('missing') or {}).values()
+                               for address in addresses}, key=lambda text: int(text, 0)):
+            bundles = sorted(bundle for bundle, addresses
+                             in (record.get('missing') or {}).items() if address in addresses)
+            entry = pairing.get(address)
+            mark = entry['target'] if entry else 'UNREVIEWED'
+            print(f'  inside   {address} {mark:24s} {len(bundles)} bundle(s): '
+                  + ', '.join(bundles))
+
+    inside = sorted({address for addresses in (record.get('missing') or {}).values()
+                     for address in addresses} - {address for _bundle, address in result['outside']})
+    unreviewed = [address for address in inside if address not in pairing]
 
     stray = [slot for slot in result['outside'] if slot not in allow]
     stale = [slot for slot in allow if slot not in result['outside']]
@@ -153,7 +173,20 @@ def main(argv=None):
         if len(stray) > 10:
             print(f'FAIL: and {len(stray) - 10} more')
         return 1
-    print('ok prelink hazards: every outside-segment slot is reviewed')
+    if unreviewed:
+        print(f'FAIL: {len(unreviewed)} of {len(inside)} unpinned address(es) inside a '
+              'segment have no reviewed pairing; they cannot fault but they are silent '
+              'if wrong, so each one needs a [[pairing]] entry')
+        for address in unreviewed[:10]:
+            bundles = sorted(bundle for bundle, addresses
+                             in (record.get('missing') or {}).items()
+                             if address in addresses)
+            print(f'  {address} <- ' + ', '.join(bundles))
+        if len(unreviewed) > 10:
+            print(f'  and {len(unreviewed) - 10} more')
+        return 1
+    print('ok prelink hazards: every outside-segment slot and every inside-segment '
+          'address is reviewed')
     return 0
 
 

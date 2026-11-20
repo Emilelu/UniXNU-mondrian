@@ -89,6 +89,7 @@ docs/
 | [`SOURCES.toml`](research/SOURCES.toml) | **门禁数据源**：每个子系统必须考察的参考源，逐条填 `examined` + `finding` |
 | [`LINE-RESEARCH-MAP.md`](research/LINE-RESEARCH-MAP.md) | 每条研究线当前查到哪一步、下一步出口判据是什么 |
 | [`wifi/MHI-AMSS-PROTOCOL.md`](research/wifi/MHI-AMSS-PROTOCOL.md) | MHI/AMSS 协议逐字段拆解：为什么 c7/c8 停在 READY 而没有 AMSS 下载证据 |
+| [`storage/ROUTE-D-PLAN.md`](research/storage/ROUTE-D-PLAN.md) | **route-D 计划（未实现，不随 stage-0 合入）**：延迟构造要改的 file:line、运行时前提、PAC 分发风险、离线可判与必须上机的分界 |
 | `01-same-hardware.md` | 触摸调研 ① 同型 |
 | `02-official-docs.md` | 触摸调研 ② 官方 |
 | `03-reverse-and-device-data.md` | 触摸调研 ③ 反编译/取证 |

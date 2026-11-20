@@ -948,3 +948,112 @@ K60 DEVICE CHANGED 2 expectation(s) drifted
 `git apply series.diff` + 拷五个补丁之后，`K60 DEVICE OK the device repository carries the 27 line`，
 四条 ok 全绿，只剩 `note QcomBaseband is not in the 27 package include list`。
 即：清单、暂存、复核三段现在闭合，剩下的动作只在设备仓 owner 手上。
+
+### 28.4 Lead 10:05 四条裁决（已落档，不改代码）
+
+1. **第 1 项现在不落盘**。新 main 的冻结条款是「SpringBoard 打通前任何线不得往 main 合代码」，而
+   `k60-gates/patches/xnu-12377/` 就是 main。把 0626–0630 复制进去等于提前把 cellular 并进 27 主线，
+   会在 F2 判据里混进五个与 `bsd_init` 无关的变量。暂存脚本保留、只在
+   `E:/k60-work/scratch/ios27-device-stage/` 待命；F2 通过（`arm_init` → `bsd_init` → root-mount panic + cupid 一致）
+   之后第一件事就是执行 A 或 B，那时 `check-ios27-device.py` 由 DRIFT 转 OK 就是并入的验收证据。
+2. `check-ios27-device.py` 留着，**不许为了变绿放宽**。它现在报红是正确状态（待办不是回归）。
+3. `QcomBaseband` 的 note 保持 note，等 cellular 真进 27 再加 include+archives。
+4. k54 排队但今天大概率飞不了：设备在 Android（adb `6033dbec`），F1/F2 排在前面；顺序仍是
+   GPU → power w11 → k54 → audio cc。27 stage-0 没到 `bsd_init` 之前，16 线镜像的飞行只是消耗窗口。
+
+## 29. F3 的第一件要证明的事：EFS 字节对得上，不是 QRTR 发布（2026-11-20 10:20）
+
+Lead 10:05 第 5 条要求的离线推演。结论先给：**先证「读到的字节与独立来源逐字节一致」，
+QRTR 端口发布是它的下游结果，不能当第一判据。** 理由与判据行如下。
+
+### 29.1 为什么顺序不能反
+
+| 如果先看 QRTR 发布 | 会发生什么 |
+|---|---|
+| 服务表从 2 个涨到 8 个 | 只能证明「modem 的 QMI 栈起来了」，不能证明它读到的是 `modemst1` 而不是别的分区、也不是全零窗口 |
+| 服务表没涨 | 三种原因混在一起：读被拒、读成功但内容是垃圾（modem 拒绝继续）、读成功且内容正确但 QMI 又被别的东西挡住。三者需要完全不同的下一步，而日志分不开 |
+| 读成功的判据是 `served` | `served` 只说明我们没拒绝，不说明搬了正确范围：`k60_qrtr_rmtfs_rw` 里 offset 算错、LUN 选错、窗口没写完，都会打 `served` |
+
+而 `PongModemRuntime.cpp:271-277` 明确写着 RF 初始化会在 PAS4 之前就要读 EFS
+（`while(!pong_rfs_ready() …) IOSleep(20)`，注释「RF initialization can request readwrite files immediately」），
+所以 EFS 是**因**、QMI 起来是**果**。判据要钉在因上。
+
+### 29.2 四行判据（按顺序读，越靠前越硬）
+
+| # | 判据行（console，形状固定） | 判定 | 不成立的读法 |
+|---|---|---|---|
+| W1 | `K60UFS volume name=modemst1 lun=5 first=… last=…` | 名字解析到了 **LUN 5**（`sdf`），不是 LUN 0 | 打 `lun=0` 或整行缺失 ⇒ 逐 LUN 的 GPT 查名没生效（k54 之前的死因） |
+| W2 | `K60MODEM qrtr: rmtfs rw storage=1 direction=0 bytes=4096 head=1000000003000000d801000020faa9c4` | `head` 与 29.3 的独立参照**逐字节相等** | 全零 / 全 `ff` / 与参照不同 ⇒ 读对了协议、读错了盘或偏移 |
+| W3 | 同一存储上出现**第二次** `rmtfs rw`，且 offset 不同；`fsg`/`fsc` 也被 open | modem 接受了这份 EFS 并继续往下走 | 只有一次读、之后再无请求 ⇒ 内容被 modem 判为无效（不是我们的传输问题） |
+| W4 | `K60MODEM qrtr: wait … services=` 从 2 涨到 >2，或出现新服务号 | 下游确认：QMI 栈真的起来了 | 只有 W4 成立、W2 没验过 ⇒ 结论不完整，不能宣布「EFS 通了」 |
+
+W2 是唯一不能被别的东西意外满足的一行：它需要「正确的盘 + 正确的偏移 + 正确的长度 + 窗口真的写到 modem 能读的地方」
+四件事同时成立。W1 只证盘，W3/W4 只证下游。
+
+### 29.3 独立参照：本轮从 Android 只读取到的首块（2026-11-20 10:12）
+
+设备当时在 Android（adb `6033dbec`，root）。用 `adb exec-out dd if=/dev/block/<dev> bs=4096 count=1` 各取 4 KiB，
+**只读、不写任何分区**，落在 `E:/k60-work/evidence/efs-ground-truth-20261120/`：
+
+| storage | 引导路径 | 分区 | LUN（`sd` 字母） | 首 16 字节 | 4 KiB sha256 |
+|---|---|---|---|---|---|
+| 1 | `/boot/modem_fs1` | `modemst1` = `sdf3` | 5（8 MiB） | `10000000 03000000 d8010000 20faa9c4` | `94c2aa725f4e8c5d3de317e8cd39f7efc1588866e7d2854011d10e4656a1a6bb` |
+| 2 | `/boot/modem_fs2` | `modemst2` = `sdf4` | 5（8 MiB） | `11000000 03000000 d8010000 00026080` | `8610958511c22e7c44736363ac2b9c2d8e87bd16d78540fa2d4e97be1c489726` |
+| 3 | `/boot/fsg` | `fsg` = `sdf5` | 5（8 MiB） | `14000000 03000000 d8010000 00000000` | `e9a62f2a22e469b8008da4dc2733148ae4abcf887c9e1277a7646123fdbc31b4` |
+| 4 | `/boot/fsc` | `fsc` = `sdf6` | 5（1 MiB） | 全零 | `ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7`（= 4096 个 0 的 sha256） |
+
+三点读法：
+
+- 三个 EFS 超级块的头 12 字节是同一形状（`xx000000 03000000 d8010000`），第 13 字节起才分叉
+  （`20faa9c4` / `00026080` / `00000000`）。所以 W2 只要 16 字节就能把三个存储区分开，不必搬 4 KiB。
+- `fsc` 首块**本来就是全零**。这意味着「窗口全零」对 storage 4 是**正确**结果，对 1/2/3 是**错误**结果；
+  判据不能写成「非零即通过」，必须按 storage 分别比。
+- 四份首块都在 LUN 5 上；`lun=5` 是 W1 的期望值，`lun=0` 是 k54 之前的错法。
+
+### 29.4 伪判据（写进判据表，免得下次又当成通过）
+
+| 看起来像通过 | 实际不是 |
+|---|---|
+| `rmtfs rw … served` | 只证明我们返回了成功码；P-207 已经证明过「否定词以肯定词结尾」会把 `not-served` 读成 `served`，同理不要把「返回 0」当成「内容对」 |
+| `rmtfs rw … vectors=0 served` | 0 个 scatter 项时什么都没搬，等于空转 |
+| 窗口里全零 | 对 `fsc` 正确、对 `modemst1/2`/`fsg` 是错的（29.3） |
+| modem 又发了几个 QRTR 包 | RX_DONE 的流动只能证明 transport 活着（k42 已证明它会在 35–45 秒后停），与 EFS 内容无关 |
+| `rmtfs open` 打了四次 | open 只是路径与 storage 映射，四个镜像全 open 也不代表读到了数据 |
+
+### 29.5 k54 与 F3 各证一段
+
+| | k54（已构建，等 slot） | F3（27 侧，尚未开始） |
+|---|---|---|
+| 证什么 | W1 + `served`：名字解析到 LUN 5，读不再被拒 | W2 + W3：字节与独立参照一致，modem 继续要下一段 |
+| 判据 | `judge-cellular-flight.py` 的 `volume lun chosen` 与 `rmtfs rw … served` | 上面 W2/W3 两行 |
+| 失败时下一步 | 名字没解析到 LUN ⇒ 查 `findNamedVolumeOnLun` 与 GPT 表位置 | 字节不符 ⇒ 查 offset/窗口映射；字节符但 modem 不继续 ⇒ EFS 版本与 modem 固件不匹配 |
+
+### 29.6 F3 需要的一行代码（只记录，不写）
+
+W2 现在**没有**可读的日志：`k60_qrtr_rmtfs_rw`（`drivers/PongCellular/K60ModemLink.c:825`）只打
+`storage=/direction=/vectors=` 与结果词。F3 之前要加一行，形状固定为：
+
+```
+K60MODEM qrtr: rmtfs rw storage=%u direction=%u bytes=%u head=%02x%02x…（前 16 字节，32 个 hex 字符）
+```
+
+- 位置：`k60_qrtr_rmtfs_rw` 返回 0 之后、调用点打印 `served` 之前，**每个 storage 只打一次**（静态去重），
+  否则 modem 会连续读几百段，控制台会被冲掉。
+- 成本：16 字节 hex 拼装，无额外内存；只在首次读时执行。
+- 不写进 k54：k54 的镜像由 HEAD 构建，改它会让 `ab770b8c…`/`f38a7c9e…` 无法由 HEAD 复现（本线已踩过一次）。
+  等 k54 判读完成后再落，进 k55。
+
+### 29.7 F3 的链接前提：`coachz_baseband_*` 在 `QcomBaseband` 组件里
+
+本轮顺带查清一件事，它决定 F3 什么时候必须把 `QcomBaseband` 加进 27 package：
+
+- 五个补丁里有 **28 条 `+extern` 声明**（`0627`/`0628` 最多）。其中 `coachz_baseband_configure`、
+  `coachz_baseband_enabled`、`coachz_baseband_qrtr`、`coachz_baseband_poll`、`coachz_baseband_report`、
+  `coachz_baseband_new_server`、`coachz_baseband_del_server`、`coachz_modem_data_send`、
+  `coachz_modem_data_receiver` 这 9 个**不在补丁集里，也不在 27 树里**，它们由
+  `drivers/QcomBaseband/baseband/coachz_baseband.cpp` 定义（组件 @ `UniXNU/QcomBaseband` rev `dd0199cf`）。
+- 其余 extern 由补丁集自身回答（`k60_modem_*` 在 `pong_modem_boot.c`/`pong_modem_pas.c`，`k60_ipa_marker` 在 `pong_ipa.c`），
+  或由 27 树提供（`pmap_find_phys`、`ml_io_map_unmappable`、`flush_dcache64`、`delay`）。
+- 结论：cellular 进 27 时 `QcomBaseband` **不是可选项而是链接前提**——`0627` 的 `K60ModemLink.c` 调 `coachz_baseband_*`，
+  没有它就在链接期 `Undefined symbols`。这和 Lead「等 cellular 真进 27 再加 include+archives」一致，
+  只是把「什么时候算真进」钉死为「F3 的第一次链接」。

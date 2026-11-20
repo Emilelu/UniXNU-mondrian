@@ -1,0 +1,26 @@
+name: Repository checks
+
+# The gates that need no build tree and no device.  A rule that only exists in
+# prose is a wish; these two turn the two that can run anywhere into a red mark
+# on the pull request that breaks them.  Build and boot gates stay in
+# porting-record.yml because they need the artifact set.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: No hardcoded checkout paths
+        run: python3 scripts/check-repo-paths.py
+      - name: Documentation consistency
+        run: python3 scripts/check-docs.py

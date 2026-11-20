@@ -489,3 +489,27 @@ feat/xnu27-psci-target，对干净 ac9718f 树 apply 并用本机 507 个真实�
 欠账：这一版还没有构建过，也没有上机。下一次 `build kernel`（默认 profile 即 27）是它的首次产物检验；
 判据仍是 docs/engineering/IOS27.md 的 F2 阶段门（arm_init → bsd_init → root-mount panic + cupid 一致）。
 """
+
+[[entry]]
+sha = "77409a13"
+state = "build-only"
+note = """fix(ios27): drop the audio probe call from the 27 series —— 未上机。
+
+0531 的调用点只有一行：	bsd_init_kprintf("calling vfsinit\\n"); 之后取
+_pong_audio_amp_probe 的地址再做 NULL 判断。clang 确实发出了弱引用
+（bsd_init.o 里 desc=0x0040，N_WEAK_REF），但本机 ld64-port 只在 -kext 形态下接受
+未定义弱函数引用：-static 与 -dylib 都报 symbol(s) not found，而内核链接是
+LD = $(KC++) -nostdlib，最终解析成 -dynamic。所以「弱引用没生效」不是补丁写错了行，
+而是链接形态不接受。
+
+这棵树里没有任何东西定义它：27 线没有把 PongAudioAmp.o 编进内核（P-265 记的就是那个
+conf/files 钩子挂得太早，驱动器源码从未进过 bsd/conf/files），所以 ABI 表里这一项在
+这一轮只能是空的。按 Lead 的裁定，不加返回 0 的假定义 —— 否则 AUDIO27 OK 将无法区分
+「没接线」和「接了个空壳」。
+
+补丁文件本身（1033 B）与它的历史（bfb8008e 重发 -U1、30370cb9 恢复注释并让 git 生成
+hunk 头）都保留，注释留在 patches/xnu-12377/series 里说明为什么当前不列出；audio 线把
+钩子修好、PongAudioAmp.o 真正进内核的那次提交里，把这一行加回序列即可，不需要重建补丁。
+
+干净 ac9718f 树上重放：plan 101 个补丁，101 个全部干净应用。
+"""

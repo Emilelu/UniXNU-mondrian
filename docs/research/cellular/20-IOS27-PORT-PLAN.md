@@ -818,3 +818,26 @@ Lead 07:41 说「锚点我这边还没有，别等」。现在种子树的 `.cac
 
 另有一条与顺序相关的行为已在本节 §20.3 记过、这里再点一次：追加器对「源不在 `.cache/xnu-work`」的条目是**静默跳过**
 （只有产生 `dropped` 时才打印），所以 `git apply` 必须排在追加之前——`scripts/verify-27-line.sh` 把这层顺序写成了断言。
+
+## 26. 弱定义：让 0628 在没有 ArmSmmu4K 的树上也能链接（2026-11-20 09:15）
+
+0628 的 `pong_ipa.c` 里有两个入口是对 GPU 线的外部引用（源文件 `K60Ipa.c:737-740`）：
+`ArmSmmu4KBuild()` 与 `ArmSmmu4KProgramDisabledContext()`，实现在
+`drivers/PongAdreno/ArmSmmu4K/`。27 树是纯 XNU，既没有那个驱动也没有它的归档，
+所以「补丁能 apply」并不等于「内核能链接」——这是一条只在最终链接才现形的缺口。
+
+改法：在同一个翻译单元里给出**弱定义**（返回 −1 并打印一行 `K60IPA smmu: no ArmSmmu4K in this kernel`），
+归档里的强符号在最终链接时覆盖它，与 `pong_modem_link.c` 对 `native_pong_ufs_read_named_volume` 的做法一致。
+没有另起一个 shim 文件，因为 `K60IpaArmSmmuConfig` 等六个结构体是 `K60Ipa.c` 的文件内私有类型，
+shim 只能重新声明成不完整类型，而跨翻译单元的类型不一致链接器不会替我们检查。
+
+重新生成后的尺寸：0623 `174,551 → 175,356`（+805 B）、0628 `174,480 → 175,285`，
+补丁里的 `+__attribute__((weak))` 行共 2 条；0626 29,107 / 0627 170,701 / 0629 1,274 / 0630 8,005 不变，
+conffiles 仍 19 条（没有新增文件，所以条目表不动）。
+
+新的不变量：`check-ios27-readiness.py` 的 `weak_fallbacks()` 要求 0628 同时出现两条
+`+__attribute__((weak))` 与两个入口名，否则 `K60 READY DRIFT the 27 set no longer answers for …`。
+把弱定义删掉再跑，实测报 `weak lines=0`（漂移路径是验证过的，不是只写了断言）。
+
+遗留：`feat/cellular` 上 `K60Ipa.c` 仍是裸 `extern`——k54 镜像由那条线构建，
+判读前不改它，避免镜像无法由 HEAD 复现；等 16 线也落这处改动时，那边的 0623 会一起变，series 指纹随之更新。

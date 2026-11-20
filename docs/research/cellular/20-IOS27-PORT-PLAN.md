@@ -929,7 +929,7 @@ K60 DEVICE CHANGED 2 expectation(s) drifted
 
 对真实设备仓的实测：`K60 STAGE ok 5 patches (953f3eb0ea22ef06 62845734e62ee893 28a9ad58dd407735
 783818c138dd81d9 08b53cfd112292b7)`，diff 只有一个 hunk `@@ -77,3 +77,15 @@`，落在
-`0541-k60-virtual-timer-guard.patch` 之后；追加的 11 行里有 5 条 bare 名与 6 行来源注释，
+`0541-k60-virtual-timer-guard.patch` 之后；追加的 12 行里有 5 条 bare 名与 7 行来源注释（旧文件 79 行 → 91 行），
 顺序为 0626 0627 0628 0630 0629（0629 最后，因为它动 `kern_exec.c`，要在其余补丁把符号装进树之后）。
 
 三种状态：设备仓一条都没有 → 追加并写全套；`series` 已含全部五条 → 报 dry，不重复追加；
@@ -942,3 +942,9 @@ K60 DEVICE CHANGED 2 expectation(s) drifted
 
 分工不变：stager 在本仓（可测、可复现），落盘由设备仓 owner 执行；
 `check-ios27-device.py` 事后复核，两者都用同一份 `series-port.txt` 当事实。
+
+落地效果在假设备仓上验过（`/mnt/e/k60-work/scratch/ios27-device-fake`：真 `board.toml` + 真 78 行 `series`，
+没有补丁文件）：落地前 `DRIFT the device repository has no copy of: 0626… 0629…`；
+`git apply series.diff` + 拷五个补丁之后，`K60 DEVICE OK the device repository carries the 27 line`，
+四条 ok 全绿，只剩 `note QcomBaseband is not in the 27 package include list`。
+即：清单、暂存、复核三段现在闭合，剩下的动作只在设备仓 owner 手上。

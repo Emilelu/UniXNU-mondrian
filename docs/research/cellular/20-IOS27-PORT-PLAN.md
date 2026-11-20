@@ -1223,7 +1223,7 @@ W1 那行 `K60UFS volume name=modemst1 lun=5 first=…` 根本不会出现——
 
 1. 27 profile 的 `.components.include` 同时含 `PongUfs` 与 `QcomBaseband`；
 2. 同 profile 的 `.components.archives` 同时含 `component:PongUfs` 与 `component:QcomBaseband`
-   （16 线只有前者，后者是 27 新增的）；
+   （16 线 `k60-cellular/board.toml:14` 与 `:21` 两处都已有这两个名字，27 是把它们照抄回来）；
 3. `kernel.macho` 里 `_coachz_baseband_configure` 与 `_native_pong_ufs_read_named_volume` 都是强符号、带地址；
 4. 控制台出现 W1 且 `lun=5`（`lun=0` 是 k54 之前的死因），才进入 W2 的字节比对。
 
@@ -1235,3 +1235,62 @@ k54 的镜像必须能由当时的 HEAD 复现，所以不再回改。
 
 边界：`k60-gates` 是 main，冻结条款未解。这两处 `board.toml` 何时落、由谁落按 Lead 10:05 的裁决走，
 本线只写清楚补哪两处、怎么算补上了。
+
+## 33. 27 的构建器拿不到原生 UFS 归档：开关和生产者住在两个文件里（2026-11-20 11:35）
+
+### 33.1 三行事实
+
+| 事实 | 位置 | 内容 |
+|---|---|---|
+| 谁选构建器 | `k60-gates/scripts/pick-xnu-builder.sh:23-24` | `ipados-16.6.1-20G81` → `build-xnu-4k-baseline.sh`；其它 profile 一律 `build-xnu-generic.sh` |
+| 27 的链接行 | `k60-gates/scripts/build-xnu-generic.sh:646-650` | `XNU_NATIVE_UFS=1` 时 `UFS_ARCHIVE=$ROOT/build/sheng-ufs/libPongUfs.a`，紧接着 `test -f "$UFS_ARCHIVE"` |
+| 真正的生产者 | `k60-gates/scripts/build-pong-ufs-probe-macos.py:31` 与 `:102` | `out = tree/'build/native-ufs'`、`libtool -static -o out/libNativeUfs.a`；只由 `build-xnu-4k-baseline.sh:432-441` 在 `XNU_NATIVE_UFS=1 && PONG_NATIVE_DRIVER_SOURCE` 时调用 |
+| 16 线怎么链接 | `build-xnu-4k-baseline.sh:1054` 与 `:1278` | 同一个构建器写的是 `$ROOT/build/native-ufs/libNativeUfs.a` —— 与生产者一致 |
+
+所以 `build/sheng-ufs/libPongUfs.a` 在两个仓库里只有 generic 这一处链接行与 `UniXNU/scripts/build-xnu-4k-baseline.sh:645`
+提到，**没有任何脚本写它**。`CONFIG_XNU_NATIVE_UFS=y` 一开，27 的构建就停在 `test -f`。
+
+### 33.2 为什么一直没暴露
+
+`configs/mondrian_ios27_defconfig:20` 是 `CONFIG_XNU_NATIVE_UFS=n`，注释写着「PongUfs returns in F3」。
+这条注释是事实，也是遮蔽：F3 一开开关，缺的东西并不是「PongUfs 组件没进包」——`components.toml` 的 PongUfs 没有
+`build` 键（`build = None`），`scripts/unixnu/kernel.py` 的 `required` 集合只收有构建食谱的组件，
+`component:PongUfs` 在 `archive_plan()` 里不会产生任何步骤——而是**归档本身没人产**。
+同理 `QcomBaseband` 有 `build = ["build-qcom-baseband.py"]`，所以它在 include 里一出现就必须同时进 archives，
+两者不是一种修法。
+
+### 33.3 判据（`scripts/check-ios27-device.py` 新增）
+
+`ufs_archive()` 做四步：读 27 kernel 块点名的 defconfig（`defconfig_path()` 取
+`[os_overrides."ios-27.0.1-24A446".kernel]` 的 `defconfig`，缺省 `configs/mondrian_ios27_defconfig`）；看
+`CONFIG_XNU_NATIVE_UFS=`；`y` 时从 `scripts/build-xnu-generic.sh` 抓 `UFS_ARCHIVE=$ROOT/<path>`；再要求
+`scripts/` 里另有某行**同时**含该路径与写提示（`libtool`、`ar rcs`、` -o `、`cp `、`install -m`、`copyfile`、`copy2`）。
+
+三态：`n` → ok；`y` 无写者 → DRIFT；`y` 有写者 → ok。只认「链接行以外还有写者」，因为链接行自己也会命中路径。
+自测三夹具 → `K60 DEVICE PASS agreement, missing entry, differing copy, archive producer`；真仓现在多一行
+`K60 DEVICE ok   the 27 defconfig keeps native UFS off (CONFIG_XNU_NATIVE_UFS=n)`，其余仍是 5 补丁缺副本的 DRIFT。
+
+### 33.4 三条出路（不写代码，等 F3 排期）
+
+1. generic 里补一步 `build-pong-ufs-probe-macos.py`，并把 `UFS_ARCHIVE` 指向 `build/native-ufs/libNativeUfs.a`（与 16 线一致）；
+2. 只把路径改对、不管谁产 —— 不行，仍然没有写者；
+3. 新写一个只产 `build/sheng-ufs/libPongUfs.a` 的脚本 —— 多一份与 probe 平行的编译器，不推荐。
+
+推荐 (1)：两个仓库里唯一验证过的生产者就是 probe（k54 的符号表证明它产出的 reader 带 LUN 去重）。
+
+### 33.5 附：k54 的符号表（把 §32.3 第 3 条变成实测）
+
+`llvm-nm -a`（3.4 s，182,185 行，dump 在 `E:/k60-work/scratch/k54-nm.txt`）：
+
+| 符号 | 地址 | 形式 |
+|---|---|---|
+| `_coachz_baseband_configure` | fffffff007a90058 | `external` |
+| `_coachz_baseband_enabled` | fffffff007a8b1d8 | `external` |
+| `_native_pong_ufs_read_named_volume` | fffffff007a84484 | `external` |
+| `_ArmSmmu4KBuild` | fffffff007a66418 | `external` |
+| `_ArmSmmu4KProgramDisabledContext` | fffffff007a66ee8 | `external` |
+
+`llvm-nm -m` 里这五条都是 `external`，不是 `weak external`（k54 里 weak 一共 8 个，都是别的符号）⇒ 16 线拿到的
+全是强定义。另有 `__ZZ33native_pong_ufs_read_named_volumeE13lastVolumeLun` 与 `…E14lastVolumeName` 两个函数内
+静态量，说明 k54 里跑的是 `2b2183a7` 那版带 LUN 去重的 `PongUfsTransport.cpp`。27 侧没有这条强定义，只有
+0628 的两个 weak 定义兜住 SMMU、`pong_modem_link.c:42-52` 兜住 reader。

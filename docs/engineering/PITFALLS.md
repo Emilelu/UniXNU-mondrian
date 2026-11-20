@@ -5129,8 +5129,28 @@ call-site 补丁天生修改既有文件，不变量写得太强时，正确产�
 判断定义只能按声明本身读：从名字那行起连接行直到括号配平，右括号后面是 `;` 就是调用或声明，
 是 `{` 才是定义；内核风格把返回类型写在名字上一行；`static` 定义回答不了 `extern`，除非两者
 在同一文件里分属条件编译的两支。汇编还有一层：标签写成 `_flush_dcache64:` 或 `LEXT(flush_dcache64)`，
-`` 在 `_` 前不算边界，正则先就匹配不到。
+`\b` 在 `_` 前不算边界，正则先就匹配不到。
 
 `scripts/check-ios27-symbols.py` 按这套规则把 19 个 extern 分成「补丁集 / 目标树 / 组件」三类，
 接进 `check-ios27-readiness.py` 与 `scripts/verify-27-line.sh`；首跑在克隆上抓到的就是
 `k60_modem_scm_invoke` 这条条件编译对。
+## P-267 — 链接一条路径，不等于有人产出这条路径
+
+27 线的构建器 `k60-gates/scripts/build-xnu-generic.sh:646-650` 在 `XNU_NATIVE_UFS=1` 时 force-load
+`$ROOT/build/sheng-ufs/libPongUfs.a`，紧接着 `test -f "$UFS_ARCHIVE"`。唯一编译原生 UFS transport 的步骤是
+`scripts/build-pong-ufs-probe-macos.py`（`:31` `out = tree/'build/native-ufs'`、`:102` `libtool -static -o
+out/libNativeUfs.a`），而它只被 `build-xnu-4k-baseline.sh:432-441` 调用；`pick-xnu-builder.sh:23-24` 对除
+`ipados-16.6.1-20G81` 以外的所有 profile 都选 generic。于是 27 线上「链接哪个文件」和「谁写这个文件」住在两个
+脚本里，两个脚本又只有其中一个会被执行：`build/sheng-ufs/libPongUfs.a` 在两个仓库里除两处链接行外无人写入。
+
+之所以一直没暴露，是因为 `configs/mondrian_ios27_defconfig:20` 写着 `CONFIG_XNU_NATIVE_UFS=n`（注释
+「PongUfs returns in F3」）。开关关着，那条 `test -f` 永远不执行；F3 一开，构建停在那里，而不是停在符号缺失。
+
+`scripts/check-ios27-device.py` 的 `ufs_archive()` 按这条写：读 27 kernel 块点名的 defconfig，取
+`CONFIG_XNU_NATIVE_UFS=`；为 `y` 时从构建器抓 `UFS_ARCHIVE=$ROOT/<path>`，再要求 `scripts/` 里另有某行
+**同时**含该路径与写提示（`libtool`/`ar rcs`/` -o `/`cp `/`install -m`/`copyfile`/`copy2`）。只看「文件里提到
+这个路径」不够：链接行自己就提到它，两处链接行都把「有人写过」伪装成「有人会写」。
+
+教训：把一个开关从一个构建脚本搬到另一个，必须连它的生产者一起搬；验证方式不是「脚本提到了这个文件」，
+而是「有没有一行在写这个文件」。
+

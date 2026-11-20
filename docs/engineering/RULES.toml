@@ -690,3 +690,11 @@ source = "docs/engineering/PITFALLS.md:P-266"
 statement = "判断一个符号在文件里有没有定义，要按声明读（括号配平后是 ; 还是 {），不能用 grep 命中当定义。"
 check = "grep -q 'is not a definition' scripts/check-ios27-symbols.py"
 note = "2026-11-20 第一版把调用、多行调用、内核风格与汇编标签都读错过。"
+
+[[rule]]
+id = "P-267"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-267"
+statement = "构建脚本链接一个归档路径，不等于有这个路径的生产者；开关从别的脚本搬来时，生产者要一起搬，判据是「有没有一行在写它」而不是「有没有提到它」。"
+check = "grep -q 'nothing writes the archive' scripts/check-ios27-device.py"
+note = "2026-11-20 27 线 build-xnu-generic.sh:646 链接 build/sheng-ufs/libPongUfs.a，生产者只在 4k-baseline 的调用链里、产出的是 build/native-ufs/libNativeUfs.a。"

@@ -131,7 +131,8 @@
   1.25 倍余量、50 % GPU 目标、578 MHz 地板、1 s 触摸、300 ms/60 % 帧下限、50 ms GPU 唤醒、1 ms fence、
   10 s 喂狗、两帧/1500/600 ms 背光与 60 ms 触摸间隔钉在跨模块位置；每个套件必须打印自己记录的数量，
   数量漂移即失败。C 套件之后同一条命令再跑 python 那半——carry 清单、四个控制台判读器、27 预检，
-  与硬件契约表核对（`HW-CONTRACTS.toml`，24 行 file:line 引用、13 行带独立第二来源）、再把那些第二来源
+  与硬件契约表核对（`HW-CONTRACTS.toml`，24 行 file:line 引用、13 行带独立第二来源；同一份表 `--against <27 检出>`
+  会把每行的 source 在另一棵树里真打开，把 27 侧结论从手写改成算出来的）、再把那些第二来源
   逐字节读回来（`read-fdt-props.py` 自己 22 项用例）、并核对本节自己引用的数字（`check-power-counts.py` 17 项用例），共 11 个套件（`wire-props` 把 `charger/WIRE-PROPS.toml` 的 19 个 wire 属性号与驱动表、反编译表、厂商 `.rodata` 三处对齐；`prop-numbers` 逐行判定 `charger/PROP-NUMBERS.toml` 的 18 个 16→27 属性号，结论只允许 相同 / 不同且已知谁改 / 查不到）——并打印 `power-python: OK (11 suites)`，任一退出非零即整个 runner 失败。判读器没有
   runner 引用时会静默腐烂（充电认证套件就这样躺了一轮），所以两半都挂在这一个入口上。ADSP 那三个
   python 套件（SMCCC 文本门、image 与 MDT 读取器）挂在 `run-k60-handoff-host.sh`——第一个判的是内核

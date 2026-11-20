@@ -1208,3 +1208,21 @@ title = "工具链发不出的标签，不等于加载器判错了"
 statement = "判「消费方太严」之前，既要把消费方接受过的同类产物逐字段摆开，也要确认自己的工具链能不能表达它要求的那个值；修法落在能把值写对的地方，并配一个拒绝代劳其余字段的门禁。"
 check = "python3 scripts/tests/test-k60-fileset-stamp.py && python3 scripts/tests/test-ios27-artifacts.py"
 note = "2026-11-20：本地 clang 在 MachObjectWriter.cpp:199-209 把 arm64e 一律写成 ptrauth 版本 0、非内核形态，ld64 采用 object 的值，所以 com.apple.kernel 的 0xc0000002 只能在链接后补一个字节；scripts/k60-fileset-stamp.py 只改这一位并拒绝代劳 filetype / MH_DYLIB_IN_CACHE / 重复条目。"
+
+[[rule]]
+id = "iron-13"
+statement = "官网文档的每个非设备页都是一条要求：登记进 docs/engineering/OFFICIAL-REQUIREMENTS.toml，能挂门禁的挂门禁，挂不上的记 unmapped 债务；页面 sha256 变了必须重读并更新条目。"
+check = "python3 scripts/check-official-docs.py"
+note = "2026-11-21 用户要求「将 https://unixnu.com/zh/ 官网所有页面都做成铁则和门禁」，随后补充「除了设备页」「主要目的就是严格遵守官方发布的所有页面上的文档」。设备页按设备列举，不是本板的契约，故排除。"
+
+[[rule]]
+id = "iron-14"
+statement = "任何硬件修复在 ①~⑦ 七步各自的证据齐备之前不得上机；⑧ 的 prediction.success / prediction.failure 必须预写，flight 门禁只认这些证据。"
+check = "python3 scripts/eight-step-gate.py --flash"
+note = "已有实现（scripts/eight-step-gate.py 的 FLASH_STEPS + prediction 检查），2026-11-21 明确为铁则：一次上机换一个答案，判据要在飞之前写死。"
+
+[[rule]]
+id = "iron-15"
+statement = "参考仓库与所有 UniXNU 相关仓库必须按周期 fetch 上游：docs/engineering/UPSTREAM-REPOS.toml 登记，scripts/check-upstream-sync.py 核对 fetch 时间、HEAD 移动、只读仓是否落后、以及官网设备页是否新增了本 SoC 条目。"
+check = "python3 scripts/check-upstream-sync.py --hours 24"
+note = "2026-11-21 用户要求「参考的仓库，以及UniXNU相关的仓库，都要及时同步上游，这个也要做成铁则和门禁」。起因是 xNekom 的 26 个提交与上游 622 个提交都是过期快照之后才被发现。"

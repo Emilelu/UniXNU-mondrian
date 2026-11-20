@@ -1,0 +1,659 @@
+# Official documentation requirements — one entry per page of the zh mirror.
+#
+# The mirror is E:/hackios/UniXNU/docs/zh (upstream UniXNU). A page is satisfied only
+# when its entry names a gate and that gate passes; `state` records where we stand:
+#   mapped   - a gate enforces the page
+#   unmapped - nobody checked this page yet (the debt)
+#   na       - the page does not constrain this board, with `why`
+# `sha256` is the page we read. Editing a page without updating the entry makes the
+# gate report it stale, so a changed requirement cannot pass unnoticed.
+
+schema_version = 1
+
+[[page]]
+path = "building.md"
+title = "构建与启动"
+sha256 = "44bfb3eea57de117b2e333241cfdc12637b9f922092e1f743527bae403e47c28"
+state = "unmapped"
+
+[[page]]
+path = "concepts/boot-chain.md"
+title = "启动链"
+sha256 = "1afe93a5057d33f6ad251f8c3847f54cf85793ad97ba2e7f4c8e946d0bd40414"
+state = "unmapped"
+
+[[page]]
+path = "concepts/payload.md"
+title = "启动负载"
+sha256 = "8a5367e72c3cc36a85659da57ef312b4308757abf88f500884bcc8d1fba2badb"
+state = "mapped"
+gate = "check-ios27-artifacts.py --flight-ready"
+assertion = "payload structure and declared transform"
+
+[[page]]
+path = "concepts/prelink.md"
+title = "内核预链接"
+sha256 = "68e2785d4871a9280c6ae55f00bb11ee3cd7d7a09ecc10cf8f834555b1ac09bd"
+state = "mapped"
+gate = "check-ios27-artifacts.py --flight-ready"
+assertion = "prelink closure and loader contract"
+
+[[page]]
+path = "concepts/security.md"
+title = "完整性与启动策略"
+sha256 = "baaede96059a1bc035a5af57dc96b3f671813127da24de4bda191ef9088fac09"
+state = "unmapped"
+
+[[page]]
+path = "concepts/userdata.md"
+title = "userdata 布局"
+sha256 = "827a59d2908f1321869e8ec0bd59460ab943f6cdd96680a67cbbaf1aab7b9583"
+state = "mapped"
+gate = "check-defconfig-uuid.py"
+assertion = "the Data volume identity is the board's own"
+
+[[page]]
+path = "contributing/documentation.md"
+title = "文档站"
+sha256 = "c5e30965de3596ac9bdb09414659edc706bf19964862983b02e16bdf7a913db1"
+state = "mapped"
+gate = "check-docs.py"
+assertion = "documents stay consistent and linked"
+
+[[page]]
+path = "contributing/repository.md"
+title = "仓库布局"
+sha256 = "0bcc9d2de99f95eff065f6c1d26cdc033f81fd49c33f2bc132e773ac1325ece9"
+state = "mapped"
+gate = "check-rules.py"
+assertion = "the iron rules"
+
+[[page]]
+path = "drivers/adreno-firmware.md"
+title = "AdrenoFirmware"
+sha256 = "a5c1e027314a097de98516929c6d30c63dc379353e06437fccb6edb412f57d16"
+state = "unmapped"
+
+[[page]]
+path = "drivers/adreno-metal.md"
+title = "AdrenoMetal"
+sha256 = "667cf2b439dbbe14811ab3fa77a9fe17120093f2080e7acbe3b62021d1ed932e"
+state = "unmapped"
+
+[[page]]
+path = "drivers/adreno-pm4.md"
+title = "AdrenoPM4"
+sha256 = "e8f15e780e901b93719c2a1a82a7dce270b4d34c340bb7ce00f1e8fc9e5ddcfc"
+state = "unmapped"
+
+[[page]]
+path = "drivers/adreno740.md"
+title = "Adreno740"
+sha256 = "3ffeaaebe56eef3d762e1dec34769325e2c03971698b3668f03a76b328d26a54"
+state = "unmapped"
+
+[[page]]
+path = "drivers/air-nir.md"
+title = "AirNir"
+sha256 = "1f79a42b916b5f7828d00f40ad3e00b944a49f7d69e94b05e5b6ce1ebb27fb91"
+state = "unmapped"
+
+[[page]]
+path = "drivers/apple-key-store-state.md"
+title = "AppleKeyStoreState"
+sha256 = "82eecbe210e176c9230a876d8ad79c16a559e82ee0d5897a807f5984dd785ad9"
+state = "unmapped"
+
+[[page]]
+path = "drivers/arm-cpu.md"
+title = "ArmCpu"
+sha256 = "47262df49c058ec6cc002f8c88d5c381b344b1079e30718ccefd87771ad19f04"
+state = "unmapped"
+
+[[page]]
+path = "drivers/arm-dt-platform.md"
+title = "ArmDTPlatform"
+sha256 = "35cb8d54094d25e58d2b5652e0af8d0ed81c81ceda34c08410e2bfcd471d5793"
+state = "unmapped"
+
+[[page]]
+path = "drivers/arm-smmu4k.md"
+title = "ArmSmmu4K"
+sha256 = "39bdb392dafffdf1f5b8a857b26922759aae951b775a1b7d548a3aacc9ec03da"
+state = "unmapped"
+
+[[page]]
+path = "drivers/arm-virt-platform.md"
+title = "ArmVirtPlatform"
+sha256 = "9e78bd86fc4417554de71fd587cfdcaee05162f19b3da42e08a23a02c45e74d9"
+state = "unmapped"
+
+[[page]]
+path = "drivers/ath12k-wifi.md"
+title = "Ath12kWifi"
+sha256 = "45384811d658b0bcb624b973b14ef85e957ccb9c1160d9f66fd55f883e76779b"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-adreno830.md"
+title = "Adreno830"
+sha256 = "3121fe2a4bec0c9a2e3f79657412c32ea7b751c18feccb3c94d72fe8a7d30eed"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-native-adreno-fuxi.md"
+title = "NativeAdreno-fuxi"
+sha256 = "ef84f452cdc535b5c0cf22c9c4608a493b9d84de16a6bc62d3536ed9dd62bccb"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-native-adreno-myron.md"
+title = "NativeAdreno-myron"
+sha256 = "dfdad257e796f4970ce9cbdb384065c3e001e39db9923d5c81f66b8cbb082b92"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-native-dwc3.md"
+title = "NativeDwc3"
+sha256 = "23798ae5e3aedc95289a734ddeb9b406c330d952ed3ddea0011cbb39d22e3fa6"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-native-emmc.md"
+title = "NativeEmmc"
+sha256 = "2f1e14d37332e752dc3d520985c57d06308ffb146ef69c301f8c0c6a5c7ee013"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-native-msdc.md"
+title = "NativeMsdc（社区）"
+sha256 = "86caaa5eddf1f535951241216342ce381ef1de3fc8a59120f989de4c19696562"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-native-ufs-alioth.md"
+title = "NativeUfs-alioth"
+sha256 = "6ae6e953cc9d68ae568dcd2e952b455d7088a2c63b3346aa4ed9e2baeeeca1a6"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-native-ufs-myron.md"
+title = "NativeUfs-myron"
+sha256 = "f096d201bb67661a903aeffd6399083096c10a3b12dcf41940c93754fe9e0405"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-nativefocaltechtouch.md"
+title = "unixnu-nativefocaltechtouch"
+sha256 = "8e4c6088268e76bedc3880e06c4df85ab5f8c391b73ca3e5d5ee8d2698f3f446"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-unixnu-nativemobiledisplay.md"
+title = "unixnu-nativemobiledisplay"
+sha256 = "9298a9c08dc3dec34e2bb9521f59f3216bf9d2aebfa9df3a3f4a5444638b2b18"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-unixnu-nativeramblock.md"
+title = "unixnu-nativeramblock"
+sha256 = "77c6d032384988ece43cc9e6d98dbb9d999ec5b24a4de8eddef6a8e5592cf1c4"
+state = "unmapped"
+
+[[page]]
+path = "drivers/community-unixnu-nativeufs.md"
+title = "unixnu-nativeufs"
+sha256 = "048c8a3c0293a46be9f7ccb8c96908dd5df1c0c92c513ae04d734b7ff8d4effe"
+state = "unmapped"
+
+[[page]]
+path = "drivers/darwin-boot.md"
+title = "DarwinBoot"
+sha256 = "8aafa44667bbbf2a85302a7731a847ee8c3d4176c4016c5be334acaac93a60bc"
+state = "unmapped"
+
+[[page]]
+path = "drivers/device-tree-matching.md"
+title = "设备树匹配"
+sha256 = "64708f92fa11daa95f8bb6fa1b3838d1870b92431b94d1eb94b7799514a33f41"
+state = "unmapped"
+
+[[page]]
+path = "drivers/gop-framebuffer.md"
+title = "GopFramebuffer"
+sha256 = "ec936562a4921ad0818383c790eb0f75238714fc90bf0fa7b7af41e7206cde85"
+state = "unmapped"
+
+[[page]]
+path = "drivers/kexts.md"
+title = "kext 包"
+sha256 = "b66f4b63e9f3ecf6260d38f04839ff69a17e20e4a7126f434e63b39db897d616"
+state = "unmapped"
+
+[[page]]
+path = "drivers/overview.md"
+title = "开发驱动"
+sha256 = "5306e1db81ab4a5f3e9ee735131b15295e7b06b98052187cb5a6864d5e603c2e"
+state = "unmapped"
+
+[[page]]
+path = "drivers/qca-bluetooth.md"
+title = "QcaBluetooth"
+sha256 = "7a973e7176f9c7eb53ecff9d2e6be00a3cc6b270e05ddd343c34f4a93d7d9988"
+state = "unmapped"
+
+[[page]]
+path = "drivers/qcom-baseband.md"
+title = "QcomBaseband"
+sha256 = "275230714b756152d8ef5489f254b88eb1217f1e4903bf790e5def24120b011d"
+state = "unmapped"
+
+[[page]]
+path = "drivers/qcom-dwc3.md"
+title = "QcomDwc3"
+sha256 = "7a5d1dbe75264749c971eddd6cb9185770051801c403af4e6e438b668bd9407e"
+state = "unmapped"
+
+[[page]]
+path = "drivers/qcom-geni-spi.md"
+title = "QcomGeniSpi"
+sha256 = "3e84d707a78be3b38f5eec3f6d181e63c92f430348767d34782c20aaeb513ca1"
+state = "unmapped"
+
+[[page]]
+path = "drivers/ram-block.md"
+title = "RamBlock"
+sha256 = "b6ff84b4e2bdbcf76ecc2231c6ca4473c4d04bb7b0c02531eb312ced0cdb51da"
+state = "unmapped"
+
+[[page]]
+path = "drivers/repositories.md"
+title = "驱动仓库"
+sha256 = "db804ed8d8ee7552af01acd6e664ab3f6d132dcbf8c2223cc288aef4bfe7f229"
+state = "unmapped"
+
+[[page]]
+path = "drivers/sheng-backlight.md"
+title = "ShengBacklight"
+sha256 = "b838762d343d3a329b8fd58f4035994bbbeb0d6ff107d82a3642f0b228fe5adc"
+state = "unmapped"
+
+[[page]]
+path = "drivers/sheng-hid-input.md"
+title = "ShengHidInput"
+sha256 = "90b4ca7694edb74a99e7c96d018ca94f15c88adee22708e2913912ca0df31c44"
+state = "unmapped"
+
+[[page]]
+path = "drivers/sheng-novatek-touch.md"
+title = "Novatek NT36532E 触控驱动"
+sha256 = "d5c9ae96f13a1a69a340957468afa6fc28e8334857a9ddc892400576a6d07576"
+state = "unmapped"
+
+[[page]]
+path = "drivers/sheng-preflight.md"
+title = "ShengPreflight"
+sha256 = "57176e223192af5cbca0d99e05d5f29ca7a32cbc9ea0a4ddfa0d85604f3148d5"
+state = "unmapped"
+
+[[page]]
+path = "drivers/sheng-ufs.md"
+title = "ShengUfs"
+sha256 = "514a45789820d1454e1bd524fca146938ec2a50adb78bf566de2ec0e4767afa2"
+state = "unmapped"
+
+[[page]]
+path = "drivers/sm8550-platform.md"
+title = "Sm8550Platform"
+sha256 = "60e9d6752ea6a513d003bef2096fd209069c0c10297ee5438674bf17cf674765"
+state = "unmapped"
+
+[[page]]
+path = "drivers/software-aes.md"
+title = "SoftwareAES"
+sha256 = "ff6124ce1ac1302bd6c2f013489cebd15f688d487310db34e9bb688d6ecdb007"
+state = "unmapped"
+
+[[page]]
+path = "drivers/uefi-drivers.md"
+title = "UEFI 驱动"
+sha256 = "e382c1f89358e5c3448ef4008e3b9a77008ef83ced9845c9e4c0641779591089"
+state = "unmapped"
+
+[[page]]
+path = "drivers/verified-root.md"
+title = "VerifiedRoot"
+sha256 = "89b3ddf991cea0b8ac82c8bc4057543a65047357f00f929727f8a1d09d539bf5"
+state = "unmapped"
+
+[[page]]
+path = "drivers/virtio-mmio-block.md"
+title = "VirtioMmioBlock"
+sha256 = "c41d92576d39acea32592bc3d7a882951f2eb4772831ac21e620bc8d2c93db8b"
+state = "unmapped"
+
+[[page]]
+path = "drivers/virtio-mmio-console.md"
+title = "VirtioMmioConsole"
+sha256 = "23eadcbb3cae645fcd130d8020da9490249d6cb64572310cc73016a69794a711"
+state = "unmapped"
+
+[[page]]
+path = "drivers/xnu-drivers.md"
+title = "XNU 驱动"
+sha256 = "9e6e92f69068149956b827fc96d1f088ec15a76962916188b7a51e1087921715"
+state = "unmapped"
+
+[[page]]
+path = "drivers/xnu-prelink.md"
+title = "XnuPrelink"
+sha256 = "deb7596393cb4fb62ea192bfe852ffc7448eaa7de7fdc33ed85f17f400070a78"
+state = "mapped"
+gate = "check-27-series-composition.py"
+assertion = "the four patch layers and their provenance"
+
+[[page]]
+path = "guide/boot.md"
+title = "启动镜像"
+sha256 = "38d1babb756638121c5c2271a4758a1de6e63b047867bbd2a8eee123ff14bc7e"
+state = "unmapped"
+
+[[page]]
+path = "guide/build-kernel.md"
+title = "构建内核"
+sha256 = "fdf8afabf3c6e938c0d20902b2507a4710e2f2b544ca603bff4aa6178d70acfa"
+state = "unmapped"
+
+[[page]]
+path = "guide/debugging.md"
+title = "调试与日志"
+sha256 = "6b890901f19dbd9aa00716d4c0a7dbf41f9a9d31eff2ae9c868e143c57e4a579"
+state = "unmapped"
+
+[[page]]
+path = "guide/mobilegestalt.md"
+title = "MobileGestalt 身份"
+sha256 = "2fc7ccc4ec4e7bf368ce53def534bec913357fd4c0bd15d52bc1325f47b3f8f4"
+state = "unmapped"
+
+[[page]]
+path = "guide/overview.md"
+title = "overview"
+sha256 = "d8e0672087af62034aefe9404c819c571cf10b0c42edc0adeaa9e2bb6a9e5a36"
+state = "unmapped"
+
+[[page]]
+path = "guide/requirements.md"
+title = "构建环境"
+sha256 = "4f9456d626a221551f2c40c2dc803e82d475d183e776ce3a899da0b841e99df6"
+state = "mapped"
+gate = "check-build-env.py"
+assertion = "host toolchain complete"
+
+[[page]]
+path = "guide/skip-setup.md"
+title = "Skip Setup"
+sha256 = "e8e9348f6526ec6f4abd0774aca3705b690c61313ca18fd4428b125258f1877c"
+state = "unmapped"
+
+[[page]]
+path = "guide/userdata.md"
+title = "userdata 镜像"
+sha256 = "35934fda8980a1c55f9821ba25192d6bebb849f699dcb82bb947213e17e78b19"
+state = "unmapped"
+
+[[page]]
+path = "index.md"
+title = "index"
+sha256 = "f65dcba82cf4e60d28a6beb5d8b74deb6dff0e008de8a11ff582ffd7ba648c4b"
+state = "unmapped"
+
+[[page]]
+path = "porting/arm64e.md"
+title = "arm64e OS 配置"
+sha256 = "ac91ed62943cddf430cd863d033dff80b03e3f061e16cff08f20a9a822f7dd77"
+state = "unmapped"
+
+[[page]]
+path = "porting/baseband.md"
+title = "基带与移动网络适配"
+sha256 = "243d6f22d52ec1e4b937dc7b25b3eba99af7ecf418e2a12916ed3bf19f4bc1f0"
+state = "unmapped"
+
+[[page]]
+path = "porting/bluetooth.md"
+title = "蓝牙适配"
+sha256 = "e8ce113f2f2a80b78d2ad259aa53c8b8538914d2990b37ee7123fcfe0a02b5f3"
+state = "unmapped"
+
+[[page]]
+path = "porting/bring-up.md"
+title = "bring-up 顺序"
+sha256 = "fad9b8ff3128fcfdb3c41e880bc5b8e6df4fbca12c9ed70cccaae0565ea71351"
+state = "unmapped"
+
+[[page]]
+path = "porting/device-repository.md"
+title = "设备仓库"
+sha256 = "185183e4faf5ba104fb3e47ad7d07d6650b8089951fa7d1348be8e3bfba10104"
+state = "unmapped"
+
+[[page]]
+path = "porting/device-tree.md"
+title = "设备树"
+sha256 = "378ac6331f07463428b36b2308bf0494c435d1dc8b9dbf3ceede1ef38d3f0bbc"
+state = "unmapped"
+
+[[page]]
+path = "porting/display.md"
+title = "显示与亮度"
+sha256 = "b66f984aec05a059838e7fbbb74655c49e52deb69db1a4d9ca9ab2224f40c159"
+state = "unmapped"
+
+[[page]]
+path = "porting/drivers.md"
+title = "适配驱动"
+sha256 = "af8dc5f31dd81b1ea3ee74570540247dfe72dcb994db46a3de9bb27412631b9f"
+state = "mapped"
+gate = "check-porting-paths.py"
+assertion = "every driver claim names a live path"
+
+[[page]]
+path = "porting/dual-system-partition.md"
+title = "UniXNU 分区 (实验性)"
+sha256 = "2273c199e5df7a55818e8f49a2a203527b73cb352d8c1d3db65024d8df5db4f5"
+state = "unmapped"
+
+[[page]]
+path = "porting/gpu-diagnostics.md"
+title = "GPU 帧诊断"
+sha256 = "8c2c990607356232bd3052c8d591c31a89fa3cfbdc5139abede726688e97c6bc"
+state = "unmapped"
+
+[[page]]
+path = "porting/gpu.md"
+title = "GPU 与 Metal 适配"
+sha256 = "d7d404d625978d2531a0a9f10eca314e4c88112f1fc61aa4b76a544c69dac41e"
+state = "unmapped"
+
+[[page]]
+path = "porting/index.md"
+title = "欢迎"
+sha256 = "70193250fc9aed527efd03556990e0537757f63ec44ce071778ff295714eddf5"
+state = "unmapped"
+
+[[page]]
+path = "porting/input.md"
+title = "触控与按键适配"
+sha256 = "23cbd1f7284d578246ed34f7ad322dceaa490a0183f26a7b4b69a8dd1ad0275d"
+state = "unmapped"
+
+[[page]]
+path = "porting/log-capture.md"
+title = "抓取日志与自动启动测试"
+sha256 = "07048466e2c892ef6ec89663a400a6ae55c0f270355a0ad72309f9b7c1e2ef8a"
+state = "mapped"
+gate = "check-image-args.py"
+assertion = "the console arguments are on the command line"
+
+[[page]]
+path = "porting/migration.md"
+title = "迁移设备适配"
+sha256 = "6909a8391b503359a7e7693b2c364604db8c78ed1826640e50fc909d9b774eb6"
+state = "unmapped"
+
+[[page]]
+path = "porting/network.md"
+title = "Wi-Fi 适配"
+sha256 = "571e9ba79ace37d5a76851ebc5079b72b1bee124c6bfe7266f65cc76c9024798"
+state = "unmapped"
+
+[[page]]
+path = "porting/packaging.md"
+title = "设备打包脚本"
+sha256 = "b312cdd5aee367c674b505fa0e1eceacde695c05eb97dec3d3a79d9aceb7d997"
+state = "mapped"
+gate = "tests/test-bootimg-layout.py"
+assertion = "image layout is the documented one"
+
+[[page]]
+path = "porting/platform.md"
+title = "平台、内存与 OS 服务"
+sha256 = "70f0342d68a98f3248526c5eab907f11cff5802c814c64a5e9fa6a0b9ada82a6"
+state = "unmapped"
+
+[[page]]
+path = "porting/power.md"
+title = "DSP、音频与电源驱动"
+sha256 = "975ebaf04842d68176a12bf0857a9331c210c0fe58e1619c6356547befc6d73b"
+state = "unmapped"
+
+[[page]]
+path = "porting/records.md"
+title = "设备适配记录"
+sha256 = "278b4390cfd2d6b37ddca5e4ea0dc6c7bc8d3fc79ce37c1aee645cdbea2a68e3"
+state = "unmapped"
+
+[[page]]
+path = "porting/sm8550.md"
+title = "sm8550"
+sha256 = "4c40304ba79765a95dbc54eb9aa6a58c89e8432dc4ccacf3a6bd931d7da26080"
+state = "unmapped"
+
+[[page]]
+path = "porting/soc-support.md"
+title = "选择与添加 SoC 支持"
+sha256 = "be9c587e88867def4f6b3428e0b937ed0fbf2b9299ac93e150d3b5303e2f9680"
+state = "unmapped"
+
+[[page]]
+path = "porting/steps.md"
+title = "移植设备"
+sha256 = "62903ffa0e8d12775bb0affbca37df38a141b2fbf7aaf6c840ee26a2b69582c8"
+state = "unmapped"
+
+[[page]]
+path = "porting/uefi-firmware.md"
+title = "UEFI 固件"
+sha256 = "0acbb86e08cc20247d7ec2b13fa4b0c9e324e54e70e65abb3d12922b4710aa77"
+state = "unmapped"
+
+[[page]]
+path = "porting/ufs.md"
+title = "UFS 移植"
+sha256 = "b1c4bf8fc950050bc0f69d40f882eccf7df34d12ee39a1f961fb04666dd8a8b7"
+state = "unmapped"
+
+[[page]]
+path = "porting/usb.md"
+title = "USB 适配"
+sha256 = "60671dceca1b66fef2acefe3bcd3e8c91436b016bacf5bbfd22efe9ed18856ce"
+state = "unmapped"
+
+[[page]]
+path = "reference/boot-configuration.md"
+title = "启动配置"
+sha256 = "a877369c16308c423fe2529b8031c4d58ee18ec29808a04d137e01450a8a9398"
+state = "mapped"
+gate = "check-image-args.py"
+assertion = "boot configuration matches the image"
+
+[[page]]
+path = "reference/cli.md"
+title = "命令行"
+sha256 = "fbbe6784cf27c8eb63a5e440f37f305f59ca42b15ffcf109062e1be060c55e2c"
+state = "unmapped"
+
+[[page]]
+path = "reference/components.md"
+title = "组件目录"
+sha256 = "a3c4179e682e24b422601277cc092044345bcac65441e8b68ecad609ac129fbe"
+state = "unmapped"
+
+[[page]]
+path = "reference/configuration.md"
+title = "设备配置"
+sha256 = "b19706042d08e358dafa3d8949a8112382d16d628648468c8ede2fcefe8503ec"
+state = "unmapped"
+
+[[page]]
+path = "reference/glossary.md"
+title = "术语表"
+sha256 = "49338c5c5279e0a3dbf8d2c77cc4d1ce0e8263f78d0b12faf155caad83493a86"
+state = "unmapped"
+
+[[page]]
+path = "reference/index.md"
+title = "技术参考"
+sha256 = "8a47ed9d83e8817c250b24c6e861e6a832d808dd6d1f7e19d52219328fa388a5"
+state = "unmapped"
+
+[[page]]
+path = "reference/output-layout.md"
+title = "输出布局"
+sha256 = "e16dfd50fccd6bf157a6b9c9f1ac2086025144030f50788e14f6debe22f71738"
+state = "mapped"
+gate = "tests/test-bootimg-layout.py"
+assertion = "image layout is the documented one"
+
+[[page]]
+path = "reference/qemu.md"
+title = "QEMU 测试"
+sha256 = "526f4632cef829eaa5ac00bf021012b687401d971b3b559c363bf570449a54a4"
+state = "unmapped"
+
+[[page]]
+path = "reference/troubleshooting.md"
+title = "故障排查"
+sha256 = "c6eeeddad6feb6b66534e2fb84d24815e66d315c87ecf2db486a05188020b61e"
+state = "unmapped"
+
+[[page]]
+path = "xnu/boot-arguments.md"
+title = "启动参数"
+sha256 = "6cafc0ab48c6d9efb61325da1437eb55c2c9a414fbd5a2c8e1dcc1415d6a06f7"
+state = "mapped"
+gate = "check-image-args.py"
+assertion = "argument budget, no debug=1, no replaced board values"
+
+[[page]]
+path = "xnu/four-k-page-tables.md"
+title = "4 KiB 页表"
+sha256 = "71887e1ab93fe7b32f87329f4b00eba5e41f8f027e656a05489363c7604f6b0b"
+state = "mapped"
+gate = "check-ios27-granules.sh"
+assertion = "4 KiB granules and TCR value"
+
+[[page]]
+path = "xnu/patch-reference.md"
+title = "补丁参考"
+sha256 = "176c56e7523584a2edf738470384dba0418cb9528f4e9769683db93b7827dcd4"
+state = "unmapped"
+
+[[page]]
+path = "xnu/source-and-patches.md"
+title = "源码与补丁"
+sha256 = "21dada2322f6cc560d94e250168f92c1ee94724343c44c19fc491d48843daa53"
+state = "mapped"
+gate = "check-patch-apply.py --all"
+assertion = "every patch parses and applies in order"

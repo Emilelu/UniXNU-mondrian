@@ -87,3 +87,5 @@
 - **P-130**：手工搬运 fork 里的代码会丢失 GitHub contributors 署名
 - **★32**：跟进上游必须覆盖全部分支，单分支 refspec 会漏掉关键修复
 - **★34**：同 SoC 兄弟移植的记录优先于官方通用驱动
+- [OFFICIAL-REQUIREMENTS.toml](OFFICIAL-REQUIREMENTS.toml) — 官网每页一条要求（铁则 13）
+- [UPSTREAM-REPOS.toml](UPSTREAM-REPOS.toml) — 参考仓库与同步基线（铁则 15）

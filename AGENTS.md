@@ -208,6 +208,32 @@ it reads this heading, the `RULES.toml` entry, and the message log — and says 
 when the log records no delivery mode, because an absent record is not evidence
 that `steer` was tried (P-251).
 
+### Iron rule 13 - every official documentation page is a requirement
+
+`E:/hackios/UniXNU/docs/zh` is the contract we port against. Every page except
+`devices/` has an entry in `docs/engineering/OFFICIAL-REQUIREMENTS.toml` with the
+page's sha256, a state (`mapped`, `unmapped`, `na`) and, when mapped, the gate
+that enforces it. `scripts/check-official-docs.py` fails on a page with no entry,
+an entry with no page, a changed sha256, a mapped entry whose gate does not
+exist, and an `na` without a reason. Unmapped pages are printed as debt.
+
+### Iron rule 14 - no flight before steps 1-7 each carry their evidence
+
+`scripts/eight-step-gate.py --flash` already refuses a flight until every active
+hardware item has steps 1-7 with evidence and a declared `prediction.success` /
+`prediction.failure`. This rule states it as policy: one flight buys one answer,
+so the criterion is written before the image is built, never after.
+
+### Iron rule 15 - reference and UniXNU repositories are fetched on schedule
+
+`docs/engineering/UPSTREAM-REPOS.toml` lists every clone that feeds porting work
+(the Sheng line, the same-SoC t970 and zizhan lines, the framework, the feeds).
+`scripts/check-upstream-sync.py --apply` fetches them and records the time and
+heads; the gate fails when a fetch is older than the limit, when a recorded head
+moved, when a read-only clone is behind the upstream it follows, and when the
+official device pages gained an entry naming this SoC. Two days of stale clones
+is how the xNekom branch and 622 upstream commits were missed.
+
 ## Gotchas & landmines
 
 - **This file is parsed.** `check-rules.py` collects iron rules from headings

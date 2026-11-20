@@ -9,6 +9,9 @@ and the recorded evidence in porting.toml. This gate holds the three together:
   it printed do not match, so the constant is measured every time it runs;
   here that same constant is compared with every "N rows ok, M skip" sentence
   in the pages and with the "N host rows plus one skip" line of the record.
+  It also rejects an example that copies a different count: a page showing
+  "PREFLIGHT OK 51 rows" while the script says 58 teaches the wrong number.
+  The --pac-only summary has its own four-row total and is allowed.
 
 Usage: python3 scripts/check-audio27-rows.py [repo]
 """
@@ -26,6 +29,8 @@ CLAIM = re.compile(
     r"[^。\n]{0,40}?"
     r"([0-9〇零一二三四五六七八九十两]+)\s*行[^、。\n\`]{0,12}?\`skip\`")
 RECORD = re.compile(r"(\d+) host rows plus one skip")
+STALE = re.compile(r"(PREFLIGHT OK\s+(\d+)\s+rows|ROWS_EXPECTED=(\d+))")
+PAC = re.compile(r"1:--pac-only\)\s*rows_expected=(\d+)")
 DIGITS = {"〇": 0, "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
           "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 
@@ -84,6 +89,23 @@ def claims(repo):
     return out
 
 
+def stale(repo, expected):
+    """(page, line, quoted) for an example that copies another count."""
+    out = []
+    for page in sorted(glob.glob(os.path.join(repo, "docs/research/audio/*.md"))):
+        for index, line in enumerate(open(page, encoding="utf-8"), 1):
+            for found in STALE.finditer(line):
+                if found.group(2):
+                    value = int(found.group(2))
+                    quoted = "PREFLIGHT OK %d rows" % value
+                else:
+                    value = int(found.group(3))
+                    quoted = "ROWS_EXPECTED=%d" % value
+                if value != expected:
+                    out.append((os.path.relpath(page, repo), index, quoted))
+    return out
+
+
 def recorded(repo):
     path = os.path.join(repo, "porting.toml")
     if not os.path.exists(path):
@@ -108,6 +130,8 @@ def main(argv):
               " so nothing anchors the pages' counts")
         return 1
     expected = int(found.group(1))
+    pac = PAC.search(text)
+    pac_rows = int(pac.group(1)) if pac else None
     problems = []
 
     if not TAIL.search(text):
@@ -121,6 +145,12 @@ def main(argv):
         if ok + skip != expected:
             problems.append("%s:%d says %d rows ok and %d skip, which is %d, but the preflight"
                             " declares %d" % (page, line, ok, skip, ok + skip, expected))
+
+    for page, line, quoted in stale(repo, expected):
+        if pac_rows is not None and ("%d rows" % pac_rows) in quoted:
+            continue
+        problems.append("%s:%d quotes %s, but the preflight declares %d; use a placeholder"
+                        " or the current constant" % (page, line, quoted, expected))
 
     record = recorded(repo)
     for value, _ in record:

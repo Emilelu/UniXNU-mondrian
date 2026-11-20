@@ -1,0 +1,176 @@
+# iOS 27.0.1 迁移账本：电池 / 充电 / 热管理
+#
+# 本文件是 [hardware.power] 之外的三个 27 离线账本，供 Lead 在 F1 后并入
+# docs/research/EIGHT-STEPS.toml；当前不替换 live 的 battery/charger/thermal 块。
+# 每一步只写 27 仍未上机前能证明的离线事实；按 Lead m36662，不写 step.device。
+#
+# power.md 的 21 条要求分配如下，避免重复记账：
+#   R1-R4   §1 接口与输入（battery 块 official）
+#   R5-R9   §2 DSP 传输（charger 块 official）
+#   R10-R15 §4 电池上报（battery 块 official）
+#   R16-R20 §5 调频与电源（live [hardware.power] 已覆盖，本文件不重复）
+#   R21     §6 构建与验证（三块的 verify 各自落实）
+# thermal 在 power.md 没有独立子系统页，只有 §1:15 的温控输入与 §5:152 的
+# 工作点顺序；本块记录这两句如何落到 tsens/压力服务，以及为什么其余条款 NA。
+
+[hardware.battery]
+revisit = '27 stage-0 进入 SpringBoard 后按线恢复；本文件先固定离线七步，device 步等 F1 后由 Lead 追加'
+status = 'planned'
+name = '电池（IOPMPowerSource / PMIC GLINK，27 离线账本）'
+why = '27 树还没有 bsd/dev/PongPower* 锚点，live [hardware.battery] 仍是 16.6.1 的设备证据。本块把 27 可直接复用的协议、单位、发布和断线语义固定下来，避免在 27 上重新猜一遍；上机仍归 Lead。'
+label = '电池研究线：PMIC GLINK 订阅与发布契约已离线固定，真实电量计对比等第一次 27 上机'
+paths = ['drivers/PongPower/K60Battery.cpp', 'drivers/PongPower/K60Battmgr.c', 'drivers/PongPower/K60Battmgr.h', 'drivers/PongPower/K60PmicGlink.cpp', 'docs/research/charger/WIRE-PROPS.toml', 'docs/research/charger/07-DEVICE-CRITERIA.md', 'scripts/tests/test-battery-units.py', 'scripts/tests/test-k60-charger-subscription.c']
+
+[hardware.battery.step.same_model]
+done = true
+evidence = '''同型号没有 27 实现可抄；唯一同型号消费者是本仓库 16.6.1 线的 K60Battery/K60Battmgr。它已经把 ADSP 发来的字节解码成 IOPMPowerSource 属性，并在串口打印 raw 与 published 两套值：drivers/PongPower/K60Battery.cpp:290 的 sample 行包含 SOC、charge/design、voltage、current、temp、external、charging、full、subscribed；drivers/PongPower/K60Battmgr.c:51 把电流符号限定为 -1/0/+1。27 迁移不重写这两层，只把它们当作同型号基线。缺口仍是 docs/research/charger/10-POWER-DOC-CONFORMANCE.md:483-509 记的五项（C3 全窗口电流、真机插拔/超时/重启、§5 调频、§3 音频、§4 charge-auth），其中只有 C3 属于本块。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.battery.step.official]
+done = true
+evidence = '''官方页 docs/zh/porting/power.md 第 1、4 节（E:/hackios/UniXNU/docs/zh/porting/power.md:8-19、:116-139）逐条对应：
+- R1 收集电量计/固件协议、属性 ID、单位、电流符号、通知：docs/research/charger/01-SYMBOL-MAP.md:17-28 记录 .ko 与 ADSP 两侧；WIRE-PROPS.toml 的 19 个字段给出 wire 到 OS 属性的映射；drivers/PongPower/K60Battmgr.c:51 固定符号。
+- R2 在固件清单记录每个二进制的来源和版本：docs/research/charger/01-SYMBOL-MAP.md:21-24 记录 .ko 的 247,776 B、BuildID e852b83c589f773d7cb09e6793ac59fd33086c58 与 SHA-256；docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:35-58 记录 ADSP adsp.b14 的段地址和 sha256。
+- R3 直接 I2C 电量计走寄存器，DSP 电池管理器走消息协议：本板是后者，drivers/PongPower/K60Battmgr.c:47-56 的白名单就是消息协议的入口；没有增加 I2C gauge 路径。
+- R4 先定传输再选参考代码：drivers/PongPower/K60PmicGlink.cpp:84 打开 PMIC_RTR_ADSP_APPS，256 B intent、4 个 intent；27 dts 的节点链见 docs/research/charger/PMIC-REWIRING-WORKORDER.md:31-40。
+- R10 核对 owner/type/opcode/property/length，单飞行，超时后再推进刷新：drivers/PongPower/K60Battmgr.c:47-56 校验 type/bytes，:162-171 校验 ACK 的 type/bytes 与 +0xc 起的零字，:194-200 在超时后作废 flight。
+- R11 有效读数与失败状态分开，快照八项并做单位/符号转换：drivers/PongPower/K60Battery.cpp:176-183 的 stale 路径保留最后有效值；drivers/PongPower/K60Battmgr.c:251-253 做 /1000 的电压电流，:269-270 做秒转分钟；符号在 drivers/PongPower/K60Battmgr.c:51 限定。
+- R12 继承 IOPMPowerSource、工作循环、响应队列、请求/刷新计时器，快照完整后再更新：drivers/PongPower/K60Battery.cpp:316-329 注册服务，:426 设请求超时，:548 设刷新周期。
+- R13 初始有效属性后 registerService，后续 updateStatus，适配器按 OS 属性：drivers/PongPower/K60Battery.cpp:274 调 updateStatus，:319 调 registerService，:330-365 逐个发布 adapter 键并在 :356 记录失败。
+- R14 订阅通知、周期刷新、断线取消请求并标 stale：drivers/PongPower/K60Battery.cpp:442-451 在通道断开时取消并 stale，drivers/PongPower/K60Battmgr.c:80-84 组订阅帧，drivers/PongPower/K60Battery.cpp:548 维持周期。
+- R15 原始/发布值与目标电量计或原厂读数比较，验证插拔、充放、超时、服务重启：判据已写成 docs/research/charger/07-DEVICE-CRITERIA.md:10-17 的 C1/C2/C3；真机对比仍未做，这是本块唯一没有离线证据的条款。
+R5-R9 是传输层，见 [hardware.charger.step.official]；R16-R20 已由 live [hardware.power] 覆盖。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.battery.step.decompile]
+done = true
+evidence = '''两侧反汇编都落在 docs/research/charger/。.ko 侧：qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58）的 battery_chg_probe 0xedc-0xf08 组 28 B 订阅帧，battery_chg_callback 0x211c 的跳转表把 opcode 4 引到 0x2464，那里只 complete、不校验 type/长度（docs/research/charger/03-REVERSE.md:204-225）。ADSP 侧：adsp.b14 的 opcode 分发器 0x60155570 与 opcode 4 handler 0x60155910 回 16 B {0x800a, type 1, opcode 4, result}，r3=#0x10 由 0x601559f0 的 03c20078 证明（docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:35-58）。因此 (type, bytes)=(1,16) 不是猜的，而是两侧固件互证。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.battery.step.wide]
+done = true
+evidence = '''广域核对三处。一，官方组件目录 E:/hackios/UniXNU/components.toml 的 25 个组件没有电池/电量计组件，不能声明依赖。二，Linux qcom_battmgr.c 是同一 PMIC GLINK 协议的变体，但只把 payload 长度当下限、不校验 type，不能覆盖本板 ADSP 的精确回包。三，sheng 的 E:/k60-work/references/pong-power/ShengBattmgr.c:170-197 两种 type 都收，同样是宽松实现。三处都不构成 (1,16) 的反证，真正的判据仍是 06-SUBSCRIPTION-CONSTANT.md 与 03-REVERSE.md 的实测；组件结论写在 docs/research/charger/04-PROP-MAP.md:389。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.battery.step.plan]
+done = true
+evidence = '''27 的接线方案保持 16.6.1 的三层不变：传输层打开 PMIC_RTR_ADSP_APPS（drivers/PongPower/K60PmicGlink.cpp:84，256/4 intent）；协议层由 K60Battmgr 组 28 B 订阅帧、收 16 B ACK、发 24 B 属性请求；发布层在 /chosen 读到 104 B PAS1 handoff 后才允许 MMIO/FIFO（drivers/PongPower/K60Battery.cpp:656-665）。27 只改两件事：dts 必须保留 remoteproc-adsp→glink-edge→pmic_glink→battery-charger 链，以及发布必须先于通道打开；逐项改线与判据见 docs/research/charger/PMIC-REWIRING-WORKORDER.md:31-40。drivers/PongPower/K60Battmgr.h:64-81 记录单飞行、无 transaction id、超时毒化通道的约束，方案不扩大 104 B handoff，也不新增 AP SPMI。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.battery.step.deep]
+done = true
+evidence = '''深挖结论三条。一，协议没有 transaction id，所以每次只能有一个未完成请求；超时后不是重发同一帧，而是把通道标成 poisoned 并 CLOSE/ACK/OPEN（drivers/PongPower/K60Battmgr.h:64-81、drivers/PongPower/K60Battmgr.c:194-200）。二，断线时 drivers/PongPower/K60Battmgr.c:61 清 flight/cycle/subscribed，drivers/PongPower/K60Battery.cpp:534-539 在超时后调用 k60_battmgr_timeout 并把读数标 stale，保证不会把旧值当新值发布。三，stale 不是清零：drivers/PongPower/K60Battery.cpp:176-183 保留最后有效测量值，只把 stale 键置真，OS 侧因此能区分「没有新样本」和「读数为 0」。这三点是 27 复用的硬约束。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.battery.step.verify]
+done = true
+local_verified = true
+evidence = '''离线核验全部可重跑。一，单位/符号：scripts/tests/test-battery-units.py 27/27 通过，固定 µV→mV、µA→mA、0.01%→%、秒→分钟与符号翻转绝对值不变。二，订阅状态机：scripts/tests/test-k60-charger-subscription.c 30 个断言通过（TESTS OK 30），覆盖 28 B 订阅帧、四类错形 ACK、result=0x206、opcode 7 通知。三，只读出站帧：scripts/check-battmgr-wire.py 通过，19 个 wire 字段一致，且要求 k60_battmgr_next 的 put32 只用 0/4/8/16 四个偏移，禁止 TYPE_SET/OP_CHARGER/OP_CHARGING/OP_SET/OP_WRITE（22 项夹具）。真机 C3 仍未做，故本步只证明离线契约，不证明 27 读数。'''
+static_check = '''scripts/check-battmgr-wire.py 对 drivers/PongPower/K60Battmgr.c 的 k60_battmgr_next 做函数体级检查：偏移 0 必须是 K60_BATTMGR_OWNER，4 只能是 TYPE_NOTIFY 或 TYPE_REQUEST，8 只能是 OP_NOTIFY_ENABLE 或 fields[b->cursor].opcode，16 只能是 fields[b->cursor].property，并各有一个 NOTIFY/REQUEST 字节返回。docs/research/charger/04-PROP-MAP.md:389 记录该只读规则与 22 项夹具。'''
+unit_test = '''scripts/tests/test-battery-units.py 27 个用例与 scripts/tests/test-k60-charger-subscription.c 30 个断言均在主机侧通过；后者覆盖订阅、ACK、超时/错误和通知四类路径。'''
+artifact_check = '''scripts/build-k60-physical-battery.py:29-39 把 MEASURED_NOTIFY_REPLY=(1,16) 写成生成器常量，并在抓包矛盾时抛 ValueError；WIRE-PROPS.toml 的 19 个字段与 04-PROP-MAP.md 的映射表一致。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.charger]
+revisit = '27 stage-0 进入 SpringBoard 后按线恢复；本文件先固定离线七步，device 步等 F1 后由 Lead 追加'
+status = 'planned'
+name = '充电 / 电池协议（qti_battery_charger + pmic_glink，27 离线账本）'
+why = '27 树没有 PongPower 锚点，且当前 27 设备证据止步于 K60Battery: blocked rc=-4。本块把 PMIC GLINK 传输、订阅常量、断线重连和 104 B handoff 的离线契约固定下来，供第一次 27 上机按 C0→C1→C2 顺序判读。'
+label = '充电研究线：传输与订阅协议已定，真实通道打开和订阅 ACK 等第一次 27 上机'
+paths = ['drivers/PongPower/K60PmicGlink.cpp', 'drivers/PongPower/K60Battery.cpp', 'drivers/PongPower/K60Battmgr.c', 'drivers/PongPower/K60HandoffRuntime.cpp', 'docs/research/charger/PMIC-REWIRING-WORKORDER.md', 'docs/research/charger/06-SUBSCRIPTION-CONSTANT.md', 'scripts/tests/test-k60-charger-subscription.c']
+
+[hardware.charger.step.same_model]
+done = true
+evidence = '''同型号 27 实现不存在；同型参考是 sheng（SM8550，不是 SM8475）。E:/k60-work/references/pong-power/ShengBattmgr.c:170-197 的 opcode 0x04 判定接受 type==REQUEST 或 NOTIFY 且不校验长度，opcode 0x07 通知要求 type==NOTIFY 且 length>=16；E:/k60-work/references/pong-power/ShengBattmgr.h:16-26 定义 OWNER 32778、REQUEST_BYTES 24、ENABLE_BYTES 28。K60 的 .ko 订阅帧 28 B 与它逐字节同形，但 K60 的 ADSP 回包更严格，是 16 B type 1（docs/research/charger/01-SYMBOL-MAP.md:17-28）。因此同型参考只能借结构，不能借宽松判据。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.charger.step.official]
+done = true
+evidence = '''官方页 docs/zh/porting/power.md 第 2 节（E:/hackios/UniXNU/docs/zh/porting/power.md:29-39）是 DSP 传输要求，逐条对应：
+- R5 打开通道前先适配固件认证、预留内存、电源投票，并建立邮箱和 ready/crash 路径：drivers/PongPower/K60HandoffRuntime.cpp:74 在 PAS1 失败时不发布租约，:81 成功后发布 104 B flags=15；drivers/PongPower/K60PmicGlink.cpp:84 才打开通道。27 当前仍可能停在 blocked rc=-4，故这一条只有代码路径，没有 27 成功样本。
+- R6 通道状态/接收回调、把字节复制到有界队列、请求处理放消费者侧：drivers/PongPower/K60PmicGlink.cpp:84 注册 callbacks/context，drivers/PongPower/K60Battmgr.c:47-56 在消费者侧做有界校验。
+- R7 用 sheng_adsp_channel(name,intent_size,intent_count,initiator,callbacks,context) 注册：NA，本板用 XNU 原生 qcom_glink_channel，等价参数是 PMIC_RTR_ADSP_APPS、256、4、callbacks、this（drivers/PongPower/K60PmicGlink.cpp:84）；sheng API 是 SM8550 参考，不是本板 ABI。
+- R8 处理 send 的 0/-1/-2 与 512 B 上限：NA，本板没有 sheng_adsp_send；等价失败路径是 FIFO/intent backpressure，drivers/PongPower/K60Battery.cpp:509-512 会标 stale 并 reopen，而不是继续塞帧。
+- R9 断开时取消请求、使远端句柄失效，重连后重新协商并恢复订阅：drivers/PongPower/K60Battery.cpp:446-451 在通道断开时 cancel/stale，drivers/PongPower/K60Battmgr.c:61 清 flight/cycle/subscribed，重连后由 drivers/PongPower/K60Battmgr.c:80-84 重新组订阅帧。
+R10-R15 属于电池上报，见 [hardware.battery.step.official]；R16-R20 已由 live [hardware.power] 覆盖。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.charger.step.decompile]
+done = true
+evidence = '''两侧反汇编都做了。.ko 侧：battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0 组 28 B {0x800a, 2, 4, +0xc 起全 0}；battery_chg_callback 0x211c 的跳转表把 opcode 4 引到 0x2464，只 complete（docs/research/charger/03-REVERSE.md:204-225）。ADSP 侧：adsp.b14 的 0x60155570 分发器与 0x60155910 handler 回 16 B {0x800a, 1, 4, result}，r3=#0x10；订阅帧 28 B 的四个零字和回包 16 B 的常量都在 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:11-17、:35-58 固定。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.charger.step.wide]
+done = true
+evidence = '''广域交叉核对三方语义：本仓库消费方 drivers/PongPower/K60Battmgr.c:47-56 的 init 白名单、:162-171 的精确 ACK、:194-200 的超时作废；上游 Linux qcom_battmgr.c 只要求总长 >=16 且不校验 type；sheng E:/k60-work/references/pong-power/ShengBattmgr.c:170-183 两种 type 都收。三者对 (type 1, 16 B) 均无反证；ADSP 固件 30 处 0x800a 组包点的 type 直方图为 {1:27, 2:1, 无:2}，唯一 type 2 是 0x60158884 的 opcode 7 主动通知，不是应答。官方组件目录 E:/hackios/UniXNU/components.toml 没有充电组件，只能自建。'''
+catalog_checked = true
+catalog_result = '''UniXNU/components.toml 的 25 个组件没有电池/充电协议组件；QcomDwc3 只声明 UCSI over charger channel，QcomBaseband 只提供 GLINK/QRTR 传输参考，都不含 battmgr 帧格式。结论：按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建，不依赖组件。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.charger.step.plan]
+done = true
+evidence = '''27 接线方案分两段。传输层：dts 保留 remoteproc-adsp→glink-edge（remote-pid 2，mboxes ipcc 3 0）→pmic_glink（tms/servreg + msm/adsp/charger_pd）→battery-charger，驱动用名字通道 PMIC_RTR_ADSP_APPS 打开 256 B × 4 intent（drivers/PongPower/K60PmicGlink.cpp:84）。发布层：104 B handoff 必须在通道打开前发布，drivers/PongPower/K60Battery.cpp:656-665 从 /chosen 读取 K60_ADSP_HANDOFF_PROPERTY；27 的逐项改线和判据见 docs/research/charger/PMIC-REWIRING-WORKORDER.md:31-40，读顺序是 C0 发布行→C1 订阅→C2 四属性→C3 与 Android 对比。传输细节见 docs/research/charger/02-GLINK-CONTRACT.md。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.charger.step.deep]
+done = true
+evidence = '''深挖结论三条。一，订阅 ACK 的 type/长度只能从固件定：.ko 与 Linux 都不校验，本仓库却要求精确匹配，所以必须用 ADSP 0x60155910 的 16 B type 1，不能照抄 Linux 的宽松判据。二，opcode 4 的应答与 opcode 7 的通知是不同帧：0x800a 的 type 2 帧只用于主动推 opcode 7（16 B），混淆会让订阅永远不成立。三，协议无 transaction id，超时只能靠 poisoned + 重开通道兜底（drivers/PongPower/K60Battmgr.c:194-200），因此单飞行请求是硬约束；drivers/PongPower/K60Battery.cpp:534-539 在超时后标 stale，不重发旧帧。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.charger.step.verify]
+done = true
+local_verified = true
+evidence = '''离线核验通过。scripts/tests/test-k60-charger-subscription.c 30 个断言全过（TESTS OK 30），把 K60_BATTERY_NOTIFY_REPLY_TYPE=1 / _BYTES=16 钉死并覆盖订阅帧、四类错形 ACK、result=0x206、opcode 7 通知。scripts/build-k60-physical-battery.py:29-39 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对：无抓包返回 (1,16)，抓包矛盾抛 ValueError。scripts/check-battmgr-wire.py 通过，19 个字段一致且出站帧只读（22 项夹具）。27 真机的 C0/C1/C2 仍未发生，故本步只证明离线协议。'''
+static_check = '''逐行对照 ADSP handler 0x60155910 的组包顺序（result→owner 0x800a→type 1→opcode 4→r3=#0x10）与 drivers/PongPower/K60Battmgr.c:162-171 的校验（bytes==16、type==1、+0xc 起逐 4 字全 0），两者在 (1,16) 自洽；订阅帧 28 B 与 .ko 0xedc-0xf08 逐字节一致。'''
+unit_test = '''scripts/tests/test-k60-charger-subscription.c：TESTS OK 30，覆盖 init 接受 (1,16)、(0,0) 不订阅、28 B 四零字订阅帧、四种错形 ACK、result=0x206、16 B type1 result=0、16 B type2 opcode 7 通知。'''
+artifact_check = '''scripts/build-k60-physical-battery.py:29-39 的 MEASURED_NOTIFY_REPLY=(1,16) 已写入生成器，头注释标明来自 0x60155910 的 16 B 回包；WIRE-PROPS.toml 与 04-PROP-MAP.md 的 19 个字段一致。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.thermal]
+revisit = '27 stage-0 进入 SpringBoard 后按线恢复；本文件先固定离线七步，device 步等 F1 后由 Lead 追加'
+status = 'planned'
+name = '热管理 / tsens-v2（27 离线账本）'
+why = '27 树没有 thermal 锚点，live [hardware.thermal] 的 decompile/deep 仍写着 SROT 未读。后续两次真机冷跑已经读到 ctrl=0x9d67fff9、enabled=1 和 32/32 传感器，本块把这两个历史 false 用真实证据关掉，并把可复用的 tsens/压力模型固定下来。'
+label = '热管理研究线：tsens 只读解码与压力等级已固定，27 上机等冷却图接线后由 Lead 统一执行'
+paths = ['drivers/PongThermal/K60Tsens.c', 'drivers/PongThermal/K60ThermalLevel.c', 'drivers/PongThermal/K60ThermalService.cpp', 'docs/research/thermal/05-PRESSURE-LEVEL.md', 'docs/research/thermal/08-KERNEL-DRIVER.md', 'scripts/tests/test-k60-thermal-tsens.c', 'scripts/tests/test-k60-thermal-level.c']
+
+[hardware.thermal.step.same_model]
+done = true
+evidence = '''同型号没有移植过 thermal。对 E:/k60-work/references 下 44 个参考树 grep -ril 'tsens|thermal'，K60 系命中全部是文档或研究笔记，没有一份热管理驱动源码；*Thermal*.cpp 只出现在别的 SoC（SM8550 sheng 的 ThermalProbe.cpp、SM6375 phk110 的 hakios.thermal.c）。可复用的只有「读 32 路 tsens、映射 5 个压力域、按 trip 算等级」这个结构，本板自己实现为 K60Tsens/K60ThermalLevel/K60ThermalService。见 docs/research/thermal/03-REVERSE.md 与 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.thermal.step.official]
+done = true
+evidence = '''官方页没有 thermal 子系统章节；power.md 只有两句与热有关：§1 的输入表 E:/hackios/UniXNU/docs/zh/porting/power.md:15 要求收集「温控限制」，§5 的工作点顺序 E:/hackios/UniXNU/docs/zh/porting/power.md:152 要求「按规定顺序执行目标稳压器、互连和温控要求」。本块对这两句的落法是：tsens 只读、32 路传感器、5 个域和 trip 表提供「温控限制」的数值；K60ThermalService 把等级发布成 Thermal_Level_Warning，供电源/调频消费者按序读取。其余 R1-R21 中，R16-R20 属于 CPU/GPU/睡眠，已由 live [hardware.power] 覆盖；R1-R15 属于电池/充电，见前两块；R21 由本块 verify 落实。硬件语义不是从 power.md 猜的，而是与 mainline qcom-tsens.yaml/tsens-v2.c 一致，记录在 docs/research/thermal/02-OFFICIAL-DOCS.md。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.thermal.step.decompile]
+done = true
+evidence = '''反编译与运行时证据已闭合历史上「SROT 未读」的缺口。vendor qcom_tsens.ko（77,928 B，sha256 22334f6d246cf1b67e238027a2d04ac19b588d47d73301bb7577c2dc9c6981a9）的 tsens_v2_regfields 给出 LAST_TEMP off=0xa0+4n、width=0x0b，get_temp_tsens_valid 走 adc=0 分支（符号扩展后 ×100）；本板没有 nvmem 节点，标定代码不走。运行时冷跑 usblog-20261117-122800 读到 tsens0 tm=0xc263000 srot=0xc222000 ver=2.8.0 ctrl=0x9d67fff9 enabled=1，32 路全部有读数。细节见 docs/research/thermal/04-ANDROID-EVIDENCE.md 与 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.thermal.step.wide]
+done = true
+evidence = '''按规范查三处。一，官方组件目录 E:/hackios/UniXNU/components.toml 的 25 个组件对 thermal/tsens/温度零命中，没有可复用组件。二，官方驱动仓库列表没有 thermal 驱动仓库。三，社区只有 SM8550 sheng 的 ThermalProbe.cpp（3 控制器、纯只读）和 SM6375 phk110 的 hakios.thermal.c（27 传感器、真机 27/27 有读数），都不属本板、不在官方组件库，只能当实现参考。结论：继续自建 drivers/PongThermal。见 docs/research/thermal/03-REVERSE.md 与 02-OFFICIAL-DOCS.md。'''
+catalog_checked = true
+catalog_result = '''UniXNU/components.toml 的 25 个组件没有 thermal/tsens/温度相关项；官方组件面向 IOPMPowerSource、USB、UFS 这类有 ABI 契约的子系统，热管理在本项目一直是板级实现（sheng 也写在 package/ThermalProbe.cpp），因此不能声明组件依赖。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.thermal.step.plan]
+done = true
+evidence = '''改动清单已经落地为代码。解码层：drivers/PongThermal/K60Tsens.c:11-16 对 12 位状态做符号扩展再 ×100，:35-45 要求 bit21 VALID 且读数在 min/max 内，:107-124 是 32 项传感器表（tsens0 0..15、tsens1 0..15，zone 24..55）。压力层：drivers/PongThermal/K60ThermalLevel.c:17-41 是五组 trip（CPU/big 110/10、115/5、125/1；GPU/NPU 95/5、115/5、125/1；DDR 90/5、115/5、125/1），:43-45 是五个输入，:51-66 是 32 项映射。服务层：drivers/PongThermal/K60ThermalService.cpp:364-367 映射两个 TM+SROT 窗口，:425-428 发布后打印 2 controllers/%u sensors。构建脚本 scripts/build-thermal-kext.sh 生成 libK60ThermalKext.a。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.thermal.step.deep]
+done = true
+evidence = '''关键不确定项已消解：SROT_CTRL bit0 不是 0，冷跑读到 ctrl=0x9d67fff9 enabled=1；32 个 STATUS 的 VALID 位不是全 0，usblog-20261117-122800 的 32/32 传感器各有读数；125/115/110℃ 三档 trip 的用途由 drivers/PongThermal/K60ThermalLevel.c:17-41 的等级表和 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49 的「取跨过的最高档」确定。服务只读 MMIO，不开中断、不写 SROT；drivers/PongThermal/K60ThermalService.cpp:364-367 的两个窗口是 TM+SROT 只读映射。'''
+recorded_at = '2026-11-21T03:41:45'
+
+[hardware.thermal.step.verify]
+done = true
+local_verified = true
+evidence = '''离线与真机核验都有。主机侧 scripts/tests/test-k60-thermal-tsens.c 16 个断言通过，覆盖 0xa0+4n、12 位符号扩展、VALID 缺失、越界拒绝、32 项表；scripts/tests/test-k60-thermal-level.c 72 个断言通过，覆盖五组 trip、等级/hysteresis、32 项映射。产物侧 scripts/build-thermal-kext.sh 生成 libK60ThermalKext.a（sha256 8fa4bf72e931d3d79e66d281ed43849ab129e36fd0a71b0a272d0fcd6dfbb8d4，160 defined/10 required/219 imports）。真机侧 usblog-20261117-122800 冷跑 32/32 传感器、level 0/3 nominal、published Thermal_Level_Warning=0 恰好一次，check-thermal-log.py --profile cold 为 21 passed/0 failed；详见 docs/research/thermal/08-KERNEL-DRIVER.md:420-458。'''
+static_check = '''K60Tsens.c 全文没有对 volatile 的写、不开中断、不碰 SROT；K60ThermalLevel.c 的 trip 表与 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49 逐项一致；drivers/PongThermal/K60ThermalService.cpp:364-367 只映射 TM+SROT 两个只读窗口。'''
+unit_test = '''scripts/tests/test-k60-thermal-tsens.c TESTS OK 16，scripts/tests/test-k60-thermal-level.c TESTS OK 72；两者都在主机侧用假窗口/假输入驱动纯函数。'''
+artifact_check = '''libK60ThermalKext.a sha256 8fa4bf72e931d3d79e66d281ed43849ab129e36fd0a71b0a272d0fcd6dfbb8d4，160 个已定义符号、10 个必需符号全在、219 个导入全在 all-kpi.exp；XNU_PONG_THERMAL=1 的 kernel.macho sha256 cb35295c1ea81fbe4935309e45e2548b0aa8b6ca6e4e12367292c87d4192d0e3、54,190,080 B，strings 命中 8 条 K60Thermal:，对照 =n 的 1ebb6052d91da63397722e6e9722f1008fe464c3a67d0d888a4a00c9d6e73187、54,181,888 B 为 0。'''
+recorded_at = '2026-11-21T03:41:45'

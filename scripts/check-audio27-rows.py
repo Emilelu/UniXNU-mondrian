@@ -21,6 +21,10 @@ import sys
 DECLARED = re.compile(r"^ROWS_EXPECTED=(\d+)\s*$", re.M)
 TAIL = re.compile(r"ROWS FAILED %s rows printed, %s declared")
 COUNT = re.compile(r"([0-9〇零一二三四五六七八九十两]+)\s*行[^、。\n\`]{0,12}?\`(ok|skip)\`")
+CLAIM = re.compile(
+    r"([0-9〇零一二三四五六七八九十两]+)\s*行[^、。\n\`]{0,12}?\`ok\`"
+    r"[^。\n]{0,40}?"
+    r"([0-9〇零一二三四五六七八九十两]+)\s*行[^、。\n\`]{0,12}?\`skip\`")
 RECORD = re.compile(r"(\d+) host rows plus one skip")
 DIGITS = {"〇": 0, "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
           "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
@@ -50,18 +54,32 @@ def preflight(repo):
 
 
 def claims(repo):
-    """(page, line, ok, skip) for every sentence that counts the rows."""
+    """(page, line, ok, skip) for every sentence that counts the rows.
+
+    A page can carry several shapes of the same run: all checkouts present,
+    none, or no framework. They differ in how many rows turn into skips, but
+    every one of them still prints the same number of rows, so each adjacent
+    ok/skip pair is one claim and every claim has to add up. Fenced blocks are
+    examples of output, not statements about this tree, and are left alone.
+    """
     out = []
     for page in sorted(glob.glob(os.path.join(repo, "docs/research/audio/*.md"))):
+        fenced = False
         handle = open(page, encoding="utf-8")
         for index, line in enumerate(handle, 1):
-            stated = {}
-            for token, label in COUNT.findall(line):
-                value = number(token)
-                if value is not None and label not in stated:
-                    stated[label] = value
-            if "ok" in stated and "skip" in stated:
-                out.append((os.path.relpath(page, repo), index, stated["ok"], stated["skip"]))
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced:
+                continue
+            # A claim is one "N rows ok ... M skip" sentence. Counting the
+            # tokens on their own is not enough: the same line also says
+            # "these two rows become skip" before giving the total, and that
+            # lone skip would pair with the next total's ok.
+            for ok_token, skip_token in CLAIM.findall(line):
+                ok, skip = number(ok_token), number(skip_token)
+                if ok is not None and skip is not None:
+                    out.append((os.path.relpath(page, repo), index, ok, skip))
         handle.close()
     return out
 

@@ -41,7 +41,7 @@
 #      commit, when its checkout is reachable; the row names the commit it ran on, because
 #      a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
-ROWS_EXPECTED=53
+ROWS_EXPECTED=55
 
 # The rows are printed by whatever prints them, so the count is taken from the
 # file the run leaves behind rather than from a counter every site has to keep.
@@ -74,6 +74,22 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
 cd "$repo" || exit 1
 fail=0
+
+# Resolve one sheng checkout before any of the gates read it. Prefer the
+# upstream clone to the older local fork; never replace an explicit choice.
+sheng=${SHENG_REPO:-}
+if [ -z "$sheng" ]; then
+	for candidate in /mnt/e/k60-work/UniXNU-sheng "$repo/../UniXNU-sheng" /e/hackios/UniXNU-sheng /mnt/e/hackios/UniXNU-sheng; do
+		if [ -f "$candidate/patches/xnu-12377/series" ]; then
+			sheng=$candidate
+			break
+		fi
+	done
+fi
+if [ -n "$sheng" ]; then
+	SHENG_REPO=$sheng
+	export SHENG_REPO
+fi
 
 # Which tree did this measure? A green line that cannot name its commit is the
 # same evidence as a green line on the wrong object.
@@ -161,6 +177,8 @@ run "commands gate is honest" python3 scripts/tests/test-audio27-commands.py
 run "27 command citations resolve" python3 scripts/check-audio27-commands.py .
 run "row count gate is honest" python3 scripts/tests/test-audio27-rows.py
 run "row count holds" python3 scripts/check-audio27-rows.py .
+run "sheng refs gate is honest" python3 scripts/tests/test-audio27-sheng-refs.py
+optional_row "sheng reference sources hold" python3 scripts/check-audio27-sheng-refs.py .
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py
@@ -197,7 +215,13 @@ if [ -n "$xnu27" ]; then
 		printf 'ok   %-34s %s\n' "27 series carries the patch" "$(printf '%s' "$out" | tail -1)"
 	fi
 else
-	printf 'skip %-34s no 27 xnu tree (set XNU27_REPO)\n' "27 kernel interfaces are there"
+	# One row per check, not one row for six: a missing tree must not quietly
+	# shorten the run and let the declared count hide five absent checks.
+	for name in "27 kernel interfaces are there" "27 stubs match the declarations" \
+	    "27 tree still has the headers" "27 tree has no clashing symbols" \
+	    "27 patch emits unchanged" "27 series carries the patch"; do
+		printf 'skip %-34s no 27 xnu tree (set XNU27_REPO)\n' "$name"
+	done
 fi
 
 # The product itself, when there is one: a built 27 kernel or a boot image.
@@ -208,15 +232,6 @@ else
 	printf 'skip %-34s no built kernel (set XNU27_KERNEL)\n' "27 kernel carries the audio"
 fi
 
-sheng=${SHENG_REPO:-}
-if [ -z "$sheng" ]; then
-	for candidate in "$repo/../UniXNU-sheng" /e/hackios/UniXNU-sheng /mnt/e/hackios/UniXNU-sheng; do
-		if [ -f "$candidate/scripts/check-audioreach-host.py" ]; then
-			sheng=$candidate
-			break
-		fi
-	done
-fi
 gates=${K60_GATES:-}
 if [ -n "$gates" ] && [ -f "$gates/scripts/build-ios27-linux.sh" ]; then
 	seam_row "27 driver takes the conf hook" --gates "$gates" --seam hook
@@ -228,7 +243,7 @@ fi
 # The framework seam does not depend on the driver, so it is measured even
 # when there is no k60-gates checkout to read.
 seam_row "framework passes env to builder" --seam framework
-if [ -n "$sheng" ] && [ -f "$sheng/scripts/check-audioreach-host.py" ]; then
+if [ -n "$sheng" ] && [ -d "$sheng" ]; then
 	out=$(cd "$sheng" && python3 scripts/check-audioreach-host.py 2>&1)
 	rc=$?
 	if [ "$rc" -ne 0 ]; then
@@ -238,11 +253,16 @@ if [ -n "$sheng" ] && [ -f "$sheng/scripts/check-audioreach-host.py" ]; then
 		sha=$(git -C "$sheng" rev-parse --short HEAD 2>/dev/null || echo unknown)
 		printf 'ok   %-34s %s (%s)\n' "sheng audioreach host tests" \
 		    "$(printf '%s' "$out" | tail -1)" "$sha"
-		run "sheng abi constants hold" python3 scripts/check-sheng-abi.py --sheng "$sheng"
-		run "sheng inject contract holds" python3 scripts/check-sheng-inject.py --sheng "$sheng"
 	fi
+	# These two read the same checkout independently of the host tests: one
+	# failing build must not remove the other two rows from the run.
+	run "sheng abi constants hold" python3 scripts/check-sheng-abi.py --sheng "$sheng"
+	run "sheng inject contract holds" python3 scripts/check-sheng-inject.py --sheng "$sheng"
 else
-	printf 'skip %-34s no sheng checkout (set SHENG_REPO)\n' "sheng audioreach host tests"
+	for name in "sheng audioreach host tests" "sheng abi constants hold" \
+	    "sheng inject contract holds"; do
+		printf 'skip %-34s no sheng checkout (set SHENG_REPO)\n' "$name"
+	done
 fi
 
 if [ "$fail" -ne 0 ]; then

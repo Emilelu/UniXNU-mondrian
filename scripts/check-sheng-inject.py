@@ -6,14 +6,15 @@ IOS27-USERLAND.md names facts about sheng and builds the reconnection on
 them: the add-on mount patch, its source and visible point, the chain it stacks
 on (add-on slot four, not a standalone patch), the plug-in that keeps its image
 resident, and the media-server sandbox grant.  Those are line numbers in another
-repository, so they rot silently.  This script reads them back and fails when one
-moves or disappears.
+repository, so they rot silently. This script locates the required facts and
+fails if one disappears; it notes an absent macOS-only grant separately.
 
 A named tree that lacks the files is refused rather than skipped: measuring
 some other checkout and calling it green is the failure this lane already hit
 twice (P-251, P-256).
 """
 import argparse
+import os
 import pathlib
 import subprocess
 import sys
@@ -32,7 +33,14 @@ NEEDLES = [
     ("hal/ShengAudioPlugIn.c", "keepImageResident", "the plug-in keeps its image resident"),
     ("package/ShengAudioService.cpp", '"audiomxd,mediaserverd"',
      "the iOS sandbox grant names the media servers"),
-    ("package/ShengAudioService.cpp", '"coreaudiod,com.apple.audio.Core-Audio-Driver-Service.helper"',
+]
+
+# Upstream c8f92b2 selects a different user-client sandbox grant for macOS.
+# The iOS plan requires the iOS grant and the independent plug-in residency
+# check, not the macOS grant. Still report the source difference.
+VERSIONED = [
+    ("package/ShengAudioService.cpp",
+     '"coreaudiod,com.apple.audio.Core-Audio-Driver-Service.helper"',
      "the macOS branch of the same grant"),
 ]
 
@@ -59,11 +67,13 @@ def main(argv):
     parser.add_argument("--sheng", default=None, help="sheng checkout to read")
     args = parser.parse_args(argv[1:])
 
-    if args.sheng:
-        root = pathlib.Path(args.sheng)
+    selected = args.sheng or os.environ.get("SHENG_REPO")
+    if selected:
+        root = pathlib.Path(selected)
     else:
         here = pathlib.Path(__file__).resolve()
-        for candidate in (here.parents[1].parent / "UniXNU-sheng",
+        for candidate in (pathlib.Path("/mnt/e/k60-work/UniXNU-sheng"),
+                          here.parents[1].parent / "UniXNU-sheng",
                           pathlib.Path("/e/hackios/UniXNU-sheng"),
                           pathlib.Path("/mnt/e/hackios/UniXNU-sheng")):
             if (candidate / PATCH).is_file():
@@ -91,8 +101,24 @@ def main(argv):
             print("INJECT FAILED: " + line)
         return 1
 
-    print("SHENG INJECT OK %d/%d invariants (%s): %s"
-          % (len(places), len(NEEDLES), commit(root), ", ".join(places)))
+    absent = []
+    for name, needle, why in VERSIONED:
+        where, error = find(root, name, needle)
+        if where:
+            places.append("%s:%d" % where)
+        else:
+            absent.append("%s: %s" % (error, why))
+    for line in absent:
+        print("SHENG INJECT NOTE: " + line +
+              "; upstream main carries it, this tree does not")
+
+    total = len(NEEDLES) + len(VERSIONED)
+    if absent:
+        print("SHENG INJECT OK %d/%d invariants, %d versioned fact(s) absent (%s): %s"
+              % (len(places), total, len(absent), commit(root), ", ".join(places)))
+    else:
+        print("SHENG INJECT OK %d/%d invariants (%s): %s"
+              % (len(places), total, commit(root), ", ".join(places)))
     return 0
 
 

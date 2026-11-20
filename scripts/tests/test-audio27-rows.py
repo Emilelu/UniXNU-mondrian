@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nine cases for scripts/check-audio27-rows.py."""
+"""Twelve cases for scripts/check-audio27-rows.py."""
 
 import io
 import os
@@ -31,12 +31,14 @@ result = "preflight: %d host rows plus one skip"
 
 
 def tree(root, declared=51, ok=50, skip=1, host=50, tail=True, page=True, record=True,
-         multi=False):
+         multi=False, stale=None, stale_const=None, pac=None, pac_example=None):
     os.makedirs(os.path.join(root, "scripts"))
     os.makedirs(os.path.join(root, "docs/research/audio"))
     text = PREFLIGHT % declared if declared is not None else PREFLIGHT.replace("ROWS_EXPECTED=%s\n", "")
     if not tail:
         text = text.replace(text.strip().splitlines()[-3], "true")
+    if pac is not None:
+        text += 'case "$#:$*" in 1:--pac-only) rows_expected=%d ;; esac\n' % pac
     io.open(os.path.join(root, "scripts/check-audio27-preflight.sh"), "w").write(text)
     if page:
         body = (PAGE % ok).replace("一行", "%d行" % skip, 1) if skip != 1 else PAGE % ok
@@ -44,6 +46,14 @@ def tree(root, declared=51, ok=50, skip=1, host=50, tail=True, page=True, record
             # The record keeps every shape of the run, not just the full one.
             body += ("没给 K60_GATES 时这两行变 %sskip%s，总数就是%d行 %sok%s / %d行 %sskip%s。\n"
                      % (BT, BT, ok - 2, BT, BT, skip + 2, BT, BT))
+        if stale is not None:
+            body += ("\n```text\nPREFLIGHT OK %d rows (%d ok, 0 skip, 0 FAIL), as declared\n```\n"
+                     % (stale, stale - 1))
+        if stale_const is not None:
+            body += "\n页面例子：`ROWS_EXPECTED=%d`。\n" % stale_const
+        if pac_example is not None:
+            body += ("\n```text\nPAC PREFLIGHT OK %d rows (%d ok, 0 skip, 0 FAIL), as declared\n```\n"
+                     % (pac_example, pac_example))
         io.open(os.path.join(root, "docs/research/audio/PAGE.md"), "w").write(body)
     if record:
         io.open(os.path.join(root, "porting.toml"), "w").write(RECORD % host)
@@ -90,6 +100,9 @@ def main():
     cases = [
         ("consistent", 0, ["ROWS OK 51 rows declared"], {}),
         ("page overcounts", 1, ["but the preflight", "declares 51"], {"skip": 2}),
+        ("stale preflight example", 1, ["quotes PREFLIGHT OK 52 rows", "declares 51"], {"stale": 52}),
+        ("stale constant example", 1, ["quotes ROWS_EXPECTED=49", "declares 51"], {"stale_const": 49}),
+        ("pac-only count is allowed", 0, ["ROWS OK 51 rows declared"], {"pac": 4, "pac_example": 4}),
         ("record drifts", 1, ["porting.toml records 49 host rows plus one skip"], {"host": 49}),
         ("no constant", 1, ["declares no ROWS_EXPECTED"], {"declared": None}),
         ("no comparison", 1, ["no longer compares the rows it printed"], {"tail": False}),

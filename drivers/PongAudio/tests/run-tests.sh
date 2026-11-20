@@ -12,7 +12,9 @@ set -eu
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 driver=$(CDPATH= cd -- "$here/.." && pwd)
-out=${TMPDIR:-/tmp}/test-pong-audio-geni-i2c
+work=$(mktemp -d "${TMPDIR:-/tmp}/test-pong-audio-geni-i2c.XXXXXX")
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+out=$work/test-pong-audio-geni-i2c
 
 cc=${CC:-cc}
 "$cc" -std=gnu11 -Wall -Wextra -Werror -I"$driver" \
@@ -23,4 +25,4 @@ cc=${CC:-cc}
 	"$driver/PongCodecLpi.c" \
 	"$driver/PongCodecMacro.c" \
 	"$driver/PongCodecProbe.c"
-exec "$out"
+"$out"

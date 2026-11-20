@@ -7473,3 +7473,53 @@ if ((U32 (Data + 8) != 0) || (U32 (Data + 12) != 2)) { return EFI_UNSUPPORTED; }
 `DarwinBootPkg/Driver/DarwinBoot.c`，判定选中的源里有没有 filetype 12 / `LC_FILESET_ENTRY` 分支，
 并把 DSC 与驱动来自不同搜索根这件事一并打印出来（EDK II 每个包独立解析，两者可以不来自同一棵树）。
 
+
+## P-281 — 计数器要按「它被求和的对象」命名，不要按读者以为的含义
+
+`IOS27-FLIGHT-BLOCKERS.toml` 原先写「28 bundles / 384 unresolved references」，飞行门禁打印
+「2262 sites on the panic stub」。两个数字都来自对每 bundle 条目表求 `len()`，数的是
+**owner-target item**（每 bundle 每符号一项）；同一份报告里还带着另外两个总量——去重后的地址
+（missing 133 / stubbed 946 个函数）与引用点（650 / 2688 个）。于是同一句话可以被两个读者读成
+两件事：一个人以为 384 是机器码位置，另一个人知道那是 384 个 (bundle, symbol) 对。当天 cellular
+与 bluetooth 两条线各自追到了其中一半，才把这三个量摆开。
+
+教训有三层：
+
+1. **名字跟着求和的对象走**。`len(entry_list)` 求的是条目，就叫 items；要引用点就单独去数引用点。
+2. **报告里有多个总量时，只打印你真正求过的那个，并把它叫什么说出来**。门禁现在打印
+   `2262 items`，账本里三个量并列（items / distinct addresses / reference sites）。
+3. **账本只写一个总量，等于邀请读者挑错那个**；三个都写，读者才可能发现自己的分母选错了。
+
+判据：`scripts/tests/test-ios27-artifacts.py` 断言门禁输出里出现 `items` 字样，且账本三条数量齐备。
+
+## P-282 — 工具链发不出的标签，不等于加载器判错了
+
+同一天的第二层：`com.apple.kernel` 子头 cpusubtype 是 `0x80000002`，集合与另外 31 个子头是
+`0xc0000002`。第一反应是「加载器要求太严」，实测后正好相反——Apple 自己 305/305 全等，catalog pin
+`3c75734` 的规则与 Apple 一致，**偏差在我们自己的产物上**。
+
+根因不在链接脚本，而在编译器：本地 clang 24.0.0git 在
+`llvm/lib/MC/MachObjectWriter.cpp:199-209` 里把 arm64e 一律写成
+`CPU_SUBTYPE_ARM64E_WITH_PTRAUTH_VERSION(0, false)`，注释逐字「Promote arm64e subtypes to always be
+ptrauth-ABI-versioned, at version 0 … And we don't support arbitrary ABI versions (or the kernel
+flag) yet」；`CPU_SUBTYPE_ARM64E_KERNEL_PTRAUTH_ABI_MASK = 0x40000000` 只在 LLVM 头里有名字，Apple
+的 `osfmk/mach/machine.h` 根本没有这一位。本地 ld64-956.6 的 `-static -kernel` 是 no-op，但会
+**采用输入 object 的 subtype** ⇒ 除非改编译器源码或上 Mac 用 Apple 工具链，这一位在链接阶段永远
+出不来（实测 Apple ld `-arch arm64e -static -e _start` 才写 `0xC0000002`）。
+
+所以修法是链接之后改这一位，而不是改加载器。`scripts/k60-fileset-stamp.py` 只改这一个 32 位标签，
+并且拒绝代劳规则里其余任何一条：
+
+* 外层必须 `MH_FILESET`；
+* `com.apple.kernel` 必须**恰好一次**（两次就是「加载器会取哪一个」的歧义）；
+* 子头必须已经是 `MH_EXECUTE`、必须已带 `MH_DYLIB_IN_CACHE` —— 缺这两个是发射器的责任，补上去等于
+  伪造；
+* 已经相等就打印 `already carries` 并退 0（工具在第二次构建里不能因为自己的输出而失败，P-278 同族）。
+
+真产物闭环：在 `kernel.macho` 的副本上，`loader_contract` 从
+`1 loader violation(s)` 变成 `0 loader violation(s)`，唯一变化是 `0x180008` 这一个字节
+（`0x80`→`0xc0`）。
+
+一般化教训：判「我们的产物没问题、是消费方太严」之前，要做两件事而不是一件——按 P-280 把消费方
+接受过的同类产物逐字段摆开，**并且**确认自己的工具链能不能表达它要求的那个值。一个只会写一种形式的
+编译器是流水线的缺陷；修法要落在能把值写对的地方，并配一个拒绝代劳其余字段的门禁。

@@ -1194,3 +1194,17 @@ id = "P-280"
 statement = "判「加载器不支持我们的产物」之前，必须把该加载器实际接受过的同类产物（Apple 自己的）与我们的逐字段比对，并证明构建图实际选中了哪一份加载器源码；两项都做成常驻门禁。"
 check = "python3 scripts/tests/test-ios27-artifacts.py && python3 scripts/tests/test-ios27-firmware.py"
 note = "P-280：DarwinBoot 的 fileset 成员规则（MH_EXECUTE + cpusubtype 与集合逐位相等 + MH_DYLIB_IN_CACHE）与 Apple 24A446 集合 305/305 完全一致，而我们 32 条里只有 com.apple.kernel 一条是 0x80000002；一半的讨论时间花在「放宽守卫/换 pin」上，真因是 fileset_emit.py 只写 flags 没写 cpusubtype。新增 loader_contract() + --flight-ready 拒绝 + 6 条夹具。 同日量出第二层：board.toml 的 [firmware].packages 把 {uefi}/Platforms/Xiaomi 排在 {tree}/package 之前，实际编译的是 vendored DarwinBoot.c（只认 subtype 0 + filetype 2，无 fileset 分支），换 pin 也不会生效；新增 scripts/check-ios27-firmware.py 按 PACKAGES_PATH 顺序解析 DSC 与驱动源码并判定有无 filetype 12 分支（26 例夹具）。"
+
+[[rule]]
+id = "P-281"
+title = "计数器按它被求和的对象命名"
+statement = "报告里的每个数量都要按它真正求过的对象命名，并在同一处把它和别的总量并列；账本只写一个总量，等于邀请读者挑错分母。"
+check = "python3 scripts/tests/test-ios27-artifacts.py"
+note = "2026-11-20：账本写「384 unresolved references」，门禁打印「2262 sites on the panic stub」，两者都是 len(每 bundle 条目表) 得到的 owner-target items；真正的引用点是 650 / 2688。"
+
+[[rule]]
+id = "P-282"
+title = "工具链发不出的标签，不等于加载器判错了"
+statement = "判「消费方太严」之前，既要把消费方接受过的同类产物逐字段摆开，也要确认自己的工具链能不能表达它要求的那个值；修法落在能把值写对的地方，并配一个拒绝代劳其余字段的门禁。"
+check = "python3 scripts/tests/test-k60-fileset-stamp.py && python3 scripts/tests/test-ios27-artifacts.py"
+note = "2026-11-20：本地 clang 在 MachObjectWriter.cpp:199-209 把 arm64e 一律写成 ptrauth 版本 0、非内核形态，ld64 采用 object 的值，所以 com.apple.kernel 的 0xc0000002 只能在链接后补一个字节；scripts/k60-fileset-stamp.py 只改这一位并拒绝代劳 filetype / MH_DYLIB_IN_CACHE / 重复条目。"

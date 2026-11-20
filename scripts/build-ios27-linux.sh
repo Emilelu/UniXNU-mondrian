@@ -35,6 +35,7 @@ case "${HOME:-}" in
 esac
 UNIXNU_OUT=${UNIXNU_OUT:-$HOME/ios27-out}
 export UNIXNU_OUT
+BOARD_DIR="$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27"
 
 # UniXNU resolves profiles/os/<name> from its own tree; install ours first.
 bash "$ROOT/scripts/install-os-profile.sh" "$UNIXNU"
@@ -58,6 +59,15 @@ fi
 # as a real make variable, and a dotted name cannot be exported by this shell.
 env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
 	python3 ./unixnu build kernel --device "$ROOT" "$@"
+
+# The collection's `com.apple.kernel` child must carry the collection's own
+# cpusubtype before the loader will look at it. The local clang cannot emit the
+# kernel form of the arm64e label (MachObjectWriter.cpp promotes arm64e to
+# versioned-but-user) and ld64 adopts the object's value, so the label is
+# corrected here, after linking and before the payload copies it. It rewrites
+# one byte of that label and refuses anything else (P-282).
+python3 "$ROOT/scripts/k60-fileset-stamp.py" "$BOARD_DIR/kernel/kernel.macho" --apply
+
 python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
 
 if [ -n "${UNIXNU_UEFI:-}" ]; then
@@ -72,13 +82,13 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	# for the other gates; the flight gate is where this becomes fatal.
 	python3 "$ROOT/scripts/check-ios27-firmware.py" --board "$ROOT" \
 		--uefi "$UNIXNU_UEFI" \
-		--tree "$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree" \
+		--tree "$BOARD_DIR/tree" \
 		--edk2 "$UNIXNU/third_party/edk2" || true
 	python3 ./unixnu build firmware --device "$ROOT" --uefi "$UNIXNU_UEFI" -j "${UNIXNU_JOBS:-$(nproc)}"
 	# No [bootimg] dtb in board.toml: the appended tree is the hardware DTS the
 	# payload step compiled.
 	python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
-		--dtb "$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb"
+		--dtb "$BOARD_DIR/device-tree/hardware.dtb"
 	python3 "$ROOT/scripts/check-ios27-artifacts.py"
 fi
 

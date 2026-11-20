@@ -20,10 +20,17 @@ Why it matters for iOS 27: the wire indices are cross-version constants (same
 ADSP, same battmgr protocol), while the IOKit property numbers are not. A table
 that drifts silently would look like a firmware regression.
 
+The same gate checks the only outbound builder, k60_battmgr_next: it may emit
+the subscription notify and property GETs, and nothing else. That is the
+executable form of "charging control remains entirely firmware-owned" - a new
+write type, a new opcode, or a new field offset turns the gate red instead of
+leaving the claim in a comment.
+
 Exit 0 all agree, 1 a disagreement, 2 the manifest or a source cannot be read.
 """
 import argparse
 import pathlib
+import re
 import struct
 import sys
 
@@ -38,6 +45,14 @@ DRIVER = "drivers/PongPower/K60Battmgr.c"
 HEADER = "drivers/PongPower/K60Battmgr.h"
 MAP_SYMBOLS = {"OP_BATTERY": "battery_prop_map", "OP_USB": "usb_prop_map",
                "OP_WIRELESS": "wls_prop_map"}
+NEXT_SIGNATURE = "unsigned k60_battmgr_next("
+OUTBOUND_ALLOWED = {
+    0: ["K60_BATTMGR_OWNER"],
+    4: ["TYPE_NOTIFY", "TYPE_REQUEST"],
+    8: ["OP_NOTIFY_ENABLE", "fields[b->cursor].opcode"],
+    16: ["fields[b->cursor].property"],
+}
+OUTBOUND_FORBIDDEN = ("TYPE_SET", "OP_CHARGER", "OP_CHARGING", "OP_SET", "OP_WRITE")
 
 
 def read(path):
@@ -62,6 +77,59 @@ def driver_table(root):
         opcode, index = [part.strip() for part in head.split(",")]
         pairs.append((opcode, int(index)))
     return names, pairs
+
+
+def function_body(text, signature):
+    """Return the text between the first { after signature and its matching }."""
+    start = text.index(signature)
+    open_brace = text.index("{", start)
+    depth = 0
+    for index in range(open_brace, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_brace + 1 : index]
+    raise ValueError("unterminated function %s" % signature)
+
+
+def outbound_problems(source):
+    """The outbound builder must stay a read path: one notify enable, property GETs."""
+    if NEXT_SIGNATURE not in source:
+        return ["K60Battmgr.c carries no k60_battmgr_next; the read-only proof has nothing to check"]
+    try:
+        body = function_body(source, NEXT_SIGNATURE)
+    except ValueError as error:
+        return ["K60Battmgr.c: %s" % error]
+    problems = []
+    writes = []
+    for match in re.finditer(r"put32\s*\(\s*out\s*(?:\+\s*(\d+))?\s*,\s*([^;]+?)\s*\)\s*;", body):
+        writes.append((int(match.group(1) or 0), match.group(2).strip()))
+    seen = {}
+    for offset, expression in writes:
+        seen.setdefault(offset, []).append(expression)
+    if sorted(seen) != sorted(OUTBOUND_ALLOWED):
+        problems.append("k60_battmgr_next writes out offsets %s; the outbound frame has only %s"
+                        % (sorted(seen), sorted(OUTBOUND_ALLOWED)))
+    for offset, allowed in OUTBOUND_ALLOWED.items():
+        got = seen.get(offset, [])
+        if set(got) != set(allowed):
+            problems.append("k60_battmgr_next: put32(out + %d) writes %s; expected %s"
+                            % (offset, got or "nothing", allowed))
+        for expression in got:
+            if expression not in allowed:
+                problems.append("k60_battmgr_next: put32(out + %d) writes %r, outside the read path"
+                                % (offset, expression))
+    for token in OUTBOUND_FORBIDDEN:
+        if re.search(r"\b%s\b" % re.escape(token), body):
+            problems.append("k60_battmgr_next carries %s; the outbound path must not write charger state"
+                            % token)
+    for constant in ("K60_BATTMGR_NOTIFY_BYTES", "K60_BATTMGR_REQUEST_BYTES"):
+        if body.count("return " + constant) != 1:
+            problems.append("k60_battmgr_next returns %s %d time(s); both frame sizes must be explicit"
+                            % (constant, body.count("return " + constant)))
+    return problems
 
 
 def doc_value(root, where):
@@ -126,6 +194,7 @@ def verify(root, manifest_path, ko=None):
     fields = manifest.get("field") or []
     problems, notes = [], []
     names, pairs = driver_table(root)
+    problems.extend(outbound_problems(read(root / DRIVER)))
     if len(names) != len(pairs):
         raise SystemExit("check-battmgr-wire: %d enum names but %d pair(s) in fields[]"
                          % (len(names), len(pairs)))
@@ -253,8 +322,8 @@ def main(argv=None):
     if problems:
         print("battmgr-wire: FAIL (%d problem(s))" % len(problems))
         return 1
-    print("battmgr-wire: OK (%d field(s) agree with the driver, the decompilation table%s)"
-          % (len(fields), " and the vendor module" if ko else ""))
+    print("battmgr-wire: OK (%d field(s) agree with the driver, the decompilation table%s; "
+          "outbound frames are read-only)" % (len(fields), " and the vendor module" if ko else ""))
     return 0
 
 

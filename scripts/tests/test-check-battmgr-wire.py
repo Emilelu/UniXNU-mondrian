@@ -26,6 +26,21 @@ DRIVER = """static const struct { uint8_t opcode, property; } fields[K60BmFields
     {OP_BATTERY, 0}, {OP_BATTERY, 4}
 };
 """
+OUTBOUND = """unsigned k60_battmgr_next(const K60Battmgr *b, uint8_t out[K60_BATTMGR_NOTIFY_BYTES])
+{
+    zero(out, K60_BATTMGR_NOTIFY_BYTES);
+    put32(out, K60_BATTMGR_OWNER);
+    if (b->subscribe_due) {
+        put32(out + 4, TYPE_NOTIFY); put32(out + 8, OP_NOTIFY_ENABLE);
+        return K60_BATTMGR_NOTIFY_BYTES;
+    }
+    if (!b->cycle_active || b->cursor >= K60BmFields) return 0;
+    put32(out + 4, TYPE_REQUEST); put32(out + 8, fields[b->cursor].opcode);
+    put32(out + 16, fields[b->cursor].property);
+    return K60_BATTMGR_REQUEST_BYTES;
+}
+"""
+DRIVER += OUTBOUND
 DOC = """## 8. table
 
 | idx | value |
@@ -100,6 +115,24 @@ def main():
     rc, out = run(FIXTURES)
     check("a consistent table passes", rc == 0, out.strip()[-200:])
     check("the missing module is a note, not a failure", "no vendor module given" in out)
+
+    patch("drivers/PongPower/K60Battmgr.c", "put32(out + 4, TYPE_REQUEST);",
+          "put32(out + 4, TYPE_SET);")
+    rc, out = run(FIXTURES)
+    check("a write type is refused", rc == 1 and "TYPE_SET" in out, out.strip()[-200:])
+    build()
+
+    patch("drivers/PongPower/K60Battmgr.c", "put32(out + 8, fields[b->cursor].opcode);",
+          "put32(out + 8, OP_CHARGER);")
+    rc, out = run(FIXTURES)
+    check("a charger opcode is refused", rc == 1 and "OP_CHARGER" in out, out.strip()[-200:])
+    build()
+
+    patch("drivers/PongPower/K60Battmgr.c", "put32(out + 16, fields[b->cursor].property);",
+          "put32(out + 12, fields[b->cursor].property);")
+    rc, out = run(FIXTURES)
+    check("a new field offset is refused", rc == 1 and "out offsets [0, 4, 8, 12]" in out, out.strip()[-200:])
+    build()
 
     patch("drivers/PongPower/K60Battmgr.c", "{OP_BATTERY, 4}", "{OP_BATTERY, 5}")
     rc, out = run(FIXTURES)

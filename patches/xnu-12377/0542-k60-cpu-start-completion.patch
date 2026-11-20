@@ -1,0 +1,22 @@
+--- a/iokit/Kernel/IOCPU.cpp
++++ b/iokit/Kernel/IOCPU.cpp
+@@ -62,6 +62,19 @@
+ static OSSharedPtr<OSArray> gIOCPUs;
+ static OSSharedPtr<const OSSymbol> gIOCPUStateKey;
+ static OSSharedPtr<OSString> gIOCPUStateNames[kIOCPUStateCount];
++#if !defined(PONG)
++// The exported kext SDK omits this internal IOService method. Keep the
++// completion notification in XNU, after the native driver tried every CPU.
++// The 12377 device series guards this definition on PONG, but the iOS 27
++// machine configuration is BCM2837: without this copy ArmCpu.cpp:580 leaves
++// the symbol undefined and the kernel link fails right after psci_smp_init
++// is resolved. PONG builds keep the guarded copy, so the two never collide.
++extern "C" void
++pong_cpu_startup_finished(IOCPUInterruptController *controller)
++{
++	controller->cpusRunning();
++}
++#endif
+ 
+ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 

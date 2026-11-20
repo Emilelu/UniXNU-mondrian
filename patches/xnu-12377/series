@@ -50,3 +50,4 @@ armcpu-sleep-hook.patch
 0527-k60-bt-launchd-cache.patch
 0540-k60-psci-smp.patch
 0541-k60-virtual-timer-guard.patch
+0542-k60-cpu-start-completion.patch

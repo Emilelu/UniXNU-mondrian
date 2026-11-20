@@ -414,3 +414,15 @@ second = [
 second_note = "the same offset inside the perf-lock window, in the independent EPSS driver"
 same27 = "same"
 copy27 = "drivers/PongPower/K60CpuFreqPlan.h:66"
+
+[[contract]]
+id = "sleep-report-guard"
+lane = "power"
+what = "the driver-level switch around the two sleep report calls; a machine-config macro deletes them silently on any board that is not that config, and the sleep judge's REPORT criterion can then never pass"
+source = "patches/xnu/0629-k60-sleep-trace.patch:12"
+expect = "#define K60_PLATFORM_SLEEP_REPORT 1"
+dependence = "macro"
+ios27 = "replace the 27 copy's #if defined(PONG) with #if K60_PLATFORM_SLEEP_REPORT (both the declaration block at :7 and the call site); otherwise the 27 kernel still builds and the reports are compiled out"
+same27 = "drift"
+copy27 = "patches/xnu/0629-k60-sleep-trace.patch:7"
+why27 = "the 27 copy still opens with #if defined(PONG) at :7 and gates the call at :61; on the 12377 frame PONG is not defined, so both reports vanish and the judge can only report a missing REPORT"

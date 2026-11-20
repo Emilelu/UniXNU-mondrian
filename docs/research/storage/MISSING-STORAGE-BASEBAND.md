@@ -231,3 +231,79 @@ OSMetaClass list, that maps the six addresses to class names; or (b) kit-side
 class-name pairing (the Lead's work). A guessed name, a name without the address,
 or an address without a symbol does not move it; this report does not claim either
 condition is met.
+
+## Build 20: the five IOStorageFamily stub targets
+
+Build 20 (2026-11-21) is a separate measurement from the CI artifact. The
+kernel.macho hash is 652237c6bf54 (32 fileset entries, 0 loader violations) and
+the boot image is 5c060f27. The blocker text in
+E:/k60-work/scratch/msg-b20.txt names three unpinned data targets in three
+bundles and 203 stubbed function sites in 25 bundles; the task statement says
+205 stubbed. This report keeps both numbers: 203 is the function-site count in
+the build-20 blocker, and 205 is the task's stubbed count. They are not silently
+interchanged. The raw build-20 kernel.json is root:root 0600, so the five
+addresses below were read from the Lead's
+E:/k60-work/scratch/stubs/facts.json, which classify.py generated from that
+kernel.json. facts.json has 131 targets; these five are its IOStorageFamily set.
+
+The five are all starts of com.apple.kernel __TEXT_EXEC,__text functions. The
+other caller column names the second bundle that imports the same target; the
+site section is the section of the importing slot, not of the target.
+
+| target | size and section | other caller | site section | classification | stage 0 |
+| --- | --- | --- | --- | --- | --- |
+| 0xfffffff00ad71480 | 0x38 B, __TEXT_EXEC,__text, after _qbt_transport_active | AppleEffaceableStorage | __auth_got | shared CRC32 table loop; not a class | no |
+| 0xfffffff00b2a7e74 | 0x11c B, __TEXT_EXEC,__text, after IOService::_ClaimSystemWakeEvent_Invoke | IOHIDFamily | __auth_got | IOService-family _Invoke-shaped method; our missing IOService variant | no |
+| 0xfffffff00b2a7f90 | 0x11c B, same shape and neighbour | IOHIDFamily | __auth_got | IOService-family _Invoke-shaped method; our missing IOService variant | no |
+| 0xfffffff00b335fe0 | 0x68 B, __TEXT_EXEC,__text, after IOSubMemoryDescriptor::makeMapping | IOGPUFamily | __const | IOMemoryDescriptor / IOSubMemoryDescriptor variant | no |
+| 0xfffffff00b3360a8 | 0x80 B, __TEXT_EXEC,__text, after IOSubMemoryDescriptor::prepare | IOGPUFamily | __const | IOMemoryDescriptor / IOSubMemoryDescriptor variant | no |
+
+### What the disassembly says
+
+0xfffffff00ad71480 is a CRC32 table loop. It starts with bti c and cbz x2, sets
+w8 to the complement of w0, loads bytes from x1 one at a time, looks each byte
+up in a 32-bit table at 0xfffffff007013870, and folds the result with eor and
+lsr #8. It ends with mvn w0,w8 and ret. This is a shared checksum utility, not
+a class object and not a storage method. The readable kernel.map.json already
+names _z_crc32 at 0xfffffff00b29a50c (native 0xfffffff007a7029c), so a CRC32
+facility is not storage-private either.
+
+0xfffffff00b2a7e74 and 0xfffffff00b2a7f90 are two 0x11c-byte functions with
+the IOService _Invoke shape. Each checks [x0+0x20] == 2, reads [x0+0x18],
+tests [x0+0x10] >= 0x6c and [x0+0x14] >= 0x3c, calls vtable+0x38 through
+blraa, compares the result with 0xfffffff00b794498, writes 60 to [x20+4], and
+stores fields at +0x24, +0x1c and +0x34. The exact method names are not in the
+map; the neighbour is the IOService::_ClaimSystemWakeEvent_Invoke family. They
+are IOService methods that the source does not provide, not IOBlockStorageDevice
+members.
+
+0xfffffff00b335fe0 is 0x68 bytes. It calls 0xfffffff00b326da4, loads
+[x21+0x60], authenticates vtable+0xf8 and tail-calls through braa.
+0xfffffff00b3360a8 is 0x80 bytes. It calls 0xfffffff00b3315a0, calls
+vtable+0xa0, compares and updates [x8+0x28] and [x8+0x20], and returns 1 or the
+field. Their neighbours are IOSubMemoryDescriptor::makeMapping and ::prepare.
+They are IOMemoryDescriptor-family methods, not storage-driver methods.
+
+### Which class, and which is Apple's IOBlockStorageDevice family
+
+The five split as two IOService methods, two IOMemoryDescriptor-family methods
+and one shared CRC32 utility. None is an IOBlockStorageDevice-family member.
+The family's 190-slot table is a separate object in
+docs/engineering/ios27-storage-vtable.tsv; none of these five addresses appears
+in that table or in IOS27-STORAGE-VTABLE.md (zero grep hits). The 190-slot
+table therefore does not gain a row, and these five do not derive a storage
+class ABI.
+
+Stage 0 does not reach them. They are import slots in IOStorageFamily
+__auth_got and __const (plus the named other caller). The slots are fixed up
+when the kext loads, and IOStorageFamily is not loaded before the stage-0
+panic. IOService and IOMemoryDescriptor exist earlier, but these particular
+stubs are not executed until the kext loads. If F3 loads IOStorageFamily they
+become load-time reachable; that is not stage 0.
+
+### Verdict
+
+The five are shared base-class and utility dependencies of IOStorageFamily, not
+the storage class the family needs and not Apple's IOBlockStorageDevice family.
+The storage blocker remains PENDING and prelink-map-unresolved is not closed by
+this analysis. No name is guessed for any of the five.

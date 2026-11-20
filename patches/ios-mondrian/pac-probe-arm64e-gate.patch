@@ -158,15 +158,16 @@ index 3a70791..a48f663 100644
  	sctlr = RSR("sctlr_el1");
  	con_hex64("SCTLR before", sctlr);
 diff --git a/shim/shim.c b/shim/shim.c
-index 309275e..085b692 100644
+index 309275e..1d71234 100644
 --- a/shim/shim.c
 +++ b/shim/shim.c
-@@ -164,6 +164,10 @@ void exc_handler(uint64_t slot, uint64_t *regs)
+@@ -164,6 +164,11 @@ void exc_handler(uint64_t slot, uint64_t *regs)
  	con_hex("ELR", rsr("elr_el1"));
  	con_hex("FAR", rsr("far_el1"));
  	con_hex("SPSR", rsr("spsr_el1"));
 +	/* A translation fault means the MMU was on: say which map it used. */
 +	con_hex64("SCTLR", rsr("sctlr_el1"));
++	con_hex64("VBAR", rsr("vbar_el1"));
 +	con_hex64("TTBR0", rsr("ttbr0_el1"));
 +	con_hex64("TCR", rsr("tcr_el1"));
  	con_hex("X0", regs[0]);

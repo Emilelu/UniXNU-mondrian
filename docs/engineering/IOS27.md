@@ -182,9 +182,9 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 
 | Phase | Work | Exit |
 | --- | --- | --- |
-| F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth measured on the board on 2026-11-18 (`ISAR1` `APA=0b0101`, `API=0`: the address keys arm64e uses, no generic keys); the second capture died with a data abort before the key read-back, and the probe's key table and exception frame were corrected offline — the corrected image is unmeasured |
+| F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth measured on the board on 2026-11-18 (`ISAR1` `APA=0b0101`, `API=0`: the address keys arm64e uses, no generic keys); the corrected probe ran to the end on 2026-11-20 and printed `PACIA is a NOP`: the keys are writable at EL1 but firmware disabled pointer authentication for the lower exception levels |
 | F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-geometry.py` and `scripts/check-ios27-granules.sh` pass |
-| F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device `arm_init` → `bsd_init` → root-mount panic, cupid parity |
+| F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device 2026-11-20 the loader reached the kernel handoff and drew its green bar, but no payload output followed. The loader was publishing the Darwin 22 `boot_args` (608-byte command line, `0x2e0`) while xnu-12377 reads the Darwin 26 one (1024, `0x480`); fixed, and the kernel now carries the F2 diagnostics below. Exit is `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI; the userdata image is built | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
 
@@ -262,6 +262,36 @@ parallel for the iOS 16 line, so the fix travels as
 unless `PAC_PROBE=1` is exported (`shim.c` calls `pac_probe()` only under that
 define). Build the probe from a copy of that shim, never in the shared checkout,
 so its `out/` stays the iOS 16 line's.
+
+### Reading an F2 boot
+
+Stage 0 has no serial hardware and no USB driver, so the panel is the only
+output. Three bars drawn by `osfmk/arm64/start.s` with the MMU off say how far
+the payload got; they sit just below the loader's green bar, top to bottom:
+
+| Bar | Scanline | Reached |
+| --- | --- | --- |
+| red | 256 | `_start`: the trampoline jumped to the kernel entry |
+| yellow | 272 | the bootstrap page tables were built |
+| cyan | 288 | `common_start`: TCR/TTBR/MAIR are next, then the MMU |
+
+The loader's green bar only proves its own trampoline ran. With `-v` in the
+boot arguments, `ios27-panel-console.patch` then puts the stock video console
+into text mode on the framebuffer once `arm_vm_init` returns, so kernel text
+and a root-mount panic land on the panel. Text erases the bars when the console
+clears the screen; bars with no text mean the kernel died before
+`PE_create_console()` (which runs after `arm_vm_init`).
+
+Two facts that look like details and are not:
+
+- `CurrentEL` reports `EL << 2`, so DarwinBoot's `DarwinCurrentEl() == 4` check
+  is **EL1**, not EL2. `DarwinEnter` must not eret from EL2: XNU's
+  `start_first_cpu` programs EL1 registers and page tables.
+- `boot_args` is the kernel's structure. xnu-12377 has `BOOT_LINE_LENGTH 1024`,
+  so `bootFlags` is at `0x470` and `memSizeActual` at `0x478`, and the struct
+  is `0x480`. The iOS 16 loader's 608-byte layout is Darwin 22; publishing it
+  to 12377 leaves `memSizeActual` reading leftover RAM. `BootArgs.h` pins both
+  layouts with `STATIC_ASSERT`s.
 
 ## Framework patches this branch carries
 

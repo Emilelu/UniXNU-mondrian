@@ -917,19 +917,42 @@ k60_ipa_runtime_alloc(uint8_t **va, uint64_t *pa, vm_size_t bytes,
 {
     vm_offset_t address = 0;
     ppnum_t page;
+    uint64_t ceiling = 0;
+    unsigned attempt;
+    int rc;
 
-    if (kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0,
-        KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) !=
-        KERN_SUCCESS) {
-        return K60IpaRuntimeFailed;
+    if (va == NULL || pa == NULL) {
+        return K60IpaBadArgument;
     }
-    page = pmap_find_phys(kernel_pmap, (addr64_t)address);
-    if (page == 0 || ptoa_64(page) + bytes > (1ull << 36)) {
-        return K60IpaRuntimeFailed;
+    rc = k60_ipa_runtime_ceiling((uint64_t)bytes, (uint64_t)ptoa_64(1),
+        &ceiling);
+    if (rc != K60IpaOk) {
+        printf("K60IPA runtime alloc refused bytes=%u limit=%#llx\n",
+            (unsigned)bytes, (unsigned long long)K60_IPA_RUNTIME_DMA_LIMIT);
+        return rc;
     }
-    *va = (uint8_t *)address;
-    *pa = ptoa_64(page);
-    return K60IpaOk;
+    for (attempt = 0; attempt < 2u; attempt++) {
+        address = 0;
+        if (kmem_alloc_contig(kernel_map, &address, bytes, mask,
+            (ppnum_t)ceiling, 0, KMA_DATA | KMA_ZERO,
+            VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
+            continue;
+        }
+        page = pmap_find_phys(kernel_pmap, (addr64_t)address);
+        if (page != 0 && k60_ipa_runtime_address_fits(ptoa_64(page),
+            (uint64_t)bytes)) {
+            *va = (uint8_t *)address;
+            *pa = ptoa_64(page);
+            return K60IpaOk;
+        }
+        /* Hand the pages back before the retry, otherwise the second attempt
+         * repeats the same refusal. KMA_PERMANENT is deliberately gone here:
+         * freeing a permanent mapping is the k47 panic (vm_map.c:7940). */
+        kmem_free(kernel_map, address, bytes);
+    }
+    printf("K60IPA runtime alloc failed bytes=%u mask=%#llx attempts=%u\n",
+        (unsigned)bytes, (unsigned long long)mask, attempt);
+    return K60IpaRuntimeFailed;
 }
 
 /* SMEM item 497 is the shared IPA filter/route region. Pong allocates it from

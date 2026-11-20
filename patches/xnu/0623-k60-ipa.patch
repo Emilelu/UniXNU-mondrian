@@ -2,7 +2,7 @@ diff --git a/bsd/dev/pong_ipa.h b/bsd/dev/pong_ipa.h
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.h
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,204 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path: constants, firmware validation and M1 staging.
 + *
@@ -97,6 +97,44 @@ new file mode 100644
 +    K60IpaPasInterrupted = -22,
 +};
 +
++/* The IPA ring and the filter/route tables are handed to hardware as physical
++ * addresses, and that hardware decodes only 36 bits of them. kmem_alloc_contig's
++ * fifth argument is the highest physical page number it may hand back, not an
++ * alignment mask, so passing zero there is no bound at all and the allocator is
++ * free to return memory the IPA can never address. The bound and the readback
++ * live here as integer arithmetic so a host test can exercise them without a
++ * kernel or a pmap. */
++#define K60_IPA_RUNTIME_DMA_LIMIT   (1ull << 36)
++#define K60_IPA_RUNTIME_PPNUM_MAX   0xffffffffull
++
++/* Highest physical page number whose page plus bytes still fits below the DMA
++ * limit. Returns K60IpaBadArgument when no such page exists. */
++static inline int
++k60_ipa_runtime_ceiling(uint64_t bytes, uint64_t page_bytes, uint64_t *ceiling)
++{
++    uint64_t highest;
++
++    if (ceiling == NULL || bytes == 0u || page_bytes == 0u ||
++        bytes >= K60_IPA_RUNTIME_DMA_LIMIT) {
++        return K60IpaBadArgument;
++    }
++    highest = (K60_IPA_RUNTIME_DMA_LIMIT - bytes) / page_bytes;
++    if (highest > K60_IPA_RUNTIME_PPNUM_MAX) {
++        highest = K60_IPA_RUNTIME_PPNUM_MAX;
++    }
++    *ceiling = highest;
++    return K60IpaOk;
++}
++
++/* Readback check: the same window the allocator was told to stay inside. */
++static inline int
++k60_ipa_runtime_address_fits(uint64_t physical, uint64_t bytes)
++{
++    return physical != 0u && bytes != 0u &&
++        physical + bytes > physical &&
++        physical + bytes <= K60_IPA_RUNTIME_DMA_LIMIT;
++}
++
 +typedef struct {
 +    uint32_t raw;
 +    uint32_t major;
@@ -173,7 +211,7 @@ diff --git a/bsd/dev/pong_ipa.c b/bsd/dev/pong_ipa.c
 new file mode 100644
 --- /dev/null
 +++ b/bsd/dev/pong_ipa.c
-@@ -0,0 +1,1435 @@
+@@ -0,0 +1,1458 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* K60 IPA data path M0 skeleton plus M1 firmware staging.
 + *
@@ -1093,19 +1131,42 @@ new file mode 100644
 +{
 +    vm_offset_t address = 0;
 +    ppnum_t page;
++    uint64_t ceiling = 0;
++    unsigned attempt;
++    int rc;
 +
-+    if (kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0,
-+        KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) !=
-+        KERN_SUCCESS) {
-+        return K60IpaRuntimeFailed;
++    if (va == NULL || pa == NULL) {
++        return K60IpaBadArgument;
 +    }
-+    page = pmap_find_phys(kernel_pmap, (addr64_t)address);
-+    if (page == 0 || ptoa_64(page) + bytes > (1ull << 36)) {
-+        return K60IpaRuntimeFailed;
++    rc = k60_ipa_runtime_ceiling((uint64_t)bytes, (uint64_t)ptoa_64(1),
++        &ceiling);
++    if (rc != K60IpaOk) {
++        printf("K60IPA runtime alloc refused bytes=%u limit=%#llx\n",
++            (unsigned)bytes, (unsigned long long)K60_IPA_RUNTIME_DMA_LIMIT);
++        return rc;
 +    }
-+    *va = (uint8_t *)address;
-+    *pa = ptoa_64(page);
-+    return K60IpaOk;
++    for (attempt = 0; attempt < 2u; attempt++) {
++        address = 0;
++        if (kmem_alloc_contig(kernel_map, &address, bytes, mask,
++            (ppnum_t)ceiling, 0, KMA_DATA | KMA_ZERO,
++            VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++            continue;
++        }
++        page = pmap_find_phys(kernel_pmap, (addr64_t)address);
++        if (page != 0 && k60_ipa_runtime_address_fits(ptoa_64(page),
++            (uint64_t)bytes)) {
++            *va = (uint8_t *)address;
++            *pa = ptoa_64(page);
++            return K60IpaOk;
++        }
++        /* Hand the pages back before the retry, otherwise the second attempt
++         * repeats the same refusal. KMA_PERMANENT is deliberately gone here:
++         * freeing a permanent mapping is the k47 panic (vm_map.c:7940). */
++        kmem_free(kernel_map, address, bytes);
++    }
++    printf("K60IPA runtime alloc failed bytes=%u mask=%#llx attempts=%u\n",
++        (unsigned)bytes, (unsigned long long)mask, attempt);
++    return K60IpaRuntimeFailed;
 +}
 +
 +/* SMEM item 497 is the shared IPA filter/route region. Pong allocates it from

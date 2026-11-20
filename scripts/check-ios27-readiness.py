@@ -411,6 +411,12 @@ def conf_anchor(tree):
                     return name
     return None
 
+RUNTIME_BOUND = (
+    "k60_ipa_runtime_ceiling(",
+    "k60_ipa_runtime_address_fits(",
+    "(ppnum_t)ceiling, 0, KMA_DATA | KMA_ZERO,",
+    "kmem_free(kernel_map, address, bytes);",
+)
 SMMU_ENTRY = ("ArmSmmu4KBuild(", "ArmSmmu4KProgramDisabledContext(")
 
 
@@ -444,6 +450,20 @@ def weak_fallbacks():
     if missing or len(weak) < len(SMMU_ENTRY):
         return missing or ["weak lines=%d" % len(weak)]
     return []
+
+
+def runtime_bound():
+    # kmem_alloc_contig's fifth argument is a page-number ceiling, so a zero
+    # there bounds nothing and the IPA can be handed memory it cannot address on
+    # its 36-bit bus. 0626..0630 carry the allocator, so the bound has to be in
+    # the patch set, not only in this repository's source tree.
+    path = os.path.join(ARTIFACT_DIR, "0628-k60-ipa.patch")
+    if not os.path.exists(path):
+        return ["0628-k60-ipa.patch"]
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        text = handle.read()
+    missing = [marker for marker in RUNTIME_BOUND if marker not in text]
+    return missing
 
 
 def check_pristine(tree):
@@ -482,6 +502,12 @@ def check_pristine(tree):
         print('K60 READY DRIFT the 27 set no longer answers for %s' % ' '.join(gaps))
     else:
         print('K60 READY ok   both ArmSmmu4K entry points have a weak definition')
+    gaps = runtime_bound()
+    if gaps:
+        drift += 1
+        print('K60 READY DRIFT the 27 IPA allocator lost its bound: %s' % ' '.join(gaps))
+    else:
+        print('K60 READY ok   the IPA allocator asks for a bounded page number')
     missing = [n for n in ARTIFACTS
                if not os.path.exists(os.path.join(ARTIFACT_DIR, n))]
     if missing:

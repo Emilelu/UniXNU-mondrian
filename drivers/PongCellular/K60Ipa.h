@@ -92,6 +92,44 @@ enum {
     K60IpaPasInterrupted = -22,
 };
 
+/* The IPA ring and the filter/route tables are handed to hardware as physical
+ * addresses, and that hardware decodes only 36 bits of them. kmem_alloc_contig's
+ * fifth argument is the highest physical page number it may hand back, not an
+ * alignment mask, so passing zero there is no bound at all and the allocator is
+ * free to return memory the IPA can never address. The bound and the readback
+ * live here as integer arithmetic so a host test can exercise them without a
+ * kernel or a pmap. */
+#define K60_IPA_RUNTIME_DMA_LIMIT   (1ull << 36)
+#define K60_IPA_RUNTIME_PPNUM_MAX   0xffffffffull
+
+/* Highest physical page number whose page plus bytes still fits below the DMA
+ * limit. Returns K60IpaBadArgument when no such page exists. */
+static inline int
+k60_ipa_runtime_ceiling(uint64_t bytes, uint64_t page_bytes, uint64_t *ceiling)
+{
+    uint64_t highest;
+
+    if (ceiling == NULL || bytes == 0u || page_bytes == 0u ||
+        bytes >= K60_IPA_RUNTIME_DMA_LIMIT) {
+        return K60IpaBadArgument;
+    }
+    highest = (K60_IPA_RUNTIME_DMA_LIMIT - bytes) / page_bytes;
+    if (highest > K60_IPA_RUNTIME_PPNUM_MAX) {
+        highest = K60_IPA_RUNTIME_PPNUM_MAX;
+    }
+    *ceiling = highest;
+    return K60IpaOk;
+}
+
+/* Readback check: the same window the allocator was told to stay inside. */
+static inline int
+k60_ipa_runtime_address_fits(uint64_t physical, uint64_t bytes)
+{
+    return physical != 0u && bytes != 0u &&
+        physical + bytes > physical &&
+        physical + bytes <= K60_IPA_RUNTIME_DMA_LIMIT;
+}
+
 typedef struct {
     uint32_t raw;
     uint32_t major;

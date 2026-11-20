@@ -225,6 +225,36 @@ python3 scripts/triage-audio27.py E:/k60-work/evidence/usblog-<ts>/ \
 不给 `--kernel` 时它不猜：说 `pass --kernel`，因为不带镜像这两件事在日志里长得一样。
 它只读：不 boot、不写、不改任何东西，退出码沿用判决的 0/1/2。
 
+### 文档里引用的日志行，必须真是驱动会打印的
+
+27 的两份页面反复告诉读者「看哪一行输出」。但一行被引用、却没有任何 `printf` 能打印出来时，
+门禁全绿、读者却永远等不到那行——这比不写更糟。2026-11-20 的实测：文档里 8 条引用中，
+5 条的字段名与源码里的格式串对不上（例如把 `PongAudio: amp spk switch gpio=52 on=1 … read=0x00000002`
+当成一行连续输出，而源码打印的是 `gpio=%u on=%d cfg=0x%08x io=0x%08x read=0x%08x`）。
+
+`scripts/check-audio27-loglines.py` 把两份页面里所有反引号包起来的 `PongAudio: …` 行与格式串比对：
+转换符接受任意值、`…` 允许跳过若干字段、其余字段必须是格式串里的字面前缀（引用可以截断一行）。
+打印点有两处：`drivers/PongAudio/*.c`（搬过来的源码）与 `patches/audio/*.patch`（16 线补丁里
+TDM pad 那几行，27 不搬但文档会引用）。
+
+```sh
+python3 scripts/check-audio27-loglines.py
+# LOGLINES OK 8 quoted lines, all printed by 203 formats
+```
+
+反向是自测过的：往 `IOS27-MIGRATION.md` 里加一行不存在的引用，立刻
+`LOGLINES FAILED: docs/research/audio/IOS27-MIGRATION.md:163 quotes 'PongAudio: amp probe finished cleanly',
+which no printf prints`，退出码 1；删掉那行又回到 0。
+
+**补丁链不在的分支**（carry 只带源码、不带 `patches/audio/`）不会默默变绿：对不上格式串、
+而 `patches/audio/` 又不存在的引用打一行
+`LOGLINES NOTE: … only the 16-line patch chain prints it, and patches/audio is not on this branch`，
+总数里点名「1 of 8」。这样「这条引用属于 16 线」是个可见的结论，而不是一条消失的检查。
+
+宿主用例 `scripts/tests/test-audio27-loglines.py` 五例（打印出来的行 / 没人打印的行 / 补丁链不在
+时给 NOTE / 没有 docs 目录 / 没有格式串），预检里是两行：`ok   logline checker is honest` 与
+`ok   27 pages quote printed lines`。
+
 ### 两种布局：16 线种树，27 树原地构建
 
 两个脚本（`apply-audio27-wiring.py`、`add-audio-conffiles.py`）都认两种布局：

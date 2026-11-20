@@ -195,6 +195,26 @@ def main():
         cases += 1
         print("  ok   a linked T definition and bsd_init.o reference are rc0")
 
+        # 5c. The objects are in the link but nothing defines the symbol: an
+        # undefined weak reference is a link error, not a run-time no-op.
+        naked = work / "naked"
+        naked.mkdir()
+        tree = make_tree(naked, [NAME])
+        objs = naked / "objs"
+        objs.mkdir()
+        filelist = make_filelist(naked, [objs / "PongAudioAmp.o", objs / "bsd_init.o"])
+        nm = make_nm(naked, [
+            "%s:                  U _pong_audio_amp_probe" % (objs / "bsd_init.o"),
+        ])
+        code, out = run("--tree", str(tree), "--link-filelist", str(filelist),
+                        "--symbols", str(nm))
+        assert code == 1, out
+        assert "no definition of pong_audio_amp_probe" in out, out
+        assert "link error" in out and "not a silent run-time fallback" in out, out
+        assert "WEAK-LINK OK" not in out, out
+        cases += 1
+        print("  ok   a selected call with no definition is a link error, not silence")
+
         # 5b. A W in the driver object is a weak (return-zero) shell, not the
         # real entry point.  The checker must not turn a weak definition green.
         weak = work / "weak-def"

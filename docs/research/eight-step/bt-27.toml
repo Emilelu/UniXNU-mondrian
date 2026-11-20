@@ -3,11 +3,11 @@
 # ledger's existing device block and its prediction.
 
 [hardware.bluetooth]
-revisit = "stage-0 SpringBoard, or an F1/F2 signal that yields a bootable 24A446 payload"
+revisit = 'Restore when all four hold: (1) board.toml ios-27.0.1-24A446 components.include names QcaBluetooth or a documented equivalent, and the device series still carries 0500-0523; (2) board.toml has [payload.runtime] with audio_system_plugins = ["BTAudioHALPlugin.driver"], bluetooth_tool = "scripts/build-bluetooth-userspace.py" and bluetooth_target = "ios27", plus an OS image to mount, so the payload stages BlueTool, bluetoothd, QcaBTType0.dylib and the QCA firmware; (3) the DT exports the six bluetooth properties and local-mac-address plus /chosen/mac-address-bluetooth0, and check-bluetooth-dt.py --driver passes at 3000000 baud and H4; (4) a device run prints [bluetooth] state=2 error=0 and exactly one [bluetooth proc] bluetoothd, with no panic.'
 name = "蓝牙（QCA6490 / HCI over UART）"
 status = "parked"
 paths = ["dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "patches/xnu-12377/series", "/mnt/e/hackios/QcaBluetooth"]
-why = "2026-11-21 re-read for the 27 line: the series, the DT node and the static checks exist, but no 24A446 payload, no stage-0 SpringBoard and no single bluetoothd start have been observed. The 18.x device line stopped in the NVM budget (d7) and d8 was paused; this record does not inherit that device run. The only green 27 kernel build is CI 44518998961, whose head 33f5229 is not an ancestor of this branch. The files this record reads are docs/plans/BT-IOS27-PORT.md, dts/mondrian.dts, configs/mondrian_ios27_defconfig and patches/xnu-12377/series."
+why = 'Stage 0 does not select QcaBluetooth: board.toml:361 includes only ArmDTPlatform, ArmCpu, XnuPrelink and NativeUfs, and configs/mondrian_ios27_defconfig has no Bluetooth or QCA key. The kernel-side series 0500-0523 is in the device series, but board.toml carries [payload] and no [payload.runtime], so the framework never calls scripts/build-bluetooth-userspace.py and never mounts the OS image (docs/plans/BT-IOS27-PORT.md:614-620). A kernel-only boot can publish com.apple.uart.sk.bluetooth but stages no BlueTool, bluetoothd or QcaBTType0.dylib. No 24A446 payload, stage-0 SpringBoard or single bluetoothd start has been observed; the only green 27 kernel build (CI 44518998961, head 33f5229) is not an ancestor of this branch.'
 label = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
 
 [hardware.bluetooth.step.same_model]

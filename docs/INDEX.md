@@ -99,6 +99,7 @@ docs/
 | `audio/LANE-BOUNDARIES.md` | **音频线的边界与越界记录**：四条不变边界（上机只在 Lead、不合 main、不动设备、提交形状）、一次越界推 `k60-gates` main 的事实与后果、本线判据速查表 |
 | `audio/IOS27-SHENG-REFS.md` | **sheng 内核与驱动参考清单**：同一基准的 25 项补丁逐条判 audio/partial/no（1 条新增音频、1 条含既有音频上下文、23 条无直接新增音频），K60 设备系列对照、页表与弱链接证据边界、GENI FIFO 与功放型号差异、同树引用门禁 |
 | `audio/IOS27-PAC.md` | **音频接缝与 PAC**：arm64e 的原生密钥补丁怎么给内核装上 PAC、音频代码的 EL1 特权面逐行判定、io 表与弱符号调用在插桩前后各是什么形态、以及 sheng 的 addon-mount 补丁为什么不依赖 PAC |
+| `audio/IOS27-STAGE0-STATE.md` | **iOS 27 stage-0 的音频位置**：board profile 与缺失的 conf-files 钩子怎么让音频不在构建里、三分钟自证的命令与各 checker 的 rc 语义，以及为什么「0 符号」是设计读数而不是回归 |
 | `audio/GLINK-MULTISLOT.md` | **音频对 GLINK 的多槽需求**：QcomGlink 的环几何 / doorbell / 打点位置、每槽独立 rx 分发的逐函数核对（唯一单槽假设是数组长度）、`QCOM_GLINK_MAX_CHANNELS` 2 与 `MAX_LOCAL_INTENTS` 20 已落地、`K60AudioGlink` 音频桥（含 `k60_audio_glink_send()` 发送路径与 GPR `GET_SPF_STATE` 首发）与 376 条宿主断言、哪些要等 provider 真 lease 才能上机、provider 落地后音频侧要改的三处 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 

@@ -45,3 +45,35 @@ LTO 参考把未解析引用从 **384 条 / 2262 个桩站点** 降到 **95 条 
 - **不许**为了让计数好看去加 root 里没有的 kext，也不许放宽 `--allow-missing` 的语义。
 - 每一条「走不到」都要写成「什么条件下会走到 / 为什么现在走不到」，不是一句「应该没事」。
 - 这张表每轮更新，计数减少要有对应提交。
+
+## 第二轮（2026-11-21 03:30）：配置假设被证否，剩下的是配对与版本差
+
+第一版把 150 个地址归因成「我们没编那些子系统」，**这是错的**，本轮实测推翻：
+
+- `CONFIG_XNU_*` 不是 XNU 的选项机制。`UniXNU/scripts/unixnu/kernel.py:17-26` 只把 `XNU_`
+  前缀的键转成环境变量；真正决定编什么的是 `KERNEL_CONFIGS=DEVELOPMENT`，硬编码在
+  `scripts/build-xnu-generic.sh:147`（和 `:840`），由 `config/MASTER*` 解析成
+  `security/DEVELOPMENT/config.DEVELOPMENT_ARM64`（184 行，`CONFIG_MACF` 在第 126 行）。
+- 结果是 MACF 一直在编：我们内核里有 23 个 `mac_*.o`、`_amfi*`、`_image4_v2_interface*`、
+  36 个 `_apfs*`。
+- 对照实验否掉「符号不在 = 开关没开」：`CONFIG_ECC_LOGGING` 与 `CONFIG_IMAGEBOOT_IMG4`
+  都开着，而 `_ecc_*`、`_image4_v2_evaluate` 既不在我们内核里、也不在 `refer/xnu` 任何
+  文件里。
+
+于是 150 分成两类：
+
+| 类 | 数量 | 结局 | 危险度 |
+| --- | --- | --- | --- |
+| 数据（`__ZN*10gMetaClassE` 等） | 19 地址 / 95 项 | `rebind()` 找不到配对就**原样保留 Apple 的地址** | **高**：不跳桩、不报错，首次解引用即垃圾/abort；13 个落进无关本地段、6 个落在所有段之外；AMFI 占两个，而 AMFI 是 `early_security_init` 点名的 bundle |
+| 函数 | 131 地址 / 205 项 | 重定向到 `_unixnu_fileset_unmapped`，会打印调用点 | 中：会明确报点 |
+
+关闭这条路只有两种走法，都不能靠猜：
+
+1. **拿到 19 个数据目标的符号名**——Apple 的 kernelcache `LC_SYMTAB nsyms 0`，读不出来；
+   所以只能从结构上恢复（C++ 元类全局的形状），这属于推断，需要逐条证据。
+2. **逐站点人工绑定**（kit 已支持的 `fixtures/fileset-*-symbols.json` 扩展点：每个 site
+   绑定一个 native 符号并附 `evidence`），并且让 6 个落在所有段之外的槽位 **fail-closed**，
+   而不是保留陈旧地址。
+
+结论：`prelink-map-unresolved` 保持 open，且**不许**用「反正走不到」放过——数据类没有桩，
+走不到与走得到在日志里是同一个样子（都没有日志）。

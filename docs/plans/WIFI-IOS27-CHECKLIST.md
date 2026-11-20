@@ -110,8 +110,11 @@ references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence
   turns that acceptance into one command (member architecture, both defined APIs, and
   the stamp/header binding), and its self-test pins the five ways it must not pass.
   For the link itself, scripts/check-wifi27-link-inputs.py reads the build's linkarchives
-  and refuses a member that is not arm64e or an archive outside the declared roots
-  (arch + provenance); it is a lane preflight, not a global flight blocker. The arm64e
+  and refuses a member that is not arm64e, an archive outside the declared roots, or an
+  archive that defines one of the five symbols only a scratch stub provided
+  (arch + provenance + stubs, P-283); it is a lane preflight, not a global flight
+  blocker, because one open entry there would refuse a stage-0 image that carries no
+  Wi-Fi archive at all. The arm64e
   candidate ath11k-abi27e is otherwise complete and only lacks the two APIs:
   nw_wifi_power at E:/k60-work/impl/ath12kwifi27/src/nw_mainline.c:266 and
   nw_wifi_scan_frequencies at :223. The per-API decision table, including why neither

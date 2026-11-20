@@ -35,3 +35,34 @@
 
 在那之前，站归档仍必须定义两者——这是线内验收（`scripts/check-wifi-station-archive.py`），不是对 24A446
 需求的证明。
+
+## 关闭条件（两行各自）
+
+两行都 **blocked behind F2/SpringBoard**：第一次能到达 SpringBoard 的 24A446 飞行之前不得关闭；
+判据在飞行前写死，事后从日志里挑句子不算。两行还有同一个前提——本线先给对应分支补一行 IOLog
+（当前代码没有），否则飞行日志里没有可判的字形。
+
+### `nw_wifi_power`
+
+- **什么证据能关掉它**：24A446 的守护进程在关联之前通过 `apple80211` 的 `kPower` 子命令要求
+  上电/断电。正证据是驱动在 `case kPower`（`PongWifiNet.cpp:703`）打出的调用行；反证据是
+  同一次飞行里站归档**不定义**该 API 仍能完成关联（说明关联前不需要它）。
+- **谁产出**：Lead 的 F2 飞行 + 本线在 `:703` 之后补的 IOLog；只有 Lead 能上机。
+- **预写日志字形**：子串 `PongWifi: 27 client power`，后面必须同时有 `enabled=<0|1>`、
+  `phase=<before-scan|after-scan>`、`seq=<n>`；站侧另有 `PongAth11k: power enabled=<0|1>`。
+- **判读边界**：出现该子串且 `phase=before-scan`、`enabled=1`，才算「关联前必须」；整次飞行
+  没有该子串且关联成功，才算「不必须」；只到 SpringBoard、没有关联，两边都不算。
+
+### `nw_wifi_scan_frequencies`
+
+- **什么证据能关掉它**：24A446 的扫描请求带显式频道列表（`kScanReqMultiple` 形状）并在关联前
+  发生。正证据是驱动在 `:758-760` 附近打出的请求行；反证据是站归档缺席该 API（`weak_import`
+  退回 `nw_wifi_scan`）仍能在 5 GHz 上完成扫描与关联。
+- **谁产出**：同上（Lead 的 F2 飞行 + 本线补的 IOLog）。
+- **预写日志字形**：子串 `PongWifi: 27 scan request`，字段 `channels=<count|none>`、
+  `source=<frequencies|fallback>`、`ssid_len=<n>`；站侧 `PongAth11k: scan channels=<n>`。
+- **判读边界**：`source=frequencies` 且 `channels>0` 在关联前出现，才算「必须」；只出现
+  `source=fallback` 而 5 GHz 扫描/关联成功，才算「不需要」；只有 SpringBoard、没有扫描，仍 open。
+
+关闭动作只有两种：证据落进上表「24A446 消费证据」列，或 Lead 明确把该项降级为「线内打包要求」。
+不得用 16/22H374 的行为代替 24A446 的证据。

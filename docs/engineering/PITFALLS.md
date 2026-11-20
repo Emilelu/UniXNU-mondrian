@@ -7220,3 +7220,34 @@ scripts/judge-cellular-flight.py 起初把「启动六行或桥接两行缺失�
 回归：scripts/tests/fixtures/ 下四份真实形状的控制台（pass / refused / nolun / short），
 scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
 
+## P-265 — 门禁挂在「树还不存在」的那一刻，于是它每次都失败、每次都被人当噪音过滤掉
+
+`scripts/build-xnu-generic.sh` 在第 10 行调用 `K60_CONF_FILES_HOOK`，而 `.cache/xnu-work`
+要到第 38 行才 `git clone --shared` 出来。于是每一次构建，钩子都在一棵没有 `bsd/conf/files`
+的树上跑，每个 appender 都答「tree not seeded」，而调用点是
+
+    python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || echo "K60: conf/files hook failed"
+
+`|| echo` 把非 0 变成一行日志。结果是一条自洽的因果链：音频驱动的两个源文件从未进过
+`bsd/conf/files` → `PongAudioAmp.o` 从未编译 → `pong_audio_amp_probe` 永远是弱引用未定义 →
+链接期在 `snapshot-build.log:1171748` 报六个未定义符号里就有 `_pong_audio_amp_probe`。
+构建自己报成功，产物检查器却报 AUDIO27 FAILED，两个判决说的是同一次构建。
+
+为什么一直没被发现：这条日志每次构建都有，内容每次一样，位置在几百行输出的开头。**一条
+永远失败的钩子与一条不存在的钩子，在读者眼里没有区别**——真正把它区分的，是「谁依赖它成功」
+这一问，而没人问过。
+
+修法三件：
+1. 调用点移到第 832 行、最终 make 之前，也就是 16.6.1 那条线放它的位置
+   （`build-xnu-4k-baseline.sh:1429`），那里 `.cache/xnu-work` 与全部补丁都已就位；
+2. `|| echo` 改成 `|| { echo ...; exit 1; }`——钩子失败必须终止构建；
+3. `scripts/refresh-xnu-generic.py` 在重写这个文件时把新位置重新插回去，并断言锚点唯一。
+   不做第 3 件，前两件会被下一次刷新静默抹掉，这正是它当初变成这样的方式。
+
+`scripts/tests/test-conf-files-hook-placement.py` 十条断言钉住三件事：调用点在 clone 之后、
+在最终 make 之前、失败必终止、刷新脚本会重建这个块。拿改动前的文件跑，前两条当场红。
+
+一般化的教训（与 P-190「认不出名字就静默跳过」、P-251「读的键从没存在过」同族，第三种形状）：
+**门禁的调用时机本身是一个必须验证的断言。** 挂在树生成之前的钩子、挂在产物生成之后的检查、
+挂在配置读取之前的默认值——它们不报错，只永远沉默。判断一个门禁是否可能在空转，问一句就够：
+它依赖的那件东西，在这一行代码执行时存在吗？

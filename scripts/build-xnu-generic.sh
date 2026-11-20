@@ -12,11 +12,6 @@ trap 'echo "build-xnu-4k-baseline.sh: line $LINENO: $BASH_COMMAND failed" >&2' E
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
-# K60: conf/files entries for in-tree drivers cannot be anchored in a patch (P-171);
-# the build driver supplies a hook that runs after every patch is applied.
-if [ -n "${K60_CONF_FILES_HOOK:-}" ] && [ -f "${K60_CONF_FILES_HOOK}" ]; then
-  python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || echo "K60: conf/files hook failed"
-fi
 # Source versions come from feeds.toml through the unixnu driver; the defaults are the qualified ones.
 XNU_TAG=${UNIXNU_XNU_TAG:-xnu-10063.141.1}
 XNU_COMMIT=${UNIXNU_XNU_COMMIT:-d8b80295118ef25ac3a784134bcf95cd8e88109f}
@@ -829,6 +824,17 @@ if not stamp.exists() or stamp.read_text() != identity:
     directory.mkdir(parents=True, exist_ok=True)
     stamp.write_text(identity)
 PY
+
+# K60: conf/files entries for in-tree drivers cannot be anchored in a patch (P-171),
+# and the hook has to run here rather than at the top of the file: at the top
+# .cache/xnu-work does not exist yet, so every appender reports "tree not
+# seeded" and the failure looks like a log line instead of a missing driver.
+if [ -n "${K60_CONF_FILES_HOOK:-}" ] && [ -f "${K60_CONF_FILES_HOOK}" ]; then
+  python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || {
+    echo "build-xnu: conf-files hook failed" >&2
+    exit 1
+  }
+fi
 EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_BOOT_PROGRESS=$BOOT_PROGRESS"
 make -C .cache/xnu-work "${XNU_BUILD_TARGET:-build}" SDKROOT="${XNU_SDKROOT:-iphoneos}" ARCH_CONFIGS=ARM64 \
   MACHINE_CONFIGS=BCM2837 KERNEL_CONFIGS=DEVELOPMENT \

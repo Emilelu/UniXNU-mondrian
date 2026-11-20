@@ -1150,3 +1150,9 @@ source = "docs/engineering/PITFALLS.md:P-262"
 statement = "判据把「缺一行」既当没发生又当还没轮到：短窗日志里启动行缺失被判成失败，而它可能只是还没打印。只有正面证据（failed 行、panic）能越过窗口，其余缺行先看最长 wait 秒数是否到 240。"
 check = 'grep -q "hard = bool(refusals) or panic" scripts/judge-cellular-flight.py'
 
+[[rule]]
+id = "P-265"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-265"
+statement = "conf/files 钩子挂在 .cache/xnu-work 克隆之前，于是每次都答 tree not seeded、被 || echo 吞成一行日志；音频源从未进 conf/files，pong_audio_amp_probe 一直是弱引用未定义，构建报成功而产物检查器报 FAILED。调用点移到最终 make 之前，失败必须终止构建，刷新脚本要把它插回去。"
+check = 'grep -q "conf-files hook failed" scripts/build-xnu-generic.sh && python3 scripts/tests/test-conf-files-hook-placement.py'

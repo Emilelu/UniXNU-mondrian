@@ -7337,7 +7337,9 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
    dependence 拼错、ios27 为空、某条线一行都没有，全部判红；`scripts/tests/test-hw-contracts.py` 19 项回归
    覆盖"常量挪了""引了第 9 行""整条线没人管""第二份副本漂了""清单被手改"。
 3. 项数这类聚合值不要写死在散文里：要么写成"见 `run-k60-power-host.sh` 的输出"，要么由检查器比对
-   （`check-power-carry.py` 已经比对 CARRY.toml 的项数与 runner 的 `run <suite> <N>` 行、以及判读器用例数）。
+   （`check-power-carry.py` 比对 CARRY.toml 的模块/判读器项数与 runner 的 `run <suite> <N>` 行；
+   `check-power-counts.py` 再把 00 文档里那句「共 N 个套件，合计 T 项断言（…）」和
+   「power-python: OK (N suites)」与 runner 逐项对齐，句子消失也算失败，17 项用例；以及判读器用例数）。
 4. 宏名/门控写法改变时，同一个提交里改掉所有提到它的注释与文档（这次 `judge-k60-sleep-console.py` 的
    REPORT 注释与 08 的行是一起改的）。
 5. 需要给人看的汇总也生成，不要手写：`check-hw-contracts.py --render` 从契约表产出

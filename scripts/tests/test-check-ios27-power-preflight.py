@@ -47,7 +47,7 @@ def sha(path: Path) -> str:
 MODULE_C = "/* pure module */\nint k60_probe(void) { return 1; }\n"
 
 
-def make_device(base: Path) -> Path:
+def make_device(base: Path, *, contract: bool = False) -> Path:
     device = base / "device"
     (device / "docs" / "research" / "power").mkdir(parents=True)
     (device / "drivers" / "PongPower").mkdir(parents=True)
@@ -66,18 +66,31 @@ def make_device(base: Path) -> Path:
             continue  # already written above with a real manifest
         (device / rel).parent.mkdir(parents=True, exist_ok=True)
         (device / rel).write_text("# table\n", encoding="utf-8", newline="\n")
+    if contract:
+        shutil.copyfile(ROOT / "scripts" / "check-hw-contracts.py",
+                        device / "scripts" / "check-hw-contracts.py")
+        row = ('[[contract]]\nid = "probe-line"\nlane = "power"\nwhat = "the probe entry point"\n'
+               'source = "drivers/PongPower/K60Probe.h:2"\nexpect = "K60_PROBE 1u"\n'
+               'dependence = "none"\nios27 = "nothing"\n')
+        (device / "docs" / "research" / "power" / "HW-CONTRACTS.toml").write_text(
+            row, encoding="utf-8", newline="\n")
     return device
 
 
 def make_tree(base: Path, *, module: bool = True, guard: bool = False,
               macro: bool = True, builder: str = "generic", judges: bool = True,
-              tables: bool = True, picker: bool = True) -> Path:
+              tables: bool = True, picker: bool = True,
+              contract_body: str | None = None) -> Path:
     tree = base / "ios27"
     for rel in ("drivers/PongPower", "patches/xnu", "scripts"):
         (tree / rel).mkdir(parents=True)
     (tree / "board.toml").write_text('[machine]\nos_profile = "ios27"\n', encoding="utf-8", newline="\n")
     if module:
-        (tree / "drivers" / "PongPower" / "K60Probe.c").write_text(MODULE_C, encoding="utf-8", newline="\n")
+        (tree / "drivers" / "PongPower" / "K60Probe.c").write_text(
+            MODULE_C, encoding="utf-8", newline="\n")
+    (tree / "drivers" / "PongPower" / "K60Probe.h").write_text(
+        contract_body or "/* contract */\n#define K60_PROBE 1u\n",
+        encoding="utf-8", newline="\n")
     patch = "--- a/x\n+++ b/x\n"
     if guard:
         patch += '@@ -1,0 +1,2 @@\n+#if defined(PONG)\n+    armcpu_sleep_report();\n'
@@ -115,12 +128,12 @@ def run(device: Path, tree: Path) -> tuple[int, str]:
 
 
 def case(name: str, *, expect_rc: int, expect: str = "", device_ok: bool = True,
-         tree_exists: bool = True, **kwargs) -> None:
+         tree_exists: bool = True, contract: bool = False, **kwargs) -> None:
     base = WORK / name.replace(" ", "-")
     if base.exists():
         shutil.rmtree(base)
     base.mkdir(parents=True)
-    device = make_device(base) if device_ok else base
+    device = make_device(base, contract=contract) if device_ok else base
     tree = make_tree(base, **kwargs) if tree_exists else base / "ios27-absent"
     rc, out = run(device, tree)
     check(name, rc == expect_rc, f"rc={rc} want {expect_rc}\n{out}")
@@ -131,6 +144,10 @@ def case(name: str, *, expect_rc: int, expect: str = "", device_ok: bool = True,
 WORK.mkdir(parents=True, exist_ok=True)
 
 case("clean tree", expect_rc=0, expect="ios27-power-preflight: PASS")
+case("contract row computed", expect_rc=0, expect="1 same in the 27 tree", contract=True)
+case("contract drift reported", expect_rc=0,
+     expect="the 27 line still has to change probe-line", contract=True,
+     contract_body="/* contract */\n#define K60_PROBE 2u\n")
 case("missing module", expect_rc=1, expect="missing drivers/PongPower/K60Probe.c", module=False)
 case("pong guard", expect_rc=1, expect="K60_PLATFORM_SLEEP_REPORT", guard=True)
 case("no driver macro", expect_rc=0, expect="keep the driver-level switch", macro=False)

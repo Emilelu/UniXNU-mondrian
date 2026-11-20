@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import os
 import re
 import subprocess
@@ -223,6 +224,41 @@ def check_tables(tree: Path, device: Path) -> tuple[str, str]:
                      "rewires against prose instead of a checklist")
 
 
+def check_contracts(tree: Path, device: Path) -> tuple[str, str]:
+    """Open each contract row's own line in the 27 tree. A row classified "same" by hand
+    is worth only what a run in the other tree confirms, so the preflight computes the
+    verdict instead of trusting the column (P-259 / Lead, 2026-11-20)."""
+    manifest = device / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
+    tool = device / "scripts" / "check-hw-contracts.py"
+    if not manifest.is_file() or not tool.is_file():
+        return WARN, "no HW-CONTRACTS.toml here to check the 27 tree against"
+    try:
+        data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+        return WARN, f"cannot read the contract table: {error}"
+    rows = data.get("contract") or []
+    if not rows:
+        return WARN, "the contract table has no [[contract]] rows"
+    spec = importlib.util.spec_from_file_location("hw_contracts", tool)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    counts: dict[str, int] = {}
+    off: list[str] = []
+    for index, row in enumerate(rows, 1):
+        verdict, _ = module.computed27(row, tree)
+        if verdict == "skipped":
+            continue
+        counts[verdict] = counts.get(verdict, 0) + 1
+        if verdict != "same":
+            off.append(str(row.get("id") or index))
+    summary = ", ".join(f"{n} {verdict}" for verdict, n in sorted(counts.items()))
+    if not off:
+        return PASS, f"{summary} in the 27 tree"
+    more = f" and {len(off) - 4} more" if len(off) > 4 else ""
+    return WARN, (f"{summary} in the 27 tree; the 27 line still has to change "
+                  + ", ".join(off[:4]) + more)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tree", default=os.environ.get("K60_IOS27_TREE"),
@@ -254,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
     rows.append((state_, "judges", detail_))
     state_, detail_ = check_tables(tree, device)
     rows.append((state_, "carry-tables", detail_))
+    state_, detail_ = check_contracts(tree, device)
+    rows.append((state_, "contracts", detail_))
 
     blockers = [row for row in rows if row[0] == BLOCK]
     warnings = [row for row in rows if row[0] == WARN]

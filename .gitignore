@@ -39,6 +39,7 @@
 *.kc
 *.kernelcache
 *.log
+!scripts/tests/fixtures/*.log
 .DS_Store
 __pycache__/
 *.py[cod]

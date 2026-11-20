@@ -1,0 +1,71 @@
+[    0.000000] K60MODEM carrier: staged 27 streams
+[    1.204000] K60MODEM pas: init started
+K60MODEM power ok cx=0x30000/6 mss=0x30060/7 xo=0x300b0/3
+K60MODEM power prepared
+K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884
+K60MODEM transport prepared
+K60MODEM transport: smp2p stop released was=0x1 now=0x0 ipa=0x1
+K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000
+K60MODEM auth_reset ok
+K60MODEM baseband: bridge enabled (poll 3)
+COACHZ baseband: 22 of 22 services published
+K60MODEM qrtr: announced rmtfs service 14 instance 1 port 0x102
+K60MODEM qrtr: rmtfs open path=/boot/modem_fs1 storage=1
+K60MODEM qrtr: rmtfs open path=/boot/modem_fs2 storage=2
+K60MODEM qrtr: rmtfs alloc storage=1 bytes=2621440 physical=0x8f000000
+K60MODEM qrtr: announced memshare service 52 instance 1 port 0x101
+K60MODEM qrtr: memshare request=0x24 client=1 bytes=0 result=0
+K60MODEM qrtr: memshare buffer va=0xffffff8020000000 physical=0x8f400000 bytes=1048576 node=0 port=0x4
+K60MODEM qrtr: assign physical=0x8f400000 bytes=1048576 from=3 to=15 rc=0 sources=1 destinations=1
+K60MODEM qrtr: memshare request=0x22 client=1 bytes=1048576 result=0
+K60MODEM qrtr: ipa query=0x1 reply=0x1 at 12 s
+K60MODEM qrtr: rmtfs rw storage=1 direction=0 vectors=2 served
+K60UFS volume name=modemst1 lun=4 first=6 last=16389
+K60MODEM qrtr: wait 5 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 10 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 15 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 20 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 25 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 30 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 35 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 40 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 45 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 50 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 55 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 60 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 65 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 70 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 75 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 80 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 85 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 90 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 95 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 100 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 105 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 110 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 115 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 120 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 125 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 130 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 135 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 140 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 145 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 150 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 155 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 160 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 165 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 170 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 175 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 180 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 185 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 190 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 195 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 200 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 205 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 210 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 215 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 220 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 225 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 230 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 235 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
+K60MODEM qrtr: wait 240 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1

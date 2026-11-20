@@ -32,7 +32,7 @@ def main():
     env = dict(os.environ, DEVELOPER_DIR=DEVELOPER)
     sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True, env=env).strip()
     obj = out / 'ArmCpu.o'
-    command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios16.0',
+    command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', os.environ.get('K60_PLATFORM_TARGET_TRIPLE', 'arm64-apple-ios16.0'),
         '-isysroot', sdk, '-mkernel', '-ffreestanding', '-fno-builtin', '-fno-exceptions',
         '-fno-rtti', '-fno-stack-check', '-std=gnu++17', '-fblocks', '-O2',
         '-DKERNEL=1', '-DKERNEL_PRIVATE=1', '-DXNU_KERNEL_PRIVATE=1',
@@ -45,7 +45,7 @@ def main():
         raise SystemExit(result.stderr)
     archive = out / 'libArmCpu.a'
     subprocess.run(['xcrun', 'libtool', '-static', '-o', str(archive), str(obj)], check=True, env=env)
-    report = {'host': platform.machine(), 'target': 'arm64-apple-ios16.0',
+    report = {'host': platform.machine(), 'target': os.environ.get('K60_PLATFORM_TARGET_TRIPLE', 'arm64-apple-ios16.0'),
         'build_tree': str(tree),
         'source': str(source), 'archive': str(archive),
         'image_verification': 'skipped by request',

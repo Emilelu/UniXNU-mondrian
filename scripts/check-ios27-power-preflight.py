@@ -261,6 +261,31 @@ def check_contracts(tree: Path, device: Path) -> tuple[str, str]:
                   + " (the ordered list is docs/research/power/27-WORKORDER.md)")
 
 
+def check_console(tree: Path, device: Path) -> tuple[str, str]:
+    """The judges match strings the drivers print. Read both sides *in the 27 tree*: a
+    print this line renames would leave its judge reporting INVALID for a device that
+    printed its line perfectly, and only the pair shows it (P-261)."""
+    tool = device / "scripts" / "check-console-contract.py"
+    if not tool.is_file():
+        return WARN, "no check-console-contract.py here to check the 27 tree against"
+    spec = importlib.util.spec_from_file_location("console_contract", tool)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        problems = module.verify(tree, require_files=False)
+    except (OSError, SyntaxError, ImportError) as error:
+        return WARN, f"cannot run the pair gate against the 27 tree: {error}"
+    if problems:
+        return WARN, (f"{len(problems)} judged line(s) would no longer parse in the 27 tree: "
+                      + "; ".join(problems[:2]))
+    present = module.pairs_present(tree)
+    if not present:
+        return WARN, ("the 27 tree carries none of the judged lines yet, so the pair gate has "
+                      "nothing to compare")
+    return PASS, (f"{present} of {len(module.PAIRS)} judged line(s) checked in the 27 tree; "
+                  f"all match the drivers that print them")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tree", default=os.environ.get("K60_IOS27_TREE"),
@@ -294,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
     rows.append((state_, "carry-tables", detail_))
     state_, detail_ = check_contracts(tree, device)
     rows.append((state_, "contracts", detail_))
+    state_, detail_ = check_console(tree, device)
+    rows.append((state_, "console-pairs", detail_))
 
     blockers = [row for row in rows if row[0] == BLOCK]
     warnings = [row for row in rows if row[0] == WARN]

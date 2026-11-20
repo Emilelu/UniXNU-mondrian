@@ -121,6 +121,13 @@ def synthesise(fmt: str, fillers: tuple[str, ...] = ()) -> str:
     return "".join(out)
 
 
+def pairs_present(root: pathlib.Path, pairs=PAIRS) -> int:
+    """How many pairs both differ have a side in this tree. A pass over zero pairs is not
+    a pass: the other checkout may simply not carry the drivers yet."""
+    return sum(1 for _name, emitter, judge, _a, _an, _f in pairs
+               if (root / emitter).is_file() and (root / judge).is_file())
+
+
 def load_regex(path: pathlib.Path, attribute: str) -> re.Pattern:
     spec = importlib.util.spec_from_file_location(f"judge_{path.stem}_{attribute}", path)
     module = importlib.util.module_from_spec(spec)
@@ -128,16 +135,19 @@ def load_regex(path: pathlib.Path, attribute: str) -> re.Pattern:
     return getattr(module, attribute)
 
 
-def verify(root: pathlib.Path, pairs=PAIRS) -> list[str]:
+def verify(root: pathlib.Path, pairs=PAIRS, require_files: bool = True) -> list[str]:
+    """require_files=False is for reading another checkout (the iOS 27 tree), where a
+    driver that has not been carried yet is not a broken pair - it is a file that is not
+    there. What must never be skipped is a pair whose two sides are both present."""
     problems: list[str] = []
     for name, emitter, judge, attribute, anchor, fillers in pairs:
         emitted = root / emitter
         judged = root / judge
-        if not emitted.is_file():
-            problems.append(f"{name}: the emitter {emitter} does not exist")
-            continue
-        if not judged.is_file():
-            problems.append(f"{name}: the judge {judge} does not exist")
+        if not emitted.is_file() or not judged.is_file():
+            if require_files:
+                which = emitter if not emitted.is_file() else judge
+                kind = "emitter" if not emitted.is_file() else "judge"
+                problems.append(f"{name}: the {kind} {which} does not exist")
             continue
         fmt = find_format(emitted.read_text(encoding="utf-8", errors="replace"), anchor)
         if fmt is None:

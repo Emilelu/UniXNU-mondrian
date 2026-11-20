@@ -223,6 +223,31 @@ def cite_closure() -> list[str]:
     return rows
 
 
+def console_closure() -> list[str]:
+    """Both sides of every judged console line, read out of the pair gate itself.
+
+    The bundle carries check-console-contract.py and its fixtures, so it needs the
+    driver that prints each line and the judge that parses it. Listing those paths
+    here instead of reading them would be a second copy of the fact (P-261).
+    """
+    tool = ROOT / "scripts" / "check-console-contract.py"
+    if not tool.is_file():
+        return []
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("console_contract", tool)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except (OSError, SyntaxError, ImportError):
+        return []
+    rows: list[str] = []
+    for _name, emitter, judge, _attr, _anchor, _fill in module.PAIRS:
+        for rel in (emitter, judge):
+            if rel not in rows:
+                rows.append(rel)
+    return rows
+
+
 def pinned(manifest: dict) -> list[tuple[str, str]]:
     """(relative path, expected sha256) for every file the manifest names."""
     rows: list[tuple[str, str]] = []
@@ -241,6 +266,8 @@ def pinned(manifest: dict) -> list[tuple[str, str]]:
     for rel in runner_deps():
         rows.append((rel, ""))
     for rel in cite_closure():
+        rows.append((rel, ""))
+    for rel in console_closure():
         rows.append((rel, ""))
     for rel in include_closure([r for r, _ in rows if r.endswith((".c", ".h", ".cpp"))]):
         rows.append((rel, ""))

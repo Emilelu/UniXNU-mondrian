@@ -47,7 +47,7 @@ def sha(path: Path) -> str:
 MODULE_C = "/* pure module */\nint k60_probe(void) { return 1; }\n"
 
 
-def make_device(base: Path, *, contract: bool = False) -> Path:
+def make_device(base: Path, *, contract: bool = False, console: bool = False) -> Path:
     device = base / "device"
     (device / "docs" / "research" / "power").mkdir(parents=True)
     (device / "drivers" / "PongPower").mkdir(parents=True)
@@ -66,6 +66,9 @@ def make_device(base: Path, *, contract: bool = False) -> Path:
             continue  # already written above with a real manifest
         (device / rel).parent.mkdir(parents=True, exist_ok=True)
         (device / rel).write_text("# table\n", encoding="utf-8", newline="\n")
+    if console:
+        shutil.copyfile(ROOT / "scripts" / "check-console-contract.py",
+                        device / "scripts" / "check-console-contract.py")
     if contract:
         shutil.copyfile(ROOT / "scripts" / "check-hw-contracts.py",
                         device / "scripts" / "check-hw-contracts.py")
@@ -77,7 +80,7 @@ def make_device(base: Path, *, contract: bool = False) -> Path:
     return device
 
 
-def make_tree(base: Path, *, module: bool = True, guard: bool = False,
+def make_tree(base: Path, *, console: str | None = None, module: bool = True, guard: bool = False,
               macro: bool = True, builder: str = "generic", judges: bool = True,
               tables: bool = True, picker: bool = True,
               contract_body: str | None = None) -> Path:
@@ -112,6 +115,11 @@ def make_tree(base: Path, *, module: bool = True, guard: bool = False,
     if judges:
         for judge in JUDGES:
             (tree / "scripts" / judge).write_text("# judge\n", encoding="utf-8", newline="\n")
+    if console is not None:
+        # the real driver and the real judge, so the pair gate reads both sides in the tree
+        (tree / "drivers" / "PongPower" / "K60Battery.cpp").write_text(
+            console, encoding="utf-8", newline="\n")
+        shutil.copyfile(ROOT / "scripts" / "judge-battery.py", tree / "scripts" / "judge-battery.py")
     if tables:
         for rel in TABLES:
             (tree / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -128,13 +136,18 @@ def run(device: Path, tree: Path) -> tuple[int, str]:
 
 
 def case(name: str, *, expect_rc: int, expect: str = "", device_ok: bool = True,
-         tree_exists: bool = True, contract: bool = False, **kwargs) -> None:
+         tree_exists: bool = True, contract: bool = False, console: bool = False,
+         console_body: str | None = None,
+         **kwargs) -> None:
     base = WORK / name.replace(" ", "-")
     if base.exists():
         shutil.rmtree(base)
     base.mkdir(parents=True)
-    device = make_device(base, contract=contract) if device_ok else base
-    tree = make_tree(base, **kwargs) if tree_exists else base / "ios27-absent"
+    device = make_device(base, contract=contract, console=console) if device_ok else base
+    tree_kwargs = dict(kwargs)
+    if console_body is not None:
+        tree_kwargs["console"] = console_body
+    tree = make_tree(base, **tree_kwargs) if tree_exists else base / "ios27-absent"
     rc, out = run(device, tree)
     check(name, rc == expect_rc, f"rc={rc} want {expect_rc}\n{out}")
     if expect:
@@ -148,6 +161,11 @@ case("contract row computed", expect_rc=0, expect="1 same in the 27 tree", contr
 case("contract drift reported", expect_rc=0,
      expect="the 27 line still has to change probe-line", contract=True,
      contract_body="/* contract */\n#define K60_PROBE 2u\n")
+DRIVER = (ROOT / "drivers" / "PongPower" / "K60Battery.cpp").read_text(encoding="utf-8")
+case("console pairs computed", expect_rc=0, expect="all match the drivers that print them",
+     console=True, console_body=DRIVER)
+case("console rename warned", expect_rc=0, expect="would no longer parse", console=True,
+     console_body=DRIVER.replace("charge=%u/%umAh", "charge-now=%u/%umAh"))
 case("missing module", expect_rc=1, expect="missing drivers/PongPower/K60Probe.c", module=False)
 case("pong guard", expect_rc=1, expect="K60_PLATFORM_SLEEP_REPORT", guard=True)
 case("no driver macro", expect_rc=0, expect="keep the driver-level switch", macro=False)

@@ -112,3 +112,37 @@ None of these can be established from files on this host.
   not in `IOS27-FLIGHT-BLOCKERS.toml`;
 - no shared-config, builder or board switch changes before F3;
 - this plan does not merge with stage-0 and does not claim the driver works.
+## 8. Which steps need an Apple private header
+
+None of the eight steps does. This section exists because "needs Apple's headers" is
+the usual reason a step gets deferred to a Mac, and it is not the reason here: the
+route consumes published sources plus one Apple *binary* that this project already
+pins.
+
+| # | Step | Private header? | Consumes instead |
+| --- | --- | --- | --- |
+| 1 | metaclass macro rename, `build-sheng-source-storage.py:173-178` | no | `libkern/c++/OSMetaClass.h` from xnu-12377 and the `IOBlockStorageDevice.cpp` that ships in the pinned IOStorageFamily source |
+| 2 | strip `__DATA,__mod_init_func`, `:228-231` | no | an `llvm-objcopy` that writes Mach-O (the 14 toolchain), no headers |
+| 3 | `native_source_storage_parent()` in `SourceStorage.cpp:243-247` | no | `OSMetaClass.h` only |
+| 4 | `OSKextLoadKextWithIdentifier` and `getMetaClassWithName`, `:270-278` | no | `libkern/OSKextLib.h`; the kext it loads is Apple's binary, already in the pinned kernelcache |
+| 5 | policy authentication, APFS load, `preModLoad`, constructors, `postModLoad`, `:282-292` | no | the same OSS headers; `SourceStorage.cpp:3-12` includes only `IOKit/*`, `libkern/OSKextLib.h`, `mach/kmod.h`, `pexpert/pexpert.h` and `kern/thread.h` |
+| 6 | link `libNativeUfs.a`, `build-xnu-generic.sh:649` | no | the archive and the recorded link line |
+| 7 | the switch and the component include, defconfig:21 and board.toml:359 | no | repository configuration |
+| 8 | the preflight | no | the pinned kernelcache and the kernel.json report |
+
+What is Apple-private is the **binary, not the header**: `com.apple.iokit.IOStorageFamily`
+inside the 24A446 collection, which the plan loads at runtime and never compiles
+against. The vtable and metaclass work is exactly how the plan keeps that boundary —
+it calls into a binary whose ABI it measured (190 slots, discriminators, class size
+0x90) instead of reproducing Apple's private declarations.
+
+One Mac-only artifact was involved and is no longer needed: the arm64e compile and
+link arguments recorded in `KernelConfigTables.cpo.json`. They were replayed on Linux
+with the recorded `clang` and produced the same 190/190 discriminators, so the
+comparison table does not need a Mac to regenerate.
+
+The residual case is worth naming. If policy authentication ever needs an AMFI KPI
+that xnu's published source does not declare, that would be the first genuine private
+interface, and it would show up as an undefined symbol in the link rather than as a
+missing include. Nothing in the current code calls one.
+

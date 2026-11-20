@@ -658,9 +658,9 @@ check = "python3 scripts/check-w1-lun-preflight.py"
 note = "The wrapper is the in-line preflight entry, not a flight-ledger writer: it maps the judge's PENDING exit 2 to 0 and leaves FAIL 1 fatal. The judge's standalone CLI keeps 0/2/1. Missing capture is printed as PENDING and never blocks the build; a malformed or contradictory capture still fails. Three fixtures exercise pass, pending and fail."
 
 [[rule]]
-id = "P-283"
+id = "P-284"
 kind = "pitfall"
-source = "docs/engineering/PITFALLS.md:P-283"
+source = "docs/engineering/PITFALLS.md:P-284"
 statement = "A preflight gate that requires evidence which cannot exist yet is always red; an always-red gate is ignored. Missing legs are PENDING and exit 0; contradictory or malformed evidence is FAIL and exits non-zero."
 check = "python3 scripts/tests/test-w1-lun-preflight.py"
 note = "W1 controller LUN cannot be known before a device capture. The first in-line wiring treated the judge PENDING as failure. The wrapper now maps 2 to 0 and keeps 1 fatal; three fixtures assert pass/pending/fail and the judge standalone CLI keeps 0/2/1."

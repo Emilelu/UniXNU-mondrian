@@ -113,6 +113,8 @@ docs/
 | `audio/IOS27-USERLAND.md` | **音频 27 用户态重接**：sheng 的 `ShengAudioAbi.h` 接口（三块内存、48 kHz / 480 帧 period / 65,536 帧环、2048 起诊断页）、HAL 注入的 addon4 槽、182 例 audioreach host 基线、与内核侧的接缝 |
 | `audio/IOS27-WIRING.md` | **音频 27 接线清单**：谁调用 `pong_audio_amp_probe/play/stop`、每步用哪行日志证明、GLINK 通道归 power 搬只留 `k60_pmic_glink_send_audio` 契约、AFE 服务在 27 上不存在的证据指针、PCM 缓冲归属仍未解 |
 | `audio/LANE-BOUNDARIES.md` | **音频线的边界与越界记录**：四条不变边界（上机只在 Lead、不合 main、不动设备、提交形状）、一次越界推 `k60-gates` main 的事实与后果、本线判据速查表 |
+| `audio/IOS27-SHENG-REFS.md` | **sheng 内核与驱动参考清单**：同一基准的 25 项补丁逐条判 audio/partial/no（1 条新增音频、1 条含既有音频上下文、23 条无直接新增音频），K60 设备系列对照、页表与弱链接证据边界、GENI FIFO 与功放型号差异、同树引用门禁 |
+| `audio/IOS27-PAC.md` | **音频接缝与 PAC**：arm64e 的原生密钥补丁怎么给内核装上 PAC、音频代码的 EL1 特权面逐行判定、io 表与弱符号调用在插桩前后各是什么形态、以及 sheng 的 addon-mount 补丁为什么不依赖 PAC |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 | `bt/RESEARCH.md` | **蓝牙八步 ①②③**：QCA6490 走 GENI UART 的硬件真值、官方组件分工、与 iOS 27 用户态的对齐点 |
 | `bt/HANDOFF.md` | **蓝牙线交接**：从 0516 到 0525 的每一步、每次飞行的判据与缺口、恢复时的第一步 |

@@ -16,6 +16,16 @@ import sys
 
 WINDOW_DEFAULT = 240
 
+# The first sixteen bytes of each EFS volume, as the reference record holds them.
+# Storage 4 (fsc) being all zeros is itself the record: an empty head is the
+# correct answer there, not a missing one.
+EFS_HEADS = {
+    1: "1000000003000000d801000020faa9c4",
+    2: "1100000003000000d801000000026080",
+    3: "1400000003000000d801000000000000",
+    4: "0" * 32,
+}
+
 BOOT = [
     ("power ok", r"K60MODEM power ok cx="),
     ("power prepared", r"K60MODEM power prepared"),
@@ -57,7 +67,7 @@ def first(pattern, text):
     return match
 
 
-def judge(text, window):
+def judge(text, window, require_efs=False):
     """Returns (verdict, items) where items is a list of (state, name, detail)."""
     items = []
     missing_required = 0
@@ -108,8 +118,12 @@ def judge(text, window):
 
     # The outcome token decides: a bare 'served' search would count 'not-served'
     # as a served read, because the word is a suffix of the refusal.
-    rw = re.findall(r"rmtfs rw storage=(\d+) direction=(\d+) vectors=(\d+) (\S+)", text)
-    served = [entry for entry in rw if entry[3] == "served"]
+    rw = re.findall(
+        r"^(?:\[[^\]\r\n]*\][ \t]*)?K60MODEM qrtr: rmtfs rw "
+        r"storage=(\d+) direction=(\d+) vectors=(\d+) (\S+)"
+        r"(?:[ \t]+offset=\d+[ \t]+bytes=\d+)?[ \t]*$", text, re.MULTILINE)
+    served = [entry for entry in rw
+              if entry[3] == "served" and entry[1] == "0" and int(entry[2]) > 0]
     if served:
         items.append(("PASS", "rmtfs rw served",
                       "%d read(s), e.g. storage=%s direction=%s vectors=%s" % ((len(served),) + served[0][:3])))
@@ -120,6 +134,59 @@ def judge(text, window):
         items.append(("FAIL", "rmtfs rw served", detail))
         missing_required += 1
 
+    # W2 compares a sixteen-byte sample, not every byte in the vector. Legacy
+    # k54 captures have no sample: SKIP by default, required explicitly for k55.
+    # Collect candidates before validating hex so malformed evidence cannot
+    # disappear and be mistaken for a legacy capture.
+    summary_row = re.compile(
+        r"storage=\d+ direction=\d+ vectors=\d+ (?:served|refused|not-served)"
+        r"(?:[ \t]+offset=\d+[ \t]+bytes=\d+)?[ \t]*")
+    rows = re.findall(
+        r"^(?:\[[^\]\r\n]*\][ \t]*)?K60MODEM qrtr: rmtfs rw ([^\r\n]*)$",
+        text, re.MULTILINE)
+    rows = [row for row in rows if summary_row.fullmatch(row) is None]
+    read_storages = {int(entry[0]) for entry in served}
+    checked = 0
+    bad = 0
+    for row in rows:
+        match = re.fullmatch(
+            r"storage=(\d+) direction=(\d+) offset=(\d+) bytes=(\d+) head=(\S+)[ \t]*", row)
+        if match is None:
+            bad += 1
+            items.append(("FAIL", "efs bytes reported", "malformed sample: " + row))
+            continue
+        storage, direction, offset, length = map(int, match.groups()[:4])
+        head = match.group(5).lower()
+        problem = None
+        if storage not in EFS_HEADS:
+            problem = "storage=%d has no independent reference" % storage
+        elif direction != 0:
+            problem = "direction=%d is not a read" % direction
+        elif offset != 0:
+            problem = "offset=%d, the reference starts at 0" % offset
+        elif length < 512 or length % 512:
+            problem = "bytes=%d is not a positive whole number of 512-byte sectors" % length
+        elif re.fullmatch(r"[0-9a-f]{32}", head) is None:
+            problem = "head=%s is not exactly sixteen hexadecimal bytes" % head
+        elif storage not in read_storages:
+            problem = "storage=%d has no served nonempty read" % storage
+        elif head != EFS_HEADS[storage]:
+            problem = "head=%s, expected %s" % (head, EFS_HEADS[storage])
+        if problem:
+            bad += 1
+            items.append(("FAIL", "efs bytes storage=%d" % storage, problem))
+        else:
+            checked += 1
+            items.append(("PASS", "efs bytes storage=%d" % storage,
+                          "offset=0 bytes=%d head=%s (16-byte sample)" % (length, head)))
+    missing_required += bad
+    if not rows:
+        state = "FAIL" if require_efs else "SKIP"
+        items.append((state, "efs bytes reported", "no sixteen-byte sample was printed"))
+        missing_required += int(require_efs)
+    elif checked == 0 and bad == 0:
+        items.append(("FAIL", "efs bytes reported", "no comparable sample"))
+        missing_required += 1
     # Which disk answered. The modem partitions live on their own LUN here, so a
     # served read without this line cannot be told apart from a read off the
     # wrong table (P-261).
@@ -219,6 +286,7 @@ def judge(text, window):
     return "FAILED", items, observed
 
 
+# Synthetic LUN/address values exercise parsing; they are not controller truth.
 FIXTURE_PASS = """
 K60MODEM power ok cx=0x30000/6 mss=0x30060/7 xo=0x300b0/3
 K60MODEM power prepared
@@ -235,6 +303,7 @@ K60MODEM qrtr: rmtfs open path=/boot/modem_fs2 storage=2
 K60MODEM qrtr: rmtfs alloc storage=1 bytes=2621440 physical=0x8f000000
 K60UFS volume name=modemst1 lun=4 first=6 last=16389
 K60MODEM qrtr: rmtfs rw storage=1 direction=0 vectors=2 served
+K60MODEM qrtr: rmtfs rw storage=1 direction=0 offset=0 bytes=4096 head=1000000003000000d801000020faa9c4
 K60MODEM qrtr: announced memshare service 52 instance 1 port 0x101
 K60MODEM qrtr: memshare request=0x24 client=1 bytes=0 result=0
 K60MODEM qrtr: memshare buffer va=0xffffff8020000000 physical=0x8f400000 bytes=1048576 node=0 port=0x4
@@ -269,26 +338,100 @@ FIXTURE_REFUSED = FIXTURE_PASS.replace("vectors=2 served", "vectors=2 not-served
 
 FIXTURE_NOLUN = FIXTURE_PASS.replace("K60UFS volume name=modemst1 lun=4 first=6 last=16389" + chr(10), "")
 
+# Legacy k54 kernels printed no sample. They stay comparable without the strict
+# flag; k55 explicitly requires the sample in its flight command.
+SAMPLE_LINE = ("K60MODEM qrtr: rmtfs rw storage=1 direction=0 offset=0 "
+               "bytes=4096 head=" + EFS_HEADS[1])
+FIXTURE_NOHEAD = FIXTURE_PASS.replace(SAMPLE_LINE + chr(10), "")
+
 
 def self_test():
-    cases = (("PASS", FIXTURE_PASS), ("INVALID", FIXTURE_SHORT), ("FAILED", FIXTURE_FAILED),
-             ("FAILED", FIXTURE_REFUSED), ("FAILED", FIXTURE_NOLUN), ("INVALID", FIXTURE_EARLY))
+    cases = (("PASS", FIXTURE_PASS), ("INVALID", FIXTURE_SHORT),
+             ("FAILED", FIXTURE_FAILED), ("FAILED", FIXTURE_REFUSED),
+             ("FAILED", FIXTURE_NOLUN), ("INVALID", FIXTURE_EARLY),
+             ("PASS", FIXTURE_NOHEAD))
     for expected, text in cases:
         verdict, items, observed = judge(text, WINDOW_DEFAULT)
         assert verdict == expected, (expected, verdict)
         assert len(items) > 5
-    # A refused read must never be read as a served one: 'not-served' ends with 'served'.
     verdict, items, observed = judge(FIXTURE_REFUSED, WINDOW_DEFAULT)
-    rw = [item for item in items if item[1] == "rmtfs rw served"][0]
+    rw = next(item for item in items if item[1] == "rmtfs rw served")
     assert rw[0] == "FAIL", rw
-    print("K60 FLIGHT JUDGE PASS six verdicts, the served/not-served guard, the volume lun guard, the early-capture guard")
-    return 0
+    verdict, items, observed = judge(FIXTURE_NOHEAD, WINDOW_DEFAULT, True)
+    efs = next(item for item in items if item[1] == "efs bytes reported")
+    assert verdict == "FAILED" and efs[0] == "FAIL", (verdict, efs)
+    verdict, items, observed = judge(FIXTURE_NOHEAD, WINDOW_DEFAULT)
+    efs = next(item for item in items if item[1] == "efs bytes reported")
+    assert verdict == "PASS" and efs[0] == "SKIP", (verdict, efs)
 
+    # One independently matched storage is sufficient. Each other storage uses
+    # its own reference, including the valid all-zero fsc sample.
+    for storage, head in EFS_HEADS.items():
+        text = FIXTURE_NOHEAD.replace("rw storage=1 direction=0 vectors=2 served",
+                                     "rw storage=%d direction=0 vectors=2 served" % storage)
+        text += ("K60MODEM qrtr: rmtfs rw storage=%d direction=0 offset=0 "
+                 "bytes=4096 head=%s\n" % (storage, head.upper()))
+        verdict, items, observed = judge(text, WINDOW_DEFAULT, True)
+        efs = next(item for item in items if item[1] == "efs bytes storage=%d" % storage)
+        assert verdict == "PASS" and efs[0] == "PASS", (storage, verdict, efs)
+
+    bad_rows = (
+        SAMPLE_LINE.replace("storage=1", "storage=0"),
+        SAMPLE_LINE.replace("storage=1", "storage=5"),
+        SAMPLE_LINE.replace("storage=1", "storage=2"),
+        SAMPLE_LINE.replace("direction=0", "direction=1"),
+        SAMPLE_LINE.replace("offset=0", "offset=512"),
+        SAMPLE_LINE.replace("bytes=4096", "bytes=0"),
+        SAMPLE_LINE.replace("bytes=4096", "bytes=16"),
+        SAMPLE_LINE.replace("bytes=4096", "bytes=513"),
+        SAMPLE_LINE.replace(EFS_HEADS[1], EFS_HEADS[2]),
+        SAMPLE_LINE.replace(EFS_HEADS[1], "0" * 32),
+        SAMPLE_LINE.replace(EFS_HEADS[1], "z" * 32),
+        SAMPLE_LINE[:-1], SAMPLE_LINE + "0", SAMPLE_LINE.split("head=")[0] + "head=",
+        SAMPLE_LINE.replace("offset=0 ", ""), SAMPLE_LINE + " vectors=1",
+        "K60MODEM qrtr: rmtfs rw storage=1 direction=0 vectors=2 garbage",
+    )
+    for row in bad_rows:
+        # A malformed sample cannot become a legacy SKIP, even without strict mode.
+        verdict, items, observed = judge(FIXTURE_PASS.replace(SAMPLE_LINE, row), WINDOW_DEFAULT)
+        efs = [item for item in items if item[1].startswith("efs bytes")]
+        assert verdict == "FAILED" and any(item[0] == "FAIL" for item in efs), (row, verdict, efs)
+    for outcome in ("vectors=0 served", "vectors=2 not-served", "vectors=2 refused"):
+        text = FIXTURE_PASS.replace("vectors=2 served", outcome)
+        verdict, items, observed = judge(text, WINDOW_DEFAULT, True)
+        efs = next(item for item in items if item[1] == "efs bytes storage=1")
+        assert verdict == "FAILED" and efs[0] == "FAIL", (outcome, verdict, efs)
+    text = FIXTURE_PASS.replace(SAMPLE_LINE, "[12.345] " + SAMPLE_LINE.upper().replace(
+        "K60MODEM QRTR: RMTFS RW STORAGE=1 DIRECTION=0 OFFSET=0 BYTES=4096 HEAD=",
+        "K60MODEM qrtr: rmtfs rw storage=1 direction=0 offset=0 bytes=4096 head="))
+    assert judge(text, WINDOW_DEFAULT, True)[0] == "PASS"
+    # A row that looks like a summary but lost its outcome word is evidence.
+    # It was once dropped by a permissive fourth-token match: a capture carrying
+    # only this row passed as legacy, and a valid sample beside it still passed
+    # with --require-efs-bytes.
+    lost_outcome = ("K60MODEM qrtr: rmtfs rw storage=1 direction=0 "
+                    "vectors=2 head=" + EFS_HEADS[1])
+    for text in (FIXTURE_PASS.replace(SAMPLE_LINE, lost_outcome),
+                 FIXTURE_PASS + lost_outcome + chr(10)):
+        for strict in (False, True):
+            verdict, items, observed = judge(text, WINDOW_DEFAULT, strict)
+            efs = [item for item in items if item[1].startswith("efs bytes")]
+            assert verdict == "FAILED" and any(item[0] == "FAIL" for item in efs), (
+                strict, verdict, efs)
+    # The real k55 summary gained offset/bytes; it must stay a summary and not
+    # be mistaken for a malformed sample.
+    text = FIXTURE_PASS.replace("vectors=2 served",
+                                "vectors=2 served offset=0 bytes=4096")
+    assert judge(text, WINDOW_DEFAULT, True)[0] == "PASS"
+    print("K60 FLIGHT JUDGE PASS legacy/strict, four independent heads, malformed samples, served-read guards")
+    return 0
 
 def main():
     parser = argparse.ArgumentParser(description="Judge a K60 cellular modem flight")
     parser.add_argument("evidence", nargs="?", help="evidence directory or console.log")
     parser.add_argument("--window", type=int, default=WINDOW_DEFAULT, help="seconds the modem needs before a missing line means failure")
+    parser.add_argument("--require-efs-bytes", action="store_true",
+                        help="treat a served read without comparable bytes as a failure")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -296,7 +439,7 @@ def main():
     if not args.evidence:
         parser.error("evidence directory required")
     text = read_log(args.evidence)
-    verdict, items, observed = judge(text, args.window)
+    verdict, items, observed = judge(text, args.window, args.require_efs_bytes)
     for state, name, detail in items:
         print("%-5s %-26s %s" % (state, name, detail))
     print("")

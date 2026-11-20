@@ -117,6 +117,8 @@ def main():
                         help="judging window in seconds (default: the judge's own)")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the commands instead of booting")
+    parser.add_argument("--require-efs-bytes", action="store_true",
+                        help="fail a served read whose bytes were not printed")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 
@@ -137,6 +139,8 @@ def main():
                                           "judge-cellular-flight.py")]
     if args.window is not None:
         judge += ["--window", str(args.window)]
+    if args.require_efs_bytes:
+        judge.append("--require-efs-bytes")
 
     state = device_state()
     print("device  %s" % (state[0] if state else "unknown"))

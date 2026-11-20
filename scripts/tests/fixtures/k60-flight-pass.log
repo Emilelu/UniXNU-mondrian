@@ -20,6 +20,7 @@ K60MODEM qrtr: assign physical=0x8f400000 bytes=1048576 from=3 to=15 rc=0 source
 K60MODEM qrtr: memshare request=0x22 client=1 bytes=1048576 result=0
 K60MODEM qrtr: ipa query=0x1 reply=0x1 at 12 s
 K60MODEM qrtr: rmtfs rw storage=1 direction=0 vectors=2 served
+K60MODEM qrtr: rmtfs rw storage=1 direction=0 offset=0 bytes=4096 head=1000000003000000d801000020faa9c4
 K60UFS volume name=modemst1 lun=4 first=6 last=16389
 K60MODEM qrtr: wait 5 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1
 K60MODEM qrtr: wait 10 s services=9 wanted=0 dms=0 malformed=0 tx head=3304 tail=1232 rx avail=1 head=64 tail=128 intents=30/30 local=30/30 lbusy=0 ldone=30 msgs=41/39 dropped=0 rxcmd=3/1/0/8 replies=2 rmtfs=1 ipa=0x1

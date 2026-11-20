@@ -182,17 +182,16 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 
 | Phase | Work | Exit |
 | --- | --- | --- |
-| F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth measured on the board on 2026-11-18 (`ISAR1` `APA=0b0101`, `API=0`: the address keys arm64e uses, no generic keys); the key-register write and the `PACIA`/`AUTIA` round trip still need one boot with the fixed probe |
+| F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth measured on the board on 2026-11-18 (`ISAR1` `APA=0b0101`, `API=0`: the address keys arm64e uses, no generic keys); the second capture died with a data abort before the key read-back, and the probe's key table and exception frame were corrected offline — the corrected image is unmeasured |
 | F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-geometry.py` and `scripts/check-ios27-granules.sh` pass |
 | F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI; the userdata image is built | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
 
-### What the first PAC capture says
+### What the PAC captures say
 
-`ios-mondrian`'s probe ran once on the board (2026-11-18; the capture names the
-iOS 16 shim, and the image's own hash was not recorded, so treat the command as
-reproducible only from that repository):
+The first run (2026-11-18; the image's own hash was not recorded) answered the
+hardware question but printed a wrong verdict:
 
 ```
 ISAR1 0x0010011101211052   ISAR2 0x0000000000000000
@@ -200,26 +199,43 @@ FEAT APA 5  API 0          GPA 1  GPI 0
 RESULT no FEAT_PAuth -> arm64 only (max IOS 18)
 ```
 
-The verdict line is wrong and the probe was wrong with it. `APA = 0b0101` is
-FEAT_PAuth with EPAC and PAuth2; `API = 0` only says the *generic* keys are
-missing, and arm64e authenticates code and data pointers with the address keys
-(APIA/APIB/APDA/APDB). The probe's gate required `apa && api && gpa && gpi`, and
-printed GPA/GPI from `[15:12]`/`[19:16]` (JSCVT/FCMA) instead of
+`APA = 0b0101` is FEAT_PAuth with EPAC and PAuth2; `API = 0` only says the
+*generic* keys are missing, and arm64e authenticates code and data pointers with
+the address keys (APIA/APIB/APDA/APDB). The gate required `apa && api && gpa &&
+gpi`, and printed GPA/GPI from `[15:12]`/`[19:16]` (JSCVT/FCMA) instead of
 `[27:24]`/`[31:28]`.
 
-So the hardware side is answered: SM8475 has PAC, as Armv9 requires. What the
-capture does **not** contain is the second and third steps — the key registers
-read back at EL1 and `PACIA`/`AUTIA` changing a pointer — because the probe
-stopped at its own gate. Those are one boot away with the fixed probe, and the
-kernel side of the gate is not passed until they are recorded.
+The second run used the corrected gate and printed `FEAT_PAuth present`, then
+died before the next line: `PANIC SYNC`, `SLOT 4`, `ESR 0x96000006` (same EL,
+translation fault level 2, read), `FAR 0x80000008`. The capture does not include
+`ELR`, so the faulting instruction was not identified. The probe also runs
+before `mmu_enable`, and ABL enters with the MMU off, where a translation fault
+should be impossible.
+
+Disassembling the image offline found a defect that invalidates the key step
+whatever the abort was. The `KEY_REGS` table was shifted one `op2`: "APIA" wrote
+APIAKEYHI and APIBKEYLO, "APIB" wrote APIBKEYHI and `S3_0_C2_C1_4` — an encoding
+the architecture does not allocate — and the D and A-G pairs were shifted the
+same way. APIAKEYLO, APDAKEYLO, APDBKEYLO and APGAKEYLO were never written. The
+same image also restored the exception frame with `add sp, #240` where the frame
+is 272 bytes, and loaded the stashed `x29`/`x30` 16 bytes low, so the panic's
+`X29`/`X30` and the IRQ return path were garbage.
+
+The probe now uses `op2` 0..3 for A/B and D/A-B and 0..1 for A-G, fixes the
+frame arithmetic, and prints `SCTLR`, `TTBR0` and `TCR` in every panic, so the
+next data abort says which map produced it. The corrected image and its sha are
+recorded in `porting.toml`; it has not been booted, so the key read-back and the
+`PACIA`/`AUTIA` round trip are still unmeasured. An unallocated `msr` should
+raise an undefined instruction, not a data abort, so the abort itself also stays
+open until that capture has an `ELR`.
 
 The probe lives in `ios-mondrian`'s `shim/`, and that checkout is worked in
 parallel for the iOS 16 line, so the fix travels as
-`patches/ios-mondrian/pac-probe-arm64e-gate.patch`: it applies to `shim/pac.c`
-and `docs/PAC_PROBE.md` and changes nothing unless `PAC_PROBE=1` is exported
-(`shim.c` calls `pac_probe()` only under that define). Build the probe from a
-copy of that shim, never in the shared checkout, so its `out/` stays the iOS 16
-line's.
+`patches/ios-mondrian/pac-probe-arm64e-gate.patch`: it applies to `shim/pac.c`,
+`shim/shim.c`, `shim/start.S` and `docs/PAC_PROBE.md`, and changes nothing
+unless `PAC_PROBE=1` is exported (`shim.c` calls `pac_probe()` only under that
+define). Build the probe from a copy of that shim, never in the shared checkout,
+so its `out/` stays the iOS 16 line's.
 
 ## Framework patches this branch carries
 

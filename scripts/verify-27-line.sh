@@ -53,6 +53,10 @@ for name in 0626-k60-modem-image 0627-k60-modem-qrtr 0628-k60-ipa \
 	fi
 done
 
+python3 "$(dirname "$0")/check-call-site-placement.py" --tree "$T" || {
+	echo "K60 TRIAL FAILED the call-site block is not where the contract puts it"; exit 1; }
+echo "K60 TRIAL ok   the call-site block sits between the guard and stage 3"
+
 if [ -n "$APPENDER" ]; then
 	python3 "$APPENDER" --verify "$T" "$PATCHES/conffiles-port.txt" || {
 		echo "K60 TRIAL FAILED the shared appender refused the clone"; exit 1; }

@@ -176,6 +176,36 @@ def a_guarded_call_site_that_compiled_in_passes():
         assert rc == 0, f"expected 0 when the call site is live, got {rc}"
 
 @case
+def an_unreadable_kernel_is_not_a_missing_symbol():
+    """P-279: nm failing and the symbol being absent must not look the same.
+
+    A root-owned kernel.macho (mode 0600, written by a build) graded by a
+    non-root run used to report "ArmDTPlatform was force-loaded into a branch
+    that does not run" while the kernel held that symbol 29 times.
+    """
+    import time
+
+    gate = load_gate()
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        board = out / "mondrian" / "sdk" / "board"
+        (board / "kernel").mkdir(parents=True)
+        kernel = board / "kernel" / "kernel.macho"
+        (board / ".config").write_text("CONFIG_XNU_ARM_DT_PLATFORM=y\n", encoding="utf-8")
+        time.sleep(0.02)
+        kernel.write_bytes(b"\x00" * 64)
+        (board / "tree" / "build" / "armdt-platform").mkdir(parents=True)
+        (board / "tree" / "build" / "armdt-platform" / "libArmDTPlatform.a").write_bytes(b"!<arch>\n")
+        original = gate.kernel_symbols
+        gate.kernel_symbols = lambda kernel, nm: None
+        try:
+            rc = gate.main(["--out", str(out), "--kernel", str(kernel)])
+        finally:
+            gate.kernel_symbols = original
+        assert rc == 2, f"expected 2 when the kernel cannot be read, got {rc}"
+
+
+@case
 def no_kernel_is_an_error():
     gate = load_gate()
     with tempfile.TemporaryDirectory() as tmp:

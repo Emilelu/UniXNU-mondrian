@@ -7368,3 +7368,43 @@ Apple 设备树 `panic("CPU configuration in device tree is invalid")`
 这条坑的一般形状：**「这个平台的 ABI 是什么」不是项目级常量。** 同一个符号名在两个 OS 版本
 里可以是两种返回契约，而代码里写死的那个常量在另一条线上仍然是「能跑」的——它只是不再做
 它声称要做的那件事。判据必须来自被改的那个函数自己的字节。
+
+## P-279 — 门禁读不到产物时，不要报告成「产物里没有那个符号」
+
+`scripts/check-kernel-archives.py` 决定 P-190 的方式是「配置里开了这个归档 → 内核里该有它的符号」。
+它取符号表的函数曾经这样写：
+
+    proc = subprocess.run([nm, str(kernel)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        return set()          # <- 读不到，就当没有
+
+2026-11-20 我在根会话之外跑全量铁则门禁，157 条里唯一一条红是：
+
+    ❌ P-190  CONFIG_XNU_ARM_DT_PLATFORM=y but no ArmDTPlatform symbol is in
+              kernel.macho; build/armdt-platform/libArmDTPlatform.a was
+              force-loaded into a branch that does not run (P-190)
+
+而那个内核里 `llvm-nm-18 | grep -c ArmDTPlatform` 是 **29**。真正发生的事是：产物是构建
+以 root 写的（`kernel.macho` 模式 `0600`），门禁以普通用户跑，`nm` 打不开文件、退出非零，
+于是「读不到」被折叠成「没有」。
+
+这条坑的危险不在于误报一次，而在于**误报的方向**：它把环境问题说成一个具体的源码缺陷，
+还给出了「force-load 进了不执行的分支」这种听起来很有道理的解释。照着它去改代码，就会去
+追一个不存在的 bug；追不到就开始怀疑门禁、给门禁加 waiver——`check-rules` 现在显示的
+**49 条 waiver** 里有多少是这样攒下来的，我不知道，但这条路径是通的。
+
+修法是把两种结局分开，并且让调用方必须处理第三种状态：
+
+* `kernel_symbols()` 返回 `set[str] | None`；`nm` 非零退出时打印 `note: … could not read … : Permission denied`
+  并返回 `None`；
+* 调用方见 `None` 就退 **2**，消息是「符号表未知，不等于符号不存在（P-251）。请用构建那棵树
+  的用户跑门禁」——**2 是「没法判」，1 才是「判为不合格」**，这与门禁里既有的
+  `no kernel.macho` / `no nm tool` 两条同码。
+
+顺带把环境也修了：`chown -R emilelu:emilelu` 给了 `kernel/ payload/ boot/` 三个目录，之后
+同一条命令以普通用户跑是 `✅ kernel archives: 2 enabled archive(s) all present in kernel.macho`。
+
+一般化教训（与 P-251「门禁读的配置键从没存在过」同族，但方向相反）：**P-251 是门禁读错了
+名字所以永远判通过；P-279 是门禁读不到东西所以永远判不通过。** 两者都源于同一个疏忽——
+把「我拿到的信息」当成「事情本身的真相」。门禁的每一次外部调用（读文件、跑工具、连设备）
+都必须区分「成功」「失败」「没测成」，并且第三种绝不能落进前两种。

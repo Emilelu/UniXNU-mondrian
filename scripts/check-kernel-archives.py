@@ -84,10 +84,22 @@ def nm_tool() -> str | None:
     return None
 
 
-def kernel_symbols(kernel: Path, nm: str) -> set[str]:
+def kernel_symbols(kernel: Path, nm: str) -> set[str] | None:
+    """Symbols of the built kernel, or None when the file could not be read.
+
+    Returning an empty set on failure made "nm could not open the file" and "the
+    symbol is not in the kernel" the same verdict: on 2026-11-20 a non-root run
+    of the registry graded a root-owned kernel.macho (mode 0600, written by a
+    build) and reported that ArmDTPlatform had been force-loaded into a branch
+    that never runs -- it was in the kernel 29 times. A gate that turns a
+    permission error into a defect report teaches people to ignore it (P-251).
+    """
     proc = subprocess.run([nm, str(kernel)], capture_output=True, text=True)
     if proc.returncode != 0:
-        return set()
+        detail = (proc.stderr or proc.stdout).strip().splitlines()
+        first = detail[0] if detail else f'exit {proc.returncode}'
+        print(f'note: {Path(nm).name} could not read {kernel}: {first}', file=sys.stderr)
+        return None
     symbols = set()
     for line in proc.stdout.splitlines():
         parts = line.split()
@@ -151,6 +163,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     symbols = kernel_symbols(kernel, nm)
+    if symbols is None:
+        print(f'FAIL: {kernel} could not be read by {Path(nm).name}; the symbol list '
+              f'is unknown, which is not the same as the symbols being absent '
+              f'(P-251). Run the registry as the user that built the tree.', file=sys.stderr)
+        return 2
     problems = []
     checked = 0
     for symbol, rel, needle in EXPECTED:

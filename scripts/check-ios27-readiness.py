@@ -6,6 +6,7 @@ here with the reason. The script re-measures and reports drift, so a moving 27
 tree fails loudly instead of being rediscovered patch by patch.
 """
 import argparse
+import importlib.util
 import os
 import subprocess
 import sys
@@ -273,14 +274,15 @@ def conf_text(tree):
     return chr(10).join(chunks)
 
 
-def call_sites(tree):
-    path = os.path.join(tree, 'bsd', 'kern', 'kern_exec.c')
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding='utf-8', errors='replace') as handle:
-        body = handle.read()
-    return {name: body.count(name)
-            for name in ('k60_modem_probe_from_handoff', 'k60_ipa_probe_from_handoff')}
+def placement(tree):
+    """Shares the classifier with check-call-site-placement.py: counting the name
+    alone also counts the block-local declaration, so a correct tree looks wrong."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        'check-call-site-placement.py')
+    spec = importlib.util.spec_from_file_location('k60_placement', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.inspect(tree)
 
 
 def check_integrated(tree):
@@ -323,17 +325,17 @@ def check_integrated(tree):
               % (len(missing), ' '.join(os.path.basename(m) for m in missing[:4])))
     else:
         print('K60 READY ok   all %d build entries are in bsd/conf' % len(entries))
-    counts = call_sites(tree)
-    if counts is None:
+    if not os.path.exists(os.path.join(tree, 'bsd', 'kern', 'kern_exec.c')):
         print('K60 READY INVALID no bsd/kern/kern_exec.c under the tree')
         return 2
-    bad = [name for name, count in counts.items() if count != 1]
-    if bad:
+    problems, note = placement(tree)
+    if note:
+        print('K60 READY note %s' % note)
+    if problems:
         drift += 1
-        print('K60 READY DRIFT call sites are not exactly once: '
-              + ' '.join('%s=%d' % (name, counts[name]) for name in bad))
+        print('K60 READY DRIFT placement: ' + '; '.join(problems[:2]))
     else:
-        print('K60 READY ok   both probe call sites appear once in kern_exec.c')
+        print('K60 READY ok   both probes sit between the error guard and stage 3')
     anchors = anchor_state(tree)
     if anchors != 1:
         drift += 1

@@ -1246,3 +1246,9 @@ title = "三份审计互相矛盾时，判据在构建产物里"
 statement = "固件卷「带不带某个驱动」必须同时证明它在 [FV.FvMain] 的包含链里并且真的产出了 .efi；只读 DSC、FDF 或某个 .inc 都不算，多份报告矛盾时不投票。"
 check = "python3 scripts/check-uefi-volume.py --self-test && python3 scripts/check-uefi-volume.py"
 note = "2026-11-21：DiskIoDxe/Fat/UniXNURamDiskDxe 被三份审计判出两种结论；mondrian.fdf:82-83 的两个 !include 与 Build 下三个 .efi 才定案，现在由 scripts/check-uefi-volume.py 常驻检查。"
+
+[[rule]]
+id = "P-288"
+statement = "跨批次的覆盖率报告必须先把引用归一化成同一个键，同一页出现两次要失败而不是相加"
+check = "python3 scripts/tests/test-official-audit-report.py"
+note = "2026-11-21 官方页审计：一个批次写绝对路径、其余写相对路径，报告因此把一页判成未审、另一页判成注册表里没有；修法见 scripts/official-audit-report.py 的 page_name()"

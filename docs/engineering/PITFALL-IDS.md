@@ -14,6 +14,7 @@ allocates numbers in this file and the lanes read it before writing one.
 | P-283 | wifi | an archive that passes arch/provenance can still be a stub container |
 | P-284 | cellular | a preflight that must stay pending cannot borrow the flight ledger's verdict |
 | P-285 | audio | a bare `void *` across an io boundary compiles and links; only a type pair does not |
+| P-288 | 官方页审计覆盖率 | lead | 2026-11-21 |
 
 Rules:
 

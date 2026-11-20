@@ -28,6 +28,19 @@ COPIES = ("scripts/judge-k60-battery-mirror.py",)
 DOC = "docs/research/charger/07-DEVICE-CRITERIA.md"
 NAMES = ("V_TOL_MV", "I_TOL_MA", "SOC_TOL_HUNDREDTHS", "T_TOL_HUNDREDTHS")
 
+# A judge that states the window in its own words is a fourth copy of the same
+# numbers: the constant can move while the docstring keeps the old value
+# (P-259 shape). Each phrase is rendered from the constants, so the check reads
+# the code and the prose together.
+PROSE = {
+    "scripts/judge-k60-battery-mirror.py": (
+        "<= {V_TOL_MV} mV",
+        "within {I_TOL_MA} mA",
+        "<= {SOC_PP} percentage points",
+        "<= {T_TOL_HUNDREDTHS} hundredths",
+    ),
+}
+
 
 def load(path: pathlib.Path):
     spec = importlib.util.spec_from_file_location("jt_" + path.stem.replace("-", "_"), path)
@@ -98,6 +111,20 @@ def verify(root: pathlib.Path = ROOT) -> list[str]:
         window = rendered(values)
         if window not in body:
             problems.append(f"{DOC} does not quote the window the judges use: expected {window!r}")
+    prose_values = dict(values)
+    prose_values["SOC_PP"] = f"{values['SOC_TOL_HUNDREDTHS'] / 100:.2f}"
+    for rel, phrases in PROSE.items():
+        path = root / rel
+        if not path.is_file():
+            problems.append(f"{rel} is missing")
+            continue
+        body = path.read_text(encoding="utf-8")
+        for phrase in phrases:
+            want = phrase.format(**prose_values)
+            if want not in body:
+                problems.append(
+                    f"{rel} no longer states the window it applies: expected {want!r} "
+                    f"- change the docstring with the constants, or the reader trusts the old number")
     return problems
 
 
@@ -120,7 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     canon = load(root / CANON)
     window = rendered({name: getattr(canon, name) for name in NAMES})
     print(f"✅ judge-thresholds: {len(NAMES)} tolerance(s) agree between "
-          f"{1 + len(COPIES)} judge file(s) and the criteria doc ({window})")
+          f"{1 + len(COPIES)} judge file(s), the criteria doc and "
+          f"{sum(len(v) for v in PROSE.values())} sentence(s) that quote them ({window})")
     return 0
 
 

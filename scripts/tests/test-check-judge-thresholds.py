@@ -14,6 +14,14 @@ TOOL = ROOT / "scripts" / "check-judge-thresholds.py"
 BUILD = ROOT / "build" / ("judge-threshold-tests-" + str(__import__("os").getpid()))
 
 JUDGE = '''#!/usr/bin/env python3
+"""Mirror judge.
+
+Criteria:
+  SOC       |our SOC - mirror capacity| <= 3.00 percentage points
+  VOLTAGE   |our mV - mirror uV/1000| <= {v} mV
+  CURRENT   |our mA| vs |mirror uA/1000| within 150 mA (magnitude; sign is a note)
+  TEMP      |our hundredths - mirror tenths*10| <= 300 hundredths (3 C)
+"""
 V_TOL_MV = {v}
 I_TOL_MA = 150
 SOC_TOL_HUNDREDTHS = 300
@@ -28,10 +36,12 @@ C3 阈值：±60 mV / ±150 mA / ±3 pp / ±3 °C（判读器常量）。
 """
 
 failures = 0
+checks = 0
 
 
 def check(label, condition, detail=""):
-    global failures
+    global failures, checks
+    checks += 1
     if condition:
         print("ok   " + label)
     else:
@@ -93,6 +103,23 @@ def main():
     check("a tolerance nothing reads is refused",
           any("defined but never read" in p for p in problems), str(problems))
 
+    prose = tree("prose-drift")
+    mirror = prose / "scripts" / "judge-k60-battery-mirror.py"
+    mirror.write_text(mirror.read_text(encoding="utf-8").replace("<= 60 mV", "<= 80 mV"),
+                      encoding="utf-8", newline="\n")
+    problems = module.verify(prose)
+    check("a docstring that quotes the old window is refused",
+          any("no longer states the window it applies" in p for p in problems), str(problems))
+
+    gone = tree("prose-gone")
+    mirror = gone / "scripts" / "judge-k60-battery-mirror.py"
+    text2 = "\n".join(line for line in mirror.read_text(encoding="utf-8").split("\n")
+                      if "VOLTAGE" not in line)
+    mirror.write_text(text2, encoding="utf-8", newline="\n")
+    problems = module.verify(gone)
+    check("a docstring that stops stating the window is refused",
+          any("expected '<= 60 mV'" in p for p in problems), str(problems))
+
     stale = tree("stale-doc")
     (stale / "docs" / "research" / "charger" / "07-DEVICE-CRITERIA.md").write_text(
         DOC.replace("±60 mV", "±70 mV"), encoding="utf-8", newline="\n")
@@ -138,7 +165,7 @@ def main():
     if failures:
         print(f"TESTS FAILED {failures} check(s)")
         return 1
-    print("TESTS OK %d checks (0 failures)" % 14)
+    print("TESTS OK %d checks (0 failures)" % checks)
     return 0
 
 

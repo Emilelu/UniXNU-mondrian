@@ -132,6 +132,14 @@ def check(device, patches):
     else:
         notes.append("QcomBaseband is not in the 27 package include list")
         print("K60 DEVICE note QcomBaseband is not in the 27 package include list")
+    # Two components, two different jobs: QcomBaseband answers for the seven
+    # coachz symbols at link time, PongUfs is what can read a named volume at
+    # all. Both are notes, not drift: the freeze keeps them off main until F3.
+    if included is not None and "PongUfs" not in included:
+        notes.append("PongUfs is not in the 27 package include list")
+        print("K60 DEVICE note PongUfs is not in the 27 package include list either")
+    elif included is not None:
+        print("K60 DEVICE ok   the 27 package includes PongUfs")
     return drift, notes
 
 

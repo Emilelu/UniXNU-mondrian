@@ -1156,3 +1156,20 @@ kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-265"
 statement = "conf/files 钩子挂在 .cache/xnu-work 克隆之前，于是每次都答 tree not seeded、被 || echo 吞成一行日志；音频源从未进 conf/files，pong_audio_amp_probe 一直是弱引用未定义，构建报成功而产物检查器报 FAILED。调用点移到最终 make 之前，失败必须终止构建，刷新脚本要把它插回去。"
 check = 'grep -q "conf-files hook failed" scripts/build-xnu-generic.sh && python3 scripts/tests/test-conf-files-hook-placement.py'
+
+[[rule]]
+id = "P-266"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-266"
+statement = "常量出现在文件里，不等于它在那里有意义：0x80000033 是 LC_DYLD_EXPORTS_TRIE，fileset 条目是 0x80000035；用错的常量读出的不是空表就是空名字，而 strings 仍能找到条目名，于是错的解析看起来也在工作。"
+check = "python3 scripts/tests/test-ios27-storage-exports.py"
+note = "The test builds a one-entry fileset whose entry_id is relative to the load command, so a reader that uses the absolute offset or the trie constant returns no name and fails. Run against the pinned kernelcache the same reader reports 305 entries and 0 export tries."
+
+[[rule]]
+id = "P-267"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-267"
+statement = "重放用的树不是构建用的树：缺一层 series，后面的补丁就会因为上下文不存在而「失败」，而真正的构建里一条都没失败过。"
+check = "python3 scripts/tests/test-bt-data-gate-chain.py"
+note = "The test's missing-layer case asserts the checker refuses a layer list that names a file which is not there, instead of silently grading the layers it can see. The 101-applied / 98-planned difference was traced to the soc layer living on another ref of UniXNU-sm85-common."
+

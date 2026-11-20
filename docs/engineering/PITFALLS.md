@@ -7300,3 +7300,71 @@ scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
 `scripts/tests/test-device-tree.py` 八例全部喂真文件给真 dtc，其中一例就是 585fe75a 的
 原形（把 `/*` 删掉），一例是不平衡花括号，一例是 feed 里没有那个 include。桩掉 dtc 的测试
 会在坏树上通过——这正是这个缺陷当初活下来的方式。
+
+## P-277 — 校验器拒绝了它自己刚产出的镜像：把「声明过的变换」当成「不该有的差异」
+
+`scripts/check-ios27-artifacts.py` 最初的判据是「payload 里的内核与 `kernel/kernel.macho`
+逐字节相同」，因为文档写着 payload「原样打包」内核。第一次跑到真实产物就报错，而产物本身
+完全正确：
+
+    payload kernel.macho differs from kernel/kernel.macho
+
+差的是**恰好八个字节**，文件偏移 `0x15f2bac..0x15f2bb3`：
+
+    ff8304d1fc6f0ca9  ->  20008052c0035fd6
+
+这不是损坏，是 payload 步声明的两个变换之一：`E:/hackios/UniXNU/scripts/unixnu/payload.py:180-192`
+先 `shutil.copyfile` 原始内核，再跑 `scripts/patch-armcpu-validate.py --apply`，把
+AppleARMPlatform 的 `_validateConfiguration()` 改成「返回成功」。AppleARMPlatform 会对非
+Apple 设备树 `panic("CPU configuration in device tree is invalid")`
+（`payload.py:186-192` 的注释写明「每次 payload 都必须打这个补丁，留给人工清单就是 2026-11-01
+浪费两次启动的方式」）。
+
+两种错误的修法都被否掉了：
+
+* 「忽略这 8 个字节」——那等于把校验器变成「除了任意位置最多 8 字节之外必须相同」，下一个人
+  把偏移改到别的段、改 9 个字节、或者改 8 个字节到别的指令上，全都过。
+* 「降低判据为『大小相同』」——大小相同的两件东西可以内容完全不同。
+
+正确的形状是**重放**：把 `kernel/kernel.macho` 复制到临时文件、用仓库里同一个打补丁工具
+`--apply`、然后拿**整个** FAT 成员与 payload 里的那份逐字节比较，同时核对 `payload.json`
+记录的两个 sha256（`kernel_sha256` = 原始、`payload_kernel_sha256` = 打好补丁的）。这样
+声明之外的任何差异都会被抓到，声明之内的差异不必被放过。
+
+这条坑的一般形状：**校验器如果只知道自己期望的终态，就永远在拒绝合法产物；它必须知道产物
+是怎么被生产出来的，并把每一步重放出来。**「逐字节相同」在有一条声明过的变换时就是错的
+断言，而「允许 N 字节不同」比错断言更糟——它把差异从可枚举变成了不可枚举。
+
+## P-278 — 替换 arm64e 函数时写了 `ret`：跳过 LR 认证，而且不能用「整个项目」判断 ABI
+
+`scripts/patch-armcpu-validate.py` 把 AppleARMPlatform 的 `_validateConfiguration()` 换成
+「`mov w0, #1` 然后返回」。第一版写的是普通 `ret`（`20008052c0035fd6`），在 16.6.1 的核上
+完全正确——那个函数是普通 arm64，入口前后全是普通 `ret`。
+
+27 的核不是这样。实测两个真实内核同一个函数（`E:/k60-work/scratch/inspect_armcpu_prefix.py`）：
+
+| 内核 | 补丁点 | 紧邻入口 | 函数尾部 0x900 内 | 整个镜像 |
+| --- | --- | --- | --- | --- |
+| 16.6.1 `kernel.macho` | `0x4a47460` | 普通序言，前一条就是 `ret` | 普通 `ret` 在 `+0x5e4`/`+0x654` | `retab` **0** 次，`ret` 100,833 次 |
+| 27 `kernel.macho` | `0x15f2bac` | `5f2403d57f2303d5` = `bti c ; pacibsp` | `retab` 在 `+0x65c`，`ret` **0** 次 | `retab` 99,630 次 |
+
+也就是说 27 的这个函数用 `pacibsp` 把 LR 用当前 SP 签名，尾声用 `retab` 认证回来。把
+「前 8 字节换成 `mov w0,#1`」之后紧接着写普通 `ret`，等于**绕过了一次它本来要做的 LR 认证**：
+在 PAuth 打开（我们这一线正是要打开）的核上，返回地址不再被校验，而且这条路径是内核在
+启动早期判断设备树是否可信的函数——正是最不该跳过认证的地方之一。
+
+修法不是「统一改成 `retab`」：那会把 `retab` 写进 16.6.1 那个没有 `pacibsp` 的函数，去认证
+一个从未被签名的 LR。**ABI 必须逐个函数判定，依据是补丁点前面的真实字节**：
+
+* `code[site-8:site] == 5f2403d57f2303d5`（`bti c ; pacibsp`）→ 写 `20008052ff0f5fd6`
+  （`mov w0, #1 ; retab`）；
+* 镜像是 arm64e（subtype `0x80000002`/`0xc0000002`）但入口序列不是 `pacibsp` → **拒绝并报错**，
+  不许在 `ret`/`retab` 之间猜；
+* 其余（普通 arm64）→ 写 `20008052c0035fd6`（`mov w0, #1 ; ret`）。
+
+同族的第二个错在同一个文件里：扫描窗口写成 `range(0, len(code) - 16, 4)`，而从 `len-16`
+开始的那个 16 字节窗口恰好还完整——最后那个对齐位置永远搜不到。改成 `len - 15`。
+
+这条坑的一般形状：**「这个平台的 ABI 是什么」不是项目级常量。** 同一个符号名在两个 OS 版本
+里可以是两种返回契约，而代码里写死的那个常量在另一条线上仍然是「能跑」的——它只是不再做
+它声称要做的那件事。判据必须来自被改的那个函数自己的字节。

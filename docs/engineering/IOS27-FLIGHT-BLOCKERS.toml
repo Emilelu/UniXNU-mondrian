@@ -1,0 +1,26 @@
+# What keeps a structurally valid iOS 27 image from being flyable.
+#
+# `scripts/check-ios27-artifacts.py --flight-ready` reads this file and refuses
+# while any entry is `state = "open"`. Closing one means editing it to
+# `closed = "<the evidence that closed it>"` in the same change that removes the
+# defect, so the reason it was open is still readable afterwards.
+#
+# A structural pass is not a flight gate: `boot.img` can be byte-exact, the ADT
+# pinned and the payload the declared transform of the kernel, and the image
+# still cannot boot. These are the specific reasons, not a general caution.
+
+[[blocker]]
+id = "loader-rejects-fileset"
+what = "the shipped DarwinBoot.efi copies segments from a header it accepts only when the kernel is MH_EXECUTE/subtype 0; the 27 kernel is MH_FILESET subtype 0xc0000002"
+state = "open"
+evidence = "E:/k60-work/scratch/f1-readonly-audit-report-20261120.md:17-24 walks the shipped PE: 1618 cbnz on Data+8, 1628 cmp #2 / 162c b.ne on Data+12, 1758 EFI_UNSUPPORTED"
+source = "E:/hackios/uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c"
+why_open = "the catalog pin 3c75734 accepts filetype 12 only at Header==0 and additionally requires the com.apple.kernel child subtype to equal the collection subtype; our collection is 0xc0000002 with a 0x80000002 child, so the pin does not rescue it either"
+
+[[blocker]]
+id = "prelink-map-unresolved"
+what = "the prelink map still has owner-target references with no address and sites redirected to the panic stub"
+state = "open"
+evidence = "kernel.json for the round-17d image: 28 bundles / 384 unresolved references, 29 bundles / 2262 items / 2688 sites on _unixnu_fileset_unmapped (osfmk/kern/debug.c:2585)"
+source = "/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.json"
+why_open = "counts alone do not say which sites are reachable, and the official arm64e page says an iPadOS 27 kernelcache's kext code calls straight into the kernel, so the arm64 prelink step may not be the right instrument here at all -- that has to be settled with evidence, not by assuming the sites are dead"

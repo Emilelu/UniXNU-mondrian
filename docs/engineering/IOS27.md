@@ -253,10 +253,36 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 | Phase | Work | Exit |
 | --- | --- | --- |
 | F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth measured on the board on 2026-11-18 (`ISAR1` `APA=0b0101`, `API=0`: the address keys arm64e uses, no generic keys); the key-register write and the `PACIA`/`AUTIA` round trip still need one boot with the fixed probe |
-| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-granules.sh` passes |
-| F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device `arm_init` → `bsd_init` → root-mount panic, cupid parity |
+| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs **the declared transform** of it (the payload step copies the kernel and runs `patch-armcpu-validate.py`, which rewrites eight bytes -- P-277) with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-granules.sh` passes. This is a *structural* pass: F1 does not claim the image can boot |
+| F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` whose map is **closed** -- no owner-target reference without an address and no site left on `_unixnu_fileset_unmapped` -- and whose header the shipped loader accepts; then on device `arm_init` → `bsd_init` → root-mount panic, cupid parity. An image carrying 384 unresolved references and 2,688 stub sites is not an F2 pass (as built on Linux 2026-11-18, reference `6bbb66dc`), and `check-ios27-artifacts.py --flight-ready` refuses it |
 | F3 | `PongUfs` on the 27 storage ABI; the userdata image is built | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |
+
+### What the official arm64e page requires, and where this board stands
+
+`docs/zh/porting/arm64e.md` (live page re-read 2026-11-20) makes arm64e conditional on five checks,
+and records the result in the device's `porting.toml`. They are not a whitelist of marketing names;
+they are measurements. Our position:
+
+| Requirement (official wording) | How it is checked | Our status |
+| --- | --- | --- |
+| Every enabled CPU implements FEAT_PAuth (address and generic keys) | `ID_AA64ISAR1_EL1` APA or API, GPA or GPI non-zero; or `ID_AA64ISAR2_EL1` APA3 and GPA3 | **measured** 2026-11-18: `ISAR1 APA=0b0101`, `API=0` -- the address keys arm64e uses |
+| XNU runs at EL1 and can write the five key registers | writing `APIAKey`/`APIBKey`/`APDAKey`/`APDBKey`/`APGAKey` at EL1 does not trap | **not measured** -- needs the fixed F0 probe |
+| PAC instructions do not trap at EL1 or EL0 | `PACIA` changes a pointer and `AUTIA` restores it, on every core | **not measured** -- same probe |
+| The SoC is listed under SoC support | the SoC repository exists and is listed | `UniXNU-sm8475-common` exists; the page's device table names only sheng/SM8550, so this needs an upstream row rather than a local claim |
+| Native 4 KiB first-level translation | same as the arm64 profile | **measured**: `granules: 4 KiB BCM2837, TCR_EL1_BOOT=0x00000022a5192519, ARM_PGBYTES=4096` |
+
+Two of the five are therefore still open, and both are the same probe. That is the honest answer to
+"how far away is the first bootable iOS 27 image": the gap is not the ARMv9 SKU or the absence of
+published Darwin 26 sources -- the profile already runs `xnu-12377.121.6` with the Darwin 26 system
+calls and KPIs (`profiles/os/ios-27.0.1-24A446/patches/xnu/series:2` says exactly that), which is the
+same construction sheng uses -- it is these two measurements plus the loader and prelink work below.
+
+The page also states the fact that governs F2: **an iPadOS 27 kernelcache is `MH_FILESET` with its
+symbol table stripped, and kext code calls straight into the kernel, so the arm64 prelink step does
+not apply.** Read literally, that says the instrument that produced our 384 unresolved references and
+2,688 stub sites may be the wrong instrument for this OS profile. Settling that is F2 work; until it
+is settled the flight gate treats the map as unproven, not as fine.
 
 ### What the first PAC capture says
 

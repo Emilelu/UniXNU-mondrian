@@ -3,11 +3,12 @@
 
 `unixnu build kernel`, `build payload` and `bootimg` each verify what they
 produce, but nothing checks the set afterwards: that the payload still carries
-the kernel the kernel step linked, that the ADT still pins /chosen/random-seed
-(a random seed turns one boot in three into a pmap_map_bd death), that the
-identity the profile promises is the one in the tree, and that boot.img holds
-the firmware volume and the payload byte for byte. Each of those fails silently
-in a rebuild, so they are asserted here.
+the kernel the kernel step linked (after the transforms the repository declares
+and no others), that the ADT still pins /chosen/random-seed (a random seed turns
+one boot in three into a pmap_map_bd death), that the identity the profile
+promises is the one in the tree, and that boot.img holds the firmware volume and
+the payload byte for byte. Each of those fails silently in a rebuild, so they
+are asserted here.
 
     python3 scripts/check-ios27-artifacts.py ~/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27
 
@@ -19,6 +20,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -37,6 +39,8 @@ PLATFORM_IOS = 2
 FD_BYTES = 0x300000
 FAT_KERNEL = '::/EFI/UniXNU/Payloads/kernel.macho'
 FAT_ADT = '::/EFI/UniXNU/Payloads/kernel.macho.adt'
+# The one tool the payload step runs on the kernel copy (scripts/unixnu/payload.py:188-191).
+TOOL = Path(__file__).resolve().parent / 'patch-armcpu-validate.py'
 
 
 class Failure(Exception):
@@ -45,6 +49,16 @@ class Failure(Exception):
 
 def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def digest(data):
+    """The same hash for bytes that are already in memory.
+
+    Two call sites want this: the replayed transform and each FAT member. Passing
+    bytes to sha256() were an AttributeError waiting for the first image that got
+    far enough to print it.
+    """
+    return hashlib.sha256(data).hexdigest()
 
 
 def macho(path):
@@ -92,6 +106,40 @@ def macho(path):
     return len(data), flags, 'MH_EXECUTE'
 
 
+def packed_kernel_expected(kernel, report, directory):
+    """What the payload step must have written into EFI/UniXNU/Payloads/kernel.macho.
+
+    The kernel step's own output is the linker's, and the payload step copies it
+    and then runs the tools the repository declares against the copy: today
+    `patch-armcpu-validate.py` (AppleARMPlatform's _validateConfiguration()
+    only accepts an Apple device tree). That is a real byte difference, so
+    "payload kernel == kernel/kernel.macho" is the wrong invariant -- round 17
+    failed on it while producing exactly the declared image (P-277).
+
+    The right invariant keeps the transform honest: apply the same tool to a
+    temporary copy of the linker's output and require the FAT member to match
+    *that* byte for byte. Nothing is exempted by offset or by count, so a
+    second edit, a stale copy or a half-applied patch still fails.
+    """
+    expected = directory / 'kernel.expected.macho'
+    shutil.copyfile(kernel, expected)
+    record = json.loads(report.read_text())
+    linker = record.get('kernel_sha256')
+    if linker != sha256(kernel):
+        raise Failure(f'payload.json records kernel_sha256 {linker}, but kernel/kernel.macho '
+                      f'is {sha256(kernel)}: the payload was built from a different kernel')
+    tool = TOOL
+    if not tool.is_file():
+        raise Failure(f'no {tool.name} in this checkout, so the payload transform cannot be reproduced')
+    done = subprocess.run([sys.executable, str(tool), str(expected), '--apply'],
+                          capture_output=True, text=True, cwd=str(TOOL.parent))
+    if done.returncode != 0:
+        raise Failure(f'{tool.name} --apply failed on the kernel output: '
+                      f'{(done.stdout + done.stderr).strip()}')
+    packed = record.get('payload_kernel_sha256')
+    return expected.read_bytes(), done.stdout.strip(), packed
+
+
 def fat_extract(image, member, directory):
     target = directory / Path(member).name
     result = subprocess.run(['mcopy', '-o', '-n', '-i', str(image), member, str(target)],
@@ -136,6 +184,33 @@ def chosen_properties(adt):
     return chosen
 
 
+def prelink_state(record):
+    """What the prelink emitter says about the collection, as numbers.
+
+    These fields are written by fileset_emit.py's static mapping analysis, and
+    two of them are literals: runtime_qualified and loadable are hardcoded False
+    (fileset_emit.py:741). So a False here is not a verdict about this build, and
+    a True would not be evidence either. What *is* countable is the mapping:
+    unresolved owner-target symbols and the reference sites redirected to
+    `_unixnu_fileset_unmapped`, which is a real panic stub
+    (osfmk/kern/debug.c:2585). Neither number may be assumed unreachable, so
+    structural checks report them and the flight gate refuses while they exist.
+    """
+    missing = record.get('missing') or {}
+    stubbed = record.get('stubbed') or {}
+    return {
+        'mapping_complete': record.get('mapping_complete'),
+        'loadable': record.get('loadable'),
+        'runtime_qualified': record.get('runtime_qualified'),
+        'missing_bundles': len(missing),
+        'missing_refs': sum(len(value) if hasattr(value, '__len__') else int(value)
+                            for value in missing.values()),
+        'stubbed_bundles': len(stubbed),
+        'stubbed_refs': sum(len(value) if hasattr(value, '__len__') else int(value)
+                            for value in stubbed.values()),
+    }
+
+
 def check(board, chip_id, unique_chip_id):
     kernel = board / 'kernel/kernel.macho'
     payload = board / 'payload/payload.img'
@@ -147,20 +222,50 @@ def check(board, chip_id, unique_chip_id):
     size, flags, kind = macho(kernel)
     print(f'ok kernel.macho: arm64e {kind}, flags {flags:#x}, {size} bytes, sha256 {sha256(kernel)[:12]}')
     report = board / 'kernel/kernel.json'
-    if kind.startswith('MH_FILESET') and report.is_file():
+    prelink = None
+    if report.is_file():
         record = json.loads(report.read_text())
-        missing = record.get('missing') or {}
-        unresolved = sum(len(value) if hasattr(value, '__len__') else int(value) for value in missing.values())
-        print(f'ok prelink: mapping_complete={record.get("mapping_complete")}, '
-              f'{unresolved} unmapped symbols in {len(missing)} bundles, loadable={record.get("loadable")}')
+        prelink = prelink_state(record)
+        if kind.startswith('MH_FILESET'):
+            # "note", not "ok": an image whose prelink map still points at the
+            # panic stub is a structurally valid fileset, and calling that ok is
+            # how a build that cannot boot gets reported as passing (P-277).
+            print(f'note prelink: mapping_complete={prelink["mapping_complete"]}, '
+                  f'{prelink["missing_refs"]} unmapped symbols in {prelink["missing_bundles"]} bundles, '
+                  f'{prelink["stubbed_refs"]} sites on the panic stub in {prelink["stubbed_bundles"]} bundles, '
+                  f'loadable={prelink["loadable"]}')
 
     with tempfile.TemporaryDirectory(prefix='ios27-artifacts-') as name:
         directory = Path(name)
+        payload_report = board / 'payload/payload.json'
+        if not payload_report.is_file():
+            raise Failure(f'missing {payload_report}: build payload first')
+        expected, transform, recorded_packed = packed_kernel_expected(kernel, payload_report, directory)
         packed_kernel = fat_extract(payload, FAT_KERNEL, directory)
-        if packed_kernel != kernel.read_bytes():
-            raise Failure('payload kernel.macho differs from kernel/kernel.macho')
+        if packed_kernel != expected:
+            first = next((i for i in range(min(len(packed_kernel), len(expected)))
+                          if packed_kernel[i] != expected[i]), None)
+            if first is None:
+                where = f'lengths differ: {len(packed_kernel)} vs {len(expected)} bytes'
+            else:
+                where = (f'first difference at {first:#x}: payload has '
+                         f'{packed_kernel[first:first + 8].hex()}, the declared transform writes '
+                         f'{expected[first:first + 8].hex()}')
+            raise Failure(f'payload kernel.macho is not the declared transform of the kernel '
+                          f'output ({where}); recorded payload_kernel_sha256 {recorded_packed}, '
+                          f'the transform produces {digest(expected)}')
+        if recorded_packed and recorded_packed != digest(expected):
+            # Same bytes, stale bookkeeping: the image was produced by an older
+            # tool than the one this checkout declares. Say so instead of blaming
+            # the image, because the fix is a rebuild, not an edit.
+            raise Failure(f'payload.json records payload_kernel_sha256 {recorded_packed} but this '
+                          f'checkout\'s declared transform produces {digest(expected)}: the image '
+                          f'predates the current tool, rebuild the payload')
         adt = fat_extract(payload, FAT_ADT, directory)
-        print(f'ok payload.img: {payload.stat().st_size} bytes, kernel.macho identical, ADT {len(adt)} bytes')
+        print(f'ok payload.img: {payload.stat().st_size} bytes, kernel.macho = '
+              f'{sha256(kernel)[:12]} + declared transform {digest(expected)[:12]}, ADT {len(adt)} bytes')
+        if not transform:
+            raise Failure('the declared transform produced no output; check the tool, not the image')
 
     chosen = chosen_properties(adt)
     seed = chosen.get('random-seed')
@@ -208,6 +313,56 @@ def check(board, chip_id, unique_chip_id):
           f'FD {FD_BYTES} B sha256 {hashlib.sha256(firmware).hexdigest()[:12]}, DTB {len(tree)} B, '
           f'ramdisk = payload')
     print(f'artifacts: {boot.stat().st_size} byte boot.img sha256 {sha256(boot)}')
+    return {'kind': kind, 'prelink': prelink, 'firmware': digest(firmware),
+            'payload': sha256(payload), 'boot': sha256(boot)}
+
+
+def open_blockers(path):
+    """Every `state = "open"` entry in the flight-blocker ledger, in file order.
+
+    The ledger exists because a structural pass and a bootable image are two
+    different claims, and the gap between them is a list of specific, named
+    defects -- today the firmware loader's kernel-header guard and the prelink
+    map. Keeping them in a file the gate reads means the gate cannot go green by
+    forgetting one: closing an entry requires editing it to "closed" with the
+    evidence line that closed it, which is reviewable.
+    """
+    if not path.is_file():
+        raise Failure(f'no flight-blocker ledger at {path}: the flight gate cannot pass on silence')
+    entries, current = [], None
+    for raw in path.read_text(encoding='utf-8').splitlines():
+        line = raw.split('#', 1)[0].strip()
+        if line.startswith('[[blocker]]'):
+            current = {}
+            entries.append(current)
+        elif current is not None and '=' in line:
+            key, value = line.split('=', 1)
+            current[key.strip()] = value.strip().strip('"')
+    open_ones = [e for e in entries if e.get('state', 'open') != 'closed']
+    return open_ones
+
+
+def flight_ready(result, blockers):
+    """Refuse to call a structurally valid image flyable.
+
+    Every check here is a claim the artifacts cannot make for themselves: the
+    prelink map has no unresolved owner-target references, and every named
+    blocker in the ledger is closed with evidence.
+    """
+    prelink = result.get('prelink') or {}
+    problems = []
+    if result['kind'].startswith('MH_FILESET'):
+        if prelink.get('missing_refs'):
+            problems.append(f'{prelink["missing_refs"]} owner-target references have no address '
+                            f'in the prelink map ({prelink["missing_bundles"]} bundles)')
+        if prelink.get('stubbed_refs'):
+            problems.append(f'{prelink["stubbed_refs"]} reference sites are redirected to the '
+                            f'_unixnu_fileset_unmapped panic stub ({prelink["stubbed_bundles"]} bundles)')
+    problems += [f'blocker {e.get("id", "?")}: {e.get("what", "(no description)")}'
+                 for e in blockers]
+    if problems:
+        raise Failure('structurally valid, but not flyable: ' + '; '.join(problems))
+    print('ok flight: prelink map has no unresolved references and no blocker is open')
 
 
 def main():
@@ -215,13 +370,21 @@ def main():
     parser.add_argument('board', nargs='?', help='board output directory (default: $UNIXNU_OUT/mondrian/...)')
     parser.add_argument('--chip-id', default='8140', help='expected /chosen/chip-id (T8140)')
     parser.add_argument('--unique-chip-id', default='4d4f4e445249414e', help='expected /chosen/unique-chip-id')
+    parser.add_argument('--flight-ready', action='store_true',
+                        help='also refuse unless the image is actually flyable, not just well-formed')
+    parser.add_argument('--blockers', type=Path,
+                        default=Path(__file__).resolve().parents[1]
+                        / 'docs/engineering/IOS27-FLIGHT-BLOCKERS.toml',
+                        help='ledger of open defects that make a valid image unflyable')
     args = parser.parse_args()
     board = Path(args.board) if args.board else Path(
         os.environ.get('UNIXNU_OUT', '')) / 'mondrian/ios-27.0.1-24A446/mondrian_ios27'
     if not board.is_dir():
         parser.error(f'no board directory at {board}; pass it or set UNIXNU_OUT')
     try:
-        check(board, int(args.chip_id, 16), int(args.unique_chip_id, 16))
+        result = check(board, int(args.chip_id, 16), int(args.unique_chip_id, 16))
+        if args.flight_ready:
+            flight_ready(result, open_blockers(args.blockers))
     except Failure as error:
         print(f'error: {error}', file=sys.stderr)
         return 1

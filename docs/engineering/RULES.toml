@@ -1170,3 +1170,15 @@ id = "P-275"
 statement = "设备树在工具链里只有一个消费者且在第八步；必须先跑 dtc 再开始构建。"
 check = "python3 scripts/check-device-tree.py --out ${K60_OUT:-/opt/k60/trees/ios27-out} --quiet && python3 scripts/tests/test-device-tree.py"
 note = "P-275：585fe75a 手工解冲突时丢了 /* 开头，dts/mondrian.dts 带语法错过了一整天，所有门禁全绿，因为没有任何门禁解析它。第一个消费者是 payload 步的 dtc。修法：e1b6c15f 补回注释开头 + check-device-tree.py 成为早期消费者（0 过 / 1 dtc 拒绝 / 2 树找不到）。"
+
+[[rule]]
+id = "P-277"
+statement = "校验产物时必须重放声明过的变换再整体比较；不许假设逐字节相同，也不许「忽略 N 字节」。"
+check = "python3 scripts/tests/test-ios27-artifacts.py"
+note = "P-277：check-ios27-artifacts.py 最初要求 payload 内核与 kernel/kernel.macho 逐字节相同，而 payload 步声明会跑 patch-armcpu-validate.py --apply 改 8 字节（0x15f2bac），于是拒绝了自己刚产出的正确镜像。修法：临时副本重放同一个打补丁工具，整份 FAT 成员比对，再核对 payload.json 的 kernel_sha256 / payload_kernel_sha256。"
+
+[[rule]]
+id = "P-278"
+statement = "替换 arm64e 函数必须沿用入口建立的返回 ABI（pacibsp -> retab，否则 ret），且必须逐函数判定、从补丁点前的字节取证。"
+check = "python3 scripts/tests/test-armcpu-validate.py"
+note = "P-278：patch-armcpu-validate.py 第一版在 27 的 pacibsp 函数上写普通 ret，跳过 LR 认证；16.6.1 同一函数是普通 arm64、整镜像 retab 为 0，27 整镜像 retab 99,630 次、补丁点前 8 字节是 5f2403d57f2303d5。修法：replacement_for() 按入口字节选 ret/retab，arm64e 缺 pacibsp 就拒绝猜；扫描上界从 len-16 改 len-15，最后那个对齐窗口才搜得到。"

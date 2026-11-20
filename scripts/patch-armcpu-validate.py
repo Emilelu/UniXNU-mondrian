@@ -5,7 +5,9 @@ The K60 kernel prelinks Apple's kernelcache, so AppleARMPlatform's AppleARMCPU
 class ships inside it and _validateConfiguration() only accepts an Apple Silicon
 device tree: it panics with "CPU configuration in device tree is invalid"
 (@AppleARMCPU.cpp:111) before our ArmCpu can take the /cpus nubs. Patching the
-function to `mov w0, #1 ; ret` makes it accept this board.
+function to return true makes it accept this board; the replacement return is
+selected from the function's PAC prologue, since 16.6.1 and 24A446 use different
+return-authentication conventions.
 
 Why this is not a fixed offset any more
 --------------------------------------
@@ -24,10 +26,22 @@ naive port:
   27 MH_FILESET kernel they are container-absolute (fileoff 0x15efdb0, header
   0x16b1b0). Both candidates are therefore tried and only the one that really
   holds the prologue is accepted.
-* arm64e. The 27 kext entry is `bti c ; pacibsp ; sub sp, sp, #0x120`, so the
-  prologue sits 8 bytes into the function. Rewriting those 8 bytes with
-  `mov w0, #1 ; ret` leaves the two prefix instructions in place, which is
-  harmless: nothing reads sp and nothing returns through the signed frame.
+* The return instruction depends on the *function's own* ABI, and the two kernels
+  disagree. On 27 the kext entry is `bti c ; pacibsp ; sub sp, sp, #0x120`, the
+  prologue sits 8 bytes into the function, and the function's own epilogue ends in
+  `add sp, sp, #0x120 ; retab`; `pacibsp` signed LR against SP at entry, so only
+  `retab` authenticates it against the same modifier. The replacement there is
+  `mov w0, #1 ; retab`. Skipping `sub sp` and never reaching `add sp` leaves SP at
+  the entry value, so the `retab` modifier equals the `pacibsp` modifier and the
+  return contract is the one the compiler emitted (P-278). A plain `ret` would
+  jump through a signed LR without authenticating it and fail under key B.
+  On 16.6.1 the function has no `pacibsp` and nothing is signed: its epilogue is a
+  plain `ret` and the whole image contains zero `retab` instructions, so writing
+  `retab` there would authenticate an unsigned LR against an uninitialised key and
+  is just as wrong in the other direction. The site therefore decides: the eight
+  bytes immediately before the prologue are `bti c ; pacibsp` in a PAC function
+  and the previous function's plain `ret` otherwise. Measured on both kernels:
+  16 preceding 8 = `f44fc2a8 c0035fd6`, 27 preceding 8 = `5f2403d5 7f2303d5`.
 * __PRELINK_INFO. 16.6.1 uses a bare <dict> root, 27 wraps it in <plist>. The
   kit's native_prelink.unserialize_xml() only knows the first form ('Unsupported
   prelink XML element plist') and plistlib only knows the second
@@ -65,14 +79,21 @@ import native_prelink as np
 
 KEXT = 'com.apple.driver.AppleARMPlatform'
 EXPECT = bytes.fromhex('ff8304d1fc6f0ca9')   # sub sp, sp, #0x120 ; stp x28, x27, [sp, #192]
-PATCH = bytes.fromhex('20008052c0035fd6')    # mov w0, #1 ; ret
-# The eight bytes that follow the prologue on both kernels. `mov w0, #1 ; ret`
-# alone is far too common to anchor on (it is everywhere in kernel code), so the
-# patched site is recognised by the patch followed by this same tail. Without it
-# a second payload step on an already-patched kernel cannot tell "already done"
-# from "the prologue is gone", and the build fails on its own output.
+PATCH_RET = bytes.fromhex('20008052c0035fd6')    # mov w0, #1 ; ret
+PATCH_RETAB = bytes.fromhex('20008052ff0f5fd6')  # mov w0, #1 ; retab
+PACIBSP = bytes.fromhex('7f2303d5')          # pacibsp
+BTI_C_PACIBSP = bytes.fromhex('5f2403d57f2303d5') # bti c ; pacibsp
+# Select the return from the function's own entry sequence, not just the image
+# subtype. The measured 16.6.1 function has no PAC prologue and uses plain ret;
+# 24A446 has bti c; pacibsp and returns with retab. Skipping the stack frame
+# keeps SP at entry in both cases. On the PAC form, retab therefore authenticates
+# LR with the same SP modifier pacibsp used (P-278).
+# The eight bytes that follow the prologue on both kernels. The replacement
+# alone is too common to anchor on, so already-patched sites must also have this
+# tail. This permits a second payload pass without accepting arbitrary patches.
 TAIL = bytes.fromhex('fa670da9f85f0ea9')     # stp x26, x25, [sp, #208] ; stp x24, x23, [sp, #224]
 ARM64_SUBTYPES = (0x0, 0x1, 0x2, 0x80000002, 0xc0000002)
+ARM64_PAC_SUBTYPES = (0x80000002, 0xc0000002)
 
 
 def macho(data, at=0):
@@ -99,7 +120,7 @@ def macho(data, at=0):
         offset += length
     if offset != end:
         raise ValueError('load command size mismatch')
-    return {'kind': kind, 'segments': segments}
+    return {'kind': kind, 'subtype': subtype, 'segments': segments}
 
 
 def _scalar(node):
@@ -118,6 +139,25 @@ def _dict(node):
         else:
             out[key.text] = _scalar(value)
     return out
+
+
+def replacement_for(code, site, subtype):
+    """Return the instruction sequence this function's own entry ABI requires.
+
+    A `bti c ; pacibsp` entry means LR was signed, so the return has to
+    authenticate it: `retab`. Anything else on a plain ARM64 image is an
+    unsigned frame and a plain `ret` is correct. When the image says arm64e but
+    the function has no PAC prologue, neither answer is proven: fail closed
+    rather than write eight bytes into a signed function on a guess.
+    """
+    if site >= len(BTI_C_PACIBSP) and code[site - len(BTI_C_PACIBSP):site] == BTI_C_PACIBSP:
+        return PATCH_RETAB
+    if subtype in ARM64_PAC_SUBTYPES:
+        raise SystemExit(
+            f'cannot prove the return contract for {KEXT}: the image is arm64e (subtype {subtype:#x}) '
+            f'but the code before the patch site is {code[max(0, site - 8):site].hex()}, not '
+            f'bti c ; pacibsp ({BTI_C_PACIBSP.hex()}). Refusing to guess between ret and retab.')
+    return PATCH_RET
 
 
 def prelink_entries(data, parent):
@@ -147,7 +187,7 @@ def locate(data):
     text = next((s for s in kext['segments'] if s['name'] == '__TEXT_EXEC'), None)
     if text is None or not text['filesize']:
         raise SystemExit(f'{KEXT} has no __TEXT_EXEC segment')
-    tried = []
+    tried, seen = [], []
     for start in (text['fileoff'], header + text['fileoff']):
         if start in tried or start + text['filesize'] > len(data):
             continue
@@ -156,15 +196,40 @@ def locate(data):
         # The payload step runs more than once per build when a later archive is
         # rebuilt, so an already-patched kernel must be recognised rather than
         # reported as "the prologue is missing". Both forms are anchored on the
-        # shared tail; only an unambiguous site is accepted.
-        original = [i for i in range(0, len(code) - 16, 4) if code[i:i + 8] == EXPECT and code[i + 8:i + 16] == TAIL]
-        patched = [i for i in range(0, len(code) - 16, 4) if code[i:i + 8] == PATCH and code[i + 8:i + 16] == TAIL]
+        # shared tail. The stop is len(code) - 15, not - 16: a 16-byte window
+        # starting at len(code) - 16 still fits, and the earlier bound skipped
+        # exactly that last aligned site.
+        sites = range(0, len(code) - 15, 4)
+        original = [i for i in sites if code[i:i + 8] == EXPECT and code[i + 8:i + 16] == TAIL]
+        patched = [i for i in sites if code[i:i + 8] in (PATCH_RET, PATCH_RETAB)
+                   and code[i + 8:i + 16] == TAIL]
+        # Only the *real* origin holds one site. The other candidate is a wrong
+        # guess at where this kext's text begins, so it is normal for it to slice
+        # some other part of the image and find a prologue there: 16.6.1 has a
+        # second `sub sp, #0x120 ; stp x28, x27` frame at 0x4a09000 that is not
+        # this function. Requiring global uniqueness would refuse a healthy
+        # kernel, so the first origin that yields exactly one site wins and the
+        # others are only reported when no origin does.
         if len(original) == 1 and not patched:
-            return start + original[0], load, original[0], start
+            site = original[0]
+            replacement = replacement_for(code, site, kext['subtype'])
+            return start + site, load, site, start, replacement
         if len(patched) == 1 and not original:
-            return start + patched[0], load, patched[0], start
-    raise SystemExit(f'{EXPECT.hex()} is not unique in {KEXT} __TEXT_EXEC; '
-                     f'file offsets tried: {[hex(s) for s in tried]}')
+            site = patched[0]
+            actual = code[site:site + 8]
+            expected = replacement_for(code, site, kext['subtype'])
+            if actual != expected:
+                abi = 'pacibsp/retab' if expected == PATCH_RETAB else 'plain ret'
+                raise SystemExit(f'{KEXT} site at {start + site:#x} is patched for the wrong return ABI: '
+                                 f'found {actual.hex()}, expected {expected.hex()} ({abi}); rebuild the payload kernel')
+            return start + site, load, site, start, expected
+        if original or patched:
+            seen.append(f'{start:#x}(original={len(original)}, patched={len(patched)})')
+    raise SystemExit(
+        f'{KEXT} __TEXT_EXEC holds no unique site: original {EXPECT.hex()} + tail {TAIL.hex()} '
+        f'or a patched form + tail {TAIL.hex()}. '
+        f'Windows tried: {[hex(s) for s in tried] or "none in range"}; '
+        f'non-unique windows: {", ".join(seen) or "no window held it at all"}.')
 
 
 def main():
@@ -175,21 +240,26 @@ def main():
     group.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     data = bytearray(args.kernel.read_bytes())
-    offset, load, rva, at = locate(data)
+    offset, load, rva, at, replacement = locate(data)
     found = bytes(data[offset:offset + 8])
+    abi_name = 'retab (pacibsp)' if replacement == PATCH_RETAB else 'ret (plain arm64)'
     print(f'kext load {load:#x}  __TEXT_EXEC file {at:#x}  rva {rva:#x}  '
-          f'file offset {offset:#x}  bytes {found.hex()}')
-    if found == PATCH:
+          f'file offset {offset:#x}  bytes {found.hex()}  return ABI {abi_name}')
+    if found in (PATCH_RET, PATCH_RETAB):
+        # locate() already refused a patched form that does not match the
+        # function's own entry sequence, so reaching here means the bytes are
+        # the ones this build would write; patching again would be a no-op.
         print('already patched')
         return 0
     if found != EXPECT:
         raise SystemExit(f'unexpected bytes at the patch site: {found.hex()}')
     if args.apply:
-        data[offset:offset + 8] = PATCH
+        data[offset:offset + 8] = replacement
         args.kernel.write_bytes(data)
-        print('patched: mov w0, #1 ; ret')
+        instruction = 'retab' if replacement == PATCH_RETAB else 'ret'
+        print(f'patched: mov w0, #1 ; {instruction}')
     else:
-        print('original bytes match; --apply would write ' + PATCH.hex())
+        print('original bytes match; --apply would write ' + replacement.hex())
     return 0
 
 

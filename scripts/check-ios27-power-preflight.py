@@ -286,6 +286,25 @@ def check_console(tree: Path, device: Path) -> tuple[str, str]:
                   f"all match the drivers that print them")
 
 
+def check_wire(tree: Path, device: Path) -> tuple[str, str]:
+    """The wire property table is the one fact the 27 side may copy verbatim, so a reorder
+    there is invisible: the driver still sends 19 fields, and the firmware reads a
+    different property for every one of them. Compare the two fields[] tables directly."""
+    tool = device / "scripts" / "check-battmgr-wire.py"
+    if not tool.is_file():
+        return WARN, "no check-battmgr-wire.py here to check the 27 tree against"
+    spec = importlib.util.spec_from_file_location("battmgr_wire", tool)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        rows, problems = module.against(device, tree)
+    except (OSError, SyntaxError, ImportError, SystemExit) as error:
+        return WARN, f"cannot compare the wire table with the 27 tree: {error}"
+    if problems:
+        return WARN, (f"{len(problems)} wire field(s) differ in the 27 tree: "
+                      + "; ".join(problems[:2]))
+    return PASS, f"{len(rows)} wire field(s) sent in the same order with the same indices"
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tree", default=os.environ.get("K60_IOS27_TREE"),
@@ -321,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     rows.append((state_, "contracts", detail_))
     state_, detail_ = check_console(tree, device)
     rows.append((state_, "console-pairs", detail_))
+    state_, detail_ = check_wire(tree, device)
+    rows.append((state_, "wire-table", detail_))
 
     blockers = [row for row in rows if row[0] == BLOCK]
     warnings = [row for row in rows if row[0] == WARN]

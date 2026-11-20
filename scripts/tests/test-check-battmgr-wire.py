@@ -145,6 +145,62 @@ def main():
               rc == 1 and "the module has 0x2e" in out, out.strip()[-200:])
         build()
 
+    # --against compares another checkout's fields[] table with ours, so a reorder in the
+    # 27 copy is visible even though that copy's docs and vendor module are elsewhere.
+    def make_copy(index4="4", extra=""):
+        copy = FIXTURES / "copy27"
+        if copy.exists():
+            shutil.rmtree(copy, ignore_errors=True)
+        (copy / "drivers/PongPower").mkdir(parents=True)
+        header = HEADER
+        driver = DRIVER.replace("{OP_BATTERY, 4}", "{OP_BATTERY, %s}" % index4)
+        if extra:
+            header = header.replace("K60BmFields", "%s, K60BmFields" % extra)
+            driver = driver.replace("\n};", ", {OP_BATTERY, 9}\n};")
+        (copy / "drivers/PongPower/K60Battmgr.h").write_text(header, encoding="utf-8", newline="\n")
+        (copy / "drivers/PongPower/K60Battmgr.c").write_text(driver, encoding="utf-8", newline="\n")
+        return copy
+
+    copy = make_copy()
+    rc, out = run(FIXTURES, ("--against", str(copy)))
+    check("a copy that sends the same fields agrees",
+          rc == 0 and "2 field(s) in the same order" in out, out.strip()[-200:])
+
+    make_copy(index4="5")
+    rc, out = run(FIXTURES, ("--against", str(FIXTURES / "copy27")))
+    check("a copy whose wire index moved is refused",
+          rc == 1 and "the wire index moved" in out, out.strip()[-200:])
+
+    copy = make_copy()
+    patch("copy27/drivers/PongPower/K60Battmgr.c", "{OP_BATTERY, 4}", "{OP_USB, 4}")
+    rc, out = run(FIXTURES, ("--against", str(copy)))
+    check("a copy whose opcode moved is refused",
+          rc == 1 and "the opcode moved" in out, out.strip()[-200:])
+
+    copy = make_copy()
+    patch("copy27/drivers/PongPower/K60Battmgr.c", "{OP_BATTERY, 4}\n", "")
+    patch("copy27/drivers/PongPower/K60Battmgr.h", "K60BmCapacity,", "")
+    rc, out = run(FIXTURES, ("--against", str(copy)))
+    check("a copy that does not send a field is refused",
+          rc == 1 and "does not send Capacity at all" in out, out.strip()[-200:])
+
+    make_copy(extra="K60BmExtra")
+    rc, out = run(FIXTURES, ("--against", str(FIXTURES / "copy27")))
+    check("a copy that sends a field we do not is refused",
+          rc == 1 and "the copy sends Extra, we do not" in out, out.strip()[-200:])
+
+    rc, out = run(FIXTURES, ("--against", str(FIXTURES / "no-such-tree")))
+    check("an unreadable copy exits 2", rc == 2 and "cannot read" in out, out.strip()[-160:])
+
+    for tree in (pathlib.Path("E:/hackios/xnekom-ios27"), pathlib.Path("/mnt/e/hackios/xnekom-ios27")):
+        if tree.is_dir():
+            rc, out = run(ROOT, ("--against", str(tree)))
+            check("the 27 copy sends the same 19 fields", rc == 0 and "19 field(s)" in out, out.strip()[-200:])
+            break
+    else:
+        print("note: no 27 checkout on this host; the live comparison is skipped")
+    build()
+
     rc, out = run(ROOT, manifest=TOOL.parents[1] / "docs/research/charger/WIRE-PROPS.toml")
     check("the repository table passes", rc == 0, out.strip()[-300:])
     if module is not None:

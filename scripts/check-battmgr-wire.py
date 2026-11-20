@@ -177,6 +177,41 @@ def verify(root, manifest_path, ko=None):
     return fields, problems, notes
 
 
+def against(root, tree):
+    """Compare the fields[] table in another checkout with ours, field by field."""
+    try:
+        ours_names, ours_pairs = driver_table(root)
+    except (OSError, ValueError) as error:
+        raise SystemExit("check-battmgr-wire: cannot read this tree: %s" % error)
+    try:
+        theirs_names, theirs_pairs = driver_table(tree)
+    except (OSError, ValueError) as error:
+        raise SystemExit("check-battmgr-wire: cannot read %s: %s" % (tree, error))
+    ours = [(n[5:], op, idx) for n, (op, idx) in zip(ours_names, ours_pairs)]
+    theirs = {n[5:]: (op, idx) for n, (op, idx) in zip(theirs_names, theirs_pairs)}
+    rows, problems = [], []
+    for name, opcode, index in ours:
+        if name not in theirs:
+            rows.append(("missing", name, "the copy does not send %s at all" % name))
+            problems.append("%s: the copy does not send this field" % name)
+            continue
+        their_opcode, their_index = theirs[name]
+        if (their_opcode, their_index) == (opcode, index):
+            rows.append(("same", name, "opcode %s index %d" % (opcode, index)))
+            continue
+        detail = "ours %s/%d, the copy %s/%d" % (opcode, index, their_opcode, their_index)
+        if their_opcode == opcode:
+            detail += " - the wire index moved, so the firmware reads another property"
+        else:
+            detail += " - the opcode moved, so the frame is not the same request"
+        rows.append(("drift", name, detail))
+        problems.append("%s: %s" % (name, detail))
+    known = {name for name, _op, _idx in ours}
+    for name in sorted(set(theirs) - known):
+        rows.append(("extra", name, "the copy sends %s, we do not" % name))
+        problems.append("%s: the copy sends a field we do not" % name)
+    return rows, problems
+
 def main(argv=None):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -187,7 +222,23 @@ def main(argv=None):
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--manifest", default=str(MANIFEST))
     parser.add_argument("--ko", default=None, help="vendor qti_battery_charger_main_m81.ko")
+    parser.add_argument("--against", default=None,
+                        help="another checkout to compare the fields[] table with")
     args = parser.parse_args(argv)
+    if args.against:
+        try:
+            rows, problems = against(pathlib.Path(args.root), pathlib.Path(args.against))
+        except SystemExit as error:
+            print(error)
+            return 2
+        for verdict, name, detail in rows:
+            print("%-7s %-28s %s" % (verdict, name, detail))
+        if problems:
+            print("battmgr-wire --against %s: FAIL (%d problem(s))" % (args.against, len(problems)))
+            return 1
+        print("battmgr-wire --against %s: OK (%d field(s) in the same order with the same wire "
+              "indices)" % (args.against, len(rows)))
+        return 0
     import os
     ko = args.ko or os.environ.get("K60_VENDOR_KO") or None
     try:

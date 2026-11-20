@@ -47,7 +47,19 @@ def sha(path: Path) -> str:
 MODULE_C = "/* pure module */\nint k60_probe(void) { return 1; }\n"
 
 
-def make_device(base: Path, *, contract: bool = False, console: bool = False) -> Path:
+BATT_H = r"""enum {
+K60BmStatus,
+K60BmCapacity,
+K60BmFields
+};
+"""
+BATT_C = r"""static const struct { uint8_t opcode, property; } fields[K60BmFields] = {
+    {OP_BATTERY, 0}, {OP_BATTERY, 4}
+};
+"""
+
+def make_device(base: Path, *, contract: bool = False, console: bool = False,
+                wire: bool = False) -> Path:
     device = base / "device"
     (device / "docs" / "research" / "power").mkdir(parents=True)
     (device / "drivers" / "PongPower").mkdir(parents=True)
@@ -69,6 +81,11 @@ def make_device(base: Path, *, contract: bool = False, console: bool = False) ->
     if console:
         shutil.copyfile(ROOT / "scripts" / "check-console-contract.py",
                         device / "scripts" / "check-console-contract.py")
+    if wire:
+        shutil.copyfile(ROOT / "scripts" / "check-battmgr-wire.py",
+                        device / "scripts" / "check-battmgr-wire.py")
+        (device / "drivers" / "PongPower" / "K60Battmgr.h").write_text(BATT_H, encoding="utf-8", newline="\n")
+        (device / "drivers" / "PongPower" / "K60Battmgr.c").write_text(BATT_C, encoding="utf-8", newline="\n")
     if contract:
         shutil.copyfile(ROOT / "scripts" / "check-hw-contracts.py",
                         device / "scripts" / "check-hw-contracts.py")
@@ -83,7 +100,8 @@ def make_device(base: Path, *, contract: bool = False, console: bool = False) ->
 def make_tree(base: Path, *, console: str | None = None, module: bool = True, guard: bool = False,
               macro: bool = True, builder: str = "generic", judges: bool = True,
               tables: bool = True, picker: bool = True,
-              contract_body: str | None = None) -> Path:
+              contract_body: str | None = None,
+              wire_body: str | None = None) -> Path:
     tree = base / "ios27"
     for rel in ("drivers/PongPower", "patches/xnu", "scripts"):
         (tree / rel).mkdir(parents=True)
@@ -120,6 +138,9 @@ def make_tree(base: Path, *, console: str | None = None, module: bool = True, gu
         (tree / "drivers" / "PongPower" / "K60Battery.cpp").write_text(
             console, encoding="utf-8", newline="\n")
         shutil.copyfile(ROOT / "scripts" / "judge-battery.py", tree / "scripts" / "judge-battery.py")
+    if wire_body is not None:
+        (tree / "drivers" / "PongPower" / "K60Battmgr.h").write_text(BATT_H, encoding="utf-8", newline="\n")
+        (tree / "drivers" / "PongPower" / "K60Battmgr.c").write_text(wire_body, encoding="utf-8", newline="\n")
     if tables:
         for rel in TABLES:
             (tree / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -137,16 +158,19 @@ def run(device: Path, tree: Path) -> tuple[int, str]:
 
 def case(name: str, *, expect_rc: int, expect: str = "", device_ok: bool = True,
          tree_exists: bool = True, contract: bool = False, console: bool = False,
+         wire: bool = False, wire_body: str | None = None,
          console_body: str | None = None,
          **kwargs) -> None:
     base = WORK / name.replace(" ", "-")
     if base.exists():
         shutil.rmtree(base)
     base.mkdir(parents=True)
-    device = make_device(base, contract=contract, console=console) if device_ok else base
+    device = make_device(base, contract=contract, console=console, wire=wire) if device_ok else base
     tree_kwargs = dict(kwargs)
     if console_body is not None:
         tree_kwargs["console"] = console_body
+    if wire_body is not None:
+        tree_kwargs["wire_body"] = wire_body
     tree = make_tree(base, **tree_kwargs) if tree_exists else base / "ios27-absent"
     rc, out = run(device, tree)
     check(name, rc == expect_rc, f"rc={rc} want {expect_rc}\n{out}")
@@ -166,6 +190,10 @@ case("console pairs computed", expect_rc=0, expect="all match the drivers that p
      console=True, console_body=DRIVER)
 case("console rename warned", expect_rc=0, expect="would no longer parse", console=True,
      console_body=DRIVER.replace("charge=%u/%umAh", "charge-now=%u/%umAh"))
+case("wire table computed", expect_rc=0,
+     expect="2 wire field(s) sent in the same order", wire=True, wire_body=BATT_C)
+case("wire reorder warned", expect_rc=0, expect="the wire index moved", wire=True,
+     wire_body=BATT_C.replace("{OP_BATTERY, 4}", "{OP_BATTERY, 5}"))
 case("missing module", expect_rc=1, expect="missing drivers/PongPower/K60Probe.c", module=False)
 case("pong guard", expect_rc=1, expect="K60_PLATFORM_SLEEP_REPORT", guard=True)
 case("no driver macro", expect_rc=0, expect="keep the driver-level switch", macro=False)

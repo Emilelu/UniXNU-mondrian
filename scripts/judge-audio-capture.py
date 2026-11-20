@@ -162,9 +162,13 @@ def judge(lines, meta):
 
     if not starts:
         report.append("VERDICT: probe never ran (no 'amp probe start')")
+        report.append("  this says nothing about the hardware: check that the series carries"
+                      " 0531 and that the boot command line has pong_audio_probe=1")
         return 2, report
     if not dones:
         report.append("VERDICT: probe started but never finished")
+        report.append("  the last PongAudio line before the stop names the part that did not"
+                      " answer")
         return 1, report
 
     found, want, failed, timeouts, recovered = (int(x) for x in dones[-1])

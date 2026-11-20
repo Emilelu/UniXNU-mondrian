@@ -122,10 +122,14 @@ def cases():
     code, report = mod.judge(STARTED_ONLY, {})
     expect(code == 1, "started but unfinished is a failure")
     expect(any("never finished" in l for l in report), "unfinished report says so")
+    expect(any("last PongAudio line before the stop" in l for l in report),
+           "unfinished report points at the line that stopped it")
 
     code, report = mod.judge(ABSENT, {})
     expect(code == 2, "no probe line means the probe never ran")
     expect(any("never ran" in l for l in report), "absent report says so")
+    expect(any("pong_audio_probe=1" in l and "0531" in l for l in report),
+           "absent report names the two wiring causes rather than the hardware")
 
     # an unknown id must not be accepted just because the count matches
     odd = list(HEALTHY)

@@ -1,0 +1,172 @@
+# 电池/充电 wire 属性号契约（battery / usb / wireless）
+#
+# 一条 row = 驱动字段 → 请求里的 {opcode, 下标} → 运行时 map 值 → 文档出处。
+# 三份独立材料必须同时一致，检查器才算通过：
+#   1. drivers/PongPower/K60Battmgr.c 的 fields[]（协议顺序，见 K60Battmgr.h 的 enum）
+#   2. docs/research/charger/04-PROP-MAP.md 的表格（.ko 反编译结论）
+#   3. 厂商模块 qti_battery_charger_main_m81.ko 的 .rodata map（本机可选：给了路径才读）
+#
+# 为什么单独成表：wire 上的 prop_id 是**域名 map 的下标**，不是枚举值本身；小米版比上游
+# mainline 多一层间接，CAPACITY 是 0x2e 而 mainline 是 41。27 侧复用同一台 ADSP 与同一段
+# battmgr 协议，所以这张表是跨版本常量——变的是 IOKit 侧属性号，不是 wire 下标。
+schema = 1
+checked_by = "python3 scripts/check-battmgr-wire.py"
+
+[[field]]
+name = "Status"
+source = "drivers/PongPower/K60Battmgr.c:24"
+opcode = "OP_BATTERY"
+index = 0
+map_value = "0x00"
+documented_at = "docs/research/charger/04-PROP-MAP.md:368"
+note = "电量计状态；map 值与 mainline STATUS 相同"
+
+[[field]]
+name = "Present"
+source = "drivers/PongPower/K60Battmgr.c:24"
+opcode = "OP_BATTERY"
+index = 2
+map_value = "0x03"
+documented_at = "docs/research/charger/04-PROP-MAP.md:369"
+
+[[field]]
+name = "Capacity"
+source = "drivers/PongPower/K60Battmgr.c:24"
+opcode = "OP_BATTERY"
+index = 4
+map_value = "0x2e"
+documented_at = "docs/research/charger/04-PROP-MAP.md:370"
+note = "0x2e(46) 而 mainline 是 41：vendor 枚举插过条目，不能按 mainline 反查"
+
+[[field]]
+name = "Voltage"
+source = "drivers/PongPower/K60Battmgr.c:24"
+opcode = "OP_BATTERY"
+index = 7
+map_value = "0x0c"
+documented_at = "docs/research/charger/04-PROP-MAP.md:371"
+note = ".ko 里随后用 0x10624dd3 / 除以 400 换算"
+
+[[field]]
+name = "Current"
+source = "drivers/PongPower/K60Battmgr.c:25"
+opcode = "OP_BATTERY"
+index = 9
+map_value = "0x11"
+documented_at = "docs/research/charger/04-PROP-MAP.md:372"
+note = "可选：property 9 的 getter 在 K60 上从不回包"
+
+[[field]]
+name = "Temperature"
+source = "drivers/PongPower/K60Battmgr.c:25"
+opcode = "OP_BATTERY"
+index = 13
+map_value = "0x33"
+documented_at = "docs/research/charger/04-PROP-MAP.md:373"
+note = "0x33(51) 而 mainline 是 44"
+
+[[field]]
+name = "UsbOnline"
+source = "drivers/PongPower/K60Battmgr.c:25"
+opcode = "OP_USB"
+index = 0
+map_value = "0x04"
+documented_at = "docs/research/charger/04-PROP-MAP.md:374"
+
+[[field]]
+name = "UsbVoltage"
+source = "drivers/PongPower/K60Battmgr.c:25"
+opcode = "OP_USB"
+index = 1
+map_value = "0x0c"
+documented_at = "docs/research/charger/04-PROP-MAP.md:375"
+
+[[field]]
+name = "UsbAdapter"
+source = "drivers/PongPower/K60Battmgr.c:26"
+opcode = "OP_USB"
+index = 7
+map_value = "0x40"
+documented_at = "docs/research/charger/04-PROP-MAP.md:376"
+
+[[field]]
+name = "UsbMaxCurrent"
+source = "drivers/PongPower/K60Battmgr.c:26"
+opcode = "OP_USB"
+index = 4
+map_value = "0x10"
+documented_at = "docs/research/charger/04-PROP-MAP.md:377"
+
+[[field]]
+name = "UsbInputLimit"
+source = "drivers/PongPower/K60Battmgr.c:26"
+opcode = "OP_USB"
+index = 5
+map_value = "0x25"
+documented_at = "docs/research/charger/04-PROP-MAP.md:378"
+
+[[field]]
+name = "WirelessOnline"
+source = "drivers/PongPower/K60Battmgr.c:26"
+opcode = "OP_WIRELESS"
+index = 0
+map_value = "0x04"
+documented_at = "docs/research/charger/04-PROP-MAP.md:379"
+
+[[field]]
+name = "Full"
+source = "drivers/PongPower/K60Battmgr.c:27"
+opcode = "OP_BATTERY"
+index = 18
+map_value = "0x18"
+documented_at = "docs/research/charger/04-PROP-MAP.md:380"
+
+[[field]]
+name = "Design"
+source = "drivers/PongPower/K60Battmgr.c:27"
+opcode = "OP_BATTERY"
+index = 17
+map_value = "0x16"
+documented_at = "docs/research/charger/04-PROP-MAP.md:381"
+
+[[field]]
+name = "Cycles"
+source = "drivers/PongPower/K60Battmgr.c:27"
+opcode = "OP_BATTERY"
+index = 16
+map_value = "0x07"
+documented_at = "docs/research/charger/04-PROP-MAP.md:382"
+
+[[field]]
+name = "TimeToFull"
+source = "drivers/PongPower/K60Battmgr.c:28"
+opcode = "OP_BATTERY"
+index = 20
+map_value = "0x3e"
+documented_at = "docs/research/charger/04-PROP-MAP.md:383"
+
+[[field]]
+name = "TimeToEmpty"
+source = "drivers/PongPower/K60Battmgr.c:28"
+opcode = "OP_BATTERY"
+index = 21
+map_value = "0x3c"
+documented_at = "docs/research/charger/04-PROP-MAP.md:384"
+
+[[field]]
+name = "Model"
+source = "drivers/PongPower/K60Battmgr.c:28"
+opcode = "OP_BATTERY"
+index = 19
+map_value = "0x48"
+documented_at = "docs/research/charger/04-PROP-MAP.md:385"
+note = "144 B 回包（12 头 + 128 模型）；.ko 里与 \"Debug_Board\" 比较"
+
+[[field]]
+name = "UsbCurrent"
+source = "drivers/PongPower/K60Battmgr.c:29"
+opcode = "OP_USB"
+index = 3
+map_value = "0x11"
+documented_at = "docs/research/charger/04-PROP-MAP.md:165"
+note = "表格 §8 没收这一行，值取自 §5 的 usb map 原始字节"

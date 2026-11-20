@@ -47,6 +47,12 @@ EXTRA = [
     "docs/research/power/10-THERMAL-MAP.md",
     "docs/research/power/HW-CONTRACTS.toml",
     "docs/research/power/HW-CONTRACTS-IOS27.md",
+    "docs/research/charger/WIRE-PROPS.toml",
+    "docs/research/charger/04-PROP-MAP.md",
+    "scripts/check-battmgr-wire.py",
+    "scripts/tests/test-check-battmgr-wire.py",
+    "drivers/PongPower/K60Battmgr.c",
+    "drivers/PongPower/K60Battmgr.h",
     "scripts/check-power-carry.py",
     "scripts/check-power-portability.py",
     # its fixture exercises this gate end to end

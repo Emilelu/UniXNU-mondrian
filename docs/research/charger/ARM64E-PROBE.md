@@ -394,18 +394,23 @@ P2 的每个核要分别有 EL1 与 EL0；只有 EL1 不能替代 EL0。
 | 没有 P4 的运行期 TCR 行 | 不能写“运行期仍是 4 KiB” | P4 `INCOMPLETE`，先确认到 `bsd_init` |
 | 没有 `done` | 不能写“探针走完” | 按最后一条步进行判 `INCOMPLETE` |
 
-### 9.5 起飞前的两条命令
+### 9.5 起飞前后各一条命令
 
-在有镜像的机器上先做这两件事，再交给 Lead 排飞行：
+同一个检查器先对镜像、再对镜像加串口各跑一次：
 
 ```sh
-shasum -a 256 <image>          # 与 start 行里的 image_sha256 对照
-strings -a <kernel.macho> | grep -F 'K60PAC: probe v3 start'
+python3 scripts/check-pac-probe-capture.py --image <image>
+python3 scripts/check-pac-probe-capture.py --image <image> --log <console.log>
 ```
 
-第二条没有输出，就不要飞“验证 PAC”的窗口；它证明的是镜像里没有这段格式串，
-不是硬件没有 PAuth。格式串在、`start` 行却没出现，先查探针的选择/调用路径与串口，
-再谈 P0–P4。
+第一条只回答「镜像里有没有 `K60PAC: probe v3 start` 这段格式串」：有就 `PASS`，
+没有就 `INVALID` 并点名缺的字符串。它证明的是镜像里没有这段串，不是硬件没有
+PAuth；格式串在、`start` 行却没出现，先查探针的选择/调用路径与串口，再谈 P0–P4。
+
+第二条在飞行后判 P0–P4 与 `done` 是否都在：`INCOMPLETE` 会点名缺的那一行
+（如 `P0 core=3 line`），`INVALID` 保留哈希/版本/CPU 数不符的原因，只有 `PASS`
+才表示捕获合约完整，不表示 PAC 实验通过。退出码 0 PASS、1 INCOMPLETE、
+2 INVALID、3 读不到文件。
 
 ## 10 结果怎么入档
 

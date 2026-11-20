@@ -1,8 +1,8 @@
 # PMIC / 设备侧 27 改线工单
 
-> 只写工单，不改代码、不改驱动、不写寄存器。每一行回答三件事：**现在读到什么**、
-> **改完应该读到什么**、**失败时日志里出现哪些字**。飞行窗口只有一次，按行对照，
-> 不凭“看起来像成功”。
+> 只写工单，不改代码、不改驱动、不写寄存器。每一行回答四件事：**现在读到什么**、
+> **改完应该读到什么**、**失败时日志里出现哪些字**、**这一项若失败最先出现哪一行**。
+> 飞行窗口只有一次，按行对照，不凭“看起来像成功”。
 
 ## 0 三条边界
 
@@ -16,16 +16,26 @@
 
 ## 1 改线项
 
-| # | 改什么 | 当前读数（带出处） | 目标读数 | 失败字样（照 grep） | 判据 |
-| --- | --- | --- | --- | --- | --- |
-| P-01 | 不新增 AP SPMI 节点；电池/充电保持 pmic_glink，ldoc2 保持 RPMh | `dts/mondrian.dts` 无 `spmi`/`pm8350` 节点；`K60PmicRail.c:2-3` 写 AP 无 PPID 0x241 的 SPMI 通道（内核 SPMI probe `apid=-1`） | 0 个 AP SPMI 节点；battery/charger 只走 `PMIC_RTR_ADSP_APPS`；rail 只走 RPMh | `spmi`、`apid=-1`、`no PMIC channel` | 不改这条路径；出现 SPMI 访问即回退 |
-| P-02 | 保留 27 设备树的 `remoteproc-adsp`/`glink-edge`/`pmic_glink`/`battery-charger` 四层节点，确认驱动真的去 probe | `dts/mondrian.dts:192-231` 已有 `qcom,cape-adsp-pas`、`remote-pid=2`、`mboxes=<&ipcc 3 0>`、`qcom,glink-channels="PMIC_RTR_ADSP_APPS"`、`qcom,protection-domain="tms/servreg","msm/adsp/charger_pd"`、`qcom,battery-charger` | 同一组节点不被删、不被第二套 channel 替代；`K60PmicGlink.cpp:84` 仍以 256/4 打开该 channel | `GLINK epoch never became ready`、`physical transport initialization rejected error=` | C1 的 channel up 行出现，且 sign 为 +1 或 -1 |
-| P-03 | 确认 handoff 发布先于 battery 启动；不合成 104 字节 lease | `K60HandoffRuntime.cpp:81` 成功时打印 `K60Handoff: published authenticated PAS1 epoch=%u bytes=104 flags=15`；`K60Battery.cpp:656-660` 从 `/chosen` 读 `K60_ADSP_HANDOFF_PROPERTY` 并解析 lease | 同一条 published 行出现在 `K60Battery: ... channel up` 之前；`/chosen` 里是平台 PAS1 owner 发布的 104 字节 | `K60Battery: blocked rc=-4`、`K60ADSP owner stage=1 rc=-1000` | C0：先有 published，再有 channel up |
-| P-04 | 订阅常量落到生成头：`(type,bytes)=(1,16)`；不要手写第二份 | `K60Battmgr.h:64-69` 说明 reply type/bytes 来自 ADSP opcode 4 handler；`K60Battery.cpp:442-444` 打印运行时值；27 侧尚无一份捕获能证明它是 1/16 | channel up 行 `subscription-ack=1/16`，随后 sample 行 `subscribed=1` | `subscription-ack=0/0`、`subscribed=0`、`errors=` 递增、ACK 被拒 | C1：ack 被接受，不能只看配置常量 |
-| P-05 | wire 属性表保持 19 项，不改 index/map；四属性按原 map 读 | `WIRE-PROPS.toml` 19 项：Status 0/0x00、Present 2/0x03、Capacity 4/0x2e、Voltage 7/0x0c、Current 9/0x11、Temperature 13/0x33、UsbOnline OP_USB 0/0x04 | 同一组值与 27 侧生成器一致；C2 四属性各在区间：3300–5000 mV、100–6000 mA（绝对值）、1.00–100.00%、0.0–60.0 °C | `no publication sample`、`raw-current=`、`raw-temp=`、`sign=0` | C2：首帧四属性都在区间 |
-| P-06 | ldoc2 只读继承账本先成立；需要 vote 时也只写 RPMh，不写 SPMI | `K60PmicRail.c:2-3` 说 rail 在 applications RSC 后、AP 无 SPMI；`K60PmicRail.h:16-19` 规定 `k60_rail_inherit()` 单次测量、`k60_rail_probe()` 只打印已有账本 | 账本 `complete=1` 且 `valid=1`；若后续要 vote，用账本里的 RPMh 地址与 level，不猜 mV | `rail never measured`、`incomplete`、`invalid`、`busy`、`cmd-db` 解析失败 | 账本不完整就不投；先读后写 |
-| P-07 | 27 侧暂不引入 charge-auth 代码；先把 C1/C2 跑通 | 27 的 `drivers/PongPower/` 没有 `K60ChargeAuth.c`（16.6.1 侧有，默认 off）；27 设备树只有 `battery-charger` 子节点 | 先有 `subscription-ack=1/16` + `subscribed=1` + C2 四属性；再谈独立充电协议 | `charge refused`、`k60_charge_auth=0`、`auth` 相关拒绝 | C2 不过不接 charge-auth |
-| P-08 | 设备侧取一组 Android 同窗口基线，作为 C3 的对照，不拿 Android 值当 iOS 结果 | `ANDROID-HW-TRUTH.md:68-77`：capacity 100、temp 358（35.8 °C）、status Charging、current_now 836 mA、voltage_now 4333 mV、USB CDP | iOS 同一窗口的容量/温度/电流/电压与充电状态；偏差 ≤ ±60 mV / ±150 mA / ±3 pp / ±3 °C，时刻差 ≤10 s，至少 3 对 | `mismatch`、`stale`、`no publication sample`、样本对不足 3 对 | C3：先配对，再算偏差 |
+| # | 改什么 | 当前读数（带出处） | 目标读数 | 失败字样（照 grep） | 判据 | 这一项若失败，最先出现的一行 |
+| --- | --- | --- | --- | --- | --- | --- |
+| P-01 | 不新增 AP SPMI 节点；电池/充电保持 pmic_glink，ldoc2 保持 RPMh | `dts/mondrian.dts` 无 `spmi`/`pm8350` 节点；`K60PmicRail.c:2-3` 写 AP 无 PPID 0x241 的 SPMI 通道（内核 SPMI probe `apid=-1`） | 0 个 AP SPMI 节点；battery/charger 只走 `PMIC_RTR_ADSP_APPS`；rail 只走 RPMh | `spmi`、`apid=-1`、`no PMIC channel` | 不改这条路径；出现 SPMI 访问即回退 | 无 —— 27 树没有 SPMI 节点，PongPower 也不探测；只有新加 AP SPMI 路径才可能看到内核 probe 的 `apid=-1` |
+| P-02 | 保留 27 设备树的 `remoteproc-adsp`/`glink-edge`/`pmic_glink`/`battery-charger` 四层节点，确认通道/描述符与实际 open 路径没被改 | `dts/mondrian.dts:192-231` 已有 `qcom,cape-adsp-pas`、`remote-pid=2`、`mboxes=<&ipcc 3 0>`、`qcom,glink-channels="PMIC_RTR_ADSP_APPS"`、`qcom,protection-domain="tms/servreg","msm/adsp/charger_pd"`、`qcom,battery-charger` | 同一组节点不被删、不被第二套 channel 替代；`K60PmicGlink.cpp:84` 仍以 256/4 打开该 channel | `GLINK epoch never became ready`、`physical transport initialization rejected error=` | C1 的 channel up 行出现，且 sign 为 +1 或 -1 | `K60Battery: physical transport initialization rejected error=%d; no publication`（begin() 里 transport.open() 同步返回；通道/描述符一错就回退，5 s 的 epoch 等待不会开始） |
+| P-03 | 确认 handoff 发布先于 battery 启动；不合成 104 字节 lease | `K60HandoffRuntime.cpp:81` 成功时打印 `K60Handoff: published authenticated PAS1 epoch=%u bytes=104 flags=15`；`K60Battery.cpp:656-660` 从 `/chosen` 读 `K60_ADSP_HANDOFF_PROPERTY` 并解析 lease | 同一条 published 行出现在 `K60Battery: ... channel up` 之前；`/chosen` 里是平台 PAS1 owner 发布的 104 字节 | `K60Battery: blocked rc=-4`、`K60ADSP owner stage=1 rc=-1000` | C0：先有 published，再有 channel up | `K60Battery: blocked rc=-4`（battery 在 IOBSD publish 后立刻解析 /chosen：没有 lease 就 return，任何 GLINK 行都还没打印） |
+| P-04 | 订阅常量落到生成头：`(type,bytes)=(1,16)`；不要手写第二份 | `K60Battmgr.h:64-69` 说明 reply type/bytes 来自 ADSP opcode 4 handler；`K60Battery.cpp:442-444` 打印运行时值；27 侧尚无一份捕获能证明它是 1/16 | channel up 行 `subscription-ack=1/16`，随后 sample 行 `subscribed=1` | `subscription-ack=0/0`、`subscribed=0`、`errors=` 递增、ACK 被拒 | C1：ack 被接受，不能只看配置常量 | `subscription-ack=0/0`（channel-up 回调先打印配置常量；常量没进内核时这一行就是 0/0，早于任何 sample 行） |
+| P-05 | wire 属性表保持 19 项，不改 index/map；四属性按原 map 读 | `WIRE-PROPS.toml` 19 项：Status 0/0x00、Present 2/0x03、Capacity 4/0x2e、Voltage 7/0x0c、Current 9/0x11、Temperature 13/0x33、UsbOnline OP_USB 0/0x04 | 同一组值与 27 侧生成器一致；C2 四属性各在区间：3300–5000 mV、100–6000 mA（绝对值）、1.00–100.00%、0.0–60.0 °C | `no publication sample`、`raw-current=`、`raw-temp=`、`sign=0` | C2：首帧四属性都在区间 | `K60Battery: no publication sample=`（一轮属性到轮末才判合格；坏 map 的字段一起作废，单项属性没有独立日志） |
+| P-06 | ldoc2 只读继承账本先成立；需要 vote 时也只写 RPMh，不写 SPMI | `K60PmicRail.c:2-3` 说 rail 在 applications RSC 后、AP 无 SPMI；`K60PmicRail.h:16-19` 规定 `k60_rail_inherit()` 单次测量、`k60_rail_probe()` 只打印已有账本 | 账本 `complete=1` 且 `valid=1`；若后续要 vote，用账本里的 RPMh 地址与 level，不猜 mV | `rail never measured`、`incomplete`、`invalid`、`busy`、`cmd-db` 解析失败 | 账本不完整就不投；先读后写 | `K60ADSP: rails not measured: pong_rail_probe is off`（账本不存在时 k60_rail_inherit() 的第一道门；默认 probe off，refuse 挡住 AUTH_AND_RESET） |
+| P-07 | 27 侧暂不引入 charge-auth 代码；先把 C1/C2 跑通 | 27 的 `drivers/PongPower/` 没有 `K60ChargeAuth.c`（16.6.1 侧有，默认 off）；27 设备树只有 `battery-charger` 子节点 | 先有 `subscription-ack=1/16` + `subscribed=1` + C2 四属性；再谈独立充电协议 | `charge refused`、`k60_charge_auth=0`、`auth` 相关拒绝 | C2 不过不接 charge-auth | 无 —— 27 树 `drivers/PongPower/` 没有 `K60ChargeAuth.c`，channel-up 行也只有 sign/subscription-ack；代码一旦进来是新增行，不是失败行 |
+| P-08 | 设备侧取一组 Android 同窗口基线，作为 C3 的对照，不拿 Android 值当 iOS 结果 | `ANDROID-HW-TRUTH.md:68-77`：capacity 100、temp 358（35.8 °C）、status Charging、current_now 836 mA、voltage_now 4333 mV、USB CDP | iOS 同一窗口的容量/温度/电流/电压与充电状态；偏差 ≤ ±60 mV / ±150 mA / ±3 pp / ±3 °C，时刻差 ≤10 s，至少 3 对 | `mismatch`、`stale`、`no publication sample`、样本对不足 3 对 | C3：先配对，再算偏差 | `有效对不足：窗口内 Android … 条、XNU … 条`（judge-battery.py 输出，不在控制台；C1/C2 过后先配对数，不足 3 对即 INVALID） |
+
+**这一列是“第一行”，不是“唯一行”。** 它只给**这一项自己的失败路径**上最先打印的那一行；同一份日志后面还会出现别的行（例如 `physical transport initialization rejected` 之后还有 `source setup rejected`），不要把后续行当成第二个故障。归因按 **C0 lease → C1 订阅 → C2 四属性 → C3 对照 → rail** 的顺序读：**最早失败的阶段拥有第一行**；后面的阶段可能根本没跑到（`blocked`/`return` 之后一行都没有），**没打印不等于通过**。
+
+- 共用行：P-05 拥有 `no publication sample`；P-08 在控制台侧只会看到同一行，它自己的第一行是判据输出的 `有效对不足`（C1/C2 未过时判据只打 `C1/C2 未通过`，P-08 不单独成立）。
+- 两个旧串没有打印点：`no PMIC channel` 全树只在本工单出现；`rail never measured` 的真实串是 `K60ADSP: rails not measured: pong_rail_probe is off...`（`K60PmicRail.c:401`）。判读用后者。
+- `pong_rail_probe=1` 时首行可能是 `K60RAIL ...`（`K60PmicRail.c:320`），所以 §2 的过滤器已补上 `K60RAIL`；读 rail 时不要漏掉这个前缀。
+- **P-02 的首行有条件**：`physical transport initialization rejected` 只在通道/描述符本身缺失时出现。`patches/xnu/0602-k60-physical-battery.patch` 直接调用 `k60_physical_battery_start`，`K60PmicGlink::open` 只从 lease+SMEM 取数并 `qcom_glink_adopt`，不读设备树；删掉四层 DTS 节点不会改变本驱动日志，所以 DTS 存在与否不能只由这一行证明。
+- **P-05 的首行分叉**：ADSP 静默时 `requestAction` 的 3 s 超时行（charger 树 `K60Battery.cpp:534`）先于 `:480`；`:480` 只适用于通道已通、ADSP 会回帧的场景。
+- **P-03 的 rc 不止 -4**：`blocked rc=` 还可能是 -1/-2/-3/-5（合成 lease 校验）；publisher 自己失败时更早的是 `K60HandoffRuntime.cpp:58/:65/:74`。
+- **跨树行号**：表中 `K60Battery.cpp` 行号以 charger 树为准；27 树更旧（channel-up `:355`、rejected `:458`、blocked `:535`、timeout `:399`）。新列只写字符串，不锁行号，除 `K60PmicRail.c:401/:320` 两树一致。
 
 ## 2 一次飞行的读法
 
@@ -41,7 +51,7 @@
 控制台过滤：
 
 ```sh
-grep -E 'K60Handoff:|K60Battery:|K60ADSP|K60TRACE:' <console.log>
+grep -E 'K60Handoff:|K60Battery:|K60ADSP|K60RAIL|K60TRACE:' <console.log>
 ```
 
 `K60Battery: blocked rc=-4` 是 **INVALID(no lease)**，不是电池失败；先回到 C0。

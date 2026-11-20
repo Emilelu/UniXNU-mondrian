@@ -89,8 +89,8 @@ python3 scripts/check-power-carry.py --target E:/hackios/xnekom-ios27   # 列出
   导到 scratch（不动它的 `.git`，不建工作树），`cp -a build/power-carry-bundle/. <导出树>/` 之后，
   在**27 代码 + 本仓驱动与补丁副本的组合上**得到 `power-carry: OK (8 modules, 16 files, 872 checks; 4 judge(s), 98 cases)`、
   `hw-contracts: 36 contract(s) across 5 lane(s)`、`power-host: OK (1915 checks in 10 suites)` 与
-  `power-python: OK (21 suites)`。这次验证不包含 `hw-contracts --against`：它按覆盖前的 `copy27` 坐标算，补丁一贴就会报不一致，覆盖后要重记行号。同一个 bundle 在一个没有 `.git`、也没有仓库其余部分的空目录里跑同一条命令，
-  两半都过（10 个 C 套件 1915 项 + 21 个 python 套件，含 `battery-judge` 24 项、`fdt-props` 27 项、`console-contract` 18 项、`judge-thresholds` 21 项、`criteria-cites` 18 项、`judge-exit-codes` 12 项、`preflight-coverage` 20 项与 `pitfall-numbers` 27 项、`record-hw-contracts` 9 项、`sleep-report-switch` 10 项），所以它是自足的，不是靠仓库兜底；
+  `power-python: OK (23 suites)`。这次验证不包含 `hw-contracts --against`：它按覆盖前的 `copy27` 坐标算，补丁一贴就会报不一致，覆盖后要重记行号。同一个 bundle 在一个没有 `.git`、也没有仓库其余部分的空目录里跑同一条命令，
+  两半都过（10 个 C 套件 1915 项 + 23 个 python 套件，含 `battery-judge` 24 项、`fdt-props` 27 项、`console-contract` 18 项、`judge-thresholds` 21 项、`criteria-cites` 18 项、`judge-exit-codes` 12 项、`preflight-coverage` 20 项与 `pitfall-numbers` 27 项、`record-hw-contracts` 9 项、`sleep-report-switch` 10 项、`sleep-report-build` 14 项、`pac-probe-capture` 19 项），所以它是自足的，不是靠仓库兜底；
   也就是说 27 线不需要拉本分支、也不需要合并，就能先拿到全部离线证据；
   剩下的只有真机重接（属性号、`read_random`、读取路径）。
 - 拿不到分支时还有一个不看 git 的通道：

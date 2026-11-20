@@ -446,6 +446,13 @@ had.
 
 ## What the storage exports say
 
+**Where this stands (2026-11-20):** the storage preflight is \`pending\` while
+\`CONFIG_XNU_NATIVE_UFS\` is off, and pending is not a pass. Against this
+branch's configs it fails on one thing only: 190/190 slots agree with Apple's
+table, both report bindings (collection and kernelcache) match, and one target,
+\`0xfffffff007044478\`, is still inside the input \`__TEXT\` instead of the
+output layout.
+
 The link experiment in the previous section ends with eleven undefined
 IOBlockStorageDevice symbols. Two ways out were on the table: bind them (A) or
 ship the driver as its own fileset entry (B). The choice is not a matter of

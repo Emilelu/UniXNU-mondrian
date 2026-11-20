@@ -7166,3 +7166,21 @@ docs/engineering/RULES.toml` 只找到引入与改写**读**的那个提交，�
    门禁"，而是"起点读错了"。
 4. 起点这类"历史边界"必须能从仓库里复算（提交 + 命令），不能写成别人无法验证的
    约定；本坑的 151 就曾是这种约定，实际测出来是 155。
+
+## P-260 — 一个被构建脚本重置的变量，让文档里的开关永远无效
+
+**症状**：文档让 27 构建这样打开音频胶水：`EXTRA_MAKE_ARGS="PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO" sh scripts/build-xnu-generic.sh`。构建全绿、日志没有任何异常，可内核里一个音频符号都没有——宏从未到达编译命令。
+
+**触发条件**：任何把「给构建传参」写成环境变量、而构建脚本内部又对该变量做过初始化（数组重置、`VAR=`、`unset`）的写法；尤其是变量名看起来像脚本对外接口的时候。
+
+**为什么当初走错**：`scripts/build-xnu-generic.sh:166` 是 `EXTRA_MAKE_ARGS=()`，它在脚本内部把数组清空，外部传入的同名环境变量被静默丢弃；`make` 也不会报错——没有赋值就是空值，于是 `PongAudioAmp.o_CFLAGS_ADD` 为空、`#if defined(XNU_PONG_AUDIO)` 整段编译成空。门禁全绿是因为它们量的是源码与桩，没有任何一行量「宏有没有进编译命令」。
+
+**正确做法**：
+
+1. 投递用**点号名的每目标文件变量**，并显式用 bash 启动：`PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 bash scripts/build-xnu-generic.sh`。点号名不是合法 shell 标识符，`dash` 会把它丢掉；该脚本本身用 bash 数组，`sh` 根本跑不了。`make` 会把环境变量导入，生成的 `bsd/conf/Makefile` 对每个对象只写 `+=`（`SETUP/config/mkmakefile.c:803/808/856-883`），消费点是 `makedefs/MakeInc.rule:521` 的 `$($@_CFLAGS_ADD)`；先例 `makedefs/MakeInc.kernel:312`。
+2. 门禁要有**正向证据**：从编出来的对象里数符号（`nm -g --defined-only` 里看到 `pong_audio_amp_probe`），而不是只看日志有没有那一行；宏关掉时必须数到 0，否则 `#if` 写坏了也看不出来。
+3. 文档里的调用方式必须被测试**真跑一次**，否则它只是传说：`scripts/tests/test-audio27-define.py` 用 builder 形状的 harness 验三件事（环境传 `EXTRA_MAKE_ARGS` 无效、点号名 + bash 有效且被 conf 追加、`dash` 丢点号名且跑不了数组），并读文档页确认页上写的正是有效写法。
+
+**证据**：`scripts/build-xnu-generic.sh:166`；`makedefs/MakeInc.rule:521`；`makedefs/MakeInc.kernel:312`；harness 三行实测 `make sees: [-DFROM_CONF]` / `[-DXNU_PONG_AUDIO=1 -DFROM_CONF]` / 同第二行（两者同时给不叠加）；`docs/research/audio/IOS27-WIRING.md` §3；27 预检行 `define delivery is honest`（`TESTS OK 6 cases`）。
+
+**下次 30 秒判定**：看到「文档说设置某个环境变量就能打开开关」，先在那条命令**真正执行的位置** grep 变量名有没有被重置或覆盖，再看编译命令里有没有那个 `-D`（或对象里有没有那个符号）。只有文档、没有编译命令证据的开关，等于没打开——与 P-251「登记了检查 ≠ 检查在跑」同族。

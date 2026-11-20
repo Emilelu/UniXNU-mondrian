@@ -7,7 +7,7 @@
 ## P-271 — 一个数字被写在四处，加完不重跑，那句话就开始说谎
 
 **现象**：`docs/research/audio/IOS27-USERLAND.md:84` 长期写着「`sh scripts/check-audio27-preflight.sh`
-→ 八行 `ok` 与 `PREFLIGHT OK`」。那是 8 行的时代；2026-11-20 脚本已经打到 55 行。同一个数字还写在
+→ 八行 `ok` 与 `PREFLIGHT OK`」。那是 8 行的时代；2026-11-20 那一版已经打到 55 行。同一个数字还写在
 另外三处：`scripts/check-audio27-preflight.sh` 的头部注释、
 `docs/research/audio/IOS27-MIGRATION.md`（「随后五十四行 `ok`」）、以及
 `porting.toml` 音频区的 `result = "… 54 host rows plus one skip …"`。
@@ -22,7 +22,7 @@
 
 **做法**：一处常量、自己数自己、页面与记录变成可执行断言。
 
-- `scripts/check-audio27-preflight.sh` 头部 `ROWS_EXPECTED=55`；
+- `scripts/check-audio27-preflight.sh` 头部 `ROWS_EXPECTED`（脚本自己声明，页面不抄）；
 - 同一脚本在 `set -u` 之前有一段外壳：`K60_PREFLIGHT_INNER=1 sh "$0" "$@" > "$inner"`，过滤内层
   `PREFLIGHT OK` 汇总行，`grep -cE '^(ok|skip|FAIL) '` 数出行数。不等就
   `ROWS FAILED %s rows printed, %s declared` + `PREFLIGHT FAILED` 退 1；相等则末行
@@ -35,10 +35,13 @@
   「N 行 `ok` … M 行 `skip`」与 `porting.toml` 的「N host rows plus one skip」对账。
   配对按整句走：同一行会先说「这两行变 `skip`」再给总数，只抓相邻标签会把那句单独的 skip
   和下一组的 ok 配成一对，算出一个从未打印过的总数。围栏代码块里的示例输出不参与对账。
-  成功行是 `ROWS OK 55 rows declared, counted the same in 3 page claim(s) and the record`；
-  每条计数另有一行 `ROWS NOTE: … counts 54 ok and 1 skip` 把位置说清；
-- `scripts/tests/test-audio27-rows.py` 九例：一致 / 页面多报 / 记录漂移 / 常量被删 / 比对被删 /
-  页面没写 / 同一行三种形状都对 / 真外壳接受声明行数 / 真外壳拒绝少一行。后两例把外壳本身抽出来跑，
+  成功行是 `ROWS OK <N> rows declared, counted the same in <k> page claim(s) and the record`；
+  每条计数另有一行 `ROWS NOTE: … counts <ok> ok and <skip> skip` 把位置说清；
+  同一门禁也拒绝页面抄旧读数：`PREFLIGHT OK <old> rows` 或 `ROWS_EXPECTED=<old>` 与声明不符就红；
+  `--pac-only` 的四行单独解析，不要求等于整跑；
+- `scripts/tests/test-audio27-rows.py` 十二例：一致 / 页面多报 / 记录漂移 / 常量被删 / 比对被删 /
+  页面没写 / 同一行三种形状都对 / 示例读数漂移 / 示例常量漂移 / PAC-only 自己的四行 /
+  真外壳接受声明行数 / 真外壳拒绝少一行。最后两例把外壳本身抽出来跑，
   所以它不只是「格式字符串还在」；
 - 预检里两行：`row count gate is honest` 与 `row count holds`。
 
@@ -52,25 +55,25 @@ K60_GATES=/mnt/e/hackios/k60-gates UNIXNU=/mnt/e/hackios/UniXNU \
   SHENG_REPO=/mnt/e/k60-work/UniXNU-sheng \
   XNU27_REPO=/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc \
   sh scripts/check-audio27-preflight.sh
-# PREFLIGHT OK 55 rows (54 ok, 1 skip, 0 FAIL), as declared
+# PREFLIGHT OK <N> rows (<ok> ok, <skip> skip, 0 FAIL), as declared
 python3 scripts/check-audio27-rows.py .
-# ROWS OK 55 rows declared, counted the same in 3 page claim(s) and the record
+# ROWS OK <N> rows declared, counted the same in <k> page claim(s) and the record
 python3 scripts/tests/test-audio27-rows.py
-# TESTS OK 9 cases
+# TESTS OK 12 cases
 ```
 
-把 `IOS27-MIGRATION.md` 的「五十四行」改成「五十二行」再跑第二条（只改 ok，不改 skip）：
+把 `IOS27-MIGRATION.md` 那条计数句里的 ok 数改小两行（skip 不动）再跑第二条：
 
 ```text
-ROWS FAILED: docs/research/audio/IOS27-MIGRATION.md:69 says 52 rows ok and 1 skip, which is 53,
-but the preflight declares 55
+ROWS FAILED: docs/research/audio/IOS27-MIGRATION.md:<line> says <ok> rows ok and <skip> skip, which is <sum>,
+but the preflight declares <N>
 ```
 
-把 `porting.toml` 的 host rows 从 54 改回 52，得到：
+把 `porting.toml` 的 host rows 减二，得到：
 
 ```text
-ROWS FAILED: porting.toml records 52 host rows plus one skip, which is 53,
-but the preflight declares 55
+ROWS FAILED: porting.toml records <host> host rows plus one skip, which is <host+1>,
+but the preflight declares <N>
 ```
 
 **一般化**：任何「N 行全绿」的说法，只要 N 是手写的，它就在写下的那一刻开始过期；

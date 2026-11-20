@@ -141,3 +141,108 @@ LC_SEGMENT_64 records; llvm-objdump --macho --private-headers shows the same ran
 - Hardware is not involved.
 
 The same six rows are in missing-storage-baseband.tsv for scripted use.
+
+## Candidate pairing: what the four criteria decide
+
+This section tries the pairing the 95-item note leaves open. The answer is negative:
+none of the six can be paired with a class, and the evidence says they are not
+IOStorageFamily-local classes at all.
+
+### Which kernel.macho was readable
+
+The LTO output named in the input table, /opt/k60/.../kernel.macho, is root:root
+0600 and cannot be read by this session. The readable CI artifact 44518998961
+kernel.macho (93,077,504 B, candidate_sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86)
+contains the same six addresses and was used for the symbol and byte checks below.
+The LTO output may differ in symbols; this section does not claim otherwise.
+
+### The candidate set, and why it is not a storage class
+
+The family's own classes include IOBlockStorageDevice, IOStorage, IOMedia,
+IOPartitionScheme, IOFilterScheme, IOMediaBSDClient, IOBlockStorageDriver,
+IOFDiskPartitionScheme, IOGUIDPartitionScheme, IOAppleLabelScheme,
+IOApplePartitionScheme and IOUserBlockStorageDevice. A gMetaClass object for one
+of those classes belongs in the family's own __DATA_CONST, which is
+0xfffffff008313f98 + 0x5c40 in the 24A446 entry. All six addresses are below that
+range, in the root __DATA_CONST 0xfffffff007dd0000 + 0x618000. They are not in the
+family's own segment.
+
+The base classes the family's classes use are a different set: IOStorage derives
+from IOService, IOService from IORegistryEntry, and IORegistryEntry from OSObject;
+property handling uses OSDictionary, OSSymbol and OSString; buffer handling uses
+IOMemoryDescriptor and IOSubMemoryDescriptor. The six addresses are shared with
+three to thirteen other bundles, including IOHIDFamily, IOReportFamily,
+IOSurface, apfs, sandbox and AppleImage4. Those bundles do not use IOStorageFamily
+classes. A storage-private class therefore cannot explain the sharing; a kernel
+base class can. The candidate set for the six is the base-class set, not the
+family's class list, and no evidence assigns one member of that set to one
+address. The set is open: OSMetaClass, OSCollection, OSArray, OSData, OSNumber,
+OSSet and OSIterator are also possible in principle.
+
+### The four columns
+
+| address | bundle and candidate class | our kernel symbol | criterion |
+|---|---|---|---|
+| 0xfffffff007e87df8 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
+| 0xfffffff007e89b80 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
+| 0xfffffff007e89b98 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
+| 0xfffffff007e89ba0 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
+| 0xfffffff007e89ba8 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
+| 0xfffffff007e8a9e0 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
+
+The owner field in kernel.json is the bundle that carries the reference, not the
+bundle that defines the target. That distinction is why the first criterion is the
+decisive one.
+
+### Why the symbol column is absent
+
+The CI artifact's com.apple.kernel entry has LC_SYMTAB nsyms 221,793. llvm-nm on
+the normalized child prints 27,666 defined symbols. Exactly five are gMetaClass
+symbols, all unrelated template classes:
+
+- DescriptorMixedData10gMetaClassE at 0xfffffff00b331990
+- N13OSValueObjectIPFvjiPKvjPvEE10gMetaClassE at 0xfffffff00b365544
+- ZN13OSValueObjectIiE10gMetaClassE at 0xfffffff00b282890
+- regateTestTypeE10gMetaClassE at 0xfffffff00b3e4b4c
+- SValueObjectI14PMAssertStructE10gMetaClassE at 0xfffffff00b2fbea8
+
+None is at one of the six addresses, and none is IOService, IORegistryEntry,
+OSObject, OSDictionary, OSSymbol, OSString or IOMemoryDescriptor. The
+com.apple.iokit.IOStorageFamily entry has LC_SYMTAB nsyms 0. There is no same-named
+__ZN...10gMetaClassE in the readable kernel.macho to point at, so the VA and size
+columns cannot be filled with a real symbol.
+
+llvm-nm also warns that sizes with --print-size for Mach-O files are always zero.
+Mach-O nlist_64 has no size field. The only size available is the fixed OSMetaClass
+layout size, 40 bytes, from
+E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work/libkern/libkern/c++/OSMetaClass.h:1037-1064
+(reserved at 8, superClassLink at 16, className at 24, classSize at 32,
+instanceCount at 36). That is not the size of a class's instances and is not a
+symbol size.
+
+### Why the object bytes do not name the class
+
+The six addresses do not hold a readable OSMetaClass header in either artifact.
+In the CI artifact 0xfffffff007e87df8 is all 0xff, 0xfffffff007e8a9e0 is zero, and
+the other four hold encoded words such as 0x1000000478d818. The Apple 24A446
+kernelcache holds the same encoded words. At 0xfffffff007e89b80 the five words are
+0x1000000478d818, 0x1000000478d9e8, 0x10000004790030, 0x10000004790498 and
+0x1000000478db00. If this were an OSMetaClass object, classSize at +0x20 would be
+0x478db00, which is not a plausible class size; className at +0x18 would be
+0x10000004790498, which does not read as an OSSymbol. The constructor that sets
+classSize and className is OSMetaClass.cpp:574-606; it runs at boot, not in the
+file. The static object is therefore uninitialized or fixup-encoded here, and the
+class name is not recoverable from these bytes.
+
+### Verdict
+
+No candidate pair exists in the readable evidence. The six addresses satisfy the
+8-byte alignment criterion, fail the bundle-__DATA_CONST criterion, and cannot
+satisfy the vtable/OSMetaClass-offset criterion because they are not class headers.
+The evidence is consistent with shared base-class data targets and does not support a storage-private class; the exact target remains unproven. They must not
+be used to derive a storage class ABI, and they do not change the 190-slot table or
+the PENDING-safe storage preflight. They also do not close prelink-map-unresolved.
+
+What would be needed to pair them: a symbol-bearing kernel or kext (not stripped),
+a __PRELINK_INFO class list (not present), or a runtime constructor trace (not
+authorized here). A guessed class name is not a pairing.

@@ -112,6 +112,7 @@ docs/
 | `audio/IOS27-MIGRATION.md` | **音频 27 迁移清单**：可搬 18 个纯 C 文件 + 2 个胶水文件 + 1 个只随测试走的 `PongAudioAfe.h`（内核禁止接线）、搬不动的 0504/0003/ADSP blob/HAL bundle、`check-audio-migration.py --copy/--compile` 门禁与 979 例 host 回归 |
 | `audio/IOS27-USERLAND.md` | **音频 27 用户态重接**：sheng 的 `ShengAudioAbi.h` 接口（三块内存、48 kHz / 480 帧 period / 65,536 帧环、2048 起诊断页）、HAL 注入的 addon4 槽、182 例 audioreach host 基线、与内核侧的接缝 |
 | `audio/IOS27-WIRING.md` | **音频 27 接线清单**：谁调用 `pong_audio_amp_probe/play/stop`、每步用哪行日志证明、GLINK 通道归 power 搬只留 `k60_pmic_glink_send_audio` 契约、AFE 服务在 27 上不存在的证据指针、PCM 缓冲归属仍未解 |
+| `audio/LANE-BOUNDARIES.md` | **音频线的边界与越界记录**：四条不变边界（上机只在 Lead、不合 main、不动设备、提交形状）、一次越界推 `k60-gates` main 的事实与后果、本线判据速查表 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 | `bt/RESEARCH.md` | **蓝牙八步 ①②③**：QCA6490 走 GENI UART 的硬件真值、官方组件分工、与 iOS 27 用户态的对齐点 |
 | `bt/HANDOFF.md` | **蓝牙线交接**：从 0516 到 0525 的每一步、每次飞行的判据与缺口、恢复时的第一步 |

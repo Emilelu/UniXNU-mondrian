@@ -326,6 +326,35 @@ only one that moves. The kernel series and the framework patches stay as they
 are, so a build either links the same kernel minus the starter or fails at the
 first kext that needs the provider.
 
+## What the source storage closure still needs
+
+`scripts/check-xnu27-source-storage.py --root .` reads the repository and prints the six
+pieces the Data gate's last rule needs, each with the file and line that decides it.
+Today it reports five gaps:
+
+| Piece | State | Evidence |
+| --- | --- | --- |
+| the driver sources | present | `drivers/NativeUfs/NativeUfs.cpp` and `PongUfsTransport.cpp` |
+| the 27 profile selects the component | gap | `board.toml:360` `include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]` |
+| the defconfig builds it | gap | `configs/mondrian_ios27_defconfig:20` `CONFIG_XNU_NATIVE_UFS=n` |
+| the builder links this branch's archive | gap | `scripts/build-xnu-generic.sh:652` links `build/sheng-ufs/libPongUfs.a` under `XNU_NATIVE_UFS`; this line carries `drivers/NativeUfs`, not the sheng runtime |
+| a patch installs the IOKit personality | gap | none of the 29 entries in `patches/xnu-12377/series` mentions NativeUfs beside KernelConfigTables; the 16.6.1 line has `patches/xnu/ios16-native-ufs-personality.patch` |
+| the signed policy bundle | gap, and it cannot live in a repository | no bundle under `UniXNU/scripts/policies/ios-27.0.1-24A446`; `kits/VerifiedRoot` and `scripts/build-sheng-source-storage.py` do ship with the framework |
+
+The single exception to the order is the first row of the chain rather than of this
+table: `CONFIG_XNU_CRYPTO_BOOTSTRAP=prelinked` is a config line the host can check today
+(see the section above), while every row here needs code or a key that does not exist
+yet. The last step, turning on `BOOT_MANIFEST`, `CACHE_STARTUP`, `CACHE_MOUNT`,
+`ROOT_AUDIT` and `ROOT_TRUST`, is what `scripts/check-bluetooth-data-gate-chain.py`
+prints, and the two reporters agree on the order, so a green run of both is the
+acceptance for F3.
+
+Two facts that keep the table honest. The 16.6.1 builder already links
+`build/native-ufs/libNativeUfs.a` at `scripts/build-xnu-4k-baseline.sh:1054` and again at
+`:1278`, so the archive shape is proven; what is missing is the 27 build selecting it.
+And the 27 line builds on Linux, where nothing compiles `drivers/NativeUfs` yet, so
+the component row needs a host recipe as well as the selection.
+
 ## Framework patches this branch carries
 
 `scripts/apply-core-patches.sh` applies every top-level

@@ -7,7 +7,7 @@
 
 页面：`docs/zh/porting/power.md`（unixnu.com/zh/porting/power）。
 
-合计 30 行：verified 22，partial 8。
+合计 36 行：verified 27，partial 9。
 
 ## adsp（7 行）
 
@@ -21,16 +21,22 @@
 | `dsp-request-timeout` | 2 | 完成一次有超时的请求/响应 | `drivers/PongPower/K60Battery.cpp`<br>`if (self->waitingSince && milliseconds() - self->waitingSince >= kRequestMs) {` | verified | kRequestMs 是 3000 ms；requestTimer 也在 :426 设了同一超时，超时后标记 stale 并重开通道 |
 | `dsp-channel-reconnect` | 2 | 报告失败并重连 | `drivers/PongPower/K60Battery.cpp`<br>`if (!self->transport.reopen()) {self->transport.close(); return;}` | verified | GLINK send 失败在 :423 报告并返回；重开失败就关闭，避免把旧通道当成新会话 |
 
-## battery（7 行）
+## battery（13 行）
 
 | id | § | 页面要求 | 证据 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `battery-owner-check` | 4 | 接收值前核对 owner | `drivers/PongPower/K60Battmgr.c`<br>`if (!data \|\| bytes < 12 \|\| le32(data) != K60_BATTMGR_OWNER) {b->ignored++; return K60BmIgnored;}` | verified | owner 是回复的第一个 32 位字；对不上就计入 ignored 并丢弃。消息类型/opcode/property 由 fields[] 编码，回复长度在 k60_battmgr_init 里校验 |
 | `battery-one-outstanding` | 4 | 每次保留一个未完成请求 | `drivers/PongPower/K60Battmgr.c`<br>`if (b->flight \|\| b->poisoned) return 0;` | verified | — |
+| `battery-timeout` | 4 | 处理其超时后再推进刷新周期 | `drivers/PongPower/K60Battery.cpp`<br>`self->stale("PMIC response timed out");` | verified | requestTimer 3000 ms（:426）；超时由 K60Battery.cpp:539 标记 stale，K60Battmgr 侧另有 k60_battmgr_timeout 把未完成字段记为 failed |
+| `battery-missing-state` | 4 | 分别保存有效读数与缺失/失败状态 | `drivers/PongPower/K60Battmgr.c`<br>`b->failed \|= ((1u << K60BmFields) - 1) & ~b->completed;` | verified | 缺失的 present 在 :224 单独处理；超时/失败用 completed 的补集写入 failed，和有效读数分开保存 |
 | `battery-snapshot-units` | 4 | 将以 0.01% 为单位的容量值转换为百分比 | `drivers/PongPower/K60Battery.cpp`<br>`const int32_t percent = (int32_t)((s.capacity_hundredths + 50) / 100);` | verified | K60Battery.cpp:60 的四舍五入转换；判读器把档位错误命名为 unit slip，而不是测量偏差 |
+| `battery-unit-scale` | 4 | 参考实现将电压/电流从微单位转换为毫单位 | `drivers/PongPower/K60Battmgr.c`<br>`s->voltage_mv = (uint32_t)b->value[K60BmVoltage] / 1000;` | verified | 电压在 :251、电流在 :253 都除以 1000；容量转换由 battery-snapshot-units 单独一行 |
+| `battery-current-sign` | 4 | 充电电流符号 | `drivers/PongPower/K60Battmgr.c`<br>`b->charging_current_sign = (int8_t)(sign == 1 \|\| sign == -1 ? sign : 0);` | verified | 符号只接受 1/-1，其他值归零；:252-253 用 charging_current_sign 乘电流，避免把放电当充电 |
 | `battery-register-service` | 4 | 初始有效属性准备好后调用 `registerService()` | `drivers/PongPower/K60Battery.cpp`<br>`registerService();` | verified | — |
+| `battery-update-status` | 4 | 后续变化调用 `updateStatus()` | `drivers/PongPower/K60Battery.cpp`<br>`if (getPSProperty(staleKey) == kOSBooleanTrue) {updateStatus(); return;}` | verified | stale 属性为真时先 updateStatus 再返回；正常变化在 :225 和 :274 也调用 updateStatus |
+| `battery-adapter-info` | 4 | 按目标 OS 属性定义填写适配器信息 | `drivers/PongPower/K60Battery.cpp`<br>`void K60Battery::updateAdapter(const K60BatterySample &s)` | verified | 适配器属性由 updateAdapter 从同一快照填写；没有从充电器读非标准属性 |
 | `battery-firmware-ownership` | 4 | 固件负责充电控制时保留其所有权 | `drivers/PongPower/K60Battmgr.c`<br>`Charging control remains entirely firmware-owned.` | partial | 只有 K60Battmgr.c:5 的注释声明固件所有权；驱动确实不发充电写请求，但注释不是可执行判据，也没有上机用例证明固件仍在控制。charge-auth 是独立参数且默认关闭 |
-| `battery-property-numbers` | 4 | 使用前确认目标协议的单位和充电电流符号 | `docs/research/charger/PROP-NUMBERS.toml`<br>`verdict = "same"` | verified | 18 行 16→27 属性号逐行判定，全部 same |
+| `battery-property-numbers` | 4 | 属性 ID | `docs/research/charger/PROP-NUMBERS.toml`<br>`verdict = "same"` | verified | 18 行 16→27 属性号逐行判定，全部 same |
 | `battery-device-verification` | 4 | 验证插拔电源、充放电、响应超时和服务重启 | `docs/research/charger/07-DEVICE-CRITERIA.md`<br>`C1 订阅 → C2 四属性 → C3 Android 对照` | partial | C1/C2/C3 判据与判读器都在，真插拔、放电、超时与服务重启一次没做；上机只由 Lead 排 |
 
 ## charger（1 行）
@@ -54,7 +60,7 @@
 | `power-domain-busiest` | 5 | 频域跟随其中最忙的 CPU | `drivers/PongPower/K60CpuFreqPlan.c`<br>`if (b > busy) busy = b;` | verified | 按域取最大而不是平均；:270 的 elapsed 形式也用同一规则 |
 | `power-headroom` | 5 | 留 1.25 倍余量 | `drivers/PongPower/K60CpuFreqPlan.h`<br>`#define K60_CPU_FREQ_MARGIN 125u` | verified | 125/100 在 K60CpuFreqPlan.c:145-146 参与目标频率计算 |
 | `power-down-window` | 5 | 连续四个较闲的窗口后才降频 | `drivers/PongPower/K60CpuFreqPlan.c`<br>`if (++*down >= K60_CPU_FREQ_DOWN_WINDOWS) {` | verified | K60_CPU_FREQ_DOWN_WINDOWS 是 4u；*down 跨窗口保留，升频时清零 |
-| `power-sleep-resume` | 5 | 休眠/唤醒时保存所需状态，恢复时钟与映射 | `scripts/judge-k60-sleep-console.py`<br>`K60Sleep: report prepares>=1 restores>=1` | verified | 11 份真机 console 上跑过；0629 的报告门控已从 defined(PONG) 改成 K60_PLATFORM_SLEEP_REPORT |
+| `power-sleep-resume` | 5 | 休眠/唤醒时保存所需状态，恢复时钟与映射 | `scripts/judge-k60-sleep-console.py`<br>`K60Sleep: report prepares>=1 restores>=1` | partial | 报告行只证明 prepare/restore 与 report；判据里的 WAKE_RE（K60TRACE: wake cpus done）在 w10 从未打印并硬挂，w9 在 IOCPU.cpp:334 报 Spurious wakeup of cpu 1，02-PLATFORM-SLEEP.md 也记着完整恢复在 secondary processor_start 硬挂 |
 | `power-vote-ownership` | 5 | 为外设电源投票明确所有权 | `drivers/PongPower/K60PowerVotePlan.c`<br>`state->owners[resource] \|= bit;` | verified | 每个 owner 一个 bit；同一 owner 重复 acquire 返回 -3（K60PowerVotePlan.c:21） |
 | `power-vote-refcount` | 5 | 引用计数 | `drivers/PongPower/K60PowerVotePlan.c`<br>`state->counts[resource] = (uint16_t)(state->counts[resource] + 1);` | verified | count 与 owner 位一一对应，K60PowerVotePlan.h:47 写明 count 等于 owner 位数；release 递减 |
 | `power-idle-cadence` | 5 | 每 16 ms | `drivers/PongPower/K60CpuFreqProbe.cpp`<br>`constexpr unsigned kSampleSleepMs = 16;` | verified | governorThread 以 IOSleep(kSampleSleepMs) 采样；16 ms 与页面的窗口一致 |

@@ -120,6 +120,16 @@ adb shell 'sg_inq -p 0xb0 /dev/sdf'   # Block Limits
 **W1 PASS = A 与 B 同时 PASS，且 C 已记录（或明确跳过）。**
 A 单独成立只能写成「HCTL=5，Descriptor PENDING」，不能写成「W1 PASS」。
 
+**最小定案集（只读）：**
+
+- Leg A：`/sys/class/block/<sdX>/device` 解析后的**路径最后一段** `H:C:T:L`，读**第四个字段 L**；
+  不要读 `T`，也不要找不存在的 `/sys/.../device/lun`。
+- Leg B：UFS Query READ DESCRIPTOR，IDN `0x02`，读 **byte 2 `bUnitIndex`** 与 **byte 3 `bLUEnable`**；
+  byte 4 是 `bBootLunID`，不是 LU 编号。
+- `sg_inq`：**没有任何标准 VPD 页或其中某个字节直接报告 UFS LUN。** `-p 0x83` 的 NAA/SCSI name
+  只能把采集绑定到同一个 LU，`-p 0xb0` 只是块限制；两者都不能替代 Leg A/B，不存在「读 VPD 第 N 字节
+  就能定 LUN」的捷径。
+
 ### 2.5 采集落盘形状
 
 一次采集放在一个新目录，例如 `E:/k60-work/evidence/w1-lun-20261120-1900/`：
@@ -131,13 +141,18 @@ proc-scsi-scsi.txt
 vpd-00.bin
 vpd-83.bin
 vpd-b0.bin
-unit-desc-5.bin
+unit-desc-<L>.bin   # L = Leg A 的末字段；byte2 才是权威
 README.txt          # adb serial、Android build、命令、工具版本、sha256
 ```
 
 `README.txt` 必须写：设备序列号、Android build fingerprint、每条命令的原始输出、
 是否 root、`ufs-tool`/sg3_utils 的版本、每个二进制文件的 sha256。
 所有命令只读；不要 `dd` 写块设备，不要 `mount`，不要碰 `persist`。
+
+判定器：`python3 scripts/check-w1-lun-evidence.py <采集目录>`。退出码 `0` = PASS、`2` = PENDING、
+`1` = FAIL；默认假设 LUN 5，可用 `--expect-lun` 改假设。它要求 Leg A 与 Leg B 同时存在且一致，
+`README.txt` 非空才算 provenance；同时存在多个 descriptor 文件会被判为歧义，需用
+`--descriptor` 指定。
 
 ### 2.6 伪证据清单
 
@@ -192,6 +207,11 @@ README.txt          # adb serial、Android build、命令、工具版本、sha25
 
 所以按当前产物，cellular 根本不在 27 内核里。gate 通过只说明「产物结构 + 两条 blocker」，
 不说明「cellular 在」。这是**静默缺失**，不是「结构通过但起飞即死」。
+
+**DRIFT 关闭条件**：设备仓 `patches/xnu-12377/series` 缺 0626–0630 是已知的 F2 欠账，不是本线回归。
+F2（27 stage-0 起飞到 SpringBoard）通过后，由设备仓 owner（Lead）把 0626–0630 按序落进
+`device:patches/xnu-12377/series` 并在产物中复验；在此之前 series 检查保持红是正确状态，
+不得为了变绿放宽门禁，也不得把补丁直接塞进共享 main。
 
 ### 3.3 默认参数下，cellular 没有找到飞行致死路径
 
@@ -251,6 +271,6 @@ README.txt          # adb serial、Android build、命令、工具版本、sha25
 
 ## 4. 下一步
 
-- W1：等一次只读采集（Leg A + Leg B），按 §2.4 判定；在此之前保持 PENDING。
+- W1：等一次只读采集（Leg A + Leg B），按 §2.4 判定并用 `scripts/check-w1-lun-evidence.py` 复核；在此之前保持 PENDING。
 - 27：series/组件/boot args 的落盘仍由设备仓 owner 决定；本文件只给判据，不改共享仓。
 - k55：本文件与 W2 的判据同属证据线；不构建、不上机。

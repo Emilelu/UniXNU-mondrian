@@ -1298,7 +1298,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_link.c
-@@ -0,0 +1,2254 @@
+@@ -0,0 +1,2310 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The modem's GLINK edge: prepare the AP-owned SMP2P and GLINK items before
 + * PAS starts, adopt the two SMEM FIFOs the modem and the APSS share, answer
@@ -1896,6 +1896,15 @@ index 0000000..1111111
 +		if (length == 0 ||
 +		    native_pong_ufs_read_named_volume(name, offset, shared,
 +		    (size_t)length) == 0) {
++			static int reported;
++
++			if (reported == 0) {
++				reported = 1;
++				printf("K60MODEM qrtr: rmtfs read of %s offset=%llu bytes=%llu"
++				    " refused (an absent native UFS lands here)\n",
++				    name, (unsigned long long)offset,
++				    (unsigned long long)length);
++			}
 +			return -1;
 +		}
 +	}
@@ -1946,6 +1955,44 @@ index 0000000..1111111
 +		    (uint32_t)request->table[i].block_length * 512u);
 +	}
 +	return 0;
++}
++
++/* One line per storage says which bytes the modem was handed. A served request
++ * proves only that nothing refused the read; the bytes are the evidence, and
++ * acceptance compares them with the reference record (doc20 29 W2). Sampling
++ * happens after every vector: a first copy only counts while no later copy
++ * overwrote its head, and the whole destination table must fit the window. */
++static void
++k60_qrtr_rmtfs_report(const K60RmtfsRequest *request)
++{
++	static uint8_t shown[K60_EFS_IMAGE_COUNT + 1];
++	int vector;
++	uint64_t physical;
++	uint64_t offset;
++	uint64_t length;
++	char head[K60_EFS_HEAD_HEX];
++
++	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT ||
++	    shown[request->storage] != 0 || k60_qrtr_rmtfs_physical == 0) {
++		return;
++	}
++	vector = k60_efs_first_read_head(request, k60_qrtr_rmtfs_physical,
++	    k60_qrtr_rmtfs_bytes);
++	if (vector < 0) {
++		return;
++	}
++	physical = request->table[vector].physical;
++	offset = (uint64_t)request->table[vector].block_offset * K60_RMTFS_BLOCK;
++	length = (uint64_t)request->table[vector].block_length * K60_RMTFS_BLOCK;
++	if (k60_efs_head_hex((const uint8_t *)(k60_qrtr_rmtfs_buffer +
++	    (physical - k60_qrtr_rmtfs_physical)), K60_EFS_HEAD_BYTES,
++	    head, sizeof head) != 0) {
++		return;
++	}
++	shown[request->storage] = 1;
++	printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u offset=%llu bytes=%u head=%s\n",
++	    request->storage, request->direction, (unsigned long long)offset,
++	    (unsigned)length, head);
 +}
 +
 +/* The memory share service keeps one region for the modem: the reference
@@ -2123,10 +2170,19 @@ index 0000000..1111111
 +			} else if (request.message == K60_RMTFS_RW) {
 +				const int served = k60_qrtr_rmtfs_rw(&request);
 +
-+				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u %s\n",
-+				    request.storage, request.direction,
++				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u %s"
++				    " offset=%llu bytes=%llu\n", request.storage, request.direction,
 +				    (unsigned)request.vectors,
-+				    served == 0 ? "served" : "refused");
++				    served == 0 ? "served" : "refused",
++				    request.vectors > 0 ?
++				    (unsigned long long)request.table[0].block_offset *
++				    K60_RMTFS_BLOCK : 0ull,
++				    request.vectors > 0 ?
++				    (unsigned long long)request.table[0].block_length *
++				    K60_RMTFS_BLOCK : 0ull);
++				if (served == 0) {
++					k60_qrtr_rmtfs_report(&request);
++				}
 +				if (served != 0) {
 +					result = 1;
 +				}
@@ -3865,7 +3921,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_efs.h
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,100 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The four EFS images the modem opens by name, and the copy plan its scatter
 + * list turns into. This is the piece between the RMTFS protocol and the UFS:
@@ -3886,6 +3942,20 @@ index 0000000..1111111
 +#include "pong_modem_rmtfs.h"
 +
 +#define K60_EFS_IMAGE_COUNT 4u
++
++/* Evidence samples the final shared window after every vector was copied. */
++#define K60_EFS_HEAD_BYTES 16u
++#define K60_EFS_HEAD_HEX 33u
++
++/* Returns a vector index at image offset zero whose first sixteen destination
++ * bytes were not overwritten by any later vector, or -1. Validates the complete
++ * destination table against the window before a caller samples it. */
++int k60_efs_first_read_head(const K60RmtfsRequest *request,
++    uint64_t window_base, uint64_t window_bytes);
++
++/* Requires sixteen real bytes: short input is refused, never padded as evidence.
++ * Returns 0 after writing lowercase hex and its terminator, or -1 on refusal. */
++int k60_efs_head_hex(const uint8_t *bytes, size_t length, char *out, size_t out_bytes);
 +/* A GPT partition entry name is 36 UTF-16LE code units (72 bytes). */
 +#define K60_EFS_GPT_NAME_BYTES 72u
 +
@@ -3957,7 +4027,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/bsd/dev/pong_modem_efs.c
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,303 @@
 +/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 +/* The EFS image table and the scatter-to-copy mapping. Protocol only: no UFS,
 + * no SCM, no allocation, so the host test and the kernel share it. */
@@ -4194,6 +4264,71 @@ index 0000000..1111111
 +			return storage;
 +		}
 +	}
++	return 0;
++}
++
++int
++k60_efs_first_read_head(const K60RmtfsRequest *request,
++    uint64_t window_base, uint64_t window_bytes)
++{
++	if (request == NULL || request->message != K60_RMTFS_RW ||
++	    request->direction != 0 || request->storage == 0 ||
++	    request->storage > K60_EFS_IMAGE_COUNT || request->vectors == 0 ||
++	    request->vectors > K60_RMTFS_MAX_VECS) {
++		return -1;
++	}
++	for (size_t i = 0; i < request->vectors; i++) {
++		const uint64_t physical = request->table[i].physical;
++		const uint64_t length =
++		    (uint64_t)request->table[i].block_length * K60_RMTFS_BLOCK;
++
++		if (length == 0 || physical < window_base ||
++		    physical - window_base > window_bytes ||
++		    length > window_bytes - (physical - window_base)) {
++			return -1;
++		}
++	}
++	for (size_t i = 0; i < request->vectors; i++) {
++		const uint64_t physical = request->table[i].physical;
++		int overwritten = 0;
++
++		if (request->table[i].block_offset != 0) {
++			continue;
++		}
++		for (size_t j = i + 1; j < request->vectors; j++) {
++			const uint64_t later = request->table[j].physical;
++			const uint64_t length =
++			    (uint64_t)request->table[j].block_length * K60_RMTFS_BLOCK;
++
++			if (later < physical + K60_EFS_HEAD_BYTES &&
++			    physical < later + length) {
++				overwritten = 1;
++				break;
++			}
++		}
++		if (!overwritten) {
++			return (int)i;
++		}
++	}
++	return -1;
++}
++
++int
++k60_efs_head_hex(const uint8_t *bytes, size_t length, char *out, size_t out_bytes)
++{
++	static const char digits[] = "0123456789abcdef";
++
++	if (bytes == NULL || length < K60_EFS_HEAD_BYTES ||
++	    out == NULL || out_bytes < K60_EFS_HEAD_HEX) {
++		return -1;
++	}
++	for (size_t i = 0; i < K60_EFS_HEAD_BYTES; i++) {
++		const uint8_t value = bytes[i];
++
++		out[i * 2] = digits[value >> 4];
++		out[i * 2 + 1] = digits[value & 0xfu];
++	}
++	out[K60_EFS_HEAD_BYTES * 2] = '\0';
 +	return 0;
 +}
 diff --git a/bsd/dev/pong_modem_memshare.h b/bsd/dev/pong_modem_memshare.h

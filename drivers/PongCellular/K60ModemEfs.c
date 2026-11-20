@@ -236,3 +236,68 @@ k60_efs_storage_for_path(const char *path, size_t length)
 	}
 	return 0;
 }
+
+int
+k60_efs_first_read_head(const K60RmtfsRequest *request,
+    uint64_t window_base, uint64_t window_bytes)
+{
+	if (request == NULL || request->message != K60_RMTFS_RW ||
+	    request->direction != 0 || request->storage == 0 ||
+	    request->storage > K60_EFS_IMAGE_COUNT || request->vectors == 0 ||
+	    request->vectors > K60_RMTFS_MAX_VECS) {
+		return -1;
+	}
+	for (size_t i = 0; i < request->vectors; i++) {
+		const uint64_t physical = request->table[i].physical;
+		const uint64_t length =
+		    (uint64_t)request->table[i].block_length * K60_RMTFS_BLOCK;
+
+		if (length == 0 || physical < window_base ||
+		    physical - window_base > window_bytes ||
+		    length > window_bytes - (physical - window_base)) {
+			return -1;
+		}
+	}
+	for (size_t i = 0; i < request->vectors; i++) {
+		const uint64_t physical = request->table[i].physical;
+		int overwritten = 0;
+
+		if (request->table[i].block_offset != 0) {
+			continue;
+		}
+		for (size_t j = i + 1; j < request->vectors; j++) {
+			const uint64_t later = request->table[j].physical;
+			const uint64_t length =
+			    (uint64_t)request->table[j].block_length * K60_RMTFS_BLOCK;
+
+			if (later < physical + K60_EFS_HEAD_BYTES &&
+			    physical < later + length) {
+				overwritten = 1;
+				break;
+			}
+		}
+		if (!overwritten) {
+			return (int)i;
+		}
+	}
+	return -1;
+}
+
+int
+k60_efs_head_hex(const uint8_t *bytes, size_t length, char *out, size_t out_bytes)
+{
+	static const char digits[] = "0123456789abcdef";
+
+	if (bytes == NULL || length < K60_EFS_HEAD_BYTES ||
+	    out == NULL || out_bytes < K60_EFS_HEAD_HEX) {
+		return -1;
+	}
+	for (size_t i = 0; i < K60_EFS_HEAD_BYTES; i++) {
+		const uint8_t value = bytes[i];
+
+		out[i * 2] = digits[value >> 4];
+		out[i * 2 + 1] = digits[value & 0xfu];
+	}
+	out[K60_EFS_HEAD_BYTES * 2] = '\0';
+	return 0;
+}

@@ -18,6 +18,20 @@
 #include "K60ModemRmtfs.h"
 
 #define K60_EFS_IMAGE_COUNT 4u
+
+/* Evidence samples the final shared window after every vector was copied. */
+#define K60_EFS_HEAD_BYTES 16u
+#define K60_EFS_HEAD_HEX 33u
+
+/* Returns a vector index at image offset zero whose first sixteen destination
+ * bytes were not overwritten by any later vector, or -1. Validates the complete
+ * destination table against the window before a caller samples it. */
+int k60_efs_first_read_head(const K60RmtfsRequest *request,
+    uint64_t window_base, uint64_t window_bytes);
+
+/* Requires sixteen real bytes: short input is refused, never padded as evidence.
+ * Returns 0 after writing lowercase hex and its terminator, or -1 on refusal. */
+int k60_efs_head_hex(const uint8_t *bytes, size_t length, char *out, size_t out_bytes);
 /* A GPT partition entry name is 36 UTF-16LE code units (72 bytes). */
 #define K60_EFS_GPT_NAME_BYTES 72u
 

@@ -595,6 +595,15 @@ k60_qrtr_rmtfs_read(const K60RmtfsRequest *request)
 		if (length == 0 ||
 		    native_pong_ufs_read_named_volume(name, offset, shared,
 		    (size_t)length) == 0) {
+			static int reported;
+
+			if (reported == 0) {
+				reported = 1;
+				printf("K60MODEM qrtr: rmtfs read of %s offset=%llu bytes=%llu"
+				    " refused (an absent native UFS lands here)\n",
+				    name, (unsigned long long)offset,
+				    (unsigned long long)length);
+			}
 			return -1;
 		}
 	}
@@ -645,6 +654,44 @@ k60_qrtr_rmtfs_rw(const K60RmtfsRequest *request)
 		    (uint32_t)request->table[i].block_length * 512u);
 	}
 	return 0;
+}
+
+/* One line per storage says which bytes the modem was handed. A served request
+ * proves only that nothing refused the read; the bytes are the evidence, and
+ * acceptance compares them with the reference record (doc20 29 W2). Sampling
+ * happens after every vector: a first copy only counts while no later copy
+ * overwrote its head, and the whole destination table must fit the window. */
+static void
+k60_qrtr_rmtfs_report(const K60RmtfsRequest *request)
+{
+	static uint8_t shown[K60_EFS_IMAGE_COUNT + 1];
+	int vector;
+	uint64_t physical;
+	uint64_t offset;
+	uint64_t length;
+	char head[K60_EFS_HEAD_HEX];
+
+	if (request->storage == 0 || request->storage > K60_EFS_IMAGE_COUNT ||
+	    shown[request->storage] != 0 || k60_qrtr_rmtfs_physical == 0) {
+		return;
+	}
+	vector = k60_efs_first_read_head(request, k60_qrtr_rmtfs_physical,
+	    k60_qrtr_rmtfs_bytes);
+	if (vector < 0) {
+		return;
+	}
+	physical = request->table[vector].physical;
+	offset = (uint64_t)request->table[vector].block_offset * K60_RMTFS_BLOCK;
+	length = (uint64_t)request->table[vector].block_length * K60_RMTFS_BLOCK;
+	if (k60_efs_head_hex((const uint8_t *)(k60_qrtr_rmtfs_buffer +
+	    (physical - k60_qrtr_rmtfs_physical)), K60_EFS_HEAD_BYTES,
+	    head, sizeof head) != 0) {
+		return;
+	}
+	shown[request->storage] = 1;
+	printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u offset=%llu bytes=%u head=%s\n",
+	    request->storage, request->direction, (unsigned long long)offset,
+	    (unsigned)length, head);
 }
 
 /* The memory share service keeps one region for the modem: the reference
@@ -822,10 +869,19 @@ k60_qrtr_receive_cb(void *context, QcomGlinkChannel *channel, const uint8_t *dat
 			} else if (request.message == K60_RMTFS_RW) {
 				const int served = k60_qrtr_rmtfs_rw(&request);
 
-				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u %s\n",
-				    request.storage, request.direction,
+				printf("K60MODEM qrtr: rmtfs rw storage=%u direction=%u vectors=%u %s"
+				    " offset=%llu bytes=%llu\n", request.storage, request.direction,
 				    (unsigned)request.vectors,
-				    served == 0 ? "served" : "refused");
+				    served == 0 ? "served" : "refused",
+				    request.vectors > 0 ?
+				    (unsigned long long)request.table[0].block_offset *
+				    K60_RMTFS_BLOCK : 0ull,
+				    request.vectors > 0 ?
+				    (unsigned long long)request.table[0].block_length *
+				    K60_RMTFS_BLOCK : 0ull);
+				if (served == 0) {
+					k60_qrtr_rmtfs_report(&request);
+				}
 				if (served != 0) {
 					result = 1;
 				}

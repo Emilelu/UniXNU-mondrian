@@ -326,6 +326,54 @@ test_serve_write(void)
 	    sizeof window, window_base) == -1, "a NULL window is refused");
 }
 
+static void
+test_head_evidence(void)
+{
+	K60RmtfsRequest r;
+	uint8_t bytes[16] = {0x10, 0xaa};
+	char out[K60_EFS_HEAD_HEX];
+	const uint64_t base = 0x8f000000ull;
+
+	memset(&r, 0, sizeof r);
+	r.message = K60_RMTFS_RW;
+	r.storage = 1;
+	r.vectors = 2;
+	r.table[0].block_offset = 4;
+	r.table[0].physical = (uint32_t)base;
+	r.table[0].block_length = 1;
+	r.table[1].physical = (uint32_t)(base + 0x400);
+	r.table[1].block_length = 8;
+	check(k60_efs_first_read_head(&r, base, 0x2000) == 1, "offset zero may be a later vector");
+	r.table[0].block_offset = 0;
+	r.table[1].block_offset = 4;
+	r.table[1].physical = (uint32_t)(base + 8);
+	check(k60_efs_first_read_head(&r, base, 0x2000) == -1, "later copy overwrites the head");
+	r.table[1].physical = (uint32_t)(base + 16);
+	check(k60_efs_first_read_head(&r, base, 0x2000) == 0, "touching head end is not overlap");
+	r.table[1].physical = (uint32_t)(base + 0x2000);
+	check(k60_efs_first_read_head(&r, base, 0x2000) == -1, "every destination must fit");
+	r.vectors = K60_RMTFS_MAX_VECS + 1;
+	check(k60_efs_first_read_head(&r, base, 0x2000) == -1, "oversized table");
+	r.vectors = 1;
+	r.table[0].block_length = 0;
+	check(k60_efs_first_read_head(&r, base, 0x2000) == -1, "empty vector");
+	r.table[0].block_length = 8;
+	check(k60_efs_first_read_head(&r, base, UINT64_MAX) == 0, "no bound-add overflow");
+	check(k60_efs_first_read_head(&r, UINT64_MAX, 16) == -1, "below high base");
+	r.direction = 1;
+	check(k60_efs_first_read_head(&r, base, 0x2000) == -1, "write is not evidence");
+	r.direction = 0;
+	r.storage = 0;
+	check(k60_efs_first_read_head(&r, base, 0x2000) == -1, "unknown storage");
+	check(k60_efs_first_read_head(NULL, base, 0x2000) == -1, "null request");
+	bytes[15] = 0xff;
+	check(k60_efs_head_hex(bytes, sizeof bytes, out, sizeof out) == 0 &&
+	    strcmp(out, "10aa00000000000000000000000000ff") == 0, "exact lowercase head");
+	check(k60_efs_head_hex(bytes, 15, out, sizeof out) == -1, "no padded evidence");
+	check(k60_efs_head_hex(bytes, 16, out, 32) == -1, "needs terminator space");
+	check(k60_efs_head_hex(NULL, 16, out, sizeof out) == -1, "null head");
+}
+
 static uint32_t
 mix(uint32_t *state)
 {
@@ -404,6 +452,7 @@ main(void)
 	test_storage_path();
 	test_serve_read();
 	test_serve_write();
+	test_head_evidence();
 	test_sweep();
 	if (failures != 0) {
 		printf("K60 EFS FAIL %d checks\n", failures);

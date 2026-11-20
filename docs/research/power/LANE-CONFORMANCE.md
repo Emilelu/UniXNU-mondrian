@@ -7,7 +7,7 @@
 
 页面：`docs/zh/porting/power.md`（unixnu.com/zh/porting/power）。
 
-合计 36 行：verified 27，partial 9。
+合计 41 行：verified 32，partial 9。
 
 ## adsp（7 行）
 
@@ -21,7 +21,7 @@
 | `dsp-request-timeout` | 2 | 完成一次有超时的请求/响应 | `drivers/PongPower/K60Battery.cpp`<br>`if (self->waitingSince && milliseconds() - self->waitingSince >= kRequestMs) {` | verified | kRequestMs 是 3000 ms；requestTimer 也在 :426 设了同一超时，超时后标记 stale 并重开通道 |
 | `dsp-channel-reconnect` | 2 | 报告失败并重连 | `drivers/PongPower/K60Battery.cpp`<br>`if (!self->transport.reopen()) {self->transport.close(); return;}` | verified | GLINK send 失败在 :423 报告并返回；重开失败就关闭，避免把旧通道当成新会话 |
 
-## battery（13 行）
+## battery（18 行）
 
 | id | § | 页面要求 | 证据 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -32,9 +32,14 @@
 | `battery-snapshot-units` | 4 | 将以 0.01% 为单位的容量值转换为百分比 | `drivers/PongPower/K60Battery.cpp`<br>`const int32_t percent = (int32_t)((s.capacity_hundredths + 50) / 100);` | verified | K60Battery.cpp:60 的四舍五入转换；判读器把档位错误命名为 unit slip，而不是测量偏差 |
 | `battery-unit-scale` | 4 | 参考实现将电压/电流从微单位转换为毫单位 | `drivers/PongPower/K60Battmgr.c`<br>`s->voltage_mv = (uint32_t)b->value[K60BmVoltage] / 1000;` | verified | 电压在 :251、电流在 :253 都除以 1000；容量转换由 battery-snapshot-units 单独一行 |
 | `battery-current-sign` | 4 | 充电电流符号 | `drivers/PongPower/K60Battmgr.c`<br>`b->charging_current_sign = (int8_t)(sign == 1 \|\| sign == -1 ? sign : 0);` | verified | 符号只接受 1/-1，其他值归零；:252-253 用 charging_current_sign 乘电流，避免把放电当充电 |
-| `battery-register-service` | 4 | 初始有效属性准备好后调用 `registerService()` | `drivers/PongPower/K60Battery.cpp`<br>`registerService();` | verified | — |
+| `battery-time-units` | 4 | 将秒转换为分钟 | `drivers/PongPower/K60Battmgr.c`<br>`s->time_remaining_min = b->value[tf] / 60;` | verified | time_remaining_min 先置 -1（:265），有效且不是 65535 时除以 60（:270），充满改 0（:271）；K60Battery.cpp:233 按分钟发布，-1 映射为 0xffff |
+| `battery-register-service` | 4 | 初始有效属性准备好后调用 `registerService()` | `drivers/PongPower/K60Battery.cpp`<br>`registerService();` | verified | 初始属性先由 updateStatus() 写进 IORegistry（:272-274），只有 first 且没有部分失败才走 :276 registerSource()；registerService() 在 :319 内，注册后服务才对客户端可见 |
 | `battery-update-status` | 4 | 后续变化调用 `updateStatus()` | `drivers/PongPower/K60Battery.cpp`<br>`if (getPSProperty(staleKey) == kOSBooleanTrue) {updateStatus(); return;}` | verified | stale 属性为真时先 updateStatus 再返回；正常变化在 :225 和 :274 也调用 updateStatus |
-| `battery-adapter-info` | 4 | 按目标 OS 属性定义填写适配器信息 | `drivers/PongPower/K60Battery.cpp`<br>`void K60Battery::updateAdapter(const K60BatterySample &s)` | verified | 适配器属性由 updateAdapter 从同一快照填写；没有从充电器读非标准属性 |
+| `battery-adapter-info` | 4 | 按目标 OS 属性定义填写适配器信息 | `drivers/PongPower/K60Battery.cpp`<br>`if (!value \|\| !details->setObject(adapterKeys[i], value)) publishFailed = true;` | verified | updateAdapter 在 :330 从同一快照填四组适配器属性；:356 分配或写入失败就置 publishFailed，失败时整份字典不发布（:359-364），不会把缺项当 0 W |
+| `battery-subscribe` | 4 | 订阅变化通知 | `drivers/PongPower/K60Battmgr.c`<br>`b->subscribed = 1; b->responses++; b->flight = FLIGHT_NONE;` | verified | channel_up 在 :67 置 subscribe_due，下一帧发 TYPE_NOTIFY/OP_NOTIFY_ENABLE（:81-85），发送后 :95 记 FLIGHT_SUBSCRIBE；回复先过 :177-178 的 flight/长度/type 校验，:181 才记 subscribed |
+| `battery-refresh-timer` | 4 | 安排周期刷新 | `drivers/PongPower/K60Battery.cpp`<br>`timer->setTimeoutMS(kRefreshMs);` | verified | kRefreshMs=5000（:32）；refreshAction 每轮先 k60_battmgr_refresh 再在 :548 重挂 5 s；refreshTimer 在 :576 创建、:590 首次启动 |
+| `battery-cancel-request` | 4 | 传输断开时取消请求 | `drivers/PongPower/K60Battmgr.c`<br>`b->flight = FLIGHT_NONE; b->cycle_active = b->subscribed = b->subscribe_due = 0;` | verified | 通道断开时 :58-62 清 flight、cycle_active、subscribed、subscribe_due 和 valid/fresh，未完成请求不会被当成完成；K60Battery.cpp:446 在 PMIC 通道失败时调用它 |
+| `battery-stale` | 4 | 在驱动中将读数标为过期 | `drivers/PongPower/K60Battery.cpp`<br>`self->stale("PMIC channel down");` | verified | 通道断开在 :446-450 调 stale()；stale() 在 :176 把 K60BatteryStale 置真并 updateStatus，保留最后测量值；其他失败路径也调用它 |
 | `battery-firmware-ownership` | 4 | 固件负责充电控制时保留其所有权 | `drivers/PongPower/K60Battmgr.c`<br>`Charging control remains entirely firmware-owned.` | partial | 只有 K60Battmgr.c:5 的注释声明固件所有权；驱动确实不发充电写请求，但注释不是可执行判据，也没有上机用例证明固件仍在控制。charge-auth 是独立参数且默认关闭 |
 | `battery-property-numbers` | 4 | 属性 ID | `docs/research/charger/PROP-NUMBERS.toml`<br>`verdict = "same"` | verified | 18 行 16→27 属性号逐行判定，全部 same |
 | `battery-device-verification` | 4 | 验证插拔电源、充放电、响应超时和服务重启 | `docs/research/charger/07-DEVICE-CRITERIA.md`<br>`C1 订阅 → C2 四属性 → C3 Android 对照` | partial | C1/C2/C3 判据与判读器都在，真插拔、放电、超时与服务重启一次没做；上机只由 Lead 排 |

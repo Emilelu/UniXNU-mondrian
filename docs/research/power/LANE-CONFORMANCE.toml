@@ -169,6 +169,17 @@ status = "verified"
 why = "符号只接受 1/-1，其他值归零；:252-253 用 charging_current_sign 乘电流，避免把放电当充电"
 
 [[row]]
+id = "battery-time-units"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "将秒转换为分钟"
+evidence = "drivers/PongPower/K60Battmgr.c"
+evidence_line = "s->time_remaining_min = b->value[tf] / 60;"
+status = "verified"
+why = "time_remaining_min 先置 -1（:265），有效且不是 65535 时除以 60（:270），充满改 0（:271）；K60Battery.cpp:233 按分钟发布，-1 映射为 0xffff"
+
+[[row]]
 id = "battery-register-service"
 lane = "battery"
 section = "4"
@@ -177,7 +188,7 @@ requirement = "初始有效属性准备好后调用 `registerService()`"
 evidence = "drivers/PongPower/K60Battery.cpp"
 evidence_line = "registerService();"
 status = "verified"
-why = ""
+why = "初始属性先由 updateStatus() 写进 IORegistry（:272-274），只有 first 且没有部分失败才走 :276 registerSource()；registerService() 在 :319 内，注册后服务才对客户端可见"
 
 [[row]]
 id = "battery-update-status"
@@ -197,9 +208,53 @@ section = "4"
 anchor = "#battery"
 requirement = "按目标 OS 属性定义填写适配器信息"
 evidence = "drivers/PongPower/K60Battery.cpp"
-evidence_line = "void K60Battery::updateAdapter(const K60BatterySample &s)"
+evidence_line = "if (!value || !details->setObject(adapterKeys[i], value)) publishFailed = true;"
 status = "verified"
-why = "适配器属性由 updateAdapter 从同一快照填写；没有从充电器读非标准属性"
+why = "updateAdapter 在 :330 从同一快照填四组适配器属性；:356 分配或写入失败就置 publishFailed，失败时整份字典不发布（:359-364），不会把缺项当 0 W"
+
+[[row]]
+id = "battery-subscribe"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "订阅变化通知"
+evidence = "drivers/PongPower/K60Battmgr.c"
+evidence_line = "b->subscribed = 1; b->responses++; b->flight = FLIGHT_NONE;"
+status = "verified"
+why = "channel_up 在 :67 置 subscribe_due，下一帧发 TYPE_NOTIFY/OP_NOTIFY_ENABLE（:81-85），发送后 :95 记 FLIGHT_SUBSCRIBE；回复先过 :177-178 的 flight/长度/type 校验，:181 才记 subscribed"
+
+[[row]]
+id = "battery-refresh-timer"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "安排周期刷新"
+evidence = "drivers/PongPower/K60Battery.cpp"
+evidence_line = "timer->setTimeoutMS(kRefreshMs);"
+status = "verified"
+why = "kRefreshMs=5000（:32）；refreshAction 每轮先 k60_battmgr_refresh 再在 :548 重挂 5 s；refreshTimer 在 :576 创建、:590 首次启动"
+
+[[row]]
+id = "battery-cancel-request"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "传输断开时取消请求"
+evidence = "drivers/PongPower/K60Battmgr.c"
+evidence_line = "b->flight = FLIGHT_NONE; b->cycle_active = b->subscribed = b->subscribe_due = 0;"
+status = "verified"
+why = "通道断开时 :58-62 清 flight、cycle_active、subscribed、subscribe_due 和 valid/fresh，未完成请求不会被当成完成；K60Battery.cpp:446 在 PMIC 通道失败时调用它"
+
+[[row]]
+id = "battery-stale"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "在驱动中将读数标为过期"
+evidence = "drivers/PongPower/K60Battery.cpp"
+evidence_line = 'self->stale("PMIC channel down");'
+status = "verified"
+why = "通道断开在 :446-450 调 stale()；stale() 在 :176 把 K60BatteryStale 置真并 updateStatus，保留最后测量值；其他失败路径也调用它"
 
 [[row]]
 id = "battery-firmware-ownership"

@@ -151,12 +151,12 @@
   27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、四个判读器是否已并入、八份契约表
   （`CARRY.toml`、`HW-CONTRACTS.toml` 与它生成的 `-IOS27.md`、`PROP-NUMBERS.toml` 与 `.md`、
   `LANE-CONFORMANCE.toml` 与 `.md`、`27-WORKORDER.md`）是否随树带入——只搬了模块没搬表的树有代码却没有改线清单。
-- 逐条对齐官网页面的表是 `docs/research/power/LANE-CONFORMANCE.toml`（36 行，adsp 7 / battery 13 /
+- 逐条对齐官网页面的表是 `docs/research/power/LANE-CONFORMANCE.toml`（41 行，adsp 7 / battery 18 /
   charger 1 / thermal 2 / power 13），`python3 scripts/check-lane-conformance.py` 核对六件事：
   `requirement` 的句子必须真的出现在 `docs/zh/porting/power.md` 那一节（防止凭记忆引一句不存在的话）、
   `evidence` 必须是一个存在的文件、`verified` 行必须写出证据文件里真正证明它的那一行、
   证据行不能又是页面要求本身、非 `verified` 的行必须写 `why`、同一 lane 里同一句要求不能被两行重复引用；`--render` 生成
-  `LANE-CONFORMANCE.md`（同一份表，给读者看）。2026-11-20 的结论是 36 行里 verified 27、partial 9
+  `LANE-CONFORMANCE.md`（同一份表，给读者看）。2026-11-20 的结论是 41 行里 verified 32、partial 9
   （`dsp-firmware-auth` 只有离线证据、`battery-firmware-ownership` 只有注释、`charger-independent-protocol`
   未上机、`thermal-advise` 的温控证据不可用、`thermal-limits` 只覆盖温控阶梯、`battery-device-verification`
   缺真插拔/放电/超时/服务重启、`power-epss-lut` 的参考时钟是常量、`power-sleep-resume` 的判据只核到

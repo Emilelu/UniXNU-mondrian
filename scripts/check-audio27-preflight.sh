@@ -24,10 +24,12 @@
 #      on disk (XNU27_REPO overrides the search), plus the 0531 patch regenerated from
 #      the same block and checked against its pinned digest, and - once the Lead books
 #      it in patches/xnu-12377 - the series copy against the same emitter
-#  16. - when XNU27_KERNEL names a built kernel or boot image - whether that product
+#  16. the 27 driver hands over the hook and the per-object define, when a
+#      k60-gates checkout is reachable (K60_GATES)
+#  17. - when XNU27_KERNEL names a built kernel or boot image - whether that product
 #      really carries the audio
-#  17. the sheng ABI checker's own tests
-#  18. sheng's audio host tests, its ABI constants and its add-on mount contract at that
+#  18. the sheng ABI checker's own tests
+#  19. sheng's audio host tests, its ABI constants and its add-on mount contract at that
 #      commit, when its checkout is reachable; the row names the commit it ran on, because
 #      a stale checkout passes just as quietly
 # Prints one line per check and exits non-zero on the first failure.
@@ -126,6 +128,12 @@ if [ -z "$sheng" ]; then
 			break
 		fi
 	done
+fi
+gates=${K60_GATES:-}
+if [ -n "$gates" ] && [ -f "$gates/scripts/build-ios27-linux.sh" ]; then
+	run "27 driver delivers the define" python3 scripts/check-audio27-builder.py --gates "$gates"
+else
+	printf 'skip %-34s no k60-gates checkout (set K60_GATES)'
 fi
 if [ -n "$sheng" ] && [ -f "$sheng/scripts/check-audioreach-host.py" ]; then
 	out=$(cd "$sheng" && python3 scripts/check-audioreach-host.py 2>&1)

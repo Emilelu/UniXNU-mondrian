@@ -24,6 +24,9 @@ PATCH_EXPECT = [
     ('0624-k60-ipa-call-site.patch', 1, 'call sites are regenerated as 0629'),
 ]
 
+# The coachz entry points come from the QcomBaseband component, not from the patches.
+EXPECTED_QBASEBAND = 7
+
 SYMBOLS = ['ml_io_map_unmappable', 'kmem_alloc_contig', 'ptoa_64', 'flush_dcache64',
            'pmap_find_phys', 'PE_parse_boot_argn', 'kernel_map', 'kmem_free']
 
@@ -411,6 +414,21 @@ def conf_anchor(tree):
 SMMU_ENTRY = ("ArmSmmu4KBuild(", "ArmSmmu4KProgramDisabledContext(")
 
 
+def extern_providers(tree):
+    """Where each extern the ported sources declare is expected to be defined."""
+    path = os.path.join(REPO, 'scripts', 'check-ios27-symbols.py')
+    if not os.path.exists(path):
+        return None
+    spec = importlib.util.spec_from_file_location('k60_symbols', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    result, errors = module.resolve(tree, [os.path.join(REPO, 'drivers', 'PongCellular'),
+                                           os.path.join(REPO, 'drivers', 'NativeUfs')])
+    if errors:
+        return None
+    return result
+
+
 def weak_fallbacks():
     # The 27 tree is plain XNU: drivers/PongAdreno/ArmSmmu4K belongs to the GPU
     # line. 0628 has to answer for both symbols itself, with weak definitions the
@@ -544,6 +562,32 @@ def check_pristine(tree):
         print("K60 READY DRIFT a ported patch still needs pong_pmic_rail: " + " ".join(rail))
     else:
         print("K60 READY ok   no ported patch needs the pmic rail driver")
+    providers = extern_providers(tree)
+    if providers is None:
+        drift += 1
+        print('K60 READY DRIFT the ported sources declare no extern to resolve')
+    elif providers['unresolved']:
+        drift += 1
+        print('K60 READY DRIFT %d extern(s) the ported sources declare resolve nowhere: %s'
+              % (len(providers['unresolved']), ' '.join(providers['unresolved'][:5])))
+    else:
+        print('K60 READY ok   %d externs each have a provider: %d patch set, %d tree, %d component'
+              % (len(providers['externs']), len(providers['set']),
+                 len(providers['tree']), len(providers['component'])))
+        needed = sorted(name for name, component in providers['component'].items()
+                        if component == 'QcomBaseband')
+        if len(needed) != EXPECTED_QBASEBAND:
+            drift += 1
+            print('K60 READY DRIFT the sources now need %d QcomBaseband symbol(s), recorded %d: %s'
+                  % (len(needed), EXPECTED_QBASEBAND, ' '.join(needed)))
+        else:
+            print('K60 READY ok   %d symbols still come from QcomBaseband, as recorded'
+                  % len(needed))
+        unknown = sorted({c for c in providers['component'].values()
+                          if c not in ('QcomBaseband', 'ArmSmmu4K', 'PongUfs')})
+        if unknown:
+            drift += 1
+            print('K60 READY DRIFT a component nobody recorded answers for: ' + ' '.join(unknown))
     wired = conf_entries_in_tree(tree)
     if wired:
         drift += 1

@@ -98,4 +98,15 @@ PY
 fi
 status=$?
 [ $status -eq 0 ] || exit $status
-echo "K60 TRIAL PASS seed, five patches and the build entries on one clone"
+
+# The clone now holds the sources the build will compile; every extern those
+# sources declare has to be answered by one of them, by the tree, or by a
+# component somebody has named. This is the check that a build would turn into
+# "Undefined symbols" hours later.
+installed=$(awk -F'	' '{print $1}' "$PATCHES/conffiles-port.txt" | sed "s|^|$T/|")
+# shellcheck disable=SC2086
+python3 "$(dirname "$0")/check-ios27-symbols.py" --tree "$T" --sources $installed || {
+	echo "K60 TRIAL FAILED a symbol the clone installs has no provider"; exit 1; }
+echo "K60 TRIAL ok   every extern resolves inside the clone or a named component"
+
+echo "K60 TRIAL PASS seed, five patches, the build entries and the externs on one clone"

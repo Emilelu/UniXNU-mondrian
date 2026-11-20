@@ -460,3 +460,32 @@ link.filelist 那一步。v 寄存器写法（v0.4s）两家汇编器都收，�
 是同一处改动，但 12377 序列没有等价条目，这里重新编号收录。
 尚未出图：这一版只让 corecrypto 的 asm 能编过，内核还没链接出来。
 """
+
+
+[[entry]]
+sha = "d7cf3300"
+state = "build-only"
+date = "2026-11-20"
+note = """27 系列的链接缺口：fileset reference 在 snapshot-build.log:1171748 报六个未定义符号，
+全部来自 libArmCpu.a(ArmCpu.o) —— `_pong_cpu_startup_finished`、`_psci_smp_init/start_cpu/
+cpu_running/cpu_off`、`_pong_audio_amp_probe`。四个 psci 在 xnu-12377 里没有任何定义者（16 线那份
+`zzzz…-pong-psci-smp.patch` 的十个文件里有四个对 12377 拒收，不能重放）。
+
+取舍与证据：0532 的守卫改成 `#if !defined(PONG)`，因为本板机器配置既不定义 PONG 也不定义 BCM2837
+（构建日志里 `-DPONG` 与 `-DBCM2837` 各 0 次），所以「加宽守卫」等于没加；而 0532 与另一份互补副本
+插在 iokit/Kernel/IOCPU.cpp 同一个锚点上，后打的那条必然失败（重放实测 `patch failed:
+iokit/Kernel/IOCPU.cpp:62`）。0532 只存在于 patches/xnu-12377/series，16.6.1 板另有自己的
+`zzzz…-pong-cpu-start-completion.patch`（patches/xnu/series:74），所以这次改动不触碰已上机验证的
+16 线配方。
+
+新增 0540（真 psci_smp.c/.h + conf/files 一行）与 0541（跳过 CNTP_CTL_EL0 写），来自蓝牙线
+feat/xnu27-psci-target，对干净 ac9718f 树 apply 并用本机 507 个真实编译参数重放过。没有写桩：
+恒返回 KERN_FAILURE 的桩会把「这棵树不支持 SMP」焊进内核，之后 `PSCI start FAIL` 会被误读成硬件故障；
+单核是设备树的事实（dts/mondrian.dts 无 cpu@ 节点 ⇒ ml_get_cpu_count()=1），不是代码假装出来的。
+
+`_pong_audio_amp_probe` 是 0531 的弱引用，留给 audio 线把它做成真正可空；这里不用返回 0 的定义糊过去，
+否则 `AUDIO27 OK` 将无法区分「没接线」和「接了个空壳」。
+
+欠账：这一版还没有构建过，也没有上机。下一次 `build kernel`（默认 profile 即 27）是它的首次产物检验；
+判据仍是 docs/engineering/IOS27.md 的 F2 阶段门（arm_init → bsd_init → root-mount panic + cupid 一致）。
+"""

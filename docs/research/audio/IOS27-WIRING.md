@@ -43,8 +43,21 @@ sh scripts/tests/portability/run-deps.sh
 `sh scripts/tests/portability/run-deps.sh --object /tmp/unknown.o` 打印
 `FAIL: the glue needs k60_bogus_api, which IOS27-WIRING.md section 1 does not name` 并以 1 退出。
 
-**27 的构建比这里严**：同一对源在 `-Wall -Wextra -Werror` 下、gcc 与 clang 各编两遍（驱动宏开与关）都干净，
-`sh scripts/tests/portability/run-warnings.sh` 打 `WARNINGS OK 8 builds, both sources, macro on and off`。
+**27 的构建比这里严，但不是同一组旗标**：同一对源在 `-Wall -Wextra -Werror` 下、gcc 与 clang 各编两遍
+（驱动宏开与关）都干净，`sh scripts/tests/portability/run-warnings.sh` 打
+`WARNINGS OK 8 builds, both sources, macro on and off`。27 自己用的是另一组：`makedefs/MakeInc.def:184` 的
+`USE_WERROR := 1`、`:195-200` 以 `-Weverything` 开头并把 `$(WERROR)` 拼进去，消费点在
+`makedefs/MakeInc.rule:521`。那组旗标下这两个源不是干净的——`-DXNU_PONG_AUDIO` 时 clang 18.1.3 报
+83 条 `-Wunsafe-buffer-usage`（Amp 的 ACF 表 78 条，Geni 的发送环 5 条：`PongAudioGeniI2c.c:17`、
+`:44`、`:45`、`:126`），宏关时 Geni 仍报 5 条。是否因此变红由 `BUILD_WERROR` 决定：
+`MakeInc.def:185-190` 允许覆盖，而本仓的 27 包装脚本 `scripts/build-xnu-generic.sh:840` 与
+`scripts/build-xnu-4k-baseline.sh:1443` 都传 `BUILD_WERROR="${XNU_BUILD_WERROR:-0}"`——默认构建里它们只是
+warning，`XNU_BUILD_WERROR=1` 时才成为错误。
+
+所以 `run-warnings.sh` 的绿只说明「宿主这组旗标干净」，**不等于「27 的旗标干净」**，两组也不是包含关系
+（27 关掉了 sign-compare / sign-conversion，宿主没开 `-Weverything`）。复现脚本与两种 clang 的读数在
+`E:/k60-work/scratch/audio27-warning-review/review_exact_xnu_20261120_1332_v2.sh`。不要为了让哪一行变绿去改
+驱动或加 `-Wno-`：那五条是真实的可疑索引，要修就单独作为一个改动，量代码而不是量旗标。
 
 这些系统头在 27 树里也还在（2026-11-20 实测）：八个 `<...>` 全部解析得到——`kern/clock.h` → `osfmk/kern/clock.h`、
 `pexpert/arm64/board_config.h` → `pexpert/pexpert/arm64/board_config.h`、`string.h` → `osfmk/arm/string.h`（靠构建的 `-I osfmk/arm`）等。
@@ -332,7 +345,7 @@ python3 scripts/check-audio27-loglines.py
 反向用例，否则门禁会先冤枉文档。
 
 现在往 `IOS27-MIGRATION.md` 里加一行没人打印的引用，会得到
-`LOGLINES FAILED: docs/research/audio/IOS27-MIGRATION.md:163 quotes '<被引用的那一行>',
+`LOGLINES FAILED: docs/research/audio/IOS27-MIGRATION.md:<行> quotes '<被引用的那一行>',
 which no printf prints`，退出码 1；删掉那行又回到 0。
 
 **补丁链不在的分支**（carry 只带源码、不带 `patches/audio/`）不会默默变绿：对不上格式串、

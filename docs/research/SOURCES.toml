@@ -240,6 +240,36 @@ examined = "2026-11-14"
 finding = """K60 双 smart PA 的实机只读探针输出（镜像 boot.img sha256 877d0a9d…，serial 6033dbec，bootAccepted=true，capture 以 budget 结束非 panic）。型号已定：amp0 addr=0x34 id=0x2113 chip=AW88261、amp1 addr=0x35 同，两颗都是 AW88261。关键读数：status=0x0000 faults=0x0000 pll=0、mask=0xffff ctrl=0x3343 i2s=0x04e8 dbg=0xa003 vbat=0x0263 pvdd=0x0263 temp=0x0019、vcal=0x2000、fuse 各 4 个字（amp0 0x83fd/0x5bf3/0x83fd/0x5bf3，amp1 0x8009/0x5bf7/0x8009/0x5bf7），收尾 found=2/2 transfers=28 failed=0 timeouts=0 stray=0。前置条件：amp GPIO 1/3/43/52/56/57/63/88；gpll0 vote=0x1 mode=0xe0000005 locked=1；gcc vote 0x0→0x1f 回读 0x1f；wrap2 五个时钟 running=1；SE15 fw=0x303 proto=3、ready config=0x03000021；reset GPIO1/GPIO3 由探针释放。意义：把「具体是哪颗 AW882xx」这个 ADSP 之前的唯一可做验证闭合了，剩下的是寄存器序列与保护策略。"""
 
 
+[[subsystem.audio.required]]
+path = "UniXNU-sheng/package/GeniI2c.c"
+why = "同一份 sheng c8f92b2 的 GENI I2C 实现；比较 FIFO 深度、水位与持有总线的行为，再决定板级复用"
+examined = "2026-11-20"
+finding = """基准为 UniXNU-sheng main c8f92b208068eeaa4cd2b0f592671f04ee70076e，源文件标注 BSD-2-Clause-Patent。package/GeniI2c.c:28-29 从 GENI_HW_PARAM_0/1 读取 TX/RX FIFO 深度，:30-33 配置 IRQ，:38-47 的 write_command 按 hold 控制 GENI_STOP_STRETCH 并开启 TX watermark；这里的单条写命令最多 8 字节，不能称为任意长缓冲实现。K60 现有功放寄存器路径保持自身硬件依据；需要 FIFO 流控时先比较这份实现及宿主测试，本轮未移入其代码。"""
+
+[[subsystem.audio.required]]
+path = "UniXNU-sheng/package/ShengCs35l43.c"
+why = "CS35L43 与 K60 AW88261 型号不同；可参考步骤组织与保护回读，不复用寄存器序列或 reset 常量"
+examined = "2026-11-20"
+finding = """同一 c8f92b208068eeaa4cd2b0f592671f04ee70076e 基准，141 行、BSD-2-Clause-Patent。package/ShengCs35l43.c:13-14 安排 DEVID/REVID 读取，:15-30 是 errata、IRQ mask、DC 看门狗、boost 与 VPBR，:31-48 安排 16-bit/48 kHz I2S、PLL 和 slot；:90-141 是分步执行与读取结果。这里只证明该芯片的序列和代码组织，不能把 CS35L43 的寄存器、时钟或供电值搬到 K60 两颗 AW88261（0x34/0x35，id 0x2113）。本轮复用审查方法，未复制实现。"""
+
+[[subsystem.audio.required]]
+path = "UniXNU-sheng/patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch"
+why = "sheng 25 项设备系列里唯一新增音频专用挂载的补丁；HAL 注入冻结时仍需核对前置 addon 链"
+examined = "2026-11-20"
+finding = """同一 c8f92b208068eeaa4cd2b0f592671f04ee70076e 基准。补丁共 25 行，只改 bsd/kern/kern_exec.c；:7 是 addon3 上下文，:9 新增 addon4，:19 定义源 /private/var/ngpu/audio 与目标 /System/Library/Audio/Plug-Ins/HAL，:20 以 scratch offset 0xa00 调 native_gpu_addon_mount。它依赖已有 addon 实现，不能单独应用到原始 XNU。K60 蓝牙 0xD00 与音频 0xa00 只是不同起点，尚不足以证明写入区间不冲突；需由系列 owner 核对完整链和实际占用。注入检查器只核对八条 iOS 必需源码事实与一条 macOS 分支事实，不证明挂载、HAL 加载或常驻成功。本轮只做源码研究，代码复用前仍需核对目标补丁及前置框架的许可证。"""
+
+[[subsystem.audio.required]]
+path = "UniXNU-sheng/patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch"
+why = "sheng 27 平台补丁里的页表几何、弱引用写法和音频上下文；逐项限制结论，交平台 owner 决定复用"
+examined = "2026-11-20"
+finding = """同一 c8f92b208068eeaa4cd2b0f592671f04ee70076e 基准。（a）:853 是 pta_root_level = (T0SZ_USER - 16) / 9，:866 是 VA mask，:869 是根分配静态断言。T0SZ_USER=17ULL 只在 :1215-1219 的 BCM2837、非 __ARM_16K_PG__ 且 __arm64e__ 条件下定义；其余分支等于 T0SZ_BOOT。:1236 设置最终 TTBR0 范围并通过 TCR_EPD0_DISABLE 禁止 walks。设备系列没有这一段不代表完整构建输入没有它，也不能只凭 PAGE_SHIFT 补丁证明页表几何正确；交平台 owner 比较。（b）:14 声明 weak_import 的 boot_log_rounds、:16 取地址判空；这只是源码模式，不能证明 K60 ld64 接受内核未定义弱函数或数据。0531 仍须先有真实 PongAudioAmp.o provider。（c）:284 的 0xa00 音频挂载是 unified diff 上下文，不是新增行；单独打 bringup 不会增加第四槽。本轮没有移入该补丁，任何后续代码复用先核对其许可证与全部前置项。"""
+
+[[subsystem.audio.required]]
+path = "UniXNU-sheng/hal/ShengAudioPlugIn.c"
+why = "同一 sheng 基准的 AudioServerPlugIn 源码；作为 27 重接参考，HAL bundle 与注入保持冻结"
+examined = "2026-11-20"
+finding = """c8f92b208068eeaa4cd2b0f592671f04ee70076e 下为 45,679 B、736 行，标注 BSD-2-Clause-Patent，配套 hal/Info.plist。hal/ShengAudioPlugIn.c:138 定义 keepImageResident，:158 的 Initialize 调用它；mlock 失败可继续，因此存在该函数不证明运行时常驻。package/ShengAudioService.cpp:76-83 通过编译时 OS 分支选择用户客户端 sandbox grant：iOS 为 audiomxd,mediaserverd，macOS 为 coreaudiod 及 helper；该 grant 不等于 HAL 已加载或页已锁定。HAL 的 addon4 挂载在 zzyd 补丁里，不在本文件。本轮只参考 ABI、加载路径与源码行为，没有重编 bundle 或验证 27 用户态运行。"""
+
 [subsystem.battery]
 why = "电池 / 充电（IOPMPowerSource）：走 PMIC GLINK，硬前置是 ADSP PAS1"
 

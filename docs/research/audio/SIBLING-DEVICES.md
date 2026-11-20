@@ -52,7 +52,7 @@
 
 - `package/ShengAudioReach.h:30-50`：`AR_MOD_WR_SHMEM 0x07001000`、`AR_MOD_I2S_SINK 0x0700100A`、
   `SG_PLAY 0x4001`、`SG_SPEAKER 0x4005`、`AR_IID_PLAY_SHMEM 0x6001`、`SPEAKER_I2S 0x6051`。
-- `package/AudioProbe.cpp:285-294`：三条音频流 `{0x1001, 0x1081, 0x1061}` 各自
+- `sheng:package/AudioProbe.cpp:285-294`：三条音频流 `{0x1001, 0x1081, 0x1061}` 各自
   `smmu_plan_bypass(&io, kStreams[i], gAudio.bufferPa, kBufferBytes)` + `smmu_configure_bypass`。
 - `:305-317` 注释给出 32 位地址的决定性解释：“The DSP takes 32-bit buffer addresses (its client
   hands it 32-bit IOVAs; i491 to i495: a buffer above 4 GiB was refused with status 1) …

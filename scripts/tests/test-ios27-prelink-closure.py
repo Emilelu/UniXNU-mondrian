@@ -131,6 +131,24 @@ def main():
                 '--require-named'], tmp)
     case('--require-named fails when the input is stripped', done.returncode == 1, done.stdout)
 
+    # 5b. a target left inside the input __TEXT is a translation defect
+    done = run(['--report', str(report), '--kernelcache', str(kernel)], tmp)
+    case('a target still inside the input text is reported',
+         'untranslated: 1 target(s)' in done.stdout, done.stdout)
+    done = run(['--report', str(report), '--kernelcache', str(kernel),
+                '--require-translated'], tmp)
+    case('--require-translated fails while the target stays in the input',
+         done.returncode == 1, done.stdout)
+    outside_report = tmp / 'outside.json'
+    outside_report.write_text(json.dumps({
+        'missing': {'com.apple.driver.Test': {hex(0xfffffff00a000000): 1}},
+        'stubbed': {},
+    }))
+    done = run(['--report', str(outside_report), '--kernelcache', str(kernel),
+                '--require-translated'], tmp)
+    case('--require-translated passes when the target left the input',
+         done.returncode == 0, done.stdout)
+
     # 6. the report records the two counts separately
     out = tmp / 'out.json'
     done = run(['--report', str(report), '--kernelcache', str(kernel),

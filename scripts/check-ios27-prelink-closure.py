@@ -18,6 +18,10 @@ Usage:
 
 The kernelcache may be the pinned input (a fileset) or a plain MH_EXECUTE.
 Nothing here writes to the report directory, and hardware_verified is false.
+
+A target that still sits inside the input __TEXT and in no output segment was
+never translated.  That is a rebinding defect separate from the missing-symbol
+verdict: --require-translated fails while any such target remains.
 """
 
 import argparse
@@ -175,6 +179,8 @@ def main(argv=None):
     parser.add_argument('--out', help='write the findings as JSON')
     parser.add_argument('--require-named', action='store_true',
                         help='exit 1 unless every owner target has a symbol')
+    parser.add_argument('--require-translated', action='store_true',
+                        help='exit 1 while any target still sits inside the input __TEXT')
     args = parser.parse_args(argv)
 
     report_path = Path(args.report)
@@ -211,6 +217,20 @@ def main(argv=None):
         space_label = 'the input kernel entry'
     nameable = sum(1 for address in missing if int(address, 0) in values)
 
+    # A target still inside the input __TEXT and in no output segment was never
+    # translated.  Keep it separate from the symbol verdict: fixing the rebind
+    # does not create a symbol, and supplying symbols does not move the address.
+    input_text = next((s for s in kernel['segments'] if s['name'] == '__TEXT'), None)
+    untranslated = []
+    if input_text:
+        start = input_text['vmaddr']
+        stop = start + input_text['vmsize']
+        for address in missing:
+            value = int(address, 0)
+            if start <= value < stop and not (layout and segment_in(layout, value)):
+                untranslated.append(address)
+        untranslated.sort(key=lambda item: int(item, 0))
+
     prelink_sizes = {segment['name']: segment['vmsize']
                      for segment in kernel['segments']
                      if segment['name'].startswith(('__PRELINK', '__PLK'))}
@@ -245,6 +265,9 @@ def main(argv=None):
         print(f'prelink segments: {joined}')
     print(f'targets: {len(missing)} distinct, {nameable} nameable, in {space_label}; '
           f'segments: ' + ', '.join(f'{name} {count}' for name, count in by_segment.most_common()))
+    if untranslated:
+        print(f'untranslated: {len(untranslated)} target(s) still inside the input __TEXT, '
+              f'e.g. {untranslated[0]}')
     print(f'verdict: {verdict} -- {reason}')
 
     result = {
@@ -266,6 +289,8 @@ def main(argv=None):
         'targets_outside_collection': by_segment.get('outside-collection', 0)
         + by_segment.get('outside-original-entry', 0),
         'nameable_targets': nameable,
+        'untranslated_targets': untranslated,
+        'untranslated_count': len(untranslated),
         'verdict': verdict,
         'reason': reason,
         'hardware_verified': False,
@@ -273,6 +298,8 @@ def main(argv=None):
     if args.out:
         Path(args.out).write_text(json.dumps(result, indent=1) + '\n')
     if args.require_named and verdict != 'closure-resolvable':
+        return 1
+    if args.require_translated and untranslated:
         return 1
     return 0
 

@@ -121,6 +121,28 @@ def main():
     case('the slot count is printed', 'slots: 3 read' in done.stdout, done.stdout)
     case('the zero tail is confirmed', 'three words after the table are zero' in done.stdout, done.stdout)
 
+    # 1b. the entry assertion covers every property, not just the count
+    done = run(args + ['--require-entry'], tmp)
+    case('--require-entry passes on a matching entry', done.returncode == 0, done.stdout)
+
+    def unauth_image(placement):
+        return macho([('__TEXT', 0xFFFFFFF007A00000, 0x1000, 0),
+                      ('__TEXT_EXEC', 0xFFFFFFF007A10000, 0x1000, 0),
+                      ('__DATA_CONST', 0xFFFFFFF007A20000, 0x1000, 0x1000)],
+                     filetype=11, words_at=0x1000,
+                     words=[0, 0, word(0xFFFFFFF007A10100, 0x1111),
+                            word(0xFFFFFFF00AB48100, 0x2222, authenticated=0),
+                            word(0xFFFFFFF00AB48200, 0x3333), 0, 0, 0],
+                     placement=placement)
+
+    unauth = tmp / 'unauth.bin'
+    unauth.write_bytes(fileset([('com.apple.kernel', kernel),
+                                ('com.apple.iokit.IOStorageFamily', unauth_image)]))
+    done = run(['--kernelcache', str(unauth), '--vtable', '0xFFFFFFF007A20000',
+                '--table', str(table_path), '--require-entry'], tmp)
+    case('--require-entry fails on an unauthenticated slot',
+         done.returncode == 1 and 'not an authenticated rebase' in done.stdout, done.stdout)
+
     # 2. a discriminator that does not match is a disagreement
     bad = tmp / 'bad.tsv'
     bad.write_text(table([rows[0], (1, 'external', rows[1][2], 0x9999), rows[2]]))

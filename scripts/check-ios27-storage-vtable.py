@@ -20,6 +20,10 @@ source compiles to.  A slot is:
 
 The discriminator is a 16-bit hash, so a single match is evidence, not proof;
 190 matches are the layout signature.  Nothing here runs on the board.
+
+--require-entry turns the comparison into the assertion a preflight needs: every
+slot must match on its discriminator, its authentication and its target image,
+and the three words after the table must be zero.
 """
 
 import argparse
@@ -150,6 +154,9 @@ def main(argv=None):
     parser.add_argument('--out')
     parser.add_argument('--require-match', action='store_true',
                         help='exit 1 unless every slot is 一致')
+    parser.add_argument('--require-entry', action='store_true',
+                        help='exit 1 unless every slot matches on discriminator, '
+                             'authentication and target image, and the tail is zero')
     args = parser.parse_args(argv)
 
     cache = Path(args.kernelcache)
@@ -213,6 +220,7 @@ def main(argv=None):
     tail = struct.unpack_from('<3Q', data, base_offset + len(rows) * 8) if \
         base_offset + len(rows) * 8 + 24 <= len(data) else ()
     tail_zero = bool(tail) and all(word == 0 for word in tail)
+    strict = bool(args.require_match or args.require_entry)
 
     print(f'entry {args.entry}: {len(image["segments"])} segments, vtable {vtable:#x} (two-word header)')
     print(f'slots: {len(rows)} read at {vtable:#x}; '
@@ -229,13 +237,14 @@ def main(argv=None):
         'vtable': f'{vtable:#x}',
         'slots': len(rows),
         'tail_zero': tail_zero,
+        'strict': strict,
         'counts': dict(verdicts),
         'findings': findings,
         'hardware_verified': False,
     }
     if args.out:
         Path(args.out).write_text(json.dumps(result, indent=1) + '\n')
-    if args.require_match and verdicts.get('一致', 0) != len(rows):
+    if strict and (verdicts.get('一致', 0) != len(rows) or not tail_zero):
         return 1
     return 0
 

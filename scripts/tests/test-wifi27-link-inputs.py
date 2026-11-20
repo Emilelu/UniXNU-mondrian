@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 """Self-test for scripts/check-wifi27-link-inputs.py.
 
-Both assertions have a failure that looks like success: an arm64 archive
-links with a warning and zero symbols, and a scratch stub archive links with
-hand-written definitions. The cases pin each of those, plus the -l resolution
-the real link record depends on, so a broken parser cannot pass vacuously.
+Each assertion has a failure that looks like success: an arm64 archive links
+with a warning and zero symbols, a scratch stub archive links with hand-written
+definitions, and a renamed stub archive passes every path test. The cases pin
+each of those, plus the -l resolution the real link record depends on, so a
+broken parser cannot pass vacuously.
 """
 
 from __future__ import annotations
@@ -39,9 +40,16 @@ def load():
 
 
 def fake_ar(root: Path) -> str:
-    ar = root / "ar"
-    ar.write_text("#!/bin/sh\ncase \"$1\" in\n  t) echo member.o ;;\n  p) cat \"$2\" ;;\nesac\n", encoding="utf-8")
-    ar.chmod(0o755)
+    """A .py tool is run by sys.executable, so the check needs no POSIX shell."""
+    ar = root / "ar.py"
+    ar.write_text(
+        "import sys\n"
+        "if sys.argv[1] == 't':\n"
+        "    print('member.o')\n"
+        "elif sys.argv[1] == 'p':\n"
+        "    sys.stdout.buffer.write(open(sys.argv[2], 'rb').read())\n",
+        encoding="utf-8")
+    (root / "nm.py").write_text("import sys\n", encoding="utf-8")
     return str(ar)
 
 
@@ -59,7 +67,7 @@ def run(root: Path, record: Path, ar: str, extra: list[str]) -> tuple[int, str, 
     checker = load()
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = checker.main(["--link-record", str(record), "--ar", ar] + extra)
+        code = checker.main(["--link-record", str(record), "--ar", ar, "--nm", str(root / "nm.py")] + extra)
     return code, out.getvalue(), err.getvalue()
 
 
@@ -151,6 +159,20 @@ def a_dash_l_is_resolved_through_the_L_flag():
     code, out, err = run(root, record, fake_ar(root), ["--allow-root", str(root)])
     assert code == 0, (code, out, err)
     assert "PASS arch: 1 archives, arm64e" in out, out
+
+
+@case
+def a_renamed_archive_that_defines_a_stub_symbol_is_refused():
+    root = Path(tempfile.mkdtemp())
+    stub = archive(root, "libInputs.a")
+    record = root / "linkarchives"
+    record.write_text(f"-Wl,-force_load,{stub}\n", encoding="utf-8")
+    ar = fake_ar(root)
+    (root / "nm.py").write_text("import sys\nprint('_psci_smp_init T 0 0')\n", encoding="utf-8")
+    code, out, err = run(root, record, ar, ["--allow-root", str(root)])
+    assert code == 1, (code, out, err)
+    assert "FAIL stubs" in out and "_psci_smp_init" in out, out
+    assert "named like a scratch stub" not in out, out
 
 
 def main() -> int:

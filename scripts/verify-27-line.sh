@@ -64,7 +64,7 @@ echo "K60 TRIAL ok   the call-site block sits between the guard and stage 3"
 broken=""
 for source in "$T"/bsd/dev/pong_*.c "$T"/bsd/dev/qcom_glink.c; do
 	[ -f "$source" ] || continue
-	if ! gcc -fsyntax-only -std=c11 -DK60_HOST_TEST -I"$T/bsd/dev" "$source" \
+	if ! gcc -fsyntax-only -std=c11 -Wall -Wextra -Werror -DK60_HOST_TEST -I"$T/bsd/dev" "$source" \
 			2>"$TRIAL/compile.err"; then
 		echo "K60 TRIAL FAILED $(basename "$source") does not parse: $(head -2 "$TRIAL/compile.err" | tr '\n' ' ')"
 		broken=1

@@ -305,7 +305,7 @@ def host_parse(tree):
     failures = []
     for source in sources:
         proc = subprocess.run(
-            [gcc, '-fsyntax-only', '-std=c11', '-DK60_HOST_TEST',
+            [gcc, '-fsyntax-only', '-std=c11', '-Wall', '-Wextra', '-Werror', '-DK60_HOST_TEST',
              '-I' + include, source],
             capture_output=True, text=True)
         if proc.returncode != 0:

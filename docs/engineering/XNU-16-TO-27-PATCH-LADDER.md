@@ -111,8 +111,9 @@ accounted for; two rows below are the ones this survey flags.
 | --- | --- | --- | --- |
 | machine configuration | `zzzz-pong-machine` (138 `+` lines) | `UniXNU/patches/xnu-12377/bcm2837-machine-config.patch`: `config/MASTER.arm64.bcm2837` plus `pexpert/pexpert/arm64/BCM2837.h` (42 lines: `NO_MONITOR`, `NO_ECORE`, `define BCM2837`, `define ARM_ARCH_TIMER`, `__ARM_COHERENT_CACHE__ 1`, `CPMU_PMC_COUNT 10`) | covered; three more 27 patches extend the same header (`native-arm-pan`, `native-pac-keys`, `no-apple-cpu-counters`) |
 | interrupt controller | `zzzzzzzzzzzzzzzzzzzzz-pong-psci-smp` (GIC + PSCI) | `drivers/ArmCpu/ArmCpu.cpp` publishes the GIC SPI owners and the interrupt controller | covered for GIC; see the PSCI row |
-| CPU start | same patch, `psci_smp.c`/`.h` | `ArmCpu.cpp:760 pong_cpu_start()` called from `ArmDTPlatform.cpp:224`; `ArmCpu.cpp:568 initCPU(true)`, `:569 psci_smp_init()`, `:570-579 processor_start` per CPU | **gap**: `psci_smp_init` has no definition anywhere in the 94 |
-| virtual timer | `zzzz-pong-virtual-timer` | none; upstream `arm_init_timer()` runs with `BCM2837`, so the `#if !defined(PONG)` guard is false and the `CNTP_CTL_EL0` write executes | **gap candidate**: the 16 line suppresses exactly that write |
+| CPU start | same patch, `psci_smp.c`/`.h` | `ArmCpu.cpp:760 pong_cpu_start()` called from `ArmDTPlatform.cpp:224`; `ArmCpu.cpp:568 initCPU(true)`, `:569 psci_smp_init()`, `:570-579 processor_start` per CPU | **resolved**: `0540-k60-psci-smp.patch` (branch `feat/xnu27-psci-target`) adds `osfmk/arm64/psci_smp.c`/`.h` and the `conf/files` entry |
+| virtual timer | `zzzz-pong-virtual-timer` | none; upstream `arm_init_timer()` runs with `BCM2837`, so the `#if !defined(PONG)` guard is false and the `CNTP_CTL_EL0` write executes | **resolved**: `0541-k60-virtual-timer-guard.patch` puts the write behind `K60_VIRTUAL_TIMER_SKIP_CNTP_CTL 1` |
+| CPU start completion | `zzzzzzzzzzzzzzzzzzzzzz-pong-cpu-start-completion` | `patches/xnu-12377/0532-k60-cpu-start-completion.patch`, but the definition sits inside `#if defined(PONG)` while the 27 build is `BCM2837` | **resolved**: `0542-k60-cpu-start-completion.patch` supplies the `!PONG` copy |
 | panic region | `native-volatile-panic-region` | `native-dt-panic-region.patch` + `CONFIG_XNU_DT_PANIC_REGION=y` | covered |
 | visible console | `zzzzzzzzzz-pong-console-init`, `zzzzzzzzzzzzzzzz-pong-console-sink-dedup`, `zzzzz-pong-video-console`, the `03xx` usblog/panic set | `os:zzz-boot-progress.patch` (the boot-progress page) | different mechanism; not a bring-up blocker, but also not the same evidence |
 
@@ -146,6 +147,17 @@ while applying the device's framework patches --
 `scripts/build-ios27-linux.sh` refuses to continue. The build never reaches the
 kernel link, so the PSCI reference has never been resolved.
 
+**Resolution (2026-11-20).** `0540-k60-psci-smp.patch` carries the 16-line
+`psci_smp.c` and `psci_smp.h` onto the 12377 shape: `PSCI_CPU_ON`,
+`PSCI_AFFINITY_INFO`, the five-second arrival wait, the cache clean of the
+boot segments before the first `CPU_ON`, and `psci_smp_cpu_off()` for the
+quiesce path. It does not touch `start.s`, so the secondary cores enter at the
+upstream reset vector and no exception-capture table is installed; the fault
+record therefore stays invalid and a core that dies before the kernel runs
+shows up as the five-second timeout instead. `processor.c:915` still asserts
+`KERN_SUCCESS` when the device tree publishes more than one CPU, so the first
+multi-core boot has to publish one core or relax that assert.
+
 ### The timer write, in detail
 
 `zzzz-pong-virtual-timer` is nine lines in `osfmk/arm64/machine_routines.c`: it
@@ -162,6 +174,13 @@ specific to the 16-line timer path, or the 27 line faults at `arm_init_timer()`
 before `bsd_init`. One boot decides it; until then it stays a candidate, not a
 confirmed gap.
 
+**Resolution (2026-11-20).** `0541-k60-virtual-timer-guard.patch` keeps the
+write but wraps it in `#if K60_VIRTUAL_TIMER_SKIP_CNTP_CTL`, default 1, rather
+than reusing the 16-line `#if !defined(PONG)`: the 27 machine configuration
+is `BCM2837`, so the old guard would silently not apply. Setting the macro to
+0 restores the upstream write for one build if the fault turns out to be
+16-line specific.
+
 ## 5. Missing items, sorted by the stage that needs them
 
 ### F2 -- needed for a kernel that reaches `bsd_init`
@@ -172,7 +191,13 @@ confirmed gap.
 | 2 | Physical-timer suppression at `arm_init_timer()` | if the CNTP write faults on this firmware, the kernel dies before the first `bsd_init` line | the last log line before the stop; `CNTP_CTL_EL0` appears twice in the built `machine_routines.c` and in no patch |
 
 Both are small, self-contained kernel patches of the same shape as
-`armcpu-sleep-hook.patch`. Neither is in any series today.
+`armcpu-sleep-hook.patch`. Both are written and verified offline on branch
+`feat/xnu27-psci-target` (0540, 0541), and a third link reference surfaced with
+them: `0532-k60-cpu-start-completion.patch` defines
+`pong_cpu_startup_finished()` only inside `#if defined(PONG)`, while
+`ArmCpu.cpp:580` calls it unconditionally on `BCM2837`; 0542 supplies the
+`!PONG` copy. None of the three is on `main` yet: `main` at `189e3cb7` carries a
+63-entry device series without them.
 
 ### F3 / F4 -- needed after the kernel runs
 

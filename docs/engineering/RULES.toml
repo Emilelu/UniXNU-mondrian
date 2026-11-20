@@ -674,6 +674,14 @@ check = "python3 scripts/tests/test-capture-bundle.py"
 note = "scripts/check-capture-bundle.py never calls adb; missing --console or --efs-block is SKIP, missing W1 legs or README is PENDING, and a disagreement is FAIL."
 
 [[rule]]
+id = "gate-capture-e2e"
+kind = "gate"
+source = "docs/research/cellular/23-W2-FULL-SUPERBLOCK.md:8.4"
+statement = "The composed post-capture check must distinguish PASS, FAIL and PENDING on synthetic inputs before a device window, including a shifted EFS block and a missing Leg B."
+check = "python3 scripts/tests/test-capture-autocheck-e2e.py"
+note = "The test uses a synthetic 16-byte EFS head, a storage-1 block shifted by 512 bytes, and a capture missing unit-desc; it calls no adb and reads no real EFS image."
+
+[[rule]]
 id = "P-284"
 kind = "pitfall"
 source = "docs/engineering/PITFALLS.md:P-284"

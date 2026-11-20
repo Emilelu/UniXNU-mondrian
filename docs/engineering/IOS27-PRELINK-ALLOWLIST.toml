@@ -33,3 +33,150 @@
 schema_version = 1
 reviewed_image = "24A446 stage-0, kernel built 2026-11-20 after the LTO reference"
 outside_segments_expected = 0
+
+# ---------------------------------------------------------------------------
+# Reviewed data pairings, 2026-11-21.
+#
+# The pinned 24A446 cache cannot name these: its root chained-fixups header has
+# imports_count 0, no member carries its own fixups or symbol table, and
+# __LINKINFO holds KPI export names only. Each row below therefore rests on a
+# measurement of the two local builds rather than on a symbol lookup, and each
+# was re-verified independently: llvm-nm-18 on
+# build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf
+# defines exactly the named symbol at exactly `target` (16/16).
+#
+# Three addresses are deliberately absent, so this list is not a coverage claim:
+#   0xfffffff007044478  leaf in __TEXT,__const, zero kernel code references
+#   0xfffffff00b72fce8  __common zero fill, referenced only by a runtime pointer
+#   0xfffffff00b739538  __common zero fill, referenced only by a runtime pointer
+# They stay unreviewed until a symbol-bearing artifact of the same build family
+# (research kernelcache or KDK dSYM) names them.
+# ---------------------------------------------------------------------------
+
+[[pairing]]
+address = "0xfffffff007e52c20"
+target = "0xfffffff00721a488"
+symbol = "__ZN5IOCPU9metaClassE"
+name = "IOCPU::metaClass"
+reason = "the reference build carries the same 11-slot run with 6 positions anchored by equal names"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e5a7f0"
+target = "0xfffffff00720be08"
+symbol = "__ZN12OSCollection9metaClassE"
+name = "OSCollection::metaClass"
+reason = "anchor of the same 11-slot run; exactly one kext-referenced pointer to this gMetaClass"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e5a7f8"
+target = "0xfffffff00720b9a8"
+symbol = "__ZN8OSObject9metaClassE"
+name = "OSObject::metaClass"
+reason = "anchor of the same run; the base every kext subclass names through the public metaClass"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e5a880"
+target = "0xfffffff00721f318"
+symbol = "__ZN12IOUserClient9metaClassE"
+name = "IOUserClient::metaClass"
+reason = "anchor of the same run; sole kext-referenced pointer to this gMetaClass"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e87df8"
+target = "0xfffffff007216948"
+symbol = "__ZN18IOMemoryDescriptor9metaClassE"
+name = "IOMemoryDescriptor::metaClass"
+reason = "anchor of the same run; sole kext-referenced pointer to this gMetaClass"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e89b80"
+target = "0xfffffff00720bcb0"
+symbol = "__ZN9OSBoolean9metaClassE"
+name = "OSBoolean::metaClass"
+reason = "forced by the reference build 0x28-stride gMetaClass table and by the singleton pair below"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e89b98"
+target = "0xfffffff00720f610"
+symbol = "__ZN9IOService9metaClassE"
+name = "IOService::metaClass"
+reason = "forced by the same table; IOService is the class every kext family in this set subclasses"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e89ba0"
+target = "0xfffffff00720d9c8"
+symbol = "__ZN8OSString9metaClassE"
+name = "OSString::metaClass"
+reason = "forced by the same table and by the string keys that reference it"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e89ba8"
+target = "0xfffffff00720be00"
+symbol = "_kOSBooleanFalse"
+name = "_kOSBooleanFalse"
+reason = "the singleton pair sits 8 bytes apart on both sides; its twin is the next row"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e89bb8"
+target = "0xfffffff00720bac8"
+symbol = "__ZN7OSArray9metaClassE"
+name = "OSArray::metaClass"
+reason = "forced by the same table and by the array-shaped callers that reference it"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e89bc0"
+target = "0xfffffff00720db88"
+symbol = "__ZN8OSSymbol9metaClassE"
+name = "OSSymbol::metaClass"
+reason = "forced by the same table, adjacent to OSString::metaClass as in the reference"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007e8a9e0"
+target = "0xfffffff00720bdf8"
+symbol = "_kOSBooleanTrue"
+name = "_kOSBooleanTrue"
+reason = "the other half of the 8-byte singleton pair, matching the reference build ordering"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff00b70c680"
+target = "0xfffffff007c4db80"
+symbol = "__vfs_smr"
+name = "__vfs_smr"
+reason = "byte-identical content in two independent builds of the same source"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff00b792378"
+target = "0xfffffff007d3d418"
+symbol = "_gIODTPHandleKey"
+name = "_gIODTPHandleKey"
+reason = "the initializer stores the literal AAPL,phandle, matching the three map-named controls"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff00b792640"
+target = "0xfffffff007d3d7a8"
+symbol = "_gIOParentMatchKey"
+name = "_gIOParentMatchKey"
+reason = "the initializer stores the literal IOParentMatch, matching the same controls"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff00b794680"
+target = "0xfffffff007d3d998"
+symbol = "_gIOAllCPUInitializedKey"
+name = "_gIOAllCPUInitializedKey"
+reason = "the initializer stores the literal IOAllCPUInitialized, matching the same controls"
+review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"

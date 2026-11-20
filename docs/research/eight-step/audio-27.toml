@@ -1,0 +1,112 @@
+[hardware.audio]
+name = "音频（WCD938x + AW88261 / ADSP PAS1）"
+status = "parked"
+paths = [
+  "drivers/PongAudio",
+  "scripts/check-audio27-fptrs.py",
+  "scripts/check-audio27-weak-link.py",
+  "docs/research/audio",
+]
+revisit = "iOS 27 stage-0 进入 SpringBoard 后按线恢复；若 PAS1 owner 或音频成为 stage-0 阻塞则提前恢复"
+why = "PAS1 owner 缺失（电池与音频共用）；io_submap 仅 8 MiB 会 panic。iOS 27 stage 0 的 board.toml 有意 remove kernel.pong_native_driver_source，components.include 不含音频；本记录只覆盖已离线验证的音频线，F3 才把它放回构建。"
+
+[hardware.audio.step.same_model]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = [
+  "K60（mondrian）没有公开的同型号音频栈；最近的是同 SoC 的 Pong（Nothing Phone (1)，SM8475），它带着完整音频栈：PongAdsp.cpp 34,547 B、PongAudio.cpp 29,263 B、PongIOAudio2.h 23,857 B、PongWcd938.h 6,262 B、PongAudioService.cpp 7,509 B；见 docs/research/audio/RESEARCH.md:11-23。",
+  "Pong 的硬件真值来自实际 DT：WCD938x、PM8350 S10B 供 RXTX/buck/IO 1.8V，CMD DB 0x80860000；PRM 每个 rate 试 rate 与 19.2/9.6 MHz 两档、attribute 1/0 两档，见 docs/research/audio/RESEARCH.md:25-59。",
+  "Pong 明确要求在物理采集图真正返回 PCM 前不要宣布麦克风可用；K60 不能把 Pong 的 codec/功放寄存器表当同板事实，见 docs/research/audio/RESEARCH.md:28-40 与 docs/research/audio/GAP-ANALYSIS.md:111-126。",
+  "K60 与 Pong 同为 SM8475 但功放不同：Pong 用 CS35L43 形状，K60 是两颗 AW88261（I2C 0x34/0x35）；只能借 PAS1/SMEM/GLINK 的过程，不能借寄存器表，见 docs/research/audio/RESEARCH.md:186-195 与 docs/research/audio/IOS27-SHENG-REFS.md:101-107。",
+]
+
+[hardware.audio.step.official]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = [
+  "官方 §3「实现音频流」按 AudioReach/GPR 排六步：打开并识别服务、描述完整路由、发图命令、接缓冲路径、接 OS 服务、验证路由；见 UniXNU:docs/zh/porting/power.md:44-74。",
+  "官方五条硬事实：DSP 缓冲用 32 位地址并在高字放流索引 0x1001&0xf；GLINK 先小 intent 再大 intent；PRM 用自有端口、TX core clock 0x30c；VA/TX macro 都要开 TX SoundWire master 门控；24 MHz 假设要按 19.2 MHz 修正否则 IO 周期偏 25%；见 UniXNU:docs/zh/porting/power.md:76-82。",
+  "官方要求采集在流之外做 codec 上电、SoundWire 枚举、模拟/数字通路、周期读和输入发布；见 UniXNU:docs/zh/porting/power.md:87-100。",
+  "官方 GENI I2C 要求先 prepare、再读写、事件交 event、到期交 timeout，当前一次完成/取消后才能发下一次；本板按 UniXNU:docs/zh/porting/display.md:91-96 这条要求实现，drivers/PongAudio/PongAudioGeniI2c.c:15/:106/:149 是这个形状，满足的是总线契约，不是音频图。",
+  "官方记录要求音频写清 DSP、codec、时钟、固件服务、路由和播放/录音；本文件逐项给出证据，未做的项在 verify.plan 里标注；见 UniXNU:docs/zh/porting/records.md:30。",
+  "官方把 DSP/音频归到 AdspProbe/AudioProbe（UniXNU:docs/zh/porting/drivers.md:45），但当前 UniXNU/components.toml 的 29 个 id 里没有 AudioProbe/AdspProbe（末尾 QcomBaseband 在 UniXNU:components.toml:564）；本板不适用“直接取组件”，只能按 F3 新建 Pong 音频。",
+  "蓝牙页的 audio_system_plugins 是蓝牙 HAL 覆盖，不是扬声器/麦克风路径；本板音频线不接它，见 UniXNU:docs/zh/drivers/qca-bluetooth.md:67-71。",
+]
+
+[hardware.audio.step.decompile]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = [
+  "K60 live FDT 的 adsp_region@9fd00000 是 0x9fd00000 + 0x3100000，UEFI MemoryMapLib 也记这个区间；旧文档里的 0x0a000000/0x01c00000 是错值，现行 dts/mondrian.dts:54-80 已改对，见 docs/research/audio/GAP-ANALYSIS.md:65-75。",
+  "PAS1 不是“拷完再调 SCM”：PAS_INIT_IMAGE 只取一次 5404 B metadata（884 B header + 4520 B hash），PAS_MEM_SETUP 一次圈 region 0x9fd00000/0x3100000，随后逐段 COPY/BSS，最后 AUTH_AND_RESET；见 docs/research/audio/ADSP-PAS1.md:29-39。",
+  "ADSP 镜像链接基址 0x86300000，装载到 0x9fd00000..0xa2e00000；adsp.mdt 26 个 phdr、24 个有效 PT_LOAD，adsp.b10 在 0x86e0b2c0 非页对齐必须逐字节拷，adsp.b24 是 7,245,824 B 纯 bss；见 docs/research/audio/ADSP-PAS1.md:41-47。",
+  "K60 两颗 AW88261 的 I2C 地址 0x34/0x35、reset GPIO 1/3、irq 88/63、spksw 52、codec reset 43、TDM clk 0x177000（1.536 MHz）、tx-lines=3、dev-id=2、TDM 引脚 121/123/122/124 来自 K60 live FDT 与 Android audio-kernel；见 docs/research/audio/GAP-ANALYSIS.md:111-126。",
+  "Pong 的 I2C 事务状态机是 prepare 后 write_command 设 M_CMD0，event 处理 CANCEL/ABORT/DONE、FIFO 水位和错误，poll 轮询；见 drivers/PongAudio/PongAudioGeniI2c.c:15、:42-52、:106-149。",
+  "Pong 的 codec 身份由 SoundWire slave ID 两半拼出，只有 pong_swr_is_wcd938x(id) 成立才认；见 drivers/PongAudio/PongCodecProbe.c:200-206。",
+  "功放入口是 pong_audio_amp_probe()/play()/stop()（drivers/PongAudio/PongAudioAmp.c:944/:903/:925），io 表在 :511-513 由 se_rd/se_wr（:418/:425）填；这些是当前内核源码，不是反编译猜测。",
+]
+
+[hardware.audio.step.wide]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+catalog_checked = true
+catalog_result = "UniXNU/components.toml 现有 29 个 id（末尾 QcomBaseband 在 :564），其中没有 AudioProbe、AdspProbe、PongAudio 或任何音频组件；官方 docs/zh/porting/drivers.md:45 把音频归到 AdspProbe/AudioProbe 是待建组件，不是可直接取用的 wheel。因此本板没有可用的官方音频驱动，只有 GENI/SPI、XnuPrelink 与 sheng 的板级参考可借，不能重复造一个已有组件。"
+evidence = [
+  "官方组件目录 UniXNU/components.toml 现在 29 个 id（QcomBaseband 在 UniXNU:components.toml:564），没有 AudioProbe/AdspProbe/音频组件；所以没有可直接引用的官方音频 wheel，不能把“官方有 AudioProbe”当成已实现。",
+  "上游 16.x 的 0503/0504 只是骨架：0503 只有 GENI 通路与探测，0504 是 AudioReach/GPR 图且绑 iOS 16 文件位置；两者都不能直接搬进 27，见 docs/research/audio/GAP-ANALYSIS.md:9-30 与 docs/research/audio/IOS27-MIGRATION.md:43-50。",
+  "sheng（Xiaomi Pad 6S Pro，SM8550，iPadOS 27）有完整 AudioReach/PRM 与 WCD938x 采集路径，可借的是顺序与 ABI；它的板级 I2C/reset/供电/TX master 全与 K60 不同，见 docs/research/audio/RESEARCH.md:186-195 与 docs/research/audio/IOS27-SHENG-REFS.md:101-107。",
+  "Pong（SM8475）提供同 SoC 的 PAS1/SMEM/GLINK 过程与 WCD938x codec 事实；它的 CS35L43 功放和 K60 的 AW88261 不同，寄存器表不能照抄，见 docs/research/audio/RESEARCH.md:11-23 与 docs/research/audio/RESEARCH.md:186-195。",
+  "蓝牙的 audio_system_plugins 只是蓝牙 HAL 覆盖，不是扬声器路径；把它当音频驱动会重复造轮子，见 UniXNU:docs/zh/drivers/qca-bluetooth.md:67-71。",
+]
+
+[hardware.audio.step.plan]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = [
+  "十步最小出声路径按依赖排序：DT 值/io_submap → PAS1 owner → SMP2P/GLINK/IPCC → GPR/APM 图 → 低 4 GiB DMA → AW882xx → TDM/PRM → CoreAudio/HAL → 24→19.2 MHz；仅做 PAS1+GPR 不会出声，见 docs/research/audio/GAP-ANALYSIS.md:111-126。",
+  "27 的迁移分两段：先搬 18 个纯 C 文件 + 2 个 glue，host 测试 979 例；再把 PongAudioAmp.o 强制进链接、列 0531 调用点；见 docs/research/audio/IOS27-MIGRATION.md:8-35 与 :54-73。",
+  "构建侧只有三处接缝：源文件进 conf/files、applier 追加两行、每目标 -DXNU_PONG_AUDIO=1；三处都在音频仓，不碰共享 main，见 docs/research/audio/IOS27-WIRING.md:524-590。",
+  "stage 0 仍 park 音频的三个前提（board.toml 的 remove/include 与 gates 缺 k60-conf-files-hook.py）见 docs/research/audio/IOS27-STAGE0-STATE.md:24-38；改这三处才进构建。",
+  "验证顺序固定：先 host 979 + fptrs 19 + weak 14 + --pac-only 4 行，再等 F3 的 UFS/固件，最后 F4 面板/音频图；不能用“能编译”代替出声，见 docs/research/audio/IOS27-MIGRATION.md:54-73。",
+  "stage-0 的 conf-hook 行读 seam inert：gates 树没有 k60-conf-files-hook.py（它不是本仓路径），构建驱动的钩子分支不设 K60_CONF_FILES_HOOK，所以这一行是设计上的 no-op，不是接缝坏了；见 docs/research/audio/IOS27-STAGE0-STATE.md:16-20 与 scripts/check-audio27-preflight.sh:53。",
+  "上机判据：F3 后先看 pong_audio_amp_probe 返回与 audio=4 的 [mic]/[mic capture] 两行，F4 后看 CoreAudio provider 与真实 PCM 周期；任一行缺失都回到 ④/⑥ 补证据，见 docs/research/audio/RESEARCH.md:183-184。",
+]
+
+[hardware.audio.step.deep]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = [
+  "PAS1 顺序的不可逆点：AUTH_AND_RESET 是最后一步，PAS_MEM_SETUP 只圈一次 region，INIT_IMAGE 只拿 metadata；任何“先逐段拷贝再 INIT_IMAGE”的顺序都会失败，见 docs/research/audio/ADSP-PAS1.md:32-39。",
+  "K60 的 ADSP 物理区是 0x9fd00000/0x3100000；链接基址 0x86300000 只用于重定位，不是加载地址；b10 非页对齐、b24 纯 bss 是逐段拷贝的两个边界，见 docs/research/audio/ADSP-PAS1.md:41-47。",
+  "电流/电池线已在 16.x 发布 PAS1 epoch=1（/mnt/e/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:189）与电池 sample=4（/mnt/e/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:596），但同一份记录明确不证明音频路由；27 不能拿它当音频证据，见 docs/research/audio/ADSP-ROUTE-A.md:97-112。",
+  "三处 io 表（PongGeniIo/PongCodecLpiIo/PongCodecMacroIo/PongSwrIo）在 arm64e 下由 blr 变 blraaz，drivers/PongAudio/PongAudioAmp.c:511-512 的 se_rd/se_wr 先 paciza 再存；无 __AUTH 段、无 authenticated-pointer relocation，见 docs/research/audio/IOS27-PAC.md:52-60 与 docs/research/audio/IOS27-PAC.md:93-116。",
+  "dts/mondrian.dts:54-80 现在是正确的 adsp 0x9fd00000/0x03100000，但还有 9 个 0 占位（tx-master、codec/amp i2c、reset、irq、spksw、TDM、mic 等）；填之前不能宣布音频可用。",
+  "Pong 的功放探针先读 ID/状态、再回放 ACF、最后开 spk switch；入口在 drivers/PongAudio/PongAudioAmp.c:944，播放/停止在 :903/:925，寄存器常量在 drivers/PongAudio/PongAudioRegs.h:47-49 与 :97/:155。",
+]
+
+[hardware.audio.step.verify]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+local_verified = true
+evidence = [
+  "四项静态/单测均已在本工作树跑过：fptrs 19 例、weak-link 14 例、host 979 例、并发 3 例；形状与读数见 docs/research/audio/IOS27-PAC.md:93-116。",
+  "预检本身只有四行 PAC 行（scripts/check-audio27-preflight.sh:53 声明总行数 58；--pac-only 固定 4 行），四行全绿才算本步通过。",
+  "产物层是 arm64/arm64e 两份 object 的 ptrauth 形状，不是内核镜像；stage 0 仍读 strings 0/3、symbols 0/3，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。",
+]
+static_check = [
+  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 53 evidence reference(s) resolve, 8 root(s), no device step。",
+  "python3 scripts/check-audio27-fptrs.py --repo . -> FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 assignment site(s) whose signatures match what they fill, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides。",
+  "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/hackios/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。",
+]
+unit_test = [
+  "python3 scripts/tests/test-audio27-eight-step.py -> TESTS OK 9 cases。",
+  "drivers/PongAudio/tests/run-tests.sh -> TESTS OK 979 cases。",
+  "python3 scripts/tests/test-audio27-fptrs.py -> TESTS OK 19 cases。",
+  "python3 scripts/tests/test-audio27-weak-link.py -> TESTS OK 14 cases。",
+  "python3 -B scripts/tests/test-audio27-host-concurrency.py -> TESTS OK 3 cases。",
+]
+artifact_check = [
+  "本机 clang 24.0.0git 用 --target=arm64-apple-ios27.0 与 --target=arm64e-apple-ios27.0 各编 PongAudioGeniI2c.c / PongAudioAmp.c：Geni 62 条 ptrauth、Amp 22 条，0 个 __AUTH 段与 authenticated-pointer relocation；形状见 docs/research/audio/IOS27-PAC.md:52-60。",
+  "python3 scripts/check-audio27-kernel.py 读 stage 0 产物 -> rc1，strings 0/3、symbols 0/3；这是 stage 0 无音频的预期，不是回归，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。",
+  "sh scripts/check-audio27-preflight.sh --pac-only -> PAC PREFLIGHT OK 4 rows (4 ok, 0 skip, 0 FAIL), as declared。",
+]

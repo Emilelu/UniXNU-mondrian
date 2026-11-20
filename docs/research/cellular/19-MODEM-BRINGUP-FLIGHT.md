@@ -1795,8 +1795,8 @@ NULL 表拒绝等），输出 'K60 NAMED VOLUME PASS names, unused slots, plans,
 
 **补记（2026-11-20 07:58）**
 
-- 这条坑原先占用 P-210，与 check-data-identity.py 那条同号；按 Lead 07:57 要求改成实测最大号 +1，
-  各分支 docs/engineering/PITFALLS.md 的最大值是 feat/power-ios27-carry 的 P-259，所以本坑现为 **P-261**
+- 这条坑原先占用 P-210，与 check-data-identity.py 那条同号；按 Lead 07:57 要求改成实测最大号 +1（先定为 P-260），
+  各分支 docs/engineering/PITFALLS.md 的最大值是 feat/power-ios27-carry 的 P-259，随后 audio 线把 2d1dd5fc 推上 main 占了 P-260，本坑顺延为 **P-261**（见 §3.50）
   （RULES.toml 的 id/source 与本文件、judge-cellular-flight.py 的注释一并改）。
 - scripts/fly-cellular.py 的设备探针同时改成失败即拒：device_state() 在 k60-device.sh 起不来时捕获 OSError
   并返回 [""]，空输出、错误行同样落到「不是 fastboot」；--self-test 现在也断言四种探测结果（空、fastboot、

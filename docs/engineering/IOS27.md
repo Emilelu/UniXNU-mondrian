@@ -675,9 +675,178 @@ itself, the original family stays loaded and serves as the metaclass parent, and
 no sibling-entry import is needed. The cost is compiling Apple's public
 `IOBlockStorageDevice.cpp` from the pinned feed -- the license file ships with
 it (`APPLE_LICENSE`), and the headers are already prepared on this host. That
-path is cheaper than route B and was proven on the same profile, so it should be
-evaluated first; B remains the fallback, and
-`scripts/check-ios27-storage-entries.py` is the gate either way.
+path is viable on this board and is evaluated first on the evidence above; B
+stays the fallback. Note that `scripts/check-ios27-storage-entries.py` measures
+route B only: under route D the correct answer is still `absent`.
+
+## Route D: the deferred metaclass, in five questions
+
+Route D compiles Apple's public `IOBlockStorageDevice.cpp` from the pinned feed,
+replaces its registration macro with a metaclass initialiser that resolves its
+parent at run time, and links that object into the kernel instead of importing
+the class from the sibling entry. The lead asked five questions before this
+route may be planned; each is answered below by a measurement on this host, not
+by an argument. Nothing here has run on the board, and `hardware_verified` stays
+false in every report.
+
+### 1. Which pin, and is the clone on this host
+
+`profiles/os/ios-27.0.1-24A446/profile.toml:108` reads:
+
+    # Apple sources of the macOS 26.5 release that pairs with xnu-12377.121.6 (same pins as ipados-27.0.1-24A446).
+
+and the entry it introduces is the pin: `:110 name = "IOStorageFamily"`,
+`:112 git = "https://github.com/apple-oss-distributions/IOStorageFamily.git"`,
+`:113 ref = "IOStorageFamily-337.100.1"`,
+`:114 commit = "7edb88fbae296fb7c8ce2f64e115e116e566d51c"`.
+
+Two clones exist and both sit exactly on that commit:
+`/home/emilelu/ios27-out/feeds/IOStorageFamily-a4f5240a` and
+`/opt/k60/trees/ios27-out/feeds/IOStorageFamily-a4f5240a`. The source file itself
+is `IOBlockStorageDevice.cpp` in either: line 2 is the 1998-2015 Apple
+copyright, lines 4-21 the APSL 2.0 header, line 28
+`OSDefineMetaClassAndAbstractStructors(IOBlockStorageDevice,IOService)` -- the
+single line route D rewrites.
+
+A pin proves where the code came from. It does not prove the binary ships that
+ABI, which is question 2.
+
+### 2. Does the 24A446 binary agree with the pin
+
+`com.apple.iokit.IOStorageFamily` in the pinned kernelcache
+(`/home/emilelu/kc24A446/ipsw/24A446/kernelcache.decompressed`, sha256
+`fa07057bf34f33af1ec26681ad0c87c13e5aaa548a300740eddb0e92876e5f95`,
+`MH_FILESET`, 318 load commands, 305 entries) is a `MH_KEXT_BUNDLE` at
+`fileoff 0xa0e670`. Its segments are `__TEXT` `0xfffffff007a12670` size
+`0x2030`, `__TEXT_EXEC` `0xfffffff00a307fd0` size `0x1c884`, `__DATA`
+`0xfffffff00b9789e0` size `0x3b9`, `__DATA_CONST` `0xfffffff008313f98` size
+`0x5c40` and `__LINKEDIT` `0xfffffff00b9ec000` size `0x73b91`.
+
+The class size is written into the binary at three call sites. Each xref of the
+class-name string -- file offsets `0x3307c24`, `0x3307cc8` and `0x33080e0` -- is
+immediately preceded by the word `52801203`, `mov w3,#0x90`. The global
+metaclass constructor at `0xfffffff00a30c0d8` takes the name in `x1` and
+`0x90` in `w3` as well. `0x90` is 144, and the pinned source compiles to
+`sizeof(IOBlockStorageDevice) == 144` (a `-fdump-record-layouts` probe
+against `build/storage-abi/include` reports size 144, align 8). The two agree
+byte for byte on the one number the run-time assertion checks.
+
+The vtable is `__ZTV20IOBlockStorageDevice` at `__DATA_CONST`
+`0xfffffff008314d88` (file `0x1310d88`, header two words of zero); the protected
+constructor at `0xfffffff00a30bc6c` writes `vtable+0x10` into `x0` and signs it
+with `pacda` and `movk x17,#0xcda1`, and slot 7 is the `getMetaClass` getter
+returning the metaclass at `0xfffffff00b978bb0` (file `0x4974bb0`).
+
+Reading that table needs the right pointer format. The outer
+`LC_DYLD_CHAINED_FIXUPS` declares `pointer_format = 8`, which is
+`dyld_chained_ptr_64_kernel_cache_rebase`
+(`/opt/unixnu-linux/CommandLineTools/SDKs/MacOSX.sdk/usr/include/foreign/mach-o/fixup-chains.h:173`:
+`target:30`, `cacheLevel:2`, `diversity:16`, `addrDiv:1`, `key:2`, `next:12`,
+`isAuth:1`) with base `0xfffffff007004000`. Decoded that way the table has
+**190 slots**, then three zero words, then the next table. Decoded as
+`ARM64E_KERNEL` (the first guess) the same bytes produce 260 slots and a table
+that runs into its neighbour -- a wrong answer that still looks plausible.
+
+The strongest check is not the count but the signature: the 190 slots of the
+source object and the 190 slots of the binary carry the **same `diversity`
+value in 190 of 190 positions**. A vtable copied from a different build, or
+built from a different header, would differ in at least one discriminator.
+Per-slot evidence is at `E:/k60-work/scratch/bt-route-d/vtable-slots.json` and
+the reader that produced it at `E:/k60-work/scratch/bt-route-d/audit_binary.py`.
+
+### 3. Does the object build for this target
+
+The compile is a replay of a recorded IOKit command line, not a fresh guess:
+`build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/KernelConfigTables.cpo.json`
+(537 arguments, `--target=arm64e-apple-ios27.0`,
+`-fptrauth-function-pointer-type-discrimination`). With the source and output
+swapped, `/opt/unixnu-linux/llvm/bin/clang-24` emits
+`/tmp/src4th/IOBlockStorageDevice.o`: `cputype 0x100000c`,
+`cpusubtype 0x80000002`, `filetype 1`, and it defines
+`__ZTV20IOBlockStorageDevice`, `__ZN20IOBlockStorageDevice10gMetaClassE`
+and `__ZN20IOBlockStorageDevice9MetaClassC2Ev`. That is the object the link
+test in question 4 uses.
+
+### 4. Do the definitions coexist with the sibling entry
+
+They are not supposed to coexist: the eleven imports are meant to disappear
+because the object defines them. The link replay measures whether that happened.
+`scripts/check-xnu27-storage-link.py` forces the archive into the recorded kernel
+link twice; the same test run by hand with the deferred object added gives:
+
+| link | undefined symbols | what the archive added |
+| --- | --- | --- |
+| control | 14 | -- |
+| `libNativeUfs.a` | 26 | 11 `IOBlockStorageDevice` members + `_armcpu_timer_interrupts` |
+| `libNativeUfs.a` + `IOBlockStorageDevice.o` | 16 | `_armcpu_timer_interrupts` + `_native_source_storage_parent` |
+| `libNativeUfs.a` + `IOBlockStorageDevice.o` + `libArmCpu.a` | 15 | `_native_source_storage_parent` only |
+
+Not one `IOBlockStorageDevice` or `OSMetaClass` symbol is undefined in the
+last two rows: the implicit `OSMetaClass` constructor the source calls is
+satisfied by the kernel, and the eleven members come from the object. The one
+surviving name, `native_source_storage_parent`, is defined by
+`package/SourceStorage.cpp` in the same runtime that would be linked next -- it
+is the deliberate seam, not a leak.
+
+At run time the two copies are separate objects with separate names. The
+original family loads first (`OSKextLoadKextWithIdentifier`), the runtime takes
+its `IOBlockStorageDevice` metaclass, and our class registers under
+`UniXNUBlockStorageDevice` with that metaclass as parent, so the OSMetaClass
+registry never sees two entries with one name. What the two do share is the
+vtable layout and its PAC discriminators, which question 2 measured as equal.
+The run-time guard is explicit: `package/SourceStorage.cpp:273-278` compares
+`getClassSize()` with `sizeof(IOBlockStorageDevice)` and panics on a mismatch.
+
+The limits are real: no instance has been created on the board, the load order
+inside a fileset boot is unproven, and a `native-source-storage` value other
+than 1 leaves the whole runtime unloaded.
+
+The run-time chain leaves little room for ambiguity, which matters on a board
+whose only log is the screen: every step panics with its own message.
+`SourceStorage: metaclass initialized before original family` (`:245`) means
+the class registered too early; `SourceStorage: IOStorageFamily load failed
+%x` (`:272`) and `SourceStorage: APFS load failed %x` (`:286`) name the
+missing bundle; `SourceStorage: original base layout %u differs from source
+%lu` (`:277`) is the class-size mismatch that question 2 measured as equal
+for 24A446; `root policy handoff or authentication failed` (`:283`) is the
+policy table; and `SourceStorage: UFS %s failed (root step %u: %s)` (`:304`)
+carries the driver's own root step and reason. A screenshot of any of these
+names the stage without a serial console.
+
+### 5. What blocks the Linux recipe
+
+`scripts/build-sheng-source-storage.py` is the reference implementation of this
+route. Its host assumptions, checked one by one on this machine:
+
+- `xcrun --sdk macosx --show-sdk-path` (`prepare-storage-headers.py:29`) is a
+  Linux shim here: it prints the literal word `macosx` and exits 0. It cannot
+  stand in for an SDK. The prepared headers this tree already carries at
+  `build/storage-abi/include` (with `headers.json` naming feed
+  `IOStorageFamily-a4f5240a`) make that step unnecessary on this host.
+- `llvm-objcopy --remove-section=__DATA,__mod_init_func` works (`rc 0`).
+- `llvm-objcopy --globalize-symbol=__GLOBAL__sub_I_IOBlockStorageDevice.cpp`
+  **fails**: `llvm-objcopy: error: option is not supported for MachO`. This
+  is the one hard blocker, and the reason it is load-bearing is in the
+  runtime: `package/SourceStorage.cpp:15-17` binds three of these constructor
+  names with `__asm__` -- `source_storage_base_init` is
+  `__GLOBAL__sub_I_IOBlockStorageDevice.cpp`, `source_storage_ufs_init` is
+  `__GLOBAL__sub_I_NativeUfs.cpp`, `source_storage_ram_init` is
+  `__GLOBAL__sub_I_NativeRamBlock.cpp` -- and calls them at `:289-291`
+  between `preModLoad` (`:287`) and `postModLoad` (`:292`). The section
+  has to leave `__mod_init_func` for that to be safe, because
+  `OSRuntimeInitializeCPP` runs that section itself
+  (`libkern/c++/OSRuntime.cpp:499-501`), which would register the class
+  before the original family is loaded and trip
+  `SourceStorage: metaclass initialized before original family` (`:245`).
+  Leaving the section in place is therefore not a workaround; the two real
+  alternatives are an explicit `extern "C"` wrapper emitted into the
+  generated source, or renaming the constructor at generation time. Neither is
+  written yet.
+- `xcrun ar rcs` (`:240`) falls through to GNU `ar 2.42` and succeeds, so the
+  archive step does not need macOS.
+- `libtool` and `dwarfdump` are not on this path: the 27 recipe uses `ar`, and
+  `dwarfdump` appears only in the 16-line binding derivation
+  (`scripts/derive-ios16-storage-bindings.py`).
 
 ## Framework patches this branch carries
 

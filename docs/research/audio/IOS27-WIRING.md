@@ -260,6 +260,32 @@ scripts/judge-audio-capture.py`；驱动不再比那一位 → `no mode comparis
 
 预检里因此多三行：`boot argument checker is honest`（八例）、`audio boot argument is wired`（这门禁本身）、
 `boot arguments are documented`（仓里原有的覆盖门禁）。三行都不看设备、不 boot。
+### 页面让你跑的命令，必须真能跑
+
+`docs/research/audio/*.md` 里的每条 `scripts/名字.py` 都是一个承诺。两份东西会分头漂：
+
+- **页面指向不存在的文件**。读者照着敲，得到 `No such file or directory`，然后开始怀疑设备。
+- **工具存在但没人写它**。下一轮（包括我自己）只会重新发明一遍，或者去猜参数。
+
+`scripts/check-audio27-commands.py [repo]` 两个方向一起量：页面里的每条 `scripts/…py|sh` 必须在本树里；
+确实住在别的仓的那五个（`build-xnu-generic.sh`、`build-ios27-linux.sh`、`refresh-xnu-generic.py` 在 k60-gates，
+`build-sheng-audio-hal.py`、`check-audioreach-host.py` 在 sheng）写进 `EXTERNAL`，并且**那个位置也被检查**——
+借口不会硬化成假设；k60-gates 或 sheng 检出不在本机时只给 `COMMANDS NOTE`，不算失败（换了机器也能跑）。
+反向：本线自有的二十一个音频工具里，任何一个没有页面提到它就失败。
+
+它第一次跑还抓到一个真缺陷：九个工具把 `--help` 当成位置参数，于是
+`scripts/check-audio27-lines.py --help` 打印的是 `LINES FAILED: --help has no docs/, so there is nothing to read`，
+`judge-audio-capture.py --help` 退 2。想知道怎么用的读者拿到的是一句「你给的目录不存在」。现在这十个工具都在
+`main()` 开头统一处理 `-h/--help`：打印自己的 docstring、退 0；门禁对每个被页面引用的自有 python 工具真跑一次 `--help`。
+
+```
+COMMANDS NOTE: scripts/build-xnu-generic.sh is not in this tree; the gates checkout holds it at /mnt/e/hackios/k60-gates/scripts/build-xnu-generic.sh
+COMMANDS OK 98 citation(s) resolve (3 followed into another checkout), 22 audio tool(s) are cited, 21 of them answer --help　（carry 树实测；adsp 树页面多，同一个工具给出 136 / 17 / 22 / 21）
+```
+
+宿主 `scripts/tests/test-audio27-commands.py` **六例**：全部兑现 / 页面指向不存在的文件 / 借口的位置缺那份文件（红）/
+根本没有那个检出（NOTE，不红）/ 工具没人写 / `--help` 不答。预检两行：`commands gate is honest`、
+`27 command citations resolve`。
 ### 文档里引用的日志行，必须真是驱动会打印的
 
 27 的两份页面反复告诉读者「看哪一行输出」。但一行被引用、却没有任何 `printf` 能打印出来时，

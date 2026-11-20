@@ -180,6 +180,14 @@ def case_bundle_covers_manifest() -> None:
     absent = [path for path in called if not (out / path).is_file()]
     check("the bundle ships every script its runner calls", called and not absent,
           ", ".join(absent[:3]) or "the runner lists no python suites")
+    joined = runner.replace(chr(92) + chr(10), " ")
+    sources = []
+    for line in joined.splitlines():
+        if line.startswith("run "):
+            sources.extend(line.split()[3:])
+    lost = [path for path in sources if not (out / path).is_file()]
+    check("the bundle ships every C source its runner compiles", bool(sources) and not lost,
+          ", ".join(lost[:3]) or "the runner lists no C suites")
     compared = run("--target", str(out))
     check("the checker accepts the bundle as a target", compared.returncode == 0, compared.stderr)
     check("the bundle reads as SAME everywhere", "SAME" in compared.stdout and "DRIFT" not in compared.stdout)

@@ -263,9 +263,9 @@ section = "4"
 anchor = "#battery"
 requirement = "固件负责充电控制时保留其所有权"
 evidence = "drivers/PongPower/K60Battmgr.c"
-evidence_line = "Charging control remains entirely firmware-owned."
+evidence_line = "88: put32(out + 4, TYPE_REQUEST); put32(out + 8, fields[b->cursor].opcode);"
 status = "partial"
-why = "只有 K60Battmgr.c:5 的注释声明固件所有权；驱动确实不发充电写请求，但注释不是可执行判据，也没有上机用例证明固件仍在控制。charge-auth 是独立参数且默认关闭"
+why = "K60Battmgr.c:88 是唯一的请求构造行；check-battmgr-wire.py 现在把 k60_battmgr_next 的 put32 偏移限定为 0/4/8/16，出站帧只允许 TYPE_NOTIFY+OP_NOTIFY_ENABLE 或 TYPE_REQUEST+fields[]，新增 TYPE_SET、OP_CHARGER 或字段偏移即判红（22 项夹具）。仍是 partial：没有上机用例证明固件继续控制，charge-auth 独立且默认关闭"
 
 [[row]]
 id = "battery-property-numbers"

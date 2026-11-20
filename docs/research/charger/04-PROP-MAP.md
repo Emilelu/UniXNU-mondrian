@@ -386,7 +386,7 @@ map 本身是只读常量，`probe` 用 `devm_kmalloc` 另开四块可写缓存�
 
 结论：`K60Battmgr.c` 的字段表与 `.ko` 的 map 下标**完全自洽**，可作为 L1 服务端实现的权威属性索引。
 
-这张表已经机器可读：`docs/research/charger/WIRE-PROPS.toml` 列出 19 个字段的 `{opcode, 下标, map 值, 出处}`，`python3 scripts/check-battmgr-wire.py` 把三份材料对起来——驱动 `fields[]` 的顺序与下标、本文件表格里的 `0x` 值、以及（给了 `--ko`/`K60_VENDOR_KO` 时）厂商模块 `.rodata` 里的真实 map 字节。任一处漂移都判 FAIL；没有模块时仍强制前两者一致并打印 note。它是 `P-259` 的检查链之一（`python3 scripts/tests/test-check-battmgr-wire.py` 12 项）。**wire 下标是跨版本常量**：iOS 27 复用同一台 ADSP 与同一段 battmgr 协议，变的是 IOKit 侧属性号。
+这张表已经机器可读：`docs/research/charger/WIRE-PROPS.toml` 列出 19 个字段的 `{opcode, 下标, map 值, 出处}`，`python3 scripts/check-battmgr-wire.py` 把三份材料对起来——驱动 `fields[]` 的顺序与下标、本文件表格里的 `0x` 值、以及（给了 `--ko`/`K60_VENDOR_KO` 时）厂商模块 `.rodata` 里的真实 map 字节。任一处漂移都判 FAIL；没有模块时仍强制前两者一致并打印 note。同一门禁还把 `k60_battmgr_next` 的出站帧限定为订阅 notify 与属性 GET（`put32` 偏移只有 0/4/8/16），写类型或写 opcode 即判 FAIL。它是 `P-259` 的检查链之一（`python3 scripts/tests/test-check-battmgr-wire.py` 22 项）。**wire 下标是跨版本常量**：iOS 27 复用同一台 ADSP 与同一段 battmgr 协议，变的是 IOKit 侧属性号。
 
 ## 9. 与上游 Linux `qcom_battmgr.c` 对照
 

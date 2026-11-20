@@ -203,6 +203,8 @@ def drop_include(text):
     return "".join(out)
 
 
+STAGE_THREE = re.compile(r"native_owner_data_stage\s*=\s*3\s*;")
+
 ANCHOR_MARKERS = (("native_owner_data_stage",),
                   ("native_owner_data_prepare", 'vnode_lookup("/private/var"'))
 
@@ -217,6 +219,14 @@ def find_anchor(tree):
     for markers in ANCHOR_MARKERS:
         hits = [line.strip() for line in lines
                 if any(marker in line for marker in markers) and line.strip().endswith(";")]
+        if len(hits) > 1:
+            # The stage variable walks 0 -> 1 -> 2 -> 3 -> 4.  Only the line that
+            # pushes it to 3 runs once Data is mounted, and that is the line the
+            # probes sit in front of (doc20 section 5.1); the other four would
+            # move the probes into the retry and rollback paths.
+            staged = [line for line in hits if STAGE_THREE.search(line)]
+            if len(staged) == 1:
+                hits = staged
         if len(hits) == 1:
             return hits[0], None
         if len(hits) > 1:
@@ -263,7 +273,7 @@ def verify(tree, out):
               "0630-k60-smem.patch"]
     seen = 0
     for name in wanted:
-        path = os.path.join(out, name)
+        path = os.path.abspath(os.path.join(out, name))
         if not os.path.exists(path):
             print("K60 PORT27 VERIFY %s skipped (not produced)" % name[:4])
             continue
@@ -305,14 +315,27 @@ def self_test():
         if found != "native_owner_data_stage = 3;" or problem:
             print("K60 PORT27 FAIL auto anchor did not find the staging line: %r %r" % (found, problem))
             return 1
+        ladder = os.path.join(work, "ladder")
+        os.makedirs(os.path.join(ladder, "bsd", "kern"))
+        with open(os.path.join(ladder, "bsd", "kern", "kern_exec.c"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("\tvolatile int native_owner_data_stage = 0;\n"
+                         "\tnative_owner_data_stage = 1;\n"
+                         "\tnative_owner_data_stage = 2;\n"
+                         "\tnative_owner_data_stage = 3;\n"
+                         "\tif (!error) native_owner_data_stage = 4;\n")
+        found, problem = find_anchor(ladder)
+        if found != "native_owner_data_stage = 3;" or problem:
+            print("K60 PORT27 FAIL the stage ladder did not resolve to 3: %r %r" % (found, problem))
+            return 1
         twice = os.path.join(work, "dup")
         os.makedirs(os.path.join(twice, "bsd", "kern"))
         with open(os.path.join(twice, "bsd", "kern", "kern_exec.c"), "w",
                   encoding="utf-8") as handle:
-            handle.write("\tnative_owner_data_stage = 2;\n\tnative_owner_data_stage = 3;\n")
+            handle.write("\tnative_owner_data_stage = 3;\n\tnative_owner_data_stage = 3;\n")
         found, problem = find_anchor(twice)
         if found is not None or "ambiguous" not in (problem or ""):
-            print("K60 PORT27 FAIL two staging lines were not refused: %r %r" % (found, problem))
+            print("K60 PORT27 FAIL two stage-3 lines were not refused: %r %r" % (found, problem))
             return 1
         bare = os.path.join(work, "bare")
         os.makedirs(os.path.join(bare, "bsd", "kern"))

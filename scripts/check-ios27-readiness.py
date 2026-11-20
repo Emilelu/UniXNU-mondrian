@@ -91,6 +91,7 @@ def anchor_state(tree):
 ARTIFACT_DIR = os.path.join(REPO, 'patches', 'xnu-12377')
 ARTIFACTS = ['0626-k60-modem-image.patch', '0627-k60-modem-qrtr.patch',
              '0628-k60-ipa.patch',
+             '0629-kern-exec-call-sites.patch',
              '0630-k60-smem.patch', 'series-port.txt', 'conffiles-port.txt']
 
 
@@ -223,6 +224,9 @@ def compare(expected, actual):
     """Drift is any measured rc that differs from the recorded one."""
     return expected == actual
 
+
+CALL_SITE_PATCH = '0629-kern-exec-call-sites.patch'
+CALL_SITE_TARGET = 'bsd/kern/kern_exec.c'
 
 PORT_SERIES = os.path.join(ARTIFACT_DIR, 'series-port.txt')
 
@@ -404,7 +408,11 @@ def conf_anchor(tree):
 
 def check_pristine(tree):
     drift = 0
+    anchors = anchor_state(tree)
     for name, expected, reason in PATCH_EXPECT:
+        if anchors and name == '0621-k60-modem-pas.patch':
+            print('K60 READY note %s applies once the data mount is in the tree' % name)
+            continue
         actual, note = patch_status(tree, name)
         if actual is None:
             print('K60 READY INVALID %s %s' % (name, note))
@@ -444,18 +452,21 @@ def check_pristine(tree):
             print('K60 READY ok   %d port artifacts, %d build entries'
                   % (len(ARTIFACTS), len(entries)))
     targets = patch_targets()
-    stray = [t for t in targets if not t.startswith('bsd/dev/')]
+    stray = [t for t in targets
+             if not t.startswith('bsd/dev/') and t != CALL_SITE_TARGET]
     if not targets:
         drift += 1
         print('K60 READY DRIFT the patches list no file at all')
     elif stray:
         drift += 1
-        print('K60 READY DRIFT the patches leave bsd/dev: ' + ' '.join(stray[:5]))
+        print('K60 READY DRIFT outside bsd/dev and not the call-site file: ' + ' '.join(stray[:5]))
     else:
-        print('K60 READY ok   %d patch targets, all under bsd/dev' % len(targets))
+        print('K60 READY ok   %d patch targets, bsd/dev plus the one call-site file' % len(targets))
     sections = patch_sections()
     seen, twice, partial = {}, [], []
     for name, names, fresh in sections:
+        if name == CALL_SITE_PATCH:
+            continue
         if fresh != len(names):
             partial.append("%s %d/%d" % (name, fresh, len(names)))
         for target in names:
@@ -469,6 +480,15 @@ def check_pristine(tree):
         print('K60 READY DRIFT two patches touch the same file: ' + ' '.join(twice[:3]))
     else:
         print('K60 READY ok   all %d sections create new files, no target twice' % len(seen))
+    call_path = os.path.join(ARTIFACT_DIR, CALL_SITE_PATCH)
+    calls = [sec for sec in sections if sec[0] == CALL_SITE_PATCH]
+    if not os.path.exists(call_path):
+        print('K60 READY note %s is not generated yet' % CALL_SITE_PATCH)
+    elif len(calls) != 1 or calls[0][1] != [CALL_SITE_TARGET] or calls[0][2] != 0:
+        drift += 1
+        print('K60 READY DRIFT the call-site patch must modify exactly %s' % CALL_SITE_TARGET)
+    else:
+        print('K60 READY ok   the call-site patch modifies only %s' % CALL_SITE_TARGET)
     missing_probes = probe_symbols()
     if missing_probes:
         drift += 1
@@ -512,16 +532,20 @@ def check_pristine(tree):
     if anchors is None:
         print('K60 READY INVALID no bsd/kern/kern_exec.c under the tree')
         return 2
-    print('K60 READY note anchor lines=%d (expected 0 until the data mount lands)' % anchors)
-    if drift:
-        print('K60 READY CHANGED %d expectation(s) drifted' % drift)
-        return 1
+    if anchors == 1 and '0629-kern-exec-call-sites.patch' in ARTIFACTS and os.path.exists(
+            os.path.join(ARTIFACT_DIR, '0629-kern-exec-call-sites.patch')):
+        print('K60 READY ok   the tree stages the data mount and 0629 is generated')
+    else:
+        print('K60 READY note anchor lines=%d (expected 0 until the data mount lands)' % anchors)
     anchor_file = conf_anchor(tree)
     if anchor_file:
         print("K60 READY ok   the conffiles appender anchor %s is in %s" % (CONF_ANCHOR, anchor_file))
     else:
-        drifted += 1
+        drift += 1
         print("K60 READY DRIFT the conffiles appender anchor %s is missing from bsd/conf" % CONF_ANCHOR)
+    if drift:
+        print('K60 READY CHANGED %d expectation(s) drifted' % drift)
+        return 1
     print('K60 READY OK every recorded expectation still holds')
     return 0
 

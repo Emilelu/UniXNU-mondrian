@@ -1,0 +1,31 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -9029,12 +9029,28 @@
+ 	    (error = copyout("/private/var", request.path, 13)) ||
+ 	    (error = copyout(device_path, spec, strlen(device_path) + 1)) ||
+ 	    (error = copyout(payload, request.data, sizeof(payload)))) goto done;
+ 	native_owner_data_stage = 2;
+ 	error = mount(p, &request, &result);
+ 	if (error) goto done;
++	/* 0629: hand the modem carveout to the secure monitor once Data is mounted.
++	 * Inert unless pong_modem is set: the probe returns on its first line without
++	 * mapping 0x8bc00000 or issuing an SMC. */
++	{
++		extern int k60_modem_probe_from_handoff(void);
++
++		(void)k60_modem_probe_from_handoff();
++	}
++	/* 0629: IPA firmware is independent of the modem image.  The probe is
++	 * inert unless pong_ipa is set; it reads IPA/ipa_fws.mbn from the same
++	 * payload FAT md0 and hands it to PAS 15. */
++	{
++		extern int k60_ipa_probe_from_handoff(void);
++
++		(void)k60_ipa_probe_from_handoff();
++	}
+ 	native_owner_data_stage = 3;
+ 	error = vnode_lookup("/private/var", 0, &data_root, vfs_context_current());
+ 	if (error) goto done;
+ 	mount_t data_mount = vnode_mount(data_root);
+ 	vnode_t device_node = vfs_devvp(data_mount);
+ 	dev_t actual = device_node ? vnode_specrdev(device_node) : NODEV;

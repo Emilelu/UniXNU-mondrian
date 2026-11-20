@@ -45,6 +45,11 @@ sh scripts/tests/portability/run-deps.sh
 
 **27 的构建比这里严**：同一对源在 `-Wall -Wextra -Werror` 下、gcc 与 clang 各编两遍（驱动宏开与关）都干净，
 `sh scripts/tests/portability/run-warnings.sh` 打 `WARNINGS OK 8 builds, both sources, macro on and off`。
+
+这些系统头在 27 树里也还在（2026-11-20 实测）：八个 `<...>` 全部解析得到——`kern/clock.h` → `osfmk/kern/clock.h`、
+`pexpert/arm64/board_config.h` → `pexpert/pexpert/arm64/board_config.h`、`string.h` → `osfmk/arm/string.h`（靠构建的 `-I osfmk/arm`）等。
+`python3 scripts/check-audio27-includes.py <树>` 打 `INCLUDES OK 8 headers resolve in …`；
+改名或删一个就点名 `h (from 源:行)` 并退 1。桩头证明「声明够用」，这一行证明「树里真有这些文件」。
 宿主先变红，比在 27 构建里撞一个 warning 便宜；这条和符号表一样，量的都是「27 会拿到什么」。
 
 ### 这四个接口在 27 基线里确实还在（2026-11-20 实测）

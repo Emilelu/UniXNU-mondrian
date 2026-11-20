@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | DSP 固件/PAS ID、预留内存、邮箱、共享内存、时钟电源归属 | 已验证（传输链）/部分（整节） | Route A ADSP 启动在 image e/f 上 `rc=0`，PAS1 `epoch=1 flags=15`；`docs/research/charger/02-GLINK-CONTRACT.md`、`docs/plans/OFFICIAL-DRIVER-MAP.md:44`。2026-11-20 起这条链有上机判读器：`scripts/judge-k60-handoff-console.py` 按 publish(epoch/104 B/flags=15) → 同 epoch adopt(非零 tx/rx) → 真实通道 up → 样本 的顺序判定，`audio-probe-ax/run1-20261119-0100` 与 `audio-probe-aw/run1-20261118-2245` 两份真机 console 都 PASS（33 项用例，见 `battery/PMIC-GLINK-SERVICE.md` §9）；载体分支把 PAS 载荷改到板级 carveout `0x9fd00000`，整节仍未覆盖音频端点与时钟归属 |
 | 音频 codec/功放、总线、时钟、路由、拓扑、格式、OS ABI | 委派 | 音频分支 `feat/audio-adsp-merge`（2026-11-18 时 HEAD `c74aea80`，145 commits ahead，未合并） |
-| 电池电量计/固件协议、属性 ID、单位、电流符号、通知 | 已验证（测量）/部分（全节） | `K60Battmgr.c`、`K60Battery.cpp`；`charger/04-PROP-MAP.md`；属性 9 静默、USB 输入电流边界见 §4 |
+| 电池电量计/固件协议、属性 ID、单位、电流符号、通知 | 已验证（测量）/部分（全节） | `K60Battmgr.c`、`K60Battery.cpp`；`charger/04-PROP-MAP.md`；19 个 wire 属性号已机器可读（`charger/WIRE-PROPS.toml` + `check-battmgr-wire.py`，三份材料互校，12 项夹具）；属性 9 静默、USB 输入电流边界见 §4 |
 | 电源时钟域、OPP 表、稳压器、固件投票、温控限制 | 部分（离线） | EPSS/GPU OPP 表现场 FDT 已确认；只有路线 A 的 TCS4 lcx/lmx 两条真实投票，CPU/GPU 电压仍无写路径，见 `power/07-RAIL-ORDERING.md`。温控限制自 2026-11-20 有离线契约 `K60ThermalMap`（9 个 AP 侧 zone、90/95/110/115/125 °C 阶梯、`allow_raise` 直接喂 `k60_rail_plan` 的 `thermal_ok`，host 125 项，见 `power/10-THERMAL-MAP.md`）：它可以**拒绝**升压，但既不读传感器也不写寄存器——真机温度证据目前不可用（`power-conformance-thermal-20261119-0436` 的 capture 是 `port-not-observed`，0 字节 console） |
 | 固件清单记录来源和版本 | 部分 | `power/06-FIRMWARE-MANIFEST.md` 记录 ADSP 26 段/充电器 .ko/carrier FD 的哈希与来源；整机其他固件与认证密钥未覆盖 |
 
@@ -131,7 +131,7 @@
   1.25 倍余量、50 % GPU 目标、578 MHz 地板、1 s 触摸、300 ms/60 % 帧下限、50 ms GPU 唤醒、1 ms fence、
   10 s 喂狗、两帧/1500/600 ms 背光与 60 ms 触摸间隔钉在跨模块位置；每个套件必须打印自己记录的数量，
   数量漂移即失败。C 套件之后同一条命令再跑 python 那半——carry 清单、四个控制台判读器、27 预检，
-  与硬件契约表核对（`HW-CONTRACTS.toml`，23 行 file:line 引用），共 7 个套件——并打印 `power-python: OK (7 suites)`，任一退出非零即整个 runner 失败。判读器没有
+  与硬件契约表核对（`HW-CONTRACTS.toml`，23 行 file:line 引用），共 8 个套件（最后一个 `wire-props` 把 `charger/WIRE-PROPS.toml` 的 19 个 wire 属性号与驱动表、反编译表、厂商 `.rodata` 三处对齐）——并打印 `power-python: OK (8 suites)`，任一退出非零即整个 runner 失败。判读器没有
   runner 引用时会静默腐烂（充电认证套件就这样躺了一轮），所以两半都挂在这一个入口上。ADSP 那三个
   python 套件（SMCCC 文本门、image 与 MDT 读取器）挂在 `run-k60-handoff-host.sh`——第一个判的是内核
   补丁，三个都不在 power 的搬运集里。它只证明离线逻辑，不替代真机证据；ADSP/电池上机套件仍在

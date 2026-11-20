@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 
+NL = chr(10)
 REPO = pathlib.Path(__file__).resolve().parents[2]
 EMIT = REPO / "scripts" / "emit-audio27-patch.py"
 WIRING = REPO / "scripts" / "apply-audio27-wiring.py"
@@ -111,12 +112,28 @@ def case_no_bsd_init(root):
     assert "no bsd/kern/bsd_init.c" in err, err
 
 
+def case_series_hooked_tree_is_skipped(root):
+    make_tree(root)
+    path = root / "bsd/kern/bsd_init.c"
+    # what 0531 puts in bsd_init: a one-line comment and a one-line call, no block
+    call = NL.join([
+        "\t/* K60 audio amplifier probe; see patches/audio/0001:3508-3522. */",
+        "\textern int pong_audio_amp_probe(void) __attribute__((weak));",
+        "\tif (pong_audio_amp_probe != NULL) { (void)pong_audio_amp_probe(); }",
+    ]) + NL
+    path.write_text(SEED.replace("\tvfsinit();", call + "\tvfsinit();"))
+    code, _, err = run(root)
+    assert code == 3, (code, err)
+    assert "nothing to emit" in err, err
+
+
 CASES = (
     ("a fixture tree emits a patch git accepts", case_emits_and_applies),
     ("the digest can be pinned", case_digest_pin),
     ("a missing anchor is named", case_missing_anchor),
     ("a wired tree emits the same bytes", case_wired_tree_still_emits),
     ("a tree without bsd_init is refused", case_no_bsd_init),
+    ("a tree the series hooked is skipped", case_series_hooked_tree_is_skipped),
 )
 
 

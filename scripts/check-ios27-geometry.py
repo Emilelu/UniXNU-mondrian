@@ -64,10 +64,43 @@ def dts_memory():
     return base, size
 
 
+def merge(base, overlay, remove):
+    """Apply one os_overrides table the way scripts/unixnu/profiles.py does."""
+    result = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merge(result[key], value, [])
+        else:
+            result[key] = value
+    for path in remove:
+        parts = path.split('.')
+        node, trail = result, []
+        for part in parts[:-1]:
+            if not isinstance(node, dict) or part not in node:
+                node = None
+                break
+            trail.append((node, part))
+            node = node[part]
+        if isinstance(node, dict):
+            node.pop(parts[-1], None)
+    return result
+
+
+def profiles_named(board):
+    """The OS profile this board builds for, and the override table that goes with it."""
+    name = board.get('board', {}).get('os_profile', '')
+    overrides = board.get('os_overrides', {})
+    return name, overrides.get(name, {})
+
+
 def main():
     board = tomllib.loads((ROOT / 'board.toml').read_text())
-    payload = board.get('payload', {})
+    name, override = profiles_named(board)
+    payload = merge(board.get('payload', {}), override.get('payload', {}),
+                    override.get('remove', []))
     adt = payload.get('adt', {})
+    if name:
+        print(f'geometry: profile {name}')
     try:
         base, size = dts_memory()
     except ValueError as error:
@@ -97,7 +130,7 @@ def main():
         return 1
     seed = str(adt.get('random_seed', ''))
     if not seed:
-        print('error: [payload.adt].random_seed is not pinned; the physmap slide would be a coin flip', file=sys.stderr)
+        print(f'error: [payload.adt].random_seed is not pinned for {name or "this board"}; the physmap slide would be a coin flip', file=sys.stderr)
         return 1
     bank, length = host
     print(f'geometry: arena {base:#x}+{size:#x} ({size / GIB:.2f} GiB) in bank {bank:#x}+{length:#x}, '

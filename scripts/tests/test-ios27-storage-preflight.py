@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Tests for check-ios27-storage-preflight.py.
 
-The fixtures are synthetic filesets with a 190-slot storage vtable and a
-com.apple.kernel entry.  The preflight drives the two real checkers, so the
-fixtures only have to be structurally honest: absolute segment offsets in the
-outer collection and the table tail present.
+The fixtures are synthetic filesets: a stripped input kernelcache, and a built
+collection that carries the IOStorageFamily entry and a 190-slot vtable.  The
+prelink report is bound to both by hash, so a report from an older build is a
+failure rather than a pass.
 """
 
+import hashlib
+import json
 import struct
 import subprocess
 import sys
@@ -122,15 +124,20 @@ def repo(tmp, switch_on):
         '# fixture\nCONFIG_XNU_NATIVE_UFS=' + ('y' if switch_on else 'n') + '\n')
 
 
-def good_report():
-    return '{"missing": {}, "stubbed": {}, "missing_address_space": "output collection"}\n'
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def bad_report():
-    return ('{"missing": {"bundle": {"0xFFFFFFF00AA00100": 1}}, "stubbed": {}, '
-            '"statistics": {"segment_layout": {"__DATA": '
-            '{"new": "0xFFFFFFF009000000", "size": "0x1000"}}}, '
-            '"missing_address_space": "output collection"}\n')
+def report_text(cache_hash, candidate_hash, missing=None, layout=None):
+    record = {'inputs': {'kernelcache_sha256': cache_hash, 'entry': 'com.apple.kernel'},
+              'candidate_sha256': candidate_hash,
+              'candidate_written': True,
+              'missing': missing or {},
+              'stubbed': {},
+              'missing_address_space': 'output collection'}
+    if layout is not None:
+        record['statistics'] = {'segment_layout': layout}
+    return json.dumps(record) + '\n'
 
 
 def run(tmp, extra=()):
@@ -143,16 +150,31 @@ def main():
     table_rows = rows()
     table = tmp / 'table.tsv'
     table.write_text(table_text(table_rows))
+    short = tmp / 'short.tsv'
+    short.write_text(table_text(table_rows[:189]))
+
+    input_cache = tmp / 'input.bin'
+    input_cache.write_bytes(fileset([('com.apple.kernel', kernel)]))
     pass_cache = tmp / 'pass.bin'
     pass_cache.write_bytes(fileset([('com.apple.kernel', kernel),
                                     (ENTRY, lambda placement: image(placement, table_rows))]))
-    fail_cache = tmp / 'bad.bin'
+    fail_cache = tmp / 'bad-slot.bin'
     fail_cache.write_bytes(fileset([('com.apple.kernel', kernel),
                                     (ENTRY, lambda placement: image(placement, table_rows, 7))]))
+    cache_hash, pass_hash, fail_hash = digest(input_cache), digest(pass_cache), digest(fail_cache)
+
     good = tmp / 'good.json'
-    good.write_text(good_report())
-    bad = tmp / 'bad.json'
-    bad.write_text(bad_report())
+    good.write_text(report_text(cache_hash, pass_hash))
+    slot_bad = tmp / 'slot-bad.json'
+    slot_bad.write_text(report_text(cache_hash, fail_hash))
+    untranslated = tmp / 'untranslated.json'
+    untranslated.write_text(report_text(
+        cache_hash, pass_hash, missing={'bundle': {'0xFFFFFFF00AA00100': 1}},
+        layout={'__DATA': {'new': '0xFFFFFFF009000000', 'size': '0x1000'}}))
+    stale_cache = tmp / 'stale-cache.json'
+    stale_cache.write_text(report_text('0' * 64, pass_hash))
+    stale_collection = tmp / 'stale-collection.json'
+    stale_collection.write_text(report_text(cache_hash, '1' * 64))
 
     off = tmp / 'off'
     off.mkdir()
@@ -164,27 +186,59 @@ def main():
 
     garbage = tmp / 'garbage.bin'
     garbage.write_bytes(b'not a mach-o')
-    done = run(off, ['--kernelcache', str(garbage), '--report', str(bad)])
+    done = run(off, ['--collection', str(garbage), '--kernelcache', str(garbage),
+                     '--report', str(slot_bad)])
     case('switch off stays green with failing inputs', done.returncode == 0, done.stdout)
-    case('the failing entry is still reported', '[entry] --require-entry: FAIL' in done.stdout, done.stdout)
+    case('the failing entry is still reported',
+         '[entry] --require-entry on the collection: FAIL' in done.stdout, done.stdout)
 
     on = tmp / 'on'
     on.mkdir()
     repo(on, True)
-    done = run(on, ['--kernelcache', str(pass_cache), '--report', str(good),
-                    '--vtable', hex(VTABLE), '--table', str(table)])
+    base = ['--vtable', hex(VTABLE), '--table', str(table)]
+    done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache),
+                    '--report', str(good)] + base)
     case('switch on with both checks passing is green', done.returncode == 0, done.stdout)
     case('the passing run says passed', 'storage preflight: passed' in done.stdout, done.stdout)
+    case('the slot assertion reads 190 slots', 'slots: 190 read' in done.stdout, done.stdout)
+    case('the run names both bindings',
+         'binding: collection' in done.stdout and 'binding: kernelcache' in done.stdout, done.stdout)
 
-    done = run(on, ['--kernelcache', str(fail_cache), '--report', str(good),
-                    '--vtable', hex(VTABLE), '--table', str(table)])
+    done = run(on, ['--collection', str(fail_cache), '--kernelcache', str(input_cache),
+                    '--report', str(slot_bad)] + base)
     case('switch on with a slot mismatch is red', done.returncode == 1, done.stdout)
-    case('the mismatch is named', '[entry] --require-entry: FAIL' in done.stdout, done.stdout)
+    case('the mismatch is named',
+         '[entry] --require-entry on the collection: FAIL' in done.stdout, done.stdout)
 
-    done = run(on, ['--kernelcache', str(pass_cache), '--report', str(bad),
-                    '--vtable', hex(VTABLE), '--table', str(table)])
+    done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache),
+                    '--report', str(untranslated)] + base)
     case('switch on with an untranslated target is red', done.returncode == 1, done.stdout)
     case('the untranslated target is named', 'untranslated: 1 target' in done.stdout, done.stdout)
+
+    done = run(on, ['--kernelcache', str(input_cache), '--report', str(good)] + base)
+    case('switch on without a collection is red', done.returncode == 1, done.stdout)
+    case('the missing collection is named', 'no --collection supplied' in done.stdout, done.stdout)
+
+    done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache),
+                    '--report', str(stale_cache)] + base)
+    case('a report from another kernelcache is red', done.returncode == 1, done.stdout)
+    case('the stale kernelcache is named',
+         'the report was made from kernelcache' in done.stdout, done.stdout)
+
+    done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache),
+                    '--report', str(stale_collection)] + base)
+    case('a report about another collection is red', done.returncode == 1, done.stdout)
+    case('the stale collection is named',
+         'the report describes collection' in done.stdout, done.stdout)
+
+    done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache),
+                    '--report', str(good), '--table', str(short), '--vtable', hex(VTABLE)])
+    case('a table that is not 190 rows is red', done.returncode == 1, done.stdout)
+    case('the row count is named', 'table has 189 rows, expected 190' in done.stdout, done.stdout)
+
+    done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache)] + base)
+    case('switch on without a report is red', done.returncode == 1, done.stdout)
+    case('the missing report is named', 'no --report supplied' in done.stdout, done.stdout)
 
     failed = [name for name, ok, _ in CASES if not ok]
     for name, ok, detail in CASES:

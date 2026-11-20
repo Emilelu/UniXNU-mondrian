@@ -7,13 +7,22 @@ deliberately closed switch into a red build.  When the switch is on, one run
 must satisfy all three closing conditions:
 
   1. CONFIG_XNU_NATIVE_UFS resolves to 1 and board.toml includes NativeUfs;
-  2. the 190-slot vtable assertion passes (--require-entry);
-  3. the prelink reports zero untranslated targets (--require-translated).
+  2. the 190-slot vtable assertion passes on the built collection
+     (--require-entry with --slots 190);
+  3. the prelink report describes this run and has zero untranslated targets
+     (--require-translated): the report's input kernelcache and the collection
+     it wrote must both be the files supplied here.
 
 They have to hold in the same run: a config that says yes while the collection
-was built before the flip does not open the gate.  The switch state is printed
-last, after both contract results, so a reader sees the evidence before the
-verdict.
+was built before the flip does not open the gate, and a report from an older
+build does not describe today's collection.  The switch state is printed last,
+after both contract results, so a reader sees the evidence before the verdict.
+
+Two inputs are separate on purpose:
+
+  --collection   the built kernel collection; the vtable lives here
+  --kernelcache  the input kernelcache the prelink read; the report's target
+                 addresses are expressed in its address space
 
 When the switch is off the exit status is 0 even if no build inputs exist.  The
 checks then run against whatever inputs were supplied, and the run reports
@@ -23,6 +32,7 @@ Nothing here builds, boots or writes into the output tree.
 """
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -35,6 +45,7 @@ except ModuleNotFoundError:  # pragma: no cover - the Linux host has 3.11+
 
 DEFAULT_PROFILE = 'ios-27.0.1-24A446'
 DEFAULT_VTABLE = '0xfffffff008314d88'
+DEFAULT_SLOTS = 190
 
 
 def parse_config(path):
@@ -100,6 +111,14 @@ def read_board(root):
     return tomllib.loads(path.read_text())
 
 
+def sha256_of(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def run(command):
     done = subprocess.run(command, capture_output=True, text=True, encoding='utf-8')
     return done.returncode, (done.stdout or '') + (done.stderr or '')
@@ -111,10 +130,12 @@ def main(argv=None):
     parser.add_argument('--root', default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument('--framework', default='')
     parser.add_argument('--profile', default=DEFAULT_PROFILE)
-    parser.add_argument('--kernelcache')
-    parser.add_argument('--report')
+    parser.add_argument('--collection', help='built kernel collection (vtable evidence)')
+    parser.add_argument('--kernelcache', help='input kernelcache the prelink read')
+    parser.add_argument('--report', help='kernel.json from the prelink emitter')
     parser.add_argument('--vtable', default=DEFAULT_VTABLE)
     parser.add_argument('--table')
+    parser.add_argument('--slots', type=int, default=DEFAULT_SLOTS)
     parser.add_argument('--out')
     args = parser.parse_args(argv)
 
@@ -140,60 +161,108 @@ def main(argv=None):
     switch_on = switch_value == 1 and include_ufs
     switch_source = origin.get('CONFIG_XNU_NATIVE_UFS', 'missing')
 
+    collection = Path(args.collection) if args.collection else None
     cache = Path(args.kernelcache) if args.kernelcache else None
     report = Path(args.report) if args.report else None
 
+    problems = []
+    binding = []
     entry_rc = None
     translated_rc = None
-    entry_output = ''
-    translated_output = ''
 
-    if cache and cache.is_file():
+    if collection is not None and collection.is_file():
         command = [sys.executable, str(scripts / 'check-ios27-storage-vtable.py'),
-                   '--kernelcache', str(cache), '--vtable', args.vtable,
-                   '--require-entry']
+                   '--kernelcache', str(collection), '--vtable', args.vtable,
+                   '--slots', str(args.slots), '--require-entry']
         if args.table:
             command += ['--table', args.table]
-        entry_rc, entry_output = run(command)
-        print('[entry] --require-entry: ' + ('pass' if entry_rc == 0 else 'FAIL'))
-        for line in entry_output.strip().splitlines():
+        entry_rc, output = run(command)
+        print('[entry] --require-entry on the collection: '
+              + ('pass' if entry_rc == 0 else 'FAIL'))
+        for line in output.strip().splitlines():
             print('  ' + line)
+    elif collection is not None:
+        problems.append(f'collection {collection} not found')
+    elif switch_on:
+        problems.append('no --collection supplied, so the slot assertion has no subject')
     else:
-        print('[entry] skipped: no kernelcache supplied')
+        print('[entry] skipped: no collection supplied')
 
-    if cache and cache.is_file() and report and report.is_file():
+    record = None
+    if report is not None and report.is_file():
+        try:
+            record = json.loads(report.read_text())
+        except ValueError as error:
+            record = None
+            problems.append(f'report {report} is not JSON: {error}')
+    elif report is not None:
+        problems.append(f'report {report} not found')
+    elif switch_on:
+        problems.append('no --report supplied, so the prelink result cannot be bound')
+
+    if record is not None:
+        inputs = record.get('inputs') or {}
+        if collection is not None and collection.is_file():
+            expected = record.get('candidate_sha256')
+            actual = sha256_of(collection)
+            ok = bool(expected) and expected == actual
+            binding.append({'what': 'collection', 'expected': expected,
+                            'actual': actual, 'ok': ok})
+            if not expected:
+                problems.append('the report does not name the collection it described')
+            elif not ok:
+                problems.append(f'the report describes collection {expected} '
+                                f'but this run supplies {actual}')
+            print('binding: collection ' + actual
+                  + (' matches the report' if ok else ' does not match the report'))
+        if cache is not None and cache.is_file():
+            expected = inputs.get('kernelcache_sha256')
+            actual = sha256_of(cache)
+            ok = bool(expected) and expected == actual
+            binding.append({'what': 'kernelcache', 'expected': expected,
+                            'actual': actual, 'ok': ok})
+            if not expected:
+                problems.append('the report does not name the input kernelcache it was made from')
+            elif not ok:
+                problems.append(f'the report was made from kernelcache {expected} '
+                                f'but this run supplies {actual}')
+            print('binding: kernelcache ' + actual
+                  + (' matches the report' if ok else ' does not match the report'))
+
+    if cache is not None and cache.is_file() and record is not None:
         command = [sys.executable, str(scripts / 'check-ios27-prelink-closure.py'),
                    '--report', str(report), '--kernelcache', str(cache),
                    '--require-translated']
-        translated_rc, translated_output = run(command)
+        translated_rc, output = run(command)
         print('[translated] --require-translated: '
               + ('pass' if translated_rc == 0 else 'FAIL'))
-        for line in translated_output.strip().splitlines():
+        for line in output.strip().splitlines():
             print('  ' + line)
+    elif switch_on:
+        problems.append('no --kernelcache and --report supplied, '
+                        'so the translation assertion has no subject')
     else:
         print('[translated] skipped: no kernelcache and report supplied')
 
     print(f'switch: CONFIG_XNU_NATIVE_UFS={switch_value} ({switch_source}), '
           f'board.toml include has NativeUfs={include_ufs}')
 
-    supplied = [str(path) for path in (cache, report) if path]
+    supplied = [str(path) for path in (collection, cache, report) if path]
     source_text = ', '.join(supplied) if supplied else 'no build inputs'
+    label = 'FAIL storage: ' if switch_on else 'note storage: '
+    for problem in problems:
+        print(label + problem)
 
     verdict = 'pending'
     code = 0
     if not switch_on:
         print(f'NOTE storage: stage 0 does not build NativeUfs (switch off); '
               f'contract checks ran against {source_text} only')
-    elif entry_rc == 0 and translated_rc == 0:
+    elif entry_rc == 0 and translated_rc == 0 and not problems:
         verdict = 'passed'
     else:
         verdict = 'failed'
         code = 1
-        if entry_rc is None:
-            print('FAIL storage: switch is on but no kernelcache was supplied for --require-entry')
-        if translated_rc is None:
-            print('FAIL storage: switch is on but no kernelcache and report were supplied '
-                  'for --require-translated')
 
     print(f'storage preflight: {verdict}')
     if args.out:
@@ -208,8 +277,14 @@ def main(argv=None):
                 'include_ufs': include_ufs,
                 'on': switch_on,
             },
+            'collection': str(collection) if collection else None,
+            'kernelcache': str(cache) if cache else None,
+            'report': str(report) if report else None,
+            'slots': args.slots,
+            'binding': binding,
             'entry': {'ran': entry_rc is not None, 'rc': entry_rc},
             'translated': {'ran': translated_rc is not None, 'rc': translated_rc},
+            'problems': problems,
             'verdict': verdict,
             'hardware_verified': False,
         }, indent=1) + '\n')

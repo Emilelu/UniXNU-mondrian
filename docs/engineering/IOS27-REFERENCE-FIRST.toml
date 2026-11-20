@@ -1,0 +1,52 @@
+# 参考源优先（铁则 16）
+#
+# 每一个仍然 open 的飞行阻塞，都必须在这里留下至少两条「参考源怎么解决它」的
+# 读数：哪个仓、哪个文件、哪一行、它做了什么、我们采用了什么处置（copied /
+# adapted / rejected）。路径与行号必须能在 `<source.path>/<path>:<line>` 解析，
+# 参考源搬迁时门禁当场变红——那声红就是「该回去看参考源了」的提醒。
+#
+# 记录方式：scripts/check-reference-first.py 读本文件 + UPSTREAM-REPOS.toml
+# + IOS27-FLIGHT-BLOCKERS.toml。只写 open 的阻塞；阻塞关闭后删掉对应条目，
+# 否则门禁会报「给一个不 open 的阻塞写了读数」。
+
+schema_version = 1
+
+[[entry]]
+id = "prelink-map-unresolved"
+source = "framework"
+path = "profiles/os/ipados-27.0.1-24A446/profile.toml"
+line = 34
+what = "regression_policy 指向 prelink-regression.json；同一段注释写明用 --lto 的符号化 RELEASE 参考做匹配、未匹配调用落到会报调用点的桩，且 allow-missing 打包成功不代表可启动"
+verdict = "copied"
+
+[[entry]]
+id = "prelink-map-unresolved"
+source = "framework"
+path = "scripts/unixnu/kernel.py"
+line = 300
+what = "check_prelink_regressions(record, policy)：把 missing/stubbed 的地址减去 collection_slide 还原成原始地址，逐 owner 比计数，多一个就 raise；required_original_branches 必须全部出现在 record 的 native_original_branches 里"
+verdict = "copied"
+
+[[entry]]
+id = "prelink-map-unresolved"
+source = "framework"
+path = "scripts/policies/ipados-27.0.1-24A446/prelink-regression.json"
+line = 1
+what = "能进 SpringBoard 的 iPad17,3 基线自身就带着 missing 2 / stubbed 24（10 bundle）与 2 条 required_original_branches，文件自述 This bounds regressions, not runtime qualification"
+verdict = "adapted"
+
+[[entry]]
+id = "prelink-map-unresolved"
+source = "sheng"
+path = "board.toml"
+line = 9
+what = "同一条 24A446 profile，没有自己的 prelink 实现：它直接跑上游这套 emit_prelink + policy，说明「抄 sheng」在 prelink 上等于抄这套机制而不是抄代码"
+verdict = "copied"
+
+[[entry]]
+id = "prelink-map-unresolved"
+source = "sheng"
+path = "configs/sheng_ipados27_defconfig"
+line = 2
+what = "它开而我们关的 CONFIG 键（CRYPTO_BOOTSTRAP=source、SOURCE_STORAGE、OWNER_ROOT_TRUST/AUDIT 等）与 15 个只有我们有的 stub bundle 一一对应，这部分缺口属配置面"
+verdict = "adapted"

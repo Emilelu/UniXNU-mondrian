@@ -1264,3 +1264,16 @@ id = "P-290"
 statement = "规则注册表里的每条 check 在当前状态合规时必须能变绿；上机拦截放在上机入口"
 check = "python3 scripts/check-fastboot-callers.py"
 note = "2026-11-21 iron-14 的 check 直接跑 --flash，飞行欠账未清时永远红；改为注册表证明接线、flash.sh 做拦截"
+
+[[rule]]
+id = "iron-16"
+statement = "遇到阻塞先读参考源：每个仍 open 的阻塞必须在 docs/engineering/IOS27-REFERENCE-FIRST.toml 里留下至少两条可解析的读数（仓/文件/行/它怎么解决/我们的处置），scripts/check-reference-first.py 在缺条目、少于两个来源、路径或行号解析不到时失败。"
+check = "python3 scripts/check-reference-first.py && python3 scripts/tests/test-check-reference-first.py"
+note = "2026-11-21 用户要求「遇到问题不要闭门造车，第一时间去看参考源是怎么解决的，这件事要落实到铁则和门禁上」。落地即抓到当天两例：加载器 fileset 结论（官方 pin 本就支持）与 prelink 残留（上游能 boot 的基线自带 missing 2 / stubbed 24）。"
+
+[[rule]]
+id = "P-291"
+title = "闭门造车：先设计再看参考源，等于把别人的答案重新猜一遍"
+statement = "任何阻塞在动手前必须先读出参考源对同一问题的处置，并把它写成可解析的 文件:行 读数；写不出读数说明还没读，不是说明参考源没有答案。"
+check = "python3 scripts/check-reference-first.py && python3 scripts/tests/test-check-reference-first.py"
+note = "2026-11-21：加载器与 prelink 两处都在参考源里已有现成答案（官方 pin 支持 fileset；上游 policy 允许非零残留并要求 required_original_branches），却先花时间自证不可能。门禁把「读过」变成 open 阻塞的准入条件。"

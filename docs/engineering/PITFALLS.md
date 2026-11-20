@@ -7589,3 +7589,25 @@ flag) yet」；`CPU_SUBTYPE_ARM64E_KERNEL_PTRAUTH_ABI_MASK = 0x40000000` 只在 
 判据：规则注册表里的每条 check 必须在「当前状态合规」时能变绿。真正上机前的拦截点应该在
 上机入口（`scripts/flash.sh` 调 `--flash`），而不是常驻注册表。同理 `iron-15` 检查「只读参
 考仓落后」也属于债务而不是违规：改成只对「fetch 过期 / HEAD 移动」报错，落后用 note 打印。
+
+## P-291 — 闭门造车：先设计再看参考源，等于把别人的答案重新猜一遍
+
+一天里两次同一个形状。第一次是加载器：我先把「catalog 的 DarwinBoot 拒绝 MH_FILESET」写成
+结论，理由是本地工作副本的旧守卫；而 `components.toml` 固定的 `3c75734` 早就接受
+filetype 12 与 arm64e 的 subtype 掩码，Apple 自己的 24A446 kernelcache 也是 305/305
+子头 `0xc0000002`。第二次是 prelink 残留：我准备把它当成「必须清零」的阻塞，直到翻到
+`profiles/os/ipados-27.0.1-24A446/profile.toml` 的 `regression_policy` 与那份
+`prelink-regression.json`——**能进 SpringBoard 的 iPad17,3 基线自身就带着 missing 2 /
+stubbed 24（10 bundle）**，文件自述 "This bounds regressions, not runtime qualification"。
+
+两次都不是「参考源里没有答案」，而是「还没去读就先开始设计」。代价是可量化的：一天，
+以及一版建立在错误前提上的补丁。
+
+判据（现在由 iron-16 强制执行）：每个仍 open 的阻塞必须在
+`docs/engineering/IOS27-REFERENCE-FIRST.toml` 里有**至少两条**读数，每条给
+`source/path/line/what/verdict`，路径与行号必须当场解析得开。写不出读数不是「参考源没写」，
+是**还没读**；行号解析失败不是门禁噪音，是「该回去重读」的提醒（P-259 家族）。
+
+一般化：把「我查过参考源」从叙述变成**可以被机器重放的证据**。同族教训：P-251（永远为真）、
+P-279（读不到当成没有）、P-290（永远为红）、P-289（字段可写死）。
+

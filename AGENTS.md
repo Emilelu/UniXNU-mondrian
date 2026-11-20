@@ -234,6 +234,20 @@ moved, when a read-only clone is behind the upstream it follows, and when the
 official device pages gained an entry naming this SoC. Two days of stale clones
 is how the xNekom branch and 622 upstream commits were missed.
 
+
+### Iron rule 16 - a blocked problem starts with the references, not with a design
+
+Before writing code for a blocker, read what the registered reference sources do about
+*that* blocker, and record the readings in `docs/engineering/IOS27-REFERENCE-FIRST.toml`
+(source, path, line, what it does, and whether we copied, adapted or rejected it).
+`scripts/check-reference-first.py` fails while any open flight blocker has fewer than two
+resolvable readings, and it fails again the moment a recorded line stops resolving.
+
+The rule exists because the same mistake kept being paid for: 2026-11-20 spent a day
+concluding "the loader cannot take a fileset" while the official pin beside us already
+accepted one, and 2026-11-21 nearly repeated it on the prelink residue until the upstream
+`prelink-regression.json` showed a booting device living with `missing 2 / stubbed 24`.
+
 ## Gotchas & landmines
 
 - **This file is parsed.** `check-rules.py` collects iron rules from headings

@@ -356,8 +356,9 @@ remove = [
 description = "Redmi K60 (mondrian/SM8475): iOS 27.0.1 (iPhone17,2) bring-up"
 
 [os_overrides."ios-27.0.1-24A446".components]
-# No PongUfs at stage 0; it returns in F3.
-include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
+# NativeUfs joins the selection together with CONFIG_XNU_NATIVE_UFS and the
+# archive path in the builder; the three edits open the Data gate at F3.
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "NativeUfs"]
 
 [os_overrides."ios-27.0.1-24A446".kernel]
 defconfig = "mondrian_ios27_defconfig"

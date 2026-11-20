@@ -1,7 +1,7 @@
 # 21 — 27 起飞门禁：W1 LUN 取证与 cellular 第三条 blocker 评审
 
-- 日期：2026-11-20 18:55
-- 状态：离线评审。未构建、未上机、未改共享仓；只读 Linux 内核源码与本地文档。
+- 日期：2026-11-20 18:55（20:30 追加 W1 预检与 27 UEFI 描述符自证）
+- 状态：离线评审。未构建、未上机、未改共享仓；只读 Linux 内核源码、27 UEFI 源与本地文档。
 - 结论一：**W1 仍是 PENDING。** `doc20 §29.3` 的 `LUN 5（sd 字母）` 是推断，不是控制器证据；
   `sdf` 字母、分区名 `modemst1`、我们自己的 `K60UFS volume ... lun=5` 都不能独立证明 LUN。
 - 结论二：**不建议给 cellular 加第三条 flight blocker。** 本轮在默认参数下没有找到
@@ -76,6 +76,51 @@ selector = 0，length 请求 `0x40`。返回字节的含义：
 Linux 的常量也在同一位置（`include/ufs/ufs.h`）：`QUERY_DESC_IDN_UNIT = 0x2`、
 `UNIT_DESC_PARAM_UNIT_INDEX = 0x2`、`UNIT_DESC_PARAM_LU_ENABLE = 0x3`、
 `UNIT_DESC_PARAM_BOOT_LUN_ID = 0x4`。
+
+**27 树自己的读取代码（比只抄常量更硬的自证）。** 本地 27 UEFI feed
+`/opt/k60/trees/ios27-out/feeds/mu_basecore-8f10084c/`（git HEAD
+`cfb93724a06ff86ff5ba971413368a7809ee42a5`）实际就是这样读的：
+
+- `MdePkg/Include/IndustryStandard/Ufs.h:32`：`#pragma pack(1)`，所以结构体没有对齐填充；
+- `Ufs.h:873-893`：`UFS_UNIT_DESC` 的前五个字段依次是
+  `UINT8 Length; UINT8 DescType; UINT8 UnitIdx; UINT8 LunEn; UINT8 BootLunId;`，
+  即 byte 0/1/2/3/4；`UnitIdx` 就是 `bUnitIndex`，`LunEn` 就是 `bLUEnable`；
+- `Ufs.h:658-667`：`UfsUnitDesc = 0x02`（`UFS_DESC_IDN`，即 IDN `0x02`）；
+- `UfsPassThru.c:996-1007`：`UfsRwDeviceDesc(Private, TRUE, UfsUnitDesc, Index, 0,
+  &UnitDescriptor, &UnitDescriptorSize)` 真的发出 QUERY READ DESCRIPTOR；随后
+  `if (UnitDescriptor.LunEn == 0x1)` 用 byte 3 判断 LU 是否使能；
+- `UfsPassThruHci.c:1045-1077`：该函数填 UPIU——
+  `Packet.Opcode = UtpQueryFuncOpcodeRdDesc`（`Ufs.h:472`，值为 `0x01`）、
+  `Packet.DescId = DescId`、`Packet.Index = Index`、`Packet.Selector = 0`。
+
+因此 byte 2/3 的偏移不是从文档推出来的：27 树按 packed `UFS_UNIT_DESC` 的字段偏移
+读回 `UnitIdx`，并直接比较 `LunEn` 与 `0x1`。字段是 `UINT8`，不存在大小端转换；
+UPIU 的 `Index` 是请求的 L，返回的 `UnitIdx` 必须与它一致。
+
+**Linux 侧的独立消费者（pinned mainline）。** 复核的 revision 是
+`torvalds/linux` `v6.12` tag 对象 `06090c9b622a7e1f797e775db4c035e0d779b76e`，
+commit `adc218676eef25575469234709c2d87185ca223a`：
+
+- `include/ufs/ufs.h:207-216` 把 `UNIT_DESC_PARAM_UNIT_INDEX` 定为 `0x2`、
+  `UNIT_DESC_PARAM_LU_ENABLE` 定为 `0x3`；`ufs.h:191` 的
+  `QUERY_DESC_IDN_UNIT = 0x2`，`ufs.h:439` 的
+  `UPIU_QUERY_OPCODE_READ_DESC = 0x1`；
+- `drivers/ufs/core/ufs-sysfs.c:888-932` 的 `ufs_sysfs_read_desc_param()` 把
+  `param_offset`/`param_size` 都当 `u8` 字节参数，`param_size > 8` 直接 `-EINVAL`；
+- `drivers/ufs/core/ufshcd.c:3637-3703` 的 `ufshcd_read_desc_param()` 在 `:3664`
+  发 `UPIU_QUERY_OPCODE_READ_DESC`，`:3676` 校验 `param_offset >= buff_len`，
+  `:3696-3697` 用 `memcpy(..., &desc_buf[param_offset], ...)` 按字节切片；
+  `ufshcd.c:3817-3832` 的 `ufshcd_read_unit_desc_param()` 只是原样透传；
+- byte 2 有真实策略消费者：`ufshcd.c:5130-5181` 的 `ufshcd_lu_init()` 在
+  `:5168-5170` 比较 `desc_buf[UNIT_DESC_PARAM_UNIT_INDEX]` 与
+  `UFS_UPIU_RPMB_WLUN`；
+- byte 3 在 mainline **只有 sysfs 呈现，没有内核策略消费者**：
+  `ufs-sysfs.c:1594` 的 `UFS_UNIT_DESC_PARAM(lu_enable, _LU_ENABLE, 1)` 以
+  `1` 字节读取，`:916-919` 的 `case 1` 直接 `0x%02X` 打印；不能把
+  “Linux 读了 bLUEnable”写成“Linux 据此门控 LUN”。
+
+单字节访问不存在端序转换；`get_unaligned_be16/32/64` 只用于 size 2/4/8 的参数。
+这与 27 树的 packed 结构互相独立地闭合了 byte 2/3 的偏移。
 
 读取路径：
 
@@ -154,7 +199,25 @@ README.txt          # adb serial、Android build、命令、工具版本、sha25
 `README.txt` 非空才算 provenance；同时存在多个 descriptor 文件会被判为歧义，需用
 `--descriptor` 指定。
 
-### 2.6 伪证据清单
+### 2.6 构建 preflight：PENDING 不能变成红门禁
+
+W1 的证据只可能来自上机后的只读采集，仓库新检出时必然没有。如果直接把判官的
+`2`（PENDING）当失败，线内 preflight 会永远红，最后只会被人绕过。所以线内入口是
+`scripts/check-w1-lun-preflight.py`，它调用判官后做三态映射：
+
+| 判官结果 | wrapper 退出码 | 构建影响 |
+|---|---|---|
+| PASS `0` | `0` | 继续 |
+| PENDING `2` | `0` | 打印 `PREFLIGHT PENDING`，不阻塞；缺采集目录也走这里 |
+| FAIL `1` | `1` | 阻断；矛盾或畸形采集必须停下来查 |
+
+采集目录默认取 `K60_W1_EVIDENCE` 指定的目录，否则在 `K60_W1_EVIDENCE_ROOT`
+（默认 `/mnt/e/k60-work/evidence` 或 `E:/k60-work/evidence`）下取最新的
+`w1-lun-*`。判官单独的 CLI 仍保留 `0/2/1`，便于人工复判。门禁登记在
+`docs/engineering/RULES.toml` 的 `gate-w1-lun`；三态测试在
+`scripts/tests/test-w1-lun-preflight.py`。
+
+### 2.7 伪证据清单
 
 | 看起来像证据 | 为什么不是 |
 |---|---|

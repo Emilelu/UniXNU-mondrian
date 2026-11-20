@@ -533,7 +533,7 @@ this repository. The contract is therefore translated rather than copied:
 
 | Page step | What it asks for | Enforced here by | State |
 | --- | --- | --- | --- |
-| 1 hardware inputs | UART, DMA stream, GPIOs, clock and rate from the DTS | `check-bluetooth-dt.py` (node shape); `check-bluetooth-geni.py`, `check-bluetooth-gic.py` (what the driver actually programs) | node: green; geni/gic: CI only, not run here |
+| 1 hardware inputs | UART, DMA stream, GPIOs, clock and rate from the DTS | `check-bluetooth-dt.py` (node shape; with `--driver` the node rate must equal `K60_BT_RUN_BAUD` and the encoding stay H4); `check-bluetooth-geni.py`, `check-bluetooth-gic.py` (what the driver actually programs) | node and rate: green; geni/gic: CI only, not run here |
 | 2 power path | the fixed order, shared WCN votes | `check-bluetooth-power.py` asserts the order and the 100/60 ms settles in `k60_bt_power_on()`/`k60_bt_power_off()` | order: green in CI; the shared vote is not asserted — the ladder logs that it votes no PMIC rail |
 | 3 worker thread | bytes between transport and transmit, sleep to the earlier deadline | nothing offline | runtime only |
 | 4 publish the controller | DT node, `local-mac-address`, `/chosen` key, IOService named `bluetooth` | `check-bluetooth-dt.py`; `check-bluetooth-kernel.py` (the identity key and class name) | green on the built kernel; the ADT half needs a payload |

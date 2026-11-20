@@ -164,6 +164,22 @@ cd ~/ios27-src/uefi-mondrian && git submodule update --init --depth 1
 UNIXNU_UEFI=$HOME/ios27-src/uefi-mondrian sh scripts/build-ios27-linux.sh
 ```
 
+Two packages are outside `setup-toolchain.py` and outside the checkout, and
+nothing fails until the firmware step starts, so they are worth installing before
+the first run: `nasm` assembles the PEI modules and `iasl` compiles the Silicium
+ACPI tables. On Ubuntu 24.04 the ACPI compiler is packaged as `acpica-tools`
+(`acpi-tools` is the name some other distributions use, so ask `apt-cache policy`
+rather than trusting the older spelling):
+
+```sh
+sudo apt-get install -y nasm acpica-tools
+nasm --version   # NASM version 2.16.01
+iasl -v          # ASL+ Optimizing Compiler/Disassembler version 20230628
+```
+
+Measured on 2026-11-20; both were `Installed: (none)` on the F1 host until then,
+which is why the payload succeeded and the firmware volume could not be built.
+
 The firmware is a normal EDK II `CLANGPDB` build of `Mu_Basecore` `6f805f2` plus
 the five `Resources/MuPatches/` fixes `board.toml` lists; it is not
 reproducible by design (`FIRMWARE-REBUILD.md` §2), so a rebuilt volume is judged

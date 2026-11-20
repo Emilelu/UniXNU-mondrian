@@ -19,7 +19,7 @@
 #  11. the amplifier side's host tests (979 cases)
 #  12. the wiring walked in order, hook included, on a tree without the button driver
 #  13. the 27 interface, product, include, stub, collision and closure checkers' own
-#      tests
+#      tests, and that every log line the 27 pages quote is one a printf prints
 #  14. the patch emitter's own tests
 #  15. the four interfaces, the stub declarations they are compiled against, and the
 #      symbol table, against a real 27 XNU tree when one is
@@ -115,6 +115,8 @@ run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-a
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 include checker is honest" python3 scripts/tests/test-audio27-includes.py
 run "27 stub checker is honest" python3 scripts/tests/test-audio27-stubs.py
+run "logline checker is honest" python3 scripts/tests/test-audio27-loglines.py
+run "27 pages quote printed lines" python3 scripts/check-audio27-loglines.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py

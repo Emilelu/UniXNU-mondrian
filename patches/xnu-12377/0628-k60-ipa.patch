@@ -964,7 +964,7 @@ new file mode 100644
 +	(void)tables;
 +	(void)table_pages;
 +	(void)out;
-+	printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "\n");
++	printf("K60IPA smmu: no ArmSmmu4K in this kernel\n");
 +	return -1;
 +}
 +
@@ -978,7 +978,7 @@ new file mode 100644
 +	(void)context;
 +	(void)timeout_ms;
 +	(void)out;
-+	printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "\n");
++	printf("K60IPA smmu: no ArmSmmu4K in this kernel\n");
 +	return -1;
 +}
 +

@@ -751,7 +751,7 @@ ArmSmmu4KBuild(const K60IpaArmSmmuConfig *config, const K60IpaArmSmmuRange *rang
 	(void)tables;
 	(void)table_pages;
 	(void)out;
-	printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "\n");
+	printf("K60IPA smmu: no ArmSmmu4K in this kernel\n");
 	return -1;
 }
 
@@ -765,7 +765,7 @@ ArmSmmu4KProgramDisabledContext(const K60IpaArmSmmuIo *io, unsigned bank,
 	(void)context;
 	(void)timeout_ms;
 	(void)out;
-	printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "\n");
+	printf("K60IPA smmu: no ArmSmmu4K in this kernel\n");
 	return -1;
 }
 

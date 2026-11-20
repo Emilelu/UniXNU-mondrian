@@ -45,6 +45,11 @@ def parse_hctl(text):
     return tuple(int(part) for part in match.groups()), None
 
 
+# Offset provenance: 27 UEFI feed mu_basecore-8f10084c (Ufs.h:873-893) packs
+# UFS_UNIT_DESC as Length/DescType/UnitIdx/LunEn/BootLunId at bytes 0..4, and
+# UfsPassThru.c:996-1007 reads it with UfsUnitDesc; Linux v6.12
+# (adc218676eef) ufshcd_read_desc_param() slices the same bytes in ufshcd.c:3637-3703.
+# Both use single-byte fields, so the offsets need no endian conversion.
 def parse_descriptor(data):
     if len(data) < 5:
         return None, "descriptor is %d bytes; need at least 5" % len(data)

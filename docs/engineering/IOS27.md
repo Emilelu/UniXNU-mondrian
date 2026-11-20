@@ -330,7 +330,7 @@ first kext that needs the provider.
 
 `scripts/check-xnu27-source-storage.py --root .` reads the repository and prints the six
 pieces the Data gate's last rule needs, each with the file and line that decides it.
-Today it reports five gaps:
+Today it reports four gaps:
 
 | Piece | State | Evidence |
 | --- | --- | --- |
@@ -338,7 +338,7 @@ Today it reports five gaps:
 | the 27 profile selects the component | gap | `board.toml:360` `include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]` |
 | the defconfig builds it | gap | `configs/mondrian_ios27_defconfig:20` `CONFIG_XNU_NATIVE_UFS=n` |
 | the builder links this branch's archive | gap | `scripts/build-xnu-generic.sh:652` links `build/sheng-ufs/libPongUfs.a` under `XNU_NATIVE_UFS`; this line carries `drivers/NativeUfs`, not the sheng runtime |
-| a patch installs the IOKit personality | gap | none of the 29 entries in `patches/xnu-12377/series` mentions NativeUfs beside KernelConfigTables; the 16.6.1 line has `patches/xnu/ios16-native-ufs-personality.patch` |
+| a patch installs the IOKit personality | present, from the arch layer | `UniXNU/patches/xnu-12377/native-aes-personality.patch` adds two NativeUfs entries to `iokit/KernelConfigTables.cpp`; neither carries `IONameMatch = ufshc`, which only costs a probe on every platform node because `NativeUfs::probe` filters on the DT `compatible` string (`drivers/NativeUfs/NativeUfs.cpp:58-64`) |
 | the signed policy bundle | gap, and it cannot live in a repository | no bundle under `UniXNU/scripts/policies/ios-27.0.1-24A446`; `kits/VerifiedRoot` and `scripts/build-sheng-source-storage.py` do ship with the framework |
 
 The single exception to the order is the first row of the chain rather than of this
@@ -348,6 +348,19 @@ yet. The last step, turning on `BOOT_MANIFEST`, `CACHE_STARTUP`, `CACHE_MOUNT`,
 `ROOT_AUDIT` and `ROOT_TRUST`, is what `scripts/check-bluetooth-data-gate-chain.py`
 prints, and the two reporters agree on the order, so a green run of both is the
 acceptance for F3.
+
+The personality row is the one this table got wrong first: the device series has no such
+patch, but the arch series applies before it, so a reporter that reads only
+`patches/xnu-12377/series` reports a gap that is not there. The checker now walks every
+layer named in `board.toml` `patch_series` and names the layer a patch came from, which is
+also why the count above fell from five to four.
+
+The entry compiles. Replaying the recorded compile of
+`iokit/KernelConfigTables.cpo.json` from the 24A446 build tree against the series-applied
+file with `-D XNU_NATIVE_UFS=1 -D XNU_NATIVE_RAM_BLOCK=1` returns 0 and a 3,536-byte object;
+without those two defines the same record produces the shipped object. The replay needs the
+record's `directory` as the working directory (`meta_features.h` is generated per directory)
+and the compiler at `argv[0]`, because the stored `arguments` start at the first flag.
 
 Two facts that keep the table honest. The 16.6.1 builder already links
 `build/native-ufs/libNativeUfs.a` at `scripts/build-xnu-4k-baseline.sh:1054` and again at

@@ -1226,3 +1226,9 @@ id = "iron-15"
 statement = "参考仓库与所有 UniXNU 相关仓库必须按周期 fetch 上游：docs/engineering/UPSTREAM-REPOS.toml 登记，scripts/check-upstream-sync.py 核对 fetch 时间、HEAD 移动、只读仓是否落后、以及官网设备页是否新增了本 SoC 条目。"
 check = "python3 scripts/check-upstream-sync.py --hours 24"
 note = "2026-11-21 用户要求「参考的仓库，以及UniXNU相关的仓库，都要及时同步上游，这个也要做成铁则和门禁」。起因是 xNekom 的 26 个提交与上游 622 个提交都是过期快照之后才被发现。"
+
+[[rule]]
+id = "P-129"
+statement = "触摸控制器 Goodix GT9916R 走 Berlin 协议（BRL），不是 GTP：坐标使能要发 0x91/0x01，配置完成必须等 reply[0] == 0x80，只查 ack[1] 不够。"
+check = "python3 scripts/tests/test-k60-goodix-berlin.py"
+note = "取自 yibiya 631efc3 的实测；旧实现只发 0x90/0x00 关 raw debug、从不发坐标使能，所以真机 reports=0。"

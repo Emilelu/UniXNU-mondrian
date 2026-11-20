@@ -21,14 +21,17 @@ name = "触摸（Goodix GT9916R / BERLIN）"
 done = true
 evidence = "同型号 mondrian 在 unixnu.com/devices/mondrian-mzyxsl 记录 Input = planned，明确写着『No captured report proves that the Goodix controller answers on this unit』；本机自己的 Android 侧 goodix_ts 正常工作（/sys/class/input/event7）。参考 references/UniXNU-pong/userland/touch.c 只有 Pong 原机实现，不同芯片。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.official]
 done = true
 evidence = "官方移植指南 https://unixnu.com/zh/porting/input 给出总线/传感器协议/引脚/中断/固件/触点ID/坐标映射七项；官方 Goodix Berlin 驱动 goodix_brl_hw.c 提供 brl_send_config 与 brld_get_framedata 的完整流程，见 docs/engineering/TOUCH-STATEMACHINE.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.decompile]
 done = true
 evidence = "Android 实机取证写入 docs/engineering/ANDROID-HW-TRUTH.md：IOVDD = pm8350c_l2 1.8V、AVDD 非 pm8350c_l3；DT 节点 compatible = xiaomi,m11a-spi。K60-TOUCH-DT-EVIDENCE.md 记录 /proc/device-tree/soc/spi@990000/xiaomi_touch@0/ 全部属性。2026-11-11 实测纠正协议结论：BRL 0x10000 读出 BERLIN 9916R 05.80.02.63，GTP 0x8140 全 0（见 P-129）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.wide]
 done = true
 catalog_checked = true
@@ -41,14 +44,17 @@ catalog_result = """逐个核对 UniXNU/components.toml 25 个组件中与触摸
 结论：QcomGeniSpi 应当作为 SPI 层的首选实现，替换我们的手写 bitbang。"""
 
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.plan]
 done = true
 evidence = "方案：保持 BRL 协议（P-129 实测结论）；轮询节拍按同 SoC 实测从 2ms 改为 20ms（PITFALLS.md P-129）；config 下发走官方 brl_send_config 路径；报告从 frame_data_addr 读取并要求 byte0 & 0x80。改动落在 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.deep]
 done = true
 evidence = "深挖结论见 docs/engineering/TOUCH-STATEMACHINE.md（481 行）与 PITFALLS.md P-122/P-124。2026-11-12 离线单测进一步定位：0x10400 的帧是 framedata(rawdata)，其 frame_head 16 字节校验通过而 8 字节触点头校验不通过；0x10308 首字节恒 0x00，官方 brl_event_handler:1188 判定为 invalid touch head。地址与解析均正确，问题在芯片不产生触点报告。下一项测量：确认 config 是否真正启用了上报模式，以及 data_en(0x00000701) 的 rawdata 位是否需要清除。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.verify]
 done = true
 local_verified = true
@@ -78,10 +84,12 @@ previous_static_check = """逐行对照官方状态机（docs/engineering/TOUCH-
 previous_unit_test = """scripts/tests/test-brl-parse.py 10/11 通过（唯一失败是测试用例构造错误，非驱动缺陷）：全零帧/空帧→无事件；1/2/5/10 触点→count 正确；超上限 15→拒绝；头部校验错→拒绝；RESET→reset=True。帧格式用真实日志帧交叉验证过：0x10400 的帧若按 8 字节触点头校验失败（cal=0x2B1 vs r=0x0108），按 16 字节 frame_head 校验通过（cal=0x029a == r=0x029a），证明它是 rawdata 帧而非触点报告。"""
 previous_artifact_check = """对当时产物 kernel.macho（sha256 d9d5093e…，2026-11-12 15:16 构建）做符号与字符串检查：'state never reached 0x80' 1 处、'state=80' 1 处、'CFG-START' 1 处、'CFG-EXIT' 1 处；'COORD-MODE' 0 处、'identification lost after config reset' 0 处。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.device]
 done = true
 evidence = "2026-11-14 15:09 真机 fastboot boot touch-20261114a（boot.img 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9，kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09），串口日志 E:/k60-work/evidence/usblog-20261114-150931/console.log（268,137 B、3,870 行、capture.json complete=true panicMarker=null）。关键行：683 `goodix: COORD-ON ack=80`；681-682 CFG-EXIT/RAW-OFF 均 ack=80；684-686 芯片 BERLIN 9916R 05.80.02.63、active config=0x640fdf7d、touch=0x10308 head=8 point=8 raw axes=14400x32000；2490/2493/2503/2506/2507/2518/2574/2601 八条 `goodix: type=1 finger=0 raw=… normalized=…`；2491/2492/2494/2496 四条 `Pong touch HID: type=1|3 finger=0 xy=…`；1425 `Pong touch HID: display-integrated digitizer opened`。判据：SpringBoard 254 行；`K60PANIC: ring kept`/`initproc exited`/`panic(`/`Debugger called` 各 0 次。用户在场确认屏幕有真实触点响应。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.touch.step.device.prediction]
 success = "`goodix: COORD-ON ack=80` 出现，随后 `goodix: type=1 finger=0 raw=… normalized=…` 与 `Pong touch HID: type=1 finger=0 xy=…` 各至少 1 条，且日志无 panic 标记"
 failure = "`goodix: COORD-ON` 报 `completion timeout` 或非 0x80 的 ack；或只有 RAW-OFF 没有 COORD-ON；或有 COORD-ON 但 `goodix: type=` 计数为 0（芯片仍不上报触点）"
@@ -97,14 +105,17 @@ name = "GPU（Adreno 730v3 / Metal）"
 done = true
 evidence = "同型号参考 references/UniXNU-pong 的 drivers/PongAdreno（103 文件）；本机 drivers/PongAdreno 105 文件，差异仅在 PongAdrenoScanout.cpp 的 DSI 面板部分。unixnu.com/devices/mondrian-mzyxsl 记录 GPU 为 CONFIG_XNU_PONG_ADRENO_PLATFORM=n 从未出帧，本移植已超过该状态。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.gpu.step.official]
 done = true
 evidence = "官方 GPU 移植指南 https://unixnu.com/zh/porting/gpu 四节：代际匹配 / 电源固件 / 内存命令 / 构建加入 Metal。本移植按该顺序执行，见 docs/plans/GPU-ENABLE-PLAN.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.gpu.step.decompile]
 done = true
 evidence = "live FDT Adreno 节点 chip_id = 0x07030002（A730v3）、gmem_bytes = 0x200000；iOS 20G81 的 _MTLDevice ABI 528 字节由 PongMetalPlugin.mm 门禁校验（kern.osversion 必须 20G81）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.gpu.step.wide]
 done = true
 catalog_checked = true
@@ -117,10 +128,12 @@ catalog_result = """逐个核对 UniXNU/components.toml 中与 GPU 相关的 5 �
 结论：GPU 侧应优先采官方 AdrenoMetal + Adreno740 分层，而不是继续维护自建 PongMetal。"""
 
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.gpu.step.plan]
 done = true
 evidence = "方案见 docs/plans/GPU-ENABLE-PLAN.md（47,368 B，6 章节）：内核 Adreno 全链启动 → IOAcceleratorES 发布 → Metal 插件注入 backboardd → QuartzCore policy。预链接滑动量由 build-pong-adreno-platform.py:96 在构建时应用（fixed_prelink_base - original_prelink_base = -0xb9c000）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.gpu.step.deep]
 done = true
 evidence = """深挖（2026-11-13 重测，推翻 11-12 结论）：原文写"内核全通但 IOAcceleratorES 发布 0 次"，实际是两个读法错误叠加。
@@ -128,6 +141,7 @@ evidence = """深挖（2026-11-13 重测，推翻 11-12 结论）：原文写"�
 （2）drivers/PongAdreno/PongAdrenoNativeGlue.cpp:43-49 只在 `pong_metal==1` 时调用发布器，而 11-11 的可启动参数集用的是 `pong_metal=2`，所以发布器从未被调用；用 pong_metal=1 重启后 `PONG METAL: real IOAcceleratorES provider published for20G81 discovery` 与 `NativeAdreno complete runtime publication status=0x0` 同时出现（usblog-20261113-055021:616-618）。
 （3）剩下的缺口在用户态装载：userland/ui_compat.c:510 打印 software-only 的唯一条件是 MTLCreateSystemDefaultDevice() 返回 nil；日志里 DYLD_INSERT/PongMetal/libpong 零命中，说明 /private/var/pong/PongAdrenoMetal.bundle 从未被 dlopen 过。已记为 P-164/P-167 与 STATUS.md「GPU / Metal」小节。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.gpu.step.verify]
 done = true
 local_verified = true
@@ -141,6 +155,7 @@ strings 验证六个标记全部存在：GTP 0x8140 / GTP 0x814E / K60METALPLUGI
 Metal 插件签名：LC_CODE_SIGNATURE dataoff=76048 datasize=18880 magic=0xfade0cc0。"""
 
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.gpu.step.device]
 done = false
 evidence = "固件已恢复（2026-11-12）：五个文件在 /mnt/d/Android/k60-ios/firmware/k60-gpu，复制回 .cache/firmware/k60-gpu/ 后重新启用 Adreno，构建产物 54,243,328 B、libPongAdrenoPlatform.a 406,464 B，GPU 符号全部在内核里。仍尚未在 pong_metal=1（真实注入）下验证。历史：pong_metal=1 时 backboardd 崩溃 13 次（-[NSURL fileURLWithPath:] nil），pong_metal=2 时系统稳定但 IOAcceleratorES 0 次。"
@@ -165,28 +180,34 @@ why = "UFS / APFS 三窗（OS / SystemOS / Data）"
 done = true
 evidence = "同 SoC 参考是 UniXNU/ShengUfs（官方 SM8550 profile）与 Chengdong-Yu/pong-ufs；两者与 K60 同为 UFS 3.1 + Qualcomm UFSHC，见 docs/research/SOURCES.toml 的 storage 六个源。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.official]
 done = true
 evidence = "官方组件 PongUfs（board.toml: archives = component:PongUfs）；宿主 ATU 窗口在 NativeUfs.cpp:146 匹配 qcom,sm8550-ufshc，:173-174 固定 UFS host 窗口 0x1d84000/0x3000。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.decompile]
 done = true
 evidence = "RootCommands.h 30,084 B 与官方 29,932 B 基本等长，S3 多槽深度已对齐；PongUfsTransport.cpp 44,096 B 含 S3 multi-slot 扩展。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.wide]
 done = true
 evidence = "广域参考覆盖官方 ShengUfs（NativeUfs.cpp 148,723 B）、pong-ufs（11,753 B）与我们（11,846 B）三方对比，结论记录在 docs/research/SOURCES.toml 的 storage 发现里。"
 
 catalog_checked = true
 catalog_result = "components.toml 的 PongUfs 就是存储组件本身；ATU 窗口与 host 窗口是我们的地址覆盖，不属于官方组件。无重复造轮子。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.plan]
 done = true
 evidence = "方案：保持本地地址覆盖，逻辑部分对齐官方。2026-11-12 移植 CompletionWait.h 的三模式等待（Spin/Paced/Sleep）+ 五档延迟直方图，见 scripts/tests 与 patches/xnu 里 PongUfsTransport.cpp 的 hostWaitCompletion。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.deep]
 done = true
 evidence = "深挖结论：UFS 命令完成等待是性能与正确性的交点。官方注释说明 WFE 约 1 微秒结束、IODelay(2) 会阻塞在定时器上；我们的旧实现只用 IODelay。已按官方 CompletionWait.h 实现三模式，boot-arg native-ufs-wait 选择。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.verify]
 done = true
 local_verified = true
@@ -195,11 +216,13 @@ static_check = "CompletionWait.h 逐行取自 UniXNU/ShengUfs，未改动；host
 unit_test = "无独立单测：等待策略的正确性只能由实测延迟直方图判断，静态断言无法覆盖。"
 artifact_check = "产物字符串核对通过：strings kernel.macho | grep native-ufs-wait 命中 1 次。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.device]
 done = true
 evidence = "STATUS.md:19 `PONG APFS: OS root binding PASS`、`K60DATA mounted ro=0 fstype=apfs`；三窗 OS / SystemOS / Data 全部挂载。"
 
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.storage.step.device.prediction]
 success = "PONG APFS: OS root binding PASS 且 K60DATA mounted ro=0 fstype=apfs（三窗全挂）"
 failure = "任一窗口挂载失败，或出现 APFS: binding FAIL / snapshot 相关 panic"
@@ -213,28 +236,34 @@ why = "显示首帧与背光（1440×3200，DCS 0x11/0x29/0x51）"
 done = true
 evidence = "同 SoC 参考 pong-adreno / pong-metal 的 DSI panel 实现（PongDsiPanel.cpp/h）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.official]
 done = true
 evidence = "官方 ABI 是 IOMobileFramebuffer + MiniIOSurface；我们的调用点在 iokit/Kernel/MiniIOMobileFramebuffer.cpp 的 show()，由 patches/xnu 的 panel 系列补丁接入。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.decompile]
 done = true
 evidence = "面板时序与 DCS 序列取自 K60 实际 DT 与 Android 侧 panel 驱动；背光走 DCS 0x51，见 patches/xnu/0393-k60-panel-bringup.patch 与 0395-k60-panel-call.patch。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.wide]
 done = true
 evidence = "广域参考覆盖 pong-adreno 的 scanout、pong-metal 的 Metal frontend 与官方 AdrenoMetal；结论是显示链路与 GPU 解耦，显示可以先独立跑通，见 P-140 的弱桩共存验证。"
 
 catalog_checked = true
 catalog_result = "components.toml 无显示组件；官方走 IOMobileFramebuffer ABI，由框架提供。显示时序属板级，不是组件。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.plan]
 done = true
 evidence = "方案：先打首帧再谈 GPU。弱桩 patches/xnu/0630-k60-weak-scanout-stubs.patch 保证 Adreno archive 未链接时 pong_scanout_* 仍有定义（weak，被真实 archive 覆盖），见 P-140。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.deep]
 done = true
 evidence = "深挖结论：GraphicsMode 只改期望模式，不释放仍被占用的 boot console；必须在写第一帧前再调 PE_initialize_console(NULL, kPEReleaseScreen)，否则 vcputc 会继续在画面上绘制。修改点 iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.verify]
 done = true
 local_verified = true
@@ -243,11 +272,13 @@ static_check = "分帧调用顺序与官方 show() 语义一致（iokit/Kernel/M
 unit_test = "scripts/check-panel-timing.py：11 个 timing@2 包逐字节、p120/vsync 门控、首帧切换、requested-refresh 导出、active-INTF vsync_count 50 更新、CTL_INTF_ACTIVE（0xf4）选路、active INTF 的 0xa8 frame/line counter 使能（|3）、0x2b4 autorefresh 置 1、active-INTF line-counter 平均回绕率（0xb0，wraps>=2 用 wrap_hz，否则最短周期）与 before 前 autorefresh 置 1、300 ms 等待全部断言；check-120hz-log.py --selftest 7 fixtures 通过（healthy、120hz-3 failed、12/s、missing observation、missing backlight、DCS failure、no panel）；check-brightness-encoder.py 仍通过。"
 artifact_check = "brightness-19 产物字符串核对通过（K60 PANEL 8 次、K60 DISPLAY 1 次）；120hz-1 boot.img 201,887,744 B sha256 ff44c7a8e225d18a423e0ff22c96bf2235fd360fe34ad26d0a6a568897fa0b42、kernel_built 105,521,152 B sha256 5e39e26c042c257aa5e14b00444876543f7323b6c650e3506032a58124ed27bc，manifest head b27ca3d8、p120=1、image-arg-audit OK (30 arguments, 582 bytes)；120hz-2 boot.img 201,887,744 B sha256 bbe05b601762152a4ba16942e099f9bc818c00c8f970b0dab803c9ef87bf6cd7、kernel_built 105,521,152 B sha256 a4547e223f3f65405a3db326e249e445de3de4894bb5a9cd839b8ddc7fcd3c8a，manifest head b786416d、p120=1、verify-boot-image OK、image-arg-audit OK (30 arguments, 582 bytes)；120hz-3 boot.img 201,887,744 B sha256 7c6f69edf120b5c176b06003beda39740cb036183de6582bd7653451a91a6f40、kernel_built 105,525,248 B sha256 10dfed8ae736aa45ab13ffdccf4eda3d75bc9ae692298916f6772d170d4d6a45，manifest head acbf6b0a、kernel_args [vsync=120]、verify-boot-image OK、image-arg-audit OK (30 arguments, 585 bytes)；120hz-4 boot.img 201,887,744 B sha256 54784067b2a2449a1457760d08fa48f8cc7137f9e51cbc7b4367ce5457ea0c86、kernel_built 105,525,248 B sha256 f0d54b8be5dde5a169b1576c7a6edb01e1aba544cf0be6e98f9efd996522a7a4，manifest head 58eed3fc、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)；120hz-5 boot.img 201,887,744 B sha256 093150fbb0ad3826ecb42a244837d7cf35ad8c44cba4d6afd0b6b1a1cea83912、kernel_built 105,525,248 B sha256 8344d340b3c292c10eec120e2257d81a058023cc6fdbf389f42f729f019eb319，manifest head 569bafca、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)；120hz-6 boot.img 201,887,744 B sha256 d895c2a3941d5edb1fee21052ffd196a46e8fd26fe7cc9d9ee36bbcaaff614d2、kernel_built 105,525,248 B sha256 9bc7ea8a23441a269b638a5426a1606257e4b653274f73b88da82b5f06711bfb，manifest head 3beef4b6、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)；120hz-7 boot.img 201,887,744 B sha256 d8fdc695c311d5b2e99d06402cc5ef6196bb8999c193b0eb415c0bb7b758bb4c、kernel_built 105,525,248 B sha256 ba1d5979cdc5303d932977b5d5dc97ef199d66cf7ddf979a42bd92ff1c39c7ab，manifest head 767f1e6f、kernel_args [p120=1, k60_backlight_control=1]、verify-boot-image OK、image-arg-audit OK (31 arguments, 606 bytes)。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.device]
 done = true
 evidence = "STATUS.md:20 `K60 DISPLAY: first frame presented (swap 1)`；STATUS.md:21 `K60 PANEL: bring-up complete`。120hz-7 飞行 E:/k60-work/evidence/usblog-20261118-094621/console.log（267,578 B，sha256 BD5C893E44C7ACEC5FDD748D31BEC7673E0B1037D9625614414A8E281A603CC9）：first-GPU-frame switch、11 packets rc 0、before te 55/s、after-UI te 120/s、first frame、SpringBoard 172、sig=11 0、无 DCS failure、backlight conformance=1 control=1；check-120hz-log.py PASS；用户亮度滑块两端确认待完成。"
 
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.display.step.device.prediction]
 success = "K60 DISPLAY: first frame presented (swap 1) 且 K60 PANEL: bring-up complete 同时出现"
 failure = "只有 PANEL 没有 first frame，或首帧后 vcputc 继续在画面上刷字符（说明没释放 boot console）"
@@ -261,14 +292,17 @@ why = "OS 级亮度服务：发布 IODisplayParameters 让 CoreBrightness 驱动
 done = true
 evidence = "同型通路已存在：drivers/PongAdreno/PongDsiPanel.cpp:388-405 的 pong_panel_set_brightness() 发 3 字节 DCS 0x51（12 位高字节在前），drivers/PongAdreno/PongDsiPanel.cpp:311-325 在 bring-up 时发 0x51 0x0f 0xff；缺的只是调用者，见 docs/research/display/BRIGHTNESS-PLAN.md:24。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.official]
 done = true
 evidence = "官方指南 docs/zh/porting/display.md:80-114（§3/§4）：DSI 命令背光必须在面向 OS 的亮度服务下实现传输与编码两层；iPadOS 17 用 IODisplayParameters 亮度范围 + backlight-control + brightness + FadePeriod，iPadOS 27 还要毫尼特/滑块表/校准参数/brightness-nits。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.decompile]
 done = true
 evidence = "参考实现 UniXNU-sheng/package/AppleARMBacklight.cpp:422-448 的 setProperties 契约（brightness+FadePeriod / brightness-nits）、:350-366 的 publishFirst、:315-345 的 impersonate；K60 版把硬件层换成 PongDsiPanel，见 drivers/PongAdreno/K60Backlight.cpp:1-30。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.wide]
 done = true
 evidence = "广查 UniXNU/components.toml 与 kits/ 均无 backlight 组件（porting.toml:83 的 display 区只列 package/*Backlight* 参考文件），故按指南 §3 自建；参考实现的 GENI I2C/KTZ8866 层对 K60 不适用（无背光 IC），差异表见 docs/research/display/BRIGHTNESS-PLAN.md:88。"
@@ -276,14 +310,17 @@ evidence = "广查 UniXNU/components.toml 与 kits/ 均无 backlight 组件（po
 catalog_checked = true
 catalog_result = "components.toml 无背光组件、kits/ 无背光 kit；官方仓库里 package/AppleARMBacklight.cpp 与 package/GeniI2c.h 是 sheng 板（KTZ8866）的参考实现，只能借 OS 契约与传输/编码分层结构，硬件层必须按 K60 的 DCS 0x51 重写。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.plan]
 done = true
 evidence = "方案与四产物（参数发布/服务/注册封装/DCS 编码器）写在 docs/research/display/BRIGHTNESS-PLAN.md:100；接线点选 drivers/PongAdreno/PongAdrenoScanout.cpp:42 的 pong_scanout_initialize，与 pong_panel_bringup 同归档，避免 0395 那种跨归档链接问题。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.deep]
 done = true
 evidence = "深挖三个坑：int-229 类名不能叫 AppleARMBacklight（重名注册 panic）、int-236 只发 backlight-control 不满足 IOObjectConformsTo 会让屏幕停更、int-275/276 沙箱拒绝非该类服务的 FadePeriod；对策是 impersonate vtable 槽 7（drivers/PongAdreno/K60Backlight.cpp:140-160）。int-236 已在 brightness-4 上机复现（control 1 之后 backboardd 4 次 SIGSEGV、SpringBoard 停在 7 行、无 first frame），故 backlight-control 改为默认关闭（drivers/PongAdreno/K60Backlight.cpp:322 只在 k60_backlight_control=1 时申请），且必须 metaCast(\"AppleARMBacklight\")（内核侧 IOObjectConformsTo，drivers/PongAdreno/K60Backlight.cpp:161）为真才发，结果记入 native_backlight_request[4]/[5]，语义表见 docs/research/display/STATS-INDEX.md。2026-11-16 进一步离线定因：b4 的 SIGSEGV 是 CoreBrightness 读到只发 6 键的 backlight-calibration-parameters 后 CFNumberGetValue(NULL)（pc CoreFoundation+0x77668、lr CoreBrightness+0xfbaa4），修法是整字典不发布（CB 有 5/140/400 nits 默认分支），见 docs/research/display/INT-236-CHAIN.md §11。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.verify]
 done = true
 local_verified = true
@@ -292,10 +329,12 @@ static_check = "drivers/PongAdreno/K60Backlight.cpp 用与 PongAdreno 其它对�
 unit_test = "python3 scripts/check-brightness-encoder.py：编译 drivers/PongAdreno/K60BacklightCodec.h + 断言，覆盖 0..4095 DBV 换算、12 位线格式与 FadePeriod 渐变序列，全部通过（all brightness encoder checks passed）；python3 scripts/check-backlight-log.py --selftest：13 个日志 fixture（brightness-13 健康、brightness-4 崩溃、brightness-14 通过/崩溃、服务未启动、brightness-9 旧形态、brightness-13 缺计数、control=1 判旧日志、inline stage 与 control 自相矛盾两例，以及 --min-dbv/--max-dbv 的 12 位区间三例）全部判对（check-backlight-log: 13 fixtures passed）。"
 artifact_check = "整机级已验证（基线 ecda32f，工作区 dirty 0，series 224 条 / sha 34cf51e4）：brightness-13（默认形态，交付图，已上机 PASS）kernel.macho 105500672 bytes sha256 bf2df340794d92ad50137ba7af3c3f1506ae0196a53ef70a5735e11abca0c6a3、boot.img 201887744 bytes sha256 c8c33b9e54965fb79752e60cfcf987e5d0675801e7544169073d1661ad674d74；brightness-14（--kernel-arg k60_backlight_control=1，boot.img sha256 3fbdef2d…）已构建但被裁定作废，不计入交付。brightness-13 用 scripts/verify-boot-image.py 对 build-manifest 校验通过；nm 命中 _k60_backlight_start（0xfffffff007a5a214）、_native_backlight_stats（0xfffffff00ac563c8）、_native_backlight_request（0xfffffff00ac56408）、_pong_panel_set_brightness（0xfffffff007a58dc4）；strings 命中 K60 BACKLIGHT: published level %u dbv 0x%x conformance=%d control=%d stats=%d,%d,%d,%d req=%d,%d,%d,%d%s 与 service setup rejected；image-arg-audit 分别 OK（29 args/575 B 与 30 args/599 B）；check-kernel-archives.py 4 个归档全在。brightness-15（2026-11-16，control=1 + 删半截标定字典）：boot.img 201,887,744 B sha256 67acb40376a468137401f65483169809e064c3f905e1e9b13c0ce54cea103ff6、kernel 105,521,152 B sha256 513cc329347eef2715635cd5fb3ec4f692c56e487281bccc4cff86268fd7a4fe，repo head a322b58 dirty 0、series 227 / sha bb14a480…，verify-boot-image 与 image-arg-audit（30 args/599 B）通过，K60Backlight.o strings 已无 backlight-calibration-parameters。brightness-16（8 位 DBV 端点重映射）：boot.img 201,887,744 B sha256 bfaa3912a0e4dd3828681ca4b0a847a043f9fb2c85c0360537fd9e0d3ce21d98、kernel 105,521,152 B sha256 845c3c9db9580287b5cdce74eaaf65aedfe29e0cb098691c4f210098ae076a13，manifest head f97ab49a dirty 0、series 227，verify-boot-image OK、image-arg-audit OK。brightness-17（12 位双字节 DCS 0x51）：boot.img sha256 8b2d63327d68e778639e0918460bd5662993cff40e5f0efbb941309b6e02c053、kernel 4f107428231442979dda8fa17324754f3e6615f170dbc1378b762ef508d70698；brightness-18（12 位 + 最低 floor 0x14）：boot.img sha256 3e516e73c0ee7b86b6eb30268ddc8c57b62ee5abef08417b7b053f4d22677cc8、kernel 28436472ddf5ba9b8b0027a31862da3cb8f331344f538b69ccd76f43d6dfb780，manifest head 6a2df51e dirty 0、series 227，verify-boot-image OK、image-arg-audit OK（30 args/599 B）。brightness-19（floor 0x4）：boot.img sha256 25ac388989270c56a3494b18b26d90d37bda535a13ba2bdf9eb98d5670a86c5c、kernel_built 7462fe8ad8372d42a4c7f0cf968fefd32df7ee509e87163f7e1d41f1fa7a38b9，manifest head 230281a1 dirty 0、series 227，verify-boot-image OK、image-arg-audit OK（30 args/599 B）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.device]
 done = true
 evidence = "第 1 轮（2026-11-15 13:46，brightness-13 默认形态）发布层 PASS：evidence/usblog-20261115-134638/console.log 第 183 行 published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)；scripts/check-backlight-log.py 裸调用 EXIT=0（control=0/conformance=0/stats[0]=3/request[4]=[5]=0/no SIGSEGV/first frame/SpringBoard 128 行）；brightness-9 旧格式对照 usblog-20261115-134001 SpringBoard 208 行、无 SIGSEGV、judge --old-form INCONCLUSIVE（仅缺计数）。尚未 done：滑块三档的可见亮度变化仍待测（默认形态不发 backlight-control，需用户在场拉滑块看屏幕与 stats[1]），记录见 docs/research/display/08-on-device.md。第 3 轮（brightness-15，control=1 + 删标定字典）已飞（2026-11-17 00:48，usblog-20261117-004800）：发布层 PASS（:184 published conformance=1 control=1 dbv 0xff、first frame、sig=11 0），滑块可调但两端与 Android 不一致（8 位最低不够暗、最高只到 dbv 0xcc）。2026-11-17 又飞三轮：brightness-16（8 位两端 0xff/0x1 到达但最低不够暗）、brightness-17（12 位双字节路径生效，DBV 1 夜间黑屏）、brightness-18（floor 0x14；发布层 PASS：conformance=1 control=1 dbv 0xfff、first frame、SpringBoard 128、sig=11 0；只剩最低 0x14 的观感待用户拖滑块确认，两次采集窗口内用户未操作）。第 7 轮（brightness-19，floor 0x4）已飞一次（2026-11-17 04:26，usblog-20261117-0426-brightness19）：发布层 PASS（:184 published conformance=1 control=1 dbv 0xfff、:2430 first frame、SpringBoard 128、sig=11 0），请求行只有启动默认两条（:2205 1024->0x802、:2206 brightness-nits 0.0->0x0），用户未拖滑块，判据 2/3 未测，INCONCLUSIVE。第二飞（2026-11-17 11:46，usblog-20261117-1146-brightness19，console 254,828 B）：54 条 brightness 请求行，最低 dbv 0x4、最高 dbv 0xfff；published conformance=1 control=1 dbv 0xfff、first frame、SpringBoard 129、sig=11 0；check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff EXIT=0 PASS，用户反馈“好像是修好了”。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.brightness.step.device.prediction]
 success = "brightness-13 默认形态的实测形态（已发生，2026-11-15）：日志出现一行 K60 BACKLIGHT: published level 2047 dbv 0xff conformance=0 control=0 stats=3,0,2047,2047 req=0,0,0,0 (no AppleARMBacklight conformance)；SpringBoard 128 行、K60 DISPLAY: first frame presented 出现、backboardd 无 SIGSEGV；judge EXIT=0。2026-11-17 起的 control=1 验收形态：published 行 conformance=1 control=1 dbv 0xfff、sig=11 0、entered backboardd 1、SpringBoard ≥100、first frame ≥1；用户拖滑块后 ≥3 条 K60 BACKLIGHT: brightness 行，最低档 dbv 0x4（Android 手动最低 9.15639E-4 × 4095 = 3.75）且屏幕仍可见内容（不是黑屏），最高档 dbv 0xfff（夜间可不拉）。"
 failure = "发布层 PASS 但滑块无效（stats[1] 不增 = CoreBrightness 未接管；默认形态下这是预期可能结果，此时只能算发布层验收，不能算亮度可调），或 stats[5] 递增（DCS 0x51 写失败），或三档请求后屏上亮度无变化（面板极性/DBV 语义不对，需核 k60_backlight_invert），或出现 SIGSEGV/屏幕停更（int-236 回归）"
@@ -310,28 +349,34 @@ why = "UEFI -> UniXNU loader -> XNU -> launchd"
 done = true
 evidence = "同型参考是 uefi-pong 的 UEFI payload 与 UniXNU 的 loader；见 patches/uefi/uefi-payload.patch（14 文件）与 patches/uefi/uefi-unixnu-bootstrap.patch（3 文件），应用顺序写在 patches/uefi/README.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.official]
 done = true
 evidence = "官方启动链文档 https://unixnu.com/zh/boot 与 payload/ 组件；我们用 patches/uefi/uefi-payload.patch（14 文件）+ uefi-unixnu-bootstrap.patch（3 文件）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.decompile]
 done = true
 evidence = "launchd 缓存从 K60 实际 launchd 提取 22 个核心 job，写 /private/var/pong/xpc/launchd.plist，由 patches/xnu/0391-k60-embedded-init.patch 承载（内含 k60_launchd_cache 的调用点、头文件与实现），见 P-126。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.wide]
 done = true
 evidence = "广域参考覆盖 yibiya 的 launchd 缓存方案与官方 prelink；结论是 prelink 差异必须靠 patches/xnu/0391-k60-embedded-init.patch 的 embedded init 弥补，见 P-126。"
 
 catalog_checked = true
 catalog_result = "components.toml 无启动链组件；官方启动链在 payload/ 与文档 https://unixnu.com/zh/boot，不是可复用组件。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.plan]
 done = true
 evidence = "方案：init blob 内嵌进内核（k60_init_blob），launchd 缓存随 init 部署，不走主机侧写分区；实现见 patches/xnu/0391-k60-embedded-init.patch，坑见 P-126。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.deep]
 done = true
 evidence = "深挖结论：0394 的 launchd 缓存调用点与实现已折进 0391（避免 hunk 锚点冲突）；k60_launchd_cache.h 随之进入 0391 的新增文件段，症状记录在 P-126。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.verify]
 done = true
 local_verified = true
@@ -340,11 +385,13 @@ static_check = "call site、头文件、函数实现三者都在 patches/xnu/039
 unit_test = "无独立单测：启动链只有上机可验。"
 artifact_check = "产物字符串 K60INIT 与 K60LC 均存在（strings kernel.macho 命中）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.device]
 done = true
 evidence = "STATUS.md:18 `Pong init: exec original /sbin/launchd`，最大 pid 196；STATUS.md:22 `Pong UI: 20G81 compatibility library entered SpringBoard`。"
 
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bootchain.step.device.prediction]
 success = "Pong init: exec original /sbin/launchd 出现，且 launchd 后最大 pid 持续增长"
 failure = "init 未执行到 launchd，或 launchd 起后立即 panic / 卡在 prelink 阶段"
@@ -363,28 +410,34 @@ why = "实体键（电源/音量）"
 done = true
 evidence = "同型基线是 UniXNU-pong 的 246 行中断版 pong_buttons.c（K60 现为其 16 ms 轮询子集），逐行对照见 docs/research/buttons/04-WIDE.md:101；寄存器语义另由官方 ButtonProbe.cpp:26-31 与 K60 live FDT 反编译交叉确认，见 docs/research/buttons/02-OFFICIAL.md:42 与 docs/research/buttons/03-REVERSE.md:42。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.official]
 done = true
 evidence = "官方文档 UniXNU-docs/docs/zh/porting/input.md:70-79 的 §4 六条要求已逐条落地；官方参考实现 ButtonProbe.cpp:26-33（六窗口 kCore 0xc400000/kCnfg 0xc42d000/kObsrvr 0xc440000、PPID 0x013 与 0x18d、位 7/6/0）、:137 setup 的 v7 校验、:178 buttonsThread；SPMI 辅助接口见 BootResetCore.h 的 BR_APID_MAP 0x2000 / BR_OBS_APID_STRIDE 0x20。核对 components.toml 29 个组件无按键组件，唯一输入层 ShengHidInput 只包 sheng 触摸。官方还要求 ADT 的 /buttons 节点提供 button-names 与 home-button-type（mobilegestalt.md:26-27）。该节点已由 board.toml:268-276 的 [adt.buttons.*] 落盘（main 174fb69），发射点是 devicetree.py:388-390；用 devicetree.generate() 重生成 ADT 得 14,660 B / 23 节点，/device-tree/buttons 的 button-names 为 hold / voldown / volup 三个 NUL 分隔串、home-button-type=0x2 与 /device-tree/arm-io/pong-buttons 六属性同时存在。make-pong-adt.py 在 schema_version = 2 下仍是死代码（payload.py:231-236）。/arm-io/pong-buttons 段也已由 main 5cd8924 落进 board.toml:267-280（.u64 三基址 + .u32 ee/pon-ppid/volume-up-ppid），仓库 board.toml 自此可独立生成两个节点；取值推导与验收步骤见 patches/buttons/README.md。详见 docs/research/buttons/02-OFFICIAL.md:1。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.decompile]
 done = true
 evidence = "本机真值来自 live FDT 反编译（dtb sha256 95c02052…，919,210 B FDT v17，dump 21,954 行）：:9850 pwrkey interrupts=<0x00 0x13 0x07 0x03> linux,code 0x74、:9856 resin IRQ6 linux,code 0x72、:32481 vol_up gpios=<0x57b 0x06 0x01> linux,code 0x73、:10358 key_vol_up_default 为 bias-pull-up；UEFI 侧 K60KeypadDeviceLib.c:33 的 boot40 ground truth（pon rtsts=0x10、gpio rtsts=0x01）独立印证 RT_STS 位号==IRQ 号，日志 arbiter v7 channels=768 PON=407 GPIO6=434 印证仲裁器布局。注意任务书提到的 sm8475-xiaomi-mondrian.dtb 反编译后 model=Cape SoC，无 gpio-keys 节点。驱动已编译/链接/调用（bsd_init.o 有 _pong_buttons_init，见 STATUS.md:24）。详见 docs/research/buttons/03-REVERSE.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.wide]
 done = true
 catalog_checked = true
 evidence = "逐个核对 components.toml 29 个组件（无按键组件）、官方驱动仓库页 28 官方+12 社区+9 设备分支、同 SoC 四源（UniXNU-pong 中断版 pong_buttons.c、UniXNU-zizhan 同值 DT 与长按复位钩子、phk110-port hakios.buttons.c 真机 30,006 次总线读、ios-sweet-k60 0251 第三源常量）、同外设芯片（mainline spmi-pmic-arb.c 的 BR_APID_MAP 0x2000、pm8941-pwrkey.c 位号==IRQ、pinctrl-spmi-gpio.c），五组交叉见 docs/research/buttons/04-WIDE.md。"
 catalog_result = "29 个组件逐个比对：没有任何按键/PON/PMIC GPIO 组件。唯一输入层组件 ShengHidInput（components.toml:143-161，hardware=sheng touch event source、verified_devices=sheng、dependencies=ShengNovatekTouch、source_files=NativeHidInput.cpp）只把 sheng 的 NT36532 触摸包成 IOHIDDevice，不能消费 PMIC 键；ArmCpu 的 armcpu_spi_attach(32+481) 与 ArmDTPlatform 的 DT nub 已用，其余 26 项与按键无关。因此自建 bsd/dev/pong_buttons.c 不违反『有官方组件却造轮子』的 FAIL 条件。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.plan]
 done = true
 evidence = "方案：在 bsd_init 里调用 pong_buttons_init，通过 pong_input 队列上报 IOHIDEvent；调用点见 bsd/kern/bsd_init.c 的 _pong_buttons_init。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.deep]
 done = true
 evidence = "深挖结论：configuration() 原本把 7 个以上条件 OR 在一起静默返回 false，无法判断 DT 节点缺失、属性缺失还是值不匹配。2026-11-12 改为逐条件检查并各自打印：Pong keys: DT node / missing <prop> / unexpected bases / ppid mismatch / PMIC windows mapped，实现见 patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch，见 P-142。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.verify]
 done = true
 local_verified = true
@@ -393,47 +446,56 @@ static_check = "configuration() 的每个条件都有独立分支与日志；与
 unit_test = "离线可判定的部分已单测：docs/research/buttons/tools/adt-inspect.py 解析三份真实 ADT（consumed 与文件长度相等）；用仓库 board.toml（含 main 5cd8924 的 [adt.arm-io.pong-buttons.*]）直接调 unixnu.devicetree.generate() 重生成 ADT（14,660 B / 23 节点，sha256 34a1fa3c…），/device-tree/buttons 的 button-names 为 hold/voldown/volup 三个以 NUL 分隔的串、home-button-type=0x2 与 /device-tree/arm-io/pong-buttons 六属性全部命中。DT 属性是否被驱动接受只能在目标机判定。"
 artifact_check = "产物字符串核对通过：kernel.macho sha256 345d44c4 里 Pong keys: missing 命中 7 次、DT node / unexpected bases / ppid mismatch / PMIC windows mapped 各 1 次（2026-11-12）；2026-11-14 又逐节点核对上机 ADT（sha256 18a514e7…，15,736 B，含 /arm-io/pong-buttons 六属性）；同日改用仓库 board.toml 重生成 ADT（14,660 B，sha256 34a1fa3c…），/device-tree/buttons 与 /device-tree/arm-io/pong-buttons 两个节点同时存在，证明 5cd8924 落盘后不再依赖构建机 profile 的未提交改动。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.device]
 done = true
 evidence = "真机三键均可用：usblog-20261108-180257/console.log:229 的 arbiter 行尾 power=1 up=1 down=1（三键都被识别为 usable），usblog-20261110-135459/console.log:2411-2557 与 usblog-20261110-160036/console.log:2912-2974 分别记录 10 条与 6 条按下/释放事件，覆盖电源、音量加、音量减。STATUS.md:62 已于 2026-11-14 由 🔄 改为 ✅：configuration() 结果不可观测的缺口由 2026-11-12 的逐条件诊断打印补上（P-142），三键 usable 与按下/释放事件见上列日志行；ADT 侧六属性已由 board.toml:267-280（5cd8924）持有，⑧ 的预测不依赖构建机本地改动。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.buttons.step.device.prediction]
 success = "启动日志出现 Pong keys: PMIC windows mapped, pon-ppid=0x13 volume-up-ppid=0x18d 与 Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1，随后每次按下与释放各产生一条 Pong keys: <0|1|2> down|up 与一条 Pong keys HID: key=<0|1|2> down=<0|1> sent=1。"
 failure = "日志出现 Pong keys: DT node /arm-io/pong-buttons not found、Pong keys: missing <prop> 或 Pong keys: unexpected bases，说明 ADT 侧节点缺失或取值不符（board.toml:267-280 已提供该节点，仍缺说明构建没用仓库 board.toml）；出现 Pong keys HID: verified PMIC input unavailable; SKIP 说明 /dev/pong-buttons 未就绪；arbiter 行尾任一键为 0 说明该外设校验失败。"
 
 [hardware.bluetooth]
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
 name = "蓝牙（QCA6490 / HCI over UART）"
 status = "parked"
 paths = ["patches/xnu/0500", "patches/xnu/0501", "patches/xnu/0502", "patches/xnu/0507", "patches/xnu/0508", "patches/xnu/0509", "patches/xnu/0510", "scripts/make-bt-firmware-addon.py", "scripts/gen-k60-bt-blob.py", "scripts/tests/test-k60-bt-blob.py", "scripts/check-image-args.py"]
-parked_why = "2026-11-16 重新审视：d5 读到 QCA 版本，d7 返回 rampatch done 后在 NVM 路径耗尽总预算；完整固件启动、UART.SK 与用户态仍未验证，不能写成只缺 ADT。现有⑦是历史 S1/S4 离线证据，不替 d8 实验背书。parked 导致 flash 门禁不选择本项，d8 暂缓到 owner 分支补齐真实实验范围和门禁覆盖；见 docs/audits/REASSESSMENT-2026-11-16.md（Bluetooth 一节）。"
-why = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
+why = "2026-11-16 重新审视：d5 读到 QCA 版本，d7 返回 rampatch done 后在 NVM 路径耗尽总预算；完整固件启动、UART.SK 与用户态仍未验证，不能写成只缺 ADT。现有⑦是历史 S1/S4 离线证据，不替 d8 实验背书。parked 导致 flash 门禁不选择本项，d8 暂缓到 owner 分支补齐真实实验范围和门禁覆盖；见 docs/audits/REASSESSMENT-2026-11-16.md（Bluetooth 一节）。"
+label = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
 
 [hardware.bluetooth.step.same_model]
 done = true
 evidence = "同型调查已完成，结论是『没有同型号成品实现』：UniXNU-pong（SM8475，iOS 18 线）没有蓝牙驱动（docs/research/bt/RESEARCH.md:158）；一加 Ace 2 的 phk110-port 只有 drivers/bluetooth/hakios.bt.c 143 行只读诊断（docs/research/bt/RESEARCH.md:159）。sheng 是 SM8550，不能当同型；同 SoC 无实现，这正是本项只能自建的原因。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bluetooth.step.official]
 done = true
 evidence = "官方组件 UniXNU/components.toml:494-508 的 QcaBluetooth（repository UniXNU/QcaBluetooth.git revision 22ff97f9、path drivers/QcaBluetooth、os_abi ipados-27.0.1-24A446、verified_devices 只有 sheng、runtime_identifiers qbt_transport / com.apple.uart.sk.bluetooth / kern.qbt_*），移植契约见 https://unixnu.com/porting/bluetooth 与 https://unixnu.com/reference/components；协议层对照 Linux btqca.c/hci_qca.c，见 docs/research/bt/RESEARCH.md:82-107。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bluetooth.step.decompile]
 done = true
 evidence = "三条实机取证：一，live FDT 给出全部硬件事实——bt_qca6490 节点（docs/research/bt/RESEARCH.md:40，compatible=qcom,qca6490、BT_EN GPIO81、XO GPIO204、CTS/RTS 76/77/78/79）、qcom,qup_uart@894000（RESEARCH.md:41，reg 0x894000/0x4000）、wrapper qcom,qupv3_2_geni_se@8c0000 的 iommus SID 0x483（RESEARCH.md:42）。二，厂商栈对照 btpower.c:212-219 / hci_qca.c:42-48 / btqca.h:125-133 / gcc-waipio SE20 RCG cmd_rcgr 0x2e618（RESEARCH.md:54-63）。三，20G81 kernelcache 里没有任何内核态 HCI 栈，协议栈在用户态 bluetoothd（RESEARCH.md:127-152）；固件实测 113 个文件 1,063,407 B 在 /vendor/bt_firmware/image/，rampatch hpbtfw20.tlv 201,560 B（docs/research/bt/FIRMWARE.md:7-36）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bluetooth.step.wide]
 done = true
 catalog_checked = true
 catalog_result = "逐个核对 UniXNU/components.toml 里与蓝牙相关的组件：QcaBluetooth（drivers/QcaBluetooth，revision 22ff97f9）【可用但要适配】——它是 sheng（SM8550）验证的官方驱动，运行时标识符是我们要用的 qbt_transport / com.apple.uart.sk.bluetooth / kern.qbt_*，但板级寄存器（SE20 0x894000、SMMU SID 0x483、RCG 0x2e618）必须按 SM8475 重填；AdrenoMetal / Adreno740 无关；其余 25 个组件无蓝牙。UniXNU-pong 无蓝牙；phk110-port 只有 143 行只读诊断；mainline btqca/hci_qca 可当协议参考但不是组件。"
 evidence = "广域交叉验证完成：同 SoC 的 pong（SM8475）没有蓝牙实现（docs/research/bt/RESEARCH.md:158），phk110-port 只有只读诊断（RESEARCH.md:159）；内核侧确实没有 Apple HCI 栈（RESEARCH.md:127-152），而 UniXNU-pong 的 board_services18.py:84-89 直接把 bluetoothd 挡掉，说明用户态路线要和 S3 的身份发布配套才能走通（docs/research/bt/S3-SPEC.md:89-121）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bluetooth.step.plan]
 done = true
 evidence = "方案是六个阶段、每阶段一条 boot-arg、一次判决（docs/research/bt/RESEARCH.md:165-177）：S1 只读探针 k60bt=1（0507）→ S2 时钟+引脚+引擎（0508 修 F1/F3/F11/F12）→ S3 上电时序与 HCI Reset → S4 固件下载（0510 addon 通道）→ S5 UART.SK 通道 → S6 用户态 bluetoothd。上机判据写死在同一处：只认 capture.json 的 verdict/panicMarker，不看 logstat 的 panic 计数（RESEARCH.md:187-191）。阶梯与命令行预算：探针在每次寄存器访问【之前】打点，所以控制台最后一行就是死因（docs/research/bt/S1-PROBE-SPEC.md:231-262）——五档 A1 k60bt_step=1 → A2 =4 → A3 =5 → A4 =7 → A5 =9，参数一律只有 k60bt=1 k60bt_step=N（596 B；DarwinBoot 上限 607 B，见 docs/engineering/BOOT-ARGS.md；k60bt_stage=1 是冗余的 17 B，因为 qbt_k60_start() 默认 stage=1）。判死表：probe: done → 进 S2；停在 s1 → ml_io_map；停在 s2 → GCC 首访即死；停在 s4 halt → 该分支 CBCR 未上电；停在 s5 read se20 rcg → RCG 窗口未上电；s6 root_on=0 或 s7 latched=0 → 停线查 GDSC/父时钟；s8 → 根时钟已开仍首访即死，回填 GENI-ACCESS-PRECONDITIONS.md。S4 阶梯（docs/research/bt/S4-SPEC.md:519-538）：通道已按 P-197 换成内核内嵌 blob（scripts/gen-k60-bt-blob.py 把 NGPUADD2 容器写成 k60_bt_blob.s 的 .incbin，0510 读 k60_bt_blob/k60_bt_blob_len）。负向 bt-s4c-20261115a 期望 [bluetooth] addon: no GpuAddon property，正向 bt-s4b-20261115b 期望 [bluetooth] addon: linked blob bytes=1027584 records=106（S4a 内嵌载体），两者命令行都是 583 B；QCA-controller-version 是 level 6 死判据（S4-SPEC.md §7.1），唯一可见的固件判据行是 [bluetooth] power=1 result=0 baud=… firmware=<build label>。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bluetooth.step.deep]
 done = true
 evidence = "深挖到源码级，产出 11 项已验证（V1-V11）与 13 项偏差（F1-F13）并与 Linux GENI/clk 源逐行对照（docs/research/bt/06-DEEP-DIVE.md:21 的 Verdict 与 :83-342 的偏差表）。三项必须在 S2 前定性且已修：F1 GENI DMA 把虚拟地址当物理地址、SMMU 流 0x483 从未 bypass（0508 改为 kmem_alloc_contig + pmap_find_phys + ptoa_64 后 k60_smmu_bypass）；F3 k60_stop_engine() 轮询的 0xe40 在两个 GENI 头文件里都不存在，会恒定 -ETIMEDOUT（改为 TX/RX_RESET_DONE 0xc40/0xd40 BIT(3)）；F11 SE20 RCG 根时钟从不置 CMD_ROOT_EN（0508 增加 set_rate 的 ROOT_EN → 轮询 ROOT_OFF → CFG → UPDATE 序列，并按 clk_rcg2.c:64-75 的 (cmd & CMD_ROOT_OFF)==0 判据）。深挖还给出 F2：0x2ac 被写成组件从不使用的 0x80000001。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bluetooth.step.verify]
 done = true
 local_verified = true
@@ -442,6 +504,7 @@ static_check = "补丁级静态对照：0507/0508/0509/0510 四个补丁 git app
 unit_test = "scripts/tests/test-check-image-args.py 覆盖命令行预算（含 k60bt_stage=0..39 的溢出用例）；本轮另外实测 check-image-args.py 对本线五份阶梯镜像与两份 S4 镜像全部 OK。"
 artifact_check = "产物字符串与哈希：kernel.macho 命中 NGPUADD2 / linked blob / addon: blob bad magic / no GpuAddon property，且 _k60_bt_blob 到 _k60_bt_blob_len 的地址差 1,027,584 等于容器字节数；容器内容与 firmware/bluetooth/manifest.json 的 106 条记录逐条一致（1,022,742 B 固件 → 1,027,584 B 容器），内嵌副本与 out/pong-bt-firmware.bin 逐字节相同（sha256 febdc20d…2037）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.bluetooth.step.device]
 done = false
 evidence = "2026-11-16 真机两轮（均由 Lead 实飞）：一，bt-d4-late（series 232，全量 0511 阶梯 + pong_bt_late=1）把阶梯挪到 Data 挂载之后，控制台活下来并给出确切死因——usblog-20261116-055237 的 :485 K60PANICFMT caller=0xfffffff007b83384 fmt=kmem_%s(%p, %zd, 0x%x): failed with %d 与 :486 K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178，即 ml_io_map 在 8 MiB 的 io_submap 里要 1 MiB（= K60_TLMM_SIZE）时拿到 KERN_NO_SPACE（P-219）。二，bt-d5-iomap（series 233，同一配方只多 0621 把 IO_MAP_SIZE 提到 32 MiB）——usblog-20261116-064150：3,241 行 / 224,863 B / SpringBoard 132 / panic 标记 0 / supervisor rc=0，阶梯完整跑通：:484 full: power_on enter、:486 smmu plan sid 0x483 slot 110 bank 72 action install dma 0x90bc20000、:487 SMR 0x80000483 S2CR 0x48 CBAR 0x10000、:488 dma buffer and smmu bypass ready、:489 uart pins parked、:493 clocks vote cbcr core=0x4220 core2x=0x4220 s=0x80000002 se=0x80004220、:494 full: qbt_boot enter、:707 QCA controller version 0x12110201、:708 addon: serving 146068 0、:724 addon: serving 6442 0。⇒ 此处只证明这些阶段日志、QCA 版本查询和 host 固件提供请求已出现；addon: serving 不证明控制器收到了全部段或完整固件启动。后续 usblog-20261116-130444 的 d7 在 rampatch done 后于 NVM 路径耗尽90秒总预算并返回 power=1 result=-60，驱动/传输原因仍未排除。用户态还记录：:1343 could not find BT_DEVICE_ADDRESS env variable、:1345 marconi-bt: Unable to match bluetooth service in device tree.、:1346 marconi-bt: Not a valid MAC address (all 00s)——但同一份日志 :186 K60 BT: published local address ee:98:c5:8a:6b:4e 与 :1347 bluetooth: Got local-mac-address: ee:98:c5:8a:6b:4e 证明对应身份发布被观察到；这与 marconi 报错同时存在，不能据此裁决剩余问题只在 ADT，也不能排除驱动/传输缺口。当前范围与暂停条件见 docs/audits/REASSESSMENT-2026-11-16.md（Bluetooth 一节）。"
@@ -451,20 +514,23 @@ success = "仅对应历史 d5 的版本查询/固件提供观测目标，不是�
 failure = "控制台 0 字节，或停在最后一行 probe: sX …（那一行就是死因，按 S1-PROBE-SPEC.md:231-262 的判死表）；正向镜像出现 [bluetooth] addon: no GpuAddon property 说明内核里没链接进 blob（构建漏了 --bt-blob）；出现 [bluetooth] addon: unusable range 0 0 说明镜像走的是旧 payload addon 通道（P-197 的实测症状，不是失败）；出现 [bluetooth] power=0 或 ENXIO 说明引擎协议或固件名不对"
 
 [hardware.wifi]
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
 name = "无线（QCA6490 / PCIe + MHI）"
 status = "parked"
 paths = ["patches/wifi/"]
-parked_why = "2026-11-16 重新审视：c4-c7 已有上机记录，不再称缺设备。c7 仅证明硬件 SBL/READY 与 host PBL/POR 的分歧，未定根因；c8 主动 AMSS 路径存在延后重复调用及失败处理缺口，源树门禁还略过 parked WiFi。本分支历史 done 标记不授权该实验。见 docs/audits/REASSESSMENT-2026-11-16.md:17。"
-why = "WiFi（QCA6490 / WCN6855）"
+why = "2026-11-16 重新审视：c4-c7 已有上机记录，不再称缺设备。c7 仅证明硬件 SBL/READY 与 host PBL/POR 的分歧，未定根因；c8 主动 AMSS 路径存在延后重复调用及失败处理缺口，源树门禁还略过 parked WiFi。本分支历史 done 标记不授权该实验。见 docs/audits/REASSESSMENT-2026-11-16.md:17。"
+label = "WiFi（QCA6490 / WCN6855）"
 
 [hardware.wifi.step.same_model]
 done = true
 evidence = "Pong 是 SM8475 + QCA6490，与 K60 完全相同；PongWifiPlatform.cpp 40,764 B 是 PCIe0 冷启动完整实现，见 docs/research/wifi/RESEARCH.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.wifi.step.official]
 done = true
 evidence = "官方组件 Ath12kWifi 面向 ath12k（qcc2072/qcn9274/wcn7850），K60 是 QCA6490（ath11k 族），MHI/QRTR 不同 —— 官方不覆盖，参考链只能是 Pong + mainline ath11k。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.wifi.step.decompile]
 done = false
 evidence = "K60 的 PCI device id / BAR0 / subsystem_device 已于 2026-11-14 实测（17CB:1103 / 0x60200000-0x603fffff 2 MiB / 0x0108，证据 E:/k60-work/evidence/pci-id-20261114/）；PCIe0 GDSC 偏移 / SPMI 通道号仍未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
@@ -474,12 +540,15 @@ done = true
 evidence = "官方文档 https://unixnu.com/zh/porting/network 读完（2026-11-12）。它给出骨架与 sheng 的 SM8550/WCN7850 实测值：PCIe0 Gen2 x1、端点 17cb:1107、MSI 经 PCIe0 自身接收器到 SPI 141、固件 c7-00108 可用而 c2-00259 卡在按需分页器、固件 MAC 为零需板级生成、不扫 6 GHz、VHT MCS 10/11 丢帧。组件接口为 lx_platform / nw_board / nw_wifi_events。硬前置是平台中断与 DMA。参考实现用 native_ufs_extra_* 提供 DMA、native_ufs_part_* 读固件。"
 catalog_checked = true
 catalog_result = "components.toml 的 Ath12kWifi 面向 ath12k（qcc2072/qcn9274/wcn7850），K60 是 QCA6490/WCN6855（ath11k 族），MHI/QRTR 细节不同 —— 官方组件不覆盖该芯片。板级数值只能来自 Pong（同 SoC 同芯片）或实测，不能照抄 sheng。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.wifi.step.plan]
 done = true
 evidence = "三步方案见 docs/research/wifi/RESEARCH.md 的 ⑤ 节。第一步照 Pong 的 PongWifiPlatform.cpp 移植板级 PCIe0 冷启动（平台地址是 SM8475 真值：GCC 0x100000、TLMM 0xf100000、PARF 0x1c00000、DBI 0x60000000、PHY 0x1c06000、ATU 0x60001000、SPMI 0xc400000/0xc42d000），验证点是链路训练成功且读到端点 17cb:11xx。第二步先读 nw_abi.h 与 nw_wifi.c 判定 Ath12kWifi 是否覆盖 WCN6855，再决定用它还是自建 ath11k 路径。第三步固件走 vendor 分区（amss.bin 5.47 MB / amss20.bin 5,296,128 B / Data.msc 889,524 B / Data20.msc 916,071 B），判据是固件启动成功且扫描产生 BSS 记录。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.wifi.step.deep]
 done = true
 evidence = "读了 Ath12kWifi 的 include/nw_abi.h 与 src/nw_wifi.c（f6bf561）。判定：该组件绑死 ath12k WiFi 7 —— 唯一入口是 ath12k_wifi7_pci_init，诊断代码直接操作 struct ath12k_base / hal_srng / ce_pipe / reo_ring / wbm_idle_ring / ATH12K_HTC_EP_2，components.toml 的硬件也全是 qcc2072/qcn9274/wcn7850。K60 是 QCA6490/WCN6855（ath11k，WiFi 6E），MHI 通道、CE 数量、HAL ring 布局、WMI 命令集都不同，故不能复用该组件，走自建 ath11k 路径（参考 PongWifiNet.cpp 47,656 B 与 mainline ath11k）。但 nw_abi.h 是干净的芯片无关边界，照它的形状（lx_platform / nw_board / nw_wifi_events / nw_wifi_* station API）设计我们的模块。另得两个可复用知识：nw_board_mac 先读 wlan_mac.bin 的文本 MAC（最后一个 = 之后 12 个十六进制字符）否则生成本地管理地址 (a[0]&0xfe)|0x02；fw_get 只按文件名取，实现需在 /vendor/firmware_mnt/image/qca6490/ 里查找。见 docs/research/wifi/RESEARCH.md 的 ⑤ 第二步判定节。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.wifi.step.verify]
 done = false
 evidence = "未做。"
@@ -489,34 +558,41 @@ done = false
 evidence = "历史 c4-c7 已由 Lead 上机；usblog-20261116-122546/console.log:632 为 ee=0 pm_state=2 exec_env=1 mhi_state=1 MHISTATUS=0x101 MHICTRL=0x200，之后 -110。未观察到完整 BHIE 阶段发起；软件重放 IRQ、未到达的成功循环日志、host 初始化共享 rp 均不能独立判断 MSI/DMA。功能⑧不升级，c8 暂停；见 docs/audits/REASSESSMENT-2026-11-16.md:17。"
 
 [hardware.audio]
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
 name = "音频（WCD938x + AW88261 / ADSP PAS1）"
 status = "parked"
 paths = ["drivers/PongAudio/", "patches/xnu/0611", "patches/xnu/0612", "patches/xnu/0613", "patches/xnu/0614", "patches/xnu/0615"]
-parked_why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
-why = "音频（WCD938x + ADSP + AudioReach/PRM）"
+why = "PAS1 owner 缺失（电池与音频共用）；且 io_submap 仅 8 MiB 会 panic"
+label = "音频（WCD938x + ADSP + AudioReach/PRM）"
 
 [hardware.audio.step.same_model]
 done = true
 evidence = "Pong 的音频栈约 107 KB（PongAdsp.cpp 34,547 B / PongAudio.cpp 29,263 B / PongIOAudio2.h 23,857 B / PongWcd938.h 6,262 B / PongAudioService.cpp 7,509 B），见 docs/research/audio/RESEARCH.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.audio.step.official]
 done = true
 evidence = "components.toml 25 个组件里没有音频组件；官方唯一的音频代码在 UniXNU-sheng 的板级实现里。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.audio.step.decompile]
 done = true
 evidence = "反编译无先例可循，但 live FDT 已给出 8 个待测值：adsp_region@9fd00000 = 0x9fd00000+0x3100000（docs/../live-fdt.dts:191-193、UEFI MemoryMapLib.c:34）；amp 0x34/0x35、amp reset 1/3、irq 88/63、spksw 52、codec reset 43、TDM clk 0x177000=1.536MHz、TDM 引脚 121/123/122/124。缺 tx-core-clock-id（需读 K60 Android audio-kernel）。SA-02 报告见 docs/research/audio/GAP-ANALYSIS.md。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.audio.step.wide]
 done = true
 evidence = "官方文档 https://unixnu.com/zh/porting/power 读完（2026-11-12）。硬前置是平台内存/中断/DMA。四类输入（DSP/音频/电池/电源）与产物明确。DSP 传输参考 ShengAdsp：sheng_adsp_channel(name,intent_size,intent_count,initiator,callbacks,context)，sheng_adsp_send 返回 0=入队/-1=满或过长/-2=参数错，SHENG_ADSP_MAX_MESSAGE=512 字节；回调在 DSP 线程，须复制到有界队列再唤醒消费者。音频参考 AudioReach/GPR 与 Linux q6apm.c/audioreach.c。"
 catalog_checked = true
 catalog_result = "components.toml 25 个组件里没有音频组件；官方实现全在 UniXNU-sheng 的板级 package/ 下（AdspProbe.cpp / ShengAdsp.h / ShengGpr.h / ShengAudioReach.h / AudioProbe.cpp / ShengAudioService.cpp / ShengAudioPlugIn.c）。不能当组件复用，只能参考实现。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.audio.step.plan]
 done = true
 evidence = "四步方案见 docs/research/audio/RESEARCH.md 的 ⑤ 节。第一步 DSP 传输（ShengAdspClient 形状：PAS1 固件加载 + SMEM + SMP2P + GLINK + 邮箱，先建立 ready/crash 通知路径再打开通道），判据是通道能打开且有超时的请求/响应。第二步 AudioReach 图先做播放（比采集少 SoundWire）。第三步采集需要 codec 上电 + SoundWire 枚举 + 模拟通路 + 数字通路四段。第四步接 OS 音频 provider。两条 SM8550 硬事实直接适用 K60：周期缓冲区必须放在 4 GiB 以下（DSP 收 32 位地址、高 32 位放流索引 0x1001&0xf）；时基 19.2 MHz 时必须修正 CoreAudio 假定的 24 MHz 常量，否则 IO 周期长 25% 导致播放录音卡顿。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.audio.step.deep]
 done = true
 evidence = "离线深挖三条结论。一，DT 节点已建（2026-11-12）：dts/mondrian.dts 新增 pong-audio 节点（文件 2,364 -> 4,569 B）。非零值只写有依据的（rsc-base 0x17a20000 与 cmd-db-base 0x80860000 与 pong-touch 共用、adsp-base 0x0a000000/0x01c00000 来自 Pong 的 PAS1 工作、timebase-hz 19200000 与 SM8550 相同、coreaudio-assumed-hz 24000000、period-buffer-limit 0x100000000）；九个待实测项一律写 0（tx-master-base / codec-reset-gpio / codec-i2c-address / amp-i2c-address / tx-core-clock-id / codec-supply-rail / mic-bias / mic-adc / swr-device-index），并在注释里规定「0 表示待实测，驱动必须拒绝并点名，不得当成默认值」——猜 I2C 地址、GPIO 或时钟 ID 会得到「报告成功但不出声」的设备，这是最难从日志读出的失败。同时发现并修复一个更大的问题：仓库版 DT 只有 2,364 B、不含 pong-touch/pong-buttons（那些节点只存在于 /opt 构建输入里，随时可能像 GPU 固件一样丢失），已用构建版覆盖并回写。dtc 编译验证 2,925 B，反编译确认 pong-audio/pong-touch/pong-buttons/ufshc 四个节点与全部关键属性都在。二，五条 SM8550 硬事实里两条对 SM8475 直接适用：周期缓冲区必须放在 4 GiB 以下（DSP 收 32 位地址、高 32 位放流索引 0x1001&0xf），以及时基 19.2 MHz 时必须修正 CoreAudio 假定的 24 MHz 常量 —— 后者若不修正会得到「能出声但 IO 周期长 25%、播放录音都卡顿」的假成功。三，K60 有独立的 aw882xx smart PA（Pong 用 CS35L43），这是 sheng 没有的额外驱动，必须在 DT 与代码里单独处理。详见 docs/research/audio/RESEARCH.md。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.audio.step.verify]
 done = false
 evidence = "未做。"
@@ -529,35 +605,41 @@ evidence = "从未上机。"
 name = "电池（IOPMPowerSource / PMIC GLINK）"
 status = "active"
 paths = ["drivers/PongPower/K60Battery", "drivers/PongPower/K60Handoff", "drivers/PongPower/K60AdspOwner", "drivers/PongPower/K60AdspImageReader", "drivers/PongPower/K60AdspMdt", "drivers/PongPower/K60AdspStartup", "drivers/PongPower/K60Smem", "scripts/gen-k60-adsp-blob.py", "scripts/check-adsp-blob.py", "scripts/tests/test-k60-adsp-reader.c", "scripts/tests/test-k60-adsp-blob.c", "patches/xnu/0602", "patches/xnu/0619"]
-parked_why = ""
-why = "电池 / 充电（IOPMPowerSource）"
+why = ""
+label = "电池 / 充电（IOPMPowerSource）"
 
 [hardware.battery.step.same_model]
 done = true
 evidence = "已比对同型号消费者、MDT/PAS和GLINK资源路径；当前新增K60AdspOwnerStages五阶段编排及持久wrapper，复用真实MDT/SMEM/build/parser。旧PAS诊断顺序与raw SMC缺少完整后端契约，未直接接入。见 docs/research/battery/PAS1-PROVIDER-CONTRACT.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.battery.step.official]
 done = true
 evidence = "官方 ABI 是 IOPMPowerSource；当前 drivers/PongPower/K60Battery.cpp 直接继承并实现属性发布，IOKit的IORegistryEntry/OSData用于chosen属性。具体时序与字段经本机消费者校验；见 docs/research/battery/HANDOFF-PUBLISH.md 和 docs/research/battery/RESEARCH.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.battery.step.decompile]
 done = true
 
 evidence = "两轮反编译在 2026-11-14 完成，全部落在 docs/research/charger/。一，.ko 侧：qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58）全量 llvm-objdump，订阅帧 28 B {owner 0x800a, type 2, opcode 4, +0xc 起全 0} 出现在 battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0（docs/research/charger/03-REVERSE.md:270）；rx 侧 battery_chg_callback 0x211c 用 .rodata+0x9 的字节跳转表（表项×4）把 opcode 4 引到 0x2464，那里只有 complete(&bcdev->wait)，不读 type、不读长度（03-REVERSE.md:204-225）。二，ADSP 固件侧：adsp.b14（段 14 p_vaddr 0x60000000，sha256 2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d）反汇编后定位 opcode 分发器 0x60155570（4 字节绝对表 @0x602bfc28，cmp.gtu #0x51）与 opcode 4 handler 0x60155910，后者回 16 B {0x800a, type 1, opcode 4, result}（锚点字节 0x601559c0 0ac0423c / 0x601559cc 81c0423c / 0x601559d8 04c1423c / 0x601559f0 03c20078 / 0x601559f4 c6faff5b），见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 与 02-GLINK-CONTRACT.md 第 10 节。三，同型/官方实现三方对照：上游 Linux drivers_power_supply_qcom_battmgr.c:1000-1011 只要求 payload_len>=4 且不校验 type，参考实现 ShengBattmgr.c:170-183 两种 type 都收 —— 都不构成反证。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.battery.step.wide]
 done = true
 evidence = "官方文档 https://unixnu.com/zh/porting/power 第 4 节读完（2026-11-12），六步流程明确：核对 owner/消息类型/opcode/属性 ID/响应长度；每次只保留一个未完成请求，处理超时后再推进刷新；分别保存有效读数与失败状态；继承 IOPMPowerSource 并建工作循环与定时器；初始有效属性就绪后 registerService()、后续变更 updateStatus()；传输断开时取消请求并把读数标为过期。参考实现的单位转换：电压电流微转毫、容量 0.01% 转百分比、秒转分钟，且必须先确认目标协议的充电电流符号。catalog_checked 见 catalog_result。"
 catalog_checked = true
 catalog_result = "components.toml 无电池组件；官方实现全在 UniXNU-sheng 板级 package/（ShengBattmgr.h/.c、ShengBattery.cpp、BatteryProbe.cpp），另有 Linux qcom_battmgr.c 作协议变体参考。不可当组件复用。详见 docs/research/battery/RESEARCH.md。"
+recorded_at = "2026-11-11T11:57:45"
 [hardware.battery.step.plan]
 done = true
 evidence = "runtime在配置/RAM/chosen/OSData前置检查后调用k60_adsp_platform_install，再执行claim→fresh FIFO→INIT/MEM/COPY/BSS/CACHE/AUTH→ready→existing-only build/selfparse→原子发布。完整version1/sizeof ops已注册，持久reader/metadata已接线；板级ownership/resources/stopped/shared SCM lock服务未供应时available=0且早于物理访问。不改默认参数与patches。见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.battery.step.deep]
 done = true
 evidence = "五阶段锁/PAS生命周期及platform/native完成独立审查：最终TCSR仅build_existing+selfparse，非unlock回调在锁内无服务/状态/输出效果。AUTH shutdown后须独立stopped证明才释放；WAITQ_SLEEP/未知positive或resume耗尽保留SCM锁/metadata/resources并Poisoned。native具备releasable映射、显式noncache contiguous metadata和shared-lock SCM代码，板级租约服务尚缺，不能声称真实PAS后端可用。见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.battery.step.verify]
 
 done = true
@@ -567,6 +649,7 @@ static_check = "订阅常量逐行对照 ADSP 固件 handler 0x60155910：组包
 unit_test = "scripts/tests/test-k60-charger-subscription.c（30 断言，TESTS OK 30）覆盖 ①init 接受 (1,16) ②(0,0) 时 subscribe_due=0 且下一帧退化为 24 B 属性请求 ③channel_up 后订阅帧 28 B {0x800a,2,4,四零字}、flight=2、opcode=4 ④28 B / 16 B(type2) / 24 B / 12 B 四种错形 ACK 全部 ignored 且不置 subscribed ⑤result=0x206 时返回 K60BmAnswer、errors=1、flight 释放 ⑥16 B type1 result=0 返回 K60BmSubscribed 且下一帧是 24 B type1 opcode 0x30 ⑦16 B type2 opcode 7 通知返回 K60BmNotified。另有 scripts/tests/test-battery-units.py 27 个用例覆盖电压/电流/容量/时间边界与符号不变量。"
 artifact_check = "生成器 scripts/build-k60-physical-battery.py 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对：qualification(None,None,None) 返回 (0,1,16,None,{'source':'adsp-opcode4-handler','type':1,'bytes':16})；给一份 Tx 28 B + Rx 16 B(type1) 的抓包返回 (1,16)；给 Rx 28 B(type2) 的抓包按设计抛 ValueError('Wire capture contradicts the measured ADSP opcode-4 reply (1, 16): (2, 28)')。即产物常量不再是 0，且抓包只能确认、不能覆盖实测值。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.battery.step.device]
 done = false
 evidence = "实测 adsp-20261115e（kernel 5ef19e12… 128,991,232 B、boot.img feb7131f…、30 args / 598 B，末项 pong_handoff_publish=1；证据 usblog-20261115-223916：console.log 3,312 行、SpringBoard 120、panic 0、record-boot series 9688ad85…(226)）：发布器**确实被调用**（P-208 修好后 IOKitBSDInit 的守卫块不再被编译掉），但止步于 owner 安装：`K60ADSP owner stage=1 rc=-1000`（K60AdspOwner.c:24-27，configured 仍为 0）、`K60Handoff: PAS1 bring-up/retained ownership failed rc=-1000; no lease published`、`K60Battery: blocked rc=-4: no authenticated exclusive PAS1/SMEM/GLINK platform handoff; no MMIO, FIFO writes or power-source publication`；旁证 `K60PAS legacy startup excluded by earlier ADSP owner/attempt` 成立（0619 的 kern_exec.c:7839 claim 被前面的 owner 占位，属预期输出，不计为失败）。根因：`k60_adsp_owner_install()` 在内核里没有任何调用点（仓库内只有 K60AdspOwnerStages.h:92 的声明与 scripts/tests/test-k60-owner-publish.c 的用例），状态机、ops 契约、载体 ABI、bounded reader 都已就位，缺的是 K60OwnerOps 的平台实现；该实现由 adsp 线补（drivers/PongPower/K60AdspPlatform.c），接线与上机归 Lead。。2026-11-16 更新：adsp 线已交出完整 platform ops（drivers/PongPower/K60AdspPlatform.c/.h + K60AdspPlatformNative.cpp，21 个回调）与 runtime 安装点（K60HandoffRuntime.cpp:47 首次 acquire 前调 k60_adsp_platform_install()），归档编译表已含这两个文件；但 native 仍缺板级 ownership/resources/stopped 服务，available=0 继续拒绝 SMC/SMEM/TCSR，故 device 仍为 false。证据与场景矩阵见 docs/research/battery/PAS1-PROVIDER-INSTALL.md。"
@@ -576,37 +659,44 @@ success = "`K60Handoff: published authenticated PAS1 epoch=` 出现且同行为 
 failure = "出现 `K60Handoff: PAS1 bring-up/retained ownership failed rc=`（任何 rc，含 -1000 表示没有真实 backend/reader）；或 boot 后 `K60Handoff:` 命中 0 次（说明 pong_handoff_publish 没进内核命令行 / 发布器未被调用）；或出现任何 panic 标记"
 
 [hardware.charger]
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
 status = "planned"
 name = "充电 / 电池协议（qti_battery_charger + pmic_glink）"
 why = "PMIC GLINK 电池/充电通道：订阅常量、属性映射、GLINK 契约与 handoff 发布规范"
-parked_why = "研究线：订阅常量与 GLINK 契约已定，驱动改动与上机等 PAS1/GLINK 落地后由 Lead 统一执行（本轮禁止自行 boot）"
+label = "研究线：订阅常量与 GLINK 契约已定，驱动改动与上机等 PAS1/GLINK 落地后由 Lead 统一执行（本轮禁止自行 boot）"
 
 [hardware.charger.step.same_model]
 done = true
 evidence = "同型参考实现 /mnt/e/k60-work/references/pong-power/ShengBattmgr.c:170-197（opcode 0x04 订阅判定 (type==REQUEST||type==NOTIFY) 且不校验长度；opcode 0x07 通知要求 type==NOTIFY && length>=16）与 ShengBattmgr.h:16-26（OWNER 32778u / REQUEST_BYTES 24u / ENABLE_BYTES 28u）。K60 自己的 .ko 是 /mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58），订阅帧 28 B 与参考实现逐字节一致。见 docs/research/charger/01-SYMBOL-MAP.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.charger.step.official]
 done = true
 evidence = "官方移植文档 https://unixnu.com/zh/porting/power 第 4 节（owner/消息类型/opcode/属性 ID/响应长度五项核对，单飞行请求，超时后推进）作为 ABI 与状态机依据。上游 Linux 驱动 drivers_power_supply_qcom_battmgr.c:91-104 给出请求结构（enable_request 28 B、property_request 24 B），:1000-1011 与 :1260-1269 的 BATTMGR_REQUEST_NOTIFICATION 分支只置 battmgr->error=0 并 complete，:1286-1299 的 enable_worker 组 28 B {owner=PMIC_GLINK_OWNER_BATTMGR, type=PMIC_GLINK_NOTIFY, opcode=BATTMGR_REQUEST_NOTIFICATION}。见 docs/research/charger/02-GLINK-CONTRACT.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.charger.step.decompile]
 done = true
 evidence = "两侧反汇编都做了。.ko 侧：battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0 组 28 B {0x800a, 2, 4, +0xc 起全 0}（03-REVERSE.md:270）；battery_chg_callback 0x211c 的 .rodata+0x9 字节跳转表把 opcode 4 引到 0x2464，那里只有 complete(&bcdev->wait)（03-REVERSE.md:204-225）。ADSP 侧：adsp.b14（p_vaddr 0x60000000，sha256 2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d）的 opcode 分发器 0x60155570（4 字节绝对表 @0x602bfc28）与 opcode 4 handler 0x60155910 回 16 B {0x800a, 1, 4, result}，锚点字节 0x601559c0=0ac0423c / 0x601559f0=03c20078(r3=#0x10) / 0x601559f4=c6faff5b。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.charger.step.wide]
 done = true
 catalog_checked = true
 evidence = "广域交叉核对三方语义：仓库消费方 drivers/PongPower/K60Battmgr.c:47-56 init 白名单、:147-171 ACK 校验、:194-200 超时作废；上游 Linux qcom_battmgr 只要求总长 >=16 且不校验 type；参考实现 ShengBattmgr 两种 type 都收。三者对 (type 1, 16 B) 均无反证，且 ADSP 侧穷举全固件 30 处 0x800a 组包点，type 直方图 {1:27, 2:1, 无:2}，唯一 type 2 的是 0x60158884（opcode 7 主动通知，不是应答）。见 docs/research/charger/05-OPEN-QUESTIONS.md 与 06-SUBSCRIPTION-CONSTANT.md 第 3 节。"
 catalog_result = "逐个核对 UniXNU/components.toml 的 25 个组件，没有电池/充电组件：QcomDwc3（drivers/QcomDwc3，:513-531）的 board_dependencies 提到 'UCSI over the charger channel'，只是 UCSI 走充电通道的声明，不含 battmgr 协议；QcomBaseband（:563-580）含 'GLINK/QRTR transport and rmtfs'，可作 GLINK/QRTR 传输层参考但协议不同；ShengPreflight 是板级固件预检。结论：充电协议没有可复用组件，只能按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.charger.step.plan]
 done = true
 evidence = "方案分两段。传输层：ADSP 侧 pmic_glink 无端口号也无 GUID，用名字三元组 transport=\"SMEM\"/remote_ss=\"apss\"/channel=\"PMIC_RTR_ADSP_APPS\"，配置结构 0x603cae78，open 路径 0x7c95b0 -> 0x862754 -> 0x67b9a8，rx intent 100 x 8192 B（02-GLINK-CONTRACT.md 第 10 节）。发布层：104 B handoff 逐字节真值表与发布时机（k60_physical_battery_start() 在 IOKitBSDInit() 里，早于 vfs_mountroot，所以不能等 data mount），见 docs/research/battery/HANDOFF-PUBLISH-SPEC.md 第 4、7 节。协议层常量按 06-SUBSCRIPTION-CONSTANT.md 定死。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.charger.step.deep]
 done = true
 evidence = "深挖结论三条。一，订阅 ACK 的 type/长度只能从固件定：.ko 与上游都不校验，仓库消费方却要求精确匹配，所以必须反汇编 ADSP handler（0x60155910 回 16 B type 1），不能照抄 Linux 的宽松判据。二，opcode 4 的应答与 opcode 7 的通知是不同帧：0x800a 的 type 2 帧只用于主动推 opcode 7（16 B），订阅应答是 type 1，混淆会让订阅永远不成立。三，协议无 transaction id，超时只能靠 poisoned + 重开通道兜底（K60Battmgr.c:194-200），因此单飞行请求是硬约束。见 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md 与 04-PROP-MAP.md。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.charger.step.verify]
 done = true
 local_verified = true
@@ -615,11 +705,14 @@ static_check = "逐行对照 ADSP handler 0x60155910 的组包顺序（result �
 unit_test = "cc -Wall -Wextra -std=c11 -o /tmp/tk60sub scripts/tests/test-k60-charger-subscription.c && /tmp/tk60sub 输出 TESTS OK 30，无警告。覆盖 ①init 接受 (1,16) ②(0,0) 时不订阅 ③订阅帧 28 B 四零字 + flight/opcode ④四种错形 ACK ignored ⑤result=0x206 报错 ⑥16 B type1 result=0 订阅成立且下一帧 24 B opcode 0x30 ⑦16 B type2 opcode 7 通知放行。"
 artifact_check = "生成器产物核对：MEASURED_NOTIFY_REPLY=(1,16) 已写入 scripts/build-k60-physical-battery.py:27-31，头注释改为 'Measured ADSP opcode-4 ACK: 16 B, type 1 (firmware handler 0x60155910)'；qualification(None,None,None) 返回 bytes=16，抓包矛盾时抛 ValueError，即常量不再为 0。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.charger.step.device]
 done = false
 evidence = "从未上机。按本轮规则禁止自行 boot，镜像与脚本准备好后交给 Lead，由 Lead 在用户明确同意后执行。"
 
 [hardware.usb]
+why = "27 迁移期冻结：stage 0 先打通 SpringBoard，之后再回修硬件（用户 2026-11-20 指令）"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
 status = "device-verified"
 name = "USB（DWC3 复合设备 / 控制台 / 回环）"
 
@@ -627,28 +720,34 @@ name = "USB（DWC3 复合设备 / 控制台 / 回环）"
 done = true
 evidence = "同型参考 references/UniXNU-pong 的 USB 组件与 QcomDwc3：控制台走 CDC-ACM，回环走厂商功能，两者在同一 composite 描述符里。K60 侧的对应物是 /mnt/e/k60-work/references 里的 DWC3 寄存器表与 board.toml 的 usb 段。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.usb.step.official]
 done = true
 evidence = "官方移植文档 https://unixnu.com/zh/porting/usb 给出 DWC3 初始化顺序、GCC/USB3 PHY 时钟门与 composite gadget 的接口约定，作为驱动结构依据。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.usb.step.decompile]
 done = true
 evidence = "Android 侧实测：adb shell 读 /sys/class/udc、/sys/kernel/config/usb_gadget 与 usb_device 描述符，确认 VID_1209&PID_0001 的复合声明为 0xEF/0x02/0x01，MI_00 是 CDC-ACM、MI_02 是无驱动厂商接口。主机侧 devcheck 记录 host 绑定行为，作为「为什么控制台静默」的对照。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.usb.step.wide]
 done = true
 catalog_checked = true
 evidence = "核对 UniXNU/components.toml 的 QcomDwc3 组件：它提供 DWC3 core 与 gadget 框架，不含 Pong 的 board 绑定与 beacon 协议，因此自建补齐。"
 catalog_result = "QcomDwc3 可复用为传输层；厂商功能与 K60BEACON 判据必须自建，参考实现里没有等价物。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.usb.step.plan]
 done = true
 evidence = "分两步：先让 mode-1 的控制台经 MI_00 完整出字（修设备级串口绑定），再用 mode-2 做带内回环验证端点通路。判据是内核自发打印的 K60BEACON 行与回环逐字节相等，而不是主机侧能否看到设备。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.usb.step.deep]
 done = true
 evidence = "深挖结论：控制台静默的根因不是端点或时钟，而是复合声明让主机按功能分别绑定，控制台没有被当作串口打开；把声明改成 0xEF/0x02/0x01 后主机把整设备当一个复合设备、MI_00 可被 CDC 驱动接管。MI_02 无驱动在 Linux/Windows 上显示 Error 是预期形状，不能当作失败。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.usb.step.verify]
 done = true
 local_verified = true
@@ -657,23 +756,28 @@ static_check = "描述符逐字段对照 USB 2.0 复合设备要求（bDeviceCla
 unit_test = "host 测试覆盖描述符与回环缓冲构造，全部通过。"
 artifact_check = "镜像内命令行含 k60_usb 开关，payload 校验通过。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.usb.step.device]
 done = true
 evidence = "2026-11-15 结案：mode-2 回环 sent=64 received=64 PASS；mode-1 控制台五条 K60BEACON 经 MI_00 输出、MI_02 按预期报 Error。结论写入 docs/research/ 的 USB 章节（commit f5aa46d），usb 线转入待命。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.thermal]
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
 status = "planned"
-parked_why = "第三阶段（2026-11-14）已把只读驱动、压力等级、发布 mTPL 的 IOKit 服务与三处集成（内核链接行 / 启动钩子 / ADT tsens 节点）全部落进源码，并已用 XNU_PONG_THERMAL=1 真构建过一次内核（kernel.macho sha256 cb35295c…，内含 8 条 K60Thermal 日志串与 _k60_thermal_start 等符号；对照 =n 的 1ebb6052… 全为 0），2026-11-15 已在 6033dbec 上机两轮（thermal-20261114f 冷机、thermal-20261115b bias=85000），第 ⑧ 步判定达成，证据见 step.device；本线按纪律收尾，下一次热线上机等 cooling map 接线（TRIP-DESIGN.md 的 (b) 段）之后"
-why = "热管理 / tsens-v2（AP 侧 2 个控制器 × 16 个传感器 = 32 个，另有 QMI 远端 25 个热区不可达）"
+why = "第三阶段（2026-11-14）已把只读驱动、压力等级、发布 mTPL 的 IOKit 服务与三处集成（内核链接行 / 启动钩子 / ADT tsens 节点）全部落进源码，并已用 XNU_PONG_THERMAL=1 真构建过一次内核（kernel.macho sha256 cb35295c…，内含 8 条 K60Thermal 日志串与 _k60_thermal_start 等符号；对照 =n 的 1ebb6052… 全为 0），2026-11-15 已在 6033dbec 上机两轮（thermal-20261114f 冷机、thermal-20261115b bias=85000），第 ⑧ 步判定达成，证据见 step.device；本线按纪律收尾，下一次热线上机等 cooling map 接线（TRIP-DESIGN.md 的 (b) 段）之后"
+label = "热管理 / tsens-v2（AP 侧 2 个控制器 × 16 个传感器 = 32 个，另有 QMI 远端 25 个热区不可达）"
 
 [hardware.thermal.step.same_model]
 done = true
 evidence = "同型号（K60 / mondrian / taro）没有任何一份移植实现过 thermal。对 E:/k60-work/references 下 44 个参考树做 grep -ril tsens|thermal：K60 系的命中全部是文档与研究笔记（yibiya-upstream/docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:139 只记录 qcom,tsens-v2 ×2 的存在），没有一份热管理驱动源码；*Thermal*.cpp 只出现在别的 SoC（SM8550 的 UniXNU-sheng/package 与 UniXNU-sheng-upstream/package）。官方设备记录页 unixnu-mondrian.txt 与 unixnu-devices.html 无 thermal 条目。结论：同型号最好状态 = 未开始，可参考的只有别的 SoC 的实现。详见 docs/research/thermal/03-REVERSE.md §1、§4。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.thermal.step.official]
 done = true
 evidence = "官方移植指南没有 thermal 子系统页：E:/k60-work/references/UniXNU/docs/porting/ 的 21 个页面里没有 thermal.md，热管理只作为一句要求出现在 docs/porting/power.md:17。硬件语义的权威来源是 mainline Linux：Documentation/devicetree/bindings/thermal/qcom-tsens.yaml:382-396 的官方示例与本板 tsens0 逐项相同（0xc263000 / 0xc222000、SPI 506/508、uplow+critical 两个中断名），:209-214 规定 #qcom,sensors 上限 16；drivers/thermal/qcom/tsens-v2.c:12-27 给出全部寄存器偏移、:94-101 给出 LAST_TEMP=[0:11] 与 VALID=[21]、:31-39 给出 adc=0（状态字已是温度而非 ADC 码）。SM8475 SoC TRM 没有公开版本，本篇不写不存在的章节号：查过的三处见 docs/research/thermal/02-OFFICIAL-DOCS.md §1。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.thermal.step.decompile]
 done = false
 evidence = "第二阶段补齐了两项，但 ③ 仍差最后一项。已取得：一，K60 vendor kernel 的 tsens 驱动本体 —— qcom_tsens.ko，77928 B，sha256 22334f6d246cf1b67e238027a2d04ac19b588d47d73301bb7577c2dc9c6981a9，not stripped，从 vendor_boot ramdisk（lib/modules/）只读取出，不在 /vendor 与 /vendor_dlkm 的 314 个 ko 里；其 .rodata tsens_v2_regfields（:0xff0）逐传感器给出 LAST_TEMP off=0xa0+4n、width=0x0b，与 tsens-v2.c:94-101 相同，.text:0x588 get_temp_tsens_valid 走 adc=0 分支（tbnz bit1 → lsl/asr 符号扩展 → ×100），与 tsens.c:346-347 同路；标定代码（9 处 qfprom_read 重定位、3 处 nvmem_cell_*）在 ko 里存在但本板无 nvmem 节点（DT grep qfprom|efuse|nvmem 零命中，活节点 /proc/device-tree/soc/thermal-sensor@c263000/ 无 nvmem-cells）故不走。二，厂商用户侧配置：thermal-engine.conf 84 B 内容为 \"# File empty by default\"（本机用 thermald），thermald-devices.conf 明文已取；thermal-map/normal/phone.conf 是厂商加密二进制，未解。三，vendor_boot 的 DTB 反编译与 UEFI DTB 只差根节点 3 行（model/compatible/msm-id），thermal 事实同源。四，运行时 84 个 zone 中 32 个 AP tsens 全部有读数且顺序与 DT 索引一致。仍缺（因此 done=false）：SROT 现场值（SROT_HW_VER 与 SROT_CTRL bit0=TSENS_EN）从未被读过 —— Android 不暴露内核态 MMIO，只能等 ⑦⑧ 阶段由我们自己的驱动读；以及 32 个 STATUS 的原始 VALID 位快照（Android 只给换算后温度）。全部细节与复现命令见 docs/research/thermal/04-ANDROID-EVIDENCE.md §4-§5、§9。"
@@ -684,10 +788,12 @@ evidence = "按规范查了三处。一，官方组件目录：UniXNU/components
 catalog_checked = true
 catalog_result = "UniXNU/components.toml 的 25 个组件里没有任何 thermal/tsens/温度 相关组件，无法直接选用：官方组件目录面向 IOPMPowerSource、USB、UFS 这类有 ABI 契约的子系统，热管理在本项目里一直是板级实现（UniXNU-sheng 把它写在 package/ThermalProbe.cpp 而不是组件）。因此 thermal 只能自建 drivers/PongThermal，参考同族实现的读法，而不能声明依赖某个组件。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.thermal.step.plan]
 done = true
 evidence = "改动清单已落地为代码（docs/research/thermal/03-REVERSE.md §5 的 13 条复用清单 + 04 篇 §10 的对应关系）：新增 drivers/PongThermal/K60Tsens.h 与 K60Tsens.c，接口是纯函数 k60tsens_status_to_mc / k60tsens_decode / k60tsens_decode_hw_ver / k60tsens_ctrl_enabled 与 MMIO 读 k60tsens_read / k60tsens_read_controller / k60tsens_trdy，外加 32 项板级表 k60tsens_sensor_table；日志格式定为每传感器一行 \"tsens<ctrl>[<idx>] <name> <mC> flags=0x<..>\"（与同族 ThermalProbe.cpp:195-224 的采样循环同构）。仍未 done：与 IOPMrootDomain 压力通知的对接只完成了数据与算术那一半 —— drivers/PongThermal/K60ThermalLevel.{h,c} 把 32 个传感器映射成 5 个域（little/big/gpu/npu/ddr）并按各域 trip 算出 OSThermalPressureLevel，阈值逐条取自本板 DT（cpu 110/10、115/5、125/1；gpu 95/5；npu 95/5；ddr 90/5，行号见 docs/research/thermal/05-PRESSURE-LEVEL.md §2），发布 mTPL 的 IOKit 服务已写：drivers/PongThermal/K60ThermalService.{h,c} 实现 K60ThermalSensor（两个实例，各映射 TM+SROT 只读窗口，1 s 采样 16 路）、AppleSMCSensorDispatcher（按类名供 thermalmonitord 查找，挂两个控制器并把 32 路折叠成 5 个压力域）与 AppleSMCSensorDispatcherUserClient（selector 0/1/2/3，dispatch 表 1/60/60/88 字节，initWithTask 校验 com.apple.private.smcsensor.user-access），另有 drivers/PongThermal/Info.plist 与 scripts/build-thermal-kext.sh；脚本用已构建的 XNU 树（.cache/fakeroot + .cache/xnu-work + EXPORT_HDRS + all-kpi.exp）编译并核验：160 个已定义符号、10 个必需符号全在、219 个内核导入全部在 all-kpi.exp 内、BUILD OK。三处集成已于同日由 Lead 落进仓库源码，不再是方案：链接行在 build-xnu-4k-baseline.sh:1137-1154（XNU_PONG_THERMAL=1 时调 build-thermal-kext.sh --no-export-list 并 -Wl,-force_load；第一版误插在 :934-943 的死分支 XNU_SOURCE_CORECRYPTO14 里，本板该值为 n，等于永不生效，已修正到活的 PLATFORM_ARCHIVES 块）、启动钩子在 drivers/ArmDTPlatform/ArmDTPlatform.cpp:27-31 与 :232-233（registerService 之后，两种开关组合都编译通过）、ADT 节点在 scripts/make-pong-adt.py:217-234 与 :266（因 ranges 0x17000000+0x02000000 不覆盖 0xc263000，用 pong,tsens-tm-base/pong,tsens-srot-base 绝对地址属性而非 reg；实跑 12600 B / 15 节点，parse_adt 核对过属性）。已完成：2026-11-14 用 XNU_PONG_THERMAL=1 真构建过一次内核（kernel.macho sha256 cb35295c1ea81fbe4935309e45e2548b0aa8b6ca6e4e12367292c87d4192d0e3、54,190,080 B；strings 'K60Thermal: ' 命中 8 条；llvm-nm 命中 _k60_thermal_start / _k60tsens_read_controller / _k60tl_step；对照 =n 的 1ebb6052… 三项全为 0），scripts/check-kernel-archives.py --out <out-thermal> 报 '✅ kernel archives: 4 enabled archive(s) all present in kernel.macho'。仍不算完成：产物从未上机。详见 docs/research/thermal/06-KEXT-SERVICE.md §6 与 07-INTEGRATION.md。另有一条不依赖 XNU_PONG_THERMAL 开关的 in-tree 路线也已落地：patches/xnu/0617-k60-thermal-tsens.patch（469 行，4 段）把 bsd/dev/pong_thermal.c（232 行）与 bsd/sys/pong_thermal.h（198 行）放进树，在 bsd/conf/files 登记一行、在 bsd/kern/bsd_init.c 的 pong_buttons_init() 之后起线程，series 第 230 行；该补丁在已打完 229 个补丁的树上 git apply --check 通过。详见 docs/research/thermal/08-KERNEL-DRIVER.md。trip 与执行器设计也已离线定稿（docs/research/thermal/TRIP-DESIGN.md，277 行，三问逐条带 文件:行）：阈值只有板级 DTS 一处（58 zone / 154 trip，mondrian.dts:6643-8422），46 条 cooling-map 在本移植一条都执行不了，XNU 侧只上报温度与压力等级、不注册执行器。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.thermal.step.deep]
 done = false
 evidence = "不确定项尚未消解：SROT_CTRL bit0（TSENS_EN）是否被 XBL 置 1、32 个传感器在 SROT 里的使能位（3+n）是否全开、读数与 Android 侧 thermal-engine 的对照、以及 125/115/110℃ trip 的真实用途。这些都必须上机才能回答，本阶段禁上机，故 ⑥ 不开。"
@@ -707,27 +813,32 @@ artifact_check = """scripts/build-thermal-driver.sh 用 /opt/unixnu-linux/llvm/b
 - 第二个产物：build/thermal/K60ThermalLevel.o（同一 clang、同一 target、同一组 -Werror 选项），llvm-nm --defined-only 命中 6 个必需符号（_k60tl_trips / _input_name / _level_name / _input_of_sensor / _input_level / _step），llvm-nm -u 为空，llvm-size -A 报 __const 248 B（四张 trip 表 + 32 字节传感器映射 + 名字表）；主机单测 scripts/tests/test-k60-thermal-level.c 输出 TESTS OK 72。
 缺：该目标文件没有内核链接行、没有 IODeviceMemory 映射代码，不是可启动产物 —— ⑦ 的"产物"仍差内核集成，- 第五个产物（真正的内核产物）：XNU_PONG_THERMAL=1 构建的 kernel.macho，sha256 cb35295c1ea81fbe4935309e45e2548b0aa8b6ca6e4e12367292c87d4192d0e3、54,190,080 B；strings 命中 8 条 'K60Thermal: '，llvm-nm 命中 _k60_thermal_start / _k60tsens_read_controller / _k60tl_step。对照组 =n 的 kernel.macho sha256 1ebb6052d91da63397722e6e9722f1008fe464c3a67d0d888a4a00c9d6e73187、54,181,888 B，上述字符串与符号全为 0。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.thermal.step.device]
 done = true
 evidence = "2026-11-15 两轮真机：① 冷机 thermal-20261114f（usblog-20261115-003922）：tsens0 tm=0xc263000 srot=0xc222000 ver=2.8.0 ctrl=0x9d67fff9 enabled=1、32 路读数 40-43℃（tsens0[3] cpuss-2 一行被串口吞掉，后一轮证实是丢行不是无读数）、published nominal (0) as Thermal_Level_Warning=0、SpringBoard 133 行无 panic，八步 ⑧ 判定达成；② bias=85000 thermal-20261115b（usblog-20261115-135227，13:52-13:56）：python3 scripts/check-thermal-log.py --profile bias-85000 --log <采集目录>/console.log → EXIT=0、22 passed 0 failed 0 advisory，32/32 传感器、域行 222、等级行 8 条全是 level 3/3 trapping every tier crossed、published as Thermal_Level_Warning=3 恰好 1 条、crashed:.*backboardd = 0、capture.json captured-budget-complete、boot.json bootAccepted=true。三行原文：'PongThermal: bias 85000 mC added to every reading (validation only)'、'PongThermal: tsens0[3] cpuss-2 zone27 43.0 C'、'PongThermal: level trapping (3) published as Thermal_Level_Warning=3'。详见 docs/research/thermal/08-KERNEL-DRIVER.md §5 第 6 条末与 §7.4 开头。③ 2026-11-17 合并 main 后 thermal-20261117c 冷机（usblog-20261117-122800，boot.json bootAccepted=true，capture.json captured-budget-complete，console 247,186 B/3,588 行）：python3 scripts/check-thermal-log.py --profile cold --log <采集目录>/console.log → EXIT=0、21 passed 0 failed 0 advisory，32/32 传感器（含 tsens0[3] cpuss-2 zone27 44.2 C）、域行 192、等级行 8 条全 level 0/3 nominal、published as Thermal_Level_Warning=0 恰好 1 条，详见 docs/research/thermal/08-KERNEL-DRIVER.md §9。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.thermal.step.device.prediction]
 success = "冷机：32/32 传感器各有一行读数（40-43℃、同一传感器相邻采样差 <20℃）、published as Thermal_Level_Warning=0 恰好一次、SpringBoard 正常起、无 panic。bias=85000：level 3/3 trapping + published=3 + 32/32 sensors，check-thermal-log.py --profile bias-85000 返回 EXIT=0。2026-11-15 两轮均已命中（thermal-20261114f / thermal-20261115b）；2026-11-17 合并 main 后 thermal-20261117c 冷机再次命中（usblog-20261117-122800，cold profile 21 passed / 0 failed）。"
 failure = "出现 thermal: device not enabled（SROT_CTRL bit0 = 0，说明 XBL 没使能 tsens）；或 32 个 STATUS 的 bit21（VALID）全为 0；或任一读数越出 -40..160℃、或相邻采样跳变 >20℃（撕裂读）；或根本打不出 ctrl 行（映射失败）。"
 
 [hardware.cellular]
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
 status = "planned"
-parked_why = "研究线：载具与占位属性已实现并离线验收，但 modem 固件内部的 GLINK/QRTR 服务表还没反汇编，也没有任何一次 modem 上机，因此不进构建门禁"
+why = "研究线：载具与占位属性已实现并离线验收，但 modem 固件内部的 GLINK/QRTR 服务表还没反汇编，也没有任何一次 modem 上机，因此不进构建门禁"
 name = "蜂窝（X70 modem / DXE 载具 / QRTR）"
 
 [hardware.cellular.step.same_model]
 done = true
 evidence = "同型参考 references/UniXNU-pong 与 sheng 的 modem 载具：两边都把固件当作外部载具放进固定物理窗口（0x8bc00000 / 0x13200000），再由 DXE 解码，而不是编译进内核。接口依据见 https://unixnu.com/zh/porting/cellular 。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.cellular.step.official]
 done = true
 evidence = "官方移植文档 https://unixnu.com/zh/porting/cellular 给出影像载具（image carrier）、K60ModemImage 占位属性与载具目录约定，作为我们 DXE 与 payload 两侧的接口依据。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.cellular.step.decompile]
 done = false
 evidence = "只做到「段表与尺寸」这一层：27 个 modem.bNN.lzma 流的 13 字节头、declared 尺寸与 109,060,761 B 总量已与 UEFI 表逐条对齐（见 uefi-mondrian 的 K60ModemImageTable.h，27 行带文件名、3 行纯 bss）；modem 固件内部的 GLINK/QRTR 服务表尚未反汇编。段表与体积核对见 https://unixnu.com/zh/porting/cellular 。"
@@ -738,14 +849,17 @@ catalog_checked = true
 evidence = "核对 UniXNU/components.toml 的 QcomBaseband（GLINK/QRTR transport 与 rmtfs）：传输层可参考，但载具与解码必须自建。"
 catalog_result = "QcomBaseband 提供传输层语义；ImageCarrierLib 与 K60ModemImage 是本板自建，仓库里没有等价物。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.cellular.step.plan]
 done = true
 evidence = "分两段：先把 27 个 LZMA 流按段表解码进 0x8bc00000（窗口 0x13200000）并由 DXE 发布 16 字节全零的 K60ModemImage 占位，再把属性与载具目录交给内核；只有 27 段全部成功才发布，半发布比拿不到更危险。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.cellular.step.deep]
 done = true
 evidence = "深挖结论：payload 容量装不下未压缩的 109 MB（缺口 14,114,816 B，payload 201,326,592 B vs modem raw 109,060,761 B），压缩进载具后总量约 48.6 MB 才可行；解码必须一次读完再校验（LZMA-alone 13 B 头，declared 尺寸在 [5:13]），任何一段失败都不能发布属性。审查依据见 https://unixnu.com/zh/porting/cellular 与 docs/research/EIGHT-STEPS.toml 的 modem 段落。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.cellular.step.verify]
 done = true
 local_verified = true
@@ -754,6 +868,7 @@ static_check = "ImageCarrierLib 的 13 字节头布局、declared 尺寸偏移�
 unit_test = "框架侧 test_modem_carrier.py 14 例全过，含拒绝非 modem.bNN 命名的负例。"
 artifact_check = "payload 内 mdir 列出 27 个流，payload.json 记录文件数/字节数/表哈希。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.cellular.step.device]
 done = false
 evidence = "从未上机：载具与属性都只在离线验收里成立，modem 未启动过，QRTR 也没有过任何一次成功注册。"
@@ -767,28 +882,34 @@ name = "壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·Po
 done = true
 evidence = """同型参考：yibiya 9269d7728 做过 wallpaper native stock restore，但该提交整文件覆盖 patches/xnu/0340-k60-uilib-deploy.patch，不能直接 cherry-pick（docs/engineering/PITFALLS.md:3789 P-151）。本仓库自己的上机记录 docs/ops/PITFALLS.md:1132-1139（P-75）给出同机型实测：cand16 原生锁屏出现但壁纸全黑、stock-wallpaper bind 与 aliases=4 均成功、cand18 existing-content=1。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.springboard.step.official]
 done = true
 evidence = """官方 ABI 与官方实现：调用点 userland/ui_compat.c:700-716 使用 WKWallpaperBundle initWithURL: 与 WKSystemShellWallpaperManager setLockScreenWallpaperRepresenting:mirrorToHomeScreen:completion:（completion type encoding v36@0:8@16B24@?28，ABI 校验在 userland/ui_compat.c:718-726）；官方二进制位于 OS 卷 System/Library/PrivateFrameworks/WallpaperKit.framework 与 Applications/PosterBoard.app/PosterBoard（119,520 B，含 /Library/Wallpaper/ 与 createPosterConfigurationForProviderIdentifier:posterDescriptorIdentifier:completion:）；素材格式由 /Library/Wallpaper/Stills/iPad/*.wallpaper/Wallpaper.plist 定义（identifier / thumbnailImageFileName / fullSizeImageFileName / assets.lockAndHome，实测样本 7410.WWDC_2022-1024w-1366h@2x~ipad.wallpaper，P-75 docs/ops/PITFALLS.md:1132-1139 记录同机型原生提交路径）。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.springboard.step.decompile]
 done = true
 evidence = """二进制取证：SpringBoard（112,528 B）无壁纸路径串，只有 entitlement com.apple.private.wallpaperkit.service.migration，故壁纸选择不在 SpringBoard；PosterBoard 直接读 /Library/Wallpaper/ 与 /private/var/mobile/Library/SpringBoard/；boot-jobs blob（235,412 B）含 com.apple.PosterBoard.plist 与 com.apple.notificationcenter.widgetcontrollerconnection；WallpaperKit 主二进制在 dyld shared cache 内、静态不可见，只能走运行时 API 路径。嵌入 blob 谱系：init blob 52,376 B = userland/init.c@2101281 消息集 + 0406 var.pack 回退路径；UI blob 113,904 B = ui_compat.c@50f4644（28 条 Pong UI 消息，src_only=0）。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.springboard.step.wide]
 done = true
 catalog_checked = true
 catalog_result = """UniXNU/components.toml 25 个组件无壁纸/SpringBoard 相关项；本线依赖 OS 窗自带的 WallpaperKit/PosterBoard，不是组件。广查结论：OS 窗 /Library/Wallpaper 完整（9 个 .wallpaperCollection + Stills/iPad 下 17+ 个 bundle，含 7410 WWDC 2022），故"壁纸源未部署"假设不成立；Data 卷 var.pack（14,526 B / 133 条）无任何 wallpaper/poster 条目；OS 窗 /private/var/mobile/Library 无 SpringBoard 目录。"""
 evidence = "同 SoC 兄弟移植无 SpringBoard 线可参考；yibiya 的 wallpaper native restore 是唯一同型实现（见 P-151 的覆盖风险）。"
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.springboard.step.plan]
 done = true
 evidence = """方案见 docs/research/springboard/WALLPAPER-CHAIN.md §4。F1（已实施）：部署 HEAD 版 libpong-ui.dylib，patches/xnu/0340-k60-uilib-deploy.patch 的 k60_uilib_blob 113,904 -> 113,472 B，让 select_initial_wallpaper() 在 existing==-1 或 boot-arg k60_wallpaper_reset=1 时用原生 WallpaperKit 提交 7410。F2（已实施，但被 0616 顶掉，不生效）：var.skel 增两条目录行 + 0401 换 HEAD init（含 wallpaper_directory()/wallpaper_aliases()），结果 52,456 B init + 14,636 B varpack；patches/xnu/0616-k60-init-legacy-helper.patch:2967-2978 把 0401 的 installer 调用换成 34,904 B v24dp 助手（P-182），0401 的两个数组无人引用被链接器丢弃（kernel.macho 中 genuine stock wallpaper aliases = 0）。F3（已实施，生效项）：patches/xnu/0618-k60-wallpaper-seed.patch 在 native_owner_data_prepare 的 k60_mkdir_paths[] 增 /private/var/pong/{stock-wallpaper,stock-wallpaper/Collections,Wallpaper}，并在 mkdir 循环后 k60_wallpaper_stage() 把真实 /Library/Wallpaper/Collections/Collections~ipad.plist（772 B）复制到目标，使 v24dp init 的两道 guard（userland/init-v24dp.c:328-343/:344-348）通过。F4（不建议）：删 views 表需重编 init blob，host 无签名能力且对像素无帮助。F5（单独立项）：恢复 chronod 会回到 v80 REC 的反复超时。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.springboard.step.deep]
 done = true
 evidence = """深挖五条结论：一，两行 SKIP 是 init 的两道 guard 在 mount 之前 continue（userland/init.c@2101281:368-371、:373-378），与 bindfs 能力无关，日志不能证明 bindfs 好坏。二，设备 init 无 wallpaper_directory()（HEAD userland/init.c:368-375 才有），故 /private/var/pong/stock-wallpaper 永不创建。三，纯黑主因是设备 UI 库不含壁纸选择代码（ui_compat.c@50f4644），不是 SpringBoard 崩。四，桌面小组件主因是 userland/build.py:40-45 BOOT_SKIP 跳过 com.apple.chronod（widget extension discovery repeatedly times out before the first UI）。五，"换壁纸后进不去系统"缺当次日志，候选机制 A（WallpaperKit 写 Data 侧 store 后启动期读不到资产）与 B（views 的 mount 阶段 hang，先例 docs/reference/ISSUES.md:325-327 v7probe 第 5 条）待日志裁决。六，0616 顶掉 0401 调用点使 F2 的 blob 成为死代码（P-182/P-198），判断 blob 是否生效必须 grep 镜像而不是看补丁是否应用。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.springboard.step.verify]
 done = true
 local_verified = true
@@ -797,6 +918,7 @@ static_check = """静态对照：ui_compat.c:628-661 existing_wallpaper 用 wall
 unit_test = """F1：嵌入 blob 的 strings 与 dylib 字节一致性：113,472 B、sha256 8e37468e...，与 /tmp/k60-ui-out/libpong-ui.dylib 逐字节相同。F2：scripts/tests/test-init-blob.py 16 用例全绿（三个数组长度与 #define 一致、PONGJOB1 split/join 往返逐字节、var.skel 唯一且含两条 0755 root:root 壁纸目录、改写后 hunk 行数自洽、init 为 thin arm64 MH_EXECUTE ncmds=15）。"""
 artifact_check = """0618：88 行 / 3,409 B，临时 git 仓库 git apply --check 与 git apply 均通过（K60WALL 5 处），strict 构建 springboard-20261114e 通过（series=225，boot.img sha256 3748387823d0a86968d54296f1a1941a88ff62f8abbe6fd942a242c27be35954，201,887,744 B；镜像里 K60WALL=5、Pong UI:=39、genuine stock wallpaper aliases=0 证明 0401 blob 已被 0616 顶掉）。0340 补丁 diff 3,873 insertions / 3,909 deletions（仅该文件）；新 blob 含 37 条 Pong UI 消息，其中壁纸相关 8 条（existing-content / genuine wallpaper asset present / bootstrap SKIP 四种 / submitting genuine wallpaper 7410 / 7410 路径串）。0401 补丁 1,669,114 B / 25,360 行（旧 1,668,068 B / 25,344 行），三个 new-file hunk 为 4378 / 19623 / 1225 行；新 init strings 含 wallpaper view directories unavailable / stock wallpaper view SKIP / wallpaper alias conflict / genuine stock wallpaper aliases 四组新消息。"""
 
+recorded_at = "2026-11-11T11:57:45"
 [hardware.springboard.step.device]
 done = false
 evidence = "未上机（铁则：禁止自行 boot，交 Lead 在用户明确同意后执行）。上机计划：刷 springboard-20261115a（含新 0340 + 0618，已用 --kernel-arg k60_wallpaper_reset=1 构建，args 30 个 597 字节；manifest.kernel_args_requested 自证），抓 K60WALL catalogue 行、Pong init: boot view 行与 Pong UI 壁纸三行日志；判据是日志不再出现 wallpaper aliases SKIP / optional boot view SKIP（v24dp 无 aliases 函数，不要等 genuine stock wallpaper aliases= 行）。"

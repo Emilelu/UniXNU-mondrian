@@ -26,6 +26,8 @@
   - ⑧ 必须有 prediction.success / prediction.failure 两行
 """
 import io
+import json
+from pathlib import Path
 import os
 import subprocess
 import re
@@ -66,6 +68,51 @@ LABEL = {
 # build 需要前 6 步；flash 需要前 7 步 + 第 8 步的预测
 BUILD_STEPS = STEPS[:6]
 FLASH_STEPS = STEPS[:7]
+
+
+EVIDENCE_ROOTS = ['/mnt/e/k60-work/evidence', '/mnt/e/k60-work/reports',
+                  '/mnt/e/k60-work', '/mnt/e/hackios']
+
+
+def resolve_file_line(anchor, root=None):
+    """A file:line anchor must resolve to a real line, in the repo or an evidence root."""
+    path, _, line = anchor.rpartition(':')
+    candidates = [Path(root or REPO) / path] + [Path(base) / path for base in EVIDENCE_ROOTS]
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            count = sum(1 for _ in candidate.open('rb'))
+        except OSError:
+            return 'unreadable'
+        return None if 1 <= int(line) <= count else 'past the end of %s' % candidate
+    return 'no such file'
+
+
+def unresolvable_reference(text):
+    """Report the first anchor in the evidence that does not resolve, or None."""
+    if not text:
+        return 'no evidence'
+    for match in re.finditer(r'[\w./-]+\.(?:c|h|mm|cpp|py|sh|md|toml|dts|dtsi|log|txt):\d+', text):
+        problem = resolve_file_line(match.group(0))
+        if problem:
+            return '%s (%s)' % (match.group(0), problem)
+    for match in re.finditer(r'usblog-\d{8}-\d{6}', text):
+        if not any((Path(base) / match.group(0)).is_dir() for base in EVIDENCE_ROOTS):
+            return '%s is not an evidence directory' % match.group(0)
+    for match in re.finditer(r'\bP-\d{2,3}\b', text):
+        if ('id = "%s"' % match.group(0)) not in RULES_TEXT():
+            return '%s is not registered in RULES.toml' % match.group(0)
+    return None
+
+
+def RULES_TEXT():
+    cached = getattr(RULES_TEXT, '_cache', None)
+    if cached is None:
+        path = Path(REPO) / 'docs/engineering/RULES.toml'
+        cached = path.read_text(encoding='utf-8') if path.is_file() else ''
+        RULES_TEXT._cache = cached
+    return cached
 
 
 def has_reference(text):
@@ -118,6 +165,7 @@ def validate(mode='build', verbose=True):
 
     d = tomllib.load(open(DATA, 'rb'))
     problems = []
+    notes = []
     need = BUILD_STEPS if mode == 'build' else FLASH_STEPS
     checked = 0
 
@@ -125,8 +173,14 @@ def validate(mode='build', verbose=True):
     # 只有 status=active 的硬件做硬检查。parked/planned 如实记录但不阻断构建：
     # 八步流程约束的是「正在做的修复」，不是历史清单。
     hw = {k: v for k, v in hw_all.items() if v.get('status', 'active') == 'active'}
-    _parked = {k: v.get('status') for k, v in hw_all.items()
-               if v.get('status', 'active') != 'active'}
+    # 停放不是消失：每一项停放都要写清为什么停、什么条件下再看。
+    for name, body in hw_all.items():
+        if body.get('status', 'active') == 'active':
+            continue
+        if len((body.get('why') or '').strip()) < 20:
+            problems.append('%s :: 停放/计划中但没写 why（为什么现在不做）' % name)
+        if len((body.get('revisit') or '').strip()) < 10:
+            problems.append('%s :: 停放/计划中但没写 revisit（什么条件下重新开始）' % name)
     if not hw:
         return False, ['EIGHT-STEPS.toml 里没有 [hardware.*] 条目']
 
@@ -178,6 +232,17 @@ def validate(mode='build', verbose=True):
                 if len(cr) < 40:
                     problems.append('%s catalog_result 太短（要逐个说明官方组件能不能用）' % label)
                     continue
+            problem = _resolves(ev)
+            if problem:
+                # 构建不因文档引用债务停摆；一次上机是最终判据，那里必须干净
+                fatal = mode == 'flash'
+                if fatal:
+                    problems.append('%s 依据里的引用解析不到：%s' % (label, problem))
+                    continue
+                notes.append('%s 引用解析债务：%s（构建不拦，飞行必拦）' % (label, problem))
+            if mode == 'flash' and not (entry.get('recorded_at') or '').strip():
+                problems.append('%s 缺 recorded_at（⑦之前每一步都要记时间，才能证明早于上机）' % label)
+                continue
             checked += 1
 
         # flash 模式额外检查第 8 步的预测
@@ -191,6 +256,21 @@ def validate(mode='build', verbose=True):
             else:
                 checked += 1
 
+
+    # --- 上机顺序：已有 boot 记录时，七步必须早于它 ---
+    if mode == 'flash':
+        booted = last_boot_time()
+        if booted:
+            for name, body in hw.items():
+                for st in FLASH_STEPS:
+                    recorded = ((body.get('step', {}).get(st)) or {}).get('recorded_at') or ''
+                    try:
+                        when = _timestamp(recorded)
+                    except ValueError:
+                        continue
+                    if when > booted:
+                        problems.append('%s :: %s 的 recorded_at 晚于最近一次上机，先补证据再飞'
+                                        % (name, LABEL[st]))
 
     # --- README 表格一致性（防止 README 与 EIGHT-STEPS.toml drift）---
     try:
@@ -216,6 +296,39 @@ def validate(mode='build', verbose=True):
 
     return len(problems) == 0, problems
 
+
+LEDGER = '/mnt/e/k60-work/ledger.jsonl'
+
+
+def _resolves(text):
+    return unresolvable_reference(text)
+
+
+def _timestamp(text):
+    import datetime as _dt
+    return _dt.datetime.fromisoformat(text.replace('Z', '+00:00'))
+
+
+def last_boot_time():
+    """Time of the most recent recorded boot, or None."""
+    path = Path(LEDGER)
+    if not path.is_file():
+        return None
+    latest = None
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        stamp = record.get('recorded_at') or record.get('at') or ''
+        try:
+            when = _timestamp(stamp)
+        except ValueError:
+            continue
+        latest = when if latest is None else max(latest, when)
+    return latest
 
 if __name__ == '__main__':
     mode = 'flash'
@@ -280,3 +393,5 @@ else:
 _untracked = sorted(_tracked - _seen)
 if _untracked:
     warn('W', 'EIGHT-STEPS.toml 有 STATUS.md 未列的硬件', ', '.join(_untracked))
+
+

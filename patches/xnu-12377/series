@@ -49,7 +49,19 @@ armcpu-sleep-hook.patch
 0526-k60-bt-runtime-mount.patch
 0527-k60-bt-launchd-cache.patch
 0530-k60-spi-availability.patch
-0531-k60-audio-amp-probe-call.patch
+# 0531-k60-audio-amp-probe-call.patch is deliberately NOT listed: the kernel link
+# cannot resolve its call site. The call is `extern int pong_audio_amp_probe(void)
+# __attribute__((weak));` guarded by `!= NULL`, and clang does emit N_WEAK_REF
+# (verified in bsd_init.o's symbol table) -- but this ld64-port rejects an undefined
+# weak function reference in the static/dynamic images the kernel is linked as, and
+# accepts it only in the -kext form the kernel does not use. The result was
+# `Undefined symbols for architecture arm64e: "_pong_audio_amp_probe", referenced
+# from: _bsd_init in bsd_init.o; l_pong_audio_amp_probe$auth_ptr$ia$42271 in
+# bsd_init.o` (snapshot-build.log:1173089, round 15). Stage 0 has no audio: the file
+# stays here so the audio lane can list it again once PongAudioAmp.o is force-loaded
+# into the link and the symbol has a definition, which is what makes the probe
+# observable. A definition that returns 0 would not do: `AUDIO27 OK` has to tell
+# "not wired" from "wired to an empty shell".
 0532-k60-cpu-start-completion.patch
 # arm64_isa_compatibility.h emits the q-register spellings (sha256su0 q0, q1)
 # unless __apple_build_version__ > 5010000, i.e. unless Apple's assembler is

@@ -14,7 +14,19 @@
 3. **本工单不授权写 PMIC。** 任何寄存器写入、rail vote、充电使能都要等 ⑧ 的真机判据
    先过；这里只列“改什么”和“怎么判”。
 
-## 1 改线项
+## 1 归因顺序（硬序）
+
+一行日志可以同时属于好几个失败项：`physical transport initialization rejected` 既可能是 P-02 的节点被删，也可能是 P-03 的 lease 没发布；`no publication sample` 可能是 P-04 的 ACK 被拒，也可能是 P-05 的 map 坏了。所以判读不是“先 grep 到谁就是谁”，而是一条硬序：
+
+1. **C0 先。** 只看 `K60Handoff: published authenticated PAS1 epoch=` 与 `K60Battery: blocked rc=`。有 published、没有 blocked，C0 才算绿。
+2. **C0 绿了才看 C1。** C0 没过时，C1/C2 的日志可能一行都没有；此时任何 `subscription-ack`/`subscribed` 都读作“没跑到”，不是失败。
+3. **C1 绿了才看 C2**，**C2 绿了才看 C3**，**C2 绿了才读 rail（P-06）**。
+4. 同一阶段里再按 P-0x 编号从小到大认领：编号小的先拥有这一行。
+5. 判据输出（P-08 的配对不足）永远在 C1/C2 之后才成立，不能在前面的阶段还红着时用它归因。
+
+违反硬序的典型误判：C0 还没过就去修 P-04 的订阅常量；C2 还没过就拿 Android 的 836 mA 说“电流对不上”。
+
+## 2 改线项
 
 | # | 改什么 | 当前读数（带出处） | 目标读数 | 失败字样（照 grep） | 判据 | 这一项若失败，最先出现的一行 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -31,20 +43,20 @@
 
 - 共用行：P-05 拥有 `no publication sample`；P-08 在控制台侧只会看到同一行，它自己的第一行是判据输出的 `有效对不足`（C1/C2 未过时判据只打 `C1/C2 未通过`，P-08 不单独成立）。
 - 两个旧串没有打印点：`no PMIC channel` 全树只在本工单出现；`rail never measured` 的真实串是 `K60ADSP: rails not measured: pong_rail_probe is off...`（`K60PmicRail.c:401`）。判读用后者。
-- `pong_rail_probe=1` 时首行可能是 `K60RAIL ...`（`K60PmicRail.c:320`），所以 §2 的过滤器已补上 `K60RAIL`；读 rail 时不要漏掉这个前缀。
+- `pong_rail_probe=1` 时首行可能是 `K60RAIL ...`（`K60PmicRail.c:320`），所以 §3 的过滤器已补上 `K60RAIL`；读 rail 时不要漏掉这个前缀。
 - **P-02 的首行有条件**：`physical transport initialization rejected` 只在通道/描述符本身缺失时出现。`patches/xnu/0602-k60-physical-battery.patch` 直接调用 `k60_physical_battery_start`，`K60PmicGlink::open` 只从 lease+SMEM 取数并 `qcom_glink_adopt`，不读设备树；删掉四层 DTS 节点不会改变本驱动日志，所以 DTS 存在与否不能只由这一行证明。
 - **P-05 的首行分叉**：ADSP 静默时 `requestAction` 的 3 s 超时行（charger 树 `K60Battery.cpp:534`）先于 `:480`；`:480` 只适用于通道已通、ADSP 会回帧的场景。
 - **P-03 的 rc 不止 -4**：`blocked rc=` 还可能是 -1/-2/-3/-5（合成 lease 校验）；publisher 自己失败时更早的是 `K60HandoffRuntime.cpp:58/:65/:74`。
 - **跨树行号**：表中 `K60Battery.cpp` 行号以 charger 树为准；27 树更旧（channel-up `:355`、rejected `:458`、blocked `:535`、timeout `:399`）。新列只写字符串，不锁行号，除 `K60PmicRail.c:401/:320` 两树一致。
 
-## 2 一次飞行的读法
+## 3 一次飞行的读法
 
-按顺序读，前一项不过就不进入下一项：
+按 §1 的硬序读，前一项不过就不进入下一项，也不把后面的行算成当前项的失败：
 
 1. **C0 lease**：`K60Handoff: published authenticated PAS1 epoch=` → `K60Battery: blocked rc=` 不出现。
 2. **C1 订阅**：`actual PMIC_RTR_ADSP_APPS channel up; measured sign= subscription-ack=1/16`，
    且 10 s 内首帧 sample 行尾 `subscribed=1`。
-3. **C2 四属性**：首帧 sample 的 voltage/current/SOC/temp 都在 §1 P-05 的区间。
+3. **C2 四属性**：首帧 sample 的 voltage/current/SOC/temp 都在 §2 P-05 的区间。
 4. **C3 对照**：至少 3 对 iOS/Android 同窗口样本，四条偏差都在阈值内。
 5. **P-06 rail**：只在 C2 之后读账本；账本不完整时记录 `missing` 字段，不写 vote。
 
@@ -58,14 +70,14 @@ grep -E 'K60Handoff:|K60Battery:|K60ADSP|K60RAIL|K60TRACE:' <console.log>
 `subscription-ack=0/0` 是常量没进内核，不是 ADSP 拒绝；先查生成器/镜像，不要改协议。
 `subscribed=0` 且 `errors=` 递增才是 ACK 被拒；按 `K60Battmgr.c` 的 type/bytes/result 白名单核对。
 
-## 3 这张工单不做什么
+## 4 这张工单不做什么
 
 - 不把 104 字节 handoff 改大；L0 与 L1 是两层，改大破坏已发布的解析器与消费方。
 - 不在 AP 侧补 SPMI 控制器来“绕过”ADSP；那会把一条有固件服务端的路径换成无证据路径。
 - 不在 C1/C2 未过时接 charge-auth、写 rail vote 或使能充电。
 - 不把 Android 的 836 mA / 4333 mV / 35.8 °C 当成 iOS 的读数；它们只是 C3 的对照基线。
 
-## 4 出处
+## 5 出处
 
 - 设备树：`E:/hackios/xnekom-ios27/dts/mondrian.dts:187-232`。
 - 通道/编码：`drivers/PongPower/K60PmicGlink.cpp:84`、`K60Battmgr.h:64-69`、`K60Battery.cpp:442-444,535`。

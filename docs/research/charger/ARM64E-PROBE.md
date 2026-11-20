@@ -403,9 +403,17 @@ python3 scripts/check-pac-probe-capture.py --image <image>
 python3 scripts/check-pac-probe-capture.py --image <image> --log <console.log>
 ```
 
-第一条只回答「镜像里有没有 `K60PAC: probe v3 start` 这段格式串」：有就 `PASS`，
-没有就 `INVALID` 并点名缺的字符串。它证明的是镜像里没有这段串，不是硬件没有
-PAuth；格式串在、`start` 行却没出现，先查探针的选择/调用路径与串口，再谈 P0–P4。
+第一条只回答「镜像里有没有 `K60PAC: probe v3 start` 这段格式串」。
+
+`INVALID` 不是一种结论。检查器每条 `INVALID` 都打一行 `cause:`，三种的修法相反：
+
+| cause | 判据 | 该做什么 |
+| --- | --- | --- |
+| `build` | 镜像里连 `K60PAC: probe v3 start` 格式串都没有，或日志没有 start 行而镜像也没有这段串 | **重新出镜像**，不要重飞、不要改串口 |
+| `version` | 启动的是 v2（或其他版本）、首条 K60PAC 行不是 start、`image_sha256` 与镜像不符 | 镜像与捕获不是一对：**换回镜像并重飞** |
+| `run` | 镜像里有格式串，日志却一条 K60PAC 都没有 | 探针没跑起来：**重飞**，再查探针的选择/调用路径与串口 |
+
+三者都不等于“硬件没有 PAuth”。只有 `run` 才是“这一飞没跑起来”，`build` 重飞多少次都一样。
 
 第二条在飞行后判 P0–P4 与 `done` 是否都在：`INCOMPLETE` 会点名缺的那一行
 （如 `P0 core=3 line`），`INVALID` 保留哈希/版本/CPU 数不符的原因，只有 `PASS`

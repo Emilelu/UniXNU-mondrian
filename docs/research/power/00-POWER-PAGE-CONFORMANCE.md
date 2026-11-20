@@ -151,16 +151,18 @@
   27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、四个判读器是否已并入、八份契约表
   （`CARRY.toml`、`HW-CONTRACTS.toml` 与它生成的 `-IOS27.md`、`PROP-NUMBERS.toml` 与 `.md`、
   `LANE-CONFORMANCE.toml` 与 `.md`、`27-WORKORDER.md`）是否随树带入——只搬了模块没搬表的树有代码却没有改线清单。
-- 逐条对齐官网页面的表是 `docs/research/power/LANE-CONFORMANCE.toml`（24 行，adsp 5 / battery 7 /
-  charger 1 / thermal 2 / power 9），`python3 scripts/check-lane-conformance.py` 核对三件事：
+- 逐条对齐官网页面的表是 `docs/research/power/LANE-CONFORMANCE.toml`（26 行，adsp 5 / battery 7 /
+  charger 1 / thermal 2 / power 11），`python3 scripts/check-lane-conformance.py` 核对五件事：
   `requirement` 的句子必须真的出现在 `docs/zh/porting/power.md` 那一节（防止凭记忆引一句不存在的话）、
-  `evidence` 必须是一个存在的文件、非 `verified` 的行必须写 `why`；`--render` 生成
-  `LANE-CONFORMANCE.md`（同一份表，给读者看）。2026-11-20 的结论是 24 行里 verified 19、partial 5
+  `evidence` 必须是一个存在的文件、`verified` 行必须写出证据文件里真正证明它的那一行、
+  非 `verified` 的行必须写 `why`、同一 lane 里同一句要求不能被两行重复引用；`--render` 生成
+  `LANE-CONFORMANCE.md`（同一份表，给读者看）。2026-11-20 的结论是 26 行里 verified 21、partial 5
   （`dsp-firmware-auth` 只有离线证据、`charger-independent-protocol` 未上机、`thermal-advise` 的
   温控证据不可用、`battery-device-verification` 缺真插拔/放电/超时/服务重启、`power-fence-wait`
-  的 1 ms 预算已写进规则但 fence 还没有消费者），夹具 16 项。这张表与 runner 无关，因为它依赖官方页面的本地副本
+  的 1 ms 预算已写进规则但 fence 还没有消费者），夹具 22 项。这张表与 runner 无关，因为它依赖官方页面的本地副本
   `E:/hackios/UniXNU/docs/zh/porting/power.md`，搬出去的树没有那份副本。
-  2026-11-20 对 `xnekom-ios27@ee910a78` 实测 3 个阻塞（温控三文件缺、PONG 门控、两个判读器缺），
+  2026-11-20 对 `xnekom-ios27@ee910a78` 实测 5 个阻塞（`K60ThermalMap`/`K60ChargeAuth` 两对文件缺、
+  `0629` 的 report 被 PONG 包住、三个判读器缺、八份契约表未随树带入、十行契约无文件可开），
   builder 路由已通过。
 
 ## 汇总

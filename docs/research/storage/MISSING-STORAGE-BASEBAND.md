@@ -140,9 +140,9 @@ LC_SEGMENT_64 records; llvm-objdump --macho --private-headers shows the same ran
   docs/research/storage/ROUTE-D-PLAN.md. Storage and route-D stay frozen.
 - Hardware is not involved.
 
-The same six rows are in missing-storage-baseband.tsv for scripted use.
+The six addresses are in missing-storage-baseband.tsv for scripted use; that file carries addresses and bundle owners, not class names.
 
-## Candidate pairing: what the four criteria decide
+## Candidate pairing: why the six stay unnamed
 
 This section tries the pairing the 95-item note leaves open. The answer is negative:
 none of the six can be paired with a class, and the evidence says they are not
@@ -156,45 +156,25 @@ kernel.macho (93,077,504 B, candidate_sha256 4e57f1822d352022b2a825f93ac41d653a1
 contains the same six addresses and was used for the symbol and byte checks below.
 The LTO output may differ in symbols; this section does not claim otherwise.
 
-### The candidate set, and why it is not a storage class
+### Conclusion: the candidates converge, but no name is unique
 
-The family's own classes include IOBlockStorageDevice, IOStorage, IOMedia,
-IOPartitionScheme, IOFilterScheme, IOMediaBSDClient, IOBlockStorageDriver,
-IOFDiskPartitionScheme, IOGUIDPartitionScheme, IOAppleLabelScheme,
-IOApplePartitionScheme and IOUserBlockStorageDevice. A gMetaClass object for one
-of those classes belongs in the family's own __DATA_CONST, which is
-0xfffffff008313f98 + 0x5c40 in the 24A446 entry. All six addresses are below that
-range, in the root __DATA_CONST 0xfffffff007dd0000 + 0x618000. They are not in the
-family's own segment.
-
-The base classes the family's classes use are a different set: IOStorage derives
-from IOService, IOService from IORegistryEntry, and IORegistryEntry from OSObject;
-property handling uses OSDictionary, OSSymbol and OSString; buffer handling uses
-IOMemoryDescriptor and IOSubMemoryDescriptor. The six addresses are shared with
-three to thirteen other bundles, including IOHIDFamily, IOReportFamily,
-IOSurface, apfs, sandbox and AppleImage4. Those bundles do not use IOStorageFamily
-classes. A storage-private class therefore cannot explain the sharing; a kernel
-base class can. The candidate set for the six is the base-class set, not the
-family's class list, and no evidence assigns one member of that set to one
-address. The set is open: OSMetaClass, OSCollection, OSArray, OSData, OSNumber,
-OSSet and OSIterator are also possible in principle.
-
-### The four columns
-
-| address | bundle and candidate class | our kernel symbol | criterion |
-|---|---|---|---|
-| 0xfffffff007e87df8 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
-| 0xfffffff007e89b80 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
-| 0xfffffff007e89b98 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
-| 0xfffffff007e89ba0 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
-| 0xfffffff007e89ba8 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
-| 0xfffffff007e8a9e0 | com.apple.iokit.IOStorageFamily (owner, not definer); candidate set above, no unique name | absent | bundle __DATA_CONST: no; 8-byte aligned: yes; vtable/OSMetaClass offset: no; verdict: no pair |
+Under two premises - the readable artifact has no symbol table, and the six byte
+images are not OSMetaClass headers - the candidates can only converge to the
+base-class set OSObject, IOService, IORegistryEntry, OSDictionary, OSSymbol,
+OSString and IOMemoryDescriptor (with OSMetaClass, OSCollection, OSArray, OSData,
+OSNumber, OSSet and OSIterator also possible in principle). No row can be
+uniquely named. The family's own classes are excluded: their gMetaClass objects
+would sit in the family's own __DATA_CONST 0xfffffff008313f98 + 0x5c40, while all
+six addresses are in the root __DATA_CONST 0xfffffff007dd0000 + 0x618000. The six
+are shared with three to thirteen non-storage bundles, so a storage-private class
+cannot explain them; a kernel base class can.
 
 The owner field in kernel.json is the bundle that carries the reference, not the
-bundle that defines the target. That distinction is why the first criterion is the
-decisive one.
+bundle that defines the target. That distinction is why the bundle-local
+__DATA_CONST test is the decisive one: all six addresses fail it, and no symbol
+in the readable artifact names them.
 
-### Why the symbol column is absent
+### Why no kernel symbol names them
 
 The CI artifact's com.apple.kernel entry has LC_SYMTAB nsyms 221,793. llvm-nm on
 the normalized child prints 27,666 defined symbols. Exactly five are gMetaClass
@@ -243,6 +223,11 @@ The evidence is consistent with shared base-class data targets and does not supp
 be used to derive a storage class ABI, and they do not change the 190-slot table or
 the PENDING-safe storage preflight. They also do not close prelink-map-unresolved.
 
-What would be needed to pair them: a symbol-bearing kernel or kext (not stripped),
-a __PRELINK_INFO class list (not present), or a runtime constructor trace (not
-authorized here). A guessed class name is not a pairing.
+### F3 preflight: what moves it off PENDING
+
+The F3 storage preflight stays PENDING. It can become PASS only when one of two
+things exists: (a) a symbol-bearing 24A446 artifact, even a third-party extracted
+OSMetaClass list, that maps the six addresses to class names; or (b) kit-side
+class-name pairing (the Lead's work). A guessed name, a name without the address,
+or an address without a symbol does not move it; this report does not claim either
+condition is met.

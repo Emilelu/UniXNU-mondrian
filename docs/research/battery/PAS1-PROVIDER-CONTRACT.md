@@ -149,6 +149,17 @@ XNU 树：用例会自己把 0611 的前身补丁打上去。这个前提现在�
 
 默认关闭门控仍是 PE_parse_boot_argn 成功且 unsigned 结果为 1；不是严格原始字符串匹配。裸参数/四字节截断 caveat 及 14 个 parser-stub dispatch 测试见集成顺序。未改 board 参数/白名单。
 
+## 同一条 GLINK 通道上的第二个 owner（2026-11-20）
+
+电池管理器（owner 32778）不是这条通道的唯一用户：USB-C 端口管理器（32779）共用同一条通道，sheng 的
+`package/ShengBattery.cpp:30` 写着这件事，并在 `ea15446` 里把它的 UCSI 帧路由给 `QcomDwc3`、把最大消息
+从 512 B 抬到 560 B、把充电器 online 状态当作 VBUS 信号交给 USB 驱动。
+
+我们这边只有电池管理器：`drivers/PongPower/K60Battmgr.c:161` 把 `le32(data) != K60_BATTMGR_OWNER` 的帧
+计进 `ignored` 并返回 `K60BmIgnored`——也就是**按 owner 过滤，但不分流**。这在没有 USB-C 驱动的今天是正确的
+（不认识的帧不解析），可是它只留一个计数器：27 线一旦接入 UCSI，32779 的帧必须按 owner 送进 USB-C 驱动，
+而不是继续落进 `ignored++`。这条契约登记为 `HW-CONTRACTS.toml` 的 `battery-owner-usbc-neighbour`，第二来源
+就是上面那句 sheng 注释；`scripts/check-hw-contracts.py` 会同时核对我们的过滤行与那句话。
 ## 历史 owner 阶段检查与剩余阻塞
 
 五个宿主测试共 77 场景（17/11/12/15/22），使用 [共享 fixture](../../../scripts/tests/test-k60-owner-fixture.h) 注入 fake carrier/PAS/资源/registry，运行真实 MDT、SMEM allocator、build-existing、consumer parser 和持久 wrapper。覆盖 required14、缺 partition、AUTH 失败/Poisoned、错 epoch/token、重入/陈旧阶段、配置栈寿命、8 字节对齐、重复属性、root 未就绪及成功后不释放。它们验证编排和失败边界，不验证硬件。

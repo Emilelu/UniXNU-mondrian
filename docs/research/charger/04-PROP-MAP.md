@@ -429,3 +429,9 @@ llvm-objdump -dr --start-address=0x34b8 --stop-address=0x372c "$K"
 # 7) 回包 cache[index] = value
 llvm-objdump -dr --start-address=0x234c --stop-address=0x2464 "$K"
 ```
+
+## 16 → 27 属性号对照
+
+\`docs/research/charger/PROP-NUMBERS.toml\` 是 16 线到 27 检出的逐行对照（18 行：12 个 IOKit 键、5 个字符串属性、1 张 wire 表）。三档结论只允许 \`same\` / \`differs-known\` / \`unknown\`，\`unknown\` 的行进待查清单交人决定；\`differs-known\` 必须写明谁改。\`python3 scripts/check-prop-numbers.py\` 两侧各开一次文件逐行核对，\`--render\` 写出 \`PROP-NUMBERS.md\`（生成物，手改会被判 stale，P-259）。
+
+2026-11-20 的实测：18 行全部 \`same\`——27 检出在 \`E:/hackios/xnekom-ios27/drivers/PongPower/K60Battery.cpp:108-133\` 用的是同一批键名，\`K60Battmgr.c\` 的 19 项 \`fields[]\` 也逐项相同。也就是说属性号可以照抄，27 侧剩下的是读路径接线（PMIC 属性号、\`read_random\`、\`IOPMPS\` 处理路径），不是重新命名。

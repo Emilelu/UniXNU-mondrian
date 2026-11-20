@@ -46,7 +46,7 @@
 #      commit, when its checkout is reachable; the row names the commit it ran on, because
 #      a stale checkout passes just as quietly
 # Reports each check and exits nonzero if any check fails.
-ROWS_EXPECTED=59
+ROWS_EXPECTED=60
 
 case "$#:$*" in
 0:) rows_expected=$ROWS_EXPECTED; label=PREFLIGHT ;;
@@ -194,6 +194,7 @@ run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "27 triage is honest" python3 scripts/tests/test-triage-audio27.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "wiring dry run" sh scripts/tests/test-wiring-dry-run.sh
+run "host suite four times at once" python3 scripts/tests/test-audio27-host-concurrency.py
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 include checker is honest" python3 scripts/tests/test-audio27-includes.py

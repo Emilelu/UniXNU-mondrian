@@ -8,14 +8,34 @@
 # exactly the tree the migration lands in. This script builds that tree in a temp
 # directory, walks the sequence, and fails at the step that broke.
 #
-#   sh scripts/tests/test-wiring-dry-run.sh
+#   sh scripts/tests/test-wiring-dry-run.sh [workdir]
+#
+# workdir is optional. A caller that owns a directory passes it and keeps it;
+# without one the script makes a private directory and removes it.
 #
 # Prints one line: DRYRUN OK files=23 conf=2 init=1 tests=TESTS OK ...
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+case $# in
+0)
+	tmp=$(mktemp -d)
+	own=1
+	;;
+1)
+	tmp=$1
+	mkdir -p "$tmp" || exit 1
+	tmp=$(cd "$tmp" && pwd) || exit 1
+	own=0
+	;;
+*)
+	echo "usage: $0 [workdir]" >&2
+	exit 2
+	;;
+esac
+if [ "$own" = 1 ]; then
+	trap 'rm -rf "$tmp"' EXIT
+fi
 tree=$tmp/tree
 mkdir -p "$tree/.cache/xnu-work/bsd/conf" "$tree/.cache/xnu-work/bsd/dev" \
 	"$tree/.cache/xnu-work/bsd/kern" || exit 1
@@ -56,7 +76,7 @@ init=$(grep -c 'pong_audio_amp_probe()' "$tree/.cache/xnu-work/bsd/kern/bsd_init
 [ "$init" = 1 ] || { echo "FAIL: the hook landed $init times"; exit 1; }
 
 # 4. the copy still tests, with the glue in place
-out=$(cd "$tree/drivers/PongAudio" && sh tests/run-tests.sh 2>&1 | tail -1)
+out=$(cd "$tree/drivers/PongAudio" && sh tests/run-tests.sh "$tmp/host" 2>&1 | tail -1)
 case "$out" in
 	*"TESTS OK"*) ;;
 	*) echo "FAIL: the copy does not test: $out"; exit 1;;

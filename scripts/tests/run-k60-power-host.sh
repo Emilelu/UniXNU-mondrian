@@ -80,6 +80,7 @@ run_py wire-props python3 scripts/tests/test-check-battmgr-wire.py
 run_py prop-numbers python3 scripts/tests/test-check-prop-numbers.py
 run_py fdt-props python3 scripts/tests/test-read-fdt-props.py
 run_py counts python3 scripts/tests/test-check-power-counts.py
+run_py judge-thresholds python3 scripts/tests/test-check-judge-thresholds.py
 run_py boot-img python3 scripts/tests/test-extract-boot-img.py
 run_py console-contract python3 scripts/tests/test-check-console-contract.py
 echo "power-python: OK ($python_suites suites)"

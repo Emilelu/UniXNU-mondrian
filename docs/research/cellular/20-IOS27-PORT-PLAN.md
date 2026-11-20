@@ -698,3 +698,54 @@ python3 scripts/check-ios27-readiness.py --tree <27 树>
 ```
 
 rc=0 就可以开始第一次带基带的内核构建；rc=1 的每一行都写明是哪一条期望变了。
+
+## 20. 27 侧 conffiles 的实测差（2026-11-20 08:37）
+
+实测对象：`/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree`。
+种子后的 `.cache/xnu-work/bsd/conf/files` 目前 `pong_` 计数为 0，
+即 27 线的驱动源码还没有任何 conffiles 条目。
+
+### 20.1 锚点必须换
+
+27 侧 `scripts/append-conffiles.py` 里的 `ANCHOR = "bsd/dev/pong_buttons.c			standard"`
+在本线不存在：`pong_buttons.c` 来自 16 线的补丁，27 的移植序列（0626–0630）不装它。
+种子后的 `bsd/conf/files:108` 是 `bsd/dev/unix_startup.c			standard`——这正是 Lead 07:41 裁决的落点。
+不改就只会打印 `conffiles: anchor missing, entries not added` 并返回 1。
+
+### 20.2 条目差 18 条
+
+27 侧现列 8 条（smem / handoff / adsp_startup / adsp_boot / adsp_pas / adsp_image / fat / pmic_rail），
+我们的 `conffiles-port.txt` 是 19 条，差的就是下面 18 条（缺一条 `pong_smem.c` 两边都有）：
+
+- `bsd/dev/pong_ipa.c`
+- `bsd/dev/pong_ipa_gsi.c`
+- `bsd/dev/pong_ipa_qmap.c`
+- `bsd/dev/pong_ipa_qmi.c`
+- `bsd/dev/pong_ipa_qmi_server.c`
+- `bsd/dev/pong_ipa_qmi_transport.c`
+- `bsd/dev/pong_ipa_qrtr.c`
+- `bsd/dev/pong_ipa_smmu.c`
+- `bsd/dev/pong_mdt.c`
+- `bsd/dev/pong_modem_boot.c`
+- `bsd/dev/pong_modem_efs.c`
+- `bsd/dev/pong_modem_image.c`
+- `bsd/dev/pong_modem_link.c`
+- `bsd/dev/pong_modem_memshare.c`
+- `bsd/dev/pong_modem_pas.c`
+- `bsd/dev/pong_modem_qrtr.c`
+- `bsd/dev/pong_modem_rmtfs.c`
+- `bsd/dev/qcom_glink.c`
+
+### 20.3 顺序：先打补丁再追加
+
+追加器对`不存在于 .cache/xnu-work 的源文件`是`静默丢弃`（`dropped absent`），
+而我们的 18 个源文件全部由 0626–0630 新建。所以追加必须在 `git apply` 之后、编译之前；
+反过来做不会报错，只会在链接期变成 Undefined symbols。
+
+### 20.4 复核方式
+
+本线 `scripts/check-ios27-readiness.py` 的 `conf_anchor()` 已经盯着这条链：
+它在种子树的 `bsd/conf/files`/`files.arm64` 里找 `bsd/dev/unix_startup.c` 这一行，
+并断言五份产物的 `+++ b/` 目标集合与 `conffiles-port.txt` 逐项相等。
+追加器落地后，`patch_artifacts()` 里那条`27 树 bsd/conf 计数为 0`的期望会 DRIFT，
+提醒我们把期望值改成 19。

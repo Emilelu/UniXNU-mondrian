@@ -71,3 +71,35 @@ thirteen are referenced by one to four bundles.
 
 None is reviewed yet. The blocker `prelink-map-unresolved` stays open until the
 table is filled and the 203 stubbed call sites have been shown unreachable.
+
+## What the decoder actually found (2026-11-21)
+
+`scripts/decode-kext-target.py` reads the fixup entry stored in each slot. Two
+corrections to the earlier guess, both from running it:
+
+* the fixups payload starts at the load command's `dataoff`, not at the load
+  command itself, and `dyld_chained_starts_in_segment` keeps `page_count` at
+  `+20` -- reading `+6` gave `imports_count = 1_163_157_343`, which is how the
+  first attempt "decoded" nonsense;
+* the entries here are **authenticated rebases** (`auth = 1`), so the target is a
+  32-bit offset from the image base, not the 43-bit field the plain-rebase layout
+  uses.
+
+Decoded so far, with the collection base `0xfffffff007004000`:
+
+| slot | entry | decoded |
+| --- | --- | --- |
+| `0xfffffff007e89b80` | `0x001000000478d818` | auth-rebase `+0x478d818` -> `0xfffffff00b791818` in `__DATA` |
+| `0xfffffff007e8a9e0` | `0x02c0000004832e68` | auth-rebase `+0x4832e68` -> `0xfffffff00b836e68` in `__DATA` |
+
+Two consequences for the checklist:
+
+1. these six shared slots point into the kernel's own `__DATA`, i.e. they are
+   references to objects our kernel also builds -- the pairing target exists, it
+   is the name that is missing;
+2. `0xfffffff007044478` sits in `__PRELINK_TEXT`, a segment with no chained-fixup
+   info at all, so that row needs a different method (it is not a data rebase).
+
+`imports_count` in the pinned kernelcache is **0**: there are no bind entries, so
+no import names can be recovered from this file. Naming therefore has to come from
+the object the slot points at, which is the next step.

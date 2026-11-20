@@ -77,7 +77,7 @@ AFE/TDM 参数表不进内核接线：它只按 §1b 随 host 测试走。
    **从远端重新 clone 的分支副本**里跑过一遍（`git clone --branch feat/audio-ios27-carry …`）：
    全 `ok`，说明这条分支自带它需要的一切，不依赖本仓工作树、16 线补丁或未提交文件。
    四行要一棵 27 源树（`XNU27_REPO`）：`27 kernel interfaces are there`、`27 tree has no clashing symbols`、
-   `27 patch emits unchanged`、`27 series carries the patch`。最后一行装的是第三份拷贝：同一个调用块
+   `27 patch emits unchanged`、`27 series carries the patch`。；若系列把 0531 注释掉了并在注释里点名，这一行改成 `SERIES HOLD …` 加 `SERIES OK … (held, not listed)`，退出码仍是 0（详见 WIRING 的「0531 现在为什么没有列进系列」一节）最后一行装的是第三份拷贝：同一个调用块
    在系列里落地之后，它必须与生成器现算的**代码**相同（`SERIES NOTE …` 后接 `SERIES OK 0531-… <size> B sha256 <digest> inserts
    the emitter code`）；上下文宽度与注释文风是交付决定，门禁不比字节；系列还没 book 它时打印 `skip … the Lead books it and the emitter is the source`，
    而不是绿一行。系列目录默认 `/mnt/e/hackios/k60-gates/patches/xnu-12377`，`XNU27_SERIES` 可改；

@@ -442,19 +442,30 @@ sh scripts/tests/portability/run-symbols.sh
 `scripts/check-audio27-builder.py` 查这三样，读数来自**真的驱动与真的框架**，不是本文档的副本。
 预检里它们是三行，一行一处接缝——三处断掉的样子不同，混成一行就分不出是哪一处：
 
+驱动还没接的时候，前两行是**等待态**（`not wired yet`，退出码 0）：明说驱动没接，胶水会编进去但永远不会跑。
+**2026-11-20 10:28 Lead 接完两处**，同一份驱动现在读数是：
+
 ```
-ok   27 driver takes the conf hook      BUILDER: not wired yet (scripts/build-ios27-linux.sh never names K60_CONF_FILES_HOOK); …
-ok   27 driver takes the define         BUILDER: not wired yet (… never passes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1); …
+ok   27 driver takes the conf hook      BUILDER OK: scripts/build-ios27-linux.sh takes K60_CONF_FILES_HOOK=scripts/k60-conf-files-hook.py through the environment
+ok   27 driver takes the define         BUILDER OK: scripts/build-ios27-linux.sh takes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 in the env prefix
 ok   framework passes env to builder    BUILDER OK: scripts/unixnu/kernel.py:175 hands dict(os.environ) to the device builder
 ```
 
-前两行的 `ok` 是「等待态」：`not wired yet` 明说驱动还没接，胶水会编进去但永远不会跑；接上以后同一行变成
-`BUILDER OK: scripts/build-ios27-linux.sh takes K60_CONF_FILES_HOOK=… on the kernel line` 与
-`BUILDER OK: … takes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 in the env prefix`。
-接了却接错（钩子只在别处被提到、或在 `#!/bin/sh` 里 `export` 点号名）是 `FAIL` 并点名；
-第三处在没有框架检出时打 `skip`，不冒充绿。
-`scripts/tests/test-audio27-builder.py` 的七个用例把这几种形状各复现一遍（含 dash 里 `export` 一个点号名、
-钩子只出现在注释里、框架改成 `env = {}`、驱动与框架都不在）。
+驱动里的两处分别是 `build-ios27-linux.sh:51-54`（`if [ -f … ]` 里先赋值再 `export K60_CONF_FILES_HOOK`）与
+`:59-60`（`env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" python3 ./unixnu build kernel`）。
+钩子走 export、宏走 `env` 前缀，不是两种写法随便挑：点号名在 `#!/bin/sh` 里不能 export（P-260），而钩子名可以，
+并且它必须在「文件在不在」的那个 `if` 里赋值，所以用的是「先赋值、再单独 export」两行形态。
+
+检查器认三种「交到了」：`build kernel` 那一行自己带 `NAME=…`；驱动里 `NAME=…` + 之后一行 `export NAME`；
+一行 `export NAME=…`。三种都要求值落在 `scripts/k60-conf-files-hook.py` 上，并且中间没有 `unset`。
+**注释不算交付**：如果这个名字只出现在 `#` 后面，报的是
+`BUILDER FAILED: … names K60_CONF_FILES_HOOK only in a comment, so the kernel line never carries it and a build reads as wired`；
+如果它在别处被赋值、但没送到 `build kernel` 这条命令上，报的是 `BUILDER FAILED: … names … elsewhere but the kernel line does not carry it`。
+在 `#!/bin/sh` 里 `export` 点号名仍是 `FAIL`（dash 直接拒绝），提示改用 `env` 前缀。第三处在没有框架检出时打 `skip`，不冒充绿。
+
+`scripts/tests/test-audio27-builder.py` 的八个用例把这几种形状各复现一遍：等待态三行、接好三行、
+「别处赋值但没送到」（FAIL）、「只在注释里」（FAIL）、「赋值后单独 export」（OK）、「赋了又 unset」（FAIL）、
+`#!/bin/sh` 里 export 点号名（FAIL）、框架改成 `env = {}`（FAIL）、驱动与框架都不在（skip）。
 
 
 
@@ -592,6 +603,48 @@ sh scripts/tests/portability/run-weak-hook.sh
   `27 patch emitter is honest`（生成器自带 5 例宿主测试）与
   `27 patch emits unchanged`（`XNU27_REPO` 在场时按上面那组参数真跑一遍）。
 
+### 0531 现在为什么没有列进系列（2026-11-20 10:20 实况）
+
+Lead 把 0531 从 `patches/xnu-12377/series` 里**注释掉了**，理由写在系列文件里：
+
+```
+# 0531-k60-audio-amp-probe-call.patch is deliberately NOT listed: the kernel link
+# cannot resolve its call site. The call is `extern int pong_audio_amp_probe(void)
+# __attribute__((weak));` guarded by `!= NULL`, and clang does emit N_WEAK_REF
+# (verified in bsd_init.o's symbol table) -- but this ld64-port rejects an undefined
+# weak function reference in the static/dynamic images the kernel is linked as, and
+# accepts it only in the -kext form the kernel does not use. The result was
+# `Undefined symbols for architecture arm64e: "_pong_audio_amp_probe", referenced
+# from: _bsd_init in bsd_init.o; l_pong_audio_amp_probe$auth_ptr$ia$42271 in
+# bsd_init.o` (snapshot-build.log:1173089, round 15). Stage 0 has no audio: the file
+# stays here so the audio lane can list it again once PongAudioAmp.o is force-loaded
+# into the link and the symbol has a definition, which is what makes the probe
+# observable. A definition that returns 0 would not do: `AUDIO27 OK` has to tell
+# 「not wired」 from 「wired to an empty shell」.
+```
+
+这条对音频线是硬事实，改的是我们的假设，不是别人的排版：`__attribute__((weak))` 在这种 ld64 上只解决**编译**，不解决**链接**。
+clang 确实发了 `N_WEAK_REF`，但 arm64e 的认证指针桩 `l_pong_audio_amp_probe$auth_ptr$ia$42271` 仍然需要一个目标；
+这个 ld64 只在 `-kext` 形态里接受未定义弱函数引用，而内核不是那种形态。于是顺序被钉死：
+**先把 `PongAudioAmp.o` 强制加载进链接（即 `K60_CONF_FILES_HOOK` 那两行加每目标 `-DXNU_PONG_AUDIO`），再把 0531 列进系列**。
+反过来先列，构建会在链接期红，而源码级门禁全绿。
+
+一个诱人的捷径是给个返回 0 的定义让链接过去 —— 不行。`AUDIO27 OK` 要能区分「没接线」和「接了一个空壳」；
+一个恒返回 0 的 `pong_audio_amp_probe()` 会让产物判据在没音频时也绿。
+
+因此本线现在的状态是**有记录的暂缓**，门禁按这个状态判：
+
+| 系列里的情形 | 门禁打印 | 退出码 |
+| --- | --- | --- |
+| 列着、代码与生成器一致 | `SERIES OK … inserts the emitter's code` | 0 |
+| 列着、只有注释/排版不同 | `SERIES NOTE …` 后接 `SERIES OK` | 0 |
+| 列着、代码不同 | `SERIES FAILED … inserts different code` | 1 |
+| 在目录里、没列、注释里点了名 | `SERIES HOLD … the series file says why` 后接 `SERIES OK … (held, not listed)` | 0 |
+| 在目录里、没列、没有注释 | `SERIES FAILED … no comment says why` | 1 |
+| 目录里还没有这份补丁 | `series: no 0531 audio patch …` | 3（skip） |
+
+宿主用例 9 例（`scripts/tests/test-audio27-series.py`）把后三行各钉一例，包括「注释掉但点了名」与「注释掉又没点名」必须一个有记录、一个失败。
+
 ### 第三份拷贝：系列里落地的那一份
 
 同一个调用块一共三份拷贝：applier 的 `INIT_BLOCK`（源）、我们交付的补丁文件、以及 Lead book 进
@@ -602,6 +655,8 @@ sh scripts/tests/portability/run-weak-hook.sh
 python3 scripts/check-audio27-series.py <27 源树> [--series DIR]   # 默认 /mnt/e/hackios/k60-gates/patches/xnu-12377，XNU27_SERIES 可改
 # SERIES NOTE: 0531-k60-audio-amp-probe-call.patch differs in bytes (series <digest>, emitter 3665a972…); the inserted code matches
 # SERIES OK 0531-k60-audio-amp-probe-call.patch <size> B sha256 <digest> inserts the emitter code
+# SERIES HOLD: 0531-k60-audio-amp-probe-call.patch sits in <series> unlisted, and the series file says why: '0531-k60-audio-amp-probe-call.patch is deliberately NOT listed: the kernel link'
+# SERIES OK 0531-k60-audio-amp-probe-call.patch 1033 B sha256 983f1e2e… inserts the emitter code (held, not listed)
 ```
 
 三种答案分开：`0` 一致、`1` 不一致或系列文件里没列它（列了才真的会被构建应用）、`3` 系列还没 book 它。
@@ -612,6 +667,8 @@ python3 scripts/check-audio27-series.py <27 源树> [--series DIR]   # 默认 /m
 
 ```
 ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 1033 B sha256 983f1e2e… inserts the emitter code
+ok   27 series carries the patch   SERIES HOLD: 0531-k60-audio-amp-probe-call.patch sits in /mnt/e/hackios/k60-gates/patches/xnu-12377 unlisted, and the series file says why: …
+ok   27 series carries the patch   SERIES OK 0531-k60-audio-amp-probe-call.patch 1033 B sha256 983f1e2e… inserts the emitter code (held, not listed)
 ```
 
 这条门禁现在每一次预检都会重新证明「系列里那份 = 生成器那份」，Lead 以后改 series 时不会静默漂移。
@@ -649,6 +706,10 @@ SERIES OK 0531-k60-audio-amp-probe-call.patch 806 B sha256 3665a972… matches t
 哪天有人把改这几行的补丁排到前面，这一行会变成 `SERIES FAILED: <补丁> edits bsd/kern/bsd_init.c:<行>…`；
 宿主测试里两例正是这么造的（远处改一行 → OK；改到调用点那几行 → FAILED），共 7 例。`27 series checker is honest`（5 例宿主测试）与
 `27 series carries the patch`（需要 `XNU27_REPO`；系列还没 book 时打印 skip）。
+
+若系列把 0531 注释掉了、但注释里点了它的名，这一行打印 `SERIES HOLD: … and the series file says why: …`；
+末行是 `SERIES OK … (held, not listed)`，退出码 0。**有记录的暂缓是一种状态，不是失败**：把「Lead 决定先不列」
+和「谁忘了列」在日志里分开，正是这一行存在的理由。只有「补丁在目录里、系列没列、也没有一句注释解释」才是 `SERIES FAILED`。
 
 ### 空跑一遍：这条链路在一棵「像 27 的树」上走通
 

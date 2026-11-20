@@ -1,0 +1,16 @@
+--- a/osfmk/arm64/corecrypto/arm64_isa_compatibility.h
++++ b/osfmk/arm64/corecrypto/arm64_isa_compatibility.h
+@@ -37,7 +37,12 @@
+ // #include <Availability.h>
+ #include <sys/cdefs.h>
+ 
+-#if defined(__clang__) && ((defined(__apple_build_version__) && __apple_build_version__ > 5010000))
++/*
++ * The q-register spelling of SHA256SU0/SHA1SU0 is an Apple-clang
++ * extension; upstream clang's integrated assembler rejects it and accepts
++ * the v0.4s spelling used by the other branch. Use that for every clang.
++ */
++#if defined(__clang__) && (!defined(__apple_build_version__) || __apple_build_version__ > 5010000)
+ #define __USES_V_CRYPTO_INTRINSICS 1
+ #else
+ #define __USES_V_CRYPTO_INTRINSICS 0

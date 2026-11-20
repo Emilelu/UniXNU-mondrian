@@ -6,6 +6,10 @@ ptrauth-string-discriminator.patch
 # ArmCpu's weak_import sleep hook has no definition in any component; ld64-port
 # rejects the unresolved weak data symbol when the archive joins the kernel link.
 armcpu-sleep-hook.patch
+# The reference kernel compiles the vendored corecrypto assembler, which only
+# used the portable v0.4s spelling for Apple clang; upstream clang rejects the
+# q-register form, so a clean build stops there.
+corecrypto-vector-crypto.patch
 # Stage 0 has no serial hardware and no display driver, so the panel is the only
 # output: three bars from start.s while the MMU is off, then the stock video
 # console in text mode once arm_vm_init has run.

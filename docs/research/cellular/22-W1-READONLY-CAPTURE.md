@@ -272,3 +272,63 @@ python3 scripts/check-w1-lun-evidence.py "$CAP"
   `python3 scripts/check-rules.py --only gate-w1-lun`；这只是验证，不是 27 构建的等价物。
 - 采集目录默认放在 `E:/k60-work/evidence`（WSL 为 `/mnt/e/k60-work/evidence`）；
   wrapper 只在该根目录下找最新 `w1-lun-*`。放在别处时用 `--evidence` 显式指定。
+
+## 11. W1/W2 之后的 F3 判据（2026-11-20 21:20）
+
+W1 解决「哪个盘」，W2 解决「首 16 字节对不对」，F3 才解决「modem 是否接受这份 EFS 并继续启动」。
+顺序是硬的：**W1 PASS → W2 PASS → W3/W4 → PAS4/RF**。任何一步都不能拿后一步的结果补前一步。
+
+### 11.1 EFS 超级块按 storage 分别比
+
+W2 只看 offset 0 的 16 字节；F3 要看**完整 4 KiB 超级块**，storage 1..4 各一次，按 storage 分别与独立来源比较。
+独立来源是 2026-11-20 在 Android 侧只读取得的 `E:/k60-work/evidence/efs-ground-truth-20261120/sdf3.bin` … `sdf6.bin`；
+对应关系是 Android `by-name` 的 `modemst1`/`modemst2`/`fsg`/`fsc`，不是控制器 LUN 的证明。
+
+| storage | 引导路径 | 分区 | 4 KiB sha256 |
+|---|---|---|---|
+| 1 | `/boot/modem_fs1` | `modemst1` | `94c2aa725f4e8c5d3de317e8cd39f7efc1588866e7d2854011d10e4656a1a6bb` |
+| 2 | `/boot/modem_fs2` | `modemst2` | `8610958511c22e7c44736363ac2b9c2d8e87bd16d78540fa2d4e97be1c489726` |
+| 3 | `/boot/fsg` | `fsg` | `e9a62f2a22e469b8008da4dc2733148ae4abcf887c9e1277a7646123fdbc31b4` |
+| 4 | `/boot/fsc` | `fsc` | `ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7`（4096 个 0） |
+
+三点读法：
+
+- `fsc` 首块本来就是全零；对 storage 4 全零是正确结果，对 1/2/3 是错误结果。判据不能写成「非零即通过」，必须按 storage 分别比。
+- 三个 EFS 超级块的头 12 字节同形（`xx000000 03000000 d8010000`），第 13 字节起才分叉；W2 的 16 字节足以区分，但不等于完整 4 KiB 正确。
+- 表里的「LUN 5」只在 W1 PASS 后才是事实；W1 仍 PENDING 时，把这张表当作 storage 内容参照，不要把它当作控制器 LUN 证据。
+
+如果 W2 的 16 字节匹配而完整 4 KiB 不匹配：先查读取长度/offset/window 是否真的覆盖 4 KiB，再查是否把不同 storage 的窗口混用；
+如果完整 4 KiB 匹配而 modem 不继续：进入 11.2，不要回头改 EFS 字节。
+
+### 11.2 W3/W4：modem 是否继续
+
+- **W3**：同一 storage 出现第二次 `rmtfs rw`，且 offset 与第一次不同；`fsg`/`fsc` 也被 open。只有一次读、之后再无请求 ⇒ 内容被 modem 判为无效，或请求根本没被接受。
+- **W4**：`K60MODEM qrtr: wait … services=` 从 2 涨到 >2，或出现新服务号；`replies` 非零；RMTFS 14/1 端口 0x102 有请求/应答。
+- 服务数增长是**下游结果**，不能反过来证明 EFS 字节正确；W2/F3-1 才是因。
+- `rmtfs open` 四次只证明路径与 storage 映射被打开，不证明读到数据；`rmtfs rw … served` 只证明我们没拒绝。
+
+### 11.3 PAS4 之后的 RF 初始化
+
+`PongModemRuntime.cpp:271-277` 在 PAS4 之前等 `pong_rfs_ready()`，注释写明 RF 初始化会立刻请求读写文件；
+所以 EFS 是 PAS4 的**上游**，不是 PAS4 的产物。PAS4 之后要看的不是「再读一次 EFS」，而是 modem 的 RF/QMI 是否继续：
+
+- `auth_reset` 已发出，`init_image ok`、`mem_setup` 等 PAS4 行出现；
+- `K60MODEM qrtr: dms revision`（S4）出现；
+- `verdict ok`（S5）出现；
+- `bridge enabled` 与 COACHZ 发布（S6）出现；
+- 无 panic、无永久 VM map 删除、服务数不回落。
+
+判读顺序：
+
+| 现场 | 结论 |
+|---|---|
+| EFS 4 KiB 全对，但无 PAS4/RF/QMI | 不是传输问题；查 modem 固件/EFS 版本或 PAS4 之后的门禁 |
+| EFS 字节错，PAS4 未到 | 先修 offset/LUN/window，不要用「RF 没起来」解释字节错 |
+| `rmtfs rw … refused` | 查 PongUfs/窗口/LUN；这不是 F3 的 RF 问题 |
+| 服务数 >2 但 EFS 字节错 | 下游起来了也不能宣布 EFS 通；W2 仍然失败 |
+
+### 11.4 F3 的前置与边界
+
+- F3 需要 `PongUfs` 进 27 package、`QcomBaseband` 进 include/archives、27 data-mount 锚点落地；这三件不在本文范围，由 Lead 排。
+- stage-0 仍有三条必需 blocker：`loader-rejects-fileset`、`prelink-map-unresolved`、`firmware-fileset-provider`（Lead `6bab6b9a`）。F3 之前没有飞行窗口；本节只定义证据顺序，不声称现在可飞。
+- 本节只写判据，不改代码、不构建、不上机；W1 仍 PENDING，W2 的完整 4 KiB 仍是待采集项。

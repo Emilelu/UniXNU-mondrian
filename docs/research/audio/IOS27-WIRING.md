@@ -286,6 +286,31 @@ COMMANDS OK 98 citation(s) resolve (3 followed into another checkout), 22 audio 
 宿主 `scripts/tests/test-audio27-commands.py` **六例**：全部兑现 / 页面指向不存在的文件 / 借口的位置缺那份文件（红）/
 根本没有那个检出（NOTE，不红）/ 工具没人写 / `--help` 不答。预检两行：`commands gate is honest`、
 `27 command citations resolve`。
+### 行数由脚本自己数（2026-11-20 12:10）
+
+以前每加一行检查，就要手改三处散文：预检脚本本身、`docs/research/audio/IOS27-MIGRATION.md:69` 的「五十行 ok」、`porting.toml` 的「50 host rows plus one skip」。三处都靠人记，加完从不重跑，越走越旧。
+
+静态数行不行。预检的行不全由 `run "名字"` 打出：`optional_row`、`seam_row` 两个 helper 按 rc 打 `ok`/`skip`/`FAIL`，另有十几处裸 `printf`。按调用点数只得到 49，真实是 51——差的那两行正好是「取不到就 skip」的那类。
+
+所以让脚本数自己。头部一行 `ROWS_EXPECTED=51`，末尾一段外壳带 `K60_PREFLIGHT_INNER=1` 把自己再跑一遍，只数 `^(ok|skip|FAIL) ` 开头的行：与常量不符就打 `ROWS FAILED 50 rows printed, 51 declared` 再打 `PREFLIGHT FAILED` 退 1；相符时末行是
+
+```
+PREFLIGHT OK 51 rows (50 ok, 1 skip, 0 FAIL), as declared
+```
+
+末行仍以 `PREFLIGHT OK` 开头，别处的 `grep` 和 `tail -1` 不用改。
+
+另外两处散文由 `scripts/check-audio27-rows.py` 钉住：读同一个 `ROWS_EXPECTED`，要求 ① 脚本里还留着那句比对（否则常量本身也成了散文）② 每个音频页面里「N 行 ok」「M 行 skip」加起来等于它 ③ `porting.toml` 的「N host rows plus one skip」里 N+1 等于它。中文数字（十、两）也认。读数：
+
+```
+ROWS NOTE: docs/research/audio/IOS27-MIGRATION.md:69 counts 52 ok and 1 skip
+ROWS OK 53 rows declared, counted the same in 1 page claim(s) and the record
+```
+
+顺手抓到的旧账：`IOS27-USERLAND.md:84` 写着「八行 ok」——那是预检只有八行时的说法，一直没人改。现在那句不写数字，只说末行是 `PREFLIGHT OK N rows (…), as declared`，N 就是脚本头部的常量。
+
+预检两行：`row count gate is honest`（宿主用例 `scripts/tests/test-audio27-rows.py`，六例）与 `row count holds`。
+
 ### 文档里引用的日志行，必须真是驱动会打印的
 
 27 的两份页面反复告诉读者「看哪一行输出」。但一行被引用、却没有任何 `printf` 能打印出来时，

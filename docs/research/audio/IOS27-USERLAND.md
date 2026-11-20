@@ -81,7 +81,7 @@ iOS 目标的路径与产物形状没变：仍是 `ShengAudio.driver/ShengAudio`
 | `python3 scripts/check-audio-migration.py --compile` | `OK: the migration list matches the driver directory` | 可搬清单与磁盘一致 |
 
 一条命令跑完上面几道（外加 conf/files 追加器用例、符号表正反两跑、判据测试与功放 979 例）：
-`sh scripts/check-audio27-preflight.sh` → 八行 `ok` 与 `PREFLIGHT OK`；sheng 检出不在旁边时那行是 `skip`，可用 `SHENG_REPO=` 指定。
+`sh scripts/check-audio27-preflight.sh` → 末行 `PREFLIGHT OK N rows (…), as declared`，N 就是脚本头部的 `ROWS_EXPECTED`；sheng 检出不在旁边时那行是 `skip`，可用 `SHENG_REPO=` 指定。
 
 2026-11-20 04:35 复核过一遍：在临时目录 `git clone --shared` 本仓、`git fetch` 后 `checkout FETCH_HEAD`
 （= `origin/main` `c8f92b2`），逐条对上面点名的行号——`ShengAudioAbi.h` 88 行、

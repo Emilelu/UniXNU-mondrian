@@ -125,7 +125,7 @@ docs/
 | `charger/02-GLINK-CONTRACT.md` | **充电器 GLINK 契约**：client `battery_charger`/id `0x800a`、16 B 头、opcode 表、四张 prop map；104 B handoff 只覆盖 L0；§10 钉死 ADSP 侧名字三元组寻址（无端口/GUID） |
 | `charger/03-REVERSE.md` | **充电器关键路径**：probe/write/callback 跳转表/subsys-up/ship mode，逐条附 objdump 原始片段 |
 | `charger/04-PROP-MAP.md` | **充电器属性映射**：四张 prop map 的 .rodata 偏移与 25/13/7/187 条目、wire prop_id 实为该域 map 的**下标**、与 `K60Battmgr.c` 字段表 18 项逐项交叉验证 |
-| `power/LANE-CONFORMANCE.toml` | **逐条对齐官方页面**：41 行（adsp 7 / battery 18 / charger 1 / thermal 2 / power 13），每行引用页面上、且在该行写的节里逐字存在的一句话、一条存在的证据、状态与理由；`verified` 行还要写出证据文件里能证明它的那一行，同一 lane 里同一句要求不能重复；`scripts/check-lane-conformance.py` 核句子所在节/证据文件/证据行/自证/理由/重复句，`--render` 生成 `power/LANE-CONFORMANCE.md`；2026-11-20 结论 verified 32、partial 9 |
+| `power/LANE-CONFORMANCE.toml` | **逐条对齐官方页面**：41 行（adsp 7 / battery 18 / charger 1 / thermal 2 / power 13），每行引用页面上、且在该行写的节里逐字存在的一句话、一条存在的证据、状态与理由；`verified` 行还要写出证据文件里能证明它的那一行，同一 lane 里同一句要求不能重复；`scripts/check-lane-conformance.py` 核句子所在节/证据文件/证据行（可加行号钉住）/自证/理由/重复句，`--render` 生成 `power/LANE-CONFORMANCE.md`；2026-11-20 结论 verified 32、partial 9 |
 | `power/27-WORKORDER.md` | **27 侧待办（生成物）**：`python3 scripts/check-hw-contracts.py --workorder` 在指定的 27 检出上把契约表现算一遍，按 drift / moved / missing 三类列出每一行：本仓那一行的原文、27 侧的候选位置（按契约文本里的关键字找——`copy27` 的行号是我们这边的偏移，在 27 侧不可信）、以及该行要做什么；没有 27 检出时不生成条目。手改即红（P-259），27 树动过就要重新生成 |
 | `charger/PROP-NUMBERS.toml` | **16 → 27 属性号对照**：18 行（12 个 IOKit 键、5 个字符串属性、1 张 wire 表），逐行给出两侧值、`file:line` 依据与三档结论（相同 / 不同且已知谁改 / 查不到）；`scripts/check-prop-numbers.py` 两侧各开一次文件核对，`--render` 生成 `charger/PROP-NUMBERS.md` |
 | `charger/05-OPEN-QUESTIONS.md` | **充电器未决结案**：+0xc 不对称、`0x37` shutdown、`0x48` 未识别、type 1/2、`check_status_work` 四条请求、无线升级 0x40–0x44/0x51，附 bcdev 字段表 30 项 |

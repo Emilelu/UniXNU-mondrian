@@ -155,14 +155,15 @@
   charger 1 / thermal 2 / power 13），`python3 scripts/check-lane-conformance.py` 核对六件事（引用句还必须在该行写的
   `section` 正文里，不是整页任意位置）：
   `requirement` 的句子必须真的出现在 `docs/zh/porting/power.md` 那一节的正文里（防止凭记忆引一句不存在的话）、
-  `evidence` 必须是一个存在的文件、`verified` 行必须写出证据文件里真正证明它的那一行、
+  `evidence` 必须是一个存在的文件、`verified` 行必须写出证据文件里真正证明它的那一行
+  （同一句在文件里出现两次时可在前面写 `行号: ` 钉住一条，不写行号只要求存在）、
   证据行不能又是页面要求本身、非 `verified` 的行必须写 `why`、同一 lane 里同一句要求不能被两行重复引用；`--render` 生成
   `LANE-CONFORMANCE.md`（同一份表，给读者看）。2026-11-20 的结论是 41 行里 verified 32、partial 9
   （`dsp-firmware-auth` 只有离线证据、`battery-firmware-ownership` 只有注释、`charger-independent-protocol`
   未上机、`thermal-advise` 的温控证据不可用、`thermal-limits` 只覆盖温控阶梯、`battery-device-verification`
   缺真插拔/放电/超时/服务重启、`power-epss-lut` 的参考时钟是常量、`power-sleep-resume` 的判据只核到
   report、WAKE 行在 w10 从未出现且硬挂、`power-fence-wait` 的 1 ms 预算已写进规则但 fence 还没有消费者），
-  夹具 25 项。这张表与 runner 无关，因为它依赖官方页面的本地副本
+  夹具 28 项，含行号正确、行号落错、行号越过文件尾三条。这张表与 runner 无关，因为它依赖官方页面的本地副本
   `E:/hackios/UniXNU/docs/zh/porting/power.md`，搬出去的树没有那份副本。
   2026-11-20 对 `xnekom-ios27@ee910a78` 实测 5 个阻塞（`K60ThermalMap`/`K60ChargeAuth` 两对文件缺、
   `0629` 的 report 被 PONG 包住、三个判读器缺、八份契约表未随树带入、十行契约无文件可开），

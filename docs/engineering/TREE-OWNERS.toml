@@ -117,3 +117,9 @@ scope = ["userland", "docs/research/springboard", "patches/xnu"]
 path = "/mnt/e/hackios/k60-ios-profile"
 owner = "ios-profile-agent"
 scope = ["docs/research/ios-profile"]
+
+[[tree]]
+path = "/mnt/e/k60-work/wt-pitfall"
+owner = "cellular-agent"
+scope = ["patches/xnu-12377", "scripts/check-ios27-device.py", "scripts/tests/test-k60-ios27-ufs.py", "docs/research/cellular"]
+note = "iOS 27 cellular port worktree; UFS task-3 edits are reviewed and integrated by cellular-agent."

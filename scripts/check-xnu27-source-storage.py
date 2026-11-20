@@ -94,25 +94,66 @@ def main():
         f'{builder_path.name}:{native} libNativeUfs.a' if native
         else f'{builder_path.name}:{sheng} links build/sheng-ufs/libPongUfs.a, which this branch does not build')
 
-    series_path = root / kernel.get('patch_series', ['device:patches/xnu-12377/series'])[-1].split(':', 1)[-1]
-    series = read(series_path).splitlines()
-    personality, scans = None, 0
-    for entry in series:
-        entry = entry.strip()
-        if not entry or entry.startswith('#'):
+    layers = kernel.get('patch_series', ['device:patches/xnu-12377/series'])
+    framework = args.framework or root.parent / 'UniXNU'
+    layer_roots = {
+        'device': root,
+        'arch': framework / 'profiles/arch/arm64e',
+        'os': framework / 'profiles/os' / args.profile,
+        'soc': root.parent / 'UniXNU-sm8475-common',
+    }
+    personality, personality_layer, personality_text, scans = None, '', '', 0
+    for layer in layers:
+        comp, rel = layer.split(':', 1) if ':' in layer else ('device', layer)
+        base = layer_roots.get(comp)
+        if base is None or not (base / rel).is_file():
             continue
-        scans += 1
-        patch = root / 'patches/xnu-12377' / entry
-        if not patch.is_file():
-            continue
-        text = patch.read_text(errors='replace')
-        if 'KernelConfigTables' in text and 'NativeUfs' in text:
-            personality = entry
+        series_file = base / rel
+        for entry in series_file.read_text(errors='replace').splitlines():
+            entry = entry.strip()
+            if not entry or entry.startswith('#'):
+                continue
+            scans += 1
+            patch = series_file.parent / entry
+            if not patch.is_file():
+                continue
+            text = patch.read_text(errors='replace')
+            if 'KernelConfigTables' in text and 'NativeUfs' in text:
+                personality, personality_layer, personality_text = entry, comp, text
+                break
+        if personality:
             break
     add('a patch installs the IOKit personality', personality is not None,
-        f'{personality} adds NativeUfs to KernelConfigTables.cpp' if personality
-        else f'none of the {scans} entries in {series_path.relative_to(root)} mention NativeUfs beside KernelConfigTables')
-
+        f'{personality} ({personality_layer} layer) adds NativeUfs to KernelConfigTables.cpp' if personality
+        else f'none of the {scans} entries across {len(layers)} series layers mention NativeUfs beside KernelConfigTables')
+    framework = args.framework or root.parent / 'UniXNU'
+    layer_roots = {
+        'device': root,
+        'arch': framework / 'profiles/arch/arm64e',
+        'os': framework / 'profiles/os' / args.profile,
+        'soc': root.parent / 'UniXNU-sm8475-common',
+    }
+    personality, personality_layer, scans = None, '', 0
+    for layer in layers:
+        comp, rel = layer.split(':', 1) if ':' in layer else ('device', layer)
+        base = layer_roots.get(comp)
+        if base is None or not (base / rel).is_file():
+            continue
+        series_file = base / rel
+        for entry in series_file.read_text(errors='replace').splitlines():
+            entry = entry.strip()
+            if not entry or entry.startswith('#'):
+                continue
+            scans += 1
+            patch = series_file.parent / entry
+            if not patch.is_file():
+                continue
+            text = patch.read_text(errors='replace')
+            if 'KernelConfigTables' in text and 'NativeUfs' in text:
+                personality, personality_layer = entry, comp
+                break
+        if personality:
+            break
     framework = args.framework or root.parent / 'UniXNU'
     kit = framework / 'kits/VerifiedRoot'
     storage = framework / 'scripts/build-sheng-source-storage.py'
@@ -126,12 +167,15 @@ def main():
     for piece in pieces:
         print(('  OK   ' if piece['ok'] else '  GAP  ') + piece['piece'])
         print(f'         {piece["evidence"]}')
+    if personality and 'IONameMatch' not in personality_text:
+        print('  NOTE   the entry has no IONameMatch = ufshc; NativeUfs::probe filters by the')
+        print('         DT compatible string, so this costs a probe per platform node, not the match')
     gaps = [piece for piece in pieces if not piece['ok']]
     ordered = [
         'CONFIG_XNU_CRYPTO_BOOTSTRAP=prelinked (see scripts/check-xnu27-crypto-provider.py)',
         'select NativeUfs in the 27 profile components and build drivers/NativeUfs',
         'link build/native-ufs/libNativeUfs.a from the generic builder',
-        'carry the KernelConfigTables personality patch in the 27 series',
+        'carry the KernelConfigTables entry for the ufshc node (the arch layer has one without IONameMatch)',
         'sign the OS/SystemOS root policies and hand them to the payload',
         'turn on BOOT_MANIFEST, CACHE_STARTUP, CACHE_MOUNT, ROOT_AUDIT, ROOT_TRUST',
     ]

@@ -135,6 +135,29 @@ def main():
         code, output = run(missing, work / 'no-framework')
         case('a missing board.toml fails loudly', code != 0 and 'not found' in output, output)
 
+        # The 27 line takes the personality from the arch layer, not the device
+        # series: UniXNU/patches/xnu-12377/native-aes-personality.patch adds two
+        # NativeUfs entries to KernelConfigTables.cpp without IONameMatch.
+        fw = work / 'framework-arch'
+        layer = work / 'arch-layer'
+        make(layer, include='["NativeUfs"]', ufs='y',
+             builder_line='  UFS_ARCHIVE=$ROOT/build/native-ufs/libNativeUfs.a\n', framework=fw)
+        (layer / 'board.toml').write_text(
+            (layer / 'board.toml').read_text().replace(
+                'patch_series = ["device:patches/xnu-12377/series"]',
+                'patch_series = ["arch:patches/xnu/series", "device:patches/xnu-12377/series"]'))
+        arch_series = fw / 'profiles/arch/arm64e/patches/xnu'
+        arch_series.mkdir(parents=True)
+        (arch_series / 'series').write_text('../../../../../patches/xnu-12377/native-aes-personality.patch\n')
+        arch_patch = fw / 'patches/xnu-12377/native-aes-personality.patch'
+        arch_patch.parent.mkdir(parents=True, exist_ok=True)
+        arch_patch.write_text('diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp\n'
+                              '#if defined(XNU_NATIVE_UFS) && XNU_NATIVE_UFS\nIOClass = NativeUfs;\n#endif\n')
+        code, output = run(layer, fw)
+        case('the arch layer carries the personality entry',
+             'OK   a patch installs the IOKit personality' in output and '(arch layer)' in output, output)
+        case('the entry without IONameMatch is called out, not counted as a gap',
+             'NOTE   the entry has no IONameMatch' in output, output)
     print(f'TESTS {passed + failed} case(s): {passed} passed, {failed} failed')
     return 1 if failed else 0
 

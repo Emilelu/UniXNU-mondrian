@@ -7266,6 +7266,9 @@ scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
 16.6.1 的 kernel.macho：MH_EXECUTE、50,123 个符号，十一个存储符号全在其中；读不出东西时，
 它是唯一能证明「不是我读错」的对照。
 
+同一课也适用于路径：`board.toml` 里一行 `arch:patches/xnu/series` 看起来是设备仓内的相对
+路径，实际解析到框架的 profile 目录（见 P-267）。字符串在文件里，与它在系统里有意义，是两件事。
+
 回归：`scripts/check-ios27-storage-exports.py`（17 例）对 305 条目的 kernelcache、32 条目的预链接
 内核与 16.6.1 内核各跑一遍，前两者 not-exported、后者导出，答案写在
 `docs/engineering/IOS27.md` 的 "What the storage exports say"。
@@ -7287,6 +7290,12 @@ context」——少了这一层，os 层的上下文当然对不上。算术也�
 顺带澄清一处容易误判的写法：`board.toml:369` 里 `patches/xnu/series` 出现两次不是重复项——
 `arch:` 解析到 `profiles/arch/arm64e/patches/xnu/series`（65 条），`os:` 解析到
 `profiles/os/ios-27.0.1-24A446/patches/xnu/series`（4 条），是两份不同文件。
+
+更根本的一条：`arch:` / `soc:` / `os:` 三个前缀**不解析到设备仓**，而是解析到框架
+（`UniXNU/profiles/...`）与 feed（`UniXNU-sm8475-common`）。从设备仓单读 `board.toml`
+会让这三层静默变空——不报错、不留痕，只留下 `device:` 一层，于是「计划 25 条」看起来合理，
+重放却必然在第一批跨层 hunk 上失败。框架侧的 `scripts/check-27-series-composition.py` 就是
+把这件事变成判据的工具：每层解析结果与条目数都要打印，空层必须显式说明。
 
 一般化的教训：**重放之前先证明手上的树与构建用的树同形。** 每一层 series 文件都在、commit 一致、
 条目数对得上，再去解释某一个 hunk 为什么失败；否则「补丁失败」只说明我少了一棵树，

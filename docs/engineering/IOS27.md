@@ -507,6 +507,178 @@ behind that one number:
 
 The remembering aid is the pair: 0x33 trie, 0x35 entry.
 
+## Route B: the driver as its own fileset entry
+
+The exports audit settled that route A cannot be finished offline: no entry of
+the pinned 24A446 kernelcache keeps an export trie or a symbol table, and the
+same holds for our own product. A definition-backed binding therefore has to
+come from a sibling entry assembled at prelink time, which is route B. This
+section is the design, not the implementation: the builder and XnuPrelink stay
+frozen while F1 runs, and `scripts/check-ios27-storage-entries.py` measures the
+one fact that tells whether the route has been taken.
+
+### What B changes
+
+1. The driver stops being an archive that joins the kernel link. Today
+   `scripts/build-xnu-generic.sh:649` points `UFS_ARCHIVE` at
+   `build/native-ufs/libNativeUfs.a` and the kernel links it with
+   `-Wl,-force_load`, so the link needs every symbol the archive imports --
+   including the eleven `IOBlockStorageDevice` members that only the sibling
+   entry defines (`scripts/check-xnu27-storage-link.py` reports exactly those
+   eleven plus `_armcpu_timer_interrupts`).
+2. The same objects become an `MH_KEXT_BUNDLE` (filetype 11) with a
+   `kmod_info`, an `OSBundleLibraries` list naming
+   `com.apple.iokit.IOStorageFamily` and `com.apple.kec.corecrypto`, and
+   `_PrelinkExecutableLoadAddr` set. That is the shape
+   `kits/XnuPrelink/emit_prelink_orig.py:117` parses out of
+   `__PRELINK_INFO`; a module that is not filetype 11 is rejected there.
+3. The prelink step has to accept a component that is not in the original
+   kernelcache. `kits/XnuPrelink/native_prelink.py:130` `plan()` derives the
+   closure from the roots' `OSBundleLibraries` and resolves every pointer in
+   `_PrelinkLinkKASLROffsets`; a pointer into an undeclared component fails
+   with `Undeclared pointer dependency`. Our bundle must therefore declare the
+   storage family and be listed as a root.
+4. The product's outer fileset has to list the bundle. Our 32 entries come from
+   the original collection plus the roots the profile selects
+   (`profiles/os/ios-27.0.1-24A446/profile.toml` `[kernel.prelink] roots`), and
+   nothing in `scripts/build-xnu-generic.sh` assembles a kext of our own.
+
+### The one fact that decides it
+
+`python3 scripts/check-ios27-storage-entries.py --kernelcache <kernel.macho>`
+prints the entry list and says whether any name matches `NativeUfs` or
+`native-ufs`. Against the F1 product it answers:
+
+    entries: 32
+    no entry matches NativeUfs, native-ufs
+    ios27-storage-entries: absent
+
+An absent entry is the correct answer today and exits 0; `--require-entry`
+turns it into a failure, which is the form a gate wants once the route is
+implemented. The reader reuses the Mach-O parser of
+`scripts/check-ios27-storage-exports.py`, so the two answers cannot disagree
+about what an entry is.
+
+### Acceptance criteria for B
+
+- the checker answers `present` for the product, and the matching entry is a
+  kext bundle whose `kmod_info` start and stop are non-zero;
+- the prelink report carries no `Undeclared pointer dependency` for the new
+  component, and the component extents do not overlap the native segments;
+- `scripts/check-xnu27-storage-link.py` reports no new imports for the kernel
+  image itself: the eleven storage symbols must have left the kernel link;
+- `hardware_verified` stays false in every report until F3 boots with the
+  switch on.
+
+### Why B may be unnecessary
+
+The reference board on the same profile does not take route B. It compiles the
+public base class and registers it late, which removes the eleven imports
+without assembling a fileset entry; the next section records that in detail.
+B stays the fallback if that route is rejected, and the checker above measures
+either.
+
+## What the sheng board already solved
+
+`E:/hackios/UniXNU-sheng` is the same profile as this line
+(`board.toml:9` `os_profile = "ipados-27.0.1-24A446"`), an SM8550 board, and
+its kernel lane runs. It is a required reference source for the kernel and
+driver layers, and it answers three questions this line had been asking alone.
+
+### Which of its 18 patches touch the Data gate or storage
+
+The device series is `patches/xnu-12377/series`, 18 entries. Four of them are
+storage or root-start work:
+
+- `source-storage-runtime.patch`, 10 lines: `bsd/kern/bsd_init.c:796` gains
+  `extern void native_source_storage_start(void) __attribute__((weak_import));`
+  guarded by `if (&native_source_storage_start)`, so the runtime starts after
+  `vfsinit()` and an image without the archive boots unchanged.
+- `zzzz-sheng-ipados27-bringup.patch`, 35 files: `osfmk/arm/cpu_common.c`
+  (patch line 788) adds `sheng_sigp_recover()` -- definition at patch line
+  801, call sites 818 and 828, the cross-file declaration at 1137 and its call
+  at 1151 -- with the comment that this fixes "random early hangs and UFS root
+  failures under SMP: the I/O thread's wakeup IPI to that core was silently
+  dropped".
+- `zzzzzzzzzz-sheng-sigp-reinit-assert.patch` relaxes the same file's assert
+  using the `sheng_sigp_recovered` counter, so a recovered SIGP is not
+  reported as a failed re-init.
+- `sheng-bluetooth-runtime.patch` and `sheng-wifi-launchd-cache.patch`, both
+  `bsd/kern/kern_exec.c`: they mount `/private/var/ngpu/bluetooth-lib` over
+  `/usr/lib` and `bluetooth-bin` over `/usr/sbin` through
+  `native_gpu_addon_mount`, gated by `sheng-bluetooth`.
+
+The other 12 are outside storage: idle, amp, the audio addon mount, three
+latency/trace patches, the wifi association event, appsync runtime and user
+trust, and three profile/diagnostic patches.
+
+Not a patch, but the same lane: `configs/sheng_ipados27_defconfig:8-20` is the
+complete Data gate configuration this line's
+`scripts/check-xnu27-source-storage.py` measures --
+`CONFIG_XNU_SOURCE_STORAGE=y`, `CONFIG_XNU_SOURCE_STORAGE_TABLES="userdata"`,
+`CONFIG_XNU_NATIVE_RAM_BLOCK=y`, `CONFIG_XNU_OWNER_ROOT_AUDIT=y`,
+`CONFIG_XNU_OWNER_ROOT_TRUST=y`, `CONFIG_XNU_OWNER_CACHE_MOUNT=y`,
+`CONFIG_XNU_OWNER_CACHE_STARTUP=y`, `CONFIG_XNU_OWNER_BOOT_MANIFEST=y`,
+`CONFIG_XNU_OWNER_DATA_MOUNT=y`, `CONFIG_XNU_OWNER_UNION_SYSTEMOS=y`, and
+`CONFIG_XNU_OWNER_DATA_VOLUME_UUID="2A5E9027-D9E1-40F9-983C-41BD3F1994F5"`;
+`board.toml:20` selects `component:ShengUfs` and
+`build-sheng-source-storage.py --policy-dir scripts/policies/ipados-27.0.1-24A446`,
+and `board.toml:28` lists `com.apple.iokit.IOStorageFamily`,
+`com.apple.kec.corecrypto` and `com.apple.filesystems.apfs` among the
+prelink roots.
+
+### Which of our 29 device patches it already solved
+
+- Bluetooth runtime mounting: our `0526-k60-bt-runtime-mount.patch` and
+  `0527-k60-bt-launchd-cache.patch` are the same mechanism as
+  `sheng-bluetooth-runtime.patch` -- the same two source directories over the
+  same two system paths through `native_gpu_addon_mount`, behind a boot
+  argument. Ours adds the stage/status counters and lives in its own
+  `native_bt_runtime_prepare()`; theirs sits inside
+  `native_gpu_addon_prepare()`. Neither is wrong, and nothing needs to move.
+- The PSCI glue: sheng's series has no `psci_smp`, no
+  `pong_cpu_startup_finished` and no `ArmCpu` patch at all, because
+  `board.toml:20` selects the catalog `component:ArmCpu`, which carries its
+  own `psciCall()` (`E:/hackios/ArmCpu/ArmCpu.cpp:699`, PSCI_VERSION at
+  `:1259`). Our 0540/0541 exist because `drivers/ArmCpu` in this device
+  repository shadows that component and declares six `extern "C"` entry
+  points. **This is the one place where this line reinvented something the
+  catalog already ships**, and the honest reading is that 0540 is a repair of
+  the shadowing, not new capability.
+- SIGP recovery: we carry nothing comparable, and its comment names this
+  line's F3 failure mode (UFS root failures under SMP). It is the first thing
+  to evaluate when the Data mount starts failing per-CPU.
+
+### Did we reinvent the storage route
+
+No -- and that is the important part, because sheng's answer is a fourth route
+that neither A nor B describes:
+
+- `scripts/build-sheng-source-storage.py` prepares the public headers from a
+  pinned `IOStorageFamily` feed (`scripts/prepare-storage-headers.py`,
+  revision `7edb88fbae296fb7c8ce2f64e115e116e566d51c`; this tree already
+  carries the prepared result at `build/storage-abi/include` with a
+  `headers.json` naming feed `IOStorageFamily-a4f5240a`).
+- It compiles `IOBlockStorageDevice.cpp` from that feed, replacing
+  `OSDefineMetaClassAndAbstractStructors(IOBlockStorageDevice,IOService)` with
+  a deferred metaclass whose parent is `native_source_storage_parent()`.
+- `package/SourceStorage.cpp:243` defines that parent as
+  `OSMetaClass::getMetaClassWithName("IOBlockStorageDevice")` captured after
+  `OSKextLoadKextWithIdentifier("com.apple.iokit.IOStorageFamily")` succeeds
+  (`package/SourceStorage.cpp:264` `native_source_storage_start()`), and
+  panics unless `getClassSize() == sizeof(IOBlockStorageDevice)`. Registration
+  then runs through `preModLoad()`/`postModLoad()`, and the UFS service is
+  created by `native_ufs_source_create()`.
+
+The consequence: the eleven storage symbols are compiled into the archive
+itself, the original family stays loaded and serves as the metaclass parent, and
+no sibling-entry import is needed. The cost is compiling Apple's public
+`IOBlockStorageDevice.cpp` from the pinned feed -- the license file ships with
+it (`APPLE_LICENSE`), and the headers are already prepared on this host. That
+path is cheaper than route B and was proven on the same profile, so it should be
+evaluated first; B remains the fallback, and
+`scripts/check-ios27-storage-entries.py` is the gate either way.
+
 ## Framework patches this branch carries
 
 `scripts/apply-core-patches.sh` applies every top-level

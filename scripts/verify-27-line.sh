@@ -57,6 +57,23 @@ python3 "$(dirname "$0")/check-call-site-placement.py" --tree "$T" || {
 	echo "K60 TRIAL FAILED the call-site block is not where the contract puts it"; exit 1; }
 echo "K60 TRIAL ok   the call-site block sits between the guard and stage 3"
 
+# A patch that only adds files is never compiled by applying it. 0628 carried a
+# broken printf for a day because nothing on this line compiled its C: the kernel
+# build needs the 16-line headers, but every source we ship has a host shim, so
+# -DK60_HOST_TEST turns "does the installed text parse" into a host-side question.
+broken=""
+for source in "$T"/bsd/dev/pong_*.c "$T"/bsd/dev/qcom_glink.c; do
+	[ -f "$source" ] || continue
+	if ! gcc -fsyntax-only -std=c11 -DK60_HOST_TEST -I"$T/bsd/dev" "$source" \
+			2>"$TRIAL/compile.err"; then
+		echo "K60 TRIAL FAILED $(basename "$source") does not parse: $(head -2 "$TRIAL/compile.err" | tr '\n' ' ')"
+		broken=1
+		break
+	fi
+done
+[ -z "$broken" ] || exit 1
+echo "K60 TRIAL ok   every installed source parses on the host"
+
 if [ -n "$APPENDER" ]; then
 	python3 "$APPENDER" --verify "$T" "$PATCHES/conffiles-port.txt" || {
 		echo "K60 TRIAL FAILED the shared appender refused the clone"; exit 1; }

@@ -103,3 +103,33 @@ Two consequences for the checklist:
 `imports_count` in the pinned kernelcache is **0**: there are no bind entries, so
 no import names can be recovered from this file. Naming therefore has to come from
 the object the slot points at, which is the next step.
+
+## Why the names cannot come out of this artifact
+
+Four measurements on `/home/emilelu/kc24A446/ipsw/24A446/kernelcache.decompressed`
+(77,987,840 B, root `MH_FILESET` with 318 load commands and 305 members):
+
+| probe | result |
+| --- | --- |
+| root `dyld_chained_fixups_header` | `version 0, imports_count **0**, imports_offset == symbols_offset, symbols_format 0` |
+| per-member `LC_DYLD_CHAINED_FIXUPS` | absent -- `AppleARMPlatform`, `IOHIDFamily`, `IOStorageFamily`, `IOSurface`, `security.sandbox`, `filesystems.apfs` all inherit the root's |
+| per-member `LC_SYMTAB` | `nsyms 0` |
+| `__LINKINFO` (file 0x499c000) | a binary plist holding `SymbolsSets` (KPI **export names** only) and `WeakRefFallbackSymbol = _gOSKextUnresolved`; no addresses |
+
+So every binding Apple made was already resolved into a plain rebase before the
+cache was written: there is no import table, no symbol table, and no name-addressed
+structure anywhere in the file. The 19 unpinned targets are file-backed
+`__DATA_CONST` globals whose own first pointers land in `__DATA` BSS (zero fill) and
+in `__TEXT` string space -- nothing self-describing, so reading the object cannot
+name it either.
+
+**Consequence.** `prelink-map-unresolved` cannot be closed by "look up the names".
+It has to be closed by a pairing that is *verifiable without names*, or it stays
+open and the image stays grounded. The candidate is section-order alignment
+against our own build, which does have a symbol table: sort our `__DATA_CONST`
+symbols by address, walk Apple's section in the same order, and accept a mapping
+only when the size sequence is unambiguous inside the window; every accepted pair
+must then survive a round-trip check (its first pointer lands in the same *kind*
+of section on both sides). Anything ambiguous stays refused -- a wrong pairing
+here is worse than a missing one, because it makes a silent wrong address look
+reviewed.

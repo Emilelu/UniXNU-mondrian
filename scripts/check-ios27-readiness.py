@@ -145,6 +145,28 @@ def smmu_in_tree(tree):
     return bool(found.stdout.strip())
 
 
+def user_va_width(tree):
+    """(T0SZ_USER present, root level line) - both recorded as deferred facts.
+
+    sheng raises the user VA to 47 bits for arm64e, but only behind
+    defined(BCM2837); copying that block here compiles to nothing (P-270).
+    The decision for this line is "not now", so the tree is expected to keep
+    T0SZ_BOOT for TTBR0; if someone ports it the widths change and this
+    expectation has to be revisited on purpose instead of by accident.
+    """
+    found = run(['grep', '-rIl', 'T0SZ_USER', tree])
+    present = bool(found.stdout.strip())
+    level = None
+    path = os.path.join(tree, 'osfmk', 'arm', 'pmap', 'pmap.c')
+    if os.path.exists(path):
+        with open(path, encoding='utf-8', errors='replace') as handle:
+            for line in handle:
+                if '.pta_root_level' in line and 'T0SZ_BOOT' in line:
+                    level = line.strip()
+                    break
+    return present, level
+
+
 
 def smmu_definitions(tree):
     # Files outside our own patches that name the SMMU builder.
@@ -661,6 +683,16 @@ def check_pristine(tree):
         print('K60 READY DRIFT ArmSmmu4KBuild is in the 27 tree: the weak fallback can be retired')
     else:
         print('K60 READY ok   ArmSmmu4K still absent from the 27 tree')
+    t0sz_user, root_level = user_va_width(tree)
+    if t0sz_user:
+        drift += 1
+        print('K60 READY DRIFT the 27 tree now defines T0SZ_USER: revisit the deferred '
+              'decision in docs/research/cellular/21-SHENG-REFERENCE.md 21.4')
+    elif root_level == '.pta_root_level = (T0SZ_BOOT - 16) / 9,':
+        print('K60 READY ok   user tables still start at T0SZ_BOOT (38/39-bit VA), as deferred')
+    else:
+        drift += 1
+        print('K60 READY DRIFT the 4 KiB page-table root level changed: %r' % root_level)
     anchors = anchor_state(tree)
     if anchors is None:
         print('K60 READY INVALID no bsd/kern/kern_exec.c under the tree')

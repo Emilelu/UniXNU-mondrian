@@ -1905,3 +1905,18 @@ ld 仍报 undefined，还多出 `l_k60_usblog_console_up$auth_ptr$ia$42271` 这�
 - `scripts/tests/test-wifi-ios27-link.py`：7 例，覆盖 `--smmu4k-kit` 默认不编 kit、kit 目标进 libtool 行、
   两个钩子在宏后面（且归档里不许再有 weak 声明）、`--no-host-hooks` 真的追加宏、站 API 检查的正反例。
   注意它必须在 WSL 的 `/usr/bin/python3` 下跑：假 nm 是 sh 脚本，Windows python 报 WinError 193。
+
+### 67.7 B6：宽度戳在 27 站上双向复验
+
+`build-k60-ath11k.py` 在站归档目录写 `abi/nw_abi.stamp`（`ie_bytes=` 与 `header_sha256=`），
+`build-k60-wifi-native.py` 读到戳就比对元素宽度，缺戳只打一行 `has no abi/nw_abi.stamp` 提示。
+B6 的出口是「27 站目录下重建 kext，rc=0 且没有那行提示」。2026-11-20 复验两向：
+
+- 正向：`--ath11k /opt/k60/trees/k60build/wifi/ath11k-abi27s/libPongAth11k.a`（戳 `ie_bytes=2048`，
+  `header_sha256=ec0b822703afa6e3c8b66e6d0cc4d7a7c676ae18c95def171d65e2e1848cdba8`）→ kext rc=0，
+  `grep -c "has no abi/nw_abi.stamp"` = 0。
+- 反向：拿 `ath11k-badstamp`（`ie_bytes=1024`）重建 →
+  `RuntimeError: station archive … carries ie_bytes=1024 but this build carries 2048: rebuild the station (P-230)`，退出 1。
+
+反向这一条才是这个戳的价值：kext 侧把 `uint8_t ie[384]` 改成 2048，站侧仍是 1024 时两边对元素的解释差一倍，
+而这种错配在链接期看不出来，只有到扫描记录被截断时才会以「少了某个 AP」的形式出现（P-230 就是这么来的）。

@@ -166,8 +166,13 @@ Rewritten 2026-11-20, when main itself became the 27 line.
 - [ ] B5 [SOC] 4 KiB pages: the 27 kernel uses 4 KiB tables, the 16 driver was written
   against 16 KiB. Exit: the archive builds with the 27 page shift and the selftest
   offsetof asserts still hold.
-- [ ] B6 [DEV] Re-run the width stamp against the 27 station archive. Exit:
-  teardown27 rc=0 with no "has no abi/nw_abi.stamp" note.
+- [x] B6 [DEV] Re-run the width stamp against the 27 station archive (done 2026-11-20).
+  Exit: teardown rc=0 with no "has no abi/nw_abi.stamp" note. Verified both ways: the
+  stamped 27 station (ie_bytes=2048, header_sha256 ec0b8227...) rebuilds the kext with
+  rc=0 and zero stamp notes, while the ath11k-badstamp fixture (ie_bytes=1024) stops the
+  build with "carries ie_bytes=1024 but this build carries 2048: rebuild the station".
+  The negative case is the point: a kext at 2048 over a station at 1024 disagrees about
+  where elements end, and nothing at link time notices. SBL-MISSION.md 67.7.
 
 ## C. The one shape only the 24A446 binary can settle
 

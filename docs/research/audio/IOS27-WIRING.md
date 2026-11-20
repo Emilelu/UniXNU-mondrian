@@ -173,6 +173,28 @@ python3 scripts/judge-audio-capture.py E:/k60-work/evidence/usblog-<ts>/
 本来就应当是 2；那时若报 1，反而说明 `amp probe start` 被写进了别处。报告里紧跟判决的两行
 提示就是为这两种「没跑」写的，免得把接线问题读成硬件问题。
 
+**判决之后：`triage-audio27.py` 说下一步做什么**。判决只说硬件答没答，说不出「为什么没答」——
+一次没有 PongAudio 行的捕捉，可能是镜像没接线，也可能是启动在 `bsd_init` 之前就停了。同一次捕捉
+带上这次飞的镜像就能分开：
+
+```sh
+python3 scripts/triage-audio27.py E:/k60-work/evidence/usblog-<ts>/ \
+    --kernel out/.../kernel/kernel.macho
+```
+
+末行是 `NEXT: …`，取值只有这几种：
+
+| 情况 | `NEXT` 说的 |
+| --- | --- |
+| 判决 0 | 跑 `--replay`，判 ACF 两半 |
+| 判决 1 | 停住前最后一条 PongAudio 行 |
+| 有 PongAudio 行，但镜像早于接线 | 先打系列与每目标宏，再 build |
+| 镜像有代码，捕捉停在 `bsd_init` 之前 | 拿最后一行对 F4 的期望 |
+| 镜像只缺启动参数 | 命令行加 `pong_audio_probe=1` |
+
+不给 `--kernel` 时它不猜：说 `pass --kernel`，因为不带镜像这两件事在日志里长得一样。
+它只读：不 boot、不写、不改任何东西，退出码沿用判决的 0/1/2。
+
 ### 两种布局：16 线种树，27 树原地构建
 
 两个脚本（`apply-audio27-wiring.py`、`add-audio-conffiles.py`）都认两种布局：

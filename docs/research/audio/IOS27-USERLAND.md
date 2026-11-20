@@ -32,7 +32,7 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
 - 控制页第二半是诊断：`SHENG_AUDIO_DIAG_OFFSET 2048`（32 个 selector/where 槽、音量、`mix_peak`、`ahead_*`/`behind_*`、
   IO 优先级、host clock 结果）与 `SHENG_AUDIO_TRACE_OFFSET 2560`（128 条属性访问轨迹）。**27 上排查"没声音"时，这两半比统一日志好用**。
 
-## 3. 注入路径（27 树已有）
+## 3. 注入路径（sheng 的补丁里已有，27 原始树里没有）
 
 `patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch`（`bsd/kern/kern_exec.c`）在原有三个 addon 槽之后加第四个：
 
@@ -44,6 +44,13 @@ HAL 注入冻结。本文只记录接口、注入点和可复核的基线。
         &native_gpu_addon4_stage, &native_gpu_addon4_status);
 
 - 基准是系统自带的 `BuiltinAudioPlugin.driver`；可见点是我们的 `ShengAudio.driver/Info.plist`；挂载点是音频服务器会扫描的 HAL 目录。
+- **它不是一条能单独打的补丁**（2026-11-20 实测）：把 27 原始树（`ac9718f xnu-12377.121.6`）拷一份后
+  `git apply --check` 直接报 `error: patch failed: bsd/kern/kern_exec.c:8139`——它的上下文是
+  `native_gpu_addon1..3`，而原始树里 `native_gpu_addon` 命中 **0 次**。把 sheng 的 37 项系列按 `series`
+  顺序重放也只应用了 8 项，`zzyd`、`zzzz-sheng-ipados27-bringup`（`bsd/kern/bsd_init.c:800`）等都失败；
+  说明这套补丁是**增量叠在 sheng 自己的树上**，不是对上游 12377 的可重放序列。
+  ⇒ 27 上要走到这条注入，必须由组装内核系列的人把 addon 链一并带上（或另写一条只做音频的单用途补丁）；
+  HAL 注入当前冻结，音频侧只提供这条契约与判据。
 - 16 系列的同一补丁在 `patches/xnu/zzyd-sheng-audio-addon-mount.patch`，两代只是 addon 槽编号不同（27 上多了 `addon4_stage/status`）。
 - `hal/ShengAudioPlugIn.c`（`c8f92b2` 上 736 行，`a68ee4e` 时 703 行）实现 `AudioServerPlugIn`；`build-sheng-audio-hal.py` 用 macOS 的 CoreAudio 头 + iphoneos SDK
   编成 bundle 并写 `trust.json`（可执行文件 CDHash，给 owner trust cache）。脚本文档字符串已点名：**iPadOS 27 的音频服务器是
@@ -102,7 +109,8 @@ conf-files TESTS OK 6 cases / PROBE OK / judge TESTS OK / amplifier TESTS OK 979
 
 ## 6. 27 上需要复核的三点
 
-1. `kern_exec.c` 的 addon 槽在 27 的 `xnu-12377` 里还在（本轮已读到补丁），但 27 的基线是否已并入由 Lead 定——音频不碰 main。
+1. addon 槽：补丁本身在 sheng 仓里，但**27 原始树没有 addon1..3**（`native_gpu_addon` 命中 0），
+   单独打不上（`kern_exec.c:8139`）。是否由 27 的内核系列带上整条 addon 链，由 Lead 定——音频不碰 main。
 2. `arm64e` 目标：HAL 冻结时 bundle 是 16 时代编的；若 27 的音频服务器拒绝加载，先看 CDHash/架构，再考虑重编。
 3. `lead_frames` 与 300 ms 的余量是按 16.x 的 IO 周期定的；27 的音频服务器首轮跑起来后，用控制页的
    `ahead_min/max`、`behind_min/max`、`io_frames` 校正，不要先改内核。
@@ -121,15 +129,18 @@ conf-files TESTS OK 6 cases / PROBE OK / judge TESTS OK / amplifier TESTS OK 979
 
 它接在预检里（`sheng abi checker is honest` = 脚本自身的 4 例，`sheng abi constants hold` = 对真检出的比对），
 所以 `sh scripts/check-audio27-preflight.sh` 一次就能回答「这份文档描述的 ABI 还在不在」。
-第 3 节的注入路径也进了门禁：`python3 scripts/check-sheng-inject.py --sheng <sheng 检出>` 读回七条事实——
+第 3 节的注入路径也进了门禁：`python3 scripts/check-sheng-inject.py --sheng <sheng 检出>` 读回九条事实——
 add-on 补丁里的源路径 `/private/var/ngpu/audio`、挂载点 `/System/Library/Audio/Plug-Ins/HAL`、参照包
 `BuiltinAudioPlugin.driver`、留下的可见点 `ShengAudio.driver/Info.plist`，`hal/ShengAudioPlugIn.c` 里的
 `keepImageResident`（:138），以及 `package/ShengAudioService.cpp` 两处沙箱授权（iOS 的
-`"audiomxd,mediaserverd"` :82 与 macOS 的 coreaudiod :80）。末行
-`SHENG INJECT OK 7/7 invariants (c8f92b2): patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch:19, …`
+`"audiomxd,mediaserverd"` :82 与 macOS 的 coreaudiod :80），以及这条补丁**叠在 addon 链上**的两条证据
+（`+volatile int native_gpu_addon4_stage = 0` 与上下文里的 `native_gpu_addon3_stage = 0`——后一条也是
+「它不是独立补丁」的机器判据）。末行
+`SHENG INJECT OK 9/9 invariants (c8f92b2): patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch:19, …`
 把每条命中位置一起打出来，所以「还在」与「挪到别处了」分得开。
 
 这条检查同样拒绝静默回退：`--sheng` 指的树里没有那份补丁时报
 `… has no patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch; refusing to read another tree` 并退 1。
-预检里对应两行：`sheng inject checker is honest`（4 例）与 `sheng inject contract holds`（真检出）。
+预检里对应两行：`sheng inject checker is honest`（5 例，含「不再叠在 addon 链上」那一例）与
+`sheng inject contract holds`（真检出）。
 

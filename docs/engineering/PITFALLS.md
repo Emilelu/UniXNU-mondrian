@@ -7348,6 +7348,11 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
    "does not exist"——同一个表在两个宿主给出相反结论，而两边都"跑过"。现在写成 `27:<相对路径>`，
    由表头的 `tree27` 拼根，检查器在 POSIX 宿主把 `E:/x` 换成 `/mnt/e/x`。判据：一个门禁必须在
    两个宿主上都给出同一结论；只在写它的那个宿主上绿的门禁等于没有门禁。
+7. 打包器要自己核对 runner 的调用清单。`make-power-carry-bundle.py` 那次把一个调用
+   `scripts/tests/test-check-prop-numbers.py` 的 runner 打进了 bundle，却没打那个脚本：在仓库里跑
+   `power-python: OK`，到了只剩 bundle 的空目录里同一个入口必然失败——正是"只在源仓库里绿"的另一种形态。
+   现在 `scripts/tests/test-power-carry.py` 解析 runner 的 `run_py` 行，逐个断言脚本在 bundle 里存在
+   （35 项）。
 
 **教训**：文档写"当前值"是最脆弱的引用形态，因为它不带地址、也没有读者会去验证；能写成
 "文件:行 + 该行文本"的，就让门禁去核，不能的，就改成指路而不是复述。一条数字在四处出现，就该有一处是生成的。

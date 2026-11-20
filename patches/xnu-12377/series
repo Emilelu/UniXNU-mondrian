@@ -61,3 +61,19 @@ armcpu-sleep-hook.patch
 # iOS 16 series carries in zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-v-crypto-syntax.patch;
 # 12377 has no equivalent, so it is re-issued here as a numbered entry.
 0533-k60-v-crypto-syntax.patch
+
+# The iOS 27 machine configuration is BCM2837 and does not define PONG, so
+# drivers/ArmCpu/ArmCpu.cpp's four extern "C" PSCI entry points had no
+# definition at all in 12377: the fileset reference link stopped with
+# Undefined symbols _psci_smp_init, _psci_smp_start_cpu, _psci_smp_cpu_running
+# and _psci_smp_cpu_off (snapshot-build.log:1171748). This is the real
+# implementation from the 16 series reshaped for 12377, not a stub: a stub that
+# always returned failure would weld "this tree cannot do SMP" into the kernel
+# and its "PSCI start FAIL" line would later be read as a hardware fault.
+# Single-core is a property of the device tree (dts/mondrian.dts has no cpu@
+# node, so ml_get_cpu_count() is 1), not something this code pretends.
+0540-k60-psci-smp.patch
+# The firmware leaves the EL1 physical timer in a state this kernel must not
+# write; the 16 line hit the same thing. Nothing here arms CNTP -- interrupts
+# come from CNTV -- so skipping the precaution costs nothing.
+0541-k60-virtual-timer-guard.patch

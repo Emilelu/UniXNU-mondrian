@@ -513,3 +513,25 @@ hunk 头）都保留，注释留在 patches/xnu-12377/series 里说明为什么�
 
 干净 ac9718f 树上重放：plan 101 个补丁，101 个全部干净应用。
 """
+
+[[entry]]
+sha = "406198f5"
+state = "build-only"
+note = """ios27: run the conf/files hook after the tree is seeded, and name the seams —— 未上机。
+
+audio 线的提交，登记在这里是因为它改了两个会进镜像的构建脚本
+（scripts/build-ios27-linux.sh、scripts/build-xnu-generic.sh），iron-9 要求登记，
+否则任何一次 build 都会先被门禁拒掉。
+
+内容：P-265 记的那个钩子——`K60_CONF_FILES_HOOK` 原本在 `build-xnu-generic.sh` 第 10 行
+被调用，而 `.cache/xnu-work` 要到第 38 行才克隆出来，于是钩子每次都在一棵没有
+`bsd/conf/files` 的树上跑、每次都答「tree not seeded」，`|| echo` 又把失败变成一行日志。
+后果是音频源文件从未进入 `bsd/conf/files`，`PongAudioAmp.o` 从未编译，
+`pong_audio_amp_probe` 永远是未定义弱引用。修法：调用点移到最终 make 之前（第 832 行，
+与 16.6.1 线 `build-xnu-4k-baseline.sh:1429` 同位），失败改成终止构建，
+`refresh-xnu-generic.py` 重写时把块插回并断言锚点唯一。
+
+对 F1 的影响：`scripts/k60-conf-files-hook.py` 目前还不在树里，所以 `build-ios27-linux.sh`
+里的 Seam 1 是空操作；Seam 2 只给 `PongAudioAmp.o_CFLAGS_ADD` 传一个 `-DXNU_PONG_AUDIO=1`，
+对象没编进内核就没有作用。也就是说这一提交不会改变 stage-0 的产物，只是把钩子摆到正确位置。
+"""

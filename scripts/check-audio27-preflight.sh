@@ -104,6 +104,7 @@ run "one command applies the wiring" python3 scripts/tests/test-apply-audio27-wi
 run "weak hook links either way" sh scripts/tests/portability/run-weak-hook.sh
 run "probe runs on host" sh scripts/tests/portability/run-probe.sh
 run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
+run "27 triage is honest" python3 scripts/tests/test-triage-audio27.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "wiring dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py

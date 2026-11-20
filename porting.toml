@@ -152,7 +152,7 @@ next_action = [
 id = "network"
 status = "planned"
 components = []
-paths = ["drivers/PongWifi", "drivers/Ath12kWifi", "patches/wifi", "patches/xnu-12377/0542-k60-association-event-cluster.patch", "patches/xnu-12377/series", "scripts/build-k60-ath11k.py", "scripts/build-k60-wifi-native.py", "scripts/build-wifi27-kernel.sh", "scripts/check-wifi-symbols.py", "scripts/check-wifi-station-api.py", "scripts/check-wifi-station-archive.py", "scripts/tests/test-wifi-station-archive.py", "scripts/tests/test-wifi-association-event.py", "scripts/tests/fixtures/wifi-event", "docs/research/wifi/evidence/ios27-station-contract.json", "docs/research/wifi", "docs/plans/WIFI-IOS27-CHECKLIST.md"]
+paths = ["drivers/PongWifi", "drivers/Ath12kWifi", "patches/wifi", "patches/xnu-12377/0542-k60-association-event-cluster.patch", "patches/xnu-12377/series", "scripts/build-k60-ath11k.py", "scripts/build-k60-wifi-native.py", "scripts/build-wifi27-kernel.sh", "scripts/check-wifi-symbols.py", "scripts/check-wifi-station-api.py", "scripts/check-wifi-station-archive.py", "scripts/check-wifi27-link-inputs.py", "scripts/tests/test-wifi-station-archive.py", "scripts/tests/test-wifi27-link-inputs.py", "scripts/tests/test-wifi-association-event.py", "scripts/tests/fixtures/wifi-event", "docs/research/wifi/evidence/ios27-station-contract.json", "docs/research/wifi", "docs/plans/WIFI-IOS27-CHECKLIST.md"]
 inputs = [
   "K60 PCIe0 six register windows, BAR0 0x60200000 / 2 MiB, GPIO 80/81/82/94/95/96/204, SID 0x1c01, IOVA 0xA0000000 / 256 MiB and MSI SPI140 (docs/plans/WIFI-PORT-PLAN.md:15).",
   "QCA6490 firmware and board data under E:/k60-work/firmware; the 16.6.1 line reached PCI enumeration, MHI READY and timed out inside mhi_sync_power_up.",
@@ -170,6 +170,7 @@ procedure = [
   "27 station: no complete packaging recipe exists in the inspected fork tools, which are host and per-unit probes. The required deliverable is a packaged archive plus a build record binding source revision, target, members, generated-header SHA-256 and archive SHA-256.",
   "27 kernel: scripts/build-wifi27-kernel.sh --framework <UniXNU> --device <k60-wifi> --archive <libPongWifiNative.a> --os ios-27.0.1-24A446. It consumes an existing driver archive, runs the kernel build and counts PongWifi symbols; it compiles neither archive.",
   "Event regression: /usr/bin/python3 scripts/tests/test-wifi-association-event.py applies the real 0542 patch to the pinned kern_event.c excerpt, compiles baseline and patched harnesses and runs both MLEN configurations.",
+  "Link inputs: /usr/bin/python3 scripts/check-wifi27-link-inputs.py --link-record <linkarchives> --allow-root <tree> --allow-root /opt/k60/trees/k60build/wifi asserts every archive member is arm64e and every archive is declared. The historical record fails on its libStub27.a; a real arm64 station archive fails arch. It is a lane preflight, not a flight blocker.",
   "Station acceptance: /usr/bin/python3 scripts/check-wifi-station-archive.py <libPongAth11k.a> --ar llvm-ar --nm llvm-nm checks member architecture, both defined station APIs and the stamp/header binding. Exit 1 is a contract failure, 2 a missing input; no inspected candidate passes.",
 ]
 findings = [

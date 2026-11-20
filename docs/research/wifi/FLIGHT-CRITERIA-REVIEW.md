@@ -70,6 +70,36 @@ sha256 `b6216d66d4a72e86bcc8dd3f15ccec8245025d9ed6ad833f207cea525b2a8891`）与
 要么给条目加适用条件（例如 `applies_when` 指定配置键），要么把上面两条放进 gate 的结构检查。
 后者更简单，也不改账本语义。
 
+### 4.4 已实现：`scripts/check-wifi27-link-inputs.py`
+
+两条断言都落成一条命令，输入就是内核构建自己留下的 `linkarchives`，不需要重新构建：
+
+```sh
+python3 scripts/check-wifi27-link-inputs.py --link-record <obj>/mach.development.bcm2837.linkarchives \
+    --allow-root /tmp/<tree> --allow-root /opt/k60/trees/k60build/wifi
+```
+
+- **arch**：每个成员的 cputype/subtype 必须等于内核；归档不存在或为空都 refuse，不跳过。
+- **provenance**：每个 `-force_load`（以及记录里的 `.a`、能按 `-L` 解析的 `-l`）必须落在声明根内，
+  或出现在带 sha256 的 `--declared` 清单里，且不匹配 `--forbid`（默认 `libStub|stub[0-9]|/scratch/`）。
+
+对真实记录三跑（`--ar llvm-ar-18`）：
+
+```
+PASS arch: 6 archives, arm64e          # 在构建原样记录里去掉 libStub27.a 那一行
+PASS provenance: 6 archives declared    rc=0
+
+PASS arch: 7 archives, arm64e          # 构建原样写下的记录
+FAIL provenance: /mnt/e/k60-work/scratch/libStub27.a is named like a scratch stub
+                                        rc=1
+FAIL arch: /opt/k60/trees/k60build/wifi/ath11k-abi27s/libPongAth11k.a(PongAth11k-linked.o) is not arm64e
+PASS provenance: 1 archives declared    rc=1（真实 arm64 归档当负例）
+```
+
+这正是 §4.3 的选择：它只读这条线自己的链接账本，没有 Wi-Fi 归档的 stage-0 镜像不会被它拒绝。
+全局 `IOS27-FLIGHT-BLOCKERS.toml` 保持不动；坏例的五个形态（成员非 arm64e、符号缺失、stamp 与 header
+不一致等）分别由本脚本的 7 个用例和 `test-wifi-station-archive.py` 的 5 个用例钉住。
+
 ## 5. 不进 gate 的两条数据检查
 
 ### 5.1 Data 卷 UUID 对镜像比对（S1）
@@ -102,4 +132,9 @@ forbid `failed to power up mhi`；判读器只输出三类结论：`accepted`、
 sha256sum /mnt/e/hackios/k60-gates/scripts/check-ios27-artifacts.py   # b6216d66…
 wc -l /mnt/e/hackios/k60-wifi/scripts/check-ios27-artifacts.py       # 232, 无 --flight-ready
 cat '<obj>/mach.development.bcm2837.link/mach.development.bcm2837.linkarchives'
+
+# 链接输入两条断言（§4.4）：6 个归档 arm64e 且都在声明根内才是 0
+python3 scripts/check-wifi27-link-inputs.py --link-record '<obj>/…linkarchives' \
+    --allow-root /tmp/ios27ext4 --allow-root /opt/k60/trees/k60build/wifi
+python3 scripts/tests/test-wifi27-link-inputs.py    # 7 cases
 ```

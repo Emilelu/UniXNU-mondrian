@@ -109,6 +109,12 @@ references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence
   docs/research/wifi/evidence/ios27-station-contract.json; scripts/check-wifi-station-archive.py
   turns that acceptance into one command (member architecture, both defined APIs, and
   the stamp/header binding), and its self-test pins the five ways it must not pass.
+  For the link itself, scripts/check-wifi27-link-inputs.py reads the build's linkarchives
+  and refuses a member that is not arm64e or an archive outside the declared roots
+  (arch + provenance); it is a lane preflight, not a global flight blocker. The arm64e
+  candidate ath11k-abi27e is otherwise complete and only lacks the two APIs:
+  nw_wifi_power at E:/k60-work/impl/ath12kwifi27/src/nw_mainline.c:266 and
+  nw_wifi_scan_frequencies at :223.
   scripts/build-wifi27-kernel.sh consumes an existing driver archive, runs the kernel
   build with --os ios-27.0.1-24A446, then counts symbols; it compiles neither station
   nor driver archive. Its six host cases verify the wrapper, not a completed build.

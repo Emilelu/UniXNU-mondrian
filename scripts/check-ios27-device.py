@@ -67,6 +67,74 @@ def device_board_names(device):
             for part in match.group(1).split(",") if part.strip()]
 
 
+UFS_SWITCH = "CONFIG_XNU_NATIVE_UFS="
+BUILDER = os.path.join("scripts", "build-xnu-generic.sh")
+UFS_ASSIGN = re.compile(r"UFS_ARCHIVE=\$ROOT/(\S+)")
+# A line that names the archive only links it; the ones below write it.
+WRITE_HINTS = ("libtool", "ar rcs", " -o ", "cp ", "install -m", "copyfile", "copy2")
+
+
+def defconfig_path(device):
+    """The defconfig the 27 kernel block names, else the stage-0 default."""
+    default = os.path.join(device, "configs", "mondrian_ios27_defconfig")
+    path = os.path.join(device, BOARD)
+    if not os.path.exists(path):
+        return default
+    text = read(path)
+    marker = '[os_overrides."ios-27.0.1-24A446".kernel]'
+    start = text.find(marker)
+    if start < 0:
+        return default
+    match = re.search(r'defconfig\s*=\s*"([^"]+)"', text[start:])
+    if not match:
+        return default
+    return os.path.join(device, "configs", match.group(1))
+
+
+def ufs_archive(device):
+    """(True|False|None, why): can the 27 builder link the storage archive?
+
+    The 27 profile builds with scripts/build-xnu-generic.sh (pick-xnu-builder.sh
+    sends every profile but 16.6.1 there).  That script force-loads
+    build/sheng-ufs/libPongUfs.a whenever CONFIG_XNU_NATIVE_UFS=y, and the only
+    producer of a native UFS archive in either repository writes
+    build/native-ufs/libNativeUfs.a from drivers/NativeUfs - a step that lives in
+    build-xnu-4k-baseline.sh, which the 27 line never runs.  So flipping the
+    switch without adding a producer stops the build at "test -f".
+    """
+    config = defconfig_path(device)
+    if not os.path.exists(config):
+        return None, "no 27 defconfig at " + os.path.basename(config)
+    enabled = None
+    for line in read(config).splitlines():
+        if line.strip().startswith(UFS_SWITCH):
+            enabled = line.strip()[len(UFS_SWITCH):].strip()
+            break
+    if enabled is None:
+        return None, "the 27 defconfig does not set " + UFS_SWITCH.rstrip("=")
+    if enabled != "y":
+        return True, "the 27 defconfig keeps native UFS off (%s%s)" % (UFS_SWITCH, enabled)
+    builder = os.path.join(device, BUILDER)
+    if not os.path.exists(builder):
+        return False, BUILDER.replace(os.sep, "/") + " is missing"
+    match = UFS_ASSIGN.search(read(builder))
+    if not match:
+        return False, BUILDER.replace(os.sep, "/") + " names no archive to link"
+    archive = match.group(1)
+    scripts = os.path.join(device, "scripts")
+    producers = []
+    for name in sorted(os.listdir(scripts)) if os.path.isdir(scripts) else []:
+        if not name.endswith((".sh", ".py")):
+            continue
+        for number, line in enumerate(read(os.path.join(scripts, name)).splitlines(), 1):
+            if archive in line and any(hint in line for hint in WRITE_HINTS):
+                producers.append("%s:%d" % (name, number))
+    if not producers:
+        return (False, "native UFS is on and nothing writes the archive " + BUILDER.replace(os.sep, "/")
+                + " links (" + archive + ")")
+    return True, "the archive the 27 builder links is written by " + " ".join(producers)
+
+
 def check(device, patches):
     """Return (drift, notes) after comparing the device repository with ours."""
     drift, notes = 0, []
@@ -140,6 +208,16 @@ def check(device, patches):
         print("K60 DEVICE note PongUfs is not in the 27 package include list either")
     elif included is not None:
         print("K60 DEVICE ok   the 27 package includes PongUfs")
+
+    done, why = ufs_archive(device)
+    if done is None:
+        notes.append(why)
+        print("K60 DEVICE note " + why)
+    elif done:
+        print("K60 DEVICE ok   " + why)
+    else:
+        drift += 1
+        print("K60 DEVICE DRIFT " + why)
     return drift, notes
 
 
@@ -181,7 +259,35 @@ def self_test():
         if check(device, patches)[0] == 0:
             print("K60 DEVICE FAIL a differing copy was not reported")
             return 1
-        print("K60 DEVICE PASS agreement, missing entry, differing copy")
+        # Undo the perturbation: the fixtures below expect a clean comparison.
+        with open(os.path.join(target, "0627-b.patch"), "w", encoding="utf-8") as handle:
+            handle.write("0627-b.patch\n")
+        # The storage archive: off is fine, on without a producer is drift, and
+        # a producer anywhere in scripts/ clears it.
+        scripts = os.path.join(device, "scripts")
+        configs = os.path.join(device, "configs")
+        os.makedirs(scripts)
+        os.makedirs(configs)
+        with open(os.path.join(scripts, "build-xnu-generic.sh"), "w", encoding="utf-8") as handle:
+            handle.write('UFS_ARCHIVE=$ROOT/build/sheng-ufs/libPongUfs.a\n'
+                         'KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"\n')
+        config = os.path.join(configs, "mondrian_ios27_defconfig")
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("CONFIG_XNU_NATIVE_UFS=n\n")
+        if check(device, patches)[0] != 0:
+            print("K60 DEVICE FAIL a disabled UFS switch was reported as drift")
+            return 1
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("CONFIG_XNU_NATIVE_UFS=y\n")
+        if check(device, patches)[0] == 0:
+            print("K60 DEVICE FAIL an archive nobody writes was not reported")
+            return 1
+        with open(os.path.join(scripts, "build-pong-ufs.sh"), "w", encoding="utf-8") as handle:
+            handle.write("libtool -static -o $ROOT/build/sheng-ufs/libPongUfs.a transport.o\n")
+        if check(device, patches)[0] != 0:
+            print("K60 DEVICE FAIL a produced archive was reported as drift")
+            return 1
+        print("K60 DEVICE PASS agreement, missing entry, differing copy, archive producer")
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)

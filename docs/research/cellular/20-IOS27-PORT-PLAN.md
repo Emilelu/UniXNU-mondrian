@@ -870,3 +870,47 @@ Lead 09:23 裁决：`verify-27-line.sh` 当构建前门禁，但**副本不能�
 
 待办：构建脚本 `scripts/build-ios27-linux.sh` 的插入点在 `defconfig`（第 45 行）与
 `unixnu build kernel`（第 46 行）之间；该文件在 `k60-gates`（owner = lead），本线只给片段，不代改。
+
+## 28. 27 线从共享资源里实际要什么（2026-11-20 09:45）
+
+27 的内核构建读的是**设备仓**（`/mnt/e/hackios/k60-gates`，owner = lead），不是本仓。
+`board.toml:369` 的 `patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series",
+"os:patches/xnu/series", "device:patches/xnu-12377/series"]`，注释写明 `patches/xnu-12377/series`
+是「the order of record」。本仓 `patches/xnu-12377/` 只是生成地，复制过去这件事不属于本仓。
+
+新工具 `scripts/check-ios27-device.py --device <设备仓> [--patches <本仓目录>] [--self-test]`
+把两边逐项对比（board.toml 里有没有 `device:patches/xnu-12377/series`、series 是否含我们的补丁
+且顺序与 `series-port.txt` 一致、每个补丁两边 sha256 是否相同、27 package 是否含 `QcomBaseband`），
+输出 `K60 DEVICE ok|DRIFT|note`，exit 0/1/2。真实设备仓当前的结果：
+
+```
+K60 DEVICE ok   board.toml lists device:patches/xnu-12377/series
+K60 DEVICE DRIFT 5 of 5 ported patches are not in the device series: 0626… 0627… 0628… 0630… 0629…
+K60 DEVICE DRIFT the device repository has no copy of: 0626… 0627… 0628… 0630… 0629…
+K60 DEVICE note QcomBaseband is not in the 27 package include list
+K60 DEVICE CHANGED 2 expectation(s) drifted
+```
+
+`--self-test` 用临时目录造三份设备仓（完整 / 少一条 series 条目 / 同名但内容不同），
+输出 `K60 DEVICE PASS agreement, missing entry, differing copy`。
+
+### 28.1 清单：每一样东西在哪、谁负责、缺什么
+
+| 资源 | 事实（实测） | 27 现状 | 计划 |
+|---|---|---|---|
+| 五个补丁 + series 条目 | 设备仓 `patches/xnu-12377/` 里只有 BT 系列 0500–0523 与两处上游补丁（`armcpu-sleep-hook.patch` 等）；我们 0626–0630 一条都没有，文件也不存在 | 构建器读不到 ⇒ 27 内核里没有 cellular | 把 0626–0630 复制进设备仓同名目录，并按 `series-port.txt` 的顺序（0626 0627 0628 0630 0629）追加到 `series`；设备仓 owner 是 lead，本线只交清单与检查器 |
+| `QcomBaseband` 控制桥 | `UniXNU/components.toml:564`：repo `UniXNU/QcomBaseband`、rev `dd0199cf`、path `drivers/QcomBaseband`、输出 `build/qcom-baseband/libQcomBaseband.a`，运行期 id 含 `AppleBaseband`/`AppleBasebandPCIControl`/`pdp_ip0..3` | 27 package 的 include 只有 `ArmDTPlatform`/`ArmCpu`/`XnuPrelink`（`board.toml:360`） | 基带桥接真正接上时再进 include + archives（16 线在 `board.toml:14/21` 已有）；那之前 27 不需要它 |
+| `PongUfs` / `ShengUfs` | `components.toml:552` id=`PongUfs`、`:121` id=`ShengUfs`（repo `UniXNU/ShengUfs`、rev `99d8bcd3`、输出 `build/sheng-ufs/libShengUfs.a`、legacy 名 `NativeUfs`） | 27 stage-0 有意不带（`board.toml:359` 注释「No PongUfs at stage 0; it returns in F3」） | rmtfs 读 EFS 要它；0627 的弱定义让 27 能链接、读返回 refused，F3 带回来后才真正读盘 |
+| `ArmSmmu4K` | `components.toml:397`：repo `UniXNU/ArmSmmu4K`、rev `83969cd8`、path `kits/ArmSmmu4K` | 27 树无 | 0628 已有弱定义兜底；GPU 线把它带进来时 readiness 的 `no ArmSmmu4K` 那条会 DRIFT，提醒撤掉弱定义 |
+| `append-conffiles.py` | 设备仓 `scripts/`，owner = lead；anchor 仍是 `bsd/dev/pong_buttons.c`（16 线的源） | 27 上必然 `anchor missing, entries not added` 并返回 1 | 932 B 草案（anchor → `unix_startup.c`、entries 读 `conffiles-port.txt`）+ Lead 的 `--verify`/`--apply` |
+| 本仓生成物 | `patches/xnu-12377/{0626..0630, series-port.txt, conffiles-port.txt}` 在 `feat/cellular-ios27` | 设备仓没有 | 即第一行；`check-ios27-device.py` 是这件事的门禁 |
+
+### 28.2 结论
+
+- **本仓之外真正缺的只有两处**：设备仓 `patches/xnu-12377/` 的副本与 series 条目；27 package 里的
+  `QcomBaseband`（后者等 cellular 进 27 才需要）。其余共享件（`ArmSmmu4K`、`ShengUfs`/`PongUfs`、
+  `QcomBaseband` 本体）都已在 `UniXNU/components.toml` 里登记了 repo 与 40 位 revision，新检出按
+  `components.toml` 就能取到，不需要本仓保存副本。
+- 因此 kernel 侧只有一份事实源（本仓 `drivers/PongCellular/*` → 生成的补丁），设备侧也是一份
+  （`k60-gates`），两边之间必须靠「复制 + 检查」而不是「都改一遍」。
+- 新检查器只做只读对比，不进 host 套件：它在设备仓还没副本时必然红，那是待办而不是回归。

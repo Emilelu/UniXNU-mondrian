@@ -50,7 +50,7 @@
 # How many rows this file prints with every checkout in place. The tail counts
 # the rows it actually printed and compares them with this number, so a new row
 # that nobody counted fails here instead of leaving the pages wrong.
-ROWS_EXPECTED=57
+ROWS_EXPECTED=58
 
 case "$#:$*" in
 0:) rows_expected=$ROWS_EXPECTED; label=PREFLIGHT ;;
@@ -182,6 +182,7 @@ run "playback judge tests" python3 scripts/tests/test-judge-audio-capture.py
 run "27 triage is honest" python3 scripts/tests/test-triage-audio27.py
 run "amplifier host tests" sh drivers/PongAudio/tests/run-tests.sh
 run "wiring dry run" sh scripts/tests/test-wiring-dry-run.sh
+run "host suite four times at once" python3 scripts/tests/test-audio27-host-concurrency.py
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 include checker is honest" python3 scripts/tests/test-audio27-includes.py

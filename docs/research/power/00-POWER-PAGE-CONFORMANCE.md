@@ -140,12 +140,20 @@
   钉成清单，`python3 scripts/check-power-carry.py` 校验哈希、套件数与 portability 列表，
   `--target <树>` 逐文件比对另一棵检出（`--update` 刷新哈希）。2026-11-20 对
   `E:/hackios/xnekom-ios27` 实测六个模块 `SAME`、`K60ThermalMap` 三个 `MISS`：那份 iOS27
-  检出停在温控提交之前，合并即可。清单同时钉住三个 console 判读器（handoff 33 / sleep 28 / mode1 14 例）：
+  检出停在温控提交之前，合并即可。清单同时钉住四个 console 判读器（handoff 33 / sleep 28 / mode1 14 / battery-mirror 21 例）：
   判读器搬过去先跑夹具，夹具打印的用例数与清单不符即失败，因为缩水的夹具就是 P-204 那种"绿而盲"。
-  检查器自带 25 项测试（`scripts/tests/test-power-carry.py`）。
+  检查器自带 34 项测试（`scripts/tests/test-power-carry.py`）。
 - 27 侧前置检查：`scripts/check-ios27-power-preflight.py`（18 项测试）把四件事合成一份输出——
   七个模块的哈希、`0629-k60-sleep-trace.patch` 里 report 是否仍被 `#if defined(PONG)` 包住、
   27 树的 `pick-xnu-builder.sh` 是否选 `build-xnu-generic.sh`、四个判读器是否已并入。
+- 逐条对齐官网页面的表是 `docs/research/power/LANE-CONFORMANCE.toml`（19 行，adsp 5 / battery 6 /
+  charger 1 / thermal 2 / power 5），`python3 scripts/check-lane-conformance.py` 核对三件事：
+  `requirement` 的句子必须真的出现在 `docs/zh/porting/power.md` 那一节（防止凭记忆引一句不存在的话）、
+  `evidence` 必须是一个存在的文件、非 `verified` 的行必须写 `why`；`--render` 生成
+  `LANE-CONFORMANCE.md`（同一份表，给读者看）。2026-11-20 的结论是 19 行里 verified 16、partial 3
+  （`dsp-firmware-auth` 只有离线证据、`charger-independent-protocol` 未上机、`thermal-advise` 的
+  温控证据不可用），夹具 16 项。这张表与 runner 无关，因为它依赖官方页面的本地副本
+  `E:/hackios/UniXNU/docs/zh/porting/power.md`，搬出去的树没有那份副本。
   2026-11-20 对 `xnekom-ios27@ee910a78` 实测 3 个阻塞（温控三文件缺、PONG 门控、两个判读器缺），
   builder 路由已通过。
 

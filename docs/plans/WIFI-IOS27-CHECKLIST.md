@@ -106,7 +106,9 @@ references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence
   scripts/check-wifi-station-api.py searches source text (its expression also matches
   prototypes), so a green result is supplementary only. The archive evidence and
   acceptance inputs are in SHENG-KERNEL-REFERENCE.md section H.1 and
-  docs/research/wifi/evidence/ios27-station-contract.json.
+  docs/research/wifi/evidence/ios27-station-contract.json; scripts/check-wifi-station-archive.py
+  turns that acceptance into one command (member architecture, both defined APIs, and
+  the stamp/header binding), and its self-test pins the five ways it must not pass.
   scripts/build-wifi27-kernel.sh consumes an existing driver archive, runs the kernel
   build with --os ios-27.0.1-24A446, then counts symbols; it compiles neither station
   nor driver archive. Its six host cases verify the wrapper, not a completed build.

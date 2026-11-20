@@ -161,6 +161,10 @@ sheng #25 的平台睡眠有完整调用链；我们的 `armcpu-sleep-hook.patch
   完整 arm64e station 归档；与驱动共同生成的 `nw_abi.h`；一份绑定「源码 revision、target、成员、生成头
   SHA-256、归档 SHA-256」的构建记录；以及 `llvm-nm --defined-only` 对两个 API 的实证。只匹配
   `abi/nw_abi.stamp` 的旁车文件不够，因为构建器只校验 `ie_bytes`，不校验 `header_sha256`。
+  这套验收已写成 `scripts/check-wifi-station-archive.py`：一条命令同时查成员架构（arm64e）、两个 API
+  是否为**已定义**符号、`stamp` 的 `ie_bytes=2048` 与 `header_sha256` 是否等于同目录 `nw_abi.h`；
+  全部成立退 0，契约不符退 1，缺输入或工具退 2。实跑三个候选：`ath11k-abi27` 缺 stamp（退 2）、
+  `ath11k-abi27s` 成员是 arm64、`ath11k-abi27e` 架构与 stamp 通过但两个 API 都缺（退 1）。
 - **C2：** 见 D 节；先取目标 wifid 的 job、实际调用库与传输路径，再决定是否复用 0526/0527 增加 Wi-Fi 视图与
   独立 job。`5/0` 或 cache loader 交付都不是服务已运行。最小输入分别是：
   目标 build、原始 `com.apple.wifid` 的 Label/ProgramArguments/MachServices，以及按 job 定位的 wifid/实际 Wi-Fi 库

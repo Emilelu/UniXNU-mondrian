@@ -144,6 +144,61 @@ def main() -> int:
     problems = module.verify(WORK / "mirror", shapeless)
     check("a mirror without a line is refused", any("is not path:line" in p for p in problems), str(problems))
 
+    def lanes_and(extra, name):
+        rows = "".join(row(id=f"s{i}", lane=lane) for i, lane in enumerate(sorted(module.LANES)))
+        return build(WORK / name, rows + extra)
+
+    fw_row = ROW.format(id="fw", lane="power", source="drv/a.h:1", expect="X 1u",
+                        dependence="firmware", ios27="nothing")
+
+    bare = lanes_and(fw_row, "fw-bare")
+    problems = module.verify(WORK / "fw-bare", bare)
+    check("a firmware row without a second source is refused",
+          any("no independent second source" in p for p in problems), str(problems))
+
+    cited = lanes_and(fw_row + 'second = [{ source = "drv/b.h:1", expect = "X 1u" }]', "fw-ok")
+    (WORK / "fw-ok" / "drv" / "b.h").write_text("#define X 1u", encoding="utf-8", newline="")
+    problems = module.verify(WORK / "fw-ok", cited)
+    check("a firmware row with a satisfied second source verifies", problems == [], str(problems))
+
+    (WORK / "fw-ok" / "drv" / "b.h").write_text("#define X 2u", encoding="utf-8", newline="")
+    problems = module.verify(WORK / "fw-ok", cited)
+    check("a second source that drifted is refused",
+          any("second source drv/b.h:1 does not contain" in p for p in problems), str(problems))
+
+    blob_row = lanes_and(fw_row + 'second = [{ bytes = "drv/blob.bin", offset = 4, hex = "deadbeef" }]', "fw-bin")
+    (WORK / "fw-bin" / "drv" / "blob.bin").write_bytes(b"\x00\x00\x00\x00\xde\xad\xbe\xef\x00")
+    problems = module.verify(WORK / "fw-bin", blob_row)
+    check("a byte-range second source verifies", problems == [], str(problems))
+
+    (WORK / "fw-bin" / "drv" / "blob.bin").write_bytes(b"\x00\x00\x00\x00\xde\xad\xbe\xee\x00")
+    problems = module.verify(WORK / "fw-bin", blob_row)
+    check("a byte-range second source that moved is refused",
+          any("the row records deadbeef" in p for p in problems), str(problems))
+
+    thin = lanes_and(fw_row + 'second_unavailable = { tried = ["one"], why = "the vendor image is not here" }', "fw-thin")
+    problems = module.verify(WORK / "fw-thin", thin)
+    check("an unsupported row with one tried source is refused",
+          any("at least two are required" in p for p in problems), str(problems))
+
+    doc = lanes_and(fw_row + 'second_unavailable = { tried = ["the vendor image is not here", "grep of the two sibling trees returned nothing"], why = "the ladder lives in the vendor thermal-engine config, which is not in this workspace" }', "fw-doc")
+    problems = module.verify(WORK / "fw-doc", doc)
+    check("a documented absence satisfies a firmware row", problems == [], str(problems))
+
+    both = lanes_and(fw_row + 'second = [{ source = "drv/a.h:1", expect = "X 1u" }]' + chr(10) +
+                     'second_unavailable = { tried = ["a", "b"], why = "c" }', "fw-both")
+    problems = module.verify(WORK / "fw-both", both)
+    check("a row that both cites and disclaims is refused",
+          any("mutually exclusive" in p for p in problems), str(problems))
+
+    stray = lanes_and(fw_row + 'second = [{ source = "external:nope/x.h:1", expect = "X 1u" }]', "fw-root")
+    problems = module.verify(WORK / "fw-root", stray)
+    check("an undeclared external root is refused",
+          any("external root 'nope'" in p for p in problems), str(problems))
+    check("a windows path is translated for this host",
+          str(module.hostpath("E:/k60-work/x")).replace("\\", "/").endswith("k60-work/x"),
+          str(module.hostpath("E:/k60-work/x")))
+
     real = REPO / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
     if real.is_file():
         problems = module.verify(REPO, real)

@@ -17,6 +17,24 @@
 #
 # ios27 is the action the 27 line takes; "unchanged" means re-verify only.
 
+# Optional \`second = [...]\` names an INDEPENDENT source for a row whose number a
+# second system also knows (dependence = "firmware"): the DSP image, the device's
+# own flattened device tree, the vendor Linux implementation of the same GLINK
+# protocol, or another SM8475 driver. Each entry is one of
+#   { source = "path:line", expect = "text that must sit on that line" }
+#   { bytes = "path", offset = 24, hex = "00003086" }
+# A path outside this repository is written external:<root>/<path>, where <root>
+# is declared under [roots] below; the gate translates the drive letter for the
+# host it runs on. \`second_note\` says what the citation means when the mapping
+# is not obvious. A firmware row that has no independent source must say so:
+#   second_unavailable = { tried = ["...", "..."], why = "..." }
+# with at least two searched sources and a why that names the artefact that would
+# settle it - "cannot be verified" alone is not a reason (Lead, 2026-11-20).
+
+[roots]
+hackios = "E:/hackios"
+k60work = "E:/k60-work"
+
 [[contract]]
 id = "adsp-owner"
 lane = "adsp"
@@ -25,6 +43,10 @@ source = "drivers/PongPower/K60Battmgr.h:12"
 expect = "K60_BATTMGR_OWNER 32778u"
 dependence = "firmware"
 ios27 = "unchanged: the id lives in the DSP image, not in XNU"
+second = [
+  { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:16", expect = "SHENG_BATTMGR_OWNER 32778u" },
+]
+second_note = "the vendor-side Linux implementation of the same DSP battery protocol names the same owner; its comment also says 32779 is the USB-C port manager on the same channel"
 
 [[contract]]
 id = "adsp-request-bytes"
@@ -34,6 +56,10 @@ source = "drivers/PongPower/K60Battmgr.h:13"
 expect = "K60_BATTMGR_REQUEST_BYTES 24u"
 dependence = "firmware"
 ios27 = "unchanged unless the DSP image changes"
+second = [
+  { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:25", expect = "SHENG_BATTMGR_REQUEST_BYTES 24u" },
+]
+second_note = "the same 24-byte request frame in the vendor-side reader"
 
 [[contract]]
 id = "adsp-notify-bytes"
@@ -43,6 +69,10 @@ source = "drivers/PongPower/K60Battmgr.h:14"
 expect = "K60_BATTMGR_NOTIFY_BYTES 28u"
 dependence = "firmware"
 ios27 = "unchanged; the consumer accepts the length the DSP reports, not this constant"
+second = [
+  { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:26", expect = "SHENG_BATTMGR_ENABLE_BYTES 28u" },
+]
+second_note = "the vendor reader sizes its enable frame at 28 B too; the name differs, so this corroborates the frame size and not the frame kind"
 
 [[contract]]
 id = "adsp-model-bytes"
@@ -116,6 +146,10 @@ expect = "K60_ADSP_LOAD_BASE 0x86300000ull"
 mirror = "patches/xnu/0613-k60-adsp-pas.patch:28"
 dependence = "firmware"
 ios27 = "re-derive from the 27 firmware image, not from this constant"
+second = [
+  { bytes = "external:k60work/firmware/adsp/adsp.b00", offset = 24, hex = "00003086" },
+]
+second_note = "the firmware's own ELF32 header: e_entry at offset 0x18 is 0x86300000, the link address our loader copies to"
 
 [[contract]]
 id = "adsp-carveout"
@@ -125,6 +159,11 @@ source = "drivers/PongPower/K60AdspBoard.c:69"
 expect = "0x9fd00000"
 dependence = "firmware"
 ios27 = "re-check the carveout the 27 device tree publishes"
+second = [
+  { source = "external:hackios/UniXNU-zizhan/dts/zizhan.dts:36", expect = "region24@9fd00000" },
+  { source = "external:hackios/UniXNU-zizhan/drivers/PongPower/PongAdsp.cpp:50", expect = "kAdspBase = 0x9fd00000" },
+]
+second_note = "another SM8475 board reserves the same carveout in its device tree and its ADSP loader uses it as the copy target"
 
 [[contract]]
 id = "adsp-smc-clobber"
@@ -173,6 +212,10 @@ source = "drivers/PongPower/K60ThermalMap.h:57"
 expect = "K60_THERMAL_TRIP_WARM 90000"
 dependence = "firmware"
 ios27 = "re-check against the 27 thermal profile before trusting the ladder"
+second = [
+  { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 115844, hex = "00015f90" },
+]
+second_note = "the device's own flattened device tree: /soc/thermal-zones/ddr/trips/ddr0-config carries 90000"
 
 [[contract]]
 id = "thermal-trip-junction"
@@ -182,6 +225,10 @@ source = "drivers/PongPower/K60ThermalMap.h:58"
 expect = "K60_THERMAL_TRIP_JUNCTION 95000"
 dependence = "firmware"
 ios27 = "same as warm"
+second = [
+  { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 111028, hex = "00017318" },
+]
+second_note = "the device's own flattened device tree: /soc/thermal-zones/gpuss-0/trips/tj_cfg carries 95000"
 
 [[contract]]
 id = "thermal-trip-emergency"
@@ -191,6 +238,10 @@ source = "drivers/PongPower/K60ThermalMap.h:59"
 expect = "K60_THERMAL_TRIP_EMERGENCY 110000"
 dependence = "firmware"
 ios27 = "same as warm"
+second = [
+  { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 106704, hex = "0001adb0" },
+]
+second_note = "the device's own flattened device tree: /soc/thermal-zones/cpu-1-0/trips/cpu4-emerg0-cfg carries 110000"
 
 [[contract]]
 id = "thermal-trip-reset"
@@ -200,6 +251,10 @@ source = "drivers/PongPower/K60ThermalMap.h:60"
 expect = "K60_THERMAL_TRIP_RESET 115000"
 dependence = "firmware"
 ios27 = "same as warm"
+second = [
+  { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 105328, hex = "0001c138" },
+]
+second_note = "the device's own flattened device tree: /soc/thermal-zones/aoss-0/trips/reset-mon-cfg carries 115000"
 
 [[contract]]
 id = "thermal-trip-shutdown"
@@ -209,6 +264,10 @@ source = "drivers/PongPower/K60ThermalMap.h:61"
 expect = "K60_THERMAL_TRIP_SHUTDOWN 125000"
 dependence = "firmware"
 ios27 = "same as warm"
+second = [
+  { bytes = "external:k60work/reports/live-6033dbec-fdt.dtb", offset = 99796, hex = "0001e848" },
+]
+second_note = "the device's own flattened device tree: /soc/thermal-zones/pa/trips/thermal-engine-config0 carries 125000"
 
 [[contract]]
 id = "power-pdmem-vote-magic"
@@ -218,6 +277,11 @@ source = "drivers/PongPower/K60CpuFreqPlan.h:61"
 expect = "0x17d09804"
 dependence = "firmware"
 ios27 = "re-derive from the 27 device tree node, not from this comment"
+second = [
+  { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:84", expect = "IODeviceMemory::withRange(0x17d09000,4096)" },
+  { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:56", expect = "+0x804+4*index" },
+]
+second_note = "the same SoC's EPSS driver maps the perf-lock window at 0x17d09000 and writes at +0x804; 0x17d09000 + 0x804 = 0x17d09804"
 
 [[contract]]
 id = "power-pdmem-vote-offset"
@@ -227,3 +291,7 @@ source = "drivers/PongPower/K60CpuFreqPlan.h:66"
 expect = "K60_CPU_FREQ_PDMEM_VOTE_OFFSET 0x804u"
 dependence = "firmware"
 ios27 = "re-check with the magic above"
+second = [
+  { source = "external:hackios/UniXNU-t970/drivers/ArmCpu/PongCpuPolicy.h:56", expect = "+0x804+4*index" },
+]
+second_note = "the same offset inside the perf-lock window, in the independent EPSS driver"

@@ -66,6 +66,8 @@ def main():
     p.add_argument('--shared', type=Path, default=pong_paths.sheng_root()/'drivers/Ath12kWifi')
     p.add_argument('--output-dir', type=Path, required=True)
     p.add_argument('--jobs', type=int, default=4)
+    p.add_argument('--target', default='arm64-apple-ios16.0',
+                   help='clang target triple; the 24A446 kernel links arm64e')
     a = p.parse_args(); linux = a.linux.resolve(); shared = a.shared.resolve(); out = a.output_dir.resolve()
     out.mkdir(parents=True, exist_ok=True)
     if not (linux / 'drivers/net/wireless/ath/ath11k/pci.c').is_file(): raise RuntimeError('Linux ath11k PCI sources required')
@@ -526,7 +528,7 @@ void ieee80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work) { i
     # different width, the two halves disagree about struct nw_bss_info and the record is cut again on the air
     # (the mission34 384/1024 accident, P-230). Record the width here so the kext build can refuse the mix.
     (abi / 'nw_abi.stamp').write_text('ie_bytes=2048\nheader_sha256=%s\n' % hashlib.sha256((abi / 'nw_abi.h').read_bytes()).hexdigest())
-    flags = ['-target', 'arm64-apple-ios16.0', '-mkernel', '-O2', '-g0', '-ffreestanding',
+    flags = ['-target', a.target, '-mkernel', '-O2', '-g0', '-ffreestanding',
         '-fno-builtin', '-fno-common', '-fno-strict-aliasing', '-fwrapv', '-fno-stack-protector',
         '-fno-delete-null-pointer-checks', '-mgeneral-regs-only', '-std=gnu11',
         '-Wno-incompatible-pointer-types', '-Wno-error', '-Wno-unused-value',
@@ -739,7 +741,7 @@ static void sae_probe_rx(struct sk_buff *skb) {
     if failed: raise SystemExit('ath11k compile failures (retained .log): ' + ', '.join(failed))
     archive = out / 'libPongAth11k.a'
     linked = out / 'ath11k-combined.o'
-    subprocess.run(['xcrun', 'ld', '-r', '-arch', 'arm64', *[str(o) for _, o, _ in jobs], '-o', str(linked)], env=env, check=True)
+    subprocess.run(['xcrun', 'ld', '-r', '-arch', a.target.split('-')[0], *[str(o) for _, o, _ in jobs], '-o', str(linked)], env=env, check=True)
     nm = pong_paths.tool('llvm-nm', 'PONG_LLVM_NM', ('/opt/local/bin/llvm-nm-mp-18',))
     undefined = subprocess.check_output([nm, '-u', '-j', str(linked)], text=True).splitlines()
     (out / 'undefined-symbols.txt').write_text('\n'.join(undefined) + '\n')

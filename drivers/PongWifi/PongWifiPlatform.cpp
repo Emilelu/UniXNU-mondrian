@@ -31,8 +31,18 @@ void pong_wifi_net_diagnostics(void);
 void pong_wifi_net_failed(void);
 int nw_wifi_firmware_error(void);
 void PongWifiNetStaticInit(void);
+// Only the 16.6.1 kernel provides these two: PongUfs exports pong_ufs_ready
+// and the usblog patch exports k60_usblog_console_up. The 24A446 stage-0
+// kernel has neither (UFS and the USB console are off), and arm64e cannot leave
+// a weak reference to a function it has to authenticate, so instead of a weak
+// symbol the 27 build compiles the two waits out.
+#ifndef PONG_WIFI_HOST_HOOKS
+#define PONG_WIFI_HOST_HOOKS 1
+#endif
+#if PONG_WIFI_HOST_HOOKS
 bool pong_ufs_ready(void);
 bool k60_usblog_console_up(void);
+#endif
 bool pong_rpmh_vote(uint32_t,uint32_t);
 bool pong_smmu_lease_lock(void);
 void pong_smmu_lease_unlock(void);
@@ -780,12 +790,20 @@ void worker(void *,wait_result_t) {
  // printed anything, so the failure leaves no console at all. Nothing in this
  // worker may touch MMIO until the USB console is actually running; otherwise a
  // WiFi fault is indistinguishable from a boot that never reached the kernel.
- unsigned n=0,c=0;for(;c<240&&!k60_usblog_console_up();c++)IOSleep(500);
+ unsigned n=0,c=0;
+#if PONG_WIFI_HOST_HOOKS
+ for(;c<240&&!k60_usblog_console_up();c++)IOSleep(500);
  if(c==240){fail("console never came up; WiFi skipped before any MMIO");goto done;}
  IOLog("PongWifi: console up after %u ms; starting cold link\n",c*500);
  // UFS owns another SID on the same APPSSMMU: serialize initial bank lease.
  for(;n<180&&!pong_ufs_ready();n++)IOSleep(500);
  if(n==180){fail("UFS prerequisites absent; WiFi skipped");goto done;}
+#else
+ // Neither hook exists on this line: the 24A446 stage-0 kernel runs without the
+ // USB console patch and without UFS, so there is nothing to wait for.
+ (void)n;(void)c;
+ IOLog("PongWifi: host console and UFS hooks absent; starting the cold link alone\n");
+#endif
  IOSleep(2000);
  probeFiles();
  if(!coldLink())goto done;

@@ -17,6 +17,11 @@ def main():
  p.add_argument('--profile',type=Path,default=None,
                 help='K60 board profile; defaults to ROOT/configs/mondrian-wifi-sm8475.json')
  p.add_argument('--output-dir',type=Path,default=None)
+ p.add_argument('--target',default='arm64-apple-ios16.0',help='clang target triple; the 24A446 kernel links arm64e')
+ p.add_argument('--smmu4k-kit',action='store_true',
+                help='carry the ARM SMMU 4 KiB kit; the 24A446 stage-0 kernel links no Adreno platform to provide it')
+ p.add_argument('--no-host-hooks',action='store_true',
+                help='the kernel exports neither pong_ufs_ready nor k60_usblog_console_up (the 24A446 stage-0 line)')
  a=p.parse_args();out=(a.output_dir.resolve() if a.output_dir else a.tree/'build/k60-wifi');out.mkdir(parents=True,exist_ok=True)
  shared=pong_paths.sheng_root()
  profile_path=a.profile or (ROOT/'configs/mondrian-wifi-sm8475.json')
@@ -112,7 +117,18 @@ def main():
      t=dict(l.split('=',1) for l in stamp.read_text().splitlines() if '=' in l)
      if t.get('ie_bytes')!='2048':raise RuntimeError('station archive %s carries ie_bytes=%s but this build carries 2048: rebuild the station (P-230)'%(a.ath11k,t.get('ie_bytes')))
  else:print('note: %s has no abi/nw_abi.stamp, so the element width was not compared'%a.ath11k)
- flags=['-target','arm64-apple-ios16.0','-isysroot',sdk,'-mkernel','-ffreestanding','-fno-builtin','-fno-exceptions','-fno-rtti','-fno-stack-protector','-mgeneral-regs-only','-std=gnu++17','-fblocks','-O2','-DKERNEL=1','-DKERNEL_PRIVATE=1','-DXNU_KERNEL_PRIVATE=1','-DARM64_BOARD_CONFIG_PONG=1','-I'+str(framework/'PrivateHeaders'),'-I'+str(framework/'Headers'),'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include'),'-I'+str(shared/'package'),'-I'+str(out),'-Wno-deprecated-declarations']
+ flags=['-target',a.target,'-isysroot',sdk,'-mkernel','-ffreestanding','-fno-builtin','-fno-exceptions','-fno-rtti','-fno-stack-protector','-mgeneral-regs-only','-std=gnu++17','-fblocks','-O2','-DKERNEL=1','-DKERNEL_PRIVATE=1','-DXNU_KERNEL_PRIVATE=1','-DARM64_BOARD_CONFIG_PONG=1','-I'+str(framework/'PrivateHeaders'),'-I'+str(framework/'Headers'),'-I'+str(abi),'-I'+str(shared/'drivers/Ath12kWifi/include'),'-I'+str(shared/'package'),'-I'+str(out),'-Wno-deprecated-declarations']
+ if a.no_host_hooks:
+  # arm64e authenticates the address of a function it takes, so a weak reference
+  # to a kernel export the stage-0 line does not have is still an undefined
+  # symbol; the driver compiles both waits out instead (PongWifiPlatform.cpp).
+  flags.append('-DPONG_WIFI_HOST_HOOKS=0')
+ if 'arm64e' in a.target:
+  # This toolchain defines __apple_build_version__, so os/base.h picks the four-argument
+  # __ptrauth form in sys/ucred.h:109 that only Apple's shipping clang accepts. The 24A446
+  # kernel links arm64e, so the kext must too, and the three-argument spelling is what this
+  # compiler understands.
+  flags.append('-U__apple_build_version__')
  objects=[]
  for name in ('PongWifiPlatform','PongWifiNet'):
   obj=out/(name+'.o');cmd=['xcrun','clang++',*flags,'-c',str(ROOT/'drivers/PongWifi'/(name+'.cpp')),'-o',str(obj)]
@@ -143,10 +159,26 @@ def main():
    else:raise RuntimeError('owned network constructor not found')
    obj=out/'PongWifiNet.late.o';obj.write_bytes(raw)
   objects.append(obj)
- obj=out/'PongWifiFirmware.o';subprocess.run(['xcrun','clang','-target','arm64-apple-ios16.0','-c',str(asm),'-o',str(obj)],env=env,check=True);objects.append(obj)
+ obj=out/'PongWifiFirmware.o';subprocess.run(['xcrun','clang','-target',a.target,'-c',str(asm),'-o',str(obj)],env=env,check=True);objects.append(obj)
  obj=out/'PongQcomRpmh.o';subprocess.run(['xcrun','clang',*flags[:flags.index('-std=gnu++17')],'-O2','-I'+str(shared/'package'),'-c',str(shared/'package/QcomRpmh.c'),'-o',str(obj)],env=env,check=True);objects.append(obj)
+ # The wifi DMA isolation calls ArmSmmu4KBuild and
+ # ArmSmmu4KProgramDisabledContext. The 16.6.1 line gets both from
+ # libPongAdrenoPlatform.a; the 24A446 stage-0 kernel links no Adreno platform,
+ # so this flag compiles the same MIT kit (drivers/PongAdreno/ArmSmmu4K) into
+ # the driver. Never arm it on a kernel that also force-loads the Adreno
+ # platform: two definitions in one link.
+ kit=[]
+ if a.smmu4k_kit:
+  kit_src=ROOT/'drivers/PongAdreno/ArmSmmu4K'
+  kit_flags=[*flags[:flags.index('-std=gnu++17')],'-I'+str(kit_src)]
+  for name in ('ArmSmmu4K','ArmSmmu4KContext','ArmSmmu4KProgram'):
+   obj=out/(name+'.o')
+   r=subprocess.run(['xcrun','clang',*kit_flags,'-c',str(kit_src/(name+'.c')),'-o',str(obj)],env=env,capture_output=True,text=True)
+   (out/(name+'.log')).write_text(r.stdout+r.stderr)
+   if r.returncode:raise SystemExit(r.stderr)
+   kit.append(obj)
  archive=out/'libPongWifiNative.a';archive.unlink(missing_ok=True)
- subprocess.run(['xcrun','libtool','-static','-o',str(archive),str(a.ath11k),*map(str,objects)],env=env,check=True)
+ subprocess.run(['xcrun','libtool','-static','-o',str(archive),str(a.ath11k),*map(str,objects),*map(str,kit)],env=env,check=True)
  (out/'build-report.json').write_text(json.dumps(dict(board='mondrian SM8475 QCA6490',guest='20G81',backend='Linux v7.0.14 ath11k',archive=str(archive),firmware_from_local=str(a.firmware),firmware_files=len(entries),firmware_bytes=pack.stat().st_size,image_verification='skipped by request',runtime_observed=False),indent=2)+'\n')
  print(archive)
 if __name__=='__main__':main()

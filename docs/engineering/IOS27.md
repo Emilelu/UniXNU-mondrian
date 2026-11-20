@@ -410,6 +410,40 @@ and without `-Wl,-force_load,libNativeUfs.a`.
 
 
 
+### The pinned kernelcache carries no symbols either
+
+The binding route above assumes the prelinked entry still names its methods. It does not, and
+the pin is now measurable offline. The 24A446 kernelcache fetches without the 10 GiB IPSW:
+the builder calls @@ipsw.kernelcache()@@ (@@scripts/unixnu/ipsw.py:259@@), which reads the
+@@KernelCache@@ member of @@profile.toml@@ with HTTP range requests, runs @@lzfse -decode@@ and
+keeps the arm64 slice at @@out/ipsw/24A446/kernelcache.decompressed@@. The result is 77,987,840
+bytes with sha256 @@fa07057bf34f33af1ec26681ad0c87c13e5aaa548a300740eddb0e92876e5f95@@, which is
+the pin at @@profiles/os/ios-27.0.1-24A446/profile.toml:35@@.
+
+What that file does not contain:
+
+- @@com.apple.iokit.IOStorageFamily@@ sits at file offset 0xa0e670 with @@filetype 11@@, ten load
+  commands, @@LC_SYMTAB@@ @@nsyms 0@@, and neither @@LC_DYLD_INFO_ONLY@@ nor
+  @@LC_DYLD_EXPORTS_TRIE@@. Every kext entry in the collection is stripped the same way, so
+  the eleven imports cannot be read out of it.
+- Its @@__DATA_CONST@@ (virtual address 0xfffffff008313f98, 0x5c40 bytes) is not a 190-slot
+  table either. Decoding the words as chained rebases against the kernel base
+  0xfffffff007004000, which the three segments confirm (@@__TEXT@@ 0xa0e670 maps to
+  0xfffffff007a12670, @@__TEXT_EXEC@@ 0x3303fd0 to 0xfffffff00a307fd0, @@__DATA_CONST@@
+  0x130ff98 to 0xfffffff008313f98), leaves 235 of 2952 words in a code segment, 52 in a data
+  segment and 2665 outside every segment of all 305 entries.
+- The longest contiguous run of code pointers is 113 slots at 0xfffffff0083196d8, and all 113
+  point into @@com.apple.kernel@@'s @@__TEXT_EXEC@@, not into this entry. The first words of
+  this entry's own table are eleven code pointers, eleven more, then a data pointer
+  (0xfffffff00b978b60) and a zero word.
+
+So the 16.6.1 derivation cannot be replayed by reading the collection: the slot order still has
+to come from compiling @@IOBlockStorageDevice.cpp@@ with a macOS toolchain and reading its
+DWARF, and whether that order lines up with a fileset entry whose table does not look like a
+vtable is unproven. Shipping the driver as its own kext entry is the route that matches what
+Apple itself does; the bindings route now carries an extra unknown that the 16.6.1 line never
+had.
+
 ## Framework patches this branch carries
 
 `scripts/apply-core-patches.sh` applies every top-level

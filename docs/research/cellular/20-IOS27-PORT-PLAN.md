@@ -1495,3 +1495,106 @@ sheng 的注释说 arm64e 用户态期望 PAC 落在 46 位以上（libobjc 用 
 - `scripts/check-ios27-readiness.py` 的 `user_va_width()` 把「`T0SZ_USER` 零命中 + 根层级
   `(T0SZ_BOOT - 16) / 9`」记成期望；谁搬了 sheng 那段，门禁就 DRIFT 并指向 21.4，逼改动与文档同步。
 - 本文 §21.7 那句边界同样适用于 21 号文档：**`apply ok` 只说明文本能落盘，不说明编译过，更不说明构建树可用。**
+
+## 38. 原生 UFS 的判据换成「跟线走」：§33.3 的三条旧判据同时是错的（2026-11-20 14:45）
+
+§33.3 记的 `ufs_archive()` 是四步拼出来的近似：读死名字的 defconfig、看开关、从 generic 抓
+`UFS_ARCHIVE=$ROOT/<path>`、再到 `scripts/` 里找「路径 + 写提示」。审计下来每一步都有一个具体的错：
+
+| 旧判据 | 错在哪 | 证据 |
+|---|---|---|
+| defconfig 固定读 `[os_overrides."ios-27.0.1-24A446".kernel]` | 框架按 `resolve_os` 解析出的名字查表：`--os 27` → `ipados-27.0.1-24A446`，`ios-*` 这张表根本不会被合并 | `UniXNU/scripts/unixnu/profiles.py:52-63` |
+| 「路径 + 写提示」= 有生产者 | 静态文本，不问可达性：一行注释里的 `libtool -o …/libNativeUfs.a` 也算「有写者」 | 旧自测夹具自己就是这么造的 |
+| 路径按字符串包含匹配 | 生产者写的是 `build/native-ufs/libNativeUfs.a`（`build-pong-ufs-probe-macos.py:27,73`），generic 链接的是 `build/sheng-ufs/libPongUfs.a`（`build-xnu-generic.sh:647`）——两条不同的路径，包含匹配永远对不上，也永远说不清 | §33.1 |
+
+也就是说旧检查在 `n` 时给 ok 只是因为「开关没开」，一旦 F3 打开它就是 DRIFT，且解释不了缺什么。
+
+### 38.1 新判据：五步都从仓库里读出来
+
+`scripts/check-ios27-device.py` 用 `tomllib` 解析 `board.toml`，然后一步不跳：
+
+1. **profile**：`resolve_profile()` 取 `[board].os_profile`，只合并同名 `os_overrides` 表并按 `remove` 删点路径；
+   没有同名表就明说「`board.toml` 选的是 X，没有这张表」，不静默退回默认值。
+2. **defconfig**：`kernel_config()` 读该 profile 的 `kernel.defconfig`（27 是 `configs/mondrian_ios27_defconfig`），
+   并把 `config_fragments`（`arch:…`、`soc:…`、`os:…`）一并算进来；片段不在设备仓里就记为 note，不当成 `n`。
+3. **builder**：`builder_for()` 读 `scripts/pick-xnu-builder.sh` 的 `case "$profile" in` 固定前缀，
+   按字面 profile 名或 `*` 取第一条 `echo "$here/<name>.sh"` 分支，变量或其他形态直接拒绝；
+   27 → `build-xnu-generic.sh`；16.6.1 → `build-xnu-4k-baseline.sh`，并核对入口脚本确实 exec 到它。
+4. **可达性**：`shell_lines()` 只把行式 `if/elif/else/fi` 与续行解析成带 guard 的命令；
+   `guard_truth()`/`reach()` 只用可判定的 `[ -n/-z/"$VAR" =/!= literal ]` 合取。循环、case、
+   函数体、heredoc、数组/命令组都记为 opaque，不当作证据。`UFS_ARCHIVE` 赋值、`test -f`、force-load、
+   `LD_KERNEL_ARCHIVES` 交接和 producer 调用都必须各自 active；`!= 1` 分支里的调用不算。
+5. **生产者输出**：`producer_path()` 从 `python3 …/scripts/<name>.py` 取脚本，
+   `PONG_NATIVE_DRIVER_SOURCE` 必须指向 profile 的 `kernel.pong_native_driver_source`，否则拒绝；
+   `producer_outputs()` 只对 Python 入口做 AST 折叠（`tree / "build" / "native-ufs"` → `build/native-ufs`，
+   识别 `xcrun libtool -static -o` / `libtool` / `ar rcs`），不执行脚本；shell producer 不在本判据内，
+   遇到只会 pending。**输出解析不出来就记 problem，不算通过。**
+
+只有当「生产者输出的路径 == 链接行消费的路径」且「调用的 guard 与开关同向」时才是 ok。
+
+### 38.2 UFS 判据只有两态：ok 只证接线，其余一律 pending
+
+| 状态 | 条件 | 例 |
+|---|---|---|
+| `pending` | 开关是 `n`/`# … is not set`/未出现 | 27 现在的情形 |
+| `pending` | 开关是 `y` 但接线断或未证 | 没有生产者、生产者写别的归档、guard 反向、force-load 没交给 make |
+| `ok` | 开关是 `y` 且五步全对上 | 只表示接线静态一致，产物仍未检查；`test -f "$UFS_ARCHIVE"` 是链接脚本的一部分，不是对真实文件的 stat |
+
+UFS 判据不再产生 `drift`：`ufs_archive()` 只返回 `ok`/`pending`，`drift` 只用于补丁清单
+（27 真仓那 5 个缺副本）。pending 不是「跳过」，是把「还差什么」写在行里。27 的真仓实跑
+（`--device /mnt/e/hackios/k60-gates`，退出码 1，两条 DRIFT 是既有的 5 个补丁缺副本，与 UFS 无关）：
+
+```
+K60 DEVICE pending the ios-27.0.1-24A446 profile keeps native UFS off (CONFIG_XNU_NATIVE_UFS=n in configs/mondrian_ios27_defconfig), and enabling it would not be enough: scripts/build-xnu-generic.sh has no verified UFS archive force-load handed to make (fragment arch:configs/common.config was not inspected; fragment soc:configs/sm8475.config was not inspected; fragment os:configs/ios.config was not inspected)
+```
+
+这句话同时否掉 §33.4 的第 (2) 条出路：就算把开关打开、路径写对，generic 里也**没有**任何 UFS 生产者可跑。
+
+### 38.3 真实对象对账：成员不必进 link.filelist，归档本身必须存在
+
+真实生成的 27 构建树在 `E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/`。对账结果：
+
+- `.cache/xnu-work/bsd/conf/files`（633 行）与 `build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/link.filelist`
+  （1,075 行）里都没有 `NativeUfs.o`、`PongUfsTransport.o`、`original-bindings.o`。这不是缺项：
+  `makedefs/MakeInc.kernel:238-239` 的非 LTO 链接把 `-filelist link.filelist` 与
+  `$(LD_KERNEL_ARCHIVES)` 分开交给 `$(LD)`，归档成员本来就不以散对象形式进 filelist。
+- 真正该出现的是归档：生产者 `build-pong-ufs-probe-macos.py:102-104` 写
+  `build/native-ufs/libNativeUfs.a`；选中的 `build-xnu-generic.sh:646-651` 等的是
+  `build/sheng-ufs/libPongUfs.a`，generic 里也没有生产者调用。只有
+  `build-xnu-4k-baseline.sh:432-441` 调 probe，27 的 picker 分支不走它。
+- 交接路径本身在源码里成立：generic `:787` 把 `KERNEL_EXTRA_ARCHIVES` 放进
+  `LD_KERNEL_ARCHIVES`，`:839-848` 的 make 收到 `EXTRA_MAKE_ARGS`，XNU 再把
+  `$(LD_KERNEL_ARCHIVES)` 交给 `$(LD)`。但保存下来的树里两条归档路径都不存在
+  （`stat` 均报 No such file），所以**消费机制在源码上成立，真实归档与成员包含仍未证明**；
+  这只能是 pending。要求归档成员出现在 `link.filelist` 是错的判据。
+
+### 38.4 测试
+
+`scripts/tests/test-k60-ios27-ufs.py`（17 例，Windows Python 3.14.5 与 WSL Python 3.12.3 上均
+`python3 scripts/tests/test-k60-ios27-ufs.py` → `TESTS OK 17 case(s) (0 failure(s))`）：
+
+- 关 → pending，且理由里点名「enabling it would not be enough」；
+- 开但无生产者 → pending；**注释里的 libtool 行** → 仍是 pending（旧夹具正是靠它假通过）；
+- 生产者写 `libShengUfs.a` → pending 并同时印出两个路径；
+- builder 真的调用 probe → ok；
+- 调用写在 `!= 1` 分支 → pending（可达性而非文本）；
+- 输出落在 `/opt/…` 绝对路径 → pending（不是「在树里」）；
+- profile 的 `remove` 删掉驱动源 → pending 并指名 `PONG_NATIVE_DRIVER_SOURCE`；
+- defconfig 取自 override 而不是基础 profile；defconfig 覆盖片段里的同名开关；override 改了名字要退回 base 并说明；
+- builder 由 `pick-xnu-builder.sh` 决定（16.6.1 那支走 4k baseline）；
+- 开关未知（未出现）即使接线完整也是 pending；
+- force-load 存在但没交给 make（`LD_KERNEL_ARCHIVES`）→ pending；
+- 生产者 guard 里有无法静态判定的测试 → pending；
+- 检查器 AST 只有一个顶层 `main()` 和一个 `__main__` 入口守卫。
+
+`--self-test` 跑四个夹具并打印 `K60 DEVICE PASS agreement, missing entry, differing copy, archive wiring`。
+`RULES.toml:699` 给 P-267 登记的那句 `nothing writes the archive` 保留在 pending 文案里，所以注册表检查不用改。
+
+### 38.5 边界
+
+这仍然是**接线的静态证明**，不是产物的证明：它证明「profile → builder → 生产者 → 链接路径」四段能对上，
+并且把归档经由 `LD_KERNEL_ARCHIVES` 交给 make，不证明 `libNativeUfs.a` 真的被构建出来、更不证明它能跑。
+真要翻成 ok 需要 F3 做三件事：generic 里在 `XNU_NATIVE_UFS=1` 下调用 probe、把 `UFS_ARCHIVE` 指向
+`build/native-ufs/libNativeUfs.a`、再把 `CONFIG_XNU_NATIVE_UFS` 置 `y`；此时 `ufs_archive()` 会从
+pending 变成接线 ok，但 ok 仍不检查产物；要让判据证明产物，需要另写一次真实构建的 artifact check。
+**在此之前，27 的真仓检查保持退出码 1 和 UFS pending，这是真实状态，不是检查器失败。**

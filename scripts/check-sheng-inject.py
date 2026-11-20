@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 """Check the sheng userland contract this lane's 27 plan depends on.
 
-IOS27-USERLAND.md names four facts about sheng and builds the reconnection on
-them: the add-on mount patch, its source and visible point, the plug-in that
-keeps its image resident, and the media-server sandbox grant.  Those are line
-numbers in another repository, so they rot silently.  This script reads them
-back and fails when one moves or disappears.
+IOS27-USERLAND.md names facts about sheng and builds the reconnection on
+them: the add-on mount patch, its source and visible point, the chain it stacks
+on (add-on slot four, not a standalone patch), the plug-in that keeps its image
+resident, and the media-server sandbox grant.  Those are line numbers in another
+repository, so they rot silently.  This script reads them back and fails when one
+moves or disappears.
 
 A named tree that lacks the files is refused rather than skipped: measuring
 some other checkout and calling it green is the failure this lane already hit
@@ -25,6 +26,9 @@ NEEDLES = [
     (PATCH, '"/System/Library/Audio/Plug-Ins/HAL"', "the HAL mount point"),
     (PATCH, "BuiltinAudioPlugin.driver", "the reference bundle the mount copies from"),
     (PATCH, "ShengAudio.driver/Info.plist", "the visible plug-in the mount leaves behind"),
+    (PATCH, "native_gpu_addon4_stage = 0", "the mount adds a fourth add-on slot"),
+    (PATCH, "native_gpu_addon3_stage = 0",
+     "and it stacks on the first three, so it is not a standalone patch"),
     ("hal/ShengAudioPlugIn.c", "keepImageResident", "the plug-in keeps its image resident"),
     ("package/ShengAudioService.cpp", '"audiomxd,mediaserverd"',
      "the iOS sandbox grant names the media servers"),

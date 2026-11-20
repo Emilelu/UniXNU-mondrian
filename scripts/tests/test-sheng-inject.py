@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 """Host cases for check-sheng-inject.py: a fixture checkout that satisfies the
-seven invariants, one where a needle moved away, and a named tree that has no
-add-on patch at all."""
+nine invariants, one where a needle moved away, one where the mount stopped
+stacking on the earlier add-on slots, and a named tree that has no add-on patch
+at all."""
 import pathlib
 import subprocess
 import sys
@@ -16,6 +17,8 @@ cases = 0
 PATCH = """Subject: [PATCH] mount the audio add-on
 +
 +\tstatic const char audio_source[] = "/private/var/ngpu/audio", audio_point[] = "/System/Library/Audio/Plug-Ins/HAL";
+ volatile int native_gpu_addon3_stage = 0;
++volatile int native_gpu_addon4_stage = 0;
 +\tnative_gpu_addon_mount(p, scratch, 0xa00, audio_source, sizeof(audio_source), audio_point, sizeof(audio_point),
 +\t    "/System/Library/Audio/Plug-Ins/HAL/BuiltinAudioPlugin.driver", "/System/Library/Audio/Plug-Ins/HAL/ShengAudio.driver/Info.plist",
 """
@@ -58,10 +61,10 @@ def main():
     good = checkout(work, "good")
     code, out = run(sys.executable, str(CHECK), "--sheng", str(good))
     assert code == 0, out
-    assert "SHENG INJECT OK 7/7 invariants" in out, out
+    assert "SHENG INJECT OK 9/9 invariants" in out, out
     assert "hal/ShengAudioPlugIn.c:2" in out, out
     cases += 1
-    print("  ok   the fixture satisfies all seven invariants")
+    print("  ok   the fixture satisfies all nine invariants")
 
     drifted = checkout(work, "drifted", service=SERVICE.replace("audiomxd,mediaserverd", "audiomxd"))
     code, out = run(sys.executable, str(CHECK), "--sheng", str(drifted))
@@ -78,6 +81,15 @@ def main():
     assert "refusing to read another tree" in out, out
     cases += 1
     print("  ok   a tree without the add-on patch is refused, not skipped")
+
+    standalone = checkout(work, "standalone",
+                          patch=PATCH.replace("volatile int native_gpu_addon3_stage = 0;", ""))
+    code, out = run(sys.executable, str(CHECK), "--sheng", str(standalone))
+    assert code == 1, out
+    assert "native_gpu_addon3_stage = 0" in out, out
+    assert "not a standalone patch" in out, out
+    cases += 1
+    print("  ok   a mount that stopped stacking on the earlier slots is named")
 
     noplugin = checkout(work, "noplugin")
     (noplugin / "hal/ShengAudioPlugIn.c").unlink()

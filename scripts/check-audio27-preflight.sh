@@ -18,9 +18,11 @@
 #  10. the playback judge's host tests
 #  11. the amplifier side's host tests (979 cases)
 #  12. the wiring walked in order, hook included, on a tree without the button driver
-#  13. the 27 interface, product, collision and closure checkers' own tests
+#  13. the 27 interface, product, include, stub, collision and closure checkers' own
+#      tests
 #  14. the patch emitter's own tests
-#  15. the four interfaces and the symbol table, against a real 27 XNU tree when one is
+#  15. the four interfaces, the stub declarations they are compiled against, and the
+#      symbol table, against a real 27 XNU tree when one is
 #      on disk (XNU27_REPO overrides the search), plus the 0531 patch regenerated from
 #      the same block and checked against its pinned digest, and - once the Lead books
 #      it in patches/xnu-12377 - the series copy against the same emitter
@@ -112,6 +114,7 @@ run "wiring dry run" sh scripts/tests/test-wiring-dry-run.sh
 run "27 interface checker is honest" python3 scripts/tests/test-audio27-kernel-api.py
 run "27 product checker is honest" python3 scripts/tests/test-audio27-kernel.py
 run "27 include checker is honest" python3 scripts/tests/test-audio27-includes.py
+run "27 stub checker is honest" python3 scripts/tests/test-audio27-stubs.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py
@@ -130,7 +133,8 @@ if [ -z "$xnu27" ]; then
 fi
 if [ -n "$xnu27" ]; then
 	run "27 kernel interfaces are there" python3 scripts/check-audio27-kernel-api.py "$xnu27"
-run "27 tree still has the headers" python3 scripts/check-audio27-includes.py "$xnu27"
+	run "27 stubs match the declarations" python3 scripts/check-audio27-stubs.py "$xnu27"
+	run "27 tree still has the headers" python3 scripts/check-audio27-includes.py "$xnu27"
 	run "27 tree has no clashing symbols" python3 scripts/check-audio27-collisions.py "$xnu27"
 	optional_row "27 patch emits unchanged" python3 scripts/emit-audio27-patch.py "$xnu27" --out "$(mktemp)" --expect 3665a972557f4b15bcc232124e46f3984c2e5cec781d838845f0366b28eb8da4
 	# The series copy is a third copy of the same block. It exists only after

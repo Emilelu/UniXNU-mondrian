@@ -3,6 +3,6 @@
 #ifndef PONG_STUB_PEXPERT_PEXPERT_H
 #define PONG_STUB_PEXPERT_PEXPERT_H
 #include <sys/types.h>
-/* V: xnu osfmk/pexpert/pexpert.h */
-int PE_parse_boot_argn(const char *arg_string, void *arg_ptr, int max_arg);
+/* V: xnu pexpert/pexpert/pexpert.h:351, boolean_t PE_parse_boot_argn(...) */
+boolean_t PE_parse_boot_argn(const char *arg_string, void *arg_ptr, int max_arg);
 #endif

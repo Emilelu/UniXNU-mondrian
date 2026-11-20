@@ -60,6 +60,18 @@ second = [
   { source = "external:hackios/UniXNU-sheng/package/ShengBattmgr.h:25", expect = "SHENG_BATTMGR_REQUEST_BYTES 24u" },
 ]
 second_note = "the same 24-byte request frame in the vendor-side reader"
+[[contract]]
+id = "battery-owner-usbc-neighbour"
+lane = "battery"
+what = "the battery manager channel also carries the USB-C port manager (32779); our decoder keeps only 32778 and counts everything else as ignored"
+source = "drivers/PongPower/K60Battmgr.c:161"
+expect = "le32(data) != K60_BATTMGR_OWNER"
+dependence = "firmware"
+ios27 = "route by owner: if the 27 line ever adds UCSI, 32779 frames must go to the USB-C driver instead of falling into ignored++"
+second = [
+  { source = "external:hackios/UniXNU-sheng/package/ShengBattery.cpp:30", expect = "The USB-C owner (32779) shares this channel" },
+]
+second_note = "sheng routes the same channel to QcomDwc3 for UCSI and raised its max message to 560 B to fit those frames (ea15446); we have no USB-C driver yet, so the counter is the only trace"
 
 [[contract]]
 id = "adsp-notify-bytes"

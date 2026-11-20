@@ -13,7 +13,7 @@
 
 ## 一、PAC 在这棵树上是怎么开的
 
-`UniXNU/profiles/arch/arm64e/patches/xnu/series` 列出 `patches/xnu-12377/native-pac-keys.patch`，那份补丁做三件事：
+`UniXNU/profiles/arch/arm64e/patches/xnu/series` 列出 `UniXNU/patches/xnu-12377/native-pac-keys.patch`，那份补丁做三件事：
 
 1. `pexpert/pexpert/arm64/BCM2837.h` 在 `__arm64e__` 下定义 `HAS_APPLE_PAC` 与 `HAS_NATIVE_PAC`，把架构密钥寄存器接进公开 XNU 的 PAC 路径。
 2. `osfmk/arm64/pac_asm.h` 的 `PAC_INIT_KEY_STATE` 增加原生分支：第一个进到这里的 CPU 用 `CNTPCT_EL0` 经 splitmix64 派生十个数写进 `native_pac_keys`，之后每核（含热复位）从那块内存读回，再用 `msr` 写 APIA/APIB/APDA/APDB/APGA 的 Lo/Hi 并 `isb sy`。这段在 MMU 关闭时执行，所以写出去的值确实落到内存。
@@ -69,7 +69,7 @@
 
 ## 四、sheng 的 addon-mount 补丁
 
-`patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch` 在 addon3 之后插一段：定义 `audio_source[] = "/private/var/ngpu/audio"`、`audio_point[] = "/System/Library/Audio/Plug-Ins/HAL"`，然后调用
+`UniXNU/patches/xnu-12377/zzyd-sheng-audio-addon-mount.patch` 在 addon3 之后插一段：定义 `audio_source[] = "/private/var/ngpu/audio"`、`audio_point[] = "/System/Library/Audio/Plug-Ins/HAL"`，然后调用
 
 ```
 native_gpu_addon_mount(p, scratch, 0xa00, audio_source, sizeof(audio_source),
@@ -96,7 +96,7 @@ native_gpu_addon_mount(p, scratch, 0xa00, audio_source, sizeof(audio_source),
 grep -rn fptrauth <xnu-27-tree> | wc -l                     # 0：没有插桩旗标
 sed -n 373p <xnu-27-tree>/makedefs/MakeInc.def               # arm64e 只换 -arch
 grep -c 'smc\|msr\|mrs\|tlbi' drivers/PongAudio/PongAudioAmp.c drivers/PongAudio/PongAudioGeniI2c.c
-sed -n 40,110p patches/xnu-12377/native-pac-keys.patch       # 十词密钥与五组 msr
+sed -n 40,110p UniXNU/patches/xnu-12377/native-pac-keys.patch       # 十词密钥与五组 msr
 ```
 
 ## 七、这篇不证明什么

@@ -535,3 +535,21 @@ audio 线的提交，登记在这里是因为它改了两个会进镜像的构�
 里的 Seam 1 是空操作；Seam 2 只给 `PongAudioAmp.o_CFLAGS_ADD` 传一个 `-DXNU_PONG_AUDIO=1`，
 对象没编进内核就没有作用。也就是说这一提交不会改变 stage-0 的产物，只是把钩子摆到正确位置。
 """
+
+[[entry]]
+sha = "efbab43f"
+state = "build-only"
+note = """ios27: 说清 0531 什么时候可以回到序列里 —— 仅注释，产物不变。
+
+上一提交（77409a13）把 0531-k60-audio-amp-probe-call.patch 从
+`patches/xnu-12377/series` 里拿掉了，理由记在那 13 行注释里：clang 确实发出了
+N_WEAK_REF，但这个 ld64-port 只接受 -kext 形式的未定义弱函数引用，而内核是按
+static/dynamic 镜像链接的。本次只改注释的最后一句：把「等 PongAudioAmp.o 被
+force-load 进链接」这种没法直接检验的说法，换成一条可以 grep 的判据——
+`grep -c 'PongAudioAmp.o' <tree>/build/xnu/snapshot-obj/RELEASE_ARM64_BCM2837/link.filelist`
+至少为 1。同时写明「钩子修好了」不算判据：406198f5 已经把 conf/files 钩子挪到了
+正确位置，可 `scripts/k60-conf-files-hook.py` 至今不在树里，`PongAudioAmp.o` 仍然
+不会被编译，符号仍然没有定义。
+
+补丁序列条目与应用顺序均未变化，注释行不被解析器当作补丁，重放仍是 101 个补丁。
+"""

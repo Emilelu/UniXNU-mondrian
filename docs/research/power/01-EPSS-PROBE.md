@@ -531,8 +531,16 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
 - 镜像 w11（**离线构建，未上机**，2026-11-19 21:55，构建树 `/home/emilelu/k60-build/power-mode1-w11`）：
   `E:/k60-work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B，sha256
   `6db4e6b78bdab557d4f34b17aaf6a25caa9990d564faf94ef18853fbde589844`；
-  kernel.macho 129,146,880 B，sha256 `069e70752164c9d26a4d782d774d4f4e0b4a6768b1b447cd5dba5af317e33cc9`；
+  kernel.macho（构建树里**探针补丁前**的那份，归档目录里没有它）129,146,880 B，sha256 `069e70752164c9d26a4d782d774d4f4e0b4a6768b1b447cd5dba5af317e33cc9`；
   payload.img 201,326,592 B，sha256 `bd8ed29dd420be2829d68f9b3887b29976a3b0b3f79a3bf1c9dd40bc0cf2e63f`。
+  这些数字都能**只凭归档的那一张 boot.img 重算**，不需要旁边还有 kernel.macho：
+  `python3 scripts/extract-boot-img.py --img E:/k60-work/artifacts/power-conformance-20261119w11/boot.img`
+  打出镜像 201,887,744 B sha256 `6db4e6b7…`、内核槽 551,032 B sha256 `00c466e5…`
+  （gzip 546,908 B + hardware.dtb 4,124 B；**`boot.json` 的 `kernel_sha256` 量的就是这个槽**，
+  不是 XNU 内核，见 P-200）、payload @557056 201,326,592 B sha256 `bd8ed29d…`、
+  卷内 `EFI/UniXNU/Payloads/kernel.macho` 129,146,880 B sha256 `30a058f2…`、
+  `kernel.macho.adt` 16,132 B sha256 `721fb484…`。工具自带 30 项用例（含用真实镜像跑的那组），
+  不依赖 mtools，Windows 与 WSL 同结果。
   参数 30 项 601 B，含 `k60_cpufreq=1`，不含 `applog=1`；对探针 board 快照
   （`/mnt/e/k60-work/scratch/board.toml.mode1.probe`，即去掉 `applog=1` 的副本）跑
   `check-image-args.py` 得 `OK (30 arguments, 601 bytes)`。**601 而不是 603**：

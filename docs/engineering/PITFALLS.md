@@ -7354,7 +7354,15 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
    `scripts/tests/test-check-prop-numbers.py` 的 runner 打进了 bundle，却没打那个脚本：在仓库里跑
    `power-python: OK`，到了只剩 bundle 的空目录里同一个入口必然失败——正是"只在源仓库里绿"的另一种形态。
    现在 `scripts/tests/test-power-carry.py` 解析 runner 的 `run_py` 行，逐个断言脚本在 bundle 里存在
-   （35 项）。
+（35 项）。
+8. 证据引用必须指向归档里还在的文件，**或者给出从归档文件重算的命令**，并用夹具证明这条命令能跑。
+   2026-11-20 发现 `01-EPSS-PROBE.md` 里 w11 镜像的几个哈希各有出处，但 `kernel.macho` `069e7075…`
+   指的是构建树里探针补丁前的那份：归档目录 `E:/k60-work/artifacts/power-conformance-20261119w11`
+   只剩 `boot.img`（201,887,744 B）和 `boot.json`，引用指向一个已经不存在的证据，而读者无从判断
+   "是内核不同还是文件不同"。现在 `scripts/extract-boot-img.py` 从那一张 `boot.img` 反推内核槽
+   （`boot.json` 的 `kernel_sha256` 量的就是这个槽，P-200）、payload、卷内 `kernel.macho` 与 `.adt`
+   并重算四个哈希（30 项用例，其中一组对着这张真实镜像跑，Windows 与 WSL 同结果，不依赖 mtools）；
+   文档改成写"运行这条命令得到"，而不是引用一个曾经存在过的文件名。
 
 **教训**：文档写"当前值"是最脆弱的引用形态，因为它不带地址、也没有读者会去验证；能写成
 "文件:行 + 该行文本"的，就让门禁去核，不能的，就改成指路而不是复述。一条数字在四处出现，就该有一处是生成的。

@@ -57,6 +57,37 @@ def macho_header(filetype, subtype=CPU_SUBTYPE_ARM64E, flags=0x200001,
                        len(commands), len(blob), flags, 0) + blob + names
 
 
+def fileset_collection(outer_subtype=0xc0000002, child_subtype=0xc0000002,
+                       child_flags=0x80200001, child_type=MH_EXECUTE, entries=2):
+    """A collection shaped like Apple's: header, N entries, then N child headers.
+
+    The loader compares three fields of the `com.apple.kernel` child against the
+    outer header, so the fixture has to carry real child headers at real file
+    offsets -- a self-referencing entry would silently test nothing.
+    """
+    names = [b'com.apple.kernel'] + [f'entry{i}'.encode() for i in range(1, entries)]
+    name_blob = b''.join(name + b'\0' for name in names)
+    commands = 32 * len(names)
+    names_at = 32 + commands
+    children_at = [names_at + len(name_blob) + 32 * i for i in range(len(names))]
+    body = b''
+    prefix = 0
+    for index, name in enumerate(names):
+        entry_id = names_at + prefix - (32 + 32 * index)
+        body += struct.pack('<IIQQII', LC_FILESET_ENTRY, 32, 0, children_at[index], entry_id, 0)
+        prefix += len(name) + 1
+    header = struct.pack('<8I', MH_MAGIC_64, CPU_TYPE_ARM64, outer_subtype, MH_FILESET,
+                         len(names), commands, 0, 0)
+    children = b''
+    for index in range(len(names)):
+        same_child = index == 0
+        children += struct.pack('<8I', MH_MAGIC_64, CPU_TYPE_ARM64,
+                                child_subtype if same_child else outer_subtype,
+                                child_type if same_child else 11,
+                                0, 0, child_flags if same_child else 0x80200001, 0)
+    return header + body + name_blob + children
+
+
 def adt_node(name, props, children=b''):
     out = struct.pack('<II', len(props) + 1, 1 if children else 0)
     for key, value in [('name', name.encode() + b'\0')] + list(props):
@@ -257,6 +288,41 @@ def main():
                                                      'missing_bundles': 0, 'stubbed_bundles': 1}}, [])
     # A plain MH_EXECUTE is not subject to the fileset map's numbers.
     module.flight_ready({'kind': 'MH_EXECUTE', 'prelink': None}, [])
+
+    # The loader compares the com.apple.kernel child against the collection.
+    good = tmp / 'collection-good'
+    good.write_bytes(fileset_collection())
+    tests.equal('loader.apple_shape_conforms', module.loader_contract(good)['violations'], [])
+
+    mismatch = tmp / 'collection-mismatch'
+    mismatch.write_bytes(fileset_collection(child_subtype=0x80000002))
+    violations = module.loader_contract(mismatch)['violations']
+    tests.equal('loader.one_violation', len(violations), 1)
+    tests.check('loader.names_the_field', 'cpusubtype 0x80000002' in violations[0],
+                violations[0] if violations else 'no violation')
+    tests.check('loader.names_the_child', 'com.apple.kernel' in violations[0], violations[0])
+
+    no_cache = tmp / 'collection-no-cache'
+    no_cache.write_bytes(fileset_collection(child_flags=0x200001))
+    tests.check('loader.dylib_in_cache_required',
+                any('MH_DYLIB_IN_CACHE' in v for v in module.loader_contract(no_cache)['violations']),
+                str(module.loader_contract(no_cache)['violations']))
+
+    wrong_type = tmp / 'collection-wrong-type'
+    wrong_type.write_bytes(fileset_collection(child_type=11))
+    tests.check('loader.member_must_be_execute',
+                any('not MH_EXECUTE' in v for v in module.loader_contract(wrong_type)['violations']),
+                str(module.loader_contract(wrong_type)['violations']))
+
+    execute = tmp / 'kernel-execute'
+    execute.write_bytes(macho_header(MH_EXECUTE))
+    tests.equal('loader.execute_has_no_children', module.loader_contract(execute)['violations'], [])
+
+    # And the flight gate refuses an image whose collection the loader would reject.
+    tests.raises('flight.loader_mismatch_refused', 'the shipped loader refuses the collection',
+                 module.flight_ready,
+                 {'kind': 'MH_FILESET, 2 entries', 'prelink': {'missing_refs': 0, 'stubbed_refs': 0},
+                  'contract': module.loader_contract(mismatch)}, [])
 
     print(f'{tests.checks - len(tests.failures)}/{tests.checks} checks passed')
     for failure in tests.failures:

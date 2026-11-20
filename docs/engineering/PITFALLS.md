@@ -7408,3 +7408,41 @@ Apple 设备树 `panic("CPU configuration in device tree is invalid")`
 名字所以永远判通过；P-279 是门禁读不到东西所以永远判不通过。** 两者都源于同一个疏忽——
 把「我拿到的信息」当成「事情本身的真相」。门禁的每一次外部调用（读文件、跑工具、连设备）
 都必须区分「成功」「失败」「没测成」，并且第三种绝不能落进前两种。
+
+## P-280 — 「加载器不认我的产物」先要证明加载器的规则是错的
+
+2026-11-20 一整天，iOS 27 线上流传的结论是「`DarwinBoot.efi` 只认 `MH_EXECUTE`/subtype 0，
+不认 `MH_FILESET`，所以要么放宽守卫、要么换 catalog pin」。三条分支都基于同一个假设：
+**加载器的那条规则本身是有问题的**。
+
+把三份产物摆在一起量一次，假设就没了：
+
+| 产物 | 外层 subtype | 子头 subtype | `com.apple.kernel` flags |
+|---|---|---|---|
+| Apple 24A446 kernelcache（305 条） | `0xc0000002` | **305/305 都是 `0xc0000002`** | `0x80200001`（含 `MH_DYLIB_IN_CACHE`） |
+| 我们的 round-17d 集合（32 条） | `0xc0000002` | 31 条 `0xc0000002`，`com.apple.kernel` **`0x80000002`** | `0x80200001` |
+| 我们的 31 个 kext 子头 | — | 全部 `0xc0000002` | — |
+
+catalog pin `3c75734` 的成员规则逐字是
+
+```c
+if (Found || (U32 (Data + Header + 12) != 2) ||
+    (U32 (Data + Header + 8) != U32 (Data + 8)) ||
+    ((U32 (Data + Header + 24) & 0x80000000) == 0)) { return EFI_LOAD_ERROR; }
+```
+
+即「成员必须是 `MH_EXECUTE`、cpusubtype 必须与集合逐位相等、必须带 `MH_DYLIB_IN_CACHE`」。
+Apple 自己的集合三条全满足；我们的集合满足两条——**唯一的偏差是我们自己少写了一个 32 位字段**，
+而我们自己的 31 个 kext 子头又恰好是对的。放宽守卫会把这个 bug 永久合法化；换 pin
+（`3c75734` 正是那条会被我们拒绝的 pin）也救不了。
+
+发射器 `kits/XnuPrelink/fileset_emit.py` 的 `patch_entry_header()` 里写着
+`struct.pack_into('<I', self.data, at + 24, flags | MH_DYLIB_IN_CACHE)` ——它记得第三条，
+但全文没有一处写子头 `+8` 的 cpusubtype。缺的就是这一行。
+
+一般化教训：**把外部组件判为「不支持我们」之前，先找它支持的那个同类产物，把两者逐字段摆在一起。**
+「Apple 的集合能跑、我们的不能跑」之间，往往不是一个设计分歧，而是一个被忘了写的字段；
+而一个「放宽守卫」的补丁会同时消掉症状和线索。
+
+配套门禁：`scripts/check-ios27-artifacts.py` 的 `loader_contract()` 现在按加载器的三条成员规则
+检查集合，`--flight-ready` 在任一条不满足时拒绝，并在消息里点名是哪个子头的哪个字段。

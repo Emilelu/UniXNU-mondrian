@@ -1188,3 +1188,9 @@ id = "P-279"
 statement = "门禁必须区分「读到了但没有」「读不到」和「失败」三种状态；读不到产物时不许报告成产物缺符号。"
 check = "python3 scripts/tests/test-check-kernel-archives.py"
 note = "P-279：check-kernel-archives.py 的 kernel_symbols() 在 nm 退出非零时返回空集，于是 root 写的 0600 内核被普通用户判成「ArmDTPlatform 被 force-load 进不执行的分支」，而内核里该符号有 29 处。修法：返回 None + 打印 nm 的真实报错，调用方退 2（没法判）而不是 1（判为不合格）；环境上把 kernel/payload/boot 三目录 chown 给构建用户。"
+
+[[rule]]
+id = "P-280"
+statement = "判「加载器不支持我们的产物」之前，必须把该加载器实际接受过的同类产物（Apple 自己的）与我们的逐字段比对，并把该比对做成常驻门禁。"
+check = "python3 scripts/tests/test-ios27-artifacts.py"
+note = "P-280：DarwinBoot 的 fileset 成员规则（MH_EXECUTE + cpusubtype 与集合逐位相等 + MH_DYLIB_IN_CACHE）与 Apple 24A446 集合 305/305 完全一致，而我们 32 条里只有 com.apple.kernel 一条是 0x80000002；一半的讨论时间花在「放宽守卫/换 pin」上，真因是 fileset_emit.py 只写 flags 没写 cpusubtype。新增 loader_contract() + --flight-ready 拒绝 + 6 条夹具。"

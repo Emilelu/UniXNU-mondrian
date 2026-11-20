@@ -33,6 +33,7 @@ CPU_TYPE_ARM64 = 0x0100000C
 CPU_SUBTYPE_ARM64E = 2
 MH_EXECUTE, MH_FILESET = 2, 12
 MH_NOUNDEFS, MH_PIE = 0x1, 0x200000
+MH_DYLIB_IN_CACHE = 0x80000000
 LC_BUILD_VERSION = 0x32
 LC_FILESET_ENTRY = 0x80000035
 PLATFORM_IOS = 2
@@ -104,6 +105,56 @@ def macho(path):
         if value >> 16 != 27:
             raise Failure(f'{path.name}: {label} {value >> 16}.{value & 0xFFFF}, not 27.x')
     return len(data), flags, 'MH_EXECUTE'
+
+
+def loader_contract(path):
+    """Check the collection against what the loader compares, not against taste.
+
+    `DarwinBoot.c` (the catalog pin `3c75734`, and the vendored copy after the
+    same rule) accepts a fileset collection and then, for the entry named
+    `com.apple.kernel`, requires three things besides the entry being covered by
+    a parent segment:
+
+        member filetype == MH_EXECUTE
+        member cpusubtype == the collection's cpusubtype, bit for bit
+        member flags & MH_DYLIB_IN_CACHE
+
+    Apple's own 24A446 collection satisfies all three: 305 entries, every child
+    header at 0xc0000002, `com.apple.kernel` at 0x80200001. On 2026-11-20 ours
+    satisfied two of the three -- 31 of 32 children at 0xc0000002 but
+    `com.apple.kernel` at 0x80000002 -- so the loader refused the image before
+    the ADT or XNU ran. That is a defect in our collection, not in the loader,
+    which is why this is a conformance check and not a relax-the-guard patch.
+    """
+    data = path.read_bytes()
+    _, _, outer_subtype, filetype, ncmds, _, _, _ = struct.unpack_from('<8I', data, 0)
+    if filetype != MH_FILESET:
+        return {'conformant': True, 'violations': [], 'note': 'MH_EXECUTE, no children to compare'}
+    pos, violations, entries = 32, [], 0
+    for _ in range(ncmds):
+        cmd, size = struct.unpack_from('<II', data, pos)
+        if cmd == LC_FILESET_ENTRY:
+            entry_id, = struct.unpack_from('<I', data, pos + 24)
+            name_at = pos + entry_id
+            name = data[name_at:data.index(b'\0', name_at)].decode('utf-8', 'replace')
+            fileoff, = struct.unpack_from('<Q', data, pos + 16)
+            entries += 1
+            child_subtype, = struct.unpack_from('<I', data, fileoff + 8)
+            child_type, = struct.unpack_from('<I', data, fileoff + 12)
+            child_flags, = struct.unpack_from('<I', data, fileoff + 24)
+            if name == 'com.apple.kernel':
+                if child_type != MH_EXECUTE:
+                    violations.append(f'{name}: filetype {child_type}, not MH_EXECUTE')
+                if child_subtype != outer_subtype:
+                    violations.append(
+                        f'{name}: cpusubtype {child_subtype:#010x} does not equal the '
+                        f'collection {outer_subtype:#010x}')
+                if not child_flags & MH_DYLIB_IN_CACHE:
+                    violations.append(f'{name}: MH_DYLIB_IN_CACHE is not set')
+        pos += size
+    note = (f'{entries} entries, collection cpusubtype {outer_subtype:#010x}, '
+            f'{len(violations)} loader violation(s)')
+    return {'conformant': not violations, 'violations': violations, 'note': note}
 
 
 def packed_kernel_expected(kernel, report, directory):
@@ -221,6 +272,15 @@ def check(board, chip_id, unique_chip_id):
 
     size, flags, kind = macho(kernel)
     print(f'ok kernel.macho: arm64e {kind}, flags {flags:#x}, {size} bytes, sha256 {sha256(kernel)[:12]}')
+    # The loader contract is a property of kernel.macho alone, so it is checked
+    # whether or not kernel.json exists; an absent report must not be able to
+    # turn this into an UnboundLocalError (or, worse, silence).
+    contract = loader_contract(kernel)
+    if contract['violations']:
+        print(f'note loader: {contract["note"]}; the shipped loader refuses this collection: '
+              + '; '.join(contract['violations']))
+    else:
+        print(f'ok loader: {contract["note"]}')
     report = board / 'kernel/kernel.json'
     prelink = None
     if report.is_file():
@@ -313,7 +373,7 @@ def check(board, chip_id, unique_chip_id):
           f'FD {FD_BYTES} B sha256 {hashlib.sha256(firmware).hexdigest()[:12]}, DTB {len(tree)} B, '
           f'ramdisk = payload')
     print(f'artifacts: {boot.stat().st_size} byte boot.img sha256 {sha256(boot)}')
-    return {'kind': kind, 'prelink': prelink, 'firmware': digest(firmware),
+    return {'kind': kind, 'prelink': prelink, 'contract': contract, 'firmware': digest(firmware),
             'payload': sha256(payload), 'boot': sha256(boot)}
 
 
@@ -350,7 +410,10 @@ def flight_ready(result, blockers):
     blocker in the ledger is closed with evidence.
     """
     prelink = result.get('prelink') or {}
+    contract = result.get('contract') or {}
     problems = []
+    for violation in contract.get('violations') or ():
+        problems.append(f'the shipped loader refuses the collection ({violation})')
     if result['kind'].startswith('MH_FILESET'):
         if prelink.get('missing_refs'):
             problems.append(f'{prelink["missing_refs"]} owner-target references have no address '

@@ -914,3 +914,31 @@ K60 DEVICE CHANGED 2 expectation(s) drifted
 - 因此 kernel 侧只有一份事实源（本仓 `drivers/PongCellular/*` → 生成的补丁），设备侧也是一份
   （`k60-gates`），两边之间必须靠「复制 + 检查」而不是「都改一遍」。
 - 新检查器只做只读对比，不进 host 套件：它在设备仓还没副本时必然红，那是待办而不是回归。
+
+### 28.3 把清单变成一条命令：`stage-ios27-device.py`（2026-11-20 09:50）
+
+`scripts/stage-ios27-device.py --device <设备仓> [--patches <本仓目录>] [--out <目录>] [--self-test]`
+只往暂存目录写，**不动设备仓**（owner 不同）。产出四样：
+
+| 文件 | 内容 |
+|---|---|
+| `patches/xnu-12377/0626…0630` | 五个补丁的副本，与 `patches/xnu-12377/` 逐字节相同 |
+| `series.expected` | 设备仓 `series` 原文 + 本仓 `series-port.txt` 的整段（含每条补丁的来源注释） |
+| `series.diff` | 上述改动的 unified diff，`git -C <device> apply` 可直接用 |
+| `apply.sh` | 三条落地命令 + 一条 `check-ios27-device.py` 复核 |
+
+对真实设备仓的实测：`K60 STAGE ok 5 patches (953f3eb0ea22ef06 62845734e62ee893 28a9ad58dd407735
+783818c138dd81d9 08b53cfd112292b7)`，diff 只有一个 hunk `@@ -77,3 +77,15 @@`，落在
+`0541-k60-virtual-timer-guard.patch` 之后；追加的 11 行里有 5 条 bare 名与 6 行来源注释，
+顺序为 0626 0627 0628 0630 0629（0629 最后，因为它动 `kern_exec.c`，要在其余补丁把符号装进树之后）。
+
+三种状态：设备仓一条都没有 → 追加并写全套；`series` 已含全部五条 → 报 dry，不重复追加；
+只含一部分 → `K60 STAGE REFUSED`，因为那是手工动过的状态，不替人猜。
+
+`--self-test` 在临时目录造一份假设备仓与假补丁集，跑完四步：
+`K60 STAGE ok 2 patches … the series gains 2 entries` → 用 `git apply --check` 验 diff →
+应用后与 `series.expected` 逐字节相同 → 二次运行是 no-op、半列状态被拒，
+输出 `K60 STAGE PASS handoff, diff applies, rerun is a no-op, half state refused`。
+
+分工不变：stager 在本仓（可测、可复现），落盘由设备仓 owner 执行；
+`check-ios27-device.py` 事后复核，两者都用同一份 `series-port.txt` 当事实。

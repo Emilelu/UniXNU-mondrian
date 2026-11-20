@@ -31,6 +31,14 @@ import subprocess
 import re
 import sys
 
+# GBK 控制台（Windows 默认）打不出 '\u274c'：门禁最后那行结论自己先死在 print 上，
+# 调用方看到的是空 stdout 加一个 traceback，判据全变成"没有输出"（同 P-248 壁纸判定器）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, ValueError):
+        pass
+
 try:
     import tomllib
 except ImportError:
@@ -101,26 +109,40 @@ def declared_items(hw, all_items=None):
     return {n: pool[n] for n in names}
 
 
-def validate(mode='build', verbose=True):
+def field_text(value):
+    """Evidence fields may be a string (the historical shape) or a list."""
+    if isinstance(value, (list, tuple)):
+        return '\n'.join(str(x).strip() for x in value if str(x).strip())
+    return str(value).strip() if value is not None else ''
+
+
+def validate(mode='build', verbose=True, data_path=None):
     """mode: 'build' | 'flash'"""
     if tomllib is None:
         return False, ['缺 tomllib/tomli']
-    if not os.path.exists(DATA):
-        return False, ['docs/research/EIGHT-STEPS.toml 不存在']
+    path = data_path or os.environ.get('K60_EIGHT_STEP_DATA') or DATA
+    path = os.path.abspath(path)
+    explicit = path != os.path.abspath(DATA)
+    if not os.path.exists(path):
+        return False, ['%s 不存在' % os.path.relpath(path, REPO)]
 
-    d = tomllib.load(open(DATA, 'rb'))
+    d = tomllib.load(open(path, 'rb'))
     problems = []
     need = BUILD_STEPS if mode == 'build' else FLASH_STEPS
     checked = 0
 
     hw_all = d.get('hardware', {})
     # 只有 status=active 的硬件做硬检查。parked/planned 如实记录但不阻断构建：
-    # 八步流程约束的是「正在做的修复」，不是历史清单。
-    hw = {k: v for k, v in hw_all.items() if v.get('status', 'active') == 'active'}
+    # 八步流程约束的是「正在做的修复」，不是历史清单。显式 --data/环境变量指到
+    # 单项文件时，该项就是本次工作对象，即使它仍标 parked 也要按八步检查。
+    if explicit:
+        hw = dict(hw_all)
+    else:
+        hw = {k: v for k, v in hw_all.items() if v.get('status', 'active') == 'active'}
     _parked = {k: v.get('status') for k, v in hw_all.items()
                if v.get('status', 'active') != 'active'}
     if not hw:
-        return False, ['EIGHT-STEPS.toml 里没有 [hardware.*] 条目']
+        return False, ['%s 里没有 [hardware.*] 条目' % os.path.relpath(path, REPO)]
 
     # build 模式可以用 K60_EIGHT_STEP_ITEMS 收窄到本次真正在修的硬件项；
     # 不声明就还是整机口径。flash 模式永远整机。
@@ -141,7 +163,7 @@ def validate(mode='build', verbose=True):
             if not entry:
                 problems.append('%s 缺失' % label)
                 continue
-            ev = (entry.get('evidence') or '').strip()
+            ev = field_text(entry.get('evidence'))
             if len(ev) < 30:
                 problems.append('%s 依据太短（需 >=30 字）' % label)
                 continue
@@ -157,7 +179,7 @@ def validate(mode='build', verbose=True):
                     problems.append('%s 未 local_verified=true（不能在没本地证明前推进）' % label)
                     continue
                 for kind in ('static_check', 'unit_test', 'artifact_check'):
-                    if not (entry.get(kind) or '').strip():
+                    if not field_text(entry.get(kind)):
                         problems.append('%s 缺 %s（⑦ 要求静态对照/离线单测/产物检查三类齐全）'
                                         % (label, kind))
                         continue
@@ -166,7 +188,7 @@ def validate(mode='build', verbose=True):
                 if entry.get('catalog_checked') is not True:
                     problems.append('%s 未 catalog_checked=true（必须先查 UniXNU/components.toml，避免重复造轮子）' % label)
                     continue
-                cr = (entry.get('catalog_result') or '').strip()
+                cr = field_text(entry.get('catalog_result'))
                 if len(cr) < 40:
                     problems.append('%s catalog_result 太短（要逐个说明官方组件能不能用）' % label)
                     continue
@@ -176,26 +198,31 @@ def validate(mode='build', verbose=True):
         if mode == 'flash':
             dev = steps.get('device') or {}
             pred = dev.get('prediction') or {}
-            if not (pred.get('success') or '').strip():
+            if not field_text(pred.get('success')):
                 problems.append('%s :: ⑧ 上机 未声明 prediction.success（成功看哪一行日志）' % name)
-            elif not (pred.get('failure') or '').strip():
+            elif not field_text(pred.get('failure')):
                 problems.append('%s :: ⑧ 上机 未声明 prediction.failure（失败看哪一行日志）' % name)
             else:
                 checked += 1
 
 
     # --- README 表格一致性（防止 README 与 EIGHT-STEPS.toml drift）---
-    try:
-        import subprocess as _sp
-        _r = _sp.run(['python3', os.path.join(REPO, 'scripts', 'render-eight-step-table.py'), '--check'],
-                     capture_output=True, text=True, timeout=60)
-        if _r.returncode != 0:
-            problems.append('README 八步表格与 EIGHT-STEPS.toml 不一致，'
-                            '跑 scripts/render-eight-step-table.py 重新生成并覆盖 README 的「八步流程进度」段')
-        elif verbose:
-            print('  README 八步表格: ✅ 与数据一致')
-    except Exception as _e3:
-        problems.append('README 表格一致性检查失败: %s' % str(_e3)[:50])
+    # 单项 --data 文件没有 README 表格；全局表检查只属于默认的整机数据。
+    if explicit:
+        if verbose:
+            print('  README 八步表格: 跳过（显式数据文件）')
+    else:
+        try:
+            import subprocess as _sp
+            _r = _sp.run(['python3', os.path.join(REPO, 'scripts', 'render-eight-step-table.py'), '--check'],
+                         capture_output=True, text=True, timeout=60)
+            if _r.returncode != 0:
+                problems.append('README 八步表格与 EIGHT-STEPS.toml 不一致，'
+                                '跑 scripts/render-eight-step-table.py 重新生成并覆盖 README 的「八步流程进度」段')
+            elif verbose:
+                print('  README 八步表格: ✅ 与数据一致')
+        except Exception as _e3:
+            problems.append('README 表格一致性检查失败: %s' % str(_e3)[:50])
 
     if verbose:
         print('  模式: %s' % mode)
@@ -211,12 +238,32 @@ def validate(mode='build', verbose=True):
 
 if __name__ == '__main__':
     mode = 'flash'
-    for a in sys.argv[1:]:
+    data_path = None
+    argv = sys.argv[1:]
+    i = 0
+    while i < len(argv):
+        a = argv[i]
         if a in ('--build', 'build'):
             mode = 'build'
         elif a in ('--flash', 'flash'):
             mode = 'flash'
-    ok, probs = validate(mode)
+        elif a == '--data':
+            if i + 1 >= len(argv):
+                print('usage: eight-step-gate.py [--build|--flash] [--data FILE]')
+                sys.exit(2)
+            data_path = argv[i + 1]
+            i += 1
+        elif a.startswith('--data='):
+            data_path = a.split('=', 1)[1]
+        elif a in ('--help', '-h'):
+            print('usage: eight-step-gate.py [--build|--flash] [--data FILE]')
+            print('  默认读 docs/research/EIGHT-STEPS.toml；--data/ K60_EIGHT_STEP_DATA 可指到单项文件。')
+            sys.exit(0)
+        else:
+            print('unknown argument: %s' % a)
+            sys.exit(2)
+        i += 1
+    ok, probs = validate(mode, data_path=data_path)
     print()
     print('结论: %s' % ('✅ 八步流程通过（可以%s）' % ('构建' if mode == 'build' else '刷机')
                         if ok else '❌ 八步流程未通过，禁止%s' % ('构建' if mode == 'build' else '刷机')))

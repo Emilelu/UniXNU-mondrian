@@ -175,6 +175,11 @@ def case_bundle_covers_manifest() -> None:
         if got != want:
             drifted.append(rel)
     check("every bundled file matches its recorded hash", not drifted, ", ".join(drifted[:3]))
+    runner = (ROOT / "scripts" / "tests" / "run-k60-power-host.sh").read_text(encoding="utf-8")
+    called = [line.split()[3] for line in runner.splitlines() if line.startswith("run_py ")]
+    absent = [path for path in called if not (out / path).is_file()]
+    check("the bundle ships every script its runner calls", called and not absent,
+          ", ".join(absent[:3]) or "the runner lists no python suites")
     compared = run("--target", str(out))
     check("the checker accepts the bundle as a target", compared.returncode == 0, compared.stderr)
     check("the bundle reads as SAME everywhere", "SAME" in compared.stdout and "DRIFT" not in compared.stdout)

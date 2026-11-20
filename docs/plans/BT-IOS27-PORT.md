@@ -478,6 +478,42 @@ The checker is textual plus a pure-python merge: it proves the report and the
 merge function agree, not that launchd read the file. That last step needs the
 Data mount open (5.7), which is why the two sections sit together.
 
+### 5.9 The Bluetooth checks, run against one image
+
+On 2026-11-20 the checks that need no build step were run against the kernel
+from CI run 44518998961 (`kernel.macho`, 93,077,504 bytes, sha256
+`4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86`). All
+five that could see their input passed:
+
+| Check | Input | Result |
+| --- | --- | --- |
+| `check-bluetooth-dt.py` | `dts/mondrian.dts` | exit 0 |
+| `check-bluetooth-kernel.py` | the built kernel | exit 0, 9 of 9 needles |
+| `check-bluetooth-data-gate-chain.py` | the defconfig | exit 0; still prints the two alternatives the full chain needs |
+| `check-bluetooth-runtime-gate.py` | the series and the switch | exit 0, `gated-off` |
+| `check-bluetooth-addon-prefixes.py` | the framework stager | exit 0 |
+
+The kernel run is the one that matters for this line: the image carries
+`com.apple.uart.sk.bluetooth`, `com.apple.uart.bluetooth`, the `[bluetooth
+power]` and `[bluetooth sk]` log prefixes, the three `kern.qbt_*` sysctls,
+`K60BluetoothRadio` and the `mac-address-bluetooth0` identity key.
+
+What could not run, and why, matters as much as what did:
+
+* the ADT half of the kernel check needs a `payload.img`, and the artifact
+  directory for that run contains only the kernel;
+* `check-bluetooth-launchd.py` needs a payload build report, which that
+  directory does not carry;
+* `check-bluetooth-geni.py`, `check-bluetooth-gic.py` and
+  `check-bluetooth-power.py` read the patched source or their extracted
+  artifacts, which live on the CI runner, not on this host;
+* `check-bluetooth-userspace.py` needs a staged set, and none is staged here.
+
+So the static contract is green on today's image and the userspace, ADT and
+power halves are simply unobserved. None of these checks touches hardware, and
+none of them can turn `gated-off` into a working adapter: that still needs the
+Data gate (§5.7) and a flight.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

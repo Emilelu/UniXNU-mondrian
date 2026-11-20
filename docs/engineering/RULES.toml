@@ -1191,6 +1191,6 @@ note = "P-279：check-kernel-archives.py 的 kernel_symbols() 在 nm 退出非�
 
 [[rule]]
 id = "P-280"
-statement = "判「加载器不支持我们的产物」之前，必须把该加载器实际接受过的同类产物（Apple 自己的）与我们的逐字段比对，并把该比对做成常驻门禁。"
-check = "python3 scripts/tests/test-ios27-artifacts.py"
-note = "P-280：DarwinBoot 的 fileset 成员规则（MH_EXECUTE + cpusubtype 与集合逐位相等 + MH_DYLIB_IN_CACHE）与 Apple 24A446 集合 305/305 完全一致，而我们 32 条里只有 com.apple.kernel 一条是 0x80000002；一半的讨论时间花在「放宽守卫/换 pin」上，真因是 fileset_emit.py 只写 flags 没写 cpusubtype。新增 loader_contract() + --flight-ready 拒绝 + 6 条夹具。"
+statement = "判「加载器不支持我们的产物」之前，必须把该加载器实际接受过的同类产物（Apple 自己的）与我们的逐字段比对，并证明构建图实际选中了哪一份加载器源码；两项都做成常驻门禁。"
+check = "python3 scripts/tests/test-ios27-artifacts.py && python3 scripts/tests/test-ios27-firmware.py"
+note = "P-280：DarwinBoot 的 fileset 成员规则（MH_EXECUTE + cpusubtype 与集合逐位相等 + MH_DYLIB_IN_CACHE）与 Apple 24A446 集合 305/305 完全一致，而我们 32 条里只有 com.apple.kernel 一条是 0x80000002；一半的讨论时间花在「放宽守卫/换 pin」上，真因是 fileset_emit.py 只写 flags 没写 cpusubtype。新增 loader_contract() + --flight-ready 拒绝 + 6 条夹具。 同日量出第二层：board.toml 的 [firmware].packages 把 {uefi}/Platforms/Xiaomi 排在 {tree}/package 之前，实际编译的是 vendored DarwinBoot.c（只认 subtype 0 + filetype 2，无 fileset 分支），换 pin 也不会生效；新增 scripts/check-ios27-firmware.py 按 PACKAGES_PATH 顺序解析 DSC 与驱动源码并判定有无 filetype 12 分支（26 例夹具）。"

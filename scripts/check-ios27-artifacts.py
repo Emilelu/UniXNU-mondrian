@@ -25,6 +25,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import tomllib
 import zlib
 from pathlib import Path
 
@@ -38,6 +39,8 @@ LC_BUILD_VERSION = 0x32
 LC_FILESET_ENTRY = 0x80000035
 PLATFORM_IOS = 2
 FD_BYTES = 0x300000
+FIRMWARE_BLOCKER = 'firmware-fileset-provider'
+REQUIRED_BLOCKERS = frozenset({FIRMWARE_BLOCKER, 'loader-rejects-fileset', 'prelink-map-unresolved'})
 FAT_KERNEL = '::/EFI/UniXNU/Payloads/kernel.macho'
 FAT_ADT = '::/EFI/UniXNU/Payloads/kernel.macho.adt'
 # The one tool the payload step runs on the kernel copy (scripts/unixnu/payload.py:188-191).
@@ -387,23 +390,48 @@ def open_blockers(path):
 
     The ledger exists because a structural pass and a bootable image are two
     different claims, and the gap between them is a list of specific, named
-    defects -- today the firmware loader's kernel-header guard and the prelink
-    map. Keeping them in a file the gate reads means the gate cannot go green by
-    forgetting one: closing an entry requires editing it to "closed" with the
-    evidence line that closed it, which is reviewable.
+    defects. Keeping them in a file the gate reads means the gate cannot go green
+    by forgetting one, and two rules make that real rather than nominal:
+
+    * an entry is closed only by carrying `closed = "<evidence>"` -- deleting the
+      entry, or setting a state nobody checks, is not a close;
+    * the ids this gate expects must all be present, so removing a defect from
+      the file is a failure instead of a silent pass.
+
+    The file is parsed as TOML now (it was a hand-rolled key scan): a scan cannot
+    tell `state = "open"` from a typo, and the first draft of this ledger was one
+    indentation away from silently containing nothing (P-251 family).
     """
     if not path.is_file():
         raise Failure(f'no flight-blocker ledger at {path}: the flight gate cannot pass on silence')
-    entries, current = [], None
-    for raw in path.read_text(encoding='utf-8').splitlines():
-        line = raw.split('#', 1)[0].strip()
-        if line.startswith('[[blocker]]'):
-            current = {}
-            entries.append(current)
-        elif current is not None and '=' in line:
-            key, value = line.split('=', 1)
-            current[key.strip()] = value.strip().strip('"')
-    open_ones = [e for e in entries if e.get('state', 'open') != 'closed']
+    entries = tomllib.loads(path.read_text(encoding='utf-8')).get('blocker')
+    if not entries:
+        raise Failure(f'{path.name} declares no [[blocker]] entries: an empty ledger is not '
+                      f'evidence that nothing blocks a flight')
+    open_ones, seen = [], set()
+    for entry in entries:
+        name = entry.get('id')
+        if not name:
+            raise Failure(f'{path.name}: a blocker has no id')
+        if name in seen:
+            raise Failure(f'{path.name}: blocker {name} appears twice')
+        seen.add(name)
+        state = entry.get('state')
+        if state is None:
+            raise Failure(f'{path.name}: blocker {name} has no state; write "open" or '
+                          f'closed = "<evidence>"')
+        if state == 'closed':
+            if not entry.get('closed'):
+                raise Failure(f'{path.name}: blocker {name} says closed without the evidence '
+                              f'that closed it')
+            continue
+        if state != 'open':
+            raise Failure(f'{path.name}: blocker {name} has state {state!r}, not open or closed')
+        open_ones.append(entry)
+    missing = REQUIRED_BLOCKERS - seen
+    if missing:
+        raise Failure(f'{path.name}: the ledger no longer names {sorted(missing)}; removing a '
+                      f'known defect from the file does not fix it')
     return open_ones
 
 

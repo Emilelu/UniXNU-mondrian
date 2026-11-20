@@ -65,6 +65,15 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 		echo "build-ios27-linux: no uefi-mondrian checkout at $UNIXNU_UEFI" >&2
 		exit 2
 	fi
+	# Which DarwinBoot the DSC compiles decides whether the volume can read a 27
+	# collection at all -- a different question from the collection's own
+	# headers, and today the answer is the vendored copy, which cannot. Report
+	# here without --strict: the structural build still has to produce artifacts
+	# for the other gates; the flight gate is where this becomes fatal.
+	python3 "$ROOT/scripts/check-ios27-firmware.py" --board "$ROOT" \
+		--uefi "$UNIXNU_UEFI" \
+		--tree "$UNIXNU_OUT/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree" \
+		--edk2 "$UNIXNU/third_party/edk2" || true
 	python3 ./unixnu build firmware --device "$ROOT" --uefi "$UNIXNU_UEFI" -j "${UNIXNU_JOBS:-$(nproc)}"
 	# No [bootimg] dtb in board.toml: the appended tree is the hardware DTS the
 	# payload step compiled.

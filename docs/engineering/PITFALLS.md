@@ -7446,3 +7446,30 @@ Apple 自己的集合三条全满足；我们的集合满足两条——**唯一
 
 配套门禁：`scripts/check-ios27-artifacts.py` 的 `loader_contract()` 现在按加载器的三条成员规则
 检查集合，`--flight-ready` 在任一条不满足时拒绝，并在消息里点名是哪个子头的哪个字段。
+
+### P-280 后记（同日，同一条结论的两个层次）
+
+上面这段把结论写成「唯一偏差是一个没写的字段」，它只在**换掉加载器之后**才成立。当天下午把
+「被编译进去的到底是哪一份 `DarwinBoot.c`」量出来，就发现还有一层更早的阻塞：
+
+`board.toml` 的 `[firmware].packages` 把 `{uefi}/Platforms/Xiaomi` 排在 `{tree}/package` 之前，
+而 `mondrian.dsc:129`/`mondrian.fdf:89` 写的都是 `DarwinBootPkg/Driver/DarwinBoot.inf` ⇒ EDK II
+按 PACKAGES_PATH 顺序取到的是 vendored 那份 `Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c`
+（43,713 B，sha256 `d95fe403…`）。它的第一条判定是
+
+```c
+if ((U32 (Data + 8) != 0) || (U32 (Data + 12) != 2)) { return EFI_UNSUPPORTED; }
+```
+
+即 **subtype 必须 0、filetype 必须 2**，连 fileset 的分支都没有 —— 我们的集合在它读子头之前就被
+拒掉。所以「把子头补一个字段」修好的是 catalog pin 那条路；只要 vendored 加载器还在，集合再完美
+也进不去。两层必须分别证明、分别关闭。
+
+第二个教训（P-251 家族的新形状）：**「换了 pin 就会好」和「pin 的规则是对的」是两个命题**。前者
+是我们对构建图的判断，后者是对外部组件的判断；两者都要用现场的产物验证——`firmware.log:1154`
+记录了真正被编译的文件，`:1250` 记录了它被 `GenSec` 封进 FFS `D6112048-…`，而 `boot.img` 里那个
+54,784 B 的 PE 与它逐字节相同（`cb175e4d…`）。「哪一份源被编进去」这件事本身也得有门禁：
+`scripts/check-ios27-firmware.py` 按 `[firmware].packages` 的顺序解析 DSC 与
+`DarwinBootPkg/Driver/DarwinBoot.c`，判定选中的源里有没有 filetype 12 / `LC_FILESET_ENTRY` 分支，
+并把 DSC 与驱动来自不同搜索根这件事一并打印出来（EDK II 每个包独立解析，两者可以不来自同一棵树）。
+

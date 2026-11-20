@@ -261,22 +261,66 @@ def main():
     tests.equal('prelink.empty_maps', (empty['missing_refs'], empty['stubbed_refs']), (0, 0))
 
     # --- the flight gate --------------------------------------------------
-    ledger = tmp / 'blockers.toml'
-    ledger.write_text(
-        '[[blocker]]\nid = "still-open"\nwhat = "the loader refuses filetype 12"\nstate = "open"\n\n'
-        '[[blocker]]\nid = "closed-one"\nwhat = "already fixed"\nstate = "closed"\n',
-        encoding='utf-8')
-    open_ones = module.open_blockers(ledger)
-    tests.equal('blockers.open_count', [e['id'] for e in open_ones], ['still-open'])
-    tests.equal('blockers.id_parsed', open_ones[0]['what'], 'the loader refuses filetype 12')
+    # The ledger is data the gate trusts to refuse a flight, so the fixture has
+    # to be a ledger the gate would accept: all three ids it expects, one of
+    # them closed by evidence. Each negative case below removes exactly one
+    # property of that shape, because "no open entries" is what a green flight
+    # gate means and there must be no way to reach it by editing the file.
+    def ledger_text(firmware='open', loader='open', prelink='open', closed_evidence=True):
+        def entry(name, state):
+            text = f'[[blocker]]\nid = "{name}"\nwhat = "{name} stops a flight"\n'
+            if state is None:
+                return text
+            if state != 'closed':
+                return text + f'state = "{state}"\n'
+            text += 'state = "closed"\n'
+            return text + ('closed = "rebuilt, measured zero"\n' if closed_evidence else '')
+        return '\n'.join(entry(name, state) for name, state in (
+            ('firmware-fileset-provider', firmware),
+            ('loader-rejects-fileset', loader),
+            ('prelink-map-unresolved', prelink))) + '\n'
 
+    ledger = tmp / 'blockers.toml'
+    ledger.write_text(ledger_text(), encoding='utf-8')
+    open_ones = module.open_blockers(ledger)
+    tests.equal('blockers.open_ids', [e['id'] for e in open_ones],
+                ['firmware-fileset-provider', 'loader-rejects-fileset', 'prelink-map-unresolved'])
+    tests.equal('blockers.what_parsed', open_ones[0]['what'],
+                'firmware-fileset-provider stops a flight')
+
+    ledger.write_text(ledger_text(firmware='closed'), encoding='utf-8')
+    tests.equal('blockers.closed_with_evidence_drops_out',
+                [e['id'] for e in module.open_blockers(ledger)],
+                ['loader-rejects-fileset', 'prelink-map-unresolved'])
+
+    ledger.write_text(ledger_text(firmware='closed', closed_evidence=False), encoding='utf-8')
+    tests.raises('blockers.closed_without_evidence_refused', 'without the evidence',
+                 module.open_blockers, ledger)
+
+    ledger.write_text(ledger_text(loader=None), encoding='utf-8')
+    tests.raises('blockers.missing_state_refused', 'has no state', module.open_blockers, ledger)
+
+    ledger.write_text(ledger_text(loader='deferred'), encoding='utf-8')
+    tests.raises('blockers.unknown_state_refused', 'not open or closed',
+                 module.open_blockers, ledger)
+
+    ledger.write_text('\n'.join(part for part in ledger_text().split('\n\n')
+                                if 'firmware-fileset-provider' not in part), encoding='utf-8')
+    tests.raises('blockers.deleted_entry_refused', 'no longer names', module.open_blockers, ledger)
+
+    ledger.write_text('', encoding='utf-8')
+    tests.raises('blockers.empty_ledger_refused', 'an empty ledger is not',
+                 module.open_blockers, ledger)
+
+    ledger.write_text(ledger_text(), encoding='utf-8')
     tests.raises('blockers.missing_ledger', 'cannot pass on silence',
                  module.open_blockers, tmp / 'absent.toml')
 
     clean = {'kind': 'MH_FILESET, 32 entries',
              'prelink': {'missing_refs': 0, 'stubbed_refs': 0, 'missing_bundles': 0,
                          'stubbed_bundles': 0}}
-    tests.raises('flight.open_blocker_refused', 'still-open', module.flight_ready, clean, open_ones)
+    tests.raises('flight.open_blocker_refused', 'firmware-fileset-provider',
+                 module.flight_ready, clean, open_ones)
     module.flight_ready(clean, [])
 
     dirty = {'kind': 'MH_FILESET, 32 entries',

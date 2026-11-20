@@ -67,6 +67,8 @@ EXTRA = [
     "scripts/tests/test-check-power-counts.py",
     "scripts/extract-boot-img.py",
     "scripts/tests/test-extract-boot-img.py",
+    "scripts/check-console-contract.py",
+    "scripts/tests/test-check-console-contract.py",
     "drivers/PongPower/K60Battmgr.c",
     "drivers/PongPower/K60Battmgr.h",
     "scripts/check-power-carry.py",

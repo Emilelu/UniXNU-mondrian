@@ -118,6 +118,16 @@ sheng 的改动分五处（都在 bringup 里）：
 2. 我们 4 KiB 基线已经跑到 bsd_init（F1），改用户 VA 宽度会让 F1 的结论作废；这不是 cellular 线能单方面决定的事。
 3. 判据可在 F1/F2 直接观测：用户态第一个 Mach-O 的 slide/地址、`pmap_user_va_bits` 若被打印、dyld 阶段的 `EXC_BAD_ACCESS` / PAC 失败。**如果 F1 停在 dyld 且所有用户地址都在 0x1_0000_0000 以下，就是这一条。**
 
+**这条裁决有门禁。** `scripts/check-ios27-readiness.py` 的 `user_va_width()` 把上表两行记成期望：`T0SZ_USER` 必须仍然零命中，且 4 KiB 用户页表根层级必须仍是 `(T0SZ_BOOT - 16) / 9`。三种结局：
+
+| 情形 | 输出 |
+|---|---|
+| 与上表一致 | `K60 READY ok   user tables still start at T0SZ_BOOT (38/39-bit VA), as deferred` |
+| 有人把 sheng 的 `T0SZ_USER` 搬进来了 | `K60 READY DRIFT the 27 tree now defines T0SZ_USER: revisit the deferred decision in docs/research/cellular/21-SHENG-REFERENCE.md 21.4` |
+| 根层级那一行变了但没定义 `T0SZ_USER` | `K60 READY DRIFT the 4 KiB page-table root level changed: <该行原文>` |
+
+两条 DRIFT 都用假树取证过（定义 `T0SZ_USER` 的树；根层级改成 0 的树），各自 rc=1。这门的用意不是拦住改动，而是**逼改动必须同时改这份文档**——用户 VA 宽度一改，F1 的结论就不再是当前结论。
+
 ## 21.5 我们能直接借的三个形状
 
 1. **插件式启动**（`source-storage-runtime.patch`）：`weak_import` 声明 + 取址判空 + 只在存在时调用。我们的 `K60ModemLink.c:42-52` 弱定义兜底已经是同一形状；F3 把 PongUfs 的强定义带回来时**不需要改一行调用点**——这正是 P-267 那条缺口的正确结局。

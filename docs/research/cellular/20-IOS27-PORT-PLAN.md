@@ -1487,9 +1487,11 @@ sheng 的注释说 arm64e 用户态期望 PAC 落在 46 位以上（libobjc 用 
 那是改语义不是移植；而 F1 已在这套 4 KiB 基线上跑到 bsd_init，改用户 VA 宽度会让 F1 的结论作废。
 判据留在文档里：若 F1 停在 dyld 且用户地址全在 `0x1_0000_0000` 以下，就是这一条。
 
-### 37.5 三处落档
+### 37.5 四处落档
 
-- 新文档 `docs/research/cellular/21-SHENG-REFERENCE.md`（139 行，17 条表 + 两条重点 + 三条可借形状 + 边界）。
+- 新文档 `docs/research/cellular/21-SHENG-REFERENCE.md`（17 条表 + 两条重点 + 三条可借形状 + 边界）。
 - `docs/engineering/PITFALLS.md` 新增 **P-270**「逐字搬一段被平台宏门住的改动，等于什么都没搬」，
   `RULES.toml` 登记（check 指向 21 号文档里的那句 `T0SZ_USER == T0SZ_BOOT`）。
+- `scripts/check-ios27-readiness.py` 的 `user_va_width()` 把「`T0SZ_USER` 零命中 + 根层级
+  `(T0SZ_BOOT - 16) / 9`」记成期望；谁搬了 sheng 那段，门禁就 DRIFT 并指向 21.4，逼改动与文档同步。
 - 本文 §21.7 那句边界同样适用于 21 号文档：**`apply ok` 只说明文本能落盘，不说明编译过，更不说明构建树可用。**

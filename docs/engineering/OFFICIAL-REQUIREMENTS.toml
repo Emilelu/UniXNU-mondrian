@@ -10,6 +10,7 @@
 
 schema_version = 1
 
+
 [[page]]
 path = "building.md"
 title = "构建与启动"
@@ -318,7 +319,9 @@ state = "unmapped"
 path = "drivers/uefi-drivers.md"
 title = "UEFI 驱动"
 sha256 = "e382c1f89358e5c3448ef4008e3b9a77008ef83ced9845c9e4c0641779591089"
-state = "unmapped"
+state = "mapped"
+gate = "check-uefi-volume.py"
+assertion = "FV.FvMain carries DiskIoDxe, EnhancedFatDxe and UniXNURamDiskDxe through its includes, and each produced a .efi"
 
 [[page]]
 path = "drivers/verified-root.md"

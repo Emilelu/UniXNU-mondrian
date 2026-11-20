@@ -7523,3 +7523,25 @@ flag) yet」；`CPU_SUBTYPE_ARM64E_KERNEL_PTRAUTH_ABI_MASK = 0x40000000` 只在 
 一般化教训：判「我们的产物没问题、是消费方太严」之前，要做两件事而不是一件——按 P-280 把消费方
 接受过的同类产物逐字段摆开，**并且**确认自己的工具链能不能表达它要求的那个值。一个只会写一种形式的
 编译器是流水线的缺陷；修法要落在能把值写对的地方，并配一个拒绝代劳其余字段的门禁。
+
+## P-286 — 门禁读基础表而不是生效表，等于在量一棵没人编的板子
+
+2026-11-21，`scan/check-ios27-geometry.py`（从 xNekom `19ae38bc` 拣来）报 `error: [payload.adt].random_seed is not pinned`，而我们这次构建**确实**钉了 seed。真因是它读 `board['payload']['adt']` 这一层，而本板把 27 的值放在 `[os_overrides."ios-27.0.1-24A446".payload.adt]`，基础表仍是 16.6.1 的身份。框架解析板级配置的顺序是 `profiles/arch/<arch>` → `soc.toml` → `profiles/os/<os>` → 设备 `board.toml`，最后才合并 `[os_overrides."<profile>"]` 并按其 `remove` 删键（`scripts/unixnu/profiles.py:9-65`）。
+
+一条门禁如果自己吞 `tomllib.load(board.toml)` 就直接查键，它量的永远是**基础表**——也就是「没选任何 profile 时的那块板子」。危险方向是双向的：基础表有、override 删掉的键会假通过；基础表没有、override 补上的键会假失败（本例）。
+
+正确形状：门禁必须复刻框架的合并语义。`scripts/check-ios27-geometry.py` 现在有 `merge(base, overlay, remove)`（递归字典合并 + 按点号路径删除）与 `profiles_named(board)`（读 `[board].os_profile` 找对应 override），并把它正在量的 profile 名字打进输出：`geometry: profile ios-27.0.1-24A446`。没有这个名字，读数就无法与某次构建对应。
+
+一般化：**任何「读配置文件做判定」的门禁，都要声明它读的是哪一层**，并把层名打进输出；读基础表而不声明，迟早会去校验一棵没人编的树。
+
+## P-287 — 三份审计互相矛盾时，判据在构建产物里，不在任何一份报告里
+
+2026-11-21，官方页 `drivers/uefi-drivers` 要求固件卷带 `DiskIoDxe`、`EnhancedFatDxe`、`UniXNURamDiskDxe`。三份独立审计给出两种结论：一份说三个都在（`Include/DXE.inc`、`Include/APRIORI.inc` 里）；一份说只有 `UniXNURamDiskDxe`、缺另外两个；还有一份说 `UniXNURamDiskDxe` 在 DSC 里有、FDF 里没有。
+
+三条说法都能自圆其说，因为它们各自只读了一处：DSC 的 `[Components]`、FDF 的 `[FV.FvMain]`、或某个 `Include/*.inc`。真正决定的是**包含链**：`mondrian.fdf:61 [FV.FvMain]` 在 `:82` `!include Include/APRIORI.inc`、`:83` `!include Include/DXE.inc`，于是那 13 行直接 INF 之外还有 66 行从两个 `.inc` 里进来——`DiskIoDxe.inf` 在 `DXE.inc:26`、`Fat.inf` 在 `DXE.inc:28`、`UniXNURamDiskDxe.inf` 在 `DXE.inc:33`。
+
+第二层判据在**产物**里：`Build/mondrianPkg/DEBUG_CLANGPDB/AARCH64/{DiskIoDxe.efi,Fat.efi,UniXNURamDiskDxe.efi}` 三个文件都在。只看源码里有没有那行 INF，无法区分「列了但没编」和「真的进了卷」。
+
+现在这条判据是 `scripts/check-uefi-volume.py`：读 `[FV.FvMain]`、跟着 `!include` 递归、按 `[section]` 限制作用域，然后要求每个必需驱动既**被列出**又**有 `.efi`**；只要一个不满足就退 1，平台读不到退 2。六个自检里包含「列了但没编」与「include 出现在别的 FV section 里」两个假通过方向。
+
+一般化：**多份报告互相矛盾时，不要投票，去读决定它的那个文件链和那个产物**；并且把这次读法变成门禁，让下一次不必再投票。

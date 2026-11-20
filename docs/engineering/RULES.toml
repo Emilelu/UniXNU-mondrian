@@ -1232,3 +1232,17 @@ id = "P-129"
 statement = "触摸控制器 Goodix GT9916R 走 Berlin 协议（BRL），不是 GTP：坐标使能要发 0x91/0x01，配置完成必须等 reply[0] == 0x80，只查 ack[1] 不够。"
 check = "python3 scripts/tests/test-k60-goodix-berlin.py"
 note = "取自 yibiya 631efc3 的实测；旧实现只发 0x90/0x00 关 raw debug、从不发坐标使能，所以真机 reports=0。"
+
+[[rule]]
+id = "P-286"
+title = "门禁读基础表而不是生效表，等于在量一棵没人编的板子"
+statement = "任何读配置做判定的门禁都必须复刻框架的 profile 合并语义（含 [os_overrides] 与 remove），并把它正在量的层名打进输出；直接读 board.toml 的键只允许出现在合并之后。"
+check = "python3 scripts/check-ios27-geometry.py --board ."
+note = "2026-11-21：xNekom 19ae38bc 的 geometry 门禁读 board['payload']['adt']，本板 27 的值在 [os_overrides]，于是对一次真的钉了 seed 的构建报 error。修法见 scripts/check-ios27-geometry.py 的 merge()/profiles_named()。"
+
+[[rule]]
+id = "P-287"
+title = "三份审计互相矛盾时，判据在构建产物里"
+statement = "固件卷「带不带某个驱动」必须同时证明它在 [FV.FvMain] 的包含链里并且真的产出了 .efi；只读 DSC、FDF 或某个 .inc 都不算，多份报告矛盾时不投票。"
+check = "python3 scripts/check-uefi-volume.py --self-test && python3 scripts/check-uefi-volume.py"
+note = "2026-11-21：DiskIoDxe/Fat/UniXNURamDiskDxe 被三份审计判出两种结论；mondrian.fdf:82-83 的两个 !include 与 Build 下三个 .efi 才定案，现在由 scripts/check-uefi-volume.py 常驻检查。"

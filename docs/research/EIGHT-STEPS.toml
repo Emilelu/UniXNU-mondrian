@@ -805,3 +805,65 @@ evidence = "未上机（铁则：禁止自行 boot，交 Lead 在用户明确同
 success = "日志出现 K60WALL catalogue bytes=772 resid=0 error=0 且无 wallpaper aliases SKIP / optional boot view SKIP；Pong UI: wallpaper existing-content=-1 restore-stock=1 -> Pong UI: genuine wallpaper asset ... present=1 -> Pong UI: submitting genuine wallpaper 7410 native lock+home path=...，解锁后锁屏/主屏可见 WWDC 2022 壁纸；下一次普通启动 existing!=0 保留该壁纸。"
 failure = "若仍黑且日志为 genuine wallpaper bootstrap SKIP（native 20G81 WallpaperKit ABI unavailable / native bundle rejected），说明设备上的 WallpaperKit 与 20G81 SDK 头不一致，需按 P-75 的 ABI 记录逐个核对 selector；若日志停在 existing-content=1 且 restore-stock=0，说明 boot-arg 未生效（检查 board.toml kernel_args 与 FAT args 是否含 k60_wallpaper_reset=1）。"
 
+[hardware.power]
+status = "active"
+name = "电源（EPSS / CPU·L3 工作点）"
+paths = [
+    "drivers/PongPower/K60CpuFreqPlan.c",
+    "drivers/PongPower/K60BoostPlan.c",
+    "patches/xnu/0629-k60-sleep-trace.patch",
+    "scripts/judge-k60-mode1-console.py",
+    "scripts/check-hw-contracts.py",
+    "docs/research/power/",
+]
+why = "电源线里只有 EPSS/CPU·L3 工作点与睡眠恢复还没有八步记录；电池、充电、温控已有各自块，不并入本块。⑧ 用 w11 的 mode-1 只读飞行判，电池/充电仍由 [hardware.battery] 与 [hardware.charger] 判。"
+
+[hardware.power.step.same_model]
+done = true
+recorded_at = "2026-11-21"
+evidence = '''同型号（K60 / mondrian / taro）没有公开的第三方 XNU EPSS 实现。同 SoC zizhan（SM8475）drivers/ArmCpu/PongCpuPolicy.h:164 与 :173 把 EPSS perf-lock 定在 0x17d09000、写 +0x804；t970（SM8250）同文件 :56/:84 是同一套布局。sheng（SM8550）package/ShengPlatformPower.cpp:36-44 把所有 CPU/idle override 标成 unavailable(168..176) 并 panic，不能照搬。K60 live FDT 的 EPSS 节点与 zizhan 的偏移一致，见 docs/research/power/01-EPSS-PROBE.md:67-73 与 11-SHENG-REFERENCE.md:34。'''
+
+[hardware.power.step.official]
+done = true
+recorded_at = "2026-11-21"
+evidence = '''官网 power §5（https://unixnu.com/zh/porting/power，仓库镜像 docs/zh/porting/power.md:145-152）要求先稳压器、再互连、再温控，LUT 工作点按 CPU/L3 分开；§4 :126-138 的电池/充电六条已由 [hardware.battery] 与 [hardware.charger] 承接，不并入本块。K60 的逐条落点见 docs/research/power/00-POWER-PAGE-CONFORMANCE.md:52-70 与 docs/research/power/27-WORKORDER.md。'''
+
+[hardware.power.step.decompile]
+done = true
+recorded_at = "2026-11-21"
+evidence = '''EPSS 侧：zizhan/t970 的 drivers/ArmCpu/PongCpuPolicy.h:164/173 与 :56/84 给出 0x17d09000、+0x804/8/c 的 LUT/perf_state 布局，K60 live FDT 的 EPSS 节点有同一组寄存器；K60 自己的调频写路径在 drivers/PongPower/K60CpuFreqPlan.c:253/270。睡眠侧：patches/xnu/0629-k60-sleep-trace.patch:7-21 的宏与 :69-76 的两个报告点，IOCPU.cpp:323/327/330/334 的顺序见 docs/research/power/HW-CONTRACTS.toml 的 call-armcpu/call-k60。EPSS 探针见 docs/research/power/01-EPSS-PROBE.md:67-73。'''
+
+[hardware.power.step.wide]
+done = true
+recorded_at = "2026-11-21"
+catalog_checked = true
+catalog_result = '''UniXNU/components.toml 的 25 个组件逐个查过，没有 CPU/EPSS/睡眠组件：QcomDwc3 只在 board_dependencies 里声明 UCSI over charger channel，QcomBaseband 只有 GLINK/QRTR 传输，Adreno740 只管 GPU 频率。EPSS 只能自建 K60CpuFreqPlan/K60BoostPlan，睡眠只能走 0629 补丁。'''
+evidence = '''官方组件目录之外还查了 Linux cpufreq qcom-cpufreq-hw、zizhan/t970 的 PongCpuPolicy、sheng 的 ShengPlatformPower：三者的 EPSS 寄存器布局一致，但没有一个能直接复用（sheng 还把 CPU/idle override 全部标成不可用并 panic）。跨源清单见 docs/research/power/01-EPSS-PROBE.md 与 11-SHENG-REFERENCE.md。'''
+
+[hardware.power.step.plan]
+done = true
+recorded_at = "2026-11-21"
+evidence = '''只读先行：w11 用 mode 1 只读 A 形状（30 args/601 B），late read 只读 d0/d1/d2 与 L3，不写 perf_state；写路径按 docs/research/power/27-WORKORDER.md 的 PDMEM 顺序，先 0x17d09804/8/c 再 perf_state，等只读 PASS 后才做。睡眠恢复仍只到 prepare/restore/report，WAKE 未在 w10 打印，见 docs/research/power/02-PLATFORM-SLEEP.md:3。'''
+
+[hardware.power.step.deep]
+done = true
+recorded_at = "2026-11-21"
+evidence = '''未解点已定性：EPSS 写路径只有 host 证据，27 侧没有真机写；睡眠 WAKE 在 w10 硬挂、w9 报 "Spurious wakeup of cpu 1 @IOCPU.cpp:334"，docs/research/power/02-PLATFORM-SLEEP.md:3 记录恢复卡在 secondary processor_start；0629 的两个报告点已由 host 测试证明宏关闭时不打印，但还没有在 27 镜像里跑过。见 docs/research/power/27-WORKORDER.md 与 HW-CONTRACTS.toml:401-420。'''
+
+[hardware.power.step.verify]
+done = true
+recorded_at = "2026-11-21"
+local_verified = true
+evidence = '''主机侧 + 内核侧都已离线核验，故 local_verified=true。静态：scripts/check-hw-contracts.py 报 36 行 / 5 条线，26 行重开（21 same / 5 drift）、13 independent；0629 的两个报告点与 IOCPU.cpp:327/330 对齐；scripts/check-console-contract.py 报 31 judged / 8 exempt。单测：scripts/tests/run-k60-power-host.sh 报 power-host: OK (1915 checks in 10 suites) 与 power-python: OK (23 suites)，含 cpufreq 203、gpu-freq 140、boost 40、sleep 73、vote 58、armcpu-sleep 1038、conformance 134；scripts/check-lane-conformance.py 报 41 行 / verified 32 / partial 9；scripts/tests/test-k60-sleep-report-switch.py 10 项证明宏关闭时两条报告都不打印。产物：w11 boot.img 201,887,744 B、sha256 6db4e6b78bdab557d4f34b17aaf6a25caa9990d564faf94ef18853fbde589844、30 args/601 B 经 scripts/check-image-args.py 通过；docs/research/charger/W11-FLIGHT-PACK.md:24-30 记录 kernel.macho 30a058f2、payload bd8ed29d。这个产物是 16.6.1 预构建镜像，不是 27 镜像；27 侧镜像未构建，构建被本轮禁令挡住。'''
+static_check = '''36 条 HW-CONTRACTS 每行都落在源文件的真实行上；0629 的两个报告点在 console_resume 之后、WakeCPUs 之前；check-hw-contracts.py、check-console-contract.py 全绿。'''
+unit_test = '''run-k60-power-host.sh：1915 checks / 10 C suites，23 Python suites；cpufreq 203、gpu-freq 140、boost 40、sleep 73、vote 58、armcpu-sleep 1038；lane gate 41 行 / verified 32 / partial 9；sleep-report-switch 10 项（默认打印两条、-D...=0 两条都不打印）。'''
+artifact_check = '''w11 boot.img 201,887,744 B、sha256 6db4e6b78bdab557d4f34b17aaf6a25caa9990d564faf94ef18853fbde589844、30 args/601 B，check-image-args.py 报 OK；kernel.macho 30a058f2、payload bd8ed29d；镜像内含 K60CpuFreq mode=1 格式串，不含 applog=1 或 pong_handoff_publish=1。镜像是 16.6.1 预构建，不是 27。'''
+
+[hardware.power.step.device]
+done = false
+recorded_at = "2026-11-21"
+evidence = '''未上机（铁则：设备由 Lead 单独调度，本线不 boot）。⑧ 的第一飞是 docs/research/charger/W11-FLIGHT-PACK.md 的 w11，只判 EPSS mode-1；成功/失败原文就是本表 prediction 的两行（pack §4，:102-107）。电池/充电不在本块：它们由 [hardware.battery] 与 [hardware.charger] 判；若同一份 console 要交叉核对，scripts/judge-k60-battery-mirror.py 的 rc 0 PASS / 1 FAIL / 2 INVALID / 4 usage，C1 要 channel-up 行与 subscription-ack=1/16，C2 要电压 3300-5000 mV、电流 100-6000 mA 绝对值、SOC 1.00-100.00%、温度 0.0-60.0 ℃；mirror 的结论不改 mode1 的结论。'''
+
+[hardware.power.step.device.prediction]
+success = '''`K60CpuFreq: mode=1 EPSS domains=3 cpus=8 lut-rows=40` 出现，`late read begin (mode 1)` 到 `late read end` 之间 d0/d1/d2 各有一条 `mode1=read-only`，enable=1、state≠0、rows>0、top>0、level<rows、cap∈[1,top]；L3 行 rows=15 且 level<15；全日志无 mode2/3/6/7/8/10 的 apply/vote/pdmem/restore 写行；capture.json complete=true、bytes 与 console.log 一致、panicMarker=null；有 launchd SpringBoard 行；judge-k60-mode1-console.py 退出 0'''
+failure = '''`k60-mode1: FAIL` 或 `k60-mode1: INVALID`；先看 `MODE1 : FAIL` 的 `no 'mode=1 EPSS domains=3 cpus=8 lut-rows=40' header`、`d1 enable=0`、`d1 is enabled but state=0`、`L3 rows=... expected 15`、`write line ...`，或 `CAPTURE : FAIL` 的 `panicMarker=...`、`bytes ... but console.log ...`、`capture state is port-not-observed`；judge 退出 1 或 2'''

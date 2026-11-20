@@ -44,8 +44,8 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 | **thermal** | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ◐ | ✅ | device-verified |
 | **蜂窝（X70 modem / DXE 载具 / QRTR）** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | In progress |
 | **壁纸 / 换壁纸后进不去系统 / 桌面小组件（SpringBoard·PosterBoard·WallpaperKit）** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
+| **Power (EPSS / CPU·L3 operating points)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Ready to flash (⑦ verified) |
 | CPU | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
-| Power | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | Diagnostics | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | USB | — | — | — | — | — | — | — | ✅ | device-verified (no record) |
 | Baseband | — | — | — | — | — | — | — | — | planned |

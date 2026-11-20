@@ -112,7 +112,10 @@ def check(repos, state, hours, pages_now, allow_behind=False):
         if age > hours:
             problems.append(f'{name}: last fetched {age:.1f} h ago, limit {hours:g} h')
         head = git(repo, 'rev-parse', 'HEAD')
-        if saved.get('head') != head:
+        if entry.get('read_only') and saved.get('head') != head:
+            # A tracker is only read, so a moved HEAD means someone reset it. Our own
+            # repositories commit on purpose: gating them on this made the rule red
+            # after every commit, which is the "can never go green" shape (P-290).
             problems.append(f'{name}: HEAD moved since the last fetch; run --apply')
         if entry.get('read_only') and saved.get('upstream'):
             if head != saved['upstream']:

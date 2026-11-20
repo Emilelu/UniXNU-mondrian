@@ -146,3 +146,37 @@ index 7add2ff..f3a43f5 100644
      Status = gBS->LocateHandleBuffer (ByProtocol, &gUniXNULoaderProtocolGuid, NULL, &Count, &Handles);
      if (EFI_ERROR (Status)) { return Status; }
      if (Count != 1) { FreePool (Handles); return EFI_UNSUPPORTED; }
+diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S b/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
+index 09d71d6..348e590 100644
+--- a/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
++++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
+@@ -63,6 +63,29 @@ ASM_FUNC(DarwinEnter)
+   tlbi vmalle1
+   dsb sy
+   isb
++  // DarwinBoot is called at EL2, but XNU's start_first_cpu configures EL1:
++  // set the EL2 state the kernel cannot reach and eret to EL1h. This is the
++  // same sequence as the iOS 16 shim's kernel_handoff_entry.
++  mrs x9, CurrentEL
++  cmp x9, #0x8
++  b.ne 5f
++  mov x9, #(1 << 31)        // HCR_EL2: AArch64 EL1, no stage 2
++  msr hcr_el2, x9
++  msr vttbr_el2, xzr
++  msr vtcr_el2, xzr
++  msr cptr_el2, xzr
++  msr mdcr_el2, xzr
++  mov x9, #3                // CNTHCTL_EL2: EL1 timer access
++  msr cnthctl_el2, x9
++  mrs x9, icc_sre_el2
++  orr x9, x9, #1            // ICC_SRE_EL2: system register access
++  orr x9, x9, #8
++  msr icc_sre_el2, x9
++  mov x9, #0x3c5            // EL1h, DAIF masked
++  msr spsr_el2, x9
++  msr elr_el2, x1
++  eret
++5:
+   br x1
+ 
+ ASM_FUNC(DarwinEnterEnd)

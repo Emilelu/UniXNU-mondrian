@@ -275,6 +275,17 @@ which no printf prints`，退出码 1；删掉那行又回到 0。
 
 宿主用例 `scripts/tests/test-audio27-lines.py` 五例，预检里两行：`ok   27 line citations are honest` 与
 `ok   27 pages cite live lines`。
+### 判决用的芯片表与驱动里的那张必须是同一张
+
+`judge-audio-capture.py` 判探针成败时有一条：每个报上来的 id 必须在它的 `KNOWN` 表里。驱动回答同一个
+问题用的是 `PongAudioPlan.h` 的 `pong_audio_amp_name()`。两张表都是手写的，于是会分头长：往驱动加一颗
+芯片，判据就把好探针判成 `FAILED`，下一次飞行白飞。
+
+`scripts/check-audio27-chips.py` 把两张表都读出来逐项比，两个方向都算失败。现在
+`CHIPS OK 9 ids agree between scripts/judge-audio-capture.py and drivers/PongAudio/PongAudioPlan.h`；
+驱动多一颗时报 `CHIPS FAILED: 0x2308 is absent in scripts/judge-audio-capture.py`，名字改了则两边名字都
+打出来。宿主用例 `scripts/tests/test-audio27-chips.py` 五例，预检两行：`ok   chip table checker is honest`
+与 `ok   judge and driver agree on chips`。
 ### 两种布局：16 线种树，27 树原地构建
 
 两个脚本（`apply-audio27-wiring.py`、`add-audio-conffiles.py`）都认两种布局：

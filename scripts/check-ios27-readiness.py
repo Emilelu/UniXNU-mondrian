@@ -406,6 +406,26 @@ def conf_anchor(tree):
                     return name
     return None
 
+SMMU_ENTRY = ("ArmSmmu4KBuild(", "ArmSmmu4KProgramDisabledContext(")
+
+
+def weak_fallbacks():
+    # The 27 tree is plain XNU: drivers/PongAdreno/ArmSmmu4K belongs to the GPU
+    # line. 0628 has to answer for both symbols itself, with weak definitions the
+    # archive overrides once that driver is linked; without them the 27 build dies
+    # at the link, which is exactly the failure this check moves forward.
+    path = os.path.join(ARTIFACT_DIR, "0628-k60-ipa.patch")
+    if not os.path.exists(path):
+        return [name for name in SMMU_ENTRY]
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        text = handle.read()
+    weak = [line for line in text.splitlines() if line.startswith("+__attribute__((weak))")]
+    missing = [name for name in SMMU_ENTRY if ("+" + name) not in text]
+    if missing or len(weak) < len(SMMU_ENTRY):
+        return missing or ["weak lines=%d" % len(weak)]
+    return []
+
+
 def check_pristine(tree):
     drift = 0
     anchors = anchor_state(tree)
@@ -436,6 +456,12 @@ def check_pristine(tree):
         print('K60 READY DRIFT headers missing: ' + ' '.join(absent))
     else:
         print('K60 READY ok   %d includes resolve' % len(headers))
+    gaps = weak_fallbacks()
+    if gaps:
+        drift += 1
+        print('K60 READY DRIFT the 27 set no longer answers for %s' % ' '.join(gaps))
+    else:
+        print('K60 READY ok   both ArmSmmu4K entry points have a weak definition')
     missing = [n for n in ARTIFACTS
                if not os.path.exists(os.path.join(ARTIFACT_DIR, n))]
     if missing:

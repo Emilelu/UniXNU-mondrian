@@ -734,10 +734,40 @@ typedef struct {
     K60IpaArmSmmuImage readback;
 } K60IpaArmSmmuProgramResult;
 
-extern int ArmSmmu4KBuild(const K60IpaArmSmmuConfig *, const K60IpaArmSmmuRange *,
-    size_t, uint64_t *, size_t, K60IpaArmSmmuResult *);
-extern int ArmSmmu4KProgramDisabledContext(const K60IpaArmSmmuIo *, unsigned,
-    const K60IpaArmSmmuContext *, unsigned, K60IpaArmSmmuProgramResult *);
+/*
+ * drivers/PongAdreno/ArmSmmu4K belongs to the GPU line: a kernel that does not
+ * link that driver still has to link this file, so both entry points carry a
+ * weak definition that refuses with one diagnostic line.  The archive strong
+ * symbol wins at the final link, the same arrangement pong_modem_link.c uses
+ * for native_pong_ufs_read_named_volume.
+ */
+__attribute__((weak)) int
+ArmSmmu4KBuild(const K60IpaArmSmmuConfig *config, const K60IpaArmSmmuRange *ranges,
+    size_t count, uint64_t *tables, size_t table_pages, K60IpaArmSmmuResult *out)
+{
+	(void)config;
+	(void)ranges;
+	(void)count;
+	(void)tables;
+	(void)table_pages;
+	(void)out;
+	printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "\n");
+	return -1;
+}
+
+__attribute__((weak)) int
+ArmSmmu4KProgramDisabledContext(const K60IpaArmSmmuIo *io, unsigned bank,
+    const K60IpaArmSmmuContext *context, unsigned timeout_ms,
+    K60IpaArmSmmuProgramResult *out)
+{
+	(void)io;
+	(void)bank;
+	(void)context;
+	(void)timeout_ms;
+	(void)out;
+	printf("K60IPA smmu: no ArmSmmu4K in this kernel"" "\n");
+	return -1;
+}
 
 typedef struct {
     volatile uint8_t *smmu;

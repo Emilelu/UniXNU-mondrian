@@ -444,3 +444,19 @@ note = """上一条 bfb8008e 手写 hunk 头时把 0531 里 15 行说明性注�
 行号随之从 699 变成 795，那是 0531 实际看到的树，不是干净 feed 的行号。
 尚未出图：这一版只让序列能走完，内核还没链接出来。
 """
+
+
+[[entry]]
+sha = "d98844a2"
+state = "build-only"
+date = "2026-11-20"
+note = """新增 0533-k60-v-crypto-syntax.patch：arm64_isa_compatibility.h 只有在
+__apple_build_version__ > 5010000（也就是确定由 Apple 汇编器读这个文件）时才
+选 q 寄存器写法，本树用的是上游 clang，它的集成汇编器不认 sha256su0 q0, q1 /
+sha256h q18, q19, q4 这种操作数，于是 fileset reference 构建在
+sha256_compress_arm64.s 里报 invalid operand for instruction，链接走不到写
+link.filelist 那一步。v 寄存器写法（v0.4s）两家汇编器都收，所以把条件改成
+只看 __clang__。iOS 16 序列里 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-v-crypto-syntax.patch
+是同一处改动，但 12377 序列没有等价条目，这里重新编号收录。
+尚未出图：这一版只让 corecrypto 的 asm 能编过，内核还没链接出来。
+"""

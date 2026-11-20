@@ -213,6 +213,21 @@ def case_extra_callback():
     return code == 1 and "PongSwrIo.reset is not one half" in out, out
 
 
+def case_bare_void_assignment():
+    root = fixture()
+    edit(root, "PongAudioGeniI2c.h", "\tvoid *ctx;\n} PongGeniIo;",
+         "\tvoid *ctx;\n\tvoid *opaque;\n} PongGeniIo;")
+    path = root / "drivers" / "PongAudio" / "PongAudioGeniI2c.c"
+    text = path.read_text(encoding="utf-8")
+    old = "\tg->io = *io;\n"
+    assert old in text
+    path.write_text(text.replace(old, old + "\tg->io.opaque = (void *)config;\n", 1),
+                    encoding="utf-8")
+    code, out = run(root)
+    return (code == 1 and "PongGeniIo carries the field opaque" in out
+            and "not one of its contexts" in out), out
+
+
 CASES = [
     ("good", case_good),
     ("slew_field_gone", case_slew_field_gone),
@@ -232,6 +247,7 @@ CASES = [
     ("member_never_filled", case_member_never_filled),
     ("extra_void_field", case_extra_void_field),
     ("extra_callback", case_extra_callback),
+    ("bare_void_assignment", case_bare_void_assignment),
 ]
 
 

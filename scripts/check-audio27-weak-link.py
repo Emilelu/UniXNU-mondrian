@@ -557,6 +557,8 @@ def check_link(args, tree, selected):
                           " a weak W or data symbol is not the driver entry point" % SYMBOL)
         else:
             issues.append("no definition of %s in the symbol table" % SYMBOL)
+            notes.append("an undefined weak reference is a link error in the kernel image"
+                         " (ld64-port rejects it); it is not a silent run-time fallback")
 
     references = [record for record in records
                   if (record["probe"] or record["stub_probe"]) and record["undefined"]]

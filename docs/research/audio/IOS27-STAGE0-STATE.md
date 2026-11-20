@@ -21,6 +21,16 @@
 
 于是「内核里没有音频符号」是这三件事同时成立的结果。它不是链接器丢了对象，也不是 27 回归。
 
+### 谁能改变这个状态
+
+要把音频线放回构建，下面三处必须同时改；少一处就仍是惰性：
+
+- `k60-gates/board.toml:360`：把 `"PongUfs"` 加回 `components.include`（现在只有 `ArmDTPlatform`、`ArmCpu`、`XnuPrelink`；组件定义在 `UniXNU/components.toml:552`）。
+- `k60-gates/board.toml:352`：从 `remove` 数组里删掉 `"kernel.pong_native_driver_source"`（`remove` 块可以整块删掉）。
+- `k60-gates/scripts/`：放入 `k60-conf-files-hook.py` 和它调用的 `add-audio-conffiles.py`（音频仓同名文件；后者在 `:34-35` 写 `bsd/dev/PongAudioGeniI2c.c`、`bsd/dev/PongAudioAmp.c` 两行），`build-ios27-linux.sh:52` 才会看见钩子并设 `K60_CONF_FILES_HOOK`。
+
+这三条只关掉 stage 0 的惰性，不放行 0531：系列仍按 `patches/xnu-12377/series:52` 的注释，先强制加载 `PongAudioAmp.o`，再列调用点补丁。改完后对产物重跑 `scripts/check-audio27-kernel.py`，读到 `strings 3/3` 与 `symbols 3/3` 才算音频真的进了构建。
+
 ## 二、三分钟自证
 
 需要三样东西，都不需要编译器：

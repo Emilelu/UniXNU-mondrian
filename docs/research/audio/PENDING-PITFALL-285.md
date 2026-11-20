@@ -1,9 +1,10 @@
-# P-283 待落盘条目（音频线起草，Lead 取用）
+# P-285 待落盘条目（音频线起草，Lead 取用）
 
-> 号由 `python3 scripts/next-pitfall-id.py` 在 2026-11-20 给出：`next P-283`。本文件只在音频分支，
+> 号由 Lead 在 main 分支的分配表 `main:docs/engineering/PITFALL-IDS.md` 分配：2026-11-20 的 P-285 归音频线（P-283 wifi、P-284 cellular）。
+> `next-pitfall-id.py` 当时只读到 P-282，才会给出会撞车的号。本文件只在音频分支，
 > 合分支时由 Lead 落盘到 `docs/engineering/PITFALLS.md`。
 
-## P-283 — 一条没有反例的断言，只是在复述当前代码
+## P-285 — 一条没有反例的断言，只是在复述当前代码
 
 **现象**：`check-audio27-fptrs.py` 第一版已经能证明四张 io 表「按类型签名成对」、赋值点与成员一致、
 调用点首参是自己的 ctx。四张表当时恰好只有 `read`/`write`/`ctx`，所以「没有裸 `void *` 跨层」这句话
@@ -42,5 +43,5 @@ python3 scripts/tests/test-audio27-weak-link.py
 **一般化**：正例证明「现在能用」，反例证明「规则真的在」。没有反例的断言与注释同义；它保护的是写它的
 那次提交，不是下一个人。
 
-**边界**：这是私有预检，不进全局 blockers（stage 0 不编音频）；它不替代真实链接与真机；P-283 的号由
-allocator 给，本文不手挑号。
+**边界**：这是私有预检，不进全局 blockers（stage 0 不编音频）；它不替代真实链接与真机；P-285 的号由
+Lead 的分配表给，本文不手挑号。

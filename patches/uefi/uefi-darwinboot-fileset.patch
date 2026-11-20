@@ -1,0 +1,148 @@
+diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
+index 7add2ff..f3a43f5 100644
+--- a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
++++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
+@@ -129,50 +129,106 @@ STATIC
+ EFI_STATUS
+ ParseKernel (CONST UINT8 *Data, UINTN Size, KERNEL *Kernel)
+ {
+-  UINTN    Offset;
+-  UINTN    End;
+-  UINTN    Index;
+-  UINTN    Other;
+-  UINT32   Count;
+-  UINT32   Command;
+-  UINT32   Length;
+-  SEGMENT  *Segment;
+-  BOOLEAN  HasEntry;
+-  BOOLEAN  Executable;
+-
+-  if ((Size < 32) || (U32 (Data) != 0xfeedfacf) || (U32 (Data + 4) != 0x100000c) ||
+-      (U32 (Data + 8) != 0) || (U32 (Data + 12) != 2)) {
++  CONST UINT8  *Header;
++  UINTN        HeaderOffset;
++  UINTN        Offset;
++  UINTN        End;
++  UINTN        Index;
++  UINTN        Other;
++  UINTN        OuterOffset;
++  UINTN        OuterEnd;
++  UINTN        FileOffset;
++  UINT64       FileOffset64;
++  UINT32       NameOffset;
++  UINT32       Count;
++  UINT32       Command;
++  UINT32       Length;
++  UINT32       FileType;
++  UINT32       SubType;
++  SEGMENT      *Segment;
++  BOOLEAN      HasEntry;
++  BOOLEAN      Executable;
++
++  if ((Size < 32) || (U32 (Data) != 0xfeedfacf) || (U32 (Data + 4) != 0x100000c)) {
+     return EFI_UNSUPPORTED;
+   }
+-  if (U32 (Data + 20) > Size - 32) { return EFI_LOAD_ERROR; }
++
++  /* cpusubtype carries capability bits in [31:24]; 2 is ARM64E. */
++  SubType  = U32 (Data + 8) & 0x00ffffff;
++  FileType = U32 (Data + 12);
++  if ((SubType != 0) && (SubType != 2)) { return EFI_UNSUPPORTED; }
++
++  Header = Data;
++  HeaderOffset = 0;
++  if (FileType == 0xc) {
++    /*
++     * A kernel collection: the top level has no segments, only
++     * LC_FILESET_ENTRY commands. The kernel is the entry named
++     * com.apple.kernel, and its segments keep file offsets into this same
++     * file, so only the header and the command stream move.
++     */
++    if (U32 (Data + 20) > Size - 32) { return EFI_LOAD_ERROR; }
++    OuterEnd = 32 + U32 (Data + 20);
++    OuterOffset = 32;
++    Header = NULL;
++    for (Index = 0; Index < U32 (Data + 16); Index++) {
++      if (OuterEnd - OuterOffset < 8) { return EFI_LOAD_ERROR; }
++      Command = U32 (Data + OuterOffset);
++      Length  = U32 (Data + OuterOffset + 4);
++      if ((Length < 8) || (Length & 7) || (Length > OuterEnd - OuterOffset)) { return EFI_LOAD_ERROR; }
++      if ((Command == 0x80000035) && (Length >= 32)) {
++        FileOffset64 = U64 (Data + OuterOffset + 16);
++        NameOffset   = U32 (Data + OuterOffset + 24);
++        FileOffset   = (UINTN)FileOffset64;
++        if ((FileOffset64 == FileOffset) && (NameOffset < Length) && (FileOffset < Size)) {
++          if (AsciiStrCmp ((CONST CHAR8 *)(Data + OuterOffset + NameOffset), "com.apple.kernel") == 0) {
++            Header = Data + FileOffset;
++            HeaderOffset = FileOffset;
++            break;
++          }
++        }
++      }
++      OuterOffset += Length;
++    }
++    if (Header == NULL) { return EFI_UNSUPPORTED; }
++    if ((Size - HeaderOffset < 32) || (U32 (Header) != 0xfeedfacf) ||
++        (U32 (Header + 4) != 0x100000c) || ((U32 (Header + 8) & 0x00ffffff) != 2) ||
++        (U32 (Header + 12) != 2)) {
++      return EFI_UNSUPPORTED;
++    }
++  } else if (FileType != 2) {
++    return EFI_UNSUPPORTED;
++  }
++
++  if (U32 (Header + 20) > Size - HeaderOffset - 32) { return EFI_LOAD_ERROR; }
+   ZeroMem (Kernel, sizeof (*Kernel));
+-  Count = U32 (Data + 16);
+-  End = 32 + U32 (Data + 20);
++  Count = U32 (Header + 16);
++  End = 32 + U32 (Header + 20);
+   Offset = 32;
+   HasEntry = FALSE;
+   for (Index = 0; Index < Count; Index++) {
+     if (End - Offset < 8) { return EFI_LOAD_ERROR; }
+-    Command = U32 (Data + Offset);
+-    Length = U32 (Data + Offset + 4);
++    Command = U32 (Header + Offset);
++    Length = U32 (Header + Offset + 4);
+     if ((Length < 8) || (Length & 7) || (Length > End - Offset)) { return EFI_LOAD_ERROR; }
+     if (Command == 0x19) {
+-      if ((Length < 72) || (U32 (Data + Offset + 64) > (Length - 72) / 80) ||
++      if ((Length < 72) || (U32 (Header + Offset + 64) > (Length - 72) / 80) ||
+           (Kernel->Count == MAX_SEGMENTS)) { return EFI_LOAD_ERROR; }
+-      if (U64 (Data + Offset + 32) != 0) {
++      if (U64 (Header + Offset + 32) != 0) {
+         Segment = &Kernel->Segments[Kernel->Count++];
+-        Segment->Address = U64 (Data + Offset + 24);
+-        Segment->Size = U64 (Data + Offset + 32);
+-        Segment->FileOffset = U64 (Data + Offset + 40);
+-        Segment->FileSize = U64 (Data + Offset + 48);
+-        Segment->Protection = U32 (Data + Offset + 60);
++        Segment->Address = U64 (Header + Offset + 24);
++        Segment->Size = U64 (Header + Offset + 32);
++        Segment->FileOffset = U64 (Header + Offset + 40);
++        Segment->FileSize = U64 (Header + Offset + 48);
++        Segment->Protection = U32 (Header + Offset + 60);
+         if ((Segment->Size > WINDOW_SIZE) || (Segment->Address > MAX_UINT64 - Segment->Size) ||
+             (Segment->FileSize > Segment->Size) || (Segment->FileOffset > Size) ||
+             (Segment->FileSize > Size - Segment->FileOffset)) { return EFI_LOAD_ERROR; }
+       }
+     } else if (Command == 5) {
+-      if (HasEntry || (Length != 288) || (U32 (Data + Offset + 8) != 6) ||
+-          (U32 (Data + Offset + 12) != 68)) { return EFI_LOAD_ERROR; }
+-      Kernel->Entry = U64 (Data + Offset + 272);
++      if (HasEntry || (Length != 288) || (U32 (Header + Offset + 8) != 6) ||
++          (U32 (Header + Offset + 12) != 68)) { return EFI_LOAD_ERROR; }
++      Kernel->Entry = U64 (Header + Offset + 272);
+       HasEntry = TRUE;
+     }
+     Offset += Length;
+@@ -943,7 +999,7 @@ DarwinBootEntry (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+   if (!EFI_ERROR (Status)) {
+     // Explicit, volatile replacement for the qualified FD's older loader.
+     // Unloading this driver restores it; no firmware or phone storage changes.
+-    if (((UNIXNU_LOADER_PROTOCOL *)Existing)->Revision != UNIXNU_LOADER_REVISION) { return EFI_UNSUPPORTED; }
++    if (((UNIXNU_LOADER_PROTOCOL *)Existing)->Revision > UNIXNU_LOADER_REVISION) { return EFI_UNSUPPORTED; }
+     Status = gBS->LocateHandleBuffer (ByProtocol, &gUniXNULoaderProtocolGuid, NULL, &Count, &Handles);
+     if (EFI_ERROR (Status)) { return Status; }
+     if (Count != 1) { FreePool (Handles); return EFI_UNSUPPORTED; }

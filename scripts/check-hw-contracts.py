@@ -580,6 +580,9 @@ def render_workorder(root: pathlib.Path, manifest: pathlib.Path, tree=None) -> s
             out.append("")
             out.append("- 线：" + str(row.get("lane") or "") + "；依赖：" + str(row.get("dependence") or ""))
             out.append("- 契约（本仓）：" + code(str(row.get("source") or "")))
+            where = str(row.get("where") or "").strip()
+            if where:
+                out.append("- 源码位置：" + code(where))
             ours = source_text(root, row)
             if ours:
                 out.append("- 本仓这一行：" + code(ours))
@@ -595,6 +598,9 @@ def render_workorder(root: pathlib.Path, manifest: pathlib.Path, tree=None) -> s
             else:
                 out.append("- 27 侧现状：" + detail)
             out.append("- 27 要做什么：" + str(row.get("ios27") or ""))
+            why_here = str(row.get("why_here") or "").strip()
+            if why_here:
+                out.append("- 为什么放在这里：" + why_here)
             why = str(row.get("why27") or "").strip()
             if why:
                 out.append("- 为什么这样记：" + why)

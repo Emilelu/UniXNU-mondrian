@@ -14,6 +14,11 @@ CONFIG_XNU_DT_PANIC_REGION=y
 CONFIG_XNU_ARMVIRT_PLATFORM=n
 CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y
 
+# The two platform-sleep reports are compiled in by default. Setting this to n
+# makes the generic builder pass -DK60_PLATFORM_SLEEP_REPORT=0; the patch itself
+# still defaults to 1, so a tree without the key keeps logging them.
+CONFIG_XNU_K60_PLATFORM_SLEEP_REPORT=y
+
 # Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3
 # and the display in F4. Enabling them now would add two untested ABIs to the
 # first kernel that has to prove PAC and the prelink.

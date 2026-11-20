@@ -340,7 +340,8 @@ def main() -> int:
     wo = build(WORK / "workorder", "".join([
         row(id="keep"),
         row(id="diff", source="drv/d.h:1", expect="X 1u", same27="drift", copy27="drv/d.h:1",
-            why27="the 27 copy holds a placeholder instead of the macro"),
+            why27="the 27 copy holds a placeholder instead of the macro",
+            extra='where = "drv/d.h:1"\nwhy_here = "must stay before the tracepoint"'),
         row(id="gone", source="drv/b.h:1", expect="Y 2u", same27="unchecked", copy27="",
             why27="the file has not travelled yet"),
     ]), extra={"b.h": "#define Y 2u\n", "d.h": "#define X 1u\n"},
@@ -348,6 +349,10 @@ def main() -> int:
     text = module.render_workorder(WORK / "workorder", wo)
     check("the work order shows a drifted row with our line and the 27 line",
           "### diff" in text and "#define X 1u" in text and "placeholder" in text,
+          text[:300])
+    check("the work order says where the line goes and why",
+          "源码位置" in text and "drv/d.h:1" in text
+          and "为什么放在这里" in text and "must stay before the tracepoint" in text,
           text[:300])
     check("the work order names a file the 27 tree lacks",
           "### gone" in text and "drv/b.h" in text, text[:300])

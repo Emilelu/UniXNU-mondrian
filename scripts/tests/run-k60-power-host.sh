@@ -87,6 +87,7 @@ run_py judge-exit-codes python3 scripts/tests/test-check-judge-exit-codes.py
 run_py preflight-coverage python3 scripts/tests/test-check-preflight-coverage.py
 run_py pitfall-numbers python3 scripts/tests/test-check-pitfall-numbers.py
 run_py record-hw-contracts python3 scripts/tests/test-record-hw-contracts.py
+run_py sleep-report-switch python3 scripts/tests/test-k60-sleep-report-switch.py
 run_py boot-img python3 scripts/tests/test-extract-boot-img.py
 run_py console-contract python3 scripts/tests/test-check-console-contract.py
 echo "power-python: OK ($python_suites suites)"

@@ -284,6 +284,18 @@ if [ -d "$MOCKFS_OBJECT_DIR" ]; then
 fi
 EXTRA_MAKE_ARGS+=("ubc_subr.o_CFLAGS_ADD=-DXNU_NATIVE_CS_HASH_CACHE=$CS_HASH_CACHE_MODE")
 EXTRA_CFLAGS=${XNU_EXTRA_CFLAGS:--Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding}
+# K60_PLATFORM_SLEEP_REPORT: begin
+# The iOS 27 profile is not PONG. A PONG guard compiles both sleep reports
+# away and the platform-sleep judge can never see REPORT; keep the switch a
+# driver define that the defconfig reaches through XNU_K60_PLATFORM_SLEEP_REPORT.
+# Absent means on, matching the patch's own default.
+SLEEP_REPORT_MODE=${XNU_K60_PLATFORM_SLEEP_REPORT:-1}
+if [ "$SLEEP_REPORT_MODE" != 0 ] && [ "$SLEEP_REPORT_MODE" != 1 ]; then
+  echo "XNU_K60_PLATFORM_SLEEP_REPORT must be 0 or 1" >&2
+  exit 1
+fi
+EXTRA_CFLAGS="$EXTRA_CFLAGS -DK60_PLATFORM_SLEEP_REPORT=$SLEEP_REPORT_MODE"
+# K60_PLATFORM_SLEEP_REPORT: end
 OWNER_ROOT_PROBE=${XNU_VERIFIED_ROOT_PROBE:-0}
 if [ "$OWNER_ROOT_PROBE" != 0 ] && [ "$OWNER_ROOT_PROBE" != 1 ]; then
   echo 'XNU_VERIFIED_ROOT_PROBE must be 0 or 1' >&2

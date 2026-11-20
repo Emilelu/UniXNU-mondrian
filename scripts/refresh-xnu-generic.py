@@ -14,6 +14,42 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 TARGET = REPO / "scripts" / "build-xnu-generic.sh"
 
+BEGIN = "# K60_PLATFORM_SLEEP_REPORT: begin"
+END = "# K60_PLATFORM_SLEEP_REPORT: end"
+BLOCK = """
+# K60_PLATFORM_SLEEP_REPORT: begin
+# The iOS 27 profile is not PONG. A PONG guard compiles both sleep reports
+# away and the platform-sleep judge can never see REPORT; keep the switch a
+# driver define that the defconfig reaches through XNU_K60_PLATFORM_SLEEP_REPORT.
+# Absent means on, matching the patch's own default.
+SLEEP_REPORT_MODE=${XNU_K60_PLATFORM_SLEEP_REPORT:-1}
+if [ "$SLEEP_REPORT_MODE" != 0 ] && [ "$SLEEP_REPORT_MODE" != 1 ]; then
+  echo "XNU_K60_PLATFORM_SLEEP_REPORT must be 0 or 1" >&2
+  exit 1
+fi
+EXTRA_CFLAGS="$EXTRA_CFLAGS -DK60_PLATFORM_SLEEP_REPORT=$SLEEP_REPORT_MODE"
+# K60_PLATFORM_SLEEP_REPORT: end
+"""
+BLOCK = BLOCK.strip("\n")
+
+
+def with_sleep_switch(text: str) -> str:
+    lines = text.split("\n")
+    if BEGIN in lines and END in lines:
+        start = lines.index(BEGIN)
+        stop = lines.index(END)
+        if stop < start:
+            raise SystemExit("sleep-report block ends before it begins")
+        del lines[start:stop + 1]
+    elif BEGIN in lines or END in lines:
+        raise SystemExit("sleep-report block is only half present")
+    anchors = [i for i, line in enumerate(lines)
+               if line.startswith("EXTRA_CFLAGS=") and "XNU_EXTRA_CFLAGS" in line]
+    if len(anchors) != 1:
+        raise SystemExit(f"expected one EXTRA_CFLAGS anchor, found {len(anchors)}")
+    lines[anchors[0] + 1:anchors[0] + 1] = BLOCK.split("\n")
+    return "\n".join(lines)
+
 
 def main(argv: list[str]) -> int:
     framework = Path(argv[1]) if len(argv) > 1 else REPO.parent / "UniXNU"
@@ -33,7 +69,7 @@ def main(argv: list[str]) -> int:
 # Pong one. scripts/pick-xnu-builder.sh chooses; scripts/tests/test-build-xnu-
 # dispatch.py drives it. Refresh with scripts/refresh-xnu-generic.py.
 """
-    TARGET.write_text(header + body.split("\n", 1)[1], encoding="utf-8")
+    TARGET.write_text(with_sleep_switch(header + body.split("\n", 1)[1]), encoding="utf-8")
     print(f"refreshed {TARGET.relative_to(REPO)} from framework {commit}")
     return 0
 

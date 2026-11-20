@@ -217,6 +217,61 @@ def checked27(label: str, row: dict, tree27) -> list[str]:
                         f"same27 = drift is stale, flip it to same")
     return problems
 
+def computed27(row: dict, tree: pathlib.Path) -> tuple[str, str]:
+    """What a real tree actually holds for this row's source line: same, drift, moved
+    (the line is out of range) or missing. This is the computed counterpart of the
+    hand-written same27 claim, and it opens the row's own path rather than copy27."""
+    source = str(row.get("source") or "")
+    if source.startswith("external:"):
+        return "skipped", source
+    if ":" not in source:
+        return "missing", source
+    rel, _, number = source.rpartition(":")
+    try:
+        line = int(number)
+    except ValueError:
+        return "missing", source
+    path = tree / rel
+    if not path.is_file():
+        return "missing", rel
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "missing", rel
+    expect = str(row.get("expect") or "")
+    if not 1 <= line <= len(lines):
+        return "moved", f"{rel} has {len(lines)} lines, the row cites {line}"
+    if expect and expect in lines[line - 1]:
+        return "same", f"{rel}:{line}"
+    return "drift", f"{rel}:{line} does not contain {expect!r}"
+
+
+def against_problems(data: dict, tree: pathlib.Path) -> tuple[list[str], list[str]]:
+    """Hold every same27 claim to what the tree really contains. Unchecked, the column is
+    prose that happens to sit next to a checker: "27 is the same as 16" is two copies of
+    one fact, and only a run in the other tree says whether the copies still agree."""
+    problems: list[str] = []
+    report: list[str] = []
+    for index, row in enumerate(data.get("contract") or [], 1):
+        label = str(row.get("id") or f"row {index}")
+        verdict, detail = computed27(row, tree)
+        if verdict == "skipped":
+            continue
+        report.append(f"{verdict:7s} {label:30s} {detail}")
+        claim = str(row.get("same27") or "").strip()
+        if claim == "same" and verdict != "same":
+            problems.append(f"{label}: copy27 says same, the tree says {verdict} ({detail})")
+        elif claim == "drift" and verdict == "same":
+            problems.append(f"{label}: copy27 says drift, the tree already carries it ({detail})")
+        elif claim == "drift" and verdict == "missing":
+            problems.append(f"{label}: copy27 says drift, the tree has no such file ({detail}); "
+                            "same27 = unchecked with a reason")
+        elif claim == "unchecked" and verdict == "same":
+            problems.append(f"{label}: copy27 says unchecked, the tree already carries the text "
+                            f"({detail}); say same")
+    return problems, report
+
+
 def verify(root: pathlib.Path, manifest: pathlib.Path) -> list[str]:
     problems: list[str] = []
     try:
@@ -376,6 +431,8 @@ def main() -> int:
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--manifest")
     parser.add_argument("--render", metavar="PATH", help="write the generated rewire checklist here")
+    parser.add_argument("--against", metavar="TREE",
+                        help="compute every row in TREE and hold the same27 claims to it")
     args = parser.parse_args()
     root = pathlib.Path(args.root).resolve()
     manifest = pathlib.Path(args.manifest) if args.manifest else root / REL
@@ -384,6 +441,32 @@ def main() -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render(root, manifest), encoding="utf-8", newline="\n")
         print(f"rendered {len(tomllib.loads(manifest.read_text(encoding='utf-8'))['contract'])} row(s) to {target}")
+        return 0
+
+    if args.against:
+        tree = hostpath(args.against)
+        if not tree.is_dir():
+            print(f"❌ {tree} is not a directory", file=sys.stderr)
+            return 2
+        try:
+            data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except (FileNotFoundError, tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+            print(f"❌ {manifest}: {error}", file=sys.stderr)
+            return 2
+        claims, report = against_problems(data, tree)
+        for line in report:
+            print(line)
+        counts = {}
+        for line in report:
+            counts[line.split()[0]] = counts.get(line.split()[0], 0) + 1
+        summary = ", ".join(f"{n} {verdict}" for verdict, n in sorted(counts.items()))
+        if claims:
+            for problem in claims:
+                print(f"❌ {problem}", file=sys.stderr)
+            print(f"hw-contracts --against {tree}: {len(claims)} claim(s) disagree", file=sys.stderr)
+            return 1
+        print(f"✅ hw-contracts --against {tree}: {len(report)} row(s) computed ({summary}); "
+              f"every same27 claim agrees")
         return 0
 
     problems = verify(root, manifest)

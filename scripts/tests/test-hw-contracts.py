@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import shutil
+import subprocess
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -258,6 +259,44 @@ def main() -> int:
     problems = module.verify(WORK / "same-no-tree", bare27)
     check("a same claim without tree27 is refused",
           any("needs tree27" in p for p in problems), str(problems))
+    # --against opens the row's own path in the other tree, so the same27 column cannot
+    # stay hand-written prose: the run has to agree with it, and a claim it contradicts
+    # is red whether the claim is "same", "drift" or "unchecked".
+    one = {"id": "x", "source": "drv/a.h:1", "expect": "X 1u", "same27": "same"}
+    check("a computed row reports the text it found",
+          module.computed27(one, WORK / "good") == ("same", "drv/a.h:1"),
+          str(module.computed27(one, WORK / "good")))
+
+    problems, report = module.against_problems({"contract": [one]}, WORK / "same-drift" / "tree27")
+    check("a claim the other tree contradicts is refused",
+          any("the tree says drift" in p for p in problems), str(problems))
+    check("the computed verdict is printed for every row",
+          any(line.startswith("drift") for line in report), str(report))
+
+    gone = dict(one, same27="drift")
+    problems, _ = module.against_problems({"contract": [gone]}, WORK / "no-such-tree")
+    check("a drift claim on a file the tree lacks is refused",
+          any("unchecked with a reason" in p for p in problems), str(problems))
+
+    closed = dict(one, same27="unchecked")
+    problems, _ = module.against_problems({"contract": [closed]}, WORK / "good")
+    check("an unchecked claim the tree already satisfies is refused",
+          any("say same" in p for p in problems), str(problems))
+
+    moved = {"id": "x", "source": "drv/a.h:9", "expect": "X 1u", "same27": "unchecked"}
+    verdict, detail = module.computed27(moved, WORK / "good")
+    check("a row citing a line past the end is called moved",
+          verdict == "moved" and "cites 9" in detail, f"{verdict} {detail}")
+
+    cli = subprocess.run([sys.executable, str(REPO / "scripts" / "check-hw-contracts.py"),
+                          "--against", str(WORK / "same-drift" / "tree27"),
+                          "--manifest", str(drifted)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    check("--against exits 1 and names the claim that disagrees",
+          cli.returncode == 1 and "the tree says drift" in cli.stderr,
+          f"rc {cli.returncode} {cli.stderr.strip()[-200:]}")
+
     real = REPO / "docs" / "research" / "power" / "HW-CONTRACTS.toml"
     if real.is_file():
         problems = module.verify(REPO, real)

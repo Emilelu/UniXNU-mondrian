@@ -111,9 +111,11 @@ def kernel(placement):
                  placement=placement)
 
 
-def repo(tmp, switch_on):
+def repo(tmp, config_on, include_on=None):
+    if include_on is None:
+        include_on = config_on
     (tmp / 'configs').mkdir(exist_ok=True)
-    include = '["ArmDTPlatform", "ArmCpu", "XnuPrelink", "NativeUfs"]' if switch_on \
+    include = '["ArmDTPlatform", "ArmCpu", "XnuPrelink", "NativeUfs"]' if include_on \
         else '["ArmDTPlatform", "ArmCpu", "XnuPrelink"]'
     (tmp / 'board.toml').write_text(
         '[os_overrides."ios-27.0.1-24A446".components]\n'
@@ -121,7 +123,7 @@ def repo(tmp, switch_on):
         '[os_overrides."ios-27.0.1-24A446".kernel]\n'
         'defconfig = "mondrian_ios27_defconfig"\n')
     (tmp / 'configs' / 'mondrian_ios27_defconfig').write_text(
-        '# fixture\nCONFIG_XNU_NATIVE_UFS=' + ('y' if switch_on else 'n') + '\n')
+        '# fixture\nCONFIG_XNU_NATIVE_UFS=' + ('y' if config_on else 'n') + '\n')
 
 
 def digest(path):
@@ -239,6 +241,20 @@ def main():
     done = run(on, ['--collection', str(pass_cache), '--kernelcache', str(input_cache)] + base)
     case('switch on without a report is red', done.returncode == 1, done.stdout)
     case('the missing report is named', 'no --report supplied' in done.stdout, done.stdout)
+
+    half_config = tmp / 'half-config'
+    half_config.mkdir()
+    repo(half_config, True, False)
+    done = run(half_config)
+    case('a config that claims the driver without the component is red',
+         done.returncode == 1, done.stdout)
+    case('the half-set switch is named', 'the selectors disagree' in done.stdout, done.stdout)
+
+    half_include = tmp / 'half-include'
+    half_include.mkdir()
+    repo(half_include, False, True)
+    done = run(half_include)
+    case('a component selected without the config is red', done.returncode == 1, done.stdout)
 
     failed = [name for name, ok, _ in CASES if not ok]
     for name, ok, detail in CASES:

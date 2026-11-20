@@ -18,6 +18,10 @@ was built before the flip does not open the gate, and a report from an older
 build does not describe today's collection.  The switch state is printed last,
 after both contract results, so a reader sees the evidence before the verdict.
 
+The two selectors must agree as well: a config that says yes while the board
+does not select NativeUfs (or the other way round) is a half-set switch, and a
+half-set switch fails rather than pends.
+
 Two inputs are separate on purpose:
 
   --collection   the built kernel collection; the vtable lives here
@@ -158,7 +162,9 @@ def main(argv=None):
     include = section.get('components', {}).get('include', [])
     include_ufs = 'NativeUfs' in include
     switch_value = values.get('CONFIG_XNU_NATIVE_UFS')
-    switch_on = switch_value == 1 and include_ufs
+    config_on = switch_value == 1
+    switch_on = config_on and include_ufs
+    half_set = config_on != include_ufs
     switch_source = origin.get('CONFIG_XNU_NATIVE_UFS', 'missing')
 
     collection = Path(args.collection) if args.collection else None
@@ -249,13 +255,19 @@ def main(argv=None):
 
     supplied = [str(path) for path in (collection, cache, report) if path]
     source_text = ', '.join(supplied) if supplied else 'no build inputs'
-    label = 'FAIL storage: ' if switch_on else 'note storage: '
+    if half_set:
+        problems.append(f'the selectors disagree: CONFIG_XNU_NATIVE_UFS={switch_value} '
+                        f'({switch_source}), board.toml include has NativeUfs={include_ufs}')
+    label = 'FAIL storage: ' if (switch_on or half_set) else 'note storage: '
     for problem in problems:
         print(label + problem)
 
     verdict = 'pending'
     code = 0
-    if not switch_on:
+    if half_set:
+        verdict = 'failed'
+        code = 1
+    elif not switch_on:
         print(f'NOTE storage: stage 0 does not build NativeUfs (switch off); '
               f'contract checks ran against {source_text} only')
     elif entry_rc == 0 and translated_rc == 0 and not problems:
@@ -276,6 +288,7 @@ def main(argv=None):
                 'include': include,
                 'include_ufs': include_ufs,
                 'on': switch_on,
+                'half_set': half_set,
             },
             'collection': str(collection) if collection else None,
             'kernelcache': str(cache) if cache else None,

@@ -45,7 +45,7 @@ index d0f41a4..a972030 100644
  ## Limits
  
 diff --git a/shim/pac.c b/shim/pac.c
-index 3a70791..56879f4 100644
+index 3a70791..a48f663 100644
 --- a/shim/pac.c
 +++ b/shim/pac.c
 @@ -2,8 +2,10 @@
@@ -61,7 +61,28 @@ index 3a70791..56879f4 100644
   *      HCR_EL2.APK/API traps them and this write reboots the phone);
   *   3. PACIA/AUTIA actually changing a pointer at EL1 once SCTLR_EL1 EnIA is
   *      set (on a core without PAuth they are NOP-space no-ops).
-@@ -67,13 +69,15 @@ static uint64_t autia(uint64_t p)
+@@ -25,13 +27,14 @@
+ #define ISAR1	RSR("S3_0_C0_C6_1")
+ #define ISAR2	RSR("S3_0_C0_C6_2")
+ 
+-/* Key registers: CRm 1/2/3 for A/B/D/A-G, op2 1..4 lo/hi. */
++/* Key registers: CRm 1/2 for A/B and D/A-B, 3 for A-G; lo is the
++ * even op2, hi the next one. op2=4 is not allocated. */
+ #define KEY_REGS \
+-	X(APIA, S3_0_C2_C1_1, S3_0_C2_C1_2) \
+-	X(APIB, S3_0_C2_C1_3, S3_0_C2_C1_4) \
+-	X(APDA, S3_0_C2_C2_1, S3_0_C2_C2_2) \
+-	X(APDB, S3_0_C2_C2_3, S3_0_C2_C2_4) \
+-	X(APGA, S3_0_C2_C3_1, S3_0_C2_C3_2)
++	X(APIA, S3_0_C2_C1_0, S3_0_C2_C1_1) \
++	X(APIB, S3_0_C2_C1_2, S3_0_C2_C1_3) \
++	X(APDA, S3_0_C2_C2_0, S3_0_C2_C2_1) \
++	X(APDB, S3_0_C2_C2_2, S3_0_C2_C2_3) \
++	X(APGA, S3_0_C2_C3_0, S3_0_C2_C3_1)
+ 
+ #define X(name, lo, hi) \
+ 	static uint64_t name##_lo(void) { return RSR(#lo); } \
+@@ -67,13 +70,15 @@ static uint64_t autia(uint64_t p)
  	return out;
  }
  
@@ -83,7 +104,7 @@ index 3a70791..56879f4 100644
  }
  
  void pac_probe(void)
-@@ -83,7 +87,8 @@ void pac_probe(void)
+@@ -83,7 +88,8 @@ void pac_probe(void)
  	uint64_t mmfr0 = RSR("id_aa64mmfr0_el1");
  	uint64_t el = RSR("CurrentEL") >> 2;
  	uint32_t apa = (isar1 >> 4) & 0xf, api = (isar1 >> 8) & 0xf;
@@ -93,7 +114,7 @@ index 3a70791..56879f4 100644
  	uint32_t apa3 = (isar2 >> 4) & 0xf, gpa3 = (isar2 >> 8) & 0xf;
  	uint64_t in = 0x0000000012345678UL, signed_p, restored;
  	uint64_t sctlr;
-@@ -97,20 +102,38 @@ void pac_probe(void)
+@@ -97,20 +103,38 @@ void pac_probe(void)
  	con_hex2("FEAT", "APA3", apa3, "GPA3", gpa3);
  	con_hex2("MMFR0", "tg4=", (uint32_t)(mmfr0 & 0xf), "tg16=", (uint32_t)((mmfr0 >> 20) & 0xf));
  
@@ -136,3 +157,39 @@ index 3a70791..56879f4 100644
  
  	sctlr = RSR("sctlr_el1");
  	con_hex64("SCTLR before", sctlr);
+diff --git a/shim/shim.c b/shim/shim.c
+index 309275e..085b692 100644
+--- a/shim/shim.c
++++ b/shim/shim.c
+@@ -164,6 +164,10 @@ void exc_handler(uint64_t slot, uint64_t *regs)
+ 	con_hex("ELR", rsr("elr_el1"));
+ 	con_hex("FAR", rsr("far_el1"));
+ 	con_hex("SPSR", rsr("spsr_el1"));
++	/* A translation fault means the MMU was on: say which map it used. */
++	con_hex64("SCTLR", rsr("sctlr_el1"));
++	con_hex64("TTBR0", rsr("ttbr0_el1"));
++	con_hex64("TCR", rsr("tcr_el1"));
+ 	con_hex("X0", regs[0]);
+ 	con_hex("X1", regs[1]);
+ 	con_hex("X2", regs[2]);
+diff --git a/shim/start.S b/shim/start.S
+index 91fb069..cedb7aa 100644
+--- a/shim/start.S
++++ b/shim/start.S
+@@ -202,7 +202,7 @@ exc_common:
+ 	stp	x24, x25, [sp, #192]
+ 	stp	x26, x27, [sp, #208]
+ 	str	x28, [sp, #224]
+-	ldp	x2, x3, [sp, #256]		/* the stashed x29/x30 */
++	ldp	x2, x3, [sp, #272]		/* the stashed x29/x30 */
+ 	stp	x2, x3, [sp, #232]		/* the frame's slots 29 and 30 */
+ 	mov	x0, x29
+ 	mov	x1, sp
+@@ -222,6 +222,6 @@ exc_common:
+ 	ldp	x24, x25, [sp, #192]
+ 	ldp	x26, x27, [sp, #208]
+ 	ldr	x28, [sp, #224]
+-	add	sp, sp, #(30 * 8)
++	add	sp, sp, #(34 * 8)
+ 	ldp	x29, x30, [sp], #16
+ 	eret

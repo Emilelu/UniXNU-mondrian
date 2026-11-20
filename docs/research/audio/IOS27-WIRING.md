@@ -155,6 +155,24 @@ sha256 90051b6e6871）→ `strings 3/3` + `AUDIO27 OK`。
 XNU27_KERNEL=<built kernel> sh scripts/check-audio27-preflight.sh
 ```
 
+### 27 上先判探针：一条命令、三种答案
+27 没有 AFE 端点，`--playback` 那套 S1–S8 是 16.x 的扬声器图，在 27 上会在第一个 period
+之前停住。F4（内核走到 `bsd_init`）之后，27 上的第一个判据是**无 flag 的探针模式**：
+
+```sh
+python3 scripts/judge-audio-capture.py E:/k60-work/evidence/usblog-<ts>/
+```
+
+| 退出码 | 输出 | 27 上意味着什么 |
+| --- | --- | --- |
+| 0 | `VERDICT: SUCCESS - amplifiers identified` | 探针跑完、`found=2/2`、两个 id 都在已知表 |
+| 1 | `probe started but never finished` 或 `FAILED` | 走到了探针，硬件答案不对：GPLL0 没锁、总线没起来、id 不认识 |
+| 2 | `VERDICT: probe never ran (no 'amp probe start')` | 这段代码没跑：系列没打 0531，或启动参数没带 `pong_audio_probe=1`——不是硬件结论 |
+
+**2 不是红**：它说的是「这次捕捉对硬件什么都没说」。27 stage-0 的捕捉（还没到 `bsd_init`）
+本来就应当是 2；那时若报 1，反而说明 `amp probe start` 被写进了别处。报告里紧跟判决的两行
+提示就是为这两种「没跑」写的，免得把接线问题读成硬件问题。
+
 ### 两种布局：16 线种树，27 树原地构建
 
 两个脚本（`apply-audio27-wiring.py`、`add-audio-conffiles.py`）都认两种布局：

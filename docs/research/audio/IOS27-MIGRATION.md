@@ -141,3 +141,14 @@ python3 scripts/judge-audio-capture.py --playback E:/k60-work/evidence/usblog-<t
 目录里的日志名不必须是 `console.log`——手工并目录后叫 `console-1.log` 或 `<ts>.log`
 也能判，脚本取最大的 `*.log`；空目录给 2，不会伪装成 0 或 1。
 
+上面那条是 **16.x 的 `--playback`**。在 27 上，F4 之后的第一个判据是**无 flag 的探针模式**：
+
+```sh
+python3 scripts/judge-audio-capture.py E:/k60-work/evidence/usblog-<ts>/
+# 0 = SUCCESS：探针跑完、found=2/2、两个 id 都在已知表
+# 1 = FAIL：走到了探针但硬件答案不对（GPLL0 没锁、总线没起、id 不认识）
+# 2 = INVALID：没有任何 PongAudio 行——系列没打 0531 或启动参数没带 pong_audio_probe=1
+```
+
+2 在这里是「这次捕捉对硬件什么都没说」，不是「硬件坏了」。
+

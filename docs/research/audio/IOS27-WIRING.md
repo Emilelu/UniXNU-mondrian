@@ -369,13 +369,24 @@ sh scripts/tests/portability/run-symbols.sh
 | 驱动把不把 `PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1` 交进去 | 宏不定义，`PongAudioAmp.c` 编空（979 例仍然全绿） | 同一个 `env` 前缀里带这一对；bash 驱动可以 `export`，`#!/bin/sh` 不行 |
 | 框架还把不把自己的环境交给设备构建器 | 上面两个变量止步于 CLI | `scripts/unixnu/kernel.py` 里 `env = dict(os.environ)` 与 `run(['bash', script], …, env=env)` 都还在 |
 
-`scripts/check-audio27-builder.py` 一次查这三样，读数来自**真的驱动与真的框架**，不是本文档的副本。
-现在预检里那一行是
-`ok   27 driver delivers the define   BUILDER: not wired yet (…)`——驱动由 Lead 在 F1 之后接，
-没接上时它说的是「胶水会编进去但永远不会跑」，而不是给一句绿了就算。接上以后同一行变成
-`BUILDER OK: … takes K60_CONF_FILES_HOOK and PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 (framework hands its environment through scripts/unixnu/kernel.py:175)`。
-只接了钩子、漏了宏（或反过来）会红并点名缺的那个；框架哪天改成自造环境，第三列那条也会红——
-`scripts/tests/test-audio27-builder.py` 的六个用例把这几种形状各复现一遍（含 dash 里 `export` 一个点号名这种写法）。
+`scripts/check-audio27-builder.py` 查这三样，读数来自**真的驱动与真的框架**，不是本文档的副本。
+预检里它们是三行，一行一处接缝——三处断掉的样子不同，混成一行就分不出是哪一处：
+
+```
+ok   27 driver takes the conf hook      BUILDER: not wired yet (scripts/build-ios27-linux.sh never names K60_CONF_FILES_HOOK); …
+ok   27 driver takes the define         BUILDER: not wired yet (… never passes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1); …
+ok   framework passes env to builder    BUILDER OK: scripts/unixnu/kernel.py:175 hands dict(os.environ) to the device builder
+```
+
+前两行的 `ok` 是「等待态」：`not wired yet` 明说驱动还没接，胶水会编进去但永远不会跑；接上以后同一行变成
+`BUILDER OK: scripts/build-ios27-linux.sh takes K60_CONF_FILES_HOOK=… on the kernel line` 与
+`BUILDER OK: … takes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 in the env prefix`。
+接了却接错（钩子只在别处被提到、或在 `#!/bin/sh` 里 `export` 点号名）是 `FAIL` 并点名；
+第三处在没有框架检出时打 `skip`，不冒充绿。
+`scripts/tests/test-audio27-builder.py` 的七个用例把这几种形状各复现一遍（含 dash 里 `export` 一个点号名、
+钩子只出现在注释里、框架改成 `env = {}`、驱动与框架都不在）。
+
+
 
 
 ### 一条命令：文件内的改动 + 第三处的命令行

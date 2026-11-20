@@ -95,6 +95,28 @@ def build_tree(build):
     return path
 
 
+
+def build_root_only(build):
+    """A structurally valid tree whose walker finds nothing but the root."""
+    strings = b"" + NUL
+    body = bytearray()
+    body.extend(struct.pack(">I", BEGIN_NODE))
+    body.extend(NUL + b"\0\0\0")
+    body.extend(struct.pack(">I", END_NODE))
+    body.extend(struct.pack(">I", 4) * 20)
+    body.extend(struct.pack(">I", END))
+    off_rsv = 40
+    rsv = struct.pack(">QQ", 0, 0)
+    off_struct = off_rsv + len(rsv)
+    off_strings = off_struct + len(body)
+    total = off_strings + len(strings)
+    header = struct.pack(">10I", 0xD00DFEED, total, off_struct, off_strings, off_rsv,
+                         17, 16, 0, len(strings), len(body))
+    path = build / "root-only.dtb"
+    path.write_bytes(header + rsv + bytes(body) + strings)
+    return path
+
+
 def run(*args):
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
@@ -133,6 +155,19 @@ def main():
     code, out, _ = run(dtb, "--node", "/soc/nope")
     check(code == 2, "a missing node exits 2")
     check("no node /soc/nope" in out, "a missing node says so")
+    check("the dump has 6 node(s)" in out, "a missing node says how many the walker did see")
+    code, out, err = run(dtb, "--list", "--contains", "no-such-node")
+    check(code == 0 and not out.strip(), "a filter that matches nothing prints nothing")
+    check("0 of 6 node(s) contain" in err,
+          "a zero match is counted out loud, got %r" % err)
+
+    code, out, err = run(dtb, "--list")
+    check("6 node(s)" in err, "a plain listing says how many it printed, got %r" % err)
+
+    lonely = build_root_only(build)
+    code, out, _ = run(lonely, "--list")
+    check(code == 3 and "the parser, not the dump, is wrong" in out,
+          "a walker that finds only the root refuses its own result, got %d %r" % (code, out))
 
     code, out, _ = run(dtb, "--node", "/soc", "--prop", "nope")
     check(code == 2 and "has no property nope" in out, "a missing property exits 2 and lists what exists")

@@ -93,6 +93,12 @@ def read_tree(path):
             raise DtbError("unknown FDT token 0x%x at offset 0x%x" % (token, pos))
     if stack:
         raise DtbError("the structure block ended with %d node(s) still open" % len(stack))
+    # A walker that misreads the padding finds the root and nothing else, and the
+    # result below looks exactly like "the device has no such node" (P-260).
+    if len(order) < 2 and size_struct > 64:
+        raise DtbError("%s carries %d bytes of structure block but the walker found "
+                       "%d node(s); a real tree has dozens - the parser, not the dump, is wrong"
+                       % (path, size_struct, len(order)))
     return order, nodes
 
 
@@ -132,15 +138,22 @@ def main(argv=None):
         return 0
 
     if args.list:
-        for path in order:
-            if args.contains and args.contains not in path:
-                continue
+        shown = [path for path in order if not args.contains or args.contains in path]
+        for path in shown:
             print(path)
+        # A zero here is the shape P-260 warns about: say the total out loud so
+        # "no such node" and "the filter matched nothing" never look the same.
+        if args.contains:
+            print("read-fdt-props: %d of %d node(s) contain %r"
+                  % (len(shown), len(order), args.contains), file=sys.stderr)
+        else:
+            print("read-fdt-props: %d node(s)" % len(shown), file=sys.stderr)
         return 0
 
     props = nodes.get(args.node)
     if props is None:
-        print("read-fdt-props: no node %s in %s (see --list)" % (args.node, args.dump))
+        print("read-fdt-props: no node %s in %s (the dump has %d node(s); see --list)"
+              % (args.node, args.dump, len(order)))
         return 2
     names = [args.prop] if args.prop else list(props)
     if args.prop and args.prop not in props:

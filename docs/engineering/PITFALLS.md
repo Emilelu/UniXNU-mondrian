@@ -7330,7 +7330,7 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 
 **修法**：
 
-1. 新增 `docs/research/power/HW-CONTRACTS.toml`：四条线 23 行，每行 `source = "文件:行"` 加
+1. 新增 `docs/research/power/HW-CONTRACTS.toml`：五条线 24 行，每行 `source = "文件:行"` 加
    `expect = "必须出现在该行的文本"`，再加 `dependence`（none/macro/firmware/property-number/layout）
    说明 27 侧要换的是什么，`ios27` 写动作。
 2. `scripts/check-hw-contracts.py` 逐行解析定位：文件缺失、行号越界、该行不含记录文本、id 重复、
@@ -7359,3 +7359,37 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 **教训**：文档写"当前值"是最脆弱的引用形态，因为它不带地址、也没有读者会去验证；能写成
 "文件:行 + 该行文本"的，就让门禁去核，不能的，就改成指路而不是复述。一条数字在四处出现，就该有一处是生成的。
 
+## P-260 — 解析二进制结构得到「0 项」时，结构与不存在在日志里同形
+
+**症状**：2026-11-20 给温控契约找第二来源，手写 FDT 遍历器去读真机 dump
+`E:/k60-work/reports/live-6033dbec-fdt.dtb`（919,210 B，v17 扁平设备树）。程序退出码 0、
+没有异常、打印 `/soc/thermal-zones` 下 0 个 zone——读起来就像「这块板子没有温控节点」。
+实际 dump 里有 4206 个节点、二十多个 thermal-zone；错在遍历器：FDT 的节点名和属性值都要按
+`off_dt_struct` 做**绝对** 4 字节对齐，按相对偏移补 0 会逐步错位，最后只在根节点后就结束。
+第二版手搓遍历器修好对齐，同一份 dump 立刻读出五个阶梯值。
+
+**真因**：判据把「我解析出来的集合是空的」等同于「输入里没有」。空结果的成因至少有三种——
+输入确实没有、解析器读错了、过滤器问错了地方（同日 cellular 线的「判据问错盘」是第三种）——
+而三者在日志里长得一样：一行「没有」，一个 0，或者干脆什么都不打印。一个能被误读成结论的空结果，
+比一个异常更危险，因为它会让人去改别的东西（那天差点去改契约表，说「这几个值设备上没有」）。
+
+**判据**：任何解析二进制结构的程序，在报告「没有」之前必须先自证它读到了东西——
+①先用真 dump 里**已知存在**的项做锚（这次是那五个 trip 值），锚点读不出来就判解析器有病，而不是判输入为空；
+②凡列举/过滤类输出，必须把「查到多少 / 一共多少」打出来，`--list` 这类枚举还要有一次已知非空结果
+做过对照才算能用。
+
+**修法**：
+
+1. `scripts/read-fdt-props.py` 现在先自检：结构块 > 64 字节却只解出不到 2 个节点，直接报
+   `carries N bytes of structure block but the walker found M node(s); a real tree has dozens - the
+   parser, not the dump, is wrong`，退出 3，不把 0 项当答案。
+2. 找不到节点时不再只说「no node」：`no node /soc/nope in <dump> (the dump has 4206 node(s); see --list)`——
+   看见 4206 就知道是路径写错，看见 0 就知道是解析器。
+3. `--list` 一律把总数打到 stderr（`read-fdt-props: 4206 node(s)`）；带 `--contains` 时打
+   `read-fdt-props: 0 of 4206 node(s) contain 'thermal'`，零命中不再等于没有输出。
+4. `scripts/tests/test-read-fdt-props.py`（27 项）两条一起验：合成的 root-only 树必须被拒；
+   真 dump 的五个 trip 值必须逐字节读回（`00015f90` / `00017318` / `0001adb0` / `0001c138` / `0001e848`）。
+   真 dump 不在宿主上时那半段显式跳过并打印 note，不静默通过。
+
+**教训**：有结构就有「解析成功但结果为空」这一档，而它和「真的没有」在日志里不可区分。
+让程序先数一遍已知存在的锚，再回答内容；让每个空集合都带着「一共多少」一起出现。

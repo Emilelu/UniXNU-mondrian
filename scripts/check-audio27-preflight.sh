@@ -3,6 +3,11 @@
 # One command for the audio lane's iOS 27 preflight. Nothing here needs a device.
 #
 #   sh scripts/check-audio27-preflight.sh
+#   K60_GATES=<gates checkout> sh scripts/check-audio27-preflight.sh --pac-only
+#
+# The PAC checks belong to the audio preflight because stage 0 intentionally
+# excludes audio lane objects. --pac-only limits the run to these source and
+# link-input assertions and their fixtures. It emits no objects or images.
 #
 # Runs, in order:
 #   1. the migration list, including the one-guard rule for the driver macro
@@ -40,8 +45,14 @@
 #  19. sheng's audio host tests, its ABI constants and its add-on mount contract at that
 #      commit, when its checkout is reachable; the row names the commit it ran on, because
 #      a stale checkout passes just as quietly
-# Prints one line per check and exits non-zero on the first failure.
-ROWS_EXPECTED=55
+# Reports each check and exits nonzero if any check fails.
+ROWS_EXPECTED=59
+
+case "$#:$*" in
+0:) rows_expected=$ROWS_EXPECTED; label=PREFLIGHT ;;
+1:--pac-only) rows_expected=4; label='PAC PREFLIGHT' ;;
+*) printf 'Usage: %s [--pac-only]\n' "$0" >&2; exit 2 ;;
+esac
 
 # The rows are printed by whatever prints them, so the count is taken from the
 # file the run leaves behind rather than from a counter every site has to keep.
@@ -58,16 +69,15 @@ if [ -z "${K60_PREFLIGHT_INNER:-}" ]; then
 	if [ "$status" -ne 0 ]; then
 		exit "$status"
 	fi
-	if [ "$rows" -ne "$ROWS_EXPECTED" ]; then
-		printf 'ROWS FAILED %s rows printed, %s declared\n' "$rows" "$ROWS_EXPECTED"
-		echo "PREFLIGHT FAILED"
+	if [ "$rows" -ne "$rows_expected" ]; then
+		printf 'ROWS FAILED %s rows printed, %s declared\n' "$rows" "$rows_expected"
+		echo "$label FAILED"
 		exit 1
 	fi
-	printf 'PREFLIGHT OK %s rows (%s ok, %s skip, %s FAIL), as declared\n' \
-	    "$rows" "$ok" "$skip" "$failed"
+	printf '%s OK %s rows (%s ok, %s skip, %s FAIL), as declared\n' \
+	    "$label" "$rows" "$ok" "$skip" "$failed"
 	exit 0
 fi
-
 
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -120,6 +130,7 @@ run()
 	out=$("$@" 2>&1)
 	rc=$?
 	if [ "$rc" -ne 0 ]; then
+		case "$name" in "PAC "*) printf '%s\n' "$out" | sed 's/^/    /' ;; esac
 		printf 'FAIL %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)"
 		fail=1
 		return
@@ -143,6 +154,29 @@ seam_row()
 	*) printf 'FAIL %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)"; fail=1 ;;
 	esac
 }
+# The PAC assertions and their fixtures. Without a series or a gates checkout
+# the selection row degrades to a skip rather than falling back to this tree's
+# copy, which may list a patch the effective series holds out.
+pac_rows()
+{
+	run "PAC IO signatures" python3 scripts/check-audio27-fptrs.py --repo "$repo"
+	run "PAC IO negative cases" python3 scripts/tests/test-audio27-fptrs.py
+	run "PAC weak-link cases" python3 scripts/tests/test-audio27-weak-link.py
+	set --
+	if [ -n "${XNU27_SERIES:-}" ]; then
+		set -- --series "$XNU27_SERIES"
+	elif [ -n "${K60_GATES:-}" ]; then
+		set -- --tree "$K60_GATES"
+	else
+		printf 'skip %-34s no effective series (set K60_GATES or XNU27_SERIES)\n' "PAC weak-link selection"
+		return
+	fi
+	if [ -n "${AUDIO27_LINK_FILELIST:-}" ]; then set -- "$@" --link-filelist "$AUDIO27_LINK_FILELIST"; fi
+	if [ -n "${AUDIO27_LINK_SYMBOLS:-}" ]; then set -- "$@" --symbols "$AUDIO27_LINK_SYMBOLS"; fi
+	run "PAC weak-link selection" python3 scripts/check-audio27-weak-link.py "$@"
+}
+pac_rows
+if [ "$label" = 'PAC PREFLIGHT' ]; then exit "$fail"; fi
 run "migration list + pure C build" python3 scripts/check-audio-migration.py --compile
 run "glue vs six kernel symbols" sh scripts/tests/portability/run.sh
 run "driver macro really switches it" sh scripts/tests/portability/run-symbols.sh

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Six cases for scripts/check-audio27-rows.py."""
+"""Nine cases for scripts/check-audio27-rows.py."""
 
 import io
 import os
@@ -57,7 +57,7 @@ def behavioural(root, declared, printed):
     """Run the preflight's real tail against a body that prints a known count."""
     source = io.open(os.path.join(REPO, "scripts/check-audio27-preflight.sh"),
                      encoding="utf-8").read()
-    start = source.index('if [ -z "${K60_PREFLIGHT_INNER:-}" ]; then')
+    start = source.index('case "$#:$*" in')
     end = source.index("\nfi\n", start) + 4
     script = "#!/bin/sh\nROWS_EXPECTED=%d\n%s" % (declared, source[start:end])
     script += "".join("printf 'ok row\\n'\n" for _ in range(printed))

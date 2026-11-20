@@ -470,21 +470,21 @@ waiver = """Waiver: checkable once every series patch's anchors are declared as 
 [[rule]]
 id = "iron-9"
 kind = "iron"
-source = "AGENTS.md:铁则 9"
+source = "AGENTS.md:Iron rule 9"
 statement = "main 只放可启动基线；未上机的改动走分支，且每个 main 提交都要在 MAIN-BASELINE.toml 登记"
 check = "python3 scripts/check-main-baseline.py"
 
 [[rule]]
 id = "iron-10"
 kind = "iron"
-source = "AGENTS.md:铁则 10"
+source = "AGENTS.md:Iron rule 10"
 statement = "Environment details (LAN hosts, credentials) never enter the tree; documents show placeholders only."
 check = "python3 scripts/check-secrets.py"
 
 [[rule]]
 id = "iron-11"
 kind = "iron"
-source = "AGENTS.md:铁则 11"
+source = "AGENTS.md:Iron rule 11"
 statement = "One checkout has one owner; destructive git never runs in a tree that holds somebody else's uncommitted work."
 check = "python3 scripts/check-tree-owner.py"
 
@@ -801,3 +801,135 @@ source = "scripts/check-disk-space.py"
 statement = "磁盘余量与 WSL 虚拟盘回收由门禁自己检查：任一文档可用空间低于阻断线即不得继续构建；虚拟盘比盘内数据大 30 GiB 以上必须回收"
 check = "python3 scripts/tests/test-check-disk-space.py"
 note = "2026-11-17 用户第三次提醒清理磁盘后落的门禁：此前 /opt/k60/trees 每棵树留一份 17-18 GiB 旧 out-*、scratch 里躺着 24 GiB 一次性 data-window.img、WSL 虚拟盘 161.53 GB 只装 60 GiB 数据。清理不该靠人提醒。回收流程见 docs/engineering/DISK-HYGIENE.md"
+
+# ------------------------------------------ P-172..P-184 (registered 2026-11-18)
+#
+# These twelve never showed up as gaps because `check-rules.py` matched
+# `P-(\d{3})` against a log whose early entries are numbered `P-01`: the id set
+# came back empty, so "every new pitfall is registered" held by construction.
+# The pattern was fixed on 2026-11-18 while the pitfall log was being translated
+# to English - the very kind of edit that would have hidden them again.
+#
+# Three of them were already covered by an existing gate, one got a new gate,
+# and the rest are written waivers: debt that says what would make it checkable.
+
+[[rule]]
+id = "P-172"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-172"
+statement = "An upstream commit must not be picked whole-file into the K60 fork's build script: when the same commit also touches skip-listed `patches/`, the pick half-merges a new script with old patches."
+waiver = """The verdict is reached by reading `git show --stat` before the pick runs, so
+nothing in the tree observes it. Becomes checkable with a preflight in
+scripts/pick-upstream.py that refuses a commit whose stat mixes files under
+SKIP_PATHS with files outside them; the shape of that preflight is recorded here
+so the next pick has somewhere to put it."""
+
+[[rule]]
+id = "P-173"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-173"
+statement = "A wrong artefact path is enough to declare a correct implementation broken; confirm the path shape with `find -name <artifact>` before acting on an absence."
+waiver = """An incorrect observation command is not a property of the tree, so there is no
+artefact to assert on. Becomes checkable once a build emits the manifest of the
+output paths it promises, which would let a gate compare expectations against
+reality instead of trusting a hand-typed path."""
+
+[[rule]]
+id = "P-174"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-174"
+statement = "`main` used as a workbench: unverified experiments (patch series, build scripts, driver sources) committed straight onto the stable baseline."
+check = "python3 scripts/check-main-baseline.py"
+note = "Same gate as iron-9; the pitfall is why the rule exists."
+
+[[rule]]
+id = "P-175"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-175"
+statement = "The kernel command line is replaced during boot, so anything depending on firmware arguments (`pmd0`, `vmd0`, `initrd`) must be parsed before md device creation."
+waiver = """Whether a parser runs before or after md device creation is a property of the
+kernel patch series, not of this repository; the host-side parser already has its
+own test in scripts/tests/test-k60-fat.c. Becomes checkable when the series is
+scanned for `PE_boot_args()` callers outside the early window."""
+
+[[rule]]
+id = "P-176"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-176"
+statement = "`{tree}/package` ahead of `{uefi}/Platforms/Xiaomi` in PACKAGES_PATH makes EDK II compile the framework's older UniXNUPkg, and the rebuilt FD stops at `no boot entry found`."
+check = "python3 scripts/check-firmware-package-order.py"
+
+[[rule]]
+id = "P-177"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-177"
+statement = "`--kernelcache` does not replace the kernel inside a payload; only `--kernel` does, and the swap has to be proved by hashing what came out of the image."
+waiver = """The wrong flag is typed into a hand-run `unixnu build payload`, which this
+repository never runs unattended. The proof already exists as
+`scripts/verify-boot-img-payload.py --kernel <built> --image <img>`, but it needs
+an image path a gate cannot know in advance. Becomes checkable when the build
+records the image it produced and calls that verifier itself."""
+
+[[rule]]
+id = "P-178"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-178"
+statement = "An on-device comparison changes one artefact at a time, and every artefact needs a replacement path that can be verified afterwards."
+waiver = """How many variables a boot moves is a property of a person's plan, not of the
+tree. The nearest machinery is the ⑧ prediction block in
+docs/research/EIGHT-STEPS.toml, which records what a boot was meant to prove but
+not how many artefacts moved. Becomes checkable when a prediction also names the
+artefacts and their expected hashes."""
+
+[[rule]]
+id = "P-179"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-179"
+statement = "`initproc exited … ns=2 code=0xb` is a SIGSEGV in init, not an AMFI refusal to exec."
+waiver = """The string is produced by a running kernel and nothing tracked in this
+repository carries it, so there is no artefact to assert on. Becomes checkable
+when console captures are kept in the repository or a log archive and a gate can
+classify the exit reason from them; today the captures live under E:\\k60-work."""
+
+[[rule]]
+id = "P-181"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-181"
+statement = "A failed build leaves the previous `kernel.macho` in place, so a single grep line reports an old artefact as the new one."
+check = "python3 scripts/check-build-freshness.py"
+note = "The freshness gate is the fix for this pitfall; it compares build inputs against the artefacts they produced."
+
+[[rule]]
+id = "P-182"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-182"
+statement = "The kernel writes persistent files onto the Data partition before launchd starts, so returning to an older kernel still meets the newer files."
+waiver = """What the kernel writes before launchd only shows up on the device, and the
+workaround in use replaces the whole Data window, not one file, so there is no
+single path to assert on. Becomes checkable when a boot records the pre-launch
+write set and the next boot compares it against the previous run."""
+
+[[rule]]
+id = "P-183"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-183"
+statement = "A failed network probe is not proof of an unpushed branch: a gate that turns `cannot verify` into `not done` accuses the wrong thing."
+waiver = """The rule constrains a gate's own failure mode, and no test pins the wording
+yet. Becomes checkable with a host test that hands the cleanliness gate an
+unreachable remote and asserts the result is reported as unverified rather than
+as not pushed; that test does not exist."""
+
+[[rule]]
+id = "P-184"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-184"
+statement = "One checkout has one owner: a Lead and a sub-agent editing the same tree silently destroy each other's uncommitted work."
+check = "python3 scripts/check-tree-owner.py"
+note = "Same gate as iron-11; the pitfall is the incident that produced the rule."
+
+[[rule]]
+id = "P-231"
+kind = "pitfall"
+source = "docs/engineering/PITFALLS.md:P-231"
+statement = "The payload's memory window is checked against `board.toml` and its own DTS, never against the RAM the phone reports, so an arena that crosses a hole still builds and boots into nothing."
+check = "python3 scripts/check-ios27-geometry.py"

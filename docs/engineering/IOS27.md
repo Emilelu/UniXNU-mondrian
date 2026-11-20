@@ -116,6 +116,12 @@ that `payload.img` still carries that exact kernel, that the ADT still pins
 shim, the firmware volume, the appended device tree and the payload byte for
 byte. It prints the boot image's size and sha256.
 
+`scripts/check-ios27-geometry.py` runs before the build and costs a second: it
+compares the DTS arena, `[payload].dram_size` and the managed window with the
+six `/memory` regions this board reported on 2026-10-20. XNU builds the physmap
+from `/chosen/dram-base` and `dram-size`, so an arena that crosses one of the
+holes between those regions still builds and boots into nothing (P-231).
+
 That path needs no Mac and no phone. XNU's makefiles still ask for macOS
 tools, so install the three shims once:
 
@@ -177,7 +183,7 @@ sh scripts/check-ios27-granules.sh ../UniXNU/out/mondrian/ios-27.0.1-24A446/mond
 | Phase | Work | Exit |
 | --- | --- | --- |
 | F0 | PAC gate on the old kernel: `PAC_PROBE=1 BOARD=mondrian shim/build.sh`, one boot | FEAT_PAuth measured on the board on 2026-11-18 (`ISAR1` `APA=0b0101`, `API=0`: the address keys arm64e uses, no generic keys); the key-register write and the `PACIA`/`AUTIA` round trip still need one boot with the fixed probe |
-| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-granules.sh` passes |
+| F1 | This profile + SM8475 `xnu-12377` series + Xcode 26 build (or the Linux toolchain below) | `kernel.macho` is arm64e with minos 27.0 and `NOUNDEFS`; `payload.img` packs it byte for byte with a pinned `/chosen/random-seed`; the firmware volume builds from the recorded pin; `boot/boot.img` (112 B shim + FD + appended DTB + payload) passes `scripts/check-ios27-artifacts.py`; `scripts/check-ios27-geometry.py` and `scripts/check-ios27-granules.sh` pass |
 | F2 | `XnuPrelink` against the 24A446 fixture | prelinked `MH_FILESET` with the roots closed and the map recorded (built on Linux 2026-11-18: 32 entries, 384 symbols on the `--allow-missing` stub, reference `6bbb66dc`); on device `arm_init` → `bsd_init` → root-mount panic, cupid parity |
 | F3 | `PongUfs` on the 27 storage ABI; the userdata image is built | OS volume matched, APFS mounted, `launchd` execs |
 | F4 | panel and touch | SpringBoard frame, then a tap opens Settings |

@@ -1,661 +1,661 @@
-# K60 iOS 移植 — 踩坑台账（PITFALLS）
+# K60 iOS Port — Pitfall Log (PITFALLS)
 
-> **用途**：踩坑台账——**「不要重复踩什么」的权威源之一**，编号 `P-NN`。
-> **谁该读**：新 agent 进场必读三份之一；动手做任何操作前先翻 30 秒判定列。
-> **边界**：本册收**当前代码树/流程**的坑；commit 史与按轮次汇编的坑在 `PITFALLS-FROM-HISTORY.md`（第 N 条编号），两册互引不重复展开。
-> 每条固定字段：**症状 / 触发条件 / 为什么当初走错 / 正确做法 / 证据 / 下次 30 秒判定**。
-> 目的：让同一个坑最多只踩一次。新坑追加到末尾，编号连续。
-> 历史坑的批量汇编见 `PITFALLS-FROM-HISTORY.md`（另一 agent 产出）。
-
----
-
-### P-01 arm64 的 4 GiB pagezero：`[4K, 4MiB)` 永远扫不到东西
-
-- **症状**：内核探针读用户进程低地址内存，期望找到异常字符串，结果全空。
-- **触发条件**：任何试图 `copyinmap` 读进程地址空间低 4 MiB 的取证代码。
-- **为什么当初走错**：照 x86/其他平台直觉，以为「低地址 = 程序头/堆起点，有料」。arm64 的 pagezero 是整整 **4 GiB**，`[0, 4GiB)` 从不映射，低 4 MiB 落在其中，`copyinmap` 处处失败。
-- **正确做法**：不碰地址空间盲扫；读 exit_reason 的 kcdata（`KCDATA_TYPE_PID` / `KCDATA_TYPE_PROCNAME` / `EXIT_REASON_USER_DESC`）——异常文本是 abort/terminate 时由用户态主动挂上去的。
-- **证据**：`xnu-work/bsd/kern/kern_exit.c` 162–168 行注释（实测后补写）；D-2026-11-02-07。
-- **30 秒判定**：看到任何「扫 `[0x1000, 0x400000)`」或「读低 4 MiB」的提议 → 直接否，指给本条。
-
-### P-02 STR 探针（旧地址扫描版）实测全空 ✅ 已解决：pagezero 扫描 → kcdata 方案生效
-
-- **症状**：`STR <pid> '<comm>' <text>` 一行都打不出来。
-- **触发条件**：4g-str 候选镜像上机取证。
-- **为什么当初走错**：同 P-01，区间选错；不是打印逻辑坏了，是源头永远读不到数据。
-- **正确做法**：用 kcdata 版（新 STR 输出带 `sender=` / `from=` / `desc=` 三字段，kernel `64ae6488…` 起）。
-- **证据**：ISSUES I-20261102-09；`logs/kernel-exit-summary.log`。
-- **30 秒判定**：探针输出为 0 行时，先问「源头地址在这个平台上真的映射吗」，再怀疑代码。
-- **解决闭环（2026-11-02 晚）**：kcdata 版 STR **已上机验证生效**（用户照片 `IMG_0180.JPG`，boot 镜像 `6153c2aa…` / kernel `64ae6488…`）：成功区分自杀（`sender==自身 pid`、`from='<本名>'`、`sig=6`）与被杀（`from='exc_handler'`、`sig=5`）。本条存档防重蹈。
-
-### P-03 `mcopy` 交互式覆盖确认卡死打包流程
-
-- **症状**：打包/抽文件脚本跑到一半无任何输出、永不返回。
-- **触发条件**：脚本里 `mcopy -i payload.img ::/path dest` 且 dest 已存在。
-- **为什么当初走错**：mcopy 默认覆盖前交互确认；无人值守环境 stdin 没输入，永久等待。
-- **正确做法**：所有 mcopy 调用**一律带 `-o`**（overwrite）。
-- **证据**：`tools/package-textonly.py` 33–34 行现均带 `-o`；ISSUES I-20261102-04。
-- **30 秒判定**：脚本静默卡住 → `ps aux | grep mcopy`，有驻留进程即中此坑；杀掉后给命令补 `-o`。
-
-### P-04 探针 needle 里 `\\n` 转义笔误 → 计数恒 0 的假象
-
-- **症状**：`handoff-probes.py` 报「KX! dedup 不存在（count=0）」，但改动明明在内核里。
-- **触发条件**：探针字节串里写了字面 `\\n`（反斜杠+n 两个字符），二进制里真实存在的是换行符 `0x0A`。
-- **为什么当初走错**：从 shell/文档里复制格式串时多转义了一层。
-- **正确做法**：needle 用真实字节（`b'...\n'`）；判 0 时**先怀疑探针，再怀疑内核**。
-- **证据**：ISSUES I-20261102-11；修复于 2026-11-02 20:41，修复后同内核 count=1。
-- **30 秒判定**：探针 count=0 但改动者确信已编译 → 打印 needle 的 `repr()` 检查是否含字面反斜杠。
-
-### P-05 「字符串应出现 N 次」经验断言过期（count==2 事件）
-
-- **症状**：打包校验/探针用旧经验值断言字符串出现次数，误报 FAIL。
-- **触发条件**：内核改动改变了 printf 站点数量（KX! dedup 把两处合并成一处）。
-- **为什么当初走错**：把「出现 2 次」当成恒真指纹写死；它属于上一代内核。
-- **正确做法**：计数断言必须随内核改动同步更新，并在注释里写明**为什么是这个数**（`package-textonly.py` 38–42 行已示范）。
-- **证据**：ISSUES I-20261102-10。
-- **30 秒判定**：校验 FAIL 且 fail 项是 count 类 → 对当前 kernel.macho 手工 `count()` 一次，以实测值为准更新脚本，不要去改内核凑数。
-
-### P-06 取证单/交接引用旧 sha，张冠李戴
-
-- **症状**：文档说「当前内核 sha X」，实际打出来/上机的是 Y。
-- **触发条件**：一天内多次重编；HANDOFF §4 成文（19:30）后又重编两轮（19:54 的 `65fbe51e…`、20:42 的 `64ae6488…`）。
-- **为什么当初走错**：凭记忆引用 sha；交接成文后没回刷。
-- **正确做法**：**sha 一律从 `candidates/<目录>/build-verification.json` 现场抄**；文档之间用 DECISIONS 的「镜像身份链」表对时；交接前刷新 INDEX（RECORDING-RULES 硬性要求）。
-- **证据**：ISSUES I-20261102-05；`logs/boot-attempt-20261102-200610.log` 中三处 sha 一致（snapshot/source/expected）。
-- **30 秒判定**：要引用任何 sha 前 → 打开对应候选目录的 `build-verification.json`，不凭记忆。
-
-### P-07 STR 的 `desc='-'` 不代表「没有崩溃原因」
-
-- **症状**：kcdata 版 STR 输出里 `desc` 恒为 `-`，容易误判为「日志缺失 / 探针没读到 / 还要再补探针」。
-- **触发条件**：崩溃进程自杀时**没走** `abort_with_reason()` / `terminate_with_reason()` 挂描述（例如直接 `abort()`、NSException 的原因没落到 exit_reason）。
-- **为什么当初走错**：（预防性登记，尚无实踩）看到 `-` 的第一反应是怀疑探针链路。
-- **正确做法**：`desc='-'` 只说明 userspace 没附原因（**哑崩**），不等于没有原因；先看 `from=` / `sender=` 分「自杀还是被杀」，再决定下一步取证方向。
-- **证据**：2026-11-02 晚用户照片 `IMG_0180.JPG`（boot 镜像 `6153c2aa…` / kernel `64ae6488…`）：子问题 A（`accountsd`/`dad`/`aggregated`/`ScreenTimeAgent`）desc 恒 `-`，但 `from='<本名>'` 已足够完成自杀/被杀分类（ISSUES I-20261102-01）。
-- **30 秒判定**：`desc='-'` 且 `from='<本名>'` → 哑崩，不是探针问题；`from='exc_handler'` → 被杀，去查中介（I-20261102-13）。
+> **Purpose**: the pitfall log — **one of the authoritative sources for "what not to step in twice"**, numbered `P-NN`.
+> **Who should read it**: one of the three documents every incoming agent must read; before doing anything, flip to the 30-second check column.
+> **Boundary**: this volume collects pitfalls of the **current tree/process**; commit history and the per-round compilation live in `PITFALLS-FROM-HISTORY.md` (entry N), and the two volumes cross-reference each other without repeating the detail.
+> Every entry has fixed fields: **symptom / trigger / why it went wrong / correct approach / evidence / the 30-second check next time**.
+> Purpose: let the same pitfall cost at most one burn. New pitfalls are appended at the end, numbering continuous.
+> The batch compilation of historical pitfalls is in `PITFALLS-FROM-HISTORY.md` (produced by another agent).
 
 ---
 
-### P-08 K60 屏幕挖孔截断长行：屏摄里的「残缺字符串」不是数据证据
+### P-01 arm64's 4 GiB pagezero: `[4K, 4MiB)` never contains anything
 
-- **症状**：屏摄中某行长字符串中间「缺 3–5 个字符」，看似数据畸形（曾把 `KE` 行的 exec 路径误读为 `/usr/bin/[0]=?FDR_Loader`，据此启动过「路径畸形」方向的排查）。
-- **触发条件**：任何经过屏幕前置摄像头挖孔位置的长行文本。
-- **为什么当初走错**：把屏幕物理遮挡造成的视觉截断当成了内核/用户态的真实字符串内容，没有先核对同一代码路径下其它行是否完好。
-- **正确做法**：① 关键长字段（路径、地址串、寄存器值）**必须经用户逐字核对**才能当硬事实；② 新打印设计**优先短行**（字段拆行、行宽 ≤ 挖孔前可见宽度），避免把判决性证据放在长行里；③ 遇到「中间缺字」先怀疑挖孔，再怀疑数据。
-- **证据**：2026-11-03 argfix2 屏摄复核（用户口头确认两条「畸形」路径均为挖孔截断）；同屏其它长行完好可对照。
-- **30 秒判定**：屏摄字符串中间缺 3–5 字符且缺失位置与挖孔重合 → 一律按视觉截断处理，不作为数据完整性证据；换短行重打或让用户核对后再立项。
+- **Symptom**: the kernel probe reads the low-address memory of a user process expecting to find an exception string, and everything comes back empty.
+- **Trigger**: any forensic code that tries to `copyinmap` the low 4 MiB of a process address space.
+- **Why it went wrong**: following x86/other-platform intuition, assuming "low address = program headers/heap start, so there is content there". arm64's pagezero is a full **4 GiB**, `[0, 4GiB)` is never mapped, the low 4 MiB falls inside it, and `copyinmap` fails everywhere.
+- **Correct approach**: do not blind-scan the address space; read the exit_reason kcdata (`KCDATA_TYPE_PID` / `KCDATA_TYPE_PROCNAME` / `EXIT_REASON_USER_DESC`) — the exception text is attached by userland itself at abort/terminate time.
+- **Evidence**: `xnu-work/bsd/kern/kern_exit.c` lines 162–168 comments (written after the measurement); D-2026-11-02-07.
+- **30-second check**: any proposal to "scan `[0x1000, 0x400000)`" or "read the low 4 MiB" → reject it outright and point at this entry.
 
-### P-09 十六进制块号当十进制用 + 大二进制走 adb stdin：一次写偏 1.19 MiB 进 OS 窗口的事故
+### P-02 STR probe (old address-scan version) measured all empty ✅ resolved: pagezero scan → kcdata approach works
 
-- **症状**：写 Data 窗口时 dd 落点错误（写入 1,327,499 字节到 OS 窗口 0x26510000），且内容为失真流；OS 窗 digest 失配。
-- **触发条件**：手写把 `0x26110` 当成十进制块号 156944（正确：`0x261100000/4096 = 0x261100 = 2494720`）；传输走 `adb shell` stdin（大流断管）与 `adb exec-in`（Windows adb 37.0.1 对 stdin 做文本模式处理：文件头被加 UTF-8 BOM `EF BB BF`、LF→CRLF）。
-- **为什么当初走错**：块号换算跨进制手算且写前未读回落点核对；假设 adb 的 stdin 是二进制通道（实测三种里两种失真，唯一可信的是 adb push 文件协议）。
-- **正确做法**：① 块号一律脚本内 `byte_offset/4096` 直接除算并打印（禁手算、禁中间量）；② 写前必读落点 4 KiB 与预期比对（含「不等于源镜像头」反向 sanity）；③ 大二进制传输只用 **adb push + 设备侧 dd**（restore/20 GiB 均验证完整）；④ 先 64 MiB 探针（写+回读 sha）再放全量；⑤ 写完必做全窗 sha256 回读（设备侧，UFS 速度免费）。
-- **证据**：`archive/unixnu-rollback-20261103-0330/`（restore-seg.bin sha `5db74a2d…` 写回、OS digest 复验 `bc4c5670…` 一致、ROLLBACK.json 事故条）；corruption 分析（BOM+CRLF，138 差异字节）。
-- **30 秒判定**：命令里出现任何手工换算的 seek/count → 停下改用脚本公式打印；任何经 `adb shell/exec-in` stdin 的二进制流 >1 MiB → 直接否，换 adb push。
-- **恢复闭环（2026-11-03）**：rollback 段写回 → 段 sha 一致 → OS 窗 digest 复验匹配清单 → Data 窗重写到正确偏移（readback `adbbf0dd…`）→ 清单重写（`33626441…`）。
+- **Symptom**: `STR <pid> '<comm>' <text>` does not print a single line.
+- **Trigger**: on-device forensics with the 4g-str candidate image.
+- **Why it went wrong**: same as P-01, wrong range; the printing logic was not broken, the source could never be read.
+- **Correct approach**: use the kcdata version (the new STR output carries the three fields `sender=` / `from=` / `desc=`, kernel from `64ae6488…` on).
+- **Evidence**: ISSUES I-20261102-09; `logs/kernel-exit-summary.log`.
+- **30-second check**: when the probe prints 0 lines, first ask "is the source address actually mapped on this platform", then suspect the code.
+- **Closure (evening of 2026-11-02)**: the kcdata STR **has been verified on device** (user photo `IMG_0180.JPG`, boot image `6153c2aa…` / kernel `64ae6488…`): it successfully distinguishes suicide (`sender==own pid`, `from='<own name>'`, `sig=6`) from being killed (`from='exc_handler'`, `sig=5`). This entry is archived to prevent a repeat.
 
-### P-10 XNU 阶段没有任何日志通道，屏摄是唯一证据源
+### P-03 `mcopy` interactive overwrite confirmation deadlocks the packaging flow
 
-- **症状**：分析时反复假设「设备上有 log 可读」「先读文本源」；屏摄读数被当高置信直接使用，酿成 `0↔8`/`3↔8`（`abn=382` 误读 302）、位数（7 个 `f` 读成 6 个）等误读被当证据引用。
-- **触发条件**：任何 XNU 接管后的取证与读数环节。
-- **为什么当初走错**：把 Android/Linux 侧习惯（dmesg/logcat/串口）带进 XNU 阶段——XNU 接管后 USB 全断；ramoops 通道即断、重启 DRAM 掉电不保留、且只属加载器/DXE 侧（I-20261103-02）；USB 日志通道（apps_smmu stream 0）尚未打通（I-20261103-04）；串口 COM3/COM4 是蓝牙虚拟口读不到内核输出。
-- **正确做法**：屏摄是唯一证据源 → 读数一律标「屏摄读数、低置信」，并执行 [RECORDING-RULES.md](RECORDING-RULES.md) §7（三重一致性校验、易混对末位待核对、hex 位宽校验、裁切放大、只问用户是/否判断题）；禁止在流程里写「优先读文本/日志」，禁止向用户索要 XNU 阶段日志。
-- **证据**：ISSUES I-20261103-02（ramoops 定案）、I-20261103-04（USB 通道未通）；HANDOFF-2026-11-02 §6.6（「屏幕不滚动 + 拍照」为唯一取证通道，D-2026-11-02-01）；用户 2026-11-03 当场纠正「XNU 里面抓不了日志」。**2026-11-04 升级定案：ramoops 结构性不可用（重启即失，TWRP/Android 都读不到）——权威条目 D-2026-11-04-01 / I-20261104-01 / PITFALLS-FROM-HISTORY 第 16 条，本条不再展开。**
-- **30 秒判定**：任何计划/报告里出现「读 log」「若有日志」「先看文本源」「读 ramoops」→ 删，改「屏摄读数、低置信」并按 RECORDING-RULES §7 校验。
+- **Symptom**: the packaging/file-extraction script runs halfway with no output at all and never returns.
+- **Trigger**: the script does `mcopy -i payload.img ::/path dest` and dest already exists.
+- **Why it went wrong**: mcopy confirms interactively before overwriting by default; in an unattended environment stdin has no input, so it waits forever.
+- **Correct approach**: **always** pass `-o` (overwrite) on every mcopy call.
+- **Evidence**: `tools/package-textonly.py` lines 33–34 all carry `-o` now; ISSUES I-20261102-04.
+- **30-second check**: script hangs silently → `ps aux | grep mcopy`; a resident process means this pitfall; kill it and add `-o` to the command.
+
+### P-04 A `\\n` escaping typo in the probe needle → the fake appearance of a count stuck at 0
+
+- **Symptom**: `handoff-probes.py` reports "KX! dedup does not exist (count=0)", yet the change is clearly in the kernel.
+- **Trigger**: the probe byte string contains a literal `\\n` (backslash+n, two characters), while what actually exists in the binary is the newline character `0x0A`.
+- **Why it went wrong**: one extra level of escaping when copying a format string out of a shell/doc.
+- **Correct approach**: the needle uses real bytes (`b'...\n'`); on a count of 0, **suspect the probe first, the kernel second**.
+- **Evidence**: ISSUES I-20261102-11; fixed 2026-11-02 20:41, count=1 on the same kernel afterwards.
+- **30-second check**: probe count=0 but the person who made the change is sure it compiled → print the needle's `repr()` and check for a literal backslash.
+
+### P-05 "the string should appear N times" empirical assertion went stale (the count==2 event)
+
+- **Symptom**: packaging verification/probes assert the occurrence count of a string from an old empirical value and report a false FAIL.
+- **Trigger**: a kernel change altered the number of printf sites (KX! dedup merged two into one).
+- **Why it went wrong**: "appears 2 times" was hardcoded as a permanently true fingerprint; it belongs to the previous kernel generation.
+- **Correct approach**: count assertions must be updated together with the kernel change, and the comment must say **why that number** (`package-textonly.py` lines 38–42 already demonstrate it).
+- **Evidence**: ISSUES I-20261102-10.
+- **30-second check**: verification FAILs and the failing item is a count → run `count()` by hand on the current kernel.macho and update the script to the measured value; do not bend the kernel to fit the number.
+
+### P-06 Forensic sheet/handoff quotes an old sha, mismatched attribution
+
+- **Symptom**: the document says "current kernel sha X", but what was actually produced/booted is Y.
+- **Trigger**: multiple rebuilds in one day; HANDOFF §4 was written at 19:30, followed by two more rebuild rounds (19:54's `65fbe51e…`, 20:42's `64ae6488…`).
+- **Why it went wrong**: quoting sha from memory; not refreshing after the handoff was written.
+- **Correct approach**: **always copy the sha from `candidates/<dir>/build-verification.json` on the spot**; cross-check documents against DECISIONS' "image identity chain" table; refresh INDEX before a handoff (a hard requirement of RECORDING-RULES).
+- **Evidence**: ISSUES I-20261102-05; three places in `logs/boot-attempt-20261102-200610.log` agree on the sha (snapshot/source/expected).
+- **30-second check**: before quoting any sha → open the corresponding candidate directory's `build-verification.json`, never from memory.
+
+### P-07 `desc='-'` in STR does not mean "there is no crash reason"
+
+- **Symptom**: in the kcdata STR output `desc` is always `-`, easily misread as "log missing / probe read nothing / another probe is needed".
+- **Trigger**: the crashing process killed itself **without going through** `abort_with_reason()` / `terminate_with_reason()` to attach a description (e.g. a direct `abort()`, or the NSException reason never reaching exit_reason).
+- **Why it went wrong**: (registered preventively, not yet stepped in) the first reaction to `-` is to suspect the probe chain.
+- **Correct approach**: `desc='-'` only says userland attached no reason (**silent crash**), it does not mean there is no reason; first look at `from=` / `sender=` to separate "suicide" from "killed", then decide the next forensic direction.
+- **Evidence**: the evening of 2026-11-02, user photo `IMG_0180.JPG` (boot image `6153c2aa…` / kernel `64ae6488…`): subproblem A (`accountsd`/`dad`/`aggregated`/`ScreenTimeAgent`) had desc always `-`, but `from='<own name>'` was already enough to complete the suicide/killed classification (ISSUES I-20261102-01).
+- **30-second check**: `desc='-'` and `from='<own name>'` → silent crash, not a probe problem; `from='exc_handler'` → killed, go look at the intermediary (I-20261102-13).
+
+---
+
+### P-08 The K60 screen's punch-hole cuts long lines: a "truncated string" in a screen photo is not data evidence
+
+- **Symptom**: in a screen photo a long string in some line is "missing 3–5 characters" in the middle, looking like malformed data (the exec path on the `KE` line was once misread as `/usr/bin/[0]=?FDR_Loader`, and an investigation into "malformed paths" was started on that basis).
+- **Trigger**: any long line of text that passes through the front camera punch-hole position.
+- **Why it went wrong**: physical occlusion of the screen was taken as the real string content in kernel/userland, without first checking whether other lines on the same code path were intact.
+- **Correct approach**: ① key long fields (paths, address strings, register values) **must be checked character by character by the user** before being treated as hard fact; ② new print design **prefers short lines** (split fields across lines, line width ≤ the visible width before the punch-hole), so that decisive evidence is never placed in a long line; ③ on "missing characters in the middle", suspect the punch-hole first, the data second.
+- **Evidence**: 2026-11-03 argfix2 screen-photo review (the user verbally confirmed both "malformed" paths were punch-hole truncation); other long lines on the same screen were intact for comparison.
+- **30-second check**: a screen-photo string is missing 3–5 characters in the middle and the missing position coincides with the punch-hole → always treat it as visual truncation, never as evidence of data integrity; reprint as short lines or have the user verify before starting a work item.
+
+### P-09 Hex block number treated as decimal + large binaries over adb stdin: the incident where 1.19 MiB went to the wrong place in the OS window
+
+- **Symptom**: dd landed in the wrong place when writing the Data window (1,327,499 bytes written to OS window 0x26510000), and the content was a distorted stream; the OS window digest mismatched.
+- **Trigger**: manually treating `0x26110` as decimal block number 156944 (correct: `0x261100000/4096 = 0x261100 = 2494720`); transport over `adb shell` stdin (large stream breaks the pipe) and `adb exec-in` (Windows adb 37.0.1 processes stdin in text mode: a UTF-8 BOM `EF BB BF` is prepended to the file header, LF→CRLF).
+- **Why it went wrong**: block number conversion was computed across bases by hand and the landing offset was not read back before writing; adb's stdin was assumed to be a binary channel (measured: two of the three distort, the only trustworthy one is the adb push file protocol).
+- **Correct approach**: ① block numbers always come from `byte_offset/4096` computed directly inside the script and printed (no hand math, no intermediate values); ② before writing, always read the landing 4 KiB and compare with the expectation (including the reverse sanity "must not equal the source image header"); ③ large binary transfers use **adb push + device-side dd** only (verified complete for restore/20 GiB); ④ run a 64 MiB probe first (write + read-back sha) before the full volume; ⑤ after writing always do a full-window sha256 read-back (device side, UFS speed is free).
+- **Evidence**: `archive/unixnu-rollback-20261103-0330/` (restore-seg.bin sha `5db74a2d…` written back, OS digest re-verified matching `bc4c5670…`, the incident entry in ROLLBACK.json); corruption analysis (BOM+CRLF, 138 differing bytes).
+- **30-second check**: any hand-converted seek/count appears in a command → stop and print it with the script formula; any binary stream >1 MiB through `adb shell/exec-in` stdin → reject outright, switch to adb push.
+- **Recovery closure (2026-11-03)**: rollback segment written back → segment sha matches → OS window digest re-verified against the manifest → Data window rewritten to the correct offset (readback `adbbf0dd…`) → manifest rewritten (`33626441…`).
+
+### P-10 The XNU stage has no log channel at all; the screen photo is the only evidence source
+
+- **Symptom**: analysis repeatedly assumes "there is a log on the device to read", "read the text source first"; screen-photo readings are used directly as high confidence, producing `0↔8`/`3↔8` (`abn=382` misread as 302), digit-count (7 `f`s read as 6) and other misreadings cited as evidence.
+- **Trigger**: any forensic/reading step after XNU takes over.
+- **Why it went wrong**: Android/Linux-side habits (dmesg/logcat/serial port) carried into the XNU stage — USB is entirely down once XNU takes over; the ramoops channel is cut immediately, DRAM does not survive a reboot and it belongs only to the loader/DXE side (I-20261103-02); the USB log channel (apps_smmu stream 0) is not yet working (I-20261103-04); serial COM3/COM4 are Bluetooth virtual ports that cannot read kernel output.
+- **Correct approach**: the screen photo is the only evidence source → every reading is marked "screen-photo reading, low confidence", and [RECORDING-RULES.md](RECORDING-RULES.md) §7 is applied (triple consistency check, last digits of confusable pairs pending review, hex width check, crop and zoom, only yes/no questions to the user); it is forbidden to write "prefer reading text/logs" into a process, and forbidden to ask the user for XNU-stage logs.
+- **Evidence**: ISSUES I-20261103-02 (ramoops settled), I-20261103-04 (USB channel not working); HANDOFF-2026-11-02 §6.6 ("screen does not scroll + take a photo" is the only forensic channel, D-2026-11-02-01); the user corrected on the spot on 2026-11-03 that "you cannot capture logs inside XNU". **2026-11-04 escalation, settled: ramoops is structurally unusable (lost on reboot, neither TWRP nor Android can read it) — authoritative entries D-2026-11-04-01 / I-20261104-01 / PITFALLS-FROM-HISTORY entry 16; this entry is not expanded further.**
+- **30-second check**: any plan/report containing "read the log", "if there is a log", "look at the text source first", "read ramoops" → delete it, replace with "screen-photo reading, low confidence" and verify per RECORDING-RULES §7.
 
 ---
 
 
-## mcopy（mtools）覆盖已存在文件时打开 /dev/tty 等确认，表现为零 I/O 假死
+## mcopy (mtools) opens /dev/tty and asks for confirmation when overwriting an existing file, which shows up as a zero-I/O hang
 
-- **现象**：`package-datafix.py` 的 `mcopy -o -i payload.img ::/EFI/UniXNU/Payloads/kernel.macho extracted/kernel.macho` 在目标已存在时不走 stdin，直接 `open("/dev/tty")` 等待人工确认；进程 S 态、`/proc/<pid>/io` 无读写增长，脚本无限挂起（13:05 那轮「拷完 payload 后被中断」即此；2026-11-03 v1 打包复现两次）。
-- **为什么当初走错**：把 `-o`（overwrite）当成「永不询问」；实际上 mtools 对「已存在的落盘目标」仍可能经 `/dev/tty` 确认，stdin 重定向无效（它根本不读 stdin）。
-- **正确做法**：重跑前 `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`；并用 `setsid python3 <workspace>\tools\package-datafix.py < /dev/null`（新会话无控制终端，`/dev/tty` 打不开即不会等待）。判定卡死：`ls -l /proc/<mcopy_pid>/fd`，fd 4 指向 `/dev/tty` 即中。
-- **证据**：`/proc/388/fd` 实录 fd 4 → `/dev/tty`、wchan=`wait_woken`（2026-11-03 14:27）；`<workspace>\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1。
-- **30 秒判定**：打包脚本含 `mcopy` 且 `extracted/` 非空 → 先删目标再跑；发现打包 5 分钟无产物 → 查 fd 是否挂 `/dev/tty`，挂则 kill 后按正确做法重跑。
-
----
-
-### P-11 整目录 gitignore 误伤构建依赖：整理「参考目录」前必须核对 scripts/ 是否为构建输入
-
-- **症状**：`unixnu build kernel` 在 `build-pong-platform-macos.py: [Errno 2] No such file or directory` 止步；随后连环缺 `build-pong-adreno-platform.py` / `bind-ios16-storage.py` / `bindings.json` / GMU 固件，同一 build 连炸四次。
-- **触发条件**：任何「整理仓库目录、加 .gitignore、删参考副本」的动作。
-- **为什么当初走错**：把 `pong-driver/` 整体当「参考副本」加进 `.gitignore`（一行 `/pong-driver/`），但其中 `scripts/build-pong-*.py`、`bind-ios16-storage.py`、`shim-bin/` 是 `build-xnu-4k-baseline.sh` 经 `PONG_NATIVE_DRIVER_SOURCE` 实际执行的**构建脚本**（board.toml `pong_native_driver_source` 指向它）；整理后构建链断。又：adreno 脚本需要的 GMU 固件 `--firmware-dir` 默认指向 `/mnt/d/Android/k60-ios/firmware/k60-gpu`（恢复后脚本自述），不在仓库内，随清理一同失联。
-- **正确做法**：
-  1. **整理任何目录前先查它的 `scripts/` 是否被构建链引用**（grep 构建脚本、board.toml、CI 工作流）；是构建输入的一律不删、不忽略。
-  2. **`.gitignore` 只能忽略产物**（`*.a` / `*.o` / `*.log` / `build/` / `build-report.json`），**禁止整目录忽略含脚本的目录**；改完必须 `git check-ignore -v` 证明脚本不再被忽略。
-  3. 恢复依赖优先走对象库确定性来源（`git ls-tree -r <commit> --name-only` 判定 → `git checkout <commit> -- <path>`），不要靠搜索现凑。
-- **证据**：v2 构建 4 连失败日志（`logs/kernel-v2.log`）；恢复提交 `cafab71 fix(vendor): restore pong platform build scripts`（315cf99 → scripts 7 件 + bindings.json）；`.gitignore` 修正前后（`/pong-driver/` → 5 条产物规则）+ `check-ignore -v` 输出；固件实址 `D:\Android\k60-ios\firmware\k60-gpu`（5 件与 13:55 构建产物 `PongAdrenoFirmware.generated.c` 反嵌字节完全一致）。
-- **30 秒判定**：要给任何目录加 ignore/删除前 → 先 `grep -rn '目录名' build-*.sh board.toml .github/workflows`，有命中即停；凡看到 `.gitignore` 里出现整目录（非 `*.a` 等产物模式）→ 直接否，按本条改。
+- **Symptom**: `package-datafix.py`'s `mcopy -o -i payload.img ::/EFI/UniXNU/Payloads/kernel.macho extracted/kernel.macho` does not go through stdin when the target exists, it directly `open("/dev/tty")` and waits for manual confirmation; the process is in S state, `/proc/<pid>/io` shows no read or write growth, and the script hangs forever (the 13:05 round "interrupted after copying the payload" is this; 2026-11-03 v1 packaging reproduced it twice).
+- **Why it went wrong**: `-o` (overwrite) was taken to mean "never asks"; in fact mtools may still confirm via `/dev/tty` for an "existing on-disk target", and redirecting stdin has no effect (it does not read stdin at all).
+- **Correct approach**: before rerunning, `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`; and use `setsid python3 <workspace>\tools\package-datafix.py < /dev/null` (a new session has no controlling terminal, so `/dev/tty` cannot open and there is no wait). Judging a hang: `ls -l /proc/<mcopy_pid>/fd`, if fd 4 points at `/dev/tty` you are in it.
+- **Evidence**: `/proc/388/fd` recorded fd 4 → `/dev/tty`, wchan=`wait_woken` (2026-11-03 14:27); `<workspace>\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1.
+- **30-second check**: the packaging script contains `mcopy` and `extracted/` is non-empty → delete the target first and then run; packaging produces no artefact for 5 minutes → check whether an fd is on `/dev/tty`, if so kill and rerun per the correct approach.
 
 ---
 
-### P-12 派 Explore 子代理做「全文提取」只回片段：核心调研文档必须主 agent 亲自读
+### P-11 Ignoring a whole directory by mistake hits build dependencies: check whether scripts/ is a build input before tidying a "reference directory"
 
-- **症状**：2026-11-04 GAP 调研轮，派 3 个 Explore 子代理分别精读 4 份/25 份/9 份 references 文档并要求结构化报告，返回结果只有「Relevant Code Snippets」片段指针（每份文档 1-2 个行号摘录），无提取报告，证据颗粒度不满足调研驱动要求，被迫主 agent 重新逐份精读。
-- **触发条件**：用 Explore 子代理做「读 N 份指定文档并给详细事实提取报告」类任务。
-- **为什么走错**：Explore 的定位是「代码库概念搜索/定位」（返回文件+行号片段），不是「多文档全文消化+写报告」；把报告型任务派给它，产出天然只有片段。
-- **正确做法**：① 已锁定具体文件清单的精读任务，主 agent 直接 Read（小文件批量并行）；② 子代理只用于开放域搜索（不知道答案在哪个文件时）；③ 派报告型任务必须用 general-purpose 而非 Explore，且报告长度上限写进 prompt。
-- **证据**：GAP-TO-SPRINGBOARD.md 调研轮次记录（2026-11-04）；3 个子代理返回均为 snippets 格式。
-- **30 秒判定**：要给子代理的任务里出现「通读这几份文件并报告」→ 改为自己读；只有「找到 X 在哪里」才派 Explore。
+- **Symptom**: `unixnu build kernel` stops at `build-pong-platform-macos.py: [Errno 2] No such file or directory`; then a chain of missing `build-pong-adreno-platform.py` / `bind-ios16-storage.py` / `bindings.json` / GMU firmware, the same build blowing up four times in a row.
+- **Trigger**: any action that "tidies repository directories, adds .gitignore entries, deletes a reference copy".
+- **Why it went wrong**: all of `pong-driver/` was treated as a "reference copy" and added to `.gitignore` (one line `/pong-driver/`), but inside it `scripts/build-pong-*.py`, `bind-ios16-storage.py` and `shim-bin/` are the **build scripts** that `build-xnu-4k-baseline.sh` actually executes through `PONG_NATIVE_DRIVER_SOURCE` (board.toml `pong_native_driver_source` points at it); after the tidy-up the build chain broke. Also: the GMU firmware the adreno script needs, `--firmware-dir`, defaults to `/mnt/d/Android/k60-ios/firmware/k60-gpu` (the script says so itself after recovery), is not in the repository, and was lost along with the cleanup.
+- **Correct approach**:
+  1. **Before tidying any directory, check whether its `scripts/` is referenced by the build chain** (grep the build scripts, board.toml, CI workflows); anything that is a build input is never deleted and never ignored.
+  2. **`.gitignore` may only ignore artefacts** (`*.a` / `*.o` / `*.log` / `build/` / `build-report.json`); **ignoring a whole directory that contains scripts is forbidden**; after the change `git check-ignore -v` must prove the scripts are no longer ignored.
+  3. Restore dependencies from the deterministic object store first (`git ls-tree -r <commit> --name-only` to identify → `git checkout <commit> -- <path>`); do not scrape something together by searching.
+- **Evidence**: v2 build, four consecutive failure logs (`logs/kernel-v2.log`); recovery commit `cafab71 fix(vendor): restore pong platform build scripts` (315cf99 → 7 scripts + bindings.json); `.gitignore` before and after the fix (`/pong-driver/` → 5 artefact rules) plus the `check-ignore -v` output; the firmware's real location `D:\Android\k60-ios\firmware\k60-gpu` (its 5 files byte-for-byte identical to the reverse-embedded bytes of the 13:55 build artefact `PongAdrenoFirmware.generated.c`).
+- **30-second check**: before adding an ignore/delete for any directory → first `grep -rn 'directory-name' build-*.sh board.toml .github/workflows`; a hit means stop; whenever `.gitignore` contains a whole directory (not an artefact pattern like `*.a`) → reject it outright and fix per this entry.
 
 ---
 
-### P-13 给 patch 写「新增文件」段必须带 `@@ -0,0 +1,N @@ hunk 头`，否则 git apply 静默建 0 字节文件
+### P-12 Sending an Explore subagent to do "full-text extraction" only returns fragments: core research documents must be read by the main agent itself
 
-- **症状**：`patches/xnu/0391-k60-embedded-init.patch` 应用后链上"成功"，但 `bsd/kern/k60_init_blob.h` 为 **0 字节**；编译报 `kern_exec.c:8096: use of undeclared identifier 'k60_init_blob'` / `'K60_INIT_BLOB_LEN'`。连续 4 轮误判为"patch 顺序问题/树不干净"。
-- **触发条件**：手工/脚本生成 `diff --git ... new file mode` 段时只写了 `--- /dev/null` / `+++ b/path` 和 `+` 内容行，漏写 `@@ -0,0 +1,N @@`。
-- **为什么当初走错**：`git apply` 对 **缺 hunk 头的新文件段不报错**，按"无内容"处理并创建空文件；`git apply --check` 也通过，所以"检查过了"是假安全感。
-- **正确做法**：生成后必须双验：(1) `git apply --check`；(2) `stat -c%s <新文件>` 确认 **非 0** 且 `head -2` 是预期内容。缺 hunk 头就补 `@@ -0,0 +1,<行数> @@`。
-- **证据**：`scratch/HDR2.txt`（树里头文件 `-rw-r--r-- 0 bytes`、patch 内 `+#define K60_INIT_BLOB_LEN` 计数 1 却文件为空）；修复后 `scratch/TEST391.txt`（`git apply --check` OK、`header size 262784`）；生成器 `scratch/gen391d.py`。
-- **30 秒判定**：任何"patch 里新增文件"的改动 → 应用后立刻 `stat -c%s` 新文件；为 0 即本条，不必查编译错误。
+- **Symptom**: in the 2026-11-04 GAP research round, 3 Explore subagents were sent to closely read 4/25/9 references documents respectively and asked for structured reports; the returned results were only "Relevant Code Snippets" pointers (1-2 line-number excerpts per document), no extraction report, and the evidence granularity did not satisfy the research-driven requirement, forcing the main agent to re-read each document itself.
+- **Trigger**: using Explore subagents for tasks of the "read N specified documents and give a detailed fact-extraction report" kind.
+- **Why it went wrong**: Explore's role is "codebase concept search/location" (returning file+line snippets), not "digest multiple documents in full + write a report"; assigning a report-type task to it naturally produces only snippets.
+- **Correct approach**: ① for close-reading tasks with a fixed file list, the main agent reads directly (small files batched in parallel); ② subagents are only for open-domain search (when you do not know which file holds the answer); ③ report-type tasks must use general-purpose rather than Explore, and the report length cap goes into the prompt.
+- **Evidence**: GAP-TO-SPRINGBOARD.md research round record (2026-11-04); all 3 subagents returned snippets format.
+- **30-second check**: a task for a subagent containing "read through these documents and report" → read them yourself instead; only "find where X is" goes to Explore.
 
-### P-14 改构建脚本前必须 `diff -u` 黄金脚本；删两行 `LD_KERNEL_ARCHIVES` 会让平台驱动整层不链接
+---
 
-- **症状**：内核能启动但 `panic: Unable to find driver for this platform: "J120AP". @IOPlatformExpert.cpp:2319`，且 `strings kernel.macho | grep -c ArmDTPlatform` = **1**（黄金为 **38**）。
-- **触发条件**：为"清理 GPU 注入"编辑 `scripts/build-xnu-4k-baseline.sh`，把
-  `EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$KERNEL_EXTRA_ARCHIVES")` 与
-  `EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$PLATFORM_ARCHIVES")` 一并删掉。
-- **为什么当初走错**：只看到"注入 Adreno 导致 `armcpu_spi_attach` 未定义"，就成片删除注入逻辑；这两行是**所有平台 archive 的唯一传递通道**，不是 GPU 专用。
-- **正确做法**：改脚本前 `diff -u /opt/k60/trees/usb-cdc-mainline/out3/.../tree/scripts/build-xnu-4k-baseline.sh <本仓脚本>`；改后复查
-  `grep -c 'LD_KERNEL_ARCHIVES'` 必须 = **2**，且构建后 `strings kernel.macho | grep -c ArmDTPlatform` = **38**、`pong_cpu_startup_finished` = 2。
-- **证据**：`scratch/SCRIPTDIFF2.txt`（removed 2 行即这两条）；`scratch/STRINGS.txt`（golden ArmDTPlatform=38 / 修复前 ours=1）；`scratch/ARMIO.txt`（personality 表 `IOClass=ArmDTPlatform` 存在但驱动 0 符号 → 落到 `IOPanicPlatform`）。
-- **30 秒判定**：panic 里出现 `Unable to find driver for this platform` → 先数 `ArmDTPlatform` 字符串数与 `LD_KERNEL_ARCHIVES` 行数，两个数不对就是本条。
+### P-13 A "new file" section in a patch must carry the `@@ -0,0 +1,N @@ hunk` header, or git apply silently creates a 0-byte file
 
-### P-15 `cp -a` 覆盖已有 `tree/` 会让 unixnu 跳过整段补丁应用（日志里 `== kernel: patch` 计数为 0）
+- **Symptom**: after `patches/xnu/0391-k60-embedded-init.patch` is applied the chain says "success", but `bsd/kern/k60_init_blob.h` is **0 bytes**; compilation reports `kern_exec.c:8096: use of undeclared identifier 'k60_init_blob'` / `'K60_INIT_BLOB_LEN'`. Four consecutive rounds misdiagnosed it as "patch ordering problem / dirty tree".
+- **Trigger**: generating a `diff --git ... new file mode` section by hand/script with only `--- /dev/null` / `+++ b/path` and `+` content lines, omitting `@@ -0,0 +1,N @@`.
+- **Why it went wrong**: `git apply` **does not report an error for a new-file section missing its hunk header**, treats it as "no content" and creates an empty file; `git apply --check` passes too, so "I checked it" was false security.
+- **Correct approach**: after generating, verify twice: (1) `git apply --check`; (2) `stat -c%s <new file>` confirms **non-zero** and `head -2` shows the expected content. If the hunk header is missing, add `@@ -0,0 +1,<lines> @@`.
+- **Evidence**: `scratch/HDR2.txt` (in-tree header `-rw-r--r-- 0 bytes`, while the patch's `+#define K60_INIT_BLOB_LEN` counts as 1 yet the file is empty); after the fix `scratch/TEST391.txt` (`git apply --check` OK, `header size 262784`); generator `scratch/gen391d.py`.
+- **30-second check**: any change of the "add a file in a patch" kind → `stat -c%s` the new file immediately after applying; zero means this entry, no need to look at compile errors.
 
-- **症状**：链接期出现莫名其妙的未定义符号（`_pong_cpu_startup_finished` 等），而补丁文件明明都在 series 里；`IOCPU.cpp` 里 `grep pong_cpu_startup_finished` = MISSING。
-- **触发条件**：用 `cp -a` 把某次成功构建的 `.cache/xnu-work` 拷进新 out 目录后再跑 `unixnu build`。
-- **为什么当初走错**：以为 `tree/` 只是源码缓存，实际它是"补丁已应用"的状态标记；`unixnu` 见 `tree/` 已存在即跳过解包+打补丁。
-- **正确做法**：需要重建时**删 `tree/` 与 `build/` 让 unixnu 从零解包**；或保留树但手工补丁后再构建。每次构建后必须 `grep -c '== kernel: patch' build.log` = **192**。
-- **证据**：`scratch/FULLREBUILD.txt`（`D series: 192`、`patches applied: 192`）；`scratch/COPYOUT.txt`/`FUNCDIFF.txt`（`== kernel: patch` 计数 0 的那轮）；`scratch/IOCPU.txt`（`our IOCPU.cpp MISSING` / `golden :69` 有定义）。
-- **30 秒判定**：构建日志 `grep -c '== kernel: patch'` 不是 192（或 191）→ 树状态不对，别查符号。
+### P-14 `diff -u` against the golden script before editing a build script; deleting two `LD_KERNEL_ARCHIVES` lines makes the whole platform driver layer fail to link
 
-### P-16 清 `tree/` 会连 `.cache/fakeroot` 与 `.cache/sources` 一起删：SDK 头 + DriverKit 缓存必须回填
+- **Symptom**: the kernel boots but `panic: Unable to find driver for this platform: "J120AP". @IOPlatformExpert.cpp:2319`, and `strings kernel.macho | grep -c ArmDTPlatform` = **1** (golden is **38**).
+- **Trigger**: editing `scripts/build-xnu-4k-baseline.sh` to "clean up the GPU injection", deleting
+  `EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$KERNEL_EXTRA_ARCHIVES")` and
+  `EXTRA_MAKE_ARGS+=("LD_KERNEL_ARCHIVES=$PLATFORM_ARCHIVES")` together.
+- **Why it went wrong**: seeing only that "injecting Adreno leaves `armcpu_spi_attach` undefined", the injection logic was deleted wholesale; these two lines are the **only transport channel for all platform archives**, not GPU-specific.
+- **Correct approach**: before editing the script, `diff -u /opt/k60/trees/usb-cdc-mainline/out3/.../tree/scripts/build-xnu-4k-baseline.sh <this repo's script>`; after editing re-check that
+  `grep -c 'LD_KERNEL_ARCHIVES'` must be = **2**, and after the build `strings kernel.macho | grep -c ArmDTPlatform` = **38**, `pong_cpu_startup_finished` = 2.
+- **Evidence**: `scratch/SCRIPTDIFF2.txt` (the 2 removed lines are these two); `scratch/STRINGS.txt` (golden ArmDTPlatform=38 / ours=1 before the fix); `scratch/ARMIO.txt` (the personality table has `IOClass=ArmDTPlatform` but the driver has 0 symbols → falls through to `IOPanicPlatform`).
+- **30-second check**: `Unable to find driver for this platform` in a panic → first count the `ArmDTPlatform` strings and the `LD_KERNEL_ARCHIVES` lines; if either number is wrong it is this entry.
 
-- **症状**：`fatal error: 'Availability.h' file not found`（`mach/arm/vm_types.h:76` 引入）；或 `prepare-xnu-source.py` 报 `HTTPError: HTTP Error 403: rate limit exceeded`。
-- **触发条件**：`rm -rf tree` 做干净重建。
-- **为什么当初走错**：把 `.cache/` 当成可丢弃派生数据；实际 `fakeroot`（含 `usr/include/Availability.h`）与 `sources/xnu-driverkit-*.json` 是**外部获取**的输入，重建不会自动恢复。
-- **正确做法**：清树前备份、清后立刻回填：
-  `cp -a <旧树>/.cache/fakeroot <新树>/.cache/`；
-  `cp -a <旧树>/.cache/sources <新树>/.cache/`（`xnu-driverkit-10063.121.3.json` 等 6 个）。
-- **证据**：`scratch/FIX403.txt`（`old sources caches` 5 个 json 被复制、`DriverKit: 36 files`）；`scratch/FULLREBUILD.txt`（`headers: 16193` = `Availability.h`）；`scratch/L1ERR.txt`（403 堆栈）。
-- **30 秒判定**：编译报 `Availability.h` 找不到 或 `HTTPError 403` → 直接查 `.cache/fakeroot/usr/include/Availability.h` 与 `.cache/sources/` 是否为空。
+### P-15 `cp -a` over an existing `tree/` makes unixnu skip the entire patch application (the `== kernel: patch` count in the log is 0)
 
-### P-17 `unixnu bootimg` 产出的 boot 镜像布局错误：`ksize` 写成 1,027,600，payload 落 UEFI 找不到的偏移
+- **Symptom**: inexplicable undefined symbols at link time (`_pong_cpu_startup_finished` etc.), while the patch files are clearly all in the series; `grep pong_cpu_startup_finished` in `IOCPU.cpp` = MISSING.
+- **Trigger**: after `cp -a`-ing a previously successful build's `.cache/xnu-work` into a new out directory, running `unixnu build`.
+- **Why it went wrong**: `tree/` was assumed to be just a source cache, but it is actually the "patches already applied" state marker; `unixnu` sees that `tree/` exists and skips unpacking + patching.
+- **Correct approach**: to rebuild, **delete `tree/` and `build/` so unixnu unpacks from scratch**; or keep the tree but patch it by hand before building. After every build `grep -c '== kernel: patch' build.log` must be = **192**.
+- **Evidence**: `scratch/FULLREBUILD.txt` (`D series: 192`, `patches applied: 192`); `scratch/COPYOUT.txt`/`FUNCDIFF.txt` (the round where the `== kernel: patch` count was 0); `scratch/IOCPU.txt` (`our IOCPU.cpp MISSING` / `golden :69` has the definition).
+- **30-second check**: the build log's `grep -c '== kernel: patch'` is not 192 (or 191) → the tree state is wrong, do not go looking at symbols.
 
-- **症状**：`fastboot boot` 报 `Booting OKAY` 但设备**完全静默**（无 CDC 枚举、无 fastboot、无 adb）。
-- **触发条件**：用 `unixnu bootimg ... -o out.img` 直接出镜像。
-- **为什么当初走错**：以为 `bootimg` 是官方出镜像步骤就该正确；实际它把 payload 放在 header 未声明的偏移。
-- **正确做法**：以 `boot-0461-20261107.img` 为模板 splice：保持 `[0,4096)` header（`u32@8 = kernel_size = 548,774`、`u32@16 = ramdisk_size = 0`）、`[4096,552960)` kernel 区不动，**payload 从偏移 552,960 起**替换。
-- **证据**：`scratch/STRUCT.txt`（0461: ksize=548774 / 0602: ksize=1027600, rsize=0, `extra=201330688`）；`scratch/SPLICE4.txt`（spliced 201,879,552、payload head 与 0461 逐字节同）。
-- **30 秒判定**：新镜像 `u32@8` 不等于 548,774 → 布局错，别上机。
+### P-16 Cleaning `tree/` deletes `.cache/fakeroot` and `.cache/sources` along with it: the SDK headers + DriverKit cache must be backfilled
 
-### P-18 内核写文件必须 `vnode_close(vp, 0, ctx)`；传 `FWRITE` 触发 `vnode_rele_ext kusecount` panic
+- **Symptom**: `fatal error: 'Availability.h' file not found` (pulled in by `mach/arm/vm_types.h:76`); or `prepare-xnu-source.py` reports `HTTPError: HTTP Error 403: rate limit exceeded`.
+- **Trigger**: `rm -rf tree` for a clean rebuild.
+- **Why it went wrong**: `.cache/` was treated as disposable derived data; in fact `fakeroot` (containing `usr/include/Availability.h`) and `sources/xnu-driverkit-*.json` are **externally obtained** inputs that a rebuild does not restore automatically.
+- **Correct approach**: back up before cleaning the tree, backfill immediately after:
+  `cp -a <old tree>/.cache/fakeroot <new tree>/.cache/`;
+  `cp -a <old tree>/.cache/sources <new tree>/.cache/` (`xnu-driverkit-10063.121.3.json` and 5 others).
+- **Evidence**: `scratch/FIX403.txt` (`old sources caches` 5 jsons copied, `DriverKit: 36 files`); `scratch/FULLREBUILD.txt` (`headers: 16193` = `Availability.h`); `scratch/L1ERR.txt` (the 403 stack).
+- **30-second check**: compilation reports `Availability.h` not found or `HTTPError 403` → go straight to whether `.cache/fakeroot/usr/include/Availability.h` and `.cache/sources/` are empty.
 
-- **症状**：`panic(cpu 0): vnode_rele_ext: vp ... kusecount(%d) out of balance with usecount(%d)`（`vfs_subr.c:2693-2694`），随后 `lock_mtx.c:194` 嵌套 panic stall。日志停在 `K60DATA attempt returned error=0 stage=4` 之后、init helper 之前。
-- **触发条件**：内核里新写"写文件"逻辑时自选参数（我用了 `vnode_close(vp, FWRITE, ctx)` + `IO_SYNC|IO_NOCACHE` + `NOCRED`、无 resid）。
-- **为什么当初走错**：`FWRITE` 名字看着"我在写所以传 FWRITE"很自然；实际 `vnode_rele_internal` 会因此递减**未被 acquire** 的 `v_writecount`。
-- **正确做法**：照抄仓库内**已在设备验证**的写法 `patches/xnu/0340-k60-uilib-deploy.patch:7001-7013`：
+### P-17 The boot image layout produced by `unixnu bootimg` is wrong: `ksize` written as 1,027,600, payload lands at an offset UEFI cannot find
+
+- **Symptom**: `fastboot boot` reports `Booting OKAY` but the device is **completely silent** (no CDC enumeration, no fastboot, no adb).
+- **Trigger**: producing the image directly with `unixnu bootimg ... -o out.img`.
+- **Why it went wrong**: assuming `bootimg` is the official image-producing step so it must be correct; in fact it puts the payload at an offset the header does not declare.
+- **Correct approach**: splice using `boot-0461-20261107.img` as the template: keep the `[0,4096)` header (`u32@8 = kernel_size = 548,774`, `u32@16 = ramdisk_size = 0`), leave the `[4096,552960)` kernel region untouched, and replace the **payload starting at offset 552,960**.
+- **Evidence**: `scratch/STRUCT.txt` (0461: ksize=548774 / 0602: ksize=1027600, rsize=0, `extra=201330688`); `scratch/SPLICE4.txt` (spliced 201,879,552, payload head byte-for-byte identical to 0461).
+- **30-second check**: the new image's `u32@8` is not 548,774 → the layout is wrong, do not boot it.
+
+### P-18 Kernel file writes must use `vnode_close(vp, 0, ctx)`; passing `FWRITE` triggers a `vnode_rele_ext kusecount` panic
+
+- **Symptom**: `panic(cpu 0): vnode_rele_ext: vp ... kusecount(%d) out of balance with usecount(%d)` (`vfs_subr.c:2693-2694`), followed by a nested panic stall at `lock_mtx.c:194`. The log stops after `K60DATA attempt returned error=0 stage=4` and before the init helper.
+- **Trigger**: picking the arguments yourself when newly writing "write a file" logic in the kernel (I used `vnode_close(vp, FWRITE, ctx)` + `IO_SYNC|IO_NOCACHE` + `NOCRED`, no resid).
+- **Why it went wrong**: the name `FWRITE` makes "I am writing so I pass FWRITE" look natural; in fact `vnode_rele_internal` then decrements a `v_writecount` that was **never acquired**.
+- **Correct approach**: copy the **already device-verified** form inside the repo, `patches/xnu/0340-k60-uilib-deploy.patch:7001-7013`:
   `vnode_open(path, O_CREAT|O_WRONLY|O_TRUNC, 0644, 0, &vp, ctx)` →
   `vn_rdwr(UIO_WRITE, vp, ..., 0, UIO_SYSSPACE, IO_SYNC, vfs_context_ucred(ctx), &resid, current_proc())` →
-  **`vnode_close(vp, 0, ctx)`**。
-- **证据**：`scratch/VNC0391.txt`（0340 原件与 0391 的逐项差异）；`scratch/BUILD_FIX.txt`（改为 0340 写法后 `CHECK OK / APPLIED`）；`scratch/VERIFY_PB.txt`（此后 `K60INIT: embedded helper write=0 resid=0`、`vnode_rele` 计数 0）。
-- **30 秒判定**：`grep -n 'vnode_close' <新补丁>` 出现 `FWRITE` → 直接按本条改，不用排查别的。
+  **`vnode_close(vp, 0, ctx)`**.
+- **Evidence**: `scratch/VNC0391.txt` (item-by-item diff of the 0340 original against 0391); `scratch/BUILD_FIX.txt` (after switching to the 0340 form, `CHECK OK / APPLIED`); `scratch/VERIFY_PB.txt` (afterwards `K60INIT: embedded helper write=0 resid=0`, `vnode_rele` count 0).
+- **30-second check**: `grep -n 'vnode_close' <new patch>` shows `FWRITE` → change it per this entry, no need to investigate anything else.
 
-### P-19 不要手工编译 init：`ld64.lld 18` 的 `-static` 未实现，产物是动态链接 → `EXEC_EXIT_REASON_BAD_MACHO`
+### P-19 Do not build init by hand: `ld64.lld 18`'s `-static` is not implemented, the artefact is dynamically linked → `EXEC_EXIT_REASON_BAD_MACHO`
 
-- **症状**：`initproc failed to start -- exit reason namespace 9 subcode 0x1`；`namespace 9 = OS_REASON_EXEC`、`code 0x1 = EXEC_EXIT_REASON_BAD_MACHO`（`reason.h:96,244`）。
-- **触发条件**：WSL 里 `clang -static -nostdlib ...` 编 init stub。
-- **为什么当初走错**：`clang` 只给 `warning: Option '-static' is not yet implemented`，链接"成功"了，但产物 `flags=0x200085`（含 `DYLDLINK`）且带 `LC_LOAD_DYLINKER`，内核 `load_machfile` 判 BAD_MACHO。又误判为 AMFI 拒签（`namespace 9` 不是 CODESIGNING(3)）。
-- **正确做法**：**不要自己编 init**。设备上的 `/private/var/pong/init` 是用 `write-pong-init-*.ps1` 四闸门 dd 写入的现成静态件（34,8xx B，源码级已是 `/sbin/launchd`）。
-- **证据**：`scratch/STUBFORM.txt`（`flags=0x200085 DYLDLINK=True LC_LOAD_DYLINKER`、`ld64.lld: warning: -static not yet implemented`）；`scratch/PAGEZERO.txt`（对照 pong init `flags=0x1`、`__PAGEZERO 0x100000000`）；`scratch/EXECCODE.txt`（`EXEC_EXIT_REASON_BAD_MACHO 1`）。
-- **30 秒判定**：panic `namespace 9 code 1` → 直接 `file <该 init>`，出现 `DYLDLINK` 即本条。
+- **Symptom**: `initproc failed to start -- exit reason namespace 9 subcode 0x1`; `namespace 9 = OS_REASON_EXEC`, `code 0x1 = EXEC_EXIT_REASON_BAD_MACHO` (`reason.h:96,244`).
+- **Trigger**: compiling the init stub in WSL with `clang -static -nostdlib ...`.
+- **Why it went wrong**: `clang` only gave `warning: Option '-static' is not yet implemented`, the link "succeeded", but the artefact had `flags=0x200085` (including `DYLDLINK`) and carried `LC_LOAD_DYLINKER`, so the kernel's `load_machfile` judged BAD_MACHO. It was also misdiagnosed as AMFI refusing the signature (`namespace 9` is not CODESIGNING(3)).
+- **Correct approach**: **do not build init yourself**. The on-device `/private/var/pong/init` is a ready-made static binary written by `write-pong-init-*.ps1` through four gates with dd (34,8xx B, already `/sbin/launchd` at source level).
+- **Evidence**: `scratch/STUBFORM.txt` (`flags=0x200085 DYLDLINK=True LC_LOAD_DYLINKER`, `ld64.lld: warning: -static not yet implemented`); `scratch/PAGEZERO.txt` (against pong init `flags=0x1`, `__PAGEZERO 0x100000000`); `scratch/EXECCODE.txt` (`EXEC_EXIT_REASON_BAD_MACHO 1`).
+- **30-second check**: panic `namespace 9 code 1` → go straight to `file <that init>`; `DYLDLINK` appearing means this entry.
 
-### P-20 黄金已在 `boot-0461` 进到 SpringBoard；真阻塞是 launchd(PID 1) 崩溃，不是内核缺件
+### P-20 The golden image `boot-0461` already reached SpringBoard; the real blocker is launchd(PID 1) crashing, not missing kernel pieces
 
-- **症状**：长期把 `boot-0461-20261107.img` 当"失败镜像"，花多轮去"修 launchd 起来"；实际该镜像**已进系统**。
-- **触发条件**：只看崩溃尾部、不看它前面已打印的 SpringBoard 加载序列。
-- **为什么当初走错**：`boot-0461` 日志末段是 `initproc exited` panic，容易被当成"没进去"；实际同份日志前段有
+- **Symptom**: `boot-0461-20261107.img` was long treated as a "failed image", with several rounds spent "fixing so launchd comes up"; in fact that image **already enters the system**.
+- **Trigger**: looking only at the tail of the crash, not at the SpringBoard loading sequence printed before it.
+- **Why it went wrong**: the end of the `boot-0461` log is an `initproc exited` panic, easily taken as "it never got in"; in fact the earlier part of the same log has
   `Pong UI: 20G81 compatibility library entered SpringBoard` /
-  `[SpringBoard] [backboardd] Pong UI: UIApplication -_run hooked`，
-  崩溃发生在 launchd 读 `/System/Cryptexes/App/usr/libexec/webbookmarksd`（`errno 2`）之后。
-- **正确做法**：判"是否进系统"必须同时看**前段**（SpringBoard/UIApplication 行）与**后段**（`initproc exited`）；后者是 launchd(PID 1) 崩，属 `apply()` 缺位导致 job 集与文件系统不一致。
-- **证据**：`evidence/bootcap-20261107-212612/console.log` 第 1966/2055/2073 行（SpringBoard Pong UI img）、第 3550 行（`webbookmarksd ... errno 2` + `KX! 18 1 launchd sig=11`）、第 3555 行（`initproc exited namespace 2 subcode 0xb`）。
-- **30 秒判定**：任何"某镜像没进系统"的判断 → 先 `grep -ac 'SpringBoard\|UIApplication' <log>`，>0 即已进系统，改查 launchd 崩溃。
+  `[SpringBoard] [backboardd] Pong UI: UIApplication -_run hooked`,
+  and the crash happens after launchd reads `/System/Cryptexes/App/usr/libexec/webbookmarksd` (`errno 2`).
+- **Correct approach**: judging "did it enter the system" requires looking at **both the early part** (SpringBoard/UIApplication lines) and **the late part** (`initproc exited`); the latter is launchd(PID 1) crashing, a consequence of `apply()` being missing so that the job set and the filesystem disagree.
+- **Evidence**: `evidence/bootcap-20261107-212612/console.log` lines 1966/2055/2073 (SpringBoard Pong UI img), line 3550 (`webbookmarksd ... errno 2` + `KX! 18 1 launchd sig=11`), line 3555 (`initproc exited namespace 2 subcode 0xb`).
+- **30-second check**: any judgement that "some image did not enter the system" → first `grep -ac 'SpringBoard\|UIApplication' <log>`; >0 means it did enter the system, so go look at the launchd crash instead.
 
 ---
 
-### P-21 认 init 版本必须按「日志字符串组合」匹配，不能按文件名或单一标识猜
+### P-21 Identifying the init version must match on a "combination of log strings", never on the filename or a single marker
 
-- **症状**：我先后把设备写回 `init-v10guard`、`init-v11drain`，两次都以为"恢复基线了"，但 boot 仍失败；实际 11-07 成功那次跑的是 **`init-v11drain`**，`init-v10guard` 少了 `console drainer`。
-- **触发条件**：只凭日志里 `[v10guard]` 这种单一标识，或只按文件名 `init`/`init-v2` 去比对。
-- **为什么当初走错**：`init-v11drain` 的 banner 仍打印 `HackiOS adapter [v10guard]`（版本名沿用），所以 `[v10guard]` 不能区分 v10guard / v11drain；而 `init-v10guard` 里根本没有 `console drainer` 字符串。
-- **正确做法**：用**两个以上特征串的组合**判定：
+- **Symptom**: I wrote `init-v10guard` and then `init-v11drain` back to the device, assuming both times that "the baseline is restored", but the boot still failed; in fact the successful 11-07 run was **`init-v11drain`**, and `init-v10guard` lacks the `console drainer`.
+- **Trigger**: relying on a single marker in the log such as `[v10guard]`, or comparing only by filename `init`/`init-v2`.
+- **Why it went wrong**: `init-v11drain`'s banner still prints `HackiOS adapter [v10guard]` (the version name was carried over), so `[v10guard]` cannot distinguish v10guard from v11drain; and `init-v10guard` contains no `console drainer` string at all.
+- **Correct approach**: decide from a **combination of two or more feature strings**:
   `alive, console ready` + `[v10guard]` + **`console drainer pid=%d`** + `var: write-check`
-  → 唯一命中 `init-v11drain`（34,912 B，sha `12b9df42cb76c2ffe21a1326215abe2021ad02ce332b9215e7c2b0fe1ac26b94`）。
-  写盘后必须 Gate3（整段 36,864 sha `eceb785e…`）+ Gate3b（裸 34,912 sha `12b9df42…`）双通过。
-- **证据**：`scratch/V11CHK.txt`（v11drain 串全命中）、`scratch/VER11.txt`（v10guard drainer=0 / v11drain drainer=2、11-07 日志 drainer=1）、`scratch/WRITEV11.txt` 走查、`scratch/writev11.ps1` 的 Gate3 PASS 输出。
-- **30 秒判定**：要恢复 init → 先 `grep -a 'Pong init:' <11-07日志> | head -25` 取全部标识串，再在 `deliverables/pong-init/init-v*` 上逐个 `strings | grep -c` 求交集；唯一命中的才是目标版本。
+  → uniquely matches `init-v11drain` (34,912 B, sha `12b9df42cb76c2ffe21a1326215abe2021ad02ce332b9215e7c2b0fe1ac26b94`).
+  After writing to disk both Gate3 (whole 36,864 sha `eceb785e…`) and Gate3b (bare 34,912 sha `12b9df42…`) must pass.
+- **Evidence**: `scratch/V11CHK.txt` (all v11drain strings hit), `scratch/VER11.txt` (v10guard drainer=0 / v11drain drainer=2, 11-07 log drainer=1), the `scratch/WRITEV11.txt` walkthrough, the Gate3 PASS output of `scratch/writev11.ps1`.
+- **30-second check**: to restore init → first `grep -a 'Pong init:' <11-07 log> | head -25` to collect all marker strings, then `strings | grep -c` each candidate under `deliverables/pong-init/init-v*` and intersect; only the unique hit is the target version.
 
-### P-22 同镜像同内核同 args 却出现 dyld 失败 ⇒ 先查 dyld shared cache 可见性，不要怀疑 init/内核
+### P-22 Same image, same kernel, same args yet dyld fails ⇒ check dyld shared cache visibility first, do not suspect init/kernel
 
-- **症状**：`boot-0461-20261107.img`（sha `5df3a070…`，内核 `d56edb6f…`）在 11-07 21:26 那次 boot 一路到 SpringBoard；今天用**同一个文件** boot，`KE 2 1 init /sbin/launchd` 之后立刻 `dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib ... (no such file, no dyld cache)`，`KX! 1 1 launchd ... ns=6 code=0x1`。
-- **关键对照（必须记住）**：11-07 日志里 `shared_region ... vm_shared_region_start_address() failed` **同样出现两次**（:529/:539），但**没有任何 dyld 错误**，之后 launchd 还能从缓存加载 `/usr/lib/system/libdyld.dylib`（:977/:1179/:1482/:1972）。新日志在同样两行 shared_region 之后立刻 dyld 失败（:563）。
-  ⇒ **shared_region 的这两行是噪声，不是判据；判据是「有没有 dyld 报错」。**
-- **结论**：差异只在 **dyld shared cache 是否可见**。`PATHS p0..p7` 是 panic 期在异常上下文里做的 `vnode_lookup`，两次值完全相同（`p0=0 p1=2 p2=2 p3=2 p4=2 p5=2 p6=0 p7=2`），**不能当作 boot 期真值**，不要据此下结论。
-- **正确做法**：①在 **boot 期、init 之前**加探针打印 `vnode_lookup` 结果（panic 期探针不可用）；②或用 `tools/apfs` 从 OS/SystemOS 镜像里确认 `System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64` 是否真的存在，再决定是否需要在 Data 侧补一份并 bindfs 到该路径。
-- **证据**：`scratch/CENSUS.txt`（旧/新日志 dyld 行对照）、`scratch/IMGKERNELS.txt`（11-07 各镜像内核 sha 全不相同：0458 `77a2ca32` / 0459 `62135cde` / 0460 `a00ea847` / 0461 `d56edb6f`；out3 是 `78a0951a`，**都不是同一个**）、`scratch/KERNELSHA.txt`。
-- **30 秒判定**：看到 `dyld[1]: Library not loaded ... no dyld cache` → 直接查 dyld shared cache 可见性；**不要**去改 init、不要怀疑 boot args、不要看 `PATHS p*`。
-
----
-
-### P-23 同名不同物：`scratch/payload-0461.img` 不是 `boot-0461-20261107.img` 里的 payload
-
-- **症状**：我拿 `<workspace>/scratch/payload-0461.img` 当"黄金 payload"去打包，结果它的 `unixnu.toml` 只有 **16 项 args**（`debug=0x144`，无 `k60_usblog=2`、无 `k60_skip_firmware_mount=1`、无 `amfi_get_out_of_my_way=1`），根本不可能产生 11-07 那份带串口日志的启动。
-- **根因**：文件名都叫 `payload-0461`，但 `scratch/payload-0461.img` 与 `boot-0461-20261107.img` 内嵌的 payload **不是同一份**（前者是同日另一次迭代的中间产物）。判断一个镜像用哪套 args，**只能从该镜像内部提取**。
-- **正确做法**：从镜像取 payload：
-  `ksize=u32@8` → `off = 4096 + ceil(ksize/4096)*4096` → 读 201,326,592 B → `mcopy -i <payload> ::/EFI/UniXNU/unixnu.toml`。
-  `boot-0461-20261107.img` 的真实 args = **28 项**，含 `debug=0x140`、`k60_skip_firmware_mount=1`、`k60_tolerate_cache_loader=1`、`k60_usblog=2`、`amfi_get_out_of_my_way=1` —— 与 11-07 日志 `boot-args =` 行逐项一致（`scratch/FINDREAL2.txt`：MATCH=28/0）。
-- **附带纠正**：11-07 各镜像的内核 sha 全不相同（0458 `77a2ca32`、0459 `62135cde`、0460 `a00ea847`、0461 `d56edb6f`），out3 的 `78a0951a` 不在其中任何一个里；**不要再用"out3 黄金内核"当复现基准**。
-- **证据**：`scratch/PACKPROBE.txt`（16 项 args，MISSING 一堆）、`scratch/PACKPROBE2.txt`（28 项全 OK）、`scratch/FINDREAL2.txt`（扫描 40 个镜像，只有 0450–0461 系列命中 28/0）。
-- **30 秒判定**：要确认某镜像的 args → **从该 .img 现取**，不要读 `scratch/payload-*.img`；取完先数 `arg count`，与预期不符立即停。
+- **Symptom**: `boot-0461-20261107.img` (sha `5df3a070…`, kernel `d56edb6f…`) went all the way to SpringBoard on the 11-07 21:26 boot; today, booting **the same file**, right after `KE 2 1 init /sbin/launchd` comes `dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib ... (no such file, no dyld cache)` and `KX! 1 1 launchd ... ns=6 code=0x1`.
+- **Key comparison (must remember)**: the 11-07 log has `shared_region ... vm_shared_region_start_address() failed` **appearing twice as well** (:529/:539), yet **no dyld error at all**, and launchd then loads `/usr/lib/system/libdyld.dylib` from the cache (:977/:1179/:1482/:1972). The new log fails in dyld right after the same two shared_region lines (:563).
+  ⇒ **those two shared_region lines are noise, not the criterion; the criterion is "is there a dyld error".**
+- **Conclusion**: the difference is only **whether the dyld shared cache is visible**. `PATHS p0..p7` are `vnode_lookup` calls made in the panic exception context; the values are identical in both runs (`p0=0 p1=2 p2=2 p3=2 p4=2 p5=2 p6=0 p7=2`), and **they must not be treated as boot-time truth**; do not draw conclusions from them.
+- **Correct approach**: ① add a probe **at boot time, before init** that prints the `vnode_lookup` result (panic-time probes are useless); ② or use `tools/apfs` against the OS/SystemOS image to confirm whether `System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64` really exists, then decide whether a copy must be added on the Data side and bindfs'ed to that path.
+- **Evidence**: `scratch/CENSUS.txt` (old/new log dyld line comparison), `scratch/IMGKERNELS.txt` (the kernels of the 11-07 images all differ: 0458 `77a2ca32` / 0459 `62135cde` / 0460 `a00ea847` / 0461 `d56edb6f`; out3 is `78a0951a`, **none of them the same**), `scratch/KERNELSHA.txt`.
+- **30-second check**: seeing `dyld[1]: Library not loaded ... no dyld cache` → go straight to dyld shared cache visibility; **do not** touch init, do not suspect boot args, do not look at `PATHS p*`.
 
 ---
 
-### P-24（= 历史坑 64-2 的复发）换核必须重跑 `patch-armcpu-validate.py --apply`
+### P-23 Same name, different object: `scratch/payload-0461.img` is not the payload inside `boot-0461-20261107.img`
 
-- **症状**：`panic: "CPU configuration in device tree is invalid" @AppleARMCPU.cpp:111`，USB 不枚举、无串口日志、也不自动复位。
-- **复发经过（2026-11-08）**：我用 `mcopy -o -i payload ::/EFI/UniXNU/Payloads/kernel.macho <新内核>` 直接换核，**绕过了 payload 步骤本会执行的 `tree/scripts/patch-armcpu-validate.py --apply`**。这不是新坑，`PITFALLS-FROM-HISTORY.md` 第 64 条「坑 2」写得一字不差。
-- **正确做法（每次换核固定四步）**：
-  1. `python3 <tree>/scripts/patch-armcpu-validate.py --check <kernel>` → 若输出 `original bytes match` 则必须 `--apply`；
-  2. `--apply` 后必须再 `--check`，期望 **`already patched`**，并确认字节 `ff8304d1fc6f0ca9 → 20008052c0035fd6`（`mov w0,#1 ; ret`）；
-  3. 打入 payload 后做**三段自检**：`header+kernel == template[0:552960]`、`ramdisk == payload` 逐字节、`trailer == template[201879552:]`；
-  4. 核对 `ksize == 548774`、`ramdisk_size == 0`。
-- **证据**：`scratch/ARMCPUFIX.txt`（`--check` 原文、`patched: mov w0,#1 ; ret`、`already patched`、三段自检全 True）；历史条目 `docs/PITFALLS-FROM-HISTORY.md:613` 第 64 条；`docs/references/USB-SERIAL-AND-AMFI-CHANNEL-20261105.md:28`。
-- **30 秒判定**：看到 `AppleARMCPU.cpp:111` → **不要查内核代码、不要查 ADT**，先对打包用的 kernel 跑 `patch-armcpu-validate.py --check`；不是 `already patched` 就是这条。
+- **Symptom**: I used `<workspace>/scratch/payload-0461.img` as the "golden payload" for packaging, but its `unixnu.toml` had only **16 args** (`debug=0x144`, no `k60_usblog=2`, no `k60_skip_firmware_mount=1`, no `amfi_get_out_of_my_way=1`), and it could not possibly have produced the 11-07 boot that has serial log output.
+- **Root cause**: the filenames are both `payload-0461`, but `scratch/payload-0461.img` and the payload embedded in `boot-0461-20261107.img` are **not the same file** (the former is an intermediate product of another iteration that same day). Which args an image uses **can only be learned by extracting from that image**.
+- **Correct approach**: get the payload from the image:
+  `ksize=u32@8` → `off = 4096 + ceil(ksize/4096)*4096` → read 201,326,592 B → `mcopy -i <payload> ::/EFI/UniXNU/unixnu.toml`.
+  `boot-0461-20261107.img`'s real args = **28 items**, containing `debug=0x140`, `k60_skip_firmware_mount=1`, `k60_tolerate_cache_loader=1`, `k60_usblog=2`, `amfi_get_out_of_my_way=1` — item for item identical to the `boot-args =` line in the 11-07 log (`scratch/FINDREAL2.txt`: MATCH=28/0).
+- **Correction alongside**: the kernels of the 11-07 images all differ (0458 `77a2ca32`, 0459 `62135cde`, 0460 `a00ea847`, 0461 `d56edb6f`), and out3's `78a0951a` is none of them; **stop using "the out3 golden kernel" as the reproduction baseline**.
+- **Evidence**: `scratch/PACKPROBE.txt` (16 args, a pile of MISSING), `scratch/PACKPROBE2.txt` (28 items all OK), `scratch/FINDREAL2.txt` (scanned 40 images, only the 0450–0461 series hits 28/0).
+- **30-second check**: to confirm an image's args → **extract from that .img right now**, do not read `scratch/payload-*.img`; after extracting, count the args first, and stop immediately if it does not match the expectation.
 
 ---
 
-### P-22 更正（2026-11-08 实测）：不是"cache 不见了"，而是 init 的 `DYLD_SHARED_CACHE_DIR` 指错路径
+### P-24 (= recurrence of historical pitfall 64-2) Swapping the kernel requires re-running `patch-armcpu-validate.py --apply`
 
-原 P-22 结论作废。**boot 期探针（0392）实测**：
+- **Symptom**: `panic: "CPU configuration in device tree is invalid" @AppleARMCPU.cpp:111`, USB does not enumerate, no serial log, and no automatic reset either.
+- **How it recurred (2026-11-08)**: I swapped the kernel directly with `mcopy -o -i payload ::/EFI/UniXNU/Payloads/kernel.macho <new kernel>`, **bypassing the `tree/scripts/patch-armcpu-validate.py --apply` that the payload step would have run**. This is not a new pitfall; `PITFALLS-FROM-HISTORY.md` entry 64 "pitfall 2" says it word for word.
+- **Correct approach (four fixed steps on every kernel swap)**:
+  1. `python3 <tree>/scripts/patch-armcpu-validate.py --check <kernel>` → if it prints `original bytes match` then `--apply` is mandatory;
+  2. after `--apply` run `--check` again and expect **`already patched`**, and confirm the bytes `ff8304d1fc6f0ca9 → 20008052c0035fd6` (`mov w0,#1 ; ret`);
+  3. after writing the payload do the **three-part self-check**: `header+kernel == template[0:552960]`, `ramdisk == payload` byte for byte, `trailer == template[201879552:]`;
+  4. verify `ksize == 548774`, `ramdisk_size == 0`.
+- **Evidence**: `scratch/ARMCPUFIX.txt` (the `--check` original text, `patched: mov w0,#1 ; ret`, `already patched`, all three self-checks True); historical entry `docs/PITFALLS-FROM-HISTORY.md:613` entry 64; `docs/references/USB-SERIAL-AND-AMFI-CHANNEL-20261105.md:28`.
+- **30-second check**: seeing `AppleARMCPU.cpp:111` → **do not read kernel code, do not look at the ADT**; first run `patch-armcpu-validate.py --check` on the kernel used for packaging; if it is not `already patched`, it is this entry.
+
+---
+
+### P-22 correction (measured 2026-11-08): it is not "the cache disappeared", it is init's `DYLD_SHARED_CACHE_DIR` pointing at the wrong path
+
+The original P-22 conclusion is void. **Measured by the boot-time probe (0392)**:
 ```
 K60DYLD /System/Library/Caches/com.apple.dyld                          rc=0
-K60DYLD /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64 rc=0   ← cache 一直都在
-K60DYLD /private/preboot/System/Library/Caches/com.apple.dyld          rc=2   ← 不存在
-K60DYLD /usr/lib/libSystem.B.dylib                                     rc=2   ← 正常（在 cache 内）
+K60DYLD /System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64 rc=0   ← the cache was there all along
+K60DYLD /private/preboot/System/Library/Caches/com.apple.dyld          rc=2   ← does not exist
+K60DYLD /usr/lib/libSystem.B.dylib                                     rc=2   ← normal (it is inside the cache)
 ```
-init 的 `env[]` 把 `DYLD_SHARED_CACHE_DIR=/private/preboot/System/Library/Caches/com.apple.dyld/`
-（pong 真机 preboot 卷的路径）照搬到本移植，但本移植的 cache 在 `/System/Library/Caches/com.apple.dyld/`。
-dyld 因此报 `(no such file, no dyld cache)`，再回退找 `/private/preboot/usr/lib/libSystem.B.dylib` 也失败 → `ns=6 code=0x1`。
+init's `env[]` copied `DYLD_SHARED_CACHE_DIR=/private/preboot/System/Library/Caches/com.apple.dyld/`
+(the path on a real pong device's preboot volume) verbatim into this port, but this port's cache is at `/System/Library/Caches/com.apple.dyld/`.
+dyld therefore reports `(no such file, no dyld cache)`, then the fallback lookup of `/private/preboot/usr/lib/libSystem.B.dylib` fails too → `ns=6 code=0x1`.
 
-**修复**：init 的两条环境变量改为
+**Fix**: the two environment variables in init become
 ```
 DYLD_SHARED_CACHE_DIR=/System/Library/Caches/com.apple.dyld/
 DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 ```
-实测结果（`evidence/usblog-20261108-135117/console.log`）：
-`launchd_cache_loader reported as clean exit (was 0x0)`、
-`K60PSX pid=24/45/79/44 err=0`、`assistantd/locationd/mediaserverd/tccd` 全部运行、
-**`Pong UI: 20G81 compatibility library entered SpringBoard` + `UIApplication -_run hooked`**。
+Measured result (`evidence/usblog-20261108-135117/console.log`):
+`launchd_cache_loader reported as clean exit (was 0x0)`,
+`K60PSX pid=24/45/79/44 err=0`, `assistantd/locationd/mediaserverd/tccd` all running,
+**`Pong UI: 20G81 compatibility library entered SpringBoard` + `UIApplication -_run hooked`**.
 
-- **证据**：`scratch/INITV13.txt`（编译与自检）、`scratch/writev13.ps1` 的 Gate3/Gate3b 输出、上述日志。
-- **30 秒判定**：`dyld[1]: Library not loaded ... (no such file, no dyld cache)` → 直接看 init 的 `DYLD_SHARED_CACHE_DIR` 指向的目录在设备上是否存在（用 0392 探针或 `ls`），不要怀疑 cache 丢失。
-
----
-
-### P-26 launchd(PID 1) 崩溃的精确范围：只有 8 个 App-cryptex job；且 `bindfs` 覆盖只读根返回 EPERM
-
-- **实测（2026-11-08，OS 镜像解析）**：`/System/Cryptexes/App` 与 `/System/Cryptexes/OS` 都是**符号链接**，分别指向
-  `../../private/preboot/Cryptexes/App` 与 `../../private/preboot/Cryptexes/OS`；而本移植没有 preboot 卷 → 这些路径全部悬空。
-  引用 App cryptex 的 LaunchDaemon **只有 8 个**：
-  `Safari.passwordbreachd`、`SafariBookmarksSyncAgent`、`webinspectord`、`Safari.History`、
-  `safarifetcherd`、**`WebBookmarks.webbookmarksd`（崩溃触发者）**、`AuthenticationServicesAgent`、`webkit.webpushd`。
-- **崩溃机制**：`launchd` 对缺失程序做 `access(path, X_OK)` 得 `ENOENT` 后 **SIGSEGV**（`KX! n 1 launchd sig=11 ns=2 code=0xb`）→ 内核 `initproc exited` panic。
-- **已试过的修法（失败）**：内核内嵌筛选后的 `launchd.plist`（22 个 CORE job，9,799 B）并写到 `/private/var/pong/launchd.plist`（`K60LC: write=0 resid=0` 成功），再由 init `mkdir`+`rename` 到 `/private/var/pong/xpc/launchd.plist`（`Pong init: curated launchd cache installed` 成功），最后 `mount("bindfs", "/System/Library/xpc", MNT_RDONLY, ...)` —— **失败：`result=-1 errno=1`（EPERM）**。只读根上的目录不能被 bindfs 覆盖。
-- **下一步候选（未执行，需评估风险）**：
-  1. **同尺寸就地覆盖**：把 curated plist 用填充字段补到原文件**完全相同的 1,384,579 B**，按 `apfs.py stat` 得到的 extent 物理块号，在 TWRP 里 `dd` 覆盖同一范围——不改 inode、不改 APFS 元数据，风险最小；先备份原 1.38 MB 范围。
-  2. 整块重写 OS 窗（5.09 GB）——风险高，需完整备份，暂不推荐。
-- **证据**：`scratch/CRYPTEX.txt`（8 个 job + 符号链接目标）、`scratch/COREPROG.txt`（22 个 CORE 程序在 OS 镜像里 **MISSING COUNT: 0**）、`evidence/usblog-20261108-143838/console.log`（`boot view ... result=-1 errno=1`、`webbookmarksd`、`initproc exited`）。
-- **30 秒判定**：`initproc exited` + `webbookmarksd` → 直接按本条走；不要再怀疑 dyld/init/内核。
+- **Evidence**: `scratch/INITV13.txt` (compilation and self-check), the Gate3/Gate3b output of `scratch/writev13.ps1`, the logs above.
+- **30-second check**: `dyld[1]: Library not loaded ... (no such file, no dyld cache)` → go straight to whether the directory `DYLD_SHARED_CACHE_DIR` in init points at exists on the device (with the 0392 probe or `ls`); do not suspect a lost cache.
 
 ---
 
-### P-27 密封根上 `bindfs` 一律 EPERM；`access`/`faccessat` 钩子对 launchd 无效；需用 APFS 二次挂载
+### P-26 The exact scope of the launchd(PID 1) crash: only 8 App-cryptex jobs; and `bindfs` over the read-only root returns EPERM
 
-- **实测（2026-11-08）**：
+- **Measured (2026-11-08, OS image parsing)**: `/System/Cryptexes/App` and `/System/Cryptexes/OS` are both **symlinks**, pointing at
+  `../../private/preboot/Cryptexes/App` and `../../private/preboot/Cryptexes/OS` respectively; this port has no preboot volume → all these paths dangle.
+  **Only 8** LaunchDaemons reference the App cryptex:
+  `Safari.passwordbreachd`, `SafariBookmarksSyncAgent`, `webinspectord`, `Safari.History`,
+  `safarifetcherd`, **`WebBookmarks.webbookmarksd` (the crash trigger)**, `AuthenticationServicesAgent`, `webkit.webpushd`.
+- **Crash mechanism**: `launchd` does `access(path, X_OK)` on the missing program, gets `ENOENT`, then **SIGSEGV** (`KX! n 1 launchd sig=11 ns=2 code=0xb`) → the kernel's `initproc exited` panic.
+- **Fix already tried (failed)**: embedding the filtered `launchd.plist` in the kernel (22 CORE jobs, 9,799 B) and writing it to `/private/var/pong/launchd.plist` (`K60LC: write=0 resid=0`, success), then init `mkdir`+`rename` to `/private/var/pong/xpc/launchd.plist` (`Pong init: curated launchd cache installed`, success), and finally `mount("bindfs", "/System/Library/xpc", MNT_RDONLY, ...)` — **failed: `result=-1 errno=1` (EPERM)**. A directory on the read-only root cannot be covered by bindfs.
+- **Next candidates (not executed, risk must be assessed)**:
+  1. **Same-size in-place overwrite**: pad the curated plist to **exactly the same 1,384,579 B** as the original file, and `dd` over the same range in TWRP using the physical block number of the extent from `apfs.py stat` — no inode change, no APFS metadata change, lowest risk; back up the original 1.38 MB range first.
+  2. Rewrite the whole OS window (5.09 GB) — high risk, needs a full backup, not recommended for now.
+- **Evidence**: `scratch/CRYPTEX.txt` (the 8 jobs + symlink targets), `scratch/COREPROG.txt` (the 22 CORE programs **MISSING COUNT: 0** in the OS image), `evidence/usblog-20261108-143838/console.log` (`boot view ... result=-1 errno=1`, `webbookmarksd`, `initproc exited`).
+- **30-second check**: `initproc exited` + `webbookmarksd` → follow this entry; stop suspecting dyld/init/kernel.
+
+---
+
+### P-27 `bindfs` is always EPERM on the sealed root; the `access`/`faccessat` hooks do not work for launchd; APFS remount is needed
+
+- **Measured (2026-11-08)**:
   - `mount("bindfs", "/System/Library/xpc", MNT_RDONLY, ...)` → `result=-1 errno=1`
-  - `mount("bindfs", "/private/preboot", MNT_RDONLY, ...)` → 同样 `-1 errno=1`
-  - 改成 `flags=0` 仍然 `-1 errno=1`
-  ⇒ **只读密封根（OS 卷 `incompatible 0x8` = sealed）上的目录无法被 bindfs 覆盖**；pong 的五个 bindfs 视图在本移植全部不可用，日志里的 `optional boot view SKIP` 之后即使跑起来也会 EPERM。
-- **secondary 实测**：内核里 `0390`（`access()` 前缀假成功）与 `0396`（`faccessat_internal` 同样逻辑）**都已编进内核**（`strings` 分别命中 1 次），但 launchd 崩溃前**两条打印都没有出现** ⇒ launchd 的 `access(path, X_OK)` 检查既不走 `access` 也不走 `faccessat` 系统调用（是 libSystem 用户态/其它路径解析），在 syscall 层拦截无效。
-- **正确的下一步**：用 **APFS 真实挂载**把 Data 卷二次挂到 `/private/preboot`（macOS 的 `/Volumes` 就在密封根上正常挂载，说明 mount 本身不被密封阻止，只有 bindfs 的 vnode 覆盖被拒）。
-  设备实测卷号：**Data = `/dev/disk2s1`**（5,210,112 块 × 4096 = 21,342,715,904 B，与 Data 窗 `0x4f8200000` 完全吻合）；OS = `disk1s1`（1,244,160 块）。
-  挂载后 `/private/preboot/Cryptexes/App/...` 与 Data 根的 `Cryptexes/App/...` 同源，只需在 `/private/var/Cryptexes/App/...` 建 8 个 **0755 空文件**即可让 launchd 的 `access(X_OK)` 成功。
-- **证据**：`scratch/INITV16.txt`/`INITV17.txt`（`app-cryptex stubs ready` 与 EPERM 打印）、`scratch/HOOKCHK.txt`（两个钩子都在内核里但未触发）、`scratch/NAMEI.txt`、`evidence/usblog-20261108-155056/console.log`（`webbookmarksd` + `initproc exited`）。
-- **30 秒判定**：看到 `boot view ... result=-1 errno=1` → 不要再试 bindfs 的任何变体（RDONLY/0 都失败），直接上 APFS 二次挂载。
+  - `mount("bindfs", "/private/preboot", MNT_RDONLY, ...)` → also `-1 errno=1`
+  - changing to `flags=0` still gives `-1 errno=1`
+  ⇒ **directories on the read-only sealed root (OS volume `incompatible 0x8` = sealed) cannot be covered by bindfs**; pong's five bindfs views are all unusable in this port, and everything after the `optional boot view SKIP` in the log would EPERM even if it ran.
+- **Secondary measurement**: in the kernel both `0390` (`access()` prefix fake success) and `0396` (same logic for `faccessat_internal`) **are compiled in** (`strings` hits each once), yet **neither print appears** before launchd crashes ⇒ launchd's `access(path, X_OK)` check goes through neither the `access` nor the `faccessat` syscall (it is libSystem userland/another path resolution), so intercepting at the syscall layer is useless.
+- **Correct next step**: use a **real APFS mount** to mount the Data volume a second time at `/private/preboot` (macOS's `/Volumes` mounts normally on the sealed root, which shows the mount itself is not blocked by sealing; only bindfs's vnode covering is refused).
+  Device-measured volume numbers: **Data = `/dev/disk2s1`** (5,210,112 blocks × 4096 = 21,342,715,904 B, matching the Data window `0x4f8200000` exactly); OS = `disk1s1` (1,244,160 blocks).
+  After mounting, `/private/preboot/Cryptexes/App/...` is the same source as `Cryptexes/App/...` at the Data root, so 8 **0755 empty files** under `/private/var/Cryptexes/App/...` are enough to make launchd's `access(X_OK)` succeed.
+- **Evidence**: `scratch/INITV16.txt`/`INITV17.txt` (`app-cryptex stubs ready` and the EPERM print), `scratch/HOOKCHK.txt` (both hooks are in the kernel but never fire), `scratch/NAMEI.txt`, `evidence/usblog-20261108-155056/console.log` (`webbookmarksd` + `initproc exited`).
+- **30-second check**: seeing `boot view ... result=-1 errno=1` → stop trying any variant of bindfs (RDONLY and 0 both fail), go straight to the APFS remount.
 
 ---
 
 ### P-28 `mount("apfs", "/private/preboot", MNT_RDONLY, payload)` → **errno 79 = ENEEDAUTH**
 
-- **实测（2026-11-08，init-v18）**：init 在 Data 卷根建好 `Cryptexes/App/...` 的 8 个 0755 空文件后
-  （日志 `Pong init: app-cryptex stubs ready` 正常），用与 `/private/var` 相同的 APFS 2142 payload
-  `mount("apfs", "/private/preboot", MNT_RDONLY, payload)`，device 传 `/dev/disk2s1`：
-  `Pong init: preboot remount result=-1 errno=79`。Darwin errno 79 = **ENEEDAUTH**。
-- **含义**：APFS 对同一容器二次挂载要求认证（不是密封阻止、也不是 EPERM）。**「二次挂载 Data 到 /private/preboot」这条路不可行**，不要再试其它 flags 变体。
-- **同时已排除**：bindfs 到 `/private/preboot`（MNT_RDONLY 与 flags=0 都 EPERM）、bindfs 到 `/System/Library/xpc`（EPERM）、内核 `access`/`faccessat` 钩子（不触发）。见 P-27。
-- **剩下唯一可行方向**：直接替换 OS 窗里的 `/System/Library/xpc/launchd.plist`（同尺寸就地覆盖，不改 inode/元数据）。
-  **关键偏移仍未确证**：窗口前 1 MB 很可能是保留区，若 APFS 容器从 `窗口 + 0x100000` 开始，
-  则文件位置 = `0x100000(OS 窗) + 0x100000(容器前) + 1062050×4096`，即 **`bs=4096 skip=1062562`**。
-  下次设备可用时**第一步就是只读读 32 字节验证是否 `bplist00`**，验证通过再谈写。
-- **证据**：`evidence/usblog-20261108-160004/console.log`（`preboot remount result=-1 errno=79`）、`scratch/INITV18.txt`（sha `e8c65936…`）。
-- **30 秒判定**：`preboot remount ... errno=79` → 直接放弃二次挂载，转向 OS 窗同尺寸覆盖；看到 `errno=1` → 是 bindfs，别再试。
+- **Measured (2026-11-08, init-v18)**: after init created the 8 0755 empty files for `Cryptexes/App/...` at the Data volume root
+  (the log's `Pong init: app-cryptex stubs ready` is normal), it called, with the same APFS 2142 payload as for `/private/var`,
+  `mount("apfs", "/private/preboot", MNT_RDONLY, payload)` with device `/dev/disk2s1`:
+  `Pong init: preboot remount result=-1 errno=79`. Darwin errno 79 = **ENEEDAUTH**.
+- **Meaning**: APFS requires authentication for a second mount of the same container (it is not sealing, and not EPERM). **"Remount Data at /private/preboot" is not a viable route**; do not try other flag variants.
+- **Also already ruled out**: bindfs to `/private/preboot` (both MNT_RDONLY and flags=0 give EPERM), bindfs to `/System/Library/xpc` (EPERM), kernel `access`/`faccessat` hooks (never fire). See P-27.
+- **The only remaining viable direction**: replace `/System/Library/xpc/launchd.plist` in the OS window directly (same-size in-place overwrite, no inode/metadata change).
+  **The key offset is still unconfirmed**: the first 1 MB of the window is very likely reserved; if the APFS container starts at `window + 0x100000`,
+  then the file position = `0x100000(OS window) + 0x100000(before container) + 1062050×4096`, i.e. **`bs=4096 skip=1062562`**.
+  The **first step** next time the device is available is a read-only 32-byte read to verify it is `bplist00`; only then discuss writing.
+- **Evidence**: `evidence/usblog-20261108-160004/console.log` (`preboot remount result=-1 errno=79`), `scratch/INITV18.txt` (sha `e8c65936…`).
+- **30-second check**: `preboot remount ... errno=79` → give up the second mount outright and switch to the same-size overwrite in the OS window; seeing `errno=1` → that is bindfs, stop trying.
 
 ---
 
-### P-29 设备 OS 窗内容 ≠ 本地 `096-57366-083.dmg`：不能按 dmg 的块号/内容推算
+### P-29 The device's OS window content ≠ the local `096-57366-083.dmg`: block numbers/content from the dmg cannot be used to infer it
 
-- **实测（2026-11-08）**：把 `096-57366-083.dmg` 解出的 `launchd.plist` 前 64 字节作为指纹
-  （`62706c6973743030d6000100…417070457874656e73696f6e735d4c61756e63684461656d6f6e735f1012`），
-  对设备 unixnu 分区的 **OS 窗全量 4.75 GB（0x12fc08600，19 个 256 MB 分块）** 做逐块搜索：
-  **19/19 全部 hit=-1，RESULT_NOT_FOUND**。
-- **含义**：设备上的 OS 内容与本地 dmg **不是同一份镜像**；`NXSB` 在设备 64 MB 头内的分布也与 dmg 完全不同
-  （设备在 0x104420/0x10c420/0x10e420… 每 0x2000 一次；dmg 的容器 superblock 在块 0）。
-  ⇒ **禁止**用 dmg 的 APFS 块号 + 窗偏移去定位或改写设备上的 OS 文件（会写坏无关区域）。
-- **仍成立的事实**：SHNGROOT 清单的窗口偏移是**分区内字节偏移**（Data 窗 `0x261100000` + `0x100000` 内容起点，
-  与 init 写盘公式吻合，已多次 Gate3 验证）；OS 窗 = `0x100000`、SystemOS = `0x12fe00000`、Data = `0x261100000`。
-  每个窗口**前 1 MB 是保留区**，内容从 `+0x100000` 起。
-- **因此**：想改 OS 里的文件，只能在**运行中的系统**里做（ro 挂载挡死了），或改内核行为；离线改写不可行。
-- **证据**：`scratch/scanlp*`（扫描脚本）、`scratch/PREP_PLANA.txt`、`scratch/LBA2.txt`、`scratch/PLAN_A.txt`。
-- **30 秒判定**：要改 OS 窗内文件前，先用 64 字节指纹全窗扫描确认能定位；扫不到就**立即放弃**离线改写。
-
----
-
-### P-30 `namei()` 层路径重定向也不触发 ⇒ launchd 的 "access(...)" 行很可能是它自己合成的日志，不是真的路径解析
-
-- **实测（2026-11-08，内核 `dea5e777` / 镜像内 `50d1b6c6`）**：在 `namei()` 入口对 `cn_pnbuf` 做
-  `strncmp(path, "/System/Cryptexes/App", 21)` 并改写为更短的 `/private/var/pong...`（理论上必然放得下，
-  因为替换串比原串短 4 字节）。补丁已确认编入内核（`strings kernel.macho | grep -c 'K60 redirect'` = 1，
-  且镜像内 kernel sha 一致），init 也在 `/private/var/pong` 建好了 8 个 0755 空文件
-  （`Pong init: app-cryptex stubs ready at /private/var/pong`）。
-  **但整个启动过程中 `K60 redirect:` 一次都没有打印**，launchd 仍在同一位置 SIGSEGV。
-- **叠加此前结论**：`access()`（0390）、`faccessat_internal`（0396）、`namei()`（0397）**三层钩子全部不触发**。
-  ⇒ 结论：`access(/System/Cryptexes/App/usr/libexec/webbookmarksd, X_OK) failed with errno 2` 这行**不是内核在
-  路径解析时打印的**，而是 launchd 自己在 `posix_spawn`/exec 失败后合成的描述（它拿到的 errno 来自 exec 而非
-  access(2)）。因此**在 syscall/路径层拦截无效**，必须让那个程序文件真的存在，或改服务缓存。
-- **已死的路（不要再试）**：bindfs 覆盖密封根（EPERM）、APFS 二次挂载（ENEEDAUTH 79）、离线改 OS 窗（设备 OS 内容
-  与 dmg 不一致，指纹全窗 4.75 GB 扫描 0 命中）、access/faccessat/namei 三层内核钩子（均不触发）。
-- **仍可能有效的方向**：①在**运行中的系统里**让 `/private/preboot` 可写（需要 preboot 卷或可挂载介质）；
-  ②改 launchd 服务缓存（需要能写 `/System/Library/xpc`）；③换一条不依赖 launchd 拉起 SpringBoard 的启动路径（需调研 pong 是否有）。
-- **证据**：`scratch/CHK397.txt`（内核含 0397）、`scratch/CHKIMG.txt`（镜像内 kernel `50d1b6c6` 含 `K60 redirect`）、
-  `evidence/usblog-20261108-163128/console.log`（无 `K60 redirect`、仍 `webbookmarksd` + `initproc exited`）。
-- **30 秒判定**：想靠内核钩子绕过 App cryptex → **先确认钩子会打印**；不打印就立刻停，别再改钩子。
+- **Measured (2026-11-08)**: taking the first 64 bytes of the `launchd.plist` extracted from `096-57366-083.dmg` as a fingerprint
+  (`62706c6973743030d6000100…417070457874656e73696f6e735d4c61756e63684461656d6f6e735f1012`),
+  a block-by-block search of the device's unixnu partition **full OS window of 4.75 GB (0x12fc08600, 19 chunks of 256 MB)**:
+  **19/19 all hit=-1, RESULT_NOT_FOUND**.
+- **Meaning**: the OS content on the device is **not the same image** as the local dmg; `NXSB` distribution inside the device's 64 MB header differs completely from the dmg
+  (the device has one every 0x2000 at 0x104420/0x10c420/0x10e420…; the dmg's container superblock is at block 0).
+  ⇒ **it is forbidden** to use the dmg's APFS block numbers + window offset to locate or rewrite OS files on the device (it would write over unrelated regions).
+- **Facts that still hold**: the window offsets in the SHNGROOT manifest are **byte offsets inside the partition** (Data window `0x261100000` + `0x100000` content start,
+  consistent with the init write formula, verified by Gate3 several times); OS window = `0x100000`, SystemOS = `0x12fe00000`, Data = `0x261100000`.
+  Each window's **first 1 MB is a reserved region**, content starts at `+0x100000`.
+- **Therefore**: changing a file in the OS can only be done **in the running system** (the ro mount blocks it) or by changing kernel behaviour; offline rewriting is not viable.
+- **Evidence**: `scratch/scanlp*` (scan scripts), `scratch/PREP_PLANA.txt`, `scratch/LBA2.txt`, `scratch/PLAN_A.txt`.
+- **30-second check**: before changing a file inside the OS window, first do a full-window scan with the 64-byte fingerprint to confirm it can be located; if it cannot, **abandon the offline rewrite immediately**.
 
 ---
 
-### P-31 pong 的 Goodix 触摸驱动能编进 20G81 内核，但 HID 发布层 ABI 不匹配：`IOHIDEventSystemClientCreateWithType` 不存在
+### P-30 Path redirection at the `namei()` layer does not fire either ⇒ launchd's "access(...)" line is very likely a log line it composes itself, not real path resolution
 
-- **实测（2026-11-08，内核 `a1973538`，198 补丁）**：把 pong ios16 分支的
-  `zzzz…-pong-touch-console.patch`（36.6 KB：`bsd/dev/pong_goodix.c` + `pong_input.c` + `pong_input.h` + `conf/files` + `bsd_init.c` + `MiniIOMobileFramebuffer.cpp`）
-  与 `zzzz…-pong-physical-keys.patch`（12.0 KB：`pong_buttons.c`）顺序加入 series，**构建通过**（内核 54,001,664 B，含 `Pong Goodix Berlin-D` 与全部 goodix 诊断串）。
-  启动后日志：**`Pong touch HID: unavailable IOHIDEventSystemClientCreateWithType; SKIP`** —— 触摸协议层跑起来了，但**事件发布层调用的 IOHID API 在 20G81 内核里不存在**，驱动自行跳过。
-- **含义**：pong 的 `pong_input.c` 面向更新的 IOHIDFamily（iPadOS 17/18）；20G81 需要按 `ShengHidInput` 的旧 ABI 重写发布层（`OFFICIAL-DRIVER-MAP.md` 第 6 项已写明「`ShengHidInput` 需按 20G81 IOHIDFamily 重对」）。
-- **ADT 已就绪（重要）**：`scripts/make-pong-adt.py` **本来就生成** `/arm-io/pong-touch`（spi-base `0x990000`、tlmm-base `0x0f000000`、gcc-base `0x00100000`、rsc-base `0x17a20000`、cmd-db-base `0x80860000`、gpio-offset `0x00100000`、pins `<16 17 18 19 21 20>`）与 `/arm-io/pong-buttons`（core-base `0x0c400000`、cnfg-base `0x0c42d000`、observer-base `0x0c440000`、ee `0`、pon-ppid `0x013`、volume-up-ppid `0x18d`）。本次只把 `max-x/max-y` 由 pong 的 `1080/2412` 改为 K60 的 `14400/32000`。
-- **证据**：`scratch/WIRE_DRIVERS.txt`（series 196→198）、`scratch/DRVCHK.txt`（内核含驱动）、`evidence/usblog-20261108-165317/console.log`（`Pong touch HID: unavailable ...`）。
-- **30 秒判定**：看到 `IOHIDEventSystemClientCreateWithType` 不可用 → 直接改发布层 ABI，不要再调 SPI/ADT 参数。
-
-### P-32 系统能长时间运行，但 `watchdogd` 反复崩溃最终导致复位（不是 launchd 崩）
-
-- **实测（2026-11-08）**：`disabled.plist` 修掉 launchd 的 App-cryptex 崩溃后，系统可持续运行到锁屏（日志 342 KB，`home request returned locked=1 screen=1 dim=0`），
-  但之后出现 `Process[324] crashed: watchdogd. Too many corpses being created.`、`KX! 5 51 watchdogd exit=0 sig=5`，最终设备自动复位回 fastboot。
-  **没有** `initproc exited` / `webbookmarksd` —— launchd 侧已修好，复位来自 watchdogd 崩溃链（可能叠加 ABL 开启的硬件看门狗）。
-- **含义**：需要 PMIC/看门狗驱动（`pong_buttons.c` 已提供 PMIC-arbiter 只读访问框架），或先禁用 `com.apple.watchdogd`（`disabled.plist` 再加一项）以延长稳定运行时间。
-- **证据**：`evidence/usblog-20261108-163843/console.log` 末尾；`evidence/usblog-20261108-165317/console.log`。
-- **30 秒判定**：复位但日志无 `initproc exited` → 查 `watchdogd`，不要怀疑 launchd。
+- **Measured (2026-11-08, kernel `dea5e777` / in-image `50d1b6c6`)**: at the `namei()` entry, `strncmp(path, "/System/Cryptexes/App", 21)` on `cn_pnbuf`
+  and rewriting it to the shorter `/private/var/pong...` (theoretically it must fit,
+  since the replacement string is 4 bytes shorter than the original). The patch is confirmed compiled into the kernel (`strings kernel.macho | grep -c 'K60 redirect'` = 1,
+  and the in-image kernel sha matches), and init also created the 8 0755 empty files under `/private/var/pong`
+  (`Pong init: app-cryptex stubs ready at /private/var/pong`).
+  **Yet `K60 redirect:` is not printed once** during the whole boot, and launchd still SIGSEGVs at the same place.
+- **On top of the earlier conclusions**: `access()` (0390), `faccessat_internal` (0396), `namei()` (0397) — **all three hook layers never fire**.
+  ⇒ Conclusion: the line `access(/System/Cryptexes/App/usr/libexec/webbookmarksd, X_OK) failed with errno 2` **is not printed by the kernel during
+  path resolution**; it is a description launchd composes itself after `posix_spawn`/exec fails (the errno it gets comes from exec, not from
+  access(2)). So **intercepting at the syscall/path layer is useless**; that program file must actually exist, or the service cache must be changed.
+- **Dead ends (do not try again)**: bindfs over the sealed root (EPERM), APFS second mount (ENEEDAUTH 79), offline OS window editing (device OS content
+  differs from the dmg, fingerprint full-window 4.75 GB scan 0 hits), the three kernel hooks access/faccessat/namei (none fire).
+- **Directions that may still work**: ① make `/private/preboot` writable **in the running system** (needs a preboot volume or mountable medium);
+  ② change launchd's service cache (needs write access to `/System/Library/xpc`); ③ switch to a boot path that brings up SpringBoard without launchd (needs research into whether pong has one).
+- **Evidence**: `scratch/CHK397.txt` (kernel contains 0397), `scratch/CHKIMG.txt` (in-image kernel `50d1b6c6` contains `K60 redirect`),
+  `evidence/usblog-20261108-163128/console.log` (no `K60 redirect`, still `webbookmarksd` + `initproc exited`).
+- **30-second check**: to bypass the App cryptex with a kernel hook → **first confirm the hook prints**; if it does not print, stop immediately and stop editing hooks.
 
 ---
 
-### P-33 触摸/按键驱动默认是**关闭**的（要 boot-arg），且用户态 HID 发布层无法在 WSL 重建
+### P-31 pong's Goodix touch driver compiles into the 20G81 kernel, but the HID publishing layer ABI does not match: `IOHIDEventSystemClientCreateWithType` does not exist
 
-- **症状**：驱动都编进内核、启动后却完全没有 `Pong keys:` / `goodix:` 日志，按电源/音量/触摸都没反应。
-- **根因 1（门控）**：pong 的两个驱动入口都要求 boot-arg：
+- **Measured (2026-11-08, kernel `a1973538`, 198 patches)**: adding the pong ios16 branch's
+  `zzzz…-pong-touch-console.patch` (36.6 KB: `bsd/dev/pong_goodix.c` + `pong_input.c` + `pong_input.h` + `conf/files` + `bsd_init.c` + `MiniIOMobileFramebuffer.cpp`)
+  and `zzzz…-pong-physical-keys.patch` (12.0 KB: `pong_buttons.c`) to the series in order, **the build passes** (kernel 54,001,664 B, containing `Pong Goodix Berlin-D` and all the goodix diagnostic strings).
+  The log after boot: **`Pong touch HID: unavailable IOHIDEventSystemClientCreateWithType; SKIP`** — the touch protocol layer runs, but **the IOHID API called by the event publishing layer does not exist in the 20G81 kernel**, so the driver skips itself.
+- **Meaning**: pong's `pong_input.c` targets a newer IOHIDFamily (iPadOS 17/18); 20G81 needs the publishing layer rewritten against `ShengHidInput`'s old ABI (`OFFICIAL-DRIVER-MAP.md` item 6 already says "`ShengHidInput` must be re-aligned with the 20G81 IOHIDFamily").
+- **ADT is already in place (important)**: `scripts/make-pong-adt.py` **already generates** `/arm-io/pong-touch` (spi-base `0x990000`, tlmm-base `0x0f000000`, gcc-base `0x00100000`, rsc-base `0x17a20000`, cmd-db-base `0x80860000`, gpio-offset `0x00100000`, pins `<16 17 18 19 21 20>`) and `/arm-io/pong-buttons` (core-base `0x0c400000`, cnfg-base `0x0c42d000`, observer-base `0x0c440000`, ee `0`, pon-ppid `0x013`, volume-up-ppid `0x18d`). This round only changed `max-x/max-y` from pong's `1080/2412` to the K60's `14400/32000`.
+- **Evidence**: `scratch/WIRE_DRIVERS.txt` (series 196→198), `scratch/DRVCHK.txt` (kernel contains the driver), `evidence/usblog-20261108-165317/console.log` (`Pong touch HID: unavailable ...`).
+- **30-second check**: seeing `IOHIDEventSystemClientCreateWithType` unavailable → go straight to changing the publishing layer ABI, stop tuning SPI/ADT parameters.
+
+### P-32 The system can run for a long time, but `watchdogd` crashes repeatedly and finally causes a reset (not a launchd crash)
+
+- **Measured (2026-11-08)**: after `disabled.plist` fixed launchd's App-cryptex crash, the system could run continuously to the lock screen (log 342 KB, `home request returned locked=1 screen=1 dim=0`),
+  but then came `Process[324] crashed: watchdogd. Too many corpses being created.`, `KX! 5 51 watchdogd exit=0 sig=5`, and finally the device reset itself back to fastboot.
+  **No** `initproc exited` / `webbookmarksd` — the launchd side is fixed, the reset comes from the watchdogd crash chain (possibly compounded by a hardware watchdog enabled by ABL).
+- **Meaning**: a PMIC/watchdog driver is needed (`pong_buttons.c` already provides the PMIC-arbiter read-only access framework), or `com.apple.watchdogd` must be disabled first (one more entry in `disabled.plist`) to lengthen the stable run time.
+- **Evidence**: end of `evidence/usblog-20261108-163843/console.log`; `evidence/usblog-20261108-165317/console.log`.
+- **30-second check**: a reset but the log has no `initproc exited` → look at `watchdogd`, do not suspect launchd.
+
+---
+
+### P-33 The touch/button drivers default to **off** (they need a boot-arg), and the userland HID publishing layer cannot be rebuilt in WSL
+
+- **Symptom**: the drivers are compiled into the kernel, yet after boot there are no `Pong keys:` / `goodix:` log lines at all, and power/volume/touch do nothing.
+- **Root cause 1 (gating)**: both pong driver entries require a boot-arg:
   `pong_goodix_init()`: `if (!PE_parse_boot_argn("pong_touch",&enabled,...) || !enabled) return;`
   `pong_buttons_init()`: `if (!PE_parse_boot_argn("pong_buttons",&enabled,...) || !enabled) return;`
-  没传 → 直接 return，等于没编。**修复 = patch 0399**：把两处 `enabled=0` 改 `enabled=1` 并忽略缺失的参数（默认开）。
-- **根因 2（用户态）**：即使内核驱动工作了，事件还要靠用户态 `userland/touch.c` 经
-  `IOHIDEventSystemClientCreateWithType` 发布；20G81 没有这个变体（日志 `Pong touch HID: unavailable ...`）。
-  已给 `touch.c` 加回退到 `IOHIDEventSystemClientCreate`（老 API），但 **`libpong-ui.dylib` 由 `userland/build.py:compile_ui` 用 macOS `xcrun`+iPhoneOS SDK 编译**，WSL 无法重建；仓库/交付物里也没有预编译产物。
-- **可行出路**：①在 macOS 上跑 `userland/build.py` 重新生成 `libpong-ui.dylib` 并重打 0340 的 blob；②把 HID 发布搬进内核（20G81 自带 `IOHIDEventService` / `IOHIDEventCreateKeyboardEvent`），彻底摆脱 macOS 依赖（推荐）。
-- **附带结论**：**不要用「每 2 秒重发 DCS 0x29/0x51」的保活线程**去维持亮屏——按电源键熄屏后会被强行点亮，与 iOS 的睡眠逻辑打架；正确做法是让电源键事件进 SpringBoard。
-- **证据**：`scratch/KEYSHOOK.txt`（门控原文）、`scratch/INITV21.txt`、`scratch/UILIB.txt`（build.py 需 xcrun）、`evidence/usblog-20261108-165317/console.log`。
-- **30 秒判定**：驱动编了但无任何驱动日志 → 先查 `PE_parse_boot_argn` 门控；有 `unavailable IOHID...` → 是用户态库 ABI。
+  Not passed → it returns immediately, as good as not compiled. **Fix = patch 0399**: change both `enabled=0` to `enabled=1` and ignore the missing argument (on by default).
+- **Root cause 2 (userland)**: even with the kernel driver working, the events still have to be published by the userland `userland/touch.c` through
+  `IOHIDEventSystemClientCreateWithType`; 20G81 has no such variant (log `Pong touch HID: unavailable ...`).
+  `touch.c` has been given a fallback to `IOHIDEventSystemClientCreate` (the old API), but **`libpong-ui.dylib` is compiled by `userland/build.py:compile_ui` with macOS `xcrun` + the iPhoneOS SDK**, and WSL cannot rebuild it; there is no prebuilt artefact in the repo/deliverables either.
+- **Viable way out**: ① run `userland/build.py` on macOS to regenerate `libpong-ui.dylib` and re-pack 0340's blob; ② move HID publishing into the kernel (20G81 ships `IOHIDEventService` / `IOHIDEventCreateKeyboardEvent`), dropping the macOS dependency entirely (recommended).
+- **Side conclusion**: **do not** use a "re-send DCS 0x29/0x51 every 2 seconds" keep-alive thread to hold the screen on — after the power key blanks the screen it would be forced back on, fighting iOS's sleep logic; the correct approach is to get power-key events into SpringBoard.
+- **Evidence**: `scratch/KEYSHOOK.txt` (the gating source text), `scratch/INITV21.txt`, `scratch/UILIB.txt` (build.py needs xcrun), `evidence/usblog-20261108-165317/console.log`.
+- **30-second check**: driver compiled but no driver log at all → check the `PE_parse_boot_argn` gating first; `unavailable IOHID...` → it is the userland library ABI.
 
 ---
 
-### P-34 schema-v2 ADT：`/arm-io` 子节点只来自 DTS 的 `unixnu,adt-name`，且属性必须命中白名单
+### P-34 schema-v2 ADT: `/arm-io` child nodes come only from the DTS's `unixnu,adt-name`, and properties must hit the whitelist
 
-- **症状**：`pong_goodix` / `pong_buttons` 打印 `missing/incompatible DT; SKIP`，即使内核驱动已编入、boot-arg 门控也已默认打开。
-- **根因（两层）**：
-  1. `scripts/unixnu/devicetree.py:generate()` 里 `/arm-io` 的子节点**不是**从 profile 的 `["adt"]` 来，而是
-     `hardware = [entry for entry in root.walk() if 'unixnu,adt-name' in entry.properties]` —— 只有 `dts/mondrian.dts` 里
-     带 `unixnu,adt-name = "..."` 的节点才会被导出。
-  2. `hardware_properties()` 只导出**白名单**里的属性名：
+- **Symptom**: `pong_goodix` / `pong_buttons` print `missing/incompatible DT; SKIP`, even though the kernel driver is compiled in and the boot-arg gating is already on by default.
+- **Root cause (two layers)**:
+  1. In `scripts/unixnu/devicetree.py:generate()` the `/arm-io` child nodes do **not** come from the profile's `["adt"]`, but from
+     `hardware = [entry for entry in root.walk() if 'unixnu,adt-name' in entry.properties]` — only nodes in `dts/mondrian.dts` that carry
+     `unixnu,adt-name = "..."` are exported.
+  2. `hardware_properties()` only exports property names in the **whitelist**:
      `STRINGS = {compatible, device_type, reg-names, interrupt-names, clock-names, method}`
      `U32 = {phandle, …, pong,smmu-stream-id, pong,ufs-spi, …}`
      `U64 = {redistributor-stride, pong,ufs-hc-base, …}`
-     **`spi-base / tlmm-base / gcc-base / rsc-base / cmd-db-base / gpio-offset / pins / max-x / max-y / core-base / cnfg-base / observer-base / ee / pon-ppid / volume-up-ppid` 全部不在白名单里 → 会被静默丢弃。**
-- **正确做法（三步）**：
-  1. `dts/mondrian.dts` 增加两个节点，带 `unixnu,adt-name = "pong-touch"` / `"pong-buttons"` 并按 pong 的命名写出全部属性；
-  2. 在 **UniXNU 框架仓**的 `scripts/unixnu/devicetree.py` 里把上述 15 个属性名加进 `U32`/`U64` 白名单（注意：`tree/scripts` 每次构建从框架仓重新拷贝，改 tree 里的会被覆盖）；
-  3. 重新 `unixnu payload` → `unixnu bootimg`/splice → 上机。
-- **证据**：`scratch/ADTNEW.txt`（ADT 里 `pong-touch`/`pong-buttons`/`spi-base` 全部 `-1`）、`scratch/WHITELIST.txt`（白名单原文，15 个属性命中数全 0）、`scratch/DTSNODE.txt`（`ufs@1d84000` 的 `unixnu,adt-name = "ufshc"` 范例）。
-- **30 秒判定**：驱动报 `missing/incompatible DT` → 先 `strings kernel.macho.adt | grep <节点名>`；不在就按本条查 DTS + 白名单，不要改驱动断言值。
+     **`spi-base / tlmm-base / gcc-base / rsc-base / cmd-db-base / gpio-offset / pins / max-x / max-y / core-base / cnfg-base / observer-base / ee / pon-ppid / volume-up-ppid` are all absent from the whitelist → they are silently dropped.**
+- **Correct approach (three steps)**:
+  1. add the two nodes to `dts/mondrian.dts` with `unixnu,adt-name = "pong-touch"` / `"pong-buttons"` and write all properties using pong's naming;
+  2. in the **UniXNU framework repo**'s `scripts/unixnu/devicetree.py`, add the 15 property names above to the `U32`/`U64` whitelists (note: `tree/scripts` is re-copied from the framework repo on every build, so edits inside tree get overwritten);
+  3. re-run `unixnu payload` → `unixnu bootimg`/splice → on device.
+- **Evidence**: `scratch/ADTNEW.txt` (in the ADT `pong-touch`/`pong-buttons`/`spi-base` are all `-1`), `scratch/WHITELIST.txt` (the whitelist source text, hit count 0 for all 15 properties), `scratch/DTSNODE.txt` (`ufs@1d84000`'s `unixnu,adt-name = "ufshc"` as an example).
+- **30-second check**: the driver reports `missing/incompatible DT` → first `strings kernel.macho.adt | grep <node name>`; not present means check the DTS + whitelist per this entry, do not change the driver's assertion value.
 
 ---
 
-### P-35 禁用 daemon 要照 pong 的 DENY 策略，且必须做成**可运行时撤销**的数据，不能硬编码
+### P-35 Disabling daemons must follow pong's DENY policy, and it must be data that can be **undone at runtime**, never hardcoded
 
-- **背景**：`boot-0461` 之前 `launchd` 崩在 App-cryptex 的 `webbookmarksd`；用 `disabled.plist` 禁掉 8 个 App-cryptex job 后 launchd 稳定，系统能跑到锁屏。
-- **pong 的权威做法**：`userland/mkjobs.py:216` 的 `DENY` 元组包含
+- **Background**: before `boot-0461`, `launchd` crashed on the App-cryptex `webbookmarksd`; after using `disabled.plist` to disable the 8 App-cryptex jobs, launchd was stable and the system ran to the lock screen.
+- **pong's authoritative approach**: the `DENY` tuple in `userland/mkjobs.py:216` contains
   `'watchdog', 'CommCenter', 'wifi', 'WiFi', 'bluetooth', 'BTServer', 'locationd', 'softwareupdate',
   'datamigrator', 'backupd', 'thermalmonitord', 'keybagd', 'nfcd', ... 'syncdefaultsd', 'photoanalysisd', 'avconferenced'`
-  —— 注释原文：“these start, crash and are asked for again, over and over”。
-  **所以 `watchdogd`/`syncdefaultsd` 这类被禁是 pong 的既定策略，不是掩盖症状。**
-- **但**：`wifi`/`bluetooth`/`locationd` 也在 pong 的 DENY 里——那是**pong 当时没有对应驱动**。我们将来驱动 WiFi/BT/location 后必须能重新启用，**所以禁用名单绝不能硬编码进 init**。
-- **实现（init-v24，34,904 B，sha `1671eb78…`）**：init 运行时读 `/private/var/pong/disabled-labels.txt`（一行一个 label，`#` 注释），生成 XML 版 `disabled.plist` 写到
-  `/private/var/db/com.apple.xpc.launchd/disabled.plist`；文件不存在时用内置缺省（**只有 8 个 App-cryptex + `com.apple.watchdogd`，共 9 项，不含 wifi/bt/location**）。
-  日志判据：`Pong init: disabled.plist wrote %u labels`。
-- **注意**：`/private/var` 是 APFS Data 卷，TWRP 下无法写；要改名单只能通过内核 blob（同 0394 机制）或等系统起来后用能写 Data 的通道。
-- **证据**：`scratch/PONGDENY.txt`（DENY 原文）、`scratch/INITV24.txt`（编译与字符串）、`scratch/disabled-labels.txt`（缺省名单）。
-- **30 秒判定**：要禁某个 daemon 前先查 pong 的 `DENY` 有没有它；没有就是我们在发明策略，停下来先查驱动缺什么。
+  — the comment reads: "these start, crash and are asked for again, over and over".
+  **So having `watchdogd`/`syncdefaultsd` and the like disabled is pong's established policy, not symptom masking.**
+- **But**: `wifi`/`bluetooth`/`locationd` are in pong's DENY too — that is because **pong had no corresponding driver at the time**. Once we have WiFi/BT/location drivers they must be re-enableable, **so the disable list must never be hardcoded into init**.
+- **Implementation (init-v24, 34,904 B, sha `1671eb78…`)**: at runtime init reads `/private/var/pong/disabled-labels.txt` (one label per line, `#` comments), generates the XML `disabled.plist` and writes it to
+  `/private/var/db/com.apple.xpc.launchd/disabled.plist`; when the file is absent it uses the built-in default (**only the 8 App-cryptex jobs + `com.apple.watchdogd`, 9 entries total, excluding wifi/bt/location**).
+  Log criterion: `Pong init: disabled.plist wrote %u labels`.
+- **Note**: `/private/var` is the APFS Data volume, unwritable under TWRP; changing the list can only go through a kernel blob (same mechanism as 0394) or, once the system is up, through a channel that can write Data.
+- **Evidence**: `scratch/PONGDENY.txt` (the DENY source text), `scratch/INITV24.txt` (compilation and strings), `scratch/disabled-labels.txt` (the default list).
+- **30-second check**: before disabling a daemon, check whether pong's `DENY` has it; if not, we are inventing policy — stop and look at what driver is missing.
 
 ---
 
-### P-36 门控默认值 `enabled=0`：驱动永远第一行 return，且静默无日志
+### P-36 Gating default `enabled=0`: the driver returns on its first line, silently and with no log
 
-- **症状**：实体键/触摸无任何内核日志、无 `/dev/pong-*` 节点，用户态报
-  `verified PMIC input unavailable` / `real touch device unavailable`；一切看起来像"驱动没跑"。
-- **根因**：pong 原始补丁 `uint32_t enabled=0;`，boot-arg 门控 `if (!enabled) return;`。
-  之前修门控时只改成 `(void)PE_parse_boot_argn(...)`（忽略返回值），**没改默认值 0** →
-  没传 boot-arg 时 `enabled` 永远是 0 → 第一行就 return。2026-11-08 18:02 那次实体键
-  可用（日志 `Pong keys: arbiter v7 …`）是 `enabled=1` 时期；后来用原始 pong 补丁覆盖把
-  默认值带回 0，实体键跟着炸。
-- **修复**：`uint32_t enabled=1;`（touch 补丁 920 行、keys 补丁 271 行，commit `7da999e`）。
-- **30 秒判定**：任何"驱动静默不运行"先 `grep 'uint32_t enabled='` 看默认值；是 0 就直接改 1。
+- **Symptom**: physical keys/touch produce no kernel log and no `/dev/pong-*` node, userland reports
+  `verified PMIC input unavailable` / `real touch device unavailable`; everything looks like "the driver did not run".
+- **Root cause**: the original pong patch has `uint32_t enabled=0;` and the boot-arg gate `if (!enabled) return;`.
+  An earlier gating fix only changed it to `(void)PE_parse_boot_argn(...)` (ignoring the return value), **without changing the default 0** →
+  with no boot-arg passed, `enabled` is always 0 → it returns on the first line. The 2026-11-08 18:02 run where physical keys
+  worked (log `Pong keys: arbiter v7 …`) was during the `enabled=1` period; later the original pong patch overwrote it and brought
+  the default back to 0, and the physical keys blew up with it.
+- **Fix**: `uint32_t enabled=1;` (touch patch line 920, keys patch line 271, commit `7da999e`).
+- **30-second check**: for any "driver silently not running", first `grep 'uint32_t enabled='` to see the default; if it is 0, change it to 1.
 
-### P-37 `devfs_make_node(...,"%s",name)`：设备被建成字面 `/dev/%s`
+### P-37 `devfs_make_node(...,"%s",name)`: the device is created as the literal `/dev/%s`
 
-- **症状**：`input_ready()` 返回 true，但用户态永远打不开 `/dev/pong-buttons`。
-- **根因**：`devfs_make_node` **不接受 printf 格式串**，`"%s", name` 把字面 `%s` 当节点名。
-- **修复**：直接传 `name`。
-- **30 秒判定**：任何 devfs 节点打不开，先 `grep devfs_make_node` 看有没有 `%`。
+- **Symptom**: `input_ready()` returns true, but userland can never open `/dev/pong-buttons`.
+- **Root cause**: `devfs_make_node` **does not accept a printf format string**; `"%s", name` makes the literal `%s` the node name.
+- **Fix**: pass `name` directly.
+- **30-second check**: any devfs node that cannot be opened, first `grep devfs_make_node` and look for a `%`.
 
-### P-38 K60 触摸 GENI SE 是 **SE4**，不是 SE1；时钟阻塞是 S_AHB 的 HWCG 位
+### P-38 K60 touch GENI SE is **SE4**, not SE1; the clock blockage is the S_AHB HWCG bit
 
-- **症状**：原始 SE4 日志 `s_ahb=0x80000002`（bit31 halt + **bit1 HWCG**），se4=0x4220（已开）。
-- **根因**：`K60-TOUCH-PARAMS.md:90` 明确 `spi@990000` = QUP0 **SE4**（pinctrl function `qup4`）。
-  我曾误改 7 处 GCC 偏移为 SE1，已回退（commit `7da999e`）。真正阻塞是 S_AHB 的 HWCG 位，
-  Linux `clk_branch2_enable` 会先清 bit1。
-- **修复**：保持 SE4 常量（`0x274dc` 家族）+ 在 vote 后清三个 CBCR 的 bit1。
-- **30 秒判定**：`s_ahb=0x80000002` 时先清 bit1，别乱改 SE 编号。
+- **Symptom**: original SE4 log `s_ahb=0x80000002` (bit31 halt + **bit1 HWCG**), se4=0x4220 (already on).
+- **Root cause**: `K60-TOUCH-PARAMS.md:90` states plainly that `spi@990000` = QUP0 **SE4** (pinctrl function `qup4`).
+  I once wrongly changed 7 GCC offsets to SE1 and reverted it (commit `7da999e`). The real blockage is the S_AHB HWCG bit;
+  Linux's `clk_branch2_enable` clears bit1 first.
+- **Fix**: keep the SE4 constants (the `0x274dc` family) + clear bit1 of the three CBCRs after the vote.
+- **30-second check**: with `s_ahb=0x80000002` clear bit1 first, do not go changing SE numbers.
 
-### P-39 **补丁间有硬依赖顺序**：GPU scanout 必须先于 touch，否则 hunk 上下文对不上
+### P-39 **Patches have a hard dependency order**: GPU scanout must come before touch, or the hunk context does not match
 
-- **症状**：`git apply` 报 `error: patch failed: iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032`，
-  说 touch 补丁打不上，但单独看补丁内容完全正确。
-- **根因**：touch 补丁的最后一个 hunk 上下文里有 `if (!gpuFrame) drawLayer(s, src, dst);`，
-  而 **`gpuFrame` 是 GPU scanout 补丁引入的变量**（`pong-gpu-scanout.patch:42` 定义 `bool gpuFrame=false`、
-  `:71` 使用）。若 GPU 补丁不在 touch 之前应用，目标树里没有 `gpuFrame`，上下文永远不匹配。
-- **更深一层的坑**：hunk 头写的是 `@@ -1032,6 +1032,10 @@`，但实际 `kPEGraphicsMode` 在所有历史树里都在
-  **989 行**（`out/out2/out3` 三棵树的 `show()` 都是 885 行）。**行号本身就偏了 43 行**——
-  所以即使顺序对了，靠行号也定位不到，只能靠上下文。
-- **诊断方法**：`git apply --check -C1 <patch>` 会打印 `Context reduced to (1/1) to apply fragment at 989`
-  ——**这句话直接告诉真实行号**，是排错的最快入口。
-- **修复**：series 顺序必须是 **GPU 三补丁 → touch → keys**（当前 `SERIES-FINAL.txt` 尾部 5 行）。
-- **30 秒判定**：touch/keys 补丁 apply 失败先查 `grep -n 'gpuFrame'` 在 series 里的位置；GPU 不在前面就是顺序错。
+- **Symptom**: `git apply` reports `error: patch failed: iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032`,
+  saying the touch patch does not apply, yet the patch content itself is completely correct.
+- **Root cause**: the context of the touch patch's last hunk contains `if (!gpuFrame) drawLayer(s, src, dst);`,
+  and **`gpuFrame` is a variable introduced by the GPU scanout patch** (`pong-gpu-scanout.patch:42` defines `bool gpuFrame=false`,
+  `:71` uses it). If the GPU patch is not applied before touch, the target tree has no `gpuFrame` and the context never matches.
+- **A deeper pitfall**: the hunk header says `@@ -1032,6 +1032,10 @@`, but `kPEGraphicsMode` actually sits at
+  **line 989** in every historical tree (the `show()` in all three trees `out/out2/out3` is at line 885). **The line number itself is off by 43 lines** —
+  so even with the right order, the line number cannot locate it; only context can.
+- **Diagnostic method**: `git apply --check -C1 <patch>` prints `Context reduced to (1/1) to apply fragment at 989`
+  —**that sentence hands you the real line number**, the fastest entry point for troubleshooting.
+- **Fix**: the series order must be **GPU three patches → touch → keys** (the last 5 lines of the current `SERIES-FINAL.txt`).
+- **30-second check**: touch/keys patch failing to apply, first check where `grep -n 'gpuFrame'` sits in the series; if GPU is not before it, the order is wrong.
 
-### P-40 构建读的是 `$B/tree/.cache/xnu-work`，不是 device 仓的 `iokit/`
+### P-40 The build reads `$B/tree/.cache/xnu-work`, not the device repo's `iokit/`
 
-- **症状**：改 device 仓（`/tmp/usb-cdc-mainline/device`）里的 `iokit/Kernel/MiniIOMobileFramebuffer.cpp`
-  完全不生效；查行号还会被这份"已打过补丁的产物副本"误导（`show()` 在 899 行 vs 真实树 885 行）。
-- **根因**：`build-xnu-4k-baseline.sh` 把 xnu 从 `feeds/xnu-<sha>`（**原始 apple-oss xnu，无 iokit/Kernel/MiniIOMobileFramebuffer.cpp**）
-  克隆到 `$B/tree/.cache/xnu-work`，再由 UniXNU 框架的 overlay 注入该文件。
-  真正的编译目标是 **`/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/`**。
-- **关键事实**：`feeds/xnu-c465a9f8` 里**根本没有** `iokit/Kernel/MiniIOMobileFramebuffer.cpp`（已 find 验证）；
-  这个文件来自 UniXNU 框架的 `iokit/` overlay。
-- **诊断方法**：`grep -a 'prepare XNU' /tmp/build-v15.log` 会打印 `git clone --shared ... /opt/.../tree/.cache/xnu-work`，
-  以及 `feeds/xnu-<sha>` 的真实路径。
-- **30 秒判定**：要改/查 xnu 里某个文件，先 `find /opt/k60/trees/k60build/out-baseline -name '<file>' -path '*.cache/xnu-work*'`
-  ——**改 device 仓的 iokit/ 副本是无效的**。
+- **Symptom**: editing `iokit/Kernel/MiniIOMobileFramebuffer.cpp` in the device repo (`/tmp/usb-cdc-mainline/device`)
+  has no effect at all; line-number lookups also get misled by this "already-patched artefact copy" (`show()` at line 899 vs line 885 in the real tree).
+- **Root cause**: `build-xnu-4k-baseline.sh` clones xnu from `feeds/xnu-<sha>` (**plain apple-oss xnu, with no iokit/Kernel/MiniIOMobileFramebuffer.cpp**)
+  into `$B/tree/.cache/xnu-work`, and then the UniXNU framework's overlay injects that file.
+  The real compilation target is **`/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/`**.
+- **Key fact**: `feeds/xnu-c465a9f8` **does not contain** `iokit/Kernel/MiniIOMobileFramebuffer.cpp` at all (verified with find);
+  this file comes from the UniXNU framework's `iokit/` overlay.
+- **Diagnostic method**: `grep -a 'prepare XNU' /tmp/build-v15.log` prints `git clone --shared ... /opt/.../tree/.cache/xnu-work`,
+  plus the real path of `feeds/xnu-<sha>`.
+- **30-second check**: to change/find a file in xnu, first `find /opt/k60/trees/k60build/out-baseline -name '<file>' -path '*.cache/xnu-work*'`
+  —**editing the iokit/ copy in the device repo is useless**.
 
-### P-41 镜像启动 0 字节日志 ≠ 设备坏：先用历史镜像做对照
+### P-41 A 0-byte boot log ≠ a broken device: use a historical image as the control first
 
-- **症状**：`fastboot boot` 后控制台日志 0 字节、设备自动回 fastboot，看起来像设备/UEFI 坏了。
-- **正确诊断顺序**（本轮实测有效）：
-  1. 刷一颗**历史确认能启动的镜像**（如 `boot-0442-20261107.img`，11-07 15:24）
-  2. 若它能正常启动并抓到日志（本轮抓到 204,641 B），则**设备、UEFI、打包流程、fastboot 全部正常**
-  3. 问题一定在**新内核本体**
-4. **本轮实证**：`boot-0442-20261107.img` 启动成功（日志 204,641 B，Darwin 22.6.0 Sat Nov 7 15:03:08），
-   而 199/207 版全部 0 日志复位 → 定位到补丁顺序问题（P-39）。
-- **30 秒判定**：0 日志复位时**不要先说设备坏了**，先刷一颗历史镜像做对照，30 秒就能排除设备因素。
+- **Symptom**: after `fastboot boot` the console log is 0 bytes and the device returns to fastboot by itself, looking like the device/UEFI is broken.
+- **Correct diagnostic order** (measured to work this round):
+  1. flash **a historical image confirmed to boot** (e.g. `boot-0442-20261107.img`, 11-07 15:24)
+  2. if it boots normally and captures a log (204,641 B this round), then **the device, UEFI, packaging flow and fastboot are all fine**
+  3. the problem is definitely in **the new kernel itself**
+  4. **this round's proof**: `boot-0442-20261107.img` booted successfully (log 204,641 B, Darwin 22.6.0 Sat Nov 7 15:03:08),
+     while all 199/207 versions gave 0 logs and a reset → localised to a patch ordering problem (P-39).
+- **30-second check**: on a 0-log reset **do not say the device is broken first**; flash a historical image as the control — 30 seconds rules out the device.
 
-### P-42 `out`/`out2`/`out3` 是历史构建树，可直接用于对照
+### P-42 `out`/`out2`/`out3` are historical build trees, usable directly as controls
 
-- **价值**：`/opt/k60/trees/usb-cdc-mainline/out{,2,3}/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/`
-  三棵**已打过补丁的完整 xnu 工作树**都还在（各自 1537/1537/1558 行，`show()` 都在 885 行）。
-- **用途**：验证补丁能否应用、查真实行号、比对不同时期补丁状态，**不需要重新构建**。
-- **30 秒判定**：想判断某个 hunk 是否真能打，直接拿其中一棵树 `git apply --check`，比新建树快得多。
+- **Value**: `/opt/k60/trees/usb-cdc-mainline/out{,2,3}/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/`
+  all three **complete, already-patched xnu work trees** are still there (1537/1537/1558 lines each, `show()` at line 885 in all).
+- **Use**: verify whether a patch applies, look up real line numbers, compare patch state across periods, **without rebuilding**.
+- **30-second check**: to judge whether a hunk really applies, just `git apply --check` it against one of those trees; far faster than creating a new tree.
 
-### P-43 `#if defined(PONG)` 在 `bsd_init.c` 里恒为假 → 输入驱动调用被预处理器删除
+### P-43 `#if defined(PONG)` is always false in `bsd_init.c` → the input driver calls are deleted by the preprocessor
 
-- **症状**：`bsd_init.c` 里明明写着 `pong_goodix_init(); pong_buttons_init();`，但
-  `bsd_init.o` 里 `llvm-nm | grep pong_` **一个符号都没有**，内核里也没有输入驱动日志。
-- **根因**：`bsd_init.c` **不 include `<pexpert/arm64/board_config.h>`**，所以 `PONG` 宏在这个
-  translation unit 里**未定义**，`#if defined(PONG)` 整段被预处理器删掉。
-  （`pong_buttons.c` / `pong_goodix.c` 自己有 include，所以驱动代码本身能编译。）
-- **修复**：把这一段的 `#if defined(PONG)` 改成 `#if 1`（或显式 `#include <pexpert/arm64/board_config.h>`）。
-- **验证方法**：`llvm-nm bsd_init.o | grep pong_` 必须看到 `U _pong_goodix_init` / `U _pong_buttons_init`。
-  **看不到就是被预处理器删了，与补丁内容无关。**
-- **30 秒判定**：驱动"编进去了但不运行"时，先 `llvm-nm <含调用的>.o | grep <符号>`；没有 U 引用就是 `#if` 门控问题。
+- **Symptom**: `bsd_init.c` plainly contains `pong_goodix_init(); pong_buttons_init();`, but
+  `llvm-nm | grep pong_` on `bsd_init.o` shows **not one symbol**, and the kernel has no input driver log either.
+- **Root cause**: `bsd_init.c` **does not include `<pexpert/arm64/board_config.h>`**, so the `PONG` macro is **undefined** in that
+  translation unit and the whole `#if defined(PONG)` block is deleted by the preprocessor.
+  (`pong_buttons.c` / `pong_goodix.c` include it themselves, so the driver code compiles fine.)
+- **Fix**: change that block's `#if defined(PONG)` to `#if 1` (or add an explicit `#include <pexpert/arm64/board_config.h>`).
+- **Verification**: `llvm-nm bsd_init.o | grep pong_` must show `U _pong_goodix_init` / `U _pong_buttons_init`.
+  **Not seeing them means the preprocessor deleted them; it has nothing to do with the patch content.**
+- **30-second check**: when a driver "is compiled in but does not run", first `llvm-nm <the .o containing the calls> | grep <symbol>`; no U reference means an `#if` gating problem.
 
-### P-44 改补丁必须改**三方**（repo 补丁 / device 补丁 / 构建树），只改一处会被覆盖
+### P-44 Editing a patch means editing **three places** (repo patch / device patch / build tree); changing only one gets overwritten
 
-- **三方位置**：
-  1. `E:\hackios\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
-  2. `/tmp/usb-cdc-mainline/device/patches/xnu/<补丁>`（buildv15 会从 repo 覆盖这里）
-  3. `$B/tree/.cache/xnu-work/...`（**构建真正编译的树**，每次清树重建）
-- **本轮实证的踩坑链**：
-  - 只改树 → 下次构建清树即失效
-  - 只改 repo → device 侧/buildv15 同步前不生效
-  - 只改 device → repo 下次覆盖回旧版
-  - `buildv15.sh` 第 15-19 行只同步 **5 个固定补丁**；其余补丁靠 series 从 device 读
-- **正确流程**：先改 repo 补丁 → `cp` 到 device → 改树里的文件（或重建让它重新应用）→ 构建 → 验证树里值。
-- **30 秒判定**：改完先 `grep` 三方是否都是新值，再按构建键；只改一处必然白费。
+- **The three places**:
+  1. `E:\hackios\UniXNU-mondrian\patches\xnu\<patch>` (the real git source)
+  2. `/tmp/usb-cdc-mainline/device/patches/xnu/<patch>` (buildv15 overwrites this from the repo)
+  3. `$B/tree/.cache/xnu-work/...` (**the tree the build actually compiles**, cleared and rebuilt every time)
+- **The chain of burns proven this round**:
+  - only the tree → lost as soon as the next build clears the tree
+  - only the repo → no effect until the device side/buildv15 syncs
+  - only the device → the repo overwrites it back to the old version next time
+  - `buildv15.sh` lines 15-19 sync only **5 fixed patches**; the rest are read from the device via the series
+- **Correct flow**: edit the repo patch first → `cp` to the device → edit the file in the tree (or rebuild so it re-applies) → build → verify the value in the tree.
+- **30-second check**: after editing, `grep` all three places to confirm they hold the new value, then press the build key; changing only one is wasted effort, guaranteed.
 
-### P-45 构建产物 sha 变了对不上时，先确认读的是哪棵树
+### P-45 When the build artefact's sha does not match, first confirm which tree you are reading
 
-- **本轮踩坑**：`/tmp/k60build` 是 UniXNU 框架 checkout（不是构建工作目录）；
-  真正的构建树是 `/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work`。
-  我一度对照错误的树得出"sha 全对不上"的错误结论。
-- **30 秒判定**：`grep -a 'prepare XNU' /tmp/build-v15.log` 会打印真实 clone 路径；按它判断。
+- **Burn this round**: `/tmp/k60build` is the UniXNU framework checkout (not the build working directory);
+  the real build tree is `/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work`.
+  I once compared against the wrong tree and concluded "none of the shas match", wrongly.
+- **30-second check**: `grep -a 'prepare XNU' /tmp/build-v15.log` prints the real clone path; judge by that.
 
-### P-46 hunk 头反复失配 → **已根治：构建前自动重算**
+### P-46 Repeated hunk header mismatches → **fixed at the root: recomputed automatically before the build**
 
-- **症状**：手改补丁正文（加注释、加代码）后忘了同步 `@@ -a,b +c,d @@` 的数字，导致
-  `git apply` 报 `corrupt patch at line N` 或编译报 `unterminated conditional directive`（因为
-  `git apply` 按头部行数截断，把文件末尾的 `#endif` 丢掉了）。
-- **本轮踩坑次数**：至少 4 次（`pong_buttons.c` 149→150、143→147、`bsd_init.c` 6,10→6,12→6,16 等）。
-- **根治**：`<workspace>/scratch/fix-patch-hunks.py` 扫描所有 `.patch`，按正文实际行数重算每个
-  `@@` 头（含 `-0,0 +1,N` 新文件形式），并已**集成进 `buildv15.sh` 的第 2b 步**——
-  每次构建前自动运行，手改正文再也不会弄坏构建。
-- **30 秒判定**：任何 `corrupt patch` / `unterminated` 报错，先跑一次
-  `python3 E:/k60-work/scratch/fix-patch-hunks.py`，通常直接解决。
+- **Symptom**: after hand-editing a patch body (adding comments, adding code) you forget to sync the `@@ -a,b +c,d @@` numbers, so
+  `git apply` reports `corrupt patch at line N` or the compiler reports `unterminated conditional directive` (because
+  `git apply` truncates by the header's line count and drops the `#endif` at the end of the file).
+- **Times burned this round**: at least 4 (`pong_buttons.c` 149→150, 143→147, `bsd_init.c` 6,10→6,12→6,16 etc).
+- **Root fix**: `<workspace>/scratch/fix-patch-hunks.py` scans all `.patch` files and recomputes every
+  `@@` header from the actual body line count (including the `-0,0 +1,N` new-file form); it has been **integrated into step 2b of `buildv15.sh`** —
+  it runs automatically before every build, so hand-editing a body can no longer break the build.
+- **30-second check**: any `corrupt patch` / `unterminated` error, first run
+  `python3 E:/k60-work/scratch/fix-patch-hunks.py`; that usually solves it outright.
 
-### P-47 `if (!PE_parse_boot_argn(...) || !enabled) return;` —— 真正的门控杀手
+### P-47 `if (!PE_parse_boot_argn(...) || !enabled) return;` — the real gating killer
 
-- **症状**：`enabled=1` 已设、`#if defined(PONG)` 已修、`llvm-nm` 能看到调用，**驱动仍然不运行**。
-- **根因**：`PE_parse_boot_argn` 在 boot-arg **不存在时返回 FALSE**，于是
-  `!PE_parse_boot_argn(...)` = `true`，`||` 短路，**直接 return**。`enabled=1` 那个默认值**根本没被求值**。
-- **修复**：拆成两句——
+- **Symptom**: `enabled=1` is set, `#if defined(PONG)` is fixed, `llvm-nm` shows the call, **and the driver still does not run**.
+- **Root cause**: `PE_parse_boot_argn` **returns FALSE when the boot-arg does not exist**, so
+  `!PE_parse_boot_argn(...)` = `true`, `||` short-circuits, and it **returns immediately**. The `enabled=1` default is **never evaluated at all**.
+- **Fix**: split it into two statements —
   ```c
   (void)PE_parse_boot_argn("pong_buttons",&enabled,sizeof(enabled));
   if (!enabled) return;
   ```
-- **验证（本机实测，内核 `7f99d2fa`，日志 `usblog-20261109-122746`）**：
+- **Verification (measured on this machine, kernel `7f99d2fa`, log `usblog-20261109-122746`)**:
   ```
   Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1
   ```
-- **30 秒判定**：驱动"条件都满足却仍不跑"时，先看门控那行有没有 `||`——有 `|| !PE_parse_...` 就是它。
+- **30-second check**: when a driver "meets every condition and still does not run", look at whether the gating line has an `||` — `|| !PE_parse_...` means it is this one.
 
-### P-48 触摸 `configuration()` 失败的真实报错（终于可见）
+### P-48 The real error behind the touch `configuration()` failure (finally visible)
 
-- 驱动跑起来后首次拿到真实报错：`Pong touch: missing/incompatible Pong DT; SKIP`
-- **含义**：`configuration()` 里 `SecureDTLookupEntry` 或属性读取失败。
-- **已确认可用**：ADT nub 已发布（`ArmDTPlatform: published DT nub pong-touch`）、
-  ADT 节点属性齐全（`pong-touch@13296`：spi-base/tlmm-base/gcc-base/rsc-base/cmd-db-base/gpio-offset）。
-- **下一步排查点**：`configuration()` 里查的**节点路径**是否与 ADT 实际路径一致（`/arm-io/pong-touch` vs 其它）。
+- Once the driver runs, the first real error appears: `Pong touch: missing/incompatible Pong DT; SKIP`
+- **Meaning**: `SecureDTLookupEntry` or a property read inside `configuration()` fails.
+- **Confirmed working**: the ADT nub is published (`ArmDTPlatform: published DT nub pong-touch`),
+  the ADT node properties are complete (`pong-touch@13296`: spi-base/tlmm-base/gcc-base/rsc-base/cmd-db-base/gpio-offset).
+- **Next debugging point**: whether the **node path** looked up in `configuration()` matches the actual ADT path (`/arm-io/pong-touch` vs something else).
 
-### P-49 **触摸修到“能通过 configuration()”反而是灾难：SE 未开时钟时访问会挂死整机**
+### P-49 **Fixing touch so it "passes configuration()" is a disaster: accessing an SE with no clock enabled hangs the whole machine**
 
-- **症状**：`configuration()` 断言失败时会打印 `missing/incompatible Pong DT; SKIP` 然后
-  **安全返回，系统正常启动**；一旦把断言改对让它通过，`touch_thread` 启动，
-  **启动后控制台 0 字节、整机死、自动复位回 fastboot**。
-- **根因**：`configuration()` 通过后执行 `touch_thread` → `bring_up()` → `clocks_on()` →
-  `geni_spi_init()` → **访问 QUP0 SE4 寄存器**。而 `clocks_on()` 只检查投票（vote）是否写下去，
-  不保证 SE 分支真的上了时钟。**对未上时钟的 SE 做寄存器访问会把互连挂住**，
-  整机在早期就死掉，连 `K60 USBLOG` 都来不及输出——所以表现为 0 日志。
-- **本轮实证（2026-11-09）**：
-  - 内核 `7f99d2fa` / `a1494b2a`（断言仍要求 14400×32000 → 失败 → 跳过）：**能启动**，
-    日志 60-217 KB，实体键 HID 全通
-  - 内核 `8a5595f1` / `fb147b79`（断言放宽/改对 → 通过 → 启动 thread）：**0 日志，整机死**
-  - 反复 4 次以上，全部一致
-- **修复**：加 boot-arg 门控 `k60_touch_se=1`（**默认关闭**）。`configuration()` 通过后只打印
-  已核验的 DT 值（`Pong touch: DT ok (...)`），然后直接返回；只有显式给 boot-arg 才启动
-  `touch_thread` 去碰 SE。
-- **30 秒判定**：改触摸后如果**启动 0 日志但历史镜像能启动**，立刻回退那个“让 configuration 通过”的改动
-  ——不是设备坏，是 SE 访问把互连挂死了。历史镜像对照法见 P-41。
+- **Symptom**: when the `configuration()` assertion fails it prints `missing/incompatible Pong DT; SKIP` and
+  **returns safely, the system boots normally**; as soon as the assertion is corrected to pass, `touch_thread` starts and
+  **after boot the console has 0 bytes, the whole machine is dead, and it resets itself back to fastboot**.
+- **Root cause**: once `configuration()` passes it runs `touch_thread` → `bring_up()` → `clocks_on()` →
+  `geni_spi_init()` → **accessing the QUP0 SE4 registers**. But `clocks_on()` only checks that the vote was written,
+  it does not guarantee the SE branch really has a clock. **A register access to an SE with no clock hangs the interconnect**,
+  the machine dies early, before `K60 USBLOG` can even get output out — which is why it shows as 0 logs.
+- **This round's proof (2026-11-09)**:
+  - kernels `7f99d2fa` / `a1494b2a` (assertion still requires 14400×32000 → fails → skipped): **boots**,
+    log 60-217 KB, physical-key HID fully working
+  - kernels `8a5595f1` / `fb147b79` (assertion loosened/corrected → passes → thread starts): **0 logs, machine dead**
+  - repeated 4+ times, all consistent
+- **Fix**: add a boot-arg gate `k60_touch_se=1` (**off by default**). After `configuration()` passes it only prints
+  the verified DT values (`Pong touch: DT ok (...)`), then returns; only an explicit boot-arg starts
+  `touch_thread` to touch the SE.
+- **30-second check**: after a touch change, if **boot gives 0 logs but a historical image boots**, roll back that "make configuration pass" change immediately
+  —the device is not broken, the SE access hung the interconnect. For the historical-image control method see P-41.
 
-### P-51 `make -j8` 缓冲输出：日志长时间不更新 ≠ 构建卡住
+### P-51 `make -j8` buffers output: a log that stops updating ≠ a stuck build
 
-- **症状**：`/tmp/build-v15.log` 的 mtime 停在 16:06:57 长达 4 分钟，看起来像卡死。
-- **真相**：XNU 的 `make -r -j8` 把子进程输出**缓冲**到结束才刷，编译实际一直在推进。
-  证据：`pgrep -af 'make.*build_all'` 显示 `make -r -j8 -f MakeInc.top build` 在跑，
-  且有 3 层 make 嵌套（25800/25854/29329/29330）。
-- **判据**：
+- **Symptom**: `/tmp/build-v15.log`'s mtime sits at 16:06:57 for 4 minutes straight, looking like a freeze.
+- **Truth**: XNU's `make -r -j8` **buffers** subprocess output and flushes at the end; compilation is actually progressing the whole time.
+  Evidence: `pgrep -af 'make.*build_all'` shows `make -r -j8 -f MakeInc.top build` running,
+  with 3 levels of make nesting (25800/25854/29329/29330).
+- **Criterion**:
   ```bash
-  pgrep -af 'make.*build_all' | head -2    # 有进程 = 在编译
+  pgrep -af 'make.*build_all' | head -2    # a process means it is compiling
   ```
-  **不要**用 `tail -f` 或日志 mtime 判断进度。
-- **30 秒判定**：日志不动时先 `pgrep -af 'make.*build_all'`，有进程就是正常。
+  **Do not** judge progress with `tail -f` or the log mtime.
+- **30-second check**: when the log stops moving, first `pgrep -af 'make.*build_all'`; a process means it is normal.
 
-### P-52 补丁锚点依赖「全部前序补丁后的真实状态」：不能凭记忆生成
+### P-52 Patch anchors depend on "the real state after all preceding patches": they cannot be generated from memory
 
-- **症状**：BT 的 `0502-k60-bt-qbt-bsd-init.patch` 在 209 条 series 里 apply 失败，
-  报 `patch failed: bsd/kern/bsd_init.c:1337`。
-- **根因**：该补丁的锚点假设 `pong_goodix_init()` 在 `k60_usblog_start()` **之后**。
-  但实测 201 条系列后，`bsd_init.c` 的真实结构是：
+- **Symptom**: BT's `0502-k60-bt-qbt-bsd-init.patch` fails to apply in a 209-entry series,
+  reporting `patch failed: bsd/kern/bsd_init.c:1337`.
+- **Root cause**: that patch's anchor assumes `pong_goodix_init()` comes **after** `k60_usblog_start()`.
+  But after the 201-entry series, the real structure of `bsd_init.c` is:
   ```
   1160: extern void pong_goodix_init(void);
   1161: pong_goodix_init();
@@ -665,569 +665,569 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   1340:     extern void k60_usblog_start(void);
   1341:     k60_usblog_start();
   ```
-  **触摸/按键在 1160 行，比 usblog 早 180 行**——与之前假设相反。
-- **正确做法**：不要手写锚点。而是：
-  1. `git clone --shared` 一份 feed 到 `/tmp/xxx-regen`
-  2. 按 series 顺序 apply **到目标补丁的前一条**为止
-  3. 在真实文件上做编辑
-  4. `diff -u` 生成补丁
-  5. `git apply --check` 验证
-- **30 秒判定**：补丁在 series 里失败时，先查它依赖的文件在**真实树**里长什么样，
-  不要按记忆或旧版本改。
+  **touch/keys are at line 1160, 180 lines before usblog** — the opposite of the earlier assumption.
+- **Correct approach**: do not hand-write anchors. Instead:
+  1. `git clone --shared` a feed to `/tmp/xxx-regen`
+  2. apply in series order **up to the entry before the target patch**
+  3. edit the real file
+  4. `diff -u` to generate the patch
+  5. `git apply --check` to verify
+- **30-second check**: when a patch fails inside the series, first look at what the file it depends on actually looks like **in the real tree**;
+  do not edit from memory or an old version.
 
-### P-53 补丁插入位置必须在 series **末尾**（不能插在中间）
+### P-53 A new patch must go at the **end** of the series (never in the middle)
 
-- **症状**：把 `0334b-k60-autoreset.patch` 插在 `0334` 之后、`0387` 之前，导致
-  `0339-k60-xpc-report.patch` apply 失败（`patch failed: bsd/dev/k60_usblog.c:1510`）。
-- **根因**：0339/0341 等补丁也改 `k60_usblog.c`，插入的代码改变了上下文。
-- **修复**：把新补丁放在 series **最后一条**（第 201/209 条），因为它们是对「全部补丁应用后」
-  的状态生成的。
-- **30 秒判定**：新补丁 apply 失败且报「后续补丁上下文不符」→ 把它移到 series 末尾。
+- **Symptom**: inserting `0334b-k60-autoreset.patch` after `0334` and before `0387` made
+  `0339-k60-xpc-report.patch` fail to apply (`patch failed: bsd/dev/k60_usblog.c:1510`).
+- **Root cause**: patches 0339/0341 etc. also modify `k60_usblog.c`, and the inserted code changed the context.
+- **Fix**: put the new patch **last** in the series (entry 201/209), because they are generated against the state
+  "after all patches are applied".
+- **30-second check**: a new patch failing to apply with "later patch context mismatch" → move it to the end of the series.
 
-### P-54 镜像 args 是从 payload 的 `unixnu.toml` 读的，不是从 `packv15.sh` 猜
+### P-54 Image args are read from the payload's `unixnu.toml`, not guessed from `packv15.sh`
 
-- **症状**：我一度从 `/mnt/e/.../boot-v15.img` 里 grep `args = "` 读到 10 项 `0x144`，
-  以为 args 替换失败。
-- **根因**：读到的是**别处的残留字符串**。正确做法是：
+- **Symptom**: I once grepped `args = "` in `/mnt/e/.../boot-v15.img` and got 10 items of `0x144`,
+  and thought the args replacement had failed.
+- **Root cause**: what I read was a **leftover string elsewhere**. The correct approach is:
   1. `ksize = struct.unpack_from('<I', d, 8)[0]`
   2. `rat = 4096 + ((ksize + 4095) & ~4095)`
   3. `payload = d[rat : rat+201326592]`
   4. `mcopy -n -i payload ::/EFI/UniXNU/unixnu.toml`
-  5. 从 toml 里正则取 `args = "..."` 并 `split()`
-- **实测对照**：`boot-0461`/`boot-0442` = 972 B / 28 项 / `0x140`；
-  `boot-v15`（旧版）= 896 B / 25 项含 `k60_touch_se=1`（危险！）；新安全版 = 490 字符 / 24 项。
-- **30 秒判定**：验证镜像 args 一律走 payload 提取，不看 `packv15.sh` 源码推测。
+  5. regex `args = "..."` out of the toml and `split()`
+- **Measured comparison**: `boot-0461`/`boot-0442` = 972 B / 28 items / `0x140`;
+  `boot-v15` (old version) = 896 B / 25 items including `k60_touch_se=1` (dangerous!); the new safe version = 490 characters / 24 items.
+- **30-second check**: verifying image args always goes through payload extraction, never by guessing from `packv15.sh` source.
 
-### P-55 `packed_data_ramdisk` 会写 ADT 的 `ephemeral-storage = 1`
+### P-55 `packed_data_ramdisk` writes the ADT's `ephemeral-storage = 1`
 
-- **位置**：`scripts/make-pong-adt.py:146` 与 `:233`
+- **Location**: `scripts/make-pong-adt.py:146` and `:233`
   ```python
   *([('ephemeral-storage', struct.pack('<I', 1))] if args.packed_data_ramdisk else []),
   ...
   [('PackedRAMDisk', bytes(16))] if args.packed_data_ramdisk else []),
   ```
-- **含义**：若开启，ADT 会声明 `ephemeral-storage = 1` 并带 `PackedRAMDisk` 占位。
-  这**可能意味着 Data 卷来自镜像内嵌 ramdisk，不依赖盘上数据**——对「他人能否复现」是正面因素。
-- **待验证**：`board.toml` 当前**未设置** `packed_data_ramdisk`（grep 无命中），
-  所以现状是「依赖盘上 Data 卷」。要提升可复现性需要显式开启并验证。
-- **30 秒判定**：讨论复现性时先查 `grep -n 'packed_data_ramdisk' board.toml`；
-  没有就是依赖盘上。
+- **Meaning**: if enabled, the ADT declares `ephemeral-storage = 1` and carries a `PackedRAMDisk` placeholder.
+  That **may mean the Data volume comes from an image-embedded ramdisk and does not depend on on-disk data** — a positive for "can someone else reproduce this".
+- **Pending verification**: `board.toml` currently **does not set** `packed_data_ramdisk` (grep finds nothing),
+  so the current state is "depends on the on-disk Data volume". Improving reproducibility needs it explicitly enabled and verified.
+- **30-second check**: when discussing reproducibility, first `grep -n 'packed_data_ramdisk' board.toml`;
+  absent means it depends on disk.
 
-### P-56 「日志里没有某驱动输出」不等于「驱动没运行」
+### P-56 "No output from some driver in the log" does not mean "the driver did not run"
 
-- **两重原因**：
-  1. **printf 时机早于 USB 控制台枚举**：`usblog-20261108-213652` 证明触摸驱动的
-     `goodix: clocks stay off` 出现在 `K60 USBLOG: st=2`（USB 未枚举）之前，
-     是后续 ring buffer 回放的。
-  2. **`bsd_init.c` 里驱动初始化在 1160 行**，早于 `k60_usblog_start()`（1340 行）180 行。
-- **所以「0 日志就挂死」的推理链要小心**：可能是
-  (a) 真的挂在很早的位置，或
-  (b) 挂在 USB 枚举之前但 ring 里其实有内容（只是没回放成功）。
-- **判据**：区分方法是在**驱动入口最前面**加一行无条件 printf（`K60T: 1 init entry`），
-  然后看上机后这行有没有出现。出现了 → ring 有效，挂死在它之后；没出现 → 挂在更早。
-- **30 秒判定**：不要把「日志无输出」当成「代码没执行」，先加最前面的埋点验证。
+- **Two reasons**:
+  1. **The printf happens before the USB console enumerates**: `usblog-20261108-213652` proves the touch driver's
+     `goodix: clocks stay off` appears before `K60 USBLOG: st=2` (USB not enumerated),
+     and is replayed later from the ring buffer.
+  2. **Driver init in `bsd_init.c` is at line 1160**, 180 lines before `k60_usblog_start()` (line 1340).
+- **So the reasoning chain "0 logs means it hung" needs care**: it may be
+  (a) it really hung very early, or
+  (b) it hung before USB enumeration but the ring actually holds content (the replay just did not succeed).
+- **Criterion**: distinguish by adding an unconditional printf **at the very front of the driver entry** (`K60T: 1 init entry`),
+  then check on device whether that line appears. If it appears → the ring works and the hang is after it; if not → the hang is earlier.
+- **30-second check**: do not treat "no log output" as "the code did not execute"; first add the earliest possible instrumentation point and verify.
 
-### P-57 `NativeMetal` 是悬空 submodule 声明（已清理）
+### P-57 `NativeMetal` was a dangling submodule declaration (already cleaned up)
 
-- **症状**：`.gitmodules` 声明 `[submodule "drivers/NativeMetal"]`，但
-  `git ls-tree HEAD drivers/NativeMetal` **无条目**，目录为空，`git submodule update --init` 报
-  `pathspec did not match any file(s) known to git`。
-- **根因**：历史遗留，gitlink 从未提交。
-- **已处理**：删除 `.gitmodules`（它是唯一条目，删后文件为空 → 一并删除）与空目录。
-- **30 秒判定**：`git submodule status` 报错或为空但 `.gitmodules` 有条目 → 检查 gitlink 是否存在。
+- **Symptom**: `.gitmodules` declared `[submodule "drivers/NativeMetal"]`, but
+  `git ls-tree HEAD drivers/NativeMetal` had **no entry**, the directory was empty, and `git submodule update --init` reported
+  `pathspec did not match any file(s) known to git`.
+- **Root cause**: historical leftover; the gitlink was never committed.
+- **Already handled**: deleted `.gitmodules` (it was the only entry, deleting it left the file empty → deleted as well) and the empty directory.
+- **30-second check**: `git submodule status` errors or is empty but `.gitmodules` has entries → check whether the gitlink exists.
 
 ---
 
-### P-58 音频有**两道门控**，只设一道不会执行，两道都过得挂死
+### P-58 Audio has **two gates**; setting only one does not execute, passing both hangs
 
-- **症状**：传 `pong_aw882xx=1` 但不传 `pong_audio=1` 时，日志里**完全没有 `AW882xx` 输出**。
-- **根因**：调用链有两道独立门控
+- **Symptom**: passing `pong_aw882xx=1` but not `pong_audio=1` gives **no `AW882xx` output at all** in the log.
+- **Root cause**: the call chain has two independent gates
   ```
   bsd_init.c
-    └─ pong_audio_bootstrap()                    [0505 集成]
-         ├─ 门控1: PE_parse_boot_argn("pong_audio") || mode == 0 → return 0   ← 卡在这
-         └─ aw882xx_bootstrap()                  [0504 内部调用]
-              └─ 门控2: pong_aw882xx
+    └─ pong_audio_bootstrap()                    [integrated by 0505]
+         ├─ gate 1: PE_parse_boot_argn("pong_audio") || mode == 0 → return 0   ← stuck here
+         └─ aw882xx_bootstrap()                  [called internally by 0504]
+              └─ gate 2: pong_aw882xx
                    └─ aw882xx_worker → aw882xx_probe()
   ```
-  证据：`0504-k60-audio-pong-audio.patch:870` `if (!PE_parse_boot_argn("pong_audio", &mode, ...) || mode == 0) return 0;`
-- **修复**：必须**两个都传**：`pong_audio=1 pong_aw882xx=1`
-- **但**：两道都传后（内核 `6419fe95`，26 tokens）**0 日志整机死、自动复位**。
-  说明 `aw882xx_probe()` → `aw882xx_bus_init()` 访问 **GENI I2C `0x880000`** 时挂死
-  ——与触摸 SE4 是同一类问题（GENI 控制器未正确上时钟/未初始化就访问）。
-- **当前状态**：两个 arg 已从 boot-args 移除，回到安全状态（24 tokens / 490 字符）。
-- **30 秒判定**：音频无输出先查**两道门控是否都传**；两道都传后 0 日志 → 是 GENI I2C 挂死，不是门控问题。
+  Evidence: `0504-k60-audio-pong-audio.patch:870` `if (!PE_parse_boot_argn("pong_audio", &mode, ...) || mode == 0) return 0;`
+- **Fix**: **both must be passed**: `pong_audio=1 pong_aw882xx=1`
+- **But**: with both passed (kernel `6419fe95`, 26 tokens) there were **0 logs, the machine died and reset itself**.
+  This means `aw882xx_probe()` → `aw882xx_bus_init()` hangs when accessing **GENI I2C `0x880000`**
+  —the same class of problem as touch SE4 (accessing a GENI controller that is not properly clocked/uninitialised).
+- **Current state**: both args have been removed from boot-args, back to the safe state (24 tokens / 490 characters).
+- **30-second check**: no audio output, first check **whether both gates are passed**; both passed and 0 logs → it is the GENI I2C hang, not a gating problem.
 
-### P-59 GENI 控制器（SPI SE4 / I2C SE）访问前必须有更强的前置校验
+### P-59 GENI controller (SPI SE4 / I2C SE) access needs stronger pre-checks
 
-- **两处独立复现**：
-  1. **触摸**：`k60_touch_se=1` → `clocks_on()` → `geni_spi_init()` → 0 日志挂死
-  2. **音频**：`pong_audio=1 pong_aw882xx=1` → `aw882xx_bus_init()` 访问 GENI I2C `0x880000` → 0 日志挂死
-- **共同点**：都是在**首次访问 GENI SE 寄存器**时整机死、零输出。
-- **含义**：这不是某一个驱动的 bug，而是 **K60 上 GENI 控制器的访问前置条件我们没满足**。
-  可能缺：GDSC 电源域、NoC 路径、SE 时钟真使能、TLMM 引脚复用。
-- **官方解法**：`QcomGeniSpi` 组件（`GeniSpi.h:211-212` 明确「caller must know that」SE 时钟已在跑），
-  且 sheng 的 `TouchProbe.cpp:399-424` 有完整的前置序列（GPLL0 投票 + 等 lock + 5 分支投票 + 引脚配置）。
-- **30 秒判定**：任何 GENI 驱动（SPI/I2C）上机前，必须先确认前置序列完整；
-  否则 0 日志挂死，且**无法从日志定位**（因为输出都还没起来）。
+- **Two independent reproductions**:
+  1. **touch**: `k60_touch_se=1` → `clocks_on()` → `geni_spi_init()` → 0 logs, hang
+  2. **audio**: `pong_audio=1 pong_aw882xx=1` → `aw882xx_bus_init()` accesses GENI I2C `0x880000` → 0 logs, hang
+- **Common factor**: both kill the machine with zero output on the **first access to the GENI SE registers**.
+- **Meaning**: this is not a bug in one driver, it is **the GENI controller preconditions on the K60 that we have not satisfied**.
+  Possibly missing: GDSC power domain, NoC path, SE clock really enabled, TLMM pin muxing.
+- **Official solution**: the `QcomGeniSpi` component (`GeniSpi.h:211-212` states plainly "caller must know that" the SE clock is already running),
+  and sheng's `TouchProbe.cpp:399-424` has the complete precondition sequence (GPLL0 vote + wait for lock + 5 branch votes + pin configuration).
+- **30-second check**: before booting any GENI driver (SPI/I2C), first confirm the precondition sequence is complete;
+  otherwise you get a 0-log hang and **cannot localise it from the log** (because output never starts).
 
-### P-60 「120Hz 生效」是错的表述：软件排帧 ≠ 面板切档
+### P-60 "120Hz is in effect" is the wrong wording: software frame pacing ≠ panel mode switch
 
-- **我之前（以及 `HANDOFF.md`）写成**：「120Hz 生效」「从 60Hz 提升到 120Hz」。
-- **准确事实**（subagent `7fe96011` 纠正，证据行号）：
-  - 日志 `K60 DISPLAY: TimingElements 1440x3200 at 120 Hz` 确实从 60 变成 120 ✅
-  - 但那是 **`0506` patch 让 `refreshHz()` 返回 120** —— **软件层按 120 排帧**
-  - `PongDsiPanel.cpp` 只发 `0x11`（sleep out）/`0x29`（display on）/`0x51`（亮度）
-    （`:220/228/236`），**没有任何 DSI 切档命令**
-  - `grep -rn 'panelHz|dsiSet' drivers/` → **空**（zizhan 有，我们没有）
-- **结论**：**面板实际扫描率未验证**。正确表述是：
-  > 「软件层按 120Hz 排帧（`refreshHz()`=120），硬件扫描率未验证」
-- **要真正验证需要**：
-  1. 发 DSI 切档命令（zizhan 有实现可参考）
-  2. 或在面板侧测量（示波器 / 面板自报告）
-- **30 秒判定**：任何「刷新率提升」的说法，先问「有没有发 DSI 切换命令」；
-  没有就是软件排帧，不是硬件切档。
+- **What I previously wrote (and what `HANDOFF.md` says)**: "120Hz is in effect", "raised from 60Hz to 120Hz".
+- **The accurate facts** (corrected by subagent `7fe96011`, with evidence line numbers):
+  - the log `K60 DISPLAY: TimingElements 1440x3200 at 120 Hz` did indeed change from 60 to 120 ✅
+  - but that is **patch `0506` making `refreshHz()` return 120** — **the software layer pacing frames at 120**
+  - `PongDsiPanel.cpp` only sends `0x11` (sleep out)/`0x29` (display on)/`0x51` (brightness)
+    (`:220/228/236`), **with no DSI mode-switch command at all**
+  - `grep -rn 'panelHz|dsiSet' drivers/` → **empty** (zizhan has it, we do not)
+- **Conclusion**: **the panel's actual scan rate is unverified**. The correct wording is:
+  > "the software layer paces frames at 120Hz (`refreshHz()`=120), the hardware scan rate is unverified"
+- **Real verification needs**:
+  1. sending DSI mode-switch commands (zizhan has an implementation to reference)
+  2. or measuring on the panel side (oscilloscope / panel self-report)
+- **30-second check**: for any claim of a "refresh rate increase", first ask "was a DSI switch command sent";
+  if not, it is software frame pacing, not a hardware mode switch.
 
-### P-61 subagent 的结论必须交叉验证：本轮的 3 个「前提纠正」
+### P-61 Subagent conclusions must be cross-checked: this round's 3 "premise corrections"
 
-- 本轮 5 个 subagent 中，**3 个推翻了任务书的前提**。这不是 agent 出错，而是**任务书基于过时/错误假设**。
+- Of the 5 subagents this round, **3 overturned the premise in the task brief**. This is not the agent erring, it is **the brief resting on outdated/wrong assumptions**.
 
-| Subagent | 任务书假设 | 实际 |
+| Subagent | Brief's assumption | Reality |
 |---|---|---|
-| `5898cb8e`（OS/电源）| 「DarwinBoot 落后官方 129 行」| 2539/2829 是**字节**；我们 `DarwinBoot.c` **反而多 28 行** |
-| `7fe96011`（SMMU/显示）| 「我们有三份自己写的 SMMU」| `pong_goodix.c` **零行 SMMU**；官方 `ArmSmmu4K` **已在用** |
-| `7fe96011` | 「K60 没有 GOP」| **有**（`SimpleFbDxe` 编进固件），但不适用的理由不同 |
-| `77f4d518`（USB/基带）| 「K60 没有 GLINK/QRTR/SMEM」| **DT 层全在**，缺的是代码 |
+| `5898cb8e` (OS/power) | "DarwinBoot is 129 lines behind upstream" | 2539/2829 are **bytes**; our `DarwinBoot.c` **has 28 lines more** |
+| `7fe96011` (SMMU/display) | "we have three hand-written SMMUs" | `pong_goodix.c` has **zero lines of SMMU**; the official `ArmSmmu4K` **is already in use** |
+| `7fe96011` | "the K60 has no GOP" | **it does** (`SimpleFbDxe` is compiled into the firmware), but the reasons it does not apply differ |
+| `77f4d518` (USB/baseband) | "the K60 has no GLINK/QRTR/SMEM" | **the DT layer has all of it**, what is missing is the code |
 
-- **教训**：
-  1. **派任务前必须自己先核实前提**，否则 agent 会花大量时间纠正而非推进
-  2. **agent 说「任务前提错误」时，认真对待** —— 本轮 3/5 都是这种情况
-  3. 任务书里写「已知 X」时，必须标**证据来源和日期**
-- **30 秒判定**：派 agent 前，对每个「已知前提」问一句「证据在哪、什么时候的」。
+- **Lessons**:
+  1. **Verify the premises yourself before assigning the task**, or the agent spends most of its time correcting instead of advancing
+  2. **When an agent says "the task premise is wrong", take it seriously** — this round 3/5 were that case
+  3. When a brief says "X is known", it must carry **the evidence source and the date**
+- **30-second check**: before assigning an agent, ask of every "known premise" "where is the evidence, and from when".
 
-### P-62 亮度功能完全没暴露给 iOS（发现但未修）
+### P-62 The brightness function is not exposed to iOS at all (found, not fixed)
 
-- **事实**：`pong_panel_set_brightness()`（`PongDsiPanel.cpp:247`）**全树 0 调用者**。
-- 验证：`grep -rn 'brightness|backlight|IODisplayParameters' iokit/Kernel/MiniIOMobileFramebuffer.cpp` → **0 命中**
-- 24 个 selector（`PongDsiPanel.cpp:48-72`）**无亮度**
-- **后果**：iOS 里调亮度滑块**不会有任何效果**（屏幕保持 boot-arg 写死的 255）。
-- **正确修法**（来自 `AppleARMBacklight` 的 **OS 契约**，不是它的硬件层）：
-  - 但**必须避开两个已记录的坑**：
-    - `AppleARMBacklight.cpp:350-355` **int-236**：只发 `backlight-control` 不满足类一致性 → **屏幕停止更新**
-    - `:11-12` **int-229**：重名 → **panic**
-  - 所以 `backlight-proposed.patch` **刻意不发布** `backlight-control`，
-    只加 `k60_panel_brightness=0..255` boot-arg（默认 255 不变）作为安全调试旋钮
-- **30 秒判定**：讨论「屏幕亮度」前先确认面板 IC 类型；
-  K60 是 **DCS**（`PongDsiPanel.cpp:6-7`），不是 I2C 背光 IC（sheng 是 KTZ8866×2）。
+- **Fact**: `pong_panel_set_brightness()` (`PongDsiPanel.cpp:247`) has **0 callers in the whole tree**.
+- Verification: `grep -rn 'brightness|backlight|IODisplayParameters' iokit/Kernel/MiniIOMobileFramebuffer.cpp` → **0 hits**
+- The 24 selectors (`PongDsiPanel.cpp:48-72`) have **no brightness**
+- **Consequence**: moving the brightness slider in iOS **has no effect at all** (the screen stays at the 255 hardcoded by boot-arg).
+- **Correct fix** (from `AppleARMBacklight`'s **OS contract**, not its hardware layer):
+  - but **two recorded pitfalls must be avoided**:
+    - `AppleARMBacklight.cpp:350-355` **int-236**: publishing only `backlight-control` does not satisfy class consistency → **the screen stops updating**
+    - `:11-12` **int-229**: duplicate name → **panic**
+  - so `backlight-proposed.patch` **deliberately does not publish** `backlight-control`,
+    and only adds the `k60_panel_brightness=0..255` boot-arg (default 255, unchanged) as a safe debugging knob
+- **30-second check**: before discussing "screen brightness", confirm the panel IC type;
+  the K60 is **DCS** (`PongDsiPanel.cpp:6-7`), not an I2C backlight IC (sheng is KTZ8866×2).
 
-### P-63 **所有「0 日志挂死」的真正根因：`io_submap` 只有 8 MiB，`ml_io_map` 满了会 panic**
+### P-63 **The real root cause of every "0-log hang": `io_submap` is only 8 MiB, and a full `ml_io_map` panics**
 
-- **铁证**（真机 panic，`evidence/usblog-20261108-192302/console.log`）：
+- **Hard evidence** (real device panic, `evidence/usblog-20261108-192302/console.log`):
   ```
   K60PANICFMT caller=0xfffffff007a5365c fmt=kmem_%s(%p, %zd, 0x%x): failed with %d @%s:%d
   kmem_alloc(0xfffffff16796ab00, 458752, 0x100021): failed with 3 @vm_kern.c:178
   K60PANIC: ring kept; restart reason -> bootloader
   ```
-  `458752 = 0x70000` = `GCC_SIZE`；`failed with 3` = `KERN_NO_SPACE`。
+  `458752 = 0x70000` = `GCC_SIZE`; `failed with 3` = `KERN_NO_SPACE`.
 
-- **因果链**（全部有源码依据）：
-  1. `pong_goodix.c` 的 `touch_thread` 一次要 4 个窗口：
+- **Causal chain** (all backed by source):
+  1. `touch_thread` in `pong_goodix.c` wants 4 windows at once:
      `TLMM 0x200000(2 MiB)` + `GCC 0x70000(448 KiB)` + `SE 0x4000` + `cmd_db 0x20000` ≈ **2.56 MiB**
-  2. `osfmk/arm/io_map.c:65`：`#define IO_MAP_SIZE (8ul << 20)` —— **全内核共享 8 MiB**
-  3. `io_map.c:128`：`kmem_alloc(io_submap, ..., KMA_NOFAIL)` —— **忽略返回值**
-  4. 满了 → `KERN_NO_SPACE` → `KMA_NOFAIL` → `__kmem_failed_panic`（`vm_kern.c:1002`）
-  5. **panic 发生在 `clocks_on()` 之前、`geni_spi_init()` 之前**
+  2. `osfmk/arm/io_map.c:65`: `#define IO_MAP_SIZE (8ul << 20)` — **8 MiB shared by the whole kernel**
+  3. `io_map.c:128`: `kmem_alloc(io_submap, ..., KMA_NOFAIL)` — **ignores the return value**
+  4. full → `KERN_NO_SPACE` → `KMA_NOFAIL` → `__kmem_failed_panic` (`vm_kern.c:1002`)
+  5. **the panic happens before `clocks_on()`, before `geni_spi_init()`**
 
-- **这解释了本轮所有现象**：
-  | 现象 | 真实原因 |
+- **This explains every symptom this round**:
+  | Symptom | Real cause |
   |---|---|
-  | `k60_touch_se=0` 系统正常 | 线程不启动，不申请窗口 |
-  | `k60_touch_se=1` 0 日志 | **`ml_io_map` 就 panic 了，比任何寄存器访问都早** |
-  | `pong_audio=1 pong_aw882xx=1` 0 日志 | 同样原因（音频另有 4 处 `ml_io_map`）|
-  | 前 3 轮所有寄存器级修复无效 | **根本没走到寄存器** |
+  | `k60_touch_se=0` system normal | the thread does not start, no windows requested |
+  | `k60_touch_se=1` 0 logs | **`ml_io_map` panics, earlier than any register access** |
+  | `pong_audio=1 pong_aw882xx=1` 0 logs | same cause (audio has another 4 `ml_io_map` sites) |
+  | all register-level fixes in the previous 3 rounds ineffective | **it never got as far as the registers** |
 
-- **共享 8 MiB 的还有**：`0300-k60-usblog-ep0.patch`（10 处）、`0334`（7 处）、
-  `0402`（8 处）、`0500`（4 处）、`0503`（4 处）、`0504`（5 处）等。
+- **Also sharing the 8 MiB**: `0300-k60-usblog-ep0.patch` (10 sites), `0334` (7 sites),
+  `0402` (8 sites), `0500` (4 sites), `0503` (4 sites), `0504` (5 sites) and others.
 
-- **修复**（保守版，只动 TLMM）：
+- **Fix** (conservative version, TLMM only):
   ```c
-  // 原来：TLMM_SIZE = 0x200000 (2 MiB)
-  // 改为：TLMM_SIZE = 0x10000 (64 KiB)，并把基址 rebase 到 gpio_offset
+  // before: TLMM_SIZE = 0x200000 (2 MiB)
+  // after:  TLMM_SIZE = 0x10000 (64 KiB), and rebase the base address to gpio_offset
   tlmm = ml_io_map(TLMM_PHYS + gpio_offset, TLMM_SIZE) - gpio_offset;
   ```
-  省下 **1.94 MiB**。`GPIO_CFG(n) = tlmm + gpio_offset + 0x1000*n` 计算不变。
+  Saves **1.94 MiB**. `GPIO_CFG(n) = tlmm + gpio_offset + 0x1000*n` is unchanged.
 
-- **为什么不缩 GCC**：GCC 偏移分布 `0x0~0x27580` + `0x33000` + `0x62018`，
-  **跨度 0x70000 无法用单窗口缩小**。缩它需要拆成 2 个窗口（`0x0~0x2000` 和 `0x12000~0x14000`），
-  改动面大、风险高。优先缩 TLMM（省 1.94 MiB，零语义变化）。
+- **Why not shrink GCC**: the GCC offsets are spread over `0x0~0x27580` + `0x33000` + `0x62018`,
+  **a span of 0x70000 that cannot be reduced to a single window**. Shrinking it needs splitting into 2 windows (`0x0~0x2000` and `0x12000~0x14000`),
+  a large surface with high risk. Shrink TLMM first (saves 1.94 MiB, zero semantic change).
 
-- **30 秒判定**：任何驱动加 `ml_io_map` 前，先算总预算。
-  **累计接近 8 MiB 时必然 panic，且表现为「0 日志挂死」，会被误判成寄存器访问问题。**
-  查法：`grep -c ml_io_map` 各补丁 + 手动累加 SIZE。
+- **30-second check**: before any driver adds `ml_io_map`, compute the total budget.
+  **Once the cumulative total approaches 8 MiB a panic is guaranteed, and it shows up as a "0-log hang" that will be misdiagnosed as a register access problem.**
+  How to check: `grep -c ml_io_map` on each patch + add up SIZE by hand.
 
-### P-64 缩小 MMIO 窗口时**必须覆盖最大引脚偏移**：TLMM 64 KiB 让 pin 20 越界
+### P-64 Shrinking an MMIO window **must cover the largest pin offset**: a 64 KiB TLMM puts pin 20 out of bounds
 
-- **现象**：P-63 把 `TLMM_SIZE` 从 2 MiB 缩到 64 KiB 后，`k60_touch_se=2`
-  走到 `bring_up()` 的 GPIO 时 **kernel data abort**：
+- **Symptom**: after P-63 shrank `TLMM_SIZE` from 2 MiB to 64 KiB, `k60_touch_se=2`
+  reached the GPIO part of `bring_up()` and hit a **kernel data abort**:
   ```
   K60KEXC msg=Kernel data abort. pc=0xfffffff00774e78c ... esr=0x96000010
           far=0xfffffff8c6f4a004
   x9:  0xfffffff8c6f4a000   x10: 0x0000000000000002
-  Pong touch: DIAG mapped tlmm=0xfffffff8c6f4a000 ... (rebase 前)
+  Pong touch: DIAG mapped tlmm=0xfffffff8c6f4a000 ... (before rebase)
   ```
-  `x10=2` 正是 `gpio_set(pin, true)` 写的值（GPIO_IO 的 bit1 = 输出高）。
+  `x10=2` is exactly the value `gpio_set(pin, true)` writes (GPIO_IO bit1 = output high).
 
-- **根因**：TLMM 的访问偏移是 `gpio_offset + 0x1000*n`。
-  K60 触摸引脚 `pins[] = {16,17,18,19,21,20}`，**最大 n = 21** →
-  需要到 `0x15000 + 4 = 0x15004`。而 64 KiB 窗口只到 `0x10000`
-  → **pin 20 的 `GPIO_IO(20) = 0x14004` 落在窗口外** → data abort。
+- **Root cause**: the TLMM access offset is `gpio_offset + 0x1000*n`.
+  The K60 touch pins `pins[] = {16,17,18,19,21,20}`, **max n = 21** →
+  it has to reach `0x15000 + 4 = 0x15004`. But the 64 KiB window only goes to `0x10000`
+  → **pin 20's `GPIO_IO(20) = 0x14004` falls outside the window** → data abort.
 
-- **精确复算**：
+- **Exact recomputation**:
   ```
   mapped_base = tlmm + gpio_offset = 0xfffffff8c6f36000
-  窗口范围     = [0xfffffff8c6f36000, +0x10000) 即上界 0xfffffff8c6f46000
+  window range = [0xfffffff8c6f36000, +0x10000) i.e. upper bound 0xfffffff8c6f46000
   GPIO_IO(20) = reported_tlmm + 0x100000 + 0x1000*20 + 4
               = 0xfffffff8c6e36000 + 0x24004 = 0xfffffff8c6f4a004
-  超出窗口 0x4004 字节
+  0x4004 bytes past the window
   ```
 
-- **修复**：`TLMM_SIZE` 64 KiB → **128 KiB（0x20000）**。
-  覆盖 `0x15004`（pin 21）且有 0xAFB4 余量；仍比原 2 MiB 小 **16 倍**。
+- **Fix**: `TLMM_SIZE` 64 KiB → **128 KiB (0x20000)**.
+  Covers `0x15004` (pin 21) with 0xAFB4 to spare; still **16× smaller** than the original 2 MiB.
 
-- **通用教训（比这个 bug 更重要）**：
-  **缩 MMIO 窗口前，必须枚举该窗口内所有访问偏移并取最大值。**
-  公式：`需要的大小 = max(offset) + access_width`，不是「看起来够用」。
+- **General lesson (more important than this bug)**:
+  **Before shrinking an MMIO window, enumerate every access offset inside that window and take the maximum.**
+  Formula: `size needed = max(offset) + access_width`, not "it looks big enough".
   ```bash
-  # 检查方法：列出所有访问偏移
-  grep -oE '(tlmm|gcc|se) \+ 0x[0-9a-f]+' <文件> | sort -t+ -k2 -u
+  # how to check: list every access offset
+  grep -oE '(tlmm|gcc|se) \+ 0x[0-9a-f]+' <file> | sort -t+ -k2 -u
   ```
 
-- **30 秒判定**：data abort 的 `far` 值减去映射基址，就是**越界的偏移**。
-  对着它找是哪个 `#define X(n)` 算出来的。
+- **30-second check**: the `far` value of a data abort minus the mapping base is **the offset that went out of bounds**.
+  Find it and work out which `#define X(n)` produced it.
 
-### P-65 **GENI 时钟链真正断点：`CMD_ROOT_OFF`（bit31）关闭，不是 DFS_EN**
+### P-65 **The real break in the GENI clock chain: `CMD_ROOT_OFF` (bit31) is asserted, not DFS_EN**
 
-- **排查过程（两次搞错寄存器，都记下来）**：
-  1. 先以为 `DFS_EN` 在 `CMD` 寄存器 → 写 `CMD |= 1` → `cmd` 读回仍是 `0x80000000`，无效
-  2. 才发现 Linux 定义（`clk-rcg2.c:24-31`）：
+- **Diagnosis trail (two wrong registers, both recorded)**:
+  1. First assumed `DFS_EN` lived in the `CMD` register → wrote `CMD |= 1` → `cmd` still read back `0x80000000`, no effect
+  2. Only then found the Linux definitions (`clk-rcg2.c:24-31`):
      ```c
      #define CMD_REG          0x0
-     #define CMD_UPDATE       BIT(0)      ← CMD bit0 是"提交配置"，不是 DFS_EN
-     #define CMD_ROOT_OFF     BIT(31)     ← CMD bit31 = root 关闭
+     #define CMD_UPDATE       BIT(0)      ← CMD bit0 is "commit the config", not DFS_EN
+     #define CMD_ROOT_OFF     BIT(31)     ← CMD bit31 = root off
      #define SE_CMD_DFSR_OFFSET 0x14
-     #define SE_CMD_DFS_EN    BIT(0)      ← DFS_EN 在 DFSR，不在 CMD
+     #define SE_CMD_DFS_EN    BIT(0)      ← DFS_EN is in DFSR, not in CMD
      ```
-  3. 我们的 `dfsr = 0x21` → **bit0 早就是 1，DFS 一直是使能的**
+  3. Our `dfsr = 0x21` → **bit0 had been 1 all along, DFS was enabled the whole time**
 
-- **真正根因**：`cmd = 0x80000000` → **`CMD_ROOT_OFF` bit31 = 1**
-  Linux `clk-rcg2.c:74`：
+- **Real root cause**: `cmd = 0x80000000` → **`CMD_ROOT_OFF` bit31 = 1**
+  Linux `clk-rcg2.c:74`:
   ```c
-  return (cmd & CMD_ROOT_OFF) == 0;   // bit31=1 → root 关闭 → 不出时钟
+  return (cmd & CMD_ROOT_OFF) == 0;   // bit31=1 → root off → no clock out
   ```
-  **RCG root 被关掉时，任何频率配置（DFS 或普通）都不产生时钟。**
+  **While the RCG root is turned off, no frequency configuration (DFS or plain) produces a clock.**
 
-- **实证（关键突破）**：
+- **Measured evidence (the key breakthrough)**:
   ```
-  DFSEN post cmd=0x80000000 cbcr=0x80004220   ← 写 CMD 后 cbcr 短暂变 ON（bit31=1）
-  CLKPROOF se4_cbcr=0x4220                     ← 但随后又变回 OFF
+  DFSEN post cmd=0x80000000 cbcr=0x80004220   ← after writing CMD, cbcr briefly goes ON (bit31=1)
+  CLKPROOF se4_cbcr=0x4220                    ← but then flips back to OFF
   ```
-  `cbcr` 能变 `0x80004220` 说明**时钟硬件本身可用**，只是没被正确保持。
+  `cbcr` reaching `0x80004220` shows the **clock hardware itself works**, it just is not held properly.
 
-- **修复**：
+- **Fix**:
   ```c
-  /* 1. 清 CMD_ROOT_OFF */
+  /* 1. clear CMD_ROOT_OFF */
   wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) & ~(1u << 31));
-  /* 2. 提交（CMD_UPDATE）*/
+  /* 2. commit (CMD_UPDATE) */
   wr(GCC_QUP0_SE4_CMD, rd(GCC_QUP0_SE4_CMD) | 1u);
-  for (500 次) { 等 bit0 清零 }
+  for (500 iterations) { wait for bit0 to clear }
   ```
 
-- **通用教训**：
-  **改 RCG 前先读 `CMD` 寄存器判断 root 是否开着。** `cmd & BIT(31)` = 0 才继续。
-  这比查频率表、divider、DFS 档位都更优先。
+- **General lesson**:
+  **Before changing an RCG, read the `CMD` register and check whether the root is on.** Only continue if `cmd & BIT(31)` = 0.
+  That comes before checking the frequency table, the divider or the DFS gear.
 
-- **30 秒判定**：时钟不输出时，第一步读 `CMD` 看 bit31；若为 1，先清它，
-  再谈频率配置。顺序错了会在错误的寄存器上浪费多轮。
+- **30-second check**: when a clock produces nothing, the first step is to read `CMD` and look at bit31; if it is 1, clear it first,
+  and only then talk about frequency configuration. Wrong order burns several rounds on the wrong register.
 
-### P-66 **`CMD_ROOT_OFF` 写不进去：RCG root 由硬件授权控制，软件无法强制开启**
+### P-66 **`CMD_ROOT_OFF` will not take a write: the RCG root is controlled by hardware authorisation, software cannot force it on**
 
-- **实测（`evidence/usblog-20261109-190657`，内核 `09b0d5d0`）**：
+- **Measured** (`evidence/usblog-20261109-190657`, kernel `09b0d5d0`):
   ```
   ROOT_ON pre  cmd=0x80000000 cbcr=0x80004220
-  ROOT_ON post cmd=0x80000000 cbcr=0x80004220     ← 写完 cmd 完全没变
-  CLKPROOF se4_cbcr=0x4220                        ← 之后又变了
+  ROOT_ON post cmd=0x80000000 cbcr=0x80004220     ← cmd completely unchanged after the write
+  CLKPROOF se4_cbcr=0x4220                        ← then it changed again
   ```
 
-- **事实 1：`CMD` bit31（`CMD_ROOT_OFF`）写不进去**
-  写 `wr(cmd, rd(cmd) & ~(1u<<31))` 后回读仍是 `0x80000000`。
-  → **这是只读状态位**，root 使能由硬件/固件授权，不由软件写 CMD 控制。
+- **Fact 1: `CMD` bit31 (`CMD_ROOT_OFF`) will not take a write**
+  after `wr(cmd, rd(cmd) & ~(1u<<31))` it still reads back `0x80000000`.
+  → **this is a read-only status bit**; root enable is granted by hardware/firmware, not by software writing CMD.
 
-- **事实 2：CBCR bit31 语义确认为 CLK_OFF=1**
-  | 值 | bit31 | 含义 |
+- **Fact 2: CBCR bit31 semantics confirmed as CLK_OFF=1**
+  | value | bit31 | meaning |
   |---|---|---|
   | `0x80004220` | 1 | **OFF** |
-  | `0x4220` | 0 | **未 OFF** |
+  | `0x4220` | 0 | **not OFF** |
 
-  **注意**：我此前一度把 `0x80004220` 当成"ON"，方向读反了，已更正。
+  **Note**: at one point I read `0x80004220` as "ON", the direction was backwards, now corrected.
 
-- **事实 3：时钟状态在两次读取之间翻转**
-  `clocks_on()` 期间是 `0x80004220`(OFF)，到 `geni_transfer()` 时是 `0x4220`(未 OFF)。
-  说明有其它机制（HWCG 门控 / GCC 投票 / 电源域）在动态控制。
+- **Fact 3: the clock state flips between two reads**
+  during `clocks_on()` it is `0x80004220`(OFF), by the time of `geni_transfer()` it is `0x4220`(not OFF).
+  So some other mechanism (HWCG gating / GCC vote / power domain) is controlling it dynamically.
 
-- **结论**：**RCG root 的使能不归 XNU 软件控制。**
-  要真正打开 SE4 时钟，需要：
-  1. **RPMh/RSC 投票**（我们禁止访问，HR-01）
-  2. 或 **GDSC/电源域**（QUP 无 GDSC，见 P-63 附注）
-  3. 或 **依赖 ABL 在 Android 启动时已打开**（需验证 Android 侧时钟状态）
+- **Conclusion**: **enabling the RCG root is not under XNU software control.**
+  To really turn the SE4 clock on you need:
+  1. an **RPMh/RSC vote** (we are forbidden access, HR-01)
+  2. or a **GDSC/power domain** (QUP has no GDSC, see the P-63 note)
+  3. or **reliance on ABL having turned it on at Android boot** (requires verifying the Android-side clock state)
 
-- **这条对触摸修复的意义**：
-  即使 GENI 全部寄存器配置正确、FIFO 逃生开了、DFS 档位选对了，
-  **只要 SE4 的 RCG root 没被授权，SPI 传输就永远不完成**。
-  这是**架构级阻塞**，不是驱动 bug。
+- **What this means for the touch fix**:
+  even with every GENI register configured correctly, the FIFO escape opened and the right DFS gear selected,
+  **as long as SE4's RCG root is not authorised, the SPI transfer will never complete**.
+  This is an **architectural blocker**, not a driver bug.
 
-- **30 秒判定**：写 `CMD` 后回读不变 → 该位只读。
-  不要继续在 CMD/CBCR 上试写，转去查授权路径（RPMh / 电源域 / 固件）。
-### P-67 **时钟其实一直在运行：`cbcr=0x4220` 的 bit31=0 就是"未关闭"**
+- **30-second check**: write `CMD`, read back, unchanged → the bit is read-only.
+  Stop trying writes on CMD/CBCR and go look at the authorisation path (RPMh / power domain / firmware).
+### P-67 **The clock was running all along: `cbcr=0x4220` with bit31=0 means "not off"**
 
-- **我连续两轮把 CBCR 语义读反了**，这里一次性纠正：
+- **I read the CBCR semantics backwards two rounds in a row**; the correction in one place:
 
-  | `CLOCK_OFF = (1u<<31)` | 含义 |
+  | `CLOCK_OFF = (1u<<31)` | meaning |
   |---|---|
-  | `0x80004220` | **bit31=1 → 时钟 OFF** |
-  | **`0x4220`** | **bit31=0 → 时钟在运行（未关闭）** |
+  | `0x80004220` | **bit31=1 → clock OFF** |
+  | **`0x4220`** | **bit31=0 → clock running (not off)** |
 
-- **实测时间线（`evidence/usblog-20261109-190657`，内核 `09b0d5d0`）**：
+- **Measured timeline** (`evidence/usblog-20261109-190657`, kernel `09b0d5d0`):
   ```
-  clocks_on() 期间:  se4_cbcr = 0x80004220   ← OFF
-  geni_transfer() 时: CLKPROOF se4_cbcr = 0x4220   ← 未 OFF = 运行中
+  during clocks_on():  se4_cbcr = 0x80004220   ← OFF
+  at geni_transfer():  CLKPROOF se4_cbcr = 0x4220   ← not OFF = running
   ```
-  **时钟在 `clocks_on()` 之后自己打开了**（很可能是 `wr(GCC_QUP0_SE4_CFG...)` 或 GENI 访问唤醒的）。
+  **The clock turned itself on after `clocks_on()`** (very likely woken by `wr(GCC_QUP0_SE4_CFG...)` or by the GENI access).
 
-- **因此**：
-  - ❌ "SE4 时钟没运行" —— **错误**
-  - ❌ "需要清 `CMD_ROOT_OFF`" —— **错误**（该位只读，且时钟已开）
-  - ❌ "这是架构级阻塞" —— **错误**
+- **Therefore**:
+  - ❌ "the SE4 clock is not running" — **wrong**
+  - ❌ "`CMD_ROOT_OFF` needs clearing" — **wrong** (the bit is read-only and the clock is already on)
+  - ❌ "this is an architectural blocker" — **wrong**
 
-- **真正的阻塞点回到 GENI 引擎**：
+- **The real blocker is back at the GENI engine**:
   ```
-  GENI pre  status=0 clk_cfg=0x51 trans_cfg=0 word_len=0x4   ← 配置全对
-  GENI cmd0 readback=0x18000000                              ← 命令被接受
-  SPI transfer: status=0, sent=36, received=0                ← 但永不完成
+  GENI pre  status=0 clk_cfg=0x51 trans_cfg=0 word_len=0x4   ← config all correct
+  GENI cmd0 readback=0x18000000                              ← command was accepted
+  SPI transfer: status=0, sent=36, received=0                ← but never completes
   ```
-  `status & M_CMD_DONE` 从未置位 → `M_CMD_DONE` 不是 bit0！
+  `status & M_CMD_DONE` never sets → `M_CMD_DONE` is not bit0!
 
-- **下一步必须验证**：`GENI_M_IRQ_STATUS`（`se+0x610`）的 `M_CMD_DONE` 位定义
-  是否与我们对 `status` 的解读一致。我们用的 `M_CMD_DONE = (1u<<0)`，
-  但 `status=0x41` 的 bit0=1 却没被识别为 DONE —— **说明位定义可能错**。
+- **The next step that must be verified**: whether the `M_CMD_DONE` bit definition in `GENI_M_IRQ_STATUS` (`se+0x610`)
+  matches how we interpret `status`. We used `M_CMD_DONE = (1u<<0)`,
+  yet `status=0x41` with bit0=1 was not recognised as DONE — **so the bit definition is probably wrong**.
 
-- **30 秒判定**：判断时钟是否在跑，只看 `cbcr & (1u<<31)`。
-  **bit31=0 = 在跑**。不要再看 bit30（那不是 ON 标志）或其他位。
-### P-69 **阶段门控的插入位置必须在"危险调用之前"，不是之后**
+- **30-second check**: to decide whether the clock is running, look only at `cbcr & (1u<<31)`.
+  **bit31=0 = running**. Stop looking at bit30 (that is not an ON flag) or at any other bit.
+### P-69 **A stage gate must be inserted before the dangerous call, not after it**
 
-- **症状**：新加的 `k60_touch_se=7`（本意是"只走 bitbang，不碰 GENI/RPMh"）
-  上机后 **0 日志整机死**（`evidence/usblog-20261109-192255`，0 B）。
+- **Symptom**: the newly added `k60_touch_se=7` (meant to be "bitbang only, never touch GENI/RPMh")
+  **died with 0 logs** on device (`evidence/usblog-20261109-192255`, 0 B).
 
-- **根因**：门控插在了 `io_supply_on()` **之后**：
+- **Root cause**: the gate was inserted **after** `io_supply_on()`:
   ```c
   if (!problem) {
       spi_transfer=geni_transfer;
       if (goodix_probe(false)) return true;
-      if (touch_stage < 6) return false;      // stage 5 停在这
-      if (io_supply_on()) { ... }             // ← stage 7 也会执行！
+      if (touch_stage < 6) return false;      // stage 5 stops here
+      if (io_supply_on()) { ... }             // ← stage 7 runs this too!
   }
   ...
-  if (touch_stage < 7) return false;          // ← 门控在这里，太晚了
+  if (touch_stage < 7) return false;          // ← the gate is here, too late
   spi_transfer = bitbang_transfer;
   ```
-  `touch_stage=7` 时 `7 < 6` 为假 → 继续执行 `io_supply_on()`
-  → `rpmh_write()` → `wr(TCS(rsc+0xd00))` 且 `rsc=0` → **非法地址 data abort**。
+  with `touch_stage=7`, `7 < 6` is false → execution continues into `io_supply_on()`
+  → `rpmh_write()` → `wr(TCS(rsc+0xd00))` with `rsc=0` → **data abort on an invalid address**.
 
-- **修复（两处）**：
-  1. `if (touch_stage == 6 && io_supply_on())` —— 只有 stage 6 允许碰 RPMh
-  2. bitbang 循环里的 `if (attempt==0 && touch_stage == 6 && io_supply_on())`
-  3. **并在 `bring_up()` 最前面**加 `if (touch_stage >= 7) goto bitbang_only;`
-     —— 让 stage 7 完全跳过 `clocks_on()` / `geni_spi_init()` / 200ms 失败传输
+- **Fix (two places)**:
+  1. `if (touch_stage == 6 && io_supply_on())` — only stage 6 is allowed to touch RPMh
+  2. `if (attempt==0 && touch_stage == 6 && io_supply_on())` inside the bitbang loop
+  3. **and at the very top of `bring_up()`** add `if (touch_stage >= 7) goto bitbang_only;`
+     — so stage 7 skips `clocks_on()` / `geni_spi_init()` / the 200ms failing transfer entirely
 
-- **通用教训**：
-  **给新阶段加门控时，必须确认它在整条调用链上位于所有危险调用之前。**
-  只在一个位置加 `if (stage < N) return` 是不够的 —— 如果中途还有别的
-  `if (stage < M)`（M < N）分支，新阶段会从那些分支"漏"过去。
+- **General lesson**:
+  **When adding a gate for a new stage you must confirm that, along the whole call chain, it sits before every dangerous call.**
+  Adding `if (stage < N) return` in one place is not enough — if there is another
+  `if (stage < M)` branch in between (M < N), the new stage "leaks" through those branches.
 
-- **检查方法**：加新阶段后，`grep -n 'touch_stage'` 全文列出所有门控点，
-  按执行顺序逐个确认新阶段会走哪条路。
+- **How to check**: after adding a stage, run `grep -n 'touch_stage'` over the whole file to list every gate,
+  then walk them in execution order and confirm which path the new stage takes.
 
-- **30 秒判定**：新 stage 一上机就 0 日志 → 先查它是否漏过了某个危险调用，
-  而不是怀疑新功能本身。
+- **30-second check**: a new stage that dies with 0 logs on its first device boot → first check whether it slipped past some dangerous call,
+  rather than suspecting the new feature itself.
 
-### P-70 **K60 触摸 SPI 引脚角色：MISO 是 GPIO 17，不是 16**
+### P-70 **K60 touch SPI pin roles: MISO is GPIO 17, not 16**
 
-- **背景**：FDT 的 `qupv3_se4_spi_active` 只给出引脚**集合**
-  `pins = "gpio16\0gpio17\0gpio18\0gpio19"`（function `qup4`），
-  **没有说明**哪个是 MISO / MOSI / CLK / CS。
+- **Background**: the FDT's `qupv3_se4_spi_active` only gives the pin **set**
+  `pins = "gpio16\0gpio17\0gpio18\0gpio19"` (function `qup4`),
+  and **does not say** which one is MISO / MOSI / CLK / CS.
 
-- **我们原来的假设（来自 pong 参考实现，从未核对）**：
+- **Our original assumption (taken from the pong reference implementation, never checked)**:
   `MISO=16, MOSI=17, CLK=18, CS=19`
 
-- **实测（24 种排列一次扫描，`evidence/usblog-20261109-195627`，内核 `7bfc16a4`）**：
+- **Measured (one sweep over 24 permutations, `evidence/usblog-20261109-195627`, kernel `7bfc16a4`)**:
   ```
   PERM0  miso=16 mosi=17 clk=18 cs=19  -> 00 00 00 00
   PERM7  miso=17 mosi=16 clk=19 cs=18  -> ff ff ff ff   ★
   PERM8  miso=17 mosi=18 clk=16 cs=19  -> ff ff ff ff   ★
-  其余 22 种                            -> 00 00 00 00
+  the other 22                         -> 00 00 00 00
   ```
-  **两个 `ff` 的共同点是 `miso=17`** → **MISO 实际在 GPIO 17**。
+  **What the two `ff` results share is `miso=17`** → **MISO is actually on GPIO 17**.
 
-- **`ff ff ff ff` 的意义**：MISO 被拉高。SPI 空闲态（CS 未选中或芯片未驱动）
-  通常是**高电平**，说明这条线**终于连到芯片侧**了；而 `00` 说明那条线根本不是 MISO
-  （悬空被拉低或接错）。
+- **What `ff ff ff ff` means**: MISO is pulled high. The SPI idle state (CS not selected or the chip not driving)
+  is usually **high**, so this line is **finally connected to the chip side**; whereas `00` means that line is not MISO at all
+  (floating and pulled low, or wired wrong).
 
-- **修正**：`pins[]` 的 MISO/MOSI 位置需要交换：
+- **Correction**: the MISO/MOSI positions in `pins[]` have to be swapped:
   ```c
-  // 原（错）：MISO=pins[0]=16, MOSI=pins[1]=17
-  // 新（对）：MISO=pins[1]=17, MOSI=pins[0]=16
+  // old (wrong): MISO=pins[0]=16, MOSI=pins[1]=17
+  // new (right):  MISO=pins[1]=17, MOSI=pins[0]=16
   ```
-  剩余 CLK/CS 还需在 `miso=17` 的 6 种组合里确认（PERM6 `mosi=16 clk=18 cs=19`
-  最符合 Qualcomm 标准顺序）。
+  The remaining CLK/CS still have to be confirmed among the 6 combinations with `miso=17` (PERM6 `mosi=16 clk=18 cs=19`
+  matches the Qualcomm standard order best).
 
-- **通用教训**：
-  **FDT 的 pinctrl `pins` 属性只保证"这四根线属于这个 SE"，不保证顺序。**
-  在写 bitbang 或手搓 SPI 前，必须用排列扫描（24 种）实测确定角色，
-  不能从别的板子照抄。一次扫描就能省掉多轮猜测。
+- **General lesson**:
+  **The FDT pinctrl `pins` property only guarantees "these four lines belong to this SE", not their order.**
+  Before writing bitbang or hand-rolled SPI you must determine the roles by a measured permutation sweep (24 of them);
+  you cannot copy them from another board. One sweep saves several rounds of guessing.
 
-- **30 秒判定**：bitbang 读全 `00` → MISO 选错；读全 `ff` → MISO 大概率对了，
-  但芯片没响应（需查 CS/CLK 或供电）。
+- **30-second check**: bitbang reads all `00` → MISO is wrong; reads all `ff` → MISO is very likely right,
+  but the chip is not responding (check CS/CLK or the supply).
 
-### P-71 **不要只看 `status` 字段判完成度 —— 必须读 `services.md` 的实测记录**
+### P-71 **Do not judge completeness from the `status` field alone — read the measured records in `services.md`**
 
-- **我犯的错（2026-11-09 20:40）**：
-  查 `pong.toml` 的 input 段，看到 `status = "implemented"` 和
-  `completion = ["在设备上观察该接口的实际工作结果并保存对应日志"]`，
-  就断定「pong 自己也没验证过 Goodix 触摸」。**这是错的。**
+- **The mistake I made (2026-11-09 20:40)**:
+  I looked at the input section of `pong.toml`, saw `status = "implemented"` and
+  `completion = ["observe the interface actually working on device and save the corresponding log"]`,
+  and concluded "pong itself never verified Goodix touch either". **That was wrong.**
 
-- **铁证**（`/mnt/e/hackios/UniXNU-pong/migration/ipados18/services.md`）：
-  | 行 | 原文 |
+- **Hard evidence** (`/mnt/e/hackios/UniXNU-pong/migration/ipados18/services.md`):
+  | line | text |
   |---|---|
-  | 296 | `touch/key HID 事件继续出现` |
-  | 315 | `触摸 HID 事件已进入内核` |
-  | 321 | `backboardd、SpringBoard 均进入 running，且有触摸事件` |
+  | 296 | `touch/key HID events keep arriving` |
+  | 315 | `touch HID events have reached the kernel` |
+  | 321 | `backboardd and SpringBoard both reach running, with touch events` |
 
-  **pong 的 Goodix Berlin-D 触摸是真机验证过的。**
+  **pong's Goodix Berlin-D touch was verified on real hardware.**
 
-- **为什么 `status` 会误导**：
-  `status` 是**记录的汇总字段**，可能滞后于 `services.md` 的逐轮实测；
-  而 `completion` 是**该条记录自身**的待办，不等于项目整体状态。
-  **判断能力是否成立，必须读 `services*.md` 的 REC（recorded）结果。**
+- **Why `status` misleads**:
+  `status` is a **summary field of the record** and can lag behind the round-by-round measurements in `services.md`;
+  and `completion` is the to-do list of **that record itself**, not the overall state of the project.
+  **To decide whether a capability holds, you must read the REC (recorded) results in `services*.md`.**
 
-- **这个纠正的连锁影响**：
-  1. `pong_goodix.c` 的 **Goodix 协议实现是正确的**（pong 实测）
-  2. **SPI 引脚映射 16,17,18,19 是正确的**
-  3. `goodix_read(0x10014)` 的帧格式正确
-  4. **K60 移植的代码本身没问题**
-  5. **K60 的唯一差异是 RSC 不可用 → 触摸 VDD 上不了电**
-  → 修复路径收敛为「SPMI 直写 PM8350C LDO2」这一件事
+- **Knock-on effects of that correction**:
+  1. `pong_goodix.c`'s **Goodix protocol implementation is correct** (measured on pong)
+  2. **the SPI pin mapping 16,17,18,19 is correct**
+  3. the frame format of `goodix_read(0x10014)` is correct
+  4. **the code ported to the K60 is fine in itself**
+  5. **the only K60 difference is that RSC is unavailable → touch VDD cannot be powered**
+  → the fix path collapses to one thing: "write PM8350C LDO2 directly over SPMI"
 
-- **通用教训**：
-  **查项目能力时，`status` 字段只能作为索引，证据必须来自 `services*.md` / 日志 / 截图。**
-  只看 toml 字段会得出完全相反的结论。
+- **General lesson**:
+  **When checking a project's capabilities, the `status` field is only an index; the evidence must come from `services*.md` / logs / screenshots.**
+  Looking only at the toml fields leads to exactly the opposite conclusion.
 
-- **30 秒判定**：要判断某能力"是否验证过"，先 `grep -i '<能力>' migration/*/services*.md`，
-  再看有没有 `REC` + 具体现象描述。不要看 `status =`。
+- **30-second check**: to decide whether some capability "has been verified", first `grep -i '<capability>' migration/*/services*.md`,
+  then look for `REC` plus a concrete symptom description. Do not look at `status =`.
 
-### P-72 **交付物目录存在 ≠ subagent 交付完成**
+### P-72 **A deliverable directory existing ≠ the subagent has delivered**
 
-- **时间**：2026-11-09 21:33
-- **症状**：看到 `impl/touch-power/` 有 `PMIC-RESEARCH.md`(26,933B)、
-  `SPMI-PROBE-PLAN.md`(22,024B)、`SPMI-WRITE-PLAN.md`(18,936B) 等 5 个文件，
-  就当成"PMIC 供电方案已交付"，并向用户汇报了 SID=2 / LDO2 base=0x4100 等结论。
-- **实际**：`EVIDENCE.md` 在 21:32:41 仍在更新（汇报时 21:32:47，**只差 6 秒**），
-  subagent **仍在工作**，这些文件是半成品。
-- **教训**：
-  1. **只有收到 `finished` / `完成` 消息才算交付**
-  2. 判断方法：`ls -l --time-style=+%H:%M:%S` 看最新文件 mtime，
-     与 `date +%H:%M:%S` 比较；**2 分钟内有改动 = 仍在写**
-  3. 半成品只能当"参考资料"，**不得当结论、不得据此改代码**
-- **为什么会犯**：目录结构在任务开始几分钟后就出现，文件存在造成"已完成"的错觉。
-- **与 HR-11 的关系**：HR-11 是「build artifact ≠ on-device state」，
-  本条是同一认知错误在 subagent 场景的再现：**把"存在"当成"完成"**。
+- **Time**: 2026-11-09 21:33
+- **Symptom**: I saw that `impl/touch-power/` held `PMIC-RESEARCH.md`(26,933B),
+  `SPMI-PROBE-PLAN.md`(22,024B), `SPMI-WRITE-PLAN.md`(18,936B) — 5 files in all —
+  took it as "the PMIC power plan has been delivered", and reported conclusions like SID=2 / LDO2 base=0x4100 to the user.
+- **Reality**: `EVIDENCE.md` was still being updated at 21:32:41 (my report was at 21:32:47, **6 seconds apart**),
+  the subagent **was still working**, and those files were half-finished.
+- **Lesson**:
+  1. **Only a `finished` / `完成` message counts as delivered**
+  2. how to tell: `ls -l --time-style=+%H:%M:%S` to see the newest file mtime,
+     compare with `date +%H:%M:%S`; **a change within 2 minutes = still writing**
+  3. half-finished work is only "reference material"; **it must not be used as a conclusion, and code must not be changed on the strength of it**
+- **Why it happens**: the directory structure appears a few minutes into the task, and the files existing creates the illusion of "done".
+- **Relation to HR-11**: HR-11 is "build artifact ≠ on-device state";
+  this entry is the same cognitive error reappearing in the subagent setting: **treating "exists" as "done"**.
 
-## 台账维护规则
+## Ledger maintenance rules
 
-1. 新坑确认后**当场追加**（与 ISSUES 同步，不等收尾）。
-2. 「30 秒判定」必须写成一个可立即执行的动作或一条否决规则，不写空泛口号。
-3. 证据栏必须有实物：文件+行号、日志路径、sha、commit。没有的标「待验证」。
+1. Once a new pitfall is confirmed, **append it on the spot** (in sync with ISSUES, do not wait for wrap-up).
+2. The "30-second check" must be written as an action you can execute immediately or as a rejection rule, not a vague slogan.
+3. The evidence column must hold something physical: file+line, log path, sha, commit. Where there is none, mark it "to be verified".
 
 ---
 
-## 台账编号已知问题（2026-11-09 审计）
+## Known issues in the ledger numbering (2026-11-09 audit)
 
-| 问题 | 说明 | 处理 |
+| issue | explanation | handling |
 |---|---|---|
-| P-22 出现两次 | 第二条是「P-22 更正」，属合理的更正记录 | 保留 |
-| P-25 缺失 | 编号跳过，可能早期被合并/删除 | 保留空缺，不重排（重排会破坏所有外部引用）|
-| P-01~P-09 零补位 | 早期用 `P-01` 格式，后期用 `P-10+` | 无需处理，grep 时两种都要匹配 |
+| P-22 appears twice | the second one is "P-22 correction", a legitimate correction record | keep |
+| P-25 missing | number skipped, possibly merged/deleted early on | keep the gap, do not renumber (renumbering breaks every external reference)|
+| P-01~P-09 zero padding | early entries used `P-01`, later ones `P-10+` | nothing to do, match both forms when grepping |
 
-**维护规则补充**：新条目继续用 `P-NN`（两位数），**不要重排历史编号**——所有文档、
-commit message、issue 回复里都有 `P-NN` 引用。
+**Maintenance rule addendum**: new entries keep using `P-NN` (two digits); **do not renumber history** — every document,
+commit message and issue reply carries `P-NN` references.
 
-### P-73 D/E 双树漂移：构建用 D 树、改代码在 E 树 → UFS S3 白改（2026-11-10）
+### P-73 D/E two-tree drift: build from the D tree, edit code in the E tree → UFS S3 wasted (2026-11-10)
 
-- **症状**：UFS S1/S2/S3 补丁 rebase 应用到 `<repo>/drivers/NativeUfs/`（E 树），
-  但 `buildv15.sh` 的构建源是 `/tmp/usb-cdc-mainline/device`（D 树）。
-  D 的 `PongUfsTransport.cpp` 停留在 30,473 B（S1 之前），E 已是 44,096 B（S3 最终态）。
-  → **之前所有 boot 镜像根本没编进 UFS S1！**
-- **根因**：历史原因想「把 D 移到 E」，后来 E 盘空间够了就没动，留下两棵树；
-  buildv15.sh 只同步 5 个 patch + 3 个 PongAdreno 驱动，**从不同步 `drivers/NativeUfs/`**。
-- **用户裁定（2026-11-10 02:25）**：「D树和E树 原本是想把D移到E的 后面D盘空间多出来了 就没必要了
-  现在为了避免反复踩坑 应该只需要保留一处」
-- **正确做法（2026-11-10 02:40 用户最终裁定：`只留最稳的那个`）**：**保留 D 为唯一构建树**（所有成功构建都用它，且有 firehose/libfirehose_kernel.a 缓存，`D=E` 会触发 `xcodebuild` 缺失）。E 作为 git 仓库保留，改代码后手动 E→D 同步。
-  - **禁止 `D=E`**：会触发 `scripts/build-firehose.sh` 的 `xcodebuild: command not found`（WSL 无 xcodebuild）。
-- **30 秒判定**：改完 `drivers/` 下源码后，先 `grep` 构建脚本的 `-D` 指向哪个目录，再确认改的文件在那个目录里。
+- **Symptom**: the UFS S1/S2/S3 patches were rebased and applied to `<repo>/drivers/NativeUfs/` (E tree),
+  but `buildv15.sh` builds from `/tmp/usb-cdc-mainline/device` (D tree).
+  D's `PongUfsTransport.cpp` is stuck at 30,473 B (pre-S1), E is already 44,096 B (final S3 state).
+  → **none of the earlier boot images had UFS S1 compiled in at all!**
+- **Root cause**: for historical reasons the plan was to "move D to E", then E's disk had enough space so it was never done, leaving two trees;
+  buildv15.sh only syncs 5 patches + 3 PongAdreno drivers and **never syncs `drivers/NativeUfs/`**.
+- **User ruling (2026-11-10 02:25)**: "the D tree and the E tree — the original idea was to move D onto E, later the D disk had plenty of space so there was no need
+  now, to avoid stepping on the same pitfall over and over, only one of them should be kept"
+- **Correct approach (2026-11-10 02:40, user's final ruling: `keep only the most stable one`)**: **keep D as the only build tree** (every successful build used it, and it has the firehose/libfirehose_kernel.a cache; making `D=E` triggers a missing `xcodebuild`). Keep E as a git repository and sync E→D by hand after changing code.
+  - **`D=E` is forbidden**: it triggers `xcodebuild: command not found` from `scripts/build-firehose.sh` (WSL has no xcodebuild).
+- **30-second check**: after editing sources under `drivers/`, first `grep` the build script for which directory its `-D` points at, then confirm the file you changed is in that directory.
 
-### P-74 构建报 `xcodebuild: command not found`（firehose 库未 seed）（2026-11-10）
+### P-74 Build reports `xcodebuild: command not found` (firehose library not seeded) (2026-11-10)
 
-- **症状**：构建在 `scripts/build-firehose.sh: line 24: xcodebuild: command not found` 失败，
-  `build-xnu-4k-baseline.sh:348: bash scripts/build-firehose.sh failed`。
-- **根因**：`build-xnu-4k-baseline.sh:280` 的守卫是
-  `if [ ! -f "$KERNEL_SDKROOT/usr/local/lib/kernel/libfirehose_kernel.a" ]`，
-  而 `KERNEL_SDKROOT=$ROOT/.cache/fakeroot`。`buildv15.sh` 的 seeding 循环只拷
-  `OLDFR/usr/include`、`OLDFR/usr/local/include`、`OLDSRC`，**漏拷 `OLDFR/usr/local/lib`**
-  → 守卫判定库不存在 → 触发 `build-firehose.sh` → WSL 无 `xcodebuild` → 失败。
-- **为什么以前成功**：以前某版本的 seeding 拷过 `usr/local/lib`，后改脚本时误删。
-- **正确做法**：seeding 循环必须加：
+- **Symptom**: the build fails at `scripts/build-firehose.sh: line 24: xcodebuild: command not found`,
+  `build-xnu-4k-baseline.sh:348: bash scripts/build-firehose.sh failed`.
+- **Root cause**: the guard at `build-xnu-4k-baseline.sh:280` is
+  `if [ ! -f "$KERNEL_SDKROOT/usr/local/lib/kernel/libfirehose_kernel.a" ]`,
+  and `KERNEL_SDKROOT=$ROOT/.cache/fakeroot`. The seeding loop in `buildv15.sh` only copies
+  `OLDFR/usr/include`, `OLDFR/usr/local/include`, `OLDSRC`, and **misses `OLDFR/usr/local/lib`**
+  → the guard decides the library does not exist → `build-firehose.sh` runs → WSL has no `xcodebuild` → failure.
+- **Why it used to work**: an earlier version of the seeding did copy `usr/local/lib`, and it was deleted by accident when the script was changed later.
+- **Correct approach**: the seeding loop must add:
   ```bash
   mkdir -p "$B/tree/.cache/fakeroot/usr/local/lib"
   [ -d "$OLDFR" ] && cp -a -n "$OLDFR/usr/local/lib/." "$B/tree/.cache/fakeroot/usr/local/lib/"
   ```
-  `libfirehose_kernel.a` 在 `out3/.../tree/.cache/fakeroot/usr/local/lib/kernel/`（40,480 B）。
-- **30 秒判定**：构建日志出现 `xcodebuild: command not found` → 检查
-  `$B/tree/.cache/fakeroot/usr/local/lib/kernel/libfirehose_kernel.a` 是否存在；不存在即本条。
+  `libfirehose_kernel.a` lives in `out3/.../tree/.cache/fakeroot/usr/local/lib/kernel/` (40,480 B).
+- **30-second check**: `xcodebuild: command not found` in the build log → check whether
+  `$B/tree/.cache/fakeroot/usr/local/lib/kernel/libfirehose_kernel.a` exists; if not, this is the entry.
 
-### P-75 跳过八步③（Android 反编译）→ 触摸协议用错，stage 8-15 全白费（2026-11-10）
+### P-75 Skipping eight-step ③ (Android decompilation) → wrong touch protocol, stages 8-15 all wasted (2026-11-10)
 
-- **症状**：触摸从 stage 8 到 15 全部基于 Berlin-D（BRL）协议（`dev_confirm` 写 0x10000），
-  芯片完全不响应。最后在 Android root adb 里 10 分钟发现：`compatible = xiaomi,m11a-spi`、
-  驱动 `goodix_ts`（GTP 协议）、反汇编 `goodix_core.ko` 确认 GTP SPI 帧 0xF1+4字节BE地址。
-- **根因**：八步流程的 **③（反编译/取证）被跳过**。①②（pong 同型 + 官方 goodix_brl_hw.c）
-  做了，但**没有在写代码前反汇编 Android 侧驱动**确认 K60 芯片的真实协议。
-  K60 = M11A（GTP），pong = Berlin-D —— ① 同型前提就是错的，③ 本该立刻暴露。
-- **正确做法（铁则 HR-19）**：**任何硬件在写驱动前必须完成 ③（Android 侧取证）**：
-  1. `adb shell cat /proc/device-tree/.../compatible` —— 拿芯片型号
-  2. `adb shell ls /sys/class/input/event*/device/name` —— 拿驱动名
-  3. `adb pull /vendor/lib/modules/<driver>.ko` + `llvm-objdump -d` —— 拿协议帧格式
-  4. 只有 ③ 完成后才能进入 ⑤ 方案
-- **30 秒判定**：任何"我开始写 <硬件> 驱动"之前，先问"Android 侧该硬件的 .ko 反汇编了吗？"
-  没有 → 本条，停止写代码，先做 ③。
+- **Symptom**: touch from stage 8 to 15 was all built on the Berlin-D (BRL) protocol (`dev_confirm` writing 0x10000),
+  and the chip did not respond at all. In the end, 10 minutes in Android root adb found: `compatible = xiaomi,m11a-spi`,
+  driver `goodix_ts` (GTP protocol), and disassembling `goodix_core.ko` confirmed the GTP SPI frame 0xF1+4-byte BE address.
+- **Root cause**: **③ (decompilation/forensics) of the eight-step process was skipped**. ①② (pong same model + official goodix_brl_hw.c)
+  were done, but **the Android-side driver was never disassembled before writing code** to confirm the K60 chip's real protocol.
+  K60 = M11A (GTP), pong = Berlin-D — the ① same-model premise was wrong to begin with, and ③ should have exposed it immediately.
+- **Correct approach (iron rule HR-19)**: **for any hardware, ③ (Android-side forensics) must be completed before writing a driver**:
+  1. `adb shell cat /proc/device-tree/.../compatible` — get the chip model
+  2. `adb shell ls /sys/class/input/event*/device/name` — get the driver name
+  3. `adb pull /vendor/lib/modules/<driver>.ko` + `llvm-objdump -d` — get the protocol frame format
+  4. only after ③ is done can you move to ⑤ plan
+- **30-second check**: before any "I'm starting on the <hardware> driver", first ask "has the Android-side .ko for that hardware been disassembled?"
+  No → this entry; stop writing code and do ③ first.
 
 ---
 
-### P-76 不查 `UniXNU-zizhan` 就动手 = 必然重复造轮子（2026-11-10）
+### P-76 Not checking `UniXNU-zizhan` before starting = guaranteed wheel reinvention (2026-11-10)
 
-**症状**：触摸 SE4 的 GENI DMA 问题上耗了 20+ 轮、改了 15 个配置项、刷机十余次，
-最后发现 `E:\hackios\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
-早就写好了答案。
+**Symptom**: burned 20+ rounds on the touch SE4 GENI DMA problem, changed 15 config items, flashed a dozen times,
+and finally found `E:\hackios\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
+had the answer written long ago.
 
-**根因**：`UniXNU-zizhan` 是 **pong 的超集**，同 SM8475、同 QUP0 SE4、同 GPIO16-19 /
-IRQ21 / RESET20。它的 `bring_up()` 明确写着：
+**Root cause**: `UniXNU-zizhan` is a **superset of pong**: same SM8475, same QUP0 SE4, same GPIO16-19 /
+IRQ21 / RESET20. Its `bring_up()` says plainly:
 
 ```c
 /* zizhan's SE4 firmware is loaded in GSI (DMA-only) mode: FIFO access is disabled,
@@ -1236,89 +1236,89 @@ printf("zizhan touch: GENI unavailable: %s; SPI by GPIO\n", problem);
 spi_transfer = bitbang_transfer;
 ```
 
-**正确做法**：任何硬件工作前，先跑 `<workspace>\scratch\hw-preflight.sh <硬件名>`，
-它会强制列出 zizhan/pong/sheng 里该硬件已有的产物。清单非空就必须先读。
+**Correct approach**: before any hardware work, run `<workspace>\scratch\hw-preflight.sh <hardware name>`;
+it force-lists the artefacts that already exist for that hardware in zizhan/pong/sheng. If the list is not empty you must read it first.
 
-**复发次数**：本会话至少 3 次（触摸 GENI、蓝牙 `qbt_geni.c`、官方中文文档）。
+**Recurrence count**: at least 3 times this session (touch GENI, Bluetooth `qbt_geni.c`, the official Chinese docs).
 
 ---
 
-### P-77 只 `git fetch` 不 `git pull`，导致读的是旧代码（2026-11-10）
+### P-77 Only `git fetch`, never `git pull`, so you judge from stale code (2026-11-10)
 
-**症状**：`sync-upstream.sh` 报告"behind: 32"但我继续用旧内容做判断。
+**Symptom**: `sync-upstream.sh` reported "behind: 32" but I kept judging from the old content.
 
-**实测差距**（2026-11-10 11:10）：
-| 仓库 | 拉取前 | 落后 |
+**Measured gap** (2026-11-10 11:10):
+| repository | before pull | behind |
 |---|---|---|
 | UniXNU | `75ae626` | 12 |
 | **UniXNU-zizhan** | **`087416a`** | **32** |
 
-**正确做法**：`hr` 层要求"验证落后"，但**验证 ≠ 拉取**。
-`hw-preflight.sh` 现在会**强制 `git pull --ff-only`** 所有仓库，拉不下来才报错停下。
+**Correct approach**: the `hr` layer requires "verify the lag", but **verifying ≠ pulling**.
+`hw-preflight.sh` now **forces `git pull --ff-only`** on every repository, and stops with an error if it cannot pull.
 
 ---
 
-### P-78 用物理地址调 `rd()/wr()` → data abort（2026-11-10，两次）
+### P-78 Calling `rd()/wr()` with a physical address → data abort (2026-11-10, twice)
 
-**症状**：
+**Symptom**:
 ```
 K60KEXC: far=0x0000000000990000   ← se_phys
-K60KEXC: far=se + 0x1010          ← se_phys+0x1010 写成 rd(se_phys+...)
+K60KEXC: far=se + 0x1010          ← se_phys+0x1010 written as rd(se_phys+...)
 ```
 
-**根因**：`rd()/wr()` 接受**映射后的虚拟地址**。`se_phys`（0x990000）是物理地址，
-直接解引用必崩。`ml_io_map()` 返回的 `se` 才是可用的。
+**Root cause**: `rd()/wr()` take a **mapped virtual address**. `se_phys` (0x990000) is a physical address,
+dereferencing it directly always crashes. Only `se`, as returned by `ml_io_map()`, is usable.
 
-**正确做法**：
-- 物理地址常量一律以 `_PHYS` 结尾，且**只出现在 `ml_io_map()` 参数里**
-- 所有寄存器访问只用映射后的全局变量（`se`、`tlmm`、`gcc`…）
-- 新增寄存器访问前，`grep` 确认用的是虚拟变量
-
----
-
-### P-79 盲目试"厂商私有寄存器"导致整机复位（2026-11-08/10，两次）
-
-**症状**：删掉 `IF_DISABLE_RO` 检查后整机无日志回 Android；写 `SE_DMA_IF_EN(0x2004)` 直接 panic。
-
-**根因**：`0x2004 / 0x2008 / 0x1010` 在 K60 上 **data abort 是预期行为**——
-它们只出现在 Linux 7.0.14 的 `geni_load_se_fw()` 里，而该函数入口强制要求
-wrapper 有 `firmware-name` 属性（`qcom-geni-se.c:1324-1328`），
-K60 的 `qupv3_0_geni-se@9c0000` **没有**该属性。上游 Linux 在 K60 上也从不写它们。
-
-**正确做法**：
-- 写任何"上游没有的寄存器"前，必须先证明**同一颗 SoC 上有已工作的实例**
-  （Android 反汇编 / 同族设备补丁 / 厂商 driver）
-- 写之前先 `rd()` 一次，若 `rd()` 都 abort，则**永远不要 `wr()`**
-- patch 里保留 `if (0) { ... }` 死代码块作为文档是对的，不要删
+**Correct approach**:
+- physical address constants always end in `_PHYS` and **appear only as `ml_io_map()` arguments**
+- every register access uses only the mapped globals (`se`, `tlmm`, `gcc`…)
+- before adding a register access, `grep` to confirm it uses the virtual variable
 
 ---
 
-### P-80 只做"协议层反编译"，不做"控制器层反编译"（2026-11-10）
+### P-79 Blindly probing "vendor private registers" resets the whole machine (2026-11-08/10, twice)
 
-**症状**：反汇编了 `goodix_core.ko`（协议层，确认 GTP 帧），
-但**从没反汇编 `spi-msm-geni.ko`（控制器层）**，导致一直在猜 GENI 用哪种 DMA。
+**Symptom**: after deleting the `IF_DISABLE_RO` check the machine went back to Android with no logs; writing `SE_DMA_IF_EN(0x2004)` panicked outright.
 
-**正确做法**：③ 反编译必须**逐层做全**：
-| 层 | 目标 | K60 对应文件 |
+**Root cause**: on the K60, **a data abort is the expected behaviour** for `0x2004 / 0x2008 / 0x1010` —
+they only appear in Linux 7.0.14's `geni_load_se_fw()`, and that function's entry requires the wrapper to have a
+`firmware-name` property (`qcom-geni-se.c:1324-1328`), which K60's `qupv3_0_geni-se@9c0000` **does not have**.
+Upstream Linux never writes them on the K60 either.
+
+**Correct approach**:
+- before writing any "register upstream does not have", first prove there is **a working instance on the same SoC**
+  (Android disassembly / same-family device patch / vendor driver)
+- `rd()` once before writing; if the `rd()` itself aborts, **never `wr()`**
+- keeping an `if (0) { ... }` dead code block in the patch as documentation is right, do not delete it
+
+---
+
+### P-80 Doing only "protocol-layer decompilation" and not "controller-layer decompilation" (2026-11-10)
+
+**Symptom**: I disassembled `goodix_core.ko` (protocol layer, confirmed the GTP frame),
+but **never disassembled `spi-msm-geni.ko` (controller layer)**, so I kept guessing which DMA mode GENI uses.
+
+**Correct approach**: ③ decompilation must be done **completely, layer by layer**:
+| layer | target | K60 file |
 |---|---|---|
-| 芯片协议层 | 帧格式/寄存器地址 | `goodix_core.ko`、`xiaomi_touch.ko` |
-| **控制器层** | **总线怎么初始化/传输** | **`spi-msm-geni.ko`**、`i2c-msm-geni.ko` |
-| 电源/时钟层 | regulator/clock ID | `dts`、`regulator` 节点 |
-| 板级层 | 引脚/中断 | live FDT |
+| chip protocol layer | frame format/register addresses | `goodix_core.ko`, `xiaomi_touch.ko` |
+| **controller layer** | **how the bus initialises/transfers** | **`spi-msm-geni.ko`**, `i2c-msm-geni.ko` |
+| power/clock layer | regulator/clock ID | `dts`, `regulator` nodes |
+| board layer | pins/interrupts | live FDT |
 
-**只做协议层 = 语言对了但不会说话。**
+**Protocol layer only = the right language, but unable to speak.**
 
 ---
 
-### P-81 用 `summary` 一句话推断 zizhan 覆盖范围 → 严重误判（2026-11-10）
+### P-81 Inferring zizhan's coverage from a one-line `summary` → serious misjudgement (2026-11-10)
 
-**症状**：我读到 `porting.toml` 的
+**Symptom**: I read
 `summary = "... thermal control, sleep/wake and daily-use qualification remain open"`
-和
+and
 `limits = ["Outer display and audio remain disabled..."]`
-就下结论「zizhan 未覆盖 WiFi/蓝牙/USB/基带」。
+in `porting.toml` and concluded "zizhan does not cover WiFi/Bluetooth/USB/baseband".
 
-**实际**：zizhan 的 `porting.toml` 有 **14 个 `[[area]]`**，逐个带 `status`：
+**Reality**: zizhan's `porting.toml` has **14 `[[area]]`** entries, each with its own `status`:
 
 | area | status |
 |---|---|
@@ -1330,45 +1330,45 @@ K60 的 `qupv3_0_geni-se@9c0000` **没有**该属性。上游 Linux 在 K60 上�
 | display | **implemented** |
 | input | **implemented** |
 | gpu | **implemented** |
-| **network（WiFi）** | **device-verified** ← 我说没覆盖，大错 |
-| cellular | planned（真的没做）|
-| audio | planned（真的没做）|
+| **network (WiFi)** | **device-verified** ← I said it was not covered, badly wrong |
+| cellular | planned (genuinely not done)|
+| audio | planned (genuinely not done)|
 | power | implemented |
 | packaging | host-verified |
 | diagnostics | implemented |
 
-**`network` 的真机证据（同一文件 `findings` 字段）：**
-- g275：station-ready，102 通道，扫描 42 通道，15 个网络
-- g278：**真实 WPA2 关联 + 密钥安装**
-- g279：**原生 IPConfiguration 取得 DHCP**
-- g290：默认路径初始 HTTPS + 续约 + 断连清理 + 重连，**三次 HTTPS 200**
-- g304/g306：**5220↔2452 MHz 双向跨频段重连**，各三次 200，无 RDDM
-- g309：**原生 Settings UI 加入**，WPA2 + DHCP + HTTPS 200
-- g337：原始 wifid + 64 MiB arena，一次原生关联，HTTPS 200，**309 秒无损**
-- g341：两次独立 DHCP REQUEST/ACK + 两次 HTTPS 200
+**On-device evidence for `network` (the `findings` field of the same file):**
+- g275: station-ready, 102 channels, 42 channels scanned, 15 networks
+- g278: **real WPA2 association + key installation**
+- g279: **native IPConfiguration gets DHCP**
+- g290: default path initial HTTPS + renewal + disconnect cleanup + reconnect, **three HTTPS 200**
+- g304/g306: **5220↔2452 MHz bidirectional cross-band reconnect**, three 200s each, no RDDM
+- g309: **join from the native Settings UI**, WPA2 + DHCP + HTTPS 200
+- g337: raw wifid + 64 MiB arena, one native association, HTTPS 200, **309 seconds without loss**
+- g341: two independent DHCP REQUEST/ACK + two HTTPS 200
 
-**`gpu` 也有照片级验证**：
+**`gpu` also has photo-level verification**:
 - "User photos confirm GPU-rendered Home Screen and animations"
-- g298：**95.3 moving fps**（基线 56.7–58.4）
-- g253/g254：**592/592、403/403** GPU 提交完成
-- Weather/Clock/Settings/Photos 截图完整，ASTC 135/135 列
+- g298: **95.3 moving fps** (baseline 56.7–58.4)
+- g253/g254: **592/592, 403/403** GPU submits completed
+- Weather/Clock/Settings/Photos screenshots complete, ASTC 135/135 columns
 
-**只有 2 项真的未实现**：`cellular`（components=[]）、`audio`（planned）。
+**Only 2 items are genuinely unimplemented**: `cellular` (components=[]), `audio` (planned).
 
-**正确做法（强制）**：
-1. **判断 zizhan 覆盖范围，必须读 `porting.toml` 的全部 `[[area]]` + `status`**
-2. **`summary` 和 `limits` 只说明"剩余限制"，不代表"未实现"**
-3. **每个 area 的 `findings` 里有逐轮真机证据（g2xx–g3xx 编号），必须读**
-4. 引用 zizhan 时给出 `porting.toml:行号` + `status` 值
+**Correct approach (mandatory)**:
+1. **To judge zizhan's coverage you must read every `[[area]]` + `status` in `porting.toml`**
+2. **`summary` and `limits` only state the "remaining limitations", they do not mean "unimplemented"**
+3. **each area's `findings` holds round-by-round on-device evidence (g2xx–g3xx numbering) and must be read**
+4. when citing zizhan, give `porting.toml:line` + the `status` value
 
-**并发症**：因为误判"zizhan 没做"，我曾建议"这些硬件先跳过"，等于主动放弃了
-12 个已实现的参考实现。这是本会话最严重的判断失误。
+**Complication**: because I misjudged "zizhan hasn't done this", I once suggested "skip these pieces of hardware for now", which amounted to voluntarily
+giving up 12 already-implemented reference implementations. That is the most serious misjudgement of this session.
 
 ---
 
-### P-82 TLMM 映射窗口太小，gpio71（AVDD）的写全部落在窗口外（2026-11-10）
+### P-82 TLMM mapping window too small, every write to gpio71 (AVDD) lands outside it (2026-11-10)
 
-**症状**：触摸 AVDD 电源开关"拉了但没生效"，芯片始终不工作。
+**Symptom**: the touch AVDD power switch was "toggled but had no effect", and the chip never worked.
 
 ```
 K60S19: gpio71(AVDD)  cfg=0        io=0x80000002 -> out_en=0 level=1
@@ -1376,84 +1376,84 @@ K60S19: gpio20(RESET) cfg=0x283    io=0x3        -> out_en=1 level=1
 K60S19: gpio21(INT)   cfg=0x83     io=0      -> in=0
 ```
 
-**`gpio20/21` 的 CFG 读出正常，只有 `gpio71` 是 0。**
+**The CFG of `gpio20/21` reads back normally, only `gpio71` is 0.**
 
-**根因**：地址计算
+**Root cause**: the address computation
 
 ```c
 #define GPIO_CFG(n)  (tlmm + gpio_offset + 0x1000UL * (n))
 tlmm = ml_io_map(TLMM_PHYS + gpio_offset, TLMM_SIZE) - gpio_offset;
 ```
 
-物理地址 = `TLMM_PHYS + gpio_offset + 0x1000*n`，而窗口只有 `[0x100000, 0x120000)`：
+physical address = `TLMM_PHYS + gpio_offset + 0x1000*n`, while the window is only `[0x100000, 0x120000)`:
 
-| 引脚 | 物理地址 | 旧窗口 |
+| pin | physical address | old window |
 |---|---|---|
-| gpio20 | `0x114000` | ✅ 在内 |
-| gpio21 | `0x115000` | ✅ 在内 |
-| **gpio71** | **`0x147000`** | **❌ 越界 0x27000** |
+| gpio20 | `0x114000` | ✅ inside |
+| gpio21 | `0x115000` | ✅ inside |
+| **gpio71** | **`0x147000`** | **❌ 0x27000 out of bounds** |
 
-**`TLMM_SIZE = 0x20000` 只覆盖到 gpio32，而 AVDD 在 gpio71。**
+**`TLMM_SIZE = 0x20000` only covers up to gpio32, while AVDD is on gpio71.**
 
-**后果**：`gpio_configure(71, ...)` 写到未映射地址，**写被丢弃（或写到别处），CFG 从未生效**，
-AVDD 电源开关从未打开 → 芯片未上电 → `int=0`、MISO FLOATING、`dev_confirm 00 00 00 00`。
+**Consequence**: `gpio_configure(71, ...)` writes to an unmapped address, **the write is dropped (or lands elsewhere), the CFG never takes effect**,
+the AVDD power switch never opens → the chip is unpowered → `int=0`, MISO FLOATING, `dev_confirm 00 00 00 00`.
 
-**修复**：
+**Fix**:
 ```c
-#define TLMM_SIZE  0x80000UL   /* 覆盖到 pin 71（需 0x58000），仍在 8 MiB io_submap 内 */
+#define TLMM_SIZE  0x80000UL   /* covers pin 71 (needs 0x58000), still inside the 8 MiB io_submap */
 ```
 
-**教训（与 P-81 同源）**：
-**必须有回读才能发现这类"写成功但没生效"的问题。**
-本会话正是因为采纳了 ruby P0 探测的方法（回读 GPIO CFG/IO 寄存器），
-才在 20+ 轮之后第一次看见 `cfg=0` 这个铁证。
+**Lesson (same origin as P-81)**:
+**read-back is what catches this class of "write succeeded but had no effect" problem.**
+This session only saw the `cfg=0` evidence for the first time after 20+ rounds, and only because it adopted
+ruby's P0 probe method (reading the GPIO CFG/IO registers back).
 
-**通用检查清单（写 GPIO 前必做）**：
-1. 算出目标引脚的物理地址：`base + offset + 0x1000*n`
-2. 确认它在 `ml_io_map` 的窗口内：`addr + 4 < base + size`
-3. **写完后回读 CFG，确认 `bit9`（output enable）真的变成 1**
+**General checklist (mandatory before writing GPIO)**:
+1. compute the target pin's physical address: `base + offset + 0x1000*n`
+2. confirm it is inside the `ml_io_map` window: `addr + 4 < base + size`
+3. **after writing, read the CFG back and confirm `bit9` (output enable) really became 1**
 
-### P-83 [TOUCH] k60_spmi_read 一次最多 8 字节，大窗口读取是假数据（2026-11-10）
+### P-83 [TOUCH] k60_spmi_read reads at most 8 bytes at a time, big-window reads are fake data (2026-11-10)
 
-**假设**：可以一次 `k60_spmi_read(apid, 0x30, r, 48)` 读 48 字节寄存器窗口。
+**Assumption**: `k60_spmi_read(apid, 0x30, r, 48)` could read a 48-byte register window in one go.
 
-**实测**：读回的内容是同一组 4 字节重复 12 次：
+**Measured**: what came back was the same 4 bytes repeated 12 times:
 ```
 0x29b: +40 03 00 40 30 03 00 40  30 03 00 40 30 03 00 40
 0x3f1: +40 00 00 ff 01 00 00 ff  01 00 00 ff 01 00 00 ff
 ```
 
-**原因**（源码 `k60_spmi_read`）：
+**Cause** (source `k60_spmi_read`):
 ```c
-wr(ch, (1u << 27) | (reg << 4) | ((len - 1u) & 7u));   /* len 压进 3 位 → 最多 8 */
+wr(ch, (1u << 27) | (reg << 4) | ((len - 1u) & 7u));   /* len squeezed into 3 bits → 8 max */
 uint32_t d0 = rd(ch + 0x18), d1 = (len > 4u) ? rd(ch + 0x1c) : 0;
-for (i = 0; i < len; i++) buf[i] = ((i < 4u) ? d0 : d1) >> (8 * (i & 3));  /* i & 3 回绕 */
+for (i = 0; i < len; i++) buf[i] = ((i < 4u) ? d0 : d1) >> (8 * (i & 3));  /* i & 3 wraps */
 ```
 
-**结论**：一次最多读 8 字节真实数据，且必须逐寄存器小读。
-**不要再试**：48/64 字节大窗口 dump。
+**Conclusion**: at most 8 bytes of real data per read, and you must read register by register in small chunks.
+**Stop trying**: 48/64-byte window dumps.
 
-### P-84 [TOUCH] SPMI PPID 是 12 位，0x4000 以上永远匹配不到（2026-11-10）
+### P-84 [TOUCH] SPMI PPID is 12 bits, anything at 0x4000 and above never matches (2026-11-10)
 
-**假设**：PMIC5 LDO 在 PPID 0x4000-0x4FFF。
+**Assumption**: PMIC5 LDOs sit at PPID 0x4000-0x4FFF.
 
-**实测**：扫该范围内零输出。
+**Measured**: scanning that range gave zero output.
 
-**原因**（源码 `k60_spmi_find`）：
+**Cause** (source `k60_spmi_find`):
 ```c
-if (!map || ((map >> 8) & 0xfffu) != ppid) continue;   /* 12 位掩码 */
+if (!map || ((map >> 8) & 0xfffu) != ppid) continue;   /* 12-bit mask */
 ```
 
-**结论**：PPID 上限 0xFFF。PMIC 外围在 `(sid<<8)|pid` 格式下：
+**Conclusion**: PPID tops out at 0xFFF. PMIC peripherals in `(sid<<8)|pid` form:
 - SID 2 (pm8350): 0x201..0x2ff
 - SID 3 (pm8350c): 0x301..0x3fe
-**不要再试**：0x4000 以上范围。
+**Stop trying**: ranges at 0x4000 and above.
 
-### P-85 [TOUCH] 把 ruby 的 MT6360 寄存器偏移套到 pm8350c 上（2026-11-10）
+### P-85 [TOUCH] Applying ruby's MT6360 register offsets to pm8350c (2026-11-10)
 
-**假设**：PMIC5 LDO 的 `+0x40`=range、`+0x41`=vset、`+0x46`=EN。
+**Assumption**: PMIC5 LDO `+0x40`=range, `+0x41`=vset, `+0x46`=EN.
 
-**实测**（usblog-20261110-185544，全量 477 外围扫描）：
+**Measured** (usblog-20261110-185544, full 477-peripheral scan):
 ```
 ppid=0x10f apid=85   en=e1 range=00 vset=01     ← SID1 PID 0x0f
 ppid=0x20f apid=148  en=e1 range=00 vset=01     ← SID2 PID 0x0f
@@ -1464,29 +1464,29 @@ ppid=0x139 apid=92   en=c0 range=02 vset=00
 ppid=0x339 apid=389  en=c0 range=02 vset=00
 ppid=0x439 apid=234  en=c0 range=02 vset=00
 ```
-**不同 SID 的同一 PID 读出完全相同的值 —— 读到了公共寄存器，不是 LDO 电压。**
-**1.8V MATCH（range=0/vset=0x25）命中 0 个。**
+**The same PID on different SIDs reads exactly the same value — we were reading common registers, not LDO voltages.**
+**1.8V MATCH (range=0/vset=0x25) hit 0.**
 
-**根因**：`+0x40/+0x41/+0x46` 这组偏移来自
-`references/ruby-bringup/docs/touch-goodix-9916r.md` 的 **MT6360**（联发科），
-而 K60 是 **pm8350c**（高通 PMIC5）。**两者寄存器布局完全不同，不能互抄。**
+**Root cause**: the `+0x40/+0x41/+0x46` offset group comes from
+`references/ruby-bringup/docs/touch-goodix-9916r.md`, from an **MT6360** (MediaTek),
+while the K60 is **pm8350c** (Qualcomm PMIC5). **The two register layouts are completely different and cannot be copied from one another.**
 
-**教训**：
-1. 参考文档里的寄存器地址只对**它自己那颗芯片**有效
-2. 跨平台抄驱动，只能抄**架构和流程**，寄存器偏移必须重新找该芯片的 datasheet 或内核驱动
-3. 判断"偏移是否用错"的特征：**读出的值在不同 SID 的同一 PID 上完全相同**
+**Lesson**:
+1. register addresses in a reference document are valid only for **the chip that document is about**
+2. when copying a driver across platforms you can only copy the **architecture and flow**; register offsets must be re-found from that chip's datasheet or kernel driver
+3. the tell-tale sign that "the offsets are wrong": **the value read is identical for the same PID on different SIDs**
 
-**下一步**：必须找到 pm8350c 真实的 PMIC5 LDO 寄存器布局（Linux
-`qcom-spmi-regulator.c` / `pm8350c-regulator` 或 zizhan 的
-`drivers/PongPower/PongRpmh.cpp`），不能用 ruby 的 MT6360 偏移。
+**Next step**: find pm8350c's real PMIC5 LDO register layout (Linux
+`qcom-spmi-regulator.c` / `pm8350c-regulator`, or zizhan's
+`drivers/PongPower/PongRpmh.cpp`); ruby's MT6360 offsets cannot be used.
 
-### P-86 [TOUCH] RPMh TCS 槽位用错：我们用 slot0，zizhan 用 ACTIVE TCS4（2026-11-10）
+### P-86 [TOUCH] Wrong RPMh TCS slot: we used slot0, zizhan uses ACTIVE TCS4 (2026-11-10)
 
-**对比事实**（`UniXNU-zizhan/drivers/PongPower/PongRpmh.cpp` 全文已读，55 行）：
+**Compared facts** (`UniXNU-zizhan/drivers/PongPower/PongRpmh.cpp` read in full, 55 lines):
 ```cpp
 // zizhan
 constexpr unsigned b = 0xd00 + 4*0x2a0;      // ACTIVE TCS4
-constexpr unsigned other = 0xd00 + 3*0x2a0;  // ACTIVE TCS3（GPU 租用）
+constexpr unsigned other = 0xd00 + 3*0x2a0;  // ACTIVE TCS3 (leased by the GPU)
 rsc.w(b+0x30, 0x10108);   // msgid
 rsc.w(b+0x34, addr);
 rsc.w(b+0x38, value);
@@ -1497,164 +1497,164 @@ rsc.w(b+0x14, (1u<<16)|(1u<<24));  // ENABLE|TRIGGER
 ```
 
 ```c
-// 我们
-#define TCS(reg) (rsc + 0xd00 + (reg))    /* slot 0，不是 ACTIVE TCS4 */
+// ours
+#define TCS(reg) (rsc + 0xd00 + (reg))    /* slot 0, not ACTIVE TCS4 */
 ```
 
-**zizhan 的注释明确写了槽位分配**：
+**zizhan's comments state the slot allocation plainly**:
 > "the vote is PongWifiPlatform.cpp's rawVote unchanged: APSS DRV2
 > (0x17a20000), SLEEP0..2, ACTIVE3..4, WAKE5..6; **the GPU leases active TCS3,
 > these clients share active TCS4** under one sleeping lock"
 
-**RSC 基址已核对一致**（`rsc_phys == 0x17a20000`，patch:82 有 DT 校验）。
-**MSGID 也一致**（`0x10008 | 0x100 == 0x10108`）。
+**The RSC base address is checked and matches** (`rsc_phys == 0x17a20000`, patch:82 has the DT check).
+**MSGID matches too** (`0x10008 | 0x100 == 0x10108`).
 
-**唯一差异就是 TCS 槽位。**
+**The only difference is the TCS slot.**
 
-**结论**：`io_supply_on()` 往 slot0 写，可能根本没被 RPMh 处理，
-导致 ldoc2 电压/使能从未真正下发 —— 这与"写了但没生效"的现象完全吻合。
+**Conclusion**: `io_supply_on()` writes to slot0, which may never be processed by RPMh at all,
+so the ldoc2 voltage/enable was never actually issued — which matches the "wrote it but nothing happened" symptom exactly.
 
-**正确的槽位**：`0xd00 + 4 * 0x2a0 = 0x1780`（ACTIVE TCS4）
+**The correct slot**: `0xd00 + 4 * 0x2a0 = 0x1780` (ACTIVE TCS4)
 
-**同时 zizhan 还有前提检查**（我们没有）：
+**zizhan also has precondition checks (we do not)**:
 ```cpp
 unsigned caps = rsc.r(0xc), count = (caps>>12)&63, ncpt = (caps>>27)&31;
 if (((rsc.r(0)>>16)&255) >= 3 || count < 8 || ncpt < 1 || !rsc.r(b+0x18))
     return fail("active TCS4 unavailable");
 ```
-必须先确认 TCS4 可用，否则写入无效。
+You must first confirm TCS4 is available, otherwise the write is void.
 
-### P-87 [TOUCH] RPMh 完成判据用错：查 IRQ_STATUS 而非 CMD_STATUS（2026-11-10）
+### P-87 [TOUCH] Wrong RPMh completion criterion: checking IRQ_STATUS instead of CMD_STATUS (2026-11-10)
 
-**实测**（usblog-20261110-190459，TCS4 修正后首轮）：
+**Measured** (usblog-20261110-190459, first round after the TCS4 fix):
 ```
 goodix: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1
 goodix: RPMh: timeout waiting for the request (register 0x4 = 0)
 goodix: RPMh ldoc2 write failed
 ```
 
-**四项前提检查全 PASS**（TCS4 存在、空闲、ver 2<3、count 8>=8、ncpt 16>=1），
-但 `IRQ_STATUS` 始终 0，请求超时。
+**All four precondition checks PASS** (TCS4 present, idle, ver 2<3, count 8>=8, ncpt 16>=1),
+but `IRQ_STATUS` stayed 0 and the request timed out.
 
-**zizhan 的完成判据（`PongRpmh.cpp`）完全不同：**
+**zizhan's completion criterion (`PongRpmh.cpp`) is completely different:**
 ```cpp
-unsigned st = rsc.r(b+0x3c),   // CMD_STATUS，不是 IRQ_STATUS
+unsigned st = rsc.r(b+0x3c),   // CMD_STATUS, not IRQ_STATUS
          idle = rsc.r(b+0x18);  // TCS_STATUS
 if ((st & 0x10100) != 0x10100 || !idle) progressed = true;
 if ((st & 0x10100) == 0x10100 && idle &&
     (progressed || (rsc.r(0xd04) & (1u<<4)))) { done = true; break; }
 ```
 
-**三个差异：**
-1. 完成判据 = `CMD_STATUS(&0x10100)==0x10100 && TCS_STATUS(idle)`，不是 IRQ_STATUS
-2. IRQ 清除用 **RSC 级 `0xd08` bit4**，不是 TCS 级 `0x08`
-3. 需要 `progressed` 标志容忍"尚未启动就已空闲"的竞态
+**Three differences:**
+1. completion criterion = `CMD_STATUS(&0x10100)==0x10100 && TCS_STATUS(idle)`, not IRQ_STATUS
+2. IRQ clearing uses the **RSC-level `0xd08` bit4**, not the TCS-level `0x08`
+3. it needs a `progressed` flag to tolerate the race of "already idle before it ever started"
 
-**教训**：RPMh 的完成信号有两套（TCS 级中断 vs 命令状态），
-参考实现选哪套必须照抄，不能凭直觉。
+**Lesson**: RPMh has two sets of completion signals (TCS-level interrupt vs command status);
+whichever the reference implementation picked must be copied, not guessed.
 
-### P-88 「0x10308 不是报告地址」的判断作废，改为「地址正确但芯片不产出」
+### P-88 The "0x10308 is not the report address" judgement is void; it becomes "the address is right but the chip produces nothing"
 
-- **症状**：多个外部参考（ruby §5.3、PHK110 subagent）对 `0x10308` 是否为
-  触摸报告地址给出相反结论，导致反复换地址试。
-- **权威判定**（2026-11-11，`docs/K60-TOUCH-DT-EVIDENCE.md`）：
+- **Symptom**: several external references (ruby §5.3, a PHK110 subagent) reached opposite conclusions on whether `0x10308` is
+  the touch report address, which led to repeated address swaps.
+- **Authoritative ruling** (2026-11-11, `docs/K60-TOUCH-DT-EVIDENCE.md`):
   - K60 DT `goodix,panel-max-x/y` = **14400 / 32000**
-  - 我们按 vendor 公式走完五张列表（`off=49`）后，IC_INFO `+138/+140` 读出
-    **14400 / 32000**，与 DT 完全一致
-  - → **走查正确，`touch_address = 0x10308` 是有效地址**
-- **修正后的结论**：不是地址错，是**芯片根本不产出数据**
-  （`0x10308` 与 `0x30084` 实测 changed=0/12，只有 `0x10400` 诊断计数器在变）
-- **教训**：判断地址对不对，要用 DT 的权威值交叉验证，不要靠外部文档或
-  「数据变不变」这种间接现象。**DT 有 panel-max，就用它做判据。**
+  - after walking the five tables with the vendor formula (`off=49`), IC_INFO `+138/+140` reads back
+    **14400 / 32000**, exactly matching the DT
+  - → **the walk is correct, `touch_address = 0x10308` is a valid address**
+- **Corrected conclusion**: the address is not wrong, **the chip simply produces no data**
+  (`0x10308` and `0x30084` both measured changed=0/12; only the `0x10400` diagnostic counter moves)
+- **Lesson**: to decide whether an address is right, cross-check against the DT's authoritative value, not against external documents or
+  an indirect symptom like "does the data change". **If the DT has panel-max, use it as the criterion.**
 
-### P-89 「git push 卡住」不是网络问题，是 WSL 没有 GitHub 凭据在等密码
+### P-89 "git push hangs" is not a network problem, it is WSL with no GitHub credentials waiting for a password
 
-- **症状**：WSL 里 `git push` 无任何输出、永不返回；`timeout` 杀掉后依旧"未推送"。
-  看起来像"网络慢"或"大文件传不动"。
-- **真因**（2026-11-11 实测）：
+- **Symptom**: inside WSL `git push` gives no output and never returns; after `timeout` kills it, it is still "not pushed".
+  It looks like "slow network" or "big files won't upload".
+- **Real cause** (measured 2026-11-11):
   ```
   $ GIT_TERMINAL_PROMPT=0 git push --force origin main
   remote: No anonymous write access.
   fatal: Authentication failed
   ```
-  WSL 的 git **没有任何 credential helper**，于是尝试交互式询问密码；
-  后台运行没有 TTY → **永久阻塞在 HTTP 401**。
-- **正解**：**push 在 Windows 侧执行**（Windows 有 gh 凭据 + 凭据管理器）。
+  WSL's git has **no credential helper at all**, so it tries to ask for a password interactively;
+  run in the background there is no TTY → **blocked forever on HTTP 401**.
+- **Fix**: **run the push on the Windows side** (Windows has gh credentials + the credential manager).
   ```powershell
   Set-Location 'E:\hackios\UniXNU-mondrian'
   $env:GIT_TERMINAL_PROMPT='0'
   git push --force --progress origin main
   ```
-- **判别技巧（最重要）**：
-  `ls-remote` / `fetch` 走 **GET**（匿名可读 → 秒回），
-  `push` 走 **POST + 认证**。
-  **「ls-remote 正常但 push 卡死」= 认证问题，不是网络问题。**
-- **代价**：为此调 postBuffer、改 HTTP 版本、用 filter-repo 重写历史（最后一条虽然
-  本身必要，但与卡住无关），浪费 1 小时以上。
-- **切到 Windows 后**：21.77 MB / 8497 对象一次推送成功，不到一分钟。
-- **登记铁则**：HR-48
+- **Diagnostic trick (the most important one)**:
+  `ls-remote` / `fetch` go over **GET** (anonymous read → instant reply),
+  `push` goes over **POST + auth**.
+  **"ls-remote works but push hangs" = an authentication problem, not a network problem.**
+- **Cost**: fiddling with postBuffer, changing the HTTP version, rewriting history with filter-repo (the last one was
+  necessary in itself but unrelated to the hang) — over 1 hour wasted.
+- **After switching to Windows**: 21.77 MB / 8497 objects pushed in one go, in under a minute.
+- **Registered iron rule**: HR-48
 
-### P-90 改 `patches/xnu/series` 无效——构建时会被 `SERIES-FINAL.txt` 覆盖
+### P-90 Editing `patches/xnu/series` has no effect — the build overwrites it with `SERIES-FINAL.txt`
 
-- **症状**：把补丁名加进 `patches/xnu/series`，构建日志里却完全没有这个补丁，
-  `patches applied` 数字也不变。
-- **真因**：`buildv15.sh:12`（以及打包脚本链）每次都执行
+- **Symptom**: I added a patch name to `patches/xnu/series`, but the patch never appears in the build log,
+  and the `patches applied` count does not change either.
+- **Real cause**: `buildv15.sh:12` (and the packaging script chain) runs every time
   ```bash
   cp -f <workspace>/scratch/SERIES-FINAL.txt \
         <repo>/patches/xnu/series
   ```
-  **仓库里的 `series` 是产物，不是源。**
-- **正解**：改 `<workspace>/scratch/SERIES-FINAL.txt`。
-- **验证方法**：加完后先看 `grep <name> SERIES-FINAL.txt`，再构建，
-  并确认日志里出现 `== kernel: patch <name>`。
-- **教训**：这个项目的补丁顺序真相源在 `scratch/SERIES-FINAL.txt`，
-  不在仓库的 `patches/xnu/series`。类似地 `buildv15.sh` 还会从别处覆盖别的文件，
-  改任何构建相关文件前先 `grep` 一下 `buildv15.sh` 有没有 `cp -f` 到它。
+  **the repo's `series` is an artefact, not the source.**
+- **Fix**: edit `<workspace>/scratch/SERIES-FINAL.txt`.
+- **How to verify**: after adding it, first `grep <name> SERIES-FINAL.txt`, then build,
+  and confirm `== kernel: patch <name>` shows up in the log.
+- **Lesson**: in this project the source of truth for patch order is `scratch/SERIES-FINAL.txt`,
+  not the repo's `patches/xnu/series`. In the same way `buildv15.sh` overwrites other files from elsewhere;
+  before changing any build-related file, `grep` `buildv15.sh` for a `cp -f` onto it.
 
-### P-92 两个补丁在同一 hunk 锚点插入，后一个必然失败
+### P-92 Two patches inserting at the same hunk anchor, the second one always fails
 
-- **症状**：把 `0391-k60-embedded-init.patch` 加进 series 后，
-  `0394-k60-launchd-cache.patch` 立刻报
-  `error: patch failed: bsd/kern/kern_exec.c:8078 / patch does not apply`。
-  调整 hunk 行号（+37）后仍失败，只是行号变了（8115）。
-- **真因**：两个补丁的**上下文完全相同**：
+- **Symptom**: after adding `0391-k60-embedded-init.patch` to the series,
+  `0394-k60-launchd-cache.patch` immediately reported
+  `error: patch failed: bsd/kern/kern_exec.c:8078 / patch does not apply`.
+  Adjusting the hunk line number (+37) still failed, only the number changed (8115).
+- **Real cause**: the two patches' **context is identical**:
   ```
   0391 hunk1:  @@ -8078,6 +8078,43 @@
    }
    #endif
-   <空行>
-  +（0391 插入 37 行）
+   <blank line>
+  +（0391 inserts 37 lines）
 
   0394 hunk1:  @@ -8078,6 +8078,44 @@
    }
    #endif
-   <空行>
-  +（0394 插入 44 行）
+   <blank line>
+  +（0394 inserts 44 lines）
   ```
-  应用 0391 后，那个 `}\n#endif\n\n` 位置已经被 0391 的内容占据，
-  0394 的上下文再也匹配不上。**光改行号没用，因为内容变了。**
-- **正确解法（按可靠性排序）**：
-  1. **把后一个补丁合并进前一个**（在同一处插入，二者合为一个补丁）
-  2. 把后一个补丁的上下文改成「前一个补丁插入内容的最后几行」
-     （可行但脆弱，前一个补丁一改就崩）
-  3. 让后一个补丁换一个插入点（找同一文件里的另一个 `}\n#endif\n\n`）
-  4. 暂时移除后一个，先让构建通过，之后再合并
-- **本次采用**：方案 4（暂时移除 0394，launchd cache 功能暂缓），
-  因为当前优先级是触摸，且 0391（init 内嵌）是 Metal 部署的前提。
-- **判别方法**：
+  after 0391 is applied, that `}\n#endif\n\n` position is already occupied by 0391's content,
+  and 0394's context can never match again. **Changing line numbers alone does not help, because the content changed.**
+- **Correct solutions (ordered by reliability)**:
+  1. **Merge the later patch into the earlier one** (insert at the same place, the two become one patch)
+  2. Change the later patch's context to "the last few lines the earlier patch inserts"
+     (workable but fragile; it breaks the moment the earlier patch changes)
+  3. Move the later patch to a different insertion point (find another `}\n#endif\n\n` in the same file)
+  4. Remove the later patch for now, get the build green, merge afterwards
+- **What was done here**: option 4 (removed 0394 for now, launchd cache deferred),
+  because touch is the current priority and 0391 (init embedded) is the prerequisite for the Metal deployment.
+- **How to tell**:
   ```bash
-  # 两个补丁的 hunk 头行号相同或接近 → 高度可疑
+  # the two patches' hunk header line numbers are identical or close → highly suspect
   grep -n '^@@' <patchA> | head -3
   grep -n '^@@' <patchB> | head -3
   ```
 
-### P-93 把 /private/var/pong union 挂到 /System/Library/Extensions 会让 pid 1 panic
+### P-93 Union-mounting /private/var/pong onto /System/Library/Extensions panics pid 1
 
-- **症状**：加了
+- **Symptom**: after adding
   ```c
   {"/private/var/pong", "/System/Library/Extensions"},   // MNT_RDONLY|MNT_UNION
   ```
-  之后启动即 panic，且**不自动复位**：
+  it panics on boot, and **does not auto-reset**:
   ```
   dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib
   Reason: tried: '/usr/lib/libSystem.B.dylib' (no such file, no dyld cache)
@@ -1662,50 +1662,50 @@ if ((st & 0x10100) == 0x10100 && idle &&
   K60PANICARGS initproc failed to start -- exit reason namespace 6 subcode 0x1
   CACHE st=6 err=0 mnt=0 ro=1 un=1 rr=1 ca=1
   ```
-- **真因**：`/System/Library/Extensions` 上的 union 破坏了 shared cache 的路径解析。
-  launchd（真 init）加载 `libSystem.B.dylib` 失败 → pid 1 退出 → panic。
-- **为什么之前没发现**：`prepare_metal_bundle()` 和 union 视图是同一次改动加进去的，
-  且 `0391` 一直没进 series，所以这版 init 第一次真正运行就 panic。
-- **教训**：
-  1. **往 `/System/Library/*` 挂任何东西都要单独隔离验证** —— 这些路径参与
-     dyld shared cache 解析，破坏它等于破坏整个用户态启动。
-  2. `prepare_metal_bundle()`（只拷贝文件）和 union 视图（改挂载布局）**必须分两次验证**，
-     出问题时才能定位是哪一个。
-  3. `st=6` 在这次 panic 里是**结果**不是原因（cache 加载失败），
-     之前的排查经验会误导向 cache 补丁。
-- **当前处理**：移除 union 视图，保留文件拷贝；待启动稳定后单独研究
-  `/System/Library/Extensions` 的正确挂载方式（可能需要先确认 dyld cache 与
-  Extensions 目录的耦合关系，或者改用 MetalPluginName 指向其他路径）。
+- **Real cause**: the union on `/System/Library/Extensions` breaks the shared cache's path resolution.
+  launchd (the real init) fails to load `libSystem.B.dylib` → pid 1 exits → panic.
+- **Why it was not caught earlier**: `prepare_metal_bundle()` and the union view went in as one change,
+  and `0391` never made it into the series, so this init version panicked the first time it actually ran.
+- **Lesson**:
+  1. **Anything mounted onto `/System/Library/*` must be verified in isolation** — these paths take part in
+     dyld shared cache resolution; breaking them breaks the whole userland boot.
+  2. `prepare_metal_bundle()` (file copy only) and the union view (changes the mount layout) **must be verified in two separate steps**,
+     so that when something breaks you can tell which one did it.
+  3. `st=6` in this panic is a **result**, not the cause (cache load failure);
+     earlier debugging experience will mislead you toward a cache patch.
+- **Current handling**: remove the union view, keep the file copy; once boot is stable, study separately
+  the correct way to mount `/System/Library/Extensions` (probably first confirm the coupling between the dyld cache and the
+  Extensions directory, or point MetalPluginName at another path).
 
-### P-94 init blob 必须用 35160 那个版本，不能用 MacOSX SDK 手编的 53728
+### P-94 The init blob must be the 35160 version, not the 53728 built by hand against the MacOSX SDK
 
-- **症状**：用 Mac 上 `clang -target arm64-apple-ios16.6.1`（**没有 -isysroot，
-  只有 MacOSX SDK**）编出的 init（53,728 B）推进 0391 后，
-  启动即 `dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib` 并 panic。
-- **对比证据**：
+- **Symptom**: an init (53,728 B) built on the Mac with `clang -target arm64-apple-ios16.6.1` (**no -isysroot,
+  only the MacOSX SDK**) and pushed into 0391 gave
+  `dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib` on boot, and a panic.
+- **Comparison evidence**:
   ```
-  35160 版本（历史，能启动）:
+  35160 version (historical, boots):
       ncmds=9,  sizeofcmds=0x470
-      字符串含: "Pong init: exec original 20G81 launchd; stdin/stdout ->
+      strings include: "Pong init: exec original 20G81 launchd; stdin/stdout ->
                  /dev/null, stderr -> /dev/console"
                "Pong init: non-interactive launchd descriptors failed: errno=%d"
-  53728 版本（我手编）:
-      ncmds=10, sizeofcmds=0x450      <- 多一个 load command
-      缺少上面两条 launchd 重定向日志
-  相同前缀只有 16 字节，是完全不同的二进制
+  53728 version (built by hand):
+      ncmds=10, sizeofcmds=0x450      <- one load command more
+      missing the two launchd redirect log lines
+  the shared prefix is only 16 bytes, a completely different binary
   ```
-- **真因**：`build.py:compile_init` 用
+- **Real cause**: `build.py:compile_init` uses
   `xcrun --sdk iphoneos clang ... -isysroot <iPhoneOS SDK>`
-  编出 35160 版本。**Mac 上只有 CommandLineTools，没有 iPhoneOS SDK**，
-  所以我手编时省了 `-isysroot`，clang 退回 MacOSX SDK
-  （warning: `using sysroot for 'MacOSX' but targeting 'iPhone'`）。
-  这样产出的 Mach-O **load command 布局不同**，且
-  **stderr 重定向到 /dev/console 那段代码行为不一致**，launchd 起来就找不到 libSystem。
-- **教训**：
-  1. **不能用「看起来能编译通过」代替「能运行」**。这两个 init 都是合法
-     arm64 Mach-O，`codesign` 也通过，但一个能启动一个 panic。
-  2. **改 init.c 后必须确认产出 blob 的 `ncmds`/`sizeofcmds` 与已知能启动的
-     版本一致**：
+  to build the 35160 version. **The Mac only has CommandLineTools, no iPhoneOS SDK**,
+  so when building by hand I dropped `-isysroot` and clang fell back to the MacOSX SDK
+  (warning: `using sysroot for 'MacOSX' but targeting 'iPhone'`).
+  The resulting Mach-O has a **different load command layout**, and
+  **the code that redirects stderr to /dev/console behaves differently**, so launchd comes up and cannot find libSystem.
+- **Lesson**:
+  1. **"it looks like it compiles" is no substitute for "it runs"**. Both inits are valid
+     arm64 Mach-O, both pass `codesign`, yet one boots and one panics.
+  2. **after changing init.c you must confirm the produced blob's `ncmds`/`sizeofcmds` match the
+     version known to boot**:
      ```bash
      python3 -c "
      import struct
@@ -1713,162 +1713,178 @@ if ((st & 0x10100) == 0x10100 && idle &&
      print('ncmds=%d sizeofcmds=%d' % (struct.unpack_from('<I',d,16)[0],
                                         struct.unpack_from('<I',d,20)[0]))"
      ```
-  3. **正确做法**：要么在 Mac 上装 iPhoneOS SDK（完整 Xcode），
-     要么用 `-isysroot` 指向真实 SDK；**不能省**。
-  4. 0391 的 blob 保持在 **35160**，直到能在正确 SDK 下重建出同构的二进制。
+  3. **Correct approach**: either install the iPhoneOS SDK on the Mac (full Xcode),
+     or point `-isysroot` at a real SDK; **it cannot be omitted**.
+  4. 0391's blob stays at **35160** until a structurally identical binary can be rebuilt under the correct SDK.
 
-### P-95 iPhoneOS SDK 在 Mac 的自定义路径下，`xcrun --sdk iphoneos` 查不到
+### P-95 The iPhoneOS SDK sits at a custom path on the Mac, so `xcrun --sdk iphoneos` cannot find it
 
-- **症状**：`xcrun --sdk iphoneos --show-sdk-path` 报
-  `SDK "iphoneos" cannot be located`，据此断定「Mac 没有 iOS SDK」，
-  进而去研究怎么装 Xcode（需要 Apple ID、15 GB 下载、实际上根本不需要）。
-- **真因**：SDK 在 **`/Users/emilelu/ios-sdk/iPhoneOS16.5.sdk`**，
-  而 `xcrun` 只查 `/Library/Developer/CommandLineTools/SDKs/` 和
-  `/Applications/Xcode*/Contents/Developer/Platforms/*/Developer/SDKs/`。
-  **自定义路径的 SDK，xcrun 永远找不到，但 clang 用 `-isysroot` 完全可用。**
-- **正确做法**：
+- **Symptom**: `xcrun --sdk iphoneos --show-sdk-path` reports
+  `SDK "iphoneos" cannot be located`, so we concluded "the Mac has no iOS SDK",
+  and went off to research how to install Xcode (needs an Apple ID, a 15 GB
+  download, and is not needed at all).
+- **True cause**: the SDK is at **`/Users/emilelu/ios-sdk/iPhoneOS16.5.sdk`**,
+  while `xcrun` only searches `/Library/Developer/CommandLineTools/SDKs/` and
+  `/Applications/Xcode*/Contents/Developer/Platforms/*/Developer/SDKs/`.
+  **xcrun never finds an SDK at a custom path, but clang works fine with `-isysroot`.**
+- **Correct approach**:
   ```bash
   SDK=/Users/emilelu/ios-sdk/iPhoneOS16.5.sdk
   clang -target arm64-apple-ios16.6.1 -isysroot "$SDK" ...
   ```
-- **不用 `-isysroot` 的后果**（这是真正导致 panic 的原因，见 P-94）：
-  clang 退回 MacOSX SDK，产出 `ncmds=10` 且带 `DYLD_INFO_ONLY` 的 Mach-O；
-  正确的 SDK 产出 `ncmds=9`、无 `DYLD_INFO_ONLY`。
-  | 版本 | 大小 | ncmds | 有 DYLD_INFO_ONLY | 能启动 |
+- **Consequence of not using `-isysroot`** (this is what actually caused the panic, see P-94):
+  clang falls back to the MacOSX SDK and produces a Mach-O with `ncmds=10`
+  and `DYLD_INFO_ONLY`; the correct SDK produces `ncmds=9` with no
+  `DYLD_INFO_ONLY`.
+  | version | size | ncmds | has DYLD_INFO_ONLY | boots |
   |---|---|---|---|---|
-  | **35160 blob（正解）** | 35160 | **9** | 否 | ✅ |
-  | 有 SDK、未签名 | 34704 | 9 | — | （待验）|
-  | 无 SDK（MacOSX）签名后 | 53728 | **10** | **是** | ❌ panic |
-- **排查命令（任何 init 改动后必跑）**：
+  | **35160 blob (correct)** | 35160 | **9** | no | ✅ |
+  | has SDK, unsigned | 34704 | 9 | — | (to be verified) |
+  | no SDK (MacOSX), after signing | 53728 | **10** | **yes** | ❌ panic |
+- **Diagnostic command (must run after any init change)**:
   ```bash
   python3 -c "
   import struct
   d=open('init','rb').read()
   n=struct.unpack_from('<I',d,16)[0]
   print('ncmds=%d size=%d' % (n, len(d)))
-  # 遍历 load command 找 DYLD_INFO_ONLY(0x80000022)
+  # walk the load commands looking for DYLD_INFO_ONLY(0x80000022)
   off=32
   for i in range(n):
       cmd,sz=struct.unpack_from('<II',d,off)
       if cmd==0x80000022: print('  !! DYLD_INFO_ONLY present - wrong SDK')
       off+=sz"
   ```
-- **教训（HR-44/HR-49 都踩了）**：
-  1. **`xcrun` 找不到 ≠ 机器上没有**。先 `find / -name 'iPhoneOS*.sdk'` 再下结论。
-  2. 本会话为此绕了整整一轮：查 CDN、查 Xcode 直链、讨论要不要 Apple ID，
-     **而 SDK 早就在 Mac 上躺着**。
-  3. **任何"某工具/资源不存在"的结论，必须先用 `find` 全盘确认**，
-     不能只凭一个查询命令的失败。
+- **Lessons (both HR-44/HR-49 hit this)**:
+  1. **`xcrun` cannot find it ≠ the machine does not have it**. Run
+     `find / -name 'iPhoneOS*.sdk'` before concluding.
+  2. This session went a whole lap on it: checking the CDN, checking direct
+     Xcode links, discussing whether an Apple ID was needed,
+     **while the SDK had been lying on the Mac all along**.
+  3. **Any conclusion of the form "tool/resource X does not exist" must first be
+     confirmed machine-wide with `find`**, not from the failure of one query
+     command.
 
-### P-96 手写补丁必踩的三个 git apply 硬性要求（0404 为此返工 4 次）
+### P-96 Three hard git apply requirements every hand-written patch hits (0404 was reworked 4 times over this)
 
-- **症状**：新写的 `0404-k60-metal-deploy.patch` 构建时连续报：
+- **Symptom**: the newly written `0404-k60-metal-deploy.patch` reported over and
+  over at build time:
   ```
   /patches/xnu/0404-...patch:250: new blank line at EOF.
   error: patch failed: bsd/conf/files:106
   error: bsd/conf/files: patch does not apply
   error: corrupt patch at line 250
   ```
-  改一处报另一处，来回 4 轮。
-- **三个独立原因**：
+  Fix one place, another reports; 4 rounds back and forth.
+- **Three independent causes**:
   1. **`new blank line at EOF`**
-     新增文件段（`@@ -0,0 +1,N @@`）的最后一行如果是裸 `+`（表示一个空行），
-     `git apply` 会拒绝。**新增文件的最后一行必须是真实内容行**。
-  2. **`@@ -0,0 +1,N @@` 的 N 必须等于实际的 `+` 行数**
-     删掉一行空行后没同步改 N → `corrupt patch at line <下一个 diff 的行号>`。
-     `patch -p1` 也会报 `malformed patch`。
-  3. **`conf/files` 之类的大文件，hunk 上下文必须逐字匹配**
-     我写的上下文是「memdev.c / mem.c / +新增」，
-     而真实文件里两者之间还有 `k60_usblog.c`。
-     **必须先从构建树读真实内容**：
+     If the last line of a new-file hunk (`@@ -0,0 +1,N @@`) is a bare `+`
+     (meaning an empty line), `git apply` rejects it. **The last line of a new
+     file must be a real content line.**
+  2. **N in `@@ -0,0 +1,N @@` must equal the actual number of `+` lines**
+     Deleting a blank line without updating N → `corrupt patch at line <line
+     number of the next diff>`. `patch -p1` also reports `malformed patch`.
+  3. **For large files like `conf/files` the hunk context must match word for word**
+     The context I wrote was "memdev.c / mem.c / +new",
+     but in the real file there is also `k60_usblog.c` between the two.
+     **You must read the real content from the build tree first**:
      ```bash
      sed -n '104,116p' <xnu-work>/bsd/conf/files | cat -A
      ```
-- **正确流程（每次手写补丁后必做）**：
+- **Correct procedure (mandatory after every hand-written patch)**:
   ```bash
-  # 1) 自动修 hunk 行数与裸空行（通用脚本，见 TOOLBOX）
+  # 1) auto-fix hunk line counts and bare blank lines (generic scripts, see TOOLBOX)
   python3 <workspace>/scratch/fix_hunk_counts.py
   python3 <workspace>/scratch/fix_bare_lines.py
 
-  # 2) 用构建时同一个判定验证（git apply，不是 patch）
+  # 2) verify with the same judgement the build uses (git apply, not patch)
   cd <xnu-work> && git apply --check <patch>
-  # 必须无输出才算通过；patch --dry-run 通过 ≠ git apply 通过
+  # it must print nothing to pass; patch --dry-run passing ≠ git apply passing
 
-  # 3) 上下文不确定时先读真实文件
-  sed -n '<行号>,<行号>p' <xnu-work>/<target> | cat -A
+  # 3) when the context is uncertain, read the real file first
+  sed -n '<line>,<line>p' <xnu-work>/<target> | cat -A
   ```
-- **教训**：
-  1. **`patch --dry-run` 和 `git apply --check` 判定不同**：前者容忍 fuzz，
-     后者严格。**构建用的是 git apply，就必须用 git apply 验证。**
-  2. 已有脚本 `fix_hunk_counts.py` / `fix_bare_lines.py` **原本只认硬编码的
-     两三个触摸补丁路径**，新补丁完全没被处理 → 已改为**默认扫描
-     `patches/xnu/*.patch`，也接受路径参数**。
-     **工具只对特定文件生效，等于没有工具。**
-  3. 写新增文件段时，**最后一行不要留裸 `+`**；hunk 头 N 用脚本算，不要手数。
+- **Lessons**:
+  1. **`patch --dry-run` and `git apply --check` judge differently**: the former
+     tolerates fuzz, the latter is strict. **If the build uses git apply, you
+     must verify with git apply.**
+  2. The existing `fix_hunk_counts.py` / `fix_bare_lines.py` **originally only
+     knew two or three hard-coded touch patch paths**, so new patches were never
+     processed at all → changed to **scan `patches/xnu/*.patch` by default, and
+     also accept a path argument**.
+     **A tool that only works on specific files is no tool at all.**
+  3. When writing a new-file hunk, **do not leave a bare `+` as the last line**;
+     compute N in the hunk header with a script, do not count it by hand.
 
-### P-97 `k60_panic_reset` 从未传过，panic 后不会自动复位
+### P-97 `k60_panic_reset` was never passed, so the device never resets after a panic
 
-- **症状**：内核 panic 后停在 panic 画面，等多久都不回 fastboot；
-  但 `k60_autoreset=300` 是设了的。
-- **真因**：`0334-k60-panic-reset-fastboot.patch:371-392` 的入口是独立的：
+- **Symptom**: after a kernel panic the device sits on the panic screen and never
+  returns to fastboot, no matter how long you wait; yet `k60_autoreset=300` was set.
+- **True cause**: the entry point at `0334-k60-panic-reset-fastboot.patch:371-392`
+  is separate:
   ```c
   void k60_panic_reset_to_fastboot(void)
   {
       if (!k60_usblog_running) return;
       if (!PE_parse_boot_argn("k60_panic_reset", &enabled, sizeof(enabled)) ||
           !enabled) {
-          return;                       /* 没传就直接返回 */
+          return;                       /* not passed, return immediately */
       }
       printf("K60PANIC: ring kept; restart reason -> bootloader\n");
       k60_usblog_reset_to_fastboot();
   }
   ```
-  **`k60_panic_reset` 与 `k60_autoreset` 是两个不同的开关**：
-  前者是「panic 后复位」，后者是「正常跑满 N 秒后复位」。
-  我们的 boot-args 里一直只有后者。
-- **判别**：panic 日志里有 `K60PANIC: restart windows ready`（说明 0334 已加载），
-  但**没有** `K60PANIC: ring kept; restart reason -> bootloader`（说明被 boot-arg 挡住）。
-- **正确做法**：boot-args 加 `k60_panic_reset=1`（18 字符），腾空间见 P-98。
-- **教训**：**panic/复位类开关要先查「哪个函数读哪个 arg」**，
-  不要假设 `k60_autoreset` 覆盖了 panic 路径。
+  **`k60_panic_reset` and `k60_autoreset` are two different switches**:
+  the former is "reset after a panic", the latter is "reset after running N
+  seconds normally". Our boot-args only ever had the latter.
+- **Discriminator**: the panic log has `K60PANIC: restart windows ready` (0334 is
+  loaded), but **no** `K60PANIC: ring kept; restart reason -> bootloader` (blocked
+  by the boot-arg).
+- **Correct approach**: add `k60_panic_reset=1` (18 characters) to boot-args; for
+  freeing space see P-98.
+- **Lesson**: **for panic/reset switches, first check which function reads which
+  arg**, do not assume `k60_autoreset` covers the panic path.
 
-### P-98 删 `k60_skip_iosurface=1` 后内核连控制台都不出现
+### P-98 After deleting `k60_skip_iosurface=1` the kernel no longer brings up even a console
 
-- **症状**：为给 `k60_panic_reset=1` 腾字符，删掉 `k60_skip_iosurface=1`，
-  刷机后 **COM5 都不枚举**，日志 0 字节，比 panic 更早死。
-- **结论**：**`k60_skip_iosurface=1` 目前是必需的**，不能为腾字符删它。
-- **正确腾字符的优先级**（低风险 → 高风险）：
-  1. ~~`epoch=1793709100`（16）— init.c 里有默认值~~
-     **⚠️ 已证伪（P-106）**：删掉 epoch 后 launchd 时间戳变成 1970，
-     影响它的事件调度。**不要删 epoch。**
-  2. `k60_touch_delay=12000`（21）— 源码默认已是 12000
-  3. `k60_touch_diag=0`（17）— 源码默认就是 0（完全冗余）
-  4. `k60_touch_bb_us=2`（17）— 源码默认已改为 2
-  **绝对不要动**（缺了会导致「日志 0 字节」的假死，见 P-118）：
-  `debug=0x140`、`applog=1`、`k60_console_export`、`k60_usblog`、`epoch`。
-  **不要动**：`k60_skip_iosurface`、`pong_software_keybag`、
-  `amfi_get_out_of_my_way`、`cs_enforcement_disable`。
+- **Symptom**: to free characters for `k60_panic_reset=1` I deleted
+  `k60_skip_iosurface=1`; after flashing **COM5 does not even enumerate**,
+  the log is 0 bytes, it dies earlier than a panic.
+- **Conclusion**: **`k60_skip_iosurface=1` is currently required**, it cannot be
+  deleted to free characters.
+- **Priority for freeing characters correctly** (low risk → high risk):
+  1. ~~`epoch=1793709100` (16) — there is a default in init.c~~
+     **⚠️ Disproved (P-106)**: after deleting epoch the launchd timestamp became
+     1970, which affects its event scheduling. **Do not delete epoch.**
+  2. `k60_touch_delay=12000` (21) — the source default is already 12000
+  3. `k60_touch_diag=0` (17) — the source default is 0 already (completely redundant)
+  4. `k60_touch_bb_us=2` (17) — the source default is already 2
+  **Never touch** (missing them causes the "0-byte log" false hang, see P-118):
+  `debug=0x140`, `applog=1`, `k60_console_export`, `k60_usblog`, `epoch`.
+  **Do not touch**: `k60_skip_iosurface`, `pong_software_keybag`,
+  `amfi_get_out_of_my_way`, `cs_enforcement_disable`.
 
-### P-99 codesign 产出 19 KB 签名，而能启动的 init 只有 408 B（要用 ldid-lite）
+### P-99 codesign produces a 19 KB signature while the bootable init has only 408 B (use ldid-lite)
 
-- **症状**：用 Mac 自带 `codesign --force --sign - --pagesize=4096` 签 init，
-  文件从 34,704 B 涨到 53,248 B（签名 18,544 B），启动 panic；
-  而能启动的 init blob 只有 35,160 B（签名 408 B）。
-- **真因**：解析两者 CodeDirectory：
+- **Symptom**: signing init with the Mac's own
+  `codesign --force --sign - --pagesize=4096`, the file grew from 34,704 B to
+  53,248 B (18,544 B signature) and the boot panicked; the bootable init blob is
+  only 35,160 B (408 B signature).
+- **True cause**: parse the CodeDirectory of both:
   ```
-  能启动的（35160）: version=0x00020400  nCodeSlots=9  hashSize=32
-                    pageSize=12 (4096)  总签名 408 B
-  macOS 26 codesign: 版本更新、槽位更多 → 18,544 B（45 倍）
+  bootable (35160): version=0x00020400  nCodeSlots=9  hashSize=32
+                    pageSize=12 (4096)  total signature 408 B
+  macOS 26 codesign: newer version, more slots → 18,544 B (45x)
   ```
-- **正确工具**：**`<workspace>/scratch/ldid-lite.py`**（本地已有）
+- **Correct tool**: **`<workspace>/scratch/ldid-lite.py`** (already local)
   ```python
   """CodeDirectory 0xfade0c02, version 0x20400, ... PAGE = 4096"""
   ```
-  用法：`python3 ldid-lite.py <macho> [identifier]`
-- **另一个必要前提**（见 P-100）：`-sectcreate __TEXT __entitlements`。
-  35160 的 `__TEXT` 段有 `__entitlements` section（237 B），
-  是**链接器**放进去的，不是 codesign 的 blob。
-- **判别命令**：
+  Usage: `python3 ldid-lite.py <macho> [identifier]`
+- **Another necessary precondition** (see P-100): `-sectcreate __TEXT __entitlements`.
+  The `__TEXT` segment of 35160 has an `__entitlements` section (237 B),
+  put there by the **linker**, not by the codesign blob.
+- **Diagnostic command**:
   ```bash
   python3 -c "
   import struct
@@ -1879,80 +1895,86 @@ if ((st & 0x10100) == 0x10100 && idle &&
       c,s=struct.unpack_from('<II',d,off)
       if c==0x1d: cs=struct.unpack_from('<II',d,off+8)[1]
       off+=s
-  print('ncmds=%d cs=%s (期望 9 / ~408)' % (n,cs))"
+  print('ncmds=%d cs=%s (expected 9 / ~408)' % (n,cs))"
   ```
 
-### P-100 ldid-lite 需要 load commands 末尾有空位，`-headerpad` 对静态链接无效
+### P-100 ldid-lite needs free space at the end of load commands, and `-headerpad` has no effect on static links
 
-- **症状**：`ldid-lite.py` 报 `no room in load commands for LC_CODE_SIGNATURE; abort`。
-- **真因**：它要求 `end_cmds + 16 <= 32 + sizeofcmds`。
-  普通 clang 编译后 `sizeofcmds` 正好等于实际用量，没有 16 字节余量。
-- **试过但无效**：`-Wl,-headerpad_max_install_names`、`-Wl,-headerpad,0x400`
-  —— **静态 freestanding 链接时 ld64 忽略 headerpad**，`sizeofcmds` 不变。
-- **35160 的做法**：它的 `sizeofcmds=1136`，比同类构建的 1168 小 32 B，
-  说明省掉了某个 load command，因此有空间。
-- **当前状态**：**未解决**。可选路径：
-  1. 找出 35160 当年用的 clang/ld 版本与参数
-  2. 改 `ldid-lite.py` 让它扩展 `__TEXT` 头页并重写偏移（codesign_allocate 的做法）
-  3. **绕开**：35160 的 init 功能已足够（见 P-101）
+- **Symptom**: `ldid-lite.py` reports `no room in load commands for LC_CODE_SIGNATURE; abort`.
+- **True cause**: it requires `end_cmds + 16 <= 32 + sizeofcmds`.
+  After a normal clang compile `sizeofcmds` equals the actual usage exactly,
+  with no 16-byte slack.
+- **Tried and ineffective**: `-Wl,-headerpad_max_install_names`, `-Wl,-headerpad,0x400`
+  — **ld64 ignores headerpad on static freestanding links**, `sizeofcmds` does not change.
+- **How 35160 did it**: its `sizeofcmds=1136`, 32 B smaller than the 1168 of a
+  comparable build, meaning some load command was dropped, so there was room.
+- **Current state**: **unresolved**. Options:
+  1. Find which clang/ld version and flags 35160 was built with back then
+  2. Change `ldid-lite.py` so it extends the `__TEXT` header page and rewrites the
+     offsets (what codesign_allocate does)
+  3. **Work around it**: the 35160 init is functional enough (see P-101)
 
-### P-101 35160 的 init 功能已够用，不必为 Metal 部署重编 init
+### P-101 The 35160 init is already good enough; init does not need rebuilding for the Metal deploy
 
-- **背景**：一直以为必须重编 init 才能部署 Metal bundle。实际上：
-- **35160 blob 已具备**（22 条 `Pong init:` 日志核实）：
+- **Background**: I had always assumed init had to be rebuilt to deploy the Metal
+  bundle. In fact:
+- **The 35160 blob already has** (verified from 22 `Pong init:` log lines):
   ```
   Data mount / var seed / calendar
-  boot view <source> -> <target> result=%d     ← 通用 bindfs 挂载循环
+  boot view <source> -> <target> result=%d     ← generic bindfs mount loop
   /private/var/pong/boot-jobs -> /pong/LaunchDaemons
   /private/var/pong/libpong-ui.dylib
   exec original 20G81 launchd; stdin/stdout -> /dev/null, stderr -> /dev/console
   ```
-  **它有通用 boot view 机制，也正确设置了 launchd 的 stdio。**
-- **它没有的**（我加的两项，都非必需）：
-  - `unpack_boot_jobs` — 350 版用 `/pong/LaunchDaemons` 路径
-  - `prepare_metal_bundle` — **改用内核侧 0404 补丁替代**
-- **结论**：**Metal bundle 走内核侧 `0404-k60-metal-deploy.patch`**，
-  init 保持 35160。这样避开整条「重编 init → SDK → codesign →
-  ldid-lite → headerpad」的坑链。
-- **教训**：**在重编一个"能工作的二进制"之前，先核实新功能是否真的非它不可。**
-  内核侧往往能做同样的事（0340 部署 libpong-ui 就是先例）。
+  **It has a generic boot view mechanism, and it sets launchd's stdio correctly.**
+- **What it does not have** (the two things I added, both optional):
+  - `unpack_boot_jobs` — the 350 build uses the `/pong/LaunchDaemons` path
+  - `prepare_metal_bundle` — **replaced by the kernel-side 0404 patch**
+- **Conclusion**: **the Metal bundle goes through the kernel-side `0404-k60-metal-deploy.patch`**,
+  init stays at 35160. That avoids the whole "rebuild init → SDK → codesign →
+  ldid-lite → headerpad" pitfall chain.
+- **Lesson**: **before rebuilding a "working binary", verify that the new feature
+  really cannot do without it.**
+  The kernel side can often do the same thing (0340 deploying libpong-ui is the precedent).
 
-### P-102 「通用化」修复工具反而误改了 10 个本来正常的补丁
+### P-102 "Generalising" the fix tool instead corrupted 10 patches that were fine
 
-- **症状**：把 `fix_hunk_counts.py` 从「只处理硬编码的三个触摸补丁」改成
-  「默认扫 `patches/xnu/*.patch`」后，运行一次输出：
+- **Symptom**: after changing `fix_hunk_counts.py` from "only handle the three
+  hard-coded touch patches" to "scan `patches/xnu/*.patch` by default", one run
+  printed:
   ```
   0300-k60-usblog-ep0.patch:       1 hunk(s) fixed
   0340-k60-uilib-deploy.patch:     1 hunk(s) fixed
   0500-k60-bt-qbt-new-files.patch: 17 hunk(s) fixed
   zzz-boot-progress.patch:         1 hunk(s) fixed
-  ...（共 10 个补丁被改）
+  ...(10 patches changed in total)
   ```
-  这些补丁**原本都能正常应用**，被工具「修」坏了。
-- **真因**：脚本把所有 `@@ -0,0 +1,N @@` 的 N 都按「后续行数」重算，
-  但那些补丁的 N 本来就对；脚本的重算逻辑在**跨 hunk / 末尾空行**等边界上
-  与原意不符，于是把正确的值改成了错的。
-- **立即处置**：
+  Those patches **all applied fine before**; the tool "fixed" them into breakage.
+- **True cause**: the script recomputed N of every `@@ -0,0 +1,N @@` from "the
+  number of lines that follow", but those patches' N values were already correct;
+  the script's recomputation logic disagrees with the intent at boundaries such as
+  **across hunks / trailing blank lines**, so it turned correct values into wrong ones.
+- **Immediate handling**:
   ```bash
-  cd <repo> && git checkout -- patches/xnu/     # 全部回滚
-  # 然后只对目标补丁显式传路径重做
-  python3 fix_hunk_counts.py <目标补丁>
+  cd <repo> && git checkout -- patches/xnu/     # roll everything back
+  # then redo only the target patch, passing its path explicitly
+  python3 fix_hunk_counts.py <target patch>
   ```
-  **注意**：`git checkout -- patches/xnu/` 会把**已提交过**的目标补丁
-  也还原成旧版，需要重做一遍修改。
-- **正确设计（已改）**：`fix_hunk_counts.py` 的默认行为改为
-  **不带路径时不处理任何文件**，必须显式传路径。
-- **教训（★15 的补充）**：
-  1. **批量修改类工具，默认必须是"不动"**，而不是"全扫"。
-     全扫的破坏面不可控。
-  2. **任何批量修改前先 `git status` 记录基线**，跑完立刻 `git status` 对比，
-     只保留预期的文件。
-  3. **修复工具本身也要能被验证**：跑完要 `git apply --check` 所有补丁，
-     确认没有变得更糟。
+  **Note**: `git checkout -- patches/xnu/` also restores **already-committed**
+  target patches to the old version, so those edits have to be redone.
+- **Correct design (already changed)**: `fix_hunk_counts.py`'s default behaviour is
+  now **to process no file when no path is given**; a path must be passed explicitly.
+- **Lessons (additions to ★15)**:
+  1. **A bulk-modifying tool must default to "do nothing"**, not "scan everything".
+     The blast radius of scanning everything is unbounded.
+  2. **Before any bulk modification record the baseline with `git status`**, and
+     compare with `git status` right after, keeping only the files you expected.
+  3. **The fix tool itself must be verifiable**: after running, `git apply --check`
+     every patch and confirm nothing got worse.
 
-### P-103 内核里用 mount/mkdir/kalloc 需要三个特定的头
+### P-103 Using mount/mkdir/kalloc in the kernel needs three specific headers
 
-- **症状**：`0404-k60-metal-deploy.patch` 编译报 6 个错：
+- **Symptom**: `0404-k60-metal-deploy.patch` compiled with 6 errors:
   ```
   error: call to undeclared function 'kalloc'
   error: call to undeclared function 'kfree'
@@ -1961,103 +1983,115 @@ if ((st & 0x10100) == 0x10100 && idle &&
   error: variable has incomplete type 'struct mkdir_args'
   error: call to undeclared function 'mkdir'
   ```
-- **真因**：头文件不全。`<sys/mount.h>` 不够。
-- **正解**：
+- **True cause**: incomplete headers. `<sys/mount.h>` is not enough.
+- **Correct answer**:
   ```c
   #include <sys/mount.h>
   #include <sys/mount_internal.h>   /* struct mount_args / mkdir_args, mount(), mkdir() */
   #include <sys/vfs_context.h>
   #include <kern/kalloc.h>          /* kalloc() / kfree() */
   ```
-  `struct mount_args`、`struct mkdir_args`、`mount()`、`mkdir()` 全在
-  `<sys/mount_internal.h>`（依据：`bsd/vfs/vfs_syscalls.c:86`）。
-- **判别命令**：
+  `struct mount_args`, `struct mkdir_args`, `mount()`, `mkdir()` are all in
+  `<sys/mount_internal.h>` (basis: `bsd/vfs/vfs_syscalls.c:86`).
+- **Diagnostic commands**:
   ```bash
   grep -rn 'struct mount_args' <xnu-work>/bsd/sys/*.h
   grep -rn 'struct mkdir_args' <xnu-work>/bsd/sys/*.h
   grep -n 'include' <xnu-work>/bsd/vfs/vfs_syscalls.c | grep mount_internal
   ```
-- **教训**：写内核新文件时，**先找「同类功能的现有实现」抄它的 include 列表**
-  （这里就是 `vfs_syscalls.c`），比自己猜快得多。
+- **Lesson**: when writing a new kernel file, **first find the existing
+  implementation of the same kind of function and copy its include list**
+  (here `vfs_syscalls.c`); far faster than guessing yourself.
 
-### P-104 设备上一直能跑的 init 不在 git 里，在 `/tmp/init-v10guard/` 和 `/tmp/initbuild/`
+### P-104 The init that always ran on the device is not in git, it is in `/tmp/init-v10guard/` and `/tmp/initbuild/`
 
-- **症状**：启用 `0391-k60-embedded-init.patch` 后，设备从"能跑到 launchd pid 282"
-  变成"每次 panic：`Library not loaded: /usr/lib/libSystem.B.dylib`"。
-  把 blob 在 `35160` / `53728` 之间来回换都一样 panic，一度怀疑 dyld cache 坏了。
-- **真因**：**git 里 0391 的所有历史版本都是另一条分支的 init**，
-  日志特征是 `Pong init: static 20G81 helper entered` +
-  `Pong init: HackiOS userland adapter / iOS 16.6.1 20G81 / static arm64`。
-  而设备上真正能跑的那个 init 日志特征是 `Pong init: HackiOS adapter [v10guard]`，
-  它的二进制**从来没提交过**，只存在于：
+- **Symptom**: after enabling `0391-k60-embedded-init.patch` the device went from
+  "runs to launchd pid 282" to "panics every time:
+  `Library not loaded: /usr/lib/libSystem.B.dylib`".
+  Swapping the blob back and forth between `35160` / `53728` made no difference,
+  and for a while I suspected the dyld cache was broken.
+- **True cause**: **every historical version of 0391 in git is the other branch's init**,
+  whose log signature is `Pong init: static 20G81 helper entered` +
+  `Pong init: HackiOS userland adapter / iOS 16.6.1 20G81 / static arm64`.
+  The init that actually ran on the device logs `Pong init: HackiOS adapter [v10guard]`,
+  and its binary **was never committed**; it only existed in:
   ```
-  /tmp/init-v10guard/init-v10guard   34,880 B  ncmds=9  cs=416   ← 能跑
-  /tmp/init-v10guard/init.c          15,683 B  ← 源码
-  /tmp/initbuild/init-v13dylc ~ init-v24dp   （24 个迭代版本）
+  /tmp/init-v10guard/init-v10guard   34,880 B  ncmds=9  cs=416   ← this one ran
+  /tmp/init-v10guard/init.c          15,683 B  ← source
+  /tmp/initbuild/init-v13dylc ~ init-v24dp   (24 iteration versions)
   ```
-  `0391` 一旦生效（`k60_init_blob=1` 真正开始执行），就用 git 里的坏 init
-  覆盖了 `/private/var/pong/init`，能跑的那份从此丢失。
-- **判别命令（30 秒）**：
+  Once `0391` took effect (`k60_init_blob=1` really started executing), it
+  overwrote `/private/var/pong/init` with the broken init from git, and the
+  working copy was lost from then on.
+- **Diagnostic command (30 seconds)**:
   ```bash
-  # 日志里是哪个分支
+  # which branch is in the log
   grep -a 'Pong init: HackiOS' <console.log>
-  #   "HackiOS adapter [v10guard]"              → 能跑的那条线
-  #   "HackiOS userland adapter / ... static"   → git 里的，会 panic
+  #   "HackiOS adapter [v10guard]"              → the line that runs
+  #   "HackiOS userland adapter / ... static"   → the one from git, panics
   ```
-- **正解**：用 **`/tmp/initbuild/init-v24dp`**（`v10guard` 线的最后一版）
-  - 34,904 B，`ncmds=9`，`cs=408`（与能跑形态一致）
-  - 日志 28 条 = `v10guard` 的 26 条 + 2 条（`disabled.plist`），**严格超集**
-  - 含 `Pong init: native Metal entry enabled for backboardd`
-  已把它写进 `0391` 的 blob（`K60_INIT_BLOB_LEN 34904`）。
-- **教训（★25「能编过 ≠ 能运行」的最强案例）**：
-  1. **"能启动的二进制"必须先落进仓库**，否则一次 patch 生效就永久丢失。
-     `/tmp` 不是存储。
-  2. **判断 init 版本不能看文件名或大小**，要看日志里的**特征字符串组合**（P-21）。
-  3. **`k60_init_blob=1` 从空操作变成真生效**时，必须意识到它会**覆盖**设备上
-     现有的文件——这是个破坏性操作，不是无害的开关。
-  4. `find / -name 'init*' | strings | grep 特征` 比逐个试刷机快得多。
+- **Correct answer**: use **`/tmp/initbuild/init-v24dp`** (the last version of the `v10guard` line)
+  - 34,904 B, `ncmds=9`, `cs=408` (consistent with the working shape)
+  - 28 log lines = `v10guard`'s 26 + 2 (`disabled.plist`), a **strict superset**
+  - contains `Pong init: native Metal entry enabled for backboardd`
+  Already written into the `0391` blob (`K60_INIT_BLOB_LEN 34904`).
+- **Lessons (the strongest case of ★25 "compiles ≠ runs")**:
+  1. **A "binary that boots" must land in the repository first**, otherwise one
+     effective patch loses it forever.
+     `/tmp` is not storage.
+  2. **Do not judge an init version by filename or size**, look at the
+     **combination of signature strings** in the log (P-21).
+  3. **When `k60_init_blob=1` goes from a no-op to actually taking effect**, you
+     must realise it **overwrites** the file currently on the device — that is a
+     destructive operation, not a harmless switch.
+  4. `find / -name 'init*' | strings | grep <signature>` is far faster than
+     flashing one build at a time.
 
-### P-105 `/System/Library/Extensions` 不可写也不必要（Metal 种子的真正位置）
+### P-105 `/System/Library/Extensions` is neither writable nor necessary (where the Metal seeds really go)
 
-- **症状**：0404 尝试 `mkdir("/System/Library/Extensions/PongAdrenoMetal.bundle")`
-  → `error=30`（**EROFS**），随后 bindfs 也没做，启动 panic。
-- **真因**：
-  1. 密封根（OS 卷 `incompatible 0x8`）上 `mkdir` 返回 `EROFS`，
-     `bindfs` 返回 `EPERM` —— **P-27 在 2026-11-08 就实测过全部变体**，
-     并且写了"30 秒判定：看到 result=-1 errno=1 就不要再试 bindfs"。
-  2. **更关键：这条路本来就不需要。**
-     `drivers/PongMetal/PongMetalPlugin.mm:174`：
+- **Symptom**: 0404 tried `mkdir("/System/Library/Extensions/PongAdrenoMetal.bundle")`
+  → `error=30` (**EROFS**), then bindfs was not done either, and the boot panicked.
+- **True cause**:
+  1. On the sealed root (OS volume `incompatible 0x8`) `mkdir` returns `EROFS`,
+     and `bindfs` returns `EPERM` — **P-27 measured every variant on 2026-11-08**,
+     and wrote "30-second check: on result=-1 errno=1, stop trying bindfs".
+  2. **More to the point: this path was never needed at all.**
+     `drivers/PongMetal/PongMetalPlugin.mm:174`:
      ```objc
      for (const char *directory : {"/System/Library/Extensions",
                                     "/private/var/pong"}) {
      ```
-     `selectedClient()` **本来就搜两个目录**，`/private/var/pong` 是备选。
-     两个种子文件（`PongAdrenoMetal.publish` / `.clients`，0644、root）
-     放在 `/private/var/pong/` 即可通过。
-- **正解**：Metal 部署只做**文件拷贝**到 `/private/var/pong/`，**不做任何挂载**。
-- **教训**：
-  1. **动手挂载前先读消费方的代码**，确认它到底从哪些路径读。这次多花了一整轮
-     在做一件消费方根本不要求的事。
-  2. **P-27 已经写过的结论要当铁则用**，不要重新试一遍 bindfs（这是第二次踩）。
+     `selectedClient()` **already searches two directories**, `/private/var/pong` is
+     the fallback. The two seed files (`PongAdrenoMetal.publish` / `.clients`,
+     0644, root) just have to sit in `/private/var/pong/` to pass.
+- **Correct answer**: the Metal deploy only **copies files** into
+  `/private/var/pong/`, **it does not mount anything**.
+- **Lessons**:
+  1. **Read the consumer's code before mounting anything**, and confirm which
+     paths it actually reads. This cost a whole extra round doing something the
+     consumer never required.
+  2. **Treat a conclusion already written in P-27 as an iron rule**, do not retry
+     bindfs (this was the second time on the same rake).
 
-### P-106 init 修好之后整个用户态起来了（本轮最大突破）
+### P-106 With init fixed the whole userland came up (the biggest breakthrough of this round)
 
-- **修复内容**：`0391` 的 blob 换成 `/tmp/initbuild/init-v24dp`（`v10guard` 线，
-  34,904 B，`ncmds=9`，`cs=408`），并把 `0394-k60-launchd-cache` 的内容
-  合并进 `0391` 的 hunk1（P-92 方案 1：同锚点必须合并），同时恢复
-  `epoch=1793709100`（之前为腾 boot-args 删掉，导致 launchd 时间戳变 1970）。
-- **结果（usblog-20261111-115745）**：
+- **What was fixed**: the `0391` blob was replaced with `/tmp/initbuild/init-v24dp`
+  (the `v10guard` line, 34,904 B, `ncmds=9`, `cs=408`), and the contents of
+  `0394-k60-launchd-cache` were merged into `0391`'s hunk1 (P-92 option 1: the same
+  anchor must be merged), while `epoch=1793709100` was restored (it had been
+  deleted to free boot-args, which turned the launchd timestamp into 1970).
+- **Result (`usblog-20261111-115745`)**:
   ```
-  日志 120,907 B / 1879 行          （之前 panic 时只有 41-50 KB）
-  PANICARGS = 0                     （不 panic）
-  最大 pid = 234
-  SpringBoard: 起来了
-  backboardd: 起来了
+  log 120,907 B / 1879 lines         (a panic run had only 41-50 KB before)
+  PANICARGS = 0                     (no panic)
+  max pid = 234
+  SpringBoard: up
+  backboardd: up
   MiniIOMobileFramebuffer: 301 frames in 5001 ms (60 a second), 2492 us each
   K60 ex=504 kx=74 abn=24 | mem=4864 free_pages=435130
   ```
-  **60fps 真实渲染在跑，整个 iOS 用户态起来了。**
-- **PONG ADRENO 全链路 result=0**（GPU 真启动）：
+  **Real 60fps rendering is running, the whole iOS userland is up.**
+- **PONG ADRENO full chain result=0** (the GPU really started):
   ```
   GPU SMMU actual IDs          result=0
   GMU firmware/HFI             result=0
@@ -2068,102 +2102,117 @@ if ((st & 0x10100) == 0x10100 && idle &&
   CP/user-client startup       result=0
   PONG METAL: real IOAcceleratorES provider published for20G81 discovery
   ```
-- **注意**：`PONG ADRENO: startup requested; no accelerator published` 是
-  `PongAdrenoPlatform.cpp:334` 的**第一条面包屑**（`record()` 在 `run()` 开头），
-  不是错误。整个 `run()` 从 334 行往下全部成功。**不要被这句话误导。**
-- **教训**：`epoch` 不是可有可无的——删掉它 launchd 的时间基准变成 1970，
-  影响它的事件调度。**腾 boot-args 时优先删真正冗余的项**（P-98 的清单里
-  `epoch` 被列为"低风险"，这个判断是错的）。
+- **Note**: `PONG ADRENO: startup requested; no accelerator published` is the
+  **first breadcrumb** from `PongAdrenoPlatform.cpp:334` (`record()` at the top of
+  `run()`), not an error. The whole of `run()` from line 334 down succeeds.
+  **Do not be misled by that line.**
+- **Lesson**: `epoch` is not optional — delete it and launchd's time base becomes
+  1970, which affects its event scheduling. **When freeing boot-args, delete the
+  genuinely redundant items first** (in P-98's list `epoch` was labelled "low
+  risk", and that judgement was wrong).
 
-### P-107 Metal 种子文件从来没进过 payload，而 0404 的短路判据掩盖了这一点
+### P-107 The Metal seed files never made it into the payload, and 0404's short-circuit criterion hid it
 
-- **症状**：GPU 全链路 `result=0`，`PONG METAL: real IOAcceleratorES provider published`
-  也出现了，但 Metal 插件没加载、dock 没有模糊。
-- **根因链（两个独立错误叠加）**：
-  1. **`docs/DATA-VOLUME-DEPLOY.md:49-50` 声称 payload 里已有两个种子文件，
-     实际没有**：
+- **Symptom**: the GPU chain was all `result=0`, `PONG METAL: real IOAcceleratorES provider published`
+  appeared too, but the Metal plugin was not loaded and the dock had no blur.
+- **Root cause chain (two independent errors compounding)**:
+  1. **`docs/DATA-VOLUME-DEPLOY.md:49-50` claims the payload already carries the two
+     seed files. It does not**:
      ```
      mdir -i payload.img ::/METAL
-       PONGAD~1 BUN  <DIR>   ← 只有 bundle
-       （没有 PONGAD~1.PUB / PONGAD~1.CLI）
+       PONGAD~1 BUN  <DIR>   ← only the bundle
+       (no PONGAD~1.PUB / PONGAD~1.CLI)
      ```
-  2. **0404 的短路判据检查错了对象**：它 `vnode_lookup` 的是
-     `PongAdrenoMetal.bundle/PongAdrenoMetal`（bundle 二进制），
-     这个文件早已存在 → 直接 `bundle already present` → 跳过整个部署 →
-     **两个种子文件永远不会被写**。
-- **而 `selectedClient()` 要求的恰恰是那两个种子**（`PongMetalPlugin.mm:174-192`）：
+  2. **0404's short-circuit criterion checked the wrong object**: it `vnode_lookup`ed
+     `PongAdrenoMetal.bundle/PongAdrenoMetal` (the bundle binary), which already
+     existed → straight to `bundle already present` → the whole deploy skipped →
+     **the two seed files are never written**.
+- **And `selectedClient()` requires exactly those two seeds** (`PongMetalPlugin.mm:174-192`):
   ```objc
   if(lstat(marker,&st) || !S_ISREG(st.st_mode) || st.st_uid || (st.st_mode&022))continue;
   FILE *file=fopen(marker,"r");if(!file)continue;
   const bool publish=fgetc(file)=='1';fclose(file);if(!publish)return false;
-  if(lstat(clients,&st) || ... )continue;      // 必须含进程名（backboardd）
+  if(lstat(clients,&st) || ... )continue;      // must contain the process name (backboardd)
   ```
-  → 种子缺失 ⇒ `selectedClient()` 返回 `false` ⇒
-  `initWithAcceleratorPort` 返回 `nil` ⇒ 看起来像"插件根本没被加载"。
-- **修复**：
-  1. 用 `mcopy` 把 `PongAdrenoMetal.publish`（2 B，"1"）和
-     `PongAdrenoMetal.clients`（122 B，含 backboardd/SpringBoard/…）注入
-     `payload.img` 的 `::/METAL`
-  2. 0404 的短路判据改成**检查两个种子文件**，不再检查 bundle 二进制
-- **判别命令**：
+  → seeds missing ⇒ `selectedClient()` returns `false` ⇒
+  `initWithAcceleratorPort` returns `nil` ⇒ it looks like "the plugin was never loaded at all".
+- **Fix**:
+  1. Use `mcopy` to inject `PongAdrenoMetal.publish` (2 B, "1") and
+     `PongAdrenoMetal.clients` (122 B, contains backboardd/SpringBoard/… ) into
+     `payload.img`'s `::/METAL`
+  2. Change 0404's short-circuit criterion to **check the two seed files**, no
+     longer the bundle binary
+- **Diagnostic commands**:
   ```bash
   mdir -i payload.img ::/METAL | grep -E 'PUB|CLI'
-  mtype -i payload.img "::/METAL/PongAdrenoMetal.publish"    # 必须是 1
-  mtype -i payload.img "::/METAL/PongAdrenoMetal.clients"    # 必须含 backboardd
+  mtype -i payload.img "::/METAL/PongAdrenoMetal.publish"    # must be 1
+  mtype -i payload.img "::/METAL/PongAdrenoMetal.clients"    # must contain backboardd
   ```
-- **教训（★19「证据判定」+ ★25「能编过≠能运行」）**：
-  1. **文档里"已验证"的清单必须能被一条命令复查**，否则它会过期并误导
-     （这里 `DATA-VOLUME-DEPLOY.md` 的清单就是错的）。
-  2. **幂等判据（already present）必须检查门控真正要求的那些文件**，
-     不能只看一个"看起来代表整体"的文件。
-  3. **"插件没加载"和"插件加载了但拒绝服务"在日志上几乎一样**，
-     必须去看门控函数的具体判据，逐条核对。
+- **Lessons (★19 "evidence criteria" + ★25 "compiles ≠ runs")**:
+  1. **A list marked "verified" in a document must be re-checkable with one
+     command**, otherwise it goes stale and misleads (here `DATA-VOLUME-DEPLOY.md`'s
+     list is wrong).
+  2. **An idempotency criterion ("already present") must check the files the gate
+     actually requires**, not just one file that "looks like it represents the whole".
+  3. **"The plugin was not loaded" and "the plugin loaded but refuses to serve"
+     look almost identical in the log**; you must go read the gate function's
+     actual criteria and check them one by one.
 
-### P-108 在 native_owner_data_prepare 里同步拷 51 MB → 日志 0 字节
+### P-108 Copying 51 MB synchronously inside native_owner_data_prepare → 0-byte log
 
-> **⚠️ 归因已作废，见 P-117**：真正的死因是 init 二进制 `__TEXT` 超过 1 页，
-> 与"同步大 IO"无关。本文保留作为过程记录。
+> **⚠️ Attribution void, see P-117**: the real cause of death is the init binary's
+> `__TEXT` exceeding one page, unrelated to "synchronous large IO". This entry is
+> kept as a process record.
 
-- **症状**：刷机后复位，日志**完全 0 字节**（`usblog-20261111-121831  0 B`），
-  COM5 根本没枚举。比之前任何 panic 都更早死。
-- **对比**：上一次成功的启动（`usblog-20261111-115745`）日志 120,907 B，跑到 pid 234。
-  两者唯一差异是**我把 0404 的短路判据从"检查 bundle 二进制"改成"检查两个种子文件"**。
-- **真因**：判据改了之后，设备上缺种子 ⇒ 进入完整部署分支 ⇒
-  `k60_metal_copy()` 把 6 个文件（PongMetalBridge.dylib **33 MB** +
-  libvulkan_freedreno.dylib **18 MB**，共 51 MB）按 16 KiB 分块同步拷进 Data 卷
-  ⇒ **`native_owner_data_prepare` 在启动线程上卡住几十秒**
-  ⇒ USB gadget 来不及枚举 ⇒ 看门狗复位（`k60_autoreset=300` 之外，
-  更可能是启动超时/硬件看门狗）。
-- **正解：缺什么补什么（incremental deploy）**
+- **Symptom**: after flashing, the device reset and the log was **completely 0
+  bytes** (`usblog-20261111-121831  0 B`), COM5 never enumerated at all. It died
+  earlier than any previous panic.
+- **Comparison**: the previous successful boot (`usblog-20261111-115745`) had a
+  120,907 B log and reached pid 234. The only difference between the two was
+  **that I changed 0404's short-circuit criterion from "check the bundle binary"
+  to "check the two seed files"**.
+- **True cause**: with the criterion changed, the seeds missing on the device ⇒
+  the full deploy branch is entered ⇒ `k60_metal_copy()` copies 6 files
+  (PongMetalBridge.dylib **33 MB** + libvulkan_freedreno.dylib **18 MB**, 51 MB
+  total) into the Data volume in 16 KiB chunks, synchronously
+  ⇒ **`native_owner_data_prepare` stalls for tens of seconds on the boot thread**
+  ⇒ USB gadget does not get to enumerate in time ⇒ watchdog reset (beyond
+  `k60_autoreset=300`, more likely a boot timeout / hardware watchdog).
+- **Correct answer: supply exactly what is missing (incremental deploy)**
   ```c
   if (vnode_lookup(K60_METAL_SRC "/PongAdrenoMetal", ...) != 0) need_bundle = 1;
-  if (缺 publish 或 clients)                                      need_seeds  = 1;
-  if (!need_bundle && !need_seeds) return;          // 什么都不做
+  if (missing publish or clients)                                 need_seeds  = 1;
+  if (!need_bundle && !need_seeds) return;          // do nothing at all
   ...
-  if (need_seeds)  { 写 publish + clients }          // 124 字节，先写
-  if (need_bundle) { 写 6 个 bundle 文件 }           // 51 MB，最后写
+  if (need_seeds)  { write publish + clients }       // 124 bytes, write first
+  if (need_bundle) { write the 6 bundle files }      // 51 MB, write last
   ```
-  两个要点：
-  1. **种子先写**（124 字节，瞬时完成，门控立刻能通过）
-  2. **bundle 只在真缺时写**（它几乎不变，不该每次启动都拷）
-- **判别命令**：
+  Two key points:
+  1. **Write the seeds first** (124 bytes, instantaneous, the gate passes immediately)
+  2. **Write the bundle only when it is genuinely missing** (it almost never
+     changes, it should not be copied on every boot)
+- **Diagnostic commands**:
   ```bash
-  # 日志 0 字节 + fastboot 可用 + COM5 未枚举 ⇒ 怀疑启动路径上有同步大 IO
-  ls -la evidence/usblog-<最新>/console.log     # 0 B
-  [System.IO.Ports.SerialPort]::GetPortNames()  # 没有 COM5
+  # 0-byte log + fastboot available + COM5 not enumerated ⇒ suspect synchronous large IO on the boot path
+  ls -la evidence/usblog-<latest>/console.log     # 0 B
+  [System.IO.Ports.SerialPort]::GetPortNames()  # no COM5
   ```
-- **教训（★25「能编过 ≠ 能运行」的又一例）**：
-  1. **启动路径（`native_owner_data_prepare` / `bsd_init` 阶段）上禁止同步大 IO。**
-     51 MB 拷贝必须在 init 之后、或者异步、或者只做一次。
-  2. **幂等逻辑不是"检查一个文件就跳过"，也不是"每次都全做"**，
-     要**逐项判断缺什么**。之前"检查 bundle 二进制"漏了种子；
-     改成"检查种子"又变成每次全拷 —— 两个极端都错。
-  3. **日志 0 字节 ≠ 设备坏**（P-41）。但也不一定是内核 panic——
-     可能只是启动太慢。先看最近一次成功启动的日志大小做对比。
+- **Lessons (another case of ★25 "compiles ≠ runs")**:
+  1. **Synchronous large IO is forbidden on the boot path (`native_owner_data_prepare` /
+     `bsd_init` stage).**
+     A 51 MB copy must happen after init, or asynchronously, or only once.
+  2. **Idempotency logic is neither "check one file and skip" nor "do everything
+     every time"**; it must **decide item by item what is missing**. The earlier
+     "check the bundle binary" missed the seeds; changing it to "check the seeds"
+     became a full copy every time — both extremes are wrong.
+  3. **A 0-byte log ≠ a broken device** (P-41). But it is not necessarily a kernel
+     panic either — it may just be a boot that is too slow. Compare against the
+     log size of the most recent successful boot first.
 
-### P-109 手算 hunk 行号会连续错 6 次 —— 用 difflib 生成补丁，不要手写
+### P-109 Hand-computed hunk line numbers will be wrong 6 times in a row — generate patches with difflib, do not write them by hand
 
-- **症状**：给 `0404` 加一个新函数 + 一个调用点，连续 6 次构建失败：
+- **Symptom**: adding one new function + one call site to `0404`, 6 consecutive
+  build failures:
   ```
   error: corrupt patch at line 250
   error: patch failed: bsd/kern/kern_exec.c:7678
@@ -2171,24 +2220,26 @@ if ((st & 0x10100) == 0x10100 && idle &&
   error: patch failed: bsd/kern/kern_exec.c:7774
   Hunk #2 FAILED at 7869
   ```
-  每次都在"修正"行号，每次又错。改 `-` 侧、改 `+` 侧、改上下文行数、
-  手工数 `+` 行、补尾部换行 —— 6 轮全失败。
-- **真因**：**手算 `@@ -old,count +new,count @@` 有四个数字要同时对**，
-  而且 `+` 侧起点取决于前面所有 hunk 的净增量。任何一处差 1 就整体失败。
-  我最后一次"正确"的猜测是 `-7678` / `-7772`，
-  而 **difflib 生成的是 `-7677` / `-7778`** —— 两个都和我算的不一样，
-  说明之前 6 轮都是在错误的数字上打转。
-- **正解：让工具生成 diff，不要手写**
+  Every time I was "fixing" the line numbers, and every time it was wrong again.
+  Change the `-` side, change the `+` side, change the context line count, count
+  the `+` lines by hand, add a trailing newline — 6 rounds, all failed.
+- **True cause**: **hand-computing `@@ -old,count +new,count @@` means four numbers
+  must be right at once**, and the `+` side start depends on the net delta of all
+  preceding hunks. Off by one anywhere and the whole thing fails.
+  My last "correct" guess was `-7678` / `-7772`,
+  while **difflib generated `-7677` / `-7778`** — both differ from what I computed,
+  which shows the previous 6 rounds were all spinning on wrong numbers.
+- **Correct answer: let a tool generate the diff, do not write it by hand**
   ```python
   import io, difflib
 
-  src = '<原始文件路径>'          # 从构建树复制出来的、未应用本补丁的版本
+  src = '<original file path>'     # copied out of the build tree, without this patch applied
   orig = io.open(src, encoding='utf-8', errors='ignore').read().split('\n')
 
   new = list(orig)
-  # 1) 找插入点（用内容定位，不用行号）
-  i = next(i for i, l in enumerate(orig) if l.strip() == '目标行内容')
-  new = new[:i] + NEW_LINES + new[i:]        # 或替换
+  # 1) find the insertion point (locate by content, not by line number)
+  i = next(i for i, l in enumerate(orig) if l.strip() == 'target line content')
+  new = new[:i] + NEW_LINES + new[i:]        # or replace
 
   d = list(difflib.unified_diff(orig, new,
                                 fromfile='a/<path>', tofile='b/<path>',
@@ -2196,76 +2247,88 @@ if ((st & 0x10100) == 0x10100 && idle &&
   out = ['diff --git a/<path> b/<path>'] + d
   io.open(PATCH, 'w', encoding='utf-8', newline='\n').write('\n'.join(out) + '\n')
   ```
-  **四个行号、上下文行数、尾部换行全部由 difflib 保证正确。**
-- **前提：源文件必须是"本补丁应用前"的真实状态**
-  从构建树复制（`<xnu-work>/bsd/kern/kern_exec.c`），
-  且**要确认这棵树包含了所有前置补丁**（比如 0340 的 libpong-ui 块）。
-  本会话此前一直用 `usb-cdc-mainline/out3`（9236 行），
-  而真正构建的是 `k60build`（9322 行）—— **两份树不同，锚点全错**。
-- **验证（必须做，且用构建同款判定）**：
+  **The four line numbers, the context line count and the trailing newline are all
+  guaranteed correct by difflib.**
+- **Precondition: the source file must be the real state "before this patch is applied"**
+  Copy it from the build tree (`<xnu-work>/bsd/kern/kern_exec.c`),
+  and **confirm this tree contains all prerequisite patches** (for instance 0340's
+  libpong-ui block).
+  This session had been using `usb-cdc-mainline/out3` (9236 lines) all along,
+  while what is actually built is `k60build` (9322 lines) — **two different trees,
+  every anchor wrong**.
+- **Verification (mandatory, and using the same judgement as the build)**:
   ```bash
   T=/tmp/diff-test; rm -rf "$T"; mkdir -p "$T/<dir>"
-  cp <原始文件> "$T/<dir>/"
+  cp <original file> "$T/<dir>/"
   cd "$T" && git init -q . && git add -A && git commit -qm init
-  git apply --check <patch>     # 必须无输出
+  git apply --check <patch>     # must print nothing
   ```
-  `patch --dry-run` 通过不算数（P-96）。
-- **教训**：
-  1. **`@@` 行号是机器该算的东西，人手算必然出错。** 见过有人手写能对，
-     那是因为他只改了 `+` 侧；一旦插入位置在中段、后面还有 hunk，必错。
-  2. **连续两次修同一个补丁格式失败，就该换工具，而不是继续"再修一次"。**
-     这里第 3 次失败时就该上 difflib，结果拖到第 7 次。
-  3. **"源文件"必须和构建用的一致**。用错树的所有推导都是错的，
-     而且失败信息看起来像"行号错 1"，极具误导性。
+  `patch --dry-run` passing does not count (P-96).
+- **Lessons**:
+  1. **The `@@` line numbers are for a machine to compute; a human computing them
+     will be wrong.** I have seen people get it right by hand, but that is because
+     they only changed the `+` side; as soon as the insertion point is mid-file and
+     other hunks follow, it is guaranteed to fail.
+  2. **If two consecutive attempts to fix the same patch format fail, change tools,
+     not "fix it once more".**
+     Here the third failure should have brought in difflib; instead it dragged to
+     the seventh.
+  3. **The "source file" must be the same one the build uses**. Every derivation
+     from the wrong tree is wrong, and the failure message looks like "line number
+     off by 1", which is extremely misleading.
 
-### P-110 有三份不同的 kern_exec.c，必须先确认哪份是构建输入
+### P-110 There are three different kern_exec.c files; confirm which one is the build input first
 
-- **实测（2026-11-11）**：
+- **Measured (2026-11-11)**:
   ```
-  /opt/k60/trees/k60build/.../xnu-work/bsd/kern/kern_exec.c        9322 行  ← 真正构建用
-  /opt/k60/trees/usb-cdc-mainline/out3/.../xnu-work/bsd/kern/kern_exec.c  9236 行  ← 历史树
+  /opt/k60/trees/k60build/.../xnu-work/bsd/kern/kern_exec.c        9322 lines  ← actually built
+  /opt/k60/trees/usb-cdc-mainline/out3/.../xnu-work/bsd/kern/kern_exec.c  9236 lines  ← historical tree
   ```
-  `buildv15.sh:6` 的 `B=` 指向 `k60build`，`out3` 只贡献 `fakeroot` 和 `sources`。
-- **后果**：用 `out3` 的副本生成补丁 → 锚点行号全错 → 6 轮返工（P-109）。
-- **判别命令**：
+  `B=` in `buildv15.sh:6` points at `k60build`; `out3` only contributes `fakeroot`
+  and `sources`.
+- **Consequence**: generating patches from the `out3` copy → every anchor line
+  number wrong → 6 rounds of rework (P-109).
+- **Diagnostic commands**:
   ```bash
   grep -n '^B=\|^D=\|^OLDSRC=' <workspace>/scratch/buildv15.sh
-  # B=  是构建树；D= 是 device 仓（补丁输入）；OLDSRC 只给 fakeroot/sources
-  wc -l <每棵树的>/bsd/kern/kern_exec.c     # 行数不同就说明不是同一份
+  # B= is the build tree; D= is the device repo (patch input); OLDSRC only supplies fakeroot/sources
+  wc -l <each tree>/bsd/kern/kern_exec.c     # different counts mean they are not the same copy
   ```
-- **教训**：**改构建树里任何文件之前，先用 `buildv15.sh` 的变量确认是哪棵树。**
-  这与 P-40/P-42/P-73 是同一类问题的第三次复发。
+- **Lesson**: **before changing any file in the build tree, confirm which tree it
+  is using `buildv15.sh`'s variables.**
+  This is the third recurrence of the same class of problem as P-40/P-42/P-73.
 
-### P-111 让 XNU 能加载的 Mach-O 签名：删 DYLD_INFO_ONLY 才有空间
+### P-111 A Mach-O signature XNU can load: deleting DYLD_INFO_ONLY is what makes room
 
-- **症状**：`ldid-lite.py` 报 `no room in load commands for LC_CODE_SIGNATURE`；
-  `codesign` 无论什么参数都产出 19 KB 签名 + `ncmds=10`（启动 panic）。
-- **根因（对比实测）**：
+- **Symptom**: `ldid-lite.py` reports `no room in load commands for LC_CODE_SIGNATURE`;
+  `codesign` with any arguments at all produces a 19 KB signature + `ncmds=10`
+  (boot panic).
+- **Root cause (measured comparison)**:
   ```
-  能启动的 v24dp:  34,904 B  ncmds=9  sizeofcmds=1216  有 CODE_SIGNATURE(16)
-                             ★ 没有 LC_DYLD_INFO_ONLY
-  我的编译产物:    35,088 B  ncmds=9  sizeofcmds=1248  有 DYLD_INFO_ONLY(48)
-                             ★ 没有 CODE_SIGNATURE
+  bootable v24dp:  34,904 B  ncmds=9  sizeofcmds=1216  has CODE_SIGNATURE(16)
+                             ★ no LC_DYLD_INFO_ONLY
+  my build:        35,088 B  ncmds=9  sizeofcmds=1248  has DYLD_INFO_ONLY(48)
+                             ★ no CODE_SIGNATURE
   ```
-  **静态可执行文件里的 `LC_DYLD_INFO_ONLY` 毫无意义**（48 字节），
-  删掉它正好腾出空间放 `LC_CODE_SIGNATURE`（16 字节）。
-  但只删不够——还要把 `sizeofcmds` **扩大 16**，否则
-  `end_cmds == 32 + sizeofcmds`，仍然没有余量。
-- **完整流程（已封装为 `scripts/sign-macho.py`）**：
-  1. 删 `LC_DYLD_INFO_ONLY`，后面的 load commands 前移
-  2. `sizeofcmds += 16` 给 `LC_CODE_SIGNATURE` 留空槽
-  3. 手写 `CodeDirectory`（version `0x20400`，flags `0x2` adhoc，
-     SHA256，pageSize log2=12）+ `SuperBlob`（`0xFADE0CC0`），追加到文件尾
-  4. 填 `LC_CODE_SIGNATURE` 的 `dataoff/datasize`，`ncmds += 1`
-- **验证判据**：
+  **`LC_DYLD_INFO_ONLY` in a static executable is meaningless** (48 bytes);
+  deleting it frees exactly enough room for `LC_CODE_SIGNATURE` (16 bytes).
+  But deleting alone is not enough — `sizeofcmds` must also be **grown by 16**,
+  otherwise `end_cmds == 32 + sizeofcmds` and there is still no slack.
+- **Full procedure (already packaged as `scripts/sign-macho.py`)**:
+  1. Delete `LC_DYLD_INFO_ONLY`, shift the following load commands forward
+  2. `sizeofcmds += 16` to leave an empty slot for `LC_CODE_SIGNATURE`
+  3. Hand-write the `CodeDirectory` (version `0x20400`, flags `0x2` adhoc,
+     SHA256, pageSize log2=12) + `SuperBlob` (`0xFADE0CC0`), append to the end of the file
+  4. Fill the `dataoff/datasize` of `LC_CODE_SIGNATURE`, `ncmds += 1`
+- **Verification criteria**:
   ```bash
   python3 <workspace>/scratch/sign-macho.py <macho>
-  # 期望：ncmds=9，signature ≈ 400-450 B，magic OK
+  # expect: ncmds=9, signature ≈ 400-450 B, magic OK
   ```
-  `datasize ≈ 头(88) + identifier(16) + 页数×32`。
-  35 KB 文件 = 9 页 → 88+16+288 = 392 B CodeDirectory，
-  +12+8 SuperBlob 头 = **412 B**（对比 v24dp 的 401 B，同量级）。
-- **判别命令**：
+  `datasize ≈ header(88) + identifier(16) + pages×32`.
+  A 35 KB file = 9 pages → 88+16+288 = 392 B CodeDirectory,
+  +12+8 SuperBlob header = **412 B** (against v24dp's 401 B, same order).
+- **Diagnostic command**:
   ```bash
   python3 -c "
   import struct
@@ -2276,79 +2339,87 @@ if ((st & 0x10100) == 0x10100 && idle &&
       if c==0x1d: cs=struct.unpack_from('<II',d,off+8)[1]
       if c==0x80000022: has_di=True
       off+=s
-  print('ncmds=%d cs=%s DYLD_INFO=%s  (正确: 9 / ~400 / False)' % (n,cs,has_di))"
+  print('ncmds=%d cs=%s DYLD_INFO=%s  (correct: 9 / ~400 / False)' % (n,cs,has_di))"
   ```
-- **教训**：
-  1. **"没有余量"时要问"哪个 load command 是多余的"**，而不是去求 linker 给更多空间
-     （`-headerpad` 对静态链接无效，P-100 已证）。
-  2. **`sizeofcmds` 是可写的元数据**，扩大它等于声明"这块区域都算 load commands"，
-     只要不覆盖第一个 section 的 offset 就安全（本例空隙 64 字节）。
-  3. 签名大小要和已知能跑的样本**比数量级**（408 vs 412 ✓，408 vs 19024 ✗）。
+- **Lessons**:
+  1. **When there is "no slack", ask "which load command is superfluous"**, rather
+     than asking the linker for more space
+     (`-headerpad` has no effect on static links, P-100 has already shown this).
+  2. **`sizeofcmds` is writable metadata**; growing it amounts to declaring "this
+     whole region counts as load commands", and it is safe as long as it does not
+     overwrite the offset of the first section (in this case the gap is 64 bytes).
+  3. Compare the signature size **by order of magnitude** against a sample known to
+     run (408 vs 412 ✓, 408 vs 19024 ✗).
 
-### P-112 内核启动路径不能创建新文件 —— 全部改到用户态 init
+### P-112 The kernel boot path cannot create new files — move all of it to userland init
 
-> **⚠️ 归因已作废，见 P-117**：真正死因是 `__TEXT` 跨页。
-> 内核侧写文件那几次的死机，是因为同时把 init 改动也带上了。
+> **⚠️ Attribution void, see P-117**: the real cause of death is `__TEXT` crossing
+> a page boundary.
+> The kernel-side file writes that crashed did so because they carried the init
+> changes at the same time.
 
-> **⚠️ 结论已被 P-114 修正**：真正的原因是「启动关键路径上的同步大 IO」，
-> 不只是「内核 vs 用户态」或「创建 vs 覆盖」。init 里写 124 B 安全，
-> 同一位置拷 51 MB 仍然死。
+> **⚠️ Conclusion corrected by P-114**: the real cause is "synchronous large IO on
+> the boot-critical path", not merely "kernel vs userland" or "create vs overwrite".
+> Writing 124 B in init is safe; copying 51 MB at the same location still dies.
 
-- **六次对照实验（2026-11-11，同一个 `native_owner_data_prepare` 位置）**：
-  | 版本 | 动作 | 结果 |
+- **Six controlled experiments (2026-11-11, all at the same `native_owner_data_prepare` location)**:
+  | version | action | result |
   |---|---|---|
-  | `115745` | 短路，**什么都不做** | ✅ 60fps / pid 234 |
-  | `121831` | 内核 mount md0 + 拷 51 MB | ❌ 日志 0 B |
-  | `122726` | 内核 mount md0 + 拷 124 B | ❌ 无日志 |
-  | `123506` | 内核内嵌 124 B + `vnode_open` 写 | ❌ 无日志 |
-  | `125436` | 内核 0340 同款风格写 124 B | ❌ 无日志 |
-  | **`130708`** | **init（用户态）`open`/`write` 124 B** | **✅ pid 276，写成功** |
-- **结论**：在 `native_owner_data_prepare` 里**创建任何新文件**都会让设备在
-  USB gadget 枚举前复位（日志 0 字节）。这与拷贝量无关（124 B 也死），
-  也与 mount 无关（不 mount、纯 `vnode_open` 也死）。
-- **为什么 0340 能写**：它写的是 `/private/var/pong/libpong-ui.dylib`，
-  这个 inode **早已存在**（早前部署过），所以是"覆盖"而不是"创建"。
-  **覆盖已有文件安全，创建新文件不安全。**
-- **正解：改在用户态 init 里做**
+  | `115745` | short-circuit, **do nothing at all** | ✅ 60fps / pid 234 |
+  | `121831` | kernel mount md0 + copy 51 MB | ❌ log 0 B |
+  | `122726` | kernel mount md0 + copy 124 B | ❌ no log |
+  | `123506` | kernel embeds 124 B + `vnode_open` write | ❌ no log |
+  | `125436` | kernel writes 124 B in the same style as 0340 | ❌ no log |
+  | **`130708`** | **init (userland) `open`/`write` 124 B** | **✅ pid 276, write succeeded** |
+- **Conclusion**: **creating any new file** inside `native_owner_data_prepare` makes
+  the device reset before USB gadget enumeration (0-byte log). This is independent
+  of the copy volume (124 B dies too), and independent of mount (no mount, pure
+  `vnode_open`, also dies).
+- **Why 0340 can write**: it writes `/private/var/pong/libpong-ui.dylib`,
+  and that inode **already existed** (deployed earlier), so it is an "overwrite",
+  not a "create".
+  **Overwriting an existing file is safe, creating a new file is not.**
+- **Correct answer: do it in userland init**
   ```c
-  /* init.c，Data 卷已挂载可写、APFS 已完成一次完整事务之后 */
+  /* init.c, after the Data volume is mounted writable and APFS has completed one full transaction */
   static void prepare_metal_bundle(void) {
       mount("msdos", "/private/var/pong/md0", MNT_RDONLY, "/dev/md0");
-      /* 逐个 open/read/write 到 /private/var/pong/PongAdrenoMetal.bundle/ */
+      /* open/read/write one by one into /private/var/pong/PongAdrenoMetal.bundle/ */
   }
   static void prepare_metal_seeds(void) {
-      /* 写 PongAdrenoMetal.publish / .clients */
+      /* write PongAdrenoMetal.publish / .clients */
   }
   ```
-  实测日志：
+  Measured log:
   ```
   K60SEED publish bytes=2 resid=0 error=0
   K60SEED clients bytes=122 resid=0 error=0
   Pong init: Metal seeds ready=2 failed=0
   ```
-- **调用位置**（`init-v24dp.c` main 里）：
+- **Call site** (in `init-v24dp.c` main):
   ```
   prepare_boot_services();
-  prepare_metal_bundle();     ← 51 MB 从 /dev/md0 拷过来
-  prepare_metal_seeds();      ← 124 B 种子
-  configure_ui_library();     ← 这时候 bundle 和种子都在了，才会注入 Metal
+  prepare_metal_bundle();     ← copy 51 MB out of /dev/md0
+  prepare_metal_seeds();      ← 124 B of seeds
+  configure_ui_library();     ← bundle and seeds are both present by now, so Metal gets injected
   ```
-- **教训（★20 / ★25 的加强版）**：
-  1. **内核启动路径 = 只读阶段**。任何"创建 inode"的操作（新建文件、挂载新文件系统）
-     都不安全；覆盖已有文件可以。
-  2. **同一个操作在内核侧做会死、在用户态做就正常** —— 不要因为内核 API 存在
-     就以为能在启动路径上用。
-  3. `mini.h` 只有 `strlen/strcmp/strncmp/strcpy/strchr/memcpy`，
-     **没有 `snprintf`/`strcat`/`sprintf`**，拼路径要自己写 `join_path`
-     （`strcpy` + `memcpy` 逐段拼）。
+- **Lessons (the strengthened version of ★20 / ★25)**:
+  1. **The kernel boot path = read-only phase**. Any operation that "creates an
+     inode" (new file, mounting a new filesystem) is unsafe; overwriting an
+     existing file is fine.
+  2. **The same operation dies on the kernel side and is fine in userland** — do
+     not assume an API is usable on the boot path just because the kernel API exists.
+  3. `mini.h` only has `strlen/strcmp/strncmp/strcpy/strchr/memcpy`,
+     **no `snprintf`/`strcat`/`sprintf`**; composing paths needs your own
+     `join_path` (`strcpy` + `memcpy` piece by piece).
 
-### P-113 `PongAdrenoMetal.bundle` 从未部署到设备，`bundle already present` 是误报
+### P-113 `PongAdrenoMetal.bundle` was never deployed to the device; `bundle already present` was a false report
 
-- **症状**：`boot-args` 有 `pong_metal=1`，种子文件写成功，
-  `PONG METAL: real IOAcceleratorES provider published` 也出现，
-  但 `configure_ui_library()` 只打印 `UI library configuration result=0`，
-  **没有** `native Metal entry enabled for backboardd`。
-- **真因**：`configure_ui_library()` 的条件是
+- **Symptom**: `boot-args` has `pong_metal=1`, the seed files were written
+  successfully, `PONG METAL: real IOAcceleratorES provider published` also appeared,
+  but `configure_ui_library()` only printed `UI library configuration result=0`,
+  with **no** `native Metal entry enabled for backboardd`.
+- **True cause**: the condition in `configure_ui_library()` is
   ```c
   if (strncmp(p,"pong_metal=1",12)==0 && ...) {
       if (stat("/private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal",&st)==0 &&
@@ -2357,97 +2428,110 @@ if ((st & 0x10100) == 0x10100 && idle &&
       }
   }
   ```
-  **bundle 二进制根本不在设备上**。之前的 0404 判据 `vnode_lookup(bundle/PongAdrenoMetal)`
-  返回成功是**误报**——那个路径可能匹配到了目录或不完整状态。
-- **判别**：
+  **The bundle binary is simply not on the device**. The earlier 0404 criterion
+  `vnode_lookup(bundle/PongAdrenoMetal)` returning success was a **false report** —
+  that path may have matched a directory or an incomplete state.
+- **Discriminator**:
   ```bash
-  grep -c 'K60METAL' <console.log>     # 0 = 部署代码已被删/没跑
-  grep -a 'Metal bundle copied' <console.log>   # 应有 "copied 4/4 member(s)"
-  grep -a 'native Metal entry enabled' <console.log>  # 最终判据
+  grep -c 'K60METAL' <console.log>     # 0 = the deploy code was removed / never ran
+  grep -a 'Metal bundle copied' <console.log>   # should show "copied 4/4 member(s)"
+  grep -a 'native Metal entry enabled' <console.log>  # the final criterion
   ```
-- **正解**：在 init 里从 `/dev/md0` 拷 4 个成员
-  （`Info.plist` / `PongAdrenoMetal` / `PongMetalBridge.dylib` /
-  `libvulkan_freedreno.dylib`，共 51,278,327 B）到 `/private/var/pong/PongAdrenoMetal.bundle/`。
-- **教训**：**`vnode_lookup()` 成功不等于"那个文件是我要的文件"**。
-  判据要检查 `st_mode & S_IFMT == S_IFREG`、`st_uid`、`st_size`，
-  最好再核对文件大小或内容。这又一次是 P-107 的同类问题（幂等判据检查错对象）。
+- **Correct answer**: in init copy the 4 members out of `/dev/md0`
+  (`Info.plist` / `PongAdrenoMetal` / `PongMetalBridge.dylib` /
+  `libvulkan_freedreno.dylib`, 51,278,327 B in total) into `/private/var/pong/PongAdrenoMetal.bundle/`.
+- **Lesson**: **`vnode_lookup()` succeeding does not mean "that file is the file I
+  want"**.
+  The criterion must check `st_mode & S_IFMT == S_IFREG`, `st_uid`, `st_size`,
+  and ideally verify the file size or contents as well. This is again the same class
+  of problem as P-107 (the idempotency criterion checked the wrong object).
 
-### P-114 init 启动路径上也怕「同步大 IO」
+### P-114 init's boot path fears "synchronous large IO" as well
 
-> **⚠️ 归因已作废，见 P-117**：真正死因是 `__TEXT` 从 1 页变 2 页。
-> 第 6/7 次对照里"只多 bundle 拷贝就死"是因为那次改动同样让 init 变大。
+> **⚠️ Attribution void, see P-117**: the real cause of death is `__TEXT` going from
+> 1 page to 2 pages.
+> In the 6th/7th comparison, "it dies from nothing but the extra bundle copy" is
+> because that change also made init bigger.
 
-- **七次对照（2026-11-11，逐步二分）**：
-  | # | 位置 | 动作 | 结果 |
+- **Seven comparisons (2026-11-11, bisecting step by step)**:
+  | # | location | action | result |
   |---|---|---|---|
-  | 1 | 内核 `native_owner_data_prepare` | 短路，什么都不做 | ✅ 60fps / pid 234 |
-  | 2 | 内核 | mount md0 + 拷 51 MB | ❌ 0 B |
-  | 3 | 内核 | mount md0 + 拷 124 B | ❌ 无日志 |
-  | 4 | 内核 | 内嵌 124 B + `vnode_open` 写 | ❌ 无日志 |
-  | 5 | 内核 | 0340 同款风格写 124 B | ❌ 无日志 |
-  | 6 | **init（用户态）** | **写 124 B 种子** | **✅ pid 276** |
-  | 7 | **init（用户态）** | **写 124 B 种子 + 拷 51 MB bundle** | **❌ 无日志** |
-- **结论修正**：
-  - P-112 说「内核启动路径不能创建新文件」——**对，但不完整**。
-  - **第 6/7 次证明：init 里写 124 B 完全安全，但同一位置拷 51 MB 就死。**
-  - 真正的判据是 **在这个阶段做同步大 IO（51 MB / 几十秒）会拖死启动**，
-    而不只是"内核 vs 用户态"或"创建 vs 覆盖"。
-- **为什么 51 MB 会死而 124 B 不会**：
-  init 在 `prepare_*` 阶段跑，此时 USB gadget 需要尽快枚举、
-  `exec launchd` 需要尽快发生。51 MB 分块拷贝（16-64 KiB/次，约 800-3200 次
-  read+write syscall + APFS 分配）把这段时间拉到几十秒，
-  硬件看门狗或启动超时在 USB 枚举前就复位了 —— 所以日志 0 字节。
-- **正解：把大文件部署挪出启动关键路径**
-  1. **init 只写小文件**（种子 124 B，实测安全）
-  2. **51 MB bundle 用 LaunchDaemon** 在 launchd 起来之后拷
-     （那时系统已完全就绪，几十秒不影响启动）
-  3. 或者 init 里 fork 一个后台子进程做拷贝，主流程立刻 exec launchd
-- **判别**：
+  | 1 | kernel `native_owner_data_prepare` | short-circuit, do nothing | ✅ 60fps / pid 234 |
+  | 2 | kernel | mount md0 + copy 51 MB | ❌ 0 B |
+  | 3 | kernel | mount md0 + copy 124 B | ❌ no log |
+  | 4 | kernel | embed 124 B + `vnode_open` write | ❌ no log |
+  | 5 | kernel | write 124 B in the same style as 0340 | ❌ no log |
+  | 6 | **init (userland)** | **write 124 B of seeds** | **✅ pid 276** |
+  | 7 | **init (userland)** | **write 124 B of seeds + copy 51 MB bundle** | **❌ no log** |
+- **Corrected conclusion**:
+  - P-112 said "the kernel boot path cannot create new files" — **true, but incomplete**.
+  - **Comparisons 6/7 prove: writing 124 B in init is completely safe, but copying
+    51 MB at the same place dies.**
+  - The real criterion is that **doing synchronous large IO at this stage
+    (51 MB / tens of seconds) drags the boot to death**, not merely "kernel vs
+    userland" or "create vs overwrite".
+- **Why 51 MB dies and 124 B does not**:
+  init runs in the `prepare_*` stage, at which point the USB gadget needs to
+  enumerate as fast as possible and `exec launchd` needs to happen as fast as
+  possible. A 51 MB chunked copy (16-64 KiB at a time, roughly 800-3200
+  read+write syscalls + APFS allocation) stretches that window to tens of seconds,
+  and the hardware watchdog or boot timeout resets before USB enumeration — hence
+  the 0-byte log.
+- **Correct answer: move large-file deployment off the boot-critical path**
+  1. **init writes only small files** (124 B of seeds, measured safe)
+  2. **The 51 MB bundle is copied by a LaunchDaemon** after launchd is up
+     (by then the system is fully ready, tens of seconds does not affect the boot)
+  3. Or init forks a background child process to do the copy and the main flow
+     execs launchd immediately
+- **Discriminator**:
   ```bash
-  ls -la evidence/usblog-<最新>/console.log   # 0 B / 不存在 = 启动超时
-  # 对比：同样代码只写 124 B 时有 116 KB 日志、pid 到 276
+  ls -la evidence/usblog-<latest>/console.log   # 0 B / missing = boot timeout
+  # compare: the same code writing only 124 B gives a 116 KB log, pid up to 276
   ```
-- **教训（★20 第 4/5 条的最终形式）**：
-  1. **启动关键路径 = 从 kernel init 到 `exec launchd` 之间。**
-     这段时间内禁止：创建新文件（内核侧）、同步拷大文件（任何侧）、
-     挂载新文件系统（内核侧）。
-  2. **小文件写入（<1 KB）是安全的**，可以作为"探针"验证路径是否通，
-     但不要把 51 MB 这种量级一起放进去 —— **量的差别会改变结论**。
-  3. **二分时要控制变量到"只改一个维度"**：第 6 次和第 7 次之间
-     只多了 bundle 拷贝，这一对直接锁定了原因。
+- **Lessons (the final form of ★20 items 4/5)**:
+  1. **Boot-critical path = from kernel init to `exec launchd`.**
+     Forbidden during that window: creating new files (kernel side), synchronously
+     copying large files (any side), mounting new filesystems (kernel side).
+  2. **Small file writes (<1 KB) are safe** and can serve as a "probe" to verify the
+     path works, but do not put a 51 MB order of magnitude in with them —
+     **a difference in quantity changes the conclusion**.
+  3. **When bisecting, control the variables down to "change one dimension only"**:
+     between comparison 6 and comparison 7 only the bundle copy was added, and that
+     pair pinned the cause directly.
 
-### P-115 `var.skel` 支持 `d`/`l`/`f` 三种行 —— 这是官方给 Data 卷预置文件的机制
+### P-115 `var.skel` supports three line kinds `d`/`l`/`f` — this is the official mechanism for presetting files on the Data volume
 
-- **我犯的错**：只读到 init 解析器的 `d`（目录）分支，就断言
-  「`var.skel` 只能建目录，放不了文件」，然后转去在运行时硬写文件，
-  白白做了 7 次死机实验。
-- **实际格式（`init-v24dp.c` `prepare_var()` 解析）**：
+- **The mistake I made**: I read only the `d` (directory) branch of the init parser
+  and asserted "`var.skel` can only create directories, it cannot hold files", then
+  switched to hard-writing files at runtime, wasting 7 crash experiments for nothing.
+- **The actual format (`init-v24dp.c` `prepare_var()` parsing)**:
   ```
-  d\t<mode八进制>\t<uid>\t<gid>\t<目标目录路径>
-  l\t<符号链接目标>\t<目标链接路径>
-  f\t<mode八进制>\t<uid>\t<gid>\t<目标文件路径>\t<源文件路径>
+  d\t<octal mode>\t<uid>\t<gid>\t<target directory path>
+  l\t<symlink target>\t<target link path>
+  f\t<octal mode>\t<uid>\t<gid>\t<target file path>\t<source file path>
   ```
-  代码：
+  Code:
   ```c
   if (count == 5 && field[0][0] == 'd') { mkdir + chmod + chown }
   else if (count == 3 && field[0][0] == 'l') { symlink(field[1], field[2]); }
   else if (count == 6 && field[0][0] == 'f') {
-      result = copy_new(field[5], field[4], mode, uid, gid);   /* 源 → 目标 */
+      result = copy_new(field[5], field[4], mode, uid, gid);   /* source → target */
   }
   ```
-- **`copy_new()` 的实现（`init-v24dp.c:44`）**：
+- **The implementation of `copy_new()` (`init-v24dp.c:44`)**:
   ```c
   static int copy_new(const char *source, const char *dest, int mode, int uid, int gid)
   {
-      char buf[4096];                                   /* 4 KiB 分块 */
+      char buf[4096];                                   /* 4 KiB chunks */
       out = open(dest, O_WRONLY | O_CREAT | O_EXCL, mode);
-      if (out < 0) { ... return errno == 17 ? 0 : -1; } /* 已存在 = 成功（幂等） */
-      while ((n = read(in, buf, sizeof(buf))) > 0) { write 循环 }
+      if (out < 0) { ... return errno == 17 ? 0 : -1; } /* already exists = success (idempotent) */
+      while ((n = read(in, buf, sizeof(buf))) > 0) { write loop }
       chmod(dest, mode); chown(dest, uid, gid);
   }
   ```
-  **`O_EXCL` + `errno==17 → return 0`** 意味着：文件已存在就当成功，不会覆盖用户数据。
-- **生成方（`userland/build.py:250 data_seed()`）**：
+  **`O_EXCL` + `errno==17 → return 0`** means: if the file already exists, treat it
+  as success and do not overwrite user data.
+- **The producer (`userland/build.py:250 data_seed()`)**:
   ```python
   for rel, (mode, uid, gid) in sorted(metadata.items()):
       path = '/private/var/' + rel
@@ -2457,73 +2541,87 @@ if ((st & 0x10100) == 0x10100 && idle &&
   if len(skeleton.encode()) >= 65536: raise RuntimeError('var.skel exceeds init buffer')
   (overlay / 'pong/etc/var.skel').write_text(skeleton)
   ```
-  同时 `shutil.copytree(data, seed)` 把内容放到 `overlay/pong/var-seed/`。
-- **关键约束**：`var.skel` 整体 **< 64 KiB**（`buf[65536]`），所以能列的条目有限。
-  目录可以列几千条，文件条数要克制（每条 ~100-200 字节）。
-- **判别**：
+  At the same time `shutil.copytree(data, seed)` puts the contents into
+  `overlay/pong/var-seed/`.
+- **Key constraint**: `var.skel` as a whole is **< 64 KiB** (`buf[65536]`), so the
+  number of entries it can list is limited.
+  Directories can be listed in the thousands; the number of files must be kept in
+  check (each entry is ~100-200 bytes).
+- **Discriminator**:
   ```bash
-  grep -c '^f	' <workspace>/deliverables/pong-varskel-*/pong/etc/var.skel   # 有几条 f 行
-  grep -c '^d	' 同文件    # 目录行
-  awk -F'\t' '$1=="f"' var.skel | head     # 看 f 行样例
+  grep -c '^f	' <workspace>/deliverables/pong-varskel-*/pong/etc/var.skel   # how many f lines
+  grep -c '^d	' same file    # directory lines
+  awk -F'\t' '$1=="f"' var.skel | head     # sample f lines
   ```
-- **教训（★23 强化）**：
-  1. **读一个解析器前，先把所有 `field[0][0] == '?'` 的分支都列出来。**
-     我只看到 `d` 就下结论，漏了 `l` 和 `f`。
-  2. **`build.py` 生成什么，init 就一定消费什么。** 生成侧写了
-     `f` 行 + `var-seed/`，消费侧必然有处理 —— 顺着这条线能直接找到机制。
-  3. **官方移植项目一定已经有"怎么把文件放进 Data 卷"的答案**，
-     而且是在**构建时**解决，不是在运行时。
+- **Lessons (★23 strengthened)**:
+  1. **Before reading a parser, list every `field[0][0] == '?'` branch.**
+     I saw only `d` and concluded, missing `l` and `f`.
+  2. **Whatever `build.py` generates, init must consume.** The producer writes
+     `f` lines + `var-seed/`, so the consumer necessarily handles them — follow that thread
+     and you find the mechanism directly.
+  3. **The official porting project certainly already has the answer to "how do I
+     get a file onto the Data volume"**, and it solves it **at build time**, not at
+     runtime.
 
-### P-116 七次死机实验全是白做 —— 因为没先读 `build.py` 的 `data_seed()`
+### P-116 Seven crash experiments were all wasted — because `build.py`'s `data_seed()` was not read first
 
-- **时间线**（2026-11-11，同一天）：
-  | 尝试 | 做法 | 结果 |
+- **Timeline** (2026-11-11, the same day):
+  | attempt | approach | result |
   |---|---|---|
-  | 1 | 内核 mount + 拷 51 MB | ❌ 0 B |
-  | 2 | 内核 mount + 拷 124 B | ❌ 无日志 |
-  | 3 | 内核内嵌 + `vnode_open` | ❌ 无日志 |
-  | 4 | 内核 0340 风格写 | ❌ 无日志 |
-  | 5 | **init 写 124 B** | ✅ pid 276 |
-  | 6 | init 写 124 B + 拷 51 MB | ❌ 无日志 |
-  | 7 | init 只 mount 探针 | （未测完）|
-- **用户三句话点破了整件事**：
-  > 「会不会根本就拷不了」
-  > 「之前不都是靠 twrp dd 写 unixnu 分区？」
-  > 「**其他仓库究竟是怎么解决写文件的？是一开始构建系统镜像就写了？**」
-- **答案**：`build.py:250 data_seed()` + `scripts/install-pong-ufs-data.py`
-  —— **Data 卷内容在构建时生成，离线 dd 装进 unixnu 分区。**
-  运行时根本不需要写 51 MB 文件。
-- **教训（这是 ★1「先整篇读，禁止先 grep」的最强案例）**：
-  1. **遇到"我要往某个卷放文件"，第一步是查这个项目的构建脚本怎么放**，
-     不是去写运行时拷贝代码。`grep -n 'data_seed\|var.seed\|userdata' userland/build.py`
-     一行就能找到答案，我却先去改了 7 次 C 代码。
-  2. **用户的领域直觉往往比我的实验更快**。「以前靠 dd」这句话直接指向
-     「官方的机制是离线预置」，值得立刻停下来查证。
-  3. **每次死机都是 2-3 分钟刷机 + 4 分钟构建**，7 次 ≈ 40 分钟；
-     而读 `build.py` 的 `data_seed()` 只花了 2 分钟。
-     **先读代码永远比先试快。**
+  | 1 | kernel mount + copy 51 MB | ❌ 0 B |
+  | 2 | kernel mount + copy 124 B | ❌ no log |
+  | 3 | kernel embed + `vnode_open` | ❌ no log |
+  | 4 | kernel write in 0340 style | ❌ no log |
+  | 5 | **init writes 124 B** | ✅ pid 276 |
+  | 6 | init writes 124 B + copy 51 MB | ❌ no log |
+  | 7 | init only mounts a probe | (not finished) |
+- **The user broke the whole thing open with three sentences**:
+  > "Could it be that it simply cannot be copied at all"
+  > "Didn't this all use twrp dd to write the unixnu partition before?"
+  > "**How do the other repositories solve writing files? Do they write it when the
+  > system image is built in the first place?**"
+- **Answer**: `build.py:250 data_seed()` + `scripts/install-pong-ufs-data.py`
+  — **the Data volume contents are generated at build time and installed offline
+  with dd into the unixnu partition.**
+  At runtime there is no need to write 51 MB files at all.
+- **Lessons (the strongest case of ★1 "read the whole thing first, grep is
+  forbidden first")**:
+  1. **When you hit "I want to put a file on volume X", the first step is to check
+     how this project's build scripts do it**, not to write runtime copy code.
+     `grep -n 'data_seed\|var.seed\|userdata' userland/build.py`
+     finds the answer in one line, yet I went and changed C code 7 times first.
+  2. **The user's domain intuition is often faster than my experiments**. "It used
+     to be dd" pointed straight at "the official mechanism is offline presetting",
+     and was worth stopping immediately to verify.
+  3. **Every crash is 2-3 minutes of flashing + 4 minutes of building**; 7 of them
+     ≈ 40 minutes.
+     Reading `build.py`'s `data_seed()` took 2 minutes.
+     **Reading the code first is always faster than trying first.**
 
-### P-117 ★★★ init 二进制 `__TEXT` 段超过 1 页（16,384 B）就开不了机
+### P-117 ★★★ an init binary whose `__TEXT` segment exceeds 1 page (16,384 B) cannot boot
 
-- **症状**：刷机后日志 **0 字节**、COM5 不枚举、设备自动复位。
-  从内核侧（`native_owner_data_prepare`）和 init 侧都出现过，一度误判为
-  "启动路径上 mount / 拷贝大文件"，为此做了 7 次死机实验（P-108/P-112/P-114）。
-- **真因（段布局实测）**：
+- **Symptom**: after flashing the log is **0 bytes**, COM5 does not enumerate, the
+  device resets itself.
+  It happened both from the kernel side (`native_owner_data_prepare`) and from the
+  init side, and for a while it was misdiagnosed as "mount / copying large files on
+  the boot path", which is why those 7 crash experiments were run (P-108/P-112/P-114).
+- **True cause (measured segment layout)**:
   ```
-  init 大小     __TEXT filesize   结果
-  34,880 B      16,384 (1 页)     ✅ 能跑（v10guard，60fps）
-  34,904 B      16,384 (1 页)     ✅ 能跑（v24dp 原始）
-  35,088 B      16,384 (1 页)     ✅ 能跑
-  35,500 B      16,384 (1 页)     ✅ 能跑（写种子，pid 276）
-  52,044 B      32,768 (2 页)     ❌ 死机（含 BUNDLE_FIXUP）
-  52,068 B      32,768 (2 页)     ❌ 死机（含 bundle copy）
-  53,728 B      —                 ❌ panic（MacOSX SDK / P-94）
+  init size     __TEXT filesize   result
+  34,880 B      16,384 (1 page)   ✅ runs (v10guard, 60fps)
+  34,904 B      16,384 (1 page)   ✅ runs (v24dp original)
+  35,088 B      16,384 (1 page)   ✅ runs
+  35,500 B      16,384 (1 page)   ✅ runs (writes seeds, pid 276)
+  52,044 B      32,768 (2 pages)  ❌ crash (with BUNDLE_FIXUP)
+  52,068 B      32,768 (2 pages)  ❌ crash (with bundle copy)
+  53,728 B      —                 ❌ panic (MacOSX SDK / P-94)
   ```
-  **判据不是文件大小，是 `__TEXT` 段的 `filesize` 是否仍在 1 页内。**
-  链接参数 `-Wl,-pagezero_size,0x100000000` + `-Wl,-e,_start` 下，
-  `__TEXT` 一旦跨到第 2 页，LOAD 命令的段映射就超出单页，
-  init 无法被正确 exec。
-- **判别命令（改 init 后必须跑）**：
+  **The criterion is not the file size, it is whether the `__TEXT` segment's
+  `filesize` is still within 1 page.**
+  With the link flags `-Wl,-pagezero_size,0x100000000` + `-Wl,-e,_start`, once
+  `__TEXT` crosses into the 2nd page the LOAD command's segment mapping exceeds a
+  single page and init cannot be exec'd correctly.
+- **Diagnostic command (must run after changing init)**:
   ```bash
   python3 - init <<'PY'
   import struct, sys
@@ -2540,114 +2638,134 @@ if ((st & 0x10100) == 0x10100 && idle &&
                     'OK' if seg != '__TEXT' or fs <= 16384 else '!! OVER 1 PAGE'))
       off += s
   PY
-  # 期望：__TEXT filesize=16384 且 OK
+  # expect: __TEXT filesize=16384 and OK
   ```
-- **`__TEXT` 里装了什么**（35,500 B 版实测占满）：
+- **What is inside `__TEXT`** (measured on the 35,500 B version, filled up):
   ```
-  __text              9,692 B   (代码)
-  __cstring           4,141 B   (字符串)
-  __const               337 B   (常量)
-  __entitlements        237 B   (签名用 plist)
+  __text              9,692 B   (code)
+  __cstring           4,141 B   (strings)
+  __const               337 B   (constants)
+  __entitlements        237 B   (plist for signing)
   ─────────────────────────
-  合计               14,407 B   + 头 1,344 B = 15,751 B（上限 16,384）
+  total              14,407 B   + header 1,344 B = 15,751 B (limit 16,384)
   ```
-  **可用余量只有 ~630 B。** 加任何有实质代码量的函数都会溢出。
-- **错误做法（我全做过）**：
-  1. 直接加函数 → `__TEXT` 溢出 → 死机，但以为是"mount 有毒"
-  2. 加 `probe_md0_mount` 想二分定位 → 又把 `__TEXT` 推过页 → 继续死机
-  3. 留下大量死代码（`prepare_metal_bundle`/`copy_one_file`/`join_path`/
-     `k60_metal_members[]`）不删 → 不调用的函数**仍然参与编译并占 `__TEXT`**
-  4. 把"文件大小"当指标 → 35.5 KB 恰好卡在边界，误以为还有余量
-- **正确做法**：
-  1. **每次改 init 后先查 `__TEXT filesize`**，不是看文件总大小
-  2. **加新功能前先删等量的死代码**（不调用的 static 函数也占 `__TEXT`）
-  3. 大常量数组（`static const char xxx[]`）会进 `__TEXT __const`，
-     要放 `__DATA` 得显式处理，或改成非 const 让编译器放 `__DATA`
-  4. 实在放不下时：**拆成多个 init 阶段**（`/private/var/pong/init2` 由 init 调用），
-     或把逻辑挪回内核侧（内核没有这个限制）
-- **教训**：
-  1. **"0 字节日志"这个症状被我归因错了 3 次**（P-108 说同步大 IO、
-     P-112 说内核不能建文件、P-114 说启动路径怕大 IO）。
-     真相是 **exec 阶段就失败，跟文件 I/O 完全无关**。
-  2. **改二进制后要看结构（段表），不要只看大小。**
-     `size()` 相同的两个文件，段布局可能一个能跑一个不能。
-  3. **死代码不是"无害"的**——它参与链接、占段空间、把 `__TEXT` 顶过页。
-     删代码和写代码一样是必要工作。
+  **The headroom is only ~630 B.** Adding any function with real code volume
+  overflows it.
+- **Wrong approaches (I did all of them)**:
+  1. Add a function directly → `__TEXT` overflows → crash, but assume "mount is
+     poisonous"
+  2. Add `probe_md0_mount` to bisect the location → pushes `__TEXT` past the page
+     again → keeps crashing
+  3. Leave a mass of dead code (`prepare_metal_bundle`/`copy_one_file`/`join_path`/
+     `k60_metal_members[]`) in place → functions that are never called **still get
+     compiled and still occupy `__TEXT`**
+  4. Use "file size" as the metric → 35.5 KB sits exactly on the boundary, so
+     assume there is headroom left
+- **Correct approach**:
+  1. **After every init change, check `__TEXT filesize`**, not the total file size
+  2. **Before adding new features, delete an equal amount of dead code** (static
+     functions that are never called still occupy `__TEXT`)
+  3. Large constant arrays (`static const char xxx[]`) go into `__TEXT __const`;
+     putting them in `__DATA` needs explicit handling, or dropping `const` so the
+     compiler puts them in `__DATA`
+  4. When it genuinely does not fit: **split into multiple init stages**
+     (`/private/var/pong/init2` called by init),
+     or move the logic back to the kernel side (the kernel has no such limit)
+- **Lessons**:
+  1. **I misattributed the "0-byte log" symptom 3 times** (P-108 blamed synchronous
+     large IO, P-112 blamed the kernel not being able to create files, P-114 blamed
+     the boot path fearing large IO).
+     The truth is **it fails at the exec stage, completely unrelated to file I/O**.
+  2. **After changing a binary, look at the structure (segment table), not just the
+     size.**
+     Two files with the same `size()` can have segment layouts where one runs and
+     the other does not.
+  3. **Dead code is not "harmless"** — it takes part in linking, occupies segment
+     space, and pushes `__TEXT` past the page.
+     Deleting code is as necessary a job as writing code.
 
-### P-118 ★★★ boot-args 缺 `debug=0x140` → 日志 0 字节，看起来像内核崩了
+### P-118 ★★★ boot-args missing `debug=0x140` → 0-byte log, looks like the kernel crashed
 
-- **症状**：刷机后日志 **0 字节**、COM5 不枚举、自动复位。
-  一整天（2026-11-11）出现了 **8 次**，我把它归因成
-  「init `__TEXT` 跨页」「内核写文件」「mount 有毒」「补丁集变化」——**全错**。
-- **真因（决定性实验）**：
+- **Symptom**: after flashing the log is **0 bytes**, COM5 does not enumerate,
+  automatic reset. Over one whole day (2026-11-11) this happened **8 times**, and I
+  blamed it on "init `__TEXT` crossing pages", "kernel writing files", "mount is toxic",
+  "patch set changed" — **all wrong**.
+- **Real cause (decisive experiment)**:
   ```
-  实验A: Nov9 的 args（含 debug=0x140 applog=1）+ 当前内核
-         → 193,113 B 日志，正常启动  ✅
-  当前:  当前 args（缺 debug=0x140 applog=1）
-         → 0 B                    ❌
+  Experiment A: Nov9 args (with debug=0x140 applog=1) + current kernel
+         → 193,113 B log, normal boot  ✅
+  Current:  current args (without debug=0x140 applog=1)
+         → 0 B                        ❌
   ```
-  **同一个内核，只换 args，一个能跑一个死。**
-- **为什么会这样**：`k60_usblog` 的日志通道依赖 XNU 的 debug 输出基础设施。
-  `debug=0x140` 打开早期 debug 输出（`DB_KPRT`/`DB_LOG` 之类），
-  `applog=1` 让应用日志进同一通道。缺了它们，
-  `k60_usblog` 虽然把 USB gadget 配起来了，但**没有任何东西写进 ring**，
-  于是主机侧看到的就是"0 字节"。
-  **它不是死了，而是不吭声。**
-- **两个 args 的来源**：`docs/` 里多处提到"黄金 28 项"，但
-  `packv15.sh` 为了压进 600 字符的预算（HR-45），
-  在某次精简时把 `debug=0x140` 和 `applog=1` 删掉了（P-98 的"低风险可删"清单里
-  也不该有它们）。此后所有构建都是"哑巴内核"。
-- **判别（30 秒）**：
+  **Same kernel, only the args swapped, one runs and one dies.**
+- **Why it behaves like this**: `k60_usblog`'s log channel depends on XNU's debug
+  output infrastructure. `debug=0x140` turns on early debug output (`DB_KPRT`/`DB_LOG`
+  and the like), `applog=1` lets application logs into the same channel. Without them,
+  `k60_usblog` still brings the USB gadget up, but **nothing is written into the ring**,
+  so what the host side sees is "0 bytes".
+  **It is not dead, it is silent.**
+- **Where the two args came from**: `docs/` mentions the "golden 28 items" in several
+  places, but `packv15.sh`, to squeeze into the 600-character budget (HR-45),
+  deleted `debug=0x140` and `applog=1` during one of the trims (they should not have
+  been on P-98's "low risk, deletable" list either). Every build after that was a mute
+  kernel.
+- **Check (30 seconds)**:
   ```bash
-  # 从设备镜像里提取 args
+  # extract args from the device image
   mcopy -n -i <payload.img> ::/EFI/UniXNU/unixnu.toml /tmp/x.toml
   grep -o 'args = "[^"]*"' /tmp/x.toml | grep -c 'debug=0x140'
-  # 0 => 必然会看到 0 字节日志，不管内核/init 是什么
+  # 0 => you will certainly see a 0-byte log, no matter what the kernel/init is
   ```
-- **正确 args 基线（至少不能少这几个）**：
+- **Correct args baseline (at minimum these must not be missing)**:
   ```
   debug=0x140 applog=1 k60_console_export=1 k60_usblog=2 epoch=1793709100
   ```
-- **教训（这是本项目最贵的一课）**：
-  1. **"0 字节日志"的第一嫌疑永远是"日志没开"，不是"内核崩了"。**
-     我在它上面浪费了一整天，改了 init 二进制、内核补丁、mount、拷贝逻辑。
-  2. **压 boot-args 预算时，绝对不能删 debug/applog/console 这三类**——
-     它们不改变功能，但决定你能不能看见发生什么。
-     P-98 的"低风险可删"清单里混进了 debug=0x140，这是个错误，已修正。
-  3. **每次怀疑"代码坏了"之前，先把 args 和上一次能跑的镜像 diff 一遍。**
-     一行 `diff` 能省掉 8 次刷机。
+- **Lesson (the most expensive one in this project)**:
+  1. **The first suspect for a "0-byte log" is always "logging is off", never "the
+     kernel crashed".** I wasted a whole day on it, changing the init binary, kernel
+     patches, mount, copy logic.
+  2. **When cutting the boot-args budget, never delete the debug/applog/console
+     three** — they do not change functionality, but they decide whether you can see
+     what happens. P-98's "low risk, deletable" list had `debug=0x140` mixed into it;
+     that was a mistake, now corrected.
+  3. **Before suspecting "the code broke", diff the args against the last image that
+     ran.** One line of `diff` saves 8 flashes.
 
-### P-119 ★★ APFS 从 Mac 写入的文件在设备上 uid=99，不是 0
+### P-119 ★★ Files written to APFS from a Mac read back as uid=99 on the device, not 0
 
-- **症状**：bundle 明明在设备上（`stat()` 成功），但 `configure_ui_library()`
-  的 `st_uid == 0` 检查失败，`native Metal entry enabled` 永不出现，
-  dock 模糊一直缺失。
-- **真因**：文件经 Mac `hdiutil attach` 写进 APFS，owner 记的是 Mac 账号。
-  设备侧读出来是 **uid=99 = `_unknown`**（该 uid 在 iOS 上没有对应账号）。
-- **判别（一次启动）**：
+- **Symptom**: the bundle is plainly on the device (`stat()` succeeds), but
+  `configure_ui_library()`'s `st_uid == 0` check fails, `native Metal entry enabled`
+  never appears, and the dock blur stays missing.
+- **Real cause**: the file was written into APFS through Mac `hdiutil attach`, so the
+  recorded owner is the Mac account. On the device it reads back as
+  **uid=99 = `_unknown`** (that uid has no matching account on iOS).
+- **Check (one boot)**:
   ```c
   stat(path, &st);
   printf("uid=%u gid=%u mode=%o\n", st.st_uid, st.st_gid, st.st_mode & 07777);
-  // uid=99 => 就是这个坑
+  // uid=99 => this is the pitfall
   ```
-- **修复**：`chown(path, 0, 0)` + `chmod(path, 0755)`。
-  **纯 inode 元数据操作，不分配数据块**，和 P-114 说的"大 IO"完全无关。
-  必须对**目录 + 每个成员**都做（只 chown 目录不够）。
-- **教训**：
-  1. **"文件不在设备上"和"文件在但属主不对"是两件事。**
-     我曾据此判定"bundle 从未部署"（P-113），是错的——`Metal seeds ready=2`
-     早就证明 `stat()` 成功了，我没读懂自己写的日志。
-  2. **探针必须打印 chown 前后 + errno**。只打印"之前"的值，
-     分不清"chown 成功"和"chown 失败"——这次就是靠后置值才确认成功。
-  3. **mini libc 不支持 `%#o`**，会打出字面 `%#o`。用 `%o`。
+- **Fix**: `chown(path, 0, 0)` + `chmod(path, 0755)`.
+  **Pure inode metadata operations, no data blocks allocated**, completely unrelated to
+  the "large IO" of P-114. It must be done for **the directory + every member**
+  (chowning the directory alone is not enough).
+- **Lessons**:
+  1. **"The file is not on the device" and "the file is there but the owner is wrong"
+     are two different things.** I once concluded from this that the bundle had "never
+     been deployed" (P-113), which was wrong — `Metal seeds ready=2` had already proven
+     `stat()` succeeded, I just did not read the log I wrote myself.
+  2. **The probe must print the before and after of chown plus errno.** Printing only
+     the "before" value cannot tell "chown succeeded" from "chown failed" — this time
+     only the post value confirmed success.
+  3. **mini libc does not support `%#o`**, it prints the literal `%#o`. Use `%o`.
 
-### P-120 ★★★ 注入 PongAdrenoMetal 插件后 backboardd 崩溃，屏幕永远停在刷码
+### P-120 ★★★ Injecting the PongAdrenoMetal plugin crashes backboardd, the screen stays on the scrolling text forever
 
-- **症状**：`native Metal entry enabled for backboardd` 打印出来了，
-  但屏幕一直滚内核日志、dock 模糊不出现、最大 pid 只有 26。
-- **真因（历史对比，无可辩驳）**：
+- **Symptom**: `native Metal entry enabled for backboardd` printed, but the screen keeps
+  scrolling kernel logs, the dock blur never appears, and the largest pid is only 26.
+- **Real cause (historical comparison, indisputable)**:
   ```
-  日志                  metalEntry  backboardd崩溃  maxpid
+  log                   metalEntry  backboardd crash  maxpid
   usblog-...-172509         1           13          26
   usblog-...-170258         1           10          26
   usblog-...-163626         0            0         179
@@ -2655,554 +2773,623 @@ if ((st & 0x10100) == 0x10100 && idle &&
   usblog-...-152553         0            0         183
   usblog-...-130708         0            0         182
   ```
-  `metalEntry=1` → backboardd 崩 → 合成器死 → 内核 verbose 输出继续刷屏 → 永远看不到 UI。
-- **崩溃点**：
+  `metalEntry=1` → backboardd crashes → the compositor dies → verbose kernel output
+  keeps flooding the screen → the UI is never visible.
+- **Crash point**:
   ```
   backboardd[55] *** Terminating app due to uncaught exception
     'NSInvalidArgumentException', reason:
     '*** -[NSURL initFileURLWithPath:]: nil string parameter'
   Process[55] crashed: backboardd. Too many corpses being created.
   ```
-- **关键判别：插件自己的日志一条都没有**
+- **Key check: not one log line from the plugin itself**
   ```c
   static void report(const char *phase,int status)
   { snprintf(line,...,"Pong Metal: %s status=0x%x\n",...); write(2,line,...); }
   ```
-  日志里 `Pong Metal` 匹配数 = **0**。
-  而 `pong_gpu_scanout=0` 会让 `pongscanout::start()` 的第一句就调用
-  `report("GPU scanout disabled by boot policy; CPU display active",0)`，
-  连这条都没出现 ⇒ **插件代码从未执行** ⇒ 崩在 dyld 加载 / 初始化阶段，
-  不在 `openDevice`/`startPresentation`/`pongscanout` 的业务逻辑里。
-- **注入机制（init-v24dp.c:579-580）**：
+  `Pong Metal` matches in the log = **0**.
+  And `pong_gpu_scanout=0` would make the first statement of `pongscanout::start()`
+  call `report("GPU scanout disabled by boot policy; CPU display active",0)`;
+  not even that line showed up ⇒ **the plugin code never executed** ⇒ it crashed in
+  dyld loading / initialisation, not in the `openDevice`/`startPresentation`/
+  `pongscanout` business logic.
+- **Injection mechanism (init-v24dp.c:579-580)**:
   ```c
   base  = "/private/var/pong/libpong-ui.dylib SpringBoard backboardd ...";
   metal = "; /private/var/pong/PongAdrenoMetal.bundle/PongAdrenoMetal backboardd";
   if(strncmp(p,"pong_metal=1",12)==0 && ...) { ... }
   sysctlbyname("kern.exec_inject",NULL,NULL,conf,strlen(conf)+1);
   ```
-  走 `kern.exec_inject` → 内核把这些路径塞进目标进程的 `DYLD_INSERT_LIBRARIES`。
-- **已排除**：`pong_gpu_scanout=0` 无效（仍崩 10-12 次）。
-- **零重建开关（关键技巧）**：init 的判据是**精确匹配 `pong_metal=1`**。
-  把 boot-args 改成 `pong_metal=2`：
-  - `strncmp("pong_metal=2","pong_metal=1",12) != 0` → 不注入 → backboardd 存活
-  - 内核补丁里**完全没有 `pong_metal` 这个字符串**（已 grep 确认），
-    所以内核 Metal publication 不受影响
-  - 实测：backboardd 崩溃 0 次，maxpid 191 ✅
-- **待查**：设备上的二进制与本地源码编译产物**不是同一套**：
+  It goes through `kern.exec_inject` → the kernel stuffs those paths into the target
+  process's `DYLD_INSERT_LIBRARIES`.
+- **Ruled out**: `pong_gpu_scanout=0` makes no difference (still crashes 10-12 times).
+- **Zero-rebuild switch (key trick)**: init's criterion is an **exact match on
+  `pong_metal=1`**. Change boot-args to `pong_metal=2`:
+  - `strncmp("pong_metal=2","pong_metal=1",12) != 0` → no injection → backboardd survives
+  - the kernel patch contains **no `pong_metal` string at all** (confirmed by grep),
+    so the kernel Metal publication is unaffected
+  - measured: backboardd crashes 0 times, maxpid 191 ✅
+- **To investigate**: the binaries on the device and the locally compiled artefacts
+  **are not the same set**:
   ```
-  本地 PongAdrenoMetal          94,896 B  签名 18,880 B
-  设备 PongAdrenoMetal          91,648 B
-  本地 PongMetalBridge.dylib    33,146,048 B
-  设备 PongMetalBridge.dylib    23,536,464 B
+  local  PongAdrenoMetal          94,896 B  signature 18,880 B
+  device PongAdrenoMetal          91,648 B
+  local  PongMetalBridge.dylib    33,146,048 B
+  device PongMetalBridge.dylib    23,536,464 B
   ```
-  设备那套被改过。要真正修 Metal，需要把本地这套正确 bundle
-  部署上去（走 `OPS-DATA-REBUILD.md` 的 24 GB dd 流程）。
-- **教训**：
-  1. **"打印出成功日志"不等于"功能生效"。** `native Metal entry enabled` 只是
-     init 通过了 stat 检查，插件是否真能在进程里活下来是另一回事。
-  2. **判断崩溃阶段的一个可靠办法：让目标代码的第一句必打印。**
-     如果第一句都没出现，就不用查它的业务逻辑，直接怀疑加载期。
-  3. **改 boot-args 的匹配值可以当开关用**，只要内核侧用的是
-     `PE_parse_boot_argn`（取值）而 init 侧是 `strncmp`（比字符串）。
-     两者语义不同，可以借此单独关掉用户态注入而保留内核功能。
+  The device set has been modified. Actually fixing Metal needs this local, correct
+  bundle deployed (through the 24 GB dd flow in `OPS-DATA-REBUILD.md`).
+- **Lessons**:
+  1. **"A success log printed" is not "the feature works".** `native Metal entry enabled`
+     only means init passed the stat check; whether the plugin can actually survive in
+     the process is a separate question.
+  2. **A reliable way to locate the crash stage: make the first statement of the target
+     code print unconditionally.** If not even the first statement appears, stop
+     looking at its business logic and suspect the load stage directly.
+  3. **Changing the match value in boot-args works as a switch**, as long as the kernel
+     side uses `PE_parse_boot_argn` (takes the value) while the init side uses
+     `strncmp` (compares the string). The two have different semantics, which lets you
+     turn off userland injection while keeping the kernel feature.
 
-### P-121 ★★★ goodix misc 结构是 packed，自然对齐偏移全错
+### P-121 ★★★ The goodix misc struct is packed, so the natural-alignment offsets are all wrong
 
-- **症状**：config 下载"成功"（`wrote=1488/1488 bad=0`）但触摸无报告；
-  `frame_data` 解出 `0x30084`（一个从不变化的静态块）。
-- **真因**：`goodix_ts_core.h:185 goodix_ic_info_misc` 是 u32/u16 交替的字段表，
-  但 `goodix_ts_core.h:121` 有 `#pragma pack(1)`，且
-  `goodix_brl_hw.c:780` 用 `memcpy` 把 IC_INFO blob **原样**拷进结构体 ——
-  **线序是 packed，不是自然对齐**。
-- **正确偏移 vs 错误偏移**（用芯片自己的 dump 反解）：
+- **Symptom**: config download "succeeds" (`wrote=1488/1488 bad=0`) but there are no
+  touch reports; `frame_data` decodes to `0x30084` (a static block that never changes).
+- **Real cause**: `goodix_ts_core.h:185 goodix_ic_info_misc` is a field table of
+  alternating u32/u16, but `goodix_ts_core.h:121` has `#pragma pack(1)`, and
+  `goodix_brl_hw.c:780` uses `memcpy` to copy the IC_INFO blob **verbatim** into the
+  struct — **the wire layout is packed, not naturally aligned**.
+- **Correct offsets vs wrong offsets** (back-solved from the chip's own dump):
   ```
-  字段                 自然对齐   packed   值
+  field                 natural   packed   value
   cmd_addr             +0        +0      0x10174
   cmd_reply_addr       +8        +6      0x10184
   fw_state_addr        +16       +12     0x10218
-  fw_buffer_addr       +24       +18     0x1205c   ← config 必须写这里
-  frame_data_addr      +32       +24     0x10400   ← 只读帧区
-  touch_data_addr      +56       +44     0x10308   ← 报告区
+  fw_buffer_addr       +24       +18     0x1205c   ← config must be written here
+  frame_data_addr      +32       +24     0x10400   ← read-only frame area
+  touch_data_addr      +56       +44     0x10308   ← report area
   touch_data_head_len  +60       +48     8
   point_struct_len     +62       +50     8
   ```
-  **交叉验证**：`head=8`、`point=8` 独立命中 `goodix_brl_hw.c:994-995` 的
-  `IRQ_EVENT_HEAD_LEN` 和 `BYTES_PER_POINT`。两个宏同时对上 ⇒ 偏移链正确。
-- **最坏的失败模式**：旧代码把 1488 字节 config 写进 `0x10400`（帧区），
-  回读 `bad=0`，因为那是普通 RAM —— **静默成功**。
-  官方 `goodix_brl_hw.c:519-520` 里唯一的 config 写目标就是 `fw_buffer_addr`。
-- **修复后日志**（已实测）：
+  **Cross-check**: `head=8`, `point=8` independently hit `IRQ_EVENT_HEAD_LEN` and
+  `BYTES_PER_POINT` at `goodix_brl_hw.c:994-995`. Two macros matching at once ⇒ the
+  offset chain is right.
+- **Worst failure mode**: the old code wrote the 1488-byte config into `0x10400` (the
+  frame area) and read back `bad=0`, because that is ordinary RAM — **silent success**.
+  In the official `goodix_brl_hw.c:519-520` the only config write target is
+  `fw_buffer_addr`.
+- **Log after the fix** (measured):
   ```
   goodix: MISC packed fwstate=0x10218 fwbuf=0x1205c/4200 frame=0x10400 touch=0x10308
   goodix: MISC reply=0x10184 head=8 point=8
   goodix: CFG-DL start, 1488 bytes -> fwbuf 0x1205c (max 4200)
   goodix: CFG-DL wrote=1488/1488 bad=0 -> DATA-OK
   ```
-- **教训**：
-  1. **固件结构体一律先怀疑 packed。** `#pragma pack(1)` 在 Apple/Qualcomm
-     的 IC 描述里非常常见。
-  2. **"写入回读一致"不能证明写对了地方。** 必须对照官方驱动里的写目标。
-  3. **找两个独立的已知常量做交叉验证**（本例的 8/8），
-     比盯着一个地址反复试可靠得多。
+- **Lessons**:
+  1. **Always suspect packed first on firmware structs.** `#pragma pack(1)` is very
+     common in Apple/Qualcomm IC descriptions.
+  2. **"Write and read back match" does not prove you wrote to the right place.** You
+     must compare against the write target in the official driver.
+  3. **Cross-check with two independent known constants** (the 8/8 here) is far more
+     reliable than staring at one address and retrying.
 
-### P-122 ★★★ 芯片确实在扫描（INT 会变低），别再把"读不到报告"当成"芯片没工作"
+### P-122 ★★★ The chip really is scanning (INT does go low), stop treating "no reports" as "the chip is not working"
 
-- **我犯过的错**（2026-11-11，两次）：
-  1. 看到 22 次心跳全是 `int=1`，就断言"芯片停在 ROM 不扫描，必须烧固件"。
-  2. 更早还断言过"`reports=0` 是因为没人摸屏幕"。
-  两个结论都不完整。
-- **真相**：完整抓包（`usblog-20261111-181651`，216,921 B）统计：
+- **Mistakes I made** (2026-11-11, twice):
+  1. Seeing 22 heartbeats all with `int=1`, I declared "the chip is stuck in ROM not
+     scanning, the firmware must be flashed".
+  2. Earlier I had also declared "`reports=0` is because nobody touched the screen".
+  Both conclusions were incomplete.
+- **The truth**: full capture (`usblog-20261111-181651`, 216,921 B) counts:
   ```
   int=1 reports=0  x21
-  int=0 reports=0   x2      ← INT 真的变低了
+  int=0 reports=0   x2      ← INT really does go low
   ```
-  `int=0` 只可能来自真实触摸（INT 是 active-low，只有芯片有事件才拉低）。
-  **扫描引擎是活的，芯片在工作。**
-- **新的矛盾**：INT 来了，但 `reports` 仍然是 0。
-  因为 `goodix_poll()` 的第一道判断是
+  `int=0` can only come from a real touch (INT is active-low, the chip pulls it low
+  only when it has an event).
+  **The scan engine is alive, the chip is working.**
+- **The new contradiction**: INT arrives, but `reports` is still 0.
+  Because the first check in `goodix_poll()` is
   `if (!goodix_read(touch_address, report, first) || report[0] == 0) return;`
-  —— `report[0] == 0` 就直接返回，不计数。
-- **`touch_address` 的值是可疑的**：
+  — `report[0] == 0` returns immediately, no count.
+- **The value of `touch_address` is suspicious**:
   ```
-  0x10308 每次读出来都是同一串 8 字节，只有末字节跨启动会变：
-    00 94 b7 56 4b b4 ce ba   (某次启动)
-    00 94 b7 56 4b b4 ce bc   (下一次)
-    00 94 b7 56 4b b4 ce be   (再一次)
+  0x10308 returns the same 8 bytes every time, only the last byte changes across boots:
+    00 94 b7 56 4b b4 ce ba   (one boot)
+    00 94 b7 56 4b b4 ce bc   (next)
+    00 94 b7 56 4b b4 ce be   (again)
   ```
-  末字节每次 +2 ⇒ **这是计数器/时间戳，不是报告区**。
-  所以 `misc.touch_data_addr = 0x10308` 这个 packed 解码结论，
-  虽然 `head=8`/`point=8` 两个长度字段对得上，**报告区仍然找错了**。
-- **正确的下一步（不再猜偏移）**：
-  做一个**触摸差分扫描**——周期性采样一段地址窗口，
-  只打印"值发生变化的地址"。空闲时的后台更新和手指触摸会命中不同的字节，
-  报告区会自己暴露出来。候选窗口：
+  The last byte is +2 each time ⇒ **this is a counter/timestamp, not the report area**.
+  So the packed-decode conclusion `misc.touch_data_addr = 0x10308`, even though the two
+  length fields `head=8`/`point=8` do line up, **still has the report area wrong**.
+- **The correct next step (stop guessing offsets)**:
+  Do a **touch differential scan** — sample an address window periodically and print
+  only "the addresses whose value changed". Idle background updates and a finger touch
+  will hit different bytes, and the report area will expose itself. Candidate windows:
   ```
   0x10000 + k*0x10   (k=0..15)
   0x10200 + k*0x10
   0x10400 + k*0x10
   0x30000 + k*0x10
   ```
-- **教训**：
-  1. **心跳打印里的 `reports` 是"成功解析的报告数"，不是"芯片是否工作"。**
-     判断芯片是否工作要看 **INT 电平变化**，这两个是完全独立的信号。
-  2. **只看一部分日志就下结论是这次最大的时间浪费。**
-     第一次我看的日志只到 13 次心跳（全是 int=1），
-     完整日志有 23 次心跳，其中 2 次 int=0。
-     **看日志必须看完整文件，不能截断**（★1 的又一次违例）。
-  3. **"末字节每次启动 +2"这种规律是重要线索**：
-     它说明那块内存被固件当作计数器在写，肯定不是报告区。
-     找报告区时要找"随触摸变化"的地址，而不是"随启动变化"的地址。
+- **Lessons**:
+  1. **`reports` in the heartbeat print is "number of reports successfully parsed",
+     not "whether the chip works".** Whether the chip works is decided by **INT level
+     changes**; these are two completely independent signals.
+  2. **Concluding from part of the log was the biggest time waste this time.**
+     The first log I looked at only went to 13 heartbeats (all int=1);
+     the full log has 23 heartbeats, 2 of them int=0.
+     **When reading a log you must read the whole file, never truncate** (another ★1
+     violation).
+  3. **A pattern like "last byte +2 each boot" is an important clue**:
+     it says the firmware is writing that memory as a counter, so it is definitely not
+     the report area. When hunting the report area, look for an address that changes
+     **with touch**, not one that changes **with boot**.
 
-### P-123 ★★★ 触摸的三个真根因（官方状态机提取，2026-11-11 晚）
+### P-123 ★★★ The three real root causes of touch (extracted from the official state machine, 2026-11-11 evening)
 
-经过一整天的错误假设（地址、偏移、固件、INT 极性、config 目标、minimal 模式），
-最终从官方 Linux 驱动逐行提取状态机，定位到三个真实缺陷。
+After a whole day of wrong hypotheses (address, offsets, firmware, INT polarity, config
+target, minimal mode), the state machine was finally extracted line by line from the
+official Linux driver, and it located three real defects.
 
-#### 根因 1：CFG-RESET 把刚写进 RAM 的 config 作废
+#### Root cause 1: CFG-RESET discards the config just written into RAM
 
-官方 `goodix_send_ic_config()`（`goodix_ts_core.c:2088`）调用
-`brl_send_config()`（`goodix_brl_hw.c:493`）之后**只做一件事**：
+The official `goodix_send_ic_config()` (`goodix_ts_core.c:2088`) calls
+`brl_send_config()` (`goodix_brl_hw.c:493`) and then **does exactly one thing**:
 ```
 goodix_brl_hw.c:553-559
     msleep(100);
     return 0;
 ```
-**没有 reset、没有 work-mode 命令、没有 COORD-MODE 切换。**
+**No reset, no work-mode command, no COORD-MODE switch.**
 
-我们的 `patch:4438-4455` 在 config 下载后做了一次硬复位
-（`gpio_set(PIN_RESET,false); sleep_ms(2); gpio_set(PIN_RESET,true); sleep_ms(100);`），
-外加重新做 `0xc900` SPI 握手。这段是从
-`goodix_update_finish()`（`goodix_brl_fwupdate.c:924`）搬过来的——
-那是**烧 flash 固件**路径的收尾，`brl_send_config()` 根本不经过它。
+Our `patch:4438-4455` does a hard reset after the config download
+(`gpio_set(PIN_RESET,false); sleep_ms(2); gpio_set(PIN_RESET,true); sleep_ms(100);`),
+plus a fresh `0xc900` SPI handshake. That block was copied from
+`goodix_update_finish()` (`goodix_brl_fwupdate.c:924`) —
+which is the tail of the **flash firmware** path; `brl_send_config()` never goes
+through it.
 
-而 config 写入的目标 `fw_buffer_addr = 0x1205c` 是 **RAM**
-（`goodix_brl_hw.c:520`）。硬复位后 RAM 内容丢失，
-**1488 字节 config 等于没写**。
+And the config write target `fw_buffer_addr = 0x1205c` is **RAM**
+(`goodix_brl_hw.c:520`). After a hard reset the RAM contents are gone,
+**so the 1488-byte config was never written**.
 
-#### 根因 2：启动即进 rawdata，且 minimal 模式只进不出
+#### Root cause 2: it enters rawdata at boot, and minimal mode only ever goes in
 
-`0x90/0x81` 是"读 rawdata"命令。官方只在**容值测试**里用它
-（`goodix_brl_hw.c:1313`），而且 `exit:` 标签**无条件**补发 `0x90/0x00` 退出
-（`goodix_brl_hw.c:1348-1351`）。
+`0x90/0x81` is the "read rawdata" command. The official driver only uses it in the
+**capacitance test** (`goodix_brl_hw.c:1313`), and the `exit:` label **unconditionally**
+sends `0x90/0x00` to leave (`goodix_brl_hw.c:1348-1351`).
 
-我们的实现：`patch:4100-4152` 在启动时无条件发送 `0x90/0x81`（不可关闭），
-而退出命令 `0x90/0x00` 被放在 `!k60_touch_minimal` 守卫内（`patch:4487`）。
-结果：**每次 minimal 启动都进了 rawdata 且再也没出来**，
-扫描引擎永远看不到正常帧。
+Our implementation: `patch:4100-4152` unconditionally sends `0x90/0x81` at boot
+(cannot be disabled), while the exit command `0x90/0x00` sits inside a
+`!k60_touch_minimal` guard (`patch:4487`).
+Result: **every minimal boot entered rawdata and never came out**,
+so the scan engine never sees a normal frame.
 
-#### 根因 3：只查 ack，不查 state
+#### Root cause 3: only ack is checked, not state
 
-官方 `wait_cmd_status()`（`goodix_brl_hw.c:448,461,466`）读的是
-`cmd_ack.state == 0x80`，并在 START / WRITE / EXIT 之后各等一次，最长 400 ms。
+The official `wait_cmd_status()` (`goodix_brl_hw.c:448,461,466`) reads
+`cmd_ack.state == 0x80`, and waits once after START / WRITE / EXIT each, up to 400 ms.
 
-我们的 5 处判据（`patch:4144/4189/4397/4410/4500`）全部是 `ack[1] == 0x80`。
-日志里那句 `OK-config-applied` 是 `patch:4411` **自己写的字符串**，
-它只证明 ack 字节是 0x80，**不证明 config 已被芯片应用**。
+Our five checks (`patch:4144/4189/4397/4410/4500`) are all `ack[1] == 0x80`.
+The `OK-config-applied` line in the log is a string **we wrote ourselves** at
+`patch:4411`; it only proves the ack byte is 0x80, **not that the chip applied the
+config**.
 
-### 同时被推翻的假设（不要再试）
+### Hypotheses also refuted (do not retry)
 
-| 假设 | 为什么错 |
+| Hypothesis | Why it is wrong |
 |---|---|
-| 「必须下发 config 才扫描」 | 主线驱动 `goodix_berlin_core.c:728-805` 整个 probe 零命令、零 config 即可工作 |
-| 「INT 电平是报告判据」 | 真判据是 `0x10308` 首字节（`goodix_brl_hw.c:1188`）。三个 minimal 运行里 INT 出现 0/1/2 次，reports 全是 0 |
-| 「`k60_touch_minimal=1` 跳过全部命令」 | 守卫只包了 4 处（`patch:2866/2888/4345/4487`），`CMD-FIX 0x90/0x81` 和 `CFG-START` 都在守卫外 |
-| 「`0xC900` 需要写」 | 那是 **Berlin-A 专属**寄存器，`goodix_brl_hw.c:19-21,59-61` 在 Berlin-D 上直接 return |
-| 「config 内容错了」 | 本地 bin 解析后 head=121、body=139、长 1488，`fw_pid=9916R`、`fw_vid=05 80 02 63`、`cfg_id=0x640fdf7d`、校验和 0x08d3 全部自校验通过 |
+| "config must be sent before it scans" | the mainline driver `goodix_berlin_core.c:728-805` works through the whole probe with zero commands and zero config |
+| "INT level is the report criterion" | the real criterion is the first byte of `0x10308` (`goodix_brl_hw.c:1188`). In the three minimal runs INT appeared 0/1/2 times, reports were all 0 |
+| "`k60_touch_minimal=1` skips every command" | the guard only wraps 4 places (`patch:2866/2888/4345/4487`), `CMD-FIX 0x90/0x81` and `CFG-START` are both outside it |
+| "`0xC900` needs writing" | that is a **Berlin-A only** register, `goodix_brl_hw.c:19-21,59-61` return immediately on Berlin-D |
+| "the config contents are wrong" | parsing the local bin gives head=121, body=139, length 1488, `fw_pid=9916R`, `fw_vid=05 80 02 63`, `cfg_id=0x640fdf7d`, checksum 0x08d3, all self-checks pass |
 
-### 判据（唯一）
+### Criterion (the only one)
 
-**只看 `0x10308` 首字节是否出现非 `0x00`。** 不要用 INT 电平。
+**Look only at whether the first byte of `0x10308` is something other than `0x00`.**
+Do not use the INT level.
 
-### P-124 ★★★ INT 低 16 次、0x10308 十六次读到的 64 字节完全相同
+### P-124 ★★★ INT went low 16 times, and the 64 bytes read from 0x10308 were identical all sixteen times
 
-- **测量方法**：`usblog-20261111-195825`，minimal 模式（reset → probe → 纯轮询），
-  在 `gpio_get(PIN_INT) == 0` 时 dump `0x10308` 起 64 字节，上限 16 次。
-- **结果**：
+- **Measurement method**: `usblog-20261111-195825`, minimal mode (reset → probe → pure
+  polling), whenever `gpio_get(PIN_INT) == 0` dump 64 bytes from `0x10308`, capped at
+  16 times.
+- **Result**:
   ```
-  goodix: INTLOW#1 .. #16  全部相同
+  goodix: INTLOW#1 .. #16  all identical
   00 94 b7 56 4b b4 ce ba 06 e2 89 51 14 56 76 c9
   b2 c0 6f f9 95 d2 87 96 81 11 4a e7 6a 9b 73 45
   52 81 f2 cf c2 84 5f c2 b6 0b 0a 6d 9d 17 32 e8 4e 67
   ```
-- **两个结论**：
-  1. **INT 确实随触摸变低 16 次** ⇒ 芯片有反应，中断是真的，
-     不是噪声、不是浮空。之前"INT 恒高"的观察是因为限流打印只看前 2 次。
-  2. **`0x10308` 的内容 16 次一字不差** ⇒ 它**不是报告区**。
-     首字节恒 `0x00`，所以 `goodix_poll` 永远在第一道判断返回，`reports` 永远 0。
-- **为什么 packed 解码会给出 0x10308**：
-  `touch_data_addr` 在 packed 布局的 `+44`，且 `+48 head=8`、`+50 point=8`
-  两个长度字段交叉命中官方 `IRQ_EVENT_HEAD_LEN` / `BYTES_PER_POINT`。
-  **两个长度对上不代表地址对上** —— 这是本轮最大的推理错误：
-  我拿长度字段的正确性去反推地址字段的正确性，但它们是相互独立的信息。
-- **正确的做法（不再猜偏移）**：
-  在 INT 低的时刻**快照一大段地址并前后对比**。
-  空闲时固件只动计数器，手指按下时动的是报告区，
-  两者命中的字节不同，报告区会自己暴露。
-  窗口取 `0x10000..0x107FF`（2 KiB），同时覆盖
-  `touch_data 0x10308` 和 `frame_data 0x10400` 两个候选。
-- **教训**：
-  1. **"芯片有中断"和"数据在预期地址"是两个独立命题**，必须分别证明。
-  2. **用同一份结构体里的 A 字段正确去推断 B 字段正确，不成立。**
-     长度字段对（8/8）说明不了地址字段对（0x10308）。
-  3. **限流打印会隐藏关键样本。** `header_zero++ < 2` 让我错过了一整天的
-     INT-low 数据；探针在关键量上**不许限流**，或必须能按条件触发。
+- **Two conclusions**:
+  1. **INT really does go low 16 times with touch** ⇒ the chip reacts, the interrupt is
+     real, it is not noise and not floating. The earlier "INT is always high"
+     observation was because rate-limited printing only showed the first 2.
+  2. **The contents of `0x10308` were byte-for-byte identical 16 times** ⇒ it is **not
+     the report area**. The first byte is always `0x00`, so `goodix_poll` always returns
+     at the first check and `reports` is always 0.
+- **Why the packed decode gave 0x10308**:
+  `touch_data_addr` is at `+44` in the packed layout, with `+48 head=8` and
+  `+50 point=8`, and the two length fields cross-hit the official
+  `IRQ_EVENT_HEAD_LEN` / `BYTES_PER_POINT`.
+  **Two lengths matching does not mean the address matches** — this was the biggest
+  reasoning error of this round: I used the correctness of the length fields to infer
+  the correctness of the address field, but they are independent pieces of information.
+- **The correct approach (stop guessing offsets)**:
+  At the moment INT goes low, **snapshot a large address range and compare before and
+  after**. When idle the firmware only moves counters; when a finger presses it moves
+  the report area; the two hit different bytes and the report area exposes itself.
+  Take the window `0x10000..0x107FF` (2 KiB), covering both candidates
+  `touch_data 0x10308` and `frame_data 0x10400`.
+- **Lessons**:
+  1. **"The chip has interrupts" and "the data is at the expected address" are two
+     independent propositions**, each must be proven separately.
+  2. **Inferring field B is correct because field A in the same struct is correct does
+     not hold.** The length fields matching (8/8) says nothing about the address field
+     matching (0x10308).
+  3. **Rate-limited printing hides the key samples.** `header_zero++ < 2` made me miss a
+     whole day of INT-low data; a probe must **not** be rate-limited on the key quantity,
+     or it must be triggerable by condition.
 
-### P-125 ★★★ 芯片确实在扫描，但不出坐标报告（0x10308 恒 0）
+### P-125 ★★★ The chip really is scanning, but it produces no coordinate reports (0x10308 always 0)
 
-- **测量方法**（`usblog-20261111-202056`）：minimal 模式，
-  每次 INT 变低时快照 `0x10000..0x107FF`（2 KiB，分两块 1024 字节读），
-  与上一次快照逐字节对比，只打印变化的地址。
-- **结果**：
+- **Measurement method** (`usblog-20261111-202056`): minimal mode, snapshot
+  `0x10000..0x107FF` (2 KiB, read as two 1024-byte blocks) every time INT goes low,
+  compare byte by byte against the previous snapshot, print only the changed addresses.
+- **Result**:
   ```
   WDIFF baseline 58 7b 05 f0 @10308=00
   WDIFF 0x10218 1a->73        <- fw_state_addr（misc+12）
-  WDIFF 0x10401 2f->44        <- frame_data_addr（misc+24）区
+  WDIFF 0x10401 2f->44        <- frame_data_addr（misc+24）region
   WDIFF 0x1040e c6->f0
   WDIFF 0x10472 2b->29
-  WDIFF#2 changed=551         <- 一次快照间有 551 字节变化
+  WDIFF#2 changed=551         <- 551 bytes changed between two snapshots
   ```
-- **三条硬结论**：
-  1. **芯片在活跃工作**：551 字节在两次快照间变化，`fw_state` 状态机在推进。
-  2. **原始帧区 `0x10400` 是活的** ⇒ 扫描引擎（AFE + ADC）确实在采样。
-  3. **`0x10308` 首字节恒 `0x00`** ⇒ 坐标报告确实没有产生。
-- **推论**：芯片能扫描、能出原始帧，但**不出坐标点**。
-  这正是"缺少 config"的表现——config 里是传感映射参数和点数映射，
-  没有它，芯片只能输出原始电容数据，算不出触摸坐标。
-- **而 config 之前下发失败的真因**（见 P-123）：
-  `CFG-RESET` 在 config 写进 `fw_buffer_addr = 0x1205c`（RAM）之后
-  立刻硬复位芯片，把 config 全部作废。
-  官方 `brl_send_config()` 之后**只 msleep(100)**，什么都不做。
-- **待验证**：`CFG-RESET` 已禁用（`if (0 && la == 0x80)`），
-  关掉 `k60_touch_minimal` 走完整 config 流程后，
-  `0x10308` 首字节是否变为非 0。
-- **教训**：
-  1. **"有没有中断"和"有没有报告"是两个独立命题。** INT 会变低只证明芯片有反应；
-     报告要看 `0x10308` 首字节。
-  2. **窗口差分是定位"活动内存"的有效手段。** 不用猜偏移，
-     让会动的地址自己暴露：`0x10400` 动了 = 帧区活的，`0x10308` 不动 = 报告没产生。
-  3. **`goodix_read` 单次上限 `GOODIX_MAX_READ = 1024`**
-     （`zzzz...-pong-touch-console.patch:2118`，判据在 `:2145`）。
-     读 2048 字节必须分两块，否则直接返回 false，
-     第一版探针因此打印了 16 次 `read failed`。
+- **Three hard conclusions**:
+  1. **The chip is actively working**: 551 bytes changed between two snapshots, the
+     `fw_state` state machine is advancing.
+  2. **The raw frame area `0x10400` is alive** ⇒ the scan engine (AFE + ADC) really is
+     sampling.
+  3. **The first byte of `0x10308` is always `0x00`** ⇒ coordinate reports really are
+     not being produced.
+- **Inference**: the chip can scan and can produce raw frames, but **produces no
+  coordinate points**. This is exactly what "missing config" looks like — the config
+  holds the sensor mapping parameters and the point-count mapping; without it the chip
+  can only output raw capacitance data and cannot compute touch coordinates.
+- **And the real cause of the earlier config download failure** (see P-123):
+  `CFG-RESET` hard-resets the chip right after the config is written into
+  `fw_buffer_addr = 0x1205c` (RAM), voiding the whole config.
+  The official `brl_send_config()` **only msleep(100)** afterwards, nothing else.
+- **To verify**: `CFG-RESET` is disabled now (`if (0 && la == 0x80)`);
+  after turning off `k60_touch_minimal` and running the full config flow,
+  does the first byte of `0x10308` become non-zero.
+- **Lessons**:
+  1. **"Is there an interrupt" and "is there a report" are two independent
+     propositions.** INT going low only proves the chip reacts; reports are decided by
+     the first byte of `0x10308`.
+  2. **Window diffing is an effective way to locate "live memory".** No offset guessing
+     needed: let the addresses that move expose themselves: `0x10400` moved = the frame
+     area is alive, `0x10308` did not move = no report produced.
+  3. **`goodix_read` has a per-call cap of `GOODIX_MAX_READ = 1024`**
+     (`zzzz...-pong-touch-console.patch:2118`, the check is at `:2145`).
+     Reading 2048 bytes must be split into two blocks, otherwise it returns false
+     outright, and the first version of the probe therefore printed `read failed` 16
+     times.
 
-### P-126 ★★★ Python 写补丁时反斜杠n 会变成真换行，补丁被静默拆断
+### P-126 ★★★ When Python writes a patch, a backslash-n becomes a real newline and the patch is silently broken
 
-- **症状**：构建报 `git failed (128)`，错误信息为空，
-  `patches applied` 从 211 掉到 198，但 `kernel.log` 里一条 error 都没有
-  （那份日志其实是**上一次成功构建**留下的，`kernel.macho` 时间戳没变）。
-- **真因**：用 Python 三引号字符串拼补丁内容时，C 代码里 printf 格式串中的
-  反斜杠n 被 Python 解释成**真换行**，于是一行 C 被写成两行，
-  第二行**没有 `+` 前缀**，`git apply` 立刻判定补丁损坏。
-- **判别（3 秒）**：遍历 hunk 内每一行，必须满足首字符是 空格 / `+` / `-` / 反斜杠。
-  不满足就是结构损坏。
-- **正确写法**：
-  1. 拼补丁内容用 raw 字符串（前缀 r），或把反斜杠n 写成两个反斜杠加 n
-  2. 生成后**立即跑结构校验**（gate.py 的 [Q] 项已自动做）
-  3. 不要相信 `patches applied: N` 的下降——那是症状不是原因
-- **今天因此失败**：4 次构建（每次约 8 分钟，约 32 分钟纯浪费），
-  而且前两次我误判为"补丁集被同步脚本改了"。
-- **教训**：
-  1. **凡是用脚本生成补丁，必须有一个"结构合法性"断言**，
-     不能靠肉眼看生成结果——被拆断的行在正常 grep 里看不出来。
-  2. **`kernel.log` 里没有 error 时，先看 `kernel.macho` 的时间戳**。
-     时间戳没变 = 这次根本没编译，失败在更早的阶段（补丁/配置）。
+- **Symptom**: the build reports `git failed (128)`, the error message is empty,
+  `patches applied` drops from 211 to 198, but `kernel.log` has not a single error
+  (that log was actually left over from the **previous successful build**; the
+  `kernel.macho` timestamp did not change).
+- **Real cause**: when assembling patch content with a Python triple-quoted string, the
+  backslash-n inside a printf format string in C got interpreted by Python as a **real
+  newline**, so one C line was written as two, the second line had **no `+` prefix**, and
+  `git apply` immediately judged the patch corrupt.
+- **Check (3 seconds)**: walk every line inside the hunk; the first character must be
+  a space / `+` / `-` / backslash. Anything else is structural corruption.
+- **Correct way**:
+  1. Assemble patch content with a raw string (prefix r), or write backslash-n as two
+     backslashes plus n
+  2. **Run the structure validation immediately** after generating (the [Q] item of
+     gate.py already does this automatically)
+  3. Do not trust a drop in `patches applied: N` — that is the symptom, not the cause
+- **Failed four times over this today**: 4 builds (about 8 minutes each, roughly 32
+  minutes pure waste), and the first two times I misjudged it as "the patch set was
+  changed by the sync script".
+- **Lessons**:
+  1. **Whenever a script generates a patch there must be a "structural validity"
+     assertion**, you cannot eyeball the generated result — split lines do not show up in
+     an ordinary grep.
+  2. **When `kernel.log` has no error, look at the `kernel.macho` timestamp first.**
+     Timestamp unchanged = this build never compiled, the failure is at an earlier stage
+     (patch/config).
 
-### P-127 ★★★ launchd 崩溃 / initproc exited / 复位 = 缺 0394 补丁
+### P-127 ★★★ launchd crash / initproc exited / reset = the 0394 patch is missing
 
-- **症状**：系统启动到 launchd 阶段后崩溃或复位；日志里出现
-  `initproc exited`、`K60PANICARGS`，或屏幕刷码后自动重启。
-- **真因**（yibiya 的 0394 补丁注释原文）：
+- **Symptom**: the system crashes or resets after reaching the launchd stage; the log
+  shows `initproc exited`, `K60PANICARGS`, or the screen scrolls text and then reboots on
+  its own.
+- **Real cause** (verbatim from the comment in yibiya's 0394 patch):
   > replace launchd's service cache with a curated one carrying only the 22
   > CORE jobs. The stock cache references App-cryptex programs this port does
   > not ship (first hit: /System/Cryptexes/App/usr/libexec/webbookmarksd);
   > launchd SIGSEGVs on the failed access() and the kernel panics with
   > "initproc exited".
-- **关键**：我们的仓库里有 `0394-k60-launchd-cache.patch`（56,839 B），
-  但 **series 里 0 次引用**——从来没被应用过。
-  yibiya 的版本是 59,315 B（更新），且它在 series 第 193 行（0392 之后）。
-- **修复**：把 yibiya 的 0394 复制过来并加入 series。
-  注意它改两个文件：`bsd/kern/kern_exec.c` + `bsd/kern/k60_launchd_cache.h`，
-  写入纪律与 0340/0391 相同（IO_SYNC、context ucred、resid、vnode_close）。
-- **教训**：
-  1. **仓库里有补丁 ≠ 补丁生效。** 必须 `grep <编号> patches/xnu/series` 确认。
-     今天我们至少有 3 个补丁（0391、0394、0404）都是"文件在、series 里没有"。
-  2. **series 的条数变化要能解释。** 211 与 212 的差别就是一个补丁有没有生效。
+- **Key**: our repository does contain `0394-k60-launchd-cache.patch` (56,839 B),
+  but **it is referenced 0 times in series** — it was never applied.
+  yibiya's version is 59,315 B (newer), and it sits at line 193 of series (after 0392).
+- **Fix**: copy yibiya's 0394 over and add it to series.
+  Note it touches two files: `bsd/kern/kern_exec.c` + `bsd/kern/k60_launchd_cache.h`,
+  and the write discipline is the same as 0340/0391 (IO_SYNC, context ucred, resid,
+  vnode_close).
+- **Lessons**:
+  1. **A patch in the repository ≠ the patch in effect.** You must
+     `grep <number> patches/xnu/series` to confirm. Today at least 3 of our patches
+     (0391, 0394, 0404) were "file present, not in series".
+  2. **A change in the series count must be explainable.** The difference between 211
+     and 212 is whether one patch took effect.
 
-### P-128 ★★★ porting.toml 格式错误导致官网设备页显示异常
+### P-128 ★★★ A porting.toml format error breaks rendering of the device page on the site
 
-- **症状**：`https://unixnu.com/devices/mondrian` 显示
-  `'str' object has no attribute 'get'`，整个设备页空白，
-  只有 "Complete and validate porting.toml" 一句提示。
-- **真因**：`[[area]]` 的 `evidence` 数组元素**必须是表**（含 `kind`/`reference`/`result`），
-  我们写了 12 处裸字符串：
+- **Symptom**: `https://unixnu.com/devices/mondrian` shows
+  `'str' object has no attribute 'get'`, the whole device page is blank,
+  with only the hint "Complete and validate porting.toml".
+- **Real cause**: the `evidence` array elements of `[[area]]` **must be tables**
+  (with `kind`/`reference`/`result`), and we wrote 12 bare strings:
   ```toml
-  # 错
-  evidence = ["usblog-20261110-234429: PONG ADRENO 22 步全部 result=0"]
-  # 对
+  # wrong
+  evidence = ["usblog-20261110-234429: PONG ADRENO 22 steps all result=0"]
+  # right
   evidence = [{ kind = "device", reference = "evidence/usblog-.../console.log",
-                result = "PONG ADRENO 22 步全部 result=0" }]
+                result = "PONG ADRENO 22 steps all result=0" }]
   ```
-  网站用 `e.get('kind')` 读每个元素，遇到字符串就抛异常。
-- **附带问题**：缺 `cellular` 部分。规范要求"没有基带的设备填 `not-applicable`"，
-  K60 有基带，必须写 `planned` 并说明缺口。
-- **判别（10 秒）**：
+  The site reads each element with `e.get('kind')` and throws on a string.
+- **Also**: the `cellular` section is missing. The spec requires "a device without a
+  baseband fills in `not-applicable`"; the K60 has a baseband, so it must say `planned`
+  and describe the gap.
+- **Check (10 seconds)**:
   ```python
   import tomllib
   d = tomllib.load(open('porting.toml','rb'))
   for a in d.get('area', []):
       for e in a.get('evidence', []):
-          assert isinstance(e, dict), '%s evidence 有裸字符串' % a.get('id')
+          assert isinstance(e, dict), '%s evidence has a bare string' % a.get('id')
   ```
-  **注意**：TOML 语法正确不代表格式合规——裸字符串在 TOML 里是合法值，
-  但违反记录的 schema。
-- **规范位置**：`https://unixnu.com/zh/porting/records`
-  - 必需部分：configuration / firmware / cpu / memory / storage / display /
+  **Note**: valid TOML syntax does not mean a compliant format — a bare string is a
+  legal TOML value, but it violates the record schema.
+- **Where the spec is**: `https://unixnu.com/zh/porting/records`
+  - required sections: configuration / firmware / cpu / memory / storage / display /
     input / gpu / network / cellular / audio / power / packaging / diagnostics
-  - 每个 area 的字段：id / status / components / paths / inputs / configuration /
+  - fields per area: id / status / components / paths / inputs / configuration /
     procedure / findings / completion / limits / next_action / evidence
-  - `status` 只能是 planned / implemented / host-verified / device-verified / not-applicable
-  - 每项 evidence 含 kind / reference / result；host 与 device 证据还需 command
-    和完整 40 字符 revision
-- **教训**：
-  1. **格式规范文档必须当作"协议"来读，不是当作建议。**
-     我们从来没读过 `/zh/porting/records`，凭直觉写 TOML，
-     结果 12 处 evidence 全错、缺 1 个必需部分。
-  2. **"TOML 语法正确" ≠ "记录合规"。** 前者是解析器的事，后者是 schema 的事。
-     必须用官方检查器：`python3 scripts/porting-record.py check --device <path>`。
-  3. **官网是唯一的验收标准。** 改完 porting.toml 必须确认设备页能正常渲染，
-     不能只看本地文件。
+  - `status` may only be planned / implemented / host-verified / device-verified / not-applicable
+  - each evidence entry has kind / reference / result; host and device evidence also
+    need command and the full 40-character revision
+- **Lessons**:
+  1. **A format spec document must be read as a protocol, not as a suggestion.**
+     We never read `/zh/porting/records`, wrote TOML from intuition, and ended up with
+     12 wrong evidence entries and 1 missing required section.
+  2. **"Valid TOML syntax" ≠ "compliant record".** The former is the parser's business,
+     the latter the schema's. Use the official checker:
+     `python3 scripts/porting-record.py check --device <path>`.
+  3. **The site is the only acceptance criterion.** After changing porting.toml you must
+     confirm the device page renders, not just look at the local file.
 
-### P-129 ★★★ 用驱动文件名推断芯片协议 = 错误方向；同 SoC 兄弟移植记录是最高价值参考
+### P-129 ★★★ Inferring the chip protocol from the driver filename points the wrong way; a same-SoC sibling port record is the highest-value reference
 
-- **症状链**（2026-11-11，一天内两次翻转结论）：
-  1. 先认为芯片是 Berlin-D（BRL），做了 40+ 次刷机
-  2. 发现 `ANDROID-HW-TRUTH.md` 写着"驱动是 `goodix_ts`（GTP 协议）"，
-     于是断定"协议搞错了"，改做 GTP 探针
-  3. GTP 探针实测：`0x8140/0x8047/0x804E/0x814E` **全部返回 0x00**，
-     而同一启动里 BRL `0x10000` 稳定读出 `BERLIN 9916R 05.80.02.63`
-  4. **结论：BRL 才是对的，GTP 是错的。`goodix_ts` 只是模块名。**
+- **Symptom chain** (2026-11-11, the conclusion flipped twice in one day):
+  1. First believed the chip was Berlin-D (BRL), did 40+ flashes
+  2. Found `ANDROID-HW-TRUTH.md` saying "the driver is `goodix_ts` (GTP protocol)",
+     concluded "the protocol is wrong", and switched to a GTP probe
+  3. GTP probe measured: `0x8140/0x8047/0x804E/0x814E` **all return 0x00**,
+     while in the same boot BRL `0x10000` stably reads `BERLIN 9916R 05.80.02.63`
+  4. **Conclusion: BRL is right, GTP is wrong. `goodix_ts` is just the module name.**
 
-- **真因**：Goodix 的 Berlin 系列在 vendor 内核里**也用 `goodix_ts.ko` 加载**
-  （源码走 `goodix_brl_hw.c`）。模块名和协议名不是一回事。
-  `ANDROID-HW-TRUTH.md:14` 的"是 GTP 不是 BRL"是从驱动名推断的，没有实测寄存器。
+- **Real cause**: Goodix's Berlin family in the vendor kernel **is also loaded as
+  `goodix_ts.ko`** (the source goes through `goodix_brl_hw.c`). Module name and protocol
+  name are not the same thing. `ANDROID-HW-TRUTH.md:14`'s "it is GTP not BRL" was
+  inferred from the driver name, without measuring any register.
 
-- **判别（唯一可信）**：读两组寄存器，看哪组有响应
-  | 协议 | 版本寄存器 | 期望 |
+- **Check (the only credible one)**: read both register sets and see which one responds
+  | Protocol | Version register | Expected |
   |---|---|---|
-  | BRL | `0x10000` | 芯片型号字符串（如 `BERLIN 9916R`）|
-  | GTP | `0x8140` | 产品 ID 4 字节 + 固件版本 2 字节 |
-  实测结果（`usblog-20261111-233246`）：BRL 有数据，GTP 全 0 → BRL。
+  | BRL | `0x10000` | chip model string (e.g. `BERLIN 9916R`) |
+  | GTP | `0x8140` | product ID 4 bytes + firmware version 2 bytes |
+  Measured result (`usblog-20261111-233246`): BRL has data, GTP is all 0 → BRL.
 
-- **附带教训（同 SoC 兄弟移植）**：
-  `Seanding1998/hakios-xnu-kernel`（一加 Ace 2 / PHK110 / **SM8475**）的
-  `docs/phk110/waves/wave12c-electrical.md` 记录了同 SoC 的触摸 PASS 经验：
-  > 每 CS 帧只吐一个 9 字节块，块按 **~20 ms 节拍重新武装**。
-  > 续读帧紧贴 header 帧（µs 级）→ 踩进未武装窗口 → 读回错位填充。
-  > 改成"20 ms 节拍 + 9 字节分帧收割"后首轮即 PASS。
+- **Sidelight lesson (same-SoC sibling port)**:
+  `Seanding1998/hakios-xnu-kernel` (OnePlus Ace 2 / PHK110 / **SM8475**) documents the
+  same-SoC touch PASS experience in `docs/phk110/waves/wave12c-electrical.md`:
+  > Each CS frame emits only one 9-byte block, and the block is re-armed on a
+  > **~20 ms beat**.
+  > A continuation read that hugs the header frame (µs scale) → lands in the un-armed
+  > window → reads back misaligned padding.
+  > Switching to "20 ms beat + 9-byte framed harvest" PASSed on the first round.
 
-  我们的轮询循环 `sleep_ms(2)` + `++idle >= 1` 恒真 → **每 2 ms 无条件读**，
-  比兄弟移植的节拍快 10 倍，一直在未武装窗口里采样。
-  **这解释了 `0x10308` 为什么跨几十次读取永远返回同一串字节。**
+  Our poll loop `sleep_ms(2)` + `++idle >= 1` always true → **unconditional read every
+  2 ms**, 10× faster than the sibling port's beat, sampling forever inside the un-armed
+  window.
+  **That explains why `0x10308` returns the same bytes across dozens of reads.**
 
-- **教训**：
-  1. **不能从驱动文件名推断协议**，只能实测寄存器。
-  2. **"芯片有反应"和"读到有效数据"是两件事**——INT 会变、能读到固定字节，
-     不代表读的时机对。
-  3. **同 SoC 的兄弟移植是最省时间的参考**，优先级高于官方通用驱动。
-     他们的 `wave12c` 用三轮 Boot（#19 取证 / #20 节拍 / #21 PASS）走完的路，
-     我们如果能早点读到就不必重复。
-  4. **结论翻转时要立刻改文档**，不能让错误结论继续指导后续工作。
+- **Lessons**:
+  1. **You cannot infer the protocol from the driver filename**, only measure registers.
+  2. **"The chip reacts" and "valid data is read" are two things** — INT toggling and
+     being able to read fixed bytes does not mean the read timing is right.
+  3. **A sibling port on the same SoC is the cheapest reference**, higher priority than
+     the official generic driver. The road they walked in three Boot rounds of
+     `wave12c` (#19 gather evidence / #20 beat / #21 PASS) we would not have had to
+     repeat if we had read it earlier.
+  4. **When a conclusion flips, fix the document immediately**, never let a wrong
+     conclusion keep steering the work.
 
-### P-131 ★★★ Windows checkout 的 CRLF 行尾符让整个参考仓库"变脏"
+### P-131 ★★★ CRLF line endings from a Windows checkout make a whole reference repository "dirty"
 
-- **症状**：`sync-all-repos-v2.sh` 报告 5 个 Pong 仓库"脏文件过多（>50）违反 HR-40"，
-  跳过不同步：`UniXNU-pong(143)`、`pong-adreno(116)`、`pong-adreno-metal(106)`、
-  `uefi-pong(62)`、`ios-sweet(140)`。看起来像有大量本地改动。
-- **真因**：`git diff --stat` 显示 `116 files changed, 15175 insertions(+), 15175 deletions(-)`
-  —— **插入和删除完全相等**。这是 CRLF/LF 行尾符转换的指纹。
-  抽样验证：
+- **Symptom**: `sync-all-repos-v2.sh` reports 5 Pong repositories as "too many dirty files
+  (>50), violates HR-40" and skips syncing: `UniXNU-pong(143)`, `pong-adreno(116)`,
+  `pong-adreno-metal(106)`, `uefi-pong(62)`, `ios-sweet(140)`. It looks like a pile of
+  local changes.
+- **Real cause**: `git diff --stat` shows
+  `116 files changed, 15175 insertions(+), 15175 deletions(-)`
+  — **insertions and deletions exactly equal**. That is the fingerprint of a CRLF/LF
+  line-ending conversion. Spot check:
   ```
-  HEAD 版本:    # Agent instructions$
-  工作区版本:   # Agent instructions^M$      ← 多了 ^M（CR）
+  HEAD version:     # Agent instructions$
+  worktree version: # Agent instructions^M$      ← extra ^M（CR）
   ```
-  `git diff -w`（忽略空白）后**差异文件数为 0**，确认内容零改动。
-- **为什么发生**：Windows 侧 git 的 `core.autocrlf` 在 checkout 时把 LF 转 CRLF，
-  而这些仓库没有 `.gitattributes` 约束。
-- **修复**：
+  After `git diff -w` (ignore whitespace) the **number of differing files is 0**,
+  confirming zero content change.
+- **Why it happens**: git on the Windows side has `core.autocrlf` converting LF to CRLF
+  at checkout, and these repositories have no `.gitattributes` to constrain it.
+- **Fix**:
   ```bash
   git -C <repo> config core.autocrlf false
   git -C <repo> config core.eol lf
   git -C <repo> checkout -- .
   ```
-  执行后 13 个仓库的脏文件全部归零。
-- **判别（3 秒）**：
+  After that the dirty files in all 13 repositories went to zero.
+- **Check (3 seconds)**:
   ```bash
-  git -C <repo> diff --numstat | awk '{if ($1==$2) n++} END {print n" 个对称差异"}'
-  # 或者
-  git -C <repo> diff -w --numstat | wc -l    # 为 0 = 纯行尾符问题
+  git -C <repo> diff --numstat | awk '{if ($1==$2) n++} END {print n" symmetric differences"}'
+  # or
+  git -C <repo> diff -w --numstat | wc -l    # 0 = pure line-ending problem
   ```
-- **教训**：
-  1. **"脏文件数"不能作为"有本地改动"的判据。** 必须先跑 `git diff -w`。
-  2. **Windows 上的 git 仓库必须有 `.gitattributes` 或 `core.autocrlf=false`**，
-     否则每一次 checkout 都会把整个仓库变成"脏的"。
-  3. **同步脚本的 HR-40 检查应该用 `git diff -w --numstat | wc -l` 而不是
-     `git status --porcelain | wc -l`** —— 后者把行尾符差异也算进去。
-- **顺带**：清掉了 7 个参考仓库里遗留的 `README-K60-NOTES.md`
-  （我们自己写的仓库说明，内容已在 `docs/engineering/REPO-INVENTORY.md`）。
+- **Lessons**:
+  1. **"Dirty file count" cannot be used as evidence of "local changes".** You must run
+     `git diff -w` first.
+  2. **Git repositories on Windows must have `.gitattributes` or `core.autocrlf=false`**,
+     otherwise every checkout turns the whole repository "dirty".
+  3. **The sync script's HR-40 check should use `git diff -w --numstat | wc -l` instead of
+     `git status --porcelain | wc -l`** — the latter counts line-ending differences too.
+- **Along the way**: cleaned out the leftover `README-K60-NOTES.md` from 7 reference
+  repositories (our own repository notes, whose content is already in
+  `docs/engineering/REPO-INVENTORY.md`).
 
-### P-132 ★★★ 改 defconfig 不生效：`unixnu build` 读的是缓存的 `.config`
+### P-132 ★★★ Editing defconfig has no effect: `unixnu build` reads the cached `.config`
 
-- **症状**：把 `configs/mondrian_defconfig` 的 `CONFIG_XNU_PONG_ADRENO_PLATFORM`
-  从 `y` 改成 `n`，三份副本（仓库 / `/tmp/usb-cdc-mainline/device` /
-  `/opt/k60/trees/usb-cdc-mainline/device`）都确认是 `n`，但构建仍在
-  `build-pong-adreno-platform.py` 处因缺 GPU 固件失败。
-- **真因**：`unixnu build kernel` 读的是
-  `out-baseline/mondrian/<profile>/.config`，**不是** `configs/*_defconfig`。
-  `.config` 是 `unixnu defconfig NAME` 生成的快照，时间戳停在 2026-11-08。
-  `config.py:159` 定义 `self.config_path = self.work / '.config'`，
-  `need_config()` 只读它。
-- **修复**：
+- **Symptom**: changed `CONFIG_XNU_PONG_ADRENO_PLATFORM` in
+  `configs/mondrian_defconfig` from `y` to `n`, confirmed all three copies (repository /
+  `/tmp/usb-cdc-mainline/device` / `/opt/k60/trees/usb-cdc-mainline/device`) say `n`,
+  but the build still fails at `build-pong-adreno-platform.py` for missing GPU firmware.
+- **Real cause**: `unixnu build kernel` reads
+  `out-baseline/mondrian/<profile>/.config`, **not** `configs/*_defconfig`.
+  `.config` is a snapshot generated by `unixnu defconfig NAME`, timestamped 2026-11-08.
+  `config.py:159` defines `self.config_path = self.work / '.config'`,
+  and `need_config()` reads only that.
+- **Fix**:
   ```bash
   cd /opt/k60/trees/k60build
   ./unixnu defconfig mondrian_defconfig -D <device> --out <out-baseline>
   ```
-  刷新后 `.config` 的 Adreno 值立刻从 `y` 变 `n`。
-- **判别（3 秒）**：
+  After refreshing, the Adreno value in `.config` immediately flips from `y` to `n`.
+- **Check (3 seconds)**:
   ```bash
   grep PONG_ADRENO <out>/mondrian/<profile>/.config
-  stat -c%y <out>/mondrian/<profile>/.config     # 时间戳旧 = 缓存
+  stat -c%y <out>/mondrian/<profile>/.config     # old timestamp = cache
   ```
-- **教训**：
-  1. **改 defconfig 之后必须跑 `unixnu defconfig`**，否则改动不生效。
-  2. **三份副本一致不等于生效**——真正生效的是第四份 `.config`。
-  3. 构建失败时先看 `.config` 的时间戳，别怀疑配置内容。
+- **Lessons**:
+  1. **After editing defconfig you must run `unixnu defconfig`**, otherwise the change
+     does not take effect.
+  2. **Three copies agreeing does not mean it is in effect** — what actually takes effect
+     is a fourth copy, `.config`.
+  3. When a build fails, look at the `.config` timestamp first, do not suspect the
+     configuration contents.
 
-### P-133 ★★★ 补丁正文里的双加号 `++` 会变成 C 源码里的非法字符
+### P-133 ★★★ A double plus `++` in the patch body becomes an illegal character in the C source
 
-- **症状**：构建在编译 `bsd/dev/k60_uilib.c` 时失败：
+- **Symptom**: the build fails while compiling `bsd/dev/k60_uilib.c`:
   ```
   k60_uilib.c:21:1: error: expected external declaration
   ```
-  第 21 行是 `+static const unsigned char k60_uilib_blob[] = {`。
-- **真因**：`patch` 格式里 `+` 是"新增行"的前缀，**不属于源码内容**。
-  用脚本重建 blob 数组时，我把 `+` 前缀和 C 源码拼在一起写进了补丁正文，
-  于是 `git apply` 生成的文件里真的多了一个 `+`。
-- **正确写法**：补丁正文里每行只加**一个** `+`：
+  Line 21 is `+static const unsigned char k60_uilib_blob[] = {`.
+- **Real cause**: in the `patch` format `+` is the "added line" prefix and **is not part
+  of the source content**. When rebuilding the blob array with a script, I concatenated
+  the `+` prefix with the C source and wrote both into the patch body, so the file
+  `git apply` produced really did contain an extra `+`.
+- **Correct way**: add exactly **one** `+` per line in the patch body:
   ```
   +static const unsigned char k60_uilib_blob[] = {
   +    0xcf,0xfa,0xed,0xfe,...
   +};
   ```
-  而不是：
+  not:
   ```
-  ++static const unsigned char ...   ← 错，源码里会多一个 +
+  ++static const unsigned char ...   ← wrong, the source gets an extra +
   ```
-- **判别（3 秒）**：
+- **Check (3 seconds)**:
   ```python
-  # hunk 内不允许出现以 '++' 开头的正文行（'+++ b/' 文件头除外）
+  # no body line inside the hunk may start with '++' (except the '+++ b/' file header)
   for l in hunk_lines:
       if l.startswith('++') and not l.startswith('+++ b/'):
-          print('双加号:', l)
+          print('double plus:', l)
   ```
-- **教训**：
-  1. **"补丁结构合法"和"生成的源码合法"是两件事。**
-     `git apply` 能成功应用一个内容有 `+` 的补丁，但编译会失败。
-  2. 用脚本生成补丁时，**前缀逻辑要独立于内容逻辑**：
-     先把纯内容写好，最后统一加前缀，不要在内容里混入前缀字符。
-  3. `gate.py` 的 `[Q]` 项应该同时检查"hunk 内没有双加号"。
+- **Lessons**:
+  1. **"The patch structure is valid" and "the generated source is valid" are two
+     things.** `git apply` happily applies a patch whose content contains a `+`, and the
+     compile then fails.
+  2. When a script generates patches, **prefix logic must be independent of content
+     logic**: write the pure content first, add prefixes uniformly at the end, never mix
+     prefix characters into the content.
+  3. The `[Q]` item of `gate.py` should also check "no double plus inside the hunk".
 
-### P-134 ★★★ 触摸 config 下发的格式理解错误：官方要的是 `.cfg` 文本经转换后的结果
+### P-134 ★★★ Misreading the touch config download format: the official driver wants the converted result of the `.cfg` text
 
-- **背景**：触摸芯片能识别（读出 `BERLIN 9916R 05.80.02.63`）、config 下载"成功"
-  （`CFG-START state=80`、`CFG-DL 1488 bytes`、`CFG-EXIT ack=80`），
-  但 `0x10308`（`touch_data_addr`）首字节恒为 `0x00`，芯片不产生触点报告。
-- **官方流程**（`goodix_ts_core.c:428-465, 483-502`）：
+- **Background**: the touch chip is identifiable (reads `BERLIN 9916R 05.80.02.63`),
+  config download "succeeds" (`CFG-START state=80`, `CFG-DL 1488 bytes`,
+  `CFG-EXIT ack=80`), but the first byte of `0x10308` (`touch_data_addr`) is always
+  `0x00` and the chip produces no touch reports.
+- **Official flow** (`goodix_ts_core.c:428-465, 483-502`):
   ```c
   ret = request_firmware(&cfg_img, GOODIX_DEFAULT_CFG_NAME, dev);
       // GOODIX_DEFAULT_CFG_NAME = "goodix_cfg_group.cfg"
 
   goodix_ts_convert_0x_data(cfg_img->data, cfg_img->size,
                             config->data, &config->len);
-      // .cfg 是 ASCII 文本，形如 "x00 x00 ... x39 x39 x31 x36 x52"
-      // 每个 'x' 后跟两个十六进制 ASCII 字符 -> 1 字节
-      // 输出长度 = 'x'/'X' 字符的个数
+      // .cfg is ASCII text, shaped like "x00 x00 ... x39 x39 x31 x36 x52"
+      // each 'x' is followed by two hex ASCII characters -> 1 byte
+      // output length = number of 'x'/'X' characters
 
   hw_ops->send_config(core_data, config->data, config->len);
-      // brl_send_config 原样写入 fw_buffer_addr，回读 memcmp 比对
+      // brl_send_config writes it verbatim to fw_buffer_addr, reads back and memcmps
   ```
-- **我们的做法**：直接把二进制 `.bin` 写进 `fw_buffer_addr`，没有经过
-  `convert_0x_data`。如果我们的 `.bin` 本身就是转换后的结果，那没问题；
-  如果它是从 `goodix_cfg_group_m11a.bin`（1627 B 容器）里剥出来的子包，
-  则边界可能错。
-- **已验证的事实**：
-  - `goodix_cfg_group_m11a.bin`（1627 B）的 `bin_len`（u32@0）= 1627 ✅ 与文件等长
-  - `checksum`（u8@4）= 0xdc，且 `sum(d[5:]) & 0xFF == 0xdc` ✅
-  - 但按官方 `goodix_cfg_bin_head` 布局（`bin_len(4) + checksum(1) + bin_version[N] + pkg_num(1)`）
-    反推，`bin_version` 长度会是 0、`pkg_num` = 54，**明显不合理**
-  - 说明这个文件用的是 **vendor 变体格式**，不是 mainline `goodix_cfg_bin_head`
-  - 头部实际形态（观测）：`5b 06 00 00 | dc 36 00 00 | 00 01 00 00 | 00 00 00 00 | 12 00 | 49 06 00 00 | "Berlin"`
-    其中 `0x065b`=1627（总长）、`0x0649`=1609（子包长度）、`0x0012`=18（某偏移）
-- **下一步测量**：
-  1. 从 Android 提取真正的 `goodix_cfg_group.cfg`（ASCII 文本），
-     跑 `convert_0x_data` 得到参考字节序列
-  2. 与我们的 1486 字节逐字节比对
-  3. 核对 `goodix_ts_core_vendor.c` 是否有另一套 cfg 解析（vendor 变体）
-- **教训**：
-  1. **"config 下载成功"不等于"config 生效"。** 我们的 `CFG-START state=80`、
-     `CFG-DL 1488 bytes`、`CFG-EXIT ack=80` 全部通过，但芯片仍不上报。
-     回读 memcmp 只能证明"字节写进去了"，不能证明"芯片接受了这个 config"。
-  2. **config 文件有 ASCII 与二进制两种形态**，官方默认走 ASCII + 转换。
-     直接发二进制前必须先确认它已经是转换后的结果。
-  3. **容器格式有 mainline 与 vendor 两套**，`bin_len`/`checksum` 对得上
-     不代表布局就是 mainline 的。
+- **What we do**: write the binary `.bin` straight into `fw_buffer_addr`, never through
+  `convert_0x_data`. If our `.bin` already is the converted result, fine;
+  if it is a sub-package stripped out of `goodix_cfg_group_m11a.bin` (a 1627 B
+  container), the boundaries may be wrong.
+- **Facts already verified**:
+  - `bin_len` (u32@0) of `goodix_cfg_group_m11a.bin` (1627 B) = 1627 ✅ equal to the file length
+  - `checksum` (u8@4) = 0xdc, and `sum(d[5:]) & 0xFF == 0xdc` ✅
+  - but back-solving with the official `goodix_cfg_bin_head` layout
+    (`bin_len(4) + checksum(1) + bin_version[N] + pkg_num(1)`),
+    `bin_version` length comes out 0 and `pkg_num` = 54, **plainly unreasonable**
+  - so this file uses a **vendor variant format**, not mainline `goodix_cfg_bin_head`
+  - actual header shape (observed): `5b 06 00 00 | dc 36 00 00 | 00 01 00 00 | 00 00 00 00 | 12 00 | 49 06 00 00 | "Berlin"`
+    where `0x065b`=1627 (total length), `0x0649`=1609 (sub-package length), `0x0012`=18 (some offset)
+- **Next measurements**:
+  1. Extract the real `goodix_cfg_group.cfg` (ASCII text) from Android,
+     run `convert_0x_data` to get the reference byte sequence
+  2. Compare byte by byte against our 1486 bytes
+  3. Check whether `goodix_ts_core_vendor.c` has another cfg parser (vendor variant)
+- **Lessons**:
+  1. **"config download succeeded" is not "config is in effect".** Our
+     `CFG-START state=80`, `CFG-DL 1488 bytes`, `CFG-EXIT ack=80` all pass, and the chip
+     still reports nothing. A read-back memcmp only proves "the bytes landed", not "the
+     chip accepted this config".
+  2. **Config files come in two forms, ASCII and binary**, and the official default is
+     ASCII + conversion. Before sending binary directly you must confirm it already is
+     the converted result.
+  3. **The container format comes in mainline and vendor variants**;
+     `bin_len`/`checksum` matching does not mean the layout is mainline's.
 
-#### P-134 补充（2026-11-12 决定性证据）
+#### P-134 addendum (2026-11-12, decisive evidence)
 
-容器结构已完全解出（`goodix_cfg_group_m11a.bin`, 1627 B）：
+The container structure is now fully decoded (`goodix_cfg_group_m11a.bin`, 1627 B):
 
-| 偏移 | 字段 | 值 |
+| Offset | Field | Value |
 |---|---|---|
-| 0 | `total_len` (u32) | 1627 ✅ 等于文件长度 |
+| 0 | `total_len` (u32) | 1627 ✅ equals the file length |
 | 4 | `checksum` (u32) | 14044 |
 | 8 | `version` (u32) | 256 |
 | 12 | `reserved` (u32) | 0 |
@@ -3211,21 +3398,24 @@ goodix_brl_hw.c:553-559
 | 22 | chip name (16 B) | `"Berlin"` |
 | 38 | sensor id | `0xff` = 255 |
 | 39 | fw_pid (16 B) | `"9916R"` |
-| **141** | **我们切片的起点** | |
+| **141** | **our slice start** | |
 
-**已证实**：`容器[141:1627] == 我们的 1486 字节`，逐字节相同。
-说明我们的 config 是从容器偏移 141 处切到末尾，**少了 [18:141] 这 123 字节**。
+**Proven**: `container[141:1627] == our 1486 bytes`, byte for byte identical.
+So our config is cut from container offset 141 to the end, **missing the 123 bytes of
+[18:141]**.
 
-两种可能，需设备判定：
-- **A**：官方发整个子包（1609 B），我们少发 123 字节头部 → 芯片从错误偏移读字段
-- **B**：芯片只要裸配置区（1486 B）→ 我们的切片正确
+Two possibilities, needs a device verdict:
+- **A**: the official sends the whole sub-package (1609 B), we send 123 bytes less of
+  header → the chip reads fields from the wrong offset
+- **B**: the chip only wants the bare config area (1486 B) → our slice is correct
 
-**决定性判据**：从 Android 提取 `goodix_cfg_group.cfg`（ASCII 文本），
-跑 `convert_0x_data` 后的长度是 1486 还是 1609。
+**Decisive criterion**: extract `goodix_cfg_group.cfg` (ASCII text) from Android and see
+whether the length after `convert_0x_data` is 1486 or 1609.
 
-#### P-134 再修正（2026-11-12）：当前驱动根本不发 config
+#### P-134 again corrected (2026-11-12): the current driver does not send config at all
 
-查 `patches/xnu/zzzz...-pong-touch-console.patch`（1212 行）的全部函数定义：
+Checked every function definition in `patches/xnu/zzzz...-pong-touch-console.patch`
+(1212 lines):
 
 ```
 goodix_read / goodix_write / goodix_checksum_ok / goodix_dummy_data
@@ -3233,30 +3423,33 @@ touch_reset / goodix_probe / goodix_contacts_valid / goodix_release
 goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
 ```
 
-**没有 config 下载函数。** `goodix_probe` 只做三件事：
-1. 读 `GOODIX_FW_VERSION`（28 字节）验证芯片身份与校验
-2. 读 `GOODIX_IC_INFO` 解析 ABI（length + version(16) + features(10) + 4 counts + 5 个 u16 频率表 + misc(52)）
-3. 从 misc 提取 `touch_address = le32(info+offset+44)` 和 `command_address = le32(info+offset)`
+**There is no config download function.** `goodix_probe` does only three things:
+1. Read `GOODIX_FW_VERSION` (28 bytes) to verify chip identity and checksum
+2. Read `GOODIX_IC_INFO` and parse the ABI (length + version(16) + features(10) + 4 counts + 5 u16 frequency tables + misc(52))
+3. Extract `touch_address = le32(info+offset+44)` and `command_address = le32(info+offset)` from misc
 
-**结论：`CFG-START` / `CFG-DL 1488 bytes` / `CFG-EXIT` 是旧版本驱动的日志，
-对应代码已被删除。当前驱动不发 config。**
+**Conclusion: `CFG-START` / `CFG-DL 1488 bytes` / `CFG-EXIT` are logs from an older
+driver version; the code behind them has been deleted. The current driver sends no
+config.**
 
-这改变了 P-134 的整个前提：
-- 之前假设「我们发了 1486 字节 config 但格式错」
-- 实际是「我们根本没发 config」
+This changes the whole premise of P-134:
+- previously assumed "we sent a 1486-byte config but in the wrong format"
+- actually "we never sent a config at all"
 
-**新的问题**：Goodix 芯片是否需要 config 才能产生触点报告？
-- 官方 Linux 驱动：`brl_send_config` 是**可选**的（`hw_ops->send_config` 存在才调用），
-  且 `brl_event_handler` 不依赖 config 是否发送过
-- 但 config 决定扫描参数（频率、增益、噪声阈值），没有 config 可能扫描不到电容变化
+**New question**: does a Goodix chip need config before it produces touch reports?
+- official Linux driver: `brl_send_config` is **optional** (`hw_ops->send_config` is only
+  called if present), and `brl_event_handler` does not depend on whether config was ever
+  sent
+- but config determines the scan parameters (frequency, gain, noise threshold); without
+  config it may not be able to detect capacitance changes
 
-**下一项测量**：从 Android 确认 `goodix_ts` 是否真的发送了 config，
-以及不发送 config 时芯片是否仍能上报。判据：Android 启动日志里有没有
-`success send config`。
+**Next measurement**: confirm from Android whether `goodix_ts` really sends config, and
+whether the chip still reports when it does not. Criterion: whether the Android boot log
+contains `success send config`.
 
-### P-135 ★★★ 芯片会主动请求 config（code 0x01），我们只处理了 reset（0x03）
+### P-135 ★★★ The chip asks for config on its own (code 0x01), and we only handled reset (0x03)
 
-- **官方实现**（`goodix_brl_hw.c:1204-1212`）：
+- **Official implementation** (`goodix_brl_hw.c:1204-1212`):
   ```c
   if (event_status & GOODIX_REQUEST_EVENT) {
       if (pre_buf[2] == BRL_REQUEST_CODE_CONFIG)      // 0x01
@@ -3265,239 +3458,264 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
           ts_event->request_code = REQUEST_TYPE_RESET;
   }
   ```
-  然后 `goodix_ts_request_handle`（`goodix_ts_core.c:1216-1219`）：
+  then `goodix_ts_request_handle` (`goodix_ts_core.c:1216-1219`):
   ```c
   if (request_code == REQUEST_TYPE_CONFIG)
       ret = goodix_send_ic_config(cd, CONFIG_TYPE_NORMAL);
   else if (request_code == REQUEST_TYPE_RESET)
       ret = hw_ops->reset(cd, GOODIX_NORMAL_RESET_DELAY_MS);
   ```
-- **我们的实现**：只有 `reset = report[2] == GOODIX_REQUEST_RESET;`
-  **config 请求（0x01）被静默丢弃。**
-- **为什么这是关键**：芯片复位后会主动要求主机下发 config。不应答 = 芯片停在
-  「等 config」状态 = 不产生触点报告。这与观测到的「0x10308 首字节恒 0x00」
-  完全吻合。
-- **本轮动作**：先加**诊断探针**（不猜实现）：
+- **Our implementation**: only `reset = report[2] == GOODIX_REQUEST_RESET;`
+  **The config request (0x01) is silently dropped.**
+- **Why this is the key**: after a reset the chip actively asks the host to send config.
+  No answer = the chip sits in the "waiting for config" state = no touch reports. This
+  matches the observed "first byte of 0x10308 always 0x00" exactly.
+- **This round's action**: add a **diagnostic probe** first (no implementation
+  guessing):
   ```c
   if (report[2] == GOODIX_REQUEST_CONFIG && configRequests++ < 8)
       printf("goodix: chip requested a config (code %#x); none available yet\n", report[2]);
   ```
-  上机后若看到这条日志，就证明芯片确实在请求 config，下一步才实现 `send_config`。
-- **教训**：
-  1. **event 状态位里的「子类型」必须逐个处理。** 我们处理了 `GOODIX_STATUS_TOUCH`(0x80)
-     和 `GOODIX_STATUS_REQUEST`(0x40) 的大类，但 REQUEST 的子码 0x01/0x03 只处理了一个。
-  2. **「静默丢弃」是最难查的 bug 类型。** 没有日志、没有错误码，表现就是「芯片不动」。
-     正确做法是先加计数和日志，把静默变可见。
-  3. **八步流程要求 ⑥ 深挖时消解全部不确定项。** 之前把 REQUEST 当成「只有 reset」，
-     是没有逐行核对官方 `brl_event_handler` 的结果。
+  If that log line shows up on device, it proves the chip really is asking for config;
+  only then is `send_config` the next step.
+- **Lessons**:
+  1. **The "sub-type" inside the event status bits must be handled one by one.** We
+     handled the broad classes `GOODIX_STATUS_TOUCH`(0x80) and
+     `GOODIX_STATUS_REQUEST`(0x40), but of the REQUEST sub-codes 0x01/0x03 only one.
+  2. **"Silently dropped" is the hardest bug class to find.** No log, no error code, and
+     the symptom is just "the chip does not move".
+     The right move is to add counters and logs first, making the silent visible.
+  3. **The eight-step process requires step ⑥ to resolve every uncertainty.** Treating
+     REQUEST as "only reset" was the result of not checking the official
+     `brl_event_handler` line by line.
 
-### P-136 ★★★ Berlin-D 在 boot-option 握手完成前不响应任何寄存器
+### P-136 ★★★ Berlin-D answers no register until the boot-option handshake has completed
 
-- **官方注释**（`goodix_brl_hw.c:78-106` `brl_dev_confirm`）：
+- **Official comment** (`goodix_brl_hw.c:78-106` `brl_dev_confirm`):
   > Berlin-D answers no register until the boot-option handshake has run:
   > write 8 x 0xAA to 0x10000 and require the same eight bytes back.
   > It is also the only independent proof of the MISO/MOSI/CLK/CS assignment.
-- **常量**：`BOOTOPTION_ADDR = 0x10000`、`DEV_CONFIRM_VAL = 0xAA`
-- **我们的实现**：`goodix_probe` 直接从 `GOODIX_FW_VERSION` 读起，**没有握手**。
-- **为什么这个遗漏极具欺骗性**：我们的日志里明明打出了
-  `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`，
-  看起来芯片通信完全正常。但官方说握手前芯片**不响应任何寄存器** ——
-  也就是说那次读成功本身就应该被怀疑。
-- **修复**（本轮）：移植 `goodix_dev_confirm`，在 `goodix_probe` 最开头调用：
+- **Constants**: `BOOTOPTION_ADDR = 0x10000`, `DEV_CONFIRM_VAL = 0xAA`
+- **Our implementation**: `goodix_probe` reads `GOODIX_FW_VERSION` straight away,
+  **with no handshake**.
+- **Why this omission is so deceptive**: our log plainly printed
+  `goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255`,
+  which looks like perfectly normal chip communication. But the official comment says the
+  chip **answers no register** before the handshake — which means that successful read
+  should itself have been suspect.
+- **Fix** (this round): port `goodix_dev_confirm` and call it at the very start of
+  `goodix_probe`:
   ```c
   if (!goodix_dev_confirm()) return false;
   ```
-  三次尝试、每次间隔 5 ms，失败时打印
-  `device confirm FAILED; check AVDD(GPIO71)/IOVDD/RESET/SPI`。
-- **来源**：yibiya 的 `81dd415e5`（`fix(board): run the touch driver at its
-  publishing stage`）与 `04bda86`（`fix(touch,power): land the handshake,
-  config download and battery link`）。他同时找到了 1488 字节的
-  `k60_cfg[]` 数组（以 `4e 4d` 即 ASCII "NM" 开头，与我们从容器剥出的
-  `00 00 00 00 00 00 39 39...` 不同）。
-- **教训**：
-  1. **"能读出芯片 ID" 不等于 "通信正常"。** 有些芯片在默认模式下能回答
-     少数只读寄存器，但完整功能需要先走握手。
-  2. **官方注释里写着前置条件时，必须当成硬约束。** `brl_dev_confirm` 的
-     注释第一句就是 "answers no register until..."，这是最直接的线索。
-  3. **看别人的实现能省掉几轮上机。** yibiya 的两个提交直接命中了我们
-     正在推的两个假设（握手 + config），这就是跟踪上游的价值。
+  Three attempts, 5 ms apart, printing
+  `device confirm FAILED; check AVDD(GPIO71)/IOVDD/RESET/SPI` on failure.
+- **Source**: yibiya's `81dd415e5` (`fix(board): run the touch driver at its
+  publishing stage`) and `04bda86` (`fix(touch,power): land the handshake,
+  config download and battery link`). He also found the 1488-byte
+  `k60_cfg[]` array (starting with `4e 4d`, ASCII "NM", unlike the
+  `00 00 00 00 00 00 39 39...` we stripped out of the container).
+- **Lessons**:
+  1. **"I can read the chip ID" is not "communication is normal".** Some chips answer a
+     few read-only registers in default mode, but full function needs the handshake
+     first.
+  2. **When the official comment states a precondition, treat it as a hard constraint.**
+     The first sentence of the `brl_dev_confirm` comment is "answers no register
+     until...", which is the most direct clue there is.
+  3. **Reading someone else's implementation saves several rounds on device.** yibiya's
+     two commits hit exactly the two hypotheses we were pushing (handshake + config);
+     that is the value of tracking upstream.
 
-### P-137 ★★★ config 下载必须走 vendor 命令块，且最后要切坐标模式（0x90）
+### P-137 ★★★ The config download must go through vendor command blocks, and must end by switching to coordinate mode (0x90)
 
-- **完整流程**（yibiya 04bda86 的 `goodix_apply_config`，对齐官方
-  `brl_send_config` + `goodix_send_ic_config`）：
+- **Full flow** (yibiya 04bda86's `goodix_apply_config`, aligned with the official
+  `brl_send_config` + `goodix_send_ic_config`):
   ```
-  1. goodix_command(4, 0x04, NULL, 0, "CFG-START")     准备
-  2. 分块写 k60_cfg[]（64 字节/块）+ 回读比对
-  3. goodix_command(4, 0x05, NULL, 0, "CFG-WRITE")     提交
-  4. goodix_command(4, 0x06, NULL, 0, "CFG-EXIT")      结束
-  5. 复位（PIN_RESET 低 2ms -> 高 100ms）
-  6. goodix_command(5, 0x90, &coord, 1, "COORD-MODE")  ★ 切坐标上报
+  1. goodix_command(4, 0x04, NULL, 0, "CFG-START")     prepare
+  2. write k60_cfg[] in blocks (64 bytes/block) + read back and compare
+  3. goodix_command(4, 0x05, NULL, 0, "CFG-WRITE")     commit
+  4. goodix_command(4, 0x06, NULL, 0, "CFG-EXIT")      finish
+  5. reset (PIN_RESET low 2ms -> high 100ms)
+  6. goodix_command(5, 0x90, &coord, 1, "COORD-MODE")  ★ switch to coordinate reporting
   7. sleep_ms(50)
   ```
-- **命令帧格式**（vendor 块）：
+- **Command frame format** (vendor block):
   ```
-  frame[2] = len        (4 或 5)
+  frame[2] = len        (4 or 5)
   frame[3] = cmd        (0x04/0x05/0x06/0x90)
   frame[4..] = data
   sum = len + cmd + data bytes
   frame[len]   = sum & 0xff
   frame[len+1] = sum >> 8
-  写 8 字节到 command_address，读 ack[1]，等 0x80
+  write 8 bytes to command_address, read ack[1], wait for 0x80
   ```
-- **第 6 步 0x90 是 raw 帧与触点的分界线。** 不发它，芯片停在 rawdata 模式，
-  `0x10308` 永远是 0x00 —— 这正是我们观测到的现象。
-- **config 数据的确切来源**：
+- **Step 6, 0x90, is the dividing line between raw frames and touch points.** Without it
+  the chip stays in rawdata mode and `0x10308` is forever 0x00 — exactly what we observed.
+- **The exact source of the config data**:
   ```
-  容器 goodix_cfg_group_m11a.bin（1627 B）
-    容器[139:141] = 4e 4d          <- vendor 块标识（ASCII "NM"）
-    容器[141:1627] = 1486 字节     <- 我们之前剥的
-    yibiya 的 k60_cfg[1488] = 容器[139:1627]  <- 含 4e 4d 前缀
+  container goodix_cfg_group_m11a.bin（1627 B）
+    container[139:141] = 4e 4d          <- vendor block marker (ASCII "NM")
+    container[141:1627] = 1486 bytes    <- what we stripped before
+    yibiya's k60_cfg[1488] = container[139:1627]  <- includes the 4e 4d prefix
   ```
-  我们少了 `4e 4d` 这两个字节，命令块头部会错位。
-- **misc 偏移**：`fw_buffer_addr` 在 `misc+18`（不是 +24 的 frame_data_addr）。
-  没有它 `goodix_apply_config` 根本无法运行。
-- **教训**：
-  1. **"写进去了" ≠ "生效了"。** 分块写 + 回读比对只能证明字节落地，
-     真正让芯片切模式的是最后的 0x90 命令。
-  2. **config 数组的边界必须精确到字节。** 差 2 字节的 `4e 4d` 前缀，
-     整个命令块就错位。
-  3. **再看一次上游实现能省掉整轮上机。** yibiya 的 `goodix_apply_config`
-     是 30 行，把我们从"猜 config 格式"直接带到"照抄已验证的流程"。
+  We are missing those two bytes `4e 4d`, so the command block header lands misaligned.
+- **misc offset**: `fw_buffer_addr` is at `misc+18` (not the `+24` of frame_data_addr).
+  Without it `goodix_apply_config` cannot run at all.
+- **Lessons**:
+  1. **"Written in" ≠ "in effect".** Block writes + read-back compare only prove the
+     bytes landed; what actually switches the chip's mode is the 0x90 command at the end.
+  2. **The boundaries of the config array must be exact to the byte.** Being 2 bytes off
+     on the `4e 4d` prefix misaligns the whole command block.
+  3. **Looking at the upstream implementation again saves a whole round on device.**
+     yibiya's `goodix_apply_config` is 30 lines that take us straight from "guessing the
+     config format" to "copying a verified flow".
 
-### P-138 ★★★ `pong_native_driver_source` 缺席会让 ArmDT 归档不构建
+### P-138 ★★★ A missing `pong_native_driver_source` stops the ArmDT archive from being built
 
-- **症状**：构建在 `build-xnu-4k-baseline.sh:986` 失败：
+- **Symptom**: the build fails at `build-xnu-4k-baseline.sh:986`:
   ```
   test -f "$ARM_DT_ARCHIVE" failed
   ```
-  且 `$ROOT/build/` 下只有 `generated/ storage-abi/ xnu/`，没有 `armdt-platform/`。
-- **真因**：`board.toml` 的 `[kernel]` 段缺 `pong_native_driver_source`。
-  unixnu 框架 `scripts/unixnu/kernel.py:191` 读这个 key 并赋给环境变量
-  `PONG_NATIVE_DRIVER_SOURCE`；而 `build-xnu-4k-baseline.sh:250` 的条件是
+  and `$ROOT/build/` only contains `generated/ storage-abi/ xnu/`, no `armdt-platform/`.
+- **Real cause**: the `[kernel]` section of `board.toml` is missing
+  `pong_native_driver_source`. The unixnu framework at
+  `scripts/unixnu/kernel.py:191` reads that key and assigns it to the environment
+  variable `PONG_NATIVE_DRIVER_SOURCE`; and `build-xnu-4k-baseline.sh:250` conditions on
   ```
   if [ "${XNU_ARM_DT_PLATFORM:-0}" = 1 ] && [ -n "${PONG_NATIVE_DRIVER_SOURCE:-}" ]; then
       python3 "$PONG_NATIVE_DRIVER_SOURCE/scripts/build-pong-platform-macos.py" ...
   ```
-  变量为空 -> 整个 ArmDT/ArmCpu provider 构建被跳过 -> 986 行找不到归档。
-- **诱因**：repo 版 `board.toml` 把该 key 删了，注释还写着
-  「no repository code reads a [kernel] pong_native_driver_source key」。
-  这句话**只对仓库自身成立**（仓库代码确实不读），但 unixnu 框架读。
-  把 repo 版同步到设备目录（构建输入）后，构建立刻坏掉。
-- **修复**：
-  1. repo 版与设备版都补回
+  Empty variable -> the whole ArmDT/ArmCpu provider build is skipped -> line 986 cannot
+  find the archive.
+- **Trigger**: the repo version of `board.toml` had deleted that key, and the comment even
+  said "no repository code reads a [kernel] pong_native_driver_source key".
+  That statement **holds only for the repository itself** (repository code really does
+  not read it), but the unixnu framework does. Syncing the repo version into the device
+  directory (the build input) broke the build immediately.
+- **Fix**:
+  1. Add it back in both the repo version and the device version:
      `pong_native_driver_source = "/tmp/k60build/pong-driver"`
-  2. 把误导性注释改成说明「unixnu 的 kernel.py:191 读它」并记录 986 行症状
-- **教训**：
-  1. **"仓库里没人读" ≠ "没人读"。** 构建框架（unixnu）是外部依赖，
-     它读哪些 key 必须单独核对，不能只看本仓库。
-  2. **同步 repo → 构建输入时，要检查 key 集合差异，不只看内容新旧。**
-  3. 构建失败在 `test -f` 这类无信息量的检查上时，先看**产物目录缺什么**，
-     再倒推是哪个构建步骤被条件跳过了。
+  2. Rewrite the misleading comment to state "unixnu's kernel.py:191 reads it" and record
+     the line 986 symptom
+- **Lessons**:
+  1. **"Nobody in the repository reads it" ≠ "nobody reads it".** The build framework
+     (unixnu) is an external dependency; which keys it reads must be checked separately,
+     never only this repository.
+  2. **When syncing repo → build input, check for key-set differences, not just which
+     side is newer.**
+  3. When a build fails on an uninformative check like `test -f`, first look at **what is
+     missing from the artefact directory**, then work back to which build step got
+     skipped by a condition.
 
-### P-139 ★★★ 改 boot-args 必须先算 608 字节上限
+### P-139 ★★★ Changing boot-args requires computing the 608-byte limit first
 
-- **症状**：想加 `k60_touch_se=6`，发现加完超限。
-- **实测**：改动前已是 617 字节，**已经超出 608 上限 9 字节**。
-- **yibiya 的做法**（81dd415 的 commit message）：
+- **Symptom**: wanted to add `k60_touch_se=6`, found it went over the limit.
+- **Measured**: before the change it was already 617 bytes, **already 9 bytes over the
+  608 limit**.
+- **yibiya's approach** (81dd415 commit message):
   > The applog pair is dropped to stay inside the 608-byte arm64 boot-args
   > limit, which the touch argument would otherwise exceed.
   > SpringBoard's own os_log output is unaffected.
-- **我们的处理**：删 `applog=1`（8 B）+ `applog_name=runningboardd,backboardd,lsd`
-  （46 B），加 `k60_touch_se=6`（17 B），最终 29 项 582 字节，余量 26。
-- **判据**：`k60_console_export=1` + `k60_usblog=2` 已提供内核日志与 USB 日志，
-  触摸驱动的 `printf` 走内核日志，不依赖 applog（用户态 os_log 捕获）。
-- **教训**：**每次动 boot-args 都要先打印当前总长和余量**，
-  不能等到构建或刷机时才发现超限。
+- **What we did**: dropped `applog=1` (8 B) + `applog_name=runningboardd,backboardd,lsd`
+  (46 B), added `k60_touch_se=6` (17 B), ending at 29 items, 582 bytes, 26 spare.
+- **Criterion**: `k60_console_export=1` + `k60_usblog=2` already provide the kernel log
+  and the USB log, and the touch driver's `printf` goes to the kernel log, so it does not
+  depend on applog (userland os_log capture).
+- **Lesson**: **every time you touch boot-args, print the current total length and the
+  spare first**, do not discover the overflow at build or flash time.
 
-### P-140 ★★ 同一个驱动里不能有两条复位路径
+### P-140 ★★ One driver must not have two reset paths
 
-- **症状**：`goodix_apply_config` 用的是内联 GPIO 翻转复位
+- **Symptom**: `goodix_apply_config` uses an inline GPIO toggle reset
   ```c
   gpio_set(PIN_RESET, false); sleep_ms(2);
   gpio_set(PIN_RESET, true);  sleep_ms(100);
   ```
-  而 `touch_reset()` 在同样三步之后还调了 `spi_mode_select()`。
-  两条路径行为不一致：走 apply_config 的那次复位**跳过了 SPI 模式确认**。
-- **官方依据**：`brl_select_spi_mode` 有三处调用点 ——
-  `goodix_brl_hw.c:120`（`brl_reset_after`）、`:197`、`:322`（`brl_reset` 的返回处）。
-  官方在每个复位出口都重新确认模式。
-- **修复**：`goodix_apply_config` 改用 `touch_reset()`，并补 `static void touch_reset(void);`
-  前置声明（`apply_config` 定义在 `touch_reset` 之前）。
-- **教训**：
-  1. **复位是个"协议重新开始"的动作，所有复位必须走同一个函数。**
-     散落的 GPIO 翻转会让后续步骤在不确定的芯片状态下运行。
-  2. **用脚本移植代码时，要注意定义顺序。** 直接把函数体粘到前面会缺前置声明，
-     C99+ 会报 implicit declaration。
+  while `touch_reset()` does the same three steps and then calls `spi_mode_select()`.
+  The two paths behave differently: the reset taken through apply_config **skipped the
+  SPI mode confirmation**.
+- **Official basis**: `brl_select_spi_mode` has three call sites —
+  `goodix_brl_hw.c:120` (`brl_reset_after`), `:197`, `:322` (the return point of
+  `brl_reset`). The official driver re-confirms the mode at every reset exit.
+- **Fix**: switch `goodix_apply_config` to `touch_reset()`, and add the forward
+  declaration `static void touch_reset(void);` (`apply_config` is defined before
+  `touch_reset`).
+- **Lessons**:
+  1. **A reset is a "protocol restarts" action; every reset must go through the same
+     function.** Scattered GPIO toggles leave later steps running against an
+     undetermined chip state.
+  2. **When porting code with a script, watch definition order.** Pasting a function
+     body earlier without the forward declaration makes C99+ report an implicit
+     declaration.
 
-### P-141 ★★★ 八步记录只覆盖 2 个硬件，而 STATUS.md 列了 10 个
+### P-141 ★★★ The eight-step record covers only 2 pieces of hardware, while STATUS.md lists 10
 
-- **症状**：`docs/research/EIGHT-STEPS.toml` 只有 `touch` 和 `gpu` 两项；
-  `docs/engineering/STATUS.md` 的硬件表有 10 项，其中 6 项是 ✅ 设备已验证
-  （Boot chain / UFS-APFS / 显示首帧 / 背光 / 锁屏-SpringBoard / launchd 稳定）。
-- **后果**：
-  1. 六个跑通的硬件没有八步证据链，换人或换机时无法判断"当时靠什么验证的"
-  2. 门禁的 flash 检查只看到 2 个硬件，其余 8 个完全不受约束
-  3. 这正是"反复踩坑、反复造轮子"的根源 —— 记录和事实不一致
-- **修复（2026-11-12）**：
-  1. 补齐 storage / display / bootchain / buttons / wifi / audio / battery 七项，
-     evidence 全部引用 STATUS.md 的原始日志行或 patches 里的具体文件
-  2. 给每个硬件加 `status = "active" | "parked" | "planned"`
-  3. 门禁只对 `active` 做硬检查：八步流程约束的是**正在做的修复**，
-     不是历史清单。parked/planned 如实记录但不阻断构建
-  4. 门禁新增 [W] 检查：STATUS.md 里出现的硬件必须在 EIGHT-STEPS.toml 有记录
-  5. 已 device-verified 的项补 `prediction.success/failure`，
-     让重刷或换机时能立刻判断是否回归
-- **结果**：
+- **Symptom**: `docs/research/EIGHT-STEPS.toml` has only `touch` and `gpu`;
+  the hardware table in `docs/engineering/STATUS.md` has 10 entries, 6 of them ✅ device-verified
+  (Boot chain / UFS-APFS / display first frame / backlight / lock screen-SpringBoard / launchd stable).
+- **Consequence**:
+  1. Six pieces of working hardware have no eight-step evidence chain, so when the person or the machine changes you cannot tell "what it was verified with back then"
+  2. The gate's flash check sees only 2 pieces of hardware; the other 8 are completely unconstrained
+  3. This is exactly the root of "stepping on the same pitfall over and over, building the same wheel over and over" — the record and the facts disagree
+- **Fix (2026-11-12)**:
+  1. Fill in storage / display / bootchain / buttons / wifi / audio / battery, seven items,
+     with every evidence entry citing a raw log line from STATUS.md or a specific file in patches
+  2. Give every piece of hardware `status = "active" | "parked" | "planned"`
+  3. The gate hard-checks only `active`: the eight-step process constrains **the fix being worked on**,
+     not a historical list. parked/planned are recorded truthfully but do not block the build
+  4. The gate gains a [W] check: every piece of hardware appearing in STATUS.md must have a record in EIGHT-STEPS.toml
+  5. Items already device-verified get `prediction.success/failure`,
+     so a reflash or a machine swap can tell at once whether something regressed
+- **Result**:
   ```
-  build 模式 -> 0 问题，5 个 active 硬件，30 项检查
-  flash 模式 -> 仅 1 个问题：touch ⑦ 核验未完成
+  build mode -> 0 problems, 5 active hardware, 30 checks
+  flash mode -> only 1 problem: touch ⑦ verification incomplete
   ```
-- **教训**：
-  1. **"做了"和"记录了"是两件事。** 没有八步记录的工作，下次无法复用，
-     也无法判断是否可以信赖。
-  2. **门禁只应该约束正在做的事。** 把历史上碰过但没做完的东西一起硬卡，
-     会让人为了过门禁而写假证据 —— 那比没记录更糟。
-  3. **STATUS.md 与 EIGHT-STEPS.toml 必须双向一致。** 加 [W] 检查让漂移无处藏身。
+- **Lessons**:
+  1. **"Did it" and "recorded it" are two different things.** Work with no eight-step record cannot be reused
+     next time, and cannot be judged trustworthy.
+  2. **A gate should only constrain what is being done now.** Hard-blocking everything touched in the past
+     and never finished makes people write fake evidence to get through the gate — that is worse than no record.
+  3. **STATUS.md and EIGHT-STEPS.toml must agree in both directions.** The [W] check leaves drift nowhere to hide.
 
-### P-142 ★★★ 七个条件 OR 在一起静默返回 false，等于没写诊断
+### P-142 ★★★ Seven conditions OR'd together returning false silently is the same as writing no diagnostics
 
-- **症状**：实体键驱动的 `configuration()` 长这样
+- **Symptom**: the physical-button driver's `configuration()` looks like this
   ```c
   if (SecureDTLookupEntry(NULL,"/arm-io/pong-buttons",&e)!=kSuccess ||
       !property(e,"core-base",&c,8) || !property(e,"cnfg-base",&n,8) ||
       ... || c!=0xc400000 || n!=0xc42d000 || ... )
       return false;
   ```
-  任一个条件失败都只得到 `false`，日志里什么都没有。
-  于是"驱动已编译/链接/调用"和"驱动真的跑起来了"无法区分 ——
-  STATUS.md 只能标 🔄 并注明"`configuration()` 结果不可观测"。
-- **修复**：拆成逐条件检查，每个失败分支打印自己：
+  Any one failing condition yields only `false`, with nothing in the log.
+  So "the driver is compiled/linked/called" and "the driver actually ran" cannot be told apart —
+  STATUS.md could only mark 🔄 with the note "`configuration()` result is unobservable".
+- **Fix**: split it into per-condition checks, each failure branch printing itself:
   ```
   Pong keys: DT node /arm-io/pong-buttons not found
-  Pong keys: missing core-base            （7 个属性各一条）
+  Pong keys: missing core-base            (one line per property, 7 of them)
   Pong keys: unexpected bases core=... cnfg=... observer=... ee=...
   Pong keys: ppid mismatch pon=... (want ...) volume-up=... (want ...)
   Pong keys: PMIC windows mapping failed core=... cnfg=... observer=...
   Pong keys: PMIC windows mapped, pon-ppid=... volume-up-ppid=...
   ```
-  成功路径也有日志（最后一行），所以"没日志"不再有歧义。
-- **产物验证**：kernel.macho sha256 345d44c4 里 `Pong keys: missing` 命中 7 次，
-  其余各 1 次。
-- **教训**：
-  1. **OR 链是诊断的反面。** 条件越多，静默 false 丢的信息越多。
-     宁可多写几行 if，也不要一个长 OR。
-  2. **成功路径也要打日志。** 只有失败才打日志时，"没有日志"可以有两种含义：
-     成功，或根本没执行到。成功也打一行，歧义就消失了。
-  3. **"不可观测"是可以修的。** 遇到只能标"待观察"的项时，先问：
-     能不能加一行日志把它变成可观测？通常能。
+  The success path logs too (the last line), so "no log" is no longer ambiguous.
+- **Artefact verification**: in kernel.macho sha256 345d44c4, `Pong keys: missing` hits 7 times,
+  every other string once.
+- **Lessons**:
+  1. **An OR chain is the opposite of diagnostics.** The more conditions, the more information a silent false throws away.
+     Better to write a few extra ifs than one long OR.
+  2. **The success path must log too.** When only failures log, "no log" can mean two things:
+     success, or never reached. Log one line on success and the ambiguity disappears.
+  3. **"Unobservable" is fixable.** When you hit an item you can only mark "to observe", ask first:
+     can one log line make it observable? Usually yes.
 
-### P-143 ★★★ "文件丢失"其实是搜索范围不够：固件一直在 D 盘
+### P-143 ★★★ "The files are lost" was really a search scope too narrow: the firmware had been on the D drive all along
 
-- **症状**：`.cache/firmware/k60-gpu/` 空了，构建在
-  `build-pong-adreno-platform.py:64` 报 `FileNotFoundError: gmu_gen70000.bin`。
-  于是把 `CONFIG_XNU_PONG_ADRENO_PLATFORM` 设为 `n`，GPU 从构建里消失了六轮。
-- **真因**：五个固件文件一直在 `/mnt/d/Android/k60-ios/firmware/k60-gpu/`
+- **Symptom**: `.cache/firmware/k60-gpu/` was empty and the build reported
+  `FileNotFoundError: gmu_gen70000.bin` at `build-pong-adreno-platform.py:64`.
+  So `CONFIG_XNU_PONG_ADRENO_PLATFORM` was set to `n` and the GPU dropped out of the build for six rounds.
+- **Real cause**: the five firmware files had been in `/mnt/d/Android/k60-ios/firmware/k60-gpu/` all along
   ```
   74,676 B  a730_sqe.fw
   57,272 B  gmu_gen70000.bin
@@ -3505,46 +3723,46 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
    2,236 B  a730_zap.b01
    3,416 B  a730_zap.b02
   ```
-  而 `porting.toml:248` 早就写着这句话：
+  and `porting.toml:248` had said so for a long time:
   > The GPU firmware set is complete under D:/Android/k60-ios/firmware/k60-gpu
-- **我当时的搜索范围**：`<workspace>`、`/mnt/e/hackios`、`/opt/k60`
-  —— **漏了 /mnt/d**。而 REPO-INVENTORY.md 明确写着 `D:\Android\k60-ios` 是
-  48 个仓库的分布位置之一。
-- **恢复**：复制回 `.cache/firmware/k60-gpu/`，SHA256 校验一致，
-  `CONFIG_XNU_PONG_ADRENO_PLATFORM=y` 设回。构建产物 54,243,328 B（比关闭时多 270 KB），
-  `libPongAdrenoPlatform.a` 406,464 B，GPU 符号全部在内核里。
-- **教训**：
-  1. **搜文件前先读仓库清单。** `REPO-INVENTORY.md` 与 `porting.toml` 里
-     已经写明资产位置，比 `find` 全盘搜更可靠也更快。
-  2. **"丢失"要先区分"被删"和"没在搜的地方"。** 这次是后者，
-     代价是 GPU 线停了六轮。
-  3. **porting.toml 的 findings 是资产清单，不只是结论。**
-     它记录了固件路径、大小、以及哪些脚本消费它们。
+- **The scope I searched**: `<workspace>`, `/mnt/e/hackios`, `/opt/k60`
+  — **`/mnt/d` was missing**. And REPO-INVENTORY.md states plainly that `D:\Android\k60-ios` is
+  one of the locations where the 48 repositories are distributed.
+- **Recovery**: copied back into `.cache/firmware/k60-gpu/`, SHA256 verified identical,
+  `CONFIG_XNU_PONG_ADRENO_PLATFORM=y` set back. Build artefact 54,243,328 B (270 KB more than with it off),
+  `libPongAdrenoPlatform.a` 406,464 B, all GPU symbols in the kernel.
+- **Lessons**:
+  1. **Read the repository inventory before searching for files.** `REPO-INVENTORY.md` and `porting.toml`
+     already state where the assets are, which is more reliable and faster than a whole-disk `find`.
+  2. **"Lost" must first be split into "deleted" and "not where I looked".** This was the latter,
+     and it cost the GPU line six rounds.
+  3. **porting.toml's findings are an asset inventory, not just conclusions.**
+     It records the firmware paths, the sizes, and which scripts consume them.
 
-### P-144 ★★★ `pong_metal=2` 永远不发布 accelerator —— 这不是 bug，是设计
+### P-144 ★★★ `pong_metal=2` never publishes an accelerator — this is not a bug, it is by design
 
-- **症状**：`IOAcceleratorES provider published` 计数恒为 0，`native Metal entry`
-  不出现，帧率 0。
-- **代码事实**（`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:30, 44`）：
+- **Symptom**: the `IOAcceleratorES provider published` count is always 0, `native Metal entry`
+  never appears, frame rate 0.
+- **Code fact** (`drivers/PongAdreno/PongAdrenoNativeGlue.cpp:30, 44`):
   ```c
   const bool enabled = PE_parse_boot_argn("pong_metal",&metal,sizeof(metal)) && metal == 1;
   ...
   if (PE_parse_boot_argn("pong_metal",&metal,sizeof(metal)) && metal == 1) {
       const IOReturn status = PongAdrenoPublishMetalAccelerator();
   ```
-  **只有恰好等于 1 才发布。** `pong_metal=2` 走的是「不发布」分支，
-  所以拿 `pong_metal=2` 的日志去判断 Metal provider 好坏，等于什么都没测。
-- **同时存在的诊断缺陷**：`PongAdrenoPublishClient` 的四个 `return false`
-  全部没有日志，因此"published = 0"无法区分：
-  1. `backend` 已存在（重复发布）
-  2. `device` 为空
-  3. `device->healthy()` 为假（CP backend 不健康）
-  4. `native_adreno_publish()` 返回错误
-  5. `native_adreno_published_service()` 返回空
-  6. `PongAdrenoConfigureService()` 失败
-  7. `pong_metal != 1`（按设计不发布）
-- **修复（2026-11-12）**：每个分支都打印 `PONG METAL: <原因> (<值>)`，
-  并且明确区分"失败"与"按设计不发布"：
+  **It only publishes when the value is exactly 1.** `pong_metal=2` takes the "do not publish" branch,
+  so judging the Metal provider by a `pong_metal=2` log means nothing was tested at all.
+- **The diagnostic defect that coexists with it**: `PongAdrenoPublishClient`'s four `return false`
+  branches all log nothing, so "published = 0" cannot distinguish:
+  1. `backend` already exists (duplicate publish)
+  2. `device` is null
+  3. `device->healthy()` is false (CP backend unhealthy)
+  4. `native_adreno_publish()` returned an error
+  5. `native_adreno_published_service()` returned null
+  6. `PongAdrenoConfigureService()` failed
+  7. `pong_metal != 1` (not published by design)
+- **Fix (2026-11-12)**: every branch prints `PONG METAL: <reason> (<value>)`,
+  and "failed" is explicitly separated from "not published by design":
   ```
   publish skipped: already published (1)
   publish skipped: null backend (0)
@@ -3555,258 +3773,261 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   accelerator not published: pong_metal is not 1, value=<n>
   accelerator not published: pong_metal absent, value=0
   ```
-- **产物验证**：kernel.macho sha256 1583b632，七条字符串全部存在，
-  GPU 原有符号（PongAdrenoGmuFirmware / IOAcceleratorES / K60METALPLUGIN）
-  与其它硬件标记均未回归。
-- **教训**：
-  1. **拿错档位的日志做判断，比没有日志更糟。** `pong_metal=2` 稳定但什么都
-     不发布，它的稳定性不能证明 Metal 路径可用。跑之前先确认参数落在哪个分支。
-  2. **"按设计不发布"也是一种失败形态，必须与"出错"区分开。** 两者都表现为
-     "没有发布"，但一个要改参数、一个要修代码。
-  3. **P-142 的教训在这里同样成立**：一串裸 `return false` 等于没有诊断。
+- **Artefact verification**: kernel.macho sha256 1583b632, all seven strings present,
+  the pre-existing GPU symbols (PongAdrenoGmuFirmware / IOAcceleratorES / K60METALPLUGIN)
+  and the other hardware markers did not regress.
+- **Lessons**:
+  1. **Judging by the log of the wrong setting is worse than having no log.** `pong_metal=2` is stable but
+     publishes nothing; its stability does not prove the Metal path works. Confirm which branch the parameter
+     lands in before running.
+  2. **"Not published by design" is also a failure mode and must be separated from "error".** Both look like
+     "nothing published", but one needs a parameter change and the other needs a code fix.
+  3. **P-142's lesson holds here too**: a string of bare `return false` equals no diagnostics.
 
-### P-145 ★★★ `pong_adreno_start` 从未出现在 board.toml，GPU 平台从未启动过
+### P-145 ★★★ `pong_adreno_start` never appeared in board.toml, so the GPU platform never started
 
-- **代码要求**（`drivers/PongAdreno/PongAdrenoPlatform.cpp:479`）：
+- **What the code requires** (`drivers/PongAdreno/PongAdrenoPlatform.cpp:479`):
   ```c
   if(!PE_parse_boot_argn("pong_adreno_start",&requested,sizeof(requested)) || requested!=1) return;
   ```
-  没有这个参数，`pong_adreno_start_optional()` 直接 return，**整个 Adreno 平台不启动**。
-- **实测**：
+  Without this argument `pong_adreno_start_optional()` returns immediately and **the whole Adreno platform
+  never starts**.
+- **Measured**:
   ```
-  git log -S'pong_adreno_start' -- board.toml   -> 无输出（从未加过）
-  board.toml 的 kernel_args 里：pong_adreno_start / pong_metal / pong_gpu_scanout 全部缺失
+  git log -S'pong_adreno_start' -- board.toml   -> no output (never added)
+  board.toml kernel_args: pong_adreno_start / pong_metal / pong_gpu_scanout all missing
   ```
-  三个 GPU 开关**一个都没设**。
-- **后果**：`IOAcceleratorES provider published = 0`、`native Metal entry` 缺失，
-  这两条现象不需要任何 bug 来解释 —— 平台根本没跑。
-- **修复（2026-11-12）**：加入 `pong_adreno_start=1`（582 → 602 字节，余 6）。
-  本轮只加这一个，不加 `pong_metal`，一次只改一个变量。
-- **字节预算**（608 上限）：
+  **Not one** of the three GPU switches was set.
+- **Consequence**: `IOAcceleratorES provider published = 0` and the missing `native Metal entry`
+  need no bug to explain them — the platform never ran.
+- **Fix (2026-11-12)**: add `pong_adreno_start=1` (582 → 602 bytes, 6 left).
+  Only this one this round, no `pong_metal`: one variable at a time.
+- **Byte budget** (608 limit):
   ```
-  当前 30 项 602 字节，余量 6
-  pong_metal=1 需 13 字节（12 + 1 空格）-> 超限 7
+  now 30 items, 602 bytes, 6 left
+  pong_metal=1 needs 13 bytes (12 + 1 space) -> over by 7
   ```
-  下次要开 `pong_metal` 时必须先腾空间。候选：`k60_selftest_reboot=300`（23 B，
-  无人值守自检重启，手动测试时不需要）。
-- **教训**：
-  1. **"功能没生效"要先查开关，再查代码。** 三个 GPU 开关全缺，这比任何驱动
-     bug 都更早发生。
-  2. **文档写了 next_action 不等于配置里有了。** `porting.toml:240` 写着
-     "Boot with pong_adreno_start=1"，但 board.toml 从未加过 —— 文档与配置脱节。
-  3. **`git log -S<key> -- board.toml` 是判断"某开关是否曾经配过"的最快方法。**
+  Turning on `pong_metal` next time means freeing space first. Candidate: `k60_selftest_reboot=300` (23 B,
+  unattended self-test reboot, not needed for manual testing).
+- **Lessons**:
+  1. **"The feature is not taking effect" — check the switch before the code.** All three GPU switches were
+     missing, which happens earlier than any driver bug.
+  2. **next_action in a document does not mean the config has it.** `porting.toml:240` says
+     "Boot with pong_adreno_start=1", but board.toml never had it — document and config out of step.
+  3. **`git log -S<key> -- board.toml` is the fastest way to tell whether a switch was ever configured.**
 
-### P-146 ★★★ 1.2 MB 固件补丁存在但从未进 series，也从未被引用
+### P-146 ★★★ A 1.2 MB firmware patch existed but never entered series, and was never referenced
 
-- **症状**：`/opt/k60/trees/usb-cdc-mainline/device/patches/xnu/0403-k60-goodix-fw.patch`
-  1,211,985 B，包含 K60 触摸的完整固件与 config：
+- **Symptom**: `/opt/k60/trees/usb-cdc-mainline/device/patches/xnu/0403-k60-goodix-fw.patch`
+  1,211,985 B, containing the complete K60 touch firmware and config:
   ```
   k60_goodix_fw[]    223,744 B   sha256 1e647510...   = goodix_firmware_m11a.bin
-  k60_goodix_cfg[]     1,627 B   sha256 a730e3f1...   = goodix_cfg_group_m11a.bin（完整容器）
+  k60_goodix_cfg[]     1,627 B   sha256 a730e3f1...   = goodix_cfg_group_m11a.bin (full container)
   #define K60_GOODIX_FW_LEN   223744
   #define K60_GOODIX_CFG_LEN  1627
   ```
-  但：**它不在 `patches/xnu/series` 里，仓库里也没有这个文件，而且补丁内没有任何函数或 extern
-  声明 —— 两个数组都是 `static` 且无人引用，编译器会直接优化掉。**
-- **为什么这是大问题**：
-  1. 我们这几轮一直在为「config 该发多少字节」纠结（P-134 反复修正），
-     而答案早就以 1,627 字节完整容器的形式存在于这个文件里
-  2. 它只存在于 `/opt` 构建输入，不在版本控制 —— 和 GPU 固件、DT 节点同一个丢失模式
-  3. 即使进了 series，没有引用就等于没加：1.2 MB 死数据
-- **已做**：同步到仓库 `patches/xnu/0403-k60-goodix-fw.patch`。
-- **待做**：决定由谁引用它。两个候选：
-  - 触摸驱动（`pong_goodix.c`）在 `goodix_apply_config` 里改用 `k60_goodix_cfg`
-    而非内嵌的 `k60_cfg[1488]`
-  - 固件下载路径（ISP）使用 `k60_goodix_fw`
-- **config 长度的最终答案**：
+  But: **it is not in `patches/xnu/series`, the file is not in the repository at all, and the patch declares
+  no function or extern — both arrays are `static` and referenced by nobody, so the compiler drops them.**
+- **Why this is a big deal**:
+  1. We spent several rounds arguing about "how many config bytes to send" (P-134, corrected repeatedly),
+     while the answer had been sitting in this file all along as the full 1,627-byte container
+  2. It existed only in the `/opt` build input, not in version control — the same loss mode as the GPU firmware and the DT nodes
+  3. Even in series, unreferenced equals not added: 1.2 MB of dead data
+- **Done**: synced into the repository at `patches/xnu/0403-k60-goodix-fw.patch`.
+- **To do**: decide who references it. Two candidates:
+  - the touch driver (`pong_goodix.c`) using `k60_goodix_cfg` in `goodix_apply_config`
+    instead of the embedded `k60_cfg[1488]`
+  - the firmware download path (ISP) using `k60_goodix_fw`
+- **The final answer on config length**:
   ```
-  完整容器 goodix_cfg_group_m11a.bin   1,627 B  = 容器[0:1627]
-    ├─ [0:18]    头部（total_len/checksum/version/sub_len）
+  Full container goodix_cfg_group_m11a.bin   1,627 B  = container[0:1627]
+    ├─ [0:18]    header (total_len/checksum/version/sub_len)
     ├─ [18:22]   sub_len = 1609
     ├─ [22:38]   "Berlin" + padding
     ├─ [38]      sensor id 0xff
     ├─ [39:55]   "9916R" + padding
-    ├─ [139:141] 4e 4d（ASCII "NM" vendor 块标识）
-    └─ [141:1627] 1,486 B（我们最初剥出的那段）
-  yibiya 的 k60_cfg[1488] = 容器[139:1627]
+    ├─ [139:141] 4e 4d (ASCII "NM", vendor block marker)
+    └─ [141:1627] 1,486 B (the stretch we originally stripped out)
+
+  yibiya's k60_cfg[1488] = container[139:1627]
   ```
-  **三种候选都有了明确来源，不再是猜测。**
-- **教训**：
-  1. **"文件存在"和"文件生效"是两件事。** 1.2 MB 的数据文件不进 series、不被引用，
-     等于不存在。
-  2. **构建输入目录是易失的。** 只存在于 `/opt` 的补丁、DT 节点、固件，
-     必须同步进仓库，否则一次 clean 就没了。
-  3. **纠结某件事很久时，先全盘搜一遍仓库和构建输入。** P-134 的答案在 0403 里躺了很久。
+  **All three candidates now have an explicit source; it is no longer guesswork.**
+- **Lessons**:
+  1. **"The file exists" and "the file takes effect" are two different things.** A 1.2 MB data file that is not
+     in series and not referenced might as well not exist.
+  2. **The build input directory is volatile.** Patches, DT nodes and firmware that exist only under `/opt`
+     must be synced into the repository, or one clean wipes them.
+  3. **When you have been stuck on something for a long time, search the whole repository and build input first.** P-134's answer had been lying in 0403 for a long while.
 
-#### P-134 最终结论（2026-11-12）
+#### P-134 final conclusion (2026-11-12)
 
-config 长度的全部候选现在都有明确来源，不再是猜测：
+Every candidate for the config length now has an explicit source; it is no longer guesswork:
 
 ```
-完整容器 goodix_cfg_group_m11a.bin   1,627 B   = 容器[0:1627]
-  [0:18]     头部 total_len=1627 / checksum / version / sub_len=1609
+Full container goodix_cfg_group_m11a.bin   1,627 B   = container[0:1627]
+  [0:18]     header total_len=1627 / checksum / version / sub_len=1609
   [18:22]    sub_len
   [22:38]    "Berlin" + padding
   [38]       sensor id 0xff
   [39:55]    "9916R" + padding
-  [139:141]  4e 4d（ASCII "NM"，vendor 块标识）
-  [141:1627] 1,486 B（最初剥出的那段）
+  [139:141]  4e 4d (ASCII "NM", vendor block marker)
+  [141:1627] 1,486 B (the stretch originally stripped out)
 
-yibiya 的 k60_cfg[1488] = 容器[139:1627]
-仓库的 0403 内嵌 k60_goodix_cfg[1627] = 容器[0:1627]
+yibiya's k60_cfg[1488] = container[139:1627]
+the repository's 0403 embedded k60_goodix_cfg[1627] = container[0:1627]
 ```
 
-**这三个数（1627 / 1609 / 1488 / 1486）现在都能对应到容器的具体区段。**
-下一步只需决定发哪一段，不再是「不知道对不对」。
+**These numbers (1627 / 1609 / 1488 / 1486) can all now be mapped to a concrete range of the container.**
+The next step is only to decide which range to send; it is no longer "we do not know whether this is right".
 
-#### P-146 实测（2026-11-12）：进 series 不够，无人引用就一字不剩
+#### P-146 measured (2026-11-12): entering series is not enough — with nobody referencing it, not one byte survives
 
-把 0403 加进 series 并提交后构建，结果：
+After adding 0403 to series and committing, the build gave:
 
 ```
-内核大小: 54,243,328 B  ->  54,243,328 B   差 +0 B
-nm 里 k60_goodix_fw  / k60_goodix_cfg 符号:  0 个
-strings 里 "BERLIN":  MISSING      <- 223,744 B 固件头的魔数，不在内核里
-strings 里 "9916R" :  present      <- 这是触摸驱动内嵌的 1488 字节里的
-strings 里 "M11HTC":  present      <- 同上
+kernel size: 54,243,328 B  ->  54,243,328 B   diff +0 B
+k60_goodix_fw / k60_goodix_cfg symbols in nm:  0
+"BERLIN" in strings:  MISSING      <- magic of the 223,744 B firmware header, not in the kernel
+"9916R" in strings :  present      <- this one comes from the 1488 bytes embedded in the touch driver
+"M11HTC" in strings:  present      <- same as above
 ```
 
-**结论：`static` 数组没有任何引用时，编译器把 1.2 MB 全部丢掉，内核大小一字节没变。**
+**Conclusion: with no reference to a `static` array, the compiler throws away all 1.2 MB and the kernel size does not change by a byte.**
 
-这正是「文件存在 ≠ 文件生效」的最强证明：补丁进了 series、git apply 成功、
-构建通过、内核产出 —— 每一步都"成功"，但数据根本不在里面。
+This is the strongest proof of "the file exists ≠ the file takes effect": the patch entered series, `git apply` succeeded, the build passed, the kernel was produced — every step "succeeded", but the data is simply not in there.
 
-**要让它生效，必须有代码引用它。** 两个待做的引用点：
-1. 触摸驱动在 `goodix_apply_config` 里改用 `k60_goodix_cfg`（1627 B 完整容器）
-2. 固件下载路径使用 `k60_goodix_fw`（223,744 B，ISP 用）
+**For it to take effect, code must reference it.** Two reference points to do:
+1. the touch driver, in `goodix_apply_config`, switching to `k60_goodix_cfg` (1627 B full container)
+2. the firmware download path using `k60_goodix_fw` (223,744 B, for ISP)
 
-**判断依据**：只有引用之后，内核大小才会变化、`nm` 里才会出现符号。
-这两个是唯一可靠的判据 —— 不能只看构建是否成功。
+**How to judge**: only after a reference appears do the kernel size change and the `nm` symbols appear. Those two are the only reliable criteria — build success alone proves nothing.
 
-### P-147 ★★★ 诊断写进了内核，但所在函数从未被执行
+### P-147 ★★★ The diagnostics went into the kernel, but the function holding them never ran
 
-- **症状**：连续十几轮往触摸驱动里加诊断（device confirm、SPI mode select、CFG-DL、
-  COORD-MODE、触点解析），构建成功、`strings` 能在内核里找到这些字符串，**但上机日志里一行都没有**。
-- **根因**：`pong_goodix_init()` 的第一步是 `configuration()`，它用一串短路 `&&` 断言 DT 属性：
+- **Symptom**: a dozen rounds of adding diagnostics to the touch driver (device confirm, SPI mode select, CFG-DL,
+  COORD-MODE, touch point parsing); the build succeeded and `strings` found these strings in the kernel,
+  **but not one line appeared in the on-device log**.
+- **Root cause**: the first thing `pong_goodix_init()` does is `configuration()`, which asserts DT properties
+  with a chain of short-circuiting `&&`:
   ```c
   property(entry,"avdd-gpio",&avdd_gpio,4) &&
   property(entry,"max-x",&max_x,4) && property(entry,"max-y",&max_y,4) &&
   ...
   avdd_gpio==71 && max_x==14400 && max_y==32000;
   ```
-  而构建出的 ADT 里**根本没有 `avdd-gpio`**，`max-x` 是 1080（面板像素）、`max-y` 是 2412。
-  `configuration()` 恒返回 false → `pong_goodix_init()` 打印
-  `Pong touch: missing/incompatible K60 DT` 后直接 return →
-  **`bring_up()` / `touch_thread()` 里的全部诊断一次都没跑。**
-- **为什么难发现**：
-  1. 构建成功、符号在、字符串在 —— 每一步"看起来都对"
-  2. 那条 `missing/incompatible K60 DT` 日志如果没抓到，就完全看不出驱动提前退出了
-  3. 诊断加得越多，越容易以为"加了就会打印"
-- **教训**：
-  > **加诊断之前，先确认诊断所在的函数会被执行。**
-  > **一个 `if (!configuration()) return;` 能让后面几百行全部变成死代码，而构建对此一无所知。**
-- **已加门禁**：`scripts/check-dt-asserts.py`
-  - 解析驱动补丁里的 `property(entry,"X",...)` 调用
-  - 对照 `dts/mondrian.dts` 里对应节点的属性
-  - 缺一个就失败（冻结区只警告）
-  - 已挂进 `clean_build.sh`，位置在 `check-scope-freeze.py` 之前
-- **它还立刻抓到了第二个问题**：`pong-touch` 不只缺 `avdd-gpio`，还缺 `bitbang-pins`
-  —— 后者是 GPIO 回退路径的必需项。
+  But the built ADT has **no `avdd-gpio` at all**, `max-x` is 1080 (panel pixels) and `max-y` is 2412.
+  `configuration()` returns false every time → `pong_goodix_init()` prints
+  `Pong touch: missing/incompatible K60 DT` and returns →
+  **not one of the diagnostics in `bring_up()` / `touch_thread()` ever ran.**
+- **Why it was hard to spot**:
+  1. Build succeeded, symbols present, strings present — every step "looked right"
+  2. Unless that `missing/incompatible K60 DT` line was captured, the early exit was completely invisible
+  3. The more diagnostics you add, the easier it is to assume "added means printed"
+- **Lessons**:
+  > **Before adding diagnostics, confirm the function holding them will be executed.**
+  > **One `if (!configuration()) return;` can turn the next few hundred lines into dead code, and the build knows nothing about it.**
+- **Gate added**: `scripts/check-dt-asserts.py`
+  - parses the `property(entry,"X",...)` calls in the driver patches
+  - compares them against the properties of the corresponding node in `dts/mondrian.dts`
+  - fails when one is missing (frozen zone warns only)
+  - wired into `clean_build.sh`, ahead of `check-scope-freeze.py`
+- **It immediately caught a second problem**: `pong-touch` is missing not only `avdd-gpio` but also `bitbang-pins`
+  — the latter is required by the GPIO fallback path.
 
-#### 同类风险清单（还没检查过）
+#### Same-class risk list (not checked yet)
 
-`configuration()` 这种"断言一切、缺一即退"的写法如果还有别处，同样会让诊断静默失效：
+Any other `configuration()`-style "assert everything, exit on one miss" code silently disables diagnostics the same way:
 
-- [ ] `pong_buttons` 的 `configuration()` —— 已确认 6 个属性齐全
-- [ ] `PongAdrenoPlatform` 的 `start()` 前置检查
-- [ ] `NativeUfs` 的 `configuration()`
-- [ ] `PongAudio`（将来实现时）
+- [ ] `pong_buttons`' `configuration()` — confirmed all 6 properties present
+- [ ] `PongAdrenoPlatform`'s `start()` precondition checks
+- [ ] `NativeUfs`' `configuration()`
+- [ ] `PongAudio` (when implemented)
 
-**每个新驱动在写 `configuration()` 时，必须同时给 `check-dt-asserts.py` 加一条对应规则。**
+**Every new driver that writes a `configuration()` must add the matching rule to `check-dt-asserts.py` at the same time.**
 
-### P-148 ★★★ 三份副本 + reset/rebase = 反复丢数据，而且没有门禁
+### P-148 ★★★ Three copies + reset/rebase = repeated data loss, and no gate
 
-- **症状**：同一个文件存在于三个地方，靠手工 `cp` 同步：
+- **Symptom**: the same file exists in three places, synced by hand with `cp`:
   ```
-  E:\hackios\UniXNU-mondrian          仓库（版本控制）
-  /opt/k60/trees/usb-cdc-mainline/device  构建输入（构建实际读的）
-  <workspace>/scratch                    草稿
+  E:\hackios\UniXNU-mondrian          repository (version control)
+  /opt/k60/trees/usb-cdc-mainline/device  build input (what the build actually reads)
+  <workspace>/scratch                    drafts
   ```
-  任何一次「我改了一处，忘了另一处」都产生静默分歧。
-- **已经实际丢掉的东西**：
-  1. `0403-k60-goodix-fw.patch`（1.2 MB 触摸固件）只存在于构建输入，仓库里没有
-  2. `pong-touch` / `pong-buttons` DT 节点只在构建输入，仓库版 `mondrian.dts` 是
-     2,364 字节的空壳，一次 clean 就会把节点全带走
-  3. 八步表去重改好、README 也重新生成并验证过，**然后 `git reset --hard` 一执行就没了**
-  4. `check-dt-asserts.py` 在 scratch 里放了几小时，期间每次构建都没跑它
-- **三个独立机制，每个都够致命**：
-  | 机制 | 后果 |
+  Any "I changed one place and forgot the other" produces silent divergence.
+- **What was actually lost**:
+  1. `0403-k60-goodix-fw.patch` (1.2 MB touch firmware) exists only in the build input, not in the repository
+  2. the `pong-touch` / `pong-buttons` DT nodes exist only in the build input; the repository's `mondrian.dts` is
+     a 2,364-byte shell, and one clean takes all the nodes with it
+  3. the eight-step table was deduplicated, the README regenerated and verified, **and then one `git reset --hard` erased it**
+  4. `check-dt-asserts.py` sat in scratch for hours, and no build ran it during that time
+- **Three independent mechanisms, each lethal on its own**:
+  | Mechanism | Consequence |
   |---|---|
-  | 手工 `cp` 双向同步 | 分歧无声累积，没有任何提示 |
-  | `git reset --hard` | 未提交的工作直接消失，不警告 |
-  | `git pull --rebase` | 把本地回退重新拉回来 —— 0403 的回退就是这么被撤销的 |
-- **教训**：
-  > **同一个文件存在两处，就一定会分歧。**
-  > **回退只有在 push 之后才算数。**
-  > **在 scratch 里跑通的东西，必须在同一轮搬进 `scripts/`。**
-- **已加铁则**：`AGENTS.md` 铁则 5 —— 仓库是唯一真源，构建输入是它的镜像，
-  方向只有一个（repository → build input），唯一允许的搬运工具是
-  `scripts/sync-device-input.py`。附三条推论：reset 前先 `git status`；
-  `pull --rebase` 会重放回退前的提交；scratch 只放草稿。
-- **已加门禁**：`scripts/sync-device-input.py --check`
-  - 逐文件比对仓库与构建输入
-  - 构建输入里多出来的补丁直接删（真源是仓库）
-  - 有差异就失败，已挂进 `clean_build.sh`，在其它门禁之前
-  - 构建前先自动同步一次，再检查，所以失败意味着「连自动同步都没救回来」
+  | manual `cp` both ways | divergence accumulates silently, with no warning |
+  | `git reset --hard` | uncommitted work vanishes, no warning |
+  | `git pull --rebase` | replays the local revert back in — that is how the 0403 revert was undone |
+- **Lessons**:
+  > **One file in two places will always diverge.**
+  > **A revert only counts once it is pushed.**
+  > **Whatever passes in scratch must move into `scripts/` in the same round.**
+- **Iron rule added**: `AGENTS.md` iron rule 5 — the repository is the only source of truth, the build input is its mirror,
+  one direction only (repository → build input), and the only permitted mover is
+  `scripts/sync-device-input.py`. Plus three corollaries: `git status` before a reset;
+  `pull --rebase` replays the commits from before the revert; scratch holds drafts only.
+- **Gate added**: `scripts/sync-device-input.py --check`
+  - compares repository and build input file by file
+  - deletes patches that exist only in the build input (the repository is the source of truth)
+  - fails on any difference; wired into `clean_build.sh` ahead of the other gates
+  - syncs automatically once before checking, so a failure means "even the automatic sync could not save it"
 
-### P-149 ★★★ 传错 DTB：镜像大了 478 KB，起不来
+### P-149 ★★★ Wrong DTB: the image grew 478 KB and would not boot
 
-- **症状**：`fastboot boot` 返回 OKAY，设备闪一下复位回 fastboot，COM5 完全枚举不出来。
-  没有任何日志，因为死在 UEFI 读内核之前。
-- **根因**：`./unixnu bootimg --dtb` 传的是 UEFI 仓库里的全量 DTB：
+- **Symptom**: `fastboot boot` returned OKAY, the device blinked, reset back to fastboot, and COM5 never enumerated.
+  No log at all, because it died before UEFI read the kernel.
+- **Root cause**: `./unixnu bootimg --dtb` was handed the full DTB from the UEFI repository:
   ```
   ❌ uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb   480,692 B
   ✅ out-baseline/.../device-tree/hardware.dtb                                         2,925 B
   ```
-  打进 boot.img 的 kernel 区是 `gzip(shim + firmware) + dtb`，DTB 直接挂在尾部。
-  480 KB 的 DTB 让 kernel 区从 548,774 B 涨到 1,027,600 B。
-- **怎么一眼看出来**：
+  What goes into the boot.img kernel region is `gzip(shim + firmware) + dtb`, with the DTB hung directly on the tail.
+  A 480 KB DTB grows the kernel region from 548,774 B to 1,027,600 B.
+- **How to see it at a glance**:
   ```python
-  # 解 gzip 忽略尾部，比较两镜像的 gzip 部分和尾部
-  keep: gzip 546,908 B（sha256 相同）+ 尾部 1,866 B
-  r52 : gzip 546,908 B（sha256 相同）+ 尾部 480,692 B
-                                              ↑ 差别全在这里
+  # decompress gzip ignoring the tail, compare the gzip part and the tail of the two images
+  keep: gzip 546,908 B (same sha256) + tail 1,866 B
+  r52 : gzip 546,908 B (same sha256) + tail 480,692 B
+                                              ↑ the whole difference is here
   ```
-  **固件完全相同，差的全是 DTB。** 这一条就把"固件变了 / kernel 变了 / boot-arg 变了"
-  三个错误假设一次性排除。
-- **教训**：
-  > **镜像起不来时，先把 boot.img 拆开逐段比，不要猜 kernel / boot-arg / 驱动。**
-  > **两个组件仓库里都有名字像 DTB 的文件，选错一个就是 478 KB 的差距。**
-- **已写进**：`docs/engineering/REPO-MAP.md` 第四节，标明该用哪个 DTB 和判据。
+  **The firmware is identical; the entire difference is the DTB.** That one line rules out
+  "the firmware changed / the kernel changed / the boot-arg changed" in one go.
+- **Lessons**:
+  > **When an image will not boot, split the boot.img and compare it segment by segment; do not guess at kernel / boot-arg / driver.**
+  > **Both component repositories have files whose names look like a DTB; picking the wrong one is a 478 KB difference.**
+- **Written down in**: `docs/engineering/REPO-MAP.md` section 4, stating which DTB to use and the criterion.
 
-### P-151 ★★ pick 上游单个文件会覆盖我们对同一文件的改动
+### P-151 ★★ Picking a single upstream file overwrites our changes to the same file
 
-- **症状**：`pick-upstream.py --apply` 取 yibiya 的 `9269d7728`（wallpaper native stock restore），
-  它带的 `patches/xnu/0340-k60-uilib-deploy.patch` 覆盖了我们的版本。
-  变更量 **12,438 行、9,500 删除**，之后 `git apply --check` 在核心里失败：
+- **Symptom**: `pick-upstream.py --apply` took yibiya's `9269d7728` (wallpaper native stock restore),
+  and the `patches/xnu/0340-k60-uilib-deploy.patch` it carried overwrote our version.
+  Change volume **12,438 lines, 9,500 deletions**, after which `git apply --check` failed in the kernel:
   ```
   error: patch failed: bsd/dev/k60_uilib.c:0
   error: patch failed: bsd/kern/kern_exec.c:7772
   ```
-- **根因**：文件级 pick 是「整文件替换」，没有三方合并。当我们和上游**都改过同一个文件**时，
-  取上游等于丢掉我们的改动。这两个文件恰好是 1,052,856 B（我们）对 626,395 B（上游），
-  差异巨大。
-- **修法**：`git checkout <上一个 tag> -- <该文件>` 精确回退，然后**手工把上游那次提交的意图
-  合进来**，而不是整文件替换。
-- **教训**：
-  > **pick 的单位不是文件，是改动。** 当两边都动过同一个文件时，整文件替换一定丢东西。
-  > 判据：pick 前后文件大小的变化幅度 —— 掉 40% 这种，几乎肯定覆盖了本地工作。
-- **已加检查**：`pick-upstream.py` 应在覆盖前比较文件大小，落差超过阈值时警告而不是静默覆盖。
-  （待实现，记在这里。）
+- **Root cause**: a file-level pick is "replace the whole file", with no three-way merge. When both we and upstream
+  **have modified the same file**, taking upstream means losing our changes. These two files happened to be
+  1,052,856 B (ours) against 626,395 B (upstream), a huge difference.
+- **Fix**: `git checkout <previous tag> -- <that file>` for a precise rollback, then **hand-merge the intent of that
+  upstream commit in**, instead of replacing the whole file.
+- **Lessons**:
+  > **The unit of a pick is a change, not a file.** When both sides have touched the same file, whole-file replacement always loses something.
+  > Criterion: the size change of the file across the pick — a 40% drop almost certainly overwrote local work.
+- **Check added**: `pick-upstream.py` should compare file sizes before overwriting and warn instead of silently overwriting
+  when the drop exceeds a threshold. (Not implemented yet; recorded here.)
 
-### P-152 ★★★ Data 卷的 UUID 必须是设备上真实卷，不是 seed 里的那个
+### P-152 ★★★ The Data volume UUID must be the real volume on the device, not the one in the seed
 
-- **症状**：内核启动到 owner mount 后自己 panic：
+- **Symptom**: the kernel panics by itself after booting as far as the owner mount:
   ```
   PONG APFS: wait for Data UUID 6DCCF70A-6FD6-403E-ACED-95313CD7CBB8, timeout=5s
   PONG APFS: Data UUID wait timed out
@@ -3814,200 +4035,177 @@ strings 里 "M11HTC":  present      <- 同上
   K60DATA UFS Data window not published for 6DCCF70A-...
   K60PANICARGS K60SELF novar ... datastage=0 dataerr=2 @kern_exec.c:8463
   ```
-- **根因**：`CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 写的是 `seed/k60-data-seed.dbr`（32 MiB）里的
-  卷 UUID `6DCCF70A-…`。设备上那个 19.87 GiB 的 Data 窗口是后来长出来的另一个卷，
-  UUID 是 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`，容器是 `068446EE-…`。
-  Data 窗口本身发布正常、APFS 容器也挂上了 —— 内核只是拿一个不存在的 UUID 等了 5 秒。
-- **判据**：控制台里 `PONG APFS: window media count=N window=PongDataWindow` 及其后面
-  若干行 `window media uuid=…` 就是该窗口里真实存在的卷。UUID 必须从那里抄，不能从种子推。
-- **修法**：`configs/mondrian_defconfig` 改成实际卷 UUID，并在注释里写下日志出处。
-- **门禁**：`scripts/check-data-identity.py`（把 defconfig 的 UUID 与最近一份控制台日志里
-  观察到的 Data 窗口卷 UUID 交叉核对）。
+- **Root cause**: `CONFIG_XNU_OWNER_DATA_VOLUME_UUID` was set to the volume UUID `6DCCF70A-…` from
+  `seed/k60-data-seed.dbr` (32 MiB). The 19.87 GiB Data window on the device is a different volume that grew later,
+  with UUID `1BCD69FF-24A5-48B1-94B6-8FE592B2F597` and container `068446EE-…`.
+  The Data window itself published fine and the APFS container mounted — the kernel simply waited 5 seconds
+  on a UUID that does not exist.
+- **Criterion**: in the console, `PONG APFS: window media count=N window=PongDataWindow` and the following
+  `window media uuid=…` lines are the volumes that really exist in that window. The UUID must be copied from there,
+  never derived from the seed.
+- **Fix**: `configs/mondrian_defconfig` changed to the real volume UUID, with the log source written into the comment.
+- **Gate**: `scripts/check-data-identity.py` (cross-checks the defconfig UUID against the Data window volume UUID
+  observed in the newest console log).
 
-### P-153 ★★★ UFS Data 分支的尺寸天花板是 2 GiB，19.87 GiB 的窗口会被静默丢掉
+### P-153 ★★★ The UFS Data branch's size ceiling is 2 GiB, so a 19.87 GiB window is silently dropped
 
-- **症状**：UUID 修好后仍然 `goto done`，`/private/var` 不挂载。
-- **根因**：`patches/xnu/offline-owner-systemos-mount.patch` 的 UFS 分支沿用了 scratch-seed
-  时代的 `if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;`。
-  2 GiB 对 32 MiB 的种子合适，对 19.87 GiB 的真实窗口就是拒绝。
-- **修法**：UFS 分支上限抬到 `0x800000000`（32 GiB = 整个 unixnu 分区）。
-  scratch-seed 分支（`XNU_NATIVE_RAM_BLOCK`）保持 2 GiB 不动。
-- **门禁**：`scripts/check-data-identity.py` 同时核对天花板 > 清单里 Data 窗口的实际字节数。
+- **Symptom**: with the UUID fixed it still ends in `goto done`, and `/private/var` does not mount.
+- **Root cause**: the UFS branch of `patches/xnu/offline-owner-systemos-mount.patch` kept the scratch-seed era
+  `if (!size || size > UINT64_C(0x80000000) || (size & 4095)) goto done;`.
+  2 GiB is right for a 32 MiB seed and is a rejection for the real 19.87 GiB window.
+- **Fix**: raise the UFS branch ceiling to `0x800000000` (32 GiB = the whole unixnu partition).
+  The scratch-seed branch (`XNU_NATIVE_RAM_BLOCK`) stays at 2 GiB, unchanged.
+- **Gate**: `scripts/check-data-identity.py` also checks that the ceiling is greater than the actual byte count of the
+  Data window in the manifest.
 
-### P-154 ★★ 重新构建的固件卷找不到 payload 卷；`cf448571…` 仍然能启
+### P-154 ★★ The rebuilt firmware volume cannot find the payload volume; `cf448571…` still boots
 
-- **症状**：`fastboot boot` 通过，屏上「failed to find an operating system」，串口：
+- **Symptom**: `fastboot boot` passes, the screen shows "failed to find an operating system", the serial port shows:
   ```
   UNIXNURAMDISK: initrd block device 0xAA961000 size 0xD69DE00 Success
   UNIXNU: config: no boot entry found
   UNIXNU: config: none found, using built-in configuration
   UNIXNU: menu: shown 4 entries, default 0 'exit'
   ```
-- **已排除**：`Platforms/` 与 yibiya 仓库零差异、六个 Mu patch 逐字节相同、子模块 pin 相同、
-  payload FAT 在 `0x87000` 且 `EFI/UNIXNU/unixnu.toml` 可读（`mtype` 验证）、
-  去掉 Mu patch 重打（`patches = []`）仍然失败。
-- **当前状态**：未定位。可用做法是 `unixnu bootimg --fd /tmp/old-fd.fd` 用固件卷
-  `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`（从
-  `keep-a6165f2404568c1d.img` 里提出）先跑通内核这条线。
-- **已知基线**：`cf448571…` 能启；从源码重建的三个 pin（`3c9c7b2`+六补丁 →`f50b7e3c…`、
-  `3d2a9fa`/`6f805f2`+六补丁 → 直接冲突）都无法复现它。
-- **门禁**：`scripts/check-boot-procedure.py` 之外新增 `check-fd-identity.py`：
-  打包时若固件卷 sha256 不等于 `cf448571…` 且没有 `--allow-unverified-fd`，直接拒绝出图。
+- **Ruled out**: `Platforms/` shows zero difference against the yibiya repository, the six Mu patches are byte-identical,
+  the submodule pins are the same, the payload FAT is at `0x87000` and `EFI/UNIXNU/unixnu.toml` is readable
+  (verified with `mtype`), and rebuilding with the Mu patches removed (`patches = []`) still fails.
+- **Current state**: not localised. The workaround is `unixnu bootimg --fd /tmp/old-fd.fd` with the firmware volume
+  `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` (extracted from
+  `keep-a6165f2404568c1d.img`) to get the kernel line running first.
+- **Known baseline**: `cf448571…` boots; the three pins rebuilt from source (`3c9c7b2`+six patches →`f50b7e3c…`,
+  `3d2a9fa`/`6f805f2`+six patches → immediate conflict) cannot reproduce it.
+- **Gate**: beyond `scripts/check-boot-procedure.py`, add `check-fd-identity.py`:
+  if the firmware volume sha256 is not `cf448571…` at packaging time and `--allow-unverified-fd` is absent,
+  refuse to emit an image.
 
-### P-155 ★★ 给 kern_exec.c 的早期补丁加行会打断后面所有补丁
+### P-155 ★★ Adding lines to an early patch to kern_exec.c breaks every patch after it
 
-- **症状**：`0302-data-cap-execerr-kxp.patch` 在 `bsd/kern/kern_exec.c:7434` 失配，
-  整轮 15 分钟构建作废：
+- **Symptom**: `0302-data-cap-execerr-kxp.patch` fails to match at `bsd/kern/kern_exec.c:7434`,
+  wasting a whole 15-minute build round:
   ```
   unixnu: XNU patch .../0302-data-cap-execerr-kxp.patch: git failed (1):
   error: patch failed: bsd/kern/kern_exec.c:7434
   ```
-- **根因**：`offline-owner-systemos-mount.patch` 在 `kern_exec.c` 里多加了 2 行注释，
-  后续补丁的上下文整体下移，`git apply` 不接受。
-- **修法**：改这类早期补丁时**保持净行数不变**——要么把注释压进已有的注释块，
-  要么同时删掉等量行。`fix-patch-hunks.py` 只重算 hunk 计数，不会替后续补丁找偏移。
-- **门禁**：`porting-gate.py` 的 `[S]` series 指纹会在补丁内容变化时要求显式
-  `--force-new-series`；真正的判据仍是完整构建。
+- **Root cause**: `offline-owner-systemos-mount.patch` added 2 comment lines in `kern_exec.c`,
+  shifting the context of every later patch down, which `git apply` will not accept.
+- **Fix**: when editing this kind of early patch, **keep the net line count unchanged** — either fold the comment
+  into an existing comment block, or delete the same number of lines. `fix-patch-hunks.py` only recomputes hunk
+  counts; it will not find offsets for later patches.
+- **Gate**: the `[S]` series fingerprint in `porting-gate.py` demands an explicit `--force-new-series` when patch
+  content changes; the real criterion is still a full build.
 
-### P-156 ★★ boot-arg 的值越出驱动接受范围，硬件会被自己的参数关掉
+### P-156 ★★ When a boot-arg value goes outside the driver's accepted range, the hardware is switched off by its own parameter
 
-- **症状**：串口只有一行
-  `Pong touch: unsupported k60_touch_se=19; normal UI boot continues`，
-  之后再无触摸日志，polls/reports 全 0。看起来像驱动坏了。
-- **根因**：`board.toml` 里写的是 `k60_touch_se=19`（旧编号残留），而驱动
-  `pong_goodix_init()` 只接受 `1..7`：
+- **Symptom**: one line on the serial port,
+  `Pong touch: unsupported k60_touch_se=19; normal UI boot continues`,
+  then no touch log at all, polls/reports all 0. It looks like a broken driver.
+- **Root cause**: `board.toml` said `k60_touch_se=19` (a leftover from an old numbering), while the driver
+  `pong_goodix_init()` accepts only `1..7`:
   ```
   (void)PE_parse_boot_argn("k60_touch_se", &stage, sizeof(stage));
   if (!enabled || !stage) return;
   if (stage > 7) { printf("Pong touch: unsupported k60_touch_se=%u; ..."); return; }
   ```
-  越界就 `return`，整条触摸线程不启动；而 `docs/engineering/BOOT-ARGS.md` 的表格
-  早就写着「0..7」——文档对、配置错，没有任何东西在比对它们。
-- **修法**：`board.toml` 改回 `k60_touch_se=6`。
-- **门禁**：`check-boot-args.py` 新增范围校验——把 `BOOT-ARGS.md` 表格里「范围」列
-  的 `A..B` / `≤ N` 解析成判据，逐条比对 `board.toml` 的实参，越界即失败。
-  文档因此变成可执行的：写下来的范围就会被检查。
+  Out of range it `return`s and the whole touch thread never starts; while the table in
+  `docs/engineering/BOOT-ARGS.md` had said "0..7" all along — the document right, the config wrong, and nothing
+  comparing them.
+- **Fix**: `board.toml` back to `k60_touch_se=6`.
+- **Gate**: `check-boot-args.py` gains range validation — the `A..B` / `≤ N` entries in the "range" column of the
+  `BOOT-ARGS.md` table are parsed into criteria and compared one by one with the actual arguments in `board.toml`;
+  out of range fails.
+  The document thus becomes executable: a range that is written down gets checked.
 
-### P-157 ★★ 配置打开了，构建脚本却从没把库链进去
+### P-157 ★★ The config is on, but the build script never linked the library in
 
-- **症状**：`configs/mondrian_defconfig` 里 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`，
-  `.config` 里也是 `y`，但内核里既没有 `K60Battery` 的对象文件也没有一个字串，
-  串口日志零 `K60Battery` 行——看上去"电池驱动没工作"。
-- **根因**：`E:\hackios\UniXNU\scripts\unixnu\kernel.py:17-26` 只导出
-  `XNU_K60_PHYSICAL_BATTERY=1`；真正把 `libK60PhysicalBattery.a` 链进去的是
-  `tree/scripts/build-xnu-4k-baseline.sh`，而它**既不读这个环境变量，也没有
-  `-Wl,-force_load`**。`patches/xnu/0602-physical-battery.patch:10-12` 明写
-  "父进程必须自己完成这两步"。于是配置是纯装饰。
-- **证据**：`llvm-nm kernel.macho` 有 `IOKitBSDInit.cpo`，没有 K60Battery/PongPower
-  对象或符号；`scripts/build-k60-physical-battery.py` 从未被调用；
-  `/opt/k60` 下不存在 `libK60PhysicalBattery.a`。
-- **修法（未做）**：在 `build-xnu-4k-baseline.sh` 里仿照 UFS 归档那一段
-  （`:927-929` 的 `test -f` + `-Wl,-force_load`）加电池归档，并且生成归档的步骤
-  要进构建链。
-- **门禁（未做）**：凡是 `CONFIG_XNU_*_MOUNT`/`_BATTERY` 这类"要链外部归档"的开关，
-  应当有检查：开关为 `y` 时，`build-xnu-4k-baseline.sh` 必须出现对应的
-  `-force_load`，否则失败。现在的 `check-rules.py` 没有这一类。
+- **Symptom**: `configs/mondrian_defconfig` has `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`,
+  `.config` has `y` too, but the kernel has neither a `K60Battery` object file nor a single string,
+  and the serial log has zero `K60Battery` lines — it looks like "the battery driver does not work".
+- **Root cause**: `E:\hackios\UniXNU\scripts\unixnu\kernel.py:17-26` only exports
+  `XNU_K60_PHYSICAL_BATTERY=1`; what actually links `libK60PhysicalBattery.a` in is
+  `tree/scripts/build-xnu-4k-baseline.sh`, and that script **neither reads this environment variable nor has
+  `-Wl,-force_load`**. `patches/xnu/0602-physical-battery.patch:10-12` states plainly that "the parent process
+  must do these two steps itself". So the config is pure decoration.
+- **Evidence**: `llvm-nm kernel.macho` has `IOKitBSDInit.cpo` and no K60Battery/PongPower object or symbol;
+  `scripts/build-k60-physical-battery.py` is never called;
+  `libK60PhysicalBattery.a` does not exist under `/opt/k60`.
+- **Fix (not done)**: in `build-xnu-4k-baseline.sh`, mirror the UFS archive block
+  (`test -f` + `-Wl,-force_load` at `:927-929`) for the battery archive, and the step that generates the archive
+  has to enter the build chain.
+- **Gate (not done)**: any switch of the `CONFIG_XNU_*_MOUNT`/`_BATTERY` kind that "links an external archive"
+  should have a check: when the switch is `y`, `build-xnu-4k-baseline.sh` must contain the corresponding
+  `-force_load`, or it fails. Today's `check-rules.py` has no such class.
 
-## P-159 启动镜像的 args 有两个来源，内核里那一段不是固件传的那一段
+## P-159 The boot image's args have two sources; the copy inside the kernel is not the one the firmware passes
 
-从 boot 镜像里扫 `-v native-ufs=1` 得到的字符串是内核内嵌默认值；固件真正传给内核的是 payload 卷里 `EFI/UniXNU/unixnu.toml` 的 `args`。2026-11-12 拿前者当基线做了三轮 A/B，全部无效。取法：`mtype -i IMG@@552960 ::/EFI/UniXNU/unixnu.toml`（偏移是十进制字节数，`@@0x87000` 会报 `init :: non DOS media`）。
+Scanning `-v native-ufs=1` out of the boot image gives the kernel's embedded default; what the firmware actually passes to the kernel is the `args` in `EFI/UniXNU/unixnu.toml` on the payload volume. On 2026-11-12 three rounds of A/B used the former as the baseline, and all were invalid. How to read it: `mtype -i IMG@@552960 ::/EFI/UniXNU/unixnu.toml` (the offset is a decimal byte count; `@@0x87000` reports `init :: non DOS media`).
 
-**教训**：用 mtype 读 payload 的 unixnu.toml，不要从内核串猜。
+**Lesson**: read the payload's unixnu.toml with mtype; do not guess it from kernel strings.
 
-## P-160 keep 镜像能启动的唯一差异是 pong_metal=2 与 k60_touch_se 未设
+## P-160 The only differences in the keep image that boots are pong_metal=2 and k60_touch_se being unset
 
-2026-11-11 的可启动镜像 args 是 28 条，含 `pong_metal=2`、`k60_autoreset=300`、`applog=1`，不含 `fb_threads`/`k60_textonly`/`k60_touch_se`。2026-11-12 的镜像把 `pong_metal` 改成 1 并把 `k60_touch_se` 设成 6，结果 SpringBoard 只活 4 行就 exit=255，`cs_invalid_page` 从 1 涨到 11、corpse 从 4 涨到 27；换成 keep 的内核配同样的坏 args 也一样崩，说明不是内核版本问题。
+The bootable image of 2026-11-11 had 28 args, including `pong_metal=2`, `k60_autoreset=300`, `applog=1`, and not including `fb_threads`/`k60_textonly`/`k60_touch_se`. The 2026-11-12 image changed `pong_metal` to 1 and set `k60_touch_se` to 6, and SpringBoard survived only 4 lines before exit=255, `cs_invalid_page` went from 1 to 11 and corpse from 4 to 27; pairing the keep kernel with the same bad args crashed the same way, so it is not a kernel version problem.
 
-**教训**：board.toml 的 kernel_args 以可启动集合为准，改动必须带一次真实启动对照。
+**Lesson**: board.toml's kernel_args are governed by the bootable set; a change must come with a real boot comparison.
 
-## P-161 shared_region 启动失败与 K60DYLD rc=2 都不是崩溃原因
+## P-161 Neither the shared_region boot failure nor K60DYLD rc=2 is the cause of the crash
 
-崩的那次日志有 `shared_region ... vm_shared_region_start_address() failed` 和 `K60DYLD .../dyld_shared_cache_arm64e rc=2`，但可启动的 keep 镜像里同样有这两行。镜像里本来就没有 `dyld_shared_cache_arm64e`（整个镜像只有 `_arm64` 与其子缓存 .01–.42），所以 rc=2 是正常现象。
+The log of the crashing run has `shared_region ... vm_shared_region_start_address() failed` and `K60DYLD .../dyld_shared_cache_arm64e rc=2`, but the bootable keep image has both lines as well. The image never contained `dyld_shared_cache_arm64e` anyway (the whole image has only `_arm64` and its sub-caches .01–.42), so rc=2 is normal.
 
-**教训**：判定回归前先在可启动镜像里找同一条日志。
+**Lesson**: before calling something a regression, find the same log line in a bootable image.
 
-## P-162 · 补丁必须是 git 能解析的 diff
+## P-162 · a patch must be a diff git can parse
 
-四条独立的坑，指向同一个后果：`git apply` 在编译已经跑起来之后才拒绝补丁。
+Four independent pitfalls pointing at the same consequence: `git apply` rejects the patch only after the compile is already running.
 
-1. hunk 计数与 body 行数不符（增删行后没重算 `@@ -a,b +c,d @@`）。
-2. 文件末尾缺 `\n`，git 少数一行，报 `corrupt patch at line <最后一行+1>`。
-3. 尾部留了一个空 context 行，计数器把它算进 body。
-4. 净减行编辑：删掉的 `+` 行多于新增，重算后仍然对不上。
+1. hunk counts disagree with the number of body lines (after adding or deleting lines `@@ -a,b +c,d @@` was not recomputed).
+2. the file lacks a trailing `\n`, git counts one line short and reports `corrupt patch at line <last line + 1>`.
+3. a blank context line was left at the end, and the counter counted it into the body.
+4. a net-deletion edit: more `+` lines removed than added, and after recomputation it still does not match.
 
-2026-11-12 的实例：`patches/xnu-ipados18/0245-k60-cpu-clusters.patch` 缺少结尾换行，
-在树里躺了很久，谁改到它谁才会发现。补一个字节后 `git apply --numstat` 通过。
+Instance from 2026-11-12: `patches/xnu-ipados18/0245-k60-cpu-clusters.patch` was missing its trailing newline and lay in the tree for a long time; only whoever edited it would find out. After adding one byte `git apply --numstat` passed.
 
-检查：`python3 scripts/check-patch-apply.py`（默认只查相对 HEAD 改动过的补丁）。
+Check: `python3 scripts/check-patch-apply.py` (by default it only checks patches changed relative to HEAD).
 
-修法优先级：**先试补结尾换行** → 再 `scripts/recount_hunks.py` → 两者都无效时，
-不要继续原地增删，改为**新写一个独立补丁**，让老补丁保持原样。
+Fix priority: **try adding the trailing newline first** → then `scripts/recount_hunks.py` → if neither works, stop adding and deleting in place and **write a new standalone patch**, leaving the old one as it is.
 
-## P-163 一根 SPI 线的电平要配两种偏置才有意义
+## P-163 An SPI line's level only means something after you bias it both ways
 
-单次读到全 1 或全 0 都不能说明芯片是否应答：那条线可能是悬空的。判定方法是同一条线
-分别加上拉和下拉各测一次——读数跟随偏置就是悬空，读数不跟随才是真有驱动源。
+A single read of all ones or all zeros cannot tell you whether the chip is answering: that line may be floating. The test is to read the same line once with a pull-up and once with a pull-down — if the reading follows the bias it is floating, if it does not there really is a driver on it.
 
-本项目实测（`docs/research/touch/GROUND-TRUTH.md` 的"两三种偏置"表）：上拉全 1、
-下拉全 0，据此把"时钟太快/模式不对/片选错/复位没松"整类猜测一次性排除，直接定位到
-供电缺失。检查方式：`grep 'K60BB frame' <usblog>/console.log` 看两种偏置下的
-`miso` 计数是否分别等于位数的全 1 与 0。
+Measured on this project (the "two or three biases" table in `docs/research/touch/GROUND-TRUTH.md`): pull-up all 1, pull-down all 0, which ruled out the whole class of guesses "clock too fast / wrong mode / wrong chip select / reset never released" in one go and pointed straight at a missing supply. How to check: `grep 'K60BB frame' <usblog>/console.log` and see whether the `miso` counts under the two biases equal all ones and zeros for the bit count.
 
-## P-164 写在启动开头的横幅会被当成结论
+## P-164 A banner printed at the start of boot gets read as the conclusion
 
-`drivers/PongAdreno/PongAdrenoPlatform.cpp:411` 曾打印
-`PONG ADRENO: startup requested; no accelerator published`，而这句话出现在
-`run()` 的**开头**——其后的 22 个启动阶段全部 `result=0`（PAS13 ZAP 认证、
-CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过）。日志读者
-（包括本项目多轮内部结论）把它当成结果，于是"GPU 没启动"这个错误判断被反复继承。
+`drivers/PongAdreno/PongAdrenoPlatform.cpp:411` used to print `PONG ADRENO: startup requested; no accelerator published`, and that line appeared at the **start** of `run()` — all 22 boot stages after it returned `result=0` (PAS13 ZAP authentication, CP ME_INIT, nonsecure switch, authentication fence, IRQ 332 ownership, BO pool all passed). Readers of the log (including several internal conclusions in this project) took it as the result, so the wrong judgement "the GPU did not start" was inherited over and over.
 
-判定方式：`grep -an 'PONG ADRENO' <usblog>/console.log | tail` 看**最后**一条
-阶段记录，而不是 `sort -u` 或开头几条。当前日志的最后一条是
-`CP/user-client startup result=0 a=0x40000007 b=0x20010000`。
+How to decide: `grep -an 'PONG ADRENO' <usblog>/console.log | tail` and look at the **last** stage record, not `sort -u` or the first few lines. The last line in the current log is `CP/user-client startup result=0 a=0x40000007 b=0x20010000`.
 
-规则：横幅只描述"现在开始做什么"，结论必须由最后一个阶段的 result 或一条明确的
-"published/failed" 行给出。
+Rule: a banner only describes "what is starting now"; the conclusion must come from the last stage's result or an explicit "published/failed" line.
 
-## P-165 序列里一个补丁失配，它和它之后的全部消失
+## P-165 One mismatched patch in the series takes itself and everything after it out
 
-`git apply --numstat` 只证明 diff 结构合法，不证明上下文在当前树上还能匹配。手写 hunk
-（尤其是给 `kern_exec.c` 这种被多个补丁反复改的文件）时，前一个补丁应用后原文已经变了，
-新补丁的三行上下文只要有一行对不上，`git apply` 就整条放弃——**它之后的补丁也一并跳过**，
-而后面的编译错误往往出现在完全无关的文件里。
+`git apply --numstat` only proves the diff is structurally valid, not that the context still matches the current tree. With hand-written hunks (especially for a file like `kern_exec.c` that several patches keep modifying), the source has already changed once the previous patch applied, and if even one of the three context lines of the new patch does not match, `git apply` drops the whole thing — **and skips every patch after it too**, while the compile errors that follow often show up in a completely unrelated file.
 
-2026-11-13 的实例：手写的 `0341-k60-metal-seeds.patch` 通过语法校验，接进序列后
-`patches applied: 210`（序列 222 条），新文件连名字都没出现在日志里，构建失败，代价 13 分钟。
+Instance from 2026-11-13: the hand-written `0341-k60-metal-seeds.patch` passed syntax validation; after it entered the series, `patches applied: 210` (series has 222), the new file's name never even appeared in the log, the build failed, at a cost of 13 minutes.
 
-规则：**永远用"已应用源码 + `diff -u`"生成补丁**，不要手写 hunk 的上下文与行号。
-构建后立刻跑 `python3 scripts/check-build-applied.py`，它比对日志里的
-`patches applied: N` 与 `patches/xnu/series` 的行数。
+Rule: **always generate patches from "already-applied source + `diff -u`"**; never hand-write hunk context and line numbers.
+Right after a build run `python3 scripts/check-build-applied.py`; it compares the `patches applied: N` in the log with the line count of `patches/xnu/series`.
 
-## P-166 构建脚本不许写补丁清单
+## P-166 The build script must not write the patch list
 
-`buildv15.sh` 曾在每次构建开头把 `patches/xnu/series` 覆盖成
-`/mnt/e/k60-work/scratch/SERIES-FINAL.txt`。后果是双向的：改仓库里的序列不生效，
-改 scratch 里那份却会静默改变整个补丁集。2026-11-13 的一次误删就是这样发生的——
-按编号前缀删除了两条 `0341`，其中一条是别人写的 `0341-k60-setprop-probe.patch`，
-于是 `0342` 找不到它要改的 `printf`，构建停在 157/222，而错误只说
-`iorkit/Kernel/IORegistryEntry.cpp: patch does not apply`，完全看不出缺前置。
+`buildv15.sh` used to overwrite `patches/xnu/series` with `/mnt/e/k60-work/scratch/SERIES-FINAL.txt` at the start of every build. The consequences run both ways: editing the series in the repository had no effect, while editing the copy in scratch silently changed the entire patch set. One accidental deletion on 2026-11-13 happened exactly that way — two `0341` entries were removed by number prefix, one of them someone else's `0341-k60-setprop-probe.patch`, so `0342` could not find the `printf` it was supposed to change, the build stopped at 157/222, and the error said only `iorkit/Kernel/IORegistryEntry.cpp: patch does not apply`, giving no hint at all of the missing prerequisite.
 
-规则：仓库是唯一真源；构建只允许**读**它，然后复制给构建输入。
-`scripts/check-build-applied.py` 现在同时比对二者，不一致即报红（P-166）。
-## P-167 UI 库改了但编不出来：本机没有 iOS SDK
+Rule: the repository is the only source of truth; the build may only **read** it, then copy it to the build input. `scripts/check-build-applied.py` now compares both, and any disagreement goes red (P-166).
+## P-167 The UI library changed but cannot be built: no iOS SDK on this machine
 
-`userland/build.py ui` 需要 `--sdk <iPhoneOS.sdk>` 或 `--developer <Xcode>`
-（`compile_ui()` 里 `xcrun --sdk iphoneos --show-sdk-path`）。本机只有
-`/opt/unixnu-linux/CommandLineTools/SDKs/MacOSX.sdk`，`/opt` 与 `/mnt/e` 下
-都没有任何 `iPhoneOS*.sdk`。因此 `userland/*.c` 的任何修改都无法产出新的
-`libpong-ui.dylib`，也就无法刷新 `0340-k60-uilib-deploy.patch` 里内嵌的 blob。
+`userland/build.py ui` needs `--sdk <iPhoneOS.sdk>` or `--developer <Xcode>` (`xcrun --sdk iphoneos --show-sdk-path` in `compile_ui()`). This machine has only `/opt/unixnu-linux/CommandLineTools/SDKs/MacOSX.sdk`; there is no `iPhoneOS*.sdk` anywhere under `/opt` or `/mnt/e`. Any change to `userland/*.c` therefore cannot produce a new `libpong-ui.dylib`, and the blob embedded in `0340-k60-uilib-deploy.patch` cannot be refreshed.
 
-规则：**没有 SDK 就不要改 userland 源码**。改了却编不出来，源码与真正烧进
-设备的那份 blob 就分叉了，这正是"看起来修好了、设备上没变"的整类坑。
-要么先补齐 SDK（并把路径写进 `docs/engineering/`），要么把修复做在内核侧
-（例如由内核在 Data 挂载后 dlopen 不可行，必须在进程上下文里执行）。
-## P-168 电池归档还缺 Kernel.framework 私有头
+Rule: **do not edit userland source without the SDK**. Editing it and not being able to build it forks the source from the blob actually flashed onto the device, which is the entire class of "looks fixed, unchanged on device".
+Either bring in the SDK first (and write its path into `docs/engineering/`), or do the fix on the kernel side (a dlopen after the Data mount from the kernel is not viable; it has to run in process context).
+## P-168 The battery archive is still missing Kernel.framework private headers
 
-`scripts/build-k60-physical-battery.py:294-296` 在编译归档前硬性要求：
+Before compiling the archive, `scripts/build-k60-physical-battery.py:294-296` insists on:
 
 ```python
 framework = tree / '.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A'
@@ -4016,221 +4214,178 @@ if not (framework / 'PrivateHeaders/IOKit/pwr_mgt/IOPMPowerSource.h').exists() a
     raise ValueError('Build the real Darwin22 Kernel SDK before this archive')
 ```
 
-实测：`tree/.cache/fakeroot` 下没有 `Kernel.framework`，全树 `find -name IOPMPowerSource.h`
-**零命中**——`IOPMPowerSource.h` 属于 Apple 的 Kernel.framework 私有头，
-不在 XNU 源码里，所以它既不会随 `installhdrs` 产生，也不是我们能从源码推出来的。
+Measured: there is no `Kernel.framework` under `tree/.cache/fakeroot`, and `find -name IOPMPowerSource.h` across the whole tree gives **zero hits** — `IOPMPowerSource.h` belongs to Apple's Kernel.framework private headers, is not in the XNU source, so it neither appears from `installhdrs` nor can we derive it from source.
 
-结论：`libK60PhysicalBattery.a` 在本机无法生成，`-force_load` 也就无从做起。
-这与 P-167（userland 需要 iPhoneOS.sdk）是同一类外部依赖，不是实现缺陷。
+Conclusion: `libK60PhysicalBattery.a` cannot be generated on this machine, and `-force_load` has nothing to work with. This is the same class of external dependency as P-167 (userland needs iPhoneOS.sdk), not an implementation defect.
 
-可行的替代只有一条，且必须先在文档里论证：不依赖 Kernel.framework，
-直接以 XNU 自己的 `iokit/IOKit/*` 与 `osfmk/*` 头为准，把电池驱动作为
-`patches/xnu/` 里的源码补丁编进内核（`0602-physical-battery.patch` 的方向），
-而不是外部归档。走这条路要先证明它需要的每一个符号在内核里都有定义。
+There is exactly one workable alternative, and it must be argued in the docs first: do not depend on Kernel.framework; use XNU's own `iokit/IOKit/*` and `osfmk/*` headers instead, and build the battery driver into the kernel as a source patch under `patches/xnu/` (the direction of `0602-physical-battery.patch`), rather than as an external archive. Taking that route requires first proving every symbol it needs has a definition in the kernel.
 
-### P-168 追加实测（2026-11-13）
+### P-168 follow-up measurement (2026-11-13)
 
-`patches/xnu/0602-k60-physical-battery.patch` 的头部原文写着"The builtin archive
-inherits XNU's real IOPMPowerSource"。这句在本树上不成立：
-`grep -rl 'IOPMPowerSource\|IOPowerSource\|AppleSmartBattery' iokit/ bsd/` 返回
-**零个文件**，`iokit/IOKit/pwr_mgt/IOPM.h` 里也没有该类。也就是说这个类只存在于
-Apple 的 Kernel.framework，不在 XNU 源码里。
+The header of `patches/xnu/0602-k60-physical-battery.patch` says in its own words "The builtin archive inherits XNU's real IOPMPowerSource". That sentence does not hold on this tree: `grep -rl 'IOPMPowerSource\|IOPowerSource\|AppleSmartBattery' iokit/ bsd/` returns **zero files**, and `iokit/IOKit/pwr_mgt/IOPM.h` has no such class either. That is, the class exists only in Apple's Kernel.framework, not in the XNU source.
 
-因此两条路的真实成本是：
-- 归档路：需要 Kernel.framework（P-168 主体），本机无。
-- 源码路：需要在树里**新写**一个 IOService nub 来发布电池属性，
-  不能"继承"一个不存在的类。这不是补丁，是驱动。
-## P-169 自己写的常量不算数：生产者必须过消费者的解析器
+So the real cost of the two routes is:
+- archive route: needs Kernel.framework (the body of P-168), not present on this machine.
+- source route: needs a **newly written** IOService nub in the tree to publish the battery properties; you cannot "inherit" a class that does not exist. That is not a patch, it is a driver.
+## P-169 Your own constants don't count: the producer must pass the consumer's parser
 
-`K60HandoffBuild` 第一版用自造 magic `0x6b363068`（"k60h"）、flags 写 `0x7`，
-并按 `u32 + pad` 布局写 `epoch`/`smem_bytes`/`adsp_bytes`。这些都能通过我自己的
-字段表断言——因为那张表也是我按同一份理解写的。
+The first version of `K60HandoffBuild` used a self-invented magic `0x6b363068` ("k60h"), wrote flags `0x7`, and laid out `epoch`/`smem_bytes`/`adsp_bytes` as `u32 + pad`. All of that passed my own field-table assertions — because that table was written from the same understanding.
 
-接上唯一消费者 `K60BatteryConfig.c:54 k60_adsp_handoff_parse()` 之后立刻暴露：
-- magic 必须是 `K60_ADSP_HANDOFF_MAGIC 0x4842364b`（"K6BH"）；
-- flags 必须等于 `K60AdspHandoffRequired`（实测 **0xf**，四位全置，不是 0x7）；
-- `epoch`(`+16`)、`smem_bytes`(`+32`)、`adsp_bytes`(`+48`) 都是 **64 位**读取，
-  `u32 + 0` 只是数值恰好兼容，超过 4 GiB 就会静默截断。
+Wired up to the only consumer, `K60BatteryConfig.c:54 k60_adsp_handoff_parse()`, it exposed immediately:
+- magic must be `K60_ADSP_HANDOFF_MAGIC 0x4842364b` ("K6BH");
+- flags must equal `K60AdspHandoffRequired` (measured **0xf**, all four bits set, not 0x7);
+- `epoch`(`+16`), `smem_bytes`(`+32`), `adsp_bytes`(`+48`) are all read as **64-bit**, and `u32 + 0` only matches by numeric luck; past 4 GiB it truncates silently.
 
-规则：**生成任何二进制结构的代码，必须有一个测试把产物交给真正的解析方**。
-自证式字段表能抓位移错误，抓不到"我定义的常量不是对方定义的常量"。
+Rule: **code that generates any binary structure must have a test that hands the artefact to the real parser**. A self-certifying field table catches offset errors, not "my constant is not their constant".
 
-落地：`scripts/tests/test-k60-handoff-build.c` 现在链接真的
-`K60BatteryConfig.c`（独立编译单元，避开 `fits`/`le32` 重名），
-断言 `k60_adsp_handoff_parse(out, 104, &cfg, &parsed) == K60ConfigOk`
-且回读偏移与 epoch 一致。
-## P-170 新写的驱动源码没有被任何构建步骤引用
+Landed as: `scripts/tests/test-k60-handoff-build.c` now links the real `K60BatteryConfig.c` (a separate compilation unit, to avoid the `fits`/`le32` name clash), and asserts `k60_adsp_handoff_parse(out, 104, &cfg, &parsed) == K60ConfigOk` with the read-back offsets matching the epoch.
+## P-170 Newly written driver source is not referenced by any build step
 
-`drivers/PongPower/K60Smem.c`、`K60HandoffBuild.c`、`K60BatteryConfig.c` 都通过了
-主机侧测试（`TESTS OK 10`），但：
+`drivers/PongPower/K60Smem.c`, `K60HandoffBuild.c` and `K60BatteryConfig.c` all pass the host-side tests (`TESTS OK 10`), but:
 
 ```
 grep -n 'PongPower\|K60Smem\|K60Handoff' scripts/build-xnu-4k-baseline.sh \
     patches/xnu/0602-k60-physical-battery.patch
-→ 零命中
+→ zero hits
 ```
 
-也就是说这三个文件**没有被编进内核**。内核链接只吃 `$ROOT/build/<name>/lib<Name>.a`
-这类归档（`KERNEL_EXTRA_ARCHIVES` + `-Wl,-force_load`），而 `build/smem-handoff/`
-根本不存在。测试通过只证明逻辑对，不证明它跑在设备上。
+That is, these three files **were never compiled into the kernel**. The kernel link only takes archives of the `$ROOT/build/<name>/lib<Name>.a` kind (`KERNEL_EXTRA_ARCHIVES` + `-Wl,-force_load`), and `build/smem-handoff/` does not exist at all. A passing test only proves the logic is right, not that it runs on the device.
 
-规则：**主机测试通过 ≠ 已进内核**。新增驱动源码必须同时落三件事：
-① 在 `scripts/build-xnu-4k-baseline.sh` 里产出归档；② 加入 `KERNEL_EXTRA_ARCHIVES`
-并 `-force_load`；③ 有一个能被 `strings kernel.macho` 或上机日志验证的标记字符串。
-缺第 ③ 条时，"没看到日志"无法区分"没跑"和"跑了没输出"。
+Rule: **host tests passing ≠ in the kernel**. New driver source must land three things at once:
+① produce an archive in `scripts/build-xnu-4k-baseline.sh`; ② add it to `KERNEL_EXTRA_ARCHIVES` and `-force_load` it; ③ have a marker string that `strings kernel.macho` or the on-device log can verify.
+Without ③, "no log seen" cannot distinguish "did not run" from "ran and printed nothing".
 
-### P-170 追加实测：归档这条路在本机走不通，正路是 patch 进 bsd/dev
+### P-170 follow-up: the archive route does not work on this machine; the right route is a patch into bsd/dev
 
-`E:\hackios\UniXNU-mondrian\scripts\build-pong-ram-block-macos.py:32-38` 的编译命令是
+The compile command at `E:\hackios\UniXNU-mondrian\scripts\build-pong-ram-block-macos.py:32-38` is
 
 ```python
 subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], ...)
 command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios16.0', ...]
 ```
 
-也就是**所有 `KERNEL_EXTRA_ARCHIVES` 归档都要 iPhoneOS SDK**，而这台机器上没有（P-167）。
-`device/mac-build/native-ufs/libNativeUfs.a` 这类归档是别的机器上编译好、提交进仓库的，
-所以它们能链接，而我们在本机新写的 `.c` 永远进不了归档。
+which means **every `KERNEL_EXTRA_ARCHIVES` archive needs the iPhoneOS SDK**, and this machine does not have it (P-167). Archives like `device/mac-build/native-ufs/libNativeUfs.a` were compiled on another machine and committed to the repository, which is why they link, while any `.c` we write here can never enter an archive.
 
-正确路径不是造归档，而是走已经验证过的那条：**用 patch 把源文件放进 `bsd/dev/`，
-并在 `bsd/conf/files` 加一行**——`zzzz…-pong-touch-console.patch` 就是这样把
-`bsd/dev/pong_goodix.c` 加进去的，内核用同一套 CLT clang 编译，不需要 iOS SDK。
-因此 `K60Smem.c` / `K60HandoffBuild.c` 的落地方案是：
-① 作为 `bsd/dev/pong_smem.c` / `bsd/dev/pong_handoff.c` 由补丁加入；
-② `bsd/conf/files` 加 `dev/pong_smem.c   optional pong_touch`（或新建 config 依赖）；
-③ 保持 `K60HO ` 前缀短标记，`strings kernel.macho` 必须能查到。
-## P-171 用构建后产物反推构建期中间态，是一条死循环
+The correct path is not to build an archive but to take the already-proven one: **put the source file into `bsd/dev/` with a patch, and add a line to `bsd/conf/files`** — that is how `zzzz…-pong-touch-console.patch` adds `bsd/dev/pong_goodix.c`, and the kernel compiles with the same CLT clang, no iOS SDK needed.
+So the landing plan for `K60Smem.c` / `K60HandoffBuild.c` is:
+① added by patch as `bsd/dev/pong_smem.c` / `bsd/dev/pong_handoff.c`;
+② `bsd/conf/files` gains `dev/pong_smem.c   optional pong_touch` (or a new config dependency);
+③ keep the short `K60HO ` prefix marker, `strings kernel.macho` must find it.
+## P-171 Inferring build-time intermediate state from post-build artefacts is an infinite loop
 
-`0611-k60-smem-handoff.patch` 需要在 `bsd/conf/files` 里加两行。三次尝试全部
-`error: patch failed: bsd/conf/files:399`：
+`0611-k60-smem-handoff.patch` needs two lines added to `bsd/conf/files`. Three attempts, all `error: patch failed: bsd/conf/files:399`:
 
-1. 锚定 `bsd/dev/pong_buttons.c` 前三行（3 行上下文）→ 402 处失败；
-2. 同锚点单行上下文 → 402 处失败；
-3. 从"构建成功后的树"逐字节重新生成（`repr()` 比对确认制表符一致、无 CRLF）→ 399 处失败。
+1. anchor the three lines before `bsd/dev/pong_buttons.c` (3 lines of context) → fails at 402;
+2. same anchor, single line of context → fails at 402;
+3. regenerate byte for byte from "the tree after a successful build" (`repr()` comparison confirming tabs match and no CRLF) → fails at 399.
 
-原因是每次失败构建都会 `rm -rf tree/`，所以我能读到的永远是**上一次成功**的树，
-而要修的是**下一次构建过程中**的树。拿 A 时刻的字节去补 B 时刻的洞，永远对不上。
+The reason is that every failed build does `rm -rf tree/`, so what I can read is always the tree of the **last success**, while what has to be fixed is the tree **during the next build**. Patching a hole at time B with bytes from time A never matches.
 
-规则：**改构建期文件的补丁，锚点必须来自代码仓库里的稳定源**（例如
-`bsd/dev/pong_goodix.c` 这类由补丁确定生成的源），不能来自 `.cache/xnu-work`。
+Rule: **for a patch that edits a build-time file, the anchor must come from a stable source in the repository** (for example `bsd/dev/pong_goodix.c`, a source the patches deterministically generate), never from `.cache/xnu-work`.
 
-落地做法（已验证 `BUILD OK`）：把这类插入从系列补丁里拿出来，交给构建驱动在
-补丁阶段之后执行，并且**轮询等待锚点出现**——树刚解包时 `pong_buttons.c` 那行还不存在，
-固定等待或立刻执行都会得到 `anchor missing`。
+Landing method (verified `BUILD OK`): take this kind of insertion out of the series patches and let the build driver do it after the patch stage, **polling until the anchor appears** — when the tree has just been unpacked that `pong_buttons.c` line does not exist yet, and either a fixed wait or an immediate execution ends in `anchor missing`.
 
-`E:\k60-work\scratch\append_conffiles.py` 就是该模式：每秒重读，看到
-`bsd/dev/pong_buttons.c\t\t\tstandard` 才插入 `pong_smem.c` / `pong_handoff.c`，
-已插入则直接返回。
+`E:\k60-work\scratch\append_conffiles.py` is that pattern: re-read every second, insert `pong_smem.c` / `pong_handoff.c` only once `bsd/dev/pong_buttons.c\t\t\tstandard` is visible, and return at once if already inserted.
 
-### P-172 上游 commits 不能整文件 pick 到本地 K60 fork 的构建脚本
+### P-172 Upstream commits cannot be picked file-wise into a local K60 fork's build script
 
-- 现象：`8cdfcffa0 feat(gpu): decouple the GPU addon mount from the offline broker` 只改三处：`patches/xnu/series`、`patches/xnu/zzy-native-gpu-addon-mount.patch`、`scripts/build-xnu-4k-baseline.sh`（把 `XNU_NATIVE_OFFLINE_GPU` 门改成 `XNU_GPU_ADDON`）。
-- 为什么不能 pick：本地 `scripts/build-xnu-4k-baseline.sh` 是 67,777 B 的 K60 fork（含 `HOST_CC` 与 conf/files 钩子），上游是 44,810 B；`patches/` 已在 `SKIP_PATHS` 内，整文件 pick 只会取到脚本，得到一个"半合并"状态——脚本被换掉而补丁没换。
-- 处理：判为**不可合（文件级）**。语义（门变量改名 + 0398 增加 `/private/var/ngpu` 目录）单独手工移植，且必须与 `patches/` 同步。
-- 判据：pick 前先看 `git show --stat`；只要同时命中 `SKIP_PATHS` 与不在其中的文件，就是半合并，必须拒绝。
+- Symptom: `8cdfcffa0 feat(gpu): decouple the GPU addon mount from the offline broker` touches only three places: `patches/xnu/series`, `patches/xnu/zzy-native-gpu-addon-mount.patch`, `scripts/build-xnu-4k-baseline.sh` (turning the `XNU_NATIVE_OFFLINE_GPU` gate into `XNU_GPU_ADDON`).
+- Why it cannot be picked: the local `scripts/build-xnu-4k-baseline.sh` is a 67,777 B K60 fork (with `HOST_CC` and conf/files hooks), upstream's is 44,810 B; `patches/` is inside `SKIP_PATHS`, so a file-level pick takes only the script and leaves a "half-merged" state — script swapped, patches not.
+- Handling: judged **unmergeable (file level)**. The semantics (gate variable rename + 0398 adding the `/private/var/ngpu` directory) are ported by hand separately, and must stay in sync with `patches/`.
+- Criterion: look at `git show --stat` before picking; if it hits both a `SKIP_PATHS` file and a file outside it, that is a half merge and must be refused.
 
-### P-173 用错误的产物路径推翻一个正确的实现
+### P-173 Overturning a correct implementation using the wrong artefact path
 
-- 现象：`pong_adsp_image.o` 明明存在，但连续两轮判为“未编译”，因为查的是
-  `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/pong_adsp_image.o`，实际产物在
-  `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/pong_adsp_image.o`。
-- 代价：为此把一个本来正确的 `conf/files` 钩子当成失效，删掉补丁里的 hunk、改脚本、重构建三轮。
-- 规则：判断“产物不存在”之前，先用 `find … -name <artifact>` 确认路径形状；`ls | grep`
-  这类复合命令在内联 shell 里必须先验证变量确实展开（本机 PowerShell 会吞掉 `$`）。
-- 同族：P-163（单次读数不足以判定）。观测方法本身必须先被验证。
+- Symptom: `pong_adsp_image.o` obviously existed, yet two rounds in a row judged it "not compiled", because the path checked was
+  `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/pong_adsp_image.o` while the actual artefact is in
+  `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/pong_adsp_image.o`.
+- Cost: on that basis a `conf/files` hook that was actually correct was declared broken, the hunk was deleted from the patch, the script changed, and the build rerun three times.
+- Rule: before concluding "the artefact does not exist", confirm the path shape with `find … -name <artifact>`; compound commands like
+  `ls | grep` called from an inline shell must first be proven to actually expand their variables (PowerShell on this machine eats `$`).
+- Same family: P-163 (a single reading is not enough to decide). The observation method itself must be verified first.
 
-### P-174 main 被当成工作区：实验性改动直接压在稳定基线上
+### P-174 main treated as a workbench: experimental changes pressed straight onto the stable baseline
 
-- 现象：`bf487cc`、`c2fa573`、`234574a`、`d1843c2`、`20ce047`、`8206fb4` 直接提交到 `main`，
-  其中补丁序列（`patches/xnu/`）、构建脚本（`scripts/build-xnu-4k-baseline.sh`）、驱动源码
-  （`drivers/PongPower/`）都属于未上机验证的改动。
-- 代价：`main` 上的"Docker 基线"含义失效——任何一次 `snap-r*` 都无法回答"这条能不能起系统"。
-- 规则：见铁则 9。分支命名 `feat/…`/`fix/…`/`test/…`/`chore/…`；合回 `main` 需 `BUILD OK` +
-  上机，或在 `docs/engineering/MAIN-BASELINE.toml` 登记 `state = "build-only"` 并接受可见欠账。
-- 门禁：`scripts/check-main-baseline.py`（`iron-9`）。
-## P-175 内核命令行在开机过程中会被换掉——找 `pmd0` 必须在 md0 创建之前读
+- Symptom: `bf487cc`, `c2fa573`, `234574a`, `d1843c2`, `20ce047`, `8206fb4` were committed straight to `main`,
+  and the patch series (`patches/xnu/`), the build script (`scripts/build-xnu-4k-baseline.sh`) and driver source
+  (`drivers/PongPower/`) among them are all changes not yet verified on device.
+- Cost: the "Docker baseline" meaning of `main` stops holding — no `snap-r*` can answer "does this one boot the system".
+- Rule: see iron rule 9. Branch names `feat/…`/`fix/…`/`test/…`/`chore/…`; merging back to `main` needs `BUILD OK` +
+  on device, or `state = "build-only"` registered in `docs/engineering/MAIN-BASELINE.toml` with the visible debt accepted.
+- Gate: `scripts/check-main-baseline.py` (`iron-9`).
+## P-175 The kernel command line is swapped during boot — `pmd0` must be read before md0 is created
 
-现象：`memdev.c:499` 只用 `PE_boot_args()` 的前 256 字节，却成功建出了
-`Added memory device md0/rmd0 (02000000/0E000000) at FFFFFFF0083B5000 for 0000000002000000`；
-而在 Data 挂载之后（`kern_exec.c:7818` 之后）用同一个函数打印出来的整串参数里，
-**没有 `pmd0`，连 `pong_adsp=1` 都没有**。
+Symptom: `memdev.c:499` uses only the first 256 bytes of `PE_boot_args()` and still successfully creates
+`Added memory device md0/rmd0 (02000000/0E000000) at FFFFFFF0083B5000 for 0000000002000000`; while the whole argument string printed by the same function after the Data mount (after `kern_exec.c:7818`) contains
+**no `pmd0`, not even `pong_adsp=1`**.
 
-这是两次读取拿到两份内容，不是解析错。可复现的证据：
+These are two reads returning two different contents, not a parse error. Reproducible evidence:
 
 ```
 usblog-20261113-112128   K60ARGS 0..8  → "-v native-ufs=1 … k60_autoreset=300 applog=1 "
-usblog-20261113-113932   K60PAS no md boot argument（同一位置，PE_parse_boot_argn 三个键全空）
+usblog-20261113-113932   K60PAS no md boot argument (same position, all three PE_parse_boot_argn keys empty)
 usblog-20261113-113932   Added memory device md0/rmd0 … at FFFFFFF0083B5000 for 0x2000000
 ```
 
-结论：`PE_boot_args()` 在 bsd 后期读到的是**已经被替换过的**命令行（NVRAM / launchd
-boot-args 那一层），md0 建立时的原始串已经不在那儿了。
+Conclusion: what `PE_boot_args()` reads late in bsd is the **already replaced** command line (the NVRAM / launchd boot-args layer); the original string from md0 creation is no longer there.
 
-规则：任何依赖固件命令行（`pmd0`、`vmd0`、`initrd` 之类）的解析，必须放在
-**设备初始化之前**（`bsd_init` 里 md 设备创建之前，或更早的 `kernel_bootstrap`），
-不能放在 Data 挂载之后。想验证就先在最早期打印一次，和 `md0` 那一行对齐。
+Rule: any parsing that depends on the firmware command line (`pmd0`, `vmd0`, `initrd` and the like) must happen
+**before device initialisation** (inside `bsd_init` before the md device is created, or earlier in `kernel_bootstrap`),
+never after the Data mount. To verify, print it once at the earliest point and line it up with the `md0` line.
 
-排查顺序（下次别再走一遍）：
-1. 先确认目标 token 到底在不在**命令行的原始串**里——`grep -a pmd0` 引导日志里
-   `Added memory device` 这一行就是存在性证明，不要拿后期打印去反证。
-2. 再确认读的位置对不对——同一函数在不同时间点返回不同内容，这一点在没有实证之前
-   很容易被当成解析 bug（本人已经为此烧掉三次构建）。
-3. 解析器本身可用宿主测试证明（`scripts/tests/test-k60-fat.c` 8 例），不要靠上机反复试。
+Troubleshooting order (so this is not walked again next time):
+1. First confirm the target token is actually in the **original command line string** - `grep -a pmd0` on the boot log: the `Added memory device` line is the proof of existence; do not try to disprove it with a late print.
+2. Then confirm the read position is right — the same function returning different contents at different times is easily taken for a parse bug without empirical proof (this cost three builds already).
+3. The parser itself can be proven with host tests (`scripts/tests/test-k60-fat.c`, 8 cases); do not keep retrying on device.
 
-## P-176 FD 编出来找不到 payload：`{tree}/package` 里的旧 UniXNUPkg 顶掉了 vendored 副本
+## P-176 The built FD cannot find the payload: the stale UniXNUPkg in `{tree}/package` overrides the vendored copy
 
-症状：任何重新构建的 `SILICIUM_UEFI.fd` 启动后停在固件的 `UNIXNU: config: no boot entry found` /
-`menu: default 0 'exit'`，而 2026-11-11 的旧 FD 正常。
+Symptom: any rebuilt `SILICIUM_UEFI.fd` stops after boot at the firmware's `UNIXNU: config: no boot entry found` /
+`menu: default 0 'exit'`, while the old FD from 2026-11-11 works.
 
-根因不在 Mu_Basecore 的 pin，也不在 MuPatches：`board.toml [firmware].packages` 里
-`{tree}/package` 排在 `{uefi}/Platforms/Xiaomi` 前面，而 tree 里那份 `UniXNUPkg` 是从
-`E:\hackios\UniXNU\package` 复制来的旧副本。EDK II 按 PACKAGES_PATH 顺序解析
-`UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf`，于是整个 FD 的 UniXNUPkg
-驱动都编译自框架仓库的旧源码——包括负责把 initrd 发布成块设备的 `UniXNURamDiskDxe`。
-旧副本缺少本仓库版本里的 initrd 追踪/映射检查，发布路径不同，固件就拿不到 payload FAT。
+The root cause is not the Mu_Basecore pin and not MuPatches: in `board.toml [firmware].packages`,
+`{tree}/package` comes before `{uefi}/Platforms/Xiaomi`, and the `UniXNUPkg` in the tree is a stale copy taken from
+`E:\hackios\UniXNU\package`. EDK II resolves `UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf` following PACKAGES_PATH order, so the whole FD's UniXNUPkg drivers are compiled from the framework repository's old source — including
+`UniXNURamDiskDxe`, the one responsible for publishing the initrd as a block device.
+The stale copy lacks the initrd tracking/mapping checks of this repository's version, so the publish path differs and the firmware never gets the payload FAT.
 
-怎么证明（下次直接照做，别再烧构建）：
-1. 取旧 FD 与任意新 FD，解出 LZMA 的 DXE 卷（`lzma.decompress(body, format=lzma.FORMAT_ALONE)`，
-   section body 从 `section+24` 开始），按 FFS 遍历 98 个文件；文件数一样、GUID 一样，
-   只有 5 个大小变了。
-2. 用 `strings` 对比 `75CA63AD-FBAE-4A06-92A0-F937C671251D`（UniXNURamDiskDxe）：
-   新 FD 里有 `rounded to 0x%lx bytes`、没有 `selfread`、没有 `not inside mapped memory`——
-   与本仓库 `Platforms/Xiaomi/UniXNUPkg/.../UniXNURamDiskDxe.c` 对不上，却与
-   `E:\hackios\UniXNU\package\UniXNUPkg\...` 完全一致。这就是「编的不是这份源码」的铁证。
-3. `--dry-run` 打印的 `tree` 是 `out-baseline/.../tree`，`{tree}/package/UniXNUPkg` 正是那份旧副本。
+How to prove it (do this next time instead of burning builds):
+1. Take the old FD and any new FD, decompress the LZMA DXE volume (`lzma.decompress(body, format=lzma.FORMAT_ALONE)`,
+   the section body starts at `section+24`), and walk the 98 files by FFS; same file count, same GUIDs,
+   only 5 changed size.
+2. Compare `75CA63AD-FBAE-4A06-92A0-F937C671251D` (UniXNURamDiskDxe) with `strings`:
+   the new FD has `rounded to 0x%lx bytes`, no `selfread`, no `not inside mapped memory` —
+   which does not match this repository's `Platforms/Xiaomi/UniXNUPkg/.../UniXNURamDiskDxe.c` but matches
+   `E:\hackios\UniXNU\package\UniXNUPkg\...` exactly. That is hard proof of "what was compiled is not this source".
+3. The `tree` printed by `--dry-run` is `out-baseline/.../tree`, and `{tree}/package/UniXNUPkg` is exactly that stale copy.
 
-修法：把 `"{uefi}/Platforms/Xiaomi"` 移到 `"{tree}/package"` 之前（`board.toml [firmware].packages`），
-同步到设备输入后重建。验证：反编译新 FD 能看到 `selfread`；`fastboot boot` 后内核能跑起来
-（不再是固件菜单），旧 FD 与新 FD 的 UniXNURamDiskDxe/UniXNU 大小完全一致。
+Fix: move `"{uefi}/Platforms/Xiaomi"` before `"{tree}/package"` (`board.toml [firmware].packages`),
+sync to the device input, rebuild. Verification: the decompiled new FD shows `selfread`; after `fastboot boot` the kernel runs
+(no longer the firmware menu), and the UniXNURamDiskDxe/UniXNU sizes in the old and new FD are identical.
 
-规则：`PACKAGES_PATH` 有同名 package 时，先出现的赢，而且不会有任何警告；
-凡是本仓库 vendored 的平台包，必须排在 `{tree}/package` 之前。
+Rule: when `PACKAGES_PATH` has two packages with the same name, the earlier one wins, with no warning at all;
+every platform package vendored in this repository must come before `{tree}/package`.
 
-### P-176 追加：FD 修好之后的 panic 不是 FD
+### P-176 addendum: the panic after the FD is fixed is not the FD
 
-同一内核（keep 的 `kernel.macho`）、同一组参数，分别用旧 FD 和新 FD 打包启动，控制台统计完全一致：
+Same kernel (the keep `kernel.macho`), same set of arguments, packaged and booted once with the old FD and once with the new one; the console statistics are identical:
 
-- `usblog-20261113-oldfd2`（旧 FD）：`lines=2185 KX=9 SB=7`
-- `usblog-20261113-orderfd2`（新 FD）：`lines=2145 KX=8 SB=7`
-- `usblog-20261113-orderfd-keepk`（新 FD + keep 内核）：`lines=2071 KX=8 SB=7`
+- `usblog-20261113-oldfd2` (old FD): `lines=2185 KX=9 SB=7`
+- `usblog-20261113-orderfd2` (new FD): `lines=2145 KX=8 SB=7`
+- `usblog-20261113-orderfd-keepk` (new FD + keep kernel): `lines=2071 KX=8 SB=7`
 
-三者的 panic 都是 `initproc exited -- exit reason namespace 2 subcode 0xb description: none`。
-2026-11-13 当天所有镜像（含 keep 内核、含无 Data seed 的 `boot-noseed.img`）都是 SB=7 同一个 panic，
-而 11-11 23:32 的 keep 镜像 SB=129 —— 所以剩下的阻塞在 payload 的 ADT/DTB 或用户态，与固件卷无关。
+All three panic with `initproc exited -- exit reason namespace 2 subcode 0xb description: none`.
+Every image on 2026-11-13 (including the keep kernel and the `boot-noseed.img` without a Data seed) has the same panic with SB=7, while the keep image of 11-11 23:32 has SB=129 — so what remains blocking is in the payload's ADT/DTB or in userland, unrelated to the firmware volume.
 
-规则：判定 FD 是否修好，只看「内核有没有被加载」（控制台出现内核自身打印），
-不要用 SpringBoard 行数当 FD 的指标；两条链要分开记录、分开验证。
+Rule: to judge whether the FD is fixed, look only at "was the kernel loaded" (the kernel's own prints appearing on the console); do not use SpringBoard line counts as an FD metric; the two chains are recorded and verified separately.
 
-### P-177 `--kernelcache` 不换内核，`--kernel` 才换
+### P-177 `--kernelcache` does not swap the kernel, `--kernel` does
 
-现象：把「已知可启动内核」换进我们自己的打包里做对照，连做三次都仍然 panic，
-于是错误地得出「内核无罪」。真实原因是 `unixnu build payload` 收下了 `--kernelcache`
-却仍把构建目录里的 `kernel.macho` 打进 payload。
+Symptom: swapping the "known bootable kernel" into our own packaging as a control, three times in a row it still panicked, which wrongly produced "the kernel is innocent". The real reason is that `unixnu build payload` accepted `--kernelcache` and still packed the build directory's `kernel.macho` into the payload.
 
-依据：`unixnu build payload --help` 同时有 `--kernelcache FILE`（原始解压内核缓存，
-给 prelink / trust cache 用）和 `--kernel FILE`（真正打进 payload 的内核）。
+Basis: `unixnu build payload --help` has both `--kernelcache FILE` (a raw decompressed kernelcache, for prelink / trust cache) and `--kernel FILE` (the kernel actually packed into the payload).
 
-规则：凡是要换内核做对照，必须用 `--kernel`；打包后必须从镜像里把内核抽出来核对：
+Rule: whenever a kernel is swapped in as a control, `--kernel` must be used; after packaging, extract the kernel from the image and check it:
 
 ```
 mdir  -i <img>@@<fat> ::/EFI/UniXNU/PAYLOADS/
@@ -4238,312 +4393,296 @@ mcopy -o -i <img>@@<fat> ::/EFI/UniXNU/PAYLOADS/kernel.macho /tmp/k.bin
 sha256sum /tmp/k.bin
 ```
 
-大小/哈希与源文件一致才算换成功。本次实测：keep 内核 54,280,192 B（`ce97b50a…`），
-我们构建的内核 54,525,952 B —— 只看 `unixnu` 的退出码会漏掉这个差别。
+Only when size/hash match the source file did the swap succeed. Measured this time: the keep kernel 54,280,192 B (`ce97b50a…`), our built kernel 54,525,952 B — watching only `unixnu`'s exit code misses this difference.
 
-### P-178 上机对照：一次只换一个产物，且每个产物都要有可验证的替换入口
+### P-178 On-device comparison: swap one artefact at a time, and every artefact needs a verifiable swap entry point
 
-本次把「11-11 能进系统的 keep 镜像」逐项搬进当前构建，得到下面的矩阵（每行都是一次真实启动）：
+This time the "11-11 keep image that reaches the system" was moved into the current build item by item, giving the matrix below (every row is a real boot):
 
-| 替换项 | 入口 | 结果 |
+| Swapped item | Entry point | Result |
 |---|---|---|
-| 固件卷 FD `cf448571…` | `bootimg --fd FILE` | 仍 `initproc exited` panic |
-| ADT 15,304 B | 打包后 `mcopy` 覆盖 payload 内 `EFI/UniXNU/PAYLOADS/kernel.macho.adt` | 仍 panic |
-| DTB 1,866 B | `bootimg --dtb FILE` | 仍 panic（镜像大小回到 201,883,648） |
-| `METAL/` 目录 | 从 keep 镜像里 `mdeltree` 删掉 | 仍能进系统 SB=133 |
-| 内核 `ce97b50a…` | `build payload --kernel FILE`（见 P-177） | **进系统 SB=133** |
+| firmware volume FD `cf448571…` | `bootimg --fd FILE` | still `initproc exited` panic |
+| ADT 15,304 B | `mcopy` over `EFI/UniXNU/PAYLOADS/kernel.macho.adt` inside the payload after packaging | still panic |
+| DTB 1,866 B | `bootimg --dtb FILE` | still panic (image size back to 201,883,648) |
+| `METAL/` directory | `mdeltree` it out of the keep image | still reaches the system, SB=133 |
+| kernel `ce97b50a…` | `build payload --kernel FILE` (see P-177) | **reaches the system, SB=133** |
 
-规则：任何「某组件无罪」的结论必须附「该组件确实被换掉了」的证据（大小或 sha256 或独有字符串），
-否则一律记为未测。`cs_invalid_page`、`shared_region`、`K60DYLD` 这类日志在能进系统的镜像里也会出现，
-不能拿它们当回归判据；判据只能是启动后的 SpringBoard 行数与是否 panic。
+Rule: any conclusion that "some component is innocent" must carry evidence that the component really was swapped (size or sha256 or a unique string), otherwise record it as untested. Logs like `cs_invalid_page`, `shared_region`, `K60DYLD` also appear in images that reach the system, so they cannot be regression criteria; the only criterion is the SpringBoard line count after boot and whether it panics.
 
-### P-179 `initproc exited … ns=2 code=0xb` 是 SIGSEGV，不是 AMFI 拒绝 exec
+### P-179 `initproc exited … ns=2 code=0xb` is SIGSEGV, not AMFI refusing exec
 
-`bsd/sys/reason.h` 的命名空间表：`OS_REASON_SIGNAL = 2`、`OS_REASON_CODESIGNING = 3`、
-`OS_REASON_EXEC = 9`，而 `EXEC_EXIT_REASON_SECURITY_POLICY = 8`。
+The namespace table in `bsd/sys/reason.h`: `OS_REASON_SIGNAL = 2`, `OS_REASON_CODESIGNING = 3`,
+`OS_REASON_EXEC = 9`, and `EXEC_EXIT_REASON_SECURITY_POLICY = 8`.
 
-- `KX! 18 1 launchd exit=0 sig=11 r=1 ns=2 code=0xb` → 信号命名空间 + 11 号信号 = SIGSEGV，
-  即 launchd 自己段错误，initproc 死亡才触发 panic；
-- AMFI 拒绝 exec 会是 `ns=9 code=0x8`，或者 `ns=3`（codesigning），不是 `ns=2`。
+- `KX! 18 1 launchd exit=0 sig=11 r=1 ns=2 code=0xb` → signal namespace + signal 11 = SIGSEGV,
+  that is launchd segfaulted itself, and the initproc death is what triggered the panic;
+- AMFI refusing exec would be `ns=9 code=0x8`, or `ns=3` (codesigning), not `ns=2`.
 
-它仍然接在 codesign 链上：同一份日志里 `CODE SIGNING: cs_invalid_page(0x10086b000): p=1[launchd] …
-allowing (remove VALID) page`，而 `KXPC 1 launchd pc=0x10086b158` 正好落在那一页。
-但 keep 内核每次启动也会报一个 cs_invalid 页（`0x1003a5000` / `0x1009a8000`，随加载地址变化），
-照样进系统 —— 所以「有一页被 remove VALID」本身不致命，致命的是进程后来执行到了那一页。
+It is still on the codesign chain: the same log has `CODE SIGNING: cs_invalid_page(0x10086b000): p=1[launchd] …
+allowing (remove VALID) page`, and `KXPC 1 launchd pc=0x10086b158` lands exactly on that page.
+But the keep kernel also reports one cs_invalid page on every boot (`0x1003a5000` / `0x1009a8000`, varying with the load address) and still reaches the system — so "one page had VALID removed" is not fatal by itself; what is fatal is the process later executing that page.
 
-规则：看到 `ns=2` 先按信号解码（`sig=` 字段），不要直接归因 AMFI；要判断是不是 AMFI 拒绝，
-看 `ns=9 code=8`。
+Rule: on seeing `ns=2`, decode it as a signal first (the `sig=` field); do not attribute it to AMFI straight away. To judge whether AMFI refused, look for `ns=9 code=8`.
 
-### P-180 补丁里的嵌入 blob 是代码：行数没变也可能是整段二进制换了
+### P-180 The embedded blob in a patch is code: the line count can stay the same while a whole binary is swapped
 
-`patches/xnu/0340-k60-uilib-deploy.patch` 在 11-11 之后从 629,034 B 涨到 1,052,856 B，
-`kern_exec.c` 的部署钩子逐字节相同，变的只是 `bsd/dev/k60_uilib.c` 里那份内嵌的
-`libpong-ui.dylib`。整目录二分证明：旧版能进系统（SpringBoard 133 行），新版在 launchd
-阶段 `initproc exited … ns=2 code=0xb`（7 行）；**只回退 0340** 就恢复到 129 行。
+`patches/xnu/0340-k60-uilib-deploy.patch` grew from 629,034 B to 1,052,856 B after 11-11; the deployment hook in
+`kern_exec.c` is byte-identical, and the only thing that changed is the `libpong-ui.dylib` embedded in `bsd/dev/k60_uilib.c`. Bisecting the whole directory proves it: the old version reaches the system (SpringBoard 133 lines), the new one gives `initproc exited … ns=2 code=0xb` at the launchd stage (7 lines); **reverting only 0340** restores 129 lines.
 
-规则：
+Rules:
 
-- `0340/0391/0401` 这类带 C 数组的补丁，**diff 大小、hunk 数、`check-patch-apply` 全部通过都不算验证**，
-  唯一判据是一张能进系统的启动镜像；
-- 任何对这三个补丁的改动，在合回 `main` 前必须更新 `docs/engineering/MAIN-BASELINE.toml`
-  的 `[entry.blob_sha256]`，门禁 `scripts/check-blob-patches.py` 会比对；
-- 怀疑这类补丁时不要逐个 hunk 读，直接 `git show <boot-proven>:<patch> > 当前文件` 整文件回退，
-  一次启动就能定性（本次省掉了 27 个文件逐个试的成本）。
+- for patches with C arrays like `0340/0391/0401`, **diff size, hunk count and `check-patch-apply` all passing is not verification**;
+  the only criterion is a boot image that reaches the system;
+- any change to these three patches must update `docs/engineering/MAIN-BASELINE.toml`'s `[entry.blob_sha256]` before merging back to `main`;
+  the gate `scripts/check-blob-patches.py` compares them;
+- when you suspect such a patch, do not read hunk by hunk: `git show <boot-proven>:<patch> > current file` to revert the whole file,
+  and one boot settles it (this time it saved trying 27 files one by one).
 
+### P-181 When a build fails the old kernel.macho is still there, and a one-line grep treats it as the new artefact
 
+`./unixnu build kernel … | grep '== kernel:' || exit 1` in `mk_cut.sh` is a fake gate: the bootstrap stage prints `== kernel: bootstrap pass for the compile records` anyway, so even when the later link fails and `kernel.macho` is still the old file from the previous build, the script goes on to package and "successfully" produces an image.
+Cost: the five consecutive "bisect results" on the afternoon of 11-13 were all actually the same 11-11 allold kernel, producing the wrong conclusion that "0340 is the culprit".
 
-### P-181 构建失败时旧 kernel.macho 还在，grep 一行日志会把它当成新产物
+The real root cause was masked at the same time: `bsd/dev/pong_adsp_*.c` was not listed in `bsd/conf/files`, and the link reported
+`Undefined symbols for architecture arm64: "_k60_adsp_note_window" … "_k60_adsp_probe_from_handoff"`.
 
-`mk_cut.sh` 里的 `./unixnu build kernel … | grep '== kernel:' || exit 1` 是个假门禁：
-bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile records`，
-所以即使后面的链接失败、`kernel.macho` 还是上一次构建的旧文件，脚本也会继续打包并“成功”出镜像。
-代价：11-13 下午连续五次“二分结果”其实都是同一个 11-11 allold 内核，得出了“0340 是元凶”的错误结论。
+The rules now:
 
-真正的根因同时被掩盖：`bsd/dev/pong_adsp_*.c` 没有列进 `bsd/conf/files`，链接报
-`Undefined symbols for architecture arm64: "_k60_adsp_note_window" … "_k60_adsp_probe_from_handoff"`。
+- `scripts/build-xnu-4k-baseline.sh` calls `scripts/append-conffiles.py` before the final `make`, adding the in-tree driver to the generated `conf/files`, and exits on failure;
+- every build script must check `unixnu`'s **exit code**, and compare the mtime of `kernel.macho` against "a marker file touched before the build started" (`test "$M/kernel/kernel.macho" -nt "$MARK"`), not merely whether the file exists;
+- to decide whether the new kernel made it into the image, use `strings -a kernel.macho | grep -c '<string added this round>'`, then `mdir`/`mcopy` the kernel out of boot.img and compare sha256 (the recipe from P-177).
 
-现在的规则：
+### P-182 The kernel writes persistent files to the Data volume before launchd, so going back to the old kernel is still poisoned by the new files
 
-- `scripts/build-xnu-4k-baseline.sh` 在最终 `make` 之前调用 `scripts/append-conffiles.py`，
-  把 in-tree 驱动加进生成的 `conf/files`，失败即退出；
-- 任何构建脚本都必须检查 `unixnu` 的**退出码**，并用“构建开始前 touch 的标记文件”比较
-  `kernel.macho` 的 mtime（`test "$M/kernel/kernel.macho" -nt "$MARK"`），不能只看文件存在；
-- 判定新内核是否进镜像，用 `strings -a kernel.macho | grep -c '<本次新增的字符串>'`，
-  再 `mdir`/`mcopy` 出 boot.img 里的 kernel 比对 sha256（P-177 的配方）。
+Before exec'ing `/private/var/pong/init`, `load_init_program_at_path()` in `kern_exec.c` takes the embedded blobs out of the kernel image and writes them to the Data volume:
 
-### P-182 内核会在 launchd 之前往 Data 分区写持久文件，换回旧内核仍会被新文件毒死
+- `/private/var/pong/init` (the PID 1 helper, `k60_init_blob.h`)
+- `/private/var/pong/boot-jobs.pack` (`k60_bootjobs_blob.h`)
+- `/private/var/pong/var.pack` (`k60_varpack_blob.h`)
+- `/private/var/pong/xpc/launchd.plist` (`k60_launchd_cache.h`, 0394)
 
-`kern_exec.c` 的 `load_init_program_at_path()` 在 exec `/private/var/pong/init` 之前，
-会从内核镜像里取出内嵌 blob 写到 Data 卷：
+These writes happen before userland comes up, and they **overwrite**. The measured cost on 2026-11-13:
 
-- `/private/var/pong/init`（PID 1 助手，`k60_init_blob.h`）
-- `/private/var/pong/boot-jobs.pack`（`k60_bootjobs_blob.h`）
-- `/private/var/pong/var.pack`（`k60_varpack_blob.h`）
-- `/private/var/pong/xpc/launchd.plist`（`k60_launchd_cache.h`，0394）
+1. The 11-11 `keep` image kept reaching SpringBoard (SB=133).
+2. The 11-12/13 new kernels wrote 0401's new helper (52,320 B, larger than 11-11's 35,160 B) into Data.
+3. Afterwards **any** image boot gave `initproc exited -- exit reason namespace 2 subcode 0xb`, SB=7,
+   including images that reverted 0340/0394/0401/0398 one at a time — because the poison was on the disk, not in the kernel.
+4. Booting the 11-11 allold image once more (the old kernel rewrites init back to the 35,160 B old version) → fine again.
+5. Immediately after, booting the previously failing `boot-cut0401.img` (which contains no 0401 write) → **SB=133, fine**.
+6. Current kernel + `--kernel-arg k60_init_blob=0` (no init rewrite) → **SB=129, fine**.
 
-这些写入发生在用户态起来之前，而且**覆盖式写入**。2026-11-13 的实测代价：
+So when deciding "did patch X cause a boot regression", you must first normalise these four files to a known-good version,
+otherwise every single-variable revert conclusion is invalid (one more layer on top of the P-177/P-178 stand-in trap).
 
-1. 11-11 的 `keep` 镜像一直能进 SpringBoard（SB=133）。
-2. 11-12/13 的新内核把 0401 的新助手（52,320 B，比 11-11 的 35,160 B 大）写进 Data。
-3. 之后**任何**镜像启动都 `initproc exited -- exit reason namespace 2 subcode 0xb`、SB=7，
-   包括把 0340/0394/0401/0398 逐个回退的镜像 —— 因为毒在磁盘上，不在内核里。
-4. 再启一次 11-11 的 allold 镜像（老内核会把 init 重写回 35,160 B 老版本）→ 又正常。
-5. 紧接着再启之前失败的 `boot-cut0401.img`（不含 0401 写入）→ **SB=133 正常**。
-6. 当前内核 + `--kernel-arg k60_init_blob=0`（不重写 init）→ **SB=129 正常**。
+The rules now:
 
-所以判定“某个补丁是否导致启动回归”时，必须先把这四个文件归一到已知良好版本，
-否则单变量回退的结论全部无效（P-177/P-178 的替身陷阱之外，又多了一层）。
+- record the sha256 of these four files before and after every on-device run; boot results taken in two different states are not comparable;
+- normalisation: boot the 11-11 `keep-a6165f2404568c1d.img` once (old kernel rewrites the old init),
+  or have this round's image explicitly set `k60_init_blob=0` and confirm the helper on disk is already the good one;
+- changing these blobs (0401/0394) must state "will rewrite persistent files on the Data side" in the commit message,
+  with the length and sha256 of the old and new blob;
+- a new helper must first be verified over two boots on an **existing Data state**, not only on empty Data.
 
-现在的规则：
+**Fix (2026-11-13)**: `0401` stays as it is; a new `patches/xnu/0616-k60-init-legacy-helper.patch`
+replaces the installer call after 0401 with the legacy helper version that writes only `/private/var/pong/init`
+(`k60_init_legacy.h`, 34,904 B; measured log `K60INIT legacy bytes=34904 resid=0 error=0`),
+the gate stays `k60_init_blob`; `boot-jobs.pack` / `var.pack` stay in the **preserved state** and are no longer rewritten.
+Reverting by dropping the old patch wholesale is not viable: `git show 29827f5:patches/xnu/0391-k60-embedded-init.patch`
+applied over 0401 finds that `kern_exec.c`'s context has been changed by 0394/0398, `patch does not apply`.
 
-- 每次上机前后记录这四个文件的 sha256；两次对比不在同一状态下的启动结果不可比；
-- 归一方法：启动一次 11-11 `keep-a6165f2404568c1d.img`（老内核重写老 init），
-  或本轮镜像显式 `k60_init_blob=0` 且确认磁盘上已是好的助手；
-- 改动这些 blob（0401/0394）必须在提交信息里写明“会重写 Data 侧持久文件”，
-  并附新旧 blob 的长度与 sha256；
-- 新助手必须先在**已有 Data 状态**上验证两次启动，不能只测空 Data。
+Evidence: `E:\k60-work\evidence\usblog-20261113-allold2` (SB=129),
+`usblog-20261113-cut0401b` (SB=133), `usblog-20261113-noinitblob` (SB=129),
+control `usblog-20261113-rev0340` (SB=7).
 
-**修复方式（2026-11-13）**：`0401` 保持不动，新增 `patches/xnu/0616-k60-init-legacy-helper.patch`
-在 0401 之后把 installer 调用换成只写 `/private/var/pong/init` 的旧助手版本
-（`k60_init_legacy.h`，34,904 B；实测日志 `K60INIT legacy bytes=34904 resid=0 error=0`），
-门禁仍是 `k60_init_blob`；`boot-jobs.pack` / `var.pack` 保持**保留状态**，不再重写。
-换掉旧补丁整体回退的方案不可行：`git show 29827f5:patches/xnu/0391-k60-embedded-init.patch`
-覆盖 0401 后 `kern_exec.c` 上下文已被 0394/0398 改动，`patch does not apply`。
+### P-183 Network probe failure ≠ not pushed: the gate reads "cannot verify" as "not done"
 
-证据：`E:\k60-work\evidence\usblog-20261113-allold2`（SB=129）、
-`usblog-20261113-cut0401b`（SB=133）、`usblog-20261113-noinitblob`（SB=129）、
-对照组 `usblog-20261113-rev0340`（SB=7）。
+`is_pushed()` in `check-snapshot-tag.py` looks only at the exit code of `git ls-remote`. During the two hours the proxy was down
+(`schannel: failed to receive handshake`, `gnutls_handshake() failed`, `curl github.com` = 000,
+`getent hosts github.com` = `198.18.2.110`) it reported every tag as "not pushed to the remote", while
+`boot-proven-20261113` had in fact been pushed hours earlier — one network failure is enough for the gate to reach the opposite conclusion.
 
-### P-183 网络探测失败 ≠ 没推送：门禁把"无法核实"当成"没做"
+Fix: three states. `returncode != 0` returns `None` (cannot verify); at that point read the
+`tag_commit` / `tag_pushed` record in `docs/engineering/MAIN-BASELINE.toml`: if the commit matches the current tag
+it is reused, otherwise it counts as a failure; on a successful network call the record is backfilled (`note_push()`).
 
-`check-snapshot-tag.py` 的 `is_pushed()` 只看 `git ls-remote` 的退出码。代理挂掉那两小时
-（`schannel: failed to receive handshake`、`gnutls_handshake() failed`、`curl github.com` = 000、
-`getent hosts github.com` = `198.18.2.110`）里它把每个 tag 都报成"没有推到远端"，而其中
-`boot-proven-20261113` 几小时前确实推过 —— 一次网络故障足以让门禁给出反向结论。
+Lesson: every check that hinges on "do we need the network" must have a third return value. A two-state check is not checking when the network is down,
+it is guessing.
 
-修法：三态。`returncode != 0` 返回 `None`（无法核实），此时改读
-`docs/engineering/MAIN-BASELINE.toml` 里的 `tag_commit` / `tag_pushed` 记录：commit 与当前 tag
-指向一致才沿用，否则才算失败；联网成功时自动补记一次（`note_push()`）。
+### P-184 There is only one shared checkout: the Lead and a subagent editing the same tree eat each other's uncommitted changes
 
-教训：凡是"要不要联网"的检查都必须有第三个返回值。二态检查在断网时不是在检查，
-是在猜。
+2026-11-14 02:03, to get my own strict build through the eight-step gate, I ran
+`git checkout -- <8 documents>` in `E:/hackios/UniXNU-mondrian` (then in use by the touch agent to write docs),
+wiping all of its uncommitted changes: the honest correction in `EIGHT-STEPS.toml` that set touch ④⑤⑥ from `done=true` to `false`, and the edits to `GROUND-TRUTH.md`,
+`TOUCH-STATEMACHINE.md`, `03-reverse-and-device-data.md`, `PITFALLS.md`, `INDEX.md`,
+`README.md`, `README_EN.md` — all lost; only the untracked
+`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` survived (saved separately to
+`E:/k60-work/scratch/SALVAGE-touch-agent-edits-20261114.md`).
 
-### P-184 共享检出目录只有一个：Lead 和子 agent 同时改同一棵树会互相吃掉未提交改动
+The root cause is not `git checkout`, it is **two people sharing one checkout tree**. The fix:
 
-2026-11-14 02:03，我为了让自己那次 strict 构建通过八步门禁，在
-`E:/hackios/UniXNU-mondrian`（当时正被触摸 agent 用来写文档）上执行
-`git checkout -- <8 个文档>`，把它的未提交修改全部抹掉：`EIGHT-STEPS.toml` 里把 touch
-④⑤⑥ 从 `done=true` 改成 `false` 的诚实修正、`GROUND-TRUTH.md`、
-`TOUCH-STATEMACHINE.md`、`03-reverse-and-device-data.md`、`PITFALLS.md`、`INDEX.md`、
-`README.md`、`README_EN.md` 的编辑全部丢失；只有未跟踪的
-`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` 幸存（已另存到
-`E:/k60-work/scratch/SALVAGE-touch-agent-edits-20261114.md`）。
+- the Lead uses its own worktree: `git worktree add E:/hackios/k60-lead <branch>`,
+  doing its own builds and commits in `E:/hackios/k60-lead`; `E:/hackios/UniXNU-mondrian`
+  belongs to the touch agent.
+- never run `git checkout --` / `git restore` on uncommitted files that belong to **someone else's branch**.
+  To make a gate pass, narrow the gate's scope (see the next entry), do not touch another person's working tree.
+- a real defect found along the way: the eight-step gate's build mode validated **every** hardware item with `status = "active"`,
+  so nobody could build while the touch research was unfinished, and touch could not build while other hardware was unfinished. The gate's semantics should be
+  "the hardware items touched by this change" must pass ①②③④⑤⑥, so build mode narrows by changed paths,
+  while flash mode keeps whole-machine validation.
 
-根因不是 `git checkout`，是**两个人共用一棵检出树**。修法：
+Evidence: `git branch -f feat/touch-power 3330e1c` restored the branch; `git worktree list` shows
+`E:/hackios/k60-lead 84523c0 [feat/pmic-rail]`.
 
-- Lead 用独立 worktree：`git worktree add E:/hackios/k60-lead <branch>`，
-  在 `E:/hackios/k60-lead` 里做自己的构建与提交；`E:/hackios/UniXNU-mondrian`
-  归触摸 agent。
-- 任何时候都不要对**不属于自己分支**的未提交文件跑 `git checkout --` / `git restore`。
-  要让门禁通过就改门禁的适用范围（见下条），不要动别人的工作区。
-- 顺带发现的真缺陷：八步门禁的 build 模式会校验**所有** `status = "active"` 的硬件项，
-  于是触摸研究没做完就谁都不能构建、别的硬件没做完触摸也不能构建。门禁的语义应该是
-  「这次改动涉及的硬件项」必须过①②③④⑤⑥，所以 build 模式按改动路径收窄，
-  flash 模式保持整机校验。
+### P-185 A fresh checkout is not missing code, it is missing the toolchain and fakeroot that exist only in the build copy
 
-证据：`git branch -f feat/touch-power 3330e1c` 恢复分支；`git worktree list` 显示
-`E:/hackios/k60-lead 84523c0 [feat/pmic-rail]`。
+Cut a `git worktree` off `main` and the code is all there, yet the build dies in step three with an inexplicable 127 / missing header:
 
-### P-185 新检出缺的不是代码，是"只在构建副本里才存在"的工具链与 fakeroot
+- `scripts/build-firehose.sh:24` calls `xcodebuild`. On Linux the Darwin tools `xcodebuild` / `xcrun` / `clang` are stood in for by
+  the 13 shims in `scripts/linux/`. Those shims **are tracked in the framework repository `E:/hackios/UniXNU`**,
+  but the device repository does not have them; the build copy `/opt/k60/trees/k60build/scripts/linux/` was synced from the framework.
+  A new worktree with only the device repository therefore has no shims at all → `xcodebuild: command not found` → `bash failed (127)`.
+- On the first build in that same new tree, `tree/.cache/fakeroot/` is empty. `libfirehose_kernel.a` (40,480 B),
+  the 42 headers under `usr/include/` (including `Availability.h`) and `usr/local/include/kernel/os/` are all missing,
+  so `build-pong-platform-macos.py` fails compiling `ArmDTPlatform.cpp` with
+  `mach/arm/vm_types.h:76:10: fatal error: 'Availability.h' file not found`.
 
-从 `main` 切一个 `git worktree` 出来，代码是全的，构建却会在第三步莫名其妙地 127 / 找不到头文件：
-
-- `scripts/build-firehose.sh:24` 调 `xcodebuild`。`xcodebuild` / `xcrun` / `clang` 这些 Darwin 工具在 Linux 上靠
-  `scripts/linux/` 的 13 个 shim 顶替。这些 shim **在框架仓库 `E:/hackios/UniXNU` 里是被跟踪的**，
-  但设备仓库没有它们，构建副本 `/opt/k60/trees/k60build/scripts/linux/` 是从框架同步过去的。
-  一个只有设备仓库的新 worktree 因此完全没有 shim → `xcodebuild: command not found` → `bash failed (127)`。
-- 同一棵新树第一次构建时，`tree/.cache/fakeroot/` 是空的。`libfirehose_kernel.a`（40,480 B）、
-  `usr/include/` 的 42 个头（含 `Availability.h`）、`usr/local/include/kernel/os/` 都缺，
-  于是 `build-pong-platform-macos.py` 编译 `ArmDTPlatform.cpp` 时报
-  `mach/arm/vm_types.h:76:10: fatal error: 'Availability.h' file not found`。
-
-两者都不是代码问题，**是"工作树 ≠ 构建环境"**。诊断顺序固定为：
+Neither is a code problem, **it is "a worktree ≠ a build environment"**. The diagnostic order is fixed:
 
 ```bash
-# 1) shim 在不在
-ls "$BUILD/scripts/linux" | wc -l        # 期望 13
-# 2) fakeroot 齐不齐（拿一个已知能构建的 out 目录做基准）
+# 1) are the shims there
+ls "$BUILD/scripts/linux" | wc -l        # expect 13
+# 2) is fakeroot complete (use a known-good out directory as the baseline)
 diff -rq "$GOOD_OUT/.../tree/.cache/fakeroot" "$NEW_OUT/.../tree/.cache/fakeroot"
 ```
 
-修法：shim 从框架同步（`sync-device-input.py` 的 `FRAMEWORK_PAIRS` 覆盖 `scripts/linux`）；
-fakeroot 用 `cp -a` 从已知好的输出树补齐（它是纯构建产物，可以直接复制）。
+Fix: sync the shims from the framework (`sync-device-input.py`'s `FRAMEWORK_PAIRS` covers `scripts/linux`);
+fill fakeroot in with `cp -a` from a known-good output tree (it is a pure build artefact and can be copied directly).
 
-教训：`git worktree` 给你的是**代码隔离**，不是**环境隔离**。新树第一次构建前，
-先跑一次"环境齐备性检查"，否则会把环境缺失误判成代码 bug，浪费整轮构建。
+Lesson: `git worktree` gives you **code isolation**, not **environment isolation**. Before the first build in a new tree,
+run an "environment completeness check", otherwise a missing environment is misdiagnosed as a code bug and a whole build round is wasted.
 
-## P-186 — 从 Windows 编辑会让整文件换行符翻转
+## P-186 — Editing from Windows flips the line endings of the whole file
 
-**现象**：一次 37 行的 `AGENTS.md` 修改，`git show --stat` 报 `366 insertions(+), 366 deletions(-)`。
-`grep -c $'\r'` 在旧版本是 0、新版本是 366 —— 整个文件被从 LF 改成了 CRLF。
+**Symptom**: a 37-line change to `AGENTS.md`, and `git show --stat` reports `366 insertions(+), 366 deletions(-)`.
+`grep -c $'\r'` is 0 on the old version and 366 on the new one — the whole file went from LF to CRLF.
 
-**原因**：文件是在 Windows 侧写出的（编辑器/PowerShell 重定向默认 CRLF），而仓库里这个文件是 LF。
-git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被埋在 700 多行噪声里，而且以后每次合并
-都会整文件冲突。
+**Cause**: the file was written on the Windows side (editor/PowerShell redirection default to CRLF), while in the repository this file is LF.
+git compares bytes, so every line "changed". The real 37-line change is buried in 700-odd lines of noise, and every future merge
+will conflict on the whole file.
 
-**处置**：`scripts/check-line-endings.py` 只报**翻转**（HEAD 是纯 LF、工作区出现 CRLF），
-不碰仓库里历史上就已经是 CRLF 的 73 个文件 —— 那些要单独一次提交统一，不能混在功能提交里。
-`.gitattributes` 补了 `* text=auto eol=lf` 和常见文本扩展名，让 checkout 时就统一。
+**Disposition**: `scripts/check-line-endings.py` reports only **flips** (HEAD is pure LF, the working tree shows CRLF),
+and leaves alone the 73 files that were already CRLF historically — those need one separate commit to unify, and must not be mixed into a feature commit.
+`.gitattributes` gained `* text=auto eol=lf` and the common text extensions, so it is unified at checkout time.
 
-**教训**：写文件时用 `write` 工具（写 UTF-8 LF），不要用 PowerShell 重定向；
-提交前看 `git diff --stat` 的增删行数是否和改动规模相符 —— 不相符就是换行符或编码翻转。
+**Lesson**: write files with the `write` tool (UTF-8 LF), not with PowerShell redirection;
+before committing, check that `git diff --stat`'s added/removed line counts match the size of the change — if they do not, it is a line-ending or encoding flip.
 
-### P-190 — 归档加进 `KERNEL_EXTRA_ARCHIVES` 却没进内核：那块代码在死分支里
+### P-190 — The archive was added to `KERNEL_EXTRA_ARCHIVES` but never reached the kernel: that block lives in a dead branch
 
-**现象**：`configs/mondrian_defconfig` 打开 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`，
-`scripts/build-xnu-4k-baseline.sh` 里两处接线都写了（`PERSONALITY_CFLAGS` 加
-`-DXNU_K60_PHYSICAL_BATTERY=1`、`KERNEL_EXTRA_ARCHIVES` 加
-`-Wl,-force_load,$BATTERY_ARCHIVE`），构建成功、`verify-boot-image.py` 通过，
-但内核里 `strings kernel.macho | grep -c K60Battery` = **0**、`nm | grep k60_physical_battery_start` = **0**。
-归档本身没问题（`llvm-ar t` 七个成员、`strings` 里 114 处 `K60Battery`）。
+**Symptom**: `configs/mondrian_defconfig` turns on `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`,
+both wiring points in `scripts/build-xnu-4k-baseline.sh` were written (`PERSONALITY_CFLAGS` got
+`-DXNU_K60_PHYSICAL_BATTERY=1`, `KERNEL_EXTRA_ARCHIVES` got
+`-Wl,-force_load,$BATTERY_ARCHIVE`), the build succeeded and `verify-boot-image.py` passed,
+yet in the kernel `strings kernel.macho | grep -c K60Battery` = **0** and `nm | grep k60_physical_battery_start` = **0**.
+The archive itself is fine (`llvm-ar t` lists seven members, `strings` has 114 occurrences of `K60Battery`).
 
-**原因**：`KERNEL_EXTRA_ARCHIVES` 的**整段**（第 898–1092 行）嵌在
-`if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then … fi` 里面。而生成的
-`.config` 第 2 行是 `CONFIG_XNU_SOURCE_CORECRYPTO14=y`、第 88 行是
-`=n` —— `unixnu/scripts/unixnu/config.py:82-107` 的 `parse_config()` 让**后出现的赋值覆盖前面的**
-（这是 defconfig 片段拼接的正常语义），所以 `xnu_env()` 传给构建脚本的是 `XNU_SOURCE_CORECRYPTO14=0`，
-整段被跳过。**这个板子真正生效的链接列表是 `PLATFORM_ARCHIVES`**（第 1150 行起，
-条件 `[ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]`），
-`ArmDTPlatform`、`ArmCpu`、`NativeUfs`、`NativeRamBlock` 都在那里加。
-所以「归档加进 `KERNEL_EXTRA_ARCHIVES`」在这个板子上是**空操作**。
+**Cause**: the **whole block** of `KERNEL_EXTRA_ARCHIVES` (lines 898–1092) is nested inside
+`if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then … fi`. And the generated
+`.config` has `CONFIG_XNU_SOURCE_CORECRYPTO14=y` on line 2 and
+`=n` on line 88 — `parse_config()` in `unixnu/scripts/unixnu/config.py:82-107` lets **the later assignment override the earlier one**
+(that is the normal semantics of concatenating defconfig fragments), so `xnu_env()` hands the build script `XNU_SOURCE_CORECRYPTO14=0`
+and the whole block is skipped. **The link list that actually takes effect on this board is `PLATFORM_ARCHIVES`** (from line 1150,
+condition `[ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]`),
+which is where `ArmDTPlatform`, `ArmCpu`, `NativeUfs`, `NativeRamBlock` are added.
+So "add the archive to `KERNEL_EXTRA_ARCHIVES`" is a **no-op** on this board.
 
-**修法**：把电池归档加进 `PLATFORM_ARCHIVES`（同时更新 `PLATFORM_DEPENDENCIES`），
-保留 `KERNEL_EXTRA_ARCHIVES` 那一份给未来重新启用 source-corecrypto 的配置用。
+**Fix**: add the battery archive to `PLATFORM_ARCHIVES` (and update `PLATFORM_DEPENDENCIES` at the same time),
+keeping the `KERNEL_EXTRA_ARCHIVES` copy for a future configuration that re-enables source-corecrypto.
 
-**怎么避免再踩**：
-1. 加任何 `-Wl,-force_load` 归档后，**必须验证符号真的进了内核**：
-   `llvm-nm-18 $M/kernel/kernel.macho | grep -c <symbol>`，不能只看 `test -f` 通过和构建成功。
-2. 判断"我加的这行到底会不会执行"要读**外层条件**，不是只读相邻几行 —— 用
-   `awk` 打印整段的 `if`/`fi` 骨架（`awk 'NR>=898 && NR<=1100 && (/^if /||/^  if /||/^fi$/)'`）。
-3. 同一个 `.config` 里出现两次同名 `CONFIG_` 时，**最后一次生效**；`check-config-consistency.py`
-   把这种重复作为 note 打印出来（`duplicate CONFIG_XNU_SOURCE_CORECRYPTO14: line 2 has y; line 88 has n`），
-   看到这类 note 就要想到"构建脚本里用这个符号分支的代码可能整段不执行"。
+**How to avoid it next time**:
+1. After adding any `-Wl,-force_load` archive, **you must verify the symbol actually reached the kernel**:
+   `llvm-nm-18 $M/kernel/kernel.macho | grep -c <symbol>`, not just that `test -f` passes and the build succeeded.
+2. To judge "will this line I added actually execute" you read the **enclosing condition**, not just the neighbouring lines — use
+   `awk` to print the `if`/`fi` skeleton of the whole block (`awk 'NR>=898 && NR<=1100 && (/^if /||/^  if /||/^fi$/)'`).
+3. When the same `CONFIG_` name appears twice in one `.config`, **the last one wins**; `check-config-consistency.py`
+   prints such duplicates as a note (`duplicate CONFIG_XNU_SOURCE_CORECRYPTO14: line 2 has y; line 88 has n`),
+   and seeing such a note should make you think "code in the build script branching on this symbol may never execute at all".
 
-**同一 bug 的第二种形状（2026-11-14，由门禁自测抓出）**：`scripts/check-kernel-archives.py`
-第一版把两个键写成 `ARM_DT_PLATFORM` / `XNU_ARMCPU`，而生成的键是
-`CONFIG_XNU_ARM_DT_PLATFORM` / `CONFIG_XNU_ARMCPU`。`enabled()` 对认不出的名字只返回 False，
-于是门禁**静默跳过**了它本该守的四个归档里的两个，还打印 `✅ … 2 enabled archive(s)`。
-认不出名字就跳过的门禁比没有门禁更糟。修法：每个键都从真实 `.config` 行抄；
-跳过时打印 `skip: CONFIG_… is not enabled`；新增
-`scripts/tests/test-check-kernel-archives.py`（5 个用例）第 1 个断言
-`EXPECTED` 里每个键都真实存在于 `configs/mondrian_defconfig`。
+**The second shape of the same bug (2026-11-14, caught by the gate's own self-test)**: the first version of `scripts/check-kernel-archives.py`
+wrote the two keys as `ARM_DT_PLATFORM` / `XNU_ARMCPU`, while the generated keys are
+`CONFIG_XNU_ARM_DT_PLATFORM` / `CONFIG_XNU_ARMCPU`. `enabled()` returns False for any name it does not recognise,
+so the gate **silently skipped** two of the four archives it was supposed to guard, while printing `✅ … 2 enabled archive(s)`.
+A gate that skips names it does not recognise is worse than no gate. Fix: every key is copied from a real `.config` line;
+on a skip it prints `skip: CONFIG_… is not enabled`; and a new
+`scripts/tests/test-check-kernel-archives.py` (5 cases) whose first case asserts that
+every key in `EXPECTED` really exists in `configs/mondrian_defconfig`.
 
-## P-191 — 查表函数"没找到"却返回成功
+## P-191 — A table-lookup function returned success when it found nothing
 
-**现象**：`k60_rpmh_level_index(&res, 9999, &index)` 返回 `K60RpmhOk`，`index` 是表的最后一档。
-调用方以为"1800 mV 已选好"，实际选的是这张表能表达的最高档。host 测试当时还把这种行为写成断言
-（`CHECK(... 9999 ... == K60RpmhOk && index == 3)`），于是测试替 bug 背书。
+**Symptom**: `k60_rpmh_level_index(&res, 9999, &index)` returns `K60RpmhOk` and `index` is the last rung of the table.
+The caller believed "1800 mV is selected" when what was actually selected is the highest rung this table can express. The host test even wrote that behaviour down as an assertion
+(`CHECK(... 9999 ... == K60RpmhOk && index == 3)`), so the test endorsed the bug.
 
-**根因**：循环没命中时走了 fallback 分支，为了"给个合理值"把 `*index` 设成最后一档，
-顺手沿用了成功返回码。
+**Root cause**: when the loop misses it takes the fallback branch, which sets `*index` to the last rung to "give a sensible value"
+and reused the success return code along the way.
 
-**为什么危险**：这是**投票类**接口。RPMh 的电压/模式请求一旦发出就无法在软件侧撤销，
-错误档位会以"成功"的形态持续存在，而且日志里看不出来 —— 只有比较 observer 的
-`valid`/`enable` 才能发现。
+**Why it is dangerous**: this is a **voting-class** interface. Once an RPMh voltage/mode request is issued it cannot be withdrawn from the software side,
+a wrong rung persists in the shape of "success", and it is invisible in the log — you only notice by comparing the observer's
+`valid`/`enable`.
 
-**修法**（`drivers/PongPower/K60PmicRail.c`）：fallback 仍给出最后一档（调用方可能想打印它），
-但返回 `K60RpmhNoLevel`；host 测试同步改成 `CHECK(... 9999 ... == K60RpmhNoLevel); CHECK(index == 3);`
-并补一条命中用例 `1400 -> Ok, index 0`。
+**Fix** (`drivers/PongPower/K60PmicRail.c`): the fallback still supplies the last rung (the caller may want to print it),
+but returns `K60RpmhNoLevel`; the host test is changed in step to `CHECK(... 9999 ... == K60RpmhNoLevel); CHECK(index == 3);`
+plus a hit case `1400 -> Ok, index 0`.
 
-**预防**：
-1. 任何返回 `Ok`/`Success` 的查表函数，逐条问"输入超出表范围时我返回什么"。
-2. host 测试不要只测正常路径 —— 边界输入（0、超上限、表为空）必须各有一条。
-3. 看到 `*out = count - 1; return OK;` 这种组合就是本坑。
+**Prevention**:
+1. For every table-lookup function returning `Ok`/`Success`, ask line by line "what do I return when the input is outside the table".
+2. Host tests must not test only the normal path — boundary inputs (0, over the maximum, empty table) each need a case.
+3. Seeing the combination `*out = count - 1; return OK;` is this pitfall.
 
-**发现者**：触摸线 agent 的评审（`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md`，2026-11-14）。
+**Found by**: the touch line agent's review (`docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md`, 2026-11-14).
 
-## P-192 — 门禁把"整机口径"用成了"所有人一起等"
+## P-192 — The gate used a "whole-machine scope" as "everybody waits together"
 
-**现象**：2026-11-14，wifi 与 bt 两条线的 agent 都无法通过 `build-strict.sh` 构建。原因是八步门禁的
-**flash 模式**要求所有 `status = "active"` 的硬件项八步全绿，而触摸线正在被外部 agent 大改
-（④⑤⑥ 被改成 `done = false`）。两条线于是手工 `unixnu build` + `bootimg` 绕过构建器，结果：
+**Symptom**: on 2026-11-14 the agents on the wifi and bt lines could not build through `build-strict.sh`. The reason: the eight-step gate's
+**flash mode** requires every hardware item with `status = "active"` to be green on all eight steps, while the touch line was being heavily reworked by an external agent
+(④⑤⑥ set to `done = false`). Both lines therefore bypassed the builder with a manual `unixnu build` + `bootimg`, and the result:
 
-- `bt-s1-20261114b` 命令行 **610 字节**，超过 DarwinBoot 的 607 字节上限（`BootArgs.h:8` 的
-  `DARWIN_BOOT_LINE_LENGTH 608`，`DarwinBoot.c:681` 判 `Index >= sizeof(CommandLine) - 1`），
-  固件直接返回 `EFI_BAD_BUFFER_SIZE`，内核根本没被调用；
-- `wifi-20261115a` 把 `debug=0x140` 换成 `debug=1`（`debug.h:513` 的 `DB_HALT`），任何调试陷阱都停机，
-  还把 `epoch` 换成 1 —— 表现为"引导卡在一处"。
+- the `bt-s1-20261114b` command line was **610 bytes**, over DarwinBoot's 607-byte limit (`BootArgs.h:8`'s
+  `DARWIN_BOOT_LINE_LENGTH 608`, `DarwinBoot.c:681` tests `Index >= sizeof(CommandLine) - 1`),
+  so the firmware returned `EFI_BAD_BUFFER_SIZE` outright and the kernel was never invoked;
+- `wifi-20261115a` replaced `debug=0x140` with `debug=1` (`DB_HALT` in `debug.h:513`), so any debug trap halts,
+  and also replaced `epoch` with 1 — presenting as "boot is stuck somewhere".
 
-两次都是 **0 字节日志**，看起来像内核故障，实际是打包环节没人看命令行。
+Both were **0-byte logs**, looking like a kernel fault, when in fact nobody in the packaging step looked at the command line.
 
-**根因**：门禁本身没错（它确实应该拦住未验证的硬件项），错在**只能整机声明**：
-`K60_EIGHT_STEP_ITEMS` 只在 `status = "active"` 的项里挑，所以"我要构建 buttons/wifi/bt 这条线"
-根本无法表达，任何非触摸线的构建都会被触摸线拖住。
+**Root cause**: the gate itself is not wrong (it really should block unverified hardware items), what is wrong is that it **can only declare whole-machine**:
+`K60_EIGHT_STEP_ITEMS` picks only among `status = "active"` items, so "I want to build the buttons/wifi/bt line"
+cannot be expressed at all, and any build not on the touch line is held up by the touch line.
 
-**修法**（`scripts/eight-step-gate.py`）：
-- `declared_items(hw, all_items)` 改为从**全部**硬件项里取名字，parked/planned 也可以声明；
-- 声明后的项仍按同一套证据规则检查（`done=true`、依据 ≥30 字、必须有 `file:line`/URL/`usblog-…`/`0x…`/`P-xx`/`★xx`），
-  所以这是**收窄范围**而不是放松要求；
-- 不声明 = 整机口径，行为与之前逐字相同；
-- `--flash` 模式永远不看声明，刷机仍是整机门禁；
-- 打印时带上状态：`声明范围: buttons[parked]`，谁放窄了范围在日志里一目了然。
+**Fix** (`scripts/eight-step-gate.py`):
+- `declared_items(hw, all_items)` now takes names from **all** hardware items, so parked/planned can be declared too;
+- declared items are still checked under the same evidence rules (`done=true`, rationale ≥30 characters, must have `file:line`/URL/`usblog-…`/`0x…`/`P-xx`/`★xx`),
+  so this **narrows the scope** rather than loosening the requirements;
+- no declaration = whole-machine scope, behaviour identical to before, word for word;
+- `--flash` mode never looks at declarations, flashing is still a whole-machine gate;
+- the printout carries the state: `declared scope: buttons[parked]`, so whoever narrowed the scope is visible in the log.
 
-**配套**：新增 `scripts/check-image-args.py` 并把 `build-strict.sh` 接上 —— 即使有人手工打包，
-也能用同一条命令审出超限、`debug=1`、`epoch=1`、替换 board 值、未声明追加参数。
+**Supporting work**: a new `scripts/check-image-args.py`, wired into `build-strict.sh` — even if someone packages by hand,
+the same command can audit over-limit lines, `debug=1`, `epoch=1`, replaced board values and undeclared appended arguments.
 
-**教训**：
-1. 门禁的"作用域"和"强度"是两件事。挡住无关的人不是严格，是逼人绕过。
-2. 任何"只能整机"的门禁，都要问一句"别人在做别的硬件时怎么构建"。
-3. 绕过门禁的产物必须能被独立审计 —— 审计工具要单独可用，不能只挂在构建器里。
+**Lessons**:
+1. A gate's "scope" and its "strength" are two different things. Blocking uninvolved people is not strictness, it is forcing them to bypass.
+2. For any gate that can "only be whole-machine", ask "how does someone else build while working on different hardware".
+3. Artefacts that bypassed a gate must be independently auditable — the audit tool has to be usable on its own, not only hooked into the builder.
 
-### P-193 — 门禁把仓库根写成字面路径、把参考源搜索写死两个前缀：在 worktree 里校验别人的文件，还永远拒绝合法的参考仓库
+### P-193 — The gate hardcoded the repository root and searched references with two fixed prefixes: it validated another worktree's files, and permanently rejected legitimate reference repositories
 
-**症状**：refmine 线要把 `QcaBluetooth` 与 `UniXNU-liuqin` 写进
-`docs/research/SOURCES.toml` 的 `required`，`scripts/research-gate.py` 永远报
-`文件不存在`，只能把结论留在散文里、进不了门禁。同时每个 worktree 跑这个门禁，
-校验的都是 `/mnt/e/hackios/UniXNU-mondrian` 那棵树的文件，不是自己这棵。
+**Symptom**: the refmine line needed `QcaBluetooth` and `UniXNU-liuqin` written into
+`docs/research/SOURCES.toml`'s `required`, and `scripts/research-gate.py` always reported
+`file does not exist`, so the conclusion could only stay in prose and never got into the gate. At the same time, every worktree running this gate
+validated the files of the tree at `/mnt/e/hackios/UniXNU-mondrian`, not its own.
 
-**根因**（两处，同一形状）：
+**Root cause** (two places, one shape):
 
 ```python
 REPO = '/mnt/e/hackios/UniXNU-mondrian'          # 字面路径
@@ -4552,13 +4691,13 @@ alt = os.path.join('/mnt/e/k60-work', path)       # 只有两个前缀
 exists = os.path.exists(full) or os.path.exists(alt)
 ```
 
-1. `REPO` 是写死的共享检出。十一个 worktree 里只有一个是那个路径，其余全部在
-   校验别人的文件 —— 门禁绿了不代表自己这棵树没问题。
-2. 参考源只认「本仓检出」和 `/mnt/e/k60-work`。`/mnt/e/hackios` 下直接 clone 的
-   `QcaBluetooth`、`UniXNU-liuqin` 永远解析不到，于是**合法的参考源被门禁拒绝**，
-   而不是被记录。
+1. `REPO` is a hardcoded shared checkout. Of eleven worktrees only one is at that path, all the others
+   validate someone else's files — a green gate does not mean your own tree is fine.
+2. Reference sources were recognised only as "this repository's checkout" and `/mnt/e/k60-work`. Repositories cloned directly under `/mnt/e/hackios`
+   (`QcaBluetooth`, `UniXNU-liuqin`) never resolved, so **legitimate reference sources were rejected by the gate**
+   instead of being recorded.
 
-**修法**：
+**Fix**:
 
 ```python
 REPO = os.environ.get('K60_REPO') or str(Path(__file__).resolve().parents[1])
@@ -4569,45 +4708,45 @@ if not any(os.path.exists(candidate) for candidate in tried):
     problems.append('%s 文件不存在: %s（已试 %d 个前缀）' % (label, path, len(tried)))
 ```
 
-失败信息带上「试了几个前缀」，下次加参考仓库时一眼能看出是漏了前缀还是文件真没了。
+The failure message carries "how many prefixes were tried", so the next time a reference repository is added you can see at a glance whether a prefix is missing or the file is really gone.
 
-**怎么避免再踩**：
+**How to avoid it next time**:
 
-1. 任何门禁脚本里出现 `/mnt/e/hackios/…` 这种字面检出路径，都是 bug。
-   `scripts/check-repo-paths.py`（hygiene 线）现在会报 ERROR。
-2. 参考源解析写成**前缀元组**，不是两次 `os.path.exists` 的 `or`。新增参考仓库
-   只改元组，不改查找逻辑。
-3. 门禁的失败信息必须说明「试过什么」。只写「文件不存在」的报错，会让人以为是
-   文件的问题而不是门禁的问题 —— 这条和 P-190 的「认不出名字就静默跳过」是同一个
-   教训的两种形状。
-4. 每个门禁都要有一个从**别的 worktree** 跑的用例，否则字面路径 bug 永远不会暴露。
-   见 `scripts/tests/test-research-gate-prefixes.py`（5 个用例）。
+1. Any literal checkout path like `/mnt/e/hackios/…` inside a gate script is a bug.
+   `scripts/check-repo-paths.py` (the hygiene line) now reports it as ERROR.
+2. Resolve reference sources as a **tuple of prefixes**, not as two `os.path.exists` calls joined by `or`. Adding a reference repository
+   only changes the tuple, not the lookup logic.
+3. A gate's failure message must say **what was tried**. An error that only says "file does not exist" makes people think
+   the file is the problem rather than the gate — this is the same lesson as P-190's "silently skip what you cannot recognise",
+   in two shapes.
+4. Every gate needs a test case that runs from **another worktree**, otherwise the literal-path bug never surfaces.
+   See `scripts/tests/test-research-gate-prefixes.py` (5 cases).
 
-## P-194 — 补丁集指纹量的是 scratch 副本，不是真正被构建的序列
+## P-194 — The patch-set fingerprint measured a scratch copy, not the series actually built
 
-- **现象**：`porting-gate.py` 的 S 段报 `series 指纹 23131cd07c1cb63e (227 条)`，而这次构建的
-  `build-manifest.json` 写着 `series 223`。两个数字都自称"补丁集指纹"，却描述不同的序列。
-- **根因**：`board.toml` 的 `patch_series = ["device:patches/xnu/series"]` 才是构建真正应用的顺序表
-  （`scripts/unixnu/patches.py:12-28` 按它逐条 apply，重复条目直接报错）。而
-  `porting-gate.py:35` 与 `record-boot.py:24` 都写死 `WORK + '/scratch/SERIES-FINAL.txt'`。
-  那份 scratch 副本是 P-90 时代的真相源，此后漂移成 227 条：多出四个蓝牙补丁
-  （`0507`–`0510`）、仍写着已被替换的 `0610-k60-metal-seeds.patch`。
-- **后果**：S 段把"补丁集变了"判成必须显式确认，可它比较的是两个都不参与构建的副本；
-  `record-boot.py` 记进账本的指纹同样是错的，于是"上次成功启动的补丁集"这条基线一直指向
-  一个不存在的序列。这正是 P-90 的反面：当年是改仓库 series 不生效，今天是改仓库 series 生效了，
-  但门禁还在看 scratch。
-- **修复**：两个脚本都改成 `SERIES = <repo>/patches/xnu/series`，文件不存在时才回退到
-  `scratch/SERIES-FINAL.txt`（给没有该文件的旧树用）。改后 `record-boot.py --dry-run` 报
-  `series 932e0cb51d39fb60 (223 patches)`，与 manifest 的 223 一致。
-- **验证**：`python3 scripts/record-boot.py --image … --log … --dry-run` 的条数与
-  `build-manifest.json` 的 `series.count` 必须相等；不相等就说明两个"真相源"又分叉了。
-- **教训**：
-  1. 任何"指纹/基线"都必须来自**构建实际读的那个文件**，不能来自同名的副本。判据很简单：
-     把它和 manifest 里同一个字段对一次，对不上就是 bug。
-  2. 一个文件被两份脚本各自写死路径时，改真相源只会改一半。真相源变更必须同时改所有读者，
-     并且留一个能在没有该文件时降级的回退。
-  3. P-90 的结论（"改仓库 series 无效"）在 format 2 之后已经反转。pitfall 也会过期，
-     引用旧 pitfall 当依据之前先确认它描述的世界还在不在。
+- **Symptom**: section S of `porting-gate.py` reports `series fingerprint 23131cd07c1cb63e (227 entries)`, while this build's
+  `build-manifest.json` says `series 223`. Both numbers claim to be the "patch-set fingerprint" yet describe different series.
+- **Root cause**: `board.toml`'s `patch_series = ["device:patches/xnu/series"]` is the order list the build really applies
+  (`scripts/unixnu/patches.py:12-28` applies it entry by entry and errors outright on duplicates). But
+  `porting-gate.py:35` and `record-boot.py:24` both hardcode `WORK + '/scratch/SERIES-FINAL.txt'`.
+  That scratch copy was the source of truth in P-90's day and has drifted since to 227 entries: four extra bluetooth patches
+  (`0507`–`0510`), still containing the replaced `0610-k60-metal-seeds.patch`.
+- **Consequence**: section S treats "the patch set changed" as requiring explicit confirmation, yet it compares two copies, neither of which takes part in the build;
+  the fingerprint `record-boot.py` writes into the ledger is wrong in the same way, so the "patch set of the last successful boot" baseline keeps pointing at
+  a series that does not exist. This is the exact inverse of P-90: back then editing the repository series had no effect; today it does take effect,
+  but the gate still looks at scratch.
+- **Fix**: both scripts now use `SERIES = <repo>/patches/xnu/series`, falling back to
+  `scratch/SERIES-FINAL.txt` only when the file does not exist (for old trees without it). Afterwards `record-boot.py --dry-run` reports
+  `series 932e0cb51d39fb60 (223 patches)`, matching the manifest's 223.
+- **Verification**: the entry count from `python3 scripts/record-boot.py --image … --log … --dry-run` must equal
+  `build-manifest.json`'s `series.count`; if not, the two "sources of truth" have diverged again.
+- **Lessons**:
+  1. Any "fingerprint/baseline" must come from **the file the build actually reads**, not from a copy of the same name. The criterion is simple:
+     compare it once against the same field in the manifest; if they disagree it is a bug.
+  2. When one file's path is hardcoded in two scripts, changing the source of truth only changes half of it. A source-of-truth change must change every reader at once,
+     and leave a fallback that degrades when the file is absent.
+  3. P-90's conclusion ("editing the repository series has no effect") has been reversed since format 2. Pitfalls expire too:
+     before citing an old pitfall as evidence, confirm the world it describes still exists.
 
 ## P-195 — `vnode_open(path, O_CREAT, …)` creates a file, not a directory
 
@@ -4669,117 +4808,116 @@ a cosmetic warning.
 **Check.** `python3 scripts/check-blob-patches.py` (P-180) plus the boot-time
 criterion "no `K60METAL … error=20` and `deploy files=6/6`".
 
-## P-196 — 生成出来的容器，长度常量必须算上 body 之间的对齐填充
+## P-196 — In a generated container the length constant must include the alignment padding between bodies
 
-**现象.** Metal 插件部署在真机上一直是 `deploy files=5/6 error=22`，
-日志 `K60METAL entry 5 body out of range`。前 5 个文件写进去了，最后一个
-（2 字节的 `PongAdrenoMetal.publish`）被判越界。
+**Symptom.** On the device the Metal plugin deploy was always `deploy files=5/6 error=22`,
+log `K60METAL entry 5 body out of range`. The first 5 files were written, the last one
+(the 2-byte `PongAdrenoMetal.publish`) was judged out of range.
 
-**根因.** `scripts/gen-k60-metal-blob.py` 的 `emit_source()` 里
+**Root cause.** In `emit_source()` of `scripts/gen-k60-metal-blob.py`:
 
 ```python
 total = len(head) + sum(size for _, size, _ in files)
 ```
 
-只加了各 body 的原始大小，**没算 `.p2align 3` 在 body 之间插的填充**。
-实测（`/tmp/k60metal-probe.s` 解表）：第 4 项结束于 51278762，第 5 项从
-51278768 开始（对齐补 6 字节），而 `k60_metal_blob_len` 报 51278763 ——
-比第 5 项的起点还小 5 字节，内核的
-`field.offset > len || field.size > len - field.offset` 必然拒它。
-`cursor` 在循环里本来就是「头部 + 每个 body 向上对齐」的真实字节数，
-所以修法是把 `total` 改成 `cursor`。
+It adds only the raw size of each body, **it does not count the padding `.p2align 3` inserts between bodies**.
+Measured (decoding the table in `/tmp/k60metal-probe.s`): entry 4 ends at 51278762, entry 5 starts at
+51278768 (6 bytes of alignment padding), while `k60_metal_blob_len` reports 51278763 —
+5 bytes smaller than the start of entry 5, so the kernel's
+`field.offset > len || field.size > len - field.offset` has to reject it.
+`cursor` in the loop already is the true byte count of "header + every body aligned upward",
+so the fix is to change `total` to `cursor`.
 
-**为什么没有门禁拦到.** 这张表是**汇编生成**的：没有编译器、没有链接器、
-没有任何一次 C 侧的类型检查看过它。`check-kernel-archives.py` 只查符号在
-不在内核里（`_k60_metal_blob` 确实在），`verify-boot-image.py` 只比对镜像里
-各组件与 manifest 的 sha256 —— 两者都只回答「字节有没有到」，不回答
-「这张表自洽不自洽」。凡是**生成器自己写头部**的格式（容器、索引、目录表），
-都要有一个只读这张表的自洽检查。
+**Why no gate caught it.** This table is **generated in assembly**: no compiler, no linker,
+and not one C-side type check ever looked at it. `check-kernel-archives.py` only checks whether the symbol is
+in the kernel (`_k60_metal_blob` is), `verify-boot-image.py` only compares the sha256 of each component in the image against the manifest — both answer only
+"did the bytes arrive", not "is this table self-consistent". Any format where **the generator writes its own header** (containers, indices, directory tables)
+needs a self-consistency check that only reads that table.
 
-**修法.**
-1. `scripts/gen-k60-metal-blob.py`：`total = cursor`。
-2. 新门禁 `scripts/check-metal-blob.py`：解 `.byte` 头部，断言 magic、
-   entry 数与 `.incbin` 行数一致、每项 `[offset, offset+size)` 落在
-   `k60_metal_blob_len` 内、offset 8 字节对齐、互不重叠、名字非空且 <200 字节。
-3. `scripts/build-strict.sh` 在 `check-kernel-archives.py` 之后调用它。
-4. `scripts/tests/test-check-metal-blob.py` 六个用例，其中一个**必须**是
-   「把长度改回 51278763 后门禁报 P-196」，否则这条门禁没有守住它该守的东西。
+**Fix.**
+1. `scripts/gen-k60-metal-blob.py`: `total = cursor`.
+2. New gate `scripts/check-metal-blob.py`: decode the `.byte` header, assert magic,
+   entry count matches the `.incbin` line count, every `[offset, offset+size)` falls inside
+   `k60_metal_blob_len`, offsets are 8-byte aligned, do not overlap, names are non-empty and <200 bytes.
+3. `scripts/build-strict.sh` calls it after `check-kernel-archives.py`.
+4. `scripts/tests/test-check-metal-blob.py`, six cases, one of which **must** be
+   "after changing the length back to 51278763 the gate reports P-196", otherwise this gate does not guard what it is supposed to.
 
-**教训.**
-- 生成器里的「长度」和「实际写出的字节」必须由同一个游标算出来，不能用两种
-  算法各算一遍。
-- 表结构自洽是**独立于**「符号在不在」「哈希对不对」的第三类检查，
-  不能指望前两类覆盖它。
-- 一个 2 字节的文件暴露了 33 MB 部署链的 bug：越界检查是按最后一项触发的，
-  别以为小文件不会出问题。
+**Lessons.**
+- The "length" in a generator and "the bytes actually written" must be computed from the same cursor; you cannot compute them twice with two
+  different algorithms.
+- Table self-consistency is a third class of check, **independent of** "is the symbol there" and "is the hash right";
+  do not expect the first two to cover it.
+- A 2-byte file exposed the bug in a 33 MB deploy chain: the range check fires on the last entry,
+  so do not assume small files cannot go wrong.
 
-**Check.** `python3 scripts/check-metal-blob.py` 与
-`python3 scripts/tests/test-check-metal-blob.py`；真机判据
-`K60METAL deploy files=6/6`。
+**Check.** `python3 scripts/check-metal-blob.py` and
+`python3 scripts/tests/test-check-metal-blob.py`; the on-device criterion is
+`K60METAL deploy files=6/6`.
 
-## P-197 — 固件没实现的能力，不能写成"已经做了"
+## P-197 — A capability the firmware does not implement cannot be written up as "already done"
 
-**现象.** 蓝牙 S4 方案（让固件把 `<kernel>.gpuaddon` 拷进 boot window 并在
-`/chosen/memory-map/GpuAddon` 发布运行地址）连飞两次都失败，日志只有一行
+**Symptom.** The bluetooth S4 plan (have the firmware copy `<kernel>.gpuaddon` into the boot window and publish the run address at
+`/chosen/memory-map/GpuAddon`) failed two flashes in a row, with a single log line
 `[bluetooth] addon: unusable range 0 0`
-（`usblog-20261115-012913/console.log:192`）。容器确实在 payload 里：
-`mdir -i boot.img@@557056 -/ ::/EFI/UniXNU/PAYLOADS` 列出
-`kernel.macho.gpuaddon 1027584`，ADT 里也确实有 `GpuAddon` 属性名。于是三轮
-排查都花在参数、容器格式、内核 reader 上。
+(`usblog-20261115-012913/console.log:192`). The container really was in the payload:
+`mdir -i boot.img@@557056 -/ ::/EFI/UniXNU/PAYLOADS` lists
+`kernel.macho.gpuaddon 1027584`, and the ADT really does carry the `GpuAddon` property name. So three rounds of
+investigation went into parameters, container format and the kernel reader.
 
-**根因.** 那句"DarwinBoot 已经把 … 拷进 boot window（DarwinBoot.c:588-651）"
-是**假设，不是实测**。实测：
+**Root cause.** The sentence "DarwinBoot already copies … into the boot window (DarwinBoot.c:588-651)"
+was **an assumption, not a measurement**. Measured:
 
 ```
 $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 （零命中）
 ```
 
-`Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c` 的 ADT 扫描器只处理八个
-属性：`name`、`RAMDisk`、`PackedRAMDisk`、`darwinboot-memory-ranges`、
-`pong-allocatable-ram`、`pong-audio-dma`、`TrustCache`、
-`darwinboot-memory-size` —— 没有 `GpuAddon`。原文 588-651 行是
-`WritePongRam`/`Boot` 的开头，与 addon 无关。而
-`scripts/unixnu/devicetree.py:339` 的
+`Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c`'s ADT scanner handles only eight
+properties: `name`, `RAMDisk`, `PackedRAMDisk`, `darwinboot-memory-ranges`,
+`pong-allocatable-ram`, `pong-audio-dma`, `TrustCache`,
+`darwinboot-memory-size` — no `GpuAddon`. Lines 588-651 are
+the start of `WritePongRam`/`Boot` and have nothing to do with addon. And
+`scripts/unixnu/devicetree.py:339`'s
 `mappings += [('GpuAddon', bytes(16))] if addon else []`
-只写了一个 16 字节占位，等固件回填 paddr/length。固件不认 → 全零 → 内核
-`range->paddr == 0` → `k60_addon_note("unusable range", 0, 0)`。
+writes only a 16-byte placeholder, expecting the firmware to fill in paddr/length. The firmware does not recognise it → all zeros → the kernel's
+`range->paddr == 0` → `k60_addon_note("unusable range", 0, 0)`.
 
-**为什么没被门禁拦到.** 框架生成的 ADT 里属性名是对的，`verify-boot-image.py`
-只比对文件哈希，`mdir` 只证明容器在 payload 里。三者都真，合起来却不足以让
-内核看到它——**"文件在镜像里"和"内核能读到"之间隔着固件这一步**，而没有任何
-门禁检查固件那一侧。
+**Why no gate caught it.** In the framework-generated ADT the property name is correct, `verify-boot-image.py`
+only compares file hashes, and `mdir` only proves the container is in the payload. All three are true, yet together they are not enough for the
+kernel to see it — **between "the file is in the image" and "the kernel can read it" sits the firmware step**, and no
+gate checks the firmware side.
 
-**修法.** ① `scripts/make-bt-firmware-addon.py` 的 docstring 改成实测结论
-（打包器仍然正确，但明确写"当前固件不会发布这个 range"）；② 要让 S4 真正
-可用，得在 `uefi-mondrian` 的 `DarwinBoot.c` 的 ADT 扫描器里加一个 `GpuAddon`
-分支（从 payload FAT 读 `<kernel>.gpuaddon` → 分配页 → 回填 16 字节），或改用
-别的载体（Data seed / 内核内嵌 blob，后者有 `k60_metal_blob.s` 先例）。
+**Fix.** ① change the docstring of `scripts/make-bt-firmware-addon.py` to the measured conclusion
+(the packer is still correct, but state plainly "the current firmware does not publish this range"); ② to make S4 really
+usable, add a `GpuAddon` branch to the ADT scanner in `uefi-mondrian`'s `DarwinBoot.c`
+(read `<kernel>.gpuaddon` from the payload FAT → allocate pages → fill in the 16 bytes), or switch to
+a different carrier (Data seed / kernel-embedded blob, the latter has the `k60_metal_blob.s` precedent).
 
-**教训.**
-- 跨仓能力必须跨仓验证：写"固件已经做了 X"之前，先在**固件仓**里
-  `git grep` 一次 X。同一个词在三个仓里出现，不等于三处都实现了。
-- 三件真事凑不成一件真结论：属性名对、容器在、哈希对，都不能推出"内核读得到"。
-  中间那一步（固件回填）必须有独立的可观测证据。
-- 零值是最贵的失败形态：`unusable range 0 0` 只说"值是零"，不说"谁没填"。
-  看到零先问"这一步该由谁填"，再问"那个代码存在吗"。
-- 一处错误注释会传染：`patches/bt/0004` 与 `patches/xnu/0510` 的补丁注释也抄了
-  同一个假设，两份补丁一起把假前提变成了"设计依据"。
+**Lessons.**
+- A cross-repository capability must be verified across repositories: before writing "the firmware already does X", `git grep` X once
+  in **the firmware repository**. The same word appearing in three repositories does not mean all three implement it.
+- Three true facts do not add up to one true conclusion: the property name is right, the container is there, the hash matches — none of which implies "the kernel can read it".
+  The step in between (the firmware filling it in) needs its own observable evidence.
+- A zero value is the most expensive failure shape: `unusable range 0 0` only says "the value is zero", not "who failed to fill it".
+  On seeing a zero, first ask "who is supposed to fill this step", then ask "does that code exist".
+- One wrong comment is contagious: the patch comments in `patches/bt/0004` and `patches/xnu/0510` copied
+  the same assumption, and the two patches together turned the false premise into a "design basis".
 
 **Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
-必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
-真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
-（旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
-载体实现见 `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510` 的 `k60_bt_addon_load_blob()`。
+being 0 voids any statement that "the firmware publishes GpuAddon";
+the on-device criterion therefore becomes the kernel-embedded blob line: `[bluetooth] addon: linked blob bytes=1027584 records=106`
+(the old channel's `addon: loaded bytes records …` will never appear; `addon: unusable range 0 0` is the measured symptom of P-197).
+The carrier implementation is `scripts/gen-k60-bt-blob.py` + `patches/xnu/0510`'s `k60_bt_addon_load_blob()`.
 
-## P-200 — `boot.json` 的 `kernel_sha256` 量的是固件卷，不是内核
+## P-200 — `boot.json`'s `kernel_sha256` measures the firmware volume, not the kernel
 
-**现象.** 2026-11-15 两个 agent 拿 `boot.json` 比对镜像，得出互相矛盾的结论：
-一方说「mhi3/mhi4 的内核逐字节相同，所以变量只有内存窗口」，另一方说「内核
-不同」。两边都没量错文件，是**字段名错了**。
+**Symptom.** On 2026-11-15 two agents compared images using `boot.json` and reached contradictory conclusions:
+one said "the kernels of mhi3/mhi4 are byte-identical, so the only variable is the memory window", the other said "the kernels
+differ". Neither measured the wrong file; **the field name is wrong**.
 
-**实测.** `E:\k60-work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
-`kernel_sha256` **全是** `83b52b566b9cd0e0a2f13854f7da4c67…`：
+**Measured.** For 11 completely different images under `E:\k60-work\artifacts\`, `boot.json`'s
+`kernel_sha256` is **all** `83b52b566b9cd0e0a2f13854f7da4c67…`:
 
 ```
 wifi-20261116a2        83b52b56…   manifest.payload_kernel e273b649…
@@ -4792,477 +4930,501 @@ gpu-20261114t          83b52b56…   manifest.payload_kernel cafdb5df…
 touch-20261114a        83b52b56…   manifest.payload_kernel e849ae6b…
 ```
 
-**根因.** 框架 `scripts/unixnu/bootimg.py:161` 写的是
+**Root cause.** The framework's `scripts/unixnu/bootimg.py:161` says
 
 ```python
 return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), ...}
 ```
 
-这里的 `kernel` 是 **boot image 的 kernel 槽** = `gzip(112 字节 shim + 3,145,728 字节固件卷) + 4,024 字节 DTB`。
-固件卷一直是 `cf448571…`，shim 是确定的，所以这个哈希对所有用同一固件卷的镜像
-恒等。**真正的 XNU 内核在 ramdisk FAT 的 `EFI/UniXNU/Payloads/kernel.macho` 里**，
-它的哈希在 `build-manifest.json` 的 `components.payload_kernel`。
+where `kernel` is **the boot image's kernel slot** = `gzip(112-byte shim + 3,145,728-byte firmware volume) + 4,024-byte DTB`.
+The firmware volume is always `cf448571…` and the shim is deterministic, so this hash is identical for every image using the same firmware volume.
+**The real XNU kernel is in the ramdisk FAT at `EFI/UniXNU/Payloads/kernel.macho`**,
+and its hash is `build-manifest.json`'s `components.payload_kernel`.
 
-**为什么没被门禁拦到.** 字段名 `kernel_sha256` 看起来就是内核；`verify-boot-image.py`
-比对的是 manifest 里正确的那个键，所以门禁一直绿。两边都对，但人是按字段名理解的。
+**Why no gate caught it.** The field name `kernel_sha256` looks like the kernel; `verify-boot-image.py`
+compares the correct key in the manifest, so the gate stayed green. Both sides are right, but humans read the field name.
 
-**修法.** ① 比内核身份一律用 `build-manifest.json` 的 `components.payload_kernel`
-（或 `mcopy` 出 payload 里的 `kernel.macho` 直接 `sha256sum`），**不要用 `boot.json`
-的 `kernel_sha256`**；② `boot.json` 那个字段应理解为「固件槽哈希」，它有用处
-（证明两张镜像用的是同一个 FD），但和内核无关；③ 需要内核身份时补一条
-`payload_kernel_sha256` 字段，别指望读的人自己分辨。
+**Fix.** ① always compare kernel identity using `build-manifest.json`'s `components.payload_kernel`
+(or `mcopy` the `kernel.macho` out of the payload and `sha256sum` it directly), **not `boot.json`'s
+`kernel_sha256`**; ② the field in `boot.json` should be understood as "firmware slot hash", which is useful
+(it proves two images use the same FD) but unrelated to the kernel; ③ when kernel identity is needed, add a
+`payload_kernel_sha256` field instead of expecting the reader to sort it out.
 
-**教训.**
-- 字段名是一种断言。叫 `kernel_sha256` 却量固件卷，等于在误导每一个读它的人，
-  而且不会有任何门禁报错。
-- 两个 agent 得出矛盾结论时，先查「各自量的到底是哪个文件」，再谈谁对——
-  这次两边都没错，错的是命名。
-- 「所有镜像这个值都一样」本身就是可疑信号：镜像内容明明不同，怎么可能同一个哈希。
-  看到跨镜像恒等的哈希，第一反应应该是「这量的是共同部分」。
-- 三方对账法：`boot.json`（槽哈希）× `build-manifest.json`（payload 内核哈希）×
-  `mcopy` 出来的实际文件（地面真值）。三者对不上时，以地面真值为准。
+**Lessons.**
+- A field name is an assertion. Calling it `kernel_sha256` while measuring the firmware volume misleads every reader
+  and no gate will ever report it.
+- When two agents reach contradictory conclusions, first check "which file each of them actually measured", then argue about who is right —
+  this time neither was wrong, the naming was.
+- "This value is the same for all images" is itself a suspicious signal: the images plainly differ, so how could the hash be the same.
+  The first reaction to a hash identical across images should be "this measures the common part".
+- Three-way reconciliation: `boot.json` (slot hash) × `build-manifest.json` (payload kernel hash) ×
+  the actual file `mcopy`'d out (ground truth). When the three disagree, ground truth wins.
 
-**Check.** 比内核身份时 `python3 -c "import json;print(json.load(open('<tag>/build-manifest.json'))['components']['payload_kernel'])"`，
-或直接 `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho k && sha256sum k`。
+**Check.** For kernel identity, `python3 -c "import json;print(json.load(open('<tag>/build-manifest.json'))['components']['payload_kernel'])"`,
+or directly `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho k && sha256sum k`.
 
-## P-201 — 绕过 build-strict.sh 造的对照镜像，证据等级自动降一级
+## P-201 — A control image built by bypassing build-strict.sh is automatically one evidence level lower
 
-**现象.** wifi 线的 `wifi-20261116a2` 是"对照镜像"：65,978,368 B 内核、
-`pong_wifi=0`、无 MHI 注入，本来是摘掉 wifi 驱动这个变量的干净对照。但它的
-`build-manifest.json` 只有四个键（tag / note / components / kernel_args），
-**没有 series / repo / frozen / gates**，note 写着
-`trial build outside build-strict.sh (flash gate blocked by the touch line)`。
+**Symptom.** The wifi line's `wifi-20261116a2` is a "control image": 65,978,368 B kernel,
+`pong_wifi=0`, no MHI injection, originally a clean control with the wifi driver variable removed. But its
+`build-manifest.json` has only four keys (tag / note / components / kernel_args),
+**no series / repo / frozen / gates**, and the note says
+`trial build outside build-strict.sh (flash gate blocked by the touch line)`.
 
-**为什么这是问题.** 没有 series 指纹，就无法证明这张镜像用的是哪一套补丁；
-没有 gates 记录，就无法知道八步门禁当时是过还是被绕过。上机之后如果它死了，
-你无法排除"它其实是另一套源码"，于是这个对照什么也证明不了——白烧一次窗口。
+**Why this is a problem.** Without a series fingerprint there is no way to prove which patch set this image used;
+without a gates record there is no way to know whether the eight-step gate passed or was bypassed at the time. If it dies on device,
+you cannot rule out "it is actually different source", so the control proves nothing — one window burned for free.
 
-**背景（当时的正当理由）.** 造 a2 时八步 `--flash` 门禁被触摸线卡住（触摸 ⑦⑧
-未完成），`build-strict.sh` 直接拒绝，只能手工打包。这个理由在**当时**成立，
-但产物必须被标记成低等级证据，而不是当普通镜像用。
+**Background (the justification at the time).** When a2 was built the eight-step `--flash` gate was blocked by the touch line (touch ⑦⑧
+unfinished) and `build-strict.sh` refused outright, so packaging was manual. That reason held **at the time**,
+but the artefact must be marked as low-grade evidence rather than used as a normal image.
 
-**修法.**
-- 手工打包的镜像一律在 tag 里带 `-trial`，note 写清绕过了什么、为什么；
-- 判定器/对账脚本看到没有 `series` 键的 manifest，就把结论降级成
-  "结构性观察"，不许当作"变量已隔离"的证据；
-- 门禁恢复后，同一个对照必须用 `build-strict.sh` 重出一张，用新镜像做判决；
-- 遮挡门禁的线（这次是触摸）修好后，回头把 trial 镜像重新出成正式镜像。
+**Fix.**
+- manually packaged images always carry `-trial` in the tag, and the note states what was bypassed and why;
+- when a judge/reconciliation script sees a manifest without a `series` key, it downgrades the conclusion to
+  "structural observation" and must not accept it as evidence that "the variable was isolated";
+- once the gate is restored, the same control must be rebuilt with `build-strict.sh` and the verdict taken from the new image;
+- once the line blocking the gate (touch, this time) is fixed, go back and reissue the trial image as a proper image.
 
-**教训.**
-- "证据等级"不是抽象概念：manifest 里少了哪几个键，就少了哪几种反驳能力。
-  没有 series 指纹 = 无法反驳"源码可能不同"。
-- 绕过门禁时留的 note 会救你一次，但它只说明"为什么绕过"，不说明"结果可信"。
-- 对照实验的成本是窗口，不是构建时间；用一张身份不可复核的镜像去换一个窗口，
-  是亏的。
+**Lessons.**
+- "Evidence level" is not an abstraction: the keys missing from the manifest are exactly the refutations you no longer have.
+  No series fingerprint = cannot refute "the source may differ".
+- The note left when bypassing a gate saves you once, but it explains only "why it was bypassed", not "the result is trustworthy".
+- The cost of a controlled experiment is a window, not build time; trading a window for an image whose identity cannot be re-verified
+  is a loss.
 
 **Check.** `python3 -c "import json;print(sorted(json.load(open('<tag>/build-manifest.json'))))"`
-—— 缺 `series` 就是 trial 级。
+— missing `series` means trial grade.
 
-## P-202 — 构建时静默丢掉特性，以及门禁去评一个旧文件
+## P-202 — Features silently dropped at build time, and a gate judging an old file
 
-两条都是 2026-11-15 thermal 线当"环境坑"报上来的，核完发现是 main 自己的 bug。
+Both were reported by the thermal line on 2026-11-15 as "environment pitfalls"; on inspection they are main's own bugs.
 
-**现象 A：`build-strict.sh` 在没有 `.config` 时静默关掉两个特性。**
-脚本头部的 Guarantees 明写 "no silent fallbacks"，但第 106 行与第 124 行是
-`GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)` 与
-`BATTERY_ON=$(sed -n ... CONFIG_XNU_K60_PHYSICAL_BATTERY ...)`。`.config` 不存在时
-`sed` 只往 stderr 打 `sed: can't read …/.config`，两条命令都返回空串 → 两个 `if`
-都不进 → 内核既没有 Metal 插件也没有电池归档，而脚本照样一路走到 `verify-boot-image: OK`。
-`build-strict.sh` 自己从不生成 `.config`（`grep defconfig` 只有两行注释/echo），
-所以"全新 `K60_OUT`"这条正常路径必然踩到。实测症状：thermal 线 rebase 后首次构建
-被 hard-38 拒（`CONFIG_XNU_GPU_ADDON missing from generated config …; expected y`），
-audio 线 `audio-probe-20261115l` 的 `payload_kernel` 只有 54,181,888 B 而带
-GPU_ADDON 的应是 105 MB 级 —— 它就是这张坑的产物，且 manifest 里连
-`kernel_args_requested` 键都没有（旧版脚本）。
+**Symptom A: `build-strict.sh` silently turns off two features when there is no `.config`.**
+The Guarantees at the top of the script say "no silent fallbacks", but lines 106 and 124 are
+`GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)` and
+`BATTERY_ON=$(sed -n ... CONFIG_XNU_K60_PHYSICAL_BATTERY ...)`. When `.config` does not exist
+`sed` only writes `sed: can't read …/.config` to stderr and both commands return an empty string → neither `if`
+is entered → the kernel has neither the Metal plugin nor the battery archive, and the script still walks all the way to `verify-boot-image: OK`.
+`build-strict.sh` never generates `.config` itself (`grep defconfig` finds only two comment/echo lines),
+so the normal path "fresh `K60_OUT`" is bound to hit it. Measured symptom: the thermal line's first build after rebase
+was rejected by hard-38 (`CONFIG_XNU_GPU_ADDON missing from generated config …; expected y`),
+and the audio line's `audio-probe-20261115l` had a `payload_kernel` of only 54,181,888 B where one with
+GPU_ADDON should be in the 105 MB range — it is the product of this pitfall, and its manifest does not even have a
+`kernel_args_requested` key (old script).
 
-修法：在 `M=`/`KERNEL=` 之后加一条硬失败
-`[ -f "$M/.config" ] || die "no $M/.config; generate it first: …unixnu defconfig …"`。
+Fix: after `M=`/`KERNEL=` add a hard failure
+`[ -f "$M/.config" ] || die "no $M/.config; generate it first: …unixnu defconfig …"`.
 
-**现象 B：`check-kernel-archives.py` 的 `find_kernel()` 拿"路径排序第一个"当本次内核。**
+**Symptom B: `find_kernel()` in `check-kernel-archives.py` takes "the first path in sort order" as this round's kernel.**
 `for board in sorted(base.glob("*/")): for candidate in sorted(board.glob("*/kernel/kernel.macho"))`
-—— 上一次构建留下的 `kernel.macho` 会被当成这一次的，于是 P-190 报
+— a `kernel.macho` left behind by the previous build is taken as this round's, so P-190 reports
 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol is in kernel.macho`
-（brightness-1 实测），而真正的原因是它在评旧文件。`build-strict.sh:259` 显式传
-`--kernel "$KERNEL"` 所以主路径不受影响，但**单独跑门禁时它评的不是你以为的文件**。
-thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 skip 分支 ——
-一个门禁把人逼到"把文件挪走让它跳过"，说明门禁判据错了。
+(measured on brightness-1), when the real reason is that it is judging an old file. `build-strict.sh:259` passes
+`--kernel "$KERNEL"` explicitly so the main path is unaffected, but **running the gate on its own judges a file you did not think it was judging**.
+The thermal line's workaround at the time was `mv $KERNEL $KERNEL.bak-<tag>` to push the script into the skip branch —
+a gate that drives someone to "move the file away so it skips" has the wrong criterion.
 
-修法：按 `st_mtime` 取最新，多于一个时往 stderr 打一行提示并点名，提醒调用者用
-`--kernel` 明确指定。
+Fix: take the newest by `st_mtime`, and when there is more than one print a warning line to stderr naming them, reminding the caller to use
+`--kernel` to be explicit.
 
-**教训.**
-- "silent fallback" 不是靠注释禁止的：只要有一条 `sed` 读不到文件就返回空串，
-  特性就静默消失。凡是从文件读配置决定"要不要做某件事"，文件缺失必须是硬失败。
-- 门禁的输入来源必须比它检查的内容更可信。用 `sorted()` 猜哪个是本次产物，
-  等于把门禁的判决建立在文件名顺序上。
-- 被门禁逼出来的"绕过手法"（挪走文件让它 skip）是门禁设计错误的强信号，
-  不是使用者的纪律问题。
+**Lessons.**
+- "Silent fallback" is not banned by a comment: as long as one `sed` that cannot read the file returns an empty string,
+  the feature silently disappears. Whenever a file is read to decide "do this or not", a missing file must be a hard failure.
+- A gate's input must be more trustworthy than what it checks. Guessing which file is this round's with `sorted()`
+  means basing the gate's verdict on filename order.
+- A "workaround" the gate forces out of people (move the file away so it skips) is a strong signal that the gate is designed wrong,
+  not a discipline problem on the user's side.
 
 **Check.** `bash -n scripts/build-strict.sh && grep -c 'no \$M/.config' scripts/build-strict.sh`
-—— 必须为 1；`python3 -c "import ast,sys;src=open('scripts/check-kernel-archives.py').read();print('st_mtime' in src)"`
-—— 必须为 True。
+— must be 1; `python3 -c "import ast,sys;src=open('scripts/check-kernel-archives.py').read();print('st_mtime' in src)"`
+— must be True.
 
-## P-203 — 不要在 linked worktree 里跑 `git worktree prune`
+## P-203 — Never run `git worktree prune` inside a linked worktree
 
-**现象**：refmine 线为了拿一个「干净环境」的基线，在一个 linked worktree 里执行了
-`git worktree prune`。主仓 `E:/hackios/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
-管理目录被一次性删除（只剩 `d-main`），随后 `/e/hackios/k60-*` 全部立刻报
-`fatal: gitfile does not point to a valid repository`——二十条线同时失去工作树。
+**Symptom**: to get a "clean environment" baseline, the refmine line ran
+`git worktree prune` inside a linked worktree. The main repository's `E:/hackios/UniXNU-mondrian/.git/worktrees/` had the
+administration directories of 19 linked worktrees deleted in one go (only `d-main` left), and immediately afterwards all of `/e/hackios/k60-*` reported
+`fatal: gitfile does not point to a valid repository` — twenty lines lost their worktrees at the same time.
 
-**根因**：`git worktree prune` 的判据是「这个工作树的管理目录还在不在、gitfile 指向是否可解析」。
-它会从**当前所在的仓**出发，把凡是它认为「失效」的 admin 目录删掉。在一个 linked worktree 里跑，
-它看到的是主仓 `.git/worktrees/` 的全集，而判断依据只是 gitfile 是否可解析；
-一旦有任何一棵树短暂不可解析（或工作树目录被移动、盘符变化），它就把那棵树的 admin 目录当垃圾删掉。
-**删除不可逆、没有备份**，`git worktree add` 也不会自动重建。
+**Root cause**: `git worktree prune`'s criterion is "does this worktree's administration directory still exist, and is the gitfile target resolvable".
+It starts from **the repository it is currently in** and deletes every admin directory it considers "invalid". Run inside a linked worktree,
+it sees the whole of the main repository's `.git/worktrees/`, and the only thing it judges by is whether the gitfile is resolvable;
+the moment any one tree is briefly unresolvable (or the worktree directory is moved, or the drive letter changes), it deletes that tree's admin directory as garbage.
+**The deletion is irreversible and there is no backup**, and `git worktree add` will not rebuild it automatically.
 
-**恢复方法**（`E:/k60-work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
-1. 对每个失去 admin 目录的工作树目录，用「分支 blob 与工作树文件比对打分」反推它原本在哪个分支——
-   文件内容未提交的工作树会和几个候选分支算出不同的匹配度，取最高分。
-2. 重建 admin 三件套：`.git/worktrees/<name>/{HEAD,gitdir,commondir}`，`HEAD` 写
-   `ref: refs/heads/<branch>`，`gitdir` 写该工作树的 `.git` 文件路径，`commondir` 写 `../..`。
-3. 在工作树里 `git read-tree HEAD` 把索引补齐（**不要** `git checkout`，那会覆盖未提交内容）。
-4. 验证：`git worktree list` 无 prunable、`git rev-parse` 在 MSYS 与 WSL 两侧都能跑、
-   `git status --porcelain` 每棵树 dirty=0。
+**Recovery method** (`E:/k60-work/scratch/refmine/{repair-wts,fix6,infer2}.py` already implements it):
+1. For each worktree directory that lost its admin directory, infer which branch it was on by "scoring branch blobs against the worktree's files" —
+   a worktree with uncommitted file content scores differently against each candidate branch; take the highest.
+2. Rebuild the three admin pieces: `.git/worktrees/<name>/{HEAD,gitdir,commondir}`, with `HEAD` holding
+   `ref: refs/heads/<branch>`, `gitdir` holding that worktree's `.git` file path, and `commondir` holding `../..`.
+3. In the worktree run `git read-tree HEAD` to fill in the index (**do not** `git checkout`, that would overwrite uncommitted content).
+4. Verify: `git worktree list` shows nothing prunable, `git rev-parse` runs on both the MSYS and WSL sides,
+   `git status --porcelain` shows dirty=0 in every tree.
 
-**为什么没被门禁拦到**：`git worktree prune` 是原生命令，`/usr/local/bin/git` 守卫当时只拦
-`checkout`/`reset`/`clean`/`stash` 这类会丢内容的动词，`prune` 不在名单里——但它丢的是**管理元数据**，
-后果比 `checkout` 更重（一次影响全部工作树）。
+**Why no gate caught it**: `git worktree prune` is a native command, and at the time `/usr/local/bin/git`'s guard blocked only
+content-losing verbs like `checkout`/`reset`/`clean`/`stash`; `prune` was not on the list — yet what it loses is **administration metadata**,
+with heavier consequences than `checkout` (one command affecting every worktree).
 
-**修法（四条）**：
-1. `git-guard` 的危险动词表加 `worktree prune`，与 `checkout --` 同级；
-2. 只允许在主工作树的根上显式带 `K60_I_OWN_ALL_TREES=1` 执行；
-3. 想要「干净环境」的正确做法是 `git -C <其他目录> archive` 或 `git clone --shared` 一个临时仓，
-   不要在共享仓里做任何清理动作；
-4. 每轮构建前只跑 `sync-device-input.py`，不做任何 `git` 清理。
+**Fix (four items)**:
+1. add `worktree prune` to `git-guard`'s dangerous-verb table, at the same level as `checkout --`;
+2. allow it only at the root of the main worktree with an explicit `K60_I_OWN_ALL_TREES=1`;
+3. the correct way to get a "clean environment" is `git -C <other directory> archive` or `git clone --shared` into a temporary repository,
+   never any cleanup action inside the shared repository;
+4. before each build round run only `sync-device-input.py`, and perform no `git` cleanup at all.
 
-**教训**：`git` 里凡是带 `prune`、`gc`、`repack`、`fsck --lost-found` 字样的命令，
-都会在「看起来无害」的前提下改共享状态；共享仓上只允许只读动词。
+**Lesson**: every `git` command carrying `prune`, `gc`, `repack` or `fsck --lost-found` changes shared state under the premise of "looking harmless"; only read-only verbs are allowed on a shared repository.
 
-## P-204 — 用计数代替语义
+## P-204 — Using counts instead of semantics
 
-一天之内同一个错误出现了三次，每次都是「某个串在日志里出现 N 次」被当成结论：
+The same mistake happened three times in one day, each time "string X appears N times in the log" taken as a conclusion:
 
-1. **springboard 线**（我判错的）：`chronod` 在三份健康日志里只出现 2 次，我据此判
-   「chronod 根本没启动」。实测 `usblog-20261115-003207:1230`
+1. **springboard line** (my mistake): `chronod` appeared only 2 times in three healthy logs, and on that basis I concluded
+   "chronod never started". Measured: `usblog-20261115-003207:1230`
    `KE 107 109 xpcproxy …/ChronoCore.framework/Support/chronod` + `:2364`
-   `K60RV 4 chronod[109]` —— 它被拉起了。出现次数少是因为它安静，不是因为没跑。
-2. **thermal 线**（agent 判错的）：`Too many corpses` 被当成 backboardd 崩溃判据。
-   实测纯 thermal 的 `usblog-20261115-003922` 自己就有 6 条 corpses（syncdefaultsd、
-   mmaintenanced），而 `crashed:.*backboardd` 是 0。corpses 是全局计数，不指向任何进程。
-3. **cellular 线**（格式串写错的）：判定命令用 `svc=$s` 匹配，而驱动格式串是
+   `K60RV 4 chronod[109]` — it was launched. It appears seldom because it is quiet, not because it is not running.
+2. **thermal line** (agent's mistake): `Too many corpses` taken as the criterion for backboardd crashing.
+   Measured: the pure-thermal `usblog-20261115-003922` has 6 corpses of its own (syncdefaultsd,
+   mmaintenanced), while `crashed:.*backboardd` is 0. corpses is a global counter and does not point at any process.
+3. **cellular line** (wrong format string): the judge command matched with `svc=$s`, while the driver's format string is
    `K60MODEM qrtr: service %u (%#x) instance %u node %u port %u`
-   （`drivers/PongCellular/K60ModemLink.c:104`、`patches/xnu/0622-k60-modem-qrtr.patch:1023`）
-   —— `svc=` 命中恒为 0，五个判据号全部假阴性。
+   (`drivers/PongCellular/K60ModemLink.c:104`, `patches/xnu/0622-k60-modem-qrtr.patch:1023`)
+   — `svc=` can never match, all five criteria were false negatives.
 
-三次的共同形状：**先想出一个能 grep 的串，再把它当成判据**，而没有先问「这个串出现
-意味着什么、不出现意味着什么」。计数只回答"有多少"，不回答"是什么"。
+The common shape of all three: **first invent a string you can grep, then treat it as the criterion**, without first asking "what does it mean
+when this string appears, and what does it mean when it does not". A count answers only "how many", not "what".
 
-判据的正确形状：
-- 指向**生命周期**而不是出现次数：进程起没起看 `KE … <program>` 与 `K60RV <name>[pid]`
-  这类成对的行，不看名字出现几次。
-- 指向**具体对象**而不是全局计数：backboardd 崩不崩看 `crashed:.*backboardd` 与
-  `KX! … backboardd exit=… sig=…`，不看 `Too many corpses`。
-- 格式串**从源码抄**，不凭印象写：`grep -n 'printf' <driver>.c` 取原文，再据此写正则；
-  词边界要显式（`service 1 \(` 防 1 撞 11）。
-- 判据要能被日志**自证**：判定行里带上判定所依据的字段值（如 backlight 的
-  `conformance=%d control=%d stats=…`），这样别人复核时不用重跑。
+The correct shape of a criterion:
+- Point at **lifecycle**, not at occurrence count: whether a process started is read from paired lines like `KE … <program>` and
+  `K60RV <name>[pid]`, not from how many times the name appears.
+- Point at **a specific object**, not at a global counter: whether backboardd crashes is read from `crashed:.*backboardd` and
+  `KX! … backboardd exit=… sig=…`, not from `Too many corpses`.
+- Copy the format string **from the source**, do not write it from memory: `grep -n 'printf' <driver>.c` to get the original, then write the regex from that;
+  make word boundaries explicit (`service 1 \(` so that 1 does not match 11).
+- A criterion must be **self-evidencing** in the log: the verdict line carries the field values it was based on (e.g. backlight's
+  `conformance=%d control=%d stats=…`), so nobody has to re-run it to review it.
 
-Check: `python3 scripts/check-docs.py`（本条只约束判据写法，机器检查由各线的
-`judge-*.py` 自测承担；`docs/engineering/JUDGE-CONTRACT.md` 把「判据必须自证、
-负样本必须来自真实日志」写成契约）
+Check: `python3 scripts/check-docs.py` (this entry constrains only how criteria are written; the machine checking is carried by the per-line
+`judge-*.py` self-tests, and `docs/engineering/JUDGE-CONTRACT.md` writes "criteria must be self-evidencing and negative samples must come from real logs" down as a contract)
 
-## P-205 — 文档里的日期、编号和门禁点名漂移，check-docs 管不到
+## P-205 — Dates, numbers and gate listings drift in the docs, and check-docs cannot see it
 
-2026-11-15 用户指着 README 问「每次合并到 main 的时候 README 里的信息怎么没及时
-更新，包括但不限于八步图」。查完发现三类漂移同时存在，且 `check-docs.py`（★36 的
-兜底门禁）一个都抓不到：
+On 2026-11-15 the user pointed at the README and asked "why is the information in the README not updated in time every time we merge to main, including but not limited to the eight-step diagram". On inspection three kinds of drift existed at once, and `check-docs.py` (★36's backstop gate) caught none of them:
 
-1. **日期漂移**：README 写「最后更新：2026-11-12」，STATUS 写「本轮更新时间：
-   2026-11-14」，而 main 上 11-15 还有 identity seed 等四个提交。
-2. **编号漂移**：README 文档表写「铁则 ★1–★35 / 坑 P-01–P-130」，实际
-   HARD-RULES.md 最大标题是 ★37、PITFALLS.md 是 P-204——这正是 ★36 自己的判词里
-   引过的历史现场（★32/P-127），第二次犯。
-3. **点名漂移**：README「门禁」写「四个检查」并列出 research-gate / porting-gate /
-   render --check，而 build-strict.sh 内嵌的九个检查（build-env / eight-step /
+1. **Date drift**: the README says "last updated: 2026-11-12", STATUS says "this round's update time:
+   2026-11-14", while main has four more commits on 11-15, identity seed among them.
+2. **Number drift**: the README's document table says "iron rules ★1–★35 / pitfalls P-01–P-130", when
+   HARD-RULES.md's highest heading is actually ★37 and PITFALLS.md's is P-204 — exactly the historical scene cited in ★36's own
+   verdict (★32/P-127), committed a second time.
+3. **Listing drift**: the README's "gates" says "four checks" and lists research-gate / porting-gate /
+   render --check, while the nine checks embedded in build-strict.sh (build-env / eight-step /
    kernel-archives / metal-blob / image-args / verify-boot-image / render / docs /
-   readme）大半不在表里，表里却有两个根本没在构建里跑的。
+   readme) are mostly missing from the table, and the table lists two that do not run in the build at all.
 
-根因：check-docs 只查「链接存在、文件登记、标记块在」——查的是**结构**，而漂移
-发生在**内容**（日期、编号、点名集合）。内容没法用固定值查，只能用**对账**：
-跟另一个文件的日期对、跟真实标题号对、跟 build-strict.sh 的标记区对。
+Root cause: check-docs only checks "the link exists, the file is registered, the marker block is there" — it checks **structure**, while drift
+happens in **content** (dates, numbers, the set of names). Content cannot be checked with fixed values, only by **reconciliation**:
+against another file's date, against the real heading number, against build-strict.sh's marker region.
 
-修法：`scripts/check-readme.py`（★36 第 7 条）——
-- README「最后更新」≥ STATUS「本轮更新时间」，EN 日期 == 中文日期；
-- 两份 README 的 ★N / P-M 范围声明 == HARD-RULES/PITFALLS 真实最大标题号；
-- 两份 README 门禁表点名同一组脚本，且必须包含 build-strict.sh
-  `# --- gate-table:BEGIN/END ---` 标记区里的全部门禁，点名的脚本必须真实存在；
-- 两份 README 的 `EIGHT-STEP-TABLE` 块 == `render-eight-step-table.py` 从
-  EIGHT-STEPS.toml 现场渲染的结果——合并一个新增 `[hardware.*]` 行的分支而没
-  重生成八步表，check-readme 当场报「不一致」。
+Fix: `scripts/check-readme.py` (★36 item 7) —
+- the README's "last updated" ≥ STATUS's "this round's update time", and the EN date == the Chinese date;
+- the ★N / P-M range statements in both READMEs == the real highest heading number in HARD-RULES/PITFALLS;
+- both READMEs' gate tables name the same set of scripts, must include every gate in build-strict.sh's
+  `# --- gate-table:BEGIN/END ---` marked region, and every named script must really exist;
+- both READMEs' `EIGHT-STEP-TABLE` block == what `render-eight-step-table.py` renders live from
+  EIGHT-STEPS.toml — merge a branch that adds a `[hardware.*]` row without
+  regenerating the eight-step table and check-readme reports "inconsistent" on the spot.
 
-教训：**名字、日期、编号是文档里最会撒谎的三类内容**——它们每天变，而手写段落
-没人记得改。任何这类「点名/计数/日期」一旦写进文档，就要同时给它一个能对账的
-机器检查，否则它必然在下一个合并里过期（与 P-204「用计数代替语义」同源：写进
-文档的数字和名字也必须能被自证）。
+Lesson: **names, dates and numbers are the three kinds of content that lie most in documentation** — they change daily, and nobody remembers to edit hand-written paragraphs. Any such "listing/count/date" written into a document must come with a machine check that can reconcile it, otherwise it will go stale in the next merge (same root as P-204's "using counts instead of semantics": numbers and names written into documents must be self-evidencing too).
 
-Check: `python3 scripts/check-readme.py`（registry `id = "P-205"`）
+Check: `python3 scripts/check-readme.py` (registry `id = "P-205"`)
 
-## P-206 — 门禁脚本里写死 board 目录名，换了板子就验旧树
+## P-206 — A hardcoded board directory name in a gate script validates the old tree on a different board
 
-现场：wifi 线的 board 目录叫 `mondrian_wifi`（随 defconfig 命名），而
-`scripts/check-build-env.py` 把 `M` 写死成 `OUT/mondrian/ipados-16.6.1-20G81/mondrian`。
-该线第一次在新树构建时，真正的缺口是 fakeroot 缺
+The scene: the wifi line's board directory is called `mondrian_wifi` (named after the defconfig), while
+`scripts/check-build-env.py` hardcodes `M` as `OUT/mondrian/ipados-16.6.1-20G81/mondrian`.
+On that line's first build in the new tree the real gap was fakeroot missing
 `Availability.h`/`AvailabilityInternal.h`/`TargetConditionals.h`
-（`build-xnu-4k-baseline.sh` 的 AvailabilityVersions install 不装这三个头，
-而三个头的正主 `prepare-xnu.py` source 模式不进 ios16 链路），内核 13 分钟后死在
-`fatal error: 'Availability.h' file not found`。P-185 的门禁却一直验着旧的 mondrian
-树，全程假绿——**门禁验的不是构建将要用的树**。
+(`build-xnu-4k-baseline.sh`'s AvailabilityVersions install does not install these three headers,
+and their real owner, `prepare-xnu.py`'s source mode, does not enter the ios16 path), and the kernel died 13 minutes later on
+`fatal error: 'Availability.h' file not found`. P-185's gate kept validating the old mondrian
+tree the whole time, green throughout — **the gate was not validating the tree the build was going to use**.
 
-教训：
+Lessons:
 
-1. 门禁脚本里出现写死的 board 目录路径就是 bug（与 P-193「门禁里出现字面检出
-   路径就是 bug」同一形状）。board 目录名随 defconfig 变，必须从 out 树现场推导。
-2. 「门禁绿了」不等于「构建会绿」，除非门禁评的是构建将要用的那棵树。P-185 的
-   教训第一次没吃透：它只修了「名字叫什么」，没修「路径怎么来」。
-3. 缺口清单必须完整命名：fakeroot 的必需文件检查原来只查 2 个，firehose 那两个
-   是构建自愈的，真正致命的是三个 Availability 头——清单不全，门禁查不到致命的
-   那个。
+1. A hardcoded board directory path in a gate script is a bug (the same shape as P-193's "a literal checkout
+   path in a gate is a bug"). The board directory name changes with the defconfig and must be derived live from the out tree.
+2. "The gate is green" does not mean "the build will be green", unless the gate judges the tree the build is going to use. P-185's
+   lesson was not fully absorbed the first time: it fixed only "what the name is", not "where the path comes from".
+3. The gap list must be complete: the fakeroot required-file check originally looked at only 2 files, the two firehose ones
+   are self-healing in the build, and the genuinely fatal ones are the three Availability headers — an incomplete list means the gate cannot see
+   the fatal one.
 
-修法：`scripts/check-build-env.py` 的 `find_board_dir(out)` 从
-`out/*/ipados-16.6.1-20G81/*` 按 mtime 推导（有 `tree/` 或 `.config` 的最新者优先，
-字面量只作 fallback），`FAKEROOT_FILES` 扩到 5 个（补 `AvailabilityInternal.h`、
-`TargetConditionals.h`、`firehose_buffer_private.h`）。
+Fix: `find_board_dir(out)` in `scripts/check-build-env.py` derives from
+`out/*/ipados-16.6.1-20G81/*` by mtime (the newest with `tree/` or `.config` wins,
+the literal is only a fallback), and `FAKEROOT_FILES` grows to 5 (adding `AvailabilityInternal.h`,
+`TargetConditionals.h`, `firehose_buffer_private.h`).
 
-Check: `K60_OUT=<out> python3 scripts/check-build-env.py`（registry `id = "P-206"`）
+Check: `K60_OUT=<out> python3 scripts/check-build-env.py` (registry `id = "P-206"`)
 
-## P-207 — 门禁对被它自己阻塞的陈旧产物下结论，构建永远起不来
+## P-207 — The gate draws conclusions about a stale artefact it itself blocks, and the build never starts
 
-现场：ADSP 载体合入 main 后重建共享基线 `baseline-20261115a`，
-`build-strict.sh` 先跑八步门禁（36 项通过），随后 `unixnu build kernel` 跑合规注册表，
-`P-190` 报 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol
-is in kernel.macho` 并拒构建。但该符号缺失的原因正是「`out-baseline` 的 `.config`
-已被 `defconfig` 重新生成（`PHYSICAL_BATTERY=y`）而 kernel 还是旧的」——**刷新它需要
-的构建正是被这条门禁挡住的那一次**。同一形状在本仓已是第三次：P-194（`porting-gate`
-比 series 与 manifest，而 manifest 只能由被挡的构建产生）、P-165（build stamp 只能由
-构建刷新，逼出 `K60_BUILD_IN_PROGRESS=1`）。
+The scene: after the ADSP carrier merged into main, the shared baseline `baseline-20261115a` was rebuilt.
+`build-strict.sh` ran the eight-step gate first (36 items passed), then `unixnu build kernel` ran the compliance registry and
+`P-190` reported `CONFIG_XNU_K60_PHYSICAL_BATTERY=y but no k60_physical_battery_start symbol
+is in kernel.macho` and refused the build. But the reason that symbol is missing is exactly "`out-baseline`'s `.config`
+has been regenerated by `defconfig` (`PHYSICAL_BATTERY=y`) while the kernel is still the old one" — **the build needed to refresh it
+is the very build this gate is blocking**. The same shape has now happened three times in this repository: P-194 (`porting-gate`
+compares series against manifest, and the manifest can only be produced by the blocked build), P-165 (the build stamp can only be refreshed by
+a build, which forced `K60_BUILD_IN_PROGRESS=1`).
 
-教训：
+Lessons:
 
-1. 门禁要量的是「这一轮构建将要产生的产物」而不是「上一次构建留下的产物」。当两者
-   不可区分时（时间戳/指纹不同），门禁的正确结论是**跳过并说明**，不是失败。
-2. 判据形状：`kernel.mtime < .config.mtime` ⇒ 这一对不可比，打印 skip（含原因与
-   刷新途径），返回 0；构建结束后 build-strict 再跑同一门禁，此时 kernel 更新，才是
-   真判据。
-3. 这类 skip 不是放宽：`--kernel` 显式给出（构建后检查）时仍是硬判据；只在
-   「out 树被配置过但没重建」这一种状态跳过。
+1. A gate must measure "the artefact this round's build is about to produce", not "the artefact the previous build left behind". When the two
+   cannot be distinguished (different timestamp/fingerprint), the gate's correct conclusion is **skip and say so**, not fail.
+2. The criterion shape: `kernel.mtime < .config.mtime` ⇒ this pair is not comparable, print skip (with the reason and
+   how to refresh), return 0; after the build ends build-strict runs the same gate again, when the kernel is newer, and that is
+   the real criterion.
+3. Such a skip is not a loosening: when `--kernel` is given explicitly (the post-build check) it is still a hard criterion; it skips only in
+   the one state "the out tree was configured but not rebuilt".
 
-Check: `python3 scripts/tests/test-check-kernel-archives.py`（8 例，含
-`a_stale_kernel_pair_is_skipped_not_failed`）与 registry `id = "P-207"`。
+Check: `python3 scripts/tests/test-check-kernel-archives.py` (8 cases, including
+`a_stale_kernel_pair_is_skipped_not_failed`) and registry `id = "P-207"`.
 
-## P-208 — `-D` 只挂在一个 object 上，另一处的同名守卫静默编译成空
+## P-208 — `-D` attached to only one object left the same guard elsewhere compiled away to nothing
 
-现场：`feat/adsp-carrier` 合入 main 后，功能图 `adsp-20261115d`（`pong_handoff_publish=1`，
-payload args 末项确认在）真机启动干净（SpringBoard 132、panic 0），但
-`K60Handoff:` / `K60PAS` 命中 **0 次**——发布器一次都没跑。查 `llvm-nm -18` 在
-`ios-obj/DEVELOPMENT_ARM64_PONG/iokit/DEVELOPMENT/IOKitBSDInit.cpo` 上：
-**没有任何**对 `k60_adsp_handoff_publish` / `k60_physical_battery_start` 的未定义引用。
-根因：`scripts/build-xnu-4k-baseline.sh` 把 `-DXNU_K60_PHYSICAL_BATTERY=1` 只塞进
-`PERSONALITY_CFLAGS`，而它只挂 `KernelConfigTables.cpo_CFLAGS_ADD`；`0602`/`0619` 的
-`#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY` 块在
-`iokit/bsddev/IOKitBSDInit.cpp` 里 → 该 define 从没到达这个 TU → 整块编译为空。
-**而链接不会报错**：`-Wl,-force_load` 已经把所有 archive 成员拉进来了，
-所以 `P-190` 的「符号在不在 kernel」一直是绿的。也就是说电池线的入口与 ADSP 发布器
-从合入那天起就是死代码，`charging ⑧` 也一样。
+The scene: after `feat/adsp-carrier` merged into main, the feature image `adsp-20261115d` (`pong_handoff_publish=1`,
+last payload args entry confirmed present) booted cleanly on device (SpringBoard 132, panic 0), but
+`K60Handoff:` / `K60PAS` matched **0 times** — the publisher never ran once. `llvm-nm -18` on
+`ios-obj/DEVELOPMENT_ARM64_PONG/iokit/DEVELOPMENT/IOKitBSDInit.cpo` shows:
+**no** undefined references at all to `k60_adsp_handoff_publish` / `k60_physical_battery_start`.
+Root cause: `scripts/build-xnu-4k-baseline.sh` puts `-DXNU_K60_PHYSICAL_BATTERY=1` only into
+`PERSONALITY_CFLAGS`, which attaches only to `KernelConfigTables.cpo_CFLAGS_ADD`; the
+`#if defined(XNU_K60_PHYSICAL_BATTERY) && XNU_K60_PHYSICAL_BATTERY` block of `0602`/`0619` lives in
+`iokit/bsddev/IOKitBSDInit.cpp` → that define never reached this TU → the whole block compiled to nothing.
+**And the link does not complain**: `-Wl,-force_load` had already pulled in all archive members,
+so P-190's "is the symbol in the kernel" stayed green the whole time. That is to say the battery line's entry point and the ADSP publisher
+have been dead code since the merge day, and so has `charging ⑧`.
 
-教训：
+Lessons:
 
-1. `-D` 的作用域必须等于「用到它的所有 TU」的作用域。XNU 的 `<obj>_CFLAGS_ADD` 是
-   按 object 挂的，一个 define 只挂在 `KernelConfigTables.cpo` 上就不可能影响
-   `iokit/bsddev/*.cpp`——凡是被多处 `#if` 判定的开关，走全局 `EXTRA_CFLAGS`。
-2. 「符号在 kernel 里」证明不了「代码会被调用」：force_load 让符号永远存在。要证明
-   调用点活着，只能看**引用**（`nm -u <TU>.o` 里有该符号）或真机日志。
-3. 静默的早退最贵：`k60_adsp_handoff_publish()` 有六条 `return`（claim 失败、板配置
-   解析失败、四段地址重叠、`/chosen` 缺失、已存在）都不打印任何东西。判据必须
-   区分「没被调用」与「被调用但早退」——本条的判据是「`K60Handoff:` 命中 0 次」
-   配上 nm 的引用检查。
+1. The scope of a `-D` must equal the scope of "all TUs that use it". XNU's `<obj>_CFLAGS_ADD` attaches
+   per object, so a define attached only to `KernelConfigTables.cpo` cannot possibly affect
+   `iokit/bsddev/*.cpp` — any switch judged by `#if` in several places belongs in the global `EXTRA_CFLAGS`.
+2. "The symbol is in the kernel" does not prove "the code will be called": force_load makes the symbol permanent. To prove
+   a call site is alive you can only look at **references** (the symbol is in `nm -u <TU>.o`) or the on-device log.
+3. A silent early return is the most expensive: `k60_adsp_handoff_publish()` has six `return`s (claim failure, board config
+   parse failure, four-segment address overlap, `/chosen` missing, already exists) and none of them prints anything. The criterion must
+   distinguish "not called" from "called but returned early" — this entry's criterion is "`K60Handoff:` matches 0 times"
+   together with the nm reference check.
 
-补记（同轮第二次踩到，形状与 P-207 完全相同）：新加的门禁在
-`check-kernel-archives.py` 里读 `IOKitBSDInit.cpo`，而注册表的调用**不带 `--kernel`**、
-在构建**之前**跑——它读到的是上一轮构建留下的、本来就有病的 object，于是把唯一能
-修好它的那次构建挡在门外（`❌ P-190 … the guarded block compiled away`）。修法：
-P-208 的判决只在显式给了 `--kernel` 时成立（`build-strict.sh` 构建后那次调用），
-无 `--kernel` 时打印 `skip:` 并放行；树的编译没走到那一步时也打印 skip。
+Addendum (hit a second time in the same round, exactly the same shape as P-207): the newly added gate in
+`check-kernel-archives.py` reads `IOKitBSDInit.cpo`, while the registry calls it **without `--kernel`**
+and **before** the build — so it read the object left by the previous build, which was already sick, and thereby shut out
+the one build that could have fixed it (`❌ P-190 … the guarded block compiled away`). Fix:
+P-208's verdict holds only when `--kernel` is given explicitly (the post-build call from `build-strict.sh`);
+without `--kernel` it prints `skip:` and lets the build through; it also prints skip when the tree's compile has not reached that step.
 
-4. 门禁只能判「本轮产出的物证」。带 `--kernel`/`--out` 的调用是构建后判决，不带参数
-   的注册表调用是构建前体检——同一个脚本两种角色，判据必须分开写，否则就是 P-207。
+4. A gate can only judge "the material evidence produced this round". A call with `--kernel`/`--out` is a post-build verdict; a registry
+   call without arguments is a pre-build health check — one script in two roles, and the criteria must be written separately, otherwise it is P-207.
 
-Check: `python3 scripts/tests/test-check-kernel-archives.py`（10 例，含
+Check: `python3 scripts/tests/test-check-kernel-archives.py` (10 cases, including
 `a_guarded_call_site_that_compiled_away_fails` /
-`a_guarded_call_site_that_compiled_in_passes`）与 registry `id = "P-208"`。
+`a_guarded_call_site_that_compiled_in_passes`) and registry `id = "P-208"`.
 
-## P-209 — defconfig 指名了 32 MiB 种子的 Data UUID：根挂载阶段自 panic，日志里一个字节都没有
+## P-209 — The defconfig named the 32 MiB seed's Data UUID: a panic at the root-mount stage with not one byte in the log
 
-现场：2026-11-15 wifi 线五张图（`wifi-20261116mhi3` / `mhi4` / `wifi-20261115z0` /
-`wifi-20261116t2` / `wifi-20261116c0`）都表现为「0 字节 + port-not-observed + autoreset
-回 fastboot」。围绕这份空日志长出四套理论：镜像尺寸、`__TEXT,__const` 多出 11.77 MB、
-固件驻留（`__TEXT` vs `__DATA`）、DarwinBoot pool 窗口。
+The scene: on 2026-11-15 five images from the wifi line (`wifi-20261116mhi3` / `mhi4` / `wifi-20261115z0` /
+`wifi-20261116t2` / `wifi-20261116c0`) all presented as "0 bytes + port-not-observed + autoreset
+back to fastboot". Four theories grew around that empty log: image size, 11.77 MB extra in
+`__TEXT,__const`, firmware residency (`__TEXT` vs `__DATA`), the DarwinBoot pool window.
 
-其中 **c0 这张**的构建配置里有一行确定的缺陷（refmine 线扫了 53 张 wifi/bt 镜像，
-`scratch/refmine/uuid-scan.py`，只有 c0 命中；其余四张都是设备卷 `1BCD69FF-…`，
-至今未解释）——
+Among them, **c0** had one definite defect in its build configuration (the refmine line scanned 53 wifi/bt images,
+`scratch/refmine/uuid-scan.py`, only c0 matched; the other four are all the device volume `1BCD69FF-…`,
+still unexplained) —
 
 ```
 configs/mondrian_wifi_defconfig:
   CONFIG_XNU_OWNER_DATA_VOLUME_UUID="6DCCF70A-6FD6-403E-ACED-95313CD7CBB8"
 ```
 
-`6DCCF70A-…` 是仓库 `seed/k60-data-seed.dbr` 那个 32 MiB 内存盘里的 OwnerData 卷；
-真机 Data 卷是 `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`
-（`docs/plans/MONDRIAN-OFFICIAL-PAGES.md:564`：「当前仓库实际 Data UUID 1BCD69FF-…」）。
-指名种子 UUID 的后果 2026-11-12 就量过并记在 PITFALLS 3811-3818：
+`6DCCF70A-…` is the OwnerData volume inside the repository's `seed/k60-data-seed.dbr`, that 32 MiB RAM disk;
+the device's Data volume is `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`
+(`docs/plans/MONDRIAN-OFFICIAL-PAGES.md:564`: "the repository's actual Data UUID is 1BCD69FF-…").
+
+The consequence of naming the seed UUID was measured on 2026-11-12 and recorded in PITFALLS 3811-3818:
 `PONG APFS: wait for Data UUID 6DCCF70A…, timeout=5s` →
-`K60DATA UFS Data window not published` → `dataerr=2` 自 panic at `kern_exec.c:8463`。
-`mondrian_wifi_defconfig` 与能起的 `mondrian_defconfig` 只差四行（缺 `GPU_ADDON`、
-缺 `K60_PHYSICAL_BATTERY`、这一行 UUID、多 `PONG_WIFI`），其中 UUID 是唯一会让内核在
-**根挂载阶段**死掉的一行——但它的因果还欠一次单变量确认（见补记）。
+`K60DATA UFS Data window not published` → `dataerr=2` panics itself at `kern_exec.c:8463`.
+`mondrian_wifi_defconfig` differs from the bootable `mondrian_defconfig` by only four lines (missing `GPU_ADDON`,
+missing `K60_PHYSICAL_BATTERY`, this UUID line, extra `PONG_WIFI`), and the UUID is the only line that makes the kernel die at
+**the root-mount stage** — though its causality still owes one single-variable confirmation (see the addendum).
 
-为什么表现成「零字节」而不是一段带 panic 的日志：USB 控制台在 `vfs_mountroot` 之后才起来。
-对照能起的 `adsp-20261115e`（3,312 行）：第一条 `K60 USBLOG` 在 ~470 行、`K60DATA mounted`
-在 ~484 行。任何死在根挂载之前的图都没有任何 USB 输出——与「内核根本没跑」不可区分。
+Why it presents as "zero bytes" rather than a log with a panic: the USB console only comes up after `vfs_mountroot`.
+For comparison the bootable `adsp-20261115e` (3,312 lines): the first `K60 USBLOG` is at ~line 470 and `K60DATA mounted`
+at ~line 484. Any image that dies before root mount has no USB output at all — indistinguishable from "the kernel never ran".
 
-教训：
+Lessons:
 
-1. 一条线**多张**镜像都 silent 时，第一个动作是 diff **构建配置**（defconfig、`board.toml`、
-   `build-manifest.json` 的 `payload_args`），不是 diff 内核版式。四套假说都建立在同一份
-   空日志上，等于零信息；`payload_args` 逐张对齐那一步做完，「参数缺失」当场出局。
-2. 「零字节」不是证据，是缺证据。凡是在根挂载之前就能死的缺陷（卷 UUID、owner 挂载、
-   Data 窗口、UFS 窗口），在 USB-only 采集下只能表现为零字节；判据必须写明
-   「本条不可用 0 字节日志判定，先修采集或先 diff 配置」。
-3. 别名型常量必须让门禁认得出：种子 UUID 与真机 UUID 都是 36 字符，肉眼看不出对错。
-   门禁 `scripts/check-defconfig-uuid.py`：defconfig 里出现种子 UUID 必须带
-   `# SEED-UUID: intentional` 标记（试种子的实验构建确实该指名它），否则硬失败；
-   未知 UUID 只提示不判死（P-194 形状：门禁不认识的东西不能自己造判决）。
-4. 计数型佐证（`grep -c`、`strings | grep -c`）在这类问题上全是噪声：五张图都「没有任何
-   wifi 日志」，因为它们都死在控制台之前。判据要指向具体对象的生命周期行（P-204）。
+1. When **several** images on one line are all silent, the first action is to diff the **build configuration** (defconfig, `board.toml`,
+   `build-manifest.json`'s `payload_args`), not to diff kernel layout. All four hypotheses were built on the same
+   empty log, which is zero information; once `payload_args` was aligned image by image, "missing arguments" was out on the spot.
+2. "Zero bytes" is not evidence, it is the absence of evidence. Any defect that can kill before root mount (volume UUID, owner mount,
+   Data window, UFS window) can only present as zero bytes under USB-only capture; the criterion must state
+   "this entry cannot be judged from a 0-byte log; fix the capture first or diff the configuration first".
+3. Alias-type constants must be recognisable to a gate: the seed UUID and the device UUID are both 36 characters, and the eye cannot tell right from wrong.
+   Gate `scripts/check-defconfig-uuid.py`: a seed UUID in a defconfig must carry
+   the `# SEED-UUID: intentional` marker (an experimental build trying the seed really should name it), otherwise hard failure;
+   an unknown UUID only warns and does not fail (P-194 shape: a gate must not invent a verdict about something it does not understand).
+4. Count-type corroboration (`grep -c`, `strings | grep -c`) is pure noise on this class of problem: all five images had "no
+   wifi log at all", because they all died before the console. The criterion must point at the lifecycle line of a specific object (P-204).
 
-Check: `python3 scripts/tests/test-check-defconfig-uuid.py`（8 例）与 registry `id = "P-209"`。
+Check: `python3 scripts/tests/test-check-defconfig-uuid.py` (8 cases) and registry `id = "P-209"`.
 
-补记（同轮被推翻的一半）：本条第一版把五张图都归给这一行，refmine 的 53 张扫描否证了其中四张
-（只有 c0 命中）。再叠一条教训：**归因必须逐张验**，不能因为「看起来都一样 silent」就假定同一个
-原因——silent 是最弱的观测，它把不同故障抹成同一张脸。c0 的因果本身也还欠一次单变量确认：
-2026-11-07 那批**带**种子 UUID 的采集（`bootcap-20261107-113650`）是有 console 输出的，
-所以「种子 UUID ⇒ 零字节」尚未坐实，要等 c1（只改这一行）的判决。判决之前，c0 记为
-`invalid-measurement`（测量无效），其余四张记为「未解释」，两者都不能当成「内核没跑」。
+Addendum (half of it overturned in the same round): the first version of this entry attributed all five images to this one line, and refmine's 53-image scan disproved four of them
+(only c0 matched). One more lesson on top: **attribution must be verified image by image**, you must not assume the same
+cause because "they all look equally silent" — silence is the weakest observation, it smears different faults into one face. c0's causality itself also owes one single-variable confirmation:
+the 2026-11-07 captures **with** the seed UUID (`bootcap-20261107-113650`) do have console output,
+so "seed UUID ⇒ zero bytes" is not yet established, and waits for the c1 verdict (changing only this line). Until then c0 is recorded as
+`invalid-measurement`, and the other four as "unexplained"; neither may be taken as "the kernel did not run".
 
-## P-210 — 门禁只量一个 defconfig：wifi board 的 Data 卷 UUID 从未被评分
+## P-210 — The gate measures one defconfig only: the wifi board's Data volume UUID was never scored
 
-现场：`scripts/check-data-identity.py` 第 31 行是 `CONFIG = REPO / "configs" /
-"mondrian_defconfig"`。它做两件事——把 `CONFIG_XNU_OWNER_DATA_VOLUME_UUID` 和设备真机
-console 里出现过的卷 UUID 对账、把 UFS Data 窗口天花板和 manifest 对账——两件都只对
-**一张** defconfig 生效。wifi board 有自己的 `configs/mondrian_wifi_defconfig`，同样带
-`CONFIG_XNU_OWNER_DATA_MOUNT=y`，于是它从头到尾没被这个门禁看过一眼。种子 UUID 就是这样
-进的正式构建（P-209 的 c0）：`check-defconfig-uuid.py` 是 P-209 之后才补的结构门禁，
-而「配置的 UUID 到底在设备上出现过没有」这半边证据对账，一直空着。
+Scene: line 31 of `scripts/check-data-identity.py` is `CONFIG = REPO / "configs" /
+"mondrian_defconfig"`. It does two things — reconcile `CONFIG_XNU_OWNER_DATA_VOLUME_UUID`
+against the volume UUIDs that have shown up in the device console, and reconcile the UFS
+Data window ceiling against the manifest — and both only apply to **one** defconfig. The
+wifi board has its own `configs/mondrian_wifi_defconfig`, which also carries
+`CONFIG_XNU_OWNER_DATA_MOUNT=y`, so from beginning to end this gate never looked at it
+once. That is how the seed UUID got into a shipped build (c0 in P-209):
+`check-defconfig-uuid.py` is a structural gate added only after P-209, and the other half
+of the evidence reconciliation — "has the configured UUID actually ever appeared on the
+device" — was always empty.
 
-修法：`data_configs(config_dir)` 遍历 `configs/*defconfig` 里所有带
-`CONFIG_XNU_OWNER_DATA_MOUNT=y` 的文件（一个都没有才回落到 `mondrian_defconfig`），
-逐文件判、逐文件点名（失败信息带 `mondrian_wifi_defconfig:` 前缀）；`check_uuid` /
-`check_ceiling` 接受可注入路径，`run()` 返回 `(problems, notes)` 供测试；
-`scripts/tests/test-check-data-identity.py` 9 例覆盖「第二张 defconfig 被评分」
-「没挂载键的文件不算失败」「无 console 跳过」「日志里没有 window 行跳过」
-「天花板不足而失败」「无 manifest 跳过天花板」等。
+Fix: `data_configs(config_dir)` iterates every file under `configs/*defconfig` that carries
+`CONFIG_XNU_OWNER_DATA_MOUNT=y` (falling back to `mondrian_defconfig` only when there is
+none), judges file by file and names file by file (failure messages carry a
+`mondrian_wifi_defconfig:` prefix); `check_uuid` / `check_ceiling` accept an injectable
+path, `run()` returns `(problems, notes)` for the tests;
+`scripts/tests/test-check-data-identity.py` covers 9 cases including "the second defconfig
+gets scored", "a file without the mount key does not count as a failure", "skip when there
+is no console", "skip when the log has no window line", "fail when the ceiling is
+insufficient", "skip the ceiling when there is no manifest".
 
-判决（同轮拿到，把 P-209 的因果又削掉一层）：c1 是把 c0 配方只改一行 Data UUID 的单变量图，
-2026-11-15 上机 `usblog-20261115-231707` = port-not-observed / 0 字节 /
-returnedToFastboot=True。**改对 UUID 也起不来**，所以种子 UUID 只能解释 c0 的一个维度，
-silent 至少有两个独立原因，c1 的死因仍未解释。
+Verdict (obtained in the same round, shaving another layer off P-209's causality): c1 is a
+single-variable image that changes exactly one line of the c0 recipe, the Data UUID; on
+device 2026-11-15 `usblog-20261115-231707` = port-not-observed / 0 bytes /
+returnedToFastboot=True. **Getting the UUID right still does not boot**, so the seed UUID
+can only explain one dimension of c0; silent has at least two independent causes, and c1's
+cause of death is still unexplained.
 
-三条教训：
+Three lessons:
 
-1. 找「门禁覆盖不到的第二份」比找 bug 更值钱：一个 `CONFIG = …/mondrian_defconfig`
-   常量就是一处覆盖缺口，而它长得完全像正常代码。
-2. 单变量修复成功 ≠ 原假设成立。c1 把差异缩到一行，结果仍 0 字节——这恰恰是把
-   「种子 UUID ⇒ 零字节」降级为「一个维度」的唯一办法。
-3. 每条判决行必须能回答「哪个文件被读了」。门禁输出不带文件名时，「通过」可能只是
-   「没量」；这也是本门禁所有失败信息都带 `文件名:` 前缀的原因（P-204 同族）。
+1. Finding "the second copy the gate does not cover" is worth more than finding a bug: a
+   `CONFIG = …/mondrian_defconfig` constant is one coverage hole, and it looks exactly like
+   normal code.
+2. A successful single-variable fix ≠ the original hypothesis holding. c1 shrank the
+   difference to one line and the result was still 0 bytes — that is precisely the only way
+   to demote "seed UUID ⇒ zero bytes" to "one dimension".
+3. Every verdict line must be able to answer "which file was read". When gate output
+   carries no filename, "pass" may just mean "not measured"; that is also why every failure
+   message in this gate carries a `filename:` prefix (same family as P-204).
 
-Check: `python3 scripts/tests/test-check-data-identity.py`（9 例）与 registry `id = "P-210"`。
+Check: `python3 scripts/tests/test-check-data-identity.py` (9 cases) and registry `id = "P-210"`.
 
-## P-211 — 记账工具写的是「登记那一刻仓库里的 series」，不是镜像自己的 series
+## P-211 — The bookkeeping tool writes "the series in the repository at the moment of registration", not the image's own series
 
-现场：`scripts/record-boot.py` 的 `series_fingerprint()` 一直读
-`REPO/patches/xnu/series`。2026-11-15 深夜我登记 `bt-bisect-h12` 那张图（boot.img
-`0eb30032…`）时，账本里写下的是 `series 9688ad85…(226)` —— main 当前的 series；而那张图
-其实是 bt 线用 229 条的 series 构建的。两边都对不上，账本却看起来完好：`record-boot.py`
-打印 `✅ recorded`，`porting-gate.py` 读 ledger 时也只比对自己算出来的指纹。
+Scene: `series_fingerprint()` in `scripts/record-boot.py` has always read
+`REPO/patches/xnu/series`. Late on 2026-11-15, when I registered the `bt-bisect-h12` image
+(boot.img `0eb30032…`), what went into the ledger was
+`series 9688ad85…(226)` — main's current series; but that image was actually built by the
+bt line with a 229-entry series. Neither side matches, yet the ledger looked intact:
+`record-boot.py` printed `✅ recorded`, and `porting-gate.py` when reading the ledger only
+compared it against a fingerprint it computed itself.
 
-这一条是「量错对象」家族的第四条，前面三条各有形状：
-P-194 量错了**文件**（`SERIES-FINAL.txt` 而不是 `patches/xnu/series`）、
-P-200 量错了**槽位**（`boot.json` 的 `kernel_sha256` 量的是 boot image 的 kernel 槽而不是内核）、
-P-201 量错了**有无**（trial 镜像没有 series 指纹却仍然被当成判据）、
-P-211 量错了**版本**（用今天的仓库描述上周构建的镜像）。
+This is the fourth member of the "measured the wrong object" family, and the previous three
+each had a different shape:
+P-194 measured the wrong **file** (`SERIES-FINAL.txt` instead of `patches/xnu/series`),
+P-200 measured the wrong **slot** (`kernel_sha256` in `boot.json` measured the boot image's
+kernel slot instead of the kernel),
+P-201 measured the wrong **presence** (a trial image with no series fingerprint was still
+treated as evidence),
+P-211 measures the wrong **version** (describing last week's image with today's repository).
 
-修法：`image_series(image)` 先读镜像同目录的 `build-manifest.json`（`build-strict.sh`
-本来就写在那儿，`series.sha256` + `series.count` 是它记下的、与镜像同时产生的值）；
-读不到或字段不全才回落到仓库 series，并且**在账本行里留下来源**：
-`"series-source": "manifest:<path>" | "repo-series"`、`"series-count"`、`"repo-series"`。
-两边不一致时先打印警告（「记录的是镜像的 series，这样账本就不能声称本仓库的 series 跑过」）。
-测试 `scripts/tests/test-record-boot.py` 4 例：manifest 优先、无 manifest 回落、
-短 sha 回落、坏 JSON 回落。
+Fix: `image_series(image)` first reads `build-manifest.json` from the image's own directory
+(`build-strict.sh` already writes it there; `series.sha256` + `series.count` are the values
+it recorded, produced at the same time as the image); only when it cannot be read or the
+fields are incomplete does it fall back to the repository series, and **it leaves the
+source in the ledger line**: `"series-source": "manifest:<path>" | "repo-series"`,
+`"series-count"`, `"repo-series"`. When the two disagree it prints a warning first ("what
+is recorded is the image's series, so the ledger cannot claim this repository's series
+ever ran"). Test `scripts/tests/test-record-boot.py` has 4 cases: manifest preferred, no
+manifest falls back, short sha falls back, bad JSON falls back.
 
-三条教训：
+Three lessons:
 
-1. 记账前先问一句「这个字段描述的是谁」。只要是「这个产物」，就得从产物本身读，
-   从手边的仓库状态读出来的东西只是**今天的猜测**。
-2. 回退路径必须在数据里留标记（`series-source`），否则「回退」和「正解」在账本里
-   长得一模一样，下游无法分辨——P-190/P-192 的同一形状。
-3. 一个 `✅` 打印只证明流程跑完，不证明被记录的值属于被记录的对象。判决要么带上来源，
-   要么带上交叉核对，两者都没有就只是仪式。
+1. Before recording anything, ask "who does this field describe". If it is "this artefact",
+   read it from the artefact itself; anything read from the repository's current state is
+   only **today's guess**.
+2. A fallback path must leave a marker in the data (`series-source`), otherwise "fallback"
+   and "the real answer" look identical in the ledger and downstream cannot tell them
+   apart — the same shape as P-190/P-192.
+3. A `✅` print only proves the flow finished, not that the recorded value belongs to the
+   recorded object. A verdict either carries its source or carries a cross-check; with
+   neither it is just a ritual.
 
-Check: `python3 scripts/tests/test-record-boot.py`（4 例）与 registry `id = "P-211"`。
+Check: `python3 scripts/tests/test-record-boot.py` (4 cases) and registry `id = "P-211"`.
 
 ## P-212
 
-一个把配置打印成证据的日志，看起来比没有日志更像证据。
+A log that prints configuration as evidence looks more like evidence than no log at all.
 
-现场：`docs/research/charger/07-DEVICE-CRITERIA.md` 的判据最初写成「出现订阅行就算订阅成功」。
-2026-11-15 charger 线交回 `scripts/judge-battery.py` 时带出了三处同形缺陷，每一处都是
-「日志里有一行，所以事情发生了」：
+Scene: the criteria in `docs/research/charger/07-DEVICE-CRITERIA.md` were originally
+written as "a subscription line appearing counts as subscription success". When the charger
+line handed back `scripts/judge-battery.py` on 2026-11-15 it brought three same-shaped
+defects, each of them "there is a line in the log, therefore the thing happened":
 
-1. `subscription-ack=0 0` —— 抓到的两个字段都是 0，脚本原来判 PASS。0 是「没量到」，
-   不是「量到 0」；判 INVALID。
-2. `temp=0.00C` —— 传感器未上电时回 0，原来落在判据下界之内。0.00 摄氏度在 SoC 上是
-   不可能读数；判 FAIL，并把合法区间改成**开区间** `(0, 60]`。
-3. 单行 sample —— 只有一行 `sample` 就下结论。一次采样无法区分「稳态」与「瞬态」，
-   少于两行判 INVALID。
+1. `subscription-ack=0 0` — both captured fields are 0, and the script used to judge PASS.
+   0 means "not measured", not "measured as 0"; judge INVALID.
+2. `temp=0.00C` — the sensor returns 0 when unpowered, which used to fall inside the lower
+   bound. 0.00 degrees Celsius is an impossible reading on an SoC; judge FAIL, and change
+   the legal range to an **open interval** `(0, 60]`.
+3. A single `sample` line — concluding from one line. One sample cannot distinguish
+   "steady state" from "transient"; fewer than two lines judge INVALID.
 
-这一条与 P-204「用计数代替语义」是同一族的两个方向：P-204 是**把计数当成结论**
-（出现 2 次就判没启动），P-212 是**把配置当成结果**（打印了订阅参数就判订阅成功）。
-两者共同的错误是：判据回答的是「我看到了一行字」，而不是「被观测的系统进入了那个状态」。
+This one and P-204 "using a count instead of semantics" are two directions of the same
+family: P-204 **treats a count as a conclusion** (appeared twice, so it did not start),
+P-212 **treats configuration as a result** (the subscribe parameters were printed, so
+subscription succeeded). The shared mistake: the criterion answers "I saw a line of text",
+not "the observed system entered that state".
 
-修法：判据必须三态（PASS / FAIL / INVALID），INVALID 专门吃「没量到」与「量到不可能值」；
-每条判据打印命中数与行号，末行必须给 `TOTAL: n PASS / n FAIL / n INVALID`；
-退出码区分三态（0/1/2），脚本自己在一条证据都读不到时不许返回 0。
-落地：`scripts/judge-battery.py`（400 行，16 例测试，`docs/research/charger/07-DEVICE-CRITERIA.md`
-是它的口径文档）。
+Fix: criteria must be three-state (PASS / FAIL / INVALID), INVALID specifically absorbs "not
+measured" and "measured an impossible value"; each criterion prints its hit count and line
+numbers, and the last line must give `TOTAL: n PASS / n FAIL / n INVALID`; the exit code
+distinguishes the three states (0/1/2), and the script may not return 0 when it could not
+read a single piece of evidence. Landed: `scripts/judge-battery.py` (400 lines, 16 tests,
+with `docs/research/charger/07-DEVICE-CRITERIA.md` as its criteria document).
 
-三条教训：
+Three lessons:
 
-1. 「打印了配置」与「配置生效」之间隔着一次真实的状态跃迁。判据要盯跃迁后的量
-   （四属性非零），不是跃迁前写下去的字。
-2. 0 与「没量到」必须分开。凡是可能回 0 的传感器/计数器，判据都要能表达
-   「这个 0 是读数还是缺席」，表达不了就是 INVALID。
-3. 三态比两态贵，但两态会把「没测」悄悄记成「通过」——那正是最贵的一种假绿。
+1. Between "printed the configuration" and "the configuration took effect" sits a real
+   state transition. The criterion must watch the quantity after the transition (four
+   attributes non-zero), not the text written before it.
+2. 0 and "not measured" must be separated. For any sensor/counter that may return 0, the
+   criterion must be able to express "is this 0 a reading or an absence"; if it cannot, that
+   is INVALID.
+3. Three states cost more than two, but two states quietly record "not tested" as "pass" —
+   which is the most expensive kind of false green.
 
-Check: `python3 scripts/tests/test-judge-battery.py`（16 例）与 registry `id = "P-212"`。
+Check: `python3 scripts/tests/test-judge-battery.py` (16 cases) and registry `id = "P-212"`.
 
 ## P-213
 
-门禁自己也会犯它要防的那个错：只读字面量，不读变量的传播。
+A gate also commits the very error it exists to prevent: reading literals instead of
+following variable propagation.
 
-现场：P-208 之后我写 `scripts/check-define-scope.py`，想结构性地回答「守卫所在的 object
-收得到这个 `-D` 吗」。第一版只解析 `<obj>_CFLAGS_ADD=-DXNU_x` 这种字面量赋值，
-于是把 `XNU_NATIVE_RAM_BLOCK` 判成「只到达 `kern_exec.o`」——而它实际是
+Scene: after P-208 I wrote `scripts/check-define-scope.py` to answer structurally "does the
+object the guard lives in receive this `-D`". The first version only parsed literal
+assignments of the `<obj>_CFLAGS_ADD=-DXNU_x` form, so it judged
+`XNU_NATIVE_RAM_BLOCK` as "only reaches `kern_exec.o`" — while it actually is
 
 ```sh
 PERSONALITY_CFLAGS="-DXNU_NATIVE_RAM_BLOCK=1"
@@ -5270,110 +5432,128 @@ PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_OTHER=1"
 EXTRA_MAKE_ARGS+=("KernelConfigTables.cpo_CFLAGS_ADD=$PERSONALITY_CFLAGS")
 ```
 
-累加进变量、再整体交给一个 object。门禁读不到变量，就会对**合法**的守卫报错——
-这正是 P-208 的镜像：P-208 是「define 没到该到的 object」，P-213 是「门禁以为它没到」。
+accumulated into a variable and then handed to an object as a whole. A gate that cannot read
+variables reports an error on a **legitimate** guard — which is exactly P-208's mirror
+image: P-208 is "the define did not reach the object it should", P-213 is "the gate thinks
+it did not".
 
-修法：`read_variables()` 逐行建 shell 变量表（`VAR=-DXNU_A` 与 `VAR="$VAR -DXNU_B"` 两种形状），
-`VAR_REF` 展开 `${VAR}`/`$VAR` 引用，`_strip_comment()` 去掉行尾注释（否则注释里的
-`-DXNU_FOO` 会被算成生效），`read_object_defines()` 对 `_CFLAGS_ADD=` 右侧同样展开变量。
-改完 `✅ define scope: 81 guard(s) all reachable`，12 条 skip 全是来自 config 头而非
-构建脚本的 define（`XNU_MONITOR`/`XNU_TARGET_OS_OSX`/`XNU_NATIVE_UFS` 等）。
+Fix: `read_variables()` builds a shell variable table line by line (both the `VAR=-DXNU_A`
+and the `VAR="$VAR -DXNU_B"` shapes), `VAR_REF` expands `${VAR}`/`$VAR` references,
+`_strip_comment()` strips end-of-line comments (otherwise a commented-out `-DXNU_FOO` counts
+as effective), and `read_object_defines()` also expands variables on the right-hand side of
+`_CFLAGS_ADD=`. After the change, `✅ define scope: 81 guard(s) all reachable`, with all 12
+skips being defines that come from config headers rather than the build script
+(`XNU_MONITOR`/`XNU_TARGET_OS_OSX`/`XNU_NATIVE_UFS` etc.).
 
-三条教训：
+Three lessons:
 
-1. 门禁要建模的是**工具真实的行为**，不是它在你眼里最显眼的那种写法。shell 会展开变量，
-   门禁就得展开变量；读字面量等于给 shell 写了一份错的实现。
-2. 新门禁的第一件事是拿已知合法样本跑一遍。我如果先跑 `XNU_NATIVE_RAM_BLOCK`
-   （一个已知能工作的守卫），第一版当场就会被否掉，不必等到它误报。
-3. 「不知道」必须是独立的一档（`skip:`），不能折叠进 PASS 或 FAIL。12 条来自 config 头的
-   define 若被判成 FAIL，门禁立刻变成噪声源，然后被绕过——比没有门禁更糟。
+1. A gate must model **the tool's real behaviour**, not the spelling that is most obvious to
+   you. The shell expands variables, so the gate has to expand variables; reading literals
+   means writing a wrong implementation of the shell.
+2. The first thing a new gate does is run against a known-legitimate sample. Had I run
+   `XNU_NATIVE_RAM_BLOCK` (a guard known to work) first, version one would have been
+   rejected on the spot instead of waiting for a false report.
+3. "Don't know" must be its own tier (`skip:`), not folded into PASS or FAIL. If those 12
+   config-header defines were judged FAIL, the gate would instantly become a noise source
+   and then be bypassed — worse than no gate.
 
-Check: `python3 scripts/tests/test-check-define-scope.py`（9 例）与 registry `id = "P-213"`。
+Check: `python3 scripts/tests/test-check-define-scope.py` (9 cases) and registry `id = "P-213"`.
 
-## P-214 — 两个都叫「series 指纹」的哈希分属不同命名空间，永远不相等
+## P-214 — Both hashes called "series fingerprint" live in different namespaces and can never be equal
 
-现场：main 上每次合并之后 `check-rules.py` 都报 `iron-4` / `hard-33`，内容是
-「上次成功启动的 series 与当前仓库不一致」。查下去发现 series **根本没有变**：
+Scene: after every merge on main, `check-rules.py` reported `iron-4` / `hard-33` with the
+content "the series of the last successful boot does not match the current repository".
+Digging in showed the series **had not changed at all**:
 
-- `scripts/build-strict.sh` 的 `SERIES_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)`
-  量的是 **series 文件的字节**，64 hex，写进 `build-manifest.json` 的 `series.sha256`；
-- `scripts/porting-gate.py` 与 `scripts/record-boot.py` 的 `series_fingerprint()`
-  量的是 **每个条目的名字 + 尺寸**，`sha256(name + str(size) for each entry)[:16]`，16 hex。
+- `SERIES_SHA=$(sha256sum "$REPO/patches/xnu/series" | cut -d' ' -f1)` in
+  `scripts/build-strict.sh` measures **the series file's bytes**, 64 hex, written into
+  `build-manifest.json` as `series.sha256`;
+- `series_fingerprint()` in `scripts/porting-gate.py` and `scripts/record-boot.py` measures
+  **each entry's name + size**, `sha256(name + str(size) for each entry)[:16]`, 16 hex.
 
-两者都稳定、都像指纹、都叫 `sha256`，**永远不相等**。P-211 让 `record-boot.py` 优先
-相信镜像自带的 manifest 之后，账本开始记录 64 hex 的 manifest 值
-（`bt-bisect-h23` 记成 `88faf6c25de1e77c`、`bt-bisect-h124` 记成 `21eda89a147c9653`），
-而 porting-gate 仍按 names+sizes 算 `9688ad85833d7dd2` —— 于是「上次成功 ≠ 现在」
-在 main 上恒成立，门禁每天正确地报告一个不存在的差异。
+Both are stable, both look like fingerprints, both are called `sha256`, and they are
+**never equal**. After P-211 made `record-boot.py` trust the image's own manifest first, the
+ledger began recording the 64-hex manifest value (`bt-bisect-h23` as `88faf6c25de1e77c`,
+`bt-bisect-h124` as `21eda89a147c9653`), while porting-gate still computed
+`9688ad85833d7dd2` from names+sizes — so "last success ≠ now" was permanently true on main,
+and the gate correctly reported a difference that did not exist, every day.
 
-这个坑的形状是**同名字段跨命名空间比较**：两个值都是 64/16 位十六进制，都通过了
-「看起来像 sha」的检查，长度检查也没错（16 hex 是 64 hex 的前缀长度），所以任何
-「格式对不对」的门禁都放行。只有「这两个数是谁算的」能分开它们。
+The shape of this pitfall is **comparing a same-named field across namespaces**: both values
+are 64/16 hex, both pass the "looks like a sha" check, and the length check is not wrong
+either (16 hex is a prefix length of 64 hex), so any "is the format right" gate lets them
+through. Only "who computed this number" can separate them.
 
-修法（三条一起才成立）：
+Fix (all three together, none alone suffices):
 
-1. **单一实现**：新建 `scripts/series-fingerprint.py`，`fingerprint()` 是唯一算法，
-   `build-strict.sh` 改为调它（`SERIES_SHA` / `SERIES_COUNT` 都从它取），不再自己算；
-   文件字节哈希改名 `file_sha256` 并保留（它对「补丁内容变了」敏感，是有用的第二个量）。
-2. **自描述**：manifest 的 `series` 里加 `"namespace": "names+sizes"`，读者据此判断
-   能不能比，而不是猜长度。
-3. **拒绝跨命名空间**：`record-boot.py` 的 `image_series()` 遇到 `namespace` 不等于
-   `names+sizes` 就打印并回落到仓库 series；没有 `namespace` 且哈希长度 > 16（P-214
-   之前的旧 manifest）同样回落；只有 16 hex 且无 namespace 的旧 manifest 才继续可用。
+1. **One implementation**: new `scripts/series-fingerprint.py` with `fingerprint()` as the
+   only algorithm; `build-strict.sh` now calls it (both `SERIES_SHA` / `SERIES_COUNT` come
+   from it) instead of computing its own. The file-byte hash is renamed `file_sha256` and
+   kept (it is sensitive to "the patch content changed", a useful second quantity).
+2. **Self-description**: add `"namespace": "names+sizes"` to the manifest's `series`, so
+   readers can decide comparability from that instead of guessing from the length.
+3. **Refuse cross-namespace comparison**: `image_series()` in `record-boot.py` prints and
+   falls back to the repository series when `namespace` is not `names+sizes`; manifests
+   lacking `namespace` with a hash longer than 16 (pre-P-214 old manifests) also fall back;
+   only old manifests with 16 hex and no namespace remain usable.
 
-三条教训：
+Three lessons:
 
-1. **同名字段必须带命名空间**。两个哈希都叫 `sha256` 是根因；如果 manifest 里从一开始
-   就叫 `series.file_sha256` 与 `series.entry_sha256`，这个坑不会存在。
-2. **门禁红了先问「这个量是谁算的」**，再问「值对不对」。我花了半天在查 series 到底
-   哪里变了，而 series 一直是 `9688ad85833d7dd2`。
-3. **格式校验不能替代来源校验**。16 hex 与 64 hex 都是合法十六进制，长度检查、字符集
-   检查、非空检查全部通过；唯一能分开它们的是产生者。
+1. **A same-named field must carry a namespace.** Both hashes being called `sha256` is the
+   root cause; had the manifest called them `series.file_sha256` and `series.entry_sha256`
+   from the start, this pitfall would not exist.
+2. **When a gate goes red, first ask "who computed this quantity"**, then ask "is the value
+   right". I spent half a day investigating where the series changed, while the series had
+   been `9688ad85833d7dd2` all along.
+3. **Format validation cannot replace provenance validation.** 16 hex and 64 hex are both
+   legal hexadecimal; the length check, the character-set check and the non-empty check all
+   pass. The only thing that separates them is their producer.
 
-Check: `python3 scripts/tests/test-series-fingerprint.py`（8 例，含
-`the_gate_and_the_recorder_still_agree` 直接比对三个内嵌实现与工具的输出）与
-registry `id = "P-214"`。
+Check: `python3 scripts/tests/test-series-fingerprint.py` (8 cases, including
+`the_gate_and_the_recorder_still_agree`, which directly compares the three embedded
+implementations against the tool's output) and registry `id = "P-214"`.
 
-## P-215 — 惰性分配的锁在「还没人分配」时返回失败，等于拒绝服务；而 0 字节日志把这次拒绝藏了三天
+## P-215 — A lazily allocated lock returns failure "before anyone allocated it", which is denial of service; and a 0-byte log hid that refusal for three days
 
-现场：wifi 家族七张镜像（c0/c1/c2/z0/t2/mhi3/mhi4，内核 66–117 MB）全部
-`port-not-observed` / 0 字节。逐条排除掉的轴（每条都有实测）：
+Scene: all seven wifi-family images (c0/c1/c2/z0/t2/mhi3/mhi4, kernels 66–117 MB) were
+`port-not-observed` / 0 bytes. The axes ruled out one by one (each with a measurement):
 
-| 轴 | 否证方式 |
+| Axis | How it was falsified |
 |---|---|
-| 内核总大小 | 117 MB silent，但 129 MB（`adsp-20261115c/d/e`）与 105 MB 都进桌面 |
-| 段跨度 / 254 MiB 窗口 | `darwinboot_parsekernel.py` 复刻固件全部拒绝条件，五张全 PASS；129 MB 的 span 141,111,296 比 c2 的 129,642,496 更大却能起 |
-| 容器所在段 | PWF2 放 `__TEXT,__const`（c0/c1/z0）与 `__DATA_CONST,__const`（c2）都 silent |
-| 固件卷 / DTB | `bootimg_slots.py` 逐件比对：`gzip_sha256`、`shim_sha256`、`fd_sha256`、DTB 全相同，唯一差异是 ramdisk |
-| ADT | `darwinboot_adt.py` 复刻 `AdtNode()`，五张全 ACCEPTED/exact，25 节点，window `0x120000000` |
-| 控制台参数 | 五张 `payload_args` 29 项逐字符相同，只末项不同 |
-| Data 卷 UUID | c1 把 `mondrian_wifi_defconfig` 的种子 UUID 改对，仍 silent |
-| C++ 全局构造器 | `macho_initfunc.py`：`__mod_init_func` 两边都 102 条，+0/−0；`__pong_init` 内核无消费者，设计上不执行 |
-| `__init_entry_set` | `__startup_` 符号数三张都是 4,980，+5/−5 只是重命名 |
+| total kernel size | 117 MB was silent, but 129 MB (`adsp-20261115c/d/e`) and 105 MB all reached the desktop |
+| segment span / 254 MiB window | `darwinboot_parsekernel.py` reproduces every firmware rejection condition, all five PASS; the 129 MB span of 141,111,296 is larger than c2's 129,642,496 yet it boots |
+| segment the container lives in | PWF2 placed in `__TEXT,__const` (c0/c1/z0) and in `__DATA_CONST,__const` (c2) are both silent |
+| firmware volume / DTB | `bootimg_slots.py` compared item by item: `gzip_sha256`, `shim_sha256`, `fd_sha256`, DTB all identical, the only difference is the ramdisk |
+| ADT | `darwinboot_adt.py` reproduces `AdtNode()`, all five ACCEPTED/exact, 25 nodes, window `0x120000000` |
+| console args | the 29 `payload_args` items are identical character by character across all five, only the last item differs |
+| Data volume UUID | c1 corrected the seed UUID in `mondrian_wifi_defconfig`, still silent |
+| C++ global constructors | `macho_initfunc.py`: `__mod_init_func` is 102 on both sides, +0/−0; `__pong_init` has no consumer in the kernel and by design does not execute |
+| `__init_entry_set` | the `__startup_` symbol count is 4,980 on all three, +5/−5 is just renaming |
 
-真因（`patches/wifi/0004-drivers-NativeUfs-pong-ufs-ready.patch` + `0001`）：
+Real cause (`patches/wifi/0004-drivers-NativeUfs-pong-ufs-ready.patch` + `0001`):
 
 ```c
-// 0004 给 PongUfsTransport.cpp 的 hostBringUp() 插的 lease 段
+// the lease block that 0004 inserted into hostBringUp() of PongUfsTransport.cpp
 if (pong_smmu_lease_lock && pong_smmu_lease_unlock) {
     lease.held = pong_smmu_lease_lock();
     if (!lease.held) return transportFailure("Apps SMMU lease unavailable");
 }
-// 0001 的实现：锁未分配就返回 false
+// how 0001 does it: return false when the lock was never allocated
 extern "C" bool pong_smmu_lease_lock(void){
-    if(!smmuLeaseLock) return false;      // ← 拒绝服务
+    if(!smmuLeaseLock) return false;      // <- deny service
     IOLockLock(smmuLeaseLock); return true;
 }
 ```
 
-`smmuLeaseLock` 只在 `pong_rpmh_init()` 里 `IOLockAlloc()`，而 `pong_rpmh_init()`
-的唯一调用点是 `pong_wifi_start_optional()`，后者由 `patches/wifi/0005` 在
-`ArmDTPlatform::configure()` 的 `registerService()` 之后调用。**UFS 是根设备，必然先启动**
-（实测能起日志里 `PONG_UFS` 在 115 行、`ArmDTPlatform: registered platform` 在 147 行）。
-于是 UFS 调 lock() 时锁必为 NULL → false → `transportFailure` → 整个 UFS transport
-放弃 → 没有根设备 → 内核在 console worker 起来之前就死 → **0 字节**。
+`smmuLeaseLock` is only `IOLockAlloc()`ed inside `pong_rpmh_init()`, and the only call site
+of `pong_rpmh_init()` is `pong_wifi_start_optional()`, which `patches/wifi/0005` calls after
+`registerService()` in `ArmDTPlatform::configure()`. **UFS is the root device and
+necessarily starts first** (measured: in a log that does boot, `PONG_UFS` is at line 115 and
+`ArmDTPlatform: registered platform` at line 147). So when UFS calls lock(), the lock must
+be NULL → false → `transportFailure` → the entire UFS transport gives up → no root device →
+the kernel dies before the console worker comes up → **0 bytes**.
 
-修法（`patches/wifi/0012`，20,480 B 代码，单变量）：把分配搬进 lock() 自己——
+Fix (`patches/wifi/0012`, 20,480 B of code, single variable): move the allocation into
+lock() itself —
 
 ```c
 extern "C" bool pong_smmu_lease_lock(void){
@@ -5383,231 +5563,282 @@ extern "C" bool pong_smmu_lease_lock(void){
 }
 ```
 
-真机验证：`wifi-20261116c3`（`boot.img 5a19e110…`，117,325,824 B，带真 PWF2 容器
-11,189,974 B）证据 `usblog-20261116-015128`：console 221,429 B / 3,202 行 /
-**SpringBoard 132** / panic 0 / `:482 K60DATA mounted ro=0 fstype=apfs` /
+On-device verification: `wifi-20261116c3` (`boot.img 5a19e110…`, 117,325,824 B, carrying a
+real PWF2 container of 11,189,974 B), evidence `usblog-20261116-015128`: console 221,429 B /
+3,202 lines / **SpringBoard 132** / panic 0 / `:482 K60DATA mounted ro=0 fstype=apfs` /
 `:972 Early boot complete. Continuing system boot.`
 
-**为什么这次事故值三天**：0 字节日志同时抹掉了「没执行」和「执行到一半失败」两种状态。
-控制台是 ramoops 环形缓冲区，`patches/xnu/0300` 的 `k60_usblog_init()`
-（`osfmk/arm/arm_init.c`）只做只读探测，真正的排空 worker 在
-`bsd/kern/bsd_init.c` 的 `if (result == KERN_SUCCESS)` 里才由 `k60_usblog_start()` 启动。
-所以「日志第一行是 `K60 USBLOG: GDSC usb30_prim`」**不能**证明它比 UFS 早执行——
-那只是环形缓冲区的写入顺序。任何让 `IOKitBSDInit()` 返回非 `KERN_SUCCESS` 的早期失败
-都会直接跳过 console worker，与 0 字节完全吻合。这条是用户 m27494 直接指出我的论证错误后
-才纠正的：我当时用「第 1 行输出早于 UFS」否定了 UFS 假说，把真凶排除了整整一轮。
+**Why this accident cost three days**: a 0-byte log erases both "did not execute" and
+"executed and failed halfway" at once. The console is a ramoops ring buffer;
+`k60_usblog_init()` in `patches/xnu/0300` (`osfmk/arm/arm_init.c`) only does read-only
+probing, and the real drain worker is started by `k60_usblog_start()` inside `if (result ==
+KERN_SUCCESS)` in `bsd/kern/bsd_init.c`. So "the first log line is `K60 USBLOG: GDSC
+usb30_prim`" **cannot** prove it executed before UFS — that is just the write order into
+the ring buffer. Any early failure that makes `IOKitBSDInit()` return something other than
+`KERN_SUCCESS` skips the console worker outright, which matches 0 bytes exactly. This was
+corrected only after user m27494 pointed out the flaw in my argument directly: I had used
+"line 1 was output before UFS" to reject the UFS hypothesis, excluding the real culprit for
+a full round.
 
-四条教训：
+Four lessons:
 
-1. **返回 bool 的 `lock()` 在锁未就绪时返回 false，语义上等于「拒绝服务」**。
-   惰性分配的锁必须自己保证可分配；让调用者承担「谁先初始化」的知识，就是把
-   一个初始化顺序缺陷伪装成一次正常的错误返回。正确形状是「要么成功，要么 panic」，
-   而不是「悄悄返回 false，让第一个调用者去死」。
-2. **弱引用只解决「符号可能不存在」，不解决「符号存在但拒绝服务」**。
-   `if (pong_smmu_lease_lock && pong_smmu_lease_unlock)` 看起来是完备的守卫，
-   实际只覆盖了 `weak_import` 解析失败那一档，漏掉「解析成功、调用返回 false」。
-   弱引用守卫要写成「符号在 && 调用成功」，并且调用失败要有独立于符号缺失的日志。
-3. **跨子系统共享资源的所有权必须在设计时确定启动顺序，不能靠「谁先跑到」**。
-   Apps SMMU 是 UFS 与 Wifi 共用的；UFS 先启动是**必然**的（它是根设备），
-   所以锁的分配点必须早于 UFS，或者由 lock() 自己惰性完成。
-   「反正 wifi 会先初始化」这种假设在启动顺序面前一文不值。
-4. **0 字节日志是最弱的观测，它会把不同故障抹成同一张脸**。这次它同时抹掉了
-   「内核没被装载」「内核崩在第一行之前」「内核跑到根挂载失败」三种状态。
-   判断「谁先执行」只能靠**代码里的调用链**，不能靠日志行号——环形缓冲区让行号
-   失去时序含义。任何「A 的日志在 B 之前，所以 A 先执行」的论证都必须先问
-   日志是直写还是缓冲。
+1. **A `lock()` that returns bool and returns false when the lock is not ready is
+   semantically denial of service**. A lazily allocated lock must guarantee its own
+   allocation; making the caller carry the knowledge of "who initialises first" disguises an
+   initialisation-order defect as a normal error return. The correct shape is "either it
+   succeeds or it panics", not "quietly return false and let the first caller die".
+2. **A weak reference only solves "the symbol may not exist", not "the symbol exists but
+   refuses service"**. `if (pong_smmu_lease_lock && pong_smmu_lease_unlock)` looks like a
+   complete guard, but it only covers the `weak_import` resolution-failure tier, missing
+   "resolved fine, the call returns false". A weak-reference guard must be written as "the
+   symbol is present && the call succeeded", and call failure needs its own log, independent
+   of symbol absence.
+3. **Ownership of a resource shared across subsystems must fix the startup order at design
+   time, not rely on "whoever gets there first"**. Apps SMMU is shared by UFS and Wifi; UFS
+   starting first is **inevitable** (it is the root device), so the lock's allocation point
+   must be earlier than UFS, or lock() must do it lazily itself. The assumption "wifi will
+   initialise first anyway" is worthless in the face of startup order.
+4. **A 0-byte log is the weakest observation; it smears different faults into one face**.
+   This time it erased "the kernel was not loaded", "the kernel crashed before line one" and
+   "the kernel got as far as root mount failure" at once. Determining "who executes first"
+   can only rely on **the call chain in the code**, not on log line numbers — the ring
+   buffer robs line numbers of temporal meaning. Any argument of the form "A's log precedes
+   B's, so A executed first" must first ask whether the log is direct-write or buffered.
 
-附带一条工程教训（同批事故，来自 wifi 线 `3207bd3`）：**merge 解冲突后要验「非冲突区域的
-功能块有没有被 main 侧整段替换」**。那次 merge 的 `build-strict.sh` 冲突只保住了 manifest 的
-两个字段，把 `XNU_PONG_WIFI_ARCHIVE` 的定义段和 P-190 守卫整段丢了 —— 静态看不出来，
-因为 manifest 里还留着一个引用，结果是「链上了但账本记不到、守卫不跑」。
+One engineering lesson attached (same batch of accidents, from wifi line `3207bd3`): **after
+resolving a merge conflict, verify whether functional blocks in non-conflicting regions were
+replaced wholesale by the main side**. That merge's `build-strict.sh` conflict preserved only
+two manifest fields and dropped the entire `XNU_PONG_WIFI_ARCHIVE` definition block and the
+P-190 guard — invisible statically, because the manifest still held a reference; the result
+was "it links but the ledger cannot record it and the guard does not run".
 
-Check: `python3 scripts/tests/test-pong-smmu-lease.py`（wifi 线交付，钉住函数唯一、
-分配先于 null 检查、仍 `IOLockLock`、补丁是 series 最后一项）与 registry `id = "P-215"`。
+Check: `python3 scripts/tests/test-pong-smmu-lease.py` (delivered by the wifi line; pins the
+function being unique, allocation preceding the null check, still `IOLockLock`, and the patch
+being the last entry in the series) and registry `id = "P-215"`.
 
-## P-216 — 固件卷构建不是确定的：三次重建得三个哈希，而手册写着「同源 ⇒ 同字节」
+## P-216 — Firmware volume builds are not deterministic: three rebuilds give three hashes, while the manual says "same source ⇒ same bytes"
 
-现场（2026-11-16 02:31–02:47，同一检出、同一 pin、无未提交改动）：
+Scene (2026-11-16 02:31–02:47, same checkout, same pin, no uncommitted changes):
 
-| 次 | SOURCE_DATE_EPOCH | FD sha256（前 12） |
+| Run | SOURCE_DATE_EPOCH | FD sha256 (first 12) |
 | --- | --- | --- |
-| 基准（已上机验证） | 自然取值 | `4bbe76017eb4` |
-| 重建 1 | 自然取值（uefi HEAD 已多一个提交） | `ce12d145a71e` |
-| 重建 2 | 显式钉住 `1794541119` | `77ad2474a468` |
-| 重建 3 | 自然取值 | `9f20de15388a` |
+| baseline (device-verified) | natural value | `4bbe76017eb4` |
+| rebuild 1 | natural value (uefi HEAD already one commit ahead) | `ce12d145a71e` |
+| rebuild 2 | explicitly pinned to `1794541119` | `77ad2474a468` |
+| rebuild 3 | natural value | `9f20de15388a` |
 
-`docs/engineering/FIRMWARE-REBUILD.md` §2 写的是「`firmware.py:85` 把 `SOURCE_DATE_EPOCH` 固定成 uefi
-仓最后一次提交的时间，所以同样的源码 + 同样的 pin ⇒ 同一个 FD」——**这一句是错的**。
+`docs/engineering/FIRMWARE-REBUILD.md` §2 says "`firmware.py:85` pins `SOURCE_DATE_EPOCH`
+to the uefi repository's last commit time, so the same source + the same pin ⇒ the same FD"
+— **that sentence is wrong**.
 
-实测根因：两个卷在同一偏移 `0xc8b8` 上都有一个 CodeView 记录，但 `RSDS` 后面的 16 字节
-build-id 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c44205044422e`，后 8 字节
-`4c4c44205044422e` = `"LLD PDB."` 一样）。LLD 的 build-id 由输入文件集合与链接顺序派生，
-不受 `SOURCE_DATE_EPOCH` 影响；而固件卷是 **压缩** 的，一个 GUID 变了就让整个压缩段变了——
-3,145,728 B 里有 453,604 B 不同（1,739 个不连续区间）。
+Measured root cause: both volumes have a CodeView record at the same offset `0xc8b8`, but
+the 16-byte build-id after `RSDS` differs (`c61b6000b5826a234c4c44205044422e` vs
+`0b5c83d97f72b6714c4c44205044422e`, the last 8 bytes `4c4c44205044422e` = `"LLD PDB."` are
+the same). LLD's build-id is derived from the set of input files and the link order, and is
+not affected by `SOURCE_DATE_EPOCH`; and the firmware volume is **compressed**, so one
+changed GUID changes the whole compressed segment — 453,604 B of 3,145,728 B differ (1,739
+disjoint intervals).
 
-两个后果：
+Two consequences:
 
-1. **FD 的 sha256 不能当「身份」用。** 它只能当「这一次构建的标识」。任何「两个卷哈希不同 ⇒ 源码不同」
-   的推断都是错的（我就错了一次，差点把 `ce12d145` 归因成 cellular 线的提交）。
-2. **判定一个重建的卷能不能用，只能上机。** 这正是 `FIRMWARE-REBUILD.md` §5 第 4 步写的，
-   只是 §2 把它推翻了。
+1. **The FD's sha256 cannot be used as an "identity".** It can only be "this build's
+   identifier". Any inference of the form "two volumes hash differently ⇒ different source"
+   is wrong (I made it once, and nearly attributed `ce12d145` to a cellular line commit).
+2. **Deciding whether a rebuilt volume is usable can only be done on device.** That is
+   exactly what `FIRMWARE-REBUILD.md` §5 step 4 says, except §2 overrode it.
 
-**已验证的结论**（同一个 payload，只换 FD）：
+**Verified conclusion** (same payload, only the FD replaced):
 
-- `baseline-20261115d` 的 payload 逐字节复用（`fbc87102d1cb10df080d7dc6135e9e5b995e1f791ab5d2aa0a8e37a872271e3f`），
-  只把 FD 换成重建的 `9f20de15388a`，重打 `boot.img`（`51d2053891569eeeb33a9f78989de6d66a111aa594541d9c7c5fb89622b3f3ce`）。
-- 上机（`E:\k60-work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
-  `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 / `menu:` 与 `config: no boot entry` **0 次**。
-- ⇒ **P-154 正式关闭**：从当前 pin 重建的固件卷能找到 payload。
+- The payload of `baseline-20261115d` reused byte for byte
+  (`fbc87102d1cb10df080d7dc6135e9e5b995e1f791ab5d2aa0a8e37a872271e3f`), with only the FD
+  swapped for the rebuilt `9f20de15388a`, and `boot.img` repacked
+  (`51d2053891569eeeb33a9f78989de6d66a111aa594541d9c7c5fb89622b3f3ce`).
+- On device (`E:\k60-work\evidence\usblog-20261116-025525`): 3384 lines / 230,107 B /
+  **SpringBoard 129** / `Early boot complete` once / `K60DATA mounted` once / panic markers 0
+  / `menu:` and `config: no boot entry` **0 times**.
+- ⇒ **P-154 formally closed**: a firmware volume rebuilt from the current pin can find the
+  payload.
 
-**四条教训**
+**Four lessons**
 
-1. 「确定性」要用两次相同输入的实测证明，不能用「我看到了一个固定时间戳」推出。
-   `SOURCE_DATE_EPOCH` 只能影响它真正被使用的那些字段（`__DATE__`/`__TIME__`、PE 头时间戳），
-   对链接器自己生成的 build-id 无效。
-2. 压缩容器里的小差异会放大成大差异：不要用「哈希不同」反推「源码不同」，
-   要先看差异集中在哪一类字节上（这里是 CodeView/RSDS）。
-3. 一个输出的哈希在构建之间不稳定时，它就不能进 manifest 的 `components`（那里的字段隐含
-   「可比较」的语义），而应该另开一个「本次构建标识」字段。这和 P-214
-   （两个命名空间的指纹不可比）是同一类错的两个方向：那里是名字相同而含义不同，
-   这里是名字相同而稳定性不同。
-4. 手册里的「为什么这件事很要紧」那一节会让人很容易把前提当结论。§2 那句话当时是为了论证「不必重建」，
-   而实际上它只能论证「不必为了可复现而重建」。
+1. "Determinism" must be proven by two measured runs with identical inputs, not deduced from
+   "I saw a fixed timestamp". `SOURCE_DATE_EPOCH` only affects the fields that actually use
+   it (`__DATE__`/`__TIME__`, the PE header timestamp); it has no effect on a build-id the
+   linker generates itself.
+2. Small differences inside a compressed container are amplified into big ones: do not infer
+   "different source" from "different hash"; first look at which class of bytes the
+   difference concentrates in (here CodeView/RSDS).
+3. When an output's hash is unstable between builds, it cannot go into the manifest's
+   `components` (fields there imply "comparable" semantics); it needs its own "this build's
+   identifier" field instead. This and P-214 (fingerprints from two namespaces are
+   incomparable) are two directions of one class of error: there the names were the same and
+   the meanings differed, here the names are the same and the stability differs.
+4. The "why this matters" section of a manual makes it very easy to take a premise for a
+   conclusion. That §2 sentence existed to argue "no need to rebuild", while it can in fact
+   only argue "no need to rebuild for reproducibility".
 
-Check：`python3 scripts/check-firmware-volume.py`（新）——它不量哈希，只量两件事：①
-`FIRMWARE-REBUILD.md` 不得再出现「同源 ⇒ 同字节」形式的断言；② 任何引用 FD 哈希的
-文档必须同时说明它是「一次构建的标识」而非「身份」。
+Check: `python3 scripts/check-firmware-volume.py` (new) — it measures no hashes, only two
+things: ① `FIRMWARE-REBUILD.md` must no longer contain an assertion of the form "same source
+⇒ same bytes"; ② any document citing an FD hash must also state that it is "an identifier
+for one build" rather than an "identity".
 
-## P-217 — 构建依赖一个只存在于本机的 commit，而配置文件声称它已经在 pin 里
+## P-217 — The build depends on a commit that exists only on this machine, while the config file claims it is already in the pin
 
-现场（2026-11-16 03:14）：`board.toml` 的 `[firmware].patches` 写着
+Scene (2026-11-16 03:14): `board.toml`'s `[firmware].patches` says
 
 > Mu_Basecore 6f805f2 already carries all six K60 fixes (3d2a9fa, "local patches for k60
 > firmware build", is an ancestor).
 
-三句话里有两句是错的，而且错的方向恰恰是「不用做事」：
+Two of those three sentences are wrong, and they are wrong in exactly the "no work needed"
+direction:
 
-1. **`3d2a9fa` 不是 `6f805f2` 的祖先。** `git merge-base 3d2a9fa 6f805f2` 返回空——
-   两条历史没有共同祖先。`3d2a9fa` 的父提交是 `3c9c7b2`（`[DROP on REBASE]`），
-   它不在任何远程分支上；`3d2a9fa` 自己也只在本机（`git branch -r --contains` 两者皆空）。
-2. **`6f805f2` 不带那五个修复。** 11 个文件逐个对比：在 `6f805f2` 上只有
-   `AsmMacroLib.h` 被上游用另一种方式修好（`#ifdef __ELF__` 分支，PE 侧用
-   `.text$ ## Name`）；其余 10 个文件在 `6f805f2` 上是**原始**的。
+1. **`3d2a9fa` is not an ancestor of `6f805f2`.** `git merge-base 3d2a9fa 6f805f2` returns
+   nothing — the two histories have no common ancestor. `3d2a9fa`'s parent is `3c9c7b2`
+   (`[DROP on REBASE]`), which is not on any remote branch; `3d2a9fa` itself is also only
+   local (`git branch -r --contains` returns nothing for both).
+2. **`6f805f2` does not carry those five fixes.** Comparing the 11 files one by one: on
+   `6f805f2` only `AsmMacroLib.h` was fixed upstream by another method (`#ifdef __ELF__`
+   branch, PE side uses `.text$ ## Name`); the other 10 files are **original** on `6f805f2`.
 
-为什么一直没发现：构建用的是 `Mu_Basecore` 工作树的**当前内容**，不是子模块指针。
-`Mu_Basecore/.git` 是一个**目录**（嵌套仓），不是 `.git/modules/` 下注册的子模块，
-所以 `git submodule status` 的 `-` 前缀、`git status` 的 ` M Mu_Basecore` 都只是在报
-「指针与工作树不一致」，没有任何人去看那一致性到底意味着什么。
-而构建一直成功，因为工作树里确实有那些修复。
+Why it went unnoticed for so long: the build uses the `Mu_Basecore` worktree's **current
+content**, not the submodule pointer. `Mu_Basecore/.git` is a **directory** (a nested
+repository), not a submodule registered under `.git/modules/`, so the `-` prefix from
+`git submodule status` and the ` M Mu_Basecore` from `git status` only ever report "pointer
+and worktree disagree", and nobody looked at what that disagreement actually meant. The
+build kept succeeding because the worktree really did contain those fixes.
 
-**修法已经验证存在**：五个修复在仓库里本来就有补丁文件
-（`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch），
-它们在 `6f805f2` 上 `git apply --check` 全部通过，应用后 11 个文件里有 10 个与
-`3d2a9fa` 的内容**逐字节相同**，唯一差异是上游已经自己修好的 `AsmMacroLib.h`。
-`scripts/unixnu/firmware.py:73-78` 本来就支持 `[firmware].patches`（构建时 apply、`finally` 里
-reverse），所以只需要把五个补丁写进 `board.toml`，并把工作树切到 `6f805f2`。
+**The fix is already verified to exist**: all five fixes already have patch files in the
+repository (`Resources/MuPatches/{Auth-Service,Boot-Manager,K60-Exception-Image,Timer,Usb-Bus}.patch`);
+they all pass `git apply --check` on `6f805f2`, and after applying, 10 of the 11 files are
+**byte-identical** to `3d2a9fa`'s content, the only difference being `AsmMacroLib.h`, which
+upstream had already fixed itself. `scripts/unixnu/firmware.py:73-78` already supports
+`[firmware].patches` (apply at build time, reverse in `finally`), so all that is needed is
+writing the five patches into `board.toml` and moving the worktree to `6f805f2`.
 
-**四条教训**
+**Four lessons**
 
-1. 「子模块指针」与「构建实际用的内容」是两件事。当子模块是一个嵌套仓时，指针
-   只是一个数字，没有任何东西强制工作树跟它一致。
-2. 「上游已经修好了，所以不用打补丁」这个判断必须逐文件验证，不能靠一个祖先关系推。
-   这里推错了两层：祖先关系不成立，且即使成立也不能说明那些行没被回退。
-3. 配置文件里的「已经包含」一定要有可执行的判据（比如 `git merge-base --is-ancestor`
-   或逐文件比对），否则它就是一句无法被证伪的注释。
-4. 「本机能构建成功」不等于「仓库能构建成功」。判据是「从仓库里能看到的东西重现这个构建」——
-   这和 P-216（固件卷不可复现）、P-154（重建的卷找不到 payload）是同一个主题的三个面。
+1. "The submodule pointer" and "what the build actually uses" are two different things. When
+   the submodule is a nested repository, the pointer is just a number and nothing forces the
+   worktree to agree with it.
+2. "Upstream already fixed it, so no patch needed" must be verified file by file, not
+   inferred from an ancestry relation. Here it was wrong on two levels: the ancestry does not
+   hold, and even if it did it would not show those lines were not reverted.
+3. "Already included" in a config file must have an executable criterion (such as
+   `git merge-base --is-ancestor` or a file-by-file comparison), otherwise it is just a
+   comment that cannot be falsified.
+4. "It builds on this machine" does not equal "the repository builds". The criterion is
+   "reproduce this build from what is visible in the repository" — the same theme as
+   P-216 (firmware volumes are not reproducible) and P-154 (a rebuilt volume cannot find the
+   payload), seen from three sides.
 
-Check：`python3 scripts/check-basecore-pin.py`（新）——它量三件事：① `Mu_Basecore` 工作树的
-HEAD 必须等于主仓 `git ls-tree` 记录的 pin；② `board.toml` 的 `[firmware].patches` 里的
-每个文件必须存在且能 `git apply --check`；③ 若工作树与 pin 不一致，必须在
-`docs/engineering/FIRMWARE-REBUILD.md` 里有一条显式记录说明为什么（否则就是本条）。
+Check: `python3 scripts/check-basecore-pin.py` (new) — it measures three things: ① the
+`Mu_Basecore` worktree's HEAD must equal the pin recorded by the main repository's
+`git ls-tree`; ② every file in `board.toml`'s `[firmware].patches` must exist and pass
+`git apply --check`; ③ if the worktree differs from the pin, there must be an explicit
+record in `docs/engineering/FIRMWARE-REBUILD.md` saying why (otherwise it is this pitfall).
 
-## P-218 — 二分实验只飞了「下一张」，漏掉的那一格正好是决定性的
+## P-218 — The bisect only flew "the next one", and the missing cell was exactly the decisive one
 
-**现场（2026-11-16，蓝牙 0005 四 hunk 二分）**
+**Scene (2026-11-16, bluetooth 0005 four-hunk bisect)**
 
-`patches/bt/0005` 有四个独立 hunk（h1–h4），全量配方 silent（0 字节、端口从未枚举）。
-四 hunk 有 15 个非空子集，实际飞了 9 个：
+`patches/bt/0005` has four independent hunks (h1–h4); the full recipe is silent (0 bytes,
+port never enumerated). The four hunks have 15 non-empty subsets, of which 9 were actually
+flown:
 
-| 配方 | SpringBoard | getBytes | 结果 |
+| Recipe | SpringBoard | getBytes | Result |
 |---|---|---|---|
-| h1 | 13 | 36 | 起 |
-| h13 | 13 | 36 | 起 |
-| h4 | 13 | 36 | 起 |
-| h12 | 132 | 0 | 起 |
-| h23 | 128 | 0 | 起 |
-| h124 | 132 | 0 | 起 |
-| h34 | 128 | 0 | 起 |
+| h1 | 13 | 36 | boots |
+| h13 | 13 | 36 | boots |
+| h4 | 13 | 36 | boots |
+| h12 | 132 | 0 | boots |
+| h23 | 128 | 0 | boots |
+| h124 | 132 | 0 | boots |
+| h34 | 128 | 0 | boots |
 | **h123** | **0** | — | **silent** |
-| 全量 0005 | 0 | — | silent |
+| full 0005 | 0 | — | silent |
 
-`h123` 在 23:18 就构建好了，但四小时里没人飞它——因为我每一轮都按「下一步该验什么」去点图，
-而没有回头飞「已经躺在那儿但没飞过」的那张。那一格恰好是唯一能定案的：
+`h123` was built at 23:18, but nobody flew it for four hours — because each round I picked
+images by "what should be verified next", never going back to fly the one "already sitting
+there and never flown". That cell was exactly the only decisive one:
 
-- 致命集恰好是 **{h1, h2, h3} 三者齐备**，`h4` 无关。
-- 验证：h123 去掉任意一个都能起（去 h1 = h23 起、去 h2 = h13 起、去 h3 = h12 起），
-  所以三者都是必要条件；全量 0005 也 silent，与「它包含 h1+h2+h3」一致。
+- The lethal set is exactly **{h1, h2, h3} all present**, with `h4` irrelevant.
+- Verification: removing any one of them from h123 still boots (remove h1 = h23 boots, remove
+  h2 = h13 boots, remove h3 = h12 boots), so all three are necessary; the full 0005 is also
+  silent, consistent with "it contains h1+h2+h3".
 
-**这一格推翻了我前两轮的结论**：先说「h2 是『不再 silent』的必要条件」（h23 与 h34 都不含 h2
-却都能起），后说「致命集是 h3×h4 两两交互」（h34 就是 h3+h4，能起）。
+**That cell overturned my conclusions from the previous two rounds**: first "h2 is a
+necessary condition for 'no longer silent'" (h23 and h34 both lack h2 yet both boot), then
+"the lethal set is the h3×h4 pairwise interaction" (h34 is h3+h4 and boots).
 
-**为什么这个错误代价高**：每一次错误结论都会变成给 agent 的指令。我按「h2 是必要条件」让它出
-h12，按「h3×h4」让它出 h34，两次都白跑。而正确答案需要的那张图早就构建完了。
+**Why this error was expensive**: every wrong conclusion becomes an instruction to an agent.
+Acting on "h2 is necessary" I had it build h12; acting on "h3×h4" I had it build h34; both
+were wasted runs. And the image the right answer needed had been built long before.
 
-**修法**
+**Fix**
 
-1. **二分要么飞满，要么把「已构建未飞」显式列出来**。矩阵不是「我飞过哪些」，而是
-   「全集里哪些还没飞」——只有后者能回答「结论是否已定案」。
-2. **每轮开始先扫产物目录**，按 mtime 列出现存的镜像，对照已飞清单，先补齐缺口再出新的。
-   实测做法：`ls -dt /mnt/e/k60-work/artifacts/*/` + 每张 `build-manifest.json` 的
-   `components.boot_img`，与 `/mnt/e/k60-work/ledger.jsonl` 的镜像哈希求差集。
-3. **子集数 ≥ 8 时，先算清楚要飞多少格再开始**。四 hunk 的 15 个子集里，只要 {h1,h2,h3}
-   这一格就能定案——但前提是知道自己在找「最小致命集」，而不是「逐个排除」。
+1. **A bisect either flies the full set or explicitly lists "built but not flown"**. The
+   matrix is not "which ones I flew" but "which ones in the full set have not been flown" —
+   only the latter can answer "is the conclusion settled".
+2. **Each round, scan the artefact directory first**: list existing images by mtime, compare
+   against the flown list, fill the gaps before producing new ones. Measured practice:
+   `ls -dt /mnt/e/k60-work/artifacts/*/` plus each `build-manifest.json`'s
+   `components.boot_img`, differenced against the image hashes in
+   `/mnt/e/k60-work/ledger.jsonl`.
+3. **When the subset count is ≥ 8, work out how many cells must be flown before starting**.
+   Among the 15 subsets of four hunks, the single cell {h1,h2,h3} settles it — but only if
+   you know you are looking for "the minimal lethal set" rather than "eliminating one by
+   one".
 
-**Check**: `python3 scripts/check-bisect-coverage.py`（registry `id = "P-218"`）
+**Check**: `python3 scripts/check-bisect-coverage.py` (registry `id = "P-218"`)
 
-**关联**：P-201（trial 镜像无 series 指纹，只能算结构性观察）、P-204（用计数代替语义）、
-P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与对象不对应」这一族。
+**Related**: P-201 (trial images carry no series fingerprint, so they only count as
+structural observation), P-204 (using a count instead of semantics), P-211 (the bookkeeping
+tool describes the repository, not the image). All four belong to the "evidence does not
+correspond to the object" family.
 
 
-## P-219 — `ml_io_map` 的 8 MiB 预算是全内核共享的，蓝牙阶梯是把它撞穿的那一个
+## P-219 — `ml_io_map`'s 8 MiB budget is shared kernel-wide, and the bluetooth ladder is the one that punched through it
 
-- **铁证**（真机，`evidence/usblog-20261116-055237/console.log`，`bt-d4-late`）：
+- **Hard evidence** (on device, `evidence/usblog-20261116-055237/console.log`, `bt-d4-late`):
   ```
   :484 [bluetooth] power: cold boot, rails not voted (k60bt_warm=0)
   :485 K60PANICFMT caller=0xfffffff007b83384 fmt=kmem_%s(%p, %zd, 0x%x): failed with %d @%s:%d
   :486 K60PANICARGS kmem_alloc(0xfffffff3447b1240, 1048576, 0x100021): failed with 3 @vm_kern.c:178
   :487 K60PANIC: ring kept; restart reason -> bootloader
   ```
-  `1048576 = 0x100000` 是 `k60_bt_power_on()` 第四个 `k60_map()` 要的 `K60_TLMM_SIZE`；
-  `0x100021 = KMA_NOFAIL(0x1) | KMA_PAGEABLE(0x20) | KMA_PERMANENT(0x100000)` 正是
-  `osfmk/arm/io_map.c:120` 在 `startup_phase >= STARTUP_SUB_KMEM` 分支里用的标志组合；
-  `failed with 3` = `KERN_NO_SPACE`。
+  `1048576 = 0x100000` is the `K60_TLMM_SIZE` the fourth `k60_map()` in `k60_bt_power_on()`
+  asks for; `0x100021 = KMA_NOFAIL(0x1) | KMA_PAGEABLE(0x20) | KMA_PERMANENT(0x100000)` is
+  exactly the flag combination used by `osfmk/arm/io_map.c:120` in the
+  `startup_phase >= STARTUP_SUB_KMEM` branch; `failed with 3` = `KERN_NO_SPACE`.
 
-- **因果链**：`io_map.c:65` `#define IO_MAP_SIZE (8ul << 20)` 是**全内核唯一**的 IO 子图；
-  每个 `ml_io_map()` 都在 `:128` 走 `kmem_alloc(io_submap, ..., KMA_NOFAIL)`，**不看返回值**；
-  满了就 `__kmem_failed_panic`（`vm_kern.c:1002`，仅当 `KMA_NOFAIL` 置位）。
+- **Causal chain**: `io_map.c:65` `#define IO_MAP_SIZE (8ul << 20)` is the **only** IO submap
+  in the whole kernel; every `ml_io_map()` goes through `kmem_alloc(io_submap, ...,
+  KMA_NOFAIL)` at `:128` **without looking at the return value**; when full it calls
+  `__kmem_failed_panic` (`vm_kern.c:1002`, only when `KMA_NOFAIL` is set).
 
-- **实测预算**（`scripts/check-io-map-budget.py`，在 `bt-out-s1c` 已应用树上跑）：
-  37 个可解析调用点合计 **`0x73a900` = 7.23 MiB / 8 MiB**（另有 7 个尺寸来自运行时变量）。
-  也就是说 `k60_usblog` + `qbt_k60` + `pong_goodix` + `pong_buttons` + `pong_audio` + `aw882xx`
-  已经把子图吃到 90%，蓝牙阶梯再要 1 MiB 的 TLMM 窗口就必然失败。
+- **Measured budget** (`scripts/check-io-map-budget.py`, run on the `bt-out-s1c` applied
+  tree): the 37 resolvable call sites total **`0x73a900` = 7.23 MiB / 8 MiB** (another 7
+  sizes come from runtime variables). That is, `k60_usblog` + `qbt_k60` + `pong_goodix` +
+  `pong_buttons` + `pong_audio` + `aw882xx` had already eaten 90% of the submap, so the
+  bluetooth ladder asking for another 1 MiB TLMM window had to fail.
 
-- **为什么这条坑骗了三天**：`kmem_alloc` 的 panic 在控制台起来之前就把内核打死，
-  唯一活下来的记录是 `d4` 那次 `pong_bt_late=1` 把阶梯挪到 Data 挂载之后——
-  控制台先起来，panic 才被写进环。**没有 `pong_bt_late=1` 的所有 wifi/bt 镜像都只会
-  留下 0 字节**，和「驱动从未运行」完全无法区分（P-63 已经为触摸记过同形）。
+- **Why this pitfall fooled us for three days**: the `kmem_alloc` panic kills the kernel
+  before the console is up. The only surviving record is the `d4` run, where
+  `pong_bt_late=1` moved the ladder after Data mount — the console came up first, so the
+  panic got written into the ring. **Every wifi/bt image without `pong_bt_late=1` leaves only
+  0 bytes**, indistinguishable from "the driver never ran" (P-63 already recorded the same
+  shape for touch).
 
-- **修法**：`patches/xnu/0621-k60-io-submap-budget.patch` 把 `IO_MAP_SIZE` 从 `8ul << 20`
-  提到 `32ul << 20`。子图是**虚拟地址空间**预留，`kmem_suballoc` 只占 VA，
-  没被 map 的部分一个物理页都不花；32 MiB 相对 7.23 MiB 实测值留了 4 倍余量，
-  也覆盖了 7 个运行时尺寸的窗口。
+- **Fix**: `patches/xnu/0621-k60-io-submap-budget.patch` raises `IO_MAP_SIZE` from
+  `8ul << 20` to `32ul << 20`. The submap is a **virtual address space** reservation;
+  `kmem_suballoc` only consumes VA, and the parts that are never mapped cost not one
+  physical page. 32 MiB leaves 4× headroom over the measured 7.23 MiB, and also covers the
+  windows of the 7 runtime sizes.
 
-- **真机验证**（`evidence/usblog-20261116-064150/console.log`，`bt-d5-iomap`，
-  series 233、`kernel 2c8d92c6…` 106,598,400 B、`boot.img 491c62de…`）：
-  同一份 bt 配方只多这一条补丁，`kmem_alloc(... 0x100021): failed with 3`
-  不再出现，阶梯一路走到固件下载——
+- **On-device verification** (`evidence/usblog-20261116-064150/console.log`, `bt-d5-iomap`,
+  series 233, `kernel 2c8d92c6…` 106,598,400 B, `boot.img 491c62de…`): the same bt recipe with
+  only this one patch added, `kmem_alloc(... 0x100021): failed with 3` no longer appears, and
+  the ladder runs all the way to firmware download —
   ```
   :484 [bluetooth] full: power_on enter
   :486 [bluetooth] smmu plan sid 0x483 slot 110 bank 72 … action install dma 0x90bc20000
@@ -5617,145 +5848,178 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
   :708 [bluetooth] addon: serving 146068 0
   :724 [bluetooth] addon: serving 6442 0
   ```
-  `:707` 是从 QCA6490 读回的版本寄存器，`:708`/`:724` 是控制器按需取走的
-  固件分片——**读得到版本、取得到分片，说明 power_on 之后的 SMMU 旁路、
-  时钟投票、GENI 传输全部成立**。SpringBoard 132 行、panic 标记 0。
+  `:707` is the version register read back from the QCA6490, and `:708`/`:724` are firmware
+  fragments the controller fetched on demand — **a readable version and fetched fragments
+  mean the SMMU bypass, the clock votes and the GENI transfers after power_on all hold**.
+  SpringBoard 132 lines, panic markers 0.
 
-- **四条教训**：
-  1. **一个全局预算型资源，必须在加窗口时算总和**，不能只看本次要多少。P-63 的
-     「30 秒判定」写的是「手动累加」，手动累加的结果是没人累加——现在有门禁了。
-  2. **`KMA_NOFAIL` 把「分配失败」变成「panic」**，而 panic 在控制台起来之前发生，
-     于是现象是 0 字节而不是崩溃日志。任何早期路径上的 `KMA_NOFAIL` 分配都该被怀疑。
-  3. **判据要能读出「这次要的是哪个窗口」**：panic 行里的 size 就是窗口大小，
-     `0x100000` 对回 `K60_TLMM_SIZE` 只用了一次 `grep`。先前的所有猜测（SMMU、RCG、
-     qbt_boot、配方漂移）都没做这一步。
-  4. **门禁量的是「已应用树」，不是仓库**：尺寸在 `#define` 里，只有打过补丁的树才有；
-     对着仓库量会得到上一轮的预算（P-207 同形），所以 `check-io-map-budget.py`
-     在没有 `--tree` 时明确 skip 而不是猜。
+- **Four lessons**:
+  1. **A global budget-type resource requires summing when adding a window**, not just
+     looking at what this call needs. P-63's "30-second check" said "add them up manually";
+     the result of "manually" was that nobody added them up — now there is a gate.
+  2. **`KMA_NOFAIL` turns "allocation failed" into "panic"**, and the panic happens before
+     the console is up, so the symptom is 0 bytes rather than a crash log. Any `KMA_NOFAIL`
+     allocation on an early path deserves suspicion.
+  3. **The criterion must be able to read out "which window this one wanted"**: the size in
+     the panic line is the window size, and mapping `0x100000` back to `K60_TLMM_SIZE` took
+     a single `grep`. All the earlier guesses (SMMU, RCG, qbt_boot, recipe drift) skipped
+     that step.
+  4. **The gate measures the "applied tree", not the repository**: the sizes live in
+     `#define`s, which only a patched tree has; measuring the repository yields the previous
+     round's budget (same shape as P-207), so `check-io-map-budget.py` explicitly skips
+     rather than guessing when there is no `--tree`.
 
-- **关联**：P-63（同一子图，触摸首次撞穿）、P-207（门禁不许判陈旧产物）、
-  P-204（计数不等于语义——这里是「总量」而不是「单次量」）。
+- **Related**: P-63 (same submap, first punched through by touch), P-207 (a gate may not
+  judge stale artefacts), P-204 (a count is not semantics — here it is "the total" rather
+  than "a single measurement").
 
 - Check: `python3 scripts/check-io-map-budget.py --tree <applied xnu-work>`
-  （registry `id = "P-219"`）。
+  (registry `id = "P-219"`).
 
-## P-220 — 门禁的「fallback 到最新的那一份」把别的分支的产物拿来判本树
+## P-220 — The gate's "fall back to the newest one" judged this tree with another branch's artefact
 
-- **现场**（2026-11-16，main 上 `check-rules.py`）：
+- **Scene** (2026-11-16, `check-rules.py` on main):
   ```
   ❌ P-165 构建应用了 232 个补丁，但 series 列了 227 个
      构建记录 /opt/k60/trees/k60build/bt-out-s1c/mondrian/ipados-16.6.1-20G81/mondrian/xnu-inputs.json
      说明序列里有补丁的上下文对不上；它和它之后的补丁都没有进树（P-165）。
   ```
-  main 的 series 是 227 条（含 0621），232 条是 bt 线 `feat/bt-research` 的序列。
-  那条 `xnu-inputs.json` 属于另一个分支的另一个输出树，**和 main 一点关系都没有**，
-  但门禁拿它判 main 并给出了一条完全合理的错误结论。
+  main's series is 227 entries (including 0621); the 232 belongs to the bt line's
+  `feat/bt-research` series. That `xnu-inputs.json` belongs to another output tree of
+  another branch and **has nothing to do with main**, yet the gate judged main by it and
+  produced a completely plausible wrong conclusion.
 
-- **成因**：`scripts/check-build-applied.py` 的 `stamp_path()` 原本是
-  「先找一份与当前 series 逐字节相符的存根；找不到就 `return stamps[0]`（最新那份）」。
-  后半句是为了「让调用者报告真实的不一致而不是沉默」（P-189 的修法），
-  但「不一致」有两种，它只建模了一种：
-  1. 同一份补丁**名字**、内容变了 → 本树序列在构建之后改过，构建不再能证明什么 → **该红**；
-  2. 补丁**名字**都不同 → 这是别的分支/别的板的序列，本树从它推不出任何结论 → **不该判**。
-  旧代码把第 2 种也当第 1 种报，于是「本机没有一次构建能代表当前分支」这件事
-  被翻译成「你的序列里有补丁上下文对不上」。
+- **Cause**: `stamp_path()` in `scripts/check-build-applied.py` originally meant "first find
+  a stamp that matches the current series byte for byte; if none, `return stamps[0]` (the
+  newest)". The second half existed to "make the caller report a real mismatch instead of
+  staying silent" (P-189's fix), but there are two kinds of "mismatch" and it modelled only
+  one:
+  1. the same patch **names**, changed content → this tree's series was edited after the
+     build, the build can no longer prove anything → **should go red**;
+  2. the patch **names** all differ → this is another branch's or another board's series,
+     nothing can be concluded about this tree from it → **should not judge**.
+  The old code reported kind 2 as kind 1, so "no build on this machine represents the current
+  branch" was translated into "your series has patches with mismatched context".
 
-- **修法**：
-  - 新增 `_stamp_names()` / `_same_series_names()`：只有**补丁名集合完全相同**的存根
-    才有资格被判（名字相同、字节不同 → 真红；名字不同 → 换下一份）。
-  - `stamp_path()` 的第二轮只在 `_same_series_names()` 为真的存根里挑；
-    一份都没有就返回 `None`。
-  - `main()` 在 `None` 且用户没显式给 `--stamp` 时打印
-    「本机没有一次构建记录与当前 series 的补丁名一致，没有构建能证明这棵树来自当前补丁集」
-    并 **skip**，而不是退回日志正则去判另一棵树（那是 P-207 的形状：门禁不许判陈旧/异己产物）。
-  - `scripts/tests/test-check-build-applied.py` 7 例锁住这个边界，
-    其中 `test_another_branchs_stamp_is_not_graded` 直接复现上面的现场。
+- **Fix**:
+  - New `_stamp_names()` / `_same_series_names()`: only stamps whose **set of patch names is
+    identical** are eligible to judge (same names, different bytes → genuine red; different
+    names → move on to the next one).
+  - The second pass of `stamp_path()` only picks among stamps where `_same_series_names()`
+    is true; if there are none it returns `None`.
+  - When `main()` gets `None` and the user did not pass `--stamp` explicitly, it prints "no
+    build record on this machine has the same patch names as the current series, so no build
+    can prove this tree came from the current patch set" and **skips**, instead of falling
+    back to a log regex to judge another tree (that is P-207's shape: a gate may not judge
+    stale or foreign artefacts).
+  - `scripts/tests/test-check-build-applied.py` has 7 cases locking down this boundary, of
+    which `test_another_branchs_stamp_is_not_graded` reproduces the scene above directly.
 
-- **四条教训**：
-  1. **fallback 必须知道「我 fallback 到的是谁」**。`stamps[0]` 是一个对象，
-     不是「一个更旧的自己」；只要写 fallback 就得写「什么情况下 fallback 的结果不适用」。
-  2. **「不一致」要先分类再报**。同一个词（mismatch）覆盖了「本对象变了」和
-     「这不是本对象」两种完全不同的情况，代码里必须分成两个判据。
-  3. **假红的代价和假绿一样高**：假红会让人去改本来没坏的补丁序列，
-     或者像这次一样，让人以为 main 的 227 条序列缺了 5 条。
-  4. **测试要能复现现场的原文**：这个用例里断言的是「必须出现『跳过 P-165』且不出现 232」，
-     而不是「返回 0」——只断言退出码的话，退回日志正则那条路径也能返回 0。
-  5. **门禁自己的测试不能继承门禁的逃生开关**。`build-strict.sh:68` 会
-     `export K60_BUILD_IN_PROGRESS=1`（P-165 的死锁修法），而 registry 在构建内部被调用时
-     会继承它；于是 `test_a_changed_patch_is_still_graded` 这类「必须判红」的用例，
-     在构建内部跑时全部降级成警告、悄悄变绿——2026-11-16 的 `baseline-20261116a`
-     就是被这条挡住的（手工在 shell 里跑同一个测试是 OK 的，因为那里没有那个变量）。
-     修法：`setUp` 里显式 `self.gate.IN_PROGRESS = False` 并
-     `os.environ.pop("K60_BUILD_IN_PROGRESS", None)`，`tearDown` 还原。
+- **Four lessons**:
+  1. **A fallback must know "who it fell back to"**. `stamps[0]` is an object, not "an older
+     version of myself"; any fallback must also state under what conditions its result does
+     not apply.
+  2. **"Mismatch" must be classified before it is reported.** One word covers "this object
+     changed" and "this is not this object", two completely different situations; the code
+     must split them into two criteria.
+  3. **A false red costs as much as a false green**: a false red sends people to fix a patch
+     series that was never broken, or, as here, makes people believe main's 227-entry series
+     is missing 5.
+  4. **A test must reproduce the scene's own words**: this case asserts "`跳过 P-165` must
+     appear and 232 must not", not "returns 0" — asserting only the exit code would let the
+     log-regex path also return 0.
+  5. **A gate's own tests must not inherit the gate's escape hatch**. `build-strict.sh:68`
+     does `export K60_BUILD_IN_PROGRESS=1` (P-165's deadlock fix), and the registry inherits
+     it when invoked from inside a build; so cases like
+     `test_a_changed_patch_is_still_graded` that must judge red all downgrade to warnings and
+     quietly turn green when run inside a build — that is what blocked `baseline-20261116a`
+     on 2026-11-16 (running the same test by hand in a shell is fine, because the variable
+     is not there). Fix: `setUp` explicitly does `self.gate.IN_PROGRESS = False` and
+     `os.environ.pop("K60_BUILD_IN_PROGRESS", None)`, with `tearDown` restoring them.
 
-- **关联**：P-189（多个输出树共享机器，取最新存根造成假红——本坑是它的补丁）、
-  P-207（门禁只能判本轮产出的物证）、P-201/P-204/P-211（证据与对象不对应一族）。
+- **Related**: P-189 (several output trees share the machine; taking the newest stamp caused
+  false reds — this pitfall is its patch), P-207 (a gate may only judge physical evidence
+  produced in this round), P-201/P-204/P-211 (the evidence-does-not-correspond-to-object
+  family).
 
 - Check: `python3 scripts/tests/test-check-build-applied.py`
-  （registry `id = "P-220"`）。
+  (registry `id = "P-220"`).
 
 ## P-221
 
-**上游扫描器逐文件 `git show` + 脏水位，导致每次运行都重跑全量比对（900 s 超时 → 7.4 s）**
+**The upstream scanner did a per-file `git show` plus a dirty watermark, so every run redid the full comparison (900 s timeout → 7.4 s)**
 
-### 现象
+### Symptom
 
-2026-11-16 09:00 的「上游跟进」定时任务连续三次超时：`pick-upstream.py --plan` 在
-600 s、900 s、300 s（`--no-fetch`）三档下全部 rc=124，输出文件恒为 0 行。看起来像死锁，
-实际上是**性能**：它每次都要为三个「新分支」各比对约 5,080 个文件。
+The 2026-11-16 09:00 "upstream follow-up" scheduled job timed out three times in a row:
+`pick-upstream.py --plan` returned rc=124 at 600 s, 900 s and 300 s (`--no-fetch`), with the
+output file always 0 lines. It looked like a deadlock; it was actually **performance**: each
+run compared about 5,080 files for each of three "new branches".
 
-### 两个独立缺陷，叠在一起
+### Two independent defects, stacked
 
-1. **`discover_branches()` 把裸 `origin` 当成分支**。它只过滤 `endswith('/HEAD')`，
-   于是 `refs/remotes/origin/` 本身（短名 `origin`）被留下，`git rev-parse origin` 的
-   输出是字面量 `origin/origin`，被写进 seen 水位文件。这个字符串永远不等于任何真实 sha，
-   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/k60-work/.pick-upstream-seen.json`
-   里三条脏记录 `"UniXNU-mondrian/origin": "origin/origin"`、`"UniXNU/origin": "origin/origin"`、
-   `"uefi-mondrian/origin": "origin/origin"`。
-2. **新分支的比对是逐文件子进程**。`collect()` 先 `git ls-tree -r` 拿到路径清单，然后对
-   每个路径 `subprocess.run(['git', 'show', f'{ref}:{path}'])`。三个分支 × 5,080 文件
-   ≈ 15,000 次进程启动，每次都带完整的 git 启动开销。
+1. **`discover_branches()` treated bare `origin` as a branch**. It only filtered
+   `endswith('/HEAD')`, so `refs/remotes/origin/` itself (short name `origin`) was kept, and
+   the output of `git rev-parse origin` is the literal `origin/origin`, which was written
+   into the seen watermark file. That string never equals any real sha, so **every run judged
+   it a "new branch"**. Scene evidence: `/mnt/e/k60-work/.pick-upstream-seen.json` holds
+   three dirty records `"UniXNU-mondrian/origin": "origin/origin"`,
+   `"UniXNU/origin": "origin/origin"`, `"uefi-mondrian/origin": "origin/origin"`.
+2. **Comparing a new branch was a per-file subprocess**. `collect()` first got the path list
+   with `git ls-tree -r`, then ran `subprocess.run(['git', 'show', f'{ref}:{path}'])` for
+   every path. Three branches × 5,080 files ≈ 15,000 process launches, each with the full git
+   startup cost.
 
-### 修法
+### Fix
 
-- `discover_branches()`：`if not ref or ref == 'origin' or ref.endswith('/HEAD'): continue`。
-- `load_seen()` 主动丢掉历史脏水位：`{k: v for k, v in raw.items()
-  if not (k.endswith('/origin') or v == 'origin/origin')}`。
-- 新增 `blob_sha(data)`（`sha1(b'blob %d\0' % len(data) + data)`）、`file_blob_sha(path)`、
-  `tree_blobs(d, ref)`（一次 `git ls-tree -r -z`，按 `<mode> SP <type> SP <object> TAB <path>`
-  解析，只收 `fields[1] == b'blob'`，gitlink 因此自动排除）。新分支比对与 `converge()`
-  的第 3 步都改成**blob id 对表**，只有 id 真不同才 `git show` 取内容。
-- 新分支还要先过祖先判定 `is_ancestor(d, ref, 'origin/main')`：yibiya 反复从 main 拉
-  `fix/*` 分支，尖端已在 main 历史里；对这样的分支做「文件收敛」会报 5,000+ 处差异，
-  而实际可 pick 的内容是零。
+- `discover_branches()`: `if not ref or ref == 'origin' or ref.endswith('/HEAD'): continue`.
+- `load_seen()` actively drops historical dirty watermarks: `{k: v for k, v in raw.items()
+  if not (k.endswith('/origin') or v == 'origin/origin')}`.
+- New `blob_sha(data)` (`sha1(b'blob %d\0' % len(data) + data)`), `file_blob_sha(path)`,
+  `tree_blobs(d, ref)` (one `git ls-tree -r -z`, parsed as
+  `<mode> SP <type> SP <object> TAB <path>`, keeping only `fields[1] == b'blob'`, which
+  automatically excludes gitlinks). Both the new-branch comparison and step 3 of `converge()`
+  now compare **blob ids table against table**, fetching content with `git show` only when
+  the ids really differ.
+- A new branch must also pass the ancestry test `is_ancestor(d, ref, 'origin/main')` first:
+  yibiya repeatedly pulls `fix/*` branches from main, so their tips are already in main's
+  history; running "file convergence" on such a branch reports 5,000+ differences while the
+  actually pickable content is zero.
 
-### 四条教训
+### Four lessons
 
-1. **「跑不完」先怀疑复杂度，别先怀疑死锁**。三次不同超时档位都是 rc=124、输出恒 0 行，
-   这个形状既像死锁也像 O(n) 子进程；区分办法是数一下「每个输入要几次进程启动」。
-2. **水位/游标里出现字面量 ref 名就是 bug**。水位必须存不可变的对象 id（commit sha、
-   blob id），存 `origin/main` 这种会移动的名字等于永远没有水位。这条与 P-214
-   （两个都叫「series 指纹」的哈希分属不同命名空间）是同一族：**名字相同不等于对象相同**。
-3. **比对文件用 blob id，不要用内容**。`git ls-tree -r` 已经给出了每个文件的 blob sha，
-   本地算 `sha1("blob <len>\0" + data)` 就能对上，零子进程；只有确认不同时才去取内容。
-4. **「新分支」的差异要相对于它的基线算，不是相对于我们的树**。从未见过的分支与我们的
-   设备仓库天然差 5,077 个文件（那些 XNU 头文件我们本来就没有），这个数字不携带任何信息。
+1. **"It does not finish" — suspect complexity first, not deadlock**. Three different timeout
+   tiers all gave rc=124 and always 0 output lines; that shape looks both like a deadlock and
+   like O(n) subprocesses. The way to tell them apart is to count "how many process launches
+   per input".
+2. **A literal ref name in a watermark/cursor is a bug**. A watermark must store an immutable
+   object id (commit sha, blob id); storing a moving name like `origin/main` means never
+   having a watermark at all. This is the same family as P-214 (both hashes called "series
+   fingerprint" living in different namespaces): **the same name does not mean the same
+   object**.
+3. **Compare files by blob id, not by content**. `git ls-tree -r` already gives each file's
+   blob sha; computing `sha1("blob <len>\0" + data)` locally matches it with zero subprocesses,
+   and content is fetched only on confirmed difference.
+4. **A "new branch"'s differences must be computed against its own baseline, not against our
+   tree**. A never-seen branch naturally differs from our device repository by 5,077 files
+   (those XNU headers we simply do not have); that number carries no information.
 
-- **关联**：P-214（同名不同命名空间）、P-207（门禁只能判本轮产出的物证）、
-  P-189（多个输出树共享机器）、P-220（fallback 不知道 fallback 到的是谁）。
+- **Related**: P-214 (same name, different namespace), P-207 (a gate may only judge physical
+  evidence produced in this round), P-189 (several output trees share the machine), P-220
+  (a fallback does not know who it fell back to).
 
 - Check: `python3 scripts/tests/test-pick-upstream-scan.py`
-  （registry `id = "P-221"`）。
+  (registry `id = "P-221"`).
 
 ## P-222
 
-**全局账本把别的分支的成功启动当成本树的证据，于是 main 被告知「补丁集变了」**
+**The global ledger treated another branch's successful boot as evidence for this tree, so main was told "the patch set changed"**
 
-### 现象
+### Symptom
 
-2026-11-16 上游跟进按定时任务走完审核、提交、真构建（`upstream-20261116a`，
-`kernel 092363c1…`、`boot.img 0226f0e6…`、`build-strict` 全程 rc=0）之后，
-`porting-gate.py --quick` 仍然阻断：
+On 2026-11-16 the upstream follow-up ran review, commit and a real build on schedule
+(`upstream-20261116a`, `kernel 092363c1…`, `boot.img 0226f0e6…`, `build-strict` rc=0
+throughout), and afterwards `porting-gate.py --quick` still blocked:
 
 ```
 ❌ 1 项阻断 —— 禁止刷机
@@ -5763,235 +6027,291 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
        上次成功 4305c6cc2821bcb7 (2026-11-16T08:59:35) != 现在 59d8037521a5b07b
 ```
 
-`59d8037521a5b07b` 是 main 的 227 条序列，**2026-11-16 07:36 已经上机启动过**
-（`baseline-20261116a`，SpringBoard 132，3,061 行）。它被说成「变了」的唯一原因，
-是 08:59 蓝牙线飞了一次 234 条序列的 `bt-d6-iowin`。
+`59d8037521a5b07b` is main's 227-entry series, which **had already booted on device at
+2026-11-16 07:36** (`baseline-20261116a`, SpringBoard 132, 3,061 lines). The only reason it
+was called "changed" is that at 08:59 the bluetooth line flew `bt-d6-iowin` with a 234-entry
+series.
 
-### 根因
+### Root cause
 
-`/mnt/e/k60-work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
-里面找「最后一条 `result == ok` 的记录」。任何一条线飞图都会把「上次成功」改写成
-它自己的指纹，于是：
+`/mnt/e/k60-work/ledger.jsonl` is a **cross-worktree global** ledger, and the `[S]` check
+only looks for "the last record with `result == ok`" in it. Any line flying an image rewrites
+"last success" with its own fingerprint, so:
 
-- 别的分支飞过 → main 的指纹「变了」
-- main 真的改了 → 也可能被下一条别的分支的飞图掩盖
+- another branch flew → main's fingerprint "changed"
+- main really changed → it may also be masked by the next other-branch flight
 
-同时 `docs/engineering/MAIN-BASELINE.toml` 里**每条 booted 基线都记着
-`series_sha256`**，但全树没有任何工具读这个字段（`grep -rn series_sha256 scripts/*.py`
-零命中）。也就是说「哪一套补丁真的启动过」这个事实被记录了、却没人用。
+At the same time **every booted baseline in `docs/engineering/MAIN-BASELINE.toml` records
+`series_sha256`**, but no tool anywhere in the tree reads that field
+(`grep -rn series_sha256 scripts/*.py` has zero hits). That is, the fact "which patch set
+actually booted" was recorded and nobody used it.
 
-### 修法
+### Fix
 
-`porting-gate.py` 增加 `booted_series()`：解析 `MAIN-BASELINE.toml` 里
-`state = "booted"` 的条目，返回 `series_sha256 -> (sha, image, console)`。
-`[S]` 判定改成三级：
+`porting-gate.py` gains `booted_series()`: it parses the `state = "booted"` entries in
+`MAIN-BASELINE.toml` and returns `series_sha256 -> (sha, image, console)`. The `[S]` verdict
+becomes three-tiered:
 
-1. 与全局 ledger 的最后一条成功记录相同 → PASS（原逻辑）。
-2. 与账本里某条 **booted** 基线相同 → PASS，detail 打印 `sha` + `image` + `console`
-   路径，例如 `b48613d baseline-20261116a E:/k60-work/evidence/usblog-20261116-073639/console.log`。
-3. 两者都不匹配 → 才按 `--force-new-series` / 特性分支 / main 三档处理。
+1. Identical to the last successful record in the global ledger → PASS (original logic).
+2. Identical to some **booted** baseline in the book → PASS, with the detail printing the
+   `sha` + `image` + `console` paths, e.g.
+   `b48613d baseline-20261116a E:/k60-work/evidence/usblog-20261116-073639/console.log`.
+3. Neither matches → only then go through the `--force-new-series` / feature branch / main
+   three tiers.
 
-`state = "build-only"` 的条目**永远不能**用来背书：它从没上过设备。
+Entries with `state = "build-only"` can **never** vouch for a series: they have never been on
+a device.
 
-### 三条教训
+### Three lessons
 
-1. **「上次成功」必须绑定到对象，不能绑定到机器**。全局账本记的是「这台机器最后
-   一次飞成功的序列」，而门禁要回答的是「**这一套**补丁飞成功过吗」。两个问题不同，
-   前者答不了后者。这与 P-220（fallback 不知道 fallback 到的是谁）是同一族。
-2. **记了字段却没人读，等于没记**。`series_sha256` 在 `MAIN-BASELINE.toml` 里存在
-   了好几轮，`grep -rn series_sha256 scripts/*.py` 一直是零命中 —— 一条只被写入、
-   从不被读的证据字段，在门禁眼里不存在。加字段时要同时加读取点。
-3. **修复必须双向验证**。这次除了确认「已上机序列被接受」，还专门造了一个未上机的
-   序列（往 series 追加一行假补丁名）确认仍然 `❌ 补丁集变了 —— 必须显式确认`，
-   否则就等于把 `[S]` 整条检查关掉了。
+1. **"Last success" must bind to the object, not to the machine**. The global ledger records
+   "the last series that flew successfully on this machine", while the gate must answer "has
+   **this** patch set flown successfully". Different questions; the former cannot answer the
+   latter. Same family as P-220 (a fallback does not know who it fell back to).
+2. **A recorded field nobody reads is a field that was never recorded**. `series_sha256` sat
+   in `MAIN-BASELINE.toml` for several rounds while `grep -rn series_sha256 scripts/*.py`
+   stayed at zero hits — an evidence field that is only ever written and never read does not
+   exist as far as a gate is concerned. Adding a field means adding a read site at the same
+   time.
+3. **A fix must be verified in both directions**. Besides confirming "a booted series is
+   accepted", this time I also deliberately synthesised a series that never booted (appending
+   a fake patch name to series) to confirm it still says `❌ 补丁集变了 —— 必须显式确认`;
+   otherwise it amounts to switching the whole `[S]` check off.
 
-- **关联**：P-220（fallback 到别的分支的产物）、P-214（同名不同命名空间）、
-  P-211（`record-boot.py` 量仓库 series 而非镜像 manifest）、P-207（门禁只能判本轮物证）。
+- **Related**: P-220 (falling back to another branch's artefact), P-214 (same name, different
+  namespace), P-211 (`record-boot.py` measures the repository series instead of the image
+  manifest), P-207 (a gate may only judge this round's physical evidence).
 
 - Check: `python3 scripts/tests/test-porting-gate-book.py`
-  （registry `id = "P-222"`）。
+  (registry `id = "P-222"`).
 
 ## P-224
 
-**标题：构建的冻结输入把 python 自己写的字节码算进去了**
+**Title: the build's frozen inputs counted the bytecode python writes itself**
 
-`scripts/build-strict.sh` 的 `freeze()` 是「这棵树在这段时间里有没有被动过」的唯一判据：
-构建开始前后各哈希一遍同一份文件清单，`cmp` 不等就 `die "frozen inputs changed during the
-build; this run is void"`。清单原本是
+`freeze()` in `scripts/build-strict.sh` is the only criterion for "was this tree touched
+during this window": it hashes the same file list before and after the build, and if `cmp`
+differs it does `die "frozen inputs changed during the build; this run is void"`. The list
+used to be
 
 ```sh
 find board.toml dts patches/xnu scripts -type f -print0
 ```
 
-`scripts` 下面有 `__pycache__/`。它被 `.gitignore:40` 忽略、不被 git 跟踪、不需要任何人去改
-—— 只要构建自己 import 一次仓库里的脚本，python 就会重写对应的 `.pyc`。于是**构建把自己写的
-文件算成「输入变了」**，一个什么都没改的构建被判废。
+Under `scripts` there is `__pycache__/`. It is ignored by `.gitignore:40`, untracked by git,
+and needs nobody to edit it — as soon as the build imports a repository script once, python
+rewrites the corresponding `.pyc`. So **the build counted its own written files as "inputs
+changed"**, and a build that changed nothing was declared void.
 
-实测（main `5db4414`，2026-11-16 11:19）：`freeze()` 的清单 522 条，其中 **21 条是
-`scripts/__pycache__/*.pyc`**。把 `scripts/pong_paths.py` 碰一下再 import 一次，清单里就多出
+Measured (main `5db4414`, 2026-11-16 11:19): `freeze()`'s list had 522 entries, of which
+**21 were `scripts/__pycache__/*.pyc`**. Touch `scripts/pong_paths.py` and import it once
+more, and the list gains
 
 ```
 b6e369d7c83f675168ac931fe7d3a89c39e4f3ab951ea656a26b58e165b3d296  scripts/__pycache__/pong_paths.cpython-312.pyc
 ```
 
-一条 —— 正是判废的形状。
+— one entry, exactly the shape of a voiding.
 
-现场代价：wifi 线的 `wifi-20261116c7` 在 2026-11-16 10:08 被自己判废，`c05ebb7` 的提交说明写
-「wifi-20261116c7 was declared void for nine new .pyc files」。它在自己分支上补了排除规则，
-但那一条没回到 main，所以 main 上这个缺陷一直是活的。
+Scene cost: the wifi line's `wifi-20261116c7` was declared void by itself at 2026-11-16
+10:08, and `c05ebb7`'s commit message reads "wifi-20261116c7 was declared void for nine new
+.pyc files". It added an exclusion rule on its own branch, but that rule never came back to
+main, so this defect stayed alive on main.
 
-修法：清单里排掉字节码。
+Fix: exclude bytecode from the list.
 
 ```sh
 find board.toml dts patches/xnu scripts -type f \
     ! -path '*/__pycache__/*' ! -name '*.pyc' -print0
 ```
 
-修后清单 522 → 501 条、`__pycache__` 0 条；再强制 python 重写一次 `.pyc`，前后两份清单
-`cmp` 相等（`STABLE: a pyc rewrite no longer changes the frozen hash`）。
+After the fix 522 → 501 entries, 0 `__pycache__` entries; force python to rewrite a `.pyc`
+again and the two lists `cmp` equal (`STABLE: a pyc rewrite no longer changes the frozen
+hash`).
 
-**四条教训**
+**Four lessons**
 
-1. **「输入」的定义必须排除「我自己写的中间产物」。** 冻结清单的用途是抓人改文件，而
-   `__pycache__` 是构建过程的副产物。把副产物算进输入，等于让门禁去抓它自己的脚印。
-   判据：清单里每一个文件，都要能回答「谁会改它、为什么改」；答「构建自己改」的一律排除。
-2. **一个分支上对的修法，不回 main 就等于没修。** wifi 线 11-16 10:08 就修好了这一条，
-   main 到 11:19 还是坏的，而且 main 是所有人构建用的那棵树。凡是在自己分支上改了
-   `scripts/build-strict.sh` / `build-xnu-4k-baseline.sh` / 任何一个 `check-*.py` 的，
-   都必须在提交说明里写「这条需要回 main」，否则它只保护了写它的那个人。
-3. **判废信息必须指名是哪个文件。** 这次 `die` 之前有 `diff -u frozen-before.txt
-   frozen-after.txt >&2`，所以 wifi 线一眼看到是 `.pyc`；如果没有这一行，看到的现象就是
-   「构建成功了但被判废」，最容易被当成偶发。任何「前后对比」型门禁，失败时必须把差异打出来
-   （与 P-190「认不出名字就静默跳过」、P-220「fallback 到别的分支」同一族）。
-4. **「我改过这个文件」和「这个文件变了」是两件事，`find -newer` 与哈希都分不出来。**
-   区分它们只能靠知道「谁有权限改它」：人/工具会改源码，运行时只会改缓存与日志。
-   所以冻结清单要按「产生者」分类，而不是按「在不在 scripts 目录下」。
+1. **The definition of "input" must exclude "the intermediate products I write myself".** The
+   frozen list exists to catch people editing files, and `__pycache__` is a by-product of the
+   build process. Counting a by-product as input lets the gate chase its own footprints. The
+   criterion: for every file in the list, you must be able to answer "who edits it and why";
+   anything answered "the build itself" gets excluded.
+2. **A correct fix on a branch that never returns to main equals no fix.** The wifi line fixed
+   this at 11-16 10:08; main was still broken at 11:19, and main is the tree everybody builds
+   from. Anyone who edits `scripts/build-strict.sh` / `build-xnu-4k-baseline.sh` / any
+   `check-*.py` on their own branch must write "this needs to go back to main" in the commit
+   message, otherwise the fix only protects the person who wrote it.
+3. **A voiding message must name the file.** This time `die` was preceded by `diff -u
+   frozen-before.txt frozen-after.txt >&2`, so the wifi line saw at a glance it was `.pyc`;
+   without that line the symptom is "the build succeeded but was declared void", which is
+   most easily taken for a flake. Any "before/after comparison" gate must print the
+   difference on failure (same family as P-190 "skip silently when the name is not
+   recognised" and P-220 "fall back to another branch").
+4. **"I edited this file" and "this file changed" are two different things, and neither
+   `find -newer` nor a hash can tell them apart.** Separating them requires knowing "who has
+   permission to change it": humans/tools edit source, the runtime only edits caches and
+   logs. So the frozen list must be classified by **producer**, not by "is it under
+   scripts/".
 
-关联：P-165（构建在进行中被自己拦住）、P-202（缺 `.config` 时 `sed` 静默返回空）、
-P-207（门禁不许判陈旧产物）、P-220（门禁 fallback 到别的分支的产物）。
+Related: P-165 (the build was blocked by itself mid-flight), P-202 (`sed` silently returns
+empty when `.config` is missing), P-207 (a gate may not judge stale artefacts), P-220 (a gate
+falling back to another branch's artefact).
 
 ## P-225
 
-**标题：板目录靠 mtime 猜，猜错就静默丢掉 Metal 插件与电池归档**
+**Title: the board directory was guessed by mtime, and a wrong guess silently dropped the Metal plug-in and the battery archive**
 
-`scripts/build-strict.sh` 用 `M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian` 定位板目录，
-`M` 下面挂着 `.config`、`kernel/kernel.macho`、`payload/payload.img`、
-`device-tree/hardware.dtb`、`tree/.cache/xnu-work/.../k60_metal_blob.s` —— 一处猜错，五处全错。
+`scripts/build-strict.sh` locates the board directory with
+`M=$OUT/mondrian/ipados-16.6.1-20G81/mondrian`; hanging off `M` are `.config`,
+`kernel/kernel.macho`, `payload/payload.img`, `device-tree/hardware.dtb`,
+`tree/.cache/xnu-work/.../k60_metal_blob.s` — guess wrong once and all five are wrong.
 
-板目录名跟的是 **defconfig 名**而不是板名：默认配置建到 `mondrian/`，wifi 配置建到
-`mondrian_wifi/`。同一个 `OUT` 下两个可以同时存在（`out-wifi` 现在就两个都有），于是
-「哪个才是这次要的」成了每次构建都要回答的问题。wifi 线在它自己分支上加了 `board_dir()`
-按 `.config` 的 mtime 取最新，方向对（不能硬编码），但判据选错了。
+The board directory name follows the **defconfig name**, not the board name: the default
+config builds into `mondrian/`, the wifi config into `mondrian_wifi/`. Under one `OUT` both
+can exist at once (`out-wifi` has both right now), so "which one is the one this build wants"
+became a question every build had to answer. The wifi line added a `board_dir()` on its own
+branch that picks the newest by `.config` mtime — right direction (it must not be hardcoded),
+wrong criterion.
 
-**mtime 为什么会选错**：`mondrian_wifi/.config` 只有 100 行、70 个 `CONFIG_`，
-**既没有 `CONFIG_XNU_GPU_ADDON` 也没有 `CONFIG_XNU_K60_PHYSICAL_BATTERY`**
-（这两个键只在 `configs/mondrian_defconfig:27` 与 `:78` 里写）。而 `build-strict.sh` 后面两处
-读法是
+**Why mtime picks wrong**: `mondrian_wifi/.config` has only 100 lines and 70 `CONFIG_`, and
+**neither `CONFIG_XNU_GPU_ADDON` nor `CONFIG_XNU_K60_PHYSICAL_BATTERY`** (those two keys are
+only written in `configs/mondrian_defconfig:27` and `:78`). And the two reads later in
+`build-strict.sh` are
 
 ```sh
 GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)
 BATTERY_ON=$(sed -n 's/^CONFIG_XNU_K60_PHYSICAL_BATTERY=y$/1/p' "$M/.config" | head -1)
 ```
 
-键不存在 ⇒ 变量为空 ⇒ 两个 `if` 都不进 ⇒ **Metal 插件与电池归档被静默跳过，构建照样报
-`BUILD OK`**。这正是 P-202 的形状，只是触发条件从「`.config` 不存在」换成「`.config` 存在
-但不是那一份」。实测两个目录：`mondrian/.config` 有 `GPU=y BAT=y`，`mondrian_wifi/.config`
-两个键都没有；`mondrian` 的内核 117,342,208 B，`mondrian_wifi` 的内核 66,002,944 B ——
-差 51 MB，正好是 Metal 插件那个量级。
+Key absent ⇒ variable empty ⇒ neither `if` is entered ⇒ **the Metal plug-in and the battery
+archive are silently skipped while the build still reports `BUILD OK`**. That is exactly
+P-202's shape, with the trigger changed from "`.config` does not exist" to "`.config` exists
+but it is not that one". Measured on both directories: `mondrian/.config` has `GPU=y BAT=y`,
+`mondrian_wifi/.config` has neither key; `mondrian`'s kernel is 117,342,208 B,
+`mondrian_wifi`'s is 66,002,944 B — a 51 MB difference, exactly the order of magnitude of the
+Metal plug-in.
 
-修法：按「这份 `.config` 到底有没有写那两个键」排序，而不是按时间。全量 defconfig 产出的
-配置两个键都在，残缺配置两个都没有，所以这是个**能区分的**判据；同一档内再用 mtime 决胜。
-`K60_BOARD_DIR` 显式覆盖最高优先；覆盖指向不存在的 `.config` 直接失败，不许静默忽略。
-多个候选时在 stderr 说明选了哪个、为什么（并点名 `K60_BOARD_DIR`）；
-两个候选都没有那两个键时额外警告「Metal 插件与电池归档会被静默跳过（P-202）」。
+Fix: sort by "does this `.config` actually write those two keys", not by time. The config the
+full defconfig produces has both keys, a truncated config has neither, so this is a
+**discriminating** criterion; within the same tier, mtime breaks the tie. `K60_BOARD_DIR`
+explicitly overrides with the highest priority; an override pointing at a non-existent
+`.config` fails outright rather than being silently ignored. With several candidates it
+states on stderr which one was chosen and why (naming `K60_BOARD_DIR`); when neither
+candidate has those two keys it additionally warns "the Metal plug-in and the battery
+archive will be silently skipped (P-202)".
 
-修后实测：`out-wifi`（两个候选）→ 选 `mondrian`；`out-baseline`/`gates-out`/`lead-out`
-（单候选）→ 结果不变；`K60_BOARD_DIR=.../mondrian_wifi` → 确实返回它。
+Measured after the fix: `out-wifi` (two candidates) → picks `mondrian`;
+`out-baseline`/`gates-out`/`lead-out` (single candidate) → unchanged;
+`K60_BOARD_DIR=.../mondrian_wifi` → really returns it.
 
-**四条教训**
+**Four lessons**
 
-1. **排序键必须与被保护的对象相关。** mtime 只说明「谁后写过」，不说明「谁是对的」。
-   这里要保护的是「两个会改变内核的配置项在不在」，排序键就该是那两个键本身。
-   通用判据：**先问「我要防的是什么错」，再选一个能区分那个错的特征**；mtime 几乎从不合格。
-2. **`sed -n 's/^KEY=y$/1/p'` 把「键缺失」和「键为 n」合并成同一个空值。** 于是「配置里没这个
-   功能」与「我读错了文件」在代码里无法区分。读配置的每一处都该能回答「这个键是没写、还是写了
-   但不是 y」—— 前者是文件选错，后者是配置决定。（与 P-190「认不出名字就静默跳过」、
-   P-204「用计数代替语义」同一族。）
-3. **一个函数在分支上「方向对但判据错」，直接搬进 main 比不搬更危险。** 不搬，main 是硬编码
-   路径，错得明显（找不到就 die）；搬了错判据，main 会安静地选错并产出缺功能的镜像。
-   **搬修法时要搬「为什么」，不是搬「代码」。**
-4. **候选多于一个时，选择过程必须可见。** 静默选一个是对的（构建不该因为存在无关目录就停），
-   但必须打印「在 N 个候选里选了 X，可用 K60_BOARD_DIR 覆盖」。否则下次有人看到内核小了
-   51 MB，还得重新推一遍这条链。
+1. **The sort key must relate to the object being protected.** mtime only says "who wrote
+   last", not "which is correct". What is being protected here is "are the two config options
+   that change the kernel present", so the sort key should be those two keys themselves. The
+   general criterion: **first ask "what error am I preventing", then pick a feature that
+   discriminates that error**; mtime almost never qualifies.
+2. **`sed -n 's/^KEY=y$/1/p'` merges "key missing" and "key is n" into the same empty value.**
+   So "this feature is not in the config" and "I read the wrong file" cannot be distinguished
+   in the code. Every place that reads config should be able to answer "is this key absent, or
+   present but not y" — the former is a wrong file, the latter is a config decision. (Same
+   family as P-190 "skip silently when the name is not recognised" and P-204 "using a count
+   instead of semantics".)
+3. **Moving a function into main when it is "right in direction but wrong in criterion" on a
+   branch is more dangerous than not moving it.** Not moved, main hardcodes the path and is
+   obviously wrong (die if not found); moved with the wrong criterion, main quietly picks the
+   wrong one and produces images missing features. **Move the "why" when moving a fix, not
+   the "code".**
+4. **When there is more than one candidate, the selection must be visible.** Picking one
+   silently is right (a build should not stop because an irrelevant directory exists), but it
+   must print "chose X among N candidates, override with K60_BOARD_DIR". Otherwise the next
+   person who sees the kernel is 51 MB smaller has to re-derive this whole chain.
 
-关联：P-202（缺 `.config` 时 `sed` 静默返回空）、P-224（冻结输入把构建自己的产物算进去）、
-P-207（门禁不许判陈旧产物）。
+Related: P-202 (`sed` silently returns empty when `.config` is missing), P-224 (frozen inputs
+counting the build's own products), P-207 (a gate may not judge stale artefacts).
 
-**第二处同一个判据：`check-config-consistency.py` 的 `resolve_generated()`。**
-它同样在多个板目录里选一个，选法是 `return found[0]` —— 排序后的第一个，不是这次构建用的
-那个。`out-wifi` 上 `mondrian_wifi` 按字母序在前，于是 hard-38 会拿残缺配置去判全量 defconfig。
-现在它与 `build-strict.sh` 共用同一条判据（两个键齐全者优先，同档 mtime 决胜，读不出的配置
-不参与），并由 `scripts/tests/test-config-consistency-board-dir.py` 的 8 个用例守住；
-反向验证：把 `max(found, key=rank)` 改回 `found[0]` 会红 2 例。
+**A second place with the same criterion: `resolve_generated()` in `check-config-consistency.py`.**
+It too picks one of several board directories, and its way of picking is `return found[0]` —
+the first after sorting, not the one this build used. On `out-wifi`, `mondrian_wifi` sorts
+first alphabetically, so hard-38 would judge the full defconfig with a truncated config. It
+now shares the same criterion as `build-strict.sh` (prefer the one with both keys, break ties
+by mtime within a tier, configs that cannot be read do not participate), guarded by the 8
+cases in `scripts/tests/test-config-consistency-board-dir.py`; reverse verification: changing
+`max(found, key=rank)` back to `found[0]` turns 2 of them red.
 
-顺带清掉 `scripts/check-config-consistency.py` 里两处 `P-187` 引用 —— 那个编号在
-`PITFALLS.md` 里从未存在过（`git log --all -S "P-187"` 零命中），是悬空引用，
-真正该指的是 P-225。
+While there, two `P-187` references were cleared out of `scripts/check-config-consistency.py` —
+that id never existed in `PITFALLS.md` (`git log --all -S "P-187"` has zero hits); it was a
+dangling reference and the right one is P-225.
 
 ## P-228
 
-**标题：兼容层无条件重放 IRQ，于是「handler 被调用过」被当成了「硬件中断到达了」**
+**Title: the compatibility layer replays IRQs unconditionally, so "the handler was called" was taken for "a hardware interrupt arrived"**
 
-wifi c7 的诊断镜像里，我加了一条 `Pong MHI: irq entered er_index=0 dev rp=... host rp=...`
-打点，位置在 `mhi_irq_handler()` 入口。上机后它出现了 1 次，我就据此在段内写下
-「MSI 确实从 GIC 送到了我们的 handler，只是每次读 `MsiStatus` 都是 0（空中断）」。
+In the diagnostic image of wifi c7 I added a
+`Pong MHI: irq entered er_index=0 dev rp=... host rp=...` trace point at the entry of
+`mhi_irq_handler()`. On device it appeared once, and on that basis I wrote in that section
+"the MSI really was delivered from the GIC to our handler, only every read of `MsiStatus`
+returns 0 (spurious interrupt)".
 
-**这条判读是错的。** `drivers/PongWifi/ath11k/compat/` 这一层不是真中断：`lx_pump()`
-每轮先跑 `lx_plat->poll()`，然后在 `g_irq_polling`（默认 1）为真时调用 `lx_irq_raise_all()`，
-而后者是
+**That reading is wrong.** The layer at `drivers/PongWifi/ath11k/compat/` is not a real
+interrupt: each round `lx_pump()` first runs `lx_plat->poll()`, then, when `g_irq_polling`
+(default 1) is true, calls `lx_irq_raise_all()`, and the latter is
 
 ```c
 /* /mnt/e/k60-work/impl/wifi/work/build/ath11k/lx_rt_pong.c:597 */
 void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_irq[i].pending = 1; }
 ```
 
-**无条件的。** 每毫秒把 64 个已注册 IRQ 全部置 pending，与硬件有没有拉中断线毫无关系。于是
-`irq entered` 出现一次只能证明「这个 handler 被调度器跑过一次」，不能证明 MSI 到过。
+**Unconditionally.** Every millisecond it marks all 64 registered IRQs pending, entirely
+regardless of whether the hardware ever pulled an interrupt line. So one occurrence of
+`irq entered` only proves "the scheduler ran this handler once"; it does not prove an MSI
+arrived.
 
-真正的硬件判据是另一条打点：`PongWifiPlatform.cpp:682` 的
-`if (!irqSeen && __atomic_load_n(&msiArrivals, ...)) { ... log(6, "QCA6490 MSI delivered by GIC"); }`，
-而 `msiArrivals` 只在 `irq()` 里 `dbi.r(MsiStatus)` 读到非零时才自增。c7 的
-`grep -ac "MSI delivered"` = **0** —— 这才是「MSI 没到」的证据，而且它一直是有效的。
-我先把无效判据当成结论，又反过来用「irq entered 出现过」去否证有效的判据，方向错了两次。
+The real hardware criterion is a different trace point: `PongWifiPlatform.cpp:682`'s
+`if (!irqSeen && __atomic_load_n(&msiArrivals, ...)) { ... log(6, "QCA6490 MSI delivered by GIC"); }`,
+and `msiArrivals` is only incremented inside `irq()` when `dbi.r(MsiStatus)` reads non-zero.
+For c7, `grep -ac "MSI delivered"` = **0** — that is the evidence that "the MSI did not
+arrive", and it was valid all along. I first took an invalid criterion as a conclusion, then
+turned around and used "irq entered appeared" to falsify a valid criterion; wrong in
+direction twice.
 
-**四条教训**
+**Four lessons**
 
-1. **「被调用过」是软件事实，不是硬件事实。** 判据必须指向一个只有硬件才能造成的状态变化：
-   寄存器读回非零、DMA 内存被设备改过、设备侧递增的指针/计数器。函数被调用、日志被打出来、
-   中断号被处理，这三样在模拟层/兼容层里都可以由软件凭空产生。
-2. **判据成立之前，先查「谁会让它成立」。** `lx_irq_raise_all` 这个名字里就写着 `raise_all`，
-   一次 `grep -rn "irq_raise_all"` 就能看到它的调用点与 `g_irq_polling` 的默认值。这一步
-   比事后解释「为什么读回是 0」便宜得多。
-3. **一条判据要能通过「相反情况会怎样」的检查。** 如果「MSI 到了」和「MSI 没到」产出同一个
-   观测，这条判据就是无效的，不管它看起来多直接。`irq entered` 恰好就是这种判据。
-4. **错误的判据会污染下游文档。** wifi 线已经按「MSI 已到」写过一版结论，需要专门回滚；
-   而我如果没在段内自查，这条错判会顺着 §11 一路写进 main 的 wifi 研究文档。
+1. **"It was called" is a software fact, not a hardware fact.** A criterion must point at a
+   state change only the hardware can cause: a register reading back non-zero, DMA memory
+   modified by the device, a pointer/counter incremented on the device side. A function being
+   called, a log being printed, an interrupt number being handled — all three can be produced
+   out of thin air by software in a simulated/compatibility layer.
+2. **Before a criterion holds, check "who would make it hold".** The name
+   `lx_irq_raise_all` literally contains `raise_all`; one `grep -rn "irq_raise_all"` shows its
+   call sites and `g_irq_polling`'s default. That step is much cheaper than explaining
+   afterwards "why the read-back is 0".
+3. **A criterion must pass the "what would the opposite case look like" test.** If "the MSI
+   arrived" and "the MSI did not arrive" produce the same observation, the criterion is
+   invalid no matter how direct it looks. `irq entered` is exactly such a criterion.
+4. **A wrong criterion contaminates downstream documents.** The wifi line had already written
+   a version of the conclusion based on "the MSI arrived" and needs a dedicated rollback; and
+   had I not self-checked within the section, this misjudgement would have travelled through
+   §11 into main's wifi research document.
 
-**关联**：P-204（用计数代替语义）、P-190（认不出名字就静默跳过）、P-197（固件没有的能力
-不能写成已经做了）。这三条都是「观测与结论之间缺一道核对」，P-228 是它在硬件证据上的形态。
+**Related**: P-204 (using a count instead of semantics), P-190 (skipping silently when the
+name is not recognised), P-197 (a capability the firmware does not have cannot be written up
+as done). All three are "a check is missing between observation and conclusion", and P-228 is
+its form in hardware evidence.
 
 ## P-229
 
-**标题：门禁的测试断言「这个检出恰好就是已上机基线」，于是任何改了补丁的分支都构建不了**
+**Title: a gate's test asserts "this checkout happens to be the booted baseline", so any branch that changed a patch cannot build**
 
-`adsp-20261116a` 探针图的构建在 `unixnu: build: running the compliance registry` 之后停在
+The build of the `adsp-20261116a` probe image stopped after
+`unixnu: build: running the compliance registry` with
 
 ```
 ❌ P-222    FAILED (failures=1)
 build-strict: FATAL: kernel build failed
 ```
 
-`P-222` 的测试是 `scripts/tests/test-porting-gate-book.py`，其中一条原本写的是
+`P-222`'s test is `scripts/tests/test-porting-gate-book.py`, one case of which originally read
 
 ```python
 def test_the_current_series_is_proven_by_the_book(self):
@@ -6002,78 +6322,126 @@ def test_the_current_series_is_proven_by_the_book(self):
                   'main series %s (%d patches) should match a booted baseline' % (fp, count))
 ```
 
-`series_fingerprint()` 量的是**当前检出树**的 `patches/xnu/series`。adsp 分支为了跟上 `main`
-改了 `0613-k60-adsp-pas.patch`，指纹变成 `86a6e0ed295d56b6`（227 条），而
-`MAIN-BASELINE.toml` 里唯一一条 booted 是 `59d8037521a5b07b`（`baseline-20261116a`）。
-于是这条断言失败，registry 失败，构建被拒。
+`series_fingerprint()` measures **the current checkout tree**'s `patches/xnu/series`. The adsp
+branch changed `0613-k60-adsp-pas.patch` to keep up with `main`, so the fingerprint became
+`86a6e0ed295d56b6` (227 entries), while the only booted entry in `MAIN-BASELINE.toml` is
+`59d8037521a5b07b` (`baseline-20261116a`). So the assertion failed, the registry failed, and
+the build was rejected.
 
-**这不是「门禁正确地把一个未上机的分支拒掉」，而是门禁的测试自己坏了。** 未上机的分支本来
-就该被拒，但那个判断属于 `porting-gate.py` 的 `[S]` 判定——它是门禁本体，按设计会对任何
-没有 booted 背书的补丁集打出 `❌ [S] 补丁集变了 —— 必须显式确认`，并且 `build-strict.sh`
-用 `K60_FORCE_NEW=1` 显式放行它。测试的职责是证明 `booted_series()` 这个函数行为正确，
-一旦它把「当前检出的身份」写进断言，它的通过条件就变成了「这个检出就是 main」。
+**This is not "the gate correctly rejecting a branch that never booted"; it is the gate's own
+test being broken.** A branch that never booted indeed should be rejected, but that judgement
+belongs to `porting-gate.py`'s `[S]` verdict — it is the gate proper, by design it prints
+`❌ [S] 补丁集变了 —— 必须显式确认` for any patch set without booted backing, and
+`build-strict.sh` explicitly lets it through with `K60_FORCE_NEW=1`. The test's job is to
+prove the `booted_series()` function behaves correctly; once it writes "the identity of the
+current checkout" into an assertion, its pass condition becomes "this checkout is main".
 
-**与 P-165 同形**：那次是构建期间 registry 继承了 `K60_BUILD_IN_PROGRESS=1` 这条逃生开关，
-这次是 registry 里的测试断言了分支身份。两次的后果一样——**构建被它自己要保护的东西挡住**。
+**Same shape as P-165**: there the registry inherited the escape hatch
+`K60_BUILD_IN_PROGRESS=1` during the build; here a test inside the registry asserted the
+branch identity. Same consequence both times — **the build is blocked by the very thing it is
+supposed to protect**.
 
-**修法：把一条测试拆成三条，状态相关的那条允许 skip。**
+**Fix: split one test into three, the state-dependent one may skip.**
 
-1. `test_the_current_series_is_proven_by_the_book`：在书里就断言 `sha` 是 7–40 位十六进制；
-   不在书里就 `self.skipTest('this checkout is a feature branch: series %s (%d patches) is '
-   'not a booted baseline, which is the correct refusal (P-229)')`。
-2. `test_a_feature_branch_series_is_not_an_error`：合成一个**不含**当前指纹的 book，断言
-   `booted_series()` 返回一张表、当前指纹不在里面、且不抛异常。这条与检出身份无关。
-3. `test_only_a_booted_entry_vouches_for_one_exact_series`：同一个指纹在 `state = "booted"`
-   时被 vouch、在 `state = "build-only"` 时不被 vouch，两次都用临时 book。
+1. `test_the_current_series_is_proven_by_the_book`: if it is in the book, assert the `sha` is
+   7–40 hex digits; if not, `self.skipTest('this checkout is a feature branch: series %s (%d patches) is '
+   'not a booted baseline, which is the correct refusal (P-229)')`.
+2. `test_a_feature_branch_series_is_not_an_error`: synthesise a book that does **not** contain
+   the current fingerprint, then assert `booted_series()` returns a table, the current
+   fingerprint is not in it, and no exception is raised. This one is independent of the
+   checkout's identity.
+3. `test_only_a_booted_entry_vouches_for_one_exact_series`: the same fingerprint is vouched
+   for when `state = "booted"` and not vouched for when `state = "build-only"`, both times
+   with a temporary book.
 
-改完在 `k60-gates`（main）与 `k60-adsp-handoff`（feature 分支）两棵树各跑一遍，都是
-`Ran 7 tests ... OK`——这正是「搬到任意分支都成立」的自检。
+After the change, ran it on both trees `k60-gates` (main) and `k60-adsp-handoff` (feature
+branch), each giving `Ran 7 tests ... OK` — which is exactly the self-check for "moving it to
+any branch still holds".
 
-**四条教训**
+**Four lessons**
 
-1. **测试不能断言「当前环境处于某个特定状态」。** 判据很简单：把这条测试原样搬到另一个
-   分支上跑，它还必须成立。只在本分支成立的那部分属于「现场观测」，要么写成 skip 并说明
-   原因，要么改用合成 fixture。`assertIn(fp, table)` 里的 `fp` 就是现场状态。
-2. **「门禁拒绝」与「门禁测试失败」是两种不同的拒绝，混淆的后果是分支无法开工。** 前者是
-   设计（fail-closed 正确工作），后者是回归（测试自己坏了）。构建走前者，验证函数用后者。
-3. **凡是被构建流程调用的测试，都要问一句「它在 feature 分支上会怎样」。** 构建是在分支上
-   跑的，而 registry 是在构建里跑的。P-165 与 P-229 是同一个问题域的两端：**门禁的运行环境
-   与被判对象必须分离**——逃生开关不能漏进测试，分支身份也不能漏进断言。
-4. **合成 fixture 要给全字段。** `booted_series()` 里 `fields.get('sha', '')` 的缺省是空串，
-   而同文件另一条测试断言 `^[0-9a-f]{7,40}$`；临时 book 不写 `sha = "abc1234"` 就会「修好
-   一条、弄红另一条」。改 fixture 之后要把整个文件跑一遍，不是只跑改的那条。
+1. **A test may not assert "the current environment is in a particular state".** The criterion
+   is simple: move that test unchanged onto another branch and it must still hold. The part
+   that only holds on this branch is "observation of the scene" and must either be written as
+   a skip with a reason, or replaced with a synthetic fixture. The `fp` in
+   `assertIn(fp, table)` is scene state.
+2. **"The gate rejects" and "the gate's test fails" are two different rejections, and
+   conflating them leaves a branch unable to start work.** The former is design (fail-closed
+   working correctly), the latter is a regression (the test itself broke). Builds go through
+   the former; verifying a function uses the latter.
+3. **For any test invoked by the build flow, ask "what happens on a feature branch".** The
+   build runs on branches and the registry runs inside the build. P-165 and P-229 are two
+   ends of the same problem domain: **the gate's runtime environment and the object it judges
+   must be separated** — the escape hatch must not leak into tests, and the branch identity
+   must not leak into assertions.
+4. **A synthetic fixture must supply every field.** In `booted_series()`,
+   `fields.get('sha', '')` defaults to an empty string, while another test in the same file
+   asserts `^[0-9a-f]{7,40}$`; a temporary book without `sha = "abc1234"` will "fix one and
+   redden another". After changing a fixture, run the whole file, not just the case you
+   changed.
 
-**关联**：P-165（构建期间 registry 继承逃生开关）、P-222（全局账本把别处的成功当本树证据）、
-P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（证据与对象不对应）。
+**Related**: P-165 (the registry inherits the escape hatch during a build), P-222 (the global
+ledger takes success elsewhere as evidence for this tree), P-207 (a gate may not judge stale
+artefacts), P-218 (one variable at a time), P-194 (evidence does not correspond to the
+object).
 
 ## P-230
 
-**判据缺输入时不允许替换成一个「默认」镜像：三个门禁把「没给」变成了「拿别人的判你的」**
+**When a criterion lacks its input, substituting a "default" image is not allowed: three gates turned "you did not give it" into "judge yours with somebody else's"**
 
-2026-11-16 实测：在 `k60-gates` main（`cf550a93`）上直接跑 `python3 scripts/check-rules.py`，
-不设 `K60_DEVICE_INPUT`，结果是 **iron-4 / iron-5 / hard-33 / P-165 / P-166 五条红**；
-同一条命令加上 `K60_DEVICE_INPUT=/opt/k60/trees/gates-device` 后 **106 条登记、失败 0、waiver 37，全绿**。
-也就是说那五条红与仓库状态无关，只与「操作者忘了给变量」有关。
+Measured 2026-11-16: running `python3 scripts/check-rules.py` directly on `k60-gates` main
+(`cf550a93`) without setting `K60_DEVICE_INPUT` gives **five reds: iron-4 / iron-5 / hard-33 /
+P-165 / P-166**; the same command with `K60_DEVICE_INPUT=/opt/k60/trees/gates-device` gives
+**106 registered, 0 failures, 37 waivers, all green**. That is, those five reds had nothing to
+do with the repository state, only with "the operator forgot to set the variable".
 
-根因是三处静默回落，各自写法略有不同但同一形状：
+The root cause is three silent fallbacks, each written slightly differently but the same
+shape:
 
-- `scripts/sync-device-input.py:24-27` 只要带 `--check` 就允许 `DEV = DEV or '/opt/k60/trees/usb-cdc-mainline/device'`，
-  注释还写着「registry 的 iron-5 没有调用者镜像可用」——这正是把缺陷写成了设计。
-- `scripts/porting-gate.py:48` `DEV = (os.environ.get('K60_DEVICE_INPUT') or '/opt/...') + '/patches/xnu'`。
-- `scripts/check-build-applied.py:29` `pathlib.Path(os.environ.get("K60_DEVICE_INPUT", "/opt/..."))`。
+- `scripts/sync-device-input.py:24-27` allows `DEV = DEV or '/opt/k60/trees/usb-cdc-mainline/device'` as soon as `--check` is passed, and the comment even says "registry's iron-5 has no caller image available" — that is precisely a defect written up as a design.
+- `scripts/porting-gate.py:48` `DEV = (os.environ.get('K60_DEVICE_INPUT') or '/opt/...') + '/patches/xnu'`.
+- `scripts/check-build-applied.py:29` `pathlib.Path(os.environ.get("K60_DEVICE_INPUT", "/opt/..."))`.
 
-三条都遵循「缺输入 ⇒ 换一个输入」，于是判据的对象从「调用者的镜像」漂移成「别人最后同步的那份」。
-这和 P-190（缺输入被变成可信的值）、P-207（门禁去判陈旧产物）、P-220（fallback 到别的分支的存根）是同一族，
-只是这次 fallback 落在**路径**而不是产物或时间戳上。
+All three follow "input missing ⇒ swap in another input", so the object of the criterion
+drifts from "the caller's image" to "the one somebody else synced last". This is the same
+family as P-190 (a missing input turned into a trustworthy value), P-207 (the gate going off
+to judge a stale artefact) and P-220 (falling back to another branch's stamp), except this
+time the fallback lands on a **path** rather than an artefact or a timestamp.
 
-四条教训：
+Four lessons:
 
-1. **判据的输入必须由调用者命名**。缺了就拒绝并说清怎么给，不能替换；替换会让「红」和「绿」都失去意义
-   （这次是假红，若共享镜像恰好一致就会变成假绿，更危险）。
-2. **注释里写下的「为什么可以回落」要当作缺陷读**。`--check` 允许共享目录的那条注释，把当时的权宜
-   固化成了契约，后续所有人都按它理解。
-3. **一个变量出现五条红时，先怀疑变量**。五条红跨四个不同判据却同时出现，本身就是「共同输入有问题」的信号；
-   我当时的第一反应是去查同步，浪费了一轮。
-4. **修复要连带把「默认值」从代码里删掉**，否则下一个人照样能写回 `os.environ.get(..., '/opt/...')`。
-   新测试 `scripts/tests/test-device-input-must-be-named.py` 逐条 grep 三个脚本，既断言拒绝行为，
-   也断言不再出现共享默认路径。
+1. **A criterion's input must be named by the caller.** When it is missing, refuse and say how
+   to supply it; substitution makes both "red" and "green" meaningless (this time it was a
+   false red; if the shared image happened to match it would become a false green, which is
+   worse).
+2. **A "why a fallback is acceptable" comment must be read as a defect.** The comment letting
+   `--check` use the shared directory froze a stopgap into a contract, and everyone afterwards
+   understood it that way.
+3. **When one variable produces five reds, suspect the variable first.** Five reds across four
+   different criteria appearing at once is itself a signal that "the common input is wrong"; my
+   first instinct was to go check the sync, which wasted a round.
+4. **The fix must also delete the "default value" from the code**, otherwise the next person
+   can still write `os.environ.get(..., '/opt/...')` back in. The new test
+   `scripts/tests/test-device-input-must-be-named.py` greps the three scripts one by one,
+   asserting both the refusal behaviour and that the shared default path no longer appears.
+
+## P-231
+
+**The payload's memory window is checked against `board.toml` and its own DTS, never against the RAM the phone reports: an arena that crosses a hole builds, passes the artefact check and boots into nothing**
+
+Noticed 2026-11-20 while reading the iOS 27 payload geometry. `build payload`
+refuses when `[payload].dram_size` disagrees with the DTS `/memory` node, and
+`check-ios27-artifacts.py` re-reads the ADT afterwards, so the two numbers cannot
+drift from each other — but neither compares them with the device tree the phone
+actually passes. `arm_init.c:562-583` trusts `/chosen/dram-base` and
+`/chosen/dram-size` as the DRAM iBoot reported and builds the physmap over all
+of it, so an arena based at `0x800000000` — the base the iOS 16 line used for
+its first window — crosses the 6 MiB gap at `0x837500000` and the 144 MiB gap at
+`0x839700000`. It still builds; the boot dies after the loader, and no message
+names memory.
+
+What to do: run `python3 scripts/check-ios27-geometry.py` (the build script runs
+it first). It holds the six `/memory` regions the phone reported on 2026-10-20,
+checks the arena against the merged runs, the managed window against the arena,
+the 2 MiB alignment and the pinned seed. A new reading of
+`/proc/device-tree/memory` updates `BANKS` in the same commit as the DTS.

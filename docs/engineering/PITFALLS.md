@@ -7251,3 +7251,46 @@ scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
 **门禁的调用时机本身是一个必须验证的断言。** 挂在树生成之前的钩子、挂在产物生成之后的检查、
 挂在配置读取之前的默认值——它们不报错，只永远沉默。判断一个门禁是否可能在空转，问一句就够：
 它依赖的那件东西，在这一行代码执行时存在吗？
+
+## P-266 — 常量出现在文件里，不等于它在那里有意义
+
+第一版 fileset 读取器把 0x80000033 当成 `LC_FILESET_ENTRY`，对 24A446 的 kernelcache 报
+「0 条 fileset 条目」，据此几乎要写「27 的内核根本没有 kext 条目」。0x80000033 是
+`LC_DYLD_EXPORTS_TRIE`；条目是 0x80000035。同一段代码还有第二个坑：`entry_id` 不是文件偏移，
+而是相对该 load command 起点的偏移，名字在 `command + entry_id`。
+
+假象之所以可信，是因为名字真的在文件里：`strings` 能找到 `com.apple.kec.corecrypto`，
+也能找到九个 IOStorage 类名，无论有没有条目承载它们。名字出现是弱证据，承载它的结构才是证据。
+
+一般化的教训：**结构体的常量取值与字段语义，必须拿一份能自证的文件校准。** 这里的校准物是
+16.6.1 的 kernel.macho：MH_EXECUTE、50,123 个符号，十一个存储符号全在其中；读不出东西时，
+它是唯一能证明「不是我读错」的对照。
+
+回归：`scripts/check-ios27-storage-exports.py`（17 例）对 305 条目的 kernelcache、32 条目的预链接
+内核与 16.6.1 内核各跑一遍，前两者 not-exported、后者导出，答案写在
+`docs/engineering/IOS27.md` 的 "What the storage exports say"。
+
+## P-267 — 重放用的树不是构建用的树，缺一层就够让整条系列「失败」
+
+四层系列重放（arch → soc → os → device）在 os 层第一条 `zzz-boot-progress.patch` 报
+`patch failed: bsd/kern/bsd_init.c:778`，我据此写过「27 系列应用不到底，需要 Lead 摘 hunk」。
+真实构建给出的是反证：`f1-ios27-build16.log` 里 `== kernel: patch ` 共 101 行、`uniq -d` 空、
+`patch failed` 0 次，`sheng-platform-power.patch` 在第 126 行、`zzz-boot-progress.patch` 在第 128 行。
+
+差异不在构建。本机 `UniXNU-sm8475-common` 的 `patches/xnu-12377/series` 根本不存在：这份文件只在
+ref `xnekom/feat/xnu-12377`（20a30fd）上，本地 main（c5b50c3）没有。而 soc 层 series 的注释原文就是
+「sheng-platform-power inserts the PMGR hook that the OS series' zzz-boot-progress.patch uses as
+context」——少了这一层，os 层的上下文当然对不上。算术也吻合：构建 101 = 本机计划 98 −
+0531（Lead `77409a13` 摘掉）+ {sheng-platform-power, native-smp-secondary, 0540, 0541}，
+且 101 条无重复。
+
+顺带澄清一处容易误判的写法：`board.toml:369` 里 `patches/xnu/series` 出现两次不是重复项——
+`arch:` 解析到 `profiles/arch/arm64e/patches/xnu/series`（65 条），`os:` 解析到
+`profiles/os/ios-27.0.1-24A446/patches/xnu/series`（4 条），是两份不同文件。
+
+一般化的教训：**重放之前先证明手上的树与构建用的树同形。** 每一层 series 文件都在、commit 一致、
+条目数对得上，再去解释某一个 hunk 为什么失败；否则「补丁失败」只说明我少了一棵树，
+而不是系列坏了。
+
+回归：`python3 -c` 解析 board.toml 得计划列表，与构建日志的 `== kernel: patch` 列表逐行 diff，
+差额必须能被「摘掉的补丁 + 另一棵树里的补丁」解释完（本次 4 条）。

@@ -15,6 +15,9 @@
 |---|---|
 | [STATUS.md](STATUS.md) | **当前硬件状态明细** + 重新审视结论 + 历史变更记录（README 的详细版） |
 | [IOS27.md](IOS27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门、IPSW 与 kernelcache 哈希 |
+| [IOS27-F1-PRELINK-CLOSURE.md](IOS27-F1-PRELINK-CLOSURE.md) | **F1 prelink 闭包**：pinned kernelcache 的 `com.apple.kernel` 是 `nsyms 0`、prelink 段全空，133 个 owner target 无法命名；一个 target 仍停在输入 `__TEXT`；三条出路 |
+| [IOS27-FLIGHT-GATE-REVIEW.md](IOS27-FLIGHT-GATE-REVIEW.md) | **flight 门禁审阅**：`--flight-ready` 的计数是 distinct 地址而不是引用；F2 关存储是对的、F3 是洞；五条建议 |
+| [IOS27-STORAGE-VTABLE.md](IOS27-STORAGE-VTABLE.md) | **190 槽 vtable 对照**：format 8 逐槽判别子一致 190/190；只证明布局，不证明 parent 解析、构造顺序或 PAC 分发 |
 - [`BOOT-ARGS.md`](BOOT-ARGS.md) —— 每个 boot 参数的接受值、默认与陷阱；608 字节预算；三个 GPU 开关的串行依赖。
 | [EIGHT-STEP-SPEC.md](EIGHT-STEP-SPEC.md) | **八步流程规范**：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机。每步含目的/必做/证据格式/通过条件/反模式 |
 | [FIRMWARE-REBUILD.md](FIRMWARE-REBUILD.md) | **固件卷重建手册**：构建入口、为什么同一个 pin 三次重建得三个哈希（P-216）、`Mu_Basecore` 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭、下次重建的五步实验协议、DarwinBoot 只认固定属性名的硬约束 |

@@ -111,9 +111,10 @@ run()
 	printf 'ok   %-34s %s\n' "$name" "$(printf '%s' "$out" | tail -1)"
 }
 
-# A seam checker has three verdicts that are not failures: wired (0), waiting
-# (0 with "not wired yet"), and nothing to measure (3). The row keeps them apart,
-# so "the driver does not carry it yet" never reads as a green line about wiring.
+# A seam checker has two verdicts that are not failures: wired (0) and nothing
+# measured (3) -- the driver does not name the variable yet, or the hook it names
+# is not in the checkout it runs from. Both print skip, so a waiting seam never
+# reads as a green line about wiring.
 seam_row()
 {
 	name=$1

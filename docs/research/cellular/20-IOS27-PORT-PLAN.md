@@ -1118,3 +1118,60 @@ K60 READY OK the integrated tree carries every ported patch and its wiring
 ```
 
 这六行是 27 线第一次「补丁 + 构建表 + 探针位置 + 锚点 + 弱定义」同时在树里被测过；此前集成模式只有合成树覆盖。
+
+
+## 31. 链接会不会红：把 19 个 extern 逐个问到出处（2026-11-20 10:50）
+
+补丁能 apply、conffiles 齐全、探针在正确位置——这些都不回答「链接期还会不会
+`Undefined symbols`」。`scripts/check-ios27-symbols.py` 补上这一格：读补丁要装的源码，
+抽出每条 `extern` 声明，再回答它由谁定义，出处只有三种——补丁集自身、目标树、具名组件。
+
+### 31.1 问答表（真实 27 树，19 条）
+
+| 出处 | 数量 | 符号 |
+|---|---|---|
+| 补丁集自身 | 8 | `k60_ipa_marker` `k60_modem_qrtr_probe` `k60_modem_rails_vote` `k60_modem_scm_invoke`（条件编译对）`k60_modem_transport_prepare` `k60_modem_transport_stale` `coachz_modem_data_send` `coachz_modem_data_receiver` |
+| 27 树 | 4 | `delay` → `osfmk/kern/clock.c`；`flush_dcache64` → `osfmk/arm64/caches_asm.s`；`ml_io_map_unmappable` → `osfmk/arm64/machine_routines.c`；`pmap_find_phys` → `osfmk/arm64/sptm/pmap/pmap.c` |
+| `QcomBaseband` 组件 | 7 | `coachz_baseband_configure` `_del_server` `_enabled` `_new_server` `_poll` `_qrtr` `_report` |
+
+两条对 F3 有用的结论：
+
+1. `coachz_modem_data_send` / `coachz_modem_data_receiver` **不需要组件**——`pong_modem_link.c`
+   自带桩（返回 ENETDOWN），所以数据面在 F3 里仍是关着的，但链接不缺东西。
+2. 真正需要组件的只有 7 个 `coachz_baseband_*`，与 §29「QcomBaseband 是 F3 的链接前提」一致；
+   §29 里按 `+extern` 行数数出来的「9 个」是行数不是符号数，这里改正。
+
+### 31.2 四个坑：名字出现在文件里不等于它在文件里被定义
+
+第一版判据是 `grep -rlw <symbol>`，它把四种非定义都算成定义（详见 P-266）：
+
+- **调用**：`k60_modem_rails_vote();` 这一行带名字、带括号。
+- **多行调用**：第一行以逗号或左括号结尾，和 K&R 参数表长得一样。
+- **内核风格**：返回类型写在名字**上一行**（`void` 换行 `delay(`），单行看得见名字看不见类型。
+- **汇编标签**：`_flush_dcache64:` 与 `LEXT(flush_dcache64)`——`` 在 `_` 前不是边界，正则先就没命中。
+
+现在的做法是把声明**连接起来**读：从名字那行起按括号配平向后拼，右括号之后出现 `;` 是调用/声明，
+出现 `{` 才是定义；`static` 定义回答不了 `extern`，除非两者在同一文件里分属条件编译的两支
+（`pong_modem_pas.c` 的 `k60_modem_scm_invoke` 就是这种：`#ifdef K60_MODEM_SCM_TEST` 声明、
+`#else` 定义）。
+
+### 31.3 接进两处门禁
+
+- `check-ios27-readiness.py`：pristine 模式新增一行
+  `K60 READY ok   19 externs each have a provider: 8 patch set, 4 tree, 7 component`，
+  并把「7 个 QcomBaseband 符号」写成期望（`EXPECTED_QBASEBAND = 7`）——组件若被绕过，
+  这一行会漂移而不是静默通过。
+- `verify-27-line.sh`：五个补丁 + conffiles 之后，对**克隆里**安装的 19 个 `.c` 跑一遍，
+  失败即 `K60 TRIAL FAILED a symbol the clone installs has no provider`。这样「试跑全绿」
+  才覆盖链接面，而不是只覆盖 apply 面。
+
+漂移路径的取证：把 `--tree` 指向空目录，同一份源码报
+`K60 SYMBOLS FAILED 4 symbol(s) resolve nowhere: delay flush_dcache64 ml_io_map_unmappable pmap_find_phys`
+——正是那 4 个该由目标树回答的符号，说明三类出处是分别验证的，不是一条兜底。
+
+### 31.4 第一次在克隆上跑就抓到一条
+
+`verify-27-line.sh` 首跑报 `k60_modem_scm_invoke` 无处可去——不是链接真缺陷，而是它的定义是
+`static`（上面那条条件编译对）。判据因此多了一类 `conditional`，输出
+`K60 SYMBOLS ok   1 symbol(s) are static in their own file, live only under another configuration`。
+这条修法留在了工具里，没有留成一次性的例外清单。

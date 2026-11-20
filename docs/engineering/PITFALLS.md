@@ -5119,3 +5119,18 @@ call-site 补丁天生修改既有文件，不变量写得太强时，正确产�
 `kern_exec.c`，集成树里每个探针同样出现两次，于是「已经打好的树」被判成
 `K60 READY DRIFT call sites are not exactly once`。现在 readiness 用 importlib 加载
 `check-call-site-placement.py` 的 `inspect()`，两边共用一个分类器，判据不会在两个工具里分叉。
+
+## P-266 — 名字出现在文件里，不等于它在那里被定义
+
+`grep -rlw <symbol>` 命中一个文件，只说明这个名字出现在文件里：调用处、`extern` 声明、注释、
+同名的局部变量都算。按它写「所有 extern 都有人答」的检查，两头都会错——把一次调用当成定义而放行，
+或者把只在条件编译另一支里定义的符号判成缺失。
+
+判断定义只能按声明本身读：从名字那行起连接行直到括号配平，右括号后面是 `;` 就是调用或声明，
+是 `{` 才是定义；内核风格把返回类型写在名字上一行；`static` 定义回答不了 `extern`，除非两者
+在同一文件里分属条件编译的两支。汇编还有一层：标签写成 `_flush_dcache64:` 或 `LEXT(flush_dcache64)`，
+`` 在 `_` 前不算边界，正则先就匹配不到。
+
+`scripts/check-ios27-symbols.py` 按这套规则把 19 个 extern 分成「补丁集 / 目标树 / 组件」三类，
+接进 `check-ios27-readiness.py` 与 `scripts/verify-27-line.sh`；首跑在克隆上抓到的就是
+`k60_modem_scm_invoke` 这条条件编译对。

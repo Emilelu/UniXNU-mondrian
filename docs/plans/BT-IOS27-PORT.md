@@ -514,6 +514,17 @@ power halves are simply unobserved. None of these checks touches hardware, and
 none of them can turn `gated-off` into a working adapter: that still needs the
 Data gate (§5.7) and a flight.
 
+Two more inputs were read rather than run:
+
+* `scripts/stage-bluetooth-firmware.py` copies the 106 files the manifest
+  pins and checks each hash; it succeeds into a temporary directory with
+  `hardware_verified: false`, which is the point — the firmware is proven to
+  match the manifest, not to reach the chip.
+* the prelink report's closure holds 38 bundles and none is a Bluetooth
+  bundle, so its 28 missing and 29 stubbed entries say nothing about Apple's
+  Bluetooth kexts: those kexts sit outside the resolution set rather than
+  being confirmed healthy by it.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

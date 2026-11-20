@@ -1383,7 +1383,22 @@ kmem_alloc_contig(kernel_map, &address, bytes, mask, 0, 0,
 引 `<stdio.h>` 而不是 `pexpert/pexpert.h`），所以这条不需要 16 线的头文件树。真实树上的输出：
 `K60 TRIAL ok   every installed source parses on the host`，其后 conffiles 与 externs 两步照旧。
 
-### 35.5 修完的尺寸
+### 35.5 已打好的树也过一遍编译器
+
+`check-ios27-readiness.py` 的集成模式（树里已经有 `bsd/dev/pong_modem_link.c` 时走的那半）补了同一步：
+按 `conffiles-port.txt` 列出树里的 `.c`，逐个 `gcc -fsyntax-only -std=c11 -DK60_HOST_TEST -I<tree>/bsd/dev`，
+失败即 `K60 READY DRIFT <n> installed source(s) do not parse: <file>: <第一行诊断>`。gcc 不在 PATH 上时只说
+`note gcc is not on PATH, so the sources were not parsed`，不算漂移——工具不能因为环境缺件而报红。
+
+实测（试跑克隆 `/mnt/e/k60-work/scratch/xnu27-trial-xIMvSW/xnu`）：干净时 `K60 READY ok   every installed source parses 
+on the host` + `K60 READY OK`；往 `pong_modem_image.c` 尾部塞一行 `int x = ;` 后 `K60 READY DRIFT 1 installed 
+source(s) do not parse: pong_modem_image.c: … In function ‘broken’` + `CHANGED 2 expectation(s) drifted`
+（第二条是补丁反打失败，同一处改动本就该报两条）。
+
+顺带一个只在这轮才看清的事实：`"" "` 把字符串切成三段**本身是合法的**（相邻字面量拼接），真正致命的是
+落在引号外的那个反斜杠。所以判据只能抓编译器，抓不到「长得像笔误」的形状。
+
+### 35.6 修完的尺寸
 
 0623 177,932 → 177,924 B，0628 177,861 → 177,853 B（各 −8 B，正是两处 `"" "` 变成一处 `"`）。
 其余四个补丁与 `conffiles-port.txt` 不变；readiness 仍 `K60 READY OK`。

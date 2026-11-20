@@ -25,6 +25,14 @@
 | `k60bt_delay` | 蓝牙 | 秒，上限 `K60_PROBE_MAX_DELAY_SECS` | `K60_PROBE_DELAY_SECS` | `0507-k60-bt-readonly-probe.patch:251`；只在 `k60.stage == 1` 时生效，让探针等 CDC 控制台开始收流后再碰 SE/GCC 寄存器，否则第一次访问就崩、日志留不下来 |
 | `k60bt_step` | 蓝牙 | 1..`K60_PROBE_MAX_STEP` | `K60_PROBE_MAX_STEP` | `0507:252`；小于 1 或大于上限都被夹回范围，用来把探针停在指定步而不是跑完 |
 | `k60bt_warm` | 蓝牙 | 真值 | 关闭 | `0510-k60-bt-firmware-addon.patch:221`；声明 PM8350 S10/S11/S12、PM8350C S1、PMR735A L7 已经上电，驱动不再自己投票 |
+
+| `bluetooth` | 蓝牙 | 必须 == 1 | 未设 = 不启动 | `0525-k60-bt-official-boot-args.patch:32`；官方契约的拼写，`k60bt` 仍然有效且**优先**（K60 拼写赢），两者都看 `MiniBluetooth.cpp:126` 与驱动入口 |
+| `log-bluetooth` | 蓝牙 | 0..6，超出夹回 6 | 继承 `k60_log_level` | `0525:41`；只改蓝牙那条日志的级别，启动时打一行 `boot: log-bluetooth=<n>`，方便把驱动自己的每一级证据打出来 |
+| `pong_bt_late` | 蓝牙 | 真值 | 关闭 | `0512-k60-bt-late-start.patch:111`；把真正的梯子（power_on + 固件下载）推迟到 K60DATA 挂载之后，失败时 console 与 `/private/var` 都还在，日志停在最后一行而不是整张镜像变哑 |
+| `pong_bt_smmu` | 蓝牙 | 必须 == 0 才关 | 开启 bypass | `0512:113`；只关掉 stream bypass 写，用来把这一次写与后面的固件 DMA 分开判 |
+| `pong_bt_rcg` | 蓝牙 | 必须 == 0 才关 | 开启投票 | `0512:115`；只关 root clock generator 投票，与上一条互不牵连 |
+| `pong_bt_noboot` | 蓝牙 | 真值 | 关闭（会 boot） | `0512:117`；跳过 `qbt_boot`，把失败点切到下载之前，用来判断「映射与线程是否已经成立」 |
+| `k60bt-runtime` | 蓝牙 | 必须 == 1 | 关闭 | `0526-k60-bt-runtime-mount.patch:24`；把 `bluetooth-lib`/`bluetooth-bin` 挂到 `/usr/lib` 与 `/usr/sbin`，而这一步依赖 ADT 里有 `bluetooth` 节点（27 的 `[os_overrides]` 目前不带它） |
 | `pong_adreno_start` | GPU 平台 | 必须 == 1 | 未设 = 不启动 | 缺它则整个 GPU 栈不运行，但日志里没有报错（P-145） |
 | `pong_metal` | GPU / Metal | 必须 == 1 | 未设 = 不发布 | 设成 2 稳定但不发布，用 2 的日志判断 Metal 等于没测（P-144） |
 | `pong_gpu_scanout` | GPU / 显示 | 必须 == 1 | 未设 = 软件路径 | 官方 next_action 要求先确认 accelerator 已发布再开它 |

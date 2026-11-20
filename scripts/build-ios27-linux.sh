@@ -43,7 +43,21 @@ sh "$ROOT/scripts/apply-core-patches.sh" "$UNIXNU"
 cd "$UNIXNU"
 python3 ./unixnu fetch --device "$ROOT"
 python3 ./unixnu defconfig mondrian_ios27_defconfig --device "$ROOT"
-python3 ./unixnu build kernel --device "$ROOT" "$@"
+# Seam 1 (P-266): K60 carries the conf/files entries for in-tree drivers in a
+# hook rather than in a patch, because a hunk cannot survive the tree being
+# re-seeded. The builder calls it after .cache/xnu-work exists; all this has to
+# do is name it. Left unset when it is not on disk -- a hook that aborted on an
+# owner whose sources are not in this tree would make stage 0 unbuildable.
+if [ -f "$ROOT/scripts/k60-conf-files-hook.py" ]; then
+	K60_CONF_FILES_HOOK="$ROOT/scripts/k60-conf-files-hook.py"
+	export K60_CONF_FILES_HOOK
+fi
+
+# Seam 2 (P-260): the audio driver wants -DXNU_PONG_AUDIO for its own object
+# only. EXTRA_MAKE_ARGS is reset inside the builder, so the define has to arrive
+# as a real make variable, and a dotted name cannot be exported by this shell.
+env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
+	python3 ./unixnu build kernel --device "$ROOT" "$@"
 python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
 
 if [ -n "${UNIXNU_UEFI:-}" ]; then

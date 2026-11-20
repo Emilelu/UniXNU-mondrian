@@ -54,3 +54,48 @@ armcpu-sleep-hook.patch
 0525-k60-bt-official-boot-args.patch
 0526-k60-bt-runtime-mount.patch
 0527-k60-bt-launchd-cache.patch
+0530-k60-spi-availability.patch
+# 0531-k60-audio-amp-probe-call.patch is deliberately NOT listed: the kernel link
+# cannot resolve its call site. The call is `extern int pong_audio_amp_probe(void)
+# __attribute__((weak));` guarded by `!= NULL`, and clang does emit N_WEAK_REF
+# (verified in bsd_init.o's symbol table) -- but this ld64-port rejects an undefined
+# weak function reference in the static/dynamic images the kernel is linked as, and
+# accepts it only in the -kext form the kernel does not use. The result was
+# `Undefined symbols for architecture arm64e: "_pong_audio_amp_probe", referenced
+# from: _bsd_init in bsd_init.o; l_pong_audio_amp_probe$auth_ptr$ia$42271 in
+# bsd_init.o` (snapshot-build.log:1173089, round 15). Stage 0 has no audio: the file
+# stays here so the audio lane can list it again once the object that defines the
+# probe is really in the link. The test is not "the conf/files hook is fixed" --
+# 406198f5 fixed the hook's placement, yet scripts/k60-conf-files-hook.py is still
+# absent, so PongAudioAmp.o is still never compiled and the symbol still has no
+# definition. List this patch again only when
+# `grep -c 'PongAudioAmp.o' <tree>/build/xnu/snapshot-obj/RELEASE_ARM64_BCM2837/link.filelist`
+# is at least 1. A definition that returns 0 would not do either: `AUDIO27 OK` has
+# to tell "not wired" from "wired to an empty shell".
+0532-k60-cpu-start-completion.patch
+# arm64_isa_compatibility.h emits the q-register spellings (sha256su0 q0, q1)
+# unless __apple_build_version__ > 5010000, i.e. unless Apple's assembler is
+# the one reading the file. This tree is built by upstream clang, whose
+# integrated assembler rejects those operands: the fileset reference build
+# stops with "invalid operand for instruction" on sha256su0/sha256h and never
+# writes link.filelist. The v-register form is accepted by both assemblers, so
+# every clang gets V and only non-clang toolchains keep q. Same change as the
+# iOS 16 series carries in zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-v-crypto-syntax.patch;
+# 12377 has no equivalent, so it is re-issued here as a numbered entry.
+0533-k60-v-crypto-syntax.patch
+
+# The iOS 27 machine configuration is BCM2837 and does not define PONG, so
+# drivers/ArmCpu/ArmCpu.cpp's four extern "C" PSCI entry points had no
+# definition at all in 12377: the fileset reference link stopped with
+# Undefined symbols _psci_smp_init, _psci_smp_start_cpu, _psci_smp_cpu_running
+# and _psci_smp_cpu_off (snapshot-build.log:1171748). This is the real
+# implementation from the 16 series reshaped for 12377, not a stub: a stub that
+# always returned failure would weld "this tree cannot do SMP" into the kernel
+# and its "PSCI start FAIL" line would later be read as a hardware fault.
+# Single-core is a property of the device tree (dts/mondrian.dts has no cpu@
+# node, so ml_get_cpu_count() is 1), not something this code pretends.
+0540-k60-psci-smp.patch
+# The firmware leaves the EL1 physical timer in a state this kernel must not
+# write; the 16 line hit the same thing. Nothing here arms CNTP -- interrupts
+# come from CNTV -- so skipping the precaution costs nothing.
+0541-k60-virtual-timer-guard.patch

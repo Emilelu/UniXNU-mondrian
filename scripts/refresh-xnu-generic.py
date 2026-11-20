@@ -15,6 +15,30 @@ REPO = Path(__file__).resolve().parents[1]
 TARGET = REPO / "scripts" / "build-xnu-generic.sh"
 
 
+EARLY_HOOK = """
+# K60: conf/files entries for in-tree drivers cannot be anchored in a patch (P-171);
+# the build driver supplies a hook that runs after every patch is applied.
+if [ -n "${K60_CONF_FILES_HOOK:-}" ] && [ -f "${K60_CONF_FILES_HOOK}" ]; then
+  python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || echo "K60: conf/files hook failed"
+fi
+"""
+
+LATE_HOOK_ANCHOR = 'EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_BOOT_PROGRESS=$BOOT_PROGRESS"\n'
+
+LATE_HOOK_BLOCK = """
+# K60: conf/files entries for in-tree drivers cannot be anchored in a patch
+# (P-171), and this call has to run here rather than at the top of the file: at
+# the top .cache/xnu-work does not exist yet, so every appender reports "tree not
+# seeded" and the failure reads as a log line instead of a missing driver.
+if [ -n "${K60_CONF_FILES_HOOK:-}" ] && [ -f "${K60_CONF_FILES_HOOK}" ]; then
+  python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || {
+    echo "build-xnu: conf-files hook failed" >&2
+    exit 1
+  }
+fi
+"""
+
+
 def main(argv: list[str]) -> int:
     framework = Path(argv[1]) if len(argv) > 1 else REPO.parent / "UniXNU"
     source = framework / "scripts" / "build-xnu-4k-baseline.sh"
@@ -33,7 +57,17 @@ def main(argv: list[str]) -> int:
 # Pong one. scripts/pick-xnu-builder.sh chooses; scripts/tests/test-build-xnu-
 # dispatch.py drives it. Refresh with scripts/refresh-xnu-generic.py.
 """
-    TARGET.write_text(header + body.split("\n", 1)[1], encoding="utf-8")
+    merged = header + body.split("\n", 1)[1]
+    # The framework calls K60_CONF_FILES_HOOK at the top of the file, before
+    # .cache/xnu-work is cloned, so every appender reports "tree not seeded" and
+    # the driver sources are never listed (P-266). Put the call where the tree
+    # exists -- the same place build-xnu-4k-baseline.sh does it.
+    if EARLY_HOOK in merged:
+        merged = merged.replace(EARLY_HOOK, "\n", 1)
+    if merged.count(LATE_HOOK_ANCHOR) != 1:
+        raise SystemExit(f"refresh-xnu-generic: no single EXTRA_CFLAGS anchor in {source}")
+    merged = merged.replace(LATE_HOOK_ANCHOR, LATE_HOOK_BLOCK + LATE_HOOK_ANCHOR, 1)
+    TARGET.write_text(merged, encoding="utf-8")
     print(f"refreshed {TARGET.relative_to(REPO)} from framework {commit}")
     return 0
 

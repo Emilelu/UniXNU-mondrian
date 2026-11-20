@@ -188,6 +188,26 @@ that needs a clean tree gets its own worktree or a narrowed gate scope
 Lead ran `git checkout -- <8 files>` in the shared checkout to turn a gate
 green and destroyed the touch agent's work, seven files of it unrecoverable.
 
+### Iron rule 12 — an agent message tries `steer` first
+
+Every message to another agent is sent with `steer`; `followup` is the fallback
+for the one case where `steer` cannot work, which is a session that is not
+running (`steer` and `inject` only reach a live turn, `followup` queues a new
+one). Send `steer`, and only if it is rejected because the target is idle, send
+the same content as `followup`. Never open with `followup`, and never send both
+when the `steer` succeeded — a queued duplicate lands after the agent has already
+acted on the first copy and reads as a second, contradictory instruction.
+
+Why: on 2026-11-20 four lanes were working from instructions the Lead had
+already replaced. The replacements went out as `followup`, sat in the queue
+behind each agent's current round, and arrived after the work they were meant to
+redirect. `steer` interrupts at the nearest step boundary, which is the only
+delivery mode that can stop an agent from spending an hour on an abandoned plan.
+Check with `python3 scripts/check-agent-messaging.py` (registered as `iron-12`);
+it reads this heading, the `RULES.toml` entry, and the message log — and says so
+when the log records no delivery mode, because an absent record is not evidence
+that `steer` was tried (P-251).
+
 ## Gotchas & landmines
 
 - **This file is parsed.** `check-rules.py` collects iron rules from headings

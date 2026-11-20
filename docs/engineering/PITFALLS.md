@@ -7128,3 +7128,126 @@ wifi 线在 `feat/wifi-ios27-tree` 上跑 `unixnu build kernel` 时被它挡住�
 3. **语义相近的常量恰好是小整数时，只能断言它的名字/标志位。** `re.MULTILINE == 8` 让
    「传标志」看起来像「从第 8 个字符开始扫」，一行代码同时是两种含义。测试查
    `flags & re.MULTILINE`，不查「扫出来对不对」——后者在样例字符串上仍然可能通过。
+
+## P-256 `check-rules.py` 读的 `grandfather_through` 从来没有被写过，于是「起点之后」退化成「全部」
+
+**症状**
+干净 main 上跑 `scripts/check-rules.py`，报 60 条
+`P-nnn 没有登记检查也没有 waiver（PITFALLS.md 里的新坑必须有门禁）`，
+最老的是 P-100。合规注册表因此拒绝每一次构建（`unixnu: build refused: the
+compliance registry failed`），而这条覆盖检查本身看起来"在工作"。
+
+**真因**
+`scripts/check-rules.py:131` 是 `grand = int(registry.get("grandfather_through", 0))`，
+而 `docs/engineering/RULES.toml` 的顶层**只有** `expected_kern_exec_delta` 与 `rule`
+两个键。`git log -S grandfather_through -- scripts/check-rules.py
+docs/engineering/RULES.toml` 只找到引入与改写**读**的那个提交，没有一次写**键**的提交。
+`get(..., 0)` 把"没配置"变成了"起点是 0"，于是判据从「P-151 之后必须有门禁」
+悄悄变成「所有坑都必须有门禁」——49 条早就存在的老条目（P-100..P-149）与九条
+当年没配门禁的（P-172..P-181）一起变红。
+
+**修法**
+1. 写出这个键，并且**用测量而不是猜**：`ad527fd0e`（2026-11-12 17:41，引入这段覆盖
+   的提交）里的 `PITFALLS.md` 最大编号是 **P-155**，所以 155 正是"门禁能覆盖时就已经
+   存在"的那一批。`RULES.toml` 现在写 `grandfather_through = 155`，注释里带复算命令。
+2. 高于 155 且确实没有可执行门禁的九条（P-172..P-179、P-181）各补一条写清理由的
+   `waiver`；能落到真门禁的三条补 `check`：P-182 → `check-blob-patches.py`（换了 blob
+   就是换了代码，只能靠上机）、P-183 → `test-snapshot-tag-gate.py`、P-184 →
+   `check-tree-owner.py --self-test`。
+3. `scripts/tests/test-rules-grandfather.py` 把这个数与该提交重新比对（手改无效），
+   并断言"删掉这个键"会重新变红——否则下一个人把键删了，门禁又静默退化。
+
+**教训**
+1. `dict.get(key, 0)` 是这条坑的形状：**默认值不是"没有默认"，是"一个具体的判据"**。
+   `0` 在这里意味着"从第一个坑开始"，而不是"不检查"。
+2. 门禁里每一个配置键都要有一个"键缺失时行为"的用例；`get(key)` 与 `get(key, 0)`
+   在测试里必须能区分（与 P-251「登记了检查 ≠ 检查在跑」同族）。
+3. 门禁报出的条目数量级本身就是线索：一次报 60 条老条目，正常答案不是"补 60 条
+   门禁"，而是"起点读错了"。
+4. 起点这类"历史边界"必须能从仓库里复算（提交 + 命令），不能写成别人无法验证的
+   约定；本坑的 151 就曾是这种约定，实际测出来是 155。
+
+## P-260 — 一个被构建脚本重置的变量，让文档里的开关永远无效
+
+**症状**：文档让 27 构建这样打开音频胶水：`EXTRA_MAKE_ARGS="PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO" sh scripts/build-xnu-generic.sh`。构建全绿、日志没有任何异常，可内核里一个音频符号都没有——宏从未到达编译命令。
+
+**触发条件**：任何把「给构建传参」写成环境变量、而构建脚本内部又对该变量做过初始化（数组重置、`VAR=`、`unset`）的写法；尤其是变量名看起来像脚本对外接口的时候。
+
+**为什么当初走错**：`scripts/build-xnu-generic.sh:166` 是 `EXTRA_MAKE_ARGS=()`，它在脚本内部把数组清空，外部传入的同名环境变量被静默丢弃；`make` 也不会报错——没有赋值就是空值，于是 `PongAudioAmp.o_CFLAGS_ADD` 为空、`#if defined(XNU_PONG_AUDIO)` 整段编译成空。门禁全绿是因为它们量的是源码与桩，没有任何一行量「宏有没有进编译命令」。
+
+**正确做法**：
+
+1. 投递用**点号名的每目标文件变量**，并显式用 bash 启动：`PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 bash scripts/build-xnu-generic.sh`。点号名不是合法 shell 标识符，`dash` 会把它丢掉；该脚本本身用 bash 数组，`sh` 根本跑不了。`make` 会把环境变量导入，生成的 `bsd/conf/Makefile` 对每个对象只写 `+=`（`SETUP/config/mkmakefile.c:803/808/856-883`），消费点是 `makedefs/MakeInc.rule:521` 的 `$($@_CFLAGS_ADD)`；先例 `makedefs/MakeInc.kernel:312`。
+2. 门禁要有**正向证据**：从编出来的对象里数符号（`nm -g --defined-only` 里看到 `pong_audio_amp_probe`），而不是只看日志有没有那一行；宏关掉时必须数到 0，否则 `#if` 写坏了也看不出来。
+3. 文档里的调用方式必须被测试**真跑一次**，否则它只是传说：`scripts/tests/test-audio27-define.py` 用 builder 形状的 harness 验三件事（环境传 `EXTRA_MAKE_ARGS` 无效、点号名 + bash 有效且被 conf 追加、`dash` 丢点号名且跑不了数组），并读文档页确认页上写的正是有效写法。
+
+**证据**：`scripts/build-xnu-generic.sh:166`；`makedefs/MakeInc.rule:521`；`makedefs/MakeInc.kernel:312`；harness 三行实测 `make sees: [-DFROM_CONF]` / `[-DXNU_PONG_AUDIO=1 -DFROM_CONF]` / 同第二行（两者同时给不叠加）；`docs/research/audio/IOS27-WIRING.md` §3；27 预检行 `define delivery is honest`（`TESTS OK 6 cases`）。
+
+**下次 30 秒判定**：看到「文档说设置某个环境变量就能打开开关」，先在那条命令**真正执行的位置** grep 变量名有没有被重置或覆盖，再看编译命令里有没有那个 `-D`（或对象里有没有那个符号）。只有文档、没有编译命令证据的开关，等于没打开——与 P-251「登记了检查 ≠ 检查在跑」同族。
+
+## P-261 — 判据假设了设备布局，而布局来自另一处事实
+
+k51/k53 的存储读入口只问 LUN 0 的 GPT："unixnu" 与 "userdata" 都在那里，
+写代码时以为 modem 的四个 EFS 分区也在同一条盘上。实际设备上 modemst1/modemst2/fsg/fsc
+是 sdf3–sdf6（另一条 LUN，8 MiB/8 MiB/8 MiB/1 MiB），sda38 才是 unixnu。于是在这块板上，
+查找必然落空、rmtfs 读必然 refused，而日志里看不出原因——它说的 "refused" 与
+"分区真的坏了" 是同一句话。
+
+判据（以及驱动）可以假设的只有它自己验证过的事实。设备布局要么来自在同一台机器上读到的
+分区表，要么来自仓库里记录过的实测；两者都没有时，代码必须去问，而不是默认 0 号盘。
+
+修法两层：`native_pong_ufs_read_named_volume` 对 8 条 LUN 逐个查 GPT，恰好一条声称有该名字才读，
+两条都声称有就拒绝（`nativeVolumeUniqueLun`）；另外每次成功读出一行
+`K60UFS volume name=… lun=… first=… last=…`，让判据能区分 "读对了盘" 与 "从错误的表里读"。
+`scripts/judge-cellular-flight.py` 的 "volume lun chosen" 项：出现过 rmtfs 读却没有这行 → FAIL。
+
+一般化的教训：**凡是 "在哪块盘/哪个地址/哪个节点" 这类事实，要么当场读出来，要么写进仓库；
+不要让代码里的默认值冒充设备事实。** 默认值不会报错，只会安静地读错地方。
+
+## P-262 — 缺一行到底是「失败」还是「还没到」，先问窗口，别先问阶段
+
+scripts/judge-cellular-flight.py 起初把「启动六行或桥接两行缺失」直接判成 FAILED，理由是
+「序列没走到这一步」。这在满窗日志上等价于失败，在短窗上却是误判：60 秒的抓包与 60 秒的挂死
+在日志里长得一模一样，桥接那两行本来就还没打印。Lead 2026-11-20 05:13 的原话是三档退出码，
+「console 只到 60 s 必须是 INVALID 而不是 k53 失败」。
+
+改法：只有正面证据（K60MODEM <step> failed 行或 panic）能越过窗口直接判 FAILED；其余缺行
+一律先看最长 wait N s 是否达到 240 秒，够了才判 FAILED，不够就是 INVALID。
+
+一般化的教训：判据里「缺行」是二义的——它既可能是「没发生」，也可能是「还没轮到这里」。
+只有带时间戳的观察窗口能把两者分开；没有窗口就下结论，等于把没观测当成没实现。
+
+回归：scripts/tests/fixtures/ 下四份真实形状的控制台（pass / refused / nolun / short），
+scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
+
+## P-265 — 门禁挂在「树还不存在」的那一刻，于是它每次都失败、每次都被人当噪音过滤掉
+
+`scripts/build-xnu-generic.sh` 在第 10 行调用 `K60_CONF_FILES_HOOK`，而 `.cache/xnu-work`
+要到第 38 行才 `git clone --shared` 出来。于是每一次构建，钩子都在一棵没有 `bsd/conf/files`
+的树上跑，每个 appender 都答「tree not seeded」，而调用点是
+
+    python3 "${K60_CONF_FILES_HOOK}" "$ROOT" || echo "K60: conf/files hook failed"
+
+`|| echo` 把非 0 变成一行日志。结果是一条自洽的因果链：音频驱动的两个源文件从未进过
+`bsd/conf/files` → `PongAudioAmp.o` 从未编译 → `pong_audio_amp_probe` 永远是弱引用未定义 →
+链接期在 `snapshot-build.log:1171748` 报六个未定义符号里就有 `_pong_audio_amp_probe`。
+构建自己报成功，产物检查器却报 AUDIO27 FAILED，两个判决说的是同一次构建。
+
+为什么一直没被发现：这条日志每次构建都有，内容每次一样，位置在几百行输出的开头。**一条
+永远失败的钩子与一条不存在的钩子，在读者眼里没有区别**——真正把它区分的，是「谁依赖它成功」
+这一问，而没人问过。
+
+修法三件：
+1. 调用点移到第 832 行、最终 make 之前，也就是 16.6.1 那条线放它的位置
+   （`build-xnu-4k-baseline.sh:1429`），那里 `.cache/xnu-work` 与全部补丁都已就位；
+2. `|| echo` 改成 `|| { echo ...; exit 1; }`——钩子失败必须终止构建；
+3. `scripts/refresh-xnu-generic.py` 在重写这个文件时把新位置重新插回去，并断言锚点唯一。
+   不做第 3 件，前两件会被下一次刷新静默抹掉，这正是它当初变成这样的方式。
+
+`scripts/tests/test-conf-files-hook-placement.py` 十条断言钉住三件事：调用点在 clone 之后、
+在最终 make 之前、失败必终止、刷新脚本会重建这个块。拿改动前的文件跑，前两条当场红。
+
+一般化的教训（与 P-190「认不出名字就静默跳过」、P-251「读的键从没存在过」同族，第三种形状）：
+**门禁的调用时机本身是一个必须验证的断言。** 挂在树生成之前的钩子、挂在产物生成之后的检查、
+挂在配置读取之前的默认值——它们不报错，只永远沉默。判断一个门禁是否可能在空转，问一句就够：
+它依赖的那件东西，在这一行代码执行时存在吗？

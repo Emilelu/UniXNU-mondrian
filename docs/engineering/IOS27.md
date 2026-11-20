@@ -164,6 +164,22 @@ cd ~/ios27-src/uefi-mondrian && git submodule update --init --depth 1
 UNIXNU_UEFI=$HOME/ios27-src/uefi-mondrian sh scripts/build-ios27-linux.sh
 ```
 
+Two packages are outside `setup-toolchain.py` and outside the checkout, and
+nothing fails until the firmware step starts, so they are worth installing before
+the first run: `nasm` assembles the PEI modules and `iasl` compiles the Silicium
+ACPI tables. On Ubuntu 24.04 the ACPI compiler is packaged as `acpica-tools`
+(`acpi-tools` is the name some other distributions use, so ask `apt-cache policy`
+rather than trusting the older spelling):
+
+```sh
+sudo apt-get install -y nasm acpica-tools
+nasm --version   # NASM version 2.16.01
+iasl -v          # ASL+ Optimizing Compiler/Disassembler version 20230628
+```
+
+Measured on 2026-11-20; both were `Installed: (none)` on the F1 host until then,
+which is why the payload succeeded and the firmware volume could not be built.
+
 The firmware is a normal EDK II `CLANGPDB` build of `Mu_Basecore` `6f805f2` plus
 the five `Resources/MuPatches/` fixes `board.toml` lists; it is not
 reproducible by design (`FIRMWARE-REBUILD.md` §2), so a rebuilt volume is judged
@@ -311,6 +327,61 @@ all inside the framework's own `package/UniXNUPkg` tree. Its content is also ups
 change is in the framework, and the K60 initrd/ramoops/config deltas live in
 `uefi-mondrian`'s vendored `Platforms/Xiaomi/UniXNUPkg`, which resolves ahead of
 the framework's copy.
+
+## What the sheng port already answers
+
+`E:/hackios/UniXNU-sheng` maintains the same OS profile
+(`"os_profile" = "ipados-27.0.1-24A446"`, `board.toml:9`) on an SM8550 board, so
+its `patches/xnu-12377/series` is a second opinion on the same kernel. It has 17
+entries against our 30. Reading the difference answers a question our series
+cannot answer from the inside: which of our patches exist because xnu-12377
+lacks something, and which exist because we replace a catalog component.
+
+**Fork-induced.** `drivers/ArmCpu/ArmCpu.cpp` in this repository is a 779-line
+fork of the Darwin 22 CPU provider; the catalog component
+(`components.toml` `id = "ArmCpu"`, `revision = 93a5030c`, 823 lines) starts the
+secondary CPUs itself through `psciCall (hvc, 0xc4000003ULL, affinity &
+0xff00ffffffULL, entry, 0)` at `drivers/ArmCpu/ArmCpu.cpp:773` and declares
+none of `psci_smp_init`, `psci_smp_start_cpu`, `psci_smp_cpu_running`,
+`psci_smp_cpu_off`, `pong_cpu_startup_finished`. Sheng has no `drivers/ArmCpu`
+at all and lists `component:ArmCpu` in its archives, which is why its kernel
+never needed any of the five symbols. Our four patches in that family —
+`armcpu-sleep-hook.patch` (a kernel-side definition because ld64-port rejects an
+undefined weak *data* symbol from a force-loaded archive), `0532`, `0540` (a real
+241-line `psci_smp.c`) and `0541` — are the price of the fork, not a gap in
+12377. Replacing the fork with the catalog component removes them; until then
+they are what makes the link complete.
+
+**Toolchain-induced.** `ptrauth-string-discriminator.patch` and
+`0533-k60-v-crypto-syntax.patch` exist only because we build on Linux with
+upstream clang: the four-argument `__ptrauth(...)` spelling and the q-register
+crypto mnemonics are Apple-clang extensions. Sheng builds on macOS
+(`.github/workflows/package.yml`: `runs-on: macos-26`, then `xcodebuild`) and
+carries neither.
+
+**Board-induced.** `0541-k60-virtual-timer-guard.patch` skips the
+`CNTP_CTL_EL0` write because this firmware leaves the EL1 physical timer in a
+state the kernel must not touch. Sheng's patches never mention `CNTP_CTL`. The
+iOS 16 line already had the same guard (`patches/xnu/zzzz-pong-virtual-timer.patch`),
+so this is the board, not Darwin 26.
+
+**Genuinely missing from 12377, and we do not have it.**
+`zzzz-sheng-ipados27-bringup.patch` (35 files) carries the `T0SZ_USER != T0SZ_BOOT`
+work: `osfmk/arm64/proc_reg.h` gains
+`#if defined(BCM2837) && !defined(__ARM_16K_PG__) && defined(__arm64e__) #define T0SZ_USER 17ULL`
+so user pmaps get four-level tables and a 47-bit TTBR0 range, with the pmap
+geometry, `TCR_EL1` rewrite and `start.s` changes that follow from it. Its
+comment states the reason: arm64e user code expects pointer-authentication codes
+above bit 46, and libobjc strips `isa` with a 43-bit mask. Nothing in
+`patches/xnu-12377/` or `patches/xnu/` mentions `T0SZ_USER` or `TTBR0`. Stage 0
+stops at `bsd_init` and never enters EL0, so this does not block F1, but any
+phase that runs userland will meet it — and sheng has already written the
+answer.
+
+The remaining 22 entries on both sides are per-driver work (BT, wifi, storage,
+appsync, tracing) whose overlap is only `bsd/kern/kern_exec.c` and
+`bsd/kern/bsd_init.c` as anchor files; they are not competing solutions to the
+same problem.
 
 ## Traps
 

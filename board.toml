@@ -371,7 +371,16 @@ patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:p
 # LLVM bitcode and the pinned LLVM 24 has no llvm-link, so the LTO variant stays
 # a macOS/Xcode 26 artifact. patches/unixnu-core/fileset-reference-linux.patch
 # stubs its two LLVM profile-runtime calls.
-archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-fileset-release-reference.py --tree ."]
+# The framework catalog declares ArmDTPlatform and ArmCpu without a build
+# recipe (build = None), so on this line -- which uses the generic builder --
+# their component: entries produce nothing, and
+# build-fileset-release-reference.py then dies on
+# tree/build/armdt-platform/libArmDTPlatform.a. The 16.6.1 line never saw that
+# because its own builder ran the two vendor recipes itself.
+# build-k60-platform-archives.py drives those same recipes against the tree
+# this build just resolved, so the archives appear where the fileset step
+# looks for them.
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-fileset-release-reference.py --tree ."]
 # Boot-record label. The object tree is BCM2837, the 4 KiB machine config this
 # profile builds; PONG belongs to the 16.6.1 line and would point the next
 # reader at a target this profile never produces.

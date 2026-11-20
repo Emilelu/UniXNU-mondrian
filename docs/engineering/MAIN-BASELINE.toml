@@ -295,3 +295,261 @@ note = """main 的默认 OS profile 从 iOS 16.6.1 换成 iOS 27.0.1（用户决
 两态）」。欠账：这一版还没有构建过，下一次 strict 构建（默认 profile 即 27）是它的
 首次产物检验；27 的首次上机判据见 docs/engineering/IOS27.md 的 F2 阶段门。
 """
+
+
+[[entry]]
+sha = "3cc8cbc9"
+state = "build-only"
+date = "2026-11-20"
+note = """一个仓库同时承载两条线的内核构建器（scripts/build-xnu-4k-baseline.sh 按
+board.toml 的 [board] os_profile dispatch 到 scripts/build-xnu-generic.sh）。
+为什么必须动构建路径：装配树把框架、SoC、本仓依次覆盖，本仓同名文件会顶掉框架的
+通用构建器；只留 Pong 构建器则 27 树在 `make installhdrs` 报
+`Unsupported CURRENT_MACHINE_CONFIG PONG`（12377 的 pexpert/pexpert/arm64 无 PONG.h，
+CI run 44591014076 的真错行），只留通用构建器则 16.6.1 线丢掉 MACHINE_CONFIGS=PONG、
+Sleep/wifi/thermal 三个钩子与全部 K60 归档。
+为什么是 build-only：①27 stage-0 按设计停在 bsd_init，这一版是它的首次产物检验而不是
+可启动成果；②16.6.1 线没有被重新构建，dispatch 只在该 profile 下让原构建器继续跑，
+它的内核输入逐字节未变，仍然引用 b48613d（baseline-20261116a）的上机证据；③通用构建器
+是框架 4eaf2b9d 的逐字副本，不带任何 K60 符号，因此它进镜像的部分就是框架原物。
+同一链上的另外两个提交不登记：e162e0dd 只改 bt 的宿主测试与夹具、72e5edec 只改门禁
+正则，两者都不进镜像。
+"""
+
+
+[[entry]]
+sha = "6aee6606"
+state = "build-only"
+date = "2026-11-20"
+note = """删掉 patches/unixnu-core/ios27-spi-availability.patch。它把
+-D__SPI_AVAILABLE(...)= 插进 prepare-xnu.py 的编译器参数列表，而
+patches/unixnu-core/linux-arm64e-target.patch 改写的正是同一段文本，
+两条补丁谁先应用都让另一条 does not apply。留着就是一条永远打不上、
+却仍在 apply-core-patches.sh 的 glob 里的补丁（P-155 那一族）。
+替代做法在 scripts/fix-fakeroot-availability.py：fakeroot 是构建产物，
+在产生它的地方补 __SPI_AVAILABLE/__SPI_DEPRECATED 的空定义，不与任何
+框架补丁抢文本。删除本身不改镜像内容（该补丁从未成功应用过），
+登记是为满足「改了会进镜像的路径必须落账」。
+"""
+
+
+[[entry]]
+sha = "ca58e28a"
+state = "build-only"
+date = "2026-11-20"
+note = """27 构建在 defconfig 之后、build kernel 之前修 fakeroot 的
+Availability.h（scripts/fix-fakeroot-availability.py，--check 退出码 0/1/2）。
+为什么必须有：libsyscall/wrappers/gethostuuid.h:41 调 __SPI_AVAILABLE，未定义
+时展开成「声明符后面跟括号」，是语法错而不是「没有属性」，prepare-xnu.py 的
+libs 阶段直接死。为什么修产物而不是打补丁：同一段参数列表已被
+linux-arm64e-target.patch 改写，两条补丁不能共存（见 6aee6606）。
+本次尚未构建成功过：上一轮被合规注册表挡住，这一轮是首次用它跑 F1。
+"""
+
+
+[[entry]]
+sha = "723caf19"
+state = "build-only"
+date = "2026-11-20"
+note = """把 __SPI_AVAILABLE 的定义放进 27 树自己（patches/xnu-12377/0530 → 
+EXTERNAL_HEADERS/Availability.h），而不是补 fakeroot。原因是实测量出来的：
+prepare-xnu.py 每次运行都从 EXTERNAL_HEADERS 重新拷贝 Availability*.h 到
+fakeroot，所以 ca58e28a 那种「修产物」的写法在 libs 之前就被覆盖——同一处
+gethostuuid.h:41 继续报语法错。同一次提交删掉了那个 helper 与它的调用，
+避免同时存在两个只有其中一个生效的机制（P-251 形状）。
+验证：xnu ac9718f 的 scratch 副本上 git apply --check OK；
+InstrProfiling.c 以 arm64e-apple-ios27.0 -mkernel -fsyntax-only 通过。
+尚未出图：这一版是首次带它跑 F1。
+"""
+
+
+[[entry]]
+sha = "bb3c609e"
+state = "build-only"
+date = "2026-11-20"
+note = """27 profile 的内核档案里加了一条 build-k60-platform-archives.py，并用它
+编出 libArmDTPlatform.a 与 libArmCpu.a。原因是实测出来的：框架 components.toml
+里 ArmDTPlatform / ArmCpu 的 build = None，所以 [kernel].archives 里那两个
+component: 条目在通用构建器下是空操作，而 build-fileset-release-reference.py
+随后要读 tree/build/armdt-platform/libArmDTPlatform.a —— 16.6.1 线之所以没这个
+坑，是它自己的构建脚本先跑了两条 vendor 配方。
+同一次提交把那个脚本参数化（--tree/--driver/--fakeroot/--triple/--darwin/
+--version 全部可传，默认从 UNIXNU_SDKROOT/DARWIN_TRIPLE 继承内核构建的 env），
+并处理两处实测的不匹配：vendor 配方读 <它拿到的树>/.cache/fakeroot，而 unixnu
+把 fakeroot 放在上一级，用符号链接桥接而不是复制 36 MB；配方把产物写进它拿到
+的那棵树的 build/，wrapper 把它挪到 unixnu 的 <tree>/build/ 下。
+尚未出图：这一版第一次让 27 的 archive 阶段有希望走完。
+"""
+
+
+[[entry]]
+sha = "ae8daa67"
+state = "build-only"
+date = "2026-11-20"
+note = """27 profile 的内核档案里加了一条 build-k60-platform-archives.py，并用它
+编出 libArmDTPlatform.a 与 libArmCpu.a。原因是实测出来的：框架 components.toml
+里 ArmDTPlatform / ArmCpu 的 build = None，所以 [kernel].archives 里那两个
+component: 条目在通用构建器下是空操作，而 build-fileset-release-reference.py
+随后要读 tree/build/armdt-platform/libArmDTPlatform.a —— 16.6.1 线之所以没这个
+坑，是它自己的构建脚本先跑了两条 vendor 配方。
+同一次提交把那个脚本参数化（--tree/--driver/--fakeroot/--triple/--darwin/
+--version 全部可传，默认从 UNIXNU_SDKROOT/DARWIN_TRIPLE 继承内核构建的 env），
+并处理两处实测的不匹配：vendor 配方读 <它拿到的树>/.cache/fakeroot，而 unixnu
+把 fakeroot 放在上一级，用符号链接桥接而不是复制 36 MB；配方把产物写进它拿到
+的那棵树的 build/，wrapper 把它挪到 unixnu 的 <tree>/build/ 下。
+尚未出图：这一版第一次让 27 的 archive 阶段有希望走完。
+"""
+
+
+[[entry]]
+sha = "89e05fc7"
+state = "build-only"
+date = "2026-11-20"
+note = """27 profile 的内核档案里加了一条 build-k60-platform-archives.py，并用它
+编出 libArmDTPlatform.a 与 libArmCpu.a。原因是实测出来的：框架 components.toml
+里 ArmDTPlatform / ArmCpu 的 build = None，所以 [kernel].archives 里那两个
+component: 条目在通用构建器下是空操作，而 build-fileset-release-reference.py
+随后要读 tree/build/armdt-platform/libArmDTPlatform.a —— 16.6.1 线之所以没这个
+坑，是它自己的构建脚本先跑了两条 vendor 配方。
+同一次提交把那个脚本参数化（--tree/--driver/--fakeroot/--triple/--darwin/
+--version 全部可传，默认从 UNIXNU_SDKROOT/DARWIN_TRIPLE 继承内核构建的 env），
+并处理两处实测的不匹配：vendor 配方读 <它拿到的树>/.cache/fakeroot，而 unixnu
+把 fakeroot 放在上一级，用符号链接桥接而不是复制 36 MB；配方把产物写进它拿到
+的那棵树的 build/，wrapper 把它挪到 unixnu 的 <tree>/build/ 下。
+尚未出图：这一版第一次让 27 的 archive 阶段有希望走完。
+"""
+
+[[entry]]
+sha = "bfb8008e"
+state = "build-only"
+date = "2026-11-20"
+note = """把 0531-k60-audio-amp-probe-call.patch 的 hunk 上下文从三行收成一行，
+锚点只留 bsd_init_kprintf("calling vfsinit\n")。真因不是补丁写错，而是同一
+series 里排在它前面的 offline-component-load-probes.patch 在 vfsinit() 之后
+插了一整段 probe 块，等 0531 应用时原来的三行上下文已经不存在了：干净 feed
+（ac9718f）上 git apply --check 能过，因为那里还没插那段。
+尚未出图：这一版只让序列能走完，内核还没链接出来。
+"""
+
+
+[[entry]]
+sha = "30370cb9"
+state = "build-only"
+date = "2026-11-20"
+note = """上一条 bfb8008e 手写 hunk 头时把 0531 里 15 行说明性注释一起删了——那段
+注释是「为什么 call site 不能用 #if defined(XNU_PONG_AUDIO) 保护」的唯一记录：
+那个宏只到 PongAudioAmp.o，在 call site 用它保护会静默把调用编译掉。
+这次改成从 series 前缀重放里生成：在 scratch clone 里应用 0531 之前的全部补丁，
+把 bsd_init.c 改到目标内容，再让 git diff -U1 算 hunk 头，注释与上下文一起回来。
+行号随之从 699 变成 795，那是 0531 实际看到的树，不是干净 feed 的行号。
+尚未出图：这一版只让序列能走完，内核还没链接出来。
+"""
+
+
+[[entry]]
+sha = "d98844a2"
+state = "build-only"
+date = "2026-11-20"
+note = """新增 0533-k60-v-crypto-syntax.patch：arm64_isa_compatibility.h 只有在
+__apple_build_version__ > 5010000（也就是确定由 Apple 汇编器读这个文件）时才
+选 q 寄存器写法，本树用的是上游 clang，它的集成汇编器不认 sha256su0 q0, q1 /
+sha256h q18, q19, q4 这种操作数，于是 fileset reference 构建在
+sha256_compress_arm64.s 里报 invalid operand for instruction，链接走不到写
+link.filelist 那一步。v 寄存器写法（v0.4s）两家汇编器都收，所以把条件改成
+只看 __clang__。iOS 16 序列里 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-v-crypto-syntax.patch
+是同一处改动，但 12377 序列没有等价条目，这里重新编号收录。
+尚未出图：这一版只让 corecrypto 的 asm 能编过，内核还没链接出来。
+"""
+
+
+[[entry]]
+sha = "d7cf3300"
+state = "build-only"
+date = "2026-11-20"
+note = """27 系列的链接缺口：fileset reference 在 snapshot-build.log:1171748 报六个未定义符号，
+全部来自 libArmCpu.a(ArmCpu.o) —— `_pong_cpu_startup_finished`、`_psci_smp_init/start_cpu/
+cpu_running/cpu_off`、`_pong_audio_amp_probe`。四个 psci 在 xnu-12377 里没有任何定义者（16 线那份
+`zzzz…-pong-psci-smp.patch` 的十个文件里有四个对 12377 拒收，不能重放）。
+
+取舍与证据：0532 的守卫改成 `#if !defined(PONG)`，因为本板机器配置既不定义 PONG 也不定义 BCM2837
+（构建日志里 `-DPONG` 与 `-DBCM2837` 各 0 次），所以「加宽守卫」等于没加；而 0532 与另一份互补副本
+插在 iokit/Kernel/IOCPU.cpp 同一个锚点上，后打的那条必然失败（重放实测 `patch failed:
+iokit/Kernel/IOCPU.cpp:62`）。0532 只存在于 patches/xnu-12377/series，16.6.1 板另有自己的
+`zzzz…-pong-cpu-start-completion.patch`（patches/xnu/series:74），所以这次改动不触碰已上机验证的
+16 线配方。
+
+新增 0540（真 psci_smp.c/.h + conf/files 一行）与 0541（跳过 CNTP_CTL_EL0 写），来自蓝牙线
+feat/xnu27-psci-target，对干净 ac9718f 树 apply 并用本机 507 个真实编译参数重放过。没有写桩：
+恒返回 KERN_FAILURE 的桩会把「这棵树不支持 SMP」焊进内核，之后 `PSCI start FAIL` 会被误读成硬件故障；
+单核是设备树的事实（dts/mondrian.dts 无 cpu@ 节点 ⇒ ml_get_cpu_count()=1），不是代码假装出来的。
+
+`_pong_audio_amp_probe` 是 0531 的弱引用，留给 audio 线把它做成真正可空；这里不用返回 0 的定义糊过去，
+否则 `AUDIO27 OK` 将无法区分「没接线」和「接了个空壳」。
+
+欠账：这一版还没有构建过，也没有上机。下一次 `build kernel`（默认 profile 即 27）是它的首次产物检验；
+判据仍是 docs/engineering/IOS27.md 的 F2 阶段门（arm_init → bsd_init → root-mount panic + cupid 一致）。
+"""
+
+[[entry]]
+sha = "77409a13"
+state = "build-only"
+note = """fix(ios27): drop the audio probe call from the 27 series —— 未上机。
+
+0531 的调用点只有一行：	bsd_init_kprintf("calling vfsinit\\n"); 之后取
+_pong_audio_amp_probe 的地址再做 NULL 判断。clang 确实发出了弱引用
+（bsd_init.o 里 desc=0x0040，N_WEAK_REF），但本机 ld64-port 只在 -kext 形态下接受
+未定义弱函数引用：-static 与 -dylib 都报 symbol(s) not found，而内核链接是
+LD = $(KC++) -nostdlib，最终解析成 -dynamic。所以「弱引用没生效」不是补丁写错了行，
+而是链接形态不接受。
+
+这棵树里没有任何东西定义它：27 线没有把 PongAudioAmp.o 编进内核（P-265 记的就是那个
+conf/files 钩子挂得太早，驱动器源码从未进过 bsd/conf/files），所以 ABI 表里这一项在
+这一轮只能是空的。按 Lead 的裁定，不加返回 0 的假定义 —— 否则 AUDIO27 OK 将无法区分
+「没接线」和「接了个空壳」。
+
+补丁文件本身（1033 B）与它的历史（bfb8008e 重发 -U1、30370cb9 恢复注释并让 git 生成
+hunk 头）都保留，注释留在 patches/xnu-12377/series 里说明为什么当前不列出；audio 线把
+钩子修好、PongAudioAmp.o 真正进内核的那次提交里，把这一行加回序列即可，不需要重建补丁。
+
+干净 ac9718f 树上重放：plan 101 个补丁，101 个全部干净应用。
+"""
+
+[[entry]]
+sha = "406198f5"
+state = "build-only"
+note = """ios27: run the conf/files hook after the tree is seeded, and name the seams —— 未上机。
+
+audio 线的提交，登记在这里是因为它改了两个会进镜像的构建脚本
+（scripts/build-ios27-linux.sh、scripts/build-xnu-generic.sh），iron-9 要求登记，
+否则任何一次 build 都会先被门禁拒掉。
+
+内容：P-265 记的那个钩子——`K60_CONF_FILES_HOOK` 原本在 `build-xnu-generic.sh` 第 10 行
+被调用，而 `.cache/xnu-work` 要到第 38 行才克隆出来，于是钩子每次都在一棵没有
+`bsd/conf/files` 的树上跑、每次都答「tree not seeded」，`|| echo` 又把失败变成一行日志。
+后果是音频源文件从未进入 `bsd/conf/files`，`PongAudioAmp.o` 从未编译，
+`pong_audio_amp_probe` 永远是未定义弱引用。修法：调用点移到最终 make 之前（第 832 行，
+与 16.6.1 线 `build-xnu-4k-baseline.sh:1429` 同位），失败改成终止构建，
+`refresh-xnu-generic.py` 重写时把块插回并断言锚点唯一。
+
+对 F1 的影响：`scripts/k60-conf-files-hook.py` 目前还不在树里，所以 `build-ios27-linux.sh`
+里的 Seam 1 是空操作；Seam 2 只给 `PongAudioAmp.o_CFLAGS_ADD` 传一个 `-DXNU_PONG_AUDIO=1`，
+对象没编进内核就没有作用。也就是说这一提交不会改变 stage-0 的产物，只是把钩子摆到正确位置。
+"""
+
+[[entry]]
+sha = "efbab43f"
+state = "build-only"
+note = """ios27: 说清 0531 什么时候可以回到序列里 —— 仅注释，产物不变。
+
+上一提交（77409a13）把 0531-k60-audio-amp-probe-call.patch 从
+`patches/xnu-12377/series` 里拿掉了，理由记在那 13 行注释里：clang 确实发出了
+N_WEAK_REF，但这个 ld64-port 只接受 -kext 形式的未定义弱函数引用，而内核是按
+static/dynamic 镜像链接的。本次只改注释的最后一句：把「等 PongAudioAmp.o 被
+force-load 进链接」这种没法直接检验的说法，换成一条可以 grep 的判据——
+`grep -c 'PongAudioAmp.o' <tree>/build/xnu/snapshot-obj/RELEASE_ARM64_BCM2837/link.filelist`
+至少为 1。同时写明「钩子修好了」不算判据：406198f5 已经把 conf/files 钩子挪到了
+正确位置，可 `scripts/k60-conf-files-hook.py` 至今不在树里，`PongAudioAmp.o` 仍然
+不会被编译，符号仍然没有定义。
+
+补丁序列条目与应用顺序均未变化，注释行不被解析器当作补丁，重放仍是 101 个补丁。
+"""

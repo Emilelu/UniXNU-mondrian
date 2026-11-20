@@ -1,0 +1,21 @@
+[    0.000000] K60MODEM carrier: staged 27 streams
+[    1.204000] K60MODEM pas: init started
+K60MODEM power ok cx=0x30000/6 mss=0x30060/7 xo=0x300b0/3
+K60MODEM power prepared
+K60MODEM init_image ok metadata=0xb7ff0000 bytes=5884
+K60MODEM transport prepared
+K60MODEM transport: smp2p stop released was=0x1 now=0x0 ipa=0x1
+K60MODEM mem_setup ok base=0x8bc00000 span=0x13200000
+K60MODEM auth_reset ok
+K60MODEM qrtr: wait 5 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 10 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 15 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 20 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 25 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 30 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 35 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 40 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 45 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 50 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 55 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0
+K60MODEM qrtr: wait 60 s services=2 wanted=0 dms=0 malformed=0 tx head=888 tail=888 rx avail=0 head=0 tail=0 intents=0/0 local=0/0 lbusy=0 ldone=0 msgs=0/0 dropped=0 rxcmd=1/0/0/0 replies=0 rmtfs=0 ipa=0x0

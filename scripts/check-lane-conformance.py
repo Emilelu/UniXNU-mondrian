@@ -2,10 +2,11 @@
 """Check the per-lane conformance table against the official page it quotes.
 
 docs/research/power/LANE-CONFORMANCE.toml is the answer to "each lane, line by
-line, against the official page, with evidence". Three things make such a table
+line, against the official page, with evidence". Four things make such a table
 survive: the quote must exist in the page (otherwise somebody is remembering a
-sentence that was never there), the evidence must be a file that exists, and a
-lane may not sit at "verified" without a reason once it is partial.
+sentence that was never there), the evidence must be a file that exists, a
+verified row must name the line in that file which proves it (otherwise any
+unrelated file passes), and a lane may not sit at "partial" without a reason.
 
 Render the reader-facing summary with --render.
 """
@@ -26,11 +27,12 @@ RENDER = ROOT / "docs" / "research" / "power" / "LANE-CONFORMANCE.md"
 LANES = ("adsp", "battery", "charger", "thermal", "power")
 STATUSES = ("verified", "partial", "not-done", "delegated")
 NEEDS_WHY = ("partial", "not-done", "delegated")
+MIN_PROOF = 8
 HEADER = """# 四条线 + Power 对官网页面的逐条对齐（生成物）
 
 由 `python3 scripts/check-lane-conformance.py --render` 生成，**不要手改**：改
-`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对三件事——引用的句子确实在页面上、
-证据文件确实存在、非 `verified` 的行写了理由（P-259）。
+`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对四件事——引用的句子确实在页面上、
+证据文件确实存在、`verified` 行写的那行证据确实在文件里、非 `verified` 的行写了理由（P-259）。
 
 页面：`docs/zh/porting/power.md`（unixnu.com/zh/porting/power）。
 """
@@ -69,6 +71,11 @@ def evidence_path(root, evidence):
     if not target.is_absolute():
         target = pathlib.Path(root) / text
     return target, None
+
+
+def evidence_line(row):
+    text = str(row.get("evidence_line") or "").strip()
+    return text
 
 
 def verify(root, table_path):
@@ -120,6 +127,17 @@ def verify(root, table_path):
             pass  # an external: citation cannot be opened here, and says so
         elif not target.exists():
             problems.append("%s: evidence %s does not exist" % (label, row.get("evidence")))
+        proof = evidence_line(row)
+        if status == "verified" and not proof:
+            problems.append("%s: a verified row must name the line in its evidence that proves it (evidence_line)" % label)
+        if proof and target is None:
+            problems.append("%s: evidence_line cannot be checked on an external citation" % label)
+        elif proof and target is not None and target.is_file():
+            proof_body = read(target)
+            if len(proof) < MIN_PROOF:
+                problems.append("%s: evidence_line %r is too short to identify a line" % (label, proof))
+            elif proof not in proof_body:
+                problems.append("%s: evidence %s does not contain %r" % (label, row.get("evidence"), proof))
         judged.append((label, lane, section, status, row))
     covered = {lane for _, lane, _, _, _ in judged}
     for lane in LANES:
@@ -146,8 +164,12 @@ def render(judged):
         lines.append("| --- | --- | --- | --- | --- | --- |")
         for label, _, section, status, row in rows:
             why = str(row.get("why") or "").strip().replace("|", "/")
-            lines.append("| `%s` | %s | %s | `%s` | %s | %s |"
-                         % (label, section, row.get("requirement", ""), row.get("evidence", ""),
+            evidence = "`%s`" % row.get("evidence", "")
+            proof = evidence_line(row)
+            if proof:
+                evidence += "<br>`%s`" % proof.replace("|", "\\|")
+            lines.append("| `%s` | %s | %s | %s | %s | %s |"
+                         % (label, section, row.get("requirement", ""), evidence,
                             status, why or "—"))
     lines.append("")
     return "\n".join(lines)

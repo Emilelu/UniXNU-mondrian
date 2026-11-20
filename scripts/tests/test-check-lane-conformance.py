@@ -2,9 +2,10 @@
 """Fixture tests for scripts/check-lane-conformance.py.
 
 The gate exists so the per-lane table cannot quote a sentence the page never
-carries, cite evidence that is not there, or sit at "partial" without saying
-why. These cases prove each of those refusals plus the healthy path, and that
-the repository table itself still verifies against the page copy.
+carries, cite evidence that is not there, claim "verified" without naming the
+line in that evidence which proves it, or sit at "partial" without saying why.
+These cases prove each of those refusals plus the healthy path, and that the
+repository table itself still verifies against the page copy.
 """
 from __future__ import annotations
 
@@ -42,6 +43,7 @@ section = "{section}"
 anchor = "{anchor}"
 requirement = "{requirement}"
 evidence = "{evidence}"
+evidence_line = "{evidence_line}"
 status = "{status}"
 why = "{why}"
 """
@@ -67,7 +69,8 @@ def load():
 
 def row(**kw):
     base = dict(id="x", lane="power", section="1", anchor="", requirement="一句要求甲。",
-                evidence="drv/evidence.c", status="verified", why="")
+                evidence="drv/evidence.c", evidence_line="int x; /* fixture proof */",
+                status="verified", why="")
     base.update(kw)
     return ROW.format(**base)
 
@@ -82,7 +85,7 @@ def build(name, rows, page=PAGE, with_evidence=True):
     if with_evidence:
         target = root / "drv" / "evidence.c"
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("int x;" + chr(10), encoding="utf-8", newline="")
+        target.write_text("int x; /* fixture proof */" + chr(10), encoding="utf-8", newline="")
     table = root / "table.toml"
     header = 'page_root = "%s"' % str(page_dir).replace("\\", "/") + chr(10) + 'page = "power.md"' + chr(10)
     table.write_text(header + rows, encoding="utf-8", newline="")
@@ -133,9 +136,37 @@ def main():
     check("missing evidence is refused",
           any("does not exist" in p for p in problems), str(problems))
 
-    root, table = build("external", lanes(row(lane="power", evidence="external:E:/somewhere/x.bin")))
+    root, table = build("external", lanes(row(lane="power", evidence="external:E:/somewhere/x.bin",
+                                                 status="partial", why="外部证据", evidence_line="")))
     problems = module.verify(root, table)[1]
-    check("an external citation is not opened", problems == [], str(problems))
+    check("an external partial citation is not opened", problems == [], str(problems))
+
+    root, table = build("external-verified", lanes(row(lane="power",
+                                                       evidence="external:E:/somewhere/x.bin")))
+    problems = module.verify(root, table)[1]
+    check("a verified row cannot hide behind an external citation",
+          any("external citation" in p for p in problems), str(problems))
+
+    root, table = build("noproof", lanes(row(lane="power", evidence_line="")))
+    problems = module.verify(root, table)[1]
+    check("a verified row without an evidence line is refused",
+          any("must name the line" in p for p in problems), str(problems))
+
+    root, table = build("wrongproof", lanes(row(lane="power", evidence_line="int y; /* fixture proof */")))
+    problems = module.verify(root, table)[1]
+    check("an evidence line the file does not carry is refused",
+          any("does not contain" in p for p in problems), str(problems))
+
+    root, table = build("shortproof", lanes(row(lane="power", evidence_line="x")))
+    problems = module.verify(root, table)[1]
+    check("an evidence line too short to identify anything is refused",
+          any("too short" in p for p in problems), str(problems))
+
+    partial = row(id="p", lane="power", status="partial", why="只做了一半", evidence_line="")
+    root, table = build("partial-noproof", lanes(extra=partial))
+    problems = module.verify(root, table)[1]
+    check("a partial row may omit the evidence line when it says why",
+          problems == [], str(problems))
 
     root, table = build("why", lanes(row(lane="power", status="partial")))
     problems = module.verify(root, table)[1]

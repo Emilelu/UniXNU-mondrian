@@ -62,6 +62,8 @@ TABLES = (Path("docs/research/power/CARRY.toml"),
           Path("docs/research/power/LANE-CONFORMANCE.toml"),
           Path("docs/research/power/LANE-CONFORMANCE.md"),
            Path("docs/research/power/27-WORKORDER.md"))
+DEFCONFIG = Path("configs") / "mondrian_ios27_defconfig"
+DEFCONFIG_SWITCHES = ("CONFIG_XNU_K60_PHYSICAL_BATTERY", "CONFIG_XNU_PONG_THERMAL")
 REPORT_CALLS = ("k60_platform_sleep_report", "armcpu_sleep_report")
 
 PASS, WARN, BLOCK = "PASS", "WARN", "BLOCKER"
@@ -300,6 +302,29 @@ def check_tables(tree: Path, device: Path) -> tuple[str, str]:
                      "rewires against prose instead of a checklist")
 
 
+def check_defconfig(tree: Path) -> tuple[str, str]:
+    """Stage 0 links no battery or thermal archive. That is a decision in the
+    defconfig, not a missing source file: the contract rows stay "missing" until
+    the archive is linked, and this check explains why without downgrading them."""
+    path = tree / DEFCONFIG
+    if not path.is_file():
+        return WARN, f"no stage-0 defconfig at {DEFCONFIG}: cannot say which archives stage 0 links"
+    try:
+        lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
+    except (OSError, UnicodeDecodeError) as error:
+        return WARN, f"cannot read {DEFCONFIG}: {error}"
+    linked = [switch for switch in DEFCONFIG_SWITCHES if f"{switch}=y" in lines]
+    if len(linked) == len(DEFCONFIG_SWITCHES):
+        return PASS, ("the stage-0 defconfig links both " + " and ".join(DEFCONFIG_SWITCHES)
+                      + "; the battery and thermal rows can be reopened once this kernel boots")
+    if linked:
+        missing = [switch for switch in DEFCONFIG_SWITCHES if switch not in linked]
+        return WARN, (f"the stage-0 defconfig links {linked[0]} but not {missing[0]}; "
+                      "an archive that is not linked cannot satisfy its contract rows")
+    return PASS, ("stage 0 does not link " + " or ".join(DEFCONFIG_SWITCHES)
+                  + "; the battery and thermal rows stay missing, and this explains why rather than passing them")
+
+
 def check_contracts(tree: Path, device: Path) -> tuple[str, str]:
     """Open each contract row's own line in the 27 tree. A row classified "same" by hand
     is worth only what a run in the other tree confirms, so the preflight computes the
@@ -404,7 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     rows: list[tuple[str, str, str]] = [(PASS, "tree", detail)]
     rows.extend(check_carry(tree, modules))
     for name, check in (("sleep-report-guard", check_report_guard),
-                        ("builder-route", check_builder)):
+                        ("builder-route", check_builder),
+                        ("stage0-defconfig", check_defconfig)):
         state_, detail_ = check(tree)
         rows.append((state_, name, detail_))
     state_, detail_ = check_judges(tree, device)

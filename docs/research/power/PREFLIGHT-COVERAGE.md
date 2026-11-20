@@ -14,11 +14,4 @@
 | `check_contracts` | 契约表里的行在 27 树上逐行重开（same / drift / moved / missing） | 门禁 `scripts/check-hw-contracts.py` |  |
 | `check_console` | 判读器匹配的每一行字符串，27 侧打印它的那行还在不在 | 门禁 `scripts/check-console-contract.py` | 31 对 + 8 条书面豁免；判读字符串不是硬件事实，因此不进契约表 |
 | `check_wire` | 19 个 wire 字段的顺序与下标在 27 侧是否仍然一致 | 门禁 `scripts/check-battmgr-wire.py` |  |
-
-## 滚动待办（还没实现的判定）
-
-### 27 stage-0 的 defconfig 是否根本没有链进电池/温度 archive
-
-源码是否存在与 archive 是否链接是两件事：stage-0 缺配置开关只能解释未链接，不能解释源码缺失，更不能把 missing 降级为通过。
-
-下一步：在 scripts/check-ios27-power-preflight.py 里加 check_defconfig(tree)：读 27 的 mondrian_ios27_defconfig，若 CONFIG_XNU_K60_PHYSICAL_BATTERY 与 CONFIG_XNU_PONG_THERMAL 都缺，就单独报告『stage 0 尚未链接，见 docs/research/power/11-SHENG-REFERENCE.md 第 4 节』；这只是解释，不改 contracts 行对 missing 的判决，具体缺失行仍逐条列出。
+| `check_defconfig` | 27 stage-0 的 defconfig 是否根本没有链进电池/温度 archive | 无独立落地（见说明） | P-276：预检新增一类判定必须先在本表有一行；这一行只解释 stage 0 的取舍，不改 contracts 行对 missing 的判决。 |

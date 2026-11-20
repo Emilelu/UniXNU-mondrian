@@ -123,11 +123,15 @@ def make_tree(base: Path, *, console: str | None = None, module: bool = True,
               patch: str = CLEAN_SLEEP_PATCH, builder: str = "generic", judges: bool = True,
               tables: bool = True, picker: bool = True,
               contract_body: str | None = None,
-              wire_body: str | None = None) -> Path:
+              wire_body: str | None = None,
+              defconfig: str | None = None) -> Path:
     tree = base / "ios27"
     for rel in ("drivers/PongPower", "patches/xnu", "scripts"):
         (tree / rel).mkdir(parents=True)
     (tree / "board.toml").write_text('[machine]\nos_profile = "ios27"\n', encoding="utf-8", newline="\n")
+    (tree / "configs").mkdir()
+    (tree / "configs" / "mondrian_ios27_defconfig").write_text(
+        defconfig or "# stage 0\nCONFIG_XNU_NATIVE_UFS=n\n", encoding="utf-8", newline="\n")
     if module:
         (tree / "drivers" / "PongPower" / "K60Probe.c").write_text(
             MODULE_C, encoding="utf-8", newline="\n")
@@ -199,6 +203,14 @@ def case(name: str, *, expect_rc: int, expect: str = "", device_ok: bool = True,
 WORK.mkdir(parents=True, exist_ok=True)
 
 case("clean tree", expect_rc=0, expect="ios27-power-preflight: PASS")
+case("stage0 archives not linked", expect_rc=0,
+     expect="stage 0 does not link CONFIG_XNU_K60_PHYSICAL_BATTERY")
+case("stage0 both archives linked", expect_rc=0,
+     expect="links both CONFIG_XNU_K60_PHYSICAL_BATTERY and CONFIG_XNU_PONG_THERMAL",
+     defconfig="CONFIG_XNU_K60_PHYSICAL_BATTERY=y\nCONFIG_XNU_PONG_THERMAL=y\n")
+case("stage0 one archive linked", expect_rc=0,
+     expect="links CONFIG_XNU_K60_PHYSICAL_BATTERY but not CONFIG_XNU_PONG_THERMAL",
+     defconfig="CONFIG_XNU_K60_PHYSICAL_BATTERY=y\n")
 case("contract row computed", expect_rc=0, expect="1 same in the 27 tree", contract=True)
 case("contract drift reported", expect_rc=0,
      expect="the 27 line still has to change probe-line", contract=True,
@@ -268,6 +280,18 @@ tree = make_tree(base, judges=False)
 (device / "scripts" / "judge-k60-sleep-console.py").unlink()
 rc, out = run(device, tree)
 check("absent judge warns", rc == 0 and "⚠" in out, out)
+
+# No defconfig is a warning, not a blocker: the check reports that it cannot tell
+# which archives stage 0 links, and the contract rows keep their own verdicts.
+base = WORK / "no-defconfig"
+if base.exists():
+    shutil.rmtree(base)
+base.mkdir(parents=True)
+device = make_device(base)
+tree = make_tree(base)
+(tree / _CHECKER.DEFCONFIG).unlink()
+rc, out = run(device, tree)
+check("no stage0 defconfig", rc == 0 and "no stage-0 defconfig" in out, out)
 
 print(f"TESTS OK {checks} checks ({failures} failure(s))" if not failures
       else f"TESTS OK {checks} checks ({failures} failure(s))")

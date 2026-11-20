@@ -197,7 +197,10 @@ def main() -> int:
 
     items, problems, planned = module.verify(ROOT)
     check("this checkout verifies", not problems, str(problems[:3]))
-    check("every preflight class is covered", len(items) - len(planned) == 9, str(len(items)))
+    data, _ = module.load(ROOT)
+    names, _ = module.functions(ROOT, data)
+    check("every preflight class is covered", len(items) - len(planned) == len(names),
+          f"{len(items) - len(planned)} landed vs {len(names)} functions")
     committed = ROOT / "docs/research/power/PREFLIGHT-COVERAGE.md"
     check("the committed rendered file matches render()",
           committed.exists() and committed.read_text(encoding="utf-8") == module.render(ROOT),

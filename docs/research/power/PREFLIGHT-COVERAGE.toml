@@ -66,8 +66,7 @@ what = "19 个 wire 字段的顺序与下标在 27 侧是否仍然一致"
 gate = "scripts/check-battmgr-wire.py"
 
 [[item]]
-planned = true
+function = "check_defconfig"
 what = "27 stage-0 的 defconfig 是否根本没有链进电池/温度 archive"
 why = "源码是否存在与 archive 是否链接是两件事：stage-0 缺配置开关只能解释未链接，不能解释源码缺失，更不能把 missing 降级为通过。"
-note = "P-276：预检新增一类判定必须先在本表有一行；这张表同时是滚动待办。"
-next = "在 scripts/check-ios27-power-preflight.py 里加 check_defconfig(tree)：读 27 的 mondrian_ios27_defconfig，若 CONFIG_XNU_K60_PHYSICAL_BATTERY 与 CONFIG_XNU_PONG_THERMAL 都缺，就单独报告『stage 0 尚未链接，见 docs/research/power/11-SHENG-REFERENCE.md 第 4 节』；这只是解释，不改 contracts 行对 missing 的判决，具体缺失行仍逐条列出。"
+note = "P-276：预检新增一类判定必须先在本表有一行；这一行只解释 stage 0 的取舍，不改 contracts 行对 missing 的判决。"

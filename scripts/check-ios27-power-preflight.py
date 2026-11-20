@@ -15,7 +15,12 @@ rounds of work on the 27 line, and each of them is visible offline:
     `Unsupported CURRENT_MACHINE_CONFIG PONG`; board.toml must route to the
     generic builder (3cc8cbc9) for the 27 profile;
   * a judge that was written on the 16 line but never merged into the 27 tree
-    cannot be run there, so the flight has no verdict.
+    cannot be run there, so the flight has no verdict;
+  * the tables are the rewire checklist (HW-CONTRACTS.toml with its generated
+    HW-CONTRACTS-IOS27.md, PROP-NUMBERS.toml with its PROP-NUMBERS.md, and
+    LANE-CONFORMANCE.toml with its LANE-CONFORMANCE.md). A tree that received
+    the modules but not the tables has code it cannot check the wiring of, and a
+    table copied without its generated twin fails its own gate.
 
 This script reads both trees and says which of those still hold. It never
 writes, never boots, never touches the network.
@@ -47,7 +52,14 @@ SERIES = Path("patches/xnu") / "series"
 PICKER = Path("scripts") / "pick-xnu-builder.sh"
 GENERIC = "build-xnu-generic.sh"
 JUDGES = ("judge-k60-mode1-console.py", "judge-k60-handoff-console.py",
-          "judge-k60-sleep-console.py")
+          "judge-k60-sleep-console.py", "judge-k60-battery-mirror.py")
+TABLES = (Path("docs/research/power/CARRY.toml"),
+          Path("docs/research/power/HW-CONTRACTS.toml"),
+          Path("docs/research/power/HW-CONTRACTS-IOS27.md"),
+          Path("docs/research/charger/PROP-NUMBERS.toml"),
+          Path("docs/research/charger/PROP-NUMBERS.md"),
+          Path("docs/research/power/LANE-CONFORMANCE.toml"),
+          Path("docs/research/power/LANE-CONFORMANCE.md"))
 REPORT_CALLS = ("k60_platform_sleep_report", "armcpu_sleep_report")
 
 PASS, WARN, BLOCK = "PASS", "WARN", "BLOCKER"
@@ -198,6 +210,19 @@ def check_judges(tree: Path, device: Path) -> tuple[str, str]:
                    + "; merge them or the 27 flight has no verdict")
 
 
+def check_tables(tree: Path, device: Path) -> tuple[str, str]:
+    missing = [rel.as_posix() for rel in TABLES if not (tree / rel).is_file()]
+    if not missing:
+        return PASS, f"{len(TABLES)} table file(s) present"
+    absent_here = [rel.as_posix() for rel in TABLES
+                   if not (tree / rel).is_file() and not (device / rel).is_file()]
+    if absent_here:
+        return WARN, "missing in the 27 tree " + ", ".join(missing)
+    return BLOCK, ("missing in the 27 tree " + ", ".join(missing)
+                   + "; copy the tables and their generated twins, or the 27 line "
+                     "rewires against prose instead of a checklist")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tree", default=os.environ.get("K60_IOS27_TREE"),
@@ -227,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
         rows.append((state_, name, detail_))
     state_, detail_ = check_judges(tree, device)
     rows.append((state_, "judges", detail_))
+    state_, detail_ = check_tables(tree, device)
+    rows.append((state_, "carry-tables", detail_))
 
     blockers = [row for row in rows if row[0] == BLOCK]
     warnings = [row for row in rows if row[0] == WARN]

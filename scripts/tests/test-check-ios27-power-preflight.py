@@ -7,6 +7,7 @@ reproduced without the real iOS 27 tree.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -17,6 +18,13 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "scripts" / "check-ios27-power-preflight.py"
+
+# read the lists out of the checker itself: a copy here would drift silently (P-259)
+_SPEC = importlib.util.spec_from_file_location("ios27_preflight", TOOL)
+_CHECKER = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_CHECKER)
+JUDGES = _CHECKER.JUDGES
+TABLES = _CHECKER.TABLES
 WORK = ROOT / "build" / "ios27-preflight-tests"
 
 checks = 0
@@ -51,15 +59,19 @@ def make_device(base: Path) -> Path:
         f'  {{ path = "drivers/PongPower/K60Probe.c", sha256 = "{sha(device / "drivers" / "PongPower" / "K60Probe.c")}" }},\n]\n'
     )
     (device / "docs" / "research" / "power" / "CARRY.toml").write_text(manifest, encoding="utf-8", newline="\n")
-    for judge in ("judge-k60-mode1-console.py", "judge-k60-handoff-console.py",
-                  "judge-k60-sleep-console.py"):
+    for judge in JUDGES:
         (device / "scripts" / judge).write_text("# judge\n", encoding="utf-8", newline="\n")
+    for rel in TABLES:
+        if rel.name == "CARRY.toml":
+            continue  # already written above with a real manifest
+        (device / rel).parent.mkdir(parents=True, exist_ok=True)
+        (device / rel).write_text("# table\n", encoding="utf-8", newline="\n")
     return device
 
 
 def make_tree(base: Path, *, module: bool = True, guard: bool = False,
               macro: bool = True, builder: str = "generic", judges: bool = True,
-              picker: bool = True) -> Path:
+              tables: bool = True, picker: bool = True) -> Path:
     tree = base / "ios27"
     for rel in ("drivers/PongPower", "patches/xnu", "scripts"):
         (tree / rel).mkdir(parents=True)
@@ -85,9 +97,12 @@ def make_tree(base: Path, *, module: bool = True, guard: bool = False,
         (tree / "scripts" / "pick-xnu-builder.sh").write_text(
             f'#!/bin/sh\necho "$(dirname "$0")/{target}"\n', encoding="utf-8", newline="\n")
     if judges:
-        for judge in ("judge-k60-mode1-console.py", "judge-k60-handoff-console.py",
-                      "judge-k60-sleep-console.py"):
+        for judge in JUDGES:
             (tree / "scripts" / judge).write_text("# judge\n", encoding="utf-8", newline="\n")
+    if tables:
+        for rel in TABLES:
+            (tree / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tree / rel).write_text("# table\n", encoding="utf-8", newline="\n")
     return tree
 
 
@@ -123,6 +138,7 @@ case("sixteen builder", expect_rc=1, expect="Unsupported CURRENT_MACHINE_CONFIG 
 case("no picker", expect_rc=1, expect="3cc8cbc9", picker=False)
 case("missing judges", expect_rc=1, expect="judge-k60-handoff-console.py", judges=False)
 case("missing tree", expect_rc=2, expect="is not a directory", tree_exists=False)
+case("missing tables", expect_rc=1, expect="rewires against prose", tables=False)
 case("no manifest", expect_rc=2, expect="no carry manifest", device_ok=False)
 
 # A drifted module must be caught even when the file exists.

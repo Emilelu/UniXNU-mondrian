@@ -42,6 +42,7 @@ DEFAULT_OUT = "build/power-carry-bundle"
 # Files the target tree needs in order to run and re-check the carry at all.
 EXTRA = [
     MANIFEST,
+    "docs/research/power/00-POWER-PAGE-CONFORMANCE.md",
     "docs/research/power/08-IOS27-POWER-PORT.md",
     "docs/research/power/09-CHARGE-AUTH.md",
     "docs/research/power/10-THERMAL-MAP.md",
@@ -61,6 +62,8 @@ EXTRA = [
     "scripts/tests/test-check-prop-numbers.py",
     "scripts/check-lane-conformance.py",
     "scripts/tests/test-check-lane-conformance.py",
+    "scripts/check-power-counts.py",
+    "scripts/tests/test-check-power-counts.py",
     "drivers/PongPower/K60Battmgr.c",
     "drivers/PongPower/K60Battmgr.h",
     "scripts/check-power-carry.py",

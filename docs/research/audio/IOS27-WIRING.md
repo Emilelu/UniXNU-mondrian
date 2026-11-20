@@ -85,6 +85,27 @@ python3 scripts/check-audio27-kernel-api.py /opt/k60/trees/ios27-out/feeds/xnu-3
 `bsd/dev/PongAudioRegs.h` 这个我们自己写的声明，检查就变成自证。剩下的风险只有
 `k60_pmic_glink_send_audio`（power 线）与 `printf`/`NSEC_PER_USEC` 这类稳定接口。
 
+### 桩头文件本身也是被量的对象
+
+上面这一节量的是「27 树里声明还在、形状没变」。但如果 `scripts/tests/portability` 里的桩头写得比内核宽，宿主编译就永远看不见那个差异——两条线各自全绿，真机上才截断。2026-11-20 就有一处：桩说 `void delay_for_interval(uint64_t interval, uint64_t scale)`，而 `osfmk/kern/clock.h:327` 是 `extern void delay_for_interval(uint32_t interval, uint32_t scale_factor)`。胶水的调用点在 `PongAudioAmp.c:111`，传的是 `uint32_t us` 与 `NSEC_PER_USEC`（`1000ull`），所以那条 64 位声明把「第二个参数在真机上要窄化成 32 位」这件事整个盖住了。同一轮还把 `int PE_parse_boot_argn(...)` 改成 `boolean_t`（`pexpert/pexpert/pexpert.h:351`），把 `printf` 的来源注释指到 `osfmk/kern/misc_protos.h:183`（`bsd/sys/systm.h` 里没有它），把 `NSEC_PER_USEC` 的来源注释指到 `osfmk/mach/clock_types.h:84`。
+
+`scripts/check-audio27-stubs.py <xnu-tree>` 把桩里这五条声明（`ml_io_map`、`ml_io_map_wcomb`、`PE_parse_boot_argn`、`delay_for_interval`、`printf`）与真树逐一比对；比较的是同一个规范形（返回类型加每个参数类型，参数名不算），和 `check-audio27-kernel-api.py` 用同一把尺子：
+
+```sh
+python3 scripts/check-audio27-stubs.py /opt/k60/trees/ios27-out/feeds/xnu-3199e8bc
+# STUBS OK 5/5 declarations match xnu-12377.121.6 ac9718f
+```
+
+把桩改回 64 位就如实报红（自测过）：
+
+```
+STUB DRIFT: delay_for_interval: the stub (sys/systm.h) says void delay_for_interval(uint64_t, uint64_t),
+            osfmk/kern/clock.h:327 says void delay_for_interval(uint32_t, uint32_t)
+STUBS FAILED: 5 declaration(s) compared, 0 missing, 1 drifted
+```
+
+一个细节：`printf` 在 27 树里最早的命中来自 `bsd/net/packet_mangler.h:99` 的宏体，所以脚本只接受「看起来像原型」的命中（名字之前是类型串、整行不含 `#`），否则会拿宏体当声明。宿主用例 `scripts/tests/test-audio27-stubs.py` 五例把这个过滤器也钉住了（声明一致、漂移、宏体先出现、缺名字、非 XNU 树）。预检里是两行：`ok   27 stub checker is honest`，以及有 `XNU27_REPO` 时的 `ok   27 stubs match the declarations`。
+
 ### 名字会不会撞车
 
 胶水要被放进一棵不是为它写的树里，而「名字看起来是私有的」不是证据：撞名会在链接阶段炸，

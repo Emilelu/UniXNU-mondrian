@@ -59,9 +59,20 @@ def kernel_lines(text):
     return [line for line in joined if "build kernel" in line]
 
 
+def code_only(text):
+    """The shell without its comments.
+
+    A name after a # is a note to the reader, not a delivery: the driver can
+    say `# K60_CONF_FILES_HOOK is set below` and set nothing.  Matching on the
+    raw text is how a comment comes to look like wiring (P-251 shape).
+    """
+    return chr(10).join(line.split("#")[0] for line in text.splitlines())
+
+
 def hands_over(lines, name, tail):
     for line in lines:
-        if name in line and tail in line:
+        code = line.split("#")[0]
+        if name in code and tail in code:
             return True
     return False
 
@@ -72,22 +83,39 @@ def bash_shebang(text):
 
 
 def exported(text, name, pattern):
-    return re.search(r"^\s*export\s+%s=%s\s*$" % (re.escape(name), pattern),
-                     text, re.MULTILINE) is not None
+    """True when the variable reaches the kernel line through the environment.
+
+    Two shapes count: `export NAME=value` on one line, and `NAME=value`
+    followed by a bare `export NAME`.  The second is what the 27 driver does,
+    because the value is a path built at run time and the export sits inside
+    the same `if` that checks the file exists.  A later `unset NAME` cancels
+    either shape.  Comments are not code, so they are dropped first.
+    """
+    code = code_only(text)
+    if re.search(r"^\s*export\s+%s=%s[\"\']?\s*$" % (re.escape(name), pattern),
+                 code, re.MULTILINE):
+        return True
+    assign = re.search(r"^\s*%s=%s[\"\']?\s*$" % (re.escape(name), pattern),
+                       code, re.MULTILINE)
+    bare = re.search(r"^\s*export\s+%s\s*$" % re.escape(name), code, re.MULTILINE)
+    if not (assign and bare and bare.start() > assign.start()):
+        return False
+    if re.search(r"^\s*unset\s+%s\b" % re.escape(name), code[bare.end():],
+                 re.MULTILINE):
+        return False
+    return True
 
 
 def seam_hook(text, here):
     if HOOK not in text:
         return 0, ("BUILDER: not wired yet (%s never names %s); without it bsd/conf/files keeps the "
                    "two sources unlisted and the glue is not compiled" % (DRIVER, HOOK))
-    ok = hands_over(kernel_lines(text), HOOK, HOOK_TAIL)
+    inline = hands_over(kernel_lines(text), HOOK, HOOK_TAIL)
+    ok = inline or exported(text, HOOK, "[^ ]*" + re.escape(HOOK_TAIL))
     if not ok:
-        for line in kernel_lines(text):
-            if HOOK in line:
-                ok = True
-        if not ok and exported(text, HOOK, "[^ ]*" + re.escape(HOOK_TAIL)):
-            ok = True
-    if not ok:
+        if HOOK not in code_only(text):
+            return 1, ("BUILDER FAILED: %s names %s only in a comment, so the kernel line never "
+                       "carries it and a build reads as wired" % (DRIVER, HOOK))
         if HOOK_TAIL in text:
             return 1, ("BUILDER FAILED: %s names %s elsewhere but the kernel line does not carry it, "
                        "so the chaining hook never runs" % (DRIVER, HOOK))
@@ -95,7 +123,8 @@ def seam_hook(text, here):
                    "is not the one called" % (DRIVER, HOOK, HOOK_TAIL))
     if not (here / HOOK_TAIL).is_file():
         return 1, "BUILDER FAILED: this tree has no %s to point at" % HOOK_TAIL
-    return 0, "BUILDER OK: %s takes %s=%s on the kernel line" % (DRIVER, HOOK, HOOK_TAIL)
+    where = "on the kernel line" if inline else "through the environment"
+    return 0, "BUILDER OK: %s takes %s=%s %s" % (DRIVER, HOOK, HOOK_TAIL, where)
 
 
 def seam_define(text):

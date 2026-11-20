@@ -87,6 +87,36 @@ def case_hook_dropped():
         assert code == 1, out
         assert "elsewhere" in out, out
 
+        noted = DRIVER.replace(
+            "python3 ./unixnu build kernel",
+            "# K60_CONF_FILES_HOOK=$ROOT/scripts/k60-conf-files-hook.py is wired below" + chr(10) +
+            "python3 ./unixnu build kernel")
+        gates, framework_root = tree(pathlib.Path(tmp) / "noted", driver=noted)
+        code, out = call(gates, framework_root, "hook")
+        assert code == 1, out
+        assert "only in a comment" in out, out
+
+
+def case_hook_exported_split():
+    """The 27 driver assigns the path, then exports the name on its own line."""
+    with tempfile.TemporaryDirectory() as tmp:
+        split = DRIVER.replace(
+            "python3 ./unixnu build kernel",
+            "if [ -f /tmp/hook ]; then" + chr(10) +
+            "\tK60_CONF_FILES_HOOK=\"$ROOT/scripts/k60-conf-files-hook.py\"" + chr(10) +
+            "\texport K60_CONF_FILES_HOOK" + chr(10) +
+            "fi" + chr(10) +
+            "python3 ./unixnu build kernel")
+        gates, framework_root = tree(pathlib.Path(tmp), driver=split)
+        code, out = call(gates, framework_root, "hook")
+        assert code == 0, out
+        assert "through the environment" in out, out
+
+        unset = split.replace("fi" + chr(10), "fi" + chr(10) + "unset K60_CONF_FILES_HOOK" + chr(10))
+        gates, framework_root = tree(pathlib.Path(tmp) / "unset", driver=unset)
+        code, out = call(gates, framework_root, "hook")
+        assert code == 1, out
+
 
 def case_define_exported_by_dash():
     with tempfile.TemporaryDirectory() as tmp:
@@ -125,7 +155,8 @@ def case_no_gates():
 
 
 def main():
-    cases = [case_not_wired, case_wired, case_hook_dropped, case_define_exported_by_dash,
+    cases = [case_not_wired, case_wired, case_hook_dropped, case_hook_exported_split,
+             case_define_exported_by_dash,
              case_framework_replaces_environment, case_framework_absent, case_no_gates]
     for case in cases:
         case()

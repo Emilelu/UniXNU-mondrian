@@ -553,3 +553,26 @@ force-load 进链接」这种没法直接检验的说法，换成一条可以 gr
 
 补丁序列条目与应用顺序均未变化，注释行不被解析器当作补丁，重放仍是 101 个补丁。
 """
+
+[[entry]]
+sha = "8529cbf9"
+state = "build-only"
+note = """ios27: 链接后给 com.apple.kernel 补上集合自己的 cpusubtype，并收回「一核 PAC 等于全员」的说法。
+
+会进镜像的路径是 `scripts/build-ios27-linux.sh`：它在 `build kernel` 与 `build payload`
+之间新增一步 `scripts/k60-fileset-stamp.py --apply`，把 `$BOARD_DIR/kernel/kernel.macho`
+的 `com.apple.kernel` 子头 cpusubtype 改成集合自己的值（真实产物上就是 `0x180008` 这一个
+字节，`0x80`→`0xc0`），并把板目录提成 `BOARD_DIR` 与追加的 DTB 共用。工具的判据：外层必须
+`MH_FILESET`、`com.apple.kernel` 必须恰好一次、子头必须已经 `MH_EXECUTE` 且已带
+`MH_DYLIB_IN_CACHE`、已相等就打印 `already carries` 退 0（第二次跑不能因自己的输出失败）。
+
+state 记为 build-only 的理由：这条改动**没有被任何镜像使用过**。现有 round-17d 的
+`kernel.macho` 是在它之前构建的，而那次 payload 里躺着的仍是 P-278 的缺陷（普通 `ret` 写进
+`pacibsp` 函数），飞行门禁已经会拒绝它；要用上这一步必须重建 kernel + payload + 固件卷。
+所以本次不以「上机验证」登记，欠账写在这里。
+
+同提交还做了两件不改变产物的事：把 IOS27.md 的 arm64e 五项要求里第一条从 measured 降为
+partial（power 线 2026-11-20 审计：`APA=0b0101` 是 FPACCOMBINE，探针 GPA/GPI 读错位、只采
+1/8 核），并登记 P-281（计数器按被求和的对象命名）与 P-282（工具链发不出的标签不等于消费方
+判错）。
+"""

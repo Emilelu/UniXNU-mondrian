@@ -1920,3 +1920,80 @@ B6 的出口是「27 站目录下重建 kext，rc=0 且没有那行提示」。2
 
 反向这一条才是这个戳的价值：kext 侧把 `uint8_t ie[384]` 改成 2048，站侧仍是 1024 时两边对元素的解释差一倍，
 而这种错配在链接期看不出来，只有到扫描记录被截断时才会以「少了某个 AP」的形式出现（P-230 就是这么来的）。
+
+## 68. 合并 main、删掉一条重复补丁、补上 540 字节事件
+
+### 68.1 合并
+
+2026-11-20 把 origin/main（39 个提交）合进 feat/wifi-ios27-tree：**没有冲突**。两边都改过的两个文件
+（`patches/xnu-12377/series`、`scripts/build-xnu-generic.sh`）自动合并后都还在——series 里既有我们的
+条目也有 main 的 `0532/0533/0540/0541`，`build-xnu-generic.sh:788` 的 `XNU_PONG_WIFI` 钩子也在。
+`python3 scripts/render-eight-step-table.py --check` 报「两份 README 的八步表格与 EIGHT-STEPS.toml 一致」，
+所以八步表不需要重生成。
+
+合并后 `check-rules.py` 是 154 条登记、14 条失败，逐类看都不是 wifi 的：
+
+- `iron-2`/`hard-5`/`hard-10`/`hard-11` 报「43 个受管文件已改未提交」——那是合并本身还没 commit；
+- `iron-5`/`P-165`/`P-166`：`K60_DEVICE_INPUT` 没设，脚本按设计拒绝比较；
+- `hard-8`/`P-156`（`drivers/` 下的 `sae`）、`P-185`/`P-206`（fresh worktree 缺环境）、`hard-38`（要求显式重生成）。
+
+lead 的判断（「不是 waiver 问题，是树落后 main 39 个提交」）成立：那 5 条「P-179…P-184 没有登记检查也没有
+waiver」在合并后消失，因为它们本来就在 main 的 `RULES.toml` 里。
+
+### 68.2 我们重复发明了一条补丁
+
+`patches/xnu-12377/availability-spi.patch`（2026-11-20 凌晨在旧 main 上写的）与 main 的
+`0530-k60-spi-availability.patch` 是同一件事：都改 `EXTERNAL_HEADERS/Availability.h`、都给
+`__SPI_AVAILABLE` 空定义。0530 还多给 `__SPI_DEPRECATED` 与 `__SPI_DEPRECATED_WITH_REPLACEMENT`，
+并把「为什么要留在树里」写清楚了。**删掉自己那条，series 只留 0530。**
+
+这件事的教训不在补丁本身，而在顺序：先写补丁再合并 main，就等于在旧树上重新发明一遍 main 已经有的东西。
+合并要在动手之前做，不是在写完之后。
+
+### 68.3 0542：540 字节的关联结果在 27 内核上会被丢掉
+
+12377 的 `kev_post_msg_internal()`（合并前源码 `.cache/xnu-work/bsd/kern/kern_event.c`，`total_size > MLEN`
+那段紧挨 `m = m_get(wait, MT_DATA)`）把 5 个描述符的总长和 `MLEN`（256 B）比，超过就直接 `EMSGSIZE`。
+24A446 的关联结果是 540 字节的 `pong_assoc_event27`，我们 `PongWifiNet.cpp:68` 又把 `_kev_post_msg`
+绑成 `pong_kev_post`——也就是说：**符号在、消息进不去**，真 27 内核上每次关联结果都会被内核丢掉，
+而 wifid 在等一个永远不来的 kevent。
+
+sheng 已经解过：`sheng-wifi-association-event.patch` 把 `KEV_VENDOR_APPLE` + `KEV_IEEE80211_CLASS`
+这一类放宽到 `MCLBYTES`，超过 `MLEN` 时用 `m_getcl` 分配簇，并对每个描述符做上限检查。
+我们落成 `patches/xnu-12377/0542-k60-association-event-cluster.patch`，注释写明来源与许可
+（BSD-2-Clause-Patent，`Co-authored-by: UniXNU-sheng contributors`）；`patch -p1 --dry-run` 在 12377
+源码上 offset -1 通过。
+
+这条值得单独记一笔的原因：host 测试、ABI 测试、符号计数**全绿**也发现不了它——丢事件发生在内核里，
+不在我们的代码里。只有「540 字节的载荷能不能活着到用户态」这个问题能把它逼出来。
+
+### 68.4 §67.4 的更正
+
+§67.4 把 `_psci_smp_*` 与 `_pong_cpu_startup_finished` 记成「12377 缺 Apple SMP 入口」，**这是错的**。
+leads 实测：那六个符号全部来自我们自己 fork 的 `drivers/ArmCpu/ArmCpu.cpp`（779 行）遮蔽了 catalog 的
+`component:ArmCpu`（catalog 版自带 `psciCall(hvc, 0xc4000003, …)`，不引用这两个符号）；12377 里
+`LowResetVectorBase`、`ResetHandlerData`、`monitor_call(MONITOR_SET_ENTRY,…)` 都在
+（`osfmk/arm64/start.s:103`、`:143`、`osfmk/arm64/cpu.c:1222-1227`）。
+main 的 `d7cf3300` 已经补了真实现（`0540-k60-psci-smp.patch`，241 行，不是 stub）与
+`0541-k60-virtual-timer-guard.patch`。所以「12377 的导出面缺东西」这个前提不成立，
+要修的是我们的 ArmCpu fork。
+
+同理，`libcc_kext.a` 也不需要按 arm64e 重编：lead 实测它现在每个成员都是 `cputype=0x100000c
+cpusubtype=0x80000002`（arm64e），我们那条 ld 警告属于早期产物。
+
+### 68.5 B4 关闭，C2 有答案
+
+`llvm-nm --defined-only` 在链接出的 27 镜像上找到 `_kev_post_msg`、`_mbuf_allocpacket`、`_ifnet_input`
+三个都定义——B4 的出口判据达成（脚手架补的 stub 不影响这三个内核侧符号）。
+
+C2（27 wifid 要不要签名 launchd）在 sheng 那边有现成答案：
+`sheng-wifi-launchd-cache.patch` 在 `bsd/kern/kern_exec.c` 的 `native_gpu_addon_prepare()` 里把
+`/private/var/ngpu/xpc` 挂到 `/System/Library/xpc`（只覆盖 `foreground_user_endpoints.plist` 与
+`launchd.plist`），把 `/private/var/ngpu/wifi-bin` 挂到 `/usr/libexec`（只覆盖 `launchd_cache_loader` 与
+`unixnu-wpa_supplicant`），理由是 xpcproxy 的系统策略要求系统可执行入口、且 detached 签名要过 trust cache。
+我们已经有同一套机器——`patches/xnu-12377/0527-k60-bt-launchd-cache.patch`（蓝牙线写的，同样两个 xpc 文件，
+`/usr/sbin` 给 `QcaBluetooth.runtime`）。**所以 wifi 侧不需要新写挂载，只需要加一条 `/usr/libexec` 与一个 job，
+这属 27 用户态线。**
+
+详细审计（sheng 25 条 series 逐条对位、我们 31 条里哪些它已经解过）在
+`docs/research/wifi/SHENG-KERNEL-REFERENCE.md`。

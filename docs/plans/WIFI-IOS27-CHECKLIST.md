@@ -16,11 +16,18 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   patch sets that main carries side by side; the 27 profile's patch_series is
   arch:patches/xnu/series + soc:patches/xnu-12377/series + os:patches/xnu/series +
   device:patches/xnu-12377/series. Most 16 entries do not apply to 12377 unchanged.
-- The 27 side has no network patch at all: patches/xnu-12377/series is ptrauth,
-  armcpu-sleep-hook and the 0500-0526 k60-bt-qbt-* Bluetooth series only. drivers/PongWifi
-  is present in main as the proven 16 tree, and the 24A446 ABI is carried on top of it
-  (branch feat/wifi-ios27-tree), so wifi still moves as a tree plus six files, not as
-  patches/wifi/*.
+- The 27 side has exactly one network patch: 0542-k60-association-event-cluster.patch
+  lifts the IEEE80211 class to a cluster mbuf, because kev_post_msg_internal drops any
+  message over MLEN and the 24A446 association event is 540 bytes. The rest of
+  patches/xnu-12377/series is ptrauth, armcpu-sleep-hook and the 0500-0526 k60-bt-qbt-*
+  Bluetooth series. drivers/PongWifi is present in main as the proven 16 tree, and the
+  24A446 ABI is carried on top of it (branch feat/wifi-ios27-tree), so wifi still moves as
+  a tree plus six files, not as patches/wifi/*.
+- Reference sources are fixed by iron rule 12: userland follows UniXNU-sheng, and the
+  kernel and driver layers must consult it as well - same os_profile
+  ipados-27.0.1-24A446, 25 series entries. docs/research/wifi/SHENG-KERNEL-REFERENCE.md
+  audits them against our 31 and names the two that decide Wi-Fi questions (the 540-byte
+  event and the launchd cache that C2 asks about).
 - The SoC layer is xNekom/UniXNU-sm8475-common feat/xnu-12377 (20a30fd6), pinned by
   main's unixnu.lock as [source.sm8475] commit =
   20a30fd623dbcfacdd71350a24fae67a2158884f.
@@ -156,13 +163,16 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   switches, the stage-0 boundary kept, the 27 override unchanged, the 16 mapping
   unchanged, build-strict.sh reading the .config and exporting the archive, the link
   force-loading it, and the refusal when the switch is on without an archive).
-- [ ] B4 [SOC] Confirm the 12377 kernel exports what the driver links against:
-  kev_post_msg, mbuf_allocpacket, ifnet_input, IOService/IOUserClient.
+- [x] B4 [SOC] Confirm the 12377 kernel exports what the driver links against (done
+  2026-11-20). llvm-nm --defined-only on the linked 27 image
+  (mach.development.bcm2837.unstripped.noctf, 35,613,936 B) finds all three:
+  _kev_post_msg, _mbuf_allocpacket, _ifnet_input. The three are kernel-side symbols, so
+  the scratch stubs used to get that image linked do not affect the answer.
   The IO80211 side is ours: PongWifiNet.cpp:1153-1173 defines IO80211Controller and
   IO80211Interface as local stubs over IOService/IONetworkInterface, so the driver does
   not link against Apple IO80211Family at all; only 27 wifid talks to the real one.
-  Exit: llvm-nm --defined-only on the 12377 kernel or its prelink report shows
-  _kev_post_msg, _mbuf_allocpacket and _ifnet_input.
+  The same pass found the one export that was not enough: kev_post_msg accepted the
+  symbol but refused the message (see the header fact on 0542).
 - [ ] B5 [SOC] 4 KiB pages: the 27 kernel uses 4 KiB tables, the 16 driver was written
   against 16 KiB. Exit: the archive builds with the 27 page shift and the selftest
   offsetof asserts still hold.
@@ -183,8 +193,18 @@ Rewritten 2026-11-20, when main itself became the 27 line.
   number and a request of that size is answered.
 - [ ] C2 [SOC] Does 27 wifid require the signed launchd unixnu-wpa_supplicant /
   org.unixnu.wifi.control service (sheng route), or does it accept any correct
-  Apple80211 ABI (ours)? Exit: launchctl print on 27 shows the service, or the console
-  shows wifid scanning with our kext alone.
+  Apple80211 ABI (ours)?
+  Answered in principle 2026-11-20 from sheng: bsd/kern/kern_exec.c's
+  native_gpu_addon_prepare() mounts /private/var/ngpu/xpc over /System/Library/xpc for
+  foreground_user_endpoints.plist and launchd.plist, and /private/var/ngpu/wifi-bin over
+  /usr/libexec for launchd_cache_loader and unixnu-wpa_supplicant, because xpcproxy's
+  policy requires a system executable entry point and the detached signature is checked
+  against the trust cache. Ours already has that machinery in
+  patches/xnu-12377/0527-k60-bt-launchd-cache.patch (same two xpc files, /usr/sbin for
+  QcaBluetooth.runtime). So the remaining work is a 27-userland change - one more
+  /usr/libexec entry and one job - not driver code.
+  Exit: launchctl print on 27 shows the service, or the console shows wifid scanning with
+  our kext alone.
 - [ ] C3 [DEV] kSupportedChannels flag word: the reference sets 0x80; we enumerate the
   live list without it (as zizhan does). Exit: on 27, Settings lists the 5 GHz row; if
   it does not, add 0x80 behind the gModern27Client gate and re-check.

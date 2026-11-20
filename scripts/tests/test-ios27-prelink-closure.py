@@ -66,6 +66,45 @@ def fileset(inner, name='com.apple.kernel', offset=0x1000):
     return bytes(data)
 
 
+def collection(rebase_target, coverage=None, size=0x4000,
+               base=0xfffffff007004000):
+    """Build an MH_EXECUTE collection with one chained rebase in __DATA_CONST.
+
+    The word encodes dyld_chained_ptr_64_kernel_cache_rebase: a 30-bit offset
+    from the image base.  coverage is an optional extra (name, vmaddr, vmsize)
+    segment that can shelter the target in the output address space.
+    """
+    segments = [('__TEXT', base, 0x400),
+                ('__DATA_CONST', 0xfffffff008000000, 0x4000)]
+    if coverage:
+        segments.append(coverage)
+    commands = b''
+    for name, vmaddr, vmsize in segments:
+        commands += struct.pack('<II16sQQQQiiII', 0x19, 72, name.encode(),
+                                vmaddr, vmsize, 0, size, 7, 5, 0, 0)
+    blob_off, starts_off, info_off = 0x2000, 0x20, 0x40
+    commands += struct.pack('<IIII', 0x80000034, 16, blob_off, 0x80)
+    header = struct.pack('<IIIIIII', 0, starts_off, 0, 0, 0, 0, 0)
+    count = len(segments)
+    starts = struct.pack('<I', count)
+    for index in range(count):
+        starts += struct.pack('<I', info_off if index == 1 else 0)
+    starts += b'\0' * (info_off - len(starts))
+    info = struct.pack('<IHHQIH', 24, size, 8, 0xfffffff008000000 - base, 0, 1)
+    info += struct.pack('<H', 0x1000)
+    data = bytearray(size)
+    head = struct.pack('<IiiIIIII', 0xFEEDFACF, 0x0100000C, -2147483646,
+                       2, len(segments) + 1, len(commands), 0x00200085, 0)
+    data[0:32] = head
+    data[32:32 + len(commands)] = commands
+    data[0x1000:0x1008] = struct.pack('<Q', (rebase_target - base) & 0x3FFFFFFF)
+    data[blob_off:blob_off + len(header)] = header
+    data[blob_off + starts_off:blob_off + starts_off + len(starts)] = starts
+    placed = blob_off + starts_off + info_off
+    data[placed:placed + len(info)] = info
+    return bytes(data)
+
+
 def run(args, tmp):
     return subprocess.run([sys.executable, str(TOOL)] + args,
                           capture_output=True, text=True, cwd=tmp)
@@ -131,21 +170,39 @@ def main():
                 '--require-named'], tmp)
     case('--require-named fails when the input is stripped', done.returncode == 1, done.stdout)
 
-    # 5b. a target left inside the input __TEXT is a translation defect
-    done = run(['--report', str(report), '--kernelcache', str(kernel)], tmp)
-    case('a target still inside the input text is reported',
+    # 5b. a target inside the input __TEXT and in no output segment is a
+    # translation defect; the collection, not the entry layout, decides that.
+    defect = tmp / 'defect.macho'
+    defect.write_bytes(collection(address))
+    done = run(['--report', str(report), '--kernelcache', str(kernel),
+                '--collection', str(defect)], tmp)
+    case('a target inside the input text and in no output segment is reported',
          'untranslated: 1 target(s)' in done.stdout, done.stdout)
+    case('the rebase in the fixture is read', 'rebases: 1 target(s)' in done.stdout, done.stdout)
+    done = run(['--report', str(report), '--kernelcache', str(kernel),
+                '--collection', str(defect), '--require-translated'], tmp)
+    case('--require-translated fails on that collection', done.returncode == 1, done.stdout)
+
+    sheltered = tmp / 'sheltered.macho'
+    sheltered.write_bytes(collection(address, ('__PRELINK_TEXT', 0xfffffff007004000, 0x100000)))
+    done = run(['--report', str(report), '--kernelcache', str(kernel),
+                '--collection', str(sheltered), '--require-translated'], tmp)
+    case('the same target covered by a coalesced segment is not a defect',
+         done.returncode == 0 and 'untranslated' not in done.stdout, done.stdout)
+    case('a covered rebase is not called stale',
+         'none inside the input __TEXT' in done.stdout, done.stdout)
+
     done = run(['--report', str(report), '--kernelcache', str(kernel),
                 '--require-translated'], tmp)
-    case('--require-translated fails while the target stays in the input',
-         done.returncode == 1, done.stdout)
+    case('--require-translated refuses to judge without a collection',
+         done.returncode == 1 and 'needs --collection' in done.stdout, done.stdout)
     outside_report = tmp / 'outside.json'
     outside_report.write_text(json.dumps({
         'missing': {'com.apple.driver.Test': {hex(0xfffffff00a000000): 1}},
         'stubbed': {},
     }))
     done = run(['--report', str(outside_report), '--kernelcache', str(kernel),
-                '--require-translated'], tmp)
+                '--collection', str(sheltered), '--require-translated'], tmp)
     case('--require-translated passes when the target left the input',
          done.returncode == 0, done.stdout)
 

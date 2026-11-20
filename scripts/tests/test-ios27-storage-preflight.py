@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -90,8 +91,22 @@ def words(table_rows, bad_slot=None):
     return out
 
 
+PROFILE = ROOT / 'profiles' / 'os' / 'ios-27.0.1-24A446' / 'profile.toml'
+
+
+def pin_commit():
+    document = tomllib.loads(PROFILE.read_text(encoding='utf-8'))
+    for source in document.get('source', []):
+        if source.get('name') == 'IOStorageFamily':
+            return source['commit']
+    raise SystemExit(f'{PROFILE} has no IOStorageFamily source')
+
+
 def table_text(table_rows):
-    out = 'slot\tkind\tmethod\tsource_diversity\n'
+    out = ('# pin: IOStorageFamily 337.100.1\n'
+           f'# commit: {pin_commit()}\n'
+           '# source: profiles/os/ios-27.0.1-24A446/profile.toml\n'
+           'slot\tkind\tmethod\tsource_diversity\n')
     for slot, kind, method, diversity in table_rows:
         out += f'{slot}\t{kind}\t{method}\t{diversity:#x}\n'
     return out
@@ -107,6 +122,12 @@ def image(placement, table_rows, bad_slot=None):
 
 def kernel(placement):
     return macho([('__TEXT', 0xFFFFFFF00AA00000, 0x1000, 0),
+                  ('__TEXT_EXEC', 0xFFFFFFF00AB48000, 0x1000, 0x1000)],
+                 placement=placement)
+
+
+def kernel_out(placement):
+    return macho([('__TEXT', 0xFFFFFFF007184000, 0x1000, 0),
                   ('__TEXT_EXEC', 0xFFFFFFF00AB48000, 0x1000, 0x1000)],
                  placement=placement)
 
@@ -158,10 +179,10 @@ def main():
     input_cache = tmp / 'input.bin'
     input_cache.write_bytes(fileset([('com.apple.kernel', kernel)]))
     pass_cache = tmp / 'pass.bin'
-    pass_cache.write_bytes(fileset([('com.apple.kernel', kernel),
+    pass_cache.write_bytes(fileset([('com.apple.kernel', kernel_out),
                                     (ENTRY, lambda placement: image(placement, table_rows))]))
     fail_cache = tmp / 'bad-slot.bin'
-    fail_cache.write_bytes(fileset([('com.apple.kernel', kernel),
+    fail_cache.write_bytes(fileset([('com.apple.kernel', kernel_out),
                                     (ENTRY, lambda placement: image(placement, table_rows, 7))]))
     cache_hash, pass_hash, fail_hash = digest(input_cache), digest(pass_cache), digest(fail_cache)
 

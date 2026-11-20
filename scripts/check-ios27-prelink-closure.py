@@ -35,6 +35,7 @@ MH_MAGIC_64 = 0xFEEDFACF
 MH_FILESET = 12
 LC_SEGMENT_64 = 0x19
 LC_SYMTAB = 0x2
+LC_DYLD_CHAINED_FIXUPS = 0x80000034
 LC_FILESET_ENTRY = 0x80000035
 
 
@@ -54,7 +55,7 @@ def parse_macho(data, base=0, name=None):
         raise Failure(f'not a 64-bit Mach-O at {base:#x} (magic {magic:#x})')
     _, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, _ = struct.unpack_from(
         '<IiiIIIII', data, base)
-    segments, symtab, entries = [], None, []
+    segments, symtab, entries, fixups = [], None, [], None
     off = base + 32
     end = off + sizeofcmds
     for _ in range(ncmds):
@@ -75,6 +76,9 @@ def parse_macho(data, base=0, name=None):
             symoff, nsyms, stroff, strsize = struct.unpack_from('<IIII', data, off + 8)
             symtab = {'symoff': symoff, 'nsyms': nsyms,
                       'stroff': stroff, 'strsize': strsize}
+        elif cmd == LC_DYLD_CHAINED_FIXUPS:
+            dataoff, datasize = struct.unpack_from('<II', data, off + 8)
+            fixups = {'dataoff': dataoff, 'datasize': datasize}
         elif cmd == LC_FILESET_ENTRY:
             vmaddr, fileoff, entry_id = struct.unpack_from('<QQI', data, off + 8)
             start = off + entry_id
@@ -86,7 +90,7 @@ def parse_macho(data, base=0, name=None):
         'name': name, 'base': base, 'filetype': filetype,
         'cputype': cputype, 'cpusubtype': cpusubtype,
         'ncmds': ncmds, 'segments': segments, 'symtab': symtab,
-        'children': [],
+        'fixups': fixups, 'children': [],
     }
     for child_name, fileoff in entries:
         node['children'].append(parse_macho(data, base + fileoff, child_name))
@@ -172,10 +176,57 @@ def segment_in(segments, address):
     return None
 
 
+def rebase_targets(data, node, image_base):
+    """Every rebase target a chained-fixups blob names, decoded as format 8.
+
+    The kernel collection uses dyld_chained_ptr_64_kernel_cache_rebase: a 30-bit
+    target offset from the image base, so the blob says where a pointer pointed
+    without saying anything about why.  A target that lands inside the input
+    kernel's __TEXT was never translated, whichever bundle owns the pointer.
+    """
+    blob = node.get('fixups')
+    if not blob:
+        return []
+    start = node['base'] + blob['dataoff']
+    version, starts_offset = struct.unpack_from('<II', data, start)
+    if version != 0:
+        raise Failure(f'{node["name"] or "image"}: fixups version {version}')
+    starts = start + starts_offset
+    count = u32(data, starts)
+    targets = []
+    for index in range(count):
+        info_offset = u32(data, starts + 4 + index * 4)
+        if info_offset == 0 or index >= len(node['segments']):
+            continue
+        segment = node['segments'][index]
+        info = starts + info_offset
+        _, page_size, pointer_format = struct.unpack_from('<IHH', data, info)
+        page_count = struct.unpack_from('<H', data, info + 20)[0]
+        if pointer_format != 8:
+            raise Failure(f'{node["name"] or "image"}: pointer format '
+                          f'{pointer_format}, only 8 is decoded')
+        for page in range(page_count):
+            page_start = struct.unpack_from('<H', data, info + 22 + page * 2)[0]
+            if page_start == 0xFFFF:
+                continue
+            at = node['base'] + segment['fileoff'] + page_start
+            limit = node['base'] + segment['fileoff'] + (page + 1) * page_size
+            while at + 8 <= len(data) and at < limit:
+                word = struct.unpack_from('<Q', data, at)[0]
+                targets.append((word & 0x3FFFFFFF) + image_base)
+                step = (word >> 51) & 0xFFF
+                if step == 0:
+                    break
+                at += step * 4
+    return targets
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', required=True, help='kernel.json from the prelink emitter')
     parser.add_argument('--kernelcache', required=True, help='the input kernel or kernelcache')
+    parser.add_argument('--collection',
+                        help='the output collection whose rebase targets are checked')
     parser.add_argument('--out', help='write the findings as JSON')
     parser.add_argument('--require-named', action='store_true',
                         help='exit 1 unless every owner target has a symbol')
@@ -202,12 +253,50 @@ def main(argv=None):
         print(f'FAIL {error}')
         return 1
 
+    collection_data = collection = None
+    image_base = 0
+    if args.collection:
+        collection_path = Path(args.collection)
+        if not collection_path.is_file():
+            print(f'FAIL collection {collection_path} not found')
+            return 1
+        try:
+            collection_data = collection_path.read_bytes()
+            collection = parse_macho(collection_data)
+            image_base = collection['segments'][0]['vmaddr'] if collection['segments'] else 0
+        except Failure as error:
+            print(f'FAIL {error}')
+            return 1
+
     missing, missing_refs = references(record, 'missing')
     stubbed, stub_refs = references(record, 'stubbed')
     table = kernel['symtab'] or {'nsyms': 0}
     values = symbol_values(data, kernel)
     space, layout = layout_segments(record)
-    if layout:
+    # The report's layout lists the kernel entry's segments only.  A collection
+    # also carries coalesced __PRELINK_TEXT/__DATA ranges, so when the collection
+    # is at hand it, not the entry layout, decides which output segment holds a
+    # target.  Without it the entry layout is the best available answer.
+    output_ranges = [(segment['vmaddr'], segment['vmaddr'] + segment['vmsize'], segment['name'])
+                     for node in walk(collection) for segment in node['segments']
+                     if segment['vmsize']] if collection is not None else []
+
+    def covering(value):
+        for start, stop, name in output_ranges:
+            if start <= value < stop:
+                return name
+        return None
+
+    def in_output(value):
+        if output_ranges:
+            return covering(value) is not None
+        return bool(layout) and segment_in(layout, value) is not None
+
+    if output_ranges:
+        by_segment = Counter(covering(int(address, 0)) or 'outside-collection'
+                             for address in missing)
+        space_label = 'the output collection'
+    elif layout:
         by_segment = Counter(segment_in(layout, int(address, 0)) or 'outside-collection'
                              for address in missing)
         space_label = f'the {space} layout ({record.get("missing_address_space")})'
@@ -227,9 +316,26 @@ def main(argv=None):
         stop = start + input_text['vmsize']
         for address in missing:
             value = int(address, 0)
-            if start <= value < stop and not (layout and segment_in(layout, value)):
+            if start <= value < stop and not in_output(value):
                 untranslated.append(address)
         untranslated.sort(key=lambda item: int(item, 0))
+
+    # The report says which owner targets had no address.  The collection says
+    # where its pointers actually point, which is the other half of the same
+    # question: a rebase whose target is still in the input __TEXT was not moved.
+    rebases_read = None
+    rebase_in_input = []
+    if collection is not None:
+        rebases_read = 0
+        if input_text:
+            start = input_text['vmaddr']
+            stop = start + input_text['vmsize']
+            for node in walk(collection):
+                for target in rebase_targets(collection_data, node, image_base):
+                    rebases_read += 1
+                    if start <= target < stop and not in_output(target):
+                        rebase_in_input.append(hex(target))
+        rebase_in_input = sorted(set(rebase_in_input), key=lambda item: int(item, 0))
 
     prelink_sizes = {segment['name']: segment['vmsize']
                      for segment in kernel['segments']
@@ -266,8 +372,19 @@ def main(argv=None):
     print(f'targets: {len(missing)} distinct, {nameable} nameable, in {space_label}; '
           f'segments: ' + ', '.join(f'{name} {count}' for name, count in by_segment.most_common()))
     if untranslated:
-        print(f'untranslated: {len(untranslated)} target(s) still inside the input __TEXT, '
-              f'e.g. {untranslated[0]}')
+        print(f'untranslated: {len(untranslated)} target(s) inside the input __TEXT and in no '
+              f'output segment, e.g. {untranslated[0]}')
+    elif input_text and not args.collection:
+        print('untranslated: not judged, no --collection given (coalesced segments are '
+              'not visible to the report)')
+    if rebases_read is not None:
+        if rebase_in_input:
+            print(f'rebases: {rebases_read} target(s) read from the output collection, '
+                  f'{len(rebase_in_input)} still inside the input __TEXT, '
+                  f'e.g. {rebase_in_input[0]}')
+        else:
+            print(f'rebases: {rebases_read} target(s) read from the output collection, '
+                  'none inside the input __TEXT')
     print(f'verdict: {verdict} -- {reason}')
 
     result = {
@@ -291,6 +408,10 @@ def main(argv=None):
         'nameable_targets': nameable,
         'untranslated_targets': untranslated,
         'untranslated_count': len(untranslated),
+        'collection': str(args.collection) if args.collection else '',
+        'rebase_targets': rebases_read,
+        'rebase_untranslated': rebase_in_input,
+        'rebase_untranslated_count': len(rebase_in_input),
         'verdict': verdict,
         'reason': reason,
         'hardware_verified': False,
@@ -299,7 +420,10 @@ def main(argv=None):
         Path(args.out).write_text(json.dumps(result, indent=1) + '\n')
     if args.require_named and verdict != 'closure-resolvable':
         return 1
-    if args.require_translated and untranslated:
+    if args.require_translated and not args.collection:
+        print('FAIL translation: --require-translated needs --collection')
+        return 1
+    if args.require_translated and (untranslated or rebase_in_input):
         return 1
     return 0
 

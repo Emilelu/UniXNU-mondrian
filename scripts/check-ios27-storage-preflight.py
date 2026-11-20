@@ -9,9 +9,11 @@ must satisfy all three closing conditions:
   1. CONFIG_XNU_NATIVE_UFS resolves to 1 and board.toml includes NativeUfs;
   2. the 190-slot vtable assertion passes on the built collection
      (--require-entry; this entry fixes the slot count at 190);
-  3. the prelink report describes this run and has zero untranslated targets
-     (--require-translated): the report's input kernelcache and the collection
-     it wrote must both be the files supplied here.
+  3. the prelink report describes this run and no rebased target lies inside
+     the input kernel's __TEXT (--require-translated with --collection, which
+     supplies the output spans the report's layout omits): the report's input
+     kernelcache and the collection it wrote must both be the files supplied
+     here.
 
 They have to hold in the same run: a config that says yes while the collection
 was built before the flip does not open the gate, and a report from an older
@@ -238,6 +240,10 @@ def main(argv=None):
         command = [sys.executable, str(scripts / 'check-ios27-prelink-closure.py'),
                    '--report', str(report), '--kernelcache', str(cache),
                    '--require-translated']
+        if collection is not None and collection.is_file():
+            command += ['--collection', str(collection)]
+        else:
+            command += []
         translated_rc, output = run(command)
         print('[translated] --require-translated: '
               + ('pass' if translated_rc == 0 else 'FAIL'))

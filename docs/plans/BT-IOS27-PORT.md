@@ -547,6 +547,54 @@ parser, so a flight has to read them by eye until a checker exists. And
 "run the page's three commands" is not possible here at all; the table above
 is the translation, which is why §5.9 lists what ran and what it could not.
 
+### 5.11 What the same-SoC references carry, and what of it applies here
+
+The three reference trees were fetched and read on 2026-11-20. None of them is a
+patch this branch can take; two of them are reasons to look where the page does
+not.
+
+| Tree | Line | Bluetooth asset | Applies here? |
+| --- | --- | --- | --- |
+| t970 (SM-T970, QCA6390 BT on QUP0 SE6) | ipados18 | four staged patches: a read-only pin/SE6/SMMU survey under `btup`, HCI reset, firmware plus UART.SK (adding `bsd/dev/qbt_transport.c`), then the 3 Mbaud move | design only. Same architecture as K60 — GENI UART, BT_EN, H4 — but SE6 versus SE20, different pins and clock tree, and the series is written against ipados18 APIs. It is the checklist our 0507–0523 already follows. |
+| zizhan | ipados18 | 0024 crash capture (adds EXC_BAD_ACCESS and bluetoothd/BlueTool to the panics), 0025 product-id identity (60 lines) | the mechanism is line-independent; the patch is not, because `IOUserClient.cpp` does not have that shape on 12377. |
+| sheng | xnu-12377, 24A446 | `sheng-bluetooth-runtime.patch`, `sheng-bluetooth-exit-diagnostic.patch` | the 27-line reference this series is already written against. |
+
+**The identity node nobody publishes.** zizhan's crash capture is specific:
+bluetoothd died with SIGSEGV 95 ms after start, because `MGGetProductType()` is
+unknown when `IODeviceTree:/product` carries no `product-id`, so the controller
+platform object is NULL before bluetoothd ever opens `/dev/cu.bluetooth`. Their
+fix answers a 20-byte J171 product-id from `IOCopyPropertyCompatible`, only when
+the calling process is bluetoothd or BlueTool and only with
+`zizhan_bt_probe>=4`; every other process still sees no such property. Their
+next step also failed elsewhere: BlueTool exits 1 after about 31 s.
+
+On this branch, `product-id` does not appear at all — not in `dts/mondrian.dts`,
+not in `scripts/`, not in `board.toml`, not in `patches/xnu-12377/`. The
+bluetooth node is complete by the page's six properties, and none of them is the
+identity MobileGestalt reads.
+
+What is proven and what is not:
+
+- proven: the 20G81 (iOS 16.6.1) bluetoothd imports `MGGetProductType` and links
+  `/usr/lib/libMobileGestalt.dylib`; the dependency is not new to 27.
+- not proven: that 27's bluetoothd still resolves its controller platform this
+  way. No 24A446 bluetoothd has been extracted in this tree — the binary at
+  `/home/emilelu/ld2/usr/sbin/bluetoothd` is the 16.6.1 one (8,948,576 bytes,
+  dated 2023).
+- not proven: which product-id this board should answer as iPhone17,2, and
+  whether libMobileGestalt on 27 caches the value before a kernel hook could
+  answer it.
+
+Decision needed, not taken here. If the first flight shows bluetoothd dying at
+about 95 ms with SIGSEGV or EXC_BAD_ACCESS, the zizhan mechanism is the first
+hypothesis, and the fix would be a kernel patch this branch does not carry — a
+Lead decision, not a lane edit. The cheaper step first is to extract 24A446
+bluetoothd and confirm it still imports `MGGetProductType`; an offline preflight
+item then follows naturally ("the DT publishes `/product` `product-id` when the
+switch is on"), and it is not written yet.
+
+None of this ran on hardware. t970 and zizhan report their boards, not K60.
+
 ## 6. Userspace layer: what actually makes the adapter usable
 
 Publishing the service is necessary but not sufficient. On iOS 27 the adapter is

@@ -6,3 +6,8 @@ ptrauth-string-discriminator.patch
 # ArmCpu's weak_import sleep hook has no definition in any component; ld64-port
 # rejects the unresolved weak data symbol when the archive joins the kernel link.
 armcpu-sleep-hook.patch
+# Stage 0 has no serial hardware and no display driver, so the panel is the only
+# output: three bars from start.s while the MMU is off, then the stock video
+# console in text mode once arm_vm_init has run.
+f2-start-breadcrumbs.patch
+ios27-panel-console.patch

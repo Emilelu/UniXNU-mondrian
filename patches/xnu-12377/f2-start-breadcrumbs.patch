@@ -1,0 +1,64 @@
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -224,6 +224,37 @@
+ 
+ 
+ /*
++ * F2 breadcrumbs: paint a bar straight into the boot framebuffer while the
++ * MMU is still off. The panel is the only output before PE_create_console()
++ * runs after arm_vm_init(), so each bar marks a stage the kernel reached:
++ * red at the entry, yellow once the bootstrap page tables exist, cyan at
++ * common_start. A photo then says whether a silent stop is before or after
++ * the mapping code.
++ */
++.macro F2_BAR args, row, lo, hi
++	ldr	x9, [\args, #0x28]		// boot_args.Video.v_baseAddr
++	cbz	x9, 9f
++	ldr	x10, [\args, #0x38]		// Video.v_rowBytes
++	mov	x8, #16
++	mov	x11, #(\row)
++	madd	x9, x11, x10, x9
++	mov	w11, #\lo
++	movk	w11, #\hi, lsl #16
++1:
++	mov	x12, #64
++2:
++	str	w11, [x9], #4
++	subs	x12, x12, #1
++	b.ne	2b
++	add	x9, x9, x10
++	sub	x9, x9, #256
++	subs	x8, x8, #1
++	b.ne	1b
++	dsb	sy
++9:
++.endm
++
++/*
+  * __start trampoline is located at a position relative to LowResetVectorBase
+  * so that iBoot can compute the reset vector position to set IORVBAR using
+  * only the kernel entry point.  Reset vector = (__start & ~0xfff)
+@@ -232,6 +263,7 @@
+ 	.globl EXT(_start)
+ LEXT(_start)
+ 	ARM64_PROLOG
++	F2_BAR x0, 256, 0x0000, 0xFFFF
+ 	b	EXT(start_first_cpu)
+ 
+ 
+@@ -632,6 +664,7 @@
+ 	// the early debugger rather than corrupting memory or forging a map.
+ 	b Lbootstrap_tables_exhausted
+ Lbootstrap_tables_ready:
++	F2_BAR x20, 272, 0xFF00, 0xFFFF
+ 	/* Ensure TTEs are visible */
+ 	dsb		ish
+ 
+@@ -655,6 +688,7 @@
+  *	TPIDRRO_EL0 - CPU number
+  */
+ common_start:
++	F2_BAR x20, 288, 0xFFFF, 0xFF00
+ 
+ #if HAS_NEX_PG
+ 	mov x19, lr

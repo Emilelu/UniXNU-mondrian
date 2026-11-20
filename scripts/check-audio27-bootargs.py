@@ -106,6 +106,9 @@ def args_doc(repo, name):
 
 
 def main():
+    if any(argument in ("-h", "--help") for argument in sys.argv[1:]):
+        print((__doc__ or "").strip())
+        return 0
     repo = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else REPO
     calls = driver_calls(repo)
     if not calls:

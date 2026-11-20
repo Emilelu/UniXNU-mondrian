@@ -177,6 +177,9 @@ def version(root):
 
 
 def main(argv):
+    if any(argument in ("-h", "--help") for argument in argv):
+        print((__doc__ or "").strip())
+        return 0
     if len(argv) < 2:
         sys.stderr.write("usage: check-audio27-kernel-api.py <xnu-tree>\n")
         return 2

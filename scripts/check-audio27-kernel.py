@@ -58,6 +58,9 @@ def symbols(path):
 
 
 def main(argv):
+    if any(argument in ("-h", "--help") for argument in argv):
+        print((__doc__ or "").strip())
+        return 0
     if len(argv) != 2:
         print("usage: check-audio27-kernel.py <kernel or object>")
         return 2

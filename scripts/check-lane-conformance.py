@@ -2,12 +2,13 @@
 """Check the per-lane conformance table against the official page it quotes.
 
 docs/research/power/LANE-CONFORMANCE.toml is the answer to "each lane, line by
-line, against the official page, with evidence". Five things make such a table
+line, against the official page, with evidence". Six things make such a table
 survive: the quote must exist in the page (otherwise somebody is remembering a
 sentence that was never there), the evidence must be a file that exists, a
 verified row must name the line in that file which proves it (otherwise any
-unrelated file passes), a lane may not sit at "partial" without a reason, and
-two rows in the same lane may not quote the same sentence.
+unrelated file passes), that line may not be the quoted sentence itself, a lane
+may not sit at "partial" without a reason, and two rows in the same lane may not
+quote the same sentence.
 
 Render the reader-facing summary with --render.
 """
@@ -32,9 +33,9 @@ MIN_PROOF = 8
 HEADER = """# 四条线 + Power 对官网页面的逐条对齐（生成物）
 
 由 `python3 scripts/check-lane-conformance.py --render` 生成，**不要手改**：改
-`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对五件事——引用的句子确实在页面上、
-证据文件确实存在、`verified` 行写的那行证据确实在文件里、非 `verified` 的行写了理由、
-同一 lane 里同一句要求没有被两行重复引用（P-259）。
+`docs/research/power/LANE-CONFORMANCE.toml`。门禁核对六件事——引用的句子确实在页面上、
+证据文件确实存在、`verified` 行写的那行证据确实在文件里、证据行不能又是页面要求本身、
+非 `verified` 的行写了理由、同一 lane 里同一句要求没有被两行重复引用（P-259）。
 
 页面：`docs/zh/porting/power.md`（unixnu.com/zh/porting/power）。
 """
@@ -138,6 +139,8 @@ def verify(root, table_path):
         elif not target.exists():
             problems.append("%s: evidence %s does not exist" % (label, row.get("evidence")))
         proof = evidence_line(row)
+        if proof and requirement and proof == requirement:
+            problems.append("%s: evidence_line is the requirement itself; cite the implementation, not the page" % label)
         if status == "verified" and not proof:
             problems.append("%s: a verified row must name the line in its evidence that proves it (evidence_line)" % label)
         if proof and target is None:

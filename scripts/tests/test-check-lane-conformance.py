@@ -3,8 +3,9 @@
 
 The gate exists so the per-lane table cannot quote a sentence the page never
 carries, cite evidence that is not there, claim "verified" without naming the
-line in that evidence which proves it, sit at "partial" without saying why, or
-re-use one page sentence in two rows of the same lane.
+line in that evidence which proves it, cite the quoted sentence as its own
+proof, sit at "partial" without saying why, or re-use one page sentence in two
+rows of the same lane.
 These cases prove each of those refusals plus the healthy path, and that the
 repository table itself still verifies against the page copy.
 """
@@ -168,6 +169,13 @@ def main():
     problems = module.verify(root, table)[1]
     check("an evidence line too short to identify anything is refused",
           any("too short" in p for p in problems), str(problems))
+
+    root, table = build("selfproof", lanes(extra=row(
+        id="selfproof", lane="power", requirement="一句要求甲。",
+        evidence="page/power.md", evidence_line="一句要求甲。")))
+    problems = module.verify(root, table)[1]
+    check("an evidence line cannot be the requirement itself",
+          any("requirement itself" in p for p in problems), str(problems))
 
     partial = row(id="p", lane="power", status="partial", why="只做了一半", evidence_line="")
     root, table = build("partial-noproof", lanes(extra=partial))

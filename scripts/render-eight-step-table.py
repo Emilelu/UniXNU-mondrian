@@ -36,6 +36,8 @@ HEADS_EN = ['① Same model', '② Official', '③ Reverse', '④ Wide search', 
 # 只能放 EIGHT-STEPS.toml 里没有的项。2026-11-12：这里曾同时列着
 # 「UFS / 存储 / 显示 / 固件启动 / 音频」，而 storage / display / bootchain /
 # audio 早已进了 EIGHT-STEPS.toml，于是表格出现重复行。见铁则 5 与 P-148。
+# 2026-11-21：电源已进 [hardware.power]；未建记录表里不能重复列，
+# 渲染时按 TRACKED_KEYS 识别并跳过，这样旧数据也仍然对得上旧 README。
 UNTRACKED = [
     ('CPU', 'device-verified'),
     ('电源', 'device-verified'),
@@ -46,6 +48,7 @@ UNTRACKED = [
 ]
 
 MARK = {'done_true': '✅', 'done_false': '❌', 'partial': '◐'}
+TRACKED_KEYS = {'电源': 'power'}
 
 
 def cell(entry, st):
@@ -115,10 +118,15 @@ def render(lang='zh'):
                 'GPU（Adreno 730v3 / Metal）': 'GPU (Adreno 730v3 / Metal)',
                 '充电 / 电池协议（qti_battery_charger + pmic_glink）':
                     'Charging / battery protocol (qti_battery_charger + pmic_glink)',
+                '电源（EPSS / CPU·L3 工作点）':
+                    'Power (EPSS / CPU·L3 operating points)',
             }.get(label, label)
         out.append('| **%s** | %s | %s |' % (label, ' | '.join(cells), status))
 
     for label, st in UNTRACKED:
+        key = TRACKED_KEYS.get(label)
+        if key and key in hw:
+            continue
         cells = ['—'] * len(STEPS)
         if st == 'device-verified':
             cells[7] = '✅'

@@ -1,5 +1,43 @@
+diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h b/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h
+index 3abb574..4e27f7f 100644
+--- a/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h
++++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h
+@@ -4,8 +4,10 @@
+ 
+ #include <Base.h>
+ 
+-// XNU 8796.141.3 / Darwin 22 pexpert/pexpert/arm64/boot.h ABI.
+-#define DARWIN_BOOT_LINE_LENGTH 608
++// XNU 12377.121.6 / Darwin 26 pexpert/pexpert/arm64/boot.h ABI.
++// BOOT_LINE_LENGTH is the kernel structure field, 1024 bytes; the 608 that
++// userland passes to sysctl kern.bootargs is a different, older limit.
++#define DARWIN_BOOT_LINE_LENGTH 1024
+ typedef struct {
+   UINT16  Revision;
+   UINT16  Version;
+@@ -20,7 +22,7 @@ typedef struct {
+   UINT64  DeviceTree;
+   UINT32  DeviceTreeLength;
+   CHAR8   CommandLine[DARWIN_BOOT_LINE_LENGTH];
+-  UINT32  FlagsPadding;
++  UINT32  CommandLinePadding;
+   UINT64  BootFlags;
+   UINT64  MemorySizeActual;
+ } DARWIN_BOOT_ARGS;
+@@ -28,8 +30,8 @@ typedef struct {
+ STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, DeviceTree) == 0x60, "DT ABI");
+ STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, Video) == 0x28, "video ABI");
+ STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, CommandLine) == 0x6c, "command line ABI");
+-STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, BootFlags) == 0x2d0, "flags ABI");
+-STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, MemorySizeActual) == 0x2d8, "memory ABI");
+-STATIC_ASSERT (sizeof (DARWIN_BOOT_ARGS) == 0x2e0, "Darwin 22 boot_args ABI");
++STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, BootFlags) == 0x470, "flags ABI");
++STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, MemorySizeActual) == 0x478, "memory ABI");
++STATIC_ASSERT (sizeof (DARWIN_BOOT_ARGS) == 0x480, "Darwin 26 boot_args ABI");
+ 
+ #endif
 diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
-index 7add2ff..f3a43f5 100644
+index 7add2ff..910d89b 100644
 --- a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
 +++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
 @@ -129,50 +129,106 @@ STATIC
@@ -137,7 +175,17 @@ index 7add2ff..f3a43f5 100644
        HasEntry = TRUE;
      }
      Offset += Length;
-@@ -943,7 +999,7 @@ DarwinBootEntry (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+@@ -787,6 +843,9 @@ Boot (
+              (UINT8 *)Image + Kernel.Segments[Index].FileOffset, (UINTN)Kernel.Segments[Index].FileSize);
+   }
+   Args = (DARWIN_BOOT_ARGS *)(UINTN)ArgsAddress;
++  // The page comes from AllocatePages and is not zeroed: clear every field
++  // the kernel reads, including the padding and BootFlags.
++  ZeroMem (Args, sizeof (*Args));
+   Args->Revision = 2;
+   Args->Version = 2;
+   Args->VirtualBase = Kernel.Base;
+@@ -943,7 +1002,7 @@ DarwinBootEntry (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
    if (!EFI_ERROR (Status)) {
      // Explicit, volatile replacement for the qualified FD's older loader.
      // Unloading this driver restores it; no firmware or phone storage changes.
@@ -147,36 +195,14 @@ index 7add2ff..f3a43f5 100644
      if (EFI_ERROR (Status)) { return Status; }
      if (Count != 1) { FreePool (Handles); return EFI_UNSUPPORTED; }
 diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S b/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
-index 09d71d6..348e590 100644
+index 09d71d6..ca4c91f 100644
 --- a/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
 +++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
-@@ -63,6 +63,29 @@ ASM_FUNC(DarwinEnter)
+@@ -63,6 +63,7 @@ ASM_FUNC(DarwinEnter)
    tlbi vmalle1
    dsb sy
    isb
-+  // DarwinBoot is called at EL2, but XNU's start_first_cpu configures EL1:
-+  // set the EL2 state the kernel cannot reach and eret to EL1h. This is the
-+  // same sequence as the iOS 16 shim's kernel_handoff_entry.
-+  mrs x9, CurrentEL
-+  cmp x9, #0x8
-+  b.ne 5f
-+  mov x9, #(1 << 31)        // HCR_EL2: AArch64 EL1, no stage 2
-+  msr hcr_el2, x9
-+  msr vttbr_el2, xzr
-+  msr vtcr_el2, xzr
-+  msr cptr_el2, xzr
-+  msr mdcr_el2, xzr
-+  mov x9, #3                // CNTHCTL_EL2: EL1 timer access
-+  msr cnthctl_el2, x9
-+  mrs x9, icc_sre_el2
-+  orr x9, x9, #1            // ICC_SRE_EL2: system register access
-+  orr x9, x9, #8
-+  msr icc_sre_el2, x9
-+  mov x9, #0x3c5            // EL1h, DAIF masked
-+  msr spsr_el2, x9
-+  msr elr_el2, x1
-+  eret
-+5:
++  // DarwinBoot rejects anything but EL1, and XNU configures EL1.
    br x1
  
  ASM_FUNC(DarwinEnterEnd)

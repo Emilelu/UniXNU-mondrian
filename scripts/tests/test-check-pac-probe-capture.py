@@ -91,20 +91,30 @@ def main():
           "%s %s" % (verdict, missing))
 
     verdict, missing, details = module.preflight(image, 3)
-    check("an image without the start format string is INVALID",
-          verdict == "INVALID" and any("start format string" in item for item in missing),
+    check("an image without the start format string is INVALID and names the build",
+          verdict == "INVALID" and any("compiled in" in item and "build problem" in item for item in missing),
           "%s %s" % (verdict, missing))
 
     verdict, missing, _ = module.evaluate(base, sha)
     check("a complete capture is PASS", verdict == "PASS" and missing == [], "%s %s" % (verdict, missing))
 
-    verdict, missing, _ = module.evaluate(["boot only"], sha)
-    check("a capture with no probe is INVALID",
-          verdict == "INVALID" and any("no K60PAC" in item for item in missing), str(missing))
+    verdict, missing, details = module.evaluate(["boot only"], sha, image_has_probe=True)
+    check("a capture with no probe, from an image that carries it, is INVALID cause=run",
+          verdict == "INVALID" and details.get("cause") == "run" and any("did not run" in item for item in missing),
+          "%s %s %s" % (verdict, details, missing))
 
-    verdict, missing, _ = module.evaluate(base, "0" * 64)
-    check("a hash mismatch is INVALID",
-          verdict == "INVALID" and any("does not match" in item for item in missing), str(missing))
+    verdict, missing, details = module.evaluate(["boot only"], sha, image_has_probe=False)
+    check("a capture with no probe, from an image without it, is INVALID cause=build",
+          verdict == "INVALID" and details.get("cause") == "build" and any("rebuild the image" in item for item in missing),
+          "%s %s %s" % (verdict, details, missing))
+    check("build and run causes do not produce the same sentence",
+          module.evaluate(["boot only"], sha, image_has_probe=True)[2].get("cause")
+          != module.evaluate(["boot only"], sha, image_has_probe=False)[2].get("cause"))
+
+    verdict, missing, details = module.evaluate(base, "0" * 64)
+    check("a hash mismatch is INVALID cause=version and says it is another image",
+          verdict == "INVALID" and details.get("cause") == "version"
+          and any("another image" in item for item in missing), "%s %s" % (details, missing))
 
     lines = [line.replace("cpus=8", "cpus=7") for line in base]
     verdict, missing, _ = module.evaluate(lines, sha)
@@ -113,12 +123,15 @@ def main():
 
     lines = [line.replace("probe v3", "probe v2") for line in base]
     verdict, missing, _ = module.evaluate(lines, sha)
-    check("an unknown probe version is INVALID",
-          verdict == "INVALID" and any("probe version" in item for item in missing), str(missing))
+    check("a capture from another probe version is INVALID and says re-image",
+          verdict == "INVALID" and any("re-image" in item for item in missing), str(missing))
+    check("the other-version message does not claim the probe is missing",
+          all("image carries no probe" not in item for item in missing), str(missing))
 
-    verdict, missing, _ = module.evaluate(["K60PAC: boot noise"] + base, sha)
-    check("a K60PAC line before start is INVALID",
-          verdict == "INVALID" and any("not the start" in item for item in missing), str(missing))
+    verdict, missing, details = module.evaluate(["K60PAC: boot noise"] + base, sha)
+    check("a K60PAC line before start is INVALID cause=version",
+          verdict == "INVALID" and details.get("cause") == "version"
+          and any("not the start" in item for item in missing), "%s %s" % (details, missing))
 
     verdict, missing, _ = module.evaluate(without(base, "P0 core=3 "), sha)
     check("a missing P0 core is INCOMPLETE and names the core",
@@ -158,8 +171,9 @@ def main():
     result = subprocess.run([sys.executable, str(REPO / "scripts" / "check-pac-probe-capture.py"),
                              "--image", str(bad_image), "--log", str(log)],
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
-    check("a mismatch on the command line is INVALID and exits 2",
-          result.returncode == 2 and "PAC-CAPTURE: INVALID" in result.stdout,
+    check("a mismatch on the command line is INVALID, says cause=version and exits 2",
+          result.returncode == 2 and "PAC-CAPTURE: INVALID" in result.stdout
+          and "cause: version" in result.stdout,
           "rc=%d out=%r err=%r" % (result.returncode, result.stdout, result.stderr))
 
     result = subprocess.run([sys.executable, str(REPO / "scripts" / "check-pac-probe-capture.py"),
@@ -174,7 +188,7 @@ def main():
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
     check("image-only preflight without the format string is INVALID and exits 2",
           result.returncode == 2 and "PAC-CAPTURE: INVALID" in result.stdout
-          and "start format string" in result.stdout and "present" not in result.stdout,
+          and "compiled in" in result.stdout and "present" not in result.stdout,
           "rc=%d out=%r err=%r" % (result.returncode, result.stdout, result.stderr))
 
     incomplete = WORK / "incomplete.log"

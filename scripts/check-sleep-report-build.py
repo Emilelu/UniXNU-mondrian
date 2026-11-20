@@ -249,7 +249,7 @@ def main(argv=None):
     if args.log:
         print("sleep-report-build: OK (switch, compile line and object)")
     else:
-        print("sleep-report-build: WIRING OK (switch and plumbing; product not proven without --log)")
+        print("sleep-report-build: WIRING ONLY (switch and plumbing; the product is not proven without --log)")
     return 0
 
 

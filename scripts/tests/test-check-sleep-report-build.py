@@ -116,10 +116,19 @@ def main():
           "%s %s" % (state, detail))
 
     result = __import__("subprocess").run(
+        [sys.executable, str(REPO / "scripts" / "check-sleep-report-build.py")],
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    check("without a log the command exits 0 and the output itself says WIRING ONLY",
+          result.returncode == 0 and "WIRING ONLY" in result.stdout
+          and "product is not proven" in result.stdout,
+          "rc=%d out=%r err=%r" % (result.returncode, result.stdout, result.stderr))
+
+    result = __import__("subprocess").run(
         [sys.executable, str(REPO / "scripts" / "check-sleep-report-build.py"),
          "--log", str(log)], capture_output=True, text=True, encoding="utf-8", errors="replace")
-    check("the command with a good log exits 0",
-          result.returncode == 0 and "sleep-report-build: OK" in result.stdout,
+    check("the command with a good log exits 0 and does not claim wiring only",
+          result.returncode == 0 and "sleep-report-build: OK" in result.stdout
+          and "WIRING ONLY" not in result.stdout,
           "rc=%d out=%r err=%r" % (result.returncode, result.stdout, result.stderr))
 
     result = __import__("subprocess").run(

@@ -74,7 +74,7 @@ def load():
 
 def row(**kw):
     base = dict(id="x", lane="power", section="1", anchor="", requirement="一句要求甲。",
-                evidence="drv/evidence.c", evidence_line="int x; /* fixture proof */",
+                evidence="drv/evidence.c", evidence_line="1: int x; /* fixture proof */",
                 status="verified", why="")
     base.update(kw)
     return ROW.format(**base)
@@ -90,7 +90,7 @@ def build(name, rows, page=PAGE, with_evidence=True):
     if with_evidence:
         target = root / "drv" / "evidence.c"
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("int x; /* fixture proof */" + chr(10) + "int y; /* second line */" + chr(10), encoding="utf-8", newline="")
+        target.write_text("int x; /* fixture proof */" + chr(10) + "int y; /* second line */" + chr(10) + "int x; /* fixture proof */" + chr(10), encoding="utf-8", newline="")
     table = root / "table.toml"
     header = 'page_root = "%s"' % str(page_dir).replace("\\", "/") + chr(10) + 'page = "power.md"' + chr(10)
     table.write_text(header + rows, encoding="utf-8", newline="")
@@ -192,6 +192,15 @@ def main():
     problems = module.verify(root, table)[1]
     check("a line number past the end of the evidence is refused",
           any("does not exist" in p for p in problems), str(problems))
+
+    root, table = build("repeatproof", lanes(row(lane="power", evidence_line="int x; /* fixture proof */")))
+    problems = module.verify(root, table)[1]
+    check("an unaddressed proof the file carries twice is refused and asks for a line",
+          any("2 times" in p and "<line>" in p for p in problems), str(problems))
+
+    root, table = build("repeatproof-addressed", lanes(row(lane="power", evidence_line="3: int x; /* fixture proof */")))
+    problems = module.verify(root, table)[1]
+    check("the same repeat with the right line number verifies", problems == [], str(problems))
 
     root, table = build("shortproof", lanes(row(lane="power", evidence_line="x")))
     problems = module.verify(root, table)[1]

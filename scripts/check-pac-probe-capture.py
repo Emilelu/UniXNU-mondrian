@@ -10,9 +10,18 @@ line into "hardware does not support PAuth". It answers three questions:
   * did the capture finish with a done line?
 
 The verdict is PASS, INVALID or INCOMPLETE. A missing row is INCOMPLETE, never
-"unsupported"; a missing start line, a hash mismatch, a wrong cpu count or a
-wrong probe version is INVALID. PASS means only that the capture contract is
-complete, not that any PAC experiment passed.
+"unsupported". PASS means only that the capture contract is complete, not that any
+PAC experiment passed.
+
+Every INVALID carries a cause, because the two causes have different fixes:
+
+  * cause=build   the image does not carry the probe at all: rebuild the image
+  * cause=version the capture came from another probe version: re-image and refly
+  * cause=run     the image carries the probe but no start line: it did not run
+
+A hash mismatch or a wrong cpu count is cause=version too (the capture is not this
+image). Printing only "INVALID" is what made a build problem and a flight problem
+look the same.
 
 Usage:
   python3 scripts/check-pac-probe-capture.py --image kernel.macho
@@ -55,19 +64,29 @@ def has_fields(row, names):
     return all(name in row for name in names)
 
 
-def evaluate(lines, image_sha256, probe_version=EXPECTED_VERSION):
+def evaluate(lines, image_sha256, probe_version=EXPECTED_VERSION, image_has_probe=None):
     """Return (verdict, missing, details) for one capture."""
     payloads = [value for value in (payload(line) for line in lines) if value]
     missing = []
     details = {}
 
     if not payloads:
+        if image_has_probe is False:
+            details["cause"] = "build"
+            return "INVALID", ["no K60PAC line in the capture and no start format string in the image: rebuild the image with the probe"], details
+        if image_has_probe:
+            details["cause"] = "run"
+            return "INVALID", ["no K60PAC line in the capture, but the image carries the probe: it did not run; refly before reading the capture"], details
         return "INVALID", ["no K60PAC line in the capture"], details
 
     first = payloads[0]
     start = START.search(first)
     if not start:
-        return "INVALID", ["first K60PAC line is not the start line: %s" % first], details
+        details["cause"] = "version"
+        return "INVALID", ["first K60PAC line is not the start line: %s; the image carries an older probe, re-image and refly" % first], details
+    if int(start.group("version")) != probe_version:
+        details["cause"] = "version"
+        return "INVALID", ["probe v%s started, expected v%d: this image is not the version under test, re-image and refly before reading the capture" % (start.group("version"), probe_version)], details
 
     version = int(start.group("version"))
     cpus = int(start.group("cpus"))
@@ -77,12 +96,11 @@ def evaluate(lines, image_sha256, probe_version=EXPECTED_VERSION):
     starts = [value for value in payloads if START.search(value)]
     if len(starts) != 1:
         missing.append("exactly one start line (found %d)" % len(starts))
-    if version != probe_version:
-        missing.append("probe version v%d (expected v%d)" % (version, probe_version))
     if cpus != EXPECTED_CPUS:
         missing.append("cpus=%d (expected %d)" % (cpus, EXPECTED_CPUS))
     if sha != image_sha256.lower():
-        missing.append("image_sha256=%s does not match the image %s" % (sha, image_sha256.lower()))
+        details["cause"] = "version"
+        missing.append("image_sha256=%s does not match the image %s (this capture is another image)" % (sha, image_sha256.lower()))
     if missing:
         return "INVALID", missing, details
 
@@ -188,7 +206,7 @@ def preflight(path, probe_version=EXPECTED_VERSION):
     data = pathlib.Path(path).read_bytes()
     if needle in data:
         return "PASS", [], {"bytes": len(data), "format": needle.decode()}
-    return "INVALID", ["start format string %r" % needle.decode()], {"bytes": len(data)}
+    return "INVALID", ["no K60PAC start line in the image: the probe was not compiled in, this is a build problem, fix the build instead of reflying (expected %r)" % needle.decode()], {"bytes": len(data), "cause": "build"}
 
 
 def image_sha256(path):
@@ -211,7 +229,9 @@ def main(argv=None):
         if args.log:
             lines = pathlib.Path(args.log).read_text(encoding="utf-8", errors="replace").splitlines()
             sha = args.sha256 or image_sha256(args.image)
-            verdict, missing, details = evaluate(lines, sha, args.probe_version)
+            carrier = "K60PAC: probe v%d start" % args.probe_version
+            carries = carrier.encode() in pathlib.Path(args.image).read_bytes()
+            verdict, missing, details = evaluate(lines, sha, args.probe_version, carries)
         else:
             verdict, missing, details = preflight(args.image, args.probe_version)
     except OSError as error:
@@ -222,6 +242,8 @@ def main(argv=None):
         print(json.dumps({"verdict": verdict, "missing": missing, "details": details}, ensure_ascii=False, sort_keys=True))
     else:
         print("PAC-CAPTURE: %s" % verdict)
+        if details.get("cause"):
+            print("cause: %s (build = rebuild the image, version = re-image and refly, run = the probe did not start)" % details["cause"])
         if details.get("start"):
             print("start: v%d cpus=%d image_sha256=%s" % (details["version"], details["cpus"], details["image_sha256"]))
         elif details:

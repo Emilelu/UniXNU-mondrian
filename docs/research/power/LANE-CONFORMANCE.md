@@ -2,7 +2,7 @@
 
 由 `python3 scripts/check-lane-conformance.py --render` 生成，**不要手改**：改
 `docs/research/power/LANE-CONFORMANCE.toml`。门禁核对六件事——引用的句子确实在页面、且在该行写的节里；
-证据文件确实存在、`verified` 行写的那行证据确实在文件里、证据行不能又是页面要求本身、
+证据文件确实存在、`verified` 行写的那行证据确实在文件里、证据行不能又是页面要求本身（同一句在文件里出现两次时必须写 `行号: ` 钉住）、
 非 `verified` 的行写了理由、同一 lane 里同一句要求没有被两行重复引用（P-259）。
 
 页面：`docs/zh/porting/power.md`（unixnu.com/zh/porting/power）。
@@ -41,7 +41,7 @@
 | `battery-cancel-request` | 4 | 传输断开时取消请求 | `drivers/PongPower/K60Battmgr.c`<br>`b->flight = FLIGHT_NONE; b->cycle_active = b->subscribed = b->subscribe_due = 0;` | verified | 通道断开时 :58-62 清 flight、cycle_active、subscribed、subscribe_due 和 valid/fresh，未完成请求不会被当成完成；K60Battery.cpp:446 在 PMIC 通道失败时调用它 |
 | `battery-stale` | 4 | 在驱动中将读数标为过期 | `drivers/PongPower/K60Battery.cpp`<br>`self->stale("PMIC channel down");` | verified | 通道断开在 :446-450 调 stale()；stale() 在 :176 把 K60BatteryStale 置真并 updateStatus，保留最后测量值；其他失败路径也调用它 |
 | `battery-firmware-ownership` | 4 | 固件负责充电控制时保留其所有权 | `drivers/PongPower/K60Battmgr.c`<br>`Charging control remains entirely firmware-owned.` | partial | 只有 K60Battmgr.c:5 的注释声明固件所有权；驱动确实不发充电写请求，但注释不是可执行判据，也没有上机用例证明固件仍在控制。charge-auth 是独立参数且默认关闭 |
-| `battery-property-numbers` | 4 | 属性 ID | `docs/research/charger/PROP-NUMBERS.toml`<br>`verdict = "same"` | verified | 18 行 16→27 属性号逐行判定，全部 same |
+| `battery-property-numbers` | 4 | 属性 ID | `docs/research/charger/PROP-NUMBERS.toml`<br>`27: verdict = "same"` | verified | 18 行 16→27 属性号逐行判定，全部 same |
 | `battery-device-verification` | 4 | 验证插拔电源、充放电、响应超时和服务重启 | `docs/research/charger/07-DEVICE-CRITERIA.md`<br>`C1 订阅 → C2 四属性 → C3 Android 对照` | partial | C1/C2/C3 判据与判读器都在，真插拔、放电、超时与服务重启一次没做；上机只由 Lead 排 |
 
 ## charger（1 行）

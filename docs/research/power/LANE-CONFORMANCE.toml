@@ -274,7 +274,7 @@ section = "4"
 anchor = "#battery"
 requirement = "属性 ID"
 evidence = "docs/research/charger/PROP-NUMBERS.toml"
-evidence_line = "verdict = \"same\""
+evidence_line = "27: verdict = \"same\""
 status = "verified"
 why = "18 行 16→27 属性号逐行判定，全部 same"
 

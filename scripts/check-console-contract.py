@@ -25,6 +25,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PAIRS = (
     ("battery-sample", "drivers/PongPower/K60Battery.cpp", "scripts/judge-battery.py",
      "SAMPLE_RE", "sample=%u SOC=", ("physical source published", "cell")),
+    ("battery-mirror-sample", "drivers/PongPower/K60Battery.cpp",
+     "scripts/judge-k60-battery-mirror.py", "SAMPLE_RE", "sample=%u SOC=",
+     ("physical source published", "cell")),
     ("battery-channel-up", "drivers/PongPower/K60Battery.cpp", "scripts/judge-battery.py",
      "CHANNEL_UP_RE", "channel up; measured sign=", ()),
     ("battery-adopt", "drivers/PongPower/K60PmicGlink.cpp", "scripts/judge-battery.py",
@@ -41,19 +44,94 @@ PAIRS = (
      "ENABLED_RE", "platform sleep enabled wake-after=", ()),
     ("sleep-report", "drivers/PongPower/K60PlatformSleep.cpp", "scripts/judge-k60-sleep-console.py",
      "SLEEP_REPORT_RE", "K60Sleep: report prepares=", ()),
+    ("sleep-armed", "drivers/PongPower/K60PlatformSleep.cpp", "scripts/judge-k60-sleep-console.py",
+     "ARMED_RE", "K60Sleep: diagnostic trigger armed", ()),
+    ("sleep-armcpu-report", "drivers/ArmCpu/ArmCpu.cpp", "scripts/judge-k60-sleep-console.py",
+     "ARMCPU_REPORT_RE", "ArmCpu: sleep report phase=", ()),
     ("sleep-trace-enter", "patches/xnu/0629-k60-sleep-trace.patch",
      "scripts/judge-k60-sleep-console.py", "TRACE_ENTER_RE", "K60TRACE: sleep enter cpus=", ()),
     ("sleep-trace-resumed", "patches/xnu/0629-k60-sleep-trace.patch",
      "scripts/judge-k60-sleep-console.py", "RESUME_RE", "K60TRACE: resumed", ()),
+    ("sleep-trace-sched", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "SCHED_RE", "K60TRACE: sched override done", ()),
+    ("sleep-trace-actions", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "ACTIONS_RE", "K60TRACE: platform actions done", ()),
+    ("sleep-trace-quiesce", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "QUIESCE_RE", "K60TRACE: quiescing set", ()),
+    ("sleep-trace-halt", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "HALT_RE", "K60TRACE: halt cpu ", ()),
+    ("sleep-trace-secondaries", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "SECONDARIES_RE", "K60TRACE: secondaries done", ()),
+    ("sleep-trace-wake", "patches/xnu/0629-k60-sleep-trace.patch",
+     "scripts/judge-k60-sleep-console.py", "WAKE_RE", "K60TRACE: wake cpus done", ()),
+    ("panic-ring", "patches/xnu/0334-k60-panic-reset-fastboot.patch",
+     "scripts/judge-k60-sleep-console.py", "PANIC_RE", "K60PANIC: ring kept", ()),
     ("mode1-late-begin", "drivers/PongPower/K60CpuFreqProbe.cpp",
      "scripts/judge-k60-mode1-console.py", "LATE_BEGIN_RE", "late read begin (mode 1)", ()),
+    ("mode1-late-end", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "LATE_END_RE", "late read end", ()),
     ("mode1-domain", "drivers/PongPower/K60CpuFreqProbe.cpp",
      "scripts/judge-k60-mode1-console.py", "DOMAIN_RE", "mode1=read-only", ()),
+    ("mode1-header", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "HEADER_RE", "EPSS domains=", ()),
+    ("mode1-l3", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "L3_RE", "K60CpuFreq: L3 base=", ()),
+    ("mode1-apply", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "WRITE_PATTERNS:apply", "mode%u apply d", ()),
+    ("mode1-vote", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "WRITE_PATTERNS:vote", "mode%u vote d", ()),
+    ("mode1-pdmem", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "WRITE_PATTERNS:pdmem", "d%u pdmem=", ()),
+    ("mode1-restore", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "WRITE_PATTERNS:restore", "restore domains=", ()),
+    ("mode1-l3-readback", "drivers/PongPower/K60CpuFreqProbe.cpp",
+     "scripts/judge-k60-mode1-console.py", "WRITE_PATTERNS:l3-readback", "readback=ok", ()),
 )
 
 # The sleep trace lines are printed from inside the xnu patch with printf(); every other
 # pair comes out of a driver through IOLog. The call is a property of the pair, not a guess.
-CALLS = {"sleep-trace-enter": "printf", "sleep-trace-resumed": "printf"}
+CALLS = {
+    "sleep-trace-enter": "printf", "sleep-trace-resumed": "printf",
+    "sleep-trace-sched": "printf", "sleep-trace-actions": "printf",
+    "sleep-trace-quiesce": "printf", "sleep-trace-halt": "printf",
+    "sleep-trace-secondaries": "printf", "sleep-trace-wake": "printf",
+    "panic-ring": "printf",
+}
+
+# A judge that pins the device's geometry cannot be satisfied by the default made-up values:
+# the header line has to carry the real domains=3 cpus=8 lut-rows=40.
+NUMBERS = {
+    "mode1-header": ("1", "3", "8", "40"),
+    # the write patterns only fire in a write mode: mode 1 is the read-only probe
+    "mode1-apply": ("2",), "mode1-vote": ("2",),
+    "mode1-pdmem": ("2",), "mode1-restore": ("2",),
+}
+
+# A regex with no printer is either a missing pair or a line this repository does not print.
+# The second case is allowed, but only with a reason a reader can check - the same shape as
+# the rule registry's check-or-waiver (P-179: an enumeration that silently drops an item).
+EXEMPT = {
+    ("scripts/judge-battery.py", "DMESG_FG_RE"):
+        "reads Android dmesg for the C3 comparison, so it matches a foreign console, not a "
+        "line any driver here prints",
+    ("scripts/judge-battery.py", "DMESG_USB_RE"):
+        "same as DMESG_FG_RE: the Android side of the C3 comparison",
+    ("scripts/judge-k60-sleep-console.py", "ENTER_RE"):
+        "stock xnu prints 'Time 0x... Message IOCPUSleepKernel enter' from source that lives "
+        "in the kernel tree, not in this repository",
+    ("scripts/judge-k60-sleep-console.py", "EXIT_RE"):
+        "the matching 'IOCPUSleepKernel exit' line, same stock source",
+    ("scripts/judge-k60-sleep-console.py", "SPURIOUS_RE"):
+        "stock xnu panic text 'Spurious wakeup of cpu N @file:line'; nothing here prints it",
+    ("scripts/judge-k60-sleep-console.py", "PANIC_ARGS_RE"):
+        "0387 prints the prefix 'K60PANICARGS ' and then vprintf(fmt, args), so the judged "
+        "text is the kernel's own panic format at runtime and has no static format to synthesise",
+    ("scripts/judge-k60-mode1-console.py", "LEGACY_DOMAIN_RE"):
+        "a looser match for consoles written before the domain line gained its fields; no "
+        "current emitter, kept so an older capture still parses",
+    ("scripts/judge-k60-mode1-console.py", "SPRINGBOARD_RE"):
+        "launchd/SpringBoard text produced by the system once userland starts, not by this repo",
+}
 
 ESCAPES = {"n": "\n", "t": "\t", "0": "\0", "r": "\r", "\\": "\\", '"': '"'}
 
@@ -67,6 +145,10 @@ def c_strings(text: str, open_paren: int) -> str:
         char = text[i]
         if char == "(":
             depth += 1
+        elif char == "," and depth == 1:
+            # only the first argument is the format: a ternary such as
+            # (readback ? "ok" : "mismatch") is another literal inside the same call
+            break
         elif char == ")":
             depth -= 1
             if depth == 0:
@@ -94,7 +176,7 @@ def find_format(text: str, anchor: str, call: str = "IOLog") -> str | None:
     return None
 
 
-def synthesise(fmt: str, fillers: tuple[str, ...] = ()) -> str:
+def synthesise(fmt: str, fillers: tuple[str, ...] = (), numbers: tuple[str, ...] = ()) -> str:
     """Turn a printf format into one plausible line. Values do not matter; the anchors
     around them do, and those are exactly what the judge's pattern is written against."""
     out: list[str] = []
@@ -122,6 +204,9 @@ def synthesise(fmt: str, fillers: tuple[str, ...] = ()) -> str:
         if conversion == "s":
             value = fillers[min(used, len(fillers) - 1)] if fillers else "word"
             used += 1
+        elif conversion in "diu" and used < len(numbers):
+            value = numbers[used]
+            used += 1
         elif conversion in "diu":
             value = "1"
         elif conversion in "xX":
@@ -144,11 +229,59 @@ def pairs_present(root: pathlib.Path, pairs=PAIRS) -> int:
                if (root / emitter).is_file() and (root / judge).is_file())
 
 
-def load_regex(path: pathlib.Path, attribute: str) -> re.Pattern:
-    spec = importlib.util.spec_from_file_location(f"judge_{path.stem}_{attribute}", path)
+def load_module(path: pathlib.Path):
+    spec = importlib.util.spec_from_file_location(f"judge_{path.stem}", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+def load_regex(path: pathlib.Path, attribute: str) -> re.Pattern:
+    module = load_module(path)
+    if attribute.startswith("WRITE_PATTERNS:"):
+        key = attribute.split(":", 1)[1]
+        return dict(module.WRITE_PATTERNS)[key]
     return getattr(module, attribute)
+
+
+def coverage_problems(root: pathlib.Path, pairs=PAIRS) -> list[str]:
+    """Every pattern a judge matches against a console must either name its printer below or
+    say why this repository does not print that line. A judge that grows a new pattern would
+    otherwise be added with no pair and nothing would notice (P-179)."""
+    problems: list[str] = []
+    paired = {(judge, attribute) for _n, _e, judge, attribute, _a, _f in pairs}
+    for judge in sorted({judge for _n, _e, judge, _a, _an, _f in pairs}):
+        path = root / judge
+        if not path.is_file():
+            continue
+        module = load_module(path)
+        attributes = [name for name in dir(module)
+                      if name.endswith("_RE") and isinstance(getattr(module, name), re.Pattern)]
+        attributes += [f"WRITE_PATTERNS:{key}" for key, _pattern in getattr(module, "WRITE_PATTERNS", ())]
+        for attribute in attributes:
+            key = (judge, attribute)
+            if key in paired and key in EXEMPT:
+                problems.append(f"{judge}:{attribute} is both paired and exempt; keep one")
+            elif key in EXEMPT and not str(EXEMPT[key]).strip():
+                problems.append(f"{judge}:{attribute} is exempt with an empty reason; a reason "
+                                f"nobody can read is the same as no pair")
+            elif key not in paired and key not in EXEMPT:
+                problems.append(f"{judge}:{attribute} matches a console line but no pair says "
+                                f"who prints it (add a pair, or an EXEMPT entry with the reason)")
+    for judge, attribute in EXEMPT:
+        path = root / judge
+        if not path.is_file():
+            continue
+        module = load_module(path)
+        if attribute.startswith("WRITE_PATTERNS:"):
+            present = attribute.split(":", 1)[1] in dict(getattr(module, "WRITE_PATTERNS", ()))
+        else:
+            present = isinstance(getattr(module, attribute, None), re.Pattern)
+        if not present:
+            problems.append(f"EXEMPT names {judge}:{attribute}, which the judge no longer carries")
+        elif (judge, attribute) in paired:
+            problems.append(f"{judge}:{attribute} is paired now; drop its EXEMPT reason")
+    return problems
 
 
 def verify(root: pathlib.Path, pairs=PAIRS, require_files: bool = True) -> list[str]:
@@ -176,16 +309,19 @@ def verify(root: pathlib.Path, pairs=PAIRS, require_files: bool = True) -> list[
         except (AttributeError, ImportError, SyntaxError) as error:
             problems.append(f"{name}: {judge} has no usable {attribute}: {error}")
             continue
-        line = synthesise(fmt, fillers)
+        numbers = NUMBERS.get(name, ())
+        line = synthesise(fmt, fillers, numbers)
         if not pattern.search(line):
             problems.append(f"{name}: {judge}:{attribute} does not match the line {emitter} "
                             f"prints ({line.strip()!r})")
             continue
         # The anchor has to be what carries the match, otherwise a rename elsewhere would
         # slip through and this gate would be green about nothing.
-        if pattern.search(synthesise(fmt.replace(anchor, ""), fillers)):
+        if pattern.search(synthesise(fmt.replace(anchor, ""), fillers, numbers)):
             problems.append(f"{name}: {attribute} still matches with {anchor!r} removed from "
                             f"the format, so this pair proves nothing")
+    if require_files:
+        problems += coverage_problems(root, pairs)
     return problems
 
 
@@ -205,8 +341,10 @@ def main() -> int:
             print(f"❌ {problem}", file=sys.stderr)
         print(f"console-contract: {len(problems)} problem(s)", file=sys.stderr)
         return 2 if problems and "does not exist" in problems[0] else 1
+    exempt = sum(1 for key in EXEMPT)
     print(f"✅ console-contract: {len(PAIRS)} judged line(s) still come out of the emitter "
-          f"that prints them")
+          f"that prints them; every other pattern a judge matches has a written reason "
+          f"({exempt} exempt)")
     return 0
 
 

@@ -139,11 +139,13 @@ def make_tree(base: Path, *, console: str | None = None, module: bool = True, gu
         # the real driver and the real judge, so the pair gate reads both sides in the tree
         (tree / "drivers" / "PongPower" / "K60Battery.cpp").write_text(
             console, encoding="utf-8", newline="\n")
-        shutil.copyfile(ROOT / "scripts" / "judge-battery.py", tree / "scripts" / "judge-battery.py")
-        # the trace pairs need the real sleep judge: a placeholder judge carries no regex, so
-        # the fixture would report a broken pair where the code is fine
-        shutil.copyfile(ROOT / "scripts" / "judge-k60-sleep-console.py",
-                        tree / "scripts" / "judge-k60-sleep-console.py")
+        for judge in ("judge-battery.py", "judge-k60-battery-mirror.py",
+                      "judge-k60-sleep-console.py", "judge-k60-mode1-console.py"):
+            shutil.copyfile(ROOT / "scripts" / judge, tree / "scripts" / judge)
+        # the real trace patch: the console pairs read the lines it prints, and a synthetic
+        # patch would report every trace pair as a line nothing prints
+        shutil.copyfile(ROOT / "patches" / "xnu" / "0629-k60-sleep-trace.patch",
+                        tree / "patches" / "xnu" / "0629-k60-sleep-trace.patch")
     if wire_body is not None:
         (tree / "drivers" / "PongPower" / "K60Battmgr.h").write_text(BATT_H, encoding="utf-8", newline="\n")
         (tree / "drivers" / "PongPower" / "K60Battmgr.c").write_text(wire_body, encoding="utf-8", newline="\n")

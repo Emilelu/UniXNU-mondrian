@@ -132,6 +132,35 @@ def main() -> int:
     finally:
         module.CALLS.pop("trace", None)
 
+    # A judge that grows a pattern nobody paired must be refused, and an exemption has to
+    # carry a reason a reader can check (the same check-or-waiver shape as RULES.toml).
+    cover = find(WORK / "cover", "drv.c")
+    cover.write_text(EMITTER, encoding="utf-8", newline="\n")
+    (cover.parent / "judge.py").write_text(
+        JUDGE + "SPARE_RE = re.compile(r'K60Demo: spare=(\\d+)')\n",
+        encoding="utf-8", newline="\n")
+    problems = module.coverage_problems(cover.parent, pair())
+    check("a pattern with no printer pair is refused",
+          any("no pair says who prints it" in problem for problem in problems), str(problems))
+    module.EXEMPT[("judge.py", "SPARE_RE")] = "printed by the kernel tree, not here"
+    try:
+        check("a written exemption is accepted",
+              module.coverage_problems(cover.parent, pair()) == [],
+              str(module.coverage_problems(cover.parent, pair())))
+        module.EXEMPT[("judge.py", "SPARE_RE")] = "  "
+        problems = module.coverage_problems(cover.parent, pair())
+        check("an exemption with no reason is refused",
+              any("empty reason" in problem for problem in problems), str(problems))
+        module.EXEMPT[("judge.py", "SPARE_RE")] = "a reason"
+        del module.EXEMPT[("judge.py", "SPARE_RE")]
+        module.EXEMPT[("judge.py", "GONE_RE")] = "a reason"
+        problems = module.coverage_problems(cover.parent, pair())
+        check("an exemption the judge outgrew is refused",
+              any("no longer carries" in problem for problem in problems), str(problems))
+    finally:
+        module.EXEMPT.pop(("judge.py", "SPARE_RE"), None)
+        module.EXEMPT.pop(("judge.py", "GONE_RE"), None)
+
     # --root points at another checkout of the same repository, so it is exercised against
     # the real one and against an empty directory.
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}

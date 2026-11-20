@@ -197,6 +197,22 @@ def case_member_never_filled():
     return code == 1 and "PongCodecLpiIo.slew_read is never assigned" in out, out
 
 
+def case_extra_void_field():
+    root = fixture()
+    edit(root, "PongCodecSwr.h", "\tvoid *ctx;\n} PongSwrIo;",
+         "\tvoid *ctx;\n\tvoid *opaque;\n} PongSwrIo;")
+    code, out = run(root)
+    return code == 1 and "PongSwrIo carries the field opaque" in out, out
+
+
+def case_extra_callback():
+    root = fixture()
+    edit(root, "PongCodecSwr.h", "\tvoid *ctx;\n} PongSwrIo;",
+         "\tvoid *ctx;\n\tvoid (*reset)(void *ctx);\n} PongSwrIo;")
+    code, out = run(root)
+    return code == 1 and "PongSwrIo.reset is not one half" in out, out
+
+
 CASES = [
     ("good", case_good),
     ("slew_field_gone", case_slew_field_gone),
@@ -214,6 +230,8 @@ CASES = [
     ("callback_zeroed", case_callback_zeroed),
     ("copy_from_wrong_type", case_copy_from_wrong_type),
     ("member_never_filled", case_member_never_filled),
+    ("extra_void_field", case_extra_void_field),
+    ("extra_callback", case_extra_callback),
 ]
 
 

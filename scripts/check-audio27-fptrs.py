@@ -18,7 +18,8 @@ checked here instead of described:
     (bus->io = *io) must come from the same struct type;
   * every call passes the receiver's own context as its first argument, so a
     bare void * cannot cross a layer;
-  * no other function-pointer table exists under drivers/PongAudio;
+  * no other function-pointer table exists under drivers/PongAudio, and each of
+    the four tables carries nothing beyond its pairs and their contexts;
   * the weak declaration in patch 0531 has the same signature as the
     definition in PongAudioAmp.c, and the call is guarded, takes no argument
     and discards its result.
@@ -130,6 +131,18 @@ def check_tables(found, problems):
             continue
         table = found[name]
         by_name = {m[1]: m for m in table["callbacks"]}
+        expected_callbacks = set()
+        for prefix in expected:
+            expected_callbacks.update((prefix + "read", prefix + "write"))
+        for extra in sorted(set(by_name) - expected_callbacks):
+            problems.append("%s.%s is not one half of a read/write pair, so the"
+                            " seam carries a callback nothing declares"
+                            % (name, extra))
+        contexts = {"%sctx" % prefix for prefix in expected}
+        for extra in sorted(set(table["fields"]) - contexts):
+            problems.append("%s carries the field %s, which is not one of its"
+                            " contexts (%s)"
+                            % (name, extra, ", ".join(sorted(contexts))))
         if set(table["fields"]) & {"%sctx" % p for p in expected} != {"%sctx" % p for p in expected}:
             problems.append("%s has no %s field, so its callbacks have no context"
                             % (name, " or ".join("%sctx" % p for p in expected)))

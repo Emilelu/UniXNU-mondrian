@@ -33,12 +33,14 @@
 
 ## 二、三分钟自证
 
-需要三样东西，都不需要编译器：
+需要三样东西。前四条自证只用 `python3`，不编译内核；第 5 条整跑会调用宿主编译器跑 host 套件。
 
 - `K60_GATES`：`k60-gates` 检出，里面要有 `board.toml` 与 `patches/xnu-12377/series`；
-- `XNU27_TREE`：27 的 XNU 源码树（`xnu-12377.121.6` 级别）；
+- `XNU27_TREE`：27 的 XNU 源码树（`xnu-12377.121.6` 级别）。整跑预检把同一棵树叫 `XNU27_REPO`，两个名字各用各的命令，值指向同一路径；
 - `XNU27_KERNEL`：stage 0 构建出的 `kernel/kernel.macho`，或从 `payload.img` 的
   `EFI/UniXNU/Payloads/` 取出的同名文件。
+
+整跑还需要一个框架检出（`UNIXNU=` 指路，默认 `/tmp/UniXNU`）：没有时 `framework passes env to builder` 一行 `skip`，不是失败。
 
 ### 1. 产物里真的没有音频
 

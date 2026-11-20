@@ -784,3 +784,18 @@ Lead 07:41 说「锚点我这边还没有，别等」。现在种子树的 `.cac
 - feed 树：同样绿（`anchor lines=0` 只是 note）
 - 工具自测：`K60 PORT27 PASS renumbering, anchor insertion, auto anchor, refusal, verification, series, build list`
 - 「先 apply 五个补丁 → 再追加 19 条 conffiles → 再编译」这条路第一次具备可执行的全部输入。
+
+补记（2026-11-20 09:00）：三段已经在副本上跑通，脚本 `scripts/verify-27-line.sh`。
+
+`bash scripts/verify-27-line.sh --tree /opt/k60/trees/ios27-out/.../tree/.cache/xnu-work` 会：
+1. `git clone --shared` 出一个副本（对象复用，只复制工作文件），把种子树里 3 个未提交修改（`EXTERNAL_HEADERS/Availability.h`、
+   `EXTERNAL_HEADERS/CoreEntitlements/CoreEntitlements.h`、`bsd/conf/Makefile.arm64`）以 diff 形式带进去；
+2. 按序 `git apply` 0626/0627/0628/0629/0630；
+3. 用 `conffiles-port.txt` 在 `bsd/dev/unix_startup.c` 之后追加条目，先断言 19 个源都在副本里。
+
+实测输出：`K60 TRIAL ok   seed modifications carried`、五个 `applies`、
+`K60 TRIAL ok   appended 19 build entries, bsd/conf now lists 19`、`K60 TRIAL PASS seed, five patches and the build entries on one clone`
+（`bsd/conf/files` 633 行 → 652 行）。真树一行未改；副本用完即删（`--keep` 保留）。
+
+这一步把「补丁打得上」「conffiles 追得上」「条目指向的源真的存在」三件事合到一次可重放的动作里，
+也解释了 §20.3 的顺序坑：追加器看不到的源会被静默跳过，所以追加必须排在 `git apply` 之后。

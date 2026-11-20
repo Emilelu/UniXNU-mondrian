@@ -7,7 +7,7 @@ revisit = "stage-0 SpringBoard, or an F1/F2 signal that yields a bootable 24A446
 name = "蓝牙（QCA6490 / HCI over UART）"
 status = "parked"
 paths = ["dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "patches/xnu-12377/series", "/mnt/e/hackios/QcaBluetooth"]
-why = "2026-11-21 re-read for the 27 line: the series, the DT node and the static checks exist, but no 24A446 payload, no stage-0 SpringBoard and no single bluetoothd start have been observed. The 18.x d8 experiment stopped in the NVM budget; this record does not inherit that device run. The only green 27 kernel build is CI 44518998961, whose head 33f5229 is not an ancestor of this branch."
+why = "2026-11-21 re-read for the 27 line: the series, the DT node and the static checks exist, but no 24A446 payload, no stage-0 SpringBoard and no single bluetoothd start have been observed. The 18.x device line stopped in the NVM budget (d7) and d8 was paused; this record does not inherit that device run. The only green 27 kernel build is CI 44518998961, whose head 33f5229 is not an ancestor of this branch."
 label = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
 files = ["docs/plans/BT-IOS27-PORT.md", "dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "patches/xnu-12377/series"]
 plan = "Do not flash. Close the four gates in step.verify.plan and then record a device run with the exact head sha."
@@ -45,7 +45,7 @@ plan = "If a second 27 board selects it, re-run the same 46-field check; sheng-o
 [hardware.bluetooth.step.plan]
 done = true
 recorded_at = "2026-11-21T03:44:00+08:00"
-evidence = "The order of record is docs/plans/BT-IOS27-PORT.md:107-127: 23 patches in four layers, with the device series carrying 0500-0523. The 0521 blob is a 106-entry manifest, not the 113-file payload (docs/plans/BT-IOS27-PORT.md:129-153). CI 44518998961 built the 23-patch kernel at 93,077,504 B, sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86 (docs/plans/BT-IOS27-PORT.md:265-274), but its head 33f5229 is not an ancestor of a2a75813 (git merge-base --is-ancestor returned 1). This tip also sets CONFIG_XNU_NATIVE_UFS=y at configs/mondrian_ios27_defconfig:21 while build/native-ufs/libNativeUfs.a is absent, so a build from this tip would stop in storage before Bluetooth."
+evidence = "The order of record is docs/plans/BT-IOS27-PORT.md:107-127: 23 patches in four layers, with the device series carrying the 0500-0523 order (no 0513). The 0521 blob is a 106-entry manifest, not the 113-file payload (docs/plans/BT-IOS27-PORT.md:129-153). CI 44518998961 built the 23-patch kernel at 93,077,504 B, sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86 (docs/plans/BT-IOS27-PORT.md:265-274), but its head 33f5229 is not an ancestor of a2a75813 (git merge-base --is-ancestor returned 1). This tip also sets CONFIG_XNU_NATIVE_UFS=y at configs/mondrian_ios27_defconfig:21 while build/native-ufs/libNativeUfs.a is absent, so a build from this tip would stop in storage before Bluetooth."
 files = ["docs/plans/BT-IOS27-PORT.md", "configs/mondrian_ios27_defconfig", "board.toml"]
 plan = "For a BT-only compile use the 33f5229 config with NativeUfs off, or land the F3 archive; log the exact head sha, because this branch cannot reproduce the CI build."
 

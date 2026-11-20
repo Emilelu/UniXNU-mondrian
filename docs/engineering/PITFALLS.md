@@ -7438,7 +7438,7 @@ gitdir 写成了另一侧 stat 不到的形式，先修路径，别清理。
 4. 挂在 `scripts/tests/run-k60-power-host.sh` 的 `run_py console-contract` 上，
     `power-python: OK`（套件总数以 00-POWER-PAGE-CONFORMANCE.md 为准）；bundle 的 `EXTRA` 带上检查器和它的用例，
    RULES 的 P-259 检查链末尾追加这条，避免它只在本仓绿。
-5. 同一个阈值窗口被两个判读器各写一份、再被判据文档写第三份时，三份都要被一处可执行检查读：`scripts/check-judge-thresholds.py` 同时载入 `judge-battery.py` 与 `judge-k60-battery-mirror.py`，要求四个容差相等、每个都被真正读取（定义了没人用等于死常量），并要求判据文档里出现由代码渲染出来的那句话（`±60 mV / ±150 mA / ±3 pp / ±3 °C`）。漂移的方向最坏：镜像判读器保留旧窗口，同一对样本一个判读器放过、另一个不放。
+5. 同一个阈值窗口在仓库里有四份拷贝——两个判读器的常量、镜像判读器自己 docstring 里的四句说明、判据文档里的那一行——四份都要被一处可执行检查读：`scripts/check-judge-thresholds.py` 同时载入 `judge-battery.py` 与 `judge-k60-battery-mirror.py`，要求四个容差相等、每个都被真正读取（定义了没人用等于死常量），要求判据文档里出现由代码渲染出来的那句话（`±60 mV / ±150 mA / ±3 pp / ±3 °C`），并要求 docstring 里那四句仍写着现算出来的数字（改常量不改句子就红）。漂移的方向最坏：镜像判读器保留旧窗口，同一对样本一个判读器放过、另一个不放。
 
 6. `coverage_problems()` 把判读器里**还没配对**的正则也变成红：判读器新增一条正则而没人写产出方，等于一条永远不会匹配的判读标准。例外只能写在 `EXEMPT` 里并给出理由（安卓 dmesg、stock xnu 的固定文案、`vprintf` 透传的运行时格式串、系统 userland 输出），理由为空与没写例外同罪，例外指向的属性消失也要报「已不存在」——否则豁免会一直挂着保护一个已经不存在的对象（P-179 的形状）。
 ## P-262 — 判读器的退出码也是判据的一部分，而 argparse 的 2 和 INVALID 撞车

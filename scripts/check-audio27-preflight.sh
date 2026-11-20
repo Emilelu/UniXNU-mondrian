@@ -20,7 +20,8 @@
 #  12. the wiring walked in order, hook included, on a tree without the button driver
 #  13. the 27 interface, product, include, stub, collision and closure checkers' own
 #      tests, that every log line the 27 pages quote is one a printf prints, and that
-#      the file:line citations still point at the code they name
+#      the file:line citations still point at the code they name, and that the judge's
+#      chip table and the driver's agree
 #  14. the patch emitter's own tests
 #  15. the four interfaces, the stub declarations they are compiled against, and the
 #      symbol table, against a real 27 XNU tree when one is
@@ -120,6 +121,8 @@ run "logline checker is honest" python3 scripts/tests/test-audio27-loglines.py
 run "27 pages quote printed lines" python3 scripts/check-audio27-loglines.py
 run "27 line citations are honest" python3 scripts/tests/test-audio27-lines.py
 run "27 pages cite live lines" python3 scripts/check-audio27-lines.py
+run "chip table checker is honest" python3 scripts/tests/test-audio27-chips.py
+run "judge and driver agree on chips" python3 scripts/check-audio27-chips.py
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py

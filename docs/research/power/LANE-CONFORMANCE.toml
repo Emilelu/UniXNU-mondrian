@@ -1,0 +1,205 @@
+# 四条线 + Power 对官网页面的逐条对齐（每行都要可判定）
+#
+# 页面：docs/zh/porting/power.md（unixnu.com/zh/porting/power）。requirement 必须是页面里
+# 逐字出现的一句话（门禁会去页面文本里找），evidence 必须是本仓能打开的文件、判读器或门禁。
+#
+# status 只允许四档：
+#   verified  有本仓证据，且判据已跑过（判读器/门禁/离线用例）
+#   partial   代码与判据都在，但缺上机证据或只覆盖一半
+#   not-done  没做
+#   delegated 由别的线负责（写清是哪条线）
+# partial / not-done / delegated 必须写 why，"看起来可以"不算理由。
+schema = 1
+page_root = "E:/hackios/UniXNU/docs/zh/porting"
+page = "power.md"
+checked_by = "python3 scripts/check-lane-conformance.py"
+
+[[row]]
+id = "dsp-firmware-auth"
+lane = "adsp"
+section = "2"
+anchor = "#dsp"
+requirement = "按目标硬件适配固件认证、预留内存和电源投票"
+evidence = "drivers/PongPower/K60AdspPas.c"
+status = "partial"
+why = "SMC 认证与 0x9fd00000 载入点都写进了驱动与 0613 补丁（P-255 的 clobber 契约有门禁），但没有上机：认证成功的证据只有离线语义，没有 DSP 侧回执"
+
+[[row]]
+id = "dsp-channel-callback"
+lane = "adsp"
+section = "2"
+anchor = "#dsp"
+requirement = "实现 `ShengAdspClient` 的通道状态和接收回调"
+evidence = "scripts/judge-k60-handoff-console.py"
+status = "verified"
+why = ""
+
+[[row]]
+id = "dsp-channel-name"
+lane = "adsp"
+section = "2"
+anchor = "#dsp"
+requirement = "通道名、接收缓冲大小和打开方向采用目标服务协议的定义"
+evidence = "drivers/PongPower/K60BatteryConfig.h"
+status = "verified"
+why = ""
+
+[[row]]
+id = "dsp-send-result"
+lane = "adsp"
+section = "2"
+anchor = "#dsp"
+requirement = "处理 `sheng_adsp_send` 返回值"
+evidence = "drivers/PongPower/K60Battmgr.c"
+status = "verified"
+why = ""
+
+[[row]]
+id = "dsp-channel-result"
+lane = "adsp"
+section = "2"
+anchor = "#dsp"
+requirement = "通道能够打开、完成一次有超时的请求/响应、报告失败并重连"
+evidence = "scripts/judge-k60-handoff-console.py"
+status = "verified"
+why = "判读器七条判据（CAPTURE/CHAIN/ADOPT/CHANNEL/SAMPLE/NO-FAILURE/ORDER）已在两份真机 console 上 PASS"
+
+[[row]]
+id = "battery-owner-check"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "核对 owner、消息类型、"
+evidence = "scripts/check-battmgr-wire.py"
+status = "verified"
+why = ""
+
+[[row]]
+id = "battery-one-outstanding"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "每次保留一个未完成请求"
+evidence = "drivers/PongPower/K60Battmgr.c"
+status = "verified"
+why = ""
+
+[[row]]
+id = "battery-snapshot-units"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "将以 0.01% 为单位的容量值转换为百分比"
+evidence = "scripts/judge-k60-battery-mirror.py"
+status = "verified"
+why = "单位错档会被命名成 unit slip 而不是测量偏差；与 sheng 的 Linux 报告对读通过"
+
+[[row]]
+id = "battery-register-service"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "初始有效属性准备好后调用 `registerService()`"
+evidence = "scripts/judge-battery.py"
+status = "verified"
+why = ""
+
+[[row]]
+id = "battery-firmware-ownership"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "固件负责充电控制时保留其所有权"
+evidence = "docs/research/battery/PAS1-PROVIDER-CONTRACT.md"
+status = "verified"
+why = "驱动只发测量请求，不写充电寄存器；charge-auth 是独立参数且默认关闭"
+
+[[row]]
+id = "battery-property-numbers"
+lane = "battery"
+section = "4"
+anchor = "#battery"
+requirement = "使用前确认目标协议的单位和充电电流符号"
+evidence = "docs/research/charger/PROP-NUMBERS.toml"
+status = "verified"
+why = "18 行 16→27 属性号逐行判定，全部 same"
+
+[[row]]
+id = "charger-independent-protocol"
+lane = "charger"
+section = "4"
+anchor = "#battery"
+requirement = "主机控制的充电器需要独立的控制协议、限值和温控策略"
+evidence = "drivers/PongPower/K60ChargeAuth.c"
+status = "partial"
+why = "协议与 HMAC（RFC 4231 向量 5 项）都在 host 侧验证过，但从未上机；18 字节的参数只能在探针镜像里飞"
+
+[[row]]
+id = "thermal-advise"
+lane = "thermal"
+section = "5"
+anchor = "#power"
+requirement = "按规定顺序执行目标稳压器、互连和温控要求"
+evidence = "drivers/PongPower/K60ThermalMap.c"
+status = "partial"
+why = "9 个 AP 温区与 6 级阶梯有 125 项 host 断言，但热证据整批不可用（capture state port-not-observed、console 0 字节），只能拒绝升档，不能证明真实触发"
+
+[[row]]
+id = "thermal-limits"
+lane = "thermal"
+section = "1"
+anchor = ""
+requirement = "时钟域、OPP 表、稳压器、固件投票和温控限制"
+evidence = "docs/research/power/HW-CONTRACTS.toml"
+status = "verified"
+why = ""
+
+[[row]]
+id = "power-epss-lut"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "读取目标 LUT、参考时钟和使能状态"
+evidence = "drivers/PongPower/K60CpuFreqPlan.c"
+status = "verified"
+why = ""
+
+[[row]]
+id = "power-governor"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "每 16 ms 读取调度器记录的各 CPU 空闲时间"
+evidence = "drivers/PongPower/K60CpuFreqPlan.c"
+status = "verified"
+why = ""
+
+[[row]]
+id = "power-sleep-resume"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "休眠/唤醒时保存所需状态，恢复时钟与映射"
+evidence = "scripts/judge-k60-sleep-console.py"
+status = "verified"
+why = "11 份真机 console 上跑过；0629 的报告门控已从 defined(PONG) 改成 K60_PLATFORM_SLEEP_REPORT"
+
+[[row]]
+id = "power-vote-ownership"
+lane = "power"
+section = "5"
+anchor = "#power"
+requirement = "为外设电源投票明确所有权和引用计数"
+evidence = "drivers/PongPower/K60RailPlan.c"
+status = "verified"
+why = ""
+
+[[row]]
+id = "build-interface"
+lane = "power"
+section = "6"
+anchor = ""
+requirement = "构建并验证接口"
+evidence = "scripts/judge-k60-mode1-console.py"
+status = "verified"
+why = ""

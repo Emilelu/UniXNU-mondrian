@@ -128,6 +128,8 @@ run "judge and driver agree on chips" python3 scripts/check-audio27-chips.py
 run "boot argument checker is honest" python3 scripts/tests/test-audio27-bootargs.py
 run "audio boot argument is wired" python3 scripts/check-audio27-bootargs.py
 run "boot arguments are documented" python3 scripts/check-boot-args.py
+run "commands gate is honest" python3 scripts/tests/test-audio27-commands.py
+run "27 command citations resolve" python3 scripts/check-audio27-commands.py .
 run "27 collision checker is honest" python3 scripts/tests/test-audio27-collisions.py
 run "27 closure checker is honest" python3 scripts/tests/test-audio27-closure.py
 run "27 patch emitter is honest" python3 scripts/tests/test-emit-audio27-patch.py

@@ -507,6 +507,9 @@ def severity(code):
 
 
 def main(argv):
+    if any(argument in ("-h", "--help") for argument in argv):
+        print((__doc__ or "").strip())
+        return 0
     args = [a for a in argv[1:] if not a.startswith("--")]
     replay = "--replay" in argv[1:]
     playback = "--playback" in argv[1:]

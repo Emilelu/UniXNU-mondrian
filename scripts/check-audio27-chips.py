@@ -47,6 +47,9 @@ def driver_table(text):
 
 
 def main(argv):
+    if any(argument in ("-h", "--help") for argument in argv):
+        print((__doc__ or "").strip())
+        return 0
     repo = argv[1] if len(argv) > 1 else REPO
     jtext, dtext = read(repo, JUDGE), read(repo, PLAN)
     for name, text in ((JUDGE, jtext), (PLAN, dtext)):

@@ -37,6 +37,9 @@ def lines(repo, name):
 
 
 def main(argv):
+    if any(argument in ("-h", "--help") for argument in argv):
+        print((__doc__ or "").strip())
+        return 0
     repo = argv[1] if len(argv) > 1 else REPO
     if not os.path.isdir(os.path.join(repo, "docs")):
         print("LINES FAILED: %s has no docs/, so there is nothing to read" % repo)

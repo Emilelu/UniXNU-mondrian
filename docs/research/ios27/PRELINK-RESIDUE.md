@@ -72,3 +72,19 @@ AppleARMPlatform 有 5 个 `__const` 的 IOCPU/IOInterruptController 槽。
 - `_unixnu_fileset_unmapped` 被调用时的确切行为未建立（`kernel.json` 里的 native 路径已不在，
   但 `kernel.macho` 带着我们 221,318 个符号的表）。
 - 每个「首次执行」阶段是从 bundle 字面串 + XNU 启动顺序推出的**预测**，不是 K60 日志。
+## 追补（同日，bt 线的独立结论）：那两个分支的来历
+
+上游 `required_original_branches` 的两条（`__ZN25IOMobileFramebufferLegacyC2EPK11OSMetaClass`、
+`__ZN11IOHIDDevice10handleOpenEP9IOServicejPv`）不是 XNU 自己的符号，而是 Sheng 的
+`libNativeLegacyDisplay.late.a` 提供的 `.original` 适配器（display 与 HID 各一条，形状 `bti c; b`）。
+本支 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n` 且不链这个 archive，所以：
+
+- 写入点 `fileset_emit.py:731-732` -> `fileset_segmented.py:63-64` -> `fileset_layout.py:250-288`，
+  只在原生内核导出唯一配对的 `.original` 时记录；
+- `--lto` 参考只影响匹配，不产生这个字段（所以「等 LTO 就好了」不成立）；
+- 空列表是这棵树的正确测量。
+
+这给出比日期更硬的复审条件：若哪天把 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY` 打开并链接
+`libNativeLegacyDisplay.late.a`，`required_original_branches` 必须变成非空；反之保持空并写明原因。
+证据来自 bt 线 `feat/xnu27-data-gate` 的 `docs/research/storage/PRELINK-ORIGINAL-BRANCHES.md`
+（234 行）与 `E:/k60-work/scratch/reply-bt-20261115.md`。

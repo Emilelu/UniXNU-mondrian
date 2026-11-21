@@ -16,8 +16,8 @@
   "required_original_branches": [],
   "required_original_branches_waiver": {
     "reason": "This kernel exports no `.original` adapter symbol at all: relocate_original_stubs() (fileset_layout.py:255-283) records a branch only for a uniquely paired symbol ending `.original`, shaped `bti c; b`, whose displacement equals the declared absolute target inside retained_code, and no such symbol exists here (the only kernel-to-kext path today is the early_security_init hook, which is a hook and not an absolute branch). The empty list is the measurement, not a missing flag: copying the upstream iPad17,3 names would green this clause while measuring nothing (P-289). Review means either finding a real absolute branch we take, or restating the clause as must-stay-empty with that evidence.",
-    "review_after": "2026-11-28",
-    "evidence": "docs/research/ios27/PRELINK-RESIDUE.md"
+    "review_after": "2026-12-19",
+    "evidence": "docs/research/ios27/PRELINK-RESIDUE.md; the two upstream names come from Sheng libNativeLegacyDisplay.late.a (display and HID .original stubs), and this branch sets CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n and links no such archive, so the clause is empty by measurement. The re-review condition is stronger than the date: enabling that switch obliges the list to become non-empty."
   },
   "stubbed": {
     "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib": {

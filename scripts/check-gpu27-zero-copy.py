@@ -33,10 +33,21 @@ here, and then all of these must hold at once:
   3. those stage lines report `gpu=0 us` and `sum=0 us` - the numbers must be
      gone, not smaller;
   4. at least MIN_SAMPLES stage lines, and the frame counter advanced - one line
-     is an anecdote, and a frozen counter means the presenter was not serving.
+     is an anecdote, and a frozen counter means the presenter was not serving;
+  5. over a window of at least WINDOW_MS, the frame counter advanced at no less
+     than WINDOW_MIN_FPS - the direct path has to keep the panel fed, not just
+     avoid the copy once.
+
+Rule 5 needs a time on every line, which is what the draft
+`patches/proposed/pong-scanout-frame-timestamp.patch` adds as `at=<sec>.<ms>`
+(the frame's arrival time, one clock read taken for the wait span). Until that
+lands the field is absent, and absence is reported as "no window can be judged"
+(exit 2) rather than as a window that held: a missing measurement is never a
+passing measurement.
 
 Exit codes follow the other gpu27 checks: 0 holds or dormant, 1 a rule above
-failed, 2 the checker could not judge (no log, no stage lines, too few samples).
+failed, 2 the checker could not judge (no log, no stage lines, too few samples,
+no timestamp on the lines, or a window shorter than WINDOW_MS).
 
 Usage: python3 scripts/check-gpu27-zero-copy.py LOG [--strict]
 """
@@ -53,8 +64,15 @@ STAGE = re.compile(
     r" submit=(\d+) us\s*gpu=(\d+) us sum=(\d+) us")
 BENCH = re.compile(r"scanout bench n=(\d+)/(\d+) import=(\d+) us encode=(\d+) us "
                    r"submit=(\d+) us\s*gpu=(\d+) us sum=(\d+) us")
+# The frame's arrival stamp is the only field on the line that can be searched
+# without knowing its position: the rate prefix prints "at <sec>.<ms> s" (space,
+# no equals), the timestamp prints "at=<sec>.<ms>" (P-295: appended last, so no
+# group above it moved).
+AT = re.compile(r"at=(\d+)\.(\d{1,3})\b")
 
 MIN_SAMPLES = 8
+WINDOW_MS = 3000
+WINDOW_MIN_FPS = 110
 
 
 def read(path):
@@ -68,17 +86,54 @@ def parse(text):
     for line in text.splitlines():
         match = STAGE.search(line)
         if match:
+            stamp = AT.search(line)
             stages.append({
                 "frames": int(match.group(1)),
                 "imports": int(match.group(6)),
                 "gpu": int(match.group(10)),
                 "sum": int(match.group(11)),
+                "at": None if not stamp else int(stamp.group(1)) * 1000
+                      + int(stamp.group(2).ljust(3, "0")),
             })
             continue
         match = BENCH.search(line)
         if match:
             bench.append({"n": int(match.group(1)), "gpu": int(match.group(6))})
     return stages, bench
+
+
+def judge_window(direct):
+    """Rule 5: frames must advance at panel rate across WINDOW_MS.
+
+    Returns (window, verdict, detail) where verdict is "ok", "cannot judge",
+    "inconsistent" or "too slow". A line without a stamp is counted, never
+    assumed: a flight where only some lines carry one cannot be ordered.
+    """
+    stamped_lines = [stage for stage in direct if stage["at"] is not None]
+    if not stamped_lines:
+        return None, "cannot judge", ("none of the %d direct stage line(s) carries an "
+                                      "at=<sec>.<ms> stamp" % len(direct))
+    if len(stamped_lines) != len(direct):
+        return None, "inconsistent", ("%d of %d direct stage line(s) carry no timestamp, so the "
+                                      "older ones cannot be placed on the same clock"
+                                      % (len(direct) - len(stamped_lines), len(direct)))
+    for before, after in zip(stamped_lines, stamped_lines[1:]):
+        if after["at"] < before["at"]:
+            return None, "inconsistent", ("frames=%d is stamped %d ms, the next line frames=%d is "
+                                          "stamped %d ms: time went backwards"
+                                          % (before["frames"], before["at"], after["frames"],
+                                             after["at"]))
+    span_ms = stamped_lines[-1]["at"] - stamped_lines[0]["at"]
+    frames = stamped_lines[-1]["frames"] - stamped_lines[0]["frames"]
+    if span_ms < WINDOW_MS:
+        return None, "cannot judge", ("the stamps span %d ms, rule 5 needs %d ms"
+                                      % (span_ms, WINDOW_MS))
+    fps = frames * 1000.0 / span_ms
+    window = {"span_ms": span_ms, "frames": frames, "fps": fps}
+    if fps < WINDOW_MIN_FPS:
+        return window, "too slow", ("%d frames in %d ms is %.0f/s, below the %d/s the panel "
+                                    "needs" % (frames, span_ms, fps, WINDOW_MIN_FPS))
+    return window, "ok", ""
 
 
 def main(argv):
@@ -140,8 +195,25 @@ def main(argv):
             print("  %s" % line)
         return 1
 
+    window, verdict, detail = judge_window(direct)
+    if verdict == "inconsistent":
+        print("FAIL the direct stage lines disagree about time:")
+        print("  %s" % detail)
+        return 1
+    if verdict == "cannot judge":
+        print("cannot judge the window: %s" % detail)
+        print("carry patches/proposed/pong-scanout-frame-timestamp.patch (at=<sec>.<ms>)")
+        print("with the next image; without it rule 5 cannot be checked either way")
+        return 2
+    if verdict == "too slow":
+        print("FAIL the direct path did not keep the panel fed:")
+        print("  %s" % detail)
+        return 1
+
     print("OK the direct path ran: %d stage line(s) with imports=0, no bench copy, "
-          "gpu/sum both zero, frames %d to %d" % (len(direct), first, last))
+          "gpu/sum both zero, frames %d to %d, %d frames in %d ms (%.0f/s over %d ms)"
+          % (len(direct), first, last, window["frames"], window["span_ms"],
+             window["fps"], window["span_ms"]))
     return 0
 
 

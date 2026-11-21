@@ -43,7 +43,12 @@ def main():
     base = os.path.join(FIXTURES, "gpu27-zero-copy")
 
     passed &= expect("dormant: every frame copied", base + "-dormant.log", 0, "dormant:")
-    passed &= expect("direct: the copy is gone", base + "-direct.log", 0, "the direct path ran")
+      # A direct flight from a build without the timestamp draft: the copy is gone,
+    # but rule 5 cannot be judged, and "cannot judge" must not read as a pass.
+    # Expected value changed 0 -> 2 when rule 5 landed. That is not a regression:
+    # the fixture predates the stamp field, so the flight answers "no copy" and
+    # cannot answer "the panel was fed for three seconds".
+    passed &= expect("direct: the copy is gone, no stamp", base + "-direct.log", 2, "cannot judge the window")
     passed &= expect("a bench sample means a copy", base + "-with-bench.log", 1, "bench sample")
     passed &= expect("fallback still runs", base + "-mixed.log", 1, "fallback path")
     passed &= expect("too few samples to judge", base + "-insufficient.log", 2, "cannot judge")
@@ -51,6 +56,11 @@ def main():
 
     # A direct line that still reports a copy is the subtle one: the imports say
     # zero but the GPU time says otherwise, and only the second field can tell.
+    passed &= expect("direct with stamps, fed at 125/s", base + "-direct-at-ok.log", 0,
+                     "the direct path ran")
+    passed &= expect("stamps go backwards", base + "-direct-at-reversed.log", 1, "went backwards")
+    passed &= expect("stamps span under 3 s", base + "-direct-at-short.log", 2, "cannot judge the window")
+
     work = tempfile.mkdtemp(prefix="gpu27-zero-copy-")
     try:
         path = os.path.join(work, "copied.log")
@@ -63,6 +73,16 @@ def main():
         empty = os.path.join(work, "empty.log")
         open(empty, "w").close()
         passed &= expect("no stage line at all", empty, 2, "cannot judge")
+
+        # Only some lines stamped: the older ones cannot be placed on the clock,
+        # so the window is inconsistent rather than judged.
+        partial = os.path.join(work, "partial.log")
+        with open(base + "-direct-at-ok.log", "r", encoding="utf-8") as src:
+            text = src.read()
+        stamp = text.splitlines()[0].split(" at=")[-1]
+        with open(partial, "w", encoding="utf-8", newline="\n") as out:
+            out.write(text.replace(" at=" + stamp, "", 1))
+        passed &= expect("only some lines stamped", partial, 1, "carry no timestamp")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -70,7 +90,9 @@ def main():
     if not passed:
         print("TESTS FAILED")
         return 1
-    print("TESTS OK: 8 cases (dormant, direct, bench, fallback, few samples, strict, copied-but-zero-imports, empty)")
+    print("TESTS OK: 12 cases (dormant, direct-without-stamp, bench, fallback, few samples, "
+          "strict, copied-but-zero-imports, empty, stamped-ok, stamps-backwards, short-span, "
+          "partial-stamps)")
     return 0
 
 

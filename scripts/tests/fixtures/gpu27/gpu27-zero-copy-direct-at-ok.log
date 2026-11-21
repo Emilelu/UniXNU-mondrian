@@ -1,0 +1,21 @@
+Pong Metal: scanout frames=1000 at 500.000 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=500.000
+Pong Metal: scanout frames=1020 at 500.160 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=500.160
+Pong Metal: scanout frames=1040 at 500.320 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=500.320
+Pong Metal: scanout frames=1060 at 500.480 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=500.480
+Pong Metal: scanout frames=1080 at 500.640 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=500.640
+Pong Metal: scanout frames=1100 at 500.800 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=500.800
+Pong Metal: scanout frames=1120 at 500.960 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=500.960
+Pong Metal: scanout frames=1140 at 501.120 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=501.120
+Pong Metal: scanout frames=1160 at 501.280 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=501.280
+Pong Metal: scanout frames=1180 at 501.440 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=501.440
+Pong Metal: scanout frames=1200 at 501.600 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=501.600
+Pong Metal: scanout frames=1220 at 501.760 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=501.760
+Pong Metal: scanout frames=1240 at 501.920 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=501.920
+Pong Metal: scanout frames=1260 at 502.080 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=502.080
+Pong Metal: scanout frames=1280 at 502.240 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=502.240
+Pong Metal: scanout frames=1300 at 502.400 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=502.400
+Pong Metal: scanout frames=1320 at 502.560 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=502.560
+Pong Metal: scanout frames=1340 at 502.720 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=502.720
+Pong Metal: scanout frames=1360 at 502.880 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=502.880
+Pong Metal: scanout frames=1380 at 503.040 s; last frame: wait=200 us copy=1300 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us at=503.040
+K60 PANEL: INTF1 after the UI frame te 120/s period 8339 us

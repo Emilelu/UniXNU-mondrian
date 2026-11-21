@@ -1,6 +1,6 @@
 # WPA3-Personal 在 27 线的移植边界
 
-Status: blocked_by: F2/F3；offline plan accepted 2026-11-21; reference host gate added and passing 2026-11-21. 本轮没有构建、没有上机、没有改共享仓。WPA3 只在
+Status: blocked_by: F2/F3；offline plan accepted 2026-11-21; reference host gate added and passing 2026-11-21; §6.1 criteria written 2026-11-21, evidence pending F2. 本轮没有构建、没有上机、没有改共享仓。WPA3 只在
 `E:/hackios/UniXNU-t970` 的参考实现里存在；K60 当前仍是 WPA2-Personal，且
 `pong_sae.c` 只是 SAE 帧形状探针，不是密钥协商。
 
@@ -276,6 +276,75 @@ WPA3 的“已实现”至少需要三件事同时成立：
 在 3 之前，`PongWifiNet.cpp` 保持拒绝未知 auth，WPA3 状态是“库可复用、
 station 未接、控制面未证”。不得用 22H374 的 WPA2 personal 0x8 或 24A446 的
 WPA2 personal 0x10 代替 SAE 值；也不得把 t970 的模拟器输出当成 K60 设备证据。
+
+### 6.1 预声明解除判据（判据已写，证据待 F2）
+
+本节只定义“什么算到了”，不定义实现。F2 与 F3 允许来自两次设备 capture；
+WPA3 那一行必须在同一次 capture 里同时含 F3 三条与 WPA3 五条。每个 capture
+都必须能绑定到 24A446 的 payload（`porting.toml` 记录的 `kernel_sha256` 或
+capture 的版本行）；绑定不了的 capture 判不适用，22H374 / 16.6.1 的 capture
+不适用，t970 的主机测试和模拟器不计入。这些字符串如果被实现改动，必须
+在飞行前先改本节，不能事后解释。
+
+**F2：内核走到 `bsd_init`（缺一即未到）**
+
+- `MAC Framework successfully initialized` — `bsd_init.c:655` 的
+  `mac_policy_initbsd()` 之后；成功旧 boot 第 85 行。
+- `K60 USBLOG: worker entry` — `bsd_init.c:1341` 的 `k60_usblog_start()`；
+  同一旧 boot 第 190 行。
+
+两条都有才判 F2 到达；缺第一条是死在 `bsd_init` 之前，缺第二条是
+`bsd_init` 没走完。F2 的预期下一事件是 root-mount panic；如果 panic 和 F3
+三条都没有，记录“`bsd_init` 到达、root-mount 状态未知”，F3 仍未到。
+
+**F3：OS/Data 挂载且 launchd exec（缺一即未到）**
+
+同一 capture 必需：
+
+- `PONG APFS: SystemOS mounted dev=... ro=1 union=1 flags=...`
+- `K60DATA mounted ro=0 fstype=apfs`
+- `Pong init: exec original /sbin/launchd`
+
+只出现 `PONG APFS: SystemOS selected` 或 `SystemOS mount enter` 不算，必须
+`mounted`。缺 SystemOS 是 OS 卷未匹配，缺 K60DATA 是 Data 未挂载，缺 launchd
+是只到 mount、未到用户态。
+
+字形来源：E:/k60-work/evidence/usblog-20261116-015128/console.log:85,190,367,482,532
+（16.6.1 成功 boot，只用来固定字符串，不当作 24A446 证据）；F2 的代码锚点见
+docs/research/wifi/STAGE-BRINGUP.md:33-40，F3 的挂载锚点见
+docs/research/wifi/BOOT-DEATH-BISECT.md:301。
+
+**WPA3：一次真实 SAE join（解除 `blocked_by: F2/F3`）**
+
+前提：同一 capture 的 F3 三条已满足。下面五条必须来自这次真实 join；当前代码
+还没有这些行，WPA3 实现必须先加日志，日志不得改变控制流。缺任一条即“没到”。
+
+1. 控制面：`PongWifi[6]: wifi-net: join: ... auth_upper=0x<两位十六进制> ...`
+   这一行要在 `PongWifiNet.cpp:787-793` 的 auth 门之前打印；否则未知 auth 被
+   拒绝，永远看不到请求。值必须是 24A446 请求中的实际值；0x8/0x10（WPA2
+   personal）不算 SAE。
+2. station 进入 SAE commit：`ath11k: wifi: sae commit group=<19|20>`
+   （实现点在 `drivers/Ath12kWifi/src/nw_sta.c:132-136` 与 `:458-466` 的 auth 分支）。
+3. SAE confirm 验证成功：`ath11k: wifi: sae confirm status=0`
+   （`pw3_sae_verify_confirm` 返回 0 之后）。
+4. association 带 SAE AKM 且 PMF 打开：
+   `ath11k: wifi: assoc akm=8 mfp=1`（`nw_sta.c:112-123` 的 RSN 路径）。
+5. 连接完成：`ath11k: wifi: connected`（`nw_sta.c:398` 现有路径）。
+
+缺 1 是没看到 24A446 的 SAE 请求；缺 2 是没进 SAE；缺 3 是 commit 到
+confirm 失败；缺 4 是没把 AKM 8/PMF 写进 association；缺 5 是协议走完但
+没有 link。出现负值（`status!=0`、`akm!=8`、`mfp=0`）或只有
+`ath11k: wifi: connected` 而前面缺失，都判未到，不解除。
+
+**状态怎么写**
+
+- F2 两条齐 → `evidence_status = "F2 reached; F3 pending"`；
+- F3 三条齐、WPA3 五条未齐 → `evidence_status = "F3 reached; WPA3 pending"`；
+- WPA3 五条齐且第 1 条不是 0x8/0x10、第 4 条是 `akm=8/mfp=1`、第 5 条出现
+  → 才把 `status = "blocked_by: F2/F3"` 改成
+  `status = "implemented; device-evidenced"`，并在 `porting.toml` 的 network
+  记录里写 40 字符 revision、capture 路径和命令。
+- 只到 F2/F3、只过 t970 主机门禁、或只有 22H374 的成功，都不改 `status`。
 
 ## 7. 复现清单
 

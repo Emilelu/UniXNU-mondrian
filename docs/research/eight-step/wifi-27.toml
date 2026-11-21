@@ -5,7 +5,7 @@ status = "active"
 paths = ["patches/wifi/", "patches/xnu-12377/", "drivers/PongWifi/", "drivers/Ath12kWifi/", "scripts/", "docs/research/wifi/", "docs/plans/WIFI-IOS27-CHECKLIST.md"]
 why = "2026-11-21：24A446 Wi-Fi 线只做离线契约与验收工具，不构建、不上机；C1/C2/C3 仍 open，完整 arm64e station 归档尚不存在。见 docs/plans/WIFI-IOS27-CHECKLIST.md:76 与 docs/research/wifi/IOS27-STATION-API-GAP.md:22-23。"
 label = "WiFi（QCA6490 / WCN6855）"
-wpa3 = { status = "blocked_by: F2/F3", reference = "docs/research/wifi/WPA3-PORT-PLAN.md", offline = "python3 scripts/tests/test-wpa3-reference.py" }
+wpa3 = { status = "blocked_by: F2/F3", criteria = "docs/research/wifi/WPA3-PORT-PLAN.md §6.1", evidence_status = "判据已写、证据待 F2", reference = "docs/research/wifi/WPA3-PORT-PLAN.md", offline = "python3 scripts/tests/test-wpa3-reference.py" }
 
 [hardware.wifi.step.same_model]
 done = true

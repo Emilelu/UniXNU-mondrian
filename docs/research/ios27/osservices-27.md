@@ -202,6 +202,8 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
 - 该头把形状钉死成硬断言：`sizeof(IOService)==0x88`、`sizeof(IOCryptoAccelerator)==0x88`、`sizeof(IOAESAccelerator)==0x120`、`sizeof(IOAESIV)==16`、`offsetof(IOAESKeyData,selector)==36`、16 个虚函数。这六个值现在是 **16 行实测值**，在 27 上一条都没重测过。
 - arm64e 的额外风险：`patches/xnu-12377/series` 第一条就是 `ptrauth-string-discriminator`。vtable 槽仍是 8 B，但槽里是**已签名**指针 ⇒ 槽数与 `sizeof` 断言可以不变，而虚调用要对上 discriminator；否则调用成功但认证失败。这条是 SoftwareAES 在 27 上最容易「断言过、运行炸」的地方。
 - 依赖顺序：`IOCryptoAcceleratorFamily` 自身在 205/203 残留里占 **2 项**（25 bundle 名单中有它）⇒ 类族的符号绑定还没闭合；SoftwareAES 的接入必须排在它之后，否则 KAT 计数只会在桩上打转。
+- 已知的下游等待关系（他人实现，库内命中）：`E:\hackios\UniXNU\docs\devices\evb10.md`「Development findings」节记着 —— AppleImage4 的 start 会**无超时地等 `IOAESAccelerator`**，没人 publish 时 registry 永远静不下来（"its start waits without a timeout for IOAESAccelerator, which nothing provided, so the registry never went quiet"）。所以 SoftwareAES 不只是「加密服务」：**Image4 / AMFI 的启动顺序依赖它 publish**，而 Image4 自己也在 205 里占 14 项（AppleImage4 7 + Image4 7）。这条把 A.1 与 B 段的 13 项连起来：先 publish，再谈 Image4 的桩。
+- 库内检索结论（2026-11-22，规则 2）：`IOAESAccelerator` / `IOCryptoAccelerator` 各 4 条命中，全部是本仓自己的文档（`k60-gates/docs/plans/DOCS-DRIVERS-ALL.md`、`OFFICIAL-DRIVER-MAP.md`、`PRELINK-CLOSURE.md`、`UniXNU/docs/devices/{evb10,uke}.md`），**没有一条给出 27 的类布局** ⇒ 类布局与 selector 表仍是「未证」，走 §A.4 的离线程序。
 - 待验证（命令已给在 §A.4）：`libkern/crypto/aes.h` 与 `libkern/crypto/crypto_internal.h` 在 12377 是否存在 —— `NativeAES.cpp` include 了它们，本线没有实测。
 
 ### A.2 AppleKeyStoreState：先有 provider，再谈 selector

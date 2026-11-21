@@ -2,8 +2,9 @@
 # QcomGeniSpi, ShengNovatekTouch, ShengHidInput, ButtonProbe).
 #
 # Steps 1-7 only. Step 8 (device) belongs to the Lead and is never written here.
-# Every step starts at done = false with no evidence: this file is the skeleton the
-# lane fills in from offline reading, one claim per citation (file:line / URL / P-xx).
+# 27 side is cited from the 27 tree: the 27 xnu feed (xnu-3199e8bc), the 27 IOHIDFamily
+# feed (f53ac321), the 27 device repository (xnekom-ios27) and the same-profile
+# reference tree UniXNU-sheng (board.toml:9 = ipados-27.0.1-24A446).
 # Gate: python3 scripts/assemble-27-eight-step.py --check
 
 [hardware.touch]
@@ -16,45 +17,94 @@ paths = [
   "docs/engineering/TOUCH-STATEMACHINE.md",
 ]
 revisit = "iOS 27 stage-0 进入 SpringBoard 后按线恢复；若触摸成为 stage-0 或首帧阻塞则提前恢复"
-why = """iOS 16.6.1 已在真机验证（yibiya 631efc3）：旧代码只发 0x90/0x00 关 raw debug、从未发 0x91/0x01 坐标使能，且配置完成只查 ack[1] 不等 reply[0]==0x80；修好后收 8 触点 + 4 条 HID 上报，porting.toml 的 input 是 device-verified。27 要回答的是注入路径换了：24A446 的参考实现是内核 IOHIDDevice（ShengHidInput）+ 内核 TouchProbe，而不是我们 16.6.1 的 /dev/pong-touch + backboardd 虚拟 HID 服务。本文件只覆盖离线结论，不含上机步骤。"""
+why = """iOS 16.6.1 已在真机验证：旧代码只发 0x90/0x00 关 raw debug、从未发 0x91/0x01 坐标使能，且配置完成只查 ack[1] 不等 reply[0]==0x80；修好后收 8 触点 + 4 条 HID 上报。27 要回答的不是控制器协议（同一颗 GT9916R、同一套 BRL 状态机），而是注入路径换了：24A446 的同代参考是内核 IOHIDDevice（ShengHidInput）+ 内核触摸探针，而不是 16.6.1 的 /dev/pong-touch + backboardd 虚拟 HID 服务。本文件只覆盖离线结论，不含上机步骤。"""
 
-# ① 同型：同 SoC（SM8475）兄弟移植怎么接这个触摸控制器；K60 没有公开同型号移植。
+# ① 同型：同 SoC 兄弟移植怎么接这个触摸控制器；K60 没有公开同型号移植。
 [hardware.touch.step.same_model]
-done = false
-evidence = []
+done = true
+evidence = [
+  "27 设备仓 docs/research/touch/01-same-hardware.md:8-12 — 同型落点是 SM8475/SM8550 兄弟实现：UniXNU-pong（Goodix Berlin-D 协议核 pong_goodix.c + pong_input.c ring 队列）、HackiOS redwood 的 redwood_goodix.c（APSL 2.0，本驱动源头）、官方 marble/fuxi 板级常量；没有同型号 K60 移植可抄",
+  "E:/hackios/UniXNU-sheng/board.toml:9 — os_profile = \"ipados-27.0.1-24A446\"：sheng（SM8550、NT36532E）是唯一同代同 OS 的触摸+HID 参考（a68ee4e）",
+  "E:/hackios/UniXNU-sheng/package/TouchProbe.cpp:342 — 27 侧触摸源只用 native_touch_set_sink 交出快照，HID 由 ShengHidInput 做；传输是 GeniSpi + 厂商固件下载（sheng-touch=1..4 分阶段），与 K60 的 brl 固件读/坐标不同层",
+]
 
 # ② 官方：porting/input 的 §1 传输与固件、§2 窗口/总线/GPIO/IRQ、§3 选择内核的 IOHIDFamily、§4 PMIC。
 [hardware.touch.step.official]
-done = false
-evidence = []
+done = true
+evidence = [
+  "docs/zh/porting/input.md:19 — 官方 source map 把 NativeHidInput.cpp#L125 与 ButtonProbe.cpp 列为 OS 报告实现（IOHIDDevice、报告描述符、一致的触点快照和按键事件），即 27 的注入目标就是这个形状",
+  "docs/zh/porting/input.md:56 — 使用选定 kernelcache 确认 IOHIDFamily 方法和对象布局：27 侧即 24A446 的 IOHIDDevice vtable/instance size，不能沿用 16.x 的 IOHIDFamily-2031 布局（见 ③）",
+  "docs/zh/porting/input.md:58 — 按传感器适配报告描述符、逻辑坐标范围与接触数量上限：K60 是 max-x 14400 / max-y 32000（board.toml:265-269）与 GOODIX_MAX_TOUCHES 10",
+  "docs/zh/porting/input.md:61,65 — HID 配方绑定 OS 接口，sheng-touch-hid=1 启用触控发布路径；检查命令 rg -n 'native_touch_|ReportDescriptor' drivers/ShengHidInput/NativeHidInput.cpp",
+]
 
 # ③ 反编译：27 的 IOHIDFamily / IOHIDDevice ABI（vtable、instance size、事件槽位），以及安卓侧 BRL 事实。
 [hardware.touch.step.decompile]
-done = false
-evidence = []
+done = true
+evidence = [
+  "27 feed /opt/k60/trees/ios27-out/feeds/IOHIDFamily-f53ac321/IOHIDFamily/IOHIDEventDriver.cpp:1123 — if (conformTo(kHIDPage_Digitizer, kHIDUsage_Dig_TouchPad) || getProperty(kIOHIDDigitizerCollectionDispatchKey, gIOServicePlane) == kOSBooleanTrue) { _digitizer.collectionDispatch = true; }：27 的按触点集合派发是服务面属性",
+  "同上 IOHIDEventDriver.cpp:1132 — 该属性以 Digitizer/collectionDispatch 发布；AppleUserHIDEventService.cpp:668 的 setDigitizerProperties 是同一路径的另一半",
+  "27 feed 全树 grep 'FromEdgeTip' 0 命中 — 27 的 IOHIDEventDriver 从不置 0x800 边沿位，边沿只能由注入方加（16.6.1 的 userland/touch.c:261 靠 setIntegerField 0x800 补）",
+  "E:/hackios/UniXNU-sheng/scripts/hid-device-24A446.json — 24A446 kernelcache 的 IOHIDDevice ABI 记录：kernelcache_sha256 38e6d9fa5f78…，__ZTV11IOHIDDevice vtable 0xfffffe0008349508，207 个槽，instance_size 0xd0，collection_slide 0x1f000000000（gen-hid27-abi.py 从 kc 的 fixups 提取）",
+  "E:/hackios/UniXNU-sheng/drivers/ShengHidInput/NativeHidInput.cpp:84-244 — 27 侧事件槽位 kDispatch=198 / kGetType=18 / kGetInteger=23 / kSetInteger=24 / kGetFixed=25，arm64e 需 vptr 认证（key_process_independent_data + discriminator 0xcda1）与逐槽 IA key 退签；sheng 的注释称 24A446 的 vtable 携带这些 discriminator",
+  "16.6.1 侧对照：userland/touch.c:24,158 定义 virtual_service_callbacks v2；:213 IOHIDVirtualServiceClientCreateWithCallbacks；:261 IOHIDEventCreateDigitizerEvent(DIGITIZER_HAND)；:270 IOHIDEventCreateDigitizerFingerEvent(i+1,i+2)；:278 IOHIDVirtualServiceClientDispatchEvent — 全部在用户态， 无 vtable 认证、无 instance_size 约束",
+]
 
 # ④ 广域：官方组件目录与兄弟树里已有的 SPI/HID 轮子（QcomGeniSpi、ShengNovatekTouch、ShengHidInput）。
 [hardware.touch.step.wide]
-done = false
-evidence = []
+done = true
+catalog_checked = true
+catalog_result = "components.toml 的三个输入组件都只声明 os_abi [ipados-17.7.11-21H461]，没有一个声明 24A446；ButtonProbe 根本没有组件条目"
+evidence = [
+  "E:/hackios/UniXNU/components.toml:143-162 — ShengHidInput：repository_id 1426849181，revision 71a40e76，path drivers/ShengHidInput，os_abi [ipados-17.7.11-21H461]，verified_devices [sheng]，dependencies [ShengNovatekTouch]，outputs libShengHidInput.a + NativeHidInput.late.o",
+  "E:/hackios/UniXNU/components.toml:164-183 — ShengNovatekTouch：hardware Novatek NT36532/NT36532E，os_abi 同为 17.7.11，depends QcomGeniSpi；与 K60 的 Goodix GT9916R 不是同一协议栈，只能借形状不能借代码",
+  "E:/hackios/UniXNU/components.toml:185-204 — QcomGeniSpi：scope controller，os_abi 17.7.11，verified_devices 为空数组；27 的 GENI SPI 仍有同一控制器，但目录未给 27 背书",
+  "components.toml 全表（ArmCpu…QcaBluetooth，16 条 id）没有 ButtonProbe — 按键的参考实现是 sheng 仓 package/ButtonProbe.cpp 的板级代码，不通过组件目录",
+  "E:/hackios/UniXNU-sheng/drivers/ShengHidInput/NativeHidInput.cpp:3-5 — #if defined(__arm64e__) && !(defined(NATIVE_HID_SOURCE_API) && NATIVE_HID_SOURCE_API) → #error \"The original HID ABI path is arm64 iOS 17 only; use the source API build for arm64e.\"：27 只能走 source API 编译，这决定注入契约（见 ⑥）",
+]
 
 # ⑤ 方案：27 上保留哪些 16.x 资产（SPI 空指针守卫、333 kHz 时序、BRL 状态机），新增什么。
 [hardware.touch.step.plan]
-done = false
-evidence = []
+done = true
+evidence = [
+  "既有资产 1（不重做）SPI 传输空指针守卫：patches/xnu/…-pong-touch-console.patch:669-676 — static bool spi_transfer_unset(...) 打印 \"Pong touch: serial transport is not up yet\" 并返回 false，:678-679 把它设为 spi_transfer 的默认初值；这就是 16.x 修掉未初始化函数指针崩溃（touch_reset+0x14c）的那道守卫，27 原样保留",
+  "既有资产 2（不重做）时序：bit-bang 半周期 2 us = 250 kHz 理论值，16 侧记录为约 333 kHz、在 500 kHz 上限内（docs/research/touch/GROUND-TRUTH.md:56）；27 设备仓同名文档已加限定：这是配置值、不是实测波形（27 设备仓 docs/research/touch/GROUND-TRUTH.md:90、14-RETAINED-KO-INIT-AUDIT.md:149）",
+  "既有资产 3（不重做）BRL 状态机 + 坐标使能：patch:1031-1032 配置完成以 reply[0]==0x80 为准、:1046-1048 goodix_command(5, 0x91, &coordinates_on, 1, \"COORD-ON\")；27 设备仓 docs/research/touch/08-on-device.md:29-31,51 记录了这三行日志与根因",
+  "27 新增 A：注入通道从用户态虚拟 HID 服务改为内核 IOHIDDevice（ShengHidInput 形状）——16 侧 userland/touch.c:213,278 的两个 IOHIDEventSystemClient 入口在 27 上没有 27 侧证据，且 arm64e 禁止原 ABI 路径（NativeHidInput.cpp:3-5）",
+  "27 新增 B：内核注入必须自置 DigitizerCollectionDispatch（27 侧 IOHIDEventDriver.cpp:1123 读取），否则按 finger 单事件派发",
+  "27 新增 C：0x800 边沿位必须由注入方补（27 feed 0 命中），实现位置是 IOHIDEventDriver 的 dispatch 槽包装（ShengHidInput 槽 198）",
+  "板级 ADT 不变：27 设备仓 board.toml:257-281 已有 pong-touch 的 compatible/spi-base/tlmm-base/gcc-base/gpio-offset/avdd-gpio/max-x/max-y/pins/bitbang-pins，27 不需要新字段",
+]
 
 # ⑥ 深挖：坐标使能/配置完成判据、触点 ID 与边沿、注入通道的逐字段差异。
 [hardware.touch.step.deep]
-done = false
-evidence = []
+done = true
+evidence = [
+  "坐标使能逐字节：16 patch:1046-1048 — const uint8_t raw_off = 0, coordinates_on = 1; goodix_command(5, 0x91, &coordinates_on, 1, \"COORD-ON\")；缺这步只收状态 0x80 不收坐标（27 设备仓 08-on-device.md:51 的根因结论）",
+  "配置完成判据：16 patch:1027-1037 — 只有 reply[0]==0x80 才打印 completed，否则 completion timeout；只查 ack[1] 是 16 之前的误判",
+  "报告 3 逐字段：10 触点 × {Tip Switch 0x42, Touch Valid 0x47, Contact ID 0x51(8 位), X/Y 16 位 0..0x7fff} + Contact Count 0x54（sheng NativeHidInput.cpp:33-60）；Touch Valid 恒发 1，否则 IOHIDEventDriver 当手掌；坐标 0..32767 由生产者归一",
+  "16→27 契约差异表（每行 16 侧 / 27 侧）：注入 API 用户态 IOHIDVirtualServiceClientDispatchEvent（touch.c:278） / 内核 IOHIDDevice::handleReport（ShengHidInput，27 ABI 见 hid-device-24A446.json）；服务属性用户态 CFDictionary（touch.c:158-213） / 内核 setProperty(HIDDefaultBehavior/Built-In/DisplayIntegrated/DigitizerCollectionDispatch)；触点集合派发无（每指一事件） / kIOHIDDigitizerCollectionDispatchKey（IOHIDEventDriver.cpp:1123）；边沿位 0x800 由 setIntegerField 直接给（touch.c:261） / 由 dispatch 槽包装补（27 源无 FromEdgeTip）；ABI 校验无 / vtable 逐槽比对 + arm64e 退签（NativeHidInput.cpp:84-244）",
+  "边沿映射：UIKit 侧 0x800/0x1000/0x2000/0x40000 → 1..4 由 _UIEventHIDTouchEdgeTypeForHIDEvent 决定——按 sheng 的推算（NativeHidInput.cpp:84-244 注释），待 27 侧 UIKit 二进制验证；27 内核源侧的负向证据是 grep FromEdgeTip 全树 0 命中",
+  "16.6.1 已通过的触点事实（同一控制器、同一协议）：8 条 goodix type=1 报告 + 4 条 Pong touch HID 派发、SpringBoard 254 行、单指（27 设备仓 08-on-device.md:11）",
+]
 
 # ⑦ 核验：static_check / unit_test / artifact_check / local_verified 全部离线。
 [hardware.touch.step.verify]
 done = false
-evidence = []
+static_check = "在 27 xnu feed（xnu-3199e8bc）上 git apply --check：touch patch 的三个新文件（pong_goodix.c/pong_input.c/pong_input.h）与 bsd_init hunk（落在 :1003，offset -144）可通过；bsd/conf/files hunk 与 iokit/Kernel/MiniIOMobileFramebuffer.cpp hunk 失败（见 evidence 1-4）"
+unit_test = "gate 仓 scripts/test-goodix-config.py 与 scripts/tests/test-brl-parse.py 覆盖 16.x 的 0x91/0x01 与 BRL 帧解析；未对 27 侧运行"
+artifact_check = "无 27 构建产物；本线禁止构建，故 artifact_check 为空"
+local_verified = false
+evidence = [
+  "27 侧静态检查（本线在 ~/input27-xnu27 复制的 xnu-3199e8bc 上跑 git apply --check）：bsd/conf/files 失败于 :385 上下文——该 hunk 锚定 bsd/kern/pong_userland.c，而这一行由 27 装配序列里的 zzzzzzz-pong-hackios-userland-abi.patch（xnekom-ios27/patches/xnu/series:54）提供，裸 feed 上没有",
+  "同上：iokit/Kernel/MiniIOMobileFramebuffer.cpp 在 27 的 xnu feed 里不存在（find 全 /opt/k60 只在 16 侧构建树副本 applytest-* 里见到），所以该 hunk 的目标文件来源属显示/构建线，不能在本线判定",
+  "装配顺序：keys patch 的 bsd_init hunk 引用 touch patch 新增的 #if defined(PONG) … pong_goodix_init(); 块，conf/files hunk 锚定 touch 新增的 bsd/dev/pong_goodix.c 行，并修改 touch 新增的 bsd/sys/pong_input.h（keys patch:304-326）——两补丁是严格有序资产，不能当独立补丁重排",
+  "27 的装配机制与 16 不同：k60-gates/scripts/build-xnu-generic.sh:58-63 用 git apply（无 fuzz）按 patches/xnu/*.patch 字典序遍历并跳过已应用的；16 线 build-xnu-4k-baseline.sh:182-183 用 patch --fuzz=3。字典序下 32 个 z 的 touch 先于 33 个 z 的 keys，顺序天然成立",
+  "两补丁都在 27 装配输入里：k60-gates/patches/xnu/ 有 zzzz…-pong-touch-console.patch、zzzzz…-pong-physical-keys.patch，另有本线此前未列入的 zzzz…-pong-goodix-resume.patch；xnekom-ios27/patches/xnu/series:197-198 也列出前两个",
+]
 
 [hardware.buttons]
-name = "实体按键（PMIC PON / GPIO6 / Volume，Input 队列 → IOHIDEvent）"
+name = "实体按键（PMIC PON / PON-RESIN / PM8550 GPIO6 → IOHIDEvent report 2）"
 status = "active"
 paths = [
   "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch",
@@ -62,39 +112,78 @@ paths = [
   "board.toml",
 ]
 revisit = "iOS 27 stage-0 进入 SpringBoard 后按线恢复；按键若阻塞解锁或 stage-0 交互则提前恢复"
-why = """16.6.1 上按键已经工作：Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1，用户态经 /dev/pong-buttons 注入 consumer 用法（0x30/0xe9/0xea）。iOS 的 buttons 节点由 board.toml 的 [adt.buttons.*] 生成（devicetree.py:388 只认它），所以 27 不需要新按键驱动，需要核对的是 ADT 字段与 27 的注入通道。本文件只覆盖离线结论，不含上机步骤。"""
+why = """16.6.1 上按键已经工作：Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1，用户态经 /dev/pong-buttons 注入 consumer 用法（0x30/0xe9/0xea）。iOS 的 buttons 节点由 board.toml 的 [adt.buttons.*] 生成（devicetree.py:388 只认它）。27 上这两件事都要重新核对：ADT 字段是否齐、注入通道是否仍是 report 2。本文件只覆盖离线结论，不含上机步骤。"""
 
 # ① 同型：同 SoC 兄弟移植的按键拓扑与 PMIC arbiter 版本。
 [hardware.buttons.step.same_model]
-done = false
-evidence = []
+done = true
+evidence = [
+  "E:/hackios/UniXNU-sheng/package/ButtonProbe.cpp:1-30 — sheng 的按键全在 PMIC：电源 = PMK8550 PON（SPMI SID0，peripheral 0x13，中断 7 pwrkey）、音量减 = 同一 PON 的 RESIN（中断 6）、音量加 = PM8550 GPIO6（SID1，peripheral 0x8d，active low 带上拉，gpio-keys）",
+  "同上 ButtonProbe.cpp:26-27 — 窗口常量 kCore 0xc400000 / kCnfg 0xc42d000 / kObsrvr 0xc440000，kPonPpid 0x013、kGpioPpid 0x18d：与 K60 16.6.1 驱动断言的六个值同源（27 设备仓 board.toml:291-299）",
+  "同上 ButtonProbe.cpp:198,216 — 按下集合经 native_buttons_set_sink 交给 HID 层，boot-arg sheng-buttons=1 才启用；sheng board.toml:66 的 kernel_args 带 sheng-buttons=1（27 profile 上已验证的运行配置）",
+]
 
 # ② 官方：porting/input §4 的 PMIC 输入极性/归属/IRQ 路由/ack。
 [hardware.buttons.step.official]
-done = false
-evidence = []
+done = true
+evidence = [
+  "docs/zh/porting/input.md:70-75 — §4 适配实体按键：映射目标 GPIO 或 PMIC 输入、极性、所有权、中断路由和应答；仅访问当前执行环境拥有的 PMIC 外设；SPMI 控制器变化时适配 BootResetCore.h 的辅助接口",
+  "docs/zh/porting/input.md:75-79 — 将按下/释放状态接入 HID consumer 报告；参考实现用 report 2 的 Power / Volume Increment / Volume Decrement 位，参数 sheng-buttons=1 启用；预期每次按下释放产生正确报告（含长按与同时按键）",
+  "docs/zh/guide/mobilegestalt.md:26-27 — /buttons 的 button-names（没有主屏幕按钮时省略 menu）与 home-button-type=2（无机械主屏幕按钮，使用滑动手势）",
+  "docs/zh/guide/mobilegestalt.md:42-44 — 全面屏手势要求 model/target-type 取自无主屏键设备、/buttons 不含 menu、home-button-type=2，且 SpringBoard 通过 BSPlatform homeButtonType 读取该值；docs/zh/porting/device-tree.md:230 同述 /buttons 提供按钮名与 home-button-type",
+]
 
 # ③ 反编译：本板 PMIC arbiter v7 寄存器窗口与 iOS buttons 节点的消费路径。
 [hardware.buttons.step.decompile]
-done = false
-evidence = []
+done = true
+evidence = [
+  "E:/hackios/UniXNU-sheng/package/ButtonProbe.cpp:1-30 — arbiter v7 寄存器布局（per APID +0x100 ACC_ENABLE、+0x104 IRQ_STATUS、+0x108 IRQ_CLEAR；owner 状态字在 intr+0x1000*EE+4*word；peripheral 0x10 RT_STS / 0x11 SET_TYPE / 0x12 POLARITY_HIGH / 0x13 POLARITY_LOW / 0x14 LATCHED_CLR / 0x15 EN_SET）与 qcom-pdc v3.2 的 periph_irq（PDC pin 1 → SPI 481）",
+  "27 设备仓 board.toml:284-299 — 驱动按精确名查 /arm-io/pong-buttons 并断言六个值（core-base/cnfg-base/observer-base/ee/pon-ppid/volume-up-ppid），与 ButtonProbe 的常量逐项一致",
+  "27 设备仓 patches/buttons/README.md:60-64 — 缺节点/缺属性/值不符的三种日志（Pong keys: DT node … not found / missing <prop> / unexpected bases）就是 16.6.1 的判定路径；:68-72 记录三源一致（ButtonProbe:26-27、K60 live FDT 反编译、yibiya board.toml:271-281）",
+  "iOS 侧消费路径：/buttons 由 devicetree.py:388-390 只在 [adt].buttons 存在时发射；MobileGestalt 与平台代码读该节点（docs/zh/porting/device-tree.md:230）",
+]
 
 # ④ 广域：官方组件目录里有没有按键组件（ButtonProbe）以及它的边界。
 [hardware.buttons.step.wide]
-done = false
-evidence = []
+done = true
+catalog_checked = true
+catalog_result = "components.toml 没有 ButtonProbe 条目；按键参考实现是 sheng 仓 package/ 下的板级代码，K60 对应物是 patches/xnu 的 pong_buttons.c"
+evidence = [
+  "E:/hackios/UniXNU/components.toml:4-495（id 全表 16 条）无 ButtonProbe；输入相关只有 ShengHidInput:143、ShengNovatekTouch:164、QcomGeniSpi:185 三条，均声明 os_abi [ipados-17.7.11-21H461]",
+  "E:/hackios/UniXNU-sheng/package/ButtonProbe.cpp:179 — 线程名 sheng-buttons、:198 sink、:216 boot-arg 门；它编进内核（package/），所以 27 上按键的接入点不是组件目录而是内核板级代码",
+  "27 设备仓 patches/xnu/series:198 — zzzz…-pong-physical-keys.patch 已在 27 装配序列里；k60-gates/patches/xnu/ 同一份文件也在 27 构建的 glob 输入里",
+]
 
 # ⑤ 方案：[adt.buttons.*] 字段核对表 + 27 的注入点。
 [hardware.buttons.step.plan]
-done = false
-evidence = []
+done = true
+evidence = [
+  "ADT 字段核对表（27 设备仓 board.toml 实际值，本线用 tomllib 解析复核）：.string{compatible=\"buttons\", device_type=\"buttons\"}（:307-309）、.strings{button-names=[\"hold\",\"voldown\",\"volup\"]}（:311-312）、.u32{home-button-type=2}（:314-315）——官方要求的四项全齐，无缺项",
+  "官方四项之外的取舍：menu 故意不写（mobilegestalt.md:26「没有主屏幕按钮时省略 menu」）；opposed-power-vol-buttons 不写（27 设备仓 patches/buttons/README.md:55-56：官方文档 grep 不到、只有旧 ADT 脚本用过，缺依据）",
+  "缺字段的后果（逐项）：缺 [adt].buttons 整块 → devicetree.py:388-390 不发射 /buttons，平台按「有 Home 键的 iPad」回退（patches/buttons/README.md:45-47）；有节点但缺 button-names → 无可用按键名；有节点但缺 home-button-type → 不走上滑手势（mobilegestalt.md:42-44）；缺 pong-buttons 六属性 → 内核驱动打印 DT node not found 并 SKIP（board.toml:284-290）",
+  "27 的注入点：内核 PMIC 采样（pong_buttons.c）→ 队列/回调 → HID report 2（Power bit1 / Volume+ bit2 / Volume- bit3）；16.6.1 走 /dev/pong-buttons 交给 backboardd（userland/touch.c:368,388-392），27 的同代做法是内核 IOHIDDevice 直接发（sheng ButtonProbe.cpp:198 → ShengHidInput buttonsAction report{2,…}）",
+  "未纳入（Lead 已决定）：长按电源复位钩子与内核中断版（PDC pin1→SPI 481）都不在 27 计划内，理由见 27 设备仓 patches/buttons/README.md:116-124",
+]
 
 # ⑥ 深挖：PON/GPIO6 通道、按下集合的上报与释放、与触摸共用的注入服务的分离。
 [hardware.buttons.step.deep]
-done = false
-evidence = []
+done = true
+evidence = [
+  "通道分工：电源 = PON pwrkey 中断 7、音量减 = PON RESIN 中断 6、音量加 = PM8550 GPIO6（active low）；三者由 SPMI arbiter 归一为 periph_irq，经 PDC pin 1 变成 SPI 481（sheng ButtonProbe.cpp:1-30）",
+  "16.6.1 侧的同一拓扑：PMIC arbiter v7 + channels=768 + PON=407 + GPIO6=434（board.toml:284-299 的六个属性供 pong_buttons.c 断言），成功日志 Pong keys: arbiter v7 … power=1 up=1 down=1",
+  "上报语义：report 2 只发按下集合的位（Power bit1 / Volume+ bit2 / Volume- bit3），按下与释放是同一位的翻转（sheng NativeHidInput.cpp buttonsAction report{2,(down?1:0)|buttons&0xe}）；长按 = 位保持不变，不需要额外通道",
+  "与触摸的分离：16.6.1 共用 /dev/pong-input 头（pong_input.h 的 PONG_BUTTON_DOWN/UP 与 PONG_TOUCH_* 同文件）；27 的同代参考是触摸与按键各自 sink，但共用同一个 IOHIDDevice 实例（sheng NativeHidInput 同时注册 report 2 与 report 3）",
+]
 
 # ⑦ 核验：离线核对 ADT 结构、报告的 report ID 与用法，无需上机。
 [hardware.buttons.step.verify]
 done = false
-evidence = []
+static_check = "本线用 tomllib 解析 27 设备仓 board.toml：并确认 devicetree.py:388-390 的发射条件（[adt].buttons 在 platform 里）成立"
+unit_test = "无按键专用离线测试；ADT 结构核对复用 27 设备仓 patches/buttons/README.md:100-114 的 adt-inspect.py 流程（未运行，产物属构建线）"
+artifact_check = "无 27 构建产物；本线禁止构建"
+local_verified = false
+evidence = [
+  "静态核对输出（python3 tomllib 解析 27 设备仓 board.toml）：buttons 表 string/strings/u32 三张，字段 [button-names, compatible, device_type, home-button-type]，button-names=[hold, voldown, volup]，home-button-type=2（int），menu 不在列表；arm-io 只有 pong-buttons 与 pong-touch 两个节点，pong-buttons 有 u32/u64 两表",
+  "发射路径核对：docs/zh/porting/device-tree.md:230 与 devicetree.py:388-390 一致——只有 [adt].buttons 存在才写 /buttons；27 设备仓 board.toml:302-306 的注释记录了同一结论与「无该节点时用户态无法映射 PMIC 按键」的历史",
+  "未做：27 上没有构建产物可比对 ADT（本线禁止构建），故 local_verified=false；16.6.1 的同路径结论在 27 设备仓 patches/buttons/README.md:88-98（重生成后 14,660 B / 23 节点，/buttons 与 /arm-io/pong-buttons 同时存在）",
+]

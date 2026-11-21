@@ -1,0 +1,59 @@
+# GPU and Metal on iOS 27.0.1 (24A446): the seven research steps.
+# Lane gpu-27, first step per E:/k60-work/scratch/LANE-CONTRACT-ios27.md §5:
+# the branch, this skeleton and a receipt. The evidence strings stay empty on
+# purpose until the Lead confirms the plan; step.device belongs to the Lead and
+# is deliberately absent.
+#
+# Governing pages (iron-17): docs/zh/porting/gpu.md, docs/zh/porting/gpu-diagnostics.md,
+# docs/zh/drivers/adreno740.md, drivers/adreno-metal.md, drivers/adreno-firmware.md,
+# drivers/adreno-pm4.md, drivers/air-nir.md, drivers/sm8550-platform.md,
+# drivers/community-adreno830.md. Local mirror: E:/hackios/UniXNU/docs/zh/.
+
+[hardware.gpu]
+revisit = "stage-0 SpringBoard on a 24A446 payload; the hardware half is out of scope until a frame reaches the panel"
+name = "GPU（Adreno 730v3 / Metal / AGX）"
+status = "parked"
+paths = [
+  "drivers/PongAdreno/",
+  "drivers/PongMetal/",
+  "patches/xnu/0600",
+  "patches/xnu/0610",
+  "patches/metal2vulkan/",
+  "docs/research/gpu/",
+]
+why = "The board is A730v3 (SM8475) while the official GPU line names A740 (SM8550, porting/gpu.md §1 generation matching), so the kit can be read but not copied whole: 55 hardware offsets already match and 11 HWCg values differ. The 16.6.1 line measured the presenter budget (present() import 27 / encode 3,059 / submit 362 / gpu 2,470 / sum 5,907 µs, usblog-20261119-044558) and the physical wall a full-screen per-frame copy imposes (13.5-23 ms, about 74 fps ceiling), and four explanations have been refuted in docs/engineering/PITFALLS.md. Nothing here is re-derived for 27 until a frame reaches the panel; the work now is the contract table, the budget table and the offline judge."
+label = "GPU（Adreno 730v3 / IOAcceleratorES / AdrenoMetal / Turnip）"
+
+[hardware.gpu.step.same_model]
+done = false
+evidence = ""
+
+[hardware.gpu.step.official]
+done = false
+evidence = ""
+
+[hardware.gpu.step.decompile]
+done = false
+evidence = ""
+
+[hardware.gpu.step.wide]
+done = false
+evidence = ""
+catalog_checked = false
+catalog_result = ""
+
+[hardware.gpu.step.plan]
+done = false
+evidence = ""
+
+[hardware.gpu.step.deep]
+done = false
+evidence = ""
+
+[hardware.gpu.step.verify]
+done = false
+evidence = ""
+static_check = ""
+unit_test = ""
+artifact_check = ""
+local_verified = false

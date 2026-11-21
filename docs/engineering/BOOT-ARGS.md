@@ -653,3 +653,11 @@ legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不
 `PongThermal: bias N mC added to every reading (validation only)`，看到这行就说明数据是人为抬过的。
 **不要把它当标定**：本板没有 `qcom,tsens-calibration`，真正的标定系数不在 DT 里
 （`docs/research/thermal/01-SAME-HARDWARE.md` §4）。
+
+### `k60_autoreset` / `k60_autoreset_idle`（0550，自动复位）
+
+- 语义：`k60_autoreset=<秒>` 让内核在引导后经过 `<秒>` 自动回 fastboot；`k60_autoreset_idle=<秒>` 是开始计时前的空闲门槛（默认 30）。
+- 解析位置：`bsd/dev/k60_usblog_reset.c`（由 `patches/xnu-12377/0550-k60-autoreset-27.patch` 追加），两个名字沿用 16 系列，`board.toml` 的启动行里已有 `k60_autoreset=300`，**不新增字节**。
+- 动作：`k60_usblog_reset_to_fastboot()`（`0549`）= PSCI `SYSTEM_RESET`（`smc #0`），返回再试 `hvc #0`；两者都返回则打印 `k60-reset: SYSTEM_RESET and HVC both returned; staying put` 停住。
+- 不用 SPMI 记重启原因：裁决 A 已放弃 `0308` 的 SPMI/IMEM 前置（HR-01 冲突且 stage-0 无法观测），原因只记静态变量。
+- 判据：日志里出现 `k60-autoreset: armed for N s after M s idle`（启动时）与 `k60-autoreset: N s after M s idle; resetting`（触发时）。

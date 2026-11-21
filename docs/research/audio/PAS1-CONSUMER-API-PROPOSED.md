@@ -261,6 +261,25 @@ int k60_power_audio_release(const K60AudioPowerClaim *);
 5. **真实产物**：`python3 scripts/check-audio27-kernel.py <kernel 或 object>` 返回 0，`strings 3/3`、`symbols 3/3`。stage-0 的 `strings 0/3, symbols 0/3` 不能拿来当“音频已经接通”的证据。
 6. **上机前的边界**：以上都齐了也只说明“调用点能链、产物里有符号”，不说明功放出声。出声仍要 F3/F4 的 UFS、固件、面板与 APM 图；0531 的 HOLD 解除不等于音频阶段完成。
 
+### 6.2.1 已落成的 dormant 门禁
+
+条件 1–2 里今天就能离线比对的两份材料是 patches/xnu-12377/series 的候选行和 0531 patch 里 bsd_init.c 的 guard 行；它们已经写成 scripts/check-audio27-hold.py:1，不再停留在文字判据。默认运行：
+
+    python3 scripts/check-audio27-hold.py
+
+当前输出（guard 仍是字面量，所以退 0，不是绿）：
+
+    HOLD series: patches/xnu-12377/series:52 selects 0531-k60-audio-amp-probe-call.patch
+    HOLD patch: patches/xnu-12377/0531-k60-audio-amp-probe-call.patch:7 guard "#if 1" (bsd_init.c:796)
+    HOLD call: patches/xnu-12377/0531-k60-audio-amp-probe-call.patch:24 pong_audio_amp_probe() (bsd_init.c:813)
+    HOLD dormant: the call-site guard is unconditional; release condition 2 (a switch visible to bsd_init.c) is not met
+    HOLD this check becomes a criterion the day the guard is a preprocessor switch and 0531 is selected
+
+- **今天退 0 的理由**：guard 是 #if 1，没有开关可关；这不是“条件已满足”，而是 P-290 要求的 dormant。--strict 把 dormant 变成 rc 1，供 CI 以后选择是否把“还没到的那天”当失败。
+- **条件成立那天自动变判据**：guard 变成 #if defined(NAME) 或 #ifdef NAME，且 series 选中 0531 时，脚本会去 scripts/build-xnu-generic.sh 与 scripts/build-xnu-4k-baseline.sh 找 bsd_init.o_CFLAGS_ADD 里的 -DNAME。找不到就 rc 1，找到才打印 HOLD OK ... source-side conditions 1-2 hold。条件 3–5（link.filelist/nm、weak-link checker、真实 kernel strings/symbols）仍归第六节第 3–5 条，不由这个脚本代劳。
+- **不是绿的条件**：guard 是 #if 0（死代码）、none（没有开关）、unknown（判不了，rc 2）、#ifndef 反向开关（rc 1），都不算条件 2 成立；source tree 的 guard 与 patch 不一致时 rc 1，而不是挑一边信。
+- **反例**：python3 -B scripts/tests/test-audio27-hold.py 跑 17 例，覆盖真实 lane、--strict、选中+switch+builder 绿、无 builder 红、只给 PongAudioAmp.o 红、#if 1/#if 0/注释/未选中、unknown rc 2、缺输入 rc 2、source/patch 一致与漂移、无调用、反向开关、--help。测试用临时 fixture，不构建、不碰真实 XNU 树。
+
 ### 6.3 解除后的验证顺序
 
 先 `check-audio27-weak-link.py --tree . --switch off` 确认关闭时没有调用点；再 `--switch on` 配 link 输入确认有定义；然后 `check-audio27-kernel.py`；最后才允许把 0531 从 HOLD 改成选中。任何一步失败都回到 HOLD，不跳过。

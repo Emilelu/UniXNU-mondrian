@@ -224,7 +224,48 @@ two names as absent from the native input, not as a prelink rebinding failure.
 That keeps the failure attributable to the missing input instead of the
 emitter.
 
-## 8. Limits
+## 8. Kernel-to-kext paths: absolute branches versus hooks
+
+This is a baseline table, not a new probe. It separates the one mechanism the
+kit records from the hook that exists today and from the reverse direction, so
+a future patch can be classified before the policy is edited.
+
+The current record has **zero absolute branches** and one explicit hook. The
+generic `OSKext::start` -> `startfunc` dispatch that starts every prelinked
+kext is deliberately out of scope: it is the loader's normal entry and carries
+no per-kext policy decision. Counting it would make every kext look like an
+exception. The reverse direction is also not a kernel-to-kext path: the 205
+stubbed slots are held by kexts and point at kernel functions.
+
+| # | Path | Direction | Mechanism | Today | Policy effect |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `OSKext::start` -> AMFI early security initializer | kernel -> kext | **hook**: reads the `_NativePrelinkEarlySecurityInit` property and calls the address indirectly | present; one initializer at `profiles/os/ios-27.0.1-24A446/profile.toml:39`, call site `patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-prelink-security-init.patch:47` and `:72-74` | not recorded in `native_original_branches`; no `required_original_branches` entry |
+| 2 | kernel -> `__ZN25IOMobileFramebufferLegacyC2EPK11OSMetaClass` | kernel -> kext | **absolute branch**: native `.original` symbol plus a `bti c; b` stub to a retained target | absent; `configs/mondrian_ios27_defconfig:23` is `n` and the archive is not linked | if a patch adds it, `native_original_branches` must become non-empty; this is the first upstream required name |
+| 3 | kernel -> `__ZN11IOHIDDevice10handleOpenEP9IOServicejPv` | kernel -> kext | **absolute branch**: same `.original` and `bti c; b` shape | absent; the HID adapter is in the same missing archive (`E:/hackios/UniXNU-sheng/scripts/build-gop-legacy-display-27.py:472-483`) | same; this is the second upstream required name |
+| 4 | kext -> kernel function pointer slots | kext -> kernel | `__auth_got` and `__const` slots | 205 references over 131 targets; see `E:/hackios/k60-gates/docs/research/ios27/PRELINK-RESIDUE.md:7-17` | reverse direction; belongs to the missing/stubbed policy, never to `native_original_branches` |
+
+The two absent rows are the only absolute branches the upstream policy names. Their
+source is Sheng's `libNativeLegacyDisplay.late.a`: display adapters at
+`E:/hackios/UniXNU-sheng/scripts/build-gop-legacy-display-27.py:241-257`, HID
+adapters at `:472-483`, archive at `:698-701`. Our switch and archive facts are
+in sections 4 and 6 above. The hook row is the path the Lead's residue note
+calls "the only kernel-to-kext path today" (`E:/hackios/k60-gates/docs/research/ios27/PRELINK-RESIDUE.md:63-66`).
+
+Classification rule for a future patch:
+
+- A patch that adds a `.original` absolute symbol and a `bti c; b` stub is an
+  absolute branch. Update `required_original_branches`, expect
+  `native_original_branches` to become non-empty, and add its row here first.
+- A patch that looks up a property or function pointer and calls it indirectly
+  is a hook. It does not populate `native_original_branches`; record it in the
+  hook row instead of adding a required branch.
+- A patch that adds a `__auth_got` or `__const` slot from a kext to a kernel
+  function is the reverse direction. It belongs to the missing/stubbed table,
+  not to this one.
+- If a patch introduces an absolute branch but the list stays empty, that is a
+  rebinding failure, not a configuration gap. The two cases must stay separate.
+
+## 9. Limits
 
 This note does not claim that the display or HID adapter is required for
 stage 0, that the Sheng archive is licensed for reuse, or that enabling the

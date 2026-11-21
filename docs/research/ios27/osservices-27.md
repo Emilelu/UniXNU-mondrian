@@ -204,6 +204,11 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
 - 依赖顺序：`IOCryptoAcceleratorFamily` 自身在 205/203 残留里占 **2 项**（25 bundle 名单中有它）⇒ 类族的符号绑定还没闭合；SoftwareAES 的接入必须排在它之后，否则 KAT 计数只会在桩上打转。
 - 已知的下游等待关系（他人实现，库内命中）：`E:\hackios\UniXNU\docs\devices\evb10.md`「Development findings」节记着 —— AppleImage4 的 start 会**无超时地等 `IOAESAccelerator`**，没人 publish 时 registry 永远静不下来（"its start waits without a timeout for IOAESAccelerator, which nothing provided, so the registry never went quiet"）。所以 SoftwareAES 不只是「加密服务」：**Image4 / AMFI 的启动顺序依赖它 publish**，而 Image4 自己也在 205 里占 14 项（AppleImage4 7 + Image4 7）。这条把 A.1 与 B 段的 13 项连起来：先 publish，再谈 Image4 的桩。
 - 库内检索结论（2026-11-22，规则 2）：`IOAESAccelerator` / `IOCryptoAccelerator` 各 4 条命中，全部是本仓自己的文档（`k60-gates/docs/plans/DOCS-DRIVERS-ALL.md`、`OFFICIAL-DRIVER-MAP.md`、`PRELINK-CLOSURE.md`、`UniXNU/docs/devices/{evb10,uke}.md`），**没有一条给出 27 的类布局** ⇒ 类布局与 selector 表仍是「未证」，走 §A.4 的离线程序。
+- 但库内另一条命中给了原始字符串证据（**16 线，非 27**，务必按此引用）：`E:\k60-work\scratch\camera-work\work\kc-strings-clean.txt` 是 20G81 kernelcache（48,644,096 B，sha256 `d260defcc2eaac258fd3a2234454dda46791dae45e97608c5416f9ba8fd366e9`，见 `camera-work/03-reverse-and-device-data.md:6,101`）的 `strings -a -n 4` 产物，其中：
+  - `:55206-55228` 有 `IOAESAccelerator` / `IOAESAcceleratorUserClient` / `IOAESAcceleratorCommand` / `IOAESAccelerator::performAES -- unable to prepare plainText error - %08x (%s)` / `IOAESAccelerator.cpp` / `site.*` ⇒ 这两个类确实随 `IOCryptoAcceleratorFamily` 一起发布，`OriginalAESABI.h` 声称的 ABI 面有实物对应；
+  - `:55242-55245` 在 `IOCryptoAccelerator` 之后紧跟一行 `12111112122212121` 与 `"subclass is required to implement getAlgorithmName" @%s:%d` ⇒ **17 个类型码**的类元数据行；与 `OriginalAESABI.h` 的 16 个虚函数是「同一类、同一侧」的旁证（17 = 16 + 1 个非虚/元数据槽，或 1 个基类槽，**未定，不作结论**）；
+  - `:56079-56080` 有 `IOAESAccelerator` 与 `cannot find IOAESAccelerator` 两条相邻字符串 ⇒ 某个 Apple 二进制在**查不到** `IOAESAccelerator` 时会打这条日志；这与 §A.1 上面 evb10/zizhan 的「Image4 无超时等 AES」互为证据（一条是行为描述，一条是二进制自己的诊断串）。
+  - 引用纪律：以上三条只证明 **16 线的类确实存在、槽位数在类元数据里可读、查不到时会打诊断串**；27 的布局与 selector 表**仍未测**，仍由 §A.4 定。
 - 待验证（命令已给在 §A.4）：`libkern/crypto/aes.h` 与 `libkern/crypto/crypto_internal.h` 在 12377 是否存在 —— `NativeAES.cpp` include 了它们，本线没有实测。
 
 ### A.2 AppleKeyStoreState：先有 provider，再谈 selector

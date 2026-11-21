@@ -6,6 +6,9 @@
 > 行号约定：`drivers/ArmCpu/ArmCpu.cpp`、`E:/hackios/xnu-12377` 的行号是**源码行**；
 > `0540-k60-psci-smp.patch` 的行号是**补丁文件内行**（该补丁新建 `osfmk/arm64/psci_smp.c`，
 > 补丁行与新建文件内的行号不同，定位时用符号名 `grep`，别用行号互推）。
+>
+> §6.2 是产物到手后的**可粘贴对账块**（manifest `cpus=` × ADT `/cpus` 子节点数，两路都自测过），
+> §6.3 是「若产物是 8 核」的后续分支，其中含一条本轮实测的新前提：ADT 生成器与契约本身单核锁死。
 
 ## 0. 先分清楚两条路径
 
@@ -127,7 +130,8 @@ revision 里不存在。
 2. **XNU 的 `cpus=` boot arg**：`osfmk/arm64/machine_routines.c:1154`
    `PE_parse_boot_argn("cpus", …)` 会在 `ml_parse_cpu_topology()` 里砍掉多出的核，并置
    `cpu_config_modified = true`；`scripts/build-native-bootimg-local.py:108` 就是把它拼进
-   boot_args 的地方（`keepsyms=1 cpus={--cpus}`）。
+   boot_args 的地方（`keepsyms=1 cpus={--cpus}`）。缺省（manifest 里没有 `cpus=`）时不砍，拓扑
+   回到 DT 的 `/cpus` 子节点数。
 
 所以这一轮到底是单核还是八核，取决于 F1 那次构建传的 `--cpus`：
 
@@ -137,15 +141,117 @@ revision 里不存在。
 - `--cpus 8`：拓扑 8 个核 → 注册 8 个 → 7 次 `processor_start` → 7 条 `ArmCpu: CPU %u PSCI start …`
   逐一出现，`psci:` 解释失败者。这就是「SMP 下 UFS 根起不来」的场景本身。
 
+### 6.1 定案：F1 = 1 核，但这是口径不是读数
+
 **Lead 已定案（2026-11-21T18:26）：F1 的 `cpus` = 1。** 真值是 `scripts/make-pong-adt.py:74` 的
 `--cpus 1`；设备仓 `board.toml:210` 的 `cpus = 8` 是 iOS 16 残留，由 Lead 修（这条口径冲突归他）。
 所以适用的是上面第一列：一次 `processor_start` 都没有，§2 的 A4–A11 不出现，0542 的 SIGP 路径在
 stage-0 休眠；等 F1 通过后按 8 核重评，再决定 0543 与这张表的第二列。
 
-**离线复核仍用同一判据**：镜像 `pong-boot-manifest.json` 的 `boot_args` 里 `cpus=` 值，加上 ADT 的
-`/cpus` 子节点数。本轮 `E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/` 里只有
-`xnu-inputs.json`（内核阶段），没有 payload/ADT 的 manifest，所以这两项现在读不到——`cpus = 1` 是
-Lead 的口径，不是从产物读出来的，产物一到要先对账，对不上以产物为准。
+`cpus = 1` 来自 Lead 的口径，**不是**从产物读出来的：本轮
+`E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/` 里只有 `xnu-inputs.json`
+（内核阶段）与 `logs/`、`tree/`、`xnu-patches.list`，没有 `stage/EFI/UniXNU/`。产物一到先按 §6.2
+对账，对不上以产物为准。
+
+### 6.2 对账块（可粘贴，已在同形合成产物上自测）
+
+产物路径由 `scripts/build-native-bootimg-local.py` 决定：`:90` `payload = out / 'stage/EFI/UniXNU'`，
+`:123-124` 写 `pong-boot-manifest.json`，`:128` 写同目录的 `kernel.macho.adt`。所以两处读数都在
+同一目录里：
+
+```sh
+OUT=<F1 的 --output-dir>     # 例 /mnt/e/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27
+PAYLOAD=$OUT/stage/EFI/UniXNU
+```
+
+**块 1：manifest 的 `cpus=`**
+
+```sh
+MANIFEST=$PAYLOAD/pong-boot-manifest.json
+python3 - "$MANIFEST" <<'PY'
+import json, re, sys
+manifest = json.load(open(sys.argv[1], encoding='utf-8'))
+boot_args = manifest['boot_args']
+match = re.search(r'(?:^|\s)cpus=(\d+)(?:\s|$)', boot_args)
+print('boot_args:', boot_args)
+print('manifest cpus =', match.group(1) if match else 'ABSENT (XNU falls back to the DT topology)')
+PY
+```
+
+**块 2：ADT 的 `/cpus` 子节点数，并与块 1 对账**
+
+```sh
+ADT=$PAYLOAD/kernel.macho.adt
+python3 - "$ADT" "$MANIFEST" <<'PY'
+import json, re, sys
+sys.path.insert(0, 'scripts')
+from pong_adt_contract import parse_adt
+
+nodes = parse_adt(open(sys.argv[1], 'rb').read())
+children = sorted(p for p in nodes
+                  if p.rsplit('/', 1)[0] == '/cpus'
+                  and p.rsplit('/', 1)[-1].startswith('cpu')
+                  and p.rsplit('/', 1)[-1] != 'cpu-map')
+print('ADT /cpus children:', len(children), children)
+for path in children:
+    print(' ', path, 'MPIDR =', hex(int.from_bytes(nodes[path]['reg'], 'little')),
+          'state =', (nodes[path].get('state', b'<absent>').rstrip(b'\0').decode() or '<empty>'))
+
+manifest_cpus = json.load(open(sys.argv[2], encoding='utf-8'))['boot_args']
+match = re.search(r'(?:^|\s)cpus=(\d+)(?:\s|$)', manifest_cpus)
+print('VERDICT:',
+      'AGREE on %s core(s)' % match.group(1)
+      if match and int(match.group(1)) == len(children)
+      else 'DISAGREE - the manifest and the ADT must be reconciled before anything is read from them')
+PY
+```
+
+自测（2026-11-21，脚本 `E:/k60-work/scratch/platform27/reconcile-repro.sh`，两个块都在 1 核 ADT +
+同形 manifest 上原样跑过）：一致时打 `manifest cpus = 1` / `ADT /cpus children: 1 ['/cpus/cpu0']` /
+`VERDICT: AGREE on 1 core(s)`；把 manifest 改成 `cpus=8` 再跑同一块，打
+`VERDICT: DISAGREE - …`，不抛异常。所以判读只有一句话：**两处必须相等，不等先对账、别读表**。
+
+### 6.3 若产物是 8 核：后续分支
+
+**0542 立刻有用。** 8 核拓扑 ⇒ 注册 8 个核 ⇒ 7 次 `processor_start`，§2 的 A4–A11 全部打开，
+`psci:` 那几行开始解释谁没起来；SIGP 的 `cpu_signal` 残留位正是「调度停摆 / UFS 根挂不上」那条路径，
+本条补丁从「备着」转为「在用」。
+
+**0543 仍然不写。** 依据是 Lead 2026-11-21T18:26 的口径「等 F1 通过后按 8 核重评」：8 核产物只证明
+核数，不证明 SMP 是下一阶段目标，也不证明 §7 的两条前提该由本线现在补。判据是 F1 通过 + Lead 明确
+把 SMP 排进阶段，两者缺一不写。
+
+**新增的第三方前提（本轮实测，之前没有任何文档列过）：ADT 生成器与契约本身是单核锁死的。**
+
+```sh
+python3 scripts/make-pong-adt.py --cpus 2 --dram-size 0x300000000 --output E:/k60-work/scratch/platform27/adt2.macho.adt
+#   File "…/scripts/make-pong-adt.py", line 291, in main
+#   File "…/scripts/pong_adt_contract.py", line 163, in audit_adt
+#     raise ValueError('Pong single-core ADT must expose only /cpus/cpu0')
+# ValueError: Pong single-core ADT must expose only /cpus/cpu0   ← 生成器自审计（:290-292）直接拒绝
+```
+
+即 8 核 ADT 今天产不出来，唯一通路是加 `--skip-image-verification`（`make-pong-adt.py:290` 的
+`if not args.skip_image_verification` 跳过自审计；`build-native-bootimg-local.py:138-139` 的第二次审计
+同样被 `'skipped by request'` 跳过）。实测这条通路能写出两个节点：
+
+```sh
+python3 scripts/make-pong-adt.py --cpus 2 --dram-size 0x300000000 --skip-image-verification \
+  --output E:/k60-work/scratch/platform27/adt2skip.macho.adt
+# Pong ADT: 12864 bytes; cpu_count=2; …
+# children: ['/cpus/cpu0', '/cpus/cpu1']   regs: ['00000000', '00010000']   ← Aff1 逐核 +1
+```
+
+所以 8 核路线要动三处，且必须一起动，否则「跳过图像验证」会成为唯一通路，而那条通路同时丢掉
+Image4 / nonce / manifest 绑定那一段检查：
+
+1. `scripts/pong_adt_contract.py:158-163`：放开「只许 `/cpus/cpu0`」，改成「节点数 == 期望核数 + MPIDR
+   唯一 + `state` 里恰有一个 `running`（boot CPU 必须是 MPIDR 0）」；
+2. `scripts/pong_adt_contract.py:189`：`'cpu_count': 1` 改成实测值（现在是硬编码常量，报告会撒谎）；
+3. `scripts/make-pong-adt.py:291` 的自审计随契约一起放开（它调的就是同一个 `audit_adt`）。
+
+推论：**只有「8 核 + 跳过图像验证」才产出的镜像，其日志不能用来判 SMP 是否修好**——它少掉的正是
+nonce/manifest 绑定那一段。要用它判 SMP，得先把上面三处改完再重出。
 
 ## 7. 真开 SMP 之前必须先补的两件事
 
@@ -158,6 +264,10 @@ Lead 的口径，不是从产物读出来的，产物一到要先对账，对不
 
 （`Lsecondary_early_exception` + fault 记录是第三件，成本高、只在「次核取异常」这一种失败上有收益，
 按需再排。）
+
+另有一条**在 SMP 之前**就要解决的前提（§6.3 实测）：ADT 契约与生成器都按单核写死
+（`scripts/pong_adt_contract.py:158-163`、`:189`，`scripts/make-pong-adt.py:290-292`），所以今天连
+8 核 ADT 都产不出来——这条不属于 0542/0543，属于生成器那一侧，要先有人认领。
 
 ## 8. 复现清单
 
@@ -182,4 +292,22 @@ grep -c 'printf\|IOLog\|kprintf' /e/k60-work/scratch/platform27/ArmCpu-93a5030c.
 # 8 核/单核的两个上限
 sed -n '74p' scripts/make-pong-adt.py; sed -n '206,210p' board.toml
 grep -n 'PE_parse_boot_argn("cpus"' /e/hackios/xnu-12377/osfmk/arm64/machine_routines.c
+
+# 单核锁死在哪三行（期望：163 的 raise、189 的常量、291 的调用）
+sed -n '158,163p;189p' scripts/pong_adt_contract.py
+sed -n '290,292p' scripts/make-pong-adt.py
+
+# 8 核 ADT 今天产不出来（期望：ValueError … must expose only /cpus/cpu0）
+python3 scripts/make-pong-adt.py --cpus 2 --dram-size 0x300000000 \
+  --output E:/k60-work/scratch/platform27/adt2.macho.adt
+
+# 唯一通路：跳过图像验证才能写多核（期望 cpu_count=2、两个子节点）
+python3 scripts/make-pong-adt.py --cpus 2 --dram-size 0x300000000 --skip-image-verification \
+  --output E:/k60-work/scratch/platform27/adt2skip.macho.adt
+python3 -c "import sys; sys.path.insert(0,'scripts'); from pong_adt_contract import parse_adt; \
+n=parse_adt(open('E:/k60-work/scratch/platform27/adt2skip.macho.adt','rb').read()); \
+print(sorted(p for p in n if p.rsplit('/',1)[0]=='/cpus' and p.split('/')[-1].startswith('cpu') and p.split('/')[-1]!='cpu-map'))"
+
+# 产物对账两段（§6.2）的自测：全流程一次跑完，期望 AGREE on 1 core(s)
+bash /e/k60-work/scratch/platform27/reconcile-repro.sh
 ```

@@ -337,3 +337,29 @@ stage firmware-and-bootimg      162s    total  844s
 2. 内核此刻能否直接写 `v_baseAddr`（`arm_vm_init` 之后是 MMU 开、可写；但该地址是否需要 `ml_io_map` 映射——firmware 用的是同一块物理显存）。
 
 不确认这两点就写，会重演 `0532`/`0546` 那两次「代码在、但整段被预处理器或映射问题吃掉」。
+
+### 2026-11-22 07:47 — 未知项一已查明：`PE_Video` 的字段（12377 原文）
+
+`pexpert/pexpert/pexpert.h:289-303`：
+
+```c
+struct PE_Video {
+	unsigned long   v_baseAddr;     /* Base address of video memory */
+	unsigned long   v_rowBytes;     /* Number of bytes per pixel row */
+	unsigned long   v_width;        /* Width */
+	unsigned long   v_height;       /* Height */
+	unsigned long   v_depth;        /* Pixel Depth */
+	unsigned long   v_display;      /* Text or Graphics */
+	char            v_pixelFormat[64];
+	unsigned long   v_offset;       /* offset into video memory to start at */
+	unsigned long   v_length;       /* length of video memory (0 for v_rowBytes * v_height) */
+	unsigned char   v_rotate;       /* Rotation: 0:normal, 1:right 90, 2:left 180, 3:left 90 */
+	unsigned char   v_scale;        /* Scale Factor for both X & Y */
+	char            reserved1[2];
+	long            reserved2;      /* __LP64__ */
+};
+```
+
+⇒ 取 `PE_state.video.v_baseAddr` / `v_rowBytes` / `v_width` / `v_height` / `v_pixelFormat` 即可，**不需要读 boot_args 的 `Video[6]` 数组**——`pe_init` 已经把它翻译成这个结构。
+
+未知项二（能否直接写）留到实现时按这个规则处理：**先 `ml_io_map(v_baseAddr, v_rowBytes * v_height)` 拿到内核 VA 再写**，与 ramoops 那条路保持同一套做法（`0546` 里就是这么做的），不要赌「物理地址可直接写」。若 `ml_io_map` 返回 0 就不画，并 `kprintf` 一行说明——空屏 + 一行日志，好过静默失败。

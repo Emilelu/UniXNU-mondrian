@@ -509,6 +509,107 @@ F3-A 只记录 Android 基线：`f3_baseline=present|absent|contradiction`。它
 - W2 的「参考内容」与「27 读回」是两件事：前者证明参照本身完整，后者证明 27 读回的窗口逐字节等于参照；两者都 PASS 才允许写 W2 飞行 PASS。
 - 任何一行只满足一半，写 PENDING 并指出缺的那一半；不要把「一半 + 猜测」写成 PASS。
 
+#### 7.4.7 三条门的可粘贴判定块（只读，不执行采集）
+
+三条门是 W1、W2、F3；W2 这一块同时覆盖「离线四个 4096 B」与「27 console 两段摘要」，两者都 rc=0 才允许写 W2 PASS。以下命令只读本地文件，整块粘贴到 `bash` 执行即可；不要 `source`，因为块尾用 `exit` 返回判定码。变量沿用 §1：`REPO`、`CAP`、`CONSOLE`。
+
+##### W1：控制器 LUN 的最小判定
+
+```sh
+: "${CAP:?set CAP to the w1-lun-* directory}"
+: "${REPO:?set REPO to the UniXNU-mondrian checkout}"
+python3 "$REPO/scripts/check-w1-lun-evidence.py" "$CAP" --expect-lun 5 | tee "$CAP/w1-gate.txt"
+rc=${PIPESTATUS[0]}
+echo "W1_GATE_RC=$rc"
+exit "$rc"
+```
+
+- **期望输出片段**：rc=0 时 `K60 W1 LUN PASS expect=5 hctl=... descriptor=index=5 enable=1 bootlun=... readme=present`；rc=2 时前缀 `K60 W1 LUN PENDING`；rc=1 时前缀 `K60 W1 LUN FAIL`。
+- **退出码含义**：0 = Leg A 末段 L=5、Leg B 的 `bUnitIndex=5/bLUEnable=1`、README 与 `/proc/scsi/scsi` 一致；2 = 缺腿/缺 README/权限不足，仍是 PENDING；1 = 已给证据互相矛盾或畸形，是 FAIL。
+
+##### W2：离线四个 4096 B + 27 console 两段摘要
+
+```sh
+: "${CAP:?set CAP to the w1-lun-* directory}"
+: "${CONSOLE:?set CONSOLE to the 27 console log}"
+: "${REPO:?set REPO to the UniXNU-mondrian checkout}"
+offline=0
+for spec in 1:storage1-modemst1.bin 2:storage2-modemst2.bin 3:storage3-fsg.bin 4:storage4-fsc.bin; do
+  n=${spec%%:*}
+  f=${spec#*:}
+  python3 "$REPO/scripts/check-efs-full.py" --storage "$n" --file "$CAP/$f"
+  rc=$?
+  echo "W2_FULL_${n}_RC=$rc"
+  if [ "$rc" -eq 0 ]; then
+    :
+  elif [ "$rc" -eq 2 ] && [ "$offline" -eq 0 ]; then
+    offline=2
+  else
+    offline=1
+  fi
+done
+if [ -s "$CONSOLE" ]; then
+  python3 "$REPO/scripts/judge-cellular-flight.py" "$CONSOLE" --window 240 --require-efs-bytes
+  crc=$?
+else
+  echo "W2_CONSOLE missing: $CONSOLE"
+  crc=2
+fi
+echo "W2_CONSOLE_RC=$crc"
+if [ "$offline" -eq 1 ] || [ "$crc" -eq 1 ]; then
+  gate=1
+elif [ "$offline" -eq 2 ] || [ "$crc" -eq 2 ]; then
+  gate=2
+else
+  gate=0
+fi
+echo "W2_GATE_RC=$gate"
+exit "$gate"
+```
+
+- **期望输出片段**：四个 `K60 EFS FULL PASS storage=N size=4096 sha256=... data_sha256=...`，对应 `W2_FULL_N_RC=0`；console 里每个被 served 的 storage 有 `PASS  efs block storage=N full` 与 `PASS  efs block storage=N data`，末尾 `VERDICT: PASS`、`W2_CONSOLE_RC=0`；最终 `W2_GATE_RC=0`。
+- **退出码含义**：`W2_FULL_N_RC` 0 = 正好 4096 B 且字段/padding/两段哈希全对；2 = 文件缺失或短读，PENDING；1 = 长读、字段/padding/哈希不符，FAIL。`W2_CONSOLE_RC` 是 judge 的三态：0 PASS、1 FAILED、2 INVALID（本块把「console 缺失」也记为 2）。`W2_GATE_RC` 0 = 离线四块与 console 全块都 PASS；1 = 任一 FAIL；2 = 没有 FAIL 但至少一项 PENDING/INVALID。**FAIL 压过 PENDING**。
+- **失败时**：先看 `W2_FULL_N_RC` 与 `W2_CONSOLE_RC` 哪个非 0；不要用 16 B 头代替全块，也不要只验 storage 1 就写 W2 PASS。
+
+##### F3：27 console 的下游最小判定
+
+```sh
+: "${CONSOLE:?set CONSOLE to the 27 console log}"
+if [ ! -s "$CONSOLE" ]; then
+  echo "F3_GATE_RC=2 no console"
+  exit 2
+fi
+miss=0
+need() {
+  if grep -qE "$1" "$CONSOLE"; then
+    printf 'PASS %s\n' "$2"
+  else
+    printf 'MISS %s\n' "$2"
+    miss=1
+  fi
+}
+need 'K60UFS volume name=modemst1 lun=5' 'W1 name LUN5'
+need 'K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=0 bytes=4096 sha256=94c2aa725f4e8c5d3de317e8cd39f7efc1588866e7d2854011d10e4656a1a6bb' 'W2 full 4096'
+need 'K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=512 bytes=3584 sha256=3cc3383e26ddccc6c173df925379e3692c817ee6a8c55ce60506eab2b33210c6' 'W2 data 3584'
+need 'K60MODEM qrtr: rmtfs rw storage=1 direction=0 .*offset=(0x)?[1-9a-fA-F][0-9a-fA-F]*' 'W3 second read nonzero offset'
+need 'K60MODEM qrtr: rmtfs open path=/boot/(fsg|fsc)' 'W3 fsg or fsc open'
+need 'K60MODEM qrtr: (wait [0-9]+ s services=([3-9]|[1-9][0-9])|verdict ok services=[0-9]+)' 'W4 services>2 or verdict ok'
+need 'K60MODEM qrtr: dms revision' 'W4 dms revision'
+need 'K60MODEM baseband: bridge enabled' 'W4 bridge enabled'
+if grep -qE 'Attempting to remove permanent VM map entry|panic\(cpu' "$CONSOLE"; then
+  echo 'FAIL panic or permanent VM map'
+  miss=1
+else
+  echo 'PASS no panic or permanent VM map'
+fi
+echo "F3_GATE_RC=$miss"
+exit "$miss"
+```
+
+- **期望输出片段**：八条 `need` 的 `PASS ...`（W1 名字、W2 full、W2 data、W3 第二次读、W3 fsg/fsc、W4 services/verdict、W4 dms、W4 bridge），再加 `PASS no panic or permanent VM map`，最后 `F3_GATE_RC=0`。
+- **退出码含义**：0 = 上列 console 行齐全且无 panic/`permanent VM map`；1 = 至少一行缺失或出现 panic，仍不能写 F3 PASS；2 = 没有 console，仍是 PENDING。
+- **边界**：本块只验 storage 1 的读回；若 27 首次服务的是别的 storage，把三处 `storage=1` 换成实际编号，并从 §5 表换对应 full/data sha256，**不得混用不同 storage 的摘要**。
+
 ## 8. 出错时只做这三件事
 
 1. 把判官原文、RC、出错命令和 `CAP` 路径写进 `CAP/STOP.txt`。

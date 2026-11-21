@@ -17,6 +17,11 @@ one alone passed in a failure we hit:
   4. the archive does not define the five scratch stubs that let a historical
      link succeed (P-283). A stub is a property of content, not a filename.
 
+This is a line-local input check, not a flight blocker. It judges whether an
+archive can be linked into this lane; it deliberately does not enter the global
+IOS27-FLIGHT-BLOCKERS ledger, because one open Wi-Fi entry there would refuse
+every 27 image, including stage-0 images built without the station archive.
+
     python3 scripts/check-wifi-station-archive.py <archive> [--ar <ar>] [--nm <nm>]
 
 Three states, and only three:

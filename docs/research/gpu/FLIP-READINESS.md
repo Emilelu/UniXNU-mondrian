@@ -18,6 +18,15 @@ flip 条件与 flip owner 只在 `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.5 维护�
 | 4 | 四个偏移由编译器断住 | ①离线：`g++ -std=c++17 -Wall -Wextra -c E:/k60-work/scratch/prop/v2_layout_probe.cpp -o /tmp/v2probe.o` 退出 0；②翻后构建：`PONG_SCANOUT_V2_LAYOUT=1` 编译通过，且 wire 头里的四条 `static_assert`（56 / `token`@44 / `evict`@48 / `target`@52）与补丁 hunk 逐字一致；③常设：`python3 E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py` 按 sha256 比对两份拷贝 | ①**是**（已跑，`COMPILE OK`）；②待；③**休眠中**（补丁不在 series ⇒ 退 0 并自己说明；进 series 那天自动变判据） |
 | 5 | 翻开关的那次飞行能判 | 一条命令问两半：`check-gpu27-postflip.py` 既要飞行里出现 `PONG SCANOUT: … scanout version=2`（缺这个字段是红，不是「未测量」），也要两份 flip 断言逐字一致，再把判读器自己的 budget 结论并进来。命令与三态期望见 §2.3 | **是（判据已可跑，等真飞行）**——11 个反例全过；真机上还没有 v2 飞行 |
 
+> **第 5 条今天为什么一定退 2（不是门禁的问题）**：27 内核里没有控制台——`llvm-nm` 只有
+> `_k60_serial_clock`，16.6.1 那套 `_k60_usblog_console_up` / `_pong_ramoops_console_*` 一个都不在，
+> 而带它们的 `0243` / `0300` 不在 `patches/xnu-12377/series` 里（27 的 `0543`/`0544` 是**在屏上画字**，
+> 不是往串口送字）。证据与迁移判据在 `E:/hackios/k60-gates/docs/research/ios27/CONSOLE-GAP.md`
+> （Lead 落 `de6964a1`），这里只指过去、不复制（P-259）。
+>
+> 所以「`at=` 真机可见」要等 `0243` + `0300` 移植进 27 系列；在那之前零拷贝窗口门禁按设计退 2，
+> 说「窗口判不了」，而不是把「没有日志」当成「没有拷贝」。
+
 ### 已记录的会签（第 1 条）
 
 ```

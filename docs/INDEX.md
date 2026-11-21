@@ -161,6 +161,7 @@ docs/
 | [`gpu/GPU-27-V2-FIELDS.md`](research/gpu/GPU-27-V2-FIELDS.md) | **v2 四个 wire 字段的期望值表**：字段名 / 偏移 / v2 值语义 / v1 同偏移是什么 / 判据来源 `文件:行`；并写清今天判读器能读哪个字段、哪几个只能靠编译期断言与内核记账守（给 `judge-gpu27.py` 当断言输入） |
 | [`gpu/GPU-27-DPU-MINIMUM.md`](research/gpu/GPU-27-DPU-MINIMUM.md) | **DPU 直扫所需的 wire 侧最小字段集**：只列不加字段就能做的部分（v1 已有 address/stride/width/height/format，缺的只有面板缓冲与复用凭证，而那是拷贝路径需要的东西），单缓冲直扫的三件必须同时成立的事，与两类不会出现在日志里的失败 |
 | [`gpu/FLIP-READINESS.md`](research/gpu/FLIP-READINESS.md) | **翻 `PONG_SCANOUT_V2_LAYOUT` 0→1 的五条前置**：会签在案 / v2 补丁进 series / offset 补丁排在前 / 四个偏移由编译器断住 / 翻的那次飞行判据；每条给现在就能跑的命令或 `文件:行`，含三条比正例更有用的反例 |
+| [`gpu/LANE-RULES.md`](research/gpu/LANE-RULES.md) | **GPU 线内规则（跨轮有效）**：17 条——跨线共享约束（先查 RAG 库 / 环境变量 / P-300 无串口 / 上机冻结 / P-307 ramoops 掉电即零 / 通道四问）· 流程（先 steer / reply 首行 delivery / 共享树不碰 / 不跑 --fix / dormant 优先 / 一态一码）· 本线证据规矩（两宿主各跑一次 / 测试不写树 / flip 条件单一维护 / record 追加式 / 未签不进 series）。每条都写「为什么」 |
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。
 > 两者冲突时以 `EIGHT-STEPS.toml` 为准。

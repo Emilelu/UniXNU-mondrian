@@ -2,7 +2,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 index 72d3561..7257edb 100644
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -91,6 +91,120 @@
+@@ -91,6 +91,122 @@
  #include <IOKit/IOPlatformExpert.h>
  #endif /* HIBERNATION */
  
@@ -117,6 +117,8 @@ index 72d3561..7257edb 100644
 +	pong_ramoops_start = 0;
 +	pong_ramoops_size = 0;
 +	pong_ramoops_base = mapped;
++	kprintf("pong-ramoops: console attached at 0x%llx, %u bytes\n",
++	    (unsigned long long)mapped, (unsigned)PONG_RAMOOPS_CONSOLE_BYTES);
 +	return 1;
 +}
 +

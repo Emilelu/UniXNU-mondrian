@@ -9,7 +9,7 @@
 - 205 个 stubbed item 不能按原计划干净地分成“config 差异 / 真缺符号 / name 已存在但 matcher 没配”三类。能站住的账是 **61 + 5 + 139 = 205**：
   - **61 items（25 个 target）** 的候选名在 release 与 development 两份 nm 里都存在，而且地址都不同；这是 matcher 候选/配对问题，不是 release-only 导出。
   - **5 items（1 个 target）** 只有一个泛称 “device-tree getter (DTGetProperty family)”，没有单一符号名，不能按名字判。
-  - **139 items（105 个 target）** 在 target 地址上没有 exact symbol，两份 nm 都没有；这是第四类，需要函数体/形状证据，不能塞进 config 或真缺符号。
+  - **139 items（105 个 target）** 在 target 地址上没有 exact symbol，两份 nm 都没有；这是第四类，需要函数体/形状证据，不能塞进 config 或真缺符号。§6.2 已按固定优先级把这 105 个 target 冻结成 B/R/S/C/G/Z/O 七类（1/13/7/51/8/22/3），每类写明什么证据能让它退出。
 - **config 差异：0 个已证明。** 25 个具体候选名全部在 release 与 development 里存在；没有一个是 release-only。把“sheng 开了 12 个键”当作这 205 个 target 的解释，与符号表事实不符；参见 DEFCONFIG-DELTA.md。
 - **真缺符号：0 个已证明。** 本次 nm 对比没有给出任何一个 target 在两份产物里都缺名字的证据。另有 3 个 missing 地址不属于这 205 个 stubbed，必须单独计。
 - target 是 **输出 collection 地址**，不是 release/development 的 native 地址；collection_slide 为 0，target 又超过两份 nm 的最大地址，所以不能把 target 直接拿到 nm 里查。这是原三类拆分失败的根因，不是 205 个 target 的语义。
@@ -212,6 +212,148 @@ kernel.json 另有 3 个 missing 地址：
 
 它们分别由 AppleARMWatchdogTimer、IOHIDFamily、security.sandbox 引用；是保留原地址、没有重定向的引用，不是 stubbed。205 + 3 = 208 个 item；不要把 missing 混进 stubbed 的三类账。
 
+### 6.2 第四类 105 个 target 的固定分类
+
+第四类不再是一句「139 items 未命名」。下面按**固定优先级 B → R → S → C → G → Z → O** 分类，先命中先归，保证每个 target 只进一类、总数可复算：
+
+| class | 含义 | targets | items | 现有最强证据 | 什么证据能让它退出第四类 |
+|---|---|---:|---:|---|---|
+| B | bootcode | 1 | 5 | `__TEXT_BOOT_EXEC,__bootcode`；5 个 bundle 引用；无 body 字符串/callee | 启动阶段符号表，或对 bootcode 调用点做反汇编并给出 native 符号 |
+| R | 正分候选 | 13 | 13 | `match.json` 最高候选分 ≥ 1（1..4） | 带 `original_sha256` 与 `native_symbol` 的 reviewed pairing；低分候选本身不算 |
+| S | 函数体字符串 | 7 | 13 | 函数体内有可读字面量 | reviewed 的 body-literal pairing（字面量 + 大小 + 起点） |
+| C | 调用点字符串 | 51 | 70 | 调用点/调用者带字符串 | reviewed 的调用点哈希 + native 符号；同名不算 |
+| G | 只有调用图 | 8 | 12 | 有 callees，无字符串/正分候选 | 反汇编调用序列与 native 函数逐边一致 |
+| Z | 零分候选 | 22 | 23 | 有候选列表，但最高分为 0 | 同族、带符号的产物重新打分；或反汇编确认 |
+| O | 无候选 | 3 | 3 | 没有候选、字符串、调用者 | 真正的 output→native 表，或逐条反汇编 |
+| **合计** | | **105** | **139** | | |
+
+这张表的 105 个地址与 139 个 item 是 `facts2.json` 去掉 25 个具体命名 target 和 1 个 DTGetProperty 泛称后的全集；没有省略、没有把 `unknown` 摊进 B/R。分类脚本只读 `facts2.json` 与 `match.json`，复算命令见 §10。
+
+### 6.3 105 个 target 明细
+
+下表与 §6.2 是同一份数据；`class` 列即固定归属，`bundles` 是引用该 target 的 bundle 数，最后两列只复述现有证据，不把 probable 写成 proven。
+
+| target | size | items | bundles | class | 现有最强证据 |
+|---|---:|---:|---:|---|---|
+| `0xfffffff00b4320d8` | 28 | 5 | 5 | B | bootcode; no symbol table |
+| `0xfffffff00ac061f4` | 80 | 1 | 1 | R | candidate score 1: _smr_leave |
+| `0xfffffff00ac11bd8` | 12 | 1 | 1 | R | candidate score 1: _task_is_privileged |
+| `0xfffffff00ac4c1dc` | 16 | 1 | 1 | R | candidate score 1: _get_task_pidsuspended |
+| `0xfffffff00add2190` | 88 | 1 | 1 | R | candidate score 4: _vfs_vnodecovered |
+| `0xfffffff00add2e78` | 80 | 1 | 1 | R | candidate score 3: _vfs_context_ignores_content_protection |
+| `0xfffffff00b0a30a8` | 12 | 1 | 1 | R | candidate score 1: _csblob_get_auxiliary_info |
+| `0xfffffff00b0a30e0` | 12 | 1 | 1 | R | candidate score 1: _csblob_get_auxiliary_info |
+| `0xfffffff00b0a3f48` | 120 | 1 | 1 | R | candidate score 1: _csproc_get_platform_identifier |
+| `0xfffffff00b0df0b0` | 288 | 1 | 1 | R | candidate score 1: _proc_getexecutablevnode |
+| `0xfffffff00b119a94` | 128 | 1 | 1 | R | candidate score 1: _check_trust_cache_runtime_for_uuid |
+| `0xfffffff00b11ab54` | 80 | 1 | 1 | R | candidate score 1: _enable_developer_mode |
+| `0xfffffff00b11aba4` | 80 | 1 | 1 | R | candidate score 1: _enable_developer_mode |
+| `0xfffffff00b11b604` | 80 | 1 | 1 | R | candidate score 1: _enable_developer_mode |
+| `0xfffffff00abff7fc` | 748 | 1 | 1 | S | body string: machine_routines_common.c |
+| `0xfffffff00abffae8` | 856 | 1 | 1 | S | body string: machine_routines_common.c |
+| `0xfffffff00b0dea00` | 248 | 1 | 1 | S | body string: kern_proc.c |
+| `0xfffffff00b250384` | 312 | 1 | 1 | S | body string: array |
+| `0xfffffff00b286c90` | 344 | 1 | 1 | S | body string: set |
+| `0xfffffff00b36e788` | 660 | 7 | 7 | S | body string: machine_routines_common.c |
+| `0xfffffff00b36ea1c` | 304 | 1 | 1 | S | body string: machine_routines_common.c |
+| `0xfffffff00ab8e798` | 100 | 1 | 1 | C | caller string: hwtrace |
+| `0xfffffff00ac13a78` | 32 | 1 | 1 | C | caller string: AMFI: hook..execve() killing %s (pid %u): Attempt to |
+| `0xfffffff00ac2534c` | 16 | 5 | 5 | C | caller string: IOSA |
+| `0xfffffff00ac475f4` | 80 | 1 | 1 | C | caller string: raw jhash |
+| `0xfffffff00ac48238` | 128 | 2 | 2 | C | caller string: OSEntitlements.cpp |
+| `0xfffffff00ac9033c` | 144 | 2 | 2 | C | caller string: virtual IOReturn IOGPUVirtualMemory::wire() |
+| `0xfffffff00ac991f8` | 36 | 2 | 2 | C | caller string: alloc_vm_buffer |
+| `0xfffffff00ad44a38` | 16 | 1 | 1 | C | caller string: ApplePMGR:  eventID = 0x%x activeTime = 0x%llx
+ |
+| `0xfffffff00ad46870` | 124 | 1 | 1 | C | caller string: reg |
+| `0xfffffff00ad71480` | 56 | 2 | 2 | C | caller string: EFI PART |
+| `0xfffffff00ad714b8` | 116 | 3 | 3 | C | caller string: jobj.c |
+| `0xfffffff00ad87160` | 120 | 1 | 1 | C | caller string: fake-mount |
+| `0xfffffff00adb0fbc` | 16 | 2 | 2 | C | caller string: com.apple.private.security.disk-image-authority |
+| `0xfffffff00addd814` | 192 | 1 | 1 | C | caller string: icp_new_crypto |
+| `0xfffffff00ade9170` | 20 | 1 | 1 | C | caller string: apfs_vnop_lookup |
+| `0xfffffff00adee60c` | 84 | 1 | 1 | C | caller string: jobj_release |
+| `0xfffffff00b0a2e6c` | 148 | 2 | 2 | C | caller string: AMFI: vnode_check_signature called with platform %d
+ |
+| `0xfffffff00b0a30b4` | 44 | 1 | 1 | C | caller string: com.apple.cs-auxiliary-info |
+| `0xfffffff00b0a3158` | 108 | 1 | 1 | C | caller string: Error getting XML
+ |
+| `0xfffffff00b0a31c4` | 120 | 1 | 1 | C | caller string: Error getting XML
+ |
+| `0xfffffff00b0a323c` | 40 | 1 | 1 | C | caller string: AMFI: vnode_check_signature called with platform %d
+ |
+| `0xfffffff00b0a34e0` | 164 | 2 | 2 | C | caller string: int _proc_check_map_anon(proc_t, kauth_cred_t, user_ |
+| `0xfffffff00b0a3b50` | 272 | 1 | 1 | C | caller string: none |
+| `0xfffffff00b0a43fc` | 12 | 1 | 1 | C | caller string: launch-type |
+| `0xfffffff00b0dd71c` | 120 | 2 | 2 | C | caller string: AMFI: allowing pid %u to inherit IPC ports (platform |
+| `0xfffffff00b0df1d0` | 240 | 1 | 1 | C | caller string: forbidden-sandbox-reinit |
+| `0xfffffff00b0e497c` | 12 | 1 | 1 | C | caller string: com.apple.rootless.restricted-block-devices |
+| `0xfffffff00b0e4f2c` | 232 | 1 | 1 | C | caller string: driver extensions must be sandboxed |
+| `0xfffffff00b0fca08` | 128 | 1 | 1 | C | caller string: com.apple.private.img4.ignition-blob |
+| `0xfffffff00b11a1a0` | 184 | 1 | 1 | C | caller string: AMFI: Failed to get trust cache UUID for %s (TCRetur |
+| `0xfffffff00b11ac10` | 68 | 1 | 1 | C | caller string: com.apple.rootless.restricted-block-devices |
+| `0xfffffff00b11ac54` | 68 | 2 | 2 | C | caller string: loadTrustCacheWithExternalManifest |
+| `0xfffffff00b11ac98` | 64 | 1 | 1 | C | caller string: int _check_cdhash_in_trustcache(struct proc *, user_ |
+| `0xfffffff00b11ad04` | 72 | 1 | 1 | C | caller string: AMFI: AMFIUpdateDeviceState
+ |
+| `0xfffffff00b11ad4c` | 100 | 1 | 1 | C | caller string: AMFI: AMFICompleteSecurityBootMode / bootMode: %u
+ |
+| `0xfffffff00b11adb0` | 8 | 1 | 1 | C | caller string: com.apple.private.amfi.garbage-collect-profiles |
+| `0xfffffff00b11b564` | 76 | 1 | 1 | C | caller string: AMFI: disabling local signing due to allow3rdParty = |
+| `0xfffffff00b11b5b0` | 84 | 1 | 1 | C | caller string: AMFIGetLocalSigningPublicKey |
+| `0xfffffff00b11b6ec` | 236 | 1 | 1 | C | caller string: getOSEntitlementsFromProcSecure |
+| `0xfffffff00b11bf90` | 32 | 1 | 1 | C | caller string: static IOReturn Image4UserClient::objectLoad(OSObjec |
+| `0xfffffff00b11bfb0` | 24 | 1 | 1 | C | caller string: static IOReturn Image4UserClient::objectLoad(OSObjec |
+| `0xfffffff00b13ce5c` | 152 | 1 | 1 | C | caller string: AMFI: providing XNU monitor with auxiliary signature |
+| `0xfffffff00b2581dc` | 172 | 4 | 4 | C | caller string: IOAVController |
+| `0xfffffff00b28f6d4` | 156 | 1 | 1 | C | caller string: %s:0x%llx serialize
+
+ |
+| `0xfffffff00b2ab224` | 480 | 1 | 1 | C | caller string: AppleARMFunctionSymbol |
+| `0xfffffff00b2e7034` | 196 | 1 | 1 | C | caller string: reg |
+| `0xfffffff00b332404` | 20 | 1 | 1 | C | caller string: allocate |
+| `0xfffffff00b332418` | 56 | 2 | 2 | C | caller string: IOReturn IOGPUDevice::new_resource(IOGPUNewResourceA |
+| `0xfffffff00b36aa88` | 400 | 1 | 1 | C | caller string: %s:0x%llx IOCircularDataQueueEnqueue:0x%x
+
+ |
+| `0xfffffff00b36ae4c` | 68 | 1 | 1 | C | caller string: %s:0x%llx %llu attempts to dequeue before first enqu |
+| `0xfffffff00b4182c8` | 16 | 1 | 1 | C | caller string: panic: pmap and kext data length inconsistency: actu |
+| `0xfffffff00abd0d50` | 80 | 2 | 2 | G | callees: 1; no other artifact |
+| `0xfffffff00b092a0c` | 416 | 1 | 1 | G | callees: 2; no other artifact |
+| `0xfffffff00b17aa18` | 304 | 1 | 1 | G | callees: 6; no other artifact |
+| `0xfffffff00b24f4b8` | 204 | 1 | 1 | G | callees: 1; no other artifact |
+| `0xfffffff00b2869dc` | 80 | 1 | 1 | G | callees: 1; no other artifact |
+| `0xfffffff00b32cf8c` | 308 | 1 | 1 | G | callees: 1; no other artifact |
+| `0xfffffff00b335fe0` | 104 | 2 | 2 | G | callees: 1; no other artifact |
+| `0xfffffff00b369a14` | 368 | 3 | 1 | G | callees: 4; no other artifact |
+| `0xfffffff00ac26044` | 84 | 1 | 1 | Z | candidates 6; top score 0 |
+| `0xfffffff00ad3d814` | 16 | 1 | 1 | Z | candidates 5; top score 0 |
+| `0xfffffff00ad449d0` | 72 | 1 | 1 | Z | candidates 2; top score 0 |
+| `0xfffffff00ad45084` | 60 | 1 | 1 | Z | candidates 4; top score 0 |
+| `0xfffffff00b11b4d8` | 12 | 1 | 1 | Z | candidates 13; top score 0 |
+| `0xfffffff00b11b558` | 12 | 1 | 1 | Z | candidates 13; top score 0 |
+| `0xfffffff00b11beac` | 120 | 1 | 1 | Z | candidates 3; top score 0 |
+| `0xfffffff00b11bf24` | 108 | 1 | 1 | Z | candidates 2; top score 0 |
+| `0xfffffff00b24f1ac` | 68 | 1 | 1 | Z | candidates 3; top score 0 |
+| `0xfffffff00b24f250` | 284 | 1 | 1 | Z | candidates 4; top score 0 |
+| `0xfffffff00b2502cc` | 168 | 1 | 1 | Z | candidates 2; top score 0 |
+| `0xfffffff00b286bd8` | 168 | 1 | 1 | Z | candidates 2; top score 0 |
+| `0xfffffff00b315dd8` | 204 | 1 | 1 | Z | candidates 1; top score 0 |
+| `0xfffffff00b316084` | 84 | 1 | 1 | Z | candidates 6; top score 0 |
+| `0xfffffff00b31a524` | 112 | 1 | 1 | Z | candidates 1; top score 0 |
+| `0xfffffff00b31af40` | 160 | 1 | 1 | Z | candidates 1; top score 0 |
+| `0xfffffff00b31afe0` | 88 | 1 | 1 | Z | candidates 4; top score 0 |
+| `0xfffffff00b3360a8` | 128 | 2 | 2 | Z | candidates 5; top score 0 |
+| `0xfffffff00b3361fc` | 84 | 1 | 1 | Z | candidates 6; top score 0 |
+| `0xfffffff00b33eed4` | 188 | 1 | 1 | Z | candidates 1; top score 0 |
+| `0xfffffff00b33ef90` | 20 | 1 | 1 | Z | candidates 5; top score 0 |
+| `0xfffffff00b33efa4` | 20 | 1 | 1 | Z | candidates 5; top score 0 |
+| `0xfffffff00ad3c5b8` | 352 | 1 | 1 | O | no candidate; no strings/callers |
+| `0xfffffff00b351bd8` | 172 | 1 | 1 | O | no candidate; no strings/callers |
+| `0xfffffff00b351d7c` | 180 | 1 | 1 | O | no candidate; no strings/callers |
+
+这张表的作用是**冻结分母**：以后新增证据只能把某一行从第四类移到已命名/已配对，不能改变其余行的地址、item 数或分类口径。若某行被证明是错误 target，必须单独记录并重算总数，不能静默删除。
+
 ## 7. 每一类下一步需要什么证据
 
 ### 7.1 61 items：matcher 候选/阈值
@@ -233,11 +375,12 @@ DEFCONFIG-DELTA.md 已逐键检查 12 个 sheng-only 键：没有一条通过 bs
 
 ### 7.3 139 items：未命名 target 的函数体证据
 
-这 105 个 target 在两份 nm 里都没有 exact symbol。下一步只能是：
+这 105 个 target 在两份 nm 里都没有 exact symbol，已经按 §6.2 的固定优先级分成 B/R/S/C/G/Z/O 七类，逐条地址见 §6.3。下一步不是重新分堆，而是按类取证：
 
-- 用 facts2 的 size、prev、next、strings、callees、sites 做函数体/形状比较；
-- 对关键 target 做反汇编，比较常量、调用图、段内相对位置；
-- 如果仍然无法命名，就在报告里保留“未命名/第四类”，不要为了凑三类编一个名字。
+- R/S/C 先用 `match.json` 的候选/字符串/调用点做复核，但只有 `original_sha256 + native_symbol` 齐全才能移出；
+- G/Z 用反汇编比较调用序列、常量和段内相对位置；
+- B/O 需要启动阶段符号表或真正的 output→native 表；
+- 如果仍然无法命名，就保留在原 class，不要为了凑三类编一个名字，也不要改变其余行的分母。
 
 ### 7.4 5 items：DTGetProperty 泛称
 
@@ -285,6 +428,18 @@ device-tree getter (DTGetProperty family) 不是一个符号，而是一族调�
 
 本文的 25 个命名 target 与 105 个未命名 target 来自 /mnt/e/k60-work/scratch/stubs/REPORT.md 与 facts2.json；205 个 stanza 来自 /mnt/e/k60-work/scratch/stubs/unreachable.toml；计数用 Python 对 nm 的第一列与第三列做集合/地址比较，逻辑与第 2、3 节一致。
 
+§6.2/§6.3 的固定分类可用仓库脚本复算：
+
+```sh
+python3 scripts/fourth-class-table.py \
+  --facts /mnt/e/k60-work/scratch/stubs/facts2.json \
+  --match /mnt/e/k60-work/scratch/stubs/match.json \
+  --markdown /mnt/e/k60-work/scratch/fourth-class-table.md \
+  --check
+```
+
+`--check` 必须打印 `FOURTH CLASS PASS 105 targets / 139 items, frozen per-class sums`，且七类计数为 `B=1/5 R=13/13 S=7/13 C=51/70 G=8/12 Z=22/23 O=3/3`。少一个 target、改一个 item 或调整优先级都会红，除非同时修改本节的冻结表并说明理由。
+
 ## 11. 一句话交接
 
-205 = 61 个“候选名两份都有、matcher 没配” + 5 个泛称 + 139 个“两份 nm 都没有 exact symbol”的未命名 target；config 差异 0、真缺符号 0（本次对比能证明的范围内）。下一步不是继续扫 nm 名字，而是给 61 个候选做 matcher 复核、给 139 个未命名 target 做函数体/反汇编，或者补一张真正的 output→native 表。
+205 = 61 个“候选名两份都有、matcher 没配” + 5 个泛称 + 139 个“两份 nm 都没有 exact symbol”的未命名 target；config 差异 0、真缺符号 0（本次对比能证明的范围内）。139 个 item 已冻结为 §6.2 的七类，逐条在 §6.3。下一步不是继续扫 nm 名字，而是给 61 个候选做 matcher 复核、按七类给 105 个未命名 target 做函数体/反汇编，或者补一张真正的 output→native 表。

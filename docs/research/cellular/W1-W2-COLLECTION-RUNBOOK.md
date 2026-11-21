@@ -262,6 +262,21 @@ done
 - **失败时看到什么**：`PENDING ... need 4096`（短读）、`FAIL ... file is N bytes; expected exactly 4096`（长读）、`0x00 LE32 is 0x00000000, expected 0x00000010`（错 offset/错 storage）、`0x200..0xfff data sha256 ...`、`full 4096-byte sha256 ...`、`0x40..0x1ff is not all zero`。任一都停；不要为了变绿改参照表或补零。
 - **复位**：不需要。四个 storage 必须同一次启动读完；中途重启就从 §1 重来。
 
+### 5.5 27 侧 console 的 W2 全块摘要（飞行时才出现）
+
+27 的 rmtfs 路径不是只打印首 16 字节。每服务一个非空读，它打印两行：
+
+```text
+K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=0 bytes=4096 sha256=<64hex>
+K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=512 bytes=3584 sha256=<64hex>
+```
+
+- **期望输出**：每个已服务的 storage 同时有两行；`offset=0 bytes=4096` 的 sha256 等于 §5 表里的完整 4096 sha256，`offset=512 bytes=3584` 的 sha256 等于该 storage 的 data sha256（`check-efs-full.py` 输出里的 `data_sha256=`）。
+- **取值范围**：storage 1..4；`direction` 必须为 `0`；两段窗口固定为 `0/4096` 与 `512/3584`，其他组合一律不算。
+- **对应判据**：W2 全窗口；`--require-efs-bytes` 要求每个已服务的 storage 两段齐全，缺一段就是 FAIL，不是 PENDING。
+- **失败时看到什么**：`block ... offset=... sha256=...` 不匹配、只有一段、`direction=1`、storage 越界、sha256 非 64 位十六进制，任一都停；头 16 字节对但第二段不对，说明 16 字节之后的 3584 字节已经分叉。
+- **边界**：这段只属于 27 console；本单的 §5 是 Android 只读采集，不能拿 Android 块冒充 27 读回。没有 27 console 时这一节保持 PENDING。
+
 ## 6. 本地组合自检（不碰设备）
 
 ```sh
@@ -276,6 +291,7 @@ python3 scripts/check-capture-bundle.py \
   --efs-block "2=$CAP/storage2-modemst2.bin" \
   --efs-block "3=$CAP/storage3-fsg.bin" \
   --efs-block "4=$CAP/storage4-fsc.bin" \
+  --require-efs-bytes \
   > "$CAP/bundle.txt" 2>&1
 BRC=$?
 cat "$CAP/bundle.txt"
@@ -343,10 +359,14 @@ CONSOLE="${K60_CONSOLE:-}"
 if [ -n "$CONSOLE" ] && [ -f "$CONSOLE" ]; then
   # 定案：W1 console 的一半：名字解析到 LUN 5；缺行 F3 PENDING。
   grep -nE 'K60UFS volume name=modemst1 lun=5' "$CONSOLE"
-  # 定案：W2 console 的定案：27 读回首 16 B 与参照逐字节相等。
+  # 定案：W2 console 的兼容样本：27 读回首 16 B 与参照逐字节相等。
   grep -nE 'K60MODEM qrtr: rmtfs rw storage=1 direction=0 .*bytes=4096 head=1000000003000000d801000020faa9c4' "$CONSOLE"
-  # 定案：W3 的一半：同一 storage 出现第二次 rw，才说明 modem 继续读。
-  grep -nE 'K60MODEM qrtr: rmtfs rw storage=1 direction=0' "$CONSOLE"
+  # 定案：W2 全块的一半：0/4096 摘要等于完整块；缺行 F3 PENDING。
+  grep -nE 'rmtfs block storage=1 direction=0 offset=0 bytes=4096 sha256=94c2aa725f4e8c5d3de317e8cd39f7efc1588866e7d2854011d10e4656a1a6bb' "$CONSOLE"
+  # 定案：全块另一半：512/3584 摘要等于 data 窗口；缺行 F3 PENDING。
+  grep -nE 'rmtfs block storage=1 direction=0 offset=512 bytes=3584 sha256=3cc3383e26ddccc6c173df925379e3692c817ee6a8c55ce60506eab2b33210c6' "$CONSOLE"
+  # 定案：W3 的一半：同一 storage 第二次 rw 且 offset 非 0，才说明 modem 继续读。
+  grep -nE 'K60MODEM qrtr: rmtfs rw storage=1 direction=0 .*offset=(0x)?[1-9a-fA-F][0-9a-fA-F]*' "$CONSOLE"
   # 定案：W3 的另一半：fsg/fsc 也被打开，范围不是只读一块。
   grep -nE 'K60MODEM qrtr: rmtfs open path=/boot/(fsg|fsc)' "$CONSOLE"
   # 定案：W4 的定案：服务数/verdict/dms/bridge 至少出现；缺一 PENDING。
@@ -360,12 +380,13 @@ fi
 | 行 | 期望 | 判据 | 失败/不足时 |
 |---|---|---|---|
 | W1 console | `K60UFS volume name=modemst1 lun=5 ...` | 名字解析到 LUN 5 | 缺行 ⇒ F3 PENDING；不要用 Android W1 代替 console 行 |
-| W2 console | `rmtfs rw storage=1 direction=0 ... bytes=4096 head=1000000003000000d801000020faa9c4` | 27 实际读回的首 16 字节与 storage 1 参照逐字节相等 | 全零/不同 ⇒ FAIL；先查 offset/窗口，不要改 EFS 字节 |
+| W2 console 头 | `rmtfs rw storage=1 direction=0 ... bytes=4096 head=1000000003000000d801000020faa9c4` | 27 实际读回的首 16 字节与 storage 1 参照逐字节相等 | 全零/不同 ⇒ FAIL；先查 offset/窗口，不要改 EFS 字节 |
+| W2 console 全块 | `rmtfs block storage=1 direction=0 offset=0 bytes=4096 sha256=<full>` **且** `offset=512 bytes=3584 sha256=<data>` | 两段摘要分别等于完整块与 `0x200..0xfff` 参照 | 缺一段/任一不匹配 ⇒ FAIL；头对但第二段错，说明 16 B 之后已分叉 |
 | W3 | 同一 storage 第二次 `rmtfs rw` 且 offset 不同；`fsg`/`fsc` 也 open | modem 接受 EFS 并继续读 | 只有一次读 ⇒ PENDING；不是传输 PASS |
 | W4 | `wait ... services=` 从 2 涨到 >2，或 `verdict ok`；`dms revision`；`bridge enabled` | QMI/QRTR 下游起来 | 缺任一 ⇒ PENDING；不能反推 W2 字节正确 |
 | 事故 | 无 panic、无 `permanent VM map` | F3 没把内核打死 | 出现即停，先查 panic，不要继续 RF 结论 |
 
-**F3 的 PASS 条件**：W2 console 的 16 字节匹配 **且** W3 出现第二次读/fsg+fsc open **且** W4 的服务数/verdict/dms 至少按上表出现；缺一条就是 PENDING。只有 W4 起来、W2 没验过，不能宣布“EFS 通了”。
+**F3 的 PASS 条件**：W2 console 的 16 字节头匹配 **且** 该 storage 的 `0/4096` 与 `512/3584` 两段摘要都匹配 **且** W3 出现第二次读/fsg+fsc open **且** W4 的服务数/verdict/dms 至少按上表出现；缺一条就是 PENDING。只有 W4 起来、W2 没验过，不能宣布“EFS 通了”。
 
 ### 7.3 `[[deferred]]` 触发查询：只查，不配对
 

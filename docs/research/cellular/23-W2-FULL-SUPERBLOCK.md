@@ -2,7 +2,8 @@
 
 2026-11-20 22:30。本文把「W2 只判 16 字节头」扩成一条可执行的完整判据：
 拿到 4096 字节后，哪些偏移必须等于什么，哪些字段只能标 `unknown`，以及
-什么情况是 `PENDING` 而不是 `FAIL`。
+什么情况是 `PENDING` 而不是 `FAIL`。2026-11-21 又给 27 侧 console 加了同一
+窗口的两段全块 SHA-256：offset 0 的 4096 字节，以及 offset 512 的 3584 字节。
 
 这不是待办清单。没有 4 KiB 采集时判 `PENDING`；有 4096 字节但不满足下表时判
 `FAIL`。两者都不允许用「先算通过」绕过。
@@ -10,9 +11,12 @@
 ## 1. 范围与术语
 
 - **W2 头判据**：`scripts/judge-cellular-flight.py` 里的 `EFS_HEADS`，只比较
-  offset 0 的 16 字节。它是必要条件，不是充分条件。
+  offset 0 的 16 字节。它是必要条件，不是充分条件，现在只作兼容样本保留。
 - **完整超级块**：每个 storage 的 **offset 0 起 4096 字节**，不是整个分区。
   4096 字节之外的内容不属于本判据。
+- **27 console 全块摘要**：同一窗口的 SHA-256，两段必须同时出现：
+  `offset=0 bytes=4096` 对应完整块，`offset=512 bytes=3584` 对应
+  `0x200..0xfff` 数据段。它是飞行日志的压缩证据，不是离线字段级判据的替代。
 - **storage**：RMTFS 的 `/boot/modem_fs1` … `/boot/fsc`，编号 1..4。
   它不是控制器 LUN；W1 仍 `PENDING`，本文的对应关系只是内容参照。
 - **独立参照**：2026-11-20 在 Android 侧只读取得的
@@ -208,17 +212,51 @@ python3 scripts/check-capture-bundle.py \
 - `scripts/w1-capture-plan.sh` 末尾会打印同一组合命令，且只把实际存在的
   本地文件加进去。
 
+### 6.2 27 侧 console 全块摘要
+
+27 的 rmtfs 路径不再只打印 16 字节头。它每服务一个非空读，就打印两行摘要：
+
+```text
+K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=0 bytes=4096 sha256=<64hex>
+K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=512 bytes=3584 sha256=<64hex>
+```
+
+合法组合只有两组：
+
+| offset | bytes | 覆盖范围 | 对照 |
+|---|---|---|---|
+| `0` | `4096` | 完整 4096 B | 第 2 节的 full sha256 |
+| `512` | `3584` | `0x200..0xfff` | `check-efs-full.py` 的 data sha256 |
+
+判官 `scripts/judge-cellular-flight.py` 的规则：
+
+- 非严格模式：出现任一行 block，就必须两行齐全；缺一行是 `FAIL`，不是 `PENDING`。
+  一行 block 都没有时，保持旧的 16 字节头行为（block 项 `SKIP`）。
+- 严格模式 `--require-efs-bytes`：**每个被 rmtfs 服务过的 storage** 都必须两行齐全；
+  即使该 storage 一行 block 都没出现，也算缺摘要并 `FAIL`，不能只判「方便的那一块」。
+- offset/bytes 不是上表两组之一、direction 非 0、storage 不在 1..4、sha256 不是 64 位
+  十六进制，都是 `FAIL`。
+- 严格模式不再接受「头对、没有全块摘要」。但它**不**把「四个 storage 都出现」当必要
+  条件，因为 modem 启动可能只读其中一部分；「四个 storage 都齐全」仍由离线
+  `check-efs-full.py` 的四份 4096 B 文件判定。
+
+为什么是摘要而不是原始字节：console 每条日志都有固定开销，4096 B 原始字节会膨胀成
+8192 个十六进制字符，既难读也容易截断。SHA-256 让「整段窗口是否逐字节等于参照」变成
+一次比较；字段级定位仍由离线的 `check-efs-full.py` 完成。两者不是互相替代：console
+摘要证明**27 读回的窗口**与参照一致，离线判据证明**参照本身的每个字段**符合表。
+
 ## 7. 与 W2 头判据、F3 的关系
 
 顺序是硬的：
 
 ```text
-W1（哪个盘） -> W2 头 16 字节 -> W2 完整 4 KiB -> W3/W4（modem 是否继续） -> PAS4/RF
+W1（哪个盘） -> W2 头 16 字节 -> W2 console 全块摘要 -> W2 离线 4 KiB -> W3/W4（modem 是否继续） -> PAS4/RF
 ```
 
-- W2 头 PASS、完整块 FAIL：先查读取长度/offset/window 是否真的覆盖 4096，
-  再查是否把不同 storage 的窗口混用；不要用「RF 没起来」解释字节错。
-- W2 头 PASS、完整块 PASS、但 modem 不继续：进入 F3 的 W3/W4/PAS4 判据，
+- W2 头 PASS、console 摘要或离线完整块 FAIL：先查读取长度/offset/window 是否真的
+  覆盖 4096，再查是否把不同 storage 的窗口混用；不要用「RF 没起来」解释字节错。
+  头对但 `offset=512` 摘要不对，说明 16 字节之后的 3584 字节已经分叉。
+- W2 头、console 摘要与离线完整块都 PASS、但 modem 不继续：进入 F3 的 W3/W4/PAS4 判据，
   不要回头改 EFS 字节。
 - W1 仍 `PENDING` 时，本文的 storage→分区对应只是内容参照；不要把它写成
   控制器 LUN 证据。
@@ -233,8 +271,8 @@ W1（哪个盘） -> W2 头 16 字节 -> W2 完整 4 KiB -> W3/W4（modem 是否
 |---|---|---|---|---|
 | 1. 设备只读采集 | **Lead**（设备权限唯一持有者） | `scripts/w1-capture-plan.sh` 打印的命令；在 Android 侧执行 adb | CAP 下的 `device-link.txt`、`unit-desc-*.bin`、`README.txt`、可选 `sdf3..6.bin` / console | 否 |
 | 2. W1 控制器 LUN | 脚本 | `scripts/check-w1-lun-evidence.py` | PASS / PENDING / FAIL | 是 |
-| 3. W2 头 16 字节 | 脚本 | `scripts/judge-cellular-flight.py` | PASS / FAIL / INVALID | 是，但只覆盖 offset 0 的 16 字节 |
-| 4. W2 完整 4 KiB | 脚本 | `scripts/check-efs-full.py` | PASS / PENDING / FAIL | 是 |
+| 3. W2 console 全块摘要 | 脚本 | `scripts/judge-cellular-flight.py` | PASS / FAIL / INVALID | 是；两段 SHA-256 覆盖 4096 B 全窗口 |
+| 4. W2 离线完整 4 KiB | 脚本 | `scripts/check-efs-full.py` | PASS / PENDING / FAIL | 是；逐字段 + 两段哈希 |
 | 5. 组合 | 脚本 | `scripts/check-capture-bundle.py` | 每项一行 + `OVERALL` | 是，仅限本地文件 |
 | 6. provenance 与形状 | **人**（Lead 签，lane 只核对本地文件） | 看 README 的 serial/build/UTC、`xxd`、by-name 对照 | 签核备注 | 否 |
 | 7. 飞行账本 / F3 | **Lead** | `IOS27-FLIGHT-BLOCKERS.toml` 与飞行账本 | open / closed | 否 |
@@ -246,8 +284,8 @@ W1（哪个盘） -> W2 头 16 字节 -> W2 完整 4 KiB -> W3/W4（modem 是否
 ### 8.2 三种判决怎么读
 
 - **PASS**：已提供的 W1 腿齐全且一致，README 非空；W2 若提供也必须一致。
-  如果输出里 `W2 FULL  SKIP`，只能签「W1 + 已提供的 W2 头」，不能签「W2
-  完整块 PASS」。
+  如果输出里 `W2 FULL  SKIP`，只能签「W1 + 已提供的 W2 console 摘要」，不能签
+  「W2 离线完整块 PASS」。
 - **FAIL**：至少一项矛盾或畸形。先读该项的第一条 reason，再决定是重采还是停查；
   **不要**为了变绿修改 `check-efs-full.py` 的参照表。一个错位移的样本会报成
   `0x00 LE32 is 0x00000000, expected 0x00000010`，这不是 EFS 状态，是采集 offset
@@ -281,7 +319,8 @@ python3 scripts/tests/test-capture-autocheck-e2e.py
 
 1. **PASS**：Leg A `0:0:0:5`、Leg B `index=5 enable=1`、README 齐全，再加
    synthetic console 里的正确 16 字节头
-   `1000000003000000d801000020faa9c4`；`OVERALL: PASS`。
+   `1000000003000000d801000020faa9c4`，以及 `offset=0/4096` 与
+   `offset=512/3584` 两段正确摘要；`OVERALL: PASS`。
 2. **FAIL**：同一个 W1，加一个把 storage 1 头整体后移 512 字节的合成块；判官报
    `W2 FULL FAIL    storage=1: 0x00 LE32 is 0x00000000, expected 0x00000010`，
    `OVERALL: FAIL`。这说明「错位移」会被字段级 reason 指出来，而不是笼统报坏。

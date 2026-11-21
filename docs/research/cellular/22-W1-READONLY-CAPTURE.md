@@ -276,12 +276,12 @@ python3 scripts/check-w1-lun-evidence.py "$CAP"
 
 ## 11. W1/W2 之后的 F3 判据（2026-11-20 21:20）
 
-W1 解决「哪个盘」，W2 解决「首 16 字节对不对」，F3 才解决「modem 是否接受这份 EFS 并继续启动」。
+W1 解决「哪个盘」，W2 解决「读回的 4096 字节窗口对不对」，F3 才解决「modem 是否接受这份 EFS 并继续启动」。
 顺序是硬的：**W1 PASS → W2 PASS → W3/W4 → PAS4/RF**。任何一步都不能拿后一步的结果补前一步。
 
 ### 11.1 EFS 超级块按 storage 分别比
 
-W2 只看 offset 0 的 16 字节；F3 要看**完整 4 KiB 超级块**，storage 1..4 各一次，按 storage 分别与独立来源比较。
+W2 现在分两层：27 console 打印 `offset=0 bytes=4096` 与 `offset=512 bytes=3584` 两段 SHA-256；离线判官再对 storage 1..4 的**完整 4 KiB 超级块**逐字段比对，按 storage 分别与独立来源比较。16 字节头仍保留为兼容样本，但不再等于 W2。
 独立来源是 2026-11-20 在 Android 侧只读取得的 `E:/k60-work/evidence/efs-ground-truth-20261120/sdf3.bin` … `sdf6.bin`；
 对应关系是 Android `by-name` 的 `modemst1`/`modemst2`/`fsg`/`fsc`，不是控制器 LUN 的证明。
 
@@ -295,10 +295,10 @@ W2 只看 offset 0 的 16 字节；F3 要看**完整 4 KiB 超级块**，storage
 三点读法：
 
 - `fsc` 首块本来就是全零；对 storage 4 全零是正确结果，对 1/2/3 是错误结果。判据不能写成「非零即通过」，必须按 storage 分别比。
-- 三个 EFS 超级块的头 12 字节同形（`xx000000 03000000 d8010000`），第 13 字节起才分叉；W2 的 16 字节足以区分，但不等于完整 4 KiB 正确。
+- 三个 EFS 超级块的头 12 字节同形（`xx000000 03000000 d8010000`），第 13 字节起才分叉；16 字节头足以区分 storage，但不等于完整 4 KiB 正确。W2 的封口是两段全块摘要，离线再逐字段复核。
 - 表里的「LUN 5」只在 W1 PASS 后才是事实；W1 仍 PENDING 时，把这张表当作 storage 内容参照，不要把它当作控制器 LUN 证据。
 
-如果 W2 的 16 字节匹配而完整 4 KiB 不匹配：先查读取长度/offset/window 是否真的覆盖 4 KiB，再查是否把不同 storage 的窗口混用；
+如果 W2 的 16 字节头匹配而 4096/3584 摘要不匹配：先查读取长度/offset/window 是否真的覆盖 4 KiB，再查是否把不同 storage 的窗口混用；
 如果完整 4 KiB 匹配而 modem 不继续：进入 11.2，不要回头改 EFS 字节。
 
 完整字段表、哈希与 unknown 字段处理见 [`23-W2-FULL-SUPERBLOCK.md`](23-W2-FULL-SUPERBLOCK.md)。
@@ -334,4 +334,4 @@ W2 只看 offset 0 的 16 字节；F3 要看**完整 4 KiB 超级块**，storage
 
 - F3 需要 `PongUfs` 进 27 package、`QcomBaseband` 进 include/archives、27 data-mount 锚点落地；这三件不在本文范围，由 Lead 排。
 - stage-0 仍有三条必需 blocker：`loader-rejects-fileset`、`prelink-map-unresolved`、`firmware-fileset-provider`（Lead `6bab6b9a`）。F3 之前没有飞行窗口；本节只定义证据顺序，不声称现在可飞。
-- 本节只写判据，不改代码、不构建、不上机；W1 仍 PENDING，W2 的完整 4 KiB 仍是待采集项。
+- 本节只写判据，不改代码、不构建、不上机；W1 仍 PENDING，W2 console 摘要与离线完整 4 KiB 都仍是待采集项。

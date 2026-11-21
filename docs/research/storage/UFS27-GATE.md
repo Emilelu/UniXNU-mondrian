@@ -686,3 +686,50 @@ and turning it on would still deliver a RAM disk whose persistence is a row of n
 imports. VerifiedRoot's blocker stays what §7 said — an empty
 `UniXNU/scripts/policies/ipados-27.0.1-24A446/` — but it now has a second precondition in
 front of it, so producing the policy bundle alone would not make the switch usable.
+
+## 16. The other two names in row 2: VirtioMmioBlock and ShengUfs
+
+Row 2 of the platform page names four services. Two are covered above (RamBlock,
+VerifiedRoot); these are the other two, and each turns out to be a boundary rather than a
+piece of work for this profile.
+
+**VirtioMmioBlock is not this board's device, and it shares the same wall.** The catalog
+entry (`UniXNU/components.toml:294-310`) is `scope = "protocol"`, hardware "VirtIO 1.2
+modern MMIO split queues", `board_dependencies = []`, `verified_devices = []`. The board's
+own files never mention it: `grep -n 'virtio' board.toml configs/mondrian_ios27_defconfig
+dts/mondrian.dts` returns nothing, and the 27 defconfig sets `CONFIG_XNU_ARMVIRT_PLATFORM=n`
+— there is no virtio-mmio node for it to bind. Its builder gate is the same
+`XNU_NATIVE_AES=1` requirement (`scripts/build-xnu-generic.sh:208-213`), so on 27 it is
+blocked by the same crypto question before it is even relevant. Note also that its link
+line is a **third** bare `test -f` (`:699-701`, `VIRTIO_ARCHIVE`) of the class the Lead
+owns at `:730`/`:767`; it is not graded by the switch checker because the switch is not
+reachable from this board's profile at all.
+
+**ShengUfs is the upstream home of the driver this repo vendors, not a second driver — and
+it cannot be checked out here.** The catalog entry (`:121-140`) is `source_files =
+["NativeUfs.cpp"]`, `runtime_identifiers = ["NativeUfs", "NativeUfs.cpp",
+"org.blu-sharky.NativeUfs"]`, `legacy_name = "NativeUfs"`, `legacy_outputs` mapping
+`build/native-ufs/libNativeUfs.a` → `build/sheng-ufs/libShengUfs.a`. That is the same file
+name and the same runtime identifiers as the vendored `drivers/NativeUfs/` — the alias is
+honest about identity, which is exactly why the earlier failure was confusing: a component
+that is the same driver under a different repository path.
+
+Three consequences, measured:
+
+1. `os_abi = ["ipados-17.7.11-21H461"]` and `verified_devices = ["sheng"]`: the catalog's
+   own verified pairing is 17.7 on another board, not 27 on this one.
+2. `dependencies = ["VirtioMmioBlock", "VerifiedRoot"]`. That is why selecting `ShengUfs`
+   drags in both — the earlier probe printed `selected […, 'VirtioMmioBlock',
+   'VerifiedRoot', 'ShengUfs']` and then `[kernel] archives needs component entries for:
+   ShengUfs, VirtioMmioBlock`. Choosing the feed route would not swap one driver for
+   another; it would add a 17.7-verified tree plus a protocol driver this board has no
+   device for.
+3. The upstream tree is not on this host: in `E:/hackios/UniXNU-sheng`, `git ls-files
+   drivers/ShengUfs` returns exactly one entry — a gitlink, with the directory empty. So a
+   swap would need a fetch or submodule init, which the offline rule forbids, and the
+   source could not even be compared byte for byte against the vendored copy today.
+
+That closes row 2: ShengUfs is the same source under its upstream name (not a candidate),
+VirtioMmioBlock is a protocol driver with no device here, RamBlock is blocked by the crypto
+question and has no persistence provider, VerifiedRoot is blocked by the same question and
+an empty policy bundle.

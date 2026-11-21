@@ -415,7 +415,10 @@ def cmd_adt(args):
 
     failures = []
     if not usb_nodes:
-        failures.append('no usb node in the hardware device tree')
+        # Not a failure by itself: a board [adt.arm-io] block declares the child
+        # without any device tree node (devicetree.py:393-396).
+        print('  info  the hardware device tree has no usb node; only a board '
+              '[adt.arm-io] block can declare one')
     if not exported and not configured:
         failures.append('no usb node carries unixnu,adt-name and no [adt.arm-io] block '
                         'declares one, so the ADT has no usb child')

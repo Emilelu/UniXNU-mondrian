@@ -179,9 +179,9 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 
 ## 4. 离线判据（交付 ④）
 
-脚本：`scripts/usb27/kc-surface.py`（只读，不构建；`sha256 508415723de0684e0a27ea3055e111fe42481d27d48f8a32c51fcfdecbb39fa0`）。
+脚本：`scripts/usb27/kc-surface.py`（只读，不构建；`sha256 a0551472207515e23a001c3aae6d0ca447a9004cebed73df016103967eba2f71`）。
 数据：`docs/research/eight-step/usb-27-providers.tsv`（`sha256 4a27b221bb2e374e97cfa775b782b31f8d099031c3049d403be9aaf725c829c2`）。
-五个子命令（`kexts`/`surface`/`object`/`roots`/`adt`）都可独立跑，`RESULT PASS|FAIL (n)`，exit 0/1（解析错误 exit 2）。`adt` 的自证在 `scripts/usb27/test-adt-check.sh`（`sha256 8dbfaa96db03cdabfb4039bc61e56273277b24c1a6bbf8fd909095b6bc3d8f1e`）。
+五个子命令（`kexts`/`surface`/`object`/`roots`/`adt`）都可独立跑，`RESULT PASS|FAIL (n)`，exit 0/1（解析错误 exit 2）。`adt` 的自证在 `scripts/usb27/test-adt-check.sh`（`sha256 8dbfaa96db03cdabfb4039bc61e56273277b24c1a6bbf8fd909095b6bc3d8f1e`），真 dtb 上的判别力在 `scripts/usb27/test-adt-real.sh`（`sha256 39615d281fe2b6babbc88ebbcc3fe915d26b182fd235b03c0c6ab72b773f5303`），构建请求在 `scripts/usb27/qdw3-build-request.py`（`sha256 f5326e9e595165b7caec8cbf580c05759d7f06699e3339981e186f218861056d`）。
 以下命令都从 `E:/hackios/k60-usb27` 出发、在 WSL 里执行（`llvm-nm-18` 与 `python3` 只在 WSL 侧有）。
 
 | # | 命令 | 期望输出 | 判据 |
@@ -190,8 +190,9 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 | 2 | `python3 scripts/usb27/kc-surface.py surface …/kernel-27-652237c6.macho --require-prefix AppleUSB --require-prefix IOService` | `symbols   64931 defined, 0 undefined`、`FAIL prefix 'AppleUSB': 0 defined`、`PASS prefix 'IOService': 1680 defined` | 前一行证明采集本身有效（`IOService` 能命中），后一行证明 `AppleUSB` 真为 0 —— 避免「脚本抓不到东西」被当成「没有」 |
 | 3 | `python3 scripts/usb27/kc-surface.py object …/kernel-27-652237c6.macho /opt/k60/trees/gates-out/mondrian/ipados-16.6.1-20G81/…/k60_usblog.o --providers docs/research/eight-step/usb-27-providers.tsv` | `resolvable 27, missing 7`，逐行 `FAIL <sym>  <- <patch:line>`，`RESULT FAIL (7)` | 7 个行必须与 §2.2 表逐字一致；少一个（例如有人把 0235 带进 27）说明补丁面变了 |
 | 4 | `python3 scripts/usb27/kc-surface.py roots /mnt/e/hackios/UniXNU/profiles/os/ipados-27.0.1-24A446/profile.toml --require-kext com.apple.driver.AppleUSBXDCI` | `effective roots 31, usb/scsi roots 0`、`FAIL kext …`、`RESULT FAIL (1)` | 对照跑 sheng：加 `…/UniXNU-sheng/board.toml` 后 `effective roots 40, usb/scsi roots 11`、`RESULT PASS`。两个板子同 profile 同内核，差别只在 board 的 prelink 根 —— 这是「27 没有 USB 的直接原因」的**机器判据** |
-| 5 | `python3 scripts/usb27/kc-surface.py adt /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb /mnt/e/hackios/k60-gates/board.toml --expect-base 0xa600000` | `dtb … (4307 bytes, 29 nodes)`、`usb nodes 0`、`adt.arm-io nodes 2: pong-buttons, pong-touch`、`usb arm-io nodes 0`、`node  expected base 0xa600000 absent in the ADT inputs`、`REASON no usb node in the hardware device tree`、`REASON no usb node carries unixnu,adt-name and no [adt.arm-io] block declares one, so the ADT has no usb child`、`REASON expected base 0xa600000 is not declared by either input`、`RESULT FAIL (3)`、**exit 1** | 这是 Lead 要的那条 0/1 判据：「27 侧 USB 控制器是否在 ADT 里被声明」——**没有**。DT 侧读的是 payload 真正的 `hardware.dtb`（4,307 B），不是从 DT 源推断；board 侧读 `[adt.arm-io.*]` 的四个 kind 子表。exit 0 只在「DT 有 USB 节点且每个 reg 基址都被 `[adt.arm-io]` 声明」时出现 |
+| 5 | `python3 scripts/usb27/kc-surface.py adt /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb /mnt/e/hackios/k60-gates/board.toml --expect-base 0xa600000` | `dtb … (4307 bytes, 29 nodes)`、`usb nodes 0`、`adt.arm-io nodes 2: pong-buttons, pong-touch`、`usb arm-io nodes 0`、`info  the hardware device tree has no usb node; only a board [adt.arm-io] block can declare one`（DT 缺席本身**不算**失败，board 块可以单独声明）、`node  expected base 0xa600000 absent in the ADT inputs`、`REASON no usb node carries unixnu,adt-name and no [adt.arm-io] block declares one, so the ADT has no usb child`、`REASON expected base 0xa600000 is not declared by either input`、`RESULT FAIL (2)`、**exit 1** | 这是 Lead 要的那条 0/1 判据：「27 侧 USB 控制器是否在 ADT 里被声明」——**没有**。DT 侧读的是 payload 真正的 `hardware.dtb`（4,307 B），不是从 DT 源推断；board 侧读 `[adt.arm-io.*]` 的四个 kind 子表。exit 0 只在「DT 有 USB 节点且每个 reg 基址都被 `[adt.arm-io]` 声明」时出现 |
 | 5b | `bash scripts/usb27/test-adt-check.sh` | 六条 `PASS`（见下）+ `RESULT PASS`、exit 0 | 判据的自证。只会在真实树上 FAIL 的脚本不算判据，所以每条正反例都跑：导出节点+board 块 → 0；**无 `unixnu,adt-name` 的 usb 节点对真 board → 1**；仅 board 块 → 0；同名双边 → 1；未声明基址 → 1；27 产物 → 1 |
+| 5c | `bash scripts/usb27/test-adt-real.sh` | 六条 `PASS` + `RESULT PASS`、exit 0；INFO 行打印被检查 dtb 的 `sha256 59faef26…` | Lead 要的「真机 dtb 上跑出结论、对故意改坏的副本退非 0」。**副本全部由生产 dtb 用 `dtc` 派生**（不是另写一棵树）：生产 dtb → 1；board 块单独声明 → 0；导出节点 0xa600000 → 0；同一节点改 0xa700000 → 1；去掉 `unixnu,adt-name` → 1；同名双边 → 1。第 3 条是关键：证明它在**真 dtb 上**也能返回 0，不是只会 FAIL |
 
 `adt` 的判定规则（脚本里写死，改它就要改这张表，也改这一节）：
 
@@ -253,7 +254,7 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 | 4 | `gen-usb27-abi.py` 重跑 → `usb-xdci-24A446.json` / 按 `build-gop-legacy-display-27.py:550-589` 生成 `OriginalUsbXdciABI.h` | usb.md:72-74 | `static_assert(sizeof(AppleUSBXDCI)==instance_size)` 过 | **阻塞：需要 24A446 kernelcache**（本机只有 20G81/21H461） |
 | 5 | 启动参数加 `sheng-usb=1`（官方路由）或 `k60_usblog=2`（自写 gadget 路由） | usb.md:62；`E:/hackios/k60-gates/board.toml:173-174` | 控制器线程真的跑起来；`native_usb_stats[0]` 由 0 变正 | Lead |
 | 6 | 自写 gadget 路由：`bsd/dev/k60_usblog.c` + `bsd/conf/files` 一行 + `patches/xnu/{0300,0307,0308}` + `patches/usb/0405-0411` + 诊断五补丁（`0235/0238/0331/0337/0334b/0306`） | §2.2 表；§2.4 第 2 行 | `kc-surface.py object` 的 `missing` 从 7 变 0 | 我出移植草案，Lead 构建 |
-| 7 | 二选一（不要同时做，`devicetree.py:389` 会抛重名）：(a) 在 `E:/hackios/UniXNU-sm8475-common/dts/sm8475.dtsi` 或 board 的 `dts/mondrian.dts` 里加 `usb@a600000` 节点并写 `unixnu,adt-name = "usb0"`（只加节点不加该属性不会进 ADT，`devicetree.py:388`）；(b) 或只在 board.toml 加 `[adt.arm-io.pong-usb.u64] dwc-base="0xa600000"` | `RESEARCH.md:81`（DWC3 0xa600000/size 0xd93c）、`OFFICIAL-DRIVER-MAP.md:464`；判据 5/5b 给出「改完怎么算过」 | `kc-surface.py adt` 从 `RESULT FAIL (3)` 变 `RESULT PASS` | **需要 owner 同意**（`UniXNU-sm8475-common` 是共享组件树、`dts/mondrian.dts` 在 k60-gates，两者都不在我的写权限内）；对 QcomDwc3 路线**非必需**（`QcomDwc3.cpp` 全文 0 处 `IODT*` 调用），只对「读 DT 的消费者」有意义 |
+| 7 | **不修 ADT 也能推进**：`QcomDwc3` 路线不需要 ADT 节点（全文 0 处 `IODT*`），所以这一项只在「要让读 DT 的消费者看见控制器」时才做。要做则二选一（不要同时做，`devicetree.py:389` 会抛重名）：(a) 在 `E:/hackios/UniXNU-sm8475-common/dts/sm8475.dtsi` 或 board 的 `dts/mondrian.dts` 里加 `usb@a600000` 节点并写 `unixnu,adt-name = "usb0"`（只加节点不加该属性不会进 ADT，`devicetree.py:388`）；(b) 或只在 board.toml 加 `[adt.arm-io.pong-usb.u64] dwc-base="0xa600000"` | `RESEARCH.md:81`（DWC3 0xa600000/size 0xd93c）、`OFFICIAL-DRIVER-MAP.md:464`；判据 5/5b 给出「改完怎么算过」 | `kc-surface.py adt` 从 `RESULT FAIL (3)` 变 `RESULT PASS` | **需要 owner 同意**（`UniXNU-sm8475-common` 是共享组件树、`dts/mondrian.dts` 在 k60-gates，两者都不在我的写权限内）；对 QcomDwc3 路线**非必需**（`QcomDwc3.cpp` 全文 0 处 `IODT*` 调用），只对「读 DT 的消费者」有意义 |
 
 顺序建议：**先 1+2（不改代码、只开花名册）**拿到「USB kext 是否真进 27 产物」的判据；
 再 3+5 试官方栈能不能起来；4 一旦拿到 kernelcache 就必须做，否则 XDCI 子类无法实例化；
@@ -269,6 +270,8 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 | 离线单测（官方） | `bash scripts/usb27/ucsi-host-test.sh`（内部：`git archive e4efe95c \| tar -x` 到临时目录；`clang++ -std=c++17 -I.. ucsi_host.cpp && ./ucsi_host`） | **`PASS` / `RESULT PASS`，exit 0**（宿主侧，不构建内核）。测试用一个端口管理器模型跑 `ucsi_start`/`ucsi_receive`：断言 `u.partner == kUcsiPartnerDfp`、版本 `0x0110`/`0x0200` 两档 buffer、变更通知的 ack 顺序 |
 | 产物检查 | §4 的五条命令 | 依次 `RESULT FAIL (1)` / `FAIL prefix 'AppleUSB': 0` + `PASS IOService 1680` / `resolvable 27, missing 7` / K60 `usb/scsi roots 0` vs sheng `11` / `adt` 三条 `REASON` 且 **exit 1** |
 | 判据自证（Lead 要求 ⑦ 可跑） | `bash scripts/usb27/test-adt-check.sh` | 六条全 `PASS`：导出节点+board 块 → 0、无 `unixnu,adt-name` 的 usb 节点×真 board → 1、仅 board 块 → 0、同名双边 → 1、未声明基址（QMP 0x88e8000）→ 1、真 27 产物 → 1；`RESULT PASS` |
+| 判据自证（真 dtb 判别力） | `bash scripts/usb27/test-adt-real.sh` | 六条全 `PASS`，全部副本由**生产 dtb** 用 `dtc` 派生：生产 dtb → 1（两条 `REASON`）、board 块 → 0、导出节点 0xa600000 → 0、同一节点改到 0xa700000 → 1、去掉 `unixnu,adt-name` → 1、同名双边 → 1；`RESULT PASS` |
+| 请求文书自证（不构建） | `python3 scripts/usb27/qdw3-build-request.py check --object <16.6.1 k60_usblog.o>` | `missing from the kernel 7` / `known 16.6.1 diagnostics 7`（逐个带补丁行号）/ `other 0` / `RESULT PASS`，exit 0 —— 分类器本身可跑，缺的只是 27 侧的 `QcomDwc3.o` |
 | `local_verified` | 以上三项都只证明「27 产物里没有 USB 面」「驱动源自身自洽」「ADT 里没有声明」 | **仍为 false**：没有任何一项证明 K60 上 USB 能出字，那需要上机（⑧，见 §9） |
 
 ---
@@ -276,7 +279,7 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 ## 7. 未定项（unknown + 什么证据能定它）
 
 
-1. **`QcomDwc3.cpp` 在 27 上还缺哪些符号** —— 无 27 编译产物，禁构建 ⇒ 未定。证据：一次允许的构建后跑命令 3（`kc-surface.py object` 换 `QcomDwc3.o`）。
+1. **`QcomDwc3.cpp` 在 27 上还缺哪些符号** —— 未定，但「怎么问」已经是文书：`scripts/usb27/qdw3-build-request.py plan` 从 27 自己的编译 recipe 拼出精确命令（§10），`check` 按「内核缺的符号逐名列 + 三分桶」判。它为 0 的证明（对 16.6.1 的 `k60_usblog.o` 跑 `check` → `missing 7 / known 7 / other 0 / RESULT PASS`）已在 §6。证据：Lead 排一次构建后跑 `plan --abi <已生成头目录>` 再 `run`，`other` 桶必须为空。
 2. **24A446 的 ABI 槽位（280/168）是否与 sheng 的 JSON 一致** —— 本机无 `24A446/kernelcache.decompressed`（只有 20G81/21H461）。证据：Lead 提供 24A446 ipsw 的 kernelcache 后跑 `gen-usb27-abi.py`，比对生成的 `usb-xdci-24A446.json` 与 sheng 的差异。**需要 Lead 给这个文件。**
 3. **27 的 Apple 栈里有没有 CDC-ACM 数据类驱动**（`AppleUSBCDCACMData` 之类）—— 24A446 kernelcache 不可得 ⇒ 未定。这决定「官方栈能不能当控制台」，还是必须搬 `k60_usblog.c`。证据：拿到 kernelcache 后对 11 个根做 `kexts` 闭包，看是否含 CDC 类。
 4. **K60 的 eUSB2 参考时钟是否走 TCSR**（FSEL 38.4 MHz）—— 本地只有 sheng 的 DT 与 K60 的 phy 节点，没取到 `tcsr` 属性。证据：完整 K60 Android DT（22k 行版本，`mondrian.dts:16856-16905` 区间）或 16.6.1 实测 TCSR 读取值。
@@ -341,6 +344,73 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 
 ---
 
+## 10. 构建请求（⑦ 的第二件离线活）
+
+Lead 2026-11-21 裁决：stage-0 冻结期不批准任何对象级构建（会改共享装配树，他要拿同一棵树
+复现诊断镜像），所以「`QcomDwc3.cpp` 编进 BCM2837 obj 后还缺哪些符号」这一问**只能以请求形式交付**。
+文书由 `scripts/usb27/qdw3-build-request.py` 生成，三个模式分工明确：`plan` 只算不编（写 `REQUEST.md`
+与 `QcomDwc3.command.json`）、`run` 要一次显式构建后才用（`subprocess` 调 `clang-24`）、`check` 只读对象与内核。
+
+### 10.1 命令行从哪来（不是手抄）
+
+Sheng 在 iOS 27 上编译这个组件时并不手写旗标，它读 XNU 自己写下的编译 recipe
+（`E:/hackios/UniXNU/scripts/build-sheng-source-drivers.py:97-99` 的做法）。同一条 recipe 在 27 装配树里是：
+
+```
+/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/build/xnu/ios-obj/
+  DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json
+```
+
+`sha256 a3913117988814834af4705b79b4e5813c29a2084dfe86625aa9f3541d3b37dd`，540 个参数：
+`arguments[0]` 是 `/opt/unixnu-linux/llvm/bin/clang-24`，开头固定
+`-xc++ <src> -o <out> --target=arm64e-apple-ios27.0 -c`，然后 `-std=gnu++2b`、`-arch arm64e`、
+`-mkernel`、`-fapple-kext`、`-fno-builtin`、`-fno-common`、`-D KERNEL_PRIVATE`、`-D XNU_KERNEL_PRIVATE`、
+`-D IOKIT_KERNEL_PRIVATE`（`-D` 与宏名是两个 token，抄错会变成 `-DKERNEL_PRIVATE` 之外的形态）、
+`-D VM_KERNEL_LINK_ADDRESS=0xfffffff007004000`、`-D ARM64_BOARD_CONFIG_BCM2837`、
+`-D CURRENT_MACHINE_CONFIG_LC=bcm2837`、16 个 `-I` 根（`EXPORT_HDRS/{iokit,osfmk,bsd,libkern,pexpert,libsa,security,san}`、
+`.cache/xnu-work/EXTERNAL_HEADERS`、`.cache/fakeroot/usr/local/include{/kernel,/iBoot}`）、86 个 `-W`，
+没有 `-MD/-MF`（不产生依赖文件，所以对象就是唯一产物）。
+
+`plan` 做的事只有两件：把 recipe 里的源文件与 `-o` 换成 `QcomDwc3.cpp` / `QcomDwc3.o`，
+再追加三个 include 根 `-I <abi> -I <component> -I <package>`（与 sheng 的
+`usb_flags = ('-I', USB_OUT, '-I', USB, '-I', KITS)`，`build-gop-legacy-display-27.py:636-638` 同形）。
+
+### 10.2 三个 include 根各是什么
+
+| 根 | 内容 | 本机状态 |
+| --- | --- | --- |
+| component | `QcomDwc3.cpp`、`QcomEusb2Phy.h`、`QcomQmpUsb3.h`、`QcomUcsi.h`（catalog 钉 `e4efe95c`） | 有：`/mnt/e/k60-work/scratch/usb27/refs-QcomDwc3`（HEAD `f5edd26d`，`git archive e4efe95c` 可取到钉住版本） |
+| package | `GeniI2c.h`、`QcomRpmh.h`、`AppsSmmuLock.h` | 有：`E:/hackios/UniXNU-sheng/package/` |
+| abi | `OriginalUsbXdciABI.h`、`OriginalUsbXhciABI.h` | **缺**：由 `build-gop-legacy-display-27.py:551-589`（XDCI）与 :600-625（XHCI）从 `usb-xdci-24A446.json`(23,224 B)/`usb-xhci-24A446.json`(28,994 B) 现生成，本机全盘没有这两个头 |
+
+所以 `plan` 现在**如实报缺**：`MISSING … OriginalUsbXdciABI.h`、`MISSING … OriginalUsbXhciABI.h`、
+`RESULT FAIL (preconditions)`、exit 1。这不是失败，是请求的前置条件被写成可检查的一行 ——
+ABI 头的生成不需要内核构建，只要那两个 JSON（`gen-usb27-abi.py` 只需 ipsw 的 kernelcache，
+本机缺 24A446 那份，见 §7 第 2 条）。
+
+### 10.3 请求正文（给 Lead 的四行）
+
+1. **要编什么**：`<component>/QcomDwc3.cpp` → `build/usb27/qcom-dwc3/QcomDwc3.o`（`/build/` 已 gitignore）。
+2. **怎么编**：`python3 scripts/usb27/qdw3-build-request.py plan` 生成的 `QcomDwc3.command.json`
+   就是完整的 argv（可直接 `json` 喂给 `subprocess`），`run` 模式只是 `plan` + 执行 + `check`。
+   前置：把两个 ABI 头放进 `--abi`（默认 `build/usb27/abi`）。
+3. **看什么**：`check` 打印 `missing from the kernel <n>`，逐行列出**每个**缺失符号名，
+   再分三桶：`family ABI`（`AppleUSBXDCI`/`AppleUSBXHCI` 的 vtable/typeinfo，说明 ABI 面不匹配）、
+   `known …`（`usb-27-providers.tsv` 里查到的 16.6.1 专有符号，带补丁行号）、`other`（**必须为空**）。
+4. **判据**：`RESULT PASS` = `other 0`。`other` 非空就是「27 上没有提供者的符号」，
+   每一行都是一个必须回答的移植问题；`family ABI` 非空说明 §7 第 2 条（ABI 槽位）没解决。
+
+### 10.4 判据本身已被自证（不用等构建）
+
+对 16.6.1 的 `k60_usblog.o` 跑同一条 `check` 就是完整的分桶演示：34 个 undefined 里
+`missing from the kernel 7`、`known 16.6.1 diagnostics 7`（`_k60_checkin_compat`、`_k60_exec_count`、
+`_k60_exit_count`、`_k60_prevlog_dump`、`_PE_k60_reset_now`、`_pong_ramoops_debug_base`、
+`_pong_ramoops_snapshot`，每个带补丁名与行号）、`other 0`、`RESULT PASS`。
+第一次跑时这 7 个全落进 `other`（把前导 `_` 剥掉后查表失败），修法是先按原名查再按去掉下划线的名字查 ——
+这条修正本身就是「分类器会骗人」的例子，所以 `other 0` 这个判据是跑出来的，不是声明出来的。
+
+---
+
 ## 复现全部数字的最短路径（不构建、不动设备）
 
 ```sh
@@ -355,4 +425,12 @@ python3 scripts/usb27/kc-surface.py adt \
   /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb \
   /mnt/e/hackios/k60-gates/board.toml --expect-base 0xa600000
 bash scripts/usb27/test-adt-check.sh
+bash scripts/usb27/test-adt-real.sh            # 真 dtb 判别力（六条）
+# ⑦ 第二件：构建请求（只算不编；现在因缺两个 ABI 头而 FAIL(preconditions)，这是设计）
+python3 scripts/usb27/qdw3-build-request.py plan
+# 判据自证：拿 16.6.1 的对象证明分桶器可跑（missing 7 / known 7 / other 0 / RESULT PASS）
+python3 scripts/usb27/qdw3-build-request.py check --object \
+  /opt/k60/trees/gates-out/mondrian/ipados-16.6.1-20G81/mondrian/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/bsd/DEVELOPMENT/k60_usblog.o
 ```
+
+`plan` 与 `check --object` 都不写共享树：前者只写 `build/`（gitignored），后者只读。

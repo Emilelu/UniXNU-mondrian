@@ -14,6 +14,13 @@ So this gate does two things:
 
 Dormant by design: until the v2 fields exist in the tree there is nothing to
 check, and the gate says so out loud instead of passing silently (P-290).
+
+The REPO line below sits at the end of a five-deep walk (tools -> gpu ->
+research -> docs -> root) and the first version of it stopped two levels short,
+so the gate reported "the document has no marker" - it blamed the document for
+a bug in its own path. That is P-279's shape: a gate that cannot tell "wrong
+input" from "wrong gate" is worse than no gate, which is why a missing marker
+is exit 2 and never exit 0.
 `db[frame.target]` under index+1 is wrong, and `db[frame.target - 1]` under a
 raw index is wrong in the opposite direction - both must go red, which is what
 docs/research/gpu/tools/fixtures/ pins.

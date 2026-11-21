@@ -1305,3 +1305,10 @@ title = "一个连符号名都 grep 不到的「编译失败」，不是归因"
 statement = "凡是把行为差异归因到「某行源码在旧 SDK 上编译失败」，必须先在两侧源码里 grep 出那个符号并给出 file:line；grep 不到时只能记成「加载器/构建产物层的拒绝」，不得写成源码级失败，也不得据此安排回移工作。"
 check = '''test -z "$(grep -rIn MTLLanguageVersion3_1 docs drivers patches 2>/dev/null | grep -vE '(PITFALLS|RULES|IOS-SCOPE|OFFICIAL-PATH-PLAN|GPU-27-CONTRACT-DIFF)\.(md|toml):')"'''
 note = "2026-11-21：MTLLanguageVersion3_1 这个「官方插件在 16.6.1 编译失败」的归因在源码里零命中，真正阻断是 LC_BUILD_VERSION minos 17.0 / MinimumOSVersion 17.0；它曾被用来决定先写可用性守卫。"
+
+[[rule]]
+id = "P-296"
+title = "两份材料各自自洽、拼起来才矛盾时，缺席值必须落在值域外"
+statement = "跨线会签一个结构体字段时，「尺寸与偏移一致」不等于「语义一致」：凡是字段的缺席值可能与该字段的第一个合法值相同（如 target 的 0 既是「没有」又是「第 0 块」），必须改成缺席值不在值域内的编码，或让消费点显式换算；会签只签尺寸的一律不算签过。"
+check = '''s=scripts/check-gpu27-target-index.py; [ -f "$s" ] || s=docs/research/gpu/tools/check-gpu27-target-index.py; python3 "$s"'''
+note = "2026-11-21：v2 的 target@52 写成「字节偏移，0 = 无 dbuf」，参考实现里 db[0].offset 恰为 0 且 dbTarget() 返回索引，两边各自自洽、拼接即矛盾；尺寸不变所以编译器与 static_assert 都看不见，第一次双缓冲飞行会静默停在旧缓冲。"

@@ -76,6 +76,15 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 它同样签了，但排除理由：每个消费点都要多一次哨兵比较，索引方案只需一次 `-1`。
 **尺寸不变**（仍是偏移 52、仍是 56 B），所以 §2.5 的四条断言不用改，改的是语义与消费点。
 
+**decision record 2（直扫路径怎么表示，2026-11-21）**：直扫**不用 `format` 的新取值**，改用
+`PongScanoutModeInfo.format` 的**高位标志**——低 16 位仍是像素格式，直扫写 `1 | 0x10000`；
+presenter 比较时按 `(format & 0xffff) == PongScanoutBgra`，新路径只多读一个位。
+排除 `format = 2` 的依据是 display 第 4 轮点出的三处**精确比较**：`PongMetalScanout.h:231`
+`mode.format != PongScanoutBgra`（填 2 会让新路径连 version 都没读就被 refused）、`:38`
+`frame.format != PongScanoutBgra`（每帧 stop）、`:233` `stride < width*4`（把「4 B/像素 + 线性 pitch」
+写进了 mode 闸门）。三处都要求「恰好等于 1」，所以任何新取值都会在到达直扫代码之前被拒；
+标志位则不改变这三处对低 16 位的判断，代价是内核侧零改动（本树只有 `:149` 一处在填 format，无任何比较）。
+
 **决定怎么记（写给以后想重开的人）**：display 答完之后，本节只加**一行 decision record**——
 选了哪个形状、依据是它的哪一句（`文件:行`）、以及另一个形状为什么被排除。这里**不摆并列选项表**：
 并列表会被后来的人读成「还在选」，而决定一旦写下就不该反复重开。
@@ -314,6 +323,18 @@ display 给了 0x7004 的三个接入点（wire enum `:5-6`、`PongAdrenoScanout
   这条已在 §2.3 第三行定为「受支持的降级」，不是错误；
 - **`target==0` 的语义**是「无 dbuf」，而「第一个 dbuf」写 `1`（索引 + 1，见 §2.1 的 decision record 1）。
   这条在 display 第 3 轮被指正过：按「字节偏移」写时 `db[0].offset` 恰好也是 0，两种含义撞在同一个值上。
+
+### 6.2 display 第 4 轮会签：四点逐条落定（2026-11-21）
+
+| 项 | display 的答复 | 本文对应 |
+| --- | --- | --- |
+| `version`@0 | 同意；并给一条实现事实：内核**只写不比较**——`PongAdrenoScanout.cpp:75` 写入、`:117-118` 原样 memcpy 回、全文件没有 `mode.version` 判读 ⇒ 通道是内核→presenter 单向，presenter 自己 latch 就够，内核不该也不能校验客户端版本 | §2.2 的「权威是单向的」三条禁令得到实现侧印证 |
+| 十条断言 | 同意；并指出本树目前只有 `PongScanoutWire.h:14-15` 四条 `sizeof`，缺 `version`@0、`Done.reserved`@12、`Frame.address`@8、`Frame.reserved`@44；v2 三条休眠。两条注释要求：POD 所以 `offsetof` 合法；`reserved`@44 与 `token`@44 是**同数**、故意两份，不许合并 | §2.5 断言清单 + 补丁头的休眠说明 |
+| `token`@44 | **拆半签**：布局同意，值不签（写什么 token、何时 evict 属 dbuf 立项，本树无 `Kept` 表/逐帧 map 记账） | §6 原有边界「GPU 线只按尺寸承载」不变 |
+| `target`@52 | 索引 + 1 **复签同意** | §2.1 decision record 1 |
+
+直扫路径的 `format` 形状在同轮由本线定案为**高位标志**（decision record 2），display 要求
+「写进 decision record，我按你选的签」，故本节只记结果、不再摆选项。
 
 ---
 

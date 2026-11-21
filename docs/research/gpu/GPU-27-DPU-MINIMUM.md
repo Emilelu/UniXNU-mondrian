@@ -30,10 +30,12 @@
 合成器的 surface，**GPU 一次拷贝都不做**。判据是 present 段那四个数整段消失（见
 `check-gpu27-zero-copy.py` 的四条），而不是变小。
 
-「不加字段」的接缝只有一个：`PongScanoutModeInfo.format` 现在只取 `PongScanoutBgra=1`，
-可以约定一个新值（如 `2 = 直扫`）表示「这一帧按源几何直扫，不做拷贝」。这是**语义**上的新取值，
-不是结构上的新字段——所以 48 B 布局、四条 `static_assert`、`PongAdrenoScanout.cpp:129` 的尺寸闸门
-全都不用动。**这条要给 display 决定**（见 §5 第 1 问）。
+「不加字段」的接缝只有一个：`PongScanoutModeInfo.format`。**形状已定**（display 第 4 轮，见
+`GPU-27-SCANOUT-WIRE-PROPOSAL.md` 的 decision record 2）：**不用新取值，用高位标志**——低 16 位仍是
+像素格式，直扫写 `1 | 0x10000`，presenter 按 `(format & 0xffff) == PongScanoutBgra` 比较。
+理由：`format = 2` 会撞三处精确比较（`PongMetalScanout.h:231` mode 闸门、`:38` 每帧闸门、
+`:233` 的 `stride < width*4`），在到达直扫代码之前就被拒；标志位不动这三处，内核侧零改动
+（本树只有 `:149` 一处在填 format、没有比较）。尺寸与四条 `static_assert` 都不动。
 
 三件必须同时成立，缺一条就白做：
 
@@ -64,11 +66,16 @@
 
 ## 5 要 display 决定的三件事
 
-1. `format` 新取值（如 `2 = 直扫`）这条路能不能接受；若不能，那就要么加一个 `mode` 字段（进 v2），
-   要么用别的方法表达（例如 mode 请求里已有的 `bytes` 字段留作标志位——这需要它同意语义）。
-2. 单缓冲直扫作为第一档是否够用（我们先验证「拷贝消失」，双缓冲随后）。
-3. 行距与 CTL 页的编程归谁：CTL 页两棵树说法冲突（`PongDsiPanel.cpp:115-123` 的六个 `0x0ae16000+i*0x1000`
-   vs t970 的 `0x2000+0x200*n`），直扫要写 CTL，**这个冲突必须先探针证，不能照抄**。
+1. ~~`format` 新取值能不能接受~~ **已答（第 4 轮）**：不接受 `2`，改用高位标志 `0x10000`；
+   本线已按此写进 proposal 的 decision record 2，等它按这个形状签。
+2. ~~单缓冲直扫作为第一档是否够用~~ **已答**：够，但判据不能只有 `imports=0`——要加 `te ≥ 110/s`
+   与「连续 3 秒 frame count 与 te 计数同步」。本线已把这条写进 `check-gpu27-zero-copy.py` 的判据说明
+   （帧计数推进本来就是它的第四条）。
+3. **CTL/INTF 页归 display**（它已接）：离线两源在 CTL 上重合 `0x0ae16000 + i*0x1000`
+   （本树 `PongDsiPanel.cpp:115-127` + sheng `DisplayTimingProbe.cpp:36` 的 `kCtl 0x15000` 配 `:30`
+   `kMdp 0xae01000`），t970 的 `0x2000 + 0x200*n` 是另一代 catalog；但 **INTF 页有真实的 0x1000 分歧**
+   （本树 `:505` 用 `0xae35000 + active*4096`，sheng `kIntf` 配 `0xae01000` 落 `0xae36000`），
+   它用 `k60_dpu=1` 双页各采 200 ms 收口，不花 boot-arg。本线只等结论，不猜。
 
 ## 6 引用
 

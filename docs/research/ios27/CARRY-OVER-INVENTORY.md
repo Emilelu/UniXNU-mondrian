@@ -126,3 +126,29 @@ the latter can simply return, which is what left this board sitting at the panic
 **decision（stage-0）**：解冻条件 ④「自动复位」按 **0300 → 0311 → 0308 → 0334b** 四步走，
 每步单独 `apply --check` + 单独一次构建验证符号；不合并成一次。理由不是保守，而是这四个
 文件互相引用（0308 调 0311 的函数、0334b 调 0308 的函数），任何一步漏了都只在**链接期**暴露。
+
+## `0308` 不只是复位：它先写 SPMI/IMEM（HR-01 相关）
+
+把 `0308-k60-usblog-pong-capture-restart.patch` 的 195 行新增段读完后，链的形状变了：
+
+```
+0311 提供 k60_prime_restart(int)  —— 实际定义就在 0308 这个补丁里（合并了）
+0308 k60_usblog_reset_to_fastboot()
+      ├─ k60_prime_restart(2)   → 先经 SPMI observer 写 IMEM 的 restart-reason 槽
+      └─ smc #0 SYSTEM_RESET → 返回则 hvc #0 → 都返回才打印放弃
+```
+
+新增的静态量有 `k60_spmi_apid`、`k60_spmi_observer`、`k60_spmi_channel`、`k60_imem`
+——即这段代码会在**复位之前对 SPMI observer 做写操作**。
+
+这与 HR-01 的现行口径直接冲突（HR-01：默认关闭 SPMI/RSC 写入；只在 Data 挂载后允许
+`pong_rail_probe=1` 的只读探测）。所以 stage-0 的自动复位不能原样搬，必须在两者之间选：
+
+- **A（推荐）**：只搬复位那一半——把 `k60_usblog_reset_to_fastboot()` 的 SPMI/IMEM
+  前置整段去掉，直接 `smc #0 SYSTEM_RESET`，返回则 `hvc #0`。代价：重启原因不落盘，
+  下次启动看不到「为什么重启」；换来的是不碰 SPMI、不违 HR-01。
+- **B**：整段搬，并向用户申请一次 HR-01 豁免（写 IMEM 的 restart-reason 槽）。
+  收益是下次启动能读到原因码；代价是引入一处 SPMI 写路径，且它在 `bsd_init` 之后、
+  Data 挂载之前就会跑。
+
+**未决定**，留给用户裁；在此之前不动 0308。

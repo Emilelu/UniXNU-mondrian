@@ -1,0 +1,60 @@
+Subject: [PATCH proposed] PongMetal: print the client frame interval as client=<us> us
+
+Draft only. Not in patches/*/series, not built, not flown. Carry it with the
+next image.
+
+The stage line already names wait/copy/done, but none of the three is the
+client's cadence: `wait` is what the render server spent blocked, and it equals
+the interval only when the copy and the retire are free. Add the interval
+between two frames arriving, print it as `client=<us> us` (the field
+k60-gates/scripts/judge-gpu27.py already parses), and leave every existing
+number unchanged.
+
+Normal: <= 8333 us at 120 Hz. First frame of a flight prints 0 (no previous
+arrival, not a sample). client > 8333 with the copy in budget means the client
+is the limit.
+
+--- a/drivers/PongMetal/PongMetalScanout.h
++++ b/drivers/PongMetal/PongMetalScanout.h
+@@ -27,6 +27,13 @@
+      * the last frame's three numbers so the rate line names the stage that
+      * costs the frame instead of blaming the whole driver. */
+     uint64_t lastWait=0,lastCopy=0,lastDone=0;
++    /* The number the budget needs and neither side has ever printed: how long
++     * the client took between handing over one frame and the next. `wait` above
++     * is what the render server spent blocked; it equals the same interval only
++     * when the copy and the retire are free, and every flight so far read the
++     * two as if they were the same number. `previous` is the arrival time of the
++     * frame before this one, so the first frame reports 0 and is not a sample. */
++    struct timespec previous={};uint64_t lastGap=0;
+     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE,0);
+     for(;;) {
+         @autoreleasepool {
+@@ -37,6 +44,13 @@
+             if(unsigned(status)==0xe00002d6)continue;
+             if(status || bytes!=sizeof(frame) || frame.reserved || frame.format!=PongScanoutBgra) {
+                 report("scanout frame wait stopped",status?:-1);return nullptr;
++            }
++            {
++                /* span() is 0 when either end was not actually read, so the
++                 * first frame reports no gap instead of a cast from zero. */
++                const uint64_t gap=span(previous,t1);
++                if(gap)lastGap=gap;
++                previous=t1;
+             }
+             auto result=context->presenter->present({reinterpret_cast<void *>(frame.address),size_t(frame.bytes),
+                 size_t(frame.stride),frame.width,frame.height});
+@@ -143,10 +157,11 @@
+                 /* Every span below is printed in microseconds. The three outer spans used to be
+                  * divided by 1000 while still carrying the "us" label, which made a 48 ms frame
+                  * read as a 48 us copy and turned P-234 into a false "the copy is free" verdict. */
+-                char rate[512];snprintf(rate,sizeof(rate),
+-                    "scanout frames=%u at %llu.%03llu s; last frame: wait=%llu us copy=%llu us done=%llu us; imports=%llu import=%llu us encode=%llu us submit=%llu us gpu=%llu us sum=%llu us",
++                char rate[640];snprintf(rate,sizeof(rate),
++                    "scanout frames=%u at %llu.%03llu s; last frame: wait=%llu us copy=%llu us done=%llu us client=%llu us; imports=%llu import=%llu us encode=%llu us submit=%llu us gpu=%llu us sum=%llu us",
+                     copies,(unsigned long long)absoluteUs(now)/1000000ull,(unsigned long long)(absoluteUs(now)%1000000ull)/1000ull,
+                     (unsigned long long)lastWait,(unsigned long long)lastCopy,(unsigned long long)lastDone,
++                    (unsigned long long)lastGap,
+                     (unsigned long long)context->presenter->imports(),
+                     (unsigned long long)imported,(unsigned long long)encoded,(unsigned long long)submitted,
+                     (unsigned long long)waited,(unsigned long long)(imported+encoded+submitted+waited));

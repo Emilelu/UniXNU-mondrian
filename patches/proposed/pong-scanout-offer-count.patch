@@ -1,0 +1,64 @@
+Subject: [PATCH proposed] PongAdreno: count scanout offers and drops
+
+Draft only. Not in patches/xnu/series, not built, not flown. Carry it with the
+next image so one flight can read the delivery model instead of guessing it.
+
+--- a/drivers/PongAdreno/PongAdrenoScanout.cpp
++++ b/drivers/PongAdreno/PongAdrenoScanout.cpp
+@@ -30,6 +30,13 @@
+ PongScanoutModeInfo mode{};
+ bool waiting=false,poisoned=false;
+ uint64_t sequence=0,completed=0;
++/* Offer accounting for the delivery model. Every call that reached the gate is
++ * an offer; an offer that found no waiting render server is a drop. The kernel
++ * already knows both, but only the frames that made it are ever printed, so a
++ * flight cannot tell "the screen is slow because frames are dropped" from "the
++ * screen is slow because the client is slow". A queueing fix is chosen with
++ * this counter, and the same counter is what proves it worked. */
++uint64_t offered=0,dropped=0;
+ struct Pending {bool offered=false,delivered=false,done=false;uint64_t id=0;
+     uint32_t status=0;IOMemoryDescriptor *memory=nullptr;IOMemoryMap *map=nullptr;
+     uint32_t stride=0;} pending;
+@@ -156,7 +163,12 @@
+     if(!scanout_gate || !source || stride<uint64_t(width)*4 || width!=mode.width || height!=mode.height || (offset&4095))return 0;
+     IOLockLock(scanout_gate);
+     if(poisoned){IOLockUnlock(scanout_gate);return 2;}
+-    if(!client || !waiting || pending.offered){IOLockUnlock(scanout_gate);return 0;}
++    /* A drop has two shapes and both must be counted: the render server was not
++     * blocked in the wait when this frame was handed over, or the previous
++     * offer had not been retired yet (one pending slot). GPU-only display is
++     * judged on this number, not on the frames that happened to line up. */
++    ++offered;
++    if(!client || !waiting || pending.offered){++dropped;IOLockUnlock(scanout_gate);return 0;}
+     /* The frame path the porting guide asks us to attribute: page preparation,
+      * the offer the render server has to pick up, and the GPU copy itself are
+      * three different waits with three different owners. Report each one, so a
+@@ -189,7 +201,14 @@
+      * the way an unconditional report would. The three stages are the ones the
+      * porting guide separates: page preparation here, the wait for the render
+      * server to take the offer and copy it, then the panel sample. */
+-    if(ok && (completed<=4 || !(completed%60))) {
++    const bool stageLine=ok && (completed<=4 || !(completed%60));
++    /* Drops happen on the frames that do not complete, so the old condition
++     * inside `ok` could never report them. Print on offered%60 as well, and put
++     * the layout version on the same line: the kernel half of the scanout wire
++     * is what a version mismatch is diagnosed from (PongScanoutModeInfo.version,
++     * 1 = 48-byte frame, 2 = 56-byte frame). */
++    const bool offerLine=!ok && offered && !(offered%60);
++    if(stageLine || offerLine) {
+         uint64_t prepare=0,wait=0,total=0;
+         absolutetime_to_nanoseconds(prepared-began,&prepare);
+         absolutetime_to_nanoseconds(finished-prepared,&wait);
+@@ -200,8 +219,10 @@
+          * 18.4 MB). Without the address a log cannot say whether the expensive
+          * ones are the frames that got a fresh VA, which decides whether the fix
+          * is a kept mapping or something inside the bridge. */
+-        char text[260];int n=snprintf(text,sizeof(text),
+-            "PONG SCANOUT: frame=%llu prepare=%llu us offer_and_copy=%llu us total=%llu us addr=0x%llx bytes=%llu\n",
++        char text[320];int n=snprintf(text,sizeof(text),
++            "PONG SCANOUT: scanout version=%u offers=%llu dropped=%llu frame=%llu prepare=%llu us"
++            " offer_and_copy=%llu us total=%llu us addr=0x%llx bytes=%llu\n",
++            unsigned(mode.version),offered,dropped,
+             pending.id,prepare/1000,wait/1000,total/1000,
+             (unsigned long long)(pending.map?pending.map->getVirtualAddress():0),
+             (unsigned long long)(pending.map?pending.map->getLength():0));

@@ -1,0 +1,73 @@
+# patches/proposed — offline drafts, not in the series
+
+These are drafts that answer a question with a measurement, written while no
+device flight is available. They are deliberately **not** in `patches/*/series`,
+not built, and not flown:
+
+* nothing here changes a default, a boot argument or a policy;
+* each one only adds counters and one printed field, so a flight can read a
+  number that the budget in `docs/research/gpu/GPU-27-BUDGET-120FPS.md` needs
+  and that neither side has ever printed;
+* the field names are the ones `E:/hackios/k60-gates/scripts/judge-gpu27.py`
+  already parses (`SCANOUT_VERSION`, `OFFERS`, `CLIENT` at lines 52–56 of that
+  script), so a single flight with these two patches makes three currently
+  `unmeasured` fields measurable.
+
+They are meant to be carried **once, together with the next image**
+(Lead ruling 2026-11-21, m01230): one flight, both patches, one image, then the
+numbers decide. Do not land them one at a time — the point is that `offers`,
+`dropped` and `client` describe the same frame stream.
+
+## Verification done offline
+
+```
+cd E:/hackios/k60-gpu-27
+git apply --check patches/proposed/pong-scanout-offer-count.patch
+git apply --check patches/proposed/pong-metal-client-gap.patch
+```
+
+Both pass against `feat/gpu-27` at the commit that added this directory.
+Neither file has been compiled: this lane may not build (`LANE-CONTRACT-ios27`
+§2), so "applies" is the strongest offline claim, and it is the only one made
+here.
+
+## What each patch adds
+
+| Patch | File | Adds |
+| --- | --- | --- |
+| `pong-scanout-offer-count.patch` | `drivers/PongAdreno/PongAdrenoScanout.cpp` | counters `offered`/`dropped` at the delivery gate, and one periodic line carrying `scanout version=`, `offers=`, `dropped=` |
+| `pong-metal-client-gap.patch` | `drivers/PongMetal/PongMetalScanout.h` | the arrival interval between two frames handed over by the client, printed as `client=<us> us` on the existing stage line |
+
+## Field contract: which log line, and what counts as normal
+
+Every value below is read from the console log of a `sheng-gpu-trace=1` flight.
+"Normal" is stated against the 120 Hz budget of 8,333 µs and against the two
+real flights the budget was built on (usblog-20261119-151837 for the
+compositor, usblog-20261119-173454 for the copy bench).
+
+| Field | Line it appears on | Normal | What a bad value means |
+| --- | --- | --- | --- |
+| `scanout version=<n>` | `PONG SCANOUT: scanout version=1 offers=… dropped=… frame=…` | `1` before the wire proposal lands, `2` after both halves move together | kernel and presenter disagreeing is exactly the state that returns `kIOReturnBadArgument` from `wait`, after which the presenter logs `scanout frame wait stopped` and the CPU compositor takes over. A `2` here with a version-1 presenter is that failure, named. |
+| `offers=<n>` | same line | grows at the panel rate: ≈120 per second at 120 Hz, ≈20 per second when the CPU compositor is producing the frames | a rate far below the panel rate means the compositor is not producing frames at all (the screen is not the GPU's fault); a rate far above it means the same frame is being offered repeatedly |
+| `dropped=<n>` | same line | 0 in a steady GPU-only flight; the counter exists so this can be checked rather than assumed | `dropped/offers > 0.05` means frames are being lost at the handover, not in the copy: either the render server was not blocked in `wait`, or the previous offer had not retired (there is one pending slot). In that state a faster copy cannot raise the frame rate, which is the whole point of measuring it. |
+| `client=<us> us` | `scanout frames=… last frame: wait=… copy=… done=… client=… us; imports=…` | ≤ 8,333 µs at 120 Hz. `client` is the interval between two frames reaching the render server, so it is ≥ that frame's `copy+done` and ≥ the client's own encode time | `client > 8,333` with `gpu` in budget means the client is the limit, not the GPU. Before this patch the same interval could only be inferred by subtracting `copy+done` from `wait`, and every flight so far treated `wait` as if it were the interval. |
+
+Two notes that keep these numbers honest:
+
+* the first frame of a flight prints `client=0` because there is no previous
+  arrival; a zero there is "no sample", not "instant";
+* `offers`/`dropped` are counted under `scanout_gate`, so they are consistent
+  with the per-frame line printed from the same lock.
+
+## What these patches do not add
+
+`gpuonly=` (the composition policy) lives in the XNU patch set, and
+`abi=kernel=<v>/<sizeof> client=<v>` lives in the user-client open path; both
+belong to other trees and other owners. Until those print, the judge reports
+them as `unmeasured` rather than passed — see
+`docs/research/gpu/GPU-27-JUDGE-DRAFT.md` §2.
+
+## Rollback
+
+Both patches are additive and independent: reverting either one restores the
+previous log text exactly, and no caller reads these fields.

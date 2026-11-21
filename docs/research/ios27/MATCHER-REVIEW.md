@@ -75,7 +75,7 @@ kernel.map.json is a positive-only pairing table:
   data-users 1; pure-leaf 15. There is no reviewed method.
 * data_by_method: reference-data 221; refs 269; vtable-layout 279; slot 5;
   users 3; sysctl 3; fields 1. There is no reviewed method.
-* The map has no top-level missing list and no signature field. Missing and
+* The map has no top-level missing list and no per-entry signature or name-type field; it does carry the top-level matcher_signature. Missing and
   stubbed are recorded by fileset_emit.emit_images into kernel.json
   (fileset_emit.py:733-741).
 
@@ -198,7 +198,7 @@ targets:
 |---|---:|---|
 | no entry at target | 25 | 25 target keys absent from map.functions and map.data |
 | entry with native = 0 | 0 | no map function or data value is 0x0 |
-| entry with signature mismatch | 0 | no target-keyed entry; the map has no signature field to mismatch |
+| entry with signature mismatch | 0 | no target-keyed entry; the map has no per-entry signature field to mismatch |
 
 The two same-name-elsewhere records do not change these counts. If the required
 question is instead "does a same-name map entry exist anywhere", the answer is

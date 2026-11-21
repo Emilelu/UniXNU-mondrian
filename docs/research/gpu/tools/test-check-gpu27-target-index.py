@@ -21,9 +21,53 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
-GATE = os.path.join(HERE, "check-gpu27-target-index.py")
-FIXTURES = os.path.join(HERE, "fixtures")
+
+
+def _first(*candidates):
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return candidates[-1]
+
+
+# The same test has to run from docs/research/gpu/tools/ in the lane and from
+# scripts/tests/ in a gate checkout, so nothing here may assume a fixed depth.
+GATE = _first(os.environ.get("K60_GPU27_TARGET_INDEX"),
+              os.path.join(HERE, "check-gpu27-target-index.py"),
+              os.path.join(os.path.dirname(HERE), "check-gpu27-target-index.py"),
+              os.path.join(os.path.dirname(os.path.dirname(HERE)), "check-gpu27-target-index.py"))
+def _fixtures():
+    for path in (os.environ.get("K60_GPU27_TARGET_INDEX_FIXTURES"),
+                 os.path.join(HERE, "fixtures"),
+                 os.path.join(HERE, "fixtures", "gpu27")):
+        if path and os.path.isfile(os.path.join(path, "consumer-missing-minus-one.c")):
+            return path
+    return os.path.join(HERE, "fixtures")
+
+
+FIXTURES = _fixtures()
+
+
+def _repo():
+    """The lane tree: the one that carries docs/research/gpu."""
+    if os.environ.get("K60_GPU27_REPO"):
+        return os.environ["K60_GPU27_REPO"]
+    here = HERE
+    while True:
+        if os.path.isdir(os.path.join(here, "docs", "research", "gpu")):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    for sibling in ("k60-gpu-27", "../k60-gpu-27"):
+        candidate = os.path.join(os.path.dirname(os.path.dirname(HERE)), sibling)
+        if os.path.isdir(os.path.join(candidate, "docs", "research", "gpu")):
+            return candidate
+    return os.path.dirname(os.path.dirname(HERE))
+
+
+REPO = _repo()
 
 
 def run(*args):

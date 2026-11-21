@@ -122,3 +122,10 @@ armcpu-sleep-hook.patch
 # themselves at run time on pong_ramoops_base. Base 0xa7000000 and the 2 MiB
 # window are the device live FDT ramoops node (reg 0x400000, pmsg-size 0x200000).
 0546-k60-ramoops-console-27.patch
+
+# Cut from the 16-series 0300 against the tree the four layers build: one new
+# file (bsd/dev/k60_usblog.c) with the dead ARM64_BOARD_CONFIG_PONG guard
+# removed, plus two retargeted call sites (arm_init.c:702 and the qbt block at
+# the end of bsd_autoconf). Its bsd/conf/files hunk is dropped on purpose:
+# scripts/append-conffiles.py owns those lines. See CARRY-OVER-INVENTORY.md.
+0547-k60-usblog-ep0-27.patch

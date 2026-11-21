@@ -313,3 +313,27 @@ stage firmware-and-bootimg      162s    total  844s
 这条与 ramoops 互补而且**不依赖任何文本渲染**：即使 `kPETextMode` 在这块面板上完全无效，色块依然会被写进显存并扫描出去。
 
 （实现放下一轮：需要新增一个 `k60_bootbar.c` 与两处调用点，仍按生成脚本切补丁、`git apply --check` 后再提交。）
+
+### 2026-11-22 07:46 — 色块通道的落点上下文（下一轮照此切补丁，不必再找锚点）
+
+`patches/xnu-12377/0546-k60-ramoops-console-27.patch` 里那个 hunk 的原文（含上下文），就是绿块要挂的位置：
+
+```
+@@ -585,6 +699,8 @@ arm_init(
+ 	arm_vm_init(xmaxmem, args);
+ 	boot_progress_stage("arm_vm_init returned");
+ 
++	(void)pong_ramoops_console_init();
++
+ 	if (debug_boot_arg) {
+ 		patch_low_glo();
+```
+
+⇒ 绿块的插入点应当是 `(void)pong_ramoops_console_init();` 与 `if (debug_boot_arg)` 之间，仍用这三行上下文；蓝块用 `0547` 在 `bsd_init.c` 里已有的锚点 `k60_usblog_start();`（同一 hunk 里已经带了 `extern void k60_autoreset_start(void);`，可照同样方式写块内声明）。
+
+两件必须在动手前确认的事实（都还没查）：
+
+1. `PE_state.video` 在 12377 里的字段名与单位（`v_baseAddr`/`v_rowBytes`/`v_width`/`v_height`/`v_depth` 是否仍是这套，深度是位还是字节）；
+2. 内核此刻能否直接写 `v_baseAddr`（`arm_vm_init` 之后是 MMU 开、可写；但该地址是否需要 `ml_io_map` 映射——firmware 用的是同一块物理显存）。
+
+不确认这两点就写，会重演 `0532`/`0546` 那两次「代码在、但整段被预处理器或映射问题吃掉」。

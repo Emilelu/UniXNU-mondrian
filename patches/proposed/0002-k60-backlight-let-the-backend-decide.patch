@@ -1,0 +1,56 @@
+Subject: [PATCH] fix(display): let the backend decide backlight control by default
+
+AppleARMBacklight impersonation with backlight-control published is what made
+brightness work on 16.6.1, and this driver keeps that answer. On 27 the backend
+owns the panel and the brightness scale, so publishing control from here as
+well would give CoreBrightness two authorities over one panel.
+
+The boot argument name does not change: `k60_backlight_control=1` still turns
+the publication on, and the flag is still what the K60 BACKLIGHT evidence line
+prints, so an image can be compared with the 16.6.1 ladder.
+
+This is a behaviour change, not an optimisation. The same source publishes on
+16 and does not on 27, so a `control=` field from one ladder cannot be compared
+with the other; the saving of one boot argument is only a side effect.
+
+Rationale and evidence: docs/research/display/DISPLAY-27-DELTA.md section 6.
+
+Applies to the 27 ladder branch only. The closed 16.6.1 series keeps the
+current default and must not take this patch.
+---
+--- a/drivers/PongAdreno/K60Backlight.cpp
++++ b/drivers/PongAdreno/K60Backlight.cpp
+@@ -326,18 +326,23 @@
+      * With the default, the service still publishes IODisplayParameters and
+      * accepts brightness/FadePeriod requests, so a level can be driven from
+      * either side, and nothing that walks the registry is told a backlight
+      * control exists. */
+-    /* backlight-control is the default since brightness-19 and 120hz-7: both
+-     * published conformance=1 control=1 on the device with no SIGSEGV, the
+-     * first frame presented and SpringBoard at 128-172 lines, and the user
+-     * confirmed the slider range end to end (DBV 0x4 .. 0xfff). The earlier
+-     * int-236 crash family came from publishCalibration() handing CoreBrightness
+-     * a half-built dictionary, not from the impersonation itself, and that call
+-     * no longer publishes the dictionary. Keep k60_backlight_control=0 as the
+-     * explicit opt-out for an image that must not walk the registry with a
+-     * backlight control published. */
+-    uint32_t controlArg = 1;
++    /* On 16.6.1 backlight-control is published by default: brightness-19 and
++     * 120hz-7 both published conformance=1 control=1 on the device with no
++     * SIGSEGV, the first frame presented, SpringBoard at 128-172 lines and the
++     * slider range confirmed end to end (DBV 0x4 .. 0xfff). The int-236 crash
++     * family came from publishCalibration() handing CoreBrightness a half-built
++     * dictionary, not from the impersonation itself, and that call no longer
++     * publishes the dictionary.
++     *
++     * On 27 the decision belongs to the backend: the display driver owns the
++     * panel and the brightness scale there, so this driver keeps answering the
++     * conformance query and leaves control off unless the image asks for it
++     * with k60_backlight_control=1. This is a behaviour change, not an
++     * optimisation: the same code publishes on 16 and does not on 27, so a
++     * control= field from one version cannot be compared with the other. */
++    uint32_t controlArg = 0;
+     const bool controlGiven = bootArg("k60_backlight_control", controlArg);
+     if (controlGiven ? controlArg != 0 : true) {
+         /* A successful vtable swap is not the answer that matters: brightness-4
+          * swapped it and backboardd still crashed. The flag records the

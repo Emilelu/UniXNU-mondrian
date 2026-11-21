@@ -84,7 +84,8 @@ wire 侧另有一件只审不改的事：版本号中立法案由 gpu27 出、Le
 
 | sheng 的东西 | 判定 | 依据 |
 | --- | --- | --- |
-| INTF 偏移与页基址 | **copied** | 与 `PongDsiPanel.cpp:84,:505` 逐字相同 |
+| INTF 偏移与页基址 | **copied（偏移）/ 待定（基址）** | 八个偏移与 `PongDsiPanel.cpp:84` 逐字相同；**基址有 0x1000 分歧**，见下一行 |
+| INTF 页基址的 0x1000 分歧 | **adapted：两个候选页都采** | 本树 `PongDsiPanel.cpp:505` 用 `0x0ae35000+active*4096`（120hz-7 实测 `INTF1 55/s→120/s` 走的就是这条），sheng `DisplayTimingProbe.cpp:31` 的 `kIntf{0x35000,0x36000}` 配 `:30 kMdp 0xae01000` 会落 `0xae36000/0xae37000`。`k60_dpu=1` 就对两个候选页各采 200 ms 的 frame count，前进的那页是真的（gpu27 第 4 轮问的 CTL/INTF 基址冲突按这条收口，见 `WIRE-VERSION-REVIEW.md` §11.2） |
 | 采样间隔（`IOSleep(150000)`、两次隔 1 s） | **copied** | `DisplayTimingProbe.cpp:42`；与 `panel_intf_rate()` 的 200/500 ms 不冲突（一个粗一个细） |
 | `native_dpu_stats[18]` 形状 | **adapted** | 本仓已有 `probe_frames[4]`/`panel_measured_hz`（`PongDsiPanel.cpp:69,:80`）；27 上加一个 18 项数组即可，不复用变量名 |
 | MDP 子块 `0xae01000+0x8f000` | **rejected（暂）** | K60 的 `RESEARCH.md` 记 `0xae00000+0x84000`；两者不同源，见 DELTA §9 U2 |
@@ -418,10 +419,12 @@ O1 被选中的理由只有一条：它是三个里唯一「删掉之后能力�
 - `v_baseAddr` / `Video[]` 属 `step.device`，Lead 在 F2 飞行时读；fragment 里只留
   一行待读项，`done=false` 保持。
 - **wire 版本号中立法案**（2026-11-21）：提案由 gpu27 出、Lead 会签，本线只出覆盖审查
-  ——`docs/research/display/WIRE-VERSION-REVIEW.md`，判「57 槽」与「48 B 包装」是否覆盖
-  本线全部过线字段。**不改 wire、不改断言、不裁形状**。已记的关键事实：`Frame.reserved`@44
-  在 `PongAdrenoScanout.cpp:149` 被写成字面量 `0`，`Done.reserved`@12 在 `:122` 被当垃圾
-  校验（非零即 `kIOReturnBadArgument`），所以「48 B 包装」不是零改动方案。
+  ——`docs/research/display/WIRE-VERSION-REVIEW.md`，判「另加方法码承载版本（原临时名「57 槽」，
+  真名 `0x7004`，已不采用）」与「48 B 包装」是否覆盖本线全部过线字段。**不改 wire、不改断言、不裁形状**。
+  已记的关键事实：`Frame.reserved`@44 在 `PongAdrenoScanout.cpp:149` 被写成字面量 `0`，
+  `Done.reserved`@12 在 `:122` 被当垃圾校验（非零即 `kIOReturnBadArgument`），所以「48 B 包装」
+  不是零改动方案；而 `ModeInfo.version`@0 是四条记录里唯一现成的版本位，`PongAdrenoScanout.cpp:75`
+  只写不比较，所以它只覆盖内核→presenter 一个方向（见该文件顶部的一行结论）。
 - `check-lane-fragment.py` 收不了绝对路径（`/mnt/e/...` 被 `[\w.-]` 剥成 `mnt/e/...`）是 gates
   的 bug，Lead 已认领修复；本 fragment 现在把官方页写成「porting/display 官方页 + 行号」
   的形式只是为了当时过门禁，修好后可以换回绝对路径（更精确，不必再绕）。

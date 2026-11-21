@@ -1,11 +1,25 @@
 # wire 版本号中立法案 —— 显示线覆盖审查
 
 Lead 2026-11-21 16:36 的裁决：版本号中立法案由 gpu27 出提案、Lead 会签，**显示线只审
-「57 槽」与「48 B 包装」两种形状是否覆盖本线全部过线字段**，不改 wire 一行。
+「另加一个方法码承载版本（临时名「57 槽」，真名 `0x7004`，该形状已不采用）」与「48 B 包装」
+两种形状是否覆盖本线全部过线字段**，不改 wire 一行。
 
 - 审查对象：`drivers/PongAdreno/PongScanoutWire.h`（15 行）与官方
   `E:/hackios/UniXNU/drivers/GopFramebuffer/NativeGOPWire.h`（17 行）。
 - 本文件只回答「覆盖 / 不覆盖」，不裁形状：实现归 gpu27，会签归 Lead。
+
+> **一行结论（2026-11-21，回答 gpu27 的第 3 次追问）**：**不存在「57 槽」**——它不是任何头文件里的结构，
+> 是我第 2 轮给「版本不塞进帧记录、另起一个方法码承载」起的临时名，真名是第五方法码 `0x7004`；
+> v2 已按 56 B 帧记录定稿，这个形状没有被采纳。
+>
+> **对齐 `PongScanoutModeInfo` 的前提（本线认的一条）**：四条记录里只剩 `version`@0 一个版本位——
+> `PongScanoutWire.h:10` 的 `version` 就是 40 B 记录的第一个字段；`Frame.reserved`@44 被内核在
+> `PongAdrenoScanout.cpp:149` 写成字面量 `0`，`Done.reserved`@12 被 `:122` 当垃圾哨兵校验
+> （非 0 直接 `kIOReturnBadArgument`），两处都不是空位；`WaitInfo` 加版本即 16 B，破
+> `NativeGOPWire.h:16` 的 `sizeof(NGPWait)==8`。**附带条件**：`PongAdrenoScanout.cpp:75`
+> 只把版本**写进** Mode、从不比较（全文件没有 `mode.version` 的判读），所以「版本只在偏移 0」
+> 只覆盖内核→presenter 一个方向；presenter 必须在 Mode 时 latch 版本、对不匹配的后续帧不提交
+> （内核收不到这种拒绝，`PongAdrenoScanout.cpp:129` 只对未知 op 返回 `kIOReturnBadArgument`）。
 
 ## 1. 本线过线的字段全集
 
@@ -43,7 +57,7 @@ Lead 2026-11-21 16:36 的裁决：版本号中立法案由 gpu27 出提案、Lea
 
 ## 3. 覆盖判定
 
-| 记录 / 常量 | 57 槽 | 48 B 包装 | 判据 |
+| 记录 / 常量 | 0x7004 承载（原「57 槽」，作废名） | 48 B 包装 | 判据 |
 | --- | --- | --- | --- |
 | `ModeInfo.version` | 覆盖 | 覆盖 | 已在 @0，两种形状都不动 |
 | `Frame`（8 字段） | 覆盖 | 覆盖，**代价是改 `:149` 的初始化** | 版本进 `reserved`@44 |
@@ -52,8 +66,8 @@ Lead 2026-11-21 16:36 的裁决：版本号中立法案由 gpu27 出提案、Lea
 | 方法码 / `NotSubmitted` / `Bgra` | 覆盖 | 覆盖 | 与版本无关 |
 | 官方 `NGPTransfer`(16 B) / `NGPPresent`(32 B) | 不涉及 | 不涉及 | 官方有、本线不过线 |
 
-**结论：两种形状都能覆盖本线的全部过线字段，成本形状不同**——57 槽动的是调用点（新槽位），
-48 B 包装动的是两个已在用的校验点。
+**结论：两种形状都能覆盖本线的全部过线字段，成本形状不同**——0x7004 动的是调用点（新方法码），
+48 B 包装动的是两个已在用的校验点。**两者都没有被采纳**：v2 走 56 B 帧记录 + `ModeInfo.version`@0。
 
 ## 4. 两种形状各自必须写死的条件
 
@@ -67,9 +81,9 @@ Lead 2026-11-21 16:36 的裁决：版本号中立法案由 gpu27 出提案、Lea
 4. 版本不匹配时 `Done` 必须**拒绝 retire**（走 `kIOReturnBadArgument` 一路），否则 GPU 拷贝
    完成的事件会退掉别人的一帧。
 
-57 槽：
+0x7004 承载（原「57 槽」，**已不采用**，以下条件仅存档）：
 
-1. 给出槽位索引常数，以及索引是否随方法码变化。
+1. 给出方法码常数与调用点，以及索引是否随方法码变化。
 2. `Wait` 无处放版本时怎么办：加版本即 16 B，与官方 `NativeGOPWire.h:16` 的
    `sizeof(NGPWait)==8` 冲突；若提案要动这条断言，等于改官方 ABI，会签时必须写明。
 3. `ModeInfo.version` 与槽位版本谁权威；两处不一致时的行为。
@@ -173,3 +187,51 @@ gpu27 的写法是「扫出映射里的**字节偏移**；0 = 无 dbuf」。在�
   也没有改 `k60-gpu-27` 的树——`GPU-27-V2-FIELDS.md` §3.1 那三行由 gpu27 自己填并注明出处。
 - 若 gpu27 按 §9.3 改 `target`，本线在这边只需要跟一件事：`zizhan :1368` 的消费点从
   `db[pending.target]` 变成 `db[pending.target-1]`（或哨兵比较），届时由 dbuf 立项统一改，不在这条线上。
+
+## 11. v3 会签（2026-11-21，第 4 轮）
+
+权威副本在 `E:/k60-work/scratch/reply-gpu-display-sync.md` 的「display-agent（第 4 轮）」段，
+这里是本线存档。gpu27 的 v3 只动了提案 §2.1 的 decision record 1（`target` 改「索引 + 1」）
+与 §6.1（「57 槽」作废），其余与 v2 逐字相同。
+
+### 11.1 三点会签结论
+
+| 要签的点 | 结论 | 本线给出的实现事实 |
+| --- | --- | --- |
+| 版本只在 `PongScanoutModeInfo` 偏移 0 | **同意** | `PongScanoutWire.h:10` 首字段即 `version`；`PongAdrenoScanout.cpp:75` 写入、`:117-118` 要求 `outBytes==sizeof(mode)` 后原样 `memcpy` ⇒ 它是 wait 前唯一通道。**但内核只写不比较**：全文件没有 `mode.version` 的判读（`:75` 写、`:129` 只比 Wait/Frame 尺寸、`:122` 只比 Done 的 `reserved`），所以这个通道只有内核→presenter 单向，presenter 必须自己 latch |
+| 十条断言 | **同意** | 本树现在只有 `PongScanoutWire.h:14-15` 的四条 `sizeof`；缺 `offsetof(version)==0`、`offsetof(Done.reserved)==12`、`offsetof(Frame.address)==8`、`offsetof(Frame.reserved)==44`；v2 专属三条按休眠补丁处理 |
+| `:149` 写 token、`:122` 原样 | **拆半签**：布局同意、值不同意 | `:149` 的第 8 项现在是字面量 `0`，换 `token` 只改位置语义（44 由 `offsetof` 钉住）；`:122` 是 Done 的检查（偏移 12），v2 不动。但「写什么 token、何时 evict」属 dbuf 立项（`Kept` 表 + 逐帧 map 记账），本树无此代码，所以不签「现在就写 token」 |
+
+两条写进断言补丁注释的要求：
+1. 四条记录都是标准布局 POD（只有 `uint32_t`/`uint64_t`），`offsetof` 合法；
+2. `offsetof(Frame,reserved)==44` 与 `offsetof(Frame,token)==44` 是同一个数、故意两份，**不许合并**——
+   合并后任何一次改名都会静默通过。
+
+`target`@52 改「索引 + 1」：**复签同意**（我在第 3 轮签的两种替代之一），decision record 的追加式写法也对。
+
+### 11.2 三个新问题的答复
+
+**`format` 新取值（`2 = 直扫`）不接受**，因为它撞了三处精确比较：
+
+| 位置 | 代码 | 后果 |
+| --- | --- | --- |
+| `drivers/PongMetal/PongMetalScanout.h:231` | `mode.version!=1 \|\| mode.format!=PongScanoutBgra` | 内核填 2 ⇒ presenter 连 version 都没读就 `scanout mode refused` |
+| `drivers/PongMetal/PongMetalScanout.h:38` | `frame.format!=PongScanoutBgra` | 每帧 `scanout frame wait stopped` |
+| `drivers/PongMetal/PongMetalScanout.h:233` | `mode.stride<mode.width*4` | 把「4 B/像素 + 线性 pitch」写进 mode 闸门，非线性 surface 会静默拒绝 |
+
+⇒ 与 gpu27 自己否掉的「48 B 包装」是同一类成本。本线给的形状：`format` 低 16 位保留像素格式、
+路径用 flag 位（`PongScanoutBgra=1`，直扫 = `1|0x10000`），presenter 比 `(format & 0xffff)==PongScanoutBgra`。
+**内核侧代价为零**：本树只有 `:149` 一处读 `format`、没有任何比较（`PongScanoutWire.h:10`/`:12` 是声明）。
+
+**单缓冲直扫作第一档够用**，但判据不能只有 `imports=0`：窗口外不是掉帧而是撕裂带。
+建议 `imports=0` + `te ≥110/s` + 连续 3 秒 frame count 与 te 计数同步；现成证据面是
+`PongDsiPanel.cpp:463-517`（120 Hz 切换已在动 `TearSyncVsync` 100→50）与 `:223-229`（`period` 不可用、要读 `te <N>/s`）。
+
+**CTL 基址冲突归本线**（飞行槽归 Lead）。离线两条独立来源已重合于 `0xae16000+i*0x1000`：
+本树 `PongDsiPanel.cpp:115-127` 的六页只读探针，与 sheng `DisplayTimingProbe.cpp:36` 的
+`kCtl 0x15000`/`stride 0x1000`（配 `:30 kMdp 0xae01000`）；t970 的 `0x2000+0x200*n` 是另一代 catalog。
+**但 INTF 页有真实的 0x1000 分歧**：本树 `:505` 用 `0x0ae35000+active*4096`（120hz-7 实测
+`INTF1 55/s→120/s` 走的就是这条），sheng `kIntf{0x35000,0x36000}` 配 `0xae01000` 会落
+`0xae36000/0xae37000`。解法不需要新 boot-arg：`k60_dpu=1` 本来就采 INTF 帧计数，
+把两个候选页都采、各打一行，200 ms 内 frame count 前进的那页就是真的（写进
+`docs/research/display/DISPLAY-27-INTEGRATION.md` §1 的探针设计）。

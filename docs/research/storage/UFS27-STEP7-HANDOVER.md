@@ -178,3 +178,35 @@ graded by `scripts/check-ufs27-step7-readiness.py`, whose rows (`tree`, `cpo`, `
 Still undetermined after today: who runs the first F3 build and when its `cpo.json`
 appears; whether F3's archive is one archive or two; and the exact wording bt wants in a
 `PASS` report line (the `PEND` wording in §1 is bt's; a `PASS` wording is not yet set).
+
+## 8. First turnover: PENDING (bt, 2026-11-21)
+
+The sheet was handed to bt the day it was written. bt read the sheet and the readiness
+gate, kept the criterion unchanged, and returned §6's lines as pending — explicitly not
+pretending the 24A446 inputs are F3:
+
+```
+⑦ judgement (F3): PENDING
+  OBJ  = PENDING — F3 object dir（含 .LDFLAGS + link.filelist）未到手；24A446 的 …/DEVELOPMENT_ARM64_BCM2837 存在，但不是 F3
+  ARCH = PENDING — $REPO/build/native-ufs/libNativeUfs.a 当前不存在；556,720 B / 三成员只是文档形状，未实测
+  OUT  = PENDING — 未生成；§4 的组合命令未跑
+  cpo  = PENDING — F3 那棵树的 KernelConfigTables.cpo.json 未定；24A446 的 cpo 存在（536 args），但不能替代 F3
+  checker rc = not run; bluetooth-storage-link: PENDING
+  missing = F3 真构建树、该树的 cpo、三成员归档、已保存的 control/archive ld stderr 对
+```
+
+bt also stated the boundary it will keep: it will not run §4 while the offline constraint
+is in force, since the command links twice. The four missing inputs are the whole content
+of "pending" here — no other condition is implied, and none of them can be satisfied from
+this host:
+
+| Missing input | Who can produce it | What it proves when present |
+| --- | --- | --- |
+| the F3 build tree | whoever runs the first 27 build | a kernel was linked at all, with a `.LDFLAGS`/`link.filelist` to replay |
+| that tree's `KernelConfigTables.cpo.json` | the same build | `build-native-ufs-linux.py` can replay a clang line and write the archive |
+| `build/native-ufs/libNativeUfs.a`, three members | `build-native-ufs-linux.py --out build/native-ufs` | the driver objects exist as one unit to force-load |
+| a saved control/archive `ld` stderr pair | the same build, or its log | the measurement can run offline instead of linking |
+
+Until all four exist, the state stays PENDING and this sheet has nothing to change. If the
+§3 probe reports `MISSING cpo` or `BAD cpo` on the F3 tree, that is the pending reason to
+record — not a separate failure mode.

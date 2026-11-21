@@ -631,3 +631,11 @@ cd E:/k60-work/scratch/ufs27-step7matrix && bash run.sh
 # PASS: ready -> green with the acceptance command, exit 0
 # ufs27-step7matrix: OK
 ```
+
+**First turnover from bt: PENDING.** bt read the sheet and kept the criterion unchanged,
+returning §6's six lines as pending — F3's object directory, its cpo, the three-member
+archive and a saved stderr pair are all absent, and the 24A446 inputs are explicitly not
+substituted for them. The full text and the input table are in
+`storage/UFS27-STEP7-HANDOVER.md` §8. Nothing in that answer contradicts this gate's rows:
+`tree`, `cpo`, `archive`, `stderr` are the same four, which is the reason the gate was
+written as rows rather than as a paragraph.

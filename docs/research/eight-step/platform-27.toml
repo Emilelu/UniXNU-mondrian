@@ -7,81 +7,89 @@
 # 纪律：没做过的步骤写 done = false 并写明缺什么、什么证据能定它；不要编。
 #
 # 每条 evidence 必须含可核查引用：file:line / URL / usblog-YYMMDD-HHMMSS / 0x… / P-xx。
+# 路径写法：外部树一律相对本工作树（../UniXNU、../xnu-12377、../UniXNU-sheng、../xnekom-ios27、
+# ../../k60-work），这样 scripts/check-lane-fragment.py --lane-root 能逐条解析。
 # 本线配套文档：
-#   docs/research/ios27/ARMCPU-FORK-VS-CATALOG.md   ArmCpu 换不换的裁决与符号对账
-#   docs/research/ios27/PLATFORM-BUDGETS.md         ml_io_map 预算 + T0SZ/SIGP 逐行判断
+#   docs/research/ios27/FORK-DECISION.md              ArmCpu 换不换的裁决、符号对账、外部证据
+#   docs/research/ios27/PLATFORM-BUDGETS.md           ml_io_map 预算 + T0SZ/SIGP 逐行判断
+#   docs/research/ios27/PMAP-USER-MAPPINGS-PROPOSAL.md GPU 诊断导出的补丁草案（未进 series）
 
 [hardware.platform]
 status = 'researching'
 name = 'CPU、中断、定时器、RAM、DMA（ArmDTPlatform / ArmCpu / ArmSmmu4K / SoC DTSI）'
 why = '27 stage-0 要证明的第一件事就是「arm64e 内核能在 mondrian 上把副核拉起来并跑到 bsd_init」。CPU/GIC/定时器这条线目前是 16.6.1 的 fork 在 27 树上跑，catalog 路线（component:ArmCpu）在本板缺 /psci 节点与 sheng-smp 参数，两条路线的取舍必须先钉死，否则后面的存储/显示线会各自假设一个 CPU 启动方式。'
-revisit = '上机后由 Lead 写 step.device；本文件在 F1 之后并入 docs/research/EIGHT-STEPS.toml 的 platform 块'
+revisit = '上机后由 Lead 写 step.device；本文件是唯一真相，F1 出镜像后由 Lead 用 assemble-27-eight-step.py 装配成 EIGHT-STEPS-27.toml'
 label = '平台线：保留 fork；catalog 迁移前置六条已列清，等 SMP/S2R 触发'
-paths = ['drivers/ArmCpu/', 'drivers/ArmDTPlatform/', 'dts/', 'scripts/make-pong-adt.py', 'docs/research/ios27/']
+paths = ['drivers/ArmCpu/', 'drivers/ArmDTPlatform/', 'dts/', 'scripts/make-pong-adt.py', 'scripts/tests/', 'patches/proposed/', 'docs/research/ios27/']
 
 [hardware.platform.step.same_model]
 done = true
-evidence = '''同型号（mondrian / SM8475）在 27 上没有第二份实现；唯一的同型号基线是本仓库 16.6.1 线的 drivers/ArmCpu/ArmCpu.cpp（779 行），它现在就是 27 树在用的 CPU provider（board.toml:14 include 里的 ArmCpu 被 drivers/ArmCpu/ 遮蔽）。它已经把 ADT 读取、GICv3 分发器/重分发器唤醒、CNTV 时基、secondary 入口全部实现并带观测：drivers/ArmCpu/ArmCpu.cpp:314-363（mapGic 读 /arm-io 的 ranges 与 /arm-io/intc 的 reg，校验 GICD_PIDR2）、:376-404（wakeRedistributor）、:406-451（enableGic，保留固件 ARE 位）、:485-594（八核注册与 PSCI 启动）、:596-613（initCPU）。同型号缺口只有一个：27 上还没有任何一次成功的 SMP 上机记录，因此「16.6.1 的实现能在 24A446 上成立」仍是先验而不是事实。同族参照是 xnekom-ios27（同为 ios-27.0.1-24A446，含 PongUfs/K60PlatformSleep），它带的是逐字节相同的 779 行 fork（diff 无输出，2026-11-21 核对）。'''
+evidence = '''同型号（mondrian / SM8475）在 27 上没有第二份实现；唯一的同型号基线是本仓库 16.6.1 线的 drivers/ArmCpu/ArmCpu.cpp（779 行），它现在就是 27 树在用的 CPU provider（board.toml:14 的 include 里 ArmCpu 被 drivers/ArmCpu/ 遮蔽）。它已经把 ADT 读取、GICv3 分发器/重分发器唤醒、CNTV 时基、secondary 入口全部实现并带观测：drivers/ArmCpu/ArmCpu.cpp:314-363（mapGic 读 /arm-io 的 ranges 与 /arm-io/intc 的 reg，校验 GICD_PIDR2）、:376-404（wakeRedistributor）、:406-451（enableGic，保留固件 ARE 位）、:485-594（八核注册与 PSCI 启动）、:596-613（initCPU）。同型号缺口只有一个：27 上还没有任何一次成功的 SMP 上机记录，因此「16.6.1 的实现能在 24A446 上成立」仍是先验而不是事实。同族参照是 ../xnekom-ios27/drivers/ArmCpu/ArmCpu.cpp（同为 ios-27.0.1-24A446，含 PongUfs/K60PlatformSleep），它与本板逐字节相同（diff 无输出，md5 双侧 f05a3216b4e6f0feaa7a65babdffac59，2026-11-21 核对）。'''
 recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.official]
 done = true
-evidence = '''官方页 docs/zh/porting/platform.md 的四节逐条对应：
-- #source-map（:10-19）：「ArmCpu：CPU 注册、计时器/GIC 初始化、次级核入口和 IPI」。对应 drivers/ArmCpu/ArmCpu.cpp:485-594（注册）、:406-451（GIC）、:750-753（次级核入口）、:696-704（IPI 发送）。注意该表写 ArmCpu rev 9066b53b，而 components.toml:3-19 钉的是 93a5030c，引用版本号时以 components.toml 为准。
-- #1 描述 CPU 和中断资源（:21-39）：「MPIDR 亲和性、启动核、启用核数、PSCI 方式、GIC 版本、分发器/重分发器范围与 stride、定时器频率、中断描述」。本板的取值在 scripts/make-pong-adt.py:174（psci-method=smc）与 drivers/ArmCpu/ArmCpu.cpp:314-363（GIC 范围/stride 从 ADT 读，redistributor-stride 接受 0x20000/0x30000/0x40000）；PSCI 方式是 SMC，与 sm8475.dtsi:60-63 的 psci 节点一致。
-- #clusters 能效簇与性能簇（:41-54）：「给每个 CPU 加 unixnu,cluster-type」。现状是反的：E:/hackios/UniXNU-sm8475-common/dts/sm8475.dtsi:22-59 把八个 cpu 节点全写成 "P"，而 SM8475 是 1+3+4（X2 + 3×A710 + 4×A510）。本线只记录、不改；触发条件写在 ARMCPU-FORK-VS-CATALOG.md §5。
-- #block-and-os-services（:69-80）：OS 服务表里与平台线相关的是 VerifiedRoot 与 DarwinBoot 的映射输入；本线只提供 CPU/GIC 与 ml_io_map 的预算结论（PLATFORM-BUDGETS.md）。
+evidence = '''官方页 ../UniXNU/docs/zh/porting/platform.md（99 行）的四节逐条对应，锚点取自页面自身：
+- {#source-map}（:10-19）：「ArmCpu：CPU 注册、计时器/GIC 初始化、次级核入口和 IPI」。对应 drivers/ArmCpu/ArmCpu.cpp:485-594（注册）、:406-451（GIC）、:750-753（次级核入口）、:696-704（IPI 发送）。注意该表写 ArmCpu rev 9066b53b，而 ../UniXNU/components.toml:3-19 钉的是 93a5030c，引用版本号时以 components.toml 为准。
+- {#clusters} 能效簇与性能簇（:41-54）：「给每个 CPU 加 unixnu,cluster-type」。现状是反的：../UniXNU-sm8475-common/dts/sm8475.dtsi:22-59 把八个 cpu 节点全写成 "P"，而 SM8475 是 1+3+4（X2 + 3×A710 + 4×A510）。本线只记录、不改；触发条件写在 docs/research/ios27/FORK-DECISION.md。
+- {#block-and-os-services}（:69-80）：OS 服务表里与平台线相关的是 VerifiedRoot 与 DarwinBoot 的映射输入；本线只提供 CPU/GIC 与 ml_io_map 的预算结论（docs/research/ios27/PLATFORM-BUDGETS.md）。
 - #4 检查组装后的选择（:86-99）：「record source/build and device evidence separately」——本文件即离线部分，设备部分由 Lead 写。
-另按该页点名读了 drivers/arm-cpu.md（17 行，构建走 component:ArmCpu → build/armcpu/libArmCpu.a）、drivers/arm-dt-platform.md（17 行，「需要 /cpus、/arm-io、/defaults、/options 和 NVRAM proxy」，注意它没有要求 /psci，而 catalog ArmCpu 的 psciConduit 却读 /psci）、drivers/arm-smmu4k.md（19 行，SMMUv2 原生 4 KiB 表；27 defconfig 里 CONFIG_XNU_NATIVE_ADRENO=n，本线不激活）、porting/bring-up.md:74-103（阶段 5 内核入口 / 阶段 6 存储与根卷，SMP 起核属阶段 5）、concepts/boot-chain.md:65-98（DarwinBoot 到 XNU 的交接，与 secondary 入口的 cache 维护相关）。'''
+另按该页点名读了：../UniXNU/docs/zh/drivers/arm-cpu.md（17 行，构建走 component:ArmCpu → build/armcpu/libArmCpu.a）、../UniXNU/docs/zh/drivers/arm-dt-platform.md（17 行，「需要 /cpus、/arm-io、/defaults、/options 和 NVRAM proxy」，注意它没有要求 /psci，而 catalog ArmCpu 的 psciConduit 却读 /psci）、../UniXNU/docs/zh/drivers/arm-smmu4k.md（19 行，SMMUv2 原生 4 KiB 表；27 defconfig 里 CONFIG_XNU_NATIVE_ADRENO=n，本线不激活）、../UniXNU/docs/zh/porting/bring-up.md（阶段 5 内核入口 / 阶段 6 存储与根卷，SMP 起核属阶段 5）、../UniXNU/docs/zh/concepts/boot-chain.md（DarwinBoot 到 XNU 的交接，与 secondary 入口的 cache 维护相关）。'''
 recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.decompile]
 done = true
 evidence = '''本步在平台线取「参考源逐行读」而不是字面反编译，因为 CPU/GIC 的入口全在源码里。三份参考源：
-- sheng（E:/hackios/UniXNU-sheng/patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch，1974 行，98 个 hunk）：T0SZ 与 SIGP 的具体行见 PLATFORM-BUDGETS.md §2/§3；它的 ArmCpu 用 component:ArmCpu（board.toml:20/:117/:174 的 archives 与 include），靠 sheng-smp=1 起副核（board.toml:66）。
-- catalog 两版源码：E:/k60-work/scratch/platform27/ArmCpu-93a5030c.cpp（875 行）与 ArmCpu-5f37026.cpp（1443 行）+ ArmCpuSleep-5f37026.h（124 行），用 git show <rev>:ArmCpu.cpp 从 E:/hackios/ArmCpu 取出。
-- 本板 fork 779 行：drivers/ArmCpu/ArmCpu.cpp，行号见 ARMCPU-FORK-VS-CATALOG.md §2。
+- sheng：../UniXNU-sheng/patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch（1974 行，98 个 hunk）——T0SZ 与 SIGP 的具体行见 PLATFORM-BUDGETS.md §2/§3；它的 ArmCpu 用 component:ArmCpu（../UniXNU-sheng/board.toml:20/:117/:174 的 archives 与 include），靠 sheng-smp=1 起副核（../UniXNU-sheng/board.toml:66）。
+- catalog 两版源码：../../k60-work/scratch/platform27/ArmCpu-93a5030c.cpp（875 行）与 ArmCpu-5f37026.cpp（1443 行）+ ArmCpuSleep-5f37026.h（124 行），用 git show <rev>:ArmCpu.cpp 从 ../ArmCpu 取出。
+- 本板 fork 779 行：drivers/ArmCpu/ArmCpu.cpp，行号见 docs/research/ios27/FORK-DECISION.md §2。
 寄存器的实测取证（GICD_PIDR2、GICD_TYPER、GICR_WAKER）在 16.6.1 线已经做过（drivers/ArmCpu/ArmCpu.cpp:314-363、:365-374），27 侧还没有镜像级复核，那属于 step.device 的输入，不在本步冒充。'''
 recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.wide]
 done = true
 catalog_checked = true
-catalog_result = '''catalog 的 ArmCpu 钉在 93a5030c（E:/hackios/UniXNU/components.toml:3-19，os_abi=["ipados-17.7.11-21H461"]，verified_devices=[]），875 行，有 psciCall 与 16 槽 armcpu_spi_attach，但没有 sleep（无 armcpu_sleep_register / ArmCpuSleep.h，那是 823c6b2→5f37026 之后才有）。因此「catalog ArmCpu」在 27 上不是现成可用的：要么升 rev 到 ≥5f37026，要么接受没有睡眠。'''
-evidence = '''六个参考树逐一核对（2026-11-21，E:/hackios/ 下）：
-- UniXNU-sheng：os_profile 走 ipados-27.0.1-24A446，board.toml 三处 include/archives 用 component:ArmCpu（:20/:117/:174），无 drivers/ArmCpu 目录，副核靠 sheng-smp=1（board.toml:66）。
-- xnekom-ios27：os_profile=ios-27.0.1-24A446，drivers/ArmCpu/ArmCpu.cpp 与本板 779 行文件逐字节相同（diff 无输出），board.toml:14/:21 的 include/archives 形状与本板一致，patches/xnu-12377/series:65/:87 带 0532 与 0540，另有 armcpu-sleep-hook.patch 与 drivers/PongPower/K60PlatformSleep.cpp:128（调 armcpu_sleep_register），其 ADT 生成器同样只写 /chosen psci-method（scripts/make-pong-adt.py:174）而**不建 /psci 节点**；该 fork 仍在被维护（24746184 "fix(power): mark secondary CPUs stopped before sleep"、1c662ecd "fix(power): keep the platform sleep path quiet until resume"）。
-- UniXNU-t970 / UniXNU-zizhan：18.7.10，各带 581 / 559 行的旧 fork，board.toml 里没有 ArmCpu 条目（分支不同，未深挖）。
-- UniXNU-pong：无 drivers/ArmCpu，board.toml 无 ArmCpu 条目。
-- 框架 E:/hackios/UniXNU 的 components.toml 是唯一 pin 点；device 侧没有第二份 catalog 版本。
+catalog_result = '''catalog 的 ArmCpu 钉在 93a5030c（../UniXNU/components.toml:3-19，os_abi=["ipados-17.7.11-21H461"]，verified_devices=[]），875 行，有 psciCall 与 16 槽 armcpu_spi_attach，但没有 sleep（无 armcpu_sleep_register / ArmCpuSleep.h，那是 823c6b2→5f37026 之后才有）。因此「catalog ArmCpu」在 27 上不是现成可用的：要么升 rev 到 ≥5f37026，要么接受没有睡眠。'''
+evidence = '''六个参考树逐一核对（2026-11-21）：
+- ../UniXNU-sheng：os_profile 走 ipados-27.0.1-24A446，board.toml 三处 include/archives 用 component:ArmCpu（:20/:117/:174），无 drivers/ArmCpu 目录，副核靠 sheng-smp=1（board.toml:66）。
+- ../xnekom-ios27：os_profile=ios-27.0.1-24A446，drivers/ArmCpu/ArmCpu.cpp 与本板 779 行文件逐字节相同（diff 无输出、md5 双侧 f05a3216b4e6f0feaa7a65babdffac59），board.toml:14/:21 的 include/archives 形状与本板一致，patches/xnu-12377/series:65 是 0532、:87 是 0540、:91 是 0541，另有 armcpu-sleep-hook.patch 与 drivers/PongPower/K60PlatformSleep.cpp:128（调 armcpu_sleep_register），其 ADT 生成器同样只写 /chosen psci-method（scripts/make-pong-adt.py:174）而**不建 /psci 节点**；该 fork 仍在被维护（24746184 "fix(power): mark secondary CPUs stopped before sleep"、1c662ecd "fix(power): keep the platform sleep path quiet until resume"）。
+- ../UniXNU-t970 / ../UniXNU-zizhan：18.7.10，各带 581 / 559 行的旧 fork，board.toml 里没有 ArmCpu 条目（分支不同，未深挖）。
+- ../UniXNU-pong：无 drivers/ArmCpu，board.toml 无 ArmCpu 条目。
+- 框架 ../UniXNU 的 components.toml 是唯一 pin 点；device 侧没有第二份 catalog 版本。
 结论：27 时代真正在跑的两棵树走向相反——sheng（SM8550，pad）用 catalog + 引导参数；xnekom（Pong 族，K60 同源）用 fork + 0532/0540。本板与 xnekom 同源，跟后者。'''
 recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.plan]
 done = true
-evidence = '''方案已定，见 docs/research/ios27/ARMCPU-FORK-VS-CATALOG.md：
+evidence = '''方案已定，见 docs/research/ios27/FORK-DECISION.md：
 - 27 stage-0 保留 fork；切 catalog 的前置六条按序列出（升 rev 到 ≥5f37026、ADT 补 /psci、kernel_args 补 sheng-smp、删 ArmDTPlatform.cpp:23/:224、PongPower 睡眠改接、从 series 移除 0540/0532），缺一条不切。
-- fork 独有的三项能力逐条定性：armcpu_spi_attach（:657-694）保留，理由与触发条件见文档 §3.1；睡眠三元组（:283-312、hook 安装 :477-481）判为「27 stage-0 不需要」，因为 board.toml:14/:21 的 include 与 archives 都不含 PongPower，K60PlatformSleep.cpp 不参与 27 编译，且 27 的 kernel_args（board.toml:194-206）没有 platform-sleep；触发条件是 PongPower 进归档或需要 S2R；pong_cpu_start（:760-778）保留，只切 ArmCpu 会在 ArmDTPlatform.cpp:224 留下未定义符号（编译期可见，不会静默）。
-- 0540/0541/0532 三个补丁对 pristine E:/hackios/xnu-12377 的 git apply --check 全部通过（2026-11-21），即 fork 路线在 27 源码上仍可落地。'''
+- fork 独有的三项能力逐条定性：armcpu_spi_attach（:657-694）保留，理由与触发条件见该文档 §3.1；睡眠三元组（:283-312、hook 安装 :477-481）判为「27 stage-0 不需要」，因为 board.toml:14/:21 的 include 与 archives 都不含 PongPower，K60PlatformSleep.cpp 不参与 27 编译，且 27 的 kernel_args（board.toml:194-206）没有 platform-sleep；触发条件是 PongPower 进归档或需要 S2R；pong_cpu_start（:760-778）保留，只切 ArmCpu 会在 drivers/ArmDTPlatform/ArmDTPlatform.cpp:224 留下未定义符号（编译期可见，不会静默）。
+- 0540/0541/0532 三个补丁对 pristine ../xnu-12377 的 git apply --check 全部通过（patches/xnu-12377/0540-k60-psci-smp.patch、0541-k60-virtual-timer-guard.patch、0532-k60-cpu-start-completion.patch），即 fork 路线在 27 源码上仍可落地。'''
 recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.deep]
 done = true
 evidence = '''三件事都有结论，细节与逐行表在 docs/research/ios27/PLATFORM-BUDGETS.md：
-(a) ml_io_map 预算：12377 的 osfmk/arm/io_map.c 里没有 IO_MAP_SIZE / io_submap，io_map() 每次 kmem_alloc(kernel_map, …)（:112，KMA_IO|KMA_PERMANENT），16 系列 0621 的 8→32 MiB 子图在 27 上不存在也不需要。27 stage-0 的实际映射只有 BT 补丁五个窗口（0500-k60-bt-qbt-new-files.patch:1017-1021，GCC 0x1F4200 + UART 0x4000 + QUP 0x2000 + TLMM 0x100000 + GIC 0x10000 = 3,187,200 B ≈ 3.04 MiB）；XNU 自身三处调用（machine_routines.c:1371-1385、cpu.c:1310、cpu.c:289）全由 ADT 属性驱动，本板 ADT 不提供 → 0 字节。
-(b) T0SZ：27 构建上条件成立——board_config.h:307-315 引入 BCM2837.h（:11 #define BCM2837）、编译参数 -D ARM64_BOARD_CONFIG_BCM2837 与 -arch arm64e、4 KiB 页无 __ARM_16K_PG__，故 T0SZ_USER=17（47 位用户 VA）。逐 hunk：proc_reg.h 3/3、pmap_pt_geometry.h 1/1、pmap.c 9/10、arm_init.c 1/1、start.s 1/1、sleh.c 2/3、arm_vm_init.c 0/1（对构建基线 1/1）；失败项里 pmap.c 那一个是 native_pmap_user_mappings（GPU 线的 BO 视图），sleh.c 那个是纯注释，arm_vm_init.c 依赖构建基线多出的 #endif。
+(a) ml_io_map 预算：12377 的 ../xnu-12377/osfmk/arm/io_map.c 里没有 IO_MAP_SIZE / io_submap，io_map() 每次 kmem_alloc(kernel_map, …)（:112，KMA_IO|KMA_PERMANENT），16 系列 0621 的 8→32 MiB 子图在 27 上不存在也不需要；顺带实测出旧门禁 check-io-map-budget.py 在 27 树上是假绿（打印 from default 8388608 后仍打 ✅）。27 stage-0 的实际映射只有 BT 补丁五个窗口（patches/xnu-12377/0500-k60-bt-qbt-new-files.patch:1017-1021，GCC 0x1F4200 + UART 0x4000 + QUP 0x2000 + TLMM 0x100000 + GIC 0x10000 = 3,187,200 B ≈ 3.04 MiB）；XNU 自身三处调用（../xnu-12377/osfmk/arm64/machine_routines.c:1371-1385、cpu.c:1310、cpu.c:289）全由 ADT 属性驱动，本板 ADT 不提供 → 0 字节。
+(b) T0SZ：27 构建上条件成立——构建基线 ../UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work/pexpert/pexpert/arm64/board_config.h:307-315 引入 BCM2837.h（:11 #define BCM2837）、编译参数 -D ARM64_BOARD_CONFIG_BCM2837 与 -arch arm64e、4 KiB 页无 __ARM_16K_PG__，故 T0SZ_USER=17（47 位用户 VA）。逐 hunk（对 pristine ../xnu-12377）：proc_reg.h 3/3、pmap_pt_geometry.h 1/1、pmap.c 9/10、arm_init.c 1/1、start.s 1/1、sleh.c 2/3、arm_vm_init.c 0/1（对构建基线 1/1）；失败项里 pmap.c 那一个是 native_pmap_user_mappings（GPU 线的 BO 视图，已单独出草案 docs/research/ios27/PMAP-USER-MAPPINGS-PROPOSAL.md），sleh.c 那个是纯注释，arm_vm_init.c 依赖构建基线多出的 #endif。
 (c) SIGP：cpu_common.c 3/3、cpu.c 6/6、zzzzzzzzzz-sheng-sigp-reinit-assert.patch（12 行）全部通过。机理是副核在 cpu_idle 被投递 SIGP 后 cpu_signal 里的 SIGPdisabled 位残留，后续投递被判为已投递而丢失，表现为调度停摆/UFS 根挂不上；sheng_sigp_recover() 在重试环里清位并计数。'''
 recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.verify]
 done = false
 local_verified = false
-static_check = '''已做的静态核验（2026-11-21）：
-- 补丁可应用性：在 pristine E:/hackios/xnu-12377 上 git apply --check 0532/0540/0541 三个补丁全部通过；sheng 的 T0SZ/SIGP 逐 hunk 结果见 PLATFORM-BUDGETS.md §2.2/§3。
-- 符号对账：catalog 93a5030c 与 fork 779 行的导出/引用两向对照，结论落在 ARMCPU-FORK-VS-CATALOG.md §2（含「ml_arm_sleep 是 XNU 原生 cpu.c:1024，不是补丁」这一修正）。
-- 参考树一致性：本板 drivers/ArmCpu/ArmCpu.cpp 与 xnekom-ios27 同名文件 diff 为空。
-- 账本结构：python3 -c 'import tomllib; tomllib.load(...)' 通过。'''
-unit_test = '''未跑成一个：scripts/tests/test-bt-gic-shared.py 在本机失败于 :47（FileNotFoundError: report/report.json），前提是没有 C 编译器——command -v cc gcc clang 全空。它要编译 fixtures/bt-gic-shared.c 才能验证 armcpu_spi_attach 的单飞/4 槽语义。能定它的证据：一台有 cc 的机器上跑该脚本返回 TESTS OK。scripts/tests/test-27-series-composition.py 已跑通（组合读四层补丁、缺补丁时拒绝猜）。'''
+static_check = '''2026-11-21 实测（WSL Ubuntu-24.04，/usr/bin/{cc,gcc,clang,clang-18} 均在）：
+- 门禁：python3 scripts/check-lane-fragment.py docs/research/eight-step/platform-27.toml --lane-root=/mnt/e/hackios/k60-platform27 --require-paths → OK（本文件即其通过后的版本）。
+- 语法闸：scripts/check-bluetooth-gic.py 把 ArmCpu.cpp 的 SPI 片段拼进 scripts/tests/fixtures/bt-gic-shared.c，以 -Wall -Wextra -Werror 编译并运行 → OK；cc -std=c11 -fsyntax-only -Wall -Wextra -Werror -I drivers/PongPower scripts/tests/test-armcpu-sleep.c → OK。
+- 补丁可应用性：patches/xnu-12377/{0532,0540,0541} 对 pristine ../xnu-12377 的 git apply --check 全部通过；sheng T0SZ/SIGP 逐 hunk 见 PLATFORM-BUDGETS.md §2.2/§3；新草案 patches/proposed/9001-osfmk-arm-native-pmap-user-mappings.patch 对 ac9718f 通过（74 行新增）。
+- 符号对账：catalog 93a5030c 与 fork 779 行两向对照（docs/research/ios27/FORK-DECISION.md §2），含「ml_arm_sleep 是 XNU 原生 cpu.c:1024 而不是补丁」的修正。
+- 结构：tomllib 解析通过；EIGHT-STEPS.toml 不并入（Lead m00493 ④）。'''
+unit_test = '''宿主逻辑测试全部跑通（2026-11-21，WSL，脚本 ../../k60-work/scratch/platform27/verify-27.sh 一次跑完）：
+- scripts/tests/test-bt-gic-shared.py → TESTS OK 20 case(s)：覆盖 armcpu_spi_attach 的单飞 CAS、4 槽耗尽、重复 owner、缺 enable 写与缺 duplicate guard 两个反例；该脚本先跑产生器再读回产物，产物缺失现在退 2（TESTS BLOCKED）而不是抛 FileNotFoundError。
+- scripts/tests/run-k60-power-host.sh → power-host: OK（1686 checks / 7 suites），其中 armcpu-sleep 套件 1038 checks 直接测 fork 自带 ArmCpuSleep.h 的语义（boot 核等待期间哪些使能位保持、待处理中断如何结束等待）。
+- scripts/tests/test-27-series-composition.py → TESTS OK（四层组合读取、缺补丁拒绝猜测）。
+- scripts/tests/test-armcpu-validate.py → OK（arm64e 函数入口 ret/retab 选择与 ABI 拒绝）。
+未跑：任何需要 XNU 头/机器配置的编译（pmap 草案、0540 的 psci_smp.c），留给 F1；本线禁止内核构建。'''
 artifact_check = ''
-evidence = '''本步保持 done = false：静态部分已完成（见 static_check），但离线单测缺编译器、产物检查要等构建树（本线禁止构建），上机更要等 Lead。补齐这三项之后本步才能转 true；在那之前不要把它写成已验证。'''
-recorded_at = '2026-11-21T14:10:00'
+evidence = '''本步保持 done = false：static_check 与 unit_test 已按 Lead m00493 ③ 的形态补齐（-fsyntax-only + 门禁脚本 + 宿主逻辑测试，均有实测输出），缺的两项是 artifact_check（要 F1 出镜像后对 kernel 里的 armcpu_smp_step / GIC 观测值取证）与 local_verified（要 Lead 上机）。这两项补齐之前不要把它写成已验证。'''
+recorded_at = '2026-11-21T14:41:00'

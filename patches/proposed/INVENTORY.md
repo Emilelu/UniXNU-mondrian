@@ -83,5 +83,6 @@ flown; this page is the checklist for the flight that changes that.
 | 0001 → 0002 → 0003 applied in order on a throwaway copy of the two headers | all three exit 0; the tree then contains `lastGap=0;`, `lastAt=0;`, `if(stamped(t1))lastAt=absoluteUs(t1);` and `sum=%llu us at=%llu.%03llu` |
 | 0003 alone on a tree without 0002 | exit 1 (`patch does not apply`) — the dependency, verified rather than assumed |
 | 0003 on the 27 tree, whose header is byte-identical to this one | `git apply --check` exit 0 |
+| C landed as `988f7ee8` on top of `7071fd9e` | `TESTS OK: 12 cases`; the three new fixtures are in the same commit; the old `direct` case now exits 2 by design |
 | C (`C-zero-copy-window.patch`, kept in `E:/k60-work/scratch/gpu27-batch/`) re-cut against the tree as it stands after Lead's `7071fd9e` (five files landed, nineteen already present) | applies exit 0; `TESTS OK: 12 cases`; the pre-existing `direct` case now exits 2 and says why |
 | the zero-copy gate with rule 5, patched copy, 12 counter-examples | `TESTS OK: 12 cases`, and by hand: `direct-at-ok` 0 (`380 frames in 3040 ms (125/s over 3040 ms)`), `direct-at-reversed` 1 (`time went backwards`), `direct-at-short` 2 (`span 1120 ms, rule 5 needs 3000 ms`), untouched `direct` 2 (`none of the 10 direct stage line(s) carries an at=… stamp`) |

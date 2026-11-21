@@ -294,6 +294,25 @@ The two rows differ in kind: RamBlock is *excluded by design* on a source-storag
 line, so its 27 entry is a decision to record, not work to do; VerifiedRoot is
 missing a signed policy bundle that only the kit owner can produce.
 
+Both switches are now graded by `scripts/check-ufs27-storage-switches.py` (§11).
+Two facts it measures are worth having here:
+
+- **The archive paths disagree between the two builders.** The generic builder
+  reads `build/ram-block/libRamBlock.a` (`scripts/build-xnu-generic.sh:729`) and
+  `build/verified-root-xnu/libVerifiedRootProbe.a` (`:766`); the only producers in
+  this tree write `build/native-ram-block/`
+  (`scripts/build-pong-ram-block-macos.py:25`) and `build/native-ufs/`
+  (`scripts/build-pong-ufs-probe-macos.py:31`), which is exactly what the 16.6.1
+  builder reads (`scripts/build-xnu-4k-baseline.sh:1145` for the RAM block,
+  `:1054` for the UFS archive). Turning either switch on without a producer that
+  writes the *generic* path stops the build at a `test -f`.
+- **The verified-root probe archive has no producer at all.** The 16.6.1 line
+  compiles `verified_root.c` and `xnu_crypto.c` into the UFS archive under a
+  different switch name (`XNU_NATIVE_UFS_VERIFIED_ROOT`,
+  `scripts/build-xnu-4k-baseline.sh:432`, passed to
+  `build-pong-ufs-probe-macos.py --verified-root`), so `libVerifiedRootProbe.a`
+  is a design nobody has implemented on this board yet.
+
 ## 8. Offline archive check — what this host can and cannot answer
 
 Asked and answered offline:
@@ -347,6 +366,9 @@ enforces, since the producer copies its flags verbatim.
 | personality patch applies | `patch -p1 --dry-run -i 0542-k60-native-ufs-personality.patch` in a copy of `xnu-12377.121.6` | `checking file iokit/KernelConfigTables.cpp` | exit 0, no fuzz, no reject |
 | personality content | `grep -c "IONameMatch'     = ufshc" iokit/KernelConfigTables.cpp` | `1` | exactly one entry, inside `#if defined(XNU_NATIVE_UFS)` |
 | 27 series untouched | `git -C . diff --stat origin/feat/xnu27-data-gate -- patches/` | empty | stage 0 must not change shape |
+| the two platform-page switches are graded | `python3 scripts/check-ufs27-storage-switches.py` | `ufs27-storage-switches: 2 gap(s)` — both `bare test -f` GAPs, two closed-state OKs, two guard OKs | exit 1 while either `test -f` is silent; the two GAPs are the framework fix named in §11 |
+| the three switch states behave as described | `cd /e/k60-work/scratch/ufs27-switchmatrix && python3 make.py && sh run.sh` | `PASS: closed -> 0`, `PASS: open -> 0`, `PASS: mixed -> 2`, matrix exit 0 | `exit 1` means the checker stopped distinguishing a guarded switch from an unguarded one |
+| a bare `test -f` really is silent | `bash -euc 'test -f /nonexistent/archive.a'` | exit 1, **no output**; with `\|\| { echo …; exit 1; }` the same command names the path | what §11 criterion 3 grades, and why it is a defect rather than style |
 
 ## 10. Rulings of 2026-11-21, and what each one changed here
 
@@ -375,3 +397,108 @@ Everything else that used to be listed here is settled or measured: the
 personality patch is ready and dry-run verified, the selection mechanism is
 measured against the framework's own code, and the link path was never the
 broken piece.
+
+## 11. The two platform-page switches, graded
+
+Ruling (b) of 2026-11-21: an F3 diff prepared now would hang unverified until
+the Route D criterion arrives, while a static gate is evidence that runs today
+and can go red today. So `scripts/check-ufs27-storage-switches.py` grades the
+other two storage archives the 27 builder can force-load, with the same exit
+convention as the selection checker (0 clean, 1 gaps). It is the executable half
+of §7.
+
+Three criteria per switch, each measured rather than assumed:
+
+1. **closed claim** — the archive assignment must sit inside an `if` on the
+   switch. Measured: `scripts/build-xnu-generic.sh:728` guards
+   `RAM_BLOCK_ARCHIVE` (`:729`) on `$NATIVE_RAM_BLOCK = 1`, and `:765` guards
+   `VERIFIED_ROOT_ARCHIVE` (`:766`) on `$OWNER_ROOT_PROBE = 1`. Both `OK`: a
+   closed 27 kernel never links either archive.
+2. **open claim** — with the switch on, a `[kernel].archives` entry of the 27
+   profile must name a script that exists in this checkout and write the
+   directory the builder reads. Today both switches are off, so the verdict is
+   `closed state`, and the line also records that the only producers write
+   `build/native-ram-block/` and `build/native-ufs/` (§7). Note that
+   `component:RamBlock` is *not* a free alternative: `archive_plan()` in
+   UniXNU/scripts/unixnu/kernel.py:118-139 only expands components that
+   `components.selected()` actually picked, and raises
+   `[kernel] archives needs component entries for: …` for any picked component
+   without an entry — the mirror image of the trap in §2.
+3. **readable failure** — `test -f` on the archive must say what is missing.
+   Measured: `scripts/build-xnu-generic.sh:730` and `:767` are bare, and the
+   script runs under `set -euo pipefail` (`:9`), so
+   `bash -euc 'test -f /nonexistent/archive.a'` exits 1 printing **nothing**.
+   Both graded `GAP`.
+
+Current verdict on the real tree: `ufs27-storage-switches: 2 gap(s)`, exit 1 —
+the two silent failures, with four `OK` and two `NOTE` lines beside them. The
+fix is one line each:
+
+```sh
+test -f "$RAM_BLOCK_ARCHIVE" || { echo "build-xnu: NativeRamBlock is on but $RAM_BLOCK_ARCHIVE is missing" >&2; exit 1; }
+test -f "$VERIFIED_ROOT_ARCHIVE" || { echo "build-xnu: the owner-root probe is on but $VERIFIED_ROOT_ARCHIVE is missing" >&2; exit 1; }
+```
+
+It is a **framework** change, not a device change: `scripts/refresh-xnu-generic.py:15`
+overwrites this copy from a UniXNU checkout, so a local edit would be reverted by
+the next refresh (P-255). The gate keeps failing until the framework carries it.
+
+The preconditions are printed as `NOTE`, not graded, because they are ordering
+decisions rather than this row's property: RamBlock refuses to link without
+`XNU_NATIVE_AES=1` (`:221-227`) and is skipped entirely under
+`XNU_SOURCE_STORAGE=1` (`:728`); VerifiedRoot refuses without
+`XNU_SOURCE_CORECRYPTO14=1` and `XNU_CRYPTO_BOOTSTRAP=prelinked` (`:287-291`),
+and the policy bundle it verifies against is the empty
+`UniXNU/scripts/policies/ipados-27.0.1-24A446` (§7).
+
+The fixture `E:/k60-work/scratch/ufs27-switchmatrix/` differs from the real tree
+in exactly the F3-shaped edits, state by state:
+
+| state | switches | recipe | builder `test -f` | verdict |
+|---|---|---|---|---|
+| `closed` | off | none | readable | `0 gap(s)` |
+| `open` | on | writes both paths | readable | `0 gap(s)`, two `open state` lines |
+| `mixed` | on | none | readable | `2 gap(s)`, `the switch opens onto a missing artefact` twice |
+
+`make.py` copies the real `board.toml`, `feeds.toml`, defconfig and builder into
+each state and applies only those edits; `run.sh` grades each against its
+expected count. The readable `test -f` is applied in all three states because it
+is orthogonal to the switches — it is the change the real tree still owes the
+framework.
+
+## 12. ⑦ — what bt answered on 2026-11-21
+
+Three corrections that change how this row states its own result:
+
+1. **Stage 0 wording.** The measurable stage-0 fact is "the archive is not
+   linked, so the eleven imports never enter the kernel link", not "eleven
+   symbols stay undefined in the link". The 14 → 26 measurement belongs to F3,
+   when the archive is force-loaded; stage-0 text must not quote 26, and must
+   not call the undefined symbols "accepted".
+2. **The F3 closure command exists but cannot run here.**
+   `scripts/check-xnu27-storage-link.py --tree <ios27-obj> --archive
+   build/native-ufs/libNativeUfs.a --out <report>.json --require-linkable`, with
+   the pass predicate `exit 0`, archive row `new=0`, final
+   `bluetooth-storage-link: OK`. It needs the archive **and** the
+   `KernelConfigTables.cpo.json` record (§8), and it invokes `ld` on the recorded
+   objects, which the lane contract counts as a build — so it is the Lead's call,
+   not this row's. Without it, only the `docs/engineering/IOS27.md:385-396`
+   numbers may be quoted, never "closed".
+3. **`0542` is F3, not Route D.** It installs the `ufshc` personality and does
+   not touch the eleven imports; it belongs in the same change as
+   `CONFIG_XNU_NATIVE_UFS=y` and the archives recipe. It stays off
+   `patches/xnu-12377/series` until then, and adding it early would move the
+   series fingerprint.
+
+The kext-entry alternative (route B) is a larger change than a link block, and
+bt listed what it touches, which is what §1 stage 4 would become: the archive
+turns into an `MH_KEXT_BUNDLE` (filetype 11) with `kmod_info`, `Info.plist`
+gains `OSBundleLibraries` (`com.apple.iokit.IOStorageFamily`,
+`com.apple.kec.corecrypto`) and the `ufshc` personalities, the force-load at
+`scripts/build-xnu-generic.sh:646-653` goes away, `kits/XnuPrelink/emit_prelink_orig.py:117`
+(accepts filetype 11 only) and `native_prelink.py:130` have to see the bundle as
+a declared root, `[kernel.prelink] roots` has to list it, and acceptance becomes
+`scripts/check-ios27-storage-entries.py --require-entry` reporting the entry
+present with non-zero `kmod_info` start/stop. Route B does not define the eleven
+symbols either — they stay Route D's — so it buys runtime loading, not link
+closure.

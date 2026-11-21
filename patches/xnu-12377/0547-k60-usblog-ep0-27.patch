@@ -1357,7 +1357,7 @@
  		patch_low_glo();
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -1334,7 +1334,12 @@
+@@ -1334,7 +1334,13 @@
  	 * and waits for the boot argument k60bt=1. */
  	if (result == KERN_SUCCESS) {
  		extern void qbt_k60_start(void);
@@ -1366,6 +1366,7 @@
 +		 * the arm_init probe measured may start (boot-arg k60_usblog=2). */
 +		extern void k60_usblog_start(void);
 +		k60_usblog_start();
++		extern void k60_autoreset_start(void);
 +		k60_autoreset_start();
  	}
  	return result;

@@ -152,3 +152,20 @@ the latter can simply return, which is what left this board sitting at the panic
   Data 挂载之前就会跑。
 
 **未决定**，留给用户裁；在此之前不动 0308。
+
+### 裁决（2026-11-22，不再等外部确认）：走 A，只搬复位，不搬 SPMI 记录
+
+证据（`patches/xnu/0308-k60-usblog-pong-capture-restart.patch` 逐行读）：
+
+- `:103` `k60_prime_restart(int target)` 单独成函数，职责是**记重启原因**：`:129-133` 映射
+  `K60_SPMI_OBSERVER_PA` / `K60_SPMI_CHANNEL_PA + apid*4096` / `K60_IMEM_PA`，
+  `:144` 写 `k60_spmi_channel + 0x10`，`:92-98` 再经 observer 读回校验。
+- 复位本身在 `k60_usblog_reset_to_fastboot()` 里，与上面的写无关：`smc #0`（SYSTEM_RESET），
+  返回则 `hvc #0`，两次都返回才放弃（`:26` 注释说明为什么不用裸 PSCI：裸调用可能直接返回，
+  该板曾因此停在 panic 屏幕）。
+- 因此 **A 不是降级**：把 `k60_prime_restart()` 换成只写一个静态变量（或直接不调用），
+  复位路径完全不变，唯一损失是"重启原因"不落盘——而原因这件事本来就要等日志通路可用后才谈。
+- 不选 B 的理由不只是 HR-01：SCMI/SPMI 写发生在**复位前**，一旦写错就是"想复位结果写坏一条总线"，
+  而这条通路在 stage-0 没有任何观测手段能证明它成功（P-300 的同族问题）。
+
+落地顺序：`0547`（已落）→ **`0549`：`k60_usblog_reset_to_fastboot()` + 静态原因** → `0334b`（触发时机）。

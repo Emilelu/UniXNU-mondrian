@@ -148,7 +148,7 @@ sh scripts/check-audio27-preflight.sh --pac-only
 | 脚本 | 0 | 1 | 3 |
 | --- | --- | --- | --- |
 | `check-audio27-kernel.py` | 三个字符串与三个符号都在 | 缺任一（stage 0 的期望读数） | 不产生 |
-| `check-audio27-builder.py` | 接缝 wired | wired but wrong | 没有可量对象（钩子缺失或未被点名） |
+| `check-audio27-builder.py` | 接缝 wired；define 还要求目标对象的 `.o.json` 的 `arguments` 里有 `-DXNU_PONG_AUDIO=1` | wired but wrong；或选了对象但文件不存在/宏为 0 | 没有可量对象（钩子缺失或未被点名，或 define 未传 `--object`） |
 | `check-audio27-series.py` | 与生成器一致，或 HOLD 有理由 | 插入代码不同，或未列且无注释 | 补丁还没入账，或旧接线树无法 emit |
 | `check-audio27-weak-link.py` | 未选中，或选中且有定义 | 选中但缺链接证据 | 不产生 |
 | `check-audio27-fptrs.py` | 四张 io 表成对，赋值点与调用点都对 | 任一表、赋值或调用不合 | 不产生 |

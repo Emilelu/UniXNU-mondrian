@@ -44,3 +44,11 @@
 
 门禁行必须能说出「量的是哪棵树、哪个 commit」——今天已经两次出现「绿了但量的是另一棵树」，
 所以每行都带 sha 或 digest。
+
+## 4. define 的判据是对象构建记录（2026-11-21，P-300 家族）
+
+- 任何 `-D` 开关，绿的形状只能是目标对象 `.o.json` 的 `arguments` 里真的出现宏；构建脚本里有一行字、shell harness 里 make 看见值，都不算。
+- 27 的对象记录在 `<tree>/build/xnu/ios-obj/*/*/`。XNU 记录是一个 JSON 对象后跟 `,` 和换行，`json.load` 会报 `Extra data`，要用 `json.JSONDecoder().raw_decode`。
+- 命令：`python3 scripts/check-audio27-builder.py --tree <gates> --seam define --object <PongAudioAmp.o.json|ios-obj 目录>`。0 打印 `BUILDER OK ... object record`；文件不存在或参数里没有 `-DXNU_PONG_AUDIO=1` 都退 1，文案是 `define 没到编译器，胶水编成空壳`。不传 `--object` 只退 3，是 skip，不是绿。
+- 2026-11-21 实测：`serial_console.o.json` 的 `XNU_PONG_RAMOOPS_CONSOLE` 为 0，同次 `startup.o.json` 的 `XNU_NATIVE_TRUST_CACHE` 为 1（builder 的 `EXTRA_MAKE_ARGS` 通道）。所以 `env` 前缀在 27 驱动链上不能当证明；`PongAudioAmp.o.json` 当前不存在（stage 0 不编音频），本线 define 仍是 unproven。
+- 修法：等 builder 的 `EXTRA_MAKE_ARGS` 正式接缝，落地后用对象记录复核；不要改 `env` 写法后拿脚本字面量报绿。

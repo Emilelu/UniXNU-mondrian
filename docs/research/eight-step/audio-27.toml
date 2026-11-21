@@ -88,7 +88,7 @@ evidence = [
 
 [hardware.audio.step.verify]
 done = true
-recorded_at = "2026-11-21T17:58:50"
+recorded_at = "2026-11-21T22:04:22"
 local_verified = true
 evidence = [
   "四项静态/单测均已在本工作树跑过：fptrs 19 例、weak-link 14 例、host 979 例、并发 3 例；形状与读数见 docs/research/audio/IOS27-PAC.md:93-116。",
@@ -96,9 +96,10 @@ evidence = [
   "产物层是 arm64/arm64e 两份 object 的 ptrauth 形状，不是内核镜像；stage 0 仍读 strings 0/3、symbols 0/3，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。27 stage-0 没有 PAS1 provider，audio 读到 handoff absent 是预期，不是 audio 初始化失败。",
   "IOAudio2Family 那一个桩的判据写成可证伪的三条：kext 持有的 __auth_got 槽 site 0xfffffff008273608、唯一 loader 0xfffffff009f870bc+0x144、post-SpringBoard 音频 client；同一 target 0xfffffff00b36e788 还被 IOGPUFamily 在 0xfffffff00829c560 引用，说明是通用内核例程，不能拿 Pong 驱动补；见 docs/research/audio/PRELINK-AUDIO-RESIDUE.md:26-75；可复跑脚本 scripts/check-audio27-residue.py:1。",
   "0531 的 source-side 解除条件已落成 dormant 门禁：scripts/check-audio27-hold.py:1 今天读 series:52 与 patch:7 的 #if 1，退 0 打 dormant；只有 guard 变成开关且 builder 给 bsd_init.o 同名 -D 才转判据；见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:282-299；不能误读成已解除 HOLD。",
+  "define 的判据已改成对象构建记录（P-300 家族）：不再把驱动脚本里的 PongAudioAmp.o_CFLAGS_ADD 字面量当绿，必须读到目标对象 PongAudioAmp.o.json 的 arguments 里有 -DXNU_PONG_AUDIO=1；选定对象不存在或宏为 0 都退 1，未传对象只退 3（skip）。2026-11-21 实测 0546 的 serial_console.o.json 宏为 0、同次 startup.o.json 的 XNU_NATIVE_TRUST_CACHE 为 1，说明 env 前缀在 27 链路不可靠；stage 0 没有 PongAudioAmp.o.json，本项仍 unproven。见 scripts/check-audio27-builder.py:204-231、scripts/tests/test-audio27-builder.py:1（13 例）、docs/research/audio/LANE-BOUNDARIES.md:48-54 与 docs/research/audio/IOS27-WIRING.md:617-628。",
 ]
 static_check = [
-  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 62 evidence reference(s) resolve, 9 root(s), no device step。",
+  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 65 evidence reference(s) resolve, 9 root(s), no device step。",
   "python3 scripts/check-audio27-fptrs.py --repo . -> FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 assignment site(s) whose signatures match what they fill, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides。",
   "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/hackios/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。",
 ]
@@ -110,6 +111,7 @@ unit_test = [
   "python3 scripts/tests/test-audio27-residue.py -> TESTS OK 21 cases。",
   "python3 -B scripts/tests/test-audio27-hold.py -> TESTS OK 17 cases。",
   "python3 -B scripts/tests/test-audio27-host-concurrency.py -> TESTS OK 3 cases。",
+  "python3 -B scripts/tests/test-audio27-builder.py -> TESTS OK 13 cases。",
 ]
 artifact_check = [
   "本机 clang 24.0.0git 用 --target=arm64-apple-ios27.0 与 --target=arm64e-apple-ios27.0 各编 PongAudioGeniI2c.c / PongAudioAmp.c：Geni 62 条 ptrauth、Amp 22 条，0 个 __AUTH 段与 authenticated-pointer relocation；形状见 docs/research/audio/IOS27-PAC.md:52-60。",

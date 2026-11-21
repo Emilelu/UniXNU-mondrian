@@ -555,6 +555,7 @@ sh scripts/tests/portability/run-symbols.sh
 
    ```sh
    # 点号名变量不能 export，用命令前缀给进程环境；启动 shell 必须是 bash。
+   # 这条是直接跑 build-xnu-generic.sh 的形态；27 驱动链上的 env 前缀未证实，见下。
    PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1 bash scripts/build-xnu-generic.sh
    ```
 
@@ -596,25 +597,27 @@ sh scripts/tests/portability/run-symbols.sh
 | 接缝 | 断了会怎样 | 检查器认的形态 |
 | --- | --- | --- |
 | 驱动把不把 `K60_CONF_FILES_HOOK` 交给内核构建 | 追加器从不运行，`bsd/conf/files` 没有那两行，胶水不编进内核，构建照样绿 | `build kernel` 那一行带 `K60_CONF_FILES_HOOK=…/scripts/k60-conf-files-hook.py`，或 bash 版驱动自己 `export` |
-| 驱动把不把 `PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1` 交进去 | 宏不定义，`PongAudioAmp.c` 编空（979 例仍然全绿） | 同一个 `env` 前缀里带这一对；bash 驱动可以 `export`，`#!/bin/sh` 不行 |
+| 驱动把不把 `PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1` 交进去 | 宏不定义，`PongAudioAmp.c` 编空（979 例仍然全绿） | **不再认脚本字面量**：目标对象的 `PongAudioAmp.o.json` 的 `arguments` 里必须有 `-DXNU_PONG_AUDIO=1`；`env` 前缀在 27 驱动链上未证实（0546 实测 0），见 §4 |
 | 框架还把不把自己的环境交给设备构建器 | 上面两个变量止步于 CLI | `scripts/unixnu/kernel.py` 里 `env = dict(os.environ)` 与 `run(['bash', script], …, env=env)` 都还在 |
 
-`scripts/check-audio27-builder.py` 查这三样，读数来自**真的驱动与真的框架**，不是本文档的副本。
+`scripts/check-audio27-builder.py` 的 hook/framework 两项读**真的驱动与真的框架**；define 项读目标对象的 `.o.json`，不再把驱动文本当交付证据。
 预检里它们是三行，一行一处接缝——三处断掉的样子不同，混成一行就分不出是哪一处：
 
 检查器的树必须明确：`--tree` 指向实际 k60-gates 检出（默认先看 `K60_REPO`，再看 `K60_GATES`，最后才用仓旁的 `k60-gates`）。钩子文件必须在这棵被检树里；音频仓有同名文件不算。
 
-无可量的接缝现在返回 3，并在预检中显示 `skip`。驱动根本没提这个变量，或驱动写了默认钩子路径但目标文件不在树里，都不能显示 `ok`。只有接缝确实交给构建链才返回 0。
+hook/framework 没有可量对象时返回 3，并在预检中显示 `skip`；驱动根本没提这个变量、或写了默认钩子路径但目标文件不在树里，都不能显示 `ok`。define 不传 `--object` 也返回 3；一旦选了对象而文件不存在、或 `arguments` 里没有 `-DXNU_PONG_AUDIO=1`，返回 1，文案是 `define 没到编译器，胶水编成空壳`。只有对象记录真的带宏才返回 0。
 
-当前 stage 0 的实况是：`27 driver takes the conf hook` 为 `skip`（驱动树没有 `scripts/k60-conf-files-hook.py`，原因是 stage 0 有意不链接音频 lane 对象）；`27 driver takes the define` 与 `framework passes env to builder` 为 `ok`。没有 `XNU27_KERNEL` 时产物行也是 `skip`——两行 skip 都不表示接线通过，也不表示产物带音频。Stage-0 范围由板级 `board.toml` 决定；缺 hook 不是当前阶段的产物缺陷。
+当前 stage 0 的实况是：`27 driver takes the conf hook` 为 `skip`（驱动树没有 `scripts/k60-conf-files-hook.py`，原因是 stage 0 有意不链接音频 lane 对象）；`27 driver takes the define` 也是 `skip`——stage 0 没有 `PongAudioAmp.o.json`，所以宏的投递没有被量到，不能报绿；`framework passes env to builder` 仍是 `ok`。没有 `XNU27_KERNEL` 时产物行也是 `skip`——这些 skip 都不表示接线通过，也不表示产物带音频。Stage-0 范围由板级 `board.toml` 决定；缺 hook/对象不是当前阶段的产物缺陷。
 
 驱动里的两处分别是 `build-ios27-linux.sh:51-54`（`if [ -f … ]` 里先赋值再 `export K60_CONF_FILES_HOOK`）与
 `:59-60`（`env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" python3 ./unixnu build kernel`）。
 钩子走 export、宏走 `env` 前缀，不是两种写法随便挑：点号名在 `#!/bin/sh` 里不能 export（P-260），而钩子名可以，
 并且它必须在「文件在不在」的那个 `if` 里赋值，所以用的是「先赋值、再单独 export」两行形态。
 
-检查器认三种「交到了」：`build kernel` 那一行自己带 `NAME=…`；驱动里 `NAME=…` + 之后一行 `export NAME`；
-一行 `export NAME=…`。三种都要求值落在 `scripts/k60-conf-files-hook.py` 上，并且中间没有 `unset`。
+**2026-11-21 实测把宏的 `env` 前缀这一格降级为 unproven**：0546 给 `arm_init.c`/`serial_console.c` 的钩子用同一个 `env` 前缀交 `XNU_PONG_RAMOOPS_CONSOLE`，对象记录 `serial_console.o.json` 里该宏出现 0 次；同次 `startup.o.json` 有 `-DXNU_NATIVE_TRUST_CACHE`，那是 builder 自己的 `EXTRA_MAKE_ARGS` 交的。也就是说，文本上的 `env` 行不能证明宏到了编译器；本线必须用 `PongAudioAmp.o.json` 的 `arguments` 判，文件不存在或宏为 0 都按失败处理。正式修法是 builder 的 `EXTRA_MAKE_ARGS` 接缝（Lead 侧落地），不是再换一种 `env` 写法。
+
+钩子接缝认三种「交到了」：`build kernel` 那一行自己带 `NAME=…`；驱动里 `NAME=…` + 之后一行 `export NAME`；
+一行 `export NAME=…`。三种都要求值落在 `scripts/k60-conf-files-hook.py` 上，并且中间没有 `unset`。宏接缝不认这些文本形态，只认目标对象的 `.o.json`。
 **注释不算交付**：如果这个名字只出现在 `#` 后面，报的是
 `BUILDER FAILED: … names K60_CONF_FILES_HOOK only in a comment, so the kernel line never carries it and a build reads as wired`；
 如果它在别处被赋值、但没送到 `build kernel` 这条命令上，报的是 `BUILDER FAILED: … names … elsewhere but the kernel line does not carry it`。
@@ -622,9 +625,10 @@ sh scripts/tests/portability/run-symbols.sh
 
 当前驱动仅在目标文件存在时设置 hook；缺失时静默跳过。若要让缺失状态在构建开始前可见，提案 `docs/research/audio/STAGE0-HOOK-STATUS.patch` 会对显式给出的无效路径报错，并在默认 hook 缺失时打印 stage-0 说明。它没有应用到共享 gates。`scripts/tests/test-audio27-hook-status.py` 只在临时副本中 `git apply --check`、应用提案并运行截取的 hook 块，覆盖 5 种存在/缺失组合；不执行构建。
 
-`scripts/tests/test-audio27-builder.py` 的十个用例把这几种形状各复现一遍：驱动未命名接缝、接好三行、被检树缺 hook、默认树选择与显式 `--tree` 覆盖、
+`scripts/tests/test-audio27-builder.py` 的十三个用例把这几种形状各复现一遍：驱动未命名接缝、接好三行、被检树缺 hook、默认树选择与显式 `--tree` 覆盖、
 「别处赋值但没送到」（FAIL）、「只在注释里」（FAIL）、「赋值后单独 export」（OK）、「赋了又 unset」（FAIL）、
-`#!/bin/sh` 里 export 点号名（FAIL）、框架改成 `env = {}`（FAIL）、驱动与框架都不在（skip）。
+`#!/bin/sh` 里 export 点号名（FAIL）、框架改成 `env = {}`（FAIL）、驱动与框架都不在（skip）；
+define 另外三例：只有文本（skip）、选了对象但文件不存在（FAIL）、对象存在但 `arguments` 没有 `-DXNU_PONG_AUDIO=1`（FAIL）。
 
 
 

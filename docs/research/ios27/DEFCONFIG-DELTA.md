@@ -225,6 +225,8 @@ grep -rn CONFIG_XNU_ bsd/conf osfmk/conf
 2. `CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/sheng-source-storage/libShengSourceStorage.a"` — 真正把 archive 链进来；没有它，第 1 项单独不会产生 archive 符号（archive 只在 `build-xnu-4k-baseline.sh:784` 进入链接）；
 3. `CONFIG_XNU_SOURCE_STORAGE_TABLES="userdata"` — 选择 544 B header 还是完整 manifest（`build-sheng-source-storage.py:115,143-152`）。
 
+注意：`build-xnu-4k-baseline.sh` 没有调用 `build-sheng-source-storage.py`；它只在 `:784` 接收一个已存在的 archive 路径。三键实验前必须先由 sheng 的构建流水线生成 `libShengSourceStorage.a`（`build-sheng-source-storage.py:238-240`），否则 `-force_load` 会指向缺失文件。
+
 预期：
 
 - 增加 NativeUfs/SourceStorage/SourceRootPolicies/VerifiedRoot 等符号；

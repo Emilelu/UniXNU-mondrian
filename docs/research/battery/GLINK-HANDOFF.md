@@ -11,8 +11,8 @@
 | `drivers/PongPower/K60Battery.cpp:49,347` | `begin(provider, config, handoff)` |
 | `drivers/PongPower/K60BatteryConfig.c:54` | `k60_adsp_handoff_parse()` 校验 |
 
-仓库里**没有生产者**：`grep -rn 'k60-adsp-glink-handoff' drivers/ patches/` 只有上面这几个消费点。
-音频走同一个缺失的生产者，所以这份契约同时决定电池和音频。
+生产者是 `drivers/PongPower/K60HandoffRuntime.cpp:36` 的 `k60_adsp_handoff_publish()`：它在 `:18` 用 `setProperty` 发布，在 `:81` 打印成功行。27 stage-0 的 `board.toml:352,360` 移除了 `pong_native_driver_source`，所以 27 上仍没有这个生产者；16.6.1 Route A 的成功不能当成 27 已有。
+音频和电池消费同一个属性，所以这份契约同时决定两条线。
 
 ## 结构（`K60BatteryConfig.h:50-62`）
 
@@ -77,9 +77,11 @@ typedef struct {
 `K60ConfigWrongEpoch`），没有"缺属性就用默认值"的分支。所以电池驱动在没有生产者时
 必然停在这里，而不是带着半真半假的状态上线——这是设计意图，不是缺陷。
 
-## 生产者缺的两块，实测（2026-11-13，round 219）
+## 生产者落地的历史缺口（2026-11-13 实测；后续已补齐）
 
-写完契约后立刻去查"能不能照它实现"，答案是还缺两块，而且都能用路径说清：
+> 下面是当时的缺口记录。2026-11-21 当前状态：生产者已落地（`K60HandoffRuntime.cpp:36`），SMEM 分配器已存在（`K60Smem.c:113`），本节的"缺"只表示当时，不再表示现状。
+
+写完契约后立刻去查"能不能照它实现"，当时答案是还缺两块，而且都能用路径说清：
 
 **一、没有 SMEM 分配器。** `drivers/` 下 `k60_smem_*` 只有两族函数：
 
@@ -136,7 +138,7 @@ ADSP 侧从未写过——这正是 `K60AdspGlinkHandoff` 一直"只有消费者
 
 1. 内联 SMC（照抄 `PongAdrenoCp.cpp:187`）→ PAS1 auth + reset；
 2. 把 ADSP 固件装进 `adsp_region` 并释放；
-3. SMEM 分配器（当前缺失）→ 切 desc/tx/rx 三环；
+3. SMEM 分配器（`K60Smem.c:113`，已有）→ 切 desc/tx/rx 三环；
 4. 组 104 字节 blob 并发布 `k60-adsp-glink-handoff`；
 5. 电池/音频各自的协议层才可能真正开始。
 
@@ -146,7 +148,7 @@ ADSP 侧从未写过——这正是 `K60AdspGlinkHandoff` 一直"只有消费者
 
 ## 两个缺口的参考实现已找到（round 221）
 
-之前记的“缺 SMEM 分配器、缺 ADSP PAS1 加载器”不是说没有参考，是说**本仓库里**没有。
+之前记的“缺 SMEM 分配器、缺 ADSP PAS1 加载器”不是说没有参考，是说**当时本仓库里**没有；2026-11-21 两者都已落地。下面保留当时的参考实现记录：
 参考实现在参考仓，且都是同平台（SM8475）的完整代码：
 
 ### SMEM 分配：`E:\k60-work\references\pong-power\QcomSmem.c:94`

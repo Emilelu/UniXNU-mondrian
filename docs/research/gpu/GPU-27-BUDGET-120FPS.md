@@ -141,13 +141,44 @@ CPU 路径每帧 13,183 µs（同一次飞行的 `MiniIOMobileFramebuffer: 104 f
 | --- | --- | --- | --- |
 | `drawLayer()` 是整屏 CPU 合成（缩放、滤波、多线程 `drawRows`） | 无 GPU 参与 | A | `zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch:2678` |
 | 每个 surface layer 都会调它 | 无条件 | A | 同文件 `:2993` |
-| 统计口径 | `fStatDrawing += now − began`（整个 swap 处理） | A | 同文件 `:3011-3027` |
+| 统计口径 | `fStatDrawing += now − began`；`began` 在 pacing 释放后重置（`:2923`），故窗口 =「唤醒 → 最后一层画完」，含 `pong_scanout_frame()` 交接调用（未等待时几乎为零）与 `drawLayer()` | A | 同文件 `:3011-3027`、`:2901,2923` |
 | GPU 等待占比 | `fStatWaiting` = 1 µs | B | 同文件日志行 `after %llu us waiting for the GPU` |
 | 三窗口实测 | 13,183 / 17,720 / 19,607 µs（20 / 6 / 14 fps） | B | 卡 j 飞行 `usblog-20261119-151837` |
 | 关掉它的开关 | `pong_gpu_only=1` → `fGpuOnly`，无 GPU 帧时直接 `return` | A | `…-pong-gpu-only-display.patch:44-49`，在 `patches/xnu/series:195` |
 
 **这一段的含义**：`13.5 ms ⇒ 74 fps` 这堵墙不是「我们的 GPU 拷贝只有 3 GB/s」，而是**每帧多了一次 18.4 MB
 的 CPU 写入**。把它压到 2.5 ms 不会让墙消失——墙是「一帧两个写者」这件事本身。
+
+### 5.1 一句可复跑的读数（不需要设备，只读日志）
+
+```sh
+grep -o '[0-9]* us each in the driver, after [0-9]* us waiting for the GPU' \
+  E:/k60-work/evidence/usblog-20261119-151837/console.log | sort -u -k1,1n
+```
+
+期望输出恰好五行，升序：
+
+```
+13183 us each in the driver, after 1 us waiting for the GPU
+17720 us each in the driver, after 1 us waiting for the GPU
+19607 us each in the driver, after 1 us waiting for the GPU
+22165 us each in the driver, after 1 us waiting for the GPU
+370719 us each in the driver, after 0 us waiting for the GPU
+```
+
+判读：**每一行的第一个数都 > 8,333 µs**（120 Hz 的一帧预算），第二个数恒为 0–1 µs（不是在等 GPU）。
+稳态那一行是 `console.log:3341`：
+
+```
+MiniIOMobileFramebuffer: 104 frames in 5111 ms (20 a second), 13183 us each in the driver, after 1 us waiting for the GPU …
+```
+
+⇒ 一帧里 CPU 合成单独就花 13,183 µs，是 120 Hz 预算的 1.58 倍。**任何只把 GPU 段压到 2,500 µs 的结果，
+都改不动这一行**；只有让 `drawLayer()` 不再跑（`pong_gpu_only=1` 且 GPU 帧成立），这一行才会消失。
+
+这条读数的边界（写清楚，避免被当成比它更强的证据）：它证明的是「驱动内每帧耗时」，
+不直接等于帧周期；帧周期 30,654 µs 里还有 22 ms 是 `wait`（等客户端交帧，见 §3）。
+
 
 带宽口径（写进判据，避免再吵）：以「扫描出侧字节 18,432,000 B」计，卡 j `gpu` 5,983 µs ⇒ 3.08 GB/s；
 以「读源 + 写扫描出」37.3 MB 计 ⇒ 6.24 GB/s；bench `gpu` 2,470 µs ⇒ 7.46 / 15.1 GB/s；CPU 合成

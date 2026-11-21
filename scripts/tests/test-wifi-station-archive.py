@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 """Self-test for scripts/check-wifi-station-archive.py.
 
-The checker exists because three different failures each looked like a pass:
+The checker exists because four different failures each looked like a pass:
 an archive whose members were built for arm64, an archive that only
-references the station APIs, and a stamp that described a header other than
-the one beside it. The cases pin one failure each, plus the end-to-end pass,
-so a future edit cannot turn any of them into a green run.
+references the station APIs, a stamp that described a header other than the
+one beside it, and an archive carrying a scratch stub. The cases pin one
+failure each, plus the end-to-end pass and the absent-archive note, so a
+future edit cannot turn any of them into a green run.
 """
 
 from __future__ import annotations
@@ -95,6 +96,22 @@ def an_undefined_reference_is_not_a_definition():
                                    "                 U _nw_wifi_scan_frequencies\n"))
     assert code == 1, (code, out, err)
     assert "FAIL station API: _nw_wifi_scan_frequencies" in out, out
+
+
+@case
+def an_archive_that_defines_a_scratch_stub_fails():
+    code, out, err = run_case(*stage(BOTH + "_psci_smp_init T 0000000000000000 0000000000000010\n"))
+    assert code == 1, (code, out, err)
+    assert "FAIL stubs: _psci_smp_init" in out, out
+
+
+@case
+def an_absent_archive_is_not_a_pass():
+    root = Path(tempfile.mkdtemp())
+    archive = root / "libPongAth11k.a"
+    code, out, err = run_case(archive, "/bin/true", "/bin/true")
+    assert code == 2, (code, out, err)
+    assert f"note: {archive} is absent; the 27 station archive has not been built" in err, err
 
 
 @case

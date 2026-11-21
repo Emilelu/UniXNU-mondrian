@@ -4,7 +4,7 @@
 
 The driver archive records _nw_wifi_power and _nw_wifi_scan_frequencies as
 undefined; a station archive that does not define them links only through
-scratch definitions. Three separate things are checked together because each
+scratch definitions. Four separate things are checked together because each
 one alone passed in a failure we hit:
 
   1. every member is an arm64e Mach-O object (cputype 0x0100000C, cpusubtype
@@ -13,12 +13,15 @@ one alone passed in a failure we hit:
   3. abi/nw_abi.stamp next to the archive says ie_bytes=2048 and its
      header_sha256 matches the abi/nw_abi.h beside it. The builder only
      checked ie_bytes, so a regenerated header could describe objects that
-     were compiled against the previous one.
+     were compiled against the previous one;
+  4. the archive does not define the five scratch stubs that let a historical
+     link succeed (P-283). A stub is a property of content, not a filename.
 
     python3 scripts/check-wifi-station-archive.py <archive> [--ar <ar>] [--nm <nm>]
 
-Exit 0 when all three hold, 1 when the archive breaks the contract, 2 when an
-input or a tool is missing. An archive nobody could read is not a pass.
+Exit 0 when all four hold, 1 when the archive breaks the contract, 2 when an
+input or a tool is missing. An archive nobody could read is not a pass. An
+absent archive is exit 2 with a note that it has not been built, never a pass.
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ MH_MAGIC_64 = 0xFEEDFACF
 CPU_TYPE_ARM64 = 0x0100000C
 CPU_SUBTYPE_ARM64E = 2
 REQUIRED_APIS = ("_nw_wifi_power", "_nw_wifi_scan_frequencies")
+SCRATCH_STUBS = ("_psci_smp_init", "_psci_smp_start_cpu", "_psci_smp_cpu_running",
+                 "_psci_smp_cpu_off", "_pong_cpu_startup_finished")
 EXPECTED_IE_BYTES = 2048
 
 
@@ -108,6 +113,11 @@ def check(archive: Path, ar: str, nm: str) -> list[tuple[bool, str]]:
     defined = parse_nm(run([nm, "--defined-only", "--format=posix", str(archive)]))
     missing = [api for api in REQUIRED_APIS if api not in defined and api.lstrip("_") not in defined]
     results.append((not missing, "station API: " + (", ".join(missing) if missing else ", ".join(REQUIRED_APIS))))
+    stubs = [stub for stub in SCRATCH_STUBS if stub in defined]
+    if stubs:
+        results.append((False, "stubs: " + ", ".join(stubs)))
+        return results
+    results.append((True, "stubs: no scratch stub symbols"))
     stamp = archive.parent / "abi" / "nw_abi.stamp"
     header = archive.parent / "abi" / "nw_abi.h"
     if not stamp.is_file():
@@ -132,7 +142,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     archive = Path(args.archive)
     if not archive.is_file():
-        print(f"FAIL archive: {archive} does not exist", file=sys.stderr)
+        print(f"note: {archive} is absent; the 27 station archive has not been built", file=sys.stderr)
         return 2
     try:
         results = check(archive, args.ar, args.nm)

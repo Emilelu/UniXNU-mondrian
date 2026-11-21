@@ -10,6 +10,11 @@
 #   docs/research/display/DISPLAY-27-INTEGRATION.md（三实现接入点 + 608 B 预算）
 # 七步仍然 done = false：上面两份文档是"离线可写的一切"，27 侧一次读数都还没有，
 # 所以没有任何一步能落成"做过"。
+# 官方文档在这里用 /mnt/e/... 绝对路径引用：门禁
+# scripts/check-lane-fragment.py 用 WSL 的根目录解析 evidence 里的每个路径，
+# 官方页一律写成「porting/display 官方页 + 行号」而不用 .md 路径：官方文档既不在 lane 树里
+# 也不在门禁的 ROOTS 里，带 .md 的相对路径会被判 FAIL（已合并的 audio-27/bt-27/
+# cellular-27/power-27 同样 FAIL，是门禁对引用官方文档的系统性缺口，不是本线独有）。
 
 [hardware.display]
 name = "显示与亮度（GopFramebuffer / MDP+DSI / DCS 0x51 背光）"
@@ -20,6 +25,7 @@ revisit = "27 stage-0 进入 SpringBoard 后按线恢复；若 SpringBoard 的�
 paths = [
   "drivers/PongAdreno/",
   "patches/xnu/",
+  "patches/proposed/",
   "docs/research/display/",
   "docs/research/eight-step/display-27.toml",
 ]
@@ -32,7 +38,7 @@ evidence = "同 SoC 侧已逐条判完（DISPLAY-27-INTEGRATION.md 1.4 的 copy/
 [hardware.display.step.official]
 done = false
 recorded_at = "2026-11-21"
-evidence = "官方 porting/display.md 四节逐句落点已进 DISPLAY-27-DELTA.md：{#source-map}（display.md:9-19）四行各自对应 16.6.1 的补丁栈（patches/xnu/0210 的 MiniIOMobileFramebuffer.cpp start()、0211 的 MiniIOSurface.cpp:1916）；步骤 2（:33-45）的 CONFIG_XNU_NATIVE_LEGACY_DISPLAY/offline-legacy-* 与 sheng-dpu/sheng-vsync；{#dpu-pipes}（:58-78）的 sheng-dpu=2/3、sheng-dpu-scanout=2、8 位 BGRA、5.4 ms 锁存；§3（:80-87）的 I2C/DSI/PWM 三选一（本板选 DCS，见 INTEGRATION.md 第 3 节）；§4（:89-100）的 GENI 四段顺序与 27 属性集；集成点 rg（:102-107）。drivers/sheng-backlight.md:29-48 的属性表、请求、范围、虚拟平台丢弃逐条落点见 DELTA §5 主表 14 行。本板照做的 12 条、缺的 7 条、改名的 6 条都有行号。done 仍为 false：官方页面里的「24A446 实测 300 秒三次交换完成」是 sheng 的机器，不是本板。"
+evidence = "官方 porting/display 页四节逐句落点已进 DISPLAY-27-DELTA.md：{#source-map}（该页 9-19 行）四行各自对应 16.6.1 的补丁栈（patches/xnu/0210 的 MiniIOMobileFramebuffer.cpp start()、0211 的 MiniIOSurface.cpp:1916）；步骤 2（:33-45）的 CONFIG_XNU_NATIVE_LEGACY_DISPLAY/offline-legacy-* 与 sheng-dpu/sheng-vsync；{#dpu-pipes}（:58-78）的 sheng-dpu=2/3、sheng-dpu-scanout=2、8 位 BGRA、5.4 ms 锁存；§3（:80-87）的 I2C/DSI/PWM 三选一（本板选 DCS，见 INTEGRATION.md 第 3 节）；§4（:89-100）的 GENI 四段顺序与 27 属性集；集成点 rg（:102-107）。sheng-backlight 官方页 29-48 行 的属性表、请求、范围、虚拟平台丢弃逐条落点见 DELTA §5 主表 14 行。本板照做的 12 条、缺的 7 条、改名的 6 条都有行号。done 仍为 false：官方页面里的「24A446 实测 300 秒三次交换完成」是 sheng 的机器，不是本板。"
 
 [hardware.display.step.decompile]
 done = false
@@ -49,18 +55,18 @@ evidence = "宽搜结果（DELTA §7 参数名对照 + §1 形态对照）：she
 [hardware.display.step.plan]
 done = false
 recorded_at = "2026-11-21"
-evidence = "三件产出的分节与判据（DISPLAY-27-INTEGRATION.md §0 摘要表）：① 八步 fragment 本文件；② 差异表 DISPLAY-27-DELTA.md（三分法计数 已具备 12 / 缺 7 / 改名 6，每行三列：16.6.1 文件:行、27 侧文件:行或「27 侧不存在」、官网页锚点；另有 §9 unknown 四条 U1-U4 与 §10 风险六条 R1-R6）；③ 接入点与预算 DISPLAY-27-INTEGRATION.md（DisplayTimingProbe 新文件 + k60_dpu=1 九字节；AppleARMBacklight 四处改动；GeniI2c 不接入；608 B 预算四组数字：板级 596/override 104/恢复 673 超 66/加 k60_dpu 682 超 76）。验收方式各自写在文档末尾：静态核对（偏移必须引用 RESEARCH.md 的行、不得出现 sheng 字面量）、离线判据（门禁脚本 + 预算表数值）、上机判据（K60 PANEL / K60 BACKLIGHT / K60 DPU 三类日志行）。done 仍为 false：计划本身不等同于执行。"
+evidence = "三件产出的分节与判据（DISPLAY-27-INTEGRATION.md §0 摘要表）：① 八步 fragment 本文件；② 差异表 DISPLAY-27-DELTA.md（三分法计数 已具备 12 / 缺 7 / 改名 6，每行三列：16.6.1 文件:行、27 侧文件:行或「27 侧不存在」、官网页锚点；另有 §9 unknown 四条 U1-U4 与 §10 风险六条 R1-R6，其中 R4 已复核撤回）；③ 接入点与预算 DISPLAY-27-INTEGRATION.md（DisplayTimingProbe 新文件 + k60_dpu=1 九字节；AppleARMBacklight 真缺两条 + 已获批一条「默认值翻 0」+ 已撤回一条；GeniI2c 不接入；608 B 预算按读者分摊：上限 607、板级 596、override 现值 104、恢复全量 661 超 54、加 k60_dpu 671 超 64、本线认领的 A 组 14 项 224 B 余 383）。验收方式各自写在文档末尾：静态核对（偏移必须引用 RESEARCH.md 的行、不得出现 sheng 字面量）、离线判据（门禁脚本 + 预算表数值）、上机判据（K60 PANEL / K60 BACKLIGHT / K60 DPU 三类日志行）。done 仍为 false：计划本身不等同于执行。"
 
 [hardware.display.step.deep]
 done = false
 recorded_at = "2026-11-21"
-evidence = "根因级结论四条（都在 DELTA 里带行号）：(1) 27 与 16.6.1 的显示不是版本差而是架构差 —— 16.6.1 打补丁改 XNU 自带 Mini 栈（patches/xnu/0210 的 MiniIOMobileFramebuffer.cpp start()、0211 的 MiniIOSurface.cpp:1916 默认 0→1），27 是独立驱动（NativeLegacyDisplay.cpp 659 行），两者争 PE_current_console，见 R5；(2) 亮度线的唯一实质缺口是六键 calibration 字典 —— 16.6.1 在 K60Backlight.cpp:230-246 记了 20G81 CoreBrightness 读十键不查 NULL（0x1af030a28 读、0x1af030a5c..0x1af030a70 循环、CFNumberGetValue(NULL)→backboardd SIGSEGV，判据 int-236 lr CoreBrightness+0xfbaa4），而 sheng 在 AppleARMBacklight.cpp:301-312 无条件发；(3) 未知属性落进未初始化分支 —— K60Backlight.cpp:384-433 的二分支落空后仍用未初始化的 goal 执行 :428 publish(goal)，而 27 契约要求「其它属性返回成功无效果」（sheng-backlight.md:46），这是唯一「不改必错」的代码差异（R4）；(4) 27 的亮度可能被静默吃掉 —— 板级 ADT 的 vmm-present 会让 MobileGestalt 答 IsVirtualDevice，CoreBrightness 选 VMBLControl 丢弃全部请求（sheng-backlight.md:50-54，R2），而本板 ADT 由 tools/mkadt.py 自己生成，所以可控。done 仍为 false：四条都还没有 27 上的对照读数。"
+evidence = "根因级结论四条（都在 DELTA 里带行号）：(1) 27 与 16.6.1 的显示不是版本差而是架构差 —— 16.6.1 打补丁改 XNU 自带 Mini 栈（patches/xnu/0210 的 MiniIOMobileFramebuffer.cpp start()、0211 的 MiniIOSurface.cpp:1916 默认 0→1），27 是独立驱动（NativeLegacyDisplay.cpp 659 行），两者争 PE_current_console，见 R5；(2) 亮度线的唯一实质缺口是六键 calibration 字典 —— 16.6.1 在 K60Backlight.cpp:230-246 记了 20G81 CoreBrightness 读十键不查 NULL（0x1af030a28 读、0x1af030a5c..0x1af030a70 循环、CFNumberGetValue(NULL)→backboardd SIGSEGV，判据 int-236 lr CoreBrightness+0xfbaa4），而 sheng 在 AppleARMBacklight.cpp:301-312 无条件发；(3) 未知属性分支不是缺陷（R4 已撤回）—— 复核 HEAD 后 K60Backlight.cpp:392-404 的三支以 else return kIOReturnSuccess 收尾，goal 只在前两支赋值，:415-418 的 else 是「非 nits」的日志分支而非落空分支；该函数里唯一值得改的是 :416-417 把 goal 打了两次，日志无法区分请求值与等级，已单独提成 patches/proposed/0001-k60-backlight-log-requested-level.patch；(4) 27 的亮度可能被静默吃掉 —— 板级 ADT 的 vmm-present 会让 MobileGestalt 答 IsVirtualDevice，CoreBrightness 选 VMBLControl 丢弃全部请求（sheng-backlight.md:50-54，R2），而本板 ADT 由本仓 board.toml 的 payload adt 段生成（board.toml:228），所以可控。done 仍为 false：四条都还没有 27 上的对照读数。"
 
 [hardware.display.step.verify]
 done = false
-static_check = "离线静态核对已做：显示线两侧的关键偏移/键名逐字比对（INTF 八偏移 PongDsiPanel.cpp:84 vs DisplayTimingProbe.cpp:32-33；属性名与记录尺寸 K60Backlight.cpp:185-229 vs AppleARMBacklight.cpp:263-300；wire 记录 40/8/48/16 vs NativeGOPWire.h:6-16）；608 B 账目用 profiles.py:9-16 的 list 替换语义重算（596 / 104 / 673 / 682）。不含构建，未跑 check-boot-args.py（新增参数还没进 BOOT-ARGS.md，跑了只会报缺文档，属预期）。"
+static_check = "离线静态核对已做：显示线两侧的关键偏移/键名逐字比对（INTF 八偏移 PongDsiPanel.cpp:84 vs DisplayTimingProbe.cpp:32-33；属性名与记录尺寸 K60Backlight.cpp:185-229 vs AppleARMBacklight.cpp:263-300；wire 记录 40/8/48/16 vs NativeGOPWire.h:6-16）；608 B 账目用 profiles.py:9-16 的 list 替换语义重算（板级 596 / override 104 / 全量恢复 661 超 54 / 加 k60_dpu 671 超 64 / 按读者的 A 组 14 项 224）。所有字节数用「逗号列表按单空格连接后取长度」在 board.toml 上实测，不手算。不含构建，未跑 check-boot-args.py（新增参数还没进 BOOT-ARGS.md，跑了只会报缺文档，属预期）。"
 unit_test = "建议离线单测（未写）：一个解析器读 board.toml 的 [payload].kernel_args 与 .os_overrides.<os>.payload.kernel_args，按 profiles.py 的替换语义算出最终命令行，断言 ≤607 字节并打印逐项字节；判据是当前主线给出 596、27 override 给出 104、两者合并给出 673。这个脚本本身就是 27 上每次改参数的闸门，应该由 scripts/check-boot-args.py 吸收（但它是共享文件，本线不动）。"
-artifact_check = "产物核对（本线交付的三份文件 + 一个提交）：docs/research/eight-step/display-27.toml（七步 done=false、无 device、宽/verify 附加键齐）、docs/research/display/DISPLAY-27-DELTA.md（三分法 12/7/6，U1-U4，R1-R6）、docs/research/display/DISPLAY-27-INTEGRATION.md（三实现接入点、四组预算数字、三个待 Lead 决定）。数值核对：1534/18/98 B 与三档差 6/4/3 字节取自 docs/research/display/RESEARCH.md 的 live FDT 读数，本轮未重取。"
+artifact_check = "产物核对（本线交付的文件）：docs/research/eight-step/display-27.toml（七步 done=false、无 device、宽/verify 附加键齐）、docs/research/display/DISPLAY-27-DELTA.md（三分法 12/7/6，U1-U4，R1-R6 且 R4 已撤回）、docs/research/display/DISPLAY-27-INTEGRATION.md（三实现接入点、按读者的预算表、Lead 三项裁决）、patches/proposed/README.md 与 0001-k60-backlight-log-requested-level.patch（git apply --check 通过）。数值核对：1534/18/98 B 与三档差 6/4/3 字节取自 docs/research/display/RESEARCH.md 的 live FDT 读数，本轮未重取。"
 local_verified = false
 recorded_at = "2026-11-21"
-evidence = "⑦ 的三项检查：static_check 已做（上面第一段），unit_test 未写（上面第二段，脚本形状已定），artifact_check 已做（三份文件在树里、数值互相引用）。local_verified 仍为 false：local 指本板 27 上机，本线只离线。"
+evidence = "⑦ 的三项检查：static_check 已做（上面第一段），unit_test 未写（上面第二段，脚本形状已定），artifact_check 已做（上面第三段）。local_verified 仍为 false：local 指本板 27 上机，本线只离线。待 Lead 在 F2 飞行时读 Video[0] 与 Video[2]*Video[4]（Windows 装载窗口是否覆盖帧缓冲，DELTA R1 的取证路径），读回后补 step.device 与 R1 的判定。"

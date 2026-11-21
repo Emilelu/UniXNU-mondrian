@@ -158,9 +158,21 @@ sheng 的 27 实现默认是"`control` 默认 1 且必须 `==1`"才发（`AppleA
 （与 sheng 相反、与形态 A 一致），让参数只在做实验时出现。这属于实现决策，
 不是契约差异；列在这里是因为它直接改变 §8 的参数表。
 
-`K60Backlight.cpp:316-338` 的注释与 `:339-341` 的代码自相矛盾（注释说"自 brightness-19/120hz-7
-起默认发布"，代码是"默认 1 = 发布"——其实一致，矛盾只在于注释同时说"默认 0"）。
+`K60Backlight.cpp:316-338` 的注释与 `:339-341` 的代码自相矛盾（注释说「自 brightness-19/120hz-7
+起默认发布」，代码是「默认 1 = 发布」——其实一致，矛盾只在于注释同时说「默认 0」）。
 27 线以代码为准，并把注释改掉；这条已在 16 线记录过，不重复裁。
+
+**Lead 裁决（2026-11-21）**：允许在 27 分支把 `K60Backlight.cpp:339` 的默认翻成 0，
+三条约束：参数名不变（仍可 `k60_backlight_control=1` 覆盖）、提交信息写明
+「27 默认由后端裁决」、本文记一行。
+
+> **这是行为改变，不是优化。** 同一份 `K60Backlight.cpp` 在 16.6.1 上默认发布
+> `backlight-control`、在 27 上默认不发布；判据 `conformance=… control=…` 的默认值
+> 因此随 OS 版本变化，读日志时不能跨版本比较 `control=` 这一位。字节上省 23 B，
+> 但省字节是结果，不是目的。
+
+代码改法（27 分支，一行）：`uint32_t controlArg = 1;` → `uint32_t controlArg = 0;`，
+上下文与判据见 `DISPLAY-27-INTEGRATION.md` §2.2。
 
 ---
 
@@ -179,9 +191,18 @@ sheng 的 27 实现默认是"`control` 默认 1 且必须 `==1`"才发（`AppleA
 | 面板画布 | `k60_panel=0/1`（12 B，`patch 0210`） | 无 | 改名（27 无此概念） |
 | 探针（帧/锁存）细节 | `gprobe=1`（9 B，`PongDsiPanel.cpp:568`） | 无（27 用 `sheng-dpu` 的级别） | 改名 |
 
-27 上这些名字的取舍见 `DISPLAY-27-INTEGRATION.md` §3：建议沿用 `k60_*` 前缀
+27 上这些名字的取舍见 `DISPLAY-27-INTEGRATION.md` §3：沿用 `k60_*` 前缀
 （先例 `k60bt`，见 `docs/engineering/BOOT-ARGS.md`），而不是照抄 `sheng-*`——
 理由是本板的驱动是 `K60Backlight`/`PongDsiPanel`，用 `sheng-*` 名会让人以为代码来自 sheng 树。
+
+**Lead 裁决（2026-11-21）**：时序探针用 **`k60_dpu=1`（9 B）**，`sheng-dpu` 只作为
+官方页面里的别名出现（实现只解析 `k60_dpu`）。理由：板级参数统一 `k60_` 前缀、
+跨线引用不与 sheng 命名混淆、省 2 B。
+
+另外三项在 27 上**没有任何读者**，按 Lead 的「按读者分摊」规则不进命令行
+（逐项检索范围与结果见 `DISPLAY-27-INTEGRATION.md` §4.4 C 组）：
+`-v`（2 B，XNU 与 DarwinBoot22 均无）、`epoch=1793709100`（16 B，三处 grep 只有同名
+sysctl 与 FDT `boot-epoch` 属性）、`launchd_unsecure_cache=1`（24 B，三处零命中）。
 
 ---
 
@@ -300,12 +321,26 @@ MobileGestalt 的 `IsVirtualDevice` 答 false（或 backboardd 日志里不出�
 在 K60 上若 catalog 偏移不对，等于把扫描输出地址写到未知寄存器。处置：
 K60 的探针 level 上限先只到 2（只读），level 3 必须在 catalog 核实后才开。
 
-### R4 亮度未知属性走未初始化分支
+### R4 亮度未知属性走未初始化分支（**已撤回：误读**）
 
-§5 第 10 行：`K60Backlight.cpp:415-428`。27 的 CoreBrightness 会发 `brightness-nits-cap`
-一类属性（`sheng-backlight.md:46`），落进 `else` 就用未初始化的 `goal` 发布一次亮度。
-后果是滑块跳变或黑屏（`goal=0`）。**必须在 27 实现里改成"未知键直接返回成功、不改亮度"**。
-这是本线唯一一条"不改就一定会出问题"的代码级差异。
+~~原文：`K60Backlight.cpp:415-428` 落空分支用未初始化 `goal` 发布一次亮度，
+滑块跳变或黑屏，必须在 27 实现里改成「未知键直接返回成功」。~~
+
+复核结果（2026-11-21，本树 HEAD，`git status drivers/` 干净）：请求只有三支，
+在 `:392-404`——`brightness-nits`（`:392-396`）、`brightness`+`FadePeriod`
+（`:397-401`）、`else { return kIOReturnSuccess; }`（`:402-404`）。`goal` 只在前
+两支赋值，**没有任何路径把未初始化的 `goal` 交给 `publish(goal)`（`:428`）**。
+被误当作落空分支的 `:415-418` 是「非 nits 请求」的**日志**分支（条件在 `:410`
+`if (nitsRequest)`），不是请求落空分支。`grep -n setProperties` 全文件只有 `:384`
+一处定义，不存在第二份旧实现。
+
+- **判据**：`git show HEAD:drivers/PongAdreno/K60Backlight.cpp | sed -n '384,404p'`。
+- **教训**：把日志分支的 `else` 读成了请求分支的 `else`；引用行号必须同时引用
+  产生它的 `if` 条件行。
+- **处置**：不再当缺陷。这个函数里唯一值得改的是日志字段
+  （`:416-417` 把 `goal` 打了两次，无法从日志区分请求值与等级），已单独提成
+  `patches/proposed/0001-k60-backlight-log-requested-level.patch`，
+  不混进本文的预算/差异结论。
 
 ### R5 补丁栈与 27 驱动形态互斥
 

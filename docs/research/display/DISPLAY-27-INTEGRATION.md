@@ -16,13 +16,15 @@
 | 实现 | 官方位置 | K60 在 27 上的接入点 | 结论 |
 | --- | --- | --- | --- |
 | `DisplayTimingProbe` | `DisplayTimingProbe.cpp`（121 行），`porting/display.md:44-78` | **新文件**，与 `PongDsiPanel.cpp` 的 INTF 读数合并；新参数 `k60_dpu=1`（9 B） | 要写；INTF 侧可以逐字复用（八个偏移已证相同），MDP 侧按 catalog 表驱动、K60 那一行留空 |
-| `AppleARMBacklight` | `AppleARMBacklight.cpp`（468 行），`porting/display.md:89-100` | 已有的 `K60Backlight.cpp` + `K60BacklightCodec.h`，改 4 处、加 1 个实验参数 | 已有 11/14 条契约；真缺 3 条（六键字典、未知属性分支、arm64e 伪装） |
+| `AppleARMBacklight` | `AppleARMBacklight.cpp`（468 行），`porting/display.md:89-100` | 已有的 `K60Backlight.cpp` + `K60BacklightCodec.h`：真缺 2 条（六键字典、arm64e 伪装）、已获批 1 条（默认值翻 0）、已撤回 1 条（未知属性分支） | 已有 12/14 条契约；「未知属性用未初始化 goal 发布」经复核不成立（`:402-404` 已返回成功） |
 | `GeniI2c` | `GeniI2c.h`（120 行），`porting/display.md:89-91` | **不接入**：K60 是 `bl_ctrl_dcs`，亮度走 DSI DCS `0x51`，没有 I2C 背光 IC | 不适用；只在"将来出现外置背光 IC"时按官方顺序接 |
 
-预算一句话：**27 的命令行不是"在 596 B 上加"，而是 `os_overrides` 整表替换后的
-104 B 起算**；把 16.6.1 的 30 项恢复回来就是 673 B，**已经超 66 B**；
-显示线自己的新增只有 9 B（`k60_dpu=1`），另有 23 B 的 `k60_backlight_control=0`
-建议用"改代码默认值"消掉。
+预算一句话：**27 的命令行不是「在 596 B 上加」，而是 `os_overrides` 整表替换后的
+104 B 起算**；把 16.6.1 的 30 项恢复回来是 661 B（34 项，`debug` 取 override 的
+`0x14e`），**已经超 54 B**，再加 `k60_dpu=1` 是 671 B、超 64 B。所以按 Lead 的
+「按读者分摊」重排：显示线只认领有读者的 14 项 **224 B**（余 383 B），
+另外 18 项 402 B 交回其他线，3 项 44 B 无读者直接删（§4.4）。
+`k60_backlight_control=0` 那 23 B 仍建议用「改代码默认值」消掉（§2.2，已获批）。
 
 ---
 
@@ -104,14 +106,19 @@
 `drivers/PongAdreno/K60BacklightCodec.h`。27 的契约逐条对照在
 `DISPLAY-27-DELTA.md` §5（14 条，11 条已具备）。本节只写**要动的地方**。
 
-### 2.1 必须改（不改正则会出错）
+### 2.1 要动的地方（(a) 已复核撤回，(b)(c) 仍在）
 
-**(a) 未知属性分支**：`K60Backlight.cpp:384-433` 是 `brightness-nits` / `brightness`
-二分支，落空走 `:415-418` 的 `else`（只打一行日志），然后仍然 `:428 publish(goal)`——
-而 `goal` 在这一支**没有赋值**。27 的 CoreBrightness 会发 `brightness-nits-cap`
-一类属性（`drivers/sheng-backlight.md:46`：其它属性返回成功、无效果），落进来就是
-一次未定义亮度写（可能 0 → 黑屏）。改法：把 `goal` 初始化为当前等级，或在 `else`
-里直接 `return kIOReturnSuccess;` 且不改亮度。判据：上机后滑块最小位置亮度不跳变。
+**(a) 未知属性分支（复核后：不需要改，原文的缺陷不成立）**：
+`:392-404` 是 `brightness-nits`（`:392-396`）/ `brightness`+`FadePeriod`（`:397-401`）/
+`else { return kIOReturnSuccess; }`（`:402-404`）三支，`goal` 只在前两支赋值，
+**不存在**「用未初始化 `goal` 去 `publish()`」的路径；`:415-418` 的 `else` 是
+「非 nits 请求」的日志分支（条件在 `:410`），不是请求落空分支。27 的
+`brightness-nits-cap` 一类属性落到 `:402-404` 返回成功、不改亮度，正是
+`drivers/sheng-backlight.md:46` 要求的行为。复核判据：
+`git show HEAD:drivers/PongAdreno/K60Backlight.cpp | sed -n '384,404p'`。
+⇒ 原「必须改」清单的第一条降为「已满足」。这个函数里唯一值得动的是日志字段
+（`:416-417` 把 `goal` 打了两次），已单独提成
+`patches/proposed/0001-k60-backlight-log-requested-level.patch`，不进 ②③ 的结论。
 
 **(b) 六键 calibration 字典的去留**：`:209-247` 现在**故意不发**
 `backlight-calibration-parameters`，理由是 20G81 的 CoreBrightness 读十键不查 NULL
@@ -126,12 +133,20 @@ sheng 的做法是 `gImpersonating` 标志 + 手写 `getMetaClass()`
 （DELTA §9 U4），所以接入方式是**两种都留**：arm64 走旧路径（已证可用），
 ptrauth 构建走 sheng 路径；用 `#if` 判 `__arm64e__` 即可，不新增文件。
 
-### 2.2 建议改（形态 A 的字节优化）
+### 2.2 已获批的改动（形态 A 的默认值翻转）
 
-`k60_backlight_control` 现在的默认值是"发"（`:339-341`），形态 A 要求镜像带
-`k60_backlight_control=0`（23 B）。27 的预算是负的（§3），**建议把默认值翻成 0**：
-`:339` 的 `uint32_t controlArg = 1;` → `0`，`:341` 的条件随之变成"只有 `=1` 才发"。
-参数保留，实验时仍可用 23 B 打开。这省下的是命令行的字节，不改任何行为语义。
+`k60_backlight_control` 现在的默认值是「发」（`:339-341`），形态 A 要求镜像带
+`k60_backlight_control=0`（23 B）。**Lead 2026-11-21 批准**在 27 分支把默认值翻成 0：
+`:339` 的 `uint32_t controlArg = 1;` → `0`，`:341` 的条件随之变成「只有 `=1` 才发」。
+参数名不变，实验时仍可用 23 B 打开。
+
+三条约束（Lead 原话的要点）：参数名不变、提交信息写明「27 默认由后端裁决」、
+差异表记一行「这是行为改变，不是优化」。第三条已记在
+`DISPLAY-27-DELTA.md` §6 的结论行。
+
+**这是行为改变，不是优化**：同一份文件在 16.6.1 上默认发布 `backlight-control`、
+在 27 上默认不发布，判据行 `control=` 的默认值因此随 OS 版本变化，读日志时
+不能跨版本比较这一位。字节上省 23 B 只是副作用。
 
 ### 2.3 不动的地方
 
@@ -216,101 +231,144 @@ K60 的面板背光**没有独立 IC**：live FDT 是 `bl_ctrl_dcs`（`docs/rese
 -v serial=3 debug=0x14e kt_fixed_zones=120 -no_slto_panic use_contiguous_hint=0 amfi_get_out_of_my_way=1
 ```
 
-### 4.3 三组数字
+### 4.3 三组数字（实测，不手算）
 
-| 组 | 参数数 | 字节 | 相对 607 |
+字节数的取法：把 `board.toml` 里的列表原样 `len(" ".join(args))`，空格计入。
+四个数字都在本树的 `board.toml` 上跑出来，可复现。
+
+| 组 | 参数 | 字节 | 相对 607 |
 | --- | --- | --- | --- |
 | 16.6.1 板级 `[payload].kernel_args`（现值） | 30 | **596** | 余 11 |
 | 27 `os_overrides`（现值） | 7 | **104** | 余 503 |
-| 27 = override + 恢复板级其余 28 项（去重后共 35 项） | 35 | **673** | **超 66** |
-| 27 = 上一行 + 显示线新增 `k60_dpu=1` | 36 | **682**（追加 +1 空格 = 683） | **超 76** |
+| 27 = 板级 30 项恢复 + override 的外加四项（`debug` 取 `0x14e`） | 34 | **661** | **超 54** |
+| 27 = 上一行 + `k60_dpu=1` | 35 | **671** | **超 64** |
+| **本文提议的 27 override：只带读者**（§4.4 A 组） | **14** | **224** | **余 383** |
 
-两个共享参数（`-v`、`amfi_get_out_of_my_way=1`）已在 override 里，所以恢复的是 28 项。
+最后一行是这次要交给 Lead 的数：显示线认领的 14 项、224 B，余 383 B 留给 GPU/USB。
+它比现值 104 B 多 120 B，但每一行都能指到一个 `文件:行` 的读者。
 
-**这张表最要紧的一句**：27 上"把 16.6.1 的参数全部恢复"本身就已经超 66 B。
-显示线这次只加 9 B，超限的 66 B 不是显示线造成的，但显示线必须在预算表里
-把这件事写清楚，否则 27 镜像一构建出来就停在 REQUEST。
+### 4.4 最小参数表（按读者分摊）
 
-### 4.4 显示线的参数集（逐项字节）
+判据只有一条：**27 上有代码真的读它**（或门禁真的查它）。读者行号取自两处，
+表里写明来源，27 树同步后行号会漂移，**以文件 + 符号为准**：
 
-必需（缺了显示线不成立）：
+- `XNU:` = WSL `/opt/k60/scratch/applytest-6678/`（16.6.1 打过补丁的 XNU 树）
+- `REPO:` = 本仓 `E:/hackios/k60-display27`（驱动与补丁）
 
-| 参数 | 字节 | 为什么必需 | 16.6.1 出处 |
+#### A 组：本线认领（14 项 / 224 B / 余 383）
+
+| 参数 | 字节 | 读它的 `文件:行` | 不带它的后果 |
 | --- | --- | --- | --- |
-| `pong_adreno_start=1` | 19 | GPU 起来才有 GPU 拷贝扫描输出 | board.toml |
-| `pong_metal=1` | 12 | 同上（Metal 服务） | board.toml |
-| `pong_gpu_scanout=1` | 18 | 帧所有权走 GPU（`PongAdrenoScanout.cpp:154-211`） | board.toml |
-| `sheng-gpu-addon=1` | 17 | 27 的 GPU 侧附件（sheng 树同名） | board.toml |
-| `k60_usblog=2` | 12 | 显示证据的唯一出口（`K60 PANEL:`/`K60 BACKLIGHT:` 行） | board.toml |
-| `k60_console_export=1` | 20 | 同上（控制台导出） | board.toml |
-| `applog=1` | 8 | 同上（IOLog 落盘） | board.toml |
-| **小计** | **106**（含 6 空格 112） | | |
-| `k60_dpu=1` | **9**（追加 +1 空格 = 10） | 本线新增：27 的 DPU 探针 | 新 |
+| `serial=3` | 8 | `XNU:osfmk/arm/arm_init.c:894` | 串口/日志通道的级别回到默认，27 的证据只剩屏幕 |
+| `debug=0x14e` | 11 | `XNU:osfmk/kern/debug.c:326`（`TUNABLE(debug_boot_arg,"debug",0)`） | KDB 与调试输出位全关，panic 页不落盘 |
+| `kt_fixed_zones=120` | 18 | `XNU:osfmk/kern/kalloc.c:449` | 固定区上限回默认，大镜像 + 显示缓冲先撞 kalloc 上限 |
+| `-no_slto_panic` | 14 | `XNU:osfmk/kern/startup.c:471` | SLTO 失败即 panic，27 上等于没有诊断机会 |
+| `use_contiguous_hint=0` | 21 | `XNU:osfmk/arm64/arm_vm_init.c:2154` | 连续物理页提示回默认，帧缓冲 256 MB 窗口更容易抢不到 |
+| `amfi_get_out_of_my_way=1` | 24 | `XNU:libkern/amfi/miniamfi.c:268`、`bsd/kern/kern_minimac.c:418` | 未签名驱动/预链接一律拒载，GPU 与显示服务都起不来 |
+| `pong_adreno_start=1` | 19 | `REPO:drivers/PongAdreno/PongAdrenoPlatform.cpp:605` | 没有 GPU 服务 ⇒ 没有 GPU 拷贝扫描输出（NGP 路径失效） |
+| `pong_metal=1` | 12 | `REPO:drivers/PongAdreno/PongAdrenoClient.cpp:202`、`PongAdrenoNativeGlue.cpp:30` | Metal 客户端不注册，合成器拿不到 present 通道 |
+| `pong_gpu_scanout=1` | 18 | `REPO:drivers/PongAdreno/PongAdrenoScanout.cpp:52`、`patches/xnu/0600-k60-display-composition.patch:155` | 帧所有权退回 CPU 拷贝，`NGPComplete` 永远等不到 GPU 帧 |
+| `sheng-gpu-addon=1` | 17 | `REPO:patches/xnu/zzy-native-gpu-addon-mount.patch:71` | GPU 附件不挂载，`pong_metal` 起来也没有可用驱动 |
+| `k60_usblog=2` | 12 | `REPO:patches/xnu/0300-k60-usblog-ep0.patch:180` | 显示证据的唯一出口消失（`K60 PANEL:`/`K60 BACKLIGHT:` 行） |
+| `k60_console_export=1` | 20 | `REPO:patches/xnu/0243-k60-console-export.patch:99` | 控制台快照不导出，早期首帧错误无法回读 |
+| `applog=1` | 8 | `REPO:patches/xnu/zzzzzzzzzzzzzzzzzz-pong-hackios-launchd-exec.patch:11` | 用户态 exec 链路不落日志，SpringBoard 阶段的黑屏无法定位 |
+| `k60_dpu=1` | **9** | 本线新增：`REPO:drivers/PongAdreno/K60DisplayTimingProbe.cpp`（计划文件，§1） | 27 的 DPU 探针不启动，DPU 9.2 常量与扫描输出地址只能靠猜 |
+| **合计** | **224** | 14 项 + 13 空格 | |
 
-可选（按需出现，不进默认镜像）：
+`applog=1` 是唯一可以整项砍掉的（8 B，只影响用户态日志），其余每一项缺了都会
+让「首帧」或「证据」两者之一不成立。
 
-| 参数 | 字节 | 何时用 |
-| --- | --- | --- |
-| `k60_backlight_control=1` | 23 | 实验形态 B（发布 `backlight-control`）；默认 0 时不出现（§2.2 建议） |
-| `k60_backlight_calibration=1` | 29 | 实验六键字典（DELTA §9 U1）；默认不出现 |
-| `k60_dpu=2` / `=3` | 9 | 探针级别；level 3 另有开关要求（§1.3） |
-| `log-display=1` | 13 | 只在需要 27 自己的显示日志时（16.6.1 用 `k60_usblog`） |
-| `p120=0` / `vsync=…` | 5 / 9 | 退回 60 Hz（默认 120 Hz，`PongDsiPanel.cpp:566-577`） |
-| `k60_backlight=1` | 15 | 不必要：服务无条件启动，board.toml 里也没有这个参数 |
-| `k60_panel=0` | 11 | 只在"boot framebuffer 不是这块面板"时（QEMU / 换屏） |
+#### B 组：其他线认领（18 项 / 402 B）
 
-⇒ 显示线的**净新增**是 `k60_dpu=1` 一项、**9 字节**（追加时 10）。
-其余 106 B 已经在"恢复板级参数"的 673 B 里。
+这些参数都有读者，但读者在 UFS/数据卷/launchd/安全策略那几条线上。显示线不认领，
+列出来是为了让平台线能照表补人，而不是让它们悄悄消失。
 
-### 4.5 超限 76 B 怎么办（交回 Lead 的账）
+| 参数 | 字节 | 读它的 `文件:行` | 不带它的后果（27 上） |
+| --- | --- | --- | --- |
+| `pong_init_path=/private/var/pong/init` | 37 | `REPO:patches/xnu/0392-k60-dyld-cache-probe.patch:38` | 用户态 init 路径回默认，27 的 init 探针不启动 |
+| `pong_allow_unauthenticated_root=1` | 33 | `REPO:patches/xnu/zzzzzzzzz-pong-development-root-policy.patch:13` | 根卷策略回到签名校验，数据卷挂不上 |
+| `k60_tolerate_cache_loader=1` | 27 | `REPO:patches/xnu/0314-k60-kern-exit-tolerate-and-clean.patch:33` | 缓存装载器失败即中止，27 的 dyld 缓存路径无回退 |
+| `k60_skip_firmware_mount=1` | 25 | `REPO:patches/xnu/0320-k60-skip-firmware-mount.patch:25` | 固件卷挂载照旧，启动时间与卷布局都变 |
+| `cs_enforcement_disable=1` | 24 | `XNU:bsd/kern/kern_cs.c:167` | 代码签名强制回到开，未签名二进制全部被拒 |
+| `k60_entitlement_allow=1` | 23 | `REPO:patches/xnu/0330-k60-entitlement-allow.patch:26` | 权限降级策略生效，SpringBoard 起不来 |
+| `pong_software_keybag=1` | 22 | `REPO:patches/xnu/0211-k60-display-startup.patch:6` | KeyMint 走硬件路径，本板会失败并挡住启动 |
+| `disable_exc_resource=1` | 22 | `XNU:osfmk/kern/task.c:987` | 资源超限的信号照发，首帧路径容易被 EXC_RESOURCE 打断 |
+| `pong_ufs_readwrite=1` | 20 | `REPO:drivers/NativeUfs/PongUfsTransport.cpp:186` | UFS 只读，数据卷 rootfs 都写不了 |
+| `xpcproxy_idversion=1` | 20 | `REPO:patches/xnu/zzzzzzzzzzzzzzzzzz-pong-hackios-launchd-exec.patch:46` | xpcproxy 校验版本号，用户态服务拉起失败 |
+| `k60_skip_iosurface=1` | 20 | `REPO:patches/xnu/0332-k60-skip-prelinked-load.patch:21` | **与显示同栈**：`IOSurface` 预链接加载走原路径，首帧可能卡在这里 |
+| `k60_launchd_cache=1` | 19 | `REPO:patches/xnu/0394-k60-launchd-cache.patch:56` | launchd 缓存回退到逐项加载，启动变慢甚至超时 |
+| `k60_panic_reset=1` | 17 | `REPO:patches/xnu/0334-k60-panic-reset-fastboot.patch:117` | panic 后不自动回 fastboot，上机循环要人工按键 |
+| `k60_autoreset=300` | 17 | `XNU:bsd/dev/k60_usblog.c:199`（由 `patches/xnu/0300` 引入） | 黑屏后不回 fastboot，300 秒自动复位失效 |
+| `pong_data_mount=1` | 17 | `REPO:patches/xnu/offline-owner-systemos-mount.patch:547` | 数据卷不挂载，27 上没有 `/private/var` |
+| `k60_init_blob=1` | 15 | `REPO:patches/xnu/0391-k60-embedded-init.patch:52` | 内嵌 init 不启用，首进程路径回到苹果原版 |
+| `pong_data_rw=1` | 14 | `REPO:patches/xnu/offline-owner-systemos-mount.patch:487` | 数据卷只读挂载 |
+| `native-ufs=1` | 12 | `REPO:drivers/NativeUfs/NativeUfs.cpp:147` | 原生 UFS 驱动不启用，**没有根设备** |
+| **合计** | **402** | 18 项 + 17 空格 | 全不带 ⇒ 27 连用户态都到不了 |
 
-显示线只声明自己的 9 B；剩下 67 B 的削减属于平台线/其他线。下面给出**候选**
-（字节都是逐项实测，取自已核的 board 参数表），**不是建议删除**：
+#### C 组：没有读者，一律不带（3 项 / 44 B）
 
-| 候选 | 字节 | 与显示的关系 |
-| --- | --- | --- |
-| `pong_init_path=/private/var/pong/init` | 37 | 无（用户态 init 路径） |
-| `pong_allow_unauthenticated_root=1` | 33 | 无 |
-| `k60_tolerate_cache_loader=1` | 27 | 无 |
-| `k60_skip_firmware_mount=1` | 25 | 无 |
-| `cs_enforcement_disable=1` | 24 | 无 |
-| `launchd_unsecure_cache=1` | 24 | 无 |
-| `k60_entitlement_allow=1` | 23 | 无 |
-| `pong_software_keybag=1` | 22 | 无 |
-| `disable_exc_resource=1` | 22 | 无 |
-| `k60_skip_iosurface=1` | 20 | **有**：`IOSurface` 与显示服务同栈，删它之前要确认不影响首帧 |
-| `pong_ufs_readwrite=1` | 20 | 无 |
-| `k60_autoreset=300` | 17 | 无（但见 `BOOT-ARGS-PENDING.toml` 的债） |
+| 参数 | 字节 | 检索范围与结果 | 处理 |
+| --- | --- | --- | --- |
+| `-v` | 2 | XNU 全树 grep `"-v"` 只命中 `tests/`；`xnekom-ios27/drivers/DarwinBoot22` 与 `uefi-mondrian` 的 DarwinBoot 均无 | 删 |
+| `epoch=1793709100` | 16 | XNU（`bsd`/`libkern`/`osfmk`）、`uefi-mondrian`、本仓 `drivers/`+`patches/` 均无 `PE_parse_boot_argn("epoch"`；只有 `bsd/sys/sysctl.h:1208` 的同名 sysctl 与 `drivers/ArmDTPlatform/ArmDTPlatform.cpp:154` 读的 FDT `boot-epoch` 属性，都不是这个参数 | 删（若别的线证明用户态读它，再花 16 B） |
+| `launchd_unsecure_cache=1` | 24 | 同上三处 grep 零命中；`xpcproxy_idversion`（同族、有读者）已在 B 组 | 删 |
+
+### 4.5 596 的去向，以及 A+B 为什么还超 19 B
+
+| 分组 | 项数 | 字节 | 说明 |
+| --- | --- | --- | --- |
+| 板级 30 项中，本线认领（A 组 ∩ 板级） | 9 | 141 | `debug`/`amfi`/GPU 四项/日志三项 |
+| 板级 30 项中，交回其他线（B 组） | 18 | 402 | 见上表 |
+| 板级 30 项中，无读者（C 组） | 3 | 44 | 直接删 |
+| override 已有的四项（`serial`/`kt_fixed_zones`/`-no_slto_panic`/`use_contiguous_hint`） | 4 | 61 | 保留 |
+| 本线新增（`k60_dpu=1`） | 1 | 9 | §1 |
+| **A 组合计** | **14** | **224** | 余 383 |
+| **A + B** | **32** | **626** | **仍超 19** |
+
+⇒ 两件事同时成立：
+1. 显示线自己的账是 **224 B**，达标（≤400），余 383 B；
+2. 若其他线把 B 组 18 项全部认领，总账 **626 B**，还是超 19 B。超限没被消掉，
+   只是从「显示线 76 B」变成「平台线 19 B」，并且 C 组删掉的 44 B 已经算在里面。
+   再往下砍只能从 B 组出，而 B 组第一项就是 `native-ufs=1`（没有它没有根设备）——
+   **如果 27 真的要继续瘦身，选项不是删参数，而是把 `debug=0x14e`（11 B）与
+   `k60_usblog=2`（12 B）这类证据参数在「已验证的 stable 镜像」里换出来**，
+   那属于发布策略，不是本线能定的（§5 已记）。
 
 ### 4.6 账本规则（新增参数必须落账）
 
 | 规则 | 位置 | 对本线的含义 |
 | --- | --- | --- |
-| 门禁只认 `BOOT-ARGS.md` 的 `### \`name\`` 与表格首列 | `scripts/check-boot-args.py:24-28` | `k60_dpu`、`k60_backlight_calibration` 必须写进 `BOOT-ARGS.md` 的表格 |
+| 门禁只认 `BOOT-ARGS.md` 里 `### name` 形式的标题与表格首列 | `scripts/check-boot-args.py:24-28` | `k60_dpu`、`k60_backlight_calibration` 必须写进 `BOOT-ARGS.md` 的表格 |
 | 门禁扫 `board.toml` 的 `[payload].kernel_args` | `scripts/check-boot-args.py:39-44` | **不看 `os_overrides`** ⇒ 27 的 override 里的参数门禁看不见，文档是唯一台账 |
 | 门禁扫 `patches/**/*.patch` 与 `drivers/**` 的 `PE_parse_boot_argn("…")` | `scripts/check-boot-args.py:50-60` | 新文件里每解析一个参数，文档就必须有一条 |
-| `BOOT-ARGS-PENDING.toml` 是"只许减少"的债（`count = 41`） | `scripts/check-boot-args.py:86-110` | 新参数**不能**塞进这里（加了就 42 条，门禁失败） |
+| `BOOT-ARGS-PENDING.toml` 是「只许减少」的债（`count = 41`） | `scripts/check-boot-args.py:86-110` | 新参数**不能**塞进这里（加了就 42 条，门禁失败） |
 | 缺文档即失败 | `scripts/check-boot-args.py:114` | 同上 |
 | 取值必须落在 `BOOT-ARGS.md` 声明的范围内 | `scripts/check-boot-args.py:167` | `k60_dpu=3` 的上界要写在文档里 |
 
 ⇒ 本线要提交的账本改动（等 Lead 批，因为 `docs/engineering/BOOT-ARGS.md` 是共享文件）：
 在 `BOOT-ARGS.md` 的显示小节加两行（`k60_dpu`、`k60_backlight_calibration`），
-并在 `board.toml` 的 27 override 里加 `k60_dpu=1`。**这两处本线不自己改**（契约禁止改共享树）。
+并在 `board.toml` 的 27 override 里换成 A 组 14 项。**这两处本线不自己改**（契约禁止改共享树）。
 
 ---
 
-## 5. 交回 Lead 的三个决定
+## 5. Lead 已裁决的三项（2026-11-21，记录在案）
 
-1. **`k60_dpu` vs `sheng-dpu`**：本文建议 `k60_dpu`（省 2 B，名字与本板实现一致），
-   官方页面的 `sheng-dpu` 作为别名保留。若 Lead 要求"参数名与官方页面逐字一致"
-   （便于照页面复现），则改回 `sheng-dpu=1`（11 B）。
-2. **`k60_backlight_control` 的默认值翻转**（§2.2，省 23 B）：这是代码语义改动，
-   会影响 16.6.1 与 27 的共同文件 `K60Backlight.cpp`；需要 Lead 确认是否允许在
-   27 分支上改（改法是 `:339` 的 `1` → `0`，一行）。
-3. **超限 76 B 的分摊**：显示线 9 B 已定；剩余 67 B 由平台线在 `os_overrides`
-   的表里重新分配（候选表 §4.5）。本线不改 `board.toml`。
+1. **参数名用 `k60_dpu`（9 B）**，不用 `sheng-dpu`。理由（Lead 原话的意思）：
+   板级参数统一 `k60_` 前缀，跨线引用不会与 sheng 的命名混淆，且省 2 B。
+   官方页面的 `sheng-dpu` 在本文里作为别名出现，实现只认 `k60_dpu`（§1.3）。
+2. **`k60_backlight_control` 的默认值可以翻 0**（27 分支，`K60Backlight.cpp:339` 的
+   `1` → `0`），三条约束：参数名不变（仍可 `k60_backlight_control=1` 覆盖）、
+   提交信息写明「27 默认由后端裁决」、`DISPLAY-27-DELTA.md` 记一行
+   「这是行为改变，不是优化」。已按此记入 DELTA §6。
+3. **超限按读者分摊**（不按线分摊）：A 组 224 B 交账，余 383 B 留给 GPU/USB；
+   B 组 402 B 由对应线认领；C 组 44 B 删。**A+B 仍超 19 B**（§4.5），
+   这是留给平台线的账，不是显示线的。
 
----
+顺带记两条边界（Lead 另有安排，本线不碰）：
+- 24A446 的 CoreBrightness 提取由 Lead 派人做（`aea -d` → `hdiutil attach` →
+  `dyld_shared_cache_arm64e`），本线按「取不到」的回退写死（DELTA §9 U1）。
+- `v_baseAddr` / `Video[]` 属 `step.device`，Lead 在 F2 飞行时读；fragment 里只留
+  一行待读项，`done=false` 保持。
 
 ## 6. 本次没有做的事（边界）
 

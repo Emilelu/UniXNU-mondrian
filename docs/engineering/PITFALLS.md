@@ -7324,3 +7324,30 @@ context」——少了这一层，os 层的上下文当然对不上。算术也�
 
 回归：`scripts/check-ios27-storage-vtable.py` 的三个新用例（pin 一致通过、pin 移动红、
 无表头红），全套 20 例；对 pinned kernelcache 仍是 190/190、尾三字为零。
+
+## P-294 — 报告里的 candidate_sha256 不是最终 kernel.macho 的 sha256
+
+build 20 的 `kernel.json` 记 `candidate_sha256 = dee01c54a73edf594bbe866ae020cb3331d31afe3edc4616b1a6fc0a34fbaad0`，
+同目录 `kernel.macho` 实测 `652237c6bf5476f216298df9ac71044ec51aa2349c3c31871e822810e163a19e`。
+两者同为 93,061,120 B，三个 missing 地址和段布局一致，但候选字段与落盘文件的关系未证。
+这不是四舍五入，也不是同一个哈希的两种写法。
+
+写报告的一段代码让这个差异有了含义。`kits/NativePrelink/emit_prelink.py:341` 用
+`candidate_sha256=hashlib.sha256(output).hexdigest()` 记录候选哈希；`:344` 返回
+`bytes(output), report`；`main()` 的 `:363` 接住 `image, report = emit(...)`，`:367`
+执行 `args.output.write_bytes(image)`，`:368` 把报告写到同名的 `.json`。候选哈希与落盘字节之间
+没有复制、strip 或转码。若报告确由这个 kit 版本在同一次运行里产生，两者应当相等；现在不相等，
+至少说明落盘后还有一次重写（strip/sign/patch/copy）、报告来自另一个 producer/版本，或两者不是同一
+次运行的产物。
+
+路径也不是证据。06:33 读到的 `/opt/.../kernel.macho` 是 uid 1000；14:12 同一个路径已被
+root:root 的新 build 原地替换。**构建会把 /opt 路径原地替换，所以证据只能绑哈希，不能绑路径。**
+`candidate_sha256` 只是 producer 对自己 output buffer 的声明，不是最终产物的证明。
+
+回归：`scripts/check-ios27-candidate-hash.py` 把报告字段与最终文件的 SHA-256 比对，
+`scripts/tests/test-ios27-candidate-hash.py` 的 8 个用例覆盖匹配、摘要不符、缺字段、字节数不符、
+坏 JSON 和缺文件。真实 build-20 报告在 root 权限下，当前只能把规则和自测落地；能读到报告时，
+先跑这个比对，再把结果写进证据。
+
+共享分配表 `E:/hackios/k60-gates/docs/engineering/PITFALL-IDS.md` 由 Lead 维护，本线不能写；
+建议的 P-294 行见 `docs/research/storage/LEDGER-PROPOSAL.md` 的「Proposed P-294 row」。

@@ -1,4 +1,4 @@
-# Why three build-20 targets cannot run before `console_init`
+# Why three build-20 targets are not reachable before `console_init` (static evidence)
 
 Status: offline mechanism note, 2026-11-21. Branch `feat/xnu27-data-gate`.
 No build, boot, device access or kit change was made for this note.
@@ -16,9 +16,12 @@ reference to any of the three.
 XNU's `console_init()` is at `osfmk/kern/startup.c:585`. The first IOKit entry
 in the bootstrap thread is `PE_init_iokit()` at `:806`, after console. All three
 owners are kexts, so none of their code runs before console either. Under the
-scan coverage below, no kernel or kext instruction can form these addresses
-before `console_init`; they are not candidates for a pre-console execution
-fault.
+scan coverage below, the static reachability scan is zero, all three are data
+rather than entry points, and before `console_init` only XNU core runs. The
+ledger reason should therefore say
+`三者在 console 前不可达（静态证据），残余=间接构造未证`. This is a statement
+about static reachability, not a claim that an indirect construction can never
+call them.
 
 This is a reachability result, not a loadability result. `mapping_complete` and
 `loadable` stay false; a loader or prelink consumer that rejects an unresolved
@@ -43,8 +46,8 @@ hashes above, not to whatever now sits at the same path. The report records
 `candidate_sha256: dee01c54a73edf594bbe866ae020cb3331d31afe3edc4616b1a6fc0a34fbaad0`,
 which is not the on-disk hash; both are 93,061,120 B, and the two agree on the
 three target addresses and on the segment layout, but the exact relation between
-the report's candidate field and the final file is not established here. It
-is an open evidence-binding detail, not something this note silently resolves.
+the report's candidate field and the final file is not established here. Section
+8 records the writer facts and what would prove that relation.
 
 `kernel.json` records:
 
@@ -221,3 +224,47 @@ policy decision), not something this note claims to solve.
 
 No class name, symbol name or binding target was guessed. No kit, kernel.json,
 preflight entry or shared tree was modified.
+
+## 8. Unresolved evidence: the candidate hash is not the final hash
+
+The report and the file disagree on the digest:
+
+    report candidate_sha256  dee01c54a73edf594bbe866ae020cb3331d31afe3edc4616b1a6fc0a34fbaad0
+    file sha256              652237c6bf5476f216298df9ac71044ec51aa2349c3c31871e822810e163a19e
+    both bytes               93,061,120
+
+The two agree on the three target addresses and on the segment layout, but the
+report's field is not the final file hash. That is an unresolved binding, not a
+rounding difference.
+
+The kit writer makes the mismatch informative. In
+`kits/NativePrelink/emit_prelink.py`:
+
+* `:341` sets `candidate_sha256=hashlib.sha256(output).hexdigest()`;
+* `:344` returns `bytes(output), report`;
+* `:363` receives `image, report = emit(...)`;
+* `:367` writes `args.output.write_bytes(image)`;
+* `:368` writes the sibling `.json` report.
+
+There is no copy, strip or transcode between the buffer that is hashed and the
+buffer that is written. If this exact kit version produced both files in one
+run, `candidate_sha256` would equal the file hash. It does not, so at least one
+of these is true: a later stage rewrote `kernel.macho`; the report came from a
+different producer or kit version; or the two files are not a pair from the same
+run. The note does not choose among them.
+
+What would prove the relation:
+
+1. Record the kit HEAD and the exact producer command, rerun `emit()` from the
+   same inputs, and compare the returned digest with the file digest.
+2. Add a post-write check after `:367`: hash `args.output.read_bytes()` and
+   compare it with `report['candidate_sha256']`. If that check fails, the file
+   was rewritten after `emit()`.
+3. Identify every later stage that touches `kernel.macho` (strip, sign, patch,
+   copy) and its log line; a same-size rewrite still changes the digest.
+4. Compare `candidate_bytes` and `original_executable_sha256` with the final
+   file; size agreement is not byte agreement.
+
+This is the P-294 instance: the path was replaced in place at 14:12, so the
+evidence must bind to the hash, not to the path. Until the relation is shown,
+the three-target scan binds to `652237c6...`, not to `candidate_sha256`.

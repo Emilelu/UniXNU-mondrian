@@ -1,0 +1,56 @@
+# Scripts that parse board.toml without merging os_overrides.
+# The gate lists readers that are not here; a line is a recorded review, not a
+# waiver of the rule that the merged table is the contract (P-305).
+
+[[reviewed]]
+script = "build-k60-root-image.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-build-env.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-build-freshness.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-component-pin.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-device-tree.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-doc-citations.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-dt-asserts.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-ios27-firmware.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "check-porting-paths.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "eight-step-gate.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "fetch-ios16-assets.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "inspect-install-readiness.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+
+[[reviewed]]
+script = "k60-prelink-local.py"
+why = "reviewed 2026-11-22: reads a key that os_overrides does not replace (identity, paths, image layout), so the base table is the contract"
+

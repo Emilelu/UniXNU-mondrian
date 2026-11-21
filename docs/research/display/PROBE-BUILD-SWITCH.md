@@ -147,7 +147,20 @@ python3 docs/research/display/check-probe-absent.py \
 - `MARKER = "K60 BACKLIGHT: probe request not built"` ——只在探针块的失败路径里出现，开关关掉时整块不编译，这个串不可能存在；
 - `REQUEST_FORMAT = "K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x"` ——`K60Backlight.cpp` 的请求行格式串，用来挡住「拿错文件也能通过」的情况。
 
-判据：正式图 marker **0 次**，诊断图 marker **恰好 1 次**；两者的 REQUEST_FORMAT 都 ≥1 次。退出码 0 通过、1 失败，每次调用打印所读文件的 sha256（正好喂 §3 的表）。
+判据：正式图 marker **0 次**，诊断图 marker **恰好 1 次**；两者的 REQUEST_FORMAT 都 ≥1 次。
+每次调用打印所读文件的 sha256（正好喂 §3 的表）。
+
+退出码三态，**读不到文件不算通过**：
+
+| 退出码 | 含义 | 例子 |
+| --- | --- | --- |
+| 0 | 所有要求的检查都通过 | marker 在正式图 0 次、在诊断图 1 次 |
+| 1 | 读到了镜像，检查失败 | marker 泄漏进正式图；或文件里连 REQUEST_FORMAT 都没有（传错镜像） |
+| 2 | 文件读不到（不存在、不可读、为空） | `MISSING <path>: No such file or directory` + `note: nothing can be asserted about an image that was not read` |
+
+`--release` 是必填参数，所以「忘了给文件」不会静默通过；给了一个不存在的路径则是 2，不是 0 也不是 1——
+2 的含义是「关于这张图什么都不知道」，与「图错了」（1）是两件事，脚本不把它们混起来。
+实测（2026-11-21）：不存在 → rc=2；空文件 → rc=2；marker 泄漏 → rc=1；正常对 → rc=0。
 
 自测记录（2026-11-21，fixtures 在 `E:/k60-work/scratch/probe-selftest/`，真假内核用同长度字节串模拟）：
 

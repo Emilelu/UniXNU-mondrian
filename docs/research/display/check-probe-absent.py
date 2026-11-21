@@ -18,8 +18,13 @@ Usage:
     python3 docs/research/display/check-probe-absent.py \
         --release release/kernel.macho --diagnostic diagnostic/kernel.macho
 
-Exit code 0 = every requested check passed. Every invocation prints the
-sha256 of each file it read, because the evidence record needs it.
+Exit codes: 0 = every requested check passed, 1 = a check failed, 2 = a file
+could not be read (missing or unreadable). A missing file must never look like
+a pass, so it is not folded into 1 either: 1 means the image was read and the
+probe was in the wrong place, 2 means nothing about the image is known.
+
+Every invocation prints the sha256 of each file it read, because the evidence
+record needs it.
 """
 from __future__ import annotations
 
@@ -34,8 +39,17 @@ MARKER = b"K60 BACKLIGHT: probe request not built"
 REQUEST_FORMAT = b"K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x"
 
 
+class Unreadable(Exception):
+    """A path that must be readable was not."""
+
+
 def read(path: str) -> bytes:
-    data = pathlib.Path(path).read_bytes()
+    try:
+        data = pathlib.Path(path).read_bytes()
+    except OSError as error:
+        raise Unreadable("%s: %s" % (path, error.strerror or error)) from error
+    if not data:
+        raise Unreadable("%s: file is empty, that cannot be a kernel" % path)
     print("sha256 %s  %s  %d bytes" % (hashlib.sha256(data).hexdigest(),
                                        path, len(data)))
     return data
@@ -80,9 +94,17 @@ def main(argv: list[str]) -> int:
                              "-DK60_BACKLIGHT_PROBE=1 (must contain it once)")
     args = parser.parse_args(argv)
 
-    problems = check_release(read(args.release), args.release)
-    if args.diagnostic:
-        problems += check_diagnostic(read(args.diagnostic), args.diagnostic)
+    try:
+        release = read(args.release)
+        diagnostic = read(args.diagnostic) if args.diagnostic else None
+    except Unreadable as error:
+        print("MISSING " + str(error))
+        print("note: nothing can be asserted about an image that was not read")
+        return 2
+
+    problems = check_release(release, args.release)
+    if diagnostic is not None:
+        problems += check_diagnostic(diagnostic, args.diagnostic)
     elif not problems:
         print("note: --diagnostic not given; the positive half of the "
               "assertion was skipped")

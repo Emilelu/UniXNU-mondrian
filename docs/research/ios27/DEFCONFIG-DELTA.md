@@ -100,6 +100,8 @@ grep -rn CONFIG_XNU_ bsd/conf osfmk/conf
 | `__PRELINK_TEXT` | 1 | `0xfffffff007044478`，读出 16 个 0，不是函数起点 |
 | 合计 | 134 | 131 个是原 kernel 的 function start，3 个不是 |
 
+> 段名注：`0xfffffff007044478` 在 `/mnt/e/hackios/k60-gates/docs/engineering/IOS27-FLIGHT-BLOCKERS.toml:29` 里写作 `__TEXT,__const` 的 leaf；上表按 rebase 后 `Emit` 视图归到 `__PRELINK_TEXT`。地址、16 个 0、非 function start 三者一致，段名差异不影响“target 全在原 kernel”的结论。
+
 原 kernel `old.function_starts()` 有 21,692 个；134 个 target 中 131 个落在这 21,692 个起点上。原 kernel 的 `old.symbols()` 为 0，所以不能从原 kernel 直接取名；`__LINKINFO,__symbolsets` 只有 9 个 KPI 集合的名字，不含地址。不要用首指令指纹猜名字：此前试过 131/134，约 52 个弱命中且大量假阳性（例如把 `_filt_fsprocess`、`_mptcp_disconnect` 配到无关函数），该路径已放弃。
 
 ### 3.1 25 个 stubbed owner 与 15 个只-我们

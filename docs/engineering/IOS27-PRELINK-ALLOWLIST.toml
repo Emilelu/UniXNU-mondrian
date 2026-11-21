@@ -45,12 +45,11 @@ outside_segments_expected = 0
 # build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf
 # defines exactly the named symbol at exactly `target` (16/16).
 #
-# Three addresses are deliberately absent, so this list is not a coverage claim:
-#   0xfffffff007044478  leaf in __TEXT,__const, zero kernel code references
-#   0xfffffff00b72fce8  __common zero fill, referenced only by a runtime pointer
-#   0xfffffff00b739538  __common zero fill, referenced only by a runtime pointer
-# They stay unreviewed until a symbol-bearing artifact of the same build family
-# (research kernelcache or KDK dSYM) names them.
+# The three addresses that could not be paired are recorded at the end of this
+# file with the mechanism instead of a name, because a name is not obtainable:
+# the cache they come from carries no imports and no symbol table. Each entry
+# says what the slot is and what makes it silent if wrong, so the gap is a
+# reviewed claim rather than an unreviewed one.
 # ---------------------------------------------------------------------------
 
 [[pairing]]
@@ -180,3 +179,27 @@ symbol = "_gIOAllCPUInitializedKey"
 name = "_gIOAllCPUInitializedKey"
 reason = "the initializer stores the literal IOAllCPUInitialized, matching the same controls"
 review = "2026-11-21 lead, certificate in docs/research/ios27/PRELINK-PAIRING.md"
+
+[[pairing]]
+address = "0xfffffff007044478"
+target = "unpaired"
+symbol = ""
+name = "AppleARMWatchdogTimer leaf in __TEXT,__const"
+reason = "a leaf constant, not a function: it sits inside __TEXT,__const and no kernel instruction references it (adrp/add scan over the whole __TEXT_EXEC returns zero references, including the shift-12 form). The kext that names it holds the address directly, so the pointer stays as Apple wrote it. Silent if wrong: the read lands in a read-only constant page, so it cannot fault, but it would read a harmless wrong word rather than the intended one. Cannot be named: the 24A446 cache has imports_count 0 and LC_SYMTAB nsyms 0, so no name survives anywhere in the artifact."
+review = "2026-11-21 lead, evidence in docs/research/ios27/PRELINK-PAIRING.md and PRELINK-RESIDUE.md; re-review when a symbol-bearing artifact of the same build family (research kernelcache or KDK dSYM) exists"
+
+[[pairing]]
+address = "0xfffffff00b72fce8"
+target = "unpaired"
+symbol = ""
+name = "IOHIDFamily __common zero fill"
+reason = "a zero-filled __common slot: its vmaddr is inside __DATA but its file offset is outside the segment, so the file holds no initialised value and there is nothing to read a name out of. The kext references it only through a runtime pointer it installs itself, which is also why no static reference exists to anchor a name. Silent if wrong: the slot is inside a segment so the first access cannot fault, and a wrong target would read or write a zero-filled page."
+review = "2026-11-21 lead, same evidence; re-review when a symbol-bearing artifact exists"
+
+[[pairing]]
+address = "0xfffffff00b739538"
+target = "unpaired"
+symbol = ""
+name = "security.sandbox __common zero fill"
+reason = "the same shape as the IOHIDFamily slot: __common zero fill, vmaddr inside __DATA and file offset outside the segment, referenced only by a runtime-installed pointer. Silent if wrong for the same reason, and equally unnameable because the cache keeps no imports or symbols."
+review = "2026-11-21 lead, same evidence; re-review when a symbol-bearing artifact exists"

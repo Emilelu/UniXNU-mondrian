@@ -45,7 +45,7 @@ com.apple.kernel, the bundles merely reference them (docs/research/ios27/DEFCONF
 shaped `bti c; b`; this kernel exports none, so an empty list is the measurement and not a missing
 flag. Closing this blocker means implementing or excluding those kexts, not clearing a counter;
 `check-prelink-regressions.py` guards the numbers meanwhile. Evidence:
-docs/research/ios27/PRELINK-RESIDUE.md."""
+docs/research/ios27/PRELINK-RESIDUE.md. Address pairing is now closed as a route: neither the segment ranges nor a constant __TEXT_EXEC delta map Apple addresses onto our symbols (1 of 131 lands on an exact function start), and the cache keeps no names. The three addresses that stay unpinned are recorded in IOS27-PRELINK-ALLOWLIST.toml with their mechanism instead of a name, so check-prelink-hazards.py is green. What remains is runtime: the stub panics with __builtin_return_address(0), so one boot converts each unknown address into a logged call site."""
 
 
 decision = "open: the 95 data items keep a stale original address and are not stubbed"

@@ -212,3 +212,33 @@ build-ios27-lto9              fail=1      （孤例，当时已重跑通过）
 **下一轮的实验（便宜、可判定）**：把 `0548` 从 series 里临时注掉、只余 `0547`，跑到 `archive-06` 为止；
 若转绿则元凶是 0548（它的 `k60_console_export.c` 与 arm_init 三 hunk），反之元凶是 0547 的 1,337 行文件。
 两次各约 4–10 分钟，判据只有一条：`grep -c "Undefined symbols" snapshot-build.log`。
+
+## 2026-11-22 05:19 —— 构建全绿，内核里第一次同时有 usblog 与控制台导出
+
+一条命令链跑完，五个判据全过（`build-ios27-console13` + 打包步）：
+
+```
+stage payload                   762s    total  765s
+ok ADT identity: chip-id 8140, unique-chip-id 4d4f4e445249414e
+ok boot.img: 201900032 bytes, hdr v4 1584, shim 112 B, FD 3145728 B sha256 8a551c362484, DTB 4307 B
+artifacts: 201900032 byte boot.img sha256 d5664daa7f3e5495fe393099b1a4beeaed313cc08b0439452be0c27efa8c898b
+stage firmware-and-bootimg      162s    total  844s
+```
+
+| 判据 | 读数 |
+| --- | --- |
+| `llvm-nm` 里 `k60_usblog\|k60_console_export\|pong_ramoops_console` | 5 个符号 |
+| `check-kernel-console.py` | `ok console: the kernel defines _pong_ramoops_console_write, _pong_ramoops_console_init` |
+| `boot.img` | 201,900,032 B, `sha256 d5664daa…`, FD `8a551c36…` |
+
+`bsd/dev/k60_usblog.c`（1,337 行）与 `bsd/dev/k60_console_export.c`（186 行）**第一次真的被编译进 27 内核**。
+之前四轮分别卡在：LTO 参考链接（框架侧）、钩子参数约定、iron-15 水位、`vm_kern_xnu.h` 缺失——
+四者都不是逻辑错，而是两个组件对同一契约的理解不一致。
+
+**仍然未证的三件（顺序即优先级）**：
+1. 钩子写的东西有没有内容（需要 `pong_ramoops_console_init()` 成功后自报一行，`0334b` 之前先做这个）；
+2. 我们读不读得到（ramoops 不跨复位，唯一读法是在**同一次启动内**经 USB 或屏幕）；
+3. panic 输出是否经过该钩子。
+
+**下一步（离线可做）**：按 `0300 → 0311 → 0308 → 0334b` 继续搬，其中 `0311 k60_prime_restart(int)`
+与 `0308 k60_usblog_reset_to_fastboot()` 都是纯增量，不再需要改锚点。

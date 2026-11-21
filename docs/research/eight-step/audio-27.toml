@@ -86,15 +86,16 @@ evidence = [
 
 [hardware.audio.step.verify]
 done = true
-recorded_at = "2026-11-21T04:06:00"
+recorded_at = "2026-11-21T17:37:55"
 local_verified = true
 evidence = [
   "四项静态/单测均已在本工作树跑过：fptrs 19 例、weak-link 14 例、host 979 例、并发 3 例；形状与读数见 docs/research/audio/IOS27-PAC.md:93-116。",
   "预检本身只有四行 PAC 行（scripts/check-audio27-preflight.sh:53 声明总行数 58；--pac-only 固定 4 行），四行全绿才算本步通过。",
   "产物层是 arm64/arm64e 两份 object 的 ptrauth 形状，不是内核镜像；stage 0 仍读 strings 0/3、symbols 0/3，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。",
+  "IOAudio2Family 那一个桩的判据写成可证伪的三条：kext 持有的 __auth_got 槽 site 0xfffffff008273608、唯一 loader 0xfffffff009f870bc+0x144、post-SpringBoard 音频 client；同一 target 0xfffffff00b36e788 还被 IOGPUFamily 在 0xfffffff00829c560 引用，说明是通用内核例程，不能拿 Pong 驱动补；见 docs/research/audio/PRELINK-AUDIO-RESIDUE.md:26-75；可复跑脚本 scripts/check-audio27-residue.py:1。",
 ]
 static_check = [
-  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 53 evidence reference(s) resolve, 8 root(s), no device step。",
+  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 55 evidence reference(s) resolve, 8 root(s), no device step。",
   "python3 scripts/check-audio27-fptrs.py --repo . -> FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 assignment site(s) whose signatures match what they fill, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides。",
   "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/hackios/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。",
 ]
@@ -103,6 +104,7 @@ unit_test = [
   "drivers/PongAudio/tests/run-tests.sh -> TESTS OK 979 cases。",
   "python3 scripts/tests/test-audio27-fptrs.py -> TESTS OK 19 cases。",
   "python3 scripts/tests/test-audio27-weak-link.py -> TESTS OK 14 cases。",
+  "python3 scripts/tests/test-audio27-residue.py -> TESTS OK 21 cases。",
   "python3 -B scripts/tests/test-audio27-host-concurrency.py -> TESTS OK 3 cases。",
 ]
 artifact_check = [

@@ -1,6 +1,6 @@
 # WPA3-Personal 在 27 线的移植边界
 
-Status: blocked_by: F2/F3；offline plan accepted 2026-11-21. 本轮没有构建、没有上机、没有改共享仓。WPA3 只在
+Status: blocked_by: F2/F3；offline plan accepted 2026-11-21; reference host gate added and passing 2026-11-21. 本轮没有构建、没有上机、没有改共享仓。WPA3 只在
 `E:/hackios/UniXNU-t970` 的参考实现里存在；K60 当前仍是 WPA2-Personal，且
 `pong_sae.c` 只是 SAE 帧形状探针，不是密钥协商。
 
@@ -155,6 +155,39 @@ if (a.auth_upper && a.auth_upper != 8 && a.auth_upper != 0x10) { ... return EOPN
 
 ## 4. 主机测试：输入、命令、期望输出
 
+### 4.0 本仓库的一条命令（2026-11-21 实测）
+
+WPA3 只存在于 t970 参考树，所以先固定参考层的离线判据；它不是 K60 station 已接入的证据。
+在仓库根目录执行（WSL；host-only，不构建内核、不生成 payload）：
+
+~~~sh
+cd /mnt/e/hackios/k60-wifi
+/usr/bin/python3 scripts/tests/test-wpa3-reference.py
+~~~
+
+实测输出（2026-11-21，Ubuntu clang 18.1.3，t970 参考树只读）：
+
+~~~text
+reference t970: /mnt/e/hackios/UniXNU-t970
+reference sha256: c=dfbf865b53abbfb6586741721a322ad4a589df91566bc868f2c09410c41646bf h=23510d2d40d76340885ce196dc913d4a28942979f729872c3f7fcaddb7df1312
+compiler: /usr/bin/clang
+PASS wpa3_test.c: ALL wpa3_test CHECKS PASSED
+PASS sta_sim_wpa3.c: ALL sta_sim_wpa3 SCENARIOS PASSED
+2/2 wpa3 reference checks passed
+~~~
+
+判据三件套（命令 / 期望 / 判定）：
+
+| 检查 | 命令 | 期望 | 失败时 |
+|---|---|---|---|
+| 标准向量 | `scripts/tests/test-wpa3-reference.py` 内的 `wpa3_test.c` 编译并运行 | 输出含 `ALL wpa3_test CHECKS PASSED`，rc=0 | 任何 `FAIL`、缺失字符串或非 0 都是失败，不能当“参考库可用” |
+| station/AP 模拟器 | 同一脚本内的 `sta_sim_wpa3.c` 编译并运行 | 输出含 `ALL sta_sim_wpa3 SCENARIOS PASSED`，rc=0 | 9 个场景未全过、错误密码场景未拒绝或非 0 都是失败 |
+| 输入完整性 | 同一脚本 | t970 参考文件存在，clang 可执行 | 缺参考树或编译器时 rc=2 并打印 FAIL，必须失败而不是跳过 |
+
+反例已实测：`--t970 /mnt/e/does-not-exist-t970` 返回 2 并打印 `FAIL reference: ... is not a directory`；`--clang /no/such/clang` 返回 2 并打印 `FAIL compiler: ... is not executable`；把参考测试的 `ALL wpa3_test CHECKS PASSED` 改成 `WRONG OUTPUT` 的 scratch 副本返回 1 并打印 `FAIL output wpa3_test.c: expected exactly ...`。
+
+这个门禁只证明 t970 的参考库与协议模拟器在当前主机上可复现；它不证明 K60 的 `nw_sta.c` 已接线、27 归档已包含 WPA3，也不证明 24A446 的 `auth_upper`。K60 侧的接入判据仍是 §6 的第 2、3 条。
+
 ### 4.1 t970 标准向量
 
 输入：
@@ -170,9 +203,11 @@ RSN/RSNXE、IGTK KDE（`wpa3_test.c:120-402`）。
 命令形态：
 
 ```sh
+WORK=${WORK:-/mnt/e/k60-work/scratch/wpa3-host}
+mkdir -p "$WORK"
 clang -std=c11 -O1 -I drivers/T970Wifi \
   drivers/T970Wifi/T970WifiWpa3.c drivers/T970Wifi/tests/wpa3_test.c \
-  -o /tmp/wpa3_test && /tmp/wpa3_test
+  -o "$WORK/wpa3_test" && "$WORK/wpa3_test"
 ```
 
 期望：`ALL wpa3_test CHECKS PASSED`，rc=0。任何 `FAILED` 行或非 0 都是
@@ -183,6 +218,15 @@ clang -std=c11 -O1 -I drivers/T970Wifi \
 输入：同上的库，加
 `E:/hackios/UniXNU-t970/drivers/T970Wifi/tests/sta_sim_wpa3.c`。
 
+命令形态与 §4.1 相同，测试文件换成 `sta_sim_wpa3.c`：
+
+~~~sh
+WORK=${WORK:-/mnt/e/k60-work/scratch/wpa3-host}
+clang -std=c11 -O1 -I drivers/T970Wifi \
+  drivers/T970Wifi/T970WifiWpa3.c drivers/T970Wifi/tests/sta_sim_wpa3.c \
+  -o "$WORK/sta_sim_wpa3" && "$WORK/sta_sim_wpa3"
+~~~
+
 覆盖 9 个场景：`wpa2_psk`、`wpa2_psk_sha256_pmf`、`wpa3_sae_hnp`、
 `wpa3_sae_hnp_aclog`、`wpa3_sae_h2e`、`wpa3_sae_h2e_aclog`、
 `wpa2_wpa3_mixed`、`wpa3_status126_fallback`、`wpa3_wrong_password`
@@ -192,9 +236,9 @@ assoc RSN/RSNXE、PTK、IGTK、PMF deauth 丢弃/重放（`:293-328`）。
 期望：`ALL sta_sim_wpa3 SCENARIOS PASSED`，rc=0；错误密码场景不得出现
 `wrong pass rejected` 失败。
 
-### 4.3 K60 侧接入测试（待实现，形状先定）
+### 4.3 K60 侧接入测试（仍未实现）
 
-在 `scripts/tests/` 增加一个 host 测试，编译 K60 的
+`scripts/tests/test-wpa3-reference.py` 只覆盖参考库，不编译 K60 源码。K60 侧的 host 测试仍未实现；它应编译 K60 的
 `drivers/PongWifi/ath11k/T970WifiWpa3.c` 与复制过来的
 `tests/wpa3_test.c`（或直接引用 t970 的测试文件，保持只读参考）。期望输出与
 §4.1 相同。station 的字符串变换仍由 `build-k60-ath11k.py` 完成，不要为了测试
@@ -223,7 +267,7 @@ sim 结果直接当作 K60 station 已接入。
 
 WPA3 的“已实现”至少需要三件事同时成立：
 
-1. 库与 station 变换在主机上通过 §4.1 与 §4.2；
+1. 参考层通过 §4.0（2026-11-21 实测），并且 K60 station 变换在主机上通过（§4.3，仍未实现）；
 2. K60 归档包含库对象，且 `scripts/check-wifi-station-archive.py` 的成员
    架构/stamp 检查仍通过；
 3. 24A446 的真实 join 请求给出 SAE 的 `auth_upper`，或者拿到 wifid 的
@@ -252,8 +296,6 @@ drivers/Ath12kWifi/src/nw_sta.c:458-466   # open auth only
     drivers/PongWifi/PongWifiNet.cpp:1394-1397 # sae probe, not SAE
 
 # 4. 主机测试（只读参考，不构建 K60）
-clang -std=c11 -O1 -I E:/hackios/UniXNU-t970/drivers/T970Wifi \
-  E:/hackios/UniXNU-t970/drivers/T970Wifi/T970WifiWpa3.c \
-  E:/hackios/UniXNU-t970/drivers/T970Wifi/tests/wpa3_test.c -o /tmp/wpa3_test
-/tmp/wpa3_test
+cd /mnt/e/hackios/k60-wifi
+/usr/bin/python3 scripts/tests/test-wpa3-reference.py
 ```

@@ -23,8 +23,13 @@
 104 B 起算**；把 16.6.1 的 30 项恢复回来是 661 B（34 项，`debug` 取 override 的
 `0x14e`），**已经超 54 B**，再加 `k60_dpu=1` 是 671 B、超 64 B。所以按 Lead 的
 「按读者分摊」重排：显示线只认领有读者的 14 项 **224 B**（余 383 B），
-另外 18 项 402 B 交回其他线，3 项 44 B 无读者直接删（§4.4）。
-`k60_backlight_control=0` 那 23 B 仍建议用「改代码默认值」消掉（§2.2，已获批）。
+另外 18 项 401 B 交回其他线，3 项 44 B 无读者（Lead 已裁删除）（§4.4）。
+落地口径是 **A+B = 626 B，仍超 19 B**：三个逐字节算过的收口选项在 §4.7
+（建议 O1 → 603 B，余 4），等平台线点名。`k60_backlight_control=0` 那 23 B 仍建议用
+「改代码默认值」消掉（§2.2，已获批）。
+
+wire 侧另有一件只审不改的事：版本号中立法案由 gpu27 出、Lead 会签，本线只审覆盖
+（`docs/research/display/WIRE-VERSION-REVIEW.md`）。
 
 ---
 
@@ -243,9 +248,11 @@ K60 的面板背光**没有独立 IC**：live FDT 是 `bl_ctrl_dcs`（`docs/rese
 | 27 = 板级 30 项恢复 + override 的外加四项（`debug` 取 `0x14e`） | 34 | **661** | **超 54** |
 | 27 = 上一行 + `k60_dpu=1` | 35 | **671** | **超 64** |
 | **本文提议的 27 override：只带读者**（§4.4 A 组） | **14** | **224** | **余 383** |
+| **落地口径：A + B**（本线 + 其他线认领的全部有读者项，C 组已删） | **32** | **626** | **超 19** |
 
-最后一行是这次要交给 Lead 的数：显示线认领的 14 项、224 B，余 383 B 留给 GPU/USB。
-它比现值 104 B 多 120 B，但每一行都能指到一个 `文件:行` 的读者。
+倒数第二行是显示线自己的账：14 项、224 B，余 383 B 留给 GPU/USB。
+最后一行是 Lead 2026-11-21 裁定的落地口径（A+B），它**仍超 19 B**，收口见 §4.7：
+19 B 不是再删一项就完事，得在 B 组里挑，所以给了三个逐字节算过的选项等一句裁决。
 
 ### 4.4 最小参数表（按读者分摊）
 
@@ -278,7 +285,7 @@ K60 的面板背光**没有独立 IC**：live FDT 是 `bl_ctrl_dcs`（`docs/rese
 `applog=1` 是唯一可以整项砍掉的（8 B，只影响用户态日志），其余每一项缺了都会
 让「首帧」或「证据」两者之一不成立。
 
-#### B 组：其他线认领（18 项 / 402 B）
+#### B 组：其他线认领（18 项 / 401 B）
 
 这些参数都有读者，但读者在 UFS/数据卷/launchd/安全策略那几条线上。显示线不认领，
 列出来是为了让平台线能照表补人，而不是让它们悄悄消失。
@@ -303,9 +310,9 @@ K60 的面板背光**没有独立 IC**：live FDT 是 `bl_ctrl_dcs`（`docs/rese
 | `k60_init_blob=1` | 15 | `REPO:patches/xnu/0391-k60-embedded-init.patch:52` | 内嵌 init 不启用，首进程路径回到苹果原版 |
 | `pong_data_rw=1` | 14 | `REPO:patches/xnu/offline-owner-systemos-mount.patch:487` | 数据卷只读挂载 |
 | `native-ufs=1` | 12 | `REPO:drivers/NativeUfs/NativeUfs.cpp:147` | 原生 UFS 驱动不启用，**没有根设备** |
-| **合计** | **402** | 18 项 + 17 空格 | 全不带 ⇒ 27 连用户态都到不了 |
+| **合计** | **401** | 18 项 + 17 空格 | 全不带 ⇒ 27 连用户态都到不了 |
 
-#### C 组：没有读者，一律不带（3 项 / 44 B）
+#### C 组：没有读者（3 项 / 44 B）—— Lead 已裁：整体删除
 
 | 参数 | 字节 | 检索范围与结果 | 处理 |
 | --- | --- | --- | --- |
@@ -318,8 +325,8 @@ K60 的面板背光**没有独立 IC**：live FDT 是 `bl_ctrl_dcs`（`docs/rese
 | 分组 | 项数 | 字节 | 说明 |
 | --- | --- | --- | --- |
 | 板级 30 项中，本线认领（A 组 ∩ 板级） | 9 | 141 | `debug`/`amfi`/GPU 四项/日志三项 |
-| 板级 30 项中，交回其他线（B 组） | 18 | 402 | 见上表 |
-| 板级 30 项中，无读者（C 组） | 3 | 44 | 直接删 |
+| 板级 30 项中，交回其他线（B 组） | 18 | 401 | 见上表 |
+| 板级 30 项中，无读者（C 组） | 3 | 44 | 已裁删除（Lead 2026-11-21） |
 | override 已有的四项（`serial`/`kt_fixed_zones`/`-no_slto_panic`/`use_contiguous_hint`） | 4 | 61 | 保留 |
 | 本线新增（`k60_dpu=1`） | 1 | 9 | §1 |
 | **A 组合计** | **14** | **224** | 余 383 |
@@ -349,6 +356,34 @@ K60 的面板背光**没有独立 IC**：live FDT 是 `bl_ctrl_dcs`（`docs/rese
 在 `BOOT-ARGS.md` 的显示小节加两行（`k60_dpu`、`k60_backlight_calibration`），
 并在 `board.toml` 的 27 override 里换成 A 组 14 项。**这两处本线不自己改**（契约禁止改共享树）。
 
+### 4.7 落地口径：A + B 的 27 override（626 B），19 B 怎么收口
+
+Lead 2026-11-21 的裁决是「按 A+B 落地、C 组删、`k60_dpu=1` 用 9 B 那版」。
+把 A 组与 B 组合成一条列表就是 27 的完整命令行（`os_overrides` 是整表替换，§4.2；
+下面这一行长 626 B，复制即用，别折行）：
+
+```text
+serial=3 debug=0x14e kt_fixed_zones=120 -no_slto_panic use_contiguous_hint=0 amfi_get_out_of_my_way=1 pong_adreno_start=1 pong_metal=1 pong_gpu_scanout=1 sheng-gpu-addon=1 k60_usblog=2 k60_console_export=1 applog=1 k60_dpu=1 pong_init_path=/private/var/pong/init pong_allow_unauthenticated_root=1 k60_tolerate_cache_loader=1 k60_skip_firmware_mount=1 cs_enforcement_disable=1 k60_entitlement_allow=1 pong_software_keybag=1 disable_exc_resource=1 pong_ufs_readwrite=1 xpcproxy_idversion=1 k60_skip_iosurface=1 k60_launchd_cache=1 k60_panic_reset=1 k60_autoreset=300 pong_data_mount=1 k60_init_blob=1 pong_data_rw=1 native-ufs=1
+```
+
+32 项、**626 B**（A 224 + 1 空格 + B 401），上限 607 ⇒ **超 19 B**。
+压空格或缩写取值救不了：最短的可行改法是把 `debug=0x14e` 写成 `debug=0x14`（少 1 B，
+且丢一个调试位），19 B 只能靠删项。三个选项都逐字节算过：
+
+| 选项 | 删什么 | 落地字节 | 余量 | 代价 |
+| --- | --- | --- | --- | --- |
+| **O1（建议）** | `disable_exc_resource=1`（22 B + 1 空格，`XNU:osfmk/kern/task.c:987`） | **603** | 余 4 | 恢复 stock 行为：资源超限信号照发。它不在首帧的关键路径上，**不损失任何证据** |
+| O2 | `k60_console_export=1`（20 B + 1 空格，`patches/xnu/0243:99`） | **605** | 余 2 | 控制台快照不再导出，早期首帧错误只能从串口与日志行拼，属证据损失 |
+| O3 | `applog=1`（8 B）+ `k60_panic_reset=1`（17 B）+ 2 空格 | **599** | 余 8 | 用户态 exec 不落日志；panic 后不自动回 fastboot，上机循环要人工按键 |
+
+建议 O1 的理由只有一条：它是三个里唯一「删掉之后能力回到出厂、而不是丢掉我们自己的观测」的项。
+但 `disable_exc_resource` 是平台线的参数，**本线不替它裁**，等一句点名。
+
+落地后要一起核的两件事：
+1. `os_overrides` 的列表即 27 全部命令行，板级 596 B 不会叠加（§4.2），所以 603/605/599 B 就是 27 的实测值（删项同时少一个空格，别按参数长度直接减）。
+2. 门禁 `scripts/check-boot-args.py` 只看板级 `[payload].kernel_args`，看不见 override（§4.6），
+   因此这条列表必须同时抄进 `docs/engineering/BOOT-ARGS.md` 的显示/平台小节，否则没人读它。
+
 ---
 
 ## 5. Lead 已裁决的三项（2026-11-21，记录在案）
@@ -361,14 +396,23 @@ K60 的面板背光**没有独立 IC**：live FDT 是 `bl_ctrl_dcs`（`docs/rese
    提交信息写明「27 默认由后端裁决」、`DISPLAY-27-DELTA.md` 记一行
    「这是行为改变，不是优化」。已按此记入 DELTA §6。
 3. **超限按读者分摊**（不按线分摊）：A 组 224 B 交账，余 383 B 留给 GPU/USB；
-   B 组 402 B 由对应线认领；C 组 44 B 删。**A+B 仍超 19 B**（§4.5），
-   这是留给平台线的账，不是显示线的。
+   B 组 401 B 由对应线认领；C 组 44 B 删。**落地口径 = A+B = 626 B，仍超 19 B**，
+   三个逐字节算过的收口选项在 §4.7（建议 O1 → 603 B），等平台线点名，本线不替它裁。
+   2026-11-21 追加：落地口径与 C 组删除都已写进本文；`k60_dpu=1` 按 9 B 那版。
 
 顺带记两条边界（Lead 另有安排，本线不碰）：
 - 24A446 的 CoreBrightness 提取由 Lead 派人做（`aea -d` → `hdiutil attach` →
   `dyld_shared_cache_arm64e`），本线按「取不到」的回退写死（DELTA §9 U1）。
 - `v_baseAddr` / `Video[]` 属 `step.device`，Lead 在 F2 飞行时读；fragment 里只留
   一行待读项，`done=false` 保持。
+- **wire 版本号中立法案**（2026-11-21）：提案由 gpu27 出、Lead 会签，本线只出覆盖审查
+  ——`docs/research/display/WIRE-VERSION-REVIEW.md`，判「57 槽」与「48 B 包装」是否覆盖
+  本线全部过线字段。**不改 wire、不改断言、不裁形状**。已记的关键事实：`Frame.reserved`@44
+  在 `PongAdrenoScanout.cpp:149` 被写成字面量 `0`，`Done.reserved`@12 在 `:122` 被当垃圾
+  校验（非零即 `kIOReturnBadArgument`），所以「48 B 包装」不是零改动方案。
+- `check-lane-fragment.py` 收不了绝对路径（`/mnt/e/...` 被 `[\w.-]` 剥成 `mnt/e/...`）是 gates
+  的 bug，Lead 已认领修复；本 fragment 现在把官方页写成「porting/display 官方页 + 行号」
+  的形式只是为了当时过门禁，修好后可以换回绝对路径（更精确，不必再绕）。
 
 ## 6. 本次没有做的事（边界）
 

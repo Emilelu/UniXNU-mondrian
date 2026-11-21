@@ -199,10 +199,15 @@ sheng 的 27 实现默认是"`control` 默认 1 且必须 `==1`"才发（`AppleA
 官方页面里的别名出现（实现只解析 `k60_dpu`）。理由：板级参数统一 `k60_` 前缀、
 跨线引用不与 sheng 命名混淆、省 2 B。
 
-另外三项在 27 上**没有任何读者**，按 Lead 的「按读者分摊」规则不进命令行
+另外三项在 27 上**没有任何读者**，Lead 2026-11-21 已裁**整体删除**，不进命令行
 （逐项检索范围与结果见 `DISPLAY-27-INTEGRATION.md` §4.4 C 组）：
 `-v`（2 B，XNU 与 DarwinBoot22 均无）、`epoch=1793709100`（16 B，三处 grep 只有同名
 sysctl 与 FDT `boot-epoch` 属性）、`launchd_unsecure_cache=1`（24 B，三处零命中）。
+
+**落地口径（Lead 2026-11-21）**：A+B 合计 32 项 **626 B**，仍超上限 19 B；收口三选项
+（删 `disable_exc_resource` → 603、删 `k60_console_export` → 605、删
+`applog`+`k60_panic_reset` → 599，均已按「删项同时少一个空格」逐字节算过）在
+`DISPLAY-27-INTEGRATION.md` §4.7，本线建议 O1 但不替平台线裁。
 
 ---
 

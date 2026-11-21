@@ -1983,10 +1983,37 @@ main 的 `d7cf3300` 已经补了真实现（`0540-k60-psci-smp.patch`，241 行�
 同理，`libcc_kext.a` 也不需要按 arm64e 重编：lead 实测它现在每个成员都是 `cputype=0x100000c
 cpusubtype=0x80000002`（arm64e），我们那条 ld 警告属于早期产物。
 
-### 68.5 B4 的符号判据关闭，C2 仍未回答
+### 68.5 B4/B5 的产物判据（2026-11-21）
 
-`llvm-nm --defined-only` 在链接出的 27 镜像上找到 `_kev_post_msg`、`_mbuf_allocpacket`、`_ifnet_input`
-三个都定义——B4 的出口判据达成（脚手架补的 stub 不影响这三个内核侧符号）。
+B4 不再以 35,613,936 B 的历史镜像为判据。实际 27 候选内核
+`/opt/k60/trees/ios27-out/…/kernel/kernel.macho` 的 `com.apple.kernel` 导出 24,572 个符号；
+`_kev_post_msg`（0xfffffff00b0c5368）、`_mbuf_allocpacket`（0xfffffff00b121a44）、
+`_ifnet_input`（0xfffffff00ae84854）都在。native `.noctf` 的同一组符号也都在（0xfffffff00786d368 /
+0xfffffff0078c9a44 / 0xfffffff00762c854），预链接没有移走它们。
+
+把驱动归档 `teardown27g/libPongWifiNative.a` 的 352 个 undefined 与这份导出逐项对照：
+
+| undefined 来源 | 数量 | 解析者 |
+| --- | --- | --- |
+| kernel | 314 | `com.apple.kernel` |
+| same archive | 36 | 同一归档的 ArmSmmu4K / 平台成员 |
+| station API | 2 | `_nw_wifi_power`、`_nw_wifi_scan_frequencies`，必须由 station 归档定义 |
+| absent | 0 | — |
+
+station 归档 `ath11k-abi27e/libPongAth11k.a` 的 13 个 undefined：12 个由 `com.apple.kernel`
+解析，1 个 `_PongWifiRandom` 由驱动归档解析，absent 0。两个归档合起来没有「27 里根本没有」的
+符号；唯一没有定义的是 station 自己该提供的两个现代 API（驱动侧是 U，station 侧没有 T）。
+这不是导出面不够，而是 station 归档仍只编 16 的 `src/nw_sta.c`，没有编 `nw_mainline.c`。
+`/opt/k60/trees` 里没有 `libPongAthWifi.a`；实际是两个归档的配对。
+
+完整 365 行逐项表在 `evidence/ios27-kernel-exports.tsv`（352 行驱动 + 13 行 station）。
+
+B5 不是导出面问题。27 profile 是 `page_size = 4096`（`docs/engineering/IOS27.md:11`）；驱动的
+SMMU/DMA 路径显式按 4096 工作（`drivers/PongWifi/PongWifiPlatform.cpp:477,482,492,494`），
+四个 `ArmSmmu4K` 符号也在同一归档内解析。但符号表不携带页大小，undefined 对照不能证明编译期
+`PAGE_SHIFT` 一致；B5 的出口仍是「归档在 27 page shift 下重建，`pong-abi-selftest.c:25-39` 的
+offsetof 全过」。这一轮没有构建，所以 B5 保持 open；判据从「导出面看起来差不多」改成
+「4 KiB 代码路径已核，编译期 page shift 与 offsetof 仍是唯一剩余输入」。
 
 C2（27 wifid 要不要签名 launchd）**没有**被 sheng 证明。`sheng-wifi-launchd-cache.patch` 在
 `bsd/kern/kern_exec.c` 的 `native_gpu_addon_prepare()` 里把 `/private/var/ngpu/xpc` 挂到

@@ -139,10 +139,12 @@ references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence
   unchanged, build-strict.sh reading the .config and exporting the archive, the link
   force-loading it, and the refusal when the switch is on without an archive).
 - [x] B4 [SOC] Confirm the 12377 kernel exports what the driver links against (done
-  2026-11-20). llvm-nm --defined-only on the linked 27 image
-  (mach.development.bcm2837.unstripped.noctf, 35,613,936 B) finds all three:
-  _kev_post_msg, _mbuf_allocpacket, _ifnet_input. The three are kernel-side symbols, so
-  the scratch stubs used to get that image linked do not affect the answer.
+  2026-11-21). llvm-nm -g on kernel.macho finds 24,572 com.apple.kernel exports;
+  _kev_post_msg, _mbuf_allocpacket and _ifnet_input are all present. The driver
+  archive's 352 undefined split into 314 kernel, 36 same-archive, 2 station APIs,
+  0 absent; the station's 13 split into 12 kernel, 1 driver, 0 absent. The only
+  missing definitions are the two station APIs, which is B2/staging, not an export
+  gap. The 365-row table is docs/research/wifi/evidence/ios27-kernel-exports.tsv.
   The IO80211 side is ours: PongWifiNet.cpp:1153-1173 defines IO80211Controller and
   IO80211Interface as local stubs over IOService/IONetworkInterface, so the driver does
   not link against Apple IO80211Family. This does not prove which transport or framework
@@ -150,9 +152,11 @@ references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence
   Symbol presence alone did not establish event delivery: the original kev_post_msg
   code rejects the 580 B envelope. Patch 0542 and its executable allocation/copy regression
   cover that kernel limit; subscriber delivery still needs runtime verification.
-- [ ] B5 [SOC] 4 KiB pages: the 27 kernel uses 4 KiB tables, the 16 driver was written
-  against 16 KiB. Exit: the archive builds with the 27 page shift and the selftest
-  offsetof asserts still hold. This is a page/DMA/SMMU check, independent of B6 width.
+- [ ] B5 [SOC] 4 KiB pages: the 27 profile is page_size=4096 and the driver SMMU/DMA
+  path uses 4096, with ArmSmmu4K resolving in the same archive. The symbol table does
+  not carry a page size, so the export comparison cannot prove the compile-time page
+  shift. Exit remains a 27-page-shift rebuild plus the pong-abi-selftest.c:25-39 offsetof
+  checks; no build was run this round. This is a page/DMA/SMMU check, independent of B6 width.
 - [x] B6 [DEV] Re-run the width stamp against the 27 station archive (done 2026-11-20).
   Exit: teardown rc=0 with no "has no abi/nw_abi.stamp" note. Verified both ways: the
   stamped 27 station (ie_bytes=2048, header_sha256 ec0b8227...) rebuilds the kext with

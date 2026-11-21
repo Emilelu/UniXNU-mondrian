@@ -1313,3 +1313,17 @@ title = "缺席值落在合法值域内，尺寸一致也挡不住误读"
 statement = "跨线会签一个结构体字段时，「尺寸与偏移一致」不等于「语义一致」：凡是字段的缺席值可能与该字段的第一个合法值相同（如 target 的 0 既是「没有」又是「第 0 块」），必须把缺席值挪到值域外，或让消费点显式换算；只签了尺寸的一律不算签过。"
 check = '''s=scripts/check-gpu27-target-index.py; [ -f "$s" ] || s=docs/research/gpu/tools/check-gpu27-target-index.py; K60_GPU27_REPO="${K60_GPU27_REPO:-../k60-gpu-27}" python3 "$s"'''
 note = "2026-11-21：v2 的 target@52 写成「字节偏移，0 = 无 dbuf」，参考实现里 db[0].offset 恰为 0 而 dbTarget() 返回索引，两份材料各自自洽、拼起来才矛盾；尺寸不变所以编译器与 static_assert 都看不见，第一次双缓冲飞行会静默停在旧缓冲。"
+
+[[rule]]
+id = "P-298"
+title = "板级 ADT 节点只在 board.toml 里写对了，没人核对它进没进 ADT 字节"
+statement = "板级节点的正确性分两层：表里写对（board.toml 能被解析、字段齐、取值对）和字节里有（生成的 ADT 里真出现该节点与属性）。只测表层的门禁在 pick 或合并时会静默放行——2026-11-12 的两次 pick 就是这样把 [adt.arm-io.pong-buttons] 弄丢的。凡新增或修改 [adt.*] 节点，判据必须是「生成 ADT 后逐属性比字节」，而不是只跑 tomllib。"
+check = '''python3 -c "import os,sys,tomllib,pathlib;t=tomllib.loads((pathlib.Path(os.environ.get('K60_XNEKOM_IOS27','../xnekom-ios27'))/'board.toml').read_text(encoding='utf-8')).get('adt',{});b=t.get('buttons',{});a=t.get('arm-io',{}).get('pong-buttons',{});g=lambda s,k:(a.get(s,{}) or {}).get(k);n=b.get('strings',{}).get('button-names',[]);s=b.get('string',{});bad=[m for m,c in ((' /buttons compatible',s.get('compatible')!='buttons'),(' /buttons device_type',s.get('device_type')!='buttons'),(' /buttons button-names',n!=['hold','voldown','volup'] or 'menu' in n),(' /buttons home-button-type',b.get('u32',{}).get('home-button-type')!=2),(' pong-buttons core-base',int(str(g('u64','core-base') or 0),0)!=0xc400000),(' pong-buttons cnfg-base',int(str(g('u64','cnfg-base') or 0),0)!=0xc42d000),(' pong-buttons observer-base',int(str(g('u64','observer-base') or 0),0)!=0xc440000),(' pong-buttons ee',int(str(g('u32','ee') or 0),0)!=0),(' pong-buttons pon-ppid',int(str(g('u32','pon-ppid') or 0),0)!=0x13),(' pong-buttons volume-up-ppid',int(str(g('u32','volume-up-ppid') or 0),0)!=0x18d)) if c];print(('FAIL:'+','.join(bad)) if bad else 'ok input-adt-nodes: /buttons 4 fields + /arm-io/pong-buttons 6 properties present in the 27 board.toml');sys.exit(1 if bad else 0)"'''
+note = "2026-11-21：27 设备仓 board.toml 表级一直是对的，但没有任何检查证明这些字段进了 ADT；本线用 devicetree.py:311 generate() 生成 16,648 B / 26 节点的 ADT，#/buttons 四字段、/arm-io/pong-buttons 六属性、/arm-io/pong-touch 十属性逐值相符。种子反例：97b84eb7 加、3b3ff9ce 删，两次都过检查。"
+
+[[rule]]
+id = "P-299"
+title = "上游 pick 会把别人正依赖的 board.toml 块先加后删"
+statement = "board.toml 是多线共写的单文件；批量 pick 时后一条提交会把前一条刚加的块当成本地改动回退掉，而回退只看文件差异、不看谁在依赖这个块。只要有驱动按精确名断言某个节点或属性（如 pong_buttons.c:42 断言 /arm-io/pong-buttons），删掉它的提交就必须让某条门禁红。"
+waiver = "自动判据 scripts/check-dt-asserts.py 待挂，挂上前这条规则不执行；由 Lead 挂载后改成真 check"
+note = "2026-11-21：97b84eb7（21:33）加进 [adt.arm-io.pong-buttons]，3b3ff9ce（21:35，never let a pick overwrite the board contract）又删掉，两次提交各自干净、各自都过了当时的检查，结果是按键驱动按精确名查不到节点而静默 SKIP。自动判据（scripts/check-dt-asserts.py）由 Lead 挂，落地前这条规则以 waiver 记、不参与执行（P-290：永远为红的规则等于没有规则；原先写成 check = false 会被登记成永久失败）。"

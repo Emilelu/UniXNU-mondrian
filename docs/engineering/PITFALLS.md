@@ -7674,3 +7674,52 @@ P-279（读不到当成没有）、P-290（永远为红）、P-289（字段可�
 不许静默通过），再扫消费点的 `db[...]` 形式：index+1 口径下出现 `db[frame.target]` 就红；把口径改成
 raw 时 `db[frame.target - 1]` 同样红（两份反例夹具固定在 `fixtures/gpu27/` 里）。今天休眠（树里还没有
 `.target` 消费点），`--strict` 时休眠算红。
+
+
+## P-298 — 板级 ADT 节点只在 board.toml 里「写对了」
+
+**现象**：27 设备仓 board.toml 的 `[adt.buttons.*]` 与 `[adt.arm-io.pong-*]` 一直写得很齐，`tomllib` 解析通过、
+字段个数与取值都对，但没人核对这些字段是否真的进了生成的 ADT。2026-11-12 两次 upstream pick 把
+`[adt.arm-io.pong-buttons]` 删掉之后（`97b84eb7` 加、`3b3ff9ce` 删），仓内 board.toml 只剩 `[adt.buttons.*]`，
+没有任何检查红过——那些节点当时只活在 `/opt` 装配输入里（同一件事见 `docs/research/EIGHT-STEPS.toml:406`）。
+
+**真因**：board.toml 与 ADT 字节之间隔着 `devicetree.py` 的发射条件：`/buttons` 只在 platform 里有 buttons 时
+发射（`scripts/unixnu/devicetree.py:388-390`），`/arm-io/*` 只从 `[adt.arm-io.*]` 发射（`:384`），硬件 dts 还要
+先过 `dtc`（`:422`）。表级解析成功 ≠ 节点进了 ADT 字节。
+
+**为什么危险**：驱动按精确名断言节点（`pong_buttons.c:42`「Pong keys: DT node /arm-io/pong-buttons not found」、
+`:45-50` 六个属性、`:56-58` ppid 不匹配），节点没了驱动就静默 SKIP；内核照常启动、不 panic，只有按键与触摸
+消失，而构建与表级检查全绿。
+
+**修法**：把「生成 ADT 再逐属性比字节」做成判据。硬件 dts 经 `dtc -I dts -O dtb` 编出 dtb、再
+`dtc -I dtb -O dts` 反编译回文本（往返合法才证明输入是真 FDT），走仓内 `devicetree.py:311 generate()`
+（与 payload 同一条路径），解码 ADT 后逐属性比字节。实现见 `scripts/gen-27-adt-buttons.py`。
+
+**教训**：板级节点的正确性有两层——表里写对、字节里有；只测一层的门禁会在 pick 或合并时静默放行。
+
+**门禁**：`RULES.toml` 的 check 是一行零依赖 `python3 -c`（宿主 Windows 侧没有 `dtc`，门禁跑表级核对；
+字节级由 `scripts/gen-27-adt-buttons.py` 在 WSL 跑）。反例已实测：删掉 board.toml 里的 `home-button-type` 与
+`pon-ppid` → `FAIL: /buttons home-button-type, pong-buttons pon-ppid`，rc=1；真板 rc=0，输出
+`ok input-adt-nodes: …`。
+
+
+## P-299 — 上游 pick 会把别人正依赖的 board.toml 块先加后删
+
+**现象**：2026-11-12 的两次 upstream pick 落在同一个 `board.toml` 上：`97b84eb7`（21:33，「pick 88 commits」）
+加进了 `[adt.arm-io.pong-buttons]`，两分钟后 `3b3ff9ce`（21:35，「never let a pick overwrite the board contract」）
+又把它删掉。两次提交各自都干净、都能解释，合起来的效果是：设备仓里再没有这个节点，而按键驱动仍在按
+精确名断言它。
+
+**真因**：`board.toml` 是多线共写的单文件。批量 pick 时，后一条提交会把前一条刚加的块当成本地改动回退掉；
+回退只看文件差异，不看「谁在依赖这个块」。
+
+**为什么危险**：回退不报错。下游驱动按精确名查节点，查不到就 SKIP；两条线各自的检查都是绿的，
+现象要到下一次上机才出现（按键或触摸静默消失），而那时已经隔了好几轮构建。
+
+**修法**：只要有驱动按精确名断言某个节点或属性，删掉它的那次提交就必须让某条门禁红——也就是把
+「谁在断言什么」变成可检查的表（节点名 → 断言方 file:line → 现存字段）。
+
+**教训**：pick 不只搬代码，还搬「我不知道谁在依赖这个块」的风险；回退一个块的提交必须能被门禁看见。
+
+**门禁**：本条的自动判据尚未落地，`check` 暂记 `false`（恒红，提示「还没有判据」），由 Lead 挂
+`scripts/check-dt-asserts.py`。反例就是 `97b84eb7` → `3b3ff9ce` 这一对提交本身：加与删都通过了当时的全部检查。

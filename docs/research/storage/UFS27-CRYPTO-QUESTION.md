@@ -1,5 +1,11 @@
 # One question for the crypto/framework owner
 
+> **Answered 2026-11-21 (Lead): stage 0 keeps `source`.** The 27 bootstrap is not changed; a
+> move to `prelinked` would have to move the crypto closure's producers and is a separate
+> change. The three AES-dependent switches are therefore unreachable by construction on this
+> profile, which is accepted. The premises below stay as the record of why; the question is
+> no longer waiting on anyone.
+
 **The question.** For iOS 27.0.1 (24A446) on this board, is the crypto bootstrap `source`
 or `prelinked` — and who decides it?
 

@@ -116,9 +116,13 @@ python3 scripts/k60-bus.py watch --for lead     # 0.5 s 轮询，来一条打一
 
 ### 7.1 仍然成立的边界
 
-`send_agent_message` 的 `mode` 决定打扰程度：`followup`（默认，排一轮新工作）、`inject`（在下一步补上下文）、
-`steer`（在最近可处理边界介入）。**默认用 `followup`**：`inject`/`steer` 会打断对方正在做的事，
-只在「必须立刻停手」时用。`claimed` 只表示对方认领了消息，不代表完成——要结论就明说「回我一行 ack」。
+`send_agent_message` 的 `mode` 决定打扰程度：`followup`（排一轮新工作）、`inject`（在下一步补上下文）、
+`steer`（在最近可处理边界介入）。
+
+**规则（Lead，2026-11-21）：先 `steer`，被拒才 `followup`。** 理由：线内汇报本来就是「现在就要你知道」，
+先 steer 才符合语义；只有当目标会话不是 running、工具回 `steer 仅用于 running 会话；目标当前状态：idle` 时，
+才退到 `followup` 排一轮新工作。反过来做（默认 followup）会让汇报排到对方下一次被唤醒，时效性丢掉。
+`claimed` 只表示对方认领了消息，不代表完成——要结论就明说「回我一行 ack」。
 
 ## 8. 新线接入（三行）
 

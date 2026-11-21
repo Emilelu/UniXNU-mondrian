@@ -729,7 +729,14 @@ Three consequences, measured:
    swap would need a fetch or submodule init, which the offline rule forbids, and the
    source could not even be compared byte for byte against the vendored copy today.
 
+**Conclusion (Lead ruling, 2026-11-21): stage 0 keeps `source`.** The 27 bootstrap does not
+change; a move to `prelinked` would have to move the crypto closure's producers and is a
+separate change, not part of the storage row. So `XNU_NATIVE_AES`, `XNU_NATIVE_RAM_BLOCK` and
+`XNU_VERIFIED_ROOT_PROBE` are **unreachable by construction on this profile**, and that is a
+known, accepted fact — not a blocker and not an open question. §15's three findings stay as the
+evidence for why; the question file is closed by this sentence.
+
 That closes row 2: ShengUfs is the same source under its upstream name (not a candidate),
-VirtioMmioBlock is a protocol driver with no device here, RamBlock is blocked by the crypto
-question and has no persistence provider, VerifiedRoot is blocked by the same question and
-an empty policy bundle.
+VirtioMmioBlock is a protocol driver with no device here, RamBlock is unreachable behind the
+accepted `source` bootstrap and has no persistence provider, VerifiedRoot is behind the same
+accepted wall and an empty policy bundle.

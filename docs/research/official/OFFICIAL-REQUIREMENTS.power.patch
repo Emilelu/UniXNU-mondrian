@@ -1,0 +1,318 @@
+diff --git a/docs/engineering/OFFICIAL-REQUIREMENTS.toml b/docs/engineering/OFFICIAL-REQUIREMENTS.toml
+--- a/docs/engineering/OFFICIAL-REQUIREMENTS.toml
++++ b/docs/engineering/OFFICIAL-REQUIREMENTS.toml
+@@ -42,6 +42,7 @@
+ [[page]]
+ path = "concepts/security.md"
+ title = "完整性与启动策略"
+ sha256 = "baaede96059a1bc035a5af57dc96b3f671813127da24de4bda191ef9088fac09"
+-state = "unmapped"
++state = "na"
++why = "K60 的 iOS 27 stage-0 不选 sheng 的 trust cache/AMFI/AppSync 栈：board.toml:221-226 丢弃 trust-cache 路径且 trust_cache_sha256 = []，configs/mondrian_defconfig:33/57/76 三个开关均为 n，patches/xnu-12377/series 只有 ptrauth、ArmCpu sleep 和 22 个 Bluetooth 补丁；任一开关变 y、trust_cache_sha256 非空或 12377 系列出现 trust/AMFI/AppSync 补丁时重审。"
+ 
+@@ -48,8 +49,8 @@
+ [[page]]
+ path = "concepts/userdata.md"
+ title = "userdata 布局"
+ sha256 = "827a59d2908f1321869e8ec0bd59460ab943f6cdd96680a67cbbaf1aab7b9583"
+ state = "mapped"
+-gate = "check-defconfig-uuid.py"
+-assertion = "the Data volume identity is the board's own"
++gate = "check-userdata-layout.py"
++assertion = "SHNGROOT v1 layout, 1 MiB windows and the Data volume identity are all pinned"
+ 
+@@ -250,6 +251,7 @@
+ [[page]]
+ path = "drivers/qcom-baseband.md"
+ title = "QcomBaseband"
+ sha256 = "275230714b756152d8ef5489f254b88eb1217f1e4903bf790e5def24120b011d"
+-state = "unmapped"
++state = "na"
++why = "K60 当前 profile 没有选 QcomBaseband：board.toml:13-14 和 :358-360 的 components include 是 ArmDTPlatform/ArmCpu/XnuPrelink(/PongUfs)，没有 QcomBaseband/AppleBaseband；configs 没有 BASEBAND/MODEM/CELLULAR 开关，patches/xnu-12377/series 没有 baseband 补丁；页面第 11 行自己也允许没有蜂窝基带组件的设备跳过。选入组件或出现基带开关时重审。"
+ 
+diff --git a/scripts/check-userdata-layout.py b/scripts/check-userdata-layout.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/check-userdata-layout.py
+@@ -0,0 +1,157 @@
++#!/usr/bin/env python3
++"""check-userdata-layout.py -- the SHNGROOT layout in concepts/userdata.md.
++
++The official page fixes more than the Data-volume UUID: a 4096-byte
++SHNGROOT header, version 1, the first window at 1 MiB, every following
++window 1 MiB aligned, 512-byte blocks, read-only flags, a SHA-256 per window and
++a capacity ceiling.  The registry used to map the page to
++check-defconfig-uuid.py alone; that gate is necessary (a seed UUID
++self-panics before the console exists) but it does not cover the layout, so a
++builder could change the header and the page would still count as mapped.
++
++This gate pins the builder's constants, the exact struct layouts, the alignment
++and capacity checks, and then runs the existing UUID gate.  It accepts
++--repo so it can check the shared k60-gates checkout without writing it.
++"""
++from __future__ import annotations
++
++import argparse
++import importlib.util
++import json
++import sys
++import tempfile
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[1]
++MIB = 1 << 20
++FIRST_LBA = 0x413248
++LAST_LBA = 0x75A40EA
++BLOCK_BYTES = 4096
++
++MARKERS = (
++    ('header magic', "header[:8] = b'SHNGROOT'"),
++    ('header size', 'header = bytearray(4096)'),
++    ('header version/count/image_bytes',
++     "struct.pack_into('<IIQ', header, 8, 1, len(entries), cursor)"),
++    ('entry offset', "struct.pack_into('<32sQQII32s40s', header, 24 + index * 128"),
++    ('entry fields', 'name.encode(), offset, size, 512, 1, digest, bytes(40))'),
++    ('header digest', 'header[4064:] = hashlib.sha256(header[:4064]).digest()'),
++    ('first window', 'cursor = MIB'),
++    ('window alignment', 'cursor += ((size + MIB - 1) // MIB) * MIB'),
++    ('capacity refusal', 'if cursor > USERDATA_BYTES:'),
++    ('report capacity', "'capacity_bytes': USERDATA_BYTES"),
++    ('report image bytes', "'image_bytes': cursor"),
++)
++
++
++def load(path: Path, name: str):
++    spec = importlib.util.spec_from_file_location(name, path)
++    if spec is None or spec.loader is None:
++        raise RuntimeError(f'cannot load {path}')
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def check(repo: Path, include_uuid: bool = True) -> list[str]:
++    repo = Path(repo)
++    builder = repo / 'scripts/build-userdata.py'
++    if not builder.is_file():
++        return [f'{builder}: no SHNGROOT builder']
++    problems: list[str] = []
++    try:
++        module = load(builder, f'k60_build_userdata_{id(builder)}')
++    except Exception as error:
++        return [f'{builder}: {type(error).__name__}: {error}']
++
++    if getattr(module, 'MIB', None) != MIB:
++        problems.append(f'{builder}: MIB is {getattr(module, "MIB", None)!r}, not 1 MiB')
++    if getattr(module, 'FIRST_LBA', None) != FIRST_LBA:
++        problems.append(f'{builder}: FIRST_LBA is {getattr(module, "FIRST_LBA", None)!r}, '
++                        f'not {FIRST_LBA:#x}')
++    if getattr(module, 'LAST_LBA', None) != LAST_LBA:
++        problems.append(f'{builder}: LAST_LBA is {getattr(module, "LAST_LBA", None)!r}, '
++                        f'not {LAST_LBA:#x}')
++    capacity = getattr(module, 'USERDATA_BYTES', None)
++    expected = (LAST_LBA - FIRST_LBA + 1) * BLOCK_BYTES
++    if capacity != expected:
++        problems.append(f'{builder}: USERDATA_BYTES is {capacity!r}, '
++                        f'not (LAST_LBA-FIRST_LBA+1)*{BLOCK_BYTES} = {expected}')
++
++    text = builder.read_text(encoding='utf-8')
++    for label, marker in MARKERS:
++        if marker not in text:
++            problems.append(f'{builder}: {label} marker is missing: {marker}')
++
++    if include_uuid:
++        uuid_gate = repo / 'scripts/check-defconfig-uuid.py'
++        if not uuid_gate.is_file():
++            problems.append(f'{uuid_gate}: the Data-volume gate is missing')
++        else:
++            try:
++                uuid = load(uuid_gate, f'k60_defconfig_uuid_{id(uuid_gate)}')
++                result = uuid.run(repo)
++            except Exception as error:
++                problems.append(f'{uuid_gate}: {type(error).__name__}: {error}')
++            else:
++                if not result.get('ok'):
++                    problems.extend(f'Data-volume identity: {item}'
++                                    for item in result.get('failures', []))
++    return problems
++
++
++def self_test() -> int:
++    source = (REPO / 'scripts/build-userdata.py').read_text(encoding='utf-8')
++    cases = (
++        ('baseline', source, None),
++        ('magic', source.replace("b'SHNGROOT'", "b'SHNGROO7'"), 'header magic'),
++        ('first-window', source.replace('cursor = MIB', 'cursor = 0'), 'first window'),
++        ('capacity-formula',
++         source.replace('USERDATA_BYTES = (LAST_LBA - FIRST_LBA + 1) * 4096',
++                        'USERDATA_BYTES = (LAST_LBA - FIRST_LBA + 1) * 512'),
++         'USERDATA_BYTES'),
++    )
++    failures: list[str] = []
++    with tempfile.TemporaryDirectory(prefix='k60-userdata-selftest-') as temporary:
++        repo = Path(temporary)
++        scripts = repo / 'scripts'
++        scripts.mkdir()
++        for name, body, expected in cases:
++            (scripts / 'build-userdata.py').write_text(body, encoding='utf-8')
++            problems = check(repo, include_uuid=False)
++            if expected is None:
++                if problems:
++                    failures.append(f'{name}: {problems[0]}')
++            elif not any(expected in problem for problem in problems):
++                failures.append(f'{name}: expected a {expected!r} problem, got {problems!r}')
++    if failures:
++        for failure in failures:
++            print(f'FAIL self-test: {failure}')
++        return 1
++    print(f'userdata-layout self-test: OK ({len(cases)} cases)')
++    return 0
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description='check the SHNGROOT layout and Data-volume identity')
++    parser.add_argument('--repo', type=Path, default=REPO, help='repository root')
++    parser.add_argument('--json', action='store_true', help='machine-readable result')
++    parser.add_argument('--self-test', action='store_true', help='exercise the gate on synthetic builders')
++    options = parser.parse_args(argv)
++    if options.self_test:
++        return self_test()
++    problems = check(options.repo)
++    if options.json:
++        print(json.dumps({'repo': str(options.repo), 'problems': problems,
++                          'ok': not problems}, ensure_ascii=False, indent=2))
++    else:
++        for problem in problems:
++            print(f'FAIL {problem}')
++        if not problems:
++            print('userdata-layout: OK (SHNGROOT v1, 4096-byte header, first window 1 MiB, '
++                  '1 MiB alignment, 512-byte blocks, capacity ceiling and Data UUID all pinned)')
++    return 0 if not problems else 1
++
++
++if __name__ == '__main__':
++    sys.exit(main())
+diff --git a/scripts/check-official-scope.py b/scripts/check-official-scope.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/check-official-scope.py
+@@ -0,0 +1,119 @@
++#!/usr/bin/env python3
++"""check-official-scope.py -- the two na decisions in the official registry.
++
++concepts/security.md and drivers/qcom-baseband.md are marked na because this
++board's iOS 27 stage-0 profile does not select either stack.  An na is a
++decision, not a silent drop: this gate re-reads the facts the decision rests on
++and fails when any of them changes, which is the signal to re-audit the page
++before the profile grows a trust cache or a baseband bridge.
++
++    python3 scripts/check-official-scope.py --repo E:/hackios/k60-gates
++
++Exit 0 when both pages are still out of profile, 1 when one premise moved.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import re
++import sys
++import tomllib
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[1]
++TRUST_KEYS = ('CONFIG_XNU_NATIVE_TRUST_CACHE', 'CONFIG_XNU_OWNER_ROOT_TRUST',
++              'CONFIG_XNU_TRUST_CACHE_RUNTIME')
++SECURITY_PATCH = re.compile(r'trust.?cache|amfi|appsync', re.IGNORECASE)
++BASEBAND_PATCH = re.compile(r'baseband|qcom.*ipa|applebaseband', re.IGNORECASE)
++BASEBAND_CONFIG = re.compile(r'BASEBAND|MODEM|CELLULAR', re.IGNORECASE)
++PATCH_NAME = re.compile(r'^\s*([^#\s][^\s]*\.patch)\s*$', re.MULTILINE)
++
++
++def load_board(repo: Path) -> dict:
++    path = repo / 'board.toml'
++    return tomllib.loads(path.read_text(encoding='utf-8'))
++
++
++def config_lines(repo: Path):
++    for path in sorted((repo / 'configs').glob('*defconfig')):
++        for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
++            yield path.name, number, line.strip()
++
++
++def series_names(repo: Path) -> list[str]:
++    path = repo / 'patches/xnu-12377/series'
++    if not path.is_file():
++        return []
++    return [name for name in PATCH_NAME.findall(path.read_text(encoding='utf-8'))]
++
++
++def security_problems(repo: Path, board: dict) -> list[str]:
++    problems: list[str] = []
++    payload = board.get('payload', {})
++    trust = payload.get('trust_cache_sha256', [])
++    if trust:
++        problems.append(f'board.toml: payload.trust_cache_sha256 is {trust!r}, not empty; '
++                        'the security page is no longer na, re-audit it')
++    for name, number, line in config_lines(repo):
++        for key in TRUST_KEYS:
++            if re.match(rf'^{re.escape(key)}\s*=\s*[yY]\b', line):
++                problems.append(f'configs/{name}:{number}: {key} is enabled; '
++                                'the security page is no longer na, re-audit it')
++    for patch in series_names(repo):
++        if SECURITY_PATCH.search(patch):
++            problems.append(f'patches/xnu-12377/series: {patch} brings a trust-cache/AMFI/'
++                            'AppSync change; the security page is no longer na, re-audit it')
++    return problems
++
++
++def baseband_problems(repo: Path, board: dict) -> list[str]:
++    problems: list[str] = []
++    selected = list(board.get('components', {}).get('include', []))
++    override = (board.get('os_overrides', {}).get('ios-27.0.1-24A446', {})
++                .get('components', {}).get('include', []))
++    for label, names in (('board.toml [components]', selected),
++                         ('board.toml ios-27.0.1-24A446 components', override)):
++        for name in names:
++            if 'QcomBaseband' in name or 'AppleBaseband' in name:
++                problems.append(f'{label}: {name} is selected; '
++                                'the qcom-baseband page is no longer na, re-audit it')
++    for name, number, line in config_lines(repo):
++        if re.match(r'^CONFIG_[A-Z0-9_]*=', line) and BASEBAND_CONFIG.search(line.split('=', 1)[0]):
++            problems.append(f'configs/{name}:{number}: {line}; '
++                            'the qcom-baseband page is no longer na, re-audit it')
++    for patch in series_names(repo):
++        if BASEBAND_PATCH.search(patch):
++            problems.append(f'patches/xnu-12377/series: {patch} brings a baseband change; '
++                            'the qcom-baseband page is no longer na, re-audit it')
++    return problems
++
++
++def check(repo: Path) -> list[str]:
++    repo = Path(repo)
++    try:
++        board = load_board(repo)
++    except Exception as error:
++        return [f'{repo / "board.toml"}: {type(error).__name__}: {error}']
++    return security_problems(repo, board) + baseband_problems(repo, board)
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description='re-check the security/baseband na premises')
++    parser.add_argument('--repo', type=Path, default=REPO, help='repository root')
++    parser.add_argument('--json', action='store_true', help='machine-readable result')
++    options = parser.parse_args(argv)
++    problems = check(options.repo)
++    if options.json:
++        print(json.dumps({'repo': str(options.repo), 'problems': problems,
++                          'ok': not problems}, ensure_ascii=False, indent=2))
++    else:
++        for problem in problems:
++            print(f'FAIL {problem}')
++        if not problems:
++            print('official-scope: OK (security trust cache/AMFI/AppSync are off; '
++                  'no QcomBaseband component is selected)')
++    return 0 if not problems else 1
++
++
++if __name__ == '__main__':
++    sys.exit(main())

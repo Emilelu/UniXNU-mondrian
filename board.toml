@@ -122,11 +122,7 @@ title = "UniXNU"
 # The probe's panic screen stays off: it installs code in the padding after
 # panic(), whose address is fixed for the reference kernel, so it refuses to
 # patch ours.
-# Entry probe: paint the documented bars so a black panel becomes evidence
-# (docs/zh/guide/debugging.md#green-bar). Reset after 25 s so the board comes
-# back to fastboot without a manual power cycle.
-panic_screen = true
-entry_probe_reset_delay = 25
+# entry_probe_reset_delay = 6
 # Contiguous handoff ARENA size, not total installed DRAM. The actual live
 # Android memory map has six banks. Use only measured [0x900000000,0xa40000000)
 # below high reservations; must match dts/mondrian.dts and MemoryMapLib.c.

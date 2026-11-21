@@ -44,7 +44,11 @@ ROOTS = (
     Path("/opt/k60/trees/ios27-out"),
 )
 ANCHOR = re.compile(r"\{#([^}]+)\}")
-PATHLIKE = re.compile(r"[\w.-]+(?:/[\w.-]+)+\.(?:c|h|cpp|hpp|py|sh|toml|json|md|txt|dtb|dts|dtsi|macho|img|log)\b")
+# The leading slash is part of the token: without it an absolute path such as
+# /mnt/e/k60-work/wt-k55/docs/... was matched from `mnt/...` and then resolved
+# relative to the checkout, which can only fail (measured 2026-11-21: two lanes
+# reported red for evidence that exists on disk).
+PATHLIKE = re.compile(r"/?[\w.-]+(?:/[\w.-]+)+\.(?:c|h|cpp|hpp|py|sh|toml|json|md|txt|dtb|dts|dtsi|macho|img|log)\b")
 
 
 class Failure(Exception):
@@ -142,7 +146,13 @@ def check(fragment: Path, lane_root: Path | None, docs: Path,
             resolved = 0
             for row in rows:
                 text = str(row)
-                for token in PATHLIKE.findall(text):
+                # An `official:` citation names a page in the framework's doc
+                # mirror, not a file in this checkout, so resolving it here can
+                # only fail (measured 2026-11-21: every lane that cited a
+                # subdirectory page was reported red). Strip the citation before
+                # the repository-path scan; the page itself is checked below.
+                scan = re.sub(r"official:\s*[\"']?[\w./-]+\.md(?:#[\w.-]+)?", " ", text)
+                for token in PATHLIKE.findall(scan):
                     if resolve(token, lane_root) is None:
                         problems.append(f"{item_name}.{step}: evidence does not resolve: {token}")
                     else:

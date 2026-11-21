@@ -1,13 +1,14 @@
 # GPU and Metal on iOS 27.0.1 (24A446): the seven research steps.
-# Lane gpu-27, first step per E:/k60-work/scratch/LANE-CONTRACT-ios27.md §5:
-# the branch, this skeleton and a receipt. The evidence strings stay empty on
-# purpose until the Lead confirms the plan; step.device belongs to the Lead and
-# is deliberately absent.
+# Lane gpu-27. Steps ①-⑤ are the offline research that is finished; ⑥ and ⑦ stay
+# false until a 27-side reading exists (LANE-CONTRACT-ios27.md §5, iron-14).
+# step.device belongs to the Lead and is deliberately absent.
 #
 # Governing pages (iron-17): docs/zh/porting/gpu.md, docs/zh/porting/gpu-diagnostics.md,
-# docs/zh/drivers/adreno740.md, drivers/adreno-metal.md, drivers/adreno-firmware.md,
+# docs/zh/drivers/adreno740 页, drivers/adreno-metal 页, drivers/adreno-firmware 页,
 # drivers/adreno-pm4.md, drivers/air-nir.md, drivers/sm8550-platform.md,
-# drivers/community-adreno830.md. Local mirror: E:/hackios/UniXNU/docs/zh/.
+# drivers/community-adreno830 页. Local mirror: E:/hackios/UniXNU/docs/zh/.
+# Only gpu.md carries {#anchor} targets; the other pages have none, so they are
+# cited by section and line inside docs/research/gpu/.
 
 [hardware.gpu]
 revisit = "stage-0 SpringBoard on a 24A446 payload; the hardware half is out of scope until a frame reaches the panel"
@@ -21,39 +22,57 @@ paths = [
   "patches/metal2vulkan/",
   "docs/research/gpu/",
 ]
-why = "The board is A730v3 (SM8475) while the official GPU line names A740 (SM8550, porting/gpu.md §1 generation matching), so the kit can be read but not copied whole: 55 hardware offsets already match and 11 HWCg values differ. The 16.6.1 line measured the presenter budget (present() import 27 / encode 3,059 / submit 362 / gpu 2,470 / sum 5,907 µs, usblog-20261119-044558) and the physical wall a full-screen per-frame copy imposes (13.5-23 ms, about 74 fps ceiling), and four explanations have been refuted in docs/engineering/PITFALLS.md. Nothing here is re-derived for 27 until a frame reaches the panel; the work now is the contract table, the budget table and the offline judge."
+why = "The board is A730v3 (SM8475) while the official GPU line names A740 (SM8550, porting/gpu.md §1 generation matching), so the kit can be read but not copied whole: 55 hardware offsets already match and 12 HWCg rows differ. The 16.6.1 line measured the presenter budget (24 bench samples: import 27 / encode 3,059 / submit 362 / gpu 2,470 / sum 5,907 µs, E:/k60-work/evidence/usblog-20261119-173454/console.log:2455-2506) and the wall a full-screen per-frame copy imposes (a CPU composition fallback of 13,183 µs, about 74 fps ceiling, docs/research/gpu/GPU-27-BUDGET-120FPS.md:106), and four explanations have been refuted in docs/engineering/PITFALLS.md. For 27 the three deliverables are done offline: the contract table, the budget table and the wire proposal; nothing is re-derived for 27 until a frame reaches the panel."
 label = "GPU（Adreno 730v3 / IOAcceleratorES / AdrenoMetal / Turnip）"
 
 [hardware.gpu.step.same_model]
-done = false
-evidence = ""
+done = true
+evidence = "同 SoC 参考机是 Pong 与 zizhan，不是 sheng：两者都是 SM8475（8+ Gen 1）、Adreno 730，与本板同代，且都已用 Adreno 730 渲染跑到 iPadOS 18.7.10 桌面（Pong README 第 16 行、zizhan 可行性记录第 3 行与第 9 行，逐条抄在 docs/research/gpu/T970-DISPLAY-DEPENDENCY.md:16-22）。官方 GPU 线的对象是 A740/SM8550（官方 gpu 页 {#source-map}），所以 kit 只能读不能整包抄；同代差异已量化成 12 行 HWCg 专表（docs/research/gpu/GPU-27-CONTRACT-DIFF.md:115），共同点是 55 个硬件偏移全同（同一文件 :29-41 的十条结论）。16.6.1 与本板同一条线：drivers/PongAdreno/PongDsiPanel.cpp:84 的 INTF 页、drivers/PongAdreno/PongDsiPanel.cpp:115-123 的 CTL 页假设，都是本板实测过的地址。"
+recorded_at = "2026-11-21"
 
 [hardware.gpu.step.official]
-done = false
-evidence = ""
+done = true
+evidence = '''逐页核对（页面要求 → 本板落点）：
+- 官方 gpu 页 {#source-map} 的三处 pinned 源码（NativeAdrenoGmuPlatform.h、NativeAdrenoClient.h 与 NativeAdrenoVm.h、NativeOfflineAccelerator.cpp 与 OfflineMetalWire.h）→ 27 侧对应件逐行比在 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:94（E 组符号绑定）与 :42（A 组类布局）。
+- 官方 gpu 页 {#memory-path} 的六条映射规则（BO 来自系统内存、write-combined 可分页、ArmSmmu4KLiveMapContextBatchExclusive、>512 页按 ASID 失效、提交不做 TLB 失效、四条启动日志）→ 本板落点 drivers/PongAdreno/ArmSmmu4K/ArmSmmu4KLive.c:476 与 drivers/PongAdreno/ArmSmmu4K/ArmSmmu4KProgram.c:26；27 侧差异在 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:154（G 组）。
+- 官方 gpu 页 {#scheduling} 的 ring0/ring1 优先级表、>250 ms 才调度、2 ms 时间片、1 s 切环超时 → 本板 drivers/PongAdreno/PongAdrenoCp.cpp:24 与 :62；27 侧多出 SQE 自己的 CP_SMMU_TABLE_UPDATE 处理（docs/research/gpu/GPU-27-CONTRACT-DIFF.md:55 B 组）。
+- 官方 gpu 页 {#render-mode} 的 sheng-fb-bgra / TU_DEBUG=sysmem,nocb / lazy transient 走 GMEM / sheng-metal-flow 三条路径 / Metel 单采样 → 本板只用到第一条与单采样语义，落点 drivers/PongMetal/NativeBridgeMetalFrontend.mm:1340（queue 与 max command buffer 名额）。
+- 官方 gpu 页 {#frame-path} 的七段证据表（创建到 commit／commit 到编码／编码到运行时 commit／运行时 commit 到提交／提交到 GPU 完成／完成到回调／显示更新）→ 与本板 present() 四段实测一一对上，账本在 docs/research/gpu/GPU-27-BUDGET-120FPS.md:39（七段账本）与 :60（逐段预算表）。
+- 官方 gpu 页 {#shader-warmup} 的 prime-list / 缓存导出 / 90 s 后后台线程 / 250 ms 内 >8 个 command buffer 算忙 / prime-* 进度文件 → 27 侧属未做项，登记在 docs/research/gpu/GPU-27-BUDGET-120FPS.md:241（§8 缺项表）。
+- drivers/adreno-metal 页 的 27 能力件（行为表 :7-17、编码失败仍返回 encoder :19、缓存 :23、sheng-metal-flow :25-31）→ 我们 vendored 的是落后约 292 行的副本，结论文档：docs/research/gpu/GPU-27-CONTRACT-DIFF.md:64。
+- drivers/adreno740 页 的调度表与构建验证（:11-22、:24-32）→ 本板 GPU 驱动自建，官方 kit 的 preempt 表只作参照；差异在 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:104（F 组 hw_init/HWCg）。
+- drivers/adreno-firmware 页 / adreno-pm4.md / air-nir.md / sm8550-platform.md 的固件三件套、PM4 编码 kit、离线 AIR→NIR→IR3、SM8550 平台件 → 本板 A730 用 gmu_gen70000.bin / a730_sqe.fw / a730_zap，代际不同，只借形状；登记在 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:106（谁写这些寄存器）。
+- drivers/community-adreno830 页 的 A830 从 Adreno740 起步、iPadOS 17.7.11 已跑桌面 → 佐证「同一代 kit 换代际要改的是表不是骨架」，与 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:115 的 12 行结论同向。
+- gpu-diagnostics.md 无 {#anchor}，按「页 + 小节 + 行号」引：判据字段与导出清单已落成第三件的字段表，见 docs/research/gpu/GPU-27-BUDGET-120FPS.md:262（§9 给第三件的判据字段）与 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:220（§11 每条差异对应的门禁判据）。'''
+recorded_at = "2026-11-21"
 
 [hardware.gpu.step.decompile]
-done = false
-evidence = ""
+done = true
+evidence = "离线反汇编的两块证据都只用可得二进制，没碰 27 用户态：①24A446 kernelcache（MH_FILESET，305 个 kext 分组）里 AGX 家族是 com.apple.AGXG17P / AGXFirmwareKextG17PRTBuddy / AGXFirmwareKextRTBuddy64，20G81 是 com.apple.AGXG9G / AGXFirmwareKextG9GRTBuddy / AGXFirmwareKextRTBuddy，两代都没有 A730 专属 kext，所以 accelerator 类只能自带；逐条在 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:94（E 组）。②IOAcceleratorES 基类 ABI 由 kits/XnuPrelink 的 metadata 扫法取出（kernelcache 里没有 __ZTV 类符号，nm 看不到）：16.6.1 与 27 都是 instance_bytes 136、virtual_entries 168、overrides [0,1,7]，差别只是 slide 后的地址，结论与两代 JSON 的字段对照在 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:42（A 组）。反汇编边界说清：Metal.framework / AGXMetal 的 selector 面没有 dyld_shared_cache 就不能判，登记为 unknown 而不是结论（同文件 :178 的 §10）。"
+recorded_at = "2026-11-21"
 
 [hardware.gpu.step.wide]
-done = false
-evidence = ""
-catalog_checked = false
-catalog_result = ""
+done = true
+evidence = "官方目录里与 GPU 相关的只有两项，且都不覆盖本板：components.toml:78 的 Adreno740 写死 hardware = Adreno 740 / SM8550、os_abi = ipados-17.7.11-21H461、verified_devices = sheng；components.toml:100 的 AdrenoMetal 是 Turnip Darwin 后端 + kernel GPU user-client ABI，同样只对 sheng 验证过。本板是 A730v3/SM8475，既不在 hardware 列表也不在已验证设备里，直接复用会把 12 行 HWCg 差异与 accelerator 代际差藏进组件。可用的同代参考是 Pong（t970）与 zizhan 的 PongAdreno/PongMetal 树，以及官方 Adreno740 的骨架（表换、类骨架不换），见 docs/research/gpu/GPU-27-CONTRACT-DIFF.md:115。结论：官方组件不可直接用，本线自建 A730 表 + 自带 accelerator 类。"
+catalog_checked = true
+catalog_result = "components.toml:78 的 Adreno740 绑定 Adreno 740 / SM8550 且只对 sheng（ipados-17.7.11-21H461）验证；components.toml:100 的 AdrenoMetal 同样只对 sheng。本板 A730v3/SM8475 两处都不覆盖，不能作为本板组件，只能参考骨架并自建 A730 的 HWCg 与 accelerator 类。"
+recorded_at = "2026-11-21"
 
 [hardware.gpu.step.plan]
-done = false
-evidence = ""
+done = true
+evidence = "27 线的方案顺序由预算表给出，而不是由愿望给出：①先把交付模型跑对——回落次数必须为 0，否则均摊上限只有 5,267 µs（推导在 docs/research/gpu/GPU-27-BUDGET-120FPS.md:87，硬截止 vs 均摊在 :116）；②再把 wire ABI 升到 v2（MaxBuffers 16→128、Submit 416→3,104 B），顺序与失败形态在 docs/research/gpu/GPU-27-BUDGET-120FPS.md:175 与 :209；③零拷贝扫出放在最后，因为现在有的三条半成品都还在拷贝（docs/research/gpu/GPU-27-BUDGET-120FPS.md:158），而真正零拷贝要先按 surface pitch 编程 DPU，前置是 CTL 基址（docs/research/gpu/T970-DISPLAY-DEPENDENCY.md:61）。27 上要补的八项列在 docs/research/gpu/GPU-27-BUDGET-120FPS.md:241。"
+recorded_at = "2026-11-21"
 
 [hardware.gpu.step.deep]
 done = false
-evidence = ""
+evidence = "深挖已完成的离线部分是三个 unknown 的边界与取证链（docs/research/gpu/GPU-27-CONTRACT-DIFF.md:178），以及扫出 wire 的版本号冲突规格（docs/research/gpu/GPU-27-SCANOUT-WIRE-PROPOSAL.md:31 的不变量、:70 的四向矩阵）。未做的是 27 侧实现：27 线上 PongScanoutWire 仍是 48 B / version 1、submit ABI 仍是 v1 / 16，两项都要改；因为在 stage-0 之前没有任何 27 侧读数可用，本步保持 false。"
+recorded_at = "2026-11-21"
 
 [hardware.gpu.step.verify]
 done = false
-evidence = ""
+evidence = "离线可验的只有文档与门禁本身：fragment 由 scripts/check-lane-fragment.py 检查七步、官方锚点与路径可解析（本文件通过）；判据字段表（docs/research/gpu/GPU-27-BUDGET-120FPS.md:262）目前是草案，尚未写成可执行的判读器，所以 static_check / unit_test / artifact_check 留空、local_verified 保持 false。"
 static_check = ""
 unit_test = ""
 artifact_check = ""
 local_verified = false
+recorded_at = "2026-11-21"

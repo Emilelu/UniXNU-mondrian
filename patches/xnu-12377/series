@@ -129,3 +129,11 @@ armcpu-sleep-hook.patch
 # the end of bsd_autoconf). Its bsd/conf/files hunk is dropped on purpose:
 # scripts/append-conffiles.py owns those lines. See CARRY-OVER-INVENTORY.md.
 0547-k60-usblog-ep0-27.patch
+
+# Cut from the 16-series 0243.  The new file bsd/dev/k60_console_export.c
+# and the pong_ramoops_console.h hunk are verbatim; the three
+# osfmk/arm/arm_init.c hunks were regenerated with diff -u against the
+# assembled tree (the 16-series context names pong_ramoops_start, which
+# 0546 does not declare on its own line).  bsd/conf/files dropped again:
+# append-conffiles.py owns those lines.
+0548-k60-console-export-27.patch

@@ -37,9 +37,41 @@ import os
 import re
 import sys
 
-# tools -> gpu -> research -> docs -> the tree root
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))))))
+def _tree(start):
+    """The lane tree that carries docs/research/gpu, found from this file.
+
+    Never assume a fixed depth: the same file has to work from
+    docs/research/gpu/tools/ in the lane and from scripts/ in a gate checkout.
+    """
+    here = os.path.dirname(os.path.abspath(start))
+    while True:
+        if os.path.isdir(os.path.join(here, "docs", "research", "gpu")):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    # a gate checkout: the lane usually sits next to it
+    for name in ("k60-gpu-27",):
+        candidate = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(start))), name)
+        if os.path.isdir(os.path.join(candidate, "docs", "research", "gpu")):
+            return candidate
+    return os.path.dirname(os.path.dirname(os.path.abspath(start)))
+
+
+def _norm(path):
+    """Accept /e/... as well as E:/..., because the two shells disagree here."""
+    if os.path.isdir(path):
+        return path
+    if len(path) > 2 and path[0] == "/" and path[1].isalpha() and path[2] == "/":
+        candidate = path[1].upper() + ":" + path[2:]
+        if os.path.isdir(candidate):
+            return candidate
+    return path
+
+
+REPO = _norm(os.environ.get("K60_GPU27_REPO") or _tree(__file__))
 DOC = os.path.join("docs", "research", "gpu", "GPU-27-V2-FIELDS.md")
 DOC_MARKER = "**索引 + 1**"
 SCAN = [os.path.join("drivers", "PongAdreno"), os.path.join("drivers", "PongMetal")]
@@ -107,11 +139,12 @@ def main():
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    doc = args.doc or os.path.join(args.repo, DOC)
+    repo = _norm(args.repo)
+    doc = args.doc or os.path.join(repo, DOC)
     convention = args.convention or convention_from_doc(doc)
-    roots = args.scan or [os.path.join(args.repo, item) for item in SCAN]
+    roots = args.scan or [os.path.join(repo, item) for item in SCAN]
 
-    report = {"convention": convention, "scanned": [os.path.relpath(r, args.repo) for r in roots]}
+    report = {"convention": convention, "scanned": [os.path.relpath(r, repo) for r in roots]}
     if convention is None:
         report.update(state="cannot judge", why="the document no longer declares " + DOC_MARKER)
         print(json.dumps(report, ensure_ascii=False) if args.json

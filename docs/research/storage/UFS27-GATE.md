@@ -502,3 +502,61 @@ a declared root, `[kernel.prelink] roots` has to list it, and acceptance becomes
 present with non-zero `kmod_info` start/stop. Route B does not define the eleven
 symbols either — they stay Route D's — so it buys runtime loading, not link
 closure.
+
+## 13. ⑦'s judgement path, and what it waits on
+
+The Lead's ruling of 2026-11-21 is that ⑦ takes the judgement path and waits: bt's
+criterion and a real 27 build's product, no F3 diff written ahead of them. So ⑦ is
+not a promise in prose — it is a readiness gate that says what is missing, in the
+order the measurement needs it:
+
+```sh
+cd E:/k60-work/ufs27 && python3 scripts/check-ufs27-step7-readiness.py
+#   PEND tree       no xnu object directory with .LDFLAGS + link.filelist is reachable from this host …
+#   PEND archive    …/build/native-ufs/libNativeUfs.a is not there yet; scripts/build-native-ufs-linux.py writes it
+#                   from a recorded KernelConfigTables.cpo.json
+#   PEND stderr     no saved ld stderr pair, so the link has to be run to measure new symbols …
+#   OK   criterion  scripts/check-xnu27-storage-link.py still carries 6 flags (--require-linkable among them)
+#   PEND run        step 7 is pending on tree, archive; the acceptance command is printed here the moment they exist
+# ufs27-step7-readiness: 0 gap(s) (pending is not a gap: nothing claims closure)
+```
+
+Four rows, each able to be pending on its own:
+
+| Row | What it needs | Why that shape |
+| --- | --- | --- |
+| `tree` | a directory holding `.LDFLAGS` and `link.filelist` | `scripts/check-xnu27-storage-link.py:75` is explicit: `--tree` is "the xnu object directory holding .LDFLAGS and link.filelist". It reads the recorded link line, so a build that never linked cannot be graded. |
+| `archive` | `build/native-ufs/libNativeUfs.a` with `NativeUfs.o`, `PongUfsTransport.o`, `verified_root.o` | the members are read out of the archive header. "The file exists" is not "the producer finished": a truncated or single-object archive would otherwise pass as prepared. |
+| `stderr` | a saved pair of `ld` stderrs (control, with archive) | `--control-stderr`/`--archive-stderr` exist, and this is the only route that does not link. Without a pair the measurement has to run `ld`, which only the Lead may do. |
+| `criterion` | `check-xnu27-storage-link.py` still carrying `--tree`, `--archive`, `--out`, `--require-linkable` and the two stderr flags | a criterion is only worth what its script's interface is. If that script changes, the recorded predicate has to be re-read instead of trusted. |
+
+The gate never links anything: no `subprocess` to `ld`, no kernel, no build. It
+prints the acceptance command and the pass predicate, and it exits 0 while pending
+because absence is not a gap — nothing claims closure. It exits 1 only when
+something is present but wrong: an archive with the wrong members, half a stderr
+pair, an object directory without a link line, or a criterion script that lost a
+flag.
+
+The pass predicate, unchanged from bt's answer (§12): `exit 0`, the archive row
+reports `new=0`, and the last line is `bluetooth-storage-link: OK`. The wording for
+stage 0 stays "the archive is not linked, so the eleven imports never enter the
+kernel link" — the `26 vs 14` pair is an F3 measurement and is not quoted as this
+state.
+
+The gate itself is graded, so it cannot rot into a script that only ever prints
+`PEND`:
+
+```sh
+cd E:/k60-work/scratch/ufs27-step7matrix && bash run.sh
+# PASS: real tree -> pending, 0 gap(s), exit 0
+# PASS: incoherent -> 3 gaps, exit 1
+# PASS: ready -> green with the acceptance command, exit 0
+# ufs27-step7matrix: OK
+```
+
+The `ready` fixture carries the three-member archive (written with a real `//`
+long-name table, because `PongUfsTransport.o` is 18 characters), a `.LDFLAGS` +
+`link.filelist` pair and a full stderr pair, and the gate prints the offline
+command — the one that parses saved stderrs instead of linking. That row is the
+proof that the moment the Lead's build produces the inputs, this gate becomes an
+answer rather than a report.

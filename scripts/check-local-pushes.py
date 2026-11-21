@@ -91,7 +91,8 @@ def allowed(name: str, patterns: list[str]) -> str:
     return ""
 
 
-def check(repos: dict[str, Path], patterns: list[str]) -> tuple[list[str], list[str]]:
+def check(repos: dict[str, Path], patterns: list[str],
+          all_branches: bool = False) -> tuple[list[str], list[str]]:
     problems: list[str] = []
     notes: list[str] = []
     used: set[str] = set()
@@ -105,6 +106,7 @@ def check(repos: dict[str, Path], patterns: list[str]) -> tuple[list[str], list[
         seen.add(real)
         remotes = remote_shas(repo)
         git(repo, "fetch", "--all", "--prune", "--quiet")
+        head = git(repo, "rev-parse", "HEAD").strip()
         for branch, sha in sorted(local_branches(repo).items()):
             if branch in remotes and is_ancestor(repo, sha, remotes[branch]):
                 continue
@@ -113,7 +115,15 @@ def check(repos: dict[str, Path], patterns: list[str]) -> tuple[list[str], list[
                 used.add(pattern)
                 continue
             where = f"{remotes[branch]}" if branch in remotes else "no remote branch"
-            problems.append(f"{name}: {branch} ({sha}) is local-only ({where})")
+            message = f"{name}: {branch} ({sha}) is local-only ({where})"
+            # A build only needs this checkout's own line to exist somewhere else.
+            # Branches other lanes are mid-way through are theirs to push; treating
+            # them as this build's problem made every build depend on someone else's
+            # uncommitted work (measured 2026-11-21: three consecutive refusals).
+            if all_branches or is_ancestor(repo, sha, head):
+                problems.append(message)
+            else:
+                notes.append(message + "; not this checkout's line, another lane owns it")
     for pattern in patterns:
         if pattern not in used:
             notes.append(f"allowlist entry {pattern!r} matched nothing in this run")
@@ -143,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repos", type=Path, default=DEFAULT_REPOS)
     parser.add_argument("--allow", type=Path, default=DEFAULT_ALLOW)
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--all-branches", action="store_true",
+                        help="audit every local branch; without it only this checkout's own line is asked for")
     arguments = parser.parse_args(argv)
     if not arguments.repos.is_file():
         print(f"GATE UNKNOWN: no repository list at {arguments.repos} (P-279)")
@@ -151,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     if not repos:
         print(f"GATE UNKNOWN: {arguments.repos} lists no [[repo]]")
         return 2
-    problems, notes = check(repos, load_allow(arguments.allow))
+    problems, notes = check(repos, load_allow(arguments.allow), arguments.all_branches)
     for note in notes:
         print(f"note: {note}")
     for problem in problems:

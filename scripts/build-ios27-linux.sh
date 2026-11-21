@@ -97,4 +97,18 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	python3 "$ROOT/scripts/check-ios27-artifacts.py"
 fi
 
+# A root build leaves kernel/payload/boot owned by root with mode 0600, and then the
+# registry -- which runs as the developer -- cannot read them. check-kernel-archives.py
+# treats "unreadable" as exit 2 on purpose (P-279: cannot judge is not the same as
+# passing), so the whole registry turns red for an ownership reason. Hand the outputs
+# back to the account that owns the trees.
+if [ "$(id -u)" = 0 ] && [ -n "${K60_ARTIFACT_OWNER:-}" ]; then
+	for part in kernel payload boot; do
+		if [ -d "$BOARD_DIR/$part" ]; then
+			chown -R "$K60_ARTIFACT_OWNER": "$BOARD_DIR/$part" || true
+		fi
+	done
+	echo "build-ios27-linux: handed $K60_ARTIFACT_OWNER the outputs under $BOARD_DIR"
+fi
+
 echo "build-ios27-linux: artifacts under $UNIXNU_OUT"

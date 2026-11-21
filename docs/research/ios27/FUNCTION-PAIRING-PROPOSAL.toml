@@ -1,0 +1,116 @@
+schema_version = 1
+status = "proposed"
+review = "lead"
+generated = "2026-11-21"
+
+# This file is a proposal only. It does not edit kernel.map.json, does not
+# re-run the matcher, and does not authorize a boot. The four entries are the
+# only targets classified as proven in MATCHER-REVIEW.md.
+#
+# The target address is an output-collection key. The native address is a
+# symbol definition in the development kernel. An accepted entry would be:
+#   functions[target] = { native = native_address, name = native_symbol,
+#                         addend = 0, how = "reviewed" }
+
+kernelcache = "/opt/k60/trees/ios27-out/ipsw/24A446/kernelcache.decompressed"
+kernelcache_sha256 = "fa07057bf34f33af1ec26681ad0c87c13e5aaa548a300740eddb0e92876e5f95"
+native_image = "/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+native_sha256 = "b13875dac33fa66ba4ee3cf2ec6876eb8ffdd1baa10c8e49cda32432006be91f"
+map = "/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.map.json"
+collection_base = "0xfffffff007004000"
+collection_slide = "0x0"
+native_link_address = "0xfffffff007004000"
+target_address_space = "output collection"
+map_entry_at_target = "absent for all four targets"
+
+# Native evidence commands. The output files are local read-only captures;
+# each line is quoted below so the proposal does not depend on an uncommitted
+# nm table being present later.
+native_nm_command = "llvm-nm-18 -P --defined-only <native_image> > E:/k60-work/scratch/ios27-4-nm-defined.txt"
+native_nm_file = "E:/k60-work/scratch/ios27-4-nm-defined.txt"
+native_objdump_command = "llvm-objdump-18 --macho --syms <native_image> > E:/k60-work/scratch/ios27-4-objdump.txt"
+native_objdump_file = "E:/k60-work/scratch/ios27-4-objdump.txt"
+
+[[function]]
+target = "0xfffffff00b0de068"
+name = "_proc_parent"
+label = "proven"
+original_size = 368
+original_sha256 = "e7c577b28c4eb9e493475aed9e918df9d6b2ff3956d6f5410beaa3ad09fb230d"
+original_head = "7f2303d5fa67bba9f85f01a9f65702a9"
+target_is_function_start = true
+original_section = "__TEXT_EXEC,__text"
+target_evidence = 'facts2.json strings = ["proc_parent"]; classify.py:511-513 records the literal body reference; Image.read_at returns 368 bytes from the pinned kernelcache'
+map_entry_at_target = "absent"
+native_symbol = "_proc_parent"
+native_address = "0xfffffff00788e194"
+native_section = "__TEXT_EXEC,__text"
+native_nm_line = 46072
+native_nm_output = "_proc_parent S fffffff00788e194 0"
+native_objdump_line = 215311
+native_objdump_output = "fffffff00788e194 g     F __TEXT_EXEC,__text _proc_parent"
+proposed_map_value = { kind = "function", native = "0xfffffff00788e194", name = "_proc_parent", addend = 0, how = "reviewed" }
+review = "pending Lead review; do not merge"
+
+[[function]]
+target = "0xfffffff00ad05978"
+name = "___memcpy_chk"
+label = "proven"
+original_size = 68
+original_sha256 = "0464008f46d70772cf6ed29599c4126861833abca4b88d434623ebcc85c3a36d"
+original_head = "5f2403d57f0002eb43000054a36c1c14"
+target_is_function_start = true
+original_section = "__TEXT_EXEC,__text"
+target_evidence = 'facts2.json strings = ["subrs.c", "__memcpy_chk object size check failed: dst %p, src %p, (%zu < %zu) @%s:%d"]; classify.py:514-516; Image.read_at returns 68 bytes from the pinned kernelcache'
+map_entry_at_target = "absent"
+native_symbol = "___memcpy_chk"
+native_address = "0xfffffff0074f90c0"
+native_section = "__TEXT_EXEC,__text"
+native_nm_line = 11795
+native_nm_output = "___memcpy_chk S fffffff0074f90c0 0"
+native_objdump_line = 203858
+native_objdump_output = "fffffff0074f90c0 g     F __TEXT_EXEC,__text ___memcpy_chk"
+proposed_map_value = { kind = "function", native = "0xfffffff0074f90c0", name = "___memcpy_chk", addend = 0, how = "reviewed" }
+review = "pending Lead review; do not merge"
+
+[[function]]
+target = "0xfffffff00b416214"
+name = "_pmap_claim_reserved_ppl_page"
+label = "proven"
+original_size = 56
+original_sha256 = "845f24f861d9a20fc63864532708622f82072c3e4847b7d613288b7b429ce7f9"
+original_head = "7f2303d5ffc300d1fd7b02a9fd830091"
+target_is_function_start = true
+original_section = "__TEXT_EXEC,__text"
+target_evidence = 'facts2.json strings = ["pmap.c", "pmap_claim_reserved_ppl_page", "%s: function not supported in this environment @%s:%d"]; classify.py:517-520; Image.read_at returns 56 bytes from the pinned kernelcache'
+map_entry_at_target = "absent"
+native_symbol = "_pmap_claim_reserved_ppl_page"
+native_address = "0xfffffff007525f24"
+native_section = "__TEXT_EXEC,__text"
+native_nm_line = 45240
+native_nm_output = "_pmap_claim_reserved_ppl_page S fffffff007525f24 0"
+native_objdump_line = 214902
+native_objdump_output = "fffffff007525f24 g     F __TEXT_EXEC,__text _pmap_claim_reserved_ppl_page"
+proposed_map_value = { kind = "function", native = "0xfffffff007525f24", name = "_pmap_claim_reserved_ppl_page", addend = 0, how = "reviewed" }
+review = "pending Lead review; do not merge"
+
+[[function]]
+target = "0xfffffff00b41624c"
+name = "_pmap_free_reserved_ppl_page"
+label = "proven"
+original_size = 56
+original_sha256 = "554cad720dae040b68645cc650cd25803884dea5d37bdff81b19a0081d124284"
+original_head = "7f2303d5ffc300d1fd7b02a9fd830091"
+target_is_function_start = true
+original_section = "__TEXT_EXEC,__text"
+target_evidence = 'facts2.json strings = ["pmap.c", "pmap_free_reserved_ppl_page", "%s: function not supported in this environment @%s:%d"]; classify.py:521-523; Image.read_at returns 56 bytes from the pinned kernelcache'
+map_entry_at_target = "absent"
+native_symbol = "_pmap_free_reserved_ppl_page"
+native_address = "0xfffffff007525f2c"
+native_section = "__TEXT_EXEC,__text"
+native_nm_line = 45328
+native_nm_output = "_pmap_free_reserved_ppl_page S fffffff007525f2c 0"
+native_objdump_line = 214957
+native_objdump_output = "fffffff007525f2c g     F __TEXT_EXEC,__text _pmap_free_reserved_ppl_page"
+proposed_map_value = { kind = "function", native = "0xfffffff007525f2c", name = "_pmap_free_reserved_ppl_page", addend = 0, how = "reviewed" }
+review = "pending Lead review; do not merge"

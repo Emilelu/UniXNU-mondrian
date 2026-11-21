@@ -208,6 +208,7 @@ static_assert(offsetof(PongScanoutDone, reserved) == 12, "the completion check i
 
 - `flip condition: display signs dbuf semantics (token@44 / evict@48 / target@52) AND pong-scanout-v2-layout-asserts.patch is in series`
 - `flip owner: gpu-agent (GPU line)` —— 翻 0→1 的动作属于该 owner 的提案分支，**不随 v3 或本文任何后续修订顺手改**。
+- `flip proof: the flight proves the flip when scripts/check-gpu27-postflip.py exits 0`—— 一次命令同时问两半（飞行里 `PONG SCANOUT: … scanout version=2`，以及 HEAD 与草案两份断言逐字一致），判据本身与三态期望只在 `docs/research/gpu/FLIP-READINESS.md` §2.3 维护，本节不复制（P-259）。
 - 开关为 0 时这些断言**不成立是设计，不是缺陷**：没有 v2 布局，它们就没有可描述的事实；翻了开关那天它们才成为判据（P-290 的形状：不运行的断言不是判据）。
 - **flip 条件与 flip owner 只在本节维护**；`patches/proposed/README.md`、`docs/research/gpu/FLIP-READINESS.md`
   与八步 fragment 一律指回本节，不复制（P-259：抄一份就多一处会过期）。

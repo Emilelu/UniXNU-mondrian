@@ -21,10 +21,19 @@ Rows (each independently pending, never merged into one green light):
   archive    `build/native-ufs/libNativeUfs.a` with its three members. Read out of
              the archive itself, so "the file exists" is not mistaken for "the
              producer finished".
+  cpo        the build record the producer reads:
+             `build/xnu/ios-obj/*/iokit/DEVELOPMENT/KernelConfigTables.cpo.json`
+             with its `arguments` and `directory`. Without it
+             `scripts/build-native-ufs-linux.py` cannot compile the archive at all.
   criterion  the predicate is expressible: `check-xnu27-storage-link.py` must still
              carry `--require-linkable`, `--tree`, `--out` and the two `--…-stderr`
              flags. If that script changes, the recorded criterion has to be
              re-read rather than trusted.
+
+The criterion itself is bt's and is stricter than `--require-linkable`: that flag
+only turns a gap into a failure when `archive_rc != 0`, so a successful link with
+new symbols still prints OK. Closure therefore also requires the report's
+`archive_rc == 0` and `new_symbols == []` — see `PASS_COMMAND`.
 
 Exit code 0 while pending or ready, 1 when something is present but incoherent
 (an archive with the wrong members, a stderr pair missing one half, a criterion
@@ -32,10 +41,15 @@ script that lost a flag). Absence is pending, not a gap: nothing claims closure.
 
 Usage:
   python3 scripts/check-ufs27-step7-readiness.py [--archive PATH] [--tree PATH]
+
+  --tree is the xnu OBJECT directory (the one with `.LDFLAGS` and
+  `link.filelist`), not the tree root and not the parent of `ios-obj`. The
+  producer's `--tree` is the tree root — the two flags mean different things.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -46,7 +60,19 @@ MEMBERS = ("NativeUfs.o", "PongUfsTransport.o", "verified_root.o")
 LINK_CHECKER = "scripts/check-xnu27-storage-link.py"
 FLAGS = ("--tree", "--archive", "--out", "--require-linkable", "--control-stderr", "--archive-stderr")
 DEFAULT_ARCHIVE = REPO / "build" / "native-ufs" / "libNativeUfs.a"
+DEFAULT_OUT = REPO / "out" / "xnu27-storage-link.json"
 DEFAULT_SCRATCH = REPO.parent / "scratch" / "ufs27-link"
+RECORD_GLOB = "build/xnu/ios-obj/*/iokit/DEVELOPMENT/KernelConfigTables.cpo.json"
+PEND_TEXT = (
+    "stage 0: CONFIG_XNU_NATIVE_UFS is n and no recipe writes "
+    "$ROOT/build/native-ufs/libNativeUfs.a, so the force-load at "
+    "scripts/build-xnu-generic.sh:646-653 does not happen and the eleven "
+    "IOBlockStorageDevice imports are not in the kernel link. This proves the "
+    "switch is off; it does not prove the link closes. PEND is not PASS."
+)
+
+PASS_CHECK = ("python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); "
+              "sys.exit(0 if r[\"archive_rc\"]==0 and not r[\"new_symbols\"] else 1)' {out}")
 
 problems: list[str] = []
 
@@ -120,6 +146,45 @@ def grade_tree(explicit: Path | None) -> Path | None:
     return found[0]
 
 
+def tree_root_from(objdir: Path) -> Path | None:
+    """The tree root for an object dir: .../tree/build/xnu/ios-obj/<config> -> .../tree."""
+    parts = objdir.resolve().parts
+    if "ios-obj" in parts:
+        index = parts.index("ios-obj")
+        if index >= 3:
+            return Path(*parts[: index - 2])
+    return None
+
+
+def grade_cpo(objdir: Path | None, explicit: Path | None) -> bool:
+    root = explicit or (tree_root_from(objdir) if objdir is not None else None)
+    if root is None:
+        say("PEND", "cpo", "no tree root to look in; the producer reads "
+                           f"{RECORD_GLOB} under it (pass --record-tree)")
+        return False
+    hits = sorted(root.glob(RECORD_GLOB))
+    if not hits:
+        problems.append(f"{root} has no {RECORD_GLOB}; scripts/build-native-ufs-linux.py cannot compile "
+                        f"libNativeUfs.a without a recorded clang invocation")
+        say("GAP", "cpo", f"{root} has no {RECORD_GLOB}")
+        return False
+    record = hits[0]
+    try:
+        payload, _ = json.JSONDecoder().raw_decode(record.read_text(encoding="utf-8", errors="replace"))
+    except ValueError as error:
+        problems.append(f"{record} is not readable JSON: {error}")
+        say("GAP", "cpo", f"{record}: {error}")
+        return False
+    missing = [key for key in ("arguments", "directory") if key not in payload]
+    if missing:
+        problems.append(f"{record} lacks {', '.join(missing)}; the producer needs both")
+        say("GAP", "cpo", f"{record} lacks {', '.join(missing)}")
+        return False
+    say("OK", "cpo", f"{record.relative_to(root).as_posix()} "
+                     f"({len(payload.get('arguments') or [])} args, directory {payload['directory']})")
+    return True
+
+
 def grade_stderr() -> bool:
     control = Path(os.environ.get("K60_LINK_CONTROL_STDERR") or DEFAULT_SCRATCH / "control.stderr")
     arc = Path(os.environ.get("K60_LINK_ARCHIVE_STDERR") or DEFAULT_SCRATCH / "archive.stderr")
@@ -140,8 +205,8 @@ def grade_stderr() -> bool:
 def grade_archive(explicit: Path | None) -> bool:
     archive = explicit or Path(os.environ.get("K60_NATIVE_UFS_ARCHIVE") or DEFAULT_ARCHIVE)
     if not archive.is_file():
-        say("PEND", "archive", f"{archive} is not there yet; scripts/build-native-ufs-linux.py writes it "
-                               f"from a recorded KernelConfigTables.cpo.json")
+        say("PEND", "archive", f"{archive} is not there yet; scripts/build-native-ufs-linux.py "
+                               f"--out build/native-ufs writes it from a recorded KernelConfigTables.cpo.json")
         return False
     try:
         members = ar_members(archive)
@@ -179,37 +244,46 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tree", type=Path, default=None, help="the xnu object directory (.LDFLAGS, link.filelist)")
     parser.add_argument("--archive", type=Path, default=None, help="the archive to force_load")
+    parser.add_argument("--record-tree", type=Path, default=None,
+                        help="tree root holding build/xnu/ios-obj/*/iokit/.../KernelConfigTables.cpo.json")
     args = parser.parse_args()
 
     print(f"ufs27-step7-readiness: {REPO}")
     tree = grade_tree(args.tree)
+    have_cpo = grade_cpo(tree, args.record_tree)
     have_archive = grade_archive(args.archive)
     have_stderr = grade_stderr()
     flags = grade_criterion()
 
-    runnable = bool(tree and have_archive and flags) and (have_stderr or True)
     print()
     if tree and have_archive and flags:
         archive = args.archive or Path(os.environ.get("K60_NATIVE_UFS_ARCHIVE") or DEFAULT_ARCHIVE)
-        command = (
-            f"python3 {LINK_CHECKER} --tree {tree} --archive {archive} --out <report>.json --require-linkable"
-        )
-        if not have_stderr:
-            command += "   # links twice; only the Lead may run it"
-        else:
-            command = (
+        link = f"python3 {LINK_CHECKER} --tree {tree} --archive {archive} --out {DEFAULT_OUT} --require-linkable"
+        if have_stderr:
+            link = (
                 f"CONTROL_RC=<n> ARCHIVE_RC=<n> python3 {LINK_CHECKER} --tree {tree} --archive {archive} "
                 f"--control-stderr {Path(os.environ.get('K60_LINK_CONTROL_STDERR') or DEFAULT_SCRATCH / 'control.stderr')} "
                 f"--archive-stderr {Path(os.environ.get('K60_LINK_ARCHIVE_STDERR') or DEFAULT_SCRATCH / 'archive.stderr')} "
-                f"--out <report>.json --require-linkable   # parses saved stderrs, does not link"
+                f"--out {DEFAULT_OUT} --require-linkable   # parses saved stderrs, does not link"
             )
-        say("OK", "run", command)
-        say("OK", "pass", "exit 0, the archive row reports new=0, and the last line is bluetooth-storage-link: OK")
+        say("OK", "run", link + (
+            "" if have_stderr else "   # links twice; only the Lead may run it"))
+        say("OK", "pass", "&& " + PASS_CHECK.format(out=DEFAULT_OUT) + "   # --require-linkable alone is not the "
+                          "criterion: a successful link with new symbols still prints OK")
     else:
-        missing = [name for name, ok in (("tree", bool(tree)), ("archive", have_archive),
-                                         ("criterion", bool(flags))) if not ok]
-        say("PEND", "run", "step 7 is pending on " + ", ".join(missing)
-            + "; the acceptance command is printed here the moment they exist")
+        missing = [name for name, ok in (("tree", bool(tree)), ("cpo", have_cpo),
+                                         ("archive", have_archive), ("criterion", bool(flags))) if not ok]
+        say("PEND", "run", PEND_TEXT)
+        print(f"         (pending on {', '.join(missing)}; the acceptance command is printed here the moment "
+              f"they exist)")
+
+    print()
+    if os.name == "nt":
+        print("  note: run this under WSL or Linux: .LDFLAGS and the cpo directory name /opt or /mnt/e paths, "
+              "which a Windows Python cannot follow")
+    print("  note: the checker takes one --archive; if F3 produces a driver archive and a bindings archive, "
+          "merge them into one before grading, or new>0 will be read as closure")
+    print("  note: out/xnu27-storage-link.json is a report, not source; do not commit it")
 
     if problems:
         print()

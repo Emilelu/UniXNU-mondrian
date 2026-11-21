@@ -189,3 +189,26 @@ __ZTV26IOUnifiedAddressTranslator
 
 下一轮先回答一个问题：`iokit/Kernel/IOUnifiedAddressTranslator.cpp` 在 27 树里存不存在、由哪个 `conf` 列表收录、
 以及 `removed 67 unavailable forced exports` 那次重链删掉的 67 个导出里有没有它。
+
+### 收窄：这是 0547/0548 引进来的一格，不是老病
+
+同一台机器上按日志名数过一遍 `archive-06` 的成败：
+
+```
+build-ios27-console4/5/5b/6   fail=0      （0546 之后、0547 之前）
+build-ios27-console7          fail=2      （0547 + 0548 之后）
+build-ios27-roots/roots2/roots30  fail=0  （改 prelink roots 期间，同样没有 0547）
+build-ios27-lto1..8,10        fail=0      （LTO 参考第一次成型时）
+build-ios27-lto9              fail=1      （孤例，当时已重跑通过）
+```
+
+而这个日志里 `Undefined symbols` **只有两个块**（`:1159366`、`:1173133`），内容同一族
+`IOUnifiedAddressTranslator`；`removed 67 … forced exports` 在**外层日志**里，不在这个日志里。
+
+⇒ 结论：**0547 或 0548 让 RELEASE reference 链接少了一族符号**，而不是「LTO 参考一直是坏的」。
+`IOUnifiedAddressTranslator` 的实现在 16 与 27 两棵树里都不存在（`ls` 实测 No such file），
+`iokit/conf/Makefile.arm64:27` 只留了一行 `IOUnifiedAddressTranslator.cpo_INCFLAGS`。
+
+**下一轮的实验（便宜、可判定）**：把 `0548` 从 series 里临时注掉、只余 `0547`，跑到 `archive-06` 为止；
+若转绿则元凶是 0548（它的 `k60_console_export.c` 与 arm_init 三 hunk），反之元凶是 0547 的 1,337 行文件。
+两次各约 4–10 分钟，判据只有一条：`grep -c "Undefined symbols" snapshot-build.log`。

@@ -48,3 +48,8 @@ prefix = ["archive:build-firehose-stub.py", "archive:build-k60-fileset-reference
           "archive:build-k60-platform-archives.py"]
 reason = "K60 侧的三件互补品：firehose 参考只有 arm64 而 27 要 arm64e（生成桩并自报 stub）、平台归档参数化到 arm64e、LTO 参考在 Mac 上建好后装回缓存。"
 evidence = "docs/research/ios27/CONFORMANCE.md:41"
+
+[[deviation]]
+prefix = ["archive:fetch-adreno-inputs.py", "archive:prepare-sheng-gpu-smmu.py"]
+reason = "Sheng 的 GPU 输入抓取与 SMMU 预置脚本；K60 stage-0 不启 Adreno（CONFIG_XNU_NATIVE_ADRENO=n），GPU 线在 SpringBoard 之后单独推进。"
+evidence = "docs/research/ios27/CONFORMANCE.md:36"

@@ -1366,3 +1366,10 @@ statement = "回答「是否严格参考了某个参考源」时，必须给出�
 check = "python3 scripts/tests/test-audit-ios27-conformance.py"
 note = "2026-11-22 首跑抓到 [kernel.prelink] 整段缺失（Sheng 声明 44 个 root）与 defconfig 8 vs 19 键；检查器第一版用我们的 profile 名读 Sheng 的 defconfig，SAME 从 6 变 10。"
 
+[[rule]]
+id = "P-306"
+title = "抄来的 prelink root 列表必须逐条判：重复、成员、互斥、覆盖"
+statement = "设备层 `[kernel.prelink].roots` 必须由 `scripts/check-prelink-roots.py` 判过：无重复、每个包含项在预链接用的 kernelcache 里存在、同一 bundle 不能既包含又排除、且覆盖 OS profile 声明的全部根；kernelcache 读不到时退「无法判定」而不是通过。"
+check = "python3 scripts/tests/test-check-prelink-roots.py"
+note = "2026-11-22 首跑发现比错了层（只看 board.toml，漏了 OS profile 的 30 条 root），修正后仍缺 12 个 USB/HID/SCSI 家族；抄 Sheng 的列表在 prelink 阶段会因缺 bundle 直接崩。"
+

@@ -7907,3 +7907,38 @@ defconfig 我们 8 个键、Sheng 19 个键。
 `SAME 10 / JUSTIFIED 34 / GAP 47`，全部 GAP 都是 prelink roots；官方 registry 103 页里
 mapped 21 / na 4 / unmapped 78。
 
+## P-306 预链接 root 列表是从别的板子抄来的，抄完没人判过
+
+**症状**。`audit-ios27-conformance.py` 首跑报「我们缺 44 个 prelink root」。逐条查下去发现两件事：
+
+1. **工具先错了一次**：我只读了 `board.toml`，而有效的 kernel spec 是 arch → soc → os → device
+   四层合并。构建日志里 `--root com.apple.driver.AppleMobileFileIntegrity` 等 30 条其实都来自
+   OS profile。修正后 `GAP` 从 47 落到 17，`SAME` 从 10 升到 40。这与 P-305 是同一形状：
+   **比错了层，结论就整块是假的**。
+2. **剩下的 12 条是真缺**：`IOUSBHostFamily`、`IOUSBDeviceFamily`、`AppleUSBXHCI`、
+   `AppleUSBHub`、`AppleUSBHostCompositeDevice`、`IOUSBHostHIDDevice`、`IOHIDEventDriver`、
+   `IOSCSIArchitectureModelFamily`、`IOSCSIBlockCommandsDevice`、`IOUSBMassStorageDriver`、
+   `AppleUSBDeviceMux`、`AppleUSBXDCI` —— 全是 USB / HID / SCSI 家族。Sheng 有，我们没有。
+   而我们的 USB 控制台工作（`0243`/`0300`）正是靠这些 kext 才可能被调用。
+
+**为什么不能直接抄**。`fileset_emit.dependency_closure()` 对不在 kernelcache 里的 root 直接
+`raise ValueError('Missing prelink dependency: …')`，而 `profiles.merge()` **替换**列表而不是追加
+⇒ 设备层要么一个都不写（继承 profile），要么写全（含 profile 那 30 条）。抄错一个名字，
+构建在 prelink 阶段崩，且崩的是 10 分钟之后。
+
+**判据**（`scripts/check-prelink-roots.py`，8 例测试）：
+
+1. 无重复条目；
+2. 每个被包含的 root 在**我们预链接的那份 kernelcache** 里存在（323 个 bundle，逐个核）；
+3. 任何 bundle 不能同时是 root 与排除项（`!bundle`）；
+4. 列表必须覆盖 OS profile 声明的每一条（设备层替换语义下，漏一条就是悄悄缩窄集合）；
+5. kernelcache 读不到时是「无法判定」（打印 note），不是「通过」——P-279 形状。
+
+**结果**。`board.toml` 新增 `[kernel.prelink].roots`：42 个包含 + 2 个排除
+（`!AppleOnboardSerial`、`!AppleSMC`，Sheng 自己的注释说明它们只经 metaclass 到达），
+合计 44，与 Sheng 同数。加上这份列表后 `audit-ios27-conformance.py` 读数
+`SAME 55 / JUSTIFIED 36 / GAP 0`。
+
+**还没证的**：这 12 个家族进了集合之后，prelink 残留（94 项无地址 / 203 项落桩）会不会变、
+`bsd_init` 是否因此更容易走到 —— 那要一次构建 + 一次日志，不是靠列表能推的。
+

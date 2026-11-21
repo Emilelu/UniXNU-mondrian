@@ -52,6 +52,26 @@ def _overlay(base, overlay):
     return out
 
 
+def _profile_kernel(framework, os_profile):
+    """The OS layer's [kernel] block is part of the recipe.
+
+    Comparing only board.toml reported 44 prelink roots as "absent" on our side
+    while the build was passing all 44 `--root` flags from the OS profile — the
+    same defect as reading Sheng's defconfig under our own name (P-305). The
+    effective kernel spec is arch -> soc -> os -> device.
+    """
+    import os
+    candidates = []
+    if framework:
+        candidates.append(os.path.join(framework, 'profiles', 'os', os_profile, 'profile.toml'))
+        candidates.append(os.path.join(framework, 'profiles', 'os',
+                                       os_profile.replace('ios-', 'ipados-'), 'profile.toml'))
+    for path in candidates:
+        if os.path.isfile(path):
+            return _deep_get(_read_toml(path), 'kernel', {}) or {}, path
+    return {}, None
+
+
 def _kernel_view(doc, os_profile):
     kernel = _deep_get(doc, 'kernel', {}) or {}
     overrides = _deep_get(doc, 'os_overrides', {}) or {}
@@ -133,13 +153,17 @@ def _resolve(base, rel):
     return os.path.isfile(candidate)
 
 
-def collect(ours_root, sheng_root, os_profile='ios-27.0.1-24A446'):
+def collect(ours_root, sheng_root, os_profile='ios-27.0.1-24A446', framework=None,
+            sheng_framework=None):
     """Return a list of rows: {key, ours, sheng, state_hint}."""
     import os
     ours = _read_toml(os.path.join(ours_root, 'board.toml'))
     sheng = _read_toml(os.path.join(sheng_root, 'board.toml'))
-    ok = _kernel_view(ours, os_profile)
-    sk = _kernel_view(sheng, os_profile)
+    our_profile = str(_deep_get(ours, 'board.os_profile', os_profile))
+    sheng_profile = str(_deep_get(sheng, 'board.os_profile', os_profile))
+    ok = _overlay(_profile_kernel(framework, our_profile)[0], _kernel_view(ours, os_profile))
+    sk = _overlay(_profile_kernel(sheng_framework or framework, sheng_profile)[0],
+                  _kernel_view(sheng, sheng_profile))
     rows = []
 
     def add(key, a, b):
@@ -174,8 +198,10 @@ def collect(ours_root, sheng_root, os_profile='ios-27.0.1-24A446'):
         add('archive:' + name, 'yes' if name in our_arch else MISSING,
             'yes' if name in sheng_arch else MISSING)
 
-    our_roots = {r.lstrip('!') for r in ((ok.get('prelink') or {}).get('roots') or [])}
-    sheng_roots = {r.lstrip('!') for r in ((sk.get('prelink') or {}).get('roots') or [])}
+    # `!bundle` is an exclusion, not an inclusion: stripping the bang made
+    # "Sheng excludes it, we include it" look like "both include it" (P-305 family).
+    our_roots = {str(r) for r in ((ok.get('prelink') or {}).get('roots') or [])}
+    sheng_roots = {str(r) for r in ((sk.get('prelink') or {}).get('roots') or [])}
     for name in sorted(our_roots | sheng_roots):
         add('prelink-root:' + name, 'yes' if name in our_roots else MISSING,
             'yes' if name in sheng_roots else MISSING)
@@ -263,6 +289,9 @@ def main(argv=None):
     parser.add_argument('--out-dir', default=os.environ.get('K60_OUT'))
     parser.add_argument('--deviations',
                         default='docs/research/ios27/CONFORMANCE-DEVIATIONS.toml')
+    parser.add_argument('--framework', default='../UniXNU',
+                        help='sibling framework checkout that carries profiles/os/<profile>')
+    parser.add_argument('--sheng-framework', default=None)
     parser.add_argument('--only', choices=('gap', 'all'), default='all')
     parser.add_argument('--json', action='store_true')
     args = parser.parse_args(argv)
@@ -271,7 +300,10 @@ def main(argv=None):
         print('FAIL: no board.toml under %s; pass --sheng' % args.sheng)
         return 2
     deviations, problems = _load_deviations(os.path.join(args.ours, args.deviations))
-    rows = classify(collect(args.ours, args.sheng, args.os_profile), deviations, args.ours)
+    rows = classify(collect(args.ours, args.sheng, args.os_profile,
+                            framework=args.framework,
+                            sheng_framework=args.sheng_framework),
+                    deviations, args.ours)
     coverage = registry_coverage(args.ours)
     residual = prelink_residual(args.ours, args.out_dir)
 

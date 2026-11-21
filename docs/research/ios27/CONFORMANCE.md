@@ -7,7 +7,7 @@
 - `justified` 有差异，但 `CONFORMANCE-DEVIATIONS.toml` 给了理由，且理由引用的文件在本仓可解析；
 - `GAP` 有差异且无人解释 —— 这一项就不能说「严格参考了 Sheng」。
 
-2026-11-21 首跑（`main` 分支 `diag/menu-hold-20261121`）读数：**SAME 6 / JUSTIFIED 0 / GAP 66**，
+首跑读数 **SAME 6 / JUSTIFIED 0 / GAP 66**（只比 `board.toml`，比错了层）；把 OS profile 那层合并进来后 **SAME 40 / GAP 17**，其中 12 条是真缺的 USB/HID/SCSI 家族；把这 12 条写进 `[kernel.prelink].roots`（42 包含 + 2 排除）之后 **SAME 55 / JUSTIFIED 36 / GAP 0**（`diag/menu-hold-20261121`，2026-11-22）。原始读数：
 官方 registry 103 页里 mapped 21、na 4、**unmapped 78（76% 从未审）**。
 
 ## 一、结构差异（K60 与 Sheng 的板子不同，属设计差异）

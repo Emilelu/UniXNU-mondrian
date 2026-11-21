@@ -21,8 +21,10 @@ their absence there shows up as a difference instead of a silent local pass.
 """
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -33,7 +35,12 @@ FIXTURES = os.path.join(HERE, "fixtures", "gpu27", "postflip")
 
 
 def run(log, lane):
-    command = [sys.executable, TOOL, os.path.join(FIXTURES, log),
+    # An absolute path is taken as given, so a case can build its log outside the
+    # fixtures. Fixtures live in a mirrored tree: writing into them at run time meant
+    # an interrupted case left a stray .log that sync-device-input.py then reported as
+    # unsynced (iron-5), i.e. the test could break the mirror it tests.
+    path = log if os.path.isabs(log) else os.path.join(FIXTURES, log)
+    command = [sys.executable, TOOL, path,
                "--judge=" + JUDGE,
                "--flip-asserts=" + FLIP,
                "--lane-root=" + os.path.join(FIXTURES, lane)]
@@ -79,17 +86,19 @@ def main():
     print("ok  exit 2  a missing log is cannot-judge")
 
     # A flight that never touched the scanout path cannot answer the question.
-    empty = os.path.join(FIXTURES, "postflip-v2-empty.log")
+    # Built in a temporary directory, never among the fixtures.
+    scratch = tempfile.mkdtemp(prefix="gpu27-postflip-")
+    empty = os.path.join(scratch, "postflip-v2-empty.log")
     with open(empty, "w", encoding="utf-8", newline="") as handle:
         handle.write("# SYNTHETIC FIXTURE: a flight in which nothing reached the scanout path\n")
     try:
-        code, output = run("postflip-v2-empty.log", "lane-postflip-in-step")
+        code, output = run(empty, "lane-postflip-in-step")
         if code != 2 or "never ran" not in output:
             raise SystemExit("empty flight: expected exit 2 and 'never ran', got %d\n%s"
                              % (code, output))
         print("ok  exit 2  a flight with no scanout line is cannot-judge")
     finally:
-        os.remove(empty)
+        shutil.rmtree(scratch, ignore_errors=True)
 
     # No default is allowed: the three paths are the caller's, not the file's.
     for missing in ("--judge", "--flip-asserts", "--lane-root"):

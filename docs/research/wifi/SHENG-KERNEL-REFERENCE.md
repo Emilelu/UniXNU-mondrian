@@ -214,7 +214,7 @@ Ath12kWifi = f087c7ddac07e945f20d199dbaf6c95c6db3346a。
 | L0 | 上表三问（字段、写者、Ath12k 不参与） | 已完成 | 位在 flags；sheng 写、我们与模块都不写；不是硬件事实 | 消费者是否需要 |
 | L1 | 反汇编 16.6.1 wifid 的 selector-27/254 回复解析，找 `and/tbz #7` 形态的 0x80 掩码 | 可做，未做 | 某一代 wifid 是否消费该位 | 24A446 是否同样 |
 | L1b | 已有行为对照：mission19 的 102 条应答与 5 GHz 记录被 16/22H374 侧 daemon 接受 | 已有 | 不含 0x80 的完整字在某一代 daemon 上可用 | 24A446 |
-| L2 | 24A446 消费者二进制（SystemOS 的 wifid，`043-68526-711.dmg.aea`，AEA 加密）做 L1 的分析 | 阻塞 | 目标代的位语义 | 运行时行为 |
+| L2 | 24A446 消费者二进制（SystemOS 的 wifid，`043-68526-711.dmg.aea`；已解密成 6.0 GB APFS，尚未挂载）做 L1 的分析 | 输入待挂载 | 目标代的位语义 | 运行时行为 |
 | L3 | 24A446 上机：GET 27 原始回复、同 BSSID 的 scan/current flags、Settings 行 | 阻塞（设备归 Lead） | 端到端 | — |
 
 L1 的输入已经在盘上：`E:/k60-work/scratch/wifid-20G81`（Mach-O arm64，2,606,496 B，sha256 96a3c5df…），

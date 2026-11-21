@@ -1,0 +1,32 @@
+# 24A446 B4 export/undefined snapshot
+
+source_revision=062a48e036c4620ea04ea9df5f022d36a5ee075c
+date=2026-11-21
+tool=/usr/bin/llvm-nm-18
+
+command:
+  cd /mnt/e/hackios/k60-wifi
+  /usr/bin/python3 scripts/check-wifi-b4-exports.py \
+    --kernel /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.macho \
+    --driver /opt/k60/trees/k60build/wifi/teardown27g/libPongWifiNative.a \
+    --station /opt/k60/trees/k60build/wifi/ath11k-abi27e/libPongAth11k.a \
+    --nm /usr/bin/llvm-nm-18
+
+inputs:
+  93061120 652237c6bf5476f216298df9ac71044ec51aa2349c3c31871e822810e163a19e  /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.macho
+  12120040 8e8175a52c11ca33c37b1343b377e409437d0abef5253b2b7e3ab0b8cb44047a  /opt/k60/trees/k60build/wifi/teardown27g/libPongWifiNative.a
+  741792 8bc323b63e4ad3fde07a2db7ac30e93cd37b1cfcd0165bdee1419452e85a8e59  /opt/k60/trees/k60build/wifi/ath11k-abi27e/libPongAth11k.a
+
+output:
+kernel com.apple.kernel exports: 24572
+driver undefined: 352 (kernel=314, same-archive=36, other-archive=0, station-API=2, absent=0)
+driver resolved: 350
+driver missing: _nw_wifi_power, _nw_wifi_scan_frequencies
+station undefined: 13 (kernel=12, same-archive=0, other-archive=1, station-API=0, absent=0)
+station resolved: 13
+B4: 24572 exports; 352 driver undefined, 350 resolved, 2 missing; 13 station undefined, 13 resolved, 0 missing
+
+note:
+  This is a report, not a gate: it exits 0 while the two station APIs are
+  missing. A changed count is a changed answer, not a green run. The kernel
+  input is mode 0600, so the command must run as a user that can read it.

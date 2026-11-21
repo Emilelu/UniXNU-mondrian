@@ -41,7 +41,7 @@ python3 scripts/check-wifi-b4-exports.py --kernel /opt/k60/trees/ios27-out/mondr
 ```
 
 预期末行：`B4: 24572 exports; 352 driver undefined, 350 resolved, 2 missing; 13 station undefined, 13 resolved, 0 missing`。
-任何计数变化都重开结论，不能只 grep 符号；符号级细节仍可从两个归档的 undefined 列表核对。
+任何计数变化都重开结论，不能只 grep 符号；完整输出与输入身份在 `docs/research/wifi/evidence/ios27-b4-exports.txt`，符号级细节仍可从两个归档的 undefined 列表核对。
 
 ## 为什么两行都不是「association 之前必须」
 
@@ -56,7 +56,7 @@ python3 scripts/check-wifi-b4-exports.py --kernel /opt/k60/trees/ios27-out/mondr
   24A446 是否在关联前要求电台断电/上电，仍要看它的消费者二进制。
 - **消费者证据**：`nw_abi.h` 是本线与站之间的私有契约，`wifid`/`IO80211Family` 不会直接引用这两个符号；
   它们只能通过 selector 路径（`kPower`、`kScanReq`）间接到达。24A446 的 wifid/IO80211Family 目前没有
-  可读二进制（`043-68526-711.dmg.aea` 加密，未解密），所以「谁在什么阶段调用」没有证据。
+  可读二进制（`043-68526-711.dmg.aea` 已解密到 6,023,020,544 B 的 APFS 镜像，但尚未挂载；见 `SYSTEMOS-KC-ACCESS.md`），所以「谁在什么阶段调用」没有证据。
 
 按 `SHENG-KERNEL-REFERENCE.md` I 节的阶梯，这里的证据只到 L0（源码/归档）；L1b 的 16/22H374 行为
 不能外推到 24A446。两行结论因此都是第三档：**无证据，保持 open**。

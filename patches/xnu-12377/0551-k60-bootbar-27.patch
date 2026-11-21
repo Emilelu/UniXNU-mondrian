@@ -1,0 +1,75 @@
+diff --git a/bsd/dev/k60_usblog_reset.c b/bsd/dev/k60_usblog_reset.c
+index 072e057..39fc3f8 100644
+--- a/bsd/dev/k60_usblog_reset.c
++++ b/bsd/dev/k60_usblog_reset.c
+@@ -103,3 +103,40 @@ k60_autoreset_start(void)
+ 	kprintf("k60-autoreset: armed for %d s after %d s idle\n",
+ 	    k60_autoreset_seconds, k60_autoreset_idle_seconds);
+ }
++
++/*
++ * 0551: paint one solid block into the framebuffer the loader handed over, so early
++ * boot progress is visible without any text rendering (CONSOLE-GAP.md, channel four).
++ * Mapped through ml_io_map like the ramoops path; a failed mapping reports instead of
++ * pretending to have painted anything.
++ */
++extern vm_offset_t ml_io_map(vm_offset_t phys, vm_size_t size);
++
++void
++k60_bootbar(unsigned rgb)
++{
++	unsigned long base = PE_state.video.v_baseAddr;
++	unsigned long stride = PE_state.video.v_rowBytes;
++	unsigned long height = PE_state.video.v_height;
++	unsigned long width = PE_state.video.v_width;
++	vm_offset_t mapped;
++	unsigned long x, y;
++	unsigned int *row;
++
++	if (base == 0 || stride == 0 || height == 0 || PE_state.video.v_depth < 32) {
++		kprintf("k60-bootbar: no usable framebuffer (base 0x%lx stride %lu depth %lu)\n",
++		    base, stride, PE_state.video.v_depth);
++		return;
++	}
++	mapped = ml_io_map((vm_offset_t)base, (vm_size_t)(stride * height));
++	if (mapped == 0) {
++		kprintf("k60-bootbar: ml_io_map failed for 0x%lx bytes %lu\n", base, stride * height);
++		return;
++	}
++	for (y = 8; y < 72 && y < height; y++) {
++		row = (unsigned int *)(mapped + y * stride);
++		for (x = 8; x < 72 && x < width; x++)
++			row[x] = (unsigned int)rgb;
++	}
++	kprintf("k60-bootbar: painted 0x%06x at 8,8\n", rgb & 0xffffff);
++}
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 326906b..b9fa06a 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1334,6 +1334,10 @@ bsd_autoconf(void)
+ 		k60_usblog_start();
+ 		extern void k60_autoreset_start(void);
+ 		k60_autoreset_start();
++
++		extern void k60_bootbar(unsigned rgb);
++
++		k60_bootbar(0x000000ff);
+ 	}
+ 	return result;
+ }
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 64e4df4..8755084 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -710,6 +710,10 @@ arm_init(
+ 
+ 	(void)pong_ramoops_console_init();
+ 
++	extern void k60_bootbar(unsigned rgb);
++
++	k60_bootbar(0x0000ff00);
++
+ 	/* K60 USB log channel: probe the DWC3 now (read-only); the CDC console
+ 	 * worker starts from bsd_autoconf once threads exist.  The probe keeps
+ 	 * its own runtime guard, so an unplugged cable costs nothing. */

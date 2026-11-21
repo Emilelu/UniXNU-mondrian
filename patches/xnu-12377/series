@@ -143,3 +143,7 @@ armcpu-sleep-hook.patch
 # cannot be observed on stage-0 and HR-01 forbids it before Data is mounted.
 0549-k60-usblog-reset-27.patch
 0550-k60-autoreset-27.patch
+# 0551 paints one solid block into the framebuffer right after arm_vm_init and again
+# after browser_init-side startup, so early progress is visible with no text (CONSOLE-GAP.md).
+# It maps through ml_io_map and reports instead of pretending when the map fails.
+0551-k60-bootbar-27.patch

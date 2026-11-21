@@ -29,9 +29,18 @@ BUILD_GLOB = 'Build/*/*/AARCH64'
 
 # The drivers the official page requires, as INF paths inside the volume.
 REQUIRED = (
+    'UniXNUPkg/Application/UniXNU/UniXNU.inf',
+    'UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf',
+    'DarwinBootPkg/Driver/DarwinBoot.inf',
+    'UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf',
     'MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf',
     'FatPkg/EnhancedFatDxe/Fat.inf',
-    'UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf',
+)
+
+# porting/uefi-firmware.md#required-integration also fixes two library mappings in the DSC.
+LIBRARIES = (
+    'HobLib|MdePkg/Library/DxeHobLib/DxeHobLib.inf',
+    'FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf',
 )
 
 INCLUDE = re.compile(r'^\s*!include\s+(\S+)\s*$')
@@ -105,6 +114,35 @@ def built(uefi: Path, inf: str) -> bool:
     return False
 
 
+
+def dsc_text(dsc: Path, roots: tuple[Path, ...]) -> str:
+    """The DSC with every !include it can resolve, so a module listed in an include still counts."""
+    if not dsc.is_file():
+        return ''
+    text = dsc.read_text(encoding='utf-8', errors='replace')
+    out = [text]
+    for name in INCLUDE.findall(text):
+        for root in (dsc.parent,) + roots:
+            candidate = root / name
+            if candidate.is_file():
+                out.append(candidate.read_text(encoding='utf-8', errors='replace'))
+                break
+    return '\n'.join(out)
+
+
+def dsc_integration(dsc: Path, roots: tuple[Path, ...] = ()) -> dict:
+    """The two halves of porting/uefi-firmware.md#required-integration that live in the DSC."""
+    text = dsc_text(dsc, roots)
+    components = {inf: (inf in text) for inf in REQUIRED}
+    mapped = {entry: (entry in text) for entry in LIBRARIES}
+    return {'components': components, 'libraries': mapped, 'text': text}
+
+def libraries(dsc: Path) -> dict:
+    """The two library mappings the official page fixes in [LibraryClasses]."""
+    text = dsc.read_text(encoding='utf-8', errors='replace') if dsc.is_file() else ''
+    return {entry: entry in text for entry in LIBRARIES}
+
+
 def check(uefi: Path, required: tuple[str, ...] = REQUIRED) -> dict:
     platform = uefi / PLATFORM
     if not platform.is_dir():
@@ -115,10 +153,15 @@ def check(uefi: Path, required: tuple[str, ...] = REQUIRED) -> dict:
     for inf in required:
         rows.append({
             'inf': inf,
-            'listed': inf in present,
+            'listed': any(one == inf or one.endswith(inf) for one in present),
             'built': built(uefi, inf),
         })
-    return {'platform': platform, 'own': own, 'pulled': pulled, 'rows': rows}
+    dsc = platform / 'mondrian.dsc'
+    roots = (uefi, uefi / 'Silicon/Qualcomm')
+    integration = dsc_integration(dsc, roots)
+    return {'platform': platform, 'own': own, 'pulled': pulled, 'rows': rows,
+            'libraries': integration['libraries'], 'components': integration['components'],
+            'dsc': dsc}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -146,11 +189,23 @@ def main(argv: list[str] | None = None) -> int:
             why.append('never built')
         suffix = f' ({", ".join(why)})' if why else ''
         print(f'{mark} {Path(row["inf"]).stem}{suffix}')
+    for inf, listed in result['components'].items():
+        if listed:
+            continue
+        bad += 1
+        print(f'FAIL {Path(inf).stem} (not in the DSC [Components]; an FDF INF line alone '
+              f'does not build it)')
+    for entry, mapped in result['libraries'].items():
+        if mapped:
+            continue
+        bad += 1
+        print(f'FAIL {entry.split("|")[0]} (not mapped in the DSC [LibraryClasses])')
     if bad:
-        print(f'FAIL {bad} required driver(s) are not in this volume; the page\'s '
-              f'claim does not hold')
+        print(f'FAIL {bad} required item(s) from porting/uefi-firmware.md#required-integration '
+              f'are missing; the page\'s claim does not hold')
         return 1
-    print(f'OK {len(result["rows"])} required driver(s) are listed and built')
+    print(f'OK {len(result["rows"])} required driver(s) are listed and built, '
+          f'{len(result["libraries"])} library mapping(s) are in the DSC')
     return 0
 
 

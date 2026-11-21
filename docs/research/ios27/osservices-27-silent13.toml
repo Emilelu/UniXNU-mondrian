@@ -1,0 +1,153 @@
+# iOS 27 · 13 项静默优先集（机器可读副本）
+#
+# 来源：E:/k60-work/scratch/stubs/unreachable.toml（build 20，`python3 classify.py report` 生成，
+# 205 槽 / 203 目标 / 25 bundle），筛选条件 `reason` 含 `early_security_init`。
+# 说明文档：docs/research/ios27/osservices-27.md §B。
+#
+# 两个数字：205 = 指针槽数；203 = 去重目标地址数（0xfffffff00b430ab8 / 0xfffffff00b430bd4
+# 各被 IOHIDFamily + IOStorageFamily 两个 bundle 持有）。
+#
+# `baseline` 是 bundle 级判定（classify.py:420-433 BASELINE_BUNDLES），不是地址级。
+# 本文件由 scripts/check-osservices27-silent13.py 校验；改这里必须同时改 md 的 B.4 表。
+
+declared = { slots = 205, targets = 203, bundles = 25, missing = 3, stubbed = 203 }
+early_security_init = { bundle = "com.apple.driver.AppleMobileFileIntegrity", address = "0xfffffff00921000c" }
+
+[[target]]
+address = "0xfffffff00b4320d8"
+size = 28
+items = 5
+bundles = 5
+identity_status = "unknown"
+anchor_prev = { address = "0xfffffff00b431f70", name = "_get_arm_cpu_version", delta = 0x168 }
+# 其后再没有任何已匹配函数：这是 kernel.map.json 里最高的原始地址。
+anchor_next = { address = "0xfffffff00b431f70", name = "_get_arm_cpu_version", delta = 0x168, note = "no matched function above" }
+falsifier = "上机 panic 的返回地址若不落在 B.4 表里该目标的某个加载点，则「同一目标被 5 个 bundle 共用」这条绑定错了"
+
+[[target]]
+address = "0xfffffff00b432308"
+size = 664
+items = 5
+bundles = 5
+identity_status = "probable"
+identity = "device-tree getter (DTGetProperty family)"
+anchor_prev = { address = "0xfffffff00b431f70", name = "_get_arm_cpu_version", delta = 0x398 }
+anchor_next = { address = "0xfffffff00b431f70", name = "_get_arm_cpu_version", delta = 0x398, note = "no matched function above" }
+falsifier = "664 B 的体量与 DT getter 相称只是形态证据；若反汇编显示它被当数据指针带偏移读取，则判为数据对象而不是 getter"
+
+[[target]]
+address = "0xfffffff00b11a998"
+size = 240
+items = 3
+bundles = 3
+identity_status = "probable"
+identity = "_code_signing_configuration"
+anchor_prev = { address = "0xfffffff00b11a890", name = "_code_signing_deallocate", delta = 0x108 }
+anchor_next = { address = "0xfffffff00b11aa88", name = "_disable_code_signing_feature", delta = 0xf0 }
+falsifier = "反汇编 0xfffffff00920929c+0x2c 的用法：若直接 blr 则该目标是函数、不是配置结构，假设错"
+
+[[slot]]
+id = 1
+site = "0xfffffff007f0dcd0"
+bundle = "com.apple.driver.AppleARMWatchdogTimer"
+target = "0xfffffff00b4320d8"
+loader = "0xfffffff00864e320+0x2c"
+baseline = true
+
+[[slot]]
+id = 2
+site = "0xfffffff008074ce0"
+bundle = "com.apple.security.AppleImage4"
+target = "0xfffffff00b4320d8"
+loader = "0xfffffff008fdbaf4+0x38"
+baseline = true
+
+[[slot]]
+id = 3
+site = "0xfffffff0080c7e78"
+bundle = "com.apple.driver.AppleMobileFileIntegrity"
+target = "0xfffffff00b4320d8"
+loader = "0xfffffff00920929c+0x288"
+baseline = false
+
+[[slot]]
+id = 4
+site = "0xfffffff0083ae748"
+bundle = "com.apple.security.Image4"
+target = "0xfffffff00b4320d8"
+loader = "0xfffffff00a86cb84+0x38"
+baseline = true
+
+[[slot]]
+id = 5
+site = "0xfffffff0083c1db0"
+bundle = "com.apple.security.sandbox"
+target = "0xfffffff00b4320d8"
+loader = "0xfffffff00a8e1350+0x138"
+baseline = false
+
+[[slot]]
+id = 6
+site = "0xfffffff007f0dce8"
+bundle = "com.apple.driver.AppleARMWatchdogTimer"
+target = "0xfffffff00b432308"
+loader = "0xfffffff00864b8fc+0x7d4"
+baseline = true
+# 该加载点用到字符串 wdt-version / reconfig-wdog-support
+strings = ["wdt-version", "reconfig-wdog-support"]
+
+[[slot]]
+id = 7
+site = "0xfffffff008074ce8"
+bundle = "com.apple.security.AppleImage4"
+target = "0xfffffff00b432308"
+loader = "0xfffffff008fee294+0x5c"
+baseline = true
+
+[[slot]]
+id = 8
+site = "0xfffffff0080c7e80"
+bundle = "com.apple.driver.AppleMobileFileIntegrity"
+target = "0xfffffff00b432308"
+loader = "0xfffffff00920929c+0x260"
+baseline = false
+
+[[slot]]
+id = 9
+site = "0xfffffff0083ae750"
+bundle = "com.apple.security.Image4"
+target = "0xfffffff00b432308"
+loader = "0xfffffff00a86cdf0+0x70"
+baseline = true
+
+[[slot]]
+id = 10
+site = "0xfffffff0083c1db8"
+bundle = "com.apple.security.sandbox"
+target = "0xfffffff00b432308"
+loader = "0xfffffff00a8e1350+0x110"
+baseline = false
+
+[[slot]]
+id = 11
+site = "0xfffffff008074e20"
+bundle = "com.apple.security.AppleImage4"
+target = "0xfffffff00b11a998"
+loader = "0xfffffff008fd8f50+0x20"
+baseline = true
+
+[[slot]]
+id = 12
+site = "0xfffffff0080c8060"
+bundle = "com.apple.driver.AppleMobileFileIntegrity"
+target = "0xfffffff00b11a998"
+loader = "0xfffffff00920929c+0x2c"
+baseline = false
+
+[[slot]]
+id = 13
+site = "0xfffffff0083ae858"
+bundle = "com.apple.security.Image4"
+target = "0xfffffff00b11a998"
+loader = "0xfffffff00a869f48+0x21c"
+baseline = true

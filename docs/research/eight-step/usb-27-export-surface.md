@@ -179,9 +179,9 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 
 ## 4. 离线判据（交付 ④）
 
-脚本：`scripts/usb27/kc-surface.py`（只读，不构建；`sha256 5592fdc50c26dd1ed3c49a9d291b02d8a800410845d2c2c9a626489efb69b00a`）。
+脚本：`scripts/usb27/kc-surface.py`（只读，不构建；`sha256 508415723de0684e0a27ea3055e111fe42481d27d48f8a32c51fcfdecbb39fa0`）。
 数据：`docs/research/eight-step/usb-27-providers.tsv`（`sha256 4a27b221bb2e374e97cfa775b782b31f8d099031c3049d403be9aaf725c829c2`）。
-四个子命令都可独立跑，`RESULT PASS|FAIL (n)`，exit 0/1（解析错误 exit 2）。
+五个子命令（`kexts`/`surface`/`object`/`roots`/`adt`）都可独立跑，`RESULT PASS|FAIL (n)`，exit 0/1（解析错误 exit 2）。`adt` 的自证在 `scripts/usb27/test-adt-check.sh`（`sha256 8dbfaa96db03cdabfb4039bc61e56273277b24c1a6bbf8fd909095b6bc3d8f1e`）。
 以下命令都从 `E:/hackios/k60-usb27` 出发、在 WSL 里执行（`llvm-nm-18` 与 `python3` 只在 WSL 侧有）。
 
 | # | 命令 | 期望输出 | 判据 |
@@ -190,6 +190,48 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 | 2 | `python3 scripts/usb27/kc-surface.py surface …/kernel-27-652237c6.macho --require-prefix AppleUSB --require-prefix IOService` | `symbols   64931 defined, 0 undefined`、`FAIL prefix 'AppleUSB': 0 defined`、`PASS prefix 'IOService': 1680 defined` | 前一行证明采集本身有效（`IOService` 能命中），后一行证明 `AppleUSB` 真为 0 —— 避免「脚本抓不到东西」被当成「没有」 |
 | 3 | `python3 scripts/usb27/kc-surface.py object …/kernel-27-652237c6.macho /opt/k60/trees/gates-out/mondrian/ipados-16.6.1-20G81/…/k60_usblog.o --providers docs/research/eight-step/usb-27-providers.tsv` | `resolvable 27, missing 7`，逐行 `FAIL <sym>  <- <patch:line>`，`RESULT FAIL (7)` | 7 个行必须与 §2.2 表逐字一致；少一个（例如有人把 0235 带进 27）说明补丁面变了 |
 | 4 | `python3 scripts/usb27/kc-surface.py roots /mnt/e/hackios/UniXNU/profiles/os/ipados-27.0.1-24A446/profile.toml --require-kext com.apple.driver.AppleUSBXDCI` | `effective roots 31, usb/scsi roots 0`、`FAIL kext …`、`RESULT FAIL (1)` | 对照跑 sheng：加 `…/UniXNU-sheng/board.toml` 后 `effective roots 40, usb/scsi roots 11`、`RESULT PASS`。两个板子同 profile 同内核，差别只在 board 的 prelink 根 —— 这是「27 没有 USB 的直接原因」的**机器判据** |
+| 5 | `python3 scripts/usb27/kc-surface.py adt /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb /mnt/e/hackios/k60-gates/board.toml --expect-base 0xa600000` | `dtb … (4307 bytes, 29 nodes)`、`usb nodes 0`、`adt.arm-io nodes 2: pong-buttons, pong-touch`、`usb arm-io nodes 0`、`node  expected base 0xa600000 absent in the ADT inputs`、`REASON no usb node in the hardware device tree`、`REASON no usb node carries unixnu,adt-name and no [adt.arm-io] block declares one, so the ADT has no usb child`、`REASON expected base 0xa600000 is not declared by either input`、`RESULT FAIL (3)`、**exit 1** | 这是 Lead 要的那条 0/1 判据：「27 侧 USB 控制器是否在 ADT 里被声明」——**没有**。DT 侧读的是 payload 真正的 `hardware.dtb`（4,307 B），不是从 DT 源推断；board 侧读 `[adt.arm-io.*]` 的四个 kind 子表。exit 0 只在「DT 有 USB 节点且每个 reg 基址都被 `[adt.arm-io]` 声明」时出现 |
+| 5b | `bash scripts/usb27/test-adt-check.sh` | 六条 `PASS`（见下）+ `RESULT PASS`、exit 0 | 判据的自证。只会在真实树上 FAIL 的脚本不算判据，所以每条正反例都跑：导出节点+board 块 → 0；**无 `unixnu,adt-name` 的 usb 节点对真 board → 1**；仅 board 块 → 0；同名双边 → 1；未声明基址 → 1；27 产物 → 1 |
+
+`adt` 的判定规则（脚本里写死，改它就要改这张表，也改这一节）：
+
+1. **ADT 不是 DT**。内核拿到的是 `UniXNU/scripts/unixnu/devicetree.py:311-420` 的 `generate()`
+   重新拼出来的 `/device-tree`：`cpus`/`psci`/`arm-io`/`chosen` + `defaults|options|product|buttons`。
+   一个硬件节点只有在 DTS 里带 **`unixnu,adt-name`** 才会被导出成 `/device-tree/arm-io/<name>`
+   （`devicetree.py:388-397`，`hardware = [entry for entry in entries if 'unixnu,adt-name' in entry.properties]`）。
+   `[adt.arm-io.*]` 表则是 `platform_node(name, table)` 直接加进同一个 `arm-io`
+   （`devicetree.py:393-396`），两边同名会在这里抛
+   `Configured arm-io child duplicates an exported hardware node`（`devicetree.py:389`）。
+2. 所以 `adt` 子命令只认两条路：DT 里命中 `usb|dwc3|eusb2|ssphy` **且**带 `unixnu,adt-name` 的节点，
+   或 board 里命中同一组词的 `[adt.arm-io.<name>]` 块。两条都没有 ⇒ `REASON ... the ADT has no usb child`。
+3. `reg` 按 2+2 或 1+1 cell 解基址；board 侧取 `.u64/.u32/.string` 里的 `0x…` 串与整数。
+   `--expect-base` 要求该基址出现在任一条路的声明里（导出节点的 `reg` 或 board 数字），
+   这样「有个 usb 节点但地址是别的窗口」也会被抓出来。
+
+为什么这条判据仍然值得写：`[adt.arm-io.*]` 是 board 层交给板级驱动的参数表
+（`E:/hackios/k60-gates/board.toml:229` 起的 `pong-touch`/`pong-buttons` 就是这种用法），
+而 DT 导出是「硬件节点进内核」的唯一通道。27 现在**两条都没有**，且 DT 侧缺口能追到源：
+`board.toml:53-55` 的 `[device_tree] source = "device:dts/mondrian.dts"` +
+`include_dirs = ["soc:dts"]`，而 `dts/mondrian.dts`（235 行，`unixnu,adt-name` 6 处：
+`pong-audio`/`wlan`/`bluetooth`/`ufshc` 等）与 `E:/hackios/UniXNU-sm8475-common/dts/sm8475.dtsi`
+（79 行，1 处：`intc`）**都没有 usb 节点**（`grep -ci usb` = 0）⇒ 4,307 B 的 `hardware.dtb`
+只有 29 个节点、0 个 USB，是源里就没有，不是产物丢节点。
+
+对照组要说清两点，否则这条判据会被读偏：
+
+- **sheng 也不是靠 `[adt.arm-io]` 起 USB 的**：`E:/hackios/UniXNU-sheng/board.toml` 里 `adt.arm-io`
+  节点数是 **0**（同一条 `adt` 命令的 INFO 行可见），它的 USB 靠 `board.toml:25` 的 11 个
+  prelink 根 + `QcomDwc3.cpp:40-41` 的硬编码窗口。所以 board 半边 FAIL **不能**单独证明
+  「K60 有 sheng 没有的缺口」。
+- **sheng 的 DT 半边拿不到**：`board.toml:107` 指 `build/sheng/sheng.dtb`，本机没有这个产物，
+  它的 DT 源 `dts/sheng.dts` 只有 56 行且 `grep -ci usb` = 0，USB 节点来自被 include 的
+  `soc:dts`（本机无对应 dtsi）。这一格记 **unmeasured**，不许写成「sheng 的 ADT 有 USB 节点」。
+
+还有一处必须写明的限制：`payload.json` 的 `adt_sha256`（`899ea73a…`）**不等于**
+`sha256(hardware.dtb)`（`59faef26e286b376e1ded968ac69eebaca44dac4c9e3c183ba99a3cdafa906a2`），
+因为 ADT 是 `generate()` 的产物（`UniXNU/scripts/unixnu/payload.py:231-236`）。`adt` 子命令读的是
+**输入**（DT 与 board 表），不是最终 ADT 二进制；结论只对「输入里有没有声明」成立，这一点写在
+§7 第 7 条里。
 
 对照组（16.6.1 内核）用来证明脚本不是只会说 FAIL：`kexts` 会报 `filetype 0x2 (MACH_EXECUTE)` +
 `note no machine-readable __PRELINK_INFO`，`surface --require-symbol _k60_usblog_init --require-symbol _k60_usblog_start` 给 `RESULT PASS`（4.8 万符号里真有这两个）。
@@ -211,6 +253,7 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 | 4 | `gen-usb27-abi.py` 重跑 → `usb-xdci-24A446.json` / 按 `build-gop-legacy-display-27.py:550-589` 生成 `OriginalUsbXdciABI.h` | usb.md:72-74 | `static_assert(sizeof(AppleUSBXDCI)==instance_size)` 过 | **阻塞：需要 24A446 kernelcache**（本机只有 20G81/21H461） |
 | 5 | 启动参数加 `sheng-usb=1`（官方路由）或 `k60_usblog=2`（自写 gadget 路由） | usb.md:62；`E:/hackios/k60-gates/board.toml:173-174` | 控制器线程真的跑起来；`native_usb_stats[0]` 由 0 变正 | Lead |
 | 6 | 自写 gadget 路由：`bsd/dev/k60_usblog.c` + `bsd/conf/files` 一行 + `patches/xnu/{0300,0307,0308}` + `patches/usb/0405-0411` + 诊断五补丁（`0235/0238/0331/0337/0334b/0306`） | §2.2 表；§2.4 第 2 行 | `kc-surface.py object` 的 `missing` 从 7 变 0 | 我出移植草案，Lead 构建 |
+| 7 | 二选一（不要同时做，`devicetree.py:389` 会抛重名）：(a) 在 `E:/hackios/UniXNU-sm8475-common/dts/sm8475.dtsi` 或 board 的 `dts/mondrian.dts` 里加 `usb@a600000` 节点并写 `unixnu,adt-name = "usb0"`（只加节点不加该属性不会进 ADT，`devicetree.py:388`）；(b) 或只在 board.toml 加 `[adt.arm-io.pong-usb.u64] dwc-base="0xa600000"` | `RESEARCH.md:81`（DWC3 0xa600000/size 0xd93c）、`OFFICIAL-DRIVER-MAP.md:464`；判据 5/5b 给出「改完怎么算过」 | `kc-surface.py adt` 从 `RESULT FAIL (3)` 变 `RESULT PASS` | **需要 owner 同意**（`UniXNU-sm8475-common` 是共享组件树、`dts/mondrian.dts` 在 k60-gates，两者都不在我的写权限内）；对 QcomDwc3 路线**非必需**（`QcomDwc3.cpp` 全文 0 处 `IODT*` 调用），只对「读 DT 的消费者」有意义 |
 
 顺序建议：**先 1+2（不改代码、只开花名册）**拿到「USB kext 是否真进 27 产物」的判据；
 再 3+5 试官方栈能不能起来；4 一旦拿到 kernelcache 就必须做，否则 XDCI 子类无法实例化；
@@ -224,8 +267,9 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 | --- | --- | --- |
 | 静态对照 | 官方 usb.md 的六节 ↔ §3 的 27 接入点表 ↔ §2 的导出面表 | 逐节有引；`AppleUSB` 0、`native_usb_stats` 0、`QcomDwc3` 0 三处一致 |
 | 离线单测（官方） | `bash scripts/usb27/ucsi-host-test.sh`（内部：`git archive e4efe95c \| tar -x` 到临时目录；`clang++ -std=c++17 -I.. ucsi_host.cpp && ./ucsi_host`） | **`PASS` / `RESULT PASS`，exit 0**（宿主侧，不构建内核）。测试用一个端口管理器模型跑 `ucsi_start`/`ucsi_receive`：断言 `u.partner == kUcsiPartnerDfp`、版本 `0x0110`/`0x0200` 两档 buffer、变更通知的 ack 顺序 |
-| 产物检查 | §4 的四条命令 | 依次 `RESULT FAIL (1)` / `FAIL prefix 'AppleUSB': 0` + `PASS IOService 1680` / `resolvable 27, missing 7` / K60 `usb/scsi roots 0` vs sheng `11` |
-| `local_verified` | 以上三项都只证明「27 产物里没有 USB 面」「驱动源自身自洽」 | **仍为 false**：没有任何一项证明 K60 上 USB 能出字，那需要上机（⑧） |
+| 产物检查 | §4 的五条命令 | 依次 `RESULT FAIL (1)` / `FAIL prefix 'AppleUSB': 0` + `PASS IOService 1680` / `resolvable 27, missing 7` / K60 `usb/scsi roots 0` vs sheng `11` / `adt` 三条 `REASON` 且 **exit 1** |
+| 判据自证（Lead 要求 ⑦ 可跑） | `bash scripts/usb27/test-adt-check.sh` | 六条全 `PASS`：导出节点+board 块 → 0、无 `unixnu,adt-name` 的 usb 节点×真 board → 1、仅 board 块 → 0、同名双边 → 1、未声明基址（QMP 0x88e8000）→ 1、真 27 产物 → 1；`RESULT PASS` |
+| `local_verified` | 以上三项都只证明「27 产物里没有 USB 面」「驱动源自身自洽」「ADT 里没有声明」 | **仍为 false**：没有任何一项证明 K60 上 USB 能出字，那需要上机（⑧，见 §9） |
 
 ---
 
@@ -238,6 +282,9 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 4. **K60 的 eUSB2 参考时钟是否走 TCSR**（FSEL 38.4 MHz）—— 本地只有 sheng 的 DT 与 K60 的 phy 节点，没取到 `tcsr` 属性。证据：完整 K60 Android DT（22k 行版本，`mondrian.dts:16856-16905` 区间）或 16.6.1 实测 TCSR 读取值。
 5. **UCSI 在 K60 上是否从 `charger_pd` 回答** —— 未取证。证据：上机日志里 `qcom_ucsi_receive` 计数；无回答时按 usb.md:93 走 device，对控制台可接受。
 6. **prelink 根的闭包会不会拖进 `AppleOnboardSerial`/`AppleSMC` 冲突** —— sheng 用两条 `!` 排除（`UniXNU-sheng/board.toml:25`），K60 是否需要同样的排除要等真机。证据：加根后 prelink 报告里两边是否同时存在。
+7. **27 里到底有没有消费者读 USB 的 ADT 节点** —— 已知 `QcomDwc3.cpp` 全文 0 处 `IODT*`（它自建 nub + 硬编码窗口，`QcomDwc3.cpp:846-881`），所以 ADT 缺口对这条路线不是阻塞项；Apple 的 `AppleUSBXDCI`/`AppleUSBXHCI` 是否在 `start()` 里找 `/arm-io` 子节点 **未定**（它们在我们产物里不是 kext）。证据：拿到 24A446 kernelcache 后对这两个 kext 做 `strings | grep -c IODTFindMatchingEntries` 与 `nm` 反查，或上机后看 `ioreg -p IODeviceTree` 里 USB 节点缺失时 XDCI 的 `probe` 返回什么。
+7b. **`adt` 子命令读的是输入，不是最终 ADT 二进制** —— 它检查 `hardware.dtb` 的 `unixnu,adt-name` 与 board `[adt.arm-io]`，而内核实际拿到的是 `generate()` 的产物（`payload.json` 的 `adt_sha256 899ea73a…` ≠ `sha256(hardware.dtb) 59faef26…`）。「输入里没有 ⇒ ADT 里没有」这一推理成立，因为 `generate()` 只会加节点不会凭空造 usb 子节点（`devicetree.py:388-397`）；反过来「输入里有 ⇒ ADT 里一定有」**没有验证**（取决于 `hardware_properties`/`platform_node` 的过滤）。证据：在一次允许的构建后对 `payload/kernel.macho.adt` 直接跑同一套 FDT 遍历（脚本已有 `fdt_nodes()`，只差一个 `--adt` 入口），或导出 payload.img 里的 ADT 段比对。
+8. **ADT 判据的 board 半边是不是本板特有** —— sheng 的 `[adt.arm-io]` 节点数是 0，`build/sheng/sheng.dtb` 本机不存在，所以「sheng 的 DT 有 USB 节点」这半句**未测**。证据：在 sheng 树上构建一次 payload 后对 `build/sheng/sheng.dtb` 跑同一条 `adt` 命令（我没有构建权限），或拿 sheng 的 `kernel.macho.adt` 直接遍历 `arm-io` 子节点名。
 
 ## 8. 参考源判定（iron-16）
 
@@ -253,7 +300,48 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 
 ---
 
-复现全部数字的最短路径（不构建、不动设备）：
+## 9. ⑧ 上机判据（只写判据，不上机）
+
+上机由 Lead 调度；本节只回答「跑完之后用什么判、判不出来时怎么把它标成 INVALID」。
+每条都带 `unmeasured`：写明这条即使过了，也**仍然没有测到**什么。没有串口的板子上，
+「没看到」和「坏了」是两件事，所以每条都单独给 INVALID 条件。
+
+### 9.1 prediction（改动前先写死，改完只用它判）
+
+对 §5 的 (1)(2)(3)(5)（prelink 根 + QcomDwc3 组件 + stream 0x0/IRQ 165 + `sheng-usb=1`），
+预期按顺序出现：`native_usb_stats[0] = 9` → `native_usb_stats[1] = 0x33313130`
+（GSNPSID，`RESEARCH.md:56`；白名单 0x5533/0x5534/0x3331 见 `QcomDwc3.cpp:602`）→
+`native_usb_stats[19] = 1`（XDCI `start` 返回）→ stage 12 → 主机侧枚举出设备。
+**任一环缺席都算预测失败**，不得把后面的通过当成前面的证据。
+
+### 9.2 判据表
+
+| # | 要观察到什么 | 怎么观察（无串口） | 期望 | 判 INVALID（证据不足，不是 FAIL） | unmeasured |
+| --- | --- | --- | --- | --- | --- |
+| D1 | 产物里真的有 USB 面 | 离线：§4 的 1–4 条（不用上机） | `kexts --require-kext com.apple.driver.AppleUSBXDCI` 转 PASS、`roots` 里 usb/scsi 从 0 变 11 | **不适用**（离线可判） | 产物里有 kext ≠ 运行时被实例化；这一步过了也说明不了控制器起来了 |
+| D2 | 控制器 bring-up 到 stage 9 | 面板 console（`0543-k60-ios27-panel-console.patch`）里打 `usb stage=`；**当前 0543 没有这一行**，要用就得先加打印 | `stage=9`、core id `0x33313130` | 面板上既没有 `usb stage=` 也没有任何新行，且主机 30 s 内无枚举 ⇒ 连「内核跑到哪」都不知道，判 INVALID | 面板 console 是否覆盖到 USB 线程启动的那个时刻（bsd_init 之后）——没有实测过 |
+| D3 | 失败时能定位到哪一阶段 | 同上，读负值：`-1` 映射/`-2` 电源轨/`-3` GDSC/`-4` 时钟复位/`-5` SMMU/`-6` 中继器/`-7` PHY/`-8` core id/`-9` 之后（`QcomDwc3.cpp:576-604`） | 负值能对上表里某一行 | 读到负值但面板行被截断、只剩前 40 字符 ⇒ 判 INVALID，重跑一次并加长缓冲 | 每个阶段在 K60 上的具体寄存器读数（无串口时只能看到阶段号，看不到值） |
+| D4 | USB2 高速链路（eUSB2 FSEL 38.4 MHz） | Mac：`ioreg -p IOUSB -l -w0 \| grep -E 'idVendor\|idProduct\|Device Speed'`（usb.md:113-118） | 出现 `0x1209/0x0001`（自写 gadget）或 Apple 的默认 ID，`Device Speed = 3`（high） | 主机侧 `ioreg` 里 30 s 无任何新节点，且 D2 也没读到 stage ⇒ INVALID（先修取证通道） | K60 的 eUSB2 `tcsr` 属性（§7 第 4 条），所以 FSEL 是否真被写成 38.4 未测 |
+| D5 | SuperSpeed（QMP + retimer） | 同上，看 `Device Speed = 4` | 4（10 Gbps 线） | 只有 3 没有 4 ⇒ 不是 INVALID，是「QMP/retimer 没通」，可按 usb.md:60 回退 UTMI | K60 的 USB3 通道（fsa4480/Type-C 方向）从未取证；`maximum-speed=high-speed`（`FEATURES-DRIVERS-RESEARCH-2026-10-31.md:81`）说明这条本来就不是控制台的前提 |
+| D6 | 线缆角色切换（UCSI） | 换一条线/一个优盘重跑，`sheng-usb-host=1` 强制宿主 | host 模式下 `ioreg -p IOUSB` 出现优盘；device 模式出现 D4 的节点 | UCSI 无回答时按 usb.md:93 跑 device —— 这是**预期分支**，不算 INVALID | K60 是否从 `charger_pd` 拿到线缆对端（§7 第 5 条）；`qcom_ucsi_receive` 的计数没有可读出口 |
+| D7 | 配对/lockdown | Mac 上的信任弹窗与 `UserDeniedPairing` 文案（usb.md:104-107 的失败表） | 弹窗出现、信任后能读设备 | 枚举成功但没有任何弹窗、也没有 `UserDeniedPairing` ⇒ 判 INVALID（配对路径没走到） | `/System` 的 fsid 与锁状态在 27 stage-0 上是否可写（当前进不了 SpringBoard） |
+| D8 | **CDC 控制台能不能出字**（这条线真正的目的） | 主机侧出现 tty 后写 64 字节回环，读回 64 字节（16.6.1 的 c 格判据，`k60-usb/docs/research/usb/08-on-device.md`） | `sent=64 received=64` | 枚举成功、tty 存在，但 60 s 内零字节 ⇒ 这是**判 FAIL**（官方栈缺 CDC 数据类驱动），不是 INVALID；据此才启动 §5 第 6 项 | 27 的 Apple 栈里到底有没有 CDC-ACM 数据类驱动（§7 第 3 条，要 24A446 kernelcache） |
+
+### 9.3 无串口时的通用 INVALID 规则
+
+一次上机只有在下面四条同时成立时才可以下结论，缺一条就记 INVALID 并重跑，不许写成 FAIL：
+
+1. boot claim 有记录（谁、什么时间、哪个 payload sha256）；
+2. `payload.json` 的 `kernel_sha256` 与预期镜像一致（当前 `652237c6…`），不一致 ⇒ 判的是别的镜像；
+3. 主机侧观察窗口 ≥ 30 s（DWC3 枚举在 `bsd_init` 之后，冷启动可能更慢）；
+4. 面板 console 至少有一行新输出（证明内核走到了 console worker）。第 4 条不成立时，
+   一切「主机没看到设备」都不算 USB 的证据 —— 这正是 2026-11 那几次 0 字节日志的教训。
+
+
+
+---
+
+## 复现全部数字的最短路径（不构建、不动设备）
 
 ```sh
 # WSL 内，工作目录 E:/hackios/k60-usb27
@@ -262,4 +350,9 @@ python3 scripts/usb27/kc-surface.py kexts  $K27 | tail -3
 python3 scripts/usb27/kc-surface.py surface $K27 --require-prefix AppleUSB --require-prefix IOService
 python3 scripts/usb27/kc-surface.py roots /mnt/e/hackios/UniXNU/profiles/os/ipados-27.0.1-24A446/profile.toml \
   --require-kext com.apple.driver.AppleUSBXDCI
+# 判据 5（ADT 0/1）与它的自证
+python3 scripts/usb27/kc-surface.py adt \
+  /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/device-tree/hardware.dtb \
+  /mnt/e/hackios/k60-gates/board.toml --expect-base 0xa600000
+bash scripts/usb27/test-adt-check.sh
 ```

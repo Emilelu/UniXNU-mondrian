@@ -25,13 +25,28 @@ and it grades the three questions the Lead asked on 2026-11-21:
      build must say so. Both blocks call a bare `test -f` (`:729`, `:767`) and
      the script runs under `set -euo pipefail` (`:9`), so the build exits 1
      printing nothing. A one-line `|| { echo ...; exit 1; }` makes the failure
-     readable; until then the defect is graded.
+     readable.
 
-Measured on 2026-11-21, the two switches are off and unmentioned in
-`configs/mondrian_ios27_defconfig`, so the tree is *closed*: nothing links, and
-that is correct for stage 0. What the gate still fails is the failure form and
-the missing producers, because those become the F3 blocker the moment a switch
-is turned on.
+The three states, and what the exit code means in each:
+
+  dormant  the switch is off in the defconfig. Nothing links, nothing is
+           claimed, so the gate exits 0 and prints `NOTE` rows: the producer
+           path and the failure form are latent, not current, defects. A bare
+           `test -f` is unreachable while the switch is off (the block above it
+           is not entered), so it is reported as latent and carried in
+           `storage/UFS27-SWITCH-GAP.md` rather than failing the run.
+  open     the switch is on and a recipe writes the archive. The bare
+           `test -f` is on the live path now, so it is graded: a silent exit is
+           a GAP.
+  mixed    the switch is on but nothing writes the archive. That is a GAP in
+           both rows, and the half-wired state is the one this gate exists for.
+
+This scoping is not a relaxed criterion (P-290): `dormant` never hides the bare
+`test -f`, it prints the line number in a `NOTE` and the one-page gap note is
+the Lead's to land. The moment `CONFIG_*` is `y`, the same line becomes a GAP
+with the same message. Measured on 2026-11-21 the two switches are off and
+unmentioned in `configs/mondrian_ios27_defconfig`, so the tree is dormant and
+the gate exits 0 with two latent-defect notes.
 
 Usage:
   python3 scripts/check-ufs27-storage-switches.py [--profile ios-27.0.1-24A446]
@@ -152,7 +167,7 @@ def producer_for(entries, switch, repo):
 
 
 def grade(board, repo, profile_name):
-    problems, facts = [], []
+    problems, facts, dormant = [], [], 0
     override = board["os_overrides"].get(profile_name)
     if override is None:
         raise SystemExit(f"board.toml: no os_overrides entry {profile_name!r}")
@@ -225,6 +240,8 @@ def grade(board, repo, profile_name):
                                       f"{switch['archive']} -- nothing to produce and nothing to link{detail}"))
 
         # 3. readable failure: a bare `test -f` dies silently ------------------
+        #    Graded only while the switch is on: dormant means the block above it
+        #    is never entered, so the line cannot fire today. It is still printed.
         test_index = next((index for index, text in enumerate(lines)
                            if re.match(rf'\s*test -f "\${switch["variable"]}"', text)), None)
         if test_index is None:
@@ -233,15 +250,22 @@ def grade(board, repo, profile_name):
         elif readable_failure(lines, test_index):
             facts.append((area, "OK", f"{GENERIC_BUILDER}:{test_index + 1} test -f on "
                                       f"${switch['variable']} reports a message before exiting"))
-        else:
+        elif on:
             problems.append((area, "GAP", f"{GENERIC_BUILDER}:{test_index + 1} is a bare test -f on "
                                           f"${switch['variable']}; under set -euo pipefail ({GENERIC_BUILDER}:9) "
                                           f"the build exits 1 with no output, so a missing {switch['archive']} "
                                           f"looks like a silent stop -- add `|| {{ echo ...; exit 1; }}`"))
+        else:
+            dormant += 1
+            facts.append((area, "NOTE", f"dormant: {GENERIC_BUILDER}:{test_index + 1} is a bare test -f on "
+                                        f"${switch['variable']}, latent while CONFIG_{name} is off (the block "
+                                        f"above it is not entered) and a GAP the moment the switch opens -- "
+                                        f"the line, its patch and its criterion are in "
+                                        f"storage/UFS27-SWITCH-GAP.md"))
         # Reported, not graded: the builder's own precondition for this switch.
         if switch.get("precondition"):
             facts.append((area, "NOTE", switch["precondition"]))
-    return problems, facts
+    return problems, facts, dormant
 
 
 def main():
@@ -254,14 +278,15 @@ def main():
     repo = args.repo.resolve()
 
     board = tomllib.loads((repo / "board.toml").read_text(encoding="utf-8"))
-    problems, facts = grade(board, repo, args.profile)
+    problems, facts, dormant = grade(board, repo, args.profile)
     if args.json:
         args.json.write_text(json.dumps({"profile": args.profile, "problems": problems,
                                          "facts": facts}, indent=2) + "\n", encoding="utf-8")
     if not args.quiet:
         for area, status, text in facts + problems:
             print(f"  {status:<4} {area:<13} {text}")
-    print(f"ufs27-storage-switches: {len(problems)} gap(s)")
+    tail = f", {dormant} dormant (switch off; latent defects reported above)" if dormant else ""
+    print(f"ufs27-storage-switches: {len(problems)} gap(s){tail}")
     return 1 if problems else 0
 
 

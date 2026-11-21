@@ -333,6 +333,11 @@ def validate(mode='build', verbose=True):
         booted = last_boot_time()
         if booted:
             for name, body in hw.items():
+                # 这条规则要抓的是「证据写在它要解释的那次上机之后」（回填证据）。
+                # 只在条目已经声称上机完成时才有意义：飞行前的证据必然晚于上一次上机，
+                # 把它判红等于禁止为下一次飞行补证据（P-290 形状）。
+                if not ((body.get("step", {}).get("device")) or {}).get("done"):
+                    continue
                 for st in FLASH_STEPS:
                     recorded = ((body.get('step', {}).get(st)) or {}).get('recorded_at') or ''
                     try:

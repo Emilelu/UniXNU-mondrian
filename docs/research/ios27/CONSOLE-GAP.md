@@ -1,3 +1,9 @@
+instrument: ramoops console mirror at 0xA7000000 + firmware reader
+lifetime: 只在**同一次上电周期内**存在。ramoops 落在 DRAM，长按电源或复位后 DRAM 归零，内容必然丢失（P-307；该事实 2026-10-30 已记进 `docs/archive/PROGRESS-2026-10-30-PM.md` §三）。
+read_moment: 只有两种合法读法——① 同一次启动内由内核自己读回来（本内核尚未实现）；② 设备**未断电**地 warm reset 后由固件 DXE 读（`RamoopsDumpDxe`，`uefi-mondrian` c52a080）。跨 Android 重启、跨长按电源一律读不到。
+writer: 内核 `pong_ramoops_console_write()`（`patches/xnu-12377/0546-k60-ramoops-console-27.patch` 装进 `console_write()` / `console_write_unbuffered()`），写到物理 `0xA7000000` 起的 2 MiB 环形缓冲，12 字节头 `{sig,start,size}`，`sig = 0x43474244`。
+loss_condition: 掉电、长按电源、固件在启动时重新训练/清 DRAM、以及任何复位都会清空；此外内核若从未走到 `pong_ramoops_console_init()`，头部根本不会被写，读数器看到的是「空窗口」。
+
 # 27 内核没有控制台：两次 0 字节飞行的真实含义
 
 日期：2026-11-21

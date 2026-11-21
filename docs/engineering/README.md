@@ -15,6 +15,7 @@
 |---|---|
 | [STATUS.md](STATUS.md) | **当前硬件状态明细** + 重新审视结论 + 历史变更记录（README 的详细版） |
 | [IOS27.md](IOS27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门、IPSW 与 kernelcache 哈希 |
+| [BOOT-FREEZE.md](BOOT-FREEZE.md) | **上机冻结**：`state = "frozen"` 时任何 `fastboot boot` 被拦；解冻要同时满足五条件，环境变量不可绕过 |
 | [OFFICIAL-STEPS.toml](OFFICIAL-STEPS.toml) | **铁则 17 的步骤账本**：每条流水线命令对应的官方页与锚点，由 scripts/check-official-steps.py 校验 |
 | [IOS27-REFERENCE-FIRST.toml](IOS27-REFERENCE-FIRST.toml) | **铁则 16 的读数账本**：每个仍 open 的飞行阻塞至少两条参考源读数（仓/文件/行/它怎么解决/我们的处置），由 `scripts/check-reference-first.py` 校验路径与行号能否当场解析 |
 | [LANE-CONTRACT-ios27.md](LANE-CONTRACT-ios27.md) | 七条车道的统一约定：参考源先行（iron-16）、官网页锚点（iron-17）、八步①②–⑦、禁构建/禁上机/禁写共享树。 |

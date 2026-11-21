@@ -293,7 +293,7 @@ recorded_at = "2026-11-21T03:41:45"
 [hardware.wifi]
 name = "无线（QCA6490 / PCIe + MHI）"
 label = "WiFi（QCA6490 / WCN6855）"
-status = "active"
+status = "parked"
 why = "2026-11-21：24A446 Wi-Fi 线只做离线契约与验收工具，不构建、不上机；C1/C2/C3 仍 open，完整 arm64e station 归档尚不存在。见 docs/plans/WIFI-IOS27-CHECKLIST.md:76 与 docs/research/wifi/IOS27-STATION-API-GAP.md:39。"
 revisit = "27 stage-0 进入 SpringBoard 后按线恢复；本文件的 active 只表示 Wi-Fi 27 迁移线在离线推进，不改变 k60-gates 全局条目的 parked 状态"
 
@@ -337,3 +337,56 @@ static_check = "scripts/check-wifi-station-archive.py:105-123 检查成员架构
 unit_test = "scripts/tests/test-wifi-station-archive.py:85-119 五例；scripts/tests/test-wifi27-link-inputs.py:75-176 九例；scripts/tests/test-wifi-association-event.py:39-61 基线与补丁在 MLEN 224/256 下各 19 项检查。"
 artifact_check = "ath11k-abi27e（sha256 8bc323b6…）：成员 arm64e、stamp ie_bytes=2048/header_sha256 ec0b8227… 通过，两个 station API 缺失，rc=1。teardown27g（sha256 8e8175a5…）：8 个 ARM64E 成员，两符号为 U。历史 link 记录：arch 7 个通过，provenance 与 stubs 失败。没有候选归档通过完整契约。"
 recorded_at = "2026-11-21"
+
+[hardware.console]
+name = "内核控制台镜像（ramoops 0xA7000000 + 固件读数器）"
+label = "控制台（ramoops 镜像 / RamoopsDumpDxe）"
+status = "active"
+why = "2026-11-22：27 内核从 2026-11-21 起才第一次定义 _pong_ramoops_console_write/_pong_ramoops_console_init（patches/xnu-12377/0546-k60-ramoops-console-27.patch），固件侧读数器 RamoopsDumpDxe（uefi-mondrian c52a080）随镜像 227fa840 进入卷。此前两次 0 字节串口飞行无法区分「内核没跑」与「我们听不到」（P-300）。本次修复的就是这条可见性通路本身，因此它必须先飞。"
+revisit = "进入 SpringBoard 之后改用官方 USB 终端（scripts/debug_terminal.py，协议 2）作为常规日志通道；本项届时降回 parked"
+
+[hardware.console.step.same_model]
+done = true
+evidence = "同型证据不是「别人成功过」，而是「同一块板子上这块内存在、用途一致」：设备 live FDT 的 ramoops@0xa7000000 给出 reg = <0x00 0xa7000000 0x00 0x400000> 与 pmsg-size = <0x200000>，与补丁常量 PONG_RAMOOPS_PHYS_BASE 0xA7000000 / PONG_RAMOOPS_CONSOLE_BYTES 0x00200000 逐字节一致；记录见 docs/research/ios27/CONSOLE-GAP.md:1。16 线在 K60 上用同一窗口跑通控制台导出（016.6.1 内核符号 _pong_ramoops_console_write 等四个，见 docs/research/ios27/CONSOLE-GAP.md:1 的符号表）。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.official]
+done = true
+evidence = "官方 porting/guide 的调试阶梯要求先确定日志来源再谈判据，本板落点逐条记在 docs/research/ios27/OFFICIAL-DEBUGGING-PAGE.md:1（页面 https://unixnu.com/zh/guide/debugging，2026-11-21 用 scripts/k60-docsearch.py 抓取）。其中两条直接约束本项：①入口探针（本板实现是 Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S:12-18 的绿条，色值 0xFF00FF00）；②官方 USB 终端 scripts/debug_terminal.py 属长期通道，且「改 USB ID 本身不提供协议兼容性」，所以本次不能用它替代读数器。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.decompile]
+done = true
+evidence = "对两个内核做符号级比对（llvm-nm-18 --defined-only）：16.6.1 内核（/opt/k60/trees/cellular-k49/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho）有 _pong_ramoops_console_write、_pong_ramoops_console_init、_k60_usblog_console_up、_k60_console_export_sysctl；27 内核在修复前只有 _k60_serial_clock，其余四个一个都没有。判据与读数记在 scripts/check-kernel-console.py:1 与 docs/research/ios27/CONSOLE-GAP.md:1。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.wide]
+done = true
+evidence = "广域检索结论：sheng 的 18 条 27 补丁里 ramoops/console_write/usblog 零命中（grep -lie 三条模式全空），说明这条通路不能在 SM8550 线找到现成实现；27 的 series 里原来的 0543/0544 是在屏上画字，不是往串口送字；真正的底座是 16 线四层链 zzzzz-pong-ramoops-minimal → 0232 → 0243 → 0300，且它们全包在 #if defined(PONG) 里，而 27 构建 -DPONG 出现 0 次。结论与 gating 细节写在 docs/research/ios27/CONSOLE-GAP.md:1。"
+catalog_checked = true
+catalog_result = "官方组件里没有控制台镜像组件：E:/hackios/UniXNU/components.toml:1 的组件表不含 ramoops/pstore 类 driver，27 的控制台要么由内核补丁提供（本项做法），要么由固件侧读数（RamoopsDumpDxe）。因此 wide 步的结论是「没有可复用的官方组件」，而不是「没查」。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.plan]
+done = true
+evidence = "方案与判据先写死再看结果：docs/research/ios27/F2-PREDICTION.md:1 给出两次启动的分工（第 1 次应打 no signature，第 2 次应打 sig ok + 文本，且第 2 次之前不复位），以及 PASS/FAIL/INVALID 的定义。补丁本体 patches/xnu-12377/0546-k60-ramoops-console-27.patch:1（5,977 B，守卫为零，安装点在 boot_progress_stage 的 arm_vm_init returned 那一行之后）。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.deep]
+done = true
+evidence = "深挖得到两条可复算的教训并已登记：P-300（10 道门禁都在问「镜像会不会被接受」，没有一道问「内核有没有话要说」）与 P-301（-D 是否生效只能由对象记录 .o.json 或最终符号表回答）。两次误判的机制写在 docs/engineering/PITFALLS.md:1 的 P-300/P-301 两节；复算命令是 /usr/bin/llvm-nm-18 --defined-only <kernel> | grep _pong_ramoops 与 llvm-nm-18 -A <osfmk/DEVELOPMENT/serial_console.o.json>。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.verify]
+done = true
+evidence = "本地已验证（离线）：①scripts/check-kernel-console.py 对 16.6.1 内核 PASS、对修复前的 27 内核 FAIL，修复后对 27 内核 PASS（rc=0）；②scripts/tests/test-check-kernel-console.py 8 例全过；③从 payload FAT 里 mcopy 出内核独立复核（P-177 形状）：93,061,120 B sha256 b997f4eeb316…，fffffff00ad8a768 S _pong_ramoops_console_init、fffffff00ad8a56c S _pong_ramoops_console_write 都在；④check-ios27-artifacts.py --flight-ready rc=0（boot.img 227fa840…，FD 8102da7d766a，含 RamoopsDumpDxe.efi 11,264 B）。"
+local_verified = true
+static_check = "scripts/check-kernel-console.py:1 用 llvm-nm-18 --defined-only 查四个 sink 符号，退出码 0/2；--flight 在缺失时退 2 并给修法。"
+unit_test = "scripts/tests/test-check-kernel-console.py 8 例（含 16 线正向对照、缺符号反向对照、无内核时不可判定）。"
+artifact_check = "boot.img 227fa8407fd96a9f5f47db239516ca97535df9065c3e6916c1569be1eb173196（201,900,032 B）；FD 3,145,728 B sha256 8102da7d766a；RamoopsDumpDxe.efi 11,264 B；payload 内内核 b997f4eeb316… 含两个 ramoops 符号。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.device]
+done = false
+prediction = { success = "第 1 次启动固件打印 RAMOOPS: no signature（读数器被调度、窗口可读、窗口为空）；随后第 2 次启动（不复位）打印 RAMOOPS: sig ok 与环形缓冲首尾文本，且文本里出现内核自己写的第一行。", failure = "第 1 次就打印 sig ok 说明窗口里是上一轮的残留而本轮没重写；第 2 次仍是 no signature 说明内核没有执行到 pong_ramoops_console_init（此时才轮到查控制台初始化顺序，而不是查补丁有没有编进去）。" }
+note = "两次启动都只 fastboot boot；第 2 次之前不得断电或进 Android，否则 DRAM 内容丢失，读数器读到的是空窗口。"

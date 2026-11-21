@@ -1,6 +1,6 @@
 # WPA3-Personal 在 27 线的移植边界
 
-Status: offline plan, 2026-11-21. 本轮没有构建、没有上机、没有改共享仓。WPA3 只在
+Status: blocked_by: F2/F3；offline plan accepted 2026-11-21. 本轮没有构建、没有上机、没有改共享仓。WPA3 只在
 `E:/hackios/UniXNU-t970` 的参考实现里存在；K60 当前仍是 WPA2-Personal，且
 `pong_sae.c` 只是 SAE 帧形状探针，不是密钥协商。
 

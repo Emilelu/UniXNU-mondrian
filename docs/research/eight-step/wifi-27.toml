@@ -5,10 +5,11 @@ status = "active"
 paths = ["patches/wifi/", "patches/xnu-12377/", "drivers/PongWifi/", "drivers/Ath12kWifi/", "scripts/", "docs/research/wifi/", "docs/plans/WIFI-IOS27-CHECKLIST.md"]
 why = "2026-11-21：24A446 Wi-Fi 线只做离线契约与验收工具，不构建、不上机；C1/C2/C3 仍 open，完整 arm64e station 归档尚不存在。见 docs/plans/WIFI-IOS27-CHECKLIST.md:76 与 docs/research/wifi/IOS27-STATION-API-GAP.md:39。"
 label = "WiFi（QCA6490 / WCN6855）"
+wpa3 = { status = "blocked_by: F2/F3", reference = "docs/research/wifi/WPA3-PORT-PLAN.md" }
 
 [hardware.wifi.step.same_model]
 done = true
-evidence = "Pong 是 SM8475 + QCA6490，与 K60 同 SoC 同芯片：docs/research/wifi/RESEARCH.md:21；K60 实测端点 17CB:1103、BAR0 0x60200000/2 MiB、subsystem 0x0108 见 docs/research/wifi/RESEARCH.md:153-155 与 E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1。板级冷启动逐段对应 drivers/PongWifi/PongWifiPlatform.cpp:355-388（训练）、drivers/PongWifi/PongWifiPlatform.cpp:412-414（BAR）、drivers/PongWifi/PongWifiPlatform.cpp:468-492（MSI 与 SMMU）。WPA3 参考层不在同 SoC：t970 是 QCA6390，但 T970WifiWpa3.c 是 802.11 标准库（E:/hackios/UniXNU-t970/drivers/T970Wifi/T970WifiWpa3.c:1-8），K60 只把它接到现有 nw_sta.c，SoC 差异留在驱动与固件，不进入 WPA3 算法。"
+evidence = "Pong 是 SM8475 + QCA6490，与 K60 同 SoC 同芯片：docs/research/wifi/RESEARCH.md:21；K60 实测端点 17CB:1103、BAR0 0x60200000/2 MiB、subsystem 0x0108 见 docs/research/wifi/RESEARCH.md:153-155 与 E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1。板级冷启动逐段对应 drivers/PongWifi/PongWifiPlatform.cpp:355-388（训练）、drivers/PongWifi/PongWifiPlatform.cpp:412-414（BAR）、drivers/PongWifi/PongWifiPlatform.cpp:468-492（MSI 与 SMMU）。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.official]
@@ -25,29 +26,29 @@ evidence = '''逐页核对（页面要求 → 本板落点 / 为什么 na）：
 - E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:62-64 的 sheng-wifi=5 等启动参数 → 本板用 XNU_PONG_WIFI 构建开关而不是该参数，na（scripts/build-wifi27-kernel.sh:48-56）。
 - E:/hackios/UniXNU/docs/zh/porting/platform.md:23-39 的 CPU/GIC/PSCI/定时器/DTS → patches/xnu-12377/series:91（0540 PSCI SMP）、patches/xnu-12377/series:95（0541 虚拟定时器守卫）；设备树 dts/mondrian.dts:85-98。
 - E:/hackios/UniXNU/docs/zh/porting/platform.md:62-66 的 DMA 地址宽度/IOVA/SMMU stream/context/缓存策略 → drivers/PongWifi/PongWifiPlatform.cpp:468-492、drivers/PongWifi/PongWifiPlatform.cpp:544（exclusive SID 0x1c01、native 4 KiB 页）。
-- E:/hackios/UniXNU/docs/zh/porting/drivers.md:63-88 的接入七步与 llvm-ar t / llvm-nm --defined-only 检查已链接实现 → scripts/check-wifi-station-archive.py:37-123 把成员架构、两个 API 与 stamp 绑成一条命令；E:/hackios/UniXNU/docs/zh/porting/drivers.md:97 的记录要求落在 porting.toml:151-199。WPA3：官方页没有把 SAE 描述为内核能力，E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:36-49 只描述 sheng 的 wpa_supplicant 用户态；本板沿用 nw_sta.c，SAE 只能由 T970WifiWpa3 库接入，不能声称官方组件已覆盖。'''
+- E:/hackios/UniXNU/docs/zh/porting/drivers.md:63-88 的接入七步与 llvm-ar t / llvm-nm --defined-only 检查已链接实现 → scripts/check-wifi-station-archive.py:37-123 把成员架构、两个 API 与 stamp 绑成一条命令；E:/hackios/UniXNU/docs/zh/porting/drivers.md:97 的记录要求落在 porting.toml:151-199。'''
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.decompile]
 done = true
-evidence = "离线反汇编与实测身份：K60 端点 17CB:1103、BAR0 0x60200000+2 MiB、subsystem 0x0108 已在 2026-11-14 实测（docs/research/wifi/RESEARCH.md:153-155，E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1）；wifid 20G81 的列表删除路径已离线拆到只剩 WAPI 一条（docs/research/wifi/SBL-MISSION.md:1183，§32）。24A446 的 wifid/IO80211Family 不在 pinned kernelcache，反汇编边界见 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186 的 C3 阶梯；本步只对可得二进制完成，未把 20G81 的结论移植到 24A446。WPA3 探针只发确定填充的 SAE 帧（drivers/PongWifi/ath11k/pong_sae.h:8-9），不是反汇编得到的 24A446 SAE 消费者；t970 的 pw3_* 是 clean-room 标准实现，不能当作 24A446 反汇编证据。"
+evidence = "离线反汇编与实测身份：K60 端点 17CB:1103、BAR0 0x60200000+2 MiB、subsystem 0x0108 已在 2026-11-14 实测（docs/research/wifi/RESEARCH.md:153-155，E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1）；wifid 20G81 的列表删除路径已离线拆到只剩 WAPI 一条（docs/research/wifi/SBL-MISSION.md:1183，§32）。24A446 的 wifid/IO80211Family 不在 pinned kernelcache，反汇编边界见 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186 的 C3 阶梯；本步只对可得二进制完成，未把 20G81 的结论移植到 24A446。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.wide]
 done = true
-evidence = "官方目录只覆盖 ath12k 一代：E:/hackios/UniXNU/components.toml:473 的 Ath12kWifi 面向 qcc2072/qcn9274/wcn7850（WiFi 7），K60 是 QCA6490/WCN6855（ath11k 族），MHI 通道、CE 数量、HAL ring 与 WMI 命令集不同，复用会把板级差异藏进组件（docs/research/wifi/RESEARCH.md:110-112）。同 SoC 的 Pong 与 mainline ath11k 是可用参考；nw_abi.h 只借形状不借实现。结论：官方组件不可直接用，本线自建 ath11k 路径。WPA3：E:/hackios/UniXNU/components.toml:473 的 Ath12kWifi 不含 SAE 库；t970 的 T970WifiWpa3.c（BSD-2-Clause，:1-8）是同族参考而非官方组件，只能按本线库接入并保留出处。"
+evidence = "官方目录只覆盖 ath12k 一代：E:/hackios/UniXNU/components.toml:473 的 Ath12kWifi 面向 qcc2072/qcn9274/wcn7850（WiFi 7），K60 是 QCA6490/WCN6855（ath11k 族），MHI 通道、CE 数量、HAL ring 与 WMI 命令集不同，复用会把板级差异藏进组件（docs/research/wifi/RESEARCH.md:110-112）。同 SoC 的 Pong 与 mainline ath11k 是可用参考；nw_abi.h 只借形状不借实现。结论：官方组件不可直接用，本线自建 ath11k 路径。"
 catalog_checked = true
 catalog_result = "components.toml:473 的 Ath12kWifi 绑定 ath12k/WiFi 7（qcc2072/qcn9274/wcn7850）；K60 的 QCA6490/WCN6855 是 ath11k，MHI/QRTR/CE/WMI 不同，不能作为本板组件；只能参考同 SoC 的 Pong 与 mainline ath11k。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.plan]
 done = true
-evidence = "27 线的前置条件与出口写在 docs/plans/WIFI-IOS27-CHECKLIST.md:76（B 节：链接前必须拿到的 27 内核/归档/构建器条件）与 docs/plans/WIFI-IOS27-CHECKLIST.md:166（C 节：只有 24A446 二进制能定的形状）；板级寄存器与 IOVA 计划在 docs/plans/WIFI-PORT-PLAN.md:15，当前状态与下一步在 porting.toml:151-199。方案顺序：先补完整 arm64e station 归档，再用 scripts/build-wifi27-kernel.sh 链接并数符号；C1/C2/C3 不以 16/22H374 代替。WPA3 的 27 线改动、层边界与验收见 docs/research/wifi/WPA3-PORT-PLAN.md；顺序是先库、再 nw_sta.c 状态机、最后 Apple80211 auth 放行，未拿到 auth_upper 前不猜。"
+evidence = "27 线的前置条件与出口写在 docs/plans/WIFI-IOS27-CHECKLIST.md:76（B 节：链接前必须拿到的 27 内核/归档/构建器条件）与 docs/plans/WIFI-IOS27-CHECKLIST.md:166（C 节：只有 24A446 二进制能定的形状）；板级寄存器与 IOVA 计划在 docs/plans/WIFI-PORT-PLAN.md:15，当前状态与下一步在 porting.toml:151-199。方案顺序：先补完整 arm64e station 归档，再用 scripts/build-wifi27-kernel.sh 链接并数符号；C1/C2/C3 不以 16/22H374 代替。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.deep]
 done = true
-evidence = "深挖结果落在三份记录：docs/research/wifi/SBL-MISSION.md:1706（§65 三处设备侧遮蔽）、docs/research/wifi/SBL-MISSION.md:1926（§68 合并与 0542）、docs/research/wifi/SBL-MISSION.md:2004（§69 0542 四层证据与 25 对 31 审计）；docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186（§I C3 的 0x80 离线阶梯）与 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:148（H.1 最小补证）；docs/research/wifi/IOS27-STATION-API-GAP.md:39（两个 API 的关闭条件）与 docs/research/wifi/IOS27-STATION-API-GAP.md:70（最小补丁形态）。另：0542 的基线拒绝/补丁通过由 scripts/tests/test-wifi-association-event.py:39-61 钉住；站归档契约由 scripts/check-wifi-station-archive.py:37-123 实现。WPA3 深挖：pw3_* 的 18 个入口与 t970 edit 17 的接线见 docs/research/wifi/WPA3-PORT-PLAN.md:1-200；本板 nw_sta.c 仍是 WPA2-only，rsn_check 在 :112-123 拒绝 AKM 8/MFPR，install_key :376-383 只装 CCMP。"
+evidence = "深挖结果落在三份记录：docs/research/wifi/SBL-MISSION.md:1706（§65 三处设备侧遮蔽）、docs/research/wifi/SBL-MISSION.md:1926（§68 合并与 0542）、docs/research/wifi/SBL-MISSION.md:2004（§69 0542 四层证据与 25 对 31 审计）；docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186（§I C3 的 0x80 离线阶梯）与 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:148（H.1 最小补证）；docs/research/wifi/IOS27-STATION-API-GAP.md:39（两个 API 的关闭条件）与 docs/research/wifi/IOS27-STATION-API-GAP.md:70（最小补丁形态）。另：0542 的基线拒绝/补丁通过由 scripts/tests/test-wifi-association-event.py:39-61 钉住；站归档契约由 scripts/check-wifi-station-archive.py:37-123 实现。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.verify]
@@ -57,9 +58,9 @@ evidence = '''本地已验证（离线，不含构建与上机）：
 2) /usr/bin/python3 scripts/tests/test-wifi-station-archive.py —— 5 例固定五种假绿，见 scripts/tests/test-wifi-station-archive.py:85-119。
 3) /usr/bin/python3 scripts/check-wifi27-link-inputs.py --link-record <linkarchives> --allow-root <tree> --allow-root /opt/k60/trees/k60build/wifi --ar <llvm-ar> --nm <llvm-nm> —— arch/provenance/stubs 三条断言，stub 符号见 scripts/check-wifi27-link-inputs.py:56、forced load 解析见 scripts/check-wifi27-link-inputs.py:81、符号检查见 scripts/check-wifi27-link-inputs.py:208；9 例见 scripts/tests/test-wifi27-link-inputs.py:75-176。
 实测：ath11k-abi27e（sha256 8bc323b63e4ad3fde07a2db7ac30e93cd37b1cfcd0165bdee1419452e85a8e59）成员 PASS arm64e、stamp PASS、两个 API FAIL，rc=1；teardown27g 的 8 个成员全 ARM64E 且两符号为 U；历史 linkarchives 原样 FAIL provenance 与 stubs（libStub27.a），改名 libInputs.a 仍 FAIL stubs。没有候选归档通过完整契约，也没有 stub-free 27 镜像。
-C1/C2/C3 的 open 边界：C1 只到 22H374 的 selector/ioctl 形状与 sheng macOS 分支参考，目标 24A446 传输未证就停在 open；C2 只到挂载/路径可见（5/0）与 job 定义，服务是否启动、信任是否附加未证就停在 open；C3 只到 L0（字段位置与 sheng 写入点）与 L1b（16/22H374 行为），没有 24A446 consumer 的 GET 27/254 证据就停在 open。三者都不得用 16/22H374 结果替代。WPA3 尚未进入本板 verify：只有 t970 主机向量测试可作输入，期望 ALL wpa3_test CHECKS PASSED 与 ALL sta_sim_wpa3 SCENARIOS PASSED；本板未编译、未上机，C1/C2/C3 的 open 边界不变。'''
+C1/C2/C3 的 open 边界：C1 只到 22H374 的 selector/ioctl 形状与 sheng macOS 分支参考，目标 24A446 传输未证就停在 open；C2 只到挂载/路径可见（5/0）与 job 定义，服务是否启动、信任是否附加未证就停在 open；C3 只到 L0（字段位置与 sheng 写入点）与 L1b（16/22H374 行为），没有 24A446 consumer 的 GET 27/254 证据就停在 open。三者都不得用 16/22H374 结果替代。'''
 local_verified = true
 static_check = "scripts/check-wifi-station-archive.py:105-123 检查成员架构、两个 station API 与 stamp/header 绑定；scripts/check-wifi27-link-inputs.py:56-208 检查 forced load 解析、来源白名单与五个桩符号。"
-unit_test = "scripts/tests/test-wifi-station-archive.py:85-119 五例；scripts/tests/test-wifi27-link-inputs.py:75-176 九例；scripts/tests/test-wifi-association-event.py:39-61 基线与补丁在 MLEN 224/256 下各 19 项检查；WPA3 主机向量见 docs/research/wifi/WPA3-PORT-PLAN.md:1-200，期望 ALL wpa3_test CHECKS PASSED 与 ALL sta_sim_wpa3 SCENARIOS PASSED。"
+unit_test = "scripts/tests/test-wifi-station-archive.py:85-119 五例；scripts/tests/test-wifi27-link-inputs.py:75-176 九例；scripts/tests/test-wifi-association-event.py:39-61 基线与补丁在 MLEN 224/256 下各 19 项检查"
 artifact_check = "ath11k-abi27e（sha256 8bc323b6…）：成员 arm64e、stamp ie_bytes=2048/header_sha256 ec0b8227… 通过，两个 station API 缺失，rc=1。teardown27g（sha256 8e8175a5…）：8 个 ARM64E 成员，两符号为 U。历史 link 记录：arch 7 个通过，provenance 与 stubs 失败。没有候选归档通过完整契约。"
 recorded_at = "2026-11-21"

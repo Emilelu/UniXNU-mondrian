@@ -1341,6 +1341,12 @@ check = "python3 scripts/tests/test-check-kernel-console.py"
 note = "2026-11-21：0546 的 XNU_PONG_RAMOOPS_CONSOLE 由 env 前缀传递，serial_console.o.json 里该宏 0 次，两个钩子被编译掉，27 内核第三次没有控制台。同一次构建的 startup.o.json 含有 builder 用 EXTRA_MAKE_ARGS 传的 -DXNU_NATIVE_TRUST_CACHE，证明通道差异而非命名差异。修法：0546 改成无条件编译 + 运行期 pong_ramoops_base 自我守卫。"
 
 [[rule]]
+id = "P-303"
+statement = "门禁必须可 import：`sys.exit()` 之后不许再有检查代码，写单测先 import 一次，`NameError` 就是红。"
+check = "python3 scripts/tests/test-eight-step-ledger-choice.py"
+note = "2026-11-21 23:36：eight-step-gate.py 尾部 53 行 STATUS 覆盖检查在 sys.exit() 之后，从未执行，且让文件 import 即 NameError；删除后 452→399 行。"
+
+[[rule]]
 id = "P-302"
 statement = "flash 门禁必须按 os_profile 选八步账本；把 16.6.1 的账本套在 27 树上，只会产生 18 条永远为红的引用。"
 check = "python3 -c \"import pathlib,sys; p=pathlib.Path('docs/engineering/PITFALLS.md'); t=p.read_text(encoding='utf-8'); sys.exit(0 if '## P-302' in t else 1)\""

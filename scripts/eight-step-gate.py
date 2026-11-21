@@ -54,6 +54,32 @@ except ImportError:
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO, 'docs', 'research', 'EIGHT-STEPS.toml')
 
+# 一本账本一个操作系统：16.6.1 的八步记录里写着 16 线才有的文件与编号，把它套在
+# 27 树上只会产生永远解析不到的引用（P-302）。选账本与选 defconfig 同源，都看
+# board.toml 的 os_profile；K60_EIGHT_STEP_LEDGER 只在测试里用来指定文件。
+LEDGER_16 = os.path.join('docs', 'research', 'EIGHT-STEPS.toml')
+LEDGER_27 = os.path.join('docs', 'research', 'EIGHT-STEPS-27.toml')
+_OS27 = re.compile(r'(?:ios|ipados|macos)-27\.')
+
+
+def read_os_profile(repo=None):
+    """board.toml 里的 os_profile；读不到就返回空串，由调用方决定怎么办。"""
+    if tomllib is None:
+        return ''
+    try:
+        with open(os.path.join(repo or REPO, 'board.toml'), 'rb') as f:
+            return str(tomllib.load(f).get('board', {}).get('os_profile', '') or '')
+    except Exception:
+        return ''
+
+
+def choose_ledger(profile, repo=None):
+    """按 os_profile 选账本，返回 (路径, 理由)。纯函数，测试直接调它。"""
+    repo = repo or REPO
+    if _OS27.search(profile or ''):
+        return os.path.join(repo, LEDGER_27), 'os_profile %s' % profile
+    return os.path.join(repo, LEDGER_16), 'os_profile %s' % (profile or '(unset)')
+
 STEPS = ['same_model', 'official', 'decompile', 'wide', 'plan', 'deep', 'verify', 'device']
 LABEL = {
     'same_model': '① 同型',
@@ -161,8 +187,11 @@ def validate(mode='build', verbose=True):
     if tomllib is None:
         return False, ['缺 tomllib/tomli']
     if not os.path.exists(DATA):
-        return False, ['docs/research/EIGHT-STEPS.toml 不存在']
+        return False, ['%s 不存在（账本由 os_profile 选择；见 P-302）'
+                       % os.path.relpath(DATA, REPO)]
 
+    ledger_source = os.environ.get('K60_EIGHT_STEP_LEDGER_SOURCE') or \
+        choose_ledger(read_os_profile(), REPO)[1]
     d = tomllib.load(open(DATA, 'rb'))
     problems = []
     notes = []
@@ -181,8 +210,13 @@ def validate(mode='build', verbose=True):
             problems.append('%s :: 停放/计划中但没写 why（为什么现在不做）' % name)
         if len((body.get('revisit') or '').strip()) < 10:
             problems.append('%s :: 停放/计划中但没写 revisit（什么条件下重新开始）' % name)
+    if not hw_all:
+        return False, ['%s 里没有 [hardware.*] 条目'
+                       % os.path.relpath(DATA, REPO)]
     if not hw:
-        return False, ['EIGHT-STEPS.toml 里没有 [hardware.*] 条目']
+        return False, ['%s 里每一项都是 parked/planned：没有正在做的修复可判，'
+                       '刷机门禁因此没有对象（P-290：永远为绿的规则等于没有规则）'
+                       % os.path.relpath(DATA, REPO)]
 
     # build 模式可以用 K60_EIGHT_STEP_ITEMS 收窄到本次真正在修的硬件项；
     # 不声明就还是整机口径。flash 模式永远整机。
@@ -203,7 +237,11 @@ def validate(mode='build', verbose=True):
             if not entry:
                 problems.append('%s 缺失' % label)
                 continue
-            ev = (entry.get('evidence') or '').strip()
+            # 16 线账本用字符串，27 线账本（assemble-27-eight-step.py 生成）用列表：
+            # 一个字段两种形状，归一化放在读取层，账本本身不改（P-302）。
+            raw_ev = entry.get('evidence') or ''
+            ev = raw_ev if isinstance(raw_ev, str) else ' '.join(str(x) for x in raw_ev)
+            ev = ev.strip()
             if len(ev) < 30:
                 problems.append('%s 依据太短（需 >=30 字）' % label)
                 continue
@@ -273,7 +311,12 @@ def validate(mode='build', verbose=True):
                                         % (name, LABEL[st]))
 
     # --- README 表格一致性（防止 README 与 EIGHT-STEPS.toml drift）---
+    # 27 账本没有 renderer：它由 assemble-27-eight-step.py 生成，表格另外渲染。
+    # 硬套 16 线的 renderer 只会把「两本账本尚未合并」报成「README 过时」。
+    _renderer_applies = os.path.abspath(DATA) == os.path.abspath(os.path.join(REPO, LEDGER_16))
     try:
+        if not _renderer_applies:
+            raise ValueError('no renderer for this ledger')
         import subprocess as _sp
         _r = _sp.run(['python3', os.path.join(REPO, 'scripts', 'render-eight-step-table.py'), '--check'],
                      capture_output=True, text=True, timeout=60)
@@ -282,10 +325,14 @@ def validate(mode='build', verbose=True):
                             '跑 scripts/render-eight-step-table.py 重新生成并覆盖 README 的「八步流程进度」段')
         elif verbose:
             print('  README 八步表格: ✅ 与数据一致')
+    except ValueError:
+        if verbose:
+            print('  README 八步表格: 跳过（本账本没有 renderer）')
     except Exception as _e3:
         problems.append('README 表格一致性检查失败: %s' % str(_e3)[:50])
 
     if verbose:
+        print('  账本: %s（%s）' % (os.path.relpath(DATA, REPO), ledger_source))
         print('  模式: %s' % mode)
         print('  硬件项: %d 个（%s）' % (len(hw), ', '.join(hw.keys())))
         print('  通过 %d 项检查' % checked)
@@ -331,6 +378,14 @@ def last_boot_time():
     return latest
 
 if __name__ == '__main__':
+    # 选账本：测试可用 K60_EIGHT_STEP_LEDGER 指文件，平时按 os_profile（P-302）。
+    _override = os.environ.get('K60_EIGHT_STEP_LEDGER')
+    if _override:
+        DATA = _override
+        os.environ['K60_EIGHT_STEP_LEDGER_SOURCE'] = 'K60_EIGHT_STEP_LEDGER'
+    else:
+        DATA, _src = choose_ledger(read_os_profile(), REPO)
+        os.environ['K60_EIGHT_STEP_LEDGER_SOURCE'] = _src
     mode = 'flash'
     for a in sys.argv[1:]:
         if a in ('--build', 'build'):
@@ -342,56 +397,3 @@ if __name__ == '__main__':
     print('结论: %s' % ('✅ 八步流程通过（可以%s）' % ('构建' if mode == 'build' else '刷机')
                         if ok else '❌ 八步流程未通过，禁止%s' % ('构建' if mode == 'build' else '刷机')))
     sys.exit(0 if ok else 1)
-
-# ============ W. STATUS.md 与 EIGHT-STEPS.toml 的硬件覆盖一致 ============
-# 2026-11-12: STATUS.md 列了 10 项硬件，EIGHT-STEPS.toml 之前只跟踪 2 项。
-# 做了不记录 = 下次重复踩坑，所以这里强制两边覆盖一致。
-sec('W', 'STATUS.md 与 EIGHT-STEPS.toml 硬件覆盖一致')
-
-# STATUS.md 的中文硬件名 -> EIGHT-STEPS.toml 的 key
-_MAP = {
-    'Boot chain': 'bootchain',
-    'UFS': 'storage',
-    '显示': 'display',
-    '背光': 'display',
-    '实体键': 'buttons',
-    '触摸': 'touch',
-    'GPU': 'gpu',
-    'WiFi': 'wifi',
-    '音频': 'audio',
-    '电池': 'battery',
-}
-
-_tracked = set()
-try:
-    _steps = tomllib.load(io.open(ROOT + '/docs/research/EIGHT-STEPS.toml', 'rb'))
-    _tracked = set(_steps.get('hardware', {}).keys())
-except Exception as _e:
-    bad('W', 'EIGHT-STEPS.toml 可读', str(_e)[:60])
-
-_seen = set()
-_missing = []
-try:
-    for _line in io.open(ROOT + '/docs/engineering/STATUS.md', encoding='utf-8', errors='ignore'):
-        if not _line.startswith('|'):
-            continue
-        for _cn, _key in _MAP.items():
-            if _cn in _line:
-                if _key in _tracked:
-                    _seen.add(_key)
-                elif _key not in _missing:
-                    _missing.append(_key)
-except Exception as _e:
-    bad('W', 'STATUS.md 可读', str(_e)[:60])
-
-if _missing:
-    bad('W', 'STATUS.md 的硬件都有八步记录',
-        '缺: ' + ', '.join(sorted(_missing)) + '（见 docs/research/EIGHT-STEPS.toml）')
-else:
-    ok('W', 'STATUS.md 的硬件都有八步记录', '%d 项' % len(_seen))
-
-_untracked = sorted(_tracked - _seen)
-if _untracked:
-    warn('W', 'EIGHT-STEPS.toml 有 STATUS.md 未列的硬件', ', '.join(_untracked))
-
-

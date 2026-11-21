@@ -7814,6 +7814,28 @@ define 由内核步的 `env "arm_init.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1"
 **门禁**：`scripts/check-kernel-console.py`（P-300 那条）在现象层拦住它：只要四个接收端一个都没有，就退 2。
 本条另要求：任何新增 `-D` 开关，落地时必须在提交说明里贴一次「读回 `.o.json` 的 grep 结果」。
 
+## P-303 门禁尾部有一段永远不会执行的检查
+
+`scripts/eight-step-gate.py` 在 `if __name__ == '__main__':` 里先 `sys.exit(0 if ok else 1)`，随后还有
+53 行「W. STATUS.md 与 EIGHT-STEPS.toml 硬件覆盖一致」的检查（`sec('W', …)`、`_MAP` 十项硬件名、
+`_tracked`/`_seen`/`_missing`、`bad('W', …)`/`warn('W', …)`）。这些函数在本文件里根本没有定义——
+它们是另一个脚本的片段，被粘在这个文件末尾。
+
+后果有两层，都很安静：
+
+- **它从来没跑过**。`sys.exit()` 在它之前，所以 `--build`/`--flash` 走到结论行就结束了。README 与
+  STATUS 里那句「八步记录覆盖 10 项硬件」没有任何机器在核，直到有人手动对。
+- **它让文件不可 import**。谁想写单测就得 `import`，而 import 会执行到 `sec(...)` 立刻
+  `NameError: name 'sec' is not defined`。于是这个门禁只剩下「当成子进程跑」一种测试方式，
+  而绕开 import 的测试正好不会碰到这段死代码。
+
+判据：**门禁必须可 import**，且「结论行之后的代码」等于「不存在的代码」。写单测时先 `importlib`
+加载一次，`NameError` 会当场把它变成红。
+
+实测（2026-11-21 23:36）：删掉那 53 行（452 → 399 行）后 `import` 通过，`choose_ledger('ios-27.0.1-24A446')`
+正常返回 27 账本路径；`scripts/tests/test-eight-step-ledger-choice.py` 11 例全过。若要恢复那条覆盖检查，
+它必须**在 `sys.exit()` 之前**被调用，且自带 `sec`/`ok`/`bad` 的实现或被删。
+
 ## P-302 门禁读的是另一个操作系统的账本
 
 `scripts/eight-step-gate.py:55` 把 `DATA` 写死成 `docs/research/EIGHT-STEPS.toml`——那是 iOS 16.6.1

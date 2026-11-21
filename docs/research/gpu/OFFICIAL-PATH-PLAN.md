@@ -96,11 +96,13 @@
 | `adrenoprobed` | 129,568 | daemon |
 | `NativeAdrenoMetal.gpuaddon` | 12,784,432 | `NGPUADD2`，10 条目，含 5 个 bundle 文件 + `.publish` + daemon plists |
 
-**阻断（决定性）**：官方 `--target ios` 产出 `LC_BUILD_VERSION minos 17.0`、`MinimumOSVersion 17.0`；本机 OS 是 **iOS/iPadOS 16.6.1（20G81）**，插件不会加载。强行 `-target arm64-apple-ios16.6.1` 在 `NativeBridgeMetalFrontend.mm:822` 因 `MTLLanguageVersion3_1`（iOS 17 才可用，`-Werror,-Wunguarded-availability-new`）失败。
+**阻断（决定性）**：官方 `--target ios` 产出 `LC_BUILD_VERSION minos 17.0`、`MinimumOSVersion 17.0`；本机 OS 是 **iOS/iPadOS 16.6.1（20G81）**，插件不会加载。
+
+> **⚠️ 归因已作废，见 P-294。** 原文称「强行 `-target arm64-apple-ios16.6.1` 在 `NativeBridgeMetalFrontend.mm:822` 因 `MTLLanguageVersion3_1` 失败」——两侧源码对这个常量零命中，我们 vendored 副本第 822 行是 `NBCommandBuffer` 的 `- (instancetype)init`。真正阻断只有上面那两条构建产物标记（加载器层拒绝），改构建目标与 Info.plist 才是碰得到的地方。
 
 **另一个仓库缺陷**：当前框架 HEAD `4eaf2b9` 的 `drivers/AdrenoMetal` gitlink 是 `ce5e19e`（16 个补丁），而同一提交的 `scripts/build-adreno-metal-bridge.py` 仍列 25 个补丁（只在 `ce63701` 存在）⇒ HEAD 自相矛盾，官方链只能锚在 `642c4fe` 这套一致 pin 上构建。
 
-⇒ 官方插件在本机 OS 上**不可直接用**；要用它必须先做 16.6 回移（至少 `MTLLanguageVersion3_1` 的可用性守卫 + 逐个 MSL 3.1 特性核对），或把 OS 升到 17。两条都不在「首帧」最短路径上：现有 Pong 插件就是 16.6.1 原生、且已能创建设备。
+⇒ 官方插件在本机 OS 上**不可直接用**；要用它必须先把构建目标的 minos 与 Info.plist 降到 16（**不是**加可用性守卫，见 P-294），或把 OS 升到 17。两条都不在「首帧」最短路径上：现有 Pong 插件就是 16.6.1 原生、且已能创建设备。
 
 ## 3. 里程碑与验收（每条都先有离线证据再上机）
 

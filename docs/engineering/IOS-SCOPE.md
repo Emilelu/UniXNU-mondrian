@@ -23,6 +23,11 @@
    只有 macOS 行，iOS 层落到 Metal 表，`private().flag(f).value()` 返回 `None`，
    于是 `installAnswers()` 直接 `continue`，selector 从未装上。
 2. 官方 GPU 二进制要求 iOS 17（`MTLLanguageVersion3_1`），在 16 上编译失败。
+
+   > **⚠️ 归因已作废，见 P-294。** 两侧源码对这个常量零命中，`NativeBridgeMetalFrontend.mm:822`
+   > 也不是版本检查；真正阻断是构建产物声明 `LC_BUILD_VERSION minos 17.0` / `MinimumOSVersion 17.0`
+   > （加载器层拒绝）：<https://unixnu.com/zh/porting/gpu> 的 §4 只要求 `--target ios27` 的构建链，
+   > 不涉及源码级可用性守卫。结论方向不变（插件在 16.6.1 上不加载），但修法不是改源码。
 3. zizhan 在 18.7.10 上跑同一套代码达到 95.3 fps（合成负载），我们在 16.6.1 上功能通、性能不足。
 
 结论：不是「抄得不够」，是选了一个参考栈不支持的代次。

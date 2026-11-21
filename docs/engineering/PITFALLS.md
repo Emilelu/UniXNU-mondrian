@@ -7648,3 +7648,38 @@ P-279（读不到当成没有）、P-290（永远为红）、P-289（字段可�
 **门禁**：`scripts/check-official-steps.py`（账本 `docs/engineering/OFFICIAL-STEPS.toml`）——
 构建脚本里每个 `unixnu` 子命令都必须有一行账本，且该行指向的页与锚点必须在官方文档镜像里真实存在；
 账本或镜像缺失时退 2（判不了不等于通过）。
+
+## P-294 — 一个连符号名都 grep 不到的「编译失败」，不是归因
+
+**现象**：两份记录把官方 GPU 插件在 16.6.1 上不加载，写成源码级编译失败：
+`docs/engineering/IOS-SCOPE.md:25`「官方 GPU 二进制要求 iOS 17（`MTLLanguageVersion3_1`），在 16 上
+编译失败」，`docs/research/gpu/OFFICIAL-PATH-PLAN.md:99` 更具体到
+「强行 `-target arm64-apple-ios16.6.1` 在 `NativeBridgeMetalFrontend.mm:822` 因
+`MTLLanguageVersion3_1`（iOS 17 才可用，`-Werror,-Wunguarded-availability-new`）失败」，并据此在
+`OFFICIAL-PATH-PLAN.md:103` 推出「16 回移至少要做可用性守卫」。
+
+**真因**：两侧源码里根本没有这个符号。我们自己 vendored 的
+`drivers/PongMetal/NativeBridgeMetalFrontend.mm` 与官方 `drivers/AdrenoMetal/NativeBridgeMetalFrontend.mm`
+对 `MTLLanguageVersion` 的命中数都是 0（`git grep -c MTLLanguageVersion3_1 -- drivers` 为空），
+`NativeBridgeMetalFrontend.mm:822` 也不是什么版本检查——我们这份 vendored 副本的第 822 行是
+`NBCommandBuffer` 的 `- (instancetype)init`（全文 1,671 行），被引用的位置连一个 Metal 语言版本
+常量都没有。真正让插件在 16.6.1 上不加载的是
+构建产物层的两个标记：`LC_BUILD_VERSION minos 17.0` 与 `MinimumOSVersion 17.0`——那是链接器与
+Info.plist 的作者声明，不是一行会「编译失败」的源码。
+
+**为什么这条危险**：它不曾让任何构建变红，所以能安静地活下来；而它指向的工作是**一个不存在的
+编译器错误**，谁去修都修不好，只会把一轮时间花在给一段没有符号的代码加可用性守卫。同类形状：
+`P-282`（标签不是工具链能发出的）、`P-259`（写死的旧值会静默过期）——一个数字/符号名一旦离开
+它诞生的读数，就会被当成事实继承下去。
+
+**修法**：三处活断言就地标作废（`docs/engineering/IOS-SCOPE.md:25`、
+`docs/research/gpu/OFFICIAL-PATH-PLAN.md:99`、`:103`），本条目作为正身；正确的表述是
+「构建产物声明 minos 17.0，加载器层拒绝加载」，要改就改构建目标与 Info.plist，不是改源码里的
+可用性守卫。`docs/research/gpu/GPU-27-CONTRACT-DIFF.md:72` 的 C5 行记同一条失效。
+
+**教训**：把行为差异归因到「某行源码编译失败」之前，先 grep 那个符号。grep 不到就只能记成
+「加载器/构建产物层的拒绝」——这两句话的修法完全不同，而写错的那一句会让整条排期走错方向。
+
+**门禁**：`docs/engineering/RULES.toml` 的 P-294 用一条 `git grep` 判据把这个字符串钉在四个
+允许出现的文件里（`PITFALLS` / `RULES` / `IOS-SCOPE` / `OFFICIAL-PATH-PLAN` / `GPU-27-CONTRACT-DIFF`），
+其余任何文档再写出它，门禁变红。

@@ -37,8 +37,9 @@ WIDE_EXTRA = {"catalog_checked", "catalog_result"}
 VERIFY_EXTRA = {"static_check", "unit_test", "artifact_check", "local_verified"}
 ITEM_KEYS = {"name", "label", "status", "why", "revisit", "paths", "files", "step"}
 
+HERE = Path(__file__).resolve().parents[1]
 ROOTS = (
-    Path("/mnt/e/hackios/k60-gates"),
+    HERE,
     Path("/mnt/e/k60-work"),
     Path("/opt/k60/trees/ios27-out"),
 )

@@ -7,4 +7,26 @@
   <key>CFBundlePackageType</key><string>KEXT</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>OSBundleRequired</key><string>Root</string>
+  <!-- Route B: the bundle is resolved at prelink time, so its two non-kernel
+       dependencies have to be named here or the loader cannot order them. -->
+  <key>OSBundleLibraries</key><dict>
+    <key>com.apple.kec.corecrypto</key><string>1.0</string>
+    <key>com.apple.kpi.iokit</key><string>27.0</string>
+    <key>com.apple.kpi.libkern</key><string>27.0</string>
+    <key>com.apple.kpi.mach</key><string>27.0</string>
+    <key>com.apple.iokit.IOStorageFamily</key><string>1.0</string>
+  </dict>
+  <!-- The personality the 16.6.1 line installed with
+       patches/xnu/ios16-native-ufs-personality.patch; a bundle carries it in its
+       own plist instead of in the kernel's gIOKernelConfigTables. -->
+  <key>IOKitPersonalities</key><dict>
+    <key>NativeUfs</key><dict>
+      <key>CFBundleIdentifier</key><string>org.blu-sharky.NativeUfs.Pong</string>
+      <key>IOClass</key><string>NativeUfs</string>
+      <key>IOMatchCategory</key><string>NativeUfs</string>
+      <key>IONameMatch</key><string>ufshc</string>
+      <key>IOProbeScore</key><integer>1000</integer>
+      <key>IOProviderClass</key><string>IOPlatformDevice</string>
+    </dict>
+  </dict>
 </dict></plist>

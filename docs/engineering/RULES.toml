@@ -1351,3 +1351,18 @@ id = "P-302"
 statement = "flash 门禁必须按 os_profile 选八步账本；把 16.6.1 的账本套在 27 树上，只会产生 18 条永远为红的引用。"
 check = "python3 -c \"import pathlib,sys; p=pathlib.Path('docs/engineering/PITFALLS.md'); t=p.read_text(encoding='utf-8'); sys.exit(0 if '## P-302' in t else 1)\""
 note = "2026-11-21 23:05 实测：flash.sh 对 227fa840… 报通过 54 项、问题 18 处，全部是 16 线的 P-122/P-126/P-140 与五个 27 树不存在的文件；27 账本 EIGHT-STEPS-27.toml 从未被读。"
+
+[[rule]]
+id = "P-304"
+title = "路径锚点要让盘符形态可解析"
+statement = "解析 `文件:行` 锚点时必须显式处理 Windows 盘符与绝对路径（`E:/x` → `/mnt/e/x`，前导 `/` 时同时试各证据根 + lstrip('/')），不得依赖 `Path(base) / 绝对路径` 的行为。"
+check = "python3 scripts/tests/test-eight-step-ledger-choice.py"
+note = "2026-11-21 八步门禁把 7 条 Windows 盘符引用判成「文件不存在」：正则从 E: 之后开始匹配，且 pathlib 对绝对右侧丢掉 base。"
+
+[[rule]]
+id = "P-305"
+title = "合规声明必须是逐字段差分，且两侧各用自身标识符查表"
+statement = "回答「是否严格参考了某个参考源」时，必须给出可复核的差分（同一份脚本、两侧各自的标识符、三态分类），不得凭回忆列表；缺失段必须显示为 GAP 而不是被当成无差异。"
+check = "python3 scripts/tests/test-audit-ios27-conformance.py"
+note = "2026-11-22 首跑抓到 [kernel.prelink] 整段缺失（Sheng 声明 44 个 root）与 defconfig 8 vs 19 键；检查器第一版用我们的 profile 名读 Sheng 的 defconfig，SAME 从 6 变 10。"
+

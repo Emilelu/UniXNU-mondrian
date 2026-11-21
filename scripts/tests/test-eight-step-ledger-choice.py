@@ -212,6 +212,40 @@ def _(gate):
         shutil.rmtree(d, ignore_errors=True)
 
 
+@check('anchor.windows_drive_form_maps_to_mnt')
+def _(gate):
+    """E:/... is how the ledgers are written; it must become /mnt/e/... on Linux."""
+    candidates = [str(c) for c in gate._anchor_candidates('E:/k60-work/reports/x.dtb')]
+    assert '/mnt/e/k60-work/reports/x.dtb' in candidates, candidates
+    assert 'E:/k60-work/reports/x.dtb' in candidates, candidates
+
+
+@check('anchor.leading_slash_keeps_the_base')
+def _(gate):
+    """Path('/root') / '/abs' is '/abs' — the base was being dropped, so every
+    stripped-drive anchor pointed at the filesystem root."""
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, 'k60-work'))
+        f = os.path.join(d, 'k60-work', 'x.txt')
+        open(f, 'w').write('a\n')
+        gate.EVIDENCE_ROOTS = [d]
+        try:
+            assert gate.resolve_file_line('/k60-work/x.txt:1') is None
+        finally:
+            gate.EVIDENCE_ROOTS = ['/mnt/e/k60-work/evidence', '/mnt/e/k60-work/reports',
+                                   '/mnt/e/k60-work', '/mnt/e/hackios']
+
+
+@check('anchor.repo_relative_still_works')
+def _(gate):
+    assert gate.resolve_file_line('scripts/eight-step-gate.py:1') is None
+
+
+@check('anchor.missing_file_is_still_an_error')
+def _(gate):
+    assert 'no such file' in str(gate.resolve_file_line('nope/absent.c:1'))
+
+
 def main():
     gate = load_gate()
     failed = 0
@@ -229,7 +263,7 @@ def main():
     if failed:
         print('FAILED %d of %d' % (failed, len(CASES)))
         return 1
-    print('OK %d cases: the ledger follows os_profile, and both evidence shapes pass'
+    print('OK %d cases: the ledger follows os_profile, both evidence shapes pass, and drive-letter anchors resolve'
           % len(CASES))
     return 0
 

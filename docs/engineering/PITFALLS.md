@@ -7856,3 +7856,54 @@ define 由内核步的 `env "arm_init.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1"
 判据：门禁选账本必须与选 defconfig、选 device-tree 同源——按 `board.toml` 的 `os_profile` 选，
 且两个账本的 schema 差异（27 的 `evidence` 是列表、每项有 `why`/`revisit`）必须在读取层收敂，
 不能靠改内容对齐。修法见 `docs/engineering/IOS27.md` 的同日条目。
+
+## P-304 路径拼接把 Windows 盘符引用全部判成「文件不存在」
+
+**症状**。八步门禁对 27 账本报了 15 处问题，其中 7 处是「引用解析不到」。逐条看文件都在：
+`E:/k60-work/reports/live-6033dbec-fdt.dtb:1`、`E:/hackios/UniXNU/docs/zh/porting/network.md:30` 都能打开。
+
+**机制**。两层叠加，任一层单独都不显形：
+
+1. 门禁的正则是 `[\w./-]+\.(?:ext):\d+`，`E:` 里的冒号不在字符集里 ⇒ 匹配从 `E:` **之后**开始，
+   得到 `/k60-work/reports/...`（前导斜杠是 `E:/` 的第二个字符）。
+2. `resolve_file_line` 用 `Path(base) / path` 拼候选。**pathlib 在右侧是绝对路径时会丢掉左侧**
+   （`Path('/mnt/e/k60-work') / '/k60-work/x'` 等于 `/k60-work/x`），于是候选指向文件系统根，
+   而 `EVIDENCE_ROOTS` 里的前缀一次都没被用上。
+
+**判据**。
+
+- 锚点正则前面加 `(?:[A-Za-z]:)?`，让盘符进入匹配；
+- 解析走一个显式的候选生成器：`E:/x` → `/mnt/e/x` 与 `E:/x` 两形态；前导 `/` 时同时试原样和
+  「每个根 + `lstrip('/')`」；候选去重后逐个 `is_file()`。
+- 测试要覆盖「盘符形态映射到 `/mnt/<drive>/`」这一条，不能只测相对路径——只测相对路径时
+  两层缺陷都碰不到。
+
+**同类**。这与 P-227 是同一个家族（MSYS 把 `/mnt/e` 解析成 `E:\mnt\e`），区别是这次发生在
+**门禁内部**，症状是「证据文件不存在」，看起来像账本写错了。
+
+## P-305 与参考源的「合规」只能逐字段比对，不能凭「照它写的」
+
+**症状**。为了回答「当前 27 内核镜像是否严格遵守官方文档、严格参考 Sheng」，我先凭记忆列了
+一张「已符合 / 已偏离 / 未知」的表。写脚本逐字段比对后发现，凭记忆漏掉的不是细节而是整块：
+`board.toml` 里我们**根本没有 `[kernel.prelink]` 段**（Sheng 声明 44 个 root），
+defconfig 我们 8 个键、Sheng 19 个键。
+
+**第二个症状**（同一轮内自伤）。检查器第一版用**我们的** OS profile 名去查 Sheng 的
+`[package.defconfig]`，于是 Sheng 那边一律显示「absent」——两边都没读到值，
+却在输出里长得像「Sheng 没有 defconfig」。改成各查各自的 profile 之后 `SAME` 从 6 变 10。
+
+**判据**。合规性是可复核的**差分**：
+
+1. 两侧各用**自己的标识符**查表（profile 名、defconfig 名、路径大小写），
+   绝不能拿一侧的名字去读另一侧。
+2. 差异分三态：`same` / `justified`（有理由且理由引用的文件可解析）/ `GAP`。
+   缺一段配置不是「没有差异」，是 `GAP`——`(absent)` 必须显示出来。
+3. 只有 `GAP` 归零才能说「严格参考」。`CONFORMANCE.md` 写死「GAP 数必须单调下降」，
+   `prelink-root:*` 不许用「stage-0 不需要」冒充理由：roots 决定集合里有哪些 kext，
+   它直接决定那 203 个桩会不会被调用。
+
+**工具**。`scripts/audit-ios27-conformance.py`（9 例测试）+ `docs/research/ios27/CONFORMANCE.md`
++ `docs/research/ios27/CONFORMANCE-DEVIATIONS.toml`（理由与证据）。首跑读数
+`SAME 10 / JUSTIFIED 34 / GAP 47`，全部 GAP 都是 prelink roots；官方 registry 103 页里
+mapped 21 / na 4 / unmapped 78。
+

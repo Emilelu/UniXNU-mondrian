@@ -100,10 +100,43 @@ EVIDENCE_ROOTS = ['/mnt/e/k60-work/evidence', '/mnt/e/k60-work/reports',
                   '/mnt/e/k60-work', '/mnt/e/hackios']
 
 
+def _anchor_candidates(path, root=None):
+    """Every place an anchor of this shape could legitimately live.
+
+    Windows drive paths and leading-slash paths used to be turned into a single
+    absolute path that does not exist: `Path('/mnt/e/k60-work') / '/k60-work/x'`
+    is `/k60-work/x` because pathlib drops the base for an absolute right side.
+    The ledgers are written in the Windows form (`E:/k60-work/...`), so this is the
+    common case, not the corner case (P-304).
+    """
+    raw = str(path).replace('\\', '/')
+    out = []
+    m = re.match(r'^([A-Za-z]):/(.*)$', raw)
+    if m:
+        drive, rest = m.group(1).lower(), m.group(2)
+        out.append(Path('/mnt/%s/%s' % (drive, rest)))          # WSL
+        out.append(Path('%s:/%s' % (drive.upper(), rest)))       # Windows
+    if raw.startswith('/'):
+        out.append(Path(raw))
+        out += [Path(base) / raw.lstrip('/') for base in EVIDENCE_ROOTS]
+    out.append(Path(root or REPO) / raw.lstrip('/'))
+    out += [Path(base) / raw.lstrip('/') for base in EVIDENCE_ROOTS]
+    seen, uniq = set(), []
+    for c in out:
+        k = str(c)
+        if k not in seen:
+            seen.add(k)
+            uniq.append(c)
+    return uniq
+
+
 def resolve_file_line(anchor, root=None):
     """A file:line anchor must resolve to a real line, in the repo or an evidence root."""
     path, _, line = anchor.rpartition(':')
-    candidates = [Path(root or REPO) / path] + [Path(base) / path for base in EVIDENCE_ROOTS]
+    if path and re.match(r'^[A-Za-z]$', path):
+        # `E:/x.md:1` split on the drive colon too; put it back.
+        path, _, line = anchor.rpartition(':')
+    candidates = _anchor_candidates(path, root)
     for candidate in candidates:
         if not candidate.is_file():
             continue
@@ -119,7 +152,7 @@ def unresolvable_reference(text):
     """Report the first anchor in the evidence that does not resolve, or None."""
     if not text:
         return 'no evidence'
-    for match in re.finditer(r'[\w./-]+\.(?:c|h|mm|cpp|py|sh|md|toml|dts|dtsi|log|txt):\d+', text):
+    for match in re.finditer(r'(?:[A-Za-z]:)?[\w./-]+\.(?:c|h|mm|cpp|py|sh|md|toml|dts|dtsi|log|txt):\d+', text):
         problem = resolve_file_line(match.group(0))
         if problem:
             return '%s (%s)' % (match.group(0), problem)

@@ -1,0 +1,50 @@
+# 与 Sheng 配方的差异，逐条给理由。
+#
+# 每条：key（或 prefix） + reason + evidence。
+# evidence 必须是本仓可解析的 `文件:行`；解析不到时门禁会把它退回 GAP（P-298 形状：
+# 理由不能只是一句话，必须指向能复核的材料）。
+#
+# 这张表只写「设计差异」；真正的缺口不许写进来冒充理由 —— 见 CONFORMANCE.md 第三节。
+
+[[deviation]]
+key = "board.os_profile"
+reason = "iOS 27.0.1 与 iPadOS 27.0.1 是同一次 24A446 构建，profile 名不同只因为 K60 是手机。"
+evidence = "docs/research/ios27/CONFORMANCE.md:14"
+
+[[deviation]]
+key = "kernel.driver_records"
+reason = "xnu-12377 没有 PONG 机器配置，makedefs/MakeInc.kernel 对 PONG 直接 Stop；BCM2837 是 12377 里唯一的 4 KiB 配置，Sheng 由 profiles 默认给出等价信息。"
+evidence = "docs/research/ios27/CONFORMANCE.md:15"
+
+[[deviation]]
+key = "kernel.config_fragments"
+reason = "K60 的 SoC 参数片段由本仓提供；Sheng 的 SM8550 参数在 arch 层，因此它没有 soc 项。"
+evidence = "docs/research/ios27/CONFORMANCE.md:16"
+
+[[deviation]]
+key = "package.defconfig[27]"
+reason = "不同板子的 defconfig 本来就不同名；比的是键的集合而不是文件名。"
+evidence = "docs/research/ios27/CONFORMANCE.md:17"
+
+[[deviation]]
+prefix = ["config:CONFIG_XNU_NATIVE_ADRENO", "config:CONFIG_XNU_NATIVE_LEGACY_DISPLAY",
+          "config:CONFIG_XNU_NATIVE_RAM_BLOCK", "config:CONFIG_XNU_OWNER_",
+          "config:CONFIG_XNU_SOURCE_STORAGE", "config:CONFIG_XNU_EXTRA_LD_ARCHIVES",
+          "config:CONFIG_XNU_NATIVE_UFS"]
+reason = "stage-0 的出口是 arm_init → bsd_init → root mount → Early boot complete；这些开关把 GPU、显示、存储归属与 ram 盘放进内核，属于「起来之后」的能力，stage-0 打开就是把未验证子系统塞进第一次启动。"
+evidence = "docs/research/ios27/CONFORMANCE.md:28"
+
+[[deviation]]
+prefix = ["archive:component:Adreno740", "archive:component:ShengUfs",
+          "archive:component:RamBlock", "archive:component:AppleKeyStoreState",
+          "archive:build-adreno740-", "archive:build-sheng-source-storage.py",
+          "archive:fetch-sheng-dts.py", "archive:prepare-sheng-gmu",
+          "archive:build-gop-legacy-display-27.py", "archive:build-fileset-release-reference.py"]
+reason = "Sheng 的 GPU/存储/启动清单归档；我们 stage-0 不链它们，K60 侧对应物是 build-k60-platform-archives.py 与 build-k60-fileset-reference.py。"
+evidence = "docs/research/ios27/CONFORMANCE.md:36"
+
+[[deviation]]
+prefix = ["archive:build-firehose-stub.py", "archive:build-k60-fileset-reference.py",
+          "archive:build-k60-platform-archives.py"]
+reason = "K60 侧的三件互补品：firehose 参考只有 arm64 而 27 要 arm64e（生成桩并自报 stub）、平台归档参数化到 arm64e、LTO 参考在 Mac 上建好后装回缓存。"
+evidence = "docs/research/ios27/CONFORMANCE.md:41"

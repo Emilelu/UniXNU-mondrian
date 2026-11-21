@@ -159,6 +159,7 @@ docs/
 | [`gpu/GPU-27-HW-INIT-MIGRATION.md`](research/gpu/GPU-27-HW-INIT-MIGRATION.md) | **hw_init 迁移证据链**：27 板自己的 `hardware_init()` 已在核内跑完 sheng `gpuHwInit()` 的同一份序列（26 行逐条对照，判定为同/异/27 不做/27 额外），`RBBM_CLOCK_*` 的唯一写入者与「只投一次启动票」的形状，27 缺的 `gpuRestart()`，以及 27 多出来的中断拥有者（SPI 332）|
 | [`gpu/GPU-27-DEEP-EVIDENCE.md`](research/gpu/GPU-27-DEEP-EVIDENCE.md) | **⑥deep 的八项证据链**：预算表 §8 每个缺项写清现状 / 27 侧落点（`文件:行`，或「27 侧不存在」）/ 谁交 / 交付物与判据；三项 unknown 的转化条件；27 侧已就位的五项 |
 | [`gpu/GPU-27-V2-FIELDS.md`](research/gpu/GPU-27-V2-FIELDS.md) | **v2 四个 wire 字段的期望值表**：字段名 / 偏移 / v2 值语义 / v1 同偏移是什么 / 判据来源 `文件:行`；并写清今天判读器能读哪个字段、哪几个只能靠编译期断言与内核记账守（给 `judge-gpu27.py` 当断言输入） |
+| [`gpu/GPU-27-DPU-MINIMUM.md`](research/gpu/GPU-27-DPU-MINIMUM.md) | **DPU 直扫所需的 wire 侧最小字段集**：只列不加字段就能做的部分（v1 已有 address/stride/width/height/format，缺的只有面板缓冲与复用凭证，而那是拷贝路径需要的东西），单缓冲直扫的三件必须同时成立的事，与两类不会出现在日志里的失败 |
 | [`gpu/FLIP-READINESS.md`](research/gpu/FLIP-READINESS.md) | **翻 `PONG_SCANOUT_V2_LAYOUT` 0→1 的五条前置**：会签在案 / v2 补丁进 series / offset 补丁排在前 / 四个偏移由编译器断住 / 翻的那次飞行判据；每条给现在就能跑的命令或 `文件:行`，含三条比正例更有用的反例 |
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。

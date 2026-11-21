@@ -112,6 +112,8 @@ Mode 的调用形态见 `PongMetalScanout.h:229-231`：`in=nullptr, inSize=0, ou
 | **v1 内核 + v2 presenter** | presenter 读到 `version==1`，用 48 B 缓冲；`target` 恒 0 视为「无 dbuf」，走单 panel buffer 路径 | **必须是一个受支持的降级**，不是错误。v2 presenter 不得把 `target==0` 当作失败 |
 | **v2 内核 + v1 presenter** | presenter 读到 `version==2`，不认识 ⇒ 打印 `scanout version=2 unsupported (expects 1)` 并**不启动**扫描出线程 ⇒ CPU 合成继续 | fail-closed，屏幕仍能出画面 |
 
+（矩阵的旁边还有一条：未签不进 series——签名块见 §3.1，条款不在这里重复。）
+
 第三行是这次改动的**成本**：v2 presenter 必须保留一条「target 恒 0」的代码路径，并且要能被判据覆盖
 （否则等于把 48 B 的情况删掉了）。第四行是这次改动的**收益**：旧镜像遇到新内核会响亮地失败，
 而不是把 56 B 当 48 B 读。

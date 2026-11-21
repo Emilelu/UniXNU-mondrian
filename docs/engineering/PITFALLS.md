@@ -7702,6 +7702,20 @@ raw 时 `db[frame.target - 1]` 同样红（两份反例夹具固定在 `fixtures
 `pon-ppid` → `FAIL: /buttons home-button-type, pong-buttons pon-ppid`，rc=1；真板 rc=0，输出
 `ok input-adt-nodes: …`。
 
+### 报「我这棵树编不过」必须同时给三样东西
+
+同一族错误在 2026-11-21 又出现一次：线内报「27 设备仓的 `dts/mondrian.dts` 今天编不过」，实际是**它读的那棵检出 stale**。逐项对齐后是两棵树两个阶段：
+
+| 项 | 报错的那棵 | 实际那棵 |
+| --- | --- | --- |
+| 检出 | `E:/hackios/xnekom-ios27` | `E:/hackios/k60-gates` |
+| 分支 / HEAD | `feat/xnu27-data-gate` @ `7fd04d89` | `diag/menu-hold-20261121` @ `988f7ee8` |
+| `dts/mondrian.dts` sha256 | `e9871e43…`（缺 `/*`，dtc 报 syntax error） | `ea688315…`（零诊断，4,307 B） |
+
+因果链：合并提交 `585fe75a` 把 `1e2e6814` 那段注释开头的 `/*` 丢了，修复提交 `e1b6c15f`（`dts/mondrian.dts | 2 ++`）已经在 `remotes/emilelu/main`，那棵 stale 检出还没带它。
+
+判据（写进报告前必须齐）：`git rev-parse HEAD` + 该文件 `sha256` + 完整工具输出。三条不齐，就不许把「编不过 / 跑不了 / 不生效」写进坑位或交付报告——缺任何一条时，先怀疑自己读的是哪棵树，而不是别人的仓库。与 P-297 同族：**没跑出结论不等于结论是坏的**，读错对象不等于对象是坏的。
+
 
 ## P-299 — 上游 pick 会把别人正依赖的 board.toml 块先加后删
 

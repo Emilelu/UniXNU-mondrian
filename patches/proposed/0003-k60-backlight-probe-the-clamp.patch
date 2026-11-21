@@ -1,61 +1,84 @@
-Subject: [PATCH] fix(display): probe the brightness clamp from the service itself
+Subject: [PATCH] fix(display): probe the brightness clamp in a diagnostic image
 
-The 0001 patch only shows its value when the two fields of the request line can
-disagree, and they can only disagree for an out-of-range request:
-K60BacklightCodec.h clampLevel() maps anything >= kMaxLevel (2047) onto 2047
-and anything <= 0 onto 0. A slider never sends that, so a flight that merely
-drags the slider produces lines whose two fields are equal - the log is
-untouched by the defect and the patch looks pointless.
+Stacked on 0001, never alone: without it both fields of the request line read
+2047 and the probe prints the defect itself instead of a difference. It exists
+only to make 0001's C3 criterion reachable - the clamp in
+K60BacklightCodec.h:62-67 only separates the two fields for an out-of-range
+request, and a slider never sends one (2026-11-21, Lead).
 
-This adds the smallest thing that makes the question answerable on the device
-without waiting for the OS to misbehave: with k60_backlight_probe=1 the service
-asks itself, once, for level 4095 - the top of the panel's own 12 bit DBV
-domain, the value a caller would pass if it mistook DBV units for levels. With
-0001 applied that prints exactly one line
+Build-time switch, not a boot argument. k60_backlight_probe=1 was 21 bytes and
+the 27 command line has 4 bytes left after O1, so the argument was withdrawn
+before it ever reached a registry: BOOT-ARGS.md, BOOT-ARGS-PENDING.toml and the
+ALLOWED_ADDITIONS set in scripts/check-image-args.py never contained it (grep
+count 0 in each). The name is gone; K60_BACKLIGHT_PROBE replaces it and defaults
+to 0 in the source, so every ordinary build compiles the block out.
 
-    K60 BACKLIGHT: brightness level 4095 -> level 2047 dbv 0xfff
+Two images, same inputs, one switch:
+  release     - no -D, block absent, strings prove it (see below);
+  diagnostic  - -DK60_BACKLIGHT_PROBE=1, one line
+                  K60 BACKLIGHT: brightness level 4095 -> level 2047 dbv 0xfff
+                and the panel jumps to full brightness once at bring-up.
 
-and without 0001 it prints 2047 twice, which is the defect itself.
+The absence is an assertion, not a promise: with the switch off the marker
+string "K60 BACKLIGHT: probe request not built" must not appear in the built
+kernel. docs/research/display/check-probe-absent.py reads a kernel.macho and
+fails if it does; run it on both images and record the sha256s named in
+docs/research/display/PROBE-BUILD-SWITCH.md.
 
-Off by default: the argument is the only way in, nothing in the image sets it,
-and the cost of turning it on is one visible jump to full brightness at
-bring-up before user space takes over. The probe is stacked on 0001 and is
-never shipped alone - alone it can only reprint the clamped value.
-
-Criteria and the reading rules: docs/research/display/BACKLIGHT-LOG-CRITERIA.md.
+Criteria: docs/research/display/BACKLIGHT-LOG-CRITERIA.md section 8.
 Applies to the 27 ladder branch only.
 ---
 --- a/drivers/PongAdreno/K60Backlight.cpp
 +++ b/drivers/PongAdreno/K60Backlight.cpp
-@@ -379,6 +379,31 @@ void K60Backlight::publishFirst(void)
+@@ -69,6 +69,17 @@ extern "C" {volatile int32_t native_backlight_stats[16];}
+  * (0 no, 1 yes), [5] backlight-control published (0 no, 1 yes). */
+ extern "C" {volatile int32_t native_backlight_request[6];}
+ 
++/* The clamp probe is a build-time switch, not a boot argument. A 21 byte
++ * argument does not fit beside the 27 line (4 bytes left after O1) and a key
++ * nothing reads is worse than no key, so release images compile this to 0 and
++ * the whole block disappears; only a dedicated diagnostic image passes
++ * -DK60_BACKLIGHT_PROBE=1. The absence is provable: with the switch off the
++ * marker string below does not exist in the built kernel
++ * (docs/research/display/PROBE-BUILD-SWITCH.md). */
++#ifndef K60_BACKLIGHT_PROBE
++#define K60_BACKLIGHT_PROBE 0
++#endif
++
+ namespace {
+ /* The newest request, goal << 16 | milliseconds, bit 63 set while the work loop
+  * has not taken it yet. */
+@@ -379,6 +390,33 @@ void K60Backlight::publishFirst(void)
            (int)native_backlight_request[0], (int)native_backlight_request[1],
            (int)native_backlight_request[4], (int)native_backlight_request[5],
            control ? "" : " (no AppleARMBacklight conformance)");
 +
-+    /* k60_backlight_probe=1: ask ourselves the question a flight cannot wait
-+     * for. The clamp path (K60BacklightCodec.h clampLevel) only separates the
-+     * two fields of the "brightness level" line when the request is out of
-+     * range, and no UI sends 4095 - it is the top of the panel's own 12 bit
-+     * DBV domain (kMaxDbv 0xfff), not a level. With 0001 applied this prints
-+     * exactly one line before user space takes over:
++#if K60_BACKLIGHT_PROBE
++    /* Stacked on 0001, never alone: without it both fields of the request line
++     * read 2047 and this prints the defect itself instead of a difference.
++     *
++     * Ask ourselves once, after the published line so that line keeps its
++     * documented req=0,0 invariant, for level 4095 - the top of the panel's own
++     * 12 bit DBV domain (kMaxDbv 0xfff), which is what a caller passes if it
++     * mistakes DBV units for levels. clampLevel() then lands it on 2047, so the
++     * expected line is
 +     *
 +     *   K60 BACKLIGHT: brightness level 4095 -> level 2047 dbv 0xfff
 +     *
-+     * Without 0001 both fields read 2047 (the defect being measured), so the
-+     * probe is stacked on that patch, never alone. Off by default; the
-+     * argument is the only way in, and the side effect is one visible jump to
-+     * full brightness at bring-up. */
-+    uint32_t probe = 0;
-+    if (bootArg("k60_backlight_probe", probe) && probe) {
-+        OSDictionary *request = OSDictionary::withCapacity(1);
-+        OSNumber *outOfRange = OSNumber::withNumber(4095ULL, 32);
-+        if (request) {
-+            if (outOfRange) request->setObject("brightness", outOfRange);
-+            setProperties(request);
-+            request->release();
-+        }
-+        if (outOfRange) outOfRange->release();
++     * Off in every release image: this block is not compiled at all unless the
++     * build passes -DK60_BACKLIGHT_PROBE=1. Side effect of a diagnostic image
++     * is one visible jump to full brightness at bring-up. */
++    OSDictionary *probe = OSDictionary::withCapacity(1);
++    OSNumber *probeLevel = OSNumber::withNumber(4095ULL, 32);
++    if (probe && probeLevel) {
++        probe->setObject("brightness", probeLevel);
++        setProperties(probe);
++    } else {
++        IOLog("K60 BACKLIGHT: probe request not built\n");
 +    }
++    if (probeLevel) probeLevel->release();
++    if (probe) probe->release();
++#endif
  }
  
  IOReturn K60Backlight::setProperties(OSObject *properties)

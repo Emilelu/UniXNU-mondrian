@@ -88,6 +88,8 @@ const bool link_up = k60_pmic_glink_audio_ready();        /* adsp:drivers/PongPo
 
 这就是“power 不提供也能安全只读查询”的答案：可以查，但只能得到“未认领 / 启动中或失败 / 传输已 up”三档，分不清 `Booting` 与 `Failed`。所以接口 A 仍然值得做，但不是第一版 audio 的硬依赖；第一版可以先用回退对，日志里写明 `fallback`。
 
+如果 power 只想暴露一个布尔入口，`k60_adsp_audio_ready()` 可以做成同一原子状态字的薄封装（`Ready` 时为真）；audio 在只需要二态的日志里用它，真正区分 `Booting/Failed` 仍用 `k60_adsp_handoff_status()`。两个名字必须读同一个状态源，不能各自维护一份。
+
 ## 四、接口 B：audio 侧的音频域状态
 
 ### 4.1 建议的 C 形状
@@ -267,6 +269,7 @@ int k60_power_audio_release(const K60AudioPowerClaim *);
 |---|---|
 | 27 侧提交仍是 `8cbb3af6` / `3e73f4be`？ | 本轮开始时是；本文提交后会变，tip 以回复里的 SHA 为准。 |
 | 0531 仍 HOLD？ | 是。解除条件见第六节，不是“编译通过”。 |
+| 是否接受 `k60_adsp_audio_ready()`？ | 接受，作为接口 A 的二态薄封装；详细三态仍用 `k60_adsp_handoff_status()`。不要另立第二个状态源。 |
 | audio 是否已有 `k60-adsp-glink-handoff` 的 consumer 代码/判据？ | **传输 consumer 有，状态判据没有。** attach/send/ready 在 `adsp:drivers/PongPower/K60PmicGlinkAudio.h:36-38`，实现在 `K60PmicGlink.cpp:33-59`；但 audio 不解析 104 B 属性，也没有 `pong_audio_status()` 实现。本文的接口 B 就是补这个判据。 |
 | codec/SoundWire 的资源名、ADT 节点、owner 候选？ | 见 5.3 表：codec rail 是 `codec-supply-rail`（当前 0）；amp rail 需要新增属性；TX SWR 是 `tx-master-base`（当前 0）；codec reset 是 `codec-reset-gpio`（当前 0，候选 GPIO43）。owner：rail/RSC 归 power，TLMM reset 与 LPASS 寄存器归 audio。 |
 | “音频域可用”的第一条可执行判据？ | `GET_SPF_STATE` 的回答 `opcode 0x02001007` 且 payload 第一个字 `== 1`；加上接口 A 的 `Ready` 与 `k60_pmic_glink_audio_ready()`。见 4.2。 |

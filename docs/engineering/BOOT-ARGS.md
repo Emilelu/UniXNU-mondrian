@@ -654,7 +654,9 @@ legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不
 **不要把它当标定**：本板没有 `qcom,tsens-calibration`，真正的标定系数不在 DT 里
 （`docs/research/thermal/01-SAME-HARDWARE.md` §4）。
 
-### `k60_autoreset` / `k60_autoreset_idle`（0550，自动复位）
+### `k60_autoreset`（0550，自动复位）
+
+### `k60_autoreset_idle`（0550，自动复位的空闲门槛）
 
 - 语义：`k60_autoreset=<秒>` 让内核在引导后经过 `<秒>` 自动回 fastboot；`k60_autoreset_idle=<秒>` 是开始计时前的空闲门槛（默认 30）。
 - 解析位置：`bsd/dev/k60_usblog_reset.c`（由 `patches/xnu-12377/0550-k60-autoreset-27.patch` 追加），两个名字沿用 16 系列，`board.toml` 的启动行里已有 `k60_autoreset=300`，**不新增字节**。

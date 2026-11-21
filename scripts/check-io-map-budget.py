@@ -150,6 +150,17 @@ def main():
         print("skip: %s does not look like an applied xnu-work tree" % tree)
         return 0
 
+    # A tree without the define is not a tree with an 8 MiB submap: 12377 sizes
+    # the submap per kmem_alloc instead of one shared constant, so falling back
+    # to the 16-series number and printing a tick is a guess dressed as a check
+    # (measured 2026-11-21 by the platform lane; P-279, P-290).
+    _, source = io_map_size(tree)
+    if source == "default":
+        print("FAIL: %s/osfmk/arm/io_map.c declares no IO_MAP_SIZE; the 8 MiB fallback "
+              "is the 16-series number, so this tree cannot be judged against it. "
+              "Count the ml_io_map windows instead of borrowing a limit." % tree)
+        return 2
+
     problems, notes = measure(tree)
     for note in notes:
         print(note)

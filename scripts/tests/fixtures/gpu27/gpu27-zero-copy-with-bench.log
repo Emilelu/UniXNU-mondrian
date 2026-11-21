@@ -1,0 +1,11 @@
+Pong Metal: scanout frames=100 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=101 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=102 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=103 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=104 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=105 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=106 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=107 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=108 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout frames=109 at 12.345 s; last frame: wait=8300 us copy=12 us done=40 us; imports=0 import=0 us encode=0 us submit=0 us gpu=0 us sum=0 us status=0x0
+Pong Metal: scanout bench n=1/24 import=27 us encode=3059 us submit=362 us gpu=2470 us sum=5907 us status=0x0

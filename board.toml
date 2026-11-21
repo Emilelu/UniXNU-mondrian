@@ -216,8 +216,11 @@ tools = true
 # default entry ("xnu") after that many seconds. If the kernel then fails and the
 # menu falls back to "Return to firmware", the unit lands in BDS -> Android,
 # which is the state a host-side watchdog can recover from.
-timeout = -1  # diagnostic 2026-11-21: wait for a key, so a black panel cannot be
-               # mistaken for "the menu never drew". Revert after the discrimination flight.
+# 2026-11-22 03:04 (user): no more manual steps. The countdown is back on and the
+# default entry is the 27 kernel, so "power on -> kernel" needs nobody at the panel.
+# The black-panel discrimination it was disabled for is now covered by the stage
+# bars and by BOOT-FREEZE.md, not by parking the menu.
+timeout = 10
 
 # B decision (2026-11-03): align with pong and drop the whole trust-cache path.
 # The payload ships no trust-cache sidecar (no --trust-cache anywhere in the

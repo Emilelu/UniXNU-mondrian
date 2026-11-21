@@ -260,3 +260,5 @@ python3 scripts/render-eight-step-table.py --check
 - 2026-11-19 GPU 档位：把「启动投一次」改成可以在 GX 起来后重投（t970 z164）——[飞行卡 k](research/gpu/FLIGHT-CARD-20261119k.md)、[飞行卡 l](research/gpu/FLIGHT-CARD-20261119l.md)
 - `docs/engineering/OFFICIAL-REQUIREMENTS.toml` — 官网要求登记表（铁则 13）
 - `docs/engineering/UPSTREAM-REPOS.toml` — 上游仓库同步基线（铁则 15）
+- [ios27/CARRY-OVER-INVENTORY.md](research/ios27/CARRY-OVER-INVENTORY.md) —— 16 线 240 条 vs 27 线 34 条：迁移时丢了什么
+- [engineering/REFERENCE-PROVENANCE.md](engineering/REFERENCE-PROVENANCE.md) —— 哪个「第三方」其实是我自己的 fork（GitHub API 实测）

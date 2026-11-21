@@ -145,17 +145,26 @@ def main():
     roots = args.scan or [os.path.join(repo, item) for item in SCAN]
 
     report = {"convention": convention, "scanned": [os.path.relpath(r, repo) for r in roots]}
+    found = matches(roots)
+    report.update(scanned=[os.path.relpath(r, repo) for r in roots], consumers=len(found))
     if convention is None:
+        if not found:
+            # Nothing reads .target yet, so there is nothing the document could
+            # govern: dormant, and a plain run skips (0) while saying so loudly
+            # (P-207). --strict is the caller saying "no dormant gate tonight",
+            # which makes the same state a failure (1). Two codes, two questions.
+            report.update(state="dormant", why="no consumer of .target yet, and the document no longer declares " + DOC_MARKER)
+            print(json.dumps(report, ensure_ascii=False) if args.json
+                  else "K60 GPU27 TARGET INDEX DORMANT no consumer of .target under %s yet, and %s no longer says %s"
+                  % (", ".join(report["scanned"]), DOC, DOC_MARKER))
+            return 1 if args.strict else 0
+        # Consumers exist but the document no longer states the convention they
+        # must follow: that is drift, and it is not the same thing as dormant.
         report.update(state="cannot judge", why="the document no longer declares " + DOC_MARKER)
         print(json.dumps(report, ensure_ascii=False) if args.json
               else "K60 GPU27 TARGET INDEX CANNOT JUDGE %s no longer says %s" % (DOC, DOC_MARKER))
-        # Dormant is "cannot judge" (2), so a plain run never pretends to pass.
-        # --strict is the caller saying "no dormant gate in this run", which makes
-        # the same state a failure (1) rather than another cannot-judge — the two
-        # codes answer different questions and must not be merged (P-290).
-        return 1 if args.strict else 2
+        return 2
 
-    found = matches(roots)
     good, bad = judge(found, convention)
     report.update(state="checked", consumers=len(found), allowed=len(good), contradicting=len(bad),
                   lines=[{"file": p, "line": n, "text": t} for (p, n, t) in bad])

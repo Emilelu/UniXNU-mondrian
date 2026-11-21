@@ -259,3 +259,19 @@ stage firmware-and-bootimg      162s    total  844s
 1. 日志里有 `pong-ramoops: console attached` ⇒ 映射成功，钩子已就位；
 2. 日志里有 panic 文本或 kprintf 行 ⇒ 已经过了 `console_init`；
 3. **两者都没有** ⇒ 结论只能是“停在 `console_init` 之前”，而不是“内核没启动”。
+
+### 2026-11-22 07:42 — 第二条更早的通道：PE 文本控制台（`0543`，改的是 `pexpert/arm/pe_init.c`）
+
+`0543-k60-ios27-panel-console.patch` 打的是 `pexpert/arm/pe_init.c`，逻辑是：解析到 `-v` 就把 loader 交来的帧缓冲切进文本模式（`PE_initialize_console(&PE_state.video, kPETextMode)` 再 `PE_initialize_console(NULL, kPEAcquireScreen)`）。
+
+它比 ramoops 早得多——`pe_init` 在 `arm_init` 之前，`console_init()` 更晚（`startup.c:582`）。我们的启动行第一个参数就是 `-v`，所以这条通路的开关**已经打开**。
+
+因此三条通道的时序现在是清楚的：
+
+| 通道 | 起效时刻 | 我们能不能读 | 现状 |
+| --- | --- | --- | --- |
+| PE 文本控制台（屏） | `pe_init`，最早 | 靠人眼/拍照 | 开启（`-v`），但黑屏说明它没写出来或没切进文本模式 |
+| ramoops（内存） | `arm_init` 末（`arm_init.c:711`，`arm_vm_init` 之后） | 需要 reader，且复位即失 | 已编进内核，等上机 |
+| usblog EP0（USB） | `bsd_init` 之后 | 需要主机驱动 | `0547` 已编进内核 |
+
+**这条给黑屏一个新的、可判定的解释**：如果 `PE_initialize_console` 成功，屏幕上至少应出现 `-v` 触发的 PE 输出；现在全黑 ⇒ 要么 `PE_state.video` 没被 loader 填充（固件没把帧缓冲信息传过去），要么文本模式切换在这块面板上不生效。下一轮可以直接查固件侧 `boot_args.Video` 是否非零（离线可查，`darwinboot_parsekernel.py` 的 ADT 解析已能读 boot_args）。

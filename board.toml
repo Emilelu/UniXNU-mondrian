@@ -373,6 +373,9 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:patches/xnu/series", "device:patches/xnu-12377/series"]
 # The fileset reference builds here without --lto: cctools-port's ld64 reads no
 # LLVM bitcode and the pinned LLVM 24 has no llvm-link, so the LTO variant stays
+# 2026-11-22: --skip-build because the framework builder cannot link the 27 reference
+# (IOUnifiedAddressTranslator has no source in either the 16 or the 27 tree; the carried
+# LTO reference is the authoritative artifact and its sha256 is recorded). CONSOLE-GAP.md.
 # a macOS/Xcode 26 artifact. patches/unixnu-core/fileset-reference-linux.patch
 # stubs its two LLVM profile-runtime calls.
 # The framework catalog declares ArmDTPlatform and ArmCpu without a build
@@ -384,7 +387,7 @@ patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:p
 # build-k60-platform-archives.py drives those same recipes against the tree
 # this build just resolved, so the archives appear where the fileset step
 # looks for them.
-archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-k60-fileset-reference.py --tree ."]
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-k60-fileset-reference.py --tree . --skip-build"]
 # Boot-record label. The object tree is BCM2837, the 4 KiB machine config this
 # profile builds; PONG belongs to the 16.6.1 line and would point the next
 # reader at a target this profile never produces.

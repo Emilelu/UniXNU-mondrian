@@ -86,3 +86,22 @@
 ⇒ `k60_usblog_start()` 直接加在 `qbt_k60_start();` 之后、同一个 `if (result == KERN_SUCCESS)` 里。三个好处：①复用现成的成功守卫，不用新造条件；②它就在 `return result;`（`:1339`）之前，与 16 线的插入位置语义相同（线程已能跑、`init` 还没拉起）；③USB 枚举发生在这之后，不会有人提前抢 DWC3。
 
 至此 `0300` 的两个锚点都定了：`osfmk/arm/arm_init.c:702`（复用）与 `bsd/kern/bsd_init.c` 的 `qbt_k60_start()` 之后（新选），守卫去掉。
+
+## `0334b`（autoreset）的依赖链：不是「0300 之后就能打」（2026-11-22 实测）
+
+`0334b-k60-autoreset.patch` 只改一个文件 `bsd/dev/k60_usblog.c`（184 行、4 个 hunk），
+而 `0547`（0300）造出来的该文件只有 **1,349** 行，16 线那个版本有 **1,900+** 行。逐 hunk 用「尾随上下文是否在 0547 后的文件里」判：
+
+| hunk | 尾随上下文 | 在 0547 的文件里 |
+| --- | --- | --- |
+| `@@ -186,6 +186,44 @@` | `* ->` | **在** |
+| `@@ -337,7 +375,25 @@` | `register uint64_t x0 __asm__("x0") = 0x8400000…` | **不在** |
+| `@@ -1540,6 +1596,80 @@` | `static void` | 在（但这种上下文太弱，不足以下结论） |
+| `@@ -1779,6 +1909,28 @@` | `}` | 同上 |
+
+`0x84000009` 是 PSCI `SYSTEM_RESET`，这段「按 conduit 发 SYSTEM_RESET」的 helper 在 16 线由
+**`0308-k60-usblog-pong-capture-restart.patch`** 与 **`0311-k60-panic-restart-reason.patch`** 提供
+（`grep -ln 0x8400000 patches/xnu/*.patch` 的命中），而 `0300` 本身不含它。
+
+⇒ 正确顺序是 **`0300` → `0308`/`0311`（谁提供复位 helper 谁先）→ `0334b`**，不是「`0300` 之后就能打 `0334b`」。
+这条不改也能通过 `git apply`（hunk 1/3/4 会硬塞进去），但塞进去后 `k60_autoreset_do_reset()` 会引用一个不存在的 helper ⇒ **链接期才炸**，正是 `0532` 那一族的形状。所以先补 helper、再打 autoreset，两步分开验。

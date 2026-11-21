@@ -178,45 +178,63 @@ int pong_audio_status(void)
 - `drivers/PongPower/K60PowerVotePlan.h:3-13`（27 树里有这个文件）明确“只有所有权与引用计数”，`:9-12` 写 `No MMIO, no RPMh and no TCS writes`，而且 `The module has no caller yet`；`:27-33` 是 free/shared/exclusive 与 stop-DMA → mask-IRQ → drop-vote 的顺序；`:41-58` 才是 acquire/release/count。
 - 结论：**“claim 成功”不等于“rail 已上电”。** 现在没有任何一条路径会写 PMIC；audio 不能因为拿到 vote 就开始写 codec/功放寄存器。
 
-### 5.2 建议的账本接口（power 侧）
+### 5.2 已定的账本接口（power 侧，2026-11-21）
 
-不要求 power 现在写 PMIC；只要求它把 audio 的资源名、ID 和顺序记进同一份账本：
+power 在 `power:docs/research/power/03-POWER-VOTES.md:67-159`（`k60-charger` @ `9320eada`）把 audio 要的五个参数定死。下面照抄数值，不另立第二张表；**当前 27 树还没有这些符号**：`drivers/PongPower/K60PowerVotePlan.h:21-58` 只有 `unsigned resource/owner` 与 16×32 算术，`K60VoteOwnerAudio`、`K60VoteResource*`、`k60_power_audio_*` 随 power 的 wrapper/header 落地。audio 不自己定义一个 `1` 与 power 分叉。
+
+| 名称 | 值 | 用途 |
+|---|---:|---|
+| `K60VoteOwnerPower` | 0 | power/未知，保留，永不给 audio |
+| `K60VoteOwnerAudio` | 1 | audio 的唯一 owner id |
+| `K60VoteResourceCodecRail` | 0 | WCD938x codec supply |
+| `K60VoteResourceAmp0Rail` | 1 | AW88261 #0 |
+| `K60VoteResourceAmp1Rail` | 2 | AW88261 #1 |
+| `K60VoteResourceTxSwr` | 3 | TX SoundWire master / GCC gate |
+| `K60VoteResourceTxCoreClock` | 4 | TX core `0x30c`（可选） |
+| `K60VoteResourceQup15Gcc` | 5 | QUP15 I2C GCC（可选，先按诊断） |
+| 6–15 | — | 不分配给 audio |
+
+- 0–3 是 v1 的四类，各占一个槽；4–5 只在进入 power 记账时 claim。reset GPIO（amp0/1、codec、spksw）不占 vote 槽，仍由 audio 写 TLMM；`reset_gpios` 只是记录，0 不产生 `-3001`。audio 的所有资源用 `K60VoteShared`；当前没有 audio exclusive 资源。
+- 单例 `K60VoteState` 归 power 私有，放将来的 `adsp:drivers/PongPower/K60PowerVoteAudio.c`，`static`，不导出指针；`k60_power_audio_init()` 由 power 在 handoff 解析后、transport open 前调用一次（power 契约 :100-101；当前 27 树 `K60Battery.cpp` 只有 448 行，尚无该调用点）。**audio 只调 `k60_power_audio_claim()` / `k60_power_audio_release()`，不直接调 `k60_vote_acquire()/k60_vote_release()`，也不拿 `K60VoteState *`。** 未 init 时 claim 返回 `-3003`，audio 把它当“本构建没有账本后端”，不能当 rail 失败。
 
 ```c
 #define K60_AUDIO_POWER_VERSION 1u
-#define K60_AUDIO_POWER_MAX_RAILS 4u
-#define K60_AUDIO_POWER_MAX_CLOCKS 3u
+#define K60_VOTE_OWNER_POWER 0u
+#define K60_VOTE_OWNER_AUDIO 1u
 
 typedef struct {
-    const char *name;   /* 静态字符串，如 "ldob15"、"tx_core_clk"；不转移所有权 */
-    uint32_t id;        /* cmd-db 地址或 clock id；0 = 未测量 */
-    uint32_t min_uv;    /* rail */
-    uint32_t max_uv;    /* rail */
-    uint32_t hz;        /* clock */
-    uint32_t flags;
+    uint32_t version;       /* K60_AUDIO_POWER_VERSION */
+    uint32_t resource;      /* 上表 0..5 */
+    uint32_t id;            /* cmd-db/clock id；0 = 未测量 */
+    uint32_t min_uv, max_uv, hz, flags;
+    const char *name;       /* 静态字符串，不转移所有权 */
 } K60AudioResource;
 
 typedef struct {
     uint32_t version;
     uint32_t rail_count, clock_count;
-    K60AudioResource rails[K60_AUDIO_POWER_MAX_RAILS];
-    K60AudioResource clocks[K60_AUDIO_POWER_MAX_CLOCKS];
-    uint32_t reset_gpios[4]; /* 仅记录；由 audio 写 TLMM */
+    K60AudioResource rails[4];
+    K60AudioResource clocks[3];
+    uint32_t reset_gpios[4]; /* 仅记录；audio 写 TLMM */
 } K60AudioPowerNeed;
 
 typedef struct {
     uint32_t version;
-    uint32_t owner;   /* power 分配的 audio owner id */
-    uint32_t granted; /* 1 = 全部记账成功 */
+    uint32_t owner;         /* 固定 K60_VOTE_OWNER_AUDIO */
+    uint32_t granted;       /* 1 = 全部记账成功 */
+    uint32_t acquired_mask; /* 成功占用的 resource 位；release 用 */
 } K60AudioPowerClaim;
 
-/* 0 = 记账成功；-3001 = 有必需 id 为 0（未测量）；-3002 = 共享/独占冲突；
- * -3003 = 当前构建没有 rail/clock 后端。只记账，不写 PMIC/RSC/TCS。 */
+int k60_power_audio_init(void);
 int k60_power_audio_claim(const K60AudioPowerNeed *, K60AudioPowerClaim *);
 int k60_power_audio_release(const K60AudioPowerClaim *);
 ```
 
-实现上直接复用 `K60PowerVotePlan.h:41-58` 的 `k60_vote_acquire()/k60_vote_release()`，由 power 持有一个单例 `K60VoteState` 和 audio 的 owner id；`claim` 遍历 need 里的 rail/clock，全部成功才返回 0，任何一项失败就回滚已拿到的 vote。这样不需要改 `K60VoteState` 的 16×32 算术，也不会把 PMIC 写进 audio。
+- claim 遍历 need；任一 `id == 0`、未知 resource、重复 resource、`k60_vote_acquire()` 失败，都**逆序回滚已拿到的 vote**，`granted = 0`、`acquired_mask = 0`，返回第一个错误。
+- 返回码：`0` 成功；`-3001` 必需资源未测量（`id == 0`）；`-3002` 冲突/重复/释放未持有；`-3003` 账本未初始化/本构建无后端；`-3004` 参数非法（空指针、version/count 不对）。**不把 `k60_vote` 的 `-1/-2/-3` 直接暴露给 audio**，wrapper 负责翻译。
+- release 按 `acquired_mask` 逆序释放；重复 release 返回 `-3002`，不静默成功。调用前 audio 自己按 `stop-dma` → `mask-irq` → `drop-vote` 停自己的 DMA/中断；wrapper 不检查也检查不了。
+- `acquired_mask` 是本文上一版结构缺的字段；没有它，部分成功无法正确回滚，release 也不知道拿过哪些资源。
+- `k60_power_audio_claim()` 只调 `k60_vote_acquire()`，后者是纯算术；没有 MMIO、RPMh、RSC/TCS、PMIC 写。`granted = 1` 只表示“账本记下了”，**不等于 rail 已上电，也不等于音频域可用**。
 
 ### 5.3 资源名与 ADT 节点（现在能确定的和不能确定的）
 
@@ -240,7 +258,7 @@ int k60_power_audio_release(const K60AudioPowerClaim *);
 - audio 写 TLMM：amp0/amp1 reset（GPIO1/3）、spksw（GPIO52）、codec reset（GPIO43，填 DT 后）；这些是 APSS 引脚，不是 PMIC 寄存器。
 - audio 写 LPASS：TX core `0x30c` 的 acknowledgement、VA/TX SWR master、TX macro；这些都在 PAS1 起来之后，且必须先有接口 B 的 `ApmReady`。
 - power 写：PMIC rail、RSC/TCS 与 `K60PowerVotePlan` 记账；不写音频 clock gating 寄存器。音频时钟门控寄存器由 audio 写（Lead 2026-11-21 裁定），power 只记账。当前 power 没有 rail 写路径，所以第一版 audio 只能做到“记账 + 拒绝未测量”，不能做到“真的把 rail 拉起来”。
-- 如果 power 决定让 QUP15 GCC 也归它管，audio 需要的是 `k60_power_audio_claim()` 里带 `gcc_qup15` 这一项；在那之前，`PongAudioAmp.c:259-370` 的直接 GCC 写只能标记为**诊断探针**，不能进 27 的正式播放路径。
+- QUP15 GCC 已由 power 预留 resource 5（可选，先按诊断）；正式路径必须先在 need 里登记 `K60VoteResourceQup15Gcc` 并 claim，否则 `PongAudioAmp.c:259-370` 的直接 GCC 写仍只是**诊断探针**，不能进 27 的正式播放路径。
 
 ## 六、0531 的 HOLD 与解除条件
 
@@ -292,15 +310,15 @@ int k60_power_audio_release(const K60AudioPowerClaim *);
 | 0531 仍 HOLD？ | 是。解除条件见第六节，不是“编译通过”。 |
 | 是否接受 `k60_adsp_audio_ready()`？ | 接受，作为接口 A 的二态薄封装；详细三态仍用 `k60_adsp_handoff_status()`。不要另立第二个状态源。 |
 | audio 是否已有 `k60-adsp-glink-handoff` 的 consumer 代码/判据？ | **传输 consumer 有，状态判据没有。** attach/send/ready 在 `adsp:drivers/PongPower/K60PmicGlinkAudio.h:36-38`，实现在 `K60PmicGlink.cpp:33-59`；但 audio 不解析 104 B 属性，也没有 `pong_audio_status()` 实现。本文的接口 B 就是补这个判据。 |
-| codec/SoundWire 的资源名、ADT 节点、owner 候选？ | 见 5.3 表：codec rail 是 `codec-supply-rail`（当前 0）；amp rail 需要新增属性；TX SWR 是 `tx-master-base`（当前 0）；codec reset 是 `codec-reset-gpio`（当前 0，候选 GPIO43）。owner：rail/RSC 归 power；TLMM reset、LPASS 寄存器与音频 clock gating 寄存器归 audio，power 只记账。 |
+| codec/SoundWire 的资源名、ADT 节点、owner 候选？ | 已定：owner=1（0 保留）；resource 0=codec、1=amp0、2=amp1、3=TX SWR/GCC、4=TX core（可选）、5=QUP15 GCC（可选，先按诊断）；reset GPIO 不占槽。DT 的 ID 仍是 0，等 F3；见 5.2/5.3 与 `power:docs/research/power/03-POWER-VOTES.md:67-159`。 |
 | “音频域可用”的第一条可执行判据？ | `GET_SPF_STATE` 的回答 `opcode 0x02001007` 且 payload 第一个字 `== 1`；加上接口 A 的 `Ready` 与 `k60_pmic_glink_audio_ready()`。见 4.2。 |
 | 注册表计数 `103/21/4/78` 与 power 的 `103/20/4/79` 不一致？ | `8166c7dc` 把 `concepts/boot-chain.md` 从 unmapped 改成 mapped；合并前是 `103/20/4/79`，合并后是 `103/21/4/78`。power 的 `95984aca` 在合并前，看到旧计数是正常的。 |
 
 需要 power 做的三件（按优先级）：
 
 1. 决定接口 A 是否在 F3 前实现；如果不实现，确认 audio 使用 3.3 的回退对，并接受“分不清 Booting/Failed”。
-2. 给 audio 分配一个 owner id 和单例 `K60VoteState`，实现 5.2 的 claim/release；先只记账，不写 PMIC。
-3. 确认 rail/clock 的 DT 属性名与 ID 来源；如果 power 要接管 QUP15 GCC，明确 `gcc_qup15` 作为 clock 项进 need。
+2. 已定 owner=1、resource 0–5、`acquired_mask` 与 `claim/release` 返回码；还差 power 把 wrapper/header 落地，并在 handoff 解析后调用一次 `k60_power_audio_init()`。audio 不直接调 `k60_vote_*`，也不拿 state 指针。
+3. rail/clock 的 DT 属性名与 ID 来源仍未定：DT 里 9 个 0 是“未测量”，没有 ID 的 claim 必须返回 `-3001`；QUP15 GCC 已预留 resource 5，正式路径必须登记后 claim。
 
 ## 八、验证命令与不证明什么
 

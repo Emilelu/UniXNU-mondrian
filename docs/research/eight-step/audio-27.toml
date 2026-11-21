@@ -83,7 +83,7 @@ evidence = [
   "三处 io 表（PongGeniIo/PongCodecLpiIo/PongCodecMacroIo/PongSwrIo）在 arm64e 下由 blr 变 blraaz，drivers/PongAudio/PongAudioAmp.c:511-512 的 se_rd/se_wr 先 paciza 再存；无 __AUTH 段、无 authenticated-pointer relocation，见 docs/research/audio/IOS27-PAC.md:52-60 与 docs/research/audio/IOS27-PAC.md:93-116。",
   "dts/mondrian.dts:54-80 现在是正确的 adsp 0x9fd00000/0x03100000，但还有 9 个 0 占位（tx-master、codec/amp i2c、reset、irq、spksw、TDM、mic 等）；填之前不能宣布音频可用。",
   "Pong 的功放探针先读 ID/状态、再回放 ACF、最后开 spk switch；入口在 drivers/PongAudio/PongAudioAmp.c:944，播放/停止在 :903/:925，寄存器常量在 drivers/PongAudio/PongAudioRegs.h:47-49 与 :97/:155。",
-  "APM 回应布局不是猜的：sheng:package/ShengGpr.h:21 与 sheng:package/ShengGpr.c:84-89 规定 payload 首字 1 = ready；audio 侧只用 pong_afe_gpr_spf_state_query()（drivers/PongAudio/PongAudioAfe.h:216-225）发 24 B 头，不把 transport up 当 APM ready；HOLD 解除条件见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:243-260。",
+  "APM 回应布局不是猜的：sheng:package/ShengGpr.h:21 与 sheng:package/ShengGpr.c:84-89 规定 payload 首字 1 = ready；audio 侧只用 pong_afe_gpr_spf_state_query()（drivers/PongAudio/PongAudioAfe.h:216-225）发 24 B 头，不把 transport up 当 APM ready；HOLD 解除条件见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:271-280。",
 ]
 
 [hardware.audio.step.verify]
@@ -95,7 +95,7 @@ evidence = [
   "预检本身只有四行 PAC 行（scripts/check-audio27-preflight.sh:53 声明总行数 58；--pac-only 固定 4 行），四行全绿才算本步通过。",
   "产物层是 arm64/arm64e 两份 object 的 ptrauth 形状，不是内核镜像；stage 0 仍读 strings 0/3、symbols 0/3，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。27 stage-0 没有 PAS1 provider，audio 读到 handoff absent 是预期，不是 audio 初始化失败。",
   "IOAudio2Family 那一个桩的判据写成可证伪的三条：kext 持有的 __auth_got 槽 site 0xfffffff008273608、唯一 loader 0xfffffff009f870bc+0x144、post-SpringBoard 音频 client；同一 target 0xfffffff00b36e788 还被 IOGPUFamily 在 0xfffffff00829c560 引用，说明是通用内核例程，不能拿 Pong 驱动补；见 docs/research/audio/PRELINK-AUDIO-RESIDUE.md:26-75；可复跑脚本 scripts/check-audio27-residue.py:1。",
-  "0531 的 source-side 解除条件已落成 dormant 门禁：scripts/check-audio27-hold.py:1 今天读 series:52 与 patch:7 的 #if 1，退 0 打 dormant；只有 guard 变成开关且 builder 给 bsd_init.o 同名 -D 才转判据；见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:264-281；不能误读成已解除 HOLD。",
+  "0531 的 source-side 解除条件已落成 dormant 门禁：scripts/check-audio27-hold.py:1 今天读 series:52 与 patch:7 的 #if 1，退 0 打 dormant；只有 guard 变成开关且 builder 给 bsd_init.o 同名 -D 才转判据；见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:282-299；不能误读成已解除 HOLD。",
 ]
 static_check = [
   "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 62 evidence reference(s) resolve, 9 root(s), no device step。",

@@ -15,16 +15,22 @@ independent pieces have to line up, and each fails on its own:
                     an alias as resolvable only when a feed or a submodule in
                     this repository names the component's own repository --
                     a vendored directory is not a module.
-  2. production  -- `CONFIG_XNU_NATIVE_UFS=y` turns on the link in
-                    scripts/build-xnu-generic.sh:646-653, which force-loads
-                    $ROOT/build/native-ufs/libNativeUfs.a.  `test -f` on that
-                    path means the build stops there unless a recipe in
-                    27 `kernel.archives` writes exactly that file.  Script
-                    entries are resolved by UniXNU/scripts/unixnu/kernel.py:141-175.
+  2. producer    -- the switch and the archive have to agree, because a 27 tree
+                    is meant to be either *closed* (switch off: nothing links, so
+                    no recipe is required) or *open* (switch on: a recipe in the
+                    27 `kernel.archives` writes exactly the path the builder
+                    force-loads). With CONFIG_XNU_NATIVE_UFS=y the builder runs
+                    `test -f $ROOT/build/native-ufs/libNativeUfs.a` in
+                    scripts/build-xnu-generic.sh:646-653, so an open switch with
+                    no producer stops the build at that line; a recipe that omits
+                    --out build/native-ufs writes out/native-ufs-linux instead and
+                    fails the same `test -f`. Script entries are resolved by
+                    UniXNU/scripts/unixnu/kernel.py:141-175.
   3. link        -- eleven IOBlockStorageDevice symbols are not in the 27 kernel
                     collection's export set (docs/engineering/IOS27.md:385-396).
                     Recorded here as a note, not graded: that half belongs to the
-                    storage-abi bindings, not to this repository's config.
+                    storage-abi bindings (bt line, Route D), not to this
+                    repository's config.
 
 Usage:
   python3 scripts/check-ufs27-storage-selection.py [--profile ios-27.0.1-24A446]
@@ -132,6 +138,33 @@ def line_of(path, needle):
     return None
 
 
+def line_in_section(path, header, needle):
+    """1-based line of needle inside the [header] section, or None."""
+    if not path.is_file():
+        return None
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    inside, seen = False, False
+    for number, text in enumerate(lines, 1):
+        if text.strip() == header:
+            inside, seen = True, True
+            continue
+        if inside and text.startswith("["):
+            inside = False
+            continue
+        if inside and needle in text:
+            return number
+    return None
+
+
+def switch_is_on(defconfig):
+    """CONFIG_XNU_NATIVE_UFS=y in a defconfig; absent or n means off."""
+    if not defconfig.is_file():
+        return False
+    text = defconfig.read_text(encoding="utf-8", errors="replace")
+    match = re.search(r'^CONFIG_XNU_NATIVE_UFS\s*=\s*"?([^"\s#]+)"?', text, re.M)
+    return bool(match) and match.group(1).lower() in ("y", "yes", "1", "true")
+
+
 def grade(board, entries, sources, profile_name, repo):
     problems, facts = [], []
     override = profile(board, profile_name)
@@ -139,9 +172,12 @@ def grade(board, entries, sources, profile_name, repo):
     archives = override.get("kernel", {}).get("archives", [])
     defconfig_name = override.get("kernel", {}).get("defconfig", "")
     defconfig = REPO / "configs" / defconfig_name
-    board_line = (line_of(repo / "board.toml", '"NativeUfs"')
-                  or line_of(repo / "board.toml", 'include = ["ArmDTPlatform"'))
-    archives_line = line_of(repo / "board.toml", f'"{archives[-1]}"') if archives else None
+    board_line = (line_in_section(repo / "board.toml", f'[os_overrides."{profile_name}".components]',
+                                  'include = ["ArmDTPlatform"')
+                  or line_of(repo / "board.toml", '"NativeUfs"'))
+    archives_line = (line_in_section(repo / "board.toml", f'[os_overrides."{profile_name}".kernel]',
+                                     f'"{archives[-1]}"')
+                     if archives else None)
     defconfig_line = line_of(defconfig, "CONFIG_XNU_NATIVE_UFS")
 
     # 1. selection -----------------------------------------------------------
@@ -166,29 +202,36 @@ def grade(board, entries, sources, profile_name, repo):
                              f"or submodule names {source_identity(spec.get('repository', ''))} -- components.selected() "
                              f"raises 'unknown component: {identifier}' before any recipe runs"))
 
-    # 2. production ----------------------------------------------------------
+    # 2. producer: closed and open are both fine, mixed is not ----------------
     recipe = next((entry for entry in archives if "build-native-ufs-linux.py" in entry), None)
-    if recipe is None:
-        problems.append(("production", "GAP",
-                         f"board.toml:{archives_line} kernel.archives names no build-native-ufs-linux.py recipe, so "
-                         f"{UFS_ARCHIVE} is never written and {GENERIC_BUILDER}:648 test -f fails"))
-    elif "--out build/native-ufs" not in recipe:
-        problems.append(("production", "GAP",
-                         f"the recipe {recipe!r} does not pass --out build/native-ufs, so it writes "
-                         f"out/native-ufs-linux/libNativeUfs.a while the builder reads {UFS_ARCHIVE}"))
+    recipe_writes_right_path = bool(recipe) and "--out build/native-ufs" in recipe
+    switch_on = switch_is_on(defconfig)
+    switch_where = f"{defconfig.relative_to(REPO).as_posix()}:{defconfig_line}" if defconfig_line else str(defconfig.relative_to(REPO))
+
+    if recipe and not recipe_writes_right_path:
+        problems.append(("producer", "GAP",
+                         f"board.toml:{archives_line} recipe {recipe!r} does not pass --out build/native-ufs, so it "
+                         f"writes out/native-ufs-linux/libNativeUfs.a while the builder reads {UFS_ARCHIVE}"))
+    elif switch_on and not recipe_writes_right_path:
+        problems.append(("producer", "GAP",
+                         f"{switch_where} CONFIG_XNU_NATIVE_UFS=y, but board.toml:{archives_line} names no "
+                         f"build-native-ufs-linux.py --out build/native-ufs, so {UFS_ARCHIVE} is never written and "
+                         f"{GENERIC_BUILDER}:648 test -f fails -- the switch opens onto a missing artefact"))
+    elif switch_on:
+        facts.append(("producer", "OK", f"{switch_where} CONFIG_XNU_NATIVE_UFS=y and board.toml:{archives_line} "
+                                       f"recipe {recipe!r} writes {UFS_ARCHIVE}: open state"))
+    elif recipe_writes_right_path:
+        facts.append(("producer", "OK", f"board.toml:{archives_line} recipe {recipe!r} writes {UFS_ARCHIVE}"))
+        facts.append(("producer", "NOTE", f"{switch_where} CONFIG_XNU_NATIVE_UFS is off, so the producer is wired "
+                                         f"but unused; the recipe still compiles on every build, so flip the switch "
+                                         f"in the same change that adds it"))
     else:
-        facts.append(("production", "OK", f"board.toml:{archives_line} recipe {recipe!r} writes {UFS_ARCHIVE}"))
+        facts.append(("producer", "OK", f"closed state: {switch_where} CONFIG_XNU_NATIVE_UFS is off and no recipe "
+                                       f"claims to write {UFS_ARCHIVE}, which is what stage 0 needs -- the F3 change "
+                                       f"is the switch plus 'build-native-ufs-linux.py --tree . --out build/native-ufs' "
+                                       f"in board.toml:{archives_line}, landed together"))
 
-    # 3. switch agreement ----------------------------------------------------
-    if defconfig_line and not recipe:
-        problems.append(("switch", "GAP",
-                         f"{defconfig.relative_to(REPO)}:{defconfig_line} CONFIG_XNU_NATIVE_UFS=y, but the archive it "
-                         f"links has no producer in this profile"))
-    elif defconfig_line:
-        facts.append(("switch", "OK", f"{defconfig.relative_to(REPO)}:{defconfig_line} CONFIG_XNU_NATIVE_UFS=y "
-                                     f"agrees with the recipe above"))
-
-    # 4. link note -----------------------------------------------------------
+    # 3. link note -----------------------------------------------------------
     facts.append(("link", "NOTE",
                   f"eleven IOBlockStorageDevice symbols stay undefined until the storage-abi bindings land "
                   f"(docs/engineering/IOS27.md:385-396, e.g. {SAMPLE_SYMBOLS[0]}); not graded here"))

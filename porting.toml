@@ -10,7 +10,7 @@ summary = "Redmi K60 (mondrian/SM8475), branch feat/ios27: iOS 27.0.1 (24A446) a
 id = "ios27-arm64e"
 status = "implemented"
 components = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
-paths = ["board.toml", "feeds.toml", "configs/mondrian_ios27_defconfig", "profiles/os/ios-27.0.1-24A446/**", "patches/xnu-12377/**", "patches/unixnu-core/**", "patches/xnu-prelink/**", "patches/ios-mondrian/**", "docs/engineering/IOS27.md", "scripts/check-ios27-granules.sh", "scripts/linux/**", "scripts/legacy/**", "scripts/apply-core-patches.sh", "scripts/build-ios27-linux.sh", "scripts/check-ios27-artifacts.py", ".github/workflows/ios27-kernel.yml", "scripts/build-bluetooth-userspace.py", "scripts/stage-bluetooth-firmware.py", "scripts/toolchain/**", "scripts/tests/test-bt-userspace-stage.py", "firmware/bluetooth/**", "docs/plans/BT-IOS27-PORT.md", "scripts/check-bluetooth-*.py", "scripts/tests/test-bt-*.py", "scripts/tests/fixtures/bt-*.c", "dts/mondrian.dts"]
+paths = ["board.toml", "feeds.toml", "configs/mondrian_ios27_defconfig", "profiles/os/ios-27.0.1-24A446/**", "patches/xnu-12377/**", "patches/unixnu-core/**", "patches/xnu-prelink/**", "patches/ios-mondrian/**", "docs/engineering/IOS27.md", "scripts/check-ios27-granules.sh", "scripts/linux/**", "scripts/legacy/**", "scripts/apply-core-patches.sh", "scripts/build-ios27-linux.sh", "scripts/check-ios27-artifacts.py", ".github/workflows/ios27-kernel.yml", "scripts/build-bluetooth-userspace.py", "scripts/stage-bluetooth-firmware.py", "scripts/toolchain/**", "scripts/tests/test-bt-userspace-stage.py", "firmware/bluetooth/**", "docs/plans/BT-IOS27-PORT.md", "scripts/check-bluetooth-*.py", "scripts/tests/test-bt-*.py", "scripts/tests/fixtures/bt-*.c", "dts/mondrian.dts", "scripts/pick-xnu-builder.sh", "CREDITS.md"]
 inputs = ["iOS 27.0.1 build 24A446 iPhone17,2 IPSW; the URL, the size and both hashes are in profiles/os/ios-27.0.1-24A446/profile.toml.", "XNU xnu-12377.121.6 with the Darwin 26 syscall and KPI patches from the arch and OS layers.", "The SM8475 patches/xnu-12377 series (UniXNU-sm8475-common, branch feat/xnu-12377).", "Xcode 26: xnu-12377 uses the four-argument __ptrauth qualifier and older clang cannot compile it."]
 configuration = ["board.os_profile = ios-27.0.1-24A446; the profile sets arch = arm64e and page_size = 4096.", "configs/mondrian_ios27_defconfig is the stage-0 kernel: storage, display and GPU are off so the first failure is not hidden behind a driver ABI.", "The payload arguments are cupid's stage-0 list. The device series carries two upstream patches (ptrauth-string-discriminator.patch, because Apple clang's four-argument __ptrauth does not parse on the Linux toolchain, and armcpu-sleep-hook.patch, because ArmCpu's weak_import hook has no definition and ld64-port rejects it) plus the twenty-two-patch Bluetooth series 0500-0523, 0525 and 0526; docs/plans/BT-IOS27-PORT.md describes the series and the hook adaptations."]
 procedure = ["F0: boot the PAC probe from the iOS 16 line (ios-mondrian shim/pac.c) and read FEAT_PAuth, the EL1 key registers and PACIA/AUTIA from the panel.", "F1: scripts/install-os-profile.sh, then ./unixnu defconfig mondrian_ios27_defconfig and build with Xcode 26, or with the Linux toolchain of scripts/linux/setup-toolchain.py (--skip-prelink until the reference exists).", "F2: prelink the 24A446 fixture against the board kernel and boot until bsd_init.", "F3: bring PongUfs to the 27 storage ABI and build the userdata image with ./unixnu userdata --os 27 on macOS.", "F4: panel first frame, then touch."]
@@ -51,7 +51,7 @@ evidence = [{ kind = "source", reference = "board.toml", result = "schema_versio
 id = "firmware"
 status = "device-verified"
 components = []
-paths = ["proprietary-files.txt", "mac-build/**", "scripts/extract-files.py", "scripts/gen-touch-firmware.py", "drivers/DarwinBoot22/**", "scripts/build-firmware.sh", "scripts/build-darwinboot22-macos.py", "scripts/verify-firmware.py", "scripts/repack-boot.py", "scripts/test-repack-boot.py"]
+paths = ["proprietary-files.txt", "mac-build/**", "scripts/extract-files.py", "scripts/gen-touch-firmware.py", "drivers/DarwinBoot22/**", "scripts/build-firmware.sh", "scripts/build-darwinboot22-macos.py", "scripts/verify-firmware.py", "scripts/repack-boot.py", "scripts/test-repack-boot.py", "blobs/**"]
 inputs = ["Identify the firmware and boot hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for firmware and boot."]
 procedure = ["Follow the firmware and boot stage in the porting guide and record the actual commands."]
@@ -107,7 +107,7 @@ evidence = [{ kind = "device", reference = "docs/research/storage/RESEARCH.md", 
 id = "display"
 status = "device-verified"
 components = []
-paths = ["package/*Display*", "package/*Framebuffer*", "package/*Backlight*", "package/AppleARMBacklight.cpp", "package/GeniI2c*", "scripts/*display*", "scripts/*gop*", "scripts/*framebuffer*"]
+paths = ["package/*Display*", "package/*Framebuffer*", "package/*Backlight*", "package/AppleARMBacklight.cpp", "package/GeniI2c*", "scripts/*display*", "scripts/*gop*", "scripts/*framebuffer*", "scripts/dyld-cache-index.py"]
 inputs = ["Identify the display hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for display."]
 procedure = ["Follow the display stage in the porting guide and record the actual commands."]
@@ -121,7 +121,7 @@ evidence = [{ kind = "device", reference = "patches/xnu/0394-k60-launchd-cache.p
 id = "input"
 status = "device-verified"
 components = []
-paths = ["board.toml", "userland/touch.c", "userland/touch.h", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch", "scripts/*touch*", "scripts/*hid*", "scripts/make-pong-adt.py"]
+paths = ["board.toml", "userland/touch.c", "userland/touch.h", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch", "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch", "scripts/*touch*", "scripts/*hid*", "scripts/make-pong-adt.py", "scripts/test-goodix-config.py"]
 inputs = ["Identify the input hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for input."]
 procedure = ["Follow the input stage in the porting guide and record the actual commands."]
@@ -152,7 +152,7 @@ next_action = [
 id = "network"
 status = "planned"
 components = []
-paths = ["drivers/Ath12kWifi", "package/*Wifi*", "package/MhiBoot*", "scripts/*wifi*", "scripts/*mhi*"]
+paths = ["drivers/Ath12kWifi", "package/*Wifi*", "package/MhiBoot*", "scripts/*wifi*", "scripts/*mhi*", "drivers/PongWifi/**", "drivers/QcaBluetooth", "scripts/gen-k60-bt-blob.py", "scripts/make-bt-firmware-addon.py", "scripts/pong_paths.py", "scripts/judge-z0.sh"]
 inputs = ["Identify the network hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for network."]
 procedure = ["Follow the network stage in the porting guide and record the actual commands."]
@@ -166,7 +166,7 @@ evidence = [{ kind = "source", reference = "patches/wifi/series", result = "Ten 
 id = "audio"
 status = "planned"
 components = []
-paths = ["package/*Adsp*", "package/*Audio*", "package/*Gpr*", "package/QcomGlink*", "package/QcomMdt*", "package/QcomSmem*", "package/QcomSmp2p*", "scripts/*adsp*", "scripts/*audio*", "scripts/*gpr*"]
+paths = ["package/*Adsp*", "package/*Audio*", "package/*Gpr*", "package/QcomGlink*", "package/QcomMdt*", "package/QcomSmem*", "package/QcomSmp2p*", "scripts/*adsp*", "scripts/*audio*", "scripts/*gpr*", "scripts/append-conffiles.py"]
 inputs = ["Identify the audio hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for audio."]
 procedure = ["Follow the audio stage in the porting guide and record the actual commands."]
@@ -180,7 +180,7 @@ evidence = [{ kind = "source", reference = "docs/research/audio", result = "ADSP
 id = "power"
 status = "device-verified"
 components = []
-paths = ["drivers/PongPower/**", "package/*Battery*", "package/*Battmgr*", "package/*Power*", "package/*PlatformPower*", "package/QcomQmp*", "package/QcomRpmh*", "package/QcomScm.h", "scripts/*power*", "scripts/*battery*", "scripts/*pmgr*", "scripts/gen-k60-adsp-blob.py", "scripts/check-adsp-blob.py", "scripts/tests/test-k60-owner-*", "scripts/tests/test-k60-adsp-reader.c", "scripts/tests/test-k60-adsp-blob.c", "scripts/tests/test-k60-adsp-platform.c", "scripts/tests/test-k60-route-a.c", "scripts/tests/run-k60-handoff-host.sh", "scripts/tests/test-k60-cpufreq-plan.c", "scripts/tests/test-k60-sleep-plan.c", "scripts/tests/test-k60-power-vote-plan.c", "scripts/tests/test-k60-gpu-freq-plan.c", "scripts/tests/test-k60-boost-plan.c", "scripts/tests/test-k60-power-conformance.c", "scripts/tests/run-k60-power-host.sh", "scripts/tests/test-armcpu-sleep.c", "drivers/ArmCpu/**", "patches/xnu/0627-k60-platform-sleep.patch", "scripts/build-xnu-4k-baseline.sh"]
+paths = ["drivers/PongPower/**", "package/*Battery*", "package/*Battmgr*", "package/*Power*", "package/*PlatformPower*", "package/QcomQmp*", "package/QcomRpmh*", "package/QcomScm.h", "scripts/*power*", "scripts/*battery*", "scripts/*pmgr*", "scripts/gen-k60-adsp-blob.py", "scripts/check-adsp-blob.py", "scripts/tests/test-k60-owner-*", "scripts/tests/test-k60-adsp-reader.c", "scripts/tests/test-k60-adsp-blob.c", "scripts/tests/test-k60-adsp-platform.c", "scripts/tests/test-k60-route-a.c", "scripts/tests/run-k60-handoff-host.sh", "scripts/tests/test-k60-cpufreq-plan.c", "scripts/tests/test-k60-sleep-plan.c", "scripts/tests/test-k60-power-vote-plan.c", "scripts/tests/test-k60-gpu-freq-plan.c", "scripts/tests/test-k60-boost-plan.c", "scripts/tests/test-k60-power-conformance.c", "scripts/tests/run-k60-power-host.sh", "scripts/tests/test-armcpu-sleep.c", "drivers/ArmCpu/**", "patches/xnu/0627-k60-platform-sleep.patch", "scripts/build-xnu-4k-baseline.sh", "scripts/extract-boot-img.py", "scripts/judge-k60-handoff-console.py", "scripts/judge-k60-mode1-console.py", "scripts/judge-k60-sleep-console.py", "scripts/record-hw-contracts.py", "scripts/refresh-xnu-generic.py", "scripts/render-eight-step-table.py"]
 inputs = ["Identify the power hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for power."]
 procedure = ["Follow the power stage in the porting guide and record the actual commands."]
@@ -231,7 +231,7 @@ evidence = [{ kind = "host", reference = "https://github.com/Emilelu/UniXNU/acti
 id = "diagnostics"
 status = "device-verified"
 components = []
-paths = ["scripts/check-*", "scripts/probe-*", "scripts/audit-*", "scripts/read-*", "scripts/prepare-*", "scripts/data/**", "package/tests/**", "package/*Tests*", "package/*Diagnostic*", "package/*Probe*", "package/Boot*", "package/linux-log/**", "unixnu.lock", "docs/**", "drivers/PongProbe.h", "scripts/sync-repos.sh", "scripts/verify-*.sh", "scripts/verify-*.py", "scripts/dump-boot-img-layout.py", "scripts/k60-device.sh", "scripts/k60-ramoops-read.sh", "scripts/k60-sync-refs.sh", "scripts/k60-compare-components.py", "AGENTS.md", "docs/BRANCHES.md"]
+paths = ["scripts/check-*", "scripts/probe-*", "scripts/audit-*", "scripts/read-*", "scripts/prepare-*", "scripts/data/**", "package/tests/**", "package/*Tests*", "package/*Diagnostic*", "package/*Probe*", "package/Boot*", "package/linux-log/**", "unixnu.lock", "docs/**", "drivers/PongProbe.h", "scripts/sync-repos.sh", "scripts/verify-*.sh", "scripts/verify-*.py", "scripts/dump-boot-img-layout.py", "scripts/k60-device.sh", "scripts/k60-ramoops-read.sh", "scripts/k60-sync-refs.sh", "scripts/k60-compare-components.py", "AGENTS.md", "docs/BRANCHES.md", "scripts/tests/**", "scripts/boot-and-capture.ps1", "scripts/capture-k60-usblog.ps1", "scripts/compact-wsl.cmd", "scripts/compact-wsl.ps1", "scripts/eight-step-gate.py", "scripts/flash.sh", "scripts/git-guard", "scripts/git-safe.sh", "scripts/judge-wallpaper-log.py", "scripts/k60-boot-lock.ps1", "scripts/k60-bus.py", "scripts/k60-capture-state.ps1", "scripts/k60-janitor.py", "scripts/pick-upstream.py", "scripts/porting-gate.py", "scripts/record-boot.py", "scripts/research-gate.py", "scripts/series-fingerprint.py", "scripts/snapshot-worktree.py", "scripts/sync-device-input.py", "scripts/watch-upstream.py"]
 inputs = ["Identify the diagnostics hardware, resources and existing component interfaces for this board."]
 configuration = ["Record the board.toml fields, DTS properties and defconfig values used for diagnostics."]
 procedure = ["Follow the diagnostics stage in the porting guide and record the actual commands."]

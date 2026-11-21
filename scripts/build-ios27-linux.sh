@@ -19,6 +19,17 @@
 # also builds the firmware volume and packs boot.img.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+# Where the fifteen minutes go. A stage that is slow stays slow until it is
+# measured, and "the build feels slow" is not a number (P-290: a claim nothing
+# checks is not a finding). Each mark reports its own stage and the total.
+T0=$(date +%s)
+LAST=$T0
+mark() {
+	now=$(date +%s)
+	printf 'stage %-24s %4ds    total %4ds\n' "$1" "$((now - LAST))" "$((now - T0))"
+	LAST=$now
+}
 UNIXNU=${UNIXNU:-$ROOT/../UniXNU}
 UNIXNU_UNIQUE_CHIP_ID=${UNIXNU_UNIQUE_CHIP_ID:-4d4f4e445249414e}   # synthetic MONDRIAN ECID
 
@@ -49,6 +60,7 @@ sh "$ROOT/scripts/apply-core-patches.sh" "$UNIXNU"
 cd "$UNIXNU"
 python3 ./unixnu fetch --device "$ROOT"
 python3 ./unixnu defconfig mondrian_ios27_defconfig --device "$ROOT"
+mark profile-fetch-defconfig
 # Seam 1 (P-266): K60 carries the conf/files entries for in-tree drivers in a
 # hook rather than in a patch, because a hunk cannot survive the tree being
 # re-seeded. The builder calls it after .cache/xnu-work exists; all this has to
@@ -74,6 +86,7 @@ env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
 python3 "$ROOT/scripts/k60-fileset-stamp.py" "$BOARD_DIR/kernel/kernel.macho" --apply
 
 python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
+mark payload
 
 if [ -n "${UNIXNU_UEFI:-}" ]; then
 	if [ ! -f "$UNIXNU_UEFI/Resources/Scripts/mkbootimg.py" ]; then
@@ -95,6 +108,7 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
 		--dtb "$BOARD_DIR/device-tree/hardware.dtb"
 	python3 "$ROOT/scripts/check-ios27-artifacts.py"
+	mark firmware-and-bootimg
 fi
 
 # A root build leaves kernel/payload/boot owned by root with mode 0600, and then the

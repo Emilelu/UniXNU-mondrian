@@ -289,3 +289,30 @@ python3 <workspace>/scripts/track-upstream-branches.py --json    # 机器可读
 `.upstream-branches.json` 对比 SHA。
 
 输出 `[新分支]` 或 `[更新]` 并列出提交。已接入 `sync-all-repos-v2.sh`。
+
+## 12. 官方文档检索（离线全文索引）
+
+unixnu.com 是 VitePress 站点，搜索用的是 **local provider**：整个索引作为静态 chunk 随站点发布，没有任何服务端接口。
+两条 chunk（2026-11-21 实测）：
+
+| chunk | 字节 | 文档（节）数 | 词条数 |
+|---|---|---|---|
+| `assets/chunks/@localSearchIndexroot.<hash>.js` | 19,022,956 | 24,940 | 38,424 |
+| `assets/chunks/@localSearchIndexzh.<hash>.js` | 18,710,711 | 24,939 | 49,206 |
+
+chunk 内容是 `const e='<json>';export{e as default};` —— **JavaScript 单引号字符串**里的 JSON，含 `\'` 这类非法 JSON 转义，
+所以不能直接 `json.loads`。解码后是序列化的 MiniSearch 索引：`documentIds`（docId → `/path#anchor`）、
+`storedFields`（docId → `title`/`titles` 链）、`index`（`[[term, {field: {docId: score}}], ...]`）。
+
+| 工具 | 用途 |
+|---|---|
+| `scripts/k60-docsearch.py` | **离线查全部官方文档**。`python3 scripts/k60-docsearch.py 预链接` 打 `/path#anchor` 与标题链；`--fetch` 再取那一节正文；`--lang zh\|en\|both`；`--page <子串>` 过滤；`--refresh` 重下索引；`--stats` 只看元数据 |
+| `scripts/k60-docsearch.py --verify-registry <toml>` | 核对 `OFFICIAL-REQUIREMENTS.toml` 的每条 `path` 在站点上是否真存在（`index.md` 映射到目录根）。2026-11-21 首跑抓到 **4 条不存在**：`drivers/qca-bluetooth.md`、`drivers/qcom-dwc3.md`、`guide/overview.md`、`porting/sm8550.md` |
+| `scripts/tests/test-k60-docsearch.py` | 12 例：JS 字符串解码（含 `\'` 与反斜杠）、CJK 整段不切字、子串回退、跨词 AND、字段合并、`locate` 标题链 |
+
+三条使用纪律：
+
+1. **索引里查不到就是「没有」**，可以当证据用；查到了要给 `/path#anchor`，不给锚点的「文档说……」不算依据（P-280 家族）。
+2. **中文不要按字切**：站点用 `tokenize:'full'`，`预链接`、`共享缓存` 都是整段一个词条；按字切会得到「零命中」的假结论。
+3. **站点页数 ≠ 镜像页数**：索引里有 **581 个页面**，而 `E:/hackios/UniXNU/docs/zh` 镜像只有 103 个页面 —— iron-13 的审计范围一直是镜像，
+不是站点；差集里既有设备页（`/devices/enuma` 等），也有镜像比站点新的改名页（上表 4 条）。

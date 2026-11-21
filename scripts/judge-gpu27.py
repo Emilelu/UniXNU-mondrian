@@ -19,6 +19,20 @@ Three states, deliberately named rather than inferred from the exit code alone:
 
 Exit codes match the rest of scripts/judge-*.py: 0 PASS, 1 FAIL, 3 INVALID, 2 unreadable.
 
+Two boundaries keep these numbers honest, and each of them has already been read wrong once:
+
+  * "us each in the driver" is the composer's own cost inside one frame, NOT the frame
+    period. A 30,654 us frame period carried 13,183 us in the driver and roughly 22 ms
+    spent waiting for the client to hand over the next frame (usblog-20261119-151837).
+    A frame rate derived from the driver number alone is wrong in both directions, which
+    is why this judge reads the panel's own `te N/s` and the client interval instead.
+  * that statistic's window is "pacing released -> last layer drawn": it starts when the
+    composition thread is woken (zzz-pong-hackios-ui-foundation.patch, started at :2901,
+    re-based at :2923) and closes after the last layer is drawn (:3011), so it contains
+    the pong_scanout_frame() handover (near zero whenever the presenter is available) and
+    drawLayer(), and it excludes everything the client did before the wake-up. It answers
+    "how much of the frame did this side spend", never "how long is a frame".
+
 Fields this judge knows about but which the 16.6.1 image does not print yet (they are the
 instrumentation ask in docs/research/gpu/GPU-27-JUDGE-DRAFT.md): `scanout version=`,
 `abi=kernel=<v>/<sizeof> client=<v>`, `gpuonly=`, `offers=`/`dropped=`, `client=<us>`.
@@ -36,16 +50,27 @@ import sys
 
 # The kernel composer's own statistic. Its presence is the single most useful signal in the
 # log: while it prints, drawLayer() is still copying every frame on the CPU.
+# Two ways to misread it, both of which happened before it was written down:
+#   - its "N us each in the driver" is this side's cost inside one frame, not the frame
+#     period. A 30,654 us frame held 13,183 us here and ~22 ms waiting for the client;
+#   - its window runs from the pacing wake-up (zzz-pong-hackios-ui-foundation.patch :2901,
+#     re-based :2923) to the last layer being drawn (:3011), so it includes the scanout
+#     handover and drawLayer() and excludes the client's work before the wake-up.
+# It therefore never answers "how long is a frame": the panel's `te N/s` and the client
+# interval answer that.
 DRIVER = re.compile(
     r"MiniIOMobileFramebuffer:\s*(\d+)\s*frames in\s*(\d+)\s*ms\s*\((\d+)\s*a second\),"
     r"\s*(\d+)\s*us each in the driver, after\s*(\d+)\s*us waiting for the GPU")
 BENCH = re.compile(
     r"scanout bench n=(\d+)/(\d+) import=(\d+) us encode=(\d+) us submit=(\d+) us"
     r"\s*gpu=(\d+) us sum=(\d+) us status=(0x[0-9a-fA-F]+)")
+# `client=` is optional because it only exists once patches/proposed/pong-metal-client-gap.patch
+# is carried. It must not make the line unparseable in either shape: instrumentation that
+# blinds the parser is the P-290 family (a check that cannot go red).
 STAGE = re.compile(
     r"Pong Metal: scanout frames=(\d+) at [\d.]+ s; last frame: wait=(\d+) us copy=(\d+) us"
-    r" done=(\d+) us; imports=(\d+) import=(\d+) us encode=(\d+) us submit=(\d+) us"
-    r"\s*gpu=(\d+) us sum=(\d+) us")
+    r" done=(\d+) us(?: client=(\d+) us)?; imports=(\d+) import=(\d+) us encode=(\d+) us"
+    r" submit=(\d+) us\s*gpu=(\d+) us sum=(\d+) us")
 PANEL = re.compile(r"te\s*(\d+)/s")
 PANEL_PERIOD = re.compile(r"period\s*(\d+)\s*us")
 VOTE = "GPU level vote from gperf"
@@ -53,6 +78,9 @@ SCANOUT_VERSION = re.compile(r"scanout version=(\d+)")
 ABI = re.compile(r"abi=kernel=(\d+)/(\d+) client=(\d+)")
 GPU_ONLY = re.compile(r"gpuonly=([01])")
 OFFERS = re.compile(r"offers=(\d+) dropped=(\d+)")
+# The interval between two frames arriving from the client (patches/proposed/
+# pong-metal-client-gap.patch). Absent on an uninstrumented image, and then reported as
+# unmeasured rather than assumed: "no observation" is never "observed bad".
 CLIENT = re.compile(r"client=(\d+) us")
 DEVICE_LOST = "DeviceLost"
 FAULTS = ("CP/SMMU fault", "GPU copy not retired", "panic(", "K60KEXC", "crashed: backboardd")
@@ -118,9 +146,13 @@ def collect(text):
         facts["stage"].append({
             "wait_us": int(match.group(2)),
             "copy_us": int(match.group(3)),
-            "gpu_us": int(match.group(8)),
-            "sum_us": int(match.group(9)),
+            "gpu_us": int(match.group(9)),
+            "sum_us": int(match.group(10)),
         })
+        # The stage line carries the client interval too when the draft is carried; keep the
+        # last one seen rather than a median, because it is a single 8.3 ms-scale sample.
+        if match.group(5) is not None:
+            facts["client_us"] = int(match.group(5))
     if PANEL.search(text):
         facts["panel_hz"] = max(int(v) for v in PANEL.findall(text))
     if PANEL_PERIOD.search(text):
@@ -220,9 +252,14 @@ def judge(facts, stats):
     if facts["scanout_version"] is not None and facts["scanout_version"] not in (1, 2):
         fails.append("scanout version=%d is not a layout this line knows"
                      % facts["scanout_version"])
-    if facts["offers"] is not None and facts["offers"]["dropped"]:
-        fails.append("dropped=%d: frames were offered and refused"
-                     % facts["offers"]["dropped"])
+    if facts["offers"] is not None and facts["offers"]["offers"]:
+        offers, dropped = facts["offers"]["offers"], facts["offers"]["dropped"]
+        # A few drops at bring-up are unavoidable (the client is not waiting yet); a
+        # steady 5% is not, because a frame that is refused was never drawn. Both numbers
+        # are printed, so a flight can be re-judged against a different line later.
+        if dropped * 20 > offers:
+            fails.append("dropped=%d of offers=%d (%.1f%%): frames were offered and refused"
+                         % (dropped, offers, 100.0 * dropped / offers))
     if facts["client_us"] is not None and facts["client_us"] > FRAME_BUDGET_US:
         fails.append("client frame took %d us, over the %d us budget"
                      % (facts["client_us"], FRAME_BUDGET_US))

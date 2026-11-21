@@ -4,8 +4,9 @@
 The point of this judge is that a good bench is not a 120 Hz reading, so the tests are built
 around that: one fixture holds 24 real bench samples whose sum median is 5,907 us (inside the
 6,000 us budget) together with the real composition statistic showing 20 frames a second, and
-the judge has to fail it and say why. A second fixture is a dead GPU (INVALID), and a third is
-synthetic so the gate can be shown to return PASS at all - a judge that only ever fails passes
+the judge has to fail it and say why. A second fixture turns the two draft fields into
+failures (heavy drops, a client interval over one frame), a third is a dead GPU (INVALID), and
+a fourth is synthetic so the gate can be shown to return PASS at all - a judge that only ever fails passes
 its own negative cases by accident (P-290 family).
 
 Run: python3 scripts/tests/test-judge-gpu27.py
@@ -38,6 +39,18 @@ CASES = [
         "state": "INVALID",
         "must_say": ["DeviceLost appeared"],
         "why": "a run that died measured nothing (P-244)",
+    },
+    {
+        "fixture": "gpu27-instrumented-drops-and-gap.log",
+        "exit": 1,
+        "state": "FAIL",
+        "must_say": [
+            "dropped=200 of offers=800 (25.0%)",
+            "client frame took 14000 us, over the 8333 us budget",
+            "drawLayer() did not copy a frame",
+        ],
+        "why": "inside the copy budget is not enough: refused frames and a slow client "
+               "still miss 120 Hz, and the two draft fields have to be read, not just printed",
     },
     {
         "fixture": "gpu27-synthetic-pass.log",

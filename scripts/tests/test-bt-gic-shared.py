@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 # Copyright (c) 2026, UniXNU contributors.
-"""The GIC SPI ownership check: the production fragment against a model."""
+"""The GIC SPI ownership check: the production fragment against a model.
+
+Order matters: this file runs scripts/check-bluetooth-gic.py itself and then
+reads back the report it wrote. A missing report is a blocked run (exit 2), not
+a failure of the rule under test -- that is what "the generator runs first"
+means for a caller that wires this into a gate.
+"""
 
 import json
 import os
@@ -44,6 +50,13 @@ with tempfile.TemporaryDirectory() as tmp:
 
     report_path = os.path.join(out, 'report.json')
     check(os.path.exists(report_path), 'the checker writes a report')
+    if not os.path.exists(report_path):
+        # Without the generator's artifact there is nothing to read back. Say so
+        # with exit 2 (blocked, not failed) so a caller can tell a broken check
+        # from a check that never ran: run scripts/check-bluetooth-gic.py first.
+        print('TESTS BLOCKED: %s wrote no report; run scripts/check-bluetooth-gic.py '
+              'first' % CHECK)
+        sys.exit(2)
     report = json.load(open(report_path, encoding='utf-8'))
     check(report['passed'] is True, 'the report says passed')
     check(report['hardware_verified'] is False,

@@ -30,3 +30,17 @@ jobs:
       # evidence store is absent, which is always true on a runner.
       - name: GPU judge field coverage
         run: python3 scripts/check-gpu27-judge-groups.py
+
+      # The v2 flip assertions are dormant while the draft sits in
+      # patches/proposed: no series names it, so the check says so and exits 0.
+      # The day the patch enters a series it becomes a criterion with no edit
+      # here. A runner has no lane tree, so the missing-input path is the one
+      # that matters: it must report "cannot read", never "passed".
+      - name: GPU v2 assertion copies
+        run: |
+          lane="${K60_GPU27_REPO:-../k60-gpu-27}"
+          if [ -f "$lane/drivers/PongAdreno/PongScanoutWire.h" ]; then
+            python3 scripts/check-gpu27-flip-asserts.py --lane-root="$lane"
+          else
+            echo "SKIP the lane tree is not next to this checkout: $lane"
+          fi

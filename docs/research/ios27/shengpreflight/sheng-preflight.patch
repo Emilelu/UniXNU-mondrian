@@ -1,8 +1,21 @@
+diff --git a/board.toml b/board.toml
+index f9da5f3..39c8399 100644
+--- a/board.toml
++++ b/board.toml
+@@ -58,6 +58,7 @@ include_dirs = ["soc:dts"]
+ config = "mondrian"
+ dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
+ fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
++preflight = ["scripts/check-ios27-board-inputs.py"]
+ patches = [
+   # Five K60 fixes the pinned Mu_Basecore (6f805f2, release/202608) does not carry.
+   # They live in the uefi repo as patch files and apply cleanly to the pin; applied here
 diff --git a/scripts/check-ios27-board-inputs.py b/scripts/check-ios27-board-inputs.py
-new file mode 100755
+new file mode 100644
+index 0000000..2ff7817
 --- /dev/null
 +++ b/scripts/check-ios27-board-inputs.py
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,345 @@
 +#!/usr/bin/env python3
 +"""Board-input preflight for the iOS 27 image (mondrian).
 +
@@ -29,11 +42,21 @@ new file mode 100755
 +
 +`--allow-unknown` turns 2 into 0 for the case where a check is structurally
 +unjudgeable in offline work; it never turns 1 into 0.
++
++Reading board.toml: the values a build actually uses are the ones after
++`[os_overrides."<os>"`]</os>` has been applied -- the top-level table is a dead value for
++any key the override rewrites (on this board `payload.adt.chip_id` is `8015`
++at the top level and `8140` in the image the 27 build produced). This gate
++therefore mirrors `scripts/unixnu/profiles.py` (`merge()` plus the
++`overrides`/`remove` handling at its `load()`), and when `--framework` points
++at a UniXNU checkout it cross-checks its own merge against that file's
++`merge()` so the mirror cannot drift unnoticed.
 +"""
 +
 +from __future__ import annotations
 +
 +import argparse
++import copy
 +import json
 +import os
 +import re
@@ -72,6 +95,59 @@ new file mode 100755
 +def load_toml(path: Path) -> dict:
 +    with path.open("rb") as handle:
 +        return tomllib.load(handle)
++
++
++def merge_dict(base: dict, overlay: dict) -> dict:
++    """Deep merge: a later value replaces an earlier one (profiles.py `merge()`)."""
++    result = copy.deepcopy(base)
++    for key, value in overlay.items():
++        if isinstance(value, dict) and isinstance(result.get(key), dict):
++            result[key] = merge_dict(result[key], value)
++        else:
++            result[key] = copy.deepcopy(value)
++    return result
++
++
++def effective_board(raw: dict, os_name: str | None) -> tuple[dict, dict]:
++    """(effective board, what the override did) -- a mirror of profiles.py load().
++
++    The framework pops `os_overrides` before merging, then applies the section
++    for the selected profile, honours its `remove` list, and stamps
++    `board.os_profile`. Anything that reads board.toml without doing this sees
++    the dead values (P-286).
++    """
++    base = copy.deepcopy(raw)
++    overrides = base.pop("os_overrides", {}) or {}
++    chosen = copy.deepcopy(overrides.get(os_name, {})) if os_name else {}
++    removed = chosen.pop("remove", []) or []
++    result = merge_dict(base, chosen)
++    for dotted in removed:
++        *parents, leaf = dotted.split(".")
++        node = result
++        for key in parents:
++            node = node.get(key, {})
++            if not isinstance(node, dict):
++                node = None
++                break
++        if isinstance(node, dict):
++            node.pop(leaf, None)
++    result.setdefault("board", {})["os_profile"] = os_name
++    return result, {"os": os_name, "section": bool(os_name and os_name in overrides),
++                    "keys": sorted(chosen), "removed": removed}
++
++
++def check_os_override(report: dict, os_name: str | None, explicit: bool) -> Result:
++    if not os_name:
++        return Result("os-override", UNKNOWN, "no os profile: pass --os or set [board] os_profile")
++    if not report["section"]:
++        if explicit:
++            return Result("os-override", FAIL, f"--os {os_name!r} names a section board.toml does not have")
++        return Result("os-override", PASS, f"{os_name} has no override section; base values apply")
++    return Result(
++        "os-override",
++        PASS,
++        f"{os_name}: {len(report['keys'])} override group(s) {report['keys']}, removed {report['removed'] or 'none'}",
++    )
 +
 +
 +def check_board(board: dict) -> Result:
@@ -174,16 +250,48 @@ new file mode 100755
 +    return Result("payload-inputs", PASS, f"chip_id={chip_id} seed={seed} uuid={uuid}")
 +
 +
-+def run(board_path: Path, uefi: Path | None) -> list[Result]:
-+    board = load_toml(board_path)
++def check_merge_mirror(framework: Path | None) -> Result:
++    """Compare this file's merge with the framework's own, so the mirror cannot drift."""
++    if framework is None:
++        return Result("merge-mirror", UNKNOWN, "no --framework checkout to compare against")
++    module_path = framework / "scripts/unixnu/profiles.py"
++    if not module_path.is_file():
++        return Result("merge-mirror", FAIL, f"missing {module_path}")
++    import importlib
++
++    scripts = str(framework / "scripts")
++    sys.path.insert(0, scripts)
++    try:
++        module = importlib.import_module("unixnu.profiles")
++    except Exception as error:  # noqa: BLE001 - any import failure is "cannot compare"
++        return Result("merge-mirror", UNKNOWN, f"could not import {module_path}: {error}")
++    finally:
++        sys.path.remove(scripts)
++    sample = {"a": {"b": 1, "c": [1]}, "d": "x", "e": {"f": {"g": 2}}}
++    overlay = {"a": {"b": 2, "h": 3}, "e": {"f": {"g": 4}}, "d": "y"}
++    theirs = module.merge(sample, overlay)
++    ours = merge_dict(sample, overlay)
++    if theirs != ours:
++        return Result("merge-mirror", FAIL, f"merge disagrees with {module_path}: ours={ours} theirs={theirs}")
++    return Result("merge-mirror", PASS, f"agrees with {module_path}")
++
++
++def run(board_path: Path, uefi: Path | None, os_name: str | None, os_explicit: bool,
++        framework: Path | None) -> list[Result]:
++    raw = load_toml(board_path)
++    if os_name is None:
++        os_name = (raw.get("board") or {}).get("os_profile")
++    board, report = effective_board(raw, os_name)
 +    config_name = (board.get("firmware") or {}).get("config") or ""
 +    results = [
 +        check_board(board),
++        check_os_override(report, os_name, os_explicit),
 +        check_dsc(uefi, board),
 +        check_modules(uefi),
 +        check_fd_window(uefi, config_name),
 +        check_loader_revision(uefi),
 +        check_payload_inputs(board),
++        check_merge_mirror(framework),
 +    ]
 +    return results
 +
@@ -192,6 +300,8 @@ new file mode 100755
 +    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 +    parser.add_argument("--device", type=Path, help="device repository (default: $UNIXNU_DEVICE)")
 +    parser.add_argument("--uefi", type=Path, help="UEFI checkout (default: $UNIXNU_UEFI)")
++    parser.add_argument("--os", help="OS profile name, e.g. ios-27.0.1-24A446 (default: [board].os_profile)")
++    parser.add_argument("--framework", type=Path, help="UniXNU checkout, to cross-check the merge mirror")
 +    parser.add_argument("--json", action="store_true", help="one JSON object instead of lines")
 +    parser.add_argument(
 +        "--allow-unknown",
@@ -210,8 +320,9 @@ new file mode 100755
 +    if not board_path.is_file():
 +        print(f"preflight: missing {board_path}", file=sys.stderr)
 +        return 2
++    framework = args.framework or (Path(os.environ["UNIXNU_FRAMEWORK"]) if os.environ.get("UNIXNU_FRAMEWORK") else None)
 +    try:
-+        results = run(board_path, uefi)
++        results = run(board_path, uefi, args.os, args.os is not None, framework)
 +    except tomllib.TOMLDecodeError as error:
 +        print(f"preflight: {board_path} is not valid TOML: {error}", file=sys.stderr)
 +        return 1
@@ -223,6 +334,8 @@ new file mode 100755
 +            json.dumps(
 +                {
 +                    "board": str(board_path),
++                    "os": args.os or (load_toml(board_path).get("board") or {}).get("os_profile"),
++                    "values": "effective (os_overrides applied)",
 +                    "uefi": str(uefi) if uefi else None,
 +                    "results": [asdict(item) for item in results],
 +                    "failed": len(failed),
@@ -239,7 +352,8 @@ new file mode 100755
 +        return 1
 +    if unknown:
 +        if args.allow_unknown:
-+            print(f"preflight: {len(unknown)} check(s) could not be judged; continuing because --allow-unknown")
++            stream = sys.stderr if args.json else sys.stdout
++            print(f"preflight: {len(unknown)} check(s) could not be judged; continuing because --allow-unknown", file=stream)
 +            return 0
 +        return 2
 +    return 0
@@ -249,17 +363,21 @@ new file mode 100755
 +    sys.exit(main())
 diff --git a/scripts/test_check_ios27_board_inputs.py b/scripts/test_check_ios27_board_inputs.py
 new file mode 100644
+index 0000000..a7f3b9f
 --- /dev/null
 +++ b/scripts/test_check_ios27_board_inputs.py
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,295 @@
 +#!/usr/bin/env python3
 +"""Tests for check-ios27-board-inputs.py. Offline: every fixture is built in a temp dir.
 +
-+Run: python3 test_check_ios27_firmware.py
-+The point of the negative cases is that they must go red for the intended
-+reason: each asserts the exit code *and* that the named check is the one that
-+failed, so a fixture that trips a different check, or that passes for the wrong
-+reason, is a test failure.
++Run: python3 test_check_ios27_board_inputs.py
++The negative cases must go red for the intended reason: each asserts the exit
++code *and* that the named check is the one that failed, so a fixture that trips
++a different check, or passes for the wrong reason, fails the test.
++
++The fixture also carries a minimal `scripts/unixnu/profiles.py` so the gate's
++merge mirror has something to compare against; one test breaks that file on
++purpose to prove the mirror check can go red.
 +"""
 +
 +from __future__ import annotations
@@ -275,6 +393,9 @@ new file mode 100644
 +SCRIPT = Path(__file__).with_name("check-ios27-board-inputs.py")
 +
 +GOOD_BOARD = """
++[board]
++os_profile = "test-os"
++
 +[firmware]
 +config = "mondrian"
 +dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
@@ -285,6 +406,12 @@ new file mode 100644
 +root_match_volume_uuid = "E3F4AED0-4454-4D5B-833C-E27E99C4F67B"
 +
 +[payload.adt]
++chip_id = "8015"
++
++[os_overrides."test-os"]
++remove = []
++
++[os_overrides."test-os".payload.adt]
 +chip_id = "8140"
 +"""
 +
@@ -295,8 +422,23 @@ new file mode 100644
 +"""
 +
 +GOOD_LOADER = """
-+#define UNIXNU_LOADER_REVISION 0x00020000
++#define UNIXNU_LOADER_REVISION_1  0x00010000
++#define UNIXNU_LOADER_REVISION    0x00020000
 +"""
++
++GOOD_PROFILES = '''
++import copy
++
++
++def merge(base, overlay):
++    result = copy.deepcopy(base)
++    for key, value in overlay.items():
++        if isinstance(value, dict) and isinstance(result.get(key), dict):
++            result[key] = merge(result[key], value)
++        else:
++            result[key] = copy.deepcopy(value)
++    return result
++'''
 +
 +MODULES = (
 +    "Platforms/Xiaomi/UniXNUPkg/Application/UniXNU/UniXNU.inf",
@@ -311,8 +453,11 @@ new file mode 100644
 +        self.root = root
 +        self.device = root / "device"
 +        self.uefi = root / "uefi"
-+        self.device.mkdir()
-+        self.uefi.mkdir()
++        self.framework = root / "framework"
++        for path in (self.device, self.uefi, self.framework / "scripts/unixnu"):
++            path.mkdir(parents=True)
++        (self.framework / "scripts/unixnu/__init__.py").write_text("", encoding="utf-8")
++        (self.framework / "scripts/unixnu/profiles.py").write_text(GOOD_PROFILES, encoding="utf-8")
 +        self.write_board(GOOD_BOARD)
 +        self.write_config(GOOD_CONFIG)
 +        self.write_loader(GOOD_LOADER)
@@ -334,6 +479,11 @@ new file mode 100644
 +        path.parent.mkdir(parents=True, exist_ok=True)
 +        path.write_text(textwrap.dedent(text), encoding="utf-8")
 +
++    def break_merge(self) -> None:
++        (self.framework / "scripts/unixnu/profiles.py").write_text(
++            "def merge(base, overlay):\n    return dict(base, **overlay)\n", encoding="utf-8"
++        )
++
 +    def touch(self, rel: str, body: str = "x") -> None:
 +        path = self.uefi / rel
 +        path.parent.mkdir(parents=True, exist_ok=True)
@@ -345,18 +495,22 @@ new file mode 100644
 +        path.write_bytes(b"\0" * size)
 +
 +    # -- runner ----------------------------------------------------------
-+    def run(self, *args: str) -> tuple[int, dict]:
-+        proc = subprocess.run(
-+            [sys.executable, str(SCRIPT), "--device", str(self.device), "--uefi", str(self.uefi), "--json", *args],
-+            capture_output=True,
-+            text=True,
-+        )
++    def run(self, *args: str, framework: bool = True) -> tuple[int, dict]:
++        command = [sys.executable, str(SCRIPT), "--device", str(self.device), "--uefi", str(self.uefi), "--json"]
++        if framework:
++            command += ["--framework", str(self.framework)]
++        command += list(args)
++        proc = subprocess.run(command, capture_output=True, text=True)
 +        payload = json.loads(proc.stdout) if proc.stdout.strip() else {}
 +        return proc.returncode, payload
 +
 +
 +def states(payload: dict) -> dict:
 +    return {item["check"]: item["state"] for item in payload.get("results", [])}
++
++
++def details(payload: dict) -> dict:
++    return {item["check"]: item["detail"] for item in payload.get("results", [])}
 +
 +
 +class PreflightTest(unittest.TestCase):
@@ -373,18 +527,49 @@ new file mode 100644
 +        self.assertEqual(code, 0, payload)
 +        self.assertEqual(set(states(payload).values()), {"pass"})
 +
++    def test_override_wins_over_top_level_value(self) -> None:
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 0, payload)
++        self.assertIn("chip_id=8140", details(payload)["payload-inputs"])
++        self.assertNotIn("8015", details(payload)["payload-inputs"])
++        self.assertEqual(payload["values"], "effective (os_overrides applied)")
++
 +    def test_built_fd_that_fits_passes(self) -> None:
 +        self.fixture.built_fd(0x100000)
 +        code, payload = self.fixture.run()
 +        self.assertEqual(code, 0, payload)
-+        self.assertIn("fits", {item["check"]: item["detail"] for item in payload["results"]}["fd-window"])
++        self.assertIn("fits", details(payload)["fd-window"])
++
++    def test_exactly_full_fd_passes_but_says_no_headroom(self) -> None:
++        self.fixture.built_fd(0x300000)
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 0, payload)
++        self.assertIn("no headroom", details(payload)["fd-window"])
 +
 +    # -- negatives: each must go red for its own reason ------------------
 +    def test_missing_firmware_table_fails_board(self) -> None:
-+        self.fixture.write_board("[kernel]\nname = 'x'\n")
++        self.fixture.write_board("[board]\nos_profile = 'test-os'\n")
 +        code, payload = self.fixture.run()
 +        self.assertEqual(code, 1)
 +        self.assertEqual(states(payload)["board"], "fail")
++
++    def test_unknown_os_name_fails_os_override(self) -> None:
++        code, payload = self.fixture.run("--os", "nope-1.0")
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["os-override"], "fail")
++
++    def test_remove_list_is_honoured(self) -> None:
++        self.fixture.write_board(GOOD_BOARD.replace('remove = []', 'remove = ["payload.adt.chip_id"]'))
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["payload-inputs"], "fail")
++        self.assertIn("chip_id", details(payload)["payload-inputs"])
++
++    def test_merge_mirror_disagreement_fails(self) -> None:
++        self.fixture.break_merge()
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["merge-mirror"], "fail")
 +
 +    def test_missing_dsc_fails_dsc(self) -> None:
 +        (self.fixture.uefi / "Platforms/Xiaomi/mondrianPkg/mondrian.dsc").unlink()
@@ -404,13 +589,6 @@ new file mode 100644
 +        code, payload = self.fixture.run()
 +        self.assertEqual(code, 1)
 +        self.assertEqual(states(payload)["fd-window"], "fail")
-+
-+    def test_exactly_full_fd_passes_but_says_no_headroom(self) -> None:
-+        self.fixture.built_fd(0x300000)
-+        code, payload = self.fixture.run()
-+        self.assertEqual(code, 0, payload)
-+        detail = {item["check"]: item["detail"] for item in payload["results"]}["fd-window"]
-+        self.assertIn("no headroom", detail)
 +
 +    def test_oversized_built_fd_fails_window(self) -> None:
 +        self.fixture.built_fd(0x300000 + 0x1000)
@@ -445,32 +623,34 @@ new file mode 100644
 +    # -- cannot judge ----------------------------------------------------
 +    def test_absent_uefi_is_unknown_not_pass(self) -> None:
 +        proc = subprocess.run(
-+            [sys.executable, str(SCRIPT), "--device", str(self.fixture.device), "--json"],
-+            capture_output=True,
-+            text=True,
-+            env={"PATH": "/usr/bin:/bin"},
++            [sys.executable, str(SCRIPT), "--device", str(self.fixture.device),
++             "--framework", str(self.fixture.framework), "--json"],
++            capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"},
 +        )
 +        payload = json.loads(proc.stdout)
 +        self.assertEqual(proc.returncode, 2, "cannot judge must not look like a pass")
 +        self.assertEqual(states(payload)["modules"], "unknown")
 +        self.assertEqual(states(payload)["fd-window"], "unknown")
 +
++    def test_absent_framework_is_unknown_not_pass(self) -> None:
++        code, payload = self.fixture.run(framework=False)
++        self.assertEqual(code, 2)
++        self.assertEqual(states(payload)["merge-mirror"], "unknown")
++
 +    def test_allow_unknown_returns_zero_but_keeps_the_report(self) -> None:
-+        code, payload = self.fixture.run("--allow-unknown")
++        code, payload = self.fixture.run("--allow-unknown", framework=False)
 +        self.assertEqual(code, 0)
-+        self.assertEqual(payload["unknown"], 0, "with a UEFI checkout there is nothing unknown")
++        self.assertEqual(payload["unknown"], 1, "the absent framework stays visible in the report")
 +
 +    def test_allow_unknown_never_rescues_a_failure(self) -> None:
 +        (self.fixture.uefi / MODULES[0]).unlink()
-+        code, _ = self.fixture.run("--allow-unknown")
++        code, _ = self.fixture.run("--allow-unknown", framework=False)
 +        self.assertEqual(code, 1)
 +
 +    def test_missing_device_is_two(self) -> None:
 +        proc = subprocess.run(
 +            [sys.executable, str(SCRIPT), "--device", str(self.fixture.root / "nope")],
-+            capture_output=True,
-+            text=True,
-+            env={"PATH": "/usr/bin:/bin"},
++            capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"},
 +        )
 +        self.assertEqual(proc.returncode, 2)
 +
@@ -482,14 +662,3 @@ new file mode 100644
 +
 +if __name__ == "__main__":
 +    unittest.main(verbosity=2)
-diff --git a/board.toml b/board.toml
---- a/board.toml
-+++ b/board.toml
-@@ -58,6 +58,7 @@
- config = "mondrian"
- dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
- fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
-+preflight = ["scripts/check-ios27-board-inputs.py"]
- patches = [
-   # Five K60 fixes the pinned Mu_Basecore (6f805f2, release/202608) does not carry.
-   # They live in the uefi repo as patch files and apply cleanly to the pin; applied here

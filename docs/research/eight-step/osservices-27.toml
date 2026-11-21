@@ -102,5 +102,6 @@ unit_test = "python3 scripts/check-osservices27-silent13.py --strict → TESTS O
 artifact_check = "llvm-nm-18 -m kernel.macho → fffffff00b4687b4 (__TEXT_EXEC,__text) external _unixnu_fileset_unmapped；strings -a | grep -c 'fileset: original component called an unmapped kernel function' → 1；kernel.json candidate_sha256 dee01c54a73edf59… / 93,061,120 B，与 build 20 相同"
 evidence = '''本步只覆盖 B 段（13 项）；A 段三组件与 C 段判据表随各自段落补，故 local_verified = false（无上机）。
 三类核验都已跑过并留下可复算的命令与输出，见上三个字段与 docs/research/ios27/osservices-27.md §B.8。产物路径：/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/{kernel.json,kernel.map.json,kernel.macho}（root 600，WSL 需 wsl -u root 读）。
-「编译通过」不算核验，所以这里没有编译步骤；三类证据分别是：静态（映射缺席与锚点）、单测（48 例断言，含与审计文件的逐行一致）、产物（符号在 __TEXT_EXEC,__text 且 panic 串唯一）。'''
+「编译通过」不算核验，所以这里没有编译步骤；三类证据分别是：静态（映射缺席与锚点）、单测（48 例断言，含与审计文件的逐行一致）、产物（符号在 __TEXT_EXEC,__text 且 panic 串唯一）。
+本步 done 的依据是这三类证据各自跑过，与 ⑥ 是否有可证伪出口无关（Lead 2026-11-22 裁决四）。上机判据不写在八字步里（⑧ 属 Lead），写法固定为「哪一行输出 + 什么值」：见 docs/research/ios27/osservices-27-screen.md 的六行表（全黑 / 只有色条 / fileset: panic / NativePrelink: guard panic / 停在别处 / USB 有字节），每行给唯一结论与下一步命令；冻结期内不执行（docs/engineering/BOOT-FREEZE.md state=frozen）。另外本线新增第五组离线核验：ShengPreflight 草稿 22 例（python3 docs/research/ios27/shengpreflight/test_check_ios27_board_inputs.py），含 chip_id 生效值 8140、remove 列表、merge 镜像与框架 profiles.merge() 一致性、以及 --allow-unknown 不救 fail。'''
 recorded_at = "2026-11-21T17:05:00"

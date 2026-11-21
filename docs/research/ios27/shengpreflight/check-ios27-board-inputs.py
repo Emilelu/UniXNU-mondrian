@@ -24,11 +24,21 @@ thing the build driver reads:
 
 `--allow-unknown` turns 2 into 0 for the case where a check is structurally
 unjudgeable in offline work; it never turns 1 into 0.
+
+Reading board.toml: the values a build actually uses are the ones after
+`[os_overrides."<os>"`]</os>` has been applied -- the top-level table is a dead value for
+any key the override rewrites (on this board `payload.adt.chip_id` is `8015`
+at the top level and `8140` in the image the 27 build produced). This gate
+therefore mirrors `scripts/unixnu/profiles.py` (`merge()` plus the
+`overrides`/`remove` handling at its `load()`), and when `--framework` points
+at a UniXNU checkout it cross-checks its own merge against that file's
+`merge()` so the mirror cannot drift unnoticed.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -67,6 +77,59 @@ class Result:
 def load_toml(path: Path) -> dict:
     with path.open("rb") as handle:
         return tomllib.load(handle)
+
+
+def merge_dict(base: dict, overlay: dict) -> dict:
+    """Deep merge: a later value replaces an earlier one (profiles.py `merge()`)."""
+    result = copy.deepcopy(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merge_dict(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def effective_board(raw: dict, os_name: str | None) -> tuple[dict, dict]:
+    """(effective board, what the override did) -- a mirror of profiles.py load().
+
+    The framework pops `os_overrides` before merging, then applies the section
+    for the selected profile, honours its `remove` list, and stamps
+    `board.os_profile`. Anything that reads board.toml without doing this sees
+    the dead values (P-286).
+    """
+    base = copy.deepcopy(raw)
+    overrides = base.pop("os_overrides", {}) or {}
+    chosen = copy.deepcopy(overrides.get(os_name, {})) if os_name else {}
+    removed = chosen.pop("remove", []) or []
+    result = merge_dict(base, chosen)
+    for dotted in removed:
+        *parents, leaf = dotted.split(".")
+        node = result
+        for key in parents:
+            node = node.get(key, {})
+            if not isinstance(node, dict):
+                node = None
+                break
+        if isinstance(node, dict):
+            node.pop(leaf, None)
+    result.setdefault("board", {})["os_profile"] = os_name
+    return result, {"os": os_name, "section": bool(os_name and os_name in overrides),
+                    "keys": sorted(chosen), "removed": removed}
+
+
+def check_os_override(report: dict, os_name: str | None, explicit: bool) -> Result:
+    if not os_name:
+        return Result("os-override", UNKNOWN, "no os profile: pass --os or set [board] os_profile")
+    if not report["section"]:
+        if explicit:
+            return Result("os-override", FAIL, f"--os {os_name!r} names a section board.toml does not have")
+        return Result("os-override", PASS, f"{os_name} has no override section; base values apply")
+    return Result(
+        "os-override",
+        PASS,
+        f"{os_name}: {len(report['keys'])} override group(s) {report['keys']}, removed {report['removed'] or 'none'}",
+    )
 
 
 def check_board(board: dict) -> Result:
@@ -169,16 +232,48 @@ def check_payload_inputs(board: dict) -> Result:
     return Result("payload-inputs", PASS, f"chip_id={chip_id} seed={seed} uuid={uuid}")
 
 
-def run(board_path: Path, uefi: Path | None) -> list[Result]:
-    board = load_toml(board_path)
+def check_merge_mirror(framework: Path | None) -> Result:
+    """Compare this file's merge with the framework's own, so the mirror cannot drift."""
+    if framework is None:
+        return Result("merge-mirror", UNKNOWN, "no --framework checkout to compare against")
+    module_path = framework / "scripts/unixnu/profiles.py"
+    if not module_path.is_file():
+        return Result("merge-mirror", FAIL, f"missing {module_path}")
+    import importlib
+
+    scripts = str(framework / "scripts")
+    sys.path.insert(0, scripts)
+    try:
+        module = importlib.import_module("unixnu.profiles")
+    except Exception as error:  # noqa: BLE001 - any import failure is "cannot compare"
+        return Result("merge-mirror", UNKNOWN, f"could not import {module_path}: {error}")
+    finally:
+        sys.path.remove(scripts)
+    sample = {"a": {"b": 1, "c": [1]}, "d": "x", "e": {"f": {"g": 2}}}
+    overlay = {"a": {"b": 2, "h": 3}, "e": {"f": {"g": 4}}, "d": "y"}
+    theirs = module.merge(sample, overlay)
+    ours = merge_dict(sample, overlay)
+    if theirs != ours:
+        return Result("merge-mirror", FAIL, f"merge disagrees with {module_path}: ours={ours} theirs={theirs}")
+    return Result("merge-mirror", PASS, f"agrees with {module_path}")
+
+
+def run(board_path: Path, uefi: Path | None, os_name: str | None, os_explicit: bool,
+        framework: Path | None) -> list[Result]:
+    raw = load_toml(board_path)
+    if os_name is None:
+        os_name = (raw.get("board") or {}).get("os_profile")
+    board, report = effective_board(raw, os_name)
     config_name = (board.get("firmware") or {}).get("config") or ""
     results = [
         check_board(board),
+        check_os_override(report, os_name, os_explicit),
         check_dsc(uefi, board),
         check_modules(uefi),
         check_fd_window(uefi, config_name),
         check_loader_revision(uefi),
         check_payload_inputs(board),
+        check_merge_mirror(framework),
     ]
     return results
 
@@ -187,6 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--device", type=Path, help="device repository (default: $UNIXNU_DEVICE)")
     parser.add_argument("--uefi", type=Path, help="UEFI checkout (default: $UNIXNU_UEFI)")
+    parser.add_argument("--os", help="OS profile name, e.g. ios-27.0.1-24A446 (default: [board].os_profile)")
+    parser.add_argument("--framework", type=Path, help="UniXNU checkout, to cross-check the merge mirror")
     parser.add_argument("--json", action="store_true", help="one JSON object instead of lines")
     parser.add_argument(
         "--allow-unknown",
@@ -205,8 +302,9 @@ def main(argv: list[str] | None = None) -> int:
     if not board_path.is_file():
         print(f"preflight: missing {board_path}", file=sys.stderr)
         return 2
+    framework = args.framework or (Path(os.environ["UNIXNU_FRAMEWORK"]) if os.environ.get("UNIXNU_FRAMEWORK") else None)
     try:
-        results = run(board_path, uefi)
+        results = run(board_path, uefi, args.os, args.os is not None, framework)
     except tomllib.TOMLDecodeError as error:
         print(f"preflight: {board_path} is not valid TOML: {error}", file=sys.stderr)
         return 1
@@ -218,6 +316,8 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(
                 {
                     "board": str(board_path),
+                    "os": args.os or (load_toml(board_path).get("board") or {}).get("os_profile"),
+                    "values": "effective (os_overrides applied)",
                     "uefi": str(uefi) if uefi else None,
                     "results": [asdict(item) for item in results],
                     "failed": len(failed),
@@ -234,7 +334,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if unknown:
         if args.allow_unknown:
-            print(f"preflight: {len(unknown)} check(s) could not be judged; continuing because --allow-unknown")
+            stream = sys.stderr if args.json else sys.stdout
+            print(f"preflight: {len(unknown)} check(s) could not be judged; continuing because --allow-unknown", file=stream)
             return 0
         return 2
     return 0

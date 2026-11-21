@@ -325,6 +325,10 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
    这是「os_overrides 生效前/后」两个值，不是错误，但需要一条显式规则说明谁在什么时候生效——先记问题，不下结论。
 3. sheng 侧的 `drivers/ShengPreflight` 是空子模块，等它有内容再谈交叉比对。
 
+**板级输入的「生效值」规则（Lead 裁决，2026-11-22）。** 读 `board.toml` 的门禁必须先做 profile 合并，再看值：设备层的 `[os_overrides."<os>"]` 命中时后者替换前者（`scripts/unixnu/profiles.py` 的 `merge()` 与 `load()` 里的 `overrides`/`remove` 处理），顶层表里同名键是**死值**。实证：本板顶层 `payload.adt.chip_id = "8015"`，而 27 实际构建出的 ADT 被 `check-ios27-artifacts.py` 读成 `chip-id 8140, unique-chip-id 4d4f4e445249414e` ⇒ 镜像里是 8140。只读顶层会给出「与 27 profile 不符」的假结论（P-286；P-305 同族）。
+
+草稿的做法是**镜像**同一套语义并交叉校验，而不是自己发明：`effective_board()` 复制 `merge()` 的深合并、`remove` 列表与 `board.os_profile` 落戳；多一个 `os-override` 检查报告命中的 override 组与被移除的键；`--framework <UniXNU>` 时再导入框架的 `profiles.merge()` 对同一组输入比对，不一致就判 `fail`（`merge-mirror`）。本板实测：`payload-inputs ... chip_id=8140`、`merge-mirror ... agrees with E:\hackios\UniXNU\scripts\unixnu\profiles.py`。框架不做占位符替换（`scripts/unixnu/firmware.py:46-50`），所以 preflight 里运行的脚本只靠 `UNIXNU_UEFI`/`UNIXNU_DEVICE` 工作；`--framework` 缺省时 `merge-mirror` 报 `unknown`，不报 pass。
+
 ### A.4 两个缺失输入：怎么离线拿到（不许用 24A446 猜）
 
 **输入 1：`IOCryptoAcceleratorFamily` 的类布局（vtable 槽数 / 判别器 / `IOAESKeyData` 偏移）**
@@ -357,6 +361,7 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
 1. **一格一档**：同一行的「存在性」可以是 `binary`，而「身份」「调用时机」「会不会过」各自另算。禁止用一档的证据把整行标成 closed。
 2. **档位只会被更强的证据改写**，不会被时间、次数或「看起来合理」改写。`inferred` 要变 `binary`，必须出现带 sha256 的新字节或新字符串；要变 `documented`，必须出现 `文件:节`。
 3. **解冻前**本线只能产出 `binary` 与 `documented`；`inferred` 一律留在待验栏，并在「证伪观测」列写清下一次飞行的哪一行像素或哪条 panic 会推翻它。
+4. **`binary` 必须可重跑**：每一项 `binary` 都要在「命令」列给出取字节的完整命令（可执行、无人工步骤），否则半年后它只是一段传说。命令变了或产物换了 `sha256`，证据自动失效、退回待验。
 
 ### C.1 为什么 `--allow-missing` 不能把任何一项从 open 改成 closed
 
@@ -376,6 +381,7 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
 | 三个**目标**（0xfffffff00b4320d8 / 0xfffffff00b432308 / 0xfffffff00b11a998）的身份 | `inferred`（锚点间距 + 规模；`silent13.toml` 的 `falsifier`） | 运行时 panic 的 `fileset:` 行打印的返回地址落在该目标的加载点之一（或 27 fixture 里出现同名函数） | 解冻后：一次飞行读屏；或离线：`llvm-nm-18` 在 27 fixture 上搜 `DTGetProperty` / `_code_signing_configuration` | `inferred` → `binary`（有了具体返回地址与所属 bundle）/ → `documented`（fixture 命中同名） |
 | 某个槽位**被调用过**（`exercised`） | `inferred` | 同一次启动内该路径跑过且屏上没有该槽位对应的 `fileset:` panic | 解冻后一次飞行 | → `binary`（panic 缺失是**阴性**证据，必须同时有「该路径确实被走到」的正证据，否则留着 `inferred`） |
 | 某个目标**已映射**（`mapped`） | `binary`（`kernel.map.json` 里是否出现该 original 地址） | emitter 把目标绑到本板函数后重构建，`missing`/`stubbed` 计数按 owner 下降而**不增长** | `python3 /e/hackios/k60-gates/scripts/check-prelink-regressions.py …`（Lead 跑） | `binary` 重新采集即可 |
+| 板级输入（`chip_id`/`seed`/`root_match_volume_uuid`、DSC、FD 窗口、`UNIXNU_LOADER_REVISION`）的**生效值** | `binary`（合并后 `board.toml` + `uefi-mondrian` 文件字节；`fd-window` 与 `loader-revision` 当前 pass） | 构建失败于这些输入时，先看该门禁的 `unknown` 与 `fail` 明细，再看 Lead 的构建日志 | `python3 scripts/check-ios27-board-inputs.py --device <dev> --uefi <uefi> --framework <UniXNU>`（8 项；`--allow-unknown` 只把 2 变 0） | 不降；改 `board.toml` 或 `uefi` 后重跑 |
 | `--allow-missing` 是否仍在用 | `binary`（`profiles/os/ios-27.0.1-24A446/profile.toml` 的 `extra_args`） | 移除它并构建成功（证明所有目标都有映射或桩） | Lead 构建 | 该项**只记录**，不作为任何项的 closed 依据 |
 | 27 线缺 16 线的 keybag/AKS 能力（7 条补丁） | `binary`（16 线 `patches/xnu/` 有 7 个文件名；27 线 34 条里 0 条） | 27 上出现等价 provider，或明确登记 `not-needed` + 理由 | `grep -c '\.patch$' patches/xnu-12377/series` = 34；`grep -c '\.patch$' patches/xnu/series` = 240 | 见 §A.2 的 `to-port`/`not-needed` 登记（本表不重复） |
 | SoftwareAES 的 27 类布局（18 槽 / 顺序 / `selector` 偏移 0x24） | `inferred`（`OriginalAESABI.h` 的 6 条 static_assert 是 16 线量出来的；16.6.1 strings 的 17 个类型码只是旁证） | 本板 27 `kernel.macho` 的 `__ZTV` 实测，或 27 fixture 的类元数据 | §A.4 程序一（离线，读本板产物） | `inferred` → `binary` |

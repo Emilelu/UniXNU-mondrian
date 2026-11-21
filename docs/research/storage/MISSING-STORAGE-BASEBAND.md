@@ -239,9 +239,11 @@ kernel.macho hash is 652237c6bf54 (32 fileset entries, 0 loader violations) and
 the boot image is 5c060f27. The blocker text in
 E:/k60-work/scratch/msg-b20.txt names three unpinned data targets in three
 bundles and 203 stubbed function sites in 25 bundles; the task statement says
-205 stubbed. This report keeps both numbers: 203 is the function-site count in
-the build-20 blocker, and 205 is the task's stubbed count. They are not silently
-interchanged. The raw build-20 kernel.json is root:root 0600, so the five
+205 stubbed. The pair is not a discrepancy: facts.json has 131 stubbed targets
+whose 205 reference sites (sum of items) group into 203 distinct bundle-target
+pairs (sum of bundles). The blocker's 203 is the pair count and the task's 205 is
+the reference count, both from the same facts.json and sites_all.json. Neither
+number is silently interchanged. The raw build-20 kernel.json is root:root 0600, so the five
 addresses below were read from the Lead's
 E:/k60-work/scratch/stubs/facts.json, which classify.py generated from that
 kernel.json. facts.json has 131 targets; these five are its IOStorageFamily set.

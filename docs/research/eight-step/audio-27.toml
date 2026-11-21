@@ -70,6 +70,7 @@ evidence = [
   "验证顺序固定：先 host 979 + fptrs 19 + weak 14 + --pac-only 4 行，再等 F3 的 UFS/固件，最后 F4 面板/音频图；不能用“能编译”代替出声，见 docs/research/audio/IOS27-MIGRATION.md:54-73。",
   "stage-0 的 conf-hook 行读 seam inert：gates 树没有 k60-conf-files-hook.py（它不是本仓路径），构建驱动的钩子分支不设 K60_CONF_FILES_HOOK，所以这一行是设计上的 no-op，不是接缝坏了；见 docs/research/audio/IOS27-STAGE0-STATE.md:16-20 与 scripts/check-audio27-preflight.sh:53。",
   "上机判据：F3 后先看 pong_audio_amp_probe 返回与 audio=4 的 [mic]/[mic capture] 两行，F4 后看 CoreAudio provider 与真实 PCM 周期；任一行缺失都回到 ④/⑥ 补证据，见 docs/research/audio/RESEARCH.md:183-184。",
+  "PAS1 消费者接口提案把“音频域可用”固定为三步：power 的 handoff Ready/回退对、k60_pmic_glink_audio_ready()、GET_SPF_STATE 回 0x02001007 且 status==1；播放门放在 PongAfeStepClock 之前，probe 只诊断；见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:127-169。",
 ]
 
 [hardware.audio.step.deep]
@@ -82,6 +83,7 @@ evidence = [
   "三处 io 表（PongGeniIo/PongCodecLpiIo/PongCodecMacroIo/PongSwrIo）在 arm64e 下由 blr 变 blraaz，drivers/PongAudio/PongAudioAmp.c:511-512 的 se_rd/se_wr 先 paciza 再存；无 __AUTH 段、无 authenticated-pointer relocation，见 docs/research/audio/IOS27-PAC.md:52-60 与 docs/research/audio/IOS27-PAC.md:93-116。",
   "dts/mondrian.dts:54-80 现在是正确的 adsp 0x9fd00000/0x03100000，但还有 9 个 0 占位（tx-master、codec/amp i2c、reset、irq、spksw、TDM、mic 等）；填之前不能宣布音频可用。",
   "Pong 的功放探针先读 ID/状态、再回放 ACF、最后开 spk switch；入口在 drivers/PongAudio/PongAudioAmp.c:944，播放/停止在 :903/:925，寄存器常量在 drivers/PongAudio/PongAudioRegs.h:47-49 与 :97/:155。",
+  "APM 回应布局不是猜的：sheng:package/ShengGpr.h:21 与 sheng:package/ShengGpr.c:84-89 规定 payload 首字 1 = ready；audio 侧只用 pong_afe_gpr_spf_state_query()（drivers/PongAudio/PongAudioAfe.h:216-225）发 24 B 头，不把 transport up 当 APM ready；HOLD 解除条件见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:243-260。",
 ]
 
 [hardware.audio.step.verify]
@@ -94,7 +96,7 @@ evidence = [
   "产物层是 arm64/arm64e 两份 object 的 ptrauth 形状，不是内核镜像；stage 0 仍读 strings 0/3、symbols 0/3，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。",
 ]
 static_check = [
-  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 53 evidence reference(s) resolve, 8 root(s), no device step。",
+  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 58 evidence reference(s) resolve, 9 root(s), no device step。",
   "python3 scripts/check-audio27-fptrs.py --repo . -> FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 assignment site(s) whose signatures match what they fill, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides。",
   "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/hackios/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。",
 ]

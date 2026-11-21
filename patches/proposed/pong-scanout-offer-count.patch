@@ -49,16 +49,26 @@ next image so one flight can read the delivery model instead of guessing it.
          uint64_t prepare=0,wait=0,total=0;
          absolutetime_to_nanoseconds(prepared-began,&prepare);
          absolutetime_to_nanoseconds(finished-prepared,&wait);
-@@ -200,8 +219,10 @@
+@@ -200,11 +219,20 @@
           * 18.4 MB). Without the address a log cannot say whether the expensive
           * ones are the frames that got a fresh VA, which decides whether the fix
           * is a kept mapping or something inside the bridge. */
 -        char text[260];int n=snprintf(text,sizeof(text),
 -            "PONG SCANOUT: frame=%llu prepare=%llu us offer_and_copy=%llu us total=%llu us addr=0x%llx bytes=%llu\n",
-+        char text[320];int n=snprintf(text,sizeof(text),
++        /* 384 bytes: this format prints 288 at the widest values it can reach
++         * (eight fields, each at 20 digits, plus the 0x address), so the line
++         * has room to grow. The terminator is still repaired if a later field
++         * outgrows it: a diagnostic without its line ending is glued onto the
++         * next record and stops matching the grep the flight card uses, which
++         * has already cost one flight (see report() in PongMetalPlugin.mm). */
++        char text[384];int n=snprintf(text,sizeof(text),
 +            "PONG SCANOUT: scanout version=%u offers=%llu dropped=%llu frame=%llu prepare=%llu us"
 +            " offer_and_copy=%llu us total=%llu us addr=0x%llx bytes=%llu\n",
 +            unsigned(mode.version),offered,dropped,
              pending.id,prepare/1000,wait/1000,total/1000,
              (unsigned long long)(pending.map?pending.map->getVirtualAddress():0),
              (unsigned long long)(pending.map?pending.map->getLength():0));
++        if(n>=(int)sizeof(text)){text[sizeof(text)-2]='\n';text[sizeof(text)-1]='\0';}
+         if(n>0)IOLog("%s",text);
+     }
+     if(pending.map)pending.map->release();

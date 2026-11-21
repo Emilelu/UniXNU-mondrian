@@ -34,6 +34,17 @@ Until they are carried, `judge-gpu27.py` reports `scanout version`, `offers`
 and `client` as `unmeasured` rather than failing them: no observation is never
 an observation of something bad.
 
+## What the two target files look like on the 27 tree
+
+Both drafts edit `drivers/PongAdreno/PongAdrenoScanout.cpp` and
+`drivers/PongMetal/PongMetalScanout.h`. Those two files are byte-identical on
+this tree and on `E:/hackios/xnekom-ios27` (`feat/xnu27-data-gate`), so both
+drafts pass `git apply --check` there today and need no rebase. The format
+strings the judge depends on, with their 27-side line numbers, the shape they
+take after the drafts and the buffer accounting, are in
+`docs/research/gpu/GPU-27-LOG-FORMATS.md`. "Identical today" is not a contract:
+re-run the `diff` and the two `git apply --check` calls before carrying them.
+
 ## Verification done offline
 
 ```
@@ -51,7 +62,7 @@ here.
 
 | Patch | File | Adds |
 | --- | --- | --- |
-| `pong-scanout-offer-count.patch` | `drivers/PongAdreno/PongAdrenoScanout.cpp` | counters `offered`/`dropped` at the delivery gate, and one periodic line carrying `scanout version=`, `offers=`, `dropped=` |
+| `pong-scanout-offer-count.patch` | `drivers/PongAdreno/PongAdrenoScanout.cpp` | counters `offered`/`dropped` at the delivery gate, and one periodic line carrying `scanout version=`, `offers=`, `dropped=`; the print buffer grows 260 → 384 bytes (the widest value of the new format is 288) and a truncated line has its newline repaired, so a future field cannot glue this record onto the next one |
 | `pong-metal-client-gap.patch` | `drivers/PongMetal/PongMetalScanout.h` | the arrival interval between two frames handed over by the client, printed as `client=<us> us` on the existing stage line |
 
 The stage line keeps its original shape with one optional field inserted, and

@@ -259,7 +259,9 @@ fi
 gates=${K60_GATES:-}
 if [ -n "$gates" ] && [ -f "$gates/scripts/build-ios27-linux.sh" ]; then
 	seam_row "27 driver takes the conf hook" --gates "$gates" --seam hook
-	seam_row "27 driver takes the define" --gates "$gates" --seam define
+	set -- --gates "$gates" --seam define
+	if [ -n "${K60_AUDIO27_OBJECT:-}" ]; then set -- "$@" --object "$K60_AUDIO27_OBJECT"; fi
+	seam_row "27 driver takes the define" "$@"
 else
 	printf 'skip %-34s no k60-gates checkout (set K60_GATES)\n' "27 driver takes the conf hook"
 	printf 'skip %-34s no k60-gates checkout (set K60_GATES)\n' "27 driver takes the define"

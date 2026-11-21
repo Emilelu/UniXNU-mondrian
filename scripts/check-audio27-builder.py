@@ -10,10 +10,12 @@ one gets its own verdict (`--seam hook|define|framework`):
              A copy in this audio checkout does not satisfy the driver.
              Without it bsd/conf/files never
              lists the two sources and the glue is not compiled at all.
-  define     the driver passes PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1.
-             The array form is reset at scripts/build-xnu-generic.sh:166
-             (P-260) and a dotted name cannot be exported by dash, so the
-             only shapes that work are an env prefix or a bash export.
+  define     the driver names PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1,
+             but that is only a text seam.  The macro must be present in the
+             target's PongAudioAmp.o.json arguments, passed with --object.
+             An env prefix or a bash export says how the name was written; it
+             does not prove the compiler saw it (P-300 family).  A missing
+             object or zero macros is a failure, not "not measured".
   framework  scripts/unixnu/kernel.py starts from dict(os.environ) and calls
              run(['bash', script], ..., env=env). If that ever becomes a
              curated environment, both variables above stop at the CLI.
@@ -24,6 +26,7 @@ variable yet). A waiting seam therefore prints skip, never ok.
 """
 
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -35,6 +38,8 @@ HOOK = "K60_CONF_FILES_HOOK"
 HOOK_TAIL = "scripts/k60-conf-files-hook.py"
 DEFINE = "PongAudioAmp.o_CFLAGS_ADD"
 VALUE = "-DXNU_PONG_AUDIO=1"
+OBJECT = "PongAudioAmp.o.json"
+MACRO = "XNU_PONG_AUDIO"
 ENV_LINE = "env = dict(os.environ)"
 RUN_LINE = "env=env"
 SEAMS = ("hook", "define", "framework")
@@ -144,19 +149,86 @@ def seam_hook(text, tree):
     return 0, "BUILDER OK: %s takes %s=%s %s" % (DRIVER, HOOK, HOOK_TAIL, where)
 
 
-def seam_define(text):
+def resolve_object(path):
+    """Return (record file, error).  A directory is searched for OBJECT."""
+    if path is None:
+        return None, None
+    if path.is_file():
+        return path, None
+    if path.is_dir():
+        hits = sorted(path.rglob(OBJECT))
+        if not hits:
+            return None, "no %s under %s" % (OBJECT, path)
+        return max(hits, key=lambda item: item.stat().st_mtime), None
+    return None, "%s is not a file or directory" % path
+
+
+def object_arguments(path):
+    """The compile arguments in a .o.json record, or None when unreadable.
+
+    The XNU object record is one JSON object followed by a comma and a newline,
+    so json.load() rejects it; raw_decode() reads the object and leaves the
+    separator alone.
+    """
+    text = read(path)
+    if not text:
+        return None
+    try:
+        record, _ = json.JSONDecoder().raw_decode(text.lstrip())
+    except ValueError:
+        return None
+    if not isinstance(record, dict):
+        return None
+    arguments = record.get("arguments")
+    if not isinstance(arguments, list):
+        return None
+    return [str(item) for item in arguments]
+
+
+def macro_defined(arguments):
+    """True when -DXNU_PONG_AUDIO=1 is in the compiler arguments.
+
+    XNU's object records split the flag and its value into adjacent argv
+    entries ("-D", "XNU_PONG_AUDIO=1"); accept the joined spelling too.
+    """
+    expected = MACRO + "=1"
+    for index, argument in enumerate(arguments):
+        if argument == "-D" + expected:
+            return True
+        if (argument == "-D" and index + 1 < len(arguments)
+                and arguments[index + 1] == expected):
+            return True
+    return False
+
+
+def seam_define(text, object_path=None):
     if DEFINE not in text:
         return 3, ("BUILDER: not wired yet (%s never passes %s=%s); PongAudioAmp.c compiles to nothing "
                    "and the build stays green" % (DRIVER, DEFINE, VALUE))
-    if hands_over(kernel_lines(text), DEFINE, VALUE):
-        return 0, "BUILDER OK: %s takes %s=%s in the env prefix" % (DRIVER, DEFINE, VALUE)
-    if exported(text, DEFINE, re.escape(VALUE)):
-        if bash_shebang(text):
-            return 0, "BUILDER OK: %s exports %s=%s (bash)" % (DRIVER, DEFINE, VALUE)
+    inline = hands_over(kernel_lines(text), DEFINE, VALUE)
+    if not inline and not exported(text, DEFINE, re.escape(VALUE)):
+        return 1, ("BUILDER FAILED: %s mentions %s but never hands %s to the kernel build "
+                   "(the array form is reset at build-xnu-generic.sh:166)" % (DRIVER, DEFINE, VALUE))
+    if not inline and not bash_shebang(text):
         return 1, ("BUILDER FAILED: %s exports %s under %s, where dash refuses a dotted name; "
                    "use env %s=%s before the command" % (DRIVER, DEFINE, "a non-bash shebang", DEFINE, VALUE))
-    return 1, ("BUILDER FAILED: %s mentions %s but never hands %s to the kernel build "
-               "(the array form is reset at build-xnu-generic.sh:166)" % (DRIVER, DEFINE, VALUE))
+
+    resolved, error = resolve_object(object_path)
+    if resolved is None and error is None:
+        return 3, ("BUILDER: %s names %s in text, but no PongAudioAmp.o.json was measured; "
+                   "pass --object <file|ios-obj dir>; text alone is not evidence (P-300)"
+                   % (DRIVER, DEFINE))
+    if resolved is None:
+        return 1, ("BUILDER FAILED: define 没到编译器，胶水编成空壳: %s" % error)
+    arguments = object_arguments(resolved)
+    if arguments is None:
+        return 1, ("BUILDER FAILED: define 没到编译器，胶水编成空壳: %s is not a readable "
+                   "object record" % resolved)
+    if not macro_defined(arguments):
+        return 1, ("BUILDER FAILED: define 没到编译器，胶水编成空壳: %s arguments have no "
+                   "-DXNU_PONG_AUDIO=1" % resolved)
+    return 0, "BUILDER OK: %s carries -DXNU_PONG_AUDIO=1 in the object record %s" % (
+        DEFINE, resolved)
 
 
 def seam_framework(unixnu):
@@ -184,6 +256,9 @@ def main(argv):
     parser.add_argument("--unixnu", help="framework checkout (default $UNIXNU or ../UniXNU)")
     parser.add_argument("--seam", choices=SEAMS, action="append",
                         help="one seam per call; default is all three, one line each")
+    parser.add_argument("--object",
+                        help="PongAudioAmp.o.json, or an ios-obj directory to search; "
+                             "without it the define seam is only text and returns 3")
     options = parser.parse_args(argv)
 
     here = pathlib.Path(__file__).resolve().parents[1]
@@ -191,6 +266,8 @@ def main(argv):
                         or os.environ.get("K60_GATES") or here.parent / "k60-gates")
     unixnu = pathlib.Path(options.unixnu or os.environ.get("UNIXNU") or here.parent / "UniXNU")
     driver = tree / DRIVER
+    object_value = options.object or os.environ.get("K60_AUDIO27_OBJECT")
+    object_path = pathlib.Path(object_value) if object_value else None
     seams = options.seam or list(SEAMS)
 
     codes = []
@@ -202,7 +279,7 @@ def main(argv):
         elif seam == "hook":
             code, message = seam_hook(read(driver), tree)
         else:
-            code, message = seam_define(read(driver))
+            code, message = seam_define(read(driver), object_path)
         print(message)
         codes.append(code)
     return 1 if 1 in codes else (3 if codes and all(code == 3 for code in codes) else codes[-1])

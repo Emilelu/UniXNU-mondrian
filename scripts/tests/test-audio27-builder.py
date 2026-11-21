@@ -5,6 +5,7 @@ Every verdict this checker can print is reproduced here, because a claim
 without a case is a claim that rots the first time the driver changes shape.
 """
 
+import json
 import os
 import pathlib
 import subprocess
@@ -50,10 +51,12 @@ def tree(root, driver=DRIVER, framework=FRAMEWORK, unixnu=True, hook=True):
     return gates, framework_root
 
 
-def call(gates, framework_root, seam):
-    done = subprocess.run([sys.executable, str(CHECKER), "--tree", str(gates),
-                           "--unixnu", str(framework_root), "--seam", seam],
-                          capture_output=True, text=True)
+def call(gates, framework_root, seam, object_path=None):
+    command = [sys.executable, str(CHECKER), "--tree", str(gates),
+               "--unixnu", str(framework_root), "--seam", seam]
+    if object_path is not None:
+        command += ["--object", str(object_path)]
+    done = subprocess.run(command, capture_output=True, text=True)
     return done.returncode, (done.stdout + done.stderr).strip()
 
 
@@ -71,10 +74,13 @@ def case_not_wired():
 def case_wired():
     with tempfile.TemporaryDirectory() as tmp:
         gates, framework_root = tree(pathlib.Path(tmp), driver=WIRED)
+        record = gates / "PongAudioAmp.o.json"
+        record.write_text(json.dumps({"arguments": ["-D", "XNU_PONG_AUDIO=1"]}) + ",\n",
+                          encoding="utf-8")
         for seam, needle in ((("hook"), "takes K60_CONF_FILES_HOOK"),
-                             (("define"), "in the env prefix"),
+                             (("define"), "object record"),
                              (("framework"), "kernel.py:2")):
-            code, out = call(gates, framework_root, seam)
+            code, out = call(gates, framework_root, seam, record)
             assert code == 0 and "BUILDER OK" in out and needle in out, (seam, out)
 
 
@@ -182,6 +188,41 @@ def case_define_exported_by_dash():
         assert "dash" in out, out
 
 
+def case_define_text_only():
+    """The old green: the driver names the define, but no object was measured."""
+    with tempfile.TemporaryDirectory() as tmp:
+        gates, framework_root = tree(pathlib.Path(tmp), driver=WIRED)
+        code, out = call(gates, framework_root, "define")
+        assert code == 3, out
+        assert "text alone is not evidence" in out, out
+        assert "BUILDER OK" not in out, out
+
+
+def case_define_object_missing():
+    """A selected record path that does not exist is a failure, not a skip."""
+    with tempfile.TemporaryDirectory() as tmp:
+        gates, framework_root = tree(pathlib.Path(tmp), driver=WIRED)
+        code, out = call(gates, framework_root, "define", gates / "missing.o.json")
+        assert code == 1, out
+        assert "define 没到编译器，胶水编成空壳" in out, out
+        assert "not a file or directory" in out, out
+        assert "BUILDER OK" not in out, out
+
+
+def case_define_object_without_macro():
+    """The record exists but the macro is absent: the glue is an empty shell."""
+    with tempfile.TemporaryDirectory() as tmp:
+        gates, framework_root = tree(pathlib.Path(tmp), driver=WIRED)
+        record = gates / "PongAudioAmp.o.json"
+        record.write_text(json.dumps({"arguments": ["-D", "SOMETHING_ELSE=1"]}) + ",\n",
+                          encoding="utf-8")
+        code, out = call(gates, framework_root, "define", record)
+        assert code == 1, out
+        assert "define 没到编译器，胶水编成空壳" in out, out
+        assert "no -DXNU_PONG_AUDIO=1" in out, out
+        assert "BUILDER OK" not in out, out
+
+
 def case_framework_replaces_environment():
     with tempfile.TemporaryDirectory() as tmp:
         narrow = FRAMEWORK.replace("env = dict(os.environ)", "env = {}")
@@ -207,7 +248,8 @@ def case_no_gates():
 def main():
     cases = [case_not_wired, case_wired, case_hook_target_missing, case_hook_dropped,
              case_hook_exported_split, case_tree_environment,
-             case_define_exported_by_dash,
+             case_define_exported_by_dash, case_define_text_only,
+             case_define_object_missing, case_define_object_without_macro,
              case_framework_replaces_environment, case_framework_absent, case_no_gates]
     for case in cases:
         case()

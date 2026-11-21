@@ -43,15 +43,16 @@ assertion = "prelink closure and loader contract"
 path = "concepts/security.md"
 title = "完整性与启动策略"
 sha256 = "baaede96059a1bc035a5af57dc96b3f671813127da24de4bda191ef9088fac09"
-state = "unmapped"
+state = "na"
+why = "K60 的 iOS 27 stage-0 不选 sheng 的 trust cache/AMFI/AppSync 栈：board.toml:221-226 丢弃 trust-cache 路径且 trust_cache_sha256 = []；configs/mondrian_defconfig:33/57/76 三个开关均为 n；patches/xnu-12377/series 110 行只有 ptrauth、ArmCpu sleep 和 22 个 Bluetooth 补丁。重审条件：任一 CONFIG_XNU_*TRUST_CACHE* 或 OWNER_ROOT_TRUST 变 y、trust_cache_sha256 非空、或 12377 系列出现 trust/AMFI/AppSync 补丁名时，把 state 改回 unmapped 并重读页面。"
 
 [[page]]
 path = "concepts/userdata.md"
 title = "userdata 布局"
 sha256 = "827a59d2908f1321869e8ec0bd59460ab943f6cdd96680a67cbbaf1aab7b9583"
 state = "mapped"
-gate = "check-defconfig-uuid.py"
-assertion = "the Data volume identity is the board's own"
+gate = "check-userdata-layout.py"
+assertion = "the SHNGROOT header and the OS-window UUID are both pinned"
 
 [[page]]
 path = "contributing/documentation.md"
@@ -251,7 +252,8 @@ why = "Partially gated: scripts/check-bluetooth-dt.py enforces only the device-t
 path = "drivers/qcom-baseband.md"
 title = "QcomBaseband"
 sha256 = "275230714b756152d8ef5489f254b88eb1217f1e4903bf790e5def24120b011d"
-state = "unmapped"
+state = "na"
+why = "K60 当前 profile 没有选 QcomBaseband：board.toml:13-14 和 :358-360 的 components include 是 ArmDTPlatform/ArmCpu/XnuPrelink(/PongUfs)，没有 QcomBaseband/AppleBaseband；configs 没有 BASEBAND/MODEM/CELLULAR 开关；patches/xnu-12377/series 没有 baseband 补丁；页面第 11 行自己也允许没有蜂窝基带组件的设备跳过。重审条件：任一 components include 选入 QcomBaseband/AppleBaseband、configs 出现基带/modem 开关、或 12377 系列出现 baseband 补丁时，把 state 改回 unmapped 并重读页面。"
 
 [[page]]
 path = "drivers/qcom-dwc3.md"

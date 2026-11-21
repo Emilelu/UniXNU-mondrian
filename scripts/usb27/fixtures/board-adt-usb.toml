@@ -1,0 +1,13 @@
+# Fixture for kc-surface.py adt: the board half of a declared USB controller.
+#
+# Shape copied from the real [adt.arm-io.pong-touch] blocks in
+# E:/hackios/k60-gates/board.toml:229 onward (kind sub-tables, hex strings).
+# The base is the K60 DWC3 window, same source as adt-usb.dts.
+
+[adt."arm-io"."pong-usb".u64]
+dwc-base = "0xa600000"
+dwc-size = "0xd93c"
+tcsr-base = "0x1fd5000"
+
+[adt."arm-io"."pong-usb".string]
+compatible = "qcom,dwc-usb3-msm"

@@ -7,6 +7,8 @@ Three questions this answers, each with a reproducible command:
   surface which symbols the collection defines (llvm-nm), per required prefix
   object  which of an object file's undefined symbols the collection cannot answer
   roots   which USB kexts a profile/board asks the prelink to carry
+  adt     whether the USB controller is declared in the ADT at all: the device
+          tree nodes in a hardware.dtb against the board's [adt.arm-io.*] blocks
 
 Every check prints PASS/FAIL. Exit status is 0 only when every requested check
 passed, 1 when one failed, 2 on a usage or parse error.
@@ -16,6 +18,7 @@ Usage:
   kc-surface.py surface KERNEL [--require-prefix P]... [--require-symbol S]...
   kc-surface.py object KERNEL OBJECT [--providers TSV]
   kc-surface.py roots  PROFILE_TOML [BOARD_TOML] [--require-kext ID]...
+  kc-surface.py adt    HARDWARE_DTB BOARD_TOML [--expect-base 0xa600000]
 
 llvm-nm defaults to llvm-nm-18 (the toolchain the 27 tree is built with).
 """
@@ -255,6 +258,190 @@ def cmd_roots(args):
     return failures
 
 
+FDT_MAGIC = 0xD00DFEED
+FDT_BEGIN_NODE, FDT_END_NODE, FDT_PROP, FDT_NOP, FDT_END = 1, 2, 3, 4, 9
+USB_WORDS = ('usb', 'dwc3', 'eusb2', 'ssphy')
+
+
+def fdt_nodes(data):
+    """[(path, {prop: bytes})] from a flattened device tree, file order."""
+    if len(data) < 40:
+        raise Refusal('shorter than an fdt header')
+    magic, _total, off_struct, off_strings, _off_rsv, _ver, _last, _cpu, size_strings, _size_struct = \
+        struct.unpack_from('>10I', data, 0)
+    if magic != FDT_MAGIC:
+        raise Refusal(f'not a flattened device tree (magic {magic:#x})')
+    strings = data[off_strings:off_strings + size_strings]
+    nodes, stack, at = [], [], off_struct
+    current = None
+    while True:
+        if at + 4 > len(data):
+            raise Refusal('structure block runs past the end of the file')
+        token = struct.unpack_from('>I', data, at)[0]
+        at += 4
+        if token == FDT_BEGIN_NODE:
+            end = data.index(b'\0', at)
+            name = data[at:end].decode('utf-8', 'replace')
+            at += (end - at + 1 + 3) & ~3
+            path = '/' + '/'.join([part for part in stack if part] + ([name] if name else []))
+            stack.append(name)
+            nodes.append({'path': path, 'props': {}})
+            current = nodes[-1]
+        elif token == FDT_END_NODE:
+            if len(stack) > 1:
+                stack.pop()
+        elif token == FDT_PROP:
+            length, nameoff = struct.unpack_from('>II', data, at)
+            at += 8
+            name = strings[nameoff:strings.index(b'\0', nameoff)].decode('utf-8', 'replace')
+            value = data[at:at + length]
+            at += (length + 3) & ~3
+            if current is not None:
+                current['props'][name] = value
+        elif token == FDT_NOP:
+            continue
+        elif token == FDT_END:
+            break
+        else:
+            raise Refusal(f'unknown fdt token {token:#x} at {at - 4:#x}')
+    return nodes
+
+
+def fdt_reg_bases(props):
+    """Base addresses from a reg property, assuming 2+2 or 1+1 cells."""
+    raw = props.get('reg')
+    if not raw:
+        return []
+    bases = []
+    if len(raw) % 16 == 0:
+        for offset in range(0, len(raw), 16):
+            high, low = struct.unpack_from('>II', raw, offset)
+            bases.append((high << 32) | low)
+    elif len(raw) % 8 == 0:
+        for offset in range(0, len(raw), 8):
+            bases.append(struct.unpack_from('>I', raw, offset)[0])
+    return bases
+
+
+def fdt_strings(props, key):
+    raw = props.get(key)
+    if not raw:
+        return []
+    return [part.decode('utf-8', 'replace') for part in raw.split(b'\0') if part]
+
+
+def adt_arm_io(path):
+    """{node name: {prop: value}} from a board.toml [adt.arm-io.*] table."""
+    import tomllib
+    try:
+        data = tomllib.loads(read(path).decode('utf-8'))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise Refusal(f'{path}: not readable toml ({error})')
+    arm = data.get('adt', {}).get('arm-io')
+    if arm is None:
+        return {}
+    out = {}
+    for name, kinds in arm.items():
+        props = {}
+        if isinstance(kinds, dict):
+            for kind, values in kinds.items():
+                if isinstance(values, dict):
+                    props.update(values)
+        out[name] = props
+    return out
+
+
+def hex_values(props):
+    """Every number in an arm-io node, from "0x…" strings and ints."""
+    found = []
+    for name, value in props.items():
+        candidates = value if isinstance(value, list) else [value]
+        for item in candidates:
+            if isinstance(item, int) and not isinstance(item, bool):
+                found.append(item)
+            elif isinstance(item, str) and item.lower().startswith('0x'):
+                try:
+                    found.append(int(item, 16))
+                except ValueError:
+                    continue
+    return found
+
+
+def is_usb_name(text):
+    low = text.lower()
+    return any(word in low for word in USB_WORDS)
+
+
+def cmd_adt(args):
+    """Is the USB controller declared in the ADT the kernel actually receives?
+
+    The ADT is not the hardware device tree: UniXNU/scripts/unixnu/devicetree.py
+    generate() builds a new /device-tree and exports a hardware node into
+    /device-tree/arm-io only when the node carries unixnu,adt-name
+    (devicetree.py:388-397). Board [adt.arm-io.*] tables become arm-io children
+    too, and a name that appears in both is a hard error there
+    ("Configured arm-io child duplicates an exported hardware node").
+    So a usb node in hardware.dtb counts only with unixnu,adt-name, and a board
+    block counts by itself.
+    """
+    data = read(args.dtb)
+    nodes = fdt_nodes(data)
+    board = adt_arm_io(args.board)
+
+    usb_nodes, exported, configured = [], [], []
+    for node in nodes:
+        compat = ' '.join(fdt_strings(node['props'], 'compatible'))
+        if not (is_usb_name(node['path']) or is_usb_name(compat)):
+            continue
+        bases = fdt_reg_bases(node['props'])
+        names = fdt_strings(node['props'], 'unixnu,adt-name')
+        usb_nodes.append((node['path'], compat or '(no compatible)', bases, names))
+        if names:
+            exported.append((names[0], node['path'], bases))
+    configured = [(name, hex_values(props)) for name, props in board.items() if is_usb_name(name)]
+
+    print(f'dtb   {args.dtb} ({len(data)} bytes, {len(nodes)} nodes)')
+    print(f'  usb nodes {len(usb_nodes)}')
+    for path, compat, bases, names in usb_nodes:
+        shown = ', '.join(f'{base:#x}' for base in bases) or '(no reg)'
+        exported_as = f'  unixnu,adt-name {names[0]}' if names else '  NOT exported (no unixnu,adt-name)'
+        print(f'    {path}  compatible {compat}  reg {shown}{exported_as}')
+    print(f'board {args.board}')
+    print(f'  adt.arm-io nodes {len(board)}: {", ".join(sorted(board)) or "(none)"}')
+    print(f'  usb arm-io nodes {len(configured)}')
+    for name, values in configured:
+        shown = ', '.join(f'{value:#x}' for value in sorted(set(values))) or '(no numeric property)'
+        print(f'    [adt.arm-io.{name}] numbers {shown}')
+
+    failures = []
+    if not usb_nodes:
+        failures.append('no usb node in the hardware device tree')
+    if not exported and not configured:
+        failures.append('no usb node carries unixnu,adt-name and no [adt.arm-io] block '
+                        'declares one, so the ADT has no usb child')
+    for name, path, bases in exported:
+        if not bases:
+            failures.append(f'{path} exports {name} without a reg window')
+        print(f'  node  {path} exports arm-io/{name} '
+              f'({", ".join(f"{base:#x}" for base in bases) or "no reg"})')
+    for name, _path, bases in exported:
+        clash = [other for other, _values in configured if other == name]
+        if clash:
+            failures.append(f'{name} is declared twice (unixnu,adt-name and [adt.arm-io.{name}]); '
+                            'devicetree.py generate() raises on that')
+    declared = [base for _name, _path, bases in exported for base in bases]
+    declared += [value for _name, values in configured for value in values]
+    if args.expect_base is not None:
+        present = args.expect_base in declared
+        print(f'  node  expected base {args.expect_base:#x} '
+              f'{"declared" if present else "absent"} in the ADT inputs')
+        if not present:
+            failures.append(f'expected base {args.expect_base:#x} is not declared by either input')
+    for failure in failures:
+        print(f'  REASON {failure}')
+    return failures
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -282,6 +469,13 @@ def main(argv):
     roots.add_argument('toml', nargs='+', help='profile.toml first, then any board.toml')
     roots.add_argument('--require-kext', action='append', default=[])
     roots.set_defaults(run=cmd_roots)
+
+    adt = sub.add_parser('adt', help='is the USB controller declared in the ADT at all')
+    adt.add_argument('dtb', help='hardware.dtb from the payload')
+    adt.add_argument('board', help='board.toml carrying [adt.arm-io.*]')
+    adt.add_argument('--expect-base', type=lambda text: int(text, 0), default=None,
+                     help='require this reg base in a usb device tree node')
+    adt.set_defaults(run=cmd_adt)
 
     args = parser.parse_args(argv)
     try:

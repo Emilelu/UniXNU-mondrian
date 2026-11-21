@@ -1,0 +1,31 @@
+/* Fixture for kc-surface.py adt: the shape a working ADT must have.
+ *
+ * It is not a copy of any vendor tree. It carries the two facts the check
+ * compares: a USB controller node with a reg window and a unixnu,adt-name
+ * (that property is what makes UniXNU/scripts/unixnu/devicetree.py:388-397
+ * export a hardware node into /device-tree/arm-io), plus a board
+ * [adt.arm-io] block declaring the same base. The K60 numbers come from
+ * E:/hackios/k60-usb/docs/research/usb/RESEARCH.md:81 (DWC3 0xa600000, size
+ * 0xd93c) and docs/plans/OFFICIAL-DRIVER-MAP.md:464.
+ */
+/dts-v1/;
+
+/ {
+	compatible = "xiaomi,mondrian";
+	#address-cells = <0x02>;
+	#size-cells = <0x02>;
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+
+		usb@a600000 {
+			compatible = "qcom,dwc-usb3-msm", "snps,dwc3";
+			reg = <0x00 0xa600000 0x00 0xd93c>;
+			unixnu,adt-name = "usb0";
+			dr_mode = "otg";
+			maximum-speed = "high-speed";
+		};
+	};
+};

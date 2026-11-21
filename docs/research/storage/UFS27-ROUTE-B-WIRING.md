@@ -400,3 +400,95 @@ cd E:/k60-work/scratch/ufs27-entrymatrix && bash run.sh
 The `ok` row is the point: the same script that reports three pendings today
 prints a real `kmod_info` reading from a real bundle image, so acceptance is a
 measurement that will happen, not a promise.
+
+## 12. The 16.6.1 regression the Lead needs for the removal diff
+
+The Lead lands the three force-load removals (m01201 ①), so the storage line owes
+it a criterion that runs before and after. That criterion is not "the line is
+gone" — it is "with the guard open, 16.6.1 still links the archive and 27 still
+does not". So the harness executes each real block instead of grepping it:
+
+```sh
+cd E:/k60-work/ufs27 && bash scripts/check-ufs27-force-load-profiles.sh
+# check-ufs27-force-load-profiles: source /e/k60-work/ufs27
+# check-ufs27-force-load-profiles: 16.6.1 CONFIG_XNU_NATIVE_UFS=y  27 CONFIG_XNU_NATIVE_UFS=n
+# check-ufs27-force-load-profiles: ok   16.6.1 kernel archives keep it: linked
+# check-ufs27-force-load-profiles: ok   16.6.1 platform archives keep it: linked
+# check-ufs27-force-load-profiles: ok   27 does not link it: unlinked
+# check-ufs27-force-load-profiles: SKIP guard case: XNU_NATIVE_UFS_BUNDLE is not in the block yet (the removal diff is with the Lead)
+# check-ufs27-force-load-profiles: force-load profiles: OK
+```
+
+How it works: `extract_block()` lifts the two 16.6.1 blocks
+(`scripts/build-xnu-4k-baseline.sh:1054` kernel archives, `:1279` platform
+archives) and the 27 block (`scripts/build-xnu-generic.sh:646`) verbatim, and
+`run_block()` executes each one with `ROOT` pointing at a scratch tree holding an
+empty `build/native-ufs/libNativeUfs.a` and the four archive variables preset. No
+compiler, no make, no kernel. A block that cannot be lifted stops the run instead
+of grading as "unlinked" — the first version of this script did exactly that and
+would have passed an expectation it should have failed.
+
+The guard rows stay `SKIP` until the diff is applied, because a criterion that
+cannot run yet must not look green. To show that the rows do run once the diff
+lands, the same harness is pointed at a patched copy:
+
+```sh
+cd E:/k60-work/scratch/ufs27-flmatrix && bash run.sh
+# ufs27-flmatrix: two trees under …\ufs27-flmatrix, 2 file(s) changed by the patch
+# PASS: plain -> guard rows SKIP (honest, diff not landed)
+# PASS: guarded -> guard rows run and pass
+# ufs27-flmatrix: OK
+```
+
+`--source <tree>` is what makes that possible, and `make.py` copies only the two
+builders and the two defconfigs into `plain/` and `guarded/` — if the harness
+needed anything else, the copy would miss it and say so.
+
+### What the Lead's diff has to keep true
+
+| Row | Criterion | Where it is graded |
+| --- | --- | --- |
+| 16.6.1 kernel archives | `CONFIG_XNU_NATIVE_UFS=y` and `XNU_NATIVE_UFS_BUNDLE` unset → the archive is in `KERNEL_EXTRA_ARCHIVES` | `scripts/check-ufs27-force-load-profiles.sh`, row 1 |
+| 16.6.1 platform archives | same for `PLATFORM_ARCHIVES` | row 2 |
+| 27 | switch off → the archive is in neither list | row 3 |
+| guard closed | switch on and `XNU_NATIVE_UFS_BUNDLE=1` → absent | "guard closes the block", only after the diff |
+| guard open | switch on and `XNU_NATIVE_UFS_BUNDLE=0` → present | "guard open still links", only after the diff |
+
+The two guard rows are what a reviewer reads to see that the diff is guarded
+rather than a deletion: with the bundle on, 27 stops linking; with it off, the
+behaviour is exactly today's.
+
+## 13. Ring 5's contract is separate, and it is written
+
+`docs/research/storage/UFS27-RING5-CONTRACT.md` states the inputs (existing
+`entries`, target `identifier`, the `__PRELINK_TEXT` budget), the outputs
+(`load_address`, `size`, and the three `kmod_info` fields `name`/`start`/`stop`),
+and the failure semantics (no partial insertion, error not silence, no synthesised
+fields, determinism). It is written for the framework owner to implement; nothing
+in this worktree implements it, per m00999 ②.
+
+The reason the three fields are named rather than described is that the receiving
+checker already grades them: `scripts/check-ufs27-storage-entry.py` confirms
+`kmod_info.name` by content (the bytes at `+0x10` must start with the plist
+identifier) and reads `start`/`stop` at `+0xA8`/`+0xB0`. A ring that produces
+different fields would be graded as a gap, which is the point of writing the
+contract down before anyone codes it.
+
+## 14. Provenance for the two plist key groups
+
+The Lead's rule (m01201) is that a key nobody can trace is a key nobody can
+review. Both groups now carry their source in XML comments:
+
+- `IOKitPersonalities` — `patches/xnu/ios16-native-ufs-personality.patch:11`
+  (`IOClass`), `:12` (`IOProviderClass`), `:13` (`IONameMatch = ufshc`), `:14`
+  (`IOProbeScore = 1000:32`). That patch has **no** `IOMatchCategory`; the key's
+  only in-tree precedent is the RAM-disk personality,
+  `patches/xnu/native-ram-block-personality.patch:10`, and it is kept because a
+  bundle's class must not be claimed twice.
+- `OSBundleLibraries` — `com.apple.iokit.IOStorageFamily` is required because the
+  driver subclasses a class that lives there
+  (`drivers/NativeUfs/PongUfsTransport.cpp:9` includes
+  `<IOKit/storage/IOBlockStorageDevice.h>`, `:289` subclasses it, `:962` loads the
+  family by identifier); `com.apple.kec.corecrypto` because
+  `drivers/NativeUfs/xnu_crypto.c:5` includes `<corecrypto/ccsha2.h>`. The three
+  `com.apple.kpi.*` entries are the standard kernel interfaces.

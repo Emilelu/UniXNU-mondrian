@@ -1,0 +1,39 @@
+Subject: [DRAFT] Pong Metal presenter: assert what it believes about the wire
+
+Draft only. Not in any series, not built, not applied.
+
+The presenter does not just pass the records through: it demands a reply whose
+length is sizeof(PongScanoutFrame), rejects any frame whose reserved word is
+non-zero, and reads format out of the same reply. Those three beliefs are
+spelled out here as compile-time facts, so a wire change that breaks this
+presenter breaks its build with this file named in the message.
+
+Zero runtime change. Adopt together with pong-scanout-assert-offsets.patch.
+
+--- a/drivers/PongMetal/PongMetalScanout.h
++++ b/drivers/PongMetal/PongMetalScanout.h
+@@ -3,10 +3,24 @@
+  * No readback checks, test draws, physical-address API or fabricated fence. */
+ #pragma once
+ #include <pthread.h>
++#include <stddef.h>
+ #include <time.h>
+ #include "../PongAdreno/PongScanoutWire.h"
+ #include "GpuScanoutPresenter.h"
+ #include "PongScanoutTiming.h"
++/* What this presenter believes about the wire, asserted here rather than only
++ * in the header it includes: the reply length it demands at the Wait call, the
++ * reserved word it refuses when non-zero, and the format it insists on. When a
++ * version changes what lives at offset 44, this is the file that must be
++ * edited on purpose, and the build says so. */
++static_assert(sizeof(PongScanoutFrame)==48 && offsetof(PongScanoutFrame,address)==8 &&
++    offsetof(PongScanoutFrame,format)==40 && offsetof(PongScanoutFrame,reserved)==44,
++    "Pong Metal presenter reply layout");
++static_assert(sizeof(PongScanoutWaitInfo)==8 && sizeof(PongScanoutDone)==16,
++    "Pong Metal presenter request and retire sizes");
++static_assert(PongScanoutVersion==1 && PongScanoutBgra==1 &&
++    PongScanoutWait==0x7002 && PongScanoutComplete==0x7003,
++    "Pong Metal presenter protocol numbers");
+ namespace pongscanout {
+ using Open=kern_return_t(*)(unsigned,mach_port_t,unsigned,unsigned *);
+ using Call=kern_return_t(*)(unsigned,unsigned,const void *,size_t,void *,size_t *);

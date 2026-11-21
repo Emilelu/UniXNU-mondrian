@@ -151,6 +151,19 @@ static_assert(offsetof(PongScanoutDone, reserved) == 12, "the completion check i
 
 （`offsetof` 需 `<stddef.h>`；本树 `PongScanoutWire.h` 目前没包含它，本次一并加。）
 
+**已写成可直接粘的两份补丁**（`patches/proposed/`，草稿，不进 series，两侧都不改结构、不改运行期）：
+
+- `pong-scanout-assert-offsets.patch` → `drivers/PongAdreno/PongScanoutWire.h`：四条 `static_assert`
+  把四张记录的全部偏移、四个方法码与 `PongScanoutVersion`/`PongScanoutBgra` 钉住（`<stddef.h>` 一并加）。
+- `pong-presenter-assert-offsets.patch` → `drivers/PongMetal/PongMetalScanout.h`：presenter 侧的同一批事实，
+  写它**依赖**的那些（回复长度、它拒收的 `reserved`、它认的协议号），这样布局被改时红的是 presenter
+  自己的编译单元，消息里点的是它的文件名，而不是只红一个头。
+
+两份都在 27 树与本树 `git apply --check` 通过；断言文本另外用宿主 `g++ -std=c++17 -Wall -Wextra`
+对同样的结构体定义编译过（`E:/k60-work/scratch/prop/wire_assert_probe.cpp`），所以偏移是编译器核过的，
+不是读出来的。表里 v2 专属的三行（`token`/`evict`/`target`）不进这两份补丁——那要等 display 的 dbuf 立项，
+现在加就是给不存在的字段写断言。
+
 ### 2.6 27 侧读者行号与两处硬编码（display 六项之一，含它点出的两处）
 
 27 树（`E:/hackios/xnekom-ios27`，`feat/xnu27-data-gate`）与 `feat/gpu-27` 的两个文件

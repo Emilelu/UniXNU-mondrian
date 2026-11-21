@@ -2,12 +2,13 @@
 
 These are drafts written while no device flight is available. They are
 deliberately **not** in `patches/*/series`, not built, and not flown. They fall
-in two groups with different rules:
+in three groups with different rules:
 
 | Group | Patches | What it changes | How it is carried |
 | --- | --- | --- | --- |
 | Measurement | `pong-scanout-offer-count.patch`, `pong-metal-client-gap.patch` | counters and printed fields only | **once, together, with the next image** (Lead ruling 2026-11-21, m01230, refined in m01375) |
 | Behaviour | `pong-adreno-restart.patch`, `pong-gpu-only-default.patch` | a restart sequence nothing calls, and the default of an existing policy | **not carried** until the owner named below says so; each states its own veto |
+| Assertions | `pong-scanout-assert-offsets.patch`, `pong-presenter-assert-offsets.patch` | `static_assert` + `offsetof` only; no structure, no runtime | **safe to adopt at any time**; they cannot change behaviour, only refuse to build a broken layout |
 
 Nothing here is compiled: this lane may not build (`LANE-CONTRACT-ios27` §2), so
 "the patch applies" is the strongest offline claim, and the only one made here.
@@ -90,6 +91,37 @@ otherwise, and `pong_gpu_only=0` puts it back.
 **Display owns the veto.** If the compositor needs the CPU fallback during
 bring-up, drop this draft and nothing else in the tree moves.
 
+## Group 3: assertions, adoptable before any flight
+
+Two halves of one idea: the sizes are asserted today, the offsets are not, and a
+layout is offsets. Swap two `uint64_t` members and every existing
+`static_assert` stays green while both readers silently read the wrong field —
+the wire would still be "48 bytes" and still be wrong.
+
+* `pong-scanout-assert-offsets.patch` — `drivers/PongAdreno/PongScanoutWire.h`:
+  every offset of the four records, plus the four method codes and the two
+  constants. This is the side that defines the wire.
+* `pong-presenter-assert-offsets.patch` — `drivers/PongMetal/PongMetalScanout.h`:
+  the same facts where the presenter depends on them, so a wire change that
+  breaks this presenter breaks **its** build and names **this** file, instead of
+  only breaking the header it happens to include.
+
+The two numbers that make this worth a patch rather than a comment are
+`offsetof(PongScanoutFrame,reserved)==44` and
+`offsetof(PongScanoutDone,reserved)==12`: both are in use
+(`PongAdrenoScanout.cpp:149` writes the first as a literal `0`, `:122` treats the
+second as a garbage sentinel), and both are exactly where the wire proposal puts
+its version if the packaging goes that way. `offsetof(...,address)==8` is the
+third: it is the GPU address the copy reads, and nothing asserts it today.
+
+**Nothing here changes behaviour.** If either patch fails to build, the layout
+changed under someone; that is the message, not a regression.
+
+Offline verification is stronger than "it applies": the assertion block was
+reproduced against the same struct definitions with a host C++17 compiler and
+compiles clean, so the offsets are correct rather than merely plausible (see
+"Verification done offline").
+
 ## What each patch adds
 
 | Patch | File | Adds |
@@ -98,6 +130,8 @@ bring-up, drop this draft and nothing else in the tree moves.
 | `pong-metal-client-gap.patch` | `drivers/PongMetal/PongMetalScanout.h` | the arrival interval between two frames handed over by the client, printed as `client=<us> us` on the existing stage line |
 | `pong-adreno-restart.patch` | `drivers/PongAdreno/PongAdrenoCp.cpp` | `gbif_drain()`, `restart_sequence()`, and `pong_adreno_cp_set_restart()` / `pong_adreno_cp_restart()`; no caller, no change to any existing path |
 | `pong-gpu-only-default.patch` | `patches/xnu/0600-k60-display-composition.patch` | `gpuOnly` starts at 1 instead of 0, and the field comment says so |
+| `pong-scanout-assert-offsets.patch` | `drivers/PongAdreno/PongScanoutWire.h` | `#include <stddef.h>` and four `static_assert`s: every field offset of Mode/Wait/Frame/Done, the four method codes, `PongScanoutVersion`, `PongScanoutBgra` |
+| `pong-presenter-assert-offsets.patch` | `drivers/PongMetal/PongMetalScanout.h` | the presenter's own three `static_assert`s: the reply length it demands, the reserved word it refuses, the protocol numbers it switches on |
 
 The stage line keeps its original shape with one optional field inserted, and
 `judge-gpu27.py` accepts both shapes (`client=` present or absent). That was a
@@ -159,10 +193,17 @@ git apply --check patches/proposed/pong-scanout-offer-count.patch
 git apply --check patches/proposed/pong-metal-client-gap.patch
 git apply --check patches/proposed/pong-adreno-restart.patch
 git apply --check patches/proposed/pong-gpu-only-default.patch
+git apply --check patches/proposed/pong-scanout-assert-offsets.patch
+git apply --check patches/proposed/pong-presenter-assert-offsets.patch
 ```
 
-All four pass against `feat/gpu-27` at the commit that added this directory, and
-all four pass against `E:/hackios/xnekom-ios27` today. None is compiled.
+All six pass against `feat/gpu-27` at the commit that added this directory, and
+all six pass against `E:/hackios/xnekom-ios27` today. None is compiled — with one
+exception, the assertions: their text was reproduced against the same struct
+definitions and built with a host `g++ -std=c++17 -Wall -Wextra`
+(`E:/k60-work/scratch/prop/wire_assert_probe.cpp`), so the offsets are checked
+by a compiler, not by reading. That probe is not a substitute for building the
+kext; it only proves the numbers in the assertions are the real ones.
 
 ## Rollback
 

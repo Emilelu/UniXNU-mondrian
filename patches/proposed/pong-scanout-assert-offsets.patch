@@ -1,0 +1,40 @@
+Subject: [DRAFT] Pong scanout: pin the wire offsets, not just the sizes
+
+Draft only. Not in any series, not built, not applied.
+
+sizeof() alone cannot hold a layout: swap two uint64_t members and every size
+assertion above stays green while both readers silently read the wrong field.
+These assertions pin the offsets the two readers actually depend on, and the
+four method codes a presenter switches on.
+
+Zero runtime change, zero structure change. Adopt together with the presenter
+half (pong-presenter-assert-offsets.patch): the same facts asserted on both
+sides break the build that broke the contract, with a message that names it.
+
+--- a/drivers/PongAdreno/PongScanoutWire.h
++++ b/drivers/PongAdreno/PongScanoutWire.h
+@@ -13,3 +13,24 @@
+ struct PongScanoutDone {uint64_t sequence;uint32_t status,reserved;};
+ static_assert(sizeof(PongScanoutModeInfo)==40 && sizeof(PongScanoutWaitInfo)==8 &&
+     sizeof(PongScanoutFrame)==48 && sizeof(PongScanoutDone)==16,"Pong scanout wire");
++/* Where each field lands, for the two readers that index them:
++ * PongAdrenoScanout.cpp writes Frame@149 and validates Done@122, and
++ * PongMetalScanout.h reads format and reserved out of the reply. A version
++ * bumped inside Frame.reserved@44 (see GPU-27-SCANOUT-WIRE-PROPOSAL.md)
++ * rides on these offsets staying put. */
++static_assert(offsetof(PongScanoutModeInfo,version)==0 && offsetof(PongScanoutModeInfo,format)==4 &&
++    offsetof(PongScanoutModeInfo,width)==8 && offsetof(PongScanoutModeInfo,height)==16 &&
++    offsetof(PongScanoutModeInfo,stride)==24 && offsetof(PongScanoutModeInfo,bytes)==32,
++    "Pong scanout mode layout");
++static_assert(offsetof(PongScanoutFrame,sequence)==0 && offsetof(PongScanoutFrame,address)==8 &&
++    offsetof(PongScanoutFrame,bytes)==16 && offsetof(PongScanoutFrame,stride)==24 &&
++    offsetof(PongScanoutFrame,width)==32 && offsetof(PongScanoutFrame,height)==36 &&
++    offsetof(PongScanoutFrame,format)==40 && offsetof(PongScanoutFrame,reserved)==44,
++    "Pong scanout frame layout");
++static_assert(offsetof(PongScanoutDone,status)==8 && offsetof(PongScanoutDone,reserved)==12,
++    "Pong scanout done layout");
++/* The presenter forwards these numbers unchanged (NativeAdrenoPublish.cpp:51-53),
++ * so the wire owns them: a renumbering here is an ABI break, not a rename. */
++static_assert(PongScanoutMode==0x7000 && PongScanoutWait==0x7002 &&
++    PongScanoutComplete==0x7003 && PongScanoutMemory==0x5343 && PongScanoutVersion==1 &&
++    PongScanoutBgra==1,"Pong scanout method codes");

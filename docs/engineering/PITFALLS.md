@@ -7344,10 +7344,12 @@ build 20 的 `kernel.json` 记 `candidate_sha256 = dee01c54a73edf594bbe866ae020c
 root:root 的新 build 原地替换。**构建会把 /opt 路径原地替换，所以证据只能绑哈希，不能绑路径。**
 `candidate_sha256` 只是 producer 对自己 output buffer 的声明，不是最终产物的证明。
 
-回归：`scripts/check-ios27-candidate-hash.py` 把报告字段与最终文件的 SHA-256 比对，
-`scripts/tests/test-ios27-candidate-hash.py` 的 8 个用例覆盖匹配、摘要不符、缺字段、字节数不符、
-坏 JSON 和缺文件。真实 build-20 报告在 root 权限下，当前只能把规则和自测落地；能读到报告时，
-先跑这个比对，再把结果写进证据。
+回归：`scripts/check-ios27-candidate-hash.py` 默认是 dormant 门禁：报告字段与
+`kernel.macho` 实算不一致时只打 `NOTE candidate hash`、退出 0，不阻断构建；只有两个输入都
+不存在才退出 2；报告缺失、产物缺失或报告坏掉也只打 note。要把它当证据比对时加 `--strict`，
+不一致、缺字段、字节数不符、坏 JSON 或缺文件都退出 1。`scripts/tests/test-ios27-candidate-hash.py`
+的 15 个用例覆盖两套语义。真实 build-20 报告在 root 权限下，当前只能把规则和自测落地；
+能读到报告时，先跑 dormant 门禁，证据比对用 `--strict`，再把结果写进证据。
 
 共享分配表 `E:/hackios/k60-gates/docs/engineering/PITFALL-IDS.md` 由 Lead 维护，本线不能写；
 建议的 P-294 行见 `docs/research/storage/LEDGER-PROPOSAL.md` 的「Proposed P-294 row」。

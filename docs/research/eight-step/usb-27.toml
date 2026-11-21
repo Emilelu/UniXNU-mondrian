@@ -7,6 +7,8 @@
 # 纪律：没做过的步骤写 done = false 并写明缺什么、什么证据能定它；不要编。
 #
 # 每条 evidence 必须含可核查引用：file:line / URL / usblog-YYMMDD-HHMMSS / 0x… / P-xx。
+# 本轮的完整证据文档：docs/research/eight-step/usb-27-export-surface.md
+# 判据脚本：scripts/usb27/kc-surface.py；符号提供者表：docs/research/eight-step/usb-27-providers.tsv
 
 [hardware.usb]
 status = "researching"
@@ -15,42 +17,42 @@ why = "27 的关键路径而不是普通外设：K60 唯一控制台是 USB CDC-
 paths = ["drivers/QcomDwc3/", "docs/research/usb/", "patches/usb/", "board.toml"]
 
 [hardware.usb.step.same_model]
-done = false
-evidence = "缺：sheng（SM8550，同一 ipados-27.0.1-24A446 profile）在 27 上跑通 QcomDwc3 的逐项读数——bringUp 九阶段日志、XDCI/XHCI 加载顺序、配对结果——以及本板 16.6.1 的 k60_usblog 在 27 缺席这一事实的迁移判定（copied/adapted/rejected）。能定它的证据：E:/hackios/UniXNU-sheng 的 drivers/QcomDwc3/QcomDwc3.cpp 与 board.toml [kernel.prelink] 根逐行；E:/hackios/k60-usb/docs/research/usb/RESEARCH.md 的 16.6.1 结案段；两者都落 file:line 后再下判定。"
-recorded_at = "2026-11-21T13:59:00"
+done = true
+evidence = "同型源三处，逐条落 file:line 并判定（详见 usb-27-export-surface.md §8）：(a) sheng SM8550 / ipados-27.0.1-24A446 / QcomDwc3 —— UniXNU-sheng/board.toml:25 的 11 个 USB prelink 根 + 两条 ! 排除、package/ShengBattery.cpp:31-34,75,79,214,235-236 的 UCSI 消费、scripts/build-gop-legacy-display-27.py:550-589 的 ABI 头生成，判定 adapted（参数按本板换：stream 0x0）；(b) QcomDwc3 源 e4efe95c —— QcomDwc3.cpp:40-41,208,216,307-343,576-604,609-640,790-815、QcomEusb2Phy.h:12-17、QcomQmpUsb3.h:1-6、QcomUcsi.h:22-129，判定 copied（只读行号，GPL-2.0-only，代码未进本仓）；(c) 本板 16.6.1 结案（k60-usb/docs/research/usb/RESEARCH.md:56,67,81,83,109,113,273 与 08-on-device.md 的 c/d 两格 PASS），27 侧实测无 bsd/dev/k60_usblog.c、bsd/conf/files:110-115 无该行、104 条 27 补丁无一条 USB，判定 rejected for 27 as-is。"
+recorded_at = "2026-11-21T15:41:00"
 
 [hardware.usb.step.official]
-done = false
-evidence = "缺：把官方页逐节落成要求表。必读 https://unixnu.com/zh/porting/usb#source-map（本地 E:/hackios/UniXNU/docs/zh/porting/usb.md:9 源码与接口）、「1. 收集硬件输入」（usb.md:21，DWC3 0x0a600000 + 0xc000 窗口、GIC 165、SMMU stream 0x40、eUSB2 ref 38.4 MHz）、「2. 启动控制器」（usb.md:39，九阶段与 native_usb_stats）、「3. 注册类」（usb.md:60，XDCI 无 personality、先加载再注册子类、两处覆盖）、「4. 连接线缆角色」（usb.md:83，qcom_ucsi_start/receive/tick + 20 ms 轮询）、「5. 回答 Mac 的配对检查」（usb.md:100）、「6. 构建和验证」（usb.md:111，六条失败表）；另读 drivers/qcom-dwc3.md、drivers/community-native-dwc3.md、virtio-mmio-console.md、guide/debugging.md#green-bar。能定它的证据：每节摘一句原句 + 27 树对应实现 file:line。"
-recorded_at = "2026-11-21T13:59:00"
+done = true
+evidence = "官方页六节逐条落成要求与 27 实现行号（usb-27-export-surface.md §2-§3）：{#source-map}（usb.md:9-17 源码表）、§1 收集硬件输入（usb.md:21-37：DWC3 0x0a600000+0xc000、GIC 165、stream 0x40、eUSB2 ref 38.4 MHz）、§2 启动控制器（usb.md:41-58：九阶段写 native_usb_stats[0]、:55-56 stage 1 恒等上下文 write-back inner shareable、:58「到达阶段 9，native_usb_stats[1] 为 DWC3 核心 ID」）、§3 注册类（usb.md:62-81：:65-66 XDCI 无 personality 需 OSKextLoadKextWithIdentifier、:70「把 USB 栈加入 board.toml 中 [kernel.prelink] 的 prelink 根」、:72-74 ABI 脚本、:78-79 两处覆盖、:81 预期 stage 12）、§4 线缆角色（usb.md:87-93，:93「两个来源都没有回答时运行设备角色」、:90 每条返回消息发到 GLINK、:91 20 ms 定时器）、§5 配对（usb.md:104-107）。对照阅读 drivers/qcom-dwc3.md、drivers/community-native-dwc3.md、virtio-mmio-console.md 已记入 §8 判定。"
+recorded_at = "2026-11-21T15:41:00"
 
 [hardware.usb.step.decompile]
-done = false
-evidence = "缺：27 侧本板 USB 参数的实测取证——DWC3 MMIO 基址与窗口、GIC 中断号、SMMU stream、eUSB2 ref 时钟、QMP 表——以及 27 的 ADT/device-tree 是否仍给这些属性。16.6.1 的本地来源是 board.toml 的 usb 段与 /mnt/e/k60-work/references 的 DWC3 寄存器表；27 侧尚未取证。能定它的证据：27 payload 的 ADT 导出（board.toml [payload.adt] 生成的那份）里 usb 相关节点的属性，或 Lead 上机日志中的 usb 探测行；参数一律以本板导出为准，不用别的机型 dtsi 代入。"
-recorded_at = "2026-11-21T13:59:00"
+done = true
+evidence = "本板参数全部落到本地来源（usb-27-export-surface.md §3 三张表）：DWC3 0x0a600000 与窗口（k60-gates/patches/xnu/0300-k60-usblog-ep0.patch:119-120，DWC3_SIZE 0xd000）、QSCRATCH 0xa6f8800（RESEARCH.md:113）、eUSB2 hsphy 0x088e3000（0300:121 原句「mondrian: the USB2 PHY is the eUSB2 hsphy at 0x88e3000 (sweet: QUSB2 0x88e2000)」、RESEARCH.md:109 记 mondrian.dts:16879）、QMP 0x088e8000（OFFICIAL-DRIVER-MAP.md:455,464 与 DT 节点 qcom,usb-ssphy-qmp-dp-combo@88e8000）、GCC 0x100000/GDSCR 0x49004（0300:101-103）、stream 0x0（OFFICIAL-DRIVER-MAP.md:464，与 sheng 的 0x40 不同）、ref 时钟 76.8 MHz÷2=38.4（QcomEusb2Phy.h:2-4）。27 侧反编译：payload 的 device-tree/hardware.dtb 仅 225 行、无 usb 节点，但有 pmic-glink battery-charger（protection-domain tms/servreg, msm/adsp/charger_pd），即 UCSI 消息源在 27 的 DTB 里存在。未取到的两项（eUSB2 的 TCSR 属性、K60 的 GIC 中断号）转入 ⑥/未定项，不用别的机型 dtsi 代入。"
+recorded_at = "2026-11-21T15:41:00"
 
 [hardware.usb.step.wide]
-done = false
-catalog_checked = false
-catalog_result = ""
-evidence = "缺：catalog 与四个参考源的逐项核对，每项给「直接用/需适配/不能用 + 理由」。候选：UniXNU/components.toml 的 QcomDwc3（27 上是否可直接用，需对照 sheng 的 24A446 实现）；drivers/repositories 的 qcom-dwc3.md（官方，sheng 已可用）与 community-native-dwc3.md（Lux12138/NativeDwc3，SM8150 nabu，无真机结果）；同 SoC 侧 t970/zizhan/pong 的 USB 组件；同芯片侧 sheng 的 UCSI/eUSB2/QMP 三段。能定它的证据：components.toml 逐条判定表 + 至少两个独立来源对同一参数（基址/时钟/stream）的交叉验证。"
-recorded_at = "2026-11-21T13:59:00"
+done = true
+evidence = "逐候选判定表见 usb-27-export-surface.md §8（copied/adapted/rejected 三态），候选来源：components.toml:513-528（QcomDwc3）、drivers/qcom-dwc3.md 与 drivers/community-native-dwc3.md（drivers/repositories）、同一 profile 的 sheng 树（同型）、t970/zizhan/pong 的 USB 组件（同 SoC，均无 24A446 USB 证据）、k60-usb 的 16.6.1 结案（同芯片）。三个独立来源对同一地址交叉验证的结论写在 catalog_result 里，单源项在未定项中标注。"
+catalog_checked = true
+catalog_result = "components.toml 里 USB 候选只有一条：id=QcomDwc3（:513-528，repository github.com/UniXNU/QcomDwc3.git，revision e4efe95c903a737e0f5955e5b50a8fb4d2a7d718，os_abi=[ipados-27.0.1-24A446]，verified_devices=[sheng]，runtime_identifiers 含 QcomDwc3Xdci/Xhci/native_usb_stats）⇒ adapted（同 OS 版本、同 SoC 家族，参数换 stream 与板级 ID）。drivers/community-native-dwc3.md 的 Lux12138/NativeDwc3（SM8150 nabu）不在 catalog，无 24A446 真机结果 ⇒ rejected。虚拟控制台 virtio-mmio-console.md 与 USB 无交集 ⇒ rejected。交叉验证：DWC3 0xa600000 / QSCRATCH 0xa6f8800 / eUSB2 0x88e3000 / QMP 0x88e8000 在 0300 补丁、RESEARCH.md、OFFICIAL-DRIVER-MAP.md 三处一致（三源）；SMMU stream 0x0 只有本板一处实测 ⇒ 单源，已在未定项里标出。"
+recorded_at = "2026-11-21T15:41:00"
 
 [hardware.usb.step.plan]
-done = false
-evidence = "缺：方案。两条候选路线：(a) 把 16.6.1 的 k60_usblog gadget 迁到 12377，保住「bsd_init 后即有 console」这条唯一取证通道；(b) 按官方第 6 行接 AppleUSBXDCI/AppleUSBXHCI（sheng 路线，能达到配对/lockdown，但要求 XDCI/XHCI kext、ABI 生成与 prelink 根变更）。两者不必互斥，但先后顺序决定取证能力。已实测的接缝：27 xnu-work 的 bsd/dev 只有 qbt_k60.c，bsd/conf/files:110-115 未加 k60_usblog.c，27 补丁列表 104 条里没有任何 USB 补丁。能定它的证据：②③④ 的结果 + 这两处实测行。"
-recorded_at = "2026-11-21T13:59:00"
+done = true
+evidence = "方案见 usb-27-export-surface.md §5，六项改动逐项给「文件 → 依据①-④ → 预期」并排序：(1)(2) 只在 board.toml 加 11 个 USB prelink 根与 QcomDwc3 组件（纯花名册，不改代码，依据 usb.md:70 与 components.toml:513-528）；(3) QcomDwc3.cpp:42 的 kSid 0x40 → 0x0、kIrq 165 核实（依据 OFFICIAL-DRIVER-MAP.md:464 与 usb.md:21-37）；(4) ABI 重生成（依据 usb.md:72-74，阻塞于 24A446 kernelcache）；(5) 启动参数 sheng-usb=1 或 k60_usblog=2（依据 usb.md:62、k60-gates/board.toml:173-174）；(6) 自写 gadget 迁移（依据 §2.2 的 7 个缺失符号与 16.6.1 的 104→0 条补丁差）。关键判断写死在 §7 开头：27 的 console 在 bsd_init 之后才起，13 项静默失败在它之前，所以 USB 通道救不了当前的 0 字节日志，它的价值在 bsd_init 之后的取证。"
+recorded_at = "2026-11-21T15:41:00"
 
 [hardware.usb.step.deep]
-done = false
-evidence = "缺：三个不确定项。(a) 27 内核现有 USB 导出面能否承载 XDCI 子类：按符号名统计，27 kernel.macho 只有 2 个 USB 符号（_sk_netif_compat_usb_eth_rx_ring_sz/_tx_ring_sz），16.6.1 有 9 个（7 个 _k60_usblog_* + 2 个 sk_netif）；尚需确认 27 是否链了 AppleUSBXDCI/AppleUSBXHCI 与 IOUSBDeviceFamily（数据在 E:/k60-work/scratch/usb27/nm-27.txt 与 nm-1661.txt）。(b) k60_usblog 在 12377 的编译接缝：patches/xnu/0300、0307、0308 是否仍可应用，DMA 一致性与 PAC 约束在 27 是否变化。(c) 0 字节日志能否由 USB 通道解释：console 在 bsd_init 之后才起，bsd_init 之前死不会进 USB，因此 27 的 0 字节不能当作 gadget 失败。能定它的证据：nm 对照表、git apply --check 的补丁 dry-run 结果、guide/debugging.md#green-bar 的阶段划分。"
-recorded_at = "2026-11-21T13:59:00"
+done = true
+evidence = "三种口径各给结论，另六项未定（usb-27-export-surface.md §1、§2、§7）：(a) 已定——27 的 kernel.macho 是 MH_FILESET，__PRELINK_INFO 里 38 条减 7 条 kpi 伪条目=31 个 kext，0 个 USB/SCSI；`strings|grep -c AppleUSB`=1295 全是 __PRELINK_TEXT 空洞里的孤立字节（地址在 IOSurface 与 Image4 的 __TEXT 之外，无 plist 条目、无子文件集条目、nm 无符号），不是可加载栈；`grep -i usb` 的符号数 27=2、16.6.1=9，而上一轮「87 vs 170」是十六进制地址噪声（cdc/acm_ 全是 hex 字符），16.6.1 同族实测为 55。(b) 已定——k60_usblog.o 的 34 个 undefined 里 27 个在 27 可解析，缺 7 个全是 16.6.1 诊断面（providers.tsv 逐条给定义行；补丁 0235/0238/0331/0337/0334b/0306/zzz…panic-report）。(c) 已定——K60 DT 的 maximum-speed=high-speed（FEATURES-DRIVERS-RESEARCH-2026-10-31.md:81），故 QMP/SuperSpeed 不是控制台前提，失败可退 UTMI（QcomDwc3.cpp:216）。未定六项（QcomDwc3 在 27 的 undefined、24A446 ABI 槽位、27 是否带 CDC 数据类驱动、eUSB2 的 TCSR、UCSI 是否从 charger_pd 回答、prelink 闭包是否需 !AppleOnboardSerial/!AppleSMC）各给「什么证据能定它」，未猜。"
+recorded_at = "2026-11-21T15:41:00"
 
 [hardware.usb.step.verify]
-done = false
+done = true
 local_verified = false
-static_check = ""
-unit_test = ""
-artifact_check = ""
-evidence = "缺：本地核验三项。计划：静态对照（② 的要求表 vs 27 导出面表逐行；QMP 表参数 vs eUSB2 ref 38.4 MHz）、离线单测（drivers/QcomDwc3/tests 的 ucsi_host.cpp，clang++ -std=c++17 -I.. ucsi_host.cpp 在主机侧跑，不构建内核）、产物检查（离线判据脚本对 27 kernel.macho 与 16.6.1 kernel.macho 各跑一次，输出 PASS/FAIL 与缺失符号清单）。能定它的证据：三项各自的命令与输出。"
-recorded_at = "2026-11-21T13:59:00"
+static_check = "官方六节 ↔ 27 接入点表 ↔ 导出面表逐行对照：usb-27-export-surface.md §3 每段有 usb.md 原句行号与驱动行号；三处独立测量一致（AppleUSB 前缀 0、native_usb_stats 0、QcomDwc3 0），与 31 个 prelink kext 的清单互相印证。"
+unit_test = "官方宿主单测通过：git archive e4efe95c | tar -x -C /tmp/qd；cd /tmp/qd/tests && clang++ -std=c++17 -I.. ucsi_host.cpp -o ucsi_host && ./ucsi_host → 输出 `PASS`，exit 0（断言 partner=DFP、版本 0x0110/0x0200、变更通知 ack 顺序；不构建内核）。"
+artifact_check = "scripts/usb27/kc-surface.py 四条判据在 27 产物（sha256 652237c6…）上实跑：kexts → kexts 31 / FAIL AppleUSBXDCI / RESULT FAIL (1)；surface → 64931 defined, 0 undefined / FAIL AppleUSB 0 / PASS IOService 1680；object(k60_usblog.o) → resolvable 27, missing 7；roots(profile) → effective 31, usb/scsi 0（对照 sheng board → 11, PASS）。对照组 16.6.1 内核（sha256 c8a7619d…）：surface 对 _k60_usblog_init/_start 给 PASS，证明脚本不是只会报 FAIL。"
+evidence = "三项检查见 usb-27-export-surface.md §6。local_verified 有意保持 false：以上只证明「27 产物里没有 USB 面」与「驱动源自身自洽」，没有任何一项证明 K60 上 USB 出字——那要上机，属于 ⑧，由 Lead 写。"
+recorded_at = "2026-11-21T15:41:00"

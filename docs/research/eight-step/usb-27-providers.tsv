@@ -1,0 +1,22 @@
+# Symbol providers for the iOS 27 USB surface check.
+#
+# Feed this to `kc-surface.py object --providers` so each unresolved symbol in
+# an object file is reported with the patch that used to define it in the
+# closed 16.6.1 series (E:/hackios/k60-gates/patches/xnu).
+#
+# Columns, tab separated:
+#   1  symbol as llvm-nm prints it for a Mach-O object (leading underscore)
+#   2  provider: where the definition lives, patch file and line
+#   3  axis: what the symbol is for, so a missing one can be triaged
+#
+# None of these exist in the iOS 27 series: the 104 patches applied to the
+# 12377 kernel (xnu-inputs.json / xnu-patches.list) contain no USB patch and
+# none of the diagnostic patches below. Every row therefore fails on a 27
+# build until the patch is carried over.
+_k60_checkin_compat	0337-k60-checkin-compat.patch:10	diagnostics: userspace check-in counter
+_k60_exec_count	0235-k60-exec-exit-trace.patch:18	diagnostics: exec/exit counters
+_k60_exit_count	0235-k60-exec-exit-trace.patch:19	diagnostics: exec/exit counters
+_k60_prevlog_dump	0331-k60-prevlog-replay.patch:20	diagnostics: previous-boot log replay
+_PE_k60_reset_now	zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-panic-report.patch:85	diagnostics: panic-path reset
+_pong_ramoops_debug_base	0306-k60-console-snapshot.patch:325	console: ramoops ring base
+_pong_ramoops_snapshot	0306-k60-console-snapshot.patch:18	console: ramoops ring capture

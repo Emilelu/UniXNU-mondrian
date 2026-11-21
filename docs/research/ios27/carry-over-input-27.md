@@ -1,55 +1,87 @@
 # 输入线（触摸 / 实体按键）的 16 线资产与 27 现状
 
-日期：2026-11-22
-对应：Lead m01829 第三条（27 系列只有 34 条、只有 3 条是搬过来的），以及 `docs/research/ios27/CARRY-OVER-INVENTORY.md` 的纪律 1（新增内核能力前先查 16 线）。
-本文件只交**输入线**的表，供 Lead 登记进 CARRY-OVER-INVENTORY.md；我不改那份清单。
+日期：2026-11-22（第二版：按 Lead m01904 扩成「16 线验证证据 / 27 侧现状 / 移植判据」三列，只扩 `to-port` 与 `ported`）
 
-## 一、27 的装配层里到底有没有输入线
+## 〇、数字怎么数的（每个数都带命令）
 
-`board.toml:369`（27 设备仓）写死四层：
+| 量 | 命令（在本仓 `E:/hackios/k60-input27` @ `feat/input-27`） | 结果 |
+| --- | --- | --- |
+| 编号条目数（Lead 裁定口径） | `PYTHONIOENCODING=utf-8 python3 scripts/check-series-numbering.py` | `patches/xnu/series: 136 entries, 134 distinct numbers`；`patches/xnu-12377/series: 28 entries, 27 distinct numbers` |
+| 同一命令在 `k60-gates` 检出上 | 同上，cwd=`E:/hackios/k60-gates` | `patches/xnu/series: 136 entries, 134 distinct`；`patches/xnu-12377/series: 32 entries, 31 distinct` |
+| 全部非注释行 | `grep -vcE '^\s*(#\|$)' patches/xnu/series` | 240（含 `zzz…-pong-*` 这类无编号条目） |
+| 27 实际输入清单 | `grep -c . <build>/xnu-patches.list` | **105**，全部来自 `patches/xnu-12377/`；来自 `patches/xnu/` 的为 **0** |
 
-```
-patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series",
-                "os:patches/xnu/series", "device:patches/xnu-12377/series"]
-```
+**两点必须写清**：
+1. `check-series-numbering.py` 的正则是 `^(?P<num>\d{4})(?P<suffix>[a-z]*)-…\.patch$`（该脚本 `:37-38`），**只认四位编号**；`zzz…-pong-touch-console.patch` 这类无编号条目根本不进它的计数。所以 136 与 240 不矛盾，是两个量。
+2. 清单里唯一命中 `pong|touch|keys` 的是 `patches/xnu-12377/native-pac-keys.patch`——那是 **PAC 指针认证的 keys**，不是按键，别当输入线证据。
 
-对照本仓文件系统：
+## 一、27 的装配层：差集在哪
 
-| 层 | 目录 | 条目数（非注释行） | 含 touch/keys 补丁吗 |
-| --- | --- | --- | --- |
-| device 层 | `patches/xnu-12377/series` | 30 | **不含**（只有 `ptrauth-string-discriminator`、`armcpu-sleep-hook`、`0500/0501/0502b` BT 族等） |
-| 16 线系列 | `patches/xnu/series` | 240 | 含：`zzz…-pong-touch-console.patch`（:197）、`zzz…-pong-physical-keys.patch`（:198） |
+`board.toml:369` 的四层是 `arch:patches/xnu/series`、`soc:patches/xnu-12377/series`、`os:patches/xnu/series`、`device:patches/xnu-12377/series`。其中带 `arch:`/`os:` 前缀的经 `scripts/unixnu/patches.py:12-22` 的 `resolve_path(ctx, reference, modules)` 解析到**profile/框架根**，不是本设备仓；本设备仓只贡献 `device:patches/xnu-12377/series`（28 条编号条目）。
 
-结论（机器可核）：**27 的装配层里没有任何一层指向 `patches/xnu/series`**，触摸/按键驱动补丁只存在于 16 线那 240 条里。所以「27 上没有触摸/按键驱动」不是印象，是 `board.toml:369` 与两个 series 文件的差集。（顺带一条与清单的差异：清单写 27 系列 34 条，本仓 HEAD 上数到 30 条非注释行——以 Lead 的口径为准，我不改数。）
+实测（27 装配树 `/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/`）：`xnu-patches.list` 105 行**全在 `patches/xnu-12377/`**，`patches/xnu/` 0 行；`tree/.cache/xnu-work` 里 `bsd/dev/pong_goodix.c`、`bsd/dev/pong_buttons.c`、`bsd/kern/pong_userland.c`、`iokit/Kernel/MiniIOMobileFramebuffer.cpp` **四个都 absent**，`pong_goodix_init`/`pong_buttons_init`/`pong_touch_post`/`pong_userland` 四个符号 grep **全 none**。
 
-## 二、16 线输入资产逐条
+结论：触摸/按键驱动只存在于本仓 16 线的 `patches/xnu/series`（240 条非注释行，touch `:197`、keys `:198`），27 的装配路径不读这个文件。
 
-| 16 线资产（位置） | 作用 | 27 现状 | 处置 | 依据 |
-| --- | --- | --- | --- | --- |
-| `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch`（`patches/xnu/series:197`，63,484 B，6 个路径） | Goodix BERLIN-D 全驱动 + `/dev/pong-touch` 环形队列 + `pong_touch.h` + `bsd_init` 调用 + MFB 控制台 hunk | 未在 27 层；重放实验：9 个声明路径里 6 个 0 冲突，3 个卡在前置补丁 | **to-port** | `docs/research/ios27/replay-evidence` 对应条目；`adt-27-buttons-check.md` 同批 |
-| `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch`（`:198`，13,668 B） | PMIC arbiter v7 三键采样，`pong_buttons.c` | 同上；单独 `git apply` 报 `bsd/sys/pong_input.h: No such file`（依赖 touch 先落） | **to-port（依赖上一条）** | 27 侧重放记录（touch 之后 rc=0） |
-| `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-goodix-resume.patch` | 探测成功后 `touch_reset()` + 重新 `goodix_probe(true)` + 清屏 | 逻辑已在 touch-console 内（27-applied `bsd/dev/pong_goodix.c:1287-1298`） | **ported（不需要单独重放）** | 单独重放报 `patch failed: bsd/dev/pong_goodix.c:878` |
-| 五个诊断补丁：`…-touch-bitbang-probe` / `-touch-pad-level` / `-touch-reset-level` / `-touch-frame-probe` / `-touch-miso-pull` | 纯 `printf` 探针（`K60BB`/`K60PAD`/`K60RST`） | 27 重放后的驱动里这些标记 0 命中 | **not-needed** | 26 侧 `pong_goodix.c:1001`/`:1029` 已是官方式诊断 |
-| `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-spmi-probe.patch` | 找 SPMI 表里 PPID `0x241`（sheng 的 PM8350C LDO2）给触摸供电 | K60 触摸 AVDD 是 TLMM GPIO 71（`pong_goodix.c:61-65` 断言 `avdd_gpio==71`） | **not-needed** | 27 仓 `board.toml:265` `avdd-gpio = 71` |
-| `zzzzzzz-pong-hackios-userland-abi.patch`（`patches/xnu/series:54`） | 创建 `bsd/kern/pong_userland.c`，是 touch 的 `bsd/conf/files` hunk 的锚 | 27 上自己就失败（`bsd/conf/files:383`、`libkern/conf/files:109`） | **to-port，归用户态 ABI 线** | `docs/research/ios27/handoff-prerequisites-27.md` |
-| `zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch` | 以 `--- /dev/null` 手工造 `iokit/Kernel/MiniIOMobileFramebuffer.cpp` | 27 feed 里没有该文件；该补丁自身在 27 上失败（`iokit/conf/files:79` 等三处） | **to-port，归显示线** | 同上 |
-| `userland/touch.c`（427 行，跑在 backboardd 里） | 16 的注入桥：字符设备 → 虚拟 HID 服务 → 数字转换器/键盘事件 | 27 内核 feed 里没有 virtual-service 客户端 API，也没有 `IOHIDEventCreate*` 工厂 | **not-needed（载体换侧）** | `docs/research/ios27/touch-contract-diff-27.md` 二、载体 |
-| `0214-k60-console-font-scale.patch`（同族先例） | 面板控制台字号/几何 | 27 已有对应物，且上游刚 cherry-pick 过（`5023708a` → `8b70cab4`） | **ported** | Lead m01330；`patches/xnu-12377/k60-console-font-scale.patch` |
+## 二、`to-port` / `ported` 逐条三列
 
-## 三、这条清单为什么要先查
+### A. `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch`（`patches/xnu/series:197`）— **to-port**
 
-今晚两次重造轮子（ramoops 控制台、自动复位）都发生在「没查 16 线就先写」之后。输入线的同类风险很具体：
+| 列 | 内容 |
+| --- | --- |
+| **16 线验证证据** | `E:/k60-work/evidence/usblog-20261114-150931/console.log`：`:683` `goodix: COORD-ON ack=80`；`:687` `Pong touch: Berlin-D ready, SPI 0x990000 reset=20 irq=21 raw axes=14400x32000 transport=GPIO SPI`；8 行 `goodix: type=1 finger=…`（`grep -c` = 8）；4 行 `Pong touch HID: type=…`（`grep -c` = 4）；`:1425` `Pong touch HID: display-integrated digitizer opened`；同日志 `grep -ci springboard` = 253 行。核验方式：`grep -n 'COORD-ON\|Pong touch HID\|Berlin-D ready' usblog-20261114-150931/console.log` |
+| **27 侧现状** | 补丁不在清单：`grep -c 'pong-touch' <build>/xnu-patches.list` = **0**；驱动文件 `bsd/dev/pong_goodix.c` **absent**；符号 `pong_goodix_init` **none**（`grep -rl pong_goodix_init <build>/tree/.cache/xnu-work` 空）；两个前置锚点也 absent：`bsd/kern/pong_userland.c`、`iokit/Kernel/MiniIOMobileFramebuffer.cpp` |
+| **移植判据** | 解冻后第一次带输入的构建：`grep -c 'pong-touch-console' $BOARD_DIR/xnu-patches.list` ≥ 1 **且** 同一次启动日志出现 `goodix: COORD-ON ack=80` 与至少 1 行 `Pong touch HID: type=`（无串口时以 0546 控制台/画面为准，P-300） |
 
-- 我要写的 `/dev/pong-touch` 与环形队列在 16 线已经有 88 行成品（`bsd/dev/pong_input.c`），27 上**不需要重新设计**；
-- 触摸「配置完成要等 `reply[0]==0x80`」与「`0x91/0x01` 开坐标」是 16.6.1 上机换来的真因（补丁 `:1031-1032`、`:1046-1048`），27 上重放即得，不要「重新发现」；
-- 按键的「DT 六属性缺一个就 SKIP」在 16 线已经用日志验证过（`Pong keys: DT node … not found`），27 的 `board.toml:284-299` 已补齐。
+### B. `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch`（`:198`）— **to-port（依赖 A）**
+
+| 列 | 内容 |
+| --- | --- |
+| **16 线验证证据** | `E:/k60-work/evidence/usblog-20261108-180257/console.log:229`：`Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1`（同串在 `usblog-20261108-182056:235`、`192302:236`、`193525:236` 复现，共 4 次启动）。核验：`grep -rn 'Pong keys: arbiter' /e/k60-work/evidence/usblog-*/console.log` |
+| **27 侧现状** | 补丁不在清单（`grep -c 'pong-physical-keys' …` = **0**）；`bsd/dev/pong_buttons.c` **absent**；`pong_buttons_init` **none**；依赖的先决条件同样不在：`bsd/sys/pong_input.h` absent。ADT 侧相反：六属性已在 `board.toml:284-299` 且 ADT 字节已验（`adt-27-buttons-check.md`） |
+| **移植判据** | 同一次构建里 keys 补丁在 touch 之后应用（`git apply` rc=0）**且** 启动日志出现 `Pong keys: arbiter v%u … power=%u up=%u down=%u` 且 `power/up/down` 至少一个为 1（按住键的一次观测），另有一次 `ioreg -c IOHIDDevice -n "Offline HID input probe"` 有实例 |
+
+### C. `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-goodix-resume.patch` — **ported（不再是独立补丁）**
+
+| 列 | 内容 |
+| --- | --- |
+| **16 线验证证据** | **未找到**：`grep -rln 'did not resume\|brl_resume' /e/k60-work/evidence/*/console.log` = 0 命中，即没有一次 16.6.1 启动留下这条补丁的日志（它是在 `pong-touch-console` 内被合并进去的）。 |
+| **27 侧现状（量出来的，不是「已并入」）** | 27 重放副本 `~/input27-fsyntax/xnu/bsd/dev/pong_goodix.c`（touch 补丁以 `--exclude bsd/conf/files --exclude iokit/…MFB.cpp` 应用后）：`:1287-1302` 实际内容是「注释 brl_resume → `touch_reset()`（:1289）→ `if (!goodix_probe(true))` 失败打印 `Pong touch: controller failed identification after resume reset` 并 `goto out` → `goodix_write(touch_address,&clear,1)` 失败打印 `Pong touch: cannot clear the resumed report status` 并 `goto out` → `goodix_apply_config(fw_buffer_address)` → 再 `goodix_probe(true)`，失败打印 `Pong touch: identification lost after config apply`」。与 16 线补丁（`k60-gates/patches/xnu/…-pong-goodix-resume.patch` 新增行 `:7-21`）的**差异三处**：① 16 版失败是 `thread_terminate(current_thread());return;`（杀线程），27 版是 `goto out`（让启动继续）；② 两条 printf 文本不同（`did not resume after reset; SKIP` ↔ `failed identification after resume reset`；`cannot acknowledge resumed report; SKIP` ↔ `cannot clear the resumed report status`）；③ 27 版多出 `goodix_apply_config()` + 第三次 `goodix_probe(true)`，16 版补丁没有这两步。命令：`sed -n '1280,1305p' ~/input27-fsyntax/xnu/bsd/dev/pong_goodix.c`、`grep -n '^+' …-pong-goodix-resume.patch` |
+| **移植判据** | 27 上**不需要**再应用这条补丁：判据是重放后的 `pong_goodix.c` 里 `grep -c 'did not resume after reset'` 应为 0（已 0）且 `grep -c 'brl_resume'` 应为 1（已 1）；若将来有人把它当独立补丁再打一次，`git apply --check` 应失败（16 线补丁锚 `:878`，27 版已无该上下文） |
+
+### D. `zzzzzzz-pong-hackios-userland-abi.patch`（`patches/xnu/series:54`）— **to-port，归用户态 ABI 线**
+
+| 列 | 内容 |
+| --- | --- |
+| **16 线验证证据** | **未找到逐条证据**（它是 16 线的环境前置，不是某个输入行为；我能给的只有它在 16 系列里被应用、且 16.6.1 那次启动的 SpringBoard 253 行日志证明用户态确实起来——但这不能单独归因给它）。 |
+| **27 侧现状** | 27 重放时它自己失败：`bsd/conf/files:383`、`libkern/conf/files:109` 上下文不匹配；它创建的 `bsd/kern/pong_userland.c` 在 27 树 absent |
+| **移植判据** | 该线报「已移植」时，判据 = `git apply --check` 在带四层清单的树上 rc=0 **且** `grep -c 'bsd/kern/pong_userland.c' bsd/conf/files` = 1；在此之前本线继续按「阻塞」记账 |
+
+### E. `zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch` — **to-port，归显示线**
+
+| 列 | 内容 |
+| --- | --- |
+| **16 线验证证据** | **未找到逐条证据**（同上：它是显示/用户态前置） |
+| **27 侧现状** | 该补丁以 `--- /dev/null` 手工造 `iokit/Kernel/MiniIOMobileFramebuffer.cpp`；27 树里该文件 absent，重放报 `iokit/conf/files:79`、`bsd/kern/bsd_init.c:1305`、`bsd/kern/kern_memorystatus.c:222` 三处失败 |
+| **移植判据** | 显示线报「已移植」时，判据 = 27 树上 `test -f iokit/Kernel/MiniIOMobileFramebuffer.cpp` 为真 **且** touch 的 MFB hunk 能 `git apply --check` rc=0 |
+
+### 附：`ARM64_BOARD_CONFIG_PONG` 守卫（Lead m01904 提醒的同族坑）
+
+实测：`grep -c ARM64_BOARD_CONFIG_PONG` 在两个输入补丁里都是 **0**（`zzz…-pong-touch-console.patch`、`zzz…-pong-physical-keys.patch`），所以输入线**不存在**「原样打进去等于没打」的问题；27 源树里该宏只出现在 `build/armcpu/build-report.json`、`build/armdt-platform/build-report.json` 这类构建报告里，源码 0 处。这条对 `0300-k60-usblog-ep0.patch` 成立，对输入线不成立——但共享的 `bsd/kern/bsd_init.c` hunk 是要当心的：它与 `0300`/`k60_usblog_start()` 落在同一文件，谁先落谁定锚点。
+
+## 三、`not-needed`（按要求不给证据，只留一句理由）
+
+| 资产 | 理由 |
+| --- | --- |
+| 五个诊断补丁（bitbang / pad / reset / frame / miso-pull） | 纯 `printf` 探针，27 重放后的驱动里 `K60BB`/`K60PAD`/`K60RST` 全 0 命中；27 自己的诊断是 `pong_goodix.c:1001` 的 ack 打印与 `:1029` 的 `COORD-ON` |
+| `…-pong-touch-spmi-probe.patch` | 它找 SPMI 表里 PPID `0x241`（sheng 的 PM8350C LDO2）给触摸供电；K60 触摸 AVDD 是 TLMM GPIO 71（`pong_goodix.c:61-65` 断言、`board.toml:265` `avdd-gpio = 71`），16.6.1 的真因也不是电源 |
+| `userland/touch.c`（16 的注入桥） | 27 内核 feed 无 virtual-service 客户端 API、无 `IOHIDEventCreate*` 工厂，载体换到内核 `IOHIDDevice` 子类（`docs/research/ios27/touch-contract-diff-27.md` 二栏） |
 
 ## 四、给 Lead 的登记建议（我不动清单）
 
-在 `CARRY-OVER-INVENTORY.md` 补三行即可覆盖输入线：
+1. A `to-port`（前置：D/E 两条）
+2. B `to-port`（依赖 A）
+3. C `ported`（判据是「不要再打一次」，且 27 版与 16 版有三处行为差异）
+4. `not-needed` 三类可合并成一行
 
-1. `zzz…-pong-touch-console` → `to-port`（前置：用户态 ABI + 显示 MFB 两补丁）
-2. `zzz…-pong-physical-keys` → `to-port`（依赖上一条）
-3. 五个诊断 + spmi-probe → `not-needed`（只在 16 的排障期有意义）
-
-另：`patches/xnu/series` 有 240 条而 27 只引用 30 条的 device 层，这个差集本身就是「迁移丢资产」的量化口径，可直接作为清单表格的一行。
+另：`xnu-patches.list` 105 条全在 `patches/xnu-12377/`、`patches/xnu/` 0 条，这个「0」本身就是最省事的量化口径。

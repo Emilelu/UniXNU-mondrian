@@ -52,3 +52,14 @@
 - 命令：`python3 scripts/check-audio27-builder.py --tree <gates> --seam define --object <PongAudioAmp.o.json|ios-obj 目录>`。0 打印 `BUILDER OK ... object record`；文件不存在或参数里没有 `-DXNU_PONG_AUDIO=1` 都退 1，文案是 `define 没到编译器，胶水编成空壳`。不传 `--object` 只退 3，是 skip，不是绿。
 - 2026-11-21 实测：`serial_console.o.json` 的 `XNU_PONG_RAMOOPS_CONSOLE` 为 0，同次 `startup.o.json` 的 `XNU_NATIVE_TRUST_CACHE` 为 1（builder 的 `EXTRA_MAKE_ARGS` 通道）。所以 `env` 前缀在 27 驱动链上不能当证明；`PongAudioAmp.o.json` 当前不存在（stage 0 不编音频），本线 define 仍是 unproven。
 - 修法：等 builder 的 `EXTRA_MAKE_ARGS` 正式接缝，落地后用对象记录复核；不要改 `env` 写法后拿脚本字面量报绿。
+
+## 5. 共享知识库、日志与冻结令（2026-11-22 Lead 广播）
+
+- 共享 RAG 库：`E:\k60-work\kb\kb.sqlite`（WSL `/mnt/e/k60-work/kb`）。检索命令：`cd /mnt/e/k60-work/kb && echo '{"kb_root":"/mnt/e/k60-work/kb","query":"…","top_k":4}' | python kb_engine.py search`。
+- 官方页或别人实现类的断言，先查共享库：命中就写 `文件:节`；未命中才联网并附 URL；两边都没有，写「未证」。不要把「我记得」写成结论。
+- 环境：`NO_PROXY=localhost,127.0.0.1,::1`（IPv6 地址不带方括号）；`HF_ENDPOINT=https://hf-mirror.com`。
+- P-300 的日志判据：27 内核没有串口输出，**0 字节日志不等于「内核没跑」**。先确认日志通路、引导方式和看门狗状态，再判死活。
+- 冻结令（用户 2026-11-22 03:02）：Lead 广播的 `BOOT-FREEZE.md` 为 `state=frozen`，任何 `fastboot boot` 都被拦。解冻必须同时具备「同一次启动内的日志通路 + 自动引导 + 看门狗自动复位」。冻结令覆盖第 1 条：Lead 也不 boot，直到解冻条件全部满足。
+- P-307：ramoops 在 DRAM，掉电或复位即归零；新门禁是 Lead 广播的 `check-channel-lifetime.py`。音频线引用 ramoops 证据时必须写明复位边界，不能把上次启动的日志当本次证据。
+
+本线状态不变：0531 仍 HOLD，stage-0 不编音频，本轮不构建、不 boot。

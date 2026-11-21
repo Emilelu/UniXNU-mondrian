@@ -4,7 +4,7 @@
 Three synthetic captures exercise the same command a real capture will use:
 
   PASS     W1 Leg A/B + README, plus the synthetic console fixture with a
-           correct 16-byte EFS head.
+           correct 16-byte EFS head and the two full-block digests.
   FAIL     the same W1 capture, plus a storage-1 block shifted by 512 bytes;
            the first LE32 is therefore 0, not the expected 0x10.
   PENDING  only Leg A + README; Leg B is absent.
@@ -72,9 +72,10 @@ def main():
 
         cases = []
         code, text = run(["--leg-a", leg_a, "--leg-b", leg_b,
-                          "--readme", readme, "--console", console])
+                          "--readme", readme, "--console", console,
+                          "--require-efs-bytes"])
         cases.append(("PASS", code, text, "OVERALL: PASS", "W2 CONSOLE  PASS"))
-        print("=== PASS: correct W1 legs and synthetic 16-byte EFS head")
+        print("=== PASS: correct W1 legs, 16-byte head and full-block digests")
         print(text)
 
         code, text = run(["--leg-a", leg_a, "--leg-b", leg_b,

@@ -26,6 +26,26 @@ EFS_HEADS = {
     4: "0" * 32,
 }
 
+# The console cannot carry 8192 hex characters without risking a dropped ring.
+# A full-block sample therefore carries the SHA-256 of the whole 4096-byte
+# window; the second sample carries the SHA-256 of 0x200..0xfff. The hashes are
+# the same constants check-efs-full.py verifies against the four Android blocks.
+EFS_FULL_SHA256 = {
+    1: "94c2aa725f4e8c5d3de317e8cd39f7efc1588866e7d2854011d10e4656a1a6bb",
+    2: "8610958511c22e7c44736363ac2b9c2d8e87bd16d78540fa2d4e97be1c489726",
+    3: "e9a62f2a22e469b8008da4dc2733148ae4abcf887c9e1277a7646123fdbc31b4",
+    4: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+}
+EFS_DATA_SHA256 = {
+    1: "3cc3383e26ddccc6c173df925379e3692c817ee6a8c55ce60506eab2b33210c6",
+    2: "66df4116cab50b05d3e9a3122f19b28f9654cd3ed63d9cffc393ff37fff59183",
+    3: "32efa564d9ccc53fdc201920cb30b87f7aed2bcfc79e02d643ef919f2e6e4f0c",
+    4: "6cf1b57d59e7111bc218dfb01dda93ac0f776715599a1c69f89035bd20c16a10",
+}
+EFS_BLOCK_BYTES = 4096
+EFS_DATA_OFFSET = 512
+EFS_DATA_BYTES = 3584
+
 BOOT = [
     ("power ok", r"K60MODEM power ok cx="),
     ("power prepared", r"K60MODEM power prepared"),
@@ -134,10 +154,11 @@ def judge(text, window, require_efs=False):
         items.append(("FAIL", "rmtfs rw served", detail))
         missing_required += 1
 
-    # W2 compares a sixteen-byte sample, not every byte in the vector. Legacy
-    # k54 captures have no sample: SKIP by default, required explicitly for k55.
-    # Collect candidates before validating hex so malformed evidence cannot
-    # disappear and be mistaken for a legacy capture.
+    # W2 has two evidence generations. Legacy k54 console prints only the first
+    # sixteen bytes. k55 prints a full-block digest at offset 0 and a second at
+    # offset 0x200, so the console covers the whole 4 KiB and a non-zero offset.
+    # The head rows remain valid compatibility evidence; the strict flag now
+    # requires the full-block pair, not the sixteen-byte head.
     summary_row = re.compile(
         r"storage=\d+ direction=\d+ vectors=\d+ (?:served|refused|not-served)"
         r"(?:[ \t]+offset=\d+[ \t]+bytes=\d+)?[ \t]*")
@@ -178,12 +199,90 @@ def judge(text, window, require_efs=False):
         else:
             checked += 1
             items.append(("PASS", "efs bytes storage=%d" % storage,
-                          "offset=0 bytes=%d head=%s (16-byte sample)" % (length, head)))
+                          "offset=0 bytes=%d head=%s (16-byte compatibility sample)" % (length, head)))
     missing_required += bad
-    if not rows:
+
+    # Full-block rows use their own token so a block sample can never be
+    # mistaken for a malformed head sample. Each storage must print both a
+    # whole-4096 digest and a 0x200..0xfff digest; a single half is FAIL.
+    block_rows = re.findall(
+        r"^(?:\[[^\]\r\n]*\][ \t]*)?K60MODEM qrtr: rmtfs block ([^\r\n]*)$",
+        text, re.MULTILINE)
+    blocks = {}
+    block_bad = 0
+    for row in block_rows:
+        match = re.fullmatch(
+            r"storage=(\d+) direction=(\d+) offset=(\d+) bytes=(\d+) sha256=(\S+)[ \t]*", row)
+        if match is None:
+            block_bad += 1
+            items.append(("FAIL", "efs block reported", "malformed block sample: " + row))
+            continue
+        storage, direction, offset, length = map(int, match.groups()[:4])
+        digest = match.group(5).lower()
+        kind = None
+        problem = None
+        if storage not in EFS_FULL_SHA256:
+            problem = "storage=%d has no independent reference" % storage
+        elif direction != 0:
+            problem = "direction=%d is not a read" % direction
+        elif (offset, length) == (0, EFS_BLOCK_BYTES):
+            kind = "full"
+        elif (offset, length) == (EFS_DATA_OFFSET, EFS_DATA_BYTES):
+            kind = "data"
+        else:
+            problem = "offset=%d bytes=%d is neither the 4096-byte block nor the 0x200..0xfff sample" % (
+                offset, length)
+        if problem is None and re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            problem = "sha256=%s is not exactly 32 hexadecimal bytes" % digest
+        if problem is None and storage not in read_storages:
+            problem = "storage=%d has no served nonempty read" % storage
+        if problem is None:
+            expected = EFS_FULL_SHA256[storage] if kind == "full" else EFS_DATA_SHA256[storage]
+            if digest != expected:
+                problem = "sha256=%s, expected %s" % (digest, expected)
+        if problem:
+            block_bad += 1
+            items.append(("FAIL", "efs block storage=%d" % storage, problem))
+        else:
+            blocks.setdefault(storage, {})[kind] = digest
+            items.append(("PASS", "efs block storage=%d %s" % (storage, kind),
+                          "offset=%d bytes=%d sha256=%s" % (offset, length, digest)))
+    complete_blocks = 0
+    for storage, kinds in sorted(blocks.items()):
+        if "full" not in kinds or "data" not in kinds:
+            block_bad += 1
+            items.append(("FAIL", "efs block storage=%d" % storage,
+                          "need offset=0 bytes=4096 and offset=%d bytes=%d; got %s" % (
+                              EFS_DATA_OFFSET, EFS_DATA_BYTES, ", ".join(sorted(kinds)))))
+        else:
+            complete_blocks += 1
+    # Strict mode covers every storage rmtfs actually served, not just the ones
+    # that happened to print a block line. A served storage with no pair is a
+    # missing sample, not permission to judge only the convenient storage.
+    if require_efs:
+        for storage in sorted(read_storages):
+            if storage not in blocks:
+                block_bad += 1
+                items.append(("FAIL", "efs block storage=%d" % storage,
+                              "served storage has no full-block pair"))
+    if block_rows:
+        missing_required += block_bad
+        if block_bad == 0:
+            items.append(("PASS", "efs block reported",
+                          "%d storage(s) with the whole 4096-byte block and the 0x200 sample" % complete_blocks))
+    else:
         state = "FAIL" if require_efs else "SKIP"
-        items.append((state, "efs bytes reported", "no sixteen-byte sample was printed"))
+        items.append((state, "efs block reported",
+                      "no full 4096-byte sample; the 16-byte head is not enough"))
         missing_required += int(require_efs)
+
+    if not rows:
+        if block_rows:
+            pass
+        else:
+            state = "FAIL" if require_efs else "SKIP"
+            items.append((state, "efs bytes reported", "no sixteen-byte head sample was printed"))
+            missing_required += int(require_efs)
     elif checked == 0 and bad == 0:
         items.append(("FAIL", "efs bytes reported", "no comparable sample"))
         missing_required += 1
@@ -304,6 +403,8 @@ K60MODEM qrtr: rmtfs alloc storage=1 bytes=2621440 physical=0x8f000000
 K60UFS volume name=modemst1 lun=4 first=6 last=16389
 K60MODEM qrtr: rmtfs rw storage=1 direction=0 vectors=2 served
 K60MODEM qrtr: rmtfs rw storage=1 direction=0 offset=0 bytes=4096 head=1000000003000000d801000020faa9c4
+K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=0 bytes=4096 sha256=94c2aa725f4e8c5d3de317e8cd39f7efc1588866e7d2854011d10e4656a1a6bb
+K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=512 bytes=3584 sha256=3cc3383e26ddccc6c173df925379e3692c817ee6a8c55ce60506eab2b33210c6
 K60MODEM qrtr: announced memshare service 52 instance 1 port 0x101
 K60MODEM qrtr: memshare request=0x24 client=1 bytes=0 result=0
 K60MODEM qrtr: memshare buffer va=0xffffff8020000000 physical=0x8f400000 bytes=1048576 node=0 port=0x4
@@ -338,11 +439,19 @@ FIXTURE_REFUSED = FIXTURE_PASS.replace("vectors=2 served", "vectors=2 not-served
 
 FIXTURE_NOLUN = FIXTURE_PASS.replace("K60UFS volume name=modemst1 lun=4 first=6 last=16389" + chr(10), "")
 
-# Legacy k54 kernels printed no sample. They stay comparable without the strict
-# flag; k55 explicitly requires the sample in its flight command.
+# Legacy k54 kernels printed only the sixteen-byte head. They stay comparable
+# without the strict flag; k55 requires the two full-block digests in its flight
+# command. Keep both forms in the synthetic pass fixture and make "nohead" remove
+# every W2 sample, so strict and legacy are still distinguishable.
 SAMPLE_LINE = ("K60MODEM qrtr: rmtfs rw storage=1 direction=0 offset=0 "
                "bytes=4096 head=" + EFS_HEADS[1])
+FULL_BLOCK_LINE = ("K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=0 "
+                   "bytes=4096 sha256=" + EFS_FULL_SHA256[1])
+DATA_BLOCK_LINE = ("K60MODEM qrtr: rmtfs block storage=1 direction=0 offset=512 "
+                   "bytes=3584 sha256=" + EFS_DATA_SHA256[1])
 FIXTURE_NOHEAD = FIXTURE_PASS.replace(SAMPLE_LINE + chr(10), "")
+FIXTURE_NOHEAD = FIXTURE_NOHEAD.replace(FULL_BLOCK_LINE + chr(10), "")
+FIXTURE_NOHEAD = FIXTURE_NOHEAD.replace(DATA_BLOCK_LINE + chr(10), "")
 
 
 def self_test():
@@ -364,16 +473,52 @@ def self_test():
     efs = next(item for item in items if item[1] == "efs bytes reported")
     assert verdict == "PASS" and efs[0] == "SKIP", (verdict, efs)
 
-    # One independently matched storage is sufficient. Each other storage uses
-    # its own reference, including the valid all-zero fsc sample.
+    # The legacy head remains independently checkable without the strict flag.
+    # Strict mode is tested separately against the full-block pair below.
     for storage, head in EFS_HEADS.items():
         text = FIXTURE_NOHEAD.replace("rw storage=1 direction=0 vectors=2 served",
                                      "rw storage=%d direction=0 vectors=2 served" % storage)
         text += ("K60MODEM qrtr: rmtfs rw storage=%d direction=0 offset=0 "
                  "bytes=4096 head=%s\n" % (storage, head.upper()))
-        verdict, items, observed = judge(text, WINDOW_DEFAULT, True)
+        verdict, items, observed = judge(text, WINDOW_DEFAULT)
         efs = next(item for item in items if item[1] == "efs bytes storage=%d" % storage)
         assert verdict == "PASS" and efs[0] == "PASS", (storage, verdict, efs)
+
+    # Strict W2 needs both digests. A correct head alone is not enough; a block
+    # without its 0x200 sample is not enough; the second sample is not optional.
+    verdict, items, observed = judge(FIXTURE_PASS, WINDOW_DEFAULT, True)
+    block = next(item for item in items if item[1] == "efs block reported")
+    assert verdict == "PASS" and block[0] == "PASS", (verdict, block)
+    block_only = FIXTURE_PASS.replace(SAMPLE_LINE + chr(10), "")
+    assert judge(block_only, WINDOW_DEFAULT, True)[0] == "PASS"
+    head_only = FIXTURE_PASS.replace(FULL_BLOCK_LINE + chr(10), "").replace(
+        DATA_BLOCK_LINE + chr(10), "")
+    assert judge(head_only, WINDOW_DEFAULT, True)[0] == "FAILED"
+    full_only = FIXTURE_PASS.replace(DATA_BLOCK_LINE + chr(10), "")
+    assert judge(full_only, WINDOW_DEFAULT, True)[0] == "FAILED"
+    data_only = FIXTURE_PASS.replace(FULL_BLOCK_LINE + chr(10), "")
+    assert judge(data_only, WINDOW_DEFAULT, True)[0] == "FAILED"
+    two_served = FIXTURE_PASS.replace(
+        "rw storage=1 direction=0 vectors=2 served",
+        "rw storage=1 direction=0 vectors=2 served\n"
+        "K60MODEM qrtr: rmtfs rw storage=2 direction=0 vectors=1 served")
+    assert judge(two_served, WINDOW_DEFAULT, True)[0] == "FAILED"
+    bad_blocks = (
+        FULL_BLOCK_LINE.replace("storage=1", "storage=0"),
+        FULL_BLOCK_LINE.replace("storage=1", "storage=5"),
+        FULL_BLOCK_LINE.replace("direction=0", "direction=1"),
+        FULL_BLOCK_LINE.replace("offset=0", "offset=512"),
+        FULL_BLOCK_LINE.replace("bytes=4096", "bytes=3584"),
+        FULL_BLOCK_LINE.replace("sha256=", "sha256=0"),
+        FULL_BLOCK_LINE.replace(EFS_FULL_SHA256[1], EFS_FULL_SHA256[2]),
+        FULL_BLOCK_LINE[:-1], FULL_BLOCK_LINE + "0",
+        FULL_BLOCK_LINE.split("sha256=")[0] + "sha256=",
+        FULL_BLOCK_LINE + " vectors=1",
+    )
+    for row in bad_blocks:
+        verdict, items, observed = judge(
+            FIXTURE_PASS.replace(FULL_BLOCK_LINE, row), WINDOW_DEFAULT, True)
+        assert verdict == "FAILED", (row, verdict)
 
     bad_rows = (
         SAMPLE_LINE.replace("storage=1", "storage=0"),
@@ -423,7 +568,7 @@ def self_test():
     text = FIXTURE_PASS.replace("vectors=2 served",
                                 "vectors=2 served offset=0 bytes=4096")
     assert judge(text, WINDOW_DEFAULT, True)[0] == "PASS"
-    print("K60 FLIGHT JUDGE PASS legacy/strict, four independent heads, malformed samples, served-read guards")
+    print("K60 FLIGHT JUDGE PASS legacy heads, strict full block + offset=512, malformed samples, served-read guards")
     return 0
 
 def main():
@@ -431,7 +576,7 @@ def main():
     parser.add_argument("evidence", nargs="?", help="evidence directory or console.log")
     parser.add_argument("--window", type=int, default=WINDOW_DEFAULT, help="seconds the modem needs before a missing line means failure")
     parser.add_argument("--require-efs-bytes", action="store_true",
-                        help="treat a served read without comparable bytes as a failure")
+                        help="require the whole 4096-byte block and the offset=512 sample for every served EFS storage")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:

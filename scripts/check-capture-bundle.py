@@ -97,7 +97,8 @@ def main(argv=None):
     parser.add_argument("--expect-lun", type=int, default=5,
                         help="W1 hypothesis; default 5")
     parser.add_argument("--require-efs-bytes", action="store_true",
-                        help="pass strict mode to the W2 console judge")
+                        help="require both full-block digests (4096 at offset 0 and "
+                             "3584 at offset 512) for every served EFS storage")
     args = parser.parse_args(argv)
 
     if not 0 <= args.expect_lun <= 31:

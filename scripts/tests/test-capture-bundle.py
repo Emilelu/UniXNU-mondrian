@@ -79,6 +79,9 @@ def main():
         cases.append(run(root, ["--readme", os.path.join(root, "README.txt"),
                                 "--console", console], 0, "W2 CONSOLE  PASS"))
         cases.append(run(root, ["--readme", os.path.join(root, "README.txt"),
+                                "--console", console, "--require-efs-bytes"], 0,
+                         "W2 CONSOLE  PASS"))
+        cases.append(run(root, ["--readme", os.path.join(root, "README.txt"),
                                 "--console", badhead], 1, "W2 CONSOLE  FAIL"))
         cases.append(run(root, ["--readme", os.path.join(root, "README.txt"),
                                 "--console", nohead, "--require-efs-bytes"], 1,

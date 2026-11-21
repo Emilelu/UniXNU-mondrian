@@ -118,7 +118,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="print the commands instead of booting")
     parser.add_argument("--require-efs-bytes", action="store_true",
-                        help="fail a served read whose bytes were not printed")
+                        help="require both full-block digests (4096 at offset 0 and "
+                             "3584 at offset 512) for every served EFS storage")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 

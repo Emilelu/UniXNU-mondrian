@@ -95,7 +95,11 @@ AUTO=()
 [ -s "$CAP/unit-desc-L5.bin" ] && AUTO+=(--leg-b "$CAP/unit-desc-L5.bin")
 [ -s "$CAP/README.txt" ] && AUTO+=(--readme "$CAP/README.txt")
 [ -s "$CAP/proc-scsi-scsi.txt" ] && AUTO+=(--proc "$CAP/proc-scsi-scsi.txt")
-if [ -n "${K60_CONSOLE:-}" ]; then AUTO+=(--console "$K60_CONSOLE"); fi
+if [ -n "${K60_CONSOLE:-}" ]; then
+  AUTO+=(--console "$K60_CONSOLE")
+  # A 27 console must cover the whole 4 KiB, not only the 16-byte head.
+  AUTO+=(--require-efs-bytes)
+fi
 for pair in ${K60_EFS_BLOCKS:-}; do AUTO+=(--efs-block "$pair"); done
 if [ ${#AUTO[@]} -eq 0 ]; then
   printf 'bundle_rc=2 (no local capture files)\n'

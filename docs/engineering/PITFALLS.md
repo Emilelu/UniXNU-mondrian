@@ -7730,6 +7730,35 @@ raw 时 `db[frame.target - 1]` 同样红（两份反例夹具固定在 `fixtures
 是它已经被 apply 过——所以 `apply --check` 失败时先查目标里有没有，而不是先改上下文。
 
 
+## P-300 从别的 OS 线继承来的仪器是假设，不是资产
+
+27 线的内核里**没有任何控制台接收端**。`llvm-nm --defined-only` 在 16.6.1 内核上
+有 `_pong_ramoops_console_init` / `_pong_ramoops_console_write` /
+`_k60_usblog_console_up` / `_k60_console_export_sysctl`，在 27 内核上只有
+`_k60_serial_clock`。装这套东西的四个补丁（`zzzzz-pong-ramoops-minimal`、
+`0232`、`0243`、`0300`）只在 16 系列，`patches/xnu-12377/series` 里一个都没有；
+27 现有的 `0543`/`0544` 是往屏幕上画字，不是往串口送字。
+
+于是两次 0 字节飞行被读成「内核在 console 起来之前就死了」，而真相是**我们听不到**。
+十道门禁全都在问「镜像会不会被接受」（参数预算、头、加载器契约、prelink 闭合），
+没有一道问「内核有没有话要说」。
+
+**两层原因，都要记。**
+
+1. 参考源不可能给出这个答案：sheng 的 18 条 27 补丁里 `ramoops`/`console_write`/
+   `usblog` 命中 **0**（`grep -lie` 逐个补丁）。它不需要串口就进了系统，所以
+   「仔细对比 sheng」这条路本身查不出缺口——它也从来没有这条仪器。对比能做的是
+   别的三件事（`--lto` 参考、`sheng_sigp_recover`、T0SZ 两个载体），这三件我们取到了。
+2. 官方文档这一层**只取了一半**：`porting/log-capture.md` 是 mapped，但挂的断言是
+   「console arguments are on the command line」（`check-image-args.py`）——那是
+   **参数**那一半；`guide/debugging.md` 至今 `unmapped`，从没被审计过。把一页里
+   能机器判的那半条映射掉，就宣布这页做完了，是这次漏检的直接机制。
+
+判据：`scripts/check-kernel-console.py --kernel <path>` 在符号表里找一个接收端
+（四个里任一），一个都没有就退 2；带 `--flight` 时退 2 并给出修法。反向对照是
+16.6.1 内核（必须过）与 0546 之前的 27 内核（必须不过），两条都写进自测。
+
+
 ## P-299 — 上游 pick 会把别人正依赖的 board.toml 块先加后删
 
 **现象**：2026-11-12 的两次 upstream pick 落在同一个 `board.toml` 上：`97b84eb7`（21:33，「pick 88 commits」）

@@ -117,9 +117,30 @@ def image_args(image: pathlib.Path) -> list[str]:
     raise SystemExit("image-arg-audit: payload TOML has no args entry")
 
 
+def effective(data: dict) -> dict:
+    """Apply the board's own os_overrides before reading anything (P-305).
+
+    The contract that reaches the image is the merged one: profiles.merge replaces
+    a list rather than extending it, so a 27 image legitimately lacks the base
+    16-series arguments. Reading the base table here reported three of them as
+    missing from a correct image (2026-11-22).
+    """
+    profile = (data.get("board") or {}).get("os_profile") or ""
+    overrides = (data.get("os_overrides") or {}).get(profile) or {}
+    merged = dict(data)
+    for section, values in overrides.items():
+        if isinstance(values, dict) and isinstance(merged.get(section), dict):
+            block = dict(merged[section])
+            block.update(values)
+            merged[section] = block
+        else:
+            merged[section] = values
+    return merged
+
+
 def board_args(board: pathlib.Path) -> list[str]:
     """board.toml carries the contract under [payload] (measured, line 184)."""
-    data = tomllib.loads(board.read_text())
+    data = effective(tomllib.loads(board.read_text()))
     for section in ("payload", "kernel"):
         args = (data.get(section) or {}).get("kernel_args")
         if args:

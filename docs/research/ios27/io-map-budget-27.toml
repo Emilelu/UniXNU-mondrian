@@ -1,0 +1,194 @@
+# 27 的 ml_io_map 窗口清单 —— 计数模式的输入表
+#
+# 这张表是「27 树没有共享子图」这一事实的可机读形态：12377 的 io_map() 每次
+# kmem_alloc(kernel_map, …)，不存在 IO_MAP_SIZE，所以门禁不能再借 16 系列的 8 MiB，
+# 只能数窗口。表与树的对应关系由 docs/research/ios27/IO-MAP-COUNT-MODE-PROPOSAL.md
+# 规定；数字的出处逐行写在每条的 file/line 上。
+schema_version = 1
+generated = '2026-11-21'
+title = 'ml_io_map windows in the iOS 27 (xnu-12377) build'
+tree_kind = 'xnu-12377: no shared submap, every call allocates from kernel_map'
+
+[limits]
+# 12377 没有子图；共享的只有 kernel_map 的 VA 与页表，所以「额度」不是池子，
+# 而是「这张表本身」——计数模式判的是树与表是否一致，不是树是否装进某个池子。
+shared_submap = false
+in_27_build_total_bytes = 3187200
+in_27_build_total_hex = '0x30a200'
+in_27_build_page_rounded_4k_bytes = 3190784
+in_27_build_page_rounded_16k_bytes = 3211264
+note = 'Totals cover only windows whose in_27_build = true. Page rounding is per window (round_page of size + start_offset).'
+
+[[window]]
+id = 'bt-gcc'
+owner = 'bt'
+component = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+file = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+macro_line = 107
+call_line = 1017
+expression = 'K60_GCC_SIZE 0x001F4200'
+bytes = 2048512
+in_27_build = true
+
+[[window]]
+id = 'bt-uart'
+owner = 'bt'
+component = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+file = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+macro_line = 75
+call_line = 1017
+expression = 'K60_BT_UART_SIZE 0x4000'
+bytes = 16384
+in_27_build = true
+
+[[window]]
+id = 'bt-qup-wrapper'
+owner = 'bt'
+component = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+file = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+macro_line = 78
+call_line = 1018
+expression = 'K60_BT_QUP_WRAPPER_SIZE 0x2000'
+bytes = 8192
+in_27_build = true
+
+[[window]]
+id = 'bt-tlmm'
+owner = 'bt'
+component = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+file = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+macro_line = 97
+call_line = 1019
+expression = 'K60_TLMM_SIZE 0x00100000'
+bytes = 1048576
+in_27_build = true
+
+[[window]]
+id = 'bt-gic-dist'
+owner = 'bt'
+component = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+file = 'patches/xnu-12377/0500-k60-bt-qbt-new-files.patch'
+macro_line = 101
+call_line = 1020
+expression = 'K60_GIC_DIST_SIZE 0x00010000'
+bytes = 65536
+in_27_build = true
+
+[[window]]
+id = 'thermal-tm'
+owner = 'thermal'
+component = 'drivers/PongThermal'
+file = 'drivers/PongThermal/pong_thermal.c'
+macro_line = 41
+call_line = 286
+expression = 'PONG_THERMAL_WINDOW 0x1000, PONG_THERMAL_CONTROLLERS 2'
+bytes = 8192
+in_27_build = false
+note = 'Two maps (tm and srot) on each of two controllers; this row is the two tm maps.'
+
+[[window]]
+id = 'thermal-srot'
+owner = 'thermal'
+component = 'drivers/PongThermal'
+file = 'drivers/PongThermal/pong_thermal.c'
+macro_line = 41
+call_line = 288
+expression = 'PONG_THERMAL_WINDOW 0x1000, PONG_THERMAL_CONTROLLERS 2'
+bytes = 8192
+in_27_build = false
+
+[[window]]
+id = 'rail-pass-cmd-db'
+owner = 'power'
+component = 'drivers/PongPower'
+file = 'drivers/PongPower/K60PmicRail.c'
+macro_line = 28
+call_line = 361
+expression = 'K60_CMD_DB_BYTES 0x20000'
+bytes = 131072
+in_27_build = false
+note = 'In rail_pass(); the same window is mapped again in k60_rail_probe() at rail-probe-cmd-db.'
+
+[[window]]
+id = 'rail-pass-rsc'
+owner = 'power'
+component = 'drivers/PongPower'
+file = 'drivers/PongPower/K60PmicRail.c'
+macro_line = 30
+call_line = 368
+expression = 'K60_RSC_BYTES 0x10000'
+bytes = 65536
+in_27_build = false
+
+[[window]]
+id = 'rail-probe-cmd-db'
+owner = 'power'
+component = 'drivers/PongPower'
+file = 'drivers/PongPower/K60PmicRail.c'
+macro_line = 28
+call_line = 444
+expression = 'K60_CMD_DB_BYTES 0x20000'
+bytes = 131072
+in_27_build = false
+note = 'In k60_rail_probe(); both maps here are boot-arg gated, so this pair is not always resident.'
+
+[[window]]
+id = 'rail-probe-rsc'
+owner = 'power'
+component = 'drivers/PongPower'
+file = 'drivers/PongPower/K60PmicRail.c'
+macro_line = 30
+call_line = 510
+expression = 'K60_RSC_BYTES 0x10000'
+bytes = 65536
+in_27_build = false
+
+[[window]]
+id = 'adsp-board'
+owner = 'power'
+component = 'drivers/PongPower'
+file = 'drivers/PongPower/K60AdspBoard.c'
+macro_line = 0
+call_line = 376
+expression = 'caller-supplied bytes'
+bytes = 0
+in_27_build = false
+unresolved = true
+unresolved_reason = 'the callback maps whatever the consumer asks for; there is no cooperatively visible cap, so a table row cannot state a number'
+
+[[window]]
+id = 'xnu-ml-map-cpu-pio'
+owner = 'xnu'
+component = 'osfmk/arm64/machine_routines.c'
+file = 'osfmk/arm64/machine_routines.c'
+macro_line = 0
+call_line = 1371
+expression = 'per-CPU cpu_IMPL_pa / coresight_pa / UTTDBG_pa, per-cluster acc_IMPL_pa'
+bytes = 0
+in_27_build = true
+unresolved = false
+note = 'Zero on this board: the Pong ADT supplies none of those properties, so the loop body never maps.'
+
+[[window]]
+id = 'xnu-stram'
+owner = 'xnu'
+component = 'osfmk/arm64/cpu.c'
+file = 'osfmk/arm64/cpu.c'
+macro_line = 0
+call_line = 1310
+expression = 'sleepTokenBuffer from the ADT stram node'
+bytes = 0
+in_27_build = true
+note = 'Zero on this board: no stram node in the Pong ADT.'
+
+[[window]]
+id = 'xnu-coresight'
+owner = 'xnu'
+component = 'osfmk/arm64/cpu.c'
+file = 'osfmk/arm64/cpu.c'
+macro_line = 3049
+call_line = 289
+expression = 'CORESIGHT_SIZE 0x1000 from proc_reg.h'
+bytes = 0
+in_27_build = true
+note = 'Zero on this board: topology supplies no cpu_regmap_paddr.'

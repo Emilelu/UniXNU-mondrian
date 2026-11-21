@@ -44,10 +44,12 @@ XNU 自身的 `ml_io_map` 调用全部由 ADT 属性驱动，本板 ADT 不提�
 |---|---|---|---|
 | `patches/xnu-12377/0500-k60-bt-qbt-new-files.patch:1017-1021` | GCC `0x001F4200`（`:107`）、UART `0x4000`（`:75`）、QUP `0x2000`（`:78`）、TLMM `0x00100000`（`:97`）、GIC DIST `0x00010000`（`:101`） | 2,048,512 + 16,384 + 8,192 + 1,048,576 + 65,536 = **3,187,200 B（3.04 MiB）**；按 4 KiB 页对齐后 3,190,784 B | 在（series 里有 0500） |
 | `drivers/PongThermal/pong_thermal.c:286-289` | `PONG_THERMAL_WINDOW 0x1000`（`:41`）× 2 窗口 × `PONG_THERMAL_CONTROLLERS 2`（`K60ThermalKernel.h:23`） | 16,384 B | 否（`board.toml:14` 不含 PongThermal） |
-| `drivers/PongPower/K60PmicRail.c:361,368` | `K60_CMD_DB_BYTES 0x20000`、`K60_RSC_BYTES 0x10000`（`K60PmicRail.h:28,30`） | 196,608 B | 否（不含 PongPower） |
+| `drivers/PongPower/K60PmicRail.c:361,368,444,510` | `K60_CMD_DB_BYTES 0x20000`、`K60_RSC_BYTES 0x10000`（`K60PmicRail.h:28,30`）；四条调用点分属 `rail_pass()`（`:356-357`，`:361`/`:368`）与 `k60_rail_probe()`（`:436-437`，`:444`/`:510`，boot-arg 门控） | 静态最坏 393,216 B（两对；单对 196,608 B） | 否（不含 PongPower） |
 | `drivers/PongPower/K60AdspBoard.c:376` | 调用方给 `bytes` | 可变 | 否（不含 PongPower） |
 
-**stage-0 合计：3,187,200 B ≈ 3.04 MiB**（页对齐后 3,190,784 B）。将来把 PongPower 拉进来会再加 ≥ 0.19 MiB 常驻。
+**stage-0 合计：3,187,200 B ≈ 3.04 MiB**（页对齐后 3,190,784 B）。将来把 PongPower 拉进来会再加 ≥ 0.375 MiB（`K60PmicRail` 两对窗口 393,216 B + `K60AdspBoard` 调用方给的尺寸）。
+
+**可机读形态**：上面这张表落成了 `docs/research/ios27/io-map-budget-27.toml`（15 行 `[[window]]`，含 `in_27_build` 标记与 `[limits]` 合计；其中 8 行在 27 构建内，合计 3,187,200 B），作为门禁「计数模式」的输入表；形状与验收读数见 `docs/research/ios27/IO-MAP-COUNT-MODE-PROPOSAL.md`。表里的数字与本节逐行同源。
 
 ### 1.4 对 GPU / USB 线的回答
 
@@ -56,7 +58,7 @@ XNU 自身的 `ml_io_map` 调用全部由 ADT 属性驱动，本板 ADT 不提�
 - **失败形态变了**：16 系列是「子图用完 → `kmem_alloc` 返回 3」，27 是「kernel_map 真没 VA → `KMA_NOFAIL` 在 `vm_kern.c` 里等/失败」。诊断时看 `startup_phase` 与 `kernel_map` 的 `vm_map` 统计，不要再去 grep `IO_MAP_SIZE`。
 - **唯一还要盯的是 bootstrap 分支**：`startup_phase < STARTUP_SUB_KMEM` 时从 `virtual_space_start` 抢地址且 `assert(flags == WCOMB || IO)`。本板早期没有这类调用（ADT 无属性），但若将来把 GPU/UFS 的映射提前到 VM 起来之前，flag 必须显式给 `VM_WIMG_IO` 或 `VM_WIMG_WCOMB`，否则是 assert 而不是失败返回。
 
-### 1.5 门禁 `check-io-map-budget.py` 曾经在 27 上假绿（已由 Lead 修，27 树从此恒红）
+### 1.5 门禁 `check-io-map-budget.py` 曾经在 27 上假绿（Lead 先改成恒红，再裁决成计数模式）
 
 实测（2026-11-21，对本线 27 构建基线）：
 
@@ -80,6 +82,8 @@ python3 scripts/check-io-map-budget.py --tree /e/hackios/UniXNU/out/mondrian/ios
 而那种计数就是本文 §1 的表（BT 五窗 3,187,200 B；PongThermal / K60PmicRail / K60AdspBoard 三个调用点在 27 archive 之外）。
 
 原始建议（留档，已由上面的提交覆盖）：`IO_MAP_SIZE` 缺席时不要打 ✅，改打印「12377 之后 `io_map()` 每次 `kmem_alloc(kernel_map)`，本门禁不适用（P-219 已封存）」并按 skip 退出；BT 窗口的尺寸读 `patches/xnu-12377/0500-*.patch` 的宏，而不是 `bsd/dev/*.c` 里的 `#define`。
+
+**Lead 裁决（2026-11-21 m01381 ①）：走「计数模式」，不做 27 豁免。** 理由：豁免会让门禁对 27 永久闭嘴，而计数模式说的是事实——27 没有共享子图，量就该量窗口总和。实现形状：`io_map_size()` 拿不到定义时不退 2 也不借 8 MiB，改走 count 分支，以 `docs/research/ios27/io-map-budget-27.toml` 为预算表核行并报总和；**预算表缺行才退 2**。提案代码与六条验收读数在 `docs/research/ios27/IO-MAP-COUNT-MODE-PROPOSAL.md`（gates 仓库对本线只读，落地由 Lead 做）。
 
 ## 2. T0SZ：整组可搬，但有一处属于 GPU 线
 

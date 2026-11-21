@@ -1,0 +1,18 @@
+# Branches that are deliberately local.
+#
+# `check-local-pushes.py` fails on every local branch that no writable remote
+# carries.  Two kinds of branch are exempt, and both need a reason: a stale
+# exemption is how a real unpushed branch hides (P-290 cousin), so the gate
+# reports every pattern that matched nothing.
+
+[[allow]]
+pattern = "main"
+reason = "read-only upstream mirrors: their `main` tracks the official repository, which we must not push to (sheng/a68ee4e is behind origin/c8f92b2 by design)"
+
+[[allow]]
+pattern = "archive/.*"
+reason = "archived lanes stay local; they are already reachable through the tags and the merge history that produced them"
+
+[[allow]]
+pattern = "backup/.*"
+reason = "scratch backups of a lane tree; nothing depends on them being remote"

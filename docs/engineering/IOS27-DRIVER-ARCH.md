@@ -27,18 +27,18 @@
 
 | 层 | 官方对应物（sheng / 27） | 我们的现状 | 规则 | 决定 | 依据 |
 | --- | --- | --- | --- | --- | --- |
-| 固件加载器 | catalog `DarwinBoot` pin `3c75734`（fileset 分支） | vendored fork + `ImageCarrierLib` | 2（保留载具，官方逻辑） | **已 adopt**：catalog parser 移植进 vendored 文件并加越界检查（`5a3130f`） | `components.toml:58-75`、`DarwinBoot.c:150-156` |
-| CPU/平台 | `component:ArmCpu` `93a5030c`（psciConduit + opt-in SMP） | 779 行 fork（与 xnekom 逐字节相同） | 1（官方有）→ 暂缓 | **stage-0 保留 fork，F2 后必须切回官方**：三条硬缺口（ADT 无 `/psci`、`sheng-smp=1`、catalog 无 sleep）由补丁/数据补齐，而不是维持 fork | platform27 `PLATFORM-27-*.md` |
-| 显示 | `NativeLegacyDisplay.cpp`（27 独立栈 659 行） | 16.6.1 改 Mini 栈 + `K60Backlight` | 1（官方有） | **重写到官方栈**：Mini 栈那条路在 27 是死路 | display27 `DISPLAY-27-DELTA.md` |
-| GPU | `Adreno740` kit + sheng `GpuPowerProbe.cpp:1568 gpuHwInit()` | Metal 前端是官方件的落后副本（差约 292 行） | 2（同一架构，落后） | **re-vendor 官方件** + wire ABI v1→v2 | gpu27 `GPU-27-CONTRACT-DIFF.md` |
-| 音频 | `zzyf-sheng-amp.patch` + `zzyd-sheng-audio-addon-mount.patch` | `PongAudio`（970 行骨架，PAS1 loader TODO） | 1（官方有） | **adopt sheng 的 addon mount 路线**，我们只留 codec 数据 | audio `IOS27-PAC.md`、0531 HOLD |
-| 存储/UFS | `ShengUfs` + source-storage policy（`IOBlockStorageDevice` 190 槽） | `NativeUfs` + 47 KB 自研 transport | 1（官方有） | **默认 adopt ShengUfs + source-storage**；route D 的可行性已由 bt 给出，重写路径优先于维持 fork | bt route-D 报告 |
-| 电源/PMIC | `ShengPlatformPower` / `ShengBattery` / `CpuFreqProbe` | `K60PmicRail` / `K60Battery` / `K60Battmgr` | 1（官方有）+ 2（电压/rail 数据） | **默认 adopt 官方框架**，PMIC/rail 差异做成数据；只有官方缺的「K60 独有 rail 投票」才自研 | power 契约表 30 行 |
-| WiFi | `Ath12kWifi`（SM8550 / QCN92xx 家族） | `Ath11k`（QCA6490） | 3（芯片不同） | **keep 设备驱动**（QCA6490 官方无对应），ABI/策略/扫描路径照官方；参考源取 t970（同族 ath11k） | wifi `SHENG-KERNEL-REFERENCE.md` |
-| 蓝牙 | `QcaBluetooth` | 0500–0513 系列自研 | 3（部分硬件差异） | **keep 传输层 + 对齐官方 H4/TLV/NVM 框架**；WCN6750 相关参考 t970 | bt 线报告 |
-| 蜂窝 | 上游无对应（baseband 栈是本线独有） | IPA/QRTR/rmtfs 自研 | 3（官方无） | **允许自研**，但必须写成「上游没有」的结论句；参考源取 zizhan/pong 的 modem 栈作行为对照 | cellular doc20–23 |
-| USB | `QcomDwc3` | usb 线自研 gadget + 控制台 | 待判（usb27） | 默认按规则 1 处理，等 usb27 给官方对应物 | — |
-| 输入/触摸 | `ShengNovatekTouch` / `ShengHidInput` / `QcomGeniSpi` | Goodix Berlin + Geni SPI | 3（芯片不同） | **keep 设备驱动 + adopt 官方 HID 路径**；触摸参考 t970/zizhan 的 27 输入栈 | input27 `input-27.toml` |
+| 固件 | catalog `DarwinBoot` pin `3c75734`（fileset 分支） | vendored fork + `ImageCarrierLib` | 2（官方逻辑 + 我们的载具） | **已 adopt**：catalog parser 移植并加越界检查 | `components.toml:58` |
+| CPU | `component:ArmCpu` `93a5030c`（psciConduit + opt-in SMP） | 779 行 fork（与 xnekom 逐字节相同） | 1（官方有）→ 暂缓 | **stage-0 保留 fork，F2 后必须切回官方**：三条缺口用补丁/数据补 | `drivers/ArmCpu/ArmCpu.cpp:1` |
+| 显示 | `NativeLegacyDisplay.cpp`（27 独立栈 659 行） | 16.6.1 改 Mini 栈 + `K60Backlight` | 1（官方有） | **重写到官方栈**：Mini 栈在 27 是死路 | `K60Backlight.cpp:230` |
+| GPU | `Adreno740` kit + sheng `GpuPowerProbe.cpp:1568` | Metal 前端是官方件的落后副本（差约 292 行） | 2（同架构、落后） | **re-vendor 官方件** + wire ABI v1→v2 | `GPU-27-CONTRACT-DIFF.md:1` |
+| 音频 | `zzyf-sheng-amp.patch` + `zzyd-sheng-audio-addon-mount.patch` | `PongAudio`（970 行骨架，PAS1 TODO） | 1（官方有） | **adopt addon mount 路线**，只留 codec 数据 | `board.toml:360` |
+| 存储 | `ShengUfs` + source-storage policy（190 槽） | `NativeUfs` + 47 KB 自研 transport | 1（官方有） | **默认 adopt ShengUfs + source-storage**；route D 可行性已给出 | `board.toml:360` |
+| 电源 | `ShengPlatformPower` / `ShengBattery` / `CpuFreqProbe` | `K60PmicRail` / `K60Battery` / `K60Battmgr` | 1 + 2（电压/rail 数据） | **默认 adopt 官方框架**，rail 差异做成数据 | `K60Battmgr.c:161` |
+| WiFi | `Ath12kWifi`（SM8550 / QCN92xx） | `Ath11k`（QCA6490） | 3（芯片不同） | **keep 设备驱动**，ABI/策略/扫描照官方；参考 t970 | `board.toml:21` |
+| 蓝牙 | `QcaBluetooth` | 0500–0513 系列自研 | 3（部分硬件差异） | **keep 传输层 + 对齐官方 H4/TLV/NVM** | `board.toml:14` |
+| 蜂窝 | 上游无实现（baseband 栈本线独有） | IPA/QRTR/rmtfs 自研 | 3（官方无） | **允许自研**，写明「上游没有」；参考 zizhan 行为 | 上游无实现，见 `docs/research/cellular/20-MODEM-BRINGUP-FLIGHT.md:1` |
+| USB | `QcomDwc3` | usb 线自研 gadget + 控制台 | 待 usb27 判 | 默认按规则 1 处理，等 usb27 给官方对应物 | `board.toml:76` |
+| 输入 | `ShengNovatekTouch` / `ShengHidInput` / `QcomGeniSpi` | Goodix Berlin + Geni SPI | 3（芯片不同） | **keep 设备驱动 + adopt 官方 HID 路径**；参考 t970 | `board.toml:267` |
 
 ## 各线要交的东西（一步到位）
 

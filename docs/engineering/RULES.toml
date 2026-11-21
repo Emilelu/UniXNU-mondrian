@@ -340,7 +340,7 @@ id = "iron-12"
 kind = "iron"
 source = "AGENTS.md:铁则 12"
 statement = "给其他 agent 的消息一律先发 steer，只有目标不在运行、steer 被拒时才发同一内容的 followup；steer 成功就不要再补一条 followup"
-check = "python3 scripts/check-agent-messaging.py"
+check = "python3 scripts/check-agent-messaging.py && python3 scripts/check-reply-delivery.py"
 note = "2026-11-20：四条线在按 Lead 已经作废的指令工作——替换指令走了 followup，排在各自当前轮次后面，等落地时那一轮已经做完。steer 在最近的可处理步骤边界介入，是唯一能真正改道的投递方式。"
 
 [[rule]]
@@ -1298,3 +1298,12 @@ title = "没有官方出处的步骤就是猜，猜的代价是一次上机"
 statement = "凡是「下一步怎么做」的问题，先到官方文档里找到具体一节；找不到要记成文档缺口再动手，不得凭经验发明流程。"
 check = "python3 scripts/tests/test-check-official-steps.py"
 note = "2026-11-21：三张黑屏图的共同原因是流程靠猜——改加载器没按 required-integration 复核、停在交接没按 green-bar 诊断。"
+
+[[rule]]
+id = "hard-41"
+kind = "hard"
+source = "scripts/check-local-pushes.py"
+statement = "每个本地分支都必须存在于可写远端的同名分支上：只在这台机器上的分支等于没交付；只读上游镜像的 main 与归档分支按 PUSH-ALLOW.toml 豁免，且豁免匹配不到任何分支时只提示"
+check = "python3 scripts/check-local-pushes.py"
+note = "2026-11-21: 审计发现 12 条本地分支从未推送（含三条新线的分支），而各线汇报都写「已推送」。判据按可写远端算——UniXNU 的 origin 是官方仓、不可写，只认 fork。"
+

@@ -244,10 +244,8 @@ state = "unmapped"
 path = "drivers/qca-bluetooth.md"
 title = "QcaBluetooth"
 sha256 = "7a973e7176f9c7eb53ecff9d2e6be00a3cc6b270e05ddd343c34f4a93d7d9988"
-state = "mapped"
-gate = "check-bluetooth-dt.py"
-assertion = "K60 DT contract only: device_type, compatible, unixnu,adt-name, H4 encoding and 3 Mbaud; the driver, sysctls, payload.runtime and audio plugin remain unimplemented"
-note = "Partial mapping: the page is not satisfied end to end; only the DT node is gated."
+state = "unmapped"
+why = "Partially gated: scripts/check-bluetooth-dt.py enforces only the device-tree contract (device_type, compatible, unixnu,adt-name, H4 encoding, 3 Mbaud). The page also requires the driver, its sysctls, payload.runtime and the audio plugin; none of those is gated, so the page stays debt rather than counted as covered (P-288: a page covered in part is not a page covered)."
 
 [[page]]
 path = "drivers/qcom-baseband.md"

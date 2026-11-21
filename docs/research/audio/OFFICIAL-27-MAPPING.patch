@@ -1,0 +1,32 @@
+--- a/docs/engineering/OFFICIAL-REQUIREMENTS.toml
++++ b/docs/engineering/OFFICIAL-REQUIREMENTS.toml
+@@ -21,15 +21,17 @@
+ path = "concepts/boot-chain.md"
+ title = "启动链"
+ sha256 = "1afe93a5057d33f6ad251f8c3847f54cf85793ad97ba2e7f4c8e946d0bd40414"
+-state = "unmapped"
++state = "mapped"
++gate = "check-ios27-artifacts.py"
++assertion = "stage-0 产物锁定交接 1/3/4：kernel.macho 是 arm64e MH_FILESET（32 entries），loader 0 violation(s)，payload.img 带 ADT，boot.img 的 FAT/DTB/ramdisk 可解析；交接 2（UEFI 菜单/unixnu.toml）与交接 5（XNU→launchd）不在离线门禁，§4 的 MH_EXECUTE 句已被实际选中的 filetype 12 分支取代"
+ 
+ [[page]]
+ path = "concepts/payload.md"
+ title = "启动负载"
+ sha256 = "8a5367e72c3cc36a85659da57ef312b4308757abf88f500884bcc8d1fba2badb"
+ state = "mapped"
+-gate = "check-ios27-artifacts.py --flight-ready"
+-assertion = "payload structure and declared transform"
++gate = "check-ios27-artifacts.py"
++assertion = "stage-0 产物锁定 payload.img 中 kernel.macho 是 kernel 输出的声明变换、ADT random-seed 是固定值、ADT chip-id/unique-chip-id 与 board 一致，且 boot.img 的 ramdisk 等于 payload.img；五文件卷布局、unixnu.toml 的 1000/1024 B 参数和 trustcache 的 1..128/version 2/24 B 升序不在这个门禁的覆盖内"
+ 
+ [[page]]
+ path = "concepts/prelink.md"
+@@ -214,7 +216,7 @@
+ sha256 = "8aafa44667bbbf2a85302a7731a847ee8c3d4176c4016c5be334acaac93a60bc"
+ state = "mapped"
+ gate = "check-ios27-firmware.py --board . --strict"
+-assertion = "固件选中的加载器接受本内核的容器形态（filetype 12 / arm64e 集合）"
++assertion = "实际选中的 DarwinBoot.c 接受 filetype 12 / LC_FILESET_ENTRY 集合（check-ios27-firmware.py --board . --strict 通过）；页面第 3-4 行『目前尚不支持 MH_FILESET 输入』是旧文本，不能作为本板约束；该门禁只证明选中源码有分支，不证明 loader 在设备上运行"
+ [[page]]
+ path = "drivers/device-tree-matching.md"
+ title = "设备树匹配"

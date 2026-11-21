@@ -116,6 +116,7 @@ docs/
 | `audio/IOS27-SHENG-REFS.md` | **sheng 内核与驱动参考清单**：同一基准的 25 项补丁逐条判 audio/partial/no（1 条新增音频、1 条含既有音频上下文、23 条无直接新增音频），K60 设备系列对照、页表与弱链接证据边界、GENI FIFO 与功放型号差异、同树引用门禁 |
 | `audio/IOS27-PAC.md` | **音频接缝与 PAC**：arm64e 的原生密钥补丁怎么给内核装上 PAC、音频代码的 EL1 特权面逐行判定、io 表与弱符号调用在插桩前后各是什么形态、以及 sheng 的 addon-mount 补丁为什么不依赖 PAC |
 | `audio/IOS27-STAGE0-STATE.md` | **iOS 27 stage-0 的音频位置**：board profile 与缺失的 conf-files 钩子怎么让音频不在构建里、三分钟自证的命令与各 checker 的 rc 语义，以及为什么「0 符号」是设计读数而不是回归 |
+| `audio/PRELINK-AUDIO-RESIDUE.md` | **预链接残留里的音频**：IOAudio2Family、AppleM2ScalerCSCDriver、IOAVFamily 的 21 个槽逐个落到目标/锚点、stage-0 可达性的静态边界，以及为什么 Pong 的驱动不能补 Apple kext 的导入槽 |
 | `battery/RESEARCH.md` | **电池 ①②④**：ADSP GLINK 交接租约的四标志、解锁链、单位转换 |
 | `bt/RESEARCH.md` | **蓝牙八步 ①②③**：QCA6490 走 GENI UART 的硬件真值、官方组件分工、与 iOS 27 用户态的对齐点 |
 | `bt/HANDOFF.md` | **蓝牙线交接**：从 0516 到 0525 的每一步、每次飞行的判据与缺口、恢复时的第一步 |

@@ -7,8 +7,20 @@
   <key>CFBundlePackageType</key><string>KEXT</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>OSBundleRequired</key><string>Root</string>
-  <!-- Route B: the bundle is resolved at prelink time, so its two non-kernel
-       dependencies have to be named here or the loader cannot order them. -->
+  <!-- Route B: the bundle is resolved at prelink time, so its dependencies have
+       to be named here or the loader cannot order them.
+       Provenance of the two that are not kernel interfaces:
+         com.apple.iokit.IOStorageFamily - the driver subclasses a class that
+           lives in that kext: drivers/NativeUfs/PongUfsTransport.cpp:9 includes
+           <IOKit/storage/IOBlockStorageDevice.h>, :289 makes PongUfsBlock an
+           IOBlockStorageDevice, and :962 loads the family by identifier. In 16.6.1
+           the same eleven symbols came from the kernel image (that is why
+           patches/xnu/ios16-native-ufs-personality.patch:9-16 could install the
+           personality into gIOKernelConfigTables at all).
+         com.apple.kec.corecrypto - drivers/NativeUfs/xnu_crypto.c:5 includes
+           <corecrypto/ccsha2.h>, and verified_root.c hashes the root window.
+       The four com.apple.kpi.* entries are the standard kernel interfaces every
+       kext declares (IOKit, libkern, mach). -->
   <key>OSBundleLibraries</key><dict>
     <key>com.apple.kec.corecrypto</key><string>1.0</string>
     <key>com.apple.kpi.iokit</key><string>27.0</string>
@@ -16,9 +28,18 @@
     <key>com.apple.kpi.mach</key><string>27.0</string>
     <key>com.apple.iokit.IOStorageFamily</key><string>1.0</string>
   </dict>
-  <!-- The personality the 16.6.1 line installed with
-       patches/xnu/ios16-native-ufs-personality.patch; a bundle carries it in its
-       own plist instead of in the kernel's gIOKernelConfigTables. -->
+  <!-- The personality the 16.6.1 line installed into the kernel's personality
+       table with patches/xnu/ios16-native-ufs-personality.patch; a bundle carries
+       it in its own plist instead of in gIOKernelConfigTables. Key by key:
+         IOClass        - ios16-native-ufs-personality.patch:11
+         IOProviderClass- :12
+         IONameMatch    - :13 (the ADT node scripts/make-pong-adt.py:188 names ufshc)
+         IOProbeScore   - :14 (1000:32; written here as the integer 1000)
+       IOMatchCategory has no storage precedent: the patch above does not carry it.
+       Its only in-tree precedent is the RAM-disk personality
+       patches/xnu/native-ram-block-personality.patch:10 ('IOMatchCategory' =
+       NativeRamBlock). It is kept because a bundle's class must not be claimed by
+       a second driver; scripts/check-ufs27-route-b.py grades its presence. -->
   <key>IOKitPersonalities</key><dict>
     <key>NativeUfs</key><dict>
       <key>CFBundleIdentifier</key><string>org.blu-sharky.NativeUfs.Pong</string>

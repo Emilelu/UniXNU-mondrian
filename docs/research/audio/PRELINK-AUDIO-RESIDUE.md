@@ -23,6 +23,34 @@
    `se_rd`/`se_wr` GENI 访问器，语义与 `OSArray::*`/`OSSet::*`/`IOWorkLoop::*` 无关；
    把自家函数塞进这些槽会满足签名却改变 Apple kext 对内核对象的假设，比 panic 更糟。
 
+### 1.1 IOAudio2Family 的唯一槽
+
+`com.apple.iokit.IOAudio2Family` 只贡献一个槽，和另外两个 bundle 的 20 个槽分开判：
+
+| 项 | 值 |
+| --- | --- |
+| bundle | `com.apple.iokit.IOAudio2Family` |
+| target | `0xfffffff00b36e788` |
+| kind | `__auth_got` |
+| site | `0xfffffff008273608` |
+| 唯一 loader | `0xfffffff009f870bc+0x144` |
+| 审计 verdict | `unreachable-before-console` |
+| stage | post-SpringBoard (audio client) |
+| baseline | false |
+
+判据是三条，全部来自 `E:/k60-work/scratch/stubs/unreachable.toml:358-367`，不是从 bundle 名字推的：
+
+1. 槽是 kext 持有的 `__auth_got` 指针，不是 `bl` 调用点；在 IOAudio2Family 里只有一个 loader，`0xfffffff009f870bc+0x144`。
+2. 这条 loader 属于 post-SpringBoard 的 audio client 路径；审计把它标为 `unreachable-before-console`、`baseline=false`，不是上游已有基线。
+3. console 前的结构证明：第一个 kext 入口是 `PE_init_iokit()`（`osfmk/kern/startup.c:689`），在 `console_init()`（`:478`）之后；205 个槽全在 kext 的 `__DATA_CONST`/`__const` 里，所以 console 前可达数为 0（`gates:docs/research/ios27/PRELINK-RESIDUE.md:19-25`）。
+
+这条判据只证明「console 之前不会碰」，**不证明**「stage 0 全程不会碰」：stage 0 已经过 console，且 IOAVFamily 还有对象实例化窗口。要把这一条也关掉，需要以下任一可证伪观察：
+
+- 在 stage-0/F3 日志里看到 IOAudio2Family 在 `bsd_init` 之前启动或加载。出现即按 `gates:docs/research/ios27/PRELINK-CLOSURE.md:36-41` 做函数配对或补实现，不能加 Pong 桩。
+- 或者拿到 `0xfffffff009f870bc` 的调用者（当前只有 loader 关系，没有类/方法名），证明它只由 `IOAudio2Device`/`IOAudio2DeviceUserClient` 实例进入。在此之前，准确状态是「post-SpringBoard，stage-0 设计路径不到」。
+
+反证入口：同一个 target `0xfffffff00b36e788` 还被 `com.apple.iokit.IOGPUFamily` 在 `0xfffffff00829c560` 引用（`E:/k60-work/scratch/stubs/unreachable.toml:369-377`）。它是通用内核例程，不是音频编解码寄存器访问；这也解释了为什么不能用 PongAudioAmp/PongAudioGeniI2c 补这个槽。
+
 ## 二、逐条表
 
 缩写：`IOAudio2` = `com.apple.iokit.IOAudio2Family`，`Scaler` =

@@ -252,6 +252,8 @@ int k60_power_audio_release(const K60AudioPowerClaim *);
 
 ### 6.2 解除 HOLD 需要的证据（全部满足）
 
+前三条是硬条件；4–6 是放行前必须留下的门禁原文、真实产物读数与上机边界，不替代前三条。
+
 1. **选中**：有效系列（`patches/xnu-12377/series` 或 gates 的对应系列）列出 0531，且不再是 HOLD 注释；同时 `--switch off` 必须能把调用点拿掉。
 2. **可控的开关**：调用点的 guard 必须对 `bsd_init.c` 真的可见。要么构建把 `-DXNU_PONG_AUDIO=1` 同时送给内核目标（不只是 `PongAudioAmp.o`），要么引入一个专门给 `bsd_init.c` 的宏（例如 `XNU_PONG_AUDIO_CALL`）并在构建里定义。只改补丁文本、不改构建，不算。
 3. **链接证明**：`link.filelist` 同时有 `PongAudioAmp.o` 与 `bsd_init.o`；`nm` 里 `bsd_init.o` 是 `U _pong_audio_amp_probe`（arm64e 还可能是 `$auth_ptr$ia` 存根），`PongAudioAmp.o` 是 `T`/`t _pong_audio_amp_probe`。`W`（弱定义）、数据符号、`stub.o` 里的 `T` 都不算。

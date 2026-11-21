@@ -15,7 +15,7 @@ flip 条件与 flip owner 只在 `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.5 维护�
 | 1 | display 会签在案，且它自己写明 `token`/`evict`/`target` 的语义 | 会签文件里有一段以 `dbuf` 为主题的同意（不是「已阅」），并把日期与引文抄进本表第 1 行的 `recorded:` 备注；引文必须点名三个字段，缺一个不算 | **否**——正在等它对「57 槽」的回答 |
 | 2 | v2 layout 补丁进入某个 series | `grep -rn "pong-scanout-v2-layout-asserts" patches/*/series` 恰好 1 行，且 `python3 scripts/check-series-numbering.py` 通过 | **否**——补丁在 `patches/proposed/`，不在任何 series |
 | 3 | offset 补丁排在那份之前 | 同一 series 中 `pong-scanout-assert-offsets` 的行号小于 v2 layout 的行号 | **否**（约束已写在补丁头，series 未建） |
-| 4 | 四个偏移由编译器断住 | ①离线：`g++ -std=c++17 -Wall -Wextra -c E:/k60-work/scratch/prop/v2_layout_probe.cpp -o /tmp/v2probe.o` 退出 0；②翻后构建：`PONG_SCANOUT_V2_LAYOUT=1` 编译通过，且 wire 头里的四条 `static_assert`（56 / `token`@44 / `evict`@48 / `target`@52）与补丁 hunk 逐字一致 | ①**是**（已跑，`COMPILE OK`）；②待 |
+| 4 | 四个偏移由编译器断住 | ①离线：`g++ -std=c++17 -Wall -Wextra -c E:/k60-work/scratch/prop/v2_layout_probe.cpp -o /tmp/v2probe.o` 退出 0；②翻后构建：`PONG_SCANOUT_V2_LAYOUT=1` 编译通过，且 wire 头里的四条 `static_assert`（56 / `token`@44 / `evict`@48 / `target`@52）与补丁 hunk 逐字一致；③常设：`python3 E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py` 按 sha256 比对两份拷贝 | ①**是**（已跑，`COMPILE OK`）；②待；③**休眠中**（补丁不在 series ⇒ 退 0 并自己说明；进 series 那天自动变判据） |
 | 5 | 翻开关的那次飞行能判 | `python3 E:/hackios/k60-gates/scripts/judge-gpu27.py <console.log> --json` 里 `stats.scanout_version == 2`，且无 `BadArgument`、`dropped <= offers/20`、`client <= 8333`（后两项在草案带上后才出现） | **否**（还没有带 v2 的飞行） |
 
 第 1 条的 `recorded:` 长这样（**只写日期与引文，不写 flip 条件**）：
@@ -33,6 +33,14 @@ grep -rn "pong-scanout-v2-layout-asserts" patches/*/series      # 期望：没�
 grep -rn "pong-scanout-assert-offsets"      patches/*/series      # 期望：没有输出
 python3 scripts/check-series-numbering.py                         # 期望：通过（与上面两条否并不矛盾：
                                                                   #   没有 series 就没有编号可错）
+```
+
+第 4 条③现在就能跑，它自己会说自己是休眠的：
+
+```sh
+python3 E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py
+# 期望：dormant: pong-scanout-v2-layout-asserts is in no series, and the header carries no v2 assertions
+#       （exit 0）  ——--strict 才把它算成失败
 ```
 
 第 4 条①要在 WSL 里跑（MSYS 没有 g++）：

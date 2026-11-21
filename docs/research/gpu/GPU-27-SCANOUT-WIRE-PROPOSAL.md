@@ -71,6 +71,8 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 **决定怎么记（写给以后想重开的人）**：display 答出「57 槽」之后，本节只加**一行 decision record**——
 选了哪个形状、依据是它的哪一句（`文件:行`）、以及另一个形状为什么被排除。这里**不摆并列选项表**：
 并列表会被后来的人读成「还在选」，而决定一旦写下就不该反复重开。
+**同一形状被推翻时要写第二条 record，不许改写第一条**：record 是追加式历史，改旧条目会让
+「当初凭什么这么定」永久丢失（P-259 的另一种形状）。
 
 **版本整数长在哪里（display 六项之一）**：只在 `PongScanoutModeInfo` 的**第一个字段**，
 即 40 B Mode 回复的偏移 **0**，类型 `uint32_t`。`PongScanoutFrame`、`PongScanoutWaitInfo`、

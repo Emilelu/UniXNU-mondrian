@@ -71,7 +71,7 @@ A 是主输入，B 只在 A 的字段不够时用，C 永远不参与判决（�
 | G-SELECTOR | `[gpu client text]` 首个问题行 | 无该行；或该行为已知无害项白名单 |
 | G-HWCG | 启动后 `RBBM_CLOCK_CNTL` 回读值 | `0x8aa8aa82`（与 27 kit 的 `gpuHwInit()` 同判据） |
 | G-FRAMEPATH | 七段中的五段有数 | 缺段要写明缺哪段（官方 §frame-path 的七行即账本行） |
-| G-SCANOUT | `scanout version=` + 无 `BadArgument` | 版本 ∈ {1,2} 且 `PongScanoutNotSubmitted` 不连续出现 |
+| G-SCANOUT | `scanout version=` + 无 `BadArgument` | 版本 ∈ {1,2} 且 `PongScanoutNotSubmitted` 不连续出现；版本为 2 时字段值对不对**本判据答不了**，那部分只能由编译期断言守（见 `research/gpu/GPU-27-V2-FIELDS.md`） |
 | G-DIAG | 导出包齐全 | 九个文件都在，`diag-skipped.txt` 里的跳过项要能解释 |
 
 ## 5 离线判不了的三块（必须以 2 退出，不许写成通过）
@@ -188,6 +188,14 @@ m01375）：①`us each in the driver` 是合成器自己在一帧内的成本�
 （P-290 家族：判据看起来在跑，其实读错了字段）。
 - **输出只用英文**：这台机器的控制台是 GBK，中文会变乱码；`单看 bench 不能判 120fps`
   这句原话保留在脚本 docstring 里，打印行给英文同义句。
+
+## 8.4 判读器读不到的常量从哪来
+
+`token`@44 / `evict`@48 / `target`@52 与 `sizeof(PongScanoutFrame)==56` 这五个数，判读器今天一个也读不到
+（日志里没有，且 90 B 硬截不允许塞进去）。它们的事实源是 `research/gpu/GPU-27-V2-FIELDS.md` §1 那张表，
+落地由两份东西守：编译期断言（`patches/proposed/pong-scanout-v2-layout-asserts.patch`，休眠）与
+`scripts/check-gpu27-flip-asserts.py`（休眠期退 0，进 series 那天自动变判据）。判读器**不复制**这些数，
+需要时读表——同一件事存两份就会有一份过期（P-259）。
 
 ## 9 引用
 

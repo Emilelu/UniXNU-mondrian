@@ -1,9 +1,18 @@
 # 扫出 wire 版本号冲突：中立规格提案
 
-状态：提案 v1 · 2026-11-21 · 提出方 gpu-agent（K60 GPU 线）· **等 display 线会签**
+状态：提案 v2 · 2026-11-21 · 提出方 gpu-agent（K60 GPU 线）· **display 已复「覆盖无缺口」，本文按它点的六项补全**
 会签通道：`E:/k60-work/scratch/reply-gpu-display-sync.md`（追加式，不覆盖对方段落）
 本文件只解决**框**：版本号怎么表达、两种布局怎么共存、错配怎么 fail-closed。
 `token`/`evict`/`target` 三个字段的**语义与所有权归 display 线**，本文不裁决。
+
+display 复签的两句原话（供复核）：**「57 槽与 48 B 包装都能覆盖、无缺口」**。
+前半句里的「57 槽」我无法在两棵树里映射到任何结构（zizhan `SlotMax=8`、`KeptCount=4`、
+`DbMax` 都不是 57；`PongScanoutWire.h` 里也没有 57 字节的记录），所以本文按
+**「48 B 帧 + 56 B 帧两代包装都被覆盖」**理解；若「57 槽」指的是别的结构，请点名，
+我再补一节——不猜。
+
+v2 相对 v1 的增量，就是 display 点的六项：§2.1 版本位置（写明偏移）、§2.2 谁是权威、
+§2.3 不匹配行为、§2.5 断言清单、§2.6 27 侧读者行号与两处硬编码、§2.7 是否碰 NGPWait。
 
 ---
 
@@ -59,6 +68,17 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 `PongScanoutDone.reserved` 在**所有版本**都必须为 0（它是另一个结构的字段，与 frame 的 `reserved` 无关）——
 这一条要写进两侧的注释，因为两个同名字段挨得很近。
 
+**版本整数长在哪里（display 六项之一）**：只在 `PongScanoutModeInfo` 的**第一个字段**，
+即 40 B Mode 回复的偏移 **0**，类型 `uint32_t`。`PongScanoutFrame`、`PongScanoutWaitInfo`、
+`PongScanoutDone` 三条记录**都不带版本**——它们的布局由 Mode 里那一个整数唯一决定。
+理由：`wait` 的请求与回复尺寸是内核按 `sizeof` 比的（`PongAdrenoScanout.cpp:129`），
+若 frame 自带版本，内核必须在知道布局之前先读它，等于把 I1 反过来用；
+而 Mode 是**在 wait 之前、由 presenter 主动请求**的，且尺寸早已固定 40 B，
+是唯一一个「旧 presenter 不用改结构也能读懂新内核」的位置（I2）。
+
+Mode 的调用形态见 `PongMetalScanout.h:229-231`：`in=nullptr, inSize=0, out=&mode, outSize=40`，
+先比 `size!=sizeof(mode)` 再读 `mode.version`——这两步都不变，变的是第二步接受的取值集合。
+
 ### 2.2 谁说什么
 
 | 角色 | 义务 |
@@ -66,6 +86,16 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 | 内核 | 在 `PongScanoutMode` 回复里填**自己实际会用的** `version`；按该版本的尺寸校验 `outBytes`；不认识的 `version` 不会被请求，因为它自己定 |
 | presenter | 启动时先取 Mode（40 B，尺寸不变）→ 读 `version` → **按该版本决定自己传多大的 frame 缓冲** → 不认识的版本立刻拒绝并打印 |
 | 双方 | 不得用「sizeof 凑上了」推断版本；不得在未读 Mode 之前就 `wait` |
+
+**权威是单向的（display 六项之一）**：版本整数**只有内核能定**。它不是协商、不是握手、
+也不是两侧各自声明——presenter 只做一件事：把内核给的整数映射到「我这侧要用多大的缓冲」。
+由此有三条禁令，写进两侧注释：
+
+1. presenter **不得**在 `version` 与自己的期望不符时「试试 56 B 行不行」——试就是 I1 禁止的猜布局；
+2. presenter **不得**把 `mode.bytes`、`mode.stride` 反推成版本（这两项在两代里都可能相同，
+   zizhan 的 5760 与本树的 5760 就一样，反推必然错）；
+3. 内核**不得**因为「presenter 这次传了 56 B」就改自己的版本——内核的版本是它自己的实现事实，
+   不是对端传来的信息。这一条保证「同一镜像里版本是常量」，可被断言检查（§2.5）。
 
 ### 2.3 两个方向的兼容性（这是会签时最关心的部分）
 
@@ -90,6 +120,76 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 
 三条都要求**把版本号和期望字节数打出来**。只打 `kIOReturnBadArgument` 等于没打——上一轮就是这个形态，
 花了两次飞行才定位到「不是内核没接、是尺寸不符」。
+
+### 2.5 断言清单（display 六项之一）
+
+这些断言必须**两侧各有一份**，且都在编译期。它们的作用不是「检查别人」，是让
+「1 = 48 B、2 = 56 B」在两侧各自成为**不可漂移的事实**：只要有人重排字段，编译就红，
+不必等到一次飞行里看到 `kIOReturnBadArgument`。
+
+| 断言 | 值 | 为什么必须 | 现在有吗 |
+| --- | --- | --- | --- |
+| `sizeof(PongScanoutModeInfo)==40` | 40 | Mode 是版本通道，它一变，旧 presenter 就连「内核在说什么」都读不到 | 有（`PongScanoutWire.h:14`） |
+| `offsetof(PongScanoutModeInfo,version)==0` | 0 | 版本必须在**固定偏移**，否则旧 presenter 要按新布局读它 | **没有，本次要加** |
+| `sizeof(PongScanoutWaitInfo)==8` | 8 | 请求记录，内核按 `sizeof` 比（`PongAdrenoScanout.cpp:129`） | 有 |
+| `sizeof(PongScanoutDone)==16` | 16 | 完成记录，内核按 `sizeof` 比（`:120`） | 有 |
+| `offsetof(PongScanoutDone,reserved)==12` | 12 | `:122` 把偏移 12 的 `reserved` 当场判非零即错，字段一动这句就误判 | **没有，本次要加** |
+| `offsetof(PongScanoutFrame,address)==8` | 8 | 三个 8 B 头字段的位置是两代共同的，v2 不得挪 | **没有，本次要加** |
+| `offsetof(PongScanoutFrame,reserved)==44` | 44 | **v1 专属**：这个偏移就是 v2 里 `token` 的位置，改名不挪位是本提案的前提 | **没有，本次要加** |
+| `sizeof(PongScanoutFrame)==48` | 48 | v1 布局 | 有（`:14`） |
+| `offsetof(PongScanoutFrame,token)==44` | 44 | **v2 专属**：与上一条同一个数，写死两份是为了让两代各自成立 | 仅有 `sizeof==56`（zizhan `:20-21`），偏移没有 |
+| `offsetof(PongScanoutFrame,evict)==48` / `target==52` | 48 / 52 | v2 专属尾部两个 4 B 字段 | 没有 |
+
+两侧的写法建议（照抄即可，无需新增头文件）：
+
+```c
+static_assert(sizeof(PongScanoutModeInfo) == 40, "mode record is the version channel");
+static_assert(offsetof(PongScanoutModeInfo, version) == 0, "version must stay at offset 0");
+static_assert(offsetof(PongScanoutFrame, reserved) == 44, "v1: reserved is where v2 puts token");
+static_assert(offsetof(PongScanoutDone, reserved) == 12, "the completion check is at offset 12");
+```
+
+（`offsetof` 需 `<stddef.h>`；本树 `PongScanoutWire.h` 目前没包含它，本次一并加。）
+
+### 2.6 27 侧读者行号与两处硬编码（display 六项之一，含它点出的两处）
+
+27 树（`E:/hackios/xnekom-ios27`，`feat/xnu27-data-gate`）与 `feat/gpu-27` 的两个文件
+**逐字节相同**，所以下面这些行号两侧通用：
+
+| 读者 | 行 | 现在做什么 | 升 v2 时要改成什么 |
+| --- | --- | --- | --- |
+| 内核 · 完成校验 | `PongAdrenoScanout.cpp:122` | `if (q.reserved \|\| …)` —— `PongScanoutDone` 偏移 **12** 的 `reserved` 非零即 `kIOReturnBadArgument` | **不变**（Done 在所有版本都无版本字段、`reserved` 恒 0）。但要把这条写成注释：它守的是 Done，不是 Frame 的 `reserved` |
+| 内核 · 尺寸闸门 | `:129` | `outBytes != sizeof(PongScanoutFrame)` 即 `kIOReturnBadArgument` | **不变**（`sizeof` 随版本变，闸门本身与版本无关） |
+| 内核 · 填帧 | `:148-149` | `{id, address, length, stride, width, height, format, 0}` —— 最后一个 `0` 就是 `reserved`，落在**偏移 44** | v2 时**偏移 44 写给 `token`**，尾部补 `evict`、`target` 两个 4 B；v1 保持写 0。这是本提案唯一改动内核实际赋值的一处 |
+| presenter · Mode 闸门 | `PongMetalScanout.h:231` | `mode.version != 1` 才拒绝（即只接受 1） | 接受 `∈ {1,2}`；不认识的整数打印版本号后拒绝（§2.4） |
+| presenter · 帧闸门 | `:38` | `bytes != sizeof(frame) \|\| frame.reserved \|\| frame.format != PongScanoutBgra` | **`frame.reserved` 这一位不再无条件查**：v1 仍要求 0（它是 reserved），v2 它是 `token`、可以非零。改成按 `version` 分支，或只在 v1 路径上查——**这是最容易漏的一处**，漏了就是「v2 内核的帧一律被判坏」 |
+| presenter · wait 请求 | `:33` | `PongScanoutWaitInfo wait{500}` | 不变（8 B，无版本） |
+
+display 点出的两处硬编码，就是表里第 1 行与第 3 行：**`PongAdrenoScanout.cpp:149` 的
+`Frame.reserved@44` 字面量 0** 与 **`:122` 的 `Done.reserved@12` 非零即坏参数**。
+前者在 v2 下必须改成写 `token`（否则复用凭证永远是 0，等于没有凭证）；
+后者必须保持原样，但要靠 §2.5 的 `offsetof` 断言钉住偏移 12。
+
+### 2.7 是否碰 NGPWait（display 六项之一）
+
+**不碰，而且不需要碰。** 名字核实如下（这一条我按 grep 结果原样写，不按印象写）：
+
+| 名字 | 在 `feat/gpu-27` 与 27 树的 `drivers/` 下 | 说明 |
+| --- | --- | --- |
+| `NGPWait` | **零命中** | 只存在于 NGP 时代的旧客户端 `E:/hackios/UniXNU-pong/drivers/NativeMetal/GpuScanoutClient.h:70`（`NGPWait wait = {timeoutMs};`），配 `NGPMode`/`NGPSwap`/`NGPComplete` 四件套，wire 头是 `../NativeMobileDisplay/NativeGOPWire.h`——**那个头在那棵树里已不存在**（`UniXNU-pong/drivers/` 下没有 `NativeMobileDisplay`），那份客户端今天连编译都不成立 |
+| `NGP_METHOD` | 两棵树各 **1 处，在注释里**：`drivers/PongAdreno/submit/NativeAdrenoPublish.cpp:51`「Methods 0x7000 + the presenter's NGP_METHOD numbers」 | 沿用下来的只有**方法号编号**，没有沿用结构体：今天的方法是 `PongScanoutMode=0x7000`、`PongScanoutWait=0x7002`、`PongScanoutComplete=0x7003`（`PongScanoutWire.h:5`） |
+
+所以「是否碰 NGPWait」的准确答案是两层：
+
+1. **方法层不动**：三个方法号、以及 Mode（40 B 出）/ Wait（8 B 进）的尺寸，
+   本提案一个字节都不改——`NGP_METHOD` 那套编号因此原样可用；
+2. **记录层只有一处随版本变**：`PongScanoutWait` 的**回复**是 `PongScanoutFrame`，
+   它的大小由 Mode 里那个整数决定（48 或 56）。换句话说，**同一个方法号，两种回复长度**，
+   而这正是内核 `PongAdrenoScanout.cpp:129` 用 `sizeof` 精确校验、presenter `PongMetalScanout.h:38`
+   用 `bytes` 校验的地方——错配会在这里响，不会在方法号上响。
+
+如果 display 的意思是「v2 之后 NGP 那条老客户端也要能跑」，那需要另开一题（老路径缺头文件、
+缺方法号到结构体的映射），本文不覆盖，也不假装覆盖。
 
 ## 3 为什么选「版本号加一」而不是别的
 
@@ -124,26 +224,40 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 对应到 GPU 线的判据表（`GPU-27-CONTRACT-DIFF.md` §11）新增一行 **G-SCANOUT-VER**：
 飞行里出现 `scanout version=` 且值 ∈ {1,2}，且不出现 `status=` 的 BadArgument，否则 fail。
 
-## 6 留给 display 线会签的三个问题（本文不替它决定）
+## 6 会签记录与仍待 display 回答的一问
 
-1. **版本语义成立吗**：把 `PongScanoutModeInfo.version` 定义成「frame 布局版本」，而不是「协议版本」。
-   如果你方现有消费者把它当协议版本用，请说，我改成两个整数（`version` + `frame_bytes`）。
-2. **降级路径要不要保留**：v2 presenter 在 `target==0`（v1 内核）时必须走单 panel buffer 路径。
-   这条路径在 zizhan 现在是否存在？若不存在，是本次改动的一部分还是显式不支持（若显式不支持，
-   v1 内核 + v2 presenter 就变成 fail-closed，不再兼容——请确认这是你要的）。
-3. **`token`/`evict`/`target` 的所有权**：本文只把它们当作「v2 才有的三个 4 字节字段」。
-   它们的内核侧记账（`Kept`/`Pending`、`dbFlip`）与 presenter 侧偏移校验归 display 线；
-   GPU 线不实现、不改、只按尺寸承载。需要你确认这条边界，以及 `target` 为 0 时的定义
-   （「无 dbuf」还是「第一个 dbuf」——zizhan 注释是前者，`PongScanoutWire.h:12-17`）。
+display 已复（`reply-gpu-display-sync.md`，2026-11-21）：**覆盖无缺口**，并给出六个必填项——
+本文 v2 已按六项逐条落地（版本位置见 §2.1、权威见 §2.2、不匹配见 §2.3/§2.4、
+断言清单见 §2.5、27 侧读者行号与两处硬编码见 §2.6、NGPWait 见 §2.7）。
+原 v1 的三个问题，display 的复签已覆盖 1 与 2（接受「frame 布局版本」语义；两代包装都覆盖）；
+第 3 项（`token`/`evict`/`target` 的记账所有权）按原边界不变：**GPU 线只按尺寸承载**。
+
+仍待回答的一问：
+
+1. **「57 槽」指什么结构**。原文是「57 槽与 48 B 包装都能覆盖」，我在两棵树里都找不到 57：
+   zizhan `PongAdrenoScanout.cpp` 里是 `KeptCount=4`、`SlotMax=8`、`DbMax`，`PongScanoutWire.h`
+   里没有任何 57 字节记录。若它指「v2 的 56 B + 1 B 对齐」或某个我方没读到的表，请点名；
+   若不指结构而只是「两代都覆盖」的措辞，本提案无需改动。
+
+另两条 v1 遗留的判断，display 复签后仍然成立，一并记在这里免得重新讨论：
+
+- **降级路径必须存在**：v2 presenter 在 `target==0`（v1 内核）时走单 panel buffer 路径，
+  这条已在 §2.3 第三行定为「受支持的降级」，不是错误；
+- **`target==0` 的语义**按 zizhan 注释取「无 dbuf」（`PongScanoutWire.h:12-17`），
+  不取「第一个 dbuf」——两者差一次 `dbFlip`，行为差一帧。
 
 ---
 
 ## 7 与本提案相关的事实清单（供会签方独立复核）
 
-- 本树：`drivers/PongAdreno/PongScanoutWire.h:5,10-15`；`drivers/PongAdreno/PongAdrenoScanout.cpp:122,129,148-149`；
-  `drivers/PongMetal/PongMetalScanout.h:33,38,43-46,110,231`
+- 本树（与 27 树逐字节相同，行号通用）：`drivers/PongAdreno/PongScanoutWire.h:5,9-15`；
+  `drivers/PongAdreno/PongAdrenoScanout.cpp:122,129,148-149`；
+  `drivers/PongMetal/PongMetalScanout.h:33,38,43-46,110,229-231`
 - zizhan：`E:/hackios/UniXNU-zizhan/drivers/PongAdreno/PongScanoutWire.h:5,12-21`；
   `…/PongAdrenoScanout.cpp:98-107,1274,1297-1299,1368,1372`；
   `E:/hackios/UniXNU-zizhan/drivers/PongMetal/GpuScanoutPresenter.h:27-29,52,79,88,93`
+- NGP 时代的老客户端（本提案不覆盖，只用来回答 §2.7）：
+  `E:/hackios/UniXNU-pong/drivers/NativeMetal/GpuScanoutClient.h:70`；
+  方法号沿用关系见 `drivers/PongAdreno/submit/NativeAdrenoPublish.cpp:51`
 - 官方口径（该段属于「帧路径」与「内存/命令路径」）：`E:/hackios/UniXNU/docs/zh/porting/gpu.md#frame-path`、
   `#memory-path`

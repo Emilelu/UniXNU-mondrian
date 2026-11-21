@@ -101,3 +101,39 @@ skip: <tree>/osfmk/arm/io_map.c has no IO_MAP_SIZE; 12377 allocates every window
 - 平台线 fragment 用镜像路径 + 正文锚点绕过第 1 条，`check-lane-fragment.py --require-paths` 通过（2026-11-21）。
 - 平台线不依赖 `check-io-map-budget.py` 的结论：`docs/research/ios27/PLATFORM-BUDGETS.md` §1 是按调用点手工加的字节（BT 五窗口 3,187,200 B，XNU 自身三处因 ADT 无属性为 0 B）。
 - 两处修好之前，任何汇报里出现「io_submap 预算 ✅」都应视为无效证据。
+
+## 4. 复核记录（结论写回，改好/仍需改）
+
+### 2026-11-21T18:05 — 仍需改（两条都没到得了可复核的状态）
+
+Lead m00967 ② 说两处已在 main 修、让我拉下来重跑。实测：**修好的版本不在这台机器的任何 ref 上**，所以两条都还停在原状。
+
+| 检查 | 命令 | 输出 |
+| --- | --- | --- |
+| `origin/main` 有没有这个文件 | `git -C /e/hackios/k60-gates cat-file -p origin/main:scripts/check-lane-fragment.py` | `fatal: path 'scripts/check-lane-fragment.py' exists on disk, but not in 'origin/main'` |
+| `origin/main` 停在哪 | `git log -1 --format='%h %ad %s' --date=iso origin/main` | `4b744c2e 2026-11-20 23:14:52 +0800 ios27: the loader accepts the collection now…` |
+| 哪个分支带着这个文件 | `git branch -a --contains 5e0509e2` | `diag/menu-hold-20261121`、`remotes/origin/diag/menu-hold-20261121` |
+| 该文件最后一次改动 | `git log --all --oneline -- scripts/check-lane-fragment.py` | `5e0509e2 fix(lanes): resolve evidence from this checkout…`（其后无提交） |
+| 文件本身动过吗 | `ls -l --time-style=+'%m-%d %H:%M'` | `11-21 14:22`（与本线 m00962 首次复现时一致） |
+| `check-io-map-budget.py` | 同上 | `11-16 06:07`，最后改动 `caad898c`，其后无提交 |
+
+复现输出（gates HEAD `40dd9cf8`，脚本 `E:/k60-work/scratch/platform27/gate-repro.sh`，原样重跑）：
+
+```
+=== A. check-lane-fragment.py: an official: row is also scanned as a path
+FAIL: min-frag.toml: platform.official: evidence does not resolve: porting/platform.md
+RC_A=1
+=== A control: the same row written as a mirror path instead
+OK min-frag2.toml: seven steps, resolvable evidence, official anchors
+RC_A2=0
+=== B. check-io-map-budget.py on the 27 build tree (no IO_MAP_SIZE in 12377)
+submap 8388608 = 0x800000 (8388608 bytes) from default
+2 call site(s), 2 unresolved; resolved total 0x0 (0.00 MiB)
+✅ io_submap budget: every ml_io_map window fits
+RC_B=0
+```
+
+结论：**A 仍需改、B 仍需改**。本线 fragment 依旧按 §3 的绕法通过
+（`OK platform-27.toml: seven steps, resolvable evidence, official anchors`），
+所以本线不阻塞；要复核 Lead 的修复，需要他把包含这两处改动的提交推到
+`origin/main`（或任一条我能 fetch 到的分支），并告诉我分支名/提交号——本条复核到此为止。

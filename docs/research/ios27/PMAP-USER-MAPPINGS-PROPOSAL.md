@@ -1,7 +1,9 @@
 # `native_pmap_user_mappings`：补丁草案（未进 27 series）
 
-> 触发：Lead m00493 ①。本文与 `patches/proposed/9001-osfmk-arm-native-pmap-user-mappings.patch` 一起交；Lead 审完再决定进不进 `patches/xnu-12377/series`。
-> 前提：它**不在**我们的 27 系列里——`patches/xnu-12377/series` 101 条条目没有任何 pmap 导出；整个符号在 `E:/hackios/k60-gates/patches/` 下 0 命中。
+> 触发：Lead m00493 ①；Lead m00967 ② 要求把决议压成下面这一行。
+> 前提：它**不在**我们的 27 系列里——设备层 `patches/xnu-12377/series`（29 条）里 pmap 计数 `0`；iOS 16 系列 `patches/xnu/series`（240 条）里只有 `:33 non-apple-pmap-field.patch` 与 `:48 zzx-pmap-sync-64bit-pa.patch` 两条，都与本符号无关；该符号在整个 `patches/` 下只有 sheng 补丁里的两行（声明 `:988`、定义 `:990`）。
+
+> **结论：不进 series。** 三条判据，每条都指到行：① 全仓没有调用者——`native_pmap_user_mappings` 只出现在 `../UniXNU-sheng/patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch:988`（声明）与 `:990`（定义）以及本草案 `patches/proposed/9001-osfmk-arm-native-pmap-user-mappings.patch`，`patches/xnu-12377/series` 对它 `grep -ci pmap` = `0`；② 它不能原样进——sheng 的 hunk 锚在 `SCHED_HYGIENE_DEBUG` 之后，而 pristine `../xnu-12377/osfmk/arm/pmap/pmap.c` 只有 15,273 行、无该宏（旧侧 15,301 越界），已在草案里重锚到 `@@ -15270,4 +15270,78 @@`；③ 27 stage-0 的用户态路径不碰 BO view 释放，没有它也能启动。再进条件见 §5。
 
 ## 0. 一句话
 

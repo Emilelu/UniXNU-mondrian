@@ -1,0 +1,152 @@
+Subject: [PATCH PROPOSED] ADT: make the CPU topology a parameter, not an assumption
+
+DRAFT - proposal only. This is not in patches/xnu-12377/series and must not
+be applied to the tree before F1 exists. See
+docs/research/ios27/ADT-MULTICORE-PROPOSAL.md for the criteria, the
+verification ledger and the reason it cannot land yet.
+
+The Pong ADT contract refuses every topology but a single CPU:
+scripts/pong_adt_contract.py:158-163 raises "Pong single-core ADT must expose
+only /cpus/cpu0", and :189 reports 'cpu_count': 1 as a constant even if more
+nodes were present. Because scripts/make-pong-adt.py:290-292 audits its own
+output, an eight-core ADT cannot be produced at all today: --cpus 2 raises
+before the file is written, and the only path that writes one is
+--skip-image-verification, which also drops the Image4/nonce audit that the
+same tree needs to boot a root volume.
+
+The SM8475 is 1+3+4, and board.toml:210 still asks for eight CPUs, so the
+single-core lock is a real limit on the ladder rather than a property of the
+hardware. What must stay invariant is not the count: it is contiguous
+cpu0..cpuN-1 naming, one MPIDR affinity per node (Aff1 = index, 0x000..0x700),
+exactly one CPU in state running, and that CPU being MPIDR 0. Those four
+checks are stricter than the single-core test they replace, and they are what
+this draft adds.
+
+scripts/pong_adt_contract.py
+  audit_adt() gains expect_cpus=None: when the caller knows the requested
+  count (the generator always does) the ADT must match it exactly.
+  The topology block accepts 1..8 nodes, validates the four invariants above,
+  and rejects an unknown state string instead of silently counting it.
+  The report now carries cpu_count (measured), cpu_mpidrs and running_cpus,
+  so a wrong topology shows up in adt-audit.json rather than in a guess.
+  The checks list gains "CPU node count/affinity/state".
+
+scripts/make-pong-adt.py
+  The self-audit passes expect_cpus=args.cpus, which is what turns the
+  generator's own gate from "one core or nothing" into "as many cores as the
+  build asked for, validated".
+
+Not touched on purpose: build-native-bootimg-local.py:139 runs the second
+audit without expect_cpus (None -> any valid count). Passing args.cpus there
+is a one-line follow-up, but it belongs with whoever changes the build
+driver, not with this proposal.
+
+Verified against a pristine copy of both scripts with this patch applied:
+9/9 cases in k60-work/scratch/platform27/adt-multicore-selftest.py - 1/2/8
+cores accepted (MPIDR 0x0 .. 0x700, one running), and refused for a count
+mismatch, a second running CPU, a duplicate affinity, a stopped CPU0 and an
+unknown state. Generated artefacts stay under k60-work/scratch; no image,
+payload or kernel was built.
+
+diff --git a/scripts/make-pong-adt.py b/scripts/make-pong-adt.py
+index 6213e14..d04b3a5 100644
+--- a/scripts/make-pong-adt.py
++++ b/scripts/make-pong-adt.py
+@@ -289,7 +289,8 @@ def main():
+     # nonce subsystem requires CHMH even when the chip initializer allows AMNM.
+     if not args.skip_image_verification:
+         audit_adt(tree, require_manifest=bool(args.root_match_volume_uuid),
+-                  boot_manifest=args.boot_manifest.read_bytes() if args.boot_manifest else None)
++                  boot_manifest=args.boot_manifest.read_bytes() if args.boot_manifest else None,
++                  expect_cpus=args.cpus)
+     args.output.parent.mkdir(parents=True, exist_ok=True)
+     args.output.write_bytes(tree)
+     print(f'Pong ADT: {len(tree)} bytes; cpu_count={args.cpus}; dram={args.dram_size:#x}; '
+diff --git a/scripts/pong_adt_contract.py b/scripts/pong_adt_contract.py
+index 5173108..8304db8 100644
+--- a/scripts/pong_adt_contract.py
++++ b/scripts/pong_adt_contract.py
+@@ -47,7 +47,8 @@ def parse_adt(blob):
+     return nodes
+ 
+ 
+-def audit_adt(blob, *, require_manifest=True, boot_manifest=None):
++def audit_adt(blob, *, require_manifest=True, boot_manifest=None,
++              expect_cpus=None):
+     nodes = parse_adt(blob)
+     chosen = nodes['/chosen']
+     manifest = nodes['/chosen/manifest-properties']
+@@ -155,27 +156,48 @@ def audit_adt(blob, *, require_manifest=True, boot_manifest=None):
+                 [v.tag for v in match] != ['key', 'string']):
+             raise ValueError('Root must select the installed APFS volume UUID')
+         uuid.UUID(match[1].text)
+-    cpu_paths = [path for path in nodes
+-                 if path.rsplit('/', 1)[0] == '/cpus' and
+-                 path.rsplit('/', 1)[1].startswith('cpu') and
+-                 path.rsplit('/', 1)[1] != 'cpu-map']
+-    if cpu_paths != ['/cpus/cpu0']:
+-        raise ValueError('Pong single-core ADT must expose only /cpus/cpu0')
++    cpu_paths = sorted(path for path in nodes
++                       if path.rsplit('/', 1)[0] == '/cpus' and
++                       path.rsplit('/', 1)[1].startswith('cpu') and
++                       path.rsplit('/', 1)[1] != 'cpu-map')
++    # The topology is a parameter, not an assumption: the SM8475 clusters are
++    # 1+3+4, and a single-core boot is one point on that ladder rather than the
++    # only shape the generator may emit. What stays invariant is the naming
++    # (cpu0..cpuN-1, no gaps), the MPIDR affinity, and exactly one running CPU.
++    if not cpu_paths:
++        raise ValueError('Pong ADT must expose at least /cpus/cpu0')
++    if cpu_paths != ['/cpus/cpu%d' % index for index in range(len(cpu_paths))]:
++        raise ValueError('Pong ADT /cpus must be cpu0..cpuN-1 without gaps')
++    if len(cpu_paths) > 8:
++        raise ValueError('Pong ADT /cpus exceeds the SM8475 topology (8 CPUs)')
++    if expect_cpus is not None and len(cpu_paths) != expect_cpus:
++        raise ValueError('Pong ADT exposes %d CPU node(s), the build asked for %d'
++                         % (len(cpu_paths), expect_cpus))
+     cpu_phys_ids = set()
+     boot_cpus = 0
+-    for path in cpu_paths:
++    for index, path in enumerate(cpu_paths):
+         cpu = nodes[path]
+         width(cpu, 'reg', 4)
+         width(cpu, 'timebase-frequency', 4)
+         if struct.unpack('<I', cpu['timebase-frequency'])[0] != 19200000:
+             raise ValueError('Pong CNTV frequency must come from the SM8475 DT')
+         phys_id = struct.unpack('<I', cpu['reg'])[0]
++        if phys_id != index << 8:
++            raise ValueError('Pong MPIDR affinity of %s must be 0x%x, the DT '
++                             'generator writes Aff1 = index' % (path, index << 8))
+         if phys_id in cpu_phys_ids:
+             raise ValueError('Duplicate Pong MPIDR affinity in /cpus')
+         cpu_phys_ids.add(phys_id)
+-        if cpu.get('state') == b'running\0':
++        state = cpu.get('state', b'')
++        if state not in (b'running\0', b'stopped\0'):
++            raise ValueError('Pong ADT CPU state must be running or stopped')
++        if state == b'running\0':
+             boot_cpus += 1
+-    if boot_cpus != 1 or struct.unpack('<I', nodes['/cpus/cpu0']['reg'])[0] != 0:
++            if phys_id != 0:
++                raise ValueError('Pong ADT may only mark MPIDR 0 as running')
++    if boot_cpus != 1:
++        raise ValueError('Pong ADT must mark exactly one running boot CPU')
++    if nodes['/cpus/cpu0'].get('state') != b'running\0':
+         raise ValueError('Pong ADT must mark CPU0 as its unique running boot CPU')
+     return {'status': 'PASS', 'nodes': len(nodes),
+             'adt_sha256': hashlib.sha256(blob).hexdigest(),
+@@ -186,10 +208,13 @@ def audit_adt(blob, *, require_manifest=True, boot_manifest=None):
+             'amfi_only_platform_code': amfi_only_platform_code,
+             'packed_data_ramdisk': packed_ramdisk,
+             'system_volume_auth_blob_bytes': len(chosen['system-volume-auth-blob']) if 'system-volume-auth-blob' in chosen else 0,
+-            'cpu_count': 1,
++            'cpu_count': len(cpu_paths),
++            'cpu_mpidrs': sorted(cpu_phys_ids),
++            'running_cpus': boot_cpus,
+             'optional_identity_inputs': sorted(set(chosen) & {
+                 'unique-chip-id', 'chip-id', 'board-id', 'boot-manifest-hash'}),
+             'checks': ['ADT structure', 'Image4 mandatory inputs',
+                        'optional getter buffer widths', 'root match XML/UUID',
+                        'AMFI policy cell', '20G81 SystemVolume auth blob',
+-                       'DRAM cell widths', 'Pong timer cell', 'ephemeral Data RAMDisk range']}
++                       'DRAM cell widths', 'Pong timer cell', 'ephemeral Data RAMDisk range',
++                       'CPU node count/affinity/state']}

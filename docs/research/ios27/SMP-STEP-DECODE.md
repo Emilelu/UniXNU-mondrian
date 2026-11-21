@@ -242,6 +242,9 @@ python3 scripts/make-pong-adt.py --cpus 2 --dram-size 0x300000000 --skip-image-v
 # children: ['/cpus/cpu0', '/cpus/cpu1']   regs: ['00000000', '00010000']   ← Aff1 逐核 +1
 ```
 
+`regs` 那两串是 `reg` cell 的**原始字节**（`struct.pack('<I', i << 8)`）：`00010000` 按小端读是
+`0x100`，不是 `0x10000`。判读时一律按小端换算，别拿字符串当数值。
+
 所以 8 核路线要动三处，且必须一起动，否则「跳过图像验证」会成为唯一通路，而那条通路同时丢掉
 Image4 / nonce / manifest 绑定那一段检查：
 
@@ -252,6 +255,11 @@ Image4 / nonce / manifest 绑定那一段检查：
 
 推论：**只有「8 核 + 跳过图像验证」才产出的镜像，其日志不能用来判 SMP 是否修好**——它少掉的正是
 nonce/manifest 绑定那一段。要用它判 SMP，得先把上面三处改完再重出。
+
+这三处的改动已经作为**提案草案**写好（不进 series、不构建、不碰 `k60-gates` 脚本本体）：
+`patches/proposed/9002-adt-multicore-topology.patch` + `docs/research/ios27/ADT-MULTICORE-PROPOSAL.md`。
+草案把「核数」变成参数，同时把真正该守的不变量写进契约（MPIDR 唯一、`state` 恰一个 `running`
+且必须是 MPIDR 0、`cpu0..cpuN-1` 无空洞）。
 
 ## 7. 真开 SMP 之前必须先补的两件事
 

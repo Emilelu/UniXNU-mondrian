@@ -68,8 +68,11 @@ SWITCHES = (
         "known_reader": ("scripts/build-xnu-4k-baseline.sh",
                          "RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a"),
         "precondition": "the builder refuses this switch without XNU_NATIVE_AES=1 "
-                        "(scripts/build-xnu-generic.sh:221-227) and skips the whole block under "
-                        "XNU_SOURCE_STORAGE=1 (:728)",
+                        "(scripts/build-xnu-generic.sh:221-227), that flag is itself refused unless "
+                        "CRYPTO_BOOTSTRAP_MODE=prelinked and XNU_SOURCE_CORECRYPTO14=1 (:199-203), and the 27 "
+                        "defconfig sets CONFIG_XNU_CRYPTO_BOOTSTRAP=source (configs/mondrian_ios27_defconfig:12) "
+                        "with no SOURCE_CORECRYPTO14, so this switch aborts the build before any archive lookup; "
+                        "the block is also skipped under XNU_SOURCE_STORAGE=1 (:728), which is not set on 27",
     },
     {
         "area": "verified-root",
@@ -84,8 +87,10 @@ SWITCHES = (
         "known_output": "build/native-ufs",
         "known_reader": ("scripts/build-xnu-4k-baseline.sh", "build/native-ufs/libNativeUfs.a"),
         "precondition": "the builder refuses this switch without XNU_SOURCE_CORECRYPTO14=1 and "
-                        "XNU_CRYPTO_BOOTSTRAP=prelinked (scripts/build-xnu-generic.sh:287-291), and the policy "
-                        "bundle it verifies against (UniXNU/scripts/policies/ipados-27.0.1-24A446) is empty",
+                        "XNU_CRYPTO_BOOTSTRAP=prelinked (scripts/build-xnu-generic.sh:287-291); the 27 defconfig "
+                        "sets source (configs/mondrian_ios27_defconfig:12) and no SOURCE_CORECRYPTO14, so the "
+                        "switch cannot open as configured, and the policy bundle it verifies against "
+                        "(UniXNU/scripts/policies/ipados-27.0.1-24A446) is empty",
     },
 )
 

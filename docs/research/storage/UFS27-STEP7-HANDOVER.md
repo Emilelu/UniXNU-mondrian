@@ -210,3 +210,44 @@ this host:
 Until all four exist, the state stays PENDING and this sheet has nothing to change. If the
 §3 probe reports `MISSING cpo` or `BAD cpo` on the F3 tree, that is the pending reason to
 record — not a separate failure mode.
+
+## 9. PASS wording — same criterion, now with a sentence for the other outcome
+
+The criterion in §5 does not change. What was missing is a way to write the other result
+down, so this section fixes the words for PASS the way §1 fixed them for PENDING. Writing
+them now, before any pass exists, is the point: a pass sentence invented after the fact
+tends to describe more than the report shows.
+
+PASS report, same six lines:
+
+```
+⑦ judgement (F3): PASS
+  OBJ  = <path>          # .LDFLAGS + link.filelist, F3 tree
+  ARCH = <path>          # <bytes>, members: NativeUfs.o PongUfsTransport.o verified_root.o
+  OUT  = <path>          # archive_rc = 0, new_symbols = []
+  cpo  = <path>          # arguments/directory present
+  checker rc = 0; bluetooth-storage-link: OK
+  evidence = <report path>, <checker stderr/log path>, <the exact command line run>
+```
+
+Rules for what a PASS may claim:
+
+1. **Only the link.** The report shows that the eleven imports no longer enter the kernel
+   link. It does not show that the driver probes, that `start()` succeeds, that a volume
+   mounts, or that Data is readable. A PASS sentence ends at "no new undefined symbols".
+2. **Only the archive named.** If a second archive (Route D's bindings) was merged into
+   this one to reach `new == 0`, the sentence says so and names what was merged. If it was
+   not merged and `new == 0` anyway, the sentence says the imports dissolved without it —
+   because that would be surprising enough to re-check.
+3. **Only this tree.** The tree, its `cpo.json` and the archive stay named in the report.
+   24A446's inputs never appear in an F3 PASS line.
+4. **No `26/14`, no "closed" beyond the measurement.** The number that matters is
+   `new == 0` in this report; the historical pair stays out, for the same reason it stays
+   out of PENDING.
+5. **The evidence is the report, not the console.** Paste the report path and the exact
+   command. A PASS without an `OUT` file is a console transcript, and a console transcript
+   is not reproducible.
+
+If the composite command exits non-zero, the result is FAIL with the same six lines and
+`new_symbols` listed symbol by symbol — not PENDING. PENDING is reserved for missing
+inputs (§8), and the two words never apply to the same run.

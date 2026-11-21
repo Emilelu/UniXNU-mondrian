@@ -639,3 +639,50 @@ substituted for them. The full text and the input table are in
 `storage/UFS27-STEP7-HANDOVER.md` §8. Nothing in that answer contradicts this gate's rows:
 `tree`, `cpo`, `archive`, `stderr` are the same four, which is the reason the gate was
 written as rows rather than as a paragraph.
+
+## 15. The other two rows, re-checked beyond §7
+
+§7 listed the integration points. Re-reading them against the source turned up three
+facts that §7 did not have, and one of them changes what "deliberately excluded" means
+for RamBlock. All three are static: no build, no `ld`, no device.
+
+**One precondition gates both rows.** `XNU_NATIVE_AES=1` is itself refused unless
+`CRYPTO_BOOTSTRAP_MODE == prelinked` and `XNU_SOURCE_CORECRYPTO14 == 1`
+(`scripts/build-xnu-generic.sh:199-203`); the RamBlock gate then refuses unless
+`XNU_NATIVE_AES=1` (`:221-227`), and the VerifiedRoot gate refuses unless the same pair
+holds (`:287-291`). The 27 defconfig sets `CONFIG_XNU_CRYPTO_BOOTSTRAP="source"`
+(`configs/mondrian_ios27_defconfig:12`) and does not set
+`CONFIG_XNU_SOURCE_CORECRYPTO14` at all, while the 16.6.1 file sets both (`:12`
+`prelinked`, `:73` `SOURCE_CORECRYPTO14=n` — off, and `NATIVE_AES=n` at `:15`). So on 27
+**neither switch can be turned on at all**: the build aborts before any archive lookup,
+with "NativeRamBlock requires the qualified original storage/AES prelink closure" or "The
+owner crypto probe requires the qualified original prelinked crypto provider". Flipping
+them is a crypto-bootstrap decision, not a storage one — that is the single barrier, and
+it belongs to whoever owns the 27 bootstrap mode.
+
+**The persistence callback does not exist.** `drivers/NativeRamBlock/NativeRamBlock.cpp:35-40`
+declares six weak imports — `native_ufs_store_mode`, `_open`, `_read`, `_write`, `_sync`,
+`_gpt_check` — and `:69-70` routes the persisted read/write path through them. A grep of
+`drivers/` and `patches/` finds **no definition** of any of the six. `weak_import` means
+the link will not complain: the RAM disk builds, starts, and silently keeps every changed
+page in memory. The platform page's row asks for exactly this callback ("implement
+`native_ufs_store` persistence callback"); measured today, nothing in this tree implements
+it, so "persistent Data" has no writer.
+
+**The "source storage owns the RAM disk" exclusion is not in force, and its premise is
+false.** The builder skips RamBlock when `XNU_SOURCE_STORAGE=1` with the comment "the RAM
+disk is part of the source storage archive, which also starts it"
+(`scripts/build-xnu-generic.sh:220-221`). On 27 that variable is not set at all — the
+defconfig has no `CONFIG_XNU_SOURCE_STORAGE` — so the exclusion does not apply; and the
+archive it points at is built from three sources only
+(`scripts/build-native-ufs-linux.py:29-33`: `NativeUfs.cpp`, `PongUfsTransport.cpp`,
+`verified_root.c`), with no `NativeRamBlock.cpp`. Even with source storage on, the RAM disk
+would not be in that archive. The comment describes an arrangement that would have to be
+built, not one that exists.
+
+What that changes for planning: §7 said RamBlock is "a decision to record, not work to
+do". Half right. Turning the switch on is (today) impossible without the crypto decision,
+and turning it on would still deliver a RAM disk whose persistence is a row of null weak
+imports. VerifiedRoot's blocker stays what §7 said — an empty
+`UniXNU/scripts/policies/ipados-27.0.1-24A446/` — but it now has a second precondition in
+front of it, so producing the policy bundle alone would not make the switch usable.

@@ -126,11 +126,75 @@ sheng 那棵树没有中断拥有者，所以它把掩码一次性烧成 `0x33d2
    §2 逐行比，不能按调用点数比——这正是本文存在的理由。
 2. **中断拥有者的前置条件**：`grep -n "armcpu_spi_attach\|programMask\|irq_attached"` 在 27 树
    只有 `PongAdrenoCp.cpp:397-401`，在 sheng 树零命中——一条命令就能确认「27 有、sheng 没有」。
-3. **`CP_PROTECT` 两表逐行 diff**（本文未做，是下一步可离线完成的事）：
-   `PongAdrenoCpProfile.h:1187` 起的 45 条 vs `NativeAdrenoA740HwInit.h` 的
-   `NativeAdrenoA740Protect`。差异决定「越权访问被拦还是放行」，属 A730/A740 代际差。
+3. **`CP_PROTECT` 两表逐行 diff**（已完成，见 §7）：`PongAdrenoCpProfile.h:1187` 起的 45 条
+   vs `NativeAdrenoA740HwInit.h` 的 `NativeAdrenoA740Protect`，再 vs 上游
+   `a730_protect_regs`。结论是**只有 3 条不同、43 条同值**，且那 3 条不是代际差。
 
-## 7. 引用
+## 7. `CP_PROTECT`：两表逐行 diff（Lead 点名项）
+
+### 7.1 三张表在哪
+
+| 表 | 位置 | 条数 | 谁执行 |
+| --- | --- | --- | --- |
+| 27 侧 `PongCpProtect` | `drivers/PongAdreno/PongAdrenoCpProfile.h:1187-1235` | 45 | `PongAdrenoCp.cpp:247` 循环写 `GEN7_CP_PROTECT_REG+n` |
+| sheng 用的 `NativeAdrenoA740Protect` | `drivers/Adreno740/NativeAdrenoA740HwInit.h:119-166` | 46 | `GpuPowerProbe.cpp:1596` 循环写 `A740_CP_PROTECT+i` |
+| 上游 `a730_protect_regs` | `a6xx_catalog.c:1310-1360`（`DECLARE_ADRENO_PROTECT(a730_protect, 48)`，`:1362`） | 48 槽（45 实 + 45/46 两个 0 占位） | `a6xx_set_cp_protect()` |
+
+值的编码在 `a6xx_gpu.h:228-240`：`NORDWR = (1<<31) | (len & 0x3FFF) << 18 | (reg & 0x3FFFF)`，
+`RDONLY` 同式去掉 bit31。**区间编码在值里，不在下标里**——所以「27 从第 10 条起下标比 a730
+小 1」只是排版差，不产生语义差；真正的语义差看值。
+
+### 7.2 机械 diff 的结果：只有一组替换
+
+用 `E:/k60-work/scratch/prop/protect_diff.py`（读三张表、解码、按集合比）跑出来的：
+
+| 只有 a730/A740 有 | 只有 27 有 | 共同 |
+| --- | --- | --- |
+| `NORDWR(0x008de, len 1)` → 0x8de–0x8df 禁读禁写 | `RDONLY(0x008d0, len 0x170)` → 0x8d0–0xa3f 可读禁写 | 44 条 |
+| `RDONLY(0x008e7, len 0x14b)` → 0x8e7–0xa32 可读禁写 | — | — |
+
+也就是说：**45 条里 43 条与 a730 完全同值**（`PongCpProtect` 的 0–8、10–43、47 各条值都能在
+`NativeAdrenoA740Protect` 里逐字找到），差异集中在 0x8d0–0xa3f 这一段。
+
+### 7.3 这组替换在 A730 上的行为（逐段）
+
+| 地址段 | a730（上游） | 27 侧 | 在 K60 上会怎样 |
+| --- | --- | --- | --- |
+| 0x8d0–0x8dd、0x8e0–0x8e6 | **不保护**，`a6xx_catalog.c:1320` 写明「unprotected on purpose for tools like perfetto」 | 禁写 | 任何性能工具/自家探针写这两个窗（perf 计数器选择与状态就在这一带）会被 CP 拦下，触发 `CP_PROTECT_STATUS`，再走 `faulted()` → 设备 poison |
+| 0x8de–0x8df | 禁读禁写 | 可读 | 27 更松：CP 能读这两格 |
+| 0x8e7–0xa32 | 可读禁写 | 可读禁写（被 27 的 0x8d0–0xa3f 覆盖） | 相同 |
+| 0xa33–0xa3f | 不在此对里 | 禁写 | 27 更严，属无害加固 |
+
+### 7.4 「哪几条在 A730 上必须不同」的判定
+
+**结论：这两条不是 A730/A740 的代际差，而是上游与厂商的分歧——两棵树跑的都是 A730。**
+
+- sheng 的 `NativeAdrenoA740Protect` 注释就写着表来自 `a730_protect`，值与上游 `a730_protect_regs`
+  逐条一致；27 的 `PongCpProtect` 来自 Nothing Phone (2) 的 gen7 表——那也是 A730。
+- 因此「A730 必须不同」的候选只有一组：0x8d0–0xa3f 那一段。判定按三条可查事实：
+  1. 上游为 A730 明确放开了 perfetto 窗口（注释就在 `a6xx_catalog.c:1320`），K60 的 A730 与此同族；
+  2. 27 侧把这段封成禁写，换来的是「自家工具也写不进去」，没有任何 K60 证据表明需要这道封；
+  3. 27 侧同时把 0x8de–0x8df 从禁读禁写降为可读，这条方向上**没有收益也没有风险证据**，
+     但它说明这张表不是照着 a730 抄的，而是抄了另一台机器的表。
+- 建议（不改代码，等 Lead 定）：K60 用 `a730_protect_regs` 的 45 条实值替换
+  `PongCpProtect`；若要保留厂商封法，必须在飞行里先证明「写 0x8d0–0x8e6 会被拦且我们没有
+  这类写者」。当前 27 树没有任何地方写这一段（`grep` 这 8 个偏移的实现为零），所以替换是
+  纯放开，不会立刻引入越权写。
+- 附带一条：`PongCpProtect` 少了 a730 的两个 0 占位（下标 45/46），若将来按 a730 补齐到 48 槽，
+  必须整表对齐下标，否则第 46 条会落到别人的位置上。
+
+### 7.5 怎么复核（不靠记忆）
+
+```sh
+python3 E:/k60-work/scratch/prop/protect_diff.py
+# 期望输出：27 count 45 / a740 count 46 / only in 27: ('RDONLY','0x8d0','0x170','0xa40')
+#           only in a740: NORDWR 0x8de len 1、RDONLY 0x8e7 len 0x14b / common 44
+```
+
+脚本读的是三处的原文（27 的宏式表、A740 kit 的 `{index,value}` 表），不做人工转录；改任何一张表
+都会让这三行输出变化。
+
+## 8. 引用
 
 - `E:/hackios/UniXNU-sheng/package/GpuPowerProbe.cpp:1565-1645`（`gpuHwInit`）、`:1627-1690`（`gpuRestart`）、`:1774`（重启钩子注册）
 - `E:/hackios/xnekom-ios27/drivers/PongAdreno/PongAdrenoCp.cpp:213-267`（`hardware_init`）、`:397-401`（IRQ 拥有者）、`:62-66`（轮询回退）

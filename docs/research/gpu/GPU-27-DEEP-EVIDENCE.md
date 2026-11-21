@@ -40,8 +40,12 @@
 - **27 侧落点**：`patches/xnu/0600-k60-display-composition.patch:152`（默认值）+ `:863`（分支），
   以及 `…-pong-gpu-only-display.patch` 的 `if(pong_scanout_quarantined())return;`。
 - **谁交**：display 线（`MiniIOMobileFramebuffer.cpp` 侧补丁归它）+ Lead 裁决是否把默认翻成 1。
-- **交付物与判据**：飞行日志里出现 `gpuonly=1`，且 `… us each in the driver` 那格**不再出现**
-  （`usblog-20261119-151837/console.log:3341` 那条统计 5 秒一次，出现即证明 `drawLayer()` 还在跑）。
+- **交付物与判据**：离线草案已写——`patches/proposed/pong-gpu-only-default.patch`（把 `gpuOnly`
+  的初值从 0 翻成 1，`pong_gpu_only=0` 仍可退回；只改默认值，不动机制）。**display 有否决权**，
+  会签时可以整份丢掉而不影响树里其它东西。判据：飞行日志里出现 `gpuonly=1`，且
+  `… us each in the driver` 那格**不再出现**（`usblog-20261119-151837/console.log:3341` 那条统计
+  5 秒一次，出现即证明 `drawLayer()` 还在跑）。注意 `gpuonly=` 这个字段本身还没有任何人打印，
+  草案只改策略不打印，所以这一格在判读器里仍是 `unmeasured`。
 
 ### #3 `gperf` 调档在 27 板级路径里被调用
 
@@ -102,9 +106,13 @@
   A730 表则**不存在**（`derive-a730-hwinit.py` 的 REFERENCE 指向尚未生成的 `NativeAdrenoA730HwInit.h`）。
 - **27 侧落点**：`E:/hackios/xnekom-ios27/` 的板级配方（要与 sheng 的 `GpuPowerProbe.cpp` 对齐），
   或沿用 `drivers/PongAdreno/PongAdrenoCp.cpp:252` 的自有路径。
-- **谁交**：**Lead 裁决**（沿用 PongAdreno 的 A730 自有路径 vs 走官方 kit + 板级配方）。
+- **谁交**：**已定，无需裁决**：27 板自己的 `drivers/PongAdreno/PongAdrenoCp.cpp:213 hardware_init()`
+  已在核内跑完整个序列（唯一调用点 `:372`），不搬 `gpuHwInit()`。详见
+  `docs/research/gpu/GPU-27-HW-INIT-MIGRATION.md`。
 - **交付物与判据**：G-HWCG——启动后 `RBBM_CLOCK_CNTL` 回读 `0x8aa8aa82`，且 HWCg 12 行差异的
-  行为列由 A/B 上机填（现在只有 A(值)/C(行为)）。
+  行为列由 A/B 上机填（现在只有 A(值)/C(行为)）。**真正缺的是 hang 之后的重跑路径**：
+  sheng 有 `gpuRestart()`（`GpuPowerProbe.cpp:1627`，`:1640` 重跑 hw_init），27 树零命中；
+  离线草案 `patches/proposed/pong-adreno-restart.patch` 只补这一段（无调用者，不改 hw_init）。
 
 ### #8 面板节拍与 8,333 的差
 

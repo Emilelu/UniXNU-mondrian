@@ -110,6 +110,21 @@ git apply --check E:/hackios/k60-gpu-27/patches/proposed/pong-metal-client-gap.p
 若要在 27 上把这条彻底定死，证据是「一次带 `PONG SCANOUT: line clipped` 的飞行」或
 「拿到 XNU 源的 `IOLog` 上限并写进本表」——两者都还不在手上，所以这一格写未知，不写猜测。
 
+### 4.2 禁用通道：遥测行的 90 B 硬截
+
+`native_bridge_metal_telemetry()` 每行只留 90 B——`NativeBridgeMetalFrontend.mm:1606-1610`
+的 `char text[200];` 之后紧跟 `if (n > 90) n = 90;`——再由 `PongMetalPlugin.mm:60-73`
+的 `streamTelemetry()` 逐行喂给 `report()`。它看起来和 `report()` 是同一条路，实际短了一大截。
+
+- **可以走**：`S`/`T`/`G`/`J`/`V`/`N`/`F`/`W` 这些计数行。最长的 `S` 行实测
+  （`S c325/0 d325 p80 x4 R1040 D13292 F307 M4500k C0 B184`，usblog-20261119-151837
+  的 console.log 第 3440 行）不到 90 B。
+- **禁止走**：本轮要的两个字段。用户态速率行最坏 377 B、内核帧行最坏 288 B，塞进
+  90 B 会被静默切一半，而且**切完仍是一行合法文本**：判读器读不到 `client=` / `offers=`
+  只会在 `unmeasured` 里列一项——于是飞行一场，结论是「没观测到」，真因是仪表自己砍掉了。
+- 这一节是禁令不是备忘：将来若有人把速率行改道遥测，`§4` 的表和 `judge-gpu27.py` 的
+  `unmeasured` 会同时变化，但**不会报错**。发现的唯一线索是「行比字段表短」。
+
 ## 5. 漂移时怎么复核（不靠记忆）
 
 1. `diff -u E:/hackios/k60-gpu-27/<file> E:/hackios/xnekom-ios27/<file>`——先看是否仍逐字节相同；

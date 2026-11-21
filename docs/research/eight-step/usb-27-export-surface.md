@@ -181,7 +181,7 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 
 脚本：`scripts/usb27/kc-surface.py`（只读，不构建；`sha256 a0551472207515e23a001c3aae6d0ca447a9004cebed73df016103967eba2f71`）。
 数据：`docs/research/eight-step/usb-27-providers.tsv`（`sha256 4a27b221bb2e374e97cfa775b782b31f8d099031c3049d403be9aaf725c829c2`）。
-五个子命令（`kexts`/`surface`/`object`/`roots`/`adt`）都可独立跑，`RESULT PASS|FAIL (n)`，exit 0/1（解析错误 exit 2）。`adt` 的自证在 `scripts/usb27/test-adt-check.sh`（`sha256 8dbfaa96db03cdabfb4039bc61e56273277b24c1a6bbf8fd909095b6bc3d8f1e`），真 dtb 上的判别力在 `scripts/usb27/test-adt-real.sh`（`sha256 39615d281fe2b6babbc88ebbcc3fe915d26b182fd235b03c0c6ab72b773f5303`），构建请求在 `scripts/usb27/qdw3-build-request.py`（`sha256 f5326e9e595165b7caec8cbf580c05759d7f06699e3339981e186f218861056d`）。
+五个子命令（`kexts`/`surface`/`object`/`roots`/`adt`）都可独立跑，`RESULT PASS|FAIL (n)`，exit 0/1（解析错误 exit 2）。`adt` 的自证在 `scripts/usb27/test-adt-check.sh`（`sha256 8dbfaa96db03cdabfb4039bc61e56273277b24c1a6bbf8fd909095b6bc3d8f1e`），真 dtb 上的判别力在 `scripts/usb27/test-adt-real.sh`（`sha256 39615d281fe2b6babbc88ebbcc3fe915d26b182fd235b03c0c6ab72b773f5303`），构建请求在 `scripts/usb27/qdw3-build-request.py`（`sha256 1a1c452302ff8dd2a65eaebc9701d66915776e84d319a085a1747aae34d18c47`）。
 以下命令都从 `E:/hackios/k60-usb27` 出发、在 WSL 里执行（`llvm-nm-18` 与 `python3` 只在 WSL 侧有）。
 
 | # | 命令 | 期望输出 | 判据 |

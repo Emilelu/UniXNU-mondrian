@@ -13,18 +13,23 @@ force-loads, and does the kernel accept the driver once it does?** Today the
 answer is no, for four independent reasons — and they are independent, which is
 why fixing one does not move the gate.
 
-## 1. The gate is five stages, and four of them are broken
+## 1. The gate is five stages, and four of them were broken
 
-| # | stage | owner | anchor | today |
+| # | stage | owner | anchor | now (after the 2026-11-21 fix) |
 |---|---|---|---|---|
-| 1 | selection | framework `components.selected()` | `board.toml:361` + `UniXNU/scripts/unixnu/components.py:22-45` | **GAP** — the identifier cannot resolve |
-| 2 | recipe | framework `kernel.archive_plan()` / `build_archives()` | `board.toml:384` + `UniXNU/scripts/unixnu/kernel.py:107-175` | **GAP** — nothing writes the archive |
-| 3 | switch | device configs | `configs/mondrian_ios27_defconfig:21` | **GAP** — switched on against no producer |
-| 4 | link | framework generic builder | `scripts/build-xnu-generic.sh:646-653` | OK — path and guard are already right |
-| 5 | bind | 27 XNU patch series | `iokit/KernelConfigTables.cpp` of `xnu-12377.121.6` | **GAP** — no personality for the `ufshc` node |
+| 1 | selection | framework `components.selected()` | `board.toml:366` + `UniXNU/scripts/unixnu/components.py:22-45` | **fixed** — the list no longer names a legacy alias |
+| 2 | recipe | framework `kernel.archive_plan()` / `build_archives()` | `board.toml:389` + `UniXNU/scripts/unixnu/kernel.py:107-175` | closed on purpose; the F3 diff is one entry |
+| 3 | switch | device configs | `configs/mondrian_ios27_defconfig:25` | **fixed** — off, with the reason in the comment |
+| 4 | link | framework generic builder | `scripts/build-xnu-generic.sh:646-653` | OK — path and guard were already right |
+| 5 | bind | 27 XNU patch series | `iokit/KernelConfigTables.cpp` of `xnu-12377.121.6` | patch ready (0542), not in series until F3 |
 
-Stage 4 is the only finished piece, and it is the one the Lead's brief currently
-blames. Read the block:
+Before the fix the same table read: selection GAP, recipe GAP, switch GAP
+(switched on against no producer), link OK, bind GAP. The line numbers moved
+because the fix added comment lines; `board.toml:361` and `:384` in the quoted
+output below are the pre-fix ones.
+
+Stage 4 was the only finished piece, and it is the one the Lead's brief blamed.
+Read the block:
 
 ```sh
 sed -n '646,653p' scripts/build-xnu-generic.sh
@@ -39,12 +44,20 @@ identifier survives only in the copies of this script under
 this branch and `main` already carry the corrected path. That identifier is also
 why the gap looked like a missing file rather than a missing recipe.
 
-## 2. Stage 1 — the selection identifier cannot resolve
+One correction to how a reader should hold this file: `scripts/build-xnu-generic.sh`
+is a *vendored copy* — `scripts/refresh-xnu-generic.py:15` (TARGET) overwrites it
+from a UniXNU checkout, because a device file named `build-xnu-4k-baseline.sh`
+shadows the framework's builder in the assembled tree (P-255). So a change to the
+link block belongs in the framework and arrives here through that refresh, while
+`board.toml` and `configs/` belong to this repository. That is the split §10's
+rulings use.
 
-`board.toml:361` reads `include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink",
-"NativeUfs"]`. `NativeUfs` is **not** a catalog id: it is the `legacy_name` of
-`ShengUfs` (`UniXNU/components.toml:121`, `legacy_name` at `:139`), whose
-archive is `build/sheng-ufs/libShengUfs.a` with
+## 2. Stage 1 — the selection identifier could not resolve (fixed)
+
+`board.toml:366` used to read `include = ["ArmDTPlatform", "ArmCpu",
+"XnuPrelink", "NativeUfs"]`. `NativeUfs` is **not** a catalog id: it is the
+`legacy_name` of `ShengUfs` (`UniXNU/components.toml:121`, `legacy_name` at
+`:139`), whose archive is `build/sheng-ufs/libShengUfs.a` with
 `legacy_outputs = { "build/native-ufs/libNativeUfs.a" = "build/sheng-ufs/libShengUfs.a" }`
 (`:140`). A legacy identifier is accepted only when the framework already holds
 a *module* for that component — `components.selected()` at
@@ -52,11 +65,11 @@ a *module* for that component — `components.selected()` at
 requires the module's git identity to be
 `github.com/unixnu/shengufs` (or `…/nativeufs`) — and modules come from feeds.
 This repository's `feeds.toml` declares exactly one source, `sm8475`; no feed,
-submodule or `board.toml` pin names the ShengUfs repository. So selection aborts
-before any recipe runs:
+submodule or `board.toml` pin names the ShengUfs repository. So selection aborted
+before any recipe ran:
 
 ```sh
-python3 scripts/check-ufs27-storage-selection.py
+python3 scripts/check-ufs27-storage-selection.py     # before the fix
 #   GAP  selection   board.toml:361 include 'NativeUfs' is ShengUfs's legacy name, but no feed
 #                    or submodule names github.com/unixnu/shengufs -- components.selected()
 #                    raises 'unknown component: NativeUfs' before any recipe runs
@@ -64,18 +77,24 @@ python3 scripts/check-ufs27-storage-selection.py
 
 Confirmed against the framework itself, with `modules = {}` (the true state of a
 checkout that never fetched that component): `unknown component: NativeUfs`.
+The route that reaches it is the real one, not a hypothetical: the 27 line builds
+through the framework — `scripts/build-ios27-linux.sh:60` runs
+`python3 ./unixnu build kernel --device "$ROOT"` — so this abort stops the whole
+profile, not just the storage row.
 
-Two shapes can fix it, and they are not equivalent:
+Two shapes could have fixed it, and they are not equivalent:
 
-- **A (recommended).** Drop `"NativeUfs"` from `board.toml:361`; build the
+- **A (the ruling).** Drop `"NativeUfs"` from the include list; build the
   vendored `drivers/NativeUfs` through a script recipe (stage 2). This keeps the
   driver identity that the archive, the `#include`s and `patches/wifi/0004` all
-  assume, and it needs no feed and no framework change.
+  assume, and it needs no feed and no framework change. **Applied 2026-11-21**:
+  the include is `["ArmDTPlatform", "ArmCpu", "XnuPrelink"]` and the comment above
+  it records why the identifier must not come back.
 - **B.** Add a feed that fetches `https://github.com/UniXNU/ShengUfs` so the
   alias resolves. That builds *Sheng's* driver from `drivers/ShengUfs` and
   symlinks its archive onto `build/native-ufs/libNativeUfs.a`. It is the 16.6.1
-  mechanism, but it swaps which driver runs — a decision for whoever owns the
-  driver, not a config edit.
+  mechanism, but it swaps which driver runs — rejected on 2026-11-21 because it
+  would move the LUN table that already merged on `main`.
 
 ## 3. Stage 2 — nothing writes the archive
 
@@ -88,15 +107,18 @@ required (`:72`). Measured against the 24A446 object tree it produces
 10,936 B and a 556,720-byte archive — within eight bytes of the 16.6.1 recipe
 (`docs/engineering/IOS27.md:376-377`).
 
-The 27 profile never calls it. `board.toml:384` lists eight entries
+The 27 profile never calls it. `board.toml:389` lists eight entries
 (`build-corecrypto-14.py`, `build-firehose-stub.py`, …) and no storage recipe,
 while `defconfig:14` already carries `CONFIG_XNU_BUILD_ARCHIVES=y`, so the
-archive stage does run — it just has nothing to run for storage.
+archive stage does run — it just has nothing to run for storage. That is correct
+for the closed state: the switch is off (§4), so nothing links and no recipe is
+needed.
 
-Fix: one list entry, with the output directory the builder reads:
+Fix, for F3 and only together with the switch: one list entry, with the output
+directory the builder reads:
 
 ```toml
-# board.toml:384, 27 override [os_overrides."ios-27.0.1-24A446".kernel].archives
+# board.toml:389, 27 override [os_overrides."ios-27.0.1-24A446".kernel].archives
 archives = [ … , "build-fileset-release-reference.py --tree .",
              "build-native-ufs-linux.py --tree . --out build/native-ufs"]
 ```
@@ -108,22 +130,64 @@ Script entries are ordinary `[kernel] archives` citizens
 `{'tree','component','out'}` substitution and then errors on any `*_ARCHIVE`
 that never appeared), so this needs no framework edit.
 
-## 4. Stage 3 — the switch contradicts everything above it
+## 4. Stage 3 — the switch and the archive must agree, and one of them moved
 
-`configs/mondrian_ios27_defconfig:21` is `CONFIG_XNU_NATIVE_UFS=y` already, and
-the comment above it (`:17-20`) explains why that is premature today: the eleven
-`IOBlockStorageDevice` imports need the fileset-entry route first. A switch that
-is on while its archive has no producer is the worst of the three states: it
-turns a missing recipe into a build failure at the very end.
+`configs/mondrian_ios27_defconfig:25` was `CONFIG_XNU_NATIVE_UFS=y` with no
+producer anywhere in the profile — a switch that turns a missing recipe into a
+link failure at the very end, after every other stage has run. It is `n` as of
+2026-11-21, with the Lead's reason written above it:
 
-Pick one pair, never a mixed one:
+```sh
+sed -n '17,26p' configs/mondrian_ios27_defconfig
+#   ... the eleven IOBlockStorageDevice symbols it imports are not exported
+#   by the kernel collection, so the link needs the fileset-entry route first
+#   (the bt line owns that route as of 2026-11-21).
+#   Off on purpose: turning it on before build/native-ufs/libNativeUfs.a has a
+#   producer makes the builder's test -f (build-xnu-generic.sh:648) fail, so the
+#   switch would only open onto a missing artefact.
+#   CONFIG_XNU_NATIVE_UFS=n
+```
 
-| state | defconfig | `board.toml:361` | `board.toml:384` | personality patch |
+A 27 tree is meant to be in one of two coherent states, never a mixture:
+
+| state | defconfig | `board.toml:366` include | `board.toml:389` archives | personality patch |
 |---|---|---|---|---|
-| stage 0 (today's intent) | `n` | no `"NativeUfs"` | no recipe | in series, inert |
-| F3, storage on | `y` | no `"NativeUfs"` | recipe present | in series, `-DXNU_NATIVE_UFS=1` injected |
+| closed (now) | `n` | no `"NativeUfs"` | no recipe | on the branch, inert |
+| open (F3) | `y` | no `"NativeUfs"` | `build-native-ufs-linux.py --tree . --out build/native-ufs` | in series, `-DXNU_NATIVE_UFS=1` injected |
 
-The right-hand column matters because the generic builder already injects the
+Note that the include list stays without `"NativeUfs"` in *both* states: under the
+Lead's ruling of 2026-11-21 the driver is compiled by that script recipe out of
+the vendored `drivers/NativeUfs/`, not resolved as a catalog component, so the
+identifier has no business in the list at any stage. Ruling 1 also keeps
+`feeds.toml` untouched: fetching `UniXNU/ShengUfs` would swap the driver source
+and put the LUN table that already merged on `main` (`feat/ufs-verified-table`,
+three-window contract, `check-ufs-verified-table.py`) at risk for no gain in this
+stage.
+
+The three states are graded, not described. One command builds three copies of
+the profile differing only in these two edits and checks the verdict each must
+produce:
+
+```sh
+cd /e/k60-work/scratch/ufs27-f3matrix && python3 make.py && sh run.sh
+```
+
+```
+=== closed (expect 0 gap(s))
+PASS: closed -> 0 gap(s), exit 0
+=== open (expect 0 gap(s))
+PASS: open -> 0 gap(s), exit 0
+=== mixed (expect 1 gap(s))
+  GAP  producer    configs/mondrian_ios27_defconfig:25 CONFIG_XNU_NATIVE_UFS=y, but board.toml:389 names no
+       build-native-ufs-linux.py --out build/native-ufs ... the switch opens onto a missing artefact
+PASS: mixed -> 1 gap(s), exit 1
+```
+
+So the F3 change is exactly two edits landed together — the recipe entry and the
+switch — and `scripts/check-ufs27-storage-selection.py` refuses a tree that has
+only one of them.
+
+The personality column matters because the generic builder already injects the
 define — `scripts/build-xnu-generic.sh:228-230` appends `-DXNU_NATIVE_UFS=1` to
 `PERSONALITY_CFLAGS` and `:232` hands it to
 `KernelConfigTables.cpo_CFLAGS_ADD`. The define therefore reaches
@@ -210,7 +274,7 @@ row 1: match dense/packed Data plus the ADT placeholder, implement the
 | integration point | anchor | state on 27 |
 |---|---|---|
 | catalog identity | `UniXNU/components.toml:272` (`build/ram-block/libRamBlock.a`, `legacy_name = "NativeRamBlock"` → `build/native-ram-block/libNativeRamBlock.a`) | present, unselected |
-| profile selection | `board.toml:361` include list | absent; the vendored copy is `drivers/NativeRamBlock/` (catalog path is `drivers/RamBlock`) |
+| profile selection | `board.toml:366` include list | absent; the vendored copy is `drivers/NativeRamBlock/` (catalog path is `drivers/RamBlock`) |
 | builder gate | `scripts/build-xnu-generic.sh:215-222` (`XNU_NATIVE_RAM_BLOCK`, requires `XNU_NATIVE_AES=1`), `:727-751` (link, audited against `bindings.json` when `XNU_NATIVE_VIRTIO_BLOCK=1`) | dead code — switch unset |
 | personality | `patches/xnu/native-ram-block-personality.patch` (`IOClass = NativeRamBlock; IOProviderClass = IOResources; IOResourceMatch = IOBSD`) | 16-line only, not in the 27 series |
 | design exclusion | `:727` also requires `XNU_SOURCE_STORAGE != 1` | on the source-storage line RamBlock is *deliberately* not linked: the storage stack owns the RAM disk |
@@ -276,24 +340,38 @@ enforces, since the producer copies its flags verbatim.
 
 | claim | command | expected | criterion |
 |---|---|---|---|
-| selection, production and switch state | `python3 scripts/check-ufs27-storage-selection.py` | 3 GAP lines + `3 gap(s)` | exit 1 today; exit 0 only when all three close |
-| recommended shape closes them | `bash E:/k60-work/scratch/ufs27-selcheck/run.sh` | `0 gap(s)` | exit 0 — the edited copy, never the real board |
+| the tree is in a coherent state (closed or open, never mixed) | `K60_FRAMEWORK_REPO=E:/hackios/UniXNU python3 scripts/check-ufs27-storage-selection.py` | `ufs27-storage-selection: 0 gap(s)`, one `producer OK closed state` line, one `link NOTE` | exit 0; a `GAP` line means the switch and the archive disagree |
+| all three states behave as described | `cd /e/k60-work/scratch/ufs27-f3matrix && python3 make.py && sh run.sh` | `PASS: closed -> 0`, `PASS: open -> 0`, `PASS: mixed -> 1`, matrix exit 0 | an `exit 1` here means the checker stopped distinguishing the states |
+| the F3 diff is the whole F3 change | `python3 make.py` writes `open/` from the real files plus two edits | `open/` grades `0 gap(s)` with an `open state` line | no other edit is needed |
 | framework accepts the shape | probe in §3 (`components.selected` + `kernel.archive_plan` with `modules={}`) | `selected: [ArmDTPlatform, ArmCpu, XnuPrelink]`, `plan: 7 entries; last = ('script', 'build-native-ufs-linux.py --tree . --out build/native-ufs')` | no `unknown component`, no `needs component entries` |
 | personality patch applies | `patch -p1 --dry-run -i 0542-k60-native-ufs-personality.patch` in a copy of `xnu-12377.121.6` | `checking file iokit/KernelConfigTables.cpp` | exit 0, no fuzz, no reject |
 | personality content | `grep -c "IONameMatch'     = ufshc" iokit/KernelConfigTables.cpp` | `1` | exactly one entry, inside `#if defined(XNU_NATIVE_UFS)` |
 | 27 series untouched | `git -C . diff --stat origin/feat/xnu27-data-gate -- patches/` | empty | stage 0 must not change shape |
 
-## 10. Decisions this row needs from the Lead
+## 10. Rulings of 2026-11-21, and what each one changed here
 
-1. **Stage 1 route** — A (script recipe, keep the vendored driver) or B (feed
-   ShengUfs, swap driver identity). Everything in §3–§5 works with either, but
-   only A keeps `drivers/NativeUfs`.
-2. **Stage 3 timing** — is F3 the moment `CONFIG_XNU_NATIVE_UFS` stays `y`, or
-   does the switch go to `n` until the storage-abi bindings object exists? The
-   patch in §5 is inert either way; the archives entry is not.
-3. **RamBlock** — record "excluded by design on the source-storage line" as the
-   27 answer for that platform row, or schedule the `XNU_SOURCE_STORAGE=0` path
-   as a separate configuration to keep the `native_ufs_store` callback alive.
+1. **Stage 1 route — A, the script recipe.** Keep the vendored `drivers/NativeUfs/`
+   and compile it with `scripts/build-native-ufs-linux.py`; do not fetch
+   `UniXNU/ShengUfs`, because that swaps the driver source under a LUN table that
+   already merged on `main`. Applied: `"NativeUfs"` is out of
+   `board.toml:366` for good (it is a legacy alias, not a component id).
+2. **Stage 3 — off until the producer exists.** `CONFIG_XNU_NATIVE_UFS=n` at
+   `configs/mondrian_ios27_defconfig:25` with the reason in the comment, so the
+   failure the Lead named ("opens onto a missing artefact") is documented where
+   the next reader will hit it. The F3 diff is the two edits in §4, landed
+   together; the three-state matrix in §4 is the check.
+3. **The eleven symbols go to the bt line, Route D.** This row does not build a
+   second binding path. The handover is the five-stage table above plus §6; the
+   patch `0542-k60-native-ufs-personality.patch` stays on this branch and out of
+   `patches/xnu-12377/series` until F3.
 
-Not needed from anyone: the personality patch (ready), the selection mechanism
-(measured), the link path (already correct).
+Open inside this row, not blocked on anyone: the F3 diff itself (two lines, both
+written down in §4), and the archive check once a 27 build leaves a
+`KernelConfigTables.cpo.json` behind — only then can `build-native-ufs-linux.py`
+run, and only then does the three-member/556,720-byte expectation in §8 become
+testable.
+
+Everything else that used to be listed here is settled or measured: the
+personality patch is ready and dry-run verified, the selection mechanism is
+measured against the framework's own code, and the link path was never the
+broken piece.

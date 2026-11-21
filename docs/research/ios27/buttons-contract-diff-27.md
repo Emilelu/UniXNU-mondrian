@@ -24,13 +24,20 @@
 | 6 | 默认开关 | 编译期 `enabled=1`（`pong_buttons.c:163`） | sheng 用 `sheng-buttons=1` 门控（`ButtonProbe.cpp:216`） | 采用 16 的形状，不加 boot-arg |
 | 7 | ADT `/arm-io/pong-buttons` | 16 仓 `board.toml` **无**（只有 `[adt.buttons.*]`：`:268`、`:272`、`:275`）；节点只在 `/opt` 装配输入里 | 27 仓 `board.toml:284-299` 六属性（core-base/cnfg-base/observer-base `u64`，ee/pon-ppid/volume-up-ppid `u32`），`:285-287` 记着重建丢节点的教训 | 27 侧已补，**须当作硬前提** |
 | 8 | ADT `/buttons` | `board.toml:268-276`（`compatible`/`device_type`/`button-names`=hold,voldown,volup/`home-button-type`=2） | `board.toml:307-316` 同四字段；两侧同一生成点 `scripts/unixnu/devicetree.py:388-390`（只在 platform 里有 `buttons` 时才写该节点） | 不变（27 无缺项） |
-| 9 | 全面屏手势语义 | `docs/zh/guide/mobilegestalt.md:42-44`：`/buttons` 无 `menu` + `home-button-type=2` ⇒ 锁屏上滑 | 27 侧内核源里无此项；语义由官方页规定（`docs/guide/mobilegestalt.md:27` 与 `:36-44`：SpringBoard 经 `BSPlatform homeButtonType` 读取，2 ⇒ 锁屏上滑） | **27 二进制未验**（本线不构建、不上机） |
+| 9 | 全面屏手势语义 | `docs/zh/guide/mobilegestalt.md:42-44`：`/buttons` 无 `menu` + `home-button-type=2` ⇒ 锁屏上滑 | 27 侧内核源里无此项；语义由官方页规定（`docs/guide/mobilegestalt.md:27` 与 `:36-44`：SpringBoard 经 `BSPlatform homeButtonType` 读取，2 ⇒ 锁屏上滑） | **待验对象**：24A446 SpringBoard 二进制里的 `homeButtonType` 串 + 一次锁屏上滑解锁 |
 | 10 | 长按复位钩子 | 无（`patches/buttons/README.md:116-124` 记为 out of scope） | 无 | 不变（不做） |
 
 ## 三、27 侧仍未证实的点（写清归属，不写成事实）
 
-- **`home-button-type=2` 在 27 的 SpringBoard 里是否同样生效**：27 内核 feed 里找不到读该属性的代码（属性是给用户态平台层读的，不在内核里）；语义由官方页规定——`docs/guide/mobilegestalt.md:27`（属性表：值 2 = 无机械 Home 键、用滑动手势）与 `:36-44` 节（`:44`「SpringBoard 通过 `BSPlatform homeButtonType` 读取该值。值为 2 时，锁屏使用上滑手势」）。**27 侧 SpringBoard 二进制未验证**，理由是本线不构建、不上机，且 27 无串口日志（P-300）。
-- **内核侧 Consumer 设备是否需要额外属性才被 backboardd 接受**：27 的 stock 路径本来就是内核 HID 设备，`NativeHidInput.cpp:446` 只要求 `HIDDefaultBehavior`；这条按 sheng 的推算成立，待 27 侧实机 IORegistry 验证（本线无构建、无上机）。
+### 3.1 `home-button-type = 2` 在 27 的 SpringBoard 里是否同样生效
+
+- **依据**：27 内核 feed 里没有读该属性的代码——这是对的，属性由用户态平台层读；语义由官方页规定：`E:/hackios/UniXNU/docs/guide/mobilegestalt.md:27`（属性表：值 2 = 无机械 Home 键、用滑动手势）与 `:36-44`（`:44`「SpringBoard 通过 `BSPlatform homeButtonType` 读取该值。值为 2 时，锁屏使用上滑手势」）。ADT 侧已闭合：`/buttons` 四字段在 27 生成的 ADT 里逐字节存在（`adt-27-buttons-check.md`）。
+- **待验对象**：① 24A446 的 SpringBoard 二进制里有没有 `homeButtonType` 选择器/字符串（`strings -a .../SpringBoard | grep -c homeButtonType`）；② 上机后锁屏**上滑解锁**一次（成功/失败）。
+
+### 3.2 内核侧 Consumer 设备是否需要额外属性才被 backboardd 接受
+
+- **依据**：27 的 stock 路径本身就是内核 HID 设备（`IOHIDDevice.cpp:1494`）；sheng 是唯一同 OS profile 且**独立**的实现（`E:/hackios/UniXNU-sheng` @ a68ee4e），其 `start()` 只要求 `HIDDefaultBehavior`（`NativeHidInput.cpp:446`），报告 2 的 Consumer 项 `0x40/0x30/0xe9/0xea` 与 K60 需要的三键一一对上（`NativeHidInput.cpp:47-49`）。
+- **待验对象**：① `ioreg -p IOService -c IOHIDDevice -r -n "Offline HID input probe"` 的实例与属性行；② 按键按下后 `ioreg -p IOService -c IOHIDEventDriver` 下该设备 event driver 是否存在并收到事件（对应 `native_buttons_stats` 计数变化）。
 
 ## 四、这条线上要动的东西（按优先级）
 

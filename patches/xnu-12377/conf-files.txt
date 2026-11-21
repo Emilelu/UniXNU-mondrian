@@ -3,3 +3,4 @@
 # Only files that exist in the assembled tree are appended; the hook reports the rest.
 bsd/dev/k60_usblog.c			standard
 bsd/dev/k60_console_export.c		standard
+bsd/dev/k60_usblog_reset.c standard

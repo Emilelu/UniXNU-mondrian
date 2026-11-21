@@ -137,3 +137,8 @@ armcpu-sleep-hook.patch
 # 0546 does not declare on its own line).  bsd/conf/files dropped again:
 # append-conffiles.py owns those lines.
 0548-k60-console-export-27.patch
+
+# Reset from kernel context for the automatic-return path. Ported from 16-series
+# 0308 without its SPMI/IMEM reason recorder (decision A, 2026-11-22): the write
+# cannot be observed on stage-0 and HR-01 forbids it before Data is mounted.
+0549-k60-usblog-reset-27.patch

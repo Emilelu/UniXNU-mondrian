@@ -1,6 +1,6 @@
 --- a/osfmk/console/video_console.c
 +++ b/osfmk/console/video_console.c
-@@ -105,6 +105,14 @@
+@@ -104,6 +104,14 @@
  #include <sys/kdebug.h>
  
  #include "iso_font.c"
@@ -15,7 +15,7 @@
  #if defined(XNU_TARGET_OS_OSX)
  #include "progress_meter_data.c"
  #endif
-@@ -1338,7 +1346,7 @@
+@@ -1336,7 +1344,7 @@
  		return;
  	}
  
@@ -24,7 +24,7 @@
  	rowline = vinfo.v_rowscanbytes >> 2;
  	rowlongs = vinfo.v_rowbytes >> 2;
  
-@@ -1391,7 +1399,7 @@
+@@ -1389,7 +1397,7 @@
  	current.charptr = renderptr;
  	theChar = iso_font + (ch * ISO_CHAR_HEIGHT);
  
@@ -33,7 +33,7 @@
  		unsigned char mask = 1;
  		do {
  			switch (newdepth) {
-@@ -1428,7 +1436,7 @@
+@@ -1426,7 +1434,7 @@
  		theChar = (uint32_t*)(vc_rendered_char);
  	}
  	where = (uint32_t*)(vinfo.v_baseaddr +
@@ -42,7 +42,7 @@
  	    (xx * ISO_CHAR_WIDTH));
  
  	if (!attrs) {
-@@ -1496,7 +1504,7 @@
+@@ -1494,7 +1502,7 @@
  		theChar = (uint32_t*)(vc_rendered_char);
  	}
  	where = (uint32_t*)(vinfo.v_baseaddr +
@@ -51,7 +51,7 @@
  	    (xx * ISO_CHAR_WIDTH * 2));
  
  	if (!attrs) {
-@@ -1543,6 +1551,42 @@
+@@ -1541,6 +1549,42 @@
  }
  
  static void
@@ -94,7 +94,7 @@
  vc_paint_char_32(unsigned int xx, unsigned int yy, unsigned char ch, int attrs,
      unsigned char ch_previous, int attrs_previous)
  {
-@@ -1550,6 +1594,11 @@
+@@ -1548,6 +1592,11 @@
  	uint32_t *theCharPrevious;
  	uint32_t *where;
  	int i;
@@ -106,7 +106,7 @@
  
  	if (vc_rendered_font) {
  		theChar = (uint32_t*)(vc_rendered_font + (ch * vc_rendered_char_size));
-@@ -1566,8 +1615,8 @@
+@@ -1564,8 +1613,8 @@
  		theCharPrevious = NULL;
  	}
  	where = (uint32_t*)(vinfo.v_baseaddr +
@@ -117,7 +117,7 @@
  
  	if (!attrs) {
  		for (i = 0; i < ISO_CHAR_HEIGHT; i++) {         /* No attrs ? FLY ! */
-@@ -1710,9 +1759,9 @@
+@@ -1708,9 +1757,9 @@
  	}
  
  	where = (uint32_t*)(vinfo.v_baseaddr +
@@ -130,7 +130,7 @@
  		switch (vinfo.v_depth) {
  		case 8:
  			where[0] = ~where[0];
-@@ -1742,7 +1791,7 @@
+@@ -1740,7 +1789,7 @@
  		return;
  	}
  
@@ -139,7 +139,7 @@
  	rowline = vinfo.v_rowbytes >> 2;
  	rowscanline = vinfo.v_rowscanbytes >> 2;
  
-@@ -1753,7 +1802,7 @@
+@@ -1751,7 +1800,7 @@
  	i = (scrreg_bottom - scrreg_top) - num;
  
  	while (i-- > 0) {
@@ -148,7 +148,7 @@
  			/*
  			 * Only copy what is displayed
  			 */
-@@ -1776,7 +1825,7 @@
+@@ -1774,7 +1823,7 @@
  		return;
  	}
  
@@ -157,7 +157,7 @@
  	rowline = vinfo.v_rowbytes >> 2;
  	rowscanline = vinfo.v_rowscanbytes >> 2;
  
-@@ -1786,7 +1835,7 @@
+@@ -1784,7 +1833,7 @@
  	i = (scrreg_bottom - scrreg_top) - num;
  
  	while (i-- > 0) {
@@ -166,7 +166,7 @@
  			/*
  			 * Only copy what is displayed
  			 */
-@@ -2784,8 +2833,17 @@
+@@ -2782,8 +2831,16 @@
  static void
  vc_initialize(__unused struct vc_info * vinfo_p)
  {
@@ -178,7 +178,6 @@
 +		    scale >= 2 && scale <= 4 && vinfo.v_depth == 32) {
 +			vc_k60_sx = (unsigned int)scale;
 +			vc_k60_sy = (unsigned int)scale;
-+			printf("K60CONSOLE: font scale %d\n", scale);
 +		}
 +	}
 +	vinfo.v_rows = vinfo.v_height / VC_CH;

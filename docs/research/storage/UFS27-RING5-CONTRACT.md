@@ -1,9 +1,16 @@
 # Ring 5 — the minimal interface contract for adding a prelink entry
 
-Status: 2026-11-21, **contract only, no code**. Ring 5 is owned by the fileset-entry
-design owner + the Lead (m00999, m01201 ③): the change moves every kext's
-placement, which is beyond one storage lane. This file describes what the storage
-line needs from that ring so it can be handed over as-is.
+**For:** the fileset-entry design owner (forwarded by the Lead, 2026-11-21).
+**Asked of you:** make the prelink emitter able to *insert* one new filetype-11
+entry, and do it inside the contract below. Nothing in this file is a design
+proposal for the emitter's internals — it is the interface the storage line's
+bundle needs, with the exact shapes and the exact failure behaviour.
+
+Status: **contract only, no code**. Ring 5 belongs to the fileset-entry design
+owner and the Lead, by the Lead's ruling of 2026-11-21: the change moves every
+kext's placement, which is beyond one storage lane's blast radius. This file
+exists so the storage line's requirement can be handed over without further
+negotiation.
 
 Scope: `kits/XnuPrelink/native_prelink.py` and `kits/XnuPrelink/emit_prelink_orig.py`
 in `E:/hackios/UniXNU`. Everything below is derived from those two files and from
@@ -46,8 +53,8 @@ volatile RAM disk — which is a legitimate configuration (the comment at `:34-3
 says so: "a build without the provider keeps the volatile disk"), just not a
 persistent one.
 
-Why this belongs in the ring-5 contract rather than only in the gate's §15: a
-reader who sees "`NativeRamBlock` is graded" can reasonably assume the RAM disk
+Why this belongs in the ring-5 contract rather than only in the switch gate's
+section 15 (`docs/research/storage/UFS27-GATE.md`): a reader who sees "`NativeRamBlock` is graded" can reasonably assume the RAM disk
 persists Data. It does not, and it cannot until a provider defines those six
 symbols. Ring 5 is the place that has to say what the entry is handed, so it says
 this first.
@@ -113,7 +120,9 @@ must agree on the same three fields, or a green checker proves nothing.
    with no diagnostic anywhere else.
 3. **No synthesis of fields.** If `start`/`stop` cannot be derived from the real
    placement, the ring must refuse. (This is the same rule the Lead set for the
-   bundle's `__kmod_info` at m01070 ②: `ld -kext`, never a hand-written section.)
+   bundle's `__kmod_info` in the Lead's ruling of 2026-11-21 ③: `ld -kext`, never
+   a hand-written section, because a section that does not match the IOKit layout
+   is read as garbage with no error anywhere.)
 4. **Determinism.** The same inputs must produce the same address and size, so the
    acceptance check can be re-run offline and give the same answer.
 
@@ -138,6 +147,8 @@ must agree on the same three fields, or a green checker proves nothing.
   requires that the number used is reported.
 - The `--fileset-reference` / `--allow-missing` arguments `profile.toml:40` passes
   to `kits/XnuPrelink/emit_prelink.py` are rejected by its parser
-  (`emit_prelink.py:181-190`, executed: exit 2, `unrecognized arguments`). That is
-  the same ring's front door and is recorded by the Lead as "27 prelink never ran"
-  (m01070 ④) — it is not a storage-line fix.
+  (`emit_prelink.py:181-190`; executed on 2026-11-21: exit 2,
+  `emit_prelink.py: error: unrecognized arguments: --fileset-reference …
+  --allow-missing`). That is the same ring's front door: as configured, the 27
+  prelink step cannot run at all. The Lead has it as "27 prelink never ran"; it is
+  not a storage-line fix.

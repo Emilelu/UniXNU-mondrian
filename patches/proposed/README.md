@@ -14,9 +14,25 @@ not built, and not flown:
   `unmeasured` fields measurable.
 
 They are meant to be carried **once, together with the next image**
-(Lead ruling 2026-11-21, m01230): one flight, both patches, one image, then the
-numbers decide. Do not land them one at a time — the point is that `offers`,
-`dropped` and `client` describe the same frame stream.
+(Lead ruling 2026-11-21, m01230, refined in m01375): one flight, both patches,
+one image, then the numbers decide. Do not land them one at a time — the point
+is that `offers`, `dropped` and `client` describe the same frame stream.
+
+The order is fixed, because the second patch edits a line the first one leaves
+alone but the judge reads both from one flight:
+
+1. `pong-scanout-offer-count.patch` — gives `scanout version=`, `offers=`, `dropped=`
+2. `pong-metal-client-gap.patch` — gives `client=<us> us` on the stage line
+
+The image to wait for is **the one that carries the new firmware volume and a
+fileset kernel the boot accepts** — not the current image, which stops on the
+menu (LANE-CONTRACT-ios27 §4). Carrying these two patches on an image that never
+reaches a composed frame would produce no line at all, and a flight with no line
+is `unmeasured`, not evidence.
+
+Until they are carried, `judge-gpu27.py` reports `scanout version`, `offers`
+and `client` as `unmeasured` rather than failing them: no observation is never
+an observation of something bad.
 
 ## Verification done offline
 
@@ -37,6 +53,15 @@ here.
 | --- | --- | --- |
 | `pong-scanout-offer-count.patch` | `drivers/PongAdreno/PongAdrenoScanout.cpp` | counters `offered`/`dropped` at the delivery gate, and one periodic line carrying `scanout version=`, `offers=`, `dropped=` |
 | `pong-metal-client-gap.patch` | `drivers/PongMetal/PongMetalScanout.h` | the arrival interval between two frames handed over by the client, printed as `client=<us> us` on the existing stage line |
+
+The stage line keeps its original shape with one optional field inserted, and
+`judge-gpu27.py` accepts both shapes (`client=` present or absent). That was a
+real bug caught offline: the draft first put `client=` between `done=… us` and
+`imports=`, which the judge's `STAGE` regex did not allow, so every stage line
+of an instrumented flight would have been unparseable and a stage-only flight
+would have been judged INVALID — instrumentation that blinds the parser (P-290
+family). The regex now takes the optional group, and the fourth test fixture
+(`gpu27-instrumented-drops-and-gap.log`) holds the drafts' exact line shapes.
 
 ## Field contract: which log line, and what counts as normal
 

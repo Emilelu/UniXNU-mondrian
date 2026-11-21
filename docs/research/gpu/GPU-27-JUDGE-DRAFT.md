@@ -149,6 +149,29 @@ XNU 合成策略），本线不改。两份草案**都未编译**：本线禁止
 - **缺席的字段按「未观测」报，不按「良好」算**：`scanout version=`/`abi=`/`gpuonly=`/`offers=`/`client=`
   在 16.6.1 镜像上都不打印，判读器把它们列进 `unmeasured` 并照样允许 `PASS`（因为 A、B 两半
   才是 120 Hz 的定义）；一旦某个字段出现了却与预算矛盾，就是 `FAIL`。
+
+三个字段接上之后，判据本身也收紧了两处，都写在 `scripts/judge-gpu27.py` 里：
+
+| 字段 | 判据 | 为什么不是「有值就通过」 |
+| --- | --- | --- |
+| `offers`/`dropped` | `dropped * 20 > offers` 才 `FAIL`（即丢帧超过 5%） | bring-up 期少量丢帧不可避免（渲染服务端还没阻塞在 `wait`、上一帧还没 retire）；稳态 5% 不可接受，因为被拒的帧根本没有画。两个数都打印，换一条线还能重判 |
+| `client=<us> us` | 大于 `8333 us` 即 `FAIL` | 这是「客户端多久交一帧」；超预算而 `gpu` 在预算内，说明瓶颈在客户端，不在拷贝 |
+
+**两条 120 Hz 边界写进了判读器的 docstring 与正则注释，不再只写在报告里**（Lead 2026-11-21,
+m01375）：①`us each in the driver` 是合成器自己在一帧内的成本、不是帧周期（30,654 µs 帧里
+13,183 µs 在驱动内、约 22 ms 在等客户端交帧），所以判读器改用面板 `te N/s` 与 `client=` 回答
+帧周期；②该统计的窗口是「pacing 释放 → 最后一层画完」，含交接与 `drawLayer()`、不含客户端唤醒
+前的活，所以它只答「这一侧花了多少」。
+
+### 8.3 第 1 步落地时抓到的一个真 bug
+
+草案最初把 `client=` 插在 `done=… us;` 与 `imports=` 之间，而判读器的 `STAGE` 正则当时要求
+`done=(\d+) us; imports=`——结果每一行 stage 日志都会变成不可解析：只有 bench 的飞行还好，
+**只有 stage 行的飞机会被判成 `INVALID`**。这正是 P-290 家族（判据让仪表变瞎）。
+修法是正则接受可选组 `(?: client=(\d+) us)?`，并加第 4 份夹具
+`scripts/tests/fixtures/gpu27/gpu27-instrumented-drops-and-gap.log`：它用两份草案**将要打印的
+原样行形态**，期望 `FAIL` 且同时说出 `dropped=200 of offers=800 (25.0%)` 与
+`client frame took 14000 us, over the 8333 us budget`——草案与解析器从此不会再各走一路。
 - **输出只用英文**：这台机器的控制台是 GBK，中文会变乱码；`单看 bench 不能判 120fps`
   这句原话保留在脚本 docstring 里，打印行给英文同义句。
 

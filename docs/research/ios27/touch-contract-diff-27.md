@@ -48,7 +48,7 @@ IOHIDFamily 源码里 `FromEdgeTip` **0 命中**，得靠槽位包装补）。
 | # | 陷阱 | 为什么在 27 才出现 | 判据 / 对策（file:line） |
 | --- | --- | --- | --- |
 | 4.1 | 少设 `DigitizerCollectionDispatch` | 16 用"hand + append"天然表达集合；27 由 IOHIDEventDriver 决定，默认给 Touch Screen 的集合派发是**关**的（`IOHIDEventDriver.cpp:1123` 三个条件全不满足时） | 判据：`IOHIDEventDriver.cpp:1132` 发布的 `Digitizer/collectionDispatch` 必须为真；对策：服务属性显式置上（sheng `NativeHidInput.cpp:453` 区段） |
-| 4.2 | 27 不接受 `0x800` edge 位（源码里没有这个位） | 16 是用户态自己 `or` 进 finger mask（`userland/touch.c:74` 定义、`:271` 使用）；27 的 IOHIDEventDriver 源码内 `FromEdgeTip` **0 命中**，即使描述符也不会产生该位 | 对策：在 dispatch 槽（sheng 取 `kDispatch=198`，`NativeHidInput.cpp:84-244`）包装补位；**按 sheng 的推算，待 27 侧 UIKit/backboardd 验证**（UIKit 由 `0x800/0x1000/0x2000/0x40000` 推 edge 类型 1..4，sheng 注释） |
+| 4.2 | 27 不接受 `0x800` edge 位（源码里没有这个位） | 16 是用户态自己 `or` 进 finger mask（`userland/touch.c:74` 定义、`:271` 使用）；27 的 IOHIDEventDriver 源码内 `FromEdgeTip` **0 命中**，即使描述符也不会产生该位 | 对策：在 dispatch 槽（sheng 取 `kDispatch=198`，`NativeHidInput.cpp:84-244`）包装补位；UIKit 由 `0x800/0x1000/0x2000/0x40000` 推 edge 类型 1..4（sheng 注释）。**补强（2026-11-22 查库）**：同一内核注入路径在 17.7.11 的移植上已实测成立——`docs/devices/sirius-dddqmmx.md:366` 记录 `NativeHidInput::edge::mark` 置位后 `from_edge = 8`、底部边缘 Consumer Menu `0x40` 解锁进入 Home（kernel `e7c1f9eb`/`3b36199b`，payload `44f26ef0`/`ddd8d1fa`）。所以「内核侧补位这条路走得通」不再是推算；**仍待 27 侧验证的只剩槽位号/`kSlotDiversity` 与 27 vtable 是否匹配** |
 | 4.3 | Touch Valid = 0 被当成手掌 | 16 没有该位；27 描述符有 `0x47`，而 IOHIDEventDriver 把 0 解释为 hand/palm（sheng 描述符注释） | 对策：每个 finger 恒发 1（`NativeHidInput.cpp:33-60` 注释） |
 | 4.4 | arm64e 上 vptr 未签名 → 包装即崩 | 16 无槽位包装、无这一层 | 对策：`NativeHidInput.cpp:84-244` 的 vptr 认证 + 每槽 IA-key 重签；`kSlotDiversity` 逐槽比对，不一致就不动 |
 | 4.5 | 继续用 16 的字符设备 + 用户态虚拟服务 | 27 内核 feed 内无 virtual-service 客户端 API（2.2 行），且用户态注入要求 backboardd 插件 | 对策：27 走内核 `IOHIDDevice` 子类；`/dev/pong-touch` 只在"保留 16 行为做对照"时才有意义 |
@@ -66,7 +66,7 @@ IOHIDFamily 源码里 `FromEdgeTip` **0 命中**，得靠槽位包装补）。
 
 ## 六、仍未证的两条（与 buttons 表一致，保持"待验证"）
 
-1. `home-button-type = 2` 在 27 SpringBoard 的生效路径（读 `BSPlatform homeButtonType`）——**按 sheng 的推算，待 27 侧 SpringBoard 二进制验证**。
+1. `home-button-type = 2` 在 27 SpringBoard 的生效路径——语义已由官方页给出（`docs/guide/mobilegestalt.md:27` 属性表「`home-button-type` = `2` · 无机械 Home 键，用滑动手势」、`:36` 节「Full-screen gestures」、`:44`「SpringBoard 通过 `BSPlatform homeButtonType` 读取该值。值为 2 时，锁屏使用上滑手势」）；**27 侧 SpringBoard 二进制仍未验证**（本线不构建、不上机；27 无串口日志，P-300）。
 2. 内核直接注册的 consumer/digitizer 设备是否被 27 backboardd 接受（16 是用户态虚拟服务，天然在服务器内）——**按 sheng 的推算，待 27 侧 IORegistry/backboardd 验证**。
 
 ## 七、引用索引

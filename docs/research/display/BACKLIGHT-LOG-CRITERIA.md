@@ -90,8 +90,14 @@ grep "K60 BACKLIGHT: published" console.log
 
 ## 8. 探针：让 C3 从「等 OS 犯错」变成「自己问一次」（`0003`）
 
-Lead 2026-11-21T19:12 批准加 `k60_backlight_probe=1`，三条约束写在这里：探针默认关、只在参数为 1 时自走一次、
-探针关闭时本镜像不可触发这件事也要写进结论。
+**开关是编译期的，不是启动参数**（Lead 2026-11-21T19:23 裁决）：默认关，只有专用诊断镜像在构建时
+传 `-DK60_BACKLIGHT_PROBE=1` 才编进去，正式镜像里整块代码不存在。原因见 §8.5：参数长 22 B，
+而 O1 之后命令行只剩 4 B。实现、两张图的指纹记录与 `strings` 断言见
+`docs/research/display/PROBE-BUILD-SWITCH.md`。
+
+三条约束（来自 Lead，落在本节）：①默认关，只有 `=1` 时才自走一次 `setProperties(4095)`——
+现在这条读作「只有诊断镜像才有这一块」；②判据字形先写死在这里，上机前就位；③探针关闭时
+「本镜像不可触发」这句话必须写进结论（§8.4）。
 
 ### 8.1 为什么非要有它
 
@@ -102,35 +108,38 @@ C3 依赖「OS 真发一次越界 brightness」。滑块不会发 4095——`K60
 
 ### 8.2 探针做什么
 
-`patches/proposed/0003-k60-backlight-probe-the-clamp.patch` 在 `publishFirst()` 末尾（`K60Backlight.cpp:382` 之后）
-读 `k60_backlight_probe`，为 1 时构造一次 `{brightness: 4095}` 并调用自己的 `setProperties()`，只此一次。
+`patches/proposed/0003-k60-backlight-probe-the-clamp.patch` 在 `publishFirst()` 末尾（`K60Backlight.cpp:382` 之后，
+`published …` 行之后，保持那行 `req=0,0` 的不变式）构造一次 `{brightness: 4095}` 并调用自己的
+`setProperties()`，只此一次。整块包在 `#if K60_BACKLIGHT_PROBE … #endif` 里。
 
 4095 不是随便取的数：它是面板自己 12 位 DBV 域的上限（`K60BacklightCodec.h:53 kMaxDbv = 0xfff`），
 也就是「调用方把 DBV 当等级传」时会传的值；经过 `clampLevel` 应落到 2047 / DBV 0xfff。
 
 **必须叠在 `0001` 上**：单独打 `0003`，B 形行会打 `brightness level 2047 -> level 2047`——
-那正是缺陷本身，什么也证明不了。两份补丁同批打，才能看到两字段分开。
+那正是缺陷本身，什么也证明不了。两份补丁同批打，才能看到两字段分开。补丁头的第一行注释
+与代码块第一行注释都写了这一句。
 
 ### 8.3 探针判据
 
 | # | 观察 | 通过形态 | 失败形态 | 含义与下一步 |
 | --- | --- | --- | --- | --- |
-| P1 | 探针那一行在不在 | 打 `0001`+`0003` 且 `k60_backlight_probe=1` 时，恰好**一行** `K60 BACKLIGHT: brightness level 4095 -> level 2047 dbv 0xfff` | 0 行 | 参数没进命令行（先查 `boot-args` 是否被 608 B 截断）、或服务没起来（看 `published …` 行）、或 `0003` 没打进镜像 |
+| P0 | 前置：这是诊断镜像 | `strings kernel.macho` 里 marker `K60 BACKLIGHT: probe request not built` 恰好 1 次（`check-probe-absent.py --diagnostic` rc=0） | 0 次 | `-D` 没传到 C++，或镜像不是诊断图；此时 P1–P5 全部不适用 |
+| P1 | 探针那一行在不在 | 打 `0001`+`0003` 的诊断镜像里，恰好**一行** `K60 BACKLIGHT: brightness level 4095 -> level 2047 dbv 0xfff` | 0 行 | 服务没起来（看 `published …` 行）、或 `0003` 没打进镜像、或构建未干净重建 |
 | P2 | 出现几次 | **1 次**（`publishFirst()` 只跑一次） | ≥2 次 | 服务被重复 attach，是另一个缺陷，先记下来（`native_backlight_stats[0]` 会出现两次 published 行） |
 | P3 | 两字段是否分开 | `4095` 与 `2047` 不等 | 两个都是 `2047` | `0001` 没打进镜像（`0003` 单独生效的典型形态）——这**不算** P1 失败，按 C2 记「缺陷仍在」 |
 | P4 | 面板反应 | 面板跳到最亮，随后由 OS 接管（一次可见跳变） | 黑屏 | 探针走的是正常 `publish()` 路径，黑屏说明 `dbvFromLevel(2047)` 有问题（`K60BacklightCodec.h:119-125`），与本补丁无关 |
-| P5 | 探针关着时 | `k60_backlight_probe` 不写或写 0 时，日志里**没有** `4095` 这一行 | 出现 4095 | 默认值被改成开（违反 Lead 的约束①），立即退回 |
+| P5 | 正式镜像里探针关着 | `check-probe-absent.py --release` rc=0，日志里**没有** `4095` 这一行 | 出现 4095 或 marker | 构建环境残留 `XNU_EXTRA_CFLAGS`，或复用了诊断图的输出目录；立即作废该镜像 |
 
 ### 8.4 探针关闭时的结论写法（约束③）
 
-如果这一轮飞行没带 `k60_backlight_probe=1`（或字节不够、探针没进镜像），结论必须写成：
+如果这一轮飞的是正式镜像（探针未编入），结论必须写成：
 
-> `0001` 的 C3 在本镜像**不可触发**：探针未启用，OS 不发越界请求，两字段恒等；
+> `0001` 的 C3 在本镜像**不可触发**：探针未编入，OS 不发越界请求，两字段恒等；
 > 缺陷是代码事实（`K60Backlight.cpp:416-417` 两处同一变量），不是「补丁无效」。
 
 **不要**写「补丁无效」「无法验证」这种把两件事混在一起的句子——前者是行为判断，后者是条件缺失。
 
-### 8.5 字节账：这个参数目前放不进去（待裁）
+### 8.5 字节账：这个参数放不进去（已裁：改用编译期开关，0 B）
 
 | 项 | 字节 | 依据 |
 | --- | --- | --- |
@@ -140,14 +149,13 @@ C3 依赖「OS 真发一次越界 brightness」。滑块不会发 4095——`K60
 | `k60_backlight_probe=1` | 21 B 字符 + 1 分隔空格 = **22 B** | `len()` 实测 |
 | 加进去之后 | **625 B，超 18 B** | 603 + 22 |
 | 压到 `k60bl_probe=1` | 15 + 1 = 16 B → 619 B，**仍超 12 B** | 名字救不了，余量只有 4 B |
+| 编译期开关 | **0 B** | 已裁（Lead 2026-11-21T19:23），见 `PROBE-BUILD-SWITCH.md` |
 
-三条可选的字节来源，本线不自行决定：
+被否掉的两条字节来源（记录在案，不再讨论）：删 `use_contiguous_hint=0`（21 B，读者
+`osfmk/arm64/arm_vm_init.c:2154`，且它在 27 的 override 七项里，不归本线删）；删
+`applog=1`(9 B) + `k60_console_export=1`(21 B)（证据通道，为 21 B 拆证据通道是本末倒置）。
 
-1. **编译期开关（0 B，本线建议）**：探针只在专用镜像里编进去（`K60_BACKLIGHT_PROBE`），
-   判据镜像与探针镜像各记一份哈希；代价是「探针」与「用户可自证的镜像」不是同一个。
-2. 删 `use_contiguous_hint=0`（21 B）→ 604 B：读者 `osfmk/arm64/arm_vm_init.c:2154`，
-   且它在 27 的 override 七项里（有人为 27 加过），**本线不删**，要平台线确认它是否仍需要。
-3. 删 `applog=1`(9 B) + `k60_console_export=1`(21 B) → 595 B：这两项是证据通道，不建议。
-
-无论选哪条，`k60_backlight_probe` 一旦真的要进命令行，必须同时写进 `docs/engineering/BOOT-ARGS.md`
-的表格（`scripts/check-boot-args.py:24-28` 只认那里的 `### name` 与表格首列），否则门禁看不见它。
+**`k60_backlight_probe` 这个名字已经不存在**：它从未进过任何注册表——`BOOT-ARGS.md`、
+`BOOT-ARGS-PENDING.toml`、`scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS` 三处 `grep -c` 均为 0，
+所以没有需要删的行。以后新增任何参数仍必须同时写进 `docs/engineering/BOOT-ARGS.md` 的表格
+（`scripts/check-boot-args.py:24-28` 只认那里的 `### name` 与表格首列），否则门禁看不见它。

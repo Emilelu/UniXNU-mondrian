@@ -397,10 +397,10 @@ O1 被选中的理由只有一条：它是三个里唯一「删掉之后能力�
 2. 门禁 `scripts/check-boot-args.py` 只看板级 `[payload].kernel_args`，看不见 override（§4.6），
    因此这条列表必须同时抄进 `docs/engineering/BOOT-ARGS.md` 的显示/平台小节，否则没人读它。
 
-### 4.8 探针参数放不进去：`k60_backlight_probe=1` 要 22 B，只剩 4 B
+### 4.8 探针不占字节：已裁改用编译期开关（0 B）
 
-Lead 2026-11-21T19:12 批准加探针（`patches/proposed/0003`，让 `0001` 的 C3 判据从「等 OS 发越界值」
-变成「自己问一次 4095」），但这条参数在 603 B 的口径下**没有字节可放**：
+Lead 2026-11-21T19:23 裁决：探针（`patches/proposed/0003`，让 `0001` 的 C3 判据从「等 OS 发越界值」
+变成「自己问一次 4095」）走**编译期开关**，不再占用启动参数。理由是字节账无解：
 
 | 项 | 值 | 依据 |
 | --- | --- | --- |
@@ -410,18 +410,20 @@ Lead 2026-11-21T19:12 批准加探针（`patches/proposed/0003`，让 `0001` 的
 | `k60_backlight_probe=1` | 21 字符 + 1 空格 = **22 B** | `len()` 实测 |
 | 加进去 | **625 B，超 18 B** | 603 + 22 |
 | 压成 `k60bl_probe=1` | 16 B → 619 B，仍超 12 B | 名字救不了 4 B 的余量 |
+| **编译期开关（已裁）** | **0 B** | 源码 `#ifndef K60_BACKLIGHT_PROBE / #define 0`，只有诊断镜像传 `-DK60_BACKLIGHT_PROBE=1` |
 
-三条可选来源（本线不自行决定，逐条写清了代价）：
+被否决的两条字节来源，记录在案不再讨论：删 `use_contiguous_hint=0`（21 B，读者
+`XNU:osfmk/arm64/arm_vm_init.c:2154`，属 27 override 七项、不归本线删）；删 `applog=1`(9 B) +
+`k60_console_export=1`(21 B)（证据通道，为 21 B 拆证据通道是本末倒置）。
 
-1. **编译期开关，0 B（本线建议）**：探针只在专用镜像里编进去，判据镜像与探针镜像各记一份哈希；
-   代价是「探针」与「用户可自证的镜像」不是同一个，飞行记录必须写清用哪一个。
-2. 删 `use_contiguous_hint=0`（21 B）→ 604 B：读者 `XNU:osfmk/arm64/arm_vm_init.c:2154`，
-   且它在 27 的 override 七项里（有人为 27 加过），**不是本线能删的**，要平台线确认 27 上是否仍需要。
-3. 删 `applog=1`(9 B) + `k60_console_export=1`(21 B) → 595 B：两项都是证据通道，不建议。
+`k60_backlight_probe` 这个名字**撤回**，并且本来就不在任何注册表里：`BOOT-ARGS.md`、
+`BOOT-ARGS-PENDING.toml`、`scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS` 三处 `grep -c` 全为 0，
+没有要删的行。
 
-无论选哪条，探针参数一旦真要进命令行，必须同时写进 `docs/engineering/BOOT-ARGS.md` 的表格
-（`scripts/check-boot-args.py:24-28` 只认 `### name` 与表格首列）。判据与读取规则见
-`docs/research/display/BACKLIGHT-LOG-CRITERIA.md` §8。
+两张图的分工与记录方式见 `docs/research/display/PROBE-BUILD-SWITCH.md`：诊断图判 P1–P5，
+正式图只记「本镜像不可触发（探针未编入）」并跑 `check-probe-absent.py --release`；两图各记
+series 指纹 + boot.img / kernel.macho / FD 的 sha256，用「series 指纹相等、三个产物不同」证明
+输入相同只差一个开关。判据与读取规则见 `docs/research/display/BACKLIGHT-LOG-CRITERIA.md` §8。
 
 ---
 

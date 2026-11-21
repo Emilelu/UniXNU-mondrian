@@ -87,3 +87,12 @@ git log -1 --format='%an <%ae> | %cn <%ce>'
 
 不写 `k60-gates`、不写别人的 worktree、不与 main 合并、不构建、不上机（上机由 Lead 排）。
 跨线的事（gpu27 的 wire 提案、24A446 CoreBrightness 提取）只回签与审查，不动手实现。
+
+
+## L10 能用编译期开关解决的，不要占启动参数
+
+27 命令行 O1 之后只剩 4 B，任何一个新参数都装不进去（`k60_backlight_probe=1` 要 22 B，加进去 625 B 超 18）。
+默认关、只在专用诊断镜像里存在的东西，一律走源码 `#ifndef X / #define 0` 加构建注入 `-D`（现成通道：
+`XNU_EXTRA_CFLAGS`，见 `scripts/build-xnu-4k-baseline.sh:574`），并把「关掉时镜像里不存在该字面量」
+做成一条可跑的断言（范例 `docs/research/display/check-probe-absent.py`）。
+判断顺序：能不能不占字节 → 能不能用编译期开关 → 才轮到删别人的参数（那不是本线能裁的）。

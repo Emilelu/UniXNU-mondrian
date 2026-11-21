@@ -20,7 +20,16 @@
 | `format` | 40 | `PongScanoutBgra`（=1）；presenter 见到别的值整帧拒 | 同左 | `PongMetalScanout.h:38`（`frame.format != PongScanoutBgra`） |
 | `token` | 44 | **v2 新增**，占据 v1 的 `reserved` 位置：内核给这次映射发的非零凭证，presenter 在复用同一 surface 时必须带着它回来 | `reserved`，**必须为 0** | `patches/proposed/pong-scanout-v2-layout-asserts.patch`（`token@44`）；语义源 `E:/hackios/UniXNU-zizhan/drivers/PongAdreno/PongScanoutWire.h:12-17` |
 | `evict` | 48 | **v2 新增**：内核声明「这个旧 token 的映射必须先丢掉」，presenter 照做后才算交接完成；0 表示没有要先丢的 | v1 无此字段（`sizeof` 48 就到头） | 同上；`zizhan …/PongAdrenoScanout.cpp:1297-1299`（选 victim 并写 `pending.evict`）、`:1372`（`drop`） |
-| `target` | 52 | **v2 新增**：扫出映射里的字节偏移（面板双缓冲的那半）；**0 = 没有 dbuf**，不是「第一个 dbuf」 | v1 无此字段 | `zizhan …/PongScanoutWire.h:12-17` 注释；`zizhan …/PongAdrenoScanout.cpp:1274`（`dbTarget()`）、`:1368`（`dbFlip`） |
+| `target` | 52 | **v2 新增**：**索引 + 1**——0 = 没有 dbuf，1..N = `db[i-1]` | v1 无此字段 | `zizhan …/PongAdrenoScanout.cpp:436-456`（`dbTarget()` 返回索引）、`:1368`（`db[pending.target].phys`）、`:547`（`db[0].offset` 恰为 0，所以「偏移 + 0」会把「第 0 块」与「没有」写成同值） |
+
+**会签附注（display 第 3 轮，`reply-gpu-display-sync.md` 第 136 行起；照它的话抄，不解释）**：
+
+- `token`：①面板模式或画布几何真变时全表作废（我们的 120 Hz 切换只改 INTF 与 DCS，`PongDsiPanel.cpp:463-517`，不重建画布）；②token 随映射创建生成，禁止 `source` 回收后按同 `offset/bytes` 命中旧 token（`Kept` 表键是三元组，zizhan `PongAdrenoScanout.cpp:1279`）。
+- `evict`：①evict 先于本帧拷贝提交生效；②内核退休后 drop（zizhan `:1372`），presenter 收到 ack 后只读不写；③只有「同一 surface 新映射替换旧映射」才允许非 0，几何不同时必须为 0。
+- `target`：签「不一致」，改法见本表与 §3.1。
+
+**不采用的东西**：第五方法码 `0x7004`（display 用来指「版本由另一个方法码承载」的形状，它自己明确不推荐）。
+v3 因此没有方法码改动，只有 §2.1 的 decision record 1。
 
 `sizeof(PongScanoutFrame)`：v1 = 48，v2 = 56。`PongScanoutModeInfo`、`PongScanoutWaitInfo`（8 B）、
 `PongScanoutDone`（16 B）在两版里尺寸与布局都不变，`Done.reserved` 在两版里都必须为 0。

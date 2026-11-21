@@ -1,6 +1,7 @@
 # DPU 直扫所需的最小 wire 侧面（只列不加字段就能做的部分）
 
-给 display 立项时对照用。这一页只回答一个问题：**在 `PongScanoutWire` 一个字节都不加的前提下，
+给 display 立项时对照用。（对外交付的那一段原文在 `E:/k60-work/scratch/reply-gpu-display-sync.md` 第 4 轮，
+本页是它的展开与依据，两者不重复维护：数值只在 `GPU-27-V2-FIELDS.md` §1，段落只在会签文件。）这一页只回答一个问题：**在 `PongScanoutWire` 一个字节都不加的前提下，
 「让显示直接扫合成器的 surface」还差什么。**需要新字段的部分单独列在 §3，不混进来，免得把两件事
 读成一件。
 

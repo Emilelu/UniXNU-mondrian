@@ -144,6 +144,51 @@ def _(tool):
     assert pm['预链接'] == {'1': 4}, pm['预链接']
 
 
+@check('registry.drift_is_a_note_not_a_failure')
+def _(tool):
+    """A registry page that the site has not deployed is DRIFT, not a missing page."""
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, 'mirror', 'drivers'), exist_ok=True)
+        open(os.path.join(d, 'mirror', 'drivers', 'ghost.md'), 'w').write('# ghost\n')
+        reg = os.path.join(d, 'reg.toml')
+        open(reg, 'w', encoding='utf-8').write(
+            '[[page]]\npath = "drivers/ghost.md"\n[[page]]\npath = "building.md"\n')
+        tool.download = lambda name, refresh=False: ('/dev/null', '0' * 64, 1)
+        tool.load = lambda path: {
+            'documentIds': {'0': '/zh/building#x', '1': '/zh/building#y'},
+            'storedFields': {}, 'index': [], 'documentCount': 2}
+        old = os.environ.get('K60_DOCS_MIRROR')
+        os.environ['K60_DOCS_MIRROR'] = os.path.join(d, 'mirror')
+        try:
+            assert tool.verify_registry(reg) == 0
+        finally:
+            if old is None:
+                os.environ.pop('K60_DOCS_MIRROR', None)
+            else:
+                os.environ['K60_DOCS_MIRROR'] = old
+
+
+@check('registry.absent_from_both_is_a_failure')
+def _(tool):
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, 'mirror'), exist_ok=True)
+        reg = os.path.join(d, 'reg.toml')
+        open(reg, 'w', encoding='utf-8').write('[[page]]\npath = "drivers/ghost.md"\n')
+        tool.download = lambda name, refresh=False: ('/dev/null', '0' * 64, 1)
+        tool.load = lambda path: {
+            'documentIds': {'0': '/zh/building#x'}, 'storedFields': {}, 'index': [],
+            'documentCount': 1}
+        old = os.environ.get('K60_DOCS_MIRROR')
+        os.environ['K60_DOCS_MIRROR'] = os.path.join(d, 'mirror')
+        try:
+            assert tool.verify_registry(reg) == 1
+        finally:
+            if old is None:
+                os.environ.pop('K60_DOCS_MIRROR', None)
+            else:
+                os.environ['K60_DOCS_MIRROR'] = old
+
+
 def main():
     tool = load_tool()
     failed = 0
@@ -161,7 +206,7 @@ def main():
     if failed:
         print('FAILED %d of %d' % (failed, len(CASES)))
         return 1
-    print('OK %d cases: the chunk decodes, Chinese stays whole, absence is absence' % len(CASES))
+    print('OK %d cases: the chunk decodes, Chinese stays whole, absence is absence, drift != failure' % len(CASES))
     return 0
 
 

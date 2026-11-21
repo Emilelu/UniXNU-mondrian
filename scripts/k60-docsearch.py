@@ -245,44 +245,70 @@ def fetch_section(anchor, limit=1600):
 
 
 def verify_registry(toml_path, refresh=False):
-    """Every page the registry claims must still exist on the site.
+    """Every page the registry claims must exist — in the mirror, and on the site.
 
-    The registry mirrors docs/zh from upstream; a page renamed or dropped upstream
-    would leave a row that can never be satisfied, and a row whose path differs by
-    a typo would point at a 404 nobody notices until someone audits it by hand.
+    Two different corpora are in play. The registry is pinned by sha256 to the
+    docs/zh mirror in the framework repo (versioned, reviewable); unixnu.com is a
+    deployment of some revision of it. Measured 2026-11-21: the site indexes 581
+    pages, the mirror has 103, and four registry pages exist in the mirror but not
+    at those paths on the site.
+
+    So: missing from *both* is an error (a row nobody can ever satisfy). Present in
+    the mirror but not deployed is DRIFT — reported with the nearest live path, but
+    not fatal, because the pinned text is the one the gate reads.
     """
     import tomllib
     path, sha, size = download('zh', refresh)
     payload = load(path)
     anchors = list(payload['documentIds'].values())
-    # /zh/building#... -> /zh/building
     pages = sorted({a.split('#')[0].rstrip('/') or '/' for a in anchors})
     pageset = set(pages) | {'/zh', '/'}   # the home page carries no section anchors
+
+    mirror = os.environ.get('K60_DOCS_MIRROR')
+    if not mirror:
+        repo = os.environ.get('K60_FRAMEWORK_REPO') or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'UniXNU')
+        mirror = os.path.join(repo, 'docs', 'zh')
+
     rows = tomllib.load(open(toml_path, 'rb')).get('page', [])
-    missing = []
+    missing, drift = [], []
     for row in rows:
         rel = row['path'][:-3] if row['path'].endswith('.md') else row['path']
         if rel == 'index':
             want = '/zh'
         elif rel.endswith('/index'):
-            want = '/zh/' + rel[:-len('/index')]
+            want = ('/zh/' + rel[:-len('/index')]).rstrip('/')
         else:
             want = ('/zh/' + rel).rstrip('/')
         if want in ('/zh', ''):
             continue
-
-        if want not in pageset:
-            near = [q for q in pages if q.startswith(want[:20])][:3]
+        if want in pageset:
+            continue
+        near = [q for q in pages if q.startswith(want[:20])][:3]
+        if os.path.isfile(os.path.join(mirror, row['path'])):
+            drift.append((row['path'], want, near))
+        else:
             missing.append((row['path'], want, near))
+
     print('registry: %d page(s) in %s' % (len(rows), toml_path))
-    print('index:    %d section(s) across %d page(s), sha256 %s' % (len(anchors), len(pages), sha[:16]))
+    print('index:    %d section(s) across %d page(s), sha256 %s'
+          % (len(anchors), len(pages), sha[:16]))
+    print('mirror:   %s' % mirror)
     for p, want, near in missing:
         print('MISSING  %s -> %s%s' % (p, want,
                                        ('  (near: %s)' % ', '.join(near)) if near else ''))
+    for p, want, near in drift:
+        print('DRIFT    %s -> %s not deployed%s' % (p, want,
+                                                    ('  (live: %s)' % ', '.join(near)) if near else ''))
     if missing:
-        print('FAILED: %d page(s) in the registry do not exist on unixnu.com' % len(missing))
+        print('FAILED: %d page(s) are in neither the mirror nor the site' % len(missing))
         return 1
-    print('OK every registry page exists on unixnu.com')
+    if drift:
+        print('OK %d page(s) resolve in the pinned mirror; %d are not deployed at that path '
+              '(iron-13 reads the mirror, so this is a note, not a failure)'
+              % (len(rows) - len(drift), len(drift)))
+        return 0
+    print('OK every registry page exists on unixnu.com and in the mirror')
     return 0
 
 

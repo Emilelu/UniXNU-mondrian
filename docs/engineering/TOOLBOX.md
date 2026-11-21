@@ -307,12 +307,13 @@ chunk 内容是 `const e='<json>';export{e as default};` —— **JavaScript 单
 | 工具 | 用途 |
 |---|---|
 | `scripts/k60-docsearch.py` | **离线查全部官方文档**。`python3 scripts/k60-docsearch.py 预链接` 打 `/path#anchor` 与标题链；`--fetch` 再取那一节正文；`--lang zh\|en\|both`；`--page <子串>` 过滤；`--refresh` 重下索引；`--stats` 只看元数据 |
-| `scripts/k60-docsearch.py --verify-registry <toml>` | 核对 `OFFICIAL-REQUIREMENTS.toml` 的每条 `path` 在站点上是否真存在（`index.md` 映射到目录根）。2026-11-21 首跑抓到 **4 条不存在**：`drivers/qca-bluetooth.md`、`drivers/qcom-dwc3.md`、`guide/overview.md`、`porting/sm8550.md` |
+| `scripts/k60-docsearch.py --verify-registry <toml>` | 核对 `OFFICIAL-REQUIREMENTS.toml` 的每条 `path`：两边都没有 = `MISSING`（退 1，这行永远满足不了）；只在镜像里有 = `DRIFT`（退 0，提示未部署，因为 iron-13 读的是镜像）。2026-11-21 首跑：103 行里 **99 行两边都在，4 行 DRIFT**（`drivers/qca-bluetooth.md`、`drivers/qcom-dwc3.md`、`guide/overview.md`、`porting/sm8550.md` —— 站点上是 `/zh/porting/bluetooth`、`/zh/drivers/community-native-dwc3`、`/zh/drivers/overview`、`/zh/drivers/sm8550-platform`） |
 | `scripts/tests/test-k60-docsearch.py` | 12 例：JS 字符串解码（含 `\'` 与反斜杠）、CJK 整段不切字、子串回退、跨词 AND、字段合并、`locate` 标题链 |
 
 三条使用纪律：
 
 1. **索引里查不到就是「没有」**，可以当证据用；查到了要给 `/path#anchor`，不给锚点的「文档说……」不算依据（P-280 家族）。
 2. **中文不要按字切**：站点用 `tokenize:'full'`，`预链接`、`共享缓存` 都是整段一个词条；按字切会得到「零命中」的假结论。
-3. **站点页数 ≠ 镜像页数**：索引里有 **581 个页面**，而 `E:/hackios/UniXNU/docs/zh` 镜像只有 103 个页面 —— iron-13 的审计范围一直是镜像，
-不是站点；差集里既有设备页（`/devices/enuma` 等），也有镜像比站点新的改名页（上表 4 条）。
+3. **站点和镜像是两套语料**：索引里有 **581 个页面**，`E:/hackios/UniXNU/docs/zh` 镜像只有 103 个。iron-13 审的是镜像（版本化、有 sha256），
+站点是它的部署副本 —— 两边的差集既可能是站点新（`/devices/enuma` 等设备页镜像里没有），也可能是镜像新（上表 4 条改名页站点还没部署）。
+判据因此分两级：两边都没有才算错，只有镜像有算 DRIFT。

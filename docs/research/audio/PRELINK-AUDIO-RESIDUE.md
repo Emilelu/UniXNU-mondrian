@@ -51,6 +51,29 @@
 
 反证入口：同一个 target `0xfffffff00b36e788` 还被 `com.apple.iokit.IOGPUFamily` 在 `0xfffffff00829c560` 引用（`E:/k60-work/scratch/stubs/unreachable.toml:369-377`）。它是通用内核例程，不是音频编解码寄存器访问；这也解释了为什么不能用 PongAudioAmp/PongAudioGeniI2c 补这个槽。
 
+### 1.2 三条判据的可复跑命令
+
+输入就是本页引用的那份审计表。脚本默认按 `--audit`、`AUDIO27_RESIDUE_AUDIT`、`K60_AUDIT`、
+`/mnt/e/k60-work/scratch/stubs/unreachable.toml`、`E:/k60-work/scratch/stubs/unreachable.toml`
+的顺序找；找不到时退 3（`RESIDUE SKIP`），不会把缺失当成通过。
+
+```sh
+python3 scripts/check-audio27-residue.py --audit /mnt/e/k60-work/scratch/stubs/unreachable.toml
+```
+
+成功的固定读数是四条：
+
+```text
+RESIDUE OK: criterion 1: bundle=com.apple.iokit.IOAudio2Family target=0xfffffff00b36e788 kind=__auth_got site=0xfffffff008273608 loader=0xfffffff009f870bc+0x144
+RESIDUE OK: criterion 2: verdict=unreachable-before-console stage=post-SpringBoard (audio client) baseline=false
+RESIDUE OK: criterion 3: slots=205 keys=203 functions=131 bundles=25 auth_got=179 const=26 reachable-before-console=0; console_init=osfmk/kern/startup.c:478 before PE_init_iokit=startup.c:689
+RESIDUE OK: counterexample=com.apple.iokit.IOGPUFamily target=0xfffffff00b36e788 site=0xfffffff00829c560
+```
+
+改坏任一项（bundle/target/kind/site/loader/verdict/stage/baseline、205/203/131/25/179/26
+任一计数、IOGPU 反证缺失）退 1 并点名；缺文件退 3。反例测试：
+`python3 scripts/tests/test-audio27-residue.py` 应打印 `TESTS OK 21 cases`。
+
 ## 二、逐条表
 
 缩写：`IOAudio2` = `com.apple.iokit.IOAudio2Family`，`Scaler` =

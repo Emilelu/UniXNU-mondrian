@@ -88,3 +88,26 @@ AppleARMPlatform 有 5 个 `__const` 的 IOCPU/IOInterruptController 槽。
 `libNativeLegacyDisplay.late.a`，`required_original_branches` 必须变成非空；反之保持空并写明原因。
 证据来自 bt 线 `feat/xnu27-data-gate` 的 `docs/research/storage/PRELINK-ORIGINAL-BRANCHES.md`
 （234 行）与 `E:/k60-work/scratch/reply-bt-20261115.md`。
+## 地址不能用来回答「我们到底有没有编出来」
+
+一次直接的测量（`E:/k60-work/scratch/classify_targets.py`，读 `unreachable.toml` 的 131 个 target，
+对两份内核按 `__TEXT_EXEC` 段范围筛符号）：
+
+| 产物 | `__TEXT_EXEC` | 段内符号 |
+| --- | --- | ---: |
+| `mach.development.bcm2837.unstripped.noctf`（我们） | `0xfffffff0072c0000..0xfffffff007c28000` | 29,010 |
+| `mach.release.bcm2837.unstripped.noctf`（我们的 LTO 参考） | `0xfffffff0071b4000..0xfffffff0079f0000` | 19,789 |
+| 131 个 target（Apple 24A446 集合空间） | `0xfffffff00ab86b04` 起 | — |
+
+**131 个 target 全部高过我们自己内核的 `__TEXT_EXEC` 末端**，因为它们是 Apple 那份
+kernelcache 的链接布局，不是我们的。所以「按地址查我们有没有编出来」这条路本身是错的：
+同一个函数在两份内核里地址不同，减 slide 也没有意义（我们的 `collection_slide = 0x0`）。
+
+这也解释了 `llvm-nm` 的第一版读数：Mach 内核的代码在 `__TEXT_EXEC`，`llvm-nm` 把它报成
+通用 section 符号（`s`/`S`）而不是 `t`/`T`，所以按符号类型筛会得到「零个函数」——
+又一次「用错了坐标轴，然后得到一个看起来很确定的数字」。
+
+结论：残留的 131 个目标**只能按名字判定**，而 Apple 的 cache 里没有名字（`imports_count = 0`、
+`LC_SYMTAB nsyms = 0`）。因此在拿到带符号的同族产物之前，「这些是不是我们没编出来」是一个
+**不可回答**的问题，不是「不需要回答」。可回答的那部分是已记录的结构结论：它们全部住在 kext
+的 `__DATA_CONST`/`__const` 表里，而 kext 代码在 `PE_init_iokit()`（`startup.c:689`）之前不执行。

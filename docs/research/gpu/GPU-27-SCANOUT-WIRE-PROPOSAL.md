@@ -68,6 +68,10 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 `PongScanoutDone.reserved` 在**所有版本**都必须为 0（它是另一个结构的字段，与 frame 的 `reserved` 无关）——
 这一条要写进两侧的注释，因为两个同名字段挨得很近。
 
+**决定怎么记（写给以后想重开的人）**：display 答出「57 槽」之后，本节只加**一行 decision record**——
+选了哪个形状、依据是它的哪一句（`文件:行`）、以及另一个形状为什么被排除。这里**不摆并列选项表**：
+并列表会被后来的人读成「还在选」，而决定一旦写下就不该反复重开。
+
 **版本整数长在哪里（display 六项之一）**：只在 `PongScanoutModeInfo` 的**第一个字段**，
 即 40 B Mode 回复的偏移 **0**，类型 `uint32_t`。`PongScanoutFrame`、`PongScanoutWaitInfo`、
 `PongScanoutDone` 三条记录**都不带版本**——它们的布局由 Mode 里那一个整数唯一决定。
@@ -184,6 +188,8 @@ static_assert(offsetof(PongScanoutDone, reserved) == 12, "the completion check i
 - `flip condition: display signs dbuf semantics (token@44 / evict@48 / target@52) AND pong-scanout-v2-layout-asserts.patch is in series`
 - `flip owner: gpu-agent (GPU line)` —— 翻 0→1 的动作属于该 owner 的提案分支，**不随 v3 或本文任何后续修订顺手改**。
 - 开关为 0 时这些断言**不成立是设计，不是缺陷**：没有 v2 布局，它们就没有可描述的事实；翻了开关那天它们才成为判据（P-290 的形状：不运行的断言不是判据）。
+- **flip 条件与 flip owner 只在本节维护**；`patches/proposed/README.md`、`docs/research/gpu/FLIP-READINESS.md`
+  与八步 fragment 一律指回本节，不复制（P-259：抄一份就多一处会过期）。
 
 补丁本身在两侧各一段，全部套在 `#if PONG_SCANOUT_V2_LAYOUT`（当前 `#define ... 0`）里。它**按现在的树是编译不过的，
 这是故意的**：字段不存在时断言就是假事实。等 v2 立项把 0 改成 1，四个数（56 / `token`@44 / `evict`@48 /

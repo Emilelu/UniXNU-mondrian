@@ -163,7 +163,7 @@ m01375）：①`us each in the driver` 是合成器自己在一帧内的成本�
 帧周期；②该统计的窗口是「pacing 释放 → 最后一层画完」，含交接与 `drawLayer()`、不含客户端唤醒
 前的活，所以它只答「这一侧花了多少」。
 
-### 8.3 第 1 步落地时抓到的一个真 bug
+### 8.3 第 1 步落地时抓到的两个真 bug
 
 草案最初把 `client=` 插在 `done=… us;` 与 `imports=` 之间，而判读器的 `STAGE` 正则当时要求
 `done=(\d+) us; imports=`——结果每一行 stage 日志都会变成不可解析：只有 bench 的飞行还好，
@@ -172,6 +172,20 @@ m01375）：①`us each in the driver` 是合成器自己在一帧内的成本�
 `scripts/tests/fixtures/gpu27/gpu27-instrumented-drops-and-gap.log`：它用两份草案**将要打印的
 原样行形态**，期望 `FAIL` 且同时说出 `dropped=200 of offers=800 (25.0%)` 与
 `client frame took 14000 us, over the 8333 us budget`——草案与解析器从此不会再各走一路。
+
+第二个 bug 更险：插入那个可选组之后，后面每个组的编号都往后挪了一位，而取值代码仍按旧编号读，
+于是 **`submit` 被当成 `gpu`**。它不报错、不显眼——两个数都是几十到几千 µs 的量级——但会把
+一次超预算五倍的拷贝报成「宽裕」。抓它的方式是拿真飞行复核：卡 j（`usblog-20261119-151837`）
+上判读器读出 `gpu median 967 us`，而飞行卡记的是 `gpu 5,983 / sum 8,281`；967 正是 `submit`
+的中位。原先五份夹具里凡走到 stage 路径的都同时带 bench 样本，而 bench 优先当数据源，所以这个
+错位在夹具里一直是隐形的。修法：`gpu` 取第 10 组、`sum` 取第 11 组，并补第六份夹具
+`gpu27-stage-only-instrumented.log`——**只有 stage 行、没有 bench**，且故意让 `submit=111`
+与 `gpu=2222` 不同，判据里钉死 `gpu median 2222 us` / `sum median 4444 us`。修完真飞行读出
+`gpu median 5983 us` / `sum median 8281 us`，与飞行卡一致。
+
+教训与第一条相同、但更具体：**新的可选字段必须同时暴露「有它」和「没有它」两种形状，并且必须
+用一条真日志复核绝对值**；只比自己写的夹具过不过，会让解析器在真数据上错位而不自知
+（P-290 家族：判据看起来在跑，其实读错了字段）。
 - **输出只用英文**：这台机器的控制台是 GBK，中文会变乱码；`单看 bench 不能判 120fps`
   这句原话保留在脚本 docstring 里，打印行给英文同义句。
 

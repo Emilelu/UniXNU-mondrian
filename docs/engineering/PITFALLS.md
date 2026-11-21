@@ -7813,3 +7813,24 @@ define 由内核步的 `env "arm_init.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1"
 
 **门禁**：`scripts/check-kernel-console.py`（P-300 那条）在现象层拦住它：只要四个接收端一个都没有，就退 2。
 本条另要求：任何新增 `-D` 开关，落地时必须在提交说明里贴一次「读回 `.o.json` 的 grep 结果」。
+
+## P-302 门禁读的是另一个操作系统的账本
+
+`scripts/eight-step-gate.py:55` 把 `DATA` 写死成 `docs/research/EIGHT-STEPS.toml`——那是 iOS 16.6.1
+（20G81）的八步账本。这棵树已经是 iOS 27.0.1（24A446），xnu-12377 里没有 16 线的文件，于是
+`--flash` 每次都拒绝：
+
+- `P-122` / `P-126` / `P-140` 三条在 `RULES.toml` 里已不存在（16 线编号在那次重排里改过号）；
+- `build-pong-adreno-platform.py:96`、`NativeUfs.cpp:146`、`iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032`、
+  `docs/zh/porting/display.md:80`、`ButtonProbe.cpp:26` 五个文件在 27 树里不存在。
+
+实测（2026-11-21 23:05，`scripts/flash.sh` 对 `boot.img 227fa840…`）：`通过 54 项检查 / 问题 18 处`，
+全部是上两类。27 线自己的账本 `docs/research/EIGHT-STEPS-27.toml`（56 个 `[hardware.*]`，由
+`scripts/assemble-27-eight-step.py` 生成）**根本没被读过**。
+
+两个后果：一、27 上任何飞行都被拒，连「固件侧读数器」这种不改硬件的诊断也一样；二、如果有人
+为了让门禁变绿去改证据串，账本就会记下「16 线的文件在 27 树里通过检查」这种不成立的事。
+
+判据：门禁选账本必须与选 defconfig、选 device-tree 同源——按 `board.toml` 的 `os_profile` 选，
+且两个账本的 schema 差异（27 的 `evidence` 是列表、每项有 `why`/`revisit`）必须在读取层收敂，
+不能靠改内容对齐。修法见 `docs/engineering/IOS27.md` 的同日条目。

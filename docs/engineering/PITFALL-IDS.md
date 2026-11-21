@@ -34,3 +34,4 @@ Rules:
 3. This file is the only place that records a reservation; a number that appears
    nowhere here is not allocated, and `scripts/check-pitfall-numbers.py` treats a
    duplicate as a failure.
+| P-302 | 门禁（账本选错操作系统） | lead | 2026-11-21 |

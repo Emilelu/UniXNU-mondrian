@@ -1339,3 +1339,9 @@ id = "P-301"
 statement = "`-D` 开关必须证明宏到了编译器：判据是对象构建记录（.o.json 的 arguments）或最终符号表里的宏/符号，不是构建脚本里的字面量，也不是门禁对脚本文本的 grep。点号 make 变量经环境变量传递（env \"<obj>.o_CFLAGS_ADD=…\"）在本仓的调用链上不被信任，必须走 builder 自己的 EXTRA_MAKE_ARGS；否则钩子会被预处理器整段删掉，git apply 成功、编译零警告、镜像与没打补丁同效。"
 check = "python3 scripts/tests/test-check-kernel-console.py"
 note = "2026-11-21：0546 的 XNU_PONG_RAMOOPS_CONSOLE 由 env 前缀传递，serial_console.o.json 里该宏 0 次，两个钩子被编译掉，27 内核第三次没有控制台。同一次构建的 startup.o.json 含有 builder 用 EXTRA_MAKE_ARGS 传的 -DXNU_NATIVE_TRUST_CACHE，证明通道差异而非命名差异。修法：0546 改成无条件编译 + 运行期 pong_ramoops_base 自我守卫。"
+
+[[rule]]
+id = "P-302"
+statement = "flash 门禁必须按 os_profile 选八步账本；把 16.6.1 的账本套在 27 树上，只会产生 18 条永远为红的引用。"
+check = "python3 -c \"import pathlib,sys; p=pathlib.Path('docs/engineering/PITFALLS.md'); t=p.read_text(encoding='utf-8'); sys.exit(0 if '## P-302' in t else 1)\""
+note = "2026-11-21 23:05 实测：flash.sh 对 227fa840… 报通过 54 项、问题 18 处，全部是 16 线的 P-122/P-126/P-140 与五个 27 树不存在的文件；27 账本 EIGHT-STEPS-27.toml 从未被读。"

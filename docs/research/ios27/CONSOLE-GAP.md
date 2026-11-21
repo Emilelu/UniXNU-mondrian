@@ -131,3 +131,27 @@ fffffff00addd728 s _k60_serial_clock
 
 **纪律照旧**：没有 reader 之前，任何「内核静默挂死」的结论都不成立——现在的沉默可能是「没写」，也可能是
 「写了但没人读」，两者在主机侧形状相同。
+
+## 2026-11-21 23:10 — 读数器已在固件里，第一次飞行被账本门禁挡住
+
+固件新增 `Platforms/Xiaomi/mondrianPkg/Drivers/RamoopsDumpDxe`（uefi-mondrian `c52a080`，
+11,264 B EFI，进 `FV.FvMain` 的第一条 INF，Depex TRUE）：读 `0xA7000000` 的 12 字节头，
+按 `start`/`size` 把环形缓冲的首 1,200 B 与尾 2,400 B 打到固件控制台，中间省略。
+它只读不写；窗口里没有魔数时报 `RAMOOPS: no signature`，那就是「内核没走到控制台初始化」的答案。
+
+镜像：`boot.img` 201,900,032 B `sha256 227fa8407fd96a9f5f47db239516ca97535df9065c3e6916c1569be1eb173196`，
+FD 3,145,728 B `sha256 8102da7d766a`，payload 内 `kernel.macho` `b997f4eeb316`（含两个 sink 符号）。
+
+**但这次飞不起来**：`scripts/flash.sh` 的八步门禁读的是 `docs/research/EIGHT-STEPS.toml`
+（iOS 16.6.1 的账本），18 处引用在 27 树里解析不到 ⇒ `禁止刷机`。已登记 P-302：门禁必须按
+`board.toml` 的 `os_profile` 选账本，27 线自己的 `EIGHT-STEPS-27.toml`（56 个条目）今天从没被读过。
+修法是读取层适配两个 schema，不是改证据串。
+
+**两次启动的分工**（读数器在 DXE 最先跑，所以每次读的是上一次留下的内容）：
+
+| 次序 | 固件应打印 | 含义 |
+| --- | --- | --- |
+| 第 1 次 | `RAMOOPS: no signature … the window is empty` | 读数器活着；上一次没有写者（或 DRAM 没保留） |
+| 第 2 次 | `RAMOOPS: sig ok, start … size …` + 文本 | 内核真的跑到控制台初始化并写了字 |
+
+第 2 次之前若设备静默挂死需要长按电源，此时先别复位——第 2 次读的正是第 1 次留下的内容。

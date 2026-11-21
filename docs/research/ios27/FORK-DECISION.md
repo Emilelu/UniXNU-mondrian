@@ -128,3 +128,37 @@
 - 补丁：`patches/xnu-12377/{0532,0540,0541}-*.patch`、`armcpu-sleep-hook.patch`；三者对 pristine `E:/hackios/xnu-12377` 的 `git apply --check` 全部通过（2026-11-21 复核）。
 - XNU 原生：`osfmk/arm64/cpu.c:1024`（`ml_arm_sleep`）、`osfmk/kern/processor.c:1175`、`osfmk/arm/machine_routines.h:757`。
 - 归档与参数：`board.toml:14`、`:21`、`:194-206`；`configs/mondrian_ios27_defconfig`。
+
+## 7. 外部证据（供 `porting.toml` 记录引用）
+
+Lead（m00493 ②）把这条记录写进 `porting.toml`，本节只提供可复现的读数。全部命令在 2026-11-21 的本机 MSYS bash 里跑过，输出逐字照抄。
+
+### 7.1 复现命令
+
+```sh
+cd E:/hackios/xnekom-ios27
+git rev-parse --short HEAD
+git log -1 --format=%s
+diff -q drivers/ArmCpu/ArmCpu.cpp ../k60-platform27/drivers/ArmCpu/ArmCpu.cpp
+md5sum drivers/ArmCpu/ArmCpu.cpp ../k60-platform27/drivers/ArmCpu/ArmCpu.cpp
+grep -n '0532-k60-cpu-start-completion\|0540-k60-psci-smp\|0541-k60-virtual-timer' patches/xnu-12377/series
+git log --oneline -5 -- drivers/ArmCpu/ArmCpu.cpp
+grep -rln 'T0SZ_USER\|native_pmap_user_mappings\|pmap_pt_attr_4k_user' patches/
+```
+
+### 7.2 读数
+
+| 项 | 读数 |
+|---|---|
+| xnekom-ios27 HEAD | `dec42748 docs(storage): show why three targets miss console`（分支 `feat/xnu27-data-gate`，`ahead 59, behind 19` 相对本仓库 main） |
+| `diff -q` 两只 `ArmCpu.cpp` | 无输出，rc=0 —— 逐字节相同 |
+| md5 | 两侧同为 `f05a3216b4e6f0feaa7a65babdffac59` |
+| 27 series 行号 | `:65 0532-k60-cpu-start-completion.patch`、`:87 0540-k60-psci-smp.patch`、`:91 0541-k60-virtual-timer-guard.patch` |
+| 该文件的维护提交 | `24746184 fix(power): mark secondary CPUs stopped before sleep`、`1c662ecd fix(power): keep the platform sleep path quiet until resume`（更早：`cea7d9bd`、`7e2d88b8`、`4216ae6d`） |
+| xnekom 是否带 T0SZ/pmap 补丁 | 否 —— `grep -rln` 在 `patches/` 无输出；它的 27 树没有用户 VA 那组改动 |
+
+### 7.3 这条证据能证明什么、不能证明什么
+
+- 能证明：27 时代存在一棵与本板同源（`PongUfs` / `K60PlatformSleep` / 同一份 779 行 fork）的树，它用同一个 fork 走 27，并且还在为这个文件修睡眠路径；`porting.toml:199` 那条「用 catalog ArmCpu」的记录在同源树里没有兑现，原因正是 §0 的三条缺口。
+- 不能证明：该 fork 能在 `24A446` 上把 SMP 拉起来。本板至今没有 27 的 SMP 上机记录（§5 第一行的触发条件仍开着），所以这条记录应写成「沿用同源树的实际选择」，不要写成「已验证可用」。
+- `diff` 为空只说两份文件相同，不说它们都对；`behind 19` 意味着 xnekom 也没跟上本仓库 main 的这 19 个提交，比对时机见 7.1 的 HEAD。

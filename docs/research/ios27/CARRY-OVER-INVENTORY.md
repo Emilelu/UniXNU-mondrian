@@ -67,3 +67,19 @@
 3. **`bsd_init.c` 的锚点不存在**：16 线插在 `native_pong_ui_services_start();` 之后，该串在 27 树 `bsd/kern/bsd_init.c` 里出现 **0** 次 ⇒ 必须重新选点，判据是「线程已经能跑、且在此之前不会有人去枚举 USB」。候选点下一轮量（`bsd_init` 里 `vfs_mountroot` 成功之后、`init` 拉起之前）。
 
 ⇒ `0300` 重切 = 去掉两层守卫 + `arm_init.c:702` 原锚点 + `bsd_init.c` 换点。这一步不需要再「创新」，只是把 16 线的两处调用搬到 27 的两个新位置。
+
+### `0300` 的 `bsd_init.c` 锚点已定（2026-11-22 03:3x）
+
+27 树 `bsd/kern/bsd_init.c` 的 `bsd_autoconf()` 末尾本来就有和 16 线同形的块：
+
+```c
+	if (result == KERN_SUCCESS) {
+		extern void qbt_k60_start(void);
+		qbt_k60_start();
+	}
+	return result;
+```
+
+⇒ `k60_usblog_start()` 直接加在 `qbt_k60_start();` 之后、同一个 `if (result == KERN_SUCCESS)` 里。三个好处：①复用现成的成功守卫，不用新造条件；②它就在 `return result;`（`:1339`）之前，与 16 线的插入位置语义相同（线程已能跑、`init` 还没拉起）；③USB 枚举发生在这之后，不会有人提前抢 DWC3。
+
+至此 `0300` 的两个锚点都定了：`osfmk/arm/arm_init.c:702`（复用）与 `bsd/kern/bsd_init.c` 的 `qbt_k60_start()` 之后（新选），守卫去掉。

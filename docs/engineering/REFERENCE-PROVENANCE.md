@@ -15,6 +15,11 @@
 | `yibiya/UniXNU-mondrian` | **true** | `Emilelu/UniXNU-mondrian` |
 | `kmu1757/UniXNU-t970` | false | — （独立作者的 t970 移植） |
 
+| `dddqmmx/UniXNU-sirius` | **true** | `57UU/UniXNU-sirius` |
+| `57UU/UniXNU-sirius` | false | —（created 2026-10-23，独立移植线） |
+
+`sirius` 是别人（57UU）的独立移植线，`dddqmmx` 只是它的 fork ⇒ **可作外部参考**；但它跑 17.7.11 不是 27，只能作「机制可行」证据，不能作「27 上可成立」的证据（2026-11-22 input27 实测，记此以免下次又当第三方）。
+
 （`whohusaixing/UniXNU-mondrian` 查询返回空，需要重查；未确认前不得引用。）
 
 ## 由此产生的硬规则
@@ -28,3 +33,7 @@
 
 - `scripts/check-source-provenance.py`：扫描 `docs/**` 里出现的仓库/设备页引用，要求命中本表且 `own-fork` 的条目不得带「第二来源/独立/第三方」措辞。
 - 把 `whohusaixing` 的查询结果补齐。
+
+## 系列条目数的口径（2026-11-22 input27 提问后定）
+
+我先前写「27 系列 34 条」是把文件里出现的所有 `.patch` 字符串都算上（含注释里提到的）；`input27` 在本仓 HEAD 数到 **30 条非注释行**。两者都不是判据——**以 `python3 scripts/check-series-numbering.py` 的输出为准**，它只数真实生效的条目。以后写这类数字必须注明「用什么命令数的」。

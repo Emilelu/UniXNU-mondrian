@@ -92,6 +92,7 @@ docs/
 | [`storage/ROUTE-D-PLAN.md`](research/storage/ROUTE-D-PLAN.md) | **route-D 计划（未实现，不随 stage-0 合入）**：延迟构造要改的 file:line、运行时前提、PAC 分发风险、离线可判与必须上机的分界 |
 | [`storage/MISSING-STORAGE-BASEBAND.md`](research/storage/MISSING-STORAGE-BASEBAND.md) | **95 项配对缺口的 storage 切片**：6 个地址全在输出 `__DATA_CONST`、全为数据类（gMetaClass 类），与 8–13 个其它 bundle 共享；QcomBaseband 未选入，贡献 0；TSV 见同目录 missing-storage-baseband.tsv |
 | [`storage/PRELINK-ORIGINAL-BRANCHES.md`](research/storage/PRELINK-ORIGINAL-BRANCHES.md) | **为什么 native_original_branches 为空**：kit 的写点（fileset_layout.relocate_original_stubs）、触发条件（native 的 .original 与 BTI c; B stub）、缺失的 legacy display/HID archive 与 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY` 开关；LTO reference 不产生该字段；§8 内核→kext 路径表（0 绝对分支 / 1 个 hook / 205 个反向槽） |
+| [`storage/PRELINK-CONSOLE-REACHABILITY.md`](research/storage/PRELINK-CONSOLE-REACHABILITY.md) | **三个 build-20 未解析目标在 `console_init` 前不可达的机制**：全根可执行段 16,281,600 条指令的 `ADRP+ADD/LDR`、`ADR`、`B/BL` 扫描 0 命中，根段数据字与 48,488 个 chained fixup target 也 0 命中；kext 首个 IOKit 入口 `PE_init_iokit` 在 console 之后；同时写明 MOVZ/MOVK、间接构造、loader 拒绝不在证明范围 |
 | `01-same-hardware.md` | 触摸调研 ① 同型 |
 | `02-official-docs.md` | 触摸调研 ② 官方 |
 | `03-reverse-and-device-data.md` | 触摸调研 ③ 反编译/取证 |

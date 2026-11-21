@@ -12,6 +12,7 @@
 - [display/RESEARCH.md](display/RESEARCH.md) — 显示结论层：面板 m11a（1440x3200 / DSC cmd / 单 DSI / 三档 60·90·120）、5 条供电轨、DSI/MDP 基址、绝不可抄的 Sharp/zizhan 数值
 - [storage/MISSING-STORAGE-BASEBAND.md](storage/MISSING-STORAGE-BASEBAND.md) — 95 项配对缺口的 storage 切片：6 个地址全在 `__DATA_CONST`、数据类（gMetaClass 类）、与 8–13 个 bundle 共享；QcomBaseband 未选入，0 项；TSV 同目录
 - [storage/PRELINK-ORIGINAL-BRANCHES.md](storage/PRELINK-ORIGINAL-BRANCHES.md) — `native_original_branches` 为空的证据链：kit 写点与触发条件、缺失的 legacy display/HID archive、`CONFIG_XNU_NATIVE_LEGACY_DISPLAY` 开关，LTO reference 不产生该字段；§8 内核→kext 路径表（0 绝对分支 / 1 个 hook / 205 个反向槽）
+- [storage/PRELINK-CONSOLE-REACHABILITY.md](storage/PRELINK-CONSOLE-REACHABILITY.md) — 三个 build-20 未解析目标为什么在 `console_init` 前不可达：65,126,400 B 根代码的 `ADRP+ADD/LDR`、`ADR`、`B/BL` 扫描（16,281,600 条指令）、数据字与 chained fixup 解码均 0 命中；kext 在 `PE_init_iokit` 前不运行；并列出 MOVZ/MOVK、间接构造与 loader 拒绝等未覆盖边界
 - [storage/RESEARCH.md](storage/RESEARCH.md) — 存储结论层：UFS PHY `0x1d80000` + `qmp-v4-cape`、控制器/ICE/HWKM、与 liuqin 的双源交叉验证、只读待核对项
 - [memory/RESEARCH.md](memory/RESEARCH.md) — 内存布局结论层：DDR 保留区与寄存器窗口，以及**跨板边界**（DXE Heap / Kernel 绝不可跨板抄）
 - [POWER-RPMH-LDOC2.md](touch/POWER-RPMH-LDOC2.md) — `pm8350c_l2`（触摸 IOVDD 1.8 V）如何从 AP 侧通过 RPMh TCS3 投票点亮：硬件常量、v2 寄存器布局、11 步投票序列、ACK 之后的 observer 验证、Berlin D 上电时序、SPI 引脚角色、八个已知陷阱

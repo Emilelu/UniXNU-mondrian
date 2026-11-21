@@ -560,3 +560,74 @@ long-name table, because `PongUfsTransport.o` is 18 characters), a `.LDFLAGS` +
 command — the one that parses saved stderrs instead of linking. That row is the
 proof that the moment the Lead's build produces the inputs, this gate becomes an
 answer rather than a report.
+
+## 14. bt's four answers, and the rows they turned into
+
+bt answered the four questions on 2026-11-21 (criterion, path shapes, cpo origin, PEND
+wording). Three of them changed this gate rather than merely confirming it, and the sheet
+that carries them for bt to execute is `storage/UFS27-STEP7-HANDOVER.md`.
+
+**The criterion is stricter than `--require-linkable`.** bt's point: that flag only turns
+a gap into a failure when `archive_rc != 0`, so a link that succeeds while gaining new
+undefined symbols still prints OK. Closure therefore needs the report read too:
+
+```sh
+python3 scripts/check-xnu27-storage-link.py --tree "$OBJ" --archive "$ARCH" --out "$OUT" --require-linkable \
+&& python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if r["archive_rc"]==0 and not r["new_symbols"] else 1)' "$OUT"
+```
+
+with `OBJ=$TREE/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837` (the object directory, not
+the tree root), `ARCH=$REPO/build/native-ufs/libNativeUfs.a` (the checkout root, not the
+checker's default, which derives `parents[3]` and lands under `.../tree/build/`), and
+`OUT=$REPO/out/xnu27-storage-link.json` (a report; do not commit it). The gate's `run` row
+now prints exactly that pair, and its `pass` row now carries the report check instead of
+the sentence "new=0" alone.
+
+**A new row: `cpo`.** The producer does not guess a compiler line, it replays the recorded
+one from `build/xnu/ios-obj/*/iokit/DEVELOPMENT/KernelConfigTables.cpo.json`. So the gate
+derives the tree root from the object directory (`.../tree/build/xnu/ios-obj/<cfg>` →
+`.../tree`) or takes `--record-tree`, globs that record, and requires both `arguments` and
+`directory`. Measured today on the 24A446 tree: the record exists with 536 arguments and a
+`/mnt/e/...` directory, and the object directory exists with `.LDFLAGS` (3,204 B) and
+`link.filelist` (160,133 B):
+
+```sh
+python3 scripts/check-ufs27-step7-readiness.py \
+  --tree 'E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837'
+#   OK   tree       …/DEVELOPMENT_ARM64_BCM2837 (.LDFLAGS + link.filelist)
+#   OK   cpo        build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/KernelConfigTables.cpo.json (536 args, …)
+#   PEND archive    E:\\k60-work\\ufs27\\build\\native-ufs\\libNativeUfs.a is not there yet …
+#   PEND stderr     no saved ld stderr pair …
+#   OK   criterion  … 6 flags (--require-linkable among them)
+# ufs27-step7-readiness: 0 gap(s) (pending is not a gap: nothing claims closure)
+```
+
+That run is the useful distinction: the two 24A446 inputs are real, and the run still
+lands on PEND because the archive and the saved stderr pair are not. The 24A446 record
+also cannot stand in for F3 — the closure is measured on the F3 tree's own kernel — and
+who produces the first F3 build, or when, is undetermined on both sides.
+
+**The PEND wording is bt's, verbatim**, and replaced the gate's own sentence: stage 0 has
+`CONFIG_XNU_NATIVE_UFS` off and no recipe writing
+`$ROOT/build/native-ufs/libNativeUfs.a`, so the force-load at
+`scripts/build-xnu-generic.sh:646-653` does not happen and the eleven
+`IOBlockStorageDevice` imports are not in the kernel link — which proves the switch is
+off, not that the link closes. `26 vs 14` stays unquoted.
+
+**Three ways to mistake a report for closure**, now printed as notes by the gate and
+argued in the handover: `--require-linkable` alone; `new > 0` whose symbols all belong to
+the `IOBlockStorageDevice` family (they clear only when the bindings enter the same
+archive or the same force_load); and grading one of two archives, since the checker takes
+a single `--archive`.
+
+The fixture grew a fourth case so the new row cannot hide behind a pending run row:
+`nocpo/` is coherent except for the build record and must report exactly one gap.
+
+```sh
+cd E:/k60-work/scratch/ufs27-step7matrix && bash run.sh
+# PASS: real tree -> pending, 0 gap(s), exit 0
+# PASS: incoherent -> 3 gaps, exit 1
+# PASS: nocpo -> 1 gap (the build record), exit 1
+# PASS: ready -> green with the acceptance command, exit 0
+# ufs27-step7matrix: OK
+```

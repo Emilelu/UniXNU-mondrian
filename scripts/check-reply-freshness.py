@@ -35,7 +35,7 @@ SCRATCH = pathlib.Path(os.environ.get('K60_SCRATCH')
                        or (WSL_SCRATCH if WSL_SCRATCH.is_dir() else WIN_SCRATCH))
 PROMPT_HOURS = 24
 STALE_HOURS = 72
-REPLY = re.compile(r'^lead-reply:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})\s*$', re.MULTILINE)
+REPLY = re.compile(r'^lead-reply:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?:\s+.*)?$', re.MULTILINE)
 DELIVERY = re.compile(r'^delivery:\s*(steer|followup,\s*steer-rejected:\s*\S.+)$',
                       re.MULTILINE)
 REPORT = re.compile(r'【[^】]*汇报】')

@@ -492,3 +492,27 @@ review. Both groups now carry their source in XML comments:
   family by identifier); `com.apple.kec.corecrypto` because
   `drivers/NativeUfs/xnu_crypto.c:5` includes `<corecrypto/ccsha2.h>`. The three
   `com.apple.kpi.*` entries are the standard kernel interfaces.
+
+## 15. The one row that file existence cannot judge: the saved `ld` stderr pair
+
+Route B's acceptance rows are graded by `scripts/check-ios27-storage-entries.py`
+and `scripts/check-ufs27-storage-entry.py`, and all of them need a product — a
+fileset entry with a `kmod_info`, a set of exports, a vtable. `⑦`'s fourth input
+is different in kind: a saved control/archive `ld` stderr pair, which is *output
+of a run* and can be empty, truncated, copied or produced by the wrong link. Its
+shape is written down in `storage/UFS27-STEP7-HANDOVER.md` §10; the short form:
+
+- **pass** = `ARCHIVE_RC=0` **and** `new == []` **and** the control file parses to
+  a non-empty undefined set **and** the two files differ **and** both are newer
+  than the archive **and** the command carries `--require-linkable`;
+- **ran but did not verify** = anything else, printed as
+  `PEND "the saved stderr pair does not measure a link"`: zero-byte file, truncated
+  file, control == archive, missing `CONTROL_RC`/`ARCHIVE_RC` (they default to
+  `1`, `scripts/check-xnu27-storage-link.py:118-119`), stderr from another tree, or
+  a file older than the archive;
+- **`new != []`** is neither: those are the eleven `IOBlockStorageDevice`
+  imports, i.e. the gap this line exists to report.
+
+Two checker facts make that shape necessary rather than pedantic: `archive_rc == 0`
+short-circuits to `OK` before `new` is read (`:154-157`), and without
+`--require-linkable` a gap still exits `0` (`:169-172`).

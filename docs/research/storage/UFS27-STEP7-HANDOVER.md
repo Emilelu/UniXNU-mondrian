@@ -257,3 +257,63 @@ Rules for what a PASS may claim:
 If the composite command exits non-zero, the result is FAIL with the same six lines and
 `new_symbols` listed symbol by symbol — not PENDING. PENDING is reserved for missing
 inputs (§8), and the two words never apply to the same run.
+
+## 10. The saved `ld` stderr pair: what counts as evidence
+
+Three of ⑦'s four inputs are judged by existence — a tree with `.LDFLAGS` and
+`link.filelist`, a `cpo.json` with `arguments` and `directory`, an archive with
+three members. The fourth is not: a stderr pair is *output of a run*, and output
+can be empty, truncated, copied or produced by the wrong link. This section fixes
+its shape, so "the file is there" can never read as "the link was measured".
+
+### What the checker actually reads
+
+`scripts/check-xnu27-storage-link.py`:
+
+- `parse_undefined()` (`:25-38`) keeps **only** lines shaped
+  `"<symbol>", referenced from:`; every other line is dropped. A file with no
+  such block parses to an empty dictionary and is indistinguishable from a link
+  that had nothing to report.
+- With `--control-stderr`/`--archive-stderr` (`:117-122`) the return codes come
+  from the environment, `CONTROL_RC`/`ARCHIVE_RC`, defaulting to `1`
+  (`:118-119`) — i.e. "not supplied" reads as "failed".
+- `archive_rc == 0` short-circuits to `OK` (`:154-157`) **before** `new` is
+  considered; `new = [s for s in with_archive if s not in control]` (`:126`).
+- Without `--require-linkable` a gap still exits `0` (`:169-172`) — the flag is
+  part of the criterion, not an extra.
+
+### The pass shape
+
+All of the following, together:
+
+| # | condition | why it is needed |
+|---|---|---|
+| 1 | `ARCHIVE_RC=0` | the recorded link with the archive succeeded |
+| 2 | `new == []` | `-undefined dynamic_lookup` can exit 0 while symbols stay unresolved; bt's point, and the reason the rc alone is not the criterion |
+| 3 | the control file parses to a **non-empty** undefined set | the only proof that the file is real `ld` output rather than an empty stand-in; the control link has 14 historically |
+| 4 | control file ≠ archive file | identical files make `new == []` trivially true |
+| 5 | both files' mtime later than the archive's | the output postdates the input it claims to judge |
+| 6 | `--require-linkable` present | otherwise a gap exits 0 |
+| 7 | the report records `hardware_verified: false` | this is an offline measurement, never a device claim |
+
+### What "ran but did not verify" looks like
+
+Each of these is `PEND`, never a pass, and each is a distinct failure to say out
+loud when it happens:
+
+| shape | how it appears |
+|---|---|
+| zero-byte file | `control undefined=0` and no `"…", referenced from:` block anywhere |
+| truncated file | parses to a subset; symbols after the cut silently vanish |
+| control == archive | `new=[]` by construction, `archive_rc=0` → `OK` printed |
+| rc not supplied | `CONTROL_RC`/`ARCHIVE_RC` default to `1` → the pair measures a failed link |
+| stderr from another tree | the paths in the report disagree with `--tree` |
+| file older than the archive | the output cannot have judged this input |
+| `new != []` | that is not a pass and not a PEND: it is the eleven `IOBlockStorageDevice` imports, i.e. the gap itself |
+
+### One sentence for the report
+
+> The pair is evidence only when `ARCHIVE_RC=0` **and** `new=[]` **and** the
+> control stderr carries a non-empty undefined set and differs from the archive
+> stderr; anything else is `PEND "the saved stderr pair does not measure a
+> link"`, and the eleven imports stay outside it.

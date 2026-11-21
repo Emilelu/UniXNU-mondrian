@@ -50,3 +50,26 @@ _k60_serial_clock
 
 - 不许用「屏幕上有字」代替「串口有字」：两者的失败面不同（面板控制台在 `0543`，串口在 `0300`）。
 - 不许把这次发现写成「内核没跑」——它只说明**我们听不到**，说明不了它有没有说话。
+
+## 移植顺序（实测过依赖，不是猜的）
+
+在干净 12377 树（`/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc`）上逐条 `git apply --check`：
+
+| 补丁 | 触碰 | 干净树上 |
+| --- | --- | --- |
+| `0232` ramoops bridge | `osfmk/arm/arm_init.c` | 需要重切（它扩的是 16 树里已有的 `pong_ramoops_*` 块） |
+| `0243` console export | `bsd/conf/files`、`bsd/dev/k60_console_export.c`、`osfmk/arm/arm_init.c`、`osfmk/arm64/pong_ramoops_console.h` | 整条拒收；**它改的是 `0232` 加进来的 `pong_ramoops_console_write()`**（hunk `@@ -117,8 +119,12 @@` 把 `__atomic_exchange_n` 换成计数版） |
+| `0300` usblog EP0 | `bsd/conf/files`、`bsd/dev/k60_usblog.c`、`osfmk/arm/arm_init.c`、`bsd/kern/bsd_init.c` | **新增文件 `bsd/dev/k60_usblog.c` 单独 apply 成功**；四处锚点全要重切 |
+
+结论：这是一条**链**，不是三条独立补丁——`0232` 建 ramoops 底座，`0243` 在底座上加导出与总量/丢弃计数，`0300` 在其上把字节推上 EP0。按 0243、0300 的顺序单独移植会得到两个「能编但没人调用」的模块，症状仍是 0 字节，而且更难查（与 P-190 同形：归档链接了、符号在、代码从没跑）。
+
+三条锚点的重切面：
+1. `bsd/conf/files` —— 16 线用 `pong_buttons.c`/`unix_startup.c` 附近的锚，27 侧必须换成 `bsd/dev/unix_startup.c` 那一族（`append-conffiles.py` 的 27 模式已经在处理同类问题）。
+2. `osfmk/arm/arm_init.c` —— 0243 的 hunk 上下文是 16 树里 `pong_ramoops_diagnostic_write()` 之上的块；12377 没有这个块，要先落 0232 并把底座切到 `arm_init()` 里合适的初始化点（`arm_vm_init` 之后、`PE_init_iokit` 之前）。
+3. `bsd/kern/bsd_init.c` —— 0300 要在 `bsd_init()` 的 console worker 启动处挂钩；27 的 `bsd_init.c` 已因 `0531`（audio 调用点）改过一行，重切时必须落在同一文件的不同位置，顺序上先 `0531` 再 `0300`，否则 0531 的 `-U1` 锚点会被挤动。
+
+判据（缺一不可）：
+- 重编后 27 内核 `llvm-nm --defined-only | grep -c '_k60_usblog_console_up\|_k60_console_export_sysctl\|_pong_ramoops_console_write'` = **3**；
+- `bsd/conf/files` 里三个条目各出现一次；
+- 16 线内核的符号集**不变**（回归：同一份 16 树重建后 5 个符号仍在）；
+- 只有前三条都绿，才允许把「0 字节」重新当成有信息量的观测。

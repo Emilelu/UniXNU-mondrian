@@ -1,0 +1,104 @@
+Subject: [PATCH] osfmk/arm: export native_pmap_user_mappings for the BO-view diagnostic
+
+The NativeAdreno BO views hold physical pages without a reference on them,
+so before a page is freed the driver has to know whether a user task still
+maps it: pmap_assert_free() would fire on a page freed under a live mapping,
+and disconnecting it instead would fault the page back in from its next
+owner. This is a diagnostic export only; nothing in this tree calls it yet.
+The GPU diagnostic back end is the caller, and t970 and pong record that
+back end as unavailable on Darwin 24 precisely because upstream 12377 has no
+equivalent export (UniXNU-t970/migration/ipados18/services114-gpu-parity.md:25).
+
+Provenance: lifted from UniXNU-sheng's device patch
+patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch, hunk
+"@@ -15301,3 +15370,76 @@ pmap_pending_preemption(void)". That hunk anchors on a
+SCHED_HYGIENE_DEBUG block sheng's composed tree carries and pristine 12377 does
+not (pristine osfmk/arm/pmap/pmap.c is 15,273 lines and has no such symbol), so
+the function is re-anchored here at the real end of the file. Verified with
+`git apply --check` against xnu-12377 ac9718f.
+
+This is a draft: patches/xnu-12377/series has no entry for it, and the lane
+that owns the GPU diagnostic path decides when it enters the series.
+
+diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
+--- a/osfmk/arm/pmap/pmap.c
++++ b/osfmk/arm/pmap/pmap.c
+@@ -15270,4 +15270,78 @@
+ 
+ 	return KERN_SUCCESS;
+ }
+ #endif /* DEVELOPMENT || DEBUG */
++
++
++/*
++ * UniXNU: the mappings of a managed page in CPU pmaps other than the kernel's, and the first one's pmap and address. A driver that
++ * frees pages it handed out through physical-range mappings (NativeAdreno's BO views, which hold no reference to the pages) asks
++ * first: a page a user task still maps is kept rather than freed under the mapping (pmap_assert_free), and not disconnected either,
++ * since the mapping would fault the page in again from its next owner.
++ */
++unsigned int native_pmap_user_mappings(ppnum_t ppnum, void **first_pmap, uint64_t *first_va, char *first_name);
++unsigned int
++native_pmap_user_mappings(ppnum_t ppnum, void **first_pmap, uint64_t *first_va, char *first_name /* 17 bytes, the process's */)
++{
++	const pmap_paddr_t pa = ptoa(ppnum);
++	unsigned int count = 0;
++
++	if (first_pmap) {
++		*first_pmap = NULL;
++	}
++	if (first_va) {
++		*first_va = 0;
++	}
++	if (first_name) {
++		first_name[0] = 0;
++	}
++	if (!pa_valid(pa)) {
++		return 0;
++	}
++	const unsigned int pai = pa_index(pa);
++	pvh_lock(pai);
++	pv_entry_t **pvh = pai_to_pvh(pai);
++	pt_entry_t *ptep = PT_ENTRY_NULL;
++	pv_entry_t *pvep = PV_ENTRY_NULL;
++	int index = 0;
++	if (pvh_test_type(pvh, PVH_TYPE_PTEP)) {
++		ptep = pvh_ptep(pvh);
++	} else if (pvh_test_type(pvh, PVH_TYPE_PVEP)) {
++		pvep = pvh_pve_list(pvh);
++	}
++	while (ptep != PT_ENTRY_NULL || pvep != PV_ENTRY_NULL) {
++		if (pvep != PV_ENTRY_NULL) {
++			ptep = pve_get_ptep(pvep, index);
++		}
++		if (ptep != PT_ENTRY_NULL && !pvh_ptep_is_iommu(ptep)) {
++			pmap_t pmap = ptep_get_pmap(ptep);
++			if (pmap != kernel_pmap) {
++				if (count == 0) {
++					if (first_pmap) {
++						*first_pmap = pmap;
++					}
++					if (first_va) {
++						*first_va = (uint64_t)ptep_get_va(ptep);
++					}
++#if MACH_ASSERT
++					if (first_name) {
++						strlcpy(first_name, pmap->pmap_procname, 17);
++					}
++#endif /* MACH_ASSERT */
++				}
++				count++;
++			}
++		}
++		if (pvep == PV_ENTRY_NULL) {
++			break;
++		}
++		ptep = PT_ENTRY_NULL;
++		if (++index == PTE_PER_PVE) {
++			index = 0;
++			pvep = pve_next(pvep);
++		}
++	}
++	pvh_unlock(pai);
++	return count;
++}
++++ b/osfmk/arm/pmap/pmap.h

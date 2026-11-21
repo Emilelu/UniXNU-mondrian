@@ -102,7 +102,30 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 		--uefi "$UNIXNU_UEFI" \
 		--tree "$BOARD_DIR/tree" \
 		--edk2 "$UNIXNU/third_party/edk2" || true
-	python3 ./unixnu build firmware --device "$ROOT" --uefi "$UNIXNU_UEFI" -j "${UNIXNU_JOBS:-$(nproc)}"
+	# Measured 2026-11-21: the volume costs 519 s of a 975 s build and does not
+	# depend on the kernel, the boot-args or the ADT -- only on the firmware
+	# inputs. Rebuild it when those change, reuse it otherwise. The key is the
+	# inputs themselves, not a timestamp: board.toml, the uefi checkout and its
+	# submodules, and the EDK II drop the builder patches (P-155: a timestamp
+	# says "recent", a key says "same").
+	FW_KEY="$BOARD_DIR/firmware/inputs.sha256"
+	FW_FD=$(find "$UNIXNU_UEFI/Build" -name 'SILICIUM_UEFI.fd' 2>/dev/null | head -1 || true)
+	fw_key=$( {
+		sha256sum "$ROOT/board.toml" | cut -d' ' -f1
+		git -C "$UNIXNU_UEFI" rev-parse HEAD
+		git -C "$UNIXNU_UEFI" submodule status --recursive | awk '{print $1, $2}'
+		ls -1 "$UNIXNU/patches/uefi" 2>/dev/null || true
+	} | sha256sum | cut -d' ' -f1 )
+	if [ -n "${K60_FORCE_FIRMWARE:-}" ] || [ -z "$FW_FD" ] ||
+		[ ! -f "$FW_KEY" ] || [ "$(cat "$FW_KEY")" != "$fw_key" ]; then
+		python3 ./unixnu build firmware --device "$ROOT" --uefi "$UNIXNU_UEFI" -j "${UNIXNU_JOBS:-$(nproc)}"
+		mkdir -p "$(dirname "$FW_KEY")"
+		printf '%s\n' "$fw_key" >"$FW_KEY"
+		mark firmware-built
+	else
+		echo "note firmware: reused the volume at $FW_FD (inputs unchanged since the recorded key)"
+		mark firmware-reused
+	fi
 	# No [bootimg] dtb in board.toml: the appended tree is the hardware DTS the
 	# payload step compiled.
 	python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \

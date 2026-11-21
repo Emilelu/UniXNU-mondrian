@@ -16,6 +16,7 @@
 4. **整条作废**：只要 W1 或 W2 有一段不是 PASS，就不许继续到下一段，也不许把后面的结果拿来补前面的结论。W1/W2 已 PASS、F3 只是基线的，按 §7.4 单独写“W1/W2 通过，F3 PENDING”。
 5. **复位规则**：本单没有任何一步需要设备复位。W1-A、W1-B、W2 四个 storage、F3-A 都在同一次 Android 启动里完成；`adb root` 只重启 adbd，不是设备重启。若设备真的重启，从 §1 重新开始并新建 `CAP`，不要往旧目录追加。
 6. 本单的 `OVERALL: PASS` 只表示“W1 双腿 + W2 四块参考内容 + 本地文件互相一致”，不表示 W2 的 27 读回已通过，也不表示可以起飞。
+7. 每个会产生判据的命令上方都有 `# 定案：` 注释，写明它对应哪条判据的哪一半；变量赋值、`mkdir`、`stop` 和辅助 readlink 只是 plumbing，不产生判据。
 
 ## 1. 固定变量与设备身份
 
@@ -35,15 +36,23 @@ CAP="$ROOT/w1-lun-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$CAP"
 stop() { echo "STOP: $*"; echo "KEEP: $CAP"; exit 2; }
 
+# 定案：确认设备处于 adb device 态；fastboot/offline 直接排除本次采集。
 adb devices -l                                              > "$CAP/adb-devices.txt" 2>&1
+# 定案：记录 Android release，作为 CAP provenance；不是 W1/W2 判据。
 adb -s "$SERIAL" shell getprop ro.build.version.release     > "$CAP/android-release.txt" 2>&1
+# 定案：fingerprint 锁定这一次系统；换系统后同一 CAP 不可混用。
 adb -s "$SERIAL" shell getprop ro.build.fingerprint         > "$CAP/fingerprint.txt" 2>&1
+# 定案：hardware 记录板型；防止把别的设备当 K60。
 adb -s "$SERIAL" shell getprop ro.boot.hardware             > "$CAP/hardware.txt" 2>&1
+# 定案：内核串记录本次启动；后续 W2 读回必须同源。
 adb -s "$SERIAL" shell uname -a                             > "$CAP/uname.txt" 2>&1
+# 定案：记录 adbd 身份；W2 需要 uid 0，先留基线。
 adb -s "$SERIAL" shell id                                   > "$CAP/id.txt" 2>&1
+# 定案：飞行模式记录；F3 不能把无业务当 modem 死。
 adb -s "$SERIAL" shell getprop persist.radio.airplane_mode_on > "$CAP/airplane.txt" 2>&1
 
 {
+  # 定案：README 给判官提供 provenance；缺它 W1 只能 PENDING。
   echo "purpose=W1/W2/F3 read-only capture"
   echo "captured_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "adb_serial=$SERIAL"
@@ -58,10 +67,14 @@ adb -s "$SERIAL" shell getprop persist.radio.airplane_mode_on > "$CAP/airplane.t
 - **失败时看到什么**：`no adb serial`、`adb: device offline`、`error: no devices/emulators found`。看到任一就停，不要自行 `fastboot boot`。
 - **复位**：不需要。若设备重启，回到本块。
 
+<a id="W1"></a>
+
 ## 2. W1 Leg A：从 modemst1 绑到父磁盘，再读 HCTL 末段
 
 ```sh
+# 定案：把 modemst1 解析到真实分区；父盘不是猜的。
 adb -s "$SERIAL" shell "readlink -f /dev/block/by-name/modemst1" > "$CAP/modemst1-real.txt" 2>&1
+# 定案：取第一行并去 CR；空值/多行会在这里暴露。
 MODEMST=$(tr -d '\r' < "$CAP/modemst1-real.txt" | head -n 1)
 case "$MODEMST" in
   /dev/block/sd[a-z]*) SDF=$(basename "$MODEMST" | sed -E 's/[0-9]+$//') ;;
@@ -75,16 +88,23 @@ printf '%s\n' "$SDF" > "$CAP/sdf.txt"
 
 adb -s "$SERIAL" shell "readlink -f /sys/class/block/$SDF"        > "$CAP/disk-sysfs.txt" 2>&1
 adb -s "$SERIAL" shell "ls -l /sys/class/block/$SDF"              > "$CAP/disk-link.txt" 2>&1
+# 定案：device-link 的末段就是 H:C:T:L；Leg A 的唯一地址来源。
 adb -s "$SERIAL" shell "readlink -f /sys/class/block/$SDF/device" > "$CAP/device-link.txt" 2>&1
+# 定案：第二份独立 HCTL；与 device-link 不一致就是 FAIL。
 adb -s "$SERIAL" shell cat /proc/scsi/scsi                        > "$CAP/proc-scsi-scsi.txt" 2>&1
+# 定案：lsblk 只是旁证；不参与 L=5 判定。
 adb -s "$SERIAL" shell lsblk -o NAME,MAJ:MIN,SIZE,TYPE,PKNAME,MOUNTPOINT > "$CAP/lsblk.txt" 2>&1
+# 定案：分区表也是旁证；不取代 HCTL 与 proc-scsi。
 adb -s "$SERIAL" shell cat /proc/partitions                       > "$CAP/proc-partitions.txt" 2>&1
 
+# 定案：归一成 H:C:T:L 四段；格式不对不能进判官。
 tr -d '\r' < "$CAP/device-link.txt" | sed 's#.*/##' > "$CAP/hctl.txt"
 HCTL=$(tr -d '\r' < "$CAP/hctl.txt")
 printf '%s\n' "$HCTL" | grep -Eq '^[0-9]+:[0-9]+:[0-9]+:[0-9]+$' || stop "device-link has no H:C:T:L tail: $HCTL"
+# 定案：Leg A 的一半就是 L=5；L 不等于 5 直接停。
 L=${HCTL##*:}
 [ "$L" = "5" ] || stop "HCTL L=$L, expected 5; do not change --expect-lun"
+# 定案：Leg A 的另一半：proc 里同一 Lun；只有 device-link 不算通过。
 grep -Eq "Host: scsi[0-9]+ Channel: [0-9]+ Id: [0-9]+ Lun: 0*5" "$CAP/proc-scsi-scsi.txt" \
   || stop "proc-scsi-scsi does not list Lun 05"
 ```
@@ -98,21 +118,27 @@ grep -Eq "Host: scsi[0-9]+ Channel: [0-9]+ Id: [0-9]+ Lun: 0*5" "$CAP/proc-scsi-
 ## 3. W1 Leg B：UFS Unit Descriptor（IDN 0x02）的 byte 2/3
 
 ```sh
+# 定案：找 bsg/UPIU 节点；没有节点 Leg B 只能 PENDING。
 adb -s "$SERIAL" shell 'ls -l /dev/bsg /dev/ufs-bsg* 2>/dev/null' > "$CAP/bsg-nodes.txt" 2>&1
+# 定案：选一个可查询的 bsg 节点；空值停。
 BSG=$(adb -s "$SERIAL" shell 'ls -1 /dev/bsg/* /dev/ufs-bsg* 2>/dev/null | head -n 1' | tr -d '\r')
 [ -n "$BSG" ] || stop "no bsg node; Leg B PENDING, not PASS"
 printf '%s\n' "$BSG" > "$CAP/bsg.txt"
 
+# 定案：找能发 UPIU query 的工具；sg_inq VPD 不能替代。
 UFS_TOOL=$(adb -s "$SERIAL" shell 'command -v ufs-utils || command -v ufs-tool' | tr -d '\r' | head -n 1)
 [ -n "$UFS_TOOL" ] || stop "no ufs-utils/ufs-tool; Leg B PENDING, not PASS"
 printf '%s\n' "$UFS_TOOL" > "$CAP/ufs-tool.txt"
+# 定案：记录工具哈希，保证描述符来源可追溯。
 UFS_TOOL_SHA=$(adb -s "$SERIAL" shell "sha256sum '$UFS_TOOL' 2>/dev/null" | awk '{print $1}' | tr -d '\r')
 printf '%s\n' "${UFS_TOOL_SHA:-unknown}" > "$CAP/ufs-tool-sha256.txt"
 
+# 定案：这条直接读回 IDN 0x02 的 byte2/3；Leg B 的字节来源。
 adb -s "$SERIAL" shell "$UFS_TOOL desc -t 2 -i 5 -s 0 -r -D /data/local/tmp/unit-desc-L5.bin -p $BSG" \
   > "$CAP/unit-desc-L5.txt" 2>&1
 
 # 只有出现 Permission denied/EACCES 时才允许 adb root；它只重启 adbd，不是设备复位。
+# 定案：只有 EACCES 才提权；提权失败仍是 PENDING，不是 PASS。
 if grep -qiE 'permission denied|EACCES' "$CAP/unit-desc-L5.txt"; then
   adb -s "$SERIAL" root > "$CAP/adb-root.txt" 2>&1 || true
   adb -s "$SERIAL" wait-for-device
@@ -122,9 +148,11 @@ if grep -qiE 'permission denied|EACCES' "$CAP/unit-desc-L5.txt"; then
     > "$CAP/unit-desc-L5.txt" 2>&1
 fi
 
+# 定案：把描述符原样落到 host，判官才能逐字节读。
 adb -s "$SERIAL" pull /data/local/tmp/unit-desc-L5.bin "$CAP/unit-desc-L5.bin" \
   > "$CAP/unit-desc-pull.txt" 2>&1
 [ -s "$CAP/unit-desc-L5.bin" ] || stop "unit descriptor was not pulled; Leg B PENDING"
+# 定案：前五字节就是判据；od 只读，不改字节。
 od -An -tx1 -N16 "$CAP/unit-desc-L5.bin" > "$CAP/unit-desc-L5-hex.txt" 2>&1
 ```
 
@@ -147,6 +175,7 @@ od -An -tx1 -N16 "$CAP/unit-desc-L5.bin" > "$CAP/unit-desc-L5-hex.txt" 2>&1
 
 ```sh
 {
+  # 定案：README 是判官的 provenance 输入；没有它 PASS 不成立。
   echo "capture_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "adb_serial=$SERIAL"
   echo "build_fingerprint=$(tr -d '\r' < "$CAP/fingerprint.txt")"
@@ -162,6 +191,7 @@ od -An -tx1 -N16 "$CAP/unit-desc-L5.bin" > "$CAP/unit-desc-L5-hex.txt" 2>&1
 } > "$CAP/README.txt"
 
 cd "$REPO" || stop "repo not found: $REPO"
+# 定案：判官把 A/B/README/proc 合成一个 rc；rc=0 才是 W1 PASS。
 python3 scripts/check-w1-lun-evidence.py "$CAP" --expect-lun 5 > "$CAP/w1-judge.txt" 2>&1
 W1RC=$?
 cat "$CAP/w1-judge.txt"
@@ -173,11 +203,14 @@ cat "$CAP/w1-judge.txt"
 - **失败时看到什么**：`K60 W1 LUN PENDING ...`（rc=2；缺腿或 README 空）、`K60 W1 LUN FAIL ...`（rc=1；HCTL/描述符矛盾、IDN 错、短读、proc 不一致）。**rc=2 也停**，不要补猜。
 - **复位**：不需要。W1 通过后直接进 W2；中间不要重启，否则重跑 §1。
 
+<a id="W2"></a>
+
 ## 5. W2：四个 storage 各读 4096 字节
 
 W2 需要读块设备；先确认 adbd 是 root。`adb root` 只重启 adbd，不是设备复位。
 
 ```sh
+# 定案：块设备读取要 uid 0；没有 root 不能读，不能假装通过。
 ROOT_UID=$(adb -s "$SERIAL" shell id -u | tr -d '\r')
 if [ "$ROOT_UID" != "0" ]; then
   adb -s "$SERIAL" root > "$CAP/w2-adb-root.txt" 2>&1 || true
@@ -186,19 +219,26 @@ if [ "$ROOT_UID" != "0" ]; then
 fi
 [ "$ROOT_UID" = "0" ] || stop "W2 needs uid 0; adb root unavailable"
 
+# 定案：四个 storage 固定顺序；每个独立判 PASS/FAIL。
 for spec in "1 modemst1" "2 modemst2" "3 fsg" "4 fsc"; do
   set -- $spec
   n=$1
   name=$2
+  # 定案：by-name 解析证明读的是目标分区，不是别的 storage。
   adb -s "$SERIAL" shell "readlink -f /dev/block/by-name/$name" > "$CAP/storage$n-link.txt" 2>&1
   grep -q '^/dev/block/sd' "$CAP/storage$n-link.txt" || stop "storage $n ($name): no by-name block node"
+  # 定案：唯一取数命令；4096 B 原样读，不做转换。
   adb -s "$SERIAL" exec-out "dd if=/dev/block/by-name/$name bs=4096 count=1" \
     > "$CAP/storage$n-$name.bin" 2> "$CAP/storage$n-dd.err"
+  # 定案：长度是 W2 的第一半；短读/长读都停。
   bytes=$(wc -c < "$CAP/storage$n-$name.bin" | tr -d ' ')
   printf '%s\n' "$bytes" > "$CAP/storage$n-size.txt"
   [ "$bytes" -eq 4096 ] || stop "storage $n ($name): read $bytes bytes, need 4096"
+  # 定案：完整哈希是 W2 的第二半；逐块对照参照。
   sha256sum "$CAP/storage$n-$name.bin" | awk '{print $1}' > "$CAP/storage$n-sha256.txt"
+  # 定案：首 16 B 是 W2 的逐字节半边；od 只读。
   od -An -tx1 -N16 "$CAP/storage$n-$name.bin" | tr -d ' \n' > "$CAP/storage$n-head.txt"
+  # 定案：判官把字段/padding/data/full sha 合起来；rc=0 才是该块 PASS。
   python3 scripts/check-efs-full.py --storage "$n" --file "$CAP/storage$n-$name.bin" \
     > "$CAP/w2-full-$n.txt" 2>&1
   rc=$?
@@ -226,6 +266,7 @@ done
 
 ```sh
 cd "$REPO" || stop "repo not found: $REPO"
+# 定案：本地组合判官要求 W1 双腿+W2 四块+README 一致；不替代设备判官。
 python3 scripts/check-capture-bundle.py \
   --leg-a "$CAP/device-link.txt" \
   --leg-b "$CAP/unit-desc-L5.bin" \
@@ -247,6 +288,8 @@ cat "$CAP/bundle.txt"
 - **失败时看到什么**：`W1 LUN PENDING/FAIL`、`W2 FULL PENDING missing storage N`、`W2 FULL FAIL storage=N: ...`、`OVERALL: PENDING/FAIL`。任一非 0 都停。
 - **复位**：不需要；本段完全在 host 上。
 
+<a id="F3"></a>
+
 ## 7. F3 只读查询：Android 基线，不是 27 定案
 
 F3 的顺序是 **W1 → W2 → W3/W4 → PAS4/RF**。W1/W2 是“盘和字节”，F3 是“modem 是否接受并继续”。Android 只能给出 F3 的参照基线；27 的 F3 必须等 console。下面两段都只读。
@@ -254,18 +297,29 @@ F3 的顺序是 **W1 → W2 → W3/W4 → PAS4/RF**。W1/W2 是“盘和字节�
 ### 7.1 F3-A：Android 侧基线（同一次启动，不需要复位）
 
 ```sh
+# 定案：Android 基线，不是 27 F3；只用来排除 modem 根本没起。
 adb -s "$SERIAL" shell getprop gsm.version.baseband       > "$CAP/f3-baseband.txt" 2>&1
+# 定案：SIM 状态基线；两路 ABSENT 时 F3 基线不成立。
 adb -s "$SERIAL" shell getprop gsm.sim.state              > "$CAP/f3-sim-state.txt" 2>&1
+# 定案：运营商只记录，不作为 F3 通过条件。
 adb -s "$SERIAL" shell getprop gsm.sim.operator.alpha     > "$CAP/f3-sim-operator.txt" 2>&1
+# 定案：飞行模式基线；不能把无业务当 modem 死。
 adb -s "$SERIAL" shell getprop persist.radio.airplane_mode_on > "$CAP/f3-airplane.txt" 2>&1
+# 定案：四个 remoteproc 是 Android 侧 modem 是否运行的直接证据。
 adb -s "$SERIAL" shell 'for i in 0 1 2 3; do echo "==$i"; cat /sys/class/remoteproc/remoteproc$i/name /sys/class/remoteproc/remoteproc$i/state /sys/class/remoteproc/remoteproc$i/firmware; done' \
   > "$CAP/f3-remoteproc.txt" 2>&1
+# 定案：只读旧服务表；不运行 qrtr-lookup（它会写文件）。
 adb -s "$SERIAL" shell 'cat /data/vendor/qrtr/qrtr-lookup.txt' > "$CAP/f3-qrtr-lookup.txt" 2>&1
 
+# 定案：node0 行数判断表是否完整；少于 30 行不能当基线。
 awk 'NF>=5 && $4==0 {n++} END{print "node0=" n+0}' "$CAP/f3-qrtr-lookup.txt"
+# 定案：21/1/11/3/16 是 F3 关注服务号；缺一基线不完整。
 awk '$4==0 && ($1==21 || $1==1 || $1==11 || $1==3 || $1==16) {print}' "$CAP/f3-qrtr-lookup.txt"
+# 定案：mss/running/modem.mdt 三行同时出现，才证明 modem 真跑。
 grep -A2 '4080000.remoteproc-mss' "$CAP/f3-remoteproc.txt"
+# 定案：两路 baseband 才算双 SIM 基线；只有一份不完整。
 grep -o 'MPSS.DE.2.0.c1-CN' "$CAP/f3-baseband.txt" | wc -l
+# 定案：至少一路 LOADED；两路 ABSENT 则基线不成立。
 grep -o 'LOADED' "$CAP/f3-sim-state.txt" | wc -l
 ```
 
@@ -287,12 +341,18 @@ grep -o 'LOADED' "$CAP/f3-sim-state.txt" | wc -l
 ```sh
 CONSOLE="${K60_CONSOLE:-}"
 if [ -n "$CONSOLE" ] && [ -f "$CONSOLE" ]; then
+  # 定案：W1 console 的一半：名字解析到 LUN 5；缺行 F3 PENDING。
   grep -nE 'K60UFS volume name=modemst1 lun=5' "$CONSOLE"
+  # 定案：W2 console 的定案：27 读回首 16 B 与参照逐字节相等。
   grep -nE 'K60MODEM qrtr: rmtfs rw storage=1 direction=0 .*bytes=4096 head=1000000003000000d801000020faa9c4' "$CONSOLE"
+  # 定案：W3 的一半：同一 storage 出现第二次 rw，才说明 modem 继续读。
   grep -nE 'K60MODEM qrtr: rmtfs rw storage=1 direction=0' "$CONSOLE"
+  # 定案：W3 的另一半：fsg/fsc 也被打开，范围不是只读一块。
   grep -nE 'K60MODEM qrtr: rmtfs open path=/boot/(fsg|fsc)' "$CONSOLE"
+  # 定案：W4 的定案：服务数/verdict/dms/bridge 至少出现；缺一 PENDING。
   grep -nE 'K60MODEM qrtr: (verdict|wait) |K60MODEM qrtr: dms revision|bridge enabled' "$CONSOLE"
 else
+  # 定案：没有 console 的负判据：只能写 PENDING，不能拿 Android 补。
   echo "F3 CONSOLE PENDING: no 27 console"
 fi
 ```
@@ -312,6 +372,7 @@ fi
 四份 proposal 的 trigger 都是同一条 console 打印，不是设备命令：
 
 ```sh
+# 定案：命中返回地址才证明 target 被执行；没命中保持 hold。
 grep -nE 'fileset: original component called an unmapped kernel function from 0x[0-9a-fA-F]+' "$CONSOLE"
 ```
 

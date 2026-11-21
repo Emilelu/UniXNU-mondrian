@@ -15,8 +15,9 @@
   "record_sha256": "dee01c54a73edf594bbe866ae020cb3331d31afe3edc4616b1a6fc0a34fbaad0",
   "required_original_branches": [],
   "required_original_branches_waiver": {
-    "reason": "kits/XnuPrelink does not emit native_original_branches yet, so the record has none to require; the waiver exists so the empty clause is visible and expires instead of passing forever",
-    "review_after": "2026-11-28"
+    "reason": "This kernel exports no `.original` adapter symbol at all: relocate_original_stubs() (fileset_layout.py:255-283) records a branch only for a uniquely paired symbol ending `.original`, shaped `bti c; b`, whose displacement equals the declared absolute target inside retained_code, and no such symbol exists here (the only kernel-to-kext path today is the early_security_init hook, which is a hook and not an absolute branch). The empty list is the measurement, not a missing flag: copying the upstream iPad17,3 names would green this clause while measuring nothing (P-289). Review means either finding a real absolute branch we take, or restating the clause as must-stay-empty with that evidence.",
+    "review_after": "2026-11-28",
+    "evidence": "docs/research/ios27/PRELINK-RESIDUE.md"
   },
   "stubbed": {
     "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib": {

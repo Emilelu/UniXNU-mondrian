@@ -24,13 +24,28 @@ id = "prelink-map-unresolved"
 what = "the prelink map still has owner-target references with no address and sites redirected to the panic stub"
 state = "open"
 evidence = """build 20, 2026-11-21: kernel.macho sha256 652237c6bf54, 32 fileset entries, 0 loader violations, boot.img 5c060f27. Sixteen reviewed data pairings were folded into kernel.map.json (scripts/k60-fileset-pair.py, each target re-verified with llvm-nm-18 on the native kernel), which moved the unpinned data addresses from 94 in 21 bundles to 3 in 3 bundles. check-prelink-hazards: 3 unpinned, all covered by a segment, 0 outside every segment."""
-why_open = """Two residues left, both measured on build 20.
-
-Data pairing: three addresses still have no address in the map -- 0xfffffff007044478 (a leaf in __TEXT,__const of AppleARMWatchdogTimer, zero kernel code references), 0xfffffff00b72fce8 (__common zero fill, IOHIDFamily) and 0xfffffff00b739538 (__common zero fill, security.sandbox). Nothing inside the IPSW names them: no import table, no member symbol table, and __LINKINFO carries KPI export names without addresses. They stay unreviewed rather than guessed.
-
-Function stubs: 203 items in 25 bundles jump to _unixnu_fileset_unmapped, which panics with the caller address -- the wanted shape, but each site still has to be shown unreachable before the map counts as closed.
-
-Closing needs either a symbol-bearing artifact of the same build family (research kernelcache or KDK dSYM) to name the three, or an explicit written decision that a zero-fill global with no static referrer cannot be reached before the console exists -- plus the review of the 203 stubbed call sites."""
+why_open = """205 pointer slots, not 205 calls, and none of them is reachable before the console.
+`osfmk/kern/startup.c` brings the console up at :478 and the code-signing window at :526; the first
+kext start is `PE_init_iokit()` at :689 inside `kernel_bootstrap_thread()`. No kext code runs before
+:689, and every one of the 205 slots lives in a kext `__DATA_CONST`/`__const` pointer table, so the
+'reachable before the console' class is empty by structure rather than by inspection (179
+`__auth_got` slots plus 26 `__const` entries, owned by 25 bundles, dispatching into 131
+com.apple.kernel function starts). What remains is a functional gap ordered after the console: 41
+AMFI slots (the first launchd exec), 20 apfs slots (root volume mount), 23 sandbox slots (every task
+launch), 6 AppleARMWatchdogTimer slots (armed before root mount), 5 IOStorageFamily slots (nothing
+mounts below them), plus a 24-item display group. 13 of them become reachable from
+`code_signing_init()` at :526, which is after console subsystem init but before the USB CDC-ACM
+console K60 gives a human, so a trap in that group is silent: implement those first. 84 of the 205
+sit in 10 bundles the upstream iPad17,3 baseline also carries and can be booked as a recorded
+baseline; the other 121 sit in 15 bundles only this tree carries (AMFI, sandbox, apfs, IOAVFamily and
+friends), and those are not fixable by a defconfig key: all 134 unique targets are owned by
+com.apple.kernel, the bundles merely reference them (docs/research/ios27/DEFCONFIG-DELTA.md).
+`native_original_branches` is empty because `relocate_original_stubs()`
+(`fileset_layout.py:255-283`) records a branch only for a uniquely paired symbol ending `.original`
+shaped `bti c; b`; this kernel exports none, so an empty list is the measurement and not a missing
+flag. Closing this blocker means implementing or excluding those kexts, not clearing a counter;
+`check-prelink-regressions.py` guards the numbers meanwhile. Evidence:
+docs/research/ios27/PRELINK-RESIDUE.md."""
 
 
 decision = "open: the 95 data items keep a stale original address and are not stubbed"

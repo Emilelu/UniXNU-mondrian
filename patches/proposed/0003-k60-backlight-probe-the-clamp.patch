@@ -1,0 +1,61 @@
+Subject: [PATCH] fix(display): probe the brightness clamp from the service itself
+
+The 0001 patch only shows its value when the two fields of the request line can
+disagree, and they can only disagree for an out-of-range request:
+K60BacklightCodec.h clampLevel() maps anything >= kMaxLevel (2047) onto 2047
+and anything <= 0 onto 0. A slider never sends that, so a flight that merely
+drags the slider produces lines whose two fields are equal - the log is
+untouched by the defect and the patch looks pointless.
+
+This adds the smallest thing that makes the question answerable on the device
+without waiting for the OS to misbehave: with k60_backlight_probe=1 the service
+asks itself, once, for level 4095 - the top of the panel's own 12 bit DBV
+domain, the value a caller would pass if it mistook DBV units for levels. With
+0001 applied that prints exactly one line
+
+    K60 BACKLIGHT: brightness level 4095 -> level 2047 dbv 0xfff
+
+and without 0001 it prints 2047 twice, which is the defect itself.
+
+Off by default: the argument is the only way in, nothing in the image sets it,
+and the cost of turning it on is one visible jump to full brightness at
+bring-up before user space takes over. The probe is stacked on 0001 and is
+never shipped alone - alone it can only reprint the clamped value.
+
+Criteria and the reading rules: docs/research/display/BACKLIGHT-LOG-CRITERIA.md.
+Applies to the 27 ladder branch only.
+---
+--- a/drivers/PongAdreno/K60Backlight.cpp
++++ b/drivers/PongAdreno/K60Backlight.cpp
+@@ -379,6 +379,31 @@ void K60Backlight::publishFirst(void)
+           (int)native_backlight_request[0], (int)native_backlight_request[1],
+           (int)native_backlight_request[4], (int)native_backlight_request[5],
+           control ? "" : " (no AppleARMBacklight conformance)");
++
++    /* k60_backlight_probe=1: ask ourselves the question a flight cannot wait
++     * for. The clamp path (K60BacklightCodec.h clampLevel) only separates the
++     * two fields of the "brightness level" line when the request is out of
++     * range, and no UI sends 4095 - it is the top of the panel's own 12 bit
++     * DBV domain (kMaxDbv 0xfff), not a level. With 0001 applied this prints
++     * exactly one line before user space takes over:
++     *
++     *   K60 BACKLIGHT: brightness level 4095 -> level 2047 dbv 0xfff
++     *
++     * Without 0001 both fields read 2047 (the defect being measured), so the
++     * probe is stacked on that patch, never alone. Off by default; the
++     * argument is the only way in, and the side effect is one visible jump to
++     * full brightness at bring-up. */
++    uint32_t probe = 0;
++    if (bootArg("k60_backlight_probe", probe) && probe) {
++        OSDictionary *request = OSDictionary::withCapacity(1);
++        OSNumber *outOfRange = OSNumber::withNumber(4095ULL, 32);
++        if (request) {
++            if (outOfRange) request->setObject("brightness", outOfRange);
++            setProperties(request);
++            request->release();
++        }
++        if (outOfRange) outOfRange->release();
++    }
+ }
+ 
+ IOReturn K60Backlight::setProperties(OSObject *properties)

@@ -25,8 +25,9 @@
 - **27 侧落点**：同两个文件。改的是内核 `pong_scanout_frame()` 的接帧条件与 presenter 的 wait 循环，
   **不新增 ABI**。
 - **谁交**：GPU 线自己（属 `feat/gpu-27` 的代码改动，需 Lead 单独批准后动）。
-- **交付物与判据**：新增两行打印 `offers=<n> dropped=<n>`（内核在 `:159` 与 `:166` 两个 `return 0`
-  之前各加一个计数）。判据 = 稳态飞行 `dropped=0` 且 `offers` ≥ 120/s；配合 #2 一起判。
+- **交付物与判据**：离线草案已写——`patches/proposed/pong-scanout-offer-count.patch`（接帧闸门前后各加一个
+  计数，并在既有周期行上打 `scanout version=<n> offers=<n> dropped=<n>`）。判据 = 稳态飞行
+  `dropped=0` 且 `offers` ≥ 120/s；配合 #2 一起判。草案只过 `git apply --check`，未编译未上机。
 
 ### #2 CPU 合成默认关
 
@@ -64,13 +65,22 @@
 
 ### #5 客户端绘制计时（第 1 段）
 
-- **现状**：无。P-241 记 `native_bridge_metal_telemetry()` 无调用点，所以「客户端画一帧多久」
-  至今没有数（`docs/engineering/PITFALLS.md` 的 P-241）。
-- **27 侧落点**：`drivers/PongMetal/NativeBridgeMetalFrontend.mm`（27 线副本）里接上计时，
-  每帧打一条 `ctc=<us>`。
+- **现状**：**P-241 已过期**——`native_bridge_metal_telemetry()` 有调用点了：
+  `drivers/PongMetal/PongMetalPlugin.mm:62 streamTelemetry()`，`:247 if(seconds>=60u)streamTelemetry();`。
+  真日志证实生效：usblog-20261119-151837 的 console.log 第 2727 行
+  `Pong Metal: S c11/0 d11 p40 x4 R49 D550 F13 M4500k C0 B7 status=0x0`、第 2731 行
+  `Pong Metal: G commit-to-complete n=11 total=263ms max=82ms mean=23964us`。
+  真正缺的是**客户端的帧间隔**：桥只累加 pipeline/library/function 与两次 wait，
+  `wait` 是渲染服务端阻塞多久，不是客户端多久交一帧。另外该行标签
+  `commit-to-complete` 与累加器名 `gTimeEncodeToCommit`（`NativeBridgeMetalFrontend.mm:49`，
+  累加在 `:1015-1016`）不一致，读日志的人会把它当成交付延迟。
+- **27 侧落点**：`drivers/PongMetal/PongMetalScanout.h` 的 presenter 循环（27 线副本同路径）
+  记录相邻两帧到达的时间差，挂在既有 stage 行上。
 - **谁交**：GPU 线自己（用户态插件侧）。
-- **交付物与判据**：120 Hz 下 ≥ 110 条/s 的 `ctc`，且中位 ≤ 8,333 µs。**这条不补，判读器永远
-  只能判「present 快不快」，判不了「界面为什么不够 120」。**
+- **交付物与判据**：离线草案 `patches/proposed/pong-metal-client-gap.patch`，字段
+  `client=<us> us`（判读器 `SCANOUT_VERSION`/`OFFERS`/`CLIENT` 三个正则里最后一个就是它）。
+  判据：120 Hz 下 `client` ≤ 8,333 µs；`client` 大于预算而 `gpu` 在预算内 ⇒ 客户端是瓶颈。
+  **这条不补，判读器永远只能判「present 快不快」，判不了「界面为什么不够 120」。**
 
 ### #6 零拷贝扫出（DPU 行距）
 

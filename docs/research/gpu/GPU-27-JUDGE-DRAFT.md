@@ -127,6 +127,21 @@ python3 scripts/judge-gpu27.py <evidence dir | console.log> [--json]
 ```
 
 三态与退出码还是本文件 §3 那一套：`PASS` 0 / `FAIL` 1 / `INVALID` 3 / 读不了 2。
+
+### 8.2 第 1 步的两份离线草案（2026-11-21，Lead 授权写、不占 RULES 号、不进 series）
+
+| 草案 | 落点 | 供判读器的字段 | 离线验证 |
+| --- | --- | --- | --- |
+| `patches/proposed/pong-scanout-offer-count.patch` | `drivers/PongAdreno/PongAdrenoScanout.cpp` | `scanout version=`、`offers=`、`dropped=` | `git apply --check` 通过 |
+| `patches/proposed/pong-metal-client-gap.patch` | `drivers/PongMetal/PongMetalScanout.h` | `client=<us> us` | `git apply --check` 通过 |
+
+字段形状不是猜的，是用判读器自己验的：把这两行按草案将要打印的形态写进一份临时日志后，
+`judge-gpu27.py --json` 的 `unmeasured` 从 `['client us']` 变成 `[]`；只留这两行、
+不留 `Pong Metal:` 那几条时，`unmeasured` 只剩 `['abi', 'gpuonly']`——也就是说草案覆盖的
+三个字段确实被解析成「已观测」，而 `abi` 与 `gpuonly` 分属另外两棵树（用户态 open 路径、
+XNU 合成策略），本线不改。两份草案**都未编译**：本线禁止构建，`git apply --check` 是离线能给的
+最强说法，也是这里唯一声称的东西。
+
 两条实现上的取舍写在这里，免得下一轮被当成缺陷：
 
 - **三态是打印出来的字，不只是退出码**：`PASS`/`FAIL`/`INVALID` 各有一行 `verdict:`，

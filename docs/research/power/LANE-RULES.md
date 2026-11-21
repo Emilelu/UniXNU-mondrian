@@ -41,6 +41,17 @@
 - 逐路径清单与 41 条 pattern 原文在 `docs/research/PORTING-OWNER-MAP.tsv` / `.md`；
   area 与 owner 只作审查归属，不改变文件内容或运行行为。
 
+## R-03 与 Lead / 其他 agent 的通信顺序
+
+**裁定**：发消息一律先 `steer`；只有被拒（目标 idle / 不适用 steer）才改 `followup`。
+不要反过来，也不要因为怕被拒直接 followup。
+
+- 用 `send_agent_message`，`mode: "steer"` 先试；返回明确说明 steer 被拒时，
+  才用同内容 `mode: "followup"` 重发。
+- 每次覆盖 `reply-*.md` 时保留首行 `delivery: ...`；它是 Lead 的投递标记，
+  不属于本轮正文。只替换首行之后的正文。
+- 该规则同样适用于给 audio 等其它线的消息：先 steer，被拒才 followup。
+
 ## 参考
 
 - Lead 裁定：2026-11-21（本轮）。

@@ -276,3 +276,127 @@ cd E:/k60-work/scratch/ufs27-routbematrix && bash run.sh
 `ready` is the important row: with a bundle recipe, both plist keys, the
 force-load removed and the four readers present, the gate reports 0 gaps — so it
 is a criterion for the work, not a light that stays red for ever.
+
+## 9. The two device-repository items, written 2026-11-21
+
+`scripts/build-native-ufs-kext.sh` links the three objects that
+`scripts/build-native-ufs-linux.py:29-33` compiles into
+`build/native-ufs/NativeUfs.kext/Contents/MacOS/NativeUfs` with
+
+```sh
+ld -arch arm64e -kext -platform_version ios 27.0 27.0 -undefined dynamic_lookup \
+   -o <bundle> NativeUfs.o PongUfsTransport.o verified_root.o
+```
+
+and copies `drivers/NativeUfs/Info.plist` beside it. `-kext` is the whole point:
+it makes the linker emit `MH_KEXT_BUNDLE` and the `kmod_info` the running kernel
+expects, which is why a hand-written `__kmod_info` section is not an option — the
+C++ layout has to match field for field and a wrong field is read as garbage with
+no diagnostic. The recipe has never run here (no build, no objects, no Darwin
+linker); `--dry-run` is the supported mode and prints the exact command:
+
+```sh
+cd E:/k60-work/ufs27 && bash scripts/build-native-ufs-kext.sh --dry-run
+# build-native-ufs-kext: missing object .../NativeUfs.o  (three lines)
+# build-native-ufs-kext: ld -arch arm64e -kext -platform_version ios 27.0 27.0 ...
+# build-native-ufs-kext: dry run: nothing was written
+```
+
+`drivers/NativeUfs/Info.plist` gained the two keys the bundle needs and nothing
+else: `OSBundleLibraries` (`com.apple.iokit.IOStorageFamily`, `com.apple.kec.corecrypto`
+plus the three `com.apple.kpi.*` names) so the loader can order the bundle against
+the sibling entry, and `IOKitPersonalities` with the same five keys the 16.6.1
+line installed from `patches/xnu/ios16-native-ufs-personality.patch` —
+`IOClass NativeUfs`, `IOMatchCategory NativeUfs`, `IOProviderClass IOPlatformDevice`,
+`IONameMatch ufshc`, `IOProbeScore 1000`. A bundle carries that personality in its
+own plist instead of in the kernel's `gIOKernelConfigTables`, which is the whole
+mechanical difference between the two lines.
+
+Measured state after both items:
+
+```sh
+cd E:/k60-work/ufs27 && K60_FRAMEWORK_REPO=E:/hackios/UniXNU python3 scripts/check-ufs27-route-b.py
+#   OK   bundle   a recipe links a bundle: scripts/build-native-ufs-kext.sh:64
+#   OK   plist    … declares com.apple.iokit.IOStorageFamily, com.apple.kec.corecrypto and 1 personalities
+#   OK   link     one carrier: … links the bundle (CONFIG_XNU_NATIVE_UFS off, so the force-load never runs)
+#   PEND readers  4 readers present and compiling, none runnable yet
+# ufs27-route-b: 0 gap(s), 1 pending
+```
+
+The remaining `PEND` is honest: the readers need a kernel collection, and this
+host has none. The `link` row also says what it does not own — the removal of the
+force-load is the Lead's diff (§10), not this lane's edit.
+
+## 10. The force-load removal is a diff, not a change here
+
+`docs/research/storage/UFS27-FORCE-LOAD-REMOVAL.patch` holds the three sites —
+`scripts/build-xnu-generic.sh:646`, `scripts/build-xnu-4k-baseline.sh:1054`,
+`:1277` — as a guarded edit rather than a deletion:
+
+```sh
+-  if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
++  if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ "${XNU_NATIVE_UFS_BUNDLE:-0}" != 1 ]; then
+```
+
+Why guarded: the 16.6.1 profile sets `XNU_NATIVE_UFS=1` and must keep route A, so a
+plain deletion would break it. The new `CONFIG_XNU_NATIVE_UFS_BUNDLE` stays unset
+in `configs/mondrian_ios27_defconfig` for the same reason `CONFIG_XNU_NATIVE_UFS`
+does — a switch that opens onto a missing artefact only moves the failure.
+Why a diff and not an edit: `scripts/refresh-xnu-generic.py:15` overwrites the
+vendored builder from the framework checkout, so the change has to land on the
+framework copy first and arrive here through that refresh.
+
+```sh
+cd E:/k60-work/ufs27 && patch -p1 --dry-run < docs/research/storage/UFS27-FORCE-LOAD-REMOVAL.patch
+# checking file scripts/build-xnu-4k-baseline.sh
+# checking file scripts/build-xnu-generic.sh
+# exit 0
+```
+
+`scripts/check-ufs27-route-b.py` already reads the guard: a force-load whose `if`
+line names `XNU_NATIVE_UFS_BUNDLE` is not counted as a carrier, so the day the
+diff lands the gate keeps saying one carrier instead of two.
+
+## 11. Ring 6: the three acceptance criteria, each pending on its own
+
+`scripts/check-ufs27-storage-entry.py` grades the three questions separately,
+because they fail for different reasons and a single verdict would let one hide
+another:
+
+| row | question | source of the answer |
+| --- | --- | --- |
+| `entry` | does the fileset carry a `NativeUfs` entry | `check-ios27-storage-entries.py --require-entry` |
+| `kmod` | is `kmod_info.start`/`stop` non-zero and inside the entry's text | this script parses the bundle |
+| `exports` | do the eleven symbols resolve from the sibling entry, not `com.apple.kernel` | `check-ios27-storage-exports.py --out` |
+
+Without a product all three are `PEND`, exit 0:
+
+```sh
+cd E:/k60-work/ufs27 && python3 scripts/check-ufs27-storage-entry.py
+#   PEND entry   no kernel collection given, so the fileset entry is not measured
+#   PEND kmod    no kernel collection given, so start/stop are not measured
+#   PEND exports no kernel collection given, so the eleven imports are not attributed
+# ufs27-storage-entry: 0 gap(s), 3 pending
+```
+
+The `kmod` row confirms the `kmod_info` layout by content before trusting it: it
+insists that the 64 bytes at `+0x10` begin with the `CFBundleIdentifier` from the
+plist, and only then reads `start` at `+0xA8` and `stop` at `+0xB0`. A layout
+mismatch is `PEND "layout not confirmed"`, never a green light.
+
+Because no product exists here, the row would be dead code without a fixture;
+`E:/k60-work/scratch/ufs27-entrymatrix/` hand-assembles three Mach-O filesets
+(outer `MH_FILESET` + `LC_FILESET_ENTRY`, inner `MH_KEXT_BUNDLE` with `__TEXT`,
+`__DATA` and a real `kmod_info` blob) and proves each branch fires:
+
+```sh
+cd E:/k60-work/scratch/ufs27-entrymatrix && bash run.sh
+# PASS: noproduct -> 0 gap(s)   (three pendings)
+# PASS: ok        -> 0 gap(s)   kmod_info name '…', start=0x1000, stop=0x1010
+# PASS: dead      -> 1 gap(s)   start=0x0 stop=0x0
+# PASS: absent    -> 1 gap(s)   no fileset entry matches NativeUfs
+```
+
+The `ok` row is the point: the same script that reports three pendings today
+prints a real `kmod_info` reading from a real bundle image, so acceptance is a
+measurement that will happen, not a promise.

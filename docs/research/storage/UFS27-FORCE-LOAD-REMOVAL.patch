@@ -1,0 +1,60 @@
+# Removal of the three storage force-loads, for the Lead to apply
+#
+# Route B ships Drivers/NativeUfs as its own kext bundle, so the same objects
+# must stop being force-loaded into com.apple.kernel. This is a diff, not an
+# applied change: the vendored builder is refreshed from the framework by
+# scripts/refresh-xnu-generic.py:15, so the edit has to land on the framework
+# copy first and arrive here through that refresh, and the 16.6.1 builder keeps
+# route A for its own profile.
+#
+# Each block is guarded by a new switch, CONFIG_XNU_NATIVE_UFS_BUNDLE, instead of
+# being deleted: 16.6.1 leaves it unset and keeps the force-load, 27 sets it when
+# the bundle exists. The line stays off in configs/mondrian_ios27_defconfig for
+# the same reason CONFIG_XNU_NATIVE_UFS stays off: a switch that opens onto a
+# missing artefact only moves the failure, it does not close it.
+#
+# Check with: patch -p1 --dry-run < docs/research/storage/UFS27-FORCE-LOAD-REMOVAL.patch
+# from the repository root. Verified against this branch on 2026-11-21: both files
+# apply cleanly.
+#
+diff --git a/scripts/build-xnu-4k-baseline.sh b/scripts/build-xnu-4k-baseline.sh
+index 08fb5fb..b55dee7 100644
+--- a/scripts/build-xnu-4k-baseline.sh
++++ b/scripts/build-xnu-4k-baseline.sh
+@@ -1050,7 +1050,9 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ]; then
+     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ARMCPU_ARCHIVE"
+     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ARMCPU_ARCHIVE"
+   fi
+-  if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
++  # Route B: with a kext bundle the archive must not also be force-loaded
++  # into com.apple.kernel, or the driver is in the product twice.
++  if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ "${XNU_NATIVE_UFS_BUNDLE:-0}" != 1 ]; then
+     UFS_ARCHIVE=$ROOT/build/native-ufs/libNativeUfs.a
+     test -f "$UFS_ARCHIVE"
+     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
+@@ -1274,7 +1276,9 @@ if [ -z "${XNU_BOOTSTRAP:-}" ] && [ "$ARM_DT_PLATFORM" = 1 ] && [ "${XNU_SOURCE_
+     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$ARMCPU_ARCHIVE"
+     PLATFORM_DEPENDENCIES="$PLATFORM_DEPENDENCIES $ARMCPU_ARCHIVE"
+   fi
+-  if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
++  # Route B: with a kext bundle the archive must not also be force-loaded
++  # into com.apple.kernel, or the driver is in the product twice.
++  if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ "${XNU_NATIVE_UFS_BUNDLE:-0}" != 1 ]; then
+     UFS_ARCHIVE=$ROOT/build/native-ufs/libNativeUfs.a
+     test -f "$UFS_ARCHIVE"
+     PLATFORM_ARCHIVES="$PLATFORM_ARCHIVES -Wl,-force_load,$UFS_ARCHIVE"
+diff --git a/scripts/build-xnu-generic.sh b/scripts/build-xnu-generic.sh
+index 1d4d1ab..4be2afd 100644
+--- a/scripts/build-xnu-generic.sh
++++ b/scripts/build-xnu-generic.sh
+@@ -643,7 +643,9 @@ if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ] && [ "$BOOTSTRAP" = 0 ]; then
+     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ARMCPU_ARCHIVE"
+     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $ARMCPU_ARCHIVE"
+   fi
+-  if [ "${XNU_NATIVE_UFS:-0}" = 1 ]; then
++  # Route B: with a kext bundle the archive must not also be force-loaded
++  # into com.apple.kernel, or the driver is in the product twice.
++  if [ "${XNU_NATIVE_UFS:-0}" = 1 ] && [ "${XNU_NATIVE_UFS_BUNDLE:-0}" != 1 ]; then
+     # Drivers/NativeUfs is the source storage backend; the 16.6.1 line links the
+     # same archive here, while build/sheng-ufs belongs to Sheng's PongUfs probe.
+     UFS_ARCHIVE=$ROOT/build/native-ufs/libNativeUfs.a

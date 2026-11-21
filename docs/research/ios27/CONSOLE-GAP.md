@@ -73,3 +73,31 @@ _k60_serial_clock
 - `bsd/conf/files` 里三个条目各出现一次；
 - 16 线内核的符号集**不变**（回归：同一份 16 树重建后 5 个符号仍在）；
 - 只有前三条都绿，才允许把「0 字节」重新当成有信息量的观测。
+
+## 真正的第一块砖不是 0232，而是 `zzzzz-pong-ramoops-minimal`
+
+依赖是四层，前一层不在 27 里，后三层就不可能起：
+
+| 顺序 | 补丁 | 在 27 series | 干净 12377 树上 |
+| --- | --- | --- | --- |
+| 1 | `zzzzz-pong-ramoops-minimal.patch` | 无 | `osfmk/console/serial_console.c:509` 拒收；`arm_init.c`、`osfmk/arm64/pong_ramoops_console.h` 两处新增文件没问题 |
+| 2 | `0232` diagnostic bridge | 无 | 依赖 1 的 `pong_ramoops_*` 变量 |
+| 3 | `0243` console export | 无 | 改的是 2 加进来的 `pong_ramoops_console_write()` |
+| 4 | `0300` usblog EP0 | 无 | 只有新增文件 `bsd/dev/k60_usblog.c` 能单独落地 |
+
+### 但第一块砖目前**编不进去**，原因和 0532 是同一个
+
+`zzzzz-pong-ramoops-minimal.patch` 在 `serial_console.c` 里加的三个钩子全部包在
+
+```c
+#if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+```
+
+而 27 的机器配置是 `BCM2837`，`-DPONG` 在构建命令里出现 **0 次**（`0532` 当初就是栽在这里：`#if defined(PONG)` 的守卫让定义永远不生成）。所以即使把这三处钩子原样搬过去、`git apply` 全绿，**它们也会被预处理器整段删掉**，症状与完全没打补丁一样：0 字节。
+
+移植时必须做两件事，缺一不可：
+
+1. **改键**：`defined(PONG)` 换成 27 侧真实存在的键（建议 `XNU_PONG_RAMOOPS_CONSOLE` 单独作开关，由构建传 `-D`，与 `PongAudioAmp.o_CFLAGS_ADD` 那条已跑通的通道同形），并在 `scripts/build-ios27-linux.sh` 里接线；
+2. **重切锚点**：`serial_console.c:509` 的上下文在 12377 里已变，`console_write()` / `console_write_unbuffered()` 两个函数体是稳定的，锚点应落在函数定义行而不是上面的注释块。
+
+判据也要加一条，否则第一件事无法验证：**重编后 `llvm-nm` 里 `_pong_ramoops_console_write` 出现 1 次，且 `strings kernel.macho | grep -c pong-ramoops` 非 0**——只看「符号在」不够，`0532` 那次符号在而代码从未执行，教训是「符号在 ≠ 代码跑」，所以再加一条**运行期**判据：串口日志里必须出现 `pong-ramoops` 自报的一行（移植时顺手在 `pong_ramoops_console_write()` 首次调用时打一行 `pong-ramoops: console attached`）。

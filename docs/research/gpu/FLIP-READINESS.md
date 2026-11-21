@@ -16,7 +16,7 @@ flip 条件与 flip owner 只在 `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.5 维护�
 | 2 | v2 layout 补丁进入某个 series | `grep -rn "pong-scanout-v2-layout-asserts" patches/*/series` 恰好 1 行，且 `python3 scripts/check-series-numbering.py` 通过 | **否**——补丁在 `patches/proposed/`，不在任何 series |
 | 3 | offset 补丁排在那份之前 | 同一 series 中 `pong-scanout-assert-offsets` 的行号小于 v2 layout 的行号 | **否**（约束已写在补丁头，series 未建） |
 | 4 | 四个偏移由编译器断住 | ①离线：`g++ -std=c++17 -Wall -Wextra -c E:/k60-work/scratch/prop/v2_layout_probe.cpp -o /tmp/v2probe.o` 退出 0；②翻后构建：`PONG_SCANOUT_V2_LAYOUT=1` 编译通过，且 wire 头里的四条 `static_assert`（56 / `token`@44 / `evict`@48 / `target`@52）与补丁 hunk 逐字一致；③常设：`python3 E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py` 按 sha256 比对两份拷贝 | ①**是**（已跑，`COMPILE OK`）；②待；③**休眠中**（补丁不在 series ⇒ 退 0 并自己说明；进 series 那天自动变判据） |
-| 5 | 翻开关的那次飞行能判 | `python3 E:/hackios/k60-gates/scripts/judge-gpu27.py <console.log> --json` 里 `stats.scanout_version == 2`，且无 `BadArgument`、`dropped <= offers/20`、`client <= 8333`（后两项在草案带上后才出现） | **否**（还没有带 v2 的飞行） |
+| 5 | 翻开关的那次飞行能判 | 一条命令问两半：`check-gpu27-postflip.py` 既要飞行里出现 `PONG SCANOUT: … scanout version=2`（缺这个字段是红，不是「未测量」），也要两份 flip 断言逐字一致，再把判读器自己的 budget 结论并进来。命令与三态期望见 §2.3 | **是（判据已可跑，等真飞行）**——7 个反例全过；真机上还没有 v2 飞行 |
 
 ### 已记录的会签（第 1 条）
 
@@ -63,6 +63,42 @@ wsl -e bash -lc 'g++ -std=c++17 -Wall -Wextra -c /mnt/e/k60-work/scratch/prop/v2
 探针证明的是**四个数本身**（一个同样排列的 56 B 结构体），不是树里的头文件——树里现在还没有那三个
 字段，所以它只能证明数对，不能证明树对。第 4 条②才是证明树的那一半。
 
+### 2.3 第 5 条：翻后的那半（这条命令本身就是判据）
+
+自包含：路径、参数、三态期望各一行。跑不动时先看 `--help`，别猜。
+
+```sh
+cd E:/hackios/k60-gpu-27
+python3 docs/research/gpu/tools/check-gpu27-postflip.py <console.log> \
+    --judge=E:/hackios/k60-gates/scripts/judge-gpu27.py \
+    --flip-asserts=E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py \
+    --lane-root=E:/hackios/k60-gpu-27
+# 期望 exit 0：PASS the flight says version=2 and the two copies of the flip asserts agree
+# 期望 exit 1：FAIL …（the frame line says version=1, not 2 / none says `scanout version=`
+#               / the header carries 3 of 4 v2 assertions / 判读器自己的 FAIL）
+# 期望 exit 2：cannot judge …（no PONG SCANOUT line / 断言仍是 dormant / 判读器 INVALID）
+```
+
+合成夹具（**全部自称 SYNTHETIC**，没有一条来自真飞行）：今天就能跑，不需要设备。
+
+```sh
+cd E:/hackios/k60-gpu-27
+F=docs/research/gpu/tools/fixtures
+python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-ok.log \
+    --lane-root=E:/hackios/k60-gpu-27/$F/lane-postflip-in-step          # 期望 exit 0
+python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-no-version.log \
+    --lane-root=E:/hackios/k60-gpu-27/$F/lane-postflip-in-step          # 期望 exit 1（字段缺席）
+python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-ok.log \
+    --lane-root=E:/hackios/k60-gpu-27/$F/lane-postflip-half              # 期望 exit 1（断言只剩三条）
+python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-ok.log \
+    --lane-root=E:/hackios/k60-gpu-27/$F/lane-preflip                    # 期望 exit 2（还没翻）
+python3 docs/research/gpu/tools/test-check-gpu27-postflip.py             # 期望 TESTS OK: 7 cases
+```
+
+**为什么「字段缺席」在这一条里是红，而在判读器里是 unmeasured**：判读器测「这一侧花了多少」，没人测
+就是没人测；这条门禁测「树声称自己已经翻了」，缺席本身与声称矛盾。两处判断不同、两处都写了理由——
+这也是两份门禁不能合成一份的原因（一个判据一个输入面）。
+
 ## 3 第 5 条的反例（比正例更有用）
 
 - 翻开关后飞行仍打印 `scanout version=1` ⇒ 内核还是 v1，**立即停**：要么补丁没进 series，要么镜像里
@@ -71,6 +107,10 @@ wsl -e bash -lc 'g++ -std=c++17 -Wall -Wextra -c /mnt/e/k60-work/scratch/prop/v2
   四向矩阵找是哪一向。
 - `scanout version=2`、无 `BadArgument`、但 `dropped/offers > 5%` ⇒ 布局通了、记账没通，属 display 的
   dbuf 记账，不是本开关的问题。
+- 翻后飞行里**一条 `PONG SCANOUT:` 行都没有** ⇒ 判不了（exit 2），不是通过：扫出路径根本没跑。
+- HEAD 里四条断言只剩三条（有人删了一行）而 series 里仍有那份补丁 ⇒ exit 1，报
+  `the header carries 3 of 4 v2 assertions`。这是「翻了但 v2 字段缺席」在编译期那一侧的样子；
+  飞行里没有 `scanout version=` 是它在运行期那一侧的样子，两者都红。
 
 ## 4 与其它文档的关系
 
@@ -78,6 +118,8 @@ wsl -e bash -lc 'g++ -std=c++17 -Wall -Wextra -c /mnt/e/k60-work/scratch/prop/v2
 | --- | --- |
 | flip 条件与 owner | `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.5（唯一维护处） |
 | 版本语义、四向矩阵、断言清单 | 同一文件 §2.1 / §2.3 / §2.5 |
+| 第 5 条那条命令本身 | `docs/research/gpu/tools/check-gpu27-postflip.py`（夹具在同目录 `fixtures/`） |
+| 第 4 条③比的是哪两行 | `E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py`（它同时提供 `--strict`） |
 | 27 侧读者行号与两处硬编码 | 同一文件 §2.6 |
 | 休眠补丁与它为什么现在不成立是对的 | `patches/proposed/README.md` 的 Dormant 段 |
 | 翻不过去时先查什么 | 本文 §3 |

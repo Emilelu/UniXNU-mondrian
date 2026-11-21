@@ -3,11 +3,22 @@ Subject: [DRAFT] Pong scanout: the v2 layout assertions, switched off
 Draft only. Not in any series, nothing here is live, and this patch does not
 compile as written -- deliberately.
 
-Enable it with PONG_SCANOUT_V2_LAYOUT=1 at the moment the v2 wire decision
-lands (display signs the token/evict/target semantics and a dbuf exists). It
-asserts the four numbers that decision fixes: frame size 56, token at 44 where
-reserved used to be, evict at 48, target at 52. Until then they are a claim
-about fields that do not exist, which is why they sit behind a 0.
+**While the switch is 0 these assertions do not hold, and that is the design,
+not a defect.** Until display signs the v2 semantics there is no v2 layout for
+them to describe, so they describe nothing and must not claim otherwise. The
+day the switch flips they become the judgement (P-290's shape: an assertion
+that never runs is not a criterion).
+
+flip condition: display signs dbuf semantics (token@44 / evict@48 / target@52)
+AND pong-scanout-v2-layout-asserts.patch is in series
+flip owner: gpu-agent (GPU line)
+
+The flip belongs to that owner's proposal branch. It is not folded into v3 or
+into any later revision of the wire proposal, and no other lane turns it on.
+
+Enable it with PONG_SCANOUT_V2_LAYOUT=1 at the moment that condition holds. It
+asserts the four numbers the decision fixes: frame size 56, token at 44 where
+reserved used to be, evict at 48, target at 52.
 
 Apply after pong-scanout-assert-offsets.patch: that one brings <stddef.h>, and
 without it offsetof is not even declared.

@@ -133,7 +133,19 @@ Until then those four numbers describe fields that do not exist. An assertion
 about a field that is not there is a false fact, which is exactly why it is
 switched off rather than commented out: the numbers live in code that the
 compiler will read the day it is enabled, not in a paragraph someone has to
-remember.
+remember. **While the switch is 0 the assertions do not hold, and that is the
+design, not a defect.**
+
+The two lines that make the flip mechanical rather than remembered:
+
+```
+flip condition: display signs dbuf semantics (token@44 / evict@48 / target@52)
+                AND pong-scanout-v2-layout-asserts.patch is in series
+flip owner:     gpu-agent (GPU line)
+```
+
+The flip belongs to that owner's proposal branch: it is not folded into v3 or
+into any later revision of the wire proposal, and no other lane turns it on.
 
 It applies **after** `pong-scanout-assert-offsets.patch` — that patch brings
 `<stddef.h>`, without which `offsetof` is not declared. `git apply --check` on a

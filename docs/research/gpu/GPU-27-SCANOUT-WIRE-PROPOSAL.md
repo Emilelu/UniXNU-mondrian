@@ -179,8 +179,13 @@ static_assert(offsetof(PongScanoutDone, reserved) == 12, "the completion check i
 不是读出来的。表里 v2 专属的三行（`token`/`evict`/`target`）不进这两份补丁——那要等 display 的 dbuf 立项，
 现在加就是给不存在的字段写断言。
 
-**v2 那三行已经写成第三份「休眠」补丁**：`patches/proposed/pong-scanout-v2-layout-asserts.patch`，
-两侧各一段，全部套在 `#if PONG_SCANOUT_V2_LAYOUT`（当前 `#define ... 0`）里。它**按现在的树是编译不过的，
+**v2 那三行已经写成第三份「休眠」补丁**（enabled only when the flip lands）：
+
+- `flip condition: display signs dbuf semantics (token@44 / evict@48 / target@52) AND pong-scanout-v2-layout-asserts.patch is in series`
+- `flip owner: gpu-agent (GPU line)` —— 翻 0→1 的动作属于该 owner 的提案分支，**不随 v3 或本文任何后续修订顺手改**。
+- 开关为 0 时这些断言**不成立是设计，不是缺陷**：没有 v2 布局，它们就没有可描述的事实；翻了开关那天它们才成为判据（P-290 的形状：不运行的断言不是判据）。
+
+补丁本身在两侧各一段，全部套在 `#if PONG_SCANOUT_V2_LAYOUT`（当前 `#define ... 0`）里。它**按现在的树是编译不过的，
 这是故意的**：字段不存在时断言就是假事实。等 v2 立项把 0 改成 1，四个数（56 / `token`@44 / `evict`@48 /
 `target`@52）在任何人构建 kext 之前就被编译器钉住。它要在 `pong-scanout-assert-offsets.patch` 之后应用
 （那份带 `<stddef.h>`）；四个数本身也用宿主 C++17 对目标结构形状编译验证过
@@ -273,6 +278,9 @@ display 已复（`reply-gpu-display-sync.md`，2026-11-21）：**覆盖无缺口
    zizhan `PongAdrenoScanout.cpp` 里是 `KeptCount=4`、`SlotMax=8`、`DbMax`，`PongScanoutWire.h`
    里没有任何 57 字节记录。若它指「v2 的 56 B + 1 B 对齐」或某个我方没读到的表，请点名；
    若不指结构而只是「两代都覆盖」的措辞，本提案无需改动。
+
+**一条线内规则（v3 前有效）**：display 未答「57 槽」之前，v3 停在 §2.1 之外——不用猜的槽位推进，
+也不把会签文件当成可推断的输入。要改的就等那句回答，其余条目一律不动。
 
 另两条 v1 遗留的判断，display 复签后仍然成立，一并记在这里免得重新讨论：
 

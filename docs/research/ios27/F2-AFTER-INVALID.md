@@ -37,3 +37,9 @@ from `code_signing_init()` — is silent by construction. That is why a 0-byte r
 
 `fastboot boot` only, never flash, never touch `/dev/block/sda38`. One boot at a time, single writer,
 supervisor armed before the hand-off.
+
+## The gadget is present in the 27 kernel too
+
+llvm-nm-18 counts 87 CDC/ACM/console-related symbols in the 27 kernel against 170 in the 16.6.1 kernel
+that reaches SpringBoard. Fewer is expected (the 27 tree links fewer drivers), but the gadget is not
+absent, so a missing console driver is not by itself the explanation for a 0-byte capture.

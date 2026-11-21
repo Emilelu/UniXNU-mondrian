@@ -8,9 +8,9 @@ exports from the 27 kernel, then classify every undefined symbol in the driver
 archive and the station archive as resolved by the kernel, by the same archive,
 by the other archive, by the two station APIs, or absent.
 
-The numbers are documented in docs/research/wifi/IOS27-STATION-API-GAP.md.
-Run this after a new kernel or archive is produced; a changed count is a
-changed answer, not a green run.
+The numbers and a full output snapshot are recorded in
+docs/research/wifi/evidence/ios27-b4-exports.txt. Run this after a new kernel
+or archive is produced; a changed count is a changed answer, not a green run.
 
     python3 scripts/check-wifi-b4-exports.py \
       --kernel /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.macho \
@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -31,8 +32,14 @@ STATION_APIS = {"_nw_wifi_power", "_nw_wifi_scan_frequencies"}
 ORDER = ("kernel", "same-archive", "other-archive", "station-API", "absent")
 
 
+def tool_argv(nm: str, *args: str) -> list[str]:
+    if nm.endswith(".py"):
+        return [sys.executable, nm, *args]
+    return [nm, *args]
+
+
 def run(nm: str, *args: str) -> list[str]:
-    result = subprocess.run([nm, *args], capture_output=True, text=True)
+    result = subprocess.run(tool_argv(nm, *args), capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(f"nm failed: {nm} {' '.join(args)}\n{result.stderr}")
     return result.stdout.splitlines()

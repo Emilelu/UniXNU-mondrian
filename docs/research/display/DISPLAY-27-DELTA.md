@@ -177,6 +177,7 @@ sheng 的 27 实现默认是"`control` 默认 1 且必须 `==1`"才发（`AppleA
 交付形态（Lead 2026-11-21T16:58 裁）：**不直接改源码、不进 series**，以草案
 `patches/proposed/0002-k60-backlight-let-the-backend-decide.patch` 提交（`git apply --check` 已过，
 diff 只动 `:330-339` 的注释块与 `:339` 一行）。草案头写明「只适用 27 分支，16.6.1 封闭系列不得取」。
+**不单开**：等 27 显示契约会签完成，与 wire v2 同批进系列（Lead 2026-11-21T18:26）。
 
 ---
 
@@ -349,7 +350,9 @@ K60 的探针 level 上限先只到 2（只读），level 3 必须在 catalog �
 - **处置**：不再当缺陷。这个函数里唯一值得改的是日志字段
   （`:416-417` 把 `goal` 打了两次，无法从日志区分请求值与等级），已单独提成
   `patches/proposed/0001-k60-backlight-log-requested-level.patch`，
-  不混进本文的预算/差异结论。
+  不混进本文的预算/差异结论。进系列的条件是
+  `docs/research/display/BACKLIGHT-LOG-CRITERIA.md` 的预写判据在真机上通过。
+- **已归档**：本段的撤回记录不删除，规则写进 `docs/research/display/DISPLAY-LANE-RULES.md` L1。
 
 ### R5 补丁栈与 27 驱动形态互斥
 

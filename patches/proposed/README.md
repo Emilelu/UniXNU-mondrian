@@ -9,8 +9,8 @@
 
 | 草案 | 状态 | 说明 |
 | --- | --- | --- |
-| `0001-k60-backlight-log-requested-level.patch` | **不进 series**（Lead 2026-11-21T16:58） | `K60Backlight.cpp:416-417` 把 `goal` 打了两次，日志无法区分请求值与等级；27 的证据行要读这个字段。等 F2 有控制台输出、能证明这行确实出现两次再考虑进系列 |
-| `0002-k60-backlight-let-the-backend-decide.patch` | 待裁（**仅 27 分支**） | 把 `:339` 的默认从 1 翻 0，`k60_backlight_control=1` 仍可覆盖；判据与理由见 `docs/research/display/DISPLAY-27-DELTA.md` §6。**这是行为改变不是优化**，16.6.1 的封闭系列不得取此补丁 |
+| `0001-k60-backlight-log-requested-level.patch` | **等真机判据**（Lead 2026-11-21T16:58 + 18:26） | `K60Backlight.cpp:416-417` 把 `goal` 打了两次，日志无法区分请求值与等级；27 的证据行要读这个字段。进系列的条件是预写判据 `docs/research/display/BACKLIGHT-LOG-CRITERIA.md` 在真机上通过（看到 B 形行两字段分开），飞行由 Lead 排期，本线不等 |
+| `0002-k60-backlight-let-the-backend-decide.patch` | **等会签后同批**（Lead 2026-11-21T18:26，**仅 27 分支**） | 把 `:339` 的默认从 1 翻 0，`k60_backlight_control=1` 仍可覆盖；判据与理由见 `docs/research/display/DISPLAY-27-DELTA.md` §6。**这是行为改变不是优化**，16.6.1 的封闭系列不得取此补丁。不单独进系列：等 27 显示契约会签完成，与 wire v2 同批提交 |
 | —（原本的 R4 草案） | **撤回** | 原以为 `setProperties()` 落空分支会用未初始化 `goal` 去 `publish()`；复核 HEAD 后不成立，`:402-404` 已经是 `return kIOReturnSuccess`。详见 `docs/research/display/DISPLAY-27-DELTA.md` §10 R4 |
 
 提交一个草案时：不要顺手改 `patches/xnu/series`，那是 `xnu` 线的文件；

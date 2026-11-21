@@ -124,6 +124,8 @@ wire 侧另有一件只审不改的事：版本号中立法案由 gpu27 出、Le
 ⇒ 原「必须改」清单的第一条降为「已满足」。这个函数里唯一值得动的是日志字段
 （`:416-417` 把 `goal` 打了两次），已单独提成
 `patches/proposed/0001-k60-backlight-log-requested-level.patch`，不进 ②③ 的结论。
+它进系列的条件不是「等飞行」，而是「预写判据在真机上通过」：字形、要看到的行、次数与
+失败形态已写死在 `docs/research/display/BACKLIGHT-LOG-CRITERIA.md`（C1–C5），飞行由 Lead 排期。
 
 **(b) 六键 calibration 字典的去留**：`:209-247` 现在**故意不发**
 `backlight-calibration-parameters`，理由是 20G81 的 CoreBrightness 读十键不查 NULL
@@ -153,6 +155,10 @@ ptrauth 构建走 sheng 路径；用 `#if` 判 `__arm64e__` 即可，不新增�
 作为独立草案 `patches/proposed/0002-k60-backlight-let-the-backend-decide.patch` 提交
 （`git apply --check` 已过，`diff` 只动 `:330-339` 一处注释块与 `:339` 一行）。
 草案头写明「只适用于 27 分支，16.6.1 封闭系列不得取此补丁」。
+
+**进系列的时机（Lead 2026-11-21T18:26 裁）**：**不单开**。等 27 显示契约会签完成，
+与 wire v2 同批提交——这个默认值只有在「27 后端真的会裁决」的契约定下来之后才有意义，
+在那之前它只是一个更省字节的默认值。
 
 **这是行为改变，不是优化**：同一份文件在 16.6.1 上默认发布 `backlight-control`、
 在 27 上默认不发布，判据行 `control=` 的默认值因此随 OS 版本变化，读日志时

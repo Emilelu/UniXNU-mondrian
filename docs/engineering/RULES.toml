@@ -1307,3 +1307,9 @@ statement = "每个本地分支都必须存在于可写远端的同名分支上�
 check = "python3 scripts/check-local-pushes.py"
 note = "2026-11-21: 审计发现 12 条本地分支从未推送（含三条新线的分支），而各线汇报都写「已推送」。判据按可写远端算——UniXNU 的 origin 是官方仓、不可写，只认 fork。"
 
+[[rule]]
+id = "P-296"
+title = "缺席值落在合法值域内，尺寸一致也挡不住误读"
+statement = "跨线会签一个结构体字段时，「尺寸与偏移一致」不等于「语义一致」：凡是字段的缺席值可能与该字段的第一个合法值相同（如 target 的 0 既是「没有」又是「第 0 块」），必须把缺席值挪到值域外，或让消费点显式换算；只签了尺寸的一律不算签过。"
+check = '''s=scripts/check-gpu27-target-index.py; [ -f "$s" ] || s=docs/research/gpu/tools/check-gpu27-target-index.py; K60_GPU27_REPO="${K60_GPU27_REPO:-../k60-gpu-27}" python3 "$s"'''
+note = "2026-11-21：v2 的 target@52 写成「字节偏移，0 = 无 dbuf」，参考实现里 db[0].offset 恰为 0 而 dbTarget() 返回索引，两份材料各自自洽、拼起来才矛盾；尺寸不变所以编译器与 static_assert 都看不见，第一次双缓冲飞行会静默停在旧缓冲。"

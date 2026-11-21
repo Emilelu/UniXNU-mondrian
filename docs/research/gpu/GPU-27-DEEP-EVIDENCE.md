@@ -71,9 +71,11 @@
   `Pong Metal: S c11/0 d11 p40 x4 R49 D550 F13 M4500k C0 B7 status=0x0`、第 2731 行
   `Pong Metal: G commit-to-complete n=11 total=263ms max=82ms mean=23964us`。
   真正缺的是**客户端的帧间隔**：桥只累加 pipeline/library/function 与两次 wait，
-  `wait` 是渲染服务端阻塞多久，不是客户端多久交一帧。另外该行标签
-  `commit-to-complete` 与累加器名 `gTimeEncodeToCommit`（`NativeBridgeMetalFrontend.mm:49`，
-  累加在 `:1015-1016`）不一致，读日志的人会把它当成交付延迟。
+  `wait` 是渲染服务端阻塞多久，不是客户端多久交一帧。另外该行的**标签是对的、标识符是旧的**：
+  `G commit-to-complete` 量的是 `completed()` 里 `nowUs()-commandBuffer.committedUs`
+  （`NativeBridgeMetalFrontend.mm:1013-1015`，即 commit→完成回调），而累加器叫
+  `gTimeEncodeToCommit`（`:49`）——名字说 encode，标签说 completion，读代码的人容易据名字
+  把它当低一级的量，改的时候只该改标识符，别改标签。
 - **27 侧落点**：`drivers/PongMetal/PongMetalScanout.h` 的 presenter 循环（27 线副本同路径）
   记录相邻两帧到达的时间差，挂在既有 stage 行上。
 - **谁交**：GPU 线自己（用户态插件侧）。

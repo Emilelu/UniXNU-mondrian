@@ -1,0 +1,44 @@
+From: ufs27-agent <kimiuso@vip.qq.com>
+Subject: build(xnu): make the RAM-disk and owner-root archive checks say what is missing
+
+Framework form: applies to scripts/build-xnu-4k-baseline.sh in UniXNU.
+Base: E:/hackios/UniXNU @ a5306ec7, file sha256
+8ba4a40a158e0667cb3095745db101216346436c5f676244d4de39c992e82708.
+
+Both lines sit under set -euo pipefail, so a missing archive kills the build
+with no output at all. The guarded form names the switch and the path.
+The AES (:690 in this file) and virtio (:696) lines carry the same defect and
+are deliberately left alone: they are outside the two-line ruling, and neither
+switch can be reached on this board.
+
+After landing, run python3 scripts/refresh-xnu-generic.py so the vendored
+copy in a device checkout picks the guard up (its lines are +4 because that
+script inserts the conf/files hook block above them).
+
+diff --git a/scripts/build-xnu-4k-baseline.sh b/scripts/build-xnu-4k-baseline.sh
+--- a/scripts/build-xnu-4k-baseline.sh
++++ b/scripts/build-xnu-4k-baseline.sh
+@@ -723,7 +723,10 @@ PY_GPU_BROKER
+   fi
+   if [ "$NATIVE_RAM_BLOCK" = 1 ] && [ "${XNU_SOURCE_STORAGE:-0}" != 1 ]; then
+     RAM_BLOCK_ARCHIVE=$ROOT/build/ram-block/libRamBlock.a
+-    test -f "$RAM_BLOCK_ARCHIVE"
++    test -f "$RAM_BLOCK_ARCHIVE" || {
++      echo "build-xnu: NativeRamBlock is requested (XNU_NATIVE_RAM_BLOCK=1) but $RAM_BLOCK_ARCHIVE is missing" >&2
++      exit 1
++    }
+     if [ "${XNU_NATIVE_VIRTIO_BLOCK:-0}" = 1 ]; then
+       # Both transports import the same original class. Keep one exact alias
+       # definition; link the real RAM transport object, not duplicate aliases.
+@@ -760,7 +763,10 @@ PY_BINDINGS
+   fi
+   if [ "$OWNER_ROOT_PROBE" = 1 ]; then
+     VERIFIED_ROOT_ARCHIVE=${XNU_VERIFIED_ROOT_ARCHIVE:-$ROOT/build/verified-root-xnu/libVerifiedRootProbe.a}
+-    test -f "$VERIFIED_ROOT_ARCHIVE"
++    test -f "$VERIFIED_ROOT_ARCHIVE" || {
++      echo "build-xnu: the owner-root probe is requested (XNU_VERIFIED_ROOT_PROBE=1) but $VERIFIED_ROOT_ARCHIVE is missing" >&2
++      exit 1
++    }
+     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$VERIFIED_ROOT_ARCHIVE"
+     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $VERIFIED_ROOT_ARCHIVE"
+   fi

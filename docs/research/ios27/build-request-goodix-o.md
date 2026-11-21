@@ -2,6 +2,10 @@
 
 日期 2026-11-21 · 输入线（input27）· **我不构建**（stage-0 冻结，构建归 Lead）；这是排队请求，解冻后再执行
 
+## 第〇条（取件前提，先看这条）
+
+**取件前提：清单必须含设备四层，否则 I4 INVALID，不得用今天这棵树。** 判据是构建工作目录里的 `xnu-inputs.json` 与 `xnu-patches.list`（`scripts/unixnu/patches.py:39-41`、`:66-67`，两者与 `tree/` 同级）必须出现 `device:patches/xnu/series` 层及其中的 `:197` touch-console、`:198` physical-keys；今天的 `/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/` 那份清单只有 soc 层（`source=feeds/xnu-3199e8bc`、104 行全 `patches/xnu-12377/`、`grep goodix`=0），从它取 `.o` 会被判 INVALID——那是清单证明不了对象含输入层，不是对象坏。
+
 ## 一、我要的两个对象（另一个可选）
 
 | # | 对象 | 来源 | 用途 |

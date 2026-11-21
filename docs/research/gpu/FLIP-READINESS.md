@@ -107,6 +107,15 @@ python3 scripts/tests/test-check-gpu27-postflip.py                     # 期望 
 夹具为什么在 `scripts/`：`sync-device-input.py` 的 ITEMS 镜像 `scripts/` 而不镜像 `docs/`，所以放在
 `docs/` 下的输入**永远不可能**因为「没同步」而红——那条判据就只在有人手跑的那一刻有效（P-205 家族）。
 
+> 这条工具本身住在 `E:/hackios/k60-gates/scripts/check-gpu27-postflip.py`（Lead 落库
+> `4a6e7712`），它的夹具在 `scripts/tests/fixtures/gpu27/postflip/`——也就是说它跟着构建输入一起
+> 镜像，输入没同步时 `iron-5` 会红，而不是像放在 `docs/` 时那样永远不会红。
+>
+> **两个宿主各跑一次**（2026-11-21，落库当天的实测）：MSYS python 3.14 与 WSL python 3.12 都是
+> `TESTS OK: 11 cases`。第一版只在 Windows 侧绿——`rebuild()` 在 POSIX 上也把 `/mnt/e/…` 改写成
+> `E:/…`，于是子进程在自己的 cwd 后面拼出一个不存在的路径（P-227 家族）。凡是自己 spawn 子进程并把
+> 路径当参数传的工具，只在一个宿主上绿，等于把「我这台机器能跑」当成「它是对的」。
+
 **为什么「字段缺席」在这一条里是红，而在判读器里是 unmeasured**：判读器测「这一侧花了多少」，没人测
 就是没人测；这条门禁测「树声称自己已经翻了」，缺席本身与声称矛盾。两处判断不同、两处都写了理由——
 这也是两份门禁不能合成一份的原因（一个判据一个输入面）。

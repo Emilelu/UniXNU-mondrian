@@ -1,0 +1,43 @@
+Subject: [PATCH] fix(display): log the requested brightness, not the level twice
+
+The non-nits request log prints goal twice:
+
+    IOLog("K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x\n",
+          goal, goal, ...)
+
+so the first field cannot tell the raw IODisplayParameters value from the
+level it mapped to. The 27 evidence line reads exactly this field to prove
+what CoreBrightness sends at both ends of the slider; with goal twice the
+line is self-fulfilling and cannot distinguish "asked for 0x0800" from
+"asked for level 128".
+
+Keep the requested value in a local and log that. No behaviour change: the
+level, the counter, the work-loop request and the published value are the
+ones computed before.
+
+Found while writing docs/research/display/DISPLAY-27-INTEGRATION.md (2.1).
+Not applied: patches/proposed is a staging area, nothing in the series
+reads it.
+---
+diff --git a/drivers/PongAdreno/K60Backlight.cpp b/drivers/PongAdreno/K60Backlight.cpp
+--- a/drivers/PongAdreno/K60Backlight.cpp
++++ b/drivers/PongAdreno/K60Backlight.cpp
+@@ -386,4 +386,5 @@
+     OSDictionary *dictionary = OSDynamicCast(OSDictionary, properties);
+     if (!dictionary) return kIOReturnBadArgument;
+     uint32_t goal;
++    uint32_t requested = 0;
+     uint32_t milliseconds = 0;
+@@ -397,4 +398,5 @@
+     } else if (OSNumber *brightness = OSDynamicCast(OSNumber, dictionary->getObject("brightness"))) {
+         OSNumber *fadePeriod = OSDynamicCast(OSNumber, dictionary->getObject("FadePeriod"));
+-        goal = k60backlight::clampLevel((int64_t)(int32_t)brightness->unsigned32BitValue());
++        requested = brightness->unsigned32BitValue();
++        goal = k60backlight::clampLevel((int64_t)(int32_t)requested);
+         if (fadePeriod)
+@@ -415,4 +417,4 @@
+     } else {
+         IOLog("K60 BACKLIGHT: brightness level %u -> level %u dbv 0x%x\n",
+-              goal, goal, (unsigned)k60backlight::dbvFromLevel(goal));
++              requested, goal, (unsigned)k60backlight::dbvFromLevel(goal));
+     }

@@ -8,6 +8,10 @@ references the station APIs, a stamp that described a header other than the
 one beside it, and an archive carrying a scratch stub. The cases pin one
 failure each, plus the end-to-end pass and the absent-archive note, so a
 future edit cannot turn any of them into a green run.
+
+The exit contract is three-state: absent -> 2, broken -> 1, all checks pass -> 0.
+the_three_states_have_one_temporary_fixture_each exercises all three with
+temporary directories, so the contract does not depend on a real archive.
 """
 
 from __future__ import annotations
@@ -126,6 +130,17 @@ def a_stamp_that_describes_another_header_fails():
     code, out, err = run_case(*stage(BOTH, stamp_sha="00" * 32))
     assert code == 1, (code, out, err)
     assert "does not match" in out, out
+
+
+@case
+def the_three_states_have_one_temporary_fixture_each():
+    passed = run_case(*stage(BOTH))
+    absent_root = Path(tempfile.mkdtemp())
+    absent = run_case(absent_root / "libPongAth11k.a", "/bin/true", "/bin/true")
+    broken = run_case(*stage("_nw_wifi_power T 0000000000000000 0000000000000010\n"))
+    assert passed[0] == 0, passed
+    assert absent[0] == 2 and "has not been built" in absent[2], absent
+    assert broken[0] == 1 and "FAIL station API" in broken[1], broken
 
 
 @case

@@ -32,3 +32,16 @@ Written 2026-11-21 09:14, before the flight. Authorised by the user as a diagnos
 
 No `fastboot flash`, no write to `/dev/block/sda38`, no change to the image after the fact. If the
 flight is INVALID I re-run once with the same image before drawing any conclusion.
+
+## 条件四（自动复位）的上机判据（2026-11-22 加入）
+
+镜像：`boot.img cfd0fd2d0f9db3fef4c2b376518bbe0128c27d166846b91f22a7a13dd9416fe4`
+（201,900,032 B，payload 内核 `363cf8d26c87` + declared transform `7cc20ab8620e`，参数 8 项 120 B 含隐式 `k60_autoreset=300`）。
+
+三段读数，缺一不可：
+
+1. `k60-autoreset: armed for 300 s after 30 s idle` ⇒ 线程起来了（`0550` 被调用）；
+2. `k60-autoreset: 300 s after 30 s idle; resetting` ⇒ 到点触发（时间戳应与第 1 行相差 ≥330 s）；
+3. 之后 30 s 内 `fastboot devices` 能看到 `6033dbec` ⇒ PSCI `SYSTEM_RESET` 真的把设备带回 fastboot。
+
+**如果第 1 行出现、第 2 行没出现** ⇒ 内核在 300 s 内已经死了（那就不是复位没做，而是它先崩了）；**如果第 1 行都没有** ⇒ `k60_autoreset` 参数没到内核或 `bsp_init` 没走到调用点。两种情形都不能写成「复位失败」。

@@ -1,9 +1,10 @@
 --- a/bsd/dev/k60_usblog_reset.c
 +++ b/bsd/dev/k60_usblog_reset.c
-@@ -42,3 +42,63 @@
+@@ -42,3 +42,64 @@
  
  	kprintf("k60-reset: SYSTEM_RESET and HVC both returned; staying put\n");
  }
++#include <kern/clock.h>   /* delay() */
 +/*
 + * 0550: autoreset, from patches/xnu/0334b-k60-autoreset.patch without the SPMI
 + * restart-reason preamble that decision A dropped (CARRY-OVER-INVENTORY.md).

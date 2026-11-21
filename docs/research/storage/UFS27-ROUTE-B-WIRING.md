@@ -1,8 +1,11 @@
 # Route B wiring — what the builder must connect
 
-Status: checklist, no implementation. Measured 2026-11-21 against
-`E:/k60-work/ufs27` (branch `feat/ufs-27`) and the framework checkout
-`E:/hackios/UniXNU`. Every row names the file and line that decides it.
+Status: route B was **entered by the Lead on 2026-11-21**. Rings 2, 3, 4 and 7
+are this row's to write; ring 5 — and therefore ring 6 — is framework prelink code
+that moves *every* kext's placement, so it is pinned here and owned elsewhere.
+`scripts/check-ufs27-route-b.py` grades the four rings this row owns (§8). Measured
+2026-11-21 against `E:/k60-work/ufs27` (branch `feat/ufs-27`) and the framework
+checkout `E:/hackios/UniXNU`. Every row names the file and line that decides it.
 
 Route B is the *other* answer to the eleven `IOBlockStorageDevice` imports. Route
 A / Route D binds them in the kernel link; route B ships `drivers/NativeUfs` as
@@ -26,8 +29,8 @@ recorded in §2.4 and §5.
 | 2 | they become an `MH_KEXT_BUNDLE` (filetype 11) with `kmod_info` | **absent** — the producer stops at `llvm-ar` | device repo (new recipe) |
 | 3 | the bundle carries `OSBundleLibraries` and the `ufshc` personality | **absent** — plist has neither key | device repo |
 | 4 | the kernel link stops force-loading the archive | **absent** — one block does it | framework builder (vendored copy here) |
-| 5 | the prelink emitter can *add* an entry | **absent** — it re-addresses entries it finds in the original | prelink kit (framework) |
-| 6 | the profile declares the entry as a root | blocked by 5 — a root must already exist in the original metadata | framework OS profile |
+| 5 | the prelink emitter can *add* an entry | **absent** — it re-addresses entries it finds in the original | framework prelink kit — **not this row's** (a change here moves every kext, Lead ruling 2026-11-21) |
+| 6 | the profile declares the entry as a root | blocked by 5 — a root must already exist in the original metadata | framework OS profile, unblocked only with 5 |
 | 7 | the product is checked for the entry | exists — three readers, §2.5 | device repo |
 
 Chains 2-6 are ordered: 5 is the wall. Everything before it can be built and
@@ -72,11 +75,12 @@ fields but no declared libraries fails dependency planning (`:152-153`).
 
 ### 2.3 The kernel link (one block, framework side)
 
-`scripts/build-xnu-generic.sh:646-653` appends
-`-Wl,-force_load,$ROOT/build/native-ufs/libNativeUfs.a` to
-`KERNEL_EXTRA_ARCHIVES`, which reaches the kernel link as
-`LD_KERNEL_ARCHIVES` at `:789`. The 16.6.1 builder has the same two branches at
-`scripts/build-xnu-4k-baseline.sh:1054` and `:1278`. Route B turns all three off
+`scripts/build-xnu-generic.sh:646-653`: the block assigns
+`UFS_ARCHIVE=$ROOT/build/native-ufs/libNativeUfs.a` at `:649`, guards it with a
+bare `test -f` at `:650`, and appends `-Wl,-force_load,$UFS_ARCHIVE` at `:651` to
+`KERNEL_EXTRA_ARCHIVES`, which reaches the kernel link as `LD_KERNEL_ARCHIVES` at
+`:789`. The 16.6.1 builder carries the same pair twice — kernel archives
+`:1054`/`:1056`, platform archives `:1279`/`:1280`. Route B turns all three off
 and, per iron rule 11 and P-255, that is done upstream and arrives here through
 `scripts/refresh-xnu-generic.py:15` — the copy in this repo must not be edited.
 
@@ -183,12 +187,92 @@ host, for the same reason as the archive check: no build, no artifact.
   on 27 (`board.toml:393` says it comes back with PongUfs in F3); a fileset entry
   does not create one.
 
-## 6. What the Lead has to decide
+## 6. What the Lead decided (2026-11-21)
 
-1. Enter route B at all, or wait for Route D — knowing the kit needs new code
-   (§2.4b) before the first bundle can be carried.
-2. If yes: is the prelink kit change the framework's (same owner as the
-   `test -f` fix of §11 in `UFS27-GATE.md`), or does it stay blocked until the
-   fileset-entry design owner takes it?
-3. If no: keep §5's first bullet as the record, and this file stays a checklist
-   with no producer — the same status `UFS27-GATE.md` §7 gives VerifiedRoot.
+1. **Route B is entered.** It is Apple's own shape and it bypasses the prelink
+   wall of §2.4 rather than fighting it.
+2. **Ring 5 is not this row's.** `emit_prelink.py` not accepting the profile's
+   arguments (§2.4a) and the emitter not being able to add an entry (§2.4b) are
+   framework prelink code; touching `native_prelink.py:147-171` or
+   `emit_prelink_orig.py:131-134` changes where *every* kext lands, which is more
+   than one storage lane can be answerable for. This file pins the ring; it does
+   not change it.
+3. The other four rings are written here, starting with a checker that runs
+   today (§8) rather than with the implementation.
+4. Proof (a)'s two failures get **no new blocker number**: the Lead records them
+   in the framework pin paragraph and in a blocker's `why_open`.
+
+## 7. Where the absence claims come from
+
+Two rings claim that something does not exist anywhere. "Absent" is only worth
+printing if the search is reproducible, so this is the search:
+
+```sh
+for r in E:/k60-work/ufs27 E:/hackios/UniXNU E:/hackios/UniXNU-sheng \
+         E:/hackios/UniXNU-t970 E:/hackios/UniXNU-zizhan; do
+  grep -rIn "MH_KEXT_BUNDLE\|kmod_info" --include=*.py --include=*.sh \
+       --include=*.c --include=*.cpp "$r"
+  grep -rIn -- "-kext " --include=*.py --include=*.sh "$r"
+done
+```
+
+| tree | `MH_KEXT_BUNDLE` | a `-kext` link | `kmod_info` |
+|---|---|---|---|
+| `E:/k60-work/ufs27` (this row) | `kits/NativePrelink/native_prelink.py:170` — a *test* of Apple's entry | none; `patches/xnu-12377/series:57` is a comment about a form the kernel does not use | `kits/NativePrelink/emit_prelink.py:249` reads `kmod_info_va`; drivers only take `extern kmod_info_t g_kernel_kmod_info` (`drivers/PongWifi/PongWifiPlatform.cpp:42`, `drivers/PongAdreno/PongAdrenoAccelerator.cpp:10`) |
+| `E:/hackios/UniXNU` (framework) | `package/UniXNUPkg/Library/UniXNULib/Kext.c:196` — the loader *refusing* an invalid bundle; `package/Scripts/smoke.sh:108` tests that refusal | none (the only `-bundle` is the user-space Metal plugin, `scripts/build-adreno-metal-plugin.py:80`) | `.cache/xnu-work/tools/tests/testkext/pgokext/pgokext.c:11-21` — XNU's own test kext |
+| `E:/hackios/UniXNU-sheng` | none | none | `package/AcceleratorABIProbe.cpp:9`, `package/AudioProbe.cpp:42`, `package/BacklightProbe.cpp:9` — all `g_kernel_kmod_info` externs |
+| `E:/hackios/UniXNU-t970` | `kits/NativePrelink/native_prelink.py:191` | none | `kits/NativePrelink/emit_prelink.py:248`; `drivers/T970Wifi/T970WifiNetGlue.cpp:34` |
+| `E:/hackios/UniXNU-zizhan` | `kits/NativePrelink/native_prelink.py:191` | none | `kits/NativePrelink/emit_prelink.py:248`; `drivers/PongWifi/PongWifiPlatform.cpp:36` |
+
+Read together: five trees, no build step links a bundle; every driver is a static
+archive force-loaded into `com.apple.kernel`; and the four `MH_KEXT_BUNDLE` hits
+are all *readers* of a bundle (a loader check, a prelink check, a smoke test), not
+producers. That is why ring 2 is "new work" and not "find the existing recipe".
+
+For the plist, the search is narrower and equally reproducible:
+`grep -n "OSBundleLibraries\|IOKitPersonalities" $(git ls-files '*Info.plist')`
+over the same five trees returns nothing, and the file it would have to touch is
+`drivers/NativeUfs/Info.plist` (10 lines, §2.2).
+
+## 8. The checker that runs today
+
+`scripts/check-ufs27-route-b.py` grades four rings — `bundle`, `plist`, `link`,
+`readers` — as **coherent or not**, never as "complete", because at stage 0 most
+rings are legitimately absent. Pending exits 0; only a state that cannot coexist
+with another state is a gap:
+
+| gap it can print | why it is a gap |
+|---|---|
+| two carriers | the kernel force-loads the archive *and* a bundle recipe links the same objects — whichever product loses, it loses silently |
+| no carrier | the force-load is gone and no bundle recipe exists — the driver is in no product, and the readers would say "absent", not "broken" |
+| half a plist | one of `OSBundleLibraries` / `IOKitPersonalities` present without the other |
+| bundle without `CFBundleExecutable` | a recipe links a bundle the loader cannot name |
+| a reader that is missing or does not compile | the acceptance set has to exist before a product can be judged |
+
+```sh
+K60_FRAMEWORK_REPO=E:/hackios/UniXNU python3 scripts/check-ufs27-route-b.py
+# repo      E:/k60-work/ufs27
+#   PEND bundle   no recipe links a bundle: …
+#   PEND plist    drivers/NativeUfs/Info.plist has neither OSBundleLibraries nor IOKitPersonalities; …
+#   PEND link     scripts/build-xnu-generic.sh:651, scripts/build-xnu-4k-baseline.sh:1056,
+#                 scripts/build-xnu-4k-baseline.sh:1280 force-loads build/native-ufs/libNativeUfs.a …
+#   PEND readers  4 readers present and compiling, none runnable yet: …
+# ufs27-route-b: 0 gap(s), 4 pending
+```
+
+The five-state fixture proves each gap branch fires and that the checker can also
+go green: `E:/k60-work/scratch/ufs27-routbematrix/` (`make.py`, `run.sh`) builds
+`pending`, `ready`, `twocarr`, `orphan`, `halfplist` and expects `0 0 1 1 1`.
+
+```sh
+cd E:/k60-work/scratch/ufs27-routbematrix && bash run.sh
+# PASS: pending     -> 0 gap(s)
+# PASS: ready       -> 0 gap(s)
+# PASS: twocarr     -> 1 gap(s)
+# PASS: orphan      -> 1 gap(s)
+# PASS: halfplist   -> 1 gap(s)
+```
+
+`ready` is the important row: with a bundle recipe, both plist keys, the
+force-load removed and the four readers present, the gate reports 0 gaps — so it
+is a criterion for the work, not a light that stays red for ever.

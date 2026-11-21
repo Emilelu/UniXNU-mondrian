@@ -397,6 +397,32 @@ O1 被选中的理由只有一条：它是三个里唯一「删掉之后能力�
 2. 门禁 `scripts/check-boot-args.py` 只看板级 `[payload].kernel_args`，看不见 override（§4.6），
    因此这条列表必须同时抄进 `docs/engineering/BOOT-ARGS.md` 的显示/平台小节，否则没人读它。
 
+### 4.8 探针参数放不进去：`k60_backlight_probe=1` 要 22 B，只剩 4 B
+
+Lead 2026-11-21T19:12 批准加探针（`patches/proposed/0003`，让 `0001` 的 C3 判据从「等 OS 发越界值」
+变成「自己问一次 4095」），但这条参数在 603 B 的口径下**没有字节可放**：
+
+| 项 | 值 | 依据 |
+| --- | --- | --- |
+| 27 命令行（A+B，已按 O1 删 `disable_exc_resource=1`） | 603 B | §4.7 |
+| 上限（含空格） | 607 B | `uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h:8` 的 608 含 NUL |
+| 余量 | **4 B** | 上一个表的两行之差 |
+| `k60_backlight_probe=1` | 21 字符 + 1 空格 = **22 B** | `len()` 实测 |
+| 加进去 | **625 B，超 18 B** | 603 + 22 |
+| 压成 `k60bl_probe=1` | 16 B → 619 B，仍超 12 B | 名字救不了 4 B 的余量 |
+
+三条可选来源（本线不自行决定，逐条写清了代价）：
+
+1. **编译期开关，0 B（本线建议）**：探针只在专用镜像里编进去，判据镜像与探针镜像各记一份哈希；
+   代价是「探针」与「用户可自证的镜像」不是同一个，飞行记录必须写清用哪一个。
+2. 删 `use_contiguous_hint=0`（21 B）→ 604 B：读者 `XNU:osfmk/arm64/arm_vm_init.c:2154`，
+   且它在 27 的 override 七项里（有人为 27 加过），**不是本线能删的**，要平台线确认 27 上是否仍需要。
+3. 删 `applog=1`(9 B) + `k60_console_export=1`(21 B) → 595 B：两项都是证据通道，不建议。
+
+无论选哪条，探针参数一旦真要进命令行，必须同时写进 `docs/engineering/BOOT-ARGS.md` 的表格
+（`scripts/check-boot-args.py:24-28` 只认 `### name` 与表格首列）。判据与读取规则见
+`docs/research/display/BACKLIGHT-LOG-CRITERIA.md` §8。
+
 ---
 
 ## 5. Lead 已裁决的三项（2026-11-21，记录在案）

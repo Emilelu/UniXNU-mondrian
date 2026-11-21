@@ -12,7 +12,7 @@ flip 条件与 flip owner 只在 `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.5 维护�
 
 | # | 必须为真 | 判据 | 现在 |
 | --- | --- | --- | --- |
-| 1 | display 会签在案，且它自己写明 `token`/`evict`/`target` 的语义 | 会签文件里有一段以 `dbuf` 为主题的同意（不是「已阅」），并把日期与引文抄进本表第 1 行的 `recorded:` 备注；引文必须点名三个字段，缺一个不算 | **否**——正在等它对「57 槽」的回答 |
+| 1 | display 会签在案，且它**逐行**签了 `token`/`evict`/`target` 的语义 | 会签文件里有一段以 `dbuf` 为主题的同意（不是「已阅」），逐行给出「一致 / 不一致」；不一致时说清正确读法。日期与引文抄进本表第 1 行的 `recorded:` 备注；三行缺一不算（表的形状见 `GPU-27-V2-FIELDS.md` §3.1） | **否**——在等「57 槽」的回答，三行也还没签 |
 | 2 | v2 layout 补丁进入某个 series | `grep -rn "pong-scanout-v2-layout-asserts" patches/*/series` 恰好 1 行，且 `python3 scripts/check-series-numbering.py` 通过 | **否**——补丁在 `patches/proposed/`，不在任何 series |
 | 3 | offset 补丁排在那份之前 | 同一 series 中 `pong-scanout-assert-offsets` 的行号小于 v2 layout 的行号 | **否**（约束已写在补丁头，series 未建） |
 | 4 | 四个偏移由编译器断住 | ①离线：`g++ -std=c++17 -Wall -Wextra -c E:/k60-work/scratch/prop/v2_layout_probe.cpp -o /tmp/v2probe.o` 退出 0；②翻后构建：`PONG_SCANOUT_V2_LAYOUT=1` 编译通过，且 wire 头里的四条 `static_assert`（56 / `token`@44 / `evict`@48 / `target`@52）与补丁 hunk 逐字一致；③常设：`python3 E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py` 按 sha256 比对两份拷贝 | ①**是**（已跑，`COMPILE OK`）；②待；③**休眠中**（补丁不在 series ⇒ 退 0 并自己说明；进 series 那天自动变判据） |

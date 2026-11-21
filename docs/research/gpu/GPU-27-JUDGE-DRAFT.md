@@ -197,6 +197,14 @@ m01375）：①`us each in the driver` 是合成器自己在一帧内的成本�
 `scripts/check-gpu27-flip-asserts.py`（休眠期退 0，进 series 那天自动变判据）。判读器**不复制**这些数，
 需要时读表——同一件事存两份就会有一份过期（P-259）。
 
+## 8.5 零拷贝那条判据已经不在本判读器里
+
+「`gpu` 段整段消失」是另一条判据，读的是同一份日志但判的是另一件事（`imports=0` 与「没有 bench 样本」），
+所以它没有塞进 `judge-gpu27.py`，而是单独一个 dormant 门禁 `k60-gates/scripts/check-gpu27-zero-copy.py`。
+分开的理由：判读器回答「这一侧花了多少」，那个门禁回答「拷贝还在不在」；把两件事塞进一个退出码，
+以后吵起来分不清是哪一条红了。今天它休眠（所有飞行都还在拷贝），第一条 `imports=0` 的 stage 行出现那天
+它自动成为判据。
+
 ## 9 引用
 
 - 官方：`E:/hackios/UniXNU/docs/zh/porting/gpu-diagnostics.md`（§保留的证据、§采集策略、

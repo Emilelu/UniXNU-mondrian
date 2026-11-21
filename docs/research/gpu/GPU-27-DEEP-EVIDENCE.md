@@ -97,6 +97,12 @@
 - **谁交**：display 线（DPU 编程）+ GPU 线（扫出 wire 字段）。
 - **交付物与判据**：**待版本号定案**。定案前这里只留形态：扫出 wire 需要能表达「面板缓冲偏移」，
   且判据必须是「`gpu` 段整段消失于飞行」（无 blit pass），不是「`gpu` 段更小」。
+  这条判据已经写成 dormant 门禁：`k60-gates` 的 `scripts/check-gpu27-zero-copy.py`。它读飞行日志里的
+  stage 行，四个条件同时成立才算过——每一条 stage 行的 `imports=0`（有 `imports>0` 就是回落，混合也算
+  不过）、飞行里没有任何 `scanout bench` 样本（bench 循环本身就是一次拷贝）、这些行 `gpu=0 us` 且
+  `sum=0 us`（数要消失而不是变小）、至少 8 行且帧计数在推进。今天所有飞行 `imports>0`，所以它输出
+  `dormant:` 并退 0；`--strict` 才把休眠算失败。第一条 `imports=0` 的 stage 行出现那天，它自动变成判据，
+  不需要改脚本。
 
 ### #7 hw_init 执行者归属
 

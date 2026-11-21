@@ -242,3 +242,20 @@ stage firmware-and-bootimg      162s    total  844s
 
 **下一步（离线可做）**：按 `0300 → 0311 → 0308 → 0334b` 继续搬，其中 `0311 k60_prime_restart(int)`
 与 `0308 k60_usblog_reset_to_fastboot()` 都是纯增量，不再需要改锚点。
+
+### 2026-11-22 06:31 — 写入方只有 console_write，所以「console_init 之前」仍然无声
+
+在 27 的 feed（`xnu-3199e8bc`）里查到的唯一写入方：
+
+- `osfmk/console/serial_console.c:524` `console_write(char *str, int size)`（我们的钩子就在它函数体首行）
+- `:626` `console_write_unbuffered(char c)` 通过 `console_write(&c, 1)` 转发，所以两个钩子实际是同一个出口
+- panic 路径 `:713-782`（`Log to console by multiple methods`）也走 `console_write`，因此**一旦 `console_init()` 跑过，panic 文本会进 ramoops**
+- `osfmk/kern/startup.c:582` 才调 `console_init()`
+
+⇒ 四问的答案是：**writer** = `console_write`；**lifetime** = 从 `arm_init` 的映射到掉电；**read_moment** = 同一次启动内（复位即失，P-307）；**loss_condition** = 任何复位或断电。
+
+**关键限制（必须写在判据前面）**：`console_init()` 之前内核没有任何东西调用 `console_write`，所以**黑屏若发生在 `console_init` 之前，ramoops 里一定是空的**——空不等于“没跑到”，只等于“没跑到能说话的地方”。因此下一次飞行的判据必须写成两段：
+
+1. 日志里有 `pong-ramoops: console attached` ⇒ 映射成功，钩子已就位；
+2. 日志里有 panic 文本或 kprintf 行 ⇒ 已经过了 `console_init`；
+3. **两者都没有** ⇒ 结论只能是“停在 `console_init` 之前”，而不是“内核没启动”。

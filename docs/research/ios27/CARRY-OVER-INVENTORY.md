@@ -105,3 +105,24 @@
 
 ⇒ 正确顺序是 **`0300` → `0308`/`0311`（谁提供复位 helper 谁先）→ `0334b`**，不是「`0300` 之后就能打 `0334b`」。
 这条不改也能通过 `git apply`（hunk 1/3/4 会硬塞进去），但塞进去后 `k60_autoreset_do_reset()` 会引用一个不存在的 helper ⇒ **链接期才炸**，正是 `0532` 那一族的形状。所以先补 helper、再打 autoreset，两步分开验。
+
+## 复位原语的依赖图（2026-11-22 读 0308 原文）
+
+`0334b` 要的「复位」不是一条指令，而是一条四段链：
+
+```
+0300  bsd/dev/k60_usblog.c 这个文件（0547 已造）
+0308  k60_usblog_reset_to_fastboot()  —— 先发 restart reason，再 smc #0 SYSTEM_RESET，
+                                       返回则再试 hvc #0，两次都返回才打印放弃
+0311  k60_prime_restart(int)          —— 0308 的第一句就是它，负责把重启原因写进持久位置
+0334b k60_autoreset_*                 —— 定时器/空闲判据，最后调 0308 那个函数
+```
+
+0308 的注释逐字写了一个关键事实：「**pong uses reboot_kernel(RB_QUICK) rather than a bare PSCI call:
+the latter can simply return, which is what left this board sitting at the panic screen**」
+⇒ 裸 `smc #0` 在**本板**可能直接返回（我已两次遇到「PSCI 调用返回而不复位」的记录），
+所以 0308 才写成「smc 失败就 hvc，两次都失败才算失败」。
+
+**decision（stage-0）**：解冻条件 ④「自动复位」按 **0300 → 0311 → 0308 → 0334b** 四步走，
+每步单独 `apply --check` + 单独一次构建验证符号；不合并成一次。理由不是保守，而是这四个
+文件互相引用（0308 调 0311 的函数、0334b 调 0308 的函数），任何一步漏了都只在**链接期**暴露。

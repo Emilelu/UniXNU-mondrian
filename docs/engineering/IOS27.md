@@ -477,3 +477,26 @@ The three left are `0xfffffff007044478`, `0xfffffff00b72fce8` and
 `0xfffffff00b739538`; no structure inside the IPSW names them, so they stay
 unreviewed until a symbol-bearing artifact of the same build family arrives.
 Flight is still refused, by design.
+
+### Where the build time actually goes, measured 2026-11-21
+
+scripts/build-ios27-linux.sh prints stage NAME SECONDS total SECONDS at each boundary. Two builds of
+the same tree, before and after the firmware-volume reuse guard:
+
+| stage | rebuild always | firmware reused |
+| --- | --- | --- |
+| profile / fetch / defconfig | 4 s | 5 s |
+| kernel, link and payload: fileset reference, prelink, stamp, 192 MB pack | 452 s | 451 s |
+| firmware volume: EDK II with -n 8, then GenFds | 519 s | 3 s |
+| bootimg and artifact checks | 0 s | 171 s |
+| total | 975 s | 630 s |
+
+The volume is reused when board.toml, the uefi-mondrian checkout with its submodules and the
+framework EDK II patch list hash to the recorded key held in the board firmware directory as
+inputs.sha256; K60_FORCE_FIRMWARE=1 rebuilds unconditionally. A key is used rather than a timestamp
+because a timestamp only says recent, which is P-155, while a key says same. Measured images:
+60231f20 for the rebuild and 38515a3f for the reused run.
+
+The next two targets are bootimg at 171 s, dominated by packing the 192 MB payload, and the kernel at
+451 s, dominated by re-seeding the tree. Both are judged the same way: by a number printed at the
+boundary, not by an impression.

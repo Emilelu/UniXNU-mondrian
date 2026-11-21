@@ -4,11 +4,14 @@
 触发：用户两次质问——「自动复位代码在 ios16 的时候都有了，现在你又要重复造轮子？」「迁移到 iOS 27 你是完全把之前各种代码全丢了？」
 
 ## 事实（机器可核，不是印象）
+> 口径修正（2026-11-22，input27 指出）：`check-series-numbering.py` 只认四位编号，所以它的「34」不含两条无号条目；真正的行数是 **36**。同一原因，16 线的「136」也不等于「全部」，全部是 **240**（含 111 条无号）。三个数字用 `scripts/series-count.py` 一次打出来，引用时必须写明是哪一种。
+
 
 | 项 | 数值 |
 | --- | --- |
-| iOS 16 系列条目（`patches/xnu/series`） | **240** |
-| iOS 27 系列条目（`patches/xnu-12377/series`） | **34** |
+| iOS 16 系列补丁行（`scripts/series-count.py`） | **240**（129 带号 + 111 无号） |
+| iOS 27 系列补丁行 | **36**（34 带号 + 2 无号：`ptrauth-string-discriminator.patch`、`armcpu-sleep-hook.patch`） |
+| 其中从 16 线搬来的 | **3**（`0540`/`0541`/`0546`），本轮新增 `0547`/`0548` |
 | 16 系列里名字命中 console/autoreset/heartbeat/usb/touch/buttons/ramoops/panic/watchdog/reset/boot/log 的 | **46** |
 
 结论：**是的，迁移时几乎全丢了**。27 系列 34 条里，只有 `0540`（PSCI CPU start）、`0541`（虚拟定时器）、`0546`（ramoops 控制台）三件是从 16 线拿过来的，其余 31 条是 27 特有的（arm64e/PAC、fileset、ADT、modesetting）。而 `0546` 之所以要「重切」，是因为我把它当成新东西写，而不是先查 16 线有没有——轮子就在这里。

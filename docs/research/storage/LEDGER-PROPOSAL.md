@@ -24,7 +24,7 @@ and closes with:
 > IOS27-PRELINK-ALLOWLIST.toml with their mechanism instead of a name, so
 > check-prelink-hazards.py is green.
 
-## Proposed edits
+## Proposed edits (rows 1 and 4 only)
 
 | # | 现在写的句子 | 建议改成什么 | 依据 文件:行 |
 | --- | --- | --- | --- |
@@ -32,6 +32,20 @@ and closes with:
 | 2 | `osfmk/kern/startup.c brings the console up at :478 and the code-signing window at :526; the first kext start is PE_init_iokit() at :689 inside kernel_bootstrap_thread().` | `osfmk/kern/startup.c brings the console up at :585 and the code-signing window at :630; the first kext start is PE_init_iokit() at :806 inside kernel_bootstrap_thread().` | `E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work/osfmk/kern/startup.c:584-585`, `:629-630`, `:805-806`; also `PRELINK-CONSOLE-REACHABILITY.md:160-174` |
 | 3 | `13 of them become reachable from code_signing_init() at :526, which is after console subsystem init but before the USB CDC-ACM console K60 gives a human, so a trap in that group is silent: implement those first.` | `13 of them become reachable from code_signing_init() at :630, which is after console subsystem init but before the USB CDC-ACM console K60 gives a human, so a trap in that group is silent: implement those first.` | `E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work/osfmk/kern/startup.c:629-630`; `PRELINK-CONSOLE-REACHABILITY.md:160-174` |
 | 4 | `The three addresses that stay unpinned are recorded in IOS27-PRELINK-ALLOWLIST.toml with their mechanism instead of a name, so check-prelink-hazards.py is green.` | `The three addresses that stay unpinned are recorded in IOS27-PRELINK-ALLOWLIST.toml with their mechanism instead of a name; all three are data, not entry points, and 三者在 console 前不可达（静态证据），残余=间接构造未证 (docs/research/storage/PRELINK-CONSOLE-REACHABILITY.md). check-prelink-hazards.py remains green; the allowlist is a visibility record, not a name or a runtime proof.` | `E:/hackios/k60-gates/docs/engineering/IOS27-PRELINK-ALLOWLIST.toml:184-205`; `PRELINK-CONSOLE-REACHABILITY.md:8-29`, `:199-223` |
+
+## Pasteable `why_open` fragment (rows 1 and 4 only)
+
+Rows 2 and 3 stay in `PRELINK-CONSOLE-REACHABILITY.md` as evidence; the shared
+ledger gets conclusion sentences only. The fragment below is a complete
+`why_open` value for `[[blocker]] id = "prelink-map-unresolved"`. It contains no
+`"""` and no backslash, so the triple-quoted basic string is safe. It is
+validated with Python `tomllib` before it is sent.
+
+```toml
+why_open = """205 stubbed pointer slots, not 205 calls; none of the 205 is a call site. Separately, the three remaining missing targets are data, not entry points. 三者在 console 前不可达（静态证据），残余=间接构造未证。
+
+The three addresses that stay unpinned are recorded in IOS27-PRELINK-ALLOWLIST.toml with their mechanism instead of a name; all three are data, not entry points. The allowlist is a visibility record, not a name or a runtime proof; check-prelink-hazards.py remains green. Details and scans: docs/research/storage/PRELINK-CONSOLE-REACHABILITY.md (feat/xnu27-data-gate)."""
+```
 
 ## Why this is not closure
 

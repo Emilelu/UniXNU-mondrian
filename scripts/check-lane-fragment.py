@@ -157,18 +157,24 @@ def check(fragment: Path, lane_root: Path | None, docs: Path,
                         problems.append(f"{item_name}.{step}: evidence does not resolve: {token}")
                     else:
                         resolved += 1
-                page = re.search(r"official:\s*[\"']?([\w./-]+\.md)(?:#([\w.-]+))?", text)
-                if page is None:
-                    continue
-                page_path = docs / page.group(1)
-                if not page_path.is_file():
-                    problems.append(f"{item_name}.{step}: official page missing: {page.group(1)}")
-                    continue
-                if not page.group(2):
-                    problems.append(f"{item_name}.{step}: official page cited without an anchor")
-                elif page.group(2) not in anchors(page_path):
-                    problems.append(
-                        f"{item_name}.{step}: {page.group(1)} has no anchor #{page.group(2)}")
+                # finditer, not search: a row may cite several pages, and with
+                # search only the first was ever checked while the sub() above
+                # removed all of them from the path scan, so the 2nd..Nth were
+                # neither verified nor reported (measured 2026-11-21 by the
+                # platform lane: a broken second anchor still returned OK).
+                for page in re.finditer(
+                        r"official:\s*[\"']?([\w./-]+\.md)(?:#([\w.-]+))?", text):
+                    page_path = docs / page.group(1)
+                    if not page_path.is_file():
+                        problems.append(
+                            f"{item_name}.{step}: official page missing: {page.group(1)}")
+                        continue
+                    if not page.group(2):
+                        problems.append(
+                            f"{item_name}.{step}: official page cited without an anchor")
+                    elif page.group(2) not in anchors(page_path):
+                        problems.append(
+                            f"{item_name}.{step}: {page.group(1)} has no anchor #{page.group(2)}")
             if require_paths and block.get("done") is True and resolved == 0 and rows:
                 problems.append(
                     f"{item_name}.{step}: done = true but no evidence path resolves")

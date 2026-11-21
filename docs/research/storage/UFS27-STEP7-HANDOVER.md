@@ -226,9 +226,15 @@ PASS report, same six lines:
   ARCH = <path>          # <bytes>, members: NativeUfs.o PongUfsTransport.o verified_root.o
   OUT  = <path>          # archive_rc = 0, new_symbols = []
   cpo  = <path>          # arguments/directory present
-  checker rc = 0; bluetooth-storage-link: OK
+  composite rc = 0 (checker rc = 0, predicate rc = 0); bluetooth-storage-link: OK
   evidence = <report path>, <checker stderr/log path>, <the exact command line run>
 ```
+
+Line 5 names both halves on purpose (bt's wording, 2026-11-21): §4 is
+`checker && predicate`, and the checker alone exits 0 while printing OK whenever the link
+itself succeeded — including when `new_symbols` is not empty. The predicate is what turns
+that into a failure, so a PASS line that reports only `checker rc = 0` reads as a green
+light the run never gave.
 
 Rules for what a PASS may claim:
 

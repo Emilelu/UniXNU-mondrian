@@ -1,0 +1,100 @@
+# iOS 27.0.1 (24A446) eight-step ledger — the input line (official porting/drivers row 4:
+# QcomGeniSpi, ShengNovatekTouch, ShengHidInput, ButtonProbe).
+#
+# Steps 1-7 only. Step 8 (device) belongs to the Lead and is never written here.
+# Every step starts at done = false with no evidence: this file is the skeleton the
+# lane fills in from offline reading, one claim per citation (file:line / URL / P-xx).
+# Gate: python3 scripts/assemble-27-eight-step.py --check
+
+[hardware.touch]
+name = "触摸（Goodix GT9916R / BERLIN，BRL 协议）"
+status = "active"
+paths = [
+  "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch",
+  "userland/touch.c",
+  "board.toml",
+  "docs/engineering/TOUCH-STATEMACHINE.md",
+]
+revisit = "iOS 27 stage-0 进入 SpringBoard 后按线恢复；若触摸成为 stage-0 或首帧阻塞则提前恢复"
+why = """iOS 16.6.1 已在真机验证（yibiya 631efc3）：旧代码只发 0x90/0x00 关 raw debug、从未发 0x91/0x01 坐标使能，且配置完成只查 ack[1] 不等 reply[0]==0x80；修好后收 8 触点 + 4 条 HID 上报，porting.toml 的 input 是 device-verified。27 要回答的是注入路径换了：24A446 的参考实现是内核 IOHIDDevice（ShengHidInput）+ 内核 TouchProbe，而不是我们 16.6.1 的 /dev/pong-touch + backboardd 虚拟 HID 服务。本文件只覆盖离线结论，不含上机步骤。"""
+
+# ① 同型：同 SoC（SM8475）兄弟移植怎么接这个触摸控制器；K60 没有公开同型号移植。
+[hardware.touch.step.same_model]
+done = false
+evidence = []
+
+# ② 官方：porting/input 的 §1 传输与固件、§2 窗口/总线/GPIO/IRQ、§3 选择内核的 IOHIDFamily、§4 PMIC。
+[hardware.touch.step.official]
+done = false
+evidence = []
+
+# ③ 反编译：27 的 IOHIDFamily / IOHIDDevice ABI（vtable、instance size、事件槽位），以及安卓侧 BRL 事实。
+[hardware.touch.step.decompile]
+done = false
+evidence = []
+
+# ④ 广域：官方组件目录与兄弟树里已有的 SPI/HID 轮子（QcomGeniSpi、ShengNovatekTouch、ShengHidInput）。
+[hardware.touch.step.wide]
+done = false
+evidence = []
+
+# ⑤ 方案：27 上保留哪些 16.x 资产（SPI 空指针守卫、333 kHz 时序、BRL 状态机），新增什么。
+[hardware.touch.step.plan]
+done = false
+evidence = []
+
+# ⑥ 深挖：坐标使能/配置完成判据、触点 ID 与边沿、注入通道的逐字段差异。
+[hardware.touch.step.deep]
+done = false
+evidence = []
+
+# ⑦ 核验：static_check / unit_test / artifact_check / local_verified 全部离线。
+[hardware.touch.step.verify]
+done = false
+evidence = []
+
+[hardware.buttons]
+name = "实体按键（PMIC PON / GPIO6 / Volume，Input 队列 → IOHIDEvent）"
+status = "active"
+paths = [
+  "patches/xnu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch",
+  "userland/touch.c",
+  "board.toml",
+]
+revisit = "iOS 27 stage-0 进入 SpringBoard 后按线恢复；按键若阻塞解锁或 stage-0 交互则提前恢复"
+why = """16.6.1 上按键已经工作：Pong keys: arbiter v7 channels=768 PON=407 GPIO6=434; power=1 up=1 down=1，用户态经 /dev/pong-buttons 注入 consumer 用法（0x30/0xe9/0xea）。iOS 的 buttons 节点由 board.toml 的 [adt.buttons.*] 生成（devicetree.py:388 只认它），所以 27 不需要新按键驱动，需要核对的是 ADT 字段与 27 的注入通道。本文件只覆盖离线结论，不含上机步骤。"""
+
+# ① 同型：同 SoC 兄弟移植的按键拓扑与 PMIC arbiter 版本。
+[hardware.buttons.step.same_model]
+done = false
+evidence = []
+
+# ② 官方：porting/input §4 的 PMIC 输入极性/归属/IRQ 路由/ack。
+[hardware.buttons.step.official]
+done = false
+evidence = []
+
+# ③ 反编译：本板 PMIC arbiter v7 寄存器窗口与 iOS buttons 节点的消费路径。
+[hardware.buttons.step.decompile]
+done = false
+evidence = []
+
+# ④ 广域：官方组件目录里有没有按键组件（ButtonProbe）以及它的边界。
+[hardware.buttons.step.wide]
+done = false
+evidence = []
+
+# ⑤ 方案：[adt.buttons.*] 字段核对表 + 27 的注入点。
+[hardware.buttons.step.plan]
+done = false
+evidence = []
+
+# ⑥ 深挖：PON/GPIO6 通道、按下集合的上报与释放、与触摸共用的注入服务的分离。
+[hardware.buttons.step.deep]
+done = false
+evidence = []
+
+# ⑦ 核验：离线核对 ADT 结构、报告的 report ID 与用法，无需上机。
+[hardware.buttons.step.verify]
+done = false
+evidence = []

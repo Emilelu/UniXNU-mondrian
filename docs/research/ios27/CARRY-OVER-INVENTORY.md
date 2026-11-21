@@ -169,3 +169,28 @@ the latter can simply return, which is what left this board sitting at the panic
   而这条通路在 stage-0 没有任何观测手段能证明它成功（P-300 的同族问题）。
 
 落地顺序：`0547`（已落）→ **`0549`：`k60_usblog_reset_to_fastboot()` + 静态原因** → `0334b`（触发时机）。
+
+## 2026-11-22 06:33 — `0334b`（自动复位触发）不能搬，要重写，理由与落点
+
+逐 hunk 比对 `patches/xnu/0334b-k60-autoreset.patch` 与我们 27 侧已有的文件，四处 hunk 全部落空：
+
+| 0334b hunk | 需要的上下文 | 我们树里的情况 |
+| --- | --- | --- |
+| `@@ -186,6 +186,44 @@` | 16 线 `k60_usblog.c` 第 186 行附近（`k60_autoreset_arg()` 插在 `}` 与 `/\* 0319: Pong-style restart reason` 之间） | `0547` 造的文件 1,338 行，没有那段注释，行号与上下文都不在 |
+| `@@ -337,7 +375,25 @@` | `delay(1500000);` 与 `register uint64_t x0 __asm__("x0") = 0x84000009u;`（在 `k60_prime_restart` 的 SPMI 前置里） | 我们按裁决 A **故意没搬** SPMI/IMEM 前置，`0549` 里复位是 `k60_usblog_reset_to_fastboot()`，没有这段 |
+| `@@ -1540,6 +1596,80 @@` | `printf("K60 USBLOG: restart reason %s\n", primed ? "published" : "FAILED to publish");` | 同一个原因：`published/FAILED` 这对字串只在 SPMI 版本里 |
+| `@@ -1779,6 +1909,28 @@` | 16 线文件尾的 `{ return us >= 4; }` 之类弱上下文 | 同样不存在 |
+
+⇒ **不是上下文偏移，而是依赖了我们已经决定不搬的那半**。硬搬等于把 SPMI 写重新引回内核（HR-01 冲突 + stage-0 无法观测），得不偿失。
+
+**重写方案（落点已定，下一轮切补丁并构建）**：
+
+- 新文件 `bsd/dev/k60_autoreset.c`，只做三件事：
+  1. `PE_parse_boot_argn("k60_autoreset", …)` 与 `"k60_autoreset_idle"`（两个名字与 16 线保持一致，`board.toml` 启动行里 `k60_autoreset=300` 已经带着它们，不新增字节）；
+  2. 用 `kernel_thread_start()` 起一个线程，先 `delay()` 到空闲阈值，再循环轮询空闲秒数；
+  3. 到点调 `k60_usblog_reset_to_fastboot()`（`0549` 已定义并已被符号表证实）。
+- 唯一要改的现有文件是 `bsd/kern/bsd_init.c`，锚点 `k60_usblog_start();`（`0547` 在 `@@ -1334,7 +1334,11 @@` 里加的，实测存在于补丁第 1368 行，全树唯一），调用 `k60_autoreset_start();`。
+- `patches/xnu-12377/conf-files.txt` 加一行 `bsd/dev/k60_autoreset.c		standard`。
+- 切补丁方式：**仍用生成脚本**（`E:/k60-work/scratch/cut_autoreset_v27.py`，仿 `cut_ep0_v27.py`），因为要改新增行计数（P-155），手写 hunk 已咬过多次。
+- 判据（先写死）：`== kernel: patch 0550`、`llvm-nm` 有 `_k60_autoreset_start`、`strings kernel.macho | grep -c "k60_autoreset"` ≥ 1、`check-image-args.py` 仍 OK、prelink 两数仍 94/203。
+- 不使用 `0311`：`0311` 是 restart-reason 名字表，而裁决 A 已决定原因记静态变量；引入它只会把 SPMI 前置再拉回来。

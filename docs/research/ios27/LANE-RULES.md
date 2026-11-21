@@ -78,3 +78,27 @@
 3. `ml_arm_sleep` 是 XNU 原生（`osfmk/arm64/cpu.c:1024`），不是 fork 的发明；只有 `arm64_platform_sleep_hook` 需要补丁（`patches/xnu-12377/armcpu-sleep-hook.patch:13`）。
 4. F1 = 1 核是口径（`scripts/make-pong-adt.py:74 --cpus 1`），`board.toml:210 cpus = 8` 是 16 线残留；0543 不写，等 8 核重评；镜像一落地立刻跑 `SMP-STEP-DECODE.md` §6.2 对账并回一行结论 + 产物路径。
 5. ADT 单核锁在三处（`scripts/pong_adt_contract.py:158-163`、`:189`、`make-pong-adt.py:290-292`），多核提案在 `patches/proposed/9002-adt-multicore-topology.patch`，审过再进 series。
+
+## 8. 共享 RAG 库与三档断言纪律 〔Lead 广播 2026-11-22〕
+
+1. **先查库**：库根 `E:\k60-work\kb\kb.sqlite`（WSL `/mnt/e/k60-work/kb`，6,194 文档 / 142,260 块）。
+   用法：`echo '{"kb_root":"/mnt/e/k60-work/kb","query":"…","top_k":4}' | python kb_engine.py search`。
+2. **三档写法，不许混用**：
+   - 官方文档 / 别人实现类断言 → **先查库**，命中就写 `文件:节`；
+   - 库里没有 → 才联网，并附 URL；
+   - 都没有 → 写「**未证**」，不许用「应该是/按经验」冒充。
+   本线已有的例子：catalog `psciConduit` 读 `/psci` 这条是从源码读出来的（`ArmCpu-93a5030c.cpp:501-514`），
+   不是从库或网上抄的；反过来，`FORK-DECISION.md` §1.1 的六棵参照树结论全部带 `file:line`，可直接入库比对。
+3. **环境坑（查库时会踩）**：`NO_PROXY=localhost,127.0.0.1,::1` —— `::1` **不能带方括号**；
+   `HF_ENDPOINT=https://hf-mirror.com`（嵌入模型走镜像，不然卡在下载）。
+4. **P-300**：27 内核没有可靠的串口/日志通路，**0 字节日志不能解读成「内核没跑」**。
+   这条已写进 `SMP-STEP-DECODE.md` §0 与 `F1-PLATFORM-HANDOFF.md` §3.5，判读表在「没读到日志」时只出
+   「本次没有证据」，不出「全灭」。
+5. **上机冻结令（2026-11-22 03:02，用户本人下达）**：`docs/engineering/BOOT-FREEZE.md` 的 `state = "frozen"`，
+   `scripts/flash.sh` 在任何 `fastboot boot` 之前读它，只有用户本人改成 `lifted` 并写明理由与时间才放行；
+   任何人不得用环境变量绕过（等同铁则 9）。解冻条件：同一次启动内的日志通路 + 自动引导 + 看门狗自动复位。
+   本线本来就不上机，所以冻结期间**照常做离线件**，但不要设计「先飞一次看日志」的方案。
+6. **P-307 / 通道四问**：ramoops 在 DRAM，掉电/复位即归零。任何「通道类」文档必须写清
+   `lifetime` / `read_moment` / `writer` / `loss_condition` 四问，门禁 `scripts/check-channel-lifetime.py`
+   会按一级标题切块、对同时出现通道词与判据词的块判缺项。本线的两份通道相关文档已补：
+   `SMP-STEP-DECODE.md` §0、`F1-PLATFORM-HANDOFF.md` §3.5。

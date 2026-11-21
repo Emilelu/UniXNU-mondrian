@@ -42,6 +42,25 @@ ADT=$PAYLOAD/kernel.macho.adt
 | `No such file: pong-boot-manifest.json` 或 `kernel.macho.adt` | 构建没走到 payload 阶段 | 不是平台线问题；交回构建线，附路径 |
 | ADT 里 `state=<absent>` 或 `<empty>` | 生成器版本比当前脚本旧 | 记下来回 Lead，别当成「没有 running 核」的证据 |
 
+## 3.5 证据通道四问（P-307，Lead 广播 2026-11-22）
+
+第 3 步「日志里若有 `ArmCpu:` 行」里的那个日志，是一个**有寿命的通道**，不是一直存在的记录。
+按 `scripts/check-channel-lifetime.py` 的四问写死，读判读表之前先读这一段：
+
+| 问 | 本线通道（USB CDC-ACM 控制台 / ramoops 镜像）的答案 |
+|---|---|
+| `lifetime` | 只在**同一次启动内**有效。ramoops 落在 DRAM，掉电或复位即归零（P-307）；控制台环也只是内存里的环形缓冲，`bsd_init` 起来前根本不存在（P-300） |
+| `read_moment` | 两种：同一次启动内从 USB 控制台读；或在**复位之前**从 ramoops 镜像读。跨复位的「上次启动日志」在本板不存在——读卡器在 DXE 里读到的那块已经被复位清掉 |
+| `writer` | XNU 的 `kprintf` → 串口/控制台驱动（`bsd_init` 之后才注册）与 ramoops 后端；固件层此前不写 |
+| `loss_condition` | 任何一次复位、掉电、长按电源、或固件重新训练内存，都会让 ramoops 归零；控制台本身在 `bsd_init` 之前不存在 |
+
+两条由此而来的判读纪律：
+
+- **0 字节日志不能解读成「内核没跑」**（P-300）。黑屏 + 空日志只能证明「我们听不到」，不能证明执行到哪。
+  所以本表第 4 步「拿到 `ArmCpu:` 行再判」是**条件式**的：拿不到就不是「A 表全灭」，而是「本次没有证据」。
+- 本轮 `docs/engineering/BOOT-FREEZE.md` 的 `state = "frozen"`：任何 `fastboot boot` 被 `scripts/flash.sh` 拦。
+  本条线本来就不上机，冻结只影响「谁去取那些日志行」——取日志也必须先解冻，或在同一次启动内接上通路。
+
 ## 4. 回报格式（一行 + 路径）
 
 ```

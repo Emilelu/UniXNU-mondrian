@@ -133,8 +133,20 @@ Lead 的问题是对的：`arm_init.c:357` 与 `start.s:879` 是**同一修改�
    本组新增的 `pmap_pt_attr_4k_user` 直接引用 `pmap_table_level_info_4k`，没有验证该 subpage
    配置下 4K 层的表结构是否与 47 位根相容。判据：F1 编译通过 + 启动不立即 fault（粗）。
 
-## 6. 复现
+### 5.1 库内旁证（共享 RAG 库，2026-11-22 查）
 
+Lead 广播的三档纪律（库 → 联网 → 未证）在本组上的实况：
+
+- 库根 `E:\k60-work\kb\kb.sqlite` 可达（`kb_stats` 报 6,194 文档 / 142,260 块 / 142,260 向量，与广播一致）。
+- 查「T0SZ_USER arm64e 47 位用户地址空间 PAC」→ Top-1 命中 `arm64e.md §指针认证`：讲的是
+  arm64e 镜像的认证指针是链式修复、dyld 在加载时为用户指针签名、PAC 算法不必与 Apple 相同（它证实了
+  「用户态指针确实带 PAC 位」这一前提，**没有**给出 T0SZ 的值）；Top-2/3 是 `PITFALLS.md §P-01` 的
+  4 GiB pagezero，与本题无关。
+- 结论：**库内没有 T0SZ_USER = 17 直接证据**。本文所有 T0SZ 结论的出处仍是源码
+  （`proc_reg.h` 的宏、`pmap.c` 的断言、`BCM2837.h` 的板级宏），按三档纪律属「源码证据」，不冒充库证；
+  库只提供 PAC 前提的旁证。
+
+## 6. 复现
 ```sh
 # 逐文件试打（pristine）
 cd /e/hackios/xnu-12377

@@ -113,8 +113,12 @@ armcpu-sleep-hook.patch
 # _k60_serial_clock next to the 16 build's _k60_usblog_console_up and
 # _pong_ramoops_console_*. Without a mirror nothing the kernel says is
 # readable, so every 0-byte flight was uninformative by construction. The
-# 16-series guard asked for -DPONG, which this build never defines; here the
-# guard is XNU_PONG_RAMOOPS_CONSOLE and build-ios27-linux.sh passes -D for
-# arm_init.o and serial_console.o. Base 0xa7000000 and the 2 MiB window are
-# the device live FDT ramoops node (reg 0x400000, pmsg-size 0x200000).
+# 16-series guard asked for -DPONG, which this build never defines. The first
+# cut here guarded with XNU_PONG_RAMOOPS_CONSOLE and passed -D through the env
+# prefix of the kernel step; the define never reached the compiler (P-301:
+# serial_console.o.json carried zero occurrences while startup.o.json carried
+# the builder's own EXTRA_MAKE_ARGS define), so the kernel shipped with no
+# console a third time. The hooks are now compiled unconditionally and guard
+# themselves at run time on pong_ramoops_base. Base 0xa7000000 and the 2 MiB
+# window are the device live FDT ramoops node (reg 0x400000, pmsg-size 0x200000).
 0546-k60-ramoops-console-27.patch

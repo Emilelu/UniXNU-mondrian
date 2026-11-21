@@ -10,6 +10,48 @@ in `E:/hackios/UniXNU`. Everything below is derived from those two files and fro
 `UniXNU/profiles/os/ios-27.0.1-24A446/profile.toml`; the line numbers are measured,
 not remembered.
 
+## Conclusion: today the RAM disk has no persistence at all
+
+**`NativeRamBlock` cannot persist a page on this board: the six
+`native_ufs_store_*` entry points it calls are `weak_import`s with zero
+definitions anywhere in the tree, so every persisted path is skipped and the
+disk keeps its pages in memory.**
+
+Measured, 2026-11-21, on `feat/ufs-27`:
+
+```sh
+grep -n 'native_ufs_store_' drivers/NativeRamBlock/NativeRamBlock.cpp   # 16 hits, all in this file
+grep -rn 'native_ufs_store_' --include=*.c --include=*.cpp --include=*.h . \
+  | grep -v drivers/NativeRamBlock/NativeRamBlock.cpp                    # 0 hits
+```
+
+The six declarations are `drivers/NativeRamBlock/NativeRamBlock.cpp:35-40`:
+
+```c
+unsigned native_ufs_store_mode(void) __attribute__((weak_import));
+int native_ufs_store_open(uint64_t, uint64_t *, const char **) __attribute__((weak_import));
+int native_ufs_store_read(uint64_t, uint32_t, void *) __attribute__((weak_import));
+int native_ufs_store_write(uint64_t, uint32_t, const void *) __attribute__((weak_import));
+int native_ufs_store_sync(void) __attribute__((weak_import));
+unsigned native_ufs_store_gpt_check(void) __attribute__((weak_import));
+```
+
+Where the disk would persist, and why nothing happens: `:69-71` routes
+`read`/`write`/`sync` through the weak symbols, `:86` reads
+`native_ufs_store_mode()` only when its address is non-NULL, `:87-88` requires all
+six addresses at once, `:93` opens the store window, `:144` re-reads the GPT check
+and `:263` re-reads the mode. With no definition in the image, every one of those
+addresses is NULL, `storeMode` stays `0`, and the disk behaves as a plain
+volatile RAM disk — which is a legitimate configuration (the comment at `:34-35`
+says so: "a build without the provider keeps the volatile disk"), just not a
+persistent one.
+
+Why this belongs in the ring-5 contract rather than only in the gate's §15: a
+reader who sees "`NativeRamBlock` is graded" can reasonably assume the RAM disk
+persists Data. It does not, and it cannot until a provider defines those six
+symbols. Ring 5 is the place that has to say what the entry is handed, so it says
+this first.
+
 ## Why the ring exists (measured)
 
 - `native_prelink.py:147-154` walks the `roots` list and raises

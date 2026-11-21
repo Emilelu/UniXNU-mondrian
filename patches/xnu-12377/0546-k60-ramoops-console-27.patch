@@ -1,8 +1,8 @@
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
-index 6690846..5af64cf 100644
+index 72d3561..7001e50 100644
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -90,6 +90,122 @@
+@@ -91,6 +91,122 @@
  #include <IOKit/IOPlatformExpert.h>
  #endif /* HIBERNATION */
  
@@ -125,9 +125,9 @@ index 6690846..5af64cf 100644
  extern void     patch_low_glo(void);
  extern int      serial_init(void);
  extern void sleep_token_buffer_init(void);
-@@ -571,6 +687,10 @@ arm_init(
- 
+@@ -585,6 +701,10 @@ arm_init(
  	arm_vm_init(xmaxmem, args);
+ 	boot_progress_stage("arm_vm_init returned");
  
 +#if defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
 +	(void)pong_ramoops_console_init();

@@ -3,7 +3,7 @@ revisit = "27 stage-0 进入 SpringBoard 后按线恢复；本文件的 active �
 name = "无线（QCA6490 / PCIe + MHI）"
 status = "active"
 paths = ["patches/wifi/", "patches/xnu-12377/", "drivers/PongWifi/", "drivers/Ath12kWifi/", "scripts/", "docs/research/wifi/", "docs/plans/WIFI-IOS27-CHECKLIST.md"]
-why = "2026-11-21：24A446 Wi-Fi 线只做离线契约与验收工具，不构建、不上机；C1/C2/C3 仍 open，完整 arm64e station 归档尚不存在。见 docs/plans/WIFI-IOS27-CHECKLIST.md:76 与 docs/research/wifi/IOS27-STATION-API-GAP.md:39。"
+why = "2026-11-21：24A446 Wi-Fi 线只做离线契约与验收工具，不构建、不上机；C1/C2/C3 仍 open，完整 arm64e station 归档尚不存在。见 docs/plans/WIFI-IOS27-CHECKLIST.md:76 与 docs/research/wifi/IOS27-STATION-API-GAP.md:22-23。"
 label = "WiFi（QCA6490 / WCN6855）"
 wpa3 = { status = "blocked_by: F2/F3", reference = "docs/research/wifi/WPA3-PORT-PLAN.md" }
 
@@ -48,7 +48,7 @@ recorded_at = "2026-11-21"
 
 [hardware.wifi.step.deep]
 done = true
-evidence = "深挖结果落在三份记录：docs/research/wifi/SBL-MISSION.md:1706（§65 三处设备侧遮蔽）、docs/research/wifi/SBL-MISSION.md:1926（§68 合并与 0542）、docs/research/wifi/SBL-MISSION.md:2004（§69 0542 四层证据与 25 对 31 审计）；docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186（§I C3 的 0x80 离线阶梯）与 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:148（H.1 最小补证）；docs/research/wifi/IOS27-STATION-API-GAP.md:39（两个 API 的关闭条件）与 docs/research/wifi/IOS27-STATION-API-GAP.md:70（最小补丁形态）。另：0542 的基线拒绝/补丁通过由 scripts/tests/test-wifi-association-event.py:39-61 钉住；站归档契约由 scripts/check-wifi-station-archive.py:37-123 实现。"
+evidence = "深挖结果落在三份记录：docs/research/wifi/SBL-MISSION.md:1706（§65 三处设备侧遮蔽）、docs/research/wifi/SBL-MISSION.md:1926（§68 合并与 0542）、docs/research/wifi/SBL-MISSION.md:2004（§69 0542 四层证据与 25 对 31 审计）；docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186（§I C3 的 0x80 离线阶梯）与 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:148（H.1 最小补证）；docs/research/wifi/IOS27-STATION-API-GAP.md:73-102（两个 API 的关闭条件）与 docs/research/wifi/IOS27-STATION-API-GAP.md:104-118（最小补丁形态）。另：0542 的基线拒绝/补丁通过由 scripts/tests/test-wifi-association-event.py:39-61 钉住；站归档契约由 scripts/check-wifi-station-archive.py:37-123 实现。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.verify]

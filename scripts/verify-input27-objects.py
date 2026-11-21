@@ -302,7 +302,8 @@ def self_test(dwarfdump, nm, clang):
          on the table length, which is what a stale source would look like.
     """
     if not clang:
-        print('self-test: clang not found; nothing to compile')
+        print('self-test: SKIP — no clang on this host, nothing was compiled; '
+              'this run proves nothing (run it where clang exists)')
         return 2
     dwarfdump = dwarfdump or 'llvm-dwarfdump'
     nm = nm or 'llvm-nm'

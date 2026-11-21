@@ -4,7 +4,20 @@
 
 ## 第〇条（取件前提，先看这条）
 
+**更强的前提（Lead 2026-11-21 21:00 + P-300）：这份请求单的产物只有在「镜像能说话之后」才有判读意义。**
+27 内核此前没有任何控制台接收端，因此「没有日志」不等于「代码没跑」；`artifact_check` 判的是**对象里有没有这条路径**，而**路径在设备上工作没工作**必须等日志通路。取件顺序据此固定为：先让镜像能说话（`scripts/check-kernel-console.py --flight`）→ 再取件 → 再判 ⑦。镜像不能说话之前取来的 `.o`，只能回答「编进去了没有」，不能回答任何上机问题。
+
 **取件前提：清单必须含设备四层，否则 I4 INVALID，不得用今天这棵树。** 判据是构建工作目录里的 `xnu-inputs.json` 与 `xnu-patches.list`（`scripts/unixnu/patches.py:39-41`、`:66-67`，两者与 `tree/` 同级）必须出现 `device:patches/xnu/series` 层及其中的 `:197` touch-console、`:198` physical-keys；今天的 `/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/` 那份清单只有 soc 层（`source=feeds/xnu-3199e8bc`、104 行全 `patches/xnu-12377/`、`grep goodix`=0），从它取 `.o` 会被判 INVALID——那是清单证明不了对象含输入层，不是对象坏。
+
+**两宿主自检（Lead 2026-11-21 21:00 要求：Windows 与 WSL 各跑一次，2026-11-22 03:1x 实测）**：
+
+| 宿主 | 命令 | 输出 | rc | 结论 |
+| --- | --- | --- | --- | --- |
+| Windows（python 3.14） | `python scripts/verify-input27-objects.py --self-test` | `self-test: SKIP — no clang on this host, nothing was compiled; this run proves nothing` | **2** | 跳过：宿主没有 clang，三条断言一条也没跑；**rc=2 不是 PASS** |
+| WSL（Ubuntu-24.04，clang/llvm 18.1.3） | `python3 scripts/verify-input27-objects.py --self-test` | `[ok] A … PASS` / `[ok] B … FAIL` / `[ok] C … FAIL`；`self-test: OK` | **0** | 三条断言全绿，检查器双向可证 |
+
+两处细节：① Windows 那条以前只印「clang not found」，容易被读成通过，现已改成显式 `SKIP … this run proves nothing` 并保持 rc=2；② 抓 rc 时不能写成 `… --self-test | tail`——`$?` 会变成 `tail` 的 0，必须重定向到文件后再取（我第一遍就这么被自己骗了一次）。
+
 
 ## 一、我要的两个对象（另一个可选）
 

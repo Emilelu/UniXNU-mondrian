@@ -235,6 +235,13 @@ def main():
             print('    %s' % e)
 
     if a.check and copied:
+        # iron-5 has never failed on a code defect: every red so far was a new
+        # file that never reached the mirror (fixtures, tests, docs).  Printing
+        # only the file name made the reader go and work out the command, so
+        # the gate now hands over the command itself.
+        target = os.environ.get('K60_DEVICE_INPUT') or '<构建输入目录>'
+        print('  修复：K60_DEVICE_INPUT=%s python3 scripts/sync-device-input.py' % target)
+        print('  若上一条仍报同一批文件，说明它们不在本脚本的 ITEMS 里，先加清单再同步。')
         return 1
     return 0
 

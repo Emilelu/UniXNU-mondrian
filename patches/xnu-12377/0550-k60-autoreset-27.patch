@@ -1,15 +1,17 @@
 --- a/bsd/dev/k60_usblog_reset.c
 +++ b/bsd/dev/k60_usblog_reset.c
-@@ -42,3 +42,61 @@
+@@ -42,3 +42,63 @@
  
  	kprintf("k60-reset: SYSTEM_RESET and HVC both returned; staying put\n");
  }
 +/*
 + * 0550: autoreset, from patches/xnu/0334b-k60-autoreset.patch without the SPMI
 + * restart-reason preamble that decision A dropped (CARRY-OVER-INVENTORY.md).
-+ * Two boot arguments keep their 16-series names, so board.toml already carries
++ * Both boot arguments keep their 16-series names, so board.toml already carries
 + * k60_autoreset=300 and nothing new has to fit in the command line.
 + */
++void k60_autoreset_start(void);   /* call site: bsd_init.c, added by 0547 */
++
 +static int k60_autoreset_seconds = -1;
 +static int k60_autoreset_idle_seconds = 30;
 +

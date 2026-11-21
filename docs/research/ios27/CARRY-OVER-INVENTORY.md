@@ -45,3 +45,15 @@
 1. 新增任何内核侧能力之前，必须先在 16 系列 240 条里搜同义关键词；命中就必须在本文档登记一行（`ported` / `to-port` / `not-needed` + 理由）。
 2. 「27 上没有」不等于「需要新写」；先答「16 线是怎么做的、为什么现在不能直接用」。
 3. 任何 `to-port` 条目，移植前要给出「16 线验证过的证据」（哪次启动、哪行日志、哪个 jar）。
+
+## 实测：这三条能不能直接打到 27 树上（2026-11-22 03:3x）
+
+判据：在**已应用四层补丁的 27 装配树** `…/mondrian_ios27/tree/.cache/xnu-work` 上逐条 `git apply --check`（只读，不改树）。
+
+| 16 线补丁 | 结果 | 含义 |
+| --- | --- | --- |
+| `0300-k60-usblog-ep0.patch` | `patch failed: osfmk/arm/arm_init.c:669` | 锚点被 arch 层的 `zzz-boot-progress.patch` 包住，与 `0546` 同一个位置 ⇒ 必须按 `recut_console_layers2.py` 那套「重放四层 → 显式打 arm_init 的 hunk → commit 分层 → 再插」重切 |
+| `0243-k60-console-export.patch` | `patch failed: bsd/conf/files:105` | conf/files 行号漂移。我们的 `conf/files` 由 `scripts/append-conffiles.py` 追加（19 条），**这一 hunk 应丢弃**，其余 hunk 再逐个对锚点 |
+| `0334b-k60-autoreset.patch` | `bsd/dev/k60_usblog.c: No such file or directory` | 它依赖 `0300` 新建的文件 ⇒ **顺序是硬约束**：先 `0300`（建文件），再 `0243`（导出），最后 `0334b`（复位）。反过来打只会报「文件不存在」，不是「不适用」 |
+
+结论：三条都不能「直接搬」，但只有 `0300` 需要真正的重切；`0243` 是丢一个 hunk + 改锚点；`0334b` 在 `0300` 落地后大概率干净应用。移植顺序由此定死：**0300 → 0243 → 0334b**，每条落地后单独 `check-kernel-console.py` / 符号量测，不合并成一次构建。

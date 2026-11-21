@@ -24,12 +24,14 @@
 | 项 | 值 | 等级 | 出处 |
 | --- | --- | --- | --- |
 | 120 Hz 名义周期 `T` | 8,333 µs | A | 官方 `docs/zh/porting/gpu.md#frame-path`（七段证据表，帧节拍按面板刷新算） |
-| 实测 TE 周期 | 7,385 / 7,555 / 7,590 / 7,679 µs | B | `E:/k60-work/evidence/usblog-20261119-151837`：`K60 PANEL: INTF1 after the UI frame te 120/s … period 7679 us` |
+| `period=` 回退字段（**不是**周期） | 7,385 / 7,555 / 7,590 / 7,679 µs | C | 同一飞行；display 第 3 轮指正：这是「最短单次 wrap」的回退字段，`drivers/PongAdreno/PongDsiPanel.cpp:223-228` 自己写着「one 7.6 ms interval is 131 Hz while the same 500 ms window has 61 wraps (122 Hz)」，不能用它读频率 |
 | 面板几何 | 1,440 × 3,200 · scanout 行距 5,760 B · 源行距 5,888 B | A | `Pong Metal: scanout copy texture untile source=5888 scanout=5760 rows=3200`（同卡 j 飞行） |
 | 一帧字节数 | scanout 18,432,000 B · 源 18,841,600 B | A | 5,760·3,200 与 5,888·3,200；`GpuScanoutPresenter.h:44-47` 的越界校验用同一算式 |
 
-> **脚注 1**：判据把 120 Hz 写成 8,333 µs，但日志里 TE 到达是 7,385–7,679 µs（⇒130–135 次/s）。
-> 两者差 8–11%，原因未查（C）。本表一律按 8,333 µs 立账——按实测周期立账只会更严，不会更松。
+> **脚注 1（已结案）**：曾经看起来「TE 到达 7,385–7,679 µs ⇒ 130–135 次/s」的那组数是 `period=` 这个
+> **回退字段**，不是周期；display 第 3 轮给出依据（`drivers/PongAdreno/PongDsiPanel.cpp:223-228`）。
+> 所以全表只有一个口径：**8,333 µs**。健康判据读 `te <N>/s`，阈值 `te ≥ 110/s`（与判读器 `PANEL_MIN=110`
+> 同一行口径）。
 >
 > **脚注 2**：8,333 µs 不是「我们的」预算，是**客户端 swap 到下一次 swap 的全链预算**。我们的 `present()`
 > 只是其中一段，客户端自己绘制也在里面。
@@ -282,7 +284,7 @@ MiniIOMobileFramebuffer: 104 frames in 5111 ms (20 a second), 13183 us each in t
 | 5 | 客户端绘制计时（第 1 段） | 无（P-241：`native_bridge_metal_telemetry()` 无调用点） | 每帧一条 `ctc`，120 Hz 下 ≥ 110/s | A |
 | 6 | 零拷贝扫出（DPU 行距） | 未实现（§6 第三行） | `gpu` 段消失于飞行（无 blit pass） | C |
 | 7 | hw_init 执行者归属 | 官方 kit 只有表（`NativeAdrenoA740HwInit.h:61`），无 .cpp 引用；执行者在 sheng 的 `package/GpuPowerProbe.cpp:1568` | 27 上必须有一个**板级**调用点，否则 HWCg 不写 | A |
-| 8 | 面板节拍与 8,333 的差 | TE 7,385–7,679 µs（脚注 1） | 判据按实测周期立账 | C |
+| 8 | ~~面板节拍与 8,333 的差~~ **已消解，不是缺项** | 那组数是 `period=` 回退字段，display 第 3 轮指正 | 不需要再补；判据只读 `te N/s` ≥110 | A |
 
 > **第 7 项是 27 的板级决定，不在本线权限内**：官方 `drivers/Adreno740/` 里没有任何 .cpp 引用
 > `RBBM_CLOCK_*`，A730 表也不存在（`derive-a730-hwinit.py` 的 REFERENCE 指向一个尚未生成的头）。
@@ -300,7 +302,7 @@ MiniIOMobileFramebuffer: 104 frames in 5111 ms (20 a second), 13183 us each in t
 | `gpuonly=<0/1>` | `pong_gpu_only` 生效值 | 第 2 项是否真的关掉了 CPU 合成 |
 | `client=<us>` | 第 1 段计时（`native_bridge_metal_telemetry` 接上） | 客户端是否已经 ≤ 8,333 µs（缺项 5） |
 | `abi=kernel=<v>/<sizeof> client=<v>` | §7.2 F4 的防线 | G-ABI 是否双侧一致 |
-| `panel_period=<us>` | TE 中断间隔 | 判据按实测周期还是 8,333 立账（脚注 1） |
+| `panel_period=<us>` | 回退字段（最短单次 wrap），**不作周期依据**；周期判据读 `te N/s` ≥110 | 只用一个口径：8,333 µs |
 
 ---
 

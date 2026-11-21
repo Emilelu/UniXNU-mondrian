@@ -68,7 +68,15 @@ presenter 收到非零状态后打印 `scanout frame wait stopped` 并**结束�
 `PongScanoutDone.reserved` 在**所有版本**都必须为 0（它是另一个结构的字段，与 frame 的 `reserved` 无关）——
 这一条要写进两侧的注释，因为两个同名字段挨得很近。
 
-**决定怎么记（写给以后想重开的人）**：display 答出「57 槽」之后，本节只加**一行 decision record**——
+**decision record 1（target 语义，2026-11-21）**：`target`@52 采用**索引 + 1**（0 = 无 dbuf，1..N = `db[i-1]`）。
+依据：display 第 3 轮（`reply-gpu-display-sync.md` 第 136 行起）指出参考实现里 `db[0].offset` 就是 0
+（zizhan `PongAdrenoScanout.cpp:547`）、`dbTarget()` 返回索引（`:436-456`）、消费点全按索引
+（`:1368`、`:1276`），所以「字节偏移 + 0 = 无 dbuf」把「第 0 块」与「没有 dbuf」写成同一个值
+⇒ 第一次 dbuf 飞行会误判无 dbuf、跳过翻页、帧停在旧缓冲。另一写法（保留偏移、哨兵 `0xFFFFFFFF`）
+它同样签了，但排除理由：每个消费点都要多一次哨兵比较，索引方案只需一次 `-1`。
+**尺寸不变**（仍是偏移 52、仍是 56 B），所以 §2.5 的四条断言不用改，改的是语义与消费点。
+
+**决定怎么记（写给以后想重开的人）**：display 答完之后，本节只加**一行 decision record**——
 选了哪个形状、依据是它的哪一句（`文件:行`）、以及另一个形状为什么被排除。这里**不摆并列选项表**：
 并列表会被后来的人读成「还在选」，而决定一旦写下就不该反复重开。
 **同一形状被推翻时要写第二条 record，不许改写第一条**：record 是追加式历史，改旧条目会让
@@ -109,7 +117,7 @@ Mode 的调用形态见 `PongMetalScanout.h:229-231`：`in=nullptr, inSize=0, ou
 | --- | --- | --- |
 | v2 内核 + v2 presenter | 56 B 全功能 | 目标态 |
 | v1 内核 + v1 presenter | 48 B，`reserved` 为 0 | **现状，保持不变**（不许因为升 v2 而破坏） |
-| **v1 内核 + v2 presenter** | presenter 读到 `version==1`，用 48 B 缓冲；`target` 恒 0 视为「无 dbuf」，走单 panel buffer 路径 | **必须是一个受支持的降级**，不是错误。v2 presenter 不得把 `target==0` 当作失败 |
+| **v1 内核 + v2 presenter** | presenter 读到 `version==1`，用 48 B 缓冲；`target` 恒 0 视为「无 dbuf」（索引语义见 §2.1 的 decision record 1），走单 panel buffer 路径 | **必须是一个受支持的降级**，不是错误。v2 presenter 不得把 `target==0` 当作失败 |
 | **v2 内核 + v1 presenter** | presenter 读到 `version==2`，不认识 ⇒ 打印 `scanout version=2 unsupported (expects 1)` 并**不启动**扫描出线程 ⇒ CPU 合成继续 | fail-closed，屏幕仍能出画面 |
 
 （矩阵的旁边还有一条：未签不进 series——签名块见 §3.1，条款不在这里重复。）
@@ -274,7 +282,7 @@ display 点出的两处硬编码，就是表里第 1 行与第 3 行：**`PongAd
 对应到 GPU 线的判据表（`GPU-27-CONTRACT-DIFF.md` §11）新增一行 **G-SCANOUT-VER**：
 飞行里出现 `scanout version=` 且值 ∈ {1,2}，且不出现 `status=` 的 BadArgument，否则 fail。
 
-## 6 会签记录与仍待 display 回答的一问
+## 6 会签记录（三轮，已闭合）
 
 display 已复（`reply-gpu-display-sync.md`，2026-11-21）：**覆盖无缺口**，并给出六个必填项——
 本文 v2 已按六项逐条落地（版本位置见 §2.1、权威见 §2.2、不匹配见 §2.3/§2.4、
@@ -282,22 +290,27 @@ display 已复（`reply-gpu-display-sync.md`，2026-11-21）：**覆盖无缺口
 原 v1 的三个问题，display 的复签已覆盖 1 与 2（接受「frame 布局版本」语义；两代包装都覆盖）；
 第 3 项（`token`/`evict`/`target` 的记账所有权）按原边界不变：**GPU 线只按尺寸承载**。
 
-仍待回答的一问：
+### 6.1「57 槽」已作废（display 第 3 轮更正）
 
-1. **「57 槽」指什么结构**。原文是「57 槽与 48 B 包装都能覆盖」，我在两棵树里都找不到 57：
-   zizhan `PongAdrenoScanout.cpp` 里是 `KeptCount=4`、`SlotMax=8`、`DbMax`，`PongScanoutWire.h`
-   里没有任何 57 字节记录。若它指「v2 的 56 B + 1 B 对齐」或某个我方没读到的表，请点名；
-   若不指结构而只是「两代都覆盖」的措辞，本提案无需改动。
+那个说法是 display 自己的表述错误，**不来自任何头文件**：它本意是「版本不塞进 48 B 帧记录、
+由另一个方法码单独承载」，而那个形状的真名是**第五方法码 `0x7004`**。
+`PongScanoutWire.h:5-6` 只有四个方法码、`:10-13` 四条记录，两棵树都没有 57 字节/57 槽的表，
+所以这个数字给不出 `文件:行`——不是我们漏查。
 
-**一条线内规则（v3 前有效）**：display 未答「57 槽」之前，v3 停在 §2.1 之外——不用猜的槽位推进，
-也不把会签文件当成可推断的输入。要改的就等那句回答，其余条目一律不动。
+display 给了 0x7004 的三个接入点（wire enum `:5-6`、`PongAdrenoScanout.cpp:129` 的未知 op 分支
+天然回 `kIOReturnBadArgument` 可当 v1/v2 判别器、`PongAdrenoNativeGlue.cpp:20` 的 `op+PongScanoutMode`），
+**并明确不推荐**：v2 已按 56 B 定稿，48 B 包装一次往返就带上，不要为一个临时命名改设计。
+本文因此不采用第五方法码；§2.1 的 decision record 1 与这一条无关（它是 target 语义的更正）。
+
+**线内规则的结局**：「display 未答『57 槽』前，v3 停在 §2.1 之外」这条现在自然解除——
+不是因为我们猜了槽位，而是因为对方撤回了这个说法。v3 的内容因此只剩 §2.1 的 decision record 1。
 
 另两条 v1 遗留的判断，display 复签后仍然成立，一并记在这里免得重新讨论：
 
 - **降级路径必须存在**：v2 presenter 在 `target==0`（v1 内核）时走单 panel buffer 路径，
   这条已在 §2.3 第三行定为「受支持的降级」，不是错误；
-- **`target==0` 的语义**按 zizhan 注释取「无 dbuf」（`PongScanoutWire.h:12-17`），
-  不取「第一个 dbuf」——两者差一次 `dbFlip`，行为差一帧。
+- **`target==0` 的语义**是「无 dbuf」，而「第一个 dbuf」写 `1`（索引 + 1，见 §2.1 的 decision record 1）。
+  这条在 display 第 3 轮被指正过：按「字节偏移」写时 `db[0].offset` 恰好也是 0，两种含义撞在同一个值上。
 
 ---
 

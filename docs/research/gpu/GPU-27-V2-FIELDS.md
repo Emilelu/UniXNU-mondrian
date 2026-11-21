@@ -54,9 +54,19 @@
 
 | 字段 | 我们写的语义 | display 判 | 备注 |
 | --- | --- | --- | --- |
-| `token` @44 | 内核给的非零凭证，标识「同一 surface 的这次复用映射」 | 待签 | 它是 v1 `reserved` 的位置，v1 恒 0 |
-| `evict` @48 | 必须先丢掉的旧 token；0 表示没有要丢的 | 待签 | 丢的时机属 display 记账 |
-| `target` @52 | 扫出映射里的字节偏移（面板双缓冲）；**0 = 无 dbuf**，不是「第一个 dbuf」 | 待签 | 两者差一次 `dbFlip`，行为差一帧 |
+| `token` @44 | 内核给的非零凭证，标识「同一 surface 的这次复用映射」 | **一致**，附两条条件 | ①面板模式或画布几何真变时全表作废（120 Hz 切换只改 INTF 与 DCS，`PongDsiPanel.cpp:463-517`，不重建画布）；②token 随映射创建生成，禁止 `source` 回收后按同 `offset/bytes` 命中旧 token（`Kept` 表键是三元组，zizhan `PongAdrenoScanout.cpp:1279`） |
+| `evict` @48 | 必须先丢掉的旧 token；0 表示没有要丢的 | **一致**，附三条时序 | ①evict 先于本帧拷贝提交生效；②内核退休后 drop（zizhan `:1372`），presenter 收到 ack 后只读不写；③只有「同一 surface 新映射替换旧映射」才允许非 0，几何不同时必须为 0 |
+| `target` @52 | **索引 + 1**：0 = 无 dbuf，1..N = `db[i-1]` | **不一致 → 已按它的读法改（见下）** | 原写法「字节偏移 + 0 = 无 dbuf」自相矛盾：`db[0].offset` 在 presenter 映射里就是 0（zizhan `PongAdrenoScanout.cpp:547`），而 `dbTarget()`（`:436-456`）返回的是**索引**，消费点全按索引（`db[pending.target].phys` `:1368`、`db[target].offset` `:1276`）⇒ `target=0` 既可能是「第 0 块」也可能是「没有 dbuf」 |
+
+签名来源：display-agent 第 3 轮（`E:/k60-work/scratch/reply-gpu-display-sync.md` 第 136 行起），2026-11-21。
+
+**`target` 的两个替代写法，display 两个都签**：
+1. **（已采用）索引 + 1**：0 = 无 dbuf，1..N = `db[i-1]`，消费点改成 `db[target-1]`；
+2. （备选）保留字节偏移，但换哨兵 `0xFFFFFFFF` —— zizhan 自己就用 `~0ull` 当「不在映射里」的哨兵
+   （`:288`、`:440`）。选它的代价是每个消费点都要多一个哨兵比较，而索引方案只需要一次 `-1`。
+
+采用 1 的理由写进 `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.1 的 decision record：**0 与「第 0 块」不再
+撞车**，而这是第一次 dbuf 飞行就会踩到的坑（误判无 dbuf ⇒ 跳过翻页 ⇒ 帧停在面板旧缓冲）。
 
 签法不用改这张表：在 `E:/k60-work/scratch/reply-gpu-display-sync.md` 的对应轮次里逐行写「token 一致 /
 evict 一致 / target 一致（0 = 无 dbuf）」，或指出哪一行不一致以及正确的读法；把日期与引文抄进

@@ -24,3 +24,9 @@ jobs:
         run: python3 scripts/check-repo-paths.py
       - name: Documentation consistency
         run: python3 scripts/check-docs.py
+      # P-295: a parsed field needs one fixture that carries it and one that
+      # does not, with the judge's unmeasured list changing between them. This
+      # runs the fixtures only; the real-flight pin skips itself when the
+      # evidence store is absent, which is always true on a runner.
+      - name: GPU judge field coverage
+        run: python3 scripts/check-gpu27-judge-groups.py

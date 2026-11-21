@@ -1,0 +1,205 @@
+path	directory	last_commit	last_scope	area	owner	basis
+blobs/init-k60-v10guard	blobs	cee07ca2	init	firmware	springboard-agent	init v10guard blob
+blobs/init-k60-v10guard.entitlements.plist	blobs	cee07ca2	init	firmware	springboard-agent	init v10guard blob
+CREDITS.md		dcc05e7c	ufs	ios27-arm64e	lead	仓库级署名
+drivers/PongWifi/ath11k/compat/linux/dmi.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/ath11k/compat/linux/of_irq.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/ath11k/compat/linux/suspend.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/ath11k/compat/PongCompat.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/ath11k/compat/PongWait.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/ath11k/pong_he.c	drivers	219244da	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/ath11k/pong_he.h	drivers	219244da	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/ath11k/PongAth11k.c	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/PongWifiLease.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/PongWifiNet.cpp	drivers	7663471a	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/PongWifiNotify.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/PongWifiPci.cpp	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/PongWifiPci.h	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/PongWifiPlatform.cpp	drivers	8c2b34da	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/proprietary-files.txt	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/PongWifi/README.md	drivers	7f7feed7	wifi	network	wifi-agent	PongWifi 目录
+drivers/QcaBluetooth	drivers	c099dc16	bt	network	bt-agent	BT 厂商目录（TREE-OWNERS 未显式加 scope）
+scripts/append-conffiles.py	scripts	ec4c63e4	power	audio	adsp-handoff-agent	ADSP 生产 blob 的 conf 接线
+scripts/boot-and-capture.ps1	scripts	1d7ea40a	boot	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/capture-k60-usblog.ps1	scripts	312087bc	boot	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/compact-wsl.cmd	scripts	fdadccf8	bus	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/compact-wsl.ps1	scripts	fdadccf8	bus	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/dyld-cache-index.py	scripts	03f90c4b	display	display	display-agent	dyld 缓存索引/显示
+scripts/eight-step-gate.py	scripts	e0621082	scripts	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/extract-boot-img.py	scripts	cde4cc68	power	power	charger-agent	power lane 判读器/账本
+scripts/flash.sh	scripts	1d7ea40a	boot	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/gen-k60-bt-blob.py	scripts	523f5a00	bt	network	bt-agent	BT 固件/blob 脚本
+scripts/git-guard	scripts	c5153cb6	scripts	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/git-safe.sh	scripts	7fa81105	gate	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/judge-k60-handoff-console.py	scripts	44de32d8	power	power	charger-agent	power lane 判读器/账本
+scripts/judge-k60-mode1-console.py	scripts	44de32d8	power	power	charger-agent	power lane 判读器/账本
+scripts/judge-k60-sleep-console.py	scripts	44de32d8	power	power	charger-agent	power lane 判读器/账本
+scripts/judge-wallpaper-log.py	scripts	cfbd8389	scripts	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/judge-z0.sh	scripts	9e822db1	scripts	network	wifi-agent	WiFi 判读/路径脚本
+scripts/k60-boot-lock.ps1	scripts	1d7ea40a	boot	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/k60-bus.py	scripts	fdadccf8	bus	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/k60-capture-state.ps1	scripts	7fa81105	gate	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/k60-janitor.py	scripts	e18139a7	gate	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/make-bt-firmware-addon.py	scripts	344e47d5	gate	network	bt-agent	BT 固件/blob 脚本
+scripts/pick-upstream.py	scripts	0a7cadfa	gate	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/pick-xnu-builder.sh	scripts	3cc8cbc9	xnu	ios27-arm64e	lead	xnu builder 选择
+scripts/pong_paths.py	scripts	7f7feed7	wifi	network	wifi-agent	WiFi 判读/路径脚本
+scripts/porting-gate.py	scripts	bef2882c	(empty)	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/record-boot.py	scripts	8e041b69	(empty)	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/record-hw-contracts.py	scripts	312fe9cd	power	power	charger-agent	power lane 判读器/账本
+scripts/refresh-xnu-generic.py	scripts	b61449da	power	power	charger-agent	power lane 判读器/账本
+scripts/render-eight-step-table.py	scripts	c9ba73ac	power	power	charger-agent	power lane 判读器/账本
+scripts/research-gate.py	scripts	368e363c	scripts	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/series-fingerprint.py	scripts	8e041b69	(empty)	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/snapshot-worktree.py	scripts	8c5f2b5e	scripts	diagnostics	hygiene-agent	构建/飞行/仓库诊断
+scripts/sync-device-input.py	scripts	31d57992	gate	diagnostics	adsp-handoff-agent	ADSP 输入同步（TREE-OWNERS:139）
+scripts/test-goodix-config.py	scripts	0143b465	(empty)	input	touch-agent	触摸配置检查
+scripts/tests/pong-he-selftest.c	scripts	219244da	wifi	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/run-k60-glink-host.sh	scripts	a320ece6	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-battery-units.py	scripts	daa5189b	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-boot-lock.py	scripts	1d7ea40a	boot	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-bootimg-layout.py	scripts	ac0e9d2b	bootimg	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-brl-parse.py	scripts	2d243aa8	touch	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-build-strict-blocks.py	scripts	07ca64eb	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-build-strict-board-dir.py	scripts	cb332483	build	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-build-strict-freeze.py	scripts	6c97bc78	build	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-build-strict-gates.py	scripts	8dcbbfa9	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-build-xnu-dispatch.py	scripts	3cc8cbc9	xnu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-arg.py	scripts	9e822db1	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-basecore-pin.py	scripts	3ef02b84	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-battmgr-wire.py	scripts	62cdcbe4	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-bisect-coverage.py	scripts	216902ab	pitfall	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-build-applied.py	scripts	a94c69fe	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-component-pin.py	scripts	e305b266	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-console-contract.py	scripts	997d266d	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-criteria-cites.py	scripts	7f7e0c85	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-data-identity.py	scripts	038f39ce	data	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-defconfig-uuid.py	scripts	96926a42	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-define-scope.py	scripts	c438a33d	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-disk-space.py	scripts	e6875ccf	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-doc-citations.py	scripts	e305b266	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-firmware-inputs.py	scripts	efd8b91a	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-firmware-volume.py	scripts	95312efd	firmware	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-flight-card.py	scripts	ae6adcf0	gates	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-image-args.py	scripts	fa0f9415	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-io-map-budget.py	scripts	caad898c	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-ios27-power-preflight.py	scripts	bebd936c	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-judge-exit-codes.py	scripts	44de32d8	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-judge-thresholds.py	scripts	07b5c92e	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-kernel-archives.py	scripts	db9ebf95	build	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-lane-conformance.py	scripts	6312b955	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-metal-blob.py	scripts	ea608336	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-metal2vulkan-patches.py	scripts	1951bb37	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-pac-probe-capture.py	scripts	6312b955	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-pitfall-numbers.py	scripts	07b5c92e	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-power-counts.py	scripts	bebd936c	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-preflight-coverage.py	scripts	312fe9cd	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-probe-cadence.py	scripts	ae3bb3a8	probe	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-prop-numbers.py	scripts	87195c34	charger	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-readme.py	scripts	2152c6e3	readme	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-rules-pitfall-headings.py	scripts	72e5edec	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-sleep-report-build.py	scripts	6312b955	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-check-tree-owner.py	scripts	0664c712	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-config-consistency-board-dir.py	scripts	bef2882c	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-config-consistency.py	scripts	c9156c79	wifi	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-device-input-must-be-named.py	scripts	a969925c	gates	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-disk-guards.py	scripts	e18139a7	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-doc-citations-ext.py	scripts	0a8042da	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-eight-step-scope.py	scripts	07f9b5df	main	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-extract-boot-img.py	scripts	cde4cc68	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-flight-card-reflight.py	scripts	84416c51	flight-card	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-frame-stage-timing.py	scripts	38b44bed	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-git-guard-worktree-prune.py	scripts	105e16b5	charger	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-gpu-blit-probe.py	scripts	1491a8fd	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-gpu-coherence-probe.py	scripts	d7d5c58d	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-gpu-perf-vote.py	scripts	8e24b0e6	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-hw-contracts.py	scripts	b61449da	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-init-blob.py	scripts	b6fbc9e4	userland	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-battery-negatives.py	scripts	45ece9ac	battery	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-battery.py	scripts	07b5c92e	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-gpu-flight.py	scripts	1d7ea40a	boot	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-gpu-submit.py	scripts	a77bc863	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-gpu-vaddr.py	scripts	46077a83	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-gpu-wc-class.py	scripts	97120e1c	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-k60-battery-mirror.py	scripts	07b5c92e	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-k60-handoff-console.py	scripts	7b4a76f3	battery	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-k60-mode1-console.py	scripts	23b0fab0	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-k60-sleep-console.py	scripts	b0ae6f18	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-wallpaper-log.py	scripts	cfbd8389	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-judge-wifi-boot.py	scripts	178d2b77	wifi	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-board.c	scripts	f80c2e63	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-image.py	scripts	8689f3d6	adsp	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-loader.c	scripts	68894fbc	adsp	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-mdt.py	scripts	ec4c63e4	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-owner.c	scripts	ec4c63e4	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-pas.c	scripts	915197d4	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-smccc.py	scripts	7e944e6c	adsp	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-adsp-startup.c	scripts	ec4c63e4	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-bt-blob.py	scripts	9f7c0d06	bt	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-bus.py	scripts	fdadccf8	bus	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-capture-verdict.ps1	scripts	7fa81105	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-charge-auth.c	scripts	685aecb0	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-charge-hmac.c	scripts	5abbacbb	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-charger-subscription.c	scripts	5b1265a0	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-fat.c	scripts	d780cbb3	adsp	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-glink-d9.py	scripts	a320ece6	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-glink-intent.c	scripts	17e895fe	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-handoff-build.c	scripts	f80c2e63	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-handoff-integration.py	scripts	f5bbef69	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-handoff-publish.c	scripts	f80c2e63	power	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-notification-qualification.py	scripts	40e06370	battery	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-pmic-rail.c	scripts	2d5f6064	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-sleep-report-switch.py	scripts	b61449da	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-k60-smem-alloc.c	scripts	7cc2ccf7	smem	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-managed-page-quiet.py	scripts	81349e72	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-blob-info-plist.py	scripts	0f9e9162	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-cb-trace.py	scripts	311007da	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-device-answers.py	scripts	324d6c81	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-draw-trace.py	scripts	2b8ec4ed	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-dual-root.py	scripts	532c5d62	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-plugin-load-marker.py	scripts	1ce84202	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-seed-order.py	scripts	fcdbb396	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-seed-path.py	scripts	5ea63d9f	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-stage-keys.py	scripts	eab1025b	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-telemetry-stream.py	scripts	29a2004c	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-metal-trace-semantics.py	scripts	2b96689f	rules	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-open-trace-no-name-deref.py	scripts	5fda1481	xnu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-p258-worktree-prune.py	scripts	105e16b5	charger	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-patch-hunk-counts.py	scripts	f535a0a0	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-patch-series-baseline.py	scripts	e305b266	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-pick-upstream-scan.py	scripts	0a7cadfa	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-pong-he.py	scripts	219244da	wifi	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-pong-smmu-lease.py	scripts	0aaee666	wifi	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-porting-gate-book.py	scripts	1eba4b9d	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-porting-gate-kernel-path.py	scripts	39ecaa70	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-power-carry.py	scripts	07b5c92e	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-present-stage-split.py	scripts	028192ab	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-presenter-import-scope.py	scripts	028192ab	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-profile-scoped-gates.py	scripts	5dd75afa	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-read-fdt-props.py	scripts	b34c9ae2	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-record-boot.py	scripts	8e041b69	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-record-hw-contracts.py	scripts	312fe9cd	power	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-render-eight-step-table.py	scripts	16a627a4	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-repair-worktrees-relative-gitdir.py	scripts	105e16b5	charger	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-repair-worktrees.py	scripts	ff19c51b	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-repo-paths.py	scripts	5c8a3660	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-research-gate-prefixes.py	scripts	1c690478	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-rule-registry-schema.py	scripts	c31a0e2e	ufs	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-rule-registry.py	scripts	28355b28	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-rules-grandfather.py	scripts	a9d33d3d	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-scanout-timing.py	scripts	e68e2750	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-series-fingerprint.py	scripts	8e041b69	(empty)	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-series-numbering.py	scripts	70314d22	scripts	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-series-source.py	scripts	08ca042e	springboard	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-snapshot-tag-network.py	scripts	94be5b1e	engineering	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-snapshot-tag-release.py	scripts	2bfe8027	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-sync-device-input.py	scripts	0daf88fe	sync	diagnostics	adsp-handoff-agent	scripts/tests：测试基础设施
+scripts/tests/test-sync-volatile-json.py	scripts	31d57992	gate	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-turnip-render-mode.py	scripts	99cf832c	gpu	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-verify-boot-image.py	scripts	312087bc	boot	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-wifi-sbl-mission.py	scripts	7663471a	wifi	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/test-worktree-safety.py	scripts	94be5b1e	engineering	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/verify-cfg-container.py	scripts	b1dd7c4a	touch	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/verify-official-checksum.py	scripts	2d243aa8	touch	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/tests/verify-slice-hypothesis.py	scripts	e471489d	touch	diagnostics	hygiene-agent	scripts/tests：测试基础设施
+scripts/watch-upstream.py	scripts	9c829184	(empty)	diagnostics	hygiene-agent	构建/飞行/仓库诊断

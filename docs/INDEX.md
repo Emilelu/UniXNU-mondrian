@@ -163,6 +163,7 @@ docs/
 | `GENI-ACCESS-PRECONDITIONS.md` | GENI 引擎可访问性前置条件 |
 | [`ios-mondrian-traps.md`](research/ios-mondrian-traps.md) | **Same phone, second port**: 16 KiB granule, the 9 GiB window and its four rules, a pinned physmap seed, the splash FB alias, the 607-byte boot-args ceiling, SPMI PPID, and the slot a failed boot deactivates |
 | [`REFERENCE-INDEX.md`](research/REFERENCE-INDEX.md) | **参考仓库事实索引（人读）**：42 个参考仓库逐条 文件:行 + 可信度，按供电/音频/WiFi/触摸/显示/GPU/存储/USB/电池分区；机器可读部分同源进 `SOURCES.toml` |
+| [`PORTING-OWNER-MAP.md`](research/PORTING-OWNER-MAP.md) | **未归属旧脚本清单（2026-11-21）**：204 个未归属路径按目录/owner/porting area 分组，附 41 条建议 pattern；`porting.toml` 未改，由 Lead 一次性提交；另有 1 个非未归属的 cpu evidence 失效引用 |
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。
 > 两者冲突时以 `EIGHT-STEPS.toml` 为准。

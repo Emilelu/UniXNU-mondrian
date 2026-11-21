@@ -67,6 +67,10 @@ v3 因此没有方法码改动，只有 §2.1 的 decision record 1。
 | `evict` @48 | 必须先丢掉的旧 token；0 表示没有要丢的 | **一致**，附三条时序 | ①evict 先于本帧拷贝提交生效；②内核退休后 drop（zizhan `:1372`），presenter 收到 ack 后只读不写；③只有「同一 surface 新映射替换旧映射」才允许非 0，几何不同时必须为 0 |
 | `target` @52 | **索引 + 1**：0 = 无 dbuf，1..N = `db[i-1]` | **不一致 → 已按它的读法改（见下）** | 原写法「字节偏移 + 0 = 无 dbuf」自相矛盾：`db[0].offset` 在 presenter 映射里就是 0（zizhan `PongAdrenoScanout.cpp:547`），而 `dbTarget()`（`:436-456`）返回的是**索引**，消费点全按索引（`db[pending.target].phys` `:1368`、`db[target].offset` `:1276`）⇒ `target=0` 既可能是「第 0 块」也可能是「没有 dbuf」 |
 
+**消费点也要对齐**：`target` 是索引 + 1，所以消费点必须写 `db[frame.target - 1]`。
+这条口径有 dormant 门禁看着：`docs/research/gpu/tools/check-gpu27-target-index.py`
+（从本文件读标记，标记消失就退 2 不许静默通过；两种写错方向各有一份反例夹具）。
+
 签名来源：display-agent 第 3 轮（`E:/k60-work/scratch/reply-gpu-display-sync.md` 第 136 行起），2026-11-21。
 
 **`target` 的两个替代写法，display 两个都签**：

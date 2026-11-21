@@ -53,6 +53,24 @@
   不属于本轮正文。只替换首行之后的正文。
 - 该规则同样适用于给 audio 等其它线的消息：先 steer，被拒才 followup。
 
+## R-04 证据链：先查共享知识库，再联网，最后只能写「未证」
+
+**裁定**：任何「官方文档 / 别人实现 / 手册」类断言，先查共享知识库；命中写 `文件:节`，
+未命中才联网并附 URL；两条都拿不到，不许写成事实，只能写「未证」。
+
+- 库根 `E:/k60-work/kb/kb.sqlite`（WSL `/mnt/e/k60-work/kb`）；2026-11-21 为
+  6,194 文档 / 142,260 块。
+- 查询用 `kb_search`（`kb_root` 指到库根），或 Lead 提供的 `kb_engine.py search`
+  stdin JSON：`echo '{"kb_root":"/mnt/e/k60-work/kb","query":"…","top_k":4}' | python kb_engine.py search`。
+- 命中写 `文件:节`；未命中联网并附 URL；两者都没有写「未证」，不得转述成结论。
+- 未命中不等于不存在：`kb_stats` 当前 `health=false`，178 个文档没有可检索块；
+  关键断言要联网复核。
+- 环境：`NO_PROXY=localhost,127.0.0.1,::1`（不能写 `[::1]`，否则嵌入全废、只剩关键词）；
+  `HF_ENDPOINT=https://hf-mirror.com`。
+- P-300：26 线内核目前没有串口输出。`check-kernel-console.py --flight` 不过的镜像，
+  0 字节日志不能解读为「内核没跑」；只能记为「捕获不可判」，等 ramoops/pstore 证据。
+- 知识库共享只读；不要把密码、token、设备地址写进查询或文档。
+
 ## 参考
 
 - Lead 裁定：2026-11-21（本轮）。

@@ -9,7 +9,8 @@
 
 | 草案 | 状态 | 说明 |
 | --- | --- | --- |
-| `0001-k60-backlight-log-requested-level.patch` | 待裁 | `K60Backlight.cpp:416-417` 把 `goal` 打了两次，日志无法区分请求值与等级；27 的证据行要读这个字段 |
+| `0001-k60-backlight-log-requested-level.patch` | **不进 series**（Lead 2026-11-21T16:58） | `K60Backlight.cpp:416-417` 把 `goal` 打了两次，日志无法区分请求值与等级；27 的证据行要读这个字段。等 F2 有控制台输出、能证明这行确实出现两次再考虑进系列 |
+| `0002-k60-backlight-let-the-backend-decide.patch` | 待裁（**仅 27 分支**） | 把 `:339` 的默认从 1 翻 0，`k60_backlight_control=1` 仍可覆盖；判据与理由见 `docs/research/display/DISPLAY-27-DELTA.md` §6。**这是行为改变不是优化**，16.6.1 的封闭系列不得取此补丁 |
 | —（原本的 R4 草案） | **撤回** | 原以为 `setProperties()` 落空分支会用未初始化 `goal` 去 `publish()`；复核 HEAD 后不成立，`:402-404` 已经是 `return kIOReturnSuccess`。详见 `docs/research/display/DISPLAY-27-DELTA.md` §10 R4 |
 
 提交一个草案时：不要顺手改 `patches/xnu/series`，那是 `xnu` 线的文件；

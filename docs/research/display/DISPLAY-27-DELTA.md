@@ -174,6 +174,10 @@ sheng 的 27 实现默认是"`control` 默认 1 且必须 `==1`"才发（`AppleA
 代码改法（27 分支，一行）：`uint32_t controlArg = 1;` → `uint32_t controlArg = 0;`，
 上下文与判据见 `DISPLAY-27-INTEGRATION.md` §2.2。
 
+交付形态（Lead 2026-11-21T16:58 裁）：**不直接改源码、不进 series**，以草案
+`patches/proposed/0002-k60-backlight-let-the-backend-decide.patch` 提交（`git apply --check` 已过，
+diff 只动 `:330-339` 的注释块与 `:339` 一行）。草案头写明「只适用 27 分支，16.6.1 封闭系列不得取」。
+
 ---
 
 ## 7. boot-arg 名称对照

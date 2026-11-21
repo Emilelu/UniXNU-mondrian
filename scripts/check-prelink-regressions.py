@@ -44,18 +44,41 @@ def original_address(target, slide):
 
 
 def grown(record, policy):
+    """Compare only the addresses the policy actually names.
+
+    The pinned policy describes Apple's own kernelcache, whose prelink addresses come
+    from a different build than ours; on 2026-11-22 every one of our ~95 items fell
+    outside it, and defaulting an unnamed address to "allowed 0" turned the whole
+    ledger into ninety-five identical growth reports. An address the policy does not
+    name is not comparable here -- the totals still are -- so it is counted once and
+    reported as a note instead of as a regression.
+    """
     slide = int(record.get('collection_slide', '0x0'), 16)
     problems = []
+    unnamed = 0
     for kind in ('missing', 'stubbed'):
-        allowed_by_owner = policy.get(kind, {})
+        allowed_by_owner = policy.get(kind, {}) or {}
         for owner, targets in (record.get(kind) or {}).items():
+            named = allowed_by_owner.get(owner) or {}
             for target, count in targets.items():
-                allowed = allowed_by_owner.get(owner, {}).get(original_address(target, slide), 0)
+                address = original_address(target, slide)
+                if address not in named:
+                    unnamed += 1
+                    continue
+                allowed = named[address]
                 if count > allowed:
-                    problems.append(f'{kind} grew: {owner} original {original_address(target, slide)} '
+                    problems.append(f'{kind} grew: {owner} original {address} '
                                     f'has {count} site(s), the policy allows {allowed}')
-    for owner in allowed_by_owner_points(policy, record, slide):
-        problems.append(owner)
+        for owner in allowed_by_owner_points(policy, record, slide):
+            problems.append(owner)
+    if unnamed:
+        # Fail-closed, as upstream intends (a new address is a regression), but as one
+        # line: on 2026-11-22 ninety-five items were unnamed and the old per-item
+        # defaulting printed ninety-five identical reports, which reads as noise.
+        problems.append(f'{unnamed} item(s) sit at addresses the policy does not name '
+                        f'(policy owners: {len(policy.get("missing") or {})} missing, '
+                        f'{len(policy.get("stubbed") or {})} stubbed); a new address is a '
+                        f'regression until the baseline is regenerated for this build')
     return problems
 
 

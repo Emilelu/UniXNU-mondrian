@@ -23,6 +23,9 @@ native_link_address = "0xfffffff007004000"
 target_address_space = "output collection"
 map_entry_at_target = "absent for all four targets"
 
+target_nm_command = "llvm-nm-18 -P /opt/k60/trees/ios27-out/ipsw/24A446/kernelcache.decompressed"
+target_nm_result = '609 output lines, zero symbol rows; the output contains only "Symbols for ..." headers and blank lines. The target side has no symbol table names, so a two-sided nm name match is not available.'
+
 # Native evidence commands. The output files are local read-only captures;
 # each line is quoted below so the proposal does not depend on an uncommitted
 # nm table being present later.
@@ -42,6 +45,14 @@ target_is_function_start = true
 original_section = "__TEXT_EXEC,__text"
 target_evidence = 'facts2.json strings = ["proc_parent"]; classify.py:511-513 records the literal body reference; Image.read_at returns 368 bytes from the pinned kernelcache'
 map_entry_at_target = "absent"
+candidate_symbol = "_proc_parent"
+target_nm_hit = false
+reference_bundle = "com.apple.security.sandbox"
+reference_kind = "__auth_got"
+reference_site = "0xfffffff0083c2218"
+reference_code = "0xfffffff00a8dcb50+0xa0"
+equivalence = 'Target 0xfffffff00b0de068 is a 368-byte function start. Its body contains the literal "proc_parent"; the target-side nm has no name. Native nm defines _proc_parent as S at 0xfffffff00788e194 in __TEXT_EXEC,__text. The pairing is by target body literal plus exact native symbol and section, not by address arithmetic or byte identity across versions.'
+counterexample = 'A different proc-family function of the same size could also contain the string "proc_parent" in an error path; size, neighbor order or a candidate score alone would then pair the wrong body. The exact native symbol and section are required, and a different definition or local symbol with the same name must be rejected. Byte-for-byte equality is not a valid test across the 27 and development builds.'
 native_symbol = "_proc_parent"
 native_address = "0xfffffff00788e194"
 native_section = "__TEXT_EXEC,__text"
@@ -63,6 +74,14 @@ target_is_function_start = true
 original_section = "__TEXT_EXEC,__text"
 target_evidence = 'facts2.json strings = ["subrs.c", "__memcpy_chk object size check failed: dst %p, src %p, (%zu < %zu) @%s:%d"]; classify.py:514-516; Image.read_at returns 68 bytes from the pinned kernelcache'
 map_entry_at_target = "absent"
+candidate_symbol = "___memcpy_chk"
+target_nm_hit = false
+reference_bundle = "com.apple.kec.corecrypto"
+reference_kind = "__auth_got"
+reference_site = "0xfffffff0083e31c8"
+reference_code = "0xfffffff00aab572c+0x94"
+equivalence = 'Target 0xfffffff00ad05978 is a 68-byte function start. Its body contains "subrs.c" and the panic string "__memcpy_chk object size check failed"; the target-side nm has no name. Native nm defines ___memcpy_chk as S at 0xfffffff0074f90c0, and native objdump marks it g F __TEXT_EXEC,__text. The body literal is the discriminator; no target-side nm name exists.'
+counterexample = '___memmove_chk is the adjacent 68-byte function, and the local candidate list also has _IOCircularDataQueueCopyLatest at the same 68-byte shape. Size, neighbor order or candidate score alone can therefore select a different 68-byte routine. A string in a shared error path could also name memcpy_chk without being its body. Only the body string plus the exact native ___memcpy_chk definition is accepted; a double-underscore __memcpy_chk or an undefined U symbol is wrong.'
 native_symbol = "___memcpy_chk"
 native_address = "0xfffffff0074f90c0"
 native_section = "__TEXT_EXEC,__text"
@@ -84,6 +103,14 @@ target_is_function_start = true
 original_section = "__TEXT_EXEC,__text"
 target_evidence = 'facts2.json strings = ["pmap.c", "pmap_claim_reserved_ppl_page", "%s: function not supported in this environment @%s:%d"]; classify.py:517-520; Image.read_at returns 56 bytes from the pinned kernelcache'
 map_entry_at_target = "absent"
+candidate_symbol = "_pmap_claim_reserved_ppl_page"
+target_nm_hit = false
+reference_bundle = "com.apple.kec.corecrypto"
+reference_kind = "__auth_got"
+reference_site = "0xfffffff0083e3270"
+reference_code = "0xfffffff00aab46c4+0x70"
+equivalence = 'Target 0xfffffff00b416214 is a 56-byte function start. Its body contains "pmap.c" and the literal "pmap_claim_reserved_ppl_page" in its unsupported-function panic. Native nm defines _pmap_claim_reserved_ppl_page as S at 0xfffffff007525f24 in __TEXT_EXEC,__text. The body literal and exact native name distinguish it from the adjacent free routine.'
+counterexample = '_pmap_free_reserved_ppl_page is adjacent and also 56 bytes with the same 16-byte head 7f2303d5ffc300d1fd7b02a9fd830091; swapping claim and free is the canonical failure if size, head, link order or address adjacency is used. Both names appear in the local candidate list. Only the literal in the body plus the exact native symbol decides; a candidate score of 0 is not evidence.'
 native_symbol = "_pmap_claim_reserved_ppl_page"
 native_address = "0xfffffff007525f24"
 native_section = "__TEXT_EXEC,__text"
@@ -105,6 +132,14 @@ target_is_function_start = true
 original_section = "__TEXT_EXEC,__text"
 target_evidence = 'facts2.json strings = ["pmap.c", "pmap_free_reserved_ppl_page", "%s: function not supported in this environment @%s:%d"]; classify.py:521-523; Image.read_at returns 56 bytes from the pinned kernelcache'
 map_entry_at_target = "absent"
+candidate_symbol = "_pmap_free_reserved_ppl_page"
+target_nm_hit = false
+reference_bundle = "com.apple.kec.corecrypto"
+reference_kind = "__auth_got"
+reference_site = "0xfffffff0083e3278"
+reference_code = "0xfffffff00aab4620+0x78"
+equivalence = 'Target 0xfffffff00b41624c is a 56-byte function start. Its body contains "pmap.c" and the literal "pmap_free_reserved_ppl_page" in its unsupported-function panic. Native nm defines _pmap_free_reserved_ppl_page as S at 0xfffffff007525f2c in __TEXT_EXEC,__text. The body literal and exact native name distinguish it from the adjacent claim routine.'
+counterexample = '_pmap_claim_reserved_ppl_page is adjacent and also 56 bytes with the same 16-byte head 7f2303d5ffc300d1fd7b02a9fd830091; swapping free and claim is the canonical failure if size, head, link order or address adjacency is used. Both names appear in the local candidate list. Only the literal in the body plus the exact native symbol decides; a candidate score of 0 is not evidence.'
 native_symbol = "_pmap_free_reserved_ppl_page"
 native_address = "0xfffffff007525f2c"
 native_section = "__TEXT_EXEC,__text"

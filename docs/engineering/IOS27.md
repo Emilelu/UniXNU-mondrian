@@ -500,3 +500,5 @@ because a timestamp only says recent, which is P-155, while a key says same. Mea
 The next two targets are bootimg at 171 s, dominated by packing the 192 MB payload, and the kernel at
 451 s, dominated by re-seeding the tree. Both are judged the same way: by a number printed at the
 boundary, not by an impression.
+
+- 2026-11-21 22:10：27 内核第一次定义了控制台接收端（`_pong_ramoops_console_write` / `_pong_ramoops_console_init`），`check-kernel-console.py --flight` 从红转绿；读数通路仍未建立（见 `docs/research/ios27/CONSOLE-GAP.md`）。

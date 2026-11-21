@@ -101,3 +101,33 @@ _k60_serial_clock
 2. **重切锚点**：`serial_console.c:509` 的上下文在 12377 里已变，`console_write()` / `console_write_unbuffered()` 两个函数体是稳定的，锚点应落在函数定义行而不是上面的注释块。
 
 判据也要加一条，否则第一件事无法验证：**重编后 `llvm-nm` 里 `_pong_ramoops_console_write` 出现 1 次，且 `strings kernel.macho | grep -c pong-ramoops` 非 0**——只看「符号在」不够，`0532` 那次符号在而代码从未执行，教训是「符号在 ≠ 代码跑」，所以再加一条**运行期**判据：串口日志里必须出现 `pong-ramoops` 自报的一行（移植时顺手在 `pong_ramoops_console_write()` 首次调用时打一行 `pong-ramoops: console attached`）。
+
+## 2026-11-21 22:10 —— 27 内核第一次定义了控制台接收端
+
+`patches/xnu-12377/0546-k60-ramoops-console-27.patch` 改成无条件编译后，同一棵树重建的内核里出现了：
+
+```
+fffffff00ad8a56c S _pong_ramoops_console_write
+fffffff00ad8a768 S _pong_ramoops_console_init
+fffffff00addd728 s _k60_serial_clock
+```
+
+`scripts/check-kernel-console.py --kernel …` 从 `FAIL: the kernel defines none of …` 变成
+`ok console: the kernel defines _pong_ramoops_console_write, _pong_ramoops_console_init`（rc=0）。
+此前第三次 0 字节飞行的直接原因就在这里：钩子被 `#if defined(XNU_PONG_RAMOOPS_CONSOLE)` 整段删掉，
+因为那个 `-D` 从未到达编译器（P-301）。
+
+**这一步证明的**：内核里有代码会往 ramoops 环形缓冲写。
+
+**这一步没有证明的**（按顺序）：
+1. **写的东西有没有内容**。钩子只镜像 `console_write()`；如果 27 的 console 从未被初始化、也没有任何
+   调用者，镜像仍然空。判据是 init 之后立刻用同一个写路径打一行自报（实现里已保留 `pong_ramoops_base`
+   的 NULL 检查，所以这行不会在映射失败时炸）。
+2. **我们能不能读到它**。现在没有任何通路把物理 `0xA7000000` 的 2 MiB 取出来：内核死后没有 USB，
+   firmware 也没有读 ramoops 的代码。这是下一个必须新建的东西（判据：不改内核、只换读法，能把上一次
+   飞行的 ramoops 头 + 文本取到主机）。
+3. **panic 输出会不会经过这个钩子**。XNU 的 panic 打印走 `printf` → `console_write`，理论上会被镜像；
+   但 27 的 `debug=1` 会进调试器停住，这条要用一次带 `debug=0` 的飞行验证。
+
+**纪律照旧**：没有 reader 之前，任何「内核静默挂死」的结论都不成立——现在的沉默可能是「没写」，也可能是
+「写了但没人读」，两者在主机侧形状相同。

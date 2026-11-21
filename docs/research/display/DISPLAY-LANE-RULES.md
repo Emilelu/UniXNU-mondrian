@@ -110,3 +110,40 @@ git log -1 --format='%an <%ae> | %cn <%ce>'
    「Stacked on 0001, never alone」放在 Subject 之后的第一行 prose 与代码块第一行注释即算到位。
 2. `k60_backlight_probe` 的「删注册表行」要求**作废**：它从未进过 `BOOT-ARGS.md`、
    `BOOT-ARGS-PENDING.toml`、`ALLOWED_ADDITIONS`（三处 `grep -c` 为 0），没有行可删。
+
+
+## L12 官方 / 别人实现类断言：先查共享库
+
+库：`E:/k60-work/kb/kb.sqlite`（WSL `/mnt/e/k60-work/kb`）。2026-11-22 实测 schema
+`meta / docs / chunks / vecs / cache`，`docs` 6,194 行、`chunks` 142,260 行——与广播数字一致。
+
+- 命中：写 `文件:节`，不写「我记得」。
+- 未命中：才联网，并附 URL。
+- 都没有：写「未证」，不写推测。
+- 引擎脚本 `kb_engine.py` 广播给的路径（`/mnt/e/k60-work/kb/`）下**当前不存在**（该目录只有 `kb.sqlite`），
+  到它出现前用 SQL 直查：`select d.path, c.section, substr(c.text,1,400) from chunks c join docs d on d.id=c.doc_id where c.text like '%<term>%' limit 5;`
+
+## L13 环境变量（踩过才记）
+
+- `NO_PROXY=localhost,127.0.0.1,::1`——IPv6 回环**不带方括号**，写成 `[::1]` 会让 curl 把整条当域名。
+- `HF_ENDPOINT=https://hf-mirror.com`——取模型/权重一律走镜像，直连会被墙住并拖成超时。
+
+## L14 P-300：0 字节日志不等于「内核没跑」
+
+27 内核目前没有任何串口输出，`0 字节` 只说明**我们听不到**，不说明它没执行到。
+本线的措辞纪律：正式图没出现 marker 时写「本镜像不可触发（探针未编入）」，**不写**「内核没跑」；
+两者在 0 字节场景下不可区分，写成后者就是把「无观测」当「有结论」（与 L2 同源）。
+
+## L15 上机冻结（2026-11-22T03:02 起）
+
+`k60-gates/docs/engineering/BOOT-FREEZE.md` 的 `state = "frozen"`，`scripts/flash.sh` 在每次 `fastboot boot`
+前读它，只有用户本人改成 `lifted` 才放行；环境变量绕过等同铁则 9 违规。
+对本线的含义：诊断图飞行**现在不可能发生**，汇报里写「被冻结」而不是「待排」。
+解冻条件见该文档五条（同一次启动内日志通路 / 或屏幕侧第一行打点、离线三连证据、自动引导、自动复位）。
+
+## L16 P-307：ramoops 在 DRAM，复位即归零
+
+读卡器读到的永远是「刚被复位清掉的窗口」⇒ **读空不是证据**。任何以 log 通道为依据的结论，
+先回答四问：`lifetime`（活多久）/ `read_moment`（什么时刻读）/ `writer`（谁写）/ `loss_condition`（什么条件丢）。
+门禁 `k60-gates/scripts/check-channel-lifetime.py` 只扫 `k60-gates/docs`（`ROOT` 取 `parents[1]`），
+2026-11-22 在它自己那棵树上报 rc=1，与本线无关；本线若写通道类段落，主动把四问答上。

@@ -92,6 +92,7 @@ docs/
 | [`storage/ROUTE-D-PLAN.md`](research/storage/ROUTE-D-PLAN.md) | **route-D 计划（未实现，不随 stage-0 合入）**：延迟构造要改的 file:line、运行时前提、PAC 分发风险、离线可判与必须上机的分界 |
 | [`storage/MISSING-STORAGE-BASEBAND.md`](research/storage/MISSING-STORAGE-BASEBAND.md) | **95 项配对缺口的 storage 切片**：6 个地址全在输出 `__DATA_CONST`、全为数据类（gMetaClass 类），与 8–13 个其它 bundle 共享；QcomBaseband 未选入，贡献 0；TSV 见同目录 missing-storage-baseband.tsv |
 | [`storage/PRELINK-ORIGINAL-BRANCHES.md`](research/storage/PRELINK-ORIGINAL-BRANCHES.md) | **为什么 native_original_branches 为空**：kit 的写点（fileset_layout.relocate_original_stubs）、触发条件（native 的 .original 与 BTI c; B stub）、缺失的 legacy display/HID archive 与 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY` 开关；LTO reference 不产生该字段；§8 内核→kext 路径表（0 绝对分支 / 1 个 hook / 205 个反向槽） |
+| [`storage/UFS27-GATE.md`](research/storage/UFS27-GATE.md) | **27 Data 门禁的五段拆解**：选型（`board.toml:361` 的 `NativeUfs` 是 `ShengUfs` 的 legacy 名，无 feed 即 `unknown component`）、产出（`board.toml:384` 缺 `build-native-ufs-linux.py --out build/native-ufs`）、开关（`defconfig:21` 已 `=y` 却无生产者）、链接（`build-xnu-generic.sh:646-653` 已正确）、绑定（12377 的 `KernelConfigTables.cpp` 无 `ufshc` 个性表，附可 dry-run 的 12 行补丁）；另有 RamBlock/VerifiedRoot 27 接入点与离线归档检查边界 |
 | `01-same-hardware.md` | 触摸调研 ① 同型 |
 | `02-official-docs.md` | 触摸调研 ② 官方 |
 | `03-reverse-and-device-data.md` | 触摸调研 ③ 反编译/取证 |

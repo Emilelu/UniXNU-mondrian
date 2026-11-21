@@ -13,7 +13,8 @@
   （`docs/research/power/00-POWER-PAGE-CONFORMANCE.md:17` 已把 codec/bus/clock/routing 委派给音频分支）。
 - power 侧没有音频时钟写路径：`K60PmicRail` 只读 DRV-2/cmd-db，`K60PowerVotePlan` 是
   16 资源 × 32 owner 的纯记账，`K60RailPlan` 只生成顺序；三者的授权边界在
-  `docs/research/power/03-POWER-VOTES.md` §2 与 `07-RAIL-ORDERING.md` §2/§4。
+  `docs/research/power/03-POWER-VOTES.md` §2 与 `07-RAIL-ORDERING.md` §2/§4；
+  音频 consumer 的 owner/资源/返回码契约见 `03-POWER-VOTES.md` §6，本节不重复数值。
 - power 记账的字段是 owner 位图和引用计数；**当前没有时间字段**。要落「什么时候」，
   必须先给 `K60PowerVotePlan` 加单调时钟并补 host 断言，不能只在文档里写「已记录时间」。
 - 若音频时钟最终要经过 RSC/TCS，走 HR-01 扩权流程（单次、白名单、失败回滚），

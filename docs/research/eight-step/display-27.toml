@@ -1,0 +1,63 @@
+# iOS 27（ipados-27.0.1-24A446 / xnu-12377）显示与亮度线的八步 fragment。
+#
+# 与 docs/research/EIGHT-STEPS.toml 的 [hardware.display]（16.6.1 / 20G81）并列：
+# 这里只记 27 的声明与证据，不覆盖 16 线已成立的结论。七个步骤由
+# scripts/assemble-27-eight-step.py 合并进 EIGHT-STEPS-27.toml；step.device
+# 由 Lead 在上机后写，本文件不写。
+#
+# 骨架阶段：七步 done = false，evidence 只写“这一步要拿什么证据”，
+# 任何一条都还没有读数，不能写成结论。
+
+[hardware.display]
+name = "显示与亮度（GopFramebuffer / MDP+DSI / DCS 0x51 背光）"
+label = "显示（m11a 面板 / DPU 扫描输出 / CoreBrightness）"
+status = "active"
+why = "iOS 27 线只做离线契约：27 的显示后端、亮度服务与 boot-arg 预算按官方 porting/display 逐节核对，证据落 docs/research/display/DISPLAY-27-DELTA.md 与 DISPLAY-27-INTEGRATION.md。16.6.1 线已交付形态 A（k60_backlight_control=0 + 真 conformance 查询），27 线的差异从这一形态出发，不重新发明。"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复；若 SpringBoard 的首帧等待链落在本线（IOMFBServer/CoreBrightness），提前恢复。"
+paths = [
+  "drivers/PongAdreno/",
+  "patches/xnu/",
+  "docs/research/display/",
+  "docs/research/eight-step/display-27.toml",
+]
+
+[hardware.display.step.same_model]
+done = false
+recorded_at = "2026-11-21"
+evidence = "待填：同 SoC（SM8475）参考实现里与 27 同代的那一份——Pong（UniXNU-t970 / UniXNU-pong）的显示栈与 PongBacklight，逐条标 copied/adapted/rejected，并写明它跑的是 iPadOS 18 契约还是 24A446。"
+
+[hardware.display.step.official]
+done = false
+recorded_at = "2026-11-21"
+evidence = "待填：UniXNU docs/zh/porting/display.md 每一节（#source-map、#dpu-pipes、§3、§4）与 docs/zh/drivers/{gop-framebuffer,community-unixnu-nativemobiledisplay,sheng-backlight}.md 的逐句落点，标注本板是照做、na 还是 unknown。"
+
+[hardware.display.step.decompile]
+done = false
+recorded_at = "2026-11-21"
+evidence = "待填：27 侧二进制/契约读数——GopFramebuffer 的 MobileFramebuffer ABI、DisplayTimingProbe 的 DPU/DSI 计数器、AppleARMBacklight 的 27 属性集合；给出 文件:行。"
+
+[hardware.display.step.wide]
+done = false
+catalog_checked = false
+catalog_result = "待填：UniXNU/components.toml 里 GopFramebuffer / 显示归档 / 背光组件能否直接取用。"
+recorded_at = "2026-11-21"
+evidence = "待填：官方组件目录与参考树（sheng / t970 / zizhan / liuqin / pong / xnekom-ios27）的宽搜结果，说明为什么复用或不复用。"
+
+[hardware.display.step.plan]
+done = false
+recorded_at = "2026-11-21"
+evidence = "待填：27 的接入计划——三件产出（fragment、16.x→27 差异表、接入点与 boot-arg 预算）的分节与判据，以及它们各自的验收方式。"
+
+[hardware.display.step.deep]
+done = false
+recorded_at = "2026-11-21"
+evidence = "待填：深挖结论——27 相对 16.6.1 在背光属性/请求、帧所有权、刷新测量上的差异，以及每条的根因级解释（文件:行）。"
+
+[hardware.display.step.verify]
+done = false
+static_check = "待填：静态核对方式（不构建）。"
+unit_test = "待填：离线单测（脚本或解析器）与它的判据。"
+artifact_check = "待填：产物核对（文档/账本/预算表）与数值。"
+local_verified = false
+recorded_at = "2026-11-21"
+evidence = "待填：⑦ 的三项检查结果。"

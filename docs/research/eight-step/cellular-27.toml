@@ -53,7 +53,7 @@ recorded_at = "2026-11-21T03:40:00"
 [hardware.cellular.step.verify]
 done = false
 local_verified = true
-evidence = """三条证据门都没有真实设备结果，全部 PENDING；判据与命令只保留一个来源，本文件只写指针：
+evidence = """总体定案见 docs/research/cellular/W1-W2-COLLECTION-RUNBOOK.md#VERDICT；三条证据门都没有真实设备结果，全部 PENDING；判据与命令只保留一个来源，本文件只写指针：
 - W1 控制器 LUN：见 docs/research/cellular/W1-W2-COLLECTION-RUNBOOK.md#W1；当前没有 w1-lun-* 设备采集，PENDING。
 - W2 完整 4 KiB：见 docs/research/cellular/W1-W2-COLLECTION-RUNBOOK.md#W2；当前没有四个 4096 B 设备块，PENDING。
 - F3 真实 modem/RF：见 docs/research/cellular/W1-W2-COLLECTION-RUNBOOK.md#F3；当前没有 27 console，PENDING。

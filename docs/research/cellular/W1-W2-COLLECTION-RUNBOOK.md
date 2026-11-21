@@ -15,7 +15,7 @@
 3. 失败后保留整个 `CAP`，在 `STOP.txt` 写“停在哪一步、原始输出、判官原文、RC”。不要删文件、不要改描述符字节、不要改 `--expect-lun` 让灯变绿。
 4. **整条作废**：只要 W1 或 W2 有一段不是 PASS，就不许继续到下一段，也不许把后面的结果拿来补前面的结论。W1/W2 已 PASS、F3 只是基线的，按 §7.4 单独写“W1/W2 通过，F3 PENDING”。
 5. **复位规则**：本单没有任何一步需要设备复位。W1-A、W1-B、W2 四个 storage、F3-A 都在同一次 Android 启动里完成；`adb root` 只重启 adbd，不是设备重启。若设备真的重启，从 §1 重新开始并新建 `CAP`，不要往旧目录追加。
-6. 本单的 `OVERALL: PASS` 只表示“W1 双腿 + W2 四块参考内容 + 本地文件互相一致”，不表示 W2 的 27 读回已通过，也不表示可以起飞。
+6. 本单的 `OVERALL: PASS` 只表示“W1 双腿 + W2 四块参考内容 + 本地文件互相一致”，不表示 W2 的 27 读回已通过，也不表示可以起飞；**唯一结论按 §7.4 的 `CAP/VERDICT.txt`，不是这句 `OVERALL: PASS`**。
 7. 每个会产生判据的命令上方都有 `# 定案：` 注释，写明它对应哪条判据的哪一半；变量赋值、`mkdir`、`stop` 和辅助 readlink 只是 plumbing，不产生判据。
 
 ## 1. 固定变量与设备身份
@@ -282,8 +282,8 @@ cat "$CAP/bundle.txt"
 [ "$BRC" -eq 0 ] || stop "bundle rc=$BRC; do not report OVERALL PASS"
 ```
 
-- **期望输出**：`K60 CAPTURE BUNDLE PASS`；`W1 LUN PASS ...`；`W2 FULL PASS all four storages match`；`W2 CONSOLE SKIP no --console supplied`；`OVERALL: PASS`。
-- **取值范围**：`W2 CONSOLE SKIP` 是预期的，因为本单不采 27 console；**它不是 W2 飞行 PASS**。`OVERALL: PASS` 只覆盖本地文件。
+- **期望输出**：`K60 CAPTURE BUNDLE PASS`；`W1 LUN PASS ...`；`W2 FULL PASS all four storages match`；`W2 CONSOLE  SKIP no --console supplied`；`OVERALL: PASS`。
+- **取值范围**：`W2 CONSOLE  SKIP` 是预期的，因为本单不采 27 console；**它不是 W2 飞行 PASS**。`OVERALL: PASS` 只覆盖本地文件。
 - **对应判据**：W1 双腿 + W2 四块 + 本地一致性。
 - **失败时看到什么**：`W1 LUN PENDING/FAIL`、`W2 FULL PENDING missing storage N`、`W2 FULL FAIL storage=N: ...`、`OVERALL: PENDING/FAIL`。任一非 0 都停。
 - **复位**：不需要；本段完全在 host 上。
@@ -389,12 +389,89 @@ grep -nE 'fileset: original component called an unmapped kernel function from 0x
 - **命中时**：停，回传 console 路径 + sha256 + 行号；由 Lead 复核后只落这一条。不要同时配另外三条。
 - **baseline**：`IOS27-PRELINK-POLICY.json` 的 208 项（3 missing + 205 stubbed）保持可比；205→201 不是验收数字。
 
-### 7.4 本单结束时的唯一合法结论
+<a id="VERDICT"></a>
 
-- W1 PASS + W2 四块 PASS + `bundle OVERALL: PASS`：写 **“W1 PASS；W2 参考内容 PASS；W2 27 读回与 F3 PENDING”**。
-- F3-A 基线不成立：写 **“W1/W2 已采；F3 baseline PENDING”**，不要写 F3 FAIL（除非 remoteproc/modem 明确不运行）。
-- 任何 W1/W2 非 PASS：写 **“本单作废，停在第 N 步”**，不许继续 F3，也不许把后续结果补前面。
-- 只有 Lead 能把 W1/W2/F3 写进飞行账本；本单和脚本都不改共享树、不构建、不上机、不写 map。
+### 7.4 一次只读采集的定案契约（写死，先于执行）
+
+本节是 W1/W2/F3 **一次只读采集**的唯一判据；在执行前写死，执行后不得按结果改词。`CAP/VERDICT.txt` 是唯一结论，`README.txt`、`bundle.txt` 的 `OVERALL: PASS` 和聊天记录都不是。
+
+#### 7.4.1 运行身份：一次采集 = 一个 CAP = 一次 Android 启动
+
+| 字段 | 来源 | 固定要求 |
+|---|---|---|
+| `cap` | `CAP` 的 basename | `w1-lun-YYYYMMDD-HHMMSS`，全小写，不复用 |
+| `serial` | `adb get-serialno` | 与 `README.txt` 的 `adb_serial=` 逐字相等；CAP 内不得出现第二个 serial |
+| `fingerprint` | `ro.build.fingerprint` | 与 `README.txt` 的 `build_fingerprint=` 逐字相等 |
+| `kernel` | `uname -a` | 采集前后各读一次；两次不同即视为中途重启 |
+| `captured_at` | UTC 时间 | 与 `README.txt` 的 `captured_at=` 相等；格式 `YYYY-MM-DDTHH:MM:SSZ` |
+
+- W1-A、W1-B、W2 四个 storage、F3-A 必须落在同一个 CAP、同一次启动。中途重启就新建 CAP，旧 CAP 封存，**不得追加、覆盖或合并**。
+- 为 W2 读块设备执行的 `adb root` 只重启 adbd，不算设备重启；但必须在 `VERDICT.txt` 的 `adb_root_used=0|1` 记录。
+- CAP 建立后先写 `README.txt`，再生成 `sha256sums.txt`；判官输出写入后，证据文件不得再改。改过就按 `INVALID-RUN`，不是 PASS/FAIL。
+
+#### 7.4.2 定案优先级：从上往下，先命中先定
+
+| 优先级 | 唯一 verdict | 必须同时成立 | 只允许写的结论 | 明确禁止 |
+|---|---|---|---|---|
+| 1 | `INVALID-RUN` | CAP 已建立，但身份字段缺失/不一致、CAP 内混入第二次启动、跳步或并行、证据在 `sha256sums.txt` 之后被改、判官输出不属于本 CAP，或 W1 非 PASS 却已出现 W2 采集 | “本单作废（原因）；W1/W2/F3 均无结论。” | 用任何 PASS/FAIL/PENDING 描述硬件；用后面的文件补前面的结论 |
+| 2 | `FAIL-W1` | 身份与顺序有效；W1 判官 rc=1，或 Leg A/Leg B 完整但互相矛盾 | “W1 FAIL（矛盾点）；W2/F3 未开始。” | 把 rc=1 写成 PENDING；二选一挑一个值 |
+| 3 | `PENDING-W1` | 身份与顺序有效；W1 判官 rc=2，且没有任何 W1 FAIL 条件 | “W1 PENDING（缺口）；W2/F3 未开始。” | 把缺 bsg/缺工具/EACCES/README 空写成 PASS |
+| 4 | `FAIL-W2` | W1 判官 rc=0；W2 任一 storage 判官 rc=1，或任一文件字节数大于 4096 | “W1 PASS；W2 FAIL（storage N）；F3 未开始。” | 用另外三个 storage 的 PASS 抵掉一个 FAIL |
+| 5 | `PENDING-W2` | W1 判官 rc=0；W2 任一 storage 缺失或短读 rc=2，且没有任何 storage FAIL | “W1 PASS；W2 PENDING（storage N）；F3 未开始。” | 用 `OVERALL: PASS` 补缺块 |
+| 6 | `PASS-W1-W2` | W1 rc=0；W2 四个 storage 全部 rc=0；`bundle` rc=0；`W2 CONSOLE  SKIP` 存在 | “W1 PASS；W2 参考内容 PASS；W2 27 读回与 F3 PENDING。” | 写 F3 PASS、飞行 PASS、27 读回 PASS 或“W2 CONSOLE PASS” |
+
+补充三条硬规则：
+
+- **FAIL 压过 PENDING。** 同一段里只要有一个 rc=1，就不能因为其他项是 rc=2 而写 PENDING；跨段时 W1 的 FAIL/PENDING 先定，W2 不得越过 W1。
+- **W1/W2 个体 PASS 但 `bundle` 非 0 ⇒ `INVALID-RUN`。** `bundle` 只做本地一致性；它红了说明证据集不完整/互相矛盾，不是硬件的 FAIL，也不是 PASS。
+- 没有 CAP、没有执行：记 `NO-RUN`。`NO-RUN` 不是本次采集的结论，不能拿来填 W1/W2/F3。
+
+#### 7.4.3 `CAP/VERDICT.txt` 固定字段
+
+一次采集结束（PASS、PENDING、FAIL、INVALID 都算）必须写这个文件；字段名和取值逐字固定，不得增删键：
+
+```text
+schema=1
+cap=w1-lun-YYYYMMDD-HHMMSS
+serial=<adb serial>
+fingerprint=<ro.build.fingerprint>
+captured_at=<UTC>
+adb_root_used=0|1
+w1_rc=0|1|2|na
+w2_rc_1=0|1|2|na
+w2_rc_2=0|1|2|na
+w2_rc_3=0|1|2|na
+w2_rc_4=0|1|2|na
+bundle_rc=0|1|2|na
+verdict=PASS-W1-W2|PENDING-W1|FAIL-W1|PENDING-W2|FAIL-W2|INVALID-RUN
+flight_status=PENDING
+w2_flight_status=PENDING
+f3_baseline=present|absent|contradiction|not-run
+f3_status=PENDING
+stop_step=0|W1A|W1B|W1|W2|BUNDLE|F3|none
+stop_reason=<short ascii code>
+```
+
+- `flight_status=PENDING` 和 `f3_status=PENDING` 在每一次采集里都固定，包括 `PASS-W1-W2`；本单没有 27 console，不能关闭 F3。
+- `w2_flight_status=PENDING` 固定；`PASS-W1-W2` 的 W2 只证明“四个 4 KiB 是参照内容”，不证明 27 读回。
+- 未执行的段写 `na`；不许用 0 冒充 `na`。`stop_step=none` 只允许出现在 `PASS-W1-W2`。
+- `stop_reason` 用短 ASCII 码，例如 `hctl-missing`、`descriptor-eacces`、`storage-2-short`、`bundle-inconsistent`；不得写自由长句，也不得用它替代判官原文。
+- `VERDICT.txt` 写入后只读；需要修正就新建 CAP，不编辑旧文件。
+
+#### 7.4.4 F3 的固定位置
+
+F3-A 只记录 Android 基线：`f3_baseline=present|absent|contradiction`。它**不改变** W1/W2 的 verdict：
+
+- F3-A 缺失：`f3_baseline=absent`，仍然可以 `PASS-W1-W2`；
+- F3-A 与 Android 基线矛盾（例如 remoteproc 明确未运行）：`f3_baseline=contradiction`，仍然 `f3_status=PENDING`，但必须在 `STOP.txt` 记原始输出；不要写 F3 FAIL，除非 27 console 已给出判据；
+- 只有 27 console 的 W1 名字行、W2 读回、W3 继续读、W4 服务行齐全，才可能把 F3 从 PENDING 改成 PASS；本单永远达不到。
+
+#### 7.4.5 写死之后不许做的四件事
+
+1. 不许改 `--expect-lun 5`、不许把 `hctl` 手写成 5、不许截断/补零 `unit-desc-L5.bin`。
+2. 不许把 `PENDING` 改写成“先跳过”，也不许把 `bundle OVERALL: PASS` 当成 W1/W2 的硬件 PASS。
+3. 不许在同一 CAP 里重跑失败步骤；重跑就新建 CAP，旧 CAP 保留 `STOP.txt`。
+4. 不许用 W1/W2 的 `PASS-W1-W2` 去关闭 `prelink-map-unresolved` 或 F3；只有 Lead 能写飞行账本，且必须引用本文件的 `VERDICT.txt` 而不是聊天结论。
 
 ## 8. 出错时只做这三件事
 

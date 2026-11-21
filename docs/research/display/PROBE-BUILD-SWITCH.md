@@ -1,6 +1,8 @@
 # 探针的开关：两种实现、选哪种、以及一条可跑的断言
 
 > 状态：离线定稿（2026-11-21）。Lead 裁决走「编译期开关，0 B」；本文是这条裁决的实现说明，并给出「开关关掉时镜像里不存在该字面量」的可跑断言。
+>
+> **取舍顺序（L10）：不占字节 > 编译期开关 > 才轮到删别人的参数。** 下一个读到这条的人请先读这一行。
 > 适用：`patches/proposed/0003-k60-backlight-probe-the-clamp.patch`（只适用 27 分支，叠在 0001 之上）。
 
 ## 0 为什么不是启动参数
@@ -82,6 +84,54 @@ sha256sum <out>/<carrier>.fd
 ```
 
 判据：**两张表的 series 指纹必须逐字节相同**；boot.img / kernel.macho / FD 三行必须不同（不同才对，因为开关进去了）；差异清单只允许出现「一个编译期开关」这一项。
+
+## 3b 为什么不用改构建脚本
+
+`XNU_EXTRA_CFLAGS` 已经是现成通道，加一个开关不需要动任何脚本：
+
+| 位置 | 作用 |
+| --- | --- |
+| `scripts/build-xnu-4k-baseline.sh:574` | `EXTRA_CFLAGS=${XNU_EXTRA_CFLAGS:--Wno-reserved-identifier …}`：环境变量就是 `EXTRA_CFLAGS` 的默认值 |
+| 同文件 `:581`/`:989`/`:1384`/`:1387` | 逐项追加 `-D`（`XNU_K60_PHYSICAL_BATTERY`、`XNU_NATIVE_PAN`、`XNU_BOOT_PROGRESS`、`XNU_K60_ACCEL_STUB`），说明「往 EXTRA_CFLAGS 里加 -D」是本仓既有做法 |
+| 同文件 `:1392` | python 把 `EXTRA_CFLAGS` 注入到生成的构建设置里 |
+| 同文件 `:1444` | `RC_NONARCH_CFLAGS="$EXTRA_CFLAGS"` 交给递归构建 |
+| `scripts/build-xnu-generic.sh:281`/`:586`/`:597` | 同构 |
+
+所以诊断图的构建命令只是多一个前缀：
+
+```sh
+XNU_EXTRA_CFLAGS=-DK60_BACKLIGHT_PROBE=1 ./scripts/build-xnu-4k-baseline.sh ...
+```
+
+**不要**去改 `build-xnu-4k-baseline.sh` 或给这个开关加一个专门的构建分支：那会让两张图的脚本本身不同，
+「输入相同」又变得不可证。这个变量同时喂给所有 target，所以切换开关后必须干净重建，不要复用旧 `OUT`。
+
+## 3c 关掉开关 == 没打过 0003（可跑验证）
+
+Lead 2026-11-21T19:33 要求：证明「关掉开关的产物」与「不加 0003 的产物」在行为上等价，防「关掉开关仍留副作用」。
+`docs/research/display/check-switch-inert.py` 用三个检查回答，全部离线、不构建：
+
+| 检查 | 断言 | 怎么算 |
+| --- | --- | --- |
+| delta | 叠了 `0003` 的文件与只打 `0001` 的文件，差别**只有两处插入**：守卫块（预处理指令 + 注释）与被 `#if` 包住的块；其余逐字节相同 | 去掉这两处插入后与基准文件逐字节比较 |
+| default | 不传 `-D` 时守卫展开为 `0` | 用真预处理器读 `-dM` 的宏表，不靠 grep 字面量 |
+| drop | 守为 `0` 时被包住的块整体消失（没有 `probe`、没有 `4095`），而块后面的代码还在 | 用真预处理器展开一段只含守卫与块的片段 |
+
+用法（需要 `git` 与一个 C++ 预处理器，**不产生目标文件**）：
+
+```sh
+# 1) 生成两棵源码：只打 0001，与 0001+0003
+git apply patches/proposed/0001-k60-backlight-log-requested-level.patch
+cp drivers/PongAdreno/K60Backlight.cpp /tmp/a.cpp && git checkout -- drivers/PongAdreno/K60Backlight.cpp
+git apply patches/proposed/0001-k60-backlight-log-requested-level.patch
+git apply patches/proposed/0003-k60-backlight-probe-the-clamp.patch
+cp drivers/PongAdreno/K60Backlight.cpp /tmp/b.cpp && git checkout -- drivers/PongAdreno/K60Backlight.cpp
+# 2) 断言
+python3 docs/research/display/check-switch-inert.py --base /tmp/a.cpp --stacked /tmp/b.cpp
+```
+
+实测（2026-11-21，WSL 的 clang 12）：`OK switch off is inert: same tokens outside the switch, guard expands to 0, wrapped block dropped by the real preprocessor`，rc=0。
+两条边界的自测：把守卫的默认值改成 1，`default` 检查失败；在守卫外面多加一行代码，`delta` 检查失败。
 
 ## 4 一条可跑的断言
 

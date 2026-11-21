@@ -96,3 +96,17 @@ git log -1 --format='%an <%ae> | %cn <%ce>'
 `XNU_EXTRA_CFLAGS`，见 `scripts/build-xnu-4k-baseline.sh:574`），并把「关掉时镜像里不存在该字面量」
 做成一条可跑的断言（范例 `docs/research/display/check-probe-absent.py`）。
 判断顺序：能不能不占字节 → 能不能用编译期开关 → 才轮到删别人的参数（那不是本线能裁的）。
+
+
+## L11 「不该出现」的断言必须有一条会让它出现的自测
+
+`check-probe-absent.py` 三条自测里，最有价值的是第三条（把 marker 塞进假 release，脚本 rc=1）——
+前两条只能证明它打印 OK，第三条才证明它会**失败**。没有这条自测的断言只是打印。
+写法：断言 + 一组「故意违规」的输入，断言在违规输入上必须返回非 0。
+
+## 裁决记录（2026-11-21T19:33）
+
+1. **补丁头的 Subject 不挪**：`git am` 要求 `Subject:` 在前，这是工具约束不是排版偏好；
+   「Stacked on 0001, never alone」放在 Subject 之后的第一行 prose 与代码块第一行注释即算到位。
+2. `k60_backlight_probe` 的「删注册表行」要求**作废**：它从未进过 `BOOT-ARGS.md`、
+   `BOOT-ARGS-PENDING.toml`、`ALLOWED_ADDITIONS`（三处 `grep -c` 为 0），没有行可删。

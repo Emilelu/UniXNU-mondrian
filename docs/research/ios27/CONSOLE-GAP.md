@@ -161,3 +161,31 @@ FD 3,145,728 B `sha256 8102da7d766a`，payload 内 `kernel.macho` `b997f4eeb316`
 | 第 2 次 | `RAMOOPS: sig ok, start … size …` + 文本 | 内核真的跑到控制台初始化并写了字 |
 
 第 2 次之前若设备静默挂死需要长按电源，此时先别复位——第 2 次读的正是第 1 次留下的内容。
+
+## 2026-11-22 03:59 —— 0547/0548 上了，但卡在 LTO 参考构建（不是内核链接）
+
+`archive-06-build-k60-fileset-reference` 失败，两次：
+
+```
+RELEASE reference exit 2 log .../fileset-reference/snapshot-ccf90a9200b46e0d/snapshot-build.log
+removed 67 unavailable forced exports; linking again
+RELEASE reference exit 2  ->  error: the framework reference build failed (2)
+```
+
+`snapshot-build.log:1159366` 的 `Undefined symbols for architecture arm64e` **整块只有一族**：
+
+```
+__ZN26IOUnifiedAddressTranslator10gMetaClassE / superClassE / commitUnmapsEv /
+prepareFWUnmapEyy / getPageTableEntryEy / setClientContextIDEjb / isPageFaultExpectedEyj /
+removeClientContextIDEv / registerTaskForServiceEP4taskP9IOService /
+createMappingInApertureEjP20IOMemoryDescriptorjym / getTotalPageTableMemoryEv /
+getFirmwareAddressSpaceHandleEv / mapEP11IOMemoryMapj / doMapEP20IOMemoryDescriptoryyj /
+unmapEP11IOMemoryMap / doUnmapEP20IOMemoryDescriptoryy / 7getModeEv / taskDiedEv /
+__ZTV26IOUnifiedAddressTranslator
+```
+
+已排除的猜测（实测）：`grep -rln IOUnifiedAddressTranslator bsd osfmk iokit libkern` 在装配树里**只命中 `iokit/conf/Makefile.arm64`**；我们 `patches/xnu-12377/` 里 0 命中。
+⇒ 不是 0547/0548 引进的引用，是**这一类自己的实现没进链接**。
+
+下一轮先回答一个问题：`iokit/Kernel/IOUnifiedAddressTranslator.cpp` 在 27 树里存不存在、由哪个 `conf` 列表收录、
+以及 `removed 67 unavailable forced exports` 那次重链删掉的 67 个导出里有没有它。

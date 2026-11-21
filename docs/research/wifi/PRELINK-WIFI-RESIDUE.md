@@ -1,9 +1,9 @@
 # 预链接 Wi-Fi 残留与三页官网页
 
-> 只读记录。检查基线：`feat/wifi-ios27-tree` @ `5d2dfd6f`。没有构建、没有上机、没有修改
-> `E:/hackios/k60-gates` 或共享 main。本文回答两个问题：24A446 预链接记录里 Wi-Fi 的 0 出现
-> 说明什么；`building.md`、`porting/soc-support.md`、`drivers/ath12k-wifi.md` 三页怎么进官方
-> 文档账本。
+> 只读记录。检查基线：`feat/wifi-ios27-tree` @ `235d58a3`（本文初稿基于 `5d2dfd6f`）。没有构建、
+> 没有上机、没有修改 `E:/hackios/k60-gates` 或共享 main。本文回答两个问题：24A446 预链接记录里
+> Wi-Fi 的 0 出现说明什么；`building.md`、`porting/soc-support.md`、`drivers/ath12k-wifi.md`
+> 三页怎么进官方文档账本。
 
 ## 0. 结论
 
@@ -18,11 +18,15 @@
 - Wi-Fi 的验收仍然只有两条线内命令：`scripts/check-wifi-station-archive.py`（arm64e、两个 API、
   stamp/header、stubs）和 `scripts/check-wifi27-link-inputs.py`（arch、provenance、stubs）。
   `check-ios27-artifacts.py --flight-ready` 不读链接账本。
-- 三页全部 **unmapped**：`building.md` 的 `check-ios27-artifacts.py --flight-ready` 只覆盖
-  kernel.macho/payload/boot.img；`porting/soc-support.md` 的 `check-device-tree.py` 只覆盖设备树；
-  `drivers/ath12k-wifi.md` 的归档检查器只覆盖 station 归档契约。按本轮 Lead 口径，部分门禁只能算
-  unmapped；P-288 的同页规范化还要求一页只出现一次，两件事不能互相替代。`drivers/wifi*.md` 不存在，
-  `ath12k-wifi.md` 就是 Wi-Fi 驱动页。
+- 三页账本：`building.md` **unmapped**（`check-ios27-artifacts.py --flight-ready` 只覆盖
+  kernel.macho/payload/boot.img）；`porting/soc-support.md` **na**（SoC common 仓的建立/维护不在本线，
+  设备侧接线仍归本板，边界见 §2.3）；`drivers/ath12k-wifi.md` **unmapped**（归档检查器只覆盖
+  station 归档契约）。按本轮 Lead 口径，部分门禁只能算 unmapped；P-288 的同页规范化还要求一页只
+  出现一次，两件事不能互相替代。`drivers/wifi*.md` 不存在，`ath12k-wifi.md` 就是 Wi-Fi 驱动页。
+- 24A446 的预链接集合 `kernel.json`（38 bundle / 14,078 B）里 `IO80211Family` **0 次**；同一 24A446
+  的 pinned `kernelcache.decompressed`（77,987,840 B）里也是 **0 次**。这不是“24A446 没有 Wi-Fi”：
+  Wi-Fi 栈在 SystemOS 的 `BootKernelExtensions.kc`（`043-68526-711.dmg.aea`），尚未挂载；计数命令与
+  边界见 §1.4。
 
 ## 1. A：预链接记录里有没有 Wi-Fi
 
@@ -103,6 +107,37 @@ sandbox/kext 覆盖差异，不应记到 Wi-Fi 头上。
 所以正确的说法不是「27 的 Wi-Fi 栈不在预链接集合里，所以它是干净的」，而是「预链接记录没有
 建模 Wi-Fi station，0 命中只是这张图没带它」。
 
+**`IO80211Family` 的 0 命中结论句：** 24A446 的预链接集合 `kernel.json`（38 bundle / 14,078 B）与
+同一版本的 pinned `kernelcache.decompressed`（77,987,840 B）中，`IO80211Family` 字面均 0 次；这是
+集合/二进制层的 0，不是「24A446 没有 Wi-Fi」。`kernel.json` 只包含 roots 的 38 个 closure bundle，
+`IO80211Family` 本就不在 roots；pinned kernelcache 的原始字节里也没有这个 bundle 名。Wi-Fi 栈在
+SystemOS 的 `BootKernelExtensions.kc`（`043-68526-711.dmg.aea`），尚未挂载。
+
+`kernel.json` 是 0600，命令要在 WSL 里以 root 跑；只读：
+
+```sh
+sudo python3 - <<'PY'
+from pathlib import Path
+root = Path("/opt/k60/trees/ios27-out")
+for p in (
+    root / "mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.json",
+    root / "ipsw/24A446/kernelcache.decompressed",
+):
+    data = p.read_bytes()
+    print(p.name, len(data), data.count(b"IO80211Family"))
+PY
+```
+
+期望输出：
+
+```text
+kernel.json 14078 0
+kernelcache.decompressed 77987840 0
+```
+
+这两个 0 不能当 Wi-Fi 结论：它们只证明 `IO80211Family` 这个字面/bundle 名不在预链接集合和 pinned
+kernelcache 里；不能证明没有 Wi-Fi 消费者，也不能代替 SystemOS 的 BootKernelExtensions 检查。
+
 ### 1.5 预链接不能验收 Wi-Fi
 
 如果要在预链接侧验收 Wi-Fi，至少需要三件现在没有的东西：
@@ -150,25 +185,32 @@ ios-27.0.1-24A446`，然后找 `mach.development.*.unstripped.noctf` 并数符�
 部分门禁不算 mapped。`scripts/tests/test-build-wifi27-kernel.py` 只钉住 wrapper 的默认 OS、缺失归档和
 未知参数，同样不是这一页的门禁。要 mapped，需要一个新的端到端 gate 跑这一页的命令并检查三个输出。
 
-### 2.3 `porting/soc-support.md`
+### 2.3 `porting/soc-support.md` — na，边界在设备侧
 
-页面要求：`UniXNU-<soc>-common` 的 `soc.toml`、`dts/<soc>.dtsi`、`configs/<soc>.config`、
-`patches/xnu/series`、`kits/`（:33-70）；设备 `feeds.toml` 用固定提交选 SoC（:72-80）；
-`board.toml` 设 `soc`/`soc_source`/`os_profile`、`[device_tree]` 和 `[kernel]` 的
-`config_fragments`/`patch_series`（:82 起）。
+页面第 3 节 :33-70 是「为新 SoC 建立共享支持」：`UniXNU-<soc>-common` 的 `soc.toml`、
+`dts/<soc>.dtsi`、`configs/<soc>.config`、`patches/xnu/series`、`kits/`；第 4 节 :72-82 是
+「从设备选择 SoC 配置」：设备 `feeds.toml` 固定 40 字符提交，`board.toml` 设置 `soc`/`soc_source`/
+`os_profile`、`[device_tree]` 和 `[kernel]` 的 `config_fragments`/`patch_series`。
 
-本板对应：`board.toml:5-7` 是 `SM8475`/`sm8475`/`ios-27.0.1-24A446`；`:14` 的 components 是
-`ArmDTPlatform`、`ArmCpu`、`XnuPrelink`、`PongUfs`；`:18`/`:20` 是 16 线的 config/series；
-27 override 在 `:355-387`，`:364` 用 `arch/soc/os` 三个 config fragment，`:369` 用
-`arch/soc/os/device` 四层 series。`feeds.toml:7-14` 把 `sm8475` 固定在
-`20a30fd623dbcfacdd71350a24fae67a2158884f`（xNekom/UniXNU-sm8475-common）。
+本板不拥有也不维护 `UniXNU-sm8475-common`：`feeds.toml:7-14` 只是消费 xNekom/UniXNU-sm8475-common
+的 `20a30fd6…`。页面第 3 节要求的 `soc.toml`、共享 DTSI、SoC config、SoC series 和 kits 不是本仓的
+交付物，所以整页判 **na**；这是「不维护 SoC 仓」的 na，不是「设备侧没有义务」的 na。账本是页级字段，
+这个 na 只覆盖第 3 节，不覆盖第 4 节。
 
-判定：**unmapped**。`check-device-tree.py` 只钉住 `[device_tree]` 的 `soc:` include 和 `dtc`，
-不检查 `soc.toml` schema、`configs/<soc>.config`、`patches/xnu/series`、`kits/`，也不校验
-`feeds.toml` 的 40 字符 commit；`check-27-series-composition.py` 消费已取回的 feed，不单独校验 pin；
-`check-component-pin.py` 只管 `[components]`，不管 SoC feed；`Ath12kWifi` 也不在 `[components]` 里。
-这些都是部分门禁，按本轮口径不能算 mapped。要 mapped，需要一个 `check-feed-pins.py` 或等价 gate，
-把 SoC feed pin、四层 series 和 DT 一起钉住。
+边界必须同时写清：第 4 节仍约束本板。`board.toml:5-7` 是 `SM8475`/`sm8475`/`ios-27.0.1-24A446`；
+`:14` 的 components 是 `ArmDTPlatform`、`ArmCpu`、`XnuPrelink`、`PongUfs`；27 override 在
+`:355-387`，`:364` 用 `arch/soc/os` 三个 config fragment，`:369` 用 `arch/soc/os/device` 四层
+series；`feeds.toml:7-14` 的 40 字符 pin、`[device_tree]` 的 `source`/`include_dirs` 和
+`[kernel]` 的两个列表都是本仓的接线。现有门禁只覆盖其中一部分：`check-device-tree.py` 只钉
+`[device_tree]` 的 `soc:` include 和 `dtc`；`check-27-series-composition.py` 消费已取回的 feed，
+不单独校验 pin；`check-component-pin.py` 只管 `[components]`，不管 SoC feed；`Ath12kWifi` 也不在
+`[components]` 里。这些设备侧义务没有因 na 被豁免，只是不属于本页的 SoC 仓维护责任。若本线开始修改
+`UniXNU-sm8475-common`、`soc.toml`、共享 DTSI/SoC config/series/kits，na 立即失效，重读页面并改回
+unmapped。
+
+建议账本状态（不修改共享仓）：`path = "porting/soc-support.md"`、`state = "na"`、`why` 用本段；当前
+entry 在 `E:/hackios/k60-gates/docs/engineering/OFFICIAL-REQUIREMENTS.toml:555-559`，页面 sha256
+`be9c587e88867def4f6b3428e0b937ed0fbf2b9299ac93e150d3b5303e2f9680`。
 
 ### 2.4 `drivers/ath12k-wifi.md`
 
@@ -205,20 +247,22 @@ sheng 的 iPadOS 27 集成是 WifiProbe/WifiNet、`/arm-io/wlan`、128 MiB DMA�
 不能写 na：页面的生产路径（主线 station、supplicant、540 B 结果、launchd cache）直接约束本板；
 我们的 station 归档和这个页面是同一件事。它是 unmapped 债，不是豁免。
 
-## 3. 账本状态：三页保持 unmapped
+## 3. 账本状态：building unmapped / soc-support na / ath12k unmapped
 
-本轮不建议改 `OFFICIAL-REQUIREMENTS.toml`。三页都保持 `unmapped`，理由不是「没有检查」，而是
-现有检查都只覆盖页面的一部分：
+本轮不建议改 `OFFICIAL-REQUIREMENTS.toml`。三页不是一个状态，理由不是「没有检查」；当前账本
+20 mapped / 1 na / 82 unmapped，采纳本节建议后是 20 mapped / 2 na / 81 unmapped：
 
-- `building.md`：`check-ios27-artifacts.py --flight-ready` 只钉产物结构，不跑页面里的
+- `building.md`：**unmapped**。`check-ios27-artifacts.py --flight-ready` 只钉产物结构，不跑页面里的
   `defconfig`/`fetch`/`status`/`build package`/`firmware`/`userdata`；
-- `porting/soc-support.md`：`check-device-tree.py` 只钉设备树，SoC feed pin、`soc.toml` schema、
-  `configs/<soc>.config`、`patches/xnu/series`、`kits/` 仍没有门禁；
-- `drivers/ath12k-wifi.md`：归档检查器只钉 station ABI 契约，MHI/QRTR/QMI、supplicant、
+- `porting/soc-support.md`：**na**。页面第 3 节是 SoC common 仓的建立/维护，本板不拥有也不维护
+  `UniXNU-sm8475-common`；第 4 节的 feed pin、board 接线和 config/series 仍在 §2.3 记为设备侧义务，
+  `na` 不豁免它们；
+- `drivers/ath12k-wifi.md`：**unmapped**。归档检查器只钉 station ABI 契约，MHI/QRTR/QMI、supplicant、
   540 B 事件和 launchd cache 仍没有门禁；当前 `ath11k-abi27e` 还 FAIL 两个 station API。
 
-按本轮 Lead 口径，部分门禁只能算 unmapped。同一页在账本里只能出现一次（P-288）；不能把两条
-部分 gate 拼成 mapped。本线没有改 `E:/hackios/k60-gates`，也没有把 device 仓脚本复制进共享仓。
+按本轮 Lead 口径，部分门禁只能算 unmapped；`soc-support` 的 na 是「不维护 SoC 仓」的范围判断，
+不是「设备侧已覆盖」。同一页在账本里只能出现一次（P-288）；不能把两条部分 gate 拼成 mapped。
+本线没有改 `E:/hackios/k60-gates`，也没有把 device 仓脚本复制进共享仓。
 
 ## 4. 未关闭的边界
 
@@ -227,5 +271,5 @@ sheng 的 iPadOS 27 集成是 WifiProbe/WifiNet、`/arm-io/wlan`、128 MiB DMA�
   代替，也不猜 0x80。
 - 本文没有构建、没有预链接、没有上机；93 MB 的 `kernel.json` 不是 Wi-Fi 图，35,613,936 B 的历史
   图有九个 scratch 桩、不可启动，两者都不能当验收。
-- 三页的账本状态是 unmapped；本线没有改 `E:/hackios/k60-gates`，也没有把 device 仓脚本
-  复制进共享仓。
+- 三页的账本状态是 `building.md` unmapped / `porting/soc-support.md` na / `drivers/ath12k-wifi.md`
+  unmapped；本线没有改 `E:/hackios/k60-gates`，也没有把 device 仓脚本复制进共享仓。

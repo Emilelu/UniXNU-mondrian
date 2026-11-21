@@ -1,0 +1,91 @@
+schema_version = 1
+
+# 铁则 17 的步骤账本：每一个流水线动作都必须对应官网页面上的一节，且能指到锚点。
+#
+# 为什么要有这张表：2026-11-21 那天我为了修「加载器不认文件集」，直接改了固件里的
+# DarwinBoot 源码就让新 PE 进了要上机的镜像，既没有按 porting/uefi-firmware 的
+# 「必需的集成」逐项核对，也没有按 guide/debugging 的绿条诊断先确认交接阶段 ——
+# 结果三张图全是黑屏，连固件界面都没起来，白烧掉三轮上机。
+#
+# 规则：命令必须出现在 scripts/build-ios27-linux.sh（或用 --allow 显式豁免）；
+# 页面必须在官方文档镜像里；锚点必须真的存在于该页；what 至少 30 字符；evidence 非空。
+
+[[step]]
+id = "fetch"
+command = "unixnu fetch"
+page = "building.md"
+anchor = "saved-build-inputs"
+what = "第 2 步：保存并获取构建输入，先把 feeds 拉到 pin 上再 defconfig"
+evidence = "scripts/build-ios27-linux.sh:50"
+
+[[step]]
+id = "defconfig"
+command = "unixnu defconfig"
+page = "building.md"
+anchor = "saved-build-inputs"
+what = "第 2 步：按设备 defconfig 生成 .config，板目录由 defconfig 名推导"
+evidence = "scripts/build-ios27-linux.sh:51"
+
+[[step]]
+id = "kernel"
+command = "unixnu build kernel"
+page = "building.md"
+anchor = "build-artifacts"
+what = "第 3 步：构建内核，产出预链接 kernel.macho 与 kernel.json 记录"
+evidence = "scripts/build-ios27-linux.sh:66"
+
+[[step]]
+id = "payload"
+command = "unixnu build payload"
+page = "building.md"
+anchor = "build-artifacts"
+what = "第 3 步之后：把内核、ADT 与 unixnu.toml 打进 payload 的 FAT 负载"
+evidence = "scripts/build-ios27-linux.sh:76"
+
+[[step]]
+id = "firmware"
+command = "unixnu build firmware"
+page = "porting/uefi-firmware.md"
+anchor = "procedure"
+what = "固件操作步骤：先核对 DSC/FDF 与必需的集成，再构建 FD 并确认输出路径与大小"
+evidence = "scripts/build-ios27-linux.sh:92"
+
+[[step]]
+id = "firmware-integration"
+command = "dsc-fdf-required-modules"
+page = "porting/uefi-firmware.md"
+anchor = "required-integration"
+what = "必需的集成：UniXNU、UniXNUDxe、DarwinBoot、RamDiskDxe、DiskIoDxe、Fat 六项都要在 DSC 与 FDF 里"
+evidence = "scripts/check-uefi-volume.py"
+
+[[step]]
+id = "bootimg"
+command = "unixnu bootimg"
+page = "building.md"
+anchor = "build-artifacts"
+what = "最后一步：把 gzip(shim+FD)、DTB、payload 组成 boot.img，并写 boot.json"
+evidence = "scripts/build-ios27-linux.sh:95"
+
+[[step]]
+id = "handoff"
+command = "fastboot boot"
+page = "guide/debugging.md"
+anchor = "green-bar"
+what = "交接阶段的绿条诊断：画面停在交接就按入口探针与串口日志定位，不能靠猜"
+evidence = "docs/research/ios27/F2-AFTER-INVALID.md"
+
+[[step]]
+id = "bootargs"
+command = "boot-arguments"
+page = "xnu/boot-arguments.md"
+anchor = "apply-arguments"
+what = "改启动参数必须重新构建 payload 与 bootimg，否则参数不会出现在镜像里"
+evidence = "docs/engineering/BOOT-ARGS.md"
+
+[[step]]
+id = "arm64e"
+command = "arm64e-requirements"
+page = "porting/arm64e.md"
+anchor = "requirements"
+what = "arm64e 五项硬要求必须先逐核核验并记录，才允许用 27 的 arm64e 配置"
+evidence = "docs/engineering/IOS27.md"

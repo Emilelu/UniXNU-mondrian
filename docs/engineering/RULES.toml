@@ -1284,3 +1284,17 @@ title = "没有基线的残留数字，等于每次都在和昨天没记过的�
 statement = "任何「还有 N 个未解决」的计数，都必须先把自己的当前值登记成基线（docs/engineering/IOS27-PRELINK-POLICY.json），门禁只允许它变小：增长即失败，某个基线条目消失也算陈旧债务。"
 check = "python3 scripts/tests/test-check-prelink-regressions.py"
 note = "2026-11-21：上游 24A446 用 regression_policy 干这件事（scripts/unixnu/kernel.py:300 的 check_prelink_regressions），我们此前只有一句「还有 203 个桩」在文档里，谁都不知道下一次构建是不是更差。登记表本身的判定逻辑由测试守住；对产物的判定跑在 check-ios27-artifacts.py 的飞行门禁里（脚本需要 /opt 下的 kernel.json，不能进常驻注册表，否则就是 P-290）。"
+
+[[rule]]
+id = "iron-17"
+title = "每一步都先指到官网页面上的一节，指不到就是猜"
+statement = "构建与上机的每一个动作（fetch / defconfig / build kernel / build payload / build firmware / bootimg / 交接诊断）都必须在 docs/engineering/OFFICIAL-STEPS.toml 里有对应行，写明官方页与锚点；改动了固件这一层时还要按 porting/uefi-firmware 的必需集成逐项复核。"
+check = "python3 scripts/check-official-steps.py && python3 scripts/tests/test-check-official-steps.py"
+note = "2026-11-21：改 DarwinBoot 让 fileset 通过后直接上了三张图，全是黑屏且连固件界面都没起，因为跳过了 required-integration 的复核与绿条诊断。门禁把「官方出处」变成构建脚本里每条命令的准入条件。"
+
+[[rule]]
+id = "P-293"
+title = "没有官方出处的步骤就是猜，猜的代价是一次上机"
+statement = "凡是「下一步怎么做」的问题，先到官方文档里找到具体一节；找不到要记成文档缺口再动手，不得凭经验发明流程。"
+check = "python3 scripts/tests/test-check-official-steps.py"
+note = "2026-11-21：三张黑屏图的共同原因是流程靠猜——改加载器没按 required-integration 复核、停在交接没按 green-bar 诊断。"

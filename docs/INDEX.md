@@ -50,6 +50,7 @@ docs/
 |---|---|
 | [`STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细、重新审视结论与历史变更记录 |
 | [`IOS27.md`](engineering/IOS27.md)、[`IOS27-REFERENCE-FIRST.toml`](engineering/IOS27-REFERENCE-FIRST.toml) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门与 IPSW 哈希；`--os ios-27.0.1-24A446` 选择 |
+- [](engineering/OFFICIAL-STEPS.toml) — 铁则 17：每步对应的官方页与锚点
 | [`EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程规范：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机 |
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |

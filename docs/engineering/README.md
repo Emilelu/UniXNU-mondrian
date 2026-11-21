@@ -15,6 +15,7 @@
 |---|---|
 | [STATUS.md](STATUS.md) | **当前硬件状态明细** + 重新审视结论 + 历史变更记录（README 的详细版） |
 | [IOS27.md](IOS27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门、IPSW 与 kernelcache 哈希 |
+| [OFFICIAL-STEPS.toml](OFFICIAL-STEPS.toml) | **铁则 17 的步骤账本**：每条流水线命令对应的官方页与锚点，由 scripts/check-official-steps.py 校验 |
 | [IOS27-REFERENCE-FIRST.toml](IOS27-REFERENCE-FIRST.toml) | **铁则 16 的读数账本**：每个仍 open 的飞行阻塞至少两条参考源读数（仓/文件/行/它怎么解决/我们的处置），由 `scripts/check-reference-first.py` 校验路径与行号能否当场解析 |
 - [`BOOT-ARGS.md`](BOOT-ARGS.md) —— 每个 boot 参数的接受值、默认与陷阱；608 字节预算；三个 GPU 开关的串行依赖。
 | [EIGHT-STEP-SPEC.md](EIGHT-STEP-SPEC.md) | **八步流程规范**：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机。每步含目的/必做/证据格式/通过条件/反模式 |

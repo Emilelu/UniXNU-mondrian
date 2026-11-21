@@ -248,6 +248,20 @@ concluding "the loader cannot take a fileset" while the official pin beside us a
 accepted one, and 2026-11-21 nearly repeated it on the prelink residue until the upstream
 `prelink-regression.json` showed a booting device living with `missing 2 / stubbed 24`.
 
+### Iron rule 17 - every step cites the official page before it runs
+
+A pipeline action without a citation is a guess, and a guess costs flights. Before running any step of
+`fetch`, `defconfig`, `build kernel`, `build payload`, `build firmware` or `bootimg`, the step must have
+a row in `docs/engineering/OFFICIAL-STEPS.toml` naming the page and the anchor that governs it, and the
+gate `scripts/check-official-steps.py` must pass. The same applies to the on-device hand-off: a boot
+that stops at the loader hand-off is diagnosed through `guide/debugging.md#green-bar`, not by trying
+another image.
+
+Why this rule exists: on 2026-11-21 I edited the firmware's `DarwinBoot.c` so a fileset kernel would be
+accepted and let the new PE go into three images without walking
+`porting/uefi-firmware.md#required-integration` first. All three came up black before the firmware
+screen, so nothing was learned and the device had to be reset by hand each time.
+
 ## Gotchas & landmines
 
 - **This file is parsed.** `check-rules.py` collects iron rules from headings

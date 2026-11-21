@@ -1,0 +1,45 @@
+Subject: [DRAFT] Pong scanout: the v2 layout assertions, switched off
+
+Draft only. Not in any series, nothing here is live, and this patch does not
+compile as written -- deliberately.
+
+Enable it with PONG_SCANOUT_V2_LAYOUT=1 at the moment the v2 wire decision
+lands (display signs the token/evict/target semantics and a dbuf exists). It
+asserts the four numbers that decision fixes: frame size 56, token at 44 where
+reserved used to be, evict at 48, target at 52. Until then they are a claim
+about fields that do not exist, which is why they sit behind a 0.
+
+Apply after pong-scanout-assert-offsets.patch: that one brings <stddef.h>, and
+without it offsetof is not even declared.
+
+--- a/drivers/PongAdreno/PongScanoutWire.h
++++ b/drivers/PongAdreno/PongScanoutWire.h
+@@ -34,3 +34,15 @@
+ static_assert(PongScanoutMode==0x7000 && PongScanoutWait==0x7002 &&
+     PongScanoutComplete==0x7003 && PongScanoutMemory==0x5343 && PongScanoutVersion==1 &&
+     PongScanoutBgra==1,"Pong scanout method codes");
++/* The v2 frame layout, dormant until the wire decision lands. Flipping
++ * PONG_SCANOUT_V2_LAYOUT to 1 is the moment these four numbers become the
++ * contract; until then they are a claim about fields that do not exist, and a
++ * claim about a field that is not there is a false fact, so this block stays
++ * switched off. See docs/research/gpu/GPU-27-SCANOUT-WIRE-PROPOSAL.md. */
++#define PONG_SCANOUT_V2_LAYOUT 0
++#if PONG_SCANOUT_V2_LAYOUT
++static_assert(sizeof(PongScanoutFrame)==56,"v2 frame");
++static_assert(offsetof(PongScanoutFrame,token)==44,"v2 token sits where reserved was");
++static_assert(offsetof(PongScanoutFrame,evict)==48,"v2 evict");
++static_assert(offsetof(PongScanoutFrame,target)==52,"v2 target");
++#endif
+--- a/drivers/PongMetal/PongMetalScanout.h
++++ b/drivers/PongMetal/PongMetalScanout.h
+@@ -250,3 +250,10 @@
+     report(result?"scanout worker creation failed":"real GPU scanout worker ready",result);
+ }
+ }
++/* The same four numbers, asserted where the reader lives, so a reporter names
++ * this file rather than the kernel header. Enable together with the kernel-side
++ * switch; see docs/research/gpu/GPU-27-SCANOUT-WIRE-PROPOSAL.md. */
++#if PONG_SCANOUT_V2_LAYOUT
++static_assert(sizeof(PongScanoutFrame)==56,"presenter: v2 reply is 56 bytes");
++static_assert(offsetof(PongScanoutFrame,target)==52,"presenter: v2 target offset");
++#endif

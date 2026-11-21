@@ -2,16 +2,20 @@
 
 These are drafts written while no device flight is available. They are
 deliberately **not** in `patches/*/series`, not built, and not flown. They fall
-in three groups with different rules:
+in four groups with different rules — the fourth is switched off on purpose:
 
 | Group | Patches | What it changes | How it is carried |
 | --- | --- | --- | --- |
 | Measurement | `pong-scanout-offer-count.patch`, `pong-metal-client-gap.patch` | counters and printed fields only | **once, together, with the next image** (Lead ruling 2026-11-21, m01230, refined in m01375) |
 | Behaviour | `pong-adreno-restart.patch`, `pong-gpu-only-default.patch` | a restart sequence nothing calls, and the default of an existing policy | **not carried** until the owner named below says so; each states its own veto |
 | Assertions | `pong-scanout-assert-offsets.patch`, `pong-presenter-assert-offsets.patch` | `static_assert` + `offsetof` only; no structure, no runtime | **safe to adopt at any time**; they cannot change behaviour, only refuse to build a broken layout |
+| Dormant | `pong-scanout-v2-layout-asserts.patch` | four `static_assert`s behind `#if PONG_SCANOUT_V2_LAYOUT`, switched off | **not carried**; enabled by the v2 wire decision, not by an image |
 
-Nothing here is compiled: this lane may not build (`LANE-CONTRACT-ios27` §2), so
-"the patch applies" is the strongest offline claim, and the only one made here.
+No kext is compiled here: this lane may not build (`LANE-CONTRACT-ios27` §2), so
+"the patch applies" is the strongest claim available for the code itself. The
+assertions are the exception in a different sense — their *text* was reproduced
+against the same struct definitions and compiled with a host C++17 compiler, so
+the offsets they pin are measured rather than assumed (see the end of this file).
 
 ## Group 1: measurement, carried as one flight
 
@@ -117,6 +121,28 @@ third: it is the GPU address the copy reads, and nothing asserts it today.
 **Nothing here changes behaviour.** If either patch fails to build, the layout
 changed under someone; that is the message, not a regression.
 
+### The dormant member: `pong-scanout-v2-layout-asserts.patch`
+
+One patch, both files, and it **does not compile as written — on purpose**. It
+adds `#define PONG_SCANOUT_V2_LAYOUT 0` plus four `static_assert`s behind `#if`:
+frame 56, `token` at 44 where `reserved` used to be, `evict` at 48, `target` at
+52. The moment display signs the v2 semantics and a dbuf exists, flip the 0 to 1
+and the layout is pinned by the compiler before anyone builds a kext.
+
+Until then those four numbers describe fields that do not exist. An assertion
+about a field that is not there is a false fact, which is exactly why it is
+switched off rather than commented out: the numbers live in code that the
+compiler will read the day it is enabled, not in a paragraph someone has to
+remember.
+
+It applies **after** `pong-scanout-assert-offsets.patch` — that patch brings
+`<stddef.h>`, without which `offsetof` is not declared. `git apply --check` on a
+tree with the offset patch already in place passes; on a clean tree it does not,
+and that is expected, not a defect. The numbers themselves were checked the same
+way as the others: a host C++17 compiler against the intended struct shape
+(`E:/k60-work/scratch/prop/v2_layout_probe.cpp`), so 44/48/52/56 are measured,
+not assumed.
+
 Offline verification is stronger than "it applies": the assertion block was
 reproduced against the same struct definitions with a host C++17 compiler and
 compiles clean, so the offsets are correct rather than merely plausible (see
@@ -132,6 +158,7 @@ compiles clean, so the offsets are correct rather than merely plausible (see
 | `pong-gpu-only-default.patch` | `patches/xnu/0600-k60-display-composition.patch` | `gpuOnly` starts at 1 instead of 0, and the field comment says so |
 | `pong-scanout-assert-offsets.patch` | `drivers/PongAdreno/PongScanoutWire.h` | `#include <stddef.h>` and four `static_assert`s: every field offset of Mode/Wait/Frame/Done, the four method codes, `PongScanoutVersion`, `PongScanoutBgra` |
 | `pong-presenter-assert-offsets.patch` | `drivers/PongMetal/PongMetalScanout.h` | the presenter's own three `static_assert`s: the reply length it demands, the reserved word it refuses, the protocol numbers it switches on |
+| `pong-scanout-v2-layout-asserts.patch` | both headers | four `static_assert`s behind `#if PONG_SCANOUT_V2_LAYOUT`, currently 0: frame 56, `token`@44, `evict`@48, `target`@52 |
 
 The stage line keeps its original shape with one optional field inserted, and
 `judge-gpu27.py` accepts both shapes (`client=` present or absent). That was a
@@ -195,10 +222,15 @@ git apply --check patches/proposed/pong-adreno-restart.patch
 git apply --check patches/proposed/pong-gpu-only-default.patch
 git apply --check patches/proposed/pong-scanout-assert-offsets.patch
 git apply --check patches/proposed/pong-presenter-assert-offsets.patch
+# The dormant v2 member needs the offset patch first; check it on such a tree.
+git apply --check patches/proposed/pong-scanout-v2-layout-asserts.patch
 ```
 
-All six pass against `feat/gpu-27` at the commit that added this directory, and
-all six pass against `E:/hackios/xnekom-ios27` today. None is compiled — with one
+The first six pass against `feat/gpu-27` at the commit that added this directory,
+and all six pass against `E:/hackios/xnekom-ios27` today. The seventh is the
+dormant one: it is checked on a tree where the offset patch is already applied
+(`E:/k60-work/scratch/prop/v2_assert_patch.py` does exactly that, in a scratch
+repo, and prints the check result). None is compiled — with one
 exception, the assertions: their text was reproduced against the same struct
 definitions and built with a host `g++ -std=c++17 -Wall -Wextra`
 (`E:/k60-work/scratch/prop/wire_assert_probe.cpp`), so the offsets are checked

@@ -110,6 +110,21 @@ Mode 的调用形态见 `PongMetalScanout.h:229-231`：`in=nullptr, inSize=0, ou
 （否则等于把 48 B 的情况删掉了）。第四行是这次改动的**收益**：旧镜像遇到新内核会响亮地失败，
 而不是把 56 B 当 48 B 读。
 
+**矩阵旁边要单独说的一句：`Done` 不带版本，帧身份靠 `sequence`。**
+会签方常常只读这张矩阵，然后从「版本不匹配就失败」推出一条更宽的规则——「所有记录都必须精确等值检查」。
+不必：`PongScanoutDone` 在**所有版本**里都是 16 B、`reserved` 恒 0，`PongAdrenoScanout.cpp:122`
+的 `if (q.reserved || …)` 原样成立，v2 也不往它里面塞版本。
+
+那「版本不匹配时会不会把按钮退到错误的帧上」靠什么挡住？靠同一行的
+`q.sequence != pending.id`：**帧的身份是序列号**，不是版本，也不是长度。于是：
+
+- 旧 presenter 拿旧帧号来退 ⇒ 序列号不匹配 ⇒ 拒绝，不会误退；
+- 新内核多出来的 `token`/`evict`/`target` 只在 `PongScanoutFrame`（wait 的回复）里，`Done` 一个字节没变。
+
+因此 §2.4 第 1 行（版本不认识）与第 3 行（内核被旧版本请求）是**必须**的 fail-closed，
+而 `Done` 的零校验**不需要**跟着版本走——把它也改成版本条件，反而会在 v1 内核 + v2 presenter 的
+降级组合里制造一条没人测过的分支。
+
 ### 2.4 fail-closed 的三条可观测形态
 
 | 场景 | 期望日志 | 期望状态码 | 后果 |
@@ -163,6 +178,13 @@ static_assert(offsetof(PongScanoutDone, reserved) == 12, "the completion check i
 对同样的结构体定义编译过（`E:/k60-work/scratch/prop/wire_assert_probe.cpp`），所以偏移是编译器核过的，
 不是读出来的。表里 v2 专属的三行（`token`/`evict`/`target`）不进这两份补丁——那要等 display 的 dbuf 立项，
 现在加就是给不存在的字段写断言。
+
+**v2 那三行已经写成第三份「休眠」补丁**：`patches/proposed/pong-scanout-v2-layout-asserts.patch`，
+两侧各一段，全部套在 `#if PONG_SCANOUT_V2_LAYOUT`（当前 `#define ... 0`）里。它**按现在的树是编译不过的，
+这是故意的**：字段不存在时断言就是假事实。等 v2 立项把 0 改成 1，四个数（56 / `token`@44 / `evict`@48 /
+`target`@52）在任何人构建 kext 之前就被编译器钉住。它要在 `pong-scanout-assert-offsets.patch` 之后应用
+（那份带 `<stddef.h>`）；四个数本身也用宿主 C++17 对目标结构形状编译验证过
+（`E:/k60-work/scratch/prop/v2_layout_probe.cpp`）。
 
 ### 2.6 27 侧读者行号与两处硬编码（display 六项之一，含它点出的两处）
 

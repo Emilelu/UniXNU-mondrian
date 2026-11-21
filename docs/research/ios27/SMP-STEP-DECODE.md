@@ -137,10 +137,15 @@ revision 里不存在。
 - `--cpus 8`：拓扑 8 个核 → 注册 8 个 → 7 次 `processor_start` → 7 条 `ArmCpu: CPU %u PSCI start …`
   逐一出现，`psci:` 解释失败者。这就是「SMP 下 UFS 根起不来」的场景本身。
 
-**离线可查的证据**（不用上机）：镜像的 `pong-boot-manifest.json` 里 `boot_args` 的 `cpus=` 值，
-加上 ADT 的 `/cpus` 子节点数。本轮 `E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/`
-里只有 `xnu-inputs.json`（内核阶段），没有 payload/ADT 的 manifest，所以 **F1 这次的 `cpus=` 目前是
-`unknown`**，判据就是上面两个文件——等 F1 产物出来先读它们，再决定这张表哪一列适用。
+**Lead 已定案（2026-11-21T18:26）：F1 的 `cpus` = 1。** 真值是 `scripts/make-pong-adt.py:74` 的
+`--cpus 1`；设备仓 `board.toml:210` 的 `cpus = 8` 是 iOS 16 残留，由 Lead 修（这条口径冲突归他）。
+所以适用的是上面第一列：一次 `processor_start` 都没有，§2 的 A4–A11 不出现，0542 的 SIGP 路径在
+stage-0 休眠；等 F1 通过后按 8 核重评，再决定 0543 与这张表的第二列。
+
+**离线复核仍用同一判据**：镜像 `pong-boot-manifest.json` 的 `boot_args` 里 `cpus=` 值，加上 ADT 的
+`/cpus` 子节点数。本轮 `E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/` 里只有
+`xnu-inputs.json`（内核阶段），没有 payload/ADT 的 manifest，所以这两项现在读不到——`cpus = 1` 是
+Lead 的口径，不是从产物读出来的，产物一到要先对账，对不上以产物为准。
 
 ## 7. 真开 SMP 之前必须先补的两件事
 

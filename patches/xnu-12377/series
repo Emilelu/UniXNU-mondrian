@@ -108,3 +108,13 @@ armcpu-sleep-hook.patch
 # console 60x66 cells of 24x48 pixels; without the argument every path is the
 # stock one. Picked from xNekom feat/ios27 (5aeba69a), renumbered.
 0544-k60-console-font-scale.patch
+
+# This kernel had no console at all: llvm-nm on the 27 build defines only
+# _k60_serial_clock next to the 16 build's _k60_usblog_console_up and
+# _pong_ramoops_console_*. Without a mirror nothing the kernel says is
+# readable, so every 0-byte flight was uninformative by construction. The
+# 16-series guard asked for -DPONG, which this build never defines; here the
+# guard is XNU_PONG_RAMOOPS_CONSOLE and build-ios27-linux.sh passes -D for
+# arm_init.o and serial_console.o. Base 0xa7000000 and the 2 MiB window are
+# the device live FDT ramoops node (reg 0x400000, pmsg-size 0x200000).
+0546-k60-ramoops-console-27.patch

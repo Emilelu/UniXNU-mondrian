@@ -74,7 +74,15 @@ fi
 # Seam 2 (P-260): the audio driver wants -DXNU_PONG_AUDIO for its own object
 # only. EXTRA_MAKE_ARGS is reset inside the builder, so the define has to arrive
 # as a real make variable, and a dotted name cannot be exported by this shell.
+#
+# Seam 3 (P-300): the ramoops console has the same shape and a sharper reason.
+# The 16-series patches guard those hooks with `#if defined(PONG)`, and -DPONG
+# never appears in this build (BCM2837), so an unguarded port would compile
+# every hook out and leave the same 0 bytes as no patch at all.  The guard is
+# XNU_PONG_RAMOOPS_CONSOLE alone; without these two defines the patch is inert.
 env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
+	"arm_init.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1" \
+	"serial_console.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1" \
 	python3 ./unixnu build kernel --device "$ROOT" "$@"
 
 # The collection's `com.apple.kernel` child must carry the collection's own

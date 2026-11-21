@@ -366,7 +366,7 @@ enforces, since the producer copies its flags verbatim.
 | personality patch applies | `patch -p1 --dry-run -i 0542-k60-native-ufs-personality.patch` in a copy of `xnu-12377.121.6` | `checking file iokit/KernelConfigTables.cpp` | exit 0, no fuzz, no reject |
 | personality content | `grep -c "IONameMatch'     = ufshc" iokit/KernelConfigTables.cpp` | `1` | exactly one entry, inside `#if defined(XNU_NATIVE_UFS)` |
 | 27 series untouched | `git -C . diff --stat origin/feat/xnu27-data-gate -- patches/` | empty | stage 0 must not change shape |
-| the two platform-page switches are graded | `python3 scripts/check-ufs27-storage-switches.py` | `ufs27-storage-switches: 2 gap(s)` — both `bare test -f` GAPs, two closed-state OKs, two guard OKs | exit 1 while either `test -f` is silent; the two GAPs are the framework fix named in §11 |
+| the two platform-page switches are graded | `python3 scripts/check-ufs27-storage-switches.py` | `ufs27-storage-switches: 0 gap(s), 2 dormant (switch off; latent defects reported above)` — both guards OK, both dormant states OK, and the two bare `test -f` lines printed as `NOTE` with their line numbers | exit 0 while dormant; the moment a switch opens the same two lines become GAPs (fixture `latent`), and the framework fix is the patch in §11 and `storage/UFS27-SWITCH-GAP.md` |
 | the three switch states behave as described | `cd /e/k60-work/scratch/ufs27-switchmatrix && python3 make.py && sh run.sh` | `PASS: closed -> 0`, `PASS: open -> 0`, `PASS: mixed -> 2`, matrix exit 0 | `exit 1` means the checker stopped distinguishing a guarded switch from an unguarded one |
 | a bare `test -f` really is silent | `bash -euc 'test -f /nonexistent/archive.a'` | exit 1, **no output**; with `\|\| { echo …; exit 1; }` the same command names the path | what §11 criterion 3 grades, and why it is a defect rather than style |
 
@@ -430,9 +430,16 @@ Three criteria per switch, each measured rather than assumed:
    `bash -euc 'test -f /nonexistent/archive.a'` exits 1 printing **nothing**.
    Both graded `GAP`.
 
-Current verdict on the real tree: `ufs27-storage-switches: 2 gap(s)`, exit 1 —
-the two silent failures, with four `OK` and two `NOTE` lines beside them. The
-fix is one line each:
+Current verdict on the real tree: `ufs27-storage-switches: 0 gap(s), 2 dormant
+(switch off; latent defects reported above)`, exit 0. The two silent failures are
+printed as `NOTE` rows with their line numbers rather than as GAPs, because both
+blocks are switched off and the `test -f` line is not reachable in that state —
+grading it dormant would have made the gate red for a defect nobody can trigger
+yet. This scoping was the Lead's instruction of 2026-11-21 (dormant exits 0 with a
+note); it is a scope, not a relaxation: the fixture's `latent` state switches both
+switches on with the line unpatched and must report the same two GAPs, and it does.
+The line-by-line brief for the Lead is `storage/UFS27-SWITCH-GAP.md`, with the
+patch `storage/UFS27-SWITCH-GAP.patch` (`patch -p1 --dry-run` exit 0). The fix is one line each:
 
 ```sh
 test -f "$RAM_BLOCK_ARCHIVE" || { echo "build-xnu: NativeRamBlock is on but $RAM_BLOCK_ARCHIVE is missing" >&2; exit 1; }
@@ -456,15 +463,18 @@ in exactly the F3-shaped edits, state by state:
 
 | state | switches | recipe | builder `test -f` | verdict |
 |---|---|---|---|---|
-| `closed` | off | none | readable | `0 gap(s)` |
+| `closed` | off | none | readable | `0 gap(s), 2 dormant` |
 | `open` | on | writes both paths | readable | `0 gap(s)`, two `open state` lines |
 | `mixed` | on | none | readable | `2 gap(s)`, `the switch opens onto a missing artefact` twice |
+| `latent` | on | writes both paths | **bare** | `2 gap(s)`, the two silent `test -f` GAPs |
 
 `make.py` copies the real `board.toml`, `feeds.toml`, defconfig and builder into
 each state and applies only those edits; `run.sh` grades each against its
-expected count. The readable `test -f` is applied in all three states because it
-is orthogonal to the switches — it is the change the real tree still owes the
-framework.
+expected count. The readable `test -f` is applied in `closed`, `open` and `mixed`
+because it is orthogonal to the switches, and deliberately withheld in `latent`
+so that the dormant `NOTE` has a twin `GAP` proving the same line is graded the
+moment it is reachable. Measured 2026-11-21: `closed 0 / open 0 / mixed 2 /
+latent 2`, matrix exit 0.
 
 ## 12. ⑦ — what bt answered on 2026-11-21
 

@@ -1,0 +1,29 @@
+# Readable failure for the two storage archives the 27 builder can force-load.
+# Base: scripts/build-xnu-generic.sh as vendored on feat/ufs-27 (origin df9c155d).
+# Owner: the Lead, because the framework copy is what gets refreshed into this
+# repository by scripts/refresh-xnu-generic.py:15; this file is the change to land there.
+# Third occurrence, not in this patch: build-xnu-generic.sh:699-701 (VIRTIO_ARCHIVE) has
+# the same shape, dormant because this board has no virtio-mmio node.
+#
+# Apply from the repository root:  patch -p1 < docs/research/storage/UFS27-SWITCH-GAP.patch
+diff --git a/scripts/build-xnu-generic.sh b/scripts/build-xnu-generic.sh
+--- a/scripts/build-xnu-generic.sh
++++ b/scripts/build-xnu-generic.sh
+@@ -727,7 +727,7 @@ PY_GPU_BROKER
+   fi
+   if [ "$NATIVE_RAM_BLOCK" = 1 ] && [ "${XNU_SOURCE_STORAGE:-0}" != 1 ]; then
+     RAM_BLOCK_ARCHIVE=$ROOT/build/ram-block/libRamBlock.a
+-    test -f "$RAM_BLOCK_ARCHIVE"
++    test -f "$RAM_BLOCK_ARCHIVE" || { echo "build-xnu: NativeRamBlock is requested (XNU_NATIVE_RAM_BLOCK=1) but $RAM_BLOCK_ARCHIVE is missing" >&2; exit 1; }
+     if [ "${XNU_NATIVE_VIRTIO_BLOCK:-0}" = 1 ]; then
+       # Both transports import the same original class. Keep one exact alias
+       # definition; link the real RAM transport object, not duplicate aliases.
+@@ -764,7 +764,7 @@ PY_BINDINGS
+   fi
+   if [ "$OWNER_ROOT_PROBE" = 1 ]; then
+     VERIFIED_ROOT_ARCHIVE=${XNU_VERIFIED_ROOT_ARCHIVE:-$ROOT/build/verified-root-xnu/libVerifiedRootProbe.a}
+-    test -f "$VERIFIED_ROOT_ARCHIVE"
++    test -f "$VERIFIED_ROOT_ARCHIVE" || { echo "build-xnu: the owner-root probe is requested (XNU_VERIFIED_ROOT_PROBE=1) but $VERIFIED_ROOT_ARCHIVE is missing" >&2; exit 1; }
+     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$VERIFIED_ROOT_ARCHIVE"
+     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $VERIFIED_ROOT_ARCHIVE"
+   fi

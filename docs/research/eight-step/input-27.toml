@@ -86,12 +86,15 @@ evidence = [
   "16→27 契约差异表（每行 16 侧 / 27 侧）：注入 API 用户态 IOHIDVirtualServiceClientDispatchEvent（touch.c:278） / 内核 IOHIDDevice::handleReport（ShengHidInput，27 ABI 见 hid-device-24A446.json）；服务属性用户态 CFDictionary（touch.c:158-213） / 内核 setProperty(HIDDefaultBehavior/Built-In/DisplayIntegrated/DigitizerCollectionDispatch)；触点集合派发无（每指一事件） / kIOHIDDigitizerCollectionDispatchKey（IOHIDEventDriver.cpp:1123）；边沿位 0x800 由 setIntegerField 直接给（touch.c:261） / 由 dispatch 槽包装补（27 源无 FromEdgeTip）；ABI 校验无 / vtable 逐槽比对 + arm64e 退签（NativeHidInput.cpp:84-244）",
   "边沿映射：UIKit 侧 0x800/0x1000/0x2000/0x40000 → 1..4 由 _UIEventHIDTouchEdgeTypeForHIDEvent 决定——按 sheng 的推算（NativeHidInput.cpp:84-244 注释），待 27 侧 UIKit 二进制验证；27 内核源侧的负向证据是 grep FromEdgeTip 全树 0 命中",
   "16.6.1 已通过的触点事实（同一控制器、同一协议）：8 条 goodix type=1 报告 + 4 条 Pong touch HID 派发、SpringBoard 254 行、单指（27 设备仓 08-on-device.md:11）",
+  "装配顺序的结论句：`patches/xnu/series` 只是给人看的顺序表，真正的装配顺序是 `patches/xnu/*.patch` 的 glob（字典序）——k60-gates/scripts/build-xnu-generic.sh:12 取 ROOT 后 :58-63 用 `git apply --check` + `git apply`（无 fuzz）遍历该 glob；这解释了为什么某些补丁在 series 里靠前却排在后面应用：26 个前导字母的补丁（如 0210-…-display-native-canvas.patch、zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch 这种 z 更少的）都排在 32 个 z 的 touch 之前，而 series 里的 197 号只是人读的序号",
+  "27 装配树上的完整重放（2026-11-21，副本 /opt 树 rsync 到 $HOME 后 git apply，记录见 E:/k60-work/scratch/input27/replay-evidence.txt）：整补丁仍整体拒绝（touch: `patch failed: bsd/conf/files:385` + `iokit/Kernel/MiniIOMobileFramebuffer.cpp: No such file or directory`），但排除这两个「前置层才提供」的路径后 rc=0——pong_goodix.c(1375 行)/pong_input.c/pong_input.h 新建、bsd/kern/bsd_init.c Hunk #1 succeeded at 1166 (offset 19)；即 6 个路径里 4 个对 27 是 0 冲突",
+  "未落地的两个 touch hunk 的 27 侧性质：bsd/conf/files:385 需要 `bsd/kern/pong_userland.c` 锚行（由字典序更早的 zzzzzzz-pong-hackios-userland-abi.patch 建立，而它自己在该树上 --check 又失败于 bsd/conf/files:383、libkern/conf/files:109）；iokit/Kernel/MiniIOMobileFramebuffer.cpp 在 27 树 `iokit/Kernel`（85 项）里不存在，其创建者是 zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch（`--- /dev/null` 形式），而该补丁自己在 27 树上失败于 iokit/conf/files:79、bsd/kern/bsd_init.c:1305、bsd/kern/kern_memorystatus.c:222 —— 因此这两个 hunk 的阻塞在显示/用户态 ABI 层，不在本线的内核代码里",
 ]
 
 # ⑦ 核验：static_check / unit_test / artifact_check / local_verified 全部离线。
 [hardware.touch.step.verify]
 done = false
-static_check = "在 27 xnu feed（xnu-3199e8bc）上 git apply --check：touch patch 的三个新文件（pong_goodix.c/pong_input.c/pong_input.h）与 bsd_init hunk（落在 :1003，offset -144）可通过；bsd/conf/files hunk 与 iokit/Kernel/MiniIOMobileFramebuffer.cpp hunk 失败（见 evidence 1-4）"
+static_check = "两轮静态检查：①裸 27 xnu feed（xnu-3199e8bc）git apply --check：三个新文件与 bsd_init hunk（:1003，offset -144）通过，bsd/conf/files 与 MiniIOMobileFramebuffer.cpp 失败；②27 装配树副本（soc 层已装）逐文件重放：排除上述两路径后 rc=0（bsd_init Hunk #1 at 1166, offset 19），keys 排除 bsd/conf/files 后 rc=0；重放后 4 个文件用到的 106 个标识符在 27 树内全部有定义（缺 0）。两条 27 侧阻塞均已定位到前置层，见 deep 第 9-10 条"
 unit_test = "gate 仓 scripts/test-goodix-config.py 与 scripts/tests/test-brl-parse.py 覆盖 16.x 的 0x91/0x01 与 BRL 帧解析；未对 27 侧运行"
 artifact_check = "无 27 构建产物；本线禁止构建，故 artifact_check 为空"
 local_verified = false
@@ -101,6 +104,9 @@ evidence = [
   "装配顺序：keys patch 的 bsd_init hunk 引用 touch patch 新增的 #if defined(PONG) … pong_goodix_init(); 块，conf/files hunk 锚定 touch 新增的 bsd/dev/pong_goodix.c 行，并修改 touch 新增的 bsd/sys/pong_input.h（keys patch:304-326）——两补丁是严格有序资产，不能当独立补丁重排",
   "27 的装配机制与 16 不同：k60-gates/scripts/build-xnu-generic.sh:58-63 用 git apply（无 fuzz）按 patches/xnu/*.patch 字典序遍历并跳过已应用的；16 线 build-xnu-4k-baseline.sh:182-183 用 patch --fuzz=3。字典序下 32 个 z 的 touch 先于 33 个 z 的 keys，顺序天然成立",
   "两补丁都在 27 装配输入里：k60-gates/patches/xnu/ 有 zzzz…-pong-touch-console.patch、zzzzz…-pong-physical-keys.patch，另有本线此前未列入的 zzzz…-pong-goodix-resume.patch；xnekom-ios27/patches/xnu/series:197-198 也列出前两个",
+  "重放判据 2（ADR 不漂移）：副本里 /opt/k60/trees/gates-device/dts/mondrian.dts 的 sha256 在重放前后同为 ea68831502bceb1d77c171ba78361804b30e03ddd8c785880d5583b3a5b7c58f，且与装配输入同一文件——重放只落 bsd/ iokit/ 内核源，不触碰 ADT 产物",
+  "重放判据 3（副本清理）：$HOME/input27-replay 已 rm -rf 删除；/opt 构建输入全程只读（rsync 读 + 无写入），未改动 /opt/k60/trees 任何字节",
+  "⑦ 仍为 done=false 的理由：本轮只有源级静态检查（0 冲突 + 106 标识符全部可解析），没有 27 编译产物、没有上机日志；按 k60-gates/AGENTS.md 铁则 3，⑦ 要静态检查 + 离线单测 + 产物检查三者齐备",
 ]
 
 [hardware.buttons]
@@ -173,6 +179,8 @@ evidence = [
   "16.6.1 侧的同一拓扑：PMIC arbiter v7 + channels=768 + PON=407 + GPIO6=434（board.toml:284-299 的六个属性供 pong_buttons.c 断言），成功日志 Pong keys: arbiter v7 … power=1 up=1 down=1",
   "上报语义：report 2 只发按下集合的位（Power bit1 / Volume+ bit2 / Volume- bit3），按下与释放是同一位的翻转（sheng NativeHidInput.cpp buttonsAction report{2,(down?1:0)|buttons&0xe}）；长按 = 位保持不变，不需要额外通道",
   "与触摸的分离：16.6.1 共用 /dev/pong-input 头（pong_input.h 的 PONG_BUTTON_DOWN/UP 与 PONG_TOUCH_* 同文件）；27 的同代参考是触摸与按键各自 sink，但共用同一个 IOHIDDevice 实例（sheng NativeHidInput 同时注册 report 2 与 report 3）",
+  "装配顺序的结论句（与 touch 同一条规则，按 Lead 裁决写进 ⑥deep）：`patches/xnu/series` 只是给人看的顺序表，真正的装配顺序是 `patches/xnu/*.patch` 的 glob 字典序（k60-gates/scripts/build-xnu-generic.sh:58-63，git apply 无 fuzz）；按该排序统计，keys 补丁在 276 个补丁里排第 252（touch 第 250、zzzz…-pong-goodix-resume 第 254），所以 touch 一定先于 keys，而 keys 的 bsd/conf/files hunk 锚定的正是 touch 才写入的 `bsd/dev/pong_goodix.c … standard` 行",
+  "27 装配树副本上的 keys 重放：整补丁被拒（`bsd/sys/pong_input.h: No such file or directory`、bsd_init.c:1153 找不到 touch 的 `#if defined(PONG)` 块），排除 bsd/conf/files 后 rc=0——pong_input.c（按键队列，107 行）与 bsd_init.c 落地，两个 init 调用按 goodix→buttons 次序相邻（重放后 bsd_init.c:1169-1179）；即 3 个路径里 2 个对 27 是 0 冲突，剩下一个是 conf 行序依赖",
 ]
 
 # ⑦ 核验：离线核对 ADT 结构、报告的 report ID 与用法，无需上机。
@@ -185,5 +193,6 @@ local_verified = false
 evidence = [
   "静态核对输出（python3 tomllib 解析 27 设备仓 board.toml）：buttons 表 string/strings/u32 三张，字段 [button-names, compatible, device_type, home-button-type]，button-names=[hold, voldown, volup]，home-button-type=2（int），menu 不在列表；arm-io 只有 pong-buttons 与 pong-touch 两个节点，pong-buttons 有 u32/u64 两表",
   "发射路径核对：docs/zh/porting/device-tree.md:230 与 devicetree.py:388-390 一致——只有 [adt].buttons 存在才写 /buttons；27 设备仓 board.toml:302-306 的注释记录了同一结论与「无该节点时用户态无法映射 PMIC 按键」的历史",
+  "「27 无缺项」结案句（Lead 裁决后补行号）：16 侧 [adt.buttons.*] = board.toml:268-276（.string compatible/device_type 在两行，.strings button-names 在 :272-273，.u32 home-button-type=2 在 :275-276，注释在 :262-267）/ 27 侧 = board.toml:307-316 逐一对应；生成点两侧同一处 scripts/unixnu/devicetree.py:388-390（只在 platform 里存在 buttons 时才 append platform_node('buttons')），故 27 的 ADT 侧不缺字段、不需要新 boot-arg",
   "未做：27 上没有构建产物可比对 ADT（本线禁止构建），故 local_verified=false；16.6.1 的同路径结论在 27 设备仓 patches/buttons/README.md:88-98（重生成后 14,660 B / 23 节点，/buttons 与 /arm-io/pong-buttons 同时存在）",
 ]

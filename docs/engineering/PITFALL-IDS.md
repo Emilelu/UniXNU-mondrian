@@ -23,6 +23,7 @@ allocates numbers in this file and the lanes read it before writing one.
 | P-294 | 证据（候选哈希≠产物哈希） | lead | 2026-11-21 |
 | P-295 | 度量（量错一组=量错全部） | lead | 2026-11-21 |
 | P-296 | 语义（缺席值落在合法值域内） | gpu27 | 2026-11-21 |
+| P-301 | 构建（开关未到编译器） | lead | 2026-11-21 |
 
 Rules:
 

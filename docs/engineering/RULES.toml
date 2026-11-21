@@ -1333,3 +1333,9 @@ id = "P-300"
 statement = "从别的 OS 线继承来的仪器是假设，不是资产：内核必须有可验证的控制台接收端，否则沉默不是证据"
 check = "python3 scripts/tests/test-check-kernel-console.py"
 note = "27 内核无 _pong_ramoops_console_write/_pong_ramoops_console_init/_k60_usblog_console_up/_k60_console_export_sysctl，两次 0 字节飞行被读成内核早死。sheng 的 27 补丁里 ramoops/console_write/usblog 命中 0，官方 porting/log-capture.md 只映射了参数那一半，guide/debugging.md 仍未审计。门禁 scripts/check-kernel-console.py --flight。"
+
+[[rule]]
+id = "P-301"
+statement = "`-D` 开关必须证明宏到了编译器：判据是对象构建记录（.o.json 的 arguments）或最终符号表里的宏/符号，不是构建脚本里的字面量，也不是门禁对脚本文本的 grep。点号 make 变量经环境变量传递（env \"<obj>.o_CFLAGS_ADD=…\"）在本仓的调用链上不被信任，必须走 builder 自己的 EXTRA_MAKE_ARGS；否则钩子会被预处理器整段删掉，git apply 成功、编译零警告、镜像与没打补丁同效。"
+check = "python3 scripts/tests/test-check-kernel-console.py"
+note = "2026-11-21：0546 的 XNU_PONG_RAMOOPS_CONSOLE 由 env 前缀传递，serial_console.o.json 里该宏 0 次，两个钩子被编译掉，27 内核第三次没有控制台。同一次构建的 startup.o.json 含有 builder 用 EXTRA_MAKE_ARGS 传的 -DXNU_NATIVE_TRUST_CACHE，证明通道差异而非命名差异。修法：0546 改成无条件编译 + 运行期 pong_ramoops_base 自我守卫。"

@@ -7779,3 +7779,37 @@ raw 时 `db[frame.target - 1]` 同样红（两份反例夹具固定在 `fixtures
 
 **门禁**：本条的自动判据尚未落地，`check` 暂记 `false`（恒红，提示「还没有判据」），由 Lead 挂
 `scripts/check-dt-asserts.py`。反例就是 `97b84eb7` → `3b3ff9ce` 这一对提交本身：加与删都通过了当时的全部检查。
+
+## P-301 `-D` 开关的传递通道从未被验证，于是第三次「补丁打了、代码不在内核里」
+
+**日期**：2026-11-21
+
+**现象**：`patches/xnu-12377/0546-k60-ramoops-console-27.patch` 应用成功（构建日志 `== kernel: patch
+0546-k60-ramoops-console-27.patch`），内核也链接成功，但 `scripts/check-kernel-console.py` 仍然报
+`FAIL: the kernel defines none of _pong_ramoops_console_write, _pong_ramoops_console_init,
+_k60_usblog_console_up, _k60_console_export_sysctl`。
+
+**真因**：补丁里的钩子用 `#if defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE` 守卫，
+define 由内核步的 `env "arm_init.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1"`（点号环境变量）交给构建。
+实测对象记录 `tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/serial_console.o.json`
+里该宏出现 **0** 次 ⇒ 预处理器把两处钩子整段删掉，镜像与「没打补丁」逐字节同效。
+
+对照组在同一构建里：`startup.o.json` **含** `-DXNU_NATIVE_TRUST_CACHE`，而它是 builder 自己用
+`EXTRA_MAKE_ARGS+=("startup.o_CFLAGS_ADD=…")` 传的 **make 参数**。`makedefs/MakeInc.rule:521` 的规则是
+`$($@_CFLAGS_ADD)`，接受的是 make 变量，不是「进程环境里恰好有个同名项」。
+
+**为什么危险**：文本门禁（`check-audio27-builder.py` 那类「脚本里有这行字」的断言）会全绿；`git apply`
+会成功；编译零警告；症状和「补丁根本没打」完全一样，而且**只能靠数对象里的宏或数最终符号发现**。
+这是同一天第三次同族事故（P-300 是「没有控制台所以沉默」，本条是「有钩子但被编译掉所以继续沉默」）。
+
+**修法**：这类开关的正确形态有两条，任选其一并**用对象记录复核**：
+1. 不要开关——把代码编成无条件，运行时用状态变量自我守卫（`0546` 采用：`pong_ramoops_base` 为 NULL 时
+   每次写都直接返回，init 只在 `ml_io_map_wcomb` 成功后才置位）；
+2. 要开关——走 builder 自己的 make 参数通道（`EXTRA_MAKE_ARGS+=("<obj>_CFLAGS_ADD=-D…")`），并在读回
+   `<obj>.o.json` 时确认宏在里面。
+
+**教训**：`-D` 是否生效，判据只有两处能回答——对象构建记录（`.o.json` 的 arguments）或最终符号表；
+构建脚本里的字面量、门禁里对脚本文本的 grep，都不能回答「宏到了编译器没有」。
+
+**门禁**：`scripts/check-kernel-console.py`（P-300 那条）在现象层拦住它：只要四个接收端一个都没有，就退 2。
+本条另要求：任何新增 `-D` 开关，落地时必须在提交说明里贴一次「读回 `.o.json` 的 grep 结果」。

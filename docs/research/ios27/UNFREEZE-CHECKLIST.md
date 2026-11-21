@@ -33,3 +33,4 @@ amfi_get_out_of_my_way=1 k60_fontscale=3`）。检查器直接读 `board.toml` �
 - ④ 在 A/B 裁决前不动代码；A = 只搬 `smc #0` / `hvc #0` 复位，B = 整段搬并申请 HR-01 豁免。
 - 合并层纪律有自动检查：`scripts/check-board-read-merge.py`（`--strict` 用于 CI）。已复查的 13 个读基础表的脚本记在 `scripts/BOARD-READ-MERGE.toml`，新增读者会被点名；负向自测（临时树里放一个不合并的读者）退 1。
 - ④ 代码侧已完整（2026-11-22）：`0547` usblog EP0 + `0549` 复位 + `conf-files` 两行，镜像 `0781f1f7…`；`llvm-nm` 三个符号在（`_k60_usblog_reset_to_fastboot`/`_k60_prime_restart`/`_k60_restart_reason`），但**是否真的复位过还没有上机证据**。
+- ③ 已核实（2026-11-22，离线读镜像）：`payload.img` 里 `EFI/UniXNU/unixnu.toml` 为 `timeout = 10`、`default = "xnu"`，`[[entry]] id="xnu"` 的 `title = "iOS 27"`、`path = "Payloads/kernel.macho"`、`args` 8 项 120 B ⇒ 菜单会在 10 秒后自动引导 27 内核，不需要人按键；黑屏因此是交棒之后的事，与菜单无关。

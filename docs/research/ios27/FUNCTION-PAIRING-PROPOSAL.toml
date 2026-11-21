@@ -2,6 +2,10 @@ schema_version = 1
 status = "proposed"
 review = "lead"
 generated = "2026-11-21"
+lead_decision = "hold"
+lead_decision_at = "2026-11-21T14:07:30+08:00"
+lead_decision_reason = "Pairing changes an unknown target into paired-but-unverified; runtime reachability before the console is not solved by pairing. The 208-item baseline must stay comparable. Pair only after a log proves one of the four executed."
+probable_ranking = "docs/research/ios27/PROBABLE-RANKING.md"
 
 # This file is a proposal only. It does not edit kernel.map.json, does not
 # re-run the matcher, and does not authorize a boot. The four entries are the
@@ -149,3 +153,61 @@ native_objdump_line = 214957
 native_objdump_output = "fffffff007525f2c g     F __TEXT_EXEC,__text _pmap_free_reserved_ppl_page"
 proposed_map_value = { kind = "function", native = "0xfffffff007525f2c", name = "_pmap_free_reserved_ppl_page", addend = 0, how = "reviewed" }
 review = "pending Lead review; do not merge"
+
+# Held, not rejected. The trigger is a return address printed by the
+# unixnu_fileset_unmapped panic stub. A return address inside the target body
+# proves that the target function executed and called another unmapped
+# function; at that point the target is reachable and the reviewed pairing has
+# runtime meaning. Until then the four targets stay unpaired.
+
+[[deferred]]
+target = "0xfffffff00b0de068"
+candidate_symbol = "_proc_parent"
+decision = "hold"
+reason = "No runtime evidence that this function executed. Pairing now would turn unknown into paired-but-unverified."
+baseline_note = "IOS27-PRELINK-POLICY.json keeps the 208-item baseline (3 missing + 205 stubbed); 205 to 201 is not an acceptance criterion."
+trigger_kind = "return-address-in-target-body"
+trigger_source = "/opt/k60/trees/ios27-fw/patches/xnu-12377/fileset-unmapped-call.patch:17-18"
+trigger_log = "fileset: original component called an unmapped kernel function from <ret> (x0 <v0> x1 <v1>)"
+trigger_range = "0xfffffff00b0de068 .. 0xfffffff00b0de1d8"
+trigger_condition = "The log reaches the console and the ptrauth-stripped <ret> is in the half-open range above, normalized to the output collection address space if the log proves a slide. That means _proc_parent executed and called another unmapped function."
+on_trigger = "Pair exactly this target to _proc_parent at 0xfffffff00788e194, addend 0, how reviewed; attach the log path, sha256 and line; do not pair the other three."
+
+[[deferred]]
+target = "0xfffffff00ad05978"
+candidate_symbol = "___memcpy_chk"
+decision = "hold"
+reason = "No runtime evidence that this function executed. Pairing now would turn unknown into paired-but-unverified."
+baseline_note = "IOS27-PRELINK-POLICY.json keeps the 208-item baseline (3 missing + 205 stubbed); 205 to 201 is not an acceptance criterion."
+trigger_kind = "return-address-in-target-body"
+trigger_source = "/opt/k60/trees/ios27-fw/patches/xnu-12377/fileset-unmapped-call.patch:17-18"
+trigger_log = "fileset: original component called an unmapped kernel function from <ret> (x0 <v0> x1 <v1>)"
+trigger_range = "0xfffffff00ad05978 .. 0xfffffff00ad059bc"
+trigger_condition = "The log reaches the console and the ptrauth-stripped <ret> is in the half-open range above, normalized to the output collection address space if the log proves a slide. That means ___memcpy_chk executed and called another unmapped function."
+on_trigger = "Pair exactly this target to ___memcpy_chk at 0xfffffff0074f90c0, addend 0, how reviewed; attach the log path, sha256 and line; do not pair the other three."
+
+[[deferred]]
+target = "0xfffffff00b416214"
+candidate_symbol = "_pmap_claim_reserved_ppl_page"
+decision = "hold"
+reason = "No runtime evidence that this function executed. Pairing now would turn unknown into paired-but-unverified."
+baseline_note = "IOS27-PRELINK-POLICY.json keeps the 208-item baseline (3 missing + 205 stubbed); 205 to 201 is not an acceptance criterion."
+trigger_kind = "return-address-in-target-body"
+trigger_source = "/opt/k60/trees/ios27-fw/patches/xnu-12377/fileset-unmapped-call.patch:17-18"
+trigger_log = "fileset: original component called an unmapped kernel function from <ret> (x0 <v0> x1 <v1>)"
+trigger_range = "0xfffffff00b416214 .. 0xfffffff00b41624c"
+trigger_condition = "The log reaches the console and the ptrauth-stripped <ret> is in the half-open range above, normalized to the output collection address space if the log proves a slide. That means _pmap_claim_reserved_ppl_page executed and called another unmapped function."
+on_trigger = "Pair exactly this target to _pmap_claim_reserved_ppl_page at 0xfffffff007525f24, addend 0, how reviewed; attach the log path, sha256 and line; do not pair the other three."
+
+[[deferred]]
+target = "0xfffffff00b41624c"
+candidate_symbol = "_pmap_free_reserved_ppl_page"
+decision = "hold"
+reason = "No runtime evidence that this function executed. Pairing now would turn unknown into paired-but-unverified."
+baseline_note = "IOS27-PRELINK-POLICY.json keeps the 208-item baseline (3 missing + 205 stubbed); 205 to 201 is not an acceptance criterion."
+trigger_kind = "return-address-in-target-body"
+trigger_source = "/opt/k60/trees/ios27-fw/patches/xnu-12377/fileset-unmapped-call.patch:17-18"
+trigger_log = "fileset: original component called an unmapped kernel function from <ret> (x0 <v0> x1 <v1>)"
+trigger_range = "0xfffffff00b41624c .. 0xfffffff00b416284"
+trigger_condition = "The log reaches the console and the ptrauth-stripped <ret> is in the half-open range above, normalized to the output collection address space if the log proves a slide. That means _pmap_free_reserved_ppl_page executed and called another unmapped function."
+on_trigger = "Pair exactly this target to _pmap_free_reserved_ppl_page at 0xfffffff007525f2c, addend 0, how reviewed; attach the log path, sha256 and line; do not pair the other three."

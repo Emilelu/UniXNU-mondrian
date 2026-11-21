@@ -46,6 +46,21 @@
 判据：旧卷 + 27 payload 出现绿条/菜单 ⇒ 问题在新固件卷（PE 或卷内容）；仍然全黑 ⇒ 问题在 payload 侧
 （27 内核在固件读取 payload 之后、界面绘制之前就出事），此时才轮到入口探针。
 
+## 结果二（2026-11-21 12:21，用户提供的固件日志）
+
+用户在旧固件卷上取了固件 Advanced Logger（63 行，`Redmi K60-20190100-000645.log`），这是本线第一次拿到**固件层证据**：
+
+- 界面**是起来的**：`UNIXNU: ui: graphics 1440x3200, scale 5, portrait layout`、`menu: shown 4 entries, default 0 'xnu', timeout 5000 ms`，按键有响应（`K60KEY: btn0/1/2 down`）。所以「全黑」在旧卷上等于**面板没亮/无显示**而不是固件没跑。
+- 载具链路正常：`UNIXNURAMDISK: connect=Success … diskio=Success volumes=1`、`initrd block device 0xABFFE925 size 0xC0002DB Success`、`UNIXNU: config: loaded \EFI\UniXNU\unixnu.toml`、`4 entries`。
+- **真正的失败点**：`UNIXNU: xnu: handing off 0 staged kext(s) to loader` → `UNIXNU: menu: entry 0 returned Unsupported`（重复四次）。旧卷里的加载器是旧 PE（`cb175e4d…`），第一条判定是 `cpusubtype == 0 && filetype == 2`，而我们的 27 内核是 `filetype 12 / subtype 0xc0000002` ⇒ **旧卷拒绝 fileset 是必然的**，符合预期。
+- 用户补充：**旧卷能进 UniXNU 界面但 XNU 进不去；新卷完全黑屏**。
+
+⇒ 两个独立问题：
+1. 新卷（含移植后的 fileset 解析器 + DSC 集成，PE `52b064d6…`）连界面都不起——首要嫌疑是 `39fa61c` 的解析器移植（所有黑屏图都用了含它的卷）。
+2. 旧卷的 Unsupported 是旧解析器的正常拒绝，不是 bug。
+
+单变量实验：`git revert --no-commit 39fa61c`（保留 DSC 集成）重打固件卷，看界面是否回来。
+
 ## 纪律
 
 - 只 `fastboot boot`，永不 flash、不写 `/dev/block/sda38`。

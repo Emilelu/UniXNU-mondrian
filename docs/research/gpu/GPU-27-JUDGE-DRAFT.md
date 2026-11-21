@@ -103,13 +103,39 @@ A 是主输入，B 只在 A 的字段不够时用，C 永远不参与判决（�
   + G-ABI/G-SCANOUT/G-PUBLISH。
 * 两者不重复：官方脚本对 `gpu.trace.bin` 的结论直接作为本判读器 G-DIAG 的输入，不重算。
 
-## 8 落地顺序（等 Lead 派，不在本线）
+## 8 落地顺序（原计划，已被 Lead 提前批准，见 §8.1）
 
 1. 先加五处打印（`offers`/`dropped`、`gpuonly`、`client`、`abi`、`scanout version`）——
    它们同时是缺项表 `GPU-27-BUDGET-120FPS.md:241` 里的第 1、4、5 项。
 2. 判读器本体写成 `scripts/judge-gpu27.py`（k60-gates 的资产，本线只出规格），
    用 §6 三条夹具做回归。
 3. 门禁接线：`RULES.toml` 的 P-29x 由 Lead 分号，判据文本就是 §3 的四层表。
+
+### 8.1 第 2 步已落地（2026-11-21，Lead 授权）
+
+| 项 | 落点 | 状态 |
+| --- | --- | --- |
+| 判读器 | `E:/hackios/k60-gates/scripts/judge-gpu27.py`（commit `e286c58d`） | 已落地 |
+| 回归夹具 | 同仓 `scripts/tests/fixtures/gpu27/` 三份（见 §6） | 已落地 |
+| 回归测试 | 同仓 `scripts/tests/test-judge-gpu27.py` ⇒ `TESTS OK: 3 cases, plus a missing file and the json form` | 通过 |
+| 仓库路径门禁 | `python3 scripts/check-repo-paths.py` ⇒ 389 文件 / 0 error / 15 warning（全为既有 sibling 路径 warn） | 通过 |
+
+跑法（判据文本的唯一权威形态）：
+
+```sh
+python3 scripts/judge-gpu27.py <evidence dir | console.log> [--json]
+```
+
+三态与退出码还是本文件 §3 那一套：`PASS` 0 / `FAIL` 1 / `INVALID` 3 / 读不了 2。
+两条实现上的取舍写在这里，免得下一轮被当成缺陷：
+
+- **三态是打印出来的字，不只是退出码**：`PASS`/`FAIL`/`INVALID` 各有一行 `verdict:`，
+  门禁或人读日志时不必反查退出码表。
+- **缺席的字段按「未观测」报，不按「良好」算**：`scanout version=`/`abi=`/`gpuonly=`/`offers=`/`client=`
+  在 16.6.1 镜像上都不打印，判读器把它们列进 `unmeasured` 并照样允许 `PASS`（因为 A、B 两半
+  才是 120 Hz 的定义）；一旦某个字段出现了却与预算矛盾，就是 `FAIL`。
+- **输出只用英文**：这台机器的控制台是 GBK，中文会变乱码；`单看 bench 不能判 120fps`
+  这句原话保留在脚本 docstring 里，打印行给英文同义句。
 
 ## 9 引用
 

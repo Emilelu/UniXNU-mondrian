@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/bsd/dev/k60_usblog.c
-@@ -0,0 +1,1337 @@
+@@ -0,0 +1,1338 @@
 +/*
 + * K60 (mondrian, SM8475): USB kernel log channel, full CDC-ACM console
 + * (boot-arg k60_usblog=2). The DWC3 device controller exposes a standard
@@ -55,6 +55,7 @@
 +#include <mach/vm_statistics.h>
 +#include <vm/pmap.h>
 +#include <vm/vm_kern.h>
++#include <vm/vm_kern_xnu.h>
 +#include <pexpert/pexpert.h>
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);

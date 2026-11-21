@@ -1,0 +1,55 @@
+# platform-27.toml — 顺序 1「CPU、中断、定时器、RAM、DMA」的八步记录
+#
+# 八步（docs/engineering/EIGHT-STEP-SPEC.md）：
+#   ① 同型   ② 官方   ③ 反编译   ④ 广域   ⑤ 方案   ⑥ 深挖   ⑦ 核验   ⑧ 上机
+#
+# 本文件只做 ①~⑦。⑧ `step.device` 由 Lead 在上机后写，这里有意不建。
+# 纪律：没做过的步骤写 done = false 并写明缺什么、什么证据能定它；不要编。
+#
+# 每条 evidence 必须含可核查引用：file:line / URL / usblog-YYMMDD-HHMMSS / 0x… / P-xx。
+
+[hardware.platform]
+status = "researching"
+name = "CPU、中断、定时器、RAM、DMA（ArmDTPlatform / ArmCpu / ArmSmmu4K / SoC DTSI）"
+paths = ["drivers/ArmCpu/", "drivers/ArmDTPlatform/", "dts/", "docs/research/ios27/"]
+
+[hardware.platform.step.same_model]
+done = false
+evidence = "缺：同型（SM8475 / mondrian）在 iOS 27 上的 CPU/GIC/定时器实测记录。16.6.1 的既有资产见 porting.toml:12 与 docs/research/EIGHT-STEPS.toml 的 platform 行；27 侧尚未逐项对齐。能定它的证据：sheng（SM8550，同一 ipados-27.0.1-24A446 profile）的 board.toml 与 patches/xnu-12377/ 的 ArmCpu 接法，与本板 16.6.1 的 ArmCpu fork 行为逐条对照。"
+recorded_at = "2026-11-21T13:45:00"
+
+[hardware.platform.step.official]
+done = false
+evidence = "缺：把官方页逐节落成要求表。必读 https://unixnu.com/zh/porting/platform#source-map（本地 E:/hackios/UniXNU/docs/zh/porting/platform.md:10，组件与源码对照）、#clusters（:41，unixnu,cluster-type 的 E/P 标注）、#block-and-os-services（:69，块设备与 OS 服务表）；另按该页点名读 drivers/arm-cpu.md、drivers/arm-dt-platform.md、drivers/arm-smmu4k.md、porting/bring-up.md、concepts/boot-chain.md。能定它的证据：每一节摘一句原文 + 本板对应 file:line。"
+recorded_at = "2026-11-21T13:45:00"
+
+[hardware.platform.step.decompile]
+done = false
+evidence = "缺：27 侧设备数据/GIC 寄存器的实测取证。16.6.1 已有的 ADT 读取与 GIC 探测在 drivers/ArmCpu/ArmCpu.cpp:314-451；27 的 ADT 是否仍给 /arm-io/intc 的 reg/ranges、redistributor-stride 是否变化，尚未取证。能定它的证据：27 镜像的 device-tree 导出（本板 ADT dump）或 Lead 上机日志里 armcpu_gic_* 观测行。"
+recorded_at = "2026-11-21T13:45:00"
+
+[hardware.platform.step.wide]
+done = false
+catalog_checked = false
+catalog_result = ""
+evidence = "缺：catalog 与四个参考源的逐项核对。已确认 catalog 钉在 93a5030c（E:/hackios/UniXNU/components.toml:3-19），而 93a5030c 之后已有 823c6b2/5f37026 的 platform sleep 支持；fork 的 779 行与 93a5030c 的 875 行差异尚未落表。能定它的证据：E:/hackios/ArmCpu 的 93a5030c..HEAD diff、sheng 的 component:ArmCpu 用法、t970/pong 的同名文件版本。"
+recorded_at = "2026-11-21T13:45:00"
+
+[hardware.platform.step.plan]
+done = false
+evidence = "缺：方案。候选是「改用 catalog ArmCpu + sheng 的 T0SZ/SIGP 补丁」还是「保留 fork 并补 27 适配」；决策要按 fork 独有的 sleep/SPI 能力及其调用者逐条列。能定它的证据：②④⑥ 的结果 + porting.toml:199 已记录的 2026-11-19 决策（catalog ArmCpu + sheng xnu-12377 补丁）。"
+recorded_at = "2026-11-21T13:45:00"
+
+[hardware.platform.step.deep]
+done = false
+evidence = "缺：深挖。要回答三件事：(a) 27 的 ml_io_map 预算（16 系列 io_submap 8 MiB → 0621 抬到 32 MiB；12377 的 osfmk/arm/io_map.c 已改成 kernel_map，需重算）；(b) T0SZ_USER 在 BCM2837 + arm64e + !16K 条件下是否对 K60 生效；(c) sheng_sigp_recover 在 12377 的 cpu_common.c 里解决的是哪个 SMP/UFS 根死锁。能定它的证据：xnu-12377 源码行 + sheng 补丁行 + 27 构建配置宏。"
+recorded_at = "2026-11-21T13:45:00"
+
+[hardware.platform.step.verify]
+done = false
+local_verified = false
+static_check = ""
+unit_test = ""
+artifact_check = ""
+evidence = "缺：本地核验。计划：静态对照（catalog/fork 能力表、T0SZ/SIGP 逐行）、离线单测（现有 host fixture，例如 scripts/tests/fixtures/bt-gic-shared.c 覆盖 armcpu_spi_attach 的槽位/单飞语义）、产物检查（不构建内核，只核对归档/符号与补丁可应用性）。能定它的证据：三项输出各自的命令与结果。"
+recorded_at = "2026-11-21T13:45:00"

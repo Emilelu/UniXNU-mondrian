@@ -494,6 +494,21 @@ F3-A 只记录 Android 基线：`f3_baseline=present|absent|contradiction`。它
 3. 不许在同一 CAP 里重跑失败步骤；重跑就新建 CAP，旧 CAP 保留 `STOP.txt`。
 4. 不许用 W1/W2 的 `PASS-W1-W2` 去关闭 `prelink-map-unresolved` 或 F3；只有 Lead 能写飞行账本，且必须引用本文件的 `VERDICT.txt` 而不是聊天结论。
 
+#### 7.4.6 三条 PENDING 的理由与翻 PASS 的最小证据
+
+这张表只把散在各节的「为什么还 PENDING」和「缺哪一条才翻 PASS」并排；它不改变 §7.4.2 的优先级，也不把任何一项提前写成 PASS。
+
+| 门 | 现在为何 PENDING | 翻 PASS 的最小证据 | 仍不能翻的东西 |
+|---|---|---|---|
+| W1 控制器 LUN | 没有 `w1-lun-*` 设备采集；Leg A 的 HCTL 与 Leg B 的 Unit Descriptor 都缺 | Leg A 末段 `L=5`；Leg B `IDN=0x02, bUnitIndex=5, bLUEnable=1`；README 的 serial/fingerprint/UTC 齐全；`/proc/scsi/scsi` 的 HCTL 与 Leg A 一致；`check-w1-lun-evidence.py` rc=0 | 分区名、`sdf` 字母、mount 点、8 MiB 大小、我们自己打印的 `lun=5`；`sg_inq` 的 VPD 0x83 只是身份 |
+| W2 参考内容（离线 4 KiB） | 没有四个 4096 B 设备块；只有 16 B 头不能算 | storage 1..4 各一份**正好 4096 B** 的文件；storage 4 全零；`check-efs-full.py` 四份都 rc=0；`check-capture-bundle.py` 的 `W2 FULL PASS` 且整体 rc=0 | 首 16 B 相等；只给 3 个 storage；用 `OVERALL: PASS` 代替 W2 FULL |
+| W2 27 读回（console 全块） | 没有 27 console；且 console 还必须有 BOOT/BRIDGE 行，不能只截 W2 两行 | 每个被 `served` 的 storage 同时有 `block offset=0 bytes=4096` 与 `block offset=512 bytes=3584`，两段 sha256 分别等于 §5 表；`judge-cellular-flight.py --require-efs-bytes` 的 W2 项 PASS，且整条 judge 的 BOOT/BRIDGE 也齐 | Android 采集块；只出现一段摘要；只验证 storage 1；`served` 单独一行 |
+| F3 真实 modem/RF | 没有 27 console；W1/W2 也还没 PASS | W1 名字行解析到 LUN 5；W2 读回的两段摘要都对；W3 同一 storage 第二次读且 offset 非 0、`fsg`/`fsc` 已 open；W4 服务数从 2 涨到 >2 或 `verdict ok`，并有 `dms revision`、`bridge enabled`；全程无 panic/`permanent VM map` | Android 基线；只有 `served`；只有 `bridge enabled`；W1/W2 的 PASS 外推 |
+
+- 四行的共同前提是**同一个 CAP / 同一次 27 启动**；跨 CAP 拼证据按 `INVALID-RUN`。
+- W2 的「参考内容」与「27 读回」是两件事：前者证明参照本身完整，后者证明 27 读回的窗口逐字节等于参照；两者都 PASS 才允许写 W2 飞行 PASS。
+- 任何一行只满足一半，写 PENDING 并指出缺的那一半；不要把「一半 + 猜测」写成 PASS。
+
 ## 8. 出错时只做这三件事
 
 1. 把判官原文、RC、出错命令和 `CAP` 路径写进 `CAP/STOP.txt`。

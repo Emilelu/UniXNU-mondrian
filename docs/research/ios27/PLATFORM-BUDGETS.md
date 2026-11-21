@@ -9,7 +9,7 @@
 2. **因此没有「平台线额度」可分给 GPU/USB 线。** 每条调用换的是 `kernel_map` 的 VA 和 `KMA_IO|KMA_PERMANENT` 的映射，互不挤占。GPU/USB 线不需要向本线申请配额；它们要自己保证窗口大小合理、失败可诊断。
 3. **27 stage-0 的 `ml_io_map` 预算 ≈ 3.04 MiB**，且几乎全部来自 BT 补丁的 5 个窗口；XNU 自身的三处调用在本板 ADT 上都是 0 字节（属性不存在）。
 4. **T0SZ：可以搬，但要整组搬**（6 个文件 + 2 处汇编），并且 `pmap.c` 里失败的那 1 个 hunk 属于 GPU 线（`native_pmap_user_mappings`），必须剥离或由 GPU 线提供。
-5. **SIGP：可以原样搬**（`cpu_common.c` 3/3、`cpu.c` 6/6、assert 守卫 12 行单独一个补丁），2026-11-21 对 pristine `E:/hackios/xnu-12377` 全部 `git apply --check` 通过。
+5. **SIGP：已原样搬入**，成为 device series 的 `patches/xnu-12377/0542-k60-sigp-recover.patch`（`cpu_common.c` 三 hunk + `cpu.c` 两个 hunk + assert 守卫，合为一个补丁；2026-11-21 对 pristine `E:/hackios/xnu-12377` `git apply --check` 通过）。**它修的是 SMP 下 UFS 根起不来的病，stage-0 是单核，所以这条是给后续 SMP 备的，不是本轮的修复**——Lead 2026-11-21T16:34 裁决原话。
 
 ## 1. `ml_io_map`：12377 已把共享子图换成 `kernel_map`
 
@@ -115,13 +115,17 @@ sheng 的 T0SZ 分支(`prop_reg.h`)条件是：
 
 arm64e 用户代码把 PAC 放在 bit 46 以上，libobjc 用 43 位掩码剥 isa；4 KiB 内核默认的 `T0SZ_BOOT` 给出的用户范围装不下这些，所以用户 pmap 用 4 级表 + 47 位范围，TTBR1 保持 `T1SZ_BOOT`。`TCR_EPD0_DISABLE` 是在切换 TTBR0 时先停走表再改 TCR，避免中间态被硬件走。
 
-## 3. SIGP：原样可搬
+## 3. SIGP：已原样搬入（`0542-k60-sigp-recover.patch`）
+
+**落点**：device series 第 29 条，`patches/xnu-12377/0542-k60-sigp-recover.patch`，两个文件 +37/−2。它是**为 SMP 备**的：stage-0 单核（`dts/mondrian.dts` 没有 `cpu@` 节点，`ml_get_cpu_count()` 为 1），没有任何路径会走到它，直到 0540 真的启动副核。
 
 | 目标文件 | 内容 | apply | 判断 |
 |---|---|---|---|
-| `osfmk/arm/cpu_common.c` | `sheng_sigp_recovered` 计数、`sheng_sigp_recover(target_cpu)`（要求 `cpu_flags & (InitState|StartedState)`，然后 `os_atomic_andnot(&target->cpu_signal, SIGPdisabled, acq_rel)`）、两个 `cpu_signal_internal` 重试环里调用 | 3/3 | **原样搬** |
-| `osfmk/arm64/cpu.c` | `cpu_idle` 用 `sheng_sigp_recover()` 清 SIGP（代替 `idle_disallowed`），两个计数 | 6/6 | **原样搬** |
-| 单独补丁 `zzzzzzzzzz-sheng-sigp-reinit-assert.patch`（12 行） | 在 `assert3u(getCpuDatap()->cpu_signal, ==, SIGPdisabled)` 前加 `else if (os_atomic_load(&sheng_sigp_recovered, relaxed) == 0)` | 通过 | **原样搬**（必须与上面两个同批，否则 assert 会打死） |
+| `osfmk/arm/cpu_common.c` | `sheng_sigp_recovered` 计数、`sheng_sigp_recover(target_cpu)`（要求 `cpu_flags & (InitState|StartedState)`，然后 `os_atomic_andnot(&target->cpu_signal, SIGPdisabled, acq_rel)`）、两个 `cpu_signal_internal` 重试环里调用 | 3/3 | **已搬** |
+| `osfmk/arm64/cpu.c` | 只取两 hunk：`:477` 声明 `sheng_sigp_recover` 与 `sheng_idle_*` 计数；`:488` 在 `cpu_idle` 里用 `sheng_sigp_recover()` 清 SIGP（代替直接 `idle_disallowed`） | 2/2（原表 6/6 是全文件） | **已搬** |
+| `zzzzzzzzzz-sheng-sigp-reinit-assert.patch`（12 行） | 在 `assert3u(getCpuDatap()->cpu_signal, ==, SIGPdisabled)` 前加 `else if (os_atomic_load(&sheng_sigp_recovered, relaxed) == 0)` | 通过 | **已并入同一补丁**（分开挂会让 DEBUG 构建打死在 assert 上） |
+
+**没有搬的四个 `cpu.c` hunk**（属于别的关注点，不是 SIGP）：`:139` idle WFE 调参（sheng 自己实测后仍保留 stock WFE）、`:379` `T6000` → `defined(T6000)`、`:843` `HAS_16BIT_ASID` 下跳过 `cpu_sw_asids` 的 bzero、`:934` `cpu_start` 在 CPU_ON 前回写 `ResetHandlerData`/`const_boot_args`/`cpu_ttep` 的 cache。**最后一个在真开 SMP 时要单独进 series**：副核是关着 MMU、非缓存地读这三个字，读到脏 cache 就会拿到错的 cpu data 或错的地址空间描述符；它不属于 SIGP，所以没有塞进 0542。
 
 **机理**：SMP 下副核在 `cpu_idle` 里被投递 SIGP 后进入 WFI，但 `SIGPdisabled` 位可能留在 `cpu_signal` 里；下一次 `cpu_signal` 认为「已经投递过」直接返回，唤醒丢失，表现为调度停摆/UFS 根挂不上。`sheng_sigp_recover()` 在重试环里把这一位清掉并计数。
 
@@ -136,6 +140,7 @@ cd E:/hackios/xnu-12377
 git apply --check E:/hackios/k60-gates/patches/xnu-12377/0532-k60-cpu-start-completion.patch
 git apply --check E:/hackios/k60-gates/patches/xnu-12377/0540-k60-psci-smp.patch
 git apply --check E:/hackios/k60-gates/patches/xnu-12377/0541-k60-virtual-timer-guard.patch
+git apply --check E:/hackios/k60-platform27/patches/xnu-12377/0542-k60-sigp-recover.patch
 
 # 3) sheng 补丁逐 hunk（脚本见 E:/k60-work/scratch/platform27/hunkcheck.py）
 HUNKREPO=E:/hackios/xnu-12377 python3 E:/k60-work/scratch/platform27/hunkcheck.py <patch> proc_reg.h pmap.c pmap_pt_geometry.h arm_init.c start.s sleh.c arm_vm_init.c cpu_common.c cpu.c
@@ -144,4 +149,5 @@ HUNKREPO=E:/hackios/xnu-12377 python3 E:/k60-work/scratch/platform27/hunkcheck.p
 ## 5. 仍未定的
 
 - 27 上 `ml_io_map` 的 bootstrap 分支是否会被提前调用（GPU/UFS 若在 VM 之前映射）——目前 stage-0 没有这种调用，`unknown`，定它的证据是 F3/F4 的映射时序日志。
-- `pmap.c` 那个 GPU hunk 由哪条线提供（k60-gates 现有 `patches/xnu-12377/` 里没有 `native_pmap_user_mappings` 的实现），需要 Lead 指派。
+- `pmap.c` 那个 GPU hunk（`native_pmap_user_mappings`）的归属已裁决：**不进 27 series**，草案留在 `patches/proposed/`，等 F2 有日志证明「需要它」再进（Lead 2026-11-21T16:34）。见 `docs/research/ios27/PMAP-USER-MAPPINGS-PROPOSAL.md`。
+- T0SZ 整组（6 文件 + 2 处汇编）还没有以补丁形式落进本仓的 series：它目前只是「能搬」的结论。要真搬，先定 `pmap.c` 那 9 个 T0SZ hunk 怎么与 `patches/proposed/9001` 并存，以及 arm64e 关闭 PAC 的运行时前提。

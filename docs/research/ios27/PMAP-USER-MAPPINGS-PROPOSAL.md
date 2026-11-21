@@ -48,9 +48,12 @@ sheng 27 补丁里 `pmap.c` 的第 10 个 hunk 是一个**只给 GPU 诊断用�
 
 ## 5. 决定与触发
 
-- **现在不进 series。** 依据：`configs/mondrian_ios27_defconfig` 里 `CONFIG_XNU_NATIVE_ADRENO=n`，没有 BO view 的调用者；`patches/xnu-12377/series` 里也没有实现。
-- **触发条件**（任一条成立就把本草案交给 Lead 审进 series）：① GPU 线打开 NativeAdreno BO view 的释放路径、需要「用户还映射着吗」这个判断；② 出现 `pmap_assert_free` 相关 panic 且调用栈指向 BO 释放；③ xnekom 或上游先合了这个导出。
+**裁决（Lead，2026-11-21T16:34）**：先不进 series。理由是他给的两条——这个导出没有调用者，而 27 stage-0 的单核路径不经过 `pmap_enter` 的 user 分支。草案留在 `patches/proposed/`，等 F2 有日志证明「需要它」再进。
+
+- 本线自己的依据与之一致：`configs/mondrian_ios27_defconfig` 里 `CONFIG_XNU_NATIVE_ADRENO=n`，没有 BO view 的调用者；`patches/xnu-12377/series` 里也没有实现。
+- **触发条件**（任一条成立就把本草案交给 Lead 审进 series）：① GPU 线打开 NativeAdreno BO view 的释放路径、需要「用户还映射着吗」这个判断；② 出现 `pmap_assert_free` 相关 panic 且调用栈指向 BO 释放；③ F2 的日志里出现 `native_pmap_user_mappings` 缺失导致的失败；④ xnekom 或上游先合了这个导出。
 - **审查点**：这是新增导出，不改任何既有路径。若只想先拿诊断能力，可以只打这一个补丁，不必连带 T0SZ 组。
+- 文件保持可打：`git apply --check` 每次改到它都要重跑（2026-11-21 通过，74 行新增）。文稿里的「待评审」措辞即指本裁决之前的悬置状态，裁决之后按上面四条触发。
 
 ## 6. 核对记录（2026-11-21 实测）
 

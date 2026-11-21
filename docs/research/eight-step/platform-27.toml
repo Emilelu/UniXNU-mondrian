@@ -20,7 +20,7 @@ name = 'CPU、中断、定时器、RAM、DMA（ArmDTPlatform / ArmCpu / ArmSmmu4
 why = '27 stage-0 要证明的第一件事就是「arm64e 内核能在 mondrian 上把副核拉起来并跑到 bsd_init」。CPU/GIC/定时器这条线目前是 16.6.1 的 fork 在 27 树上跑，catalog 路线（component:ArmCpu）在本板缺 /psci 节点与 sheng-smp 参数，两条路线的取舍必须先钉死，否则后面的存储/显示线会各自假设一个 CPU 启动方式。'
 revisit = '上机后由 Lead 写 step.device；本文件是唯一真相，F1 出镜像后由 Lead 用 assemble-27-eight-step.py 装配成 EIGHT-STEPS-27.toml'
 label = '平台线：保留 fork；catalog 迁移前置六条已列清，等 SMP/S2R 触发'
-paths = ['drivers/ArmCpu/', 'drivers/ArmDTPlatform/', 'dts/', 'scripts/make-pong-adt.py', 'scripts/tests/', 'patches/proposed/', 'docs/research/ios27/']
+paths = ['drivers/ArmCpu/', 'drivers/ArmDTPlatform/', 'dts/', 'scripts/make-pong-adt.py', 'scripts/tests/', 'patches/xnu-12377/', 'patches/proposed/', 'docs/research/ios27/']
 
 [hardware.platform.step.same_model]
 done = true
@@ -72,7 +72,7 @@ done = true
 evidence = '''三件事都有结论，细节与逐行表在 docs/research/ios27/PLATFORM-BUDGETS.md：
 (a) ml_io_map 预算：12377 的 ../xnu-12377/osfmk/arm/io_map.c 里没有 IO_MAP_SIZE / io_submap，io_map() 每次 kmem_alloc(kernel_map, …)（:112，KMA_IO|KMA_PERMANENT），16 系列 0621 的 8→32 MiB 子图在 27 上不存在也不需要；顺带实测出旧门禁 check-io-map-budget.py 在 27 树上是假绿（打印 from default 8388608 后仍打 ✅）。27 stage-0 的实际映射只有 BT 补丁五个窗口（patches/xnu-12377/0500-k60-bt-qbt-new-files.patch:1017-1021，GCC 0x1F4200 + UART 0x4000 + QUP 0x2000 + TLMM 0x100000 + GIC 0x10000 = 3,187,200 B ≈ 3.04 MiB）；XNU 自身三处调用（../xnu-12377/osfmk/arm64/machine_routines.c:1371-1385、cpu.c:1310、cpu.c:289）全由 ADT 属性驱动，本板 ADT 不提供 → 0 字节。
 (b) T0SZ：27 构建上条件成立——构建基线 ../UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work/pexpert/pexpert/arm64/board_config.h:307-315 引入 BCM2837.h（:11 #define BCM2837）、编译参数 -D ARM64_BOARD_CONFIG_BCM2837 与 -arch arm64e、4 KiB 页无 __ARM_16K_PG__，故 T0SZ_USER=17（47 位用户 VA）。逐 hunk（对 pristine ../xnu-12377）：proc_reg.h 3/3、pmap_pt_geometry.h 1/1、pmap.c 9/10、arm_init.c 1/1、start.s 1/1、sleh.c 2/3、arm_vm_init.c 0/1（对构建基线 1/1）；失败项里 pmap.c 那一个是 native_pmap_user_mappings（GPU 线的 BO 视图，已单独出草案 docs/research/ios27/PMAP-USER-MAPPINGS-PROPOSAL.md），sleh.c 那个是纯注释，arm_vm_init.c 依赖构建基线多出的 #endif。
-(c) SIGP：cpu_common.c 3/3、cpu.c 6/6、zzzzzzzzzz-sheng-sigp-reinit-assert.patch（12 行）全部通过。机理是副核在 cpu_idle 被投递 SIGP 后 cpu_signal 里的 SIGPdisabled 位残留，后续投递被判为已投递而丢失，表现为调度停摆/UFS 根挂不上；sheng_sigp_recover() 在重试环里清位并计数。'''
+(c) SIGP：已原样搬入 device series 的 patches/xnu-12377/0542-k60-sigp-recover.patch（cpu_common.c 三个 hunk + cpu.c 两个 hunk + assert 守卫合并成一条，+37/−2，对 pristine 通过）。它修的是「SMP 下 UFS 根起不来」：副核在 cpu_idle 被投递 SIGP 后 cpu_signal 里的 SIGPdisabled 位残留，后续投递被判为已投递而丢失，唤醒丢失表现为调度停摆/UFS 根挂不上；sheng_sigp_recover() 在重试环里清位并计数。已按 Lead 裁决标注：stage-0 单核（dts/mondrian.dts 无 cpu@ 节点），这条是给后续 SMP 备的，不是本轮的修复。sheng 另外四个 cpu.c hunk（idle WFE 调参、T6000 守卫、HAS_16BIT_ASID 的 bzero、cpu_start 回写 ResetHandlerData/const_boot_args/cpu_ttep）不属于 SIGP，没有搬；最后那个在真开 SMP 时要单独进 series。'''
 recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.verify]
@@ -81,7 +81,7 @@ local_verified = false
 static_check = '''2026-11-21 实测（WSL Ubuntu-24.04，/usr/bin/{cc,gcc,clang,clang-18} 均在）：
 - 门禁：python3 scripts/check-lane-fragment.py docs/research/eight-step/platform-27.toml --lane-root=/mnt/e/hackios/k60-platform27 --require-paths → OK（本文件即其通过后的版本）。
 - 语法闸：scripts/check-bluetooth-gic.py 把 ArmCpu.cpp 的 SPI 片段拼进 scripts/tests/fixtures/bt-gic-shared.c，以 -Wall -Wextra -Werror 编译并运行 → OK；cc -std=c11 -fsyntax-only -Wall -Wextra -Werror -I drivers/PongPower scripts/tests/test-armcpu-sleep.c → OK。
-- 补丁可应用性：patches/xnu-12377/{0532,0540,0541} 对 pristine ../xnu-12377 的 git apply --check 全部通过；sheng T0SZ/SIGP 逐 hunk 见 PLATFORM-BUDGETS.md §2.2/§3；新草案 patches/proposed/9001-osfmk-arm-native-pmap-user-mappings.patch 对 ac9718f 通过（74 行新增）。
+- 补丁可应用性：patches/xnu-12377/ 里 0532、0540、0541 与新搬入的 0542-k60-sigp-recover.patch 对 pristine ../xnu-12377 的 git apply --check 全部通过；series 编号门禁 29 条/28 个不同数字通过；sheng T0SZ 逐 hunk 见 PLATFORM-BUDGETS.md §2.2；pmap 草案 patches/proposed/9001-osfmk-arm-native-pmap-user-mappings.patch 对 ac9718f 通过（74 行新增），按 Lead 裁决不进 series。
 - 符号对账：catalog 93a5030c 与 fork 779 行两向对照（docs/research/ios27/FORK-DECISION.md §2），含「ml_arm_sleep 是 XNU 原生 cpu.c:1024 而不是补丁」的修正。
 - 结构：tomllib 解析通过；EIGHT-STEPS.toml 不并入（Lead m00493 ④）。'''
 unit_test = '''宿主逻辑测试全部跑通（2026-11-21，WSL，脚本 ../../k60-work/scratch/platform27/verify-27.sh 一次跑完）：

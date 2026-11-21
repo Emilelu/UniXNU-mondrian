@@ -6,14 +6,14 @@
 - **P-298** 板级 ADT 节点只在 `board.toml` 里「写对了」，没人核对它进没进 ADT 字节。
 - **P-299** 上游 pick 会把别人正依赖的 `board.toml` 块先加后删。
 
-补丁文件：[`pitfall-p298-p299.patch`](pitfall-p298-p299.patch)（97 行非空、10,595 B），改四个文件，
+补丁文件：[`pitfall-p298-p299.patch`](pitfall-p298-p299.patch)（106 行非空、11,549 B），改四个文件，
 基线是已带 P-296 的 `diag/menu-hold-20261121`：
 
 | 文件 | hunk | 内容 |
 | --- | --- | --- |
 | `README.md` | `@@ -152,7 +152,7 @@` | 区间 `坑记录 P-01–P-296` → `P-01–P-299` |
 | `README_EN.md` | `@@ -164,7 +164,7 @@` | 区间 `Pitfall log P-01–P-296` → `P-01–P-299` |
-| `docs/engineering/PITFALLS.md` | `@@ -7674,3 +7674,52 @@` | 两节正文 `## P-298 …` / `## P-299 …` |
+| `docs/engineering/PITFALLS.md` | `@@ -7674,3 +7674,61 @@` | 两节正文 `## P-298 …` / `## P-299 …`，含下面那条「报编不过要带 HEAD + sha256 + 完整输出」的教训 |
 | `docs/engineering/RULES.toml` | `@@ -1313,3 +1313,17 @@` | 两条 `[[rule]]`（P-298 / P-299） |
 
 apply 与验证（都在 WSL、`LANG=C.UTF-8` 下跑，MSYS 的 diff/重定向会毁 UTF-8）：
@@ -54,6 +54,19 @@ runner 是 `k60-gates/scripts/check-rules.py:75` 的 `subprocess.run(command, sh
 → 反编译回 4,597 B/225 行（往返自证）→ `devicetree.py:311` 生成 `kernel.macho.adt` 16,648 B / 26 节点
 → 逐属性比字节。实测 PASS，负例 FAIL 并指名属性；记录见
 [`adt-27-buttons-check.md`](adt-27-buttons-check.md)。
+
+## P-298 正文里补的一条教训（2026-11-21 亲历）
+
+报「我这棵树编不过」必须同时给 `git rev-parse HEAD`、该文件的 `sha256`、完整工具输出，三条不齐就别写进
+报告——它可能只是**本地副本漂移**。亲历：我在 `feat/xnu27-data-gate`（HEAD `7fd04d89`）上读到
+`dts/mondrian.dts:100` 缺 `/*`、`dtc` 报 `syntax error`，据此断言「整条 27 线出不了 payload」；Lead 在
+`diag/menu-hold-20261121` 上同一文件（`sha256 ea688315…`）零诊断编出 4,307 B，因为修复提交 `e1b6c15f`
+「fix(dts): restore the comment opener the merge dropped」早已在 `remotes/emilelu/main` 里。破坏确实存在过
+（合并提交 `585fe75a7` 丢的 `/*`），但我把「某分支的坏状态」说成了「仓库今天坏了」——与 P-297 同族：
+把「我这里坏了」当成「仓库坏了」，会让上游去改一个并不存在的 bug。
+
+同一条还带出一个可移植性要求：`dtc` 必须带 `-i <soc feed>/dts`（`/include/ "sm8475.dtsi"` 在 feed 里、
+不在设备仓），脚本把 include 目录做成参数 `--include-dir`（可重复），不写死相对路径。
 
 ## P-299 的 check：故意写 `false`
 

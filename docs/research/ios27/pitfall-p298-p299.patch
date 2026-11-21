@@ -22,7 +22,7 @@
  - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing
 --- a/docs/engineering/PITFALLS.md
 +++ b/docs/engineering/PITFALLS.md
-@@ -7674,3 +7674,52 @@
+@@ -7674,3 +7674,61 @@
  不许静默通过），再扫消费点的 `db[...]` 形式：index+1 口径下出现 `db[frame.target]` 就红；把口径改成
  raw 时 `db[frame.target - 1]` 同样红（两份反例夹具固定在 `fixtures/gpu27/` 里）。今天休眠（树里还没有
  `.target` 消费点），`--strict` 时休眠算红。
@@ -48,6 +48,15 @@
 +（与 payload 同一条路径），解码 ADT 后逐属性比字节。实现见 `scripts/gen-27-adt-buttons.py`。
 +
 +**教训**：板级节点的正确性有两层——表里写对、字节里有；只测一层的门禁会在 pick 或合并时静默放行。
++
++**另一条教训（2026-11-21 亲历）**：报「我这棵树编不过」必须同时给 `git rev-parse HEAD`、该文件
++`sha256` 与完整工具输出，否则它可能只是本地副本漂移。实例：输入线在 `feat/xnu27-data-gate`
++（HEAD `7fd04d89`）上读到 `dts/mondrian.dts:100` 的注释缺 `/*`、`dtc` 报 `syntax error`，据此断言「整条 27 线
++出不了 payload」；而 `k60-gates` 的 `diag/menu-hold-20261121` 上同一文件 `sha256 ea688315…` 干净编译出
++4,307 B，修复提交 `e1b6c15f`「fix(dts): restore the comment opener the merge dropped」早已在
++`remotes/emilelu/main` 里。两次读的是两棵树、两个阶段，结论却被当成同一件事实——与 P-297 同族：把
++「我这里坏了」当成「仓库坏了」，会让上游去改一个并不存在的 bug。判据：只有 HEAD + 文件 sha256 +
++完整输出三条齐全，才允许把「编不过」写进坑位或报告。
 +
 +**门禁**：`RULES.toml` 的 check 是一行零依赖 `python3 -c`（宿主 Windows 侧没有 `dtc`，门禁跑表级核对；
 +字节级由 `scripts/gen-27-adt-buttons.py` 在 WSL 跑）。反例已实测：删掉 board.toml 里的 `home-button-type` 与

@@ -536,6 +536,10 @@ def open_blockers(path):
             continue
         if state != 'open':
             raise Failure(f'{path.name}: blocker {name} has state {state!r}, not open or closed')
+        if not entry.get('observe_via'):
+            raise Failure(f'{path.name}: open blocker {name} does not say how a flight would '
+                          f'observe it; an open defect nobody can measure is a blocker that can '
+                          f'only be argued about (BOOT-FREEZE condition five)')
         open_ones.append(entry)
     missing = REQUIRED_BLOCKERS - seen
     if missing:

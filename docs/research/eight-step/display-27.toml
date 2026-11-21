@@ -5,8 +5,11 @@
 # scripts/assemble-27-eight-step.py 合并进 EIGHT-STEPS-27.toml；step.device
 # 由 Lead 在上机后写，本文件不写。
 #
-# 骨架阶段：七步 done = false，evidence 只写“这一步要拿什么证据”，
-# 任何一条都还没有读数，不能写成结论。
+# 2026-11-21 第二轮：差异表与接入点已离线交付，
+#   docs/research/display/DISPLAY-27-DELTA.md（16.6.1 → 27，逐条行号 + 官方锚点）
+#   docs/research/display/DISPLAY-27-INTEGRATION.md（三实现接入点 + 608 B 预算）
+# 七步仍然 done = false：上面两份文档是"离线可写的一切"，27 侧一次读数都还没有，
+# 所以没有任何一步能落成"做过"。
 
 [hardware.display]
 name = "显示与亮度（GopFramebuffer / MDP+DSI / DCS 0x51 背光）"
@@ -24,40 +27,40 @@ paths = [
 [hardware.display.step.same_model]
 done = false
 recorded_at = "2026-11-21"
-evidence = "待填：同 SoC（SM8475）参考实现里与 27 同代的那一份——Pong（UniXNU-t970 / UniXNU-pong）的显示栈与 PongBacklight，逐条标 copied/adapted/rejected，并写明它跑的是 iPadOS 18 契约还是 24A446。"
+evidence = "同 SoC 侧已逐条判完（DISPLAY-27-INTEGRATION.md 1.4 的 copy/adapt/reject 表）：INTF 偏移与页基址 copied —— PongDsiPanel.cpp:84 的八个偏移（0x04/0x0c/0xa8/0xac/0xb0/0x284/0x288/0x2b4）与 DisplayTimingProbe.cpp:32-33 逐字相同，页基址 PongDsiPanel.cpp:505 的 0x0ae35000+active*4096 等于 DisplayTimingProbe.cpp:31 的 kIntf{0x35000,0x36000}；MDP 子块 rejected —— sheng 用 0xae01000+0x8f000（DisplayTimingProbe.cpp:30），本仓 RESEARCH.md 记 0xae00000+0x84000；双 DSI rejected（K60 单 DSI，PongDsiPanel.cpp:33 只有 DsiPa=0x0ae94000）；level 3 写回 adapted 且默认关。未判完：sheng 的 KTZ8866 通路对本板不适用（bl_ctrl_dcs，RESEARCH.md），只作「不适用」记录。done 仍为 false，因为参考实现跑的是 sheng 板契约，不是 24A446 上的 K60 读数。"
 
 [hardware.display.step.official]
 done = false
 recorded_at = "2026-11-21"
-evidence = "待填：UniXNU docs/zh/porting/display.md 每一节（#source-map、#dpu-pipes、§3、§4）与 docs/zh/drivers/{gop-framebuffer,community-unixnu-nativemobiledisplay,sheng-backlight}.md 的逐句落点，标注本板是照做、na 还是 unknown。"
+evidence = "官方 porting/display.md 四节逐句落点已进 DISPLAY-27-DELTA.md：{#source-map}（display.md:9-19）四行各自对应 16.6.1 的补丁栈（patches/xnu/0210 的 MiniIOMobileFramebuffer.cpp start()、0211 的 MiniIOSurface.cpp:1916）；步骤 2（:33-45）的 CONFIG_XNU_NATIVE_LEGACY_DISPLAY/offline-legacy-* 与 sheng-dpu/sheng-vsync；{#dpu-pipes}（:58-78）的 sheng-dpu=2/3、sheng-dpu-scanout=2、8 位 BGRA、5.4 ms 锁存；§3（:80-87）的 I2C/DSI/PWM 三选一（本板选 DCS，见 INTEGRATION.md 第 3 节）；§4（:89-100）的 GENI 四段顺序与 27 属性集；集成点 rg（:102-107）。drivers/sheng-backlight.md:29-48 的属性表、请求、范围、虚拟平台丢弃逐条落点见 DELTA §5 主表 14 行。本板照做的 12 条、缺的 7 条、改名的 6 条都有行号。done 仍为 false：官方页面里的「24A446 实测 300 秒三次交换完成」是 sheng 的机器，不是本板。"
 
 [hardware.display.step.decompile]
 done = false
 recorded_at = "2026-11-21"
-evidence = "待填：27 侧二进制/契约读数——GopFramebuffer 的 MobileFramebuffer ABI、DisplayTimingProbe 的 DPU/DSI 计数器、AppleARMBacklight 的 27 属性集合；给出 文件:行。"
+evidence = "27 侧契约读数已取到并给出 文件:行（DELTA §1.4、§5）：NativeGOPWire.h:1-17 的 NGPMode 40 B/NGPPresent 32 B/NGPTransfer 16 B/NGPWait 8 B/NGPSwap 48 B/NGPComplete 16 B 与方法号 0..3、NGP_MEMORY_SCANOUT_RW=1；NativeLegacyDisplay.cpp 659 行 + OriginalMobileFramebufferABI.h 107 行 + NativeMobileDisplay.cpp 140 行的四块划分；DisplayTimingProbe.cpp:30-39 的 DPU/INTF 寄存器表与 :42-111 的采样线程；AppleARMBacklight.cpp 的 :263-278（publish）、:283-313（六键字典）、:324-343（伪装）、:345-366（publishFirst）、:400-428（请求）。16.6.1 侧对应行号在 DELTA 每行第二列。仍未取的：24A446 的 CoreBrightness 二进制（本机只有 iPhoneOS16.5.sdk 的 CoreBrightness.tbd 链接桩，strings 零行；/opt/k60/osroot/os.raw 是 4.8 GB APFS，未提取），所以 DELTA §9 U1 停在 unknown 并写了取证路径与回退实现。done 仍为 false：CoreBrightness 那一条没有反汇编读数。"
 
 [hardware.display.step.wide]
 done = false
 catalog_checked = false
-catalog_result = "待填：UniXNU/components.toml 里 GopFramebuffer / 显示归档 / 背光组件能否直接取用。"
+catalog_result = "未查 UniXNU/components.toml：本轮只核官方 docs/zh/drivers 与参考树，组件目录留到先例步骤（docs/engineering/RULES.md 的顺序）再做；DISPLAY-27-INTEGRATION.md 1.3 已写明新文件 drivers/PongAdreno/K60DisplayTimingProbe.cpp 是本板自建，不依赖组件目录。"
 recorded_at = "2026-11-21"
-evidence = "待填：官方组件目录与参考树（sheng / t970 / zizhan / liuqin / pong / xnekom-ios27）的宽搜结果，说明为什么复用或不复用。"
+evidence = "宽搜结果（DELTA §7 参数名对照 + §1 形态对照）：sheng 树 E:/hackios/UniXNU-sheng/package/ 有 AppleARMBacklight.cpp(468 行)/GeniI2c.c(232 行)/GeniI2c.h(120 行)/DisplayTimingProbe.cpp(121 行)/BacklightProbe.cpp；官方框架 E:/hackios/UniXNU/drivers/GopFramebuffer/ 有 NativeLegacyDisplay.cpp(659)/NativeGOPPresenter.cpp(311)/NativeMobileDisplay.cpp(140)/NativeGOPWire.h(17)/OriginalMobileFramebufferABI.h(107)/NativeLegacyRequest.h(181)。本仓 drivers/ 与 patches/ 对 sheng-dpu、native_dpu 零命中（grep -rn 已做），⇒ 27 的 DPU 探针在 16.6.1 侧真缺。复用判据：INTF 采样 copied（偏移已证相同），MDP 侧表驱动 adapted，双 DSI rejected。done 仍为 false：组件目录与其余参考树（t970/zizhan/liuqin/pong/xnekom-ios27）的显示栈没有逐树过完。"
 
 [hardware.display.step.plan]
 done = false
 recorded_at = "2026-11-21"
-evidence = "待填：27 的接入计划——三件产出（fragment、16.x→27 差异表、接入点与 boot-arg 预算）的分节与判据，以及它们各自的验收方式。"
+evidence = "三件产出的分节与判据（DISPLAY-27-INTEGRATION.md §0 摘要表）：① 八步 fragment 本文件；② 差异表 DISPLAY-27-DELTA.md（三分法计数 已具备 12 / 缺 7 / 改名 6，每行三列：16.6.1 文件:行、27 侧文件:行或「27 侧不存在」、官网页锚点；另有 §9 unknown 四条 U1-U4 与 §10 风险六条 R1-R6）；③ 接入点与预算 DISPLAY-27-INTEGRATION.md（DisplayTimingProbe 新文件 + k60_dpu=1 九字节；AppleARMBacklight 四处改动；GeniI2c 不接入；608 B 预算四组数字：板级 596/override 104/恢复 673 超 66/加 k60_dpu 682 超 76）。验收方式各自写在文档末尾：静态核对（偏移必须引用 RESEARCH.md 的行、不得出现 sheng 字面量）、离线判据（门禁脚本 + 预算表数值）、上机判据（K60 PANEL / K60 BACKLIGHT / K60 DPU 三类日志行）。done 仍为 false：计划本身不等同于执行。"
 
 [hardware.display.step.deep]
 done = false
 recorded_at = "2026-11-21"
-evidence = "待填：深挖结论——27 相对 16.6.1 在背光属性/请求、帧所有权、刷新测量上的差异，以及每条的根因级解释（文件:行）。"
+evidence = "根因级结论四条（都在 DELTA 里带行号）：(1) 27 与 16.6.1 的显示不是版本差而是架构差 —— 16.6.1 打补丁改 XNU 自带 Mini 栈（patches/xnu/0210 的 MiniIOMobileFramebuffer.cpp start()、0211 的 MiniIOSurface.cpp:1916 默认 0→1），27 是独立驱动（NativeLegacyDisplay.cpp 659 行），两者争 PE_current_console，见 R5；(2) 亮度线的唯一实质缺口是六键 calibration 字典 —— 16.6.1 在 K60Backlight.cpp:230-246 记了 20G81 CoreBrightness 读十键不查 NULL（0x1af030a28 读、0x1af030a5c..0x1af030a70 循环、CFNumberGetValue(NULL)→backboardd SIGSEGV，判据 int-236 lr CoreBrightness+0xfbaa4），而 sheng 在 AppleARMBacklight.cpp:301-312 无条件发；(3) 未知属性落进未初始化分支 —— K60Backlight.cpp:384-433 的二分支落空后仍用未初始化的 goal 执行 :428 publish(goal)，而 27 契约要求「其它属性返回成功无效果」（sheng-backlight.md:46），这是唯一「不改必错」的代码差异（R4）；(4) 27 的亮度可能被静默吃掉 —— 板级 ADT 的 vmm-present 会让 MobileGestalt 答 IsVirtualDevice，CoreBrightness 选 VMBLControl 丢弃全部请求（sheng-backlight.md:50-54，R2），而本板 ADT 由 tools/mkadt.py 自己生成，所以可控。done 仍为 false：四条都还没有 27 上的对照读数。"
 
 [hardware.display.step.verify]
 done = false
-static_check = "待填：静态核对方式（不构建）。"
-unit_test = "待填：离线单测（脚本或解析器）与它的判据。"
-artifact_check = "待填：产物核对（文档/账本/预算表）与数值。"
+static_check = "离线静态核对已做：显示线两侧的关键偏移/键名逐字比对（INTF 八偏移 PongDsiPanel.cpp:84 vs DisplayTimingProbe.cpp:32-33；属性名与记录尺寸 K60Backlight.cpp:185-229 vs AppleARMBacklight.cpp:263-300；wire 记录 40/8/48/16 vs NativeGOPWire.h:6-16）；608 B 账目用 profiles.py:9-16 的 list 替换语义重算（596 / 104 / 673 / 682）。不含构建，未跑 check-boot-args.py（新增参数还没进 BOOT-ARGS.md，跑了只会报缺文档，属预期）。"
+unit_test = "建议离线单测（未写）：一个解析器读 board.toml 的 [payload].kernel_args 与 .os_overrides.<os>.payload.kernel_args，按 profiles.py 的替换语义算出最终命令行，断言 ≤607 字节并打印逐项字节；判据是当前主线给出 596、27 override 给出 104、两者合并给出 673。这个脚本本身就是 27 上每次改参数的闸门，应该由 scripts/check-boot-args.py 吸收（但它是共享文件，本线不动）。"
+artifact_check = "产物核对（本线交付的三份文件 + 一个提交）：docs/research/eight-step/display-27.toml（七步 done=false、无 device、宽/verify 附加键齐）、docs/research/display/DISPLAY-27-DELTA.md（三分法 12/7/6，U1-U4，R1-R6）、docs/research/display/DISPLAY-27-INTEGRATION.md（三实现接入点、四组预算数字、三个待 Lead 决定）。数值核对：1534/18/98 B 与三档差 6/4/3 字节取自 docs/research/display/RESEARCH.md 的 live FDT 读数，本轮未重取。"
 local_verified = false
 recorded_at = "2026-11-21"
-evidence = "待填：⑦ 的三项检查结果。"
+evidence = "⑦ 的三项检查：static_check 已做（上面第一段），unit_test 未写（上面第二段，脚本形状已定），artifact_check 已做（三份文件在树里、数值互相引用）。local_verified 仍为 false：local 指本板 27 上机，本线只离线。"

@@ -81,11 +81,21 @@ python3 scripts/check-io-map-budget.py --tree /e/hackios/UniXNU/out/mondrian/ios
 窗口和超子图仍打 ❌ RC=1。副作用是**27 的树在这条门禁上永远红**，直到有人给它一个计数模式或对 27 显式豁免——
 而那种计数就是本文 §1 的表（BT 五窗 3,187,200 B；PongThermal / K60PmicRail / K60AdspBoard 三个调用点在 27 archive 之外）。
 
+> **别把两件事记成一件**（Lead 2026-11-21）：这次修的是「假绿」——不再借 16 系列的 8 MiB 打 ✅，
+> 27 树现在退 2。它**不是**让 27 通过：27 在这条门禁上会一直红/黄，直到计数模式接上。
+> 「算不出来的行怎么出现在结论里」是另一个坑（P-297），见 `GATE-BUGS-27.md` §6。
+
 原始建议（留档，已由上面的提交覆盖）：`IO_MAP_SIZE` 缺席时不要打 ✅，改打印「12377 之后 `io_map()` 每次 `kmem_alloc(kernel_map)`，本门禁不适用（P-219 已封存）」并按 skip 退出；BT 窗口的尺寸读 `patches/xnu-12377/0500-*.patch` 的宏，而不是 `bsd/dev/*.c` 里的 `#define`。
 
 **Lead 裁决（2026-11-21 m01381 ①）：走「计数模式」，不做 27 豁免。** 理由：豁免会让门禁对 27 永久闭嘴，而计数模式说的是事实——27 没有共享子图，量就该量窗口总和。实现形状：`io_map_size()` 拿不到定义时不退 2 也不借 8 MiB，改走 count 分支，以 `docs/research/ios27/io-map-budget-27.toml` 为预算表核行并报总和；**预算表缺行才退 2**。提案代码与六条验收读数在 `docs/research/ios27/IO-MAP-COUNT-MODE-PROPOSAL.md`（gates 仓库对本线只读，落地由 Lead 做）。
 
-## 2. T0SZ：整组可搬，但有一处属于 GPU 线
+## 2. T0SZ：逐文件判读在 `T0SZ-HUNK-INVENTORY.md`
+
+> 逐 hunk 的清单（13 个几何 hunk + 6 个搭车 hunk、两个载体的先后、每个 hunk 在 27 图上靠什么判据）
+> 见 `docs/research/ios27/T0SZ-HUNK-INVENTORY.md`。本节只留结论与前提读数。
+>
+> 一句话修正：**不是「整组可搬」**——`pmap.c` 9/10（第 10 个属 GPU 线）、`arm_vm_init.c`
+> 对 pristine 打不进（0/1）只对构建树成立、`sleh.c` 只搬 1/3。搬运必须按 hunk 分组，不能整包。
 
 ### 2.1 前提条件在 27 构建上成立
 

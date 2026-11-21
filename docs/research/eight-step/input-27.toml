@@ -88,14 +88,21 @@ evidence = [
   "16.6.1 已通过的触点事实（同一控制器、同一协议）：8 条 goodix type=1 报告 + 4 条 Pong touch HID 派发、SpringBoard 254 行、单指（27 设备仓 08-on-device.md:11）",
   "装配顺序的结论句：`patches/xnu/series` 只是给人看的顺序表，真正的装配顺序是 `patches/xnu/*.patch` 的 glob（字典序）——k60-gates/scripts/build-xnu-generic.sh:12 取 ROOT 后 :58-63 用 `git apply --check` + `git apply`（无 fuzz）遍历该 glob；这解释了为什么某些补丁在 series 里靠前却排在后面应用：26 个前导字母的补丁（如 0210-…-display-native-canvas.patch、zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch 这种 z 更少的）都排在 32 个 z 的 touch 之前，而 series 里的 197 号只是人读的序号",
   "27 装配树上的完整重放（2026-11-21，副本 /opt 树 rsync 到 $HOME 后 git apply，记录见 E:/k60-work/scratch/input27/replay-evidence.txt）：整补丁仍整体拒绝（touch: `patch failed: bsd/conf/files:385` + `iokit/Kernel/MiniIOMobileFramebuffer.cpp: No such file or directory`），但排除这两个「前置层才提供」的路径后 rc=0——pong_goodix.c(1375 行)/pong_input.c/pong_input.h 新建、bsd/kern/bsd_init.c Hunk #1 succeeded at 1166 (offset 19)；即 6 个路径里 4 个对 27 是 0 冲突",
-  "未落地的两个 touch hunk 的 27 侧性质：bsd/conf/files:385 需要 `bsd/kern/pong_userland.c` 锚行（由字典序更早的 zzzzzzz-pong-hackios-userland-abi.patch 建立，而它自己在该树上 --check 又失败于 bsd/conf/files:383、libkern/conf/files:109）；iokit/Kernel/MiniIOMobileFramebuffer.cpp 在 27 树 `iokit/Kernel`（85 项）里不存在，其创建者是 zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch（`--- /dev/null` 形式），而该补丁自己在 27 树上失败于 iokit/conf/files:79、bsd/kern/bsd_init.c:1305、bsd/kern/kern_memorystatus.c:222 —— 因此这两个 hunk 的阻塞在显示/用户态 ABI 层，不在本线的内核代码里",
+  "未落地的两个 touch hunk 的 27 侧性质：bsd/conf/files:385 需要 `bsd/kern/pong_userland.c` 锚行（由字典序更早的 zzzzzzz-pong-hackios-userland-abi.patch 建立，而它自己在该树上 --check 又失败于 bsd/conf/files:383、libkern/conf/files:109）；iokit/Kernel/MiniIOMobileFramebuffer.cpp 在 27 树 `iokit/Kernel`（85 项）里不存在，其创建者是 zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch（`--- /dev/null` 形式），而该补丁自己在 27 树上失败于 iokit/conf/files:79、bsd/kern/bsd_init.c:1305、bsd/kern/kern_memorystatus.c:222",
+  "前置层的归属（本线只记账、不改）：本条两个阻塞补丁的所有者不是输入线——zzzzzzz-pong-hackios-userland-abi.patch 属用户态 ABI 线，zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch 属显示线。输入层自身在 27 装配树上是零冲突（touch 排除这两条前置路径后 rc=0），所以 27 输入线的判据写成「输入层 0 冲突，整链阻塞在前置层」；前置层修复与 gates 改动都由 Lead 安排，本线不动 k60-gates",
+  "goodix 家族 7 个补丁的逐条判定（位置 = k60-gates/patches/xnu/*.patch 的 glob 序号 / 276，全部排在 touch(247) 与 keys(249) 之后：resume 251、bitbang-probe 252、pad-level 253、reset-level 254、frame-probe 257、miso-pull 259、spmi-probe 260；xnekom-ios27/patches/xnu/series（240 行）一条都没列，只列了 :197 touch 与 :198 keys）",
+  "① zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-goodix-resume.patch（glob 251）＝已并入、27 上不需要单独存在：它要在 `if (!bring_up())` 之后插 touch_reset() + goodix_probe(true) + 清报告位，而这套逻辑已经写进 touch-console 补丁本体（27 装配树副本 bsd/dev/pong_goodix.c:1287-1298：brl_resume 注释 + touch_reset() + goodix_probe(true) + clear + goodix_apply_config）；单独应用该补丁在 27 重放副本上硬失败 `error: patch failed: bsd/dev/pong_goodix.c:878`（它假定的是没有这段折叠代码的旧版文件），所以 27 序列里必须排除它，否则整链断在这里",
+  "② zzzz…-pong-touch-bitbang-probe / ③ -pad-level / ④ -reset-level / ⑤ -frame-probe / ⑥ -miso-pull（glob 252/253/254/257/259）＝不需要：五条都是纯诊断 printf（K60BB 初始化标记、K60PAD cs/miso/clk/mosi/rst 电平、K60RST pin 沿、帧长度计数、MISO 下拉）——它们回答 16 线「bit-bang SPI 与引脚复用到底通没通」，而 27 上的同一问题已由驱动自身的通道打印与坐标使能应答回答（27 装配树副本 bsd/dev/pong_goodix.c:1027-1029 的 goodix_command(5,0x91,…,\"COORD-ON\") 及其 ack 行）；五条的标记串在 27 应用后的 pong_goodix.c 里 grep 全为 0，27 series 也未收录，故不并入",
+  "⑦ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-spmi-probe.patch（glob 260）＝不需要：它在 SPMI map 表（core 0xc400000 / observer 0xc440000）里游走找 PPID 0x241 来给触摸供电，属 sheng 板（PM8350C LDO2）的供电路径；K60 的触摸 AVDD 是 TLMM GPIO 71（27 装配树副本 bsd/dev/pong_goodix.c:61-65 断言 avdd_gpio==71，:103/:130 GPIO_PAGE 映射、:180 gpio_output(avdd_gpio)），27 设备仓 board.toml:265 的 avdd-gpio=71 也是同一事实；再叠加 16.6.1 的真因是坐标使能而非电源，故该探针在 27 上无收益且增加跨子系统只读访问风险",
 ]
 
 # ⑦ 核验：static_check / unit_test / artifact_check / local_verified 全部离线。
 [hardware.touch.step.verify]
 done = false
 static_check = "两轮静态检查：①裸 27 xnu feed（xnu-3199e8bc）git apply --check：三个新文件与 bsd_init hunk（:1003，offset -144）通过，bsd/conf/files 与 MiniIOMobileFramebuffer.cpp 失败；②27 装配树副本（soc 层已装）逐文件重放：排除上述两路径后 rc=0（bsd_init Hunk #1 at 1166, offset 19），keys 排除 bsd/conf/files 后 rc=0；重放后 4 个文件用到的 106 个标识符在 27 树内全部有定义（缺 0）。两条 27 侧阻塞均已定位到前置层，见 deep 第 9-10 条"
-unit_test = "gate 仓 scripts/test-goodix-config.py 与 scripts/tests/test-brl-parse.py 覆盖 16.x 的 0x91/0x01 与 BRL 帧解析；未对 27 侧运行"
+unit_test = '''clang -fsyntax-only（只到语法层，不出任何产物）在 27 装配树副本（xnu-work HEAD ac9718f，soc 层已装，touch+keys 补丁已落）上逐文件执行：
+clang -fsyntax-only -x c -std=gnu11 -ferror-limit=4 -D__APPLE__ -DKERNEL -DPRIVATE -DKERNEL_PRIVATE -DXNU_KERNEL_PRIVATE -D__KERNEL__ -D__arm64__ -D__aarch64__ -DARM64 -D__LP64__ -D__arm64e__=0 -I. -Ibsd -Ibsd/sys -Ibsd/machine -Ibsd/vfs -Ibsd/net -Ibsd/kern -Ibsd/dev -Ibsd/security -Ilibkern -Iosfmk -Iosfmk/machine -Iosfmk/arm64 -Ipexpert -Ipexpert/arm64 -Iiokit -Iiokit/IOKit -IEXTERNAL_HEADERS -ISETUP -Ibsd/conf bsd/dev/pong_goodix.c
+结果：bsd/dev/pong_goodix.c（1375 行）rc=0、0 error、0 warning；bsd/dev/pong_buttons.c（171 行）同；bsd/dev/pong_input.c（107 行）同。对照组（同一命令 + 一份故意写坏的文件）报 `error: expected parameter declarator`，证明这条命令确实会拒绝坏代码，不是空跑。注意这是宿主 clang 18.1.3 的语法层结果，不等于构建线 clang 24.0.0git 的完整编译（-Werror/链接期 ABI 仍未覆盖）'''
 artifact_check = "无 27 构建产物；本线禁止构建，故 artifact_check 为空"
 local_verified = false
 evidence = [
@@ -106,7 +113,9 @@ evidence = [
   "两补丁都在 27 装配输入里：k60-gates/patches/xnu/ 有 zzzz…-pong-touch-console.patch、zzzzz…-pong-physical-keys.patch，另有本线此前未列入的 zzzz…-pong-goodix-resume.patch；xnekom-ios27/patches/xnu/series:197-198 也列出前两个",
   "重放判据 2（ADR 不漂移）：副本里 /opt/k60/trees/gates-device/dts/mondrian.dts 的 sha256 在重放前后同为 ea68831502bceb1d77c171ba78361804b30e03ddd8c785880d5583b3a5b7c58f，且与装配输入同一文件——重放只落 bsd/ iokit/ 内核源，不触碰 ADT 产物",
   "重放判据 3（副本清理）：$HOME/input27-replay 已 rm -rf 删除；/opt 构建输入全程只读（rsync 读 + 无写入），未改动 /opt/k60/trees 任何字节",
-  "⑦ 仍为 done=false 的理由：本轮只有源级静态检查（0 冲突 + 106 标识符全部可解析），没有 27 编译产物、没有上机日志；按 k60-gates/AGENTS.md 铁则 3，⑦ 要静态检查 + 离线单测 + 产物检查三者齐备",
+  "27 侧语法层核验（本线新做的离线单测，命令见 unit_test）：27 装配树副本上 pong_goodix.c / pong_buttons.c / pong_input.c 三个落地文件 `clang -fsyntax-only` 全 rc=0、0 error、0 warning；对照组（同命令 + 故意写坏的文件）报 `error: expected parameter declarator`，说明命令有效。判定成立的关键宏是 -DKERNEL_PRIVATE -DXNU_KERNEL_PRIVATE：27 的 pexpert/pexpert/arm64/board_config.h:20-32 在 `#if !defined(KERNEL_PRIVATE) && !defined(SPTM_TESTING_PRIVATE)` 下直接 #error（注释写明该检查「不适用于内核本身」），缺这两个宏时第一次尝试只报这一条错",
+  "语法层核验的边界：宿主是 Ubuntu clang 18.1.3（Target x86_64-pc-linux-gnu），16.6.1 实机用的是 UniXNU 自带 clang 24.0.0git（16 侧 pong_goodix.o 的 DW_AT_producer 可证），构建日志只有 `CC pong_goodix.o` 没有命令行、也没有 compile_commands.json，故本次无法复刻构建线的完整 flag；因此本行只主张「27 头文件集下三个文件语法自洽」，不主张可链接、不主张 -Werror 通过",
+  "⑦ 仍为 done=false 的理由：本轮补齐了静态检查（0 冲突 + 106 标识符全部可解析）与离线语法单测（3 文件 rc=0 + 对照组），但 artifact_check 仍为空——本线禁止构建，27 上还没有 pong_goodix.o/pong_buttons.o；按 k60-gates/AGENTS.md 铁则 3，⑦ 要静态检查 + 离线单测 + 产物检查三者齐备，产物检查须由构建线产出后由本线比对",
 ]
 
 [hardware.buttons]
@@ -179,7 +188,7 @@ evidence = [
   "16.6.1 侧的同一拓扑：PMIC arbiter v7 + channels=768 + PON=407 + GPIO6=434（board.toml:284-299 的六个属性供 pong_buttons.c 断言），成功日志 Pong keys: arbiter v7 … power=1 up=1 down=1",
   "上报语义：report 2 只发按下集合的位（Power bit1 / Volume+ bit2 / Volume- bit3），按下与释放是同一位的翻转（sheng NativeHidInput.cpp buttonsAction report{2,(down?1:0)|buttons&0xe}）；长按 = 位保持不变，不需要额外通道",
   "与触摸的分离：16.6.1 共用 /dev/pong-input 头（pong_input.h 的 PONG_BUTTON_DOWN/UP 与 PONG_TOUCH_* 同文件）；27 的同代参考是触摸与按键各自 sink，但共用同一个 IOHIDDevice 实例（sheng NativeHidInput 同时注册 report 2 与 report 3）",
-  "装配顺序的结论句（与 touch 同一条规则，按 Lead 裁决写进 ⑥deep）：`patches/xnu/series` 只是给人看的顺序表，真正的装配顺序是 `patches/xnu/*.patch` 的 glob 字典序（k60-gates/scripts/build-xnu-generic.sh:58-63，git apply 无 fuzz）；按该排序统计，keys 补丁在 276 个补丁里排第 252（touch 第 250、zzzz…-pong-goodix-resume 第 254），所以 touch 一定先于 keys，而 keys 的 bsd/conf/files hunk 锚定的正是 touch 才写入的 `bsd/dev/pong_goodix.c … standard` 行",
+  "装配顺序的结论句（与 touch 同一条规则，按 Lead 裁决写进 ⑥deep）：`patches/xnu/series` 只是给人看的顺序表，真正的装配顺序是 `patches/xnu/*.patch` 的 glob 字典序（k60-gates/scripts/build-xnu-generic.sh:58-63，git apply 无 fuzz）；按该排序在 276 个补丁里实测序号为 touch 247、zzzzzzz-k60-panic-report 248、keys 249、zzzzzz-k60-cpp-void-ptr-assert 250、goodix-resume 251，所以 touch 一定先于 keys，而 keys 的 bsd/conf/files hunk 锚定的正是 touch 才写入的 `bsd/dev/pong_goodix.c … standard` 行",
   "27 装配树副本上的 keys 重放：整补丁被拒（`bsd/sys/pong_input.h: No such file or directory`、bsd_init.c:1153 找不到 touch 的 `#if defined(PONG)` 块），排除 bsd/conf/files 后 rc=0——pong_input.c（按键队列，107 行）与 bsd_init.c 落地，两个 init 调用按 goodix→buttons 次序相邻（重放后 bsd_init.c:1169-1179）；即 3 个路径里 2 个对 27 是 0 冲突，剩下一个是 conf 行序依赖",
 ]
 
@@ -187,7 +196,7 @@ evidence = [
 [hardware.buttons.step.verify]
 done = false
 static_check = "本线用 tomllib 解析 27 设备仓 board.toml：并确认 devicetree.py:388-390 的发射条件（[adt].buttons 在 platform 里）成立"
-unit_test = "无按键专用离线测试；ADT 结构核对复用 27 设备仓 patches/buttons/README.md:100-114 的 adt-inspect.py 流程（未运行，产物属构建线）"
+unit_test = "按键侧的离线语法单测：与 touch 同一条 clang -fsyntax-only 命令（完整命令行见 [hardware.touch.step.verify].unit_test）在 27 装配树副本上对 bsd/dev/pong_buttons.c（171 行）跑出 rc=0、0 error、0 warning；同一命令的对照组（故意写坏的文件）报 expected parameter declarator，证明不是空跑。宿主 clang 18.1.3 ≠ 构建线 clang 24.0.0git，故只主张语法层自洽。ADT 结构核对复用 27 设备仓 patches/buttons/README.md:100-114 的 adt-inspect.py 流程（未运行，产物属构建线）"
 artifact_check = "无 27 构建产物；本线禁止构建"
 local_verified = false
 evidence = [

@@ -1,0 +1,22 @@
+--- a/docs/engineering/PITFALLS.md
++++ b/docs/engineering/PITFALLS.md
+@@ -7716,6 +7716,19 @@
+ 
+ 判据（写进报告前必须齐）：`git rev-parse HEAD` + 该文件 `sha256` + 完整工具输出。三条不齐，就不许把「编不过 / 跑不了 / 不生效」写进坑位或交付报告——缺任何一条时，先怀疑自己读的是哪棵树，而不是别人的仓库。与 P-297 同族：**没跑出结论不等于结论是坏的**，读错对象不等于对象是坏的。
+ 
++### 交付补丁前必须在目标分支上 `git apply --check`
++
++同一族第三次：本线把一处 dts 修复以「可直接 apply」交给 Lead，而该修复早已在目标分支落地（`e1b6c15f`），
++再插一行 `/*` 就成了嵌套注释。在目标分支上 `git apply --check` 会立刻报
++`patch failed: dts/mondrian.dts:95` / `patch does not apply`——我此前只在「我以为的基线」上验过，所以没看见。
++
++规矩：任何交出去的补丁，先**在目标分支上**跑 `git apply --check`，把输出粘进报告；在别处验过不算。
++
++同一件事的另一半（2026-11-21 当场学到）：**已落地的补丁再 apply 必然失败**。本线的
++`pitfall-p298-p299.patch` 随后在 `diag/menu-hold-20261121` 上报四处 `patch does not apply`，而
++`RULES.toml` 里 `P-298`/`P-299` 已经在（`:1313` 处，179 条规则末两条）。那不是上下文漂移、更不是补丁坏了，
++是它已经被 apply 过——所以 `apply --check` 失败时先查目标里有没有，而不是先改上下文。
++
+ 
+ ## P-299 — 上游 pick 会把别人正依赖的 board.toml 块先加后删
+ 

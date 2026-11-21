@@ -1,4 +1,4 @@
-# 坑位 P-298 / P-299 成稿（A-patch 形状，待 Lead apply）
+# 坑位 P-298 / P-299 成稿（A-patch 形状；**已由 Lead 落地**，见文末「落地后的两次更正」）
 
 两条由 Lead 分配号码并指定拆开：坏的方式不同、抓住它们的判据也不同，合成一条会让后来人以为修好
 其中一个就算完（Lead 2026-11-21 19:43）。
@@ -86,4 +86,44 @@ runner 是 `k60-gates/scripts/check-rules.py:75` 的 `subprocess.run(command, sh
 ## 未做的事
 
 - 不碰 gates 仓、不碰 BT 线仓：`dts/mondrian.dts:100` 的 `/*` 由 Lead 自己改，我只交 diff。
+  **该 diff 已撤回**，见下节第一条。
 - 不自占号码、不把 `check = false` 换成猜测命令。
+
+## 落地后的两次更正（2026-11-21 20:0x）
+
+### 一、dts 的 `/*` 早已修好，我的 diff 作废且不可 apply
+
+Lead 在 `diag/menu-hold-20261121` 上实测：`1e2e6814`（feat(bt)）确实丢了注释开头的 `/*`，合并提交
+`585fe75a` 把它带进来，而修复提交 `e1b6c15f`「fix(dts): restore the comment opener the merge dropped」
+（`dts/mondrian.dts | 2 ++`）已经在树里。所以：
+
+- 我的 diff 在那棵树上 `git apply --check` → `patch failed: dts/mondrian.dts:95` / `patch does not apply`：
+  `/*` 已存在，再插一行就成了嵌套注释。**不可 apply，也不要再写成「可直接 apply」。**
+- 我这边之所以编不过，是读了一棵 stale 检出：`E:/hackios/xnekom-ios27`（`feat/xnu27-data-gate` @
+  `7fd04d89`，dts `sha256 e9871e43…`）与构建输入 `E:/hackios/k60-gates`
+  （dts `sha256 ea688315…`）是两棵树两个阶段。
+- 顺带更正 Lead 的一条前提：`feat/input-27` **已经含** `e1b6c15f`——HEAD `61513c11`，
+  `git merge-base --is-ancestor e1b6c15f HEAD` rc=0，`git hash-object dts/mondrian.dts` = `91a26c32…`
+  = `git rev-parse HEAD:dts/mondrian.dts`。所以不需要 rebase / cherry-pick。
+- 用**未修改**的本仓 dts 重跑 ADT 检查：`verdict: PASS (exit 0)`，`kernel.macho.adt` 16,648 B，
+  结论不变（记录见 [`adt-27-buttons-check.md`](adt-27-buttons-check.md)）。
+
+### 二、P-298 / P-299 已落地；补丁 `apply --check` 失败 = 已落地，不是漂移
+
+Lead 已 apply 到 `E:/hackios/k60-gates`（HEAD `78db41e0`）：`README.md:155` 与 `README_EN.md:167` 的区间
+已到 `P-01–P-299`，`docs/engineering/RULES.toml` 179 条规则末两条是 `P-298` / `P-299`，
+`docs/engineering/PITFALLS.md` 102 个 `^## P-` 节，`## P-298` 在 `:7679`、`## P-299` 在 `:7720`，
+且落地的 P-298 里已带「报编不过要给 HEAD + sha256 + 完整输出」那一小节。
+
+于是 `pitfall-p298-p299.patch` 现在 apply 会在四处失败（`README.md:152`、`README_EN.md:164`、
+`PITFALLS.md:7674`、`RULES.toml:1313`）。**这四处 `patch does not apply` 的含义是「已经 apply 过」**，
+不是上下文漂移、更不是补丁坏了。
+
+落地版仍缺的一半教训（补丁：[`pitfall-p298-apply-check.patch`](pitfall-p298-apply-check.patch)，22 行非空、
+1,637 B，单 hunk `@@ -7716,6 +7716,19 @@`，只改 `PITFALLS.md`）：**交付补丁前必须在目标分支上跑
+`git apply --check` 并把输出贴进报告**；在「我以为的基线」上验过不算。校验记录：
+
+| 步骤 | 结果 |
+| --- | --- |
+| 目标分支上 `git apply --check --verbose`（`k60-gates` @ `78db41e0`，只读） | rc=0，`Checking patch docs/engineering/PITFALLS.md...` |
+| `git archive HEAD` 副本里真 apply | rc=0，文件里出现该小节，`^## P-` 节数仍 102（只加子节，不占新号） |

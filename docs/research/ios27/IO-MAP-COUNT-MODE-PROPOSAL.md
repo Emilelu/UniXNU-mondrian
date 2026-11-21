@@ -93,8 +93,10 @@ tree      : <lane root>/… 之外的任意 xnu-work 树，由 --tree 给
 6. 每行类型/取值合法（`verify` 在枚举内、`bytes` 是非负 int、`unresolved` 自洽）→ 否则 `FAIL: window <id>: <what>`，退 2。
 7. 对每个 `in_27_build = true` 的行：
    - 解析根：`base = <lane root>` 当 `root = 'lane'`，`base = <tree>` 当 `root = 'xnu'`；`root` 不在枚举内即 `FAIL: window <id>: root is <x>`，退 2；
-   - `verify ∈ {macro, file}`：`<base>/<file>` 存在 → 否则 `FAIL: window <id> points at <file>, which this tree does not have`，退 2；
-   - `verify = macro`：`#define <token>` 在该文件里 → 否则 `FAIL: window <id> expects #define <token> in <file>; the table no longer describes this tree`，退 2。
+   - `root = 'xnu'` 而 `--tree` 未给 → `FAIL: window <id> resolves against the tree, but --tree was not given; cannot judge`，**退 2**（不许把 xnu 行静默跳过，那就是 P-297）；
+   - `verify ∈ {macro, file}`：`<base>/<file>` 存在 → 否则 `FAIL: window <id> points at <file>, which <base> does not have`，退 2；
+   - `verify = macro`：`#define <token>` 在该文件里 → 否则 `FAIL: window <id> expects #define <token> in <file>; the table no longer describes this tree`，退 2；
+   - 每行**必须**打印解析结果，行号不够，要打印用的是哪个根、解析成什么绝对路径：`window <id>: root=<lane|xnu> -> <绝对路径>:<macro_line> (verify=<macro|file>)`。只打印行号等于没打印根。
 8. 合计 = `[limits].in_27_build_total_bytes` → 否则 `❌ io_map budget table is inconsistent: rows sum to <n>, [limits] declares <m>`，**退 1**。
 9. 通过：`count: <k> window(s) in the 27 build, <n> B (<x.xx> MiB); no shared submap to overflow (12377 io_map() allocates each window from kernel_map)` + `✅ io_map windows: the table matches the tree`，退 0。
 
@@ -165,11 +167,15 @@ def count_mode(tree, table_path):
         if not row["in_27_build"]:
             continue
         counted += 1
+        if row["root"] == "xnu" and not tree:                       # 3.3-7 第二条
+            print("FAIL: window %s resolves against the tree, but --tree was not "
+                  "given; cannot judge" % row["id"])
+            return 2
         base = args.lane if row["root"] == "lane" else tree
         path = os.path.join(base, row["file"])
         if row["verify"] in ("macro", "file") and not os.path.exists(path):
-            print("FAIL: window %s points at %s, which this tree does not have"
-                  % (row["id"], row["file"]))
+            print("FAIL: window %s points at %s, which %s does not have"
+                  % (row["id"], row["file"], base))
             return 2
         if row["verify"] == "macro":
             token = row["expression"].split()[0]
@@ -177,6 +183,9 @@ def count_mode(tree, table_path):
                 print("FAIL: window %s expects #define %s in %s; the table no "
                       "longer describes this tree" % (row["id"], token, row["file"]))
                 return 2
+        print("window %s: root=%s -> %s:%s (verify=%s)"
+              % (row["id"], row["root"], os.path.abspath(path),
+                 row["macro_line"], row["verify"]))
         total += row["bytes"]
 
     declared = limits.get("in_27_build_total_bytes")
@@ -202,9 +211,38 @@ def count_mode(tree, table_path):
 
 新增两个参数：`--table`（默认 `<lane-root>/docs/research/ios27/io-map-budget-27.toml`，仅为自测可覆盖）、`--lane-root`。
 
-### 3.5 契约自检
+### 3.5 三条硬约束（Lead 2026-11-21：接受 `root ∈ {lane, xnu}` 时附的）
 
-`E:/k60-work/scratch/platform27/contract-check.py` 是这份契约的参考实现（只读、不改表、不进仓库）：按 §3.2 逐字段校验 15 行、按 §3.3 的顺序报第一条错误、对 `verify = macro` 的 5 个在-build 行（全在 BT 补丁里）真去文件里找 `#define`，对 `root = xnu` 的三行在 XNU 树里核文件存在（`--xnu` 默认 `E:/hackios/xnu-12377`）。2026-11-21 实跑：`count: 8 window(s) in the 27 build, 3187200 B (3.04 MiB)`、`rows: 15 total, 8 in the 27 build (5 macro-verified, 3 file-verified)`、`✅ io_map windows: the table matches the tree`，RC=0。
+1. **每行打印「哪个根 → 解析成什么绝对路径」**，不能只打印行号。理由：两个根意味着同一个
+   `file` 字符串可能落在两棵树上，输出里看不到根就无法复核是哪个文件被核过。
+2. **`--tree` 未给、或树里文件缺失 → 退 2（判不了）**，绝不许把 `root = xnu` 的行静默跳过。
+   跳过就是把「算不出」折成「没有」，正是 P-297 的形状。
+3. **不许把表拆成两份文件**。两个根一张表，比两张表更容易看出「谁少了行」；拆表之后
+   「表外新增窗口」就没法在一处核对。
+
+`verify = none` 行必须 `bytes = 0` 且 `unresolved = true` 这条互锁保留：它让「没算出来」在数据结构里
+就不可隐藏，而不是只靠结论行措辞。
+
+### 3.6 契约自检
+
+`E:/k60-work/scratch/platform27/contract-check.py` 是这份契约的参考实现（只读、不改表、不进仓库）：按 §3.2 逐字段校验 15 行、按 §3.3 的顺序报第一条错误、对 `verify = macro` 的 5 个在-build 行（全在 BT 补丁里）真去文件里找 `#define`，对 `root = xnu` 的三行在 `--tree` 指向的 XNU 树里核文件存在，并按 §3.5 逐行打印「根 → 绝对路径」。
+
+2026-11-21 实跑（两条都要留）：
+
+```sh
+python3 contract-check.py --tree E:/hackios/xnu-12377
+# window bt-gcc: root=lane -> …\k60-platform27\patches\xnu-12377\0500-k60-bt-qbt-new-files.patch:107 (verify=macro)
+# …（5 个 lane 行）
+# window xnu-ml-map-cpu-pio: root=xnu -> …\xnu-12377\osfmk\arm64\machine_routines.c:0 (verify=file)
+# count: 8 window(s) in the 27 build, 3187200 B (3.04 MiB); no shared submap …
+# ✅ io_map windows: the table matches the tree        # rc=0
+
+python3 contract-check.py
+# … 5 个 lane 行照常打印
+# FAIL: window xnu-ml-map-cpu-pio resolves against the tree, but --tree was not given; cannot judge   # rc=2
+```
+
+第二条就是 §3.5 第 2 条约束的可执行证明：没有树时**不跳过** xnu 行，而是判不了。
 
 ## 4. 验收读数（Lead 落地后我按这六条复核）
 
@@ -215,6 +253,7 @@ def count_mode(tree, table_path):
 | 表里 `shared_submap = true` 但树无定义 | `FAIL: … claims shared_submap = true` | 2 |
 | 树里新增一个表外窗口（我们加一行不删） | 走「宏找不到」/「行不一致」分支，`FAIL` 点名 `id` | 2 |
 | 表内 `in_27_build_total_bytes` 与行和不一致 | `❌ io_map budget table is inconsistent` | 1 |
+| `--tree` 未给而表里有 `root = xnu` 行 | `FAIL: window … resolves against the tree, but --tree was not given; cannot judge` | 2 |
 | 16 系列树（有 `IO_MAP_SIZE`） | 旧 submap 分支不变（`submap … from osfmk/arm/io_map.c`） | 0/1 |
 
 第 4 条的边界：当前实现只看表里有的行，所以「树里多出一个窗口、表没更新」只能靠**行核对**（宏还在不在）+ 人工 review 抓住，不能靠集合差。要真做成集合差，`call_sites()` 必须认 wrapper 的第三个实参，那等于把 wrapper 的名字写死进 gates——不划算，写出这个边界即可。

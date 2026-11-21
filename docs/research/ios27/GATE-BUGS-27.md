@@ -295,3 +295,54 @@ grep -n '{#' ../UniXNU/docs/zh/porting/platform.md
 
 这一条不影响本线交付（三条锚点都是真的），但它意味着「门禁绿」在现阶段**不能**被读成「所有官方锚点都验过」。
 在 `finditer` 落地前，任何人加第 2 条引用都要自己看一眼。
+
+## 6. 新坑草案：`call_sites()` 把「算不出」折叠成「0 字节」（坑号请 Lead 分配）
+
+> 本节按 Lead 2026-11-21 的指示单独立坑：**坑号找 Lead 要，本线不自占**。这是本线写下的
+> 正文草稿，Lead 给号后我把 `P-xxx` 补进标题与下方结论。
+
+**现象。** `E:/hackios/k60-gates/scripts/check-io-map-budget.py` 在拿不到窗口尺寸时不会说「算不出」，
+而是把这一项从合计里静默丢掉，最后报一个 0：
+
+```
+$ python3 scripts/check-io-map-budget.py --tree <27 树>/osfmk/arm/io_map.c 所在树
+submap 8388608 = 0x800000 (8388608 bytes) from default
+2 call site(s), 2 unresolved; resolved total 0x0 (0.00 MiB)
+✅ io_submap budget: every ml_io_map window fits
+```
+
+`unresolved 2` 已经写在输出里，但**结论行仍然是 ✅**，退出码 0。读结论的人（和后续自动化）看到的
+是「预算通过」，不是「两项没算出来」。
+
+**为什么它是坑。** 「读不到」被折叠成「没有」，与 P-279（文档镜像读不到 → 报"没有镜像"，退 2 前
+先误报）同形。区别只在折叠点：P-279 折在文档镜像，这里折在窗口尺寸。
+
+**什么时候会静默通过**（任意一条成立就够了）：
+
+1. 尺寸经 wrapper 传入。27 的 BT 驱动就是这么写的：`patches/xnu-12377/0500-k60-bt-qbt-new-files.patch:331`
+   `static int k60_map(struct k60_region *r, uint64_t phys, size_t bytes)`，`:336`
+   `r->va = (volatile uint32_t *)ml_io_map((vm_offset_t)phys, (vm_size_t)bytes);`，
+   真正的五个窗口在 `:1017-1021` 以 `k60_map(..., K60_GCC_SIZE)` 形式给出。`call_sites()` 只看到
+   `(vm_size_t)bytes`，既非字面量也不在同文件 `#define` 里 → unresolved。
+2. `#define` 在另一个文件。`K60PmicRail.c` 的四个映射用的是 `K60PmicRail.h:28/:30` 里的宏，
+   同文件里没有定义 → unresolved。
+3. 调用点不在扫描范围内。`call_sites()` 只 glob `bsd/dev/*.c`；`drivers/**`（PongThermal、
+   PongPower）与补丁文件（`patches/xnu-12377/0500-*.patch`）都不在扫描范围，等于看不见。
+4. 树里没有 `IO_MAP_SIZE` 时它借 16 系列的 `DEFAULT_SUBMAP = 8 << 20`（`:28`、`:70`）。这一条
+   已经由 Lead 修掉（`c1b50a05`/`881d005d`，27 树现在明确红并要求计数模式），但 1–3 三条仍在，
+   所以**计数模式落地后**这个坑依然会咬人：计数模式必须显式处理 unresolved 行，否则换个形状
+   继续折叠。
+
+**建议判据。**
+
+- `unresolved > 0` 时不允许打印 ✅、不允许退出 0：要么退 2 并点名「无法计算：缺 <wrapper 的实参宏 /
+  缺`#define` 所在文件>」，要么在计数模式下把 unresolved 行当作「表外项」打印出来（不计入合计、
+  但在结论行里计数并列出 `id`）。
+- 结论行必须能区分三种状态：`0 unresolved`（判过）/ `N unresolved`（N 项没算出来）/ 无表无树（判不了）。
+  现在只有第一种状态看起来像通过，其余两种都长得像通过。
+
+**复现。** `E:/k60-work/scratch/platform27/gate-repro.sh` 的 B 组（读数见 §4 与本轮重跑）；
+计数模式下的同形复现见 `E:/k60-work/scratch/platform27/contract-check.py` 的 `verify = none` /
+`unresolved = true` 行——契约要求这些行 `bytes = 0` 且**不进合计**，并在输出里单独计数，正是为了避免
+同一种折叠。
+

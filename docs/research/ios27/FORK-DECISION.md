@@ -129,6 +129,47 @@
 - XNU 原生：`osfmk/arm64/cpu.c:1024`（`ml_arm_sleep`）、`osfmk/kern/processor.c:1175`、`osfmk/arm/machine_routines.h:757`。
 - 归档与参数：`board.toml:14`、`:21`、`:194-206`；`configs/mondrian_ios27_defconfig`。
 
+## 6.5 三条缺口的只读检查（一条命令）
+
+Lead 2026-11-21 批准的空窗期工具：`scripts/check-catalog-armcpu-gaps.py`。只读、离线、不碰 build、
+不改 `board.toml`、不产出镜像；它读 `board.toml`（含 `os_overrides."ios-27.0.1-24A446"` 覆盖）、
+`components.toml` 的 ArmCpu 钉版本、`scripts/make-pong-adt.py` 与 catalog 检出里那条 revision 的
+`ArmCpu.cpp`，然后给三条缺口各一个三态结论：
+
+| 状态 | 含义 | 退出码 |
+|---|---|---|
+| `SATISFIED` | 这条缺口在树里已经满足，切换时不必再算它 | — |
+| `OPEN` | 缺口还在，并给出证明它的 `文件:行` | 1（有任一 OPEN） |
+| `UNKNOWN` | 这里判不了，行里写明**缺哪个输入** | 2（无 OPEN 但有 UNKNOWN） |
+
+`UNKNOWN` 是答案之一，不是敷衍：它必须打印缺什么（没有 catalog 检出 / 检出里没有那条 revision /
+`components.toml` 没写 revision），这样下一个人知道去补哪一块，而不是把「读不到」当成「没问题」。
+
+```sh
+python3 scripts/check-catalog-armcpu-gaps.py            # 人读
+python3 scripts/check-catalog-armcpu-gaps.py --json     # 机读
+```
+
+2026-11-21 实跑（本线工作树，钉版本 `93a5030c`）：
+
+```
+psci-node   OPEN      the ADT has the /psci node the catalog reads
+    - catalog ArmCpu reads the /psci node: yes
+    - ADT generator scripts\make-pong-adt.py: first psci mention at line 174; publishes a psci node: no
+sheng-smp   OPEN      the 27 kernel_args opt the secondaries in
+    - board.toml:396 is the 27 kernel_args list and none of its 7 entries is sheng-smp=1
+sleep       OPEN      the catalog can register a platform sleep board
+    - catalog revision pinned exports armcpu_sleep_register: no
+    - the 27 archives/include carry PongPower: no
+3 gap(s) still open        (rc=1)
+```
+
+三态是用样例树验过的，不是只跑了真实树：`E:/k60-work/scratch/platform27/selftest-gaps.py` 现搭两条
+临时 lane —— 一条全满足（`psci` 节点在、`sheng-smp=1` 在、catalog 有 `armcpu_sleep_register`、归档
+含 `PongPower`）报 `rc=0` 且三行全 `SATISFIED`；同一条把 `--catalog` 指向不存在的目录，两条相关缺口
+转 `UNKNOWN` 并打印 `missing input: a catalog checkout with the pinned revision`、`rc=2`。结果
+`SELFTEST OK`。
+
 ## 7. 外部证据（供 `porting.toml` 记录引用）
 
 Lead（m00493 ②）把这条记录写进 `porting.toml`，本节只提供可复现的读数。全部命令在 2026-11-21 的本机 MSYS bash 里跑过，输出逐字照抄。

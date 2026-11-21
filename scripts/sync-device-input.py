@@ -135,6 +135,8 @@ def walk_files(root, rel):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--check', action='store_true', help='只报告差异，不写')
+    ap.add_argument('--adopt', action='store_true',
+                    help='镜像侧改动确认丢弃时才用；默认遇到冲突就停（铁则 18）')
     a = ap.parse_args()
 
     if not os.path.isdir(DEV):
@@ -142,6 +144,7 @@ def main():
         return 1
 
     copied, same, missing = [], 0, []
+    conflicts = []
     for item in ITEMS:
         src = os.path.join(REPO, item)
         if not os.path.exists(src):
@@ -156,11 +159,17 @@ def main():
                 # 只差构建回执字段：算一致，且不把镜像里的回执覆盖成仓库的旧值。
                 same += 1
                 continue
+            if os.path.exists(d) and os.stat(d).st_mtime > os.stat(s).st_mtime + 1.0:
+                # 镜像里这份比仓库新：不是我们上次复制留下的时间戳，就是别人改过。
+                # 铁则 18：同步不许强推，冲突要先解决。--adopt 明确表示丢弃镜像侧改动。
+                if not a.adopt:
+                    conflicts.append(rel)
+                    continue
             if a.check:
                 copied.append(rel)
                 continue
             os.makedirs(os.path.dirname(d), exist_ok=True)
-            shutil.copyfile(s, d)
+            shutil.copy2(s, d)  # copy2 保留 mtime，下一次才能分辨“谁改的”
             copied.append(rel)
 
     # 框架副本
@@ -203,6 +212,15 @@ def main():
                 extra.append(f)
                 if not a.check:
                     os.unlink(os.path.join(pb, f))
+
+    if conflicts and not a.adopt:
+        print('  冲突 %d 个（镜像里这份比仓库新，可能被别人改过，拒绝覆盖）:' % len(conflicts))
+        for rel in conflicts[:40]:
+            print('    %s' % rel)
+        if len(conflicts) > 40:
+            print('    ... 还有 %d 个' % (len(conflicts) - 40))
+        print('  处理：先弄清是谁改的；确认要丢弃镜像侧改动才加 --adopt（铁则 18）')
+        return 2
 
     print('  %s: %d 个文件已一致' % ('检查' if a.check else '同步', same))
     if copied:

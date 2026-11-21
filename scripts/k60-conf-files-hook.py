@@ -31,11 +31,13 @@ def entries(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tree', default='.', help='the assembled tree')
+    parser.add_argument('tree_arg', nargs='?', default=None,
+                        help='the assembled tree, as a positional (how the builder calls this)')
+    parser.add_argument('--tree', default=None, help='the assembled tree')
     parser.add_argument('--list', default=None, help='override the entry list')
     options = parser.parse_args()
 
-    root = Path(options.tree).resolve()
+    root = Path(options.tree or options.tree_arg or '.').resolve()
     names = Path(options.list).resolve() if options.list else root / LIST
     conf = root / '.cache/xnu-work/bsd/conf/files'
     if not conf.is_file():

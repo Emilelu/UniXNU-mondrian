@@ -211,6 +211,11 @@ static_assert(offsetof(PongScanoutDone, reserved) == 12, "the completion check i
 - 开关为 0 时这些断言**不成立是设计，不是缺陷**：没有 v2 布局，它们就没有可描述的事实；翻了开关那天它们才成为判据（P-290 的形状：不运行的断言不是判据）。
 - **flip 条件与 flip owner 只在本节维护**；`patches/proposed/README.md`、`docs/research/gpu/FLIP-READINESS.md`
   与八步 fragment 一律指回本节，不复制（P-259：抄一份就多一处会过期）。
+- **里程碑必须是可判定的**（Lead m02529 立的边界）。`flip condition` 里那两个合取项各自要落到一个能查的东西上：
+  前者是 `E:/k60-work/scratch/reply-gpu-display-sync.md` 里 display 逐行写「一致」的那一段（引用它会签轮次的标题与三行原文），
+  后者是 `grep -rn "pong-scanout-v2-layout-asserts" patches/*/series` 恰好一行。
+  写成「等 dbuf 起来」「等 GPU 能用」这类句子的条件不算条件——它既不能让门禁转绿，也不能让下一个人判断该不该翻，
+  只是把决定推给一句没有主语的期待。同理，任何指向本节的文档都必须能回答「按什么查得出它成立了」。
 
 补丁本身在两侧各一段，全部套在 `#if PONG_SCANOUT_V2_LAYOUT`（当前 `#define ... 0`）里。它**按现在的树是编译不过的，
 这是故意的**：字段不存在时断言就是假事实。等 v2 立项把 0 改成 1，四个数（56 / `token`@44 / `evict`@48 /

@@ -206,6 +206,14 @@ m01375）：①`us each in the driver` 是合成器自己在一帧内的成本�
 它自动成为判据。它**不进 CI**（CI 里只有夹具，等于只测自己），接 CI 的条件是「首次出现 `imports=0`
 的飞行之后立刻接」。
 
+那条门禁的规则 5（「三秒窗口内帧计数按面板速率推进」）需要 stage 行上有**绝对时间**，而 27 侧今天没有：
+`imports=0` 只能证明「这一次没拷贝」，证明不了「这三秒一直被喂着」。所以补了第五份草案
+`patches/proposed/pong-scanout-frame-timestamp.patch`（`at=<sec>.<ms>`，叠在 `pong-metal-client-gap.patch`
+之后，复用 wait span 已读的同一个 `t1`）。在它被带上之前，门禁对这条规则的做法是**退 2 并说「判不了窗口」**，
+不是当作窗口成立——缺一个测量永远不等于测量到好。两条反例钉住了门禁自己：`at` 逆序（两行无法排序，退 1）
+与跨度不足 3,000 ms（判不了，退 2）；另有「只有部分行带时间戳」⇒ 退 1，因为老的那几行无法放到同一根时钟上。
+这三条都在 `test-check-gpu27-zero-copy.py` 的 12 个用例里。
+
 ## 9 引用
 
 - 官方：`E:/hackios/UniXNU/docs/zh/porting/gpu-diagnostics.md`（§保留的证据、§采集策略、

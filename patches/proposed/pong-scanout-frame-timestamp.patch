@@ -1,0 +1,70 @@
+Subject: [DRAFT, not in series] stamp every stage line with at=<sec>.<ms>
+
+Draft only. Deliberately not in patches/*/series, not built, not flown.
+
+Why: the zero-copy criterion cannot say "the panel was fed for three seconds".
+It can only say "the frame counter advanced", because the stage line carries
+spans but no absolute time, so no window can be placed on a clock (see
+docs/research/gpu/GPU-27-JUDGE-DRAFT.md 8.5 and k60-gates
+scripts/check-gpu27-zero-copy.py, rule 5).
+
+Three properties this draft is built around:
+
+  1. one clock, read once. The stamp reuses t1, the CLOCK_MONOTONIC reading the
+     wait span already takes, so the loop takes no second reading for a field.
+     A failed reading keeps the previous frame's stamp instead of inventing 0.
+  2. appended at the end of the line, so no group in the judge's STAGE regex
+     moves (P-295: an inserted optional group renumbered every capture behind
+     it and the judge silently read submit as gpu).
+  3. absent means "no window can be judged", never "the window held". The gate
+     exits 2 when the field is missing, which is why this draft is harmless to
+     carry and useless to fake.
+
+Apply order: stacks on pong-metal-client-gap.patch - both edit the same report
+block, so this diff is written against the tree that already has 0002. Apply
+0002 first, then this; applied to a tree without 0002 it does not apply, and
+that is the dependency talking, not a broken patch (same shape as
+pong-scanout-v2-layout-asserts.patch needing the offset patch).
+
+--- a/drivers/PongMetal/PongMetalScanout.h
++++ b/drivers/PongMetal/PongMetalScanout.h
+@@ -34,6 +34,11 @@
+      * two as if they were the same number. `previous` is the arrival time of the
+      * frame before this one, so the first frame reports 0 and is not a sample. */
+     struct timespec previous={};uint64_t lastGap=0;
++    /* When this frame arrived, on the clock the wait span already read: the
++     * window rule needs two lines that can be placed on one timeline, and the
++     * three spans on this line are durations, not instants. A failed reading
++     * keeps the previous stamp; the field is never printed as an invented 0. */
++    uint64_t lastAt=0;
+     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE,0);
+     for(;;) {
+         @autoreleasepool {
+@@ -51,6 +56,10 @@
+                 const uint64_t gap=span(previous,t1);
+                 if(gap)lastGap=gap;
+                 previous=t1;
++                /* t1 is this frame's arrival, already read for the span above:
++                 * one clock, one reading, so at= and client= describe the same
++                 * timeline. */
++                if(stamped(t1))lastAt=absoluteUs(t1);
+             }
+             auto result=context->presenter->present({reinterpret_cast<void *>(frame.address),size_t(frame.bytes),
+                 size_t(frame.stride),frame.width,frame.height});
+@@ -158,13 +167,14 @@
+                  * divided by 1000 while still carrying the "us" label, which made a 48 ms frame
+                  * read as a 48 us copy and turned P-234 into a false "the copy is free" verdict. */
+                 char rate[640];snprintf(rate,sizeof(rate),
+-                    "scanout frames=%u at %llu.%03llu s; last frame: wait=%llu us copy=%llu us done=%llu us client=%llu us; imports=%llu import=%llu us encode=%llu us submit=%llu us gpu=%llu us sum=%llu us",
++                    "scanout frames=%u at %llu.%03llu s; last frame: wait=%llu us copy=%llu us done=%llu us client=%llu us; imports=%llu import=%llu us encode=%llu us submit=%llu us gpu=%llu us sum=%llu us at=%llu.%03llu",
+                     copies,(unsigned long long)absoluteUs(now)/1000000ull,(unsigned long long)(absoluteUs(now)%1000000ull)/1000ull,
+                     (unsigned long long)lastWait,(unsigned long long)lastCopy,(unsigned long long)lastDone,
+                     (unsigned long long)lastGap,
+                     (unsigned long long)context->presenter->imports(),
+                     (unsigned long long)imported,(unsigned long long)encoded,(unsigned long long)submitted,
+-                    (unsigned long long)waited,(unsigned long long)(imported+encoded+submitted+waited));
++                    (unsigned long long)waited,(unsigned long long)(imported+encoded+submitted+waited),
++                    (unsigned long long)lastAt/1000000ull,(unsigned long long)(lastAt%1000000ull)/1000ull);
+                 report(rate,0);
+             }
+         }

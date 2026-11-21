@@ -6,7 +6,7 @@ in four groups with different rules — the fourth is switched off on purpose:
 
 | Group | Patches | What it changes | How it is carried |
 | --- | --- | --- | --- |
-| Measurement | `pong-scanout-offer-count.patch`, `pong-metal-client-gap.patch` | counters and printed fields only | **once, together, with the next image** (Lead ruling 2026-11-21, m01230, refined in m01375) |
+| Measurement | `pong-scanout-offer-count.patch`, `pong-metal-client-gap.patch`, `pong-scanout-frame-timestamp.patch` | counters and printed fields only | **once, together, with the next image** (Lead ruling 2026-11-21, m01230, refined in m01375 and m02529) |
 | Behaviour | `pong-adreno-restart.patch`, `pong-gpu-only-default.patch` | a restart sequence nothing calls, and the default of an existing policy | **not carried** until the owner named below says so; each states its own veto |
 | Assertions | `pong-scanout-assert-offsets.patch`, `pong-presenter-assert-offsets.patch` | `static_assert` + `offsetof` only; no structure, no runtime | **safe to adopt at any time**; they cannot change behaviour, only refuse to build a broken layout |
 | Dormant | `pong-scanout-v2-layout-asserts.patch` | four `static_assert`s behind `#if PONG_SCANOUT_V2_LAYOUT`, switched off | **not carried**; enabled by the v2 wire decision, not by an image |
@@ -34,6 +34,22 @@ flight:
 
 1. `pong-scanout-offer-count.patch` — gives `scanout version=`, `offers=`, `dropped=`
 2. `pong-metal-client-gap.patch` — gives `client=<us> us` on the stage line
+3. `pong-scanout-frame-timestamp.patch` — gives `at=<sec>.<ms>` at the end of the
+   same stage line, **stacked on 2** (both edit the same report block, so this
+   diff is written against a tree that already has 2: apply 2 first, then 3)
+
+Patch 3 exists because of a rule the gate could not express: since the stage
+line carries spans but no instant, `check-gpu27-zero-copy.py` could only say
+"the frame counter advanced", never "the panel was fed for three seconds". With
+the stamp, rule 5 compares the first and last direct line on one clock; without
+it, the gate exits 2 and says so. One clock, one reading (the `t1` the wait span
+already takes); the field is appended last so no capture group in the judge's
+`STAGE` regex moves (P-295); and a missing field is *no window*, never a window
+that held.
+
+The whole inventory — number, trigger, dependency for each draft — is one page:
+[`INVENTORY.md`](INVENTORY.md). Tick it before an image goes out; a row that is
+skipped has to say why.
 
 The image to wait for is **the one that carries the new firmware volume and a
 fileset kernel the boot accepts** — not the current image, which stops on the
@@ -166,6 +182,7 @@ compiles clean, so the offsets are correct rather than merely plausible (see
 | --- | --- | --- |
 | `pong-scanout-offer-count.patch` | `drivers/PongAdreno/PongAdrenoScanout.cpp` | counters `offered`/`dropped` at the delivery gate, and one periodic line carrying `scanout version=`, `offers=`, `dropped=`; the print buffer grows 260 → 384 bytes (the widest value of the new format is 288) and a truncated line has its newline repaired, so a future field cannot glue this record onto the next one |
 | `pong-metal-client-gap.patch` | `drivers/PongMetal/PongMetalScanout.h` | the arrival interval between two frames handed over by the client, printed as `client=<us> us` on the existing stage line |
+| `pong-scanout-frame-timestamp.patch` | `drivers/PongMetal/PongMetalScanout.h` | `at=<sec>.<ms>`, the frame's arrival instant appended to the same stage line, from the `t1` the wait span already read; stacks on the row above |
 | `pong-adreno-restart.patch` | `drivers/PongAdreno/PongAdrenoCp.cpp` | `gbif_drain()`, `restart_sequence()`, and `pong_adreno_cp_set_restart()` / `pong_adreno_cp_restart()`; no caller, no change to any existing path |
 | `pong-gpu-only-default.patch` | `patches/xnu/0600-k60-display-composition.patch` | `gpuOnly` starts at 1 instead of 0, and the field comment says so |
 | `pong-scanout-assert-offsets.patch` | `drivers/PongAdreno/PongScanoutWire.h` | `#include <stddef.h>` and four `static_assert`s: every field offset of Mode/Wait/Frame/Done, the four method codes, `PongScanoutVersion`, `PongScanoutBgra` |
@@ -194,6 +211,7 @@ compositor, usblog-20261119-173454 for the copy bench).
 | `offers=<n>` | same line | grows at the panel rate: ≈120 per second at 120 Hz, ≈20 per second when the CPU compositor is producing the frames | a rate far below the panel rate means the compositor is not producing frames at all (the screen is not the GPU's fault); a rate far above it means the same frame is being offered repeatedly |
 | `dropped=<n>` | same line | 0 in a steady GPU-only flight; the counter exists so this can be checked rather than assumed | `dropped/offers > 0.05` means frames are being lost at the handover, not in the copy: either the render server was not blocked in `wait`, or the previous offer had not retired (there is one pending slot). In that state a faster copy cannot raise the frame rate, which is the whole point of measuring it. |
 | `client=<us> us` | `scanout frames=… last frame: wait=… copy=… done=… client=… us; imports=…` | ≤ 8,333 µs at 120 Hz. `client` is the interval between two frames reaching the render server, so it is ≥ that frame's `copy+done` and ≥ the client's own encode time | `client > 8,333` with `gpu` in budget means the client is the limit, not the GPU. Before this patch the same interval could only be inferred by subtracting `copy+done` from `wait`, and every flight so far treated `wait` as if it were the interval. |
+| `at=<sec>.<ms>` | tail of the same stage line: `… gpu=… us sum=… us at=1234.567` | strictly increasing from line to line, one instant per line, and at least 3,000 ms between the first and last direct line of the flight | a stamp that goes backwards means two lines cannot be ordered (the gate fails rather than averaging them); a span under 3 s is *cannot judge*, not a pass; a line without the field is *no window*, which is what a build without this draft looks like |
 | `CP restart …` on `PONG SCANOUT:` | `PONG SCANOUT: CP restart: ME_INIT sequence=… status=0x…`, `CP restart done`, `CP restart: register access failed` | absent in a healthy flight; present in pairs, one start and one outcome | `ME_INIT` with a non-zero status is the restart failing at its second step, before any ring exists again; `register access failed` means a read or write itself failed, which is the case the SMMU-fault note above covers |
 
 Two notes that keep these numbers honest:

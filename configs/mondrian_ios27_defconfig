@@ -17,8 +17,12 @@ CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y
 # Stage 0 stops at bsd_init: no root, no panel, no GPU. NativeUfs turns on with
 # the Data gate (F3) and the display in F4: the driver can compile on a Linux
 # host, but the eleven IOBlockStorageDevice symbols it imports are not exported
-# by the kernel collection, so the link needs the fileset-entry route first.
-CONFIG_XNU_NATIVE_UFS=y
+# by the kernel collection, so the link needs the fileset-entry route first (the
+# bt line owns that route as of 2026-11-21).
+# Off on purpose: turning it on before build/native-ufs/libNativeUfs.a has a
+# producer makes the builder's test -f (build-xnu-generic.sh:648) fail, so the
+# switch would only open onto a missing artefact.
+CONFIG_XNU_NATIVE_UFS=n
 CONFIG_XNU_NATIVE_ADRENO=n
 CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
 

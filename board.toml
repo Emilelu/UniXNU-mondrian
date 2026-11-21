@@ -356,9 +356,14 @@ remove = [
 description = "Redmi K60 (mondrian/SM8475): iOS 27.0.1 (iPhone17,2) bring-up"
 
 [os_overrides."ios-27.0.1-24A446".components]
-# NativeUfs joins the selection together with CONFIG_XNU_NATIVE_UFS and the
-# archive path in the builder; the three edits open the Data gate at F3.
-include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink", "NativeUfs"]
+# No storage component here, by decision of 2026-11-21: drivers/NativeUfs is
+# vendored in this repository and compiled by build-native-ufs-linux.py (see the
+# kernel archives below), so the selection list must not name it. "NativeUfs" is
+# only the legacy_name of the ShengUfs catalog entry (UniXNU/components.toml:139),
+# and components.selected() accepts a legacy name only when a feed or submodule
+# provides that module; this repository declares neither, so naming it aborted
+# the whole profile with "unknown component: NativeUfs" before any recipe ran.
+include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
 
 [os_overrides."ios-27.0.1-24A446".kernel]
 defconfig = "mondrian_ios27_defconfig"

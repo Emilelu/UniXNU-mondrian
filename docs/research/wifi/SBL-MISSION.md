@@ -2012,7 +2012,8 @@ B5 不是导出面问题。27 profile 是 `page_size = 4096`（`docs/engineering
 SMMU/DMA 路径显式按 4096 工作（`drivers/PongWifi/PongWifiPlatform.cpp:477,482,492,494`），
 四个 `ArmSmmu4K` 符号也在同一归档内解析。但符号表不携带页大小，undefined 对照不能证明编译期
 `PAGE_SHIFT` 一致；B5 的出口仍是「归档在 27 page shift 下重建，`pong-abi-selftest.c:25-39` 的
-offsetof 全过」。这一轮没有构建，所以 B5 保持 open；判据从「导出面看起来差不多」改成
+offsetof 全过」。这一轮没有构建，所以 B5 保持 open，`blocked_by: F2`：出口只能由第一次 27
+build（F2）执行，离线没有替代品；判据从「导出面看起来差不多」改成
 「4 KiB 代码路径已核，编译期 page shift 与 offsetof 仍是唯一剩余输入」。
 
 C2（27 wifid 要不要签名 launchd）**没有**被 sheng 证明。`sheng-wifi-launchd-cache.patch` 在

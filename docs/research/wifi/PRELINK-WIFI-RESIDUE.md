@@ -16,13 +16,13 @@
   `missing`/`stubbed` 记的是 kext bundle 的未解析引用，station 是 `-force_load` 进内核的归档，
   不是 kext。预链接记录既不能证明也不能否定 Wi-Fi。
 - Wi-Fi 的验收仍然只有两条线内命令：`scripts/check-wifi-station-archive.py`（arm64e、两个 API、
-  stamp/header）和 `scripts/check-wifi27-link-inputs.py`（arch、provenance、stubs）。
+  stamp/header、stubs）和 `scripts/check-wifi27-link-inputs.py`（arch、provenance、stubs）。
   `check-ios27-artifacts.py --flight-ready` 不读链接账本。
-- 三页：`building.md` 可 mapped 到 `check-ios27-artifacts.py --flight-ready`；`porting/soc-support.md`
-  可 mapped 到 `check-device-tree.py`，但它只覆盖设备树半边，feed 的 40 字符 pin 仍靠
-  `unixnu fetch/status`；`drivers/ath12k-wifi.md` 保持 unmapped，等
-  `check-wifi-station-archive.py` 从 device 仓提升到 `k60-gates/scripts` 并让归档通过后才能 mapped。
-  `drivers/wifi*.md` 不存在，`ath12k-wifi.md` 就是 Wi-Fi 驱动页。
+- 三页全部 **unmapped**：`building.md` 的 `check-ios27-artifacts.py --flight-ready` 只覆盖
+  kernel.macho/payload/boot.img；`porting/soc-support.md` 的 `check-device-tree.py` 只覆盖设备树；
+  `drivers/ath12k-wifi.md` 的归档检查器只覆盖 station 归档契约。按本轮 Lead 口径，部分门禁只能算
+  unmapped；P-288 的同页规范化还要求一页只出现一次，两件事不能互相替代。`drivers/wifi*.md` 不存在，
+  `ath12k-wifi.md` 就是 Wi-Fi 驱动页。
 
 ## 1. A：预链接记录里有没有 Wi-Fi
 
@@ -145,8 +145,10 @@ ios-27.0.1-24A446`，然后找 `mach.development.*.unstripped.noctf` 并数符�
 `scripts/tests/test-build-wifi27-kernel.py` 钉住默认 OS、archive 缺失退 2、未知参数退 2、
 `find` 深度 ≥7。它不跑 `build package`、`build firmware`、`userdata`，也不声称跑过。
 
-建议：mapped 到 `check-ios27-artifacts.py --flight-ready`，assertion 只写内核/payload/boot.img
-这一半，package/firmware/userdata 留给各自的页。
+判定：**unmapped**。`check-ios27-artifacts.py --flight-ready` 只钉住 kernel.macho/payload/boot.img
+这一半，不执行 `defconfig`/`fetch`/`status`，也不跑 `build package`/`firmware`/`userdata`；按本轮口径，
+部分门禁不算 mapped。`scripts/tests/test-build-wifi27-kernel.py` 只钉住 wrapper 的默认 OS、缺失归档和
+未知参数，同样不是这一页的门禁。要 mapped，需要一个新的端到端 gate 跑这一页的命令并检查三个输出。
 
 ### 2.3 `porting/soc-support.md`
 
@@ -161,13 +163,12 @@ ios-27.0.1-24A446`，然后找 `mach.development.*.unstripped.noctf` 并数符�
 `arch/soc/os/device` 四层 series。`feeds.toml:7-14` 把 `sm8475` 固定在
 `20a30fd623dbcfacdd71350a24fae67a2158884f`（xNekom/UniXNU-sm8475-common）。
 
-建议：mapped 到 `check-device-tree.py`，assertion 写「`[device_tree]` 的 `soc:` include 能通过
-已取回的 SM8475 feed 解析，`dtc` 接受整棵树」。该 gate 的 `find_soc_feed()`（:63-72）只按
-include 文件找 feed，不校验 40 字符 commit；commit pin 由 `unixnu fetch/status --json` 解析。
-如果账本要强制 pin，需要一个新 `check-feed-pins.py`，本次只建议、不实现。
-`check-27-series-composition.py`（:1-28）可作为四层 series 的伴随检查，它同样消费已取回的 feed，
-不单独校验 pin。`check-component-pin.py` 只对 `[components]` 与 catalog 的 pin，不管 SoC feed；
-`Ath12kWifi` 也不在 `[components]` 里。
+判定：**unmapped**。`check-device-tree.py` 只钉住 `[device_tree]` 的 `soc:` include 和 `dtc`，
+不检查 `soc.toml` schema、`configs/<soc>.config`、`patches/xnu/series`、`kits/`，也不校验
+`feeds.toml` 的 40 字符 commit；`check-27-series-composition.py` 消费已取回的 feed，不单独校验 pin；
+`check-component-pin.py` 只管 `[components]`，不管 SoC feed；`Ath12kWifi` 也不在 `[components]` 里。
+这些都是部分门禁，按本轮口径不能算 mapped。要 mapped，需要一个 `check-feed-pins.py` 或等价 gate，
+把 SoC feed pin、四层 series 和 DT 一起钉住。
 
 ### 2.4 `drivers/ath12k-wifi.md`
 
@@ -190,10 +191,11 @@ sheng 的 iPadOS 27 集成是 WifiProbe/WifiNet、`/arm-io/wlan`、128 MiB DMA�
 `src/nw_sta.c`，没有把 `nw_mainline.c` 编进去。所以即使现在把页面 mapped 到 station 归档
 检查器，它也会红；先补源清单/重建归档，再谈 mapped。
 
-建议：现在保持 `unmapped`；把 `scripts/check-wifi-station-archive.py` 提升到
-`k60-gates/scripts` 后，等归档通过再写 `mapped`，assertion 用「成员 arm64e、两个 API 已定义、
-stamp/header 对齐」。`check-wifi27-link-inputs.py` 是出图前的线内 preflight（arch/provenance/stubs），
-它不能替代这个页面的 ABI 检查。
+判定：**unmapped**，而且即使归档通过也不能只凭它 mapped。归档检查器只钉住「成员 arm64e /
+两个 API 已定义 / stamp-header 对齐」，不钉页面里的 MHI/QRTR/QMI 起设备、wpa_supplicant 2.12、
+`/arm-io/wlan`、128 MiB DMA、540 B 事件和 launchd cache。按本轮口径，部分门禁只能算 unmapped；
+当前 `ath11k-abi27e` 还先 FAIL station API，连这一部分都没过。`check-wifi27-link-inputs.py` 是
+出图前的线内 preflight（arch/provenance/stubs），同样不能替代页面。
 
 ### 2.5 没有 `drivers/wifi*.md`，为什么不是 na
 
@@ -203,36 +205,20 @@ stamp/header 对齐」。`check-wifi27-link-inputs.py` 是出图前的线内 pre
 不能写 na：页面的生产路径（主线 station、supplicant、540 B 结果、launchd cache）直接约束本板；
 我们的 station 归档和这个页面是同一件事。它是 unmapped 债，不是豁免。
 
-## 3. 建议 Lead 合并的 TOML stanza
+## 3. 账本状态：三页保持 unmapped
 
-下面三段只改 `OFFICIAL-REQUIREMENTS.toml`，不改 `k60-gates` 的任何脚本。
+本轮不建议改 `OFFICIAL-REQUIREMENTS.toml`。三页都保持 `unmapped`，理由不是「没有检查」，而是
+现有检查都只覆盖页面的一部分：
 
-```toml
-[[page]]
-path = "building.md"
-title = "构建与启动"
-sha256 = "44bfb3eea57de117b2e333241cfdc12637b9f922092e1f743527bae403e47c28"
-state = "mapped"
-gate = "check-ios27-artifacts.py --flight-ready"
-assertion = "the 24A446 kernel.macho, payload and boot.img exist and pass the declared transform; package/firmware/userdata stay on their own pages"
+- `building.md`：`check-ios27-artifacts.py --flight-ready` 只钉产物结构，不跑页面里的
+  `defconfig`/`fetch`/`status`/`build package`/`firmware`/`userdata`；
+- `porting/soc-support.md`：`check-device-tree.py` 只钉设备树，SoC feed pin、`soc.toml` schema、
+  `configs/<soc>.config`、`patches/xnu/series`、`kits/` 仍没有门禁；
+- `drivers/ath12k-wifi.md`：归档检查器只钉 station ABI 契约，MHI/QRTR/QMI、supplicant、
+  540 B 事件和 launchd cache 仍没有门禁；当前 `ath11k-abi27e` 还 FAIL 两个 station API。
 
-[[page]]
-path = "porting/soc-support.md"
-title = "选择与添加 SoC 支持"
-sha256 = "be9c587e88867def4f6b3428e0b937ed0fbf2b9299ac93e150d3b5303e2f9680"
-state = "mapped"
-gate = "check-device-tree.py"
-assertion = "board [device_tree] resolves soc: includes through the fetched SM8475 feed and dtc accepts the tree; the 40-character feed pin is resolved by unixnu fetch/status, not by this gate"
-
-[[page]]
-path = "drivers/ath12k-wifi.md"
-title = "Ath12kWifi"
-sha256 = "45384811d658b0bcb624b973b14ef85e957ccb9c1160d9f66fd55f883e76779b"
-state = "unmapped"
-# Promote scripts/check-wifi-station-archive.py into k60-gates/scripts first; the current
-# ath11k-abi27e archive is arm64e and its stamp matches, but it does not define
-# _nw_wifi_power or _nw_wifi_scan_frequencies. Set mapped only after it passes.
-```
+按本轮 Lead 口径，部分门禁只能算 unmapped。同一页在账本里只能出现一次（P-288）；不能把两条
+部分 gate 拼成 mapped。本线没有改 `E:/hackios/k60-gates`，也没有把 device 仓脚本复制进共享仓。
 
 ## 4. 未关闭的边界
 
@@ -241,5 +227,5 @@ state = "unmapped"
   代替，也不猜 0x80。
 - 本文没有构建、没有预链接、没有上机；93 MB 的 `kernel.json` 不是 Wi-Fi 图，35,613,936 B 的历史
   图有九个 scratch 桩、不可启动，两者都不能当验收。
-- 建议的 stanza 是给 Lead 合并的；本线没有改 `E:/hackios/k60-gates`，也没有把 device 仓脚本
+- 三页的账本状态是 unmapped；本线没有改 `E:/hackios/k60-gates`，也没有把 device 仓脚本
   复制进共享仓。

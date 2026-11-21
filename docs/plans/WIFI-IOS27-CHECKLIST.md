@@ -155,8 +155,9 @@ references include IO80211 26C5035r (macOS), so C1-C3 still need target evidence
 - [ ] B5 [SOC] 4 KiB pages: the 27 profile is page_size=4096 and the driver SMMU/DMA
   path uses 4096, with ArmSmmu4K resolving in the same archive. The symbol table does
   not carry a page size, so the export comparison cannot prove the compile-time page
-  shift. Exit remains a 27-page-shift rebuild plus the pong-abi-selftest.c:25-39 offsetof
-  checks; no build was run this round. This is a page/DMA/SMMU check, independent of B6 width.
+  shift. blocked_by: F2 — the exit is the first 27-page-shift rebuild plus the
+  pong-abi-selftest.c:25-39 offsetof run; our lane is offline, so there is no
+  substitute to fill in here. This is a page/DMA/SMMU check, independent of B6 width.
 - [x] B6 [DEV] Re-run the width stamp against the 27 station archive (done 2026-11-20).
   Exit: teardown rc=0 with no "has no abi/nw_abi.stamp" note. Verified both ways: the
   stamped 27 station (ie_bytes=2048, header_sha256 ec0b8227...) rebuilds the kext with

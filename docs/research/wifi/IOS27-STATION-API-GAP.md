@@ -9,6 +9,40 @@
 | `nw_wifi_power` | `void nw_wifi_power(int enabled);`（生成侧车 `abi/nw_abi.h:79`） | `drivers/PongWifi/PongWifiNet.cpp:707`，在 `apple80211()`（:674）的 `case kPower`（:703）里，且只在 `gModern27Client` 已置位时调用 | 无（成员只有 `PongAth11k-linked.o`，`llvm-nm` 无此行） | `PongWifiNet.late.o` 里是强 `U` | 无：24A446 无线栈不在 pinned kernelcache（305 个 kext 无无线 kext），且这是本线私有 ABI，Apple 二进制不能直接引用该符号 | 无证据，保持 open |
 | `nw_wifi_scan_frequencies` | `int nw_wifi_scan_frequencies(const uint8_t *ssid, size_t len, const uint32_t *mhz, size_t count);`（生成侧车 `abi/nw_abi.h:73`） | `drivers/PongWifi/PongWifiNet.cpp:758-760`，同一函数的 `case kScanReq/kScanReqMultiple`（:709）里；声明是 `weak_import`（:57-58），缺席时退回 `nw_wifi_scan` | 无（同上） | `PongWifiNet.late.o` 里是 `U`，并带 `l_nw_wifi_scan_frequencies$auth_ptr$ia$25242` | 无：同上；它只在带频道的扫描请求里被调用 | 无证据，保持 open |
 
+## B4 结论：缺的不是内核导出，是站归档定义
+
+2026-11-21 对 27 候选内核 `kernel.macho` 的 `com.apple.kernel` 取导出，共 24,572 个符号。
+把驱动归档和 station 归档的 undefined 逐个对照：
+
+| 归档 | undefined | kernel | same-archive | 另一归档 | station API | absent |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `libPongWifiNative.a` | 352 | 314 | 36 | 0 | 2 | 0 |
+| `libPongAth11k.a` | 13 | 12 | 0 | 1 | 0 | 0 |
+
+352 个驱动 undefined 里 **350 个已解析**（314 kernel + 36 same-archive），唯缺 station 的两个 API；
+station 的 13 个里 12 个 kernel + 1 个另一归档，0 absent。所以「27 里根本没有」的符号是 0。
+`_nw_wifi_power` 与 `_nw_wifi_scan_frequencies` 只能由
+station 归档定义；`ath11k-abi27e` 仍只编 16 的 `src/nw_sta.c`，没有把 `src/nw_mainline.c`
+编进去（`scripts/build-k60-ath11k.py:720-722`）。
+
+### 每个 API 的四项
+
+| API | (a) 27 侧调用点 | (b) 16.6.1 怎么满足 | (c) 27 semantics 变了什么 | (d) 最小补丁形态 |
+| --- | --- | --- | --- | --- |
+| `nw_wifi_power` | `PongWifiNet.cpp:707`，`apple80211()`（:674）的 `case kPower`（:703）里，`gModern27Client` 为真才调用 | 16.6.1 c8 的 `native-c8/libPongWifiNative.a` 用 `llvm-nm -u` 没有 `_nw_wifi_power`；16 的 `ath11k/libPongAth11k.a` 只导出 `_nw_wifi_scan`。16 路径在 `:704` 只断开链路，没有站上电/断电入口 | 27 新增 `void nw_wifi_power(int enabled)`（`abi/nw_abi.h:79`）；`enabled` 是 0/1，无单位；站实现置 `radio.pending`、`radio.enabled=!!enabled`，清 join/scan，`clear_connection(...NW_STA_IDLE/OFF)`，全程持 `boundary_lock`（`nw_mainline.c:266-271`）。16 没有这个驻留态 | 补进 station 归档：编译 `src/nw_mainline.c:266`（语义版），或在 16 的 `sta` 变换里加 `void nw_wifi_power(int enabled){(void)enabled;}`（仅链接）。**不要**补进内核导出；改驱动避开等于删掉 27 的 `kPower` 分支 |
+| `nw_wifi_scan_frequencies` | `PongWifiNet.cpp:758-760`，`case kScanReq/kScanReqMultiple`（:709）里；声明 `weak_import`（:57-58） | 16.6.1 c8 的 native 没有 `_nw_wifi_scan_frequencies`；16 的 station 只导出 `_nw_wifi_scan`。16 路径在 `asked=false` 时退回 `nw_wifi_scan(ssid,len)`，扫全频道 | 27 新增 `int nw_wifi_scan_frequencies(const uint8_t*, size_t, const uint32_t*, size_t)`（`abi/nw_abi.h:73`）；频道是 MHz，最多 32（`:72`），逐项 2400–7125，`-EINVAL`/`-ENETDOWN`；持 `boundary_lock` 合并重复扫描并设 12 s deadline（`nw_mainline.c:223-236`）。16 只有 `(ssid,len)` | 补进 station 归档：编译 `src/nw_mainline.c:223`（语义版），或加 `if (count > NW_WIFI_SCAN_FREQUENCIES_MAX) return -EINVAL; return nw_wifi_scan(ssid,len);`（仅链接，忽略 mhz）。**不要**补进内核导出；驱动已有 weak 退回，但会退回全频道，不算补语义 |
+
+`llvm-nm` 证据命令（只读）：
+
+```sh
+llvm-nm-18 -u /opt/k60/trees/k60build/wifi/native-c8/libPongWifiNative.a | grep -E 'nw_wifi_power|nw_wifi_scan_frequencies'
+llvm-nm-18 -u /opt/k60/trees/k60build/wifi/teardown27g/libPongWifiNative.a | grep -E 'nw_wifi_power|nw_wifi_scan_frequencies'
+llvm-nm-18 --defined-only --format=posix /opt/k60/trees/k60build/wifi/ath11k/libPongAth11k.a | grep nw_wifi_scan
+```
+
+第一行无输出；第二行两个符号都在；第三行只有 `_nw_wifi_scan T`。因此这两行不是 27 的导出缺口，
+而是 station 源集合的缺口。把它们补进内核导出会满足链接，却绕过了 station 的驻留状态，属于层次错误。
+
 ## 为什么两行都不是「association 之前必须」
 
 两个事实要分开，混在一起就会把线内打包要求当成 24A446 的需求：

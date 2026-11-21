@@ -576,3 +576,21 @@ partial（power 线 2026-11-20 审计：`APA=0b0101` 是 FPACCOMBINE，探针 GP
 1/8 核），并登记 P-281（计数器按被求和的对象命名）与 P-282（工具链发不出的标签不等于消费方
 判错）。
 """
+
+[[entry]]
+sha = "8edafc3d"
+state = "build-only"
+note = """fix(build): 把 root 构建出来的 kernel/payload/boot 交还给开发者账号。
+
+不改变任何产物字节：只在 `scripts/build-ios27-linux.sh` 末尾加一段——当脚本以 root 运行且
+设了 `K60_ARTIFACT_OWNER` 时，把 `$BOARD_DIR/{kernel,payload,boot}` 交还给这个账号，并把
+这件事打印出来。
+
+理由是一条真实的红：build 20 是 `wsl.exe -u root` 跑的，`kernel.macho` 于是 root 所有、
+mode 0600；门禁以 emilelu 跑，`check-kernel-archives.py` 读不到，按 P-279 判「判不了」
+退 2，整个注册表因此变红——而红的原因是文件属主，不是不合规。这正是 P-290 的形状：一条因
+无关原因长期变红的规则，会教人忽略它。
+
+state 记为 build-only：这条改动不产生新镜像，也没有被任何镜像使用过；真正要重出的镜像是
+build 20 之后那一张（`5c060f27…`），它已经带着 P-278 修好后的 `retab`。
+"""

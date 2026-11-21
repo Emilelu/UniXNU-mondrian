@@ -1,0 +1,4 @@
+# Constructed: a run that died rather than ran slow. Same shape as the real flights,
+# no numbers taken from them.
+Pong Metal: scanout frames=12 at 2.1 s; last frame: wait=900 us copy=8406 us done=40 us; imports=12 import=51 us encode=335 us submit=967 us gpu=5983 us sum=8281 us
+DeviceLost: the GPU stopped answering after 12 frames

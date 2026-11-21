@@ -40,6 +40,10 @@
 *.kernelcache
 *.log
 !scripts/tests/fixtures/*.log
+# Fixtures live in per-suite subdirectories too; without this line the gpu27
+# fixtures were ignored, so the committed judge test passed only on the machine
+# that wrote it (P-205 family).
+!scripts/tests/fixtures/*/*.log
 .DS_Store
 __pycache__/
 *.py[cod]

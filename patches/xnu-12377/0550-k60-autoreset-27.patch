@@ -1,6 +1,5 @@
 --- a/bsd/dev/k60_usblog_reset.c
 +++ b/bsd/dev/k60_usblog_reset.c
-+#include <sys/proc.h>
 @@ -42,3 +42,61 @@
  
  	kprintf("k60-reset: SYSTEM_RESET and HVC both returned; staying put\n");

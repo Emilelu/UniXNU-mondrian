@@ -44,7 +44,7 @@ validated with Python `tomllib` before it is sent.
 ```toml
 why_open = """205 stubbed pointer slots, not 205 calls; none of the 205 is a call site. Separately, the three remaining missing targets are data, not entry points. 三者在 console 前不可达（静态证据），残余=间接构造未证。
 
-The three addresses that stay unpinned are recorded in IOS27-PRELINK-ALLOWLIST.toml with their mechanism instead of a name; all three are data, not entry points. The allowlist is a visibility record, not a name or a runtime proof; check-prelink-hazards.py remains green. Details and scans: docs/research/storage/PRELINK-CONSOLE-REACHABILITY.md (feat/xnu27-data-gate)."""
+The three addresses that stay unpinned are recorded in IOS27-PRELINK-ALLOWLIST.toml with their mechanism instead of a name; all three are data, not entry points. The allowlist is a visibility record, not a name or a runtime proof; check-prelink-hazards.py remains green. Details and scans: E:/hackios/xnekom-ios27/docs/research/storage/PRELINK-CONSOLE-REACHABILITY.md (branch feat/xnu27-data-gate)."""
 ```
 
 ## Why this is not closure

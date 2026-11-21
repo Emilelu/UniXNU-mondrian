@@ -41,6 +41,15 @@ CASES = [
         "why": "a run that died measured nothing (P-244)",
     },
     {
+        "fixture": "gpu27-stage-only-instrumented.log",
+        "exit": 0,
+        "state": "PASS",
+        "must_say": ["gpu median 2222 us", "sum median 4444 us", "client=8333"],
+        "why": "with no bench the copy has to come out of the stage line, where the optional "
+               "client= group shifts the later groups: reading submit (111) as gpu passes "
+               "silently, so the numbers are pinned",
+    },
+    {
         "fixture": "gpu27-instrumented-drops-and-gap.log",
         "exit": 1,
         "state": "FAIL",

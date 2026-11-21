@@ -146,8 +146,11 @@ def collect(text):
         facts["stage"].append({
             "wait_us": int(match.group(2)),
             "copy_us": int(match.group(3)),
-            "gpu_us": int(match.group(9)),
-            "sum_us": int(match.group(10)),
+            # gpu is group 10 and sum group 11: the optional client= group at 5 shifts
+            # everything after it by one. Getting this wrong reads submit as gpu, which
+            # looks plausible (both are small) and silently misreports the copy.
+            "gpu_us": int(match.group(10)),
+            "sum_us": int(match.group(11)),
         })
         # The stage line carries the client interval too when the draft is carried; keep the
         # last one seen rather than a median, because it is a single 8.3 ms-scale sample.

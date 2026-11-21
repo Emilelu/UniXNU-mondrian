@@ -6,7 +6,7 @@
 
 1. **PAS1 已发布不等于音频域可用。** 现有的 `k60_adsp_handoff_owner_active()` 只表示“早期 handoff 已认领”，`k60_pmic_glink_audio_ready()` 只表示“GLINK 通道已 up”，两者都不表示 APM 已经回答。真正的音频域判据只能是 APM 对 `GET_SPF_STATE` 的回答 `{status: 1}`。
 2. **audio 不解析 104 B 的 `k60-adsp-glink-handoff` 属性。** 这个属性由 power 的 `K60HandoffRuntime` 写入，由 `K60Battery` 读取并建立 GLINK；audio 只通过 `k60_pmic_glink_attach_audio()` / `k60_pmic_glink_audio_ready()` 消费已经建立的通道。重复解析会让两份 lease 校验分叉。
-3. **电源轨和时钟的写入仍然不在 audio。** 本文只提出 power 侧的**账本/投票**接口；audio 保留 TLMM reset GPIO 与 LPASS 寄存器写入，不写 PMIC、RSC/TCS。power 没有 rail 写路径时，audio 必须把“账本已记账”和“rail 已上电”分开说，不能把 claim 当成功。
+3. **电源轨写入仍然不在 audio；音频时钟门控寄存器写归 audio。** 本文只提出 power 侧的**账本/投票**接口；audio 保留 TLMM reset GPIO、LPASS 寄存器与音频 clock gating 写入，不写 PMIC、RSC/TCS。power 只记账、不代写时钟门控（Lead 2026-11-21 裁定）；power 没有 rail 写路径时，audio 必须把“账本已记账”和“rail 已上电”分开说，不能把 claim 当成功。
 4. **0531 继续 HOLD。** 解除条件不是“编译过了”，而是同时满足：选中 0531 的系列、`bsd_init.o` 有引用、`PongAudioAmp.o` 有定义、真实 27 内核的字符串与符号都在。当前补丁是 `#if 1`，且它自己的注释说明 `XNU_PONG_AUDIO` 只到 `PongAudioAmp.o`；只把 `#if 1` 换成那个宏会把调用点从 `bsd_init.c` 编译掉，所以 HOLD 还需要构建侧把同一个开关送到内核目标，详见第六节。
 
 ## 二、现在已经存在的三块
@@ -239,7 +239,7 @@ int k60_power_audio_release(const K60AudioPowerClaim *);
 
 - audio 写 TLMM：amp0/amp1 reset（GPIO1/3）、spksw（GPIO52）、codec reset（GPIO43，填 DT 后）；这些是 APSS 引脚，不是 PMIC 寄存器。
 - audio 写 LPASS：TX core `0x30c` 的 acknowledgement、VA/TX SWR master、TX macro；这些都在 PAS1 起来之后，且必须先有接口 B 的 `ApmReady`。
-- power 写：PMIC rail、RSC/TCS、以及任何 clock gating 的 RSC 投票。当前 power 没有这些写路径，所以第一版 audio 只能做到“记账 + 拒绝未测量”，不能做到“真的把 rail 拉起来”。
+- power 写：PMIC rail、RSC/TCS 与 `K60PowerVotePlan` 记账；不写音频 clock gating 寄存器。音频时钟门控寄存器由 audio 写（Lead 2026-11-21 裁定），power 只记账。当前 power 没有 rail 写路径，所以第一版 audio 只能做到“记账 + 拒绝未测量”，不能做到“真的把 rail 拉起来”。
 - 如果 power 决定让 QUP15 GCC 也归它管，audio 需要的是 `k60_power_audio_claim()` 里带 `gcc_qup15` 这一项；在那之前，`PongAudioAmp.c:259-370` 的直接 GCC 写只能标记为**诊断探针**，不能进 27 的正式播放路径。
 
 ## 六、0531 的 HOLD 与解除条件
@@ -273,7 +273,7 @@ int k60_power_audio_release(const K60AudioPowerClaim *);
 | 0531 仍 HOLD？ | 是。解除条件见第六节，不是“编译通过”。 |
 | 是否接受 `k60_adsp_audio_ready()`？ | 接受，作为接口 A 的二态薄封装；详细三态仍用 `k60_adsp_handoff_status()`。不要另立第二个状态源。 |
 | audio 是否已有 `k60-adsp-glink-handoff` 的 consumer 代码/判据？ | **传输 consumer 有，状态判据没有。** attach/send/ready 在 `adsp:drivers/PongPower/K60PmicGlinkAudio.h:36-38`，实现在 `K60PmicGlink.cpp:33-59`；但 audio 不解析 104 B 属性，也没有 `pong_audio_status()` 实现。本文的接口 B 就是补这个判据。 |
-| codec/SoundWire 的资源名、ADT 节点、owner 候选？ | 见 5.3 表：codec rail 是 `codec-supply-rail`（当前 0）；amp rail 需要新增属性；TX SWR 是 `tx-master-base`（当前 0）；codec reset 是 `codec-reset-gpio`（当前 0，候选 GPIO43）。owner：rail/RSC 归 power，TLMM reset 与 LPASS 寄存器归 audio。 |
+| codec/SoundWire 的资源名、ADT 节点、owner 候选？ | 见 5.3 表：codec rail 是 `codec-supply-rail`（当前 0）；amp rail 需要新增属性；TX SWR 是 `tx-master-base`（当前 0）；codec reset 是 `codec-reset-gpio`（当前 0，候选 GPIO43）。owner：rail/RSC 归 power；TLMM reset、LPASS 寄存器与音频 clock gating 寄存器归 audio，power 只记账。 |
 | “音频域可用”的第一条可执行判据？ | `GET_SPF_STATE` 的回答 `opcode 0x02001007` 且 payload 第一个字 `== 1`；加上接口 A 的 `Ready` 与 `k60_pmic_glink_audio_ready()`。见 4.2。 |
 | 注册表计数 `103/21/4/78` 与 power 的 `103/20/4/79` 不一致？ | `8166c7dc` 把 `concepts/boot-chain.md` 从 unmapped 改成 mapped；合并前是 `103/20/4/79`，合并后是 `103/21/4/78`。power 的 `95984aca` 在合并前，看到旧计数是正常的。 |
 

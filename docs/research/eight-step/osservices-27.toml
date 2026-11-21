@@ -1,0 +1,66 @@
+# osservices-27.toml — 顺序 8「OS 服务和打包」中安全与预检那一半的八步记录
+#
+# 范围（Lead 2026-11-21 m00247 划定）：官方表第 8 行里 XnuPrelink 与 DarwinBoot 之外的部分 ——
+# SoftwareAES、AppleKeyStoreState、ShengPreflight。kits/ 与
+# uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/ 不归本线，只读引用。
+#
+# 八步（docs/engineering/EIGHT-STEP-SPEC.md）：
+#   ① 同型   ② 官方   ③ 反编译   ④ 广域   ⑤ 方案   ⑥ 深挖   ⑦ 核验   ⑧ 上机
+#
+# 本文件只做 ①~⑦。⑧ `step.device` 由 Lead 在上机后写，这里有意不建。
+# 纪律：没做过的步骤写 done = false 并写明缺什么、什么证据能定它；不要编。
+#
+# 每条 evidence 必须含可核查引用：file:line / URL / usblog-YYMMDD-HHMMSS / 0x… / P-xx。
+
+[hardware.os_services]
+name = "OS 服务与打包：SoftwareAES、AppleKeyStoreState、ShengPreflight"
+status = "researching"
+paths = [
+  "docs/research/ios27",
+  "drivers/",
+  "board.toml",
+  "configs/mondrian_ios27_defconfig",
+]
+why = "本线负责的三项在 27 stage-0 全部未接入：board.toml 的 27 profile 只 include ArmDTPlatform/ArmCpu/XnuPrelink，configs/mondrian_ios27_defconfig 无任何安全/加密/AKS 开关，patches/xnu-12377/series 无 keybag/AKS/SoftwareAES/AMFI 补丁；prelink 残留在 build 20 是 203 个桩项 / 25 bundle（kernel.json 的 stubbed），13 项在 code_signing_init() 之后、USB 控制台之前可触及。"
+revisit = "iOS 27 stage-0 首次 boot 有串口日志后按本线四项交付逐条回填；若 AMFI/sandbox 的 64 项桩在 boot 中先咬人，则提前到 F3 前"
+
+[hardware.os_services.step.same_model]
+done = false
+evidence = "缺：同型（SM8550 / sheng，同一 ipados-27.0.1-24A446 profile，四层补丁结构与本板同构）上这三项的实际接法。要读：E:/hackios/UniXNU-sheng/board.toml 的 [firmware] 预检选择与 [components] include、drivers/SoftwareAES 在 sheng 是否被 component: 引用、AppleKeyStoreState 的 provider（sheng 侧 package/KeyStoreProbe.cpp 只是 payload 侧探针，不是内核 provider）、ShengPreflight 的子模块内容（本机检出为空目录，gitlink 9cfc8d2c）；另读 E:/hackios/xnekom-ios27 的 feat/ios27 26 个提交里是否涉及这三项。能定它的证据：上述四处 file:line + 本板 16.6.1 的同项状态（本板 27 无 MiniAppleKeyStore.cpp、无 SoftwareAES 归档，16.6.1 只有 zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch 的软件 keybag）。"
+recorded_at = "2026-11-21T14:05:00"
+
+[hardware.os_services.step.official]
+done = false
+evidence = "缺：把官方页逐节落成要求表。必读 https://unixnu.com/zh/porting/platform#block-and-os-services（本地 E:/hackios/UniXNU/docs/zh/porting/platform.md:69-80 的表：SoftwareAES :76、AppleKeyStoreState :77、ShengPreflight :80）、https://unixnu.com/zh/porting/uefi-firmware（同仓 zh/porting/uefi-firmware.md:169-172 的「预检」）、https://unixnu.com/zh/porting/drivers（zh/porting/drivers.md:46 第 8 行）；实现对照 zh/drivers/software-aes.md、apple-key-store-state.md、sheng-preflight.md、xnu-prelink.md（只读）、zh/concepts/security.md、zh/concepts/userdata.md；zh/drivers/kexts.md 对本板判 na（加载器拒绝 kext：E:/hackios/uefi-mondrian/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c:783-786 在 KextCount != 0 时 return EFI_UNSUPPORTED；UNIXNU_LOADER_REVISION = 0x00020000 见 Platforms/Xiaomi/UniXNUPkg/Include/Protocol/UniXNULoader.h:20）。能定它的证据：每一节摘一句原文 + 本板对应 file:line。"
+recorded_at = "2026-11-21T14:05:00"
+
+[hardware.os_services.step.decompile]
+done = false
+evidence = "缺：三项各自的 27 私有 ABI 取证。(a) prelink 残留已有实测：/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.json 的 stubbed = 203 项 / 25 bundle、missing = 3 项 / 3 bundle，E:/k60-work/scratch/stubs/unreachable.toml 逐槽列出 205 项（203 地址 + 2 个双 bundle 地址）与 13 项 early_security_init 组；(b) 仍缺 IOCryptoAcceleratorFamily 在 24A446 kernelcache（/home/emilelu/kc24A446/ipsw/24A446/kernelcache.decompressed）里的类布局与 16 个虚方法槽位、IOAESKeyData 的 selector 偏移是否仍 36；(c) 仍缺 AKS 在 27 的 selector 表与状态回调形状（本板 16 行 MiniAppleKeyStore.cpp 的 12 个 selector 只是 16 的实测，不能当 27 事实）。能定它的证据：kernelcache 符号/反汇编 + 27 kext 的 __DATA_CONST 表，逐字节对照 OriginalAESABI.h。"
+recorded_at = "2026-11-21T14:05:00"
+
+[hardware.os_services.step.wide]
+done = false
+catalog_checked = false
+catalog_result = ""
+evidence = "缺：catalog 与参考源的逐项核对。已确认 catalog 三行：SoftwareAES E:/hackios/UniXNU/components.toml:228（rev 4a45326d，os_abi 仅 ipados-17.7.11-21H461）、AppleKeyStoreState :250（rev 8c70daf8，os_abi 含 ipados-27.0.1-24A446）、ShengPreflight :534（rev 9cfc8d2c，os_abi UEFI，hardware Xiaomi Pad 6S Pro，build 空）。仍缺：https://unixnu.com/zh/drivers/repositories 的登记核对、三个 gitlink 与 catalog pin 的差异裁决（OFFICIAL-DRIVER-MAP 记 AppleKeyStoreState catalog 8c70daf 与 gitlink 42ff83e0 不一致）、以及 sheng/t970/zizhan 是否已有 27 侧实现可复用。能定它的证据：components.toml 逐行 + repositories 页 + 各参考源 grep。"
+recorded_at = "2026-11-21T14:05:00"
+
+[hardware.os_services.step.plan]
+done = false
+evidence = "缺：方案（文件 + 改动 + 依据表）。待 ②③④ 完成后按三件产出分别落：(1) 13 项静默优先清单的修法（哪些属本线、哪些属 Lead 的 XnuPrelink）；(2) SoftwareAES 在 arm64e 27 profile 的接入点（catalog 只声明 17.7.11，OriginalAESABI.h 的 static_assert 是 16 行的实测值）；(3) AppleKeyStoreState 的 provider 缺口与 ShengPreflight 的 [firmware] preflight 接法。能定它的证据：每条改动对应一个 file:line 与一条 ②/③ 的引用；没有引用的条目不许进 plan。"
+recorded_at = "2026-11-21T14:05:00"
+
+[hardware.os_services.step.deep]
+done = false
+evidence = "缺：深挖。已列不确定项：(a) 13 项「首次失败静默」是否成立——取决于 _unixnu_fileset_unmapped 桩的实际行为（build 20 的 kernel.macho 里它是 __TEXT_EXEC,__text 的函数 fffffff00b4687b4，不是纯符号）与 panel console（补丁 0543/0544）是否早于 startup.c:526；(b) OriginalAESABI.h 的 originalFields[0x98] 与 16 个虚槽在 27 是否仍成立；(c) AppleKeyStoreState 依赖 6 个 native_aks_* 符号，本板无 provider，是否由本线补一个内核侧 provider 还是改走 MiniAppleKeyStore 路线；(d) ShengPreflight 的子模块能否取到、K60 要写的板级检查是哪几条。能定它的证据：桩的反汇编 + 27 启动顺序 + kernelcache 反汇编 + sheng 源码。"
+recorded_at = "2026-11-21T14:05:00"
+
+[hardware.os_services.step.verify]
+done = false
+local_verified = false
+static_check = ""
+unit_test = ""
+artifact_check = ""
+evidence = "缺：本地核验。计划三类：(1) 静态——用 kernel.json 复算 stubbed 203/25 与 missing 3/3，并核对 13 项与 code_signing_init 的调用关系（osfmk/kern/startup.c:478/:526/:689）；(2) 离线单测——AppleKeyStoreState 的 test_closed_boundary.py（193 行，边界 = 只答 0/4/5/9/12/13/26/27/55/101/102，其余 kIOReturnError）、SoftwareAES 的 static_assert 布局校验可离线编译验证；(3) 产物——kernel.macho 的 _unixnu_fileset_unmapped 符号与 24A446 kernelcache 的 ABI 对照。能定它的证据：三项各自的命令与原始输出。"
+recorded_at = "2026-11-21T14:05:00"

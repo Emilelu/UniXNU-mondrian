@@ -18,6 +18,7 @@ allocates numbers in this file and the lanes read it before writing one.
 | P-289 | 门禁自身语义 | lead | 2026-11-21 |
 | P-290 | 门禁自身语义 | lead | 2026-11-21 |
 | P-291 | 流程（先读参考源） | lead | 2026-11-21 |
+| P-292 | 基线（残留计数） | lead | 2026-11-21 |
 
 Rules:
 

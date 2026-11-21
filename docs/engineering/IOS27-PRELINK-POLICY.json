@@ -1,0 +1,276 @@
+{
+  "collection_slide": "0x0",
+  "description": "Baseline of the K60 27 stage-0 prelink residue: these are the gaps that exist today, and the gate only stops them from growing.",
+  "missing": {
+    "com.apple.driver.AppleARMWatchdogTimer": {
+      "0xfffffff007044478": 1
+    },
+    "com.apple.iokit.IOHIDFamily": {
+      "0xfffffff00b72fce8": 1
+    },
+    "com.apple.security.sandbox": {
+      "0xfffffff00b739538": 1
+    }
+  },
+  "record_sha256": "dee01c54a73edf594bbe866ae020cb3331d31afe3edc4616b1a6fc0a34fbaad0",
+  "required_original_branches": [],
+  "required_original_branches_waiver": {
+    "reason": "kits/XnuPrelink does not emit native_original_branches yet, so the record has none to require; the waiver exists so the empty clause is visible and expires instead of passing forever",
+    "review_after": "2026-11-28"
+  },
+  "stubbed": {
+    "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib": {
+      "0xfffffff00abe3554": 1
+    },
+    "com.apple.driver.AppleARMPlatform": {
+      "0xfffffff00ab8e798": 1,
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ad3c5b8": 1,
+      "0xfffffff00ad3d804": 1,
+      "0xfffffff00ad3d814": 1,
+      "0xfffffff00ad45084": 1,
+      "0xfffffff00ad46814": 1,
+      "0xfffffff00ad46870": 1,
+      "0xfffffff00b2ab224": 1,
+      "0xfffffff00b2e7034": 1,
+      "0xfffffff00b33eed4": 1,
+      "0xfffffff00b33ef90": 1,
+      "0xfffffff00b33efa4": 1,
+      "0xfffffff00b351bd8": 1,
+      "0xfffffff00b351d7c": 1,
+      "0xfffffff00b36e788": 1,
+      "0xfffffff00b36ea1c": 1
+    },
+    "com.apple.driver.AppleARMWatchdogTimer": {
+      "0xfffffff00ab86b04": 1,
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ad3d804": 1,
+      "0xfffffff00ad46814": 1,
+      "0xfffffff00b4320d8": 1,
+      "0xfffffff00b432308": 1
+    },
+    "com.apple.driver.AppleEffaceableStorage": {
+      "0xfffffff00abe36d4": 1,
+      "0xfffffff00ad71480": 1
+    },
+    "com.apple.driver.AppleIISController": {
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00b36e788": 1
+    },
+    "com.apple.driver.AppleM2ScalerCSCDriver": {
+      "0xfffffff00ab86b04": 1,
+      "0xfffffff00ac2534c": 1,
+      "0xfffffff00ad714b8": 1,
+      "0xfffffff00b0de1d8": 1
+    },
+    "com.apple.driver.AppleMobileFileIntegrity": {
+      "0xfffffff00abd0d50": 1,
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ac13a78": 1,
+      "0xfffffff00ac48238": 1,
+      "0xfffffff00ac991f8": 1,
+      "0xfffffff00b0a2e6c": 1,
+      "0xfffffff00b0a30a8": 1,
+      "0xfffffff00b0a30b4": 1,
+      "0xfffffff00b0a30e0": 1,
+      "0xfffffff00b0a3158": 1,
+      "0xfffffff00b0a31c4": 1,
+      "0xfffffff00b0a323c": 1,
+      "0xfffffff00b0a34e0": 1,
+      "0xfffffff00b0a3b50": 1,
+      "0xfffffff00b0a3f48": 1,
+      "0xfffffff00b0a43fc": 1,
+      "0xfffffff00b0dd71c": 1,
+      "0xfffffff00b0de1d8": 1,
+      "0xfffffff00b0dea00": 1,
+      "0xfffffff00b0df0b0": 1,
+      "0xfffffff00b119a94": 1,
+      "0xfffffff00b11a1a0": 1,
+      "0xfffffff00b11a314": 1,
+      "0xfffffff00b11a998": 1,
+      "0xfffffff00b11ab54": 1,
+      "0xfffffff00b11aba4": 1,
+      "0xfffffff00b11ac54": 1,
+      "0xfffffff00b11ac98": 1,
+      "0xfffffff00b11acd8": 1,
+      "0xfffffff00b11ad04": 1,
+      "0xfffffff00b11ad4c": 1,
+      "0xfffffff00b11adb0": 1,
+      "0xfffffff00b11b4d8": 1,
+      "0xfffffff00b11b558": 1,
+      "0xfffffff00b11b564": 1,
+      "0xfffffff00b11b5b0": 1,
+      "0xfffffff00b11b604": 1,
+      "0xfffffff00b11b6ec": 1,
+      "0xfffffff00b13ce5c": 1,
+      "0xfffffff00b4320d8": 1,
+      "0xfffffff00b432308": 1
+    },
+    "com.apple.driver.ApplePMGR": {
+      "0xfffffff00ab86b04": 1,
+      "0xfffffff00abff7fc": 1,
+      "0xfffffff00abffae8": 1,
+      "0xfffffff00ad44a38": 1,
+      "0xfffffff00ad468ec": 1,
+      "0xfffffff00ad46948": 1,
+      "0xfffffff00b36e788": 1
+    },
+    "com.apple.driver.IODARTFamily": {
+      "0xfffffff00ab86b04": 1
+    },
+    "com.apple.filesystems.apfs": {
+      "0xfffffff00ab86b04": 1,
+      "0xfffffff00abdd25c": 1,
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00abe36d4": 1,
+      "0xfffffff00ac061f4": 1,
+      "0xfffffff00ac2534c": 1,
+      "0xfffffff00ac475f4": 1,
+      "0xfffffff00ad714b8": 1,
+      "0xfffffff00ad87160": 1,
+      "0xfffffff00ada1af4": 1,
+      "0xfffffff00ada94d8": 1,
+      "0xfffffff00adb0fbc": 1,
+      "0xfffffff00add2e78": 1,
+      "0xfffffff00add40f8": 1,
+      "0xfffffff00add41bc": 1,
+      "0xfffffff00addd814": 1,
+      "0xfffffff00ade9170": 1,
+      "0xfffffff00adee60c": 1,
+      "0xfffffff00b092a0c": 1,
+      "0xfffffff00b0de1d8": 1
+    },
+    "com.apple.iokit.CoreAnalyticsFamily": {
+      "0xfffffff00ac20880": 1,
+      "0xfffffff00b0de1d8": 1,
+      "0xfffffff00b36e788": 1
+    },
+    "com.apple.iokit.IOAVFamily": {
+      "0xfffffff00ac2534c": 1,
+      "0xfffffff00ad714b8": 1,
+      "0xfffffff00b24f1ac": 1,
+      "0xfffffff00b24f250": 1,
+      "0xfffffff00b24f4b8": 1,
+      "0xfffffff00b2502cc": 1,
+      "0xfffffff00b250384": 1,
+      "0xfffffff00b2581dc": 1,
+      "0xfffffff00b2869dc": 1,
+      "0xfffffff00b286bd8": 1,
+      "0xfffffff00b286c90": 1,
+      "0xfffffff00b315dd8": 1,
+      "0xfffffff00b316084": 1,
+      "0xfffffff00b31a524": 1,
+      "0xfffffff00b31af40": 1,
+      "0xfffffff00b31afe0": 1
+    },
+    "com.apple.iokit.IOAudio2Family": {
+      "0xfffffff00b36e788": 1
+    },
+    "com.apple.iokit.IOCryptoAcceleratorFamily": {
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ad449d0": 1
+    },
+    "com.apple.iokit.IOGPUFamily": {
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ac20880": 1,
+      "0xfffffff00ac26044": 1,
+      "0xfffffff00ac9033c": 1,
+      "0xfffffff00b0de1d8": 1,
+      "0xfffffff00b332418": 1,
+      "0xfffffff00b335fe0": 1,
+      "0xfffffff00b3360a8": 1,
+      "0xfffffff00b3361fc": 1,
+      "0xfffffff00b36e788": 1
+    },
+    "com.apple.iokit.IOHDCPFamily": {
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ac2534c": 1
+    },
+    "com.apple.iokit.IOHIDFamily": {
+      "0xfffffff00ab86b04": 1,
+      "0xfffffff00ac20880": 1,
+      "0xfffffff00ac4c1dc": 1,
+      "0xfffffff00b0de1d8": 1,
+      "0xfffffff00b2581dc": 1,
+      "0xfffffff00b28f6d4": 1,
+      "0xfffffff00b2a7e74": 1,
+      "0xfffffff00b2a7f90": 1,
+      "0xfffffff00b369a14": 3,
+      "0xfffffff00b36aa88": 1,
+      "0xfffffff00b36ae4c": 1,
+      "0xfffffff00b36e788": 1
+    },
+    "com.apple.iokit.IOMobileGraphicsFamily": {
+      "0xfffffff00ab86b04": 1
+    },
+    "com.apple.iokit.IOReportFamily": {
+      "0xfffffff00ac20880": 1
+    },
+    "com.apple.iokit.IOStorageFamily": {
+      "0xfffffff00ad71480": 1,
+      "0xfffffff00b2a7e74": 1,
+      "0xfffffff00b2a7f90": 1,
+      "0xfffffff00b335fe0": 1,
+      "0xfffffff00b3360a8": 1
+    },
+    "com.apple.iokit.IOSurface": {
+      "0xfffffff00abd0d50": 1,
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ac20880": 1,
+      "0xfffffff00ac9033c": 1,
+      "0xfffffff00b0de1d8": 1,
+      "0xfffffff00b2581dc": 1,
+      "0xfffffff00b32cf8c": 1,
+      "0xfffffff00b332404": 1,
+      "0xfffffff00b332418": 1
+    },
+    "com.apple.kec.corecrypto": {
+      "0xfffffff00ad05978": 1,
+      "0xfffffff00b416214": 1,
+      "0xfffffff00b41624c": 1
+    },
+    "com.apple.security.AppleImage4": {
+      "0xfffffff00abde90c": 1,
+      "0xfffffff00abdea40": 1,
+      "0xfffffff00b0fca08": 1,
+      "0xfffffff00b11a998": 1,
+      "0xfffffff00b4182c8": 1,
+      "0xfffffff00b4320d8": 1,
+      "0xfffffff00b432308": 1
+    },
+    "com.apple.security.Image4": {
+      "0xfffffff00b11a998": 1,
+      "0xfffffff00b11beac": 1,
+      "0xfffffff00b11bf24": 1,
+      "0xfffffff00b11bf90": 1,
+      "0xfffffff00b11bfb0": 1,
+      "0xfffffff00b4320d8": 1,
+      "0xfffffff00b432308": 1
+    },
+    "com.apple.security.sandbox": {
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00ac11bd8": 1,
+      "0xfffffff00ac2534c": 1,
+      "0xfffffff00ac48238": 1,
+      "0xfffffff00ac991f8": 1,
+      "0xfffffff00ada1af4": 1,
+      "0xfffffff00ada94d8": 1,
+      "0xfffffff00adb0fbc": 1,
+      "0xfffffff00add2190": 1,
+      "0xfffffff00b0a2e6c": 1,
+      "0xfffffff00b0a34e0": 1,
+      "0xfffffff00b0dd71c": 1,
+      "0xfffffff00b0de068": 1,
+      "0xfffffff00b0df1d0": 1,
+      "0xfffffff00b0e497c": 1,
+      "0xfffffff00b0e4f2c": 1,
+      "0xfffffff00b11ac10": 1,
+      "0xfffffff00b11ac54": 1,
+      "0xfffffff00b11acd8": 1,
+      "0xfffffff00b17aa18": 1,
+      "0xfffffff00b2581dc": 1,
+      "0xfffffff00b4320d8": 1,
+      "0xfffffff00b432308": 1
+    }
+  }
+}

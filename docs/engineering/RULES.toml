@@ -1277,3 +1277,10 @@ title = "闭门造车：先设计再看参考源，等于把别人的答案重�
 statement = "任何阻塞在动手前必须先读出参考源对同一问题的处置，并把它写成可解析的 文件:行 读数；写不出读数说明还没读，不是说明参考源没有答案。"
 check = "python3 scripts/check-reference-first.py && python3 scripts/tests/test-check-reference-first.py"
 note = "2026-11-21：加载器与 prelink 两处都在参考源里已有现成答案（官方 pin 支持 fileset；上游 policy 允许非零残留并要求 required_original_branches），却先花时间自证不可能。门禁把「读过」变成 open 阻塞的准入条件。"
+
+[[rule]]
+id = "P-292"
+title = "没有基线的残留数字，等于每次都在和昨天没记过的自己比"
+statement = "任何「还有 N 个未解决」的计数，都必须先把自己的当前值登记成基线（docs/engineering/IOS27-PRELINK-POLICY.json），门禁只允许它变小：增长即失败，某个基线条目消失也算陈旧债务。"
+check = "python3 scripts/tests/test-check-prelink-regressions.py"
+note = "2026-11-21：上游 24A446 用 regression_policy 干这件事（scripts/unixnu/kernel.py:300 的 check_prelink_regressions），我们此前只有一句「还有 203 个桩」在文档里，谁都不知道下一次构建是不是更差。登记表本身的判定逻辑由测试守住；对产物的判定跑在 check-ios27-artifacts.py 的飞行门禁里（脚本需要 /opt 下的 kernel.json，不能进常驻注册表，否则就是 P-290）。"

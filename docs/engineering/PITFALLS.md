@@ -7611,3 +7611,20 @@ stubbed 24（10 bundle）**，文件自述 "This bounds regressions, not runtime
 一般化：把「我查过参考源」从叙述变成**可以被机器重放的证据**。同族教训：P-251（永远为真）、
 P-279（读不到当成没有）、P-290（永远为红）、P-289（字段可写死）。
 
+## P-292 — 没有基线的残留数字，等于每次都在和昨天没记过的自己比
+
+「还剩 203 个桩」这句话在我们仓库里飘了一天。它既没说是好是坏，也没说比昨天多了还是少了，
+更没法回答「这次改配置有没有让它变差」。上游对同一个问题的处置是把残留写成
+`regression_policy`：`scripts/unixnu/kernel.py:300` 的 `check_prelink_regressions` 把记录里的
+地址减去 `collection_slide` 还原成原始地址，逐 owner 比对计数——**只允许变小**，并要求
+`required_original_branches` 全部在场。
+
+我们照抄了这条判据（`scripts/check-prelink-regressions.py`），并把 build 20 的
+**208 个缺口（3 missing + 205 stubbed，28 个 owner）** 登记成 `IOS27-PRELINK-POLICY.json` 的
+基线。三条附加判据是上游没有的：基线条目**消失**也算陈旧债务（P-259：写死的旧值会静默过期）、
+`required_original_branches` 为空时必须带**有到期日**的 waiver（P-290：永远为真的条款不是条款）、
+记录文件不存在时退 2 而不是 0（P-279：判不了不是通过）。
+
+一般化：**任何「还剩 N 个」都必须先有 N₀**。没有 N₀ 的数字只能用来写报告，不能用来判断今天
+比昨天好还是坏，而后者才是门禁存在的理由。
+

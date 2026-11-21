@@ -342,6 +342,33 @@ kTcsr=0x1fd5000, kPhy=0x088e3000, kSmmu=0x15000000, kRsc=0x17a20000`。
 
 
 
+### 9.4 冻结令与通道寿命（2026-11-22 更新，P-300 / P-307）
+
+`docs/engineering/BOOT-FREEZE.md` 的 `state = "frozen"`（用户 2026-11-22 03:02）：
+任何 `fastboot boot` 由 `scripts/flash.sh` 在跳转前拦下，只有用户本人把 `state` 改成 `lifted`
+并写理由才放行，环境变量绕过等同违规。**因此 §9 的 D1–D8 现在一条都执行不了** ——
+它们的设计目的是「解冻那一天照着判」，不是「现在能跑」。D1 例外：它全离线。
+
+两条会改变判据本身的事实：
+
+- **P-300**：27 内核没有存活日志通路，**0 字节日志不等于内核没跑**。D2/D4 的 INVALID 条件按这句写；
+  任何把「主机没枚举 + 面板无新行」读成「内核死了」的结论都要撤回。
+- **P-307**：ramoops 在 DRAM，掉电/复位即归零；DXE 里读卡器读到的永远是空窗口。
+  所以**任何以 ramoops/pstore 为证据的 D 行都无效**，包括「用 ramoops 证明 stage=n」。
+  D2/D3 唯一合法的观察面是面板 console（同一次启动内、不复位）。
+
+通道四问（`scripts/check-channel-lifetime.py` 要求的形状），三条候选通道逐条填：
+
+| 通道 | lifetime（活多久） | read_moment（谁何时读） | writer（谁写） | loss_condition（为什么会丢） |
+| --- | --- | --- | --- | --- |
+| ramoops / pstore | 只在**本次启动内**，且 `bsd_init` 之后才存在 | DXE 读卡器，**下一次**启动读 ⇒ 读写时序不成立 | 内核 kprintf 落 DRAM 保留区 | 复位/掉电即清零（P-307）；且 27 上根本没有 writer（§2：`_pong_ramoops_debug_base` / `_pong_ramoops_snapshot` 在 27 缺失） |
+| USB CDC-ACM（`k60_usblog` 路线） | gadget 起来后到内核死为止 | Mac 主机，**同一次启动内**边跑边读 | `k60_usblog.c` 的 console 回调（`bsd/dev/`） | 内核死在 `bsd_init` 之前 ⇒ 一个字都没有；救不了 `code_signing_init()` 那 13 项静默失败（§5 开头） |
+| 面板 console（`0543-k60-ios27-panel-console.patch`） | 从 `0543` 初始化到内核死 | 人眼/相机，同一次启动 | 内核 framebuffer 打点 | 黑屏处之后全丢；且 `0543` 目前没有 `usb stage=` 打印（D2 的缺口） |
+
+结论（写死，免得下一轮重新讨论）：**解冻前 §9 全部记 `unmeasured`**；解冻条件里的
+「同一次启动内的日志通路」正是本线 §5 第 6 项（`k60_usblog` 路线）与 §10 请求要答的问题，
+所以冻结令把这条线的优先级**抬高**了，不是降低。
+
 ---
 
 ## 10. 构建请求（⑦ 的第二件离线活）

@@ -32,6 +32,7 @@ EXTERNAL = {
     "scripts/build-xnu-generic.sh": ("gates", "scripts/build-xnu-generic.sh"),
     "scripts/build-ios27-linux.sh": ("gates", "scripts/build-ios27-linux.sh"),
     "scripts/refresh-xnu-generic.py": ("gates", "scripts/refresh-xnu-generic.py"),
+    "scripts/k60-fileset-pair.py": ("gates", "scripts/k60-fileset-pair.py"),
     "scripts/build-sheng-audio-hal.py": ("sheng", "scripts/build-sheng-audio-hal.py"),
     "scripts/check-audioreach-host.py": ("sheng", "scripts/check-audioreach-host.py"),
 }

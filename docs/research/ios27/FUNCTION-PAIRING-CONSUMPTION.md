@@ -86,6 +86,9 @@ targets are shared by multiple bundles. The three missing entries are the two
 a function start reached by this branch; adding function pairs cannot move
 them. The change is therefore not inert: it removes four panic-stub sites and
 changes the candidate image hash, while the 3 missing references remain.
+`write_candidate` still sees nonempty `missing` and refuses to write without
+`--allow-missing` (`fileset_emit.py:763-766`); the four pairs do not relax that
+gate.
 
 ## Conclusion
 

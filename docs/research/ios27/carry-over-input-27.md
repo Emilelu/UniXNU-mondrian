@@ -4,16 +4,19 @@
 
 ## 〇、数字怎么数的（每个数都带命令）
 
-| 量 | 命令（在本仓 `E:/hackios/k60-input27` @ `feat/input-27`） | 结果 |
-| --- | --- | --- |
-| 编号条目数（Lead 裁定口径） | `PYTHONIOENCODING=utf-8 python3 scripts/check-series-numbering.py` | `patches/xnu/series: 136 entries, 134 distinct numbers`；`patches/xnu-12377/series: 28 entries, 27 distinct numbers` |
-| 同一命令在 `k60-gates` 检出上 | 同上，cwd=`E:/hackios/k60-gates` | `patches/xnu/series: 136 entries, 134 distinct`；`patches/xnu-12377/series: 32 entries, 31 distinct` |
-| 全部非注释行 | `grep -vcE '^\s*(#\|$)' patches/xnu/series` | 240（含 `zzz…-pong-*` 这类无编号条目） |
-| 27 实际输入清单 | `grep -c . <build>/xnu-patches.list` | **105**，全部来自 `patches/xnu-12377/`；来自 `patches/xnu/` 的为 **0** |
+口径（Lead m01981，工具见 `k60-gates` 提交 `39238c33` 的 `scripts/series-count.py`）：本文件所有计数一律写成「**N 条补丁行（M 带号 + K 无号）**」，并注明是哪条命令、在哪棵树上量的。
 
-**两点必须写清**：
-1. `check-series-numbering.py` 的正则是 `^(?P<num>\d{4})(?P<suffix>[a-z]*)-…\.patch$`（该脚本 `:37-38`），**只认四位编号**；`zzz…-pong-touch-console.patch` 这类无编号条目根本不进它的计数。所以 136 与 240 不矛盾，是两个量。
-2. 清单里唯一命中 `pong|touch|keys` 的是 `patches/xnu-12377/native-pac-keys.patch`——那是 **PAC 指针认证的 keys**，不是按键，别当输入线证据。
+| 量 | 命令 | 结果 |
+| --- | --- | --- |
+| 16 线 `patches/xnu/series`（本仓 @ `feat/input-27`） | `python3 scripts/series-count.py --tree E:/hackios/k60-input27`（脚本在 `E:/hackios/k60-gates/scripts/`） | **240 条补丁行（129 带号 + 111 无号）** |
+| 27 设备仓自辖层 `patches/xnu-12377/series`（同树） | 同上 | **30 条补丁行（28 带号 + 2 无号）**；无号为 `ptrauth-string-discriminator.patch`、`armcpu-sleep-hook.patch` |
+| 同名两文件在 `k60-gates` 检出上 | `python3 scripts/series-count.py --tree E:/hackios/k60-gates` | `patches/xnu/series` 240（129+111）；`patches/xnu-12377/series` **36 条（34 带号 + 2 无号）** |
+| 27 实际输入清单（**装配树内测得，本仓没有这个文件**） | `grep -c . /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/xnu-patches.list` | **105**，全部来自 `patches/xnu-12377/`；来自 `patches/xnu/` 的为 **0** |
+
+**三点必须写清**：
+1. `check-series-numbering.py` 的正则是 `^(?P<num>\d{4})(?P<suffix>[a-z]*)-…\.patch$`（该脚本 `:37-38`），**只认四位编号**；`zzz…-pong-touch-console.patch` 这类无编号条目根本不进它的计数。所以「134」与「240」不矛盾——是两个量，**引用时必须带「（M 带号 + K 无号）」才不会让下一个人对不上**。
+2. `xnu-patches.list` 只存在于装配树（构建产物），本仓没有；所以「105 行」永远要写成「在装配树 `…/mondrian_ios27/` 内测得」。
+3. 清单里唯一命中 `pong|touch|keys` 的是 `patches/xnu-12377/native-pac-keys.patch`——那是 **PAC 指针认证的 keys**，不是按键，别当输入线证据。
 
 ## 一、27 的装配层：差集在哪
 
@@ -85,3 +88,36 @@
 4. `not-needed` 三类可合并成一行
 
 另：`xnu-patches.list` 105 条全在 `patches/xnu-12377/`、`patches/xnu/` 0 条，这个「0」本身就是最省事的量化口径。
+
+## 五、keys 的 `bsd_init.c` 锚点 vs `0547`（usblog EP0）：量出来的三个数
+
+测量方法（全部在 27 装配树内；两份副本 `rsync -a` 到 `~/input27-anchor/a`、`/b`，脚本 `E:/k60-work/scratch/input27/anchor-test.sh`）：
+
+- 源 = `/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work`（HEAD `ac9718f`「xnu-12377.121.6」，soc 层是未提交改动）
+- 补丁 = `patches/xnu/zzz…-pong-touch-console.patch`、`patches/xnu/zzz…-pong-physical-keys.patch`、`patches/xnu-12377/0547-k60-usblog-ep0-27.patch`
+- 手法 = `git apply`；touch 带 `--exclude iokit/Kernel/MiniIOMobileFramebuffer.cpp --exclude bsd/conf/files`，keys 带 `--exclude bsd/conf/files`（这两条路径的前置不在输入线手里，见上文 D/E）
+
+### 三个数
+
+| 量 | 值 | 怎么量的 |
+| --- | --- | --- |
+| keys 的 hunk 落在哪 | `@@ -1153,6 +1153,8 @@` → 落进 touch 新建的 `#if defined(PONG)` 块：块体 `:1175-1180`，**新增两行在 `:1178-1179`**（`extern void pong_buttons_init(void);` / `pong_buttons_init();`） | 副本 a 应用 touch→keys 后 `nl -ba bsd/kern/bsd_init.c` |
+| `0547` 的插入点落在哪 | `@@ -1334,7 +1334,11 @@` → 在 `qbt_k60_start();`（`:1349`）之后，**新增四行在 `:1350-1353`**，位于 `if (result == KERN_SUCCESS) {`（`:1347-1350`）块内 | 同副本上 `git apply --check --verbose 0547` 报 `Hunk #1 succeeded at 1346 (offset 12 lines)` |
+| 两者相隔多少 | **171 行**（keys 最后一行 `:1179` → 0547 第一行 `:1350`）；两个 hunk 的上下文窗口（`:1175-1180` 共 6 行 / `:1346-1356`）之间**至少 165 行未触碰** | 同上，逐行数 |
+
+### 两种落地顺序都实测过
+
+| 顺序 | 结果 |
+| --- | --- |
+| 装配树 → touch → keys → 0547 | 三步全 `rc=0`；0547 以 `offset 12 lines` 落位 |
+| 装配树 → 0547 → touch → keys | 三步全 `rc=0`；末态 `pong_buttons_init();` `:1179`、`qbt_k60_start();` `:1349`、`k60_usblog_start();` `:1353`，文件 1832 行 |
+
+### 判断：不要在 keys 的 hunk 里补「先落 0547」的后置条件
+
+1. 两处上下文不重叠（相隔 171 行，`git apply` 只读 3 行上下文），落地顺序自由，补条件没有收益。
+2. 把 keys 的锚点改成「`k60_usblog_start();` 之后的稳定行」是**有害**的：那四行在 `bsd_autoconf()` 的 `if (result == KERN_SUCCESS)` 块尾，而 keys 现在落在 `#endif /* DEVFS */` 之后的 `#if defined(PONG)` 块（`bsd_init` 早期）；挪过去等于把按键初始化推到 `bsd_autoconf()` 末尾，时序变了。
+3. 更糟的是**依赖反转**：改成那样以后，keys 就变成「必须在 0547 之后才能 apply」，而 0547 是新落、还可能被重打的补丁。
+
+### 一行结论
+
+**keys 与 `0547` 互不影响**（插入点相隔 171 行、上下文窗口不重叠，两种落地顺序实测全 `rc=0`）；keys 的硬前置只有 **touch**（它的 hunk 锚在 touch 新建的 `#if defined(PONG)` 块内），**不要**把 keys 重锚到 `k60_usblog_start();` 之后。

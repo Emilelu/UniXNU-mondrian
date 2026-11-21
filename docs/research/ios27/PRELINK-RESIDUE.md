@@ -139,3 +139,17 @@ Apple 预编译 kext 的导入，那些导入在写 cache 时已被解析成 App
 
 在没有那次启动之前，205 个的正确状态是：**结构上已知（全在 kext 指针槽、全部晚于 console）、
 归属上未知（不知道我们有没有编出来）、运行期未测**。三者分开写，不合并成一句「还剩 205 个」。
+
+## `note prelink policy: missing grew` 是常驻提示，不是新回归
+
+2026-11-22 05:38 第一次注意到这行（`com.apple.security.sandbox original 0xfffffff007e8a9e0
+has 1 site(s), the policy allows 0`），当时怀疑是 0546/0547 带进来的。核过两件事：
+
+- 同一个措辞在 **console4**（0547 之前）就已经在打，只是那几次报的是
+  `com.apple.driver.AppleARMPlatform` 的四个地址；
+- 05:41 用 `check-ios27-artifacts.py <board>` 重读计数：**94 unresolved / 21 bundles、
+  203 stubbed / 25 bundles**，与 0546 之前完全一致。
+
+⇒ 这行是「policy 里某个 original 当前有 n 个站点，而 policy 允许 0」的逐条读数，
+换一次构建就可能换成另一个 bundle；**它不是计数增长**。判据应看上面那两个总数，
+不看这一行的主语是谁。

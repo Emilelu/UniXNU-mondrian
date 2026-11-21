@@ -1,11 +1,12 @@
 # 未归属旧脚本：目录 / owner 清单
 
 来源：`feat/power-ios27-branch` @ `ee12c7e1`（首次清单生成于 `99a711d9`，本文按当前树复核）。
-门禁：`PYTHONUTF8=1 PYTHONIOENCODING=utf-8 python3 scripts/check-porting-paths.py --quiet` → `FAILED: 205 problem(s)`。
+门禁（应用前）：`PYTHONUTF8=1 PYTHONIOENCODING=utf-8 python3 scripts/check-porting-paths.py --quiet` → `FAILED: 205 problem(s)`。
+门禁（应用 41 条 pattern 后）：→ `FAILED: 1 problem(s)`，只剩 §6 的 cpu evidence 悬空引用。
 其中 **204** 个是 `no area claims tracked path`，**1** 个不是未归属错误。
 机器可读清单：[`PORTING-OWNER-MAP.tsv`](PORTING-OWNER-MAP.tsv)（204 行，`path/last_commit/last_scope/area/owner/basis`）。
 
-**这是提案，不是已登记状态。** 本分支没有修改 `porting.toml`；`owner` 是建议审查人，`area` 是建议的 porting 归属。由 Lead 一次性提交后，这 204 条才会从 gate 消失。
+**41 条 pattern 已应用到本分支 `porting.toml`；** 只加 area/owner，不改脚本行为。`owner` 仍是建议审查人，`area` 是 porting 归属；`porting.toml:76` 的 cpu evidence 悬空引用按 Lead 裁定单独修，不混入这次提交。
 
 ## 1. 结论
 
@@ -37,7 +38,7 @@ owner 合计：`hygiene-agent` 155、`adsp-handoff-agent` 15、`charger-agent` 7
 
 ## 3. 建议追加的 `porting.toml` pattern
 
-下面是按 area 的追加内容；本分支没有应用。现有 pattern 不动，只追加。
+下面是按 area 的追加内容；**本分支已应用**。现有 pattern 不动，只追加。
 
 ```toml
 # diagnostics.paths +=
@@ -144,5 +145,5 @@ owner 合计：`hygiene-agent` 155、`adsp-handoff-agent` 15、`charger-agent` 7
 ## 7. 自检
 
 - 204/204 条路径唯一；用与 `scripts/check-porting-paths.py:53-77` 相同的 `*`/`**` 段匹配做 dry-run，41 条建议 pattern 命中全部 204 条。
-- 应用后 gate 预期只剩 1 个非未归属错误，即 `FAILED: 1 problem(s)`；在 Lead 提交前，当前仍是 `FAILED: 205 problem(s)`。
-- 本文与 TSV 不修改 `porting.toml`，不新增 owner 登记，不碰 `E:/hackios/k60-gates`。
+- 41 条已应用，实测 `FAILED: 1 problem(s)`；唯一错误是 §6 的 cpu evidence 悬空引用。
+- `porting.toml` 的修改仅限这 41 条 pattern，不新增 owner 登记，不碰 `E:/hackios/k60-gates`；提交纪律见 `docs/research/power/LANE-RULES.md` R-02。

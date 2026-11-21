@@ -21,6 +21,7 @@
 | GPU 电源表 | `drivers/PongAdreno/PongAdrenoPower.c:143-189` | 从 cmd-db 构造 gfx/mx/cx、SH0/MC0/ACV/CN0、12 档带宽命令；只生成表，不写寄存器、不发 HFI | 只读规划 |
 | PMIC 账本 | `drivers/PongPower/K60PmicRail.h` | 只读 DRV-2/cmd-db 采样，ledger magic `RL60` | HR-01 四条件只读 |
 | 投票账本 | `drivers/PongPower/K60PowerVotePlan.c` | 16 资源 × 32 所有者的引用计数，拒绝重复占用；释放分三步：stop-dma、mask-irq、drop-vote | 纯记账，无消费者、不写硬件 |
+| 音频时钟门控 | `docs/research/audio/RESEARCH.md:164-165`；本仓库 `drivers/` 无实现 | TX SoundWire master 的 clock gating 由 audio 写；power 只记 owner/引用计数，不写、不代写 | audio 侧写权；power 侧规则见 `LANE-RULES.md` R-01 |
 | 执行顺序模型 | `drivers/PongPower/K60RailPlan.c` | 纯函数生成 regulator→interconnect→frequency→readback 步骤；温控门、容量不足、高频低压/低带宽拒绝，回读成功才提交 | 纯规划，无消费者、不读写寄存器 |
 
 没有 CPU 电压/互连/温控写路径：EPSS 投票（`K60CpuFreqProbe.cpp` mode 2/3）

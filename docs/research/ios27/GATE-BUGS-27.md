@@ -180,3 +180,118 @@ RC_B=0
 ②改在了另一条分支或另一个 gates 检出上（本机 `/e/hackios/k60-gates` 是唯一一个）；
 ③改在了别的文件名下。判据：`git log --all --oneline -- scripts/check-lane-fragment.py` 出现一条
 晚于 `5e0509e2` 的提交，且 `grep -c DEFAULT_SUBMAP scripts/check-io-map-budget.py` 归零。
+
+### 2026-11-21T19:03 — A 改好、B 改好（口径变严，附一条副作用）
+
+Lead m01279 说两处已落：`881d005d`（B）与 `c1b50a05`（A）。gates 本地 checkout 本来就在
+`diag/menu-hold-20261121` 上，`git log` 已经能看到这两条，与 §4 上一条写死的判据对得上：
+
+| 判据 | 命令 | 输出 |
+| --- | --- | --- |
+| 出现晚于 `5e0509e2` 的提交 | `git log --oneline --all -- scripts/check-lane-fragment.py scripts/check-io-map-budget.py` | 头两条就是 `c1b50a05`、`881d005d` |
+| `DEFAULT_SUBMAP` 归零 | `grep -c DEFAULT_SUBMAP scripts/check-io-map-budget.py` | **`2`——没有归零**（见下） |
+
+第二条判据是我自己写的，写粗了：`DEFAULT_SUBMAP` 这个常量还在（`:28` 定义、`:70` 仍返回它），
+真正被改掉的是**调用点**——`881d005d` 在 `measure()` 之前加了一道门（`:153-163`）：
+
+```python
+    _, source = io_map_size(tree)
+    if source == "default":
+        print("FAIL: %s/osfmk/arm/io_map.c declares no IO_MAP_SIZE; the 8 MiB fallback "
+              "is the 16-series number, so this tree cannot be judged against it. "
+              "Count the ml_io_map windows instead of borrowing a limit." % tree)
+        return 2
+```
+
+即「常量还在，但它不再被用来给一棵没有该宏的树打分」。判据应改成「`io_map_size()` 的返回值在
+`main()` 里被检查」，不是 `grep` 归零。这条教训按同一条纪律记下：**判据要盯行为，别盯字符串**。
+
+#### A. `check-lane-fragment.py`（`c1b50a05`）
+
+五条读数，全部用一个七步齐全的 fragment（`E:/k60-work/scratch/platform27/gate-postfix.sh`）：
+
+| # | 输入 | 输出 | RC | 期望 |
+| --- | --- | --- | --- | --- |
+| 1 | `official: porting/platform.md#source-map` | `OK p1.toml: seven steps, resolvable evidence, official anchors` | 0 | ✅ 与期望一致（改前是 `evidence does not resolve: porting/platform.md`） |
+| 2 | `official: porting/platform.md#no-such-anchor` | `FAIL: p2.toml: platform.official: porting/platform.md has no anchor #no-such-anchor` | 1 | ✅ 点名 anchor |
+| 3 | `official: porting/no-such-page.md#source-map` | `FAIL: p3.toml: platform.official: official page missing: porting/no-such-page.md` | 1 | ✅ 点名页面 |
+| 4 | 绝对路径证据 `/mnt/e/hackios/k60-platform27/drivers/ArmCpu/ArmCpu.cpp:485-594` | `OK p4.toml: …` | 0 | ✅ 前导 `/` 不再被截（改前 token 变成 `hackios/…` 解析失败） |
+| 5 | 本线 fragment + `--require-paths` | `OK platform-27.toml: seven steps, resolvable evidence, official anchors` | 0 | ✅ **没有红**——所以本线证据里没有真笔误（与 power 那条相反） |
+
+副作用一条，写给人看：`official:` 行现在**不再**被当作仓库路径扫，所以本线 §3 那条绕法
+（把官方页写成 `../UniXNU/docs/zh/porting/platform.md:10`）可以退役了；两种写法现在都过。
+
+#### B. `check-io-map-budget.py`（`881d005d`）
+
+四棵树（`E:/k60-work/scratch/platform27/gate-b-postfix.sh`）：
+
+| # | 树 | 输出 | RC |
+| --- | --- | --- | --- |
+| 1 | 27 构建树 `.cache/xnu-work`（`grep -c IO_MAP_SIZE` = 0） | `FAIL: … declares no IO_MAP_SIZE; the 8 MiB fallback is the 16-series number, so this tree cannot be judged against it. Count the ml_io_map windows instead of borrowing a limit.` | **2** |
+| 2 | 合成 16 系列形状树（`#define IO_MAP_SIZE (8ul << 20)`，两个窗口 1 MiB + 8 KiB） | `submap 8388608 = 0x800000 (8388608 bytes) from osfmk/arm/io_map.c` / `2 call site(s), 0 unresolved; resolved total 0x102000 (1.01 MiB)` / `✅ io_submap budget: …` | 0 |
+| 3 | 合成树，窗口和 > 子图（2 MiB vs 1 MiB） | `❌ … ask for 0x200000 (2.00 MiB) but IO_MAP_SIZE is only 0x100000 (1.00 MiB) …（P-219）` | 1 |
+| 4 | 不是 xnu-work 树的目录 | `skip: /tmp does not look like an applied xnu-work tree` | 0 |
+
+读数：`881d005d` 的期望形态与我 §3 写的不同——我写的是「打一行 `skip:`、RC 0、不打 ✅」，
+他实现的是「打 `FAIL:`、RC 2」。**他的更严，我接受**：判不了的树不该给绿。但要记一条副作用：
+**27 的树在这条门禁上从此恒红**，所以任何「全门禁一次跑绿」的说法在 27 上不成立，除非
+①这条门禁对 27 显式豁免，或 ②给它一个计数模式——它的 FAIL 文案自己就是指路牌
+（"Count the ml_io_map windows instead of borrowing a limit"），而那份计数已经在
+`docs/research/ios27/PLATFORM-BUDGETS.md` §1（BT 五窗 3,187,200 B；PongThermal / K60PmicRail /
+K60AdspBoard 三个调用点在 27 archive 之外）。这条留给 Lead 决定，本线不改 gates。
+
+边界观察（不是缺陷）：窗口和恰好等于子图（1 MiB vs 1 MiB）时打 `⚠ … (>75%); one more window may not fit`
+但结论是 `✅ … fits`、RC 0——共享子图下「刚好装满」确实算装得下，所以这条判读是对的，
+只是别把 `⚠` 当失败读。
+
+结论：**A 改好、B 改好**。本线 gate 复核到此收尾；下一次重跑只需要在 27 树这条门禁的处置
+（豁免 / 计数模式）定下来之后做一次。
+
+## 5. 复审时冒出来的第三条：一条 evidence 里只有**第一个** `official:` 被机检
+
+不是回归，是复核 A 修好时才暴露的：`check-lane-fragment.py` 现在会校验 `official:` 引用的页面与锚点，
+但每条 evidence 只校验**第一个**引用。
+
+### 机理
+
+`check-lane-fragment.py:160` 用的是 `re.search`：
+
+```python
+page = re.search(r"official:\s*[\"']?([\w./-]+\.md)(?:#([\w.-]+))?", text)
+if page is None:
+    continue
+```
+
+`:154` 那行 `re.sub` 会把**所有** `official:` 引用从路径扫描里剔掉（这部分是对的），但接下来的页面/锚点
+校验只拿到第一个匹配。所以第 2..N 条引用既不参与路径扫描、也不参与锚点校验——等于既不检查也不报错。
+
+### 两发实测（同一份本线 fragment，只改一个锚点）
+
+| 改哪一条 | 命令 | 输出 | RC |
+| --- | --- | --- | --- |
+| 第 **2** 条（`#clusters` → `#no-such-anchor`） | `check-lane-fragment.py frag-bad.toml --lane-root=… --require-paths` | `OK frag-bad.toml: seven steps, resolvable evidence, official anchors` | **0**（漏检） |
+| 第 **1** 条（`#source-map` → `#no-such-anchor`） | 同上，`frag-bad2.toml` | `FAIL: frag-bad2.toml: platform.official: porting/platform.md has no anchor #no-such-anchor` | 1（正确） |
+
+### 改好后应当打印
+
+把 `:160` 的 `re.search` 换成 `re.finditer`，逐条校验（每条都要页面存在 + 锚点存在）：
+
+```
+FAIL: frag-bad.toml: platform.official: porting/platform.md has no anchor #no-such-anchor
+RC=1
+```
+
+### 本线现在的处置（不改 gates，只标明）
+
+fragment 的 `official` 步里三条锚点都写在同一条 evidence 里，所以只有 `#source-map` 是被门禁机检的；
+`#clusters`（`platform.md:41`）与 `#block-and-os-services`（`:69`）由本线按页面原文核过：
+
+```sh
+grep -n '{#' ../UniXNU/docs/zh/porting/platform.md
+# 10:## 源码与接口 {#source-map}
+# 41:### 能效簇与性能簇 {#clusters}
+# 69:## 3. 接入块设备和 OS 服务 {#block-and-os-services}
+```
+
+这一条不影响本线交付（三条锚点都是真的），但它意味着「门禁绿」在现阶段**不能**被读成「所有官方锚点都验过」。
+在 `finditer` 落地前，任何人加第 2 条引用都要自己看一眼。

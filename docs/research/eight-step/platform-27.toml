@@ -29,7 +29,13 @@ recorded_at = '2026-11-21T14:05:00'
 
 [hardware.platform.step.official]
 done = true
-evidence = '''官方页 ../UniXNU/docs/zh/porting/platform.md（99 行）的四节逐条对应，锚点取自页面自身：
+evidence = '''门禁可机检的三行官方锚点（2026-11-21 门禁修好后改用 official: 形态，不再用镜像路径绕）：
+- official: porting/platform.md#source-map
+- official: porting/platform.md#clusters
+- official: porting/platform.md#block-and-os-services
+注意：门禁当前只机检每条 evidence 里的第一个 official: 引用（../k60-gates/scripts/check-lane-fragment.py:160 用的是 re.search），
+后两条本线是按页面原文核过的（grep -n '{#' ../UniXNU/docs/zh/porting/platform.md 打 :10 / :41 / :69），已回给 Lead 改 finditer。
+以下是对应的逐条正文（官方页 ../UniXNU/docs/zh/porting/platform.md，99 行）：
 - {#source-map}（:10-19）：「ArmCpu：CPU 注册、计时器/GIC 初始化、次级核入口和 IPI」。对应 drivers/ArmCpu/ArmCpu.cpp:485-594（注册）、:406-451（GIC）、:750-753（次级核入口）、:696-704（IPI 发送）。注意该表写 ArmCpu rev 9066b53b，而 ../UniXNU/components.toml:3-19 钉的是 93a5030c，引用版本号时以 components.toml 为准。
 - {#clusters} 能效簇与性能簇（:41-54）：「给每个 CPU 加 unixnu,cluster-type」。现状是反的：../UniXNU-sm8475-common/dts/sm8475.dtsi:22-59 把八个 cpu 节点全写成 "P"，而 SM8475 是 1+3+4（X2 + 3×A710 + 4×A510）。本线只记录、不改；触发条件写在 docs/research/ios27/FORK-DECISION.md。
 - {#block-and-os-services}（:69-80）：OS 服务表里与平台线相关的是 VerifiedRoot 与 DarwinBoot 的映射输入；本线只提供 CPU/GIC 与 ml_io_map 的预算结论（docs/research/ios27/PLATFORM-BUDGETS.md）。

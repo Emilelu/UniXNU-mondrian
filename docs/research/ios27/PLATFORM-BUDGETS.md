@@ -56,7 +56,7 @@ XNU 自身的 `ml_io_map` 调用全部由 ADT 属性驱动，本板 ADT 不提�
 - **失败形态变了**：16 系列是「子图用完 → `kmem_alloc` 返回 3」，27 是「kernel_map 真没 VA → `KMA_NOFAIL` 在 `vm_kern.c` 里等/失败」。诊断时看 `startup_phase` 与 `kernel_map` 的 `vm_map` 统计，不要再去 grep `IO_MAP_SIZE`。
 - **唯一还要盯的是 bootstrap 分支**：`startup_phase < STARTUP_SUB_KMEM` 时从 `virtual_space_start` 抢地址且 `assert(flags == WCOMB || IO)`。本板早期没有这类调用（ADT 无属性），但若将来把 GPU/UFS 的映射提前到 VM 起来之前，flag 必须显式给 `VM_WIMG_IO` 或 `VM_WIMG_WCOMB`，否则是 assert 而不是失败返回。
 
-### 1.5 门禁 `check-io-map-budget.py` 在 27 上是假绿（需要 gates 仓改，不在本线树里改）
+### 1.5 门禁 `check-io-map-budget.py` 曾经在 27 上假绿（已由 Lead 修，27 树从此恒红）
 
 实测（2026-11-21，对本线 27 构建基线）：
 
@@ -73,7 +73,13 @@ python3 scripts/check-io-map-budget.py --tree /e/hackios/UniXNU/out/mondrian/ios
 - `call_sites()`（`:83`）只扫 `bsd/dev/*.c`，尺寸必须写成字面量或同文件 `#define`（`:101-105`），所以 BT 窗口的宏尺寸一律算 `unresolved`，`resolved total 0x0`；
 - 于是一个「没有子图、窗口尺寸也没算出来」的树，得到的是「every window fits」。这在 16 系列是对的（P-219 的真问题），在 12377 之后是过期模型。
 
-建议（gates 仓归 Lead）：`IO_MAP_SIZE` 缺席时不要打 ✅，改打印「12377 之后 `io_map()` 每次 `kmem_alloc(kernel_map)`，本门禁不适用（P-219 已封存）」并按 skip 退出；BT 窗口的尺寸读 `patches/xnu-12377/0500-*.patch` 的宏，而不是 `bsd/dev/*.c` 里的 `#define`。
+**已修（2026-11-21，Lead `881d005d`）**：`main()` 在 `measure()` 之前加了 `if source == "default"` 的门，
+打 `FAIL: … declares no IO_MAP_SIZE … Count the ml_io_map windows instead of borrowing a limit.` 并退 2。
+读数与本线的实测见 `GATE-BUGS-27.md` §4 第三条：27 树 → FAIL RC=2；16 系列形状的合成树仍能测（`from osfmk/arm/io_map.c`）；
+窗口和超子图仍打 ❌ RC=1。副作用是**27 的树在这条门禁上永远红**，直到有人给它一个计数模式或对 27 显式豁免——
+而那种计数就是本文 §1 的表（BT 五窗 3,187,200 B；PongThermal / K60PmicRail / K60AdspBoard 三个调用点在 27 archive 之外）。
+
+原始建议（留档，已由上面的提交覆盖）：`IO_MAP_SIZE` 缺席时不要打 ✅，改打印「12377 之后 `io_map()` 每次 `kmem_alloc(kernel_map)`，本门禁不适用（P-219 已封存）」并按 skip 退出；BT 窗口的尺寸读 `patches/xnu-12377/0500-*.patch` 的宏，而不是 `bsd/dev/*.c` 里的 `#define`。
 
 ## 2. T0SZ：整组可搬，但有一处属于 GPU 线
 

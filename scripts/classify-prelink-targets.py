@@ -24,8 +24,8 @@ RECORD = Path('/mnt/e/k60-work/scratch/stubs/unreachable.toml')
 NM = '/usr/bin/llvm-nm-18'
 DEV = Path('/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/build/xnu/ios-obj/'
            'DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf')
-REF = Path('/mnt/e/hackios/k60-gates/scripts/xnu-fileset-reference/'
-           'mach.release.bcm2837.unstripped.noctf')
+REF = Path(__file__).resolve().parent / 'xnu-fileset-reference' / (
+    'mach.release.bcm2837.unstripped.noctf')
 SEGMENT = 0x19
 
 

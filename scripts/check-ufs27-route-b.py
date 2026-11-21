@@ -51,6 +51,8 @@ PLIST = "drivers/NativeUfs/Info.plist"
 BUNDLE_PRODUCER = "NativeUfs.kext"
 REQUIRED_LIBRARIES = ("com.apple.iokit.IOStorageFamily", "com.apple.kec.corecrypto")
 KERNEL_BUILDERS = ("scripts/build-xnu-generic.sh", "scripts/build-xnu-4k-baseline.sh")
+DEFCONFIG = "configs/mondrian_ios27_defconfig"
+UFS_SWITCH = "CONFIG_XNU_NATIVE_UFS"
 READERS = (
     "scripts/check-ios27-storage-entries.py",
     "scripts/check-ios27-storage-exports.py",
@@ -114,9 +116,19 @@ def bundle_recipe(repo: Path) -> tuple[str, str] | None:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        hits = []
         for number, line in enumerate(text.splitlines(), 1):
-            if BUNDLE_FLAG.search(line) or "MH_KEXT_BUNDLE" in line:
-                return f"{rel(repo, path)}:{number}", line.strip()
+            stripped = line.strip()
+            if stripped.startswith("#") or not (BUNDLE_FLAG.search(line) or "MH_KEXT_BUNDLE" in line):
+                continue
+            # A recipe usually names the flag in a comment and uses it further
+            # down; prefer the line that actually invokes the linker.
+            weight = 0 if stripped.startswith(("ld", '"$LD', "$LD", "${LD")) else 1
+            hits.append((weight, number, stripped))
+        if hits:
+            hits.sort()
+            _weight, number, stripped = hits[0]
+            return f"{rel(repo, path)}:{number}", stripped
     return None
 
 
@@ -127,7 +139,7 @@ def force_load_sites(repo: Path) -> list[str]:
     at :647 and `:646-653` respectively), then pass `-Wl,-force_load,$UFS_ARCHIVE`,
     so the match is the force-load of whatever variable holds a native-ufs path.
     """
-    sites: list[str] = []
+    sites: list[str] = []  # a site guarded by XNU_NATIVE_UFS_BUNDLE is not a carrier
     for name in KERNEL_BUILDERS:
         path = repo / name
         if not path.is_file():
@@ -141,6 +153,11 @@ def force_load_sites(repo: Path) -> list[str]:
         for number, line in enumerate(lines, 1):
             if not FORCE_LOAD.search(line):
                 continue
+            if any("XNU_NATIVE_UFS_BUNDLE" in above for above in lines[max(0, number - 5) : number]):
+                # docs/research/storage/UFS27-FORCE-LOAD-REMOVAL.patch guards the
+                # block with the bundle switch; with that switch set, route B is
+                # the chosen carrier and this block cannot fire.
+                continue
             for holder in holders:
                 if f"${holder}" in line or f"${{{holder}}}" in line:
                     sites.append(f"{name}:{number}")
@@ -149,6 +166,18 @@ def force_load_sites(repo: Path) -> list[str]:
                 if "native-ufs" in line or "NativeUfs" in line:
                     sites.append(f"{name}:{number}")
     return sites
+
+
+def switch_is_on(path: Path) -> bool:
+    """Whether the 27 profile turns the UFS archive on; a dormant block is no carrier."""
+    if not path.is_file():
+        return False
+    match = re.search(
+        rf"^{UFS_SWITCH}\s*=\s*\"?([^\"\s#]+)\"?",
+        path.read_text(encoding="utf-8", errors="replace"),
+        re.MULTILINE,
+    )
+    return bool(match) and match.group(1).lower() in ("y", "yes", "1", "true")
 
 
 def read_plist(repo: Path) -> dict | None:
@@ -197,6 +226,10 @@ def grade(repo: Path, framework: Path | None) -> list[tuple[str, str, str]]:
     recipe = bundle_recipe(repo)
     sites = force_load_sites(repo)
     plist = read_plist(repo)
+    switch = switch_is_on(repo / DEFCONFIG)
+    # A force-load inside `if [ "${XNU_NATIVE_UFS:-0}" = 1 ]` is only a carrier
+    # once the switch is on; at stage 0 the block exists and never runs.
+    carriers = (len(sites) if switch else 0) + (1 if recipe else 0)
 
     # --- ring 2: the bundle -------------------------------------------------
     if recipe:
@@ -257,7 +290,8 @@ def grade(repo: Path, framework: Path | None) -> list[tuple[str, str, str]]:
             )
 
     # --- ring 4: the kernel link -------------------------------------------
-    if sites and recipe:
+    dormant = f" ({DEFCONFIG} has {UFS_SWITCH} off, so the force-load never runs)" if sites and not switch else ""
+    if carriers > 1:
         rows.append(
             (
                 "GAP",
@@ -266,24 +300,53 @@ def grade(repo: Path, framework: Path | None) -> list[tuple[str, str, str]]:
                 "also links the same objects into a bundle",
             )
         )
-    elif sites:
-        rows.append(
-            (
-                "PEND",
-                "link",
-                f"{', '.join(sites)} force-loads {STORAGE_ARCHIVE} into the kernel (route A shape); "
-                f"no bundle recipe exists, so the driver has exactly one carrier",
-            )
-        )
-    elif recipe:
-        rows.append(("OK", "link", "no builder force-loads the storage archive and a bundle recipe exists"))
-    else:
+    elif carriers == 0 and switch:
         rows.append(
             (
                 "GAP",
                 "link",
-                "no builder force-loads the storage archive and no bundle recipe exists -- the driver "
-                "would be in no product, and every reader below would report 'absent' rather than 'broken'",
+                f"{UFS_SWITCH} is on and nothing links the storage objects: no builder force-loads "
+                f"{STORAGE_ARCHIVE} and no bundle recipe exists, so the switch claims a product that no "
+                "carrier builds",
+            )
+        )
+    elif carriers == 0:
+        rows.append(
+            (
+                "PEND",
+                "link",
+                "no carrier: no builder force-loads the storage archive and no bundle recipe exists, "
+                "which is the stage-0 state while the switch is off",
+            )
+        )
+    elif recipe and sites:
+        rows.append(
+            (
+                "OK",
+                "link",
+                f"one carrier: {recipe[0]} links the bundle{dormant}; the removal of "
+                f"{', '.join(sites)} is the Lead's diff, and until it lands the force-load only "
+                "returns with the switch",
+            )
+        )
+    elif recipe:
+        rows.append(("OK", "link", f"one carrier: {recipe[0]} links the bundle and no builder force-loads {STORAGE_ARCHIVE}"))
+    elif switch:
+        rows.append(
+            (
+                "GAP",
+                "link",
+                f"{UFS_SWITCH} is on and {', '.join(sites)} force-loads {STORAGE_ARCHIVE} into the kernel: "
+                "the driver is route A while the switch claims a bundle",
+            )
+        )
+    else:
+        rows.append(
+            (
+                "PEND",
+                "link",
+                f"{', '.join(sites)} force-loads {STORAGE_ARCHIVE} into the kernel (route A shape), "
+                f"and no bundle recipe exists; {UFS_SWITCH} is off, so nothing is linked today",
             )
         )
 

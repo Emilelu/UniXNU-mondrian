@@ -71,6 +71,8 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 
 第二个必要条件：`mac_late == 0`。`mac_policy_initmach()` 调完 loader 立刻置 `mac_late = 1`，这条路一次性；任何「晚一点再试」的补丁都进不来，只能靠 `_NativePrelinkEarlySecurityInit` 或改 AMFI 自身。
 
+审计侧已按 Lead 裁决（2026-11-21）改在生成器里，而不是手改产物：`E:/k60-work/scratch/stubs/classify.py` 的 `mechanism()`、`unreachable.toml` 的 stanza `reason`、`REPORT.md` 的 Headline 三处都换成上面这条链，并在同一句里保留「早前写法说 `code_signing_init()`，实际只初始化互斥量」的撤回说明。重新生成后计数不变（`stubbed 205` / `items=205 keys=203 bundles=25` / `earliest-post-console=3` / `baseline-targets=55`），`classify.py check` 仍 `check: OK`，`scripts/check-osservices27-silent13.py --strict` 仍 `TESTS OK 48 cases`。`unreachable.toml` 里已无 `enters from code_signing_init()`（0 处），13 行新措辞都在。
+
 ### B.3 可观测性：这次为什么是「黑屏 + 0 字节」
 
 三条输出通道，各自有独立开关：
@@ -89,6 +91,8 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 | 有白字，最后一行是 `NativePrelink: …` 或 `Kext … early security initializer failed: …` | 不是桩，是 early init 的四道守卫之一（`mac_late` / 段校验 / 返回值） | 按 `OSKext.cpp:8501-8540` 逐条查 |
 
 本表第二、三行是**待证假设**，写在这里是为了让一次上机同时验证三件事，不是当结论用。
+
+飞行时照着读的版本是单页 [`osservices-27-screen.md`](osservices-27-screen.md)（六行判据 + 抄录清单 + 回填位置）；本节保留论证，那一页只留「现象 → 结论 → 命令」。
 
 ### B.4 13 项清单
 
@@ -179,13 +183,61 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 
 ---
 
-## A. 三组件 27 接入点与依赖（待写）
+## A. 三组件 27 接入点与依赖
 
-Lead 裁决顺序：B → A/C。A 段将覆盖：
+Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、依赖、以及两个缺失输入怎么离线拿到**；
+不写「应该是」，凡未取到的值都标 `unknown` 并给获取步骤（§A.4）。
 
-- **SoftwareAES**：catalog 只声明 `ipados-17.7.11-21H461`，而 27 profile 是 `arch = "arm64e"`；`OriginalAESABI.h` 的硬 static_assert（`sizeof(IOAESAccelerator)==0x120` 等）在 27 是否仍成立；27 内核源码里没有 `IOAESAccelerator`/`IOCryptoAccelerator` 类（`xnu-12377` grep 0 命中，`iokit/conf/files:7` 只有 `OPTIONS/crypto optional crypto`）⇒ 类来自 prelinked `com.apple.iokit.IOCryptoAcceleratorFamily`，接入点是 ABI 匹配不是编译期继承。
-- **AppleKeyStoreState**：catalog 已声明 27.0.1；但它是 6 个 `native_aks_*` 符号的**客户端**，本板没有 provider（`UniXNU-sheng/package/KeyStoreProbe.cpp` 是对面的 payload 侧探针）。27 上要么补 provider（沿 16.6.1 `MiniAppleKeyStore.cpp` 的 12 selector 形状），要么明确「无 keybag、`sheng-aks-sls=3` 报无密码」是设计状态。
-- **ShengPreflight**：本板 `board.toml` **没有** `[firmware] preflight` 键，也没有预检脚本；机制在 `scripts/unixnu/firmware.py`（`--skip-preflight`，见 `docs/zh/porting/uefi-firmware.md:169-172`）。ShengPreflight 的 gitlink 是 `9cfc8d2c…`、子模块目录为空，要写目标板的检查，不能直接复用 sheng 的。
+### A.0 总表
+
+| 组件 | catalog 声明 | 27 现状 | 27 接入点 | 阻塞依赖 |
+|---|---|---|---|---|
+| SoftwareAES | `components.toml:228`；os_abi 仅 `ipados-17.7.11-21H461`；产物 `build/software-aes/libSoftwareAES.a`；build_stage kernel | 未接入：27 的 `components.include` 只有 ArmDTPlatform/ArmCpu/XnuPrelink（`board.toml:341-410`），`kernel.archives` 八项里没有 software-aes | `[os_overrides."ios-27.0.1-24A446"]` 的 `components.include` + `kernel.archives` | 27 的类布局（vtable 槽数 / 签名 discriminator / `IOAESKeyData.selector` 偏移）是 `unknown` |
+| AppleKeyStoreState | `components.toml:250`；os_abi 17.7.11 **与** 27.0.1；产物 `build/apple-key-store-state/libAppleKeyStoreState.a`；board_dependencies `["platform state callbacks"]` | 未接入；它是 6 个 `native_aks_*` 符号的**客户端**，本板无 provider | 同上（`kernel.archives` 加静态库）+ `payload.kernel_args` 需要 `sheng-aks=1`（现在没有） | 符号 provider 不存在；27 的 selector 表是 `unknown` |
+| ShengPreflight | `components.toml:534`；os_abi UEFI；hardware Xiaomi Pad 6S Pro；`build = []`、`outputs = []` | 未接入：本板 `board.toml` 无 `[firmware] preflight`；子模块目录空（gitlink `9cfc8d2c…`） | `[firmware] preflight`（`scripts/unixnu/firmware.py` 调它，`--skip-preflight` 可跳，见 `docs/zh/porting/uefi-firmware.md:169-172`） | 输入清单（FV 大小/路径、DTB、内存图）未写成脚本；sheng 的检查拿不到源码 |
+
+### A.1 SoftwareAES：接入点是 ABI 匹配，不是编译期继承
+
+- 27 内核源码里**没有**这两个类：`E:/hackios/xnu-12377` 对 `IOAESAccelerator` / `IOCryptoAccelerator` 全库 0 命中；`xnu-12377/iokit/conf/files:7` 只有 `OPTIONS/crypto optional crypto`。所以类来自 prelinked `com.apple.iokit.IOCryptoAcceleratorFamily`，`drivers/SoftwareAES/OriginalAESABI.h` 的重新声明是唯一通路。
+- 该头把形状钉死成硬断言：`sizeof(IOService)==0x88`、`sizeof(IOCryptoAccelerator)==0x88`、`sizeof(IOAESAccelerator)==0x120`、`sizeof(IOAESIV)==16`、`offsetof(IOAESKeyData,selector)==36`、16 个虚函数。这六个值现在是 **16 行实测值**，在 27 上一条都没重测过。
+- arm64e 的额外风险：`patches/xnu-12377/series` 第一条就是 `ptrauth-string-discriminator`。vtable 槽仍是 8 B，但槽里是**已签名**指针 ⇒ 槽数与 `sizeof` 断言可以不变，而虚调用要对上 discriminator；否则调用成功但认证失败。这条是 SoftwareAES 在 27 上最容易「断言过、运行炸」的地方。
+- 依赖顺序：`IOCryptoAcceleratorFamily` 自身在 205/203 残留里占 **2 项**（25 bundle 名单中有它）⇒ 类族的符号绑定还没闭合；SoftwareAES 的接入必须排在它之后，否则 KAT 计数只会在桩上打转。
+- 待验证（命令已给在 §A.4）：`libkern/crypto/aes.h` 与 `libkern/crypto/crypto_internal.h` 在 12377 是否存在 —— `NativeAES.cpp` include 了它们，本线没有实测。
+
+### A.2 AppleKeyStoreState：先有 provider，再谈 selector
+
+- 它消费 6 个符号：`native_aks_state_enabled()`、`native_aks_lock_state()`、`native_aks_call(sel,rc)`、`native_aks_opened()`、`native_aks_encode_state(out,cap,lockState)`、`native_keyevents_allocate/open_refused`。全仓搜索（UniXNU-sheng / -mondrian / -pong / -zizhan / xnekom-ios27 / k60-gates）**没有任何内核侧定义**；只有 `UniXNU-sheng/package/KeyStoreProbe.cpp`，那是 payload 侧探针，不能链接。
+- 它成功的 selector 是 11 个（0、4、5、9、12、13、26、27、55、101、102），其余一律 `kIOReturnError`。27 的 selector 表 `unknown`（§A.4）。
+- 两条路线，选一条写进 plan（现在不选）：
+  1. **补 provider**：沿 16.6.1 `zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch` 的 `iokit/Kernel/MiniAppleKeyStore.cpp`（281 行、12 selector、`#if defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL`）搬到 27 的 `iokit/conf/files` + 启动钩子。代价：引入 keybag 语义，要回答「wrap 只是可逆映射」这件事在 27 的 libaks 下够不够。
+  2. **只报状态**：不补 provider，明确「无 keybag、`sheng-aks-sls=3` 报无密码」是设计状态，AppleKeyStoreState 在 27 只作为观测点存在。代价：凡是需要 device key 的路径必须另有结论。
+- 启动参数依赖：`sheng-aks=1` 与 `sheng-aks-sls` 现在都不在 27 的 `payload.kernel_args` 里（`board.toml:341-410` 只有 `-v serial=3 debug=0x14e kt_fixed_zones=120 -no_slto_panic use_contiguous_hint=0 amfi_get_out_of_my_way=1 k60_fontscale=3`）⇒ 即使库接进去也会走「未启用」分支。
+
+### A.3 ShengPreflight：机制在，检查项不在
+
+- 框架侧机制是现成的：`[firmware] preflight` 里的脚本在 EDK II 构建前跑，`--skip-preflight` 可跳过，输入要带 hash 校验（`docs/zh/porting/uefi-firmware.md:169-172`；构建顺序「1 preflight → 子模块 → BaseTools → 补丁 → 构建 → 还原 → 查 FV 大小/路径」）。
+- 本板缺的是**检查项**：`board.toml` 的 `[firmware]` 只有 `dsc = Platforms/Xiaomi/mondrianPkg/mondrian.dsc` 与 packages 列表，没有 `preflight` 键；`drivers/ShengPreflight` 是空子模块（gitlink `9cfc8d2c…`），sheng 的 `board.toml` 里也没有 `[firmware]` 表 ⇒ 没有可抄的现成脚本，只能按本板目标写。
+- 本板可写的三条（依据在 27 profile 与 flight blockers 里，不靠猜）：
+  1. **FV 大小**：产物 FV 必须与 `[uefi_fd] size` 对得上（`uefi-firmware.md` 验证表）；现存 `firmware-fileset-provider` 已 closed（uefi-mondrian 39fa61c，PE 55,296 B，sha256 `52b064d6…`），可作基线哈希。
+  2. **加载窗口**：platform27 现在的怀疑是 256 MB 载入窗口压掉 framebuffer；预检应给出「载入窗口 + ADT `video` 节点 + FV 末端」三者的数值关系，超界即失败。这一条与 B 段第 1/2 行判据直接互补。
+  3. **启动输入**：`payload.adt.chip_id = "8140"`、`random_seed = "11"`、`root_match_volume_uuid = E3F4AED0-…` 与 27 profile 的 `roots`（30 项）必须一致；不一致时预检失败比黑屏便宜。
+
+### A.4 两个缺失输入：怎么离线拿到（不许用 24A446 猜）
+
+**输入 1：`IOCryptoAcceleratorFamily` 的类布局（vtable 槽数 / 判别器 / `IOAESKeyData` 偏移）**
+
+1. 用**本板** prelink 后的 `kernel.macho`（kext 侧仍有符号表；Apple kernelcache 是 `LC_SYMTAB nsyms 0`，读不到名字 —— 所以不要先拿 24A446 反汇编去猜）。
+2. `llvm-nm-18 -m kernel.macho | grep -i 'IOCryptoAccelerator\|IOAESAccelerator'` → 有 `__ZTV…` 就拿到 vtable 符号；没有则按「`IOAESAccelerator` 16 字符」拼 `__ZTV16IOAESAccelerator` 再试。
+3. `llvm-objdump-18 --macho --section=__TEXT,__const`（或该 kext 的 `__DATA_CONST`）读 vtable：长度应为 `2 + 16` 槽 = 0x90 B；逐槽取归属函数地址，按 `OriginalAESABI.h` 的顺序核对（`getAlgorithmName` → 两个 `performAES` 重载 → `isKeySupported` → `getSupportedOptions` → …）。
+4. `IOAESKeyData.selector` 偏移：在 `performAES` 的调用者里找该参数结构的字段装载（`ldr w?, [x?, #0x24]`），0x24 = 36 即为对上。
+5. **通过判据**：槽数 18、顺序一致、偏移 0x24。**任一不符** ⇒ 不接 SoftwareAES，改走 ABI 探测（`native_aes_kat_status` 计数 + `_unsupported_key`），并在 §C 记 `unknown`。
+
+**输入 2：27 的 AKS selector 表**
+
+1. 先在 27 profile 的 30 个 `roots` 里确认 `com.apple.driver.AppleKeyStore` 是否在列；不在列就说明 27 stage-0 根本没加载 AKS kext，此时「selector 表」对 stage-0 无意义，AppleKeyStoreState 的接入应直接降级为路线 2（只报状态）。
+2. 若在列：在 `kernel.macho` 里找该 kext 的 `externalMethod`（selector 比较链）或常量表，逐个 case 记 `selector → 返回码`；与 AppleKeyStoreState 的 11 个成功 selector 求差。
+3. **通过判据**：差集为空，或只差在「不产生输出」的 bookkeeping 类。**不通过** ⇒ 要么扩成功集（须有调用者证据），要么维持 11 个并在 §A 记 `unknown`；**不许**为了让用户态不报错而把 `kIOReturnError` 改成 `kIOReturnSuccess`（那是把「没实现」伪装成「实现了」）。
+4. 附带验证：`xnu-12377` 只有 `iokit/Kernel/i386/IOKeyStoreHelper.cpp` 与 `iokit/IOKit/AppleKeyStoreInterface.h`，没有 ARM 实现 ⇒ 表只能从 kext 取，不能从源码读。
 
 ## C. open→closed 判据表（待写）
 

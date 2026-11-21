@@ -76,10 +76,12 @@ recorded_at = "2026-11-21T17:05:00"
 
 [hardware.os_services.step.plan]
 done = false
-evidence = '''缺：方案（文件 + 改动 + 依据表）。已有：B 段四法已写死在 docs/research/ios27/osservices-27.md §B.6（静态比对 / 离线单测 / 产物检查 / 上机），每法带命令与判据。
-仍缺 A 段三件的改法，每件都必须给 file:line：(1) SoftwareAES 在 arm64e 27 profile 的接入点 —— catalog 只声明 17.7.11，OriginalAESABI.h 的 static_assert（sizeof(IOAESAccelerator)==0x120 等）是 16 行实测值，要先证明 27 的类布局没变；(2) AppleKeyStoreState 的 provider 缺口 —— 补内核侧 provider（沿 16 行 MiniAppleKeyStore.cpp 的 12 selector）还是明确无 keybag 的设计状态；(3) ShengPreflight —— 本板 [firmware] preflight 要写哪几条检查（固件卷、内存图、启动输入）。
-能定它的证据：每条改动对应一个 file:line 与一条 ②/③ 的引用；没有引用的条目不许进 plan。'''
-recorded_at = "2026-11-21T17:05:00"
+evidence = '''缺：方案（文件 + 改动 + 依据表）的最后一列 —— A 段接入点与依赖已写（docs/research/ios27/osservices-27.md §A.0-A.3），B 段四法已写死（§B.6），但仍差两个输入的实测值，而 plan 不许写「应该」：
+- SoftwareAES：vtable 槽数 / 判别器 / IOAESKeyData.selector 偏移在 27 是 unknown；获取步骤已写成 §A.4 输入 1（本板 kernel.macho 的 __ZTV，不拿 24A446 猜），通过判据 = 18 槽 / 顺序一致 / 偏移 0x24。
+- AppleKeyStoreState：27 的 selector 表 unknown；获取步骤 §A.4 输入 2，先查 27 profile 的 30 个 roots 里有没有 com.apple.driver.AppleKeyStore。两条路线（补 provider / 只报状态）已在 §A.2 列出但不选，等这两个值。
+- ShengPreflight：三条检查项已按本板事实列出（FV 大小对齐 [uefi_fd] size、载入窗口 vs ADT video、ADT/payload 输入一致性），但每条要落到具体脚本与输入 hash 才能成 plan。
+能定它的证据：§A.4 两段的命令各跑一次并留下输出；ShengPreflight 需要先定 [firmware] preflight 的脚本路径与输入清单（这一项要动 board.toml，属共享树，需 Lead 指派）。'''
+recorded_at = "2026-11-21T17:40:00"
 
 [hardware.os_services.step.deep]
 done = false

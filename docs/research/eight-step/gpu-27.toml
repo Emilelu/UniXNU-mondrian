@@ -64,8 +64,8 @@ evidence = "27 线的方案顺序由预算表给出，而不是由愿望给出�
 recorded_at = "2026-11-21"
 
 [hardware.gpu.step.deep]
-done = false
-evidence = "深挖已完成的离线部分是三个 unknown 的边界与取证链（docs/research/gpu/GPU-27-CONTRACT-DIFF.md:178），以及扫出 wire 的版本号冲突规格（docs/research/gpu/GPU-27-SCANOUT-WIRE-PROPOSAL.md:31 的不变量、:70 的四向矩阵）。未做的是 27 侧实现：27 线上 PongScanoutWire 仍是 48 B / version 1、submit ABI 仍是 v1 / 16，两项都要改；因为在 stage-0 之前没有任何 27 侧读数可用，本步保持 false。"
+done = true
+evidence = "深挖这一步的产物是「八项缺项各自的 27 侧证据链」：每一项写清现状、27 侧落点（文件:行，或「27 侧不存在」）、谁交、交付物与判据，全文各条：docs/research/gpu/GPU-27-DEEP-EVIDENCE.md:19（#1 交付队列）、:31（#2 CPU 合成默认关）、:45（#3 gperf）、:55（#4 wire v2）、:65（#5 客户端计时）、:75（#6 零拷贝扫出）、:85（#7 hw_init 执行者）、:97（#8 面板节拍）。三条已查真的 27 侧读数：①27 线的交付仍是单 pending 槽，判据行与 16.6.1 同文本（27 树同路径 drivers/PongAdreno/PongAdrenoScanout.cpp:159 与 :135），presenter 无队列（drivers/PongMetal/PongMetalScanout.h:30-52）；②wire 仍是 48 B / version 1（27 树同路径 drivers/PongAdreno/PongScanoutWire.h:15 的 static_assert 与 :5 的 PongScanoutVersion=1），submit ABI 仍是 v1 / 16 / 416（27 树同路径 drivers/PongAdreno/submit/NativeAdrenoABI.h:14-15,154）；③CPU 合成开关在 27 上已经存在、缺的是默认值决定而不是代码（E:/hackios/xnekom-ios27/patches/xnu/series:195 挂着同名补丁，patches/xnu/0600-k60-display-composition.patch:152 解析 pong_gpu_only、:863 用 fGpuOnly）。未知项三个的转化条件单列在 docs/research/gpu/GPU-27-DEEP-EVIDENCE.md:111（U1 要抽取方交 metal-api-surface.json、U2 要一次进 SpringBoard 的飞行、U3 要上机 A/B）。**扫出相关的 #6 与 dbuf 字段在 display 会签前不写判定**，只留形态：判据必须是「gpu 段整段消失于飞行」，不是「gpu 段更小」（docs/research/gpu/GPU-27-DEEP-EVIDENCE.md:75）。本步为 true 的含义仅是「证据链已成文且每条都指到可查的位置」，不等于 27 侧已有读数；⑦verify 因此仍为 false。"
 recorded_at = "2026-11-21"
 
 [hardware.gpu.step.verify]

@@ -1,0 +1,36 @@
+Subject: [DRAFT] XNU: compose on the GPU by default, not on the CPU
+
+Draft only. Not in any series, not built, not applied to this tree.
+This edits 0600-k60-display-composition.patch itself rather than adding a
+patch after it, so the series keeps its order and its numbering; the two
+edits are line-for-line replacements, so no hunk header in 0600 changes.
+
+What it changes is a default, not a mechanism. fGpuOnly already exists and
+already gates CPU composition (0600:863); today it starts at 0, so every
+frame where the GPU hand-off does not land is composed again on the CPU at
+13,183 us a frame (usblog-20261119-151837). With this, the board composes on
+the GPU unless asked otherwise, and pong_gpu_only=0 puts it back.
+
+Display owns the veto here: if the compositor needs the CPU fallback during
+bring-up, drop this draft and nothing else in the tree moves.
+
+--- a/patches/xnu/0600-k60-display-composition.patch
++++ b/patches/xnu/0600-k60-display-composition.patch
+@@ -107,7 +107,7 @@
+ @@ -278,24 +327,24 @@
+  	/* boot-arg fb_diff=1: which pixels of the panel each frame changed (it costs: the panel's memory is slow to read) */
+  	bool            fDiff;
+- 	bool            fGpuOnly;              /* explicit bring-up policy, never the default */
++ 	bool            fGpuOnly;              /* draft: GPU only by default; pong_gpu_only=0 puts the CPU fallback back */
+ +	bool            fGpuScanout;           /* explicit opt-in; CPU never scans pixels to qualify a GPU frame */
+  	uint64_t        fDiffPixels;
+  	uint32_t        fDiffLeft, fDiffTop, fDiffRight, fDiffBottom;
+@@ -148,7 +148,7 @@
+  
+  OSDefineMetaClassAndStructors(IOMobileFramebuffer, IOService);
+ @@ -394,13 +443,16 @@
+- 	uint32_t gpuOnly = 0;
++ 	uint32_t gpuOnly = 1;
+  	PE_parse_boot_argn("pong_gpu_only", &gpuOnly, sizeof(gpuOnly));
+  	fGpuOnly = gpuOnly != 0;
+ +	uint32_t gpuScanout = 0;

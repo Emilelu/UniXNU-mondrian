@@ -1,0 +1,139 @@
+Subject: [DRAFT] Adreno: restart the CP after a hang
+
+Draft only. Not in any series, not built, not applied to this tree.
+The 27 board's hardware_init() already runs the whole bring-up sequence in
+the kernel; what is missing is the road back after a hang. This patch adds
+only two segments to drivers/PongAdreno/PongAdrenoCp.cpp: the restart
+sequence and the hook a caller installs. It does not touch hardware_init().
+
+Nothing calls pong_adreno_cp_restart() yet. Whoever grows a recover path in
+the kit is the caller.
+
+--- a/drivers/PongAdreno/PongAdrenoCp.cpp
++++ b/drivers/PongAdreno/PongAdrenoCp.cpp
+@@ -12,6 +12,7 @@
+ #include <libkern/c++/OSSharedPtr.h>
+ #include <kern/clock.h>
+ #include <kern/thread.h>
++#include <new>
+ #include <mach/mach_time.h>
+ #include <machine/machine_routines.h>
+ #include <pexpert/pexpert.h>
+@@ -22,6 +23,14 @@
+ extern "C" unsigned int pong_adreno_zap_reserved;
+ extern "C" IOReturn armcpu_spi_attach(uint32_t,bool,void (*)(void *),void *,uint32_t *,uint64_t *);
+ extern "C" int get_preemption_level(void);
++/* A hang leaves four components poisoned, and none of them can clear that
++ * itself: ring, CP init, submit and IRQ all refuse to detach once poisoned
++ * (NativeAdrenoRing.cpp:190, NativeAdrenoSubmit.cpp:48). The published
++ * backend holds their addresses, so they are rebuilt in place rather than
++ * replaced. That is the cost of doing this in the module instead of the kit;
++ * patches/proposed/README.md states it. */
++typedef IOReturn (*PongAdrenoRestartHook)(void *,uint32_t);
++
+ namespace {
+ constexpr uint64_t iovas[]={0x100000,0x200000,0x300000,0x301000,0x302000};
+ constexpr size_t sizes[]={0x13000,0x8000,0x1000,0x1000,0x1000};
+@@ -277,6 +286,102 @@
+     return rd(GEN7_CP_RB_RPTR)==rd(GEN7_CP_RB_WPTR)?0:1;
+ }
+ 
++namespace {
++
++PongAdrenoRestartHook restart_hook;
++void *restart_context;
++uint32_t restart_busy;
++
++/* a6xx_bus_clear_pending_transactions without the GX side: halt client
++ * requests, wait the ack, halt the arbiter, wait the ack, release. Bounded
++ * spin per step, as the kit's drainBus does (NativeAdrenoRing.cpp:135). */
++static bool gbif_drain()
++{
++    if(!wr(GEN7_GBIF_HALT,1))return false;
++    for(unsigned i=0;i<20000 && !(rd(GEN7_GBIF_HALT_ACK)&1);++i) {}
++    if(!wr(GEN7_GBIF_HALT,3))return false;
++    for(unsigned i=0;i<20000 && !(rd(GEN7_GBIF_HALT_ACK)&3);++i) {}
++    return wr(GEN7_GBIF_HALT,0);
++}
++
++static IOReturn restart_sequence(uint32_t completed)
++{
++    if(!gpu || !gpu->prepared)return kIOReturnNotReady;
++    const uint64_t began=now(nullptr);
++    /* Clear what the fault left behind, so the reads below report their own
++     * failures instead of inheriting the one that brought us here. */
++    gpu->poisoned=false;gpu->irq_fatal=0;
++    if(!wr(GEN7_CP_SQE_CNTL,3) || !gbif_drain())goto io_error;
++    /* RBBM software reset: assert, observe, hold at least 100 us, release. */
++    if(!wr(GEN7_RBBM_SW_RESET_CMD,1))goto io_error;
++    (void)rd(GEN7_RBBM_SW_RESET_CMD);IODelay(1);IODelay(100);
++    if(!wr(GEN7_RBBM_SW_RESET_CMD,0))goto io_error;
++    (void)rd(GEN7_RBBM_SW_RESET_CMD);IODelay(1);
++    if(!hardware_init()) {
++        note("CP restart: hardware initialization failed",1);
++        return kIOReturnIOError;
++    }
++    {
++        NativeAdrenoRingCache cache={nullptr,publish_ring,acquire_fence};
++        gpu->ring.~NativeAdrenoRing();new (static_cast<void *>(&gpu->ring)) NativeAdrenoRing();
++        gpu->init.~NativeAdrenoCpInit();new (static_cast<void *>(&gpu->init)) NativeAdrenoCpInit();
++        gpu->submit.~NativeAdrenoSubmit();new (static_cast<void *>(&gpu->submit)) NativeAdrenoSubmit();
++        gpu->irq.~NativeAdrenoIrq();new (static_cast<void *>(&gpu->irq)) NativeAdrenoIrq();
++        auto status=gpu->ring.attach(&gpu->ops.registers,&cache,gpu->buffers[1].mapping(),sizes[1],iovas[1],
++            gpu->buffers[2].mapping(),sizes[2],iovas[2]);
++        if(!status && (!wr64(GEN7_CP_BV_RB_RPTR_ADDR_LO,iovas[2]+8) ||
++            !wr64(GEN7_CP_SQE_INSTR_BASE_LO,iovas[0]) || !wr(GEN7_CP_SQE_CNTL,1)))status=kIOReturnIOError;
++        NativeAdrenoCpInitConfig config={iovas[0],iovas[3],1,0};
++        uint32_t wptr=0;
++        if(!status)status=gpu->init.run(&gpu->ops.registers,&gpu->ring,&config,&wptr);
++        note("CP restart: ME_INIT",status,wptr);
++        if(status)return status;
++        if(!wait_bootstrap(wptr,"CP restart ME_INIT drained"))return kIOReturnIOError;
++        /* The zap shader stays loaded across a reset of this shape (the GMU
++         * keeps running), so the CP returns to nonsecure with one packet, as
++         * start() does after the authenticated switch. */
++        if(gpu->zap.ready) {
++            uint32_t words[2]={};
++            if(AdrenoPM4Type7(0x66,1,words)!=AdrenoPM4Success ||
++               gpu->ring.submitBootstrap(words,2,&wptr) ||
++               !wait_bootstrap(wptr,"CP restart nonsecure drained"))return kIOReturnIOError;
++        }
++        status=gpu->irq.attach(&gpu->ops.registers);
++        if(!status)status=gpu->irq.programMask(nullptr);
++        if(status){wr(GEN7_RBBM_INT_0_MASK,0);return status;}
++        gpu->irq_attached=true;
++        status=gpu->submit.attach(&gpu->vm,&gpu->ring);
++        if(status)return status;
++    }
++    native_adreno_wc_enabled=1;
++    note("CP restart done",0,completed,now(nullptr)-began);
++    return kIOReturnSuccess;
++
++io_error:
++    note("CP restart: register access failed",1);
++    return kIOReturnIOError;
++}
++
++}
++
++/* The second segment: the hook a caller installs. Passing a hook replaces the
++ * sequence above; this is the seam a kit-level restart would use. */
++extern "C" void pong_adreno_cp_set_restart(PongAdrenoRestartHook hook,void *context)
++{
++    restart_hook=hook;restart_context=context;
++    note("CP restart hook",hook?1:0,uint64_t(uintptr_t(context)));
++}
++
++/* Nothing in this tree calls it yet; see patches/proposed/README.md. */
++extern "C" IOReturn pong_adreno_cp_restart(uint32_t completed)
++{
++    if(!gpu || !gpu->prepared)return kIOReturnNotReady;
++    if(__atomic_exchange_n(&restart_busy,1u,__ATOMIC_ACQ_REL))return kIOReturnBusy;
++    const IOReturn status=restart_hook?restart_hook(restart_context,completed):restart_sequence(completed);
++    __atomic_store_n(&restart_busy,0u,__ATOMIC_RELEASE);
++    return status;
++}
++
+ IOReturn PongAdrenoCpPrepare(const PongCpOps *ops)
+ {
+     if(gpu || !ops || !ops->record)return kIOReturnBadArgument;

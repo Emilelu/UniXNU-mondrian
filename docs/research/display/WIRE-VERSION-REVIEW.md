@@ -108,6 +108,68 @@ git grep -n "version" <提案给的 27 侧文件>
 ## 8. 边界
 
 - 不改 `PongScanoutWire.h`、不改 `NativeGOPWire.h`、不改断言，也不裁形状。
-- 显示线**没有硬偏好**：57 槽动调用点、48 B 包装动两个已在用的校验点，代价相当。
-  若要一句建议：48 B 包装少一个新槽位常数、少一处跨文件约定，但必须先改 `:122`/`:149`；
-  57 槽保持 `reserved` 的原义（垃圾检查），代价是 `Wait` 的规则要单独写。
+- 显示线**没有硬偏好**：另一种形状动调用点、48 B 包装动两个已在用的校验点，代价相当。
+  若要一句建议：48 B 包装少一个新槽位常数、少一处跨文件约定，但必须先改 `:122`/`:149`。
+- **用词更正（第 3 轮，见 §9）**：本文此前把「版本由另一个方法码承载」叫作「57 槽」，那个数字不来自
+  任何头文件，是本文的临时命名。真名是**第五方法码 0x7004**；本文所有「57 槽」字样按 0x7004 读，
+  并且**这个形状最终没有被采纳**（v2 按 56 B 帧记录定稿）。
+
+## 9. 第 3 轮回签（2026-11-21，对应 `E:/k60-work/scratch/reply-gpu-display-sync.md` 第 136 行起）
+
+gpu27 的 `GPU-27-V2-FIELDS.md` §3.1 要求显示线对 v2 的三个新字段逐行签「一致 / 不一致」，
+理由是他们自己的话：尺寸错了编译器会红，语义错了要到「画面丢帧、错帧」才暴露，而那已经是一次白飞。
+本节就是回签，判据全部给到 `文件:行`；权威副本在同步通道文件里，这里是本线存档。
+
+### 9.1 先说用词：没有「57 槽」
+
+- 我此前用「57 槽」指「版本不塞进 48 B 帧记录、由另一个方法码单独承载」这个形状（本文 §4、§8 旧文）。
+  **这个数字不来自任何代码**：本仓 `PongScanoutWire.h:5-6` 是四个方法码、`:10-13` 是四条记录；
+  官方 `NativeGOPWire.h:12` 是五个选择子；`NativeAdrenoPublish.cpp:51-54` 是四个方法码。给不出「文件:行」。
+- 那个形状的真名是**第五方法码 0x7004**，接入点三处：
+  `PongScanoutWire.h:5-6`（enum 加常量）、`PongAdrenoScanout.cpp:129`（未知 op 落
+  `kIOReturnBadArgument`，因此 v1 内核天然拒绝 0x7004，presenter 可据此判别版本）、
+  `PongAdrenoNativeGlue.cpp:20`（`op+PongScanoutMode`，op 4 即 0x7004）。不改 `sizeof` 断言、不改 wait。
+- **不推荐采用**：v2 已按 56 B 定稿，0x7004 只是把「谁对数」推迟成一次额外调用，没有收益。
+
+### 9.2 三行回签
+
+| 字段 | 本线判 | 依据 | 附带条件（必须写进 gpu27 的文档，否则没人守） |
+| --- | --- | --- | --- |
+| `token` @44 | **一致** | zizhan `PongScanoutWire.h:12-14` 注释；`PongAdrenoScanout.cpp:1279` 的 `Kept` 表按 `source+offset+bytes` 命中复用 | (a) 面板模式/画布几何真变时全表作废——本线 120 Hz 切换只写 INTF 与 DCS（`PongDsiPanel.cpp:463-517`），不重建画布，所以无需清表；但任何真正换几何的 `Mode` 路径必须清表。(b) token 随映射创建生成，禁止 `source` 回收后按同 `offset/bytes` 命中旧 token——表键是三元组，回收再分配能造出同键不同块。 |
+| `evict` @48 | **一致（附三条时序）** | zizhan `PongAdrenoScanout.cpp:1296-1299`（选 victim 写 `pending.evict`）、`:1372`（退休后 `drop`） | (a) evict 必须先于本帧拷贝提交生效，presenter 不得在本帧提交后再用该 import 下命令。(b) 内核在帧退休后 drop（`:1372`），presenter 收到 ack 后可继续读、不得再写。(c) 只有「同一 surface 的新映射替换旧映射」才允许非 0；几何不同（`stride`/`bytes` 变了）时必须为 0。 |
+| `target` @52 | **不一致——必须改语义** | zizhan `PongAdrenoScanout.cpp:547` 是 `db[0].offset=0;db[dbN]={b,rounded};++dbN;`：`db[0]` 在 presenter 映射里的偏移就是 0；而 `dbTarget()`（`:436-456`）返回**索引**（`pick()` `:440`、`:449` `t=dbFlipped`），消费点全是索引（`db[pending.target].phys` `:1368`、`db[target].offset` `:1276`） | 见 §9.3 |
+
+### 9.3 `target` 为什么必须改
+
+gpu27 的写法是「扫出映射里的**字节偏移**；0 = 无 dbuf」。在它们自己的参考实现里这句话自相矛盾：
+
+- `db[0]` 的映射偏移**就是 0**（`zizhan …:547`），所以「偏移 0」既可能是第 0 块缓冲，也可能是「没有 dbuf」；
+- 内核实际传的是**索引**（`:436-456` 返回 `db[]` 下标），消费点也按索引取（`:1368`、`:1276`）；
+- 后果不是措辞问题：dbuf 开启且选中第 0 块时内核发 `target=0`，presenter 判成「没有 dbuf」→ 跳过翻页
+  （`:1368` 的条件是 `pending.target!=dbShown && pending.target!=dbFlipped` 才翻）→ **帧停在面板旧缓冲**。
+  这正是「语义错了要到丢帧/错帧才暴露」那一类，只有白飞才看得见。
+
+两条可实施替代，本线两条都签：
+
+1. **索引 + 1（推荐）**：`0 = 无 dbuf`，`1..N = db[i-1]`。0 天然不可达，`db[0]` 也照样能表达；
+   消费点改 `db[pending.target-1]`，只需动 `zizhan :1368` 那一行。
+2. **保留偏移、换哨兵 `0xFFFFFFFF`**：真实偏移原样，`0xFFFFFFFF`（32 位字段）表示无 dbuf。
+   与 zizhan 自己的「不在映射里」哨兵 `~0ull`（`:288` 注释、`:440` 判断）同口径。
+
+### 9.4 面板周期口径（同时回答 gpu27 的预算问题）
+
+- gpu27 的预算表里出现两个数：实测 7,385–7,679 µs 与名义 8,333 µs。**用名义 8,333 µs 作预算帧时间。**
+- 实测值来自 `period` 回退字段（最短单次 line-count wrap），本线代码自己写明了为什么不能用它：
+  `PongDsiPanel.cpp:223-228` —— 一个 7.6 ms 间隙算出来是 131 Hz，而同一次 500 ms 窗口里 61 个 wrap
+  是 122 Hz；`panel_measured_hz` 取的是 wrap 平均（`:229`）。
+- 面板健康判据读 `te <N>/s`，阈值 `te ≥ 110/s`；`period` 只作旁证。依据
+  `docs/research/gpu/FLIGHT-CARD-20261119j.md:79` 同一行同时打了 `te 120/s` 与 `period 7679 us`，
+  两者不一致时以 `te` 为准。
+
+## 10. 本次回签改了本线什么、没改什么
+
+- 改了：本节（§9、§10）与 §8 的用词更正。
+- 没改：`PongScanoutWire.h`、`NativeGOPWire.h`、任何断言、任何 `patches/xnu` 文件；
+  也没有改 `k60-gpu-27` 的树——`GPU-27-V2-FIELDS.md` §3.1 那三行由 gpu27 自己填并注明出处。
+- 若 gpu27 按 §9.3 改 `target`，本线在这边只需要跟一件事：`zizhan :1368` 的消费点从
+  `db[pending.target]` 变成 `db[pending.target-1]`（或哨兵比较），届时由 dbuf 立项统一改，不在这条线上。

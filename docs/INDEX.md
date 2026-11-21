@@ -91,6 +91,7 @@ docs/
 | [`wifi/MHI-AMSS-PROTOCOL.md`](research/wifi/MHI-AMSS-PROTOCOL.md) | MHI/AMSS 协议逐字段拆解：为什么 c7/c8 停在 READY 而没有 AMSS 下载证据 |
 | [`storage/ROUTE-D-PLAN.md`](research/storage/ROUTE-D-PLAN.md) | **route-D 计划（未实现，不随 stage-0 合入）**：延迟构造要改的 file:line、运行时前提、PAC 分发风险、离线可判与必须上机的分界 |
 | [`storage/MISSING-STORAGE-BASEBAND.md`](research/storage/MISSING-STORAGE-BASEBAND.md) | **95 项配对缺口的 storage 切片**：6 个地址全在输出 `__DATA_CONST`、全为数据类（gMetaClass 类），与 8–13 个其它 bundle 共享；QcomBaseband 未选入，贡献 0；TSV 见同目录 missing-storage-baseband.tsv |
+| [`storage/PRELINK-ORIGINAL-BRANCHES.md`](research/storage/PRELINK-ORIGINAL-BRANCHES.md) | **为什么 native_original_branches 为空**：kit 的写点（fileset_layout.relocate_original_stubs）、触发条件（native 的 .original 与 BTI c; B stub）、缺失的 legacy display/HID archive 与 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY` 开关；LTO reference 不产生该字段 |
 | `01-same-hardware.md` | 触摸调研 ① 同型 |
 | `02-official-docs.md` | 触摸调研 ② 官方 |
 | `03-reverse-and-device-data.md` | 触摸调研 ③ 反编译/取证 |

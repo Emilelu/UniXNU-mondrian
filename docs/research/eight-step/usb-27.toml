@@ -1,0 +1,56 @@
+# usb-27.toml — 顺序 6「USB」的八步记录（iOS 27.0.1 / 24A446）
+#
+# 八步（docs/engineering/EIGHT-STEP-SPEC.md）：
+#   ① 同型   ② 官方   ③ 反编译   ④ 广域   ⑤ 方案   ⑥ 深挖   ⑦ 核验   ⑧ 上机
+#
+# 本文件只做 ①~⑦。⑧ `step.device` 由 Lead 在上机后写，这里有意不建。
+# 纪律：没做过的步骤写 done = false 并写明缺什么、什么证据能定它；不要编。
+#
+# 每条 evidence 必须含可核查引用：file:line / URL / usblog-YYMMDD-HHMMSS / 0x… / P-xx。
+
+[hardware.usb]
+status = "researching"
+name = "USB（AppleUSBXDCI / AppleUSBXHCI / UCSI / eUSB2 / QMP PHY）"
+why = "27 的关键路径而不是普通外设：K60 唯一控制台是 USB CDC-ACM，它在 bsd_init 之后才起来，所以 bsd_init 之前的任何死都是「0 字节日志」；这条线决定后面所有飞行能不能取证。"
+paths = ["drivers/QcomDwc3/", "docs/research/usb/", "patches/usb/", "board.toml"]
+
+[hardware.usb.step.same_model]
+done = false
+evidence = "缺：sheng（SM8550，同一 ipados-27.0.1-24A446 profile）在 27 上跑通 QcomDwc3 的逐项读数——bringUp 九阶段日志、XDCI/XHCI 加载顺序、配对结果——以及本板 16.6.1 的 k60_usblog 在 27 缺席这一事实的迁移判定（copied/adapted/rejected）。能定它的证据：E:/hackios/UniXNU-sheng 的 drivers/QcomDwc3/QcomDwc3.cpp 与 board.toml [kernel.prelink] 根逐行；E:/hackios/k60-usb/docs/research/usb/RESEARCH.md 的 16.6.1 结案段；两者都落 file:line 后再下判定。"
+recorded_at = "2026-11-21T13:59:00"
+
+[hardware.usb.step.official]
+done = false
+evidence = "缺：把官方页逐节落成要求表。必读 https://unixnu.com/zh/porting/usb#source-map（本地 E:/hackios/UniXNU/docs/zh/porting/usb.md:9 源码与接口）、「1. 收集硬件输入」（usb.md:21，DWC3 0x0a600000 + 0xc000 窗口、GIC 165、SMMU stream 0x40、eUSB2 ref 38.4 MHz）、「2. 启动控制器」（usb.md:39，九阶段与 native_usb_stats）、「3. 注册类」（usb.md:60，XDCI 无 personality、先加载再注册子类、两处覆盖）、「4. 连接线缆角色」（usb.md:83，qcom_ucsi_start/receive/tick + 20 ms 轮询）、「5. 回答 Mac 的配对检查」（usb.md:100）、「6. 构建和验证」（usb.md:111，六条失败表）；另读 drivers/qcom-dwc3.md、drivers/community-native-dwc3.md、virtio-mmio-console.md、guide/debugging.md#green-bar。能定它的证据：每节摘一句原句 + 27 树对应实现 file:line。"
+recorded_at = "2026-11-21T13:59:00"
+
+[hardware.usb.step.decompile]
+done = false
+evidence = "缺：27 侧本板 USB 参数的实测取证——DWC3 MMIO 基址与窗口、GIC 中断号、SMMU stream、eUSB2 ref 时钟、QMP 表——以及 27 的 ADT/device-tree 是否仍给这些属性。16.6.1 的本地来源是 board.toml 的 usb 段与 /mnt/e/k60-work/references 的 DWC3 寄存器表；27 侧尚未取证。能定它的证据：27 payload 的 ADT 导出（board.toml [payload.adt] 生成的那份）里 usb 相关节点的属性，或 Lead 上机日志中的 usb 探测行；参数一律以本板导出为准，不用别的机型 dtsi 代入。"
+recorded_at = "2026-11-21T13:59:00"
+
+[hardware.usb.step.wide]
+done = false
+catalog_checked = false
+catalog_result = ""
+evidence = "缺：catalog 与四个参考源的逐项核对，每项给「直接用/需适配/不能用 + 理由」。候选：UniXNU/components.toml 的 QcomDwc3（27 上是否可直接用，需对照 sheng 的 24A446 实现）；drivers/repositories 的 qcom-dwc3.md（官方，sheng 已可用）与 community-native-dwc3.md（Lux12138/NativeDwc3，SM8150 nabu，无真机结果）；同 SoC 侧 t970/zizhan/pong 的 USB 组件；同芯片侧 sheng 的 UCSI/eUSB2/QMP 三段。能定它的证据：components.toml 逐条判定表 + 至少两个独立来源对同一参数（基址/时钟/stream）的交叉验证。"
+recorded_at = "2026-11-21T13:59:00"
+
+[hardware.usb.step.plan]
+done = false
+evidence = "缺：方案。两条候选路线：(a) 把 16.6.1 的 k60_usblog gadget 迁到 12377，保住「bsd_init 后即有 console」这条唯一取证通道；(b) 按官方第 6 行接 AppleUSBXDCI/AppleUSBXHCI（sheng 路线，能达到配对/lockdown，但要求 XDCI/XHCI kext、ABI 生成与 prelink 根变更）。两者不必互斥，但先后顺序决定取证能力。已实测的接缝：27 xnu-work 的 bsd/dev 只有 qbt_k60.c，bsd/conf/files:110-115 未加 k60_usblog.c，27 补丁列表 104 条里没有任何 USB 补丁。能定它的证据：②③④ 的结果 + 这两处实测行。"
+recorded_at = "2026-11-21T13:59:00"
+
+[hardware.usb.step.deep]
+done = false
+evidence = "缺：三个不确定项。(a) 27 内核现有 USB 导出面能否承载 XDCI 子类：按符号名统计，27 kernel.macho 只有 2 个 USB 符号（_sk_netif_compat_usb_eth_rx_ring_sz/_tx_ring_sz），16.6.1 有 9 个（7 个 _k60_usblog_* + 2 个 sk_netif）；尚需确认 27 是否链了 AppleUSBXDCI/AppleUSBXHCI 与 IOUSBDeviceFamily（数据在 E:/k60-work/scratch/usb27/nm-27.txt 与 nm-1661.txt）。(b) k60_usblog 在 12377 的编译接缝：patches/xnu/0300、0307、0308 是否仍可应用，DMA 一致性与 PAC 约束在 27 是否变化。(c) 0 字节日志能否由 USB 通道解释：console 在 bsd_init 之后才起，bsd_init 之前死不会进 USB，因此 27 的 0 字节不能当作 gadget 失败。能定它的证据：nm 对照表、git apply --check 的补丁 dry-run 结果、guide/debugging.md#green-bar 的阶段划分。"
+recorded_at = "2026-11-21T13:59:00"
+
+[hardware.usb.step.verify]
+done = false
+local_verified = false
+static_check = ""
+unit_test = ""
+artifact_check = ""
+evidence = "缺：本地核验三项。计划：静态对照（② 的要求表 vs 27 导出面表逐行；QMP 表参数 vs eUSB2 ref 38.4 MHz）、离线单测（drivers/QcomDwc3/tests 的 ucsi_host.cpp，clang++ -std=c++17 -I.. ucsi_host.cpp 在主机侧跑，不构建内核）、产物检查（离线判据脚本对 27 kernel.macho 与 16.6.1 kernel.macho 各跑一次，输出 PASS/FAIL 与缺失符号清单）。能定它的证据：三项各自的命令与输出。"
+recorded_at = "2026-11-21T13:59:00"

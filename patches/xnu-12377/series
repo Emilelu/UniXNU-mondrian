@@ -93,3 +93,24 @@ armcpu-sleep-hook.patch
 # write; the 16 line hit the same thing. Nothing here arms CNTP -- interrupts
 # come from CNTV -- so skipping the precaution costs nothing.
 0541-k60-virtual-timer-guard.patch
+
+# Under SMP the I/O thread's wakeup IPI to a secondary is silently dropped when
+# that core still holds SIGPdisabled: the core is running and takes interrupts,
+# so the flag is stale, and cpu_signal_internal reads it as "already delivered"
+# and returns KERN_FAILURE. On this board the symptom is early hangs and the
+# UFS root failing to mount, which is how the 16 line found it. The fix clears
+# the flag from a core in InitState|StartedState and counts every recovery.
+#
+# Carried as preparation for SMP, not as this round's fix: stage 0 is
+# single-core (dts/mondrian.dts has no cpu@ node, so ml_get_cpu_count() is 1)
+# and nothing reaches this code until 0540 starts a secondary.
+#
+# Source: UniXNU-sheng patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch
+# (cpu_common.c three hunks, arm64/cpu.c two of its six) plus
+# zzzzzzzzzz-sheng-sigp-reinit-assert.patch, the DEBUG-only assert the repaired
+# path would otherwise trip. sheng's other cpu.c hunks -- idle WFE tuning, the
+# T6000 guard, the sw_asid bzero and the cpu_start cache flush of
+# ResetHandlerData/const_boot_args/cpu_ttep -- belong to other concerns and are
+# not carried here. The last of those is worth its own entry when SMP turns on:
+# a secondary reads those words with its MMU off, uncached, from DRAM.
+0542-k60-sigp-recover.patch

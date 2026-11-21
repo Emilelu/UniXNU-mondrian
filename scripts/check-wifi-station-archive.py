@@ -19,9 +19,14 @@ one alone passed in a failure we hit:
 
     python3 scripts/check-wifi-station-archive.py <archive> [--ar <ar>] [--nm <nm>]
 
-Exit 0 when all four hold, 1 when the archive breaks the contract, 2 when an
-input or a tool is missing. An archive nobody could read is not a pass. An
-absent archive is exit 2 with a note that it has not been built, never a pass.
+Three states, and only three:
+  * archive absent -> exit 2. Not judgeable is not a pass (P-279); the note names
+    the path and says the 27 station archive has not been built.
+  * archive present, any check fails -> exit 1.
+  * every check passes -> exit 0.
+A missing tool or a missing stamp is also exit 2, because it is an input failure
+rather than a contract failure. The unit test builds one temporary fixture for
+each state; none of them reads a real /opt archive.
 """
 
 from __future__ import annotations

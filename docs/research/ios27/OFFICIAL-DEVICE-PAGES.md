@@ -24,7 +24,13 @@
    0xFF00FF00, clears SCTLR_EL1 M/C/I, and branches to the kernel entry"。
    ⇒ **看到绿条 = 已经跳进内核入口；没有绿条 = 连 trampoline 都没跑到。**
    这条把一个只能用串口回答的问题变成了肉眼可判的问题，而我们现在恰好没有串口。
-2. **同一份记录也停在绿条上。** 它的「Current limits」逐字写：
+0. **这几页是下游，不是独立第三方（用户 2026-11-22 指出，我此前判错）。**
+   `mondrian-mzyxsl` 是 **fork 我们自己仓库** 后写的记录，`mondrian.md` 正文引的就是
+   `Emilelu/UniXNU-mondrian`。⇒ 「他们也停在绿条上」不是独立佐证，而是我们自己的状态
+   被回声了一遍。**引用任何「别人也这样」之前，先查它与本仓的派生关系**（fork 关系、
+   共同祖先、提交重合），派生源不能当第二证据。
+   本页下面第 1 条（绿条由 `Entry.S` 画）仍然成立，因为那是我在自己固件里直接读到的。
+2. **同一份记录也停在绿条上（仅作自身状态记录，不作佐证）。** 它的「Current limits」逐字写：
    "Device observation currently stops at the green bar: no serial, ramoops or
    framebuffer line proves that XNU executed after the trampoline."、「Next action」
    是"Boot one image with the serial console enabled and capture the first XNU-side

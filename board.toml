@@ -344,64 +344,6 @@ unixnu = "../UniXNU"
 # scripts/install-os-profile.sh copies this profile into the framework
 # checkout, `resolve_os` would match both `ipados-27.0.1-24A446` and this one
 # and refuse the ambiguous major version.
-# Prelink roots: the OS profile's list plus the USB / HID / SCSI families Sheng
-# retains and we did not. `profiles.merge()` replaces lists, so the device layer has to
-# carry the whole set; scripts/check-prelink-roots.py asserts it still covers the
-# profile's list, that no entry is duplicated, and that every included root exists in
-# the kernelcache the board was qualified against (P-306).
-#
-# Added on 2026-11-22 because scripts/audit-ios27-conformance.py showed 12 families
-# present in Sheng's recipe and absent from ours, and the residual prelink ledger
-# (94 unresolved / 203 stubbed) had no explanation. Two of Sheng's entries are
-# exclusions, marked `!`: host-mode kexts its board reaches only by metaclass.
-[kernel.prelink]
-roots = [
-    "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
-    "com.apple.driver.AppleARMPlatform",
-    "com.apple.driver.AppleARMWatchdogTimer",
-    "com.apple.driver.AppleAudioClockLibs",
-    "com.apple.driver.AppleEffaceableStorage",
-    "com.apple.driver.AppleIISController",
-    "com.apple.driver.AppleM2ScalerCSCDriver",
-    "com.apple.driver.AppleMobileFileIntegrity",
-    "com.apple.driver.ApplePMGR",
-    "com.apple.driver.AppleUSBDeviceMux",
-    "com.apple.driver.AppleUSBXDCI",
-    "com.apple.driver.IODARTFamily",
-    "com.apple.driver.usb.AppleUSBHostCompositeDevice",
-    "com.apple.driver.usb.AppleUSBHub",
-    "com.apple.driver.usb.AppleUSBXHCI",
-    "com.apple.driver.usb.IOUSBHostHIDDevice",
-    "com.apple.filesystems.apfs",
-    "com.apple.iokit.CoreAnalyticsFamily",
-    "com.apple.iokit.IOAVFamily",
-    "com.apple.iokit.IOAudio2Family",
-    "com.apple.iokit.IOCECFamily",
-    "com.apple.iokit.IOCryptoAcceleratorFamily",
-    "com.apple.iokit.IOGPUFamily",
-    "com.apple.iokit.IOHDCPFamily",
-    "com.apple.iokit.IOHIDEventDriver",
-    "com.apple.iokit.IOHIDFamily",
-    "com.apple.iokit.IOMobileGraphicsFamily",
-    "com.apple.iokit.IOReportFamily",
-    "com.apple.iokit.IOSCSIArchitectureModelFamily",
-    "com.apple.iokit.IOSCSIBlockCommandsDevice",
-    "com.apple.iokit.IOSlowAdaptiveClockingFamily",
-    "com.apple.iokit.IOStorageFamily",
-    "com.apple.iokit.IOSurface",
-    "com.apple.iokit.IOUSBDeviceFamily",
-    "com.apple.iokit.IOUSBHostFamily",
-    "com.apple.iokit.IOUSBMassStorageDriver",
-    "com.apple.kec.Libm",
-    "com.apple.kec.corecrypto",
-    "com.apple.kext.AppleMatch",
-    "com.apple.kext.CoreTrust",
-    "com.apple.security.AppleImage4",
-    "com.apple.security.sandbox",
-    "!com.apple.driver.AppleOnboardSerial",
-    "!com.apple.driver.AppleSMC",
-]
-
 [os_overrides."ios-27.0.1-24A446"]
 # Keys this profile does not have. `remove` takes dotted paths.
 remove = [

@@ -59,3 +59,25 @@ ArmDTPlatform/ArmCpu 归档）、`build-k60-fileset-reference.py`（把 Mac 上�
 - **不许**为了让脚本变绿把 `prelink-root:*` 写成「stage-0 不需要」。
 - 官方页覆盖率（`unmapped 78/103`）与站点真实规模（581 页）的差距记在
   `docs/engineering/OFFICIAL-REQUIREMENTS.toml` 的待办里，不在这里重复。
+
+## 2026-11-22 00:40 · 12 个 USB/HID/SCSI 家族退回（实测代价）
+
+把 Sheng 的 12 个家族并进 kernel.prelink 的 roots 表（42 包含 + 2 排除 = 44）之后重建，
+读数往坏的方向走：
+
+| 项 | 30 roots（OS profile 原样） | 44 roots |
+| --- | --- | --- |
+| kext 条目 | 32 | 49 |
+| 无地址引用 | 94 项 / 21 bundles | 155 项 / 34 bundles |
+| 落 panic 桩 | 203 / 25 | 234 / 34 |
+
+原因是每个 Apple 编译好的 kext 都带着自己的导入表，而符号定义者在我们这棵内核里没有。
+inclusion 越多、未配对越多，console 起来之前的风险面越大。上游 policy 还点名四条
+AppleARMPlatform 的 original 各 1 个站点，而 policy 写的是 allowed 0。
+
+裁决：stage-0 只保留 OS profile 的 30 个 root，12 个家族等 USB 控制台那两条
+（0243 / 0300）真正落地时再并入——那时它们才有调用者。已用
+git checkout 14e7a1f0 -- board.toml 退回，check-prelink-roots.py 仍绿。
+
+这条与 P-306 是同族但方向相反：抄列表要逐条判，判的是「现在有没有调用者」，
+不是「对方有没有」。

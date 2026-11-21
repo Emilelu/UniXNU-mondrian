@@ -84,7 +84,8 @@ static_check = '''2026-11-21 实测（WSL Ubuntu-24.04，/usr/bin/{cc,gcc,clang,
 - 语法闸：scripts/check-bluetooth-gic.py 把 ArmCpu.cpp 的 SPI 片段拼进 scripts/tests/fixtures/bt-gic-shared.c，以 -Wall -Wextra -Werror 编译并运行 → OK；cc -std=c11 -fsyntax-only -Wall -Wextra -Werror -I drivers/PongPower scripts/tests/test-armcpu-sleep.c → OK。
 - 补丁可应用性：patches/xnu-12377/ 里 0532、0540、0541 与新搬入的 0542-k60-sigp-recover.patch 对 pristine ../xnu-12377 的 git apply --check 全部通过；series 编号门禁 29 条/28 个不同数字通过；sheng T0SZ 逐 hunk 见 PLATFORM-BUDGETS.md §2.2；pmap 草案 patches/proposed/9001-osfmk-arm-native-pmap-user-mappings.patch 对 ac9718f 通过（74 行新增），按 Lead 裁决不进 series。
 - 符号对账：catalog 93a5030c 与 fork 779 行两向对照（docs/research/ios27/FORK-DECISION.md §2），含「ml_arm_sleep 是 XNU 原生 cpu.c:1024 而不是补丁」的修正。
-- 结构：tomllib 解析通过；EIGHT-STEPS.toml 不并入（Lead m00493 ④）。'''
+- 结构：tomllib 解析通过；EIGHT-STEPS.toml 不并入（Lead m00493 ④）。
+- 门禁缺陷复核（docs/research/ios27/GATE-BUGS-27.md §4，2026-11-21T18:41）：按 Lead m01022 指的 diag/menu-hold-20261121 取到 f200bd47，两个脚本与 14:22 那次逐字节相同（git log --all 无更新提交），A、B 两条**仍需改**；本文件走绕法（官方页用镜像路径引用）保持通过。'''
 unit_test = '''宿主逻辑测试全部跑通（2026-11-21，WSL，脚本 ../../k60-work/scratch/platform27/verify-27.sh 一次跑完）：
 - scripts/tests/test-bt-gic-shared.py → TESTS OK 20 case(s)：覆盖 armcpu_spi_attach 的单飞 CAS、4 槽耗尽、重复 owner、缺 enable 写与缺 duplicate guard 两个反例；该脚本先跑产生器再读回产物，产物缺失现在退 2（TESTS BLOCKED）而不是抛 FileNotFoundError。
 - scripts/tests/run-k60-power-host.sh → power-host: OK（1686 checks / 7 suites），其中 armcpu-sleep 套件 1038 checks 直接测 fork 自带 ArmCpuSleep.h 的语义（boot 核等待期间哪些使能位保持、待处理中断如何结束等待）。

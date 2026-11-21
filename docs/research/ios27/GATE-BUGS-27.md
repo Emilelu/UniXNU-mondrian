@@ -137,3 +137,46 @@ RC_B=0
 （`OK platform-27.toml: seven steps, resolvable evidence, official anchors`），
 所以本线不阻塞；要复核 Lead 的修复，需要他把包含这两处改动的提交推到
 `origin/main`（或任一条我能 fetch 到的分支），并告诉我分支名/提交号——本条复核到此为止。
+
+### 2026-11-21T18:41 — 仍需改（按 Lead 指的分支 fetch 了，两个脚本与 14:22 那次逐字节相同）
+
+Lead m01022 ① 给了分支名：修好的两个脚本在 `diag/menu-hold-20261121`（不是 `origin/main`），
+该分支已推到 origin。照做：`git fetch origin diag/menu-hold-20261121`，`FETCH_HEAD` =
+`origin/diag/menu-hold-20261121` = `f200bd47`（`2026-11-21 17:59:59 +0800`），gates 本地 checkout
+本来就在这条分支上，工作树干净、`scripts/` 无未提交改动。
+
+| 检查 | 命令 | 输出 |
+| --- | --- | --- |
+| 取到的分支尖端 | `git rev-parse FETCH_HEAD origin/diag/menu-hold-20261121` | 两个都是 `f200bd470afe…` |
+| 全仓有没有新提交碰过 A 脚本 | `git log --all --oneline -6 -- scripts/check-lane-fragment.py` | 只有 `5e0509e2`（`14:22:41`）与 `235ffa97`，**没有更新的** |
+| 全仓有没有新提交碰过 B 脚本 | `git log --all --oneline -6 -- scripts/check-io-map-budget.py` | 只有 `caad898c`（`11-16 06:22`），**没有更新的** |
+| 拉下来的 blob 与本地 HEAD 是否一致 | `git diff --stat HEAD FETCH_HEAD -- scripts/check-lane-fragment.py scripts/check-io-map-budget.py` | 空（逐字节相同） |
+| A 脚本里有没有 `official:` 豁免 | `grep -n official scripts/check-lane-fragment.py` | `:150` 只做「页面存在 + 有 anchor」二次校验，PATHLIKE 之前没有任何豁免分支 |
+| B 脚本里有没有「无 IO_MAP_SIZE 就 skip」 | `grep -n "DEFAULT_SUBMAP\|from default\|IO_MAP_SIZE" scripts/check-io-map-budget.py` | `:28 DEFAULT_SUBMAP = 8 << 20`、`:70 return DEFAULT_SUBMAP, "default"` 仍在；`:146`/`:150` 的 skip 只管「没有 --tree」，不管「树里没有 IO_MAP_SIZE」 |
+
+原样重跑同一脚本（同一 gates checkout `f200bd47`）：
+
+```
+=== A. check-lane-fragment.py: an official: row is also scanned as a path
+note min-frag.toml: hardware items: platform
+FAIL: min-frag.toml: platform.official: evidence does not resolve: porting/platform.md
+RC_A=1
+=== A control: the same row written as a mirror path instead
+note min-frag2.toml: seven steps, resolvable evidence, official anchors
+OK min-frag2.toml: seven steps, resolvable evidence, official anchors
+RC_A2=0
+=== B. check-io-map-budget.py on the 27 build tree (no IO_MAP_SIZE in 12377)
+submap 8388608 = 0x800000 (8388608 bytes) from default
+2 call site(s), 2 unresolved; resolved total 0x0 (0.00 MiB)
+✅ io_submap budget: every ml_io_map window fits
+RC_B=0
+=== B control: IO_MAP_SIZE occurrences in that tree
+0
+```
+
+结论：**A 仍需改、B 仍需改**，且这次不是「找不到 ref」而是「ref 找到了、内容没变」——
+`f200bd47` 上这两个文件的 blob 与 14:22 那次逐字节相同，`git log --all` 里也没有任何更新的提交。
+可能的原因只有三种，按证据强弱排：①改动还在 Lead 的工作树里没提交/没推到这条分支；
+②改在了另一条分支或另一个 gates 检出上（本机 `/e/hackios/k60-gates` 是唯一一个）；
+③改在了别的文件名下。判据：`git log --all --oneline -- scripts/check-lane-fragment.py` 出现一条
+晚于 `5e0509e2` 的提交，且 `grep -c DEFAULT_SUBMAP scripts/check-io-map-budget.py` 归零。

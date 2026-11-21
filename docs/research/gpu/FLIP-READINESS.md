@@ -16,7 +16,7 @@ flip 条件与 flip owner 只在 `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.5 维护�
 | 2 | v2 layout 补丁进入某个 series | `grep -rn "pong-scanout-v2-layout-asserts" patches/*/series` 恰好 1 行，且 `python3 scripts/check-series-numbering.py` 通过 | **否**——补丁在 `patches/proposed/`，不在任何 series |
 | 3 | offset 补丁排在那份之前 | 同一 series 中 `pong-scanout-assert-offsets` 的行号小于 v2 layout 的行号 | **否**（约束已写在补丁头，series 未建） |
 | 4 | 四个偏移由编译器断住 | ①离线：`g++ -std=c++17 -Wall -Wextra -c E:/k60-work/scratch/prop/v2_layout_probe.cpp -o /tmp/v2probe.o` 退出 0；②翻后构建：`PONG_SCANOUT_V2_LAYOUT=1` 编译通过，且 wire 头里的四条 `static_assert`（56 / `token`@44 / `evict`@48 / `target`@52）与补丁 hunk 逐字一致；③常设：`python3 E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py` 按 sha256 比对两份拷贝 | ①**是**（已跑，`COMPILE OK`）；②待；③**休眠中**（补丁不在 series ⇒ 退 0 并自己说明；进 series 那天自动变判据） |
-| 5 | 翻开关的那次飞行能判 | 一条命令问两半：`check-gpu27-postflip.py` 既要飞行里出现 `PONG SCANOUT: … scanout version=2`（缺这个字段是红，不是「未测量」），也要两份 flip 断言逐字一致，再把判读器自己的 budget 结论并进来。命令与三态期望见 §2.3 | **是（判据已可跑，等真飞行）**——7 个反例全过；真机上还没有 v2 飞行 |
+| 5 | 翻开关的那次飞行能判 | 一条命令问两半：`check-gpu27-postflip.py` 既要飞行里出现 `PONG SCANOUT: … scanout version=2`（缺这个字段是红，不是「未测量」），也要两份 flip 断言逐字一致，再把判读器自己的 budget 结论并进来。命令与三态期望见 §2.3 | **是（判据已可跑，等真飞行）**——11 个反例全过；真机上还没有 v2 飞行 |
 
 ### 已记录的会签（第 1 条）
 
@@ -68,32 +68,44 @@ wsl -e bash -lc 'g++ -std=c++17 -Wall -Wextra -c /mnt/e/k60-work/scratch/prop/v2
 自包含：路径、参数、三态期望各一行。跑不动时先看 `--help`，别猜。
 
 ```sh
-cd E:/hackios/k60-gpu-27
-python3 docs/research/gpu/tools/check-gpu27-postflip.py <console.log> \
-    --judge=E:/hackios/k60-gates/scripts/judge-gpu27.py \
-    --flip-asserts=E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py \
+cd E:/hackios/k60-gates
+python3 scripts/check-gpu27-postflip.py <console.log> \
+    --judge=scripts/judge-gpu27.py \
+    --flip-asserts=scripts/check-gpu27-flip-asserts.py \
     --lane-root=E:/hackios/k60-gpu-27
 # 期望 exit 0：PASS the flight says version=2 and the two copies of the flip asserts agree
 # 期望 exit 1：FAIL …（the frame line says version=1, not 2 / none says `scanout version=`
 #               / the header carries 3 of 4 v2 assertions / 判读器自己的 FAIL）
-# 期望 exit 2：cannot judge …（no PONG SCANOUT line / 断言仍是 dormant / 判读器 INVALID）
+# 期望 exit 2：cannot judge …（no PONG SCANOUT line / 断言仍是 dormant / 判读器 INVALID
+#               / 三个路径少给一个——本工具没有默认值，也不读环境变量）
 ```
+
+三个路径**都是必填**，不是风格问题：同一份工具要在两棵树里跑（本 lane 有 wire 头，共享树只有本仓库），
+写死默认值对其中一个调用者必然错，而「猜一个路径」和「报错」相比，前者会**看起来像判决**。
+缺参数一律退 2（与 `check-io-map-budget.py` 的 `source == "default"` 退 2 同一个理由）。
 
 合成夹具（**全部自称 SYNTHETIC**，没有一条来自真飞行）：今天就能跑，不需要设备。
 
 ```sh
-cd E:/hackios/k60-gpu-27
-F=docs/research/gpu/tools/fixtures
-python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-ok.log \
-    --lane-root=E:/hackios/k60-gpu-27/$F/lane-postflip-in-step          # 期望 exit 0
-python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-no-version.log \
-    --lane-root=E:/hackios/k60-gpu-27/$F/lane-postflip-in-step          # 期望 exit 1（字段缺席）
-python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-ok.log \
-    --lane-root=E:/hackios/k60-gpu-27/$F/lane-postflip-half              # 期望 exit 1（断言只剩三条）
-python3 docs/research/gpu/tools/check-gpu27-postflip.py $F/postflip-v2-ok.log \
-    --lane-root=E:/hackios/k60-gpu-27/$F/lane-preflip                    # 期望 exit 2（还没翻）
-python3 docs/research/gpu/tools/test-check-gpu27-postflip.py             # 期望 TESTS OK: 7 cases
+cd E:/hackios/k60-gates
+F=scripts/tests/fixtures/gpu27/postflip
+python3 scripts/check-gpu27-postflip.py $F/postflip-v2-ok.log \
+    --judge=scripts/judge-gpu27.py --flip-asserts=scripts/check-gpu27-flip-asserts.py \
+    --lane-root=E:/hackios/k60-gates/$F/lane-postflip-in-step          # 期望 exit 0
+python3 scripts/check-gpu27-postflip.py $F/postflip-v2-no-version.log \
+    --judge=scripts/judge-gpu27.py --flip-asserts=scripts/check-gpu27-flip-asserts.py \
+    --lane-root=E:/hackios/k60-gates/$F/lane-postflip-in-step          # 期望 exit 1（字段缺席）
+python3 scripts/check-gpu27-postflip.py $F/postflip-v2-ok.log \
+    --judge=scripts/judge-gpu27.py --flip-asserts=scripts/check-gpu27-flip-asserts.py \
+    --lane-root=E:/hackios/k60-gates/$F/lane-postflip-half              # 期望 exit 1（断言只剩三条）
+python3 scripts/check-gpu27-postflip.py $F/postflip-v2-ok.log \
+    --judge=scripts/judge-gpu27.py --flip-asserts=scripts/check-gpu27-flip-asserts.py \
+    --lane-root=E:/hackios/k60-gates/$F/lane-preflip                    # 期望 exit 2（还没翻）
+python3 scripts/tests/test-check-gpu27-postflip.py                     # 期望 TESTS OK: 11 cases
 ```
+
+夹具为什么在 `scripts/`：`sync-device-input.py` 的 ITEMS 镜像 `scripts/` 而不镜像 `docs/`，所以放在
+`docs/` 下的输入**永远不可能**因为「没同步」而红——那条判据就只在有人手跑的那一刻有效（P-205 家族）。
 
 **为什么「字段缺席」在这一条里是红，而在判读器里是 unmeasured**：判读器测「这一侧花了多少」，没人测
 就是没人测；这条门禁测「树声称自己已经翻了」，缺席本身与声称矛盾。两处判断不同、两处都写了理由——
@@ -118,7 +130,7 @@ python3 docs/research/gpu/tools/test-check-gpu27-postflip.py             # 期�
 | --- | --- |
 | flip 条件与 owner | `GPU-27-SCANOUT-WIRE-PROPOSAL.md` §2.5（唯一维护处） |
 | 版本语义、四向矩阵、断言清单 | 同一文件 §2.1 / §2.3 / §2.5 |
-| 第 5 条那条命令本身 | `docs/research/gpu/tools/check-gpu27-postflip.py`（夹具在同目录 `fixtures/`） |
+| 第 5 条那条命令本身 | `E:/hackios/k60-gates/scripts/check-gpu27-postflip.py`（夹具 `scripts/tests/fixtures/gpu27/postflip/`） |
 | 第 4 条③比的是哪两行 | `E:/hackios/k60-gates/scripts/check-gpu27-flip-asserts.py`（它同时提供 `--strict`） |
 | 27 侧读者行号与两处硬编码 | 同一文件 §2.6 |
 | 休眠补丁与它为什么现在不成立是对的 | `patches/proposed/README.md` 的 Dormant 段 |

@@ -40,10 +40,9 @@
 *.kernelcache
 *.log
 # Fixtures are inputs, not logs: a gate whose input is untracked passes here and
-# fails on a fresh clone (P-205 family). One line per fixture directory.
+# fails on a fresh clone (P-205 family). One line per depth.
 !scripts/tests/fixtures/*.log
 !scripts/tests/fixtures/*/*.log
-!docs/research/gpu/tools/fixtures/*.log
 .DS_Store
 __pycache__/
 *.py[cod]

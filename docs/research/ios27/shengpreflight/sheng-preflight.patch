@@ -1,0 +1,495 @@
+diff --git a/scripts/check-ios27-board-inputs.py b/scripts/check-ios27-board-inputs.py
+new file mode 100755
+--- /dev/null
++++ b/scripts/check-ios27-board-inputs.py
+@@ -0,0 +1,244 @@
++#!/usr/bin/env python3
++"""Board-input preflight for the iOS 27 image (mondrian).
++
++Loader-source questions belong to `scripts/check-ios27-firmware.py`; this gate
++covers what that one does not read: the board inputs the build consumes, the FD
++window, and the protocol revision DarwinBoot compares at handoff.
++
++Runs in the EDK II build tree, before the firmware is built, through
++`[firmware] preflight` in the device repository's board.toml:
++
++    [firmware]
++    preflight = ["scripts/check-ios27-board-inputs.py"]
++
++The build driver runs `python3 <script> [args...]` with the working directory set
++to the assembled build tree and `UNIXNU_DEVICE` / `UNIXNU_UEFI` exported.
++
++Every check answers one question and prints one line. The exit code is the only
++thing the build driver reads:
++
++    0   every check passed
++    1   at least one check failed  -- the build must stop
++    2   no check failed, but at least one could not be judged because an input
++        is absent -- "cannot judge" is not a pass, so the build stops too
++
++`--allow-unknown` turns 2 into 0 for the case where a check is structurally
++unjudgeable in offline work; it never turns 1 into 0.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import re
++import sys
++import tomllib
++from dataclasses import dataclass, asdict
++from pathlib import Path
++
++PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
++
++# The four EDK II modules the boot path needs; the paths are the ones the
++# porting page lists (docs/zh/porting/uefi-firmware.md, "UniXNU 和 DarwinBoot
++# 通过 INF 加入").
++REQUIRED_MODULES = (
++    "Platforms/Xiaomi/UniXNUPkg/Application/UniXNU/UniXNU.inf",
++    "Platforms/Xiaomi/UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf",
++    "Platforms/Xiaomi/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf",
++    "Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.inf",
++)
++
++# The fileset loader landed in revision 0x00020000: before it, DarwinBoot
++# rejected any image carrying kexts, which is every iOS 27 kernel.
++MIN_LOADER_REVISION = 0x0002_0000
++LOADER_HEADER = "Platforms/Xiaomi/UniXNUPkg/Include/Protocol/UniXNULoader.h"
++
++UUID_RE = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
++
++
++@dataclass
++class Result:
++    check: str
++    state: str
++    detail: str
++
++
++def load_toml(path: Path) -> dict:
++    with path.open("rb") as handle:
++        return tomllib.load(handle)
++
++
++def check_board(board: dict) -> Result:
++    firmware = board.get("firmware")
++    if not firmware:
++        return Result("board", FAIL, "board.toml has no [firmware] table")
++    for key in ("config", "dsc", "fd"):
++        if not firmware.get(key):
++            return Result("board", FAIL, f"[firmware] is missing {key!r}")
++    return Result("board", PASS, f"config={firmware['config']} dsc={firmware['dsc']}")
++
++
++def check_dsc(uefi: Path | None, board: dict) -> Result:
++    if uefi is None:
++        return Result("dsc", UNKNOWN, "no UEFI checkout given (--uefi or UNIXNU_UEFI)")
++    firmware = board.get("firmware") or {}
++    if not firmware.get("dsc"):
++        return Result("dsc", UNKNOWN, "no [firmware] dsc to look for")
++    dsc = uefi / firmware["dsc"]
++    if not dsc.is_file():
++        return Result("dsc", FAIL, f"missing {dsc}")
++    return Result("dsc", PASS, str(dsc))
++
++
++def check_modules(uefi: Path | None) -> Result:
++    if uefi is None:
++        return Result("modules", UNKNOWN, "no UEFI checkout given")
++    missing = [rel for rel in REQUIRED_MODULES if not (uefi / rel).is_file()]
++    if missing:
++        return Result("modules", FAIL, "missing " + ", ".join(missing))
++    return Result("modules", PASS, f"{len(REQUIRED_MODULES)} modules present")
++
++
++def check_fd_window(uefi: Path | None, config_name: str) -> Result:
++    """The FD must sit on a 4 KiB boundary, be a whole number of blocks, and,
++    once built, must not have outgrown its reserved window."""
++    if uefi is None:
++        return Result("fd-window", UNKNOWN, "no UEFI checkout given")
++    cfg_path = uefi / "Resources/Configs" / f"{config_name}.toml"
++    if not cfg_path.is_file():
++        return Result("fd-window", FAIL, f"missing {cfg_path}")
++    section = load_toml(cfg_path).get("uefi_fd")
++    if not section:
++        return Result("fd-window", FAIL, f"{cfg_path} has no [uefi_fd]")
++    base, size = section.get("base"), section.get("size")
++    if not isinstance(base, int) or not isinstance(size, int):
++        return Result("fd-window", FAIL, "[uefi_fd] base/size must be integers")
++    if base % 0x1000 or size % 0x1000 or size <= 0:
++        return Result("fd-window", FAIL, f"base={base:#x} size={size:#x} not 4 KiB aligned")
++    built = uefi / "Build" / "mondrianPkg"
++    candidates = sorted(built.glob("*/FV/SILICIUM_UEFI.fd")) if built.is_dir() else []
++    if not candidates:
++        return Result("fd-window", PASS, f"reserved {size:#x} at {base:#x}; no built FD to compare")
++    fd = candidates[-1]
++    actual = fd.stat().st_size
++    if actual > size:
++        return Result("fd-window", FAIL, f"built FD {actual:#x} exceeds window {size:#x} ({fd})")
++    if actual == size:
++        # Full to the last block: any addition to the firmware fails next time,
++        # so say so now instead of letting the next change discover it.
++        return Result("fd-window", PASS, f"built FD {actual:#x} exactly fills {size:#x} at {base:#x} (no headroom)")
++    return Result("fd-window", PASS, f"built FD {actual:#x} fits {size:#x} at {base:#x}")
++
++
++def check_loader_revision(uefi: Path | None) -> Result:
++    if uefi is None:
++        return Result("loader-revision", UNKNOWN, "no UEFI checkout given")
++    header = uefi / LOADER_HEADER
++    if not header.is_file():
++        return Result("loader-revision", FAIL, f"missing {header}")
++    text = header.read_text(encoding="utf-8", errors="replace")
++    match = re.search(r"^\s*#define\s+UNIXNU_LOADER_REVISION(?!\w)\s+(0x[0-9A-Fa-f]+|\d+)", text, re.MULTILINE)
++    if not match:
++        return Result("loader-revision", FAIL, f"no UNIXNU_LOADER_REVISION in {header}")
++    revision = int(match.group(1), 0)
++    if revision < MIN_LOADER_REVISION:
++        return Result(
++            "loader-revision",
++            FAIL,
++            f"{revision:#010x} < {MIN_LOADER_REVISION:#010x}: DarwinBoot would reject the fileset image",
++        )
++    return Result("loader-revision", PASS, f"{revision:#010x}")
++
++
++def check_payload_inputs(board: dict) -> Result:
++    payload = board.get("payload") or {}
++    adt = payload.get("adt") or {}
++    problems = []
++    chip_id = adt.get("chip_id")
++    if not isinstance(chip_id, str) or not re.fullmatch(r"[0-9A-Fa-f]{4}", chip_id):
++        problems.append(f"payload.adt.chip_id={chip_id!r} is not four hex digits")
++    seed = payload.get("random_seed")
++    if seed is not None and not str(seed).isdigit():
++        problems.append(f"payload.random_seed={seed!r} is not an integer")
++    uuid = payload.get("root_match_volume_uuid")
++    if uuid is not None and not UUID_RE.match(str(uuid)):
++        problems.append(f"payload.root_match_volume_uuid={uuid!r} is not a UUID")
++    if problems:
++        return Result("payload-inputs", FAIL, "; ".join(problems))
++    return Result("payload-inputs", PASS, f"chip_id={chip_id} seed={seed} uuid={uuid}")
++
++
++def run(board_path: Path, uefi: Path | None) -> list[Result]:
++    board = load_toml(board_path)
++    config_name = (board.get("firmware") or {}).get("config") or ""
++    results = [
++        check_board(board),
++        check_dsc(uefi, board),
++        check_modules(uefi),
++        check_fd_window(uefi, config_name),
++        check_loader_revision(uefi),
++        check_payload_inputs(board),
++    ]
++    return results
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument("--device", type=Path, help="device repository (default: $UNIXNU_DEVICE)")
++    parser.add_argument("--uefi", type=Path, help="UEFI checkout (default: $UNIXNU_UEFI)")
++    parser.add_argument("--json", action="store_true", help="one JSON object instead of lines")
++    parser.add_argument(
++        "--allow-unknown",
++        action="store_true",
++        help="exit 0 when a check could not be judged (never rescues a failure)",
++    )
++    args = parser.parse_args(argv)
++
++    device = args.device or (Path(os.environ["UNIXNU_DEVICE"]) if os.environ.get("UNIXNU_DEVICE") else None)
++    uefi = args.uefi or (Path(os.environ["UNIXNU_UEFI"]) if os.environ.get("UNIXNU_UEFI") else None)
++
++    if device is None:
++        print("preflight: no device repository (--device or UNIXNU_DEVICE)", file=sys.stderr)
++        return 2
++    board_path = device / "board.toml"
++    if not board_path.is_file():
++        print(f"preflight: missing {board_path}", file=sys.stderr)
++        return 2
++    try:
++        results = run(board_path, uefi)
++    except tomllib.TOMLDecodeError as error:
++        print(f"preflight: {board_path} is not valid TOML: {error}", file=sys.stderr)
++        return 1
++
++    failed = [item for item in results if item.state == FAIL]
++    unknown = [item for item in results if item.state == UNKNOWN]
++    if args.json:
++        print(
++            json.dumps(
++                {
++                    "board": str(board_path),
++                    "uefi": str(uefi) if uefi else None,
++                    "results": [asdict(item) for item in results],
++                    "failed": len(failed),
++                    "unknown": len(unknown),
++                },
++                ensure_ascii=False,
++            )
++        )
++    else:
++        for item in results:
++            print(f"preflight: {item.state:<7} {item.check:<16} {item.detail}")
++
++    if failed:
++        return 1
++    if unknown:
++        if args.allow_unknown:
++            print(f"preflight: {len(unknown)} check(s) could not be judged; continuing because --allow-unknown")
++            return 0
++        return 2
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/test_check_ios27_board_inputs.py b/scripts/test_check_ios27_board_inputs.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/test_check_ios27_board_inputs.py
+@@ -0,0 +1,230 @@
++#!/usr/bin/env python3
++"""Tests for check-ios27-board-inputs.py. Offline: every fixture is built in a temp dir.
++
++Run: python3 test_check_ios27_firmware.py
++The point of the negative cases is that they must go red for the intended
++reason: each asserts the exit code *and* that the named check is the one that
++failed, so a fixture that trips a different check, or that passes for the wrong
++reason, is a test failure.
++"""
++
++from __future__ import annotations
++
++import json
++import subprocess
++import sys
++import tempfile
++import textwrap
++import unittest
++from pathlib import Path
++
++SCRIPT = Path(__file__).with_name("check-ios27-board-inputs.py")
++
++GOOD_BOARD = """
++[firmware]
++config = "mondrian"
++dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
++fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
++
++[payload]
++random_seed = "11"
++root_match_volume_uuid = "E3F4AED0-4454-4D5B-833C-E27E99C4F67B"
++
++[payload.adt]
++chip_id = "8140"
++"""
++
++GOOD_CONFIG = """
++[uefi_fd]
++base = 0xA7400000
++size = 0x300000
++"""
++
++GOOD_LOADER = """
++#define UNIXNU_LOADER_REVISION 0x00020000
++"""
++
++MODULES = (
++    "Platforms/Xiaomi/UniXNUPkg/Application/UniXNU/UniXNU.inf",
++    "Platforms/Xiaomi/UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf",
++    "Platforms/Xiaomi/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf",
++    "Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.inf",
++)
++
++
++class Fixture:
++    def __init__(self, root: Path) -> None:
++        self.root = root
++        self.device = root / "device"
++        self.uefi = root / "uefi"
++        self.device.mkdir()
++        self.uefi.mkdir()
++        self.write_board(GOOD_BOARD)
++        self.write_config(GOOD_CONFIG)
++        self.write_loader(GOOD_LOADER)
++        self.touch("Platforms/Xiaomi/mondrianPkg/mondrian.dsc")
++        for rel in MODULES:
++            self.touch(rel)
++
++    # -- writers ---------------------------------------------------------
++    def write_board(self, text: str) -> None:
++        (self.device / "board.toml").write_text(textwrap.dedent(text), encoding="utf-8")
++
++    def write_config(self, text: str) -> None:
++        path = self.uefi / "Resources/Configs/mondrian.toml"
++        path.parent.mkdir(parents=True, exist_ok=True)
++        path.write_text(textwrap.dedent(text), encoding="utf-8")
++
++    def write_loader(self, text: str) -> None:
++        path = self.uefi / "Platforms/Xiaomi/UniXNUPkg/Include/Protocol/UniXNULoader.h"
++        path.parent.mkdir(parents=True, exist_ok=True)
++        path.write_text(textwrap.dedent(text), encoding="utf-8")
++
++    def touch(self, rel: str, body: str = "x") -> None:
++        path = self.uefi / rel
++        path.parent.mkdir(parents=True, exist_ok=True)
++        path.write_text(body, encoding="utf-8")
++
++    def built_fd(self, size: int) -> None:
++        path = self.uefi / "Build/mondrianPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd"
++        path.parent.mkdir(parents=True, exist_ok=True)
++        path.write_bytes(b"\0" * size)
++
++    # -- runner ----------------------------------------------------------
++    def run(self, *args: str) -> tuple[int, dict]:
++        proc = subprocess.run(
++            [sys.executable, str(SCRIPT), "--device", str(self.device), "--uefi", str(self.uefi), "--json", *args],
++            capture_output=True,
++            text=True,
++        )
++        payload = json.loads(proc.stdout) if proc.stdout.strip() else {}
++        return proc.returncode, payload
++
++
++def states(payload: dict) -> dict:
++    return {item["check"]: item["state"] for item in payload.get("results", [])}
++
++
++class PreflightTest(unittest.TestCase):
++    def setUp(self) -> None:
++        self._tmp = tempfile.TemporaryDirectory()
++        self.fixture = Fixture(Path(self._tmp.name))
++
++    def tearDown(self) -> None:
++        self._tmp.cleanup()
++
++    # -- positive --------------------------------------------------------
++    def test_good_board_passes(self) -> None:
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 0, payload)
++        self.assertEqual(set(states(payload).values()), {"pass"})
++
++    def test_built_fd_that_fits_passes(self) -> None:
++        self.fixture.built_fd(0x100000)
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 0, payload)
++        self.assertIn("fits", {item["check"]: item["detail"] for item in payload["results"]}["fd-window"])
++
++    # -- negatives: each must go red for its own reason ------------------
++    def test_missing_firmware_table_fails_board(self) -> None:
++        self.fixture.write_board("[kernel]\nname = 'x'\n")
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["board"], "fail")
++
++    def test_missing_dsc_fails_dsc(self) -> None:
++        (self.fixture.uefi / "Platforms/Xiaomi/mondrianPkg/mondrian.dsc").unlink()
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["dsc"], "fail")
++        self.assertEqual(states(payload)["board"], "pass", "board must not be blamed for a missing DSC")
++
++    def test_missing_module_fails_modules(self) -> None:
++        (self.fixture.uefi / MODULES[3]).unlink()
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["modules"], "fail")
++
++    def test_misaligned_fd_fails_window(self) -> None:
++        self.fixture.write_config("[uefi_fd]\nbase = 0xA7400800\nsize = 0x300000\n")
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["fd-window"], "fail")
++
++    def test_exactly_full_fd_passes_but_says_no_headroom(self) -> None:
++        self.fixture.built_fd(0x300000)
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 0, payload)
++        detail = {item["check"]: item["detail"] for item in payload["results"]}["fd-window"]
++        self.assertIn("no headroom", detail)
++
++    def test_oversized_built_fd_fails_window(self) -> None:
++        self.fixture.built_fd(0x300000 + 0x1000)
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["fd-window"], "fail")
++
++    def test_old_loader_revision_fails(self) -> None:
++        self.fixture.write_loader("#define UNIXNU_LOADER_REVISION 0x00010000\n")
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["loader-revision"], "fail")
++
++    def test_loader_header_without_revision_fails(self) -> None:
++        self.fixture.write_loader("/* nothing here */\n")
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["loader-revision"], "fail")
++
++    def test_bad_chip_id_fails_payload_inputs(self) -> None:
++        self.fixture.write_board(GOOD_BOARD.replace('chip_id = "8140"', 'chip_id = "81400"'))
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["payload-inputs"], "fail")
++
++    def test_bad_uuid_fails_payload_inputs(self) -> None:
++        self.fixture.write_board(GOOD_BOARD.replace("E3F4AED0-4454-4D5B-833C-E27E99C4F67B", "not-a-uuid"))
++        code, payload = self.fixture.run()
++        self.assertEqual(code, 1)
++        self.assertEqual(states(payload)["payload-inputs"], "fail")
++
++    # -- cannot judge ----------------------------------------------------
++    def test_absent_uefi_is_unknown_not_pass(self) -> None:
++        proc = subprocess.run(
++            [sys.executable, str(SCRIPT), "--device", str(self.fixture.device), "--json"],
++            capture_output=True,
++            text=True,
++            env={"PATH": "/usr/bin:/bin"},
++        )
++        payload = json.loads(proc.stdout)
++        self.assertEqual(proc.returncode, 2, "cannot judge must not look like a pass")
++        self.assertEqual(states(payload)["modules"], "unknown")
++        self.assertEqual(states(payload)["fd-window"], "unknown")
++
++    def test_allow_unknown_returns_zero_but_keeps_the_report(self) -> None:
++        code, payload = self.fixture.run("--allow-unknown")
++        self.assertEqual(code, 0)
++        self.assertEqual(payload["unknown"], 0, "with a UEFI checkout there is nothing unknown")
++
++    def test_allow_unknown_never_rescues_a_failure(self) -> None:
++        (self.fixture.uefi / MODULES[0]).unlink()
++        code, _ = self.fixture.run("--allow-unknown")
++        self.assertEqual(code, 1)
++
++    def test_missing_device_is_two(self) -> None:
++        proc = subprocess.run(
++            [sys.executable, str(SCRIPT), "--device", str(self.fixture.root / "nope")],
++            capture_output=True,
++            text=True,
++            env={"PATH": "/usr/bin:/bin"},
++        )
++        self.assertEqual(proc.returncode, 2)
++
++    def test_invalid_toml_is_one(self) -> None:
++        (self.fixture.device / "board.toml").write_text("[firmware\nbad", encoding="utf-8")
++        code, _ = self.fixture.run()
++        self.assertEqual(code, 1)
++
++
++if __name__ == "__main__":
++    unittest.main(verbosity=2)
+diff --git a/board.toml b/board.toml
+--- a/board.toml
++++ b/board.toml
+@@ -58,6 +58,7 @@
+ config = "mondrian"
+ dsc = "Platforms/Xiaomi/mondrianPkg/mondrian.dsc"
+ fd = "Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
++preflight = ["scripts/check-ios27-board-inputs.py"]
+ patches = [
+   # Five K60 fixes the pinned Mu_Basecore (6f805f2, release/202608) does not carry.
+   # They live in the uefi repo as patch files and apply cleanly to the pin; applied here

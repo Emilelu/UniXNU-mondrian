@@ -220,14 +220,110 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
   2. **只报状态**：不补 provider，明确「无 keybag、`sheng-aks-sls=3` 报无密码」是设计状态，AppleKeyStoreState 在 27 只作为观测点存在。代价：凡是需要 device key 的路径必须另有结论。
 - 启动参数依赖：`sheng-aks=1` 与 `sheng-aks-sls` 现在都不在 27 的 `payload.kernel_args` 里（`board.toml:341-410` 只有 `-v serial=3 debug=0x14e kt_fixed_zones=120 -no_slto_panic use_contiguous_hint=0 amfi_get_out_of_my_way=1 k60_fontscale=3`）⇒ 即使库接进去也会走「未启用」分支。
 
-### A.3 ShengPreflight：机制在，检查项不在
+**16 线资产登记（按 `docs/research/ios27/CARRY-OVER-INVENTORY.md` 的纪律逐条登记，避免重造轮子）**
 
-- 框架侧机制是现成的：`[firmware] preflight` 里的脚本在 EDK II 构建前跑，`--skip-preflight` 可跳过，输入要带 hash 校验（`docs/zh/porting/uefi-firmware.md:169-172`；构建顺序「1 preflight → 子模块 → BaseTools → 补丁 → 构建 → 还原 → 查 FV 大小/路径」）。
-- 本板缺的是**检查项**：`board.toml` 的 `[firmware]` 只有 `dsc = Platforms/Xiaomi/mondrianPkg/mondrian.dsc` 与 packages 列表，没有 `preflight` 键；`drivers/ShengPreflight` 是空子模块（gitlink `9cfc8d2c…`），sheng 的 `board.toml` 里也没有 `[firmware]` 表 ⇒ 没有可抄的现成脚本，只能按本板目标写。
-- 本板可写的三条（依据在 27 profile 与 flight blockers 里，不靠猜）：
-  1. **FV 大小**：产物 FV 必须与 `[uefi_fd] size` 对得上（`uefi-firmware.md` 验证表）；现存 `firmware-fileset-provider` 已 closed（uefi-mondrian 39fa61c，PE 55,296 B，sha256 `52b064d6…`），可作基线哈希。
-  2. **加载窗口**：platform27 现在的怀疑是 256 MB 载入窗口压掉 framebuffer；预检应给出「载入窗口 + ADT `video` 节点 + FV 末端」三者的数值关系，超界即失败。这一条与 B 段第 1/2 行判据直接互补。
-  3. **启动输入**：`payload.adt.chip_id = "8140"`、`random_seed = "11"`、`root_match_volume_uuid = E3F4AED0-…` 与 27 profile 的 `roots`（30 项）必须一致；不一致时预检失败比黑屏便宜。
+16 线（240 条）里有 7 条与 keybag / AKS 直接相关，27 线（34 条）里 0 条：
+
+| 16 线补丁 | 它解决什么 | 27 现状 | 处置 |
+| --- | --- | --- | --- |
+| `zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch` | 软件 keybag provider：`iokit/Kernel/MiniAppleKeyStore.cpp` 281 行、12 selector、`The` 打印串、wrap/unwrap 可逆 | 无 | `to-port`（路线 1 的底稿；移植前先答 §A.2 两问） |
+| `0216-k60-aks-bag-selectors.patch` | bag 相关 selector 的选择 | 无 | `to-port`（依赖上面那条先落） |
+| `0217-k60-aks-status.patch` | 状态查询可见性 | 无 | `to-port` |
+| `0215-k60-data-keybags-probe.patch` | 探针（观测用） | 无 | `to-port`（观测价值最高，代价最低） |
+| `0218-k60-data-keybag-file.patch` | Data 卷上的 keybag 文件 | 无 | `not-needed`（stage-0 不挂 Data；理由记此） |
+| `0237-k60-keybag-watch-opt-in.patch` | 看护开关 | 无 | `not-needed`（依赖 0218） |
+| `0385-k60-aks-datamigrator.patch` | Data 迁移期的 AKS 配合 | 无 | `not-needed`（依赖 0218） |
+
+**「为什么不能直接搬」**（纪律第 2 条要求先答这个，再谈新写）：
+
+1. 16 线那 7 条都建立在「16 的 `iokit/conf/files` + `MiniIOSurface` 启动钩子」这套骨架上；27 的 34 条系列里没有一条碰 `iokit/Kernel/`，骨架本身要先建。
+2. 27 的 `patches/xnu-12377/series` 顺序文件记录的是 arm64e / fileset / ADT / modesetting 这几类改动，若把 16 的补丁直接 `git apply` 到 `xnu-12377`，冲突点是 `iokit/conf/files`（27 已改）与 `osfmk/kern/startup.c`（27 的 `mac_policy_initmach()` 已在 :836 之后）。
+3. 所以 7 条里 4 条标 `to-port`（要改写而非搬运）、3 条标 `not-needed`（依赖 stage-0 不存在的 Data 卷），**不是「27 上没有所以要新写」**。
+
+### A.3 ShengPreflight：机制在，检查项不在（已出草稿，落盘归 Lead）
+
+**分工**（Lead 2026-11-22 裁决）：规范与测试归我，落盘归 Lead。交付物在
+`docs/research/ios27/shengpreflight/`：`check-ios27-board-inputs.py`（脚本全文）、`test_check_ios27_board_inputs.py`（17 例）、
+`sheng-preflight.patch`（`git apply` 形态，含 `board.toml` 的一行接线）。已用 `git apply --check` 对共享树做过**只读**校验：
+`CHECK OK`（三个 hunk 全过，未写任何文件）。
+
+- 框架侧机制是现成的：`[firmware] preflight` 里的脚本在 EDK II 构建前跑，`--skip-preflight` 可跳过，输入要带 hash 校验
+  （`docs/zh/porting/uefi-firmware.md:169-172`；构建顺序「1 preflight → 子模块 → BaseTools → 补丁 → 构建 → 还原 → 查 FV 大小/路径」）。
+  实测到的调用契约（`E:/hackios/UniXNU/scripts/unixnu/firmware.py:46-50`）：每个条目 `shlex.split` 后以
+  `python3 <script> [args]` 运行，`cwd = ctx.tree`（组装后的构建树），环境变量 `UNIXNU_UEFI` / `UNIXNU_DEVICE`，日志落
+  `logs/firmware-preflight.log`；`tree_inputs` 在 preflight **之前**已 stage 进树。**参数不做占位符替换** ⇒ 脚本必须自己能找到设备仓
+  （用 `$UNIXNU_DEVICE`），否则接不上。
+
+**本板现状（两件事都不是「缺机制」）**
+
+1. `board.toml` 的 `[firmware]` 没有 `preflight` 键 ⇒ 一个检查都没在跑。
+2. 共享树里**已经有一个** `scripts/check-ios27-firmware.py`（228 行），但它答的是另一个问题：按 PACKAGES_PATH 顺序选出
+   **真正被编译的 DarwinBoot 源**，判断该源有没有 `LC_FILESET_ENTRY` / filetype 12 通路（判词 0/1/2，`--strict`，`--board` 从
+   `[firmware].packages` 取顺序）。它读的是 loader **源码形状**，不读板级输入。两个门互补，不重复：
+   - 它问「被编译的 loader 认不认 fileset」；
+   - 本门问「喂给这次构建的板级输入自洽不自洽，产物装不装得下」。
+   顺带一个实测结论：那个门**无法**接进 `[firmware] preflight`——它要么 `--search` 要么 `--board <path>`，而 preflight 只传环境变量。
+   要接线得给它加 `$UNIXNU_DEVICE` 兜底（一行），这一条归 Lead 决定。
+
+**① 判据（脚本答什么、几态、退出码）**
+
+每项检查只答一个问题，输出一行；退出码是构建驱动唯一读的东西。
+
+| 检查 | 问的问题 | 用到的输入 | FAIL 条件 |
+| --- | --- | --- | --- |
+| `board` | `board.toml` 里 `[firmware]` 的 `config`/`dsc`/`fd` 齐不齐 | 设备仓 `board.toml` | 缺表或缺键 |
+| `dsc` | 该 `dsc` 在 UEFI 检出里存在吗 | `$UNIXNU_UEFI` | 文件不在 |
+| `modules` | 四个必需 INF 在不在（`UniXNU.inf`、`UniXNUDxe.inf`、`UniXNURamDiskDxe.inf`、`DarwinBoot.inf`） | UEFI 检出 | 任缺 |
+| `fd-window` | FD 窗口对齐吗、产物装得下吗 | `Resources/Configs/<config>.toml` 的 `[uefi_fd] base/size`；若已构建则读 `Build/mondrianPkg/*/FV/SILICIUM_UEFI.fd` | 未 4 KiB 对齐 / 非 4 KiB 整数倍 / 产物超窗 |
+| `loader-revision` | DarwinBoot 交接时比对的那个协议修订号 ≥ `0x00020000` 吗 | `Include/Protocol/UniXNULoader.h` 的 `#define UNIXNU_LOADER_REVISION` | 低于（老 loader 会拒 fileset 镜像） / 头里没有该宏 |
+| `payload-inputs` | `payload.adt.chip_id` 是 4 位十六进制、`random_seed` 是整数、`root_match_volume_uuid` 是 UUID 吗 | 设备仓 `board.toml` | 任一形状不对 |
+
+三态与退出码（与 P-279 同一条纪律）：
+
+- `pass` —— 这条拿到了答案且答案合格；
+- `fail` —— 拿到了答案且不合格，**构建必须停**；
+- `unknown` —— 输入缺失、这一条**判不了**。「判不了」不是「通过」。
+- 退出码：`0` 全 pass；`1` 有任一 fail；`2` 无 fail 但有 unknown。`--allow-unknown` 只把 `2` 变 `0`（离线跑时用），**永远不会**把 `1` 变 `0`。
+- 不做的事（避免变成第二个「看起来通过」的门）：不比对 24A446 的任何数值；不把「没有产物可比」当成通过（`fd-window` 在无产物时只验窗口自身的算术，并在 detail 里写明「no built FD to compare」）；
+  产物恰好填满窗口时仍判 `pass`，但 detail 写 `exactly fills ... (no headroom)`——下一次加东西就会失败，现在就说出来。
+
+**② 测试（17 例，反例必须真红）**
+
+`python3 docs/research/ios27/shengpreflight/test_check_ios27_board_inputs.py` ⇒ `Ran 17 tests ... OK`（本机离线，全部 fixture 建在临时目录）。
+反例的写法是「断言退出码 **且** 断言是**那一条**检查红」，所以一个 fixture 若因为别的原因失败，测试自己会红：
+
+| 反例 | 断言 |
+| --- | --- |
+| 无 `[firmware]` 表 | 退出 1，`board` = fail（且 `dsc` 不得被连坐判 fail） |
+| DSC 文件删掉 | 退出 1，`dsc` = fail，`board` 仍 pass |
+| 删掉 `DarwinBoot.inf` | 退出 1，`modules` = fail |
+| `base = 0xA7400800` | 退出 1，`fd-window` = fail |
+| 产物 = 窗口 + 4 KiB | 退出 1，`fd-window` = fail |
+| 修订 `0x00010000` | 退出 1，`loader-revision` = fail |
+| 头里没有该宏 | 退出 1，`loader-revision` = fail |
+| `chip_id = "81400"` | 退出 1，`payload-inputs` = fail |
+| `root_match_volume_uuid = not-a-uuid` | 退出 1，`payload-inputs` = fail |
+| 不传 `--uefi` 且无环境变量 | 退出 **2**（unknown ≠ pass），`modules` = unknown |
+| 设备仓不存在 / TOML 坏 | 退出 2 / 1 |
+| 有 fail 时加 `--allow-unknown` | 仍退出 1 |
+
+正例：全绿 ⇒ 0；产物 ≤ 窗口 ⇒ 0；产物 == 窗口 ⇒ 0 且 detail 含 `no headroom`。
+
+**③ 脚本全文与接线**
+
+- 脚本：`docs/research/ios27/shengpreflight/check-ios27-board-inputs.py`（约 230 行，无第三方依赖，`tomllib` 只用标准库）。
+- 测试：`docs/research/ios27/shengpreflight/test_check_ios27_board_inputs.py`。
+- 接线（patch 内，一行）：`[firmware]` 加 `preflight = ["scripts/check-ios27-board-inputs.py"]`。
+- patch：`docs/research/ios27/shengpreflight/sheng-preflight.patch`（`diff --git` 形态，含 new file mode 100755/100644）。
+- **落盘后请把 commit 与最终路径回给我**，我会把上面三条路径改成共享树里的真实路径并引一次；在此之前本线不引用未落盘的路径。
+
+**还没做的三条（等授权/等解冻，不写进 plan）**
+
+1. 加载窗口 vs framebuffer 的数值关系：需要 ADT `video` 节点或 `boot_args.video.v_baseAddr` 的真实值，离线没有；
+   现在的脚本只验窗口自身算术，不冒充这一条。
+2. 27 profile 的 `payload.adt.chip_id = "8140"` 与顶层 `board.toml` 的 `chip_id = 8015` 不一致（实测：脚本对顶层跑出 `chip_id=8015`）。
+   这是「os_overrides 生效前/后」两个值，不是错误，但需要一条显式规则说明谁在什么时候生效——先记问题，不下结论。
+3. sheng 侧的 `drivers/ShengPreflight` 是空子模块，等它有内容再谈交叉比对。
 
 ### A.4 两个缺失输入：怎么离线拿到（不许用 24A446 猜）
 
@@ -246,6 +342,52 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
 3. **通过判据**：差集为空，或只差在「不产生输出」的 bookkeeping 类。**不通过** ⇒ 要么扩成功集（须有调用者证据），要么维持 11 个并在 §A 记 `unknown`；**不许**为了让用户态不报错而把 `kIOReturnError` 改成 `kIOReturnSuccess`（那是把「没实现」伪装成「实现了」）。
 4. 附带验证：`xnu-12377` 只有 `iokit/Kernel/i386/IOKeyStoreHelper.cpp` 与 `iokit/IOKit/AppleKeyStoreInterface.h`，没有 ARM 实现 ⇒ 表只能从 kext 取，不能从源码读。
 
-## C. open→closed 判据表（待写）
+## C. 证据分档与 open → closed 判据
 
-将按「一条判据只能由一种证据满足」写死，至少包含：`located`（上机 panic 返回地址命中）/ `named`（运行时命名或 fixture 比对）/ `mapped`（emitter 真的把目标映射到本板函数，`check-prelink-regressions.py` 计数下降而不增长）/ `exercised`（该路径在本板跑过且无 panic）四档；并写死「禁止通过放宽 `--allow-missing`、改 `stub_symbol`、或把 bundle 从 `roots` 里删掉来降计数」。
+分档按**证据种类**，不按「把握大小」（Lead 2026-11-22 裁决）。三档固定如下，缺一项即不算该档。
+
+| 档 | 合格条件（缺一不可） | 能支撑的结论 | 不能支撑的结论 |
+| --- | --- | --- | --- |
+| `binary` | 具体二进制 + **sha256** + 偏移或行号 + 引文原文（一字不改） | 该二进制里**存在 / 不存在**某字节或字符串 | 运行时会不会走到、走到时会不会过 |
+| `documented` | 库内命中或官方页命中，`文件:节`（联网兜底才给 URL） | 「这一类东西该怎么接」有据可依 | 本板这一份实现符合它 |
+| `inferred` | 必须写死「**用什么一次观测能证伪**」 | 待验假设、决定下一步采什么 | **不得**进入任何「已解决 / 已合规 / 不比基线差」的结论，只许留在待验栏 |
+
+三条使用规则：
+
+1. **一格一档**：同一行的「存在性」可以是 `binary`，而「身份」「调用时机」「会不会过」各自另算。禁止用一档的证据把整行标成 closed。
+2. **档位只会被更强的证据改写**，不会被时间、次数或「看起来合理」改写。`inferred` 要变 `binary`，必须出现带 sha256 的新字节或新字符串；要变 `documented`，必须出现 `文件:节`。
+3. **解冻前**本线只能产出 `binary` 与 `documented`；`inferred` 一律留在待验栏，并在「证伪观测」列写清下一次飞行的哪一行像素或哪条 panic 会推翻它。
+
+### C.1 为什么 `--allow-missing` 不能把任何一项从 open 改成 closed
+
+- `--allow-missing` 只决定 **emitter 遇到未映射目标时继续产镜像**，它不改变「这个目标没有映射到本板函数」这个事实；它改的是构建行为，不是证据。
+- 三个被显式禁止的「降计数」手法：放宽 `--allow-missing`、改 `stub_symbol`（让桩不再是 panic）、把 bundle 从 profile 的 `roots` 里删掉（目标直接消失，`check-prelink-regressions.py` 会因 owner 消失而报 growth 之外的错）。
+- 判定权不在计数上：`scripts/check-ios27-artifacts.py:551-575 flight_ready()` 只要 `missing_refs` 或 `stubbed_refs` 非零就拒绝，且任何 blocker 开着也拒绝。所以「计数好看」在这条线上本来就不构成通过条件。
+- 一句话：**判据是「有没有映射到本板函数」，不是「emitter 有没有被允许跳过」。**
+
+### C.2 逐项判据表
+
+列含义：`当前档` 指这一格现在靠什么证据站着；`让这项动的唯一证据` 指必须新出现什么；`采集命令` 全部离线或解冻后只读；`档位变化` 写清动了之后变成哪档。
+
+| 项 | 当前档 | 让这项动的唯一证据 | 采集命令 | 档位变化 |
+| --- | --- | --- | --- | --- |
+| 13 个槽位的**存在**（`silent13.toml` 的 13 行） | `binary`（`kernel.json` + `unreachable.toml`，candidate `dee01c54…`） | 已是最高档；只在重构建后随新 `candidate_sha256` 重录 | `python3 scripts/check-osservices27-silent13.py --strict` | 不降；重构建后重跑 |
+| 13 个槽位所在**窗口** `[PE_init_iokit :806, bsd_init :926)` | `binary`（`SN` 源码行 + `OSKext.cpp:8497-8551` 的 `blr x16`） | — | 见 §B.2 | 不降 |
+| 三个**目标**（0xfffffff00b4320d8 / 0xfffffff00b432308 / 0xfffffff00b11a998）的身份 | `inferred`（锚点间距 + 规模；`silent13.toml` 的 `falsifier`） | 运行时 panic 的 `fileset:` 行打印的返回地址落在该目标的加载点之一（或 27 fixture 里出现同名函数） | 解冻后：一次飞行读屏；或离线：`llvm-nm-18` 在 27 fixture 上搜 `DTGetProperty` / `_code_signing_configuration` | `inferred` → `binary`（有了具体返回地址与所属 bundle）/ → `documented`（fixture 命中同名） |
+| 某个槽位**被调用过**（`exercised`） | `inferred` | 同一次启动内该路径跑过且屏上没有该槽位对应的 `fileset:` panic | 解冻后一次飞行 | → `binary`（panic 缺失是**阴性**证据，必须同时有「该路径确实被走到」的正证据，否则留着 `inferred`） |
+| 某个目标**已映射**（`mapped`） | `binary`（`kernel.map.json` 里是否出现该 original 地址） | emitter 把目标绑到本板函数后重构建，`missing`/`stubbed` 计数按 owner 下降而**不增长** | `python3 /e/hackios/k60-gates/scripts/check-prelink-regressions.py …`（Lead 跑） | `binary` 重新采集即可 |
+| `--allow-missing` 是否仍在用 | `binary`（`profiles/os/ios-27.0.1-24A446/profile.toml` 的 `extra_args`） | 移除它并构建成功（证明所有目标都有映射或桩） | Lead 构建 | 该项**只记录**，不作为任何项的 closed 依据 |
+| 27 线缺 16 线的 keybag/AKS 能力（7 条补丁） | `binary`（16 线 `patches/xnu/` 有 7 个文件名；27 线 34 条里 0 条） | 27 上出现等价 provider，或明确登记 `not-needed` + 理由 | `grep -c '\.patch$' patches/xnu-12377/series` = 34；`grep -c '\.patch$' patches/xnu/series` = 240 | 见 §A.2 的 `to-port`/`not-needed` 登记（本表不重复） |
+| SoftwareAES 的 27 类布局（18 槽 / 顺序 / `selector` 偏移 0x24） | `inferred`（`OriginalAESABI.h` 的 6 条 static_assert 是 16 线量出来的；16.6.1 strings 的 17 个类型码只是旁证） | 本板 27 `kernel.macho` 的 `__ZTV` 实测，或 27 fixture 的类元数据 | §A.4 程序一（离线，读本板产物） | `inferred` → `binary` |
+| AKS 成功 selector 集合（11 个） | `documented`（`drivers/AppleKeyStoreState` 的自述）+ `binary`（27 profile `roots` 里有没有 `com.apple.driver.AppleKeyStore`） | 若 `roots` 有它 ⇒ 读其 `externalMethod` 链做差集；若没有 ⇒ stage-0 视为「无 AKS」 | §A.4 程序二（离线） | `documented` → `binary`（差集为空）或维持（无 AKS） |
+
+### C.3 整线何时能说「不比基线差」
+
+四条件同时成立才可以在汇报里写这句话，缺一条就只能写「未知」：
+
+1. 每个 owner 的 `stubbed`/`missing` 计数 **≤** `scripts/policies/ipados-27.0.1-24A446/prelink-regression.json` 的对应值，且 `check-prelink-regressions.py` 退出码 0（`binary`，由 Lead 的构建产出）；
+2. 205 个槽位**每一个**都有一行机制说明，且这行说明的证据档 ∈ {`binary`, `documented`}（`inferred` 不算）；
+3. 13 个槽位所在窗口有**可观测性**：解冻后的第一张飞行照片能区分 §B.3 的四种结局之一（`binary`，屏上照片）；
+4. `--allow-missing` 的存在被显式记录为「构建便利」，且没有任何一项的 closed 依赖它。
+
+**不许**用以下任一方式让条件 1 成立：扩 `--allow-missing`、改 `stub_symbol`、删 `roots`、把 owner 改名绕过 policy（改名会让 policy 里那条 owner 变成「消失」，`check-prelink-regressions.py` 视为不匹配而拒绝）。

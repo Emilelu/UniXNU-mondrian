@@ -156,6 +156,7 @@ docs/
 | [`gpu/T970-DISPLAY-DEPENDENCY.md`](research/gpu/T970-DISPLAY-DEPENDENCY.md) | **t970 显示栈依赖判定**：八个补丁（pacing/flip-guard/dpu-flip/120hz/vrr×3/ar-idle）零处依赖 `PongPlatform24`，五项全 `NEEDS_WORK`；真依赖是 SM8475 寄存器常量（含两树 CTL 页冲突）与出树符号 |
 | [`gpu/GPU-27-JUDGE-DRAFT.md`](research/gpu/GPU-27-JUDGE-DRAFT.md) | **离线判读器/门禁草案**：按官方 `gpu-diagnostics` 七类证据定字段表（含要新增的 `offers`/`dropped`/`gpuonly`/`client`/`abi`/`scanout version`）、四层判决阶梯与 0/1/2/3 退出码、七条 G-* 判据的落地字段、三条回归夹具 |
 | [`gpu/GPU-27-LOG-FORMATS.md`](research/gpu/GPU-27-LOG-FORMATS.md) | **27 侧日志格式表**：判读器要读的每个字段在 27 树里的 `文件:行` 与格式串、草案之后变成什么形状、缓冲与截断账、两棵树逐字节一致与两份草案对 27 树的 `git apply --check` 结果 |
+| [`gpu/GPU-27-HW-INIT-MIGRATION.md`](research/gpu/GPU-27-HW-INIT-MIGRATION.md) | **hw_init 迁移证据链**：27 板自己的 `hardware_init()` 已在核内跑完 sheng `gpuHwInit()` 的同一份序列（26 行逐条对照，判定为同/异/27 不做/27 额外），`RBBM_CLOCK_*` 的唯一写入者与「只投一次启动票」的形状，27 缺的 `gpuRestart()`，以及 27 多出来的中断拥有者（SPI 332）|
 | [`gpu/GPU-27-DEEP-EVIDENCE.md`](research/gpu/GPU-27-DEEP-EVIDENCE.md) | **⑥deep 的八项证据链**：预算表 §8 每个缺项写清现状 / 27 侧落点（`文件:行`，或「27 侧不存在」）/ 谁交 / 交付物与判据；三项 unknown 的转化条件；27 侧已就位的五项 |
 
 > 01–08 是早期按八步逐份写的调研，`EIGHT-STEPS.toml` 是它们的结构化汇总与门禁数据源。

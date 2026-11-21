@@ -49,7 +49,7 @@ next image so one flight can read the delivery model instead of guessing it.
          uint64_t prepare=0,wait=0,total=0;
          absolutetime_to_nanoseconds(prepared-began,&prepare);
          absolutetime_to_nanoseconds(finished-prepared,&wait);
-@@ -200,11 +219,20 @@
+@@ -200,11 +219,27 @@
           * 18.4 MB). Without the address a log cannot say whether the expensive
           * ones are the frames that got a fresh VA, which decides whether the fix
           * is a kept mapping or something inside the bridge. */
@@ -68,7 +68,14 @@ next image so one flight can read the delivery model instead of guessing it.
              pending.id,prepare/1000,wait/1000,total/1000,
              (unsigned long long)(pending.map?pending.map->getVirtualAddress():0),
              (unsigned long long)(pending.map?pending.map->getLength():0));
-+        if(n>=(int)sizeof(text)){text[sizeof(text)-2]='\n';text[sizeof(text)-1]='\0';}
++        /* A clip is not silently repaired: the receiver is IOLog, whose own
++         * limit is not documented anywhere this tree can cite, so print the
++         * overflow. A flight then answers the question the size choice was
++         * made for instead of the absence being read as "it fit". */
++        if(n>=(int)sizeof(text)) {
++            text[sizeof(text)-2]='\n';text[sizeof(text)-1]='\0';
++            IOLog("PONG SCANOUT: line clipped n=%d of %u\n",n,(unsigned)sizeof(text));
++        }
          if(n>0)IOLog("%s",text);
      }
      if(pending.map)pending.map->release();

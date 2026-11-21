@@ -81,11 +81,34 @@ git apply --check E:/hackios/k60-gpu-27/patches/proposed/pong-metal-client-gap.p
 
 ## 4. 缓冲账（截断会让字段「在但为空」）
 
-| 行 | 最坏长度 | 草案缓冲 | 余量 | 备注 |
+发送端算好不算数：一条诊断要穿过几层接收端，任何一层小一号，字段就变成「在但为空」。
+下表每行给一层，最后两列说明它对本轮两个字段意味着什么。
+
+| 层 | 位置 | 缓冲 / 上限 | 截断时的行为 | 对本轮字段 |
 | --- | --- | --- | --- | --- |
-| 内核帧行 | 288 B（八个字段各按 20 位 + `0x` 地址） | 384 B | 96 B | 另加截断补换行，避免截断行粘到下一条 |
-| 用户态速率行 | 377 B（十一个字段） | 640 B | 263 B | `report()` 自己还有 768 B 缓冲与截断补换行 |
-| `note()` 行 | < 180 B | 180 B | — | 不参与判据 |
+| 内核 `snprintf`（帧行） | `drivers/PongAdreno/PongAdrenoScanout.cpp:203-204` | `char text[260]` | 无处理，`snprintf` 的返回值即「本应写多少」 | 草案改 `text[384]`，最坏 288 B；并在 `n >= sizeof(text)` 时打印 `PONG SCANOUT: line clipped n=%d of %u`，让飞行自己证否「截断」 |
+| 内核 `IOLog` | 本仓无 XNU 源，见 §4.1 | 未知（不在本仓可引） | 未知 | 这就是上面那条 clip 行存在的理由：**不能假定它够大** |
+| 内核 `note()` 与其 ramoops | `PongAdrenoScanout.cpp:36-39` | `char text[180]` | 同 `snprintf` | `note()` 行不参与判据，但同族风险；不进本轮字段 |
+| ramoops 数据区 | `patches/xnu/0300-k60-usblog-ep0.patch:84` `PONG_RAMOOPS_DATA_BYTES (0x00200000U - HEADER)` | 2 MiB 减头部 | 追加时按剩余容量截断（`…-pong-settings-pmsg.patch:109-110`） | 单行 640 B 与 2 MiB 相比不成问题；只有整段写满才丢 |
+| 用户态 `snprintf`（速率行） | `drivers/PongMetal/PongMetalScanout.h:146-147` | `char rate[512]` | 同 `snprintf` | 草案改 `rate[640]`，最坏 377 B |
+| 用户态 `report()` | `drivers/PongMetal/PongMetalPlugin.mm:45-51` | `char line[768]`，前缀 `Pong Metal: ` + 后缀 ` status=0x%x\n`（25 B） | `needed >= sizeof(line)` 时强补换行；`:48-50` | 640 + 25 = 665 < 768，**够**；这就是「发送端算好、接收端也够」的那一环 |
+| 控制台与 sysctl | `PongMetalPlugin.mm:51` `write(2,…)`、`:52-53` `sysctlnametomib("kern.pong_diagnostic")` | 无长度上限（写多少传多少） | 无 | 同上 |
+| 遥测行 | `NativeBridgeMetalFrontend.mm:1606-1610`：`char text[200]`，`if(n>90)n=90` | **每行 90 B** | 硬截到 90 | 速率行**不能**走遥测通道；`streamTelemetry()`（`PongMetalPlugin.mm:60-73`）只搬 `S/T/G/J/V/N/F/W` 行 |
+| 状态行 | `PongMetalPlugin.mm:245` `char status[240]` → `native_bridge_metal_status` | 240 B | 取决于该函数 | 与本轮两个字段无关，但同属「接收端先算好」的例子 |
+
+**最坏长度怎么来的**：内核帧行八个数字字段，每个按 `%llu` 的 20 位上限算，加 `0x%llx`
+的地址与固定文字得 288；用户态速率行十一个字段按同样口径得 377。两个数都是上界，不是实测值。
+
+### 4.1 这一层为什么只能写到「未知」
+
+`IOLog` 的实现在 XNU 树里（`iokit/Kernel/IOLib.cpp` 一路到 `vprintf`），本 worktree
+和 `E:/hackios/xnekom-ios27` 都不带内核源码，离线拿不到它的缓冲上限与截断行为。
+两条都不做才是错的：假定它够大，就把「接收端截断」重新变成静默故障；假定它不够大，
+就为了一个没有证据的限制去砍字段。所以草案选第三条路——**让它自证**：一旦
+`snprintf` 的返回值触到自己的缓冲，就打印 `line clipped n=… of …`。飞行里没有这行
+= 内核侧没截断；有这行 = 截断发生在我们的缓冲里，且数字给出还差多少。
+若要在 27 上把这条彻底定死，证据是「一次带 `PONG SCANOUT: line clipped` 的飞行」或
+「拿到 XNU 源的 `IOLog` 上限并写进本表」——两者都还不在手上，所以这一格写未知，不写猜测。
 
 ## 5. 漂移时怎么复核（不靠记忆）
 

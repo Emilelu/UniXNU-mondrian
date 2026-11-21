@@ -275,3 +275,25 @@ stage firmware-and-bootimg      162s    total  844s
 | usblog EP0（USB） | `bsd_init` 之后 | 需要主机驱动 | `0547` 已编进内核 |
 
 **这条给黑屏一个新的、可判定的解释**：如果 `PE_initialize_console` 成功，屏幕上至少应出现 `-v` 触发的 PE 输出；现在全黑 ⇒ 要么 `PE_state.video` 没被 loader 填充（固件没把帧缓冲信息传过去），要么文本模式切换在这块面板上不生效。下一轮可以直接查固件侧 `boot_args.Video` 是否非零（离线可查，`darwinboot_parsekernel.py` 的 ADT 解析已能读 boot_args）。
+
+### 2026-11-22 07:44 — 固件确实把帧缓冲交给了内核，所以「Video 为空」这条被排除
+
+`Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c` 里：
+
+- `:69` `ReadBootVideo (UINT64 Video[6])`：`ZeroMem` 后用 `DarwinBootVideoFromGop (Gop, Video)` 填充，失败则保持全零（`:74`/`:81`）；
+- `:921` `CopyMem (Args->Video, Video, sizeof (Video));` —— 交给内核的 boot_args 里确实有这六个数；
+- 更有力的旁证：同一个 `Video` 数组被 `DiagDrawVideo()`（`:513-540`：`Fb = (UINT32 *)Video[0]`、按 `Video[2]/4` 算行宽、`Video[3]`/`Video[4]` 算宽高）用来**在屏幕上画阶段条**，而你看到过「UNIXNU 界面正常」、阶段条确实画出来了。
+
+⇒ **`Video[0..5]` 非零且可用**，「固件没把帧缓冲信息传过去」这条解释**被排除**。
+
+黑屏因此只剩两种可能：
+
+1. 内核在 `pe_init` 的文本控制台之前就死了（`-v` 那条路根本没跑到）；
+2. `kPETextMode` 的文本渲染在这块 DSI 面板上不生效（帧缓冲可写、但看不到字）。
+
+这两者可以靠**同一次启动内**的 ramoops 读数分开：ramoops 自报行在 `arm_init.c:711`，而 `pe_init` 比它更早——所以
+
+- 有 `pong-ramoops: console attached` ⇒ 内核至少活到 `arm_init` 末，黑屏属于第 2 类（显示路径），不是早死；
+- 没有 ⇒ 死得更早，问题在 `pe_init`/`arm_vm_init` 之间，与文本渲染无关。
+
+这条把「黑屏」从一个模糊现象变成了**一次飞行就能二选一**的判定，而且不需要新代码——`cfd0fd2d…` 那张图已经带着 ramoops 自报行。

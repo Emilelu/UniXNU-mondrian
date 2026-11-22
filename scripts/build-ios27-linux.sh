@@ -111,16 +111,38 @@ if [ -z "${CCACHE+x}" ] && [ "${K60_CCACHE:-0}" = 1 ] && command -v ccache >/dev
 	fi
 fi
 
-env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
-	python3 ./unixnu build kernel --device "$ROOT" "$@"
+# Measured 2026-11-22: `unixnu build kernel` costs 271 s and ran on every build,
+# because nothing compared the inputs it reads. Same shape as the payload stage
+# below: one key over everything the kernel step reads, recorded next to the
+# macho that step produced. The device tree is deliberately not in this key --
+# the payload stage compiles hardware.dtb, its key carries the tree, and a dts
+# edit must rebuild the payload, not the kernel (P-155: a key says "same", a
+# timestamp says "recent").
+KERNEL_KEY="$BOARD_DIR/kernel/kernel.inputs.sha256"
+kernel_key=$(python3 "$ROOT/scripts/ios27-inputs.py" kernel --device "$ROOT" \
+	--out "$BOARD_DIR" --unixnu "$UNIXNU")
+if [ -z "${K60_FORCE_KERNEL:-}" ] && [ -f "$KERNEL_KEY" ] &&
+	[ -f "$BOARD_DIR/kernel/kernel.macho" ] &&
+	[ "$(cat "$KERNEL_KEY")" = "$kernel_key" ]; then
+	echo "note kernel: reused (inputs unchanged since $kernel_key)"
+	mark kernel-reused
+else
+	env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
+		python3 ./unixnu build kernel --device "$ROOT" "$@"
 
-# The collection's `com.apple.kernel` child must carry the collection's own
-# cpusubtype before the loader will look at it. The local clang cannot emit the
-# kernel form of the arm64e label (MachObjectWriter.cpp promotes arm64e to
-# versioned-but-user) and ld64 adopts the object's value, so the label is
-# corrected here, after linking and before the payload copies it. It rewrites
-# one byte of that label and refuses anything else (P-282).
-python3 "$ROOT/scripts/k60-fileset-stamp.py" "$BOARD_DIR/kernel/kernel.macho" --apply
+	# The collection's `com.apple.kernel` child must carry the collection's own
+	# cpusubtype before the loader will look at it. The local clang cannot emit the
+	# kernel form of the arm64e label (MachObjectWriter.cpp promotes arm64e to
+	# versioned-but-user) and ld64 adopts the object's value, so the label is
+	# corrected here, after linking and before the payload copies it. It rewrites
+	# one byte of that label and refuses anything else (P-282).  The key is
+	# written only after this, so a recorded key always stands for a stamped
+	# macho.
+	python3 "$ROOT/scripts/k60-fileset-stamp.py" "$BOARD_DIR/kernel/kernel.macho" --apply
+	mkdir -p "$(dirname "$KERNEL_KEY")"
+	printf '%s\n' "$kernel_key" >"$KERNEL_KEY"
+	mark kernel
+fi
 
 # The payload step shares 452 s of the build with the kernel and packs the same
 # 192 MB again when nothing it reads has moved. Reuse it when the key of those

@@ -23,13 +23,27 @@ What each stage depends on:
   bootimg   the firmware volume, payload/payload.img (it is the ramdisk), the
             compiled device tree, board.toml ([bootimg] settings), and the
             Mu-Silicium pieces that decide the image layout.
+  kernel    every patch patches/xnu-12377/series names (the series is the
+            kernel's source), the conf-files list the hook appends from, the
+            defconfig, board.toml, the framework's kernel.py and patches.py, the
+            four device-side transforms the payload key also names, the vendored
+            generic builder, and the conf-files hook itself.
+
+The kernel is its own level because `unixnu build kernel` was measured at 271 s
+on 2026-11-22 and ran on every build: nothing recorded what it had read, so a
+rerun with every input byte-identical recompiled the kernel anyway.  The key is
+recorded only after k60-fileset-stamp, so "the key exists" and "a stamped
+kernel.macho exists" say the same thing.
 
 The device tree sources are in the payload key on purpose.  The payload step
 compiles hardware.dtb, so a dts edit leaves kernel.macho untouched; a key over
-the kernel alone would reuse a payload that still carries the previous ADT.
+the kernel alone would reuse a payload that still carries the previous ADT.  The
+kernel key therefore leaves the device tree out: a dts edit rebuilds the payload
+and not the kernel, which is the truth about what reads the tree.
 
   python3 scripts/ios27-inputs.py payload --device . --series-fingerprint "$(python3 scripts/series-fingerprint.py)" --unique-chip-id HEX
   python3 scripts/ios27-inputs.py bootimg --device . --uefi ../uefi-mondrian
+  python3 scripts/ios27-inputs.py kernel --device . --out <board-dir> --unixnu ../UniXNU
   python3 scripts/ios27-inputs.py payload ... --explain    # one line per input on stderr
 
 Exit 0 and the key on stdout, or exit 2 and nothing on stdout when an input the
@@ -56,6 +70,22 @@ PAYLOAD_TOOLS = (
 
 # unixnu/payload.py and unixnu/devicetree.py build and write the volume.
 FRAMEWORK_MODULES = ('payload.py', 'devicetree.py')
+
+# unixnu/kernel.py is the kernel step itself (env, the bootstrap pass, the
+# archive recipes); unixnu/patches.py is what applies this series into
+# .cache/xnu-work, so its stamp and its failure modes decide the kernel too.
+KERNEL_MODULES = ('kernel.py', 'patches.py')
+
+# The series is the kernel's source in the only sense this repository has one:
+# the tree is Apple's xnu plus these patches, in this order.  Both paths are
+# device-repository paths; the device's patches/ is linked into the build tree,
+# which is where the conf-files hook reads the list from.
+KERNEL_SERIES = 'patches/xnu-12377/series'
+KERNEL_CONF_FILES = 'patches/xnu-12377/conf-files.txt'
+# `python3 ./unixnu defconfig mondrian_ios27_defconfig` in the build script names
+# this file literally, and CONFIG_XNU_* of it become XNU_* make variables
+# (unixnu/kernel.py:xnu_env), so its content is compiled into the kernel.
+KERNEL_DEFCONFIG = 'configs/mondrian_ios27_defconfig'
 
 # Mu-Silicium decides the image layout; mkbootimg.py is self-contained, so this
 # is the whole set -- BootShim/Makefile is here because the shim is assembled
@@ -202,6 +232,68 @@ def payload_lines(args) -> list[str]:
 	return lines
 
 
+def series_entries(path: pathlib.Path) -> list[str]:
+	"""The patch names a series file lists, in the order it lists them.
+
+	Comments and blank lines are the file's prose, not its build input: the same
+	patches in the same order compile the same kernel however the header reads.
+	A prefixed entry (`arch:...`, `component:...`) is not resolvable from the
+	series directory alone, and a key over the wrong file is worse than no key,
+	so it is refused instead of guessed at.
+	"""
+	entries = []
+	for number, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+		entry = raw.strip()
+		if not entry or entry.startswith('#'):
+			continue
+		if ':' in entry:
+			raise Missing(f'{path}:{number}: {entry!r} is not a plain patch name; '
+			              'this key cannot tell which file it resolves to')
+		entries.append(entry)
+	return entries
+
+
+def kernel_lines(args) -> list[str]:
+	"""What `unixnu build kernel` reads: the series, its list, and its recipe."""
+	device = pathlib.Path(args.device)
+	out = pathlib.Path(args.out)
+	unixnu = pathlib.Path(args.unixnu) if args.unixnu else device.parent / 'UniXNU'
+	series = need(device / KERNEL_SERIES, 'the xnu-12377 series')
+	lines = []
+	for entry in series_entries(series):
+		# One line per patch, named: its bytes decide the kernel, and the name
+		# lets --explain say which patch moved.  The line order is the order the
+		# series applies them, so a reordered series is a new key.
+		lines.append(line(f'patch:{entry}', digest(need(series.parent / entry, f'the patch {entry}'))))
+	# The hook appends these entries to bsd/conf/files at build time, so a line
+	# added here compiles one more object into the kernel.
+	lines.append(line('conf-files', digest(need(device / KERNEL_CONF_FILES, 'the conf-files list'))))
+	# CONFIG_XNU_* of the defconfig become XNU_* make variables, so its content
+	# is compiled into the kernel.
+	lines.append(line('defconfig', digest(need(device / KERNEL_DEFCONFIG, 'the iOS 27 defconfig'))))
+	# [kernel] archives, config_fragments, driver_records and the os_overrides
+	# that replace them all live here; hashed whole for the reason the payload
+	# key records: projecting it to "the relevant tables" is the optimisation
+	# that later forgets one.
+	lines.append(line('board.toml', digest(need(device / 'board.toml', 'board.toml'))))
+	for name in KERNEL_MODULES:
+		lines.append(file_line(f'framework:{name}', unixnu / 'scripts' / 'unixnu' / name))
+	# The four transforms the payload step applies to the packed kernel.  They
+	# are in this key as well so the transform batch and the kernel decision are
+	# taken over the same bytes; absent is a value, exactly as in the payload
+	# key.
+	tools = out / 'tree' / 'scripts'
+	for name in PAYLOAD_TOOLS:
+		lines.append(file_line(f'device-tool:{name}', tools / name))
+	# scripts/pick-xnu-builder.sh hands the kernel build this vendored copy of
+	# the framework builder, so an edit here changes what is compiled.
+	lines.append(file_line('builder', device / 'scripts' / 'build-xnu-generic.sh'))
+	# Seam 1: the builder runs this hook against the tree, and the hook decides
+	# which of the objects the list names actually reach bsd/conf/files.
+	lines.append(file_line('conf-files-hook', device / 'scripts' / 'k60-conf-files-hook.py'))
+	return lines
+
+
 def bootimg_lines(args) -> list[str]:
 	device = pathlib.Path(args.device)
 	out = pathlib.Path(args.out)
@@ -254,13 +346,22 @@ def parser() -> argparse.ArgumentParser:
 	bootimg.add_argument('--uefi', help='Mu-Silicium checkout (default: $UNIXNU_UEFI)')
 	bootimg.add_argument('--fd', help='firmware volume (default: board.toml [firmware] fd under --uefi)')
 	bootimg.add_argument('--target', default='DEBUG', help='firmware build target in the fd template (default DEBUG)')
-	for stage in (payload, bootimg):
+	kernel = stages.add_parser('kernel', help='key of the kernel build inputs')
+	kernel.add_argument('--device', required=True,
+	                    help='device repository (patches/, configs/, board.toml, scripts/)')
+	kernel.add_argument('--out', required=True, help='board build directory (<out>/<device>/<profile>/<board>)')
+	kernel.add_argument('--unixnu', help='framework checkout (default: ../UniXNU next to --device)')
+	for stage in (payload, bootimg, kernel):
 		stage.add_argument('--explain', action='store_true', help='print the inputs the key is made of on stderr')
 	return parser
 
 
 def lines_for(args) -> list[str]:
-	return payload_lines(args) if args.stage == 'payload' else bootimg_lines(args)
+	if args.stage == 'payload':
+		return payload_lines(args)
+	if args.stage == 'bootimg':
+		return bootimg_lines(args)
+	return kernel_lines(args)
 
 
 def main(argv=None) -> int:

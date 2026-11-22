@@ -12,13 +12,19 @@ directions:
     compiled from, the transform tools the step runs, the framework modules that
     pack the volume, and the firmware volume and Mu-Silicium pieces of the boot
     image;
+  * for the kernel stage, one line per patch the series lists, so one edited
+    patch is one different key and --explain names the file that moved;
   * the things that are not inputs do not move it -- a second firmware volume
     under another target, a config for another board, a script nothing names.
     A key that moves on everything is a rebuild with extra steps.
 
 The device tree case is deliberate: the payload step compiles hardware.dtb, so a
 dts edit leaves kernel.macho untouched, and a key over the kernel alone would
-reuse a payload whose ADT is the previous tree.
+reuse a payload whose ADT is the previous tree.  The kernel level is the mirror
+image of it: its key is the series, the list the hook appends to bsd/conf/files,
+the defconfig, board.toml and the scripts that turn those into a macho, and it
+must *not* move when the tree moves -- a dts edit has to rebuild the payload, not
+the 271 s kernel.
 """
 import contextlib
 import importlib.util
@@ -95,6 +101,25 @@ class StageKeyTest(unittest.TestCase):
         write(self.device / 'board.toml', BOARD_TOML)
         write(self.device / 'dts' / 'mondrian.dts',
               '/dts-v1/;\n/include/ "sm8475.dtsi"\n/ { model = "Redmi K60"; };\n')
+        # The kernel stage: a series with a comment and a blank line, the list the
+        # hook appends to bsd/conf/files, the defconfig, and the two scripts that
+        # turn the series into a macho.  seal-source-crypto-kernel.py is on
+        # purpose absent here: test_a_tool_appearing_is_a_new_key creates it, and
+        # the payload key must move when it appears.
+        write(self.device / 'patches' / 'xnu-12377' / 'series',
+              '# xnu-12377, applied in this order\nfirst.patch\n\nsecond.patch\n')
+        write(self.device / 'patches' / 'xnu-12377' / 'first.patch',
+              'diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n@@ -1 +1 @@\n-old\n+new\n')
+        write(self.device / 'patches' / 'xnu-12377' / 'second.patch',
+              'diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n@@ -1 +1 @@\n-one\n+two\n')
+        write(self.device / 'patches' / 'xnu-12377' / 'conf-files.txt', 'bsd/dev/arm/k60_bt.c\n')
+        write(self.device / 'configs' / 'mondrian_ios27_defconfig',
+              'CONFIG_XNU_CPU_ARM64E=y\nCONFIG_XNU_4K_PAGE=y\n')
+        write(self.device / 'scripts' / 'build-xnu-generic.sh', '#!/bin/sh\n# generic builder\n')
+        write(self.device / 'scripts' / 'k60-conf-files-hook.py', 'print("hook")\n')
+        write(self.out / 'tree' / 'scripts' / 'patch-sandbox-label-update.py', 'print("sandbox")\n')
+        write(self.unixnu / 'scripts' / 'unixnu' / 'kernel.py', '# kernel\n')
+        write(self.unixnu / 'scripts' / 'unixnu' / 'patches.py', '# patches\n')
         write(self.feeds / 'UniXNU-sm8475-common-6ebb3d7f' / 'dts' / 'sm8475.dtsi', '/* soc */\n')
         write(self.out / 'kernel' / 'kernel.macho', b'kernel-one')
         write(self.out / 'payload' / 'payload.img', b'payload-one')
@@ -112,7 +137,18 @@ class StageKeyTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    # -- the two stages -----------------------------------------------------
+    # -- the three stages ---------------------------------------------------
+
+    def argv_for(self, stage):
+        """The stage's arguments, the way the build script passes them."""
+        argv = [stage, '--device', str(self.device), '--out', str(self.out)]
+        if stage == 'payload':
+            argv += ['--series-fingerprint', 'cc85fd583e77ac7b 240', '--unique-chip-id', '4d4f4e445249414e']
+        elif stage == 'bootimg':
+            argv += ['--uefi', str(self.uefi)]
+        else:
+            argv += ['--unixnu', str(self.unixnu)]
+        return argv
 
     def payload_key(self, **overrides):
         argv = ['payload', '--device', str(self.device), '--out', str(self.out),
@@ -127,12 +163,12 @@ class StageKeyTest(unittest.TestCase):
                 '--uefi', str(overrides.get('uefi', self.uefi))]
         return self.helper.key(self.helper.bootimg_lines(self.helper.parser().parse_args(argv)))
 
+    def kernel_key(self):
+        argv = self.argv_for('kernel')
+        return self.helper.key(self.helper.kernel_lines(self.helper.parser().parse_args(argv)))
+
     def explain(self, stage, *extra):
-        argv = [stage, '--device', str(self.device), '--out', str(self.out), '--explain', *extra]
-        if stage == 'payload':
-            argv += ['--series-fingerprint', 'cc85fd583e77ac7b 240', '--unique-chip-id', '4d4f4e445249414e']
-        else:
-            argv += ['--uefi', str(self.uefi)]
+        argv = self.argv_for(stage) + ['--explain', *extra]
         out = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(out):
             code = self.helper.main(argv)
@@ -237,6 +273,118 @@ class StageKeyTest(unittest.TestCase):
         write(self.uefi / 'Resources' / 'Configs' / 'pong.toml', 'config = "pong"\n')
         self.assertEqual(before, self.bootimg_key())
 
+    # -- kernel: the series, its list and the recipe ------------------------
+
+    def test_the_kernels_inputs_give_a_stable_key(self):
+        self.assertEqual(self.kernel_key(), self.kernel_key())
+
+    def test_a_series_patch_byte_moves_the_kernel_key(self):
+        before = self.kernel_key()
+        write(self.device / 'patches' / 'xnu-12377' / 'second.patch',
+              'diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n@@ -1 +1 @@\n-one\n+three\n')
+        self.assertNotEqual(before, self.kernel_key())
+
+    def test_the_series_order_moves_the_kernel_key(self):
+        # The same patches applied in the other order are a different kernel.
+        before = self.kernel_key()
+        write(self.device / 'patches' / 'xnu-12377' / 'series',
+              '# xnu-12377, applied in this order\nsecond.patch\n\nfirst.patch\n')
+        self.assertNotEqual(before, self.kernel_key())
+
+    def test_a_series_comment_does_not_move_the_kernel_key(self):
+        # The comment is the file's prose, not its input: a note added to the
+        # series must not cost 271 s.
+        before = self.kernel_key()
+        write(self.device / 'patches' / 'xnu-12377' / 'series',
+              '# xnu-12377, applied in this order\n# a note added later\nfirst.patch\n\nsecond.patch\n')
+        self.assertEqual(before, self.kernel_key())
+
+    def test_the_defconfig_moves_the_kernel_key(self):
+        # CONFIG_XNU_* become XNU_* make variables, so the defconfig is source.
+        before = self.kernel_key()
+        write(self.device / 'configs' / 'mondrian_ios27_defconfig',
+              'CONFIG_XNU_CPU_ARM64E=y\nCONFIG_XNU_4K_PAGE=n\n')
+        self.assertNotEqual(before, self.kernel_key())
+
+    def test_any_kernel_board_toml_byte_moves_the_key(self):
+        # [kernel] archives, config_fragments and the os_overrides that replace
+        # them live here; hashed whole because projecting it forgets a table.
+        before = self.kernel_key()
+        write(self.device / 'board.toml', BOARD_TOML + '\n# a comment\n')
+        self.assertNotEqual(before, self.kernel_key())
+
+    def test_every_named_kernel_input_moves_the_key(self):
+        inputs = {
+            'the conf-files list': self.device / 'patches' / 'xnu-12377' / 'conf-files.txt',
+            'the framework kernel module': self.unixnu / 'scripts' / 'unixnu' / 'kernel.py',
+            'the framework patch module': self.unixnu / 'scripts' / 'unixnu' / 'patches.py',
+            'the vendored builder': self.device / 'scripts' / 'build-xnu-generic.sh',
+            'the conf-files hook': self.device / 'scripts' / 'k60-conf-files-hook.py',
+            'a transform tool': self.out / 'tree' / 'scripts' / 'patch-sandbox-label-update.py',
+        }
+        for name, path in inputs.items():
+            with self.subTest(input=name):
+                original = path.read_bytes()
+                before = self.kernel_key()
+                write(path, original + b'\n# edited\n')
+                moved = self.kernel_key()
+                write(path, original)
+                self.assertNotEqual(before, moved)
+
+    def test_the_macho_itself_is_not_a_kernel_input(self):
+        # The key decides whether to run the step that writes the macho, so the
+        # macho cannot be in it: the stamp rewrite would rebuild forever.
+        before = self.kernel_key()
+        write(self.out / 'kernel' / 'kernel.macho', b'kernel-two')
+        self.assertEqual(before, self.kernel_key())
+
+    def test_a_dts_edit_moves_the_payload_key_but_not_the_kernel_key(self):
+        # The payload compiles hardware.dtb, the kernel does not: a dts edit has
+        # to rebuild the payload and leave the 271 s kernel alone.
+        payload_before, kernel_before = self.payload_key(), self.kernel_key()
+        write(self.device / 'dts' / 'mondrian.dts', '/dts-v1/;\n/ { model = "Redmi K60 Pro"; };\n')
+        self.assertNotEqual(payload_before, self.payload_key())
+        self.assertEqual(kernel_before, self.kernel_key())
+
+    def test_a_series_entry_that_is_not_a_plain_name_is_refused(self):
+        # `component:...` resolves inside another module; hashing whatever file
+        # happened to match would be worse than refusing.
+        write(self.device / 'patches' / 'xnu-12377' / 'series', 'arch:patches/xnu/series\n')
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = self.helper.main(self.argv_for('kernel'))
+        self.assertEqual(code, 2)
+        self.assertEqual(out.getvalue(), '')
+        self.assertIn('arch:patches/xnu/series', err.getvalue())
+
+    def test_a_missing_kernel_input_is_an_error_not_a_key(self):
+        required = {
+            'the series': self.device / 'patches' / 'xnu-12377' / 'series',
+            'a listed patch': self.device / 'patches' / 'xnu-12377' / 'second.patch',
+            'the conf-files list': self.device / 'patches' / 'xnu-12377' / 'conf-files.txt',
+            'the defconfig': self.device / 'configs' / 'mondrian_ios27_defconfig',
+            'board.toml': self.device / 'board.toml',
+        }
+        for name, path in required.items():
+            with self.subTest(missing=name):
+                original = path.read_bytes()
+                path.unlink()
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = self.helper.main(self.argv_for('kernel'))
+                write(path, original)
+                self.assertEqual(code, 2)
+                self.assertEqual(out.getvalue(), '')
+                self.assertIn(path.name, err.getvalue())
+
+    def test_the_real_repository_series_is_all_plain_patches(self):
+        # The helper hashes every patch the real series lists; a prefixed entry
+        # or a listed file that does not exist has to fail here, not in a build.
+        argv = ['kernel', '--device', str(HERE.parent.parent), '--out', str(self.out),
+                '--unixnu', str(self.unixnu)]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.helper.main(argv), 0)
+
     # -- refusals and the explain output ------------------------------------
 
     def test_a_missing_kernel_is_an_error_not_a_key(self):
@@ -276,14 +424,14 @@ class StageKeyTest(unittest.TestCase):
                                                    '--out', str(self.out)]), 2)
 
     def test_explain_names_every_input_the_key_is_made_of(self):
-        for stage in ('payload', 'bootimg'):
+        for stage in ('payload', 'bootimg', 'kernel'):
             code, entries = self.explain(stage)
             self.assertEqual(code, 0)
-            argv = [stage, '--device', str(self.device), '--out', str(self.out)]
-            argv += (['--series-fingerprint', 'cc85fd583e77ac7b 240', '--unique-chip-id', '4d4f4e445249414e']
-                     if stage == 'payload' else ['--uefi', str(self.uefi)])
-            args = self.helper.parser().parse_args(argv)
+            args = self.helper.parser().parse_args(self.argv_for(stage))
             self.assertEqual(len(entries), len(self.helper.lines_for(args)))
+            # A digest per line, and the kernel's own list names each patch, so a
+            # moved key can be read back to the file that moved it.
+            self.assertTrue(all(len(entry.split()) == 2 for entry in entries))
 
     def test_the_real_repository_still_parses(self):
         # The helper is run by the build script; a broken import or a changed

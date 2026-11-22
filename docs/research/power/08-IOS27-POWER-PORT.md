@@ -123,6 +123,27 @@ python3 scripts/check-hw-contracts.py --manifest build/HW-CONTRACTS-overlay.toml
 重记后 `--against` 自洽，但预检的 9 漂告警仍在：那是 `check-ios27-power-preflight.py` 在覆盖后的树上
 逐行算出的 5 个真实 drift + 4 个 site 行位移，不归 `record-hw-contracts.py` 管。
 
+### 2.4 27 七步判据
+
+`scripts/check-power-27-criteria.py` 是四块（battery/charger/power/thermal）的唯一判据实现：
+每块一条命令读 `power-27.toml`，逐条打印 ①–⑦，最后必须出现 `CRITERIA` 里的汇总行；
+汇总行逐字比较，缺 evidence、路径不存在、catalog 未核、verify 字段缺失、先例行越界都会判红。
+
+```sh
+python3 scripts/check-power-27-criteria.py --block battery   # 同样换 charger/power/thermal
+python3 scripts/check-power-27-criteria.py --self-test --block battery
+```
+
+- 正向期望：battery/charger/thermal 为 `... EVIDENCE PASS 7/7 steps verify=PASS precedent=OK`；
+  power 为 `... verify=PENDING precedent=NO-PRECEDENT`，因为 27 没有 EPSS 写路径的成功先例。
+- 负向自测 9 例：七步 evidence 逐个清空、错误汇总行、越界先例行；每例都必须打印 `FAIL` 或
+  `... red:`，最后 `SELF-TEST OK 9 case(s)`。没有这个负向输出的判据不算完成。
+- 先例路径按 `sheng:package/...:行` 解析到 `E:/k60-work/references/UniXNU-sheng`（WSL 为
+  `/mnt/e/...`），并核对共享树 `docs/research/ios27/PRECEDENT-REQUIRED.md` 的方法清单；
+  power 是 `无先例`，只保留只读判据，不接写路径。
+- 共享 `check-lane-fragment.py` 不接受 `[hardware.<block>.criteria]`，所以判据常量在判读器，
+  `power-27.toml` 头注释只同步命令与期望汇总。
+
 ## 3. iOS27 参考实现
 
 - 官方组件：`UniXNU/ArmCpu`（catalog 路径 `drivers/ArmCpu`，当前 HEAD `73c2360` 已有 `ArmCpuSleep.h` 与 platform sleep；catalog 记录的 `93a5030` 早于该功能，取 HEAD 并记录 revision）。

@@ -12,6 +12,14 @@
 #   R21     §6 构建与验证（三块的 verify 各自落实）
 # thermal 在 power.md 没有独立子系统页，只有 §1:15 的温控输入与 §5:152 的
 # 工作点顺序；本块记录这两句如何落到 tsens/压力服务，以及为什么其余条款 NA。
+#
+# 每块的判据在 scripts/check-power-27-criteria.py；一条命令给七步证据 + 三态汇总：
+#   battery -> battery: EVIDENCE PASS 7/7 steps verify=PASS precedent=OK
+#   charger -> charger: EVIDENCE PASS 7/7 steps verify=PASS precedent=OK
+#   power   -> power: EVIDENCE PASS 7/7 steps verify=PENDING precedent=NO-PRECEDENT
+#   thermal -> thermal: EVIDENCE PASS 7/7 steps verify=PASS precedent=OK
+# 负向：`--self-test --block <block>` 清空每步 evidence，再给出错误期望行和越界先例行；必须输出 SELF-TEST OK 9 case(s)。
+# 判据不写进本文件，因为共享 check-lane-fragment.py 只接受七步键。
 
 [hardware.battery]
 revisit = '27 stage-0 进入 SpringBoard 后按线恢复；本文件先固定离线七步，device 步等 F1 后由 Lead 追加'
@@ -20,6 +28,7 @@ name = '电池（IOPMPowerSource / PMIC GLINK，27 离线账本）'
 why = '27 树还没有 bsd/dev/PongPower* 锚点，live [hardware.battery] 仍是 16.6.1 的设备证据。本块把 27 可直接复用的协议、单位、发布和断线语义固定下来，避免在 27 上重新猜一遍；上机仍归 Lead。'
 label = '电池研究线：PMIC GLINK 订阅与发布契约已离线固定，真实电量计对比等第一次 27 上机'
 paths = ['drivers/PongPower/K60Battery.cpp', 'drivers/PongPower/K60Battmgr.c', 'drivers/PongPower/K60Battmgr.h', 'drivers/PongPower/K60PmicGlink.cpp', 'docs/research/charger/WIRE-PROPS.toml', 'docs/research/charger/07-DEVICE-CRITERIA.md', 'scripts/tests/test-battery-units.py', 'scripts/tests/test-k60-charger-subscription.c']
+
 
 [hardware.battery.step.same_model]
 done = true
@@ -49,6 +58,8 @@ recorded_at = '2026-11-21T03:41:45'
 
 [hardware.battery.step.wide]
 done = true
+catalog_checked = true
+catalog_result = '''/mnt/e/hackios/UniXNU/components.toml 的 25 个组件没有电池/电量计组件；QcomDwc3 只声明 UCSI over charger channel，QcomBaseband 只提供 GLINK/QRTR 传输参考，均不含 battmgr 帧格式。结论：按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建，不依赖组件。'''
 evidence = '''广域核对三处。一，官方组件目录 /mnt/e/hackios/UniXNU/components.toml 的 25 个组件没有电池/电量计组件，不能声明依赖。二，Linux qcom_battmgr.c 是同一 PMIC GLINK 协议的变体，但只把 payload 长度当下限、不校验 type，不能覆盖本板 ADSP 的精确回包。三，sheng 的 /mnt/e/k60-work/references/pong-power/ShengBattmgr.c:170-197 两种 type 都收，同样是宽松实现。三处都不构成 (1,16) 的反证，真正的判据仍是 06-SUBSCRIPTION-CONSTANT.md 与 03-REVERSE.md 的实测；组件结论写在 docs/research/charger/04-PROP-MAP.md:389。'''
 recorded_at = '2026-11-21T03:41:45'
 
@@ -65,7 +76,7 @@ recorded_at = '2026-11-21T03:41:45'
 [hardware.battery.step.verify]
 done = true
 local_verified = true
-evidence = '''离线核验全部可重跑。一，单位/符号：scripts/tests/test-battery-units.py 27/27 通过，固定 µV→mV、µA→mA、0.01%→%、秒→分钟与符号翻转绝对值不变。二，订阅状态机：scripts/tests/test-k60-charger-subscription.c 30 个断言通过（TESTS OK 30），覆盖 28 B 订阅帧、四类错形 ACK、result=0x206、opcode 7 通知。三，只读出站帧：scripts/check-battmgr-wire.py 通过，19 个 wire 字段一致，且要求 k60_battmgr_next 的 put32 只用 0/4/8/16 四个偏移，禁止 TYPE_SET/OP_CHARGER/OP_CHARGING/OP_SET/OP_WRITE（22 项夹具）。真机 C3 仍未做，故本步只证明离线契约，不证明 27 读数。'''
+evidence = '''离线核验全部可重跑。一，单位/符号：scripts/tests/test-battery-units.py 27/27 通过，固定 µV→mV、µA→mA、0.01%→%、秒→分钟与符号翻转绝对值不变。二，订阅状态机：scripts/tests/test-k60-charger-subscription.c 30 个断言通过（TESTS OK 30），覆盖 28 B 订阅帧、四类错形 ACK、result=0x206、opcode 7 通知。三，只读出站帧：scripts/check-battmgr-wire.py 通过，19 个 wire 字段一致，且要求 k60_battmgr_next 的 put32 只用 0/4/8/16 四个偏移，禁止 TYPE_SET/OP_CHARGER/OP_CHARGING/OP_SET/OP_WRITE（22 项夹具）。真机 C3 仍未做，故本步只证明离线契约，不证明 27 读数。测试定义：scripts/tests/test-battery-units.py:1、scripts/tests/test-k60-charger-subscription.c:1。'''
 static_check = '''scripts/check-battmgr-wire.py 对 drivers/PongPower/K60Battmgr.c 的 k60_battmgr_next 做函数体级检查：偏移 0 必须是 K60_BATTMGR_OWNER，4 只能是 TYPE_NOTIFY 或 TYPE_REQUEST，8 只能是 OP_NOTIFY_ENABLE 或 fields[b->cursor].opcode，16 只能是 fields[b->cursor].property，并各有一个 NOTIFY/REQUEST 字节返回。docs/research/charger/04-PROP-MAP.md:389 记录该只读规则与 22 项夹具。'''
 unit_test = '''scripts/tests/test-battery-units.py 27 个用例与 scripts/tests/test-k60-charger-subscription.c 30 个断言均在主机侧通过；后者覆盖订阅、ACK、超时/错误和通知四类路径。'''
 artifact_check = '''scripts/build-k60-physical-battery.py:29-39 把 MEASURED_NOTIFY_REPLY=(1,16) 写成生成器常量，并在抓包矛盾时抛 ValueError；WIRE-PROPS.toml 的 19 个字段与 04-PROP-MAP.md 的映射表一致。'''
@@ -78,6 +89,7 @@ name = '充电 / 电池协议（qti_battery_charger + pmic_glink，27 离线账�
 why = '27 树没有 PongPower 锚点，且当前 27 设备证据止步于 K60Battery: blocked rc=-4。本块把 PMIC GLINK 传输、订阅常量、断线重连和 104 B handoff 的离线契约固定下来，供第一次 27 上机按 C0→C1→C2 顺序判读。'
 label = '充电研究线：传输与订阅协议已定，真实通道打开和订阅 ACK 等第一次 27 上机'
 paths = ['drivers/PongPower/K60PmicGlink.cpp', 'drivers/PongPower/K60Battery.cpp', 'drivers/PongPower/K60Battmgr.c', 'drivers/PongPower/K60HandoffRuntime.cpp', 'docs/research/charger/PMIC-REWIRING-WORKORDER.md', 'docs/research/charger/06-SUBSCRIPTION-CONSTANT.md', 'scripts/tests/test-k60-charger-subscription.c']
+
 
 [hardware.charger.step.same_model]
 done = true
@@ -132,6 +144,7 @@ label = '电源研究线：27 的 EPSS/L3、投票、轨序和睡眠回调已按
 status = 'planned'
 why = '''27 stage-0 的 board.toml:349-363 只带 ArmDTPlatform/ArmCpu/XnuPrelink，没有 PongPower，也没有 27 的 EPSS/睡眠驱动；16.6.1 的 w11 mode-1 成功不能当作 27 证据。本块只把 27 可复用的 EPSS/L3、投票、轨序、温控门和睡眠回调固定成七步，不写 step.device，也不把 host 通过写成 27 上机。'''
 revisit = '''27 stage-0 进入 SpringBoard 后按线恢复；若 F1 先解决 prelink/PMGR 残留，则先重跑本块的 verify，再谈 EPSS 写路径。'''
+paths = ['drivers/PongPower/K60CpuFreqPlan.c', 'drivers/PongPower/K60BoostPlan.c', 'patches/xnu/0629-k60-sleep-trace.patch', 'scripts/judge-k60-mode1-console.py', 'scripts/check-hw-contracts.py', 'docs/research/power']
 
 [hardware.power.step.same_model]
 done = true
@@ -141,7 +154,7 @@ recorded_at = '2026-11-21T13:43:55'
 [hardware.power.step.official]
 done = true
 evidence = '''官方页 power.md 第 5 节（/mnt/e/hackios/UniXNU/docs/zh/porting/power.md:145-163）逐条：
-- :151 读目标 LUT、参考时钟、使能状态并换算频率 -> drivers/PongPower/K60CpuFreqPlan.c:253/:270；现场三窗口见 01-EPSS-PROBE.md:67-73。
+- :151 读目标 LUT、参考时钟、使能状态并换算频率 -> drivers/PongPower/K60CpuFreqPlan.c:253/:270；现场三窗口见 docs/research/power/01-EPSS-PROBE.md:67-73。
 - :152 工作点请求/回读，按稳压器→互连→温控顺序 -> docs/research/power/07-RAIL-ORDERING.md:22-30 与 drivers/PongPower/K60ThermalMap.c:17-41；27 没有运行时消费者。
 - :153 外设投票所有权/引用计数，停 DMA/中断后再释放 -> drivers/PongPower/K60PowerVotePlan.h:12；纯规划。
 - :154 OS 电源回调，睡眠/唤醒保存状态、恢复时钟/映射/中断 -> drivers/PongPower/K60SleepPlan.c 与 patches/xnu/0629-k60-sleep-trace.patch:7-21；27 只开 CONFIG_XNU_K60_PLATFORM_SLEEP_REPORT=y（configs/mondrian_ios27_defconfig:17-20）。
@@ -158,23 +171,23 @@ recorded_at = '2026-11-21T13:43:55'
 done = true
 catalog_checked = true
 catalog_result = '''/mnt/e/hackios/UniXNU/components.toml 现有 29 个 id（grep -c '^id = ' 为 29；末尾 QcomBaseband 在 :564），没有 CPU/EPSS/睡眠/电源策略组件：QcomDwc3 只在 board_dependencies 里声明 UCSI over charger channel，QcomBaseband 只有 GLINK/QRTR 传输，Adreno740 只管 GPU 频率。EPSS 只能自建 K60CpuFreqPlan/K60BoostPlan，睡眠只能走 0629 补丁或 catalog ArmCpu 的板级 hook。'''
-evidence = '''官方组件目录之外还查了 Linux cpufreq qcom-cpufreq-hw、zizhan/t970 的 PongCpuPolicy、sheng 的 ShengPlatformPower：三者的 EPSS 寄存器布局一致，但没有一个能直接复用（sheng 还把 CPU/idle override 全部标成不可用并 panic）。跨源清单见 docs/research/power/01-EPSS-PROBE.md 与 11-SHENG-REFERENCE.md；27 没有组件依赖，也没有可直接搬的 27 电源 wheel。'''
+evidence = '''官方组件目录之外还查了 Linux cpufreq qcom-cpufreq-hw、zizhan/t970 的 PongCpuPolicy、sheng 的 ShengPlatformPower：三者的 EPSS 寄存器布局一致，但没有一个能直接复用（sheng 还把 CPU/idle override 全部标成不可用并 panic）。跨源清单见 docs/research/power/01-EPSS-PROBE.md:67-73 与 docs/research/power/11-SHENG-REFERENCE.md:1；27 没有组件依赖，也没有可直接搬的 27 电源 wheel。'''
 recorded_at = '2026-11-21T13:43:55'
 
 [hardware.power.step.plan]
 done = true
-evidence = '''27 的接线方案只搬八个纯 C 模块，不搬 16.6.1 的 vendored ArmCpu：CARRY.toml:24-102 逐模块列出 16 个文件、872 项断言；先跑 scripts/tests/run-k60-power-host.sh 的 1915 项/10 套件和 23 个 Python 套件，再接 catalog ArmCpu（docs/research/power/08-IOS27-POWER-PORT.md:140-147）。27 stage-0 的 board.toml:349-363 故意 remove kernel.pong_native_driver_source、components 只留 ArmDTPlatform/ArmCpu/XnuPrelink，所以 EPSS 和睡眠驱动不能进这次构建；defconfig 只打开 CONFIG_XNU_K60_PLATFORM_SLEEP_REPORT=y（configs/mondrian_ios27_defconfig:17-20）。顺序固定为只读 EPSS/L3 → 轨序/温控门 → 外设投票 → timer-only 睡眠；PON、背光、触摸恢复都等 F1 后的窗口。本轮不构建、不上机，方案不把 host 通过写成 27 产物。'''
+evidence = '''27 的接线方案只搬八个纯 C 模块，不搬 16.6.1 的 vendored ArmCpu：docs/research/power/CARRY.toml:24-102 逐模块列出 16 个文件、872 项断言；先跑 scripts/tests/run-k60-power-host.sh 的 1915 项/10 套件和 23 个 Python 套件，再接 catalog ArmCpu（docs/research/power/08-IOS27-POWER-PORT.md:140-147）。27 stage-0 的 board.toml:349-363 故意 remove kernel.pong_native_driver_source、components 只留 ArmDTPlatform/ArmCpu/XnuPrelink，所以 EPSS 和睡眠驱动不能进这次构建；defconfig 只打开 CONFIG_XNU_K60_PLATFORM_SLEEP_REPORT=y（configs/mondrian_ios27_defconfig:17-20）。顺序固定为只读 EPSS/L3 → 轨序/温控门 → 外设投票 → timer-only 睡眠；PON、背光、触摸恢复都等 F1 后的窗口。本轮不构建、不上机，方案不把 host 通过写成 27 产物。'''
 recorded_at = '2026-11-21T13:43:55'
 
 [hardware.power.step.deep]
 done = true
-evidence = '''三条硬结论。一，27 的 prelink 仍不完整：kernel.json 的 203 条 stubbed、3 条 missing 中，PMGR/Watchdog/ARMPlatform 三个 bundle 去重后是 26 个地址；其中只有 6 个接近 PMGR 硬件语义（0xab86b04 时钟、0xabff7fc/0xabffae8 cluster powerdown、0xad45084 系统寄存器写、0xb351bd8/0xb351d7c 中断控制器），没有电压类，且 K60PmicRail/0614/0619 一个也填不了，见 docs/research/charger/PRELINK-POWER-RESIDUE.md:9-14、:124、:128-134。二，27 stage-0 没有 PongPower（board.toml:349-363），16.6.1 的 mode-1 PASS 和 w11 镜像都不是 27 证据。三，16.6.1 的睡眠恢复仍停在 secondary processor_start 硬挂（docs/research/power/02-PLATFORM-SLEEP.md:3），27 必须按 catalog ArmCpu 的 12377 hook 重做，不能把 8796 的 0623/0624 逐行搬过去（08-IOS27-POWER-PORT.md:8-10、:142-147）。'''
+evidence = '''三条硬结论。一，27 的 prelink 仍不完整：kernel.json 的 203 条 stubbed、3 条 missing 中，PMGR/Watchdog/ARMPlatform 三个 bundle 去重后是 26 个地址；其中只有 6 个接近 PMGR 硬件语义（0xab86b04 时钟、0xabff7fc/0xabffae8 cluster powerdown、0xad45084 系统寄存器写、0xb351bd8/0xb351d7c 中断控制器），没有电压类，且 K60PmicRail/0614/0619 一个也填不了，见 docs/research/charger/PRELINK-POWER-RESIDUE.md:9-14、:124、:128-134。二，27 stage-0 没有 PongPower（board.toml:349-363），16.6.1 的 mode-1 PASS 和 w11 镜像都不是 27 证据。三，16.6.1 的睡眠恢复仍停在 secondary processor_start 硬挂（docs/research/power/02-PLATFORM-SLEEP.md:3），27 必须按 catalog ArmCpu 的 12377 hook 重做，不能把 8796 的 0623/0624 逐行搬过去（docs/research/power/08-IOS27-POWER-PORT.md:8-10、:142-147）。'''
 recorded_at = '2026-11-21T13:43:55'
 
 [hardware.power.step.verify]
 done = false
 local_verified = false
-evidence = '''⑦ 未完成，原因是 27 产物不存在，而不是静态检查失败。静态：scripts/check-hw-contracts.py 报 36 行/5 条线，scripts/check-lane-conformance.py 报 41 行/verified 32/partial 9，scripts/check-console-contract.py 报 31 judged/8 exempt；27 侧 scripts/check-ios27-power-preflight.py --tree E:/hackios/xnekom-ios27 只报 PENDING（3 judges, 8 tables absent），因为树还没有 bsd/dev/PongPower* 锚点。单测：scripts/tests/run-k60-power-host.sh 的 1915 checks/10 C suites 与 23 Python suites 通过；CARRY.toml 的八个模块合计 872 项断言。产物：scripts/check-power-carry.py --target E:/hackios/xnekom-ios27 报 FAIL（13 problem(s)，含 K60ChargeAuth、K60ThermalMap 与三个判读器缺失），scripts/check-hw-contracts.py --against E:/hackios/xnekom-ios27 报 36 行（5 drift/10 missing/21 same），27 没有 boot.img。故本步保持 done=false、local_verified=false，等 27 镜像和三个判读器到位后再翻。'''
+evidence = '''⑦ 未完成，原因是 27 产物不存在，而不是静态检查失败。静态：scripts/check-hw-contracts.py 报 36 行/5 条线，scripts/check-lane-conformance.py 报 41 行/verified 32/partial 9，scripts/check-console-contract.py 报 31 judged/8 exempt；27 侧 scripts/check-ios27-power-preflight.py --tree E:/hackios/xnekom-ios27 只报 PENDING（3 judges, 8 tables absent），因为树还没有 bsd/dev/PongPower* 锚点。单测：scripts/tests/run-k60-power-host.sh 的 1915 checks/10 C suites 与 23 Python suites 通过；CARRY.toml 的八个模块合计 872 项断言。产物：scripts/check-power-carry.py --target E:/hackios/xnekom-ios27 报 FAIL（13 problem(s)，含 K60ChargeAuth、K60ThermalMap 与三个判读器缺失），scripts/check-hw-contracts.py --against E:/hackios/xnekom-ios27 报 36 行（5 drift/10 missing/21 same），27 没有 boot.img。故本步保持 done=false、local_verified=false，等 27 镜像和三个判读器到位后再翻。证据表：docs/research/power/PREFLIGHT-COVERAGE.toml:1、docs/research/charger/W11-IMAGE.toml:1。'''
 static_check = '''36 条 HW-CONTRACTS 每行都落在源文件的真实行上；0629 的两个报告点在 console_resume 之后、WakeCPUs 之前；check-hw-contracts.py、check-console-contract.py 与 check-lane-conformance.py 全绿。27 预检仍是 PENDING，不是 PASS。'''
 unit_test = '''run-k60-power-host.sh：1915 checks / 10 C suites，23 Python suites；CARRY.toml 十六个文件合计 872 项断言（cpufreq 203、gpu-freq 140、boost 40、sleep 73、vote 58、conformance 134、thermal 125、charge-auth 99）。'''
 artifact_check = '''27 侧 check-power-carry.py --target 报 FAIL 13 项；check-hw-contracts.py --against 报 5 drift/10 missing/21 same；check-ios27-power-preflight.py 报 PENDING（3 judges, 8 tables absent）；没有 27 boot.img。w11 的 201,887,744 B/sha256 6db4e6b7… 是 16.6.1 预构建镜像，不是 27 产物。'''
@@ -205,7 +218,7 @@ recorded_at = '2026-11-21T03:41:45'
 
 [hardware.thermal.step.wide]
 done = true
-evidence = '''按规范查三处。一，官方组件目录 /mnt/e/hackios/UniXNU/components.toml 的 25 个组件对 thermal/tsens/温度零命中，没有可复用组件。二，官方驱动仓库列表没有 thermal 驱动仓库。三，社区只有 SM8550 sheng 的 ThermalProbe.cpp（3 控制器、纯只读）和 SM6375 phk110 的 hakios.thermal.c（27 传感器、真机 27/27 有读数），都不属本板、不在官方组件库，只能当实现参考。结论：继续自建 drivers/PongThermal。见 docs/research/thermal/03-REVERSE.md 与 02-OFFICIAL-DOCS.md。'''
+evidence = '''按规范查三处。一，官方组件目录 /mnt/e/hackios/UniXNU/components.toml 的 25 个组件对 thermal/tsens/温度零命中，没有可复用组件。二，官方驱动仓库列表没有 thermal 驱动仓库。三，社区只有 SM8550 sheng 的 ThermalProbe.cpp（3 控制器、纯只读）和 SM6375 phk110 的 hakios.thermal.c（27 传感器、真机 27/27 有读数），都不属本板、不在官方组件库，只能当实现参考。结论：继续自建 drivers/PongThermal。见 docs/research/thermal/03-REVERSE.md:1 与 docs/research/thermal/02-OFFICIAL-DOCS.md:1。'''
 catalog_checked = true
 catalog_result = '''UniXNU/components.toml 的 25 个组件没有 thermal/tsens/温度相关项；官方组件面向 IOPMPowerSource、USB、UFS 这类有 ABI 契约的子系统，热管理在本项目一直是板级实现（sheng 也写在 package/ThermalProbe.cpp），因此不能声明组件依赖。'''
 recorded_at = '2026-11-21T03:41:45'

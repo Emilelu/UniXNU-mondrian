@@ -180,3 +180,10 @@ armcpu-sleep-hook.patch
 # same geometry right after gc_initialize().  With the trap gone the kprintf
 # flag is safe again, which is why board.toml carries it.
 0557-k60-fb-print-after-rows.patch
+
+# 0558 — uke's vcattach() text-console hook, verbatim.
+# In graphics boot gc_graphics_boot is TRUE and stock vcattach() never replays
+# msgbuf, so the panel shows colour blocks but no text. uke proves the hook:
+# uke/patches/xnu/zzzzzz-video-console-text.patch:5-15, uke/docs/PROGRESS.md:229.
+
+0558-k60-fb-vcattach-text-console.patch

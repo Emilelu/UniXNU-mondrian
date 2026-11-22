@@ -24,10 +24,13 @@ Usage:
 """
 import argparse
 import os
+import hashlib
+import pathlib
 import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONTROL = "_kprintf"
 NM = os.environ.get('K60_NM', 'llvm-nm-18')
 
 # Any one of these is enough to prove the kernel can emit a byte somewhere we
@@ -90,6 +93,10 @@ def main() -> int:
         print(f'FAIL: no kernel at {args.kernel}')
         return 2
     have = symbols(args.kernel)
+    if have is not None:
+        stamp = hashlib.sha256(pathlib.Path(args.kernel).read_bytes()).hexdigest()[:12]
+        print(f"note symbols: {pathlib.Path(args.kernel).resolve()} sha256={stamp} "
+              f"{len(have)} defined; control {CONTROL}={CONTROL in have}")
     if have is None:
         return 2
     status, line = judge(have, args.require)

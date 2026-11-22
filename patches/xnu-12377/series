@@ -194,3 +194,11 @@ armcpu-sleep-hook.patch
 # (uke/board.toml:257-261, uke/docs/PROGRESS.md:1397).
 
 0559-k60-deferred-video-kprintf.patch
+
+# 0560 — uke zzzzzzz-last-panic-print.patch, adapted: the pe_init.c hunks are
+# verbatim; the video_console.c call sits inside our 0558 -uketextconsole hook
+# (uke puts it in its own hook, which our 0558 now is). Prints the previous
+# boot's embedded panic log once the framebuffer console is up.
+# Needs [adt.chosen.u32] embedded-panic-log-size + [adt.pram.bytes] to be real.
+
+0560-k60-last-panic-print.patch

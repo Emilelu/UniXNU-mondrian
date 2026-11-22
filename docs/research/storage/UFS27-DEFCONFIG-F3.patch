@@ -1,0 +1,36 @@
+# UFS27 defconfig draft -- F3 only, not applied.
+#
+# Base: feat/ufs-27 configs/mondrian_ios27_defconfig as of 2026-11-22.
+# This file is a draft for the Lead: it flips CONFIG_XNU_NATIVE_UFS to y and
+# rewrites the comment that said why it was off. It does not add the archive
+# recipe, does not set any other switch, and must not be applied to main from
+# this lane. The connected keys are listed in UFS27-DEFCONFIG-F3.md.
+#
+#   patch -p1 --dry-run -d <checkout> < docs/research/storage/UFS27-DEFCONFIG-F3.patch
+#
+diff --git a/configs/mondrian_ios27_defconfig b/configs/mondrian_ios27_defconfig
+index 1eae68e..e30b091 100644
+--- a/configs/mondrian_ios27_defconfig
++++ b/configs/mondrian_ios27_defconfig
+@@ -14,15 +14,12 @@ CONFIG_XNU_DT_PANIC_REGION=y
+ CONFIG_XNU_ARMVIRT_PLATFORM=n
+ CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y
+ 
+-# Stage 0 stops at bsd_init: no root, no panel, no GPU. NativeUfs turns on with
+-# the Data gate (F3) and the display in F4: the driver can compile on a Linux
+-# host, but the eleven IOBlockStorageDevice symbols it imports are not exported
+-# by the kernel collection, so the link needs the fileset-entry route first (the
+-# bt line owns that route as of 2026-11-21).
+-# Off on purpose: turning it on before build/native-ufs/libNativeUfs.a has a
+-# producer makes the builder's test -f (build-xnu-generic.sh:648) fail, so the
+-# switch would only open onto a missing artefact.
+-CONFIG_XNU_NATIVE_UFS=n
++# Stage 0 stops at bsd_init: no root, no panel, no GPU. This draft opens the
++# UFS switch for F3: scripts/build-native-ufs-linux.py compiles the driver into
++# build/native-ufs/libNativeUfs.a and build-xnu-generic.sh:649 force-loads it.
++# The eleven IOBlockStorageDevice symbols still need the fileset-entry route
++# (the bt line owns it), so the switch is open but the link is not claimed.
++CONFIG_XNU_NATIVE_UFS=y
+ CONFIG_XNU_NATIVE_ADRENO=n
+ CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+ 

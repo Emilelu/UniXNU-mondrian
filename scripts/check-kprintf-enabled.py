@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Assert the 27 image is allowed to print.
+"""Refuse -enable_kprintf_spam on the 27 line.
 
-`pexpert/arm/pe_kprintf.c:26-27` starts with both gates true.  `debug_boot_arg`
-clears `disable_serial_output` only; `disable_kprintf_output` is cleared by
-`#if DEBUG` or, in a DEVELOPMENT build, by `-enable_kprintf_spam`.  The 27 kernel
-is DEVELOPMENT (MACHINE_CONFIGS=BCM2837 KERNEL_CONFIGS=DEVELOPMENT), so without
-that argument every kprintf is a no-op -- and "no output" then says nothing
-about whether the kernel ran (P-308).
+`pexpert/arm/pe_kprintf.c:26-27` starts with both gates true, and in this
+DEVELOPMENT build only `-enable_kprintf_spam` clears `disable_kprintf_output`
+(P-308).  It is still forbidden: while `vc_initialize()` runs, `v_rows` is not
+set yet, so the newline path computes `scrreg_bottom = 0 - 1` and the scroll
+writes past the framebuffer mapping -- the panel goes black and the kernel
+hangs without resetting (xNekom IOS27.md, commit c3c89df).
+
+Stage-0 evidence comes from the direct framebuffer witnesses (0554/0556), which
+never call kprintf.  A dedicated debug image may set K60_ALLOW_KPRINT_SPAM=1.
 
 Usage:
     check-kprintf-enabled.py [--device .] [--image boot.img]
-Exit 0 when the effective 27 kernel_args carry the argument.
+Exit 0 when the argument is absent (or explicitly allowed by the environment).
 """
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import re
 import sys
@@ -39,11 +43,12 @@ def judge(profile: str, args: list[str]) -> list[str]:
         # A 16 build is DEBUG (MACHINE_CONFIGS=... PONG, KERNEL_CONFIGS=DEBUG) and
         # clears the flag unconditionally, so this rule has nothing to say there.
         return problems
-    if MARKER not in args:
+    if MARKER in args and os.environ.get('K60_ALLOW_KPRINT_SPAM') != '1':
         problems.append(
-            'kernel_args has no ' + MARKER + ': a DEVELOPMENT build keeps '
-            'disable_kprintf_output = true (pe_kprintf.c:47-56), so every kprintf is a no-op '
-            'and "the kernel printed nothing" is not evidence of anything (P-308)')
+            'kernel_args carries ' + MARKER + ': printing before v_rows exists makes the '
+            'scroll write past the framebuffer mapping and the board hangs without resetting '
+            '(xNekom IOS27.md c3c89df). Use the direct framebuffer witnesses; set '
+            'K60_ALLOW_KPRINT_SPAM=1 only for a dedicated debug image.')
     return problems
 
 

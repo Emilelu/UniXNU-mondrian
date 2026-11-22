@@ -403,11 +403,13 @@ title = "iOS 27"
 kernel_args = [
   "-v", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
   "use_contiguous_hint=0", "amfi_get_out_of_my_way=1", "k60_fontscale=3",
-  # A DEVELOPMENT build starts with disable_kprintf_output = true and only
-  # clears it for this argument (pexpert/arm/pe_kprintf.c:47-56).  debug=0x14e
-  # clears disable_serial_output, not this flag, so without it every kprintf is
-  # a no-op and a working console still prints nothing.
-  "-enable_kprintf_spam",
+  # -enable_kprintf_spam is deliberately absent.  It turns kprintf on, but
+  # printing while vc_initialize() runs reaches vc_putc() before v_rows exists:
+  # the newline path computes scrreg_bottom = 0 - 1 and the scroll writes past
+  # the framebuffer mapping, so the panel goes black and the kernel hangs
+  # without resetting (xNekom IOS27.md, commit c3c89df, 2026-11-21).
+  # Stage-0 evidence comes from the direct framebuffer witnesses (0554/0556),
+  # which never go through kprintf.
 ]
 
 [os_overrides."ios-27.0.1-24A446".payload.adt]

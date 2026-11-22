@@ -50,11 +50,11 @@ def check(name: str, process: subprocess.CompletedProcess, want: int) -> None:
 
 
 check('27 with the flag', run(BASE.format(profile='ios-27.0.1-24A446',
-                                          args='"-v", "-enable_kprintf_spam"')), 0)
+                                          args='"-v", "-enable_kprintf_spam"')), 1)
 check('27 without the flag', run(BASE.format(profile='ios-27.0.1-24A446',
-                                             args='"-v", "debug=0x14e"')), 1)
-check('27 override supplies the flag', run(OVERRIDE.format(args='"-v", "-enable_kprintf_spam"')), 0)
-check('27 override drops the flag', run(OVERRIDE.format(args='"-v", "debug=0x14e"')), 1)
+                                             args='"-v", "debug=0x14e"')), 0)
+check('27 override supplies the flag', run(OVERRIDE.format(args='"-v", "-enable_kprintf_spam"')), 1)
+check('27 override drops the flag', run(OVERRIDE.format(args='"-v", "debug=0x14e"')), 0)
 check('16 profile is skipped', run(BASE.format(profile='ipados-16.6.1-20G81', args='"-v"')), 0)
 
 if failures:

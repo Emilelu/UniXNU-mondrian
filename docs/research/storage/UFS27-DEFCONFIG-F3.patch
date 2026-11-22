@@ -1,5 +1,12 @@
 # UFS27 defconfig draft -- F3 only, not applied.
 #
+# landed = false
+# Blocked by the eleven IOBlockStorageDevice symbols the 27 kernel collection
+# does not export (bt fileset-entry route). Do not apply before that route
+# exists: the link would compile and then fail on exactly those symbols.
+# When it lands, flip CONFIG_XNU_NATIVE_UFS=y together with
+# CONFIG_XNU_OWNER_DATA_UFS=y in the same change (producer -> consumer).
+#
 # Base: feat/ufs-27 configs/mondrian_ios27_defconfig as of 2026-11-22.
 # This file is a draft for the Lead: it flips CONFIG_XNU_NATIVE_UFS to y and
 # rewrites the comment that said why it was off. It does not add the archive

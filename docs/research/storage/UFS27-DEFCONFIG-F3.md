@@ -1,7 +1,22 @@
 # UFS27 defconfig draft — the F3 switch and the keys that come with it
 
-Status: **draft for the Lead**, 2026-11-22. `configs/mondrian_ios27_defconfig`
-is not modified on this branch; the diff lives in
+Status: **draft, `landed = false`**, 2026-11-22. `configs/mondrian_ios27_defconfig`
+is not modified on this branch and this patch must not land yet:
+**blocked by the eleven `IOBlockStorageDevice` symbols** that the 27 kernel
+collection does not export — that is the bt line's fileset-entry route. Flipping
+`CONFIG_XNU_NATIVE_UFS` to `y` before that route exists would turn "not compiled"
+into "compiled and knowingly short eleven symbols", a build that is guaranteed to
+fail. When the route lands, flip `CONFIG_XNU_NATIVE_UFS=y` and
+`CONFIG_XNU_OWNER_DATA_UFS=y` **in the same change**: the producer feeds the owner
+data path, and a split flip would leave a producer with no consumer.
+
+```toml
+landed = false
+blocked_by = "eleven IOBlockStorageDevice symbols (bt fileset-entry route)"
+flip_together = ["CONFIG_XNU_NATIVE_UFS", "CONFIG_XNU_OWNER_DATA_UFS"]
+```
+
+The diff lives in
 [`UFS27-DEFCONFIG-F3.patch`](UFS27-DEFCONFIG-F3.patch) and applies cleanly:
 
 ```sh
@@ -75,15 +90,20 @@ decision as the Data gate, not to the UFS switch.
 
 ## 4. Order of application
 
-1. Land this draft (switch only). `scripts/check-ufs27-storage-selection.py`
-   stays at `0 gap(s)` because the archive now has a producer.
-2. Run `scripts/check-native-ufs-archive.py` against a real build tree; it
-   reports `skip` until the switch is in that tree's defconfig, then `ok` only
+1. **Wait for the bt fileset-entry route** to give the eleven
+   `IOBlockStorageDevice` symbols a legal source in the 27 kernel. Until then
+   this patch stays at `landed = false`.
+2. **Flip `CONFIG_XNU_NATIVE_UFS=y` and `CONFIG_XNU_OWNER_DATA_UFS=y` in one
+   change.** Separate flips leave a producer with no consumer (or a consumer
+   reading `XNU_PONG_UFS_DATA=0`), which is the intermediate state the Lead
+   ruled out on 2026-11-22.
+3. Run `scripts/check-native-ufs-archive.py` against the resulting build tree:
+   it reports `skip` until the switch is in that tree's defconfig, then `ok` only
    when `build/native-ufs/libNativeUfs.a` carries `NativeUfs5start` and
    `PongUfsBlock`.
-3. Decide `CONFIG_XNU_SOURCE_STORAGE` (Data mount) separately, with the chain
+4. Decide `CONFIG_XNU_SOURCE_STORAGE` (Data mount) separately, with the chain
    in §3 as the acceptance test.
-4. Leave `CONFIG_XNU_VERIFIED_ROOT_PROBE`, `CONFIG_XNU_NATIVE_AES`,
+5. Leave `CONFIG_XNU_VERIFIED_ROOT_PROBE`, `CONFIG_XNU_NATIVE_AES`,
    `CONFIG_XNU_NATIVE_RAM_BLOCK` off until their own producers exist.
 
 ## 5. What this document does not claim
@@ -93,3 +113,29 @@ decision as the Data gate, not to the UFS switch.
 - It does not claim the 27 kernel boots or mounts Data.
 - It does not touch `configs/mondrian_ios27_defconfig` in this branch: the
   patch is a draft, and the Lead applies it.
+
+## 6. The two gates and their `--strict` meaning
+
+Both gates carry the same lineage rule for evidence: `16` = produced only by the
+16.6.1 line (any `*-macos.py` producer, `build-xnu-4k-baseline.sh`), `27` = this
+line (`build-native-ufs-linux.py`, the generic builder), `both` = shared device
+scripts and `UniXNU/components.toml` outputs.
+
+```sh
+python3 scripts/check-native-ufs-archive.py            # skip | ok | FAIL
+python3 scripts/check-native-ufs-archive.py --strict   # a 16-only producer does not count
+python3 scripts/check-force-load-producers.py          # every -force_load has a producer
+python3 scripts/check-force-load-producers.py --strict # 16-only rows become gaps
+```
+
+Without `--strict`, a 16.6.1-only evidence line prints `[NOTE 16.6.1-only]` and
+is still accepted; with it, such a row is not counted towards "has a producer".
+On this tree the strict run reports `21 site(s), 11 gap(s)` — the eleven archives
+the 27 builder force-loads while only the 16.6.1 builder produces them. That is
+the honest state of the 27 line, not a regression: the default run stays
+`0 gap(s)` because the files exist in the tree, and the strict run is the audit
+that tells a 27 reader which of them the 27 line cannot make by itself.
+
+`scripts/check-kernel-archives.py` now runs `check-force-load-producers.py` as
+its first step, so the P-310 registry command covers the static half before it
+ever looks for a kernel (P-310 and this gate are one judgement, not two).

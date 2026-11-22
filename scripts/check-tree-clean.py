@@ -21,6 +21,18 @@ def git(*args: str) -> str:
                           capture_output=True, text=True, check=False).stdout.strip()
 
 
+
+def path_of(line: str) -> str:
+    """The path part of a `git status --porcelain` line, verbatim.
+
+    Porcelain is `XY <path>`: two status columns, one space, then the path.
+    Slicing a fixed three characters is how `board.toml` was reported as
+    `oard.toml`; split instead, and keep renames intact.
+    """
+    parts = line.split(maxsplit=1)
+    return parts[1].strip() if len(parts) == 2 else line.strip()
+
+
 def main() -> int:
     problems: list[str] = []
     notes: list[str] = []
@@ -31,7 +43,7 @@ def main() -> int:
     if dirty:
         problems.append(
             f"{len(dirty)} tracked file(s) modified but not committed "
-            f"(iron rule 2): " + ", ".join(line[3:] for line in dirty[:5]))
+            f"(iron rule 2): " + ", ".join(path_of(line) for line in dirty[:5]))
 
     upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     if not upstream:

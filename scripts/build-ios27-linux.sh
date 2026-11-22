@@ -118,8 +118,30 @@ env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
 # one byte of that label and refuses anything else (P-282).
 python3 "$ROOT/scripts/k60-fileset-stamp.py" "$BOARD_DIR/kernel/kernel.macho" --apply
 
-python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
-mark payload
+# The payload step shares 452 s of the build with the kernel and packs the same
+# 192 MB again when nothing it reads has moved. Reuse it when the key of those
+# inputs is the one recorded next to the image, rebuild it otherwise.
+#
+# The skip is the whole stage, never a repack: `build payload --kernelcache`
+# would not replace a packed kernel at all, only `--kernel` does (P-177), so a
+# payload that is stale against the kernel must be rebuilt, not patched. Two
+# independent readings keep that honest -- the kernel is inside the key, and
+# check-ios27-artifacts.py compares payload.json against kernel.macho.
+PAYLOAD_KEY="$BOARD_DIR/payload/payload.inputs.sha256"
+payload_key=$(python3 "$ROOT/scripts/ios27-inputs.py" payload --device "$ROOT" \
+	--out "$BOARD_DIR" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
+	--series-fingerprint "$(python3 "$ROOT/scripts/series-fingerprint.py")")
+if [ -z "${K60_FORCE_PAYLOAD:-}" ] && [ -f "$PAYLOAD_KEY" ] &&
+	[ -f "$BOARD_DIR/payload/payload.img" ] &&
+	[ "$(cat "$PAYLOAD_KEY")" = "$payload_key" ]; then
+	echo "note payload: reused (inputs unchanged since $payload_key)"
+	mark payload-reused
+else
+	python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
+	mkdir -p "$(dirname "$PAYLOAD_KEY")"
+	printf '%s\n' "$payload_key" >"$PAYLOAD_KEY"
+	mark payload
+fi
 
 if [ -n "${UNIXNU_UEFI:-}" ]; then
 	if [ ! -f "$UNIXNU_UEFI/Resources/Scripts/mkbootimg.py" ]; then
@@ -160,11 +182,28 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 		mark firmware-reused
 	fi
 	# No [bootimg] dtb in board.toml: the appended tree is the hardware DTS the
-	# payload step compiled.
-	python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
-		--dtb "$BOARD_DIR/device-tree/hardware.dtb"
+	# payload step compiled. Packing gzips the payload into the image -- 171 s of
+	# the 975 s build -- and it reads nothing but the firmware volume, that
+	# payload, the compiled tree and the Mu-Silicium pieces that lay the image
+	# out. The fd is resolved the way `unixnu bootimg` resolves it (board.toml
+	# [firmware] fd with the DEBUG target), not from a second find (P-155).
+	BOOT_KEY="$BOARD_DIR/boot/bootimg.inputs.sha256"
+	boot_key=$(python3 "$ROOT/scripts/ios27-inputs.py" bootimg --device "$ROOT" \
+		--out "$BOARD_DIR" --uefi "$UNIXNU_UEFI")
+	if [ -z "${K60_FORCE_BOOTIMG:-}" ] && [ -f "$BOOT_KEY" ] &&
+		[ -f "$BOARD_DIR/boot/boot.img" ] &&
+		[ "$(cat "$BOOT_KEY")" = "$boot_key" ]; then
+		echo "note bootimg: reused (inputs unchanged since $boot_key)"
+		mark bootimg-reused
+	else
+		python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
+			--dtb "$BOARD_DIR/device-tree/hardware.dtb"
+		mkdir -p "$(dirname "$BOOT_KEY")"
+		printf '%s\n' "$boot_key" >"$BOOT_KEY"
+		mark bootimg-built
+	fi
 	python3 "$ROOT/scripts/check-ios27-artifacts.py"
-	mark firmware-and-bootimg
+	mark artifacts
 fi
 
 # A root build leaves kernel/payload/boot owned by root with mode 0600, and then the

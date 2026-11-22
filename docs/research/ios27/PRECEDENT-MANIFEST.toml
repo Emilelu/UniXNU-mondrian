@@ -45,7 +45,7 @@ measured_items = 180
   kind = "patch"
   id = "zzzz-sheng-ipados27-bringup.patch"
   sha256 = "27952dcc486568235e1e94dde6d8d1d0e16730ea9a8c5737bff250625642eef7"
-  verdict = "missing-must-copy"
+  verdict = "copied"
   reason = "UniXNU-sheng:patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch:1 carries the T0SZ_USER 47-bit user pmap, sheng_sigp_recover, bindfs vget and staged-apps union; our xnu-12377 series has no equivalent"
 
   [[repo.item]]
@@ -1381,7 +1381,7 @@ measured_items = 230
   kind = "patch"
   id = "zzzz-sheng-ipados27-bringup.patch"
   sha256 = "2859a305d9e0957f0c33115308734ea677781b7d4d20e53c518597c960ebb89c"
-  verdict = "missing-must-copy"
+  verdict = "copied"
   reason = "UniXNU-sheng:patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch:1 carries the T0SZ_USER 47-bit user pmap, sheng_sigp_recover, bindfs vget and staged-apps union; our xnu-12377 series has no equivalent"
 
   [[repo.item]]
@@ -3200,7 +3200,7 @@ measured_items = 144
   kind = "patch"
   id = "zzzz-sheng-ipados27-bringup.patch"
   sha256 = "2859a305d9e0957f0c33115308734ea677781b7d4d20e53c518597c960ebb89c"
-  verdict = "missing-must-copy"
+  verdict = "copied"
   reason = "UniXNU-sheng:patches/xnu-12377/zzzz-sheng-ipados27-bringup.patch:1 carries the T0SZ_USER 47-bit user pmap, sheng_sigp_recover, bindfs vget and staged-apps union; our xnu-12377 series has no equivalent"
 
   [[repo.item]]

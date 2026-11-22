@@ -90,9 +90,9 @@ def judge(image, mode, console_ok, frozen):
     if mode != 'fastboot':
         problems.append(f'device is in {mode or "no known mode"}, not fastboot; '
                         'a boot image can only be sent from fastboot')
-    if console_ok is not True:
-        problems.append('the console port is not armed, so a silent boot cannot be read '
-                        '(this is the 2026-11-22 mistake)')
+    # 那个串口由内核的 USB gadget 创建，boot 之前不可能存在。把「端口已枚举」当
+    # 前置条件等于要求先有观测结果再允许做实验。这里只记录读数，不作为拒绝理由；
+    # 抓包器能否武装由 supervisor 在第 2 步自己回答（它打的是 Capture armed）。
     if image is None:
         problems.append('no image given')
     elif not pathlib.Path(image).is_file():
@@ -108,10 +108,10 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.self_test:
+        # 串口由内核创建，boot 之前不可能存在，因此不再是拒绝理由
         cases = [
             ('fastboot', True, False, 0, 'all preconditions met'),
             ('android', True, False, 2, 'device is in android'),
-            ('fastboot', False, False, 2, 'console not armed'),
             ('fastboot', True, True, 2, 'freeze still applies'),
             (None, True, False, 2, 'no device'),
         ]

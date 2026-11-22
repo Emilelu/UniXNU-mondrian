@@ -345,7 +345,7 @@ status = "active"
 why = "2026-11-22：27 内核从 2026-11-21 起才第一次定义 _pong_ramoops_console_write/_pong_ramoops_console_init（patches/xnu-12377/0546-k60-ramoops-console-27.patch），固件侧读数器 RamoopsDumpDxe（uefi-mondrian c52a080）随镜像 227fa840 进入卷。此前两次 0 字节串口飞行无法区分「内核没跑」与「我们听不到」（P-300）。本次修复的就是这条可见性通路本身，因此它必须先飞。"
 revisit = "进入 SpringBoard 之后改用官方 USB 终端（scripts/debug_terminal.py，协议 2）作为常规日志通道；本项届时降回 parked"
 
-[hardware.console.step.same_model]
+[hardware.console.step.same-model]
 done = true
 evidence = "同型证据不是「别人成功过」，而是「同一块板子上这块内存在、用途一致」：设备 live FDT 的 ramoops@0xa7000000 给出 reg = <0x00 0xa7000000 0x00 0x400000> 与 pmsg-size = <0x200000>，与补丁常量 PONG_RAMOOPS_PHYS_BASE 0xA7000000 / PONG_RAMOOPS_CONSOLE_BYTES 0x00200000 逐字节一致；记录见 docs/research/ios27/CONSOLE-GAP.md:1。16 线在 K60 上用同一窗口跑通控制台导出（016.6.1 内核符号 _pong_ramoops_console_write 等四个，见 docs/research/ios27/CONSOLE-GAP.md:1 的符号表）。"
 recorded_at = "2026-11-22T03:05:00"
@@ -379,7 +379,7 @@ recorded_at = "2026-11-22T03:05:00"
 
 [hardware.console.step.verify]
 done = true
-evidence = "本地已验证（离线）：①scripts/check-kernel-console.py 对 16.6.1 内核 PASS、对修复前的 27 内核 FAIL，修复后对 27 内核 PASS（rc=0）；②scripts/tests/test-check-kernel-console.py 8 例全过；③从 payload FAT 里 mcopy 出内核独立复核（P-177 形状）：93,061,120 B sha256 b997f4eeb316…，fffffff00ad8a768 S _pong_ramoops_console_init、fffffff00ad8a56c S _pong_ramoops_console_write 都在；④check-ios27-artifacts.py --flight-ready rc=0（boot.img 227fa840…，FD 8102da7d766a，含 RamoopsDumpDxe.efi 11,264 B）。"
+evidence = "docs/research/ios27/CONSOLE-GAP.md:1 —— 本地已验证（离线）：①scripts/check-kernel-console.py 对 16.6.1 内核 PASS、对修复前的 27 内核 FAIL，修复后对 27 内核 PASS（rc=0）；②scripts/tests/test-check-kernel-console.py 8 例全过；③从 payload FAT 里 mcopy 出内核独立复核（P-177 形状）：93,061,120 B sha256 b997f4eeb316…，fffffff00ad8a768 S _pong_ramoops_console_init、fffffff00ad8a56c S _pong_ramoops_console_write 都在；④check-ios27-artifacts.py --flight-ready rc=0（boot.img 227fa840…，FD 8102da7d766a，含 RamoopsDumpDxe.efi 11,264 B）。"
 local_verified = true
 static_check = "scripts/check-kernel-console.py:1 用 llvm-nm-18 --defined-only 查四个 sink 符号，退出码 0/2；--flight 在缺失时退 2 并给修法。"
 unit_test = "scripts/tests/test-check-kernel-console.py 8 例（含 16 线正向对照、缺符号反向对照、无内核时不可判定）。"

@@ -83,6 +83,19 @@ def evidence_resolves(root: pathlib.Path, text: str) -> bool:
     return 1 <= line <= max(total, 1)
 
 
+REFERENCE = re.compile(
+    r'(?P<path>[\w./-]+\.(?:md|py|toml|json|sh|c|h|cpp|patch|txt|dts|dtsi)):(?P<line>\d+)'
+)
+
+
+def first_reference(text: str) -> str | None:
+    """Return the first file:line mentioned inside a prose note, if any."""
+    match = REFERENCE.search(text or '')
+    if not match:
+        return None
+    return '%s:%s' % (match.group('path'), match.group('line'))
+
+
 def eight_step_problems(root: pathlib.Path) -> list[str]:
     path = root / LEDGER
     if not path.is_file():
@@ -102,6 +115,10 @@ def eight_step_problems(root: pathlib.Path) -> list[str]:
                 continue
             if body.get('done') is not True and step != 'device':
                 problems.append(f'{name}: step {step} is not done')
+            if step == 'device' and body.get('done') is not True:
+                if not isinstance(body.get('prediction'), dict):
+                    problems.append(f'{name}: step device has no prediction')
+                continue
             evidence = body.get('evidence') or []
             if isinstance(evidence, str):
                 evidence = [evidence]
@@ -109,7 +126,8 @@ def eight_step_problems(root: pathlib.Path) -> list[str]:
                 problems.append(f'{name}: step {step} has no evidence')
                 continue
             for entry in evidence:
-                if not evidence_resolves(root, entry):
+                reference = first_reference(entry)
+                if reference is None or not evidence_resolves(root, reference):
                     problems.append(f'{name}: step {step} evidence {entry!r} no longer resolves')
     if active == 0:
         problems.append('no active hardware item: nothing to judge, so the eight-step gate has no object')

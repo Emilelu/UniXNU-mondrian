@@ -102,3 +102,19 @@ issue 侧无讨论可引：GitHub 检索 `repo:mozilla/sccache "-MJ"` 命中 0 �
 与 ccache 的差别只在措辞：ccache 4.9.1 报 `Compiler option -MJ is unsupported`，sccache 报 “too hard”，
 读数一样是带 `-MJ` 的规则 0 次缓存尝试。结论：**sccache 不是 `-MJ` 障碍的出路**，出路仍是上面那张移交单
 （`-MJ` 可选 + P-301 证据链搬家）；在移交单落地之前，能给构建提速的只有阶段级复用键，不是换缓存后端。
+
+## Measured A/B (2026-11-22, identical inputs, `payload: reused` in both runs)
+
+| run | kernel + payload stage | total |
+| --- | --- | --- |
+| ccache on, 0 hits (`ccache -s` cache 0.0 GiB) | 1394 s | 1894 s |
+| ccache off (`CCACHE=` empty) | 578 s | 587 s |
+
+The wrapper is pure overhead on this tree: every compile rule passes `-MJ`,
+ccache 4.9.1 answers `TooHard -> cannot_cache!`, and one extra process per
+translation unit costs about 2.4x. `scripts/build-ios27-linux.sh` therefore
+leaves ccache off unless `K60_CCACHE=1` (commit `28ab972d`).
+
+The same run is the control for the reuse keys:
+`stage firmware-reused 3 s` (321 s when built) and `stage bootimg-reused 0 s`
+(172 s when built), with `stage artifacts 3 s` still printed on the reuse path.

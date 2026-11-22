@@ -174,3 +174,9 @@ armcpu-sleep-hook.patch
 # vermeer (same generation, reaches bsd_init):
 # patches/xnu/vermeer-framebuffer-console.patch
 0555-k60-fb-text-console.patch
+
+# 0557 removes the print in initialize_screen() that runs before v_rows exists
+# (xNekom c3c89df: it scrolls past the framebuffer and hangs) and prints the
+# same geometry right after gc_initialize().  With the trap gone the kprintf
+# flag is safe again, which is why board.toml carries it.
+0557-k60-fb-print-after-rows.patch

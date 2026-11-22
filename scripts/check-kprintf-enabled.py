@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Refuse -enable_kprintf_spam on the 27 line.
+"""The kprintf flag and the print trap must travel together.
 
-`pexpert/arm/pe_kprintf.c:26-27` starts with both gates true, and in this
-DEVELOPMENT build only `-enable_kprintf_spam` clears `disable_kprintf_output`
-(P-308).  It is still forbidden: while `vc_initialize()` runs, `v_rows` is not
-set yet, so the newline path computes `scrreg_bottom = 0 - 1` and the scroll
-writes past the framebuffer mapping -- the panel goes black and the kernel
-hangs without resetting (xNekom IOS27.md, commit c3c89df).
+`pexpert/arm/pe_kprintf.c:26-27` starts with both print gates true, and this
+DEVELOPMENT build only lets `-enable_kprintf_spam` clear `disable_kprintf_output`
+(P-308).  Printing is therefore the only way to see kernel text -- but
+`initialize_screen()` used to print before `v_rows` existed, so the newline path
+computed `scrreg_bottom = 0 - 1` and the scroll wrote past the framebuffer
+mapping: the panel went black and the board hung (xNekom IOS27.md, c3c89df).
 
-Stage-0 evidence comes from the direct framebuffer witnesses (0554/0556), which
-never call kprintf.  A dedicated debug image may set K60_ALLOW_KPRINT_SPAM=1.
+`0557-k60-fb-print-after-rows.patch` removes that print and re-prints the same
+geometry after `gc_initialize()`.  The two facts are one switch:
+
+  * 0557 in the series and no flag  -> no text will ever appear (waste a boot)
+  * flag without 0557               -> the pre-rows print hangs the board
 
 Usage:
-    check-kprintf-enabled.py [--device .] [--image boot.img]
-Exit 0 when the argument is absent (or explicitly allowed by the environment).
+    check-kprintf-enabled.py [--device .] [--series PATH] [--image boot.img]
+Exit 0 only when both halves are present (16 builds are skipped).
 """
 from __future__ import annotations
 
@@ -25,7 +28,9 @@ import sys
 import tomllib
 
 MARKER = '-enable_kprintf_spam'
+TRAP_FIX = '0557-k60-fb-print-after-rows.patch'
 OS_RE = re.compile(r'(?:ios|ipados|macos)-27\.')
+DEFAULT_SERIES = pathlib.Path(__file__).resolve().parent.parent / 'patches/xnu-12377/series'
 
 
 def effective_args(device: pathlib.Path) -> tuple[str, list[str]]:
@@ -37,37 +42,41 @@ def effective_args(device: pathlib.Path) -> tuple[str, list[str]]:
     return profile, [str(a) for a in payload.get('kernel_args', [])]
 
 
-def judge(profile: str, args: list[str]) -> list[str]:
-    problems: list[str] = []
+def series_has_trap_fix(path: pathlib.Path) -> bool:
+    try:
+        return TRAP_FIX in path.read_text(encoding='utf-8')
+    except OSError:
+        return False
+
+
+def judge(profile: str, args: list[str], trap_fix: bool) -> list[str]:
     if not OS_RE.search(profile):
-        # A 16 build is DEBUG (MACHINE_CONFIGS=... PONG, KERNEL_CONFIGS=DEBUG) and
-        # clears the flag unconditionally, so this rule has nothing to say there.
-        return problems
-    if MARKER in args and os.environ.get('K60_ALLOW_KPRINT_SPAM') != '1':
-        problems.append(
-            'kernel_args carries ' + MARKER + ': printing before v_rows exists makes the '
-            'scroll write past the framebuffer mapping and the board hangs without resetting '
-            '(xNekom IOS27.md c3c89df). Use the direct framebuffer witnesses; set '
-            'K60_ALLOW_KPRINT_SPAM=1 only for a dedicated debug image.')
-    return problems
+        return []
+    carried = MARKER in args
+    if carried and not trap_fix and os.environ.get('K60_ALLOW_KPRINT_SPAM') != '1':
+        return ['kernel_args carries ' + MARKER + ' but the series has no ' + TRAP_FIX +
+                ': the pre-rows print in initialize_screen() makes the scroll write past the '
+                'framebuffer mapping and the board hangs without resetting (xNekom c3c89df).']
+    if trap_fix and not carried:
+        return ['the series carries ' + TRAP_FIX + ' but kernel_args does not carry ' + MARKER +
+                ': nothing clears disable_kprintf_output, so no kernel text can appear (P-308).']
+    return []
 
 
 def image_args(image: pathlib.Path) -> list[str] | None:
-    """Read the payload's unixnu.toml argument list out of a boot image, if given."""
     import subprocess
     try:
         out = subprocess.run(['python3', str(pathlib.Path(__file__).with_name('check-image-args.py')),
                               '--image', str(image), '--print-args'], capture_output=True, text=True)
     except OSError:
         return None
-    if out.returncode != 0:
-        return None
-    return out.stdout.split()
+    return out.stdout.split() if out.returncode == 0 else None
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', default='.')
+    parser.add_argument('--series', default=str(DEFAULT_SERIES))
     parser.add_argument('--image')
     options = parser.parse_args(argv)
 
@@ -75,12 +84,13 @@ def main(argv=None) -> int:
     if not OS_RE.search(profile):
         print(f'skip kprintf: {profile!r} is not a 27 profile (16 builds are DEBUG and clear the gate themselves)')
         return 0
-    problems = judge(profile, args)
+    trap_fix = series_has_trap_fix(pathlib.Path(options.series))
+    problems = judge(profile, args, trap_fix)
     if problems:
         for problem in problems:
             print('FAIL: ' + problem)
         return 1
-    print(f'ok kprintf: {profile} does not carry {MARKER} ({len(args)} arguments)')
+    print(f'ok kprintf: {profile} carries {MARKER} and the series carries {TRAP_FIX} ({len(args)} arguments)')
     if options.image:
         found = image_args(pathlib.Path(options.image))
         if found is None:

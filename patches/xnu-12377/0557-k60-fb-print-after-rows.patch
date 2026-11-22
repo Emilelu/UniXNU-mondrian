@@ -1,0 +1,32 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -2915,8 +2915,12 @@
+ #ifndef __LP64__
+ 			new_vinfo.v_physaddr |= (((uint64_t) boot_vinfo->v_baseAddrHigh) << 32);
+ #endif
+-			kprintf("initialize_screen: b=%08llX, w=%08X, h=%08X, r=%08X, d=%08X\n",                  /* (BRINGUP) */
+-			    new_vinfo.v_physaddr, new_vinfo.v_width, new_vinfo.v_height, new_vinfo.v_rowbytes, new_vinfo.v_type);       /* (BRINGUP) */
++			/*
++			 * K60: do not print here.  v_rows has not been computed yet, so a
++			 * print reaches vc_putc() with a zero row count and the scroll
++			 * writes past the framebuffer mapping (xNekom c3c89df).  The same
++			 * numbers are printed right after gc_initialize() below.
++			 */
+ 		}
+ 
+ 		if (!newVideoVirt && !new_vinfo.v_physaddr) {                                                   /* Check to see if we have a framebuffer */
+@@ -2998,6 +3002,14 @@
+ 			gc_ops.show_cursor  = vc_reverse_cursor;
+ 			gc_ops.update_color = vc_update_color;
+ 			gc_initialize(&vinfo);
++			/*
++			 * K60: v_rows exists now, so this print is safe.  It is the first
++			 * line the panel can actually show and it names the geometry the
++			 * kernel uses.
++			 */
++			kprintf("K60FB: base=%08llX w=%u h=%u rowbytes=%u depth=%u rows=%u\n",
++			    (unsigned long long)vinfo.v_baseaddr, vinfo.v_width, vinfo.v_height,
++			    vinfo.v_rowbytes, vinfo.v_depth, vinfo.v_rows);
+ 		}
+ 	}
+ 

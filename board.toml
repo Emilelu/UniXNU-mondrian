@@ -403,13 +403,13 @@ title = "iOS 27"
 kernel_args = [
   "-v", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
   "use_contiguous_hint=0", "amfi_get_out_of_my_way=1", "k60_fontscale=3",
-  # -enable_kprintf_spam is deliberately absent.  It turns kprintf on, but
-  # printing while vc_initialize() runs reaches vc_putc() before v_rows exists:
-  # the newline path computes scrreg_bottom = 0 - 1 and the scroll writes past
-  # the framebuffer mapping, so the panel goes black and the kernel hangs
-  # without resetting (xNekom IOS27.md, commit c3c89df, 2026-11-21).
-  # Stage-0 evidence comes from the direct framebuffer witnesses (0554/0556),
-  # which never go through kprintf.
+  # -enable_kprintf_spam turns kprintf on (a DEVELOPMENT build keeps it off,
+  # P-308).  It is only safe together with 0557: that patch removes the print
+  # inside initialize_screen() that runs before v_rows exists (xNekom c3c89df:
+  # the scroll then writes past the framebuffer and the board hangs) and prints
+  # the same geometry after gc_initialize().  check-kprintf-enabled.py requires
+  # the flag and 0557 to travel together.
+  "-enable_kprintf_spam",
 ]
 
 [os_overrides."ios-27.0.1-24A446".payload.adt]

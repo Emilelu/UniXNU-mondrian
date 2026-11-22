@@ -1,0 +1,101 @@
+[hardware.blackscreen]
+name = "iOS 27 交棒后黑屏（固件红填充不可见）"
+label = "黑屏（交棒后首输出缺失）"
+status = "active"
+paths = ["docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md", "docs/research/ios27/CONSOLE-GAP.md", "docs/research/ios27/F2-PREDICTION.md", "docs/research/ios27/OFFICIAL-DEBUGGING-PAGE.md", "board.toml", "dts/mondrian.dts", "patches/xnu-12377/0542-k60-f2-start-breadcrumbs.patch", "patches/xnu-12377/0543-k60-ios27-panel-console.patch", "patches/xnu-12377/0546-k60-ramoops-console-27.patch", "patches/xnu-12377/0551-k60-bootbar-27.patch"]
+why = "2026-11-22：iOS 27 stage-0 第一阻塞。固件 UI 正常，ExitBootServices 后立即全黑；uefi-mondrian c6f2c64 在 EBS 前画的整屏红 + dc civac + dsb sy + PRE EXIT 标记从未出现。没有首输出就无法区分「内核没跑」「内核跑了但看不见」「填充点之前已死」，其余 27 子系统都无法验证。本项只覆盖首输出缺失，不覆盖桌面/GPU/存储。"
+revisit = "27 内核首输出（绿条 / 入口探针色带 / 视频控制台文本 / panic 屏四者任一）出现后，本项关闭，显示线由 display-27 接管；若首输出证明死在内核内，则按 panic 文本另立项。"
+
+[hardware.blackscreen.step.same_model]
+done = true
+evidence = '''同型对照（详见 docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md §1）：
+- Emilelu 主线（iPadOS 16.6.1-20G81 / Darwin 24）：Display implemented，Darwin 24 到桌面（cand7/cand15，SpringBoard/桌面/状态栏可见，Goodix BERLIN/9916R 单指触摸合格）；1440x3200、60 Hz 软件帧缓冲，补丁 patches/xnu/0210/0211/0213/0236，series:86,87,89,115。来源：unixnu.com/devices/mondrian，porting.toml 5d8a09a58c86585f008ecb0c12611c2145c03f3f。
+- ZxbMsl160918（Darwin 24）：只到入口探针三条带（Entry.S 绿条 → 内核入口蓝条 → MMU 开启前品红条），Display planned、Storage planned，无桌面；其 panic-screen 失效原因（地址写死参考内核）警告不要把 Darwin 24 探针地址用于 27 内核。来源：unixnu.com/devices/mondrian-zxbmsl160918，porting.toml c39ff292eee2726c0135f3ba3a98462c9c21d8de。
+- diting（Redmi K50 Ultra，SM8475，Darwin 24）：到桌面 device-verified，1080x2412、stride 4320、DCS 背光，DITING SCANOUT status=0。来源：unixnu.com/devices/diting，porting.toml 22875f514e73c84ef464989b58d0cd63dcf3de5b。
+- pong（Nothing Phone (2)，SM8475，Darwin 24）：1080x2412、stride 4320、DCS 背光、原有显示服务；K60 显示栈在 Darwin 24 线上复用 Pong 系路径。来源：unixnu.com/devices/pong-xz1c。
+- sheng（Xiaomi Pad 6S Pro，SM8550，官方 iPadOS 27 参考板）：iPadOS 27.0.1（24A446），GopFramebuffer，Display implemented；是唯一的官方 24A446 显示参考，不是同 SoC。来源：unixnu.com/devices/sheng。
+- XDA：搜索 Redmi K60 mondrian iOS UniXNU 无相关帖；GitHub topic:unixnu 共 164 仓，无其他 mondrian 设备仓。'''
+recorded_at = "2026-11-22"
+
+[hardware.blackscreen.step.official]
+done = true
+evidence = '''官方要求（逐项见 docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md §2，URL + 章节）：
+- unixnu.com/porting/bring-up §Stage 1-7 与 Failure isolation 表：Stage 4 DarwinBoot 打印 DARWINBOOT: 行与 framebuffer base/width/height/depth；Kernel entry 无日志时先查启动参数、串口选择、帧缓冲地址。红在 EBS 前不出现 ⇒ 故障在 Stage 4 完成之前。
+- unixnu.com/guide/debugging §Green bar / Color bars / Entry probe reset / Panic screen：绿条在 ExitBootServices 之后、MMU 关闭、跳转 XNU 之前画在帧缓冲顶部 1/16；绿 → 蓝（MMU 关时内核入口已跑）→ 品红（MMU 开启前一点）；stage 3 无条，MMU 开启后等 --reset-delay 秒再复位；panic_screen=true 运行 scripts/patch-xnu-entry-probe.py --panic-screen --no-reset，panic 屏与 stage-4 探针共用 _start 之后零填充，二者不能同时启用；无探针输出时检查记录的 framebuffer base 与 stride。
+- unixnu.com/porting/display §2：先立固件扫描输出（菜单显示正确、GOP 几何与帧缓冲范围对照固件内存映射与板级 DTS、在内核交接期间保留当前扫描缓冲区），再启用 XNU 显示后端（GopFramebuffer + NativeLegacyDisplay.cpp，CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y）；帧缓冲必须是 8 位 BGRA；dpu-scanout=2 是实验功能、默认关闭。
+- unixnu.com/guide/debugging §Serial console / §Log sources：payload 写法 [-v, serial=3, debug=0x14e]；板级 UART 引脚与波特率记录在设备页上；支持 USB device 模式的板子可以暴露 CDC ACM 串口代替；官方 USB 调试终端 scripts/debug_terminal.py 实现 giulia 协议 2，只改 USB ID 不能提供协议兼容性。
+- unixnu.com/porting/log-capture §1-6：UEFI 菜单（GOP 显示、Advanced Logger、QR 插件）→ XNU 入口（UART 或帧缓冲诊断）→ 存储（预留日志区、内核写入器、Linux 或 recovery 读取器）；ExitBootServices 之后的 XNU 执行用步骤 3 的抓取方式，固件 QR 日志覆盖不到 EBS 之后。
+- unixnu.com/guide/build-kernel：构建目标 SDKROOT=iphoneos、ARCH_CONFIGS=ARM64、MACHINE_CONFIGS=BCM2837（选 4 KiB 页布局）、KERNEL_CONFIGS=DEVELOPMENT；XNU_NATIVE_LEGACY_DISPLAY → libNativeLegacyDisplay.late.a，XNU_NATIVE_MOBILE_DISPLAY → libGopFramebuffer.late.a。'''
+recorded_at = "2026-11-22"
+
+[hardware.blackscreen.step.decompile]
+done = false
+evidence = '''本机实测参数（repo-local，详见 docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md §3；done=false：帧缓冲基址/stride 是运行时值，静态无解，缺口见下）：
+- 面板 1440x3200、cmd mode、60 Hz + 120 Hz（面板原生 120 Hz）：docs/engineering/ANDROID-HW-TRUTH.md display 表（live Android/root adb，2026-11-10）。
+- GOP PCDs：width 1440、height 3200、depth 32：uefi-mondrian Platforms/Xiaomi/mondrianPkg/mondrian.dsc:61-63。
+- GOP 像素格式 PixelBlueGreenRedReserved8BitPerColor（BGRX32），否则 EFI_UNSUPPORTED：uefi-mondrian Platforms/Xiaomi/DarwinBootPkg/Driver/BootVideo.h（DarwinBootVideoFromGop）。
+- 帧缓冲基址：静态无值，运行时 Video[0] = Gop->Mode->FrameBufferBase；stride Video[2] = PixelsPerScanLine x 4；Video[6] 布局 [0]=base、[1]=1、[2]=rowBytes、[3]=width、[4]=height、[5]=32：BootVideo.h；DarwinBoot.c:960、:1027-1028、:1043。1440x3200x32 满帧 18,432,000 B（0x1194000），为推导值，不是仓库常量。
+- 红填充：FillScreen(Video, 0x00FF0000)，dc civac 每 64 B + dsb sy；随后 HandoffStage PRE EXIT、EXIT CALL、ExitBootServices：uefi-mondrian DarwinBoot.c:561-588、:592-598、:1063-1067（提交 c6f2c64，本次已核实，见 BLACKSCREEN-EIGHT-STEP.md §3）。
+- FlushRange：dsb sy + ctr_el0 derived cache line 的 dc civac + dsb sy：DarwinBoot.c:50-60；诊断文字白 0xFFFFFFFF、黑框 0xFF000000、5x12 字形 4 倍缩放、FlushRange 整帧：DarwinBoot.c:504-541。
+- SimpleFbDxe 缺席：mondrian.dsc:130-143 [Components] 与 mondrian.fdf [FV.FvMain] 均无其 INF；GOP 提供方 USE_CUSTOM_DISPLAY_DRIVER=1（mondrian.dsc:26），实现在 QcomPkg/Extra.fdf.inc 之外，未读到。
+- video_region 0x85700000、0x00700000（7 MiB）：uefi-mondrian MemoryMapLib.c:22；7 MiB < 17.6 MiB 满帧，不可能是帧缓冲，文件也未称它是。
+- Display Reserved 0xB8000000、0x02B00000（43 MiB）：MemoryMapLib.c:52；与 sheng/fuxi/cupid 的值完全相同，出处未核实，禁止代入 mondrian。
+- dts/mondrian.dts（235 行）无 display、framebuffer、reserved-memory、ramoops 节点；只有 memory@900000000、smem 0x80900000（2 MiB）、adsp-region 0x9fd00000（0x3100000）。
+- 交棒 arena [0x900000000, 0xa40000000)，0x140000000 = 5 GiB（注释称 4 GiB 是旧文案）：dts/mondrian.dts:29-32；board.toml:127-129；MemoryMapLib.c:94。
+- ramoops 0xA7000000，控制台 2 MiB（总保留 4 MiB），头 12 B {sig,start,size}，sig 0x43474244：patches/xnu-12377/0546-k60-ramoops-console-27.patch:152-162；MemoryMapLib.c:38；live FDT ramoops@0xa7000000 reg = <0x00 0xa7000000 0x00 0x400000>，pmsg-size 0x200000。
+- 27 kernel_args 仅 8 项：-v、serial=3、debug=0x14e、kt_fixed_zones=120、-no_slto_panic、use_contiguous_hint=0、amfi_get_out_of_my_way=1、k60_fontscale=3；无 k60_usblog、无 log=1、无 ramoops=、无 SMP 参数：board.toml:396-406。入口探针/panic 屏无激活键，只有注释（entry_probe_reset_delay = 6 被注释掉，panic screen stays off）：board.toml:109-125。
+- 0542 色带（MMU 关，start.s）：_start row 256 红 0xFFFF0000、bootstrap_tables_ready row 272 黄 0xFFFFFF00、common_start row 288 青 0xFF00FFFF，各 64 px x 16 行，dsb sy、无 dc civac：patches/xnu-12377/0542-k60-f2-start-breadcrumbs.patch:14-35,45,53,61。0543 面板控制台需 -v + v_depth==32 + base/width/height 非零；0551 bootbar：arm_init 后绿 0x0000ff00、bsd_autoconf 后蓝 0x000000ff，64x64 块在 (8,8)。
+- 缺口（done=false 的原因）：GOP 帧缓冲基址、PixelsPerScanLine、stride、GOP mode index 的静态值；video_region 0x85700000 的用途；Display Reserved 0xB8000000 是否属 mondrian；SimpleFbDxe/GOP 驱动实现位置；面板型号/compatible、DSI lane 数/时钟、DSC slice 参数；27 ADT 是否带 display-scale=3。'''
+recorded_at = "2026-11-22"
+
+[hardware.blackscreen.step.wide]
+done = true
+evidence = "广域检索结论（详见 docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md §4）：官方组件目录 28 个组件逐个核对，唯一早期帧缓冲组件是 GopFramebuffer，但它只是显示提供方、不是文本控制台，且 mondrian 27 defconfig 关掉了它；唯一可复用的先例是 vermeer 的自定义 vermeer-framebuffer-console.patch（switch_to_video_console() + kPETextScreen）；同 SoC SM8475 兄弟（pong/diting/zizhan）全用 pong 原生显示栈，不用 GopFramebuffer；sheng 的 BootProgress 是 sheng 自有代码，不在目录里。"
+catalog_checked = true
+catalog_result = '''UniXNU/UniXNU components.toml（1121 行，28 个组件，SHA 69a8cff8…）逐个核对：
+- GopFramebuffer（L405-443）：os_abi 含 ipados-27.0.1-24A446；源 NativeMobileDisplay.cpp、NativeLegacyDisplay.cpp；verified_devices 只有 sheng（SM8550）。不是文本控制台（video_console/console 检索 0 命中）；mondrian 27 defconfig 关掉了 CONFIG_XNU_NATIVE_LEGACY_DISPLAY 与 CONFIG_XNU_NATIVE_MOBILE_DISPLAY；依赖正确的 GOP 交棒（base/stride/format），而这正是可疑点。
+- DarwinBoot（L116-148）：DarwinEnter 在 ExitBootServices 之后画顶部 1/16 绿条，是交棒判别器，不是内核控制台，不能打印 panic。
+- VirtioMmioConsole（L620-658）：目录里唯一的 console 组件，但传输是 VirtIO 1.2 MMIO，QEMU 专属；目录里没有 UART/串口控制台组件。
+- Adreno740 / AdrenoMetal / Sm8550Platform：A740/SM8550 专属，mondrian 是 Adreno 730/SM8475；目录里没有 Sm8475Platform 组件。
+- 其余 24 个（ArmCpu、ArmDTPlatform、ArmVirtPlatform、ShengUfs、ShengHidInput、ShengNovatekTouch、QcomGeniSpi、SoftwareAES、AppleKeyStoreState、RamBlock、VirtioMmioBlock、XnuPrelink、AdrenoPM4、AdrenoFirmware、ArmSmmu4K、AirNir、VerifiedRoot、Ath12kWifi、QcaBluetooth、QcomDwc3、ShengPreflight、QcomBaseband）：与早期帧缓冲/控制台无关。
+- 不在目录里：BootProgress（sheng 自有，UniXNU/UniXNU-sheng kits/sheng/BootProgress.c，82 KB + 探针，需移植）；NativeLegacyDisplay（不是独立组件，是 GopFramebuffer 内的 NativeLegacyDisplay.cpp + scripts/build-gop-legacy-display.py）；入口探针 + panic 屏（框架脚本 scripts/patch-xnu-entry-probe.py + scripts/xnu-panic-screen.c，不是组件；mondrian 27 上 panic 屏被 board.toml:234-238 拒绝，因 panic() 地址对参考内核写死）。
+- unixnu.com/zh/drivers/repositories：28 官方 + 12 社区 + 9 设备分支，结论同上；唯一社区显示 fork 是 RigoLigoRLC/unixnu-nativemobiledisplay（SM8250 平板，非 SM8475）。
+- 同 SoC：pong/diting/zizhan（SM8475）全用 pong 原生栈（PongPlatform/DitingPlatform、DCS 背光、GPU scanout、vendor DXE/GOP 二进制）；vermeer（SM8550，iOS 27/24A446）选 GopFramebuffer + 自定义 vermeer-framebuffer-console.patch（startup.c 插 switch_to_video_console() 与 initialize_screen(NULL, kPETextScreen)，SHA 28a2d0ac…），是唯一已证实的无串口 iOS 27 早期内核文本路径。'''
+recorded_at = "2026-11-22"
+
+[hardware.blackscreen.step.plan]
+done = true
+evidence = '''方案（每项可追溯到 ①-④，详见 docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md §5；本分支本次无代码改动，见下）：
+- P1（最优先，一次上电全程拍屏 + 抓固件 DEBUG 日志）：核对 video base= / PRE EXIT / EXIT CALL 任一行是否出现过；核对烧录 FD 是否含 uefi-mondrian c6f2c64；核对 DARWINBOOT: video base=0x… 行是否存在。依据：① Zxb 入口探针三条带、② bring-up Stage 4 与 debugging 绿条判别、③ DarwinBoot.c:1063-1067。
+- P5 + P2（一次固件构建、一次上电）：FillScreen 与 ExitBootServices 之间插 gBS->Stall(5*1000*1000)，相机对面板 + 暗室检查；同时读出 DARWINBOOT: video base=0x… display=… row=… width=… height=… depth=… 一行，与 ABL splash 地址及菜单 GOP 模式逐项比对。依据：③ 面板 1440x3200 cmd mode + DSC（ANDROID-HW-TRUTH.md）、④ rothko CMD 面板先例（每帧需主动推送）。
+- P3（一次固件构建、一行改动）：把 FillScreen 内联 dc 循环换成已有的 FlushRange(Video[0], Video[2]*Video[4])。依据：③ DarwinBoot.c:93-113 FlushRange（读 CTR_EL0、对齐、前后 dsb sy）对 FillScreen 硬编码 64 B 步长。
+- P4（一次固件构建、一行改动）：填充常量 0x00FF0000 改为 0xFFFF0000。依据：③ DiagDrawVideo 只用最高字节 0xFF 的常量（0xFF000000、0xFFFFFFFF），红填充是唯一最高字节 0x00 的写入者。
+- P7（一次上电，打印内存图描述符）：填充前把覆盖 Video[0] 的内存图描述符（类型 + 属性）打印进 video base= 行；EfiConventionalMemory 则 EBS 后黑成立，保留/EfiMemoryMappedIO 则排除。依据：③ MemoryMapLib.c 未读到 FB 描述符类型、dts/mondrian.dts 无显示保留区。
+- 绿条二元事实（一次上电）：记录绿条是否出现；出现而红不出现 ⇒ 填充路径与 DarwinEnter 写不同缓冲/不同时刻；绿条也不出现 ⇒ 故障更早（EBS 本身或 EBS 前 GOP 状态）。依据：② debugging 绿条判别。
+- 本分支本次无代码改动：上述 P1/P3/P4/P5/P7 的改动点全在 uefi-mondrian 仓库（Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c），不是本仓库；本仓库的 0542/0543/0546/0551 仪器已在 27 系列内，缺的不是写入器，是内核到达它们的证明；GopFramebuffer 启用（defconfig + board.toml components）不是一变量判别实验，且在 SM8475/27 上未验证，推迟到首输出判别之后；vermeer 式 framebuffer-console 补丁移植需 xnu-12377 startup.c 上下文核对，源码不在本仓库内，本次不盲目加补丁。uefi-mondrian 改动提案见 BLACKSCREEN-EIGHT-STEP.md §5，含 file:line，不在本分支静默编辑。'''
+recorded_at = "2026-11-22"
+
+[hardware.blackscreen.step.deep]
+done = false
+evidence = '''未解项清单（每项可证伪，见 docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md §6；done=false：三项无结论，需上机实验判定）：
+- U1 绿条是否出现：若出现 ⇒ 故障在填充路径；若不出现 ⇒ 故障在 EBS 或更早。验证：一次上电全程拍屏（§8 实验 H1）。
+- U2 烧录 FD 是否含 c6f2c64 / 填充是否到达 L1063：若 video base= / PRE EXIT 全无 ⇒ 填充点未到达或固件过期（P1）；若有 ⇒ 排除 P1。验证：同 H1 + 宿主机核对 FD。
+- U3 GOP 缓冲/stride 是否为面板正在扫描的缓冲：若 video base= 行与 ABL splash 地址/GOP 模式任一字段不符 ⇒ P2 定案；若相符 ⇒ 排除 P2。验证：H1 日志比对。
+- U4 DSI 命令模式 + DSC 是否缺 DPU 提交：5 秒保持期内红出现 ⇒ 像素已在 DRAM、只缺传输（P5）；5 秒始终不出现 ⇒ 排除 P5 为唯一原因。验证：§8 实验 H2（一次固件构建）。
+- U5 FillScreen 缓存维护是否写错：换 FlushRange 后红出现 ⇒ P3 是阻塞点；仍黑 ⇒ 排除 P3。验证：一次固件构建（§8 实验 H3）。
+- U6 颜色/alpha：常量改为 0xFFFF0000 后红出现 ⇒ P4 定案；仍黑 ⇒ 排除 P4。验证：一次固件构建（§8 实验 H4）。
+- U7 帧缓冲内存是否在 EBS 时被回收/覆盖：描述符类型为 EfiConventionalMemory ⇒ P7 对 EBS 后黑成立；保留/EfiMemoryMappedIO ⇒ 排除 P7。验证：H1 的描述符打印。
+- U8 面板/DSI/时钟/电源是否在 EBS 时被关：5 秒保持期内斜看有微弱红像或背光亮而图像黑 ⇒ 面板活着，排除 P6；全暗无背光辉 ⇒ 关断在 EBS 之前。验证：H2 暗室检查。
+- U9 内核是否到过 arm_init：绿 bootbar（0551）出现 ⇒ 活过 arm_vm_init + ramoops 初始化，排除桩 panic 在 arm_init 之前；红/黄/青三带（0542）出现情况定位死亡点。验证：§8 实验 H5 色带定位（5/15/60/300 秒拍屏 + 计时）。
+- U10 桩 panic 是否静默发生：warm-reset 后 RamoopsDumpDxe 读到 fileset: original component called an unmapped kernel function from 0x… ⇒ 桩 panic 实锤；no signature ⇒ 死在 arm_init 末之前。验证：§8 实验 H6（第二次启动，不长按电源）。
+- 已结案（不列入未解）：PONG 不是 27 线偏离（BCM2837 是 27 标准目标）；0546 ramoops 钩在 console_write() 而非 _cnputc，比 tb710fu 弱，但写入器已在 27 系列内；27 stage-0 无 k60_usblog=2，USB 不枚举是配置关闭，不是内核生死判据；debug=0x14e 含 DB_NMI，panic 会等调试器而不复位。'''
+recorded_at = "2026-11-22"
+
+[hardware.blackscreen.step.verify]
+done = false
+evidence = "本地核验（离线，不含构建与上机；done=false：本分支本次无代码改动可核验，local_verified=false；但证据制品本身的检查全部通过，见 static_check / unit_test / artifact_check）。"
+local_verified = false
+static_check = "grep 抽查：本 fragment 引用的 file:line 在本地克隆（fix/ios27-black-screen-muse-20261122 @6893c8f）中逐项核对——board.toml:109-125/196-205/396-406、dts/mondrian.dts:29-32、patches/xnu-12377/0542/0543/0546/0551 补丁头、docs/engineering/ANDROID-HW-TRUTH.md display 表；uefi-mondrian 引用用 browser.open 核对 c6f2c64 diff（DarwinBoot.c:583-586、:1063-1067）与 RamoopsDumpDxe.c:28-32。"
+unit_test = "python3 -c tomllib 解析本 fragment（docs/research/eight-step/blackscreen-27.toml）通过；python3 scripts/assemble-27-eight-step.py --check 在加入本 fragment 后报告 ok（8 item(s) from 6 fragment(s)，all seven steps present）；python3 scripts/render-eight-step-table.py --check 通过（README 的 16 线表不受 27 fragment 影响）。"
+artifact_check = "本 fragment 与 docs/research/ios27/BLACKSCREEN-EIGHT-STEP.md 均为 LF 结尾、UTF-8、无 CRLF；EIGHT-STEPS-27.toml 未手改（assembled 文件，见下）；git status 只含这两个新增文件。"
+recorded_at = "2026-11-22"

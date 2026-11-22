@@ -147,3 +147,10 @@ armcpu-sleep-hook.patch
 # after browser_init-side startup, so early progress is visible with no text (CONSOLE-GAP.md).
 # It maps through ml_io_map and reports instead of pretending when the map fails.
 0551-k60-bootbar-27.patch
+# DarwinBoot hands over the GOP *physical* framebuffer base with bit 0 clear,
+# and PE_create_console() runs after arm_vm_init, so video_console.c took the
+# "already a kernel VA" branch and wrote through an unmapped address: the first
+# console write faults and the panel goes black.  Same fix uke and asteroids
+# carry in their 27 series (zzzzz-video-console-physical-fb.patch); 0543 covers
+# the PE_create_console() call, this one covers every initialize_screen() call.
+0552-k60-video-console-physical-fb.patch

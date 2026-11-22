@@ -1,0 +1,20 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -2840,7 +2840,16 @@
+ 		 *  If VM is up, we are given a virtual address, unless b0 is set to indicate physical.
+ 		 */
+ 		newVideoVirt = boot_vinfo->v_baseAddr;
+-		makeMapping = (kernel_map == VM_MAP_NULL) || (0 != (1 & newVideoVirt));
++		/*
++		 * DarwinBoot hands over the GOP physical base without the low-bit
++		 * "physical" marker, and kernel_map already exists when
++		 * PE_create_console() runs.  A base below the kernel VA range is
++		 * still a physical framebuffer and must be mapped before the
++		 * console writes to it (uke docs/PROGRESS.md: the first write
++		 * faulted and the panel went black).
++		 */
++		makeMapping = (kernel_map == VM_MAP_NULL) || (0 != (1 & newVideoVirt)) ||
++		    (newVideoVirt < VM_MIN_KERNEL_ADDRESS);
+ 		if (makeMapping) {
+ 			newVideoVirt = 0;
+ 			new_vinfo.v_physaddr = boot_vinfo->v_baseAddr & ~3UL;           /* Get the physical address */

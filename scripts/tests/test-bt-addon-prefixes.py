@@ -37,13 +37,13 @@ def run(patches, stager=STAGER, framework=FRAMEWORK):
         patch_dir = base / "patches"
         patch_dir.mkdir()
         for name, text in patches.items():
-            (patch_dir / name).write_text(text)
+            (patch_dir / name).write_text(text, encoding='utf-8')
         stager_path = base / "stager.py"
         if stager is not None:
-            stager_path.write_text(stager)
+            stager_path.write_text(stager, encoding='utf-8')
         framework_path = base / "framework.py"
         if framework is not None:
-            framework_path.write_text(framework)
+            framework_path.write_text(framework, encoding='utf-8')
         return subprocess.run(
             [sys.executable, str(CHECK), "--patches", str(patch_dir), "--stager", str(stager_path),
              "--framework", str(framework_path)],
@@ -53,6 +53,9 @@ def run(patches, stager=STAGER, framework=FRAMEWORK):
 
 r = run({"0526.patch": PATCH})
 case("staged and mounted prefix passes", r.returncode == 0)
+
+r = run({"0526.patch": "# 中文注释\n" + PATCH})
+case("a UTF-8 patch is read on a GBK host", r.returncode == 0)
 case("it names the source patch", "0526.patch" in r.stdout)
 
 r = run({"0526.patch": PATCH}, stager="")

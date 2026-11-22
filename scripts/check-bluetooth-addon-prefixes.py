@@ -36,7 +36,7 @@ ADDON_DIR = re.compile(r"script\(['\"]addon-add-dir\.py['\"],\s*addon,\s*candida
 def kernel_sources(directory=None):
     sources = {}
     for patch in sorted((directory or PATCHES).glob("05*.patch")):
-        text = patch.read_text()
+        text = patch.read_text(encoding='utf-8')
         for name in SOURCE.findall(text):
             sources.setdefault(name.rsplit("/", 1)[-1], []).append(patch.name)
     return sources
@@ -46,14 +46,14 @@ def stager_prefixes(path=None):
     path = path or STAGER
     if not path.is_file():
         return None
-    match = PREFIX.search(path.read_text())
+    match = PREFIX.search(path.read_text(encoding='utf-8'))
     return set(KEY.findall(match.group(1))) if match else set()
 
 
 def framework_prefixes(path):
     if path is None or not path.is_file():
         return None
-    return set(ADDON_DIR.findall(path.read_text()))
+    return set(ADDON_DIR.findall(path.read_text(encoding='utf-8')))
 
 
 def default_framework():

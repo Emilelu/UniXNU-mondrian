@@ -84,6 +84,29 @@ fi
 # time.  The hooks are self-guarding at run time (every write checks
 # pong_ramoops_base, which stays NULL until the map succeeds), so the patch now
 # compiles them always and there is no switch left to get wrong.
+#
+# ccache: XNU carries the switch itself (makedefs/MakeInc.def:170 `CCACHE ?=`,
+# :175 `KCC = $(CCACHE) $(CC)`), and unixnu/kernel.py:186 passes this shell's
+# environment down to the builder, so exporting CCACHE is the whole wiring.
+# It buys nothing yet: every XNU compile rule passes -MJ (MakeInc.rule:521) and
+# ccache calls that option unsupported, so the objects stay uncacheable.
+# docs/research/ios27/CCACHE.md has the measurement, and `ccache -s` is the only
+# reading worth trusting.  Guarded so a host without ccache still builds, and a
+# value preset by the caller wins.
+#
+# CCACHE_DIR is pinned to the same directory the documentation tells you to read,
+# because ccache's default is ~/.cache/ccache and `CCACHE_DIR=... ccache -s`
+# against a different directory would report 0 hits for a build that never wrote
+# there.  An exported CCACHE_DIR still wins.
+if [ -z "${CCACHE+x}" ] && command -v ccache >/dev/null 2>&1; then
+	CCACHE=ccache
+	export CCACHE
+	if [ -z "${CCACHE_DIR+x}" ] && [ -d /opt/k60/trees/.ccache ]; then
+		CCACHE_DIR=/opt/k60/trees/.ccache
+		export CCACHE_DIR
+	fi
+fi
+
 env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
 	python3 ./unixnu build kernel --device "$ROOT" "$@"
 

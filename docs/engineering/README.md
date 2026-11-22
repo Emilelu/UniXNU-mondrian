@@ -95,3 +95,4 @@
 - [OFFICIAL-REQUIREMENTS.toml](OFFICIAL-REQUIREMENTS.toml) — 官网每页一条要求（铁则 13）
 - [UPSTREAM-REPOS.toml](UPSTREAM-REPOS.toml) — 参考仓库与同步基线（铁则 15）
 - [REFERENCE-PROVENANCE.md](REFERENCE-PROVENANCE.md) —— 哪个「第三方」其实是我自己的 fork（GitHub API 实测）
+- [BUILD-FREEZE.md](BUILD-FREEZE.md) — build and flight freeze until the precedent parity ledger is complete (2026-11-23)

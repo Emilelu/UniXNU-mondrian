@@ -363,3 +363,17 @@ struct PE_Video {
 ⇒ 取 `PE_state.video.v_baseAddr` / `v_rowBytes` / `v_width` / `v_height` / `v_pixelFormat` 即可，**不需要读 boot_args 的 `Video[6]` 数组**——`pe_init` 已经把它翻译成这个结构。
 
 未知项二（能否直接写）留到实现时按这个规则处理：**先 `ml_io_map(v_baseAddr, v_rowBytes * v_height)` 拿到内核 VA 再写**，与 ramoops 那条路保持同一套做法（`0546` 里就是这么做的），不要赌「物理地址可直接写」。若 `ml_io_map` 返回 0 就不画，并 `kprintf` 一行说明——空屏 + 一行日志，好过静默失败。
+
+### 2026-11-22 08:2x — `llvm-nm --defined-only` 对这份 Mach-O 报 `no symbols`
+
+上一轮同一个路径同一个文件，一条命令读出 `1`，另一条报 `no symbols`，我据此怀疑「打包后文件被换掉」。
+按 P-177 的做法从镜像里取出来对账，两条读数都回来了：
+
+| 文件 | sha256 前 12 | 大小 | `k60_bootbar` |
+| --- | --- | --- | --- |
+| `kernel/kernel.macho`（构建树，已 apply+stamp） | `327bb3a5ad2d` | 93,061,120 | **1** |
+| `mcopy -i payload.img ::/EFI/UniXNU/Payloads/kernel.macho` | `7817e6332181` | 93,061,120 | **1** |
+
+⇒ 文件没被换掉，两份都带符号；差别在命令行——**`--defined-only` 在这份 `MH_FILESET` 上会打印 `no symbols` 并退非零**，不带它则正常列出。
+
+纪律（这条比结论重要）：**任何用 `nm` 判「符号在不在」的门禁，必须带一个已知会命中的对照符号**，否则「工具什么都没输出」与「符号不存在」同形——P-279（读不到 ≠ 没有）的第三个形状：**参数选错 ≠ 没有**。

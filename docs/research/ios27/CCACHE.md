@@ -20,7 +20,7 @@ XNU 自带开关 `makedefs/MakeInc.def:170` `CCACHE ?=` / `:175` `KCC = $(CCACHE
 | 合计 | 975 s | 630 s | |
 
 按四段口径：kernel 450–760 s、payload 与 kernel 同在这 452 s 一行内（`mark payload` 在 `unixnu build payload`
-之后，`scripts/build-ios27-linux.sh:121-122`）、固件卷 0 s（复用 3 s）或 ~519 s、bootimg 171 s。kernel 单独没有 stage
+之后，`scripts/build-ios27-linux.sh:140`，mark 在 `:143`）、固件卷 0 s（复用 3 s）或 ~519 s、bootimg 171 s。kernel 单独没有 stage
 mark；冷树没有 `.o.json` 时 `scripts/unixnu/kernel.py:205` 先跑一跳 bootstrap（`:211-219`）再跑正式一跳（`:225`），
 `kernel-bootstrap.log` 与 `kernel.log` 各 181 MB，这就是 760 s 上界的来源；要精确到秒，下次构建补 `mark kernel`。
 预链接（`XnuPrelink`）与 `ld` 链接是链接步骤，ccache 只代理编译器，天然不覆盖。
@@ -75,3 +75,30 @@ CCACHE”和“PATH 壳子”两个陷阱），`--probe` 用真 clang 重放上�
 > 让 `MakeInc.rule:513/521/543` 的 `-MJ` 变成可选（或增加一条不带 `-MJ` 的编译路径），
 > 同时把 `scripts/unixnu/kernel.py:205` 等依赖 `.o.json` 的校验改成不依赖它；否则等
 > ccache 支持 `-MJ`（ccache#446）。由框架/XNU 维护者（Lead）决定并实施。
+
+## sccache 能否解决 -MJ
+
+判据只读：本机 `command -v sccache` 为空（**未安装**，也没有为了写这一节安装任何东西、改任何构建文件）。
+因此结论来自上游源码，不看传闻。
+
+**结论：`does not support`。** sccache 把 `-MJ` 当成“这条命令不缓存”的显式标记——是**有意拒绝**，
+不是尚未实现的缺口，所以换到 sccache 不会把 0 命中变成命中：
+
+- `src/compiler/clang.rs:212`：`take_arg!("-MJ", OsString, CanBeSeparated, TooHard),` —— 解析阶段就把 `-MJ`
+  归到 `TooHard`
+- 这个行为被钉成了测试：`src/compiler/clang.rs:1348-1360` 的 `test_parse_arguments_too_hard` 里
+  `(&["-MJ", "compile_commands.json"], "-MJ")`
+- `src/compiler/gcc.rs:374-375`：`Some(TooHardFlag) | Some(TooHard(_)) => { cannot_cache!(...) }`；
+  第二轮过滤同样处理（`src/compiler/gcc.rs:583-589`）。`cannot_cache!` 是“本地直编、不进缓存”，
+  不是拒绝编译——所以 `.o.json` 照样会写出，P-301 的证据不受影响，但缓存命中数仍是 0
+- 全仓 grep `-MJ` 只命中 `src/compiler/clang.rs` 两行：没有第二条“命中时补写 json”的路径，也没有
+  “把 `-MJ` 变成纯 pass-through 再缓存”的分支
+
+来源（commit `4a138d78794bf3c1df11adfdef2ad49fed05b031`，main，2026-11-21）：
+<https://raw.githubusercontent.com/mozilla/sccache/4a138d78794bf3c1df11adfdef2ad49fed05b031/src/compiler/clang.rs>
+与 <https://raw.githubusercontent.com/mozilla/sccache/4a138d78794bf3c1df11adfdef2ad49fed05b031/src/compiler/gcc.rs>。
+issue 侧无讨论可引：GitHub 检索 `repo:mozilla/sccache "-MJ"` 命中 0 条。
+
+与 ccache 的差别只在措辞：ccache 4.9.1 报 `Compiler option -MJ is unsupported`，sccache 报 “too hard”，
+读数一样是带 `-MJ` 的规则 0 次缓存尝试。结论：**sccache 不是 `-MJ` 障碍的出路**，出路仍是上面那张移交单
+（`-MJ` 可选 + P-301 证据链搬家）；在移交单落地之前，能给构建提速的只有阶段级复用键，不是换缓存后端。

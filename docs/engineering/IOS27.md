@@ -501,4 +501,30 @@ The next two targets are bootimg at 171 s, dominated by packing the 192 MB paylo
 451 s, dominated by re-seeding the tree. Both are judged the same way: by a number printed at the
 boundary, not by an impression.
 
+### Payload and boot image reuse, added 2026-11-22 - not yet measured
+
+The firmware guard's argument applies to the two stages that still run when nothing moved.  Payload
+and bootimg now hash their inputs, record the key beside the artifact and skip the stage when the key
+matches and the artifact is there:
+
+| stage | key | covers | force |
+| --- | --- | --- | --- |
+| payload | `payload/payload.inputs.sha256` | `kernel.macho`, the `series-fingerprint.py` output, the unique chip id, all of `board.toml`, the device tree sources the ADT is compiled from, the transform tools in `<board>/tree/scripts`, `unixnu/payload.py` and `unixnu/devicetree.py` | `K60_FORCE_PAYLOAD=1` |
+| bootimg | `boot/bootimg.inputs.sha256` | the firmware volume `board.toml [firmware] fd` resolves to, `payload.img` (it is the ramdisk), `device-tree/hardware.dtb`, all of `board.toml`, and the Mu-Silicium `mkbootimg.py`, device config, `BootShim.S` and `BootShim/Makefile` | `K60_FORCE_BOOTIMG=1` |
+
+The device tree and the whole of `board.toml` are in the payload key because the ADT is compiled inside
+that stage: a `dts` edit moves no `kernel.macho`, so the three inputs the stage is named after would
+miss it and ship an ADT that disagrees with the kernel.  Over-invalidating costs one stage; under-
+invalidating costs a wrong image.  `python3 scripts/ios27-inputs.py payload|bootimg --explain` prints
+the role and digest of every line a key is made of, which is how "why did it rebuild" gets an answer
+without reading the script.
+
+The skip is always the whole stage.  `build payload --kernelcache` would not replace a packed kernel
+(P-177), so a payload stale against the kernel is rebuilt rather than repacked, and the artifact
+checker still runs on the reuse path - it compares `payload.json`'s `kernel_sha256` with the current
+`kernel.macho` and the boot image's ramdisk with the current `payload.img`, so a tampered or stale
+artifact is caught even when the key matches.  Stage marks are now `payload-reused` / `payload`,
+`bootimg-reused` / `bootimg-built`, then `artifacts`.  The saving is unmeasured: no full build was run
+for this change, and the number to read next time is those marks against 452 s and 171 s.
+
 - 2026-11-21 22:10：27 内核第一次定义了控制台接收端（`_pong_ramoops_console_write` / `_pong_ramoops_console_init`），`check-kernel-console.py --flight` 从红转绿；读数通路仍未建立（见 `docs/research/ios27/CONSOLE-GAP.md`）。

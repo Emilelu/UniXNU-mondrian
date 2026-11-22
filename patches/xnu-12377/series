@@ -154,10 +154,17 @@ armcpu-sleep-hook.patch
 # carry in their 27 series (zzzzz-video-console-physical-fb.patch); 0543 covers
 # the PE_create_console() call, this one covers every initialize_screen() call.
 0552-k60-video-console-physical-fb.patch
-# The loader's GOP Blt picture (green and yellow bands) reaches the panel and the
-# screen goes black after the hand-off.  Two explanations survive: the kernel
-# mapped the framebuffer and its own console cleared the screen, or the display
-# was switched off at ExitBootServices.  This paints magenta through the mapping
-# 0552 just made, before vc_initialize runs, so a magenta band is proof that the
-# kernel got this far and the black screen is the console clearing itself.
-0553-k60-fb-magenta-witness.patch
+# 0553 painted a magenta band just before vc_initialize(), which clears the screen
+# microseconds later -- the band could never be seen, so it proved nothing.  This
+# one paints at the END of initialize_screen(), after that clear, so it survives:
+# magenta with no text means the kernel reached this point with the console still
+# off, text means the console works, black means the kernel never got here.
+0554-k60-fb-witness-tail.patch
+# 0555 keeps the text console on the framebuffer.  PE_create_console() selects
+# kPEGraphicsMode, so gc_pause() sets disableConsoleOutput and every later kprintf
+# and IOLog is discarded for the rest of a graphics boot -- that is why the screen
+# goes black after the hand-off and nothing is ever painted.  kPETextScreen calls
+# gc_enable(TRUE), which clears the flag; nothing on ARM calls it.  Ported from
+# vermeer (same generation, reaches bsd_init):
+# patches/xnu/vermeer-framebuffer-console.patch
+0555-k60-fb-text-console.patch

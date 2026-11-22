@@ -1,0 +1,32 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -3146,6 +3146,29 @@
+ 	/* Console initialization/acquisition may clear the existing mapping. */
+ 	boot_progress_bind(vinfo.v_baseaddr, vinfo.v_width, vinfo.v_height,
+ 	    vinfo.v_rowbytes, vinfo.v_depth);
++
++	/*
++	 * K60 witness: magenta band at the very end of initialize_screen().
++	 *
++	 * Painted after vc_initialize() has cleared the screen, so that clear cannot
++	 * erase it.  The loader's red, blue, bars and green/yellow quadrants all show
++	 * and the black comes after the hand-off, so the panel is alive when the
++	 * kernel starts; what is still open is how far the kernel gets.  Magenta with
++	 * no text means it reached this point with the console still off; text means
++	 * the console works; black means it never got here.
++	 *
++	 * The mapping is VM_WIMG_IO or VM_WIMG_WCOMB, neither write-back cached, so
++	 * these stores need no cache maintenance.
++	 */
++	if ((vinfo.v_baseaddr != 0) && (vinfo.v_rowbytes != 0) && (vinfo.v_height > 8)) {
++		volatile uint32_t *tail = (volatile uint32_t *)(uintptr_t)vinfo.v_baseaddr;
++		unsigned int      words = (vinfo.v_rowbytes / 4) * 8;
++		unsigned int      index;
++
++		for (index = 0; index < words; index++) {
++			tail[index] = 0x00FF00FF;       /* XRGB magenta */
++		}
++	}
+ }
+ 
+ void vcattach(void); /* XXX gcc 4 warning cleanup */

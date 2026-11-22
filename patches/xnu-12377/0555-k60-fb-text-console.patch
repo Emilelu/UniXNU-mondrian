@@ -1,0 +1,31 @@
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -822,6 +822,28 @@
+ 	initialize_screen(NULL, kPEAcquireScreen);
+ 
+ 	/*
++	 * K60: keep the text console on the framebuffer.
++	 *
++	 * PE_create_console() selects kPEGraphicsMode, so gc_graphics_boot is TRUE when
++	 * the line above runs and gc_pause() sets disableConsoleOutput, which discards
++	 * every kprintf and IOLog for the rest of a graphics boot.  That is Apple's
++	 * behaviour, and on a board with no serial port it leaves the root-mount wait
++	 * and every later diagnostic with no output at all.  Observed here: the
++	 * loader's quadrants go black (so the kernel did clear the screen) and nothing
++	 * is ever painted in their place.
++	 *
++	 * kPETextScreen is XNU's own switch for this: it calls gc_enable(TRUE), which
++	 * clears disableConsoleOutput and lets vcputc paint the scrolling log.  Nothing
++	 * on ARM calls it.  Selecting the video console first keeps the switch off its
++	 * console_is_serial() early-out.
++	 *
++	 * Ported from vermeer (same generation, reaches bsd_init):
++	 * patches/xnu/vermeer-framebuffer-console.patch.
++	 */
++	(void) switch_to_video_console();
++	initialize_screen(NULL, kPETextScreen);
++
++	/*
+ 	 *	Initialize the shared region module.
+ 	 */
+ 	vm_commpage_init();

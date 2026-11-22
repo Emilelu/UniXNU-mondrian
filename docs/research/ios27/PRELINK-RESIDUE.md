@@ -153,3 +153,24 @@ has 1 site(s), the policy allows 0`），当时怀疑是 0546/0547 带进来的�
 ⇒ 这行是「policy 里某个 original 当前有 n 个站点，而 policy 允许 0」的逐条读数，
 换一次构建就可能换成另一个 bundle；**它不是计数增长**。判据应看上面那两个总数，
 不看这一行的主语是谁。
+
+### 2026-11-22 08:2x — 拒绝把基线改成我们自己的读数
+
+`check-prelink-regressions.py --record <kernel.json> --write` 提示可以 `--force` 覆盖
+`docs/engineering/IOS27-PRELINK-POLICY.json`。**不做。**
+
+理由：那份 policy 记的是上游同 OS profile 的读数（missing 2 / stubbed 24）。把 94 / 203
+写进去之后，门禁会变绿，而「我们比上游多 92 个未解析引用」这件事就从账本上消失了——
+这正是 P-290 说的「永远为红的规则等于没有规则」的反面形态：**永远为绿的门禁等于没有门禁**。
+
+正确的记法已经存在，且三处互相印证：
+
+| 位置 | 记的是什么 |
+| --- | --- |
+| `scripts/policies/ipados-27.0.1-24A446/prelink-regression.json`（框架，未改） | 上游基线 2 / 24 |
+| `docs/engineering/IOS27-FLIGHT-BLOCKERS.toml` 的 `prelink-map-unresolved` | 本构建 94 / 203 + 两条 `observe_via` |
+| 本文档 | 为什么差这么多（15 个只有我们带的 bundle：AMFI 41、sandbox 23、apfs 20…） |
+
+要真的把数字降下来，只有两条路：少带 bundle（已被 `[kernel.prelink].roots` 的实验否掉：
+44 roots 让未解析项从 94 涨到 155）或让运行期给出实测清单（需要能读到日志的那一次飞行）。
+**改成绿色基线不在这两条路里。**

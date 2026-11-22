@@ -385,10 +385,13 @@ struct PE_Video {
 
 ## 2026-11-22 22:30 — the framebuffer geometry is right, and the screen is cleared by the console
 
- fills the whole framebuffer ( words of
-) at the end of , after the console has mapped
+`0556` fills the whole framebuffer (`(v_rowbytes / 4) * v_height` words of
+`0x00FF00FF`) at the end of `initialize_screen()`, after the console has mapped
 it. The user saw the **entire screen turn magenta**, then return to black:
 base address, row bytes and height all match the panel. The black that follows
-is s , not a wrong mapping.
+is `gc_enable(TRUE)`'s `clear_screen()`, not a wrong mapping.
 
-Consequence: the
+Consequence: "the kernel never ran" is now excluded by pixel evidence. The
+remaining question is what the kernel prints after the console is enabled —
+which needs the text console (`0555`) and a print path that does not trip the
+`vc_initialize()` trap (P-308: `-enable_kprintf_spam` is forbidden).

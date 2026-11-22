@@ -1,15 +1,19 @@
 --- a/osfmk/console/video_console.c
 +++ b/osfmk/console/video_console.c
-@@ -3120,6 +3120,20 @@
- #endif
+@@ -3134,6 +3134,24 @@
+ 			all[index] = 0x00FF00FF;
+ 		}
  	}
- 
 +	/*
 +	 * K60 witness: fill the whole framebuffer using the geometry the kernel
 +	 * believes it has.  If the panel turns uniformly magenta the stride is
 +	 * right; if bands remain, v_rowbytes disagrees with the panel and the band
 +	 * pitch measures the ratio.  Written after vc_initialize() cleared the
 +	 * screen, so the fill cannot be erased.
++	 *
++	 * The panel scans the 1440x3200 framebuffer rotated (xNekom IOS27.md,
++	 * commit c3c89df), so a photo of the phone upright shows the buffer rows as
++	 * columns: rotate the photo 90 degrees clockwise before judging it.
 +	 */
 +	if ((vinfo.v_baseaddr != 0) && (vinfo.v_rowbytes != 0) && (vinfo.v_height > 8)) {
 +		volatile uint32_t *all = (volatile uint32_t *)(uintptr_t)vinfo.v_baseaddr;

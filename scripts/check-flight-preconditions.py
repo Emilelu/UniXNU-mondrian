@@ -46,7 +46,10 @@ def devices(tool):
     out, text = run([path, 'devices'])
     if out is None:
         return None, f'{tool} could not run: {text}'
-    lines = [l for l in text.splitlines()[1:] if l.strip()]
+    # `adb devices` 有一行表头「List of devices attached」，`fastboot devices` 没有。
+    # 之前统一跳第一行，于是 fastboot 明明枚举出 6033dbec 也被判成「看不到设备」。
+    lines = [l for l in text.splitlines()
+             if l.strip() and ' devices' not in l and not l.lower().startswith('list of devices')]
     serials = [l.split()[0] for l in lines]
     return (serials, None) if serials else ([], f'{tool} sees no device')
 

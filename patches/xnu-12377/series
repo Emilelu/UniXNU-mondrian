@@ -232,3 +232,8 @@ armcpu-sleep-hook.patch
 
 # 4 KiB pmap: apply the user TCR before the first translation is used
 0567-k60-arm-vm-init-user-tcr.patch
+
+# 0564 carries the iokit_rpc kobject filter, which calls
+# native_adreno_connect_granted(); this file supplies that definition in bsd/dev
+# so the symbol exists at link time (sheng keeps it in IOUserClient.cpp).
+0571-k60-adreno-connect-grant.patch

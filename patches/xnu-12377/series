@@ -202,3 +202,15 @@ armcpu-sleep-hook.patch
 # Needs [adt.chosen.u32] embedded-panic-log-size + [adt.pram.bytes] to be real.
 
 0560-k60-last-panic-print.patch
+
+# 4 KiB pages: the kernel stack must be aligned and masked for 4 KiB, not 16 KiB
+# copied verbatim from community/uke/patches/xnu-12377/native-4k-stack-shift.patch
+0561-k60-4k-stack-shift.patch
+
+# Darwin 26 posix_spawnattr sits in a 0x100-byte record; copy it field by field
+# copied verbatim from community/uke/patches/xnu-12377/darwin26-posix-spawn-attrs.patch
+0562-k60-darwin26-posix-spawn-attrs.patch
+
+# 4 KiB pages: the same kernel-stack shift vermeer ships, kept because it
+# applies unchanged to xnu-12377 and states the invariant explicitly.
+0563-k60-kernel-stack-shift-vermeer.patch

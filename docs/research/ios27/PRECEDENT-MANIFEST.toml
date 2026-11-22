@@ -1171,7 +1171,8 @@ measured_items = 230
   kind = "patch"
   id = "uke-video-console-text.patch"
   sha256 = "af49acb72fe994257054544a0f0d56a2af54daf89dca506f82434f35be5d6325"
-  verdict = "unknown"
+  verdict = "have"
+  reason = "all 5 substantive added line(s) already exist in our patches/"
 
   [[repo.item]]
   kind = "patch"
@@ -1291,7 +1292,8 @@ measured_items = 230
   kind = "patch"
   id = "zzzzzz-video-console-text.patch"
   sha256 = "6485ca9030fe8dfb30b6d202e18f43bb43ebd10348f5be25b80d5aeef323c2db"
-  verdict = "unknown"
+  verdict = "have"
+  reason = "all 5 substantive added line(s) already exist in our patches/"
 
   [[repo.item]]
   kind = "patch"

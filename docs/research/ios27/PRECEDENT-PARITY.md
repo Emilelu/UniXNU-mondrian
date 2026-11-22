@@ -13,12 +13,12 @@ mutation, JSON-quoted string emission, `tomllib.loads` round-trip, then
 
 | Repository | Items | have | not-applicable | missing-must-copy |
 |---|---:|---:|---:|---:|
-| asteroids | 180 | 86 | 93 | 1 |
-| uke | 230 | 90 | 137 | 3 |
-| cupid | 66 | 52 | 14 | 0 |
-| vermeer | 52 | 41 | 10 | 1 |
-| sheng | 144 | 91 | 52 | 1 |
-| **Total** | **672** | **360** | **306** | **6** |
+| asteroids | 180 | 85 | 94 | 1 |
+| uke | 230 | 88 | 139 | 3 |
+| cupid | 66 | 51 | 15 | 0 |
+| vermeer | 52 | 40 | 11 | 1 |
+| sheng | 144 | 83 | 60 | 1 |
+| **Total** | **672** | **347** | **319** | **6** |
 
 `unknown` is zero in every repository. `python3 scripts/check-goal-constraints.py`
 no longer prints any `N of M artefact(s) unjudged` line.
@@ -79,11 +79,21 @@ are either copied in or reclassified with evidence.
   but it refuses to replace an existing `boot-manifest-hash` instead of
   accepting a matching existing set. The policy is equivalent, the code path is
   not identical.
-- **`uke-systemos-root-identity`** is recorded as `have` through
-  `patches/xnu/offline-owner-systemos-mount.patch`, which tracks
-  `native_owner_cache_native_union` and the real root mount. It does not add
-  the precedent's `uke_files_union_identity()` helper for `vfs_attrlist` and
-  `vfs_syscalls`.
+- **`uke-systemos-root-identity`** is `not-applicable` because the 27 stage-0
+  recipe does not enable `XNU_OWNER_UNION_SYSTEMOS`, so there is no union root
+  whose `MNT_ROOTFS` flag must be published. The 16.6.1 union path uses
+  `patches/xnu/offline-owner-systemos-mount.patch`; that patch tracks
+  `native_owner_cache_native_union` but does not set `MNT_ROOTFS` on the union
+  upper. Re-open this item before enabling the union on 27.
+- **`payload.runtime.*`** keys are `not-applicable`: our `board.toml` has no
+  `[payload.runtime]` block. The 27 payload is assembled by the framework boot
+  scripts (Bluetooth userspace is a separate build step), not by an
+  installable OS-image runtime. A future product that adopts `payload.runtime`
+  should re-open the Bluetooth, WiFi and trust-component keys as must-copy.
+- **`payload.panic_screen`** is `not-applicable`: our payload leaves the probe
+  panic screen off because it patches fixed `panic()` padding in the reference
+  kernel (`board.toml:120-124`); the kernel video console carries the panic
+  text instead.
 - **`payload.adt.persistent_data`** is `not-applicable`: the precedent publishes
   a persistent Data range in the ADT, while our Pong scratch Data uses the
   `PackedRAMDisk` contract only (`scripts/pong_adt_contract.py:86`).

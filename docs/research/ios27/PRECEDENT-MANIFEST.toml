@@ -894,8 +894,8 @@ measured_items = 180
   [[repo.item]]
   kind = "board-key"
   id = "payload.panic_screen"
-  verdict = "have"
-  reason = "framework payload key; our payload carries the probe panic screen (board.toml:109-125)"
+  verdict = "not-applicable"
+  reason = "our payload leaves the probe panic screen off because it patches fixed panic() padding in the reference kernel; board.toml:120-124 records the decision, the kernel video console carries the panic text"
 
   [[repo.item]]
   kind = "board-key"
@@ -1192,8 +1192,8 @@ measured_items = 230
   kind = "patch"
   id = "uke-icon-services-cache.patch"
   sha256 = "a89005b6fcfc0f9b3ad3d431b65b652739115b26a16f150900b5c12788de3238"
-  verdict = "not-applicable"
-  reason = "icon-service xpc cache overlay; our launchd cache patch covers Bluetooth only"
+  verdict = "have"
+  reason = "patches/xnu-12377/0527-k60-bt-launchd-cache.patch mounts /private/var/ngpu/xpc over /System/Library/xpc (same job dictionary and signature paths)"
 
   [[repo.item]]
   kind = "patch"
@@ -1255,8 +1255,8 @@ measured_items = 230
   kind = "patch"
   id = "uke-systemos-root-identity.patch"
   sha256 = "e3258178dfebef165e9209c5882e9d3297b5bb641768da6085e899902714cc55"
-  verdict = "have"
-  reason = "patches/xnu/offline-owner-systemos-mount.patch tracks native_owner_cache_native_union and the real root mount"
+  verdict = "not-applicable"
+  reason = "the 27 stage-0 recipe does not enable XNU_OWNER_UNION_SYSTEMOS, so there is no union root whose MNT_ROOTFS flag must be published; our 16.6.1 union path uses offline-owner-systemos-mount.patch and does not implement the uke rootfs publication"
 
   [[repo.item]]
   kind = "patch"
@@ -1437,8 +1437,8 @@ measured_items = 230
   kind = "patch"
   id = "offline-owner-root-auth-bypass.patch"
   sha256 = "5ac33eaa0b7942d386a895d2e4af8725467905e3ad27030798f6313b26c84b6d"
-  verdict = "not-applicable"
-  reason = "boot-arg root-auth bypass for the precedent offline owner flow; our root binding audit does not take that shortcut"
+  verdict = "have"
+  reason = "patches/xnu/zzzzzzzzz-pong-development-root-policy.patch implements the same boot-arg bypass (pong_allow_unauthenticated_root) for a read-only development root"
 
   [[repo.item]]
   kind = "patch"
@@ -1486,15 +1486,15 @@ measured_items = 230
   kind = "patch"
   id = "zzzzzzzzz-uke-ramoops-print.patch"
   sha256 = "6a9221b47f5502d8e0f35721319a797c11602fc47cedb2e147742cbbcc46c40c"
-  verdict = "have"
-  reason = "patches/xnu-12377/0546-k60-ramoops-console-27.patch prints the ramoops console"
+  verdict = "not-applicable"
+  reason = "trace-only previous-boot ramoops ring print; our 0243-k60-console-export.patch exports the ring through a sysctl for userspace"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzz-uke-panic-flush.patch"
   sha256 = "7e4d178fb65a6745219986d92fceb68e680eef0a6c0456660410a01d266f2c80"
   verdict = "have"
-  reason = "patches/xnu-12377/0559-k60-deferred-video-kprintf.patch and 0560-k60-last-panic-print.patch stage and print the panic text"
+  reason = "patches/xnu-12377/0560-k60-last-panic-print.patch reads and prints the previous embedded panic log; no UkeLastLog staging block is used"
 
   [[repo.item]]
   kind = "patch"
@@ -2244,8 +2244,8 @@ measured_items = 230
   [[repo.item]]
   kind = "board-key"
   id = "payload.panic_screen"
-  verdict = "have"
-  reason = "framework payload key; our payload carries the probe panic screen (board.toml:109-125)"
+  verdict = "not-applicable"
+  reason = "our payload leaves the probe panic screen off because it patches fixed panic() padding in the reference kernel; board.toml:120-124 records the decision, the kernel video console carries the panic text"
 
   [[repo.item]]
   kind = "board-key"
@@ -2285,8 +2285,8 @@ measured_items = 230
   [[repo.item]]
   kind = "board-key"
   id = "payload.skip_setup_tool"
-  verdict = "have"
-  reason = "framework scripts/seed-data-skip-setup.py and the [payload].skip_setup_tool key"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload].skip_setup_tool or [payload.runtime] block; the 27 payload is assembled by the framework boot scripts without an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"
@@ -2734,8 +2734,8 @@ measured_items = 66
   [[repo.item]]
   kind = "board-key"
   id = "payload.panic_screen"
-  verdict = "have"
-  reason = "framework payload key; our payload carries the probe panic screen (board.toml:109-125)"
+  verdict = "not-applicable"
+  reason = "our payload leaves the probe panic screen off because it patches fixed panic() padding in the reference kernel; board.toml:120-124 records the decision, the kernel video console carries the panic text"
 
   [[repo.item]]
   kind = "board-key"
@@ -3063,8 +3063,8 @@ measured_items = 52
   [[repo.item]]
   kind = "board-key"
   id = "payload.panic_screen"
-  verdict = "have"
-  reason = "framework payload key; our payload carries the probe panic screen (board.toml:109-125)"
+  verdict = "not-applicable"
+  reason = "our payload leaves the probe panic screen off because it patches fixed panic() padding in the reference kernel; board.toml:120-124 records the decision, the kernel video console carries the panic text"
 
   [[repo.item]]
   kind = "board-key"
@@ -3677,8 +3677,8 @@ measured_items = 144
   [[repo.item]]
   kind = "board-key"
   id = "payload.panic_screen"
-  verdict = "have"
-  reason = "framework payload key; our payload carries the probe panic screen (board.toml:109-125)"
+  verdict = "not-applicable"
+  reason = "our payload leaves the probe panic screen off because it patches fixed panic() padding in the reference kernel; board.toml:120-124 records the decision, the kernel video console carries the panic text"
 
   [[repo.item]]
   kind = "board-key"
@@ -3713,20 +3713,20 @@ measured_items = 144
   [[repo.item]]
   kind = "board-key"
   id = "payload.runtime.bluetooth_target"
-  verdict = "have"
-  reason = "scripts/build-bluetooth-userspace.py targets the ios27 runtime"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload.runtime] block; the 27 payload is assembled by the framework boot scripts, not by an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"
   id = "payload.runtime.bluetooth_tool"
-  verdict = "have"
-  reason = "scripts/build-bluetooth-userspace.py builds the Bluetooth userspace"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload.runtime] block; the 27 payload is assembled by the framework boot scripts, not by an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"
   id = "payload.runtime.build"
-  verdict = "have"
-  reason = "profiles/os/ios-27.0.1-24A446 profile pins the 24A446 build"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload.runtime] block; the 27 payload is assembled by the framework boot scripts, not by an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"
@@ -3749,20 +3749,20 @@ measured_items = 144
   [[repo.item]]
   kind = "board-key"
   id = "payload.runtime.skip_setup"
-  verdict = "have"
-  reason = "framework scripts/seed-data-skip-setup.py and the [payload].skip_setup_tool key"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload.runtime] block; the 27 payload is assembled by the framework boot scripts, not by an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"
   id = "payload.runtime.target"
-  verdict = "have"
-  reason = "board.toml os_profile ios-27.0.1-24A446 is the iOS 27 target"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload.runtime] block; the 27 payload is assembled by the framework boot scripts, not by an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"
   id = "payload.runtime.tool"
-  verdict = "have"
-  reason = "framework scripts/build-boot-runtime.py"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload.runtime] block; the 27 payload is assembled by the framework boot scripts, not by an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"
@@ -3808,8 +3808,8 @@ measured_items = 144
   [[repo.item]]
   kind = "board-key"
   id = "payload.skip_setup_tool"
-  verdict = "have"
-  reason = "framework scripts/seed-data-skip-setup.py and the [payload].skip_setup_tool key"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload].skip_setup_tool or [payload.runtime] block; the 27 payload is assembled by the framework boot scripts without an OS-image runtime"
 
   [[repo.item]]
   kind = "board-key"

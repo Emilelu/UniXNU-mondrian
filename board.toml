@@ -401,8 +401,13 @@ title = "iOS 27"
 # debug flags - the combination that reached BSD init on SM8450.
 # serial=3 replaces k60_usblog=2: the 12377 console is the firmware one.
 kernel_args = [
-  "-v", "serial=3", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
+  "-v", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
   "use_contiguous_hint=0", "amfi_get_out_of_my_way=1", "k60_fontscale=3",
+  # A DEVELOPMENT build starts with disable_kprintf_output = true and only
+  # clears it for this argument (pexpert/arm/pe_kprintf.c:47-56).  debug=0x14e
+  # clears disable_serial_output, not this flag, so without it every kprintf is
+  # a no-op and a working console still prints nothing.
+  "-enable_kprintf_spam",
 ]
 
 [os_overrides."ios-27.0.1-24A446".payload.adt]

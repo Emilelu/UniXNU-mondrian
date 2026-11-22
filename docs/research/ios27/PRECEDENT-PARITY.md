@@ -109,3 +109,10 @@ are either copied in or reclassified with evidence.
   `bootimg.dtb`, `firmware.image.*`) are `not-applicable` because they are the
   precedent board's own hardware values, not mechanisms. `have` is reserved
   for keys that our `board.toml`, OS profile or ADT generator actually emits.
+
+## sheng umbrella, section-by-section status
+
+- Part 1 (27 of 35 sections) landed as `patches/xnu-12377/0564-k60-sheng-27-bringup-part1.patch` (53,849 B, applies to xnu-12377 unchanged).
+- Remaining sections need hand re-cutting: `bsd/kern/bsd_init.c` (context drift at :800), `bsd/kern/kern_exec.c`, `iokit/Kernel/IOUserClient.cpp`, `osfmk/arm/pmap/pmap.c`, `osfmk/arm64/arm_vm_init.c`, `osfmk/arm64/sleh.c`, `osfmk/vm/vm_shared_region_pager.c`.
+- `pexpert/pexpert/arm64/BCM2837.h` is not applicable: xnu-12377 has no `pexpert/pexpert/arm64` directory at all (checked on the feed).
+- Three-way apply cannot work for these: `git apply -3` reports `does not match index`, i.e. the sheng blobs are not in our object store.

@@ -382,3 +382,13 @@ struct PE_Video {
 纪律（修正后）：**符号门禁必须同时打印两样东西**——量的是哪个文件（绝对路径 + sha256）、
 以及一个已知会命中的对照符号。只报计数不报对象，读数就无法复核（P-279 / P-251 / P-220 同族）。
 
+
+## 2026-11-22 22:30 — the framebuffer geometry is right, and the screen is cleared by the console
+
+ fills the whole framebuffer ( words of
+) at the end of , after the console has mapped
+it. The user saw the **entire screen turn magenta**, then return to black:
+base address, row bytes and height all match the panel. The black that follows
+is s , not a wrong mapping.
+
+Consequence: the

@@ -88,22 +88,21 @@ fi
 # ccache: XNU carries the switch itself (makedefs/MakeInc.def:170 `CCACHE ?=`,
 # :175 `KCC = $(CCACHE) $(CC)`), and unixnu/kernel.py:186 passes this shell's
 # environment down to the builder, so exporting CCACHE is the whole wiring.
-# It buys nothing yet: every XNU compile rule passes -MJ (MakeInc.rule:521) and
-# ccache calls that option unsupported, so the objects stay uncacheable.
-# docs/research/ios27/CCACHE.md has the measurement, and `ccache -s` is the only
-# reading worth trusting.  Guarded so a host without ccache still builds, and a
-# value preset by the caller wins.
 #
-# CCACHE_DIR is pinned to the same directory the documentation tells you to read,
-# because ccache's default is ~/.cache/ccache and `CCACHE_DIR=... ccache -s`
-# against a different directory would report 0 hits for a build that never wrote
-# there.  An exported CCACHE_DIR still wins.
-# Off by default: measured 2026-11-22, ccache cannot cache XNU on 4.9.1 because
-# every compile rule passes -MJ (TooHard -> cannot_cache!), so the wrapper is
-# pure overhead: 1394 s with it, 578 s without, identical inputs.  Set
-# K60_CCACHE=1 to opt in once -MJ is optional.
-if [ -z "${CCACHE+x}" ] && [ "${K60_CCACHE:-0}" = 1 ] && command -v ccache >/dev/null 2>&1; then
-	CCACHE=ccache
+# ccache 4.9 refuses any command line with -MJ ("Compiler option -MJ is
+# unsupported"), and every XNU compile rule passes -MJ $(@:o=o.json), so plain
+# ccache was pure overhead: every call uncacheable, 1394 s against 578 s without.
+# scripts/k60-ccache.py strips -MJ, runs the compiler through ccache, and writes
+# the same JSON record clang would have written -- the record only has to exist
+# (kernel.py:205 uses it to detect a first bootstrap pass), and its `arguments`
+# keep what the compiler saw.  Enabled whenever ccache is installed; a value
+# preset by the caller still wins.
+#
+# CCACHE_DIR is pinned to the directory the documentation reads, because
+# ccache's default is ~/.cache/ccache and `ccache -s` elsewhere would report 0
+# hits for a build that never wrote there.  An exported CCACHE_DIR still wins.
+if [ -z "${CCACHE+x}" ] && command -v ccache >/dev/null 2>&1; then
+	CCACHE="python3 $ROOT/scripts/k60-ccache.py $(command -v ccache)"
 	export CCACHE
 	if [ -z "${CCACHE_DIR+x}" ] && [ -d /opt/k60/trees/.ccache ]; then
 		CCACHE_DIR=/opt/k60/trees/.ccache

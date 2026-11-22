@@ -663,3 +663,29 @@ legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不
 - 动作：`k60_usblog_reset_to_fastboot()`（`0549`）= PSCI `SYSTEM_RESET`（`smc #0`），返回再试 `hvc #0`；两者都返回则打印 `k60-reset: SYSTEM_RESET and HVC both returned; staying put` 停住。
 - 不用 SPMI 记重启原因：裁决 A 已放弃 `0308` 的 SPMI/IMEM 前置（HR-01 冲突且 stage-0 无法观测），原因只记静态变量。
 - 判据：日志里出现 `k60-autoreset: armed for N s after M s idle`（启动时）与 `k60-autoreset: N s after M s idle; resetting`（触发时）。
+### `-uketextconsole`（0558，文本控制台切换）
+
+- 取值：布尔开关，出现即为真（`PE_parse_boot_argn`）。
+- 作用：让 `vcattach()` 在 `vm_initialized = TRUE;` 之后调用 `initialize_screen(NULL, kPETextScreen)`，
+  把图形模式（`gc_graphics_boot`）切到文本模式；不切时 `gc_pause()` 置的 `disableConsoleOutput`
+  会吞掉之后所有 kprintf（`osfmk/console/video_console.c`，uke `docs/PROGRESS.md:229`）。
+- 对应代码：`patches/xnu-12377/0558-k60-fb-vcattach-text-console.patch`；不带此参数该补丁是惰性的。
+- 判据：镜像参数审计 `scripts/check-image-args.py --print-args` 必须列出它。
+
+### `-ukedeferredconsole`（0559，延迟打印）
+
+- 取值：布尔开关。
+- 作用：把 `initialize_screen()` 之前累积的 kprintf 缓冲延后到控制台可写时再输出，
+  配合 0558 才能看到内核最早那几行（uke `uke-deferred-video-kprintf.patch` 的开关）。
+- 对应代码：`patches/xnu-12377/0559-k60-deferred-video-kprintf.patch`；不带此参数该补丁是惰性的。
+### `owner-dataprotect`（0564，sheng 数据保护开关）
+
+- 取值：布尔开关；由 data-protect 策略读取，决定是否对 owner 数据卷启用保护路径。
+- 来源：`patches/xnu-12377/0564-k60-sheng-27-bringup-part1.patch`（sheng `zzzz-sheng-ipados27-bringup.patch` 的 bootargs 段）。
+- 不带的后果：走默认（不启用），与 sheng 未设置时一致。
+
+### `sheng-exc-name`（0564，异常名打印）
+
+- 取值：布尔开关；打开后异常处理路径打印进程名，便于定位 panic 来源。
+- 来源：同上（0564 的 bootargs 段）。
+- 不带的后果：异常日志只给 pid，不给名字。

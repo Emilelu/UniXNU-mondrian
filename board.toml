@@ -409,6 +409,10 @@ kernel_args = [
   # the scroll then writes past the framebuffer and the board hangs) and prints
   # the same geometry after gc_initialize().  check-kprintf-enabled.py requires
   # the flag and 0557 to travel together.
+  # 0558 (vcattach text console) is gated on -uketextconsole and 0559 (deferred
+  # video kprintf) on -ukedeferredconsole; without these two the patches are
+  # inert and the console still never switches to text (uke PROGRESS.md:229).
+  "-uketextconsole", "-ukedeferredconsole",
   "-enable_kprintf_spam",
 ]
 

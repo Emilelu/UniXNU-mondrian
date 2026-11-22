@@ -10,9 +10,49 @@ paths = [
 revisit = "iOS 27 stage-0 进入 SpringBoard 后按线恢复；若 PAS1 owner 或音频成为 stage-0 阻塞则提前恢复"
 why = "PAS1 owner 缺失（电池与音频共用）；io_submap 仅 8 MiB 会 panic。iOS 27 stage 0 的 board.toml 有意 remove kernel.pong_native_driver_source，components.include 不含音频；本记录只覆盖已离线验证的音频线，F3 才把它放回构建。"
 
+[[hardware.audio.precedent]]
+mechanism = "adsp_pas1"
+precedent = "sheng:package/AdspProbe.cpp:325-327 and :573-582"
+status = "present"
+note = "PAS_INIT_IMAGE、PAS_MEM_SETUP、AUTH_AND_RESET 的顺序有已到 bsd_init 之后的 sheng 先例。"
+
+[[hardware.audio.precedent]]
+mechanism = "glink_smp2p"
+precedent = "sheng:package/AdspProbe.cpp:612 and :646"
+status = "present"
+note = "qcom_glink_init 与 channel 有 sheng 先例；K60 的 owner 仍归 power。"
+
+[[hardware.audio.precedent]]
+mechanism = "gpr_apm"
+precedent = "sheng:package/ShengGpr.h:20-21 and sheng:package/ShengGpr.c:84-89"
+status = "present"
+note = "24 B 头、GET_SPF_STATE、回包首字 1 = ready 有 sheng 先例；K60 的 APM 图 ID 未测量。"
+
+[[hardware.audio.precedent]]
+mechanism = "soundwire_codec"
+precedent = "sheng:package/AudioProbe.cpp:768-769, :832, :988-1006, :1021"
+status = "present"
+note = "TX master、SWR FIFO、VA/TX macro 门控、master start 有 sheng 先例；K60 的 codec 枚举未做。"
+
+[[hardware.audio.precedent]]
+mechanism = "amp_control"
+precedent = "sheng:package/ShengCs35l43.c:10-48 and sheng:package/AudioProbe.cpp:391-416"
+status = "present"
+note = "读 ID、errata、I2S/PLL、slot/gain 的步骤组织有先例，但芯片是 CS35L43。"
+
+[[hardware.audio.precedent]]
+mechanism = "aw88261_registers"
+precedent = "无先例"
+status = "absent"
+note = "K60 两颗 AW88261 的寄存器序列、I2C 地址与 reset 没有同芯片成功先例；停在该层，不写成构建判据。"
+
 [hardware.audio.step.same_model]
 done = true
 recorded_at = "2026-11-21T04:06:00"
+criterion = "python3 scripts/check-audio27-criteria.py --step same_model"
+criterion_expect = "CRITERIA same_model OK: Pong stack recorded; K60 AW88261 0x34/0x35 differs from CS35L43; probe entry and boot arg present"
+criterion_negative = "python3 -B scripts/tests/test-audio27-criteria.py CriteriaTest.test_same_model_fails_without_amp_token"
+criterion_precedent = "不适用：调查步骤，不是机制"
 evidence = [
   "K60（mondrian）没有公开的同型号音频栈；最近的是同 SoC 的 Pong（Nothing Phone (1)，SM8475），它带着完整音频栈：PongAdsp.cpp 34,547 B、PongAudio.cpp 29,263 B、PongIOAudio2.h 23,857 B、PongWcd938.h 6,262 B、PongAudioService.cpp 7,509 B；见 docs/research/audio/RESEARCH.md:11-23。",
   "Pong 的硬件真值来自实际 DT：WCD938x、PM8350 S10B 供 RXTX/buck/IO 1.8V，CMD DB 0x80860000；PRM 每个 rate 试 rate 与 19.2/9.6 MHz 两档、attribute 1/0 两档，见 docs/research/audio/RESEARCH.md:25-59。",
@@ -23,6 +63,10 @@ evidence = [
 [hardware.audio.step.official]
 done = true
 recorded_at = "2026-11-21T04:06:00"
+criterion = "python3 scripts/check-audio27-criteria.py --step official"
+criterion_expect = "CRITERIA official OK: power.md audio section has 6 stream steps, 5 hard facts and 6 mic steps"
+criterion_negative = "python3 -B scripts/tests/test-audio27-criteria.py CriteriaTest.test_official_fails_without_hard_fact"
+criterion_precedent = "官方要求，不是机制"
 evidence = [
   "官方 §3「实现音频流」按 AudioReach/GPR 排六步：打开并识别服务、描述完整路由、发图命令、接缓冲路径、接 OS 服务、验证路由；见 UniXNU:docs/zh/porting/power.md:44-74。",
   "官方五条硬事实：DSP 缓冲用 32 位地址并在高字放流索引 0x1001&0xf；GLINK 先小 intent 再大 intent；PRM 用自有端口、TX core clock 0x30c；VA/TX macro 都要开 TX SoundWire master 门控；24 MHz 假设要按 19.2 MHz 修正否则 IO 周期偏 25%；见 UniXNU:docs/zh/porting/power.md:76-82。",
@@ -36,6 +80,10 @@ evidence = [
 [hardware.audio.step.decompile]
 done = true
 recorded_at = "2026-11-21T04:06:00"
+criterion = "python3 scripts/check-audio27-criteria.py --step decompile"
+criterion_expect = "CRITERIA decompile OK: DT adsp 0x9fd00000+0x03100000 with 9 unmeasured zeros; amp 0x34/0x35 reset 1/3; TX core 0x30c at 19.2 MHz"
+criterion_negative = "python3 -B scripts/tests/test-audio27-criteria.py CriteriaTest.test_decompile_fails_with_wrong_adsp_size"
+criterion_precedent = "不适用：DT/寄存器事实"
 evidence = [
   "K60 live FDT 的 adsp_region@9fd00000 是 0x9fd00000 + 0x3100000，UEFI MemoryMapLib 也记这个区间；旧文档里的 0x0a000000/0x01c00000 是错值，现行 dts/mondrian.dts:54-80 已改对，见 docs/research/audio/GAP-ANALYSIS.md:65-75。",
   "PAS1 不是“拷完再调 SCM”：PAS_INIT_IMAGE 只取一次 5404 B metadata（884 B header + 4520 B hash），PAS_MEM_SETUP 一次圈 region 0x9fd00000/0x3100000，随后逐段 COPY/BSS，最后 AUTH_AND_RESET；见 docs/research/audio/ADSP-PAS1.md:29-39。",
@@ -49,6 +97,10 @@ evidence = [
 [hardware.audio.step.wide]
 done = true
 recorded_at = "2026-11-21T04:06:00"
+criterion = "python3 scripts/check-audio27-criteria.py --step wide"
+criterion_expect = "CRITERIA wide OK: 29 catalog components, none named AudioProbe/AdspProbe/PongAudio; sheng AudioReach reference recorded"
+criterion_negative = "python3 -B scripts/tests/test-audio27-criteria.py CriteriaTest.test_wide_fails_when_catalog_names_audio"
+criterion_precedent = "不适用：目录检索"
 catalog_checked = true
 catalog_result = "UniXNU/components.toml 现有 29 个 id（末尾 QcomBaseband 在 :564），其中没有 AudioProbe、AdspProbe、PongAudio 或任何音频组件；官方 docs/zh/porting/drivers.md:45 把音频归到 AdspProbe/AudioProbe 是待建组件，不是可直接取用的 wheel。因此本板没有可用的官方音频驱动，只有 GENI/SPI、XnuPrelink 与 sheng 的板级参考可借，不能重复造一个已有组件。"
 evidence = [
@@ -62,6 +114,10 @@ evidence = [
 [hardware.audio.step.plan]
 done = true
 recorded_at = "2026-11-21T04:06:00"
+criterion = "python3 scripts/check-audio27-criteria.py --step plan"
+criterion_expect = "CRITERIA plan OK: three seams named; define gate is PongAudioAmp.o.json; 0531 dormant gate cited"
+criterion_negative = "python3 -B scripts/tests/test-audio27-criteria.py CriteriaTest.test_plan_fails_without_define_seam"
+criterion_precedent = "不适用：构建接缝"
 evidence = [
   "十步最小出声路径按依赖排序：DT 值/io_submap → PAS1 owner → SMP2P/GLINK/IPCC → GPR/APM 图 → 低 4 GiB DMA → AW882xx → TDM/PRM → CoreAudio/HAL → 24→19.2 MHz；仅做 PAS1+GPR 不会出声，见 docs/research/audio/GAP-ANALYSIS.md:111-126。",
   "27 的迁移分两段：先搬 18 个纯 C 文件 + 2 个 glue，host 测试 979 例；再把 PongAudioAmp.o 强制进链接、列 0531 调用点；见 docs/research/audio/IOS27-MIGRATION.md:8-35 与 :54-73。",
@@ -76,6 +132,10 @@ evidence = [
 [hardware.audio.step.deep]
 done = true
 recorded_at = "2026-11-21T04:06:00"
+criterion = "python3 scripts/check-audio27-criteria.py --step deep"
+criterion_expect = "CRITERIA deep OK: probe order pads->mute->GCC->I2C->SE15->reset->probe; APM query 0x01001021 expects 0x02001007 status 1"
+criterion_negative = "python3 -B scripts/tests/test-audio27-criteria.py CriteriaTest.test_deep_fails_when_probe_order_breaks"
+criterion_precedent = "sheng:package/ShengGpr.h:20-21、sheng:package/ShengGpr.c:84-89"
 evidence = [
   "PAS1 顺序的不可逆点：AUTH_AND_RESET 是最后一步，PAS_MEM_SETUP 只圈一次 region，INIT_IMAGE 只拿 metadata；任何“先逐段拷贝再 INIT_IMAGE”的顺序都会失败，见 docs/research/audio/ADSP-PAS1.md:32-39。",
   "K60 的 ADSP 物理区是 0x9fd00000/0x3100000；链接基址 0x86300000 只用于重定位，不是加载地址；b10 非页对齐、b24 纯 bss 是逐段拷贝的两个边界，见 docs/research/audio/ADSP-PAS1.md:41-47。",
@@ -88,7 +148,11 @@ evidence = [
 
 [hardware.audio.step.verify]
 done = true
-recorded_at = "2026-11-21T22:04:22"
+recorded_at = "2026-11-22T13:31:22"
+criterion = "python3 scripts/check-audio27-criteria.py --step verify"
+criterion_expect = "CRITERIA verify OK: preflight 58/4 rows; residue 21, hold 17, builder 13 cases recorded"
+criterion_negative = "python3 -B scripts/tests/test-audio27-criteria.py CriteriaTest.test_verify_fails_without_hold_case_count"
+criterion_precedent = "不适用：验证步骤"
 local_verified = true
 evidence = [
   "四项静态/单测均已在本工作树跑过：fptrs 19 例、weak-link 14 例、host 979 例、并发 3 例；形状与读数见 docs/research/audio/IOS27-PAC.md:93-116。",
@@ -97,9 +161,10 @@ evidence = [
   "IOAudio2Family 那一个桩的判据写成可证伪的三条：kext 持有的 __auth_got 槽 site 0xfffffff008273608、唯一 loader 0xfffffff009f870bc+0x144、post-SpringBoard 音频 client；同一 target 0xfffffff00b36e788 还被 IOGPUFamily 在 0xfffffff00829c560 引用，说明是通用内核例程，不能拿 Pong 驱动补；见 docs/research/audio/PRELINK-AUDIO-RESIDUE.md:26-75；可复跑脚本 scripts/check-audio27-residue.py:1。",
   "0531 的 source-side 解除条件已落成 dormant 门禁：scripts/check-audio27-hold.py:1 今天读 series:52 与 patch:7 的 #if 1，退 0 打 dormant；只有 guard 变成开关且 builder 给 bsd_init.o 同名 -D 才转判据；见 docs/research/audio/PAS1-CONSUMER-API-PROPOSED.md:282-299；不能误读成已解除 HOLD。",
   "define 的判据已改成对象构建记录（P-300 家族）：不再把驱动脚本里的 PongAudioAmp.o_CFLAGS_ADD 字面量当绿，必须读到目标对象 PongAudioAmp.o.json 的 arguments 里有 -DXNU_PONG_AUDIO=1；选定对象不存在或宏为 0 都退 1，未传对象只退 3（skip）。2026-11-21 实测 0546 的 serial_console.o.json 宏为 0、同次 startup.o.json 的 XNU_NATIVE_TRUST_CACHE 为 1，说明 env 前缀在 27 链路不可靠；stage 0 没有 PongAudioAmp.o.json，本项仍 unproven。见 scripts/check-audio27-builder.py:204-231、scripts/tests/test-audio27-builder.py:1（13 例）、docs/research/audio/LANE-BOUNDARIES.md:48-54 与 docs/research/audio/IOS27-WIRING.md:617-628。",
+  "七步判据已落成可复跑脚本：scripts/check-audio27-criteria.py:1 重算七行，12 个用例证明每条会红；命令、期望与先例表见 docs/research/audio/AUDIO-27-CRITERIA.md:1。",
 ]
 static_check = [
-  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 65 evidence reference(s) resolve, 9 root(s), no device step。",
+  "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 67 evidence reference(s) resolve, 9 root(s), no device step。",
   "python3 scripts/check-audio27-fptrs.py --repo . -> FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 assignment site(s) whose signatures match what they fill, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides。",
   "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/hackios/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。",
 ]
@@ -112,6 +177,7 @@ unit_test = [
   "python3 -B scripts/tests/test-audio27-hold.py -> TESTS OK 17 cases。",
   "python3 -B scripts/tests/test-audio27-host-concurrency.py -> TESTS OK 3 cases。",
   "python3 -B scripts/tests/test-audio27-builder.py -> TESTS OK 13 cases。",
+  "python3 -B scripts/tests/test-audio27-criteria.py -> TESTS OK 12 cases。",
 ]
 artifact_check = [
   "本机 clang 24.0.0git 用 --target=arm64-apple-ios27.0 与 --target=arm64e-apple-ios27.0 各编 PongAudioGeniI2c.c / PongAudioAmp.c：Geni 62 条 ptrauth、Amp 22 条，0 个 __AUTH 段与 authenticated-pointer relocation；形状见 docs/research/audio/IOS27-PAC.md:52-60。",

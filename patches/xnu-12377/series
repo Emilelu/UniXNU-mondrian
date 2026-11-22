@@ -220,3 +220,8 @@ armcpu-sleep-hook.patch
 # OSSymbol family, iokit_rpc kobject grant, vm_dyld_pager, bootargs).
 # The remaining 8 sections are cut separately as 0565.
 0564-k60-sheng-27-bringup-part1.patch
+
+# 4 KiB T0SZ split: the PAC poison-bit mask must use the user TCR size, not
+# the boot one, once T0SZ_USER differs from T0SZ_BOOT (sheng section, re-cut
+# against xnu-12377 where the anchor sits one line later).
+0565-k60-sleh-pac-mask-user-t0sz.patch

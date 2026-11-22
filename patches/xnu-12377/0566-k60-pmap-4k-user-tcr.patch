@@ -1,0 +1,142 @@
+diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
+index 9760c9c..2eadcf0 100644
+--- a/osfmk/arm/pmap/pmap.c
++++ b/osfmk/arm/pmap/pmap.c
+@@ -335,6 +335,50 @@ const struct page_table_attr * const native_pt_attr = &pmap_pt_attr_16k;
+ const struct page_table_attr * const native_pt_attr = &pmap_pt_attr_4k;
+ #endif /* !__ARM_16K_PG__ */
+ 
++#if T0SZ_USER != T0SZ_BOOT
++/* User pmaps: the 4K layout with a TTBR0 root at T0SZ_USER (L0 for a 47-bit range). */
++const struct page_table_attr pmap_pt_attr_4k_user = {
++	.pta_level_info = pmap_table_level_info_4k,
++	.pta_root_level = (T0SZ_USER - 16) / 9,
++	.pta_commpage_level = PMAP_TT_L1_LEVEL,
++	.pta_max_level  = PMAP_TT_L3_LEVEL,
++	.pta_ops = &native_pt_ops,
++	.ap_ro = ARM_PTE_AP(AP_RORO),
++	.ap_rw = ARM_PTE_AP(AP_RWRW),
++	.ap_rona = ARM_PTE_AP(AP_RONA),
++	.ap_rwna = ARM_PTE_AP(AP_RWNA),
++	.ap_xn = ARM_PTE_PNX | ARM_PTE_NX,
++	.ap_x = ARM_PTE_PNX,
++	.pta_page_size  = 4096,
++	.pta_pagezero_size = 4096,
++	.pta_page_shift = 12,
++	.pta_va_valid_mask = ARM_PTE_REGION_MASK(T0SZ_USER),
++};
++const struct page_table_attr * const native_user_pt_attr = &pmap_pt_attr_4k_user;
++_Static_assert((ARM_PTE_REGION_MASK(T0SZ_USER) >> ARM_4K_TT_L0_SHIFT) + 1 == PMAP_ROOT_ALLOC_SIZE / sizeof(tt_entry_t),
++    "the user L0 root must fit the root allocation size");
++
++static inline uint64_t
++pmap_user_tcr(uint64_t tcr)
++{
++	return (tcr & ~((TCR_TSZ_MASK << TCR_T0SZ_SHIFT) | TCR_EPD0_DISABLE)) | (T0SZ_USER << TCR_T0SZ_SHIFT);
++}
++
++/*
++ * Turn TTBR0 walks on at the user range. The caller has pointed TTBR0 at the empty table
++ * (or a user root), so no walk sees a table of the boot format.
++ */
++MARK_AS_PMAP_TEXT void
++pmap_apply_user_tcr(void)
++{
++	const uint64_t tcr = get_tcr();
++	if (tcr != pmap_user_tcr(tcr)) {
++		set_tcr(pmap_user_tcr(tcr));
++		flush_core_tlb();
++	}
++}
++#endif /* T0SZ_USER != T0SZ_BOOT */
++
+ 
+ #if DEVELOPMENT || DEBUG
+ int vm_footprint_suspend_allowed = 1;
+@@ -2277,6 +2321,8 @@ pmap_bootstrap(
+ 	/*
+ 	 *	Initialize the kernel pmap.
+ 	 */
++	/* First: the pmap's type selects its page table attributes (see T0SZ_USER). */
++	kernel_pmap->type = PMAP_TYPE_KERNEL;
+ #if ARM_PARAMETERIZED_PMAP
+ 	kernel_pmap->pmap_pt_attr = native_pt_attr;
+ #endif /* ARM_PARAMETERIZED_PMAP */
+@@ -2314,6 +2360,10 @@ pmap_bootstrap(
+ 
+ 	pmap_max_asids = pmap_compute_max_asids();
+ #if HAS_16BIT_ASID
++	/* UniXNU: TCR_EL1.AS is set (TCR_EL1_ASID); on a core with 8-bit ASIDs it is RES0 and the ASIDs above 255 would alias. */
++	if (((__builtin_arm_rsr64("ID_AA64MMFR0_EL1") >> 4) & 0xf) != 2) {
++		panic("pmap: HAS_16BIT_ASID, but ID_AA64MMFR0_EL1 0x%llx has no 16-bit ASIDs", __builtin_arm_rsr64("ID_AA64MMFR0_EL1"));
++	}
+ 	asid_chunk_size = MAX_HW_ASIDS;
+ #else
+ 	pmap_asid_plru = (pmap_max_asids > MAX_HW_ASIDS);
+@@ -6000,7 +6050,8 @@ wimg_to_pte(unsigned int wimg, pmap_paddr_t pa)
+ 		pte |= ARM_PTE_NX | ARM_PTE_PNX;
+ 		break;
+ 	case VM_WIMG_RT:
+-		if (is_dram_addr(pa)) {
++		/* DRAM outside the gDramBase window (more than one physical range) is still managed memory: Normal, not Device. */
++		if (is_dram_addr(pa) || pa_valid(pa)) {
+ 			pte = ARM_PTE_ATTRINDX(CACHE_ATTRINDX_RT);
+ 		} else {
+ #if HAS_FEAT_XS
+@@ -6040,7 +6091,8 @@ wimg_to_pte(unsigned int wimg, pmap_paddr_t pa)
+ 		pte |= ARM_PTE_NX | ARM_PTE_PNX;
+ 		break;
+ 	case VM_WIMG_WCOMB:
+-		if (is_dram_addr(pa)) {
++		/* DRAM outside the gDramBase window (more than one physical range) is still managed memory: Normal, not Device. */
++		if (is_dram_addr(pa) || pa_valid(pa)) {
+ 			pte = ARM_PTE_ATTRINDX(CACHE_ATTRINDX_WRITECOMB);
+ 		} else {
+ #if HAS_FEAT_XS
+@@ -7962,6 +8014,12 @@ pmap_switch_user_ttb(pmap_t pmap, pmap_cpu_data_t *cpu_data_ptr)
+ 
+ 
+ 	if (pmap != kernel_pmap) {
++#if T0SZ_USER != T0SZ_BOOT
++		if (__improbable(get_tcr() != pmap_user_tcr(get_tcr()))) {
++			set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
++			pmap_apply_user_tcr();
++		}
++#endif /* T0SZ_USER != T0SZ_BOOT */
+ 		set_mmu_ttb((pmap->ttep & TTBR_BADDR_MASK) | (((uint64_t)pmap->hw_asid) << TTBR_ASID_SHIFT));
+ 	} else if (!pmap_user_ttb_is_clear()) {
+ 		pmap_clear_user_ttb_internal();
+@@ -7972,6 +8030,9 @@ MARK_AS_PMAP_TEXT void
+ pmap_clear_user_ttb_internal(void)
+ {
+ 	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
++#if T0SZ_USER != T0SZ_BOOT
++	pmap_apply_user_tcr();
++#endif /* T0SZ_USER != T0SZ_BOOT */
+ }
+ 
+ void
+@@ -10949,6 +11010,14 @@ pmap_batch_set_cache_attributes_internal(
+ 
+ 			pvh_unlock(pai);
+ 
++			/* UniXNU: as pmap_set_cache_attributes() does, a page leaving write-back loses its lines (pmap_sync_page_attributes_phys).
++			 * This SoC does not keep a page's lines coherent across a change of its attributes: a page made write-combined
++			 * would keep the dirty lines of its cacheable zero-fill, and a later device read through a coherent path could see
++			 * them over data written past the cache. */
++			if (wimg_bits_new != wimg_bits_prev && wimg_bits_new != VM_WIMG_RT) {
++				pmap_sync_wimg(pn, wimg_bits_prev, wimg_bits_new);
++			}
++
+ 			page_index++;
+ 
+ #if XNU_MONITOR
+@@ -12965,7 +13034,7 @@ pmap_user_va_bits(pmap_t pmap __unused)
+ 	uint64_t tcr_value = pmap_get_pt_attr(pmap)->pta_tcr_value;
+ 	return 64 - ((tcr_value >> TCR_T0SZ_SHIFT) & TCR_TSZ_MASK);
+ #else
+-	return 64 - T0SZ_BOOT;
++	return 64 - T0SZ_USER;
+ #endif
+ }
+ 

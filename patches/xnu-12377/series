@@ -225,3 +225,10 @@ armcpu-sleep-hook.patch
 # the boot one, once T0SZ_USER differs from T0SZ_BOOT (sheng section, re-cut
 # against xnu-12377 where the anchor sits one line later).
 0565-k60-sleh-pac-mask-user-t0sz.patch
+
+# 4 KiB pmap: T0SZ_USER plumbing and the user-TCR switch (9 of the 10 sheng hunks;
+# the tail hunk at pmap_pending_preemption is still to be re-cut)
+0566-k60-pmap-4k-user-tcr.patch
+
+# 4 KiB pmap: apply the user TCR before the first translation is used
+0567-k60-arm-vm-init-user-tcr.patch

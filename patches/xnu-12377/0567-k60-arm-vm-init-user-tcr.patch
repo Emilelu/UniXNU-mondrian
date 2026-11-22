@@ -1,0 +1,12 @@
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -2167,6 +2167,9 @@
+ 	ml_enable_monitor();
+ 
+ 	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
++#if T0SZ_USER != T0SZ_BOOT
++	pmap_apply_user_tcr();
++#endif
+ 
+ 	flush_mmu_tlb();
+ 	kva_active = TRUE;

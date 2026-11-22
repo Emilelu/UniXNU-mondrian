@@ -7907,6 +7907,55 @@ defconfig 我们 8 个键、Sheng 19 个键。
 `SAME 10 / JUSTIFIED 34 / GAP 47`，全部 GAP 都是 prelink roots；官方 registry 103 页里
 mapped 21 / na 4 / unmapped 78。
 
+## P-308 内核起来了、控制台也画了，但每一个 kprintf 都是空操作
+
+**症状**。27 stage-0 的四次飞行里，屏幕能显示固件的红/蓝/绿黄见证（GOP `Blt`），
+也能看到视频控制台的白色竖线 `|`（`vcputc` 画的光标），但**一行内核文字都没有**。
+于是所有「内核死在 console 初始化之前」的判断都建立在「它没打印」上——而它本来就不打印。
+
+**机制**。`pexpert/arm/pe_kprintf.c` 里：
+
+- `:26-27` 两个门都是 `SECURITY_READ_ONLY_LATE(bool) … = true;`
+  （`disable_serial_output`、`disable_kprintf_output`）。
+- `PE_init_kprintf_config()`（`:38-57`）只做三件事：
+  `if (debug_boot_arg & (DB_KPRT | DB_PRT)) { disable_serial_output = false; }`；
+  `#if DEBUG` → `disable_kprintf_output = false;`；
+  `#elif DEVELOPMENT` → 只有解析到 `-enable_kprintf_spam` 才 `disable_kprintf_output = false;`。
+- `kprintf()`（`:110`）的第一道门是
+  `if (!disable_serial_output && !disable_kprintf_output) { … }` —— 两个都得是 false。
+
+我们的 27 构建是 **DEVELOPMENT**（`MACHINE_CONFIGS=BCM2837 KERNEL_CONFIGS=DEVELOPMENT`），
+不是 DEBUG；`debug=0x14e` 的位是 `DB_HALT 0x1 | DB_PRT 0x2 | DB_KPRT 0x8 | 0x144`，
+`0x14e & (0x2|0x8)` 非零 ⇒ 只清 `disable_serial_output`，**`disable_kprintf_output` 仍是 true**
+⇒ 每个 `kprintf` 都在第一道门返回。
+
+**为什么难看出来**。`vcputc` 不走 `kprintf`，所以「光标画出来了」恰恰**不能**证明
+`kprintf` 通路是通的；而 `debug=0x14e` 在 16 线（DEBUG 构建）是能打印的，于是同一个参数
+在 27 上行为不同。判据只能落在「内核镜像的构建类型 + 启动行有没有那个参数」两处，
+不能落在「屏幕上有没有字」。
+
+**判据**。`board.toml` 的 27 `kernel_args` 必须含 `-enable_kprintf_spam`；
+`check-boot-args.py` 把它算进「已声明范围的参数」；飞行的判据改成「出现内核文字」。
+
+**代价**。这条错误让四张镜像、四次上机、约两小时都花在「为什么它不说话」上，
+而它从第一张镜像起就不可能说话。
+
+## P-307 仪器的寿命必须写进判据：ramoops 只在同一次上电周期内存在
+
+**事实**。ramoops 落在 DRAM（`0xa7000000`，4 MiB），长按电源、复位或断电都会让 DRAM 归零，
+内容必然丢失。这条 2026-10-30 就记进 `docs/archive/PROGRESS-2026-10-30-PM.md` §三，
+`docs/research/ios27/CONSOLE-GAP.md` 的四问表也引了它——但一直没落成 `RULES.toml` 的条目，
+于是同一个错误又犯了一次：我为「第二次 boot 读上一次日志」设计了整套飞行方案，
+被用户当场指出「一复位就断电，内存就清掉了」。
+
+**判据**。`scripts/check-channel-lifetime.py`：任何被当作仪器的通道，其文档必须显式写
+`instrument:` 并回答四问——`lifetime` / `read_moment` / `writer` / `loss_condition`。
+缺一条就红；答案里出现「复位后仍在」而通道是 DRAM 环时直接判错。
+
+**顺带的反证**。固件 `FrameBufferSerialPortLib.c:255-274` 的 `RamoopsInit()` 每次启动
+`ZeroMem(RAMOOPS_BASE + 0x10, 0x200000 - 0x10)`（注释 `fresh log per boot`），
+所以连「同一次上电」的旧内容都不会留——这个自擦是 `RamoopsDumpDxe` 读不到内核日志的第二个原因。
+
 ## P-306 预链接 root 列表是从别的板子抄来的，抄完没人判过
 
 **症状**。`audit-ios27-conformance.py` 首跑报「我们缺 44 个 prelink root」。逐条查下去发现两件事：

@@ -1373,3 +1373,16 @@ statement = "设备层 `[kernel.prelink].roots` 必须由 `scripts/check-prelink
 check = "python3 scripts/tests/test-check-prelink-roots.py"
 note = "2026-11-22 首跑发现比错了层（只看 board.toml，漏了 OS profile 的 30 条 root），修正后仍缺 12 个 USB/HID/SCSI 家族；抄 Sheng 的列表在 prelink 阶段会因缺 bundle 直接崩。"
 
+[[rule]]
+id = "P-307"
+title = "仪器的寿命必须写进判据，不能假设它跨复位"
+statement = "任何被当作观测仪器的通道，文档必须用 `instrument:` 声明并回答四问：lifetime、read_moment、writer、loss_condition；DRAM 环的 loss_condition 必须是「任何复位或断电」，不得声称跨复位保留。"
+check = "python3 scripts/check-channel-lifetime.py"
+note = "2026-11-22：ramoops 不跨复位这条 2026-10-30 就记录过，但没进 RULES，于是又设计了一次「第二次 boot 读上一次日志」的飞行，被用户当场指出。"
+
+[[rule]]
+id = "P-308"
+title = "内核不打印之前，先确认它被允许打印"
+statement = "27 构建是 DEVELOPMENT，`disable_kprintf_output` 默认为 true，只有 `-enable_kprintf_spam` 能清；`debug=0x14e` 只清 `disable_serial_output`。因此 27 `kernel_args` 必须含 `-enable_kprintf_spam`，且「没有内核文字」不得作为「内核死在 console 初始化之前」的证据，除非已确认该参数在镜像里。"
+check = "python3 scripts/check-kprintf-enabled.py"
+note = "2026-11-22：四张镜像四次上机都因为每个 kprintf 是空操作而「无输出」，白光标（vcputc）反而被当成控制台活着的证据。"

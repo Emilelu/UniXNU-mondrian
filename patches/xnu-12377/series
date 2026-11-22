@@ -214,3 +214,9 @@ armcpu-sleep-hook.patch
 # 4 KiB pages: the same kernel-stack shift vermeer ships, kept because it
 # applies unchanged to xnu-12377 and states the invariant explicitly.
 0563-k60-kernel-stack-shift-vermeer.patch
+
+# 27 bring-up bundle from sheng, part 1: the 27 of 35 file sections that
+# apply to xnu-12377 unchanged (pmap geometry/T0SZ, sigp recovery, bindfs,
+# OSSymbol family, iokit_rpc kobject grant, vm_dyld_pager, bootargs).
+# The remaining 8 sections are cut separately as 0565.
+0564-k60-sheng-27-bringup-part1.patch

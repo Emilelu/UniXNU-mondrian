@@ -1,0 +1,32 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -2882,6 +2882,29 @@
+ 			new_vinfo.v_baseaddr = newVideoVirt + boot_vinfo->v_offset;                     /* Set the new framebuffer address */
+ 		}
+ 
++		/*
++		 * K60 witness: paint a magenta band across the top of the frame buffer
++		 * through the mapping just made, before any console code clears the
++		 * screen.  The loader's GOP Blt picture reaches the panel and the screen
++		 * goes black after the hand-off; the two candidates are "the console
++		 * cleared it" and "the display is off", and only a write from inside the
++		 * kernel can tell them apart.  Magenta means the kernel reached this
++		 * point and the mapping works; no magenta means it did not get here.
++		 *
++		 * The mapping is VM_WIMG_IO or VM_WIMG_WCOMB, neither of which is
++		 * write-back cached, so the stores need no cache maintenance.
++		 */
++		if ((new_vinfo.v_baseaddr != 0) && (new_vinfo.v_rowbytes != 0) &&
++		    (new_vinfo.v_height > 8)) {
++			volatile uint32_t *witness = (volatile uint32_t *)(uintptr_t)new_vinfo.v_baseaddr;
++			unsigned int      words = (new_vinfo.v_rowbytes / 4) * 8;
++			unsigned int      index;
++
++			for (index = 0; index < words; index++) {
++				witness[index] = 0x00FF00FF;   /* XRGB magenta */
++			}
++		}
++
+ #if defined(__x86_64__)
+ 		// Adjust the video buffer pointer to point to where it is in high virtual (above the hole)
+ 		new_vinfo.v_baseaddr |= (VM_MIN_KERNEL_ADDRESS & ~LOW_4GB_MASK);

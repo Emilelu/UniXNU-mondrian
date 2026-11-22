@@ -160,6 +160,12 @@ armcpu-sleep-hook.patch
 # magenta with no text means the kernel reached this point with the console still
 # off, text means the console works, black means the kernel never got here.
 0554-k60-fb-witness-tail.patch
+# 0556: fill the whole framebuffer with the kernel's own v_rowbytes/v_height.
+# The 0554 eight-row band showed magenta across the panel instead of at the
+# top, so either initialize_screen() runs with several v_offset values or the
+# stride disagrees.  A uniform fill means the geometry is right; remaining
+# bands mean the stride is wrong and their pitch measures the ratio.
+0556-k60-fb-full-witness.patch
 # 0555 keeps the text console on the framebuffer.  PE_create_console() selects
 # kPEGraphicsMode, so gc_pause() sets disableConsoleOutput and every later kprintf
 # and IOLog is discarded for the rest of a graphics boot -- that is why the screen

@@ -1,0 +1,23 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -3120,6 +3120,20 @@
+ #endif
+ 	}
+ 
++	/*
++	 * K60 witness: fill the whole framebuffer using the geometry the kernel
++	 * believes it has.  If the panel turns uniformly magenta the stride is
++	 * right; if bands remain, v_rowbytes disagrees with the panel and the band
++	 * pitch measures the ratio.  Written after vc_initialize() cleared the
++	 * screen, so the fill cannot be erased.
++	 */
++	if ((vinfo.v_baseaddr != 0) && (vinfo.v_rowbytes != 0) && (vinfo.v_height > 8)) {
++		volatile uint32_t *all = (volatile uint32_t *)(uintptr_t)vinfo.v_baseaddr;
++		unsigned int total = (vinfo.v_rowbytes / 4) * vinfo.v_height;
++		for (unsigned int index = 0; index < total; index++) {
++			all[index] = 0x00FF00FF;
++		}
++	}
+ 	/* Console initialization/acquisition may clear the existing mapping. */
+ 	boot_progress_bind(vinfo.v_baseaddr, vinfo.v_width, vinfo.v_height,
+ 	    vinfo.v_rowbytes, vinfo.v_depth);

@@ -196,6 +196,7 @@ def audit(image: pathlib.Path, board: pathlib.Path) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--image", required=True, type=pathlib.Path)
+    ap.add_argument("--print-args", action="store_true", help="print the argument list on success")
     ap.add_argument("--board", type=pathlib.Path,
                     default=pathlib.Path(__file__).resolve().parents[1] / "board.toml")
     args = ap.parse_args()
@@ -210,7 +211,10 @@ def main() -> int:
             print("  -", p)
         return 1
     got = image_args(args.image)
-    print(f"image-arg-audit: OK ({len(got)} arguments, {len(' '.join(got))} bytes)")
+    if args.print_args:
+        print(' '.join(got))
+    else:
+        print(f"image-arg-audit: OK ({len(got)} arguments, {len(' '.join(got))} bytes)")
     return 0
 
 

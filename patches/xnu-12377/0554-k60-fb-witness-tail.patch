@@ -1,6 +1,6 @@
 --- a/osfmk/console/video_console.c
 +++ b/osfmk/console/video_console.c
-@@ -3146,6 +3146,29 @@
+@@ -3123,6 +3123,30 @@
  	/* Console initialization/acquisition may clear the existing mapping. */
  	boot_progress_bind(vinfo.v_baseaddr, vinfo.v_width, vinfo.v_height,
  	    vinfo.v_rowbytes, vinfo.v_depth);
@@ -18,9 +18,10 @@
 +	 * The mapping is VM_WIMG_IO or VM_WIMG_WCOMB, neither write-back cached, so
 +	 * these stores need no cache maintenance.
 +	 */
-+	if ((vinfo.v_baseaddr != 0) && (vinfo.v_rowbytes != 0) && (vinfo.v_height > 8)) {
++	if ((vinfo.v_baseaddr != 0) && (vinfo.v_rowbytes != 0) &&
++	    (vinfo.v_height >= 8) && (vinfo.v_height <= 8192)) {
 +		volatile uint32_t *tail = (volatile uint32_t *)(uintptr_t)vinfo.v_baseaddr;
-+		unsigned int      words = (vinfo.v_rowbytes / 4) * 8;
++		unsigned int      words = (vinfo.v_rowbytes / 4) * vinfo.v_height;
 +		unsigned int      index;
 +
 +		for (index = 0; index < words; index++) {

@@ -110,6 +110,26 @@ def enabled(config: Path, symbol: str) -> bool:
     return value
 
 
+def force_load_producers() -> int:
+    """P-310: every -force_load path must have a producer, before anything links.
+
+    The registry entry for P-310 names this script, so the static half of the
+    rule lives here as its first step: it needs no kernel and answers before a
+    build is attempted. A gap is a failure, not a skip.
+    """
+    gate = REPO / "scripts" / "check-force-load-producers.py"
+    if not gate.is_file():
+        return 0
+    done = subprocess.run([sys.executable, str(gate), "--repo", str(REPO)],
+                          capture_output=True, text=True)
+    sys.stdout.write(done.stdout)
+    if done.returncode:
+        sys.stderr.write(done.stderr)
+        print("FAIL: P-310 force-load producers", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="K60 output root")
@@ -117,6 +137,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--adsp-blob", action="store_true",
                         help="the build passed --adsp-blob; expect k60_adsp_blob in the kernel")
     args = parser.parse_args(argv)
+
+    if force_load_producers():
+        return 1
 
     kernel = args.kernel or find_kernel(args.out)
     if not kernel or not kernel.is_file():

@@ -14,6 +14,11 @@ build/native-ufs/libNativeUfs.a with a bare `test -f`, so a missing archive ends
 the build with no message; and an archive built from stale objects can exist
 while missing the driver's own entry point. Existence and content are two
 different questions; this gate asks both, offline. It never builds anything.
+
+The producer carries a lineage: `build-native-ufs-linux.py` is the 27 producer,
+any `*-macos.py` script is 16.6.1-only. Without --strict a 16-only producer is
+accepted but labelled `NOTE 16.6.1-only`; with --strict it is not counted and the
+gate fails, because the 27 profile never runs a macOS producer.
 """
 
 from __future__ import annotations
@@ -69,6 +74,22 @@ def archive_symbols(archive: Path, nm: str) -> set[str] | None:
     return {line.split()[-1] for line in done.stdout.splitlines() if line.strip()}
 
 
+def relative(path: Path, repo: Path) -> str:
+    try:
+        return path.relative_to(repo).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def producer_lineage(producer: Path) -> str:
+    """16 = 16.6.1-only, 27 = this line's producer, both = shared script."""
+    if producer.name.endswith("-macos.py"):
+        return "16"
+    if producer.name == "build-native-ufs-linux.py":
+        return "27"
+    return "both"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, default=REPO)
@@ -82,6 +103,8 @@ def main() -> int:
     parser.add_argument("--require-symbol", action="append", default=None)
     parser.add_argument("--nm", default=None,
                         help="llvm-nm executable, or a quoted shim command such as \"python fake-nm.py\"")
+    parser.add_argument("--strict", action="store_true",
+                        help="a 16.6.1-only producer does not count as this line's producer")
     args = parser.parse_args()
 
     repo = args.repo.resolve()
@@ -100,10 +123,16 @@ def main() -> int:
         return 0
 
     problems: list[str] = []
+    where = producer_lineage(producer)
+    if where == "16":
+        if args.strict:
+            problems.append("producer %s is 16.6.1-only; the 27 line never runs it" % relative(producer, repo))
+        else:
+            print("NOTE 16.6.1-only producer %s" % relative(producer, repo))
     if not producer.is_file():
-        problems.append("no producer: %s does not exist" % producer.relative_to(repo).as_posix())
+        problems.append("no producer: %s does not exist" % relative(producer, repo))
     if not archive.is_file():
-        problems.append("no archive: %s does not exist (the builder's bare test -f ends the build silently)" % archive.relative_to(repo).as_posix())
+        problems.append("no archive: %s does not exist (the builder's bare test -f ends the build silently)" % relative(archive, repo))
     if problems:
         for problem in problems:
             print("FAIL %s" % problem)
@@ -123,10 +152,10 @@ def main() -> int:
         return 1
     absent = [needle for needle in required if not any(needle in symbol for symbol in symbols)]
     if absent:
-        print("FAIL %s lacks %s" % (archive.relative_to(repo).as_posix(), ", ".join(absent)))
+        print("FAIL %s lacks %s" % (relative(archive, repo), ", ".join(absent)))
         print("ufs27-native-ufs-archive: FAIL (%d)" % len(absent))
         return 1
-    print("OK %s carries %s" % (archive.relative_to(repo).as_posix(), ", ".join(required)))
+    print("OK %s carries %s (producer %s [%s])" % (relative(archive, repo), ", ".join(required), relative(producer, repo), where))
     print("ufs27-native-ufs-archive: ok")
     return 0
 

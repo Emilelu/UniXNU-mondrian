@@ -86,6 +86,17 @@ with tempfile.TemporaryDirectory() as tmp:
     done = run(make_repo(base / 'real'), ['--nm', 'definitely-not-an-nm'])
     case('a missing nm tool fails loudly', done.returncode == 1 and 'cannot read' in done.stdout, done.stdout)
 
+    legacy = make_repo(base / 'legacy')
+    (legacy / 'scripts/build-pong-ufs-probe-macos.py').write_text('#!/usr/bin/env python3\n')
+    done = run(legacy, ['--nm', fake_nm(base), '--producer', str(legacy / 'scripts/build-pong-ufs-probe-macos.py')])
+    case('a 16.6.1-only producer is labelled but accepted',
+         done.returncode == 0 and 'NOTE 16.6.1-only' in done.stdout, done.stdout)
+
+    done = run(legacy, ['--nm', fake_nm(base), '--strict',
+                        '--producer', str(legacy / 'scripts/build-pong-ufs-probe-macos.py')])
+    case('--strict rejects a 16.6.1-only producer',
+         done.returncode == 1 and '16.6.1-only' in done.stdout, done.stdout)
+
 failed = [name for name, ok, _ in CASES if not ok]
 for name, ok, detail in CASES:
     if not ok:

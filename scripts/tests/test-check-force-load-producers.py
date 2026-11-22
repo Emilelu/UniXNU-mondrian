@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Tests for scripts/check-force-load-producers.py.
 
-Two small trees stand in for the real one: a builder that force-loads an archive
-a local recipe writes, and a builder that force-loads an archive nobody writes
-(the P-267 shape). The third case asks the real tree and expects no gaps.
+Small trees stand in for the real one: a builder that force-loads an archive a
+local recipe writes, a builder that force-loads an archive nobody writes (the
+P-267 shape), and a builder whose only producer is a 16.6.1-only macOS script.
+The last case asks the real tree and expects no gaps.
 """
 import os
 import pathlib
@@ -20,11 +21,11 @@ def case(name, ok, detail=None):
     CASES.append((name, ok, detail))
 
 
-def tree(base, body, producer=None, catalog=None):
+def tree(base, body, producer=None, producer_name='build-known-thing.py', catalog=None):
     (base / 'scripts').mkdir(parents=True)
     (base / 'scripts/build-xnu-generic.sh').write_text('#!/bin/sh\nset -eu\n' + body)
     if producer:
-        (base / 'scripts/build-known-thing.py').write_text('# writes build/known/libKnown.a\n')
+        (base / 'scripts' / producer_name).write_text('# writes build/known/libKnown.a\n')
     if catalog:
         framework = base / 'framework'
         framework.mkdir()
@@ -32,10 +33,11 @@ def tree(base, body, producer=None, catalog=None):
     return base
 
 
-def run(repo, framework=None):
+def run(repo, framework=None, extra=()):
     args = [sys.executable, str(CHECK), '--repo', str(repo)]
     if framework:
         args += ['--framework', str(framework)]
+    args += list(extra)
     return subprocess.run(args, capture_output=True, text=True)
 
 
@@ -69,6 +71,24 @@ with tempfile.TemporaryDirectory() as tmp:
     done = run(literal)
     case('a literal $ROOT path is parsed and graded',
          done.returncode == 0 and 'build/literal/libLiteral.a' in done.stdout, done.stdout)
+
+    macos = tree(base / 'macos', 'OLD_ARCHIVE=$ROOT/build/known/libKnown.a\n'
+                                 'KERNEL_EXTRA_ARCHIVES="-Wl,-force_load,$OLD_ARCHIVE"\n',
+                 producer=True, producer_name='build-known-thing-macos.py')
+    done = run(macos)
+    case('a 16.6.1-only producer is labelled but still accepted',
+         done.returncode == 0 and 'NOTE 16.6.1-only' in done.stdout, done.stdout)
+
+    done = run(macos, extra=['--strict'])
+    case('--strict does not count 16.6.1-only evidence',
+         done.returncode == 1 and 'only 16.6.1 evidence' in done.stdout, done.stdout)
+
+    native = tree(base / 'native', 'NATIVE_ARCHIVE=$ROOT/build/known/libKnown.a\n'
+                                   'KERNEL_EXTRA_ARCHIVES="-Wl,-force_load,$NATIVE_ARCHIVE"\n',
+                  producer=True, producer_name='build-native-ufs-linux.py')
+    done = run(native, extra=['--strict'])
+    case('--strict accepts a 27 producer',
+         done.returncode == 0 and '[27]' in done.stdout, done.stdout)
 
     framework = pathlib.Path(os.environ.get('K60_FRAMEWORK_REPO', 'E:/hackios/UniXNU'))
     if (framework / 'components.toml').is_file():

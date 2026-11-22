@@ -45,3 +45,20 @@ flight is INVALID I re-run once with the same image before drawing any conclusio
 3. 之后 30 s 内 `fastboot devices` 能看到 `6033dbec` ⇒ PSCI `SYSTEM_RESET` 真的把设备带回 fastboot。
 
 **如果第 1 行出现、第 2 行没出现** ⇒ 内核在 300 s 内已经死了（那就不是复位没做，而是它先崩了）；**如果第 1 行都没有** ⇒ `k60_autoreset` 参数没到内核或 `bsp_init` 没走到调用点。两种情形都不能写成「复位失败」。
+
+## 2026-11-22 08:2x — 待飞镜像换成带色块的 `1112553c…`
+
+`boot.img` 201,900,032 B，`sha256 1112553ced41855f05f737504349e2d6f5c9f6de79a28a257b9bcb1e95f791b6`；
+payload 内核 `327bb3a5ad2d`，declared transform `7817e6332181`。镜像内核里三条字符串/符号各 1 次：
+`_k60_bootbar`、`k60-bootbar: painted`、`pong-ramoops: console attached`。
+
+四路证据的读法（互不依赖，任一条成立就够定位）：
+
+| 现象 | 结论 |
+| --- | --- |
+| 8,8 处绿块 | 执行过 `arm_vm_init` 之后（含 `pong_ramoops_console_init()`） |
+| 绿块后出现蓝块 | 已到 `bsd_init` 的 `k60_usblog_start()` 之后 |
+| 两色块都没有 | 死在 `pe_init` 之前（或帧缓冲映射失败，日志会有 `k60-bootbar:` 行） |
+| 屏幕有字（PE 控制台） | 文本通道本来就没坏，前两次 0 字节是串口侧的问题 |
+
+色块是**覆盖式**的：它在 `8,8` 到 `72,72` 涂 64×64，不依赖字体、文本模式或行列计算。

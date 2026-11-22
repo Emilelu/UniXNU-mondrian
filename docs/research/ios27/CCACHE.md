@@ -20,7 +20,7 @@ XNU 自带开关 `makedefs/MakeInc.def:170` `CCACHE ?=` / `:175` `KCC = $(CCACHE
 | 合计 | 975 s | 630 s | |
 
 按四段口径：kernel 450–760 s、payload 与 kernel 同在这 452 s 一行内（`mark payload` 在 `unixnu build payload`
-之后，`scripts/build-ios27-linux.sh:113`）、固件卷 0 s（复用 3 s）或 ~519 s、bootimg 171 s。kernel 单独没有 stage
+之后，`scripts/build-ios27-linux.sh:121-122`）、固件卷 0 s（复用 3 s）或 ~519 s、bootimg 171 s。kernel 单独没有 stage
 mark；冷树没有 `.o.json` 时 `scripts/unixnu/kernel.py:205` 先跑一跳 bootstrap（`:211-219`）再跑正式一跳（`:225`），
 `kernel-bootstrap.log` 与 `kernel.log` 各 181 MB，这就是 760 s 上界的来源；要精确到秒，下次构建补 `mark kernel`。
 预链接（`XnuPrelink`）与 `ld` 链接是链接步骤，ccache 只代理编译器，天然不覆盖。

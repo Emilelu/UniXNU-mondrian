@@ -99,8 +99,12 @@ def main() -> int:
     framework = args.framework
     if framework is None:
         import os
-        value = os.environ.get("K60_FRAMEWORK_REPO")
-        framework = Path(value) if value else repo.parent / "UniXNU"
+        candidates = [os.environ.get("K60_FRAMEWORK_REPO"), repo.parent / "UniXNU",
+                      Path("E:/hackios/UniXNU"), Path("/e/hackios/UniXNU")]
+        for candidate in candidates:
+            if candidate and (Path(candidate) / "components.toml").is_file():
+                framework = Path(candidate)
+                break
     outputs = catalog_outputs(framework)
 
     lines = builder.read_text(encoding="utf-8", errors="replace").splitlines()

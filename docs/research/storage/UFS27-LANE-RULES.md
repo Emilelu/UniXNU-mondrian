@@ -71,3 +71,15 @@ Unchanged by the broadcast: ⑦ needs F3's real build tree, that tree's
 bare `test -f` lines (`scripts/build-xnu-generic.sh:730`, `:767`) belong to the
 Lead; the eleven `IOBlockStorageDevice` imports belong to bt's Route D; ring 5
 belongs to the fileset-entry owner. No F3 diff, no boot, no build.
+
+## 6. P-308 boundary: `-enable_kprintf_spam` and 0557 travel together (Lead, 2026-11-22)
+
+The Lead re-opened `-enable_kprintf_spam`, but only on a tree that carries patch
+**0557**: 0557 removes the print that ran in `initialize_screen()` before
+`v_rows` existed and moves the same geometry numbers to after
+`gc_initialize()`. `scripts/check-kprintf-enabled.py` now requires the flag and
+0557 **together** — either one missing is red. Read a red there as "the pair is
+incomplete", not as "the parameter is banned again". This lane does not touch
+kprintf, and `check-kprintf-enabled.py` is not on this branch (checked
+2026-11-22), so the rule changes nothing here; it only stops a future reader of
+this file from misreading that gate.

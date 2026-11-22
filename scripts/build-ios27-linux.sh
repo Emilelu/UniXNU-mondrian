@@ -98,7 +98,11 @@ fi
 # because ccache's default is ~/.cache/ccache and `CCACHE_DIR=... ccache -s`
 # against a different directory would report 0 hits for a build that never wrote
 # there.  An exported CCACHE_DIR still wins.
-if [ -z "${CCACHE+x}" ] && command -v ccache >/dev/null 2>&1; then
+# Off by default: measured 2026-11-22, ccache cannot cache XNU on 4.9.1 because
+# every compile rule passes -MJ (TooHard -> cannot_cache!), so the wrapper is
+# pure overhead: 1394 s with it, 578 s without, identical inputs.  Set
+# K60_CCACHE=1 to opt in once -MJ is optional.
+if [ -z "${CCACHE+x}" ] && [ "${K60_CCACHE:-0}" = 1 ] && command -v ccache >/dev/null 2>&1; then
 	CCACHE=ccache
 	export CCACHE
 	if [ -z "${CCACHE_DIR+x}" ] && [ -d /opt/k60/trees/.ccache ]; then

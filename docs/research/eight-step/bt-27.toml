@@ -50,3 +50,94 @@ evidence = "Static only: five checks pass on the 27 image (docs/plans/BT-IOS27-P
 static_check = "scripts/check-bluetooth-dt.py:101-107 ties transport-speed to K60_BT_RUN_BAUD and encoding to 1; test-bluetooth-dt.py, test-bt-0524-dt-node.py, test-bt-geni-model.py, test-bt-power-check.py and test-bt-kernel-check.py pass."
 unit_test = "14 test-bt-* files exist under scripts/tests; the GENI model has 26 cases over 36 registers and 64 assertions (docs/plans/BT-IOS27-PORT.md:306-329)."
 artifact_check = "CI 44518998961 kernel is 93,077,504 B, sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86; five contract checks pass (docs/plans/BT-IOS27-PORT.md:481-499). No boot and no 24A446 payload."
+
+# Pre-boot acceptance: one executable reading per research step.
+# Run from the repository root. A row is accepted only when the command
+# exits 0 and `expect` appears in its output, and its negative test is green.
+# ⑦ is deliberately red on the historical stage: the row records a criterion,
+# not a pass. Do not mark ⑦ done until a correct stage is present.
+
+[hardware.bluetooth.acceptance]
+status = "pre-boot"
+recorded_at = "2026-11-22T13:30:00+08:00"
+host = "Windows host for static checks; WSL/Linux with clang for ③"
+note = "Seven rows, one per research step. The command is the criterion; reading is the output observed on 2026-11-22. The negative column is the test that proves the checker reds on bad input. A row with conclusion 不知道 is not a pass."
+doc = "docs/research/bt/BT-27-PREBOOT-ACCEPTANCE.md"
+
+[hardware.bluetooth.acceptance.same_model]
+label = "① 同型"
+command = 'grep -n -A12 QcaBluetooth E:/hackios/UniXNU/components.toml'
+expect = 'verified_devices = ["sheng"]'
+negative = 'python3 scripts/tests/test-bt-27-acceptance.py'
+precedent = 'E:/hackios/UniXNU/components.toml:505'
+conclusion = "有推断"
+reading = 'verified_devices = ["sheng"]; no mondrian entry'
+negative_reading = 'reader test rejects a row with no precedent'
+blocked = 'no same-model 27 implementation; this row is an inventory reading, not a hardware test'
+
+[hardware.bluetooth.acceptance.official]
+label = "② 官方"
+command = 'python3 scripts/check-bluetooth-dt.py && python3 scripts/check-bluetooth-power.py --source "E:/hackios/UniXNU/out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work/bsd/dev/qbt_k60.c"'
+expect = 'bluetooth-power: OK (22 check(s))'
+negative = 'python3 scripts/tests/test-bt-0524-dt-node.py && python3 scripts/tests/test-bt-power-check.py'
+precedent = 'E:/hackios/UniXNU-sheng/dts/sheng.dts:17-23'
+conclusion = "有推断"
+reading = 'bluetooth-dt-check: OK (0 failure(s)); bluetooth-power: OK (22 check(s))'
+negative_reading = '15 + 18 cases OK'
+blocked = 'the sheng node is wcn7850-bt at 3.2 Mbaud; the K60 node is wcn6855-bt at 3.0 Mbaud, so the transport values are inferred, not copied'
+
+[hardware.bluetooth.acceptance.decompile]
+label = "③ 反编译"
+command = 'python3 scripts/check-bluetooth-geni.py && python3 scripts/check-bluetooth-gic.py'
+expect = 'bluetooth-geni-check: OK (64 assertion(s), 36 register(s))'
+negative = 'python3 scripts/tests/test-bt-geni-model.py && python3 scripts/tests/test-bt-gic-shared.py'
+precedent = 'E:/hackios/UniXNU/components.toml:493-508'
+conclusion = "有推断"
+reading = 'geni 64 assertions/36 registers; gic 43 assertions/16 writes'
+negative_reading = '26 + 20 cases OK under WSL clang'
+blocked = 'the Windows host has no C compiler; the command was run under WSL Ubuntu-24.04'
+
+[hardware.bluetooth.acceptance.wide]
+label = "④ 广域"
+command = 'python3 scripts/check-bluetooth-data-gate-chain.py && python3 scripts/check-bluetooth-addon-prefixes.py'
+expect = 'bluetooth-addon-prefixes: OK'
+negative = 'python3 scripts/tests/test-bt-data-gate-chain.py && python3 scripts/tests/test-bt-addon-prefixes.py'
+precedent = 'E:/hackios/UniXNU-sheng/board.toml:66'
+conclusion = "有推断"
+reading = 'data-gate-chain: OK; addon-prefixes: OK (bluetooth-bin, bluetooth-lib; xpc SKIP)'
+negative_reading = '12 + 10 cases OK'
+blocked = 'the xpc mount is not checked out, so the addon prefix check skips it'
+
+[hardware.bluetooth.acceptance.plan]
+label = "⑤ 计划"
+command = 'python3 scripts/check-bluetooth-runtime-gate.py'
+expect = 'bluetooth-runtime-gate: OK'
+negative = 'python3 scripts/tests/test-bt-runtime-gate.py'
+precedent = 'E:/hackios/UniXNU-sheng/board.toml:68-84'
+conclusion = "有推断"
+reading = 'series 30 entries, mounts 0526/0527; defconfig CONFIG_XNU_OWNER_DATA_MOUNT=absent; state gated-off'
+negative_reading = '13 cases OK'
+blocked = 'the runtime mounts are compiled out; this is a stage-0 boundary, not a runtime pass'
+
+[hardware.bluetooth.acceptance.deep]
+label = "⑥ 深入"
+command = 'python3 scripts/check-bluetooth-kernel.py --kernel "E:/hackios/ci-artifacts/44518998961/ext/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/kernel.macho"'
+expect = 'bluetooth-kernel-check: OK (0 failure(s))'
+negative = 'python3 scripts/tests/test-bt-kernel-check.py'
+precedent = 'E:/hackios/UniXNU/components.toml:493-508'
+conclusion = "有推断"
+reading = 'bluetooth-kernel-check: OK (0 failure(s)) on 93,077,504 B CI kernel sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86'
+negative_reading = 'test-bt-kernel-check: OK'
+blocked = 'the CI kernel is not 24A446 and its head 33f5229 is not an ancestor of this branch'
+
+[hardware.bluetooth.acceptance.verify]
+label = "⑦ 核验"
+command = 'python3 scripts/check-bluetooth-userspace.py --stage "E:/hackios/k60-bt-work/bt24/stage"'
+expect = 'bluetooth-userspace-check: OK'
+negative = 'python3 scripts/tests/test-bt-userspace-check.py'
+precedent = 'E:/hackios/UniXNU-sheng/board.toml:68-84'
+conclusion = "不知道"
+reading = 'FAILED (1): BlueTool links /usr/lib/libSystem.B.dylib, not libxpc'
+negative_reading = 'test-bt-userspace-check: OK'
+blocked = 'the historical stage is red on the libxpc assertion; ⑦ is not green'
+stop = false

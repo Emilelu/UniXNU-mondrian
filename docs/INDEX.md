@@ -121,6 +121,7 @@ docs/
 | `bt/RESEARCH.md` | **蓝牙八步 ①②③**：QCA6490 走 GENI UART 的硬件真值、官方组件分工、与 iOS 27 用户态的对齐点 |
 | `bt/HANDOFF.md` | **蓝牙线交接**：从 0516 到 0525 的每一步、每次飞行的判据与缺口、恢复时的第一步 |
 | `bt/S4-SPEC.md` | **蓝牙 S4 规格与沿革**：传输层 ABI、电源节点、改速、官方启动参数，逐条带文件:行与产物哈希 |
+| `bt/BT-27-PREBOOT-ACCEPTANCE.md` | **蓝牙 ①–⑦ 起飞判据**：每条的命令、期望读数、负例自测、先例与三级结论；⑦ 仍红 |
 | `bt/MARCONI-AOP-GAP.md` | **marconi-bt 的真实身份**：三个 AOP/SPU 控制通道驱动，不是 HCI 端点 |
 | `plans/BT-USERLAND-COMPARE.md` | **用户态难度对比**：iOS 16 伪装路线与 iOS 27 重定位路线的估时与不可迁移性 |
 

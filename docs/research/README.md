@@ -20,4 +20,5 @@
 - [bt/RESEARCH.md](bt/RESEARCH.md) — 蓝牙结论层：QCA6490 的 GENI UART 真值、固件族、官方组件分工
 - [bt/HANDOFF.md](bt/HANDOFF.md) — 蓝牙线交接：每一步的判据、缺口与恢复第一步
 - [bt/S4-SPEC.md](bt/S4-SPEC.md) — 蓝牙 S4 规格与沿革：传输层 ABI、电源节点、改速、官方启动参数
+- [bt/BT-27-PREBOOT-ACCEPTANCE.md](bt/BT-27-PREBOOT-ACCEPTANCE.md) — 蓝牙 ①–⑦ 起飞前判据：命令、期望读数、负例、先例与三级结论
 - [bt/MARCONI-AOP-GAP.md](bt/MARCONI-AOP-GAP.md) — marconi-bt 是 AOP/SPU 控制通道，不是 HCI 端点

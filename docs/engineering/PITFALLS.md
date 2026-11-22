@@ -7991,3 +7991,38 @@ mapped 21 / na 4 / unmapped 78。
 **还没证的**：这 12 个家族进了集合之后，prelink 残留（94 项无地址 / 203 项落桩）会不会变、
 `bsd_init` 是否因此更容易走到 —— 那要一次构建 + 一次日志，不是靠列表能推的。
 
+
+## P-309 — 门禁报文件名时截掉第一个字符，等于把可行动的信息换成噪声
+
+**现象**。构建被 registry 拒绝，报文写：
+
+```
+❌ iron-2  - 2 tracked file(s) modified but not committed (iron rule 2): oard.toml, scripts/check-kprintf-enabled.py
+```
+
+`oard.toml` 在仓库里不存在；实际文件是 `board.toml`。两个文件里只有一个能被 grep 到，另一个是噪声。
+
+**根因**。`scripts/check-tree-clean.py` 用 `line[3:]` 切 `git status --porcelain`
+的行，假定前缀恰好三个字符；一旦 porcelain 给出别的形状（或行首空白被吃掉），
+切出来的路径就少一个字符，而报文本身仍然「看起来正常」。
+
+**修法**。新增 `path_of(line)`：`line.split(maxsplit=1)[1].strip()`，保留 rename 的
+`old -> new` 形态；`scripts/tests/test-check-tree-clean.py` 在临时 git 仓库里复制
+该脚本、修改 `board.toml`，断言输出含 `board.toml` 且不含截断形态。
+
+**教训**。门禁的产物是「人下一步要执行的动作」，文件名、行号、命令三者任一不可
+grep，门禁就只是把问题换了一种表现方式。
+
+## P-310 — `-force_load` 指到的档案必须有人生产
+
+**事实**。`scripts/build-xnu-generic.sh:228-229` 在 `XNU_NATIVE_UFS=1` 时追加
+`-DXNU_NATIVE_UFS=1`，`:646` 追加 `-force_load …/build/native-ufs/libNativeUfs.a`；
+而本机唯一的生产者 `scripts/build-pong-ufs-probe-macos.py` 调 `xcrun`，Linux 上不存在。
+`drivers/NativeUfs` 的 32 个文件在树里，但不参与链接。
+
+**为什么现在没炸**。`configs/mondrian_ios27_defconfig:20` 是 `CONFIG_XNU_NATIVE_UFS=n`。
+一旦打开，链接期才会报「找不到 libNativeUfs.a」，而那时已经烧掉 10 分钟构建。
+
+**判据**。每条 `-force_load` / `KERNEL_EXTRA_ARCHIVES` 都必须有一个 Linux 可执行的
+生成步骤；没有生产者是失败，不是「跳过」。这条与 P-190（归档整段在死分支里从未链接）
+是同一族：链接输入必须两端都有人。

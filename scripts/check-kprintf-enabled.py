@@ -80,7 +80,7 @@ def main(argv=None) -> int:
         for problem in problems:
             print('FAIL: ' + problem)
         return 1
-    print(f'ok kprintf: {profile} passes {MARKER} ({len(args)} arguments)')
+    print(f'ok kprintf: {profile} does not carry {MARKER} ({len(args)} arguments)')
     if options.image:
         found = image_args(pathlib.Path(options.image))
         if found is None:

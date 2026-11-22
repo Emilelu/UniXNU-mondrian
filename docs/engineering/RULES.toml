@@ -1383,6 +1383,20 @@ note = "2026-11-22：ramoops 不跨复位这条 2026-10-30 就记录过，但没
 [[rule]]
 id = "P-308"
 title = "内核不打印之前，先确认它被允许打印"
-statement = "27 构建是 DEVELOPMENT，`disable_kprintf_output` 默认为 true，只有 `-enable_kprintf_spam` 能清；`debug=0x14e` 只清 `disable_serial_output`。因此 27 `kernel_args` 必须含 `-enable_kprintf_spam`，且「没有内核文字」不得作为「内核死在 console 初始化之前」的证据，除非已确认该参数在镜像里。"
+statement = "27 构建是 DEVELOPMENT，`disable_kprintf_output` 默认为 true；`debug=0x14e` 只清 `disable_serial_output`，所以「没有内核文字」不等于「内核死在 console 初始化之前」。但 `-enable_kprintf_spam` 在 27 上**禁止**：它会让 `vc_initialize()` 里的打印在 `v_rows` 算出之前进入 `vc_putc()`，滚屏写穿帧缓冲映射（xNekom `c3c89df`，2026-11-21 代价一次启动）。27 `kernel_args` 出现该参数即失败，`K60_ALLOW_KPRINT_SPAM=1` 仅供一次性诊断。"
 check = "python3 scripts/check-kprintf-enabled.py"
-note = "2026-11-22：四张镜像四次上机都因为每个 kprintf 是空操作而「无输出」，白光标（vcputc）反而被当成控制台活着的证据。"
+note = "2026-11-22：先因四个 kprintf 全是空操作而「无输出」误判黑屏，随后开 `-enable_kprintf_spam` 又撞 `vc_initialize` 打印陷阱；同一天两次，方向相反。"
+
+[[rule]]
+id = "P-309"
+title = "门禁报文件名时不许截掉第一个字符"
+statement = "`git status --porcelain` 的行是 `XY <path>`，必须按空白切出路径，不得用固定长度切片；`scripts/check-tree-clean.py` 的 `path_of()` 与 `scripts/tests/test-check-tree-clean.py` 钉住这一点，报文里的每个名字都必须能在仓库里原样 grep 到。"
+check = "python3 scripts/tests/test-check-tree-clean.py"
+note = "2026-11-22 构建被拒时报 `oard.toml`，而 `line[3:]` 对 ` M board.toml` 本应正确——路径被截一个字符后，读者无法判断是哪个文件，等于把可行动的信息换成了噪声。"
+
+[[rule]]
+id = "P-310"
+title = "`-force_load` 指到的档案必须有人生产"
+statement = "`scripts/build-xnu-generic.sh` 在 `XNU_NATIVE_UFS=1` 时 `-force_load build/native-ufs/libNativeUfs.a`，而这条路径在本机没有生产者（只有 macOS 的 `build-pong-ufs-probe-macos.py` 用 `xcrun`）。任何 `-force_load`/`KERNEL_EXTRA_ARCHIVES` 条目都必须有一个在 Linux 上可执行的生成步骤，并由 `scripts/check-native-ufs-archive.py` 之类门禁三态判定（missing producer = 失败，不是跳过）。"
+check = "python3 scripts/check-kernel-archives.py"
+note = "2026-11-22：`CONFIG_XNU_NATIVE_UFS` 在 27 defconfig 是 `n` 才没暴雷；一旦打开就会链接一个永远不存在的归档。asteroids 与 cupid 的 27 defconfig 都是 `y`，说明这不是可选项。"

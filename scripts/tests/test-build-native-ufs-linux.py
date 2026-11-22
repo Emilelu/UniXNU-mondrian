@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Tests for scripts/build-native-ufs-linux.py.
 
-The script takes its compile flags from a build record, so the tests fabricate a
-record and three stub sources and run it with --dry-run: that exercises record
-discovery, the argument rewrite, the include and define set, and the archiver
-selection without needing a toolchain or a kernel build.
+The producer is deliberately toolchain-explicit: it names clang-24, llvm-libtool-
+darwin-18 and llvm-nm-18 instead of reading a build record. The tests therefore
+fabricate a device with stub sources and a defconfig and run the script with
+--dry-run: that exercises the flag set, the three config-driven defines, the
+include order and the archiver command without a toolchain or a kernel build.
 """
-import json
 import pathlib
 import subprocess
 import sys
@@ -21,94 +21,96 @@ def case(name, ok, detail=None):
     CASES.append((name, ok, detail))
 
 
-def make_tree(base, target='arm64e-apple-darwin'):
-    record_dir = base / 'tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT'
-    record_dir.mkdir(parents=True)
-    record = record_dir / 'KernelConfigTables.cpo.json'
-    record.write_text(json.dumps({
-        'directory': str(record_dir),
-        'arguments': ['/opt/llvm/bin/clang-24', '-c',
-                      str(base / 'tree/iokit/KernelConfigTables.cpp'),
-                      '-o', str(record_dir / 'KernelConfigTables.cpo'),
-                      '-target', target, '-std=gnu++17'],
-    }))
-    return record
+def make_tree(base):
+    for path in (
+        '.cache/xnu-work/EXTERNAL_HEADERS',
+        '.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders',
+        '.cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/Headers',
+        'build/storage-abi/include',
+    ):
+        (base / path).mkdir(parents=True, exist_ok=True)
+    return base
 
 
-def make_device(base, names=('NativeUfs.cpp', 'PongUfsTransport.cpp', 'verified_root.c')):
+def make_device(base, names=('NativeUfs.cpp', 'PongUfsTransport.cpp',
+                             'verified_root.c', 'xnu_crypto.c'), defconfig=None):
     for name in names:
         path = base / 'drivers/NativeUfs' / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('/* stub */\n')
+    (base / 'configs').mkdir(parents=True, exist_ok=True)
+    (base / 'configs/mondrian_ios27_defconfig').write_text(
+        defconfig or 'CONFIG_XNU_NATIVE_UFS=y\n'
+                      'CONFIG_XNU_OWNER_DATA_UFS=y\n'
+                      'CONFIG_XNU_VERIFIED_ROOT_PROBE=n\n'
+                      'CONFIG_XNU_PONG_EARLY_TRACE=y\n')
     return base
 
 
 def run(args):
-    return subprocess.run([sys.executable, str(SCRIPT)] + args,
+    done = subprocess.run([sys.executable, str(SCRIPT)] + args,
                           capture_output=True, text=True)
+    done.flat = done.stdout.replace('\\', '/')
+    return done
 
 
 with tempfile.TemporaryDirectory() as tmp:
     base = pathlib.Path(tmp)
-    record = make_tree(base)
+    tree = make_tree(base / 'tree')
     device = make_device(base / 'device')
     out = base / 'out'
-    done = run(['--device', str(device), '--tree', str(base / 'tree'),
-                '--out', str(out), '--dry-run'])
-    lines = done.stdout.splitlines()
-    compiles = [line for line in lines if '/opt/llvm/bin/clang-24' in line]
-    case('a dry run prints one command per source', len(compiles) == 3, done.stdout)
-    case('every command defines the two switches',
-         all('XNU_NATIVE_UFS=1' in line and 'XNU_SOURCE_STORAGE=1' in line for line in compiles))
-    case('every command carries the driver include directories',
-         all('drivers/NativeUfs' in line for line in compiles))
-    case('every command keeps the recorded target',
-         all('arm64e-apple-darwin' in line for line in compiles))
-    case('the recorded source is gone from the command',
-         all('iokit/KernelConfigTables.cpp' not in line for line in compiles))
-    case('the archive command names llvm-ar or ar',
-         any('ar rcs' in line or 'llvm-ar rcs' in line for line in lines), done.stdout)
-    case('the archive holds the three objects',
-         all(str(out / name) in done.stdout for name in
-             ('NativeUfs.o', 'PongUfsTransport.o', 'verified_root.o')))
+    done = run(['--device', str(device), '--tree', str(tree), '--out', str(out), '--dry-run'])
+    lines = done.flat.splitlines()
+    compiles = [line for line in lines if ' -c ' in line]
+    case('a dry run prints one compile per C++ source', len(compiles) == 2, done.stdout)
+    case('the compile uses clang-24 for the ios27 target',
+         all(line.startswith('/opt/unixnu-linux/llvm/bin/clang-24') and
+             'arm64-apple-ios27.0' in line for line in compiles), done.stdout)
+    case('the compile is a kernel freestanding build',
+         all('-mkernel' in line and '-ffreestanding' in line and '-fno-exceptions' in line
+             and '-fno-rtti' in line and '-std=gnu++17' in line and '-O2' in line
+             for line in compiles))
+    case('the three defines come from the defconfig',
+         all('-DXNU_PONG_EARLY_TRACE=1' in line and '-DXNU_PONG_UFS_DATA=1' in line
+             and '-DNATIVE_VERIFIED_BLOCK=0' in line for line in compiles), done.stdout)
+    case('the include order starts with the external headers',
+         all(line.index('.cache/xnu-work/EXTERNAL_HEADERS') < line.index('Kernel.framework') for line in compiles))
+    case('the storage ABI include is carried', all('build/storage-abi/include' in line for line in compiles))
+    case('the driver include is carried', all('drivers/NativeUfs' in line for line in compiles))
+    case('the archive command names llvm-libtool-darwin-18',
+         any('/usr/bin/llvm-libtool-darwin-18 -static -o' in line for line in lines), done.stdout)
+    obj = lambda name: str(out / name).replace('\\', '/')
+    case('the archive holds the two C++ objects and not the C ones',
+         obj('NativeUfs.o') in done.flat and obj('PongUfsTransport.o') in done.flat
+         and 'verified_root.o' not in done.flat)
     case('a dry run says so', 'native-ufs-linux: dry run' in done.stdout)
-    case('a tree without the storage ABI says so', 'note:' in done.stdout, done.stdout)
+    case('a quiet tree prints no include note', 'note: include directory absent' not in done.stdout, done.stdout)
 
-    (base / 'tree/build/storage-abi/include').mkdir(parents=True)
-    done = run(['--device', str(device), '--tree', str(base / 'tree'),
-                '--out', str(out), '--dry-run'])
-    case('the storage ABI include is used when the tree has one',
-         'build/storage-abi/include' in done.stdout)
-    case('a tree with the storage ABI stays quiet', 'note:' not in done.stdout, done.stdout)
+    verified = make_device(base / 'verified',
+                           defconfig='CONFIG_XNU_OWNER_DATA_UFS=n\n'
+                                     'CONFIG_XNU_VERIFIED_ROOT_PROBE=y\n')
+    done = run(['--device', str(verified), '--tree', str(tree), '--out', str(out), '--dry-run'])
+    case('the verified block adds the two C sources',
+         len([line for line in done.flat.splitlines() if ' -c ' in line]) == 4
+         and '-DNATIVE_VERIFIED_BLOCK=1' in done.stdout and '-DXNU_PONG_UFS_DATA=0' in done.stdout, done.stdout)
+    case('the C sources compile as gnu11',
+         any('-std=gnu11' in line and 'xnu_crypto.c' in line for line in done.flat.splitlines()))
 
-    done = run(['--device', str(device), '--tree', str(base / 'empty'), '--dry-run'])
-    case('a tree without a record fails', done.returncode != 0 and 'no build/xnu/ios-obj' in done.stdout + done.stderr)
-
-    thin = make_device(base / 'thin', names=('NativeUfs.cpp',))
-    done = run(['--device', str(thin), '--tree', str(base / 'tree'), '--dry-run'])
+    missing = make_device(base / 'thin', names=('NativeUfs.cpp',))
+    done = run(['--device', str(missing), '--tree', str(tree), '--dry-run'])
     case('a missing source fails and names it',
-         done.returncode != 0 and 'PongUfsTransport.cpp not found' in done.stdout + done.stderr)
+         done.returncode != 0 and 'FAIL source not found' in done.stdout and 'PongUfsTransport.cpp' in done.stdout)
 
-    done = run(['--device', str(device), '--tree', str(base / 'tree'),
-                '--record', str(record), '--out', str(out), '--dry-run'])
-    case('an explicit record is accepted', done.returncode == 0 and len(compiles) == 3)
-
-    broken = base / 'broken.json'
-    broken.write_text('{"directory": "/tmp"}')
-    done = run(['--device', str(device), '--tree', str(base / 'tree'),
-                '--record', str(broken), '--dry-run'])
-    case('a record without arguments fails', done.returncode != 0)
-
-    wrong = base / 'wrong.json'
-    wrong.write_text(json.dumps({'directory': str(base), 'arguments': ['/opt/llvm/bin/clang-24', '-c', 'unrelated.cpp']}))
-    done = run(['--device', str(device), '--tree', str(base / 'tree'),
-                '--record', str(wrong), '--dry-run'])
-    case('a record that does not name the IOKit object fails',
-         done.returncode != 0 and 'does not name iokit/KernelConfigTables.cpp' in done.stdout + done.stderr)
+    no_config = base / 'noconfig'
+    (no_config / 'drivers/NativeUfs').mkdir(parents=True)
+    done = run(['--device', str(no_config), '--tree', str(tree), '--dry-run'])
+    case('a device without the defconfig fails', done.returncode != 0 and 'defconfig not found' in done.stdout)
 
 failed = [name for name, ok, _ in CASES if not ok]
 for name, ok, detail in CASES:
-    if not ok and detail:
-        print('--- %s\n%s' % (name, detail))
+    if not ok:
+        print('FAILED CASE: %s' % name)
+        if detail:
+            print(detail[:1500])
 print('TESTS %s %d case(s)' % ('FAILED' if failed else 'OK', len(CASES)))
 sys.exit(1 if failed else 0)

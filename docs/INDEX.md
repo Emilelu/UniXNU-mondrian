@@ -263,3 +263,4 @@ python3 scripts/render-eight-step-table.py --check
 - [ios27/CARRY-OVER-INVENTORY.md](research/ios27/CARRY-OVER-INVENTORY.md) —— 16 线 240 条 vs 27 线 34 条：迁移时丢了什么
 - [engineering/REFERENCE-PROVENANCE.md](engineering/REFERENCE-PROVENANCE.md) —— 哪个「第三方」其实是我自己的 fork（GitHub API 实测）
 - [GATE-OBJECT-HANDOVER.md](research/ios27/GATE-OBJECT-HANDOVER.md) — 让三处符号门禁报出它量的是哪一份文件
+- [CCACHE.md](research/ios27/CCACHE.md) — ccache 接进了 27 内核构建，却因 `-MJ` 一个对象都缓存不了：实测读数与移交单

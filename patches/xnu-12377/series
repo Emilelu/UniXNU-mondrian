@@ -211,9 +211,7 @@ armcpu-sleep-hook.patch
 # copied verbatim from community/uke/patches/xnu-12377/darwin26-posix-spawn-attrs.patch
 0562-k60-darwin26-posix-spawn-attrs.patch
 
-# 4 KiB pages: the same kernel-stack shift vermeer ships, kept because it
 # applies unchanged to xnu-12377 and states the invariant explicitly.
-0563-k60-kernel-stack-shift-vermeer.patch
 
 # 27 bring-up bundle from sheng, part 1: the 27 of 35 file sections that
 # apply to xnu-12377 unchanged (pmap geometry/T0SZ, sigp recovery, bindfs,

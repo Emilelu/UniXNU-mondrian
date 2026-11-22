@@ -1327,7 +1327,8 @@ measured_items = 230
   kind = "patch"
   id = "zzzzzzzzzzz-uke-trustcache-headers.patch"
   sha256 = "6c87ea6f4e23f4b746e2472b753d8995bd5844909de8e19f96074489ef98e1c8"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "touches only files that exist in the precedent tree and not in ours: EXTERNAL_HEADERS/TrustCache/API.h, EXTERNAL_HEADERS/TrustCache/RawTypes.h, EXTERNAL_HEADERS/TrustCache/Return.h, EXTERNAL_HEADERS/TrustCache/Types.h …"
 
   [[repo.item]]
   kind = "patch"
@@ -2228,7 +2229,8 @@ measured_items = 66
   kind = "patch"
   id = "ufs-smmu.patch"
   sha256 = "997d1e2b6fcaa36784bed3b554d4588c03cafc5015e7525de5d848b9ff24b35b"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "touches only files that exist in the precedent tree and not in ours: iokit/bsddev/SmmuTakeover.h"
 
   [[repo.item]]
   kind = "board-key"

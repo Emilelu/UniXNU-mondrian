@@ -16,7 +16,14 @@ name = "蜂窝（X70 modem / DXE 载具 / QRTR）"
 [hardware.cellular.step.same_model]
 done = true
 evidence = """27 线的载具不是把 modem 编进内核，而是把固件当外部载具放进固定物理窗口：16 线六个补丁在 27 上重排为 0626 镜像段表 + pong_modem_boot/pas、0627 QRTR/GLINK/RMTFS/EFS/memshare/SMP2P、0628 IPA 十一对、0629 两处调用、0630 smem，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:14-19 与同文件 :29-32。27 的 UEFI 侧以 27 个 modem.bNN.lzma 流和固定窗口 0x8bc00000/0x13200000 对齐，见同文件 :602-608。"""
-recorded_at = "2026-11-21T18:12:00"
+recorded_at = "2026-11-22T13:48:00"
+criterion_command = "python3 scripts/check-cellular-27-criteria.py --step same_model"
+criterion_expected = "RESULT: PASS; READING: K60_MODEM_SEGMENTS=30 K60_MODEM_BASE=0x8bc00000UL K60_MODEM_WINDOW=0x13200000UL anchors=19/19"
+criterion_negative_command = "python3 scripts/check-cellular-27-criteria.py --step same_model --mutate"
+criterion_negative_expected = "RESULT: FAIL (mutation caught); missing K60_MODEM_BASE 0x8bc00000UL"
+precedent = "docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md:15-19; E:/k60-work/references/phk110-port/drivers/modem/hakios.mpss.c:1047-1051"
+conclusion = "有证据"
+unknown = "无"
 
 [hardware.cellular.step.official]
 done = true
@@ -26,29 +33,64 @@ evidence = """页面要求逐条对照，缺一条就写缺口，不用「本板
 - /mnt/e/hackios/UniXNU/docs/zh/porting/baseband.md:56 明确 EFS 写入在 bring-up 阶段只保存在内存、重启后重新加载原厂数据。/mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemEfs.h:92-95 正是 boot-session shadow：写方向 ACK 但不落盘；这与该页一致，但不能宣称持久化。
 - /mnt/e/hackios/UniXNU/docs/zh/guide/userdata.md:60-85 要求 Data 卷来自 payload seed、按目标布局扩种子，同页第 82 行说 seed 大小变化会改变持久化身份并初始化新 Data store；/mnt/e/hackios/UniXNU/docs/zh/concepts/userdata.md:68-70 说持久 store 从 userdata 末尾窗口提供，窗口不适用时内核拒绝 seed。本板 na 的部分：modem EFS 不走 userdata Data store，它走 modemst1/modemst2/fsg/fsc 四个独立分区，见 /mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemEfs.c:12-17 与 /mnt/e/k60-work/wt-k55/drivers/PongCellular/K60ModemGpt.h:4-5；依赖的部分：PAS 必须在 native Data 挂载之后，27 的 data-mount 尚未落，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:95-99，所以 F3 不能开始。
 - /mnt/e/hackios/UniXNU/docs/zh/drivers/qcom-baseband.md:7-9 要求板级提供 modem 启动、固件、电源、DMA、GLINK/QRTR 与 rmtfs，组件只提供桥；16 线实现正在这些位置，27 侧搬运清单见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:29-32。"""
-recorded_at = "2026-11-21T18:12:00"
+recorded_at = "2026-11-22T13:48:00"
+criterion_command = "python3 scripts/check-cellular-27-criteria.py --step official"
+criterion_expected = "RESULT: PASS; READING: anchors=12/12 baseband=22-31,25,29,56 userdata=60-85,82 concepts=68-70 qcom=7-9"
+criterion_negative_command = "python3 scripts/check-cellular-27-criteria.py --step official --mutate"
+criterion_negative_expected = "RESULT: FAIL (mutation caught); missing EFS 写入仍保存在内存中，重启后重新加载原厂数据"
+precedent = "E:/hackios/UniXNU/docs/zh/porting/baseband.md:22-31 与 :56; E:/hackios/UniXNU/docs/zh/guide/userdata.md:60-85; E:/hackios/UniXNU/docs/zh/concepts/userdata.md:68-70; E:/hackios/UniXNU/docs/zh/drivers/qcom-baseband.md:7-9"
+conclusion = "有证据"
+unknown = "27 proprietary-files.txt 仍缺 modem/fsg/fsc/modemst 条目；F3 前必须补"
 
 [hardware.cellular.step.decompile]
 done = false
 evidence = """只做到「27 载体与 UFS 描述符形状」这一层：27 个 modem.bNN.lzma 流的 13 字节头、declared 尺寸与 109,060,761 B 总量已与 UEFI 表逐条对齐，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:14-19 与同文件 :316-318。27 UEFI feed mu_basecore-8f10084c 的 UFS_UNIT_DESC 前五字节已按 packed 结构逐行核对，见 /mnt/e/k60-work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:227-244。未完成的是 modem 固件内部的 GLINK/QRTR 服务表：没有服务号、通道名或初始化顺序的反汇编，不能把「27 流能打进去」当成「服务表已懂」。"""
-recorded_at = "2026-11-21T18:12:00"
+recorded_at = "2026-11-22T13:48:00"
+criterion_command = "python3 scripts/check-cellular-27-criteria.py --step decompile"
+criterion_expected = "RESULT: PASS; READING: TESTS OK 30 segments, 0x8bc00000..0x9ee00000 (320864256 bytes), base 0x8bc00000, table+p patch agree"
+criterion_negative_command = "python3 scripts/check-cellular-27-criteria.py --step decompile --mutate"
+criterion_negative_expected = "RESULT: FAIL (mutation caught); e_phnum is 31, expected 32"
+precedent = "离线镜像表检查，不涉及启动机制；GLINK/QRTR 服务表没有已反汇编先例"
+conclusion = "有证据"
+unknown = "GLINK/QRTR 服务表未反汇编"
 
 [hardware.cellular.step.wide]
 done = true
 catalog_checked = true
-evidence = """先查组件目录再写驱动。/mnt/e/hackios/UniXNU/components.toml:563-581 的 QcomBaseband 是 SC7180 IPA v4.2 的 QMUX/QRTR/QMI CTL/SAHARA/AppleBaseband/IPA-GSI-QMAP 桥，board_dependencies 明确把 modem 启动、固件、电源、DMA、GLINK/QRTR、rmtfs 留给板级；同文件第 575 行 verified_devices 为空。27 stage-0 的 board.toml:358-360 只 include ArmDTPlatform/ArmCpu/XnuPrelink，不含 QcomBaseband；board.toml:359 注明 PongUfs 到 F3 才回来。/mnt/e/hackios/UniXNU/components.toml:555-560 是 ShengUfs/NativeUfs，不是可直接复用的 PongUfs 组件。结论：传输层语义可参考，Pong 载具、EFS 服务与 27 的 4 KiB 适配必须自建，没有现成轮子可复用。"""
+evidence = """先查组件目录再写驱动。/mnt/e/hackios/UniXNU/components.toml:563-581 的 QcomBaseband 是 SC7180 IPA v4.2 的 QMUX/QRTR/QMI CTL/SAHARA/AppleBaseband/IPA-GSI-QMAP 桥，board_dependencies 明确把 modem 启动、固件、电源、DMA、GLINK/QRTR、rmtfs 留给板级；同文件第 575 行 verified_devices 为空。27 stage-0 的 board.toml:362-364 只 include ArmDTPlatform/ArmCpu/XnuPrelink，不含 QcomBaseband；board.toml:363 注明 PongUfs 到 F3 才回来。/mnt/e/hackios/UniXNU/components.toml:555-560 是 ShengUfs/NativeUfs，不是可直接复用的 PongUfs 组件。结论：传输层语义可参考，Pong 载具、EFS 服务与 27 的 4 KiB 适配必须自建，没有现成轮子可复用。"""
 catalog_result = "QcomBaseband 只提供 SC7180 IPA v4.2 的传输层语义，verified_devices 为空；PongUfs/NativeUfs 是 Sheng 路线的存储实现，不是本板 27 的 PongUfs 组件；27 stage-0 的 include 只有 ArmDTPlatform/ArmCpu/XnuPrelink。载具、EFS 与 4 KiB 适配必须自建。"
-recorded_at = "2026-11-21T18:12:00"
+recorded_at = "2026-11-22T13:48:00"
+criterion_command = "python3 scripts/check-cellular-27-criteria.py --step wide"
+criterion_expected = "RESULT: PASS; READING: QcomBaseband=present verified_devices=0 board_include=ArmDTPlatform,ArmCpu,XnuPrelink QcomBaseband=absent"
+criterion_negative_command = "python3 scripts/check-cellular-27-criteria.py --step wide --mutate"
+criterion_negative_expected = "RESULT: FAIL (mutation caught); verified_devices is not empty"
+precedent = "E:/hackios/UniXNU/components.toml:563-581 的 QcomBaseband；verified_devices 在 :575 为空"
+conclusion = "有证据"
+unknown = "QcomBaseband 在 K60/同 SoC 上无已验证设备"
 
 [hardware.cellular.step.plan]
 done = true
 evidence = """27 的落地顺序已定：先把 Lead 的 data-mount 补丁搬到 27，再在 native_owner_data_stage 推进到 3 的那一行之前插 k60_modem_probe_from_handoff 与 k60_ipa_probe_from_handoff，然后生成 0629；0626/0627/0628/0630 只新增文件，可先打。生成器与锚点契约见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:95-99 与同文件 :109-117。对真实 27 树逐条 git apply --check 的结果是 0626/0627/0628/0630 rc=0、0629 等锚点，见同文件 :602-608；当前 27 树仍没有 native_owner_data_stage，见同文件 :654-661。0629 的两个入口分别由 0626 与 0628 提供，否则链接期未定义，见同文件 :147-148。"""
-recorded_at = "2026-11-21T18:12:00"
+recorded_at = "2026-11-22T13:48:00"
+criterion_command = "python3 scripts/check-cellular-27-criteria.py --step plan"
+criterion_expected = "RESULT: PASS; READING: apply 0626=0 0627=0 0628=0 0630=0 0629=1 anchor_grep=1"
+criterion_negative_command = "python3 scripts/check-cellular-27-criteria.py --step plan --mutate"
+criterion_negative_expected = "RESULT: FAIL (mutation caught); corrupted patch rejected"
+precedent = "无先例要求：git apply 是静态检查；27 data-mount 尚无已到 bsd_init 的同族实现"
+conclusion = "有证据"
+unknown = "27 data-mount 无已到 bsd_init 的同族实现"
 
 [hardware.cellular.step.deep]
 done = true
 evidence = """三条深挖结论。第一，27 的 PAGE_SHIFT 是运行期变量，16 线唯一的硬编码 >>12 已改成 /ptoa_64(1)，见 /mnt/e/k60-work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:38-46；K60_IPA_GSI_PAGE_SIZE 0x1000 是 GSI TRE 硬件粒度，不是 VM 页，见同文件 :38-46。第二，27 的 rmtfs 读走 native_pong_ufs_read_named_volume 的同文件弱定义；27 没有 drivers/NativeUfs 时它返回 0，调用点把 ==0 当失败，于是 RMTFS 读被拒绝为 result 1，能编能链但静默，见同文件 :177-195。第三，IPA 的 /mnt/e/k60-work/wt-k55/drivers/PongCellular/K60Ipa.c:1402 仍是返回 not-ready 的 stub，KMA_PERMANENT 只剩 IPA 一处，见同文件 :90-93；27 的 Data 命名空间要求 PAS 在 Data 挂载之后，见同文件 :208-211。"""
-recorded_at = "2026-11-21T18:12:00"
+recorded_at = "2026-11-22T13:48:00"
+criterion_command = "python3 scripts/check-cellular-27-criteria.py --step deep"
+criterion_expected = "RESULT: PASS; READING: loader=TESTS OK 7 TESTS OK 13 groups (lookup, hello, new_server, data, servloc, dms, verdict, services, malformed, node, discovery, qmi bounds, dms errors)"
+criterion_negative_command = "python3 scripts/check-cellular-27-criteria.py --step deep --mutate"
+criterion_negative_expected = "RESULT: FAIL (mutation caught); QRTR version mismatch"
+precedent = "docs/research/cellular/19-MODEM-BRINGUP-FLIGHT.md:15-19; E:/k60-work/references/phk110-port/drivers/modem/hakios.mpss.c:1047-1051"
+conclusion = "有证据"
+unknown = "真实固件服务表未反汇编"
 
 [hardware.cellular.step.verify]
 done = false
@@ -62,4 +104,12 @@ evidence = """总体定案见 docs/research/cellular/W1-W2-COLLECTION-RUNBOOK.md
 static_check = """27 UEFI feed mu_basecore-8f10084c 的 Ufs.h 第 32 行是 #pragma pack(1)，同文件第 874-878 行的 Length/DescType/UnitIdx/LunEn/BootLunId 都是 UINT8，声明顺序就是 byte0..4；UfsPassThru.c 第 996-1008 行循环 Index 0..7 调 UfsRwDeviceDesc，并在第 1004 行比较 LunEn==0x1。Linux v6.12 commit adc218676eef 的 include/ufs/ufs.h 第 207-216 行独立定义 byte2 UNIT_INDEX/byte3 LU_ENABLE，ufshcd.c 第 3637-3703 行按字节拷贝。上述行号的逐条引文见 /mnt/e/k60-work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:227-244 与 /mnt/e/k60-work/wt-k55/docs/research/cellular/W1-DECISION-SHEET.md:249-256。"""
 unit_test = """本地已通过：/mnt/e/k60-work/wt-k55/scripts/tests/test-w1-lun-evidence.py:1 的 20 个 W1 用例；/mnt/e/k60-work/wt-k55/scripts/tests/test-efs-full.py:1 的 12 个完整 4 KiB 用例；/mnt/e/k60-work/wt-k55/scripts/tests/test-capture-bundle.py:1 的 9 个组合用例；/mnt/e/k60-work/wt-k55/scripts/tests/test-capture-autocheck-e2e.py:1 的 PASS/FAIL/PENDING 三态自证。判官与夹具的读数见 /mnt/e/k60-work/wt-k55/docs/research/cellular/23-W2-FULL-SUPERBLOCK.md:310-332。"""
 artifact_check = """离线产物检查：/mnt/e/k60-work/wt-k55/scripts/check-efs-full.py:1 对四个 4096 B 参照文件逐 storage 校验并通过；/mnt/e/k60-work/wt-k55/scripts/judge-cellular-flight.py:1 对 16 字节头、两段全块摘要（0/4096 与 512/3584）与九个合成 console 夹具通过；/mnt/e/k60-work/wt-k55/scripts/check-capture-bundle.py:1 对 W1/W2/完整块三态合成输入给出 PASS/PENDING/FAIL 并拒绝把缺项当 PASS。没有真实设备采集，故这些只能证明判据实现，不是 W1/W2/F3 的硬件结论。"""
-recorded_at = "2026-11-21T18:12:00"
+recorded_at = "2026-11-22T13:48:00"
+
+criterion_command = "python3 scripts/check-cellular-27-criteria.py --step verify"
+criterion_expected = "RESULT: PASS; READING: W1=20 EFS=12 BUNDLE=9 FIXTURES=9 JUDGE=self-test STRICT=PASS"
+criterion_negative_command = "python3 scripts/check-cellular-27-criteria.py --step verify --mutate"
+criterion_negative_expected = "RESULT: FAIL (mutation caught); VERDICT: FAILED"
+precedent = "E:/hackios/k60-gates/docs/research/ios27/PRECEDENT-REQUIRED.md:16-17; E:/hackios/UniXNU-sheng/package/BootLog.c:1-8"
+conclusion = "有证据"
+unknown = "设备 W1/W2/F3 仍 PENDING"

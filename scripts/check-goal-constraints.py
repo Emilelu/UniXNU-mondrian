@@ -24,7 +24,7 @@ import re
 import sys
 import tomllib
 
-PARITY = 'docs/research/ios27/PRECEDENT-PARITY.toml'
+PARITY = 'docs/research/ios27/PRECEDENT-MANIFEST.toml'
 LEDGER = 'docs/research/EIGHT-STEPS-27.toml'
 ALLOWED = {'have', 'copied', 'not-applicable'}
 STEPS = ('same-model', 'official', 'decompile', 'wide', 'plan', 'deep', 'verify', 'device')
@@ -36,7 +36,7 @@ KB = re.compile(r'^kb:')
 def parity_problems(root: pathlib.Path) -> list[str]:
     path = root / PARITY
     if not path.is_file():
-        return [f'{PARITY} is missing: nothing has been compared against the working repositories (P-311)']
+        return [f'{PARITY} is missing: run scripts/scan-precedents.py; nothing has been compared (P-311)']
     data = tomllib.loads(path.read_text(encoding='utf-8'))
     problems: list[str] = []
     for repo in data.get('repo', []):
@@ -47,14 +47,21 @@ def parity_problems(root: pathlib.Path) -> list[str]:
             problems.append(f'{name}: no measured_items; the comparison cannot be checked for completeness')
         elif measured != classified:
             problems.append(f'{name}: {classified} item(s) classified but {measured} measured; '
-                            f'{measured - classified} unclassified')
+                            f'{measured - classified} unclassified — rerun scripts/scan-precedents.py')
+        unknown = 0
         for item in repo.get('item', []):
             verdict = item.get('verdict', 'unknown')
+            if verdict == 'unknown':
+                unknown += 1
+                continue
             if verdict not in ALLOWED:
-                problems.append(f'{name}/{item.get("id", "?")}: verdict {verdict!r} — '
-                                f'builds stay refused until every artefact is have/copied/not-applicable')
+                problems.append(f'{name}/{item.get("id", "?")}: verdict {verdict!r} is not one of '
+                                f'have/copied/not-applicable — builds stay refused')
             if verdict == 'not-applicable' and not item.get('reason'):
                 problems.append(f'{name}/{item.get("id", "?")}: not-applicable without a reason')
+        if unknown:
+            problems.append(f'{name}: {unknown} of {classified} artefact(s) unjudged '
+                            f'— the working repositories are not copied completely yet')
     if not data.get('repo'):
         problems.append(f'{PARITY} lists no repository')
     return problems

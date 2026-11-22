@@ -202,7 +202,7 @@ kernel_args = [
   "k60_skip_iosurface=1", "k60_panic_reset=1", "pong_adreno_start=1",
   "pong_metal=1", "pong_gpu_scanout=1", "sheng-gpu-addon=1",
   "k60_autoreset=300", "applog=1",
-, "-uketextconsole"]
+, "-uketextconsole", "-ukedeferredconsole"]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the

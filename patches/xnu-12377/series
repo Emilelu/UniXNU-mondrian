@@ -187,3 +187,10 @@ armcpu-sleep-hook.patch
 # uke/patches/xnu/zzzzzz-video-console-text.patch:5-15, uke/docs/PROGRESS.md:229.
 
 0558-k60-fb-vcattach-text-console.patch
+
+# 0559 — uke-deferred-video-kprintf.patch, verbatim (applies as-is).
+# The framebuffer sink must not draw while kprintf masks IRQs; with
+# -ukedeferredconsole early messages are queued instead of dropped
+# (uke/board.toml:257-261, uke/docs/PROGRESS.md:1397).
+
+0559-k60-deferred-video-kprintf.patch

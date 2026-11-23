@@ -18,6 +18,7 @@
 # a staged uefi-mondrian checkout with its submodules; when it is set the script
 # also builds the firmware volume and packs boot.img.
 set -eu
+export K60_KERNEL_LDFLAGS="${K60_KERNEL_LDFLAGS:--Wl,-rename_section,__DATA_CONST,__sdt,__DATA,__sdt}"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 # Where the fifteen minutes go. A stage that is slow stays slow until it is
@@ -127,7 +128,6 @@ if [ -z "${K60_FORCE_KERNEL:-}" ] && [ -f "$KERNEL_KEY" ] &&
 	mark kernel-reused
 else
 	env "PongAudioAmp.o_CFLAGS_ADD=-DXNU_PONG_AUDIO=1" \
-export K60_KERNEL_LDFLAGS="${K60_KERNEL_LDFLAGS:--Wl,-rename_section,__DATA_CONST,__sdt,__DATA,__sdt}"
 		python3 ./unixnu build kernel --device "$ROOT" "$@"
 
 	# The collection's `com.apple.kernel` child must carry the collection's own

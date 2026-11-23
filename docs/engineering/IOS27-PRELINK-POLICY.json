@@ -2,22 +2,235 @@
   "collection_slide": "0x0",
   "description": "Baseline of the K60 27 stage-0 prelink residue: these are the gaps that exist today, and the gate only stops them from growing.",
   "missing": {
+    "com.apple.driver.AppleARMPlatform": {
+      "0xfffffff007e52c20": 1,
+      "0xfffffff007e5a880": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1,
+      "0xfffffff00b792378": 1,
+      "0xfffffff00b794680": 1
+    },
     "com.apple.driver.AppleARMWatchdogTimer": {
-      "0xfffffff007044478": 1
+      "0xfffffff007044478": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff00b794680": 1
+    },
+    "com.apple.driver.AppleM2ScalerCSCDriver": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89bb8": 1
+    },
+    "com.apple.driver.AppleMobileFileIntegrity": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba0": 1
+    },
+    "com.apple.driver.ApplePMGR": {
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e8a9e0": 1,
+      "0xfffffff00b792640": 1
+    },
+    "com.apple.driver.AppleUSBHostMergeProperties": {
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89bc0": 1
+    },
+    "com.apple.driver.IODARTFamily": {
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.driver.usb.AppleUSBHostCompositeDevice": {
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.driver.usb.AppleUSBHub": {
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.driver.usb.AppleUSBXHCI": {
+      "0xfffffff007e5a7f8": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.driver.usb.IOUSBHostHIDDevice": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba8": 1
+    },
+    "com.apple.filesystems.apfs": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e8a9e0": 1,
+      "0xfffffff00b70c680": 2
+    },
+    "com.apple.iokit.CoreAnalyticsFamily": {
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOAVFamily": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e8a9e0": 1,
+      "0xfffffff00b792378": 1,
+      "0xfffffff00b792640": 1
+    },
+    "com.apple.iokit.IOAccessoryManager": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOAudio2Family": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1
+    },
+    "com.apple.iokit.IOCECFamily": {
+      "0xfffffff007e89bc0": 1
+    },
+    "com.apple.iokit.IOCryptoAcceleratorFamily": {
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOGPUFamily": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOHDCPFamily": {
+      "0xfffffff00b792378": 1,
+      "0xfffffff00b792640": 1
     },
     "com.apple.iokit.IOHIDFamily": {
+      "0xfffffff007e5a7f8": 1,
+      "0xfffffff007e87df8": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1,
       "0xfffffff00b72fce8": 1
     },
+    "com.apple.iokit.IOMobileGraphicsFamily": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOPCIFamily": {
+      "0xfffffff007e87df8": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOReportFamily": {
+      "0xfffffff007e87df8": 1,
+      "0xfffffff007e89bb8": 1
+    },
+    "com.apple.iokit.IOSCSIArchitectureModelFamily": {
+      "0xfffffff007e5a7f8": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89bb8": 1
+    },
+    "com.apple.iokit.IOSCSIBlockCommandsDevice": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOSerialFamily": {
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff00b71bd94": 1,
+      "0xfffffff00b78fd98": 1,
+      "0xfffffff00b78fda0": 1
+    },
+    "com.apple.iokit.IOStorageFamily": {
+      "0xfffffff007e87df8": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOSurface": {
+      "0xfffffff007e5a7f0": 1,
+      "0xfffffff007e5a7f8": 1,
+      "0xfffffff007e87df8": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOUSBDeviceFamily": {
+      "0xfffffff007e5a7f8": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOUSBHostFamily": {
+      "0xfffffff007e5a880": 1,
+      "0xfffffff007e87df8": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.iokit.IOUSBMassStorageDriver": {
+      "0xfffffff007e5a7f8": 1,
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89ba8": 1,
+      "0xfffffff007e89bc0": 1,
+      "0xfffffff007e8a9e0": 1
+    },
+    "com.apple.security.AppleImage4": {
+      "0xfffffff007e89ba0": 1
+    },
     "com.apple.security.sandbox": {
+      "0xfffffff007e89b80": 1,
+      "0xfffffff007e89b98": 1,
+      "0xfffffff007e89ba0": 1,
+      "0xfffffff007e89bb8": 1,
+      "0xfffffff007e8a9e0": 1,
       "0xfffffff00b739538": 1
     }
   },
-  "record_sha256": "dee01c54a73edf594bbe866ae020cb3331d31afe3edc4616b1a6fc0a34fbaad0",
+  "record_sha256": "fdd98d1916b8455321d3eab5e3808293090f382ee45ab74c7af2c15a2568bb78",
   "required_original_branches": [],
   "required_original_branches_waiver": {
-    "reason": "This kernel exports no `.original` adapter symbol at all: relocate_original_stubs() (fileset_layout.py:255-283) records a branch only for a uniquely paired symbol ending `.original`, shaped `bti c; b`, whose displacement equals the declared absolute target inside retained_code, and no such symbol exists here (the only kernel-to-kext path today is the early_security_init hook, which is a hook and not an absolute branch). The empty list is the measurement, not a missing flag: copying the upstream iPad17,3 names would green this clause while measuring nothing (P-289). Review means either finding a real absolute branch we take, or restating the clause as must-stay-empty with that evidence.",
-    "review_after": "2026-12-19",
-    "evidence": "docs/research/ios27/PRELINK-RESIDUE.md; the two upstream names come from Sheng libNativeLegacyDisplay.late.a (display and HID .original stubs), and this branch sets CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n and links no such archive, so the clause is empty by measurement. The re-review condition is stronger than the date: enabling that switch obliges the list to become non-empty."
+    "reason": "kits/XnuPrelink does not emit native_original_branches yet, so the record has none to require; the waiver exists so the empty clause is visible and expires instead of passing forever",
+    "review_after": "2026-11-28"
   },
   "stubbed": {
     "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib": {
@@ -116,8 +329,22 @@
       "0xfffffff00ad46948": 1,
       "0xfffffff00b36e788": 1
     },
+    "com.apple.driver.AppleUSBDeviceMux": {
+      "0xfffffff00abe3554": 1,
+      "0xfffffff00b1155a4": 1,
+      "0xfffffff00b115644": 1,
+      "0xfffffff00b115674": 1,
+      "0xfffffff00b17aa18": 1
+    },
     "com.apple.driver.IODARTFamily": {
       "0xfffffff00ab86b04": 1
+    },
+    "com.apple.driver.usb.AppleUSBHostCompositeDevice": {
+      "0xfffffff00b2821e8": 1,
+      "0xfffffff00b2829a8": 1
+    },
+    "com.apple.driver.usb.AppleUSBXHCI": {
+      "0xfffffff00ad4499c": 1
     },
     "com.apple.filesystems.apfs": {
       "0xfffffff00ab86b04": 1,
@@ -164,6 +391,21 @@
       "0xfffffff00b31af40": 1,
       "0xfffffff00b31afe0": 1
     },
+    "com.apple.iokit.IOAccessoryManager": {
+      "0xfffffff00ab86b04": 1,
+      "0xfffffff00b117014": 1,
+      "0xfffffff00b2581dc": 1,
+      "0xfffffff00b2821e8": 2,
+      "0xfffffff00b2829a8": 2,
+      "0xfffffff00b2869dc": 1,
+      "0xfffffff00b286bd8": 1,
+      "0xfffffff00b286c90": 1,
+      "0xfffffff00b2e7034": 1,
+      "0xfffffff00b31741c": 3,
+      "0xfffffff00b3174d0": 3,
+      "0xfffffff00b369a14": 2,
+      "0xfffffff00b3c9554": 1
+    },
     "com.apple.iokit.IOAudio2Family": {
       "0xfffffff00b36e788": 1
     },
@@ -204,8 +446,16 @@
     "com.apple.iokit.IOMobileGraphicsFamily": {
       "0xfffffff00ab86b04": 1
     },
+    "com.apple.iokit.IOPCIFamily": {
+      "0xfffffff00ab86b04": 1,
+      "0xfffffff00ad4499c": 1
+    },
     "com.apple.iokit.IOReportFamily": {
       "0xfffffff00ac20880": 1
+    },
+    "com.apple.iokit.IOSCSIArchitectureModelFamily": {
+      "0xfffffff00b315dd8": 1,
+      "0xfffffff00b316084": 1
     },
     "com.apple.iokit.IOStorageFamily": {
       "0xfffffff00ad71480": 1,
@@ -224,6 +474,18 @@
       "0xfffffff00b32cf8c": 1,
       "0xfffffff00b332404": 1,
       "0xfffffff00b332418": 1
+    },
+    "com.apple.iokit.IOUSBDeviceFamily": {
+      "0xfffffff00b0de1d8": 1
+    },
+    "com.apple.iokit.IOUSBHostFamily": {
+      "0xfffffff00b31426c": 1
+    },
+    "com.apple.iokit.IOUSBMassStorageDriver": {
+      "0xfffffff00b2581dc": 1,
+      "0xfffffff00b31a524": 1,
+      "0xfffffff00b31af40": 1,
+      "0xfffffff00b31afe0": 1
     },
     "com.apple.kec.corecrypto": {
       "0xfffffff00ad05978": 1,

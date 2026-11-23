@@ -57,8 +57,28 @@ Test/check-fence-wait.py
 |---|---|---|---|
 | `ABI_PATH` + 生成 `original-bindings.cpp` / `original-addresses.cpp` | 23、95–260 | 从 `scripts/legacy-display-24A446.json`（31,972 B）生成原类 vtable 槽与地址表 | **无**，必须移植这段生成逻辑 |
 | `NativeLegacyDisplay.cpp` / `NativeGOPPresenter.cpp` 编译 | 700–716 | 主体 | 源码有 |
-| `LegacyDisplayProbe.cpp` | 267/312 | 注册服务、启动显示 | **缺文件**：只在 sheng 的 `kits/sheng/`，我们的 sheng 检出里 `kits/` 是空的（`unixnu fetch` 才填充） |
+| `LegacyDisplayProbe.cpp` | 267/312 | 注册服务、启动显示 | **缺文件，且无处可取**：sheng 仓库里 `git ls-files kits/` 只有 `kits/.gitkeep`，`git log --all -- kits/sheng*` 无提交，`feeds.toml` 与 CI 都没有填充这一步（§4.1） |
 | `libNativeLegacyDisplay.late.a` 打包 | 700 | `xcrun ar rcs` + `llvm-objcopy` 去掉 `__DATA,__mod_init_func` 并把 `__GLOBAL__sub_I_NativeLegacyDisplay.cpp` 全局化 | Linux 有 `llvm-objcopy`/`ar`，只需换编译器驱动 |
+
+### 4.1 `kits/sheng` 不是「没 fetch」，是上游根本没有
+
+穷举过的证据（2026-11-23，全部只读）：
+
+```bash
+cd /mnt/e/hackios/UniXNU-sheng
+git ls-files kits/            # 只有 kits/.gitkeep
+git log --all --oneline -- 'kits/sheng*'   # 空
+grep -n 'kit' board.toml      # 只有 :7 "kit" = "sheng"（名字，不是来源）
+grep -in 'kit' feeds.toml     # 空
+grep -in 'kit' .github/workflows/package.yml  # 空
+```
+
+框架 `UniXNU/kits/` 只有 `AdrenoFirmware`/`AdrenoPM4`/`AirNir`/`ArmSmmu4K`/`VerifiedRoot`/`XnuPrelink`；
+装配树 `tree/kits/` 只有 `XnuPrelink` 与板级 kit（我们的是 `mondrian`，sheng 的是 `sheng`）。
+`scripts/unixnu/tree.py` 只为 catalog 组件与板级 kit 建目录，不会凭空生出 `kits/sheng/*.cpp`。
+
+⇒ 结论：`LegacyDisplayProbe.cpp` 没有任何公开副本，必须按语义重写。反过来，这也说明
+路线 B 里「整支复用 sheng 构建器」在干净克隆上根本跑不通——它会先死在缺这个文件。
 
 不在显示集里、必须剔除的：`KeyStoreProbe.cpp`、`NativeKeyStoreEvents.cpp`、
 `KeyboardCover.cpp`、`KeyboardProbe.cpp`、`Wn8030.c`、`GeniI2c.c`、`QcomDwc3.cpp`、

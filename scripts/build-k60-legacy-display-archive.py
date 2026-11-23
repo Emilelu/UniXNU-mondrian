@@ -86,7 +86,7 @@ def main():
                         if "_native_legacy_" in line})
         defined = set()
         for obj in sorted(out.glob("*.o")):
-            if obj == component_obj:
+            if obj.name in ("display-no-gpu-trace.o", "LegacyDisplayProbe.o"):
                 continue
             got = subprocess.run(["llvm-nm", "--defined-only", str(obj)],
                                  capture_output=True, text=True, check=True).stdout

@@ -252,3 +252,7 @@ armcpu-sleep-hook.patch
 # sheng c8f92b2: release the dyld pager source after the last reference,
 # so a spliced root does not pin the source vnode; applies on top of 0564.
 0575-k60-vmwait-dyld-pager-source-release.patch
+
+# iOS27: AMFI registers more than once during early boot on this board; keep the
+# first interface instead of panicking (ios16 0310, applies unmodified).
+0576-k60-amfi-keep-first.patch

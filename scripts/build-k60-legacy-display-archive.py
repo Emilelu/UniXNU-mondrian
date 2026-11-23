@@ -84,6 +84,14 @@ def main():
                             capture_output=True, text=True, check=True).stdout
         hooks = sorted({line.split()[-1].lstrip("_") for line in nm.splitlines()
                         if "_native_legacy_" in line})
+        defined = set()
+        for obj in sorted(out.glob("*.o")):
+            if obj == component_obj:
+                continue
+            got = subprocess.run(["llvm-nm", "--defined-only", str(obj)],
+                                 capture_output=True, text=True, check=True).stdout
+            defined |= {line.split()[-1].lstrip("_") for line in got.splitlines() if line.strip()}
+        hooks = [hook for hook in hooks if hook not in defined]
 
     stub = out / "display-no-gpu-trace.c"
     body = [STAGE0_TRACE_STUBS, "typedef unsigned long long u64;"]

@@ -99,3 +99,19 @@
 即：sheng 的屏幕输出来自一整套 **GopFramebuffer + 后期 display 归档**（`package/LegacyDisplayProbe.cpp` 等），不是 XNU 的 `PE_initialize_console(kPETextMode)` 文本控制台。它的「屏幕上能看到东西」与本项目当前尝试的 `0543/0552/0577` 不是同一条技术路线。
 
 ⇒ 本板族（SM8550/SM8475 + 同一套 UEFI GOP）上，已被证明能工作的早期通道只有两条：**物理 UART** 与 **UFS 分区日志**。视频通路要工作，前提是先有 GopFramebuffer 这一层（sheng 的 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY`），而不是只把 PE 文本控制台指向 `Video[0]`。
+
+## 9 用户裁决（2026-11-23 21:36）：没有 UART 硬件
+
+用户明确回答「没有UART硬件」⇒ 官方 log-capture 在 XNU 入口阶段允许的两条通道里，**UART 这条在本机不可用**，只剩「屏幕诊断」。
+
+这改变三条通道的排序：
+
+| 通道 | 状态 | 结论 |
+| --- | --- | --- |
+| UART（0x99c000, 115200n8） | **无硬件**（用户确认） | 排除，不再作为方案 |
+| 屏幕诊断（内核文本控制台） | 洋红只覆盖右半、串口 0 字节；本板族无先例 | **唯一剩下的入口通道**，必须先证明几何/扫描缓冲 |
+| UFS 分区日志（sheng `BootLog.c`） | 先例完整，但它写的是 **userdata 最后 32 MiB** | **不能直接照搬**：K60 的 userdata 是 Android 分区，写进去就是破坏 Android 数据 |
+
+因此 sheng 的日志方案只能以「在我们自己的 unixnu 分区内预留日志窗口」的形式移植，而那要改三窗口布局与镜像构建（Data/SystemOS 之外的保留区），属于构建期变更，冻结解除前不做。
+
+下一步（离线）：把「屏幕诊断」这条路做成可判定——用固件菜单（已验证能正常显示）在启动前把 GOP 的 `HorizontalResolution`/`VerticalResolution`/`PixelsPerScanLine`/`FrameBufferBase` 打到屏幕上，再由内核的 `Video[]` 对照，确定内核文本控制台的几何是否与面板一致。这是唯一不需要动存储布局的入口通道。

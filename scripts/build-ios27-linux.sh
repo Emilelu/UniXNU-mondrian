@@ -258,7 +258,7 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 		mark bootimg-reused
 	else
 		boot_done=
-		if [ -z "${K60_NO_KERNEL_SWAP:-}" ] && [ -f "$BOARD_DIR/boot/boot.img" ]; then
+		if [ -z "${K60_NO_KERNEL_SWAP:-}" ] && [ -z "${fw_rebuilt:-}" ] && [ -f "$BOARD_DIR/boot/boot.img" ]; then
 			SWAP_KERNEL="$BOARD_DIR/kernel/kernel.patched.macho"
 			if python3 "$ROOT/scripts/k60-kernel-swap.py" --kernel "$SWAP_KERNEL" \
 				--payload "$BOARD_DIR/payload/payload.img" --boot "$BOARD_DIR/boot/boot.img" --apply; then

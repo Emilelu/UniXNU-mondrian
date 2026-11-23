@@ -1,7 +1,7 @@
 # Precedent parity ledger
 
 Status date: 2026-11-23. Manifest: `docs/research/ios27/PRECEDENT-MANIFEST.toml`
-(1460 items across nine reference repositories).
+(1522 items across nine reference repositories).
 
 Every item carries one of `have`, `copied` or `not-applicable`; no item is
 unjudged and no item carries the retired gap label. The manifest was rewritten with an explicit
@@ -18,12 +18,12 @@ outside the repository at
 | uke | 230 | 88 | 3 | 139 |
 | cupid | 66 | 51 | 0 | 15 |
 | vermeer | 52 | 40 | 1 | 11 |
-| sheng | 144 | 83 | 1 | 60 |
+| sheng | 188 | 83 | 0 | 105 |
 | UniXNU-t970 | 278 | 87 | 0 | 191 |
-| UniXNU-zizhan | 116 | 78 | 0 | 38 |
-| UniXNU-pong | 118 | 87 | 0 | 31 |
+| UniXNU-zizhan | 126 | 78 | 1 | 47 |
+| UniXNU-pong | 126 | 78 | 0 | 48 |
 | iOS 16 line (`patches/xnu`) | 276 | 261 | 15 | 0 |
-| **Total** | **1460** | **860** | **21** | **579** |
+| **Total** | **1522** | **851** | **21** | **650** |
 
 `python3 scripts/check-goal-constraints.py --parity-only` exits 0:
 `OK goal constraints: precedent parity is complete and every active item has
@@ -43,8 +43,38 @@ The six items reported by the 2026-11-22 ledger are no longer missing:
 
 ## 同 SoC 与 16 线来源
 
-The four sources below were added to the ledger on 2026-11-23. All three
-external trees are `main` checkouts read without a working-tree checkout.
+The five sources below were added to the ledger on 2026-11-23. The three
+latest sheng/zizhan/pong trees are read-only exports; the export's
+`.reference-commit` names the exact commit. The previous ledger scanned older
+working checkouts of those three trees (`a68ee4e`, `034a0b0`, `e0ee6df`).
+
+### UniXNU-sheng
+
+- Commit: `c8f92b2` (branch `main`, read-only reference export). The previous
+  scan used `a68ee4e`; this rescan moves the source to the exported tree and
+  records the export commit.
+- Inventory: 25 `patches/xnu-12377` patch files (17 before; both scans count
+  files across the patch directories, so the manifest has 28 rows for 25 names
+  and had 20 rows for 17 names), 141 `board.toml` keys (105 before) and 19
+  `configs/sheng_ipados27_defconfig` keys (unchanged). That is 188 manifest
+  items (83 `have`, 105 `not-applicable`), up from 144 items (83 `have`,
+  1 `copied`, 60 `not-applicable`).
+- The delta is 8 new series entries, 3 changed patch bodies and 36 net new
+  board keys (`kernel.prelink.roots` moved under the new
+  `os_overrides.ipados-27.0.1-24A446` block). The 48 re-opened items (11
+  patches and 37 board keys) are re-judged here: 2 `have` and 46
+  `not-applicable`. The two `have` items are the bluetooth runtime (our
+  0526/0527 carry the same staging with boot arg `k60bt-runtime`) and the
+  sheng bring-up umbrella (our 0564 is the hand re-cut; this revision only
+  adds boot-log checkpoint calls). The new board keys are the macOS 27.3
+  `26C5035r` target and sheng boot/UEFI policy, none of which the K60 board
+  carries.
+- One patch is genuinely missing: `vmwait-dyld-pager-source-release.patch`.
+  It fails `git apply --check` on the clean base feed at
+  `osfmk/vm/vm_dyld_pager.c:1330` but passes after our 0564 re-cut in
+  `/mnt/e/k60-work/scratch/xnu-check`; it releases the source page and
+  placeholder before the other 16 KiB fixup parts are read. It does not
+  duplicate 0561-0574 and is recorded as the must-copy candidate.
 
 ### UniXNU-t970
 
@@ -61,25 +91,37 @@ external trees are `main` checkouts read without a working-tree checkout.
 
 ### UniXNU-zizhan
 
-- Commit: `034a0b0037b28f4ff4e46703cbd4d9bb75db25e5` (branch `main`).
-- Inventory: 20 patches, 41 board keys and 55
-  `configs/zizhan_ipados18_gpu_defconfig` keys; 116 items (78 `have`, 38
+- Commit: `054a2f52a25e44754b1719c0465e3de226d99e06` (branch `main`); the
+  previous scan used `034a0b0037b28f4ff4e46703cbd4d9bb75db25e5`.
+- Inventory: 30 patches (20 before), 41 board keys and 55
+  `configs/zizhan_ipados18_gpu_defconfig` keys; 126 items (78 `have`,
+  1 `copied`, 47 `not-applicable`), up from 116 items (78 `have`, 38
   `not-applicable`).
-- Four patches pass `git apply --check`: `0003-qsort-bounded-recursion.patch`
-  is a real stage-0 gap; `0004-pong-panic-reset-hook.patch`,
-  `0005-pong-thread-diagnostics.patch` and
-  `0006-pong-resource-notify-during-config.patch` do not become 27 work (see
-  below). The remaining 16 are display/panel/touch/CS-cache device patches and
-  fail on missing Pong files or drifted context.
+- The 13 re-opened patch bodies are three changed files (`0002-zizhan-fts`,
+  `0020-display-power-observer`, `0021-display-owner-accounting`) and ten new
+  files (`0022`-`0031`: kmem diagnostics, BT UART/identity/trace/stack capture,
+  CPU exit, crash name, touch edge drag, injection). All are
+  `not-applicable`: they target Pong FTS/display/BT files or are trace-only
+  Zizhan paths; `0025` and `0028` pass `git apply --check` but hardcode the
+  J171 identity or are PONG-gated. The existing
+  `0003-qsort-bounded-recursion.patch` entry is corrected to `copied`: our
+  `0572-k60-qsort-bounded-recursion.patch` is the same bounded-recursion fix.
 
 ### UniXNU-pong
 
-- Commit: `e0ee6df109b4b5dc706cac660d4f8210dc911dac` (branch `main`).
-- Inventory: 9 patches, 54 board keys and 55 `configs/pong_ipados18_defconfig`
-  keys; 118 items (87 `have`, 31 `not-applicable`).
-- `0003-pong-rootful-upgrade.patch` is the same PONG-only rootful helper as the
-  t970 copy; the other eight are Pong display/scheduler/CS-cache patches that
-  fail on missing files or context drift.
+- Commit: `08c1f94ba60ea57db4ddb4bfe20cff983d09931e` (branch `main`); the
+  previous scan used `e0ee6df109b4b5dc706cac660d4f8210dc911dac`.
+- Inventory: 28 patches (9 before), 41 board keys (54 before) and 57
+  `configs/pong_ios18e_defconfig` keys (55 before); 126 items (78 `have`,
+  48 `not-applicable`), up from 118 items (87 `have`, 31 `not-applicable`).
+- The tree moved from iPadOS 18.7.10 (`pong_ipados18_defconfig`) to iOS 18.6.2
+  (`pong_ios18e_defconfig`): 18 iPadOS-specific board keys disappear, five
+  `pong_build` keys appear, and the defconfig gains `CONFIG_XNU_PONG_ARCH` and
+  `CONFIG_XNU_PONG_NATIVE_PAC`. The 21 re-opened patches (`0001` plus 20 new
+  files) are all `not-applicable`: six pass `git apply --check` but are
+  PONG-gated or arm64e-only (camera metal memory, arm64e threaded starts,
+  fileset text hints, native PAC default identity, bounded pmap teardown,
+  console handoff lock), and the rest fail on missing Pong files or context.
 
 ### iOS 16 line (`patches/xnu`)
 
@@ -105,16 +147,19 @@ external trees are `main` checkouts read without a working-tree checkout.
   second half of the trust-cache fix, `zzzz...-k60-trustcache-ready-guard.patch`,
   is in the same state.
 
-### Real gaps from these four sources
+### Real gaps from these five sources
 
-These are the entries that are genuinely absent from the 27 series and worth
-carrying into stage-0 work. `E:/k60-work/scratch/parity-expand-report.md` gives
-the per-patch `git apply --check` output and the duplicate analysis against
-0561-0571 for every one.
+This list records the gap set as first written. Status at the 2026-11-23
+sheng/zizhan/pong rescan: items 1, 2 and 5 have landed in the 27 series (0572,
+0574 and 0573); items 3, 4, 6 and 7 remain open; item 8 is the new sheng gap.
+`E:/k60-work/scratch/parity-expand-report.md` gives the per-patch
+`git apply --check` output and the duplicate analysis against 0561-0574 for
+every one.
 
-1. **qsort bounded recursion — zizhan `0003-qsort-bounded-recursion.patch`**
-   (canonical; t970's `zzzzzzzzzzzz-pong-qsort-bounded-recursion.patch` is the
-   same fix). `git apply --check` PASS on xnu-3199e8bc. The patch changes only
+1. **qsort bounded recursion — zizhan `0003-qsort-bounded-recursion.patch` —
+   landed as 0572** (canonical; t970's
+   `zzzzzzzzzzzz-pong-qsort-bounded-recursion.patch` is the same fix).
+   `git apply --check` PASS on xnu-3199e8bc. The patch changes only
    `bsd/kern/qsort.c` so the smaller partition recurses and the larger one is
    handled iteratively; the zizhan header records the motivating panic
    (`kalloc_type sorts its views on the 16 KB boot interrupt stack: always
@@ -123,9 +168,9 @@ the per-patch `git apply --check` output and the duplicate analysis against
    The same hazard exists in our tree: `osfmk/kern/kalloc.c:1490`, `:1882` and
    `:2002` call `qsort`, and `osfmk/mach/arm/vm_param.h:385` sets
    `KERNEL_STACK_SIZE` to `4*4096` (16 KB) with `INTSTACK_SIZE` `(4*4096)` at
-   `:388`. Neither the 27 nor the 16 series has a qsort patch, and no
-   0561-0571 patch touches `bsd/kern/qsort.c`.
-2. **`native-4k-bootstrap-capacity.patch`** — 2,300 B, touches
+   `:388`. Landed as `0572-k60-qsort-bounded-recursion.patch`; no other
+   0561-0574 patch touches `bsd/kern/qsort.c`.
+2. **`native-4k-bootstrap-capacity.patch` — landed as 0574** — 2,300 B, touches
    `osfmk/arm/pmap/pmap.h`, `osfmk/arm64/start.s` and
    `osfmk/arm64/genassym.c`; `git apply --check` PASS. The 27 base reserves
    only `BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 8)` at
@@ -135,6 +180,7 @@ the per-patch `git apply --check` output and the duplicate analysis against
    1 GiB in each of V=P and KVA need 12 pages; the existing start.s comment
    (`osfmk/arm64/start.s:603-606`) still assumes a 2 GiB/8-page device. The
    patch raises the native-4K reserve to 16 pages and adds the overflow guard.
+   Landed as `0574-k60-4k-bootstrap-capacity.patch`.
 3. **Trust-cache bootstrap pair — `zzzz...-k60-trustcache-defer-img4.patch`
    plus `zzzz...-k60-trustcache-ready-guard.patch`** — the first is 2,428 B and
    applies PASS; the second is the same fix's query-side guard but fails at
@@ -155,7 +201,8 @@ the per-patch `git apply --check` output and the duplicate analysis against
    `E:/k60-work/artifacts/modem-carrier-verify/port-run2/framework/patches/xnu-12377/source-corecrypto14-bootstrap.patch`
    that must be reconciled before landing. Without this the source corecrypto
    provider is linked but never started.
-5. **`zzx-pmap-sync-64bit-pa.patch`** — 402 B, applies PASS. The 27 base still
+5. **`zzx-pmap-sync-64bit-pa.patch` — landed as 0573** — 402 B, applies PASS.
+   The 27 base still
    does `flush_dcache((vm_offset_t) (pp << PAGE_SHIFT), PAGE_SIZE, TRUE)` at
    `osfmk/arm/pmap/pmap.c:7238`; `pp` is a 32-bit `ppnum_t`
    (`osfmk/mach/vm_types.h:77`), so on the K60's 5 GiB the shift truncates
@@ -176,15 +223,21 @@ the per-patch `git apply --check` output and the duplicate analysis against
    usblog file. It depends on `pong_ramoops_console_init` from 0546 and the
    usblog file from 0547; `CARRY-OVER-INVENTORY.md:28` records it as `移植`.
    It shares only the `arm_init.c` file with 0564, not a hunk, so it is not a
-   duplicate of 0561-0571.
+   duplicate of 0561-0574.
+8. **`vmwait-dyld-pager-source-release.patch`** — 3,730 B, touches only
+   `osfmk/vm/vm_dyld_pager.c`. Base-feed `git apply --check` fails at
+   `osfmk/vm/vm_dyld_pager.c:1330`; after our 0564 re-cut in
+   `/mnt/e/k60-work/scratch/xnu-check` it applies PASS. It releases the source
+   page and placeholder before the other 16 KiB fixup parts are read; the sheng
+   header notes `Not run on hardware`. It does not duplicate any of 0561-0574.
 
-### All 16-line patches that apply but are not in 27
+### All 16-line patches that applied but were not in 27 at scan time
 
-The following 69 files pass `git apply --check` on xnu-3199e8bc but are not present in the 27 series. Only the first group is stage-0 must-copy; the other groups are named so the disposition is auditable rather than implied.
+The following 69 files passed `git apply --check` on xnu-3199e8bc at the original 16-line scan and were not present in the 27 series then. Three stage-0 entries have since landed (0572, 0574, 0573); the table remains as the scan record. At scan time only the first group was stage-0 must-copy; the other groups are named so the disposition is auditable rather than implied.
 
 | Group | Count | Files |
 |---|---:|---|
-| Stage-0 must-copy (4) | 4 | `native-4k-bootstrap-capacity.patch`, `source-corecrypto14-bootstrap.patch`, `zzx-pmap-sync-64bit-pa.patch`, `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-defer-img4.patch` |
+| Stage-0 must-copy at scan time (4; 3 landed) | 4 | `native-4k-bootstrap-capacity.patch`, `source-corecrypto14-bootstrap.patch`, `zzx-pmap-sync-64bit-pa.patch`, `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-k60-trustcache-defer-img4.patch` |
 | Device drivers (8) | 8 | `0503-k60-audio-aw882xx.patch`, `0504-k60-audio-pong-audio.patch`, `0602-k60-physical-battery.patch`, `0611-k60-smem-handoff.patch`, `0612-k60-adsp-image.patch`, `0613-k60-adsp-pas.patch`, `0615-k60-md-window.patch`, `0624-k60-quiet-managed-page-report.patch` |
 | IOKit/USB crash guards (11) | 11 | `0335-k60-setprop-guard.patch`, `0337-k60-checkin-compat.patch`, `0344-k60-client-uaf-probe.patch`, `0350-k60-getprop-null-guard.patch`, `0351-k60-property-guards.patch`, `0358-k60-deny-analytics-open.patch`, `0359-k60-proptable-guards.patch`, `0360-k60-null-lock-safety.patch`, `0361-k60-childset-guard.patch`, `0363-k60-attach-expansion.patch`, `0384-k60-pid-hibernate.patch` |
 | Cryptex (3) | 3 | `0390-k60-cryptex-app-access.patch`, `0396-k60-cryptex-app-access2.patch`, `0397-k60-cryptex-path-redirect.patch` |

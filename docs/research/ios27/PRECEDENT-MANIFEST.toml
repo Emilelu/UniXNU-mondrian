@@ -3139,25 +3139,29 @@ measured_items = 188
   kind = "patch"
   id = "sheng-bluetooth-runtime.patch"
   sha256 = "dfa595e89e9729803a00ead0ae0ef8202fb27cddaec3e32cda019ff57144eb6b"
-  verdict = "unknown"
+  verdict = "have"
+  reason = "deliberately different: 0526-k60-bt-runtime-mount.patch and 0527-k60-bt-launchd-cache.patch stage the same QcaBTType0.dylib and QcaBluetooth.runtime with boot arg k60bt-runtime; this revision only renames sheng-bluetooth to bluetooth"
 
   [[repo.item]]
   kind = "patch"
   id = "sheng-bootstrap-checkpoints.patch"
   sha256 = "14b9b212846e58b9198f987b1daf251159024d312a62a7c85c0b2786b9f02c7b"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng boot checkpoint calls around bsd_init/serial_keyboard/vm_pageout; no boot_log_checkpoint provider exists in the K60 27 tree (git apply --check: osfmk/kern/startup.c:1 patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "sheng-cache-input-diagnostic.patch"
   sha256 = "38878f3f56857fb790f9829a12f41bed04e02e3f3652efc4c54f0fbab98afe89"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "trace-only launchd cache-input diagnostic in sheng_dump_user_backtrace with 24A446-specific offsets; git apply --check PASS after 0564 but no K60 consumer"
 
   [[repo.item]]
   kind = "patch"
   id = "sheng-headless-startup-checkpoints.patch"
   sha256 = "6e471baf91c7c0b2cc8d6e39f015da9bfd8131c5db7af69c9e47c5d5b8cfd5d4"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "needs osfmk/kern/boot_progress.h, absent from xnu-3199e8bc (git apply --check: No such file or directory; bsd/kern/kern_exec.c:10094 patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
@@ -3170,19 +3174,22 @@ measured_items = 188
   kind = "patch"
   id = "sheng-platform-sleep.patch"
   sha256 = "fa70fe3346ab66f5c2a28ce1adfcd41ee770cb165a7080dc6fdf4541550cd033"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng platform-sleep policy (IOPMrootDomain gate and 100 ms SIGPdisabled recovery); our 27 series only defines arm64_platform_sleep_hook in patches/xnu-12377/armcpu-sleep-hook.patch and never calls it"
 
   [[repo.item]]
   kind = "patch"
   id = "sheng-process-exit-log.patch"
   sha256 = "c3a377517c746c56a52d291e343e960568f953ddf0109efa92a5cba4f26272a2"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "trace-only weak boot_log_process_exit hook; no provider in the K60 27 tree (git apply --check: bsd/kern/kern_exit.c:2081 patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "sheng-startup-failure-log.patch"
   sha256 = "8de0a88adb005b92ec6f52846fc13d6776b97c99f348688c17c3db75ee7877f3"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "trace-only startup failure and panic hooks; no provider in the K60 27 tree (git apply --check: bsd/kern/kern_exec.c:10118 patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
@@ -3209,7 +3216,8 @@ measured_items = 188
   kind = "patch"
   id = "vmwait-dyld-pager-source-release.patch"
   sha256 = "916c930f4b6b2e7515329bafc8d2ab52ba014d4dacbc8c706e8cc5d603ff5a32"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly after 0564 in /mnt/e/k60-work/scratch/xnu-check; releases the dyld pager source page and placeholder before reading the other 16 KiB fixup parts, fixing a 4K self-deadlock. Not copied in this read-only task; must-copy candidate recorded in PRECEDENT-PARITY.md"
 
   [[repo.item]]
   kind = "patch"
@@ -3236,13 +3244,15 @@ measured_items = 188
   kind = "patch"
   id = "zzzz-sheng-ipados27-bringup.patch"
   sha256 = "4e7dc2b97c3e285ed79d23a69038b1e43a0ccfcd864936f717d7c804bdec12d2"
-  verdict = "unknown"
+  verdict = "have"
+  reason = "deliberately different: core bring-up is re-cut as patches/xnu-12377/0564-k60-sheng-27-bringup-part1.patch; this revision only adds boot_log_checkpoint calls and renames sheng-log/sheng-exc-name to log/exc-name"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzz-sheng-bsd-checkpoints.patch"
   sha256 = "90819706ff5e132701653458801a295b39b2bd08a74f57fbdc986889dbdb99a3"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "bsd_init_checkpoint macro plus APFS/GPU probe checkpoints; sheng boot-log scaffolding is absent from K60 27 (git apply --check: bsd/kern/bsd_init.c:586 patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
@@ -3276,7 +3286,8 @@ measured_items = 188
   kind = "patch"
   id = "zzzzzzzzzzz-sheng-edge-matrix.patch"
   sha256 = "5048e180f459e860b2fad50f66e2a49231b70081cb32f930e1d92c2c579011e7"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "two-cluster Edge scheduler matrix on top of zzyf-sheng-amp; mondrian SM8475 uses its own CPU topology (git apply --check: osfmk/kern/sched_clutch.c:1401 patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
@@ -3406,12 +3417,14 @@ measured_items = 188
   [[repo.item]]
   kind = "board-key"
   id = "bootimg.image.ramdisk_compression"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "board.toml has no [bootimg] section; sheng UEFI chunked-ramdisk policy"
 
   [[repo.item]]
   kind = "board-key"
   id = "bootimg.image.ramdisk_max_bytes"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "board.toml has no [bootimg] section; sheng ramdisk size ceiling"
 
   [[repo.item]]
   kind = "board-key"
@@ -3456,7 +3469,8 @@ measured_items = 188
   [[repo.item]]
   kind = "board-key"
   id = "firmware.defines.SHENG_BOOT_GUARD"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng-specific firmware define; mondrian board.toml has no matching SHENG_BOOT_GUARD"
 
   [[repo.item]]
   kind = "board-key"
@@ -3644,162 +3658,194 @@ measured_items = 188
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.ipados-27.0.1-24A446.kernel.prelink.roots"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "our board.toml has no ipados-27.0.1 override; the key belongs to the sheng iPadOS 27 target"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.bootimg.max_image_bytes"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.bootimg.template"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.components.include"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.kernel.archives"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.kernel.config_fragments"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.adt.chip_id"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.adt.loader_inputs"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_excluded_ranges"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_outside_ranges"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_outside_reserved"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_size"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.install.confirm"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.install.confirm_args"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.install.confirm_titles"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.install.title"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.kernel_args"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.audio_target"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.bluetooth_target"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.boot_shims"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.build"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.data_gib"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.data_seed_tool"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.gpu_addon"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.skip_setup"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.target"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.wifi_bin_prefix"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.runtime.wifi_target"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.size_mib"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.text_fixups"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.payload.timeout"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
   id = "os_overrides.macos-27.3-26C5035r.remove"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "sheng macOS 27.3 (26C5035r) target override; our board.toml only carries os_overrides for ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
@@ -3822,7 +3868,8 @@ measured_items = 188
   [[repo.item]]
   kind = "board-key"
   id = "package.defconfig.macos-27.3-26C5035r"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "our package.defconfig has no macOS 27.3 entry; targets are ipados-16.6.1-20G81 and ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
@@ -3958,7 +4005,8 @@ measured_items = 188
   [[repo.item]]
   kind = "board-key"
   id = "payload.runtime.firmware_tools"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "our board.toml has no [payload.runtime] block; the 27 payload is assembled by framework boot scripts"
 
   [[repo.item]]
   kind = "board-key"
@@ -6033,14 +6081,15 @@ measured_items = 126
   kind = "patch"
   id = "0002-zizhan-fts.patch"
   sha256 = "780ac27e426f925c96905104070db5d5c50c030b21882d428e2aceb01c366095"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong FTS touch patch (touch pause support); xnu-3199e8bc has no bsd/dev/pong_fts.c and the hunk context differs at bsd/kern/bsd_init.c:1243 (patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "0003-qsort-bounded-recursion.patch"
   sha256 = "539ca6041cc952ad49a61a076ff81ce3fafc651ae91ec6fe471f4d593b23a6d4"
-  verdict = "not-applicable"
-  reason = "applies cleanly to xnu-3199e8bc; bounded-recursion qsort fix for the 16 KB boot interrupt stack (zizhan g16 panic pc qsort+0x20). Not copied in this read-only task; tracked as the canonical must-copy candidate in PRECEDENT-PARITY.md"
+  verdict = "copied"
+  reason = "landed as patches/xnu-12377/0572-k60-qsort-bounded-recursion.patch; git apply --check PASS on xnu-3199e8bc"
 
   [[repo.item]]
   kind = "patch"
@@ -6151,73 +6200,85 @@ measured_items = 126
   kind = "patch"
   id = "0020-zizhan-display-power-observer.patch"
   sha256 = "7f40bbee1b6a34123948850d5859072fe33ea6fdcd3634eeb95b518e62ea0df8"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory)"
 
   [[repo.item]]
   kind = "patch"
   id = "0021-zizhan-display-owner-accounting.patch"
   sha256 = "b829d17dd6566bad6b2df9e7a9da90f8057472e7a2143327e6bf16d279430ec8"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory)"
 
   [[repo.item]]
   kind = "patch"
   id = "0022-zizhan-kmem-range-diagnostics.patch"
   sha256 = "1c3cad7ff18e083043be40c164a60530ab49c13ab4428a54298dff5d1ba3cd76"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "trace-only zizhan_vm_map_range_sizes diagnostics; hunk context differs at osfmk/vm/vm_kern.c:69 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "0023-zizhan-bt-uart.patch"
   sha256 = "2ec8690d67753b36d3bc4ab2accdd6acadea59ed93bfe1acc1bf316f4912df14"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "zizhan QCA6490 GENI SE20 Bluetooth UART driver; bsd/conf/files:403 context differs and the driver is not part of the K60 27 tree"
 
   [[repo.item]]
   kind = "patch"
   id = "0024-zizhan-crash-capture-bt.patch"
   sha256 = "d69f861c36ce9e6aac9b51cab5356c86330cf28545fd2573fa54d5a0c15e323f"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "adds bluetoothd/BlueTool to pong_ui_exception.c crash capture; osfmk/arm64/pong_ui_exception.c is absent from xnu-3199e8bc"
 
   [[repo.item]]
   kind = "patch"
   id = "0025-zizhan-bt-identity.patch"
   sha256 = "2ae36cb7a1d8f17a6bc9fe35546d83c5ad744703333750978e50308ec65ad49b"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but hardcodes the J171/iPad7,11 product-id in iokit/Kernel/IOUserClient.cpp; zizhan identity, not K60"
 
   [[repo.item]]
   kind = "patch"
   id = "0026-zizhan-bt-syscall-trace.patch"
   sha256 = "83871affaf8ac922bf072f8d182738df7b001366aa263b828aac27931a538d9f"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "trace-only zizhan_bt_probe syscall tracing; hunk context differs at bsd/vfs/vfs_syscalls.c:5207 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "0027-zizhan-bt-stack-sample.patch"
   sha256 = "67d95fb9d4d55c17cfb209039ead17bcc4cd2ab9742f3cf4dcdc83fa454e86f4"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "trace-only zizhan_bt_stack frame-chain sampling; hunk context differs at bsd/dev/arm/systemcalls.c:189 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "0028-zizhan-cpu-exit.patch"
   sha256 = "18780ff0e8f69014d514151736f4a90960accd60f4c161fec32a713193f8a60e"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but is gated on ARM64_BOARD_CONFIG_PONG CPU_OFF/processor_exit; K60 27 does not define PONG"
 
   [[repo.item]]
   kind = "patch"
   id = "0029-zizhan-crash-name.patch"
   sha256 = "0a19607d8995aaf46011ffdbfcc88fcb3b90b9eba58f6a179e4b3e49f22ff792"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "pong_crash_name boot arg; osfmk/arm64/pong_ui_exception.c is absent from xnu-3199e8bc"
 
   [[repo.item]]
   kind = "patch"
   id = "0030-zizhan-touch-edge-drag.patch"
   sha256 = "b50d8a1ca24791e39a5a07880e94a5c72f6f8979f3b84e3943dee1b0db79d686"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "touch edge-drag bounds in bsd/dev/pong_fts.c, which is absent from xnu-3199e8bc (git apply --check: No such file or directory)"
 
   [[repo.item]]
   kind = "patch"
   id = "0031-zizhan-inject-extra.patch"
   sha256 = "0a81bd67a5b8632cc5595cb7bb805693cac8ebc1cd83133c75a3e5976f5512ad"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "pong_inj=<library>:<program> exec injection; hunk context differs at bsd/kern/kern_exec.c:5986 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "board-key"
@@ -6805,7 +6866,8 @@ measured_items = 126
   kind = "patch"
   id = "0001-pong-darwin24.patch"
   sha256 = "142049ed0c6f8c4f594335873224a6c32ca130647c8535af794089b181296a96"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exit.c:139 (git apply --check: patch does not apply); the patch is anchored to the Pong device tree, not the 27 base feed"
 
   [[repo.item]]
   kind = "patch"
@@ -6860,121 +6922,141 @@ measured_items = 126
   kind = "patch"
   id = "zzzzzzzzz-pong-keystore-state.patch"
   sha256 = "00389a164685254c2fbe539c30d71d29a230144b7cc3bfb7eda01c3885b92c33"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "precedent-only target iokit/Kernel/MiniAppleKeyStore.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzz-pong-camera-metal-memory.patch"
   sha256 = "55b33be801a3129ec348085cc4a72ee56188bf0715fd1180821365046b3088ad"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but the body is under #if defined(PONG) for cameracaptured memory limits; xnu-12377 does not define PONG"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzz-pong-arm64e-threaded-starts.patch"
   sha256 = "0bd7a19b5f2f8748f1171d84afad36bf9cb223d3709736c923990e0897a8dc37"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but is an arm64e kernel linker flag (ld-classic -threaded_starts_section); K60 builds arm64"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzz-pong-owner-cache-config.patch"
   sha256 = "3fcd0d5fa943b20e66112b15284ddfd6e37256f0a0f9e4cad26f1c20622f6d2e"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "vfs_syscalls owner-cache guard; hunk context differs at bsd/vfs/vfs_syscalls.c:1073 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzz-pong-fileset-pac-bootstrap.patch"
   sha256 = "5bbb7738ba89e3cd08dfb7d93095c87cd9628c754c5f60d2734ae0b31739893e"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong fileset PAC bootstrap; hunk context differs at osfmk/arm64/locore.s:272 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzz-pong-fileset-text-hints.patch"
   sha256 = "664357bb2ea146cdb4aeaac21777b884c79321a6f57e3706c5612418fe7ecd96"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but every hunk is under #if defined(PONG); dead code in xnu-12377"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzz-pong-native-cache-path.patch"
   sha256 = "43faee7f0a3d51af57ec7c2f8eef194db537ed30d050762b970a4d615127581a"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong native dyld cache path; hunk context differs at bsd/kern/kern_exec.c:7466 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzz-pong-shared-cache-v5-subpages.patch"
   sha256 = "7a6b14b0cdae5f2b831980a4475f7b3a60104e15fa6cc0da6d8198a9a67dce59"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong shared-cache v5 4K subpage pager; hunk context differs at osfmk/vm/vm_shared_region_pager.c:1180 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzz-pong-native-pac-default-identity.patch"
   sha256 = "a2e39388aad5cee51845382c7de06533784f1c1d3075488b6fa1026c553e534c"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but only takes effect under HAS_NATIVE_PAC, which xnu-3199e8bc does not define (VMAPPLE.h defines HAS_PARAVIRTUALIZED_PAC)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzz-pong-native-39bit-va.patch"
   sha256 = "86b425e356b29737887ba7bdfc10c0014a1bce5ae7d417b5982e24c4565752df"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzz-pong-panic-recovery.patch"
   sha256 = "cab48f992b9aeb4db4615d0e54fb94e2ad1998c9ce058ff49fe637930a8b4a61"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong panic recovery hook in osfmk/kern/debug.c; hunk context differs at debug.c:326 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzz-pong-bounded-pmap-teardown.patch"
   sha256 = "dea227df8b33ae3cc89508b45dacf87b1213aa613f3fa8aa866565cdaa7d1022"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but the change is gated on ARM64_BOARD_CONFIG_PONG && XNU_PONG_NATIVE_PAC; K60 defines neither"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzz-pong-native-metal-discovery.patch"
   sha256 = "4c42d36f540d6309f04bf52d6997d4a47003113fee7ee7832d2e96d3ef58d5ae"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong IOUserClient metal discovery; hunk context differs at iokit/Kernel/IOUserClient.cpp:4361 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzz-pong-console-handoff-lock.patch"
   sha256 = "d220a9e0e94c03475443dda5a067d15488166adda6f685789bd6e113207e46a4"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "applies cleanly but every hunk is under #if defined(PONG); dead code in xnu-12377"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzz-pong-native-arm64-jop-policy.patch"
   sha256 = "8351bf119c9286440f86bfb51f1c6fde0bfbfa9f3440ba738d48fa2b0251ee7f"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong arm64 JOP SCTLR policy; hunk context differs at osfmk/arm64/locore.s:1627 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzz-pong-native-sandbox-extension-output.patch"
   sha256 = "14a9105f82313b2d8c04ae5c14f153fc65f5db4a6f8a2a52f3d6ed71aa2f7586"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "precedent-only target bsd/kern/kern_minimac.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzz-pong-native-file-resource-leases.patch"
   sha256 = "ce16b3adae5e8db9beef31af9d856c58bc871f97f90463a668a0c27dde285019"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "precedent-only target bsd/kern/kern_minimac.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzz-pong-native-csops-entitlement-output.patch"
   sha256 = "e6e8ad808df649796ab7f2c52b4a09501f4c5bcbb215caec4cb3383a898167ca"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong csops entitlement output; hunk context differs at bsd/kern/kern_proc.c:3532 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-irq-latency.patch"
   sha256 = "415220c0cf0f66db68970ac9f126dcb89adadc0062abeb0d9664956fa5186b0d"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "precedent-only bsd/dev/pong_goodix.c, bsd/dev/pong_input.c and bsd/sys/pong_input.h do not exist in xnu-3199e8bc"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-native-media-rule-space.patch"
   sha256 = "a281aae90e8b032fb8f1e7b645c7519a116e37d18e90a65282f7fc711c8499c2"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong exec_inject_conf 2048 rule space; hunk context differs at bsd/kern/kern_exec.c:5972 (git apply --check: patch does not apply)"
 
   [[repo.item]]
   kind = "board-key"
@@ -7171,7 +7253,8 @@ measured_items = 126
   [[repo.item]]
   kind = "board-key"
   id = "package.defconfig.ios-18.6.2-22G100"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "our package.defconfig has no ios-18.6.2-22G100 entry; K60 targets ipados-16.6.1-20G81 and ios-27.0.1-24A446"
 
   [[repo.item]]
   kind = "board-key"
@@ -7194,22 +7277,26 @@ measured_items = 126
   [[repo.item]]
   kind = "board-key"
   id = "pong_build.boot_entry"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong iOS 18.6.2 build-driver key; our board.toml has no [pong_build] section"
 
   [[repo.item]]
   kind = "board-key"
   id = "pong_build.cpus"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong iOS 18.6.2 build-driver key; our board.toml has no [pong_build] section"
 
   [[repo.item]]
   kind = "board-key"
   id = "pong_build.entry"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong iOS 18.6.2 build-driver key; our board.toml has no [pong_build] section"
 
   [[repo.item]]
   kind = "board-key"
   id = "pong_build.kernel_entry"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong iOS 18.6.2 build-driver key; our board.toml has no [pong_build] section"
 
   [[repo.item]]
   kind = "board-key"
@@ -7460,7 +7547,8 @@ measured_items = 126
   [[repo.item]]
   kind = "defconfig-key"
   id = "CONFIG_XNU_PONG_ARCH"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong arm64e arch selector; our mondrian_ios27_defconfig does not set it"
 
   [[repo.item]]
   kind = "defconfig-key"
@@ -7483,7 +7571,8 @@ measured_items = 126
   [[repo.item]]
   kind = "defconfig-key"
   id = "CONFIG_XNU_PONG_NATIVE_PAC"
-  verdict = "unknown"
+  verdict = "not-applicable"
+  reason = "Pong native-PAC selector; our mondrian_ios27_defconfig does not set it and xnu-3199e8bc has no HAS_NATIVE_PAC path"
 
   [[repo.item]]
   kind = "defconfig-key"

@@ -34,3 +34,16 @@ amfi_get_out_of_my_way=1 k60_fontscale=3`）。检查器直接读 `board.toml` �
 - 合并层纪律有自动检查：`scripts/check-board-read-merge.py`（`--strict` 用于 CI）。已复查的 13 个读基础表的脚本记在 `scripts/BOARD-READ-MERGE.toml`，新增读者会被点名；负向自测（临时树里放一个不合并的读者）退 1。
 - ④ 代码侧已完整（2026-11-22）：`0547` usblog EP0 + `0549` 复位 + `conf-files` 两行，镜像 `0781f1f7…`；`llvm-nm` 三个符号在（`_k60_usblog_reset_to_fastboot`/`_k60_prime_restart`/`_k60_restart_reason`），但**是否真的复位过还没有上机证据**。
 - ③ 已核实（2026-11-22，离线读镜像）：`payload.img` 里 `EFI/UniXNU/unixnu.toml` 为 `timeout = 10`、`default = "xnu"`，`[[entry]] id="xnu"` 的 `title = "iOS 27"`、`path = "Payloads/kernel.macho"`、`args` 8 项 120 B ⇒ 菜单会在 10 秒后自动引导 27 内核，不需要人按键；黑屏因此是交棒之后的事，与菜单无关。
+
+## 2026-11-23 复核（冻结仍为 frozen，本段只补机器读数）
+
+| 条件 | 现状 | 读数（可复跑） |
+| --- | --- | --- |
+| ① 同一次启动内日志通路 | 代码侧就绪，缺上机读数 | `check-kernel-console.py --kernel <board>/kernel/kernel.macho` 打印定义了 `_pong_ramoops_console_write` 与 `_pong_ramoops_console_init` |
+| ② 无疏漏 | 机器证据齐 | `check-series-order.py` 打印 arch 65/0、soc 2/0、os 4/0、device 57/0，合计 applied=128 failed=0；`check-goal-constraints.py --parity-only` 报 1527 条、0 unknown |
+| ③ 菜单自动引导 | 已核实 | `payload.img` 内 `unixnu.toml` 为 `timeout = 10`、`default = "xnu"` |
+| ④ 自动复位 | 代码在，缺上机读数 | `llvm-nm` 三个符号在；`F2-PREDICTION.md` 的 `k60-autoreset: armed` 与 `resetting` 两行尚未出现 |
+| ⑤ blocker 可观测 | 已满足 | `check-ios27-artifacts.py --flight-ready` 的 `open_blockers()` 拒绝无 `observe_via` 的条目，测试 48/48 |
+
+结论：只剩 ① 与 ④ 的上机读数；两者都需要一次飞行，而飞行归 Lead 且受本冻结约束。③ 须用户过目
+`PORT-AUDIT-20261123.md`、`PORT-DECISIONS-2.md`、`BORROWABLE-MECHANISMS.md` 后才解冻。

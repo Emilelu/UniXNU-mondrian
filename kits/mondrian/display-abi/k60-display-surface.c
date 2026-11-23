@@ -2,18 +2,17 @@
  *
  * The iPadOS 24A446 fixture was enumerated from a kernelcache whose IOMobileGraphicsFamily
  * carried a surface helper class.  Our 24A446 kernelcache does not: the same slot addresses
- * land in IOThunderboltFamily (see docs/research/ios27/GOP-FRAMEBUFFER-MINIMAL.md 10.1).
- * Until a real surface class is ported, this file owns the group with explicit semantics:
- * we hand out one small descriptor of our own and every accessor returns a consistent value.
- * No IOMemoryDescriptor is produced, so the scanout path rejects the transfer with
- * kIOReturnNotReady instead of touching memory it does not own.  Console text output does
- * not depend on this group.
+ * land in IOThunderboltFamily (docs/research/ios27/GOP-FRAMEBUFFER-MINIMAL.md 10.1).
+ * The generated bindings still own the public symbol names; their .original targets point at
+ * the k60_surface_* functions below.  We hand out one small descriptor of our own and every
+ * accessor returns a consistent value.  No IOMemoryDescriptor is produced, so the scanout
+ * path rejects the transfer with kIOReturnNotReady instead of touching memory it does not own.
+ * Console text output does not depend on this group.
  */
 typedef unsigned int u32;
 typedef unsigned long long u64;
 
 extern void *IOMalloc(unsigned long size);
-extern void IOFree(void *address, unsigned long size);
 
 #define K60_SURFACE_MAGIC 0x4b36305355524631ULL /* K60SURF1 */
 
@@ -54,39 +53,39 @@ void *native_legacy_default_surface_create(void *root, u32 width, u32 height)
     return surface;
 }
 
-void *native_legacy_surface_descriptor(void *object) { (void)object; return 0; }
+void *k60_surface_descriptor(void *object) { (void)object; return 0; }
 
-u64 native_legacy_surface_width(void *object)
+u64 k60_surface_width(void *object)
 {
     struct k60_surface *s = k60_surface_of(object);
     return s ? s->width : 0;
 }
 
-u64 native_legacy_surface_height(void *object)
+u64 k60_surface_height(void *object)
 {
     struct k60_surface *s = k60_surface_of(object);
     return s ? s->height : 0;
 }
 
-u64 native_legacy_surface_stride(void *object)
+u64 k60_surface_stride(void *object)
 {
     struct k60_surface *s = k60_surface_of(object);
     return s ? s->stride : 0;
 }
 
-u64 native_legacy_surface_allocation(void *object)
+u64 k60_surface_allocation(void *object)
 {
     struct k60_surface *s = k60_surface_of(object);
     return s ? s->allocation : 0;
 }
 
-u32 native_legacy_surface_format(void *object)
+u32 k60_surface_format(void *object)
 {
     struct k60_surface *s = k60_surface_of(object);
     return s ? s->format : 0;
 }
 
-u32 native_legacy_surface_planes(void *object)
+u32 k60_surface_planes(void *object)
 {
     struct k60_surface *s = k60_surface_of(object);
     return s ? s->planes : 0;

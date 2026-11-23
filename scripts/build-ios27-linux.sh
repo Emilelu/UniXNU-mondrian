@@ -163,7 +163,18 @@ if [ -z "${K60_FORCE_PAYLOAD:-}" ] && [ -f "$PAYLOAD_KEY" ] &&
 	mark payload-reused
 else
 	payload_done=
-	if [ -z "${K60_NO_FAST_PAYLOAD:-}" ] && [ -f "$BOARD_DIR/payload/payload.json" ]; then
+	# The in-place refresh keeps the packed ADT. That is only safe when the ADT's
+	# own inputs did not change: the payload key is wider (it includes the dts), so
+	# a dts-only edit also lands in this else-branch and must NOT take the fast path.
+	ADT_KEY="$BOARD_DIR/payload/adt.inputs.sha256"
+	adt_key=$( {
+		sha256sum "$ROOT/board.toml" | cut -d' ' -f1
+		sha256sum "$ROOT/dts/mondrian.dts" 2>/dev/null | cut -d' ' -f1
+		sha256sum "$UNIXNU/scripts/unixnu/devicetree.py" | cut -d' ' -f1
+		sha256sum "$UNIXNU/scripts/unixnu/payload.py" | cut -d' ' -f1
+	} | sha256sum | cut -d' ' -f1 )
+	if [ -z "${K60_NO_FAST_PAYLOAD:-}" ] && [ -f "$BOARD_DIR/payload/payload.json" ] &&
+		[ -f "$ADT_KEY" ] && [ "$(cat "$ADT_KEY")" = "$adt_key" ]; then
 		if python3 "$ROOT/scripts/k60-fast-payload.py" --device "$ROOT" --board "$BOARD_DIR" \
 			--kernel "$BOARD_DIR/kernel/kernel.macho"; then
 			payload_done=1
@@ -174,6 +185,8 @@ else
 	fi
 	if [ -z "$payload_done" ]; then
 		python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
+		mkdir -p "$(dirname "$ADT_KEY")"
+		printf '%s\n' "$adt_key" >"$ADT_KEY"
 		mark payload
 	fi
 	mkdir -p "$(dirname "$PAYLOAD_KEY")"

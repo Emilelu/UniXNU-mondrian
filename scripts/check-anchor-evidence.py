@@ -54,12 +54,34 @@ def check(report, tree):
     return counted, problems
 
 
+def series_tree(feed, series, workdir):
+    """Replay our own series on a shared clone so anchors inside files we add resolve."""
+    import subprocess
+    import tempfile
+    work = pathlib.Path(tempfile.mkdtemp(prefix='anchor-', dir=workdir))
+    subprocess.run(['git', 'clone', '-q', '--shared', str(feed), str(work)], check=True)
+    applied = failed = 0
+    for line in pathlib.Path(series).read_text(encoding='utf-8').splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith('#'):
+            continue
+        patch = pathlib.Path(series).parent / entry
+        rc = subprocess.run(['git', '-C', str(work), 'apply', str(patch)], capture_output=True)
+        applied += rc.returncode == 0
+        failed += rc.returncode != 0
+    print(f'note: replayed series on a shared clone: {applied} applied, {failed} failed')
+    return work
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--report', default='/mnt/e/k60-work/scratch/ios16-anchor-report.tsv')
     parser.add_argument('--tree', default='/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc')
+    parser.add_argument('--series', help='replay this series on a shared clone and check against it')
+    parser.add_argument('--workdir', default='/mnt/e/k60-work/scratch')
     args = parser.parse_args()
-    counted, problems = check(args.report, args.tree)
+    tree = series_tree(args.tree, args.series, args.workdir) if args.series else args.tree
+    counted, problems = check(args.report, tree)
     for problem in problems:
         print(f'FAIL {problem}')
     print(f'{counted} anchor-drift row(s), {len(problems)} without a live anchor')

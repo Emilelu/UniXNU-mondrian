@@ -6074,8 +6074,8 @@ measured_items = 278
 [[repo]]
 name = "zizhan"
 path = "/mnt/e/k60-work/references/latest/UniXNU-zizhan"
-commit = "054a2f52a25e44754b1719c0465e3de226d99e06"
-measured_items = 126
+commit = "a7f8ae2934c579c619a8c7b035f05163103b6b24"
+measured_items = 130
 
   [[repo.item]]
   kind = "patch"
@@ -6227,9 +6227,9 @@ measured_items = 126
   [[repo.item]]
   kind = "patch"
   id = "0023-zizhan-bt-uart.patch"
-  sha256 = "2ec8690d67753b36d3bc4ab2accdd6acadea59ed93bfe1acc1bf316f4912df14"
+  sha256 = "5e0f1ce9d5272785ff6ad9acd62b7ad2a27eb4214f5d215ce7c97fc2d7328776"
   verdict = "not-applicable"
-  reason = "zizhan QCA6490 GENI SE20 Bluetooth UART driver; bsd/conf/files:403 context differs and the driver is not part of the K60 27 tree"
+  reason = "zizhan-specific Bluetooth UART transport (bsd/dev/zizhan_bt_uart.c + bsd/conf/files); mondrian BT goes through qbt/XBL, not a UART."
 
   [[repo.item]]
   kind = "patch"
@@ -6248,9 +6248,9 @@ measured_items = 126
   [[repo.item]]
   kind = "patch"
   id = "0026-zizhan-bt-syscall-trace.patch"
-  sha256 = "83871affaf8ac922bf072f8d182738df7b001366aa263b828aac27931a538d9f"
+  sha256 = "bc862c8a0e1daa7c58ee8897d902af6b6b59c0ad2731373594950f3b241bbea5"
   verdict = "not-applicable"
-  reason = "trace-only zizhan_bt_probe syscall tracing; hunk context differs at bsd/vfs/vfs_syscalls.c:5207 (git apply --check: patch does not apply)"
+  reason = "trace-only instrumentation in uipc_syscalls.c/vfs_syscalls.c for the zizhan BT investigation; no mechanism to port."
 
   [[repo.item]]
   kind = "patch"
@@ -6283,9 +6283,37 @@ measured_items = 126
   [[repo.item]]
   kind = "patch"
   id = "0031-zizhan-inject-extra.patch"
-  sha256 = "0a81bd67a5b8632cc5595cb7bb805693cac8ebc1cd83133c75a3e5976f5512ad"
+  sha256 = "114018ef2fd0b29a9fce4def4e85fe132651d99e9c617c717435768fa9eff8e0"
   verdict = "not-applicable"
-  reason = "pong_inj=<library>:<program> exec injection; hunk context differs at bsd/kern/kern_exec.c:5986 (git apply --check: patch does not apply)"
+  reason = "DEFERRED (not stage-0): pong_inj=<library>:<program> boot-arg appends an injection row to exec_inject_conf so one experiment dylib reaches another program without rebuilding init. Useful for GPU/userland bring-up; requires exec_inject path we have not verified in the 27 tree, and stage-0 does not reach userland."
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0032-zizhan-bt-kctl-trace.patch"
+  sha256 = "74305779ffe103454220b8f6258ec603d9cf58e9d24826800737320be8713abd"
+  verdict = "not-applicable"
+  reason = "trace-only instrumentation in kern_control.c."
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0033-zizhan-bt-abort-trace.patch"
+  sha256 = "b6a99c06aaa32d7883340f9c40f47cc931f73092df8127d97cf8918b5a8986bf"
+  verdict = "not-applicable"
+  reason = "trace-only instrumentation in pong_ui_exception.c/kern_exit.c for a BT abort."
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0034-zizhan-springboard-sample.patch"
+  sha256 = "de8f0fb4cea1ee836ea9bb3b21f782c936673ff08abd514c821eca0b189320c3"
+  verdict = "not-applicable"
+  reason = "zizhan pong_fts touch sampling plus SpringBoard sample; mondrian uses the Goodix driver (PongGoodix), different hardware and service."
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0035-zizhan-chosen-boot-args.patch"
+  sha256 = "75bf0168b3b2039ee0b414155509a87d8d7ae596488637d81a13771ff813a533"
+  verdict = "not-applicable"
+  reason = "DEFERRED (not stage-0): extends boot args past the 1024-byte command line through /chosen zizhan-boot-args while keeping kern.bootargs unchanged; records a real pitfall (appending there made launchd_cache_loader miss launchd_unsecure_cache=1). Our 27 command line is 132 bytes, so nothing needs it yet."
 
   [[repo.item]]
   kind = "board-key"

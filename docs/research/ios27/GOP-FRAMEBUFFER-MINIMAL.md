@@ -159,3 +159,10 @@ sed -n '95,260p' /mnt/e/hackios/UniXNU-sheng/scripts/build-gop-legacy-display-27
 python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/hackios/UniXNU-sheng \
   --profile ios-27.0.1-24A446
 ```
+
+
+## 9. 2026-11-24：两处新事实（构建实测）
+
+- **`__LASTDATA_CONST` 撞保留段的原因**：本内核 `__DATA_CONST` 为 `0x120000`（最后实数据 `0x11ca50`），Apple kext 的 `__DATA_CONST` 从 `0xfffffff007ef3578` 起，`__LASTDATA_CONST` 固定占 `0x4000`，差 `0xA88` 字节。把 `__sdt`（`0xd950`）用 `-Wl,-rename_section,__DATA_CONST,__sdt,__DATA,__sdt` 移出后该检查通过（`scripts/build-xnu-generic.sh` 新增 `K60_KERNEL_LDFLAGS` 入口）。
+- **`legacy-display-24A446.json` 不能直接用**：文件里 `kernelcache_sha256 = 38e6d9fa…`，本机 24A446 是 `fa07057b…`；`collection_slide = 0x1f000000000` 加上去后 `_native_legacy_surface_allocate` 落在 `com.apple.iokit.IOThunderboltFamily` 的 `__TEXT_EXEC`，而该 kext 不在我们的 roots 里 ⇒ `ValueError: Original target is not retained executable code`。sheng 仓库没有该 JSON 的生成器（只有 hid/usb 的 `gen-*27-abi.py`），`kits/` 也是空的。
+- 结论：显示端口的「按先例复制」到此为止；下一步必须**从本机 kernelcache 重新推导 vtable 绑定地址**（按 IOMobileGraphicsFamily 的 slot 序 + 名称），不能复用 sheng 的绝对地址。

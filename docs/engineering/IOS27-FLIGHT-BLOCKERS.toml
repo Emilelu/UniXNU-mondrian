@@ -26,16 +26,16 @@ state = "open"
 observe_via = """two readings, one offline and one from a flight. Offline: `UNIXNU_OUT=... python3 scripts/check-ios27-artifacts.py --flight-ready` prints the two totals (currently 94 unresolved owner-target items in 21 bundles and 203 items redirected to the panic stub in 25 bundles); the number is the observation, so a change that moves it must move it in the same commit. In flight: the stubbed call sites panic through _unixnu_fileset_unmapped, which prints the original component and the return address of the call that was not mapped, so a boot either names the sites or does not reach them; pong-ramoops: console attached at 0x... says the console hook itself ran, which is what makes the absence of a stub line mean something"""
 evidence = """build 20, 2026-11-21: kernel.macho sha256 652237c6bf54, 32 fileset entries, 0 loader violations, boot.img 5c060f27. Sixteen reviewed data pairings were folded into kernel.map.json (scripts/k60-fileset-pair.py, each target re-verified with llvm-nm-18 on the native kernel), which moved the unpinned data addresses from 94 in 21 bundles to 3 in 3 bundles. check-prelink-hazards: 3 unpinned, all covered by a segment, 0 outside every segment."""
 why_open = """205 pointer slots, not 205 calls, and none of them is reachable before the console.
-`osfmk/kern/startup.c` brings the console up at :478 and the code-signing window at :526; the first
-kext start is `PE_init_iokit()` at :689 inside `kernel_bootstrap_thread()`. No kext code runs before
-:689, and every one of the 205 slots lives in a kext `__DATA_CONST`/`__const` pointer table, so the
+`osfmk/kern/startup.c` brings the console up at :582 and the code-signing window at :627; the first
+kext start is `PE_init_iokit()` at :802 inside `kernel_bootstrap_thread()`. No kext code runs before
+:802, and every one of the 205 slots lives in a kext `__DATA_CONST`/`__const` pointer table, so the
 'reachable before the console' class is empty by structure rather than by inspection (179
 `__auth_got` slots plus 26 `__const` entries, owned by 25 bundles, dispatching into 131
 com.apple.kernel function starts). What remains is a functional gap ordered after the console: 41
 AMFI slots (the first launchd exec), 20 apfs slots (root volume mount), 23 sandbox slots (every task
 launch), 6 AppleARMWatchdogTimer slots (armed before root mount), 5 IOStorageFamily slots (nothing
 mounts below them), plus a 24-item display group. 13 of them become reachable from
-`code_signing_init()` at :526, which is after console subsystem init but before the USB CDC-ACM
+`code_signing_init()` at :627, which is after console subsystem init but before the USB CDC-ACM
 console K60 gives a human, so a trap in that group is silent: implement those first. 84 of the 205
 sit in 10 bundles the upstream iPad17,3 baseline also carries and can be booked as a recorded
 baseline; the other 121 sit in 15 bundles only this tree carries (AMFI, sandbox, apfs, IOAVFamily and

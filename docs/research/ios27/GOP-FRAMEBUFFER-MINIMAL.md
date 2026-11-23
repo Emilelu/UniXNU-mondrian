@@ -166,3 +166,32 @@ python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/hackios/UniXNU-
 - **`__LASTDATA_CONST` 撞保留段的原因**：本内核 `__DATA_CONST` 为 `0x120000`（最后实数据 `0x11ca50`），Apple kext 的 `__DATA_CONST` 从 `0xfffffff007ef3578` 起，`__LASTDATA_CONST` 固定占 `0x4000`，差 `0xA88` 字节。把 `__sdt`（`0xd950`）用 `-Wl,-rename_section,__DATA_CONST,__sdt,__DATA,__sdt` 移出后该检查通过（`scripts/build-xnu-generic.sh` 新增 `K60_KERNEL_LDFLAGS` 入口）。
 - **`legacy-display-24A446.json` 不能直接用**：文件里 `kernelcache_sha256 = 38e6d9fa…`，本机 24A446 是 `fa07057b…`；`collection_slide = 0x1f000000000` 加上去后 `_native_legacy_surface_allocate` 落在 `com.apple.iokit.IOThunderboltFamily` 的 `__TEXT_EXEC`，而该 kext 不在我们的 roots 里 ⇒ `ValueError: Original target is not retained executable code`。sheng 仓库没有该 JSON 的生成器（只有 hid/usb 的 `gen-*27-abi.py`），`kits/` 也是空的。
 - 结论：显示端口的「按先例复制」到此为止；下一步必须**从本机 kernelcache 重新推导 vtable 绑定地址**（按 IOMobileGraphicsFamily 的 slot 序 + 名称），不能复用 sheng 的绝对地址。
+
+## 10. 2026-11-24：surface slot 的来历与 provenance 门禁
+
+`legacy-display-24A446.json` 的 `kernelcache_sha256` 是 `38e6d9fa…`（sheng 的那份 24A446），
+本机 24A446 是 `fa07057b…`。`slots` 里 213 条绝对地址，205 条落在两边都有的
+`IOMobileGraphicsFamily` `__TEXT_EXEC` 内，剩下 8 条 `_native_legacy_surface_*` 在 sheng 的缓存里
+属于另一个 kext；加到本机上（`collection_slide 0x1f000000000`）会落进
+`IOThunderboltFamily`（0xa35eb40–0xa52eb4c），prelink 因此在
+`fileset_layout.py:281 relocate_original_stubs` 拒绝：
+`Original target is not retained executable code`。
+
+已确认这 8 条来自 `slots` 数组而不是 `bindings` 字典：把 `bindings` 从 14 删到 6、重建之后
+`original-addresses.o` 仍有 8 个 surface 符号。`UniXNU-sheng` 从未提交 `kits/`
+（`git log --all -- "kits/*"` 只有 `.gitkeep`），也没有显示 ABI 生成器，所以「换一份 JSON」
+不是一条能照抄的路。
+
+现在 `scripts/gen-legacy-display-abi.py` 在读取 fixture 后立刻比对 `kernelcache_sha256`
+与本机 kernelcache 的 sha256，不一致直接拒绝（`K60_ALLOW_FOREIGN_FIXTURE=1` 只能用于查看）。
+判据测试：`scripts/tests/test-display-fixture-provenance.py`（5 例）。
+
+剩下两条路，都需要语义决定，不能靠猜：
+
+* **A：surface 组由本组件实现**——把这 8 个 slot 标成 owned，在组件里实现
+  descriptor/width/height/stride/format/planes/create/allocate 的等价语义。代价是要读
+  `NativeLegacyDisplay.cpp` 里 10 处 surface 调用，确认它们只需要「一块我们自己的内存 + 尺寸」。
+* **B：从本机 kernelcache 重新枚举 213 个 slot**——正确但工作量大，仓库里没有现成枚举器
+  （`kits/XnuPrelink/kc_image.py` 只解 chained fixup，不解 C++ vtable 布局）。
+
+在作出决定之前，构建会停在这道 provenance 门禁上，而不是带着错误地址进 prelink。

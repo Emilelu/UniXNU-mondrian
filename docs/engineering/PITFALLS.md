@@ -8075,3 +8075,21 @@ scale=3 时它按 48 行读一个 16 字节的字形（越过两个字形），�
 `vc_render_char` 的循环边界是 `ISO_CHAR_HEIGHT`，并且 `VC_CH` 只允许出现在
 `vc_reverse_cursor` / `vc_scroll_down` / `vc_scroll_up` 这三个走屏幕行的函数里。
 教训与 P-260 同族：宏代表「一个格子的高度」时，不能再把它当「一张位图的行数」。
+
+## P-314 — 固件写出的 boot_args 必须与内核读取的布局逐字段一致
+
+同一块板子上，DarwinBoot 的 BootArgs.h 与内核的 pexpert/pexpert/arm64/boot.h 是两份独立定义。
+K60 的平台头仍是 Darwin 22（CommandLine[608]、BootFlags 在 0x2d0、MemorySizeActual 在 0x2d8、
+sizeof 0x2e0），而 27 内核按 Darwin 23 读取（CommandLine[1024]、0x470、0x478、0x480）。
+字段偏移一旦错位，memSizeActual 会落到别的字段上，内核要么回退到 mem_size、要么读到垃圾。
+判据：scripts/check-bootargs-abi.py --header <BootArgs.h> --boot-h <boot.h> 四项逐字段比对。
+
+## P-315 — 跨 kernelcache 枚举出来的 slot 表不能直接用于本机
+
+legacy-display-24A446.json 的 kernelcache_sha256 记着它是从哪份 kernelcache 枚举出来的
+（sheng 的 38e6d9fa…），本机 24A446 是 fa07057b…。slots 里 213 条绝对地址中，205 条落在
+两边都有的 IOMobileGraphicsFamily 上，另外 8 个 _native_legacy_surface_* 在 sheng 的缓存里属于
+另一个 kext；在本机上加上 slide 后落进 IOThunderboltFamily，prelink 报
+Original target is not retained executable code。判据：gen-legacy-display-abi.py 在读取 fixture 后
+比对 kernelcache_sha256 与本机 kernelcache 的 sha256，不一致就拒绝生成（K60_ALLOW_FOREIGN_FIXTURE=1
+只用于查看，不得用于构建）。

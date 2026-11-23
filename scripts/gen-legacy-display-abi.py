@@ -25,8 +25,17 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/native-legacy-display'
 OUT.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(ROOT / 'kits/XnuPrelink'))
-ABI_PATH = Path('/mnt/e/hackios/UniXNU-sheng/scripts/legacy-display-24A446.json')
+ABI_PATH = Path(os.environ.get('K60_DISPLAY_ABI') or (ROOT / 'scripts/legacy-display-24A446.json'))
 abi = json.loads(ABI_PATH.read_text())
+_FIXTURE_SHA = str(abi.get('kernelcache_sha256') or '')
+_LOCAL_KC = Path(os.environ.get('K60_KERNELCACHE') or '/home/emilelu/kc24A446/ipsw/24A446/kernelcache.decompressed')
+if _FIXTURE_SHA and _LOCAL_KC.is_file():
+    _local_sha = hashlib.sha256(_LOCAL_KC.read_bytes()).hexdigest()
+    if _local_sha != _FIXTURE_SHA and os.environ.get('K60_ALLOW_FOREIGN_FIXTURE') != '1':
+        raise SystemExit(
+            f'{ABI_PATH.name} was enumerated from kernelcache {_FIXTURE_SHA[:16]}..., '
+            f'this machine has {_local_sha[:16]}...; slot addresses from another kernelcache '
+            'are not valid here (set K60_ALLOW_FOREIGN_FIXTURE=1 only to inspect)')
 slide = int(abi['collection_slide'], 16)
 # Original targets are fixed collection addresses. XnuPrelink recomputes the
 # BTI/B adapter displacement after placing native text; no prior build is needed.

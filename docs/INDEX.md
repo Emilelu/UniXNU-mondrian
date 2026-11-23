@@ -265,4 +265,5 @@ python3 scripts/render-eight-step-table.py --check
 - [GATE-OBJECT-HANDOVER.md](research/ios27/GATE-OBJECT-HANDOVER.md) — 让三处符号门禁报出它量的是哪一份文件
 - [CCACHE.md](research/ios27/CCACHE.md) — ccache 接进了 27 内核构建，却因 `-MJ` 一个对象都缓存不了：实测读数与移交单
 - [IOS16-PORT-LEDGER.md](research/ios27/IOS16-PORT-LEDGER.md) — 16 线 276 个补丁中 241 个无法直接应用到 27 树：A/B/C/D/E/F 分类计数、A 类主题分布与优先移植清单
+- [BORROWABLE-MECHANISMS.md](research/ios27/BORROWABLE-MECHANISMS.md) — zizhan 的两条可借机制：/chosen 扩展启动参数（含 launchd_cache_loader 坑）与 pong_inj 免重建 init 注入
 - [BUILD-FREEZE.md](engineering/BUILD-FREEZE.md) — 构建与上机冻结令及解冻三条件（2026-11-23）

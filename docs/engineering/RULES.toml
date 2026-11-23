@@ -1442,3 +1442,24 @@ statement = "boot image 与 payload 里装的内核必须是打过 patch-armcpu-
 check = "python3 scripts/tests/test-kernel-swap-patched.py"
 note = "2026-11-24：swap 与 fast-payload 都曾用未打补丁的内核覆盖 payload，构建绿但 check-ios27-artifacts 报 declared transform 不符。"
 
+[[rule]]
+id = "P-317"
+kind = "pitfall"
+statement = "固件复用键必须覆盖 uefi 工作区的未提交改动（git diff HEAD --binary），否则临时 A/B 改过的头文件会被当成「没变」长期复用。"
+check = "python3 scripts/tests/test-build-cache-keys.py"
+note = "2026-11-24 Darwin 22/23 A/B 把 Darwin 22 卷复用进 Darwin 23 构建。"
+
+[[rule]]
+id = "P-318"
+kind = "pitfall"
+statement = "固件卷被重建的同一次构建里，bootimg 不得复用旧 boot.img；boot 的复用键不包含固件字节。"
+check = "python3 scripts/tests/test-build-cache-keys.py"
+note = "2026-11-24 firmware-built 442 s 后仍 note bootimg: reused。"
+
+[[rule]]
+id = "P-319"
+kind = "pitfall"
+statement = "固件卷被重建时不得走就地换内核快路径——它只改 ramdisk，不改固件。"
+check = "python3 scripts/tests/test-build-cache-keys.py"
+note = "2026-11-24 K60_FORCE_BOOTIMG=1 仍 bootimg-swapped，FD 保持 8e99af40。"
+

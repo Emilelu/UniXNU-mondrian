@@ -8108,3 +8108,21 @@ payload 阶段是绿的——因为被覆盖发生在它之后。
 判据/修法：kernel 阶段结束后生成一份 `kernel/kernel.patched.macho`（`cp` + `patch-armcpu-validate.py
 --apply`），payload 快路径与 boot swap 都必须从这份取；`scripts/tests/test-kernel-swap-patched.py`
 禁止 `--kernel "$BOARD_DIR/kernel/kernel.macho"` 再次出现在这两个调用点。
+
+## P-317 — 固件复用键只看 HEAD，看不见未提交的头文件改动
+
+2026-11-24：为了让 Darwin 23 的 `BootArgs.h` 参与构建，我把它提交成 `8d46bc3`；随后为做 A/B 把工作区里的头文件临时改回 Darwin 22，并用 `K60_FORCE_FIRMWARE=1` 建了一张对照镜像。`fw_key` 只由 `board.toml`、`git rev-parse HEAD`、submodule 指针和 uefi 补丁目录计算，工作区里那份 Darwin 22 头文件不在键里，于是键仍记成 HEAD `8d46bc3`。恢复 Darwin 23 后再构建，脚本判定「输入没变」直接复用那张 Darwin 22 的卷。
+
+判据/修法：`fw_key` 里加 `git -C "$UNIXNU_UEFI" diff HEAD --binary | sha256sum`，让未提交改动进入键；`scripts/build-ios27-linux.sh` 已改。
+
+## P-318 — 固件重建了，boot.img 却还复用旧卷
+
+2026-11-24：P-317 修好后 `firmware-built` 确实跑了 442 s，但 boot 阶段走 `note bootimg: reused (inputs unchanged …)`：`boot_key` 由 `scripts/ios27-inputs.py bootimg` 计算，不包含固件卷的字节，所以卷换了、键没换。
+
+判据/修法：同一次构建里只要固件被重建（`fw_rebuilt=1`），bootimg 的复用分支必须跳过；`scripts/build-ios27-linux.sh` 已把 `-z "${fw_rebuilt:-}"` 加进 bootimg 复用条件。
+
+## P-319 — 固件重建后仍走「就地换内核」，卷根本没换
+
+2026-11-24：即使加了 P-318 的条件，`K60_FORCE_BOOTIMG=1` 仍走 `bootimg-swapped`：换内核的分支只改 payload/boot 的 ramdisk，不重打包固件，所以 boot.img 的 FD 还是旧的 `8e99af40`。只有 `K60_NO_KERNEL_SWAP=1` 才走完整 `unixnu bootimg`。
+
+判据/修法：`fw_rebuilt` 也要挡住换内核分支；`K60_NO_KERNEL_SWAP=1` 与 `K60_FORCE_BOOTIMG=1` 一起用可以强制整包。`scripts/build-ios27-linux.sh` 已改。这三条共同的教训：**缓存的键必须覆盖它实际读取的每一个输入；「快路径」也算一条读取路径。**

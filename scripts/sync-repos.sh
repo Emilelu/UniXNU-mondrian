@@ -17,14 +17,14 @@ STAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
 # path|mode   mode "pull" = fast-forward when clean, "report" = never merge
 REPOS="
-/home/emilelu/hackios/UniXNU|pull
+/mnt/e/hackios/UniXNU|pull
 /tmp/k60build|report
-/home/emilelu/hackios/UniXNU-mondrian|pull
-/home/emilelu/hackios/uefi-mondrian|pull
-/home/emilelu/hackios/UniXNU-pong|report
-/home/emilelu/hackios/UniXNU-sheng|pull
-/home/emilelu/hackios/UniXNU-sm8475-common|pull
-/home/emilelu/hackios/UniXNU-docs|pull
+/mnt/e/hackios/UniXNU-mondrian|pull
+/mnt/e/hackios/uefi-mondrian|pull
+/mnt/e/hackios/UniXNU-pong|report
+/mnt/e/hackios/UniXNU-sheng|pull
+/mnt/e/hackios/UniXNU-sm8475-common|pull
+/mnt/e/hackios/UniXNU-docs|pull
 /mnt/d/Android/k60-ios/ios-sweet-k60|report
 /mnt/d/Android/k60-ios/refs/ios-sweet-k60|report
 "

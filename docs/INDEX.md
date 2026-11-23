@@ -272,4 +272,7 @@ python3 scripts/render-eight-step-table.py --check
 - [BOARD-PARITY.md](research/ios27/BOARD-PARITY.md) — 27 板级配置与 sheng（同 OS ABI）、zizhan（同 SM8475）的逐项差异：组件 3 vs 11、归档 8 vs 19、启动参数 10 vs 52，附逐条判定与离线复现命令
 - [BOOT-ARGS-AUDIT.md](research/ios27/BOOT-ARGS-AUDIT.md) — 47 个 sheng-only 键里只有 6 个有读取者、41 个属于我们未 include 的组件；启动行要按「读者」对齐而不是按键数对齐
 - [GOP-FRAMEBUFFER-MINIMAL.md](research/ios27/GOP-FRAMEBUFFER-MINIMAL.md) — 组件源码公开但构建器只在 sheng：显示四段、必须剔除的十个探针、路线 A（自建 build-k60-legacy-display.py）与路线 B 的取舍
+- [AOCI-EVALUATION.md](research/ios27/AOCI-EVALUATION.md) — AOCI-CODE 实测：索引规模、MCP 九工具、三层架构与 P0–P4 计划。
+- [DRIVER-COMPILE-RECIPE.md](research/ios27/DRIVER-COMPILE-RECIPE.md) — Linux 上编 arm64e 驱动对象的三处必要修改（C++ 记录、-target、缺省字段告警）。
+- [GOP-ARCHIVE-FIRST-BUILD.md](research/ios27/GOP-ARCHIVE-FIRST-BUILD.md) — 首个 GopFramebuffer 板级归档的字节数、sha256 与未完成项。
 - [CONSOLE-GLYPH-BUG.md](research/ios27/CONSOLE-GLYPH-BUG.md) — 洋红横杠不是显示通路故障：`k60_fontscale` 让 `vc_render_char` 按 48 行读 16 字节字形、每字符写 1536 字节进 512 字节缓冲区；附照片测量、代码证据与 P-313 静态判据

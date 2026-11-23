@@ -25,6 +25,7 @@ Exit codes: 0 ok, 2 inputs incomplete, 3 refused by the freeze guard,
 from __future__ import annotations
 
 import argparse
+import re
 import hashlib
 import json
 import os
@@ -54,6 +55,26 @@ DEFAULT_OUTPUT = "build/native-legacy-display/libNativeLegacyDisplay.late.a"
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+
+def declared_symbols(sources: list[Path]) -> set[str]:
+    """Names the component refers to but does not define (first-pass, regex)."""
+    text = "".join(p.read_text(encoding="utf-8", errors="replace") for p in sources)
+    names = set(re.findall(r"native_legacy_[a-z0-9_]+", text))
+    defined = set()
+    for n in names:
+        if re.search(r"\b" + re.escape(n) + r"\s*\([^;{]{0,400}\)\s*(?:const\s*)?\{", text):
+            defined.add(n)
+        elif re.search(r"\b" + re.escape(n) + r"\s*(?:\[[^\]]*\])?\s*=(?!=)", text):
+            defined.add(n)
+    return names - defined
+
+
+def probe_defined(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    hits = re.findall(r"\b(native_legacy_[a-z0-9_]+)\s*\([^;{]{0,400}\)\s*(?:const\s*)?\{", text)
+    return set(hits)
 
 
 def check_inputs(component: Path, fixture: Path) -> list[str]:
@@ -123,6 +144,7 @@ def main(argv: list[str]) -> int:
                     help="assembled XNU tree (needs EXTERNAL_HEADERS)")
     ap.add_argument("--output", default=str(repo / DEFAULT_OUTPUT))
     ap.add_argument("--cc", default=os.environ.get("K60_CC", "clang"))
+    ap.add_argument("--probe", default="", help="LegacyDisplayProbe.cpp to reconcile against")
     ap.add_argument("--plan", action="store_true", help="print the command lines")
     ap.add_argument("--run", action="store_true", help="execute (requires K60_ALLOW_BUILD=1)")
     args = ap.parse_args(argv)
@@ -144,6 +166,18 @@ def main(argv: list[str]) -> int:
     if args.xnu and not (xnu / "EXTERNAL_HEADERS").is_dir():
         print(f"GOP DISPLAY: --xnu does not look like an XNU tree: {xnu}", file=sys.stderr)
         return 2
+    if args.probe:
+        probe = Path(args.probe)
+        if not probe.is_file():
+            print(f"GOP DISPLAY: probe file missing: {probe}", file=sys.stderr)
+            return 2
+        want = declared_symbols(info_paths := [component / n for n in REQUIRED_SOURCES])
+        have = probe_defined(probe)
+        missing = sorted(want - have)
+        print(f"gop-display: probe {probe}: defines {len(have & want)}/{len(want)} referenced hook(s)")
+        if missing:
+            print(f"GOP DISPLAY: probe lacks {len(missing)} hook(s): {', '.join(missing)}", file=sys.stderr)
+            return 2
     if args.plan or not args.run:
         for cmd in info["commands"]:
             print("gop-display: " + " ".join(cmd))

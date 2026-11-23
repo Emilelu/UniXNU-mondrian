@@ -1421,3 +1421,10 @@ kind = "pitfall"
 statement = "缩放字体不得复用 VC_CH 作为字形位图的行数：iso_font 每字形固定 16 字节，vc_render_char 的循环边界必须是 ISO_CHAR_HEIGHT；VC_CH 只能出现在 vc_reverse_cursor / vc_scroll_down / vc_scroll_up。"
 check = "python3 scripts/tests/test-font-render-bounds.py"
 note = "2026-11-23：k60_fontscale=3 时 0544 把该循环改成 VC_CH，每字符越读两个字形并写 1536 字节进 512 字节缓冲区，屏幕上每行字变成实心洋红条；树级判据见 scripts/check-font-render-bounds.py --tree。"
+
+[[rule]]
+id = "P-314"
+kind = "gate"
+statement = "固件写出的 boot_args 必须与内核读取的布局逐字段一致：CommandLine 容量、BootFlags 偏移、MemorySizeActual 偏移、sizeof 四项由 scripts/check-bootargs-abi.py 对比平台 BootArgs.h 与内核 pexpert/pexpert/arm64/boot.h，任何一项不等即红。"
+check = "python3 scripts/tests/test-check-bootargs-abi.py"
+note = "2026-11-23：平台头是 Darwin 22（608 / 0x2d0 / 0x2d8 / 0x2e0），27 内核是 Darwin 23（1024 / 0x470 / 0x478 / 0x480）；今天这条门禁对真实文件打印四条 FAIL，作为 IOS27-FLIGHT-BLOCKERS.toml 的 boot-args-abi-608 的机器判据。"

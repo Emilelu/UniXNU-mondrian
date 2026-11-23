@@ -249,7 +249,11 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	else
 		boot_done=
 		if [ -z "${K60_NO_KERNEL_SWAP:-}" ] && [ -f "$BOARD_DIR/boot/boot.img" ]; then
-			if python3 "$ROOT/scripts/k60-kernel-swap.py" --kernel "$BOARD_DIR/kernel/kernel.macho" \
+			SWAP_KERNEL="$BOARD_DIR/kernel/kernel.macho"
+			if [ -f "$BOARD_DIR/payload/stage/EFI/UniXNU/Payloads/kernel.macho" ]; then
+				SWAP_KERNEL="$BOARD_DIR/payload/stage/EFI/UniXNU/Payloads/kernel.macho"
+			fi
+			if python3 "$ROOT/scripts/k60-kernel-swap.py" --kernel "$SWAP_KERNEL" \
 				--payload "$BOARD_DIR/payload/payload.img" --boot "$BOARD_DIR/boot/boot.img" --apply; then
 				boot_done=1
 				mark bootimg-swapped

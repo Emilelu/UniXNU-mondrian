@@ -235,3 +235,8 @@ armcpu-sleep-hook.patch
 # native_adreno_connect_granted(); this file supplies that definition in bsd/dev
 # so the symbol exists at link time (sheng keeps it in IOUserClient.cpp).
 0571-k60-adreno-connect-grant.patch
+
+# Zizhan (SM8475) bounds qsort recursion so a hostile comparator cannot
+# exhaust the 4 KiB kernel stack; the patch applies to xnu-12377 unchanged.
+# Source: UniXNU-zizhan 034a0b0 patches/xnu-ipados18/0003-qsort-bounded-recursion.patch
+0572-k60-qsort-bounded-recursion.patch

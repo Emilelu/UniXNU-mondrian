@@ -1,0 +1,52 @@
+--- a/bsd/kern/qsort.c	2026-10-30 14:17:35
++++ b/bsd/kern/qsort.c	2026-10-30 14:17:35
+@@ -126,6 +126,7 @@
+ {
+ 	char *pa, *pb, *pc, *pd, *pl, *pm, *pn;
+ 	int swaptype, swap_cnt;
++	size_t d1, d2;
+ 	long d, r;
+ 
+ loop:   SWAPINIT(a, es);
+@@ -195,16 +196,32 @@
+ 	vecswap(a, pb - r, r);
+ 	r = min(pd - pc, pn - pd - es);
+ 	vecswap(pb, pn - r, r);
+-	if ((size_t)(r = pb - pa) > es) {
+-		qsort(a, r / es, es, cmp);
++	/*
++	 * Recurse on the smaller partition and iterate on the larger one, so the
++	 * depth stays below log2(n). Each frame is ~1.5 KB, and kalloc_type sorts
++	 * its views on the 16 KB boot interrupt stack: always recursing on the left
++	 * side overflowed it (zizhan g16 panic, pc qsort+0x20).
++	 */
++	d1 = pb - pa;
++	d2 = pd - pc;
++	if (d1 <= d2) {
++		if (d1 > es) {
++			qsort(a, d1 / es, es, cmp);
++		}
++		if (d2 > es) {
++			a = pn - d2;
++			n = d2 / es;
++			goto loop;
++		}
++	} else {
++		if (d2 > es) {
++			qsort(pn - d2, d2 / es, es, cmp);
++		}
++		if (d1 > es) {
++			n = d1 / es;
++			goto loop;
++		}
+ 	}
+-	if ((size_t)(r = pd - pc) > es) {
+-		/* Iterate rather than recurse to save stack space */
+-		a = pn - r;
+-		n = r / es;
+-		goto loop;
+-	}
+-/*		qsort(pn - r, r / es, es, cmp);*/
+ }
+ 
+ /* private KPI */

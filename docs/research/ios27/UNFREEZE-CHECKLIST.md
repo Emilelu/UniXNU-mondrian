@@ -47,3 +47,27 @@ amfi_get_out_of_my_way=1 k60_fontscale=3`）。检查器直接读 `board.toml` �
 
 结论：只剩 ① 与 ④ 的上机读数；两者都需要一次飞行，而飞行归 Lead 且受本冻结约束。③ 须用户过目
 `PORT-AUDIT-20261123.md`、`PORT-DECISIONS-2.md`、`BORROWABLE-MECHANISMS.md` 后才解冻。
+
+### ⑤ 不只是「可观测」（2026-11-23 实测）
+
+`python3 scripts/check-ios27-artifacts.py <board> --flight-ready` 在上一张图上 **rc=1**：
+
+```
+error: structurally valid, but not flyable: 94 owner-target items have no address in the
+prelink map (21 bundles); 203 items are redirected to the _unixnu_fileset_unmapped panic
+stub (25 bundles); blocker prelink-map-unresolved: …
+prelink regressed: 91 item(s) sit at addresses the policy does not name
+```
+
+⇒ ⑤ 的字面要求（每条 open 都有 `observe_via`）已满足，但 `--flight-ready` **还要求 blocker 全部
+`state = "closed"`，并且本次构建的 prelink 残留必须已写成本地基线**
+（`docs/engineering/IOS27-PRELINK-POLICY.json`，可用 `check-prelink-regressions.py --write --force` 生成）。
+
+两件事都不是纯机械动作，必须由用户裁：
+
+1. **`prelink-map-unresolved` 是否可关**：支持关闭的结构证据是 console 在 `osfmk/kern/startup.c:478`
+   与 `:585` 就初始化，而 205 个桩站点全在 kext 指针槽（`PE_init_iokit()` `:689` 之后才可达）；
+   `PRELINK-RESIDUE.md` 记了 94/203 的分组与 3 个未配对地址。反对关闭的理由是上游 policy 的基线是
+   Apple 自己 kernelcache 的 2/24，我们 94/203 的差额没有被逐条解释。
+2. **基线怎么落**：写本地 policy 会把 94/203 固化成「以后不许变差」的起点；不写则每次 `--flight-ready`
+   都因 policy 未命名而报 regressed。写它不等于关 blocker，两者要分开决定。

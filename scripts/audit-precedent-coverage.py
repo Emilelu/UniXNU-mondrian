@@ -26,6 +26,7 @@ import tomllib
 
 OURS = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = OURS / 'docs/research/ios27/PRECEDENT-MANIFEST.toml'
+GAP_LEDGER = OURS / 'docs/research/ios27/PRECEDENT-GAP-VERDICTS.toml'
 
 
 def scanner():
@@ -82,6 +83,10 @@ def main() -> int:
     scan = scanner()
     manifest = tomllib.loads(MANIFEST.read_text(encoding='utf-8'))
     ledger = {repo['name']: repo for repo in manifest['repo']}
+    gaps = {}
+    if GAP_LEDGER.is_file():
+        for item in tomllib.loads(GAP_LEDGER.read_text(encoding='utf-8')).get('item', []):
+            gaps.setdefault(item['repo'], set()).add(item['file'])
 
     report = []
     failures = 0
@@ -94,7 +99,10 @@ def main() -> int:
             report.append(entry)
             continue
         items = ledger.get(name, {}).get('item', [])
-        names = {item['id'] for item in items}
+        gap_files = gaps.get(name, set())
+        names = ({item['id'] for item in items}
+                 | gap_files
+                 | {pathlib.PurePosixPath(f).name for f in gap_files})
         hashes = {item.get('sha256') for item in items if item.get('sha256')}
         files = sorted(root.glob('patches/**/*.patch'))
         by_name, by_hash, unaccounted = [], [], []

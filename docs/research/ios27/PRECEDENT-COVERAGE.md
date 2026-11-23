@@ -55,3 +55,16 @@
 - `kernel.patch_series[1..3]`：先例把多层补丁写成三个数组元素，我们用 `[kernel.patch_series]` 的四层 profile（arch/soc/os/device），`scripts/check-series-order.py` 已用重放证明 129/0。
 
 ⇒ 这一轮没有发现「先例有、我们漏」的 board 值；但**差集里还有 100+ 项未逐条核**（uke 188、asteroids 303、sheng 446 多为 `os_overrides`），下一步按子系统分组核。
+
+## 7 第二轮：28 条非 GPU 缺口已判定（2026-11-23 21:30）
+
+`PRECEDENT-GAP-VERDICTS.toml` 记录了对 28 个非 GPU 补丁的逐条判定（每条带我们树里的 `file:line` 或明确的不适用理由）：**copied 1 / have 5 / not-applicable 16 / unknown 6**。
+
+- copied：`uke patches/xnu-12377/upstream/vmwait-dyld-pager-source-release.patch` → 我们的 `patches/xnu-12377/0575-k60-vmwait-dyld-pager-source-release.patch:39`。
+- have：`contig-search-report`（`osfmk/vm/vm_resident.c:8366`）、`kperf-static-if-builtin-args`（`pexpert/gen/bootargs.c:198`）、`memwired-booter-size-accounting`（`drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:636-637`）、`0001-darwinboot-log-window-failure`（`DarwinBoot.c:463`）、`0002-ramdisk-find-fat-in-initrd`（`patches/unixnu-core/legacy/k60-unixnu-core.patch:101`）。
+- not-applicable 16：全部给出具体原因（如 `configs/mondrian_ios27_defconfig:17` 的 stage-0 边界、`:21 CONFIG_XNU_NATIVE_ADRENO=n`、`:20 CONFIG_XNU_NATIVE_UFS=n`、`dts/mondrian.dts:75 timebase-hz`）。
+- unknown 6：`asteroids zzzzzzzzzz-ios27-dataconst-room.patch`、`uke kmem-alloc-failure-report.patch`、`payload-boot-memory-report.patch`、`platform-error-name-address.patch`、`xnuconfig-work-interval-counters.patch`、`cupid 0001-patch-xnu-entry-probe-skip-nm-headers.patch` —— 每条都写明了缺什么证据。
+
+审计脚本现在把 `PRECEDENT-GAP-VERDICTS.toml` 计入覆盖：**923 个补丁文件、251 个未入账**，其中 112 个是本仓 ios16 线的自有补丁（不算先例），**先例仓只剩 139 个，全部是 GPU 翻译层**（t970 59、zizhan 15、pong 65，即 `patches/mesa/**` 与 `patches/metal2vulkan/**`）。
+
+下一组判定：这 139 个要按 GPU 线的重启条件成组判（`docs/engineering/IOS-SCOPE.md` 已把 16 线的 metal2vulkan 迭代列为停止项，但 27 的 GPU 线尚未开）。

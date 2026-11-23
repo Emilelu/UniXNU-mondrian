@@ -27,6 +27,8 @@ __attribute__((weak)) int native_adreno_fences(u32 *s, u32 *r)
 { (void)s; (void)r; return 0; }
 __attribute__((weak)) int native_adreno_fences_detail(u32 *a, u32 *b, u32 *c)
 { (void)a; (void)b; (void)c; return 0; }
+__attribute__((noreturn)) void native_legacy_backend_guard(unsigned s, void *a, void *b)
+{ (void)s; (void)a; (void)b; for (;;) { } }
 """
 
 REFERENCE = Path("/mnt/e/k60-work/references/GopFramebuffer")

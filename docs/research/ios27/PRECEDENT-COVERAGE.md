@@ -68,3 +68,16 @@
 审计脚本现在把 `PRECEDENT-GAP-VERDICTS.toml` 计入覆盖：**923 个补丁文件、251 个未入账**，其中 112 个是本仓 ios16 线的自有补丁（不算先例），**先例仓只剩 139 个，全部是 GPU 翻译层**（t970 59、zizhan 15、pong 65，即 `patches/mesa/**` 与 `patches/metal2vulkan/**`）。
 
 下一组判定：这 139 个要按 GPU 线的重启条件成组判（`docs/engineering/IOS-SCOPE.md` 已把 16 线的 metal2vulkan 迭代列为停止项，但 27 的 GPU 线尚未开）。
+
+## 8 第三轮：139 个 GPU 翻译层补丁成组判定（2026-11-23 21:40）
+
+`PRECEDENT-GPU-DEFERRED.toml` 逐个列出了 139 个 GPU 翻译层补丁（t970 59、zizhan 15、pong 65；`patches/mesa/**` 与 `patches/metal2vulkan/**` 各目录含 `parity114/`、`parity167/`、`upstream149/` 子目录），每条 verdict 都是 `deferred`，理由引用同一组构建事实：
+
+- `configs/mondrian_ios27_defconfig:21` 是 `CONFIG_XNU_NATIVE_ADRENO=n`，27 stage-0 不构建任何 GPU 栈；
+- `board.toml` 的 payload 归档不含 mesa/metal2vulkan；
+- `docs/engineering/IOS-SCOPE.md` 已把 16 线的 `patches/metal2vulkan` 逐版本迭代列为停止项；
+- `review_after` 统一写「GPU 线在 27 重开时按 parity 版本成组复核」。
+
+审计脚本把这份 ledger 计入覆盖后：**923 个补丁文件、只剩 112 个未入账，而这 112 个全部是本仓 ios16 线的自有补丁**（不是先例仓库）。8 个先例仓库（asteroids/uke/cupid/vermeer/sheng/t970/zizhan/pong）**全部 0 未入账**。
+
+> 口径说明：ios16 是本仓库自己的历史线，`patches/xnu` 与 `patches/xnu-12377` 的补丁是「我们写过的」，不是「别人能进系统而我们没抄的」；它们是否被 27 线继承，由 `check-series-order.py` 的 129 条重放与 `IOS16-PORT-LEDGER.md` 的分类负责，不在先例覆盖率的口径里。

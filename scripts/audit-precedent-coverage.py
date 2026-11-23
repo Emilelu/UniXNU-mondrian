@@ -27,6 +27,7 @@ import tomllib
 OURS = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = OURS / 'docs/research/ios27/PRECEDENT-MANIFEST.toml'
 GAP_LEDGER = OURS / 'docs/research/ios27/PRECEDENT-GAP-VERDICTS.toml'
+DEFERRED_LEDGERS = (OURS / 'docs/research/ios27/PRECEDENT-GPU-DEFERRED.toml',)
 
 
 def scanner():
@@ -84,8 +85,10 @@ def main() -> int:
     manifest = tomllib.loads(MANIFEST.read_text(encoding='utf-8'))
     ledger = {repo['name']: repo for repo in manifest['repo']}
     gaps = {}
-    if GAP_LEDGER.is_file():
-        for item in tomllib.loads(GAP_LEDGER.read_text(encoding='utf-8')).get('item', []):
+    for ledger_path in (GAP_LEDGER,) + DEFERRED_LEDGERS:
+        if not ledger_path.is_file():
+            continue
+        for item in tomllib.loads(ledger_path.read_text(encoding='utf-8')).get('item', []):
             gaps.setdefault(item['repo'], set()).add(item['file'])
 
     report = []

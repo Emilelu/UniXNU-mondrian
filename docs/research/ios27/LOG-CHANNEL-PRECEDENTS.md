@@ -86,3 +86,16 @@
 - 同树还有 `sbu_uart_en_ctrl`（第 4557 行起，`uart_audio_en_*` 引脚）与 `qupv3_se7_2uart` 的 active/sleep 引脚定义 —— 这条 UART 是 USB-C SBU 上复用的那条（K60 的工厂调试口），不是普通排针。
 
 结论：UART 通道在设备树里是**完整且已启用**的（bootloader 已把它设成 stdout），但它物理上经 USB-C SBU 复用，需要确认是否需要专用转接板才能引出；这是「能不能拿到 UART」的唯一未定项，不再是「设备树里有没有 UART」的问题。
+
+## 7 sheng 的视频输出也不是「PE 文本控制台」
+
+`UniXNU-sheng/porting.toml` 的 `[[area]] id = "display"` 一节：
+
+- `status = "implemented"`，`components = ["GopFramebuffer"]`，`paths = ["package/*Display*", "package/*Framebuffer*", "package/*Backlight*", "package/AppleARMBacklight.cpp", ...]`；
+- `configuration` 第一条：`Select GopFramebuffer; CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y`；
+- `procedure` 第一条：`Verify GOP address, dimensions, stride and pixel layout before enabling presentation.`；
+- `completion`：`A known frame appears with correct geometry and colors, then userland presentation and backlight controls work.`
+
+即：sheng 的屏幕输出来自一整套 **GopFramebuffer + 后期 display 归档**（`package/LegacyDisplayProbe.cpp` 等），不是 XNU 的 `PE_initialize_console(kPETextMode)` 文本控制台。它的「屏幕上能看到东西」与本项目当前尝试的 `0543/0552/0577` 不是同一条技术路线。
+
+⇒ 本板族（SM8550/SM8475 + 同一套 UEFI GOP）上，已被证明能工作的早期通道只有两条：**物理 UART** 与 **UFS 分区日志**。视频通路要工作，前提是先有 GopFramebuffer 这一层（sheng 的 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY`），而不是只把 PE 文本控制台指向 `Video[0]`。

@@ -7,21 +7,35 @@
 
 ## 不可违反（违反就停手）
 
-1. **先例未对齐，禁止构建与上机。** 能进 userland 的 iOS 27 仓库（asteroids、
-   uke、cupid、vermeer、sheng）每一条补丁/配置都要在
-   `docs/research/ios27/PRECEDENT-PARITY.toml` 里有判定；`missing-must-copy`
-   或 `unknown` 不为零时不构建、不上机。
-2. **不许猜。** 每个结论要能指到：知识库分块（`kb:`）、仓库 `文件:行`、或
-   官方 URL。三者都没有就写「未证」，不许写成结论。
-3. **八步流程**，每个硬件项都走：
-   ① 同型号证据 ② 官方文档页 ③ 反编译/设备数据 ④ 同 SoC/同芯片横向对比
-   ⑤ 计划 ⑥ 深挖 ⑦ 离线验证 ⑧ 上机验证。
-   缺任何一步，该项不算完成。
-4. **上机只由 Lead 发起**，只 `fastboot boot`；**永不 flash，永不写
-   `/dev/block/sda38`**。
-5. **提交信息用英文**，树必须干净再构建（`check-tree-clean.py`）。
-6. **构建/上机前跑** `python3 scripts/check-goal-constraints.py`，退 2 就不许动。
-7. **不再新增规范文档。** 只写代码、提交、和下面这三个状态文件。
+### 铁则 1 — 先例未对齐，禁止构建与上机
+
+能进 userland 的 iOS 27 仓库（asteroids、uke、cupid、vermeer、sheng）每一条补丁/配置都要在
+`docs/research/ios27/PRECEDENT-PARITY.toml` 里有判定；`missing-must-copy` 或 `unknown` 不为零时不构建、不上机。
+
+### 铁则 2 — 不许猜
+
+每个结论要能指到：知识库分块（`kb:`）、仓库 `文件:行`、或官方 URL。三者都没有就写「未证」，不许写成结论。
+
+### 铁则 3 — 八步流程
+
+每个硬件项都走：① 同型号证据 ② 官方文档页 ③ 反编译/设备数据 ④ 同 SoC/同芯片横向对比
+⑤ 计划 ⑥ 深挖 ⑦ 离线验证 ⑧ 上机验证。缺任何一步，该项不算完成。
+
+### 铁则 4 — 上机只由 Lead 发起
+
+只 `fastboot boot`；**永不 flash，永不写 `/dev/block/sda38`**。
+
+### 铁则 5 — 提交信息用英文，树必须干净再构建
+
+`scripts/check-tree-clean.py` 判。
+
+### 铁则 6 — 构建/上机前跑门禁
+
+`python3 scripts/check-goal-constraints.py` 退 2 就不许动。
+
+### 铁则 7 — 不再新增规范文档
+
+只写代码、提交、和下面这三个状态文件。
 
 ## 状态只有三处
 

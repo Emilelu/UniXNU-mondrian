@@ -8013,6 +8013,22 @@ mapped 21 / na 4 / unmapped 78。
 **教训**。门禁的产物是「人下一步要执行的动作」，文件名、行号、命令三者任一不可
 grep，门禁就只是把问题换了一种表现方式。
 
+## P-311 — anchor-drift 必须附锚点命中证据
+
+**事实**。2026-11-23 的 iOS 16 补丁分类把 35 个补丁标成 `anchor-drift`（“锚点漂移，重切即可”）。
+抽查三个（`0218`/`0222`/`0234`）发现它们要的锚点 `if (actual != device ||` 与 `k60_watch_thread`
+在 27 的 `bsd/kern/kern_exec.c`（9,078 行）**一次都不出现**：它们依赖的是 16 线 `load_init_program`
+那一带的代码，27 用 `native_owner_data_mount`。这不是漂移，是这棵树从来没有过那段东西。
+
+**规则**。任何 `anchor-drift` 判定必须附一条可复现的命中证据——
+`grep -F '<anchor>' '<27 file>'` 的真实输出行与行号。贴不出来就只能判
+`missing-file` 或 `sixteen-only`，不许判 `anchor-drift`。门禁：`scripts/check-anchor-evidence.py`
+读分类报告（TSV，`category`/`note` 两列，`note` 里写 `anchor=\`...\``）逐条核。
+
+**为什么**。`anchor-drift` 的含义是“补丁本身可用，只需挪几行上下文”，它会直接进移植队列；
+`missing-file` 的含义是“目标机制不存在”，它进的是 `not-applicable` 并要写不存在的证据。
+两者混一次，就会花一整轮去重切一个没有落点的补丁。
+
 ## P-310 — `-force_load` 指到的档案必须有人生产
 
 **事实**。`scripts/build-xnu-generic.sh:228-229` 在 `XNU_NATIVE_UFS=1` 时追加

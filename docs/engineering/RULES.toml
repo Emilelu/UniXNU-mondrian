@@ -1400,3 +1400,10 @@ title = "`-force_load` 指到的档案必须有人生产"
 statement = "`scripts/build-xnu-generic.sh` 在 `XNU_NATIVE_UFS=1` 时 `-force_load build/native-ufs/libNativeUfs.a`，而这条路径在本机没有生产者（只有 macOS 的 `build-pong-ufs-probe-macos.py` 用 `xcrun`）。任何 `-force_load`/`KERNEL_EXTRA_ARCHIVES` 条目都必须有一个在 Linux 上可执行的生成步骤，并由 `scripts/check-native-ufs-archive.py` 之类门禁三态判定（missing producer = 失败，不是跳过）。"
 check = "python3 scripts/check-kernel-archives.py"
 note = "2026-11-22：`CONFIG_XNU_NATIVE_UFS` 在 27 defconfig 是 `n` 才没暴雷；一旦打开就会链接一个永远不存在的归档。asteroids 与 cupid 的 27 defconfig 都是 `y`，说明这不是可选项。"
+
+[[rule]]
+id = "P-311"
+title = "anchor-drift 必须附锚点命中证据"
+statement = "任何被判为 `anchor-drift` 的补丁必须附 `grep -F '<anchor>' '<27 file>'` 的真实命中行与行号；贴不出来只能判 `missing-file` 或 `sixteen-only`。`anchor-drift` 会直接进移植队列，`missing-file` 进 not-applicable 并要求写不存在的证据，两者混一次就浪费一整轮去重切一个没有落点的补丁。"
+check = "python3 scripts/check-anchor-evidence.py --report docs/research/ios27/IOS16-ANCHOR-REPORT.tsv --tree ${K60_XNU_FEED:-/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc}"
+note = "2026-11-23：35 条 anchor-drift 里 0218/0222/0234 的锚点在 27 kern_exec 一次都不出现，依赖的是 16 线 load_init_program 一带，27 用 native_owner_data_mount。"

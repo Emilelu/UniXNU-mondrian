@@ -73,37 +73,21 @@ def main():
             obj = out / (name + ".o")
             run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(source), "-o", str(obj)])
             extra.append(obj)
-    probe = tree / "kits/mondrian/LegacyDisplayProbe.cpp"
-    record = out / "compile-command.json"
-    if probe.is_file() and record.is_file():
-        import json
-        base = json.loads(record.read_text())["command"]
-        cmd = []
-        skip = False
-        for i, tok in enumerate(base):
-            if skip:
-                skip = False
-                continue
-            if tok == "-o":
-                cmd += ["-o", str(out / "LegacyDisplayProbe.o")]
-                skip = True
-                continue
-            if tok.endswith("NativeLegacyDisplay.cpp"):
-                cmd.append(str(probe))
-                continue
-            if tok in ("-Werror", "-Wall", "-Wextra"):
-                continue
-            if tok in ("-MD", "-MF", "-MP") or tok.endswith("IOCommandGate.cpd"):
-                if tok == "-MF":
-                    skip = True
-                continue
-            cmd.append(tok)
-        cmd.append("-Wno-return-type")
-        run(cmd)
-        extra.append(out / "LegacyDisplayProbe.o")
+    component_obj = out / "NativeLegacyDisplay.o"
+    hooks = []
+    if component_obj.is_file():
+        nm = subprocess.run(["llvm-nm", "-u", str(component_obj)],
+                            capture_output=True, text=True, check=True).stdout
+        hooks = sorted({line.split()[-1].lstrip("_") for line in nm.splitlines()
+                        if "_native_legacy_" in line})
 
     stub = out / "display-no-gpu-trace.c"
-    stub.write_text(STAGE0_TRACE_STUBS, encoding="utf-8")
+    body = [STAGE0_TRACE_STUBS, "typedef unsigned long long u64;"]
+    for hook in hooks:
+        if hook == "native_legacy_backend_guard":
+            continue
+        body.append(f"u64 {hook}() {{ return 0; }}")
+    stub.write_text(chr(10).join(body) + chr(10), encoding="utf-8")
     obj = out / "display-no-gpu-trace.o"
     run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(stub), "-o", str(obj)])
     extra.append(obj)

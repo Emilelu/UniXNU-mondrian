@@ -184,7 +184,7 @@ else
 	if [ -z "${K60_NO_FAST_PAYLOAD:-}" ] && [ -f "$BOARD_DIR/payload/payload.json" ] &&
 		[ -f "$ADT_KEY" ] && [ "$(cat "$ADT_KEY")" = "$adt_key" ]; then
 		if python3 "$ROOT/scripts/k60-fast-payload.py" --device "$ROOT" --board "$BOARD_DIR" \
-			--kernel "$BOARD_DIR/kernel/kernel.macho"; then
+			--kernel "$PATCHED_KERNEL"; then
 			payload_done=1
 			mark payload-fast
 		else

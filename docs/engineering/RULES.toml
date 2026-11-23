@@ -1435,3 +1435,10 @@ kind = "pitfall"
 statement = "跨 kernelcache 枚举的 ABI slot 表必须先比对 kernelcache_sha256，不一致不得用于构建"
 source = "docs/engineering/PITFALLS.md"
 check = "python3 scripts/tests/test-display-fixture-provenance.py"
+[[rule]]
+id = "P-316"
+kind = "pitfall"
+statement = "boot image 与 payload 里装的内核必须是打过 patch-armcpu-validate 的同一份；任何调用点直接引用 $BOARD_DIR/kernel/kernel.macho 都会被这条测试拒绝。"
+check = "python3 scripts/tests/test-kernel-swap-patched.py"
+note = "2026-11-24：swap 与 fast-payload 都曾用未打补丁的内核覆盖 payload，构建绿但 check-ios27-artifacts 报 declared transform 不符。"
+

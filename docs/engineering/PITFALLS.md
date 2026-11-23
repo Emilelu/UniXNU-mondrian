@@ -8093,3 +8093,18 @@ legacy-display-24A446.json 的 kernelcache_sha256 记着它是从哪份 kernelca
 Original target is not retained executable code。判据：gen-legacy-display-abi.py 在读取 fixture 后
 比对 kernelcache_sha256 与本机 kernelcache 的 sha256，不一致就拒绝生成（K60_ALLOW_FOREIGN_FIXTURE=1
 只用于查看，不得用于构建）。
+
+## P-316 — 打包进 boot.img 的内核必须是「声明 transform」的那份，不是构建产物原样
+
+2026-11-24：`unixnu build payload` 会对自己 `payload/stage` 里的副本执行
+`patch-armcpu-validate.py --apply`（把 `mov w0,#1; retab` 写进 `_validateConfiguration`），
+但 `scripts/k60-kernel-swap.py` 随后用 `$BOARD_DIR/kernel/kernel.macho`（未打补丁的构建产物）
+同时覆盖 payload 与 boot 的 ramdisk，`k60-fast-payload.py` 也拿同一份原文件。结果每次
+`check-ios27-artifacts.py` 都报
+`payload kernel.macho is not the declared transform of the kernel output (first difference at 0x15f2bac:
+payload has ff8304d1fc6f0ca9, the declared transform writes 20008052ff0f5fd6)`，而构建日志里
+payload 阶段是绿的——因为被覆盖发生在它之后。
+
+判据/修法：kernel 阶段结束后生成一份 `kernel/kernel.patched.macho`（`cp` + `patch-armcpu-validate.py
+--apply`），payload 快路径与 boot swap 都必须从这份取；`scripts/tests/test-kernel-swap-patched.py`
+禁止 `--kernel "$BOARD_DIR/kernel/kernel.macho"` 再次出现在这两个调用点。

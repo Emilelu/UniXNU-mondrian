@@ -3110,8 +3110,9 @@ measured_items = 52
 
 [[repo]]
 name = "sheng"
-path = "/mnt/e/hackios/UniXNU-sheng"
-measured_items = 144
+path = "/mnt/e/k60-work/references/latest/UniXNU-sheng"
+commit = "c8f92b2"
+measured_items = 188
 
   [[repo.item]]
   kind = "patch"
@@ -3137,16 +3138,26 @@ measured_items = 144
   [[repo.item]]
   kind = "patch"
   id = "sheng-bluetooth-runtime.patch"
-  sha256 = "f221e4296406c48577e7b32821c0244afe5790d4a9b95be983924adfdbbb21a2"
-  verdict = "have"
-  reason = "patches/xnu-12377/0526-k60-bt-runtime-mount.patch"
+  sha256 = "dfa595e89e9729803a00ead0ae0ef8202fb27cddaec3e32cda019ff57144eb6b"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "sheng-bootstrap-checkpoints.patch"
+  sha256 = "14b9b212846e58b9198f987b1daf251159024d312a62a7c85c0b2786b9f02c7b"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
   id = "sheng-cache-input-diagnostic.patch"
-  sha256 = "1c2082e05f77627049ff5dd83d5fbec38dac679745b9c56ea17b3864adb69aff"
-  verdict = "not-applicable"
-  reason = "trace-only cache-input diagnostics"
+  sha256 = "38878f3f56857fb790f9829a12f41bed04e02e3f3652efc4c54f0fbab98afe89"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "sheng-headless-startup-checkpoints.patch"
+  sha256 = "6e471baf91c7c0b2cc8d6e39f015da9bfd8131c5db7af69c9e47c5d5b8cfd5d4"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
@@ -3154,6 +3165,24 @@ measured_items = 144
   sha256 = "3963c390c07b2c266100667e6039920f8bed108ce71c0844e1a88ec81ad3c9af"
   verdict = "not-applicable"
   reason = "trace-only main-thread profile"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "sheng-platform-sleep.patch"
+  sha256 = "fa70fe3346ab66f5c2a28ce1adfcd41ee770cb165a7080dc6fdf4541550cd033"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "sheng-process-exit-log.patch"
+  sha256 = "c3a377517c746c56a52d291e343e960568f953ddf0109efa92a5cba4f26272a2"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "sheng-startup-failure-log.patch"
+  sha256 = "8de0a88adb005b92ec6f52846fc13d6776b97c99f348688c17c3db75ee7877f3"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
@@ -3175,6 +3204,12 @@ measured_items = 144
   sha256 = "25c377c60db417b15fcc137acf380f0319cbff9d5ba012af1907f3485602b584"
   verdict = "not-applicable"
   reason = "source-storage start hook for the precedent userdata adapter; our stage-0 27 recipe deliberately omits source storage (CONFORMANCE.md section II)"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "vmwait-dyld-pager-source-release.patch"
+  sha256 = "916c930f4b6b2e7515329bafc8d2ab52ba014d4dacbc8c706e8cc5d603ff5a32"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
@@ -3200,9 +3235,14 @@ measured_items = 144
   [[repo.item]]
   kind = "patch"
   id = "zzzz-sheng-ipados27-bringup.patch"
-  sha256 = "2859a305d9e0957f0c33115308734ea677781b7d4d20e53c518597c960ebb89c"
-  verdict = "copied"
-  reason = "part 1 landed as patches/xnu-12377/0564-k60-sheng-27-bringup-part1.patch; remaining sections need hand re-cutting (PRECEDENT-PARITY.md, sheng umbrella section)"
+  sha256 = "4e7dc2b97c3e285ed79d23a69038b1e43a0ccfcd864936f717d7c804bdec12d2"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzz-sheng-bsd-checkpoints.patch"
+  sha256 = "90819706ff5e132701653458801a295b39b2bd08a74f57fbdc986889dbdb99a3"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
@@ -3231,6 +3271,12 @@ measured_items = 144
   sha256 = "e12a9235c2af157d3f10658f3599589e73b612895b8feddf7eb0a35171871aeb"
   verdict = "not-applicable"
   reason = "assert relaxation for sheng_sigp_recover, which our series does not carry"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzz-sheng-edge-matrix.patch"
+  sha256 = "5048e180f459e860b2fad50f66e2a49231b70081cb32f930e1d92c2c579011e7"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
@@ -3359,6 +3405,16 @@ measured_items = 144
 
   [[repo.item]]
   kind = "board-key"
+  id = "bootimg.image.ramdisk_compression"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "bootimg.image.ramdisk_max_bytes"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
   id = "components.include"
   verdict = "have"
 
@@ -3396,6 +3452,11 @@ measured_items = 144
   kind = "board-key"
   id = "firmware.defines.MEMORY_PROTECTION"
   verdict = "have"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "firmware.defines.SHENG_BOOT_GUARD"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "board-key"
@@ -3477,12 +3538,6 @@ measured_items = 144
   kind = "board-key"
   id = "kernel.patch_series"
   verdict = "have"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "kernel.prelink.roots"
-  verdict = "have"
-  reason = "profiles/os/ios-27.0.1-24A446/profile.toml [kernel.prelink].roots declares the same 30-bundle set"
 
   [[repo.item]]
   kind = "board-key"
@@ -3588,6 +3643,166 @@ measured_items = 144
 
   [[repo.item]]
   kind = "board-key"
+  id = "os_overrides.ipados-27.0.1-24A446.kernel.prelink.roots"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.bootimg.max_image_bytes"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.bootimg.template"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.components.include"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.kernel.archives"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.kernel.config_fragments"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.adt.chip_id"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.adt.loader_inputs"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_excluded_ranges"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_outside_ranges"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_outside_reserved"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.adt.owned_memory_size"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.install.confirm"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.install.confirm_args"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.install.confirm_titles"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.install.title"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.kernel_args"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.audio_target"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.bluetooth_target"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.boot_shims"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.build"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.data_gib"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.data_seed_tool"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.gpu_addon"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.skip_setup"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.target"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.wifi_bin_prefix"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.runtime.wifi_target"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.size_mib"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.text_fixups"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.payload.timeout"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "os_overrides.macos-27.3-26C5035r.remove"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
   id = "package.defconfig.ipados-17.7.11-21H461"
   verdict = "not-applicable"
   reason = "iPadOS package defconfig names; mondrian packages its own iOS and iPadOS configs"
@@ -3603,6 +3818,11 @@ measured_items = 144
   id = "package.defconfig.ipados-27.0.1-24A446"
   verdict = "have"
   reason = "the same leaf key exists in our board.toml or mondrian_ios27_defconfig"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "package.defconfig.macos-27.3-26C5035r"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "board-key"
@@ -3734,6 +3954,11 @@ measured_items = 144
   id = "payload.runtime.data_gib"
   verdict = "not-applicable"
   reason = "precedent Data image size"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "payload.runtime.firmware_tools"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "board-key"
@@ -5793,8 +6018,9 @@ measured_items = 278
 
 [[repo]]
 name = "zizhan"
-path = "/mnt/e/hackios/UniXNU-zizhan"
-measured_items = 116
+path = "/mnt/e/k60-work/references/latest/UniXNU-zizhan"
+commit = "054a2f52a25e44754b1719c0465e3de226d99e06"
+measured_items = 126
 
   [[repo.item]]
   kind = "patch"
@@ -5806,9 +6032,8 @@ measured_items = 116
   [[repo.item]]
   kind = "patch"
   id = "0002-zizhan-fts.patch"
-  sha256 = "9b1f257d2c1979a136b5701a5e85147136f0ac4aec48622e6aca073d8189b33c"
-  verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/bsd_init.c:1243 (git apply --check: patch does not apply; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0002-zizhan-fts.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  sha256 = "780ac27e426f925c96905104070db5d5c50c030b21882d428e2aceb01c366095"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
@@ -5925,16 +6150,74 @@ measured_items = 116
   [[repo.item]]
   kind = "patch"
   id = "0020-zizhan-display-power-observer.patch"
-  sha256 = "291cf8ccbe4d3a1d2d1088d9eedd4ef8339636ff6015774123963c2a3579cc1e"
-  verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0020-zizhan-display-power-observer.patch:1)"
+  sha256 = "7f40bbee1b6a34123948850d5859072fe33ea6fdcd3634eeb95b518e62ea0df8"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
   id = "0021-zizhan-display-owner-accounting.patch"
-  sha256 = "c2d9341b660fb63b0e0c357209caf5fb6f93859518aef060a71f2ea1e2967775"
-  verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0021-zizhan-display-owner-accounting.patch:1)"
+  sha256 = "b829d17dd6566bad6b2df9e7a9da90f8057472e7a2143327e6bf16d279430ec8"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0022-zizhan-kmem-range-diagnostics.patch"
+  sha256 = "1c3cad7ff18e083043be40c164a60530ab49c13ab4428a54298dff5d1ba3cd76"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0023-zizhan-bt-uart.patch"
+  sha256 = "2ec8690d67753b36d3bc4ab2accdd6acadea59ed93bfe1acc1bf316f4912df14"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0024-zizhan-crash-capture-bt.patch"
+  sha256 = "d69f861c36ce9e6aac9b51cab5356c86330cf28545fd2573fa54d5a0c15e323f"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0025-zizhan-bt-identity.patch"
+  sha256 = "2ae36cb7a1d8f17a6bc9fe35546d83c5ad744703333750978e50308ec65ad49b"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0026-zizhan-bt-syscall-trace.patch"
+  sha256 = "83871affaf8ac922bf072f8d182738df7b001366aa263b828aac27931a538d9f"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0027-zizhan-bt-stack-sample.patch"
+  sha256 = "67d95fb9d4d55c17cfb209039ead17bcc4cd2ab9742f3cf4dcdc83fa454e86f4"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0028-zizhan-cpu-exit.patch"
+  sha256 = "18780ff0e8f69014d514151736f4a90960accd60f4c161fec32a713193f8a60e"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0029-zizhan-crash-name.patch"
+  sha256 = "0a19607d8995aaf46011ffdbfcc88fcb3b90b9eba58f6a179e4b3e49f22ff792"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0030-zizhan-touch-edge-drag.patch"
+  sha256 = "b50d8a1ca24791e39a5a07880e94a5c72f6f8979f3b84e3943dee1b0db79d686"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0031-zizhan-inject-extra.patch"
+  sha256 = "0a81bd67a5b8632cc5595cb7bb805693cac8ebc1cd83133c75a3e5976f5512ad"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "board-key"
@@ -6514,22 +6797,15 @@ measured_items = 116
 
 [[repo]]
 name = "pong"
-path = "/mnt/e/hackios/UniXNU-pong"
-measured_items = 118
+path = "/mnt/e/k60-work/references/latest/UniXNU-pong"
+commit = "08c1f94ba60ea57db4ddb4bfe20cff983d09931e"
+measured_items = 126
 
   [[repo.item]]
   kind = "patch"
   id = "0001-pong-darwin24.patch"
-  sha256 = "fc6eb576b7172616cfa893b568454f95368d4a24f19ea9f340ca0445ffc4375c"
-  verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exit.c:139 (git apply --check: patch does not apply; E:/hackios/UniXNU-pong/patches/xnu-ipados18/0001-pong-darwin24.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
-
-  [[repo.item]]
-  kind = "patch"
-  id = "0002-pong-idle-cpu-preference.patch"
-  sha256 = "a2910cc9e1aff86ebea552b65de777ed149138772f0a0ef74c6aad1ce5aeb231"
-  verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at osfmk/kern/sched_prim.c:5801 (git apply --check: patch does not apply; E:/hackios/UniXNU-pong/patches/xnu-ipados18/0002-pong-idle-cpu-preference.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  sha256 = "142049ed0c6f8c4f594335873224a6c32ca130647c8535af794089b181296a96"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "patch"
@@ -6581,6 +6857,126 @@ measured_items = 118
   reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-pong/patches/xnu-ipados18/zzzzzzzz-pong-native-pac-keys.patch:1)"
 
   [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzz-pong-keystore-state.patch"
+  sha256 = "00389a164685254c2fbe539c30d71d29a230144b7cc3bfb7eda01c3885b92c33"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzz-pong-camera-metal-memory.patch"
+  sha256 = "55b33be801a3129ec348085cc4a72ee56188bf0715fd1180821365046b3088ad"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzz-pong-arm64e-threaded-starts.patch"
+  sha256 = "0bd7a19b5f2f8748f1171d84afad36bf9cb223d3709736c923990e0897a8dc37"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzz-pong-owner-cache-config.patch"
+  sha256 = "3fcd0d5fa943b20e66112b15284ddfd6e37256f0a0f9e4cad26f1c20622f6d2e"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzz-pong-fileset-pac-bootstrap.patch"
+  sha256 = "5bbb7738ba89e3cd08dfb7d93095c87cd9628c754c5f60d2734ae0b31739893e"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzz-pong-fileset-text-hints.patch"
+  sha256 = "664357bb2ea146cdb4aeaac21777b884c79321a6f57e3706c5612418fe7ecd96"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzz-pong-native-cache-path.patch"
+  sha256 = "43faee7f0a3d51af57ec7c2f8eef194db537ed30d050762b970a4d615127581a"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzz-pong-shared-cache-v5-subpages.patch"
+  sha256 = "7a6b14b0cdae5f2b831980a4475f7b3a60104e15fa6cc0da6d8198a9a67dce59"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzz-pong-native-pac-default-identity.patch"
+  sha256 = "a2e39388aad5cee51845382c7de06533784f1c1d3075488b6fa1026c553e534c"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzz-pong-native-39bit-va.patch"
+  sha256 = "86b425e356b29737887ba7bdfc10c0014a1bce5ae7d417b5982e24c4565752df"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzz-pong-panic-recovery.patch"
+  sha256 = "cab48f992b9aeb4db4615d0e54fb94e2ad1998c9ce058ff49fe637930a8b4a61"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzz-pong-bounded-pmap-teardown.patch"
+  sha256 = "dea227df8b33ae3cc89508b45dacf87b1213aa613f3fa8aa866565cdaa7d1022"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzz-pong-native-metal-discovery.patch"
+  sha256 = "4c42d36f540d6309f04bf52d6997d4a47003113fee7ee7832d2e96d3ef58d5ae"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzzz-pong-console-handoff-lock.patch"
+  sha256 = "d220a9e0e94c03475443dda5a067d15488166adda6f685789bd6e113207e46a4"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzzzz-pong-native-arm64-jop-policy.patch"
+  sha256 = "8351bf119c9286440f86bfb51f1c6fde0bfbfa9f3440ba738d48fa2b0251ee7f"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzzzzz-pong-native-sandbox-extension-output.patch"
+  sha256 = "14a9105f82313b2d8c04ae5c14f153fc65f5db4a6f8a2a52f3d6ed71aa2f7586"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzzzzzz-pong-native-file-resource-leases.patch"
+  sha256 = "ce16b3adae5e8db9beef31af9d856c58bc871f97f90463a668a0c27dde285019"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzzzzzzz-pong-native-csops-entitlement-output.patch"
+  sha256 = "e6e8ad808df649796ab7f2c52b4a09501f4c5bcbb215caec4cb3383a898167ca"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-irq-latency.patch"
+  sha256 = "415220c0cf0f66db68970ac9f126dcb89adadc0062abeb0d9664956fa5186b0d"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "patch"
+  id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-native-media-rule-space.patch"
+  sha256 = "a281aae90e8b032fb8f1e7b645c7519a116e37d18e90a65282f7fc711c8499c2"
+  verdict = "unknown"
+
+  [[repo.item]]
   kind = "board-key"
   id = "board.description"
   verdict = "have"
@@ -6615,24 +7011,6 @@ measured_items = 118
   id = "board.soc_source"
   verdict = "have"
   reason = "present in board.toml:6"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "bootimg.dtb"
-  verdict = "not-applicable"
-  reason = "precedent Pong-format boot-image block; our 27 image is described by the OS-profile payload (board.toml:104-231) and board.toml has no [bootimg] block"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "bootimg.image.header_version"
-  verdict = "not-applicable"
-  reason = "precedent Pong-format boot-image block; our 27 image is described by the OS-profile payload (board.toml:104-231) and board.toml has no [bootimg] block"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "bootimg.image.pagesize"
-  verdict = "not-applicable"
-  reason = "precedent Pong-format boot-image block; our 27 image is described by the OS-profile payload (board.toml:104-231) and board.toml has no [bootimg] block"
 
   [[repo.item]]
   kind = "board-key"
@@ -6720,12 +7098,6 @@ measured_items = 118
 
   [[repo.item]]
   kind = "board-key"
-  id = "firmware.preflight"
-  verdict = "not-applicable"
-  reason = "precedent hardware-DTB preflight hook; our firmware block has no preflight step (board.toml:57-95)"
-
-  [[repo.item]]
-  kind = "board-key"
   id = "ipsw.board_id"
   verdict = "not-applicable"
   reason = "precedent iPadOS 18.7.10 (22H374) IPSW identity; our board selects the iOS 27.0.1 24A446 OS profile with board.os_profile (board.toml:8) and has no [ipsw] block"
@@ -6798,33 +7170,8 @@ measured_items = 118
 
   [[repo.item]]
   kind = "board-key"
-  id = "kernel.prelink.kernel"
-  verdict = "not-applicable"
-  reason = "precedent prelink block; our 27 prelink inputs come from the OS profile (board.toml:11) and there is no [kernel.prelink] block"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "kernel.prelink.roots"
-  verdict = "not-applicable"
-  reason = "precedent prelink block; our 27 prelink inputs come from the OS profile (board.toml:11) and there is no [kernel.prelink] block"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "kernel.prelink.slide"
-  verdict = "not-applicable"
-  reason = "precedent prelink block; our 27 prelink inputs come from the OS profile (board.toml:11) and there is no [kernel.prelink] block"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "kernel.prelink.tool"
-  verdict = "not-applicable"
-  reason = "precedent prelink block; our 27 prelink inputs come from the OS profile (board.toml:11) and there is no [kernel.prelink] block"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "package.defconfig.ipados-18.7.10-22H374"
-  verdict = "not-applicable"
-  reason = "precedent iPadOS 18 profile selector; our package.defconfig maps ios-27.0.1-24A446 to mondrian_ios27_defconfig (board.toml:327)"
+  id = "package.defconfig.ios-18.6.2-22G100"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "board-key"
@@ -6834,39 +7181,9 @@ measured_items = 118
 
   [[repo.item]]
   kind = "board-key"
-  id = "payload.adt.chip_id"
-  verdict = "have"
-  reason = "present in board.toml:233"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "payload.adt.owned_memory_size"
-  verdict = "have"
-  reason = "present in board.toml:257"
-
-  [[repo.item]]
-  kind = "board-key"
   id = "payload.adt.packed_data_ramdisk"
   verdict = "not-applicable"
   reason = "precedent packed-Data ramdisk flag; our 27 payload ADT block has no such key (board.toml:232-260)"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "payload.adt.unique_chip_id"
-  verdict = "have"
-  reason = "present in board.toml:240"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "payload.kernel_args"
-  verdict = "have"
-  reason = "present in board.toml:194"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "payload.size_mib"
-  verdict = "have"
-  reason = "present in board.toml:106"
 
   [[repo.item]]
   kind = "board-key"
@@ -6876,33 +7193,29 @@ measured_items = 118
 
   [[repo.item]]
   kind = "board-key"
-  id = "payload.volume"
-  verdict = "have"
-  reason = "present in board.toml:105"
+  id = "pong_build.boot_entry"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "pong_build.cpus"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "pong_build.entry"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "board-key"
+  id = "pong_build.kernel_entry"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "board-key"
   id = "schema_version"
   verdict = "have"
   reason = "present in board.toml:1"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "userdata.first_lba"
-  verdict = "have"
-  reason = "present in board.toml:48"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "userdata.last_lba"
-  verdict = "have"
-  reason = "present in board.toml:49"
-
-  [[repo.item]]
-  kind = "board-key"
-  id = "userdata.lba_bytes"
-  verdict = "have"
-  reason = "present in board.toml:50"
 
   [[repo.item]]
   kind = "defconfig-key"
@@ -7146,6 +7459,11 @@ measured_items = 118
 
   [[repo.item]]
   kind = "defconfig-key"
+  id = "CONFIG_XNU_PONG_ARCH"
+  verdict = "unknown"
+
+  [[repo.item]]
+  kind = "defconfig-key"
   id = "CONFIG_XNU_PONG_BACKLIGHT"
   verdict = "not-applicable"
   reason = "symbol has 0 hits in the xnu-3199e8bc Kconfig set; the Pong backlight driver is not part of the 27 stage-0 kernel"
@@ -7161,6 +7479,11 @@ measured_items = 118
   id = "CONFIG_XNU_PONG_LEGACY_UACCESS"
   verdict = "have"
   reason = "present in mondrian_defconfig:62"
+
+  [[repo.item]]
+  kind = "defconfig-key"
+  id = "CONFIG_XNU_PONG_NATIVE_PAC"
+  verdict = "unknown"
 
   [[repo.item]]
   kind = "defconfig-key"

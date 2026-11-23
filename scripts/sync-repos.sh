@@ -83,3 +83,12 @@ out ""
 
 echo
 echo "=== written to $LOG ==="
+
+# k60: reference trees are exported, not merged
+# sheng/zizhan/pong/t970/liuqin carry local commits or are detached, so
+# merge --ff-only can never advance them; fetch alone left them stale for weeks
+# while the report said "behind". Export the upstream commit as a read-only tree
+# instead (no force operations, iron rule 18).
+if [ -x "$(dirname "$0")/sync-reference-trees.sh" ]; then
+    bash "$(dirname "$0")/sync-reference-trees.sh" || echo "reference export reported a failure"
+fi

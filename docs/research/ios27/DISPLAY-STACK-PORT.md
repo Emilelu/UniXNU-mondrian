@@ -58,9 +58,10 @@
 
 `sheng/scripts/build-gop-legacy-display-27.py` 不是「显示构建器」，是 sheng 的**整板驱动合并归档器**：末尾 `archive = OUT / 'libNativeLegacyDisplay.late.a'`，`xcrun ar rcs` 把 `NativeLegacyDisplay` + `NativeGOPPresenter` + `KeyStoreProbe` + 键鼠（`kits/Wn8030.c`、`GeniI2c.c`、KeyboardCover/KeyboardProbe）+ USB（`drivers/QcomDwc3`、`usb-xdci-24A446.json`）+ 蓝牙探针全部塞进一个 `.late.a`；还依赖 `kits/Sm8550Platform`（SM8550 专用头）与 `drivers/AppleKeyStoreState`。⇒ **不能整支拷**，只能抽 `NativeLegacyDisplay` + `NativeGOPPresenter` + `original-bindings/original-addresses` 生成逻辑 + ABI fixture 这四块。
 
-另外两个必须解掉的未知（不猜，先查）：
+两个未知已查清（机制在 `scripts/build-xnu-generic.sh`，不是 `board.toml`）：
 
-1. **归档怎么进内核链接**：`board.toml` 与 sheng 自己的 `scripts/*.sh` 都搜不到 `late.a` / `KERNEL_EXTRA_ARCHIVES` / `extra_archives`；`components.toml` 的 `legacy_outputs` 只映射 `build/native-mobile-display/libNativeMobileDisplay.late.a` ↔ `build/gop-framebuffer/libGopFramebuffer.late.a`，与 sheng 实际产出的 `build/native-legacy-display/libNativeLegacyDisplay.late.a` 不同名。下一步要查 sheng 的 `build-xnu-4k-baseline.sh` 或 profile 的 `[kernel]` 段是否 glob 了 `build/*/*.late.a`（只在 sheng 树里查，不改我们仓）。
-2. **`kernel_target` 从哪来**：`from kernel_target import ARCH, IOS_VERSION, TRIPLE` 在 sheng `scripts/` 下没有这个文件，框架 `UniXNU/scripts/kernel_target.py` 有，装配时被拷进树 `scripts/`（`/opt/k60/trees/ios27-out/.../tree/scripts/kernel_target.py` 实测存在）⇒ 我们的构建器同样可用，无需自造。
+1. **归档怎么进内核链接**：`scripts/build-xnu-generic.sh:371/376` 读 `XNU_NATIVE_MOBILE_DISPLAY` / `XNU_NATIVE_LEGACY_DISPLAY`（由 defconfig 的 `CONFIG_XNU_NATIVE_*` 转成环境变量）。`:661-671` 在 `NATIVE_MOBILE_DISPLAY=1` 时 `-force_load $ROOT/build/gop-framebuffer/libGopFramebuffer.late.a`，并先核 `build-report.json` 的 `archive_sha256`；`:675-687` 在 `NATIVE_LEGACY_DISPLAY=1` 时 `-force_load $ROOT/build/native-legacy-display/libNativeLegacyDisplay.late.a`，除 `archive_sha256` 外还逐条核 `source_sha256`（改任何一个源都必须重建）。⇒ sheng 的 `build-gop-legacy-display-27.py` 输出路径正好对上，这就是它的挂接方式。
+2. **开关现状**：`configs/mondrian_ios27_defconfig:22 CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n`，`UniXNU-sheng/configs/sheng_ipados27_defconfig:21 = y`。`build-xnu-generic.sh:370` 还把它作为 `-DXNU_NATIVE_LEGACY_DISPLAY=${...}` 传给 `bsd_init.o`，`:381` 传给 `IOUserClient.cpo` — 说明内核源码里已有该宏的调用点（我们只是关着）。
+3. **`kernel_target` 从哪来**：sheng `scripts/` 下没有，框架 `UniXNU/scripts/kernel_target.py` 有，装配时拷进树 `scripts/`（`/opt/k60/trees/ios27-out/.../tree/scripts/kernel_target.py` 实测存在）⇒ 我们的构建器同样可用，无需自造。
 
-在 1 解掉之前**不动 `board.toml`**：只加 `include = [... "GopFramebuffer"]` 而不解决归档与 Legacy 子类，会让 `check-kernel-archives.py` 与链接期直接红。
+因此最小可行移植 = ①`configs/mondrian_ios27_defconfig` 打开 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y`（`CONFIG_XNU_NATIVE_MOBILE_DISPLAY` 视组件是否提供 Modern 归档再定）；②造出 `build/native-legacy-display/libNativeLegacyDisplay.late.a` + `build-report.json`（从 sheng 的 builder 抽出显示四块）；③kernel args 打开 `offline-legacy-gop=1`。在此之前**不动 `board.toml` 的 include**，也不改 defconfig：归档不存在时链接直接 `test -f` 失败，属于可预见的红。

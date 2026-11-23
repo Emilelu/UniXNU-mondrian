@@ -96,11 +96,8 @@ void native_legacy_surface_rejected(u64 a, u64 b, u32 c, u32 d, u64 e, u64 f, u6
     (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g;
 }
 
-/* __ZN25IOMobileFramebufferLegacy25create_default_fb_surfaceEv */
-void *k60_create_default_fb_surface(void *self)
-    __asm__("__ZN25IOMobileFramebufferLegacy25create_default_fb_surfaceEv");
-void *k60_create_default_fb_surface(void *self)
+/* Original method slot: report that no default surface can be created yet. */
+void *k60_create_default_fb_surface_stub(void)
 {
-    (void)self;
     return 0;
 }

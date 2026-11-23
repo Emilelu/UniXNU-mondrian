@@ -48,6 +48,17 @@ def main():
     archive = out / "libNativeLegacyDisplay.a"
     if not archive.is_file():
         raise SystemExit("the driver build produced no archive")
+
+    abi = scripts.parent / "kits/mondrian/display-abi"
+    extra = []
+    for name in ("original-bindings", "original-addresses"):
+        source = abi / (name + ".S")
+        if source.is_file():
+            obj = out / (name + ".o")
+            run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(source), "-o", str(obj)])
+            extra.append(obj)
+    if extra:
+        run(["llvm-ar", "rcs", str(archive), *[str(o) for o in sorted(out.glob("*.o"))]])
     shutil.copyfile(archive, out / "libNativeLegacyDisplay.late.a")
     run([sys.executable, scripts / "write-display-report.py", tree])
 

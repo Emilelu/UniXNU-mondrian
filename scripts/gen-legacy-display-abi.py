@@ -101,8 +101,6 @@ header = f'''// SPDX-License-Identifier: BSD-2-Clause-Patent
 // under a name whose pointer-authentication discriminator is the original slot's diversity (the names below), so original
 // callers authenticate the owned subclass's entries. Only qualified base prototypes may be called from source.
 #pragma once
-// Stage-0 has no GPU addon yet; the trace hooks are diagnostics, not rendering.
-#define NATIVE_GPU_TRACE_OPTIONAL 1
 #include <IOKit/IOService.h>
 #include <libkern/libkern.h>
 extern "C" OSObject *native_legacy_default_surface_create(OSObject *,uint32_t,uint32_t);

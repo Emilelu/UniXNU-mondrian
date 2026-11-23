@@ -57,6 +57,11 @@ def main():
             obj = out / (name + ".o")
             run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(source), "-o", str(obj)])
             extra.append(obj)
+    stub = abi / "display-no-gpu-trace.c"
+    if stub.is_file():
+        obj = out / "display-no-gpu-trace.o"
+        run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(stub), "-o", str(obj)])
+        extra.append(obj)
     if extra:
         run(["llvm-ar", "rcs", str(archive), *[str(o) for o in sorted(out.glob("*.o"))]])
     shutil.copyfile(archive, out / "libNativeLegacyDisplay.late.a")

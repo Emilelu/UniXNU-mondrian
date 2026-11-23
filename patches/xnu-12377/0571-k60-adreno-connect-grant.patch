@@ -1,8 +1,8 @@
-diff --git a/bsd/dev/k60_adreno_grant.c b/bsd/dev/k60_adreno_grant.c
+diff --git a/bsd/dev/k60_adreno_grant.cpp b/bsd/dev/k60_adreno_grant.cpp
 new file mode 100755
 index 00000000..fae3004d
 --- /dev/null
-+++ b/bsd/dev/k60_adreno_grant.c
++++ b/bsd/dev/k60_adreno_grant.cpp
 @@ -0,0 +1,21 @@
 +/*
 + * native_adreno_connect_granted() -- the kobject filter in osfmk/device/iokit_rpc.c

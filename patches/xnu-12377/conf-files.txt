@@ -4,4 +4,4 @@
 bsd/dev/k60_usblog.c			standard
 bsd/dev/k60_console_export.c		standard
 bsd/dev/k60_usblog_reset.c standard
-bsd/dev/k60_adreno_grant.c standard
+bsd/dev/k60_adreno_grant.cpp standard

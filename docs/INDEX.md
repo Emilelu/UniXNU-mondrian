@@ -269,3 +269,4 @@ python3 scripts/render-eight-step-table.py --check
 - [PRELINK-GAP-EXPLAINED.md](research/ios27/PRELINK-GAP-EXPLAINED.md) — 我们 94/203 与上游 2/24 数的是不同构建；附 21+25 个 owner 全表与「门禁与飞行互为死循环」的结论
 - [BUILD-FREEZE.md](engineering/BUILD-FREEZE.md) — 构建与上机冻结令及解冻三条件（2026-11-23）
 - [DISPLAY-STACK-PORT.md](research/ios27/DISPLAY-STACK-PORT.md) — 27 线缺的不是 console 补丁，而是整个 `GopFramebuffer` 组件：sheng 同 OS ABI 已验证，附移植清单与 DPU 地址风险
+- [BOARD-PARITY.md](research/ios27/BOARD-PARITY.md) — 27 板级配置与 sheng（同 OS ABI）、zizhan（同 SM8475）的逐项差异：组件 3 vs 11、归档 8 vs 19、启动参数 10 vs 52，附逐条判定与离线复现命令

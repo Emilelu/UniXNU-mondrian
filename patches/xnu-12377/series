@@ -240,3 +240,11 @@ armcpu-sleep-hook.patch
 # exhaust the 4 KiB kernel stack; the patch applies to xnu-12377 unchanged.
 # Source: UniXNU-zizhan 034a0b0 patches/xnu-ipados18/0003-qsort-bounded-recursion.patch
 0572-k60-qsort-bounded-recursion.patch
+
+# Ported from our own iOS 16 series: the 16-line pmap sync used ptoa(pp); the 27 base still shifts by PAGE_SHIFT.
+# Source: patches/xnu/zzx-pmap-sync-64bit-pa.patch
+0573-k60-pmap-sync-64bit-pa.patch
+
+# Ported from our own iOS 16 series: the 16-line 4 KiB bootstrap capacity (16 pages per 5 GiB) is absent from the 27 base.
+# Source: patches/xnu/native-4k-bootstrap-capacity.patch
+0574-k60-4k-bootstrap-capacity.patch

@@ -236,6 +236,7 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 		python3 ./unixnu build firmware --device "$ROOT" --uefi "$UNIXNU_UEFI" -j "${UNIXNU_JOBS:-$(nproc)}"
 		mkdir -p "$(dirname "$FW_KEY")"
 		printf '%s\n' "$fw_key" >"$FW_KEY"
+		fw_rebuilt=1
 		mark firmware-built
 	else
 		echo "note firmware: reused the volume at $FW_FD (inputs unchanged since the recorded key)"
@@ -250,7 +251,7 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	BOOT_KEY="$BOARD_DIR/boot/bootimg.inputs.sha256"
 	boot_key=$(python3 "$ROOT/scripts/ios27-inputs.py" bootimg --device "$ROOT" \
 		--out "$BOARD_DIR" --uefi "$UNIXNU_UEFI")
-	if [ -z "${K60_FORCE_BOOTIMG:-}" ] && [ -f "$BOOT_KEY" ] &&
+	if [ -z "${K60_FORCE_BOOTIMG:-}" ] && [ -z "${fw_rebuilt:-}" ] && [ -f "$BOOT_KEY" ] &&
 		[ -f "$BOARD_DIR/boot/boot.img" ] &&
 		[ "$(cat "$BOOT_KEY")" = "$boot_key" ]; then
 		echo "note bootimg: reused (inputs unchanged since $boot_key)"

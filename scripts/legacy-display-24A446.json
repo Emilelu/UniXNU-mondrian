@@ -1,5 +1,5 @@
 {
-  "kernelcache_sha256": "38e6d9fa5f789b8228f4617ef4c6d2a3fd8ab564abdc9b62920f1db53fc1780a",
+  "kernelcache_sha256": "fa07057bf34f33af1ec26681ad0c87c13e5aaa548a300740eddb0e92876e5f95",
   "collection_slide": "0x1f000000000",
   "vtable": "0xfffffe0008368e58",
   "instance_size": "0x1dd8",
@@ -2473,5 +2473,17 @@
       "diversity": "0x358b",
       "evidence": "pure slot: the original vtable entry is __cxa_pure_virtual; every original call site of this slot authenticates with this discriminator"
     }
-  }
+  },
+  "origin_kernelcache_sha256": "38e6d9fa5f789b8228f4617ef4c6d2a3fd8ab564abdc9b62920f1db53fc1780a",
+  "owned_surface_group": [
+    "_native_legacy_surface_allocate",
+    "_native_legacy_surface_create",
+    "_native_legacy_surface_descriptor",
+    "_native_legacy_surface_format",
+    "_native_legacy_surface_height",
+    "_native_legacy_surface_planes",
+    "_native_legacy_surface_stride",
+    "_native_legacy_surface_width"
+  ],
+  "surface_slots_note": "The 8 surface accessor slots are owned by kits/mondrian/display-abi/k60-display-surface.c: they point at our own stub group, not at the origin kernelcache. All other slots are validated against the local 24A446 IOMobileGraphicsFamily layout."
 }

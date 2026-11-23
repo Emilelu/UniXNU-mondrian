@@ -411,20 +411,20 @@
 .globl _native_legacy_set_refresh_properties.original
 .set _native_legacy_set_refresh_properties.original, 0xfffffff00a296ca8
 .globl _native_legacy_surface_allocate.original
-.set _native_legacy_surface_allocate.original, 0xfffffff00a42f464
+.set _native_legacy_surface_allocate.original, _native_legacy_surface_allocation
 .globl _native_legacy_surface_create.original
-.set _native_legacy_surface_create.original, 0xfffffff00a444a68
+.set _native_legacy_surface_create.original, _native_legacy_default_surface_create
 .globl _native_legacy_surface_descriptor.original
-.set _native_legacy_surface_descriptor.original, 0xfffffff00a4330a4
+.set _native_legacy_surface_descriptor.original, _native_legacy_surface_descriptor
 .globl _native_legacy_surface_format.original
-.set _native_legacy_surface_format.original, 0xfffffff00a433190
+.set _native_legacy_surface_format.original, _native_legacy_surface_format
 .globl _native_legacy_surface_height.original
-.set _native_legacy_surface_height.original, 0xfffffff00a4331b4
+.set _native_legacy_surface_height.original, _native_legacy_surface_height
 .globl _native_legacy_surface_planes.original
-.set _native_legacy_surface_planes.original, 0xfffffff00a4331fc
+.set _native_legacy_surface_planes.original, _native_legacy_surface_planes
 .globl _native_legacy_surface_stride.original
-.set _native_legacy_surface_stride.original, 0xfffffff00a4331cc
+.set _native_legacy_surface_stride.original, _native_legacy_surface_stride
 .globl _native_legacy_surface_width.original
-.set _native_legacy_surface_width.original, 0xfffffff00a4331a8
+.set _native_legacy_surface_width.original, _native_legacy_surface_width
 .globl _native_legacy_vsync_notify.original
 .set _native_legacy_vsync_notify.original, 0xfffffff00a292ad4

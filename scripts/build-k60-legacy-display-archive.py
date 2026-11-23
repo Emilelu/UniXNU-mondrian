@@ -78,6 +78,10 @@ def main():
             run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(source), "-o", str(obj)])
             extra.append(obj)
     component_obj = out / "NativeLegacyDisplay.o"
+    surface_src = tree / "kits/mondrian/display-abi/k60-display-surface.c"
+    if surface_src.is_file():
+        surface_obj = out / "k60-display-surface.o"
+        run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(surface_src), "-o", str(surface_obj)])
     hooks = []
     if component_obj.is_file():
         nm = subprocess.run(["llvm-nm", "-u", str(component_obj)],

@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Produce build/native-legacy-display/libNativeLegacyDisplay.late.a for the tree.
+
+Called by board.toml [kernel].archives as `build-k60-legacy-display-archive.py --tree .`:
+
+  1. stage the GopFramebuffer component under drivers/ if it is missing;
+  2. generate OriginalLegacyFramebufferABI.h with the 24A446 fixture;
+  3. compile the component with the Linux recipe (scripts/build-k60-driver.sh);
+  4. copy the archive to the .late.a name the kernel builder force-loads;
+  5. write build-report.json (archive_sha256 + source_sha256).
+"""
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+REFERENCE = Path("/mnt/e/k60-work/references/GopFramebuffer")
+FILES = ("NativeLegacyDisplay.cpp", "NativeGOPresenter.cpp", "NativeLegacyRequest.h",
+         "NativeGOPWire.h", "NativeHalfCodes.h", "NativeGpuTrace.h")
+
+
+def run(cmd, **kw):
+    print("+", " ".join(str(c) for c in cmd))
+    subprocess.run([str(c) for c in cmd], check=True, **kw)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tree", default=".")
+    tree = Path(ap.parse_args().tree).resolve()
+    scripts = tree / "scripts"
+    out = tree / "build/native-legacy-display"
+    out.mkdir(parents=True, exist_ok=True)
+
+    component = tree / "drivers/GopFramebuffer"
+    if not component.is_dir():
+        if not REFERENCE.is_dir():
+            raise SystemExit(f"GopFramebuffer component missing and no reference at {REFERENCE}")
+        shutil.copytree(REFERENCE, component)
+
+    env = {"UNIXNU_XNU_ARCH": "arm64e", "UNIXNU_IOS_VERSION": "27.0",
+           "PYTHONPATH": str(scripts)}
+    run([sys.executable, scripts / "gen-legacy-display-abi.py"], env={**__import__("os").environ, **env})
+    run([scripts / "build-k60-driver.sh", tree, "NativeLegacyDisplay"],
+        env={**__import__("os").environ, **env})
+
+    archive = out / "libNativeLegacyDisplay.a"
+    if not archive.is_file():
+        raise SystemExit("the driver build produced no archive")
+    shutil.copyfile(archive, out / "libNativeLegacyDisplay.late.a")
+    run([sys.executable, scripts / "write-display-report.py", tree])
+
+
+if __name__ == "__main__":
+    main()

@@ -51,18 +51,3 @@ line = 2
 what = "它开而我们关的 CONFIG 键（CRYPTO_BOOTSTRAP=source、SOURCE_STORAGE、OWNER_ROOT_TRUST/AUDIT 等）与 15 个只有我们有的 stub bundle 一一对应，这部分缺口属配置面"
 verdict = "adapted"
 
-[[entry]]
-id = "boot-args-abi-608"
-source = "framework"
-path = "drivers/DarwinBoot/DarwinBootPkg/Driver/BootArgs.h"
-line = 21
-what = "catalog DarwinBoot 的 BootArgs 是 Darwin 23 布局：CHAR8 CommandLine[1024]，其后 MemorySizeActual 在 0x478、结构 sizeof 0x480；27 内核的 pexpert/pexpert/arm64/boot.h 读的正是这套偏移"
-verdict = "copied"
-
-[[entry]]
-id = "boot-args-abi-608"
-source = "sheng"
-path = "board.toml"
-line = 32
-what = "能进系统的 sheng 在 [firmware].packages 里直接引 {tree}/drivers/DarwinBoot（并在 include 列表里选 DarwinBoot 组件），即它跑的就是这套 Darwin 23 BootArgs；我们平台树 Platforms/Xiaomi/DarwinBootPkg 仍是 Darwin 22 的 608 字节头"
-verdict = "adapted"

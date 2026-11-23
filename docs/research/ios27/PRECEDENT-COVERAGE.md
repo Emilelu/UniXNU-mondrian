@@ -37,3 +37,21 @@
 ## 5 还没做的（下一步）
 
 `board.toml` 与 defconfig 的**值**没有对账：旧账本只记键名，所以「两边都有这个键、值不同」这类疏漏目前看不见。审计脚本已经统计 `board_pairs` / `defconfig_pairs`（带值），但还没有与「应该相同」的语义表比对。
+
+## 6 board.toml 值对账（第一轮，已核三条）
+
+方法：把 `board.toml` 展平成 `section.key` 集合，取「先例有、我们没有」的差集，再逐条核它是不是真缺口。
+
+先例独有的高价值键（排除 `ipsw.*`、`os_overrides.*` 这类结构差异）：
+
+| 键 | t970 | zizhan | pong | 我们 | 结论 |
+| --- | :-: | :-: | :-: | :-: | --- |
+| `firmware.defines.PONG_INITRD_DISK_ENABLED` | 有 | 有 | 有 | 无 | **非缺口**，见下 |
+| `payload.adt.packed_data_ramdisk` | 有 | 有 | 有 | 无 | **非缺口**，见下 |
+| `kernel.patch_series[1..3]` | 有 | 有 | 有 | 四层 profile | **非缺口**，见下 |
+
+- `PONG_INITRD_DISK_ENABLED` 只在固件仓库的 `patches/pong-payload.patch:54` 出现，门控 `INF pongPkg/Drivers/PongBootMemoryDxe/PongBootMemoryDxe.inf` 是否进 FV；而那个补丁改的是 `Platforms/Nothing/pongPkg/pong.dsc` 与 `pong.fdf`。我们的固件走 `Platforms/Xiaomi`，`grep -rn 'PongBootMemoryDxe\|PONG_INITRD' Platforms/Xiaomi` **0 命中** ⇒ 这是 Nothing/pong 那套固件包的机制，不是我们的漏项。
+- 我们对应的是 ADT 的 `RAMDisk` 映射：`scripts/unixnu/devicetree.py:357` 的 `('PackedRAMDisk' if packed_data_ramdisk else 'RAMDisk', bytes(16))`，`scripts/unixnu/payload.py:246` 在我们未设该键时传 `--data-ramdisk`（原始 seed），设了才传 `--packed-data-ramdisk`。这是同一功能的两种模式，不是缺失。
+- `kernel.patch_series[1..3]`：先例把多层补丁写成三个数组元素，我们用 `[kernel.patch_series]` 的四层 profile（arch/soc/os/device），`scripts/check-series-order.py` 已用重放证明 129/0。
+
+⇒ 这一轮没有发现「先例有、我们漏」的 board 值；但**差集里还有 100+ 项未逐条核**（uke 188、asteroids 303、sheng 446 多为 `os_overrides`），下一步按子系统分组核。

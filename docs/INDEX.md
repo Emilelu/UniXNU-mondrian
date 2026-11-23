@@ -268,3 +268,4 @@ python3 scripts/render-eight-step-table.py --check
 - [BORROWABLE-MECHANISMS.md](research/ios27/BORROWABLE-MECHANISMS.md) — zizhan 的两条可借机制：/chosen 扩展启动参数（含 launchd_cache_loader 坑）与 pong_inj 免重建 init 注入
 - [PRELINK-GAP-EXPLAINED.md](research/ios27/PRELINK-GAP-EXPLAINED.md) — 我们 94/203 与上游 2/24 数的是不同构建；附 21+25 个 owner 全表与「门禁与飞行互为死循环」的结论
 - [BUILD-FREEZE.md](engineering/BUILD-FREEZE.md) — 构建与上机冻结令及解冻三条件（2026-11-23）
+- [DISPLAY-STACK-PORT.md](research/ios27/DISPLAY-STACK-PORT.md) — 27 线缺的不是 console 补丁，而是整个 `GopFramebuffer` 组件：sheng 同 OS ABI 已验证，附移植清单与 DPU 地址风险

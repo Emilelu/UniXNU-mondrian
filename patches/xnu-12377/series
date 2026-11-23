@@ -248,3 +248,7 @@ armcpu-sleep-hook.patch
 # Ported from our own iOS 16 series: the 16-line 4 KiB bootstrap capacity (16 pages per 5 GiB) is absent from the 27 base.
 # Source: patches/xnu/native-4k-bootstrap-capacity.patch
 0574-k60-4k-bootstrap-capacity.patch
+
+# sheng c8f92b2: release the dyld pager source after the last reference,
+# so a spliced root does not pin the source vnode; applies on top of 0564.
+0575-k60-vmwait-dyld-pager-source-release.patch

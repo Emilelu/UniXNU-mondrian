@@ -58,4 +58,5 @@ build/
 /.cache/
 
 # AOCI runtime state (baseline, ledger, transactions)
-.aoci/
+.aoci/*
+!.aoci/config.json

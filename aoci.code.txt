@@ -370,6 +370,7 @@ data-volume.txt[SN4T]: F:Data 卷 /private/var seed 对比：iPadOS vs iOS 16.6.
 telephony-inventory.txt[SN4S]: F:电话/短信清单：iPadOS vs iOS 16.6.1 OS 卷逐路径。 | R:code:docs/research/ios-profile/FEASIBILITY.md | A:app bundles/MobilePhone/基础设施/LaunchDaemons/Carrier | S:iPad 6,776,328 行 vs iOS 7,555,320 行；Carrier Bundles 根 iPad vs iPhone。
 
 ===/<repository>/docs/research/ios27/===
+AOCI-EVALUATION.md[SG7S]: F:评估 AOCI-CODE 能否作为本项目全局认知索引：实测二进制与 MCP、规模成本、三层架构、P0–P4 计划与风险。 | R:code:docs/research/ios27/PRECEDENT-COVERAGE.md | A:- | S:结论是「只当认知层、不当验收门禁」：一仓一索引，参考源只能写成文档条目；许可证 FSL-1.1-MIT，对外商用需法务确认。
 BORROWABLE-MECHANISMS.md[SN4T]: F:zizhan 27 线两条可借机制：chosen boot-args 扩展与 pong_inj 注入。 | R:code:docs/research/ios27/CARRY-OVER-INVENTORY.md | A:两机制/借用规则 | S:两条都 DEFERRED，未经本构建/上机；借用前必须在 27 树重放并进 PRECEDENT-MANIFEST copied。
 CARRY-OVER-INVENTORY.md[SN4S]: F:16 线资产清点：迁移 iOS 27 丢了什么，含 0300/0334b 重切设计。 | R:code:docs/research/ios27/IOS16-PORT-LEDGER.md | A:事实/资产/0300/0334b/复位依赖 | S:series 计数三种口径：36 条（含无号）/240 全部；check-series-numbering 只认四位编号。
 CCACHE.md[SN4S]: F:ccache 已接入 iOS 27 内核编译但 0 命中，因 XNU 三条编译规则带 -MJ。 | R:code:docs/research/ios27/CONFORMANCE.md | A:接线点/0 命中原因/读法/移交 | S:ccache 4.9.1；对象记录与 ccache -s 才是判据，不是脚本字样；sccache 也受 -MJ 影响。
@@ -394,6 +395,7 @@ OFFICIAL-DOC-EVIDENCE.md[SN4T]: F:官方文档/知识库/网页证据表：先�
 PORT-AUDIT-20261123.md[SN4T]: F:iOS 27 移植审计：672 条先例 have 347/na 319/copied 6/missing 0。 | R:code:docs/research/ios27/PORT-DECISIONS-2.md | A:结论/七个补丁/四项验证/不抄 | S:解冻后第一件事构建验证 0561–0571 与 check-kernel-console/check-kprintf-enabled。
 PORT-DECISIONS-2.md[SN4T]: F:七项必须补清单收口：qsort/4k bootstrap/pmap 64bit PA 等已抄。 | R:code:docs/research/ios27/PORT-AUDIT-20261123.md | A:处置表/判定规则 | S:先看机制在本树存不存在→重复→apply→编译链接；能 apply≠该抄。
 PRECEDENT-COVERAGE.md[SN4T]: F:先例覆盖率真实数字：旧口径 1527/0 unknown 只覆盖一个补丁目录；新口径 167 个差集。 | R:code:docs/research/ios27/PRECEDENT-MANIFEST.toml,code:docs/research/ios27/PRECEDENT-PARITY.md | A:旧口径/新口径/构成/门禁 | S:board.toml 值对账第一轮已核三条；还有 100+ 项未逐条核（uke 188/asteroids 303/sheng 446 多为 os_overrides）。
+PRECEDENT-GAP-VERDICTS.toml[SG8M]: F:记录 28 个未入账先例补丁的逐条判定：copied 1 / have 5 / not-applicable 16 / unknown 6，每条带我们树里的 file:line。 | R:code:docs/research/ios27/PRECEDENT-COVERAGE.md,code:docs/research/ios27/PRECEDENT-MANIFEST.toml | A:- | S:unknown 6 条是缺证据而不是已判定；审计脚本按 basename 匹配，文件改名会失配，不能把它当「已抄」证明。
 PRECEDENT-MANIFEST.toml[SN6L]: F:自动生成的先例账本：九仓 1522 条 have/copied/not-applicable。 | R:code:docs/research/ios27/PRECEDENT-PARITY.md,code:docs/research/ios27/PRECEDENT-COVERAGE.md | A:[[repo]] 全表 | S:由 scripts/scan-precedents.py 生成，禁止手改；每条 verdict 必须有 reason/sha256。
 PRECEDENT-PARITY.md[SN6M]: F:先例对齐账本：1522 条全部判定，former gap 逐项 resolution。 | R:code:docs/research/ios27/PRECEDENT-MANIFEST.toml | A:分仓计数/逐源/歧义项 | S:三份参考 blobs 不在本仓对象库，git apply -3 报 does not match index；部分补丁需人工重切。
 PRECEDENT-REQUIRED.md[SN4T]: F:机制必须先有成功先例（用户 2026-11-22 原话「没有成功先例的禁止瞎搞」）。 | R:code:docs/research/ios27/PRECEDENT-PARITY.md,code:docs/engineering/REFERENCE-PROVENANCE.md | A:成功机型/三条通道/纪律 | S:只认已成功到 bsd_init 之后的机型且 repo:file:line 可解析；自己的 fork 不算独立先例；先例被证伪则结论作废。

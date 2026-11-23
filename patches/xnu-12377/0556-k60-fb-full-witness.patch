@@ -1,21 +1,35 @@
 --- a/osfmk/console/video_console.c
 +++ b/osfmk/console/video_console.c
-@@ -3120,6 +3120,20 @@
+@@ -3120,6 +3120,34 @@
  #endif
  	}
  
 +	/*
-+	 * K60 witness: fill the whole framebuffer using the geometry the kernel
-+	 * believes it has.  If the panel turns uniformly magenta the stride is
-+	 * right; if bands remain, v_rowbytes disagrees with the panel and the band
-+	 * pitch measures the ratio.  Written after vc_initialize() cleared the
-+	 * screen, so the fill cannot be erased.
++	 * K60 cartography: paint four quadrants and an origin marker with the
++	 * geometry the kernel believes it has.  The colours that land where tell
++	 * us the base offset, the stride ratio and any flip: TL red, TR green,
++	 * BL blue, BR white, and a 64x64 yellow square at the believed origin.
++	 * Written after vc_initialize() cleared the screen.
 +	 */
 +	if ((vinfo.v_baseaddr != 0) && (vinfo.v_rowbytes != 0) && (vinfo.v_height > 8)) {
 +		volatile uint32_t *all = (volatile uint32_t *)(uintptr_t)vinfo.v_baseaddr;
-+		unsigned int total = (vinfo.v_rowbytes / 4) * vinfo.v_height;
-+		for (unsigned int index = 0; index < total; index++) {
-+			all[index] = 0x00FF00FF;
++		unsigned int words = vinfo.v_rowbytes / 4;
++		unsigned int x, y;
++		for (y = 0; y < vinfo.v_height; y++) {
++			for (x = 0; x < words; x++) {
++				uint32_t colour;
++				if (y < vinfo.v_height / 2) {
++					colour = (x < words / 2) ? 0x000000FF : 0x0000FF00;
++				} else {
++					colour = (x < words / 2) ? 0x00FF0000 : 0x00FFFFFF;
++				}
++				all[y * words + x] = colour;
++			}
++		}
++		for (y = 0; (y < 64) && (y < vinfo.v_height); y++) {
++			for (x = 0; (x < 64) && (x < words); x++) {
++				all[y * words + x] = 0x0000FFFF;
++			}
 +		}
 +	}
  	/* Console initialization/acquisition may clear the existing mapping. */

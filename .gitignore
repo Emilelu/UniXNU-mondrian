@@ -56,3 +56,6 @@ mac-build/*/cache/
 mac-build/*/build-report.json
 build/
 /.cache/
+
+# AOCI runtime state (baseline, ledger, transactions)
+.aoci/

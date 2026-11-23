@@ -144,6 +144,13 @@ else
 	mark kernel
 fi
 
+# The payload step patches its own staged copy of the kernel; the boot
+# image must carry that same patched kernel, so keep a stable copy here
+# (P-155/P-278: the transform is part of the declared payload identity).
+PATCHED_KERNEL="$BOARD_DIR/kernel/kernel.patched.macho"
+cp -f "$BOARD_DIR/kernel/kernel.macho" "$PATCHED_KERNEL"
+python3 "$BOARD_DIR/tree/scripts/patch-armcpu-validate.py" "$PATCHED_KERNEL" --apply
+
 # The payload step shares 452 s of the build with the kernel and packs the same
 # 192 MB again when nothing it reads has moved. Reuse it when the key of those
 # inputs is the one recorded next to the image, rebuild it otherwise.
@@ -249,10 +256,7 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	else
 		boot_done=
 		if [ -z "${K60_NO_KERNEL_SWAP:-}" ] && [ -f "$BOARD_DIR/boot/boot.img" ]; then
-			SWAP_KERNEL="$BOARD_DIR/kernel/kernel.macho"
-			if [ -f "$BOARD_DIR/payload/stage/EFI/UniXNU/Payloads/kernel.macho" ]; then
-				SWAP_KERNEL="$BOARD_DIR/payload/stage/EFI/UniXNU/Payloads/kernel.macho"
-			fi
+			SWAP_KERNEL="$BOARD_DIR/kernel/kernel.patched.macho"
 			if python3 "$ROOT/scripts/k60-kernel-swap.py" --kernel "$SWAP_KERNEL" \
 				--payload "$BOARD_DIR/payload/payload.img" --boot "$BOARD_DIR/boot/boot.img" --apply; then
 				boot_done=1

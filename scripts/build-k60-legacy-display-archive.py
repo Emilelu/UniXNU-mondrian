@@ -15,6 +15,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+STAGE0_TRACE_STUBS = """/* Stage-0 links the display component without the GPU addon. */
+#include <stdint.h>
+__attribute__((weak)) int native_gpu_trace_enabled(void) { return 0; }
+__attribute__((weak)) void native_gpu_trace_record(uint32_t e, uint32_t p,
+                                                   const uint64_t *v, uint32_t c)
+{ (void)e; (void)p; (void)v; (void)c; }
+__attribute__((weak)) uint32_t native_gpu_trace_snapshot(void *o, uint32_t b)
+{ (void)o; (void)b; return 0; }
+__attribute__((weak)) int native_adreno_fences(uint32_t *s, uint32_t *r)
+{ (void)s; (void)r; return 0; }
+__attribute__((weak)) int native_adreno_fences_detail(uint32_t *a, uint32_t *b, uint32_t *c)
+{ (void)a; (void)b; (void)c; return 0; }
+"""
+
 REFERENCE = Path("/mnt/e/k60-work/references/GopFramebuffer")
 FILES = ("NativeLegacyDisplay.cpp", "NativeGOPresenter.cpp", "NativeLegacyRequest.h",
          "NativeGOPWire.h", "NativeHalfCodes.h", "NativeGpuTrace.h")
@@ -57,11 +71,11 @@ def main():
             obj = out / (name + ".o")
             run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(source), "-o", str(obj)])
             extra.append(obj)
-    stub = abi / "display-no-gpu-trace.c"
-    if stub.is_file():
-        obj = out / "display-no-gpu-trace.o"
-        run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(stub), "-o", str(obj)])
-        extra.append(obj)
+    stub = out / "display-no-gpu-trace.c"
+    stub.write_text(STAGE0_TRACE_STUBS, encoding="utf-8")
+    obj = out / "display-no-gpu-trace.o"
+    run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(stub), "-o", str(obj)])
+    extra.append(obj)
     if extra:
         run(["llvm-ar", "rcs", str(archive), *[str(o) for o in sorted(out.glob("*.o"))]])
     shutil.copyfile(archive, out / "libNativeLegacyDisplay.late.a")

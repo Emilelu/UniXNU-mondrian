@@ -162,10 +162,22 @@ if [ -z "${K60_FORCE_PAYLOAD:-}" ] && [ -f "$PAYLOAD_KEY" ] &&
 	echo "note payload: reused (inputs unchanged since $payload_key)"
 	mark payload-reused
 else
-	python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
+	payload_done=
+	if [ -z "${K60_NO_FAST_PAYLOAD:-}" ] && [ -f "$BOARD_DIR/payload/payload.json" ]; then
+		if python3 "$ROOT/scripts/k60-fast-payload.py" --device "$ROOT" --board "$BOARD_DIR" \
+			--kernel "$BOARD_DIR/kernel/kernel.macho"; then
+			payload_done=1
+			mark payload-fast
+		else
+			echo "note payload: in-place refresh not possible; falling back to a full pack"
+		fi
+	fi
+	if [ -z "$payload_done" ]; then
+		python3 ./unixnu build payload --device "$ROOT" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID"
+		mark payload
+	fi
 	mkdir -p "$(dirname "$PAYLOAD_KEY")"
 	printf '%s\n' "$payload_key" >"$PAYLOAD_KEY"
-	mark payload
 fi
 
 if [ -n "${UNIXNU_UEFI:-}" ]; then
@@ -221,11 +233,23 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 		echo "note bootimg: reused (inputs unchanged since $boot_key)"
 		mark bootimg-reused
 	else
-		python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
-			--dtb "$BOARD_DIR/device-tree/hardware.dtb"
+		boot_done=
+		if [ -z "${K60_NO_KERNEL_SWAP:-}" ] && [ -f "$BOARD_DIR/boot/boot.img" ]; then
+			if python3 "$ROOT/scripts/k60-kernel-swap.py" --kernel "$BOARD_DIR/kernel/kernel.macho" \
+				--payload "$BOARD_DIR/payload/payload.img" --boot "$BOARD_DIR/boot/boot.img" --apply; then
+				boot_done=1
+				mark bootimg-swapped
+			else
+				echo "note bootimg: in-place kernel swap not possible; falling back to a full pack"
+			fi
+		fi
+		if [ -z "$boot_done" ]; then
+			python3 ./unixnu bootimg --device "$ROOT" --uefi "$UNIXNU_UEFI" \
+				--dtb "$BOARD_DIR/device-tree/hardware.dtb"
+			mark bootimg-built
+		fi
 		mkdir -p "$(dirname "$BOOT_KEY")"
 		printf '%s\n' "$boot_key" >"$BOOT_KEY"
-		mark bootimg-built
 	fi
 	python3 "$ROOT/scripts/check-ios27-artifacts.py"
 	mark artifacts

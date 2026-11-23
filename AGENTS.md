@@ -37,6 +37,21 @@
 
 只写代码、提交、和下面这三个状态文件。
 
+## 协作
+
+### 铁则 8 — 没有串口日志的启动是盲实验
+
+8. **没有串口日志的启动是盲实验**：抓不到 0 字节就只能记 INVALID。
+
+`fastboot boot` 必须同时抓 `VID_1209&PID_0001` 的串口日志；抓不到（`port-not-observed`、0 字节）
+就只能记 INVALID，不能写成 PASS 或 FAIL。判据见 `scripts/check-boot-procedure.py` 与
+`docs/engineering/BOOT-PROCEDURE.md`。
+
+### Iron rule 12 — an agent message tries `steer` first
+
+给另一条线发消息，先 `steer`（或 `inject`），被拒（目标离线/idle）才用 `followup`，并在回执首行写
+`delivery: followup, steer-rejected: <原因>`。禁止开场就 followup，禁止 steer 成功后补发 followup。
+
 ## 状态只有三处
 
 - `docs/engineering/STATUS.md` — 现在在哪一步

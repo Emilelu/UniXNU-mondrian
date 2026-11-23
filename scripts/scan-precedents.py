@@ -38,9 +38,9 @@ REPOS = {
     't970': '/mnt/e/hackios/UniXNU-t970',
     'zizhan': '/mnt/e/k60-work/references/latest/UniXNU-zizhan',
     'pong': '/mnt/e/k60-work/references/latest/UniXNU-pong',
-    'ios16': '/mnt/e/hackios/k60-gates',
+    'ios16': str(pathlib.Path(__file__).resolve().parents[1]),
 }
-OURS = pathlib.Path('/mnt/e/hackios/k60-gates')
+OURS = pathlib.Path(__file__).resolve().parents[1]
 OUT = OURS / 'docs/research/ios27/PRECEDENT-MANIFEST.toml'
 
 DEFAULT_PATCH_DIRS = ('patches/xnu-12377', 'patches/xnu')

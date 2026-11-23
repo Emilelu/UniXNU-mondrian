@@ -345,7 +345,7 @@ status = "active"
 why = "2026-11-22：27 内核从 2026-11-21 起才第一次定义 _pong_ramoops_console_write/_pong_ramoops_console_init（patches/xnu-12377/0546-k60-ramoops-console-27.patch），固件侧读数器 RamoopsDumpDxe（uefi-mondrian c52a080）随镜像 227fa840 进入卷。此前两次 0 字节串口飞行无法区分「内核没跑」与「我们听不到」（P-300）。本次修复的就是这条可见性通路本身，因此它必须先飞。"
 revisit = "进入 SpringBoard 之后改用官方 USB 终端（scripts/debug_terminal.py，协议 2）作为常规日志通道；本项届时降回 parked"
 
-[hardware.console.step.same-model]
+[hardware.console.step.same_model]
 done = true
 evidence = "同型证据不是「别人成功过」，而是「同一块板子上这块内存在、用途一致」：设备 live FDT 的 ramoops@0xa7000000 给出 reg = <0x00 0xa7000000 0x00 0x400000> 与 pmsg-size = <0x200000>，与补丁常量 PONG_RAMOOPS_PHYS_BASE 0xA7000000 / PONG_RAMOOPS_CONSOLE_BYTES 0x00200000 逐字节一致；记录见 docs/research/ios27/CONSOLE-GAP.md:1。16 线在 K60 上用同一窗口跑通控制台导出（016.6.1 内核符号 _pong_ramoops_console_write 等四个，见 docs/research/ios27/CONSOLE-GAP.md:1 的符号表）。"
 recorded_at = "2026-11-22T03:05:00"

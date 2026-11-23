@@ -203,3 +203,27 @@ symbol = ""
 name = "security.sandbox __common zero fill"
 reason = "the same shape as the IOHIDFamily slot: __common zero fill, vmaddr inside __DATA and file offset outside the segment, referenced only by a runtime-installed pointer. Silent if wrong for the same reason, and equally unnameable because the cache keeps no imports or symbols."
 review = "2026-11-21 lead, same evidence; re-review when a symbol-bearing artifact exists"
+
+[[pairing]]
+address = "0xfffffff00b71bd94"
+target = "unpaired"
+symbol = ""
+name = "IOSerialFamily __common zero fill (low slot)"
+reason = "a zero-filled __common slot: its vmaddr is inside the kext __DATA but its file offset is outside every backed segment (kc_image raises Unbacked address), so the file holds no initialised value; prelink leaves it zero and nothing in stage 0 can dereference it before console_init"
+review = "2026-11-24 lead, read from kernel.macho with kc_image at the prelink-reported address; re-review when a symbol-bearing artifact of the same build exists"
+
+[[pairing]]
+address = "0xfffffff00b78fd98"
+target = "unpaired"
+symbol = ""
+name = "IOSerialFamily __common zero fill (high slot 1)"
+reason = "same shape as the low slot: __common zero fill, vmaddr inside __DATA and file offset outside every backed segment, so the file holds no initialised value and the slot cannot fault on read"
+review = "2026-11-24 lead, same evidence"
+
+[[pairing]]
+address = "0xfffffff00b78fda0"
+target = "unpaired"
+symbol = ""
+name = "IOSerialFamily __common zero fill (high slot 2)"
+reason = "same shape as the low slot: __common zero fill, vmaddr inside __DATA and file offset outside every backed segment, so the file holds no initialised value and the slot cannot fault on read"
+review = "2026-11-24 lead, same evidence"

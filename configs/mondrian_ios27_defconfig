@@ -19,7 +19,7 @@ CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y
 # first kernel that has to prove PAC and the prelink.
 CONFIG_XNU_NATIVE_UFS=n
 CONFIG_XNU_NATIVE_ADRENO=n
-CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y
 
 # The SM8475 fragment already sets ARMCPU, ARM_DT_PLATFORM, NATIVE_ARCH_TIMER
 # and NATIVE_PAN. Leave them there: two homes for one switch is how a board

@@ -1414,3 +1414,10 @@ kind = "pitfall"
 statement = "序列顺序必须由重放证明：scripts/check-series-order.py 在临时 clone 上按 arch → soc → os → device 逐层应用，applied 等于总条数且 failed 为 0 才允许构建。"
 check = "python3 scripts/check-series-order.py"
 note = "P-311 之后：编号唯一与单补丁可解析都不等于可装配；层根取自 profiles.py 的真实解析，arch: 前缀按 root 解析。"
+
+[[rule]]
+id = "P-313"
+kind = "pitfall"
+statement = "缩放字体不得复用 VC_CH 作为字形位图的行数：iso_font 每字形固定 16 字节，vc_render_char 的循环边界必须是 ISO_CHAR_HEIGHT；VC_CH 只能出现在 vc_reverse_cursor / vc_scroll_down / vc_scroll_up。"
+check = "python3 scripts/tests/test-font-render-bounds.py"
+note = "2026-11-23：k60_fontscale=3 时 0544 把该循环改成 VC_CH，每字符越读两个字形并写 1536 字节进 512 字节缓冲区，屏幕上每行字变成实心洋红条；树级判据见 scripts/check-font-render-bounds.py --tree。"

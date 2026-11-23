@@ -8059,3 +8059,19 @@ grep，门禁就只是把问题换了一种表现方式。
 两条反例（都发生过）：
 - 用裸 feed 重放设备层，21 条失败全是「缺 arch/soc/os 层前提」，被误读成顺序错；
 - 用 `arm64` 而不是 profile 声明的 `arm64e` 当 arch 根，18 条 arch 补丁失败，被误读成补丁坏。
+
+## P-313 — 缩放字体不能把 VC_CH 当字形位图的行数
+
+`iso_font` 一个字形固定 `ISO_CHAR_HEIGHT = 16` 字节（每字节一行 8 像素）。K60 的
+`k60_fontscale` 把 `VC_CH` 重定义成 `ISO_CHAR_HEIGHT * vc_k60_sy`，于是同一份补丁把
+`vc_render_char()` 的 `for (line = 0; line < ISO_CHAR_HEIGHT; ...)` 也改成了 `VC_CH`——
+scale=3 时它按 48 行读一个 16 字节的字形（越过两个字形），并按 48 行写
+`48 * 32 = 1536` 字节进 `static unsigned char vc_rendered_char[ISO_CHAR_HEIGHT * 4 * ISO_CHAR_WIDTH]`
+（512 字节），每个字符溢出 1024 字节。症状不是黑屏：行距、左边界、每行长度都正常，
+但每个字形变成实心色块，整屏看起来是一条条洋红横杠（现场照片 `e4027cca…`），
+极容易被误判成「显示通路没通」而转去移植整个 `GopFramebuffer`。
+
+判据是静态可判的：`scripts/check-font-render-bounds.py --tree <xnu 树>` 要求
+`vc_render_char` 的循环边界是 `ISO_CHAR_HEIGHT`，并且 `VC_CH` 只允许出现在
+`vc_reverse_cursor` / `vc_scroll_down` / `vc_scroll_up` 这三个走屏幕行的函数里。
+教训与 P-260 同族：宏代表「一个格子的高度」时，不能再把它当「一张位图的行数」。

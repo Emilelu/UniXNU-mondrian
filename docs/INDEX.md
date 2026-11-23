@@ -270,3 +270,4 @@ python3 scripts/render-eight-step-table.py --check
 - [BUILD-FREEZE.md](engineering/BUILD-FREEZE.md) — 构建与上机冻结令及解冻三条件（2026-11-23）
 - [DISPLAY-STACK-PORT.md](research/ios27/DISPLAY-STACK-PORT.md) — 27 线缺的不是 console 补丁，而是整个 `GopFramebuffer` 组件：sheng 同 OS ABI 已验证，附移植清单与 DPU 地址风险
 - [BOARD-PARITY.md](research/ios27/BOARD-PARITY.md) — 27 板级配置与 sheng（同 OS ABI）、zizhan（同 SM8475）的逐项差异：组件 3 vs 11、归档 8 vs 19、启动参数 10 vs 52，附逐条判定与离线复现命令
+- [CONSOLE-GLYPH-BUG.md](research/ios27/CONSOLE-GLYPH-BUG.md) — 洋红横杠不是显示通路故障：`k60_fontscale` 让 `vc_render_char` 按 48 行读 16 字节字形、每字符写 1536 字节进 512 字节缓冲区；附照片测量、代码证据与 P-313 静态判据

@@ -1407,3 +1407,10 @@ title = "anchor-drift 必须附锚点命中证据"
 statement = "任何被判为 `anchor-drift` 的补丁必须附 `grep -F '<anchor>' '<27 file>'` 的真实命中行与行号；贴不出来只能判 `missing-file` 或 `sixteen-only`。`anchor-drift` 会直接进移植队列，`missing-file` 进 not-applicable 并要求写不存在的证据，两者混一次就浪费一整轮去重切一个没有落点的补丁。"
 check = "python3 scripts/check-anchor-evidence.py --report docs/research/ios27/IOS16-ANCHOR-REPORT.tsv --tree ${K60_XNU_FEED:-/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc}"
 note = "2026-11-23：35 条 anchor-drift 里 0218/0222/0234 的锚点在 27 kern_exec 一次都不出现，依赖的是 16 线 load_init_program 一带，27 用 native_owner_data_mount。"
+
+[[rule]]
+id = "P-312"
+kind = "pitfall"
+statement = "序列顺序必须由重放证明：scripts/check-series-order.py 在临时 clone 上按 arch → soc → os → device 逐层应用，applied 等于总条数且 failed 为 0 才允许构建。"
+check = "python3 scripts/check-series-order.py"
+note = "P-311 之后：编号唯一与单补丁可解析都不等于可装配；层根取自 profiles.py 的真实解析，arch: 前缀按 root 解析。"

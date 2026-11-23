@@ -8042,3 +8042,20 @@ grep，门禁就只是把问题换了一种表现方式。
 **判据**。每条 `-force_load` / `KERNEL_EXTRA_ARCHIVES` 都必须有一个 Linux 可执行的
 生成步骤；没有生产者是失败，不是「跳过」。这条与 P-190（归档整段在死分支里从未链接）
 是同一族：链接输入必须两端都有人。
+
+## P-312 — 序列顺序必须由重放证明，不能由编号推断
+
+`patches/xnu-12377/series` 是按文件顺序严格 `git apply` 的：一条失败，整个 kernel 步骤就失败。
+但两条门禁都不看顺序——`check-patch-apply.py` 只证明每个补丁单独能被解析，
+`check-series-numbering.py` 只证明编号不重复。于是「series 里有 57 条、编号都唯一」可以同时为真，
+而按顺序重放时 15 条打不上（`0548` 要 `arm_init.c:98` 的上下文、`0551` 要 `bsd_init.c:1334`、
+`0554`/`0556` 要 `video_console.c:3120` 之后的状态）。
+
+判据是重放，不是阅读：`scripts/check-series-order.py` 在临时 clone 上按
+`arch → soc → os → device` 逐层应用，只有 `applied == 总条数, failed == 0` 才退 0。
+层根必须来自 `profiles.py` 的真实解析（`profiles/arch/<arch>`、soc feed、`profiles/os/<profile>`、设备仓），
+不是猜的目录；`arch:` 前缀要按 root 解析，不能当相对路径。
+
+两条反例（都发生过）：
+- 用裸 feed 重放设备层，21 条失败全是「缺 arch/soc/os 层前提」，被误读成顺序错；
+- 用 `arm64` 而不是 profile 声明的 `arm64e` 当 arch 根，18 条 arch 补丁失败，被误读成补丁坏。

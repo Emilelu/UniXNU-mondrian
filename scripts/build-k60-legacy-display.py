@@ -61,12 +61,15 @@ def sha256(path: Path) -> str:
 def declared_symbols(sources: list[Path]) -> set[str]:
     """Names the component refers to but does not define (first-pass, regex)."""
     text = "".join(p.read_text(encoding="utf-8", errors="replace") for p in sources)
+    headers = "".join(h.read_text(encoding="utf-8", errors="replace")
+                      for h in sorted(sources[0].parent.glob("*.h")))
+    text = text + headers
     names = set(re.findall(r"native_legacy_[a-z0-9_]+", text))
     defined = set()
     for n in names:
         if re.search(r"\b" + re.escape(n) + r"\s*\([^;{]{0,400}\)\s*(?:const\s*)?\{", text):
             defined.add(n)
-        elif re.search(r"\b" + re.escape(n) + r"\s*(?:\[[^\]]*\])?\s*=(?!=)", text):
+        elif re.search(r"\b" + re.escape(n) + r"\s*(?:\[[^\]]*\])*\s*=(?!=)", text):
             defined.add(n)
     return names - defined
 

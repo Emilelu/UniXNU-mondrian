@@ -1,7 +1,8 @@
+index 01ab93b..f2e883b 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
-@@ -2167,6 +2167,9 @@
- 	ml_enable_monitor();
+@@ -2182,6 +2182,9 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ #endif
  
  	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
 +#if T0SZ_USER != T0SZ_BOOT

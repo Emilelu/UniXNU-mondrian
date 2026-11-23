@@ -1,6 +1,7 @@
+index 862718b..d6d29e0 100644
 --- a/libkern/amfi/amfi.c
 +++ b/libkern/amfi/amfi.c
-@@ -8,7 +8,24 @@
+@@ -18,7 +18,24 @@ void
  amfi_interface_register(const amfi_t *mfi)
  {
  	if (amfi) {
@@ -24,5 +25,5 @@
 +		printf("AMFI: interface already registered; keeping the first table\n");
 +		return;
  	}
- 	amfi = mfi;
- }
+ 	if (mfi->TrustCache.version >= AMFI_DARWIN26_TRUST_CACHE_VERSION) {
+ 		const size_t split = __builtin_offsetof(amfi_t, OSEntitlements);

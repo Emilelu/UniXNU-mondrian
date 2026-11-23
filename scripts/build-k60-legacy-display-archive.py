@@ -16,16 +16,16 @@ import sys
 from pathlib import Path
 
 STAGE0_TRACE_STUBS = """/* Stage-0 links the display component without the GPU addon. */
-#include <stdint.h>
+typedef unsigned int u32;
+typedef unsigned long long u64;
 __attribute__((weak)) int native_gpu_trace_enabled(void) { return 0; }
-__attribute__((weak)) void native_gpu_trace_record(uint32_t e, uint32_t p,
-                                                   const uint64_t *v, uint32_t c)
+__attribute__((weak)) void native_gpu_trace_record(u32 e, u32 p, const u64 *v, u32 c)
 { (void)e; (void)p; (void)v; (void)c; }
-__attribute__((weak)) uint32_t native_gpu_trace_snapshot(void *o, uint32_t b)
+__attribute__((weak)) u32 native_gpu_trace_snapshot(void *o, u32 b)
 { (void)o; (void)b; return 0; }
-__attribute__((weak)) int native_adreno_fences(uint32_t *s, uint32_t *r)
+__attribute__((weak)) int native_adreno_fences(u32 *s, u32 *r)
 { (void)s; (void)r; return 0; }
-__attribute__((weak)) int native_adreno_fences_detail(uint32_t *a, uint32_t *b, uint32_t *c)
+__attribute__((weak)) int native_adreno_fences_detail(u32 *a, u32 *b, u32 *c)
 { (void)a; (void)b; (void)c; return 0; }
 """
 

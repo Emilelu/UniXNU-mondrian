@@ -195,3 +195,20 @@ python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/hackios/UniXNU-
   （`kits/XnuPrelink/kc_image.py` 只解 chained fixup，不解 C++ vtable 布局）。
 
 在作出决定之前，构建会停在这道 provenance 门禁上，而不是带着错误地址进 prelink。
+
+### 10.1 本机 24A446 的 kext 段实测
+
+用 `kits/XnuPrelink/kc_image.py` 解析 `/home/emilelu/kc24A446/ipsw/24A446/kernelcache.decompressed`
+（sha256 `fa07057bf34f33af1ec26681ad0c87c13e5aaa548a300740eddb0e92876e5f95`，305 个 kext entry）：
+
+| kext | `__TEXT_EXEC` va | size |
+| --- | --- | --- |
+| `com.apple.iokit.IOMobileGraphicsFamily` | `0xfffffff00a1778f0` | `0x23230` |
+| `com.apple.iokit.IOThunderboltFamily` | `0xfffffff00a35eb40` | `0x1d000c` |
+| `com.apple.iokit.IOAVFamily` | `0xfffffff009e19db0` | `0x7e9dc` |
+
+`0xfffffff00a42f464`、`0xfffffff00a4330a4`、`0xfffffff00a444a68` 三个探针地址全部落在
+`IOThunderboltFamily` 的 `__TEXT_EXEC` 内，不在 `IOMobileGraphicsFamily`（结束于
+`0xfffffff00a39aa20`）。这与 §10 的结论一致：它们属于另一份 kernelcache 的另一个 kext。
+
+复现命令：`python3 /mnt/e/k60-work/scratch/probe_kexts.py`（脚本只读，不构建）。

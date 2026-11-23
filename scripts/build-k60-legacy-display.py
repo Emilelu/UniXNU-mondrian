@@ -67,7 +67,9 @@ def declared_symbols(sources: list[Path]) -> set[str]:
     names = set(re.findall(r"native_legacy_[a-z0-9_]+", text))
     defined = set()
     for n in names:
-        if re.search(r"\b" + re.escape(n) + r"\s*\([^;{]{0,400}\)\s*(?:const\s*)?\{", text):
+        if any(re.search(r"\b" + re.escape(n) + r"\s*\([^;]{0,400}\)\s*(?:const\s*)?\{", line)
+               and not re.search(r"\b(?:if|while|for|switch)\s*\(", line)
+               for line in text.splitlines()):
             defined.add(n)
         elif re.search(r"\b" + re.escape(n) + r"\s*(?:\[[^\]]*\])*\s*=(?!=)", text):
             defined.add(n)
@@ -117,6 +119,9 @@ def plan(component: Path, fixture: Path, xnu: Path, output: Path, cc: str) -> di
     ]
     flags = ["-target", "arm64-apple-ios27.0", "-std=c++17", "-O2", "-fno-exceptions",
              "-fno-rtti", "-DKDEFS_ONLY=0", "-arch", "arm64e"]
+    fakeroot = xnu.parent / "fakeroot"
+    if (fakeroot / "usr" / "include").is_dir():
+        flags += ["-isysroot", str(fakeroot), "-I", str(fakeroot / "usr" / "include")]
     commands = []
     objects = []
     for src in sources:

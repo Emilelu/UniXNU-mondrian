@@ -12,14 +12,18 @@ void native_legacy_client_enter(task_t,uint32_t) { /* K60_PROBE_TODO */ }
 void native_legacy_client_observed(IOReturn,IOUserClient *) { /* K60_PROBE_TODO */ }
 void native_legacy_pm_observed(unsigned,IOReturn,unsigned long) { /* K60_PROBE_TODO */ }
 IOMemoryDescriptor *native_legacy_surface_descriptor(OSObject *) { /* K60_PROBE_TODO */ }
+uint64_t native_legacy_surface_width(OSObject *),native_legacy_surface_height(OSObject *) { /* K60_PROBE_TODO */ }
 uint64_t native_legacy_surface_stride(OSObject *),native_legacy_surface_allocation(OSObject *) { /* K60_PROBE_TODO */ }
+uint32_t native_legacy_surface_format(OSObject *),native_legacy_surface_planes(OSObject *) { /* K60_PROBE_TODO */ }
 void native_legacy_frame_observed(unsigned kind,uint64_t count,uint64_t minx,uint64_t miny,uint64_t maxx,uint64_t maxy) { /* K60_PROBE_TODO */ }
 void native_legacy_frame_colors_observed(const uint32_t *colors,const uint64_t *counts,uint64_t other) { /* K60_PROBE_TODO */ }
 void native_legacy_swap_validation_observed(bool,unsigned,const void *,const void *) { /* K60_PROBE_TODO */ }
 void native_legacy_surface_rejected(uint64_t,uint64_t,uint32_t,uint32_t,uint64_t,uint64_t,uint64_t) { /* K60_PROBE_TODO */ }
+bool native_legacy_prepare_scanout(void) { /* K60_PROBE_TODO */ }
 void native_legacy_transfer_observed(IOReturn,const void *,uint64_t) { /* K60_PROBE_TODO */ }
 void native_legacy_copy_timing_observed(uint64_t ticks,uint64_t bytes) { /* K60_PROBE_TODO */ }
 void native_legacy_retirement_observed(IOService *) { /* K60_PROBE_TODO */ }
+bool native_legacy_gpu_offer(void *display,IOMemoryDescriptor *,uint64_t stride,uint32_t width,uint32_t height,uint32_t format) { /* K60_PROBE_TODO */ }
 void native_legacy_gpu_fallback_observed(int status) { /* K60_PROBE_TODO */ }
 void native_legacy_vsync_notify(void *display,uint64_t timestamp,uint64_t continuousTime,uint64_t interval) { /* K60_PROBE_TODO */ }
 bool native_legacy_set_refresh_properties(void *display) { /* K60_PROBE_TODO */ }
@@ -30,5 +34,6 @@ void native_legacy_ioav_timing_colors(OSObject *timing,OSArray *colors) { /* K60
 void native_legacy_hotplug_notify(void *display,uint64_t state) { /* K60_PROBE_TODO */ }
 OSObject *native_legacy_ioav_color(uint32_t standardType,uint32_t depth,uint32_t encoding,uint32_t range,uint32_t eotf,
     uint32_t colorimetry,bool,const OSDictionary *,const OSDictionary *,const OSDictionary *,const OSSet *) { /* K60_PROBE_TODO */ }
+void native_legacy_direct_snapshot(void) { /* K60_PROBE_TODO */ }
 
 }  // extern "C"

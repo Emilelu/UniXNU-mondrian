@@ -123,6 +123,34 @@ check 就是被这个文件名挡住，说明「按记忆列输入」会立刻�
 - 在解冻前能做完的部分：路线 A 的构建器（离线可编、可用 `llvm-nm` 验符号），以及 `LegacyDisplayProbe` 的语义重写。
   这两件都不需要上机，也不需要改 `board.toml` 的 include（归档不存在前 `test -f` 会直接红）。
 
+## 6.1 探针要提供什么（首版清单，待 nm 复核）
+
+组件两个源文件共出现 **57** 个 `native_legacy_*` 符号，其中 31 个在本文件内有定义
+（含 14 个 `volatile` 观察数组与 `native_legacy_ring` 等），其余由 probe 侧提供。
+按「只有声明、没有函数体/初始化」筛出的首版清单是 26 个：
+
+```
+native_legacy_backend_guard            native_legacy_surface_descriptor
+native_legacy_client_enter             native_legacy_surface_rejected
+native_legacy_client_observed          native_legacy_swap_info_dispatch
+native_legacy_copy_diff                native_legacy_swap_stage
+native_legacy_copy_timing_observed     native_legacy_swap_validation_observed
+native_legacy_frame_colors_observed    native_legacy_transfer_observed
+native_legacy_frame_observed           native_legacy_vsync_notify
+native_legacy_gop_mapping_observed     native_legacy_vsync_observed
+native_legacy_gpu_fallback_observed    native_legacy_pm_observed
+native_legacy_hotplug_notify           native_legacy_registration_observed
+native_legacy_ioav_color               native_legacy_retirement_observed
+native_legacy_ioav_timing              native_legacy_set_refresh_properties
+native_legacy_ioav_timing_colors       native_legacy_snap
+```
+
+**这张表是线索不是判据**：正则统计会把 `extern "C" IOService *native_legacy_display_allocate(void);`
+这类纯声明与 `native_legacy_*` 宏/注释混在一起，已知至少 `native_legacy_display_allocate`、
+`native_legacy_surface_width/height/stride/allocation/format/planes`、`native_legacy_prepare_scanout`、
+`native_legacy_gpu_offer` 也是外部提供。**唯一权威判据是归档产出后 `llvm-nm -u` 的未定义符号表**；
+`scripts/build-k60-legacy-display.py --run` 之后应把这张表与 `llvm-nm -u` 对账，缺一即失败。
+
 ## 7. 复现与参考
 
 ```bash

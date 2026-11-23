@@ -256,3 +256,4 @@ armcpu-sleep-hook.patch
 # iOS27: AMFI registers more than once during early boot on this board; keep the
 # first interface instead of panicking (ios16 0310, applies unmodified).
 0576-k60-amfi-keep-first.patch
+0577-k60-video-console-27.patch

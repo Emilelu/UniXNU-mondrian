@@ -226,6 +226,8 @@ if [ -n "${UNIXNU_UEFI:-}" ]; then
 	fw_key=$( {
 		sha256sum "$ROOT/board.toml" | cut -d' ' -f1
 		git -C "$UNIXNU_UEFI" rev-parse HEAD
+		# P-317: HEAD alone hides an uncommitted header edit; hash the worktree too.
+		git -C "$UNIXNU_UEFI" diff HEAD --binary | sha256sum | cut -d' ' -f1
 		git -C "$UNIXNU_UEFI" submodule status --recursive | awk '{print $1, $2}'
 		ls -1 "$UNIXNU/patches/uefi" 2>/dev/null || true
 	} | sha256sum | cut -d' ' -f1 )

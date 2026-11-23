@@ -29,6 +29,10 @@ __attribute__((weak)) int native_adreno_fences_detail(u32 *a, u32 *b, u32 *c)
 { (void)a; (void)b; (void)c; return 0; }
 __attribute__((noreturn)) void native_legacy_backend_guard(unsigned s, void *a, void *b)
 { (void)s; (void)a; (void)b; for (;;) { } }
+__attribute__((weak)) void native_legacy_display_probe(void) { }
+__attribute__((weak)) void native_legacy_display_late_probe(void) { }
+__attribute__((weak)) unsigned long long native_ufs_dpu_map(void) { return 0; }
+__attribute__((weak)) unsigned long long native_ufs_dpu_state(void) { return 0; }
 """
 
 REFERENCE = Path("/mnt/e/k60-work/references/GopFramebuffer")

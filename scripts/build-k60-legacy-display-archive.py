@@ -74,20 +74,33 @@ def main():
             run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(source), "-o", str(obj)])
             extra.append(obj)
     probe = tree / "kits/mondrian/LegacyDisplayProbe.cpp"
-    if not probe.is_file() and (abi / "LegacyDisplayProbe.cpp").is_file():
-        probe.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(abi / "LegacyDisplayProbe.cpp", probe)
-    xnu = tree / ".cache/xnu-work"
-    if probe.is_file():
-        obj = out / "LegacyDisplayProbe.o"
-        run(["clang", "-target", "arm64e-apple-ios27.0", "-std=c++17", "-O2",
-             "-fno-exceptions", "-fno-rtti",
-             "-I", str(component), "-I", str(xnu / "EXTERNAL_HEADERS"),
-             "-I", str(xnu / "osfmk"), "-I", str(xnu / "bsd"), "-I", str(xnu / "iokit"),
-             "-isysroot", str(xnu.parent / "fakeroot"),
-             "-I", str(xnu.parent / "fakeroot/usr/include"),
-             "-c", str(probe), "-o", str(obj)])
-        extra.append(obj)
+    record = out / "compile-command.json"
+    if probe.is_file() and record.is_file():
+        import json
+        base = json.loads(record.read_text())["command"]
+        cmd = []
+        skip = False
+        for i, tok in enumerate(base):
+            if skip:
+                skip = False
+                continue
+            if tok == "-o":
+                cmd += ["-o", str(out / "LegacyDisplayProbe.o")]
+                skip = True
+                continue
+            if tok.endswith("NativeLegacyDisplay.cpp"):
+                cmd.append(str(probe))
+                continue
+            if tok in ("-Werror", "-Wall", "-Wextra"):
+                continue
+            if tok in ("-MD", "-MF", "-MP") or tok.endswith("IOCommandGate.cpd"):
+                if tok == "-MF":
+                    skip = True
+                continue
+            cmd.append(tok)
+        cmd.append("-Wno-return-type")
+        run(cmd)
+        extra.append(out / "LegacyDisplayProbe.o")
 
     stub = out / "display-no-gpu-trace.c"
     stub.write_text(STAGE0_TRACE_STUBS, encoding="utf-8")

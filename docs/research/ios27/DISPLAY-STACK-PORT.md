@@ -53,3 +53,14 @@
 - `dpu-scanout=2` 的 DPU 基址是 SM8550 的 `0xae01000`，K60 必须先用 CPU 路径；DPU 直取留到显示线单独立项（需要先读 SM8475 的 MDP/DPU 基址与 VIG 偏移）。
 - Legacy fixture `legacy-display-24A446.json` 的 vtable slot/diversity 必须与**我们构建的 24A446 fileset** 同源；若 sheng 的 fixture 基于不同的 collection slide，需要按我们的 kernelcache 重新核（脚本只用相对 slide，风险可控，但必须跑 `check-prelink-hazards.py`）。
 - 移植后第一次上机仍需用户批准；本文件不授权构建或上机。
+
+## 7. 逐行读 sheng 构建器后的修正（2026-11-23 晚）
+
+`sheng/scripts/build-gop-legacy-display-27.py` 不是「显示构建器」，是 sheng 的**整板驱动合并归档器**：末尾 `archive = OUT / 'libNativeLegacyDisplay.late.a'`，`xcrun ar rcs` 把 `NativeLegacyDisplay` + `NativeGOPPresenter` + `KeyStoreProbe` + 键鼠（`kits/Wn8030.c`、`GeniI2c.c`、KeyboardCover/KeyboardProbe）+ USB（`drivers/QcomDwc3`、`usb-xdci-24A446.json`）+ 蓝牙探针全部塞进一个 `.late.a`；还依赖 `kits/Sm8550Platform`（SM8550 专用头）与 `drivers/AppleKeyStoreState`。⇒ **不能整支拷**，只能抽 `NativeLegacyDisplay` + `NativeGOPPresenter` + `original-bindings/original-addresses` 生成逻辑 + ABI fixture 这四块。
+
+另外两个必须解掉的未知（不猜，先查）：
+
+1. **归档怎么进内核链接**：`board.toml` 与 sheng 自己的 `scripts/*.sh` 都搜不到 `late.a` / `KERNEL_EXTRA_ARCHIVES` / `extra_archives`；`components.toml` 的 `legacy_outputs` 只映射 `build/native-mobile-display/libNativeMobileDisplay.late.a` ↔ `build/gop-framebuffer/libGopFramebuffer.late.a`，与 sheng 实际产出的 `build/native-legacy-display/libNativeLegacyDisplay.late.a` 不同名。下一步要查 sheng 的 `build-xnu-4k-baseline.sh` 或 profile 的 `[kernel]` 段是否 glob 了 `build/*/*.late.a`（只在 sheng 树里查，不改我们仓）。
+2. **`kernel_target` 从哪来**：`from kernel_target import ARCH, IOS_VERSION, TRIPLE` 在 sheng `scripts/` 下没有这个文件，框架 `UniXNU/scripts/kernel_target.py` 有，装配时被拷进树 `scripts/`（`/opt/k60/trees/ios27-out/.../tree/scripts/kernel_target.py` 实测存在）⇒ 我们的构建器同样可用，无需自造。
+
+在 1 解掉之前**不动 `board.toml`**：只加 `include = [... "GopFramebuffer"]` 而不解决归档与 Legacy 子类，会让 `check-kernel-archives.py` 与链接期直接红。

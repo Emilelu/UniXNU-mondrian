@@ -2457,7 +2457,14 @@ measured_items = 230
 [[repo]]
 name = "cupid"
 path = "/mnt/e/k60-work/references/community/cupid"
-measured_items = 66
+measured_items = 67
+
+  [[repo.item]]
+  kind = "patch"
+  id = "0001-exec-stage-diag.patch"
+  sha256 = "395bd3d097abebd931057493b753e729bce9afcfa15f36e5125d5e869c632ccb"
+  verdict = "not-applicable"
+  reason = "diagnostic-only: adds g_exec_diag/g_exec_kr stage counters inside exec_mach_imgact. Stage-0 never reaches exec, and our early instrumentation is the console sink (0546/0554/0556/0559); kept as the reference to borrow if exec becomes reachable."
 
   [[repo.item]]
   kind = "patch"

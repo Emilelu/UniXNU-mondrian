@@ -71,6 +71,22 @@ def main():
             obj = out / (name + ".o")
             run(["clang", "-target", "arm64e-apple-ios27.0", "-c", str(source), "-o", str(obj)])
             extra.append(obj)
+    probe = tree / "kits/mondrian/LegacyDisplayProbe.cpp"
+    if not probe.is_file() and (abi / "LegacyDisplayProbe.cpp").is_file():
+        probe.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(abi / "LegacyDisplayProbe.cpp", probe)
+    xnu = tree / ".cache/xnu-work"
+    if probe.is_file():
+        obj = out / "LegacyDisplayProbe.o"
+        run(["clang", "-target", "arm64e-apple-ios27.0", "-std=c++17", "-O2",
+             "-fno-exceptions", "-fno-rtti",
+             "-I", str(component), "-I", str(xnu / "EXTERNAL_HEADERS"),
+             "-I", str(xnu / "osfmk"), "-I", str(xnu / "bsd"), "-I", str(xnu / "iokit"),
+             "-isysroot", str(xnu.parent / "fakeroot"),
+             "-I", str(xnu.parent / "fakeroot/usr/include"),
+             "-c", str(probe), "-o", str(obj)])
+        extra.append(obj)
+
     stub = out / "display-no-gpu-trace.c"
     stub.write_text(STAGE0_TRACE_STUBS, encoding="utf-8")
     obj = out / "display-no-gpu-trace.o"

@@ -12,19 +12,20 @@ set -uo pipefail
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
+WROOT="${K60_W_ROOT:-/mnt/e/hackios}"
 LOG=/mnt/d/Android/k60-ios/SYNC-LOG.md
 STAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
 # path|mode   mode "pull" = fast-forward when clean, "report" = never merge
 REPOS="
-/mnt/e/hackios/UniXNU|pull
+$WROOT/UniXNU|pull
 /tmp/k60build|report
-/mnt/e/hackios/UniXNU-mondrian|pull
-/mnt/e/hackios/uefi-mondrian|pull
-/mnt/e/hackios/UniXNU-pong|report
-/mnt/e/hackios/UniXNU-sheng|pull
-/mnt/e/hackios/UniXNU-sm8475-common|pull
-/mnt/e/hackios/UniXNU-docs|pull
+$WROOT/UniXNU-mondrian|pull
+$WROOT/uefi-mondrian|pull
+$WROOT/UniXNU-pong|report
+$WROOT/UniXNU-sheng|pull
+$WROOT/UniXNU-sm8475-common|pull
+$WROOT/UniXNU-docs|pull
 /mnt/d/Android/k60-ios/ios-sweet-k60|report
 /mnt/d/Android/k60-ios/refs/ios-sweet-k60|report
 "

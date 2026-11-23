@@ -87,7 +87,7 @@ grep -in 'kit' .github/workflows/package.yml  # 空
 ## 5. 两条可选路线
 
 **路线 A（推荐，先做）**：把 sheng 构建器的「显示四段」抽成
-`scripts/build-k60-legacy-display.py`：
+`scripts/build-k60-legacy-display.py`（**已落盘**，离线 check 模式可用，见 §5.1）：
 
 - 输入：`drivers/GopFramebuffer`（catalog fetch 得到）+ `scripts/legacy-display-24A446.json`（从 sheng 复制）；
 - 编译器：本机 clang 18，`-target arm64-apple-ios27.0`（我们已用同一方式产出
@@ -96,6 +96,22 @@ grep -in 'kit' .github/workflows/package.yml  # 空
   满足 `build-xnu-generic.sh:675-687` 的校验）；
 - 需要自写 `LegacyDisplayProbe.cpp` 的等价物——它的职责是「注册 `IOFramebuffer` 服务并启动显示」，
   可以从 sheng 的实现读语义后重写，不能盲抄（缺文件，也没有第二来源）。
+
+### 5.1 构建器现状（离线可验，未编译）
+
+`scripts/build-k60-legacy-display.py` 三种模式：
+
+- `--check`（默认）：校验组件目录的 2 个源文件 + 5 个头文件、fixture 的
+  12 个顶层键与 `slots` 长度，打印计划；**不调用编译器**。对真实输入实测：
+  `379 slots, 13 methods, 14 bindings`。
+- `--plan`：额外打印完整命令行。
+- `--run`：执行；`K60_ALLOW_BUILD != 1` 时退 3（冻结期防误触）。
+
+头文件实测名是 `OriginalMobileFramebufferABI.h`（不是 `…Legacy…`）——第一次
+check 就是被这个文件名挡住，说明「按记忆列输入」会立刻红，这是想要的形状。
+
+测试 `scripts/tests/test-build-k60-legacy-display.py` 5 例：完整输入出计划、
+缺源文件点名、缺 fixture 键点名、`slots` 过短拒绝、`--run` 无许可退 3。
 
 **路线 B（不推荐）**：整支复用 sheng 的 `build-gop-legacy-display-27.py`，把十来个无关探针一起链进内核。
 代价是内核多背上 USB/蓝牙/键盘/keystore 的探针代码，且这些探针都假设 SM8550 的地址。

@@ -1,5 +1,5 @@
 {
-  "kernelcache_sha256": "fa07057bf34f33af1ec26681ad0c87c13e5aaa548a300740eddb0e92876e5f95",
+  "kernelcache_sha256": "38e6d9fa5f789b8228f4617ef4c6d2a3fd8ab564abdc9b62920f1db53fc1780a",
   "collection_slide": "0x1f000000000",
   "vtable": "0xfffffe0008368e58",
   "instance_size": "0x1dd8",
@@ -2473,6 +2473,5 @@
       "diversity": "0x358b",
       "evidence": "pure slot: the original vtable entry is __cxa_pure_virtual; every original call site of this slot authenticates with this discriminator"
     }
-  },
-  "surface_slots_note": "The 8 surface accessor slots point at a ret gadget inside this kernelcache IOMobileGraphicsFamily __TEXT_EXEC; they return 0 until a real surface class is implemented."
+  }
 }

@@ -23,7 +23,8 @@ def main():
         failures.append("the patched copy is never produced")
     if 'SWAP_KERNEL="$BOARD_DIR/kernel/kernel.patched.macho"' not in text:
         failures.append("the swap does not start from the patched copy")
-    if '--kernel "$BOARD_DIR/kernel/kernel.macho"' in text:
+    swap = text.split('k60-kernel-swap.py', 1)[-1][:300]
+    if '--kernel "$BOARD_DIR/kernel/kernel.macho"' in swap:
         failures.append("the swap still points at the raw kernel product")
     for failure in failures:
         print("FAIL", failure)

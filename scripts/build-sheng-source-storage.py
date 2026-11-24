@@ -190,22 +190,9 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     # The RAM disk carries the Data seed; like NativeUfs its class registers with the source storage classes.
     sources = [base, device / 'drivers/NativeUfs/PongUfsTransport.cpp', device / 'drivers/NativeUfs/NativeUfs.cpp', device / 'drivers/NativeRamBlock/NativeRamBlock.cpp',
                device_source('SourceStorage.cpp'), device_source('SourceRootPolicies.cpp'),
-               device_source('SourceRootBinding.cpp'), device_source('BootLog.c'), boot_log_defaults, device_source('BootReset.c'),
+               device_source('SourceRootBinding.cpp'), boot_log_defaults,
                device / 'kits/VerifiedRoot/src/verified_root.c',
                device / 'kits/VerifiedRoot/adapters/xnu_crypto.c', anchor]
-    if int(os.environ['UNIXNU_IOS_VERSION'].split('.')[0]) >= 27:
-        # The source path does not run BootProgress's process worker. Reuse its
-        # native capture code in a separate worker owned by the UFS log.
-        flags.append('-DNATIVE_BOOT_PROCESS_CAPTURE=1')
-        sources += [device_source(name) for name in
-                    ('BootProcessProbe.c', 'BootUiTraceProbe.c', 'BootProcessWorker.c')]
-        # The launchd job policy (sheng-disable-watchdogd, sheng-lite, sheng-disable-jobs, sheng-setup) that BootProgress carries on
-        # iPadOS 17; the kernel runs it after the Data mount.
-        sources.append(device_source('BootWatchdogPolicy.c'))
-        # The diagnostic file export (sheng-diag-export): the unified log, crash reports and a screenshot, read through the VFS.
-        sources.append(device_source('BootDiagExport.c'))
-        sources.append(device_source('WifiFirmware.c'))
-        sources.append(device_source('BluetoothFirmware.c'))
     latency = next((directory / 'BootLatencyTrace.c' for directory in package_dirs
                     if (directory / 'BootLatencyTrace.c').is_file()), None)
     if latency:

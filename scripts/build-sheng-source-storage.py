@@ -70,7 +70,7 @@ def main():
                         help='Directory containing OS/ and SystemOS/ signed policies and verification.json')
     args = parser.parse_args()
     tree = args.tree.resolve()
-    device = (args.device or tree).resolve()
+    device = (args.device or (Path(os.environ['K60_DEVICE_INPUT']) if os.environ.get('K60_DEVICE_INPUT') else tree)).resolve()
     storage = (args.storage_source or tree / 'refer/IOStorageFamily').resolve()
     # The OS profile names the root images ([root]); kernel.py passes them in the environment.
     build_id = os.environ.get('UNIXNU_IPSW_BUILD')

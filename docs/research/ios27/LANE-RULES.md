@@ -102,3 +102,12 @@
    `lifetime` / `read_moment` / `writer` / `loss_condition` 四问，门禁 `scripts/check-channel-lifetime.py`
    会按一级标题切块、对同时出现通道词与判据词的块判缺项。本线的两份通道相关文档已补：
    `SMP-STEP-DECODE.md` §0、`F1-PLATFORM-HANDOFF.md` §3.5。
+
+## 9. 铁则 19：交付必须双写（消息 + reply md）〔Lead 2026-11-24〕
+
+1. **每次交付 = 发消息 + 写 reply md**，两个都要。只写 `E:/k60-work/scratch/reply-<line>.md` 而不发消息 = **未交付**，Lead 不计入验收。
+2. 顺序：先按铁则 12 试 `steer`（只有 running 会话能吃）；被拒（idle）**立刻**用 `followup` 补发，不许等到下一轮。
+3. followup 正文 **≤8 行**，固定五项：① 分支名 ② HEAD sha ③ 本轮做了什么（一句话）④ 证据 `file:line` 或 commit ⑤ 下一步判据。
+4. 门禁 `scripts/check-reply-freshness.py` 比对「reply md 更新时间 vs 消息到达时间」；md 首行按实情写
+   `delivery: steer` 或 `delivery: followup, steer-rejected: 目标当前状态：idle`。
+5. 本线的历史教训：第 1–6 轮只写了 md 或只发了长消息，两种都不满足这条；从现在起按上面五项写短消息，长论证留在 md。

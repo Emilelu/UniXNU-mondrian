@@ -243,12 +243,12 @@ merge_plan = "TBD"
 [[branch]]
 name = "feat/ufs-27"
 line = "ufs"
-ahead = 100
-last_commit = "2026-11-22"
-state = "merge-candidate"
+ahead = 102
+last_commit = "2026-11-24"
+state = "experiment"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "27 存储路线 B：把 drivers/NativeUfs 做成独立 fileset kext 条目（不经 force_load），让 11 个 IOBlockStorageDevice 导入在 prelink 时对到兄弟条目 IOStorageFamily；附 MBR publish-order 取证与 6 个存储门禁"
+merge_plan = "只取门禁与文档（check-ufs27-*、UFS27-ROUTE-B-WIRING.md、UFS27-MBR-READ-FORENSICS.md），不整支合；代码部分等框架 prelink emitter 能新增 kext 条目后再接线"
 
 [[branch]]
 name = "feat/usb-27"

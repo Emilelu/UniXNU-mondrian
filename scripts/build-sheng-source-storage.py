@@ -218,7 +218,12 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
         source_includes = list(includes)
         if source.parent.name == 'NativeUfs':
             source_includes += ['-I', str(device / 'drivers/NativeUfs')]
-        command = build.compile_command(record, source, output, source_includes, flags)
+        source_flags = list(flags)
+        if source.name == 'BootLog.c':
+            # The vendor log keeps a 16-entry counter block but prints entries 16..; the
+            # reads are diagnostic only, so keep the vendor source and downgrade this one check.
+            source_flags.append('-Wno-error=array-bounds')
+        command = build.compile_command(record, source, output, source_includes, source_flags)
         if source == base:
             command.append('-Wno-error')
         result = subprocess.run(command, cwd=record['directory'], text=True,

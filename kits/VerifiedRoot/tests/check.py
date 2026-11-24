@@ -53,6 +53,8 @@ class View(ctypes.Structure):
 native = ctypes.CDLL(str(library))
 native.vr_host_open.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_uint64, ctypes.POINTER(View)]
 native.vr_host_open.restype = ctypes.c_int
+native.vr_host_open_header.argtypes = native.vr_host_open.argtypes
+native.vr_host_open_header.restype = ctypes.c_int
 native.vr_host_block.argtypes = [ctypes.POINTER(View), ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t]
 native.vr_host_block.restype = ctypes.c_int
 envelope = (out / 'signed/manifest.bin').read_bytes()
@@ -105,6 +107,37 @@ changed = bytearray(envelope)
 changed[120:152] = __import__('hashlib').sha256(other_key).digest()
 opened(bytes(changed), anchor=other_key, expected=3)
 checks.append('matching attacker-selected key identifier cannot replace the actual RSA signature')
+
+
+def header_opened(blob, anchor=key, generation=7, expected=0):
+    encoded, trusted, view = ctypes.create_string_buffer(blob), ctypes.create_string_buffer(anchor), View()
+    result = native.vr_host_open_header(encoded, len(blob), trusted, generation, ctypes.byref(view))
+    assert result == expected, (result, expected)
+    assert not view.hashes
+    if result:
+        assert view.image_bytes == 0
+    buffers.extend((encoded, trusted))
+    return view
+
+
+header = envelope[:544]
+view = header_opened(header)
+assert view.image_bytes == len(data) and view.block_count == 4 and bytes(view.volume_uuid) == uuid.UUID(record['volume_uuid']).bytes
+for offset, expected in ((40, 3), (160, 3)):
+    changed = bytearray(header)
+    changed[offset] ^= 1
+    header_opened(bytes(changed), expected=expected)
+header_opened(header, anchor=other_key, expected=2)
+header_opened(header, generation=8, expected=1)
+header_opened(envelope, expected=1)
+header_opened(header[:-1], expected=1)
+checks.append('signed header alone authenticated without its table; header mutation, other key, rollback and size refused')
+table = envelope[544:]
+changed = bytearray(table)
+changed[0] ^= 1
+opened(header + bytes(changed), expected=4)
+opened(header + table, expected=0)
+checks.append('a table stored apart from its header is accepted only when it matches the signed digest')
 report = dict(real_c_parser=True, real_openssl_signature_verification=True, native_arm64_ios17_cross_compile=True,
               checks=checks, qemu_tested=False, boot_root_authenticated=False, hardware_tested=False)
 (out / 'checks.json').write_text(json.dumps(report, indent=2) + '\n')

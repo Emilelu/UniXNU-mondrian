@@ -25,6 +25,10 @@ struct vr_view {
  * must remain immutable for the lifetime of the returned authenticated view. */
 int vr_open(const uint8_t *, size_t, const uint8_t[VR_KEY_BYTES], uint64_t,
             const struct vr_crypto *, struct vr_view *);
+/* Authenticate only the signed header (exactly VR_HEADER_BYTES + VR_SIGNATURE_BYTES); the view has no
+ * hashes. vr_open must still authenticate the full envelope before any block is verified. */
+int vr_open_header(const uint8_t *, size_t, const uint8_t[VR_KEY_BYTES], uint64_t,
+                   const struct vr_crypto *, struct vr_view *);
 int vr_verify_block(const struct vr_view *, uint64_t, const void *, size_t,
                     const struct vr_crypto *);
 #ifdef __cplusplus

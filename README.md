@@ -16,8 +16,6 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 >
 > **2026-11-16 重新审视**：见[审计报告](docs/audits/REASSESSMENT-2026-11-16.md)。WiFi c7 停在硬件 SBL/READY，BT d7 在 NVM 阶段总预算超时，ADSP 早期发布链曾缺少 rail 保护，owner 分支已恢复拒绝并提供宿主轨迹；功能实验暂缓，按报告中的条件继续。
 > 下表是本分支八步台账的生成视图，不是镜像放行证。`parked` 项可能被 flash 门禁略过，表中的「可刷机」不能单独授权上机；必须核对镜像所属分支、实际选中的硬件与实验预测。历史通过也不代表当前 HEAD 已重建上机。
-- [](docs/engineering/PORTING-PLAN.md) —— **移植总方案**：四层仓库、启动链、当前状态、已知缺口、产物与回退
-- [](docs/engineering/WORKFLOW.md) —— **工作流**：铁则、八步流程、构建/上机命令、证据记账、交接检查表
 
 ## 八步流程进度
 
@@ -159,7 +157,9 @@ bash scripts/build-strict.sh <experiment-tag> --fd /path/to/verified.fd
 | [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | 可复用工具与脚本 |
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) —— 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) —— 电池栈编译集成：构建脚本改动、defconfig 开关、宏链路、归档构建时机
-- [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) —— 上下游分工与仓库覆盖：23 跟踪 / 48 同步 / 3 pick
+- [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md)
+- [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md) —— **移植总方案**：四层仓库、启动链、当前状态、已知缺口、产物与回退
+- [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md) —— **工作流**：铁则、八步流程、构建/上机命令、证据记账、交接检查表 —— 上下游分工与仓库覆盖：23 跟踪 / 48 同步 / 3 pick
 | [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | 逐硬件的八步证据（门禁数据源） |
 | [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | 必须考察的参考源清单（门禁数据源） |
 | [`CREDITS.md`](CREDITS.md) | 贡献者与全部外部来源 |

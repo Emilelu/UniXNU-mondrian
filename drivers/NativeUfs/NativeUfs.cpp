@@ -131,7 +131,7 @@ OSDefineMetaClassAndStructors (NativeUfs, IOService)
 
 IOService *NativeUfs::probe (IOService *provider, SInt32 *score)
 {
-  ++native_ufs_probe_calls;
+  native_ufs_probe_calls = native_ufs_probe_calls + 1;
   if (!compatible (provider)) return nullptr;
   native_ufs_matched = 1;
   if (score) *score = 1000;

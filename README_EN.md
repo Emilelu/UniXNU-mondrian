@@ -2,26 +2,18 @@
 
 UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualcomm **SM8475**).
 
-> **Branch `feat/ios27`:** iOS **27.0.1 (24A446)** as an **iPhone 16 Pro Max
-> (iPhone17,2)**, arm64e, on xnu-12377 with the Darwin 26 calls. `main` remains
-> the iOS 16.6.1 (20G81) port. See
-> [`docs/engineering/IOS27.md`](docs/engineering/IOS27.md).
-
-**`main` target: full hardware bring-up on iOS 16.6.1 (20G81) / darwin22.**
-
-> **What the Bluetooth baseline does not include (feat/bt-ios27-port):** this
-> branch is the kernel and the device tree only. `[payload.runtime]` is not
-> enabled and 0521 is a blob stub, so "iOS 27 baseline" does not mean
-> "Bluetooth works on iOS 27". See
-> [`docs/plans/BT-IOS27-PORT.md`](docs/plans/BT-IOS27-PORT.md) section 5.3.
-
-> Last updated: 2026-11-16. Detailed status and change log:
-> [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md).
->
-> **2026-11-16 reassessment**: see the [audit report](docs/audits/REASSESSMENT-2026-11-16.md). WiFi c7 stopped at hardware SBL/READY, BT d7 exhausted the overall boot budget during NVM, and the early ADSP publisher was found to lack the rail guard. Its owner branch has restored refusal and supplied a host trace. Functional experiments remain on hold until the report's conditions are met.
-> The table below is a generated view of this branch's eight-step ledger, not an image release approval. The flash gate can omit `parked` items, so “Ready to flash” alone does not authorize a device test: verify the image's source branch, the hardware actually selected by the gate, and the experiment prediction. Historical passes do not prove that the current HEAD was rebuilt and booted.
+**Current goal: iOS 27.0.1 (24A446, iPhone17,2 identity, arm64e) on xnu-12377 (Darwin 25.5.0) up to SpringBoard, then bring the hardware up lane by lane.**
 
 [中文版](README.md)
+
+> Last updated: 2026-11-25. Detailed status: [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md); overall plan: [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md); workflow: [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md).
+
+## State
+
+- `main` is the only iOS 27 baseline. The iOS 16.6.1 (20G81) line is archived as `archive/ios16-20261120` and still builds with `--os ipados-16.6.1-20G81`.
+- The iOS 27 kernel prints full text (r290n, `boot.img 311f4f54…`). r313h linked source-storage into the kernel for the first time (`boot.img 932d50ad…`), but the next flight showed a full green screen and a 0-byte console; a one-variable bisect is in progress (`0580` GIC patch is the first suspect).
+- The `unixnu` partition already holds the three-window iOS 27 image (34,359,738,368 B; OS / SystemOS / Data all four `cmp -n` checks MATCH).
+- Flight preconditions and open blockers: [`docs/engineering/IOS27-FLIGHT-BLOCKERS.toml`](docs/engineering/IOS27-FLIGHT-BLOCKERS.toml). No build and no boot until they are met.
 
 ## Eight-step progress
 
@@ -59,29 +51,22 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 
 ## Building
 
-Use this repository's `scripts/build-strict.sh` for experiments. Verify the source checkout and isolated input/output directories, commit and push the inputs, then supply the actual verified firmware volume:
+iOS 27:
 
 ```bash
-K60_REPO="$PWD" K60_DEVICE_INPUT="/path/to/isolated-device-input" \
-K60_OUT="/path/to/isolated-out" \
-bash scripts/build-strict.sh <experiment-tag> --fd /path/to/verified.fd
+K60_DEVICE_INPUT=/path/to/isolated-device-input \
+K60_OUT=/path/to/isolated-out \
+UNIXNU=/opt/k60/trees/ios27-fw UNIXNU_OUT=/opt/k60/trees/ios27-out \
+UNIXNU_UEFI=/path/to/uefi-mondrian \
+bash scripts/build-ios27-linux.sh
 ```
 
-Output: `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong`.
-
-Local build scripts live in the workspace (not in this repository); see
-[`docs/engineering/ENVIRONMENT.md`](docs/engineering/ENVIRONMENT.md) for the flow.
-Free space and WSL virtual-disk reclamation are checked by a gate (`hard-41`); the
-cleanup procedure is in
-[`docs/engineering/DISK-HYGIENE.md`](docs/engineering/DISK-HYGIENE.md).
+A successful build must verify the new `kernel.macho` hash, the declared payload transform and the `boot.img` manifest together; a zero exit code from the wrapper alone does not prove success.
+The archived 16.6.1 line still uses `scripts/build-strict.sh <tag> --fd <verified.fd>` (the only legal experiment entry point).
 
 ## Gates
 
-Two layers of checks run before build or flash; any failure aborts: the registry
-`scripts/check-rules.py` runs every check registered in
-[`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) (iron rules, gated
-pitfalls, upstream triage, input sync, snapshot tags — currently 149); the strict
-build entry point `scripts/build-strict.sh` embeds these checks:
+`scripts/check-rules.py` runs every gate registered in [`docs/engineering/RULES.toml`](docs/engineering/RULES.toml) (hard rules, pitfall gates, upstream triage, input sync, snapshot tags: 207 rules today). `build-strict.sh` also embeds these checks:
 
 <!-- GATE-TABLE:BEGIN -->
 | Gate | What it checks |
@@ -97,88 +82,70 @@ build entry point `scripts/build-strict.sh` embeds these checks:
 | `scripts/check-readme.py` | README bilingual mutual links, dates not older than STATUS, gate table not stale |
 <!-- GATE-TABLE:END -->
 
-`check-readme.py` reconciles this table against the checks embedded in
-`build-strict.sh` name by name: adding a gate without updating this table, or a
-table row naming a nonexistent script, fails the build.
+`check-readme.py` reconciles this table against the embedded gates in `build-strict.sh`: a new gate missing from the table, or a table entry naming a nonexistent script, fails.
 
 ## Data safety
 
-- Bring-up uses `fastboot boot` only (temporary RAM boot); **no partition is ever flashed**.
-- XNU root/Data lives on a separate `unixnu` partition and never touches Android `userdata`.
-- **Never run** `fastboot flash persist` or `flash all` (permanent TEE key damage).
+- Use `fastboot boot` only (temporary RAM boot); **never flash a partition**.
+- XNU root/Data live in the dedicated `unixnu` partition, never in Android `userdata`.
+- **Never** run `fastboot flash persist` / `flash all` (permanent TEE key damage).
 
 ## Working discipline
 
-1. **Eight-step pipeline**: same model → official → reverse engineering → wide search →
-   plan → deep dive → local verification → on device. No flashing until a step is complete.
-   See [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md).
-2. **Check the official component catalog first**: before writing a driver, search
-   `UniXNU/components.toml` and the
-   [driver repository list](https://unixnu.com/zh/drivers/repositories) to avoid
-   reimplementing an existing wheel.
-3. **Record every pitfall**: [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md).
-4. **Commit changes promptly and push milestones.**
+1. **Eight-step pipeline**: same model → official → reverse → wide search → plan → deep dive → verify → on device. Nothing flies with a missing step ([`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md)).
+2. **Search for an existing implementation first**: check `UniXNU/components.toml`, the [driver repository list](https://unixnu.com/zh/drivers/repositories), and run `scripts/check-capability-reuse.py` (hard rule 20).
+3. **Record every pitfall**: [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md); the Lead allocates the id in [`docs/engineering/PITFALL-IDS.md`](docs/engineering/PITFALL-IDS.md) first.
+4. **Commit changes and push milestones**; force-push and `worktree prune`/`gc`/`repack` are forbidden (hard rule 18, P-203).
+5. **The Lead schedules all device flights**; attach serial/screen capture before every `fastboot boot`.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `board.toml` | `schema_version = 2` board configuration and component selection |
-| `porting.toml` | Records for 14 subsystems (data source for the device page on unixnu.com) |
-| `feeds.toml` | Pinned SoC sources |
-| `local.toml.example` | Local path configuration template (copy to `local.toml`, which is gitignored) |
-| `configs/mondrian_defconfig` | Kernel configuration |
-| `dts/mondrian.dts` | Memory, CPU, peripherals |
-| `patches/xnu/` | Device patches; order in `patches/xnu/series` |
-| `patches/uefi/` | UEFI firmware patches (record only, not part of the kernel build) |
-| `scripts/` | Build and check tooling (all gates and checks; see "Gates") |
-| `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform / PongMetal |
-| `docs/engineering/` | Hard rules, pitfalls, hardware truth, eight-step spec |
-| `docs/engineering/IOS-SCOPE.md` | iOS migration scope: transferable work only (user decision, 2026-11-19) |
-| `docs/engineering/BRANCH-INVENTORY-20261119.md` | Unmerged branches: numbered by line for a merge/archive decision |
-| `docs/research/` | Eight-step evidence (`EIGHT-STEPS.toml`) and research checklist (`SOURCES.toml`) |
+| `board.toml` | `schema_version = 2` device configuration, components and `os_overrides` |
+| `porting.toml` | Subsystem records (source for the official device page) |
+| `configs/` | `mondrian_defconfig` (16.6.1) and `mondrian_ios27_defconfig` (27) |
+| `dts/mondrian.dts` | Board device tree (SoC nodes come from the feed) |
+| `patches/xnu-12377/` | iOS 27 patches and `series` (one of four layers) |
+| `patches/xnu/` | Archived 16.6.1 patches and `series` |
+| `drivers/` | PongAdreno / NativeUfs / NativeRamBlock / ArmCpu / ArmDTPlatform |
+| `kits/` | In-tree kits (`VerifiedRoot`, `mondrian` probes) |
+| `scripts/` | Build, gates and one-off tools |
+| `docs/engineering/` | Hard rules, pitfalls, status, plan and workflow |
+| `docs/research/` | Eight-step evidence, reference ledger and research |
 
-## Four-layer repository model
+## Four-layer repositories
 
 | Layer | Repository | Contents |
 |---|---|---|
-| Framework | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU) (official upstream [UniXNU/UniXNU](https://github.com/UniXNU/UniXNU)) | `unixnu` command, shared scripts, component catalog |
+| Framework | [Emilelu/UniXNU](https://github.com/Emilelu/UniXNU) (upstream [UniXNU/UniXNU](https://github.com/UniXNU/UniXNU)) | `unixnu` command, shared scripts, component catalogue |
 | SoC | [Emilelu/UniXNU-sm8475-common](https://github.com/Emilelu/UniXNU-sm8475-common) | `soc.toml`, `configs/sm8475.config`, `dts/sm8475.dtsi` |
-| Device | [Emilelu/UniXNU-mondrian](https://github.com/Emilelu/UniXNU-mondrian) (this repository) | `board.toml`, `dts/mondrian.dts`, `patches/xnu/` |
-| Firmware | [uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium build tree |
+| Device | [Emilelu/UniXNU-mondrian](https://github.com/Emilelu/UniXNU-mondrian) (this repository) | `board.toml`, `dts/mondrian.dts`, `patches/` |
+| Firmware | [Emilelu/uefi-mondrian](https://github.com/Emilelu/uefi-mondrian) | EDK2 / Mu-Silicium build tree |
+
+> All four repositories are archived on GitHub; unarchive before pushing.
 
 ## Branches
 
-| Branch | Purpose |
-|---|---|
-| **`main`** | Mainline (default). All working milestones land here |
-| `feat/first-frame-20261107` | Historical milestone: first iOS 16.6.1 userland frame (separate history line) |
-| `chore/archive-darwin24-main-20261103` | Retired darwin24 (iPadOS 18) route (kept as archive) |
+`main` is the only baseline; historical lines start with `archive/` (e.g. `archive/ios16-20261120`). Every unmerged branch is registered in [`docs/engineering/BRANCH-REGISTRY.toml`](docs/engineering/BRANCH-REGISTRY.toml) with purpose / merge plan / flight state; `check-branch-registry.py` rejects unregistered branches.
 
-## Documentation
+## Documents
 
 | Document | Contents |
 |---|---|
-| [`docs/INDEX.md`](docs/INDEX.md) | **Documentation entry point**: reading order, full tree, gate commands |
-| [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status detail and change log |
-| [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step process specification |
-| [`docs/engineering/FIRMWARE-REBUILD.md`](docs/engineering/FIRMWARE-REBUILD.md) | Firmware volume rebuild manual: who builds it, why the same sources give the same bytes, the two volumes in the field, P-154 today, and the rebuild experiment protocol |
-| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
+| [`docs/INDEX.md`](docs/INDEX.md) | Documentation entry point: reading order, full catalogue, gate commands |
+| [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md) | Hardware status and change log |
+| [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md) | Overall plan: four layers, boot chain, gaps, artifacts and rollback |
+| [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md) | Workflow: rules, eight steps, build/flight, DSH multi-lane collaboration |
+| [`docs/engineering/EIGHT-STEP-SPEC.md`](docs/engineering/EIGHT-STEP-SPEC.md) | Eight-step specification |
+| [`docs/engineering/BOOT-PROCEDURE.md`](docs/engineering/BOOT-PROCEDURE.md) | Single entry point for booting (hard rule 8) |
+| [`docs/engineering/IOS-SCOPE.md`](docs/engineering/IOS-SCOPE.md) | iOS migration scope: transferable work only |
 | [`docs/engineering/PITFALLS.md`](docs/engineering/PITFALLS.md) | Pitfall log P-01–P-325 |
-| [`docs/engineering/TOOLBOX.md`](docs/engineering/TOOLBOX.md) | Reusable tools and scripts |
-- [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) — Repository and directory registry: the three component repositories, the build copy, the yibiya mirrors, and which DTB to pack
-- [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) — Battery stack build integration: script changes, defconfig switch, macro path, archive timing
-- [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) — Division of labour and repository coverage: 23 tracked / 48 synced / 3 picked
-| [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | Per-hardware eight-step evidence (gate data source) |
-| [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | Required reference sources (gate data source) |
+| [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
 | [`CREDITS.md`](CREDITS.md) | Contributors and all external sources |
-| [`AGENTS.md`](AGENTS.md) | Repository-level agent conventions |
-| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Third-party license notices |
-| [`v98-source.md`](v98-source.md) | Source set snapshot for the v98 build |
-| [`README.md`](README.md) | 中文版 |
+| [`README.md`](README.md) | Chinese |
 
 ## License
 
-Device-level code is BSD-2-Clause-Patent. Imported components keep their own SPDX
-identifiers and original licenses. Third-party sources are listed in
-[`CREDITS.md`](CREDITS.md).
+Device-level code is BSD-2-Clause-Patent. Imported components keep their SPDX tags and original licenses.
+External sources are listed in [`CREDITS.md`](CREDITS.md).

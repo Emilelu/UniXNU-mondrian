@@ -599,6 +599,11 @@ bool PongUfsBlock::prepareForPublish(IOService *provider) {
     return transportFailure("first root read");
   if (memcmp(bounce + window.signatureOffset, window.signature, strlen(window.signature)))
     return transportFailure("SHNGROOT window signature mismatch");
+  // A GPT window must also carry the protective MBR that the kernel's
+  // partition scan looks for. Checking only the GPT header at +512 publishes a
+  // disk whose first sector is zero and whose 0x55AA is missing.
+  if (window.signatureOffset == 512 && (bounce[510] != 0x55 || bounce[511] != 0xAA))
+    return transportFailure("SHNGROOT window MBR signature missing");
 #if defined(NATIVE_VERIFIED_BLOCK) && NATIVE_VERIFIED_BLOCK
   // Data keeps the path that predates verified-root; P-152/P-153 apply there.
   if (strcmp(window.name, "Data") && !configureVerification()) {

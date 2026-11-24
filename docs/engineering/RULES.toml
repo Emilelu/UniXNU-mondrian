@@ -1479,3 +1479,8 @@ id = "iron-19"
 kind = "iron"
 statement = "每条线的每次交付必须同时发一条五段式消息（分支/HEAD/本轮/证据/下一步）并更新 reply md；只写 reply md 不算交付。"
 check = "python3 scripts/check-agent-messaging.py"
+[[rule]]
+id = "P-322"
+kind = "pitfall"
+statement = "根设备第一个发布的块设备必须是 OS 盘（带保护 MBR）；只校验 GPT 签名不校验 0x55AA 会把 SystemOS 的 APFS 超级块当 MBR。"
+check = "python3 drivers/NativeUfs/tests/check-verified-root.py"

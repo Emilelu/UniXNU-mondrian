@@ -8136,3 +8136,11 @@ payload 阶段是绿的——因为被覆盖发生在它之后。
 多线并行后出现 80 条远端分支、46 个 worktree，没人能说出哪条为什么建、什么时候建的、要合什么。分支名与领先数是 git 能回答的，目的与合并条件是只有创建者才知道的。
 
 正确形状：BRANCH-REGISTRY.toml 一条 [[branch]] 对应一条存活分支（name/line/purpose/state/merge_plan/flight），check-branch-registry.py 拒绝未登记的分支；purpose 为 TBD 的条目在每次构建日志里作为 WARN 重复出现，直到所属线填完。
+
+## P-322 根设备发布顺序让第一个块设备没有 MBR
+
+27 的 `drivers/NativeUfs/RootPublication.h:17` 原本 `plan.order[0] = system`（SystemOS 先发、OS 最后）。SystemOS 窗口是裸 APFS 卷（NXSB 在 +32），OS 窗口是带保护 MBR 的 GPT 盘（`0x55AA` 在 +510）。内核按 partition 0 / disk0 读 MBR 时拿到的是 SystemOS 的超级块，`0x55AA` 自然缺失，根设备挂不上、`bsd_init` 走不到 —— 日志表现为 `K60UFS` 停在读分区 0。
+
+正确形状：第一个发布的块设备必须是 OS 盘；`prepareForPublish()` 除 GPT 签名（+512）外还要校验保护 MBR（+510/+511 = `55 AA`），两者缺一即 `transportFailure`，不得发布。16.6.1 的顺序是 OS、SystemOS、Data（`PongUfsTransport.cpp:604-612`）。
+
+回归：`drivers/NativeUfs/tests/RootPublication.cpp` 断言 `plan.order == {0,2,1,3}` 且 `startOrder == waitOrder`。

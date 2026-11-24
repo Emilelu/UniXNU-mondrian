@@ -347,7 +347,7 @@ merge_plan = "TBD"
 [[branch]]
 name = "docs/wifi-branch-registry"
 line = "wifi"
-ahead = 3
+ahead = 363
 last_commit = "2026-11-24"
 state = "experiment"
 flight = "build-only"

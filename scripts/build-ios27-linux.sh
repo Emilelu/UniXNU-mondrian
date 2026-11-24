@@ -164,8 +164,15 @@ PAYLOAD_KEY="$BOARD_DIR/payload/payload.inputs.sha256"
 payload_key=$(python3 "$ROOT/scripts/ios27-inputs.py" payload --device "$ROOT" \
 	--out "$BOARD_DIR" --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
 	--series-fingerprint "$(python3 "$ROOT/scripts/series-fingerprint.py")")
+# A reused payload still has to *name* the kernel it was built from. r290l kept
+# a stale kernel_sha256 through three otherwise-green stages; the key cannot see
+# it because the bytes on disk never moved (P-323).
+pjson_kernel=$(python3 -c 'import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "payload" / "payload.json"
+print(json.loads(p.read_text(encoding="utf-8")).get("kernel_sha256", "") if p.is_file() else "")' "$BOARD_DIR")
+kernel_sha=$(sha256sum "$BOARD_DIR/kernel/kernel.macho" | cut -d' ' -f1)
 if [ -z "${K60_FORCE_PAYLOAD:-}" ] && [ -f "$PAYLOAD_KEY" ] &&
-	[ -f "$BOARD_DIR/payload/payload.img" ] &&
+	[ -f "$BOARD_DIR/payload/payload.img" ] && [ "$pjson_kernel" = "$kernel_sha" ] &&
 	[ "$(cat "$PAYLOAD_KEY")" = "$payload_key" ]; then
 	echo "note payload: reused (inputs unchanged since $payload_key)"
 	mark payload-reused

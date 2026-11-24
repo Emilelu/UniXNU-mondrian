@@ -278,3 +278,4 @@ python3 scripts/render-eight-step-table.py --check
 - [GOP-ARCHIVE-FIRST-BUILD.md](research/ios27/GOP-ARCHIVE-FIRST-BUILD.md) — 首个 GopFramebuffer 板级归档的字节数、sha256 与未完成项。
 - [HANDOFF-20261124.md](research/ios27/HANDOFF-20261124.md) — 冻结交接：已完成项、四项 open、下一单步。
 - [CONSOLE-GLYPH-BUG.md](research/ios27/CONSOLE-GLYPH-BUG.md) — 洋红横杠不是显示通路故障：`k60_fontscale` 让 `vc_render_char` 按 48 行读 16 字节字形、每字符写 1536 字节进 512 字节缓冲区；附照片测量、代码证据与 P-313 静态判据
+- [BRANCH-HARVEST.md](research/ios27/BRANCH-HARVEST.md) - every 27 branch with its drift and its unverified status.

@@ -147,3 +147,13 @@ git log -1 --format='%an <%ae> | %cn <%ce>'
 先回答四问：`lifetime`（活多久）/ `read_moment`（什么时刻读）/ `writer`（谁写）/ `loss_condition`（什么条件丢）。
 门禁 `k60-gates/scripts/check-channel-lifetime.py` 只扫 `k60-gates/docs`（`ROOT` 取 `parents[1]`），
 2026-11-22 在它自己那棵树上报 rc=1，与本线无关；本线若写通道类段落，主动把四问答上。
+
+## L17 每次交付双写：消息 + reply md（2026-11-24，Lead 通知，铁则 19）
+
+任何一轮交付都必须同时落两处，缺一不算交付：
+1. 先按铁则 12 试 steer（Lead 会话 running 时）；被拒（idle）立刻改 followup。
+   消息不超过 8 行，固定五项：① 分支名 ② HEAD sha ③ 本轮做了什么（一句）
+   ④ 证据 `file:line` 或 commit ⑤ 下一步判据。
+2. 同内容写 `E:/k60-work/scratch/reply-display27.md`（覆盖写，含 `delivery:` 行）。
+`k60-gates/scripts/check-reply-freshness.py` 会比对「reply md 更新时间 vs 消息到达」，
+只写 md 不发消息 = 未交付。

@@ -235,3 +235,29 @@ gpu27 的写法是「扫出映射里的**字节偏移**；0 = 无 dbuf」。在�
 `0xae36000/0xae37000`。解法不需要新 boot-arg：`k60_dpu=1` 本来就采 INTF 帧计数，
 把两个候选页都采、各打一行，200 ms 内 frame count 前进的那页就是真的（写进
 `docs/research/display/DISPLAY-27-INTEGRATION.md` §1 的探针设计）。
+
+## 12. te 同步口径（2026-11-21，回答 gpu27 第 6 轮）
+
+**结论：display 用自己的 INTF 行判 te 同步；`at=` 只用于 gpu27 的零拷贝窗口，不用于判 te。**
+
+三条依据：
+
+1. **同一条内核日志里已有同窗口的两个计数器。** `PongDsiPanel.cpp:230` 一行内同时有
+   `te <c>-><d>`（`IntfTeCount` 0x298 高 16 位，读点 `:190`/`:216`）与 `frames <e>-><f>`
+   （`IntfFrameCount` 0xac，读点 `:189`/`:215`），窗口长度 `over %u ms` 由 `mach_absolute_time()`
+   两端（`:192`/`:218`）算出——Δte、Δframes、Δt 同源同时钟，不需要跨进程减法。
+2. **`at=` 与面板侧不是同一个时钟，且是否同源离线未证。** `at=` 来自
+   `PongMetalScanout.h:34/:36/:43/:112/:132` 的 `clock_gettime(CLOCK_MONOTONIC)`；面板侧是内核
+   `mach_absolute_time()`。27 树没有用户态 `clock_gettime` 实现可对照（`libsyscall/wrappers/`
+   有 `mach_absolute_time.s`、无 clock_gettime wrapper；`bsd/kern/kern_time.c:128-129` 只有
+   `clock_gettimeofday_and_absolute_time`）。按 L12/L5 只能写「未证」，拿未证时基做减法就是
+   gpu27 自己担心的「两个都大概对、没人能判」。
+3. **3 秒窗口不能在 `pong_panel_sample()` 里采。** `panel_intf_rate()` 以 `IODelay(1000)` 忙等到
+   `milliseconds`（`:196-212`）；`:622` 的调用点在帧退休路径（`PongAdrenoScanout.cpp:185` 每帧调
+   `pong_panel_sample()`），3 秒忙等会卡住出帧。3 秒窗口放探针线程（sheng `DisplayTimingProbe.cpp:42-111`
+   先 `IOSleep` 再采的模型）。
+
+**判据契约**：探针在 `k60_dpu=1`、UI 起来后调一次 `panel_intf_rate("te sync", 3000)`，判
+`A ≥ 110`、`B ≥ 110`、`(d-c)` 与 `(f-e)` 相差 ≤ 2 帧；`B < 110` 且 `A ≥ 110` 是静态 UI 自刷新，
+不是失败但不算零拷贝窗口。内核 `frames` 不等于 presenter `copies`，两侧各自成立才算零拷贝。
+（同文写进 `DISPLAY-27-INTEGRATION.md` §1.5。）

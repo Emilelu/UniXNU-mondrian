@@ -103,6 +103,15 @@ wire 侧另有一件只审不改的事：版本号中立法案由 gpu27 出、Le
   `PE_current_console` 的几何一致（否则说明 catalog 偏移错，直接退回 level 1）。
 - 上机 level 3：只在 `K60 DPU: catalog unknown` 不出现时才允许；写回前后打印
   `ctl0 flush latch <µs>`，官方参考值是 5.4 ms 内锁存（`display.md:70-72`）。
+- 上机 te 同步（回答 gpu27 第 6 轮）：探针线程在 UI 起来后调一次
+  `panel_intf_rate("te sync", 3000)`，判读**同一条** `K60 PANEL: INTF1 te sync te <A>/s frames <B>/s over 3000 ms (te <c>-><d> frames <e>-><f>)`：
+  `A ≥ 110`（line counter wraps 得的面板扫描率）、`B ≥ 110`（0xac 差分得的 DPU 提交率）、
+  `(d-c)` 与 `(f-e)` 相差 ≤ 2 帧。`B < 110` 而 `A ≥ 110` 是静态 UI 自刷新、**不是失败**，但也不算零拷贝窗口。
+  约束：3,000 ms 窗口**只能在探针线程**（`k60_dpu` 模型，先 `IOSleep` 再采），不能加在
+  `pong_panel_sample()`（`PongDsiPanel.cpp:622`）——那里在帧退休路径（`PongAdrenoScanout.cpp:185`），
+  `panel_intf_rate()` 用 `IODelay(1000)` 忙等（`:196-212`），3 秒会卡住出帧。
+  边界：内核 `frames`(0xac) 只数 DPU 命令 FIFO 提交，**不等于** presenter 的 `copies`；
+  两侧各自成立才算零拷贝，任何一边单独成立都不算（同结论存 `WIRE-VERSION-REVIEW.md` §12）。
 
 ---
 

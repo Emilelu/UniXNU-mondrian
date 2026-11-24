@@ -17,8 +17,8 @@ ahead = 360
 last_commit = "2026-11-24"
 state = "experiment"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "27 stage-0 主线：GIC/source-storage/legacy-display/console 的集成与构建分支"
+merge_plan = "每次绿灯构建按八步记账；stage-0 进 SpringBoard 后才合 main"
 
 [[branch]]
 name = "docs/bt-branch-registry"
@@ -67,8 +67,8 @@ ahead = 33
 last_commit = "2026-11-17"
 state = "merge-candidate"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "ADSP 载体：内嵌 blob 与 104 字节 glink handoff 的离线准备"
+merge_plan = "只取驱动源与门禁；等 HR-01 的 resources 路径放宽后合"
 
 [[branch]]
 name = "feat/audio-adsp-merge"
@@ -107,8 +107,8 @@ ahead = 35
 last_commit = "2026-11-20"
 state = "merge-candidate"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "ADSP/cellular 载体合并试验分支"
+merge_plan = "仅作参考，不合并；结论进 docs/research"
 
 [[branch]]
 name = "feat/cellular"
@@ -157,8 +157,8 @@ ahead = 16
 last_commit = "2026-11-20"
 state = "merge-candidate"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "充电认证：PD challenge/expected 与 32778 owner 的驱动与判读器"
+merge_plan = "只取 scripts/judge-battery 与驱动，等 ADSP lease 打通后合"
 
 [[branch]]
 name = "feat/display-27"

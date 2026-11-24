@@ -1,0 +1,23 @@
+# Capability reuse ledger (P-324 / iron-20)
+#
+# When a change adds a driver source file, check-capability-reuse.py looks for an
+# existing class in this repository (any branch) that derives from the same base.
+# A hit must be answered here before the build is allowed to continue.
+#
+# verdict: reuse       -> the new work calls the existing implementation
+#          derived     -> the new work is a deliberate derivative; explain the delta
+#          not-applicable -> the base is shared but the capability is different
+
+[[decision]]
+base = "IOBlockStorageDevice"
+verdict = "reuse"
+implementations = ["drivers/NativeUfs/PongUfsTransport.cpp"]
+evidence = "P-324: the iOS 16 driver already defines PongUfsBlock : IOBlockStorageDevice and loads com.apple.iokit.IOStorageFamily; the 27 source-storage path reuses it instead of importing the ShengUfs submodule."
+recorded = "2026-11-24"
+
+[[decision]]
+base = "IOBlockStorageDevice"
+verdict = "reuse"
+implementations = ["drivers/NativeRamBlock/NativeRamBlock.cpp"]
+evidence = "P-324: the RAM block device is the Data seed carrier on both lines; same class family, same reuse decision."
+recorded = "2026-11-24"

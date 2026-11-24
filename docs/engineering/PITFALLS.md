@@ -8152,3 +8152,14 @@ r290k（2026-11-24）：`payload-fast` 被传入 `kernel/kernel.patched.macho`�
 正确形状：`fast-payload --kernel` 收链接器输出（`$BOARD_DIR/kernel/kernel.macho`），`kernel-swap --kernel` 收打过补丁的副本（`kernel.patched.macho`）；两个消费点的参数不能互换。
 
 回归：`scripts/tests/test-fast-payload-linker.py` 断言 fast-payload 调用点只出现链接器路径。
+
+## P-324 先查自家：同一基类的实现在别的分支里已经有了一份
+
+2026-11-24：为了让 27 内核挂上根设备，我把 sheng 的 `drivers/ShengUfs` 作为子模块引入，理由是「sheng 的 27 已经跑通」。用户当场指出：iOS 16 的 UFS 驱动本来就是从 ShengUfs 改的，`drivers/NativeUfs/PongUfsTransport.cpp:289` 就是 `PongUfsBlock : IOBlockStorageDevice`，`:967` 还主动加载 `com.apple.iokit.IOStorageFamily`——SourceStorage 需要的那份类早就在我们自己仓库里。
+
+为什么会漏：①`audit-precedent-coverage.py` 把本仓 ios16 自有补丁排除在外，本仓的既有实现不在任何「先例」清单里；②`BRANCH-REGISTRY.toml` 里 `feat/ufs-27` 与 `feat/ufs-27` 所需的 `purpose` 是 `TBD`，登记了分支却没登记它实现了什么能力；③没有门禁把「新增的类」与「仓库里已有的同基类」做比对。
+
+正确形状：新增驱动源码前先跑 `scripts/check-capability-reuse.py`；它对每个新增文件的基类，在 `refs/heads` 与 `refs/remotes` 全量 `git grep` 同基类声明，命中就必须在 `docs/engineering/CAPABILITY-REUSE.toml` 写下 `reuse`/`derived`/`not-applicable` 与实现路径，否则拒绝。任何 `drivers/**`/`package/**` 分支的 `purpose`/`merge_plan` 不得是 `TBD`，`check-branch-registry.py` 直接报错。
+
+回归：`scripts/tests/test-capability-reuse.py` 在临时仓库里先造一个 `main` 上的 `OldBlock : IOBlockStorageDevice`，再在分支上造 `NewBlock : IOBlockStorageDevice`，断言检查器先 FAIL、写入 reuse 决策后 PASS。
+

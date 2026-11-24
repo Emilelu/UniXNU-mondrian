@@ -41,6 +41,20 @@ def main():
         print('FAIL branch-registry: %d branch(es) unregistered' % len(missing), file=sys.stderr)
         return 1
     tbd = [r.get('name') for r in rows if r.get('purpose') in ('TBD', '') or r.get('merge_plan') in ('TBD', '')]
+    # A TBD row is how the ShengUfs duplication slipped through: the branch that already
+    # implemented the capability was registered but said nothing. Any TBD branch that
+    # carries driver or package code is therefore an error, not a warning.
+    dangerous = []
+    for name in tbd:
+        out = subprocess.run(['git', 'diff', '--name-only', 'origin/main...' + name, '--', 'drivers', 'package'],
+                             cwd=REPO, capture_output=True, text=True).stdout.strip()
+        if out:
+            dangerous.append((name, out.splitlines()[:3]))
+    if dangerous:
+        for name, files in dangerous:
+            print('FAIL branch-registry: %s still TBD but carries driver code (%s)' % (name, ', '.join(files)))
+        print('FAIL branch-registry: %d TBD branch(es) already implement drivers or package code' % len(dangerous))
+        return 1
     if tbd:
         print('WARN branch-registry: %d of %d entr(ies) still need a purpose/merge_plan from their line:' % (len(tbd), len(rows)))
         for name in tbd[:12]:

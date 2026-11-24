@@ -1463,3 +1463,8 @@ statement = "固件卷被重建时不得走就地换内核快路径——它只�
 check = "python3 scripts/tests/test-build-cache-keys.py"
 note = "2026-11-24 K60_FORCE_BOOTIMG=1 仍 bootimg-swapped，FD 保持 8e99af40。"
 
+[[rule]]
+id = "P-320"
+kind = "pitfall"
+statement = "本仓 ios16 自有的内核补丁不得被排除在覆盖率审计之外：每条都必须有 carried/deferred/not-applicable 的书面判定，未判定前禁止构建。"
+check = "python3 scripts/check-ios16-carryover.py"

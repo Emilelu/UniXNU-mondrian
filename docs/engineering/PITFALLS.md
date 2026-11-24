@@ -8126,3 +8126,7 @@ payload 阶段是绿的——因为被覆盖发生在它之后。
 2026-11-24：即使加了 P-318 的条件，`K60_FORCE_BOOTIMG=1` 仍走 `bootimg-swapped`：换内核的分支只改 payload/boot 的 ramdisk，不重打包固件，所以 boot.img 的 FD 还是旧的 `8e99af40`。只有 `K60_NO_KERNEL_SWAP=1` 才走完整 `unixnu bootimg`。
 
 判据/修法：`fw_rebuilt` 也要挡住换内核分支；`K60_NO_KERNEL_SWAP=1` 与 `K60_FORCE_BOOTIMG=1` 一起用可以强制整包。`scripts/build-ios27-linux.sh` 已改。这三条共同的教训：**缓存的键必须覆盖它实际读取的每一个输入；「快路径」也算一条读取路径。**
+
+## P-320 ios16 自有补丁被排除在覆盖率审计之外
+
+覆盖率审计对 ios16 本仓做了例外，于是 9 个参考仓都审计了，唯独我们自己 16 线的 69 条补丁从未对照 27。正确形状：audit-ios16-carryover.py 生成 IOS16-CARRYOVER.toml，check-ios16-carryover.py 要求每条有 verdict；partial/missing 不得谎报 carried。

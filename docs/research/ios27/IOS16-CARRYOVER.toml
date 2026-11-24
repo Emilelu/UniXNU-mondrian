@@ -59,6 +59,8 @@ detected = "no-symbols"
 name = "zzzzzzzzzz-pong-console-init.patch"
 detected = "missing"
 missing_args = ["pong_init_trace"]
+verdict = "deferred"
+why = "pong_init_trace \u5c5e 16 \u7ebf console init \u8def\u5f84\uff1b27 \u5df2\u6709 0546/0547/0548 \u4e09\u4ef6\u63a7\u5236\u53f0\uff0c\u5f85 console \u8def\u5f84\u7a33\u5b9a\u540e\u6309\u9700\u8865\u3002"
 
 [[patch]]
 name = "zzzzzzzzzz-pong-development-library-policy.patch"
@@ -77,12 +79,16 @@ detected = "no-symbols"
 name = "zzzzzzzzzzzz-pong-disable-swap-backend.patch"
 detected = "missing"
 missing_args = ["pong_disable_swap"]
+verdict = "deferred"
+why = "27 stage-0 \u672a\u542f\u7528 swap backend\uff1b\u7b49 VM/\u538b\u7f29\u673a\u7b56\u7565\u786e\u5b9a\u540e\u8bc4\u4f30\u3002"
 
 [[patch]]
 name = "zzzzzzzzzzzzz-pong-open-boundaries.patch"
 detected = "missing"
 missing_args = ["pong_init_trace"]
 missing_functions = ["pong_init_note"]
+verdict = "deferred"
+why = "open-boundaries \u4f9d\u8d56 pong_init_trace \u4e0e 1 \u4e2a 16 \u7ebf\u4e13\u6709\u51fd\u6570\uff1b\u7b49 console init \u79fb\u690d\u65f6\u4e00\u5e76\u5904\u7406\u3002"
 
 [[patch]]
 name = "zzzzzzzzzzzzzz-pong-development-uaccess.patch"

@@ -52,18 +52,3 @@ what = "它开而我们关的 CONFIG 键（CRYPTO_BOOTSTRAP=source、SOURCE_STOR
 verdict = "adapted"
 
 
-[[entry]]
-id = "root-storage-absent"
-source = "framework"
-path = "scripts/build-sheng-source-storage.py"
-line = 168
-what = "sheng 路线的实现放在框架里：把 pinned IOStorageFamily 7edb88fb 的 IOBlockStorageDevice.cpp 取出来、替换注册宏后单独编译，说明 27 的 IOBlockStorageDevice 可以由源码重建而不是只能靠 16 线那种内核内建类"
-verdict = "adapted"
-
-[[entry]]
-id = "root-storage-absent"
-source = "sheng"
-path = "package/SourceStorage.cpp"
-line = 270
-what = "运行期先 OSKextLoadKextWithIdentifier(com.apple.iokit.IOStorageFamily)，再按类名取 IOBlockStorageDevice 并要求 getClassSize()==sizeof(IOBlockStorageDevice)；这是 27 fileset 下把兄弟 kext 的 vtable 拿全的既有做法"
-verdict = "copied"

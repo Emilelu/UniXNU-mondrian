@@ -18,6 +18,8 @@ CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y
 # and the display in F4. Enabling them now would add two untested ABIs to the
 # first kernel that has to prove PAC and the prelink.
 CONFIG_XNU_NATIVE_UFS=n
+CONFIG_XNU_SOURCE_STORAGE=y
+CONFIG_XNU_SOURCE_STORAGE_TABLES="userdata"
 CONFIG_XNU_NATIVE_ADRENO=n
 CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y
 

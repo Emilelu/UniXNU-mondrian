@@ -387,7 +387,7 @@ patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:p
 # build-k60-platform-archives.py drives those same recipes against the tree
 # this build just resolved, so the archives appear where the fileset step
 # looks for them.
-archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-k60-fileset-reference.py --tree . --skip-build", "build-k60-legacy-display-archive.py --tree ."]
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-k60-fileset-reference.py --tree . --skip-build", "build-k60-legacy-display-archive.py --tree .", "build-sheng-source-storage.py --tree ."]
 
 [kernel.prelink]
 # Copied from UniXNU-sheng board.toml on 2026-11-23: the profile roots plus the

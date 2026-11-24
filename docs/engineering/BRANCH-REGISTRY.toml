@@ -1,0 +1,15 @@
+# Branch registry for the K60 trees.
+#
+# This checkout carries only the line = "ufs" row; the Lead's registry branch
+# (baseline de447804, 36 entries) owns the full file. Splice this entry into
+# that file when merging the ufs line.
+
+[[branch]]
+name = "feat/ufs-27"
+line = "ufs"
+ahead = 101
+last_commit = "2026-11-24"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "iOS 27 UFS/storage line: the five-stage Data gate, the offline Linux producer for build/native-ufs/libNativeUfs.a, its three-state archive gate, the force-load producer gate, the route-B kext wiring checklist and ring 5 interface contract, and the MBR/read forensic for the 27 boot stop; docs and checkers only, no device work."
+merge_plan = "Merge only after the Lead gives the F3 switch: the defconfig draft (UFS27-DEFCONFIG-F3.patch), the board.toml recipe entry and CONFIG_XNU_NATIVE_UFS=y land together; keep the five storage gates green (selection, route-b, entry, step7, switches) and do not merge the F3 draft before that switch."

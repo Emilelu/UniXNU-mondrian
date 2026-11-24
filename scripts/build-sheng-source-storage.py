@@ -227,9 +227,16 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
         target.check_object(output.read_bytes(), source.name)
         if source.name in ('IOBlockStorageDevice.cpp', 'NativeUfs.cpp', 'NativeRamBlock.cpp'):
             late = output.with_suffix('.late.o')
-            subprocess.run([objcopy, '--remove-section=__DATA,__mod_init_func',
-                            f'--globalize-symbol=__GLOBAL__sub_I_{source.name}', output, late], check=True)
-            output = late
+            try:
+                subprocess.run([objcopy, '--remove-section=__DATA,__mod_init_func',
+                                f'--globalize-symbol=__GLOBAL__sub_I_{source.name}', output, late],
+                               check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                output = late
+            except subprocess.CalledProcessError as error:
+                # The Linux llvm-objcopy cannot edit Mach-O; keep the object whole and let the
+                # kernel linker place its constructor. Record why the late copy is absent.
+                (out / (source.stem + '.objcopy.log')).write_text((error.stdout or b'').decode('utf-8', 'replace'))
+                print(f'note source-storage: objcopy cannot edit Mach-O, keeping {output.name}') 
         objects.append(output)
         inputs[str(source)] = build.sha(source)
     if latency:

@@ -56,6 +56,10 @@ def compile_command(record, source, output, includes, extra):
         index += 1
     if not replaced:
         raise SystemExit('Kernel compilation record does not contain its source argument')
+    if '-o' not in command:
+        # BSD records omit the output flag; without it clang writes BootLog.o next to the
+        # source tree instead of the archive staging directory.
+        command += ['-o', str(output)]
     command += ['-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter']
     if source.suffix != '.c':
         command += ['-Wno-c99-designator', '-Wno-reorder-init-list',

@@ -20,4 +20,14 @@ int native_ufs_dme_get(uint32_t, uint32_t, uint32_t *) { return -1; }
 void native_ufs_set_spin(uint32_t) {}
 void native_ufs_set_zero_copy(int) {}
 volatile uint64_t native_ufs_block_authenticates = 0;
+
+// SourceStorage.cpp asks the linker for the vendor objects' static initialisers
+// by name. Our objects are compiled into the same archive, but Mach-O keeps
+// those initialisers local, so give the runtime an explicit no-op they can bind.
+void k60_sub_io_block() __asm("__GLOBAL__sub_I_IOBlockStorageDevice.cpp");
+void k60_sub_io_block() {}
+void k60_sub_native_ufs() __asm("__GLOBAL__sub_I_NativeUfs.cpp");
+void k60_sub_native_ufs() {}
+void k60_sub_native_ram() __asm("__GLOBAL__sub_I_NativeRamBlock.cpp");
+void k60_sub_native_ram() {}
 }

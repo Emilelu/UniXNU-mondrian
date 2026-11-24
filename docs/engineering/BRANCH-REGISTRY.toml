@@ -111,18 +111,18 @@ ahead = 120
 last_commit = "2026-11-19"
 state = "experiment"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Wi-Fi iOS 27 backup at ea54f59e (2026-11-19); rollback reference only."
+merge_plan = "Never merge; keep until the 27 Wi-Fi line closes, then archive."
 
 [[branch]]
 name = "feat/wifi-ios27-abi"
 line = "wifi"
 ahead = 120
 last_commit = "2026-11-19"
-state = "merge-candidate"
+state = "experiment"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Historical Wi-Fi 27 ABI/contract experiment branch; its tip matches the backup at ea54f59e, so it carries no later ABI work."
+merge_plan = "Do not merge; carry any still-valid ABI conclusion into feat/wifi-ios27-tree, then archive."
 
 [[branch]]
 name = "feat/gpu-27"
@@ -171,8 +171,8 @@ ahead = 64
 last_commit = "2026-11-19"
 state = "experiment"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "HE/6 GHz scan experiment on 24A446 (tip 85b1ad88, 2026-11-19)."
+merge_plan = "Do not merge; recover conclusions into feat/wifi-ios27-tree docs, then archive."
 
 [[branch]]
 name = "feat/audio-official-27-mapping"
@@ -189,20 +189,20 @@ name = "feat/wifi-ios27-tree"
 line = "wifi"
 ahead = 56
 last_commit = "2026-11-22"
-state = "merge-candidate"
+state = "active"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Wi-Fi iOS 27 main lane: C1/C2/C3, B4/B5, WPA3 blocked by F2/F3, feed pins and seven-step acceptance criteria."
+merge_plan = "Merge into main only after F2/F3 device evidence and a complete arm64e station archive; no merge while build-only."
 
 [[branch]]
 name = "feat/wifi-station-archive-check"
 line = "wifi"
 ahead = 53
 last_commit = "2026-11-21"
-state = "merge-candidate"
+state = "active"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Line-local three-state checker for the 27 station archive (absent rc2, bad archive rc1, all pass rc0); no global blocker."
+merge_plan = "Do not merge to main or register in RULES while the 27 station archive is absent (P-290); merge only after the archive exists and Lead approves."
 
 [[branch]]
 name = "feat/official-requirements-r80"
@@ -343,3 +343,13 @@ state = "merge-candidate"
 flight = "build-only"
 purpose = "TBD"
 merge_plan = "TBD"
+
+[[branch]]
+name = "docs/wifi-branch-registry"
+line = "wifi"
+ahead = 3
+last_commit = "2026-11-24"
+state = "experiment"
+flight = "build-only"
+purpose = "Temporary delivery branch carrying the wifi line's BRANCH-REGISTRY purpose/merge_plan entries; not a product branch."
+merge_plan = "Merge the registry change into the Lead's registry branch, then delete this branch."

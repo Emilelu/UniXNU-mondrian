@@ -52,6 +52,19 @@
 给另一条线发消息，先 `steer`（或 `inject`），被拒（目标离线/idle）才用 `followup`，并在回执首行写
 `delivery: followup, steer-rejected: <原因>`。禁止开场就 followup，禁止 steer 成功后补发 followup。
 
+### Iron rule 19 — Every delivery is a message *and* a reply file
+
+一条线的每次交付必须双写：
+
+1. 先按铁则 12 尝试 `steer`（目标 running 时）；被拒（idle/offline）再用 `followup`。
+2. 消息正文固定五段，不超过 8 行：①分支名 ②HEAD sha ③本轮做了什么（一句）
+   ④证据（`file:line` 或 commit） ⑤下一步判据。
+3. 同一轮更新 `E:\k60-work\scratch\reply-<line>-20261115.md`。
+
+只写 reply md 不发消息 = 未交付。只发消息不更新 reply md 同样不合格。Lead 只按收到的
+消息计数与验收；reply md 是细节附录，不是交付本身。这条规则的成因是 2026-11-24 多条线
+连续只写 reply md，Lead 不知道它们已经交付。
+
 ## 状态只有三处
 
 - `docs/engineering/STATUS.md` — 现在在哪一步

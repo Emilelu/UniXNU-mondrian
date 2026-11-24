@@ -34,6 +34,7 @@ AGENTS = REPO / 'AGENTS.md'
 RULES = REPO / 'docs/engineering/RULES.toml'
 BUS = Path('/mnt/e/k60-work/bus/bus.jsonl')
 HEADING = re.compile(r'^### Iron rule 12\b.*$', re.MULTILINE)
+HEADING19 = re.compile(r'^### Iron rule 19\b.*$', re.MULTILINE)
 
 
 def documents():
@@ -53,6 +54,17 @@ def documents():
     rules = RULES.read_text(encoding='utf-8', errors='replace') if RULES.is_file() else ''
     if 'id = "iron-12"' not in rules:
         problems.append('RULES.toml has no [[rule]] id = "iron-12"')
+    m19 = HEADING19.search(text)
+    if m19 is None:
+        problems.append('AGENTS.md has no "### Iron rule 19" heading')
+    else:
+        end19 = text.find('\n#', m19.end())
+        body19 = text[m19.end():end19 if end19 != -1 else len(text)]
+        for needle in ('reply md', 'followup', 'HEAD'):
+            if needle not in body19:
+                problems.append(f'the iron rule 19 text never mentions {needle!r}')
+    if 'id = "iron-19"' not in rules:
+        problems.append('RULES.toml has no [[rule]] id = "iron-19"')
     return problems
 
 

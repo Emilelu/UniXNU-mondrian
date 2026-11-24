@@ -1474,3 +1474,8 @@ id = "P-321"
 kind = "pitfall"
 statement = "每条存活分支必须在 docs/engineering/BRANCH-REGISTRY.toml 登记：归属线、目的、合并条件、飞行状态；未登记的分支存在时 check-branch-registry.py 必须报错。"
 check = "python3 scripts/check-branch-registry.py"
+[[rule]]
+id = "iron-19"
+kind = "iron"
+statement = "每条线的每次交付必须同时发一条五段式消息（分支/HEAD/本轮/证据/下一步）并更新 reply md；只写 reply md 不算交付。"
+check = "python3 scripts/check-agent-messaging.py"

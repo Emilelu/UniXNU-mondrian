@@ -1,0 +1,58 @@
+diff --git a/pexpert/arm/pe_identify_machine.c b/pexpert/arm/pe_identify_machine.c
+index 937ce42..a1d35d2 100644
+--- a/pexpert/arm/pe_identify_machine.c
++++ b/pexpert/arm/pe_identify_machine.c
+@@ -203,28 +203,43 @@ pe_arm_map_interrupt_controller(void)
+ 		return 0;
+ 	}
+ 
++	int             gic_from_compatible = 0;
++
+ 	if (SecureDTFindEntry("interrupt-controller", "master", &entryP) == kSuccess) {
+ 		kprintf("pe_arm_map_interrupt_controller: found interrupt-controller\n");
+ 		SecureDTGetProperty(entryP, "reg", (void const **)&reg_prop, &prop_size);
+ 		gPicBase = ml_io_map(soc_phys + *reg_prop, *(reg_prop + 1));
+ 		kprintf("pe_arm_map_interrupt_controller: gPicBase: 0x%lx\n", (unsigned long)gPicBase);
+ 	}
++	if (gPicBase == 0 && SecureDTFindEntry("compatible", "arm,gic-v3", &entryP) == kSuccess) {
++		/* The board tree names the controller by compatible, not by Apple's
++		 * interrupt-controller="master" property. Its reg[] is absolute. */
++		SecureDTGetProperty(entryP, "reg", (void const **)&reg_prop, &prop_size);
++		gPicBase = ml_io_map(*reg_prop, *(reg_prop + 1));
++		gic_from_compatible = 1;
++		kprintf("K60PIC gic base: 0x%lx size: 0x%lx\n", (unsigned long)gPicBase, (unsigned long)*(reg_prop + 1));
++	}
+ 	if (gPicBase == 0) {
+ 		kprintf("pe_arm_map_interrupt_controller: failed to find the interrupt-controller.\n");
+ 		return 0;
+ 	}
+ 
+-	if (SecureDTFindEntry("device_type", "timer", &entryP) == kSuccess) {
+-		kprintf("pe_arm_map_interrupt_controller: found timer\n");
+-		SecureDTGetProperty(entryP, "reg", (void const **)&reg_prop, &prop_size);
+-		gTimerBase = ml_io_map(soc_phys + *reg_prop, *(reg_prop + 1));
+-		kprintf("pe_arm_map_interrupt_controller: gTimerBase: 0x%lx\n", (unsigned long)gTimerBase);
+-	}
+-	if (gTimerBase == 0) {
+-		kprintf("pe_arm_map_interrupt_controller: failed to find the timer.\n");
+-		return 0;
++	/* A tree that only names the controller by compatible is a Pong-family board:
++	 * its timer is the ARM generic system-register timer, which has no MMIO base,
++	 * so Apple's device_type="timer" lookup cannot succeed and must not gate the
++	 * controller mapping. Keep the original requirement for Apple device trees. */
++	if (!gic_from_compatible) {
++		if (SecureDTFindEntry("device_type", "timer", &entryP) == kSuccess) {
++			kprintf("pe_arm_map_interrupt_controller: found timer\n");
++			SecureDTGetProperty(entryP, "reg", (void const **)&reg_prop, &prop_size);
++			gTimerBase = ml_io_map(soc_phys + *reg_prop, *(reg_prop + 1));
++			kprintf("pe_arm_map_interrupt_controller: gTimerBase: 0x%lx\n", (unsigned long)gTimerBase);
++		}
++		if (gTimerBase == 0) {
++			kprintf("pe_arm_map_interrupt_controller: failed to find the timer.\n");
++			return 0;
++		}
+ 	}
+-
+ 	return 1;
+ }
+ 

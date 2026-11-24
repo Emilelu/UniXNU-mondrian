@@ -261,3 +261,4 @@ armcpu-sleep-hook.patch
 # 0577 is intentionally 463 B: 0543 already installs the stock text console at the
 # same call site, so only video_console.c WC path was missing. Kept as a separate
 # patch because it is a different file and a different decision from 0543.
+0580-k60-pong-interrupt-map.patch

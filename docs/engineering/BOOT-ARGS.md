@@ -48,6 +48,7 @@
 | `native-ufs-probe` | 存储 | 任意 | 代码默认 | — |
 | `native-ufs-wait` | 存储 | 0=Paced 1=Spin 2=Sleep | 1（Spin） | >2 会被忽略回落默认 |
 | `sheng-data-reset` | 存储 | 1 或 2 | 不重置 | 会清 Data |
+| `sheng-wifi-attr` | 存储 / PCIe 属性 | 任意 uint | 代码默认 | ShengUfs 适配器里给 PCIe 端点选的属性；K60 的 UFS 不走 PCIe，保持默认 |
 | `k60_touch_se` | 触摸 | 0..7 | 6 | 2026-11-12 显式设为 6；<6 不发布设备 |
 | `k60_touch_rcg` | 触摸 | 0 或 1 | 0 | — |
 | `k60touchhz` | 触摸 | ≤ 15000000 | 4000000 | 超范围整体拒绝 |
@@ -689,3 +690,9 @@ legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不
 - 取值：布尔开关；打开后异常处理路径打印进程名，便于定位 panic 来源。
 - 来源：同上（0564 的 bootargs 段）。
 - 不带的后果：异常日志只给 pid，不给名字。
+
+### `sheng-wifi-attr`（ShengUfs 适配器，PCIe 属性）
+
+- 取值：任意 uint，原样传给 PCIe 端点的属性配置。
+- 作用：`drivers/ShengUfs/NativeUfs.cpp:1242` 用它选择端点访问的内存属性（1 = normal non-cacheable, non-shareable）。
+- 不带的后果：走代码默认；K60 的 UFS 是平台设备、不走 PCIe，这个参数在本机没有效果，声明它是为了让 `check-boot-args.py` 能把「代码里存在」和「文档里声明」对上。

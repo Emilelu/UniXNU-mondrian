@@ -94,6 +94,8 @@ def main():
                         help='override the userdata partition capacity')
     parser.add_argument('--guard-mib', type=int, default=16,
                         help='gap kept between the last base window and Data (default 16)')
+    parser.add_argument('--max-data-fraction', type=float, default=0.25,
+                        help='refuse a Data window larger than this fraction of the partition')
     parser.add_argument('--tail-reserve-mib', type=int, default=1024,
                         help='unallocated tail kept after Data (default 1024)')
     parser.add_argument('--dry-run', action='store_true', help='print the plan only')
@@ -131,8 +133,8 @@ def main():
 
     if data_offset < last_end:
         fail('computed Data offset overlaps the existing windows')
-    if data_bytes > partition_bytes // 4:
-        fail(f'Data disk {data_bytes} exceeds a quarter of the partition ({partition_bytes})')
+    if data_bytes > partition_bytes * args.max_data_fraction:
+        fail(f'Data disk {data_bytes} exceeds {args.max_data_fraction:.0%} of the partition ({partition_bytes})')
     if image_bytes > partition_bytes - args.tail_reserve_mib * MIB:
         fail(f'image would end at {image_bytes}, leaving less than '
              f'{args.tail_reserve_mib} MiB of the {partition_bytes}-byte partition')

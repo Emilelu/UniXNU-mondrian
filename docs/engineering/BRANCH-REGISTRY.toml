@@ -71,8 +71,8 @@ ahead = 192
 last_commit = "2026-11-20"
 state = "merge-candidate"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Bluetooth iOS 27 static-check branch: DT, GENI, GIC, kernel, launchd, payload-host, power and userspace checkers, their fixtures and the 0523-0525 prelink patches; research/static evidence only, no hardware."
+merge_plan = "Do not merge wholesale (1423 commits behind main); cherry-pick the still-used checkers and fixtures onto feat/xnu27-data-gate after Lead review, then archive this branch."
 
 [[branch]]
 name = "fix/ios27-black-screen-muse-20261122"
@@ -281,8 +281,8 @@ ahead = 5
 last_commit = "2026-11-20"
 state = "experiment"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Bluetooth Data mount gate research branch: records the Data gate chain, owner-data/vnode mount dependencies and the cost to close them; carries check-bluetooth-data-gate-chain.py, its test and the porting/docs notes; no hardware."
+merge_plan = "Keep as an experiment until the owner-data mount gate closes; after Lead review port the checker, test and conclusions onto feat/xnu27-data-gate, then archive; never merge the branch wholesale."
 
 [[branch]]
 name = "feat/display-27"
@@ -352,4 +352,14 @@ last_commit = "2026-11-24"
 state = "experiment"
 flight = "build-only"
 purpose = "Temporary delivery branch carrying the wifi line's BRANCH-REGISTRY purpose/merge_plan entries; not a product branch."
+merge_plan = "Merge the registry change into the Lead's registry branch, then delete this branch."
+
+[[branch]]
+name = "docs/bt-branch-registry"
+line = "bluetooth"
+ahead = 362
+last_commit = "2026-11-24"
+state = "experiment"
+flight = "build-only"
+purpose = "Temporary delivery branch carrying the bluetooth line's BRANCH-REGISTRY purpose/merge_plan entries; not a product branch."
 merge_plan = "Merge the registry change into the Lead's registry branch, then delete this branch."

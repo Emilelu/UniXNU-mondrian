@@ -28,7 +28,7 @@
 
 ## 二、`to-port` / `ported` 逐条三列
 
-### A. `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch`（`patches/xnu/series:197`）— **to-port**
+### A. `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-touch-console.patch`（`patches/xnu/series:197`）— **to-port（27 草案已出，见六）**
 
 | 列 | 内容 |
 | --- | --- |
@@ -36,7 +36,7 @@
 | **27 侧现状** | 补丁不在清单：`grep -c 'pong-touch' <build>/xnu-patches.list` = **0**；驱动文件 `bsd/dev/pong_goodix.c` **absent**；符号 `pong_goodix_init` **none**（`grep -rl pong_goodix_init <build>/tree/.cache/xnu-work` 空）；两个前置锚点也 absent：`bsd/kern/pong_userland.c`、`iokit/Kernel/MiniIOMobileFramebuffer.cpp` |
 | **移植判据** | 解冻后第一次带输入的构建：`grep -c 'pong-touch-console' $BOARD_DIR/xnu-patches.list` ≥ 1 **且** 同一次启动日志出现 `goodix: COORD-ON ack=80` 与至少 1 行 `Pong touch HID: type=`（无串口时以 0546 控制台/画面为准，P-300） |
 
-### B. `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch`（`:198`）— **to-port（依赖 A）**
+### B. `zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-physical-keys.patch`（`:198`）— **to-port（依赖 A；27 草案已出，见六）**
 
 | 列 | 内容 |
 | --- | --- |
@@ -121,3 +121,14 @@
 ### 一行结论
 
 **keys 与 `0547` 互不影响**（插入点相隔 171 行、上下文窗口不重叠，两种落地顺序实测全 `rc=0`）；keys 的硬前置只有 **touch**（它的 hunk 锚在 touch 新建的 `#if defined(PONG)` 块内），**不要**把 keys 重锚到 `k60_usblog_start();` 之后。
+
+## 六、27 侧补丁草案（2026-11-24，离线，未进任何 series）
+
+A、B 两条 `to-port` 的草案已落在 `patches/input27-drafts/`，设计与复现见 `docs/research/ios27/draft-input-27.md`：
+
+| 草案 | 行数 | 改锚点（16 → 27） | 实测 |
+| --- | --- | --- | --- |
+| `0001-input27-pong-touch.patch` | 1,529 | `bsd/conf/files:385`（上下文靠 userland-abi 建 `bsd/kern/pong_userland.c`，27 树 637 行文件里没有该行）→ 尾部 `bsd/dev/k60_adreno_grant.cpp`（27 `:637`）之后追加；`bsd_init.c` 的 PONG 块重生成后落 `:1169-1181`；`MiniIOMobileFramebuffer.cpp` hunk 不进草案（27 树无此文件，归显示线） | 27 装配树副本上五文件 `git apply --check` 全过、apply rc=0；`pong_goodix.c` 1,375 行、`pong_input.c` 107 行、`pong_input.h` 24 行 |
+| `0002-input27-pong-buttons.patch` | 345 | 依赖 0001 先落；`bsd/conf/files` 同样改尾部追加；`bsd_init.c` 两行调用落 `:1178-1179` | 在 0001 之上 check/apply 均 rc=0；`pong_buttons.c` 171 行 |
+
+副产物：conf 注册改为尾部追加后，**输入线的 conf 注册不再依赖 userland-abi 前置补丁**；仍依赖显示线创建 `MiniIOMobileFramebuffer.cpp`（仅控制台首帧那一步）。

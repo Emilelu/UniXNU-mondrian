@@ -465,6 +465,9 @@ kernel_args = [
   # inert and the console still never switches to text (uke PROGRESS.md:229).
   "-uketextconsole", "-ukedeferredconsole",
   "-enable_kprintf_spam",
+  # USB CDC console: the same k60_usblog=2 that enumerates on 16.6.1. serial=3
+  # only covers the firmware menu; it does not carry kernel text to the host.
+  "k60_usblog=2", "k60_console_export=1",
 ]
 
 [os_overrides."ios-27.0.1-24A446".payload.adt]

@@ -183,7 +183,7 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     # BSD sources (sys/proc.h, the system calls) take kern_exec's flags.
     bsd = json.loads((obj / 'bsd/DEVELOPMENT/kern_exec.o.json').read_text().strip().rstrip(','))
     bsd_sources = {'BootWatchdogPolicy.c', 'BootDiagExport.c', 'WifiFirmware.c', 'BluetoothFirmware.c'}
-    includes = ['-I', str(out / 'headers/include'), '-I', str(ROOT / 'kits/VerifiedRoot/include'),
+    includes = ['-I', str(out / 'headers/include'), '-I', str(device / 'kits/VerifiedRoot/include'),
                 '-I', str(ROOT / 'drivers/VirtioMmioBlock'), '-I', str(tree / '.cache/xnu-work/osfmk')]
     flags = ['-DNATIVE_UFS_SOURCE_API=1', '-DNATIVE_VERIFIED_BLOCK=1',
              '-DNATIVE_VERIFIED_BLOCK_MULTI_POLICY=1', '-DNATIVE_VERIFIED_POLICY_HANDOFF=1']
@@ -191,8 +191,8 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     sources = [base, device / 'drivers/NativeUfs/PongUfsTransport.cpp', device / 'drivers/NativeUfs/NativeUfs.cpp', device / 'drivers/NativeRamBlock/NativeRamBlock.cpp',
                device_source('SourceStorage.cpp'), device_source('SourceRootPolicies.cpp'),
                device_source('SourceRootBinding.cpp'), device_source('BootLog.c'), boot_log_defaults, device_source('BootReset.c'),
-               ROOT / 'kits/VerifiedRoot/src/verified_root.c',
-               ROOT / 'kits/VerifiedRoot/adapters/xnu_crypto.c', anchor]
+               device / 'kits/VerifiedRoot/src/verified_root.c',
+               device / 'kits/VerifiedRoot/adapters/xnu_crypto.c', anchor]
     if int(os.environ['UNIXNU_IOS_VERSION'].split('.')[0]) >= 27:
         # The source path does not run BootProgress's process worker. Reuse its
         # native capture code in a separate worker owned by the UFS log.

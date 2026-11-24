@@ -71,6 +71,15 @@
   0 字节日志不能解读为「内核没跑」；只能记为「捕获不可判」，等 ramoops/pstore 证据。
 - 知识库共享只读；不要把密码、token、设备地址写进查询或文档。
 
+## R-05 交付双写：消息 + reply md
+
+**裁定**：每次交付先按 R-03 尝试 steer；steer 被拒（idle）立即 followup。消息不超过 8 行，固定写：
+①分支名 ②HEAD sha ③本轮做了什么（一句） ④证据 file:line 或 commit ⑤下一步判据。
+reply md 必须同步更新；只写 reply md 不发消息 = 未交付。
+
+- `check-reply-freshness.py` 以 reply md 更新时间与消息到达时间对账；消息和文件必须同轮。
+- 消息和 reply md 的内容必须一致；reply md 首行仍按 R-03 保留 `delivery: ...`。
+
 ## 参考
 
 - Lead 裁定：2026-11-21（本轮）。

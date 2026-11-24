@@ -77,7 +77,19 @@ def main():
     if size != len(transformed):
         raise SystemExit(f'refuse: payload kernel is {size} bytes, rebuilt kernel is {len(transformed)}')
     if hashlib.sha256(transformed).hexdigest() == manifest['payload_kernel_sha256']:
-        print('ok payload: the rebuilt kernel is byte-identical to the packed one; nothing to do')
+        # The packed bytes are right, but the record of *which linker output*
+        # produced them may be stale (r290l: it still carried the patched hash
+        # from the r290k run). Repair the record even when the image is reused.
+        linker = sha256(pathlib.Path(args.kernel))
+        if manifest.get('kernel_sha256') != linker:
+            if args.dry_run:
+                print(f'note: dry run; payload.json kernel_sha256 would become {linker}')
+            else:
+                manifest['kernel_sha256'] = linker
+                manifest_path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+                print('ok payload.json: kernel_sha256 updated to the linker output')
+        else:
+            print('ok payload: the rebuilt kernel is byte-identical to the packed one; nothing to do')
         return 0
     fat.write_in_place(offset, transformed)
     new_payload_sha = hashlib.sha256(bytes(image)).hexdigest()

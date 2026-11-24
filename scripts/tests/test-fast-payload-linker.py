@@ -27,7 +27,11 @@ def main() -> int:
 	if '--kernel "$PATCHED_KERNEL"' in segment:
 		print('FAIL: fast-payload is handed the patched copy (P-323)')
 		return 1
-	print('TESTS OK: fast-payload takes the linker output and the boot swap takes the patched copy')
+	tool = (SCRIPT.parent / 'k60-fast-payload.py').read_text(encoding='utf-8')
+	if 'kernel_sha256 updated to the linker output' not in tool:
+		print('FAIL: a byte-identical reuse cannot repair a stale kernel_sha256 (P-323)')
+		return 1
+	print('TESTS OK: fast-payload takes the linker output, and reuse still repairs the record')
 	return 0
 
 

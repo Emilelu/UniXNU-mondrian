@@ -183,7 +183,7 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     # BSD sources (sys/proc.h, the system calls) take kern_exec's flags.
     bsd = json.loads((obj / 'bsd/DEVELOPMENT/kern_exec.o.json').read_text().strip().rstrip(','))
     bsd_sources = {'BootWatchdogPolicy.c', 'BootDiagExport.c', 'WifiFirmware.c', 'BluetoothFirmware.c'}
-    includes = ['-I', str(out / 'headers/include'), '-I', str(device / 'kits/VerifiedRoot/include'), '-I', str(device / 'drivers/NativeUfs'),
+    includes = ['-I', str(out / 'headers/include'), '-I', str(device / 'kits/VerifiedRoot/include'),
                 '-I', str(ROOT / 'drivers/VirtioMmioBlock'), '-I', str(tree / '.cache/xnu-work/osfmk')]
     flags = ['-DNATIVE_UFS_SOURCE_API=1', '-DNATIVE_VERIFIED_BLOCK=1',
              '-DNATIVE_VERIFIED_BLOCK_MULTI_POLICY=1', '-DNATIVE_VERIFIED_POLICY_HANDOFF=1']
@@ -215,7 +215,10 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     for source in sources:
         record = (bsd if source.name in bsd_sources else c) if source.suffix == '.c' else cpp
         output = out / (source.stem + '.o')
-        command = build.compile_command(record, source, output, includes, flags)
+        source_includes = list(includes)
+        if source.parent.name == 'NativeUfs':
+            source_includes += ['-I', str(device / 'drivers/NativeUfs')]
+        command = build.compile_command(record, source, output, source_includes, flags)
         if source == base:
             command.append('-Wno-error')
         result = subprocess.run(command, cwd=record['directory'], text=True,

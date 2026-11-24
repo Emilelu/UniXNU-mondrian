@@ -72,7 +72,7 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 
 第二个必要条件：`mac_late == 0`。`mac_policy_initmach()` 调完 loader 立刻置 `mac_late = 1`，这条路一次性；任何「晚一点再试」的补丁都进不来，只能靠 `_NativePrelinkEarlySecurityInit` 或改 AMFI 自身。
 
-审计侧已按 Lead 裁决（2026-11-21）改在生成器里，而不是手改产物：`E:/k60-work/scratch/stubs/classify.py` 的 `mechanism()`、`unreachable.toml` 的 stanza `reason`、`REPORT.md` 的 Headline 三处都换成上面这条链，并在同一句里保留「早前写法说 `code_signing_init()`，实际只初始化互斥量」的撤回说明。重新生成后计数不变（`stubbed 205` / `items=205 keys=203 bundles=25` / `earliest-post-console=3` / `baseline-targets=55`），`classify.py check` 仍 `check: OK`，`scripts/check-osservices27-silent13.py --strict` 仍 `TESTS OK 48 cases`。`unreachable.toml` 里已无 `enters from code_signing_init()`（0 处），13 行新措辞都在。
+审计侧已按 Lead 裁决（2026-11-21）改在生成器里，而不是手改产物：`E:/k60-work/scratch/stubs/classify.py` 的 `mechanism()`、`unreachable.toml` 的 stanza `reason`、`REPORT.md` 的 Headline 三处都换成上面这条链，并在同一句里保留「早前写法说 `code_signing_init()`，实际只初始化互斥量」的撤回说明。重新生成后计数不变（`stubbed 205` / `items=205 keys=203 bundles=25` / `earliest-post-console=3` / `baseline-targets=55`），`classify.py check` 仍 `check: OK`，`scripts/check-osservices27-silent13.py --strict` 仍 `TESTS OK 50 cases`。`unreachable.toml` 里已无 `enters from code_signing_init()`（0 处），13 行新措辞都在。
 
 ### B.3 可观测性：这次为什么是「黑屏 + 0 字节」
 
@@ -97,7 +97,7 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 
 ### B.4 13 项清单
 
-槽位级（13 行）。`site` 是 kext 里的 `__auth_got` 槽位地址；`加载点` 是解引用该槽的函数与偏移（全部在 `mac_policy_initmach()` 的 early security init 闭包内）；`baseline` 是 bundle 级判定，见 B.7。
+槽位级（13 行）。`site` 是 kext 里的 `__auth_got` 槽位地址；`加载点` 是 `bl` 到该 bundle `__auth_stubs` 桩的调用点（真正的 `ldr` 在桩里，见 B.4.1），全部在 `mac_policy_initmach()` 的 early security init 闭包内；`baseline` 是 bundle 级判定，见 B.7。
 **这张表的 `site` / `加载点` 是 build 20 的审计值**（`candidate_sha256 dee01c54…`）。2026-11-24T12:21 的新构建里 13 个 `(bundle,target)` 仍在 `stubbed`，但槽位地址没有在新构建上重导；拿新构建说话时只能引用 `(bundle,target)`，不能引用 `site`。
 
 | # | site（槽位） | bundle | 目标 | 加载点 | baseline | 目标身份（假设） |
@@ -126,6 +126,43 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 
 三个目标都不在 `kernel.map.json` 的 16,899 个已匹配原始函数里（`in_map=False`），所以它们的身份不能靠常量偏移配对拿到（`PRELINK-RESIDUE.md` 已把那条路关掉），只能靠运行时命名，或与 24A446 fixture 的链接顺序 / 大小 / shape 比对。
 
+### B.4.1 槽位装订取证（2026-11-24，kext 侧 `binary`）
+
+13 个槽位不是「审计脚本说它在 `__auth_got`」——是从 24A446 kext 本体重新解析出来的：
+
+- 每个槽都在其 bundle 的 `__DATA_CONST,__auth_got`；
+- 每个「加载点」是一条 `bl` 到该 bundle 的 `__TEXT_EXEC,__auth_stubs` 桩（审计记的 `caller+off` 就是这条 `bl` 的地址）；
+- 桩的第一组 `adrp x17,<page>` / `add x17,x17,#<off>` / `ldr x16,[x17]` 正好算出该槽地址，随后 `braa x16,x17`（`x17` = 槽地址，所以 PAC 判别器就是槽地址本身）；
+- 一个 `__auth_stubs` 桩 0x30 字节，覆盖 3 个连续的 8 字节槽；本表 13 行全部落在第 0 组。
+
+| # | site | 槽所在节 | 槽内偏移 | 槽文件偏移 | stub | stub 文件偏移 | stub 组 | 调用点（bl） |
+| ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- |
+| 1 | `0xfffffff007f0dcd0` | `__DATA_CONST,__auth_got` | `0xa8` | `0x11840` | `0xfffffff008650d74` | `0x150` | 0 | `0xfffffff00864e34c` |
+| 2 | `0xfffffff008074ce0` | `__DATA_CONST,__auth_got` | `0x50` | `0x515d0` | `0xfffffff008ff9848` | `0xa0` | 0 | `0xfffffff008fdbb2c` |
+| 3 | `0xfffffff0080c7e78` | `__DATA_CONST,__auth_got` | `0x110` | `0x46668` | `0xfffffff00922c188` | `0x220` | 0 | `0xfffffff009209524` |
+| 4 | `0xfffffff0083ae748` | `__DATA_CONST,__auth_got` | `0x50` | `0x26fd8` | `0xfffffff00a87a6a8` | `0xa0` | 0 | `0xfffffff00a86cbbc` |
+| 5 | `0xfffffff0083c1db0` | `__DATA_CONST,__auth_got` | `0x70` | `0x23cae8` | `0xfffffff00a9079a4` | `0xe0` | 0 | `0xfffffff00a8e1488` |
+| 6 | `0xfffffff007f0dce8` | `__DATA_CONST,__auth_got` | `0xc0` | `0x11858` | `0xfffffff008650da4` | `0x180` | 0 | `0xfffffff00864c0d0` |
+| 7 | `0xfffffff008074ce8` | `__DATA_CONST,__auth_got` | `0x58` | `0x515d8` | `0xfffffff008ff9858` | `0xb0` | 0 | `0xfffffff008fee2f0` |
+| 8 | `0xfffffff0080c7e80` | `__DATA_CONST,__auth_got` | `0x118` | `0x46670` | `0xfffffff00922c198` | `0x230` | 0 | `0xfffffff0092094fc` |
+| 9 | `0xfffffff0083ae750` | `__DATA_CONST,__auth_got` | `0x58` | `0x26fe0` | `0xfffffff00a87a6b8` | `0xb0` | 0 | `0xfffffff00a86ce60` |
+| 10 | `0xfffffff0083c1db8` | `__DATA_CONST,__auth_got` | `0x78` | `0x23caf0` | `0xfffffff00a9079b4` | `0xf0` | 0 | `0xfffffff00a8e1460` |
+| 11 | `0xfffffff008074e20` | `__DATA_CONST,__auth_got` | `0x190` | `0x51710` | `0xfffffff008ff9ac8` | `0x320` | 0 | `0xfffffff008fd8f70` |
+| 12 | `0xfffffff0080c8060` | `__DATA_CONST,__auth_got` | `0x2f8` | `0x46850` | `0xfffffff00922c558` | `0x5f0` | 0 | `0xfffffff0092092c8` |
+| 13 | `0xfffffff0083ae858` | `__DATA_CONST,__auth_got` | `0x160` | `0x270e8` | `0xfffffff00a87a8c8` | `0x2c0` | 0 | `0xfffffff00a86a164` |
+
+复跑：`python3 scripts/check-osservices27-sites.py`（WSL；`--kexts /home/emilelu/kc24A446/all`，`--unreachable /mnt/e/k60-work/scratch/stubs/unreachable.toml`）⇒ `TESTS OK 13/13 rows`。槽内偏移是相对 `__auth_got` 节首的偏移；文件偏移是相对 kext 文件起点的偏移。
+
+kext 侧 sha256（`binary` 档要求逐字节可重跑）：
+
+| bundle | sha256 |
+| --- | --- |
+| `com.apple.driver.AppleARMWatchdogTimer` | `948c38f094ebff424fde0942e5b1c9ef57883059986344a5301f7f626d091080` |
+| `com.apple.security.AppleImage4` | `f156ce7d21ae544d09a15e9f61bdc04e083077b57fd742eae1dde405fc09af51` |
+| `com.apple.driver.AppleMobileFileIntegrity` | `892c4c3b7d7ef245f8c37ab772cba3429ed72091ad135530fd3855acfd6d319d` |
+| `com.apple.security.Image4` | `6fece49a74d590441c49de356f759f7a06a650411621f899e9386c30ca02211e` |
+| `com.apple.security.sandbox` | `4c378548cfd71424f2eb16df7f7cb54a19df720c66bb941cf0eee138c3c10ab6` |
+
 ### B.5 三个目标的身份：假设与证伪
 
 - `0xfffffff00b4320d8`（28 B，5 项）：`unknown`。静态锚点是 `kernel.map.json` 里**最后一个**被匹配到的原始函数 `_get_arm_cpu_version`（`0xfffffff00b431f70`，native `0xfffffff007542bb0`，how=`reference-symbol`）**+360**，它之上再没有任何匹配到的函数 ⇒ 位于「我们从未匹配过的尾部」。`REPORT.md:100` 把它归到 pexpert device tree。
@@ -145,11 +182,12 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 每一行共用同一套四法；具体命令与判据：
 
 1. **静态比对（static）**——目标缺席 + 锚点 + 槽位绑定
-   `kernel.map.json`：三个目标 `in_map = False`，锚点与距离如 B.4 表；`sites_chain.json` / `unreachable.toml`：13 个 `site` 与 `target` 的绑定逐行一致（`__auth_got` 槽解码所得）。
-   判据：13/13 绑定一致；`0xfffffff00b4320d8`/`0xfffffff00b432308` 的锚点距离恒为 +360/+920；目标 3 的左右邻函数恒为 `_code_signing_deallocate` / `_disable_code_signing_feature`。
+   `kernel.map.json`：三个目标 `in_map = False`，锚点与距离如 B.4 表；`unreachable.toml`：13 个 `site` 与 `target` 的绑定逐行一致；`scripts/check-osservices27-sites.py`：从 kext 本体重解 13 个槽的 `__auth_got` 节、文件偏移与 `__auth_stubs` 桩（§B.4.1）。
+   判据：13/13 绑定一致、13/13 桩的 `adrp/add/ldr` 算出该槽；`0xfffffff00b4320d8`/`0xfffffff00b432308` 的锚点距离恒为 +360/+920；目标 3 的左右邻函数恒为 `_code_signing_deallocate` / `_disable_code_signing_feature`。
 2. **离线单测（unit）**
    `python3 scripts/check-osservices27-silent13.py --strict`（本线新增，见 §B.8）：断言 13 行集合与 `unreachable.toml` 的 `early_security_init` 过滤结果完全相等、每目标项数 5/5/3、`205/203/25` 声明、每个 `(bundle,target)` 在 `kernel.json` 的 `stubbed` 里且不在 `missing` 里、三个目标不在 `kernel.map.json`、目标 3 的左右邻。
-   判据：`TESTS OK`，退出 0；任何一条不等就失败。
+   `python3 scripts/check-osservices27-sites.py`：断言 13 个槽都在 `__DATA_CONST,__auth_got`、每个调用点 `bl` 到 `__auth_stubs` 桩、桩的第一组 `adrp/add/ldr` 正好算出该槽（§B.4.1）。
+   判据：两个检查都 `TESTS OK`、退出 0；任何一条不等就失败。
 3. **产物检查（artifact）**
    `llvm-nm-18 -m kernel.macho | grep unixnu_fileset_unmapped` → `fffffff00b4687b4 (__TEXT_EXEC,__text) external`；`strings -a kernel.macho | grep -c 'fileset: original component called an unmapped kernel function'` → `1`。
    判据：桩在 `__TEXT_EXEC,__text`（真实可执行代码），panic 串在产物里恰好一份。
@@ -176,7 +214,10 @@ unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 4. `kernel.json`（16:16）：`missing` 3/3、`stubbed` 203/25、`candidate_sha256 dee01c54…`、`early_security_init {AMFI: 0xfffffff00921000c}`、`collection_slide 0x0`
 5. 单测：`python3 scripts/check-osservices27-silent13.py --strict`（WSL root 跑，需读 `kernel.json`/`kernel.map.json`）
    `ok - items per target are 5/5/3` … `ok - table triples equal the audit triples` … `ok - target 0xfffffff00b4320d8 sits above the last matched function (0xfffffff00b431f70)`
-   `TESTS OK 48 cases`，退出 0
+   `TESTS OK 50 cases`，退出 0
+6. 槽位装订（kext 侧）：`python3 scripts/check-osservices27-sites.py`（WSL；`--kexts /home/emilelu/kc24A446/all`）
+   13 个 `site` 全部落在各自 bundle 的 `__DATA_CONST,__auth_got`；13 条 `bl` 全部指向 `__TEXT_EXEC,__auth_stubs`；13 个桩的第一组 `adrp/add/ldr` 全部算出对应槽
+   `TESTS OK 13/13 rows`，退出 0
 
 ### B.9 与「不比基线差」门槛的关系
 

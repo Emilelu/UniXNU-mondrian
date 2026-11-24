@@ -16,6 +16,8 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 >
 > **2026-11-16 重新审视**：见[审计报告](docs/audits/REASSESSMENT-2026-11-16.md)。WiFi c7 停在硬件 SBL/READY，BT d7 在 NVM 阶段总预算超时，ADSP 早期发布链曾缺少 rail 保护，owner 分支已恢复拒绝并提供宿主轨迹；功能实验暂缓，按报告中的条件继续。
 > 下表是本分支八步台账的生成视图，不是镜像放行证。`parked` 项可能被 flash 门禁略过，表中的「可刷机」不能单独授权上机；必须核对镜像所属分支、实际选中的硬件与实验预测。历史通过也不代表当前 HEAD 已重建上机。
+- [](docs/engineering/PORTING-PLAN.md) —— **移植总方案**：四层仓库、启动链、当前状态、已知缺口、产物与回退
+- [](docs/engineering/WORKFLOW.md) —— **工作流**：铁则、八步流程、构建/上机命令、证据记账、交接检查表
 
 ## 八步流程进度
 

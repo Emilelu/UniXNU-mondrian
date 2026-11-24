@@ -62,6 +62,7 @@ ITEMS = [
     'dts',
     'patches',
     'drivers',
+    'package',
     'userland',
     'scripts',
     'kits',

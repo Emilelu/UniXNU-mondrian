@@ -8130,3 +8130,9 @@ payload 阶段是绿的——因为被覆盖发生在它之后。
 ## P-320 ios16 自有补丁被排除在覆盖率审计之外
 
 覆盖率审计对 ios16 本仓做了例外，于是 9 个参考仓都审计了，唯独我们自己 16 线的 69 条补丁从未对照 27。正确形状：audit-ios16-carryover.py 生成 IOS16-CARRYOVER.toml，check-ios16-carryover.py 要求每条有 verdict；partial/missing 不得谎报 carried。
+
+## P-321 分支没有登记表
+
+多线并行后出现 80 条远端分支、46 个 worktree，没人能说出哪条为什么建、什么时候建的、要合什么。分支名与领先数是 git 能回答的，目的与合并条件是只有创建者才知道的。
+
+正确形状：BRANCH-REGISTRY.toml 一条 [[branch]] 对应一条存活分支（name/line/purpose/state/merge_plan/flight），check-branch-registry.py 拒绝未登记的分支；purpose 为 TBD 的条目在每次构建日志里作为 WARN 重复出现，直到所属线填完。

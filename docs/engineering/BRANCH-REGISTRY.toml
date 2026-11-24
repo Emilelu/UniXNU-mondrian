@@ -1,0 +1,345 @@
+# Branch registry for the K60 trees.
+# One [[branch]] entry per non-archive remote branch ahead of main.
+# state: active | merge-candidate | superseded | experiment
+# flight: booted | build-only | none
+# purpose and merge_plan are owned by the line that created the branch.
+
+[[branch]]
+name = "feat/audio-adsp-merge"
+line = "audio"
+ahead = 414
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "diag/menu-hold-20261121"
+line = "lead"
+ahead = 360
+last_commit = "2026-11-24"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/cellular-ios27"
+line = "cellular"
+ahead = 358
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/cellular-27"
+line = "cellular"
+ahead = 321
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/cellular-k55"
+line = "cellular"
+ahead = 319
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/cellular"
+line = "cellular"
+ahead = 276
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "fix/bt-gic-sleep-fragment"
+line = "bluetooth"
+ahead = 192
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "fix/ios27-black-screen-muse-20261122"
+line = "lead"
+ahead = 190
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/audio-ios27-carry"
+line = "audio"
+ahead = 184
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/power-ios27-branch"
+line = "power"
+ahead = 178
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "backup/wifi-ios27-20261120"
+line = "wifi"
+ahead = 120
+last_commit = "2026-11-19"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/wifi-ios27-abi"
+line = "wifi"
+ahead = 120
+last_commit = "2026-11-19"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/gpu-27"
+line = "gpu"
+ahead = 108
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/ufs-27"
+line = "ufs"
+ahead = 100
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/xnu27-data-gate"
+line = "lead"
+ahead = 68
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/xnekom-ios27-pick"
+line = "lead"
+ahead = 67
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "test/wifi-he-scan"
+line = "wifi"
+ahead = 64
+last_commit = "2026-11-19"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/audio-official-27-mapping"
+line = "audio"
+ahead = 56
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/wifi-ios27-tree"
+line = "wifi"
+ahead = 56
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/wifi-station-archive-check"
+line = "wifi"
+ahead = 53
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/official-requirements-r80"
+line = "lead"
+ahead = 52
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/carrier-merge-trial"
+line = "lead"
+ahead = 35
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/adsp-carrier"
+line = "lead"
+ahead = 33
+last_commit = "2026-11-17"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "xnekom-ios27"
+line = "lead"
+ahead = 26
+last_commit = "2026-11-20"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/platform-27"
+line = "platform"
+ahead = 25
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/input-27"
+line = "input"
+ahead = 18
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/charge-auth"
+line = "lead"
+ahead = 16
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "docs/bt-data-mount-gate"
+line = "bluetooth"
+ahead = 5
+last_commit = "2026-11-20"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/display-27"
+line = "display"
+ahead = 4
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/xnu27-psci-target"
+line = "lead"
+ahead = 3
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "docs/xnu-16-to-27-ladder"
+line = "lead"
+ahead = 2
+last_commit = "2026-11-20"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/osservices-27"
+line = "osservices"
+ahead = 1
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/readme-pitfall-262"
+line = "lead"
+ahead = 1
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/usb-27"
+line = "usb"
+ahead = 1
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"

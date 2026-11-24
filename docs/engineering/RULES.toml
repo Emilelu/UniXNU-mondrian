@@ -1468,3 +1468,9 @@ id = "P-320"
 kind = "pitfall"
 statement = "本仓 ios16 自有的内核补丁不得被排除在覆盖率审计之外：每条都必须有 carried/deferred/not-applicable 的书面判定，未判定前禁止构建。"
 check = "python3 scripts/check-ios16-carryover.py"
+
+[[rule]]
+id = "P-321"
+kind = "pitfall"
+statement = "每条存活分支必须在 docs/engineering/BRANCH-REGISTRY.toml 登记：归属线、目的、合并条件、飞行状态；未登记的分支存在时 check-branch-registry.py 必须报错。"
+check = "python3 scripts/check-branch-registry.py"

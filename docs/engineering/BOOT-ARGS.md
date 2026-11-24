@@ -696,3 +696,19 @@ legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不
 - 取值：任意 uint，原样传给 PCIe 端点的属性配置。
 - 作用：`drivers/ShengUfs/NativeUfs.cpp:1242` 用它选择端点访问的内存属性（1 = normal non-cacheable, non-shareable）。
 - 不带的后果：走代码默认；K60 的 UFS 是平台设备、不走 PCIe，这个参数在本机没有效果，声明它是为了让 `check-boot-args.py` 能把「代码里存在」和「文档里声明」对上。
+
+### ShengUfs 适配器继承的开关（K60 上不生效）
+
+这些名字来自 `drivers/ShengUfs/NativeUfs.cpp`（上游适配器，只为 27 的 source-storage API 提供 `native_ufs_source_create` 等入口）。K60 的 UFS 是平台设备，不走 sheng 的 PCIe/WiFi/DPU 路径；列在这里是为了让 `check-boot-args.py` 能把「代码里存在」和「文档里声明」对上，不是建议在启动行里加它们。
+
+| 参数 | 范围 | 作用 |
+| --- | --- | --- |
+| `native-ufs-diagnostics` | 存储 / 诊断 | 布尔开关；打开后 ShengUfs 适配器打印逐笔传输诊断 |
+| `native-ufs-root` | 存储 | 布尔开关；由适配器选择以哪个分区表作为根（K60 走 unixnu 分区，不设） |
+| `native-ufs-stats-delay` | 存储 | 秒数；适配器统计打印的延迟 |
+| `sheng-data-persist` | 存储 | 布尔开关；sheng 的 Data 持久化策略，K60 不设 |
+| `sheng-dpu` | 显示 | 布尔开关；sheng 的 DPU 路径，K60 无此硬件路径 |
+| `sheng-dpu-scanout` | 显示 | 枚举；sheng 的 DPU 扫描方式 |
+| `sheng-log` | 日志 | 布尔开关；sheng 的机内日志 |
+| `sheng-log-reserve` | 日志 | 字节数；sheng 日志预留区 |
+| `sheng-wifi` | WiFi | 布尔开关；sheng 的 WiFi 端口 |

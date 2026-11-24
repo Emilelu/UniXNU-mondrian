@@ -115,40 +115,40 @@ name = "feat/cellular"
 line = "cellular"
 ahead = 276
 last_commit = "2026-11-20"
-state = "merge-candidate"
+state = "superseded"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Initial K60 cellular bring-up branch (iOS 16.6.1): driver, DT, and early flight judges."
+merge_plan = "No separate merge; ancestor of feat/cellular-k55 and superseded by the iOS 27 line."
 
 [[branch]]
 name = "feat/cellular-27"
 line = "cellular"
 ahead = 321
 last_commit = "2026-11-22"
-state = "merge-candidate"
+state = "active"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "Current iOS 27 cellular line branch: seven-step executable criteria, judge, and the one-run W1/W2/F3 verdict contract."
+merge_plan = "Merge into main after the seven-step criteria pass and W1/W2/F3 device gates reach PASS; fragment must first merge into EIGHT-STEPS.toml."
 
 [[branch]]
 name = "feat/cellular-ios27"
 line = "cellular"
 ahead = 358
 last_commit = "2026-11-20"
-state = "merge-candidate"
+state = "active"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "iOS 27 cellular port branch: W1/W2/F3 research docs and the 0626-0630 patch series; divergent from feat/cellular-27."
+merge_plan = "Merge only reviewed docs/patches into feat/cellular-27; do not merge the branch wholesale."
 
 [[branch]]
 name = "feat/cellular-k55"
 line = "cellular"
 ahead = 319
 last_commit = "2026-11-21"
-state = "merge-candidate"
+state = "superseded"
 flight = "build-only"
-purpose = "TBD"
-merge_plan = "TBD"
+purpose = "K55 cellular evidence branch: W1/W2 collection runbook, full-block EFS judge, and the 208-item baseline."
+merge_plan = "No separate merge; ancestor of feat/cellular-27 and superseded by it."
 
 [[branch]]
 name = "feat/charge-auth"

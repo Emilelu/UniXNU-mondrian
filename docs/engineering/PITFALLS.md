@@ -8163,3 +8163,10 @@ r290k（2026-11-24）：`payload-fast` 被传入 `kernel/kernel.patched.macho`�
 
 回归：`scripts/tests/test-capability-reuse.py` 在临时仓库里先造一个 `main` 上的 `OldBlock : IOBlockStorageDevice`，再在分支上造 `NewBlock : IOBlockStorageDevice`，断言检查器先 FAIL、写入 reuse 决策后 PASS。
 
+## P-325 选项加在复制之前：编译命令里看起来有，clang 从没收到
+
+2026-11-24：`drivers/ShengUfs/NativeUfs.cpp` 让 clang 24 在 `ParseBraceInitializer` 处崩溃（frontend signal，无限栈也不救）。第一版修法是在 `source_flags.append('-fbracket-depth=4096')`，但紧接着一行 `source_flags = list(flags)` 把这个列表整个换掉——构建日志里没有任何提示，clang 仍然按默认 256 层解析并崩溃，看起来像「这个 flag 没用」。
+
+正确形状：所有 `append` 必须在 `source_flags = list(flags)` 之后；并且编译前打印 `source-storage: compiling <name>`，否则失败时只能看到一个没有文件名的 signal 栈。
+
+回归：`scripts/tests/test-sheng-source-storage-flags.py` 用一段最小 Python 片段断言「append 在复制之前」时列表不含该选项、在之后时含。

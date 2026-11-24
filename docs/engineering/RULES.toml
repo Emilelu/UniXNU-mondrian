@@ -1502,3 +1502,8 @@ kind = "iron"
 statement = "往仓库添加子模块或整目录外来驱动前，必须先证明本仓没有同类实现并在 BRANCH-REGISTRY 写明能力归属；drivers/package 相关分支的 purpose/merge_plan 不允许 TBD。"
 check = "python3 scripts/check-capability-reuse.py --base main"
 
+[[rule]]
+id = "P-325"
+kind = "pitfall"
+statement = "给编译命令追加选项必须发生在 `flags = list(base)` 之后；在复制之前 append 会被下一次赋值静默覆盖，编译选项看起来加了、实际从未传给 clang。"
+check = "python3 scripts/tests/test-sheng-source-storage-flags.py"

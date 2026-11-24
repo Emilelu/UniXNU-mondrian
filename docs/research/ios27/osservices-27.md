@@ -344,9 +344,9 @@ Lead 裁决顺序：B → A → C（2026-11-21）。本段只写**接入点、�
 
 1. 用**本板** prelink 后的 `kernel.macho`（kext 侧仍有符号表；Apple kernelcache 是 `LC_SYMTAB nsyms 0`，读不到名字 —— 所以不要先拿 24A446 反汇编去猜）。
 2. `llvm-nm-18 -m kernel.macho | grep -i 'IOCryptoAccelerator\|IOAESAccelerator'` → 有 `__ZTV…` 就拿到 vtable 符号；没有则按「`IOAESAccelerator` 16 字符」拼 `__ZTV16IOAESAccelerator` 再试。
-3. `llvm-objdump-18 --macho --section=__TEXT,__const`（或该 kext 的 `__DATA_CONST`）读 vtable：长度应为 `2 + 16` 槽 = 0x90 B；逐槽取归属函数地址，按 `OriginalAESABI.h` 的顺序核对（`getAlgorithmName` → 两个 `performAES` 重载 → `isKeySupported` → `getSupportedOptions` → …）。
+3. `llvm-objdump-18 --macho --section=__TEXT,__const`（或该 kext 的 `__DATA_CONST`）读 vtable：**以 §A.5.1 的实测为基线** —— `IOAESAccelerator` 181 槽，相对 `IOService` 的 168 槽，尾部新增 13 槽在 0x548–0x5a0（旧稿按 `OriginalAESABI.h` 的「2 + 16 槽 = 0x90 B」估算，已作废）。逐槽取归属函数地址，按 `OriginalAESABI.h` 的顺序核对（`getAlgorithmName` → 两个 `performAES` 重载 → `isKeySupported` → `getSupportedOptions` → …）。
 4. `IOAESKeyData.selector` 偏移：在 `performAES` 的调用者里找该参数结构的字段装载（`ldr w?, [x?, #0x24]`），0x24 = 36 即为对上。
-5. **通过判据**：槽数 18、顺序一致、偏移 0x24。**任一不符** ⇒ 不接 SoftwareAES，改走 ABI 探测（`native_aes_kat_status` 计数 + `_unsupported_key`），并在 §C 记 `unknown`。
+5. **通过判据**：181 槽、尾部 0x548–0x5a0 与 `OriginalAESABI.h` 的「1 + 12」一一对齐、`IOAESKeyData.selector` 偏移 0x24。**任一不符** ⇒ 不接 SoftwareAES，改走 ABI 探测（`native_aes_kat_status` 计数 + `_unsupported_key`），并在 §C 记 `unknown`。
 
 **输入 2：27 的 AKS selector 表**
 

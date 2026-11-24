@@ -1484,3 +1484,8 @@ id = "P-322"
 kind = "pitfall"
 statement = "根设备第一个发布的块设备必须是 OS 盘（带保护 MBR）；只校验 GPT 签名不校验 0x55AA 会把 SystemOS 的 APFS 超级块当 MBR。"
 check = "python3 drivers/NativeUfs/tests/check-verified-root.py"
+[[rule]]
+id = "P-323"
+kind = "pitfall"
+statement = "fast-payload 必须收到链接器输出：它自己执行 transform 并记录 kernel_sha256；传已打补丁的副本会把补丁哈希写进 payload.json，check-ios27-artifacts 必报不一致。"
+check = "python3 scripts/tests/test-fast-payload-linker.py"

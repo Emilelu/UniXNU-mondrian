@@ -8144,3 +8144,11 @@ payload 阶段是绿的——因为被覆盖发生在它之后。
 正确形状：第一个发布的块设备必须是 OS 盘；`prepareForPublish()` 除 GPT 签名（+512）外还要校验保护 MBR（+510/+511 = `55 AA`），两者缺一即 `transportFailure`，不得发布。16.6.1 的顺序是 OS、SystemOS、Data（`PongUfsTransport.cpp:604-612`）。
 
 回归：`drivers/NativeUfs/tests/RootPublication.cpp` 断言 `plan.order == {0,2,1,3}` 且 `startOrder == waitOrder`。
+
+## P-323 fast-payload 拿到的必须是链接器输出，不是打过补丁的副本
+
+r290k（2026-11-24）：`payload-fast` 被传入 `kernel/kernel.patched.macho`。`k60-fast-payload.py` 自己会执行声明的 transform，并把传入文件的哈希写进 `payload.json` 的 `kernel_sha256`；传入已打补丁的副本等于把补丁后的哈希写成"链接器输出"，`check-ios27-artifacts.py:266` 再拿它和 `kernel/kernel.macho` 比对，必然报 `payload.json records kernel_sha256 3980761…, but kernel/kernel.macho is e0c083eb…`——镜像字节其实是对的。
+
+正确形状：`fast-payload --kernel` 收链接器输出（`$BOARD_DIR/kernel/kernel.macho`），`kernel-swap --kernel` 收打过补丁的副本（`kernel.patched.macho`）；两个消费点的参数不能互换。
+
+回归：`scripts/tests/test-fast-payload-linker.py` 断言 fast-payload 调用点只出现链接器路径。

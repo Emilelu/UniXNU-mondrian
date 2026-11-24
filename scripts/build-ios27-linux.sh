@@ -183,8 +183,11 @@ else
 	} | sha256sum | cut -d' ' -f1 )
 	if [ -z "${K60_NO_FAST_PAYLOAD:-}" ] && [ -f "$BOARD_DIR/payload/payload.json" ] &&
 		[ -f "$ADT_KEY" ] && [ "$(cat "$ADT_KEY")" = "$adt_key" ]; then
+		# fast-payload takes the linker output and applies the transform itself;
+		# handing it the patched copy records the patched hash as kernel_sha256
+		# and trips check-ios27-artifacts (P-323).
 		if python3 "$ROOT/scripts/k60-fast-payload.py" --device "$ROOT" --board "$BOARD_DIR" \
-			--kernel "$PATCHED_KERNEL"; then
+			--kernel "$BOARD_DIR/kernel/kernel.macho"; then
 			payload_done=1
 			mark payload-fast
 		else

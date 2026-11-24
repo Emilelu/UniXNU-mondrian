@@ -31,6 +31,9 @@ def load_helper(name, path):
 
 def compile_command(record, source, output, includes, extra):
     arguments = record['arguments']
+    # Build records may start with the ccache launcher; the compiler is the next word.
+    if len(arguments) > 1 and os.path.basename(arguments[0]).startswith('ccache'):
+        arguments = arguments[1:]
     command = [arguments[0], *includes]
     index = 1
     replaced = False

@@ -151,12 +151,32 @@ def main(argv: list[str]) -> int:
         if args.kernel_json.exists():
             kj = json.loads(args.kernel_json.read_text())
             stubbed, missing = kj["stubbed"], kj["missing"]
-            stub_items = sum(len(v) for v in stubbed.values())
-            miss_items = sum(len(v) for v in missing.values())
-            check(stub_items == 203 and len(stubbed) == 25,
-                  "kernel.json: 203 stubbed items in 25 bundles", f"{stub_items}/{len(stubbed)}")
-            check(miss_items == 3 and len(missing) == 3,
-                  "kernel.json: 3 missing items in 3 bundles", f"{miss_items}/{len(missing)}")
+            sha = kj.get("candidate_sha256", "")
+            builds = table.get("build", {})
+            spec = next((b for b in builds.values() if b.get("candidate_sha256") == sha), None)
+            check(spec is not None,
+                  f"kernel.json candidate {sha[:12]}… is a recorded build",
+                  f"recorded builds: {sorted(builds)}")
+            if spec is not None:
+                def _metrics(table_: dict) -> tuple[int, int, int]:
+                    items = sum(sum(v.values()) if isinstance(v, dict) else 0 for v in table_.values())
+                    targets_ = len({address for value in table_.values() for address in value})
+                    return items, targets_, len(table_)
+
+                stub_items, stub_targets, stub_bundles = _metrics(stubbed)
+                miss_items, miss_targets, miss_bundles = _metrics(missing)
+                check((stub_items, stub_targets, stub_bundles)
+                      == (spec["stubbed_items"], spec["stubbed_targets"], spec["stubbed_bundles"]),
+                      f"kernel.json: {spec['stubbed_items']} stubbed items / "
+                      f"{spec['stubbed_targets']} targets / {spec['stubbed_bundles']} bundles",
+                      f"{stub_items}/{stub_targets}/{stub_bundles}")
+                check((miss_items, miss_targets, miss_bundles)
+                      == (spec["missing_items"], spec["missing_targets"], spec["missing_bundles"]),
+                      f"kernel.json: {spec['missing_items']} missing items / "
+                      f"{spec['missing_targets']} targets / {spec['missing_bundles']} bundles",
+                      f"{miss_items}/{miss_targets}/{miss_bundles}")
+                check(kj.get("candidate_bytes") == spec["candidate_bytes"],
+                      f"kernel.json candidate_bytes {spec['candidate_bytes']}", str(kj.get("candidate_bytes")))
             declared = table["declared"]
             check(declared == {"slots": 205, "targets": 203, "bundles": 25, "missing": 3, "stubbed": 203},
                   "declared counts keep 205 and 203 side by side", str(declared))

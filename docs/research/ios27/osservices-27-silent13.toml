@@ -8,10 +8,39 @@
 # 各被 IOHIDFamily + IOStorageFamily 两个 bundle 持有）。
 #
 # `baseline` 是 bundle 级判定（classify.py:420-433 BASELINE_BUNDLES），不是地址级。
+# `site`（每条 slot 的加载点地址）来自 build 20 的审计；2026-11-24T12:21 的新构建里 13 个
+# (bundle,target) 仍在 stubbed 里，但 slot 的 site 没有在新构建上重导，引用 site 时要写 build 20。
 # 本文件由 scripts/check-osservices27-silent13.py 校验；改这里必须同时改 md 的 B.4 表。
 
 declared = { slots = 205, targets = 203, bundles = 25, missing = 3, stubbed = 203 }
 early_security_init = { bundle = "com.apple.driver.AppleMobileFileIntegrity", address = "0xfffffff00921000c" }
+
+# 计数是 **构建相关** 的：同一个表可以校验不同次构建，但必须先在这里登记那次构建。
+# `items` = 各 bundle 的权重和；`targets` = 去重地址数；`bundles` = owner 数。
+# 只登记实测过的构建；未登记的 candidate_sha256 会被 checker 判 FAIL，而不是「约等于」。
+[build."20"]
+candidate_sha256 = "dee01c54a73edf594bbe866ae020cb3331d31afe3edc4616b1a6fc0a34fbaad0"
+candidate_bytes = 93061120
+closure_bundles = 30
+stubbed_items = 203
+stubbed_targets = 203
+stubbed_bundles = 25
+missing_items = 3
+missing_targets = 3
+missing_bundles = 3
+note = "2026-11-21 06:33 与 16:16 两次产物同 hash；本文件所有 205/203/25 行文都指这一次"
+
+[build."2026-11-24T12:21"]
+candidate_sha256 = "6c567b45d643d43bf035f85376809de0ad2282f5f923f04d6f5dc1fb03a890ec"
+candidate_bytes = 93143040
+closure_bundles = 57
+stubbed_items = 243
+stubbed_targets = 142
+stubbed_bundles = 34
+missing_items = 156
+missing_targets = 22
+missing_bundles = 34
+note = "同目录 12:21 的新构建（closure 57 bundle）；13 个 (bundle,target) 仍全部在 stubbed 里，但总量变了，不能拿 build 20 的 203 去描述它"
 
 [[target]]
 address = "0xfffffff00b4320d8"

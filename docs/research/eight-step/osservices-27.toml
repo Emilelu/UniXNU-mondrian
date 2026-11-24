@@ -30,17 +30,19 @@ paths = [
   "configs/mondrian_ios27_defconfig",
 ]
 why = '''本线负责的三项在 27 stage-0 全部未接入：board.toml 的 [os_overrides."ios-27.0.1-24A446"]（board.toml:341-410）只 include ArmDTPlatform/ArmCpu/XnuPrelink，configs/mondrian_ios27_defconfig（26 行）无任何安全/加密/AKS 开关，patches/xnu-12377/series（91 行）无 keybag/AKS/SoftwareAES/AMFI 补丁。
-prelink 残留两个数字必须并列写：205 个指针槽 = 203 个不同目标地址 + 2 个被 IOHIDFamily 与 IOStorageFamily 共用的地址（0xfffffff00b430ab8、0xfffffff00b430bd4）。build 20（06:33）与 16:16 重建的 candidate_sha256 同为 dee01c54a73edf59…（93,061,120 B），kernel.json 的 stubbed = 203 项 / 25 bundle、missing = 3 项 / 3 bundle；上游 iPad17,3 24A446 基线是 2 missing / 24 stubbed。
+prelink 残留两个数字必须并列写：205 个指针槽 = 203 个不同目标地址 + 2 个被 IOHIDFamily 与 IOStorageFamily 共用的地址（0xfffffff00b430ab8、0xfffffff00b430bd4）。build 20（06:33）与 16:16 重建的 candidate_sha256 同为 dee01c54a73edf59…（93,061,120 B），kernel.json 的 stubbed = 203 项 / 25 bundle、missing = 3 项 / 3 bundle；上游 iPad17,3 24A446 基线是 2 missing / 24 stubbed。产物在 2026-11-24 12:21 变了：同目录新 kernel.json 为 6c567b45d643d43b…（93,143,040 B，closure 57 bundle，stubbed 243 项/142 去重地址/34 bundle，missing 156/22/34）；13 个 (bundle,target) 仍全部在 stubbed 里，所以清单不变、计数必须按 candidate_sha256 分别写（silent13.toml 的 [build.*] 已登记两次构建）。
 13 项静默优先集 = 3 个目标（0xfffffff00b4320d8 / 0xfffffff00b432308 / 0xfffffff00b11a998）被 5 个 bundle 在 AMFI 的 early security init 里解引用；触发点是 kernel_bootstrap_thread() 的 mac_policy_initmach()（SN/osfmk/kern/startup.c:836），早于 bsd_init()（:926）与 USB 控制台，因此失败只在屏上、不进日志。'''
 revisit = "Lead 一次 boot 后按 docs/research/ios27/osservices-27.md §B.3 的四行判据回填；A 段（三组件接入点）与 C 段（open→closed 判据表）随后补，不取消"
 
 [hardware.os_services.step.same_model]
-done = false
-evidence = '''缺：同型（SM8550 / sheng，同一 ipados-27.0.1-24A446 profile）上这三项的实际接法。
-已核到的反面事实：E:/hackios/UniXNU-sheng/board.toml 全文没有 [firmware] 表，grep 不到 preflight 选择；E:/hackios/UniXNU-sheng/drivers/ShengPreflight 是空子模块目录（gitlink 9cfc8d2c），内容取不到；同仓 package/KeyStoreProbe.cpp 是 payload 侧探针，不是内核 provider；AppleKeyStoreState 的 6 个 native_aks_* 符号在 UniXNU-sheng / UniXNU-mondrian / UniXNU-pong / UniXNU-zizhan / xnekom-ios27 里都没有内核侧定义。
-仍缺：sheng 是否把 SoftwareAES 作为 component: 引用、sheng 的 AKS 走哪条路（MiniAppleKeyStore 还是 kext）、sheng 的板级预检脚本清单。
-能定它的证据：上述三处各给一条 file:line（sheng 侧 build 记录或 board.toml），加本板 16.6.1 的同项状态（16 线只有 zzzzzzzzzzzzzzzzzzzzzzzz-pong-software-keybag.patch 的软件 keybag，27 线连 MiniAppleKeyStore.cpp 都没有）。'''
-recorded_at = "2026-11-21T14:05:00"
+done = true
+evidence = '''同型 = SM8550 / sheng，同一 ipados-27.0.1-24A446 profile。四处实测：
+1) sheng 的 27 profile（E:/hackios/UniXNU-sheng/board.toml:117）components.include 里有 AppleKeyStoreState，没有 SoftwareAES；非 27 profile（:174/:177/:194）两者都有，archives 里是 "component:SoftwareAES" + "build-software-aes-bindings.py"（顺序：component 在前，绑定脚本在后）。
+2) sheng 的 AKS 路线是「只报状态」：provider 是 E:/hackios/UniXNU-sheng/package/KeyStoreProbe.cpp（native_aks_state_enabled:27、native_aks_call:85、计数器 native_aks_opens/calls:24），由 scripts/build-gop-legacy-display-27.py:368-369 编成 KeyStoreProbe.o，:701 链进 libNativeLegacyDisplay.late.a，调用点 package/LegacyDisplayProbe.cpp:514 native_keystore_probe()。不是 payload 侧代码。
+3) 本板对应文件是空壳：k60-gates/package/LegacyDisplayProbe.cpp 与 k60-gates/kits/mondrian/LegacyDisplayProbe.cpp 都是 39 行，grep -i 'keystore|native_aks' 无命中；OFFICIAL-DRIVER-MAP.md:99 引的 :513 是 sheng 的文件。
+4) ShengPreflight：sheng 的 board.toml 全文没有 [firmware] 表，drivers/ShengPreflight 是空子模块（gitlink 9cfc8d2c）⇒ sheng 侧的预检脚本清单仍未取到，只能确认机制在框架 scripts/unixnu/firmware.py:46-50。
+差距结论：sheng 的 27 profile 自己也没接 SoftwareAES（只有 AppleKeyStoreState + KeyStoreProbe），所以「同型最佳状态」= AKS 只报状态、AES 缺；本板要向它对齐的只有 AKS 路线 2，AES 得自己补（§A.6 第 1-4 行）。'''
+recorded_at = "2026-11-24T14:05:00"
 
 [hardware.os_services.step.official]
 done = true
@@ -62,7 +64,7 @@ evidence = '''两半都做了：机制取证（内核侧）与产物取证（本
 3) 修正审计的一句话：unreachable.toml 每行 reason 写「kernel 从 code_signing_init()（:526）进入该闭包」不成立 —— SN/bsd/kern/code_signing/xnu.c:56-61 的 code_signing_init() 在 !CODE_SIGNING_MONITOR 分支里只有一句 lck_mtx_init，不启动任何 kext。优先级论证改挂在 mac_policy_initmach()（:836）上。
 4) 产物：16:16 的 kernel/kernel.macho（93,061,120 B）里 llvm-nm-18 -m 给出 fffffff00b4687b4 (__TEXT_EXEC,__text) external _unixnu_fileset_unmapped，strings 里 panic 串恰好 1 份；kernel.json 的 early_security_init = {AMFI: 0xfffffff00921000c}、collection_slide 0x0、mapping_complete False、stubbed 203 项/25 bundle、missing 3 项/3 bundle。
 5) 13 项的静态身份：三个目标都不在 kernel.map.json 的 16,899 个已匹配函数里。0xfffffff00b4320d8（28 B）与 0xfffffff00b432308（664 B）在最后一个已匹配原始函数 _get_arm_cpu_version（0xfffffff00b431f70，native 0xfffffff007542bb0）之上 +0x168 / +0x398，其后无任何匹配函数；0xfffffff00b11a998（240 B）夹在 _code_signing_deallocate（0xfffffff00b11a890，+0x108）与 _disable_code_signing_feature（0xfffffff00b11aa88，−0xf0）之间。逐槽清单见 docs/research/ios27/osservices-27-silent13.toml。
-6) 仍缺（属 A 段）：IOCryptoAcceleratorFamily 在 24A446 kernelcache 里的类布局与 16 个虚槽、IOAESKeyData 的 selector 偏移是否仍 36；AKS 在 27 的 selector 表与状态回调形状。能定它们的证据：kernelcache 反汇编 + 27 kext 的 __DATA_CONST 逐字节对照 OriginalAESABI.h。'''
+6) A 段两个输入已于 2026-11-24 补测（§A.5，详见 docs/research/ios27/aes-aks-27-abi.md）：24A446 kernelcache（sha256 fa07057b…，与 profile 的 kernelcache_sha256 相同）里 IOAESAccelerator size 0x120 / vtable 181 槽 / 尾槽 0x548–0x5a0，与 OriginalAESABI.h 的 1+12 布局逐槽对齐；AppleSEPKeyStore 的 169 项跳转表（0xfffffff0095d8f10）解出 126 个 handler，AppleKeyStoreState 的 15 个 selector 里 14 个有入口、102（0x66）被拒。仍未测：方法签名与 PAC 判别器、IOAESIV/IOAESKeyData 布局（纯数据，无元数据可读，记 inferred）。'''
 recorded_at = "2026-11-21T17:05:00"
 
 [hardware.os_services.step.wide]
@@ -75,13 +77,17 @@ catalog_result = "29 个 component 中与第 8 行相关的只有 DarwinBoot(fir
 recorded_at = "2026-11-21T17:05:00"
 
 [hardware.os_services.step.plan]
-done = false
-recorded_at = "2026-11-22"
-evidence = '''缺两项才能把 plan 写成「文件 + 改动 + 依据」的表：SoftwareAES 的 27 类布局、AKS 的 27 selector 差集（§A.4 程序一/二，等 Lead 授权离线跑）。其余已有落点：
-· ShengPreflight 的脚本、测试、接线 patch 已交（docs/research/ios27/shengpreflight/，17 例全过，git apply --check 对共享树通过），等 Lead 落盘后把路径换成真实路径；
-· 13 项槽位不需要 plan：它们不改代码，只等观测（§C.2）；
-· §A.2 的 7 条 16 线 keybag 资产已按 CARRY-OVER-INVENTORY 纪律登记（4 条 to-port / 3 条 not-needed + 理由），但选哪条路线（补 provider 还是只报状态）要有 selector 差集才能定。
-能定它的证据：§A.4 两段的命令各跑一次并留下输出；ShengPreflight 需要先定 [firmware] preflight 的脚本路径与输入清单（这一项要动 board.toml，属共享树，需 Lead 指派）。另按 2026-11-22 广播的规则 2 查过共享 RAG 库：IOAESAccelerator / IOCryptoAccelerator 各 4 条命中全是本仓文档，无一条给出 27 的类布局 ⇒ 两个值保持「未证」，不因「库里有」而当成已知。'''
+done = true
+recorded_at = "2026-11-24"
+evidence = '''§A.6 的六行表就是 plan，逐行是「文件 + 改动 + 依据 + 判据」，没有 should/might：
+1) board.toml 的 27 override kernel.archives：component:ArmCpu 之后插 "component:SoftwareAES" + "build-software-aes-bindings.py"；依据 UniXNU-sheng/board.toml:177 同序、components.toml:228-247。
+2) UniXNU/scripts/data/native-aes-original-bindings.S：18 条 .set 换成 24A446 IOAESAccelerator vtable（0xfffffff00827b820，181 槽）对应槽 target；依据现表地址属另一 kernelcache（0xfffffff004a80c98 / 0xfffffff006ae52d0），生成器 scripts/build-software-aes-bindings.py:14-25/:52-60 会在构建时逐槽校验。
+3) 新 patch 改 iokit/KernelConfigTables.cpp：27 全文 47 行只有 IOPanicPlatform/IOExclaveProxy（:38/:43），末尾加 NativeAES personality 4 行；依据 16 线 native-aes-personality.patch:8-14，但 16 线 series 未列、configs/mondrian_defconfig:15 是 CONFIG_XNU_NATIVE_AES=n ⇒ 两边都没启用过，属新增。
+4) configs/mondrian_ios27_defconfig 加 CONFIG_XNU_NATIVE_AES=y；依据 DOCS-CORE-ALL.md:154 的 CONFIG_XNU_<NAME>→XNU_<NAME> 映射与 build-xnu-4k-baseline.sh:98 的启用条件。
+5) 反向项：kernel.archives 不加 component:AppleKeyStoreState；依据本板 39 行桩 LegacyDisplayProbe（无 provider）+ 27 kernel_args 无 sheng-aks=1 + 无 SEP。
+6) [firmware] preflight 加 check-ios27-board-inputs.py --os ios-27.0.1-24A446；依据 scripts/unixnu/firmware.py:46-50 的 env-only 契约。
+唯一留待观测的判据是 AKS：第一次进用户态看 MKBEvents 有没有被打开（AKS opens 计数/拒绝串），没有就维持路线 2，有就补 provider 并排 4 条 to-port 资产。
+类布局与 selector 差集两项已在 2026-11-24 测完（§A.5），不再是 plan 的前置未知。'''
 
 [hardware.os_services.step.deep]
 done = true
@@ -98,8 +104,8 @@ evidence = '''每个未定项现在都有一条可证伪的出口，且分别记
 done = true
 local_verified = false
 static_check = "kernel.map.json：三个目标均不在 16,899 个已匹配函数里；锚点 _get_arm_cpu_version 0xfffffff00b431f70 +0x168/+0x398，_code_signing_deallocate 0xfffffff00b11a890 +0x108 / _disable_code_signing_feature 0xfffffff00b11aa88 −0xf0；unreachable.toml 与 silent13.toml 的 13 组 (bundle,target,site) 完全相等"
-unit_test = "python3 scripts/check-osservices27-silent13.py --strict → TESTS OK 48 cases（13 槽 / 5-5-3 项 / 8 true 5 false baseline / 203 项 25 bundle / 3 项 3 bundle / 三目标缺席 / 锚点与距离 / esi=0xfffffff00921000c）；另 python3 classify.py check → chain sites 594801 … stubbed 205、items=205 keys=203 bundles=25、check: OK，1.97 s"
-artifact_check = "llvm-nm-18 -m kernel.macho → fffffff00b4687b4 (__TEXT_EXEC,__text) external _unixnu_fileset_unmapped；strings -a | grep -c 'fileset: original component called an unmapped kernel function' → 1；kernel.json candidate_sha256 dee01c54a73edf59… / 93,061,120 B，与 build 20 相同"
+unit_test = "python3 scripts/check-osservices27-silent13.py --strict → TESTS OK 50 cases（13 槽 / 5-5-3 项 / 8 true 5 false baseline / 表内 [build] 按 candidate_sha256 选计数：build 20 = 203 项 25 bundle + 3 项 3 bundle，2026-11-24T12:21 = 243 项 142 目标 34 bundle + 156 项 22 目标 34 bundle / 三目标缺席 / 锚点与距离 / esi=0xfffffff00921000c）；另 python3 classify.py check → chain sites 594801 … stubbed 205、items=205 keys=203 bundles=25、check: OK，1.97 s（该审计只描述 build 20）"
+artifact_check = "llvm-nm-18 -m kernel.macho → fffffff00b4687b4 (__TEXT_EXEC,__text) external _unixnu_fileset_unmapped；strings -a | grep -c 'fileset: original component called an unmapped kernel function' → 1；kernel.json candidate_sha256 dee01c54a73edf59… / 93,061,120 B，与 build 20 相同；2026-11-24T12:21 的新产物是 6c567b45d643d43b… / 93,143,040 B（13 个 (bundle,target) 仍在 stubbed，slot 的 site 列仍是 build 20 审计值，未在新构建上重导）"
 evidence = '''本步只覆盖 B 段（13 项）；A 段三组件与 C 段判据表随各自段落补，故 local_verified = false（无上机）。
 三类核验都已跑过并留下可复算的命令与输出，见上三个字段与 docs/research/ios27/osservices-27.md §B.8。产物路径：/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/kernel/{kernel.json,kernel.map.json,kernel.macho}（root 600，WSL 需 wsl -u root 读）。
 「编译通过」不算核验，所以这里没有编译步骤；三类证据分别是：静态（映射缺席与锚点）、单测（48 例断言，含与审计文件的逐行一致）、产物（符号在 __TEXT_EXEC,__text 且 panic 串唯一）。

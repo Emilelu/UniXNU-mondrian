@@ -122,6 +122,8 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 - [`docs/engineering/REPO-MAP.md`](docs/engineering/REPO-MAP.md) —— 仓库与目录登记表：三个组件仓库路径、构建副本、yibiya 镜像、打镜像该用哪个 DTB
 - [`docs/engineering/BATTERY-INTEGRATION.md`](docs/engineering/BATTERY-INTEGRATION.md) —— 电池栈编译集成：构建脚本改动、defconfig 开关、宏链路、归档构建时机
 - [`docs/engineering/DIVISION-OF-LABOR.md`](docs/engineering/DIVISION-OF-LABOR.md) —— 上下游分工与仓库覆盖：23 跟踪 / 48 同步 / 3 pick
+- [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md) —— **移植总方案**：四层仓库、启动链、当前状态、已知缺口、产物与回退
+- [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md) —— **工作流**：铁则、八步流程、构建/上机命令、证据记账、交接检查表
 | [`docs/research/EIGHT-STEPS.toml`](docs/research/EIGHT-STEPS.toml) | 逐硬件的八步证据（门禁数据源） |
 | [`docs/research/SOURCES.toml`](docs/research/SOURCES.toml) | 必须考察的参考源清单（门禁数据源） |
 | [`CREDITS.md`](CREDITS.md) | 贡献者与全部外部来源 |

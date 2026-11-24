@@ -255,3 +255,21 @@ bool NativeUfs::start (IOService *provider)
 
 // Phase-2 unity merge: the generic component builder compiles one source file.
 
+#if defined(NATIVE_UFS_SOURCE_API) && NATIVE_UFS_SOURCE_API
+// SourceStorage.cpp creates one IOService and then calls init/attach/start on it.
+// This class already performs the transport bring-up and publishes every SHNGROOT
+// window as an IOBlockStorageDevice in start(), so the source runtime only needs
+// the factory and the diagnostic fields below.
+extern "C" IOService *native_ufs_source_create (void)
+{
+  return new NativeUfs;
+}
+
+extern "C" volatile uint32_t native_ufs_root_step = 0;
+extern "C" const char *volatile native_ufs_root_failure = "not started";
+extern "C" volatile uint32_t native_ufs_irq_mode = 0;
+extern "C" volatile uint32_t native_ufs_list_mode = 9;
+extern "C" volatile uint64_t native_ufs_irqs = 0;
+extern "C" volatile uint64_t native_ufs_irq_sleeps = 0;
+#endif
+

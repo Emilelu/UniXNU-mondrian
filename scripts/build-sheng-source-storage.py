@@ -188,7 +188,7 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     flags = ['-DNATIVE_UFS_SOURCE_API=1', '-DNATIVE_VERIFIED_BLOCK=1',
              '-DNATIVE_VERIFIED_BLOCK_MULTI_POLICY=1', '-DNATIVE_VERIFIED_POLICY_HANDOFF=1']
     # The RAM disk carries the Data seed; like NativeUfs its class registers with the source storage classes.
-    sources = [base, device / 'drivers/ShengUfs/NativeUfs.cpp', device / 'drivers/NativeRamBlock/NativeRamBlock.cpp',
+    sources = [base, device / 'drivers/NativeUfs/NativeUfs.cpp', device / 'drivers/NativeUfs/PongUfsTransport.cpp', device / 'drivers/NativeRamBlock/NativeRamBlock.cpp',
                device_source('SourceStorage.cpp'), device_source('SourceRootPolicies.cpp'),
                device_source('SourceRootBinding.cpp'), boot_log_defaults,
                device / 'kits/VerifiedRoot/src/verified_root.c',

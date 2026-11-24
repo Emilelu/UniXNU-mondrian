@@ -202,14 +202,15 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     for source in sources:
         record = (bsd if source.name in bsd_sources else c) if source.suffix == '.c' else cpp
         output = out / (source.stem + '.o')
+        print(f'source-storage: compiling {source.name}', flush=True)
         source_includes = list(includes)
         if source.parent.name == 'NativeUfs':
             source_includes += ['-I', str(device / 'drivers/NativeUfs')]
+        source_flags = list(flags)
         if source.name == 'NativeUfs.cpp':
             # The upstream adapter nests brace initialisers deeper than clang's default
             # 256-level limit; without this the parser segfaults (P-325).
             source_flags.append('-fbracket-depth=4096')
-        source_flags = list(flags)
         if source.name == 'BootLog.c':
             # The vendor log keeps a 16-entry counter block but prints entries 16..; the
             # reads are diagnostic only, so keep the vendor source and downgrade this one check.

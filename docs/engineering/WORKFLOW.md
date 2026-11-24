@@ -90,3 +90,50 @@ bash scripts/flash.sh /mnt/e/k60-work/artifacts/boot-*.img 300
 - [ ] `check-ios27-artifacts.py` 结构与 `--flight-ready` 状态已记录。
 - [ ] 最近一张能打印文字的镜像与最近一张失败的镜像都归档，并写明差异。
 - [ ] unixnu 分区镜像与写盘脚本、校验命令一并留在 `docs/research/ios27/BUILD-*.md`。
+
+## 8. DSH 多线 Agent 并行协作
+
+移植不是一个人做完的：音频、蓝牙、蜂窝、电源/充电、WiFi、显示、GPU、USB、存储各有一条独立工作线，
+每条线由一个 DSH agent 会话负责，Lead 负责裁决、合流与上机。
+
+### 8.1 DSH 侧的基础设施
+
+- **Profile**：`C:\Users\Emilelu\.dsh\profiles\desktop`。`cordis.patch.yml` 里每个 provider 必须带
+  `retryPolicy: {mode: always, backoff: {initialDelayMs: 1000, maxDelayMs: 30000, jitterRatio: 0.2}}`；
+  少了它，一轮重试耗尽后会话就退化到「必须手动发继续」。
+- **模型设置页会重写 `cordis.patch.yml`**：`"off"` 的引号、缩进、未知字段都可能被改掉；每次在 GUI 改过 provider
+  都要重新校验（`reasoningEfforts` 的关闭键是带引号的 `"off"`，不是 `none`）。
+- **MCP / 插件**：`windows-mcp-bridge` 这类 stdio MCP 只在 DSH 启动时连接；改配置后必须重启 DSH，
+  不是热重载。`plugin_manager` 管 bundle/plugin，`cordis_inspect_*` 只读查询运行时 schema 与 slot。
+- **定时任务**：`schedule_create` / `schedule_list`。本移植常用：
+  - 上游轻量跟进（pick + 追踪）每 30 分钟；
+  - 全量仓库同步 + 全分支追踪每 4 小时（:10，与 :00 错开避免 `index.lock` 争用）；
+  - WSL 磁盘回收每 4 小时；
+  - 各线回复巡检每 5 分钟。
+- **子代理**：`subagent` / `subagent_fork` 用于一次性深挖（先例扫描、单线调研、离线验证）；子代理不共享本会话
+  上下文，prompt 必须自带路径、判据与禁止项。`workflow` 仅用于大规模 fan-out（几十个独立文件/仓库的审计）。
+
+### 8.2 多线协作规则
+
+- **一线一树**：每条线有自己的 linked worktree（`E:/hackios/k60-<line>`）与自己的
+  `K60_DEVICE_INPUT` / `K60_OUT`；禁止共用构建目录（会把别线的产物当成本线的）。
+- **树归属**：`docs/engineering/TREE-OWNERS.toml` 记录每个 checkout 的 owner；`check-tree-owner.py` 与
+  系统级 `/usr/local/bin/git` 守卫会在非 owner 执行危险 git 操作（`worktree prune`/`gc`/`repack`）时拒绝。
+- **消息**：先 `steer`（运行中插话），被拒（idle）才 `followup`；这是铁则 12，`check-agent-messaging.py` 校验。
+  每条线一个双向通道文件 `E:/k60-work/scratch/reply-<line>-YYYYMMDD.md`：**覆盖写之前必须先读**，
+  先执行/回应对方的新汇报，再写本轮回复。
+- **上机权**：只有 Lead 可以 `fastboot boot`；其他线只能提交镜像与判据，不能动设备。
+- **分支**：每条线的实验分支必须在 `docs/engineering/BRANCH-REGISTRY.toml` 登记 `purpose` 与 `merge_plan`；
+  触 `drivers/` 或 `package/` 的分支不登记会被 `check-branch-registry.py` 拒绝（P-321 / P-324）。
+- **交付物**：子代理与各线的交付必须落到 `docs/research/**` 或 `docs/engineering/**` 并在
+  `docs/research/SUBAGENT-DELIVERABLES.md` 记账（`check-subagent-ledger.py`），不接受「只在对话里说过」。
+- **禁止**：在共享检出里 `git checkout -- .`/`reset --hard`/`stash`（P-184 事故）；`push --force` 任何分支（iron-18）；
+  在 linked worktree 里 `git worktree prune`（P-203，会删掉主仓全部 worktree 管理目录）。
+
+### 8.3 并行时的构建纪律
+
+- 构建前先 `sync-device-input.py`，它会拒绝把别线的脏文件带进镜像。
+- 每条线构建用独立 tag，日志与 `build-manifest.json` 留在自己的 `K60_OUT`。
+- 同一时间只允许一个固件卷构建（`build/firmware` 的缓存键是全局的）；需要并行时用
+  `K60_FORCE_FIRMWARE=0` 复用已有卷，或在各自 `K60_OUT` 下复制一份构建树。
+- 上机前 Lead 汇总：该线最近一次 `check-rules.py`、`check-ios27-artifacts.py`、八步账本状态，缺一不飞。

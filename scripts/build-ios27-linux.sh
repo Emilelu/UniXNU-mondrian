@@ -18,6 +18,13 @@
 # a staged uefi-mondrian checkout with its submodules; when it is set the script
 # also builds the firmware volume and packs boot.img.
 set -eu
+
+# The cognition index must still resolve before anything is built: a stale map
+# silently sends the next reader, or agent, to files that have moved away (P-326).
+if ! python3 "$(dirname "$0")/check-aoci-index.py" >/dev/null; then
+    python3 "$(dirname "$0")/check-aoci-index.py" >&2 || true
+    exit 1
+fi
 export K60_KERNEL_LDFLAGS="${K60_KERNEL_LDFLAGS:--Wl,-rename_section,__DATA_CONST,__sdt,__DATA,__sdt}"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 

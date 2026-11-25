@@ -96,3 +96,15 @@
 - [UPSTREAM-REPOS.toml](UPSTREAM-REPOS.toml) — 参考仓库与同步基线（铁则 15）
 - [REFERENCE-PROVENANCE.md](REFERENCE-PROVENANCE.md) —— 哪个「第三方」其实是我自己的 fork（GitHub API 实测）
 - [BUILD-FREEZE.md](BUILD-FREEZE.md) — build and flight freeze until the precedent parity ledger is complete (2026-11-23)
+
+## 交接与协作（2026-11-26）
+
+| 文档 | 作用 |
+|---|---|
+| [`PORTING-PLAN.md`](PORTING-PLAN.md) | 四层移植方案、启动链、当前缺口与回退 |
+| [`WORKFLOW.md`](WORKFLOW.md) | 构建 / 上机 / 证据 / 多线协作工作流 |
+| [`PROJECT-AGENTS.md`](PROJECT-AGENTS.md) | 项目总闸（目录布局、先读顺序、门禁清单） |
+| [`COLLABORATION-RULES.md`](COLLABORATION-RULES.md) | 多线并行协作规则 |
+| [`FIRST-BOOT-PLAYBOOK.md`](FIRST-BOOT-PLAYBOOK.md) | 首次启动操作顺序与判据 |
+| [`FAILURE-MODE-MATRIX.md`](FAILURE-MODE-MATRIX.md) | 症状 → 分层 → 下一动作 |
+| [`EARLY-BOOT-EVIDENCE-PLAN.md`](EARLY-BOOT-EVIDENCE-PLAN.md) | 早期启动取证计划 |

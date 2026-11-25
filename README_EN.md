@@ -8,8 +8,6 @@ UniXNU device support repository for the Redmi K60 (codename **mondrian**, Qualc
 
 > Last updated: 2026-11-25. Detailed status: [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md); overall plan: [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md); workflow: [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md).
 
-## State
-
 - `main` is the only iOS 27 baseline. The iOS 16.6.1 (20G81) line is archived as `archive/ios16-20261120` and still builds with `--os ipados-16.6.1-20G81`.
 - The iOS 27 kernel prints full text (r290n, `boot.img 311f4f54…`). r313h linked source-storage into the kernel for the first time (`boot.img 932d50ad…`), but the next flight showed a full green screen and a 0-byte console; a one-variable bisect is in progress (`0580` GIC patch is the first suspect).
 - The `unixnu` partition already holds the three-window iOS 27 image (34,359,738,368 B; OS / SystemOS / Data all four `cmp -n` checks MATCH).
@@ -114,7 +112,7 @@ The archived 16.6.1 line still uses `scripts/build-strict.sh <tag> --fd <verifie
 | `docs/engineering/` | Hard rules, pitfalls, status, plan and workflow |
 | `docs/research/` | Eight-step evidence, reference ledger and research |
 
-## Four-layer repositories
+## Four-layer repository model
 
 | Layer | Repository | Contents |
 |---|---|---|
@@ -129,7 +127,7 @@ The archived 16.6.1 line still uses `scripts/build-strict.sh <tag> --fd <verifie
 
 `main` is the only baseline; historical lines start with `archive/` (e.g. `archive/ios16-20261120`). Every unmerged branch is registered in [`docs/engineering/BRANCH-REGISTRY.toml`](docs/engineering/BRANCH-REGISTRY.toml) with purpose / merge plan / flight state; `check-branch-registry.py` rejects unregistered branches.
 
-## Documents
+## Documentation
 
 | Document | Contents |
 |---|---|
@@ -144,6 +142,19 @@ The archived 16.6.1 line still uses `scripts/build-strict.sh <tag> --fd <verifie
 | [`docs/engineering/HARD-RULES.md`](docs/engineering/HARD-RULES.md) | Hard rules ★1–★37 |
 | [`CREDITS.md`](CREDITS.md) | Contributors and all external sources |
 | [`README.md`](README.md) | Chinese |
+
+**Handover reading order**
+
+2. [`docs/engineering/PROJECT-AGENTS.md`](docs/engineering/PROJECT-AGENTS.md) — the long form
+3. [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md) — four-layer plan, boot chain, gaps, rollback
+4. [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md) — build, boot, evidence, multi-lane workflow
+5. [`docs/engineering/COLLABORATION-RULES.md`](docs/engineering/COLLABORATION-RULES.md) — parallel-lane rules
+6. [`docs/engineering/FIRST-BOOT-PLAYBOOK.md`](docs/engineering/FIRST-BOOT-PLAYBOOK.md) — first boot order and criteria
+7. [`docs/engineering/FAILURE-MODE-MATRIX.md`](docs/engineering/FAILURE-MODE-MATRIX.md) — symptom to next action
+8. [`docs/engineering/EARLY-BOOT-EVIDENCE-PLAN.md`](docs/engineering/EARLY-BOOT-EVIDENCE-PLAN.md) — early boot evidence
+9. [`docs/INDEX.md`](docs/INDEX.md) — full document index
+10. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — third-party code and licences
+Cognition index: [`aoci.txt`](aoci.txt) / [`aoci.code.txt`](aoci.code.txt), checked by `scripts/check-aoci-index.py` (1050 paths).
 
 ## License
 

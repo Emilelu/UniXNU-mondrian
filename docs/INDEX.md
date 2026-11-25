@@ -280,3 +280,21 @@ python3 scripts/render-eight-step-table.py --check
 - [CONSOLE-GLYPH-BUG.md](research/ios27/CONSOLE-GLYPH-BUG.md) — 洋红横杠不是显示通路故障：`k60_fontscale` 让 `vc_render_char` 按 48 行读 16 字节字形、每字符写 1536 字节进 512 字节缓冲区；附照片测量、代码证据与 P-313 静态判据
 - [BRANCH-HARVEST.md](research/ios27/BRANCH-HARVEST.md) - every 27 branch with its drift and its unverified status.
 - [ROOT-STORAGE-GAP.md](research/ios27/ROOT-STORAGE-GAP.md)
+
+## 交接与认知层（2026-11-26）
+
+| 文档 | 作用 |
+|---|---|
+| [`research/prior-art/PRIOR-ART-FIRST.md`](research/prior-art/PRIOR-ART-FIRST.md) | 先例优先：同 SoC 参考仓的阅读顺序与「抄能力不抄代码」的边界 |
+| [`engineering/FIRST-BOOT-PLAYBOOK.md`](engineering/FIRST-BOOT-PLAYBOOK.md) | 首次启动的操作顺序与判据 |
+| [`engineering/FAILURE-MODE-MATRIX.md`](engineering/FAILURE-MODE-MATRIX.md) | 症状 → 分层 → 下一动作 的失败模式矩阵 |
+| [`engineering/EARLY-BOOT-EVIDENCE-PLAN.md`](engineering/EARLY-BOOT-EVIDENCE-PLAN.md) | 早期启动取证计划（屏幕/串口/复位） |
+| [`engineering/COLLABORATION-RULES.md`](engineering/COLLABORATION-RULES.md) | 多线并行协作规则（一线一树、消息纪律、上机权限） |
+| [`engineering/PROJECT-AGENTS.md`](engineering/PROJECT-AGENTS.md) | 项目总闸：目录布局、先读顺序、门禁清单、当前状态 |
+| [`archive/history/HISTORY-LEDGER.md`](archive/history/HISTORY-LEDGER.md) | commit 级历史台账（565 KB 级决策链） |
+| [`archive/history/PITFALLS-FROM-HISTORY.md`](archive/history/PITFALLS-FROM-HISTORY.md) | 从历史里回收的坑卷 |
+| [`archive/history/DECISIONS.md`](archive/history/DECISIONS.md) | 关键决策与理由 |
+| [`../aoci.txt`](../aoci.txt) / [`../aoci.code.txt`](../aoci.code.txt) | AOCI 认知索引（1050 条 FRAS），`scripts/check-aoci-index.py` 校验 |
+
+| [`engineering/PORTING-PLAN.md`](engineering/PORTING-PLAN.md) | 四层移植方案、启动链、缺口与回退 |
+| [`engineering/WORKFLOW.md`](engineering/WORKFLOW.md) | 构建 / 上机 / 证据 / 多线协作工作流 |

@@ -1507,3 +1507,9 @@ id = "P-325"
 kind = "pitfall"
 statement = "给编译命令追加选项必须发生在 `flags = list(base)` 之后；在复制之前 append 会被下一次赋值静默覆盖，编译选项看起来加了、实际从未传给 clang。"
 check = "python3 scripts/tests/test-sheng-source-storage-flags.py"
+
+[[rule]]
+id = "P-326"
+kind = "gate"
+statement = "AOCI 认知索引必须能被解析出实际路径且每条都落在仓内：`aoci.code.txt` 的条目按 `===/<repository>/<dir>/===` 分节、只写文件名，路径是分节目录加文件名；索引一旦指向不存在的文件，读者（或 agent）就会按它去找已经搬走的东西。"
+check = "python3 scripts/check-aoci-index.py"

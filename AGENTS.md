@@ -74,3 +74,15 @@
 ## 当前状态
 
 构建与上机：**冻结**（`docs/engineering/BUILD-FREEZE.md`）。
+
+## 开工先读认知索引（AOCI）
+
+仓库根有 `aoci.txt` / `aoci.meta.txt` / `aoci.code.txt`：1050 个受管源的 FRAS 条目
+（F 职责 / R 强关系 / A 公开接口 / S 非显然约束），按 `===/<repository>/<dir>/===` 分节。
+
+- 开工先用 `aoci overview`（或 MCP 的 `aoci_overview`）读入口，再按条目里的 `R:code:路径`
+  关系定位文件，别靠记忆猜路径。
+- 改完代码跑 `python3 scripts/check-aoci-index.py` 与 `aoci verify`；前者查「条目指向的文件还在不在」，
+  后者查 Missing / Orphan / Stale 三类漂移。
+- 构建入口 `scripts/build-ios27-linux.sh` 在 `set -eu` 之后先跑这个门禁：索引指空就拒绝构建（P-326）。
+- 索引是 Git 里的持久认知层，用来在上下文压缩后仍然知道「这个仓里有什么、谁依赖谁」。

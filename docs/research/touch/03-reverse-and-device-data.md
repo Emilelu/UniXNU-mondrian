@@ -7,7 +7,7 @@
 | # | 对象 | 命令 | sha256 / 结果 | 用途 |
 |---|---|---|---|---|
 | 1 | K60 live merged FDT | `adb shell "cat /proc/device-tree/..."` → `live-6033dbec-fdt.dtb` | `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8` (919,210 B, FDT v17) | 触摸节点全部属性真值 |
-| 2 | 20G81 kernelcache | `img4` 解压 | 48,644,096 B，`/mnt/e/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed` | 确认无 `IOHIDEventSystemClientCreateWithType`（用户态走 HID.framework） |
+| 2 | 20G81 kernelcache | `img4` 解压 | 48,644,096 B，`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/kernelcache.decompressed` | 确认无 `IOHIDEventSystemClientCreateWithType`（用户态走 HID.framework） |
 | 3 | pong 协议核 | `git show FETCH_HEAD:bsd/dev/pong_goodix.c` | 36,603 B 原始补丁 `scratch/pong-drivers/…pong-touch-console.patch` | 协议核来源 |
 
 ## 真机数据
@@ -33,7 +33,7 @@
 | `goodix_firmware_m11a.bin` | 223,744 B | `1e647510cdc4c0293aa06fa7cb5d0a2f3558fcc151ac2785786fa6c31b560509` | `/vendor/firmware/` |
 | `goodix_cfg_group_m11a.bin` | 1,627 B | `a730e3f1238d651c531bc375fb477c6036f7112570cbc98220bf5e50a6f8af79` | `/vendor/firmware/` |
 
-本地副本：`/mnt/e/k60-work/scratch/goodix-fw/`
+本地副本：`/mnt/e/iOS Port/Work/scratch/goodix-fw/`
 
 **头部解析**：
 ```

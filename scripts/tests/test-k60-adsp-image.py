@@ -7,7 +7,7 @@ adsp.b00..b25:
   * segments do not overlap once p_memsz is honoured,
   * the whole span fits one 4 KiB-aligned window starting at ADSP_BASE.
 
-Run: python3 scripts/tests/test-k60-adsp-image.py /mnt/e/k60-work/firmware/adsp
+Run: python3 scripts/tests/test-k60-adsp-image.py /mnt/e/iOS Port/Work/firmware/adsp
 """
 
 import struct
@@ -24,7 +24,7 @@ def fail(message):
 
 
 def main(argv):
-    root = Path(argv[1]) if len(argv) > 1 else Path("/mnt/e/k60-work/firmware/adsp")
+    root = Path(argv[1]) if len(argv) > 1 else Path("/mnt/e/iOS Port/Work/firmware/adsp")
     mdt = (root / "adsp.mdt").read_bytes()
     if mdt[:4] != b"\x7fELF" or mdt[4] != 1:
         return fail("adsp.mdt is not ELF32")

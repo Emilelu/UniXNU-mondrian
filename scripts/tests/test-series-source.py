@@ -3,7 +3,7 @@
 
 board.toml's patch_series points at device:patches/xnu/series, so that file is
 the ordered list the kernel is actually built from.  porting-gate.py and
-record-boot.py both used to hash /mnt/e/k60-work/scratch/SERIES-FINAL.txt, a
+record-boot.py both used to hash /mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt, a
 scratch copy that had drifted to 227 entries (four bluetooth patches plus the
 retired 0610-k60-metal-seeds.patch) while the repository series had 223.
 
@@ -24,7 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 GATE = ROOT / "scripts" / "porting-gate.py"
 RECORD = ROOT / "scripts" / "record-boot.py"
 SERIES = ROOT / "patches/xnu/series"
-MANIFEST_DIRS = ("/mnt/e/k60-work/artifacts", "/opt/k60/trees/lead-out")
+MANIFEST_DIRS = ("/mnt/e/iOS Port/Work/artifacts", "/opt/k60/trees/lead-out")
 
 
 def series_assignment(path: pathlib.Path) -> str:
@@ -116,7 +116,7 @@ def main() -> int:
 
     # 5. The scratch copy is either absent or demonstrably stale; if it differs,
     #    the fallback must not be the one in use.
-    scratch = pathlib.Path("/mnt/e/k60-work/scratch/SERIES-FINAL.txt")
+    scratch = pathlib.Path("/mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt")
     if scratch.is_file():
         stale = series_names(scratch) != names
         check("a stale scratch copy is not the source the gate measures",

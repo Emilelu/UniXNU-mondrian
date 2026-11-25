@@ -21,18 +21,18 @@
 
 > 状态：方案稿，**未实施**。每条结论后附 `文件:行`；无法证实的集中在 §5。
 > 取证基准一：`patches/xnu/series` 第 101/102/104/130 行（= 当前 K60 内核的显示补丁集）。
-> 取证基准二：`E:/hackios/work-display/xnu`（= xnu-8796.141.3 + `zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch`
+> 取证基准二：`E:/iOS Port/Sources/Hardware/work-display/xnu`（= xnu-8796.141.3 + `zzzzzzzzzzzzzzzzzzz-pong-hackios-ui-foundation.patch`
 > + 0210/0211/0213 的展开树）。该树行号与既有文档一致：`HANDOFF-2026-10-31.md:234` 引的
 > `MiniIOMobileFramebuffer.cpp:1172` 正是 vsync 周期那一句（本树 `:1172`），
 > `READING-INDEX.md:111` 的日志串也出自本树 `:452`。
 > 引用约定：
 > `PLAN:Lx` = `D:/Android/k60-ios/deliverables/K60-120HZ-PLAN.md`；
-> `HANDOFF:Lx` = `E:/hackios/UniXNU-mondrian/docs/HANDOFF-2026-10-31.md`；
-> `IDX:Lx` = `E:/hackios/UniXNU-mondrian/docs/READING-INDEX.md`；
+> `HANDOFF:Lx` = `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/HANDOFF-2026-10-31.md`；
+> `IDX:Lx` = `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/READING-INDEX.md`；
 > `RPT:Lx` = `D:/Android/k60-ios/deliverables/ZCODE-RESEARCH-REPORT.md`（2026-10-30 的复核报告，晚于 PLAN）；
-> `zizhan:<path>:Lx` = `E:/hackios/UniXNU-zizhan`；
-> `pong:<patch>:Lx` = `E:/hackios/UniXNU-pong` 的 `patches/xnu/<patch>`，**行号是补丁文件自身行号**；
-> `mfb:Lx` = `E:/hackios/work-display/xnu/iokit/Kernel/MiniIOMobileFramebuffer.cpp`。
+> `zizhan:<path>:Lx` = `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan`；
+> `pong:<patch>:Lx` = `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong` 的 `patches/xnu/<patch>`，**行号是补丁文件自身行号**；
+> `mfb:Lx` = `E:/iOS Port/Sources/Hardware/work-display/xnu/iokit/Kernel/MiniIOMobileFramebuffer.cpp`。
 
 ---
 

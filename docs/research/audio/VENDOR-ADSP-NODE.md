@@ -1,6 +1,6 @@
 # 厂商 FDT 里的 ADSP/PAS 节点（官方来源，可直接抄）
 
-来源：`E:\hackios\uefi-mondrian\Platforms\Xiaomi\mondrianPkg\FdtBlob\sm8475-xiaomi-mondrian.dtb`
+来源：`E:\iOS Port\Sources\Repos\UEFI\uefi-mondrian\Platforms\Xiaomi\mondrianPkg\FdtBlob\sm8475-xiaomi-mondrian.dtb`
 （480,692 B，官方打包的完整板级 FDT），用 `dtc -I dtb -O dts` 解出。
 
 这张表回答了 `docs/research/audio/GAP-ANALYSIS.md` 里长期悬着的那个问题：
@@ -148,8 +148,8 @@ $ dtc -I dts -O dtb -i <sm8475-common>/dts -o /tmp/m.dtb dts/mondrian.dts
 （仅剩一条 warning：/mailbox@ed18000 Missing interrupt-parent）
 
 $ python3 scripts/build-k60-physical-battery.py --output-dir /tmp/pbat \
-    --framework /mnt/e/hackios/UniXNU --hardware-dtb /tmp/m.dtb \
-    --battery-module /mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+    --framework /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU --hardware-dtb /tmp/m.dtb \
+    --battery-module /mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
 K60BatteryConfig.generated.c
 K60BatteryProtocol.generated.h
 captured-board-config.bin

@@ -5,7 +5,7 @@ Scope: read-only inspection of existing captures, build logs, Git history, and t
 
 ## Verdict
 
-1. `E:\k60-work\usb-a-stage\out\boot-uuid.img`, built from the defconfig that still had `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`, mounted Data read-write, executed `/sbin/launchd.ios`, and spawned `SpringBoard[26]`. Its capture ended only when the 90 s budget expired. The `=y` build did not die early, and the 0-byte log that suggested it did is a capture artifact.
+1. `E:\iOS Port\Work\usb-a-stage\out\boot-uuid.img`, built from the defconfig that still had `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`, mounted Data read-write, executed `/sbin/launchd.ios`, and spawned `SpringBoard[26]`. Its capture ended only when the 90 s budget expired. The `=y` build did not die early, and the 0-byte log that suggested it did is a capture artifact.
 2. The battery symbol was also inert in that build. `unixnu` exports `CONFIG_XNU_*` as `XNU_*` environment variables, but `build-xnu-4k-baseline.sh` never reads `XNU_K60_PHYSICAL_BATTERY`, never force-loads `libK60PhysicalBattery.a`, and the patch itself says that parent integration must do both. The linked kernel inspected at 18:56 contains no battery object or symbol, and neither boot log contains a `K60Battery:` line.
 3. `k60_touch_se=19` is stale and outside the driver contract. The driver accepts 1..7 (0 disables, default 6). At 19 it prints one line and returns before any clock, probe, config, or polling. The absence of Goodix polling in these logs is exactly what stage 19 produces; it is not evidence that the controller hung. `board.toml:179` was corrected to 6 in `8ffa043`; the two 18:4x/18:5x images were built before that correction.
 
@@ -17,13 +17,13 @@ Scope: read-only inspection of existing captures, build logs, Git history, and t
 | Image SHA-256 | `25CC2C7C952B7A5AFD6A6AB21FAE61C1948B3A78B7F9800F9B4A35447886DB31` | `CDD1048D0E5E5C5D8234D3DEFFF749A167200CC21F4D936B308F8CBAAE4B1F13` |
 | Kernel SHA-256 at build | `51a8895812e959f0c03a72fadb74001a35dc04afb6a86206f5a603e9182340b7` (`/tmp/build-r84.log:18`) | `379e5337fa712999f29c6612397134e7fe8325c0232ad6adeda48e82dd8cba03` (`/tmp/build-r86.log:18`) |
 | Build-time battery config | `CONFIG_XNU_K60_PHYSICAL_BATTERY=y` (`aca503f^:configs/mondrian_defconfig:72`) | `# CONFIG_XNU_K60_PHYSICAL_BATTERY is not set` (`aca503f:configs/mondrian_defconfig:72`) |
-| Evidence directory | `E:\k60-work\evidence\usblog-20261112-184616` | `E:\k60-work\evidence\usblog-20261112-185824` |
+| Evidence directory | `E:\iOS Port\Work\evidence\usblog-20261112-184616` | `E:\iOS Port\Work\evidence\usblog-20261112-185824` |
 | `console.log` bytes / SHA-256 | 91,673 / `39FA506A44C7184917AFA8FA561062B59D8C3F5114669C26360320398F10F504` | 91,464 / `5F048398321EE95CC4DE119606B401527A105B10FC4BC667BDEF6D19729D6969` |
-| `capture.json` image binding | lines 2-3 bind `E:\k60-work\usb-a-stage\out\boot-uuid.img` and `25CC2C...` | lines 2-3 bind `E:\k60-work\usb-a-stage\out\boot-nobat.img` and `CDD1048D...` |
+| `capture.json` image binding | lines 2-3 bind `E:\iOS Port\Work\usb-a-stage\out\boot-uuid.img` and `25CC2C...` | lines 2-3 bind `E:\iOS Port\Work\usb-a-stage\out\boot-nobat.img` and `CDD1048D...` |
 | Capture window | 90 s, `finishedAt 2026-11-12T18:48:02` | 90 s, `finishedAt 2026-11-12T19:00:11` |
 | Termination | `panicMarker: null`, `resetMarker: null`, `deviceGone: false`, `reopenCount: 0`, `complete: false`, reason `budget exhausted while data was still arriving` | identical fields |
 
-The first directory from that boot, `E:\k60-work\evidence\usblog-20261112-184609`, contains a 0-byte `console.log` at 18:46:32 and no `capture.json`. It is not an image-bound capture and must not be used as a boot verdict.
+The first directory from that boot, `E:\iOS Port\Work\evidence\usblog-20261112-184609`, contains a 0-byte `console.log` at 18:46:32 and no `capture.json`. It is not an image-bound capture and must not be used as a boot verdict.
 
 ## Boot log anchors
 
@@ -43,7 +43,7 @@ The presence of `SpringBoard[26]` plus a t=105 heartbeat with `lw=spawn`, and th
 
 ## Why the first log was empty: two readers on one CDC-ACM port
 
-At the time of these boots, `E:\k60-work\scripts\flash.sh` started two collectors:
+At the time of these boots, `E:\iOS Port\Work\scripts\flash.sh` started two collectors:
 
 - `flash.sh:102-109` launched `capture-k60-usblog.ps1` in the background with its own `usblog-$(date +%Y%m%d-%H%M%S)` directory (`:104-108`).
 - `flash.sh:113-118` then ran `boot-and-capture.ps1`, whose old revision created a second timestamped `$outDir` (`boot-and-capture.ps1:98-100`) and opened the same `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` USBSER port (`:55-62`, `:124-132`).
@@ -57,7 +57,7 @@ The Lead's `8ffa043` replaces this with a single-writer contract: `scripts/captu
 
 ## Why `CONFIG_XNU_K60_PHYSICAL_BATTERY=y` was inert
 
-`E:\hackios\UniXNU\scripts\unixnu\kernel.py:17-26` converts every `CONFIG_XNU_*` value from the selected defconfig into an `XNU_*` environment variable for the legacy kernel script. Thus `=y` exported `XNU_K60_PHYSICAL_BATTERY=1` into the build environment at 18:43.
+`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\kernel.py:17-26` converts every `CONFIG_XNU_*` value from the selected defconfig into an `XNU_*` environment variable for the legacy kernel script. Thus `=y` exported `XNU_K60_PHYSICAL_BATTERY=1` into the build environment at 18:43.
 
 That variable has no consumer:
 

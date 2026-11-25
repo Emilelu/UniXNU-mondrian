@@ -65,7 +65,7 @@ D 盘构成：`Softwares` 155.6 + `Files` 110.9 + `Android` 56.9（= 56.6 vhdx +
 
 ① **内部清理**（不需要 shutdown，但构建相关的要等构建结束）：
 - 可删（可再生，~17.2 GiB）：`/tmp/os-py.bin`、`/tmp/os-dd.bin`、`/tmp/k60build/out`、`/tmp/usb-a-stage/out`、`sudo apt clean`
-- 移 E（不可再生存档，~16 GiB）：`~/k60-archive` 整树 → `/mnt/e/k60-work/archives/k60-archive`（robocopy/rsync 校验后删源）
+- 移 E（不可再生存档，~16 GiB）：`~/k60-archive` 整树 → `/mnt/e/iOS Port/Work/archives/k60-archive`（robocopy/rsync 校验后删源）
 - 预计内部从 64 GiB 降到 ~31 GiB
 
 ② `wsl --shutdown`（**副作用：中断所有 WSL 会话与正在进行的构建**）
@@ -100,8 +100,8 @@ diskpart
 
 ```powershell
 wsl --shutdown                                                    # 停机窗口开始
-wsl --export Ubuntu-24.04 E:\k60-work\wsl-export\Ubuntu-24.04.tar
-wsl --import Ubuntu-24.04 E:\wsl\Ubuntu-24.04 E:\k60-work\wsl-export\Ubuntu-24.04.tar --version 2
+wsl --export Ubuntu-24.04 E:\iOS Port\Work\wsl-export\Ubuntu-24.04.tar
+wsl --import Ubuntu-24.04 E:\wsl\Ubuntu-24.04 E:\iOS Port\Work\wsl-export\Ubuntu-24.04.tar --version 2
 wsl -d Ubuntu-24.04 -u root -- echo OK                            # 校验能启动
 # 进系统重建默认用户（import 后默认 root）：在 /etc/wsl.conf 写回 [user] default=emilelu
 # 校验 ~/hackios 各仓、/tmp/k60build、构建命令可跑
@@ -136,7 +136,7 @@ wsl --unregister Ubuntu-24.04-old                                 # 仅在新实
 | 数据 vhd 挂 `/work`（`wsl --mount --vhd`） | ext4 原生，快 | 中（持久化要启动脚本，wsl.conf 无原生支持） | 大型构建树 |
 | **发行版整体迁 E** | 原生 | 一次性 30–60 min | **治本**，D 盘永久释放 56.6 GiB |
 
-**推荐**：短期先按 §6-① 把 `k60-archive` 16 GiB 挪到 `/mnt/e`（今天就能做，零停机）；构建窗口空档再做发行版整体迁 E（优先试 `import-in-place`，退回 export/import）。日常约定维持"大产物只写 E:\k60-work"。
+**推荐**：短期先按 §6-① 把 `k60-archive` 16 GiB 挪到 `/mnt/e`（今天就能做，零停机）；构建窗口空档再做发行版整体迁 E（优先试 `import-in-place`，退回 export/import）。日常约定维持"大产物只写 E:\iOS Port\Work"。
 
 ## 8. D 盘三档释放预估
 
@@ -144,4 +144,4 @@ wsl --unregister Ubuntu-24.04-old                                 # 仅在新实
 |---|---|---|
 | 无风险（需 shutdown 窗口） | §6 内部清理 17.2G + compact → vhdx 瘦身 | **~21–25 GiB** |
 | 需确认 | `/tmp/os-*.bin`（构建是否已结束）、`UniXNU/out/ipsw` dmg（源 ipsw 是否在）、`k60-data-build/wsl2-kernel` 9.2G、PowerPaint 11.6G（在用的模型，建议留） | ~15–27 GiB |
-| 绝对不能动 | `pagefile.sys`（系统）、`~/hackios` 仓库与 `.git`、`k60-archive`（只移不删）、`D:\Softwares`、`E:\k60-work` 备份 | — |
+| 绝对不能动 | `pagefile.sys`（系统）、`~/hackios` 仓库与 `.git`、`k60-archive`（只移不删）、`D:\Softwares`、`E:\iOS Port\Work` 备份 | — |

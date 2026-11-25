@@ -15,14 +15,14 @@
 ### 可刷镜像（2026-11-14 15:09，真机验证）
 
 ```
-/mnt/e/k60-work/artifacts/touch-20261114a/boot.img
+/mnt/e/iOS Port/Work/artifacts/touch-20261114a/boot.img
 201,887,744 B
 sha256 0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9
 kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
 ```
 
 这一版同时带 GPU addon（Metal 插件 51,278,451 B）、iOS `buttons` 节点与
-触摸坐标使能。上机日志 `E:\k60-work\evidence\usblog-20261114-150931\console.log`：
+触摸坐标使能。上机日志 `E:\iOS Port\Work\evidence\usblog-20261114-150931\console.log`：
 3,870 行、SpringBoard 254、八条真实触点、四条 HID 派发、无 panic 标记。
 `MAIN-BASELINE.toml` 记在 `0143b46` 条目下；此后到 `143f3ff` 只改文档、
 门禁与测试脚本，内核输入逐字节不变。
@@ -74,7 +74,7 @@ kernel c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09
   随后八条 `goodix: type=1 finger=0 raw=… normalized=…` 与四条
   `Pong touch HID: type=1|3` 派发；日志 268,137 B / SpringBoard 254 行 /
   无 panic 标记，用户在场确认屏幕响应。证据
-  `E:\k60-work\evidence\usblog-20261114-150931\console.log`，记录见
+  `E:\iOS Port\Work\evidence\usblog-20261114-150931\console.log`，记录见
   [`docs/research/touch/08-on-device.md`](../research/touch/08-on-device.md) 第 7 轮。
 - **真因**：旧代码只发 `0x90/0x00`（关 raw 帧），从未发本机 Android
   `goodix_htc_enable(false)` 的第二条 `0x91/0x01`（坐标上报使能）；且配置完成
@@ -219,7 +219,7 @@ K60SEED /private/var/pong/PongAdrenoMetal.bundle/Info.plist bytes=555 resid=0 er
 
 ## GPU / Metal 现状（2026-11-13 实测，修正旧结论）
 
-三条来自 `E:\k60-work\evidence\usblog-20261113-055021\console.log`：
+三条来自 `E:\iOS Port\Work\evidence\usblog-20261113-055021\console.log`：
 
 ```
 616: PONG METAL: real IOAcceleratorES provider published for20G81 discovery

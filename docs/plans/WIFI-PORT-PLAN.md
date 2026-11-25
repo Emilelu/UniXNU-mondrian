@@ -2,11 +2,11 @@
 
 > 状态：**方案稿（2026-11-08）**。本次**只出方案**，不改任何代码、补丁、构建脚本或设备镜像。
 >
-> 权威参照：`E:/hackios/UniXNU-pong` 的 `origin/main`，commit `e0ee6df109b4b5dc706cac660d4f8210dc911dac`（iPadOS 18.7.10 / 22H374 / Darwin 24）。
+> 权威参照：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong` 的 `origin/main`，commit `e0ee6df109b4b5dc706cac660d4f8210dc911dac`（iPadOS 18.7.10 / 22H374 / Darwin 24）。
 >
 > K60 目标：`board.toml` 的 `ipados-16.6.1-20G81`（Darwin 22 / XNU 8796.141.3）。
 >
-> 证据约定：`repo:` 是仓库文件与行号；`FDT:` 是 `E:/k60-work/reports/live-6033dbec-fdt.dtb` 的解析结果；`device:` 是 K60 设备侧只读采集；`未核实` 表示现有材料不能证明，不用推测补齐。
+> 证据约定：`repo:` 是仓库文件与行号；`FDT:` 是 `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb` 的解析结果；`device:` 是 K60 设备侧只读采集；`未核实` 表示现有材料不能证明，不用推测补齐。
 
 ## 0. 一页结论
 
@@ -33,7 +33,7 @@ K60 与 Pong 的板级重合度很高：PCIe0 六个 `reg` 窗口、BAR0 `0x6020
 | `PongWifi` 的 Linux ath11k 源码 | `https://github.com/gregkh/linux.git`，`ref = v7.0.14`，commit `458c6079fc1d41d564c37679c8ace02cd83ee817` | `pong:configs/pong-native-sources.toml:16-22` |
 | `PongWifi` 的 `QcomRpmh` 源码 | `https://github.com/UniXNU/UniXNU-sheng.git`，commit `08cde20edc3254ed6f7df8d0f5384fb887786e8f` | `pong:configs/pong-native-sources.toml:4-8`；`pong:prepare-pong-wifi.py` 构建时使用 `sheng_source/package/QcomRpmh.c` |
 
-`drivers/PongWifi` 的目录/文件清单（本地参考 clone `E:/k60-work/references/pong-wifi` 与 submodule commit 一致）：
+`drivers/PongWifi` 的目录/文件清单（本地参考 clone `E:/iOS Port/Work/references/pong-wifi` 与 submodule commit 一致）：
 
 ```text
 PongWifiPlatform.cpp     电源、PCIe/PHY、BAR、SID 1c01、native 4KiB 页表、MSI、worker
@@ -151,7 +151,7 @@ proprietary-files.txt   固件清单（不存固件本体）
 
 ### 2.1 K60 live FDT 解析摘录
 
-解析对象：`E:/k60-work/reports/live-6033dbec-fdt.dtb`，919210 bytes，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`（`docs/audits/MEASURED-HIGH-WINDOW-2026-11-02.md:33-34`）。解析方法：复用 `pong:prepare-pong-wifi.py:21-61` 的 `fdt_nodes()/cells()/text()`，遍历 `qcom,cnss-qca6490@b0000000`、`qcom,pcie@1c00000`、`mhi_qrtr_cnss`、`cnss_wlan_region`。关键输出：
+解析对象：`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`，919210 bytes，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`（`docs/audits/MEASURED-HIGH-WINDOW-2026-11-02.md:33-34`）。解析方法：复用 `pong:prepare-pong-wifi.py:21-61` 的 `fdt_nodes()/cells()/text()`，遍历 `qcom,cnss-qca6490@b0000000`、`qcom,pcie@1c00000`、`mhi_qrtr_cnss`、`cnss_wlan_region`。关键输出：
 
 ```text
 /soc/qcom,cnss-qca6490@b0000000
@@ -215,7 +215,7 @@ proprietary-files.txt   固件清单（不存固件本体）
       60200000-603fffff : cnss
 ```
 
-来源：`E:/k60-work/reports/live-6033dbec-iomem.utf8.txt:279-282`（同内容 UTF-16 原件 `live-6033dbec-iomem.txt:279-282`）。这证明 `0000:01:00.0` 的 BAR0 为 `0x60200000`、长度 2 MiB，与 Pong 配置一致。
+来源：`E:/iOS Port/Work/reports/live-6033dbec-iomem.utf8.txt:279-282`（同内容 UTF-16 原件 `live-6033dbec-iomem.txt:279-282`）。这证明 `0000:01:00.0` 的 BAR0 为 `0x60200000`、长度 2 MiB，与 Pong 配置一致。
 
 ### 2.2 差异表
 
@@ -263,11 +263,11 @@ proprietary-files.txt   固件清单（不存固件本体）
 
 | 接口点 | iPadOS 18 / 22H374（Pong main） | iOS 16.6.1 / 20G81（K60 目标） | 证据与判断 |
 |---|---|---|---|
-| IO80211Family 存在性 | Pong 运行时的 22H374 IO80211 库从接口节点绑定 `IO80211Controller`/`IO80211Interface`；PongWifi 自己定义同名 stub 类发布服务 | 20G81 `kernelcache.decompressed` 含 `IO80211Family`、`IO80211Interface`（strings offset `0x9d28ae`）、`IO80211Controller`（`0x9bbef0`）；K60 profile 的 prelink `roots` **不含** `IO80211Family`/`AppleBCMWLAN` | 20G81 kernelcache 字符串扫描（本次）；`E:/hackios/UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml:33`。结论：16.6.1 也有 IO80211 类，但 K60 不 prelink 它；Pong 的 stub 方式仍可作为起点，**类继承/重复注册需按 20G81 头文件重新核对（未核实）** |
+| IO80211Family 存在性 | Pong 运行时的 22H374 IO80211 库从接口节点绑定 `IO80211Controller`/`IO80211Interface`；PongWifi 自己定义同名 stub 类发布服务 | 20G81 `kernelcache.decompressed` 含 `IO80211Family`、`IO80211Interface`（strings offset `0x9d28ae`）、`IO80211Controller`（`0x9bbef0`）；K60 profile 的 prelink `roots` **不含** `IO80211Family`/`AppleBCMWLAN` | 20G81 kernelcache 字符串扫描（本次）；`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml:33`。结论：16.6.1 也有 IO80211 类，但 K60 不 prelink 它；Pong 的 stub 方式仍可作为起点，**类继承/重复注册需按 20G81 头文件重新核对（未核实）** |
 | 接口 user client | 22H374 IO80211 在接口节点打开 **type 0** 用户客户端；`Pong80211UserClient` selector 0 处理 `Apple80211MethodRequest`（`0x3c30` envelope：`command`、`length`、`0x3c00` payload、`0x28` request），selector 1 表示标准 ioctl 转交，selector 7 表示未实现快速路径 | 20G81 kernelcache 有 `IO80211APIUserClient`（`0xf6e2b9`）、`IO80211AsyncEventUserClient`（`0xf5dc01`）、`IO80211AsyncUserClientParameters`（`0xf6e1a3`）；类实现字符串含 `_runDriverCommandHelper`、`_runLargeBufferCommandHelper`、`ClientMemoryForType`。**selector 编号、envelope 大小、entitlement 是否与 22H374 相同：未核实** | 22H374：`pong:README.md:88`、`pong:PongWifiNet.cpp:500-511`、`:541-612`；20G81：本次 kernelcache strings 扫描（偏移见左）。结论：16.6.1 **有同族 API user client**，但必须对 20G81 的 IO80211 二进制做 selector/ABI 审计后再决定是否复用 `Pong80211UserClient` |
 | Apple80211 ioctl 路径 | Pong 仍保留 `SIOCSA80211=0x802869c8` / `SIOCGA80211=0xc02869c9`、40 字节 `apple80211req` | 20G81 IO80211 同样有 `apple80211_ioctl_set_handlers.cpp`（strings `0xf4fb25`）与 `Apple80211` 相关串；结构大小是否仍为 40 字节 **未核实** | 22H374：`pong:PongWifiNet.cpp:44-49`、`:561-590`；20G81：kernelcache strings。Pong 的 `apple80211()` 走 `if_ioctl` 的 socket 路径，理论上 16.6.1 可先走该路径 |
 | association 请求布局 | 22H374 `__performAssociation` 发 `0x384`（900）字节：SSID 长度 `0x10`、SSID `0x14`、BSSID `0x34`、key length `0x40`、key type `0x44`、key `0x4c`；认证上下层为 32 位 | 旧 `0x250`（592）布局：认证上下层为 16 位；PongWifi 的 `struct assoc_request` 明确注释 `592 bytes`；`services111` 明确说旧解析会把 auth 字段读成 SSID 长度。**16.6.1 是否实际走 0x250：未核实** | `pong:migration/ipados18/services111-association-metal-route.md:16-19`；`pong:PongWifiNet.cpp:78-100`（`static_assert(sizeof(assoc_request)==592)`）；PongWifiNet 已按 `req_len==sizeof(assoc_request24)` 选择布局（`:353`），16.6.1 可复用旧布局分支 |
-| scan result / channels / link event | `scan_result` 1164 B（`ssid_length` 0x60、`age_ms` 0x84、`elements` 0x8c）；`channels_list` 4824 B；`link_event` 32 B | 20G81 未给出同结构静态布局；sheng（24A446）也使用 1164/4824/32，说明这类 Apple80211 结构跨代较稳定，但 **16.6.1 精确值未核实** | `pong:PongWifiNet.cpp:71-100`；`E:/hackios/UniXNU-sheng/package/WifiNet.cpp:83-113`（24A446 同样 1164/4824/32） |
+| scan result / channels / link event | `scan_result` 1164 B（`ssid_length` 0x60、`age_ms` 0x84、`elements` 0x8c）；`channels_list` 4824 B；`link_event` 32 B | 20G81 未给出同结构静态布局；sheng（24A446）也使用 1164/4824/32，说明这类 Apple80211 结构跨代较稳定，但 **16.6.1 精确值未核实** | `pong:PongWifiNet.cpp:71-100`；`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/WifiNet.cpp:83-113`（24A446 同样 1164/4824/32） |
 | IO80211 接口属性 | `IOBuiltin`、`IOPrimaryInterface`、`IO80211InterfaceRole=Infrastructure`、`IOUserClientClass=Pong80211UserClient` | 20G81 IO80211Interface 类存在；这些属性是否足够让 16.6.1 的 `wifid`/InterfaceNamer 绑定 **未核实** | 22H374：`pong:PongWifiNet.cpp:679-695`；20G81：kernelcache strings |
 | wifid / XPC 接线 | 22H374 `wifid` 作业需要在原有 `com.apple.wifid` job 里补 `com.apple.wifi.manager` Mach service；否则 WiFiManagerCreate 失败 | 16.6.1 `wifid`/MobileWiFi 的 Mach service 名、job 结构、`IO80211` 用户态框架 **未核实**（20G81 IPSW 未做同类审计） | 22H374：`pong:migration/ipados18/services93-wifi-checkin.md:9`；16.6.1：未核实。不要把 services93 的 22H374 plist 改动直接套到 16.6.1 |
 | 构建 ABI / target | PongWifi 脚本硬编码 `-target arm64-apple-ios18.0`；使用 Darwin24 IO80211 布局 | K60 工具链目标 `arm64-apple-ios16.0`（`scripts/build-pong-platform-macos.py:33`）；Darwin 22 头文件 | 必须把所有 PongWifi 构建脚本改为 `arm64-apple-ios16.0`，并对 20G81 Kernel.framework 重新编译；**16.6.1 API 兼容性未核实** |
@@ -281,7 +281,7 @@ proprietary-files.txt   固件清单（不存固件本体）
 
 ### 4.0 前置核对（不写代码，先取证）
 
-1. 记录 K60 当前构建基线：`git -C E:/hackios/UniXNU-mondrian status -sb`、`git rev-parse HEAD`、`board.toml` 的 `dram_size`/`owned_memory_size`/`kernel_args`（`board.toml:98,125,162`）。
+1. 记录 K60 当前构建基线：`git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian status -sb`、`git rev-parse HEAD`、`board.toml` 的 `dram_size`/`owned_memory_size`/`kernel_args`（`board.toml:98,125,162`）。
 2. 在 Android 侧只读读取 K60 PCI 端点身份和 BAR，填掉“未核实”：
    ```sh
    adb -s 6033dbec shell 'cat /sys/bus/pci/devices/0000:01:00.0/vendor'
@@ -304,7 +304,7 @@ proprietary-files.txt   固件清单（不存固件本体）
 
 | 步骤 | 操作 | 验收 |
 |---|---|---|
-| 1.1 | 在 `E:/hackios/UniXNU-mondrian` 添加 `drivers/PongWifi` 子模块：URL `https://github.com/Chengdong-Yu/pong-wifi.git`，pin `d2e33ca6e0f6a3b3e7881a45ab36c6920e7afb07` | `git submodule status drivers/PongWifi` 显示该 commit；`drivers/PongWifi/PongWifiPlatform.cpp` 存在 |
+| 1.1 | 在 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` 添加 `drivers/PongWifi` 子模块：URL `https://github.com/Chengdong-Yu/pong-wifi.git`，pin `d2e33ca6e0f6a3b3e7881a45ab36c6920e7afb07` | `git submodule status drivers/PongWifi` 显示该 commit；`drivers/PongWifi/PongWifiPlatform.cpp` 存在 |
 | 1.2 | 添加 `drivers/PongPower` 子模块：URL `https://github.com/Chengdong-Yu/pong-power.git`，pin `c37179ed12ba7f981b2b088aea482b969085eb84` | `drivers/PongPower/PongPlatformResources.{h,cpp}` 存在；`QcomRpmh.h` 来自 `sheng_source/package`（`pong:configs/pong-native-sources.toml:4-8`） |
 | 1.3 | 确认 `drivers/PongAdreno/ArmSmmu4K` 与 Pong main 的 `3e8ffa2...` 版本对齐。K60 当前 `PongAdreno` 是普通树（`git ls-tree HEAD drivers/PongAdreno` 为 `040000 tree`），不是 submodule；K60 版本缺少 `ArmSmmu4KMmio.{c,h}`。若 PongWifi 编译依赖新 API，先同步/抽取 `ArmSmmu4K` 或建立共享 `libPongSmmu4K.a` | `ArmSmmu4KProgram.h` 中 `ArmSmmu4KBuild`、`ArmSmmu4KProgramDisabledContext` 可用；`nm` 无重复符号 |
 | 1.4 | 确认 `drivers/NativeUfs/SmmuTakeover.h` 的 `planUfsSmmu()` 可用于 WiFi 的 SID `0x1c01`；同时补 `PongUfsTransport.cpp` 的 `gWifiUfsReady`/`pong_ufs_ready()`（K60 当前没有，Pong 在 `pong:drivers/NativeUfs/PongUfsTransport.cpp:49,225,620` 有） | `pong_ufs_ready()` 链接可解析；`transport ready` 时置位 |
@@ -363,7 +363,7 @@ wlan_mac.bin      # 可选；Pong 在缺失时用本地安装 UUID 生成 02:xx 
 
 | 步骤 | 改动 | 验收 |
 |---|---|---|
-| 4.1 | 新建 `scripts/prepare-k60-wifi.py`：复制 `prepare-pong-wifi.py` 的 `fdt_nodes/cells/text/describe`，把 product 检查改为 `mondrian`，把 `configs/pong-wifi-sm8475.json` 路径改为 `configs/mondrian-wifi-sm8475.json`，保留 `--dtb`/`--firmware-dir` 离线入口 | 可在无设备时用 `--dtb E:/k60-work/reports/live-6033dbec-fdt.dtb --firmware-dir ...` 生成 profile |
+| 4.1 | 新建 `scripts/prepare-k60-wifi.py`：复制 `prepare-pong-wifi.py` 的 `fdt_nodes/cells/text/describe`，把 product 检查改为 `mondrian`，把 `configs/pong-wifi-sm8475.json` 路径改为 `configs/mondrian-wifi-sm8475.json`，保留 `--dtb`/`--firmware-dir` 离线入口 | 可在无设备时用 `--dtb E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb --firmware-dir ...` 生成 profile |
 | 4.2 | 新建 `scripts/build-k60-ath11k.py`：从 `build-pong-ath11k.py` 复制；把 `-target arm64-apple-ios18.0` 改为 `arm64-apple-ios16.0`；`ROOT` 指向 K60 设备仓；`--shared` 指向 Ath12kWifi；`--linux` 指向 Linux v7.0.14；输出 `build/k60-ath11k/libPongAth11k.a` | 编译零错误；`nm -u` 只有允许的 libc/随机数符号（Pong 的 allowed 集见 `build-pong-ath11k.py:223-225`） |
 | 4.3 | 新建 `scripts/build-k60-wifi-native.py`：从 `build-pong-wifi-native.py` 复制；`profile` 改 K60；`-target` 改 `ios16.0`；保留 `PongWifiInputs.h` 生成、PWF2 打包、`PongWifiNet` 延迟注册逻辑 | 生成 `build/k60-wifi/PongWifiInputs.h`、`PongWifiFirmware.bin`、`libPongWifiNative.a` |
 | 4.4 | 新建 `scripts/build-k60-wifi-resources.py`（最小）：编译 `drivers/PongPower/PongPlatformResources.cpp` + `sheng_source/package/QcomRpmh.c`，输出 `build/k60-wifi-resources/libPongWifiPlatformResources.a`；不要编译 PongPower 的音频/ADSP 全套 | `pong_rpmh_init`、`pong_rpmh_vote`、`pong_smmu_lease_lock/unlock` 可解析 |
@@ -457,9 +457,9 @@ build/pong-smmu4k/libPongSmmu4K.a
 python3 - <<'PY'
 import importlib.util, struct
 from pathlib import Path
-spec = importlib.util.spec_from_file_location('p', 'E:/hackios/UniXNU-pong/kits/PongPlatform24/build-support/merged-scripts/prepare-pong-wifi.py')
+spec = importlib.util.spec_from_file_location('p', 'E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/kits/PongPlatform24/build-support/merged-scripts/prepare-pong-wifi.py')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-nodes = m.fdt_nodes(Path('E:/k60-work/reports/live-6033dbec-fdt.dtb').read_bytes())
+nodes = m.fdt_nodes(Path('E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb').read_bytes())
 for path in ('/soc/qcom,cnss-qca6490@b0000000','/soc/qcom,pcie@1c00000','/soc/mhi_qrtr_cnss','/reserved-memory/cnss_wlan_region'):
     print('\n##', path)
     for k, v in nodes[path].items():
@@ -468,7 +468,7 @@ for path in ('/soc/qcom,cnss-qca6490@b0000000','/soc/qcom,pcie@1c00000','/soc/mh
 PY
 
 # 2) K60 BAR0（设备侧只读文件已保存）
-#    E:/k60-work/reports/live-6033dbec-iomem.utf8.txt:279-282
+#    E:/iOS Port/Work/reports/live-6033dbec-iomem.utf8.txt:279-282
 #    60200000-603fffff : 0000:01:00.0 / cnss
 
 # 3) K60 PCI 身份（需用户在 Android 侧只读执行，见 §4.0）
@@ -480,22 +480,22 @@ PY
 
 | 路径 | 用途 |
 |---|---|
-| `E:/hackios/UniXNU-pong/configs/pong-wifi-sm8475.json` | Pong 板级 profile；本文 §1.4 所有行号来源 |
-| `E:/hackios/UniXNU-pong/kits/PongPlatform24/build-support/merged-scripts/{prepare-pong-wifi.py,build-pong-ath11k.py,build-pong-wifi-native.py}` | Pong WiFi 三个构建入口 |
-| `E:/hackios/UniXNU-pong/migration/ipados18/services69-wifi-power-pipe.md` | Pong 电源/PIPE 时钟 |
-| `E:/hackios/UniXNU-pong/migration/ipados18/services72-wifi-dma-audio.md` | 128 MiB 连续 DMA 失败与 64 MiB 页式 arena |
-| `E:/hackios/UniXNU-pong/migration/ipados18/services81-wifi-firmware.md` | QMI chip/board、amss20/bdwlang 实际加载、102 通道、RDDM |
-| `E:/hackios/UniXNU-pong/migration/ipados18/services88-native-peripherals.md` | 22H374 type0 user client、selector 0 envelope |
-| `E:/hackios/UniXNU-pong/migration/ipados18/services93-wifi-checkin.md` | wifid/`com.apple.wifi.manager` 接线 |
-| `E:/hackios/UniXNU-pong/migration/ipados18/services111-association-metal-route.md` | 0x384 vs 0x250 association 布局 |
-| `E:/hackios/UniXNU-pong/migration/ipados18/services104-system-peripheral-order.md` | en0、102 channel、10 BSS 扫描 |
-| `E:/hackios/UniXNU-mondrian/docs/reference/AGENT-COORDINATION.md` | K60 侧 WiFi/PCIe 相关行：`:484`（官方状态 Wi-Fi 不可用）、`:1619`（FDT 的 pcie 节点不能直接用于 XNU 常量） |
-| `E:/hackios/UniXNU-mondrian/docs/audits/MEASURED-HIGH-WINDOW-2026-11-02.md` | K60 live FDT SHA、内存窗口事实（`:33-34`、`:120-144`） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/configs/pong-wifi-sm8475.json` | Pong 板级 profile；本文 §1.4 所有行号来源 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/kits/PongPlatform24/build-support/merged-scripts/{prepare-pong-wifi.py,build-pong-ath11k.py,build-pong-wifi-native.py}` | Pong WiFi 三个构建入口 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services69-wifi-power-pipe.md` | Pong 电源/PIPE 时钟 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services72-wifi-dma-audio.md` | 128 MiB 连续 DMA 失败与 64 MiB 页式 arena |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services81-wifi-firmware.md` | QMI chip/board、amss20/bdwlang 实际加载、102 通道、RDDM |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services88-native-peripherals.md` | 22H374 type0 user client、selector 0 envelope |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services93-wifi-checkin.md` | wifid/`com.apple.wifi.manager` 接线 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services111-association-metal-route.md` | 0x384 vs 0x250 association 布局 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services104-system-peripheral-order.md` | en0、102 channel、10 BSS 扫描 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/reference/AGENT-COORDINATION.md` | K60 侧 WiFi/PCIe 相关行：`:484`（官方状态 Wi-Fi 不可用）、`:1619`（FDT 的 pcie 节点不能直接用于 XNU 常量） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/audits/MEASURED-HIGH-WINDOW-2026-11-02.md` | K60 live FDT SHA、内存窗口事实（`:33-34`、`:120-144`） |
 | `D:/Android/k60-ios/deliverables/FEATURES-DRIVERS-RESEARCH-2026-10-31.md` | K60 WiFi 现状与固件缺口（`:86-91`、`:245`、`:269`） |
-| `E:/k60-work/reports/live-6033dbec-fdt.dtb` | K60 live merged FDT（919210 B，SHA-256 `95c02052...`） |
-| `E:/k60-work/reports/live-6033dbec-iomem.utf8.txt` | K60 `/proc/iomem`；BAR0 `60200000-603fffff : 0000:01:00.0` |
-| `E:/hackios/UniXNU-mondrian/configs/mondrian_defconfig` | `CONFIG_XNU_NATIVE_UFS=y`（`:28`）、`CONFIG_XNU_PONG_ADRENO_PLATFORM=y`（`:52`） |
-| `E:/hackios/UniXNU-mondrian/board.toml` | `dram_size`（`:98`）、`kernel_args`（`:125`）、`owned_memory_size`（`:162`） |
-| `E:/hackios/UniXNU-mondrian/scripts/build-xnu-4k-baseline.sh` | K60 内核链接入口；WiFi archive 需接入 `PLATFORM_ARCHIVES`（`:956-1020`） |
-| `E:/hackios/UniXNU-mondrian/drivers/ArmDTPlatform/ArmDTPlatform.cpp` | WiFi `pong_wifi_start_optional()` 的调用点（`:216-226` 现有 Adreno 模式） |
-| `E:/hackios/UniXNU-mondrian/drivers/NativeUfs/SmmuTakeover.h` | `planUfsSmmu()`；K60 缺 `pong_ufs_ready()`（见 `pong:drivers/NativeUfs/PongUfsTransport.cpp:620`） |
+| `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb` | K60 live merged FDT（919210 B，SHA-256 `95c02052...`） |
+| `E:/iOS Port/Work/reports/live-6033dbec-iomem.utf8.txt` | K60 `/proc/iomem`；BAR0 `60200000-603fffff : 0000:01:00.0` |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/configs/mondrian_defconfig` | `CONFIG_XNU_NATIVE_UFS=y`（`:28`）、`CONFIG_XNU_PONG_ADRENO_PLATFORM=y`（`:52`） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/board.toml` | `dram_size`（`:98`）、`kernel_args`（`:125`）、`owned_memory_size`（`:162`） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/build-xnu-4k-baseline.sh` | K60 内核链接入口；WiFi archive 需接入 `PLATFORM_ARCHIVES`（`:956-1020`） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/drivers/ArmDTPlatform/ArmDTPlatform.cpp` | WiFi `pong_wifi_start_optional()` 的调用点（`:216-226` 现有 Adreno 模式） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/drivers/NativeUfs/SmmuTakeover.h` | `planUfsSmmu()`；K60 缺 `pong_ufs_ready()`（见 `pong:drivers/NativeUfs/PongUfsTransport.cpp:620`） |

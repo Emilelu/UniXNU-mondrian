@@ -1,8 +1,8 @@
 # DOCS-ZH-MIRROR：UniXNU 中文文档镜像完整性核对（369 vs 369）
 
 > 核对日期：2026-11-08
-> 源仓库：`E:/hackios/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`
-> 目标仓库：`E:/hackios/UniXNU-mondrian`（分支 `fix/k60-measured-high-window`，HEAD `db94d5283773d4348ba852021290438f234335af`）
+> 源仓库：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`
+> 目标仓库：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`（分支 `fix/k60-measured-high-window`，HEAD `db94d5283773d4348ba852021290438f234335af`）
 > 核对范围：`docs/**/*.md`（排除 `docs/zh/**`）369 篇 vs `docs/zh/**/*.md` 369 篇
 > 方法：`find docs -name '*.md' -not -path 'docs/zh/*'` 与 `find docs/zh -name '*.md'` 分别生成相对路径清单并排序核对；用脚本逐篇统计标题数/标题层级/代码块数/表格数/表格行数/行数比；对 19 篇结构异常文件逐篇对照全文；对 `zh/devices/mondrian*.md` 与 `zh/devices/pong*.md` 共 9 篇做专项核对。
 

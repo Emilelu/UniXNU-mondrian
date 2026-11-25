@@ -28,16 +28,16 @@
 
 | 写法 | 实际位置 | 说明 |
 |---|---|---|
-| `references/...` | `/mnt/e/k60-work/references/...`（Windows: `E:/k60-work/references/...`） | 参考仓库快照。**本仓库树内没有 `references/` 目录**，`research-gate.py` 靠 `alt = os.path.join('/mnt/e/k60-work', path)` 回退才能找到 |
-| `E:/hackios/...` | 主工作区仓库 | 只出现在本文件正文；**不能写进 `SOURCES.toml` 的 `path`**（两种回退都不覆盖，gate 会判文件不存在） |
+| `references/...` | `/mnt/e/iOS Port/Work/references/...`（Windows: `E:/iOS Port/Work/references/...`） | 参考仓库快照。**本仓库树内没有 `references/` 目录**，`research-gate.py` 靠 `alt = os.path.join('/mnt/e/iOS Port/Work', path)` 回退才能找到 |
+| `E:/iOS Port/Sources/...` | 主工作区仓库 | 只出现在本文件正文；**不能写进 `SOURCES.toml` 的 `path`**（两种回退都不覆盖，gate 会判文件不存在） |
 | `docs/...`、`scripts/...` | 本仓库 | 我们自己的树 |
 
-设备页（`docs/devices/*.md`，本索引第 13 节）**不在本仓库**，也不在 `/mnt/e/hackios/UniXNU`：它们在 `references/UniXNU-upstream/docs/devices/`（上游文档树，由各 fork 的 `porting.toml` 生成）。`/mnt/e/hackios/UniXNU` 只有 `devices.toml` 与 `kits/`。
+设备页（`docs/devices/*.md`，本索引第 13 节）**不在本仓库**，也不在 `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU`：它们在 `references/UniXNU-upstream/docs/devices/`（上游文档树，由各 fork 的 `porting.toml` 生成）。`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU` 只有 `devices.toml` 与 `kits/`。
 
 本板一手数据的两个来源，路径固定：
 
-- `E:/k60-work/reports/live-6033dbec-fdt.dtb` —— 设备 6033dbec 于 2026-11-02 从 adb 导出的 **live merged FDT**（已含 dtbo 应用后的节点），919,210 B，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`。
-- `E:/k60-work/scratch/refmine/fdt_dump.txt` —— 上面那份 DTB 的解析结果（30,596 行），本索引引用的行号都指这个文件。解析器是 `E:/k60-work/scratch/refmine/fdt_dump.py`（本机没有 dtc、没有 Python libfdt，只能自己按 FDT 结构解）。
+- `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb` —— 设备 6033dbec 于 2026-11-02 从 adb 导出的 **live merged FDT**（已含 dtbo 应用后的节点），919,210 B，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`。
+- `E:/iOS Port/Work/scratch/refmine/fdt_dump.txt` —— 上面那份 DTB 的解析结果（30,596 行），本索引引用的行号都指这个文件。解析器是 `E:/iOS Port/Work/scratch/refmine/fdt_dump.py`（本机没有 dtc、没有 Python libfdt，只能自己按 FDT 结构解）。
 
 ### 1.2 可信度分级
 
@@ -52,7 +52,7 @@
 ### 1.3 怎么查
 
 ```bash
-cd /mnt/e/hackios/k60-refmine
+cd /mnt/e/iOS Port/Sources/Hardware/k60-refmine
 grep -n '0x17a20000' docs/research/REFERENCE-INDEX.md     # 按地址查
 grep -n 'RPMh\|RSC' docs/research/REFERENCE-INDEX.md       # 按主题查
 grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
@@ -78,12 +78,12 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 
 ## 2. 参考仓库清单（实测 2026-11-14）
 
-任务书里写的是 23 个；**实测为 42 个唯一仓库名**（`/mnt/e/hackios` 15 个 + `/mnt/e/k60-work/references` 31 个，其中 5 个在两处各有一份快照、1 个是空仓库）。
+任务书里写的是 23 个；**实测为 42 个唯一仓库名**（`/mnt/e/iOS Port/Sources` 15 个 + `/mnt/e/iOS Port/Work/references` 31 个，其中 5 个在两处各有一份快照、1 个是空仓库）。
 差异原因是清单本身已过期：`yibiya-*`、`ios-sweet-k60`、`phk110-port` 这批 K60 专属资产是 11-10 之后才进 workspace 的。
 
 关键词命中用 `git ls-files | grep -c` 统计（mondrian / sm8475+taro / k60），用来判断「这个仓库到底有没有本板字样」。
 
-### 2.1 /mnt/e/hackios —— 主工作区
+### 2.1 /mnt/e/iOS Port/Sources —— 主工作区
 
 | 仓库 | 分支 | HEAD | 文件 | 脏 | 命中(mondrian/sm8475/k60) | 用途 |
 |---|---|---|---|---|---|---|
@@ -103,7 +103,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 | uefi-mondrian | main | 9b79562 | 1063 | 6 | 25/1/6 | **本板固件**；`MemoryMapLib.c` 是 2026-10-27 实测的保留区表 |
 | uefi-pong | main | 997ae23 | 1046 | 12 | 0/1/0 | Pong 固件；`Platforms/Nothing/pongPkg` 只有 11 个文件，是 mondrianPkg 的模板 |
 
-### 2.2 /mnt/e/k60-work/references —— 参考快照
+### 2.2 /mnt/e/iOS Port/Work/references —— 参考快照
 
 | 仓库 | 分支 | HEAD | 文件 | 用途 |
 |---|---|---|---|---|
@@ -141,7 +141,7 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 
 ### 2.3 两处同名不同快照（引用前必须确认用哪一份）
 
-`pong-power` 与 `pong-wifi` 在 `/mnt/e/hackios` 和 `/mnt/e/k60-work/references` 各有一份，**内容不同，references 那份更全**：
+`pong-power` 与 `pong-wifi` 在 `/mnt/e/iOS Port/Sources` 和 `/mnt/e/iOS Port/Work/references` 各有一份，**内容不同，references 那份更全**：
 
 | 文件 | hackios 版 | references 版 |
 |---|---|---|
@@ -179,10 +179,10 @@ grep -n 'PongWifiPlatform' docs/research/REFERENCE-INDEX.md # 按文件查
 ⚠ **K60 侧最贵的教训**：`references/ios-sweet-k60/xnu/patches/0246-k60-touch-skip-rpmh.patch` 的注释写着
 「这台机器上 RSC 一个寄存器都读不得：首次读 TCS 就整机死」，`0248-k60-rsc-address-probe.patch` 因此只做只读探针。
 
-**本板实测复核（2026-11-14，全量扫 582 个 boot 目录，脚本 `E:/k60-work/scratch/refmine/rsc_audit3.py`）**——
+**本板实测复核（2026-11-14，全量扫 582 个 boot 目录，脚本 `E:/iOS Port/Work/scratch/refmine/rsc_audit3.py`）**——
 上面那条「一读就死」**只对 drv-0（`0x17a00000`）成立**，drv-2 早已可读可写：
 
-| 事实 | 证据（`E:/k60-work/evidence/` 下） | 次数 |
+| 事实 | 证据（`E:/iOS Port/Work/evidence/` 下） | 次数 |
 |---|---|---|
 | `goodix: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1` | `usblog-20261110-191312/console.log:627,629` 起 | **49 个 boot** |
 | `goodix: rails written iovdd=0x42c00 avdd=0x40f00 (ldoc3)` + `rails on (ldoc2=0x42c00, AVDD gpio71=1)` —— TCS4 投票真的下发并被接受 | 同上 `:630-631` | **48 / 49** |
@@ -316,7 +316,7 @@ SoundWire v1.7 与 v2 的 FIFO 寄存器不同（v1.7: fifoStatus 0x328 / readCo
 | **本板实测（2026-11-14）** | `evidence/audio-probe-j/run1/console.log:214-220` | **型号已定：两颗都是 AW88261（chip ID `0x2113`）**。`amp0 addr=0x34 id=0x2113 chip=AW88261 status=0x0000 faults=0x0000 pll=0`、`mask=0xffff ctrl=0x3343 i2s=0x04e8 dbg=0xa003 vbat=0x0263 pvdd=0x0263 temp=0x0019`、`vcal=0x2000 fuse=0x83fd/0x5bf3/0x83fd/0x5bf3`；amp1 同（`fuse=0x8009/0x5bf7/0x8009/0x5bf7`）；`amp probe done found=2/2 transfers=28 failed=0 timeouts=0 stray=0 recovered=0 gcc_misses=0` | **本板实测（只读）** |
 
 只读探针的前置条件也一并测得（`console.log:191-213`）：amp 相关 GPIO 为 **1 / 3 / 43 / 52 / 56 / 57 / 63 / 88**；`gcc gpll0 vote=0x00000001 mode=0xe0000005 locked=1`、`gcc vote 0x0 -> 0x1f readback 0x1f`；wrap2_core / core_2x / m_ahb / s_ahb / s0 的 halt 分别 `0x4220 / 0x4220 / 0x0 / 0x80000002 / 0x4220` 且 `running=1`；I2C pad GPIO56/57 由 `cfg=0x1` 改到 `0x7`；`se15 fw=0x00000303 proto=3 disabled=0x0 clock=0x11`；`se15 ready config=0x03000021 status=0x0 level=0`；reset amp0=GPIO1 / amp1=GPIO3 由探针释放（`0x1 -> 0x3c0`）。
-镜像 `E:/k60-work/artifacts/audio-probe-20261114j/boot.img` sha256 `877D0A9D08AE0BFF591CCB6D470A47EAC46BDFA26A0D0FF4376A711C35723EF2`，serial 6033dbec，`bootAccepted=true`，capture 以 budget 结束（非 panic）。第二次 boot `bootAccepted=false`，无证据。
+镜像 `E:/iOS Port/Work/artifacts/audio-probe-20261114j/boot.img` sha256 `877D0A9D08AE0BFF591CCB6D470A47EAC46BDFA26A0D0FF4376A711C35723EF2`，serial 6033dbec，`bootAccepted=true`，capture 以 budget 结束（非 panic）。第二次 boot `bootAccepted=false`，无证据。
 
 → **参考仓库仍然覆盖不到实现**（Pong 只有 WCD938x），但「是哪颗芯片」这个缺口**已经闭合**：
 音频线 `docs/research/audio/AMPS.md:15-16` 把它列为「ADSP 之前唯一可完成的实机验证（AW88261 = 0x2113）」，
@@ -795,7 +795,7 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 
 | | `FdtBlob/sm8475-xiaomi-mondrian.dtb`（编进固件） | `live-6033dbec-fdt.dtb`（设备实测） |
 |---|---|---|
-| 位置 | `uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/` | `/mnt/e/k60-work/reports/` |
+| 位置 | `uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/` | `/mnt/e/iOS Port/Work/reports/` |
 | 字节 / sha256 | 480,692 / `d09f4f10bb84d0e5481433b61bc969ea31b793ead394da18a5363d2e9d4b655c` | 919,210 / 见 1.1 路径映射 |
 | 来源 | `sm8450-mainline/linux` `tyalie` 分支 + `usb-role-switch` 补丁 | 设备 `fastboot boot` 时 ABL 交接的厂商 DTB |
 | 节点数 | **3,034** | **4,206** |
@@ -803,7 +803,7 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 | `mdss@ae00000` 直接子节点 | **4** | **34** |
 | 其中 DSI 面板节点 | **0** | **30** |
 
-解析方法（`fdt_dump.txt` **不能**用于逐字节比对，它会截断长 hex 串）：纯 Python FDT 解析器 `/mnt/e/k60-work/scratch/refmine/treeparse.py`，`parse(fn) -> (data, nodes, props)`。要点：头 10 个 BE u32 依次是 magic、totalsize、**off_struct**、**off_strings**、off_rsv、version、last_comp、bootcpuid、**size_strings**、**size_struct**；BEGIN_NODE 后 name 与 PROP 值之后都要 4 字节对齐。
+解析方法（`fdt_dump.txt` **不能**用于逐字节比对，它会截断长 hex 串）：纯 Python FDT 解析器 `/mnt/e/iOS Port/Work/scratch/refmine/treeparse.py`，`parse(fn) -> (data, nodes, props)`。要点：头 10 个 BE u32 依次是 magic、totalsize、**off_struct**、**off_strings**、off_rsv、version、last_comp、bootcpuid、**size_strings**、**size_struct**；BEGIN_NODE 后 name 与 PROP 值之后都要 4 字节对齐。
 
 三条结论：
 
@@ -811,7 +811,7 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 2. **面板信息只在 live 侧**：树内 DTB 的 `mdss` 只有 4 个直接子节点（`qcom,platform-supply-entries`、`qcom,sde-dspp-blocks`、`qcom,sde-sspp-dma-blocks`、`qcom,sde-sspp-vig-blocks`），**一个面板都没有**；live 侧 34 个直接子节点里 30 个是 `qcom,mdss_dsi_*`（含本板的 `qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd`，另有 l1/l2s/l18/l3s/m16t、r66451、sim/dual_sim 系列）。→ **做显示不要指望树内 DTB**；m11a 的 init 串只能从 live DTB 或 `dispdcbx` 取（7.7）。
 3. **`/chosen` 只差运行时字段**：树内只有 `bootargs`/`phandle`/`stdout-path`，live 多 `kaslr-seed`、`linux,initrd-start`、`linux,initrd-end`；两边 `bootargs` 前缀**完全相同**。→ 树内 DTB 就是 live 那份的「去掉面板与运行时填充」版本，与 `Source.txt` 的 mainline 出处自洽。
 
-复现脚本（都在 `/mnt/e/k60-work/scratch/refmine/`）：`treeparse.py`（解析器）、`resmem.py`（按地址打印保留区）、`dtbdiff.py`（两树保留区集合差 + mdss 子节点）、`mdss_count.py`（上表的计数）。
+复现脚本（都在 `/mnt/e/iOS Port/Work/scratch/refmine/`）：`treeparse.py`（解析器）、`resmem.py`（按地址打印保留区）、`dtbdiff.py`（两树保留区集合差 + mdss 子节点）、`mdss_count.py`（上表的计数）。
 
 ---
 
@@ -840,7 +840,7 @@ DSC 参数（`:27871-27879`）：`block-prediction-enable`、`bit-per-pixel=0x8`
 - `0248-k60-rsc-address-probe.patch` 因此只做只读探针（`k60rscprobe=1`）。**它的注释给出了矛盾的确切范围**（`:30-33`）：
   `0x17a00000`（drv-0）一读就 external abort，`0x17a30000`（drv-3）读了会挂，所以只探中间的 drv-2。
 
-**2026-11-14 实测复核**（全量 582 个 boot 目录，脚本 `E:/k60-work/scratch/refmine/rsc_audit3.py`，明细表见 3.1）：
+**2026-11-14 实测复核**（全量 582 个 boot 目录，脚本 `E:/iOS Port/Work/scratch/refmine/rsc_audit3.py`，明细表见 3.1）：
 
 | 观察 | 数字 |
 |---|---|
@@ -912,7 +912,7 @@ K60 的 Adreno 最高 900 MHz，这一行会让 GPU 启动直接判失败。必�
 
 - 本机**没有 dtc**（`command -v dtc` 为空）、**没有 fdtdump**、Python **没有 libfdt**（`import fdt` → ModuleNotFoundError）。
 - `python3` 是 **Windows 侧解释器**：它读不了 `/mnt/e/...`（FileNotFoundError），必须写 `E:/...` 或先 `cd` 到 `/mnt/e` 再用相对路径。
-- **`research-gate.py:34` 仍是 `REPO = '/mnt/e/hackios/UniXNU-mondrian'`**（2026-11-14 在 `origin/main` = `90d8271` 上实测）。在任何 worktree 里跑它，校验的都是主 checkout 的 `SOURCES.toml`（32 条），不是本树追加后的 50 条。本线自检一律用「复制到 scratch、只把 `REPO` 换成本树路径」的副本跑，不动仓库里的脚本（铁则⑧）。
+- **`research-gate.py:34` 仍是 `REPO = '/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian'`**（2026-11-14 在 `origin/main` = `90d8271` 上实测）。在任何 worktree 里跑它，校验的都是主 checkout 的 `SOURCES.toml`（32 条），不是本树追加后的 50 条。本线自检一律用「复制到 scratch、只把 `REPO` 换成本树路径」的副本跑，不动仓库里的脚本（铁则⑧）。
 - `check-docs.py:24` 在 `origin/main` 上**已改成自定位**（`REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`），所以在哪棵树跑就读哪棵树。
 - **更正（2026-11-14）**：这里先前写过「`research-gate.py:88` 未传 `verbose`，problems 永不打印」——**这条是错的**，`def check(verbose=True)` 的缺省就是 True（`research-gate.py:38`），problems 会打印。结论撤回，对应补丁也撤回（见第 16 节）。
 - 一次修好全部 9 个脚本、并新增 `scripts/check-repo-paths.py` 防回归的提交是 **`39a783c`**（`fix(scripts): judge the tree a gate lives in, and gate the pattern (P-183)`），它只在 `feat/audio-merge` 上，**没有进 main**。
@@ -957,12 +957,12 @@ python3 scripts/research-gate.py        # 校验每个 path 存在、examined �
 
 **路径规则（写 `path` 前先看这条）**：gate 只试两种解析——
 ① `os.path.join(REPO, path)`（REPO 是本仓库，如 `docs/research/...`）；
-② `os.path.join('/mnt/e/k60-work', path)`（如 `references/...`、`reports/...`）。
-所以 `path` **不能写 `E:/hackios/...`**。本索引里 `E:/k60-work/reports/live-6033dbec-fdt.dtb` 之所以能当 `path`，是因为它同时是 `reports/live-6033dbec-fdt.dtb`（回退②命中）。
+② `os.path.join('/mnt/e/iOS Port/Work', path)`（如 `references/...`、`reports/...`）。
+所以 `path` **不能写 `E:/iOS Port/Sources/...`**。本索引里 `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb` 之所以能当 `path`，是因为它同时是 `reports/live-6033dbec-fdt.dtb`（回退②命中）。
 
 不在上述两种回退内的仓库有两个，它们**进不了 gate**，只能在本文件正文以事实形式记录（已知的结构性限制）：
-- `E:/hackios/QcaBluetooth`（蓝牙的唯一实现副本）—— 见第 5 节；
-- `E:/hackios/UniXNU-liuqin`（Xiaomi Pad 6 Pro，同 SM8475）—— 见 2.1 与 9.1。
+- `E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth`（蓝牙的唯一实现副本）—— 见第 5 节；
+- `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-liuqin`（Xiaomi Pad 6 Pro，同 SM8475）—— 见 2.1 与 9.1。
 **软 blocker 的处理（2026-11-14）**：Lead 已决定由 Lead 侧加第三回退前缀或 `K60_REPO` 环境变量覆盖，本线按铁则⑧**不自己改 gate**；这条限制同时写进 `SOURCES.toml` 的文件头注释（那里是给写 `path` 的人看的，见本轮提交）。
 
 **两份门禁补丁已撤回（2026-11-14）**：`docs/research/evidence/gate-repo-switch.diff` 与 `gate-repo-switch-lead.diff` 已删除，`evidence/README.md` 的登记行同步移除。Lead 的决定是「REPO 硬编码已由 USB 线在 main 上统一解决，不采用这两份补丁」。核对结果**只成立一半**：`check-docs.py:24` 确已自定位；`research-gate.py:34` 在 `origin/main`（`90d8271`）上**仍是硬编码**（实测见 14.8）。修它的正规路径不是本线的 diff，而是把 **`39a783c`**（P-183，含 `scripts/check-repo-paths.py` 防回归）从 `feat/audio-merge` 合进 main。另：原补丁声称的「`:88` 漏传 verbose 导致 problems 永不打印」是误判，已在 14.8 撤回。

@@ -14,9 +14,9 @@ note = "fix(gpu): keep the addon patch out of the series until its hunk is re-an
 sha = "29827f5"
 tag = "boot-proven-20261111"
 kernel_sha256 = "ce97b50aad24c63030921c093e530cc537cf323892fc55c0218c21e6539ea09d"
-image = "E:/k60-work/usb-a-stage/out/keep-a6165f2404568c1d.img"
+image = "E:/iOS Port/Work/usb-a-stage/out/keep-a6165f2404568c1d.img"
 image_sha256 = "a6165f2404568c1d"
-console = "E:/k60-work/evidence/usblog-20261113-keepctrl/console.log (3307 lines, SpringBoard 133); also usblog-20261112-204720 (2654 lines, SpringBoard 129)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-keepctrl/console.log (3307 lines, SpringBoard 133); also usblog-20261112-204720 (2654 lines, SpringBoard 129)"
 state = "booted"
 note = "最后一次确认能进 SpringBoard 的构建：2026-11-11 23:32 的 keep 镜像；此后到 13ac2b5 之间的补丁改动会让 launchd 在 KX 阶段 SIGSEGV（P-179）；根因已定位为 0340 内嵌 libpong-ui.dylib 更换（P-180），当前分支已回退该 blob"
 
@@ -27,9 +27,9 @@ note = "最后一次确认能进 SpringBoard 的构建：2026-11-11 23:32 的 ke
 [[entry]]
 sha = "683e746"
 kernel_sha256 = "unknown-see-console"
-image = "E:/k60-work/usb-a-stage/out/boot-curfix.img"
+image = "E:/iOS Port/Work/usb-a-stage/out/boot-curfix.img"
 image_sha256 = "074b8b502ccbe5e936d623ee7cedfb210b6d8a2b688a2d0ae62dc8e385d182c9"
-console = "E:/k60-work/evidence/usblog-20261113-curfix/console.log (3360 lines, SpringBoard 133, no initproc panic)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-curfix/console.log (3360 lines, SpringBoard 133, no initproc panic)"
 state = "build-only"
 note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181），不能证明这个提交构建的镜像可启动；真正的双启动证据记在 532a3d3 那条"
 
@@ -41,9 +41,9 @@ note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181�
 [[entry]]
 sha = "532a3d3"
 kernel_sha256 = "6eca5da0fefedd5a5223fdef0fb624a6b4a5ab39292cd242492f9abeab391f14"
-image = "E:/k60-work/usb-a-stage/out/boot-fixinit2.img"
+image = "E:/iOS Port/Work/usb-a-stage/out/boot-fixinit2.img"
 image_sha256 = "2926b334bf1f2f982d512b86e831870c84eb7eb24daac34e1d65a1343a09921d"
-console = "E:/k60-work/evidence/usblog-20261113-fixinit2d/console.log (3191 lines, SpringBoard 133, captured-budget-complete true); E:/k60-work/evidence/usblog-20261113-fixinit2e/console.log (3296 lines, SpringBoard 129, captured-budget-complete true); 中间夹一次 keep 归一 usblog-20261113-normalize4 (3448 lines, SpringBoard 129)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-fixinit2d/console.log (3191 lines, SpringBoard 133, captured-budget-complete true); E:/iOS Port/Work/evidence/usblog-20261113-fixinit2e/console.log (3296 lines, SpringBoard 129, captured-budget-complete true); 中间夹一次 keep 归一 usblog-20261113-normalize4 (3448 lines, SpringBoard 129)"
 state = "booted"
 note = "2026-11-13 双启动通过：0616 把旧 34,904 字节 init 助手写回 /private/var/pong/init（日志 K60INIT legacy bytes=34904 resid=0 error=0），launchd 不再 SIGSEGV。此后的 09f8505/312087b/532a3d3 只动构建工具与采集判定，不进镜像。"
 
@@ -70,9 +70,9 @@ tag = "boot-proven-20261113"
 tag_commit = "96d2515709cffcdeeff9a46f4555a39b2bfb8ad6"
 tag_pushed = "2026-11-13 push -f origin boot-proven-20261113 reported 6f93e8f...8050035"
 kernel_sha256 = "0b660f498021b097eb28c4055c95d6337e8591cd363b8cd92a7108697c390ed7"
-image = "E:/k60-work/artifacts/base-20261113f/boot.img"
+image = "E:/iOS Port/Work/artifacts/base-20261113f/boot.img"
 image_sha256 = "fe8b12c90b145fca664086c578b8b482fe6bf69de361d2ea8260858c8f30d945"
-console = "E:/k60-work/evidence/usblog-20261113-basef2/console.log (3327 lines, SpringBoard 129, captured-budget-complete true); E:/k60-work/evidence/usblog-20261113-basef4/console.log (3351 lines, SpringBoard 129, captured-budget-complete true); keep 归一 E:/k60-work/evidence/usblog-20261113-norm5/console.log (3460 lines, SpringBoard 133)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-basef2/console.log (3327 lines, SpringBoard 129, captured-budget-complete true); E:/iOS Port/Work/evidence/usblog-20261113-basef4/console.log (3351 lines, SpringBoard 129, captured-budget-complete true); keep 归一 E:/iOS Port/Work/evidence/usblog-20261113-norm5/console.log (3460 lines, SpringBoard 133)"
 state = "booted"
 note = "2026-11-13 22:04/22:08 strict 构建 base-20261113f 双启动通过（scripts/build-strict.sh，八步门禁 30 项通过、verify-boot-image OK、manifest 记录 payload_args 与从 payload 读回的 ADT 550f472f）。日志证据：K60INIT legacy bytes=34904 resid=0 error=0，K60LC len=10294，无 initproc exited、无 K60PANIC: ring kept。此条取代 532a3d3：那个 kernel 由 194,147 字节的 0616 编出，而 312087b 改了同一补丁的 printf 文案（219 字节），本次是新产物自己的上机证明。"
 
@@ -84,9 +84,9 @@ note = "2026-11-13 22:04/22:08 strict 构建 base-20261113f 双启动通过（sc
 [[entry]]
 sha = "0143b46"
 kernel_sha256 = "c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09"
-image = "E:/k60-work/artifacts/touch-20261114a/boot.img"
+image = "E:/iOS Port/Work/artifacts/touch-20261114a/boot.img"
 image_sha256 = "0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9"
-console = "E:/k60-work/evidence/usblog-20261114-150931/console.log (3870 lines, SpringBoard 254, captured-budget-complete true, panicMarker null, resetMarker null)"
+console = "E:/iOS Port/Work/evidence/usblog-20261114-150931/console.log (3870 lines, SpringBoard 254, captured-budget-complete true, panicMarker null, resetMarker null)"
 state = "booted"
 note = "2026-11-14 15:09 触摸真机通过：goodix COORD-ON ack=80 之后出现 8 条真实触点与 4 条 HID 派发（type=1/3），日志无 panic、无 initproc exited、无 K60PANIC: ring kept、K60RAIL 0（rail 探针默认关闭）。真因是配置完成后只发了 0x90/0x00 关闭 raw 帧，从未发 0x91/0x01 打开坐标上报。此镜像同时带 GPU addon（metal plugin 51,278,451 B）与 iOS buttons 节点。0143b46 之后的提交只改文档、门禁与测试脚本，内核输入逐字节不变，故本条目覆盖分支顶端。"
 

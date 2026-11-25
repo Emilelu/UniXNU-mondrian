@@ -88,7 +88,7 @@ goodix: no valid firmware version: 00 00 00 00 00 00 00 00 ...
 
 ## 第 6 轮（2026-11-08 23:45，读 Linux v6.6 源码）：`IF_DISABLE_RO` 是 pong 自造的假门
 
-**证据**（`/mnt/e/k60-work/scratch/bt-work/evidence/linux-qcom-geni-se-v6.6.c`，sha256 `e039433d…`）：
+**证据**（`/mnt/e/iOS Port/Work/scratch/bt-work/evidence/linux-qcom-geni-se-v6.6.c`，sha256 `e039433d…`）：
 
 `geni_se_init()` 的真实序列只有两步：
 ```c

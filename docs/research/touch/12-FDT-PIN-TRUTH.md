@@ -1,6 +1,6 @@
 # K60 触摸 FDT 真值（2026-11-09 19:50）
 
-> 来源：`/mnt/e/k60-work/reports/live-6033dbec-fdt.dtb`（919,210 B，
+> 来源：`/mnt/e/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（919,210 B，
 > sha256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`），
 > 用 `dtc -I dtb -O dts` 反编译到 `/tmp/live.dts`（34,801 行）。
 

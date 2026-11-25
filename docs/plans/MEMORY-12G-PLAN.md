@@ -28,7 +28,7 @@ board.toml:162 owned_memory_size=0x130000000 (4.75 GiB)
                                                                               └── arm_vm_init.c:1847-1857 ──> XNU managed / hw.memsize
 ```
 
-pong 的模型可作为这个分离的参照（任务给的 `git -C E:/hackios/UniXNU-pong show origin/main:scripts/make-pong-adt.py` 在当前 pong 仓返回 `fatal: path ... does not exist`；同内容副本在 `E:/hackios/UniXNU-mondrian/scripts/make-pong-adt.py`，以下按该副本引用）：
+pong 的模型可作为这个分离的参照（任务给的 `git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong show origin/main:scripts/make-pong-adt.py` 在当前 pong 仓返回 `fatal: path ... does not exist`；同内容副本在 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/make-pong-adt.py`，以下按该副本引用）：
 
 - `DRAM_BASE = 0x80000000`（`scripts/make-pong-adt.py:23`）；
 - `--dram-size` 是必填的物理 DRAM 总量（`:78-80`），写入 `/chosen/dram-size`（`:155-156`）；
@@ -40,7 +40,7 @@ pong 的 `dts/pong.dts:6-10` 也明确把 `memory@80000000` 的 12 GiB 说成“
 ### 1.2 现在实际拿到多少
 
 - 配置值是 `owned_memory_size = 0x130000000` = **4.75 GiB**（`board.toml:162`）。
-- 2026-11-07 的 USB 控制台日志已经给出设备侧证据：`vm_page_bootstrap: 1208993 free pages, 36191 wired pages`（`E:/k60-work/evidence/usblog-20261107-112028/console.log:17`）。K60 这套 XNU 是 4 KiB 页：`1,208,993 + 36,191 = 1,245,184` 页，`1,245,184 × 4096 = 0x130000000` = **4.75 GiB**；同一日志的 `K60RV 1 launchd[1] mem=4864 actual=4864 managed=4864`（`:569`）也证明三数都是 4864 MiB。
+- 2026-11-07 的 USB 控制台日志已经给出设备侧证据：`vm_page_bootstrap: 1208993 free pages, 36191 wired pages`（`E:/iOS Port/Work/evidence/usblog-20261107-112028/console.log:17`）。K60 这套 XNU 是 4 KiB 页：`1,208,993 + 36,191 = 1,245,184` 页，`1,245,184 × 4096 = 0x130000000` = **4.75 GiB**；同一日志的 `K60RV 1 launchd[1] mem=4864 actual=4864 managed=4864`（`:569`）也证明三数都是 4864 MiB。
 - 最后一次有**屏幕照片**的内存三数是 4096 MiB（`docs/audits/MEASURED-HIGH-WINDOW-2026-11-02.md:112-117`）；4.75 GiB 这一档在 `docs/state/STATE-2026-11-07.md:221` 仍被标注为“是否已上机验证”未核实。两者不矛盾：4.75 GiB 是当前配置/控制台证据，4 GiB 是历史屏幕证据。
 
 ### 1.3 为什么“不到 8G”
@@ -62,11 +62,11 @@ pong 的 `dts/pong.dts:6-10` 也明确把 `memory@80000000` 的 12 GiB 说成“
 
 ## 2. 真机内存地图（六段）
 
-数据源：`E:/k60-work/reports/live-6033dbec-fdt.dtb`（919,210 bytes，FDT v17，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`），用 Python 解析根节点 `/memory` 的 `reg`；同一数据也见 `MEASURED-HIGH-WINDOW-2026-11-02.md:39-49`。复核脚本（无第三方依赖，只打印 memory 节点；表 2 就是它的输出）：
+数据源：`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（919,210 bytes，FDT v17，SHA-256 `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8`），用 Python 解析根节点 `/memory` 的 `reg`；同一数据也见 `MEASURED-HIGH-WINDOW-2026-11-02.md:39-49`。复核脚本（无第三方依赖，只打印 memory 节点；表 2 就是它的输出）：
 
 ```python
 import struct
-b = open(r'E:/k60-work/reports/live-6033dbec-fdt.dtb', 'rb').read()
+b = open(r'E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb', 'rb').read()
 h = struct.unpack_from('>10I', b, 0)
 struct_at, str_at, str_size = h[2], h[3], h[8]
 strings = b[str_at:str_at + str_size]
@@ -161,13 +161,13 @@ while True:
 
 ### 4.1 第 1 步：`MemoryMapLib.c` 恢复低段 + 新增/替换高段 Conv
 
-文件：`E:/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c`（当前 123 行）。
+文件：`E:/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c`（当前 123 行）。
 
-**1a. 先确认低段没有再次被截断。** 低段必须从 `:11` 的 `HYP` 一直到 `:61` 的 `QTEE`，以及 `:63-74` 的 UEFI 系统区、`:75` 的 `Kernel` 和 `:83` 的 `DXE Heap` 全部在场。当前工作树的 `Conv` 有两条：`:83 DXE Heap` 和 `:94 XNU High Arena`；旧描述里的“只有 DXE Heap 一条 Conv”对应修复前基线，不要据此删掉 `:94`。若工作树是 `E:/k60-work/reports/MemoryMapLib-before-repair-20261102-143625.c` 那种截断件，按 `MEASURED-HIGH-WINDOW-2026-11-02.md:55-59` 从 `e06211de` 恢复后再做下面的新增：
+**1a. 先确认低段没有再次被截断。** 低段必须从 `:11` 的 `HYP` 一直到 `:61` 的 `QTEE`，以及 `:63-74` 的 UEFI 系统区、`:75` 的 `Kernel` 和 `:83` 的 `DXE Heap` 全部在场。当前工作树的 `Conv` 有两条：`:83 DXE Heap` 和 `:94 XNU High Arena`；旧描述里的“只有 DXE Heap 一条 Conv”对应修复前基线，不要据此删掉 `:94`。若工作树是 `E:/iOS Port/Work/reports/MemoryMapLib-before-repair-20261102-143625.c` 那种截断件，按 `MEASURED-HIGH-WINDOW-2026-11-02.md:55-59` 从 `e06211de` 恢复后再做下面的新增：
 
 ```sh
-git -C E:/hackios/uefi-mondrian show e06211de:Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c \
-  > E:/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c
+git -C E:/iOS Port/Sources/Repos/UEFI/uefi-mondrian show e06211de:Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c \
+  > E:/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c
 ```
 
 **1b. 把 `:94` 的 5 GiB `XNU High Arena` 替换为完整 8.652 GiB 连续段，并在它前面新增高段 C/D（多区间用）、高段顶保留、低区 B（多区间用）。** 具体要加的行如下（`AddMem` 必须保留：Silicium MemoryPeim 同时建 HOB 和 identity mapping；不要用 `HobOnlyNoCacheSetting`，见 `MEASURED-HIGH-WINDOW-2026-11-02.md:67-68`）：
@@ -203,7 +203,7 @@ git -C E:/hackios/uefi-mondrian show e06211de:Platforms/Xiaomi/mondrianPkg/Libra
 
 ### 4.2 第 2 步：`board.toml` 的 `dram_size` 改 0x300000000
 
-文件：`E:/hackios/UniXNU-mondrian/board.toml`。
+文件：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/board.toml`。
 
 **2a. `:98` 改为：**
 
@@ -229,7 +229,7 @@ dram_size = "0x300000000"
 
 ### 4.3 第 3 步：`dts/mondrian.dts` 的 memory 节点
 
-文件：`E:/hackios/UniXNU-mondrian/dts/mondrian.dts:18-32`。当前是：
+文件：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/dts/mondrian.dts:18-32`。当前是：
 
 ```dts
 	memory@900000000 {
@@ -265,18 +265,18 @@ dram_size = "0x300000000"
 
 ```sh
 # 0) 先确认只改了计划中的文件
-git -C /mnt/e/hackios/uefi-mondrian diff --check
-git -C /mnt/e/hackios/UniXNU-mondrian diff --check
+git -C /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian diff --check
+git -C /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian diff --check
 
 # 1) 构建 UEFI FD（脚本来自 uefi-mondrian/scripts/build-firmware.sh:1-22）
-cd /mnt/e/hackios/uefi-mondrian
+cd /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian
 JOBS=8 bash scripts/build-firmware.sh
 FD="Build/mondrianPkg/RELEASE_CLANGPDB/FV/SILICIUM_UEFI.fd"
 sha256sum "$FD"
 ls -l "$FD"
 
 # 2) 生成 payload 和 boot image（输出路径以 unixnu status 为准）
-cd /mnt/e/hackios/UniXNU
+cd /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU
 ./unixnu build payload -D ../UniXNU-mondrian
 ./unixnu bootimg \
   --uefi ../uefi-mondrian \
@@ -291,7 +291,7 @@ dtc -I dtb -O dts -o /tmp/mondrian.dts \
 grep -A3 -E 'memory(@| \{)' /tmp/mondrian.dts
 
 # 4) 只 fastboot boot，不 flash
-bash ../UniXNU-mondrian/scripts/k60-device.sh boot /mnt/e/hackios/UniXNU/mondrian-boot-12g.img
+bash ../UniXNU-mondrian/scripts/k60-device.sh boot /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/mondrian-boot-12g.img
 ```
 
 构建成功后看 `board.toml:44` 约定的 FD 路径：`Build/mondrianPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd`。`verify-firmware.py` 的默认根目录仍是旧的 `Mu-Silicium/Build/...`，不要被它的硬编码路径误导；以 `sha256sum`、FD 存在性和实际启动日志为准。
@@ -301,7 +301,7 @@ bash ../UniXNU-mondrian/scripts/k60-device.sh boot /mnt/e/hackios/UniXNU/mondria
 ### 5.1 第 1 步（MemoryMapLib）源码/构建判据
 
 ```sh
-grep -n 'XNU High' E:/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c
+grep -n 'XNU High' E:/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c
 ```
 
 必须看到：
@@ -381,7 +381,7 @@ sysctl hw.memsize_physical
 ### 6.3 GPU/触摸 DMA 抢页
 
 - 高段 arena `0x840000000..0xA69B78000` 与当前显示帧缓冲 `0xB8000000..0xBAD00000`（`MemoryMapLib.c:52`）不重叠，这是好事；但 `0236` 的 `K60 FB` 探针仍必须确认 framebuffer 是 `outside` managed range，不能是 `INSIDE`（`patches/xnu/0236-k60-managed-memory-and-panel.patch:10-56`）。若窗口扩大后 `K60 FB` 变 `INSIDE`，控制台文本会覆盖面板扫描缓冲，表现为花屏/PTE 损坏。
-- Adreno 的 BO pool 需要**物理连续** run（参考 `alioth` 的 768 MiB 例子：`E:/k60-work/references/unixnu-site/zh/devices/alioth.md:475`）。把 XNU 窗口推到 8 GiB 会占掉 E+F 的大部分，GPU 侧 768 MiB/1.5 GiB 连续分配可能失败；在 GPU 启用前不要把 `owned_memory_size` 直接锁死 8 GiB，至少保留 0.5 GiB 以上连续余量，或把 GPU pool 的预留页从 arena 中先扣掉。
+- Adreno 的 BO pool 需要**物理连续** run（参考 `alioth` 的 768 MiB 例子：`E:/iOS Port/Work/references/unixnu-site/zh/devices/alioth.md:475`）。把 XNU 窗口推到 8 GiB 会占掉 E+F 的大部分，GPU 侧 768 MiB/1.5 GiB 连续分配可能失败；在 GPU 启用前不要把 `owned_memory_size` 直接锁死 8 GiB，至少保留 0.5 GiB 以上连续余量，或把 GPU pool 的预留页从 arena 中先扣掉。
 - 触摸是 GENI-SPI（`spi@990000`，`MemoryMapLib.c:103` 的 QUP MMIO 区），不是大块 DMA；但 `tlmm`/`rsc`/`cmd-db` 都在低区，绝不能因为“低区空闲 435 MiB”就把低区散段全部设成 Conv。低区 A 的碎片本轮不暴露，就是为了避免触摸/PMIC 的 MMIO 与 DXE 分配互相踩。
 
 ### 6.4 pong 的 HYP 保留不能直接搬
@@ -410,11 +410,11 @@ DarwinBoot 的候选基址是 `ALIGN_VALUE(run_start, 2 MiB) + (Kernel->Base & (
 
 **本次只出方案，不改代码。**
 
-- 只创建/修改 `E:/hackios/UniXNU-mondrian/docs/plans/MEMORY-12G-PLAN.md` 这一个文件。
-- 不修改 `E:/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c`。
-- 不修改 `E:/hackios/UniXNU-mondrian/board.toml`。
-- 不修改 `E:/hackios/UniXNU-mondrian/dts/mondrian.dts`。
+- 只创建/修改 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/plans/MEMORY-12G-PLAN.md` 这一个文件。
+- 不修改 `E:/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c`。
+- 不修改 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/board.toml`。
+- 不修改 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/dts/mondrian.dts`。
 - 不构建、不生成 boot image、不碰设备、不 flash、不 push。
-- 完成后只在 `E:/hackios/UniXNU-mondrian` 本地提交本文件，commit 信息 `docs(memory): plan the 12 GiB arena layout`。
+- 完成后只在 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` 本地提交本文件，commit 信息 `docs(memory): plan the 12 GiB arena layout`。
 
 另记一条项目治理事实：`docs/reference/PITFALLS-FROM-HISTORY.md:39-44` 记录“内存窗口问题已封案、不再调整”；本文件不改变该封案状态，只是方案。真要进入 §4 的实施，需要用户先显式重开这个决策，并重新走 `fastboot boot` 验证，不能把本文件当作已批准的上机指令。

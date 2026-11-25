@@ -3,7 +3,7 @@
 > 范围：**只读调研 + 本文件**。没有改 `patches/`、`series`、`drivers/`、`userland/`、`board.toml`、`dts/`、`uefi-mondrian` 或任何构建脚本。
 > 目标机：Redmi K60（小米代号 `mondrian`，SM8475 / `qcom,cape`），目标系统 iPadOS 16.6.1 / 20G81（Darwin 22）。
 > 参照：`UniXNU-pong` 的 **main 分支（iPadOS 18 / 22H374 / Darwin 24）** 的 `migration/ipados18/services*.md` 共 21 篇；pong 是同一颗 SM8475（Nothing Phone (2)），但 main 是 iPadOS 18，不是 K60 的 20G81。硬件事实可借，ABI 不能照抄。
-> K60 硬件值的来源：`E:/k60-work/reports/live-6033dbec-fdt.dtb`（serial `6033dbec`，本文件写作时逐节点解析，以下简称 `FDT`）；其余引用见正文 `文件:行`。
+> K60 硬件值的来源：`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（serial `6033dbec`，本文件写作时逐节点解析，以下简称 `FDT`）；其余引用见正文 `文件:行`。
 
 ## 阅读约定与证据标签
 
@@ -16,16 +16,16 @@
 
 | 简称 | 完整路径 / 说明 |
 |---|---|
-| `FDT` | `E:/k60-work/reports/live-6033dbec-fdt.dtb` |
-| `PongAudio.cpp` | `E:/hackios/UniXNU-zizhan/drivers/PongPower/PongAudio.cpp`（本机另一设备仓的 PongPower 副本，接口与 pong main 的 `drivers/PongPower` 子模块同套；本工作区未初始化 submodule，未逐字节比对） |
-| `PongAudioService.cpp` | `E:/hackios/UniXNU-zizhan/drivers/PongPower/PongAudioService.cpp` |
-| `PongAudioPlugIn.c` | `E:/hackios/UniXNU-pong/userland/PongAudioPlugIn.c`（41,210 B） |
-| `PongAudioRoute.h` | `E:/hackios/UniXNU-pong/userland/PongAudioRoute.h`（17,861 B） |
-| `ShengAudioReach.c` | `E:/hackios/UniXNU-sheng/package/ShengAudioReach.c`（17,119 B） |
-| `ShengGpr.c` | `E:/hackios/UniXNU-sheng/package/ShengGpr.c`（4,165 B） |
-| `AdspFirmware.c` | `E:/hackios/UniXNU-sheng/package/AdspFirmware.c`（7,165 B） |
+| `FDT` | `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb` |
+| `PongAudio.cpp` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/drivers/PongPower/PongAudio.cpp`（本机另一设备仓的 PongPower 副本，接口与 pong main 的 `drivers/PongPower` 子模块同套；本工作区未初始化 submodule，未逐字节比对） |
+| `PongAudioService.cpp` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/drivers/PongPower/PongAudioService.cpp` |
+| `PongAudioPlugIn.c` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/userland/PongAudioPlugIn.c`（41,210 B） |
+| `PongAudioRoute.h` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/userland/PongAudioRoute.h`（17,861 B） |
+| `ShengAudioReach.c` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/ShengAudioReach.c`（17,119 B） |
+| `ShengGpr.c` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/ShengGpr.c`（4,165 B） |
+| `AdspFirmware.c` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/AdspFirmware.c`（7,165 B） |
 | `FEATURES` | `docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md`（本仓副本） |
-| `K60PROFILE` | `E:/hackios/UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml`（K60 内核/prelink 配置；正文 `profile.toml:33` 指此文件） |
+| `K60PROFILE` | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml`（K60 内核/prelink 配置；正文 `profile.toml:33` 指此文件） |
 | `ZCODE` | `docs/reference/ZCODE-RESEARCH-REPORT.md` |
 | `P18` | `UniXNU-pong:migration/ipados18/services*.md`（iPadOS18） |
 
@@ -104,7 +104,7 @@ Android 侧对应驱动名（用于对照，不是 iOS 可执行代码）：
 
 ### 1.4 iOS 16 侧可复用框架（IOBluetoothFamily/HCI）
 
-**实测扫描方法**：对 `E:/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed`（48,644,096 B，iPadOS 16.6.1 的 kernelcache）做 ASCII 字符串扫描；同样扫描 `21H461` 作为对照。
+**实测扫描方法**：对 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/kernelcache.decompressed`（48,644,096 B，iPadOS 16.6.1 的 kernelcache）做 ASCII 字符串扫描；同样扫描 `21H461` 作为对照。
 
 | 符号/类 | 20G81 结果 | 说明 |
 |---|---|---|
@@ -196,7 +196,7 @@ pong-bt {
 
 > 如果实际目标机的硬件变体和 serial `6033dbec` 不是同一块板：TFA9873 与 AW882xx 都可能使用 I2C `0x34/0x35`，**不能靠地址区分**；第一步必须读 chip ID/revision，再决定走 TFA 参考代码还是 AW882xx 新代码。
 >
-> 关于“pong main 无 audio 驱动目录”：main 树里确实没有展开的 `drivers/PongPower` 目录；`drivers/PongPower` 是 git submodule 指针（`git -C E:/hackios/UniXNU-pong submodule status` 显示 `-c37179e...`，本工作区未初始化）。音频内核实现要到 `pong-power` 子模块看；`userland/PongAudioPlugIn.c`、`PongAudioRoute.h`、`audio_clock18.h` 等用户态代码仍在 main 树，是本方案的主要可抄来源。
+> 关于“pong main 无 audio 驱动目录”：main 树里确实没有展开的 `drivers/PongPower` 目录；`drivers/PongPower` 是 git submodule 指针（`git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong submodule status` 显示 `-c37179e...`，本工作区未初始化）。音频内核实现要到 `pong-power` 子模块看；`userland/PongAudioPlugIn.c`、`PongAudioRoute.h`、`audio_clock18.h` 等用户态代码仍在 main 树，是本方案的主要可抄来源。
 >
 > 注：`AGENT-COORDINATION.md`（371,564 B）全文 grep `TFA9873`/`QCA6490` **0 命中**；只有第 484 行状态表把音频/蓝牙列为不可用、第 3253 行提到 pong 专属 DT 契约缺失。故本文 K60 硬件值以 live `FDT` 和 `ZCODE`/`FEATURES` 为准，不把该文件当 TFA/QCA 数据源。
 
@@ -522,7 +522,7 @@ CoreAudio/audiomxd
 
 ## 附录 A：Pong main 21 篇 `services*.md` 逐篇可执行硬件事实
 
-> 读取命令：`git -C E:/hackios/UniXNU-pong show origin/main:migration/ipados18/<name>`。以下只摘“可执行硬件事实”，不重复设计论证。
+> 读取命令：`git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong show origin/main:migration/ipados18/<name>`。以下只摘“可执行硬件事实”，不重复设计论证。
 
 | # | 篇目 | 可执行硬件事实 | 对 K60 的用途 |
 |---|---|---|---|
@@ -553,7 +553,7 @@ CoreAudio/audiomxd
 ### B.1 Pong 21 篇读取命令
 
 ```sh
-git -C E:/hackios/UniXNU-pong show origin/main:migration/ipados18/services67-desktop-audio-pcie.md
+git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong show origin/main:migration/ipados18/services67-desktop-audio-pcie.md
 # 其余 20 篇同理；完整清单见任务书
 ```
 
@@ -562,29 +562,29 @@ git -C E:/hackios/UniXNU-pong show origin/main:migration/ipados18/services67-des
 本文件使用的解析脚本为临时只读工具（不在仓库内）：
 
 ```sh
-python E:/k60-work/tmp/fdt_dump.py E:/k60-work/reports/live-6033dbec-fdt.dtb node /soc/bt_qca6490
-python E:/k60-work/tmp/fdt_dump.py E:/k60-work/reports/live-6033dbec-fdt.dtb node /soc/qcom,qup_uart@894000
-python E:/k60-work/tmp/fdt_dump.py E:/k60-work/reports/live-6033dbec-fdt.dtb node /soc/i2c@880000/aw882xx_smartpa@34
-python E:/k60-work/tmp/fdt_dump.py E:/k60-work/reports/live-6033dbec-fdt.dtb node /soc/spf_core_platform/sound
+python E:/iOS Port/Work/tmp/fdt_dump.py E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb node /soc/bt_qca6490
+python E:/iOS Port/Work/tmp/fdt_dump.py E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb node /soc/qcom,qup_uart@894000
+python E:/iOS Port/Work/tmp/fdt_dump.py E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb node /soc/i2c@880000/aw882xx_smartpa@34
+python E:/iOS Port/Work/tmp/fdt_dump.py E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb node /soc/spf_core_platform/sound
 ```
 
 ### B.3 关键源文件
 
 | 文件 | 用途 |
 |---|---|
-| `E:/hackios/UniXNU-zizhan/drivers/PongPower/PongAudio.cpp` | ADSP/AudioReach/TFA/DMA 实现（20,428 B） |
-| `E:/hackios/UniXNU-zizhan/drivers/PongPower/PongAudioService.cpp` | `PongAudio` IOService/UserClient（6,346 B） |
-| `E:/hackios/UniXNU-pong/userland/PongAudioPlugIn.c` | AudioServerPlugIn 实现（41,210 B） |
-| `E:/hackios/UniXNU-pong/userland/PongAudioRoute.h` | VirtualAudio `pibi/prts/rtcf/vcsp` 路由（17,861 B） |
-| `E:/hackios/UniXNU-pong/userland/audio_clock18.h` | CoreAudio 24→19.2 MHz 时钟适配 |
-| `E:/hackios/UniXNU-sheng/package/ShengAudioReach.c` | AudioReach 参数/消息构造（17,119 B） |
-| `E:/hackios/UniXNU-sheng/package/ShengGpr.c` | GPR 传输（4,165 B） |
-| `E:/hackios/UniXNU-sheng/package/AdspFirmware.c` | ADSP `modem_a/modem_b` 固件分片读取（7,165 B） |
-| `E:/hackios/UniXNU-pong/configs/pong-power-sm8475.json` | Pong 音频/电源常量（TFA/SID/PRM/DMA） |
-| `E:/hackios/UniXNU-mondrian/docs/reference/ZCODE-RESEARCH-REPORT.md` | K60 U9-C1..C15 事实/推断分级 |
-| `E:/hackios/UniXNU-mondrian/docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md` | K60 器件清单与 T1/T2 分层 |
-| `E:/hackios/UniXNU-mondrian/docs/state/STATE-2026-11-07.md` | 当前 launchd/GPU/触摸/内存真相 |
-| `E:/hackios/UniXNU-mondrian/docs/reference/PITFALLS.md` | P-10：无 UART 日志、COM3/4 是蓝牙虚拟口 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/drivers/PongPower/PongAudio.cpp` | ADSP/AudioReach/TFA/DMA 实现（20,428 B） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/drivers/PongPower/PongAudioService.cpp` | `PongAudio` IOService/UserClient（6,346 B） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/userland/PongAudioPlugIn.c` | AudioServerPlugIn 实现（41,210 B） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/userland/PongAudioRoute.h` | VirtualAudio `pibi/prts/rtcf/vcsp` 路由（17,861 B） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/userland/audio_clock18.h` | CoreAudio 24→19.2 MHz 时钟适配 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/ShengAudioReach.c` | AudioReach 参数/消息构造（17,119 B） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/ShengGpr.c` | GPR 传输（4,165 B） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/AdspFirmware.c` | ADSP `modem_a/modem_b` 固件分片读取（7,165 B） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/configs/pong-power-sm8475.json` | Pong 音频/电源常量（TFA/SID/PRM/DMA） |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/reference/ZCODE-RESEARCH-REPORT.md` | K60 U9-C1..C15 事实/推断分级 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md` | K60 器件清单与 T1/T2 分层 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/state/STATE-2026-11-07.md` | 当前 launchd/GPU/触摸/内存真相 |
+| `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/reference/PITFALLS.md` | P-10：无 UART 日志、COM3/4 是蓝牙虚拟口 |
 
 ### B.4 本次未核实项（C 级清单）
 

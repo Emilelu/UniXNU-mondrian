@@ -26,8 +26,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 CONFIG = REPO / "configs" / "mondrian_defconfig"
 PATCH = REPO / "patches" / "xnu" / "offline-owner-systemos-mount.patch"
-EVIDENCE = Path("/mnt/e/k60-work/evidence")
-MANIFEST = Path("/mnt/e/k60-work/scratch/cur-manifest.bin")
+EVIDENCE = Path("/mnt/e/iOS Port/Work/evidence")
+MANIFEST = Path("/mnt/e/iOS Port/Work/scratch/cur-manifest.bin")
 
 UUID_RE = re.compile(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}")
 CONFIG_RE = re.compile(
@@ -63,7 +63,7 @@ def check_uuid(problems: list[str], notes: list[str]) -> None:
 
     log = newest_console()
     if log is None:
-        notes.append("no console log >=4 KiB under /mnt/e/k60-work/evidence -> UUID cross-check skipped")
+        notes.append("no console log >=4 KiB under /mnt/e/iOS Port/Work/evidence -> UUID cross-check skipped")
         return
     text = log.read_text(encoding="utf-8", errors="replace")
     observed = {u.upper() for u in WINDOW_RE.findall(text)}
@@ -88,7 +88,7 @@ def check_ceiling(problems: list[str], notes: list[str]) -> None:
         return
     ceiling = max(ceilings)
     if not MANIFEST.is_file():
-        notes.append("no manifest dump at /mnt/e/k60-work/scratch/cur-manifest.bin -> ceiling cross-check skipped")
+        notes.append("no manifest dump at /mnt/e/iOS Port/Work/scratch/cur-manifest.bin -> ceiling cross-check skipped")
         return
     raw = MANIFEST.read_bytes()
     rows = DATALINE_RE.findall(raw.decode("latin-1"))

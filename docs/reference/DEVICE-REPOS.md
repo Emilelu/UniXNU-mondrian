@@ -1,6 +1,6 @@
 # DEVICE-REPOS — UniXNU 设备仓库目录（快照）
 
-> 本文件数据源：E:\k60-work\docs\devices-map.json（官网索引会话导出，生成于 2026-11-04T08:48:18+08:00）。这是**时刻快照**，权威数据以 `python E:\k60-work\tools\device-hub\devices.py list` 的实时结果（或官网索引会话最新导出的 devices-map.json）为准。
+> 本文件数据源：E:\iOS Port\Work\docs\devices-map.json（官网索引会话导出，生成于 2026-11-04T08:48:18+08:00）。这是**时刻快照**，权威数据以 `python E:\iOS Port\Work\tools\device-hub\devices.py list` 的实时结果（或官网索引会话最新导出的 devices-map.json）为准。
 
 > 证据等级：实测 = ls-remote/克隆验证；文档 = 官网页面/官网索引导出。推断级不入表。
 

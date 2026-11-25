@@ -2,9 +2,9 @@
 
 移植与 pong `ios16` 分支的机械差异审计。
 
-- 我方：`E:/hackios/UniXNU-mondrian`，分支 `fix/k60-measured-high-window`。审计开始时 HEAD 为 `78452b44ac55`；审计期间 Lead 在同一分支提交了 `17892ae`（只新增 `docs/120HZ-PORT-PLAN.md`，不触及本审计的文件范围），本次提交落在 `17892ae` 之上。
-- 参照：`E:/hackios/UniXNU-pong`，`FETCH_HEAD` = `7798f1e5f261e7121d01d7e4807ed73512737ded`，`.git/FETCH_HEAD` 第一行写明 `branch 'ios16' of https://github.com/Chengdong-Yu/UniXNU-pong`。
-- 参照读取方式：`git -C E:/hackios/UniXNU-pong archive --format=tar -o ... FETCH_HEAD` 后解包到临时目录；未 checkout、未切分支、未改动 pong 仓库。
+- 我方：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`，分支 `fix/k60-measured-high-window`。审计开始时 HEAD 为 `78452b44ac55`；审计期间 Lead 在同一分支提交了 `17892ae`（只新增 `docs/120HZ-PORT-PLAN.md`，不触及本审计的文件范围），本次提交落在 `17892ae` 之上。
+- 参照：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong`，`FETCH_HEAD` = `7798f1e5f261e7121d01d7e4807ed73512737ded`，`.git/FETCH_HEAD` 第一行写明 `branch 'ios16' of https://github.com/Chengdong-Yu/UniXNU-pong`。
+- 参照读取方式：`git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong archive --format=tar -o ... FETCH_HEAD` 后解包到临时目录；未 checkout、未切分支、未改动 pong 仓库。
 - 基线核对：两侧 `patches/xnu` 均以 `xnu-8796.141.3` / `1b191cb58250d0705d8a51287127505aa4bc0789` 为目标（`scripts/build-xnu-4k-baseline.sh:8-10`），冲突试验使用同一 commit 的上游 tarball（sha256 `6F725962608800B26767242A0A19B8ED1C79E2BF1A0F659506F15AB0737C5ACC`）。
 
 ## ① 结论摘要
@@ -419,13 +419,13 @@ pong `FETCH_HEAD` 里**没有** `porting.toml`（`Test-Path` = False）。我们
 ### 6.1 版本与集合
 
 ```text
-git -C E:/hackios/UniXNU-mondrian branch --show-current
+git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian branch --show-current
 fix/k60-measured-high-window
-git -C E:/hackios/UniXNU-mondrian rev-parse --short=12 HEAD
+git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian rev-parse --short=12 HEAD
 78452b44ac55
-git -C E:/hackios/UniXNU-pong rev-parse --short=12 FETCH_HEAD
+git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong rev-parse --short=12 FETCH_HEAD
 7798f1e5f261
-Get-Content E:/hackios/UniXNU-pong/.git/FETCH_HEAD -TotalCount 1
+Get-Content E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/.git/FETCH_HEAD -TotalCount 1
 7798f1e5f261e7121d01d7e4807ed73512737ded    branch 'ios16' of https://github.com/Chengdong-Yu/UniXNU-pong
 ```
 

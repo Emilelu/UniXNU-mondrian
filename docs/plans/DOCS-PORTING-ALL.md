@@ -1,8 +1,8 @@
 # DOCS-PORTING-ALL：UniXNU 移植文档全量阅读（30/30）
 
 > 阅读日期：2026-11-08
-> 来源仓库：`E:/hackios/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`
-> 目标仓库：`E:/hackios/UniXNU-mondrian`（分支 `fix/k60-measured-high-window`）
+> 来源仓库：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`
+> 目标仓库：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`（分支 `fix/k60-measured-high-window`）
 > 范围：`docs/porting/` 26 篇、`docs/contributing/` 2 篇、`docs/building.md`、`docs/index.md`，共 30 篇。
 > 方法：每篇从第 1 行读到 EOF，按行数、SHA-256 前缀核对；逐篇记录流程要点、K60 可执行项、16.6.1/20G81 适用性。
 
@@ -177,7 +177,7 @@
 
 **K60 可执行项**
 - 当前缺失，按 Adoption 四步补齐：
-  1. `cp templates/package.sh scripts/package.sh`（从 `E:/hackios/UniXNU/templates/package.sh`）。
+  1. `cp templates/package.sh scripts/package.sh`（从 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/templates/package.sh`）。
   2. `board.toml` 增加：
      ```toml
      [package]
@@ -595,7 +595,7 @@
 
 **K60 可执行项**
 - 本文件是仓库内 `docs/plans/` 研究文档，不是站点页面；若以后发布到 uniixnu.com，需要英文/中文两版并更新 sidebar。
-- 提交文档前跑 `npm --prefix docs run build`（在 `E:/hackios/UniXNU`），修复断链。
+- 提交文档前跑 `npm --prefix docs run build`（在 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU`），修复断链。
 - 设备特定值（K60 的地址/UUID/窗口）放设备仓库记录，不写进公共 guide。
 
 **iOS 16.6.1/20G81 适用性**：直接适用（流程规范）。
@@ -673,7 +673,7 @@
 
 ### A. 仓库格式与记录（P0）
 
-1. **补 `scripts/package.sh`**：从 `E:/hackios/UniXNU/templates/package.sh` 原样复制到 `E:/hackios/UniXNU-mondrian/scripts/package.sh`，不改脚本内容。
+1. **补 `scripts/package.sh`**：从 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/templates/package.sh` 原样复制到 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/package.sh`，不改脚本内容。
 2. **补 `.github/workflows/package.yml`**：按 `packaging.md` 的 GitHub 流程，macOS runner + `scripts/package.sh`，artifacts 为 `boot.img`/`payload.img`/`kernel.macho`/`package.manifest.json`。
 3. **补 `board.toml [package]`**：
    ```toml
@@ -698,7 +698,7 @@
 
 10. **统一构建入口**：`./unixnu defconfig mondrian_defconfig -D ../UniXNU-mondrian` → `fetch` → `status --json` → `tree`；所有后续命令带 `-D ../UniXNU-mondrian`。
 11. **固定输出目录**：`out/mondrian/ipados-16.6.1-20G81/mondrian/`；kernel `kernel/kernel.macho`，payload `payload/payload.img`，boot `boot/boot.img`，DTB `device-tree/hardware.dtb`。
-12. **修复 `/tmp` 依赖**：`board.toml` 的 `pong_native_driver_source = "/tmp/k60build/pong-driver"` 与 AGENTS 铁律 1 冲突；改为仓库内路径或 `E:\k60-work` 并写进 `local.toml`/记录。
+12. **修复 `/tmp` 依赖**：`board.toml` 的 `pong_native_driver_source = "/tmp/k60build/pong-driver"` 与 AGENTS 铁律 1 冲突；改为仓库内路径或 `E:\iOS Port\Work` 并写进 `local.toml`/记录。
 13. **build inputs**：20G81 kernelcache sha256 `d260defc...`、`prebuilt/20G81-trustcache.bundle`（如仍用）、Data seed、`--unique-chip-id`、`uefi-mondrian` checkout、firmware DTB；按 `migration.md#build-inputs` 逐项记录来源。
 14. **每次改 boot args**：`./unixnu build payload` + `./unixnu bootimg`，不要只重打 boot。
 15. **每次改 kernel code**：先 `./unixnu build kernel`，再 payload/bootimg。
@@ -749,7 +749,7 @@
 | C05 | `porting.toml` 多个 area 状态与证据不匹配（storage/display/input/gpu/network/audio/power 全 `planned`；packaging `host-verified` 无 package.sh） | `records.md:66-80`；`docs/state/STATE-2026-11-07.md` | 按 status 定义重评，用 evidence 升级或降级 |
 | C06 | `board.toml [components]` 只有 4 项，未覆盖已存在的 display/input/GPU/network/audio/power 驱动 | `device-repository.md:49-59`；`steps.md:65-86`；K60 `board.toml:13-14` | 按实际启用组件补全 `[components] include`，含 catalog 依赖 |
 | C07 | `board.toml [kernel] archives` 只有 3 个 component，`patch_series` 只有 `device:patches/xnu/series`；文档要求完整四层序列与 archive plan | `device-repository.md:262-276`；`steps.md:84-85`；K60 `board.toml:16-22` | 补 `arch:`/`soc:`/`os:`/`device:` 的 `patch_series`（如果实际使用），并补 archives；数组覆盖必须写全量 |
-| C08 | `board.toml` 的 `pong_native_driver_source = "/tmp/k60build/pong-driver"` | K60 `board.toml:23-29`；AGENTS 铁律 1（`/tmp` 不可持久）；`building.md:352-354` 可复现性 | 移到仓库内或 `E:\k60-work`，通过 `local.toml`/`--local-module` 传入 |
+| C08 | `board.toml` 的 `pong_native_driver_source = "/tmp/k60build/pong-driver"` | K60 `board.toml:23-29`；AGENTS 铁律 1（`/tmp` 不可持久）；`building.md:352-354` 可复现性 | 移到仓库内或 `E:\iOS Port\Work`，通过 `local.toml`/`--local-module` 传入 |
 | C09 | `[firmware]` 无 `preflight` | `device-repository.md:280-308`；`uefi-firmware.md:170-183`；K60 `board.toml:41-71` | 若 `uefi-mondrian` 有板级检查，补 `preflight = [...]`；否则在 record 中说明 |
 | C10 | K60 的 `DarwinBoot22`/`{tree}/drivers/DarwinBoot22` 与文档的 `DarwinBootPkg/Driver/DarwinBoot.inf` 不一致 | `uefi-firmware.md:24-44`；K60 `board.toml:49-64`；`profiles/os/ipados-16.6.1-20G81/profile.toml` | 保留 Darwin22，按实际 INF/路径写进 DSC/FDF；记录 ABI 0x2e0 |
 | C11 | `board.toml [payload] trust_cache_sha256 = []`、B 决策放弃 trust-cache，与文档默认 `--trust-cache`/`trust_cache_sha256` 路径不一致 | K60 `board.toml:141-146`；`device-repository.md:330-374`；`building.md:215-217` | 保持 B 决策；构建不传 `--trust-cache`，record 写明原因；不要照文档的 trust-cache 验证路径 |
@@ -784,14 +784,14 @@
 
 ## 四、覆盖清单（30/30）
 
-> 清单生成命令（在 `E:/hackios/UniXNU` 下执行）：
+> 清单生成命令（在 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU` 下执行）：
 > ```sh
 > find docs/porting docs/contributing -name '*.md' | sort
 > # 再追加：
 > docs/building.md docs/index.md
 > ```
 > 结果：`docs/porting/` 26 篇 + `docs/contributing/` 2 篇 + 根目录 2 篇 = 30 篇。
-> 每篇均已从第 1 行读到 EOF；行数、SHA-256 前缀来自 `E:/hackios/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`。
+> 每篇均已从第 1 行读到 EOF；行数、SHA-256 前缀来自 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`。
 
 - [x] 01 `docs/porting/arm64e.md`（89 行，`1DDF36CD68DD4A10`）
 - [x] 02 `docs/porting/baseband.md`（80 行，`975E693EFE4B359A`）

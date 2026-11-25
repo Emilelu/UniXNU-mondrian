@@ -11,11 +11,11 @@
 
 | 顺序 | 读什么 | 为什么 |
 |---|---|---|
-| 1 | `E:\k60-work\HANDOFF-2026-11-02.md` | **当前主交接**：目标、硬件路线、已验证事实、卡点、下一步。**注意 INDEX 已标注其 §4 两处过时**（「内核未重编」已被 20:42 构建 `64ae6488…` 推翻；STR 行指旧地址扫描版，现为 kcdata 版） |
-| 2 | `E:\k60-work\docs\INDEX.md` | 全量文档地图；哪些文档过时、为什么过时，都标在这里 |
-| 3 | `E:\k60-work\docs\ISSUES.md` | 未解决问题的当前形态（崩溃签名、根因未定）；已解决问题的防复发判定 |
-| 4 | `E:\k60-work\docs\DECISIONS.md` | 已做决定 + 镜像身份链（引用 sha 的唯一权威表） |
-| 5 | `E:\k60-work\docs\PITFALLS.md` | 六个已实证的坑（pagezero、mcopy、探针转义、计数断言、旧 sha） |
+| 1 | `E:\iOS Port\Work\HANDOFF-2026-11-02.md` | **当前主交接**：目标、硬件路线、已验证事实、卡点、下一步。**注意 INDEX 已标注其 §4 两处过时**（「内核未重编」已被 20:42 构建 `64ae6488…` 推翻；STR 行指旧地址扫描版，现为 kcdata 版） |
+| 2 | `E:\iOS Port\Work\docs\INDEX.md` | 全量文档地图；哪些文档过时、为什么过时，都标在这里 |
+| 3 | `E:\iOS Port\Work\docs\ISSUES.md` | 未解决问题的当前形态（崩溃签名、根因未定）；已解决问题的防复发判定 |
+| 4 | `E:\iOS Port\Work\docs\DECISIONS.md` | 已做决定 + 镜像身份链（引用 sha 的唯一权威表） |
+| 5 | `E:\iOS Port\Work\docs\PITFALLS.md` | 六个已实证的坑（pagezero、mcopy、探针转义、计数断言、旧 sha） |
 | 6 | `UniXNU-mondrian/docs/`（WSL，设备仓）三份当日文档：`MEASURED-HIGH-WINDOW-2026-11-02.md`、`REFERENCE-WALL-AUDIT-2026-11-02.md`、`USERLAND-ROUTES-2026-11-02.md` | 内存窗口定案、显示前提全具备的逐条证据、三条用户态路线为什么不能互相照抄 |
 | 7 | `D:\Android\k60-ios\ios-sweet-k60\docs\LOCKSCREEN-2026-10-28.md` | 参考项目进锁屏的四个显示前提（同 SoC，墙体清单源头） |
 
@@ -38,7 +38,7 @@
    ⚠️ **禁止** `git checkout` / `git reset --hard` / `git clean`——会丢掉全部未提交诊断改动（HANDOFF §6.1）。
 2. **设备仓/固件仓的 git log**：`~/hackios/UniXNU-mondrian`、`~/hackios/uefi-mondrian`（分支 `fix/k60-measured-high-window`），同样按症状关键词搜 commit message。
 3. **`D:\Android\k60-ios\AGENT-COORDINATION.md` 尾部**：消息板按时间追加，最新结论在文件尾（文件头快照停在 2026-10-27，别从头读）。全文大（368 KB），用关键词搜。
-4. **`E:\k60-work\logs\`**：每次构建/打包/上机的原始日志，按时间戳对上候选目录。
+4. **`E:\iOS Port\Work\logs\`**：每次构建/打包/上机的原始日志，按时间戳对上候选目录。
 5. **旧交接链**（已被取代，只在追历史时读）：`docs/HANDOFF-2026-10-3*`、`HANDOFF-PROMPT-*`、`PROGRESS-2026-10-30-PM.md`、`docs/BOOT-STALL-2026-10-31.md`、`docs/DATA-SPACE-2026-10-31.md`。
 
 ## 第三层：上游（改官方代码、借路线之前先查）
@@ -60,7 +60,7 @@
 | 我要…… | 直接去 |
 |---|---|
 | 引用任何 sha256 | `candidates/<目录>/build-verification.json`（不凭记忆） |
-| 重编内核/payload/打包 | `E:\k60-work\tools\`：`build-kernel-summary.sh` → `build-payload-sandbox.sh` → `package-textonly.py`；验证 `handoff-probes.py` |
+| 重编内核/payload/打包 | `E:\iOS Port\Work\tools\`：`build-kernel-summary.sh` → `build-payload-sandbox.sh` → `package-textonly.py`；验证 `handoff-probes.py` |
 | 上机 | `~/hackios/UniXNU-mondrian/scripts/k60-device.sh {state\|boot}`；只 `fastboot boot`，绝不 flash |
 | 搞清崩溃根因 | ISSUES I-20261102-01 → 等 kcdata STR（`64ae6488…`）上机 |
 | 搞清内存窗口为什么 4 GiB | `MEASURED-HIGH-WINDOW-2026-11-02.md` + DECISIONS D-2026-11-02-04 |

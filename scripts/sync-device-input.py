@@ -23,11 +23,11 @@ DEV = os.environ.get('K60_DEVICE_INPUT') or '/opt/k60/trees/usb-cdc-mainline/dev
 # 单一工作树时才写这份共享镜像。多 agent 并行时每人有自己的 K60_DEVICE_INPUT，
 # 若仍写同一个文件，最后同步的人就决定了别人 porting-gate 看到的 series
 # （2026-11-14 五个 agent 同时工作后实测：BT 的 0507 出现在 Lead 的树里）。
-SCRATCH_SERIES = os.environ.get('K60_SERIES_MIRROR') or '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
+SCRATCH_SERIES = os.environ.get('K60_SERIES_MIRROR') or '/mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt'
 
 # 仓库里需要镜像到构建输入的条目（相对路径）
 
-# 框架副本：E:\\hackios\\UniXNU -> /opt/k60/trees/k60build
+# 框架副本：E:\\iOS Port\\Sources\\UniXNU -> /opt/k60/trees/k60build
 # 2026-11-12 加。此前 sync-device-input.py 只同步 device 树，框架副本靠手工 cp，
 # 结果 scripts/unixnu 漂移了 17 个文件而没人发现（check-build-freshness.py F1）。
 # 只同步框架 CLI（scripts/unixnu）。整个 scripts/ 不能同步：

@@ -2,7 +2,7 @@
 
 > **结论层。** 证据行在 [REFERENCE-INDEX.md 第 9 节](../REFERENCE-INDEX.md)（含 9.1 与 liuqin 的双源交叉验证）；
 > 本文只写可用值、不可抄的值、以及卡住的地方。
-> `fdt_dump.txt:NNNN` 指 `E:/k60-work/scratch/refmine/fdt_dump.txt`（live FDT `E:/k60-work/reports/live-6033dbec-fdt.dtb`）。
+> `fdt_dump.txt:NNNN` 指 `E:/iOS Port/Work/scratch/refmine/fdt_dump.txt`（live FDT `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`）。
 > **铁则④：绝不写设备分区，只用序列号 6033dbec，只用 `fastboot boot`。** 本文任何地址都不是写盘许可。
 
 ## 1. UFS 控制器 / PHY 真值（本板 live FDT）

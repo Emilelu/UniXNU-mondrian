@@ -187,7 +187,7 @@
 - 4 GiB boot 的 screen trace：`suggestd` 以 status `163`、signal `0`、`ns=0`、`code=0x0` 退出，是正常 exit status，不是 jetsam 或 sandbox denial；`disk5s` APFS transactions 持续完成（`xid 2512, 140/140 finished`），Data volume 没有卡住。
 - Current limits：4 GiB window 是已证明配置；7 GiB 被 loader 接受但 XNU 没有启动；12 GiB 单 window 物理不可能。reference project 的 display/CA prerequisites 已在本 kernel 中；开放的墙是 userland contract/container handling，表现为 `ns=2 SIGABRT/SIGTRAP`。
 - Evidence `host`：8.625 GiB arena + 7 GiB window；strict v4 round trip PASS；image SHA-256 `8ea52daf4b3e926d4840e13a73fa00c9cadf9b3f1e97e1ececfdaa446e1afc34`。Command：`python3 repair-high-window.py; build-uefi-8g.sh; build-kernel-summary.sh; package-textonly.py`；Revision `48abe35d0a0a57f5fea9f9ba1e570800021ae6b1`。
-- Evidence `device`：loader 接受 `window 0x1c0000000 bytes at pa 0x8400200000` 与 `HANDOFF EXIT RETURN 0`；XNU console 输出尚未观察到。Command：`fastboot boot /mnt/e/k60-work/candidates/7g/boot-ios16-7g-textonly.img`；Revision `e06211de59325bbd086c312324bdbf40e21d1045`。
+- Evidence `device`：loader 接受 `window 0x1c0000000 bytes at pa 0x8400200000` 与 `HANDOFF EXIT RETURN 0`；XNU console 输出尚未观察到。Command：`fastboot boot /mnt/e/iOS Port/Work/candidates/7g/boot-ios16-7g-textonly.img`；Revision `e06211de59325bbd086c312324bdbf40e21d1045`。
 
 **mzyxsl `mondrian-mzyxsl.md` — `implemented`**
 
@@ -550,7 +550,7 @@ python3 repair-high-window.py
 build-uefi-8g.sh
 build-kernel-summary.sh
 package-textonly.py
-fastboot boot /mnt/e/k60-work/candidates/7g/boot-ios16-7g-textonly.img
+fastboot boot /mnt/e/iOS Port/Work/candidates/7g/boot-ios16-7g-textonly.img
 ```
 
 验证判据：loader 打印窗口大小与 PA，`HANDOFF EXIT RETURN 0`；XNU console 出现 `mem=actual=managed`；`window-probe` 打印 `PONG WINDOW PASS` 与 `PAGES CHECKED`。当前仓库先按 `docs/plans/MEMORY-12G-PLAN.md` 的阶梯（4.75 → 5 → 8 GiB）执行，不要直接跳 12 GiB。
@@ -763,7 +763,7 @@ python3 scripts/check-porting-paths.py --device .
 
 ### 4.1 当前基线事实（写入时）
 
-- 仓库：`E:/hackios/UniXNU-mondrian`；分支 `fix/k60-measured-high-window`；HEAD `9b4fec1`（`docs(bt-audio): plan the QCA6490 BT and TFA9873 audio ports`）。
+- 仓库：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`；分支 `fix/k60-measured-high-window`；HEAD `9b4fec1`（`docs(bt-audio): plan the QCA6490 BT and TFA9873 audio ports`）。
 - `board.toml`：`schema_version = 2`；components `ArmDTPlatform, ArmCpu, XnuPrelink, PongUfs`；`dram_size = 0x140000000`（5 GiB arena）；`[payload.adt] owned_memory_size = 0x130000000`（4.75 GiB window）；`cpus = 8`；`trust_cache_sha256 = []`（B 决策，已去掉 trust-cache 路径）；`chip_id = 8015`；kernel args 含 `pong_ufs_readwrite=1`、`disable_exc_resource=1`、`k60_fontscale=3`。
 - `configs/mondrian_defconfig`：`CONFIG_XNU_PONG_ADRENO_PLATFORM=y`、`CONFIG_XNU_OWNER_DATA_UFS=y`、`CONFIG_XNU_NATIVE_RAM_BLOCK=n`、`CONFIG_XNU_SHENG_PMGR=n`、`CONFIG_XNU_NATIVE_ADRENO=n`。
 - `patches/xnu/series`：198 条 active entries；`patches/xnu` 下 221 个 `.patch`；另有 `patches/xnu-ipados18` 7 个 Route A-18/Darwin 24 补丁（`0243`–`0250`）不在 active series。
@@ -828,7 +828,7 @@ python3 scripts/check-porting-paths.py --device .
 | Emilelu | CPU | `device` | `scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc8.img` | `d2af811a6dc9c6225de586e1615ca3824e2edce4` |
 | Emilelu | CPU | `device` | `scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc11.img` | `e636e445b621bed4fac0069f3604b87061350a8d` |
 | Emilelu | Memory and DMA | `host` | `python3 repair-high-window.py; build-uefi-8g.sh; build-kernel-summary.sh; package-textonly.py` | `48abe35d0a0a57f5fea9f9ba1e570800021ae6b1` |
-| Emilelu | Memory and DMA | `device` | `fastboot boot /mnt/e/k60-work/candidates/7g/boot-ios16-7g-textonly.img` | `e06211de59325bbd086c312324bdbf40e21d1045` |
+| Emilelu | Memory and DMA | `device` | `fastboot boot /mnt/e/iOS Port/Work/candidates/7g/boot-ios16-7g-textonly.img` | `e06211de59325bbd086c312324bdbf40e21d1045` |
 | Emilelu | Image assembly | `host` | `./unixnu build kernel -D ../UniXNU-mondrian` | `6a10bf5e42ecfad7eed2789cc091287d31009623` |
 | Emilelu | Image assembly | `host` | `python3 scripts/k60-prelink-darwin24.py && python3 scripts/verify-boot-img-payload.py --img /mnt/d/Android/k60-ios/boot-darwin24-bc6.img --payload /tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/payload/payload.img --kernel /tmp/k60build/out/mondrian/ipados-18.7.10-22H374/mondrian/kernel/kernel.macho` | `e636e445b621bed4fac0069f3604b87061350a8d` |
 | Emilelu | Diagnostics | `device` | `scripts/k60-device.sh boot /mnt/d/Android/k60-ios/boot-darwin24-bc4.img; count the breadcrumb squares` | `e636e445b621bed4fac0069f3604b87061350a8d` |

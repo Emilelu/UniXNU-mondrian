@@ -27,7 +27,7 @@
 **现查现取**（★37：不写死 SHA）：
 
 ```bash
-cd /mnt/e/k60-work/references/AdrenoMetal && git fetch --all --prune
+cd /mnt/e/iOS Port/Work/references/AdrenoMetal && git fetch --all --prune
 git log --oneline --since='3 days ago' origin/main
 ```
 
@@ -110,7 +110,7 @@ NativeMetalBridgePhase.h       10,579 B
 
 **症状**：构建在 `build-pong-adreno-platform.py:64` 失败：
 ```
-FileNotFoundError: /mnt/e/hackios/UniXNU-mondrian/.cache/firmware/k60-gpu/gmu_gen70000.bin
+FileNotFoundError: /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/.cache/firmware/k60-gpu/gmu_gen70000.bin
 ```
 
 **需要五个文件**（`build-pong-adreno-platform.py:61-63`）：

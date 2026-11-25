@@ -58,8 +58,8 @@ print('ncmds=%d cs=%s' % (n,cs))" init.bin
 # 用 v24dp 重新生成 0391 的 blob
 python3 - <<'PY'
 import io, re
-INIT='/mnt/e/hackios/UniXNU-mondrian/userland/init-history/init-v24dp.bin'
-P='/mnt/e/hackios/UniXNU-mondrian/patches/xnu/0391-k60-embedded-init.patch'
+INIT='/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/userland/init-history/init-v24dp.bin'
+P='/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/patches/xnu/0391-k60-embedded-init.patch'
 data=io.open(INIT,'rb').read()
 lines=io.open(P,encoding='utf-8',errors='ignore').read().split('\n')
 start=next(i for i,l in enumerate(lines) if 'k60_init_blob[K60_INIT_BLOB_LEN] = {' in l)

@@ -79,7 +79,7 @@ echo
 echo "=== 2) 启动（单一 supervisor 先武装抓取）==="
 WIN_IMG=$(echo "$IMG" | sed 's|^/mnt/\([a-z]\)/|\U\1:\\|; s|/|\\|g')
 STAMP=$(date +%Y%m%d-%H%M%S)
-WIN_OUT="E:\\k60-work\\evidence\\usblog-${STAMP}"
+WIN_OUT="E:\\iOS Port\\Work\\evidence\\usblog-${STAMP}"
 WIN_BOOT=$(echo "$REPO/scripts/boot-and-capture.ps1" | sed 's|^/mnt/\([a-z]\)/|\U\1:\\|; s|/|\\|g')
 echo "  img: $WIN_IMG"
 echo "  证据目录: $WIN_OUT"

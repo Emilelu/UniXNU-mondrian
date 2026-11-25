@@ -2,7 +2,7 @@
 
 本文件记录实现 `K60AdspPas.c` 所需的全部外部知识，来源均为读源码所得，不在本仓库内可再推导。
 
-## SCM 常量（来源 `E:\k60-work\references\pong-power\QcomScm.h`）
+## SCM 常量（来源 `E:\iOS Port\Work\references\pong-power\QcomScm.h`）
 
 ```
 QCOM_SCM_SVC_PIL             0x02u   (:9)
@@ -13,7 +13,7 @@ QCOM_SCM_VAL                 0u      (:15)
 qcom_scm_fn(svc, cmd)                (:21，位域拼装)
 ```
 
-## 调用形状（来源 `E:\k60-work\references\pong-power\PongAdsp.cpp`）
+## 调用形状（来源 `E:\iOS Port\Work\references\pong-power\PongAdsp.cpp`）
 
 ```
 :235  ScmResult scm(uint32_t command, uint32_t arginfo, uint64_t a, uint64_t b, uint64_t c)

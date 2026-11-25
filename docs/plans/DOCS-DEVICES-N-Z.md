@@ -1,6 +1,6 @@
 # DOCS-DEVICES-N-Z — UniXNU 设备页通读（N–Z）
 
-- 范围：`E:/hackios/UniXNU/docs/devices/` 中文件名首字母 N–Z 的全部页面，共 **136 篇**（N–Z 段共 141 篇，已排除 `pong*` 5 篇；`mondrian*` 4 篇属 A–M 段，本就不在范围；全目录 266 篇）。
+- 范围：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/devices/` 中文件名首字母 N–Z 的全部页面，共 **136 篇**（N–Z 段共 141 篇，已排除 `pong*` 5 篇；`mondrian*` 4 篇属 A–M 段，本就不在范围；全目录 266 篇）。
 - 阅读方式：逐文件全文读取（共 3,381,792 bytes / 35,915 行），本文件为逐篇一行摘要 + K60 可复用清单 + 覆盖清单。
 - 状态口径：页面 `Area | Status` 原样汇总；`implemented` 表示实现覆盖，`host-verified` / `device-verified` 表示证据等级，`planned` 表示未实现。无状态表的页面在摘要中直接描述。
 - 关联：A–M 段见 `docs/plans/DOCS-DEVICES-A-M.md`；其中 `erhai-xingxing19035.md`（AW882xx 实机清单）、`asteroids.md`（双 TFA9873 实现）、`marble-milacy.md`/`fuxi-oddlylabs.md`（Goodix/触摸工程模板）是本段 K60 清单的跨段补充。

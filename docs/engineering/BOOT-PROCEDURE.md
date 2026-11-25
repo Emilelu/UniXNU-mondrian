@@ -21,18 +21,18 @@
 ## 一条命令
 
 ```bash
-bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh /mnt/e/k60-work/usb-a-stage/out/<img> <秒数>
+bash /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/flash.sh /mnt/e/iOS Port/Work/usb-a-stage/out/<img> <秒数>
 ```
 
 补丁集与上次成功启动的不同时，门禁 S 项要求显式声明：
 
 ```bash
-K60_FORCE_NEW=1 bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh <img> <秒数>
+K60_FORCE_NEW=1 bash /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/flash.sh <img> <秒数>
 ```
 
 `K60_FORCE_NEW=1` 不是绕过门禁：其余每一项照旧检查，只是不再因为"补丁集变了"而失败。
 
-脚本在仓库里（`scripts/flash.sh`），不再放在 `/mnt/e/k60-work/scripts/` —— 放仓库外
+脚本在仓库里（`scripts/flash.sh`），不再放在 `/mnt/e/iOS Port/Work/scripts/` —— 放仓库外
 的文件不会被提交、不会被复查、也不会被门禁看见，那是铁则 1 的违反。
 
 ## 三个角色，互不越界
@@ -59,7 +59,7 @@ K60_FORCE_NEW=1 bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh <img> <秒�
 
 ## 证据目录里有什么
 
-`E:\k60-work\evidence\usblog-<yyyyMMdd-HHmmss>\`
+`E:\iOS Port\Work\evidence\usblog-<yyyyMMdd-HHmmss>\`
 
 - `console.log` —— 串口原始字节，唯一正文
 - `capture.json` —— 结构化判据：`state`、`complete`、`stopReason`、字节数、

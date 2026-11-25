@@ -14,14 +14,14 @@ version = 1
 [[claim]]
 topic = "PAS 的 SMC 调用号"
 claim = "fn = (1<<30)|(2<<24)|(svc<<8)|cmd，PAS 的 INIT_IMAGE/AUTH_AND_RESET/SHUTDOWN 分别算出 0x42000201/0x42000205/0x42000206"
-evidence = "/mnt/e/k60-work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c"
+evidence = "/mnt/e/iOS Port/Work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c"
 evidence_needle = "QCOM_SCM_PAS_INIT_IMAGE) == 0x42000201"
 verified = true
 
 [[claim]]
 topic = "PAS 的参数打包"
 claim = "args = count&0xf | t0<<4 | t1<<6 | t2<<8，两个参数且都是 VAL 时等于 0x82"
-evidence = "/mnt/e/k60-work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c"
+evidence = "/mnt/e/iOS Port/Work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c"
 evidence_needle = "QCOM_SCM_RW, 0) == 0x82u"
 verified = true
 
@@ -35,7 +35,7 @@ verified = true
 [[claim]]
 topic = "SMEM 分配器的条目格式"
 claim = "条目 = CANARY | item<<16（高 16 位是 item），按 8 字节对齐，分配指针只在条目写完之后前进"
-evidence = "/mnt/e/k60-work/references/pong-power/QcomSmem.c"
+evidence = "/mnt/e/iOS Port/Work/references/pong-power/QcomSmem.c"
 evidence_needle = "CANARY"
 verified = true
 

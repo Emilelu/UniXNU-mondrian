@@ -12,7 +12,7 @@
 + * TODO/AW882XX_TODO below and must not be treated as a measured value.
 + *
 + * Board facts (all from the K60 live FDT; see
-+ * /mnt/e/k60-work/scratch/audio-work/EVIDENCE.md):
++ * /mnt/e/iOS Port/Work/scratch/audio-work/EVIDENCE.md):
 + *   - Bus: /soc/i2c@880000 (QUPV3_2 SE15), GPIO56=SCL / GPIO57=SDA,
 + *     function qup15, 2 mA pull-up (live-fdt.dts:13301-13316, 3562-3594)
 + *   - TOP: I2C 0x34, reset GPIO1, IRQ GPIO88 (flags 0x2008), spksw GPIO52,
@@ -22,7 +22,7 @@
 + *   - No vdd/vbat supply property exists on either node
 + *     (live-fdt.dts:13318-13341). Do not write guessed PMIC votes.
 + *
-+ * Eight-step pipeline status (E:/k60-work/docs/PORTING-PIPELINE.md):
++ * Eight-step pipeline status (E:/iOS Port/Work/docs/PORTING-PIPELINE.md):
 + *   (1) same-hardware: Pong/Sheng smart-PA frameworks only; AW882xx has no
 + *       local implementation (REUSE.md section 4.4)
 + *   (2) official docs: AW882xx datasheet/vendor driver NOT available

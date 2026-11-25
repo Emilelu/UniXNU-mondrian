@@ -22,7 +22,7 @@ import tomllib
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEDGER = os.path.join(REPO, 'docs', 'research', 'UPSTREAM-TRIAGE.toml')
-REF = '/mnt/e/k60-work/references'
+REF = '/mnt/e/iOS Port/Work/references'
 VALID = {'picked', 'not-applicable', 'deferred'}
 
 
@@ -75,7 +75,7 @@ def main():
     problems = []
     checked = 0
     for b in branches:
-        mirror = os.path.join('/mnt/e/k60-work', b['mirror'].replace('references/', 'references/'))
+        mirror = os.path.join('/mnt/e/iOS Port/Work', b['mirror'].replace('references/', 'references/'))
         if not os.path.isdir(os.path.join(mirror, '.git')):
             problems.append('%s: 镜像不存在 %s' % (b['branch'], b['mirror']))
             continue

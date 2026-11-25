@@ -91,7 +91,7 @@ if [ -z "$DIRTY" ]; then
 fi
 
 # ---------------------------------------------------------------- snapshot first
-SNAP_DIR=${K60_SNAPSHOT_DIR:-/mnt/e/k60-work/scratch/snapshots}
+SNAP_DIR=${K60_SNAPSHOT_DIR:-/srv/iosport/Work/scratch/snapshots}
 SNAP=""
 if [ -f "$ROOT/scripts/snapshot-worktree.py" ]; then
     SNAP=$(K60_SNAPSHOT_DIR="$SNAP_DIR" python3 "$ROOT/scripts/snapshot-worktree.py" \
@@ -133,7 +133,7 @@ if [ ! -f "$OWNERS" ]; then
     # the checkouts that need it most (a fresh agent worktree).
     for candidate in \
         "${K60_TREE_OWNERS:-}" \
-        /mnt/e/k60-work/TREE-OWNERS.toml \
+        /srv/iosport/Work/TREE-OWNERS.toml \
         "$(dirname "$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo /x)")/docs/engineering/TREE-OWNERS.toml"
     do
         if [ -n "$candidate" ] && [ -f "$candidate" ]; then

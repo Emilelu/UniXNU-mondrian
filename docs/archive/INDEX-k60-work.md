@@ -15,7 +15,7 @@
 >    - 结论必须复审（自审 + 独立来源交叉核对），标「已审阅」才可执行；**无充分可行结论不得操作**。证据分三级：实测 / 文档 / 推断，推断级不得作为动手依据。
 >    - 未调研主题进 `references/GAP-TO-SPRINGBOARD.md` 的「未调研主题」清单，禁止「大概应该可以」开工。
 >    - **现状页（谁在跑、卡在哪、等谁拍板）= `HANDOFF.md`**，每次状态变化当轮更新；历史结论写台账，不写现状页。
-> 6. **实时优先，缓存仅作检索副本**（用户 2026-11-04 立）：判断上游现状（有哪些仓库/最新进展/设备目录）以实时源（unixnu.com/devices/、GitHub）或带导出时间的 `docs/devices-map.json` 为准；本地快照/缓存只作检索副本，用时标抓取时间；实时源不可达必须明示，禁止旧缓存冒充最新。**任何 fetch/pull 前先记当前 HEAD，完成后记新 HEAD 与新增 commit 列表**（落 `E:\k60-work\references\upstream-watch\CHANGES-<date>.md`），不允许无记录地更新本地副本。机制见 [UPSTREAM-SYNC.md](UPSTREAM-SYNC.md)。
+> 6. **实时优先，缓存仅作检索副本**（用户 2026-11-04 立）：判断上游现状（有哪些仓库/最新进展/设备目录）以实时源（unixnu.com/devices/、GitHub）或带导出时间的 `docs/devices-map.json` 为准；本地快照/缓存只作检索副本，用时标抓取时间；实时源不可达必须明示，禁止旧缓存冒充最新。**任何 fetch/pull 前先记当前 HEAD，完成后记新 HEAD 与新增 commit 列表**（落 `E:\iOS Port\Work\references\upstream-watch\CHANGES-<date>.md`），不允许无记录地更新本地副本。机制见 [UPSTREAM-SYNC.md](UPSTREAM-SYNC.md)。
 > 7. **屏摄读数三选一才可作证据**（2026-11-04 立）：结论依据的行/寄存器值/sha/编号必须满足 ①用户明确确认 ②设备/文件回读真值 ③原始日志文本 之一；三皆无 → 只写「观测不清，待核」。细则与误读五连实例：[RECORDING-RULES.md](RECORDING-RULES.md) §7.9、[PITFALLS-FROM-HISTORY.md](PITFALLS-FROM-HISTORY.md) 第 32 条。
 > 8. **遇到问题先查 Pong 仓库**（2026-11-05 立，用户原话："一遇到问题就要去找找Pong仓库的解决方案 需要写到文档 避免反复踩坑"）：内核/驱动/启动链问题先查 `Chengdong-Yu/UniXNU-pong` 的 `main` + `ios16` 分支，以及 `drivers/*` 子模块独立仓库（`pong-usb`、`pong-boot-capture`、`pong-ufs`、`pong-adreno`、`pong-power`…）——同 SoC 已验证跑通的参考实现。已知对照：AMFI 用 `zzzzzzzzzzz-pong-development-no-amfi-interface.patch`（AMFI 故意缺席 + 全量 NULL 守卫 + 硬 bypass 返回成功）；复位进 fastboot 用 `pong-boot-capture/PongBootCapture.h`（PMIC SDAM7100 SPMI 写 + IMEM `0x77665500`/`0x77665502` + `reboot_kernel(0x400)`，只写 IMEM 会进 Android）；日志/命令通道用 `pong-usb`（CDC-ACM 文本命令 `reboot fastboot` / `reboot rec` / `help`）。详见 [USB-SERIAL-AND-AMFI-CHANNEL-20261105.md](references/USB-SERIAL-AND-AMFI-CHANNEL-20261105.md) §12。
 >
@@ -25,7 +25,7 @@
 > 本文件是唯一入口。目标：新 agent 进场 5 分钟回答三个问题——**现在卡在哪、下一步做什么、哪些结论已定案不能翻案**。
 > 工作区总闸（铁律 + 路由 + 硬边界）在 [`D:\Android\AGENTS.md`](file:///D:/Android/AGENTS.md)（2026-11-04 新增，双向互链）。
 > **现状页（滚动覆盖、只写现在）在 [`HANDOFF.md`](HANDOFF.md)**：谁在跑、卡在哪、等谁拍板、下一步第一动作、不要重复尝试——每次状态变化当轮更新。定案写本文件/DECISIONS，现状写它。
-> 维护规则见 [RECORDING-RULES.md](RECORDING-RULES.md)（§8 每坑必录）。覆盖范围 = `E:\k60-work\docs\`；外域（D:\Android 主仓、WSL 设备仓/固件仓、E:\k60-work 产物盘）的旧版全量地图在 [`archive/INDEX-20261103-map.md`](archive/INDEX-20261103-map.md)（仍有效部分照用）。
+> 维护规则见 [RECORDING-RULES.md](RECORDING-RULES.md)（§8 每坑必录）。覆盖范围 = `E:\iOS Port\Work\docs\`；外域（D:\Android 主仓、WSL 设备仓/固件仓、E:\iOS Port\Work 产物盘）的旧版全量地图在 [`archive/INDEX-20261103-map.md`](archive/INDEX-20261103-map.md)（仍有效部分照用）。
 
 ---
 
@@ -91,7 +91,7 @@
 
 ## 5. 关键产物 sha 索引（以 build-verification.json 为最终依据）
 
-**Boot 镜像（E:\k60-work\candidates\4g-quiet\）**
+**Boot 镜像（E:\iOS Port\Work\candidates\4g-quiet\）**
 | 版本 | boot img sha256 | kernel macho sha256 | 结果 |
 |---|---|---|---|
 | 进度条基线（11-02 20:03） | `302a001b…`（kernel `65fbe51e…`） | — | 曾出进度条；A1 在新 Data 上 K60SELF panic（I-20261103-07） |
@@ -101,7 +101,7 @@
 | v5 | `310f7bc1…` | `88c49e85…` | 清单几何错 → mount root panic（I-20261103-11） |
 | v6 | 见 candidates build-verification.json | — | pong init 跑通至 exec launchd 前（§1 卡点 2） |
 
-**Data 窗与清单（E:\k60-work\candidates\data-20352\ 与 archive\）**
+**Data 窗与清单（E:\iOS Port\Work\candidates\data-20352\ 与 archive\）**
 | 对象 | sha256 | 说明 |
 |---|---|---|
 | data-window-20354-pre-ponginit-backup.img | `adbbf0dd…` | 11-03 05:17 写入设备的原始 20 GiB 窗（写后回读一致） |

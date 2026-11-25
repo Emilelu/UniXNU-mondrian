@@ -34,9 +34,9 @@ BUILD_OUT = pathlib.Path(os.environ.get("K60_OUT", "/opt/k60/trees/k60build/out-
 # 于是"构建应用了 230 个补丁但 series 列了 223 个"这种假红。改成在所有
 # 输出目录里取最新的那份存根（P-189）。
 OUT_ROOTS = [pathlib.Path('/opt/k60/trees')]
-ARTIFACTS = pathlib.Path(os.environ.get("K60_ARTIFACTS", "/mnt/e/k60-work/artifacts"))
+ARTIFACTS = pathlib.Path(os.environ.get("K60_ARTIFACTS", "/mnt/e/iOS Port/Work/artifacts"))
 DEFAULT_LOGS = [
-    pathlib.Path("/mnt/e/k60-work/scratch/BUILD_V15.txt"),
+    pathlib.Path("/mnt/e/iOS Port/Work/scratch/BUILD_V15.txt"),
 ]
 LOG_GLOBS = ["*/logs/kernel.log"]
 # build-strict.sh exports this for the whole run. A stale stamp then means

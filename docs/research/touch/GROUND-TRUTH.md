@@ -16,7 +16,7 @@ value changes, update this file instead of re-deriving it in a later session.
 
 `/sys/kernel/debug/regulator` does not exist (no `CONFIG_REGULATOR_DEBUG`);
 `/sys/class/regulator` does. Reproduce with `scripts/reg8350c.sh` in
-`E:\k60-work\scratch`.
+`E:\iOS Port\Work\scratch`.
 
 **推断**: `pm8350c_l2` is enabled only because Android's touch driver votes it.
 Nothing in the XNU chain votes it, so the rail's state at our `bring_up()` is

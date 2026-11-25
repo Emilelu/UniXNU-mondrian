@@ -1,8 +1,8 @@
-# MZYSL-DIFF — mzyxsl/UniXNU-mondrian 与 E:/hackios/UniXNU-mondrian 机械对比
+# MZYSL-DIFF — mzyxsl/UniXNU-mondrian 与 E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian 机械对比
 
 > 生成时间：2026-11-08（Asia/Shanghai）
 > 上游：`https://github.com/mzyxsl/UniXNU-mondrian` @ `main` `76552b88441757defce4080a241c2f0ea7464538`
-> 本地对比快照：`E:/hackios/UniXNU-mondrian` @ `fix/k60-measured-high-window` `fd3ef0ec63738eed9295709b2e907e013cd50a0c`
+> 本地对比快照：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` @ `fix/k60-measured-high-window` `fd3ef0ec63738eed9295709b2e907e013cd50a0c`
 > 纪律：本报告只做只读对比；未修改本仓代码；上游克隆位于 `/opt/k60/archive/mzyxsl-mondrian`（WSL，`--depth 50`）。
 
 ## ① 仓库 pin
@@ -35,7 +35,7 @@ f0b4d9e k60: point the Data mount at this board's seed volume
 
 | 项 | 值 |
 |---|---|
-| path | `E:/hackios/UniXNU-mondrian` |
+| path | `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` |
 | branch | `fix/k60-measured-high-window` |
 | 对比快照 | `fd3ef0ec63738eed9295709b2e907e013cd50a0c` |
 | tracked files | 595 |

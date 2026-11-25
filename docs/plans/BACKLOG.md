@@ -12,10 +12,10 @@
 
 ```bash
 # 查所有分支最新状态
-python3 /mnt/e/k60-work/scripts/track-upstream-branches.py 2>&1 | grep -A6 'yibiya-upstream'
+python3 /mnt/e/iOS Port/Work/scripts/track-upstream-branches.py 2>&1 | grep -A6 'yibiya-upstream'
 
 # 查某个分支相对我们的未取提交
-wsl -u root -e bash -c "cd /mnt/e/hackios/UniXNU-mondrian && \
+wsl -u root -e bash -c "cd /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian && \
   git fetch yibiya --prune && \
   git log --oneline main..yibiya/fix/touch-gpu-bringup | head -20"
 ```
@@ -35,7 +35,7 @@ for r in UniXNU-pong pong-adreno pong-adreno-metal pong-arm-cpu \
          pong-arm-dt-platform pong-boot-capture pong-darwin-boot24 \
          pong-metal pong-power pong-ram-block pong-ufs pong-usb \
          pong-wifi uefi-pong; do
-  d=/mnt/e/k60-work/references/$r
+  d=/mnt/e/iOS Port/Work/references/$r
   [ -d "$d/.git" ] || continue
   echo "=== $r ==="
   git -C "$d" log --oneline --all --since='3 days ago' | head -5
@@ -52,7 +52,7 @@ done
 ### 1.3 UniXNU 官方
 
 ```bash
-python3 /mnt/e/k60-work/scripts/track-upstream-branches.py 2>&1 | \
+python3 /mnt/e/iOS Port/Work/scripts/track-upstream-branches.py 2>&1 | \
   grep -A4 'AdrenoMetal\|ShengUfs\|UniXNU-upstream'
 ```
 
@@ -103,16 +103,16 @@ python3 /mnt/e/k60-work/scripts/track-upstream-branches.py 2>&1 | \
 
 ```bash
 # 1. 查上游有没有新东西
-python3 /mnt/e/k60-work/scripts/track-upstream-branches.py
+python3 /mnt/e/iOS Port/Work/scripts/track-upstream-branches.py
 
 # 2. 查研究门禁要求读什么
-python3 /mnt/e/hackios/UniXNU-mondrian/scripts/research-gate.py
+python3 /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/research-gate.py
 
 # 3. 查八步走到哪
-python3 /mnt/e/hackios/UniXNU-mondrian/scripts/eight-step-gate.py --build
+python3 /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/eight-step-gate.py --build
 
 # 4. 查文档是否同步
-python3 /mnt/e/hackios/UniXNU-mondrian/scripts/check-docs.py
+python3 /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/check-docs.py
 ```
 
 四道全绿才能开始写代码。

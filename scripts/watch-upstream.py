@@ -21,7 +21,7 @@ import sys
 import time
 
 
-WORK = '/mnt/e/k60-work'
+WORK = '/mnt/e/iOS Port/Work'
 SEEN = os.path.join(WORK, '.upstream-seen.json')
 
 REPOS = {

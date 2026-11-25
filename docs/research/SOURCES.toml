@@ -17,11 +17,11 @@
 # 结构性限制（2026-11-14，写 path 前必读）
 #   research-gate 只试两种 path 解析：
 #     ① os.path.join(REPO, path)                  —— 本仓库相对，如 docs/research/...
-#     ② os.path.join('/mnt/e/k60-work', path)     —— 如 references/...、reports/...
+#     ② os.path.join('/mnt/e/iOS Port/Work', path)     —— 如 references/...、reports/...
 #   所以下面这些仓库的 path 一定判「文件不存在」，只能写进 REFERENCE-INDEX.md 正文：
-#     - /mnt/e/hackios/QcaBluetooth   （蓝牙唯一实现副本，见 REFERENCE-INDEX 第 5 节）
-#     - /mnt/e/hackios/UniXNU-liuqin  （Xiaomi Pad 6 Pro，同 SM8475，见 2.1 与 9.1）
-#     - /mnt/e/hackios/Device-Binaries （K60 厂商 panel XML 唯一副本：
+#     - /mnt/e/iOS Port/Sources/Repos/Drivers/QcaBluetooth   （蓝牙唯一实现副本，见 REFERENCE-INDEX 第 5 节）
+#     - /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-liuqin  （Xiaomi Pad 6 Pro，同 SM8475，见 2.1 与 9.1）
+#     - /mnt/e/iOS Port/Sources/Device-Binaries （K60 厂商 panel XML 唯一副本：
 #         marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml，见 REFERENCE-INDEX 7.7
 #         与 docs/research/display/RESEARCH.md 1.1；本仓库里没有 references/ 目录，
 #         所以 display 子系统下面不能给它写 required 条目，只能靠正文与本文注释）
@@ -294,13 +294,13 @@ finding = """taro 的 SPMI 仲裁器 reg-names cnfg,core,chnls,obsrvr,intr = 0xc
 path = "reports/live-6033dbec-fdt.dtb"
 why = "K60 本机 live merged FDT（2026-11-02 从 serial 6033dbec 的 adb 导出，已含 dtbo），本板最高可信度的一手寄存器/保留区事实"
 examined = "2026-11-14"
-finding = """919,210 B，FDT v17。rsc@17a00000 四段 reg（drv-0..3 各 0x10000）且 qcom,drv-id=2；spmi@c42d000 五段 reg 与 0101 补丁一致；aop_cmd_db_region@80860000 = <0 0x80860000 0 0x20000>；clock-controller@100000 = qcom,cape-gcc，reg <0x100000 0x1f4200>；pinctrl@f000000 = qcom,cape-pinctrl，reg <0xf000000 0x1000000>。解析工具见 E:/k60-work/scratch/refmine/fdt_dump.py（本机无 dtc / libfdt，只能按 FDT 结构自解析）。"""
+finding = """919,210 B，FDT v17。rsc@17a00000 四段 reg（drv-0..3 各 0x10000）且 qcom,drv-id=2；spmi@c42d000 五段 reg 与 0101 补丁一致；aop_cmd_db_region@80860000 = <0 0x80860000 0 0x20000>；clock-controller@100000 = qcom,cape-gcc，reg <0x100000 0x1f4200>；pinctrl@f000000 = qcom,cape-pinctrl，reg <0xf000000 0x1000000>。解析工具见 E:/iOS Port/Work/scratch/refmine/fdt_dump.py（本机无 dtc / libfdt，只能按 FDT 结构自解析）。"""
 
 [[subsystem.power.required]]
 path = "evidence/usblog-20261110-191312/console.log"
 why = "K60 本板对 RSC（drv-2 / 0x17a20000）的真实可访问性：这是推翻『RSC 一读就死』的原始日志，讨论任何 RPMh 投票前先读它"
 examined = "2026-11-14"
-finding = """2026-11-10 19:13 的 boot（内核 9ea06001 / 镜像 6ac1d7b1）。:627,:629 打出 goodix: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1（两项前提检查全 PASS）；:630 rails written iovdd=0x42c00 avdd=0x40f00 (ldoc3)；:631 rails on (ldoc2=0x42c00, AVDD gpio71=1) —— ACTIVE TCS4 的投票被硬件接受；:705 goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255。全量复核（582 个 boot 目录，脚本 E:/k60-work/scratch/refmine/rsc_audit3.py）：49 个 boot 带 caps 行、48 个投票成功、只有 1 次 RPMh timeout（usblog-20261110-190459，完成判据错用 IRQ_STATUS 那一轮）、5 次 panicMarker 全在 GPU/display 的 normalize* 实验里且 stopReason=budget。结论：drv-2 可读可写，『一读就死』只对 drv-0（0x17a00000）与 drv-3（0x17a30000）成立；0248 的只读探针 k60rscprobe 在 582 个 boot 里 0 次出现，那两次致死实验没有留日志，因此无法用现有证据闭合。注意 goodix: I/O supply on (1.8 V) 本板 0 次（那是 phk110 的文本，见 forks-review/hakios-xnu-kernel/drivers/input/hakios.goodix.c:268）。"""
+finding = """2026-11-10 19:13 的 boot（内核 9ea06001 / 镜像 6ac1d7b1）。:627,:629 打出 goodix: RPMh caps=0x800c8104 count=8 ncpt=16 ver=0x20700 tcs4_idle=1（两项前提检查全 PASS）；:630 rails written iovdd=0x42c00 avdd=0x40f00 (ldoc3)；:631 rails on (ldoc2=0x42c00, AVDD gpio71=1) —— ACTIVE TCS4 的投票被硬件接受；:705 goodix: chip "BERLIN", firmware "9916R" 05.80.02.63, sensor 255。全量复核（582 个 boot 目录，脚本 E:/iOS Port/Work/scratch/refmine/rsc_audit3.py）：49 个 boot 带 caps 行、48 个投票成功、只有 1 次 RPMh timeout（usblog-20261110-190459，完成判据错用 IRQ_STATUS 那一轮）、5 次 panicMarker 全在 GPU/display 的 normalize* 实验里且 stopReason=budget。结论：drv-2 可读可写，『一读就死』只对 drv-0（0x17a00000）与 drv-3（0x17a30000）成立；0248 的只读探针 k60rscprobe 在 582 个 boot 里 0 次出现，那两次致死实验没有留日志，因此无法用现有证据闭合。注意 goodix: I/O supply on (1.8 V) 本板 0 次（那是 phk110 的文本，见 forks-review/hakios-xnu-kernel/drivers/input/hakios.goodix.c:268）。"""
 
 [[subsystem.audio.required]]
 path = "references/pong-power/ShengAudioReach.c"
@@ -395,5 +395,5 @@ finding = """phk110（redwood）的蓝牙是 WCN6750，走 WPSS（Hexagon）PIL 
 path = "reports/live-6033dbec-fdt.dtb"
 why = "K60 自己的蓝牙节点与使能脚；BT 实现必须以这张表为准"
 examined = "2026-11-14"
-finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 E:/hackios/QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具），该仓库不在 research-gate 的两种路径回退范围内，因此不能作为本文件的 path，只能在此说明并写进 REFERENCE-INDEX.md。"""
+finding = """本板 FDT 有独立的 bt_qca6490 节点与 cnss_pins（wlan-en / bt-en / sw-ctrl 一族），蓝牙与 WiFi 共用 QCA6490 与同一套电源时序；没有 qcom,wcn6750 / WPSS remoteproc 节点。唯一完整实现参考在 E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth（qbt_geni.c / qbt_transport.c / qbt_core.c，含 GENI SE 寄存器偏移表与 iOS 27 原生工具），该仓库不在 research-gate 的两种路径回退范围内，因此不能作为本文件的 path，只能在此说明并写进 REFERENCE-INDEX.md。"""
 

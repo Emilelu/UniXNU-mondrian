@@ -370,3 +370,11 @@ their branches and the reasoning behind every adopted change.
 - 多线协作与禁止动作：[docs/engineering/COLLABORATION-RULES.md](docs/engineering/COLLABORATION-RULES.md)
 - 项目总闸（目录、先读什么、状态、交接）：[docs/engineering/PROJECT-AGENTS.md](docs/engineering/PROJECT-AGENTS.md)
 - 先例优先级：[docs/research/prior-art/PRIOR-ART-FIRST.md](docs/research/prior-art/PRIOR-ART-FIRST.md)；第一次出字最短路径：[docs/engineering/FIRST-BOOT-PLAYBOOK.md](docs/engineering/FIRST-BOOT-PLAYBOOK.md)
+
+## 开工先读认知索引（AOCI）
+
+仓库根有 `aoci.txt` / `aoci.meta.txt` / `aoci.code.txt`：1056 个受管源的 FRAS 条目（F 职责 / R 强关系 / A 公开接口 / S 非显然约束）。
+
+- 开工前用 aoci MCP 的 `aoci_overview` 读入口，再按条目里的 `code:` 关系定位文件，别靠记忆猜路径。
+- 改完代码跑 `aoci verify`；`Missing` / `Orphan` / `Stale` 三类漂移必须修，否则索引会先于代码腐烂。
+- 索引是 Git 里的持久认知层，作用是在上下文压缩后仍然知道「这个仓里有什么、谁依赖谁」；它不是文档替代品。

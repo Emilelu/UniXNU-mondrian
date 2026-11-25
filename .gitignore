@@ -40,3 +40,7 @@ mac-build/*/cache/
 mac-build/*/build-report.json
 build/
 /.cache/
+
+# AOCI index: the scope policy is committed, the derived state is not
+/.aoci/*
+!/.aoci/config.json

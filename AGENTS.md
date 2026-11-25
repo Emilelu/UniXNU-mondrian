@@ -45,7 +45,7 @@ a violation costs work that cannot be recovered.
    equivalents before discovering them.
 
 5. **The repository is the only source of truth; the build input is its mirror.**
-   `E:\hackios\UniXNU-mondrian` and `/opt/k60/trees/usb-cdc-mainline/device`
+   `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian` and `/opt/k60/trees/usb-cdc-mainline/device`
    hold the same files, and only one direction of copying is allowed:
    repository → build input, through `scripts/sync-device-input.py`. Editing
    under `/opt` is lost on the next clone, and a file that exists in only one of
@@ -118,7 +118,7 @@ a violation costs work that cannot be recovered.
    FriendlyName silently selects a Bluetooth modem instead. DTR must be raised or
    the kernel never drains the console ring.
 
-   `bash /mnt/e/k60-work/scripts/flash.sh <img> <secs>` does this unconditionally
+   `bash /mnt/e/iOS Port/Work/scripts/flash.sh <img> <secs>` does this unconditionally
    and reports whether the console ever appeared. `K60 console never appeared`
    is not a broken script: it is proof that the kernel died before USB gadget
    init, and the investigation must follow the early-boot path instead of
@@ -335,7 +335,7 @@ their branches and the reasoning behind every adopted change.
 别人已经克隆的副本。
 
 - 文档里只写占位符：`<user>@<mac-host>`、`sshpass -p <password>`、`<local-dir>`
-- 真实地址/口令放仓库之外的本地文件（`E:\k60-work\` 或 `~/.k60-env`），
+- 真实地址/口令放仓库之外的本地文件（`E:\iOS Port\Work\` 或 `~/.k60-env`），
   并用 `source` 引入；不要写进任何 `docs/`、`scripts/`、`board.toml`
 - 提交前自查：`python3 scripts/check-secrets.py`
 - 门禁：`scripts/check-secrets.py`（注册为 `iron-10`）
@@ -353,10 +353,10 @@ their branches and the reasoning behind every adopted change.
 规则：
 
 1. 每个检出在 `docs/engineering/TREE-OWNERS.toml` 里登记唯一主人。Lead 用
-   `E:/hackios/k60-lead`（`git worktree`），**不再写**共用检出。
+   `E:/iOS Port/Sources/Hardware/k60-lead`（`git worktree`），**不再写**共用检出。
 2. 破坏性命令（`checkout -- <path>`、`restore`、`reset --hard`、`clean -f`、`stash`）
    一律走 `scripts/git-safe.sh`：它先做完整快照（`scripts/snapshot-worktree.py` →
-   `E:/k60-work/scratch/snapshots/<时间戳>-<树名>/`，含 `tracked.patch`、`staged.patch`、
+   `E:/iOS Port/Work/scratch/snapshots/<时间戳>-<树名>/`，含 `tracked.patch`、`staged.patch`、
    `untracked/` 和 `restore.sh`），再在非自有检出上直接拒绝；只有显式
    `K60_I_OWN_THIS_TREE=1` 才放行，且放行前快照已经写完。
    所以这个坑要再发生，需要**两个独立错误同时成立**，而且即使发生也能用
@@ -364,3 +364,9 @@ their branches and the reasoning behind every adopted change.
 3. 需要干净的树来构建时，换自己的 worktree 或收窄门禁范围（`K60_EIGHT_STEP_ITEMS`），
    **绝不**靠清理共用树。
 4. 提交前跑 `python3 scripts/check-tree-owner.py`；它在共用检出有他人未提交改动时报错。
+
+## 进场阅读顺序与总闸
+
+- 多线协作与禁止动作：[docs/engineering/COLLABORATION-RULES.md](docs/engineering/COLLABORATION-RULES.md)
+- 项目总闸（目录、先读什么、状态、交接）：[docs/engineering/PROJECT-AGENTS.md](docs/engineering/PROJECT-AGENTS.md)
+- 先例优先级：[docs/research/prior-art/PRIOR-ART-FIRST.md](docs/research/prior-art/PRIOR-ART-FIRST.md)；第一次出字最短路径：[docs/engineering/FIRST-BOOT-PLAYBOOK.md](docs/engineering/FIRST-BOOT-PLAYBOOK.md)

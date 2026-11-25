@@ -35,7 +35,7 @@ d11（0518）已把内核栈打通：patch 602 段、NVM 27 段、HCI reset、BD
 
 | 项 | 值 |
 | --- | --- |
-| build manifest | `E:/k60-work/artifacts/bt-0520-uart-control-alias/build-manifest.json` |
+| build manifest | `E:/iOS Port/Work/artifacts/bt-0520-uart-control-alias/build-manifest.json` |
 | 构建时间 / tag | `2026-11-18T23:42:54+08:00` / `bt-0520-uart-control-alias` |
 | repo head / dirty | `970839ffb848662af2c19ce17fed183b72aec35a` / 0 |
 | series | 240 条；全文件 `af13b1c2590219cca7e11cd5bddde30ed2464d79292344ed355d6fd3410f2003`；前 239 行 `1cf9d873f5418c9928a845196c9b4a3f3fe5009f9ab5352cf67e6c2119dff620`；前 238 行 `4a39a8d2fddf0da93dbcab18a2302c69bab8f34955d56e9172c1a395e8b12e11` |
@@ -62,7 +62,7 @@ d11（0518）已把内核栈打通：patch 602 段、NVM 27 段、HCI reset、BD
 
 1. `bash scripts/k60-device.sh state` 返回 `fastboot`，记录序列号（此前 `6033dbec`）。
 2. 按统一 supervisor 的机器级 boot claim 规则取得 claim；若有别的 collector/supervisor 持有 COM 口或 claim，不得启动。
-3. `sha256sum E:/k60-work/artifacts/bt-0520-uart-control-alias/boot.img` = `9361ec1c89a7852db2ae9619a8ed89e859343a3d6bf1a9441029dda1cb82e876`。
+3. `sha256sum E:/iOS Port/Work/artifacts/bt-0520-uart-control-alias/boot.img` = `9361ec1c89a7852db2ae9619a8ed89e859343a3d6bf1a9441029dda1cb82e876`。
 4. `verify-boot-image.py --manifest` → OK。
 5. 回滚图必须同时核对：d8 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`、d10 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`、d11 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`。
 6. 只用 `fastboot boot`；绝不 `fastboot flash`，绝不写 `persist` / `/dev/block/sda38`。
@@ -73,7 +73,7 @@ d11（0518）已把内核栈打通：patch 602 段、NVM 27 段、HCI reset、BD
 ```sh
 export K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device
 bash scripts/k60-device.sh state
-bash scripts/flash.sh E:/k60-work/artifacts/bt-0520-uart-control-alias/boot.img
+bash scripts/flash.sh E:/iOS Port/Work/artifacts/bt-0520-uart-control-alias/boot.img
 ```
 
 保留完整 console、`boot.json`、`capture.json`。
@@ -116,8 +116,8 @@ d12 是诊断飞行，判据按"是否拿到可判定的观测"写，不按"蓝�
 
 ## 9. 飞行结果（2026-11-19 00:02:48–00:06:52，D12-C 形态，观测门槛未完全达到）
 
-- 设备 `6033dbec`，飞前 `bash scripts/k60-device.sh state` = `fastboot`，无其他 supervisor/collector；只 `fastboot boot`，未 flash。命令 `K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/k60-work/artifacts/bt-0520-uart-control-alias/boot.img 220`，supervisor rc=0。
-- 证据 `E:/k60-work/evidence/usblog-20261119-000246`：`boot.json` bootAccepted=true、bootExitCode=0、returnedToFastboot=false；`capture.json` complete=true、bytes=264656、panic/reset=null、stopReason=budget；console logSha256 `2A5E3FA9…292D98`，264,656 B。
+- 设备 `6033dbec`，飞前 `bash scripts/k60-device.sh state` = `fastboot`，无其他 supervisor/collector；只 `fastboot boot`，未 flash。命令 `K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/iOS Port/Work/artifacts/bt-0520-uart-control-alias/boot.img 220`，supervisor rc=0。
+- 证据 `E:/iOS Port/Work/evidence/usblog-20261119-000246`：`boot.json` bootAccepted=true、bootExitCode=0、returnedToFastboot=false；`capture.json` complete=true、bytes=264656、panic/reset=null、stopReason=budget；console logSha256 `2A5E3FA9…292D98`，264,656 B。
 - 内核探针全部生效：`console:1349` `[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0 firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1 speed=3000000`；`:1350` `[bluetooth sk] ctl_register com.apple.uart.bluetooth error=0`（0520 别名）；`:1351` `[bluetooth power] nodes ready major=17`（0519 的三个字符设备）。
 - 参数观测（排除 D12-A）：`:1723` `K60ARG bluetoothd argc=1 [/usr/sbin/bluetoothd]`；`:2083`、`:2873`、`:3286`、`:3527`、`:3729` 五次 `K60ARG BlueTool argc=2 [/usr/sbin/BlueTool] [-R]`。`-R` 合法，20G81 的 launchd plist 也只传 `-R`，所以 exit=1 不可能是坏 `-F`。
 - 连接观测（缺失）：整份 console **没有**任何 `[bluetooth sk] connect` 行，也没有任何 `[bluetooth power]` 的 open/ioctl/write 行。两个控制名在开机时都已注册成功（`:1349`/`:1350` 均 error=0），如果 BlueTool 走到 `socket(AF_SYSTEM,SOCK_STREAM,SYSPROTO_CONTROL)+CTLIOCGINFO+connect`，0520 的 `control=%s` 日志会打出来；没有打出来说明它在打开传输之前就死了。

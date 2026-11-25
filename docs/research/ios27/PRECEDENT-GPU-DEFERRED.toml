@@ -1,0 +1,1114 @@
+# GPU translator patches deferred as a group (see docs/research/ios27/PRECEDENT-COVERAGE.md §8).
+# Every file is listed; the group reason names the build evidence that keeps them out of stage 0.
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0001-pong-scoped-gpu-heap.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0003-pong-atomic-batches-and-fence-wait.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0004-pong-buffer-copy-allocation-errors.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0005-pong-22h374-const-oom-cache-budget.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0006-pong-upstream-gmem-bgra-swap.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0007-pong-current-main-atomic-batches.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0008-pong-abi1-process-priority.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0009-pong-owned-import-publication.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0010-pong-completed-import-acquire.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0011-pong-retire-observed-admission-fences.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0012-pong-live-queue-priorities.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0013-pong-atomic-submit-retirement-publication.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0014-pong-frame-diagnostics.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0015-pong-batched-host-ownership.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0016-pong-local-frame-gmem.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0017-pong-explicit-sysmem-colour.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0018-pong-upstream-gmem-memory-side-swap.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/0019-pong-upstream-transient-render-policy.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/parity114/turnip-darwin-kmd.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/parity114/turnip-render-mode-for-attachment-memory.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/mesa/parity167/pong-darwin22h374.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0008-pong-ios16-20G81-policy.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0009-pong-owned-iosurface-row-padding.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0010-pong-ipados18-22H374-policy.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0011-pong-bounded-command-stage-summary.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0011-pong-scoped-memory-pressure.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0012-data-a-live-final-pass-cache.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0013-data-a-live-fewer-allocations-a-draw.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0015-data-a-live-draw-commands-kept.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0016-data-a-live-draw-lists-kept.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0017-data-a-live-refuse-rebinds.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0018-data-a-live-tracker-key-map.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0019-data-a-live-two-plane-shadow-as-it-lies.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0020-upstream-alias-written-rows.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/0021-upstream-tile-store-bounds.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0001-optional-constant-output-members.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0002-resource-wait-storage-dependencies.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0003-cache-device-entry-point-priming.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0004-fold-constant-global-field-loads.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0005-skip-draws-without-a-pipeline.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0006-batch-barriers-and-key-hash-neutral-maps.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0007-optional-shader-cache-directory.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0008-llvm-bitreverse.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0009-patch-with-no-control-points.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0010-core-image-kernel-libraries.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0011-two-plane-shadow-as-memory-lies.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0012-srgb-extended-range-blend-rounded-model.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0013-growing-memory-blocks.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0014-in-place-written-textures.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0015-in-place-written-host-page-textures.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0016-refuse-rebinds.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0017-heap-texture-size-a-multiple-of-its-alignment.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0018-memory-census-bytes.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0019-allocation-sites.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0020-written-host-page-textures-in-place-at-any-size.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0021-pong-guest-format-info.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0025-specialized-links-shared-constants-and-allocation-size.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0026-frame-diagnostic-links.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0027-pong-bounded-scheduler-passes.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/parity114/0028-pong-upstream-spare-retirement.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/upstream149/0021-spare-image-blocks-and-room-keeper.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/upstream149/0022-command-buffer-stage-trace.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/upstream149/0023-quality-of-service-on-ios.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/upstream149/0024-diagnostics-switch-and-submit-steps.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "pong"
+file = "patches/metal2vulkan/upstream149/0025-pong-bounded-idle-memory.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0001-pong-scoped-gpu-heap.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0003-pong-atomic-batches-and-fence-wait.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0004-pong-buffer-copy-allocation-errors.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0005-pong-22h374-const-oom-cache-budget.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0006-pong-upstream-gmem-bgra-swap.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0007-pong-current-main-atomic-batches.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0008-pong-abi1-process-priority.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0009-pong-owned-import-publication.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0010-pong-completed-import-acquire.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0011-pong-retire-observed-admission-fences.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0012-pong-live-queue-priorities.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0013-pong-atomic-submit-retirement-publication.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0014-pong-frame-diagnostics.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/0015-pong-batched-host-ownership.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/parity114/turnip-darwin-kmd.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/parity114/turnip-render-mode-for-attachment-memory.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/mesa/parity167/pong-darwin22h374.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0008-pong-ios16-20G81-policy.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0009-pong-owned-iosurface-row-padding.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0010-pong-ipados18-22H374-policy.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0011-pong-bounded-command-stage-summary.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0011-pong-scoped-memory-pressure.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0012-data-a-live-final-pass-cache.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0013-data-a-live-fewer-allocations-a-draw.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0015-data-a-live-draw-commands-kept.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0016-data-a-live-draw-lists-kept.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0017-data-a-live-refuse-rebinds.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0018-data-a-live-tracker-key-map.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0019-data-a-live-two-plane-shadow-as-it-lies.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0020-upstream-alias-written-rows.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/0021-upstream-tile-store-bounds.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0001-optional-constant-output-members.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0002-resource-wait-storage-dependencies.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0003-cache-device-entry-point-priming.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0004-fold-constant-global-field-loads.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0005-skip-draws-without-a-pipeline.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0006-batch-barriers-and-key-hash-neutral-maps.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0007-optional-shader-cache-directory.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0008-llvm-bitreverse.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0009-patch-with-no-control-points.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0010-core-image-kernel-libraries.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0011-two-plane-shadow-as-memory-lies.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0012-srgb-extended-range-blend-rounded-model.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0013-growing-memory-blocks.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0014-in-place-written-textures.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0015-in-place-written-host-page-textures.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0016-refuse-rebinds.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0017-heap-texture-size-a-multiple-of-its-alignment.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0018-memory-census-bytes.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0019-allocation-sites.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0020-written-host-page-textures-in-place-at-any-size.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0021-pong-guest-format-info.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0025-specialized-links-shared-constants-and-allocation-size.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/parity114/0026-frame-diagnostic-links.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/upstream149/0021-spare-image-blocks-and-room-keeper.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/upstream149/0022-command-buffer-stage-trace.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/upstream149/0023-quality-of-service-on-ios.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/upstream149/0024-diagnostics-switch-and-submit-steps.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "t970"
+file = "patches/metal2vulkan/upstream149/0025-pong-bounded-idle-memory.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/mesa/0001-pong-scoped-gpu-heap.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/mesa/0003-pong-atomic-batches-and-fence-wait.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/mesa/0004-pong-buffer-copy-allocation-errors.patch"
+group = "mesa"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0008-pong-ios16-20G81-policy.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0009-pong-owned-iosurface-row-padding.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0010-pong-ipados18-22H374-policy.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0011-pong-scoped-memory-pressure.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0012-data-a-live-final-pass-cache.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0013-data-a-live-fewer-allocations-a-draw.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0015-data-a-live-draw-commands-kept.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0016-data-a-live-draw-lists-kept.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0017-data-a-live-refuse-rebinds.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0018-data-a-live-tracker-key-map.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0019-data-a-live-two-plane-shadow-as-it-lies.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"
+
+[[item]]
+repo = "zizhan"
+file = "patches/metal2vulkan/0021-zizhan-keep-two-empty-blocks.patch"
+group = "metal2vulkan"
+verdict = "deferred"
+reason = "Mesa/Turnip userspace Vulkan driver patch for the iPadOS-18/16 GPU translator line; the 27 stage-0 recipe builds no GPU stack (configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n, board.toml payload carries no mesa/metal2vulkan archive), and docs/engineering/IOS-SCOPE.md lists the 16-line metal2vulkan iteration as a stopped item"
+review_after = "GPU line reopens on 27: re-judge by parity version after the GPU archive contract test"

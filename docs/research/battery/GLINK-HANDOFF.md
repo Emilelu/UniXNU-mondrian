@@ -149,7 +149,7 @@ ADSP 侧从未写过——这正是 `K60AdspGlinkHandoff` 一直"只有消费者
 之前记的“缺 SMEM 分配器、缺 ADSP PAS1 加载器”不是说没有参考，是说**本仓库里**没有。
 参考实现在参考仓，且都是同平台（SM8475）的完整代码：
 
-### SMEM 分配：`E:\k60-work\references\pong-power\QcomSmem.c:94`
+### SMEM 分配：`E:\iOS Port\Work\references\pong-power\QcomSmem.c:94`
 
 ```c
 int qcom_smem_alloc(const QcomSmem *smem, const QcomSmemPartition *p, uint16_t item, uint32_t size)
@@ -182,7 +182,7 @@ int qcom_smem_alloc(const QcomSmem *smem, const QcomSmemPartition *p, uint16_t i
 也就是说：`up` 向上长、`down` 是硬上界，与 `partition_bounds()` 的
 `PART_HEADER <= up <= down <= size` 完全一致。这不是猜的算法，可以直接复刻。
 
-### ADSP PAS1 + GLINK：`E:\k60-work\references\pong-power\PongAdsp.cpp`（714 行）
+### ADSP PAS1 + GLINK：`E:\iOS Port\Work\references\pong-power\PongAdsp.cpp`（714 行）
 
 文件头自述 `Pong SM8475 ADSP PAS1 boot and Qualcomm SMEM/SMP2P/GLINK transport`，
 且明确 `No SM8550 PAS36 image is loaded`——正是我们要的那块。关键锚点：

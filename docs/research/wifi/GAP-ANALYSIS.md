@@ -32,7 +32,7 @@ K60 采用的版本是 `patches/wifi/0001`（源自 zizhan `087416a`），应用
 ## 2. ③ 反编译补证：四个关键值的逐项出处
 
 本节的每个数字都能追到两个独立来源：**设备实机 live FDT**（`dtc` 反编译
-`E:\k60-work\reports\live-6033dbec-fdt.dtb` → `/tmp/live.dts`，34,801 行）
+`E:\iOS Port\Work\reports\live-6033dbec-fdt.dtb` → `/tmp/live.dts`，34,801 行）
 与**代码常量**（`drivers/PongWifi/PongWifiPlatform.cpp`，`patches/wifi/0001` 应用后 736 行）。
 
 ### 2.1 端点 ID 17CB:1103
@@ -57,9 +57,9 @@ MSI        Pong: PARF MSI0 (bit23) → GIC INTID 172 (SPI 140)；K60 运行时: 
 
 **每一项的出处（2026-11-14 回溯；端点 ID / BAR0 为实机实测）**：
 
-- `17CB:1103` —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/{vendor,device}` = `0x17cb`/`0x1103`，配置空间 0x00 = `cb 17 03 11`（`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`、`config64-attempt2.txt`）。Pong 侧：`configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`。
+- `17CB:1103` —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/{vendor,device}` = `0x17cb`/`0x1103`，配置空间 0x00 = `cb 17 03 11`（`E:/iOS Port/Work/evidence/pci-id-20261114/pci-identity.txt`、`config64-attempt2.txt`）。Pong 侧：`configs/pong-wifi-sm8475.json`（device 4355）与 `PongWifiPlatform.cpp:585` 的 `board={...,0x1103,...}`。
 - `subsys 17CB:0108` —— **K60 实测**：`subsystem_device` = `0x0108`（264），配置空间 0x2c = `cb 17 08 01`（同上证据）。Pong 侧：`PongWifiPlatform.cpp:344` 的校验值 `cfg.r(0x2c)!=0x010817cb`（`PongWifiPci.cpp:117` 同值）。
-- `BAR0 0x60200000` / **2 MiB** —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/resource` 第 1 行 `0x0000000060200000 0x00000000603fffff 0x0000000000140204`（2 MiB），`/proc/iomem` 为 `60200000-603fffff : 0000:01:00.0`（`E:/k60-work/evidence/pci-id-20261114/resource.txt`、`iomem-pci.txt`）。Pong 代码：`PongWifiPlatform.cpp:354` `bar.open(0x60200000,0x200000)`。**基址与大小均有实测。**
+- `BAR0 0x60200000` / **2 MiB** —— **K60 实测**：`/sys/bus/pci/devices/0000:01:00.0/resource` 第 1 行 `0x0000000060200000 0x00000000603fffff 0x0000000000140204`（2 MiB），`/proc/iomem` 为 `60200000-603fffff : 0000:01:00.0`（`E:/iOS Port/Work/evidence/pci-id-20261114/resource.txt`、`iomem-pci.txt`）。Pong 代码：`PongWifiPlatform.cpp:354` `bar.open(0x60200000,0x200000)`。**基址与大小均有实测。**
 - `SID 0x1C00 / 0x1C01` —— live FDT `qcom,smmu-sid-base = <0x1c00>`、`iommu-map = <0x0 0x5b 0x1c00 0x1 0x100 0x5b 0x1c01 0x1>`（`fdt_dump.txt:16446-16447`）。
 - `IOVA 0xA0000000` —— Pong `PongWifiPlatform.cpp:43`；K60 live FDT `qcom,iommu-dma-addr-pool = <0xa0000000 0x10000000>`（`fdt_dump.txt:16482`，256 MiB pool），代码用 64 MiB arena（`:46`）。
 - `MSI SPI140 / INTID 172` —— Pong `PongWifiPlatform.cpp:45` `PcieGlobalIntid=32+140, ParfMsi0=1u<<23`；K60 live FDT `interrupt-map` 解析 child_int 0→SPI140（+32 = GIC 172），脚本 `scratch/refmine/imap2.py`。**注意**：K60 运行时 `/proc/interrupts` 显示该端点实际使用 ITS-MSI 524289..524306（32 向量）供 `mhi`/`pci0_wlan_ce_*`/`pci0_wlan_grp_dp_*`（`interrupts.txt`、`msi_irqs.txt`）；「PARF MSI0→SPI140」是静态 DT 推导，实际 MSI 路由需再核。
@@ -313,7 +313,7 @@ Undefined symbols for architecture arm64:
 - `gates.py`：`build` 属 GATED 命令，要求 `ctx.device/scripts/check-rules.py` 与
   `K60_REPO or ctx.device` 下的 `docs/engineering/RULES.toml`。**device 仓没有
   `docs/engineering/RULES.toml`** → 正式构建必须设 `K60_REPO` 指向有该文件与
-  `scripts/check-rules.py` 的仓（如 `/mnt/e/hackios/k60-wifi`），
+  `scripts/check-rules.py` 的仓（如 `/mnt/e/iOS Port/Sources/Hardware/k60-wifi`），
   或用 `UNIXNU_SKIP_GATES=1`（仅限 trial，`build-strict.sh` 会硬拒）。
 
 ---
@@ -328,7 +328,7 @@ Undefined symbols for architecture arm64:
 详细清单、sha256、PWF2 包结构、每个文件的角色见
 `docs/research/wifi/FIRMWARE.md`。
 
-**打包必须用干净四文件目录** `E:\k60-work\firmware\qca6490-wifi\`：
+**打包必须用干净四文件目录** `E:\iOS Port\Work\firmware\qca6490-wifi\`：
 `build-k60-wifi-native.py` 会把 `--firmware` 目录下所有文件打进包，
 指向原始目录会得到 13 MB / 10 文件的包。
 

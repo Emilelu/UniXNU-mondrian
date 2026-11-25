@@ -1,0 +1,239 @@
+diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h b/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h
+index 3abb574..4e27f7f 100644
+--- a/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h
++++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h
+@@ -4,8 +4,10 @@
+ 
+ #include <Base.h>
+ 
+-// XNU 8796.141.3 / Darwin 22 pexpert/pexpert/arm64/boot.h ABI.
+-#define DARWIN_BOOT_LINE_LENGTH 608
++// XNU 12377.121.6 / Darwin 26 pexpert/pexpert/arm64/boot.h ABI.
++// BOOT_LINE_LENGTH is the kernel structure field, 1024 bytes; the 608 that
++// userland passes to sysctl kern.bootargs is a different, older limit.
++#define DARWIN_BOOT_LINE_LENGTH 1024
+ typedef struct {
+   UINT16  Revision;
+   UINT16  Version;
+@@ -20,7 +22,7 @@ typedef struct {
+   UINT64  DeviceTree;
+   UINT32  DeviceTreeLength;
+   CHAR8   CommandLine[DARWIN_BOOT_LINE_LENGTH];
+-  UINT32  FlagsPadding;
++  UINT32  CommandLinePadding;
+   UINT64  BootFlags;
+   UINT64  MemorySizeActual;
+ } DARWIN_BOOT_ARGS;
+@@ -28,8 +30,8 @@ typedef struct {
+ STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, DeviceTree) == 0x60, "DT ABI");
+ STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, Video) == 0x28, "video ABI");
+ STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, CommandLine) == 0x6c, "command line ABI");
+-STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, BootFlags) == 0x2d0, "flags ABI");
+-STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, MemorySizeActual) == 0x2d8, "memory ABI");
+-STATIC_ASSERT (sizeof (DARWIN_BOOT_ARGS) == 0x2e0, "Darwin 22 boot_args ABI");
++STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, BootFlags) == 0x470, "flags ABI");
++STATIC_ASSERT (OFFSET_OF (DARWIN_BOOT_ARGS, MemorySizeActual) == 0x478, "memory ABI");
++STATIC_ASSERT (sizeof (DARWIN_BOOT_ARGS) == 0x480, "Darwin 26 boot_args ABI");
+ 
+ #endif
+diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
+index 7add2ff..d120fb9 100644
+--- a/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
++++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/DarwinBoot.c
+@@ -129,50 +129,108 @@ STATIC
+ EFI_STATUS
+ ParseKernel (CONST UINT8 *Data, UINTN Size, KERNEL *Kernel)
+ {
+-  UINTN    Offset;
+-  UINTN    End;
+-  UINTN    Index;
+-  UINTN    Other;
+-  UINT32   Count;
+-  UINT32   Command;
+-  UINT32   Length;
+-  SEGMENT  *Segment;
+-  BOOLEAN  HasEntry;
+-  BOOLEAN  Executable;
+-
+-  if ((Size < 32) || (U32 (Data) != 0xfeedfacf) || (U32 (Data + 4) != 0x100000c) ||
+-      (U32 (Data + 8) != 0) || (U32 (Data + 12) != 2)) {
++  CONST UINT8  *Header;
++  UINTN        HeaderOffset;
++  UINTN        Offset;
++  UINTN        End;
++  UINTN        Index;
++  UINTN        Other;
++  UINTN        OuterOffset;
++  UINTN        OuterEnd;
++  UINTN        FileOffset;
++  UINT64       FileOffset64;
++  UINT32       NameOffset;
++  UINT32       Count;
++  UINT32       Command;
++  UINT32       Length;
++  UINT32       FileType;
++  UINT32       SubType;
++  SEGMENT      *Segment;
++  BOOLEAN      HasEntry;
++  BOOLEAN      Executable;
++  BOOLEAN      Fileset;
++
++  if ((Size < 32) || (U32 (Data) != 0xfeedfacf) || (U32 (Data + 4) != 0x100000c)) {
++    return EFI_UNSUPPORTED;
++  }
++
++  /* cpusubtype carries capability bits in [31:24]; 2 is ARM64E. */
++  SubType  = U32 (Data + 8) & 0x00ffffff;
++  FileType = U32 (Data + 12);
++  if ((SubType != 0) && (SubType != 2)) { return EFI_UNSUPPORTED; }
++
++  Fileset = (BOOLEAN)(FileType == 0xc);
++  Header = Data;
++  HeaderOffset = 0;
++  if (FileType == 0xc) {
++    /*
++     * A kernel collection: the top level has no segments, only
++     * LC_FILESET_ENTRY commands. The kernel is the entry named
++     * com.apple.kernel, and its segments keep file offsets into this same
++     * file, so only the header and the command stream move.
++     */
++    if (U32 (Data + 20) > Size - 32) { return EFI_LOAD_ERROR; }
++    OuterEnd = 32 + U32 (Data + 20);
++    OuterOffset = 32;
++    Header = NULL;
++    for (Index = 0; Index < U32 (Data + 16); Index++) {
++      if (OuterEnd - OuterOffset < 8) { return EFI_LOAD_ERROR; }
++      Command = U32 (Data + OuterOffset);
++      Length  = U32 (Data + OuterOffset + 4);
++      if ((Length < 8) || (Length & 7) || (Length > OuterEnd - OuterOffset)) { return EFI_LOAD_ERROR; }
++      if ((Command == 0x80000035) && (Length >= 32)) {
++        FileOffset64 = U64 (Data + OuterOffset + 16);
++        NameOffset   = U32 (Data + OuterOffset + 24);
++        FileOffset   = (UINTN)FileOffset64;
++        if ((FileOffset64 == FileOffset) && (NameOffset < Length) && (FileOffset < Size)) {
++          if (AsciiStrCmp ((CONST CHAR8 *)(Data + OuterOffset + NameOffset), "com.apple.kernel") == 0) {
++            Header = Data + FileOffset;
++            HeaderOffset = FileOffset;
++            break;
++          }
++        }
++      }
++      OuterOffset += Length;
++    }
++    if (Header == NULL) { return EFI_UNSUPPORTED; }
++    if ((Size - HeaderOffset < 32) || (U32 (Header) != 0xfeedfacf) ||
++        (U32 (Header + 4) != 0x100000c) || ((U32 (Header + 8) & 0x00ffffff) != 2) ||
++        (U32 (Header + 12) != 2)) {
++      return EFI_UNSUPPORTED;
++    }
++  } else if (FileType != 2) {
+     return EFI_UNSUPPORTED;
+   }
+-  if (U32 (Data + 20) > Size - 32) { return EFI_LOAD_ERROR; }
++
++  if (U32 (Header + 20) > Size - HeaderOffset - 32) { return EFI_LOAD_ERROR; }
+   ZeroMem (Kernel, sizeof (*Kernel));
+-  Count = U32 (Data + 16);
+-  End = 32 + U32 (Data + 20);
++  Count = U32 (Header + 16);
++  End = 32 + U32 (Header + 20);
+   Offset = 32;
+   HasEntry = FALSE;
+   for (Index = 0; Index < Count; Index++) {
+     if (End - Offset < 8) { return EFI_LOAD_ERROR; }
+-    Command = U32 (Data + Offset);
+-    Length = U32 (Data + Offset + 4);
++    Command = U32 (Header + Offset);
++    Length = U32 (Header + Offset + 4);
+     if ((Length < 8) || (Length & 7) || (Length > End - Offset)) { return EFI_LOAD_ERROR; }
+     if (Command == 0x19) {
+-      if ((Length < 72) || (U32 (Data + Offset + 64) > (Length - 72) / 80) ||
++      if ((Length < 72) || (U32 (Header + Offset + 64) > (Length - 72) / 80) ||
+           (Kernel->Count == MAX_SEGMENTS)) { return EFI_LOAD_ERROR; }
+-      if (U64 (Data + Offset + 32) != 0) {
++      if (U64 (Header + Offset + 32) != 0) {
+         Segment = &Kernel->Segments[Kernel->Count++];
+-        Segment->Address = U64 (Data + Offset + 24);
+-        Segment->Size = U64 (Data + Offset + 32);
+-        Segment->FileOffset = U64 (Data + Offset + 40);
+-        Segment->FileSize = U64 (Data + Offset + 48);
+-        Segment->Protection = U32 (Data + Offset + 60);
++        Segment->Address = U64 (Header + Offset + 24);
++        Segment->Size = U64 (Header + Offset + 32);
++        Segment->FileOffset = U64 (Header + Offset + 40);
++        Segment->FileSize = U64 (Header + Offset + 48);
++        Segment->Protection = U32 (Header + Offset + 60);
+         if ((Segment->Size > WINDOW_SIZE) || (Segment->Address > MAX_UINT64 - Segment->Size) ||
+             (Segment->FileSize > Segment->Size) || (Segment->FileOffset > Size) ||
+             (Segment->FileSize > Size - Segment->FileOffset)) { return EFI_LOAD_ERROR; }
+       }
+     } else if (Command == 5) {
+-      if (HasEntry || (Length != 288) || (U32 (Data + Offset + 8) != 6) ||
+-          (U32 (Data + Offset + 12) != 68)) { return EFI_LOAD_ERROR; }
+-      Kernel->Entry = U64 (Data + Offset + 272);
++      if (HasEntry || (Length != 288) || (U32 (Header + Offset + 8) != 6) ||
++          (U32 (Header + Offset + 12) != 68)) { return EFI_LOAD_ERROR; }
++      Kernel->Entry = U64 (Header + Offset + 272);
+       HasEntry = TRUE;
+     }
+     Offset += Length;
+@@ -191,6 +249,15 @@ ParseKernel (CONST UINT8 *Data, UINTN Size, KERNEL *Kernel)
+           (Kernel->Segments[Other].Address < Segment->Address + Segment->Size)) { return EFI_LOAD_ERROR; }
+     }
+   }
++  if (Fileset) {
++    /*
++     * XNU reads the outer MH_FILESET header at VM_KERNEL_LINK_ADDRESS (the
++     * kernel's hardcoded link address) when the inner header carries
++     * MH_DYLIB_IN_CACHE. The window therefore starts at the link address and
++     * the collection is copied at vmaddr - link, as iBoot lays it out.
++     */
++    Kernel->Base = 0xfffffff007004000ULL;
++  }
+   if (!Executable || (Kernel->Entry & 3) || (Kernel->Base & EFI_PAGE_MASK) ||
+       (Kernel->Base > MAX_UINT64 - WINDOW_SIZE) ||
+       (Kernel->End - Kernel->Base > WINDOW_SIZE - SIZE_2MB)) { return EFI_LOAD_ERROR; }
+@@ -776,6 +843,12 @@ Boot (
+   Stage = L"COPY PAYLOAD";
+   DiagDrawVideo (Stage, 0, Video);
+   ZeroMem ((VOID *)(UINTN)Address, (UINTN)Used);
++  // The collection image is a memory image: the outer fileset header sits at
++  // vmaddr - link and every entry follows. XNU's first arm_init check reads
++  // that header, so copy it with the segments instead of only the inner
++  // kernel.
++  if ((Kernel.End - Kernel.Base) > ImageSize) { Status = EFI_COMPROMISED_DATA; goto Fail; }
++  CopyMem ((VOID *)(UINTN)Address, Image, (UINTN)(Kernel.End - Kernel.Base));
+   // The MMU-off transition must run inside the identity-mapped owned window,
+   // independently of the firmware's dynamically loaded PE image placement.
+   CopyMem ((VOID *)(UINTN)TrampolineAddress, (VOID *)(UINTN)DarwinEnter, TrampolineBytes);
+@@ -787,6 +860,9 @@ Boot (
+              (UINT8 *)Image + Kernel.Segments[Index].FileOffset, (UINTN)Kernel.Segments[Index].FileSize);
+   }
+   Args = (DARWIN_BOOT_ARGS *)(UINTN)ArgsAddress;
++  // The page comes from AllocatePages and is not zeroed: clear every field
++  // the kernel reads, including the padding and BootFlags.
++  ZeroMem (Args, sizeof (*Args));
+   Args->Revision = 2;
+   Args->Version = 2;
+   Args->VirtualBase = Kernel.Base;
+@@ -943,7 +1019,7 @@ DarwinBootEntry (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+   if (!EFI_ERROR (Status)) {
+     // Explicit, volatile replacement for the qualified FD's older loader.
+     // Unloading this driver restores it; no firmware or phone storage changes.
+-    if (((UNIXNU_LOADER_PROTOCOL *)Existing)->Revision != UNIXNU_LOADER_REVISION) { return EFI_UNSUPPORTED; }
++    if (((UNIXNU_LOADER_PROTOCOL *)Existing)->Revision > UNIXNU_LOADER_REVISION) { return EFI_UNSUPPORTED; }
+     Status = gBS->LocateHandleBuffer (ByProtocol, &gUniXNULoaderProtocolGuid, NULL, &Count, &Handles);
+     if (EFI_ERROR (Status)) { return Status; }
+     if (Count != 1) { FreePool (Handles); return EFI_UNSUPPORTED; }
+diff --git a/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S b/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
+index 09d71d6..ca4c91f 100644
+--- a/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
++++ b/Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S
+@@ -63,6 +63,7 @@ ASM_FUNC(DarwinEnter)
+   tlbi vmalle1
+   dsb sy
+   isb
++  // DarwinBoot rejects anything but EL1, and XNU configures EL1.
+   br x1
+ 
+ ASM_FUNC(DarwinEnterEnd)

@@ -20,7 +20,7 @@ from pathlib import Path
 
 REPO = Path(os.environ.get("K60_REPO") or Path(__file__).resolve().parents[1])
 FRAMEWORK = Path(os.environ.get("K60_FRAMEWORK_REPO") or REPO.parent / "UniXNU")
-REFERENCES = Path(os.environ.get("K60_REFERENCE_ROOT") or "/mnt/e/k60-work/references")
+REFERENCES = Path(os.environ.get("K60_REFERENCE_ROOT") or "/mnt/e/iOS Port/Work/references")
 PINS = REPO / "docs" / "engineering" / "COMPONENT-PINS.toml"
 
 
@@ -64,7 +64,7 @@ def resolve_local(entry):
         except subprocess.CalledProcessError:
             pass
     # components without a path in the framework: look for the reference tree we
-    # keep under E:/k60-work/references (ShengUfs, pong-ufs, ...)
+    # keep under E:/iOS Port/Work/references (ShengUfs, pong-ufs, ...)
     names = [entry["id"], entry["id"].lower(),
              entry["id"].replace("Pong", "pong-").lower()]
     for name in names:

@@ -7,7 +7,7 @@
 | # | 对象 | 命令 | sha256 / 结果 | 用途 |
 |---|---|---|---|---|
 | 1 | K60 live merged FDT | `adb shell "cat /proc/device-tree/..."` → `live-6033dbec-fdt.dtb` | `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8` (919,210 B, FDT v17) | 触摸节点全部属性真值 |
-| 2 | 20G81 kernelcache | `img4` 解压 | 48,644,096 B，`/mnt/e/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed` | 确认无 `IOHIDEventSystemClientCreateWithType`（用户态走 HID.framework） |
+| 2 | 20G81 kernelcache | `img4` 解压 | 48,644,096 B，`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/kernelcache.decompressed` | 确认无 `IOHIDEventSystemClientCreateWithType`（用户态走 HID.framework） |
 | 3 | pong 协议核 | `git show FETCH_HEAD:bsd/dev/pong_goodix.c` | 36,603 B 原始补丁 `scratch/pong-drivers/…pong-touch-console.patch` | 协议核来源 |
 
 ## 真机数据
@@ -21,7 +21,7 @@
 
 ## 历史提取状态与本地候选模块
 
-截至本记录日期，Android `goodix_ts.ko` 未提取；这不等同于当前已有匹配源码或模块。后来从本地 scratch 找到 `E:/k60-work/scratch/goodix_core.ko` (614,896 B, SHA-256 `381b1969f45a65b5922387091b6a8e8bacd452ab5b135eab3824b079c6e6b977`), an AArch64 ELF whose strings/metadata mention GT9916/BRL and a Xiaomi source path. Its provenance, exact build/source match, and whether it was loaded on this K60 are unverified; strings do not establish its call order. A local `readelf` inspection was unavailable (`readelf: command not found`), and no disassembly claim is made.
+截至本记录日期，Android `goodix_ts.ko` 未提取；这不等同于当前已有匹配源码或模块。后来从本地 scratch 找到 `E:/iOS Port/Work/scratch/goodix_core.ko` (614,896 B, SHA-256 `381b1969f45a65b5922387091b6a8e8bacd452ab5b135eab3824b079c6e6b977`), an AArch64 ELF whose strings/metadata mention GT9916/BRL and a Xiaomi source path. Its provenance, exact build/source match, and whether it was loaded on this K60 are unverified; strings do not establish its call order. A local `readelf` inspection was unavailable (`readelf: command not found`), and no disassembly claim is made.
 
 ## 2026-11-09 00:05 — 固件已从真机提取（重大补充）
 
@@ -32,7 +32,7 @@
 | `goodix_firmware_m11a.bin` | 223,744 B | `1e647510cdc4c0293aa06fa7cb5d0a2f3558fcc151ac2785786fa6c31b560509` | `/vendor/firmware/` |
 | `goodix_cfg_group_m11a.bin` | 1,627 B | `a730e3f1238d651c531bc375fb477c6036f7112570cbc98220bf5e50a6f8af79` | `/vendor/firmware/` |
 
-本地副本：`/mnt/e/k60-work/scratch/goodix-fw/`
+本地副本：`/mnt/e/iOS Port/Work/scratch/goodix-fw/`
 
 **头部解析**：
 ```

@@ -2,7 +2,7 @@
 
 写入时间：2026-11-17 00:30 +08:00（**上机之前**）
 分支：`feat/gpu-metal-hw`（HEAD 含 `5ea63d9f`）
-镜像：`E:/k60-work/artifacts/gpu-msseed-20261117/boot.img`
+镜像：`E:/iOS Port/Work/artifacts/gpu-msseed-20261117/boot.img`
 
 ## 1. 本飞唯一目的
 
@@ -47,7 +47,7 @@
 ## 5. 结果登记（上机后填写）
 
 - 镜像：`80a128075c52ff21b1bebd2af0d03f7d1231ca114925c9a225e6b2046fb9532e`（30 args / 594 B）
-- 证据目录：`E:/k60-work/evidence/usblog-20261117-003205`（214,656 B，抓取完整，未因 panic 中断）
+- 证据目录：`E:/iOS Port/Work/evidence/usblog-20261117-003205`（214,656 B，抓取完整，未因 panic 中断）
 - S1 ✅：`K60KEXC` 0 次，无真实 panic
 - S2 ❌：`present #` 0 次
 - S3 ❌：`software renderer fallback installed` 18 次

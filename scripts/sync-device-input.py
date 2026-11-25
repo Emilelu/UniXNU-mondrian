@@ -34,11 +34,11 @@ if not DEV:
 # 单一工作树时才写这份共享镜像。多 agent 并行时每人有自己的 K60_DEVICE_INPUT，
 # 若仍写同一个文件，最后同步的人就决定了别人 porting-gate 看到的 series
 # （2026-11-14 五个 agent 同时工作后实测：BT 的 0507 出现在 Lead 的树里）。
-SCRATCH_SERIES = os.environ.get('K60_SERIES_MIRROR') or '/mnt/e/k60-work/scratch/SERIES-FINAL.txt'
+SCRATCH_SERIES = os.environ.get('K60_SERIES_MIRROR') or '/mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt'
 
 # 仓库里需要镜像到构建输入的条目（相对路径）
 
-# 框架副本：E:\\hackios\\UniXNU -> /opt/k60/trees/k60build
+# 框架副本：E:\\iOS Port\\Sources\\UniXNU -> /opt/k60/trees/k60build
 # 2026-11-12 加。此前 sync-device-input.py 只同步 device 树，框架副本靠手工 cp，
 # 结果 scripts/unixnu 漂移了 17 个文件而没人发现（check-build-freshness.py F1）。
 # 只同步框架 CLI（scripts/unixnu）。整个 scripts/ 不能同步：
@@ -62,6 +62,7 @@ ITEMS = [
     'dts',
     'patches',
     'drivers',
+    'package',
     'userland',
     'scripts',
     'kits',
@@ -135,6 +136,8 @@ def walk_files(root, rel):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--check', action='store_true', help='只报告差异，不写')
+    ap.add_argument('--adopt', action='store_true',
+                    help='镜像侧改动确认丢弃时才用；默认遇到冲突就停（铁则 18）')
     a = ap.parse_args()
 
     if not os.path.isdir(DEV):
@@ -142,6 +145,7 @@ def main():
         return 1
 
     copied, same, missing = [], 0, []
+    conflicts = []
     for item in ITEMS:
         src = os.path.join(REPO, item)
         if not os.path.exists(src):
@@ -156,11 +160,17 @@ def main():
                 # 只差构建回执字段：算一致，且不把镜像里的回执覆盖成仓库的旧值。
                 same += 1
                 continue
+            if os.path.exists(d) and os.stat(d).st_mtime > os.stat(s).st_mtime + 1.0:
+                # 镜像里这份比仓库新：不是我们上次复制留下的时间戳，就是别人改过。
+                # 铁则 18：同步不许强推，冲突要先解决。--adopt 明确表示丢弃镜像侧改动。
+                if not a.adopt:
+                    conflicts.append(rel)
+                    continue
             if a.check:
                 copied.append(rel)
                 continue
             os.makedirs(os.path.dirname(d), exist_ok=True)
-            shutil.copyfile(s, d)
+            shutil.copy2(s, d)  # copy2 保留 mtime，下一次才能分辨“谁改的”
             copied.append(rel)
 
     # 框架副本
@@ -204,6 +214,15 @@ def main():
                 if not a.check:
                     os.unlink(os.path.join(pb, f))
 
+    if conflicts and not a.adopt:
+        print('  冲突 %d 个（镜像里这份比仓库新，可能被别人改过，拒绝覆盖）:' % len(conflicts))
+        for rel in conflicts[:40]:
+            print('    %s' % rel)
+        if len(conflicts) > 40:
+            print('    ... 还有 %d 个' % (len(conflicts) - 40))
+        print('  处理：先弄清是谁改的；确认要丢弃镜像侧改动才加 --adopt（铁则 18）')
+        return 2
+
     print('  %s: %d 个文件已一致' % ('检查' if a.check else '同步', same))
     if copied:
         print('  %s %d 个:' % ('待同步' if a.check else '已同步', len(copied)))
@@ -217,6 +236,13 @@ def main():
             print('    %s' % e)
 
     if a.check and copied:
+        # iron-5 has never failed on a code defect: every red so far was a new
+        # file that never reached the mirror (fixtures, tests, docs).  Printing
+        # only the file name made the reader go and work out the command, so
+        # the gate now hands over the command itself.
+        target = os.environ.get('K60_DEVICE_INPUT') or '<构建输入目录>'
+        print('  修复：K60_DEVICE_INPUT=%s python3 scripts/sync-device-input.py' % target)
+        print('  若上一条仍报同一批文件，说明它们不在本脚本的 ITEMS 里，先加清单再同步。')
         return 1
     return 0
 

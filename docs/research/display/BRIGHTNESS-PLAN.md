@@ -30,7 +30,7 @@ K60 **没有独立背光 IC**：live FDT 里只有 `pm8350c` 的 `lcd_backlight_
 
 ## 2. ②官方：指南到底要求什么
 
-`E:/hackios/UniXNU/docs/zh/porting/display.md:80-114`：
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/display.md:80-114`：
 
 - §3：先按硬件选择**传输**（I2C / DSI 命令 / PWM）并按其目标**编码**；参考实现
   `package/AppleARMBacklight.cpp`（KTZ8866 + GENI I2C）与 `package/GeniI2c.h`（GENI 状态机）。
@@ -48,7 +48,7 @@ K60 **没有独立背光 IC**：live FDT 里只有 `pm8350c` 的 `lcd_backlight_
 
 ## 3. ③反编译/参考实现：`AppleARMBacklight.cpp` 给了什么、K60 不要什么
 
-参考实现 `E:/hackios/UniXNU-sheng/package/AppleARMBacklight.cpp`（468 行，类名 `ShengBacklight`）。
+参考实现 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/AppleARMBacklight.cpp`（468 行，类名 `ShengBacklight`）。
 
 ### 3.1 必须照抄的 OS 契约
 

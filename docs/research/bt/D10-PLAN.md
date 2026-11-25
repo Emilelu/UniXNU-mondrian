@@ -4,11 +4,11 @@
 
 ## 1. 唯一变量
 
-- 回滚基线：d8 观测镜像 `E:/k60-work/artifacts/bt-d8-tlv/boot.img`，
+- 回滚基线：d8 观测镜像 `E:/iOS Port/Work/artifacts/bt-d8-tlv/boot.img`，
   sha256 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`。
-- 上一候选：d9 `E:/k60-work/artifacts/bt-0516-uart-clock/boot.img`，
+- 上一候选：d9 `E:/iOS Port/Work/artifacts/bt-0516-uart-clock/boot.img`，
   sha256 `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`，已 FAIL。
-- 候选：`E:/k60-work/artifacts/bt-0517-power-order/boot.img`，
+- 候选：`E:/iOS Port/Work/artifacts/bt-0517-power-order/boot.img`，
   sha256 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`，201,887,744 B。
 - 与 d9 的唯一运行时差别：`patches/xnu/0517-k60-bt-power-order.patch`
   （64 行，3 hunk，sha256 `ebd0fe356a28281169b6d6aebe177020672ccbe4237a8b78735a4429ec7f5cbe`），
@@ -21,7 +21,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| build manifest | `E:/k60-work/artifacts/bt-0517-power-order/build-manifest.json` |
+| build manifest | `E:/iOS Port/Work/artifacts/bt-0517-power-order/build-manifest.json` |
 | 构建时间 / tag | `2026-11-18T16:47:01+08:00` / `bt-0517-power-order` |
 | repo head / dirty | `2c7d948dc5f8c6f597cf708c4fb2e34a960c4564` / 0 |
 | series | 237 条；全文件 `3339e34f664d8eee48ab366ec98bffd00018aafe82821c1b7f9b5eecd8dcbcba`；前 236 行 `e7de3927…` |
@@ -43,9 +43,9 @@
 ## 3. 飞前检查（claim 持有者执行，任何一项红就不飞）
 
 1. `bash scripts/k60-device.sh state` 返回 `fastboot`；记录设备序列 `6033dbec`。
-2. `sha256sum E:/k60-work/artifacts/bt-0517-power-order/boot.img` 必须等于
+2. `sha256sum E:/iOS Port/Work/artifacts/bt-0517-power-order/boot.img` 必须等于
    `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`。
-3. `python3 scripts/verify-boot-image.py --manifest E:/k60-work/artifacts/bt-0517-power-order/build-manifest.json` → OK。
+3. `python3 scripts/verify-boot-image.py --manifest E:/iOS Port/Work/artifacts/bt-0517-power-order/build-manifest.json` → OK。
 4. 保留 d8 回滚镜像（`0297012d…`）与 d9 上一候选（`8a211a76…`）。
 5. 只用 `fastboot boot`；绝不 `fastboot flash`，绝不写 `persist` / `/dev/block/sda38`。
 
@@ -53,7 +53,7 @@
 
 ```sh
 bash scripts/k60-device.sh state
-bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0517-power-order/boot.img
+bash scripts/k60-device.sh boot E:/iOS Port/Work/artifacts/bt-0517-power-order/boot.img
 ```
 
 按现有 usblog 流程采集 console 与 `boot.json` / `capture.json`；保留完整日志与屏幕照片（若早期失败）。
@@ -118,7 +118,7 @@ bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0517-power-order/boot.i
 
 ## 8. d10 飞行结果（2026-11-18 21:32–21:36，FAIL）
 
-- 设备序列 6033dbec；镜像 sha256 6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69；命令为 K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/k60-work/artifacts/bt-0517-power-order/boot.img 220，supervisor rc=0。
+- 设备序列 6033dbec；镜像 sha256 6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69；命令为 K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/iOS Port/Work/artifacts/bt-0517-power-order/boot.img 220，supervisor rc=0。
 - boot.json：bootAccepted=true、bootExitCode=0、returnedToFastboot=false，startedAt 21:32:30，finishedAt 21:36:33。
 - capture.json：state=captured-budget-complete、complete=true、bytes=201732、panic/reset 均为 null、stopReason=budget；console 3290 行，logSha256 6A9AF54A7A20DACEFA245B638FEA1EA739515DC4B73E8C0027A93DF48713EF0A。
 - console：493 行 [bluetooth] boot: enter speed=3000000 budget=90000ms；1326 行 PATCH tlv done type=1 segs=602 sent=602 acks=1 final=0 ret=0；NVM 第一轮 i=0..5 的 dt_ms 为 10000/10000/10000/10001/10001/10001，i=6 立即 e=-60；fallback 这次只有 segs=1（i=0 立即 e=-60），随后 2584/2589 行 budget exhausted at op=0xfc00 waiting=1；2594 行 uart setup done e=-60；2598 行 power=1 result=-60 ... tlv_sent=610 tlv_acks=8 tlv_final=0；没有 nvm done。

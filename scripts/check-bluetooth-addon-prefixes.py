@@ -25,7 +25,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PATCHES = ROOT / "patches" / "xnu-12377"
 STAGER = ROOT / "scripts" / "build-bluetooth-userspace.py"
-FRAMEWORK = pathlib.Path("/mnt/e/hackios/UniXNU/scripts/build-boot-runtime.py")
+FRAMEWORK = pathlib.Path("/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/scripts/build-boot-runtime.py")
 
 SOURCE = re.compile(r'_source\[\]\s*=\s*"(/private/var/ngpu/[^"]+)"')
 PREFIX = re.compile(r"report\[['\"]directories['\"]\]\s*=\s*\{(.*?)\}", re.S)
@@ -57,7 +57,7 @@ def framework_prefixes(path):
 
 
 def default_framework():
-    for candidate in (os.environ.get("UNIXNU_TREE"), "/mnt/e/hackios/UniXNU"):
+    for candidate in (os.environ.get("UNIXNU_TREE"), "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU"):
         if candidate:
             path = pathlib.Path(candidate) / "scripts" / "build-boot-runtime.py"
             if path.is_file():

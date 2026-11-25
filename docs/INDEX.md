@@ -49,7 +49,11 @@ docs/
 | 文件 | 一句话摘要 |
 |---|---|
 | [`STATUS.md`](engineering/STATUS.md) | 当前硬件状态明细、重新审视结论与历史变更记录 |
-| [`IOS27.md`](engineering/IOS27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门与 IPSW 哈希；`--os ios-27.0.1-24A446` 选择 |
+| [`IOS27.md`](engineering/IOS27.md)、[`IOS27-REFERENCE-FIRST.toml`](engineering/IOS27-REFERENCE-FIRST.toml) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门与 IPSW 哈希；`--os ios-27.0.1-24A446` 选择 |
+| [`IOS27.md`](engineering/IOS27.md)、[`LANE-CONTRACT-ios27.md`](engineering/LANE-CONTRACT-ios27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门与 IPSW 哈希；`--os ios-27.0.1-24A446` 选择 |
+| [`IOS27.md`](engineering/IOS27.md)、[`IOS27-DRIVER-ARCH.md`](engineering/IOS27-DRIVER-ARCH.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门与 IPSW 哈希；`--os ios-27.0.1-24A446` 选择 |
+| [`BOOT-FREEZE.md`](engineering/BOOT-FREEZE.md) | **上机冻结（2026-11-22 起）**：`state` 由用户本人改写才放行；解冻五条件（同一次启动内日志通路、离线三连证据、菜单自动引导、看门狗自动复位、blocker 表不再有「无法观测」） |
+- [](engineering/OFFICIAL-STEPS.toml) — 铁则 17：每步对应的官方页与锚点
 | [`EIGHT-STEP-SPEC.md`](engineering/EIGHT-STEP-SPEC.md) | 八步流程规范：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机 |
 | [`FIRMWARE-REBUILD.md`](engineering/FIRMWARE-REBUILD.md) | **固件卷重建手册**：谁在构建、为什么它不可复现、Mu_Basecore 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭与下次重建的实验协议 |
 | [`BOOT-PROCEDURE.md`](engineering/BOOT-PROCEDURE.md) | **启动流程唯一入口**（铁则 8）：门禁 → 先挂串口抓取 → `fastboot boot` → 判读"控制台没出现"=早启动挂死 |
@@ -254,3 +258,43 @@ python3 scripts/render-eight-step-table.py --check
 - 2026-11-19 保留映射（token/evict）的设计草案：如果 H1 成立要改哪几处、wire 48→56 B、以及验收判据：[KEPT-MAPPING](research/gpu/KEPT-MAPPING.md)
 - 2026-11-19 GPU 负优化 A/B 第一半（行距默认改回 0）：[飞行卡 j](research/gpu/FLIGHT-CARD-20261119j.md)
 - 2026-11-19 GPU 档位：把「启动投一次」改成可以在 GX 起来后重投（t970 z164）——[飞行卡 k](research/gpu/FLIGHT-CARD-20261119k.md)、[飞行卡 l](research/gpu/FLIGHT-CARD-20261119l.md)
+- `docs/engineering/OFFICIAL-REQUIREMENTS.toml` — 官网要求登记表（铁则 13）
+- `docs/engineering/UPSTREAM-REPOS.toml` — 上游仓库同步基线（铁则 15）
+- [ios27/CARRY-OVER-INVENTORY.md](research/ios27/CARRY-OVER-INVENTORY.md) —— 16 线 240 条 vs 27 线 34 条：迁移时丢了什么
+- [engineering/REFERENCE-PROVENANCE.md](engineering/REFERENCE-PROVENANCE.md) —— 哪个「第三方」其实是我自己的 fork（GitHub API 实测）
+- [GATE-OBJECT-HANDOVER.md](research/ios27/GATE-OBJECT-HANDOVER.md) — 让三处符号门禁报出它量的是哪一份文件
+- [CCACHE.md](research/ios27/CCACHE.md) — ccache 接进了 27 内核构建，却因 `-MJ` 一个对象都缓存不了：实测读数与移交单
+- [IOS16-PORT-LEDGER.md](research/ios27/IOS16-PORT-LEDGER.md) — 16 线 276 个补丁中 241 个无法直接应用到 27 树：A/B/C/D/E/F 分类计数、A 类主题分布与优先移植清单
+- [BORROWABLE-MECHANISMS.md](research/ios27/BORROWABLE-MECHANISMS.md) — zizhan 的两条可借机制：/chosen 扩展启动参数（含 launchd_cache_loader 坑）与 pong_inj 免重建 init 注入
+- [BUILD-20261124.md](research/ios27/BUILD-20261124.md) — 2026-11-24 绿灯构建：kernel 93,143,040 B / sha256 7a5a603e…，三处工程改动与仍未做的 boot.img
+- [PRELINK-GAP-EXPLAINED.md](research/ios27/PRELINK-GAP-EXPLAINED.md) — 我们 94/203 与上游 2/24 数的是不同构建；附 21+25 个 owner 全表与「门禁与飞行互为死循环」的结论
+- [BUILD-FREEZE.md](engineering/BUILD-FREEZE.md) — 构建与上机冻结令及解冻三条件（2026-11-23）
+- [DISPLAY-STACK-PORT.md](research/ios27/DISPLAY-STACK-PORT.md) — 27 线缺的不是 console 补丁，而是整个 `GopFramebuffer` 组件：sheng 同 OS ABI 已验证，附移植清单与 DPU 地址风险
+- [BOARD-PARITY.md](research/ios27/BOARD-PARITY.md) — 27 板级配置与 sheng（同 OS ABI）、zizhan（同 SM8475）的逐项差异：组件 3 vs 11、归档 8 vs 19、启动参数 10 vs 52，附逐条判定与离线复现命令
+- [BOOT-ARGS-AUDIT.md](research/ios27/BOOT-ARGS-AUDIT.md) — 47 个 sheng-only 键里只有 6 个有读取者、41 个属于我们未 include 的组件；启动行要按「读者」对齐而不是按键数对齐
+- [GOP-FRAMEBUFFER-MINIMAL.md](research/ios27/GOP-FRAMEBUFFER-MINIMAL.md) — 组件源码公开但构建器只在 sheng：显示四段、必须剔除的十个探针、路线 A（自建 build-k60-legacy-display.py）与路线 B 的取舍
+- [AOCI-EVALUATION.md](research/ios27/AOCI-EVALUATION.md) — AOCI-CODE 实测：索引规模、MCP 九工具、三层架构与 P0–P4 计划。
+- [DRIVER-COMPILE-RECIPE.md](research/ios27/DRIVER-COMPILE-RECIPE.md) — Linux 上编 arm64e 驱动对象的三处必要修改（C++ 记录、-target、缺省字段告警）。
+- [GOP-ARCHIVE-FIRST-BUILD.md](research/ios27/GOP-ARCHIVE-FIRST-BUILD.md) — 首个 GopFramebuffer 板级归档的字节数、sha256 与未完成项。
+- [HANDOFF-20261124.md](research/ios27/HANDOFF-20261124.md) — 冻结交接：已完成项、四项 open、下一单步。
+- [CONSOLE-GLYPH-BUG.md](research/ios27/CONSOLE-GLYPH-BUG.md) — 洋红横杠不是显示通路故障：`k60_fontscale` 让 `vc_render_char` 按 48 行读 16 字节字形、每字符写 1536 字节进 512 字节缓冲区；附照片测量、代码证据与 P-313 静态判据
+- [BRANCH-HARVEST.md](research/ios27/BRANCH-HARVEST.md) - every 27 branch with its drift and its unverified status.
+- [ROOT-STORAGE-GAP.md](research/ios27/ROOT-STORAGE-GAP.md)
+
+## 交接与认知层（2026-11-26）
+
+| 文档 | 作用 |
+|---|---|
+| [`research/prior-art/PRIOR-ART-FIRST.md`](research/prior-art/PRIOR-ART-FIRST.md) | 先例优先：同 SoC 参考仓的阅读顺序与「抄能力不抄代码」的边界 |
+| [`engineering/FIRST-BOOT-PLAYBOOK.md`](engineering/FIRST-BOOT-PLAYBOOK.md) | 首次启动的操作顺序与判据 |
+| [`engineering/FAILURE-MODE-MATRIX.md`](engineering/FAILURE-MODE-MATRIX.md) | 症状 → 分层 → 下一动作 的失败模式矩阵 |
+| [`engineering/EARLY-BOOT-EVIDENCE-PLAN.md`](engineering/EARLY-BOOT-EVIDENCE-PLAN.md) | 早期启动取证计划（屏幕/串口/复位） |
+| [`engineering/COLLABORATION-RULES.md`](engineering/COLLABORATION-RULES.md) | 多线并行协作规则（一线一树、消息纪律、上机权限） |
+| [`engineering/PROJECT-AGENTS.md`](engineering/PROJECT-AGENTS.md) | 项目总闸：目录布局、先读顺序、门禁清单、当前状态 |
+| [`archive/history/HISTORY-LEDGER.md`](archive/history/HISTORY-LEDGER.md) | commit 级历史台账（565 KB 级决策链） |
+| [`archive/history/PITFALLS-FROM-HISTORY.md`](archive/history/PITFALLS-FROM-HISTORY.md) | 从历史里回收的坑卷 |
+| [`archive/history/DECISIONS.md`](archive/history/DECISIONS.md) | 关键决策与理由 |
+| [`../aoci.txt`](../aoci.txt) / [`../aoci.code.txt`](../aoci.code.txt) | AOCI 认知索引（1050 条 FRAS），`scripts/check-aoci-index.py` 校验 |
+
+| [`engineering/PORTING-PLAN.md`](engineering/PORTING-PLAN.md) | 四层移植方案、启动链、缺口与回退 |
+| [`engineering/WORKFLOW.md`](engineering/WORKFLOW.md) | 构建 / 上机 / 证据 / 多线协作工作流 |

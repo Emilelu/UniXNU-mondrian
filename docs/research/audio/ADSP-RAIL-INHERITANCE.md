@@ -36,7 +36,7 @@ remoteproc-adsp@03000000 {
 }
 ```
 
-两个 phandle 解到（`E:/k60-work/scratch/dtb/mondrian.dts`）：
+两个 phandle 解到（`E:/iOS Port/Work/scratch/dtb/mondrian.dts`）：
 
 | phandle | 节点 | resource-name | 稳压器子节点 | 行 |
 | --- | --- | --- | --- | --- |
@@ -52,7 +52,7 @@ remoteproc-adsp@03000000 {
 
 ### 1.2 与 Pong 的关系：同一对轨，不同 PMIC
 
-Pong 的 `E:/k60-work/references/pong-power/PongAdsp.cpp:565-572` 按名字取的就是这两条：
+Pong 的 `E:/iOS Port/Work/references/pong-power/PongAdsp.cpp:565-572` 按名字取的就是这两条：
 
 ```cpp
 if (!readCmdDb(db) || qcom_cmd_db_find(db, sizeof db, "lcx.lvl", &gLcx) ||
@@ -72,9 +72,9 @@ if ((rc = vote(lcx, lmx))) { fail(StRails, rc); ... }
   `regulator-max-microvolt = <0xffff>`、`qcom,init-voltage-level = <0x10>`（`:5340-5342`、`:6120-6122`）
   是**档位索引**（ARC corner），不是毫伏。初值 16（0x10）。
 - 本板**从未**在运行时读到过 `lcx.lvl` / `lmx.lvl` 的 cmd-db 记录：全证据库
-  `grep -rh K60RAIL E:/k60-work/evidence` 只有三行（cmd-db magic、ldoc2=0x42c00、DRV-2 布局），
+  `grep -rh K60RAIL E:/iOS Port/Work/evidence` 只有三行（cmd-db magic、ldoc2=0x42c00、DRV-2 布局），
   没有 ADSP 轨；仓库里除 `scripts/tests/test-k60-pmic-rail.c:70,97` 的合成夹具外没有任何 ADSP 轨名。
-- ⚠ `E:/k60-work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c:450` 里的
+- ⚠ `E:/iOS Port/Work/references/UniXNU-sheng/package/tests/qcom_adsp_host.c:450` 里的
   `0x30010` / `0x30020` 是**参考实现的宿主夹具值**，不是本板测量值，**不得**写进内核常量。
 
 ## 二、问题 2：已投票的状态能不能只读地读出来，从哪个寄存器/TCS 槽
@@ -97,7 +97,7 @@ helper 9 例与 KERNEL entry 10 例均复现缺陷；尚未修复，不具备 ra
 
 ### 2.2 DRV-2 + TCS 槽：本仓库族里已有的只读先例
 
-`E:/hackios/k60-wifi/patches/wifi/0003-drivers-PongWifi-k60-rsc-gate.patch:28-39` 在投票前做了一次
+`E:/iOS Port/Sources/Hardware/k60-wifi/patches/wifi/0003-drivers-PongWifi-k60-rsc-gate.patch:28-39` 在投票前做了一次
 **纯只读**探测，用的正是同一套偏移：
 
 ```cpp
@@ -249,7 +249,7 @@ host 结果；C 曾打印 `rails declared ... (inherited, not yet read)` 并置�
   无 resources release、输出 lease 全零、SMEM 字节不变，并拒绝重试。
   board 排他所需的一个只读 SMEM map/unmap 是预期的，不能误写成“所有 map=0”。
 - P-223 注册命令须同时执行 rail helper、board8、owner-claim18；rail49 的通过仅证明旧 helper
-  分支，不解决采样覆盖、状态语义或单次入口。完整 runner 日志 `E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log` 共 1458 行、55737 B，SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`；第 27 行是七项下游计数全零的拒绝轨迹。
+  分支，不解决采样覆盖、状态语义或单次入口。完整 runner 日志 `E:/iOS Port/Work/artifacts/adsp-board-20261116/refusal/host-tests.log` 共 1458 行、55737 B，SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`；第 27 行是七项下游计数全零的拒绝轨迹。
 
 ### 6.1 决定性缺口：发布路径不经过 `k60_adsp_bring_up()`
 
@@ -276,17 +276,17 @@ COPY/BSS → AUTH_AND_RESET。故只把门贴在 AUTH 前已太晚，C 的 legac
 | 事实 | 出处 |
 | --- | --- |
 | ADSP 节点的 cx/mx/xo/qmp/interconnect | `docs/research/audio/VENDOR-ADSP-NODE.md:17-63`；DTB `remoteproc-adsp@03000000` |
-| lcx.lvl / lmx.lvl 节点与 PMIC 子节点 | `E:/k60-work/scratch/dtb/mondrian.dts:5333-5345`、`:6113-6125`；别名 `:21177-21179`、`:21288-21290` |
-| Pong 按名取 lcx/lmx 并取最高档投票 | `E:/k60-work/references/pong-power/PongAdsp.cpp:225-231`、`:565-572` |
+| lcx.lvl / lmx.lvl 节点与 PMIC 子节点 | `E:/iOS Port/Work/scratch/dtb/mondrian.dts:5333-5345`、`:6113-6125`；别名 `:21177-21179`、`:21288-21290` |
+| Pong 按名取 lcx/lmx 并取最高档投票 | `E:/iOS Port/Work/references/pong-power/PongAdsp.cpp:225-231`、`:565-572` |
 | 历史受限只读先例（不是新增采样器批准） | `drivers/PongPower/K60PmicRail.c:437-540`（`k60_rail_probe()`）；`docs/ops/HARD-RULES.md:101-104` |
 | 旧 helper 与当前资源拒绝 | `drivers/PongPower/K60PmicRail.c:260-434`（verdict:260、record_pass:335、pass:357、inherit:389，审计已发现阻塞，未修复）；`drivers/PongPower/K60AdspBoard.c:241`（返回 -63）；`docs/engineering/PITFALLS.md` P-223 |
 | 回读调用点（`AUTH_AND_RESET` 之前） | `patches/xnu/0613-k60-adsp-pas.patch:208`（`k60_adsp_bring_up()` 第一步） |
 | 发布路径不经过 `bring_up()` | `K60HandoffRuntime.cpp:72`；`K60AdspOwnerStages.c:156`；`K60AdspPlatformNative.cpp:336-342` |
-| 只读 TCS 槽先例（wifi gate） | `E:/hackios/k60-wifi/patches/wifi/0003-drivers-PongWifi-k60-rsc-gate.patch:28-39` |
+| 只读 TCS 槽先例（wifi gate） | `E:/iOS Port/Sources/Hardware/k60-wifi/patches/wifi/0003-drivers-PongWifi-k60-rsc-gate.patch:28-39` |
 | DRV-2 可读可写、drv-0/drv-3 禁碰 | `docs/research/REFERENCE-INDEX.md:836-866`（582 boot 审计） |
 | v2 布局与 TCS 偏移/步长 | `docs/research/touch/POWER-RPMH-LDOC2.md:44-64` |
 | ACK ≠ 供电；observer 判据 | `docs/research/touch/POWER-RPMH-LDOC2.md:101-113` |
 | aux 身份字节陷阱 | `docs/research/touch/POWER-RPMH-LDOC2.md:35-42` |
 | 四条件原文 | `docs/ops/HARD-RULES.md:44-58` |
 | 发布点在 IOKitBSDInit、早于 Data 挂载 | `patches/xnu/0619-k60-adsp-glink-handoff.patch:320-338`；`bsd/kern/bsd_init.c:909,1264,1321`；`bsd/kern/kern_sig.c:3420`；`bsd/kern/kern_exec.c:7896,8563` |
-| 本板 K60RAIL 实测（仅三行，无 ADSP 轨） | `E:/k60-work/evidence/usblog-20261114-railh/console.log:477-479` |
+| 本板 K60RAIL 实测（仅三行，无 ADSP 轨） | `E:/iOS Port/Work/evidence/usblog-20261114-railh/console.log:477-479` |

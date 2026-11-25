@@ -14,7 +14,7 @@
 
 ## 3. 抓取
 
-`scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`，
+`scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`，
 `capture.json` 必须 `complete=true`。
 
 ## 4. 判据

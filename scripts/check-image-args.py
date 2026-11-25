@@ -117,9 +117,30 @@ def image_args(image: pathlib.Path) -> list[str]:
     raise SystemExit("image-arg-audit: payload TOML has no args entry")
 
 
+def effective(data: dict) -> dict:
+    """Apply the board's own os_overrides before reading anything (P-305).
+
+    The contract that reaches the image is the merged one: profiles.merge replaces
+    a list rather than extending it, so a 27 image legitimately lacks the base
+    16-series arguments. Reading the base table here reported three of them as
+    missing from a correct image (2026-11-22).
+    """
+    profile = (data.get("board") or {}).get("os_profile") or ""
+    overrides = (data.get("os_overrides") or {}).get(profile) or {}
+    merged = dict(data)
+    for section, values in overrides.items():
+        if isinstance(values, dict) and isinstance(merged.get(section), dict):
+            block = dict(merged[section])
+            block.update(values)
+            merged[section] = block
+        else:
+            merged[section] = values
+    return merged
+
+
 def board_args(board: pathlib.Path) -> list[str]:
     """board.toml carries the contract under [payload] (measured, line 184)."""
-    data = tomllib.loads(board.read_text())
+    data = effective(tomllib.loads(board.read_text()))
     for section in ("payload", "kernel"):
         args = (data.get(section) or {}).get("kernel_args")
         if args:
@@ -175,6 +196,7 @@ def audit(image: pathlib.Path, board: pathlib.Path) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--image", required=True, type=pathlib.Path)
+    ap.add_argument("--print-args", action="store_true", help="print the argument list on success")
     ap.add_argument("--board", type=pathlib.Path,
                     default=pathlib.Path(__file__).resolve().parents[1] / "board.toml")
     args = ap.parse_args()
@@ -189,7 +211,10 @@ def main() -> int:
             print("  -", p)
         return 1
     got = image_args(args.image)
-    print(f"image-arg-audit: OK ({len(got)} arguments, {len(' '.join(got))} bytes)")
+    if args.print_args:
+        print(' '.join(got))
+    else:
+        print(f"image-arg-audit: OK ({len(got)} arguments, {len(' '.join(got))} bytes)")
     return 0
 
 

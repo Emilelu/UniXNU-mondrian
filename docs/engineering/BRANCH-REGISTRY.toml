@@ -1,0 +1,361 @@
+# Branch registry for the K60 trees.
+
+[[branch]]
+name = "backup/wifi-ios27-20261120"
+line = "wifi"
+ahead = 120
+last_commit = "2026-11-19"
+state = "experiment"
+flight = "build-only"
+purpose = "Wi-Fi iOS 27 backup at ea54f59e (2026-11-19); rollback reference only."
+merge_plan = "Never merge; keep until the 27 Wi-Fi line closes, then archive."
+
+[[branch]]
+name = "diag/menu-hold-20261121"
+line = "lead"
+ahead = 360
+last_commit = "2026-11-24"
+state = "experiment"
+flight = "build-only"
+purpose = "27 stage-0 主线：GIC/source-storage/legacy-display/console 的集成与构建分支"
+merge_plan = "每次绿灯构建按八步记账；stage-0 进 SpringBoard 后才合 main"
+
+[[branch]]
+name = "docs/bt-branch-registry"
+line = "bluetooth"
+ahead = 362
+last_commit = "2026-11-24"
+state = "experiment"
+flight = "build-only"
+purpose = "Temporary delivery branch carrying the bluetooth line's BRANCH-REGISTRY purpose/merge_plan entries; not a product branch."
+merge_plan = "Merge the registry change into the Lead's registry branch, then delete this branch."
+
+[[branch]]
+name = "docs/bt-data-mount-gate"
+line = "bluetooth"
+ahead = 5
+last_commit = "2026-11-20"
+state = "experiment"
+flight = "build-only"
+purpose = "Bluetooth Data mount gate research branch: records the Data gate chain, owner-data/vnode mount dependencies and the cost to close them; carries check-bluetooth-data-gate-chain.py, its test and the porting/docs notes; no hardware."
+merge_plan = "Keep as an experiment until the owner-data mount gate closes; after Lead review port the checker, test and conclusions onto feat/xnu27-data-gate, then archive; never merge the branch wholesale."
+
+[[branch]]
+name = "docs/wifi-branch-registry"
+line = "wifi"
+ahead = 363
+last_commit = "2026-11-24"
+state = "experiment"
+flight = "build-only"
+purpose = "Temporary delivery branch carrying the wifi line's BRANCH-REGISTRY purpose/merge_plan entries; not a product branch."
+merge_plan = "Merge the registry change into the Lead's registry branch, then delete this branch."
+
+[[branch]]
+name = "docs/xnu-16-to-27-ladder"
+line = "lead"
+ahead = 2
+last_commit = "2026-11-20"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/adsp-carrier"
+line = "lead"
+ahead = 33
+last_commit = "2026-11-17"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "ADSP 载体：内嵌 blob 与 104 字节 glink handoff 的离线准备"
+merge_plan = "只取驱动源与门禁；等 HR-01 的 resources 路径放宽后合"
+
+[[branch]]
+name = "feat/audio-adsp-merge"
+line = "audio"
+ahead = 414
+last_commit = "2026-11-21"
+state = "active"
+flight = "build-only"
+purpose = "Audio + ADSP integration line: codec probe and APR probe work on the adsp tree; the audio lane's long-lived branch for driver experiments."
+merge_plan = "Deliberately not merged while the inner audio line advances (BRANCH-INVENTORY-20261119.md:29 and :87). Keep as the adsp-side worktree; archive when the audio line closes. Line-owned commits only; no shared main."
+
+[[branch]]
+name = "feat/audio-ios27-carry"
+line = "audio"
+ahead = 184
+last_commit = "2026-11-22"
+state = "active"
+flight = "build-only"
+purpose = "iOS 27 audio carry line: offline bring-up record and gates for PongAudio - PAS1 consumer API, 0531 dormant release gate, seven-step criteria, IOAudio2 residue and the eight-step audio-27.toml. stage-0 deliberately does not build audio."
+merge_plan = "Merge to main after stage-0 passes and F3 restores audio to the build; before merge require CRITERIA OK 7/7, the audio-only eight-step gate and the docs/citation gates. 0531 stays HOLD until its six conditions and a real 27 kernel reading; no booted image, so flight is build-only."
+
+[[branch]]
+name = "feat/audio-official-27-mapping"
+line = "audio"
+ahead = 56
+last_commit = "2026-11-21"
+state = "superseded"
+flight = "build-only"
+purpose = "Audio slice of the official-docs ledger: maps the three official audio pages (power, darwin-boot, payload) into docs/engineering/OFFICIAL-REQUIREMENTS.toml."
+merge_plan = "No separate merge: 8166c7dc is already an ancestor of k60-gates diag/menu-hold-20261121; it reaches main with that branch, then this branch is archived."
+
+[[branch]]
+name = "feat/carrier-merge-trial"
+line = "lead"
+ahead = 35
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "ADSP/cellular 载体合并试验分支"
+merge_plan = "仅作参考，不合并；结论进 docs/research"
+
+[[branch]]
+name = "feat/cellular"
+line = "cellular"
+ahead = 276
+last_commit = "2026-11-20"
+state = "superseded"
+flight = "build-only"
+purpose = "Initial K60 cellular bring-up branch (iOS 16.6.1): driver, DT, and early flight judges."
+merge_plan = "No separate merge; ancestor of feat/cellular-k55 and superseded by the iOS 27 line."
+
+[[branch]]
+name = "feat/cellular-27"
+line = "cellular"
+ahead = 321
+last_commit = "2026-11-22"
+state = "active"
+flight = "build-only"
+purpose = "Current iOS 27 cellular line branch: seven-step executable criteria, judge, and the one-run W1/W2/F3 verdict contract."
+merge_plan = "Merge into main after the seven-step criteria pass and W1/W2/F3 device gates reach PASS; fragment must first merge into EIGHT-STEPS.toml."
+
+[[branch]]
+name = "feat/cellular-ios27"
+line = "cellular"
+ahead = 358
+last_commit = "2026-11-20"
+state = "active"
+flight = "build-only"
+purpose = "iOS 27 cellular port branch: W1/W2/F3 research docs and the 0626-0630 patch series; divergent from feat/cellular-27."
+merge_plan = "Merge only reviewed docs/patches into feat/cellular-27; do not merge the branch wholesale."
+
+[[branch]]
+name = "feat/cellular-k55"
+line = "cellular"
+ahead = 319
+last_commit = "2026-11-21"
+state = "superseded"
+flight = "build-only"
+purpose = "K55 cellular evidence branch: W1/W2 collection runbook, full-block EFS judge, and the 208-item baseline."
+merge_plan = "No separate merge; ancestor of feat/cellular-27 and superseded by it."
+
+[[branch]]
+name = "feat/charge-auth"
+line = "lead"
+ahead = 16
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "充电认证：PD challenge/expected 与 32778 owner 的驱动与判读器"
+merge_plan = "只取 scripts/judge-battery 与驱动，等 ADSP lease 打通后合"
+
+[[branch]]
+name = "feat/display-27"
+line = "display"
+ahead = 4
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/gpu-27"
+line = "gpu"
+ahead = 108
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/input-27"
+line = "input"
+ahead = 18
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/official-requirements-r80"
+line = "lead"
+ahead = 52
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/osservices-27"
+line = "osservices"
+ahead = 1
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/platform-27"
+line = "platform"
+ahead = 25
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/power-ios27-branch"
+line = "power"
+ahead = 178
+last_commit = "2026-11-22"
+state = "active"
+flight = "build-only"
+purpose = "27 \u7535\u6e90\u7ebf\uff1a\u7535\u6c60/\u5145\u7535/\u70ed/EPSS \u7684\u79bb\u7ebf\u5951\u7ea6\u3001\u5224\u636e\u4e0e\u4e03\u6b65\u8d26\u672c\uff1b\u542b charge-auth \u5e27\u4e0e\u8ba4\u8bc1\u95e8\u3001thermal trip map\u3001battery mirror/handoff \u5224\u8bfb\u5668\u3002"
+merge_plan = "\u76ee\u6807 feat/ios27\uff1adocs/contracts/judges \u7ecf Lead \u5ba1\u540e\u5e76\u5165\uff1bPongPower/Thermal/EPSS \u786c\u4ef6\u9a71\u52a8\u7b49 F1/F2 \u4e0e 27 flight \u5224\u636e\u901a\u8fc7\u540e\u518d\u5165\u3002charge-auth \u4e0e thermal trip-map \u5df2\u5728\u672c\u5206\u652f\u3002"
+
+[[branch]]
+name = "feat/readme-pitfall-262"
+line = "lead"
+ahead = 1
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/ufs-27"
+line = "ufs"
+ahead = 102
+last_commit = "2026-11-24"
+state = "experiment"
+flight = "build-only"
+purpose = "27 存储路线 B：把 drivers/NativeUfs 做成独立 fileset kext 条目（不经 force_load），让 11 个 IOBlockStorageDevice 导入在 prelink 时对到兄弟条目 IOStorageFamily；附 MBR publish-order 取证与 6 个存储门禁"
+merge_plan = "只取门禁与文档（check-ufs27-*、UFS27-ROUTE-B-WIRING.md、UFS27-MBR-READ-FORENSICS.md），不整支合；代码部分等框架 prelink emitter 能新增 kext 条目后再接线"
+
+[[branch]]
+name = "feat/usb-27"
+line = "usb"
+ahead = 1
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/wifi-ios27-abi"
+line = "wifi"
+ahead = 120
+last_commit = "2026-11-19"
+state = "experiment"
+flight = "build-only"
+purpose = "Historical Wi-Fi 27 ABI/contract experiment branch; its tip matches the backup at ea54f59e, so it carries no later ABI work."
+merge_plan = "Do not merge; carry any still-valid ABI conclusion into feat/wifi-ios27-tree, then archive."
+
+[[branch]]
+name = "feat/wifi-ios27-tree"
+line = "wifi"
+ahead = 56
+last_commit = "2026-11-22"
+state = "active"
+flight = "build-only"
+purpose = "Wi-Fi iOS 27 main lane: C1/C2/C3, B4/B5, WPA3 blocked by F2/F3, feed pins and seven-step acceptance criteria."
+merge_plan = "Merge into main only after F2/F3 device evidence and a complete arm64e station archive; no merge while build-only."
+
+[[branch]]
+name = "feat/wifi-station-archive-check"
+line = "wifi"
+ahead = 53
+last_commit = "2026-11-21"
+state = "active"
+flight = "build-only"
+purpose = "Line-local three-state checker for the 27 station archive (absent rc2, bad archive rc1, all pass rc0); no global blocker."
+merge_plan = "Do not merge to main or register in RULES while the 27 station archive is absent (P-290); merge only after the archive exists and Lead approves."
+
+[[branch]]
+name = "feat/xnekom-ios27-pick"
+line = "lead"
+ahead = 67
+last_commit = "2026-11-21"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/xnu27-data-gate"
+line = "lead"
+ahead = 68
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "feat/xnu27-psci-target"
+line = "lead"
+ahead = 3
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "fix/bt-gic-sleep-fragment"
+line = "bluetooth"
+ahead = 192
+last_commit = "2026-11-20"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "Bluetooth iOS 27 static-check branch: DT, GENI, GIC, kernel, launchd, payload-host, power and userspace checkers, their fixtures and the 0523-0525 prelink patches; research/static evidence only, no hardware."
+merge_plan = "Do not merge wholesale (1423 commits behind main); cherry-pick the still-used checkers and fixtures onto feat/xnu27-data-gate after Lead review, then archive this branch."
+
+[[branch]]
+name = "fix/ios27-black-screen-muse-20261122"
+line = "lead"
+ahead = 190
+last_commit = "2026-11-22"
+state = "merge-candidate"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"
+
+[[branch]]
+name = "test/wifi-he-scan"
+line = "wifi"
+ahead = 64
+last_commit = "2026-11-19"
+state = "experiment"
+flight = "build-only"
+purpose = "HE/6 GHz scan experiment on 24A446 (tip 85b1ad88, 2026-11-19)."
+merge_plan = "Do not merge; recover conclusions into feat/wifi-ios27-tree docs, then archive."
+
+[[branch]]
+name = "xnekom-ios27"
+line = "lead"
+ahead = 26
+last_commit = "2026-11-20"
+state = "experiment"
+flight = "build-only"
+purpose = "TBD"
+merge_plan = "TBD"

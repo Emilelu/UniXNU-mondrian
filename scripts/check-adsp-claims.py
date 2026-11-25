@@ -17,7 +17,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLAIMS = REPO + '/docs/research/audio/ADSP-CLAIMS.toml'
-EVIDENCE = '/mnt/e/k60-work/evidence'
+EVIDENCE = '/mnt/e/iOS Port/Work/evidence'
 GUARDED = ('drivers/PongPower/K60Adsp', 'drivers/PongPower/K60Fat',
            'drivers/PongPower/K60Smem', 'patches/xnu/061')
 

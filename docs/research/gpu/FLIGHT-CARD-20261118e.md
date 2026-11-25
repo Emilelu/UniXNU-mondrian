@@ -32,7 +32,7 @@
 ## 3. 抓取
 
 `K60_FORCE_NEW=1 bash scripts/flash.sh <boot.img> 240`，证据落
-`E:/k60-work/evidence/usblog-<ts>/`。只在设备可见（`fastboot devices` 非空）时飞。
+`E:/iOS Port/Work/evidence/usblog-<ts>/`。只在设备可见（`fastboot devices` 非空）时飞。
 
 ## 4. 判据
 
@@ -54,7 +54,7 @@
 ## 5. 结果登记
 
 2026-11-18 12:43:17 飞 `gpu-drawfix-20261118`（`boot.img 4a26a99c…`），证据
-`E:/k60-work/evidence/usblog-20261118-124317`（console 5,611,548 B / 54,518 行，抓取完整、无 panic）。
+`E:/iOS Port/Work/evidence/usblog-20261118-124317`（console 5,611,548 B / 54,518 行，抓取完整、无 panic）。
 
 | 判据 | 实测 | 结论 |
 | --- | --- | --- |

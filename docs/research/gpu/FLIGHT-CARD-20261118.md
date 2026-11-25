@@ -11,15 +11,15 @@
 | 编号 | 证据 | 位置 |
 |---|---|---|
 | P1 | 桥接层补丁已提交并通过守卫（7 项） | `324d6c81`、`scripts/tests/test-metal-device-answers.py` |
-| P2 | 插件 bundle 由当前源码重建（含补丁前端 + 新桥 dylib 32,970,648 B `016a0cc1…`） | `/Users/emilelu/k60-build/out/metal-plugin-20261118a` → `E:/k60-work/impl/gpu-mac-build/out/metal-plugin-20261118a` |
+| P2 | 插件 bundle 由当前源码重建（含补丁前端 + 新桥 dylib 32,970,648 B `016a0cc1…`） | `/Users/emilelu/k60-build/out/metal-plugin-20261118a` → `E:/iOS Port/Work/impl/gpu-mac-build/out/metal-plugin-20261118a` |
 | P3 | 插件 bundle 六文件齐备，`PongAdrenoMetal` 94,896 B、`PongMetalBridge.dylib` 33,246,528 B | 同上 `build-report.json` |
-| P4 | 镜像由 `build-strict.sh` 产出，`image-arg-audit: OK`、`verify-boot-image: OK` | `E:/k60-work/artifacts/gpu-ans-20261118/` |
+| P4 | 镜像由 `build-strict.sh` 产出，`image-arg-audit: OK`、`verify-boot-image: OK` | `E:/iOS Port/Work/artifacts/gpu-ans-20261118/` |
 | P5 | 未改动：内核补丁系列、`board.toml`、部署补丁 `0610` | `git diff 24c0ad55 -- patches/ board.toml` 为空 |
 
 ## 3. 抓取
 
-`bash scripts/flash.sh /mnt/e/k60-work/artifacts/gpu-ans-20261118/boot.img 240`，
-证据落 `E:/k60-work/evidence/usblog-<时间戳>/`，要求 `capture.json` 为 `complete=true`。
+`bash scripts/flash.sh /mnt/e/iOS Port/Work/artifacts/gpu-ans-20261118/boot.img 240`，
+证据落 `E:/iOS Port/Work/evidence/usblog-<时间戳>/`，要求 `capture.json` 为 `complete=true`。
 
 ## 4. 判据
 
@@ -46,7 +46,7 @@
 
 **判决：目标假设成立（PASS）；首帧仍未达成（FAIL(F4/F6)）。**
 
-证据 `E:/k60-work/evidence/usblog-20261118-003847`，`console.log` 3,072 行，抓取完整、未因 panic 中断。
+证据 `E:/iOS Port/Work/evidence/usblog-20261118-003847`，`console.log` 3,072 行，抓取完整、未因 panic 中断。
 
 | 判据 | 实测 | 结果 |
 |---|---|---|

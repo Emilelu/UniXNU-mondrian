@@ -85,7 +85,7 @@ series 225 条 `7e5e3e4eb931829383948c0425c088888a9393813bc8051c84c69568458a3bdd
 
 | 项 | 结果 |
 |---|---|
-| 生成器 | `E:/k60-work/scratch/bt-s2/gen.py`（6 个 anchor，每个断言 `count == 1`） |
+| 生成器 | `E:/iOS Port/Work/scratch/bt-s2/gen.py`（6 个 anchor，每个断言 `count == 1`） |
 | 基线 | `/tmp/bt-s2` = `0500` + `0507` 应用后的 `bsd/` 全树 |
 | 补丁 | 18,393 B / 391 行，sha256 `c4bf1ded55fe9bd03b7c10943ed41fff47464037c06c893b6dfd0984f02fd4f2` |
 | `git apply --check` | `APPLY_CHECK_OK`（在干净树上重放 0500 + 0507 + 0508） |

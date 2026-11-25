@@ -2,7 +2,7 @@
 
 > **结论层。** 证据行（仓库 + `文件:行` + 可信度）在 [REFERENCE-INDEX.md 第 7 节](../REFERENCE-INDEX.md)；
 > 本文只写两件事：**可以直接拿去做东西的值**，和**绝对不能抄的东西**。
-> 所有 `fdt_dump.txt:NNNN` 都指 `E:/k60-work/scratch/refmine/fdt_dump.txt`，即 `E:/k60-work/reports/live-6033dbec-fdt.dtb`（设备 6033dbec，2026-11-02 导出，919,210 B）的解析结果。
+> 所有 `fdt_dump.txt:NNNN` 都指 `E:/iOS Port/Work/scratch/refmine/fdt_dump.txt`，即 `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（设备 6033dbec，2026-11-02 导出，919,210 B）的解析结果。
 > 八步进度与门禁以 `docs/research/EIGHT-STEPS.toml` 为准，**本文不声明进度**。
 
 ## 1. 面板身份（已定，不要再猜）
@@ -22,9 +22,9 @@
 
 ### 1.1 厂商 panel XML：已找到，但是同族不同修订（2026-11-14）
 
-`/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`
+`/mnt/e/iOS Port/Sources/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`
 （4,799 B / 203 行 / sha256 `65cd6826a2abcce28db60b7d82ab34aa9fa8ecd2aa82f5fc4f21f9853b4be482`，
-引入提交 `a1501e0c`，2026-10-04）。**注意它没有 `references/` 软链**（`/mnt/e/k60-work/references/` 里
+引入提交 `a1501e0c`，2026-10-04）。**注意它没有 `references/` 软链**（`/mnt/e/iOS Port/Work/references/` 里
 没有 `Device-Binaries`），只能按上面的绝对路径读。**它也不在仓库根，而在 `marble/` 子目录下**——先前「2,117 个
 `Panel_*.xml` 无一匹配」是方法错误（只按根目录与命名猜，没跑 `git ls-files | grep -i m11a`）。
 全仓 2,117 个里文件名含 `m11a` 的**恰好 1 个**。
@@ -101,9 +101,9 @@ timing-switch-command（10 包）与 flat-mode on/off（各 116 B）同样只差
 
 ### 4.1 三档 on-command 的真实字节差异（2026-11-14 实测，live FDT）
 
-来源：`/mnt/e/k60-work/reports/live-6033dbec-fdt.dtb`（919,210 B，2026-11-02 从 `6033dbec` dump），
+来源：`/mnt/e/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（919,210 B，2026-11-02 从 `6033dbec` dump），
 `dtc -I dtb -O dts` 后取 `qcom,mdss_dsi_m11a_42_02_0a_dsc_cmd` 节点下每个 `timing@N` 的
-`qcom,mdss-dsi-on-command`。原始字节已落到 `E:/k60-work/artifacts/panel-init-live/`。
+`qcom,mdss-dsi-on-command`。原始字节已落到 `E:/iOS Port/Work/artifacts/panel-init-live/`。
 
 | timing | Hz | on-command | off-command | timing-switch | on-command sha256 |
 |---|---|---|---|---|---|
@@ -158,8 +158,8 @@ sha256 `fe90b4790e137ad4…`），即关屏序列与档位无关。
 
 | 缺口 | 状态 |
 |---|---|
-| ~~K60 厂商 panel XML 未找到~~ **已找到（1.1）** | `/mnt/e/hackios/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（无 `references/` 软链）。静态规格可信，init 序列差 3 个编辑块（129 包 vs 135 包） |
-| ~~**init 串的差异要不要补**~~ **已解决（4.1）** | 两个选项都不需要：真串已在 live FDT 里（三档 1,534 B，sha256 实测），已落到 `E:/k60-work/artifacts/panel-init-live/`。marble/nuwa XML 只用于核对规格，不用于烧写 |
+| ~~K60 厂商 panel XML 未找到~~ **已找到（1.1）** | `/mnt/e/iOS Port/Sources/Device-Binaries/marble/RawFiles/Panel_M11a_42_02_0a_amoled_dsc_cmd.xml`（无 `references/` 软链）。静态规格可信，init 序列差 3 个编辑块（129 包 vs 135 包） |
+| ~~**init 串的差异要不要补**~~ **已解决（4.1）** | 两个选项都不需要：真串已在 live FDT 里（三档 1,534 B，sha256 实测），已落到 `E:/iOS Port/Work/artifacts/panel-init-live/`。marble/nuwa XML 只用于核对规格，不用于烧写 |
 | ~~XML 的 `DisplayResetInfo` 与 DTB `reset-sequence` 换算~~ **不需要换算** | 上电时序以 DTB 为准（`<1 11 0 1 1 11>`，见第 3 节），XML 那行只描述同一件事的另一种编码，不参与构建 |
 | ~~`timing@1`（90 Hz）MIUI 侧是否使用~~ **已缩小** | 三档同一套 init 只差 6 字节（第 4 节），90 Hz 无额外驱动工作量。实机侧（2026-11-14 用 `scratch/refmine/fps_boots.py` 重跑，证据目录只增不减，故数字随抓取增长）：494 个 `console.log` 中 453 个打出面板行，只有 **60 Hz（180 次）/ 120 Hz（273 次）**，` 90 Hz` 字符串 0 命中 → 本线 bring-up 从未选过 `timing@1`。剩下是「要不要暴露」的产品决定 |
 | 面板供电真上电验证 | 3 条 RPMh LDO 的 cmd-db 资源地址与投票参数未取（RSC drv-2 已实测可读写，不是 RSC 阻塞）；在此之前无法自证 |

@@ -213,7 +213,7 @@
 | mu_basecore | microsoft/mu_basecore | UEFI 框架 |
 | corecrypto-2023 | ONLYA/corecrypto-2023 | NativeAES 闭环节源码构建（对应 `dda77e9`） |
 
-> 未提交工作树的改动现状见 `E:\k60-work\HANDOFF-2026-11-02.md` §4/§8（kern_exit.c STR/corpse、MiniIOMobileFramebuffer 压缩等），不属于任何 commit，本台账不重复展开。
+> 未提交工作树的改动现状见 `E:\iOS Port\Work\HANDOFF-2026-11-02.md` §4/§8（kern_exit.c STR/corpse、MiniIOMobileFramebuffer 压缩等），不属于任何 commit，本台账不重复展开。
 
 ## 7. 里程碑 tag 登记（2026-11-03，分支收敛后形态）
 
@@ -253,7 +253,7 @@
 
 > 注：M1 内核归档分支的根为自包含根 `cad1c22`（树与 apple-oss `1b191cb` 逐字节一致；因浅克隆父指针悬空，
 > GitHub 连通性检查拒收，故 commit-tree 重建无父根后重放 126 提交）。重放脚本与提交信息底稿存
-> `E:\k60-work\git\`（`replay-baseline.sh`、`msg-*.txt`）。
+> `E:\iOS Port\Work\git\`（`replay-baseline.sh`、`msg-*.txt`）。
 
 ### 7.1 darwin24 归档分支（2026-11-03，经用户决定）
 
@@ -264,7 +264,7 @@
   payload 探针 2、合并与台账 5），**与 iOS16/20G81 主线（`progress-bar-20261102`）互不混入**；
   对当前修复仅 `9807d4b`/`58746fc` 两条 payload 探针提交有借鉴价值，其余 43 条无直接帮助。
 - 敏感面：凭据零命中；设备序列号 `6033dbec` 在远端已有公开记录、非新暴露；`deepseek-harness`
-  绝对路径为新暴露（无凭据性质）。详见 `E:\k60-work\git\main45-report.txt`。
+  绝对路径为新暴露（无凭据性质）。详见 `E:\iOS Port\Work\git\main45-report.txt`。
 - **后续路线**：该归档分支即为将来 iOS 18（Darwin 24）重启的起点；路线决策（iOS18 排到 iOS16 基本可用之后）
   见 `DECISIONS.md` D-2026-11-03-14（含 persona 差异提醒）。
 
@@ -281,14 +281,14 @@
 
 ## 2026-11-04 init-v7probe 写入 + 上机
 
-- **写入**：四闸门全绿（11:28:44）。Gate1 备份 init-v6（sha `1533CC58C3E04132D101D6783DA14AC3CD84771380BF91B84AB5688A298305EA`，目录 `E:\k60-work\rollback\pong-init-20261104-112844`）；Gate2 dd `bs=4096 seek=2501111 count=9 conv=notrunc,fsync`；Gate3 整段回读 sha `CEF43EBB5A0AC4CC9466E4BC901910F9E9391BC9F89A35CD050B46CE2299F699`；Gate3b 裸前缀 sha `A00DA80E44415708FC415251357EAF2BC8C9E27C2E912EFD501D577254CA5CB1`（== init-v7probe）。
-- **boot**：`fastboot boot E:\k60-work\candidates\4g-quiet\boot-ios16-4g-quiet-v5.img`（201,883,648 B，sha256 `310F7BC17EDF6EAFAAFF35824F60CEE735073DAC3E36A7140FBE102DD5F29792`，与 v6 上机同一份，含 XNU 内核 + `pong_init_path` 钩子），下发时刻 2026-11-04 11:30:05。
+- **写入**：四闸门全绿（11:28:44）。Gate1 备份 init-v6（sha `1533CC58C3E04132D101D6783DA14AC3CD84771380BF91B84AB5688A298305EA`，目录 `E:\iOS Port\Work\rollback\pong-init-20261104-112844`）；Gate2 dd `bs=4096 seek=2501111 count=9 conv=notrunc,fsync`；Gate3 整段回读 sha `CEF43EBB5A0AC4CC9466E4BC901910F9E9391BC9F89A35CD050B46CE2299F699`；Gate3b 裸前缀 sha `A00DA80E44415708FC415251357EAF2BC8C9E27C2E912EFD501D577254CA5CB1`（== init-v7probe）。
+- **boot**：`fastboot boot E:\iOS Port\Work\candidates\4g-quiet\boot-ios16-4g-quiet-v5.img`（201,883,648 B，sha256 `310F7BC17EDF6EAFAAFF35824F60CEE735073DAC3E36A7140FBE102DD5F29792`，与 v6 上机同一份，含 XNU 内核 + `pong_init_path` 钩子），下发时刻 2026-11-04 11:30:05。
 - **看点**（等屏摄）：`enter configure_ui_library` / `UI compatibility library absent; SKIP` / `exec original 20G81 launchd`；零换行 shim 下最后停在哪个字符串就是死点。
 
 ## 2026-11-04 init-v9alias 写入 + 上机
 
-- **写入**：四闸门全绿（12:15:17）。Gate1 备份 init-v7probe（段 sha `CEF43EBB5A0AC4CC9466E4BC901910F9E9391BC9F89A35CD050B46CE2299F699`，目录 `E:\k60-work\rollback\pong-init-20261104-121517`）；Gate2 dd `bs=4096 seek=2501111 count=9 conv=notrunc,fsync`；Gate3 整段回读 sha `D398900E07662545B92F21825D4E30F6E237941893FA112774D34AE020229D6D`；Gate3b 裸前缀 sha `78DCEE4C412FC712DEB790C24D910C76F6D918010D96DF6D1662C06903DAED87`（== init-v9alias）。
-- **boot**：`fastboot boot E:\k60-work\candidates\4g-quiet\boot-ios16-4g-quiet-v5.img`（201,883,648 B，sha256 `310F7BC17EDF6EAFAAFF35824F60CEE735073DAC3E36A7140FBE102DD5F29792`，与上机同一份），Sending OKAY 4.522s / Booting OKAY 0.150s / Total 4.906s，下发时刻 2026-11-04 12:16:10。
+- **写入**：四闸门全绿（12:15:17）。Gate1 备份 init-v7probe（段 sha `CEF43EBB5A0AC4CC9466E4BC901910F9E9391BC9F89A35CD050B46CE2299F699`，目录 `E:\iOS Port\Work\rollback\pong-init-20261104-121517`）；Gate2 dd `bs=4096 seek=2501111 count=9 conv=notrunc,fsync`；Gate3 整段回读 sha `D398900E07662545B92F21825D4E30F6E237941893FA112774D34AE020229D6D`；Gate3b 裸前缀 sha `78DCEE4C412FC712DEB790C24D910C76F6D918010D96DF6D1662C06903DAED87`（== init-v9alias）。
+- **boot**：`fastboot boot E:\iOS Port\Work\candidates\4g-quiet\boot-ios16-4g-quiet-v5.img`（201,883,648 B，sha256 `310F7BC17EDF6EAFAAFF35824F60CEE735073DAC3E36A7140FBE102DD5F29792`，与上机同一份），Sending OKAY 4.522s / Booting OKAY 0.150s / Total 4.906s，下发时刻 2026-11-04 12:16:10。
 - **看点**：v9alias 第 5 条守卫——若生效打出 `Pong init: wallpaper alias SKIP (no source)`，随后 `UI compatibility library absent; SKIP` 与 `exec original 20G81 launchd`；若仍定住，TWRP 拉 `/private/var/pong/status.txt` 按 token 表翻译（最后 token = 死点；止 `B4x`=守卫内 stat 挂；止 `B4b`=进 mount 前）。
 
 ## 2026-11-04 init-v10guard 构建（未写设备、未 boot）
@@ -300,17 +300,17 @@
 - **工具链复算注记**：同命令重建 v9alias 与交付件逐字节比对——34,880 B 等长、otool 全节一致、symtab 69 符号一致；差异仅 16 随机 UUID 字节 + 96 ad-hoc 签名字节 + **10 个语义等价指令字节**（4× movi 零化编码 `0x6F↔0x4F`、1× 独立指令顺序交换）。此为编译器惯用法指纹：本机 clang-24 与历史构建（疑 mac 通道；对照 `/tmp/init-v3/init-v2-repro` 与 init-v2 的 8 B 差同族）不可字节复现，功能等价成立。`__data` 段随 `g_trace_fd` 移除消失（`__DATA` nsects 4→3）。
 - **二进制证据（全过）**：trace 字符串（`/private/var/pong/status.txt`、`trace open failed`、`trace write failed`）0 命中；17 个 token 字面量在 `__cstring` 0 命中；守卫串 `(no target)`/`(no source)` 各 1 命中、`wallpaper aliases SKIP (stock view unavailable)` 1 命中（两调用点共用去重字面量）；greeting `[v10guard]` 1 命中、`[v9alias]`/`[v8trace]` 0 命中。
 - **离线核实**：Data 窗（`data-window-20354.work.pristine-backup.img`，apfs 列目录）`/pong` 仅 `init`——`/private/var/pong/Wallpaper`、`stock-wallpaper` 均不存在（实测，与 GAP-AUDIT 互证）；OS 窗 `/Library/Wallpaper` 本地无镜像**离线不可核**（文档级：ios16 上游 init.c 同 5 条 views、build.py 不播种 Wallpaper，设计预期 stock 有该目录）——守卫 target-first 覆盖两种情形。
-- **写盘脚本**：`E:\k60-work\usb-a-stage\scripts\write-pong-init-v10guard.ps1`（四闸门全继承；Gate1 锚定 v9alias 现值双断言：裸 sha `78DCEE4C…` + 段 sha `D398900E…`）。设备回 TWRP 后先 `-BackupOnly`，Gate2 起等放行。
+- **写盘脚本**：`E:\iOS Port\Work\usb-a-stage\scripts\write-pong-init-v10guard.ps1`（四闸门全继承；Gate1 锚定 v9alias 现值双断言：裸 sha `78DCEE4C…` + 段 sha `D398900E…`）。设备回 TWRP 后先 `-BackupOnly`，Gate2 起等放行。
 
 ## 2026-11-04 init-v10guard 写入 + 上机
 
-- **写入**：四闸门全绿（13:55:02）。Gate0 state=recovery（TWRP）；Gate1 三值全等（device/host/expected 段 sha 均 `D398900E07662545B92F21825D4E30F6E237941893FA112774D34AE020229D6D`，双断言过），备份目录 `E:\k60-work\rollback\pong-init-20261104-135502`（`-BackupOnly` 预演备份 `…-135448` 同值在先）；Gate2 dd `bs=4096 seek=2501111 count=9 conv=notrunc,fsync`；Gate3 整段回读 sha `ED6C3BF17A7CD6E869802BCBCBC42A03C863A46799904EAAEF2339DA20BAF6E1`；Gate3b 裸前缀 sha `DB7E4EEE780FD357B93F52D740F3E980AFDE86449299457468EBF75D00B98865`（== init-v10guard）；Gate4 登记 WRITE-RESULT.json。
-- **boot**：镜像先核 sha（`310F7BC17EDF6EAFAAFF35824F60CEE735073DAC3E36A7140FBE102DD5F29792`，201,883,648 B，**非 USB panic 版**），`adb reboot bootloader` → fastboot 在线（6033dbec）→ `fastboot boot E:\k60-work\candidates\4g-quiet\boot-ios16-4g-quiet-v5.img`；fastboot 原始返回 Sending OKAY 4.522s / Booting OKAY 0.150s / Total 4.785s，**下发时刻 2026-11-04 13:56:03**。只 boot，未 flash。
+- **写入**：四闸门全绿（13:55:02）。Gate0 state=recovery（TWRP）；Gate1 三值全等（device/host/expected 段 sha 均 `D398900E07662545B92F21825D4E30F6E237941893FA112774D34AE020229D6D`，双断言过），备份目录 `E:\iOS Port\Work\rollback\pong-init-20261104-135502`（`-BackupOnly` 预演备份 `…-135448` 同值在先）；Gate2 dd `bs=4096 seek=2501111 count=9 conv=notrunc,fsync`；Gate3 整段回读 sha `ED6C3BF17A7CD6E869802BCBCBC42A03C863A46799904EAAEF2339DA20BAF6E1`；Gate3b 裸前缀 sha `DB7E4EEE780FD357B93F52D740F3E980AFDE86449299457468EBF75D00B98865`（== init-v10guard）；Gate4 登记 WRITE-RESULT.json。
+- **boot**：镜像先核 sha（`310F7BC17EDF6EAFAAFF35824F60CEE735073DAC3E36A7140FBE102DD5F29792`，201,883,648 B，**非 USB panic 版**），`adb reboot bootloader` → fastboot 在线（6033dbec）→ `fastboot boot E:\iOS Port\Work\candidates\4g-quiet\boot-ios16-4g-quiet-v5.img`；fastboot 原始返回 Sending OKAY 4.522s / Booting OKAY 0.150s / Total 4.785s，**下发时刻 2026-11-04 13:56:03**。只 boot，未 flash。
 - **看点（判读规则见 GAP-AUDIT「判读规则（v10guard）」）**：① 4 条 SKIP 后打 `Pong init: wallpaper aliases SKIP (stock view unavailable)` 并继续到 `UI compatibility library absent; SKIP` → `exec original 20G81 launchd` ⇒ 第 5 条按守卫安全跳过、mount 死锁方向收束；② **4 条 SKIP 后仍定住** ⇒ 死点在第 5 条或其内核侧（`bindfs` 在本版 XNU 可能无可用路径），立刻切内核方向、不再加用户态探针；③ 守卫串 `(no target)`/`(no source)` 仅 stock-wallpaper plist 存在但源/目标缺失时出现（当前 Data 实测皆缺，预期走分支①）；④ 完全无 Pong init 输出 → 按 I-20261104-02 核 init 现址（LBA 2501111，裸 sha 应为 `db7e4eee…`）。**等屏摄。**
 
 ## 2026-11-04 Data 卷实读取证：写盘能力三重证实 +「hang」叙事大翻转（I-20261104-06）
 
-- **动作（只读，设备 Android root adb）**：dd 拉容器头 128 MiB（skip=2494976 count=32768，sha `a1ce6709…`）与尾区 334 MiB（skip=7623424 count=81664，含现行 omap 根块 5128782——容器扩容后 omap 在高块，sha `73324ee1…`）；双 sha 校验一致；稀疏装配（21,340,618,752 B）+ 读护栏解析（83 次块读全在证据区内）。sidecar：`E:\k60-work\evidence\data-live-20261104\SIDECAR.json`。
+- **动作（只读，设备 Android root adb）**：dd 拉容器头 128 MiB（skip=2494976 count=32768，sha `a1ce6709…`）与尾区 334 MiB（skip=7623424 count=81664，含现行 omap 根块 5128782——容器扩容后 omap 在高块，sha `73324ee1…`）；双 sha 校验一致；稀疏装配（21,340,618,752 B）+ 读护栏解析（83 次块读全在证据区内）。sidecar：`E:\iOS Port\Work\evidence\data-live-20261104\SIDECAR.json`。
 - **目录项裁决**：`/pong` = { `init`, `status.txt` }；`/pong/init` 36864 B sha `ed6c3bf1…`（== Gate3 段值）/ 前 34880 B `db7e4eee…`（== v10guard）；**`/pong/status.txt` 39 B = token 全链 `A0 A1 A2 B0 B1 B4a B4e B4s C1 D1 D2 E1`（sha `b823e52c…`）——v9alias 跑完整个 init 并 exec 了 launchd**；`/cores`(1775)、`CoreDuet/Knowledge`、`IdentityServices/PDS`(uid 501)、timezone 双链接均为 init 所建且跨重启持久；`/codes`、`/containers`（uid 0，基线无，待归因——疑似 launchd 痕迹）。
 - **结论**：用户 A/B/C 框架判定 = **A（修正判据版）写盘可用**；`.pong-write-check` 缺席系 unlink 设计使然。I-20261104-03/04/05 三条据此关闭移已解决区；坑 41（trace 观察者效应）更正作废、新增坑 43（自报成功≠落盘）/44（屏上最后行≠进程死点，console 静默死亡）/45（扫描未覆盖≠不存在）/46（raw 覆写不更新 inode.size，上限 35160 B）。
 - **新前线**：console 静默死亡根因（CONSOLE 排水器升主线）+ launchd 进度归因；屏摄证据降级为辅助，盘痕迹升为唯一可信通道。
@@ -337,7 +337,7 @@
 ## 2026-11-04 显示交接链路查清（静态，新现场事实吸收）
 
 - **新现场事实（用户确认）**：屏停在最后一帧控制台文字（非黑非白），无苹果标无进度条——内核控制台仍持帧缓冲；与盘侧「系统在跑」互洽（显示没交出去）。
-- **机制（实测级）**：iOS 用户态画面（IOSurface→`IOMobileFramebufferUserClient`→swap）的**唯一交接点**在 [MiniIOMobileFramebuffer.cpp:1008-1012](file:///E:/k60-work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L1008-L1012)（`fGraphics=true` + `PE_initialize_console(NULL, kPEGraphicsMode)` + drawLayer）；`k60_textonly` 定义于同文件 :138（默认 0），在 :999-1007 以 `continue` 跳过每个 UI 帧 ⇒ 交接永不发生、内核文本独占面板。在役 cmdline 实证含 `-v … k60_textonly=1`（`candidates/4g-quiet/extracted/unixnu.toml:12`）；「无苹果标/进度条」另因 `-v` 文本路径下 vc_progress 本就不画（pexpert/arm/pe_init.c:542-558）。
+- **机制（实测级）**：iOS 用户态画面（IOSurface→`IOMobileFramebufferUserClient`→swap）的**唯一交接点**在 [MiniIOMobileFramebuffer.cpp:1008-1012](file:///E:/iOS Port/Work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L1008-L1012)（`fGraphics=true` + `PE_initialize_console(NULL, kPEGraphicsMode)` + drawLayer）；`k60_textonly` 定义于同文件 :138（默认 0），在 :999-1007 以 `continue` 跳过每个 UI 帧 ⇒ 交接永不发生、内核文本独占面板。在役 cmdline 实证含 `-v … k60_textonly=1`（`candidates/4g-quiet/extracted/unixnu.toml:12`）；「无苹果标/进度条」另因 `-v` 文本路径下 vc_progress 本就不画（pexpert/arm/pe_init.c:542-558）。
 - **判定**：**A（k60_textonly 是用户态画面唯一拦路点）成立（实测级）**；**B（iOS 侧显示驱动缺失）不成立（实测级）**——MiniIOMobileFramebuffer start() :390-483 起线程/发布 UserClient，MiniIOSurface.cpp:2050 启动，软件合成本地绘制、不依赖 GPU。剩余不确定（推断级）：SpringBoard/backboardd 是否真在提交 swap 帧（零成本旁证：屏摄 5s 摘要区是否已有帧计数）。
 - **实验设计（不上机）**：仅 `k60_textonly=1→0`、其余 boot-arg 逐字不变，新 boot.img 只 `fastboot boot`。判据：① 切到图形 UI（Hello/Setup 完成画面，**非苹果标**）⇒ A 成立；② graphics 但全黑 ⇒ 交接发生但无帧提交（查 backboardd/WindowServer）；③ 仍停文字帧 ⇒ 交接未触发（开 `fbtrace=N`）。回退：只 boot，无持久影响。
 - **文档**：ISSUES I-20261104-07 增「显示交接」分节；HANDOFF 下一步加第二列（显示交接实验，排 USB 之后）。
@@ -386,7 +386,7 @@
   3. `bsd/dev/k60_usblog.c`：USB reader 改用同一 snapshot API，保留独立游标与首次 64 KiB 回放。
   4. `bsd/kern/kern_exec.c`：**未改**（init 前诊断仍走已原子化的 debug getters）。
 - **构建**：新 out 目录 `/tmp/usb-cdc-mainline/out3`（不复用 out2 脏树）。首跑失败于 fakeroot 缺 `Availability.h`（坑 #35 复现，用 out2 fakeroot 头集补齐）；再跑失败于 `arm_init.c` 未引 errno（坑 #60）；补 `#include <sys/errno.h>` 后 **0 error**，`kernel: prelink` 成功。
-- **产物（实测，已外置 `E:\k60-work\deliverables\console-export-0306-20261105\`）**：
+- **产物（实测，已外置 `E:\iOS Port\Work\deliverables\console-export-0306-20261105\`）**：
   - `kernel-0306.macho` 53,813,248 B sha `7a944a0ae08e69cb33b931d549403d0b107e3b77e4859f814833c33140eeac55`
   - `payload-0306.img` 201,326,592 B sha `b6c08c5859a97d8089bc1168bee41379c397f9bbd7e96893fdb2064bef302eb1`
   - `boot-console-0306-20261105.img` 201,883,648 B sha `56953b8ce189211e4366ed42159c77ae740346df9dc7a725f0cd78d92931b609`
@@ -395,8 +395,8 @@
 
 ## 2026-11-05 console-export + init-v11drain 首轮上机（只 boot，盘侧未打通）
 
-- **写入闸门（实测）**：设备 6033dbec，目标 `/dev/block/sda38`（unixnu）；写前完整 extent 备份 `E:\k60-work\rollback\pong-init-20261105-011015\prewrite-device-backup.bin`，LBA 2501111..2501119、9×4096=36,864 B，sha `ED6C3BF17A7CD6E869802BCBCBC42A03C863A46799904EAAEF2339DA20BAF6E1`，时间 2026-11-05 01:10 Asia/Shanghai。写前复读与备份相同；旧 init 34,880 B 前缀 sha `DB7E4EEE…B98865`。v11drain 34,912 B，sha `12B9DF42CB76C2FFE21A1326215ABE2021AD02CE332B9215E7C2B0FE1AC26B94`；extent 右侧零填充后 sha `ECEB785EA615906EB59A351062BA04F82472F0EAEA8EE6ECA99940E5E0B03FFD`。写后整 extent 与 34,912 B bare-prefix 双回读匹配；结果 `WRITE-RESULT.json`。
-- **boot（实测）**：镜像 `E:\k60-work\usb-a-stage\out\boot-usb-console-export-20261104.img`，201,883,648 B，sha `A246507B371D2AB06CE059A8892227B2F5BF3DD14796C6FE69A83A89D74C3C8E`；命令仅 `fastboot -s 6033dbec boot <image>`，Sending OKAY 4.533s / Booting OKAY 0.152s / total 4.823s；未执行 flash/erase/GPT。用户明确报告屏幕 `Pong init: var: stat root`；该屏显不作为进程停点证据。
-- **盘侧判据（实测）**：只读抓取 sda38 Data 窗中完整 OwnerData APFS 容器，anchor LBA 2494976，bs=4096，skip=2494976，count=5210112。adb 原始流 21,340,618,847 B，sha `35E496AB4C7C0137C43057A7C93C34D23172A216A4FBC6B7C3E16576452CB975`；多出 95 B 为 toybox dd 诊断尾部，原始流保留。按预期容器长度生成解析副本 21,340,618,752 B，sha `257AEC0B8B44DDDEB2DC7C077B2B994066A6077C30CDADB210AC22FEB610DED0`，offset 32 锚点 NXSB。APFS OwnerData xid=18；metadata checksum 7 checked / 0 bad。`/pong/console.log` inode 249 size=0 B；`/pong/status.txt` 39 B；无 `.1/.2/.3`。完整侧车 `E:\k60-work\evidence\console-drain-20261105\SIDECAR.json`。
+- **写入闸门（实测）**：设备 6033dbec，目标 `/dev/block/sda38`（unixnu）；写前完整 extent 备份 `E:\iOS Port\Work\rollback\pong-init-20261105-011015\prewrite-device-backup.bin`，LBA 2501111..2501119、9×4096=36,864 B，sha `ED6C3BF17A7CD6E869802BCBCBC42A03C863A46799904EAAEF2339DA20BAF6E1`，时间 2026-11-05 01:10 Asia/Shanghai。写前复读与备份相同；旧 init 34,880 B 前缀 sha `DB7E4EEE…B98865`。v11drain 34,912 B，sha `12B9DF42CB76C2FFE21A1326215ABE2021AD02CE332B9215E7C2B0FE1AC26B94`；extent 右侧零填充后 sha `ECEB785EA615906EB59A351062BA04F82472F0EAEA8EE6ECA99940E5E0B03FFD`。写后整 extent 与 34,912 B bare-prefix 双回读匹配；结果 `WRITE-RESULT.json`。
+- **boot（实测）**：镜像 `E:\iOS Port\Work\usb-a-stage\out\boot-usb-console-export-20261104.img`，201,883,648 B，sha `A246507B371D2AB06CE059A8892227B2F5BF3DD14796C6FE69A83A89D74C3C8E`；命令仅 `fastboot -s 6033dbec boot <image>`，Sending OKAY 4.533s / Booting OKAY 0.152s / total 4.823s；未执行 flash/erase/GPT。用户明确报告屏幕 `Pong init: var: stat root`；该屏显不作为进程停点证据。
+- **盘侧判据（实测）**：只读抓取 sda38 Data 窗中完整 OwnerData APFS 容器，anchor LBA 2494976，bs=4096，skip=2494976，count=5210112。adb 原始流 21,340,618,847 B，sha `35E496AB4C7C0137C43057A7C93C34D23172A216A4FBC6B7C3E16576452CB975`；多出 95 B 为 toybox dd 诊断尾部，原始流保留。按预期容器长度生成解析副本 21,340,618,752 B，sha `257AEC0B8B44DDDEB2DC7C077B2B994066A6077C30CDADB210AC22FEB610DED0`，offset 32 锚点 NXSB。APFS OwnerData xid=18；metadata checksum 7 checked / 0 bad。`/pong/console.log` inode 249 size=0 B；`/pong/status.txt` 39 B；无 `.1/.2/.3`。完整侧车 `E:\iOS Port\Work\evidence\console-drain-20261105\SIDECAR.json`。
 - **判定（文档+实测）**：上一轮无 console.log inode，本轮新 inode + mode root:wheel 0644，结合 init 源码只能由 fork 后 drainer 创建，证明 init 已越过 `var: stat root`、完成 Data write-check 并 fork，drainer 到达 mkdir/open；0 B 且无 `K60LOG boot epoch` 表明首个 sysctl pull/响应头校验未到 marker。**源码接口缺陷已确认，运行时 errno 未实读**：0243 OID 是 `CTLTYPE_OPAQUE|CTLFLAG_RD|CTLFLAG_LOCKED`，drainer 以 8 B cursor 作为 sysctl `newp`；实际 `bsd/kern/kern_newsysctl.c:1709-1714` 对这种请求在 handler 前返回 EPERM，handler 不会被调用；init 只将 errno 2 (`ENOENT`) 视为旧内核静默退出，其他错误报 unreadable 后退出。该源码路径与本轮盘侧 0 B 文件吻合，但具体 errno 不是设备回读值。详见 ISSUES I-20261105-01、PITFALLS #57。
 - **后续**：不再 boot、不回滚。本轮结束于明确失败判据。修复前先审查 OID `CTLFLAG_WR` 的安全边界，或设计不依赖 `newp` 的读取游标 ABI；补全研审、构建、自检和新短验证单，必须再次取得用户批准才可设备操作。

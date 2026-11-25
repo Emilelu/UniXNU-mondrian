@@ -2,7 +2,7 @@
 /* Copyright (c) 2026, UniXNU contributors. */
 /* Route A acquisition for the K60 ADSP.
  *
- * Reference shape (E:/hackios/UniXNU-zizhan/drivers/PongPower/PongAdsp.cpp:503-521
+ * Reference shape (E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/drivers/PongPower/PongAdsp.cpp:503-521
  * and PongRpmh.cpp:27-48): QMP load_state on, find lcx.lvl/lmx.lvl in the
  * command database, then write one RPMh command per rail into TCS4
  * (0xd00 + 4 * 0x2a0). K60 is the same SM8475 and has the same tcs-config

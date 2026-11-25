@@ -123,7 +123,7 @@
 
 ---
 
-## 5. 上游 5 仓增量审计（E:\k60-work\references\，HEAD..FETCH_HEAD，只读）
+## 5. 上游 5 仓增量审计（E:\iOS Port\Work\references\，HEAD..FETCH_HEAD，只读）
 
 | 仓库 | 落后 | 关键词命中 | 逐条结论 |
 |---|---|---|---|
@@ -161,5 +161,5 @@
 | applog 机制与门禁 | `patches/xnu/zzzz…-pong-hackios-launchd-exec.patch`（kern_exec.c:2621-2710）；kernel.macho 二进制含 `applog` 字符串 ×2（/tmp/k60build/out/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho） |
 | ios-sweet 用户态方法与缺口 | 本地克隆 README（D:\Android\k60-ios\ios-sweet-k60，origin=https://github.com/XTOM0706/ios-sweet-k60，HEAD 3fbaa5e）、HANDOFF-FULL-2026-10-25.md、tools/sweet-root-tweaks.py |
 | hakios 组织 7 仓与 userland 内容 | github.com/oosexgang 组织页 + api.github.com 目录清单 + userland/rc.darwin 原文（2026-11-02 拉取） |
-| 上游增量 | E:\k60-work\references\{UniXNU-sheng,UniXNU,UniXNU-pong,uefi-pong,UniXNU-sm8550-common}，`git log HEAD..FETCH_HEAD` / `git show`（只读） |
+| 上游增量 | E:\iOS Port\Work\references\{UniXNU-sheng,UniXNU,UniXNU-pong,uefi-pong,UniXNU-sm8550-common}，`git log HEAD..FETCH_HEAD` / `git show`（只读） |
 | 未找到 | 各上游对 accountsd/financiald 等 daemon 崩溃的直接修复；hakios 的 exception-handler 专门件（未找到——它的取证也是内核 console 线） |

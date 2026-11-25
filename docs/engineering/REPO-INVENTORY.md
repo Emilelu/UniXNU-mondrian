@@ -1,10 +1,10 @@
 # 本地仓库总清单（全盘扫描结果，勿再重复询问）
 
 > 扫描时间：2026-11-10 21:45
-> 扫描范围：**E:\hackios、<workspace>、E:\k60-archive、<android-sdk>、<android-sdk>\k60-ios、<android-sdk>\wsl、F:\k60-archive**
+> 扫描范围：**E:\iOS Port\Sources、<workspace>、E:\k60-archive、<android-sdk>、<android-sdk>\k60-ios、<android-sdk>\wsl、F:\k60-archive**
 > 铁则：HR-39（调试前先查索引）。**任何仓库位置问题先看本文档，不要问用户。**
 
-## 1. E:\hackios（主工作区，14 个 git 仓库）
+## 1. E:\iOS Port\Sources（主工作区，14 个 git 仓库）
 
 | 仓库 | 分支 | HEAD | 脏文件 | origin |
 |---|---|---|---|---|
@@ -123,7 +123,7 @@ seed256/
 
 | 位置 | git 仓库数 |
 |---|---|
-| E:\hackios | 15 |
+| E:\iOS Port\Sources | 15 |
 | <workspace>\references | 23 |
 | <workspace>\forks-review | 3 |
 | <android-sdk>\k60-ios | 6 |
@@ -136,7 +136,7 @@ seed256/
 ## 定时同步任务的范围（用户要求）
 
 **每日两次**，同步以下仓库到上游最新：
-1. **E:\hackios 全部 15 个 git 仓库**（有 origin 的）
+1. **E:\iOS Port\Sources 全部 15 个 git 仓库**（有 origin 的）
 2. **<workspace>\references 全部 23 个 git 仓库**
 3. **<workspace>\forks-review 3 个**
 4. **<android-sdk>\k60-ios 下的仓库**（需确认哪些是 git）
@@ -198,7 +198,7 @@ seed256/
 
 | 位置 | git 仓库数 |
 |---|---|
-| E:\hackios | 15 |
+| E:\iOS Port\Sources | 15 |
 | <workspace>\references | 23 |
 | <workspace>\forks-review | 3 |
 | <android-sdk>\k60-ios | 6 |

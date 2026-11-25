@@ -1,0 +1,7 @@
+# Driver objects this board adds to bsd/conf/files (seam 1, P-266).
+# One entry per line: source path relative to the tree root, then the conf tag.
+# Only files that exist in the assembled tree are appended; the hook reports the rest.
+bsd/dev/k60_usblog.c			standard
+bsd/dev/k60_console_export.c		standard
+bsd/dev/k60_usblog_reset.c standard
+bsd/dev/k60_adreno_grant.cpp standard

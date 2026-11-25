@@ -1,6 +1,6 @@
 # Goodix GT9916R (Berlin-D) 上电→出报告 状态机提取
 
-依据需区分来源：Goodix upstream Berlin repository recorded in `E:/k60-work/impl/touch-protocol/EVIDENCE.md` (HEAD `6c4b81587d43`), separate Xiaomi `marble-s-oss` vendor implementation, Linux mainline comparison, and the local XNU patch. `brl_hw.c` means the specific source tree identified per section, not generic “official vendor” code. Scratch KO strings/metadata do not establish that its exact source revision or call order matches the K60 module. Source-level sequences below are comparisons/hypotheses until matched to the running image and provider behavior.
+依据需区分来源：Goodix upstream Berlin repository recorded in `E:/iOS Port/Work/impl/touch-protocol/EVIDENCE.md` (HEAD `6c4b81587d43`), separate Xiaomi `marble-s-oss` vendor implementation, Linux mainline comparison, and the local XNU patch. `brl_hw.c` means the specific source tree identified per section, not generic “official vendor” code. Scratch KO strings/metadata do not establish that its exact source revision or call order matches the K60 module. Source-level sequences below are comparisons/hypotheses until matched to the running image and provider behavior.
 
 ---
 

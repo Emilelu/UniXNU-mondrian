@@ -2,7 +2,7 @@
 
 - 镜像标签：`gpu-loadmark-20261117`
 - 分支/提交：`feat/gpu-metal-hw` @ 本卡之后的代码提交
-- 插件来源：`K60_METAL_PLUGIN_SRC` = `/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin-20261117b`
+- 插件来源：`K60_METAL_PLUGIN_SRC` = `/mnt/e/iOS Port/Work/impl/gpu-mac-build/out/metal-plugin-20261117b`
 
 ## 1. 目的
 
@@ -30,7 +30,7 @@ Metal 逻辑、不改内核、不改 boot-arg、不改部署。
 
 ## 3. 抓取
 
-- 复用 `scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`。
+- 复用 `scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`。
 
 ## 4. 判据
 
@@ -58,7 +58,7 @@ Metal 逻辑、不改内核、不改 boot-arg、不改部署。
 
 ## 5. 结果登记
 
-**判决：PASS（S1/S2/S3 全部满足）。** 证据 `E:/k60-work/evidence/usblog-20261117-110349`
+**判决：PASS（S1/S2/S3 全部满足）。** 证据 `E:/iOS Port/Work/evidence/usblog-20261117-110349`
 （`console.log` 3,064 行 / 190,081 B，抓取完整、未因 panic/复位中断，supervisor rc=0）。
 
 | 判据 | 实测 | 结果 |

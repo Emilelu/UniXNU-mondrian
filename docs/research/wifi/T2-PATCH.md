@@ -70,7 +70,7 @@ If it no longer applies, the change is one substitution and can always be
 done directly:
 
 ```sh
-cd /mnt/e/hackios/k60-wifi
+cd /mnt/e/iOS Port/Sources/Hardware/k60-wifi
 python3 - <<'PY'
 p='scripts/build-k60-wifi-native.py'
 s=open(p).read(); assert s.count('.section __TEXT,__const')==1
@@ -83,7 +83,7 @@ PY
 Apply (normally only after T0 reports silent, and only with the Lead's go):
 
 ```sh
-cd /mnt/e/hackios/k60-wifi
+cd /mnt/e/iOS Port/Sources/Hardware/k60-wifi
 git apply --check <<'PATCH' && git apply <<'PATCH'
 <paste the diff from §2>
 PATCH
@@ -92,7 +92,7 @@ PATCH
 Revert — one command, restores the tracked file exactly:
 
 ```sh
-cd /mnt/e/hackios/k60-wifi && git checkout -- scripts/build-k60-wifi-native.py
+cd /mnt/e/iOS Port/Sources/Hardware/k60-wifi && git checkout -- scripts/build-k60-wifi-native.py
 ```
 
 The revert must happen **after** the t2 archive is produced; the archive keeps
@@ -106,14 +106,14 @@ native archive from the patched script, then the usual strict build.
 
 ```sh
 # 1 — patched script -> new native archive
-cd /mnt/e/hackios/k60-wifi
+cd /mnt/e/iOS Port/Sources/Hardware/k60-wifi
 T=/opt/k60/trees/k60build/out-wifi/mondrian/ipados-16.6.1-20G81/mondrian/tree
-export PONG_SHENG_ROOT=/mnt/e/k60-work/impl/wifi/work/src/UniXNU-sheng
+export PONG_SHENG_ROOT=/mnt/e/iOS Port/Work/impl/wifi/work/src/UniXNU-sheng
 export UNIXNU_SDKROOT=$T/.cache/fakeroot UNIXNU_SDK_VERSION=17.0
 python3 scripts/build-k60-wifi-native.py \
   --tree $T \
   --ath11k /opt/k60/trees/k60build/wifi/ath11k-mhiboot/libPongAth11k.a \
-  --firmware /mnt/e/k60-work/firmware/qca6490-wifi-bdf \
+  --firmware /mnt/e/iOS Port/Work/firmware/qca6490-wifi-bdf \
   --output-dir /opt/k60/trees/k60build/wifi/native-t2
 
 # 2 — strict image, same template as z0, only the archive path changes
@@ -124,7 +124,7 @@ export XNU_PONG_WIFI=1
 export XNU_PONG_WIFI_ARCHIVE=/opt/k60/trees/k60build/wifi/native-t2/libPongWifiNative.a
 export JOBS=4 PYTHONIOENCODING=utf-8 K60_AGENT_ID=wifi-agent
 bash scripts/build-strict.sh wifi-20261116t2 \
-  --fd /mnt/e/k60-work/artifacts/fd/wifi-20261114e-cf4485712c29.fd \
+  --fd /mnt/e/iOS Port/Work/artifacts/fd/wifi-20261114e-cf4485712c29.fd \
   --kernel-arg pong_wifi=0
 ```
 
@@ -140,11 +140,11 @@ the linker actually ran.
 
 ### 4.1 One-command runner (guarded, refuses to run on the wrong day)
 
-The whole of §4 is wrapped in `/mnt/e/k60-work/scratch/run-t2.sh`
+The whole of §4 is wrapped in `/mnt/e/iOS Port/Work/scratch/run-t2.sh`
 (`bash -n` clean). It refuses to start unless three things hold, which is
 exactly the condition the Lead attached to the authorisation:
 
-1. `/mnt/e/k60-work/artifacts/wifi-20261115z0/build-manifest.json` still
+1. `/mnt/e/iOS Port/Work/artifacts/wifi-20261115z0/build-manifest.json` still
    says `series.count = 224` and `series.sha256 = 34cf51e4…`;
 2. the diff in §2 still passes `git apply --check` against the current HEAD;
 3. the patch is applied only for the duration of the native archive build —

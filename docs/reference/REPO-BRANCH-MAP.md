@@ -69,5 +69,5 @@
 | **驱动 feed** | PongUfs @ `c959284`（unixnu.lock 钉） | 远端 main 领先 3 未跟进 |
 | **平台 feed** | UniXNU-sm8475-common @ `d0c90f1` | 同步 |
 | **子模块（本地提交）** | XnuPrelink `d2e15c8`、Mu_Basecore `3d2a9fa`（**仅本地，远端不可获取；换机需带工作副本**） | 父仓指针未 bump（刻意） |
-| **打包** | `E:\k60-work\tools\package-textonly.py` + uefi 仓 `Resources/Scripts/mkbootimg.py` | 脚本在 E 盘 |
+| **打包** | `E:\iOS Port\Work\tools\package-textonly.py` + uefi 仓 `Resources/Scripts/mkbootimg.py` | 脚本在 E 盘 |
 | **Data 卷** | 设备 unixnu 分区窗口（`data-window-20354.img` 已写入校验） | 非 git |

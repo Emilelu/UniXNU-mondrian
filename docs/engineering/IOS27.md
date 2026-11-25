@@ -315,11 +315,73 @@ kernel side of the gate is not passed until they are recorded.
 
 The probe lives in `ios-mondrian`'s `shim/`, and that checkout is worked in
 parallel for the iOS 16 line, so the fix travels as
-`patches/ios-mondrian/pac-probe-arm64e-gate.patch`: it applies to `shim/pac.c`
-and `docs/PAC_PROBE.md` and changes nothing unless `PAC_PROBE=1` is exported
-(`shim.c` calls `pac_probe()` only under that define). Build the probe from a
-copy of that shim, never in the shared checkout, so its `out/` stays the iOS 16
-line's.
+`patches/ios-mondrian/pac-probe-arm64e-gate.patch`: it applies to `shim/pac.c`,
+`shim/shim.c`, `shim/start.S` and `docs/PAC_PROBE.md`, and changes nothing
+unless `PAC_PROBE=1` is exported (`shim.c` calls `pac_probe()` only under that
+define). Build the probe from a copy of that shim, never in the shared checkout,
+so its `out/` stays the iOS 16 line's.
+
+### Reading an F2 boot
+
+Stage 0 has no serial hardware and no USB driver, so the panel is the only
+output. Three bars drawn by `osfmk/arm64/start.s` with the MMU off say how far
+the payload got; they sit just below the loader's green bar, top to bottom:
+
+| Bar | Scanline | Reached |
+| --- | --- | --- |
+| red | 256 | `_start`: the trampoline jumped to the kernel entry |
+| yellow | 272 | the bootstrap page tables were built |
+| cyan | 288 | `common_start`: TCR/TTBR/MAIR are next, then the MMU |
+
+The loader's green bar only proves its own trampoline ran. With `-v` in the
+boot arguments, `ios27-panel-console.patch` then puts the stock video console
+into text mode on the framebuffer once `arm_vm_init` returns, so kernel text
+and a root-mount panic land on the panel. Text erases the bars when the console
+clears the screen; bars with no text mean the kernel died before
+`PE_create_console()` (which runs after `arm_vm_init`).
+
+Text at the stock 8x16 cells cannot be read from a photograph of a 1440x3200
+panel, and stage 0 has no serial console, so the boot arguments carry
+`k60_fontscale=3`: `k60-console-font-scale.patch` paints 24x48 cells, 60
+columns and 66 rows. Without the argument every painter takes the stock path.
+
+`PE_create_console()` runs inside `arm_vm_init`, before `fiq_context_init()`,
+so kernel text that stops and becomes a panic ends at the first architectural
+timer write. This firmware leaves the EL1 physical-timer bank unavailable: the
+write faults, the firmware reports it as an unknown-reason exception, and
+`handle_uncategorized()` in `sleh.c` prints `Undefined kernel instruction`.
+`k60-virtual-timer.patch` drops that one write, the same fix the 16.6.1 line
+carries as `patches/xnu/zzzz-pong-virtual-timer.patch`; every decrementer
+operation in the kernel goes through `CNTV_*`, so nothing is lost. A panic that
+names `MSR/MRS trap` is a different fault: that is the system-register trap
+path, not this one.
+
+`scripts/xnu-symbolize.py` resolves a panic `pc` or instruction word against
+the collection the boot image carries, because the collection is a fileset and
+`llvm-objdump -d` prints nothing for the inner kernel's text:
+
+```sh
+python3 scripts/xnu-symbolize.py 0xfffffff00ad9d6b4
+python3 scripts/xnu-symbolize.py --find d51be228
+```
+
+The panel scans the 1440x3200 framebuffer rotated, so console text runs down
+the left edge when the phone is held upright: rotate the phone or the photo 90
+degrees clockwise before reading it. A column count that does not match the
+panel width (60 cells of 24 px at `k60_fontscale=3`) is the symptom of a
+framebuffer geometry change, not of a broken font.
+
+
+Two facts that look like details and are not:
+
+- `CurrentEL` reports `EL << 2`, so DarwinBoot's `DarwinCurrentEl() == 4` check
+  is **EL1**, not EL2. `DarwinEnter` must not eret from EL2: XNU's
+  `start_first_cpu` programs EL1 registers and page tables.
+- `boot_args` is the kernel's structure. xnu-12377 has `BOOT_LINE_LENGTH 1024`,
+  so `bootFlags` is at `0x470` and `memSizeActual` at `0x478`, and the struct
+  is `0x480`. The iOS 16 loader's 608-byte layout is Darwin 22; publishing it
+  to 12377 leaves `memSizeActual` reading leftover RAM. `BootArgs.h` pins both
+  layouts with `STATIC_ASSERT`s.
 
 ## Framework patches this branch carries
 
@@ -360,7 +422,7 @@ the framework's copy.
 
 ## What the sheng port already answers
 
-`E:/hackios/UniXNU-sheng` maintains the same OS profile
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng` maintains the same OS profile
 (`"os_profile" = "ipados-27.0.1-24A446"`, `board.toml:9`) on an SM8550 board, so
 its `patches/xnu-12377/series` is a second opinion on the same kernel. It has 17
 entries against our 30. Reading the difference answers a question our series
@@ -415,6 +477,15 @@ same problem.
 
 ## Traps
 
+- **Never print from `vc_initialize()`.** It runs from `gc_initialize()`
+  after `initialize_screen()` has assigned the new `vinfo` but before
+  `v_rows`/`v_columns` are computed, so `printf` reaches `vc_putc()` with a
+  zero row count: the newline path computes `scrreg_bottom = 0 - 1` and the
+  scroll writes past the framebuffer mapping. The panel goes black and the
+  kernel hangs without resetting, which reads exactly like a dead kernel and
+  cost a boot on 2026-11-21. The console's own text after `PE_init_platform()`
+  is the evidence to use instead.
+
 - **The prelink is bound to two hashes** (kernelcache and native kernel) and the
   map also records the reference kernel's hash. Every kernel rebuild regenerates
   the map; budget one prelink run per kernel change, not per driver change.
@@ -448,3 +519,83 @@ same problem.
   slide; the FAT image around it still differs in the directory timestamps
   mtools writes at build time. Stage 0 only: a shipped system must not carry a
   seed published in this repository.
+
+### Build 19, 2026-11-21
+
+`sh scripts/build-ios27-linux.sh` on the LTO reference produced a consistent pack: kernel `5ce4965ff4ab`, payload 201,326,592 B, firmware volume `a33d028349ba`, `boot.img` 201,895,936 B sha256 `8ea5d26dbcf5ee92773043c8e079316f1358adcbc924e4c2a10483844a02cf80`.
+
+Structure passes: 32 fileset entries, collection `cpusubtype 0xc0000002`, **0 loader violations**. `scripts/check-prelink-hazards.py` says 94 unpinned addresses in 21 bundles, all covered by a segment, **0 outside every segment** -- so no unpinned pointer can fault on its first read in this build.
+
+Flight is still refused, by one blocker: `prelink-map-unresolved`. 94 data items have no address (silent if wrong, because the kit leaves the original target in place) and 203 items jump to `_unixnu_fileset_unmapped`, which panics with the caller address. Both sets are smaller than the non-LTO build's 384/2,262 because the LTO reference resolved the rest.
+
+### Build 20, 2026-11-21
+
+Sixteen of the nineteen unpinned data globals now carry a reviewed pairing
+(`scripts/k60-fileset-pair.py` folds them into `kernel.map.json` and recomputes
+the kit signature; every target is re-verified with `llvm-nm-18` against the
+native kernel before it is written). The unpinned data residue fell from 94
+addresses in 21 bundles to **3 in 3 bundles**, all still inside a segment and
+none outside every segment.
+
+| | build 19 | build 20 |
+| --- | --- | --- |
+| kernel.macho | `5ce4965ff4ab` | `652237c6bf54` |
+| boot.img | `8ea5d26d` | `5c060f27` |
+| unpinned data | 94 / 21 bundles | **3 / 3 bundles** |
+| stubbed function sites | 203 / 25 bundles | 203 / 25 bundles |
+
+The three left are `0xfffffff007044478`, `0xfffffff00b72fce8` and
+`0xfffffff00b739538`; no structure inside the IPSW names them, so they stay
+unreviewed until a symbol-bearing artifact of the same build family arrives.
+Flight is still refused, by design.
+
+### Where the build time actually goes, measured 2026-11-21
+
+scripts/build-ios27-linux.sh prints stage NAME SECONDS total SECONDS at each boundary. Two builds of
+the same tree, before and after the firmware-volume reuse guard:
+
+| stage | rebuild always | firmware reused |
+| --- | --- | --- |
+| profile / fetch / defconfig | 4 s | 5 s |
+| kernel, link and payload: fileset reference, prelink, stamp, 192 MB pack | 452 s | 451 s |
+| firmware volume: EDK II with -n 8, then GenFds | 519 s | 3 s |
+| bootimg and artifact checks | 0 s | 171 s |
+| total | 975 s | 630 s |
+
+The volume is reused when board.toml, the uefi-mondrian checkout with its submodules and the
+framework EDK II patch list hash to the recorded key held in the board firmware directory as
+inputs.sha256; K60_FORCE_FIRMWARE=1 rebuilds unconditionally. A key is used rather than a timestamp
+because a timestamp only says recent, which is P-155, while a key says same. Measured images:
+60231f20 for the rebuild and 38515a3f for the reused run.
+
+The next two targets are bootimg at 171 s, dominated by packing the 192 MB payload, and the kernel at
+451 s, dominated by re-seeding the tree. Both are judged the same way: by a number printed at the
+boundary, not by an impression.
+
+### Payload and boot image reuse, added 2026-11-22 - not yet measured
+
+The firmware guard's argument applies to the two stages that still run when nothing moved.  Payload
+and bootimg now hash their inputs, record the key beside the artifact and skip the stage when the key
+matches and the artifact is there:
+
+| stage | key | covers | force |
+| --- | --- | --- | --- |
+| payload | `payload/payload.inputs.sha256` | `kernel.macho`, the `series-fingerprint.py` output, the unique chip id, all of `board.toml`, the device tree sources the ADT is compiled from, the transform tools in `<board>/tree/scripts`, `unixnu/payload.py` and `unixnu/devicetree.py` | `K60_FORCE_PAYLOAD=1` |
+| bootimg | `boot/bootimg.inputs.sha256` | the firmware volume `board.toml [firmware] fd` resolves to, `payload.img` (it is the ramdisk), `device-tree/hardware.dtb`, all of `board.toml`, and the Mu-Silicium `mkbootimg.py`, device config, `BootShim.S` and `BootShim/Makefile` | `K60_FORCE_BOOTIMG=1` |
+
+The device tree and the whole of `board.toml` are in the payload key because the ADT is compiled inside
+that stage: a `dts` edit moves no `kernel.macho`, so the three inputs the stage is named after would
+miss it and ship an ADT that disagrees with the kernel.  Over-invalidating costs one stage; under-
+invalidating costs a wrong image.  `python3 scripts/ios27-inputs.py payload|bootimg --explain` prints
+the role and digest of every line a key is made of, which is how "why did it rebuild" gets an answer
+without reading the script.
+
+The skip is always the whole stage.  `build payload --kernelcache` would not replace a packed kernel
+(P-177), so a payload stale against the kernel is rebuilt rather than repacked, and the artifact
+checker still runs on the reuse path - it compares `payload.json`'s `kernel_sha256` with the current
+`kernel.macho` and the boot image's ramdisk with the current `payload.img`, so a tampered or stale
+artifact is caught even when the key matches.  Stage marks are now `payload-reused` / `payload`,
+`bootimg-reused` / `bootimg-built`, then `artifacts`.  The saving is unmeasured: no full build was run
+for this change, and the number to read next time is those marks against 452 s and 171 s.
+
+- 2026-11-21 22:10：27 内核第一次定义了控制台接收端（`_pong_ramoops_console_write` / `_pong_ramoops_console_init`），`check-kernel-console.py --flight` 从红转绿；读数通路仍未建立（见 `docs/research/ios27/CONSOLE-GAP.md`）。

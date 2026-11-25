@@ -12,7 +12,7 @@ This script writes a complete, restorable snapshot first:
   <dest>/<timestamp>/status.txt      git status --porcelain
   <dest>/<timestamp>/restore.sh      puts it all back
 
-Destination defaults to E:/k60-work/scratch/snapshots (persistent, never /tmp —
+Destination defaults to E:/iOS Port/Work/scratch/snapshots (persistent, never /tmp —
 iron rule 1). `scripts/git-safe.sh` calls this automatically before it lets a
 destructive command through.
 
@@ -32,7 +32,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEFAULT_DEST = Path(os.environ.get("K60_SNAPSHOT_DIR", "/mnt/e/k60-work/scratch/snapshots"))
+DEFAULT_DEST = Path(os.environ.get("K60_SNAPSHOT_DIR", "/mnt/e/iOS Port/Work/scratch/snapshots"))
 
 
 def git(repo: Path, *args: str) -> bytes:

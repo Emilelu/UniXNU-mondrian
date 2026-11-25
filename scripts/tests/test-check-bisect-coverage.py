@@ -74,8 +74,8 @@ class CoverageTests(unittest.TestCase):
     def test_every_built_image_has_a_flight(self):
         write_image(self.artifacts, 'bt-bisect-h1', SHA_A)
         write_image(self.artifacts, 'bt-bisect-h12', SHA_B)
-        write_flight(self.evidence, 'usblog-1', 'E:\\k60-work\\artifacts\\bt-bisect-h1\\boot.img', SHA_A)
-        write_flight(self.evidence, 'usblog-2', 'E:\\k60-work\\artifacts\\bt-bisect-h12\\boot.img', SHA_B)
+        write_flight(self.evidence, 'usblog-1', 'E:\\iOS Port\\Work\\artifacts\\bt-bisect-h1\\boot.img', SHA_A)
+        write_flight(self.evidence, 'usblog-2', 'E:\\iOS Port\\Work\\artifacts\\bt-bisect-h12\\boot.img', SHA_B)
         self.assertEqual(self.gate.stale_images(self.artifacts, self.evidence), [])
 
     def test_a_silent_flight_still_counts(self):
@@ -83,7 +83,7 @@ class CoverageTests(unittest.TestCase):
         # so record-boot.py wrote no ledger row.  boot.json exists regardless.
         write_image(self.artifacts, 'bt-bisect-h123', SHA_A)
         write_flight(self.evidence, 'usblog-silent',
-                     'E:\\k60-work\\artifacts\\bt-bisect-h123\\boot.img', SHA_A)
+                     'E:\\iOS Port\\Work\\artifacts\\bt-bisect-h123\\boot.img', SHA_A)
         self.assertEqual(self.gate.stale_images(self.artifacts, self.evidence), [])
 
     def test_a_built_image_without_a_flight_is_reported(self):
@@ -105,19 +105,19 @@ class CoverageTests(unittest.TestCase):
     def test_a_utf8_bom_does_not_hide_a_flight(self):
         write_image(self.artifacts, 'bt-bisect-h13', SHA_A)
         write_flight(self.evidence, 'usblog-bom',
-                     'E:\\k60-work\\artifacts\\bt-bisect-h13\\boot.img', SHA_A, bom=True)
+                     'E:\\iOS Port\\Work\\artifacts\\bt-bisect-h13\\boot.img', SHA_A, bom=True)
         self.assertEqual(self.gate.stale_images(self.artifacts, self.evidence), [])
 
     def test_a_flight_without_a_bom_is_also_read(self):
         write_image(self.artifacts, 'bt-bisect-h34', SHA_A)
         write_flight(self.evidence, 'usblog-plain',
-                     'E:\\k60-work\\artifacts\\bt-bisect-h34\\boot.img', SHA_A, bom=False)
+                     'E:\\iOS Port\\Work\\artifacts\\bt-bisect-h34\\boot.img', SHA_A, bom=False)
         self.assertEqual(self.gate.stale_images(self.artifacts, self.evidence), [])
 
     def test_a_renamed_directory_is_matched_by_hash(self):
         write_image(self.artifacts, 'bt-bisect-h124', SHA_A)
         write_flight(self.evidence, 'usblog-old-name',
-                     'E:\\k60-work\\artifacts\\bt-bisect-old\\boot.img', SHA_A)
+                     'E:\\iOS Port\\Work\\artifacts\\bt-bisect-old\\boot.img', SHA_A)
         self.assertEqual(self.gate.stale_images(self.artifacts, self.evidence), [])
 
     def test_the_prefix_bounds_the_report(self):

@@ -1,6 +1,6 @@
 # DOCS-DRIVERS-ALL — `docs/drivers/` 47 篇全量阅读纪要
 
-> 阅读对象：`E:/hackios/UniXNU/docs/drivers/`，分支 `main`，HEAD `75ae626a12764c706fc0b94c52a3eea09447dbaa`。
+> 阅读对象：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/drivers/`，分支 `main`，HEAD `75ae626a12764c706fc0b94c52a3eea09447dbaa`。
 > 规模：47 个 `.md`，106,686 字节，2,271 行（含空行）。
 > 方法：`find docs/drivers -name '*.md' | sort` 生成清单，逐文件从第 1 行读到 EOF；47 篇全部返回 `complete=true`，无截断、无跳过。
 > 口径：① 的摘要是对文档原文的压缩；`docs/porting/*` 的内容只在“K60 适配”判断中作为旁证。K60 = Redmi K60 / mondrian / SM8475，已知硬件锚点为 Adreno 730、QCA6490、Goodix、AW882xx；K60 具体地址/GPIO 标为「K60 现值」，来自设备仓与既有计划，标 `[未核]` 的需上机确认。

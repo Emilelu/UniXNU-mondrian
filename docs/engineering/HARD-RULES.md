@@ -317,7 +317,7 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 1. **push 一律在 Windows 侧跑**：
    ```powershell
-   Set-Location 'E:\hackios\UniXNU-mondrian'
+   Set-Location 'E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian'
    $env:GIT_TERMINAL_PROMPT='0'
    git push --force --progress origin main
    ```
@@ -474,7 +474,7 @@ credential.https://github.com.helper = !'C:/Program Files/GitHub CLI/gh.exe' aut
 
 2. **补丁要改三处，少一处就被覆盖**（P-44）：
    ```
-   ① E:\hackios\UniXNU-mondrian\patches\xnu\<name>.patch   （仓库）
+   ① E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\patches\xnu\<name>.patch   （仓库）
    ② /tmp/usb-cdc-mainline/device/patches/xnu\<name>.patch （构建输入）
    ③ 构建树 .cache/xnu-work/<target>                         （已应用状态）
    ```
@@ -1648,15 +1648,15 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
 - **强制三步（缺一不可）**：
   ```bash
   # 第 1 步：看本地是否存在
-  ls E:/hackios/UniXNU/docs/zh/porting/
+  ls E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/
 
   # 第 2 步：必须验证本地是否落后上游（关键！）
-  git -C E:/hackios/UniXNU fetch
-  git -C E:/hackios/UniXNU rev-list --count HEAD..@{u}      # >0 = 落后 N 个提交
-  git -C E:/hackios/UniXNU log --oneline HEAD..origin/main  # 落后哪些
+  git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU fetch
+  git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU rev-list --count HEAD..@{u}      # >0 = 落后 N 个提交
+  git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU log --oneline HEAD..origin/main  # 落后哪些
 
   # 第 3 步：落后时读 origin/main 的最新版（不破坏工作区）
-  git -C E:/hackios/UniXNU show origin/main:docs/zh/porting/ufs.md
+  git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU show origin/main:docs/zh/porting/ufs.md
   ```
 
 - **判定规则**：
@@ -1680,18 +1680,18 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
 
 - **症状（2026-11-09 23:10，用户指出）**：
   查官方文档时我一直在 `web_fetch https://unixnu.com/...`，
-  **而本地 `E:\hackios\UniXNU\docs\zh\porting\` 就有全部 26 个页面**。
+  **而本地 `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\docs\zh\porting\` 就有全部 26 个页面**。
 - **本地路径**：
   | 内容 | 路径 |
   |---|---|
-  | 中文 porting 页 | `E:\hackios\UniXNU\docs\zh\porting\`（26 篇）|
-  | 英文 porting 页 | `E:\hackios\UniXNU\docs\porting\` |
-  | 驱动页 | `E:\hackios\UniXNU\docs\drivers\` |
-  | 组件定义 | `E:\hackios\UniXNU\components.toml` |
-  | 设备记录 | `E:\hackios\UniXNU\docs\.vitepress\device-records\` |
+  | 中文 porting 页 | `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\docs\zh\porting\`（26 篇）|
+  | 英文 porting 页 | `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\docs\porting\` |
+  | 驱动页 | `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\docs\drivers\` |
+  | 组件定义 | `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\components.toml` |
+  | 设备记录 | `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\docs\.vitepress\device-records\` |
 - **铁则**：
-  1. **先 `ls E:\hackios\UniXNU\docs\zh\porting\`，读本地文件**
-  2. **再 `git -C E:\hackios\UniXNU fetch && git rev-list --count HEAD..@{u}` 检查是否落后上游**
+  1. **先 `ls E:\iOS Port\Sources\Repos\UniXNU\UniXNU\docs\zh\porting\`，读本地文件**
+  2. **再 `git -C E:\iOS Port\Sources\Repos\UniXNU\UniXNU fetch && git rev-list --count HEAD..@{u}` 检查是否落后上游**
   3. 只有本地没有的页面才 `web_fetch`
   4. **每次读文档前都要先检查上游是否更新**（本会话曾落后 10 个提交，
      其中 `f7f9f7a` 正是 UFS 并发方案、`6ae5f83`/`a443832` 是 AdrenoMetal 更新）
@@ -1714,7 +1714,7 @@ pgrep -af 'make.*build_all' | head -1   # 有进程 = 在编译
   | 场景 | 最小查证 |
   |---|---|
   | 要改驱动 | `grep` 确认函数是否已存在（本会话两次因 `k60_spmi_init` 不存在而编译失败）|
-  | 要用工具 | `ls` 确认工具在本地（本会话一直在 web_fetch 官方文档，而本地 `E:\hackios\UniXNU\docs\zh\porting\` 就有 26 篇）|
+  | 要用工具 | `ls` 确认工具在本地（本会话一直在 web_fetch 官方文档，而本地 `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\docs\zh\porting\` 就有 26 篇）|
   | 要用外部机器 | SSH 探活 |
   | 要写分区 | 先读头部确认 APFS 结构，不要整盘读写 |
   | 要下结论 | 先验证前提（本会话"INT=0 说明芯片活着"因默认下拉而作废）|
@@ -2237,7 +2237,7 @@ BerlinD 驱动源码**（`goodix_brl_hw.c`、`goodix_brl_spi.c`、`goodix_cfg_bi
 
 2. **开始调试前，对目标硬件做一次全盘检索**：
    ```bash
-   find <workspace> /mnt/e/hackios -ipath '*<hw>*' -o -iname '*goodix*' ...
+   find <workspace> /mnt/e/iOS Port/Sources -ipath '*<hw>*' -o -iname '*goodix*' ...
    ```
    把结果登记进索引。**没查全盘之前禁止改代码。**
 

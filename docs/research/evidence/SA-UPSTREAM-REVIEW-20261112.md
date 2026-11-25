@@ -1,7 +1,7 @@
 # SA-UPSTREAM-REVIEW-20261112 — K60（mondrian / SM8475 / taro）上游待合入提交审计
 
-审计对象：`yibiya/UniXNU-mondrian`（镜像 `E:\k60-work\references\yibiya-upstream`）、`UniXNU` 框架（`yibiya-unixnu-upstream`）、`uefi-mondrian`（`yibiya-uefi-upstream`）相对我们 pick 水位的新提交。
-审计方式：只读。未执行 `git apply` / `checkout` / `commit` / `push`，未改动任何仓库状态（`E:\k60-work\.pick-upstream-seen.json` 的 sha256 在收集前后一致：`07A912B3…449177`）。本文件是本次审计唯一的写入。
+审计对象：`yibiya/UniXNU-mondrian`（镜像 `E:\iOS Port\Work\references\yibiya-upstream`）、`UniXNU` 框架（`yibiya-unixnu-upstream`）、`uefi-mondrian`（`yibiya-uefi-upstream`）相对我们 pick 水位的新提交。
+审计方式：只读。未执行 `git apply` / `checkout` / `commit` / `push`，未改动任何仓库状态（`E:\iOS Port\Work\.pick-upstream-seen.json` 的 sha256 在收集前后一致：`07A912B3…449177`）。本文件是本次审计唯一的写入。
 
 ## 0. 结论
 
@@ -327,7 +327,7 @@
 **还缺三样，且都不在这个分支里**：
 1. GENI GPI/DMA 传输路径（分支里只有 FIFO/PIO 探测 + `GENI_DMA_MODE_EN` 的定义，没有真正的 GPI 角色协商）；
 2. 确认过的 GPIO pad role 元组（现在只有 bitbang 候选）；
-3. 框架侧必须把 `[adt.arm-io.pong-touch.*]` 真正写进 ADT——那是 `fix/k60-input-adt`（框架仓）的 `devicetree.py` 改动，见 §7；我们这边已经有（`E:\hackios\UniXNU\scripts\unixnu\devicetree.py:378-384`），所以他那边缺这条时 ADT 里根本没有 `/arm-io/pong-touch`。
+3. 框架侧必须把 `[adt.arm-io.pong-touch.*]` 真正写进 ADT——那是 `fix/k60-input-adt`（框架仓）的 `devicetree.py` 改动，见 §7；我们这边已经有（`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\devicetree.py:378-384`），所以他那边缺这条时 ADT 里根本没有 `/arm-io/pong-touch`。
 
 另外，我们自己的触摸补丁（`…-pong-touch-console.patch`，62,104 B）比他的（58,849 B）大 5.2%，`f1b5280` 之后我们自己实现了握手、config 下载、NULL transport 防护。取他的分支会删掉这 3,255 B——所以 A 的答案对我们是"不取，只对照"。
 
@@ -362,7 +362,7 @@
 
 **`fix/ufs-data-payload`（6 个提交）**：在上面两条之外再加 `182c0a2`（`U32`/`U64` 类型表补 `pong,smmu-*`、`pong,ufs-*`；CPU 节点补 `cpu-id`；`cpus` 补 `max_cpus`）、`5fba86d`（`payload.py` 的 Data 输入规则）、以及三条文档。
 
-**与我们框架副本的实测对比**（`E:\hackios\UniXNU`，这是 picker 的第二个 target）：
+**与我们框架副本的实测对比**（`E:\iOS Port\Sources\Repos\UniXNU\UniXNU`，这是 picker 的第二个 target）：
 - `scripts/unixnu/devicetree.py` 与分支 tip **逐字节相同**（0 行差异）——`fix/k60-input-adt` 与 `fix/ufs-data-payload` 的 ADT 部分**已经在我们树里**。
 - `scripts/unixnu/payload.py` 是唯一落差：`check_data_input()` 仍是旧版（`"An owner-Data kernel needs a seed even when it resumes a persistent overlay."`）。分支版把规则反过来：
 
@@ -380,7 +380,7 @@ if config.get('XNU_OWNER_DATA_UFS'):
 
 ## 8. 建议合入顺序
 
-1. **先落手工项，不落 pick**：`E:\hackios\UniXNU\scripts\unixnu\payload.py` 按 `5fba86d` 的 `check_data_input()` 改写（UFS 分支 + 去掉 `MOUNT` 的强制种子）。这一步只影响 payload 组装，不碰内核；落完后把 cand13/14 的"Data loader conflict"从构建里摘掉，再谈 P-154。
+1. **先落手工项，不落 pick**：`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\payload.py` 按 `5fba86d` 的 `check_data_input()` 改写（UFS 分支 + 去掉 `MOUNT` 的强制种子）。这一步只影响 payload 组装，不碰内核；落完后把 cand13/14 的"Data loader conflict"从构建里摘掉，再谈 P-154。
 2. **纯新增先取（10 条，风险低）**：`3ace22d6d`(make-pong-adt 面板最大值)、`19faa19b7`(0502b)、`1605750dc`(memory/ufs 补丁集)、`960081419`/`53ef046a2`/`13f2f3eac`/`7041358df`/`97debfb95`(Data/资源叉脚本)、`5198a6799`(0394 已同)、`ffb9fb70a`(v4 repack 脚本)。新补丁文件不进行 `series` 就不参与构建，属于惰性资产（P-157 的正向用法）。
 3. **补丁增量按 hunk 取**：`d997c6b0f`(0600，本地多 1.2%)、`04bda86f2`(0602 + 触摸补丁 +5.3%)、`7bb1fd297`(0603 新文件)、`47f33678a`/`b8d6ab949`/`69b7cfda5`/`03c7c3dc1`/`1285ccf0a` 的 `series` 行——但要先决定 `0392-k60-weak-scanout-stubs` 留不留；留，就跳过 `61544e3`。
 4. **`userland/init.c` 一次取终态，不要取中间快照**：`640e02c44` `3aa279fca` `c3d390ae6` `b80924d93` `522c6ead7` 在提交当时都比本地小 16%~39%（判 `不可合` 指"别取那一版"），但它们叠到最后，`25d621b2f` 的 `init.c` 是 **27,712 B，比本地 24,689 B 还大**——说明我们落后在他那条 init 线上。做法：以终态那份为底，把本地 `f1b5280` 之后的 dyld/union 改动重放上去，构建过 `0401-k60-embedded-init.patch` 的 hunk 计数（P-155）。

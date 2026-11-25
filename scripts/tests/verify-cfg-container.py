@@ -12,7 +12,7 @@
 """
 import struct
 
-P = '/mnt/e/k60-work/scratch/goodix-fw/goodix_cfg_group_m11a.bin'
+P = '/mnt/e/iOS Port/Work/scratch/goodix-fw/goodix_cfg_group_m11a.bin'
 d = open(P, 'rb').read()
 
 print('=== 文件 ===')

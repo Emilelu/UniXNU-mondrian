@@ -43,13 +43,13 @@ struct Iterator {
 int main() {
   const char *names[] = {"OS","Aux","SystemOS","Other"}; UfsRootPlan plan;
   assert(ufsBuildRootPlan(names,4,plan));
-  assert(plan.count==4 && plan.order[0]==2 && plan.order[1]==1 && plan.order[2]==3 && plan.order[3]==0);
+  assert(plan.count==4 && plan.order[0]==0 && plan.order[1]==2 && plan.order[2]==1 && plan.order[3]==3);
   const char *two[] = {"OS","SystemOS"}; UfsRootPlan planTwo;
   assert(ufsBuildRootPlan(two,2,planTwo));
-  assert(planTwo.count==2 && planTwo.order[0]==1 && planTwo.order[1]==0);
+  assert(planTwo.count==2 && planTwo.order[0]==0 && planTwo.order[1]==1);
   const char *three[] = {"OS","Aux","SystemOS"}; UfsRootPlan planThree;
   assert(ufsBuildRootPlan(three,3,planThree));
-  assert(planThree.count==3 && planThree.order[0]==2 && planThree.order[1]==1 && planThree.order[2]==0);
+  assert(planThree.count==3 && planThree.order[0]==0 && planThree.order[1]==2 && planThree.order[2]==1);
   const char *bad[][4]={{"OS","Other"},{"SystemOS","Other"},{"OS","OS"},{"OS",nullptr},{"OS",""}};
   for(auto &n:bad) {UfsRootPlan p;assert(!ufsBuildRootPlan(n,2,p) && p.count==0);}
   for(unsigned count:{0U,1U,5U}) {UfsRootPlan p;assert(!ufsBuildRootPlan(names,count,p));}
@@ -69,7 +69,7 @@ int main() {
   }
   {Operations ops;assert(ufsPrepareRootWindows(ops,4).phase==UfsRootPhase::Complete);
     auto r=ufsPublishRootWindows(ops,plan);assert(r.phase==UfsRootPhase::Complete && r.published==4);
-    assert((ops.startOrder==std::vector<unsigned>{2,1,3,0}) && ops.startOrder==ops.waitOrder && ops.discarded.empty());}
+    assert((ops.startOrder==std::vector<unsigned>{0,2,1,3}) && ops.startOrder==ops.waitOrder && ops.discarded.empty());}
   // No diagnostic flag enters the coordinator: reporting cannot relax gates.
   for(unsigned position=0;position<4;++position)for(bool waitFailure:{false,true}) {
     Operations ops;assert(ufsPrepareRootWindows(ops,4).phase==UfsRootPhase::Complete);
@@ -88,5 +88,5 @@ int main() {
   {Iterator i{{&window}};i.valid=false;assert(!ufsMediaHasAncestor(i,&window));}
   {Iterator i{{&window}};i.invalidateOnNext=true;assert(!ufsMediaHasAncestor(i,&window));}
   {Iterator i; i.entries.assign(256,&media);i.entries.push_back(&window);assert(!ufsMediaHasAncestor(i,&window));}
-  puts("PASS: complete preparation or rollback, dispatch failure, SystemOS first/OS last, every start/media failure, no future publication, retained started devices, bounded valid ancestry");
+  puts("PASS: complete preparation or rollback, dispatch failure, OS first/SystemOS second, every start/media failure, no future publication, retained started devices, bounded valid ancestry");
 }

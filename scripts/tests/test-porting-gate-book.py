@@ -2,7 +2,7 @@
 """P-222: the porting gate must trust a booted baseline in the book, and only
 that — an unproven series must still be refused.
 
-The failure this guards against: /mnt/e/k60-work/ledger.jsonl is global across
+The failure this guards against: /mnt/e/iOS Port/Work/ledger.jsonl is global across
 every worktree, so a flight from another branch rewrites "the last successful
 boot". On 2026-11-16 the bluetooth line flew at 08:59 with a 234-patch series
 and the porting gate then told main that its own 227-patch series — the one
@@ -40,7 +40,7 @@ def load_gate():
                 current.append(line)
     repo = HERE.parent.parent
     namespace = {'io': io, 're': re, 'os': os, 'REPO': str(repo),
-                 'WORK': '/mnt/e/k60-work',
+                 'WORK': '/mnt/e/iOS Port/Work',
                  'SERIES': str(repo / 'patches/xnu/series'),
                  'BOOK': str(BOOK)}
     for chunk in chunks:

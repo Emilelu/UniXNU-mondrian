@@ -5,7 +5,7 @@
 ## 0. 结论
 
 - 位置：BT 固件**不在** `/vendor/firmware_mnt/image/qca6490/`（该目录是 WiFi 的 `amss*.bin`/`Data*.msc` 与 42 个 `bd_*.elf` 板级数据），而在独立分区目录 **`/vendor/bt_firmware/image/`**。
-- 规模：实测 **113 个文件，合计 1,063,407 B**，已用只读 `adb pull` 取到 `E:/k60-work/firmware/qca6490-bt/` 并逐个哈希。
+- 规模：实测 **113 个文件，合计 1,063,407 B**，已用只读 `adb pull` 取到 `E:/iOS Port/Work/firmware/qca6490-bt/` 并逐个哈希。
 - 命名：不是旧推断的 `htbtfw21.tlv`/`htnv21.bin`。rampacth 实测为 **`hpbtfw20.tlv`**（201,560 B）与 **`hpbtfw21.tlv`**（146,068 B）；NVM 为 **`hpnv20*`（20 个）** 与 **`hpnv21*`（90 个，含 `g` 与 `sony` 变体）**。
 - 这与 `bsd/dev/qbt/btqca.c` 的 WCN6855 分支一致：先请求 `qca/wcnhpbtfw%02x.tlv`，失败回退 `qca/hpbtfw%02x.tlv`；NVM 先 `qca/wcnhpnv…`，失败回退 `qca/hpnv…`。本机固件集只有 `hp*`/`hpnv*` 拼写，即 K60 走的是**回退名**，而 0500 的 `k60_firmware_get()` alias 正是为此写的。
 
@@ -33,7 +33,7 @@
 - DT：`/proc/device-tree/soc/bt_qca6490/compatible` = `qcom,qca6490`；`/proc/device-tree/soc/qcom,qup_uart@894000/compatible` = `qcom,msm-geni-serial-hs` —— 与 live FDT 反编译一致。
 - Android BT 状态：`dumpsys bluetooth_manager` 初始 `State: OFF`；`cmd bluetooth_manager enable` 后 `State: ON`，但 `/sys/class/bluetooth/` 为空、无 `hci0`，servicemanager 报 VINTF 缺 `android.hardware.bluetooth.IBluetoothHci/default`。dmesg 可见 `bluetooth_power: on: 1|2`、`btpower_set_xo_clk_gpio_state:gpio(505) success`。
 - 结论：本轮 Android 的 BT HAL 未注册 HCI，**拿不到** `QCA controller version`/`Downloading qca/...` 运行日志；文件身份是 M 级，`rom_ver` 与 board id 仍需 HCI 起来后确认（见 §4）。**补记（2026-11-15）**：即使 HCI 起来，这两条也打不出来——它们由 `bt_dev_info`（level 6）发出，而 `k60_log` 只放行 `level <= 3`（`bsd/dev/qbt_k60.c:1545` = `0500:971`）；要拿到 `rom_ver` 必须放宽该闸门或加专用 printf，见 `S4-SPEC.md` §7.1。
-- 只读拉取：`adb pull /vendor/bt_firmware/image/. E:/k60-work/firmware/qca6490-bt/` → 113 files, 1,063,407 B。
+- 只读拉取：`adb pull /vendor/bt_firmware/image/. E:/iOS Port/Work/firmware/qca6490-bt/` → 113 files, 1,063,407 B。
 
 ## 3. `btqca.c` 选名逻辑（A：0500 内同一文件的行号）
 
@@ -68,13 +68,13 @@
 2. `scripts/stage-bluetooth-firmware.py`：sheng 版（`UniXNU-sheng/scripts/stage-bluetooth-firmware.py`）把名字正则写死成 `hmtbtfw[0-9a-f]{2}\.tlv|hmtnv[0-9a-f]{2}\.(bin|b[0-9a-f]{2,4})`（WCN7850）。K60 需改成 `(wcn)?hp(btfw|nv)…` 形式，并允许 `g` 变体与 `.bXXXX`；落盘前缀取 `K60_BT_FIRMWARE_ROOT` 的去 `qca` 父目录（`/private/var/ngpu/firmware`）或直接按 `package/BluetoothFirmware.h` 等价常量。
 3. `board.toml` `[payload.runtime]`：`bluetooth_tool = "scripts/build-bluetooth-userspace.py"`、`bluetooth_target = "ios20"`（20G81 口径；sheng 是 `ios27`）。
 
-来源目录：`/mnt/e/k60-work/firmware/qca6490-bt`（用 `--source` 传入）。**不要把厂商固件提交进仓库**——sheng 也是外部固件仓 pin hash；K60 可先本地 pin（`hardware_verified=false`），需要时再建私有固件仓。
+来源目录：`/mnt/e/iOS Port/Work/firmware/qca6490-bt`（用 `--source` 传入）。**不要把厂商固件提交进仓库**——sheng 也是外部固件仓 pin hash；K60 可先本地 pin（`hardware_verified=false`），需要时再建私有固件仓。
 
 最小 manifest 片段（在确认 `rom_ver` 前建议 20/21 双份 + `hpnv20*`/`hpnv21*` 全量，总计约 1.06 MB）：
 
 ```json
 {
-  "repository": "local:/mnt/e/k60-work/firmware/qca6490-bt",
+  "repository": "local:/mnt/e/iOS Port/Work/firmware/qca6490-bt",
   "commit": "device-pull-2026-11-14",
   "files": {
     "hpbtfw20.tlv": {"bytes": 201560, "sha256": "b7fcf643ee458eab7bb21e7324b915e8772f81ee9d222e039425fa65f614f929"},
@@ -90,7 +90,7 @@
 全量 113 个文件的哈希：
 
 ```bash
-wsl -e bash -lc 'cd /mnt/e/k60-work/firmware/qca6490-bt && sha256sum * | sort -k2'
+wsl -e bash -lc 'cd /mnt/e/iOS Port/Work/firmware/qca6490-bt && sha256sum * | sort -k2'
 ```
 
 ## 6. 尚不能离线确定（只有一项）
@@ -103,8 +103,8 @@ wsl -e bash -lc 'cd /mnt/e/k60-work/firmware/qca6490-bt && sha256sum * | sort -k
 ```bash
 adb shell "ls -l /vendor/bt_firmware/image/"
 adb shell "cat /proc/device-tree/soc/bt_qca6490/compatible; echo"
-adb pull /vendor/bt_firmware/image/. E:/k60-work/firmware/qca6490-bt/
-wsl -e bash -lc 'cd /mnt/e/k60-work/firmware/qca6490-bt && sha256sum * | sort -k2'
+adb pull /vendor/bt_firmware/image/. E:/iOS Port/Work/firmware/qca6490-bt/
+wsl -e bash -lc 'cd /mnt/e/iOS Port/Work/firmware/qca6490-bt && sha256sum * | sort -k2'
 ```
 
 ## 8. 对 RESEARCH.md 的影响

@@ -88,7 +88,7 @@
 - **面板**：树内 DTB 的 `mdss` 只有 4 个直接子节点（`qcom,platform-supply-entries` 与三个 `qcom,sde-*-blocks`），**一个面板都没有**；m11a 的 init 串只存在于 live DTB 或 `dispdcbx` 分区。做显示不要指望树内 DTB（见 `display/RESEARCH.md` 1.1）。
 - **`/chosen`**：只差 `kaslr-seed`、`linux,initrd-start/end` 三个运行时字段，`bootargs` 前缀两边完全相同。
 
-复现：`/mnt/e/k60-work/scratch/refmine/treeparse.py`（纯 Python FDT 解析器；头字段顺序 magic、totalsize、**off_struct**、**off_strings**、off_rsv、version、last_comp、bootcpuid、**size_strings**、**size_struct**；BEGIN_NODE 的 name 与 PROP 值之后都要 4 字节对齐）、`resmem.py`、`dtbdiff.py`、`mdss_count.py`。**不要用 `fdt_dump.txt` 做逐字节比对——它会截断长 hex 串。**
+复现：`/mnt/e/iOS Port/Work/scratch/refmine/treeparse.py`（纯 Python FDT 解析器；头字段顺序 magic、totalsize、**off_struct**、**off_strings**、off_rsv、version、last_comp、bootcpuid、**size_strings**、**size_struct**；BEGIN_NODE 的 name 与 PROP 值之后都要 4 字节对齐）、`resmem.py`、`dtbdiff.py`、`mdss_count.py`。**不要用 `fdt_dump.txt` 做逐字节比对——它会截断长 hex 串。**
 
 ## 6. 使用规则
 

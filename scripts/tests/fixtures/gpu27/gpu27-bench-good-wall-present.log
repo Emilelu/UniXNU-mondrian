@@ -1,0 +1,55 @@
+# Real excerpt: bench 24 samples from E:/iOS Port/Work/evidence/usblog-20261119-173454/console.log:2455-2506
+Pong Metal: scanout bench n=1/24 import=30 us encode=5536 us submit=469 us gpu=2410 us sum=8445 us status=0x0 status=0x0
+Pong Metal: scanout bench n=2/24 import=32 us encode=3328 us submit=390 us gpu=2526 us sum=6276 us status=0x0 status=0x0
+Pong Metal: scanout bench n=3/24 import=40 us encode=3041 us submit=407 us gpu=2377 us sum=5865 us status=0x0 status=0x0
+Pong Metal: scanout bench n=4/24 import=19 us encode=3116 us submit=362 us gpu=2421 us sum=5918 us status=0x0 status=0x0
+Pong Metal: scanout bench n=5/24 import=40 us encode=3292 us submit=529 us gpu=2509 us sum=6370 us status=0x0 status=0x0
+Pong Metal: scanout bench n=6/24 import=33 us encode=3354 us submit=466 us gpu=2388 us sum=6241 us status=0x0 status=0x0
+Pong Metal: scanout bench n=7/24 import=24 us encode=3024 us submit=380 us gpu=2469 us sum=5897 us status=0x0 status=0x0
+Pong Metal: scanout bench n=8/24 import=31 us encode=986 us submit=218 us gpu=2555 us sum=3790 us status=0x0 status=0x0
+Pong Metal: scanout bench n=9/24 import=30 us encode=3253 us submit=452 us gpu=2528 us sum=6263 us status=0x0 status=0x0
+Pong Metal: scanout bench n=10/24 import=29 us encode=3078 us submit=504 us gpu=2435 us sum=6046 us status=0x0 status=0x0
+2026-11-03 04:33:07.416 SpringBoard[26:287] trying to set state of nil layer.
+2026-11-03 04:33:07.417 SpringBoard[26:287] trying to set state of nil layer.
+Pong Metal: scanout bench n=11/24 import=22 us encode=2956 us submit=340 us gpu=2444 us sum=5762 us status=0x0 status=0x0
+2026-11-03 04:33:07.417 SpringBoard[26:287] trying to set state of nil layer.
+2026-11-03 04:33:07.417 SpringBoard[26:287] trying to set state of nil layer.
+2026-11-03 04:33:07.418 SpringBoard[26:287] trying to set state of nil layer.
+Pong Metal: scanout bench n=12/24 import=19 us encode=2926 us submit=332 us gpu=2595 us sum=5872 us status=0x0 status=0x0
+2026-11-03 04:33:07.426 SpringBoard[26:287] trying to set state of nil layer.
+2026-11-03 04:33:07.426 SpringBoard[26:287] trying to set state of nil layer.
+2026-11-03 04:33:07.426 SpringBoard[26:287] trying to set state of nil layer.
+2026-11-03 04:33:07.426 SpringBoard[26:287] trying to set state of nil layer.
+2026-11-03 04:33:07.427 SpringBoard[26:287] trying to set state of nil layer.
+Pong Metal: scanout bench n=13/24 import=27 us encode=3174 us submit=406 us gpu=2574 us sum=6181 us status=0x0 status=0x0
+Pong Metal: scanout bench n=14/24 import=28 us encode=3198 us submit=358 us gpu=2472 us sum=6056 us status=0x0 status=0x0
+Pong Metal: scanout bench n=15/24 import=17 us encode=2933 us submit=347 us gpu=2413 us sum=5710 us status=0x0 status=0x0
+Pong Metal: scanout bench n=16/24 import=17 us encode=2922 us submit=334 us gpu=2447 us sum=5720 us status=0x0 status=0x0
+2026-11-03 04:33:07.464 SpringBoard[26:287] <CATransformLayer: 0x281619c20> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+2026-11-03 04:33:07.464 SpringBoard[26:287] <CATransformLayer: 0x281619c20> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+2026-11-03 04:33:07.464 SpringBoard[26:287] <CATransformLayer: 0x281619be0> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+2026-11-03 04:33:07.465 SpringBoard[26:287] <CATransformLayer: 0x281619be0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+2026-11-03 04:33:07.465 SpringBoard[26:287] <CATransformLayer: 0x281619ac0> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+2026-11-03 04:33:07.465 SpringBoard[26:287] <CATransformLayer: 0x281619ac0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+Pong Metal: scanout bench n=17/24 import=72 us encode=3183 us submit=421 us gpu=2410 us sum=6086 us status=0x0 status=0x0
+2026-11-03 04:33:07.470 SpringBoard[26:287] <CATransformLayer: 0x281619ac0> - changing property allowsGroupBlending in transform-only layer, will have no effect
+2026-11-03 04:33:07.470 SpringBoard[26:287] <CATransformLayer: 0x281619ac0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+2026-11-03 04:33:07.470 SpringBoard[26:287] <CATransformLayer: 0x281619be0> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+2026-11-03 04:33:07.470 SpringBoard[26:287] <CATransformLayer: 0x281619be0> - changing property allowsGroupBlending in transform-only layer, will have no effect
+2026-11-03 04:33:07.470 SpringBoard[26:287] <CATransformLayer: 0x281619c20> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+2026-11-03 04:33:07.470 SpringBoard[26:287] <CATransformLayer: 0x281619c20> - changing property allowsGroupBlending in transform-only layer, will have no effect
+Pong Metal: scanout bench n=18/24 import=25 us encode=3150 us submit=387 us gpu=2444 us sum=6006 us status=0x0 status=0x0
+Pong Metal: scanout bench n=19/24 import=24 us encode=3077 us submit=362 us gpu=2457 us sum=5920 us status=0x0 status=0x0
+Pong Metal: scanout bench n=20/24 import=31 us encode=994 us submit=178 us gpu=2502 us sum=3705 us status=0x0 status=0x0
+Pong Metal: scanout bench n=21/24 import=21 us encode=943 us submit=152 us gpu=2503 us sum=3619 us status=0x0 status=0x0
+Pong Metal: scanout bench n=22/24 import=36 us encode=986 us submit=204 us gpu=2543 us sum=3769 us status=0x0 status=0x0
+Pong Metal: scanout bench n=23/24 import=21 us encode=958 us submit=179 us gpu=2504 us sum=3662 us status=0x0 status=0x0
+2026-11-03 04:33:07.512 SpringBoard[26:287] <CATransformLayer: 0x2816cbb40> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+2026-11-03 04:33:07.512 SpringBoard[26:287] <CATransformLayer: 0x2816cbb40> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+2026-11-03 04:33:07.512 SpringBoard[26:287] <CATransformLayer: 0x2816cbf20> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+2026-11-03 04:33:07.513 SpringBoard[26:287] <CATransformLayer: 0x2816cbf20> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+2026-11-03 04:33:07.513 SpringBoard[26:287] <CATransformLayer: 0x2816cbf40> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
+2026-11-03 04:33:07.513 SpringBoard[26:287] <CATransformLayer: 0x2816cbf40> - changing property allowsGroupOpacity in transform-only layer, will have no effect
+Pong Metal: scanout bench n=24/24 import=19 us encode=951 us submit=162 us gpu=2520 us sum=3652 us status=0x0 status=0x0
+# plus the composition-wall statistic from E:/iOS Port/Work/evidence/usblog-20261119-151837/console.log:3341 (same device, earlier flight)
+MiniIOMobileFramebuffer: 104 frames in 5111 ms (20 a second), 13183 us each in the driver, after 1 us waiting for the GPU and, 3 of them, 3359 us for the next refresh; 0 swaps waited for the frame before, 0 gave up; 93 swaps came a refresh late themselvesK60 ex=594 kx=98 abn=31 | mem=4608 actual=4608 managed=4608 free_pages=230477 spec=345782

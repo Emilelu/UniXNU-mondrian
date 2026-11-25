@@ -62,7 +62,7 @@
 | 取证手段迷信 | ramoops 投入多条 commit（`469ab81` 系列、`5b5c03d`），实机重启 DRAM 掉电不可用 | 11-02 交接 §6.6 封案 | 重启后拿不到日志 → 正常，唯一手段是屏幕不滚动 + 拍照 |
 | hackios root tweaks 照抄诱惑 | sweet-root-tweaks.py 依赖**可写** root；我们是只读 APFS union，没有「改镜像」这个对象 | 11-02 交接 §2/§10 | 任何「改 rootfs 镜像」的建议 → 先确认路线模型（三路线不可混用） |
 
-> 凡未注明 commit 的条目，证据来自设备仓 docs/（ROUTE-A-18-HANDOFF、MEASURED-HIGH-WINDOW、USERLAND-ROUTES）与 `E:\k60-work\HANDOFF-2026-11-02.md`，均已提交或归档，可按文件名检索。
+> 凡未注明 commit 的条目，证据来自设备仓 docs/（ROUTE-A-18-HANDOFF、MEASURED-HIGH-WINDOW、USERLAND-ROUTES）与 `E:\iOS Port\Work\HANDOFF-2026-11-02.md`，均已提交或归档，可按文件名检索。
 
 ## 2026-11-03/04 扩容与取证轮新增（证据为文件与哈希，当轮未提交）
 
@@ -326,16 +326,16 @@
 ### 32. 屏摄识图反复读错，且每次都要用户再确认一遍才纠正
 
 - **症状**（反复发生，至少六个实例，「看到 vs 实际」逐条）：
-  1. **`0`↔`8` 互读反**：心跳行 `abn=382` 被读成 `abn=302`（末位 8→0）。——2026-11-03 屏摄 `screen-0304-heartbeat-20261103.jpg`（归档 `E:\k60-work\evidence\`，sha256 `5940A4EC…`），用户当日核对后 302 撤销。
+  1. **`0`↔`8` 互读反**：心跳行 `abn=382` 被读成 `abn=302`（末位 8→0）。——2026-11-03 屏摄 `screen-0304-heartbeat-20261103.jpg`（归档 `E:\iOS Port\Work\evidence\`，sha256 `5940A4EC…`），用户当日核对后 302 撤销。
   2. **重复字符数错**：一长串 `f` 把 **7 个读成 6 个**（hex 位数错）。——2026-11-03 用户反馈（`project_memory.md`「数字误读对策」节登记）。
-  3. **`verify=ffffffff` 读成乱码**。——2026-11-03 晚 v5 SHNGROOT 签名不匹配轮（同一轮还读了 `result=`/`op=`，见下两条）；原屏摄已定位：`E:\k60-work\evidence\screen-v5-2106-1.png`（2026-11-03 21:06 归档，sha256 `65B8DCAF29A229E6E84FBA0889B78324B944934D5EF0C01F35521DDBCA8ACDEE`；屏内 `WINDOWS found=3 prepared=0 published=0 … verify=ffffffff` 行俱在）。
+  3. **`verify=ffffffff` 读成乱码**。——2026-11-03 晚 v5 SHNGROOT 签名不匹配轮（同一轮还读了 `result=`/`op=`，见下两条）；原屏摄已定位：`E:\iOS Port\Work\evidence\screen-v5-2106-1.png`（2026-11-03 21:06 归档，sha256 `65B8DCAF29A229E6E84FBA0889B78324B944934D5EF0C01F35521DDBCA8ACDEE`；屏内 `WINDOWS found=3 prepared=0 published=0 … verify=ffffffff` 行俱在）。
   4. **`n=9 / op=28` 读成 `n=3 / op=2b`**（十进制/十六进制数字形混淆）。——同上轮次、同张屏摄（屏内 `CMD n=9 type=01 op=28 …` 行）。
   5. **`result=00000000` 误读成 `result=0008b800`**（`0`/`8` 互读反 + 位数漂移叠加）。——同上轮次、同张屏摄（屏内 `stage=first root read result=00000000` 行）。
   6. **panic 地址 `0xfffffff007ad3ac0` 误读成 `0xfffffff807add3ac0`**：`Attempt to take mutex … with preemption disabled @5 lock_mtx.c:194`——首位 `0` 读成 `8`，中段 `07ad3ac0` 多读出一个 `d`（两位错位）；`lock_mtx.c:194` 与 `@` 前的 `5` 经用户核对为真。——2026-11-04 panic 屏摄，**地址来源 = 用户核对屏摄**。仍是 `0↔8` 家族。后果最重的一类：内核符号映射按地址计算，错一位即映射到不同符号，沿用错地址会把 panic 归因到错误代码。
 - **根因**：屏摄低分辨率 + 屏幕圆角/挖孔遮挡 + 字体抗锯齿，使 `0/8`、`3/8`、`5/6` 等字形混淆、重复字符计数不可靠；更深层的原因是**把「凭屏幕猜的读数」直接当结论证据用**，没走确认环节。
 - **修复**：决定性行（作为结论依据的读数、寄存器值、sha、编号）必须回读设备/文件真值或经用户二次确认后才引用；暂时拿不到的，只能写「**看不清，待确认**」，禁止给具体值。
 - **防复发（硬规矩，与 RECORDING-RULES §7.9 同文）**：**任何作为结论依据的行、寄存器值、sha、编号，必须满足以下之一才可用作证据——① 用户明确确认过；② 从设备/文件回读的真值；③ 原始日志文本。三者都没有时，禁止写结论，只能写「观测不清，待核」。** 其中**地址类读数（panic / fault / 回溯地址）必须经用户核对后才允许用于符号映射与归因**，引用时标注「地址来源 = 用户核对屏摄」。操作细则（三重一致性校验、易混对、hex 位宽、裁切放大、只问用户是/否判断题）见 RECORDING-RULES §7。
-- **证据**：实例 1/2 有归档屏摄与 project_memory 登记；实例 3/4/5 为 2026-11-03 晚 SHNGROOT 签名轮，原屏摄 `E:\k60-work\evidence\screen-v5-2106-1.png`（2026-11-03 21:06 归档，sha256 `65B8DCAF…`；同轮另有 `screen-v5-2049-1.png` 20:49、`screen-v5-mountroot-2102.png` 21:07，后者与 2106-1 同 sha 为同一帧）；实例 6 为 2026-11-04 panic 屏摄，地址值经用户逐字核对（证据来源 = 用户核对屏摄 2026-11-04）。
+- **证据**：实例 1/2 有归档屏摄与 project_memory 登记；实例 3/4/5 为 2026-11-03 晚 SHNGROOT 签名轮，原屏摄 `E:\iOS Port\Work\evidence\screen-v5-2106-1.png`（2026-11-03 21:06 归档，sha256 `65B8DCAF…`；同轮另有 `screen-v5-2049-1.png` 20:49、`screen-v5-mountroot-2102.png` 21:07，后者与 2106-1 同 sha 为同一帧）；实例 6 为 2026-11-04 panic 屏摄，地址值经用户逐字核对（证据来源 = 用户核对屏摄 2026-11-04）。
 - **30 秒判定**：文档/报告里出现任何屏摄读数且没有「用户已核/回读真值/原始日志」三种来源标注 → 一律按「观测不清，待核」降级，禁止进入结论。
 
 ### 33. 把 df/du 的 Used 当成 WSL vhdx 物理占用
@@ -368,7 +368,7 @@
 
 - **症状**（2026-11-04，本条目即现场）：修「29 重号」的同一小时里，坑表连续出现 **29/29、30/30、32/32 三组重号**（每修好一组，复查就发现主线会话又追加了一条撞号的）；期间还出现 31→36 跳搬、38 号先占、37 号空缺的乱序。修的人刚改完旧 29，新的 30/32 又撞上来——**靠「读当前最大号 +1」取号在并发下必然撞车**。
 - **走错**：没有号段分配机制，每个会话都「读文件最大号 +1 就当自己的号用」；读与写之间有窗口期，两个会话读到同一个 max 就撞号。
-- **正确做法（写死）**：① **新坑条目取号必须先跑** `python E:\k60-work\tools\docs\alloc-pitfall-number.py`（锁文件 + 计数器 + 每次按当前最大号自愈兜底，并发安全有自测）；禁止自行读 max+1。② 任何会话收工前必须跑 `python E:\k60-work\tools\docs\check-docs.py`，退出码非 0 不得收工（RECORDING-RULES §9）。③ 修别人撞号时：后加者改号移卷末并写「编号说明」，先加者与已有引用不动。
+- **正确做法（写死）**：① **新坑条目取号必须先跑** `python E:\iOS Port\Work\tools\docs\alloc-pitfall-number.py`（锁文件 + 计数器 + 每次按当前最大号自愈兜底，并发安全有自测）；禁止自行读 max+1。② 任何会话收工前必须跑 `python E:\iOS Port\Work\tools\docs\check-docs.py`，退出码非 0 不得收工（RECORDING-RULES §9）。③ 修别人撞号时：后加者改号移卷末并写「编号说明」，先加者与已有引用不动。
 - **证据**：本轮 `Select-String '^### '` 三次复查输出（29 重 → 30 重 → 32 重 + 37 空缺）；分配器并发自测 5 进程 × 3 号 = 15 号无重复连续 PASS；`check-docs.py` check1 当场抓到 `missing=[37]`。
 - **30 秒判定**：要在坑表加条目 → 先跑分配器拿号再动笔；复查编号发现重号/跳号 → 跑 check-docs.py 定位，按③修。
 
@@ -378,7 +378,7 @@
 - **根因**：pong 的写法是 kext/KPI 编译域的可见性；xnu-8796 内核本体的 bsd/dev 编译单元里，`kern/thread.h` 的这部分原型不达（具体哪一层宏遮挡未逐层追——extern 即绕过，见下）。同族坑：第 36 条附 2（bsd 侧无 osfmk include 根，`arm64/*.h` 不能直引）。
 - **修复**：文件顶部与 `ml_io_map`/`pmap_find_phys` 同列加 `extern void thread_terminate_self(void);`，调用后接 `thread_block(THREAD_CONTINUE_NULL)`。
 - **防复发**：从 kext/参考驱动（pong、IOKit 域）往 bsd/dev 内核本体搬代码时，凡 osfmk/Mach 符号一律先按「声明可能不可达」处理：extern 声明 + 先编译验证再上机；头文件引用同理（第 36 条附 2）。
-- **证据**：`/tmp/usb-a-stage/out/mondrian/ipados-16.6.1-20G81/mondrian/logs/kernel-bootstrap.log` 两轮 error（行内 `k60_usblog.c:659`）；修复版 `E:\k60-work\usb-a-stage\stage-src\bsd\dev\k60_usblog.c:66-68`。
+- **证据**：`/tmp/usb-a-stage/out/mondrian/ipados-16.6.1-20G81/mondrian/logs/kernel-bootstrap.log` 两轮 error（行内 `k60_usblog.c:659`）；修复版 `E:\iOS Port\Work\usb-a-stage\stage-src\bsd\dev\k60_usblog.c:66-68`。
 - **30 秒判定**：bsd/dev 里调线程/Mach 原语报 undeclared → extern 声明 + 确认定义体存在于 osfmk 对象，不要去找「更对的头文件」。
 
 ### 40. boot.img 头字段 `kernel_size` 是未对齐真值：ramdisk 窗偏移必须按 4 KiB 对齐算
@@ -387,7 +387,7 @@
 - **根因**：头里的 `kernel_size` 是内核段的**精确字节数**（548,774），但版式把内核段**向上 4 KiB 对齐**后再放 ramdisk——窗口真实偏移 = `4096 + round_up(kernel_size, 4096)` = 552,960 = 0x87000（本机实测，payload 头字节在该偏移命中，窗尾+trailer 逐字节吻合）。与第 13 条同族：字段值 ≠ 布局真值。
 - **修复**：splice 工具改为对齐算式 + 三重断言（trailer==4096、payload 长度==ramdisk_size、输出总长==输入总长），并用 A 档旧 payload 做往返自测——重拼结果与原镜像 sha256 逐字节一致（`47c7bcee…` == REPORT-A 记录值）后才放行。
 - **防复发**：任何按版式字段定位窗口的工具，先做一次「旧料往返自测」再用于新产物；算式打印出来（offset/trailer/各段尺寸）进日志。
-- **证据**：`E:\k60-work\usb-a-stage\splice-bootimg.py`（算式与断言）；自测输出 `window_off=552960 trailer=4096`、双 sha 一致。
+- **证据**：`E:\iOS Port\Work\usb-a-stage\splice-bootimg.py`（算式与断言）；自测输出 `window_off=552960 trailer=4096`、双 sha 一致。
 - **30 秒判定**：用镜像头字段算偏移前 → 先问「这个字段对没对齐」；有旧产物就先跑往返自测。
 - **附（同轮工具小坑）**：第 4 轮内核构建命令误删 `tee`，之后把**上一轮的旧构建日志**当本轮失败现场读（`tail` 出 Error 2）——构建命令的输出落盘方式改动后，读日志前先核对 mtime。**同族再发（同日）**：`tail log; grep -c …` 链里 grep 失败时，shell 包装器打印的「Command error (exit code 2)」被误读成**构建**失败——实际上是构建仍在正常跑、失败的是我的 grep。教训：组合命令里任一成员失败都会污染对主任务的判读，监控命令与被监控任务分开跑、失败输出带命令名。
 
@@ -492,7 +492,7 @@
 ### 51. 删除构建树只查进程占用、不核跨线资产依赖
 
 - **症状**（2026-11-04，清理轮）：`/tmp/k60-consolecap`（8.5 G 隔离构建副本）被整树删除；删除前只查了「有没有进程在用」，没问「哪条线产物的唯一副本在这棵树里」。console 导出线的**已修好的构建环境**（feed HEAD 对齐、fakeroot 头种子、submodule gitdir 修复、mu_basecore 子模块内容恢复——第 32/35/36 条坑的修复现场）随之全灭，重建必须重踩一遍。
-- **幸免的资产（删除前已外置，本次零损失）**：内核补丁 `0243-k60-console-export.patch`（`UniXNU-mondrian/patches/xnu/` 工作树 + `E:\k60-work\deliverables\console-export-20261104\` + `E:\k60-work\tmp\`）、新文件源 `k60_console_export.c`（同 patch 与 tmp）、产物 boot.img/kernel.macho（交付目录）、排水器补丁 `drainer-for-v8.patch`（`deliverables/pong-init/`）。
+- **幸免的资产（删除前已外置，本次零损失）**：内核补丁 `0243-k60-console-export.patch`（`UniXNU-mondrian/patches/xnu/` 工作树 + `E:\iOS Port\Work\deliverables\console-export-20261104\` + `E:\iOS Port\Work\tmp\`）、新文件源 `k60_console_export.c`（同 patch 与 tmp）、产物 boot.img/kernel.macho（交付目录）、排水器补丁 `drainer-for-v8.patch`（`deliverables/pong-init/`）。
 - **根因**：构建副本里的「修复过的环境状态」是不可再生资产（等价于未提交的改动），但外观上像可再生的构建缓存；清理脚本的白名单按「目录名」放行/删除，不理解资产归属。
 - **防复发（写死）**：删除任何构建/工作树前必须回答两个问题——① 哪条线在用这棵树（问所有并行线的 HANDOFF/现状页）；② 树里有没有「未落到仓库/交付目录的修复现场」（fakeroot 种子、feed 对齐、submodule 修复、生成的补丁）。两问都有否定答案才许删；否则先把修复现场外置（哪怕是一份 README 记录怎么重做的）。
 - **证据**：本条资产自检记录（2026-11-04）；第 32/35/36 条所列坑的修复环境随树删除；交付目录 sha 核验一致（`SHA256SUMS.txt`）。
@@ -502,7 +502,7 @@
 
 - **症状**（2026-11-05，init-v11drain 写入后 Gate3b）：把 `(Get-FileHash ...).Hash.Length` 当成待验证二进制字节数；SHA-256 hex 长度固定为 64 字符，错误地只截取了 64 字节，报告 bare-prefix sha 不匹配。
 - **走错**：脚本将摘要字符串长度与 init 文件实际字节长度混用，未直接从目标文件 `Get-Item.Length` 取 34,912 B。
-- **证据**：写入段完整 36,864 B 回读 sha 与预写段均为 `ECEB785EA615906EB59A351062BA04F82472F0EAEA8EE6ECA99940E5E0B03FFD`；首个错误检查得 `EC61045F…`；随后按实际 `init-v11drain` 长度 34,912 B 重算，回读裸前缀 sha 与文件 sha 均为 `12B9DF42CB76C2FFE21A1326215ABE2021AD02CE332B9215E7C2B0FE1AC26B94`。证据目录：`E:\k60-work\rollback\pong-init-20261105-011015\`。
+- **证据**：写入段完整 36,864 B 回读 sha 与预写段均为 `ECEB785EA615906EB59A351062BA04F82472F0EAEA8EE6ECA99940E5E0B03FFD`；首个错误检查得 `EC61045F…`；随后按实际 `init-v11drain` 长度 34,912 B 重算，回读裸前缀 sha 与文件 sha 均为 `12B9DF42CB76C2FFE21A1326215ABE2021AD02CE332B9215E7C2B0FE1AC26B94`。证据目录：`E:\iOS Port\Work\rollback\pong-init-20261105-011015\`。
 - **根因**：摘要格式是 64 个十六进制字符，不代表目标二进制长度；错误表达式未区分摘要文本与文件字节。
 - **修复**：裸前缀长度直接取 `(Get-Item $New).Length`，从完整回读段复制该字节数后计算 SHA-256；整 extent sha 与 bare-prefix sha 分别核对。
 - **防复发**：校验脚本变量命名区分 `$newLenBytes`、`$shaHex`；测试里断言复制长度等于输入文件 `Length`，不可从摘要字符串推导。
@@ -666,13 +666,13 @@
   写 `launchd_unsecure_cache=/System/Library/xpc/launchd.plist` → 遇到 `/` 立即终止 → 返回 **0** →
   **当成关闭**。ios-sweet 的 boot 0039w 就是这样白跑一次。**只能写 `=1`**。
 - **证据**：
-  - `E:\k60-work\references\UniXNU-pong\userland\build-ipados18.py:224`
+  - `E:\iOS Port\Work\references\UniXNU-pong\userland\build-ipados18.py:224`
     → `cache_policy='launchd_unsecure_cache=1 development boot argument'`
-  - `E:\k60-work\forks-review\ios-sweet\NOTES.md:138` / `README.md:115`
+  - `E:\iOS Port\Work\forks-review\ios-sweet\NOTES.md:138` / `README.md:115`
     → “launchd accepts its job cache without AMFI”，并记录 strtoul base 10 这件事
   - 我们自己的反汇编 `deliverables/launchd-cache-loader-stub-20261105/launchd_cache_loader.original`
     → `sysctlbyname("kern.bootargs")` + `strstr("launchd_unsecure_cache=")` + `strtoul(...,10)`
-  - 实测日志 `E:\k60-work\evidence\usblog-20261106-002647\console.log`
+  - 实测日志 `E:\iOS Port\Work\evidence\usblog-20261106-002647\console.log`
 - **顺带反汇编结论（省下下次的功夫）**：
   - `0x100002350` **只取 `ports[0]`** 作为 launchd 端口；其余下标即使有效也不用。
   - `Trying to send bytes to launchd: %d %lu` 的第二个数是 **`vm_page_size`（4096）**，不是缓存大小。别误读。
@@ -701,7 +701,7 @@
   头部也应对：plist `62 70 6c 69 73 74 30 30 d6`（`bplist00`），sig `fa de 0c c0`（`CSMAGIC_EMBEDDED_SIGNATURE`）。
 - **注意**：`dd ... count=339` 配 `1384579 B` 的文件只会写 1,384,579 B（`338+1 records out`），
   不会覆盖 extent 尾部 slack，这是期望行为。
-- **防复发**：脚本 `E:\k60-work\usb-a-stage\scripts\restore-plist-twrp.ps1` 必须先 push 再
+- **防复发**：脚本 `E:\iOS Port\Work\usb-a-stage\scripts\restore-plist-twrp.ps1` 必须先 push 再
   **在设备上 `sha256sum` 验收**，然后写盘，最后再读回验收。三步都过才算完成。
 - **30 秒判定**：`od -An -tx1` 看到前 16 字节全 0 ⇒ 数据丢了，别怀疑上层，先补数据。
 
@@ -722,7 +722,7 @@
   - 必须门控：先判 boot-arg，再判 size 阈值（≥1 MiB），把早期噪声挡掉。
   - 打印点放在函数**最开头**（任何 vm_map/vm_object 锁之前）。
   - 新增探针补丁**单独一次 boot 验证**，不要和功能改动混在一起——否则分不清是谁打死的。
-- **证据**：`E:\k60-work\scratch\gen-0321.py`（三版探针）；
+- **证据**：`E:\iOS Port\Work\scratch\gen-0321.py`（三版探针）；
   0335 镜像 sha `b2cc04efba77e7d31e132946ffd90b4f127d7d004421e96882f75916e5d1c5d6`；
   回退后的已知可用镜像 0333 sha `d926aabac352c9ee12d133c2096d6dbe217f76f07cdd523a3d20e0f440fc4b2d`。
 - **30 秒判定**：加了内核探针后"串口都不出来" ⇒ 100% 是探针在早期上下文炸了，立刻回退，
@@ -1563,7 +1563,7 @@ In file included from /usr/include/dlfcn.h:22:      ← 落到了 Linux glibc！
 **结论**：no-Mac 构建需要一个**完整的最小 iOS 用户态头集**——
 约 15 个 C/POSIX 头（最小 typedef + 函数声明即可，只是编译期声明、不参与运行）+ Apple 框架声明。
 工具链本身（clang-18 + ld64.lld，见 #118）已验证可用，`-I` 顺序保证 shim 优先于 `/usr/include`。
-骨架脚本：`E:\k60-work\scratch\shim-inventory.sh`；错误清单：WSL `/tmp/uic_errors.txt`。
+骨架脚本：`E:\iOS Port\Work\scratch\shim-inventory.sh`；错误清单：WSL `/tmp/uic_errors.txt`。
 
 
 ### 120. `DRY RUN OK` 不等于补丁完整——补丁生成后必须 grep 关键内容
@@ -1738,7 +1738,7 @@ backboardd 都正常。定位手段：给 `device/userland/ui_compat.c` 的构�
 2. **`gen-0340-uilib.sh` 仍带坑 #120 的缺陷**：它对 `kern_exec.c` / `bsd/conf/files` 的
    `diff` 因 cwd 错误必然失败，却仍然打印 `DRY RUN OK` 并覆盖补丁，产出的 0340 只剩 blob、
    丢失调用点与 files 注册。**必须**用
-   `E:\k60-work\scratch\regen-0340-v2.sh`（git clone 干净基线 → 只 diff 三处 → 校验
+   `E:\iOS Port\Work\scratch\regen-0340-v2.sh`（git clone 干净基线 → 只 diff 三处 → 校验
    三个 `+++ b/` 各出现一次 → forward apply 验证）。
 
 ### 127. 内核 ~70 秒复位：kext 自建的 `CoreAnalyticsUserClient` 没有 ExpansionData
@@ -1962,7 +1962,7 @@ k60_panic_reset=1 k60_selftest_reboot=300                                 (+23)
 实测结果：**581 / 600** 字符，镜像 `boot-0431-selfreset.img`（`e5217f71…`）。
 
 **用法**：把自复位版刷上跑一次，之后每次启动都会在 300 秒后自动回 fb；
-`E:\k60-work\scratch\watch-and-boot.ps1` 会在检测到 fb 时自动刷下一个镜像，
+`E:\iOS Port\Work\scratch\watch-and-boot.ps1` 会在检测到 fb 时自动刷下一个镜像，
 从而形成"刷机 → 抓日志 → 自复位 → 刷下一版"的无人值守循环。
 
 **注意**：自复位版只适合实验迭代，正式验证 UI 时要换回不带该参数的镜像

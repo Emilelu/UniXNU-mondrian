@@ -79,17 +79,17 @@ def gpt_header(current_lba, backup_lba, first_usable, last_usable,
 
 
 def build(apfs, output, spare_mib=1):
-    apfs_bytes = apfs.read_bytes()
-    if apfs_bytes[32:36] != b'NXSB':
+    size = apfs.stat().st_size
+    head = apfs.open('rb').read(36)
+    if head[32:36] != b'NXSB':
         raise SystemExit(f'{apfs} is not an APFS container (no NXSB at offset 32)')
-    apfs_sectors = -(-len(apfs_bytes) // LBA)
-    lead_sectors = 2048                                  # 1 MiB before the partition
+    apfs_sectors = -(-size // LBA)
+    lead_sectors = 34                                    # GPT entry array only; the window has no spare MiB
     tail_sectors = (spare_mib * 1024 * 1024) // LBA
     total_sectors = lead_sectors + apfs_sectors + tail_sectors
     first_usable = 34
     last_usable = total_sectors - GPT_ENTRY_SECTORS - 2
 
-    disk_guid = '4B36304441544131-0000-0000-0000-000000000001'.replace('-', '')
     disk_guid = '4B363044-4154-4131-3030-000000000001'
     part_guid = '4B363044-4154-4131-3030-000000000002'
 
@@ -97,12 +97,8 @@ def build(apfs, output, spare_mib=1):
     first_lba = lead_sectors
     last_lba = lead_sectors + apfs_sectors - 1
     struct.pack_into('<16s16sQQQ72s', entries, 0,
-                     guid_bytes(APFS_TYPE),
-                     guid_bytes(part_guid),
-                     first_lba,
-                     last_lba,
-                     0,
-                     'K60 Data'.encode('utf-16-le'))
+                     guid_bytes(APFS_TYPE), guid_bytes(part_guid),
+                     first_lba, last_lba, 0, 'K60 Data'.encode('utf-16-le'))
     entries_crc = crc32(bytes(entries))
 
     primary = gpt_header(1, total_sectors - 1, first_usable, last_usable,
@@ -111,21 +107,32 @@ def build(apfs, output, spare_mib=1):
     backup = gpt_header(total_sectors - 1, 1, first_usable, last_usable,
                         backup_entries_lba, disk_guid, entries_crc)
 
-    image = bytearray(total_sectors * LBA)
-    image[0:LBA] = protective_mbr(total_sectors)
-    image[LBA:2 * LBA] = primary
-    image[2 * LBA:(2 + GPT_ENTRY_SECTORS) * LBA] = entries
-    image[lead_sectors * LBA:lead_sectors * LBA + len(apfs_bytes)] = apfs_bytes
-    image[backup_entries_lba * LBA:(backup_entries_lba + GPT_ENTRY_SECTORS) * LBA] = entries
-    image[(total_sectors - 1) * LBA:total_sectors * LBA] = backup
-
-    output.write_bytes(bytes(image))
-    return dict(output=str(output), bytes=len(image), total_sectors=total_sectors,
+    apfs_hash = hashlib.sha256()
+    image_hash = hashlib.sha256()
+    with output.open('wb') as out:
+        def put(data):
+            out.write(data); image_hash.update(data)
+        put(protective_mbr(total_sectors))
+        put(primary)
+        put(bytes(entries))
+        pad = lead_sectors * LBA - (2 + GPT_ENTRY_SECTORS) * LBA
+        if pad: put(bytes(pad))
+        with apfs.open('rb') as src:
+            while True:
+                chunk = src.read(8 * 1024 * 1024)
+                if not chunk: break
+                apfs_hash.update(chunk); put(chunk)
+        rest = total_sectors * LBA - (lead_sectors * LBA + apfs_sectors * LBA)
+        if rest: put(bytes(rest))
+    # The backup entries and header live at the tail; rewrite them in place.
+    with output.open('r+b') as out:
+        out.seek(backup_entries_lba * LBA); out.write(bytes(entries))
+        out.seek((total_sectors - 1) * LBA); out.write(backup)
+    return dict(output=str(output), bytes=total_sectors * LBA, total_sectors=total_sectors,
                 partition=dict(first_lba=first_lba, last_lba=last_lba,
                                type_guid=APFS_TYPE, name='K60 Data'),
-                apfs_bytes=len(apfs_bytes),
-                apfs_sha256=hashlib.sha256(apfs_bytes).hexdigest(),
-                image_sha256=hashlib.sha256(bytes(image)).hexdigest())
+                apfs_bytes=size, apfs_sha256=apfs_hash.hexdigest(),
+                image_sha256=image_hash.hexdigest())
 
 
 def main():

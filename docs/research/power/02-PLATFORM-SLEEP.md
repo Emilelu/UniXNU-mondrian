@@ -1,7 +1,7 @@
 # 平台睡眠（官网 §5 末段）调研
 
 状态：**ArmCpu 等待路径 + XNU hook + 板级 hook 已实现，host 73 + 1038 项断言；image z 默认启动已上机（SpringBoard）；w9/w10 已进入 IOCPUSleepKernel 并完成 prepare/restore 与 timer 唤醒，但完整恢复在 secondary `processor_start` 阶段硬挂，iOS16 平台睡眠暂停上机，转 iOS27 参考实现**。官网
-`https://unixnu.com/zh/porting/power` 的平台睡眠段落（快照 `E:/k60-work/scratch/power-page-20261117.txt:119-121`）
+`https://unixnu.com/zh/porting/power` 的平台睡眠段落（快照 `E:/iOS Port/Work/scratch/power-page-20261117.txt:119-121`）
 描述的是板级 XNU 睡眠 hook 与 ArmCpu 挂起路径。2026-11-19 已把 UniXNU/ArmCpu 组件的
 `ArmCpuSleep.h` 与等待路径移植进本仓库的 vendored `drivers/ArmCpu`，补丁 `0623` 提供 XNU 侧
 hook，板级记录在 `drivers/PongPower/K60PlatformSleep.cpp`；本文保留 sheng 参考事实、K60 现场
@@ -64,7 +64,7 @@ FDT 映射和剩余缺口（电源键 SPI 路由、看门狗喂狗、背光/触�
 
 ## 3. K60 现场 FDT 能确认的硬件
 
-来源：`E:/k60-work/reports/live-6033dbec-fdt.dtb`（真机 FDT 转 `/tmp/live.dts`，34,801 行）。
+来源：`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（真机 FDT 转 `/tmp/live.dts`，34,801 行）。
 
 | 项 | K60 值 | 与 sheng 的差异 |
 | --- | --- | --- |
@@ -194,8 +194,8 @@ sheng 的 lid 路径应整体去掉，TLMM 掩码逻辑仍可复用（汇总中�
 
 ## 9. 参考
 
-- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:119-121`。
+- 官网快照：`E:/iOS Port/Work/scratch/power-page-20261117.txt:119-121`。
 - sheng：`origin/main` `package/ShengSleep.h`、`ShengSleep.cpp`、
   `tests/sheng_sleep_host.c`；`porting.toml` power 区记录 `platform-sleep=1`。
-- K60 现场 FDT：`E:/k60-work/reports/live-6033dbec-fdt.dtb`（TLMM、PON、gpio-keys 节点）。
+- K60 现场 FDT：`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（TLMM、PON、gpio-keys 节点）。
 - 本仓库：`drivers/ArmCpu/`、`drivers/PongPower/K60CpuFreqProbe.cpp`、`K60PmicRail.h`。

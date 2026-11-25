@@ -14,7 +14,7 @@
 set -uo pipefail
 
 DROOT="${K60_D_ROOT:-/mnt/d/Android/k60-ios}"
-WROOT="${K60_W_ROOT:-$HOME/hackios}"
+WROOT="${K60_W_ROOT:-/mnt/e/iOS Port/Sources}"
 QUIET=0
 [ "${1:-}" = "--quiet" ] && QUIET=1
 
@@ -112,9 +112,10 @@ fi
 # the assertion.
 echo
 echo "== comparing our component sources against the reference tree =="
-if [ -x "$WROOT/UniXNU-mondrian/scripts/k60-compare-components.py" ] || \
-   [ -f "$WROOT/UniXNU-mondrian/scripts/k60-compare-components.py" ]; then
-	python3 "$WROOT/UniXNU-mondrian/scripts/k60-compare-components.py" || true
+COMPARE="$(dirname "$0")/k60-compare-components.py"
+[ -f "$COMPARE" ] || COMPARE="$WROOT/UniXNU-mondrian/scripts/k60-compare-components.py"
+if [ -f "$COMPARE" ]; then
+	python3 "$COMPARE" || true
 else
 	echo "  k60-compare-components.py is missing"
 fi

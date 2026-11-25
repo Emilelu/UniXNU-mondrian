@@ -42,9 +42,9 @@ ACTOR = os.environ.get("K60_AGENT_ID") or None
 def path_forms(path: str) -> set:
     """Every spelling the same checkout can take on this host.
 
-    TREE-OWNERS.toml writes WSL paths ("/mnt/e/hackios/k60-charger") because
+    TREE-OWNERS.toml writes WSL paths ("/mnt/e/iOS Port/Sources/Repos/Drivers/k60-charger") because
     that is what the build side sees, but the gate also runs from the Windows
-    host, where the same checkout is "E:/hackios/k60-charger". Comparing the
+    host, where the same checkout is "E:/iOS Port/Sources/Repos/Drivers/k60-charger". Comparing the
     two raw strings declares a registered tree unregistered, which is how a
     real ownership check turns into noise (P-184).
     """

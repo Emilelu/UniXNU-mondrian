@@ -1,0 +1,16 @@
+# SYNTHETIC. Not evidence: hand-built to prove the judge can return PASS at all, so the
+# gate cannot pass by always failing (P-290 family). Every number here is invented.
+Pong Metal: scanout version=2
+Pong Metal: abi=kernel=2/3104 client=2
+Pong Metal: gpuonly=1
+Pong Metal: offers=7431 dropped=0
+Pong Metal: scanout frames=1240 at 10.3 s; last frame: wait=300 us copy=900 us done=40 us; imports=1240 import=27 us encode=310 us submit=180 us gpu=2450 us sum=2967 us
+Pong Metal: scanout bench n=1/24 import=27 us encode=311 us submit=181 us gpu=2460 us sum=2979 us status=0x0 status=0x0
+Pong Metal: scanout bench n=2/24 import=26 us encode=305 us submit=179 us gpu=2440 us sum=2950 us status=0x0 status=0x0
+Pong Metal: scanout bench n=3/24 import=28 us encode=312 us submit=182 us gpu=2455 us sum=2977 us status=0x0 status=0x0
+Pong Metal: scanout bench n=4/24 import=27 us encode=308 us submit=180 us gpu=2450 us sum=2965 us status=0x0 status=0x0
+Pong Metal: scanout bench n=5/24 import=27 us encode=309 us submit=180 us gpu=2451 us sum=2967 us status=0x0 status=0x0
+Pong Metal: scanout bench n=6/24 import=27 us encode=307 us submit=180 us gpu=2449 us sum=2963 us status=0x0 status=0x0
+Pong Metal: scanout bench n=7/24 import=27 us encode=310 us submit=181 us gpu=2452 us sum=2970 us status=0x0 status=0x0
+Pong Metal: scanout bench n=8/24 import=27 us encode=306 us submit=180 us gpu=2448 us sum=2961 us status=0x0 status=0x0
+K60 PANEL: INTF1 after the UI frame te 120/s period 7679 us

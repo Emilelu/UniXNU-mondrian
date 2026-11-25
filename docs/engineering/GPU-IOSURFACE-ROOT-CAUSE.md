@@ -1,7 +1,7 @@
 # GPU Metal：加速器从未被用户态打开（含一次被推翻的归因）
 
 日期：2026-11-16（round 58–61）
-证据：`E:/k60-work/evidence/usblog-20261116-{164726,221257,224736,230446}/console.log`
+证据：`E:/iOS Port/Work/evidence/usblog-20261116-{164726,221257,224736,230446}/console.log`
 
 ## 1. 受控对照
 
@@ -22,7 +22,7 @@
 
 先前我把 `:132/:135 Couldn't alloc class "IOSurfaceRoot"`（`0332` 在
 `k60_skip_iosurface=1` 时跳过真 `com.apple.iokit.IOSurface` kext 的构造器）当成 GPU 根因。
-离线审计（`E:/k60-work/scratch/iosurface-trap-audit.md`，133 行）用对照日志否掉了它：
+离线审计（`E:/iOS Port/Work/scratch/iosurface-trap-audit.md`，133 行）用对照日志否掉了它：
 
 1. `usblog-20261116-164726` 那棵树**没有** 0622/0623（仍是 `class IOCoreSurfaceRoot` +
    `setName("IOCoreSurfaceRoot")`），却成功建了 3 个 `K60UF … cls=IOSurfaceRootUserClient`

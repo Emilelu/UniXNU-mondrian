@@ -304,7 +304,8 @@ def main():
             if state is None:
                 return text
             if state != 'closed':
-                return text + f'state = "{state}"\n'
+                return text + (f'state = "{state}"\n'
+                               'observe_via = "fixture: the totals the checker prints"\n')
             text += 'state = "closed"\n'
             return text + ('closed = "rebuilt, measured zero"\n' if closed_evidence else '')
         return '\n'.join(entry(name, state) for name, state in (

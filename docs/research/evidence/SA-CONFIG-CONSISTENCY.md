@@ -4,15 +4,15 @@ Date: 2026-11-12. Scope: one read-only checker, its offline tests, and this evid
 
 ## Sources inspected before implementation
 
-- `E:\hackios\UniXNU-mondrian\AGENTS.md:20-37,47-50,100-104,161-173`: durable results belong in the repository, verification needs offline evidence, and the repository owns configuration truth. The direct task limits changes to the three new files and forbids commit/push/tag/build/sync, so those actions are intentionally absent.
-- `E:\hackios\UniXNU-mondrian\README.md:5,40-49,133-135`, `E:\hackios\UniXNU-mondrian\docs\engineering\STATUS.md:6,44-57`, and `E:\hackios\UniXNU-mondrian\docs\engineering\EIGHT-STEP-SPEC.md:193-218`: current target, repository licence, and the local verification requirement were read.
-- `E:\hackios\UniXNU\scripts\unixnu\config.py:82-107`: source grammar strips each line, handles `CONFIG_X=y/n`, quoted strings without escape decoding, decimal or lowercase-`0x` integers (including negative values), and `# CONFIG_X is not set`. Unrelated comments and blanks are ignored. Source parser stores the final assignment.
-- `E:\hackios\UniXNU\scripts\unixnu\config.py:117,146-167`: schema-2 output is `OUT / board.name / os_profile / selected.removesuffix('_defconfig') / '.config'`.
-- `E:\hackios\UniXNU\scripts\unixnu\cli.py:17-24,114-137`: `--out` selects the output root; only the explicit defconfig command writes the generated file, by concatenating profile fragments before the selected device defconfig.
-- `E:\hackios\UniXNU-mondrian\board.toml:1-18`: schema 2, board `mondrian`, OS profile `ipados-16.6.1-20G81`, selected `mondrian_defconfig`. Together with the specified K60 output root this derives `/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/.config`.
-- `E:\hackios\UniXNU-mondrian\configs\mondrian_defconfig:42-49,72`: old seed UUID occurs in a comment; the explicit Data UUID is `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`, and a disabled symbol uses the unset-comment form.
-- `E:\hackios\UniXNU\profiles\arch\arm64\configs\common.config:1-8`: fragments enable `XNU_SOURCE_CORECRYPTO14`, `XNU_SOURCE_PTHREAD`, and `XNU_NATIVE_AES`; the current device defconfig explicitly disables them. This matters for the strict duplicate policy below.
-- `E:\hackios\UniXNU-mondrian\scripts\sync-device-input.py:18-19,24-33`: the existing K60 defaults use the same device mirror and framework/output tree. This script was read, never run.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\AGENTS.md:20-37,47-50,100-104,161-173`: durable results belong in the repository, verification needs offline evidence, and the repository owns configuration truth. The direct task limits changes to the three new files and forbids commit/push/tag/build/sync, so those actions are intentionally absent.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\README.md:5,40-49,133-135`, `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\docs\engineering\STATUS.md:6,44-57`, and `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\docs\engineering\EIGHT-STEP-SPEC.md:193-218`: current target, repository licence, and the local verification requirement were read.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\config.py:82-107`: source grammar strips each line, handles `CONFIG_X=y/n`, quoted strings without escape decoding, decimal or lowercase-`0x` integers (including negative values), and `# CONFIG_X is not set`. Unrelated comments and blanks are ignored. Source parser stores the final assignment.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\config.py:117,146-167`: schema-2 output is `OUT / board.name / os_profile / selected.removesuffix('_defconfig') / '.config'`.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\cli.py:17-24,114-137`: `--out` selects the output root; only the explicit defconfig command writes the generated file, by concatenating profile fragments before the selected device defconfig.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\board.toml:1-18`: schema 2, board `mondrian`, OS profile `ipados-16.6.1-20G81`, selected `mondrian_defconfig`. Together with the specified K60 output root this derives `/opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/.config`.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\configs\mondrian_defconfig:42-49,72`: old seed UUID occurs in a comment; the explicit Data UUID is `1BCD69FF-24A5-48B1-94B6-8FE592B2F597`, and a disabled symbol uses the unset-comment form.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\profiles\arch\arm64\configs\common.config:1-8`: fragments enable `XNU_SOURCE_CORECRYPTO14`, `XNU_SOURCE_PTHREAD`, and `XNU_NATIVE_AES`; the current device defconfig explicitly disables them. This matters for the strict duplicate policy below.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\scripts\sync-device-input.py:18-19,24-33`: the existing K60 defaults use the same device mirror and framework/output tree. This script was read, never run.
 
 ## Decisions before coding
 
@@ -24,9 +24,9 @@ Integration concern reported to Lead before coding: UniXNU currently concatenate
 
 ## Commands and results
 
-Initial read-only checks from `E:\hackios\UniXNU-mondrian`: the first `git status --porcelain` produced no output; `python3 --version` reported `Python 3.14.5`. An initial combined tool-discovery command exited 1 because optional `py` and `rg` commands were absent; a focused Python/status check exited 0. No build command was invoked.
+Initial read-only checks from `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian`: the first `git status --porcelain` produced no output; `python3 --version` reported `Python 3.14.5`. An initial combined tool-discovery command exited 1 because optional `py` and `rg` commands were absent; a focused Python/status check exited 0. No build command was invoked.
 
-Offline tests, run from `E:\hackios\UniXNU-mondrian`:
+Offline tests, run from `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian`:
 
 ```text
 python3 -B scripts\tests\test-config-consistency.py -v
@@ -60,7 +60,7 @@ Read-only live check under WSL, with no `defconfig` or build invocation:
 wsl.exe -d Ubuntu-24.04 -- stat --format=%s -- /opt/k60/trees/k60build/out-baseline/mondrian/ipados-16.6.1-20G81/mondrian/.config
 3970
 
-wsl.exe -d Ubuntu-24.04 -- python3 -B /mnt/e/hackios/UniXNU-mondrian/scripts/check-config-consistency.py
+wsl.exe -d Ubuntu-24.04 -- python3 -B /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/check-config-consistency.py
 checker exit code: 1
 FAIL: configuration consistency
   - .../.config:17: conflicting duplicate CONFIG_XNU_NATIVE_AES: line 6 has y; line 17 has n
@@ -75,8 +75,8 @@ The live file's Data UUID at line 75 is already `1BCD69FF-24A5-48B1-94B6-8FE592B
 
 Artifacts:
 
-- `E:\hackios\UniXNU-mondrian\scripts\check-config-consistency.py` — 6,708 bytes, 176 lines, SHA256 `EF59B1EF61315360C17390B733A59A6423D98E1687A1BB0CD34C915EBA27193A`.
-- `E:\hackios\UniXNU-mondrian\scripts\tests\test-config-consistency.py` — 9,335 bytes, 204 lines, SHA256 `F72A8B4665233D3CFF0A893E40B6C27324DA412184311DBC62B2DCDE94EFE720`.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\scripts\check-config-consistency.py` — 6,708 bytes, 176 lines, SHA256 `EF59B1EF61315360C17390B733A59A6423D98E1687A1BB0CD34C915EBA27193A`.
+- `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\scripts\tests\test-config-consistency.py` — 9,335 bytes, 204 lines, SHA256 `F72A8B4665233D3CFF0A893E40B6C27324DA412184311DBC62B2DCDE94EFE720`.
 
 ## Unresolved design concern
 

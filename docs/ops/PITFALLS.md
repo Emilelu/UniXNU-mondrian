@@ -110,8 +110,8 @@
 
 - **现象**：`package-datafix.py` 的 `mcopy -o -i payload.img ::/EFI/UniXNU/Payloads/kernel.macho extracted/kernel.macho` 在目标已存在时不走 stdin，直接 `open("/dev/tty")` 等待人工确认；进程 S 态、`/proc/<pid>/io` 无读写增长，脚本无限挂起（13:05 那轮「拷完 payload 后被中断」即此；2026-11-03 v1 打包复现两次）。
 - **为什么当初走错**：把 `-o`（overwrite）当成「永不询问」；实际上 mtools 对「已存在的落盘目标」仍可能经 `/dev/tty` 确认，stdin 重定向无效（它根本不读 stdin）。
-- **正确做法**：重跑前 `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`；并用 `setsid python3 E:\k60-work\tools\package-datafix.py < /dev/null`（新会话无控制终端，`/dev/tty` 打不开即不会等待）。判定卡死：`ls -l /proc/<mcopy_pid>/fd`，fd 4 指向 `/dev/tty` 即中。
-- **证据**：`/proc/388/fd` 实录 fd 4 → `/dev/tty`、wchan=`wait_woken`（2026-11-03 14:27）；`E:\k60-work\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1。
+- **正确做法**：重跑前 `rm -f extracted/kernel.macho extracted/kernel.macho.adt extracted/unixnu.toml extracted/verify.adt`；并用 `setsid python3 E:\iOS Port\Work\tools\package-datafix.py < /dev/null`（新会话无控制终端，`/dev/tty` 打不开即不会等待）。判定卡死：`ls -l /proc/<mcopy_pid>/fd`，fd 4 指向 `/dev/tty` 即中。
+- **证据**：`/proc/388/fd` 实录 fd 4 → `/dev/tty`、wchan=`wait_woken`（2026-11-03 14:27）；`E:\iOS Port\Work\usb-a-stage\DIFF-AMFI-PRELINK.md` §5.1。
 - **30 秒判定**：打包脚本含 `mcopy` 且 `extracted/` 非空 → 先删目标再跑；发现打包 5 分钟无产物 → 查 fd 是否挂 `/dev/tty`，挂则 kill 后按正确做法重跑。
 
 ---
@@ -252,7 +252,7 @@
 
 ### P-23 同名不同物：`scratch/payload-0461.img` 不是 `boot-0461-20261107.img` 里的 payload
 
-- **症状**：我拿 `/mnt/e/k60-work/scratch/payload-0461.img` 当"黄金 payload"去打包，结果它的 `unixnu.toml` 只有 **16 项 args**（`debug=0x144`，无 `k60_usblog=2`、无 `k60_skip_firmware_mount=1`、无 `amfi_get_out_of_my_way=1`），根本不可能产生 11-07 那份带串口日志的启动。
+- **症状**：我拿 `/mnt/e/iOS Port/Work/scratch/payload-0461.img` 当"黄金 payload"去打包，结果它的 `unixnu.toml` 只有 **16 项 args**（`debug=0x144`，无 `k60_usblog=2`、无 `k60_skip_firmware_mount=1`、无 `amfi_get_out_of_my_way=1`），根本不可能产生 11-07 那份带串口日志的启动。
 - **根因**：文件名都叫 `payload-0461`，但 `scratch/payload-0461.img` 与 `boot-0461-20261107.img` 内嵌的 payload **不是同一份**（前者是同日另一次迭代的中间产物）。判断一个镜像用哪套 args，**只能从该镜像内部提取**。
 - **正确做法**：从镜像取 payload：
   `ksize=u32@8` → `off = 4096 + ceil(ksize/4096)*4096` → 读 201,326,592 B → `mcopy -i <payload> ::/EFI/UniXNU/unixnu.toml`。
@@ -563,7 +563,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 ### P-44 改补丁必须改**三方**（repo 补丁 / device 补丁 / 构建树），只改一处会被覆盖
 
 - **三方位置**：
-  1. `E:\hackios\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
+  1. `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
   2. `/tmp/usb-cdc-mainline/device/patches/xnu/<补丁>`（buildv15 会从 repo 覆盖这里）
   3. `$B/tree/.cache/xnu-work/...`（**构建真正编译的树**，每次清树重建）
 - **本轮实证的踩坑链**：
@@ -587,11 +587,11 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   `git apply` 报 `corrupt patch at line N` 或编译报 `unterminated conditional directive`（因为
   `git apply` 按头部行数截断，把文件末尾的 `#endif` 丢掉了）。
 - **本轮踩坑次数**：至少 4 次（`pong_buttons.c` 149→150、143→147、`bsd_init.c` 6,10→6,12→6,16 等）。
-- **根治**：`/mnt/e/k60-work/scratch/fix-patch-hunks.py` 扫描所有 `.patch`，按正文实际行数重算每个
+- **根治**：`/mnt/e/iOS Port/Work/scratch/fix-patch-hunks.py` 扫描所有 `.patch`，按正文实际行数重算每个
   `@@` 头（含 `-0,0 +1,N` 新文件形式），并已**集成进 `buildv15.sh` 的第 2b 步**——
   每次构建前自动运行，手改正文再也不会弄坏构建。
 - **30 秒判定**：任何 `corrupt patch` / `unterminated` 报错，先跑一次
-  `python3 E:/k60-work/scratch/fix-patch-hunks.py`，通常直接解决。
+  `python3 E:/iOS Port/Work/scratch/fix-patch-hunks.py`，通常直接解决。
 
 ### P-47 `if (!PE_parse_boot_argn(...) || !enabled) return;` —— 真正的门控杀手
 

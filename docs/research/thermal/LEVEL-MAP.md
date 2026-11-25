@@ -261,7 +261,7 @@ python3 scripts/check-thermal-kernel-patch.py
 # 判据表本身能不能失败（干净日志必须过、每处改动必须挂）
 python3 scripts/check-thermal-log.py --self-test
 # 把判据施加到一份真实日志上
-python3 scripts/check-thermal-log.py --log /mnt/e/k60-work/evidence/usblog-20261115-003922/console.log
+python3 scripts/check-thermal-log.py --log /mnt/e/iOS Port/Work/evidence/usblog-20261115-003922/console.log
 ```
 
 ## 8 与其它文档的关系

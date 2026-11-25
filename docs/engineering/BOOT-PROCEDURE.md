@@ -29,21 +29,21 @@ can be tested offline.
 ## One command
 
 ```bash
-bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh /mnt/e/k60-work/usb-a-stage/out/<img> <seconds>
+bash /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/flash.sh /mnt/e/iOS Port/Work/usb-a-stage/out/<img> <seconds>
 ```
 
 When the patch set differs from the last successful boot, gate item S requires
 an explicit declaration:
 
 ```bash
-K60_FORCE_NEW=1 bash /mnt/e/hackios/UniXNU-mondrian/scripts/flash.sh <img> <seconds>
+K60_FORCE_NEW=1 bash /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/scripts/flash.sh <img> <seconds>
 ```
 
 `K60_FORCE_NEW=1` is not a bypass: every other item is still checked, the run
 just no longer fails for the sole reason that the patch set changed.
 
 The script lives in the repository (`scripts/flash.sh`), not in
-`/mnt/e/k60-work/scripts/` - a file outside the repository is never committed,
+`/mnt/e/iOS Port/Work/scripts/` - a file outside the repository is never committed,
 never reviewed and never seen by a gate, which violates iron rule 1.
 
 ## Three roles, no crossing the line
@@ -64,7 +64,7 @@ exits with `capture-busy` (rc=3) and writes no second copy of the evidence.
 先到先得只有在单写者成立时才是安全的：两个 agent 同时 `fastboot boot`，后者的抓取会对着
 已经换了镜像的设备，日志与镜像对不上——那比没有日志更坏，因为它会给出**看起来有证据**的错误结论。
 
-所以 claim 是**机器级**的，落在 `E:\k60-work\state\k60-device-boot.lock`：
+所以 claim 是**机器级**的，落在 `E:\iOS Port\Work\state\k60-device-boot.lock`：
 
 | 位置 | 行为 |
 | --- | --- |
@@ -99,7 +99,7 @@ Windows `FileShare::None` 句柄——两个不同锁域，探测在语义上看
 
 ## What the evidence directory holds
 
-`E:\k60-work\evidence\usblog-<yyyyMMdd-HHmmss>\`
+`E:\iOS Port\Work\evidence\usblog-<yyyyMMdd-HHmmss>\`
 
 - `console.log` - raw serial bytes, the only body of evidence
 - `capture.json` - the structured criterion: `state`, `complete`, `stopReason`,

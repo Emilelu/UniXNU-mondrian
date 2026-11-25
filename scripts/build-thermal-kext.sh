@@ -27,7 +27,7 @@
 #   scripts/build-thermal-kext.sh [--out DIR] [--tree DIR]
 #
 # Environment:
-#   K60_XNU_TREE      built XNU tree (default /mnt/e/hackios/UniXNU/out/mondrian/tree)
+#   K60_XNU_TREE      built XNU tree (default /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/mondrian/tree)
 #   K60_XNU_CLANG     C++ compiler (default /opt/unixnu-linux/llvm/bin/clang++)
 #   K60_LLVM_AR       archiver (default llvm-ar next to the compiler)
 #   K60_LLVM_NM       nm (default llvm-nm next to the compiler)
@@ -41,7 +41,7 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SOURCES=${K60_THERMAL_SOURCES:-$ROOT/drivers/PongThermal}
 OUT=$ROOT/build/thermal-kext
-TREE=${K60_XNU_TREE:-/mnt/e/hackios/UniXNU/out/mondrian/tree}
+TREE=${K60_XNU_TREE:-/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/mondrian/tree}
 TARGET=arm64-apple-ios16.6.1
 
 ALLOW_NO_KPI=0

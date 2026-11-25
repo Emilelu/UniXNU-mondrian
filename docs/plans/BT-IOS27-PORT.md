@@ -786,4 +786,4 @@ kernel/firmware flight is recorded there (d11 PASS, d12 observation).
   Bluetooth usable; §6 lists the wiring it needs.
 - Rollback images are restored: d8 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`
   and d10 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`
-  are both byte-exact in `E:/k60-work/artifacts`.
+  are both byte-exact in `E:/iOS Port/Work/artifacts`.

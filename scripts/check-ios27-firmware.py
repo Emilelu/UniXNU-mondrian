@@ -29,6 +29,7 @@ because a structural build should keep producing artifacts for the other gates
 while this defect is open; the flight gate is where it becomes fatal.
 """
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -127,6 +128,29 @@ def check(search, platform=None):
     return result
 
 
+SIBLINGS = {'uefi': 'uefi-mondrian', 'soc': 'UniXNU-sm8475-common',
+            'device': 'UniXNU-mondrian'}
+
+
+def default_field(name, board):
+    """Where a placeholder points when the caller did not say.
+
+    A registry entry has to be a command that passes by itself, so the four
+    path placeholders get the sibling checkout a developer actually has; when
+    that is missing the value points at a path that cannot exist, so the gate
+    reports "no DSC on the search path" instead of silently reading ours.
+    """
+    override = os.environ.get('K60_%s_REPO' % name.upper())
+    if override:
+        return override
+    sibling = SIBLINGS.get(name)
+    if sibling:
+        candidate = Path(board).resolve().parent / sibling
+        if candidate.is_dir():
+            return str(candidate)
+    return str(Path('/nonexistent') / (sibling or name))
+
+
 def search_from_board(device, fields):
     """The PACKAGES_PATH order the build will use, read from board.toml itself.
 
@@ -167,9 +191,11 @@ def main(argv=None):
 
     search = list(args.search or [])
     if args.board:
-        search = search_from_board(args.board, {
-            'uefi': args.uefi, 'tree': args.tree, 'soc': args.soc, 'edk2': args.edk2,
-            'device': args.board, 'framework': '', 'build': ''})
+        fields = {'device': str(args.board), 'framework': '', 'build': ''}
+        for name, given in (('uefi', args.uefi), ('tree', args.tree),
+                            ('soc', args.soc), ('edk2', args.edk2)):
+            fields[name] = given if given else default_field(name, args.board)
+        search = search_from_board(args.board, fields)
     if args.dsc:
         search = [str(args.dsc.parents[2])] if len(args.dsc.parents) >= 3 else search
     if not search:

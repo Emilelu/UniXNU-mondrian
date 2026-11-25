@@ -7,8 +7,8 @@
 
 ## 1. 参考实现 A：UniXNU-sheng（同族 UniXNU，SM8550）
 
-路径 `E:/k60-work/references/UniXNU-sheng/package/`（注意：`/mnt/e/hackios/UniXNU-sheng/package` 里
-`grep tsens` 无命中，热管理只在 `E:/k60-work/references` 的这份副本里，别被空 grep 误导）。
+路径 `E:/iOS Port/Work/references/UniXNU-sheng/package/`（注意：`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package` 里
+`grep tsens` 无命中，热管理只在 `E:/iOS Port/Work/references` 的这份副本里，别被空 grep 误导）。
 
 ### 1.1 它读什么
 
@@ -54,7 +54,7 @@
 
 ## 2. 参考实现 B：phk110-port（POCO X5 Pro / SM6375，**有实测**）
 
-路径 `E:/k60-work/references/phk110-port/drivers/power/hakios.thermal.c`（283 行）。
+路径 `E:/iOS Port/Work/references/phk110-port/drivers/power/hakios.thermal.c`（283 行）。
 
 ### 2.1 最关键的一条：TM 基址与 K60 完全相同
 
@@ -101,7 +101,7 @@ value  = (int32_t)(status << 20) >> 20;                  /* bit11 符号扩展 =
 
 ## 3. 参考实现 C：dt-thermal.py（生成器，可直接改用）
 
-`E:/k60-work/references/phk110-port/tools/dt-thermal.py`（76 行）：从 Qualcomm DTB 抽"传感器表"。
+`E:/iOS Port/Work/references/phk110-port/tools/dt-thermal.py`（76 行）：从 Qualcomm DTB 抽"传感器表"。
 
 - `:38-40`：挑 `compatible` 含 `qcom,tsens26xx` 且带 phandle 的节点，建 phandle → reg 映射，
   取 `reg[2]`（第二段的第一个 cell）作为 TM 基址。

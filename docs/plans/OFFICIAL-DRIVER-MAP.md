@@ -1,8 +1,8 @@
 # K60 硬件 → 官方 UniXNU 组件映射与板级输入清单
 
-> 调研快照：UniXNU 官方文档/组件目录 `E:/hackios/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`（2026-11-07）；K60 设备仓 `E:/hackios/UniXNU-mondrian` @ `9b4fec1d8708df7ed942ceab05bdef1963ad9e8f`。
+> 调研快照：UniXNU 官方文档/组件目录 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU` @ `75ae626a12764c706fc0b94c52a3eea09447dbaa`（2026-11-07）；K60 设备仓 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` @ `9b4fec1d8708df7ed942ceab05bdef1963ad9e8f`。
 >
-> 引用约定：`docs/...` 指官方 `E:/hackios/UniXNU/docs/...`；`K60:docs/...` 指设备仓 `E:/hackios/UniXNU-mondrian/docs/...`；`components.toml` 指 `E:/hackios/UniXNU/components.toml`；`README.md`/`board.toml`/`porting.toml`/`dts/` 指设备仓根目录。`build-gop-legacy-display*.py` 等脚本位于 `E:/hackios/UniXNU-sheng/scripts/` 或 `E:/hackios/UniXNU/scripts/`，行号按本次读取的本地快照。
+> 引用约定：`docs/...` 指官方 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/...`；`K60:docs/...` 指设备仓 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/docs/...`；`components.toml` 指 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml`；`README.md`/`board.toml`/`porting.toml`/`dts/` 指设备仓根目录。`build-gop-legacy-display*.py` 等脚本位于 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/scripts/` 或 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/scripts/`，行号按本次读取的本地快照。
 
 > 2026-11-08 LIVE 复核：本文件在本地快照（2026-10-29/11-07）基础上，按官网查询重抓「3. 适配驱动」16 项共 39 页；正文按 ①结论 → ②硬件映射 → ③板级输入 → ④版本表 → ⑤pong 对比 → ⑥未核实 重排，16 项覆盖核对与五问回答放在附录 B/C，页面来源见附录 A。
 
@@ -267,7 +267,7 @@
 
 | # | 项 | 现状 | 闭合方式 |
 |---:|---|---|---|
-| N1 | 官方页面 LIVE 与本地存档差异 | 本次 16 项 39 页全部用 LIVE；`porting/drivers.md` 等页面在 2026-11-08 已比 2026-11-04 存档新；本文件部分旧表引用的仍是本地 `E:/hackios/UniXNU/docs` 快照（2026-10-29） | 每次改动前用 `query.py --live` 重抓；引用行号以本地快照为准，结论以 LIVE 为准 |
+| N1 | 官方页面 LIVE 与本地存档差异 | 本次 16 项 39 页全部用 LIVE；`porting/drivers.md` 等页面在 2026-11-08 已比 2026-11-04 存档新；本文件部分旧表引用的仍是本地 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs` 快照（2026-10-29） | 每次改动前用 `query.py --live` 重抓；引用行号以本地快照为准，结论以 LIVE 为准 |
 | N2 | K60 Goodix 具体型号/ABI（Berlin vs GT9xx） | DT 只有 `xiaomi,m11a-spi` / `goodix_firmware_m11a`；0242 双 ABI 均未在真机读到 ID | stage 4 `k60touchstage=4 k60rpmhoff=1` 读 `0x10014`/`0x8140`，看 `abi berlin` 或 `abi gt9xx` |
 | N3 | K60 RSC/TCS `0x17a00000/0x17a20000` 可达性 | 0240 称 drv-2 可读、0246 称首读 TCS 整机死；根因未定（XPU/电源域/互连） | 只用 0248 只读探针；先确认 XPU/电源域，不写 TCS |
 | N4 | K60 IOVDD（pm8350c ldoc2）冷启动状态 | `k60rpmhoff=1` 时假设 bootloader/Android 已开 ldo2；冷启动是否成立未知 | Android 热重启进 fastboot 再 boot，对比冷启动 ID 结果 |
@@ -465,7 +465,7 @@
 
 ## 附录 B iOS 版本适用性
 
-**全局事实：** 对 `E:/hackios/UniXNU/docs/drivers`、`docs/porting`、`docs/reference` 三个目录做全文检索，`16.6.1` 与 `20G81` 命中数均为 **0**。官方文档只在通用 arm64 说明里承认 iOS 16 可作为 arm64 profile（`docs/porting/arm64e.md:6`：“Other devices use an arm64 profile (iOS 16 or iPadOS 17, for example `ipados-17.7.11-21H461`)”），但没有任何组件级 16.6.1 验证声明。K60 的 `profiles/os/ipados-16.6.1-20G81/profile.toml` 存在，只证明 OS 配置层可选。
+**全局事实：** 对 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/drivers`、`docs/porting`、`docs/reference` 三个目录做全文检索，`16.6.1` 与 `20G81` 命中数均为 **0**。官方文档只在通用 arm64 说明里承认 iOS 16 可作为 arm64 profile（`docs/porting/arm64e.md:6`：“Other devices use an arm64 profile (iOS 16 or iPadOS 17, for example `ipados-17.7.11-21H461`)”），但没有任何组件级 16.6.1 验证声明。K60 的 `profiles/os/ipados-16.6.1-20G81/profile.toml` 存在，只证明 OS 配置层可选。
 
 | 组件 / 页面 | 文档明示版本（路径:行号） | 16.6.1 / 20G81 标注 |
 | --- | --- | --- |

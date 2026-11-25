@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """Compare our component sources against the Pong reference tree.
 
@@ -19,7 +20,7 @@ import sys
 from pathlib import Path
 
 DEVICE = Path(__file__).resolve().parents[1]
-REFERENCE = Path('/home/emilelu/hackios/UniXNU-pong')
+REFERENCE = Path(os.environ.get('K60_PONG_REF', '/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-pong'))
 
 # Files that are expected to differ: the licence and the bundle metadata are
 # per-repository, and the DarwinBoot component is a different major version.

@@ -20,7 +20,7 @@ import sys
 from datetime import datetime
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WORK = "/mnt/e/k60-work"
+WORK = "/mnt/e/iOS Port/Work"
 # Keep this identical to porting-gate.py: the fingerprint must describe
 # the series the build actually applied (P-194).
 SERIES = os.path.join(REPO, "patches/xnu/series")

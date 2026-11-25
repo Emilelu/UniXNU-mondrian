@@ -1,0 +1,58 @@
+# Reference and UniXNU repositories this port reads from (iron rule 15).
+#
+# scripts/check-upstream-sync.py --apply fetches each one and records when, the
+# local head and the head of the upstream branch it follows. The gate then fails
+# when a fetch is older than the limit, when a recorded head moved (the clone is
+# behind), when a read_only clone is behind the upstream it follows, and when the
+# official device pages gain an entry naming this SoC.
+#
+# read_only = true means we only read it: being behind is a defect. Our own
+# repositories are fetched too, but being ahead is normal there.
+
+[[repo]]
+name = "framework"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU"
+description = "官方框架仓库（origin 只读，写走 fork）"
+read_only = true
+
+[[repo]]
+name = "sheng"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng"
+description = "同代 SM8550 线，arm64e/27 的主要参考"
+read_only = true
+
+[[repo]]
+name = "t970"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-t970"
+description = "SM8475 同 SoC（Galaxy Tab S7+）"
+read_only = true
+
+[[repo]]
+name = "zizhan"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan"
+description = "SM8475 同 SoC（小米 MIX Fold 2）"
+read_only = true
+
+[[repo]]
+name = "sm8475-common"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sm8475-common"
+description = "本板 SoC feed（27 系列的 soc 层）"
+read_only = false
+
+[[repo]]
+name = "gates"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-gates"
+description = "本仓主检出"
+read_only = false
+
+[[repo]]
+name = "device"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian"
+description = "设备仓共享检出"
+read_only = false
+
+[[repo]]
+name = "uefi"
+path = "/mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian"
+description = "固件仓"
+read_only = false

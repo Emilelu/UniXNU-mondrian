@@ -4,7 +4,7 @@
 
 ## 1. 为什么换掉 reply md
 
-`E:\k60-work\scratch\reply-<line>-<date>.md` 是**整文件覆盖**，它只解决「有个地方能写字」，没解决通信：
+`E:\iOS Port\Work\scratch\reply-<line>-<date>.md` 是**整文件覆盖**，它只解决「有个地方能写字」，没解决通信：
 
 | 失败形状 | 实际发生过 |
 | --- | --- |
@@ -21,7 +21,7 @@
 一个开在共享磁盘上的**追加式**消息总线，没有守护进程、没有端口、没有依赖，Windows Python 与 WSL Python 都能用同一份数据：
 
 ```
-E:\k60-work\bus\
+E:\iOS Port\Work\bus\
   bus.jsonl          每行一条消息（JSON），只追加不修改
   cursors\<lane>.json 每条线自己的字节偏移
 ```
@@ -75,7 +75,7 @@ python3 scripts/k60-bus.py watch --for lead     # 0.5 s 轮询，来一条打一
 3. **不持久保存历史决策**。总线是运行时状态，不是归档：需要留档的结论进 `docs/`，总线里的讨论可以被清理。
 4. **不跨机**。同一个 `E:` 盘，同一台机器。
 
-清理：`E:\k60-work\bus\bus.jsonl` 可以直接删（游标会让每条线从头读，所以删之前先 `read` 一遍或把游标一起删）。
+清理：`E:\iOS Port\Work\bus\bus.jsonl` 可以直接删（游标会让每条线从头读，所以删之前先 `read` 一遍或把游标一起删）。
 
 ## 6. 备选方案与不选它的理由
 
@@ -110,7 +110,7 @@ python3 scripts/k60-bus.py watch --for lead     # 0.5 s 轮询，来一条打一
 
 保留总线而不用消息替代的三个理由：
 
-1. **审计**。`send_agent_message` 的投递不落盘到仓库，事后无法回答「谁在什么时候被谁指派了什么」；`E:\k60-work\bus\bus.jsonl` 是可 grep 的文本。
+1. **审计**。`send_agent_message` 的投递不落盘到仓库，事后无法回答「谁在什么时候被谁指派了什么」；`E:\iOS Port\Work\bus\bus.jsonl` 是可 grep 的文本。
 2. **广播**。`to` 只接受一个 session id，发五条线要发五次，而广播是「同一条决策要所有线知道」的常见形状。
 3. **session id 会变**。新开会话就是新 id，总线不依赖它，换会话也照样通。
 

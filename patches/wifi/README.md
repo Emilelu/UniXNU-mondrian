@@ -1,7 +1,7 @@
 # K60 WiFi 最终补丁系列
 
 > 基线：`/opt/k60/trees/usb-cdc-mainline/device` 工作树（HEAD `70a1e4c`，含主 agent 的 GPU/触摸改动）。
-> 本目录 `/mnt/e/k60-work/impl/wifi/patches/final/` 是自包含系列：`0001–0010` 为必需项，
+> 本目录 `/mnt/e/iOS Port/Work/impl/wifi/patches/final/` 是自包含系列：`0001–0010` 为必需项，
 > `optional/0011` 仅阶段 6（真机 WiFi 开关）使用。全部已在隔离副本 `../repo/` 上按顺序
 > `git apply --check` + `git apply` 通过，且应用后的树与生成时的快照逐字节一致
 > （见 `../evidence/final-series-verify.log`）。
@@ -10,7 +10,7 @@
 
 ```bash
 cd /opt/k60/trees/usb-cdc-mainline/device
-for p in /mnt/e/k60-work/impl/wifi/patches/final/0*.patch; do
+for p in /mnt/e/iOS Port/Work/impl/wifi/patches/final/0*.patch; do
   git apply --check "$p" && git apply "$p" || exit 1
 done
 ```
@@ -60,15 +60,15 @@ HEAD **逐字节相同**（`SAME` × 14，见 `docs/research/wifi/MERGE-REQUEST.
 
 ```bash
 # 逐个应用（隔离副本）
-bash /mnt/e/k60-work/impl/wifi/tools/verify_series.sh
+bash /mnt/e/iOS Port/Work/impl/wifi/tools/verify_series.sh
 
 # 语法
-bash /mnt/e/k60-work/impl/wifi/tools/syntax_check_core.sh
-bash /mnt/e/k60-work/impl/wifi/tools/lint_scripts.sh
+bash /mnt/e/iOS Port/Work/impl/wifi/tools/syntax_check_core.sh
+bash /mnt/e/iOS Port/Work/impl/wifi/tools/lint_scripts.sh
 
 # 真实编译（不含内核链接）
-bash /mnt/e/k60-work/impl/wifi/tools/build_ath11k_check.sh
-bash /mnt/e/k60-work/impl/wifi/tools/build_wifi_native_check.sh
+bash /mnt/e/iOS Port/Work/impl/wifi/tools/build_ath11k_check.sh
+bash /mnt/e/iOS Port/Work/impl/wifi/tools/build_wifi_native_check.sh
 ```
 
 > 原补丁与原始 `new/` 文件保留在 `patches/original/` 供对照；最终系列已包含全部新增文件，主 agent 无需再手工 `rsync`/`cp`。

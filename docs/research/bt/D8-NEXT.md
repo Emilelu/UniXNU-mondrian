@@ -7,7 +7,7 @@ d9 是否飞、飞哪一个单变量，由 Lead 决定。
 
 ## 0. d8 已经有的硬事实
 
-证据：`E:/k60-work/evidence/usblog-20261116-164726/console.log`（3749 行），
+证据：`E:/iOS Port/Work/evidence/usblog-20261116-164726/console.log`（3749 行），
 `boot.json`（`bootAccepted=true`、`exit=0`、`returnedToFastboot=false`），
 `capture.json`（`complete=true`、panic/reset marker 为 null、`stopReason=budget`）。
 

@@ -14,10 +14,14 @@ static bool ufsBuildRootPlan (const char *const *names, unsigned count, UfsRootP
     if (!strcmp (names[i], "OS")) os = i;
   }
   if (system == count || os == count) return false;
-  plan.order[0] = system;
-  unsigned position = 1;
+  // K60: the first block device must be the OS disk. Its image starts with a
+  // protective MBR (0x55AA at +510); SystemOS is a raw APFS volume (NXSB at
+  // +32) and has no MBR, so publishing it first makes disk0 unpartitionable
+  // and the kernel's partition-0 MBR probe reads the APFS superblock.
+  plan.order[0] = os;
+  plan.order[1] = system;
+  unsigned position = 2;
   for (unsigned i = 0; i < count; ++i) if (i != system && i != os) plan.order[position++] = i;
-  plan.order[position] = os;
   plan.count = count;
   return true;
 }

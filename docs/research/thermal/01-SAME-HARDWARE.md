@@ -4,17 +4,17 @@
 
 ## 0. 证据来源与复现命令
 
-- DTB：`/mnt/e/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`
+- DTB：`/mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`
   （= 我们 UEFI/mondrian 平台实际加载的那份 FDT）。
 - 反编译（WSL 内 `/usr/bin/dtc`，幂等）：
 
 ```
-dtc -I dtb -O dts /mnt/e/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb \
+dtc -I dtb -O dts /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb \
     -o /tmp/mondrian.dts
 ```
 
 - 产物：21954 行，sha256 `516ac7d55c94cde466e57d2e0efb9014fd1cc3534210c80ef20dd5510146f16a`；
-  持久副本 `/mnt/e/k60-work/scratch/mondrian.dts`（scratch 会被清理时就地重跑上面的命令重建）。
+  持久副本 `/mnt/e/iOS Port/Work/scratch/mondrian.dts`（scratch 会被清理时就地重跑上面的命令重建）。
 - dtc 只报 3 条 `graph_child_address` warning（tpda / funnel），与 thermal 无关。
 - 本文所有 `mondrian.dts:NNN` 均指上述产物。行号可被任何人重跑 dtc 复核。
 - 交叉印证：`docs/reference/FEATURES-DRIVERS-RESEARCH-2026-10-31.md:139` 在更早的 Android vendor_boot

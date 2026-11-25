@@ -26,7 +26,7 @@ physical-address ceiling, and all high DDR being inaccessible are unsupported.
 
 Current unit: serial `6033dbec`, product `mondrian`, root adb shell, Linux
 `5.10.237-Fuutao-Qn_miao-source-gc28e50058`, MemTotal `11432144 kB`.
-Read-only adb collection saved on E:\k60-work\reports:
+Read-only adb collection saved on E:\iOS Port\Work\reports:
 
 - live-6033dbec-memory-reg.bin: 96 bytes, binary adb pull,
   SHA-256 `729587c3f0c5c469768dce73a833b3ba35fd9abb091ff22e28141ed34fc0cec6`.
@@ -82,7 +82,7 @@ Firmware SHA-256:
 `1c870bb2add6fffe82fb605d5215fde1695523ed8d7d9d7fad8c74a515b3b755`.
 
 Candidate:
-`E:\k60-work\candidates\measured-high4g\boot-ios16-measured-high4g.img`
+`E:\iOS Port\Work\candidates\measured-high4g\boot-ios16-measured-high4g.img`
 201883648 bytes; SHA-256
 `aa6806595e68078c9e769dd854243ea3534e6cc6e03d9e540ef43e1ab0f4ab3d`.
 Actual v4 parser verified header1584, 4096 page alignment, gzip member, 112-byte
@@ -105,7 +105,7 @@ SpringBoard status are separate subsequent acceptance criteria.
 
 2026-11-02T14:50:03+08:00 — ADB reboot bootloader succeeded; fastboot sent 197152 KB and Booting returned OKAY (4.809s total). Afterwards neither adb nor fastboot visible. This establishes transport acceptance ONLY; loader/kernel/userspace state awaits screen photo.
 
-Command: `bash scripts/k60-device.sh boot /mnt/e/k60-work/candidates/measured-high4g/boot-ios16-measured-high4g.img`. No flash was performed.
+Command: `bash scripts/k60-device.sh boot /mnt/e/iOS Port/Work/candidates/measured-high4g/boot-ios16-measured-high4g.img`. No flash was performed.
 
 
 ## Screen result: memory verified, SpringBoard pending
@@ -114,7 +114,7 @@ The latest screen reports `mem=4096 actual=4096 managed=4096`. `free_pages` samp
 
 Alternating text/progress display is consistent with the documented XNU text console and framebuffer sharing the panel; it does not prove reboot. The screen also shows `abn=718..742`, `suggestd`/`xpcproxy` status 163 signal 0, and corpse-creation failures. The corpse message reports a failed crash-report capture, not the original process termination cause. SpringBoard stability remains unconfirmed.
 
-Screenshots: log SHA-256 `40b2b77bd22f87473250395a4b60103e2a65dc5e777014644e137ca00615e3d2`; progress SHA-256 `60832584f9747b2ccfa9bccf24f1aa6af953631ca19fb77592ea7e099707822d`. Preserved under `E:\k60-work\reports`.
+Screenshots: log SHA-256 `40b2b77bd22f87473250395a4b60103e2a65dc5e777014644e137ca00615e3d2`; progress SHA-256 `60832584f9747b2ccfa9bccf24f1aa6af953631ca19fb77592ea7e099707822d`. Preserved under `E:\iOS Port\Work\reports`.
 
 
 ## Window size ceiling and the 7 GiB handoff (2026-11-02T17:51:53+08:00)

@@ -1,0 +1,19 @@
+# SYNTHETIC. Not evidence. The PONG SCANOUT line and the stage line are written in exactly
+# the shape patches/proposed/pong-scanout-offer-count.patch and
+# patches/proposed/pong-metal-client-gap.patch produce, so this fixture also keeps the
+# drafts and this parser from drifting apart. Every number is invented; what is being tested
+# is that a flight can be inside the copy budget and still fail on delivery and on the
+# client interval.
+Pong Metal: gpuonly=1
+Pong Metal: abi=kernel=2/3104 client=2
+PONG SCANOUT: scanout version=1 offers=800 dropped=200 frame=600 prepare=20 us offer_and_copy=5000 us total=5020 us addr=0xffffff8012345000 bytes=18432000
+Pong Metal: scanout frames=120 at 12.345 s; last frame: wait=12000 us copy=1200 us done=40 us client=14000 us; imports=120 import=27 us encode=900 us submit=60 us gpu=2400 us sum=3387 us
+Pong Metal: scanout bench n=1/24 import=27 us encode=306 us submit=180 us gpu=2449 us sum=2962 us status=0x0
+Pong Metal: scanout bench n=2/24 import=27 us encode=311 us submit=181 us gpu=2460 us sum=2979 us status=0x0
+Pong Metal: scanout bench n=3/24 import=26 us encode=305 us submit=179 us gpu=2440 us sum=2950 us status=0x0
+Pong Metal: scanout bench n=4/24 import=28 us encode=312 us submit=182 us gpu=2455 us sum=2977 us status=0x0
+Pong Metal: scanout bench n=5/24 import=27 us encode=308 us submit=180 us gpu=2450 us sum=2965 us status=0x0
+Pong Metal: scanout bench n=6/24 import=27 us encode=309 us submit=180 us gpu=2451 us sum=2967 us status=0x0
+Pong Metal: scanout bench n=7/24 import=27 us encode=307 us submit=180 us gpu=2449 us sum=2963 us status=0x0
+Pong Metal: scanout bench n=8/24 import=27 us encode=310 us submit=181 us gpu=2452 us sum=2970 us status=0x0
+K60 PANEL: INTF1 after the UI frame te 120/s period 7679 us

@@ -3542,7 +3542,7 @@ fastboot boot artifacts/xnu-touch-id.img
 - Photo PE metadata and exact old FD embedded-byte check identify DarwinBoot.efi
   (SizeOfImage0xb000 entry0x1110 RVA0x48fc=ZeroMem STR), NOT handler ArmCpuDxe.
 - Actual current serial6033dbec Android adb-root raw reg+FDT+rooted iomem captured
-  to E:\k60-work\reports. Six banks, no RAM between4GiB and32GiB.
+  to E:\iOS Port\Work\reports. Six banks, no RAM between4GiB and32GiB.
 - Earlier 0x100000000 Conv descriptor was entirely in that hole. Do not infer
   capacity/layout from authored DTS or swinfo.fingerprint.
 - Restored accidentally truncated map from e06211de baseline; only added
@@ -3550,7 +3550,7 @@ fastboot boot artifacts/xnu-touch-id.img
   Do not use HobOnlyNoCacheSetting; it would skip mapping and does not cure
   the unrelated RamPartitionDxe narrowing. Keep4GiB request, not8GiB.
 - Darwin22 boot_args0x2e0 restored in actual firmware-local source.
-- Candidate E:\k60-work\candidates\measured-high4g\boot-ios16-measured-high4g.img
+- Candidate E:\iOS Port\Work\candidates\measured-high4g\boot-ios16-measured-high4g.img
   SHA256 aa6806595e68078c9e769dd854243ea3534e6cc6e03d9e540ef43e1ab0f4ab3d
   (201883648bytes); strict v4/gzip/FD/DTB/FAT/signature/total-length PASS.
 - Next: fastboot boot only. No claim of high-arena accessibility, XNU entry,

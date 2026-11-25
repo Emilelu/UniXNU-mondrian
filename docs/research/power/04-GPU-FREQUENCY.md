@@ -5,7 +5,7 @@ opt-in（`pong_gpu_dcvs=1`）。image o（02:14）验证了线程与计数器读
 image q（02:36，`pong_gpu_dcvs=2`）进一步验证了 HFI id 30 投票：升一档被接受、随即还原到 floor 也被接受；
 提交窗口现在会先布防 50 ms 唤醒档（`34ab1da1`），仍无真实负载数据**。
 官网 `https://unixnu.com/zh/porting/power` §5 对 GPU 的要求只有一句（快照
-`E:/k60-work/scratch/power-page-20261117.txt:114`）：
+`E:/iOS Port/Work/scratch/power-page-20261117.txt:114`）：
 
 > GPU：读取 GMU XO 忙碌计数器，按让 GPU 约一半时间忙碌的档位通过 HFI 投票，同时投该档位的带宽。
 
@@ -157,7 +157,7 @@ kHz→档位查询（含档间值）与唤醒档（两倍频率、578 MHz 下限
 
 ## 6. 参考
 
-- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:105-118`。
+- 官网快照：`E:/iOS Port/Work/scratch/power-page-20261117.txt:105-118`。
 - sheng：`package/GpuPowerProbe.cpp`（origin/main 6c42e10），`gpu-dcvs`/span/min 注释段。
 - 本板表：`PongAdrenoPowerProfile.h`、`PongAdrenoPower.c:152-188`、`PongAdrenoCpProfile.h:306-307`。
 - 相邻工作流：`docs/research/power/01-EPSS-PROBE.md`（CPU 侧同一套 50 %/窗口思路）。

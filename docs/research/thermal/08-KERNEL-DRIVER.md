@@ -159,7 +159,7 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
 | 补丁 ↔ 母本一致性 | `python3 scripts/check-thermal-kernel-patch.py` | `thermal kernel patch: OK (14 checks)` |
 | 补丁可应用性 | 在已打完 229 个补丁的树上 `git apply --check` | `APPLY_CHECK_OK` |
 | 上机判据可机读 | `python3 scripts/check-thermal-log.py --self-test` | `self-test OK`（干净日志过、每处改动挂） |
-| 判据对真机日志 | `python3 scripts/check-thermal-log.py --log /mnt/e/k60-work/evidence/usblog-20261115-003922/console.log` | 17 过 / 4 挂，挂的正是 `level.line` 等只适用于 `thermal-20261115a` 之后的判据（该镜像还没有阶梯），脚本自己打出这条 note |
+| 判据对真机日志 | `python3 scripts/check-thermal-log.py --log /mnt/e/iOS Port/Work/evidence/usblog-20261115-003922/console.log` | 17 过 / 4 挂，挂的正是 `level.line` 等只适用于 `thermal-20261115a` 之后的判据（该镜像还没有阶梯），脚本自己打出这条 note |
 
 `check-thermal-kernel-patch.py` 做 14 项：从 patch 重建七个新文件并与 `drivers/PongThermal/`
 母本逐字节比对；series 登记且为最后一行；`conf/files` 四条登记（含 `.cpp` 保留扩展名）；
@@ -179,9 +179,9 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `llvm-nm` 有 `_pong_thermal_init`/`_pong_thermal_worker`/`_pong_thermal_sample`/`_pong_thermal_sensors`/
    `_pong_thermal_controllers` 五个符号；payload kernel sha256 `827797e6ae11174908c3c161b67a1c30614b8fb6fbabf0f1b4675f1eaebe935e`，
    boot.img sha256 `09a38cb7085eef1aa97bcf8810b5b456906dbc524cd21349638e8d51a3c952f1`，
-   manifest `/mnt/e/k60-work/artifacts/thermal-20261114c/build-manifest.json`。
+   manifest `/mnt/e/iOS Port/Work/artifacts/thermal-20261114c/build-manifest.json`。
 2. ~~**从未上机**~~ **已上机（2026-11-15 00:39，`thermal-20261114f`）**：
-   `/mnt/e/k60-work/evidence/usblog-20261115-003922/console.log` 里有控制器行
+   `/mnt/e/iOS Port/Work/evidence/usblog-20261115-003922/console.log` 里有控制器行
    `PongThermal: tsens0 tm=0xc263000 srot=0xc222000 ver=2.8.0 ctrl=0x9d67fff9 enabled=1`（行 215）
    与 `tsens1 …`（行 225）、31 行传感器读数（40–43℃）、208 行五域温度行（随负载从 41–45℃ 升到 56℃），
    以及 1 行 `PongThermal: level nominal (0) published as Thermal_Level_Warning=0`（行 340）。
@@ -206,7 +206,7 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `_pong_thermal_pm_publish` 与 `Thermal_Level_Warning`；payload kernel sha256
    `d923f2b2a059a96a737a7cc70288d8ed2f440f90c739c161f4b1694b15cd4bbc`、
    boot.img sha256 `adc796b63bad27821c491ddfb8ab7da8f6496b4ffd1b0b2e366ee6a301dc5d59`、
-   manifest `/mnt/e/k60-work/artifacts/thermal-20261114f/build-manifest.json`。
+   manifest `/mnt/e/iOS Port/Work/artifacts/thermal-20261114f/build-manifest.json`。
    仍未验证的是**非 Apple kext 侧调用者上机是否无害**，以及 `thermalmonitord` 是否真会消费 —— 见 §7.4。
    注意这仍不是 `mTPL`：`mTPL` 是 SMC 键，需要 `AppleSMCSensorDispatcher`，属 kext 路线（`06`/`07` 篇）。
 4. **等级阶梯层已进内核（2026-11-15 01:30，`thermal-20261115a`）**：`build-strict.sh` 全链再次跑通，
@@ -216,7 +216,7 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `strings` 里还能找到 `_k60tz_table`/`_k60tz_step`/`_k60tz_closest`/`_k60tz_zone_level` 与 `_pong_thermal_pm_publish`。
    payload kernel sha256 `7bb198a0ef1a65217836952c69440c2279fb4d3b3777fae289c94b844c38090f`，
    boot.img sha256 `2b7973e5e150ac6c112274753bd08ec2c2011f7802411cae3918b890cc07fb25`，
-   manifest `/mnt/e/k60-work/artifacts/thermal-20261115a/build-manifest.json`。
+   manifest `/mnt/e/iOS Port/Work/artifacts/thermal-20261115a/build-manifest.json`。
    **仍未上机验证等级随负载变化** —— `LEVEL-MAP.md` §5 给出 `pong_thermal_bias` 的 1/2/3 三档验证法与判据。
 5. **没有 trip 编程与冷却设备**：本板 AP 侧 trip 全是被动 trip，且 `polling-delay` 多为 0，
    真要控温需要自己起策略，属后续工作。
@@ -226,7 +226,7 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `kernel.macho` 105,500,672 B、sha256 `d193f75c0ca64d239cb054128d3fff08d3e2a6da82528acecd0d635786255ff1`，
    `strings | grep -c 'PongThermal: '` 仍为 **15**（与 `thermal-20261115a` 相同），
    payload kernel `b6b860dd…`、boot.img `ba8b5c9e…`，manifest
-   `/mnt/e/k60-work/artifacts/thermal-20261115b/build-manifest.json`（`kernel_args_requested` 里有
+   `/mnt/e/iOS Port/Work/artifacts/thermal-20261115b/build-manifest.json`（`kernel_args_requested` 里有
    `pong_thermal_bias=85000`）。**2026-11-15 13:52 已上机，判据全部达成**（结果见本条目末）。
    内核体积从 `thermal-20261115a` 的 54 MB 涨到 105 MB，原因是 rebase 后 defconfig 打开
    `CONFIG_XNU_GPU_ADDON=y`（Metal 插件 51,278,451 B 被 `.incbin` 进内核）与
@@ -235,7 +235,7 @@ PongThermal: level nominal (0) published as Thermal_Level_Warning=0
    `K60RV 1 launchd[1] mem=4608 actual=4608 managed=4608`、`K60METAL deploy files=6/6 error=0`，
    `bootAccepted=true`。所以体积本身不是新风险。
 
-**bias=85000 上机结果（2026-11-15 13:52–13:56，证据 `E:\k60-work\evidence\usblog-20261115-135227\`）**：
+**bias=85000 上机结果（2026-11-15 13:52–13:56，证据 `E:\iOS Port\Work\evidence\usblog-20261115-135227\`）**：
 判定命令 `python3 scripts/check-thermal-log.py --profile bias-85000 --log <采集目录>/console.log`
 → **EXIT=0**，`22 passed, 0 failed, 0 advisory, 12 outside profile 'bias-85000'`，
 `OK: every required criterion holds (profile bias-85000, 0 advisory)`。三行原文：
@@ -321,7 +321,7 @@ cd /opt/k60/trees/k60build && ./unixnu defconfig -D /opt/k60/trees/thermal-devic
     --os ipados-16.6.1-20G81 --out /opt/k60/trees/thermal-out mondrian_defconfig
 # 3. 严格构建
 K60_OUT=/opt/k60/trees/thermal-out K60_DEVICE_INPUT=/opt/k60/trees/thermal-device \
-    bash scripts/build-strict.sh thermal-<tag> --fd /mnt/e/k60-work/artifacts/fd/<fd>.fd
+    bash scripts/build-strict.sh thermal-<tag> --fd /mnt/e/iOS Port/Work/artifacts/fd/<fd>.fd
 # 4. 验收
 strings /opt/k60/trees/thermal-out/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho \
     | grep -c 'PongThermal: '
@@ -381,7 +381,7 @@ commit `fb876fe1`。合并后 `tomllib` 解析 EIGHT-STEPS/TREE-OWNERS/porting.t
 | payload adt | `39dffcb00afa600d381dc3284df901f225e75acf8aeb22b40d01732f9ff5a640` |
 | dtb | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
 | boot.img | 201,887,744 B，sha256 `31441566e9b89c01ba0242628c99518e5ba84798d526bb8e785a3ee30e404a17` |
-| manifest | `/mnt/e/k60-work/artifacts/thermal-20261117c/build-manifest.json` |
+| manifest | `/mnt/e/iOS Port/Work/artifacts/thermal-20261117c/build-manifest.json` |
 
 `python3 scripts/verify-boot-image.py --manifest …/build-manifest.json` 打印 `verify-boot-image: OK`；
 `strings -a kernel.macho | grep -c 'PongThermal: '` = **15**（与 `thermal-20261115a` 相同，
@@ -412,7 +412,7 @@ _k60tz_table|_k60tz_step|_k60tz_closest|_k60tz_zone_level|_k60tz_names`。
 2. prelink 的 kernelcache 查找走 `UNIXNU_KERNELCACHE`；不导出时会回落到 `board.toml` 的远程
    URL，当前网络下报 `URLError: [SSL: UNEXPECTED_EOF_WHILE_READING]`。把
    `UNIXNU_KERNELCACHE=/opt/k60/trees/k60build/bt-out-s1c/ipsw/20G81/kernelcache.decompressed`
-   导出后走本地缓存（先例：`E:/k60-work/scratch/bt-s4/bisect/wsl-build-d.sh:26`）。
+   导出后走本地缓存（先例：`E:/iOS Port/Work/scratch/bt-s4/bisect/wsl-build-d.sh:26`）。
 
 结论：合并后的树在 `thermal-20261117c` 上完整构建通过，内核里仍是同一份 15 串/12 符号的
 in-tree 驱动；下一次上机只需按 `CRITERIA.toml` 的 cold profile 判读。
@@ -421,7 +421,7 @@ in-tree 驱动；下一次上机只需按 `CRITERIA.toml` 的 cold profile 判�
 
 2026-11-17 12:28 用户授权后，用 `scripts/flash.sh` 把 `thermal-20261117c/boot.img` 通过
 `fastboot boot` 启动（未 flash，未写任何分区）。证据目录
-`E:\k60-work\evidence\usblog-20261117-122800`。
+`E:\iOS Port\Work\evidence\usblog-20261117-122800`。
 
 | 项 | 值 |
 | --- | --- |

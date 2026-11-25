@@ -542,7 +542,7 @@ static void test_obsolete_flat(void)
 int main(int argc,char **argv)
 {
     if (argc!=2 && argc!=3) {
-        fprintf(stderr,"usage: %s /mnt/e/k60-work/firmware/adsp [generated-k60a.bin]\n",argv[0]);
+        fprintf(stderr,"usage: %s /mnt/e/iOS Port/Work/firmware/adsp [generated-k60a.bin]\n",argv[0]);
         return 2;
     }
     Part parts[PARTS]; names(parts); test_inventory(parts); load_parts(argv[1],parts);

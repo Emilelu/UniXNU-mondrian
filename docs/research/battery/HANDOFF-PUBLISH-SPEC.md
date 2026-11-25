@@ -398,7 +398,7 @@ SMEM 分配表是 APSS 与 ADSP 共享的，发布者必须自己持锁包住整
 ## 12. 复现命令
 
 ```bash
-cd /mnt/e/hackios/k60-charger
+cd /mnt/e/iOS Port/Sources/Repos/Drivers/k60-charger
 
 # 1) 104 字节写入顺序（真值表来源）
 sed -n '67,91p' drivers/PongPower/K60HandoffBuild.c

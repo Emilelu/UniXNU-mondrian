@@ -13,11 +13,11 @@
 
 | 项 | 值 |
 |---|---|
-| 镜像 | `/mnt/e/k60-work/artifacts/bt-s1-20261114b/boot.img`，sha256 `2fef132a394c14178db52fde2dd6c705d5cab10a0e597092c8adb1512a6c8378` |
+| 镜像 | `/mnt/e/iOS Port/Work/artifacts/bt-s1-20261114b/boot.img`，sha256 `2fef132a394c14178db52fde2dd6c705d5cab10a0e597092c8adb1512a6c8378` |
 | 内核 | `kernel_built 78bf198636d01ffe6e453623e0d311da8a7dd3ee940f68035f84ade9620bcf8f`（series 224） |
 | boot args | `k60bt=1 k60bt_stage=1 k60bt_warm=1`（已在 payload 的 `unixnu.toml` 里核实） |
 | fastboot | `Sending 'boot.img' (197156 KB) OKAY [4.532s]`、`Booting OKAY`、exit 0 |
-| 捕获 | `/mnt/e/k60-work/evidence/usblog-20261114-bts1b-run1/`：`capture.json` state=`port-not-observed`、`bytes=0`、`portOpened=false`、`stopReason=port-timeout`、`panicMarker=null`、空日志 sha256 `E3B0C442…B855` |
+| 捕获 | `/mnt/e/iOS Port/Work/evidence/usblog-20261114-bts1b-run1/`：`capture.json` state=`port-not-observed`、`bytes=0`、`portOpened=false`、`stopReason=port-timeout`、`panicMarker=null`、空日志 sha256 `E3B0C442…B855` |
 | 之后 | `adb devices` 空、`fastboot devices` 空、Windows PnP 无任何 Qualcomm/CDC 设备 → `scripts/k60-device.sh` 所述「USB 掉线的挂死，只能物理断电」 |
 
 结论（四条，都已确定）：
@@ -40,7 +40,7 @@
 | 相对 S1b | 步数 6 → **9**：新增 `s5`（只读 SE20 RCG 三个寄存器）、`s6`（置 `CMD_ROOT_EN` 并轮询 `CMD_ROOT_OFF` 清零）、`s7`（把 CFG 写成 TCXO/1 并 `CMD_UPDATE` 锁存）；原 GENI 读顺延为 `s8`/`s9` |
 | 打点数 | 36 个 `probe: ` 打点（S1b 为 25） |
 | 验证 | `EXTRACT_OK`（与 `8451c870…` 逐字节一致）、`APPLY_CHECK_OK`、`clang -fsyntax-only` PASS（§8） |
-| 构建 | **已构建**：`/mnt/e/k60-work/artifacts/bt-s1c-20261114a/`，boot.img `ed59f0075cc51e3ed810b17828122e93ddfd9a01a182cd418b0666d57dadd512`，内核 `ea79897cacb3142e9c58730befadc7a4c140278f3a82774ae3c5732b693b36f2`，payload 内核 `111aa459…`，`verify-boot-image: OK`，series 224，`repo head c2a0a63`，`dirty_files 0` |
+| 构建 | **已构建**：`/mnt/e/iOS Port/Work/artifacts/bt-s1c-20261114a/`，boot.img `ed59f0075cc51e3ed810b17828122e93ddfd9a01a182cd418b0666d57dadd512`，内核 `ea79897cacb3142e9c58730befadc7a4c140278f3a82774ae3c5732b693b36f2`，payload 内核 `111aa459…`，`verify-boot-image: OK`，series 224，`repo head c2a0a63`，`dirty_files 0` |
 | 上机状态 | **未上机**：板子自 S1a 起处于 USB 掉线挂死，必须先物理断电复位 |
 
 ## 1. 目的
@@ -53,7 +53,7 @@
 并机械判定 ⑥ 深挖留下的 F2/F3。
 
 - 支撑事实（M）：`docs/research/GENI-ACCESS-PRECONDITIONS.md` 记录两次独立复现，控制台 0 字节。
-- **反面证据（新，2026-11-14）**：触摸线一次**健康**启动（`/mnt/e/k60-work/evidence/usblog-20261114-touchd/console.log:653-663`）在同一块板子上
+- **反面证据（新，2026-11-14）**：触摸线一次**健康**启动（`/mnt/e/iOS Port/Work/evidence/usblog-20261114-touchd/console.log:653-663`）在同一块板子上
   `Pong touch: mapping GCC QUP/PLL/vote pages, no serial-engine access` → `GCC GPLL0 vote at 0x162018` →
   `clocks vote=0x4002c3c0 … se4=0x4220 core=0x4220 core2x=0x4220` → `mapping serial engine 0x990000 after clock checks` →
   `SE4 firmware=0x102 protocol=1 interfaces=0x1`，然后**正常进 SpringBoard**。
@@ -160,7 +160,7 @@ python3 scripts/record-boot.py --image <boot.img> --log <evidence>/console.log
 | A4 | `bt-s1c-a4-20261114c` | 7 | `7171f4dd385cca02766754b451c12a7bd222aff70f42880b607dda4920ba461e` | `f366c6c64ee1ceceb289d46f59bc914a4bf2c5d7131c01fcc8b612db321a83e4` | `2827ff6bb03e7fd199c6c2160294bdf44c8d51df979bb5ae51c4c4e963b54882` |
 | A5 | `bt-s1c-a5-20261114c` | 9 | `87832493ffe4ddf3e7c469b607d41a73584b1935819a926fe57f0da1820ff8dc` | `100509c6b6b8b452467414788d55ed1a2360af2c8d51eb89e60b96c9a056b3df` | `a01f652de54d3b3af2870662adacc36d89d154a71bb77a9a3d6ba3cffbf7f3f8` |
 
-ADT sha256 依次为 `7fe89f0e…`、`9fb92a17…`、`42db9c8e…`、`3c8cdcad…`、`1452867a…`（每级不同，因为命令行不同）。`payload_kernel` 依次为 `ec5a7619…`、`11403172…`、`a0d951df…`、`1c74683b…`、`969f1cda…`。manifest 在 `/mnt/e/k60-work/artifacts/<tag>/build-manifest.json`。
+ADT sha256 依次为 `7fe89f0e…`、`9fb92a17…`、`42db9c8e…`、`3c8cdcad…`、`1452867a…`（每级不同，因为命令行不同）。`payload_kernel` 依次为 `ec5a7619…`、`11403172…`、`a0d951df…`、`1c74683b…`、`969f1cda…`。manifest 在 `/mnt/e/iOS Port/Work/artifacts/<tag>/build-manifest.json`。
 
 （旧 `…-20261114a` 系列 boot.img 全部超长命令行，见 §4.2；`…-20261114b` 系列五份**作废**，原因见 §4.3。）
 
@@ -279,9 +279,9 @@ S1c 的核心判据是「最后一行打点」——因为打点在访问**之�
 | 项 | 命令 / 依据 | 结果 |
 |---|---|---|
 | 补丁 SHA-256 | `sha256sum patches/bt/0001-k60-bt-readonly-probe.patch patches/xnu/0507-k60-bt-readonly-probe.patch` | 两者一致 `05dd342b83d3d035e05495280d9bee9d40624f9732240b7323146964e7b8b2e1`（13,001 B / 280 行） |
-| 生成方式 | `E:/k60-work/scratch/bt-s1c/gen.py` 对 0500 抽出的 `qbt_k60.c` 做两处**带断言**的替换，再 `git diff` 出补丁（不手写 hunk） | `EXTRACT_OK`（抽出文件与参照 `8451c870…` 逐字节一致） |
+| 生成方式 | `E:/iOS Port/Work/scratch/bt-s1c/gen.py` 对 0500 抽出的 `qbt_k60.c` 做两处**带断言**的替换，再 `git diff` 出补丁（不手写 hunk） | `EXTRACT_OK`（抽出文件与参照 `8451c870…` 逐字节一致） |
 | 补丁可应用 | 干净 0500 树上 `git apply --check` | `APPLY_CHECK_OK`；apply 后文件内 `probe: ` 命中 36 处、`if (step >= ` 8 处 |
-| 语法检查 | `BT_ROOT=/tmp/bt-s1c-check python3 E:/k60-work/scratch/bt-s1/check.py bsd/dev/qbt_k60.c bsd/dev/qbt/qbt_core.c`（clang `-target arm64-apple-ios16.0` + out3 `.CFLAGS`） | `PASS bsd/dev/qbt_k60.c rc=0`、`PASS bsd/dev/qbt/qbt_core.c rc=0` |
+| 语法检查 | `BT_ROOT=/tmp/bt-s1c-check python3 E:/iOS Port/Work/scratch/bt-s1/check.py bsd/dev/qbt_k60.c bsd/dev/qbt/qbt_core.c`（clang `-target arm64-apple-ios16.0` + out3 `.CFLAGS`） | `PASS bsd/dev/qbt_k60.c rc=0`、`PASS bsd/dev/qbt/qbt_core.c rc=0` |
 
 - 探针只增加 MMIO 读取、一次 GPLL0 使能写、一次投票写，以及 `s6`/`s7` 对 SE20 RCG 的两处写（与触摸线对 QUP0 SE4 的做法同一序列）；不含算术/越界写；`k60_gcc_wait_halt` 等既有函数的超时路径未改。
 

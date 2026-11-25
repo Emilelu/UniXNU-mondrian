@@ -35,7 +35,7 @@
 ## 3. 抓取
 
 `K60_DEVICE_INPUT=/opt/k60/trees/gates-device K60_FORCE_NEW=1 bash scripts/flash.sh <boot.img> 240`，
-证据落 `E:/k60-work/evidence/usblog-<时间戳>/`（`console.log` + `capture.json` + `boot.json`）。
+证据落 `E:/iOS Port/Work/evidence/usblog-<时间戳>/`（`console.log` + `capture.json` + `boot.json`）。
 
 ## 4. 判据
 
@@ -60,7 +60,7 @@
 ### 2026-11-17 13:13 — gpu-addon4-20261117
 
 - 镜像：`gpu-addon4-20261117/boot.img`，sha256 `0614aa977e7e7b212517a4fea3460c934e1fc9347a7ed3f3a7902988d5722622`
-- 证据：`E:/k60-work/evidence/usblog-20261117-130912`（198,320 B，抓取完整、未因 panic/复位中断）
+- 证据：`E:/iOS Port/Work/evidence/usblog-20261117-130912`（198,320 B，抓取完整、未因 panic/复位中断）
 - 实测：S1 通过（`K60KEXC` 0）；S2 通过（`:484 K60GPUADDON addons stage=5 status=0 daemons stage=4 status=2`）；
   S3 通过（`Pong Metal:` **91** 行，含 `:1370 real Vulkan-backed device created status=0x0`、
   `:1374 real device returned to stock20G81 discovery`、`:1382 real GPU scanout worker ready`）；

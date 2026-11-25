@@ -27,7 +27,7 @@ index 00000000..6fd2f779
 +  `bf2df340794d92ad50137ba7af3c3f1506ae0196a53ef70a5735e11abca0c6a3`（105,500,672 B）。
 +- **基线**：origin/main `ecda32f`，series 224 条 / sha 前 16 `34cf51e4`，工作区 dirty 0；
 +  `kernel_args_requested = [""]`（不传 backlight 参数，即 control 默认 0）。
-+- **日志**：`E:\k60-work\evidence\usblog-20261115-134638\console.log`（217,179 B），
++- **日志**：`E:\iOS Port\Work\evidence\usblog-20261115-134638\console.log`（217,179 B），
 +  无 panic、无 `sig=11`；SpringBoard 128 行；`K60 DISPLAY: first frame presented` 出现。
 +- **判定器**：`python3 scripts/check-backlight-log.py <console.log>` → **EXIT=0**
 +  （`check-backlight-log: PASS (control=0 image)`），逐条：service published level 2047 at dbv 0xff /
@@ -79,7 +79,7 @@ index 00000000..6fd2f779
 +  manifest repo head `a322b58`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
 +- **改动**：`publishCalibration` 不再发布 `backlight-calibration-parameters`（b4 的半截字典让
 +  CoreBrightness 的 `CFNumberGetValue` 收到 NULL，见 `INT-236-CHAIN.md` §11）。
-+- **日志**：`E:\k60-work\evidence\usblog-20261117-004800\console.log`，236,694 B；
++- **日志**：`E:\iOS Port\Work\evidence\usblog-20261117-004800\console.log`，236,694 B；
 +  `sig=11` 0 次、`getBytes:range|unrecognized selector` 0 次、无 panic。
 +- **判据 1（发布层）PASS**：`:184` 的 published 行
 +  `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`
@@ -103,12 +103,12 @@ index 00000000..6fd2f779
 +  manifest repo head `f97ab49`、dirty 0、series 227、`kernel_args_requested=["k60_backlight_control=1"]`。
 +- **改动（相对第 3 轮两处）**：`kMinNits=5` / `kMidNits=140` / `kMaxNits=400`，`levelFromNits` 把
 +  CoreBrightness 的 [5..400] nits 区间拉伸到 level [1..2047]；`setProperties` 每条请求打一行日志。
-+- **第一飞**（`E:\k60-work\evidence\usblog-20261117-013028-658\console.log`，249,449 B）：`:184` published
++- **第一飞**（`E:\iOS Port\Work\evidence\usblog-20261117-013028-658\console.log`，249,449 B）：`:184` published
 +  `K60 BACKLIGHT: published level 2047 dbv 0xff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；
 +  `first frame presented` 1 次；首次出现每请求行 `:2240 K60 BACKLIGHT: brightness level 1024 -> level 1024 dbv 0x80`、
 +  `:2241 K60 BACKLIGHT: brightness-nits 0.00000 -> level 0 dbv 0x0` ⇒ **16.6.1 拖滑块走的是 `brightness` 键，
 +  不是 `brightness-nits`**（后者只在启动时发一次 0.0）。
-+- **第二飞**（`E:\k60-work\evidence\usblog-20261117-013717-505\console.log`，264,170 B；先拉最顶 3 秒、
++- **第二飞**（`E:\iOS Port\Work\evidence\usblog-20261117-013717-505\console.log`，264,170 B；先拉最顶 3 秒、
 +  再拉最底 3 秒）：`:2930` `brightness level 2047 -> level 2047 dbv 0xff`（2045/2046 也到 0xff）；
 +  `:3205` `brightness level 1 -> level 1 dbv 0x1`；请求行 53 条（52 条 `brightness level` + 1 条
 +  `brightness-nits`）；`sig=11` 0、entered backboardd 1、SpringBoard 129、`getBytes:range` 0。
@@ -134,7 +134,7 @@ index 00000000..6fd2f779
 +     vendor `dsi_ctrl_copy_and_pad_cmd()` 的 `{wc, datatype, flags}` 逐位一致。
 +  2. `K60BacklightCodec.h`：`kMaxDbv=0xfff`，`dbvFromLevel`/`levelFromDbv` 以
 +     `kDarkestLevel(1) -> kMinDbvOn(1)`、`kMaxLevel(2047) -> kMaxDbv(4095)` 端点对齐。
-+- **日志**：`E:\k60-work\evidence\usblog-20261117-0245-brightness17\console.log`，245,740 B / 3,629 行；
++- **日志**：`E:\iOS Port\Work\evidence\usblog-20261117-0245-brightness17\console.log`，245,740 B / 3,629 行；
 +  `sig=11` 0、`getBytes:range|unrecognized selector` 0、无 panic。
 +- **判据 1（发布层）PASS**：`:184` published 行
 +  `K60 BACKLIGHT: published level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；
@@ -215,7 +215,7 @@ index 00000000..6fd2f779
 +  `check-backlight-log.py --control=1 --min-dbv=0x4 --max-dbv=0xfff` → 发布层 7 项通过、
 +  `FAIL only 1 non-zero brightness request line(s); the 12-bit range test needs at least 3`，rc=1。
 +  04:24 那次首次尝试被拒（target 不在 fastboot），未 boot，不算一轮。
-+- **第二飞（2026-11-17 11:46，证据 `usblog-20261117-1146-brightness19`）**：用户明确说“飞”后执行；`console.log` 254,828 B（sha256 `b5b1f6545c8c7a30b70505e04a8ea7f3a60c4f41ee4c0221de74505a68e3b8ba`），capture complete、bootAccepted true。`:182` bring-up `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`、`:184` published `level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；first frame 1、SpringBoard 129、`sig=11` 0。用户拖动后共 54 条 `K60 BACKLIGHT: brightness` 请求行，最低 `level 1 -> level 1 dbv 0x4`（4 次）、最高 `level 2047 -> level 2047 dbv 0xfff`（5 次），另有 2046→0xffd；无 0x14 旧值。预注册 judge `python3 scripts/check-backlight-log.py E:/k60-work/evidence/usblog-20261117-1146-brightness19/console.log --control=1 --min-dbv=0x4 --max-dbv=0xfff` → exit 0，dimmest request 0x4、brightest request 0xfff、PASS；用户 m07575 反馈“好像是修好了”。
++- **第二飞（2026-11-17 11:46，证据 `usblog-20261117-1146-brightness19`）**：用户明确说“飞”后执行；`console.log` 254,828 B（sha256 `b5b1f6545c8c7a30b70505e04a8ea7f3a60c4f41ee4c0221de74505a68e3b8ba`），capture complete、bootAccepted true。`:182` bring-up `K60 PANEL: sending DCS 0x51 0x0f 0xff (brightness max)`、`:184` published `level 2047 dbv 0xfff conformance=1 control=1 stats=4,0,2047,2047 req=0,0,1,1`；first frame 1、SpringBoard 129、`sig=11` 0。用户拖动后共 54 条 `K60 BACKLIGHT: brightness` 请求行，最低 `level 1 -> level 1 dbv 0x4`（4 次）、最高 `level 2047 -> level 2047 dbv 0xfff`（5 次），另有 2046→0xffd；无 0x14 旧值。预注册 judge `python3 scripts/check-backlight-log.py E:/iOS Port/Work/evidence/usblog-20261117-1146-brightness19/console.log --control=1 --min-dbv=0x4 --max-dbv=0xfff` → exit 0，dimmest request 0x4、brightest request 0xfff、PASS；用户 m07575 反馈“好像是修好了”。
 +
 +
 +
@@ -257,7 +257,7 @@ index 00000000..918f396a
 +
 +## 2. ②官方：指南到底要求什么
 +
-+`E:/hackios/UniXNU/docs/zh/porting/display.md:80-114`：
++`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/display.md:80-114`：
 +
 +- §3：先按硬件选择**传输**（I2C / DSI 命令 / PWM）并按其目标**编码**；参考实现
 +  `package/AppleARMBacklight.cpp`（KTZ8866 + GENI I2C）与 `package/GeniI2c.h`（GENI 状态机）。
@@ -275,7 +275,7 @@ index 00000000..918f396a
 +
 +## 3. ③反编译/参考实现：`AppleARMBacklight.cpp` 给了什么、K60 不要什么
 +
-+参考实现 `E:/hackios/UniXNU-sheng/package/AppleARMBacklight.cpp`（468 行，类名 `ShengBacklight`）。
++参考实现 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/AppleARMBacklight.cpp`（468 行，类名 `ShengBacklight`）。
 +
 +### 3.1 必须照抄的 OS 契约
 +

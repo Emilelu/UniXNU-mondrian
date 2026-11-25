@@ -15,12 +15,12 @@ candidate; c8 remains HOLD.
 | Why did the direct candidate fail? | `mhi_sync_power_up` (`pm.c:1277-1295`) waits on `MHI_IN_MISSION_MODE(mhi_cntrl->ee)`, but the host cached `ee=1` (SBL). The only EE event consumed was `execenv=1`; no later EE event updated the cache even though the device had reached AMSS. |
 | What changes in this candidate? | After the direct `mhi_download_amss_image()` returns 0, the same worker polls `mhi_get_exec_env` for up to 2500 x 10 ms. On `MHI_EE_AMSS` or `MHI_EE_WFW` it assigns `mhi_cntrl->ee = mission`, calls `mhi_create_devices(mhi_cntrl)` so the IPCR channels (`ee_mask = 0x4`, AMSS-only) are created, and calls `wake_up_all(&mhi_cntrl->state_event)`, so `mhi_sync_power_up` sees mission mode instead of a stale SBL value and wakes from its wait. |
 | Is this the official path? | Yes. UniXNU-sheng `516a7804` `package/MhiBoot.c:117-119` has `MhiWaitMission`, which polls the execution environment until AMSS/WFW after the BHIe image. Stock Linux has no equivalent poll after `mhi_download_amss_image`; the cached EE is only refreshed by an EE event. |
-| Is this proven on K60? | **Yes — MHI and QMI/scan.** The 2026-11-18 09:17 flight produced a valid console at `E:/k60-work/evidence/usblog-20261118-091754/console.log` (85,874 B, SHA256 `59063d2d702e359de9e89b80d24ea09c13dcac7fc436ef573ad5f3bb98cd2bd3`): `exec_env=2 ... cached ee updated` :683, `MHI powered up: ee=2 state=2` :687, `chip_id 0x12` :697, `fw_version 0x20070039` :699, `hardware registered, 102 channels` :722, `scan starts on 42 channels` :724, `en0 is up` :727, `scan 1 finished, 12 networks` :785, SpringBoard present. |
+| Is this proven on K60? | **Yes — MHI and QMI/scan.** The 2026-11-18 09:17 flight produced a valid console at `E:/iOS Port/Work/evidence/usblog-20261118-091754/console.log` (85,874 B, SHA256 `59063d2d702e359de9e89b80d24ea09c13dcac7fc436ef573ad5f3bb98cd2bd3`): `exec_env=2 ... cached ee updated` :683, `MHI powered up: ee=2 state=2` :687, `chip_id 0x12` :697, `fw_version 0x20070039` :699, `hardware registered, 102 channels` :722, `scan starts on 42 channels` :724, `en0 is up` :727, `scan 1 finished, 12 networks` :785, SpringBoard present. |
 
 ## 1. Why this is the next single variable
 
 The direct candidate's console is complete:
-`E:/k60-work/evidence/usblog-20261118-012938/console.log` (237,343 bytes,
+`E:/iOS Port/Work/evidence/usblog-20261118-012938/console.log` (237,343 bytes,
 3,591 lines, SHA256 `9fff4a26237a3b6e795263a0a241c4dd2ab6aa42a84adbdde6b28cdaa3609c05`).
 It records:
 
@@ -54,7 +54,7 @@ mission poll. No QMI, WMI, PCIe, rail or DMA change is included.
 ## 2. Source anchors
 
 The patch lives in the build generator, not in a checked-in copy of the Linux
-source. `E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
+source. `E:/iOS Port/Sources/Hardware/k60-wifi/scripts/build-k60-ath11k.py`:
 
 - `:331`: declares `int i, j, amss_ret;`.
 - `:356-370`: assigns `amss_ret = mhi_download_amss_image(mhi_cntrl);`; only
@@ -98,7 +98,7 @@ must also run for the IPCR channels, because `nw_qrtr_mhi` calls
 State-worker safety: the `mhi_create_devices` call runs inside
 `mhi_fw_load_handler`, which is executed by `mhi_pm_st_worker`; the MHI event
 tasklet can still run `mhi_pm_m0_transition`
-(`E:/k60-work/impl/wifi/work/src/linux-7.0.14/drivers/bus/mhi/host/main.c:861-862`)
+(`E:/iOS Port/Work/impl/wifi/work/src/linux-7.0.14/drivers/bus/mhi/host/main.c:861-862`)
 and `mhi_send_cmd` rings the command doorbell itself (`main.c:1298-1303`), so
 the synchronous `device_add` -> `nw_qrtr_mhi` probe cannot deadlock on M0 or on
 a skipped command ring. The direct console shows only the SBL EE event (`:668`);
@@ -106,7 +106,7 @@ no later mission-mode EE event is present, so the stock mission transition does
 not destroy and recreate the IPCR devices on this path.
 
 Failure triage: `mhi_get_exec_env`
-(`E:/k60-work/impl/wifi/work/src/linux-7.0.14/drivers/bus/mhi/host/main.c:153-158`)
+(`E:/iOS Port/Work/impl/wifi/work/src/linux-7.0.14/drivers/bus/mhi/host/main.c:153-158`)
 returns `MHI_EE_MAX` when the `BHI_EXECENV` read fails, and the mission poll
 treats that value as a hard stop. If a flight reaches AMSS but misses the
 `cached ee updated` line, inspect the BHI register lifetime and this break before
@@ -119,12 +119,12 @@ concluding that the 25 s poll is too short.
 | tag | `wifi-20261118sbl-mission4` |
 | built_at | 2026-11-18T03:41:57+08:00 |
 | branch / head | `fix/wifi-mission-timeout` / `91c21c7cc71de684dc0b98cbd6784afdb9d5f5f3` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission4/boot.img`, 201,887,744 B, SHA256 `7646f5caf1b6fd03628587df2cdc915a24d8aca7115816af379858d9e6ac4a26` |
+| `boot.img` | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission4/boot.img`, 201,887,744 B, SHA256 `7646f5caf1b6fd03628587df2cdc915a24d8aca7115816af379858d9e6ac4a26` |
 | kernel | `1ee83183537da2488267e98031f9ef41fb94baba24a3507d81ead5ef7023f4b3` |
 | payload kernel | `e308664056ce2cb167a2c385ff6e3af7610ec36bbb5504a31724629b0e986987` |
 | WiFi archive | `abe04821139df9b184df82bdd04f355e9374615807ca5e62629846ea867563a7` |
 | ath11k archive | `a3793b0c3f587b20d148f04938436b96aaa18ccc41f78c087d77cdd487f2b120` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission4/build-manifest.json` |
+| manifest | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission4/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
 
 This candidate is the mission-poll successor plus the `mhi_create_devices`
@@ -136,10 +136,10 @@ its result is in `SBL-DIRECT.md` §6. The pre-device-creation mission image
 `wifi-20261118sbl-mission` was built but never flown and is superseded.
 
 Flight result on 2026-11-18 09:17: the watcher's wrapper booted mission4 while
-another agent held fastboot (`E:/k60-work/scratch/boot-20261118-091754.log`:
+another agent held fastboot (`E:/iOS Port/Work/scratch/boot-20261118-091754.log`:
 `Sending 'boot.img' (197156 KB) OKAY [4.752s]`, `Booting OKAY [0.174s]`,
 `Finished. Total time: 5.100s`). The capture initially lost `COM5`, but the late
-console at `E:/k60-work/evidence/usblog-20261118-091754/console.log` (85,874 B,
+console at `E:/iOS Port/Work/evidence/usblog-20261118-091754/console.log` (85,874 B,
 1,438 lines, SHA256 `59063d2d702e359de9e89b80d24ea09c13dcac7fc436ef573ad5f3bb98cd2bd3`)
 is a complete valid log: `Pong MHI: exec_env=2 after AMSS download; cached ee
 updated` :683, `Pong MHI powered up: ee=2 state=2 serial=0x22d0a7f3` :687,
@@ -159,7 +159,7 @@ Offline checks performed:
 - WSL `python3 scripts/check-image-args.py --image /mnt/e/...` — OK (31
   arguments / 602 bytes).
 - `boot.json` was written at build time with `hardware_tested: false`; the valid 2026-11-18 09:17 flight above supersedes that field for this record.
-- `python3 /mnt/e/k60-work/scratch/judge-sbl-mission2.py` — positive synthetic mission4 log passes 9/9; negative log with `timeout after 60000 ms` and no cached-ee line fails/stops as designed.
+- `python3 /mnt/e/iOS Port/Work/scratch/judge-sbl-mission2.py` — positive synthetic mission4 log passes 9/9; negative log with `timeout after 60000 ms` and no cached-ee line fails/stops as designed.
 
 ## 4. Prewritten flight criteria
 
@@ -210,19 +210,19 @@ is present, also enters the association test; this keeps the payload command lin
 | tag | `wifi-20261118sbl-mission5` |
 | built_at | 2026-11-18T10:09:02+08:00 |
 | branch / head | `fix/wifi-mission-timeout` / `ac7d9b2b49567a014a5f14643bf6daa049508d64` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission5/boot.img`, 201,887,744 B, SHA256 `559fb736f996abea8ad80ba61e8c1ab73736d8e38a69c80f30f137fceedc039b` |
+| `boot.img` | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission5/boot.img`, 201,887,744 B, SHA256 `559fb736f996abea8ad80ba61e8c1ab73736d8e38a69c80f30f137fceedc039b` |
 | kernel | `adc8180ba144f2e4537ceb6fc152f6e6480a9c928e43e4c03ad4e7bacad8d02a` |
 | payload kernel | `69133fb1717d64a6e183d702017ab0c0f289d54aca21cc6bf70c9284eca62173` |
 | WiFi archive | `4f345de15ea15ae87da83cae823fae904a98c1a418c46d0ad5aa8f9f2b1374f1` |
 | ath11k archive | `a3793b0c3f587b20d148f04938436b96aaa18ccc41f78c087d77cdd487f2b120` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission5/build-manifest.json` |
+| manifest | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission5/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=2 k60_wifi_rsc=2` |
 
 The private fixture was generated from a saved WPA2-Personal profile with
-`E:/k60-work/scratch/make-wifi-fixture.ps1`: `ssid_bytes=14`, `psk_bytes=13`.
+`E:/iOS Port/Work/scratch/make-wifi-fixture.ps1`: `ssid_bytes=14`, `psk_bytes=13`.
 `PongWifiTestInputs.h` is 250 B, SHA256
 `5fa9598ebb5a2e7495476fbf2215815ec9191101eb188a79416c53bf73e5912e`; the plaintext
-JSON exists only at `E:/k60-work/scratch/wifi-test-private.json`, has a user-only ACL,
+JSON exists only at `E:/iOS Port/Work/scratch/wifi-test-private.json`, has a user-only ACL,
 and is never logged, committed or placed in boot args. The builder reads it through
 `PONG_WIFI_TEST_CONFIG` while compiling the native archive. `PongWifiPlatform.cpp`
 `ed38ea74` accepts either the old `pong_wifi_test=1` or the byte-neutral
@@ -239,7 +239,7 @@ checks passed; `image-arg-audit: OK (31 arguments, 602 bytes)`; `verify-boot-ima
 judge positive/negative controls pass/fail as designed.
 
 The image was flown once on 2026-11-18 10:38:37. The console
-`E:/k60-work/evidence/usblog-20261118-103831/console.log` (82,266 B, 1,382 lines,
+`E:/iOS Port/Work/evidence/usblog-20261118-103831/console.log` (82,266 B, 1,382 lines,
 SHA256 `3b947808aa383cdec5bee903c2be325b4932f44c6e680793d60de451c3666ac2`)
 passed MHI/QMI/102 channels/en0/scan, but the association test did not run: there is no
 `PongWifi: association test RUNNING`, no `WiFi association test SKIP`/`FAIL`, no
@@ -264,13 +264,13 @@ byte-neutral `pong_wifi=2` trigger and the private fixture were unchanged.
 | tag | `wifi-20261118sbl-mission6` |
 | built_at | 2026-11-18T10:57:39+08:00 |
 | branch / head | `fix/wifi-mission-timeout` / `8bc687f895f12e07cd03ff5231df4b1d9e99ca9c` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission6/boot.img`, 201,887,744 B, SHA256 `78b7ac33069739b208d511040321d6a80db085d63c05b15b94885beb7cd426b2` |
+| `boot.img` | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission6/boot.img`, 201,887,744 B, SHA256 `78b7ac33069739b208d511040321d6a80db085d63c05b15b94885beb7cd426b2` |
 | kernel | `3fe49e5119c17390c013dad20713ac7fcbcbc1101074536a3634b9778ce151c2` |
 | payload kernel | `227272abfda42afa705b426df7720c73499d7f2df82b3b09ac34a881176a78e3` |
 | ADT | `e17cdc8c0bd4dfdf9b3976f5cd7f426b11000536f78741dbb182d57cd1974737` |
 | WiFi archive | `abaed3b7ebb4f6ca9ba34540347bad8f6115b801f4e5a9bf26299d30069071cd` |
 | ath11k archive | `a3793b0c3f587b20d148f04938436b96aaa18ccc41f78c087d77cdd487f2b120` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission6/build-manifest.json` |
+| manifest | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission6/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=2 k60_wifi_rsc=2` |
 
 Source commit `75e5e842` changed the gate; test commit `8bc687f8` pins the scan-state gate
@@ -280,7 +280,7 @@ passed, `image-arg-audit: OK (31 arguments, 602 bytes)`, `verify-boot-image: OK`
 mission6 judge is the mission5 18-check script with positive/negative controls.
 
 The image was flown once on 2026-11-18 11:01:47. The console
-`E:/k60-work/evidence/usblog-20261118-110147/console.log` (88,387 B, 1,466 lines,
+`E:/iOS Port/Work/evidence/usblog-20261118-110147/console.log` (88,387 B, 1,466 lines,
 SHA256 `CF4DF6ADB2509EB0D5B2DF5BAAA66F05CAE0FB5FF76E40BA731941A90D40A9D5`)
 passed MHI/QMI/102 channels/en0/scan: `:666` cached ee=2, `:670` powered up ee=2
 state=2, `:680` chip_id 0x12, `:682` fw_version 0x20070039, `:699` 102 channels,
@@ -309,7 +309,7 @@ or the boot arguments.
 ### Flight result
 
 Mission7 was flown once on 2026-11-18 11:35:48. The console is
-`E:/k60-work/evidence/usblog-20261118-113548/console.log` (82,932 B, 1,394 lines,
+`E:/iOS Port/Work/evidence/usblog-20261118-113548/console.log` (82,932 B, 1,394 lines,
 SHA256 `d4986302bd51548f451817c0b04a01d3880c8c22b9450dea63af73076967b20d`).
 MHI, QMI, the 102 channels, `en0` and the scan still pass (`:691` BHIe ret=0,
 `:701` cached ee=2, `:705` powered up, `:715` chip_id 0x12, `:717` fw_version
@@ -329,7 +329,7 @@ visible. Mission7 must not be re-flown; its one-shot marker exists.
 
 Mission8 keeps mission7's probe and directed rescan but points the fixture at the
 access point that is actually visible: Emilelu_5G (SSID 10 bytes, PSK 11 bytes).
-The plaintext exists only in `E:/k60-work/scratch/wifi-test-emilelu5g.json`; the
+The plaintext exists only in `E:/iOS Port/Work/scratch/wifi-test-emilelu5g.json`; the
 generated header carries byte counts only and no credential enters the repository,
 the console or the boot arguments.
 
@@ -338,16 +338,16 @@ the console or the boot arguments.
 | tag | `wifi-20261118sbl-mission8` |
 | built_at | 2026-11-18T12:02:44+08:00 |
 | branch / head | `fix/wifi-mission-timeout` / `2cd63b69c26bcae2a3e25e228f22e901a6c9901d` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-mission8/boot.img`, 201,887,744 B, SHA256 `1414ca38461cc763ba6b05f31bf46ecbb0cc3f296ec0687c7e3630d89bdd1ba5` |
+| `boot.img` | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission8/boot.img`, 201,887,744 B, SHA256 `1414ca38461cc763ba6b05f31bf46ecbb0cc3f296ec0687c7e3630d89bdd1ba5` |
 | kernel | `47202ba7ef4d6242cdbd11dd510243b79f8f4e72c2ebc626c6a3889cd6e638fe` |
 | payload kernel | `30d27427a1990e5c07c9cb535f69c478e27bc529994e8e3fa8790555fdd986cb` |
 | ADT | `3ed7ea4997de1d52ad1ecc8bc2fb66513241d2774d4786c11b8b42331d6df45f` |
 | WiFi archive | `0ba97fb0b2f501116ec1d4b819be0e28222ad79d94c17702e807c0beea20788e` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-mission8/build-manifest.json` |
+| manifest | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission8/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=2 k60_wifi_rsc=2` |
 
 The image was flown once on 2026-11-18 12:07:49. The console
-`E:/k60-work/evidence/usblog-20261118-120749/console.log` (87,208 B, 1,459 lines,
+`E:/iOS Port/Work/evidence/usblog-20261118-120749/console.log` (87,208 B, 1,459 lines,
 SHA256 `A98BAE37F9136965255847592B27B4F4E20B46BDD6FC2EFE6A2939BABBF83B8D`)
 keeps the proven MHI/QMI/102-channel/en0/scan chain and then completes a WPA2
 join: `:728 PongWifi: association test RUNNING: scanned target, request=0`;
@@ -407,7 +407,7 @@ ADT `206617d9a93f237bba3a34eec7a6e0f505891060246c308ad77e3e3f808f13e2`, WiFi arc
 `20bddc0a980a9bb186bd4ad213d7110a6ae2420b732b15d361b79828260c6ba2`, and 602-byte
 arguments ending `pong_wifi=2 k60_wifi_rsc=2`.
 
-The flight at 13:02:46 (`E:/k60-work/evidence/usblog-20261118-130246/console.log`,
+The flight at 13:02:46 (`E:/iOS Port/Work/evidence/usblog-20261118-130246/console.log`,
 257,335 bytes, 3,941 lines, SHA256
 `5d0d5eec9aad2302d5914823394ba2c3186ce16d0c8616f5c932d0af462cff76`) keeps the whole
 association chain: `:790` the directed rescan, `:900` association RUNNING, `:906`
@@ -445,7 +445,7 @@ payload kernel `6b251b9a2b76c818f685149284e68ce4d76501ad73d5eaa2f6db86d8fb3b54f1
 ADT `ad52bcf976cefc409962a57bbd9e53b0ab0b7f657cb3f3304e34db9254b7e7fb`, WiFi archive
 `75d762f3d7ed9842cb43f2a62e2b81abe42da28aae1b56cd13478049a3453e42`, 602-byte arguments.
 
-The flight at 13:48:54 (`E:/k60-work/evidence/usblog-20261118-134854/console.log`,
+The flight at 13:48:54 (`E:/iOS Port/Work/evidence/usblog-20261118-134854/console.log`,
 259,781 bytes, 3,941 lines, SHA256
 `c99924c9d289d49ac13339e303ef8e1ff8e2af2a3e8f24046e7441f1a5e31e29`) shows the namer
 reaching the service: `:1455 wifi-net: the network stack was opened by configd;
@@ -481,7 +481,7 @@ ADT `b94d48dcb46394dd51e53d703648a19394d6bff4b6ef5fcb40ad871bf8ecde38`, WiFi arc
 `c1edce2e0730e1d1164b9a1bbc5ed2b7cc613cbdac8449d2ca8a0312a267bb67`, and 602-byte
 arguments ending `pong_wifi=2 k60_wifi_rsc=2`.
 
-The flight at 14:11:40 (`E:/k60-work/evidence/usblog-20261118-141140/console.log`,
+The flight at 14:11:40 (`E:/iOS Port/Work/evidence/usblog-20261118-141140/console.log`,
 439,287 bytes, 6,836 lines, SHA256
 `DE3F5AC656865DEFBD686CD291D2FD436136A1EFFC2B09E63A49EDE299A2844F`) is the first
 one where the network carries traffic. After the association the native address
@@ -515,7 +515,7 @@ Mission12 (tag `wifi-20261118sbl-mission12`, built 2026-11-18T15:04:57+08:00 fro
 outbound DNS counters, a DNS query-name log and the 80211 user-client opener.
 
 Its one flight at 15:08:51 is only partly captured:
-`E:/k60-work/evidence/usblog-20261118-150851/console.log` is 53,012 bytes,
+`E:/iOS Port/Work/evidence/usblog-20261118-150851/console.log` is 53,012 bytes,
 918 lines, SHA256 `3fb76775a4384cad815705cf6e705702c3b79b4d1ae611487f3fe334217b1235`,
 and stops at `:912 PongWifi: association test waits for the address configuration`
 after `:771` scan 1 finished 8 networks, `:896` RUNNING, `:899` the directed
@@ -563,7 +563,7 @@ attempted the job and no `execerr` names it. The probe delivery is
 therefore unresolved and recorded as a limit, not as a WiFi defect.
 
 The flight settled the network itself. Console
-`E:/k60-work/evidence/usblog-20261118-164031/console.log` is 443,391 B,
+`E:/iOS Port/Work/evidence/usblog-20261118-164031/console.log` is 443,391 B,
 6,821 newline-terminated lines, SHA256
 `EA1EDD5977D07CDBBAD9B29EA19B693127E6933B39B3AD339282F1A7B0A508F0`; the
 capture wrote no `capture.json`, only `capture.ready` and the console. The
@@ -598,14 +598,14 @@ exercised: it needs `pong_wifi_test=1 pong_wifi_cycle=1` and a userland
 
 Mission14 carried the bounded probe from `a4b0fa9d` and the fresh-lease
 reconnect proof from `8c2b34da`. Image
-`E:/k60-work/artifacts/wifi-20261118sbl-mission14/boot.img`, 201,887,744
+`E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission14/boot.img`, 201,887,744
 bytes, SHA256
 `48024084de903efef7d85208017a4c6c6de6bd1fa83be2398a84a0b71108e066`,
 built `2026-11-18T19:17:25+08:00` at head `8c2b34da`, WiFi archive
 `626f852539e023bc27d3dee90dc9022933c92af7ec062343a43aa953ef9ec1e1`,
 602-byte arguments ending `pong_wifi=2 k60_wifi_rsc=2` with
 `k60_autoreset=900`. It flew once at 19:23:12; console is
-`E:/k60-work/evidence/usblog-20261118-192255/console.log`, 436,946 B,
+`E:/iOS Port/Work/evidence/usblog-20261118-192255/console.log`, 436,946 B,
 6,834 newline-terminated lines, SHA256
 `cb25549c3ed89d58c2530b81e03b6241608dbbb5350622d7b84797bb12768449`.
 
@@ -653,14 +653,14 @@ disconnect and reconnect.
 Mission15 carried `6253eafc` — the packet-filter tap, the 383 property lists,
 the 470/471 flags, the current-network fallback and a reg-less `wlan` node in
 `dts/mondrian.dts`. Image
-`E:/k60-work/artifacts/wifi-20261118sbl-mission15/boot.img`, 201,887,744
+`E:/iOS Port/Work/artifacts/wifi-20261118sbl-mission15/boot.img`, 201,887,744
 bytes, SHA256
 `8fedce4983f7e7e5f489e8da0dbeba47ee5d86642e7e81e9bf465a638819d2ca`,
 built `2026-11-18T22:25:35+08:00` at head
 `6253eafca83ff421b2ccf66e5ef1ac199950c562`, WiFi archive
 `e2f6d7259c71dc33e8f2c25b254183566c3e80b6172a1687d7084a6e6285a4fe`,
 602-byte arguments and `k60_autoreset=900`. It flew once at 22:32:23;
-console is `E:/k60-work/evidence/usblog-20261118-223223/console.log`,
+console is `E:/iOS Port/Work/evidence/usblog-20261118-223223/console.log`,
 997,880 B, 12,500 newline-terminated lines, SHA256
 `12a96da390ef1a4beba3c3d842cdc9e3ed879e4cff4e6d6398a1b5c8e0928609`.
 The capture wrote `capture.ready` and the console but no `capture.json`,

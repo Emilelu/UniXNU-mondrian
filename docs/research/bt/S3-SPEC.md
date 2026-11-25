@@ -7,7 +7,7 @@ Status: 2026-11-14 写就，离线静态验证通过（`git apply --check` + `cl
 ## 0. 这一步解决什么
 
 `0500` 的内核后端能把 SE20 拉起来、能下固件、能跑 H4，但**用户态根本不会来找它**。
-实测证据（`bt-s1-20261114a` 那次健康启动，`E:/k60-work/evidence/usblog-20261114-bts1-run1/console.log`）：
+实测证据（`bt-s1-20261114a` 那次健康启动，`E:/iOS Port/Work/evidence/usblog-20261114-bts1-run1/console.log`）：
 
 ```
 com.apple.server.bluetooth: Bluetooth Super Server Robot Destroyer
@@ -37,7 +37,7 @@ S3 就是把这三件事补齐。
 
 ## 1. 参照实现（sheng，已在真机跑通）
 
-`E:/hackios/UniXNU-sheng/package/BluetoothProbe.cpp:222-264` 的 `address()`，逐条对应：
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/BluetoothProbe.cpp:222-264` 的 `address()`，逐条对应：
 
 | 步骤 | sheng 做法 | 本补丁做法 |
 |---|---|---|
@@ -79,7 +79,7 @@ sheng 的 ADT 节点（`dts/sheng.dts:17-25`）是 `transport-encoding = <1>`（
 因为**时序**：`bsd/kern/bsd_init.c` 的 `bsd_autoconf()` 里，
 `native_pong_ui_services_start()` 在 `k60_usblog_start()` 和 `qbt_k60_start()` **之前**执行；
 而 `xpcproxy /usr/sbin/bluetoothd` 要再晚约 850 行控制台才出现
-（`E:/k60-work/evidence/usblog-20261114-touchd/console.log:995`）。
+（`E:/iOS Port/Work/evidence/usblog-20261114-touchd/console.log:995`）。
 把发布点放在这里，节点和 IOService 在 bluetoothd 启动前很久就已经在注册表里了。
 
 `#if` 条件沿用 `0212` 的模板：`defined(PONG) && (DEVELOPMENT || DEBUG) && !SECURE_KERNEL && XNU_K60_BT_PUBLISH`，
@@ -211,7 +211,7 @@ K60 BT: no platform identity (-2); bluetooth not published
 | 接线 | `patches/xnu/series:207`（`0508` 之后、`0503` 之前），`patches/bt/series` 第三行 |
 | OSData 断言（2026-11-15） | `scripts/tests/test-k60-bt-0509-properties.py` 25 cases 全过：三属性与 radio `device_type` 只经 `k60_bt_string_property`（`OSData::withBytes`，长度含 NUL）发布，宿主侧无需构建 |
 
-编译命令（可复现）：`E:/k60-work/scratch/bt-s3/verify3.sh`，它用
+编译命令（可复现）：`E:/iOS Port/Work/scratch/bt-s3/verify3.sh`，它用
 `/opt/k60/trees/lead-out/.../ios-obj/DEVELOPMENT_ARM64_PONG/{bsd,iokit}/DEVELOPMENT/.CFLAGS`
 跑 `clang -target arm64-apple-ios16.0 -fsyntax-only`（`.CFLAGS` 里有 `-include meta_features.h`，
 所以 cwd 必须是 `.CFLAGS` 所在目录）。

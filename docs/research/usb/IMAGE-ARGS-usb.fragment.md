@@ -7,7 +7,7 @@
 
 ## 1. 症状（实测）
 
-`python3 /mnt/e/hackios/k60-lead/scripts/check-image-args.py --image <带 k60_usbvend=2 的 boot.img>`
+`python3 /mnt/e/iOS Port/Sources/Hardware/k60-lead/scripts/check-image-args.py --image <带 k60_usbvend=2 的 boot.img>`
 
 ```
 image-arg-audit: REFUSED
@@ -66,12 +66,12 @@ image-arg-audit: REFUSED
 
 ```bash
 # 1) 白名单生效（用已有镜像 + 手工核对的参数集，或用新构建的 usb-20261114h2）
-python3 /mnt/e/hackios/k60-lead/scripts/check-image-args.py \
-  --image /mnt/e/k60-work/artifacts/usb-20261114h2/boot.img
+python3 /mnt/e/iOS Port/Sources/Hardware/k60-lead/scripts/check-image-args.py \
+  --image /mnt/e/iOS Port/Work/artifacts/usb-20261114h2/boot.img
 # 期望：image-arg-audit: OK (30 arguments, 590 bytes)
 
 # 2) 文档一致性
-cd /mnt/e/hackios/k60-usb && PYTHONIOENCODING=utf-8 python3 scripts/check-docs.py
+cd /mnt/e/iOS Port/Sources/Hardware/k60-usb && PYTHONIOENCODING=utf-8 python3 scripts/check-docs.py
 ```
 
 ## 7. 三档语义（写进 BOOT-ARGS 的依据）

@@ -296,7 +296,7 @@ probe 为四个域各建一份 `{只读映射表指针, kmalloc 运行时副本,
 ## 9. 复现命令
 
 ```bash
-KO=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+KO=/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
 llvm-nm -u "$KO"                                   # 85 个未定义符号，确认只有 3 个 pmic_glink_*
 llvm-readelf -p .modinfo "$KO"                     # depends=panel_event_notifier,pmic_glink
 llvm-objdump -dr --start-address=0xa90 --stop-address=0xae0 "$KO"    # client 注册

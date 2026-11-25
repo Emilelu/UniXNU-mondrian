@@ -19,10 +19,10 @@
 
 ## 2. 镜像与前提
 
-- 镜像目录：`/mnt/e/k60-work/artifacts/gpu-publish-probe-20261118/`
+- 镜像目录：`/mnt/e/iOS Port/Work/artifacts/gpu-publish-probe-20261118/`
 - 构建：`bash scripts/build-strict.sh gpu-publish-probe-20261118 --fd …/gpu-drawfix-20261118-cf4485712c29.fd`
 - 插件沿用 `metal-plugin-20261118k`（这一飞不碰 `drivers/PongMetal`，避免第二个变量）
-- 串口采集由 `scripts/flash.sh` 负责，证据落 `E:/k60-work/evidence/usblog-<时间戳>/`
+- 串口采集由 `scripts/flash.sh` 负责，证据落 `E:/iOS Port/Work/evidence/usblog-<时间戳>/`
 
 ## 3. 前置检查（不满足就不飞）
 
@@ -118,7 +118,7 @@ PONG VM: publish sample n=2688 objects=613 imported=39 owned=0 combined=574 \
 
 ### 5.4 追加读数：耗时是双峰的，不是常数
 
-把 84 个 VM 样本按 `us` 排序，得到清晰的**两簇**（`E:/k60-work/scratch/bimodal_publish.py`）：
+把 84 个 VM 样本按 `us` 排序，得到清晰的**两簇**（`E:/iOS Port/Work/scratch/bimodal_publish.py`）：
 
 | 簇 | 样本数 | `us` 中位 | 范围 | objects 中位 | imported 中位 | calls 中位 | cachebytes 中位 |
 | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |

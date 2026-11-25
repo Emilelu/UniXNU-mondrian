@@ -19,16 +19,16 @@
 |---|---|---|
 | ① UniXNU 官方组织全量 | `https://api.github.com/orgs/UniXNU/repos`（含将来新增） | 实测（API 返回） |
 | ② unixnu.com/devices/ 列出的全部设备仓（含同 SoC SM8475 与其它机型，动态发现新增） | `devices.py list`（实时页 / `docs/devices-map.json` 官网索引导出） | 文档（官网），`--verify` 后升实测 |
-| ③ 已有本地参考克隆 | `E:\k60-work\references\*\` 的 git 仓库 | 实测（本地 .git） |
+| ③ 已有本地参考克隆 | `E:\iOS Port\Work\references\*\` 的 git 仓库 | 实测（本地 .git） |
 
 ## 2. 工具与命令
 
 ### 2.1 设备枢纽 `tools/device-hub/devices.py`
 
 ```powershell
-python E:\k60-work\tools\device-hub\devices.py list [--live] [--verify] [--write] [--fetch-pages]
-python E:\k60-work\tools\device-hub\devices.py find "<关键词>" [--refresh]
-python E:\k60-work\tools\device-hub\devices.py pull-check
+python E:\iOS Port\Work\tools\device-hub\devices.py list [--live] [--verify] [--write] [--fetch-pages]
+python E:\iOS Port\Work\tools\device-hub\devices.py find "<关键词>" [--refresh]
+python E:\iOS Port\Work\tools\device-hub\devices.py pull-check
 ```
 
 - `list`：实时解析设备目录（设备名/SoC/维护者/仓库 URL/文档/页 URL），SM8475 与 K60 相关
@@ -53,7 +53,7 @@ python E:\k60-work\tools\device-hub\devices.py pull-check
 - **定时任务最小命令**（由主控挂载，本机制不自建系统任务）：
 
 ```powershell
-python E:\k60-work\tools\device-hub\devices.py pull-check >> E:\k60-work\references\upstream-watch\watch-cron.log 2>&1
+python E:\iOS Port\Work\tools\device-hub\devices.py pull-check >> E:\iOS Port\Work\references\upstream-watch\watch-cron.log 2>&1
 ```
 
   建议频次：沿用「参考仓库上游变动检查」的 09:00 / 21:00。
@@ -61,7 +61,7 @@ python E:\k60-work\tools\device-hub\devices.py pull-check >> E:\k60-work\referen
 ### 2.3 自有仓 push 检查 `tools/repo-hygiene/push-check.py`
 
 ```powershell
-python E:\k60-work\tools\repo-hygiene\push-check.py [--no-fetch]
+python E:\iOS Port\Work\tools\repo-hygiene\push-check.py [--no-fetch]
 ```
 
 - 覆盖六仓：UniXNU、UniXNU-mondrian、uefi-mondrian、ios-sweet-k60、PongUfs、UniXNU-sm8475-common。

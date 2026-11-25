@@ -340,7 +340,7 @@ id = "iron-12"
 kind = "iron"
 source = "AGENTS.md:铁则 12"
 statement = "给其他 agent 的消息一律先发 steer，只有目标不在运行、steer 被拒时才发同一内容的 followup；steer 成功就不要再补一条 followup"
-check = "python3 scripts/check-agent-messaging.py"
+check = "python3 scripts/check-agent-messaging.py && python3 scripts/check-reply-delivery.py"
 note = "2026-11-20：四条线在按 Lead 已经作废的指令工作——替换指令走了 followup，排在各自当前轮次后面，等落地时那一轮已经做完。steer 在最近的可处理步骤边界介入，是唯一能真正改道的投递方式。"
 
 [[rule]]
@@ -358,6 +358,12 @@ source = "scripts/check-rule-registry.py"
 statement = "规则登记表的 id 必须唯一，且 id 必须与它声明的来源一致：P-186 不能挂在 hard-34 名下，hard-NN 必须有对应的 ★NN 小节"
 check = "python3 scripts/tests/test-rule-registry.py"
 note = "2026-11-14: 换行符规则被登记成 hard-34，而 hard-34 已被 HARD-RULES.md 的「协议/型号只能实测确认」占用；check-rules.py 用集合做覆盖检查，所以重复 id 既不报错也不可见，--only hard-34 会静默跑两条不同检查。"
+
+[[rule]]
+id = "P-129"
+statement = "触摸控制器 Goodix GT9916R 走 Berlin 协议（BRL），不是 GTP：坐标使能要发 0x91/0x01，配置完成必须等 reply[0] == 0x80，只查 ack[1] 不够。"
+check = "python3 scripts/test-goodix-config.py && python3 scripts/check-dt-asserts.py"
+note = "取自 yibiya 631efc3 的实测；旧实现只发 0x90/0x00 关 raw debug、从不发坐标使能，所以真机 reports=0。"
 
 [[rule]]
 id = "P-147"
@@ -1208,3 +1214,302 @@ title = "工具链发不出的标签，不等于加载器判错了"
 statement = "判「消费方太严」之前，既要把消费方接受过的同类产物逐字段摆开，也要确认自己的工具链能不能表达它要求的那个值；修法落在能把值写对的地方，并配一个拒绝代劳其余字段的门禁。"
 check = "python3 scripts/tests/test-k60-fileset-stamp.py && python3 scripts/tests/test-ios27-artifacts.py"
 note = "2026-11-20：本地 clang 在 MachObjectWriter.cpp:199-209 把 arm64e 一律写成 ptrauth 版本 0、非内核形态，ld64 采用 object 的值，所以 com.apple.kernel 的 0xc0000002 只能在链接后补一个字节；scripts/k60-fileset-stamp.py 只改这一位并拒绝代劳 filetype / MH_DYLIB_IN_CACHE / 重复条目。"
+
+[[rule]]
+id = "iron-13"
+statement = "官网文档的每个非设备页都是一条要求：登记进 docs/engineering/OFFICIAL-REQUIREMENTS.toml，能挂门禁的挂门禁，挂不上的记 unmapped 债务；页面 sha256 变了必须重读并更新条目。"
+check = "python3 scripts/check-official-docs.py"
+note = "2026-11-21 用户要求「将 https://unixnu.com/zh/ 官网所有页面都做成铁则和门禁」，随后补充「除了设备页」「主要目的就是严格遵守官方发布的所有页面上的文档」。设备页按设备列举，不是本板的契约，故排除。"
+
+[[rule]]
+id = "iron-14"
+statement = "任何硬件修复在 ①~⑦ 七步各自的证据齐备之前不得上机；⑧ 的 prediction.success / prediction.failure 必须预写，flight 门禁只认这些证据。"
+check = "python3 scripts/eight-step-gate.py --build && python3 scripts/check-fastboot-callers.py"
+note = "已有实现（scripts/eight-step-gate.py 的 FLASH_STEPS + prediction 检查），2026-11-21 明确为铁则：一次上机换一个答案，判据要在飞之前写死。"
+# 注册表证明接线；真正的拦截在 scripts/flash.sh 调用 --flash。见 P-290。
+[[rule]]
+id = "iron-15"
+statement = "参考仓库与所有 UniXNU 相关仓库必须按周期 fetch 上游：docs/engineering/UPSTREAM-REPOS.toml 登记，scripts/check-upstream-sync.py 核对 fetch 时间、HEAD 移动、只读仓是否落后、以及官网设备页是否新增了本 SoC 条目。"
+check = "python3 scripts/check-upstream-sync.py --hours 24 --allow-behind"
+note = "2026-11-21 用户要求「参考的仓库，以及UniXNU相关的仓库，都要及时同步上游，这个也要做成铁则和门禁」。起因是 xNekom 的 26 个提交与上游 622 个提交都是过期快照之后才被发现。"
+# 落后是债务（note）；fetch 过期与 HEAD 移动才是失败。见 P-290。
+[[rule]]
+id = "P-286"
+title = "门禁读基础表而不是生效表，等于在量一棵没人编的板子"
+statement = "任何读配置做判定的门禁都必须复刻框架的 profile 合并语义（含 [os_overrides] 与 remove），并把它正在量的层名打进输出；直接读 board.toml 的键只允许出现在合并之后。"
+check = "python3 scripts/check-ios27-geometry.py --board ."
+note = "2026-11-21：xNekom 19ae38bc 的 geometry 门禁读 board['payload']['adt']，本板 27 的值在 [os_overrides]，于是对一次真的钉了 seed 的构建报 error。修法见 scripts/check-ios27-geometry.py 的 merge()/profiles_named()。"
+
+[[rule]]
+id = "P-287"
+title = "三份审计互相矛盾时，判据在构建产物里"
+statement = "固件卷「带不带某个驱动」必须同时证明它在 [FV.FvMain] 的包含链里并且真的产出了 .efi；只读 DSC、FDF 或某个 .inc 都不算，多份报告矛盾时不投票。"
+check = "python3 scripts/check-uefi-volume.py --self-test && python3 scripts/check-uefi-volume.py"
+note = "2026-11-21：DiskIoDxe/Fat/UniXNURamDiskDxe 被三份审计判出两种结论；mondrian.fdf:82-83 的两个 !include 与 Build 下三个 .efi 才定案，现在由 scripts/check-uefi-volume.py 常驻检查。"
+
+[[rule]]
+id = "P-288"
+statement = "跨批次的覆盖率报告必须先把引用归一化成同一个键，同一页出现两次要失败而不是相加"
+check = "python3 scripts/tests/test-official-audit-report.py"
+note = "2026-11-21 官方页审计：一个批次写绝对路径、其余写相对路径，报告因此把一页判成未审、另一页判成注册表里没有；修法见 scripts/official-audit-report.py 的 page_name()"
+
+[[rule]]
+id = "P-289"
+statement = "报告字段必须指回计算它的代码；常量字符串不能当测量结果"
+check = "python3 scripts/tests/test-ios27-artifacts.py"
+note = "2026-11-21 kernel.json 的 missing_address_space 是 fileset_emit.py:740 的写死字面量，与 loadable/runtime_qualified 同族"
+
+[[rule]]
+id = "P-290"
+statement = "规则注册表里的每条 check 在当前状态合规时必须能变绿；上机拦截放在上机入口"
+check = "python3 scripts/check-fastboot-callers.py"
+note = "2026-11-21 iron-14 的 check 直接跑 --flash，飞行欠账未清时永远红；改为注册表证明接线、flash.sh 做拦截"
+
+[[rule]]
+id = "iron-16"
+statement = "遇到阻塞先读参考源：每个仍 open 的阻塞必须在 docs/engineering/IOS27-REFERENCE-FIRST.toml 里留下至少两条可解析的读数（仓/文件/行/它怎么解决/我们的处置），scripts/check-reference-first.py 在缺条目、少于两个来源、路径或行号解析不到时失败。"
+check = "python3 scripts/check-reference-first.py && python3 scripts/tests/test-check-reference-first.py"
+note = "2026-11-21 用户要求「遇到问题不要闭门造车，第一时间去看参考源是怎么解决的，这件事要落实到铁则和门禁上」。落地即抓到当天两例：加载器 fileset 结论（官方 pin 本就支持）与 prelink 残留（上游能 boot 的基线自带 missing 2 / stubbed 24）。"
+
+[[rule]]
+id = "P-291"
+title = "闭门造车：先设计再看参考源，等于把别人的答案重新猜一遍"
+statement = "任何阻塞在动手前必须先读出参考源对同一问题的处置，并把它写成可解析的 文件:行 读数；写不出读数说明还没读，不是说明参考源没有答案。"
+check = "python3 scripts/check-reference-first.py && python3 scripts/tests/test-check-reference-first.py"
+note = "2026-11-21：加载器与 prelink 两处都在参考源里已有现成答案（官方 pin 支持 fileset；上游 policy 允许非零残留并要求 required_original_branches），却先花时间自证不可能。门禁把「读过」变成 open 阻塞的准入条件。"
+
+[[rule]]
+id = "P-292"
+title = "没有基线的残留数字，等于每次都在和昨天没记过的自己比"
+statement = "任何「还有 N 个未解决」的计数，都必须先把自己的当前值登记成基线（docs/engineering/IOS27-PRELINK-POLICY.json），门禁只允许它变小：增长即失败，某个基线条目消失也算陈旧债务。"
+check = "python3 scripts/tests/test-check-prelink-regressions.py"
+note = "2026-11-21：上游 24A446 用 regression_policy 干这件事（scripts/unixnu/kernel.py:300 的 check_prelink_regressions），我们此前只有一句「还有 203 个桩」在文档里，谁都不知道下一次构建是不是更差。登记表本身的判定逻辑由测试守住；对产物的判定跑在 check-ios27-artifacts.py 的飞行门禁里（脚本需要 /opt 下的 kernel.json，不能进常驻注册表，否则就是 P-290）。"
+
+[[rule]]
+id = "iron-17"
+title = "每一步都先指到官网页面上的一节，指不到就是猜"
+statement = "构建与上机的每一个动作（fetch / defconfig / build kernel / build payload / build firmware / bootimg / 交接诊断）都必须在 docs/engineering/OFFICIAL-STEPS.toml 里有对应行，写明官方页与锚点；改动了固件这一层时还要按 porting/uefi-firmware 的必需集成逐项复核。"
+check = "python3 scripts/check-official-steps.py && python3 scripts/tests/test-check-official-steps.py"
+note = "2026-11-21：改 DarwinBoot 让 fileset 通过后直接上了三张图，全是黑屏且连固件界面都没起，因为跳过了 required-integration 的复核与绿条诊断。门禁把「官方出处」变成构建脚本里每条命令的准入条件。"
+
+[[rule]]
+id = "P-293"
+title = "没有官方出处的步骤就是猜，猜的代价是一次上机"
+statement = "凡是「下一步怎么做」的问题，先到官方文档里找到具体一节；找不到要记成文档缺口再动手，不得凭经验发明流程。"
+check = "python3 scripts/tests/test-check-official-steps.py"
+note = "2026-11-21：三张黑屏图的共同原因是流程靠猜——改加载器没按 required-integration 复核、停在交接没按 green-bar 诊断。"
+
+[[rule]]
+id = "hard-41"
+kind = "hard"
+source = "scripts/check-local-pushes.py"
+statement = "每个本地分支都必须存在于可写远端的同名分支上：只在这台机器上的分支等于没交付；只读上游镜像的 main 与归档分支按 PUSH-ALLOW.toml 豁免，且豁免匹配不到任何分支时只提示"
+check = "python3 scripts/check-local-pushes.py"
+note = "2026-11-21: 审计发现 12 条本地分支从未推送（含三条新线的分支），而各线汇报都写「已推送」。判据按可写远端算——UniXNU 的 origin 是官方仓、不可写，只认 fork。"
+
+[[rule]]
+id = "P-296"
+title = "缺席值落在合法值域内，尺寸一致也挡不住误读"
+statement = "跨线会签一个结构体字段时，「尺寸与偏移一致」不等于「语义一致」：凡是字段的缺席值可能与该字段的第一个合法值相同（如 target 的 0 既是「没有」又是「第 0 块」），必须把缺席值挪到值域外，或让消费点显式换算；只签了尺寸的一律不算签过。"
+check = '''s=scripts/check-gpu27-target-index.py; [ -f "$s" ] || s=docs/research/gpu/tools/check-gpu27-target-index.py; K60_GPU27_REPO="${K60_GPU27_REPO:-../k60-gpu-27}" python3 "$s"'''
+note = "2026-11-21：v2 的 target@52 写成「字节偏移，0 = 无 dbuf」，参考实现里 db[0].offset 恰为 0 而 dbTarget() 返回索引，两份材料各自自洽、拼起来才矛盾；尺寸不变所以编译器与 static_assert 都看不见，第一次双缓冲飞行会静默停在旧缓冲。"
+
+[[rule]]
+id = "P-298"
+title = "板级 ADT 节点只在 board.toml 里写对了，没人核对它进没进 ADT 字节"
+statement = "板级节点的正确性分两层：表里写对（board.toml 能被解析、字段齐、取值对）和字节里有（生成的 ADT 里真出现该节点与属性）。只测表层的门禁在 pick 或合并时会静默放行——2026-11-12 的两次 pick 就是这样把 [adt.arm-io.pong-buttons] 弄丢的。凡新增或修改 [adt.*] 节点，判据必须是「生成 ADT 后逐属性比字节」，而不是只跑 tomllib。"
+check = '''python3 -c "import os,sys,tomllib,pathlib;t=tomllib.loads((pathlib.Path(os.environ.get('K60_XNEKOM_IOS27','../xnekom-ios27'))/'board.toml').read_text(encoding='utf-8')).get('adt',{});b=t.get('buttons',{});a=t.get('arm-io',{}).get('pong-buttons',{});g=lambda s,k:(a.get(s,{}) or {}).get(k);n=b.get('strings',{}).get('button-names',[]);s=b.get('string',{});bad=[m for m,c in ((' /buttons compatible',s.get('compatible')!='buttons'),(' /buttons device_type',s.get('device_type')!='buttons'),(' /buttons button-names',n!=['hold','voldown','volup'] or 'menu' in n),(' /buttons home-button-type',b.get('u32',{}).get('home-button-type')!=2),(' pong-buttons core-base',int(str(g('u64','core-base') or 0),0)!=0xc400000),(' pong-buttons cnfg-base',int(str(g('u64','cnfg-base') or 0),0)!=0xc42d000),(' pong-buttons observer-base',int(str(g('u64','observer-base') or 0),0)!=0xc440000),(' pong-buttons ee',int(str(g('u32','ee') or 0),0)!=0),(' pong-buttons pon-ppid',int(str(g('u32','pon-ppid') or 0),0)!=0x13),(' pong-buttons volume-up-ppid',int(str(g('u32','volume-up-ppid') or 0),0)!=0x18d)) if c];print(('FAIL:'+','.join(bad)) if bad else 'ok input-adt-nodes: /buttons 4 fields + /arm-io/pong-buttons 6 properties present in the 27 board.toml');sys.exit(1 if bad else 0)"'''
+note = "2026-11-21：27 设备仓 board.toml 表级一直是对的，但没有任何检查证明这些字段进了 ADT；本线用 devicetree.py:311 generate() 生成 16,648 B / 26 节点的 ADT，#/buttons 四字段、/arm-io/pong-buttons 六属性、/arm-io/pong-touch 十属性逐值相符。种子反例：97b84eb7 加、3b3ff9ce 删，两次都过检查。"
+
+[[rule]]
+id = "P-299"
+title = "上游 pick 会把别人正依赖的 board.toml 块先加后删"
+statement = "board.toml 是多线共写的单文件；批量 pick 时后一条提交会把前一条刚加的块当成本地改动回退掉，而回退只看文件差异、不看谁在依赖这个块。只要有驱动按精确名断言某个节点或属性（如 pong_buttons.c:42 断言 /arm-io/pong-buttons），删掉它的提交就必须让某条门禁红。"
+waiver = "自动判据 scripts/check-dt-asserts.py 待挂，挂上前这条规则不执行；由 Lead 挂载后改成真 check"
+note = "2026-11-21：97b84eb7（21:33）加进 [adt.arm-io.pong-buttons]，3b3ff9ce（21:35，never let a pick overwrite the board contract）又删掉，两次提交各自干净、各自都过了当时的检查，结果是按键驱动按精确名查不到节点而静默 SKIP。自动判据（scripts/check-dt-asserts.py）由 Lead 挂，落地前这条规则以 waiver 记、不参与执行（P-290：永远为红的规则等于没有规则；原先写成 check = false 会被登记成永久失败）。"
+
+[[rule]]
+id = "P-300"
+statement = "从别的 OS 线继承来的仪器是假设，不是资产：内核必须有可验证的控制台接收端，否则沉默不是证据"
+check = "python3 scripts/tests/test-check-kernel-console.py"
+note = "27 内核无 _pong_ramoops_console_write/_pong_ramoops_console_init/_k60_usblog_console_up/_k60_console_export_sysctl，两次 0 字节飞行被读成内核早死。sheng 的 27 补丁里 ramoops/console_write/usblog 命中 0，官方 porting/log-capture.md 只映射了参数那一半，guide/debugging.md 仍未审计。门禁 scripts/check-kernel-console.py --flight。"
+
+[[rule]]
+id = "P-301"
+statement = "`-D` 开关必须证明宏到了编译器：判据是对象构建记录（.o.json 的 arguments）或最终符号表里的宏/符号，不是构建脚本里的字面量，也不是门禁对脚本文本的 grep。点号 make 变量经环境变量传递（env \"<obj>.o_CFLAGS_ADD=…\"）在本仓的调用链上不被信任，必须走 builder 自己的 EXTRA_MAKE_ARGS；否则钩子会被预处理器整段删掉，git apply 成功、编译零警告、镜像与没打补丁同效。"
+check = "python3 scripts/tests/test-check-kernel-console.py"
+note = "2026-11-21：0546 的 XNU_PONG_RAMOOPS_CONSOLE 由 env 前缀传递，serial_console.o.json 里该宏 0 次，两个钩子被编译掉，27 内核第三次没有控制台。同一次构建的 startup.o.json 含有 builder 用 EXTRA_MAKE_ARGS 传的 -DXNU_NATIVE_TRUST_CACHE，证明通道差异而非命名差异。修法：0546 改成无条件编译 + 运行期 pong_ramoops_base 自我守卫。"
+
+[[rule]]
+id = "P-302"
+statement = "flash 门禁必须按 os_profile 选八步账本；把 16.6.1 的账本套在 27 树上，只会产生 18 条永远为红的引用。"
+check = "python3 -c \"import pathlib,sys; p=pathlib.Path('docs/engineering/PITFALLS.md'); t=p.read_text(encoding='utf-8'); sys.exit(0 if '## P-302' in t else 1)\""
+note = "2026-11-21 23:05 实测：flash.sh 对 227fa840… 报通过 54 项、问题 18 处，全部是 16 线的 P-122/P-126/P-140 与五个 27 树不存在的文件；27 账本 EIGHT-STEPS-27.toml 从未被读。"
+
+[[rule]]
+id = "P-303"
+statement = "门禁必须可 import：`sys.exit()` 之后不许再有检查代码，写单测先 import 一次，`NameError` 就是红。"
+check = "python3 scripts/tests/test-eight-step-ledger-choice.py"
+note = "2026-11-21 23:36：eight-step-gate.py 尾部 53 行 STATUS 覆盖检查在 sys.exit() 之后，从未执行，且让文件 import 即 NameError；删除后 452→399 行。"
+
+[[rule]]
+id = "P-304"
+title = "路径锚点要让盘符形态可解析"
+statement = "解析 `文件:行` 锚点时必须显式处理 Windows 盘符与绝对路径（`E:/x` → `/mnt/e/x`，前导 `/` 时同时试各证据根 + lstrip('/')），不得依赖 `Path(base) / 绝对路径` 的行为。"
+check = "python3 scripts/tests/test-eight-step-ledger-choice.py"
+note = "2026-11-21 八步门禁把 7 条 Windows 盘符引用判成「文件不存在」：正则从 E: 之后开始匹配，且 pathlib 对绝对右侧丢掉 base。"
+
+[[rule]]
+id = "P-305"
+title = "合规声明必须是逐字段差分，且两侧各用自身标识符查表"
+statement = "回答「是否严格参考了某个参考源」时，必须给出可复核的差分（同一份脚本、两侧各自的标识符、三态分类），不得凭回忆列表；缺失段必须显示为 GAP 而不是被当成无差异。"
+check = "python3 scripts/tests/test-audit-ios27-conformance.py"
+note = "2026-11-22 首跑抓到 [kernel.prelink] 整段缺失（Sheng 声明 44 个 root）与 defconfig 8 vs 19 键；检查器第一版用我们的 profile 名读 Sheng 的 defconfig，SAME 从 6 变 10。"
+
+[[rule]]
+id = "P-306"
+title = "抄来的 prelink root 列表必须逐条判：重复、成员、互斥、覆盖"
+statement = "设备层 `[kernel.prelink].roots` 必须由 `scripts/check-prelink-roots.py` 判过：无重复、每个包含项在预链接用的 kernelcache 里存在、同一 bundle 不能既包含又排除、且覆盖 OS profile 声明的全部根；kernelcache 读不到时退「无法判定」而不是通过。"
+check = "python3 scripts/tests/test-check-prelink-roots.py"
+note = "2026-11-22 首跑发现比错了层（只看 board.toml，漏了 OS profile 的 30 条 root），修正后仍缺 12 个 USB/HID/SCSI 家族；抄 Sheng 的列表在 prelink 阶段会因缺 bundle 直接崩。"
+
+[[rule]]
+id = "P-307"
+title = "仪器的寿命必须写进判据，不能假设它跨复位"
+statement = "任何被当作观测仪器的通道，文档必须用 `instrument:` 声明并回答四问：lifetime、read_moment、writer、loss_condition；DRAM 环的 loss_condition 必须是「任何复位或断电」，不得声称跨复位保留。"
+check = "python3 scripts/check-channel-lifetime.py"
+note = "2026-11-22：ramoops 不跨复位这条 2026-10-30 就记录过，但没进 RULES，于是又设计了一次「第二次 boot 读上一次日志」的飞行，被用户当场指出。"
+
+[[rule]]
+id = "P-308"
+title = "内核不打印之前，先确认它被允许打印"
+statement = "27 构建是 DEVELOPMENT，`disable_kprintf_output` 默认为 true；`debug=0x14e` 只清 `disable_serial_output`，所以「没有内核文字」不等于「内核死在 console 初始化之前」。但 `-enable_kprintf_spam` 在 27 上**禁止**：它会让 `vc_initialize()` 里的打印在 `v_rows` 算出之前进入 `vc_putc()`，滚屏写穿帧缓冲映射（xNekom `c3c89df`，2026-11-21 代价一次启动）。27 `kernel_args` 出现该参数即失败，`K60_ALLOW_KPRINT_SPAM=1` 仅供一次性诊断。"
+check = "python3 scripts/check-kprintf-enabled.py"
+note = "2026-11-22：先因四个 kprintf 全是空操作而「无输出」误判黑屏，随后开 `-enable_kprintf_spam` 又撞 `vc_initialize` 打印陷阱；同一天两次，方向相反。"
+
+[[rule]]
+id = "P-309"
+title = "门禁报文件名时不许截掉第一个字符"
+statement = "`git status --porcelain` 的行是 `XY <path>`，必须按空白切出路径，不得用固定长度切片；`scripts/check-tree-clean.py` 的 `path_of()` 与 `scripts/tests/test-check-tree-clean.py` 钉住这一点，报文里的每个名字都必须能在仓库里原样 grep 到。"
+check = "python3 scripts/tests/test-check-tree-clean.py"
+note = "2026-11-22 构建被拒时报 `oard.toml`，而 `line[3:]` 对 ` M board.toml` 本应正确——路径被截一个字符后，读者无法判断是哪个文件，等于把可行动的信息换成了噪声。"
+
+[[rule]]
+id = "P-310"
+title = "`-force_load` 指到的档案必须有人生产"
+statement = "`scripts/build-xnu-generic.sh` 在 `XNU_NATIVE_UFS=1` 时 `-force_load build/native-ufs/libNativeUfs.a`，而这条路径在本机没有生产者（只有 macOS 的 `build-pong-ufs-probe-macos.py` 用 `xcrun`）。任何 `-force_load`/`KERNEL_EXTRA_ARCHIVES` 条目都必须有一个在 Linux 上可执行的生成步骤，并由 `scripts/check-native-ufs-archive.py` 之类门禁三态判定（missing producer = 失败，不是跳过）。"
+check = "python3 scripts/check-kernel-archives.py"
+note = "2026-11-22：`CONFIG_XNU_NATIVE_UFS` 在 27 defconfig 是 `n` 才没暴雷；一旦打开就会链接一个永远不存在的归档。asteroids 与 cupid 的 27 defconfig 都是 `y`，说明这不是可选项。"
+
+[[rule]]
+id = "P-311"
+title = "anchor-drift 必须附锚点命中证据"
+statement = "任何被判为 `anchor-drift` 的补丁必须附 `grep -F '<anchor>' '<27 file>'` 的真实命中行与行号；贴不出来只能判 `missing-file` 或 `sixteen-only`。`anchor-drift` 会直接进移植队列，`missing-file` 进 not-applicable 并要求写不存在的证据，两者混一次就浪费一整轮去重切一个没有落点的补丁。"
+check = "python3 scripts/check-anchor-evidence.py --report docs/research/ios27/IOS16-ANCHOR-REPORT.tsv --tree ${K60_XNU_FEED:-/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc}"
+note = "2026-11-23：35 条 anchor-drift 里 0218/0222/0234 的锚点在 27 kern_exec 一次都不出现，依赖的是 16 线 load_init_program 一带，27 用 native_owner_data_mount。"
+
+[[rule]]
+id = "P-312"
+kind = "pitfall"
+statement = "序列顺序必须由重放证明：scripts/check-series-order.py 在临时 clone 上按 arch → soc → os → device 逐层应用，applied 等于总条数且 failed 为 0 才允许构建。"
+check = "python3 scripts/check-series-order.py"
+note = "P-311 之后：编号唯一与单补丁可解析都不等于可装配；层根取自 profiles.py 的真实解析，arch: 前缀按 root 解析。"
+
+[[rule]]
+id = "P-313"
+kind = "pitfall"
+statement = "缩放字体不得复用 VC_CH 作为字形位图的行数：iso_font 每字形固定 16 字节，vc_render_char 的循环边界必须是 ISO_CHAR_HEIGHT；VC_CH 只能出现在 vc_reverse_cursor / vc_scroll_down / vc_scroll_up。"
+check = "python3 scripts/tests/test-font-render-bounds.py"
+note = "2026-11-23：k60_fontscale=3 时 0544 把该循环改成 VC_CH，每字符越读两个字形并写 1536 字节进 512 字节缓冲区，屏幕上每行字变成实心洋红条；树级判据见 scripts/check-font-render-bounds.py --tree。"
+
+[[rule]]
+id = "P-314"
+kind = "pitfall"
+statement = "固件写出的 boot_args 必须与内核读取的布局逐字段一致：CommandLine 容量、BootFlags 偏移、MemorySizeActual 偏移、sizeof 四项由 scripts/check-bootargs-abi.py 对比平台 BootArgs.h 与内核 pexpert/pexpert/arm64/boot.h，任何一项不等即红。"
+check = "python3 scripts/tests/test-check-bootargs-abi.py"
+note = "2026-11-23：平台头是 Darwin 22（608 / 0x2d0 / 0x2d8 / 0x2e0），27 内核是 Darwin 23（1024 / 0x470 / 0x478 / 0x480）；今天这条门禁对真实文件打印四条 FAIL，作为 IOS27-FLIGHT-BLOCKERS.toml 的 boot-args-abi-608 的机器判据。"
+
+[[rule]]
+id = "P-315"
+kind = "pitfall"
+statement = "跨 kernelcache 枚举的 ABI slot 表必须先比对 kernelcache_sha256，不一致不得用于构建"
+source = "docs/engineering/PITFALLS.md"
+check = "python3 scripts/tests/test-display-fixture-provenance.py"
+[[rule]]
+id = "P-316"
+kind = "pitfall"
+statement = "boot image 与 payload 里装的内核必须是打过 patch-armcpu-validate 的同一份；任何调用点直接引用 $BOARD_DIR/kernel/kernel.macho 都会被这条测试拒绝。"
+check = "python3 scripts/tests/test-kernel-swap-patched.py"
+note = "2026-11-24：swap 与 fast-payload 都曾用未打补丁的内核覆盖 payload，构建绿但 check-ios27-artifacts 报 declared transform 不符。"
+
+[[rule]]
+id = "P-317"
+kind = "pitfall"
+statement = "固件复用键必须覆盖 uefi 工作区的未提交改动（git diff HEAD --binary），否则临时 A/B 改过的头文件会被当成「没变」长期复用。"
+check = "python3 scripts/tests/test-build-cache-keys.py"
+note = "2026-11-24 Darwin 22/23 A/B 把 Darwin 22 卷复用进 Darwin 23 构建。"
+
+[[rule]]
+id = "P-318"
+kind = "pitfall"
+statement = "固件卷被重建的同一次构建里，bootimg 不得复用旧 boot.img；boot 的复用键不包含固件字节。"
+check = "python3 scripts/tests/test-build-cache-keys.py"
+note = "2026-11-24 firmware-built 442 s 后仍 note bootimg: reused。"
+
+[[rule]]
+id = "P-319"
+kind = "pitfall"
+statement = "固件卷被重建时不得走就地换内核快路径——它只改 ramdisk，不改固件。"
+check = "python3 scripts/tests/test-build-cache-keys.py"
+note = "2026-11-24 K60_FORCE_BOOTIMG=1 仍 bootimg-swapped，FD 保持 8e99af40。"
+
+[[rule]]
+id = "P-320"
+kind = "pitfall"
+statement = "本仓 ios16 自有的内核补丁不得被排除在覆盖率审计之外：每条都必须有 carried/deferred/not-applicable 的书面判定，未判定前禁止构建。"
+check = "python3 scripts/check-ios16-carryover.py"
+
+[[rule]]
+id = "P-321"
+kind = "pitfall"
+statement = "每条存活分支必须在 docs/engineering/BRANCH-REGISTRY.toml 登记：归属线、目的、合并条件、飞行状态；未登记的分支存在时 check-branch-registry.py 必须报错。"
+check = "python3 scripts/check-branch-registry.py"
+[[rule]]
+id = "iron-19"
+kind = "iron"
+statement = "每条线的每次交付必须同时发一条五段式消息（分支/HEAD/本轮/证据/下一步）并更新 reply md；只写 reply md 不算交付。"
+check = "python3 scripts/check-agent-messaging.py"
+[[rule]]
+id = "P-322"
+kind = "pitfall"
+statement = "根设备第一个发布的块设备必须是 OS 盘（带保护 MBR）；只校验 GPT 签名不校验 0x55AA 会把 SystemOS 的 APFS 超级块当 MBR。"
+check = "python3 drivers/NativeUfs/tests/check-verified-root.py"
+[[rule]]
+id = "P-323"
+kind = "pitfall"
+statement = "fast-payload 必须收到链接器输出：它自己执行 transform 并记录 kernel_sha256；传已打补丁的副本会把补丁哈希写进 payload.json，check-ios27-artifacts 必报不一致。"
+check = "python3 scripts/tests/test-fast-payload-linker.py"
+
+[[rule]]
+id = "P-324"
+kind = "pitfall"
+statement = "新增驱动源码前必须先在全部本地/远端分支与本仓检索同一基类的既有实现；重复实现必须在 CAPABILITY-REUSE.toml 记 reuse/derived/not-applicable 与证据，否则 check-capability-reuse.py 拒绝。"
+check = "python3 scripts/check-capability-reuse.py --base main"
+
+[[rule]]
+id = "iron-20"
+kind = "iron"
+statement = "往仓库添加子模块或整目录外来驱动前，必须先证明本仓没有同类实现并在 BRANCH-REGISTRY 写明能力归属；drivers/package 相关分支的 purpose/merge_plan 不允许 TBD。"
+check = "python3 scripts/check-capability-reuse.py --base main"
+
+[[rule]]
+id = "P-325"
+kind = "pitfall"
+statement = "给编译命令追加选项必须发生在 `flags = list(base)` 之后；在复制之前 append 会被下一次赋值静默覆盖，编译选项看起来加了、实际从未传给 clang。"
+check = "python3 scripts/tests/test-sheng-source-storage-flags.py"
+
+[[rule]]
+id = "P-326"
+kind = "gate"
+statement = "AOCI 认知索引必须能被解析出实际路径且每条都落在仓内：`aoci.code.txt` 的条目按 `===/<repository>/<dir>/===` 分节、只写文件名，路径是分节目录加文件名；索引一旦指向不存在的文件，读者（或 agent）就会按它去找已经搬走的东西。"
+check = "python3 scripts/check-aoci-index.py"

@@ -375,7 +375,7 @@ opcode。这解释了为什么 `.ko` 的 prop map 比上游宽，也说明**不�
 
 ## 5. ADSP 固件证据
 
-`/mnt/e/k60-work/firmware/adsp/`（23.5 MB，`adsp.b00`–`b25` + `adsp.mdt`）：
+`/mnt/e/iOS Port/Work/firmware/adsp/`（23.5 MB，`adsp.b00`–`b25` + `adsp.mdt`）：
 
 ```
 $ for f in adsp.b*; do echo "$f $(strings -a -n 5 $f | grep -c pmic_glink)"; done
@@ -479,7 +479,7 @@ $ sed -n '277,280p' scripts/build-k60-physical-battery.py
 ## 8. 复现命令
 
 ```bash
-KO=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+KO=/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
 
 # 客户端名与 id
 llvm-objdump -dr --start-address=0xa90 --stop-address=0xad8 $KO
@@ -500,7 +500,7 @@ llvm-objdump -d  --start-address=0x24c8 --stop-address=0x2514 $KO
 llvm-objdump -d  --start-address=0x2660 --stop-address=0x2678 $KO
 
 # ADSP 固件里的服务端
-for f in /mnt/e/k60-work/firmware/adsp/adsp.b*; do
+for f in /mnt/e/iOS Port/Work/firmware/adsp/adsp.b*; do
   printf '%s %s\n' "$(basename $f)" "$(strings -a -n 5 $f | grep -c pmic_glink)"
 done
 

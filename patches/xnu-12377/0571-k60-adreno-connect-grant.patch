@@ -1,0 +1,27 @@
+diff --git a/bsd/dev/k60_adreno_grant.cpp b/bsd/dev/k60_adreno_grant.cpp
+new file mode 100755
+index 00000000..fae3004d
+--- /dev/null
++++ b/bsd/dev/k60_adreno_grant.cpp
+@@ -0,0 +1,21 @@
++/*
++ * native_adreno_connect_granted() -- the kobject filter in osfmk/device/iokit_rpc.c
++ * (native_kobj_map_grant) calls this to decide whether a user client may map the
++ * GPU's memory. Only the native Adreno user client class is allowed; every other
++ * user client keeps the original sandboxed behaviour.
++ *
++ * The implementation matches the reference in UniXNU-sheng's IOUserClient.cpp
++ * (native_adreno_connect_granted), moved into bsd/dev so that this tree needs no
++ * change to the iokit source file the 4 KiB bundle already touches.
++ */
++#include <sys/types.h>
++#include <sys/param.h>
++#include <IOKit/IOUserClient.h>
++#include <mach/boolean.h>
++
++extern "C" boolean_t
++native_adreno_connect_granted(io_object_t obj)
++{
++	IOUserClient *client = OSDynamicCast(IOUserClient, (OSObject *)obj);
++	return client && 0 == strcmp(client->getMetaClass()->getClassName(), "AGXDeviceUserClient");
++}

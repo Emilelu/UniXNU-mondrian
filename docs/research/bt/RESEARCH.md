@@ -33,7 +33,7 @@
 
 ### 1.1 本机 live FDT（M 级，唯一可当「地址真值」的来源）
 
-反编译源：E:/k60-work/scratch/bt/mondrian.dts（21,954 行，sha256 516ac7d55c94cde466e57d2e0efb9014fd1cc3534210c80ef20dd5510146f16a），来自设备 live FDT；另一份 E:/k60-work/reports/live-6033dbec-fdt.dtb（sha256 95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8）是同一棵树的旧反编译，行号整体偏移约 30 行。
+反编译源：E:/iOS Port/Work/scratch/bt/mondrian.dts（21,954 行，sha256 516ac7d55c94cde466e57d2e0efb9014fd1cc3534210c80ef20dd5510146f16a），来自设备 live FDT；另一份 E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb（sha256 95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8）是同一棵树的旧反编译，行号整体偏移约 30 行。
 
 | 节点 | 行 | 关键内容 |
 |---|---|---|
@@ -53,7 +53,7 @@
 
 ### 1.2 本机 Android 厂商栈（参数 M 级，逻辑 A 级）
 
-证据目录：E:/k60-work/docs/research/bt/evidence/
+证据目录：E:/iOS Port/Work/docs/research/bt/evidence/
 
 | 文件 | 提供什么 | 关键行 |
 |---|---|---|
@@ -86,7 +86,7 @@ AGENT-bt.txt 说这条线「完全没开始」—— 对**能用的驱动**成�
 - `UniXNU/components.toml:494-508`：id **QcaBluetooth**，仓库 `https://github.com/UniXNU/QcaBluetooth.git`，
   `path = drivers/QcaBluetooth`，runtime_identifiers = `qbt_transport`、`com.apple.uart.sk.bluetooth`、`kern.qbt_boot`、`kern.qbt_power_on`、`kern.qbt_firmware`。
   参考机型 = Xiaomi Pad 6S Pro（sheng / SM8550 / WCN7850 / iPadOS 27.0.1 24A446）。
-- 本机 checkout：`E:/hackios/QcaBluetooth`（另有 `UniXNU-sheng/drivers/QcaBluetooth`）。
+- 本机 checkout：`E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth`（另有 `UniXNU-sheng/drivers/QcaBluetooth`）。
 - 分层（README.md:16-29）：`qbt_core.c` = Linux 初始化 + H4 成帧 + IBS（单 executor）；`qbt_geni.c` = GENI SE DMA，**4×2048 B RX + 1×4096 B TX**；`qbt_transport.c` = UART.SK 内核管道 + 背压 + 生命周期 + worker 电源请求（APSL-2.0）；`userland/BlueTool.c` = com.apple.BlueTool XPC 引导服务；`userland/Type0.c` = 由 HCI 报告构造 capabilities。
 - 组件 sysctl（README.md:34-38）：`kern.qbt_boot`（读，控制器状态）、`kern.qbt_power_on`（读，读即上电并返回结果；只读因为 BlueTool 沙箱禁止写 sysctl）、`kern.qbt_firmware`（读，已加载固件名）。
 
@@ -115,7 +115,7 @@ AGENT-bt.txt 说这条线「完全没开始」—— 对**能用的驱动**成�
 
 ### 2.4 关键约束：3.2 Mbaud 是 sheng 的，不是普适值（A 级反证）
 
-`E:/hackios/QcaBluetooth/tests/geni.c:57-58`：
+`E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth/tests/geni.c:57-58`：
 ```c
 assert(qbt_geni_set_rate(&f->g, 3200000, 100000000, 16) == -ERANGE);
 assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
@@ -212,7 +212,7 @@ assert(!qbt_geni_set_rate(&f->g, 115200, 7372800, 16));
 
 ### 5.5 S1c：触摸线的成功启动推翻了「GENI 不可碰」的默认假设
 
-S1a 之后读到的**反面证据**：`E:/k60-work/evidence/usblog-20261114-touchd/console.log:653-663` 是一次**健康**启动，它在 GCC 投票之后真的读了 QUP0 SE4 的 GENI 寄存器并活了下来（`mapping serial engine 0x990000 after clock checks` → `SE4 firmware=0x102 protocol=1 interfaces=0x1` → 继续到 SpringBoard）。所以「首次 GENI 访问必死」不成立，S1a 的零字节日志是 BT 这条路径**缺了某个前置条件**。
+S1a 之后读到的**反面证据**：`E:/iOS Port/Work/evidence/usblog-20261114-touchd/console.log:653-663` 是一次**健康**启动，它在 GCC 投票之后真的读了 QUP0 SE4 的 GENI 寄存器并活了下来（`mapping serial engine 0x990000 after clock checks` → `SE4 firmware=0x102 protocol=1 interfaces=0x1` → 继续到 SpringBoard）。所以「首次 GENI 访问必死」不成立，S1a 的零字节日志是 BT 这条路径**缺了某个前置条件**。
 
 最可能的前置条件就是 SE20 的 RCG 根时钟：0500 的 `k60_gcc_set_se_rate()`（`qbt_k60.c:435-466`）只写 M/N/D + CFG + `CMD_UPDATE`，**从不置 `CMD_ROOT_EN`、从不轮询 `CMD_ROOT_OFF`**；而 Linux `clk_rcg2.c:64-75` 判定 RCG 使能的唯一依据就是 `(cmd & CMD_ROOT_OFF) == 0`，`clk_rcg2_set_force_enable()`（:981-1002）正是先置 ROOT_EN 再轮询。触摸线的可用序列（`patches/xnu/zzzz…-pong-touch-console.patch:307-339`）完整走了 ROOT_EN → 等 ROOT_OFF 清零 → 写 CFG → ROOT_EN|UPDATE → 等 UPDATE/ROOT_OFF → CBCR 就绪轮询，最后才 map SE。
 
@@ -220,7 +220,7 @@ S1a 之后读到的**反面证据**：`E:/k60-work/evidence/usblog-20261114-touc
 
 ### 5.6 S3：把「用户态看不见蓝牙」这件事单独修掉
 
-`bt-s1-20261114a` 那次健康启动的日志（`E:/k60-work/evidence/usblog-20261114-bts1-run1/console.log:1249-1260`）给出了 S3 的全部依据：`Unable to match bluetooth service in device tree.` / `Not a valid MAC address (all 00s).` / `No bluetooth on this device.` —— 三行分别对应「设备树没有 `device_type=bluetooth` 子节点」「没有 MAC」「没有名为 `bluetooth` 的 IOService」。0500 对这三件事只留了一个弱符号空壳，所以**即使 S1/S2 全绿，worker 也会停在 `-ENOENT`，`qbt_boot()` 不会被调用**。
+`bt-s1-20261114a` 那次健康启动的日志（`E:/iOS Port/Work/evidence/usblog-20261114-bts1-run1/console.log:1249-1260`）给出了 S3 的全部依据：`Unable to match bluetooth service in device tree.` / `Not a valid MAC address (all 00s).` / `No bluetooth on this device.` —— 三行分别对应「设备树没有 `device_type=bluetooth` 子节点」「没有 MAC」「没有名为 `bluetooth` 的 IOService」。0500 对这三件事只留了一个弱符号空壳，所以**即使 S1/S2 全绿，worker 也会停在 `-ENOENT`，`qbt_boot()` 不会被调用**。
 
 S3 照 sheng `BluetoothProbe.cpp:222-264` 的做法补齐（同一域 `unixnu-bluetooth`、同一 FNV-1a 常量、同一 `(addr[0] & 0xfe) | 2` 本地管理位），并照本树 `publishDisplayNode()`（`…-pong-hackios-ui-foundation.patch:3330-3365`）的写法把节点挂到 `/arm-io`。挂在 `native_pong_ui_services_start()` 里是因为 `bsd_init.c` 的 `bsd_autoconf()` 中它比 `k60_usblog_start()`/`qbt_k60_start()` 更早，而 bluetoothd 要再晚约 850 行控制台（`console.log:995`）。
 
@@ -243,13 +243,13 @@ S3 照 sheng `BluetoothProbe.cpp:222-264` 的做法补齐（同一域 `unixnu-bl
 
 ## 7. 固件：已知、未知、取法
 
-**已实测（M，2026-11-14 Android 启动只读 adb）**：BT 固件在 **`/vendor/bt_firmware/image/`**（不在 `firmware_mnt/image/qca6490`），共 **113 个文件 / 1,063,407 B**，已全部拉到 `E:/k60-work/firmware/qca6490-bt/` 并逐个哈希。rampatch 实测为 `hpbtfw20.tlv`（201,560 B）与 `hpbtfw21.tlv`（146,068 B），NVM 为 `hpnv20*`（20 个）+ `hpnv21*`（90 个，含 `g` 与 sony 变体）。**旧推断的 `htbtfw21.tlv`/`htnv21.bin` 作废。** 完整表见 `docs/research/bt/FIRMWARE.md`。
+**已实测（M，2026-11-14 Android 启动只读 adb）**：BT 固件在 **`/vendor/bt_firmware/image/`**（不在 `firmware_mnt/image/qca6490`），共 **113 个文件 / 1,063,407 B**，已全部拉到 `E:/iOS Port/Work/firmware/qca6490-bt/` 并逐个哈希。rampatch 实测为 `hpbtfw20.tlv`（201,560 B）与 `hpbtfw21.tlv`（146,068 B），NVM 为 `hpnv20*`（20 个）+ `hpnv21*`（90 个，含 `g` 与 sony 变体）。**旧推断的 `htbtfw21.tlv`/`htnv21.bin` 作废。** 完整表见 `docs/research/bt/FIRMWARE.md`。
 **命名逻辑（A，0500 内 `bsd/dev/qbt/btqca.c`）**：WCN6855 分支先请求 `qca/wcnhpbtfw%02x.tlv`（:822-824），失败回退 `qca/hpbtfw%02x.tlv`（:847-852）；NVM 先 `wcnhpnv`（:884-888），失败回退 `hpnv`（:915-921），板级名 `qca/<stem><rom_ver:02x><g?>.b<bid:02x>`（:715-745）。本机固件只有 `hp*` 拼写 ⇒ 走**回退名**，正好是 0500 `k60_firmware_get()` alias（:924-960）覆盖的路径。
-**已在本机（M）**：`/mnt/e/k60-work/firmware/qca6490/` 只有 WiFi 侧 amss.bin/amss20.bin/Data.msc/Data20.msc；`docs/research/wifi/FIRMWARE.md:353-` 记录 `bd_m11agf.elf` 60,000 B 是本机 BT BDF（板级数据文件），**不是** TLV rampatch/NVM。
+**已在本机（M）**：`/mnt/e/iOS Port/Work/firmware/qca6490/` 只有 WiFi 侧 amss.bin/amss20.bin/Data.msc/Data20.msc；`docs/research/wifi/FIRMWARE.md:353-` 记录 `bd_m11agf.elf` 60,000 B 是本机 BT BDF（板级数据文件），**不是** TLV rampatch/NVM。
 **已核实（M）**：① 文件名/大小见上表；② reader 会剥掉 `qca/` 前缀再拼根（`qbt_k60.c:867-874`），故 iOS 落盘为 `/private/var/ngpu/firmware/qca/hpbtfw20.tlv`，不需要多一层 `qca`；③ `bd_*.elf` 是 WiFi 板级数据，**不要**混进 BT 固件目录。
 **仍未知（C）**：本机真实 `rom_ver`（0x20 还是 0x21）与 board id —— 需 HCI 起来后由 `btqca` 打印 `QCA controller version`/`Downloading qca/…`（**补记**：这两条是 `bt_dev_info` level 6，当前 `k60_log` 的 `level <= 3` 闸门打不出，见 `S4-SPEC.md` §7.1）。保底：staging 同时放两套 rampatch 与 `hpnv20*`+`hpnv21*` 全量（约 1.06 MB），运行时按名取。
 **取法**：已完成（2026-11-14 一次 Android 启动 + 只读 `adb pull`）。复现命令、设备侧证据（dumpsys OFF→ON 但无 `hci0`、VINTF 缺 IBluetoothHci）、staging 方案（`firmware/bluetooth/manifest.json` + `scripts/stage-bluetooth-firmware.py` + `board.toml [payload.runtime]`）全部写在 `docs/research/bt/FIRMWARE.md` §2/§5/§7。
-**注意**：不要把厂商固件提交进仓库（sheng 也是外部固件仓 + hash pin）；本机来源目录 `/mnt/e/k60-work/firmware/qca6490-bt`。
+**注意**：不要把厂商固件提交进仓库（sheng 也是外部固件仓 + hash pin）；本机来源目录 `/mnt/e/iOS Port/Work/firmware/qca6490-bt`。
 
 ### 7.1 与 WiFi 的边界（写给 WiFi 线）
 
@@ -295,7 +295,7 @@ bluetooth {
 };
 ```
 （`dts/mondrian.dts` 是 198 行的 ADT 导出 overlay，现有节点：memory、pong-audio、ufs、smem/tcsr/hwlock/ipcc/adsp。）
-2. **SOURCES.toml 增 `[subsystem.bluetooth]`**（research-gate.py:34-84 只认 REPO 或 /mnt/e/k60-work 下的路径；现有块：touch/storage/gpu/wifi/audio/battery/launchd）：
+2. **SOURCES.toml 增 `[subsystem.bluetooth]`**（research-gate.py:34-84 只认 REPO 或 /mnt/e/iOS Port/Work 下的路径；现有块：touch/storage/gpu/wifi/audio/battery/launchd）：
 ```toml
 [subsystem.bluetooth]
 name = "Bluetooth (QCA6490 over GENI UART SE20)"
@@ -307,7 +307,7 @@ required = [
 3. **EIGHT-STEPS.toml 增 `[hardware.bluetooth]`**（现有只有 touch/gpu/storage）：`same_model/official/decompile/wide/plan = true`（证据指向本文与 §1/§2/§3/§4），`deep/verify = false`，`verify.local_verified = false`。
 4. **`docs/plans/BT-AUDIO-PORT-PLAN.md` §1.4/§1.5 需修订**：其「自写 IOSerialFamily + HCI + btstack」结论与 §3 的二进制证据、与官方 QcaBluetooth 组件冲突，应改为「UART.SK + 官方组件 + 用户态 bluetoothd」。该文件不在本线写权限内。
 5. **代码归属决定**：BT 代码已在 `patches/xnu/0500-0502b`（series:201-204）里编译进内核，本线**不**新建 `drivers/PongBt/`（避免 P-170「新源文件没人引用」类假进展）。S1 探针存档在 `patches/bt/`，实际改的是 0500 内的 `bsd/dev/qbt_k60.c`；**已按 §6 的 B 方案接进构建**（`patches/xnu/0507` + `patches/xnu/series:205`，与存档文件字节一致）。
-6. **固件获取已完成**（2026-11-14 Android 启动只读 adb，113 文件已落到 `E:/k60-work/firmware/qca6490-bt/`，清单与哈希见 `docs/research/bt/FIRMWARE.md`）。剩余属 Lead 写权限：`firmware/bluetooth/manifest.json` + `scripts/stage-bluetooth-firmware.py` + `board.toml [payload.runtime] bluetooth_tool/bluetooth_target="ios20"`，**不要**把厂商固件提交进仓库。
+6. **固件获取已完成**（2026-11-14 Android 启动只读 adb，113 文件已落到 `E:/iOS Port/Work/firmware/qca6490-bt/`，清单与哈希见 `docs/research/bt/FIRMWARE.md`）。剩余属 Lead 写权限：`firmware/bluetooth/manifest.json` + `scripts/stage-bluetooth-firmware.py` + `board.toml [payload.runtime] bluetooth_tool/bluetooth_target="ios20"`，**不要**把厂商固件提交进仓库。
 7. **20G81 用户态适配**需要 LAN Mac 的 iOS SDK（`libpong-ui.dylib` 之外还有签名工具链），按 AGENT-bt.txt 的约定由 Lead 在 Mac 侧执行。
 
 8. **构建前必须先换基线（本线实测，2026-11-14）**：`feat/bt-research` 从 `f119a80` 切出，在该基线上 `python3 scripts/eight-step-gate.py --build` **是红的**：`硬件项: 5 个（touch, gpu, storage, display, bootchain）`、`通过 27 项检查`、`问题 3 处: touch :: ④ 广域 / ⑤ 方案 / ⑥ 深挖 未标记 done=true`。同一条命令在 `feat/pmic-rail`（`4f90f12`，比本线多 4 条 RULES、EIGHT-STEPS 改 32 行）上通过。**结论：BT 构建前先把本分支 rebase/merge 到当前集成线（≥`4f90f12`），否则 iron-3 会拦构建，且原因不在 BT。**
@@ -324,17 +324,17 @@ required = [
 
 ```bash
 # 1) live FDT 反编译（WSL 里有 dtc 1.7.0，Windows 侧没有）
-wsl -e bash -lc 'dtc -I dtb -O dts /mnt/e/k60-work/reports/live-6033dbec-fdt.dtb > /tmp/x.dts && grep -n -E "bt_qca6490|qup_uart@894000|qupv3_2_geni_se|cnss-qca6490|qupv3_se20" /tmp/x.dts'
+wsl -e bash -lc 'dtc -I dtb -O dts /mnt/e/iOS Port/Work/reports/live-6033dbec-fdt.dtb > /tmp/x.dts && grep -n -E "bt_qca6490|qup_uart@894000|qupv3_2_geni_se|cnss-qca6490|qupv3_se20" /tmp/x.dts'
 # 2) 厂商栈关键行
-grep -n -E "init_speed|oper_speed|HCI_IBS|hci_uart_set_flow_control" /mnt/e/k60-work/docs/research/bt/evidence/k60-android-hci_qca.c | head -20
-grep -n -E "htbtfw|htnv|QCA_QCA6390" /mnt/e/k60-work/docs/research/bt/evidence/k60-android-btqca.c /mnt/e/k60-work/docs/research/bt/evidence/k60-android-btqca.h
+grep -n -E "init_speed|oper_speed|HCI_IBS|hci_uart_set_flow_control" /mnt/e/iOS Port/Work/docs/research/bt/evidence/k60-android-hci_qca.c | head -20
+grep -n -E "htbtfw|htnv|QCA_QCA6390" /mnt/e/iOS Port/Work/docs/research/bt/evidence/k60-android-btqca.c /mnt/e/iOS Port/Work/docs/research/bt/evidence/k60-android-btqca.h
 # 3) 内核有没有 HCI 栈（答案应为 0）
-strings -a /mnt/e/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed | grep -c IOBluetoothFamily
+strings -a /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/kernelcache.decompressed | grep -c IOBluetoothFamily
 # 4) 官方组件与测试约束
-grep -n "set_rate" /mnt/e/hackios/QcaBluetooth/tests/geni.c | head
-ls /mnt/e/hackios/QcaBluetooth/{include,src,userland,tools}
+grep -n "set_rate" /mnt/e/iOS Port/Sources/Repos/Drivers/QcaBluetooth/tests/geni.c | head
+ls /mnt/e/iOS Port/Sources/Repos/Drivers/QcaBluetooth/{include,src,userland,tools}
 # 5) 本机固件现状
-ls -l /mnt/e/k60-work/firmware/qca6490/
+ls -l /mnt/e/iOS Port/Work/firmware/qca6490/
 ```
 
 ---
@@ -346,18 +346,18 @@ ls -l /mnt/e/k60-work/firmware/qca6490/
 - 最大风险不在蓝牙本身，而在 **QUPV3_2 的首次 GENI 访问**（与触摸/音频同一类死机）。因此 S1 必须先做、必须能一读就退。
 - 下一步（本线）：**S1c 只读探针已接入构建**（`patches/xnu/0507` + `series:205`，9 子步 / 36 打点），**S2 前置修复也已接入**（`patches/xnu/0508` + `series:206`，修 F1/F11/F3/F12，见 `S2-SPEC.md`），**S3 身份与发布也已接入**（`patches/xnu/0509` + `series:207`，见 `S3-SPEC.md`），等一次物理断电复位后的五档上机；判据看「最后一行 `probe: sX`」（§5.4 记录 S1a 的 0 字节日志，§5.5 记录触摸线反证与 RCG 假设，§5.6 记录 S3 的三处缺失）。
 - 阻塞项不在代码：S3 的 MAC 需要平台种子（`bt-s3-20261114a` 已用 `UNIXNU_UNIQUE_CHIP_ID` 绕过，固化到 `board.toml` 是 Lead 待办），`transport-speed` 的 3200000/3000000 之争要等 S5 实测。
-- 门禁现状（2026-11-14 08:38）：`check-rules.py` 69 条全绿（0 失败 / 37 waiver）。关键教训：**`iron-4` 与 `hard-33` 会因为 `/mnt/e/k60-work/scratch/SERIES-FINAL.txt` 过期而变红**——它由 `sync-device-input.py` 在**非 `--check`** 模式下重写（`sync-device-input.py:133-140`），所以每轮提交后必须跑一次真同步（`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`），而不是只跑 `--check`。
+- 门禁现状（2026-11-14 08:38）：`check-rules.py` 69 条全绿（0 失败 / 37 waiver）。关键教训：**`iron-4` 与 `hard-33` 会因为 `/mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt` 过期而变红**——它由 `sync-device-input.py` 在**非 `--check`** 模式下重写（`sync-device-input.py:133-140`），所以每轮提交后必须跑一次真同步（`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`），而不是只跑 `--check`。
 
 ## 12. 证据来源清单（SOURCES 口径）
 
 | 类别 | 路径 | 用途 |
 |---|---|---|
-| 本机 FDT | E:/k60-work/scratch/bt/mondrian.dts（sha256 516ac7d5…46f16a） | 地址/引脚/中断真值 |
-| 本机 FDT(旧) | E:/k60-work/reports/live-6033dbec-fdt.dtb（sha256 95c02052…9fdac8） | 交叉核对 |
-| 厂商源码 | E:/k60-work/docs/research/bt/evidence/k60-android-{btpower,hci_qca,btqca,gcc-waipio}.c | 时序/协议/固件名 |
-| 官方组件 | E:/hackios/QcaBluetooth（README.md、include/qbt*.h、tests/geni.c、native-ios27.md） | API/约束/用户态 |
-| 官方文档 | E:/hackios/UniXNU/docs/porting/bluetooth.md、UniXNU/components.toml:494-508 | 流程/接线 |
-| 本机内核 | E:/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed | 反证无内核 HCI 栈 |
+| 本机 FDT | E:/iOS Port/Work/scratch/bt/mondrian.dts（sha256 516ac7d5…46f16a） | 地址/引脚/中断真值 |
+| 本机 FDT(旧) | E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb（sha256 95c02052…9fdac8） | 交叉核对 |
+| 厂商源码 | E:/iOS Port/Work/docs/research/bt/evidence/k60-android-{btpower,hci_qca,btqca,gcc-waipio}.c | 时序/协议/固件名 |
+| 官方组件 | E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth（README.md、include/qbt*.h、tests/geni.c、native-ios27.md） | API/约束/用户态 |
+| 官方文档 | E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/porting/bluetooth.md、UniXNU/components.toml:494-508 | 流程/接线 |
+| 本机内核 | E:/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/kernelcache.decompressed | 反证无内核 HCI 栈 |
 | 本仓库 | patches/xnu/0500-0502b、patches/xnu/series:201-204、docs/research/GENI-ACCESS-PRECONDITIONS.md、docs/plans/BT-AUDIO-PORT-PLAN.md | 已 staged 代码/已知事故/旧计划 |
 | 同型对照 | UniXNU-pong、phk110-port、UniXNU-sheng | 边界与反证 |
 

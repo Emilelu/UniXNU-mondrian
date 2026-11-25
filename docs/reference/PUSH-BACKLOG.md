@@ -1,6 +1,6 @@
 # PUSH-BACKLOG — 自有仓待推送清单（给用户逐个画勾用）
 
-> 数据：`push-check.py` 2026-11-04 08:44 实跑（fetch 后口径）。刷新：`python E:\k60-work\tools\repo-hygiene\push-check.py`。
+> 数据：`push-check.py` 2026-11-04 08:44 实跑（fetch 后口径）。刷新：`python E:\iOS Port\Work\tools\repo-hygiene\push-check.py`。
 > **本文件只供决策，任何人执行 push 前必须经用户点头；push 后请把对应行划线标注。**
 
 ## 1. UniXNU（fork，`~/hackios/UniXNU`；工作树另有 `/tmp/k60build`、`~/smp-core`）

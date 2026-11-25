@@ -9,9 +9,9 @@ note = "fix(gpu): keep the addon patch out of the series until its hunk is re-an
 sha = "29827f5"
 tag = "boot-proven-20261111"
 kernel_sha256 = "ce97b50aad24c63030921c093e530cc537cf323892fc55c0218c21e6539ea09d"
-image = "E:/k60-work/usb-a-stage/out/keep-a6165f2404568c1d.img"
+image = "E:/iOS Port/Work/usb-a-stage/out/keep-a6165f2404568c1d.img"
 image_sha256 = "a6165f2404568c1d"
-console = "E:/k60-work/evidence/usblog-20261113-keepctrl/console.log (3307 lines, SpringBoard 133); also usblog-20261112-204720 (2654 lines, SpringBoard 129)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-keepctrl/console.log (3307 lines, SpringBoard 133); also usblog-20261112-204720 (2654 lines, SpringBoard 129)"
 state = "booted"
 note = "最后一次确认能进 SpringBoard 的构建：2026-11-11 23:32 的 keep 镜像；此后到 13ac2b5 之间的补丁改动会让 launchd 在 KX 阶段 SIGSEGV（P-179）；根因已定位为 0340 内嵌 libpong-ui.dylib 更换（P-180），当前分支已回退该 blob"
 
@@ -22,9 +22,9 @@ note = "最后一次确认能进 SpringBoard 的构建：2026-11-11 23:32 的 ke
 [[entry]]
 sha = "683e746"
 kernel_sha256 = "unknown-see-console"
-image = "E:/k60-work/usb-a-stage/out/boot-curfix.img"
+image = "E:/iOS Port/Work/usb-a-stage/out/boot-curfix.img"
 image_sha256 = "074b8b502ccbe5e936d623ee7cedfb210b6d8a2b688a2d0ae62dc8e385d182c9"
-console = "E:/k60-work/evidence/usblog-20261113-curfix/console.log (3360 lines, SpringBoard 133, no initproc panic)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-curfix/console.log (3360 lines, SpringBoard 133, no initproc panic)"
 state = "build-only"
 note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181），不能证明这个提交构建的镜像可启动；真正的双启动证据记在 532a3d3 那条"
 
@@ -36,9 +36,9 @@ note = "作废：当时那次启动用的仍是 16:43 的 allold 内核（P-181�
 [[entry]]
 sha = "532a3d3"
 kernel_sha256 = "6eca5da0fefedd5a5223fdef0fb624a6b4a5ab39292cd242492f9abeab391f14"
-image = "E:/k60-work/usb-a-stage/out/boot-fixinit2.img"
+image = "E:/iOS Port/Work/usb-a-stage/out/boot-fixinit2.img"
 image_sha256 = "2926b334bf1f2f982d512b86e831870c84eb7eb24daac34e1d65a1343a09921d"
-console = "E:/k60-work/evidence/usblog-20261113-fixinit2d/console.log (3191 lines, SpringBoard 133, captured-budget-complete true); E:/k60-work/evidence/usblog-20261113-fixinit2e/console.log (3296 lines, SpringBoard 129, captured-budget-complete true); 中间夹一次 keep 归一 usblog-20261113-normalize4 (3448 lines, SpringBoard 129)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-fixinit2d/console.log (3191 lines, SpringBoard 133, captured-budget-complete true); E:/iOS Port/Work/evidence/usblog-20261113-fixinit2e/console.log (3296 lines, SpringBoard 129, captured-budget-complete true); 中间夹一次 keep 归一 usblog-20261113-normalize4 (3448 lines, SpringBoard 129)"
 state = "booted"
 note = "2026-11-13 双启动通过：0616 把旧 34,904 字节 init 助手写回 /private/var/pong/init（日志 K60INIT legacy bytes=34904 resid=0 error=0），launchd 不再 SIGSEGV。此后的 09f8505/312087b/532a3d3 只动构建工具与采集判定，不进镜像。"
 
@@ -65,9 +65,9 @@ tag = "boot-proven-20261113"
 tag_commit = "96d2515709cffcdeeff9a46f4555a39b2bfb8ad6"
 tag_pushed = "2026-11-13 push -f origin boot-proven-20261113 reported 6f93e8f...8050035"
 kernel_sha256 = "0b660f498021b097eb28c4055c95d6337e8591cd363b8cd92a7108697c390ed7"
-image = "E:/k60-work/artifacts/base-20261113f/boot.img"
+image = "E:/iOS Port/Work/artifacts/base-20261113f/boot.img"
 image_sha256 = "fe8b12c90b145fca664086c578b8b482fe6bf69de361d2ea8260858c8f30d945"
-console = "E:/k60-work/evidence/usblog-20261113-basef2/console.log (3327 lines, SpringBoard 129, captured-budget-complete true); E:/k60-work/evidence/usblog-20261113-basef4/console.log (3351 lines, SpringBoard 129, captured-budget-complete true); keep 归一 E:/k60-work/evidence/usblog-20261113-norm5/console.log (3460 lines, SpringBoard 133)"
+console = "E:/iOS Port/Work/evidence/usblog-20261113-basef2/console.log (3327 lines, SpringBoard 129, captured-budget-complete true); E:/iOS Port/Work/evidence/usblog-20261113-basef4/console.log (3351 lines, SpringBoard 129, captured-budget-complete true); keep 归一 E:/iOS Port/Work/evidence/usblog-20261113-norm5/console.log (3460 lines, SpringBoard 133)"
 state = "booted"
 note = "2026-11-13 22:04/22:08 strict 构建 base-20261113f 双启动通过（scripts/build-strict.sh，八步门禁 30 项通过、verify-boot-image OK、manifest 记录 payload_args 与从 payload 读回的 ADT 550f472f）。日志证据：K60INIT legacy bytes=34904 resid=0 error=0，K60LC len=10294，无 initproc exited、无 K60PANIC: ring kept。此条取代 532a3d3：那个 kernel 由 194,147 字节的 0616 编出，而 312087b 改了同一补丁的 printf 文案（219 字节），本次是新产物自己的上机证明。"
 
@@ -79,9 +79,9 @@ note = "2026-11-13 22:04/22:08 strict 构建 base-20261113f 双启动通过（sc
 [[entry]]
 sha = "0143b46"
 kernel_sha256 = "c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09"
-image = "E:/k60-work/artifacts/touch-20261114a/boot.img"
+image = "E:/iOS Port/Work/artifacts/touch-20261114a/boot.img"
 image_sha256 = "0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9"
-console = "E:/k60-work/evidence/usblog-20261114-150931/console.log (3870 lines, SpringBoard 254, captured-budget-complete true, panicMarker null, resetMarker null)"
+console = "E:/iOS Port/Work/evidence/usblog-20261114-150931/console.log (3870 lines, SpringBoard 254, captured-budget-complete true, panicMarker null, resetMarker null)"
 state = "booted"
 note = "2026-11-14 15:09 触摸真机通过：goodix COORD-ON ack=80 之后出现 8 条真实触点与 4 条 HID 派发（type=1/3），日志无 panic、无 initproc exited、无 K60PANIC: ring kept、K60RAIL 0（rail 探针默认关闭）。真因是配置完成后只发了 0x90/0x00 关闭 raw 帧，从未发 0x91/0x01 打开坐标上报。此镜像同时带 GPU addon（metal plugin 51,278,451 B）与 iOS buttons 节点。0143b46 之后的提交只改文档、门禁与测试脚本，内核输入逐字节不变，故本条目覆盖分支顶端。"
 
@@ -129,9 +129,9 @@ note = "取 yibiya 的 fcc998f0 面板节拍打点：PongDsiPanel.cpp/.h 与 Pon
 [[entry]]
 sha = "3ea8d71"
 kernel_sha256 = "a07e9565f039f2cbc1a48dc01a07d838a4ac57bea78ee5ad9f57fbe7afcd83e3"
-image = "E:/k60-work/artifacts/seed-20261115a/boot.img"
+image = "E:/iOS Port/Work/artifacts/seed-20261115a/boot.img"
 image_sha256 = "1fc1169eb48e546c520e6ccdcaddf67c53d23bff6a94731a5c57504d1e5c5467"
-console = "E:/k60-work/evidence/usblog-20261115-155741/console.log (247731 bytes, SpringBoard 183, no panic, no 'no platform identity')"
+console = "E:/iOS Port/Work/evidence/usblog-20261115-155741/console.log (247731 bytes, SpringBoard 183, no panic, no 'no platform identity')"
 state = "booted"
 note = "平台身份种子：board.toml 的 [payload.\"adt\"] 加 \"unique_chip_id\" = \"required\"，build-strict.sh 默认 UNIXNU_UNIQUE_CHIP_ID=4B36305400000001 并转发 --unique-chip-id 给 build payload。原因：devicetree.py:312-317 只在拿到种子时才发 /chosen/unique-chip-id + /chosen/chip-id，而实测 usblog-20261115-140927 的 bt 正向镜像打了 \"K60 BT: no platform identity (-2); bluetooth not published\"，bluetoothd 因无 MAC 不起。登记原因是该提交碰了 board.toml 与 scripts/build-strict.sh，铁则 9。欠账：带种子的镜像尚未上机，判据是 K60 BT 不再出现 -2 且出现 published local address。种子变更会改 BT MAC，只能在这里动一次。"
 
@@ -157,7 +157,7 @@ note = "合并 feat/judge-tools（rebase 到 9fec9a5 后 no-ff，17 提交）。
 sha = "996aac6"
 kernel_sha256 = "402f8cb1be7a1d5b10b4317667008bbe29c3893572cf05d0b0684e1cc1e9e5e3"
 state = "booted"
-note = "合并 feat/adsp-carrier（27 提交 no-ff）。内容：ADSP 固件载体（12B 头 + 24B 顺序记录 + NUL 名的 26 记录容器，raw 23,505,092 B / container 23,506,184 B，sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319）经 0620 补丁 + osfmk/arm64/k60_adsp_blob.s 内嵌内核；build-strict.sh --adsp-blob 生成/校验/输入 pin/manifest 键；K60AdspImageReader（宿主 5 变体）、K60AdspOwner 五阶段 77 场景、K60HandoffPublish/Runtime、0619 fail-closed publisher（IOKitBSDInit + kern_exec startup claim）、Option E 把 K60AdspBoot.c 并入 0613 pong_adsp_boot.c、bootstrap 链接 force_load 电池归档、pong_handoff_publish 参数白名单。上机证据：adsp-20261115c（kernel 402f8cb1… 128,991,232 B、boot.img 76db5e8e…）真机 E:\\k60-work\\evidence\\usblog-20261115-213413 —— 214,232 B / SpringBoard 128 行 / panic 0 / getBytes 0，干净进桌面；发布器按设计休眠（该图 args 无 pong_handoff_publish=1）。功能验证由 adsp-20261115d（30 args/598 B 含 pong_handoff_publish=1，boot.img e67cc21d…）承担，待上机。"
+note = "合并 feat/adsp-carrier（27 提交 no-ff）。内容：ADSP 固件载体（12B 头 + 24B 顺序记录 + NUL 名的 26 记录容器，raw 23,505,092 B / container 23,506,184 B，sha256 663369461a9def3105884b34a574c119aaa2b95111c185a6f12de34158bcd319）经 0620 补丁 + osfmk/arm64/k60_adsp_blob.s 内嵌内核；build-strict.sh --adsp-blob 生成/校验/输入 pin/manifest 键；K60AdspImageReader（宿主 5 变体）、K60AdspOwner 五阶段 77 场景、K60HandoffPublish/Runtime、0619 fail-closed publisher（IOKitBSDInit + kern_exec startup claim）、Option E 把 K60AdspBoot.c 并入 0613 pong_adsp_boot.c、bootstrap 链接 force_load 电池归档、pong_handoff_publish 参数白名单。上机证据：adsp-20261115c（kernel 402f8cb1… 128,991,232 B、boot.img 76db5e8e…）真机 E:\\iOS Port\\Work\\evidence\\usblog-20261115-213413 —— 214,232 B / SpringBoard 128 行 / panic 0 / getBytes 0，干净进桌面；发布器按设计休眠（该图 args 无 pong_handoff_publish=1）。功能验证由 adsp-20261115d（30 args/598 B 含 pong_handoff_publish=1，boot.img e67cc21d…）承担，待上机。"
 
 [[entry]]
 sha = "f760086"
@@ -176,7 +176,7 @@ sha = "75677e7"
 kernel_sha256 = "11dd70a4e467d36936a9e06ba2dbaf01bdaa03b5558ee5e15371eb99fe958efa"
 state = "booted"
 date = "2026-11-15"
-note = "P-211: record-boot.py 现在优先读镜像自己的 build-manifest.json 的 series 指纹，而不是登记那一刻仓库里的 patches/xnu/series；ledger 行新增 series-count / series-source / repo-series 三个字段。上机证据：baseline-20261115d（series 226 / frozen 1b9f9f51… / kernel 11dd70a4… 105,508,864 B / boot.img 5e32d412…）真机 E:\\k60-work\\evidence\\usblog-20261115-234111 —— console 2,548 行 / 204,118 B、SpringBoard 132 行、panic 标记 0、:482 K60DATA mounted ro=0 fstype=apfs、:973 Early boot complete、supervisor rc=0。结论：main（含 P-210 数据卷身份门禁与 P-211 记账修复）可启动。"
+note = "P-211: record-boot.py 现在优先读镜像自己的 build-manifest.json 的 series 指纹，而不是登记那一刻仓库里的 patches/xnu/series；ledger 行新增 series-count / series-source / repo-series 三个字段。上机证据：baseline-20261115d（series 226 / frozen 1b9f9f51… / kernel 11dd70a4… 105,508,864 B / boot.img 5e32d412…）真机 E:\\iOS Port\\Work\\evidence\\usblog-20261115-234111 —— console 2,548 行 / 204,118 B、SpringBoard 132 行、panic 标记 0、:482 K60DATA mounted ro=0 fstype=apfs、:973 Early boot complete、supervisor rc=0。结论：main（含 P-210 数据卷身份门禁与 P-211 记账修复）可启动。"
 
 [[entry]]
 sha = "8e041b6"
@@ -193,9 +193,9 @@ note = "P-215: the Apps SMMU lease lock is allocated on first use. patches/wifi/
 sha = "3ef02b8"
 state = "booted"
 kernel_sha256 = "11dd70a4e467d36936a9e06ba2dbaf01bdaa03b5558ee5e15371eb99fe958efa"
-image = "E:/k60-work/artifacts/fdtest-20261116b/boot.img"
+image = "E:/iOS Port/Work/artifacts/fdtest-20261116b/boot.img"
 image_sha256 = "55d066f538a10ca82f339babae69f6daa988a0583f823887c5e2d4001a8b7503"
-console = "E:/k60-work/evidence/usblog-20261116-034848/console.log (3440 lines, SpringBoard 132)"
+console = "E:/iOS Port/Work/evidence/usblog-20261116-034848/console.log (3440 lines, SpringBoard 132)"
 note = "P-217：固件构建改从仓库记录的 Mu_Basecore pin 6f805f2 + 五个 [firmware].patches 施加，不再依赖只存在于本机的 3d2a9fa。用这个 pin+五补丁 重建的卷（sha256 b20a2c5c3df30c2461459a32b1f459eb55f75549b15090f679dc0159440af2ff，3,145,728 B）换进 baseline-20261115d 的 payload 上机：3440 行 / 231,570 B / SpringBoard 132 / Early boot complete 1 次 / K60DATA mounted 1 次 / panic 0 / menu: 与 no boot entry 0 次。⇒ 干净 clone 能构建出可启动的固件卷。"
 
 [[entry]]
@@ -216,7 +216,7 @@ image = "baseline-20261116a"
 image_sha256 = "f32458c4c356fa734e6987917281bf5b4ae9631460864476d06019457eb1ef35"
 series_count = 227
 series_sha256 = "59d8037521a5b07b"
-console = "E:/k60-work/evidence/usblog-20261116-073639/console.log"
+console = "E:/iOS Port/Work/evidence/usblog-20261116-073639/console.log"
 note = """main with P-219 (32 MiB io_submap) and P-220 (stamp selection). 3,061 lines /
 214,218 B, SpringBoard 132, `K60DATA mounted` 1, `Early boot complete` 1, no
 panic markers. The same series is what bt-d5-iomap proved lets the bluetooth
@@ -575,4 +575,22 @@ state 记为 build-only 的理由：这条改动**没有被任何镜像使用过
 partial（power 线 2026-11-20 审计：`APA=0b0101` 是 FPACCOMBINE，探针 GPA/GPI 读错位、只采
 1/8 核），并登记 P-281（计数器按被求和的对象命名）与 P-282（工具链发不出的标签不等于消费方
 判错）。
+"""
+
+[[entry]]
+sha = "8edafc3d"
+state = "build-only"
+note = """fix(build): 把 root 构建出来的 kernel/payload/boot 交还给开发者账号。
+
+不改变任何产物字节：只在 `scripts/build-ios27-linux.sh` 末尾加一段——当脚本以 root 运行且
+设了 `K60_ARTIFACT_OWNER` 时，把 `$BOARD_DIR/{kernel,payload,boot}` 交还给这个账号，并把
+这件事打印出来。
+
+理由是一条真实的红：build 20 是 `wsl.exe -u root` 跑的，`kernel.macho` 于是 root 所有、
+mode 0600；门禁以 emilelu 跑，`check-kernel-archives.py` 读不到，按 P-279 判「判不了」
+退 2，整个注册表因此变红——而红的原因是文件属主，不是不合规。这正是 P-290 的形状：一条因
+无关原因长期变红的规则，会教人忽略它。
+
+state 记为 build-only：这条改动不产生新镜像，也没有被任何镜像使用过；真正要重出的镜像是
+build 20 之后那一张（`5c060f27…`），它已经带着 P-278 修好后的 `retab`。
 """

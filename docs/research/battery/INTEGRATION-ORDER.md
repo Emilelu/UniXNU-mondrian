@@ -62,7 +62,7 @@ PE_parse_boot_argn必须返回成功且写入unsigned==1才调用；局部初值
 
 [test-k60-handoff-integration.py](../../../scripts/tests/test-k60-handoff-integration.py) 将0619以fuzz0应用到临时predecessor fixture，提取应用后的真实IOKitBSDInit函数体，7场景×电池宏0/1=14。关闭路径publisher/SMEM/TCSR/PAS/claim spy为0；开启路径非空跑，且provider错误时仍保持publisher→IOBSD→battery。parser为stub，不覆盖原始boot-string或硬件，也不证明其他boot模块不访问SMEM。5补丁段/3 canonical mirrors通过；late fixture按当前0614重建，不是完整series重放。
 
-新增五阶段host77场景（17/11/12/15/22）使用fake carrier/PAS/资源/registry和真实MDT/SMEM/build/parser。详见 [测试入口](../../../scripts/tests/run-k60-handoff-host.sh) 及provider契约。当前日志 E:/k60-work/artifacts/adsp-owner-stages-20261115/final-host/host-tests.log；不生成内核/镜像，不证明实际PAS启动或GLINK通信。
+新增五阶段host77场景（17/11/12/15/22）使用fake carrier/PAS/资源/registry和真实MDT/SMEM/build/parser。详见 [测试入口](../../../scripts/tests/run-k60-handoff-host.sh) 及provider契约。当前日志 E:/iOS Port/Work/artifacts/adsp-owner-stages-20261115/final-host/host-tests.log；不生成内核/镜像，不证明实际PAS启动或GLINK通信。
 
 ## 未来集成者检查清单
 

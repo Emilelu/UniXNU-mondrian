@@ -5,7 +5,7 @@ The branch adds `docs/research/bt/*` and `patches/bt/*`; the only edits outside 
 `patches/xnu/05xx` twins wired at `patches/xnu/series:205-209` (see §3), plus the two `k60bt*` rows of
 `docs/engineering/BOOT-ARGS.md` this line owns.
 
-Branch: `feat/bt-research` (worktree `E:/hackios/k60-bt`), base `f119a80` (= `main` at the time
+Branch: `feat/bt-research` (worktree `E:/iOS Port/Sources/Hardware/k60-bt`), base `f119a80` (= `main` at the time
 of writing). Commits: `3fb11e5` (research), `abc6964` (probe patch), `f71ef4f` (S1 spec),
 `8bc2f7f` (static verification + baseline gate state), `56ff95c` (probe extension),
 `86a7550` (deep dive).
@@ -112,7 +112,7 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
    (a) 新文件 `scripts/make-bt-firmware-addon.py`——全文与实测输出见 `S4-SPEC.md` §5.2；
    (b) `scripts/build-strict.sh` 增加 `--gpu-addon <file>` 并转发给 `unixnu build payload`，同时写进 manifest 的 `components`——精确 diff 见 `S4-SPEC.md` §5.3；
    (c) `.gitignore` 给 `firmware/bluetooth/manifest.json` 开否定规则（只有 bytes+sha256，可以入库）——见 `S4-SPEC.md` §5.4。
-   固件源是 `E:/k60-work/firmware/qca6490-bt`（113 文件 / 1,063,407 B），白名单筛出 106 条 / 1,022,742 B，容器 1,027,584 B。
+   固件源是 `E:/iOS Port/Work/firmware/qca6490-bt`（113 文件 / 1,063,407 B），白名单筛出 106 条 / 1,022,742 B，容器 1,027,584 B。
 10. **命令行门禁的两个参数名 —— 本线已自行补齐（2026-11-14 23:22，commit `7d01f9e`）**：
     Lead 在 `295b44a` 里补了 `k60bt_delay`/`k60bt_step`/`k60bt_warm` 三条 BOOT-ARGS 文档，并明确「剩下的你补」。
     本线补的两处是：(a) `scripts/check-image-args.py` 的 `ALLOWED_ADDITIONS` 增加 `"k60bt_step", "k60bt_delay",`
@@ -144,7 +144,7 @@ contract. `k60bt_stage=1` is redundant anyway (`bsd/dev/qbt_k60.c:1844-1846` def
 
 **已落地（Lead 合为 `8a497a4`，2026-11-15）**：`[hardware.bluetooth]` 现在就在
 `docs/research/EIGHT-STEPS.toml:342`，本分支不再携带该补丁。原始补丁（留档）：
-`/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger.patch`
+`/mnt/e/iOS Port/Work/scratch/bt-s4/lead/bt-ledger.patch`
 （12,132 B，sha256 `7a31315374545bc458861d67b69dc00b4772b9a55c9bfbd1ea89eaa01a35f48f`）——
 `docs/research/EIGHT-STEPS.toml` 新增 `[hardware.bluetooth]`（`status = "parked"`，48 行）、
 `scripts/render-eight-step-table.py` 删掉 `UNTRACKED` 里的 `('蓝牙', 'planned')`、
@@ -209,15 +209,15 @@ required = [
 ```
 
 (Each entry needs `examined = "..."` and `finding = "..."` fields with a checkable reference —
-copy the style of the neighbouring subsystems. The evidence files live under `E:/k60-work/docs/research/bt/evidence/`
-and are resolvable by `research-gate.py` through its `/mnt/e/k60-work` root.)
+copy the style of the neighbouring subsystems. The evidence files live under `E:/iOS Port/Work/docs/research/bt/evidence/`
+and are resolvable by `research-gate.py` through its `/mnt/e/iOS Port/Work` root.)
 
 ## 5. Still blocked from this line
 
 - **Firmware — RESOLVED 2026-11-14** (no longer blocked): a read-only Android session located the
   BT files in `/vendor/bt_firmware/image/` (**not** `firmware_mnt/image/qca6490`, which only holds the
   WiFi `amss*.bin`/`Data*.msc` and 42 `bd_*.elf` board-data files). **113 files / 1,063,407 B** were
-  pulled to `E:/k60-work/firmware/qca6490-bt/` and hashed. Rampatch is `hpbtfw20.tlv` (201,560 B) and
+  pulled to `E:/iOS Port/Work/firmware/qca6490-bt/` and hashed. Rampatch is `hpbtfw20.tlv` (201,560 B) and
   `hpbtfw21.tlv` (146,068 B); NVM is `hpnv20*` (20 files) + `hpnv21*` (90 files). The old
   `htbtfw21.tlv`/`htnv21.bin` guess is **void** — the device set uses the `hp*` fallback names, which is
   exactly what `k60_firmware_get()`'s alias path (0500:924-960) covers. Full table + hashes + staging
@@ -235,7 +235,7 @@ and are resolvable by `research-gate.py` through its `/mnt/e/k60-work` root.)
 ## 6. One-command state check
 
 ```bash
-cd /mnt/e/hackios/k60-bt
+cd /mnt/e/iOS Port/Sources/Hardware/k60-bt
 git log --oneline -6
 git diff --stat f119a80 HEAD -- docs/research/bt patches/bt
 sha256sum patches/bt/0001-k60-bt-readonly-probe.patch
@@ -254,7 +254,7 @@ recorded, which needs no `git show` call. Both are better shapes than mine; do n
 
 | patch | bytes | what it does | sha256 |
 | --- | --- | --- | --- |
-| `/mnt/e/k60-work/scratch/bt-s4/lead/bt-lead-0001.patch` | 4,858 | new `scripts/make-bt-firmware-addon.py`: packs the whitelisted QCA set into the `NGPUADD2` container DarwinBoot already carries (`qca/` prefix, uncompressed records, manifest-checked bytes+sha256) | `9118fe9e79f85abf` |
+| `/mnt/e/iOS Port/Work/scratch/bt-s4/lead/bt-lead-0001.patch` | 4,858 | new `scripts/make-bt-firmware-addon.py`: packs the whitelisted QCA set into the `NGPUADD2` container DarwinBoot already carries (`qca/` prefix, uncompressed records, manifest-checked bytes+sha256) | `9118fe9e79f85abf` |
 | `…/bt-lead-0002.patch` | 2,842 | `scripts/build-strict.sh`: `--gpu-addon <file>` forwarding into the payload step, its existence check, a `gpu addon` log line, and `gpu_addon`/`gpu_addon_path` in the manifest | `765a5271139125e8` |
 | `…/bt-lead-0003.patch` | 424 | `.gitignore`: keep `/firmware/` ignored but track `firmware/bluetooth/manifest.json` | `0c4d3b8c555f3836` |
 | ~~`…/bt-lead-0004.patch`~~ | 1,687 | **withdrawn** — P-190 in-progress exemption; superseded by the Lead's symbol-as-criterion fix | `f2c37e69f958e6bb` |
@@ -328,7 +328,7 @@ This line, next in order:
    verdict — the c-series ladder `a1/a4/a5/a7/a9` (596 B), `s3a`/`s3b`.
 4. ~~`docs/research/EIGHT-STEPS.toml` needs the `[hardware.bluetooth]` block.~~ Landed on `main` as
    `8a497a4`. The criteria still name the old carrier's line, so this line exported the update as a
-   patch instead of editing the shared contract: `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-blob.patch`
+   patch instead of editing the shared contract: `/mnt/e/iOS Port/Work/scratch/bt-s4/lead/bt-ledger-blob.patch`
    (10,117 B, sha256 `539473c2e2ab2578cbdcb1212047e2ed88a08f3616bd3e569841d79e0258cdc3`) — it rewrites
    `step.plan` / `step.verify` / `step.device.prediction` / `paths` / `parked_why` in
    `docs/research/EIGHT-STEPS.toml` and the P-197 `Check` line in `docs/engineering/PITFALLS.md`.
@@ -338,7 +338,7 @@ This line, next in order:
 5. ~~Ledger follow-up for the pair.~~ Landed on `main` as `133473e` "bluetooth: point the S4 criteria
    at the controlled pair". Kept for the record: `626cc9b` still names `bt-s4b-20261115a`
    (superseded) and `bt-s4-20261114b` (old baseline) as the S4 samples. This line exported the correction
-   rather than editing the shared contract: `/mnt/e/k60-work/scratch/bt-s4/lead/bt-ledger-pair.patch`
+   rather than editing the shared contract: `/mnt/e/iOS Port/Work/scratch/bt-s4/lead/bt-ledger-pair.patch`
    (7,728 B, sha256 `93791005ac92b8f01b4c8bc2a0160792090b12c05349627cdcfa8da3a223920d`, 1 file, +3/−3)
    — it rewrites `parked_why`, `step.plan`'s S4 sentence and `step.verify`'s evidence to the controlled
    pair `bt-s4b-20261115b` / `bt-s4c-20261115a`. Validated in a scratch repo seeded from `origin/main`:
@@ -346,9 +346,9 @@ This line, next in order:
    `--flash` rc=0, `K60_EIGHT_STEP_ITEMS=bluetooth --build` 6 checks rc=0. `git apply --check` passes on
    this branch (whose `EIGHT-STEPS.toml` is byte-identical to `origin/main`).
 6. **Worktree repair tool — landed on `main` as `ff19c51`.** P-203 restored nineteen trees by hand
-   with `E:/k60-work/scratch/refmine/repair-wts.py`, a one-off that hard-codes the main checkout and has
+   with `E:/iOS Port/Work/scratch/refmine/repair-wts.py`, a one-off that hard-codes the main checkout and has
    no test. The Lead asked this line for a generalised version; it was exported as
-   `/mnt/e/k60-work/scratch/bt-s4/lead/bt-repair-worktrees.patch` (23,312 B, sha256
+   `/mnt/e/iOS Port/Work/scratch/bt-s4/lead/bt-repair-worktrees.patch` (23,312 B, sha256
    `9a08aade286924780f5f16628a7b03a0b21cc160e60818ad7e5a35309332ed44`, two new files:
    `scripts/repair-worktrees.py` and `scripts/tests/test-repair-worktrees.py`) and the Lead merged it
    as `ff19c51 scripts: add the generalised worktree repair tool` (tag `snap-r190`, registry 83 rules,
@@ -606,13 +606,13 @@ This line, next in order:
       H134_EQUALS_FULL_MINUS_H2 + H134_CHECK_OK）与
       `0511l-k60-bt-bisect-h234.patch`（2,694 B，sha256 `e2ff0dc3821bef2af126bba97ad78556df8f4aeec5222538cb7a73550e9ea42f`，
       H234_EQUALS_FULL_MINUS_H1 + H234_CHECK_OK）；series 换 h134 的提交 `7e8a247`。
-    - 变体校验脚本 `E:/k60-work/scratch/bt-s4/bisect/make-h134-h234.sh`：scratch 仓库必须先
+    - 变体校验脚本 `E:/iOS Port/Work/scratch/bt-s4/bisect/make-h134-h234.sh`：scratch 仓库必须先
       `git reset --hard post0510` + `git clean -fd`，否则上一轮的脏文件让 `git apply` 报
       `patch does not apply`（第一次跑就是这样失败的）；h134 的反向参考是「full − h2」、h234 是
       「full − h1」，多减 h4 会得到 MISMATCH。
 18. **d 系列第一张图 `bt-d1-smmu` 与它暴露的 0510/0620 上下文撞车（2026-11-16 凌晨）**
     - 图：全量 0511（series 232）+ 一个开关 `pong_bt_smmu=0`，31 个启动参数 / 598 B。
-      manifest `E:/k60-work/artifacts/bt-d1-smmu/build-manifest.json`（built_at 2026-11-16T02:23:44+08:00）：
+      manifest `E:/iOS Port/Work/artifacts/bt-d1-smmu/build-manifest.json`（built_at 2026-11-16T02:23:44+08:00）：
       boot_img `bd1f5bc6f4cb96f9ec8995ca86a0f0d0769879c75a933dc7a2d130b3718d45b5`（201,887,744 B）、
       kernel_built `d40ae0b9c4c50795481909cd451434071bffeb297f35b970e453f9014f35e682`、
       payload_kernel `487a1518c0e1824e8951064df7d4994ebdacb4a5e1734f1c33a26efdeefd270a`、
@@ -637,7 +637,7 @@ This line, next in order:
 19. **d1 实飞：仍 silent，SMMU 路径被排除（2026-11-16 04:19）**
     - Lead 实飞 `bt-d1-smmu`（boot.img `bd1f5bc6…45b5`、kernel `d40ae0b9…`、series 232 /
       `dcc7bb45d311dc5f`、blob `febdc20d…`、args `['k60bt=1','pong_bt_smmu=0']`、head `eb3cd83`）：
-      证据 `E:\k60-work\evidence\usblog-20261116-041744`，`port-not-observed`、`bytes=0`、
+      证据 `E:\iOS Port\Work\evidence\usblog-20261116-041744`，`port-not-observed`、`bytes=0`、
       `complete=False`、`returnedToFastboot=True`，supervisor rc=2，端口 84 s 内从未出现；
       `record-boot.py` 正确拒记（0 SpringBoard 行）。
     - 判读：关掉 `k60_smmu_bypass()` 一样静默 ⇒ **SMMU / stream-mapping（S4-SPEC §7.3 假设 a）排除**。
@@ -653,7 +653,7 @@ This line, next in order:
 20. **d2 实飞：仍 silent，RCG 路径排除（2026-11-16 04:34）**
     - Lead 实飞 `bt-d2-rcg`（boot.img `7f83bc0c…4101`、kernel `c68c54ed…`、series 232 /
       `dcc7bb45d311dc5f`、blob `febdc20d…`、args `['k60bt=1','pong_bt_rcg=0']`、head `ffc1de1`）：
-      证据 `E:\k60-work\evidence\usblog-20261116-043417`，`port-not-observed`、`bytes=0`、
+      证据 `E:\iOS Port\Work\evidence\usblog-20261116-043417`，`port-not-observed`、`bytes=0`、
       `portSeen=false`、`returnedToFastboot=true`，console.log 0 B（空文件哈希 `e3b0c442…`）。
     - 判读：跳过 `k60_gcc_set_se_rate()` 两个调用点一样静默 ⇒ **S4-SPEC §7.3 假设 b（共享 RCG 复位
       停掉 UFS 参考时钟）排除**。a、b 均被实飞否证，只剩 c（固件下载 DMA 缓冲未进 IOMMU）。
@@ -662,7 +662,7 @@ This line, next in order:
       区分「早启动时序」与「BT 代码本身有毒」。
 21. **九格矩阵收敛：致命集恰好 {h1, h2, h3}，h4 无关（2026-11-16 04:38）**
     - Lead 补飞了 23:18 就构建好、一直没飞的 `bt-bisect-h123`（`580b2795…`、kernel `bf3aee6b…`、
-      series 229 / `d80464df…`）：证据 `E:\k60-work\evidence\usblog-20261116-043650`，
+      series 229 / `d80464df…`）：证据 `E:\iOS Port\Work\evidence\usblog-20261116-043650`，
       `port-not-observed`、`bytes=0`、`returnedToFastboot=True`、supervisor rc=2 ⇒ **silent**。
     - 九格矩阵（全部 Lead 实飞，SpringBoard / getBytes:range）：h1 13/36 起、h13 13/36 起、h4 13/36 起、
       h12 132/0 起、h23 128/0 起、h124 132/0 起、h34 128/0 起、**h123 0/— silent**、全量 0005 0/— silent。
@@ -672,7 +672,7 @@ This line, next in order:
       缺的那一格正好是决定性的；二分要么飞满全部子集，要么在矩阵里把「已构建未飞」显式标出来。
 22. **十一格矩阵补齐：h2 单格补飞，P-218 门禁落地（2026-11-16 04:56）**
     - Lead 补飞了 h2 单独那张（`bt-bisect-h2`，boot.img `e28626377fedde4b42f538187eaed31a09f3285fa8500d7aba812e6589eab81b`）：
-      证据 `E:\k60-work\evidence\usblog-20261116-044817`，console 3,379 行 / 235,151 B、
+      证据 `E:\iOS Port\Work\evidence\usblog-20261116-044817`，console 3,379 行 / 235,151 B、
       SpringBoard 13、`getBytes:range` 35、panic 0；`:192` blob 链入、`:193` probe armed、
       `:702-:704` awake / core created / transport ready，停在 transport ready，无 `power=` 行。
     - 判读：h2 单独能起但不含 h1 的门闩，走不到上电，与 h4 单格同形。至此**构建过的十一张全部飞过**，
@@ -683,7 +683,7 @@ This line, next in order:
     - Lead 实飞 `bt-d3-noboot`（全量 0511 + `pong_bt_noboot=1`，boot.img
       `07c139238cf4f3dff8d56e9145d05254ba7efb2cd5b0ebf4e7c697a3df0a817e`、31 参数 / 600 B、
       series 232 / `dcc7bb45d311dc5f`、blob `febdc20d…`）：证据
-      `E:\k60-work\evidence\usblog-20261116-053306`，`port-not-observed`、`bytes=0`、
+      `E:\iOS Port\Work\evidence\usblog-20261116-053306`，`port-not-observed`、`bytes=0`、
       `portSeen=false`、`stopReason=fastboot-return`、console.log 0 B ⇒ **silent**。
     - 三张 d 图全部 silent：d1 关 SMMU bypass、d2 关 SE 时钟、d3 关固件下载，都一样死 ⇒
       S4-SPEC §7.3 的假设 a / b / c 全部否证；死亡点在 `k60_bt_power_on()` 之前，
@@ -699,7 +699,7 @@ This line, next in order:
     - Lead 实飞 `bt-d4-late`（全量 0511 + `pong_bt_late=1`，boot.img
       `87b819f90ddfdd48ac78beebe93b7ddc690b7d48d84a49465ff9ef189a9472d3`、31 参数 / 601 B、
       series 232 / `dcc7bb45d311dc5f`、blob `febdc20d…`）：证据
-      `E:\k60-work\evidence\usblog-20261116-055237`，capture `bytes=27727`、`portSeen=true`、
+      `E:\iOS Port\Work\evidence\usblog-20261116-055237`，capture `bytes=27727`、`portSeen=true`、
       `panicMarker="K60PANIC: ring kept"`，console 492 行 —— 第一次不是 0 字节。
     - console 死点（连续行）：`:480` K60UILIB deploy → `:481` late released by the deploy point →
       `:483` `full: power_on enter` → `:484` `power: cold boot, rails not voted` →
@@ -761,7 +761,7 @@ This line, next in order:
       重放脚本用的是含 0513 的临时序列）。host 测试 28 例通过，其中新增一条不变式：
       **0513 与 0621 永不同时出现在一条 series 里**（d5/d6 各自一种合法状态）。
 27. **d5 实飞：panic 消失，停点移到 `qbt_boot()` 内部（2026-11-16 06:41–06:46）**
-    - 证据 `E:/k60-work/evidence/usblog-20261116-064150`：`491C62DE…DFB3E`（= `bt-d5-iomap`）、
+    - 证据 `E:/iOS Port/Work/evidence/usblog-20261116-064150`：`491C62DE…DFB3E`（= `bt-d5-iomap`）、
       bootAccepted true / exit 0 / returnedToFastboot false；capture `captured-budget-complete`、
       bytes 224,863、portSeen/portOpened true、openErrors 0、stopReason `budget`、panicMarker null；
       console.log 3,241 行、sha256 `917B5AA9…A20B`、SpringBoard **132**、`getBytes:range` **0**、
@@ -795,7 +795,7 @@ This line, next in order:
     - 0513 的 host 测试第 6 节从「两态」改成「三态」（提交 `17d0b7c`）：d5 = 有 0621、无 0513；
       d6 = 0621 与 0513 同在且 0513 在最后；两者都不在则 0513 只留在盘上。仍然非法的是
       「0513 不在最后」与「0513 前面不是 0512」。`TESTS OK 28 case(s)`。
-    - d6 出图工具链已备好：`E:/k60-work/scratch/bt-s4/late2/prep-d6.sh`（有 build-strict 在跑时拒绝
+    - d6 出图工具链已备好：`E:/iOS Port/Work/scratch/bt-s4/late2/prep-d6.sh`（有 build-strict 在跑时拒绝
       动手 → 校验 series 尾是 0512、0513 在盘且不在 series → 追加 0513 → `touch patches/xnu/series`
       → 提交），`wsl-build-d.sh` 已加 `d5`/`d6` 两个 case（d6 = TAG `bt-d6-iowin`，参数
       `k60bt=1 pong_bt_late=1`，31 项 / 598 B，series 234 条）。本线门禁 98 条 / 失败 0 / waiver 37。
@@ -818,7 +818,7 @@ This line, next in order:
     - 配方：全量 0511 + 0512 + 0621（main 自带，P-219）+ 0513 在最后一条（前面是 0512），
       series **234 条**；参数 `k60bt=1 pong_bt_late=1`（31 项 / 598 B）；
       `K60_OUT=/opt/k60/trees/k60build/bt-out-s1c`、`K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device`。
-    - manifest `/mnt/e/k60-work/artifacts/bt-d6-iowin/build-manifest.json`：boot_img
+    - manifest `/mnt/e/iOS Port/Work/artifacts/bt-d6-iowin/build-manifest.json`：boot_img
       `9f4e2a90c5b5bf6a656eab738d7038e4a6b8a3da2c5dcc5cce5c5896f2e7a3b3`（201,887,744 B）、
       kernel_built `020c7f04060790346ad6d1fa787b7bac1841768cc6acbbaa2b0f2c674f590eaf`
       （106,598,400 B）、payload_kernel `13a68ed4…`、payload `b2fe7b9b…`、adt `8bfc8066…`、
@@ -852,7 +852,7 @@ This line, next in order:
     - 本轮据此新增 **S4-SPEC §7.16**（两条通用规矩 + 跨文件 static 审计结果）与
       **§7.17**（单变量二分五步法 + 「二分给范围、panic 给机制」）；§7.15 判据表补第四档。
 31. **d6 实飞：0513 与 0621 等价，0513 标 superseded（2026-11-16 08:54–08:59）**
-    - 证据 `E:/k60-work/evidence/usblog-20261116-085439`（boot_img `9F4E2A90…7A3B3` =
+    - 证据 `E:/iOS Port/Work/evidence/usblog-20261116-085439`（boot_img `9F4E2A90…7A3B3` =
       `bt-d6-iowin`）：`bootAccepted` true / exit 0 / returnedToFastboot false；
       capture `captured-budget-complete`、bytes 240,620、stopReason `budget`、panicMarker null；
       console.log 3,440 行、sha256 `1BCF8490…D1577`、SpringBoard **132**、`getBytes:range` **0**、
@@ -917,7 +917,7 @@ Lead 回复 #12 第五项：把 S4-SPEC §7.17 的「单变量二分五步法」
 ### 35. d7 实飞：NVM 路径遇全局预算，根因未定（2026-11-16 15:12 更正）
 
 Lead 飞了 `bt-d7-obs`（boot.img `76a4260bc762a22a3dc683e4042a0a13a8dea41f04defccede8f9a96719c7512`），
-证据 `E:/k60-work/evidence/usblog-20261116-130444`（console 3,180 行 / 221,001 B、SpringBoard 132、
+证据 `E:/iOS Port/Work/evidence/usblog-20261116-130444`（console 3,180 行 / 221,001 B、SpringBoard 132、
 panic 0、stopReason budget）。稳定事实：rampatch 返回、NVM 路径开始，90 s 全局预算先被观察到，
 最终 `power=1 result=-60`；蓝牙启动失败，原因未定。完整阶梯见 S4-SPEC.md §7.18。
 
@@ -945,15 +945,15 @@ panic 0、stopReason budget）。稳定事实：rampatch 返回、NVM 路径开�
   参数 `k60bt=1 pong_bt_late=1`，真实 payload 31 项 / 598 B，原 head `91dcd07`、dirty 0。
   boot.img sha256 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`（201,887,744 B），
   kernel_built `6c96f7ccd641d0f751cd76669312c7279055e3232415d5b2d505b28c38065331`（106,598,400 B）；
-  manifest `E:/k60-work/artifacts/bt-d8-tlv/build-manifest.json`，sha256
+  manifest `E:/iOS Port/Work/artifacts/bt-d8-tlv/build-manifest.json`，sha256
   `3dad0a5284896e7fe1cd649db67c604339ef7ec2c3baf17805a5804fe2f91db0`。不重建、不追改旧 manifest。
 - 15:28 本树离线复核：0515 host 28 cases、0514 host 33 cases 均为静态契约检查，
   verify-boot-image 与真实 image 参数审计通过（31 arguments, 598 bytes）；详见
-  `E:/k60-work/scratch/bt-s4/d8-evidence-20261116.log`。
+  `E:/iOS Port/Work/scratch/bt-s4/d8-evidence-20261116.log`。
 - 账本改为当前 d8 纯观测 active；⑦三类离线证据已核实，⑧已记录 Lead 的设备观测结果。
   README 双语表由生成器更新。默认 `python3 scripts/eight-step-gate.py --flash` 实际列出
   7 项（touch, gpu, storage, display, bootchain, bluetooth, battery），56 项通过、RC=0；
-  记录 `E:/k60-work/scratch/bt-s4/d8-flash-gate-20261116.log`。未改 gate 或绕过 done=false。
+  记录 `E:/iOS Port/Work/scratch/bt-s4/d8-flash-gate-20261116.log`。未改 gate 或绕过 done=false。
   旧产物原 eight-step.log 只有 6 项 build 检查，不追认其包含 BT；本次是后补的本树核验。
 - 判读前提：按 PATCH/NVM/fallback 的 type/attempt 分开；日志发生于段调用返回后；
   ret 非零不算完成，segs 包括失败尝试；累计计数需取差，final 状态必须结合 done 行。
@@ -962,7 +962,7 @@ panic 0、stopReason budget）。稳定事实：rampatch 返回、NVM 路径开�
 
 ### 37. d8 实飞结果：NVM 未完成，暂停 d9（2026-11-16 16:58）
 
-证据 `E:/k60-work/evidence/usblog-20261116-164726/console.log`（3,749 行 / 255,020 B，sha256 `1ef1f5abf55f6036f36c729779aab3de53f667e782e9ba3492fb332109be7cd2`），`boot.json` 为 `bootAccepted=true`、`exit=0`、未回 fastboot；`capture.json` 为 complete、无 panic/reset marker。只用 `fastboot boot`，未 flash。
+证据 `E:/iOS Port/Work/evidence/usblog-20261116-164726/console.log`（3,749 行 / 255,020 B，sha256 `1ef1f5abf55f6036f36c729779aab3de53f667e782e9ba3492fb332109be7cd2`），`boot.json` 为 `bootAccepted=true`、`exit=0`、未回 fastboot；`capture.json` 为 complete、无 panic/reset marker。只用 `fastboot boot`，未 flash。
 
 - PATCH type=1：602 次调用全部 `e=0`，`sent +602`、`acks +1`，段大小合计 146,068 B，`done segs=602 final=0 ret=0`。
 - NVM 首次 type=2：7 次调用，前 6 次 `e=0`（dt_ms 10000/10000/10000/10001/10001/10001），第 7 次 `e=-60` / 15 ms；`sent +7`、`acks +6`，`done segs=7 final=0 ret=-60`。
@@ -993,7 +993,7 @@ Lead 的 `test/bt-d8-timing-model` 已交付：代码 `0ccdfbba5ab626bf99be65d97
 Lead 于 19:31 按 §7.22 原范围批准（3 行被测层表 + A/B/C 场景矩阵 + 六条负向控制，不扩），只允许 test-only 与 docs-only 提交。本线已交付：
 
 - test-only 提交 `916aaaa552b8470fa63b992dac2a525226b7288d` "test(bt): host-test the d8 adapter and fallback"，3 文件 +1156：`scripts/tests/test-bt-d8-adapter-host.py`、`scripts/tests/fixtures/bt-d8-adapter-harness.c`、`scripts/tests/fixtures/bt-d8-adapter-support.c`。未改运行代码、series、`board.toml`、预算、下载模式、段长、状态机或地址。
-- 运行 `python3 scripts/tests/test-bt-d8-adapter-host.py`（默认读取保留产物 `/mnt/e/k60-work/artifacts/bt-d8-tlv`）：`RAW_RC=0`，`TESTS OK: 90 case(s), 0 failure(s)`；日志 `E:/k60-work/scratch/bt-s4/late3/run17.log`。90 = 19 输入绑定 + 3 源码重建 + 22 场景各 2 项 + 24 变异孪生。
+- 运行 `python3 scripts/tests/test-bt-d8-adapter-host.py`（默认读取保留产物 `/mnt/e/iOS Port/Work/artifacts/bt-d8-tlv`）：`RAW_RC=0`，`TESTS OK: 90 case(s), 0 failure(s)`；日志 `E:/iOS Port/Work/scratch/bt-s4/late3/run17.log`。90 = 19 输入绑定 + 3 源码重建 + 22 场景各 2 项 + 24 变异孪生。
 - 场景：A 组 8（status/short/timeout/TLV status/late/early/version mismatch/version overlong）、B 组 8（完整下载/fallback 成功/fallback 失败/NVM 缺失/patch fallback/skip/alt 已是 .bin/alt 改名）、C 组 6（成功/失败清理/fallback 成功/patch 失败/bdaddr 失败/reset 失败）。24 个变异孪生全部真红后才退出 0；例：`firmware_release_count` 红行 `patch and NVM buffers are each released once: requests=2 puts=0`，`version_overlong_exact` 红行 `overlong version payload is -EILSEQ: 0`。
 - fail-closed：manifest 追加一个换行后运行即 `REFUSED: manifest bytes differ from the retained d8 manifest`，退出码 2；不 fallback 到 latest，不读当前工作树。源码身份用三条重建后哈希钉住（qbt_core `e3405ca4…`、qbt_linux `a0ec555a…`、btqca `ecc7346f…`），235 条 series 的补丁字节、frozen-before/after、head `91dcd07`、boot.img `0297012d…` 任一不符都拒绝。
 - 断言级重叠表已写入 S4-SPEC §7.22：本仓对完整 `qbt_linux` adapter、`qca_download_firmware` fallback/缺失/skip/alt/release、`qca_set_bdaddr` 与 `qbt_boot` 生命周期权威；Lead 的 `test-bt-d8-host-timing.py` 对 `run()`/期限/调度器微时序权威，本线不编辑该文件，也不复制其断言。两边进入 main 或 ⑦ 前由 Lead 决定哪些断言退休，不保留长期分叉。
@@ -1003,7 +1003,7 @@ Lead 于 19:31 按 §7.22 原范围批准（3 行被测层表 + A/B/C 场景矩�
 
 ### 40. 21:26 Lead 裁决：一条断言一个 owner，§7.22 可作 ⑦ 补充证据，d9 未批准（2026-11-16 21:26）
 
-Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远端 `2104231a` 干净、重跑本线测试得 `TESTS OK: 90 case(s), 0 failure(s)`、`rc=0`。
+Lead 在 `E:/iOS Port/Work/scratch/reply-bt-20261115.md` 裁决，并独立复核远端 `2104231a` 干净、重跑本线测试得 `TESTS OK: 90 case(s), 0 failure(s)`、`rc=0`。
 
 - **权威分区**：核心微时序归 Lead 的 `test-bt-d8-host-timing.py`（`run()` 顺序、两期限 `>=`、精确期限注入、调度器夹取、`dt_ms` 截断、0515 wrapper 汇总）；adapter/下载/生命周期归本仓（完整 `qbt_linux` wake/skb、`qca_download_firmware` 的 fallback/缺失/skip/alt/release、`qca_set_bdaddr`、`qbt_boot`、22 场景、24 变异）；三条共享语义（TLV ack/final、`sent/acks` 累计、fail-closed 拒跑）保留在本仓，Lead 只保留两条 core 断言（全局 ack/final 独立于当前等待、stale 同 opcode 可完成新等待）。§7.22 已按此重写为“一条断言一行 + owner + 引用位置”的表，并列出请 Lead 退役的重复 ack/final 计数断言。
 - **输入身份**：两边可短期并存，进 main/⑦ 前只留一份；Lead 倾向 `check-bt-d8-inputs.py`（它钉 boot.img、235 条 series 字节与 namespace），本仓保留部分应缩成“调用 Lead 检查器 + 本仓三条重建源码 SHA”，不再维护第二份身份实现。
@@ -1011,7 +1011,7 @@ Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远�
 - **⑧ 固定边界**：不得因为 90 个宿主用例变绿就改 ⑧；d8 仍是失败观测（两次 NVM 均未完成、`result=-60`、蓝牙不可用），⑧ 的 `done=true` 只表示“设备观测已取得”。
 - **d9**：未批准。先交 `docs/research/bt/D8-NEXT.md`，列三个候选判据（HCI 层 NVM 完成标志、控制器 exec_env/MHI 状态、真实 RX 字节时间线），逐条写“需要什么观测、能排除什么、不能排除什么”，由 Lead 选单变量；在收到裁决前不重建、不上机、不改预算/下载模式/段长/状态机/地址。
 
-状态：两项交付（权威分区表 + `D8-NEXT.md`）已落盘，待 Lead 复核；test-only 提交 `916aaaa` 与 docs 提交 `56e3c73`/`2104231a` 已在远端。`E:/hackios/k60-work/scratch/bt-s4/d8-evidence-20261116.log` 的 90 用例证据与本次只读 artifact 核对均未启动设备。下一步：Lead 对断言退役、⑦ 写入与 d9 判据的选择。
+状态：两项交付（权威分区表 + `D8-NEXT.md`）已落盘，待 Lead 复核；test-only 提交 `916aaaa` 与 docs 提交 `56e3c73`/`2104231a` 已在远端。`E:/iOS Port/Sources/Build/k60-work/scratch/bt-s4/d8-evidence-20261116.log` 的 90 用例证据与本次只读 artifact 核对均未启动设备。下一步：Lead 对断言退役、⑦ 写入与 d9 判据的选择。
 
 ### 41. 0516 UART clock 候选已构建（2026-11-17 01:47）
 
@@ -1026,16 +1026,16 @@ Lead 在 `E:/k60-work/scratch/reply-bt-20261115.md` 裁决，并独立复核远�
 
 ### 43. d9 实飞：0516 仍失败（2026-11-17 12:03）
 
-用户 11:56 明确授权后，按 D9-PLAN 只执行一次 `fastboot boot E:/k60-work/artifacts/bt-0516-uart-clock/boot.img`，未 flash、未写 persist/sda38。证据目录 `E:/k60-work/evidence/usblog-20261117-115842`：boot.img `8a211a76…`，boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、panic/reset null、`stopReason=budget`。console 与 d8 同形：PATCH `segs=602 ret=0`，NVM 第一次 `segs=7 ret=-60`，fallback `segs=21 ret=-60`，`power=1 result=-60`，无 `nvm done`。按预声明判据判 **FAIL**；0516 不能作为修复，下一步需要新的控制器/UART 观测或新的单变量候选，不能直接改预算/段长掩盖。
+用户 11:56 明确授权后，按 D9-PLAN 只执行一次 `fastboot boot E:/iOS Port/Work/artifacts/bt-0516-uart-clock/boot.img`，未 flash、未写 persist/sda38。证据目录 `E:/iOS Port/Work/evidence/usblog-20261117-115842`：boot.img `8a211a76…`，boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、panic/reset null、`stopReason=budget`。console 与 d8 同形：PATCH `segs=602 ret=0`，NVM 第一次 `segs=7 ret=-60`，fallback `segs=21 ret=-60`，`power=1 result=-60`，无 `nvm done`。按预声明判据判 **FAIL**；0516 不能作为修复，下一步需要新的控制器/UART 观测或新的单变量候选，不能直接改预算/段长掩盖。
 
 ### 42. d9 单变量飞行计划已准备（2026-11-17 02:00，未批准）
 
-新增 `docs/research/bt/D9-PLAN.md`：候选 `E:/k60-work/artifacts/bt-0516-uart-clock/boot.img`
+新增 `docs/research/bt/D9-PLAN.md`：候选 `E:/iOS Port/Work/artifacts/bt-0516-uart-clock/boot.img`
 （sha256 `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`，201887744 B）
-对回滚基线 d8 `E:/k60-work/artifacts/bt-d8-tlv/boot.img`（`0297012d…`）；唯一变量为 0516
+对回滚基线 d8 `E:/iOS Port/Work/artifacts/bt-d8-tlv/boot.img`（`0297012d…`）；唯一变量为 0516
 （135 行，4 文件 +35/−10，`0134a31b…`），不改 90 s budget、10 s deadline、243 B 段长、
 下载模式、状态机、地址或固件。`eight-step-gate.py --flash` 默认 7 项/56 项通过、RC=0
-（日志 `E:/k60-work/scratch/bt-s4/0516-flash-gate-20261117.log`），`verify-boot-image` OK，
+（日志 `E:/iOS Port/Work/scratch/bt-s4/0516-flash-gate-20261117.log`），`verify-boot-image` OK，
 check-image-args 31/598 OK。计划预先写死成功判据（镜像哈希、boot 接受、无 budget exhausted、
 NVM `ret=0`、`power=1 result=0`）与失败判据（budget exhausted、NVM `-60`、power `-60`、
 panic/reset、哈希不符），并明确成功也只证明传输/下载路径，不证明蓝牙可用。d9 未批准；
@@ -1062,8 +1062,8 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 ### 46. d10（0517）已飞，FAIL（2026-11-18 21:32–21:36）
 
 - 权限口径：按用户 2026-11-18 更新的“先到先得、统一 supervisor、单设备单写者”规则，在没有其他 supervisor/collector 占用时由 bt-agent 执行；只 `fastboot boot`，未 flash。
-- 镜像：`E:/k60-work/artifacts/bt-0517-power-order/boot.img`，sha256 `6c631bc4…`；设备 `6033dbec`；supervisor rc=0。
-- 采集：`E:/k60-work/evidence/usblog-20261118-213228`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=201732、panic/reset=null、stopReason=budget；console 3290 行，logSha256 `6A9AF54A…`。
+- 镜像：`E:/iOS Port/Work/artifacts/bt-0517-power-order/boot.img`，sha256 `6c631bc4…`；设备 `6033dbec`；supervisor rc=0。
+- 采集：`E:/iOS Port/Work/evidence/usblog-20261118-213228`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=201732、panic/reset=null、stopReason=budget；console 3290 行，logSha256 `6A9AF54A…`。
 - 判决：PATCH `segs=602 ret=0`；NVM 主轮 `segs=7 ret=-60`（i=0..5 每段约 10 s）；fallback 这次 `segs=1 ret=-60`；`budget exhausted at op=0xfc00`；`power=1 result=-60`；无 `nvm done`；`bluetoothd exit=1`。按预声明判据 **FAIL**。
 - 形状：主轮仍是 7 段/每段约 10 s，但 fallback 从 d9 的 21 段变成 1 段，**不能说失败形状完全不变**，也不能说 0517 完全无效。
 - 下一步：d11（0517+0518）已于 22:19 飞行 PASS，见 item 47；NVM 问题由 0518 的 GIC INTID 修正解释，不再需要先补观测。
@@ -1071,7 +1071,7 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 ### 47. d11（0518）已飞，PASS：蓝牙固件下载路径打通（2026-11-18 22:19–22:23）
 
 - 权限口径同 item 46：先到先得、单设备单写者；只 `fastboot boot`，未 flash。设备 `6033dbec`，镜像 `d6beec4c…`（201,887,744 B），supervisor rc=0。
-- 采集：`E:/k60-work/evidence/usblog-20261118-221925`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=278123、panic/reset=null、stopReason=budget；console 278123 B，logSha256 `591CD9A6…`。
+- 采集：`E:/iOS Port/Work/evidence/usblog-20261118-221925`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=278123、panic/reset=null、stopReason=budget；console 278123 B，logSha256 `591CD9A6…`。
 - 蓝牙：PATCH `segs=602 ret=0`；NVM 单轮 27 段，26 段 `dt_ms=1`、末段 124 B `dt_ms=120`，`segs=27 sent=629 acks=28 final=0 ret=0`；`nvm done`、`hci reset done`、`bdaddr check done`、`uart setup done e=0`、`set bdaddr done e=0`、`return e=0 baud=3000000`；`power=1 result=0 ... firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1`；`[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0`。
 - 因果：d11 相对 d10 唯一差别是 0518。此前 UART RX 中断挂在 INTID 587 而不是 619，每段 ack 只能等 10 s 命令期限；0518 修正后 ack 约 1 ms 到达。**0518 是修复，0517 不是。**
 - 边界：只证明 patch/NVM 下载、HCI reset、BD_ADDR 设置与 UART SK 注册；用户态 `marconi-bt` 仍报 `Unable to match bluetooth service in device tree` 和全零 MAC，`bluetoothd` 已由 `xpcproxy` 拉起但只进入 msg loop。蓝牙可用性仍未证明。
@@ -1080,7 +1080,7 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 
 - 与 d10/d11 不同，d12 是观测候选：0519 增加 `/dev/btreset`、`/dev/btwake`、`/dev/btpoweroff` 三个探针字符设备（open/ioctl 一律返回成功）并把 `K60_BT_TRANSPORT_SPEED` 改成 3000000；0520 增加 `com.apple.uart.bluetooth` 控制别名（stock BlueTool 的默认名）和 `K60ARG` argv 追踪。不改下载/时序/状态机。
 - 权限口径同 item 46/47：先到先得、单设备单写者；只 `fastboot boot`。设备 `6033dbec`，镜像 `9361ec1c…`（201,887,744 B），supervisor rc=0。
-- 采集：`E:/k60-work/evidence/usblog-20261119-000246`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=264656、panic/reset=null、stopReason=budget；console `2A5E3FA9…`。
+- 采集：`E:/iOS Port/Work/evidence/usblog-20261119-000246`；bootAccepted=true、exit=0、returnedToFastboot=false；capture complete=true、bytes=264656、panic/reset=null、stopReason=budget；console `2A5E3FA9…`。
 - 探针生效：`:1349` UART.SK 注册 error=0（speed=3000000）、`:1350` 别名 `com.apple.uart.bluetooth` 注册 error=0、`:1351` `[bluetooth power] nodes ready major=17`。
 - 参数：`:1723` bluetoothd argc=1；`:2083/2873/3286/3527/3729` 五次 `BlueTool argc=2 [/usr/sbin/BlueTool] [-R]`。`-R` 合法（20G81 的 `com.apple.BlueTool.plist` 只传 `-R`），D12-A 排除。
 - 关键否定：**没有任何 `[bluetooth sk] connect` 行，也没有任何 `[bluetooth power]` open/ioctl 行**。两个控制名在开机时都已注册，说明 BlueTool 在打开传输之前就退出了。
@@ -1164,7 +1164,7 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 命令行的硬上限：DarwinBoot 只接受 607 字节（`BootArgs.h` 的 608 与 `DarwinBoot.c:681`）。现役 defconfig 已用 598 字节，加 `bluetooth=1 log-bluetooth=2` 变 618，被 unixnu 拒绝（`the kernel command line is 618 bytes; DarwinBoot accepts at most 607`）。本次飞行因此只带 `bluetooth=1 pong_bt_late=1`（602 字节）。
 - 门禁：`build-strict.sh` 的 image-arg-audit 起初 REFUSED `bluetooth`（不在 board.toml 的 kernel_args，也不在 ALLOWED_ADDITIONS），这是账本没登记而不是镜像有问题。把两个名字加进 `scripts/check-image-args.py` 的 ALLOWED_ADDITIONS 并在 `docs/engineering/BOOT-ARGS.md` 建档后，现镜像复检 `image-arg-audit: OK (31 arguments, 602 bytes)`。16:22 那次构建的 `logs/image-args.log` 仍写着 REFUSED，因为构建 head `d8937163` 早于声明提交 `f0e610ab`。
 - 产物 `bt-0525-official-args`（2026-11-19T16:22:34+08:00，repo head `d893716309cb83a25e12d02666133b0e45428b63`，dirty 0，series 242 `ad158cf5…`，frozen `0ad65eab…`，八步 passed）：boot.img `65038517264024c35d3089c02aab7a6a690119d4579569679c4356740ea5dc82`（201,887,744 B）、kernel_built `5deb6d23…`、payload `5c784e78…`、payload_kernel `5de9ae9b…`、ADT `e4b36395…`、dtb `4bfef152…`、bt_blob `febdc20d…`；kernel.log 记录 0525。
-- 飞行（16:31，设备 `6033dbec`，`fastboot boot`，预算 240 s）：证据 `E:/k60-work/evidence/usblog-20261119-163124`，bootAccepted=true、bootExitCode=0、returnedToFastboot=false，capture complete 252,499 B、stopReason budget、logSha256 `FCA2376F430D15FE7B8D25F1D824AD93EB5397A0078D276C60A6094252F06C70`、openErrors 0、无 panic/reset。镜像里没有 `k60bt`，只有 `bluetooth=1`，整条阶梯照常启动 —— 0525 的别名在硬件上成立。
+- 飞行（16:31，设备 `6033dbec`，`fastboot boot`，预算 240 s）：证据 `E:/iOS Port/Work/evidence/usblog-20261119-163124`，bootAccepted=true、bootExitCode=0、returnedToFastboot=false，capture complete 252,499 B、stopReason budget、logSha256 `FCA2376F430D15FE7B8D25F1D824AD93EB5397A0078D276C60A6094252F06C70`、openErrors 0、无 panic/reset。镜像里没有 `k60bt`，只有 `bluetooth=1`，整条阶梯照常启动 —— 0525 的别名在硬件上成立。
 - 结果（console）：`:257` addon 已链接（bytes=1027584 records=106）；`:269` late armed；`:480-482` late released、`full: power_on enter`；`:483` 冷启动不投 rail；`:484-486` SMMU 旁路与 32 KiB DMA 就绪（sid 0x483、SMR 0x80000483、S2CR 0x48）；`:487` 引脚停靠；`:491` 时钟投票；`:493` `boot: enter speed=3000000 budget=90000ms`；`:494`/`:495` soc version 与 set speed 均 e=0；`:496` `QCA controller version 0x12110201`；`:497` `addon: serving 146068 0`（hpbtfw21.tlv）；`:498-1334` TLV 逐段 i=0..26 全 e=0，末段 size=124 dt_ms=120 sent=629 acks=28；`:1306` rampatch done；`:1336` nvm done；`:1337` hci reset done；`:1338` bdaddr check done；`:1339` uart setup e=0；`:1341` set bdaddr e=0；`:1342` `boot: return e=0 baud=3000000`。随后 `:1345` `ctl_register com.apple.uart.sk.bluetooth error=0 firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1 speed=3000000`、`:1346` 别名 `com.apple.uart.bluetooth` error=0、`:1347` `[bluetooth power] nodes ready major=17`。这是本条线第一次 qbt_boot 返回 0。
 - 用户态没有变：`:1914`/`:1915` BlueTool `-R` 启动，`:1955` 打印 `Device not open yet, use 'device' to open it.`，30 s 后被看门狗杀死（`:2894` `KX! 15 101 BlueTool exit=1`），随后又重启四次，每次都停在同一句；没有任何 `[bluetooth sk] connect`。d12 的用户态结论在控制器已就绪时依然成立：卡点在 BlueTool 自己的脚本/MobileGestalt 路径，不在内核。
 - 一个未解的小观测：console 里没有 `boot: log-bluetooth=3` 行，但 kernel.macho 的 strings 含 `log-bluetooth` 与 `boot: log-bluetooth=%d`，说明 0525 确实编译进去了。判断是 `qbt_k60_start()` 早于 USB 日志开始排空，start 内唯一那行日志被丢弃（`:257` 的 addon 行来自 worker 侧的再次加载）。这不影响别名判据；要确认它需要在命令行腾出空间单独飞一次 `bluetooth=1 log-bluetooth=3`。
@@ -1176,7 +1176,7 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 新增 `scripts/check-bluetooth-kernel.py`：`--kernel` 必填，检查 9 条内核字符串（`com.apple.uart.sk.bluetooth`、`com.apple.uart.bluetooth`、`[bluetooth power]`、`[bluetooth sk]`、`qbt_power_on`、`qbt_boot`、`qbt_firmware`、`K60BluetoothRadio`、`mac-address-bluetooth0`）；`--payload` 用 `mcopy` 取 `::/EFI/UniXNU/Payloads/kernel.macho.adt` 后查 4 条（`bluetooth`、`qcom,wcn6855-bt`、`transport-encoding`、`transport-speed`）；`--require TEXT` 供只有后续补丁才带的字符串（例如 0525 的 `log-bluetooth`）。`scripts/tests/test-bt-kernel-check.py` 7 例：完整内核通过、缺 sysctl 变红并点名、`--require` 命中/未命中、缺文件非零退出。
 - 实跑：iOS 16 的 `bt-out-0523` 内核（106,602,496 B）13 条全 PASS；iOS 27 的 CI 产物 run 44470953368（kernel.macho 93,077,504 B + payload.img 201,326,592 B）同样 13 条全 PASS，说明两棵树的发布契约一致。该 run 早于 0525，所以 `log-bluetooth` 不参与判据；新构建应带 `--require log-bluetooth`。
 - 与 QcaBluetooth 用户态的接口（这次一并核对）：`src/qbt_transport.c:396-420` 与 `userland/BlueTool.c:18/23/42` 读 `kern.qbt_power_on`（读即请求上电，写返回 EPERM，pending 时 EBUSY）、`kern.qbt_boot`（等待 30 s 内的启动结果）、`kern.qbt_firmware`；K60 的 0500 从未改过这三处（`patches/xnu/0500-k60-bt-qbt-new-files.patch:2424-2460`），语义与 sheng 一致，所以换上 QcaBluetooth 的 BlueTool 不需要再改内核。
-- fork 侧组件落地：`drivers/QcaBluetooth` 改为子模块，钉在 `effe4ec5c57cd400a5f818b21c9903fef237edbc`（钉住的框架 `563595a` 的 `components.toml:496-511` 就是这一版；本机 `/mnt/e/hackios/UniXNU` 的主干目录里是 `22ff97f9`）。`feeds.py` 的 resolve 第 5 步先扫设备仓库的 `drivers/`，所以模块以 `('driver','QcaBluetooth')` 解析，和 sheng 一样不需要 feeds 条目；`runtime.py:76-80` 会把它的路径交给 runtime builder。board.toml 仍没有 `[payload.runtime]`，还没有东西调用它。
+- fork 侧组件落地：`drivers/QcaBluetooth` 改为子模块，钉在 `effe4ec5c57cd400a5f818b21c9903fef237edbc`（钉住的框架 `563595a` 的 `components.toml:496-511` 就是这一版；本机 `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU` 的主干目录里是 `22ff97f9`）。`feeds.py` 的 resolve 第 5 步先扫设备仓库的 `drivers/`，所以模块以 `('driver','QcaBluetooth')` 解析，和 sheng 一样不需要 feeds 条目；`runtime.py:76-80` 会把它的路径交给 runtime builder。board.toml 仍没有 `[payload.runtime]`，还没有东西调用它。
 - 提交：k60-bt `59b98ad4`（检查脚本 + 测试）；fork `c099dc1`（子模块）、`ba41c0f`（0525 文档）、`881555e`（ci 分支，仅两个 workflow 文件在 feat 之上）。CI：44491451065（head a650557）与 44492630013（head 881555e）。
 - 边界：这是产物级检查，不证明运行；ADT 检查依赖 mcopy；iOS 27 一侧仍无真机。
 
@@ -1185,7 +1185,7 @@ panic/reset、哈希不符），并明确成功也只证明传输/下载路径�
 - 背景：官方页 step 6 要求板级检查脚本。内核半边已有 `scripts/check-bluetooth-kernel.py`（item 56），用户态半边在 item 54 已离线构建出 24A446 的三件套，但没有可复跑的判据；这次补上静态检查器。
 - 脚本：`scripts/check-bluetooth-userspace.py --stage DIR [--manifest PATH] [--bluetoothd-sha256 HEX] [--target STR] [--require STR]`。检查 report.json（built、target、native_input_sha256、native_entitlements_preserved，且 hardware_verified 必须为 false）、`userland/bin/bluetoothd`（必须已重签，即哈希不同于原生输入；arm64e MH_EXECUTE；LC_BUILD_VERSION platform=iOS 且 minos 27.x）、`userland/bin/BlueTool`（arm64e、LC_LOAD_DYLIB 含 `/usr/lib/libxpc.dylib`、iOS 27、可选 `--require` 字符串）、`userland/lib/QcaBTType0.dylib`（arm64e MH_DYLIB）、`userland/bin/QcaBluetooth.runtime` 的 native_input_sha256、`firmware/qca` 与 manifest 双向一致（名字集合、字节数、sha256）。
 - Mach-O 解析：自带 32 字节头与 LC_LOAD_DYLIB(0xC)、LC_BUILD_VERSION(0x32)、LC_VERSION_MIN_IPHONEOS(0x24) 解析，不依赖 otool/llvm，CI 与 WSL 都能跑。
-- 实跑：`--stage /mnt/e/hackios/k60-bt-work/bt24/stage4 --require com.apple.BlueTool` 得到 18 PASS / 0 FAIL；BlueTool 87,216 B、bluetoothd 13,092,096 B（重签后 `178444d6...`，report 的原生输入仍是 `cfd94854...`）、QcaBTType0.dylib 102,096 B、firmware/qca 的 106 个 hp* 文件字节与哈希全部匹配。
+- 实跑：`--stage /mnt/e/iOS Port/Sources/Hardware/k60-bt-work/bt24/stage4 --require com.apple.BlueTool` 得到 18 PASS / 0 FAIL；BlueTool 87,216 B、bluetoothd 13,092,096 B（重签后 `178444d6...`，report 的原生输入仍是 `cfd94854...`）、QcaBTType0.dylib 102,096 B、firmware/qca 的 106 个 hp* 文件字节与哈希全部匹配。
 - 测试：`scripts/tests/test-bt-userspace-check.py` 16 例，覆盖 libxpc 缺失、minos 26、非 arm64e 的 bluetoothd、可执行文件冒充 dylib、report 四个字段被改、固件哈希不符、manifest 条目缺文件、marker 指向别的输入、`--require` 缺失，以及未重签的 bluetoothd。
 - 边界：静态检查，不证明签名被 iOS 接受、不证明能运行；manifest 只描述 `firmware/bluetooth` 树里的 hp* 文件，其它固件族不在覆盖范围内。
 

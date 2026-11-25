@@ -238,7 +238,7 @@ C 盘结构健康：无 >1GB 散落大文件、无转储、无更新残留、无
 | **建议归档到 E:**（历史会话，归档后旧会话无法在 WorkBuddy 内恢复/回看，但文件还在） | workspace\sessions 中 >30 天部分 953 + changes-detail >30 天 261 + file-history >30 天 37 | **~1.25 GB** |
 | **建议保留** | binaries 650（运行时）、projects 400、app\session 215、blobs 244、clipboard-images 123、sessions ≤30 天 ~576、plugins\marketplaces+data 206、credentials/security/memory/plans/tasks 等 | ~2.4 GB |
 
-> 风险备注：① 删 `plugins\cache` 会把正在使用的 playwright-cli 一并删掉（下次使用自动重下，~数 MB，可接受）；② 任何删除都应在 **WorkBuddy 完全退出** 后进行，否则锁文件会跳过且可能写坏索引；③ 「归档到 E」= `robocopy /MOVE` 到 `E:\k60-work\archive\workbuddy-<日期>\`。
+> 风险备注：① 删 `plugins\cache` 会把正在使用的 playwright-cli 一并删掉（下次使用自动重下，~数 MB，可接受）；② 任何删除都应在 **WorkBuddy 完全退出** 后进行，否则锁文件会跳过且可能写坏索引；③ 「归档到 E」= `robocopy /MOVE` 到 `E:\iOS Port\Work\archive\workbuddy-<日期>\`。
 
 ### 7.3 调研：Temp 近期产物（4.6 GB，逐项占用测试）
 
@@ -249,12 +249,12 @@ C 盘结构健康：无 >1GB 散落大文件、无转储、无更新残留、无
 | 2,409 | `azuma_4k_work` | **今天 21:46** | 0 锁 | 4K 扩图流水线工作目录（10630 文件），几分钟前还在写——**活跃** | **保留** |
 | 884 | `DiagOutputDir` | **今天 21:47** | **1 文件被锁** | 有进程正持有句柄——**活跃** | **保留** |
 | 478 | `trae-cn-user-x64` | 今天 12:52 | 0 锁 | 单文件，Trae 安装/更新暂存；本体已在 `Local\Programs` 正常运行 9 小时未再访问 | **可删** |
-| 384 | `k60probe` | 11-01 15:25 | 0 锁 | K60 项目探测产物，13 个文件 | **移 E:\k60-work** |
+| 384 | `k60probe` | 11-01 15:25 | 0 锁 | K60 项目探测产物，13 个文件 | **移 E:\iOS Port\Work** |
 | 306 | `ocrvenv` | 10-29 | 0 锁 | Python venv，`python -m venv` + pip 可重建 | **可删**（近期还要跑 OCR 则保留） |
-| 130 | `kernel.development.sweet.a` | 10-28 | 0 锁 | K60 内核构建产物 | **移 E:\k60-work** |
-| 90 | `xnu-kernel.zip` | 10-30 | 0 锁 | K60 内核包 | **移 E:\k60-work** |
-| 83 | `gh-artifact.3269073225.zip` | 10-31 | 0 锁 | GitHub artifact，`gh run download` 可再下 | **移 E:\k60-work** |
-| 67 | `kernel.development.sweet.ctf` | 10-28 | 0 锁 | K60 内核 CTF 数据 | **移 E:\k60-work** |
+| 130 | `kernel.development.sweet.a` | 10-28 | 0 锁 | K60 内核构建产物 | **移 E:\iOS Port\Work** |
+| 90 | `xnu-kernel.zip` | 10-30 | 0 锁 | K60 内核包 | **移 E:\iOS Port\Work** |
+| 83 | `gh-artifact.3269073225.zip` | 10-31 | 0 锁 | GitHub artifact，`gh run download` 可再下 | **移 E:\iOS Port\Work** |
+| 67 | `kernel.development.sweet.ctf` | 10-28 | 0 锁 | K60 内核 CTF 数据 | **移 E:\iOS Port\Work** |
 | 57 | `sess-203b.jsonl` | 10-30 | 0 锁 | agent 会话日志 | **可删**（或随归档移 E） |
 
 汇总：**可删 ~841 MB**（trae-cn-user-x64、ocrvenv、sess-203b）／**应移 E ~754 MB**（k60probe、sweet.a、sweet.ctf、xnu-kernel.zip、gh-artifact zip）／**保留 ~3.29 GB**（azuma_4k_work、DiagOutputDir，均活跃）。
@@ -285,8 +285,8 @@ C 盘结构健康：无 >1GB 散落大文件、无转储、无更新残留、无
 | `.workbuddy` 归档移 E：sessions 旧文件 952.9 + changes-detail 261.4 + file-history 37.3（共 4385 文件，>30 天，robocopy /MINAGE:30 /MOV） | **1,251.6 MB** | 逐项目文件数+字节数核对一致，源残留旧文件 0 |
 | `azuma_4k_work`、`DiagOutputDir` | 跳过未动 | 仍活跃（另 agent 使用中） |
 
-**Manifest**：`E:\k60-work\incoming\temp-k60-artifacts\MANIFEST.md`（17 文件哈希全 OK）
-**归档位置**：`E:\k60-work\incoming\workbuddy-sessions-archive\{sessions,changes-detail,file-history}`（952.9 / 261.4 / 37.3 MB）
+**Manifest**：`E:\iOS Port\Work\incoming\temp-k60-artifacts\MANIFEST.md`（17 文件哈希全 OK）
+**归档位置**：`E:\iOS Port\Work\incoming\workbuddy-sessions-archive\{sessions,changes-detail,file-history}`（952.9 / 261.4 / 37.3 MB）
 
 **过程记录（已纠正的操作失误）**：首次归档时误用 `robocopy /MAXAGE:30`（语义为"排除超过 30 天的文件"），把 521+1153 个**近期**文件移到了归档目录；立即用反向 `robocopy /MOVE` 全量回滚（changes-detail 恢复 1185 文件、file-history 恢复 3157 文件，与盘点值一致），再用 `/MINAGE:30` 正确移动旧文件。最终校验全部一致，无数据损失。
 

@@ -2,7 +2,7 @@
 
 状态：**纯逻辑记账模块 + host 58 项断言，无消费者、未上机**。官网
 `https://unixnu.com/zh/porting/power` §5 要求「为外设电源投票明确所有权和引用计数。
-停止依赖的 DMA 和中断后再释放资源」（快照 `E:/k60-work/scratch/power-page-20261117.txt:109-110`）。
+停止依赖的 DMA 和中断后再释放资源」（快照 `E:/iOS Port/Work/scratch/power-page-20261117.txt:109-110`）。
 本仓库没有任何外设电源投票实现：`K60PmicRail.h` 只是只读采样，HR-01 又禁止写 RSC/TCS，
 所以先把「谁持有、持有几次、什么时候可以释放」做成可测试的纯逻辑。
 
@@ -59,7 +59,7 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tk60vote \
 
 ## 5. 参考
 
-- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:109-110`。
+- 官网快照：`E:/iOS Port/Work/scratch/power-page-20261117.txt:109-110`。
 - 规则：`docs/ops/HARD-RULES.md` HR-01；只读采样：`drivers/PongPower/K60PmicRail.h`。
 - 官方参考实现：`UniXNU-sheng` 的 `package/QcomRpmh.c`/`QcomQmp.c` 与
   `ShengPlatformPower.cpp`（后者只做 PMGR ABI 资格验证，未实现槽位会 panic）。

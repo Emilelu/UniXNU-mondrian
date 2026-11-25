@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Restore omitted DriverKit headers from Apple's earlier Darwin 23 source."""
+import base64
 import concurrent.futures
 import hashlib
+import ssl
 import json
 import os
 from pathlib import Path
@@ -19,12 +21,40 @@ URL = f'https://api.github.com/repos/apple-oss-distributions/xnu/contents/iokit/
 TOKEN = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
 
 
-def fetch(url):
+RAW_HOST = 'raw.githubusercontent.com'
+CONTENTS = 'https://api.github.com/repos/apple-oss-distributions/xnu/contents'
+
+
+def _request(url):
     request = urllib.request.Request(url, headers={'User-Agent': 'unixnu-prepare-xnu-source'})
     if TOKEN and urllib.parse.urlsplit(url).hostname in ('api.github.com', 'raw.githubusercontent.com'):
         request.add_header('Authorization', f'Bearer {TOKEN}')
     with urllib.request.urlopen(request, timeout=30) as response:
         return response.read()
+
+
+def _through_contents_api(url):
+    """Fetch a raw blob through the contents API when the raw host is unreachable."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.hostname != RAW_HOST:
+        raise SystemExit(f'no fallback for {url}')
+    _, _, _, rest = parts.path.split('/', 3)
+    tag, _, path = rest.partition('/')
+    api = f'{CONTENTS}/{urllib.parse.quote(path)}?ref={tag}'
+    payload = json.loads(_request(api))
+    if payload.get('encoding') != 'base64':
+        raise SystemExit(f'{path}: contents API answered encoding {payload.get("encoding")!r}')
+    return base64.b64decode(payload['content'])
+
+
+def fetch(url):
+    try:
+        return _request(url)
+    except (urllib.error.URLError, TimeoutError, ssl.SSLError) as error:
+        # raw.githubusercontent.com is filtered on some networks; api.github.com
+        # serves the same blobs. The blob hash check still runs on the result.
+        print(f'note: {url.split("/")[2]} unreachable ({error}); retrying through the contents API')
+        return _through_contents_api(url)
 
 
 def restore(entry, destination=DESTINATION, tag=TAG):

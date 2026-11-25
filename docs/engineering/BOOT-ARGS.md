@@ -48,6 +48,7 @@
 | `native-ufs-probe` | 存储 | 任意 | 代码默认 | — |
 | `native-ufs-wait` | 存储 | 0=Paced 1=Spin 2=Sleep | 1（Spin） | >2 会被忽略回落默认 |
 | `sheng-data-reset` | 存储 | 1 或 2 | 不重置 | 会清 Data |
+| `sheng-wifi-attr` | 存储 / PCIe 属性 | 任意 uint | 代码默认 | ShengUfs 适配器里给 PCIe 端点选的属性；K60 的 UFS 不走 PCIe，保持默认 |
 | `k60_touch_se` | 触摸 | 0..7 | 6 | 2026-11-12 显式设为 6；<6 不发布设备 |
 | `k60_touch_rcg` | 触摸 | 0 或 1 | 0 | — |
 | `k60touchhz` | 触摸 | ≤ 15000000 | 4000000 | 超范围整体拒绝 |
@@ -515,7 +516,7 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 
 **为什么默认关闭**：`docs/ops/HARD-RULES.md` 的 HR-01 规定默认不得访问 RSC —— 2026-11-09 有两次
 早期启动阶段首读即整机死（零控制台）。2026-11-14 的 `rail-20261114h` 记录了一次 **Data 挂载之后只读**存活
-（`E:\k60-work\evidence\usblog-20261114-railh\console.log:477-479`，3,366 行、129 行 SpringBoard、
+（`E:\iOS Port\Work\evidence\usblog-20261114-railh\console.log:477-479`，3,366 行、129 行 SpringBoard、
 `panicMarker=null`），但一次存活不足以改成默认。所以：只读、单次、必须显式开启；**写 TCS 与
 `CONTROL_TRIGGER` 仍然全面禁止**。2026-11-16 15:03 裁决撤回 C 与功能图批准；
 `adsp-20261116a` 被门禁拒绝，无 boot.img、未上机。下一次 rail-only 须先完成离线审计再由 Lead 决定，
@@ -653,3 +654,61 @@ legacy 后加的 rail 检查保留，但它不经过生产 owner stages，也不
 `PongThermal: bias N mC added to every reading (validation only)`，看到这行就说明数据是人为抬过的。
 **不要把它当标定**：本板没有 `qcom,tsens-calibration`，真正的标定系数不在 DT 里
 （`docs/research/thermal/01-SAME-HARDWARE.md` §4）。
+
+### `k60_autoreset`（0550，自动复位）
+
+### `k60_autoreset_idle`（0550，自动复位的空闲门槛）
+
+- 语义：`k60_autoreset=<秒>` 让内核在引导后经过 `<秒>` 自动回 fastboot；`k60_autoreset_idle=<秒>` 是开始计时前的空闲门槛（默认 30）。
+- 解析位置：`bsd/dev/k60_usblog_reset.c`（由 `patches/xnu-12377/0550-k60-autoreset-27.patch` 追加），两个名字沿用 16 系列，`board.toml` 的启动行里已有 `k60_autoreset=300`，**不新增字节**。
+- 动作：`k60_usblog_reset_to_fastboot()`（`0549`）= PSCI `SYSTEM_RESET`（`smc #0`），返回再试 `hvc #0`；两者都返回则打印 `k60-reset: SYSTEM_RESET and HVC both returned; staying put` 停住。
+- 不用 SPMI 记重启原因：裁决 A 已放弃 `0308` 的 SPMI/IMEM 前置（HR-01 冲突且 stage-0 无法观测），原因只记静态变量。
+- 判据：日志里出现 `k60-autoreset: armed for N s after M s idle`（启动时）与 `k60-autoreset: N s after M s idle; resetting`（触发时）。
+### `-uketextconsole`（0558，文本控制台切换）
+
+- 取值：布尔开关，出现即为真（`PE_parse_boot_argn`）。
+- 作用：让 `vcattach()` 在 `vm_initialized = TRUE;` 之后调用 `initialize_screen(NULL, kPETextScreen)`，
+  把图形模式（`gc_graphics_boot`）切到文本模式；不切时 `gc_pause()` 置的 `disableConsoleOutput`
+  会吞掉之后所有 kprintf（`osfmk/console/video_console.c`，uke `docs/PROGRESS.md:229`）。
+- 对应代码：`patches/xnu-12377/0558-k60-fb-vcattach-text-console.patch`；不带此参数该补丁是惰性的。
+- 判据：镜像参数审计 `scripts/check-image-args.py --print-args` 必须列出它。
+
+### `-ukedeferredconsole`（0559，延迟打印）
+
+- 取值：布尔开关。
+- 作用：把 `initialize_screen()` 之前累积的 kprintf 缓冲延后到控制台可写时再输出，
+  配合 0558 才能看到内核最早那几行（uke `uke-deferred-video-kprintf.patch` 的开关）。
+- 对应代码：`patches/xnu-12377/0559-k60-deferred-video-kprintf.patch`；不带此参数该补丁是惰性的。
+### `owner-dataprotect`（0564，sheng 数据保护开关）
+
+- 取值：布尔开关；由 data-protect 策略读取，决定是否对 owner 数据卷启用保护路径。
+- 来源：`patches/xnu-12377/0564-k60-sheng-27-bringup-part1.patch`（sheng `zzzz-sheng-ipados27-bringup.patch` 的 bootargs 段）。
+- 不带的后果：走默认（不启用），与 sheng 未设置时一致。
+
+### `sheng-exc-name`（0564，异常名打印）
+
+- 取值：布尔开关；打开后异常处理路径打印进程名，便于定位 panic 来源。
+- 来源：同上（0564 的 bootargs 段）。
+- 不带的后果：异常日志只给 pid，不给名字。
+
+### `sheng-wifi-attr`（ShengUfs 适配器，PCIe 属性）
+
+- 取值：任意 uint，原样传给 PCIe 端点的属性配置。
+- 作用：`drivers/ShengUfs/NativeUfs.cpp:1242` 用它选择端点访问的内存属性（1 = normal non-cacheable, non-shareable）。
+- 不带的后果：走代码默认；K60 的 UFS 是平台设备、不走 PCIe，这个参数在本机没有效果，声明它是为了让 `check-boot-args.py` 能把「代码里存在」和「文档里声明」对上。
+
+### ShengUfs 适配器继承的开关（K60 上不生效）
+
+这些名字来自 `drivers/ShengUfs/NativeUfs.cpp`（上游适配器，只为 27 的 source-storage API 提供 `native_ufs_source_create` 等入口）。K60 的 UFS 是平台设备，不走 sheng 的 PCIe/WiFi/DPU 路径；列在这里是为了让 `check-boot-args.py` 能把「代码里存在」和「文档里声明」对上，不是建议在启动行里加它们。
+
+| 参数 | 范围 | 作用 |
+| --- | --- | --- |
+| `native-ufs-diagnostics` | 存储 / 诊断 | 布尔开关；打开后 ShengUfs 适配器打印逐笔传输诊断 |
+| `native-ufs-root` | 存储 | 布尔开关；由适配器选择以哪个分区表作为根（K60 走 unixnu 分区，不设） |
+| `native-ufs-stats-delay` | 存储 | 秒数；适配器统计打印的延迟 |
+| `sheng-data-persist` | 存储 | 布尔开关；sheng 的 Data 持久化策略，K60 不设 |
+| `sheng-dpu` | 显示 | 布尔开关；sheng 的 DPU 路径，K60 无此硬件路径 |
+| `sheng-dpu-scanout` | 显示 | 枚举；sheng 的 DPU 扫描方式 |
+| `sheng-log` | 日志 | 布尔开关；sheng 的机内日志 |
+| `sheng-log-reserve` | 日志 | 字节数；sheng 日志预留区 |
+| `sheng-wifi` | WiFi | 布尔开关；sheng 的 WiFi 端口 |

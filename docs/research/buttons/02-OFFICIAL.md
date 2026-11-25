@@ -88,8 +88,8 @@
 | # | 核查对象 | 结果 |
 |---|---|---|
 | 1 | 构建产物 `usb-20261114b/boot.img`（201,887,744 B，sha256 `EF0E905F…`）里的 `KERNEL~1ADT` | 15,736 B，sha256 `18a514e7…`，与 `build-manifest.json` 的 `components.adt` 一致；24 节点，`/device-tree/arm-io/pong-buttons` 有 core-base/cnfg-base/observer-base/ee/pon-ppid/volume-up-ppid，**无 compatible**，**无 `/device-tree/buttons`** |
-| 2 | 被构建的 board 仓 `E:/hackios/k60-usb`（HEAD `9ce7d2c`，构建提交 `0b00bc79`） | `board.toml` 只有 4 个 adt 段（:235 `pong-touch.string`、:238 `.u64`、:243 `.u32`、:249 `.bytes`），`grep pong-buttons` 零命中；`dts/mondrian.dts` 只有 :55 `unixnu,adt-name="pong-audio"`、:87 `"ufshc"` |
-| 3 | 框架 OS profile：WSL `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` | **命中**：`["adt"."arm-io"."pong-buttons"]` + `.u64` 三个基址 + `.u32` ee/pon-ppid/volume-up-ppid，**没有 `.string compatible`** —— 与第 1 行 ADT 缺 compatible 完全吻合。该文件 `git status` 为 ` M`（未提交），`git show HEAD:…` 零命中；上游 `E:/hackios/UniXNU/profiles/os/` 的四个 profile 也零命中 |
+| 2 | 被构建的 board 仓 `E:/iOS Port/Sources/Hardware/k60-usb`（HEAD `9ce7d2c`，构建提交 `0b00bc79`） | `board.toml` 只有 4 个 adt 段（:235 `pong-touch.string`、:238 `.u64`、:243 `.u32`、:249 `.bytes`），`grep pong-buttons` 零命中；`dts/mondrian.dts` 只有 :55 `unixnu,adt-name="pong-audio"`、:87 `"ufshc"` |
+| 3 | 框架 OS profile：WSL `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` | **命中**：`["adt"."arm-io"."pong-buttons"]` + `.u64` 三个基址 + `.u32` ee/pon-ppid/volume-up-ppid，**没有 `.string compatible`** —— 与第 1 行 ADT 缺 compatible 完全吻合。该文件 `git status` 为 ` M`（未提交），`git show HEAD:…` 零命中；上游 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/profiles/os/` 的四个 profile 也零命中 |
 
 合并顺序决定了它能生效：`scripts/unixnu/profiles.py` 的 `load()` 按 arch → soc → **os profile** → `board.toml` 依次 `merge()`，后者覆盖前者。所以 11-14 镜像按键能通，靠的是这处**本地未提交的 profile 改动**，不是任何仓库里的提交。
 

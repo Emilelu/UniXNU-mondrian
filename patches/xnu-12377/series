@@ -93,3 +93,172 @@ armcpu-sleep-hook.patch
 # write; the 16 line hit the same thing. Nothing here arms CNTP -- interrupts
 # come from CNTV -- so skipping the precaution costs nothing.
 0541-k60-virtual-timer-guard.patch
+# Stage 0 has no serial hardware and no display driver, so the panel is the only
+# output: three bars from start.s while the MMU is off, then the stock video
+# console in text mode once arm_vm_init has run. Picked from xNekom feat/ios27
+# (1e7c82e1), renumbered to keep this series numbered.
+0542-k60-f2-start-breadcrumbs.patch
+# The same stage-0 console, told to raise the SError/PANIC text through the
+# early display path so a trap before BSD init is still readable.
+0543-k60-ios27-panel-console.patch
+
+
+# 8x16 glyphs on a 1440x3200 panel cannot be read from a photograph, and the
+# panic text is the only evidence Stage 0 produces. k60_fontscale=3 makes the
+# console 60x66 cells of 24x48 pixels; without the argument every path is the
+# stock one. Picked from xNekom feat/ios27 (5aeba69a), renumbered.
+0544-k60-console-font-scale.patch
+
+# This kernel had no console at all: llvm-nm on the 27 build defines only
+# _k60_serial_clock next to the 16 build's _k60_usblog_console_up and
+# _pong_ramoops_console_*. Without a mirror nothing the kernel says is
+# readable, so every 0-byte flight was uninformative by construction. The
+# 16-series guard asked for -DPONG, which this build never defines. The first
+# cut here guarded with XNU_PONG_RAMOOPS_CONSOLE and passed -D through the env
+# prefix of the kernel step; the define never reached the compiler (P-301:
+# serial_console.o.json carried zero occurrences while startup.o.json carried
+# the builder's own EXTRA_MAKE_ARGS define), so the kernel shipped with no
+# console a third time. The hooks are now compiled unconditionally and guard
+# themselves at run time on pong_ramoops_base. Base 0xa7000000 and the 2 MiB
+# window are the device live FDT ramoops node (reg 0x400000, pmsg-size 0x200000).
+0546-k60-ramoops-console-27.patch
+
+# Cut from the 16-series 0300 against the tree the four layers build: one new
+# file (bsd/dev/k60_usblog.c) with the dead ARM64_BOARD_CONFIG_PONG guard
+# removed, plus two retargeted call sites (arm_init.c:702 and the qbt block at
+# the end of bsd_autoconf). Its bsd/conf/files hunk is dropped on purpose:
+# scripts/append-conffiles.py owns those lines. See CARRY-OVER-INVENTORY.md.
+0547-k60-usblog-ep0-27.patch
+
+# Cut from the 16-series 0243.  The new file bsd/dev/k60_console_export.c
+# and the pong_ramoops_console.h hunk are verbatim; the three
+# osfmk/arm/arm_init.c hunks were regenerated with diff -u against the
+# assembled tree (the 16-series context names pong_ramoops_start, which
+# 0546 does not declare on its own line).  bsd/conf/files dropped again:
+# append-conffiles.py owns those lines.
+0548-k60-console-export-27.patch
+
+# Reset from kernel context for the automatic-return path. Ported from 16-series
+# 0308 without its SPMI/IMEM reason recorder (decision A, 2026-11-22): the write
+# cannot be observed on stage-0 and HR-01 forbids it before Data is mounted.
+0549-k60-usblog-reset-27.patch
+0550-k60-autoreset-27.patch
+# 0551 paints one solid block into the framebuffer right after arm_vm_init and again
+# after browser_init-side startup, so early progress is visible with no text (CONSOLE-GAP.md).
+# It maps through ml_io_map and reports instead of pretending when the map fails.
+0551-k60-bootbar-27.patch
+# DarwinBoot hands over the GOP *physical* framebuffer base with bit 0 clear,
+# and PE_create_console() runs after arm_vm_init, so video_console.c took the
+# "already a kernel VA" branch and wrote through an unmapped address: the first
+# console write faults and the panel goes black.  Same fix uke and asteroids
+# carry in their 27 series (zzzzz-video-console-physical-fb.patch); 0543 covers
+# the PE_create_console() call, this one covers every initialize_screen() call.
+0552-k60-video-console-physical-fb.patch
+# 0553 painted a magenta band just before vc_initialize(), which clears the screen
+# microseconds later -- the band could never be seen, so it proved nothing.  This
+# one paints at the END of initialize_screen(), after that clear, so it survives:
+# magenta with no text means the kernel reached this point with the console still
+# off, text means the console works, black means the kernel never got here.
+0554-k60-fb-witness-tail.patch
+# 0556: fill the whole framebuffer with the kernel's own v_rowbytes/v_height.
+# The 0554 eight-row band showed magenta across the panel instead of at the
+# top, so either initialize_screen() runs with several v_offset values or the
+# stride disagrees.  A uniform fill means the geometry is right; remaining
+# bands mean the stride is wrong and their pitch measures the ratio.
+0556-k60-fb-full-witness.patch
+# 0555 keeps the text console on the framebuffer.  PE_create_console() selects
+# kPEGraphicsMode, so gc_pause() sets disableConsoleOutput and every later kprintf
+# and IOLog is discarded for the rest of a graphics boot -- that is why the screen
+# goes black after the hand-off and nothing is ever painted.  kPETextScreen calls
+# gc_enable(TRUE), which clears the flag; nothing on ARM calls it.  Ported from
+# vermeer (same generation, reaches bsd_init):
+# patches/xnu/vermeer-framebuffer-console.patch
+0555-k60-fb-text-console.patch
+
+# 0557 removes the print in initialize_screen() that runs before v_rows exists
+# (xNekom c3c89df: it scrolls past the framebuffer and hangs) and prints the
+# same geometry right after gc_initialize().  With the trap gone the kprintf
+# flag is safe again, which is why board.toml carries it.
+0557-k60-fb-print-after-rows.patch
+
+# 0558 — uke's vcattach() text-console hook, verbatim.
+# In graphics boot gc_graphics_boot is TRUE and stock vcattach() never replays
+# msgbuf, so the panel shows colour blocks but no text. uke proves the hook:
+# uke/patches/xnu/zzzzzz-video-console-text.patch:5-15, uke/docs/PROGRESS.md:229.
+
+0558-k60-fb-vcattach-text-console.patch
+
+# 0559 — uke-deferred-video-kprintf.patch, verbatim (applies as-is).
+# The framebuffer sink must not draw while kprintf masks IRQs; with
+# -ukedeferredconsole early messages are queued instead of dropped
+# (uke/board.toml:257-261, uke/docs/PROGRESS.md:1397).
+
+0559-k60-deferred-video-kprintf.patch
+
+# 0560 — uke zzzzzzz-last-panic-print.patch, adapted: the pe_init.c hunks are
+# verbatim; the video_console.c call sits inside our 0558 -uketextconsole hook
+# (uke puts it in its own hook, which our 0558 now is). Prints the previous
+# boot's embedded panic log once the framebuffer console is up.
+# Needs [adt.chosen.u32] embedded-panic-log-size + [adt.pram.bytes] to be real.
+
+0560-k60-last-panic-print.patch
+
+# 4 KiB pages: the kernel stack must be aligned and masked for 4 KiB, not 16 KiB
+# copied verbatim from community/uke/patches/xnu-12377/native-4k-stack-shift.patch
+0561-k60-4k-stack-shift.patch
+
+# Darwin 26 posix_spawnattr sits in a 0x100-byte record; copy it field by field
+# copied verbatim from community/uke/patches/xnu-12377/darwin26-posix-spawn-attrs.patch
+0562-k60-darwin26-posix-spawn-attrs.patch
+
+# applies unchanged to xnu-12377 and states the invariant explicitly.
+
+# 27 bring-up bundle from sheng, part 1: the 27 of 35 file sections that
+# apply to xnu-12377 unchanged (pmap geometry/T0SZ, sigp recovery, bindfs,
+# OSSymbol family, iokit_rpc kobject grant, vm_dyld_pager, bootargs).
+# The remaining 8 sections are cut separately as 0565.
+0564-k60-sheng-27-bringup-part1.patch
+
+# 4 KiB T0SZ split: the PAC poison-bit mask must use the user TCR size, not
+# the boot one, once T0SZ_USER differs from T0SZ_BOOT (sheng section, re-cut
+# against xnu-12377 where the anchor sits one line later).
+0565-k60-sleh-pac-mask-user-t0sz.patch
+
+# 4 KiB pmap: T0SZ_USER plumbing and the user-TCR switch (9 of the 10 sheng hunks;
+# the tail hunk at pmap_pending_preemption is still to be re-cut)
+0566-k60-pmap-4k-user-tcr.patch
+
+# 4 KiB pmap: apply the user TCR before the first translation is used
+0567-k60-arm-vm-init-user-tcr.patch
+
+# 0564 carries the iokit_rpc kobject filter, which calls
+# native_adreno_connect_granted(); this file supplies that definition in bsd/dev
+# so the symbol exists at link time (sheng keeps it in IOUserClient.cpp).
+0571-k60-adreno-connect-grant.patch
+
+# Zizhan (SM8475) bounds qsort recursion so a hostile comparator cannot
+# exhaust the 4 KiB kernel stack; the patch applies to xnu-12377 unchanged.
+# Source: UniXNU-zizhan 034a0b0 patches/xnu-ipados18/0003-qsort-bounded-recursion.patch
+0572-k60-qsort-bounded-recursion.patch
+
+# Ported from our own iOS 16 series: the 16-line pmap sync used ptoa(pp); the 27 base still shifts by PAGE_SHIFT.
+# Source: patches/xnu/zzx-pmap-sync-64bit-pa.patch
+# DUPLICATE, not applied twice: 0573-k60-pmap-sync-64bit-pa.patch (already in the assembled tree; see PRECEDENT-PARITY)
+
+# Ported from our own iOS 16 series: the 16-line 4 KiB bootstrap capacity (16 pages per 5 GiB) is absent from the 27 base.
+# Source: patches/xnu/native-4k-bootstrap-capacity.patch
+# DUPLICATE, not applied twice: 0574-k60-4k-bootstrap-capacity.patch (already in the assembled tree; see PRECEDENT-PARITY)
+
+# sheng c8f92b2: release the dyld pager source after the last reference,
+# so a spliced root does not pin the source vnode; applies on top of 0564.
+0575-k60-vmwait-dyld-pager-source-release.patch
+
+# iOS27: AMFI registers more than once during early boot on this board; keep the
+# first interface instead of panicking (ios16 0310, applies unmodified).
+0576-k60-amfi-keep-first.patch
+0577-k60-video-console-27.patch
+
+# 0577 is intentionally 463 B: 0543 already installs the stock text console at the
+# same call site, so only video_console.c WC path was missing. Kept as a separate
+# patch because it is a different file and a different decision from 0543.
+0580-k60-pong-interrupt-map.patch

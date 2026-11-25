@@ -1,6 +1,6 @@
 # DOCS-DEVICES-A-M — `docs/devices/` A–M 全量阅读纪要
 
-> 阅读对象：`E:/hackios/UniXNU/docs/devices/`，基线 `main` HEAD `75ae626a12764c706fc0b94c52a3eea09447dbaa`（2026-11-07 快照）。
+> 阅读对象：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/devices/`，基线 `main` HEAD `75ae626a12764c706fc0b94c52a3eea09447dbaa`（2026-11-07 快照）。
 > 规模：文件名首字母 A–M 的 `.md` 共 **121 篇**（A 10 / B 2 / C 14 / D 10 / E 13 / F 17 / G 9 / H 8 / I 6 / J 2 / K 3 / L 11 / M 16），合计 2,130,447 字节；不含 `mondrian*`（另有专人）与 `pong*`。
 > 方法：`find docs/devices -name '*.md' | sort` 后按 basename 首字母过滤，逐文件从第 1 行读到 EOF；生成页按 `| Area | Status |` 表提取域状态，非生成页读 `## State` 或 Record-pending 错误行；最后用文件清单反向校验 121/121，无漏篇。
 > 状态口径：`DV`=device-verified，`IM`=implemented，`HV`=host-verified，`PL`=planned，`NA`=not-applicable。`S/D/G/I/N/A/P` 分别代表 **Storage/Display/GPU/Input/Network/Audio/Power** 七个重点域；其余域（Cfg/Boot/CPU/Mem/Pack/Diag）只在有差异时补注。

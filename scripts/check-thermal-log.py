@@ -324,7 +324,7 @@ def main():
             print("FAILED: no such log: %s" % path)
             return 2
     else:
-        root = document.get("log", {}).get("evidence_root", "/mnt/e/k60-work/evidence")
+        root = document.get("log", {}).get("evidence_root", "/mnt/e/iOS Port/Work/evidence")
         path = newest_log(root)
         if path is None:
             print("FAILED: no usblog-*/console.log over 4 KB under %s" % root)

@@ -1,0 +1,17 @@
+Subject: [SYNTHETIC FIXTURE] the v2 layout asserts, as the draft would carry them
+
+This is a fixture, not a real draft: it exists so the post-flip gate can be
+exercised while no series names the real patch yet.
+
+--- a/drivers/PongAdreno/PongScanoutWire.h
++++ b/drivers/PongAdreno/PongScanoutWire.h
+@@ -14,3 +14,7 @@
++static_assert(sizeof(PongScanoutFrame)==56,"v2 frame");
++static_assert(offsetof(PongScanoutFrame,token)==44,"v2 token sits where reserved was");
++static_assert(offsetof(PongScanoutFrame,evict)==48,"v2 evict");
++static_assert(offsetof(PongScanoutFrame,target)==52,"v2 target");
+--- a/drivers/PongMetal/PongMetalScanout.h
++++ b/drivers/PongMetal/PongMetalScanout.h
+@@ -31,2 +31,4 @@
++static_assert(sizeof(PongScanoutFrame)==56,"presenter: v2 reply is 56 bytes");
++static_assert(offsetof(PongScanoutFrame,target)==52,"presenter: v2 target offset");

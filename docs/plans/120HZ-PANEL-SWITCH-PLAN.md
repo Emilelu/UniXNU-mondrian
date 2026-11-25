@@ -113,7 +113,7 @@ count and byte length.
   `ff44c7a8e225d18a423e0ff22c96bf2235fd360fe34ad26d0a6a568897fa0b42`
 - `kernel_built` 105,521,152 B, SHA-256
   `5e39e26c042c257aa5e14b00444876543f7323b6c650e3506032a58124ed27bc`
-- manifest `E:/k60-work/artifacts/120hz-1/build-manifest.json`;
+- manifest `E:/iOS Port/Work/artifacts/120hz-1/build-manifest.json`;
   `kernel_args_requested=["p120=1"]`; `image-arg-audit: OK (30 arguments, 582 bytes)`;
   `verify-boot-image: OK`.
 
@@ -124,7 +124,7 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg p120=1`:
   `bbe05b601762152a4ba16942e099f9bc818c00c8f970b0dab803c9ef87bf6cd7`
 - `kernel_built` 105,521,152 B, SHA-256
   `a4547e223f3f65405a3db326e249e445de3de4894bb5a9cd839b8ddc7fcd3c8a`
-- manifest `E:/k60-work/artifacts/120hz-2/build-manifest.json`;
+- manifest `E:/iOS Port/Work/artifacts/120hz-2/build-manifest.json`;
   `kernel_args_requested=["p120=1"]`; `image-arg-audit: OK (30 arguments, 582 bytes)`;
   `verify-boot-image: OK`; `check-panel-timing: ok`.
 
@@ -136,7 +136,7 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and `--kernel-arg vsync=120`
   `7c6f69edf120b5c176b06003beda39740cb036183de6582bd7653451a91a6f40`
 - `kernel_built` 105,525,248 B, SHA-256
   `10dfed8ae736aa45ab13ffdccf4eda3d75bc9ae692298916f6772d170d4d6a45`
-- manifest `E:/k60-work/artifacts/120hz-3/build-manifest.json`;
+- manifest `E:/iOS Port/Work/artifacts/120hz-3/build-manifest.json`;
   `kernel_args_requested=["vsync=120"]`; `image-arg-audit: OK (30 arguments, 585 bytes)`;
   `verify-boot-image: OK`; `check-panel-timing: ok`.
 
@@ -149,7 +149,7 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and
   `54784067b2a2449a1457760d08fa48f8cc7137f9e51cbc7b4367ce5457ea0c86`
 - `kernel_built` 105,525,248 B, SHA-256
   `f0d54b8be5dde5a169b1576c7a6edb01e1aba544cf0be6e98f9efd996522a7a4`
-- manifest `E:/k60-work/artifacts/120hz-4/build-manifest.json`;
+- manifest `E:/iOS Port/Work/artifacts/120hz-4/build-manifest.json`;
   `kernel_args_requested=["p120=1","k60_backlight_control=1"]`;
   `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
   `check-panel-timing: ok`.
@@ -163,7 +163,7 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and
   `093150fbb0ad3826ecb42a244837d7cf35ad8c44cba4d6afd0b6b1a1cea83912`
 - `kernel_built` 105,525,248 B, SHA-256
   `8344d340b3c292c10eec120e2257d81a058023cc6fdbf389f42f729f019eb319`
-- manifest `E:/k60-work/artifacts/120hz-5/build-manifest.json`;
+- manifest `E:/iOS Port/Work/artifacts/120hz-5/build-manifest.json`;
   `kernel_args_requested=["p120=1","k60_backlight_control=1"]`;
   `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
   `check-panel-timing: ok`.
@@ -177,7 +177,7 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and
   `d895c2a3941d5edb1fee21052ffd196a46e8fd26fe7cc9d9ee36bbcaaff614d2`
 - `kernel_built` 105,525,248 B, SHA-256
   `9bc7ea8a23441a269b638a5426a1606257e4b653274f73b88da82b5f06711bfb`
-- manifest `E:/k60-work/artifacts/120hz-6/build-manifest.json`;
+- manifest `E:/iOS Port/Work/artifacts/120hz-6/build-manifest.json`;
   `kernel_args_requested=["p120=1","k60_backlight_control=1"]`;
   `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
   `check-panel-timing: ok`.
@@ -191,19 +191,19 @@ tree), with `K60_EIGHT_STEP_ITEMS=display` and
   `d8fdc695c311d5b2e99d06402cc5ef6196bb8999c193b0eb415c0bb7b758bb4c`
 - `kernel_built` 105,525,248 B, SHA-256
   `ba1d5979cdc5303d932977b5d5dc97ef199d66cf7ddf979a42bd92ff1c39c7ab`
-- manifest `E:/k60-work/artifacts/120hz-7/build-manifest.json`;
+- manifest `E:/iOS Port/Work/artifacts/120hz-7/build-manifest.json`;
   `kernel_args_requested=["p120=1","k60_backlight_control=1"]`;
   `image-arg-audit: OK (31 arguments, 606 bytes)`; `verify-boot-image: OK`;
   `check-panel-timing: ok`.
 
 ## Flight records
 
-`120hz-4` (`E:/k60-work/evidence/usblog-20261118-010106`) reached the
+`120hz-4` (`E:/iOS Port/Work/evidence/usblog-20261118-010106`) reached the
 first-GPU-frame switch, eleven packets rc 0, first frame and backlight
 `conformance=1 control=1`; its after-UI `te 55->1` was a uint16 wrap of the
 0x298 read-pointer count (130,964/s), not a panel rate, so it was rejected.
 
-`120hz-5` (`E:/k60-work/evidence/usblog-20261118-013515`) also reached the
+`120hz-5` (`E:/iOS Port/Work/evidence/usblog-20261118-013515`) also reached the
 switch, eleven packets rc 0, first frame, SpringBoard 132, sig=11 0 and
 backlight `conformance=1 control=1`. Its `INTF1 ... count_enable 0` lines show
 the 0xa8 frame/line counter was never enabled, and the line counter read
@@ -211,7 +211,7 @@ the 0xa8 frame/line counter was never enabled, and the line counter read
 `check-120hz-log.py` FAILs. 120hz-6 enables the active INTF counter and prints
 the CTL/INTF state before measuring.
 
-`120hz-6` (`E:/k60-work/evidence/usblog-20261118-092134`, console.log 248,985 B)
+`120hz-6` (`E:/iOS Port/Work/evidence/usblog-20261118-092134`, console.log 248,985 B)
 reached the first-GPU-frame switch, eleven packets rc 0, first frame and
 backlight `conformance=1 control=1`, SpringBoard 129 and sig=11 0. The line
 counter now advanced: `after the switch` wraps 60 over 500 ms (120/s) and
@@ -221,7 +221,7 @@ divider was still in place. `check-120hz-log.py` therefore FAILed only on the
 before 0/s and after-UI 131/s fields; 120hz-7 averages the wrap rate and sets
 the autorefresh divider before the before sample.
 
-`120hz-7` (`E:/k60-work/evidence/usblog-20261118-094621`, console.log 267,578 B,
+`120hz-7` (`E:/iOS Port/Work/evidence/usblog-20261118-094621`, console.log 267,578 B,
 sha256 `BD5C893E44C7ACEC5FDD748D31BEC7673E0B1037D9625614414A8E281A603CC9`)
 passed `check-120hz-log.py`: first-GPU-frame switch, eleven packets rc 0,
 before-switch `te 55/s`, after-switch `te 120/s`, after-UI `te 120/s`, first
@@ -270,7 +270,7 @@ built SHA-256.
 ## Flight procedure
 
 1. Build with the display input/output trees:
-   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-7 --kernel-arg p120=1 --kernel-arg k60_backlight_control=1 --fd /mnt/e/k60-work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
+   `K60_DEVICE_INPUT=/opt/k60/trees/display-device K60_OUT=/opt/k60/trees/display-out scripts/build-strict.sh 120hz-7 --kernel-arg p120=1 --kernel-arg k60_backlight_control=1 --fd /mnt/e/iOS Port/Work/artifacts/fd/battery-20261114h-cf4485712c29.fd`.
 2. Verify `boot.img` with `scripts/verify-boot-image.py --manifest` and
    `scripts/check-image-args.py --image ... --board board.toml`.
 3. Only `fastboot boot`; never `fastboot flash`. Collect a 300 s USB log and

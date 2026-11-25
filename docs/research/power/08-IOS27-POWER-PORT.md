@@ -1,7 +1,7 @@
 # iOS 27 电源移植清单（版本无关部分）
 
 状态：**iOS16 平台睡眠暂停在“完整恢复未过”；本文件把可跨版本复用的电源策略、硬件事实、测试与移植顺序固定下来，iOS27 上按此重做，不逐行回放 8796 的 XNU 补丁。** 目标树为
-`E:/hackios/xnekom-ios27`（`feat/ios27`），目标内核 XNU 12377.121.6 / Darwin 26，4 KiB 页、arm64e；板级仍是 K60（mondrian，SM8475），只是在构建/预链接层以 iPhone 16 Pro Max（iPhone17,2 / D94AP）的 iOS 27.0.1 24A446 档位作为身份与 fixture。
+`E:/iOS Port/Sources/Repos/UEFI/xnekom-ios27`（`feat/ios27`），目标内核 XNU 12377.121.6 / Darwin 26，4 KiB 页、arm64e；板级仍是 K60（mondrian，SM8475），只是在构建/预链接层以 iPhone 16 Pro Max（iPhone17,2 / D94AP）的 iOS 27.0.1 24A446 档位作为身份与 fixture。
 
 ## 1. 为什么现在切换
 
@@ -24,7 +24,7 @@
 | `K60RailPlan`（稳压器→互连→频率→回读、温控门、回滚） | `drivers/PongPower/K60RailPlan.c`，host 134 项（conformance 套件，含回滚） | **直接复用**；接真实 regulator/interconnect 消费者前保持纯规划 |
 | `test-k60-power-conformance.c` + `run-k60-power-host.sh` | 七套件 1686 项 | **直接复用**；作为 iOS27 的第一道门 |
 | mode-1 只读 A 判据 | `scripts/judge-k60-mode1-console.py`，14 cases；检查 capture、late read 三域 enable、L3 15 行、无写行与 SpringBoard | **直接复用**；iOS27 改 header/寄存器名后重跑 |
-| 只读 A 的现成镜像（iOS16） | image w11 离线构建于 2026-11-19 21:55，未上机：`E:/k60-work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B sha256 `6db4e6b7…`，kernel `069e7075…`，参数 30 项 601 B（`k60_cpufreq=1`，无 `applog=1`） | 等 slot 即可飞 A；iOS27 用同一判据重判 |
+| 只读 A 的现成镜像（iOS16） | image w11 离线构建于 2026-11-19 21:55，未上机：`E:/iOS Port/Work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B sha256 `6db4e6b7…`，kernel `069e7075…`，参数 30 项 601 B（`k60_cpufreq=1`，无 `applog=1`） | 等 slot 即可飞 A；iOS27 用同一判据重判 |
 | 现场事实：EPSS 三窗口 0x17d91000/2000/3000、L3 0x17d90000、4/3/1 核域 | `docs/research/power/01-EPSS-PROBE.md` | 复用；用 iOS27 的 ADT/FDT 复核地址与域映射 |
 | 现场事实：GPU 13 档 900–220 MHz、HFI 升序、GMU XO 19.2 MHz | `docs/research/power/04-GPU-FREQUENCY.md` | 复用；HFI 版本/命令号按 iOS27 固件复核 |
 | 现场事实：PMK8350 PON 0x13 IRQ 7 → SPI 481/INTID 513；TLMM 0x0f000000、汇总 SPI 208 | `docs/research/power/02-PLATFORM-SLEEP.md` §3 | 复用地址；PON 路由仍需驱动配置 |
@@ -36,7 +36,7 @@
 ## 3. iOS27 参考实现
 
 - 官方组件：`UniXNU/ArmCpu`（catalog 路径 `drivers/ArmCpu`，当前 HEAD `73c2360` 已有 `ArmCpuSleep.h` 与 platform sleep；catalog 记录的 `93a5030` 早于该功能，取 HEAD 并记录 revision）。
-- sheng 的 12377 补丁：`E:/hackios/UniXNU-sheng` 分支 `feat/platform-sleep-wake`，commit `927a458`，
+- sheng 的 12377 补丁：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng` 分支 `feat/platform-sleep-wake`，commit `927a458`，
   `patches/xnu-12377/sheng-platform-sleep.patch`（99 行）。它做四件事：
   1. 在 `osfmk/arm64/cpu.c` 声明并调用 `arm64_platform_sleep_hook`；
   2. 启动核 `arm64_platform_sleep_hook(TRUE); arm_init_cpu(cpu_data_ptr, 0);`（12377 的 `arm_init_cpu` 是**两个参数**）；
@@ -73,7 +73,7 @@
 - **secondary 状态**：w9 的 `Spurious wakeup of cpu 1` 是 secondary 在 CPU_OFF 前没有置 Stopped；w10 置了 Stopped 仍在 `processor_start` 处硬挂，说明状态位不是充分条件。iOS27 先读 catalog ArmCpu 的 `haltCPU` 实现，按它的 `processor_exit`/`processor_sleep` 语义接。
 - **启动核 haltCPU**：iOS16 的 `IOCPUSleepKernel` 对每个 target 都调 `haltCPU`，包括启动核；我们的旧实现因此在启动核上进了 `ml_arm_sleep` 并等待其他核。iOS27 要确认 12377 的调用点，不能假设 8796 的行为。
 - **EPSS `DCVS_CTRL` 是固件所有**：sheng 最新 `origin/main c8f92b2` 的 `package/CpuFreqProbe.cpp:132-142` 从不写 `0xb0`，只在 bit0 已为 1 时写每核 `perf_state +4×i` 行。我们的 mode 9 主动置 bit0，image t/u 都未枚举串口；iOS27 的 governor 必须只读 bit0、绝不置/清它；PDMEM perf-lock 投票（`0x17d09804/8/c`）是我们的新假设，尚未上机，若仍无效才接受 d1/d2 由 EPSS 独占。
-- **catalog ArmCpu 的 haltCPU 只写状态**：`E:/hackios/ArmCpu/ArmCpu.cpp:1227-1233` 的注释说明它等 `processor_sleep()` 从目标核自己的上下文把核带下去（`cpu_sleep → quiesceCPU`），`haltCPU()` 只 `setCPUState(kIOCPUStateStopped)`。8796 的 generic `IOCPUSleepKernel` 没有 `processor_sleep`，只有 `haltCPU`；我们把 `haltCPU` 改成 `processor_exit_reason` 来补偿，w9 的 Spurious wakeup 和 w10 的 `processor_start` 硬挂就是这条错配。iOS27 先确认 12377 是否有 `processor_sleep`；没有就按 sheng 补丁/AppleARMSMP 的调用点改，不要只改 `haltCPU`。
+- **catalog ArmCpu 的 haltCPU 只写状态**：`E:/iOS Port/Sources/Repos/Kernel/ArmCpu/ArmCpu.cpp:1227-1233` 的注释说明它等 `processor_sleep()` 从目标核自己的上下文把核带下去（`cpu_sleep → quiesceCPU`），`haltCPU()` 只 `setCPUState(kIOCPUStateStopped)`。8796 的 generic `IOCPUSleepKernel` 没有 `processor_sleep`，只有 `haltCPU`；我们把 `haltCPU` 改成 `processor_exit_reason` 来补偿，w9 的 Spurious wakeup 和 w10 的 `processor_start` 硬挂就是这条错配。iOS27 先确认 12377 是否有 `processor_sleep`；没有就按 sheng 补丁/AppleARMSMP 的调用点改，不要只改 `haltCPU`。
 - **两个参数**：12377 的 `arm_init_cpu(cpu_data_ptr, 0)` 与 8796 的一个参数不同；补丁重放时按 12377 签名。
 - **4 KiB**：策略模块不关心页大小，但 ADSP/GPU/共享内存的缓冲区、DMA 与 prelink 都按 4 KiB 重算；不要把 16 KiB 的常量带过去。
 - **iPhone17,2 是身份**：它只提供 iOS27 profile/kernelcache/prelink fixture（cupid 已用它到 bsd_init），不是把系统移植到 iPhone 16 Pro Max 硬件；K60 的 UFS/显示/触摸/PMIC 仍按本板事实。
@@ -81,11 +81,11 @@
 
 ## 7. 证据
 
-- iOS16 w9：`E:/k60-work/evidence/power-conformance-sleep-w9-20261119-1311`（boot.img `0fc5a223…`、kernel `d87590f6…`、payload `2800c16a…`）。
-- iOS16 w10：`E:/k60-work/evidence/power-conformance-sleep-w10-20261119-1328`（boot.img `4399eea5…`、kernel `20a0aac9…`、payload `0e686049…`；console 有 resumed/report，无 wake cpus done）。
-- iOS16 默认启动：`E:/k60-work/evidence/power-conformance-sleep-z-20261119-1013`（image z，SpringBoard）。
-- iOS27 目标事实：`E:/hackios/xnekom-ios27/docs/engineering/IOS27.md`。
-- sheng 12377 补丁：`E:/hackios/UniXNU-sheng` `feat/platform-sleep-wake` `927a458`。
+- iOS16 w9：`E:/iOS Port/Work/evidence/power-conformance-sleep-w9-20261119-1311`（boot.img `0fc5a223…`、kernel `d87590f6…`、payload `2800c16a…`）。
+- iOS16 w10：`E:/iOS Port/Work/evidence/power-conformance-sleep-w10-20261119-1328`（boot.img `4399eea5…`、kernel `20a0aac9…`、payload `0e686049…`；console 有 resumed/report，无 wake cpus done）。
+- iOS16 默认启动：`E:/iOS Port/Work/evidence/power-conformance-sleep-z-20261119-1013`（image z，SpringBoard）。
+- iOS27 目标事实：`E:/iOS Port/Sources/Repos/UEFI/xnekom-ios27/docs/engineering/IOS27.md`。
+- sheng 12377 补丁：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng` `feat/platform-sleep-wake` `927a458`。
 
 ## 8. 边界
 

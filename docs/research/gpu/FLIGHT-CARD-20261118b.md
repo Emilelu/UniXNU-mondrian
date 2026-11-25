@@ -11,13 +11,13 @@
 | 编号 | 证据 | 位置 |
 |---|---|---|
 | P1 | 恢复的正确策略文件（5,838 B，只校验 `value>1`，不校验 once 词法） | `8aec0f65` |
-| P2 | 插件 bundle `metal-plugin-20261118b`，`PongAdrenoMetal` 94,896 B sha `546a8caf…` | Mac → `E:/k60-work/impl/gpu-mac-build/out/metal-plugin-20261118b` |
+| P2 | 插件 bundle `metal-plugin-20261118b`，`PongAdrenoMetal` 94,896 B sha `546a8caf…` | Mac → `E:/iOS Port/Work/impl/gpu-mac-build/out/metal-plugin-20261118b` |
 | P3 | 除该头文件外与上一飞完全相同（同一 bridge dylib `3ee9e5c8…`、同一内核 series） | `git diff 324d6c81..8aec0f65 -- drivers/PongMetal` |
-| P4 | `image-arg-audit: OK`、`verify-boot-image: OK` | `E:/k60-work/artifacts/gpu-policy-20261118/` |
+| P4 | `image-arg-audit: OK`、`verify-boot-image: OK` | `E:/iOS Port/Work/artifacts/gpu-policy-20261118/` |
 
 ## 3. 抓取
 
-`bash scripts/flash.sh /mnt/e/k60-work/artifacts/gpu-policy-20261118/boot.img 240`
+`bash scripts/flash.sh /mnt/e/iOS Port/Work/artifacts/gpu-policy-20261118/boot.img 240`
 
 ## 4. 判据
 
@@ -46,6 +46,6 @@
 | S5 bbcrash=0 | ✅ 0 |
 
 其余：`real device returned to stock20G81 discovery`（:1423）、`real GPU scanout worker ready`（:1433）、
-`SpringBoard` 3、`K60KEXC` 0。证据 `E:/k60-work/evidence/usblog-20261118-011543`。
+`SpringBoard` 3、`K60KEXC` 0。证据 `E:/iOS Port/Work/evidence/usblog-20261118-011543`。
 => QuartzCore 策略回归确认修好（S2 从 `-6` 变 0）；`p0` 仍未解决，按 F4 转到 backboardd 的
 drawable/CA 事务路径，见 `docs/research/gpu/FIRST-FRAME-GAP.md`。

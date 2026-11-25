@@ -8,7 +8,7 @@
 # (checkout -- <path>, checkout -f, restore, reset --hard, clean -fd, stash):
 #
 #   1. Always: take a complete snapshot first, so "undo" exists
-#      (scripts/snapshot-worktree.py -> E:/k60-work/scratch/snapshots).
+#      (scripts/snapshot-worktree.py -> E:/iOS Port/Work/scratch/snapshots).
 #   2. Unless K60_I_OWN_THIS_TREE=1: refuse outright in a tree that belongs to
 #      somebody else (docs/engineering/TREE-OWNERS.toml, iron rule 11).
 #

@@ -1,12 +1,12 @@
 # Pong 官方设备页精读：逐域实现方案（Nothing Phone 2 / SM8475）
 
-> 范围：只读精读 `E:/hackios/UniXNU/docs/devices/` 下全部 `pong*.md` 设备页及 `index.md` 的 pong 行；只产出本文件，不改任何代码。
+> 范围：只读精读 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/devices/` 下全部 `pong*.md` 设备页及 `index.md` 的 pong 行；只产出本文件，不改任何代码。
 >
 > 参照树：`Chengdong-Yu/UniXNU-pong`，commit `e0ee6df109b4b5dc706cac660d4f8210dc911dac`（iPadOS 18.7.10 / 22H374 / Darwin 24）。
 >
 > 目标对照：`mondrian`（Redmi K60，SM8475，iPadOS 16.6.1 / 20G81 / Darwin 22）。pong 的硬件事实与组件拆分可借用，22H374 的 ABI/偏移不可照抄。
 >
-> 证据标签：`PAGE` = 设备页原文；`TOML` = 同 commit 的 `porting.toml`；`CFG` = `configs/pong-*-sm8475.json`；`REPO` = 本地 `E:/hackios/UniXNU-pong`；`未核实` = 页面没有给出。
+> 证据标签：`PAGE` = 设备页原文；`TOML` = 同 commit 的 `porting.toml`；`CFG` = `configs/pong-*-sm8475.json`；`REPO` = 本地 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong`；`未核实` = 页面没有给出。
 
 ## 0. 一页结论
 

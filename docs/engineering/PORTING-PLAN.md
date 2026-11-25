@@ -60,12 +60,12 @@ ABL → fastboot boot boot.img
 
 ## 5. 关键路径与产物
 
-- 构建工作树：`E:/hackios/k60-gates`（本仓库的构建/门禁副本）。
+- 构建工作树：`E:/iOS Port/Sources/Hardware/k60-gates`（本仓库的构建/门禁副本）。
 - 构建输入镜像：`/opt/k60/trees/gates-device`（由 `scripts/sync-device-input.py` 同步）。
 - 输出：`/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/`
   （`kernel/kernel.macho`、`payload/payload.img`、`boot/boot.img`）。
-- 证据：`E:/k60-work/evidence/usblog-*`（console.log + capture.json + boot.json）。
-- 镜像归档：`E:/k60-work/artifacts/`。
+- 证据：`E:/iOS Port/Work/evidence/usblog-*`（console.log + capture.json + boot.json）。
+- 镜像归档：`E:/iOS Port/Work/artifacts/`。
 
 ## 6. 风险与回退
 

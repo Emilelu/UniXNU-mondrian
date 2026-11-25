@@ -1,0 +1,50 @@
+diff --git a/bsd/dev/k60_usblog_reset.c b/bsd/dev/k60_usblog_reset.c
+new file mode 100644
+index 0000000..83d0302
+--- /dev/null
++++ b/bsd/dev/k60_usblog_reset.c
+@@ -0,0 +1,44 @@
++/*
++ * Reset the board from kernel context, for the automatic-return path.
++ *
++ * Ported from the 16-series patch 0308, minus its reason recorder (decision A,
++ * 2026-11-22): that recorder writes the SPMI observer and channel and an IMEM slot
++ * before resetting, which the 27 stage cannot observe and which HR-01 does not allow
++ * before Data is mounted. The reset itself never needed it.
++ *
++ * A bare PSCI SYSTEM_RESET can simply return -- that is what left this board sitting
++ * at the panic screen -- so the call is followed by HVC and only gives up after both.
++ */
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <pexpert/pexpert.h>
++
++#define K60_PSCI_SYSTEM_RESET 0x84000009ULL
++
++static volatile unsigned k60_reset_reason;
++
++void
++k60_prime_restart(int reason)
++{
++	k60_reset_reason = (unsigned)reason;
++}
++
++unsigned
++k60_restart_reason(void)
++{
++	return k60_reset_reason;
++}
++
++void
++k60_usblog_reset_to_fastboot(void)
++{
++	register uint64_t x0 __asm__("x0") = K60_PSCI_SYSTEM_RESET;
++
++	kprintf("k60-reset: restarting via PSCI SYSTEM_RESET (reason %u)\n",
++	    k60_restart_reason());
++
++	__asm__ volatile("smc #0" : "+r"(x0) : : "memory");
++	__asm__ volatile("hvc #0" : "+r"(x0) : : "memory");
++
++	kprintf("k60-reset: SYSTEM_RESET and HVC both returned; staying put\n");
++}

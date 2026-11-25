@@ -1,6 +1,6 @@
 # backboardd 崩溃家族总表（A / B / C）
 
-状态：离线分析已有上机记录；本轮未操作设备。更新 2026-11-16。仓库 E:/hackios/k60-display，分支 feat/display。
+状态：离线分析已有上机记录；本轮未操作设备。更新 2026-11-16。仓库 E:/iOS Port/Sources/Hardware/k60-display，分支 feat/display。
 本轮只纠正文档证据边界与判读已有 d8，不修改硬件验证状态。§8 为最新回归记录，旧计数口径保留并注明。
 本文件响应 Lead 2026-11-15 立项要求：把 backboardd 的崩溃按指纹分成家族，每族给出触发条件、
 日志指纹（精确到格式串）、能否归因到我们的兼容钩子、以及「只用现有日志就能判」的判据。
@@ -41,7 +41,7 @@ getBytes 0 / SpringBoard 128 / first frame 1 ⇒ 「h2 是前置」的因果链�
 
 状态（2026-11-16 02:50 更新，dyld 缓存不再需要设备）：§5 从「缺口」改写为「已取到」——
 20G81 的 dyld shared cache 就在本地 IPSW 的 SystemOS cryptex（`096-56782-083.dmg`）里，
-用 `scripts/dyld-cache-index.py` carve 出 2620 个 image 的索引（`E:/k60-work/caches/20G81/dyld-index-20G81.json`），
+用 `scripts/dyld-cache-index.py` carve 出 2620 个 image 的索引（`E:/iOS Port/Work/caches/20G81/dyld-index-20G81.json`），
 slide 直接取日志里我们自己打的 `K60SR… slide=0x…` 行。§5.1 给出已经解出的 C 族与 A 族两条栈：
 保留这次 image-level 输出：C 族候选帧含 IOMobileFramebuffer + QuartzCore + libdispatch，A 族候选帧含
 Foundation + libxpc。**18:06 证据边界更正**：这只是给定 slide 后的映射，不足以点名属性读取者、证明 Metal
@@ -56,7 +56,7 @@ backlight-control）仍是正确终局，不是妥协。
 
 - 指纹：`NSInvalidArgumentException`，reason 含 `-[NSURL initFileURLWithPath:isDirectory:]: nil string parameter`
   （有的日志在 `-[NSURL` 前另有 `*** `）；SIGABRT 必须另有同一 PID 的 `sig=6` 退出记录支持。
-- 历史子案例：gpu-20261114t（证据 E:/k60-work/evidence/usblog-20261114-235957）曾由 Lead
+- 历史子案例：gpu-20261114t（证据 E:/iOS Port/Work/evidence/usblog-20261114-235957）曾由 Lead
   2026-11-15 归为 P-120，与 int-236 分开。该历史解释涉及 `pong_metal=1` 与
   `userland/build.py:516` 的 PongAdrenoMetal 注入；**同文本或同一 boot-arg 不是独立因果证明**。
 - 当前边界：软件渲染配置 `pong_metal=2` 的 d8 也有同指纹（§8），明确异常对象为 `syncdefaultsd`；
@@ -78,7 +78,7 @@ backlight-control）仍是正确终局，不是妥协。
 
 ### 3.1 现场
 
-- 证据：E:/k60-work/evidence/usblog-20261115-162553/console.log（3535 行）。
+- 证据：E:/iOS Port/Work/evidence/usblog-20261115-162553/console.log（3535 行）。
 - 镜像身份（manifest）：series **229**、kernel_args_requested=['k60bt=1']、repo feat/bt-research head 5190337be6；boot.img sha256 dbf089c0ac0f5325f3661ae8e0d22e0d1b70fced1141234cb2c677b3b3a98d03。
 - 崩溃节奏：entered backboardd 共 **19** 行（:1258,1331,1843,2081,2221,2359,2452,2532,2689,2752,2851,2974,3032,3103,3240,3287,3368,3438,3519）＝19 个 backboardd 化身**全灭**；~10.2 秒一次（04:32:41.482 → 04:35:38.112）；每次崩在 Pong UI 钩子装好约 1 秒后（pid 55：:1258 进入、:1260-1271 六个钩子 installed、:1303 崩）；线程号递增（376/749/1423/2168/2426/…）。KX! 只打第一次尸体（:1308 KX! 6 55 backboardd exit=0 sig=6 r=1 ns=2 code=0x6；:1310 KXPC pc=0x1d56f1198 lr=0x1e4bad5f8 sp=0x16ecfd350；:1311 KXP 55 /usr/libexec/backboardd），后续化身只留 Process[N] crashed 行（全日志 46 行）。
 - 指纹行（:1303 / :1304，精确格式）：
@@ -145,11 +145,11 @@ BT 驱动/固件装载），所以注册表增量就是 0509。
 
 ### 3.5 C 族判定表（可机判；P-204 形状）
 
-基线日志 `E:/k60-work/evidence/usblog-20261115-162553/console.log`（3535 行，19 个 backboardd 化身全灭）。
+基线日志 `E:/iOS Port/Work/evidence/usblog-20261115-162553/console.log`（3535 行，19 个 backboardd 化身全灭）。
 下面每条都写明「哪一行日志、用什么命令数出来」，修复图落地后照表判即可。
 
 基线对照（Lead 2026-11-15 23:15 提供，本线复核字节数与命中数）：四张已飞的 bt 二分图**都不带** ad49ff2，
-只能当基线——h1 `E:/k60-work/evidence/usblog-20261115-211515/console.log`（245,272 B）、h3 `usblog-20261115-212105`（232,888 B）、
+只能当基线——h1 `E:/iOS Port/Work/evidence/usblog-20261115-211515/console.log`（245,272 B）、h3 `usblog-20261115-212105`（232,888 B）、
 h13 `usblog-20261115-212643`（237,533 B），三张 `getBytes:range:` 各 **36** 次；负向 s4c 37 次。
 非 bt 的两张对照 adsp-c `usblog-20261115-213413`（214,232 B）与 adsp-e `usblog-20261115-223916`（220,234 B）都是 **0** 次——
 崩溃只在 bt 的 0509 身份发布链上出现，与内核版式无关（进一步支持 §3.3 归因）。判定仍以 §3.5 命令 A 的五数为准。
@@ -181,7 +181,7 @@ grep 'unrecognized selector' $L | sed -E 's/.*-\[([^ ]+) ([^]]+)\].*/\1 | \2/' |
 命令 C（在 bt 线找未走 k60_bt_string_property() 的字符串属性）：
 
 ```sh
-git -C /mnt/e/hackios/k60-display grep -n 'setProperty("[^"]*", *"' origin/feat/bt-research -- iokit bsd \
+git -C /mnt/e/iOS Port/Sources/Hardware/k60-display grep -n 'setProperty("[^"]*", *"' origin/feat/bt-research -- iokit bsd \
   | grep -v k60_bt_string_property
 ```
 
@@ -221,7 +221,7 @@ C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5
 ## 5 dyld 共享缓存：已从本地 IPSW 取到（2026-11-16，不再需要设备）
 
 - **结论：20G81 的 dyld shared cache 不需要设备、不需要 adb。** 它在本地 IPSW 的 SystemOS cryptex 里：
-  `E:/hackios/UniXNU/out/ipsw/20G81/096-56782-083.dmg`（Cryptex1,SystemOS，2,665,480,192 B，
+  `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/096-56782-083.dmg`（Cryptex1,SystemOS，2,665,480,192 B，
   sha256 `bae1f451b77c17f8984980236ab577f89a8a4c5407bdc25c4242a34e11b0e7af`）。
   OS dmg（`096-57366-083.dmg`）里没有：单卷 `System/Library/Caches` 只有 apticket.der、com.apple.factorydata、
   com.apple.kernelcaches，全卷唯一的 dyld 相关文件是 `/usr/lib/dyld`（922,912 B）。
@@ -232,7 +232,7 @@ C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5
 - **carve 方法**（`scripts/dyld-cache-index.py`）：按 8 MiB 块扫 `dyld_v1` 魔数，取第一个 imagesTextCount≥100 的
   对齐成员（本次 member `0x110a000`），读 header `0x88`=imagesTextOffset（`0x149f0`）、
   `0x90`=imagesTextCount（2620）；每条记录 32 字节：`uuid[16] | loadAddress u64 | textSize u32 | pathOffset u32`，
-  路径串就在同一成员内。产物 `E:/k60-work/caches/20G81/dyld-index-20G81.json`（476,573 B，2620 images，0.36 s）。
+  路径串就在同一成员内。产物 `E:/iOS Port/Work/caches/20G81/dyld-index-20G81.json`（476,573 B，2620 images，0.36 s）。
 - **slide 来源与归属**：`K60SR26 t=75 start=0x1946b0000 slide=0x146b0000`（s4c console.log:1174）
   来自 `patches/xnu/0403-k60-pid26-slide.patch:31` 的 `proc_find(26)`，读取该 task 的 shared region；
   :45–49 的 `t` 是 `k60_hb_ticks * 15` 时间，**不是异常 PID 或线程号**。490 份历史 usblog 中
@@ -242,7 +242,7 @@ C 族完整判定表（三档判据、命令 A–D、三属性二分）见 §3.5
 
   ```sh
   python3 scripts/dyld-cache-index.py \
-      --index /mnt/e/k60-work/caches/20G81/dyld-index-20G81.json \
+      --index /mnt/e/iOS Port/Work/caches/20G81/dyld-index-20G81.json \
       --log console.log --after 'getBytes:range:' --frame-limit 16
   ```
 
@@ -286,7 +286,7 @@ A 族（`--after 'nil string parameter'`；将 s4c 的 `0x146b0000` / h34 的 `0
 
 - 现象：console.log **0 字节**，部分样本另有 autoreset 回 fastboot。0 字节只证明该次未采得输出；
   内核停止、USB/主机连接未就绪或采集失败均需另证，不能单凭空文件定位停止阶段。
-- 机制（adsp-e 实测 `E:/k60-work/evidence/usblog-20261115-223916/console.log`，3,312 行）：
+- 机制（adsp-e 实测 `E:/iOS Port/Work/evidence/usblog-20261115-223916/console.log`，3,312 行）：
   `K60 USBLOG: st=2 ev=0 cfg=0 dtr=0` 在 :248，直到 `K60 USBLOG: st=4 ev=595 cfg=1 dtr=1`（:477）主机才真正连上，
   紧接着 `K60DATA mounted ro=0 fstype=apfs` 在 :485。这个样本说明主机可在启动后才连上，
   更早的故障存在漏采可能；不能倒推每张 0 字节镜像都死在根挂载或 USB 之前。
@@ -300,9 +300,9 @@ A 族（`--after 'nil string parameter'`；将 s4c 的 `0x146b0000` / h34 的 `0
   `drivers/NativeRamBlock/NativeRamBlock.cpp:443–447` 有 5 s 等待失败路径及
   `NativeRamBlock: Data UUID %.36s not published within 5s` 格式串；源码上的可能路径不是每张 silent 图的同次崩点证据。
 - 判据（**先配置、后版式，别先造机制**）：
-  1. 先确认它真是 0 字节：`find /mnt/e/k60-work/evidence -maxdepth 2 -name console.log -size 0`
+  1. 先确认它真是 0 字节：`find /mnt/e/iOS Port/Work/evidence -maxdepth 2 -name console.log -size 0`
      （目前 41 份，如 `usbcmd-test-210941`、`usblog-20261112-180735`）——0 字节与「全 0 命中」是两件事。
-  2. 第一步 diff **构建配置**：`git -C /mnt/e/hackios/k60-display show <tag>:configs/mondrian_*_defconfig | grep -E 'OWNER_DATA_(MOUNT|UFS|VOLUME_UUID)'`，
+  2. 第一步 diff **构建配置**：`git -C /mnt/e/iOS Port/Sources/Hardware/k60-display show <tag>:configs/mondrian_*_defconfig | grep -E 'OWNER_DATA_(MOUNT|UFS|VOLUME_UUID)'`，
      与 configs/mondrian_defconfig:43/47/54 对照；UUID 必须是真机已安装 UFS Data 的 `1BCD69FF-…`，不能是 seed 的 `6DCCF70A-…`。
   3. 第二步才 diff 内核版式（__TEXT/__DATA/payload 结构），第三步才怀疑某个驱动。
 - 门禁：Lead 已在 main 落 `scripts/check-defconfig-uuid.py`（P-209）。本分支 rebase 到的 origin/main 2ce089a 里还没有这个文件，
@@ -515,8 +515,8 @@ G/S_legacy/F/entered/crashed = **0/128/1/1/7**；显式 SpringBoard 进程标签
 
 ### 8.1 身份链与覆盖区间
 
-证据目录为 `E:/k60-work/evidence/usblog-20261116-164726/`，镜像目录为
-`E:/k60-work/artifacts/bt-d8-tlv/`（下表路径均相对此二目录）：
+证据目录为 `E:/iOS Port/Work/evidence/usblog-20261116-164726/`，镜像目录为
+`E:/iOS Port/Work/artifacts/bt-d8-tlv/`（下表路径均相对此二目录）：
 
 | 文件 | 字节数 | 本轮重算 SHA256（与 Lead 提供值一致） |
 | --- | --- | --- |

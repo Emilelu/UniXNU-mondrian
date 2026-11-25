@@ -25,14 +25,14 @@ cd /tmp/k60build
 setsid nohup env XNU_PONG_ADRENO_PLATFORM=0 ./unixnu build kernel \
   -D /tmp/usb-cdc-mainline/device \
   --out /opt/k60/trees/k60build/out-baseline \
-  --kernelcache /mnt/e/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed \
+  --kernelcache /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/kernelcache.decompressed \
   > /tmp/build.log 2>&1 < /dev/null &
 ```
 
 ## 打包命令
 ```bash
 # payload（这份配方自己的 args；见下面「29 项的来历」一节，它与黄金镜像不同）
-./unixnu payload -D /tmp/usb-cdc-mainline/device --out <out> --uefi /mnt/e/hackios/uefi-mondrian \
+./unixnu payload -D /tmp/usb-cdc-mainline/device --out <out> --uefi /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian \
   --kernel-arg pong_allow_unauthenticated_root=1 --kernel-arg debug=0x144 \
   --kernel-arg cs_enforcement_disable=1 --kernel-arg pong_software_keybag=1 \
   --kernel-arg disable_exc_resource=1 --kernel-arg pong_ufs_readwrite=1 \
@@ -43,10 +43,10 @@ setsid nohup env XNU_PONG_ADRENO_PLATFORM=0 ./unixnu build kernel \
   --kernel-arg pong_init_path=/private/var/pong/init \
   --kernel-arg epoch=1793709100 --kernel-arg k60_fontscale=3 \
   --kernel-arg k60_init_blob=1 \
-  --trust-cache /mnt/e/hackios/UniXNU-mondrian/prebuilt/20G81-trustcache.bundle
+  --trust-cache /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/prebuilt/20G81-trustcache.bundle
 
 # boot 镜像
-./unixnu bootimg -D <device> --out <out> --uefi /mnt/e/hackios/uefi-mondrian \
+./unixnu bootimg -D <device> --out <out> --uefi /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian \
   --dtb <uefi>/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb \
   -o boot.img
 ```
@@ -118,7 +118,7 @@ payload@1,032,192），`unixnu bootimg` 产出的头与能启动的布局不一�
 
 ## 关键教训（都是本会话实际踩的）
 
-1. **两个仓库必须同步**：改 `E:\hackios\UniXNU-mondrian` 的 series 不会影响构建，构建读 `/tmp/usb-cdc-mainline/device`。这是本会话最长的弯路。
+1. **两个仓库必须同步**：改 `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian` 的 series 不会影响构建，构建读 `/tmp/usb-cdc-mainline/device`。这是本会话最长的弯路。
 2. **清 `tree/` 会丢 fakeroot**：SDK 头必须从旧树复制回来。
 3. **`Availability.h` 不在 AvailabilityVersions feed 里**，要单独从旧 fakeroot 拿。
 4. **WSL 直连 GitHub 会被限流 403**：feed 与 DriverKit JSON 都要用本地缓存。

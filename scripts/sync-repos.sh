@@ -12,19 +12,20 @@ set -uo pipefail
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
+WROOT="${K60_W_ROOT:-/mnt/e/iOS Port/Sources}"
 LOG=/mnt/d/Android/k60-ios/SYNC-LOG.md
 STAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
 # path|mode   mode "pull" = fast-forward when clean, "report" = never merge
 REPOS="
-/home/emilelu/hackios/UniXNU|pull
+$WROOT/UniXNU|pull
 /tmp/k60build|report
-/home/emilelu/hackios/UniXNU-mondrian|pull
-/home/emilelu/hackios/uefi-mondrian|pull
-/home/emilelu/hackios/UniXNU-pong|report
-/home/emilelu/hackios/UniXNU-sheng|pull
-/home/emilelu/hackios/UniXNU-sm8475-common|pull
-/home/emilelu/hackios/UniXNU-docs|pull
+$WROOT/UniXNU-mondrian|pull
+$WROOT/uefi-mondrian|pull
+$WROOT/UniXNU-pong|report
+$WROOT/UniXNU-sheng|pull
+$WROOT/UniXNU-sm8475-common|pull
+$WROOT/UniXNU-docs|pull
 /mnt/d/Android/k60-ios/ios-sweet-k60|report
 /mnt/d/Android/k60-ios/refs/ios-sweet-k60|report
 "
@@ -83,3 +84,12 @@ out ""
 
 echo
 echo "=== written to $LOG ==="
+
+# k60: reference trees are exported, not merged
+# sheng/zizhan/pong/t970/liuqin carry local commits or are detached, so
+# merge --ff-only can never advance them; fetch alone left them stale for weeks
+# while the report said "behind". Export the upstream commit as a read-only tree
+# instead (no force operations, iron rule 18).
+if [ -x "$(dirname "$0")/sync-reference-trees.sh" ]; then
+    bash "$(dirname "$0")/sync-reference-trees.sh" || echo "reference export reported a failure"
+fi

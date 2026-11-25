@@ -348,6 +348,26 @@ def prelink_state(record):
     }
 
 
+def prelink_policy(report):
+    """Run the regression gate against this record, the way the framework build does.
+
+    The framework refuses a prelink record that grows past `regression_policy`
+    (scripts/unixnu/kernel.py:300). Our tree keeps the same rule in
+    scripts/check-prelink-regressions.py so it can run against an artifact without a
+    rebuild. An absent gate or an unreadable record is "could not judge" and stays
+    silent here; the flight gate is where a grown gap becomes fatal.
+    """
+    script = Path(__file__).resolve().with_name('check-prelink-regressions.py')
+    if not script.is_file():
+        return []
+    completed = subprocess.run([sys.executable, str(script), '--record', str(report)],
+                               capture_output=True, text=True)
+    if completed.returncode == 0:
+        return []
+    return [line[len('FAIL: '):] for line in completed.stdout.splitlines()
+            if line.startswith('FAIL: ')]
+
+
 def check(board, chip_id, unique_chip_id):
     kernel = board / 'kernel/kernel.macho'
     payload = board / 'payload/payload.img'
@@ -385,6 +405,12 @@ def check(board, chip_id, unique_chip_id):
                   f'{prelink["missing_bundles"]} bundles, '
                   f'{prelink["stubbed_refs"]} items redirected to the panic stub in '
                   f'{prelink["stubbed_bundles"]} bundles, loadable={prelink["loadable"]}')
+            # Growth is a property of the record against the recorded baseline, so it
+            # is reported here and made fatal by the flight gate. A shrinking record
+            # prints nothing: fewer gaps than the baseline is the direction we want.
+            prelink['policy'] = prelink_policy(report)
+            for problem in prelink['policy']:
+                print(f'note prelink policy: {problem}')
 
     with tempfile.TemporaryDirectory(prefix='ios27-artifacts-') as name:
         directory = Path(name)
@@ -510,6 +536,10 @@ def open_blockers(path):
             continue
         if state != 'open':
             raise Failure(f'{path.name}: blocker {name} has state {state!r}, not open or closed')
+        if not entry.get('observe_via'):
+            raise Failure(f'{path.name}: open blocker {name} does not say how a flight would '
+                          f'observe it; an open defect nobody can measure is a blocker that can '
+                          f'only be argued about (BOOT-FREEZE condition five)')
         open_ones.append(entry)
     missing = REQUIRED_BLOCKERS - seen
     if missing:
@@ -539,6 +569,9 @@ def flight_ready(result, blockers):
                             f'_unixnu_fileset_unmapped panic stub ({prelink["stubbed_bundles"]} bundles)')
     problems += [f'blocker {e.get("id", "?")}: {e.get("what", "(no description)")}'
                  for e in blockers]
+    # A record that grew past its own baseline is a regression even if the absolute
+    # numbers would look acceptable: something started resolving worse than last time.
+    problems += [f'prelink regressed: {problem}' for problem in prelink.get('policy') or ()]
     if problems:
         raise Failure('structurally valid, but not flyable: ' + '; '.join(problems))
     print('ok flight: prelink map has no unresolved references and no blocker is open')

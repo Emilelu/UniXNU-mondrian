@@ -26,7 +26,7 @@
 
 ## 3. 抓取
 
-- `scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`
+- `scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`
 - 只看 `console.log`，`capture.json` 的 `complete` 必须为真
 
 ## 4. 判据
@@ -59,7 +59,7 @@
 Metal 插件 `metal-plugin-20261118j`（`PongAdrenoMetal` 94,256 B，sha256 `b84e053a2a509d1829c10145e4b9954c8e2ce174b4d717b03cb623352f5d8f1c`），
 series 228，参数 30 项 / 596 B。
 
-**抓取**：`E:/k60-work/evidence/usblog-20261118-181618`，295,620 B / 4,002 行，
+**抓取**：`E:/iOS Port/Work/evidence/usblog-20261118-181618`，295,620 B / 4,002 行，
 `capture.json complete=true`，supervisor rc=0，`K60KEXC` 0，panic 0，`crashed: backboardd` 0。
 
 **判决：FAIL**（唯一失败项是 S6，`submit` 没有降下来；其余七项全过）

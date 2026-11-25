@@ -2,13 +2,13 @@
 
 状态：**只记录本分支实际用到的二进制与哈希；没有覆盖整机所有固件，也没有版本号字符串**。
 官网 §1 最后一行要求「在固件清单中记录每个二进制的来源和版本」
-（快照 `E:/k60-work/scratch/power-page-20261117.txt:15`）。本文件先补齐电池/ADSP/引导
+（快照 `E:/iOS Port/Work/scratch/power-page-20261117.txt:15`）。本文件先补齐电池/ADSP/引导
 这条链上的输入，避免每次排障都靠目录里的临时文件名。
 
 ## 1. ADSP 固件（SplitFirmware，23,016 KB）
 
-本地缓存：`/mnt/e/k60-work/firmware/adsp/`。来源压缩包：
-`/mnt/e/k60-work/firmware/mondrian-fw-OS3.0.8.0.zip`，188,863,584 B，
+本地缓存：`/mnt/e/iOS Port/Work/firmware/adsp/`。来源压缩包：
+`/mnt/e/iOS Port/Work/firmware/mondrian-fw-OS3.0.8.0.zip`，188,863,584 B，
 sha256 `f25e1d3b4d0ee39bcdc3037712ef754c7559eac2006131d3e008a0706efe3e8c`。
 解包到 `adsp/` 的关系没有仓库内脚本，下一次重建时要补。
 
@@ -56,7 +56,7 @@ sha256 `f25e1d3b4d0ee39bcdc3037712ef754c7559eac2006131d3e008a0706efe3e8c`。
 
 ## 2. 电池充电器内核模块
 
-`/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko`，247,776 B sha256
+`/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko`，247,776 B sha256
 `914d12fe026f13bd6c8e0b470872502e6560a2f2d51278d30e1822d1cd758a48`。
 
 它只用于 `scripts/build-battery-archive.sh` 提取属性/结构体定义，不加载进 XNU。
@@ -83,6 +83,6 @@ sha256 `f25e1d3b4d0ee39bcdc3037712ef754c7559eac2006131d3e008a0706efe3e8c`。
 
 ## 5. 参考
 
-- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:8-15`。
-- 构建输入：`scripts/build-battery-archive.sh`、`E:/k60-work/scratch/build-final-image-f.sh`。
+- 官网快照：`E:/iOS Port/Work/scratch/power-page-20261117.txt:8-15`。
+- 构建输入：`scripts/build-battery-archive.sh`、`E:/iOS Port/Work/scratch/build-final-image-f.sh`。
 - 认证边界：`docs/research/charger/10-POWER-DOC-CONFORMANCE.md` §7.11、§9。

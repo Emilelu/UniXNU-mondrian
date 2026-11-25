@@ -563,7 +563,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 ### P-44 改补丁必须改**三方**（repo 补丁 / device 补丁 / 构建树），只改一处会被覆盖
 
 - **三方位置**：
-  1. `E:\hackios\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
+  1. `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
   2. `/tmp/usb-cdc-mainline/device/patches/xnu/<补丁>`（buildv15 会从 repo 覆盖这里）
   3. `$B/tree/.cache/xnu-work/...`（**构建真正编译的树**，每次清树重建）
 - **本轮实证的踩坑链**：
@@ -591,7 +591,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   `@@` 头（含 `-0,0 +1,N` 新文件形式），并已**集成进 `buildv15.sh` 的第 2b 步**——
   每次构建前自动运行，手改正文再也不会弄坏构建。
 - **30 秒判定**：任何 `corrupt patch` / `unterminated` 报错，先跑一次
-  `python3 E:/k60-work/scratch/fix-patch-hunks.py`，通常直接解决。
+  `python3 E:/iOS Port/Work/scratch/fix-patch-hunks.py`，通常直接解决。
 
 ### P-47 `if (!PE_parse_boot_argn(...) || !enabled) return;` —— 真正的门控杀手
 
@@ -1090,7 +1090,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   `completion = ["在设备上观察该接口的实际工作结果并保存对应日志"]`，
   就断定「pong 自己也没验证过 Goodix 触摸」。**这是错的。**
 
-- **铁证**（`/mnt/e/hackios/UniXNU-pong/migration/ipados18/services.md`）：
+- **铁证**（`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services.md`）：
   | 行 | 原文 |
   |---|---|
   | 296 | `touch/key HID 事件继续出现` |
@@ -1209,7 +1209,7 @@ commit message、issue 回复里都有 `P-NN` 引用。
 ### P-76 不查 `UniXNU-zizhan` 就动手 = 必然重复造轮子（2026-11-10）
 
 **症状**：触摸 SE4 的 GENI DMA 问题上耗了 20+ 轮、改了 15 个配置项、刷机十余次，
-最后发现 `E:\hackios\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
+最后发现 `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
 早就写好了答案。
 
 **根因**：`UniXNU-zizhan` 是 **pong 的超集**，同 SM8475、同 QUP0 SE4、同 GPIO16-19 /
@@ -1567,7 +1567,7 @@ if ((st & 0x10100) == 0x10100 && idle &&
   后台运行没有 TTY → **永久阻塞在 HTTP 401**。
 - **正解**：**push 在 Windows 侧执行**（Windows 有 gh 凭据 + 凭据管理器）。
   ```powershell
-  Set-Location 'E:\hackios\UniXNU-mondrian'
+  Set-Location 'E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian'
   $env:GIT_TERMINAL_PROMPT='0'
   git push --force --progress origin main
   ```
@@ -3493,7 +3493,7 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   ```
   而 `porting.toml:248` 早就写着这句话：
   > The GPU firmware set is complete under D:/Android/k60-ios/firmware/k60-gpu
-- **我当时的搜索范围**：`<workspace>`、`/mnt/e/hackios`、`/opt/k60`
+- **我当时的搜索范围**：`<workspace>`、`/mnt/e/iOS Port/Sources`、`/opt/k60`
   —— **漏了 /mnt/d**。而 REPO-INVENTORY.md 明确写着 `D:\Android\k60-ios` 是
   48 个仓库的分布位置之一。
 - **恢复**：复制回 `.cache/firmware/k60-gpu/`，SHA256 校验一致，
@@ -3714,7 +3714,7 @@ strings 里 "M11HTC":  present      <- 同上
 
 - **症状**：同一个文件存在于三个地方，靠手工 `cp` 同步：
   ```
-  E:\hackios\UniXNU-mondrian          仓库（版本控制）
+  E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian          仓库（版本控制）
   /opt/k60/trees/usb-cdc-mainline/device  构建输入（构建实际读的）
   <workspace>/scratch                    草稿
   ```
@@ -3879,7 +3879,7 @@ strings 里 "M11HTC":  present      <- 同上
 - **症状**：`configs/mondrian_defconfig` 里 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`，
   `.config` 里也是 `y`，但内核里既没有 `K60Battery` 的对象文件也没有一个字串，
   串口日志零 `K60Battery` 行——看上去"电池驱动没工作"。
-- **根因**：`E:\hackios\UniXNU\scripts\unixnu\kernel.py:17-26` 只导出
+- **根因**：`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\kernel.py:17-26` 只导出
   `XNU_K60_PHYSICAL_BATTERY=1`；真正把 `libK60PhysicalBattery.a` 链进去的是
   `tree/scripts/build-xnu-4k-baseline.sh`，而它**既不读这个环境变量，也没有
   `-Wl,-force_load`**。`patches/xnu/0602-physical-battery.patch:10-12` 明写
@@ -3969,7 +3969,7 @@ CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过�
 ## P-166 构建脚本不许写补丁清单
 
 `buildv15.sh` 曾在每次构建开头把 `patches/xnu/series` 覆盖成
-`/mnt/e/k60-work/scratch/SERIES-FINAL.txt`。后果是双向的：改仓库里的序列不生效，
+`/mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt`。后果是双向的：改仓库里的序列不生效，
 改 scratch 里那份却会静默改变整个补丁集。2026-11-13 的一次误删就是这样发生的——
 按编号前缀删除了两条 `0341`，其中一条是别人写的 `0341-k60-setprop-probe.patch`，
 于是 `0342` 找不到它要改的 `printf`，构建停在 157/222，而错误只说
@@ -4065,7 +4065,7 @@ grep -n 'PongPower\|K60Smem\|K60Handoff' scripts/build-xnu-4k-baseline.sh \
 
 ### P-170 追加实测：归档这条路在本机走不通，正路是 patch 进 bsd/dev
 
-`E:\hackios\UniXNU-mondrian\scripts\build-pong-ram-block-macos.py:32-38` 的编译命令是
+`E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\scripts\build-pong-ram-block-macos.py:32-38` 的编译命令是
 
 ```python
 subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], ...)
@@ -4102,7 +4102,7 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 补丁阶段之后执行，并且**轮询等待锚点出现**——树刚解包时 `pong_buttons.c` 那行还不存在，
 固定等待或立刻执行都会得到 `anchor missing`。
 
-`E:\k60-work\scratch\append_conffiles.py` 就是该模式：每秒重读，看到
+`E:\iOS Port\Work\scratch\append_conffiles.py` 就是该模式：每秒重读，看到
 `bsd/dev/pong_buttons.c\t\t\tstandard` 才插入 `pong_smem.c` / `pong_handoff.c`，
 已插入则直接返回。
 
@@ -4168,7 +4168,7 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 
 根因不在 Mu_Basecore 的 pin，也不在 MuPatches：`board.toml [firmware].packages` 里
 `{tree}/package` 排在 `{uefi}/Platforms/Xiaomi` 前面，而 tree 里那份 `UniXNUPkg` 是从
-`E:\hackios\UniXNU\package` 复制来的旧副本。EDK II 按 PACKAGES_PATH 顺序解析
+`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\package` 复制来的旧副本。EDK II 按 PACKAGES_PATH 顺序解析
 `UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf`，于是整个 FD 的 UniXNUPkg
 驱动都编译自框架仓库的旧源码——包括负责把 initrd 发布成块设备的 `UniXNURamDiskDxe`。
 旧副本缺少本仓库版本里的 initrd 追踪/映射检查，发布路径不同，固件就拿不到 payload FAT。
@@ -4180,7 +4180,7 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 2. 用 `strings` 对比 `75CA63AD-FBAE-4A06-92A0-F937C671251D`（UniXNURamDiskDxe）：
    新 FD 里有 `rounded to 0x%lx bytes`、没有 `selfread`、没有 `not inside mapped memory`——
    与本仓库 `Platforms/Xiaomi/UniXNUPkg/.../UniXNURamDiskDxe.c` 对不上，却与
-   `E:\hackios\UniXNU\package\UniXNUPkg\...` 完全一致。这就是「编的不是这份源码」的铁证。
+   `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\package\UniXNUPkg\...` 完全一致。这就是「编的不是这份源码」的铁证。
 3. `--dry-run` 打印的 `tree` 是 `out-baseline/.../tree`，`{tree}/package/UniXNUPkg` 正是那份旧副本。
 
 修法：把 `"{uefi}/Platforms/Xiaomi"` 移到 `"{tree}/package"` 之前（`board.toml [firmware].packages`），
@@ -4334,7 +4334,7 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 换掉旧补丁整体回退的方案不可行：`git show 29827f5:patches/xnu/0391-k60-embedded-init.patch`
 覆盖 0401 后 `kern_exec.c` 上下文已被 0394/0398 改动，`patch does not apply`。
 
-证据：`E:\k60-work\evidence\usblog-20261113-allold2`（SB=129）、
+证据：`E:\iOS Port\Work\evidence\usblog-20261113-allold2`（SB=129）、
 `usblog-20261113-cut0401b`（SB=133）、`usblog-20261113-noinitblob`（SB=129）、
 对照组 `usblog-20261113-rev0340`（SB=7）。
 
@@ -4355,18 +4355,18 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 ### P-184 共享检出目录只有一个：Lead 和子 agent 同时改同一棵树会互相吃掉未提交改动
 
 2026-11-14 02:03，我为了让自己那次 strict 构建通过八步门禁，在
-`E:/hackios/UniXNU-mondrian`（当时正被触摸 agent 用来写文档）上执行
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`（当时正被触摸 agent 用来写文档）上执行
 `git checkout -- <8 个文档>`，把它的未提交修改全部抹掉：`EIGHT-STEPS.toml` 里把 touch
 ④⑤⑥ 从 `done=true` 改成 `false` 的诚实修正、`GROUND-TRUTH.md`、
 `TOUCH-STATEMACHINE.md`、`03-reverse-and-device-data.md`、`PITFALLS.md`、`INDEX.md`、
 `README.md`、`README_EN.md` 的编辑全部丢失；只有未跟踪的
 `docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` 幸存（已另存到
-`E:/k60-work/scratch/SALVAGE-touch-agent-edits-20261114.md`）。
+`E:/iOS Port/Work/scratch/SALVAGE-touch-agent-edits-20261114.md`）。
 
 根因不是 `git checkout`，是**两个人共用一棵检出树**。修法：
 
-- Lead 用独立 worktree：`git worktree add E:/hackios/k60-lead <branch>`，
-  在 `E:/hackios/k60-lead` 里做自己的构建与提交；`E:/hackios/UniXNU-mondrian`
+- Lead 用独立 worktree：`git worktree add E:/iOS Port/Sources/Hardware/k60-lead <branch>`，
+  在 `E:/iOS Port/Sources/Hardware/k60-lead` 里做自己的构建与提交；`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`
   归触摸 agent。
 - 任何时候都不要对**不属于自己分支**的未提交文件跑 `git checkout --` / `git restore`。
   要让门禁通过就改门禁的适用范围（见下条），不要动别人的工作区。
@@ -4376,14 +4376,14 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
   flash 模式保持整机校验。
 
 证据：`git branch -f feat/touch-power 3330e1c` 恢复分支；`git worktree list` 显示
-`E:/hackios/k60-lead 84523c0 [feat/pmic-rail]`。
+`E:/iOS Port/Sources/Hardware/k60-lead 84523c0 [feat/pmic-rail]`。
 
 ### P-185 新检出缺的不是代码，是"只在构建副本里才存在"的工具链与 fakeroot
 
 从 `main` 切一个 `git worktree` 出来，代码是全的，构建却会在第三步莫名其妙地 127 / 找不到头文件：
 
 - `scripts/build-firehose.sh:24` 调 `xcodebuild`。`xcodebuild` / `xcrun` / `clang` 这些 Darwin 工具在 Linux 上靠
-  `scripts/linux/` 的 13 个 shim 顶替。这些 shim **在框架仓库 `E:/hackios/UniXNU` 里是被跟踪的**，
+  `scripts/linux/` 的 13 个 shim 顶替。这些 shim **在框架仓库 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU` 里是被跟踪的**，
   但设备仓库没有它们，构建副本 `/opt/k60/trees/k60build/scripts/linux/` 是从框架同步过去的。
   一个只有设备仓库的新 worktree 因此完全没有 shim → `xcodebuild: command not found` → `bash failed (127)`。
 - 同一棵新树第一次构建时，`tree/.cache/fakeroot/` 是空的。`libfirehose_kernel.a`（40,480 B）、
@@ -4525,20 +4525,20 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 **症状**：refmine 线要把 `QcaBluetooth` 与 `UniXNU-liuqin` 写进
 `docs/research/SOURCES.toml` 的 `required`，`scripts/research-gate.py` 永远报
 `文件不存在`，只能把结论留在散文里、进不了门禁。同时每个 worktree 跑这个门禁，
-校验的都是 `/mnt/e/hackios/UniXNU-mondrian` 那棵树的文件，不是自己这棵。
+校验的都是 `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` 那棵树的文件，不是自己这棵。
 
 **根因**（两处，同一形状）：
 
 ```python
-REPO = '/mnt/e/hackios/UniXNU-mondrian'          # 字面路径
+REPO = '/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian'          # 字面路径
 full = os.path.join(REPO, path)
-alt = os.path.join('/mnt/e/k60-work', path)       # 只有两个前缀
+alt = os.path.join('/mnt/e/iOS Port/Work', path)       # 只有两个前缀
 exists = os.path.exists(full) or os.path.exists(alt)
 ```
 
 1. `REPO` 是写死的共享检出。十一个 worktree 里只有一个是那个路径，其余全部在
    校验别人的文件 —— 门禁绿了不代表自己这棵树没问题。
-2. 参考源只认「本仓检出」和 `/mnt/e/k60-work`。`/mnt/e/hackios` 下直接 clone 的
+2. 参考源只认「本仓检出」和 `/mnt/e/iOS Port/Work`。`/mnt/e/iOS Port/Sources` 下直接 clone 的
    `QcaBluetooth`、`UniXNU-liuqin` 永远解析不到，于是**合法的参考源被门禁拒绝**，
    而不是被记录。
 
@@ -4546,7 +4546,7 @@ exists = os.path.exists(full) or os.path.exists(alt)
 
 ```python
 REPO = os.environ.get('K60_REPO') or str(Path(__file__).resolve().parents[1])
-REFERENCE_PREFIXES = (str(REPO), '/mnt/e/k60-work', '/mnt/e/hackios')
+REFERENCE_PREFIXES = (str(REPO), '/mnt/e/iOS Port/Work', '/mnt/e/iOS Port/Sources')
 ...
 tried = [os.path.join(prefix, path) for prefix in REFERENCE_PREFIXES]
 if not any(os.path.exists(candidate) for candidate in tried):
@@ -4557,7 +4557,7 @@ if not any(os.path.exists(candidate) for candidate in tried):
 
 **怎么避免再踩**：
 
-1. 任何门禁脚本里出现 `/mnt/e/hackios/…` 这种字面检出路径，都是 bug。
+1. 任何门禁脚本里出现 `/mnt/e/iOS Port/Sources/…` 这种字面检出路径，都是 bug。
    `scripts/check-repo-paths.py`（hygiene 线）现在会报 ERROR。
 2. 参考源解析写成**前缀元组**，不是两次 `os.path.exists` 的 `or`。新增参考仓库
    只改元组，不改查找逻辑。
@@ -4715,7 +4715,7 @@ total = len(head) + sum(size for _, size, _ in files)
 是**假设，不是实测**。实测：
 
 ```
-$ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
+$ cd /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 （零命中）
 ```
 
@@ -4750,7 +4750,7 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 - 一处错误注释会传染：`patches/bt/0004` 与 `patches/xnu/0510` 的补丁注释也抄了
   同一个假设，两份补丁一起把假前提变成了"设计依据"。
 
-**Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
+**Check.** `git -C /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian grep -ci 'addon' HEAD -- .`
 必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
 真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
 （旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
@@ -4780,7 +4780,7 @@ error=0`。
 ## P-199 — `check-tree-owner` 默认把操作者当成 lead
 
 **现象.** 子代理在自己名下的 checkout 里跑 `scripts/check-rules.py`，其它 77 条全绿，只有
-`iron-11` 报 `/mnt/e/hackios/k60-springboard belongs to springboard-agent, not lead, and holds 1
+`iron-11` 报 `/mnt/e/iOS Port/Sources/Hardware/k60-springboard belongs to springboard-agent, not lead, and holds 1
 uncommitted path(s)`，看起来像"别人占了我的树"，实际那 1 个未提交文件就是自己刚改的。
 
 **根因.** `scripts/check-tree-owner.py:44` `ACTOR = os.environ.get("K60_AGENT_ID", "lead")`：没设
@@ -4806,7 +4806,7 @@ export K60_AGENT_ID=springboard-agent
 一方说「mhi3/mhi4 的内核逐字节相同，所以变量只有内存窗口」，另一方说「内核
 不同」。两边都没量错文件，是**字段名错了**。
 
-**实测.** `E:\k60-work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
+**实测.** `E:\iOS Port\Work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
 `kernel_sha256` **全是** `83b52b566b9cd0e0a2f13854f7da4c67…`：
 
 ```
@@ -4933,7 +4933,7 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 ## P-203 — 不要在 linked worktree 里跑 `git worktree prune`
 
 **现象**：refmine 线为了拿一个「干净环境」的基线，在一个 linked worktree 里执行了
-`git worktree prune`。主仓 `E:/hackios/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
+`git worktree prune`。主仓 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
 管理目录被一次性删除（只剩 `d-main`），随后 `/e/hackios/k60-*` 全部立刻报
 `fatal: gitfile does not point to a valid repository`——二十条线同时失去工作树。
 
@@ -4943,7 +4943,7 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 一旦有任何一棵树短暂不可解析（或工作树目录被移动、盘符变化），它就把那棵树的 admin 目录当垃圾删掉。
 **删除不可逆、没有备份**，`git worktree add` 也不会自动重建。
 
-**恢复方法**（`E:/k60-work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
+**恢复方法**（`E:/iOS Port/Work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
 1. 对每个失去 admin 目录的工作树目录，用「分支 blob 与工作树文件比对打分」反推它原本在哪个分支——
    文件内容未提交的工作树会和几个候选分支算出不同的匹配度，取最高分。
 2. 重建 admin 三件套：`.git/worktrees/<name>/{HEAD,gitdir,commondir}`，`HEAD` 写
@@ -5484,7 +5484,7 @@ build-id 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c442
 
 - `baseline-20261115d` 的 payload 逐字节复用（`fbc87102d1cb10df080d7dc6135e9e5b995e1f791ab5d2aa0a8e37a872271e3f`），
   只把 FD 换成重建的 `9f20de15388a`，重打 `boot.img`（`51d2053891569eeeb33a9f78989de6d66a111aa594541d9c7c5fb89622b3f3ce`）。
-- 上机（`E:\k60-work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
+- 上机（`E:\iOS Port\Work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
   `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 / `menu:` 与 `config: no boot entry` **0 次**。
 - ⇒ **P-154 正式关闭**：从当前 pin 重建的固件卷能找到 payload。
 
@@ -5588,8 +5588,8 @@ h12，按「h3×h4」让它出 h34，两次都白跑。而正确答案需要的�
 1. **二分要么飞满，要么把「已构建未飞」显式列出来**。矩阵不是「我飞过哪些」，而是
    「全集里哪些还没飞」——只有后者能回答「结论是否已定案」。
 2. **每轮开始先扫产物目录**，按 mtime 列出现存的镜像，对照已飞清单，先补齐缺口再出新的。
-   实测做法：`ls -dt /mnt/e/k60-work/artifacts/*/` + 每张 `build-manifest.json` 的
-   `components.boot_img`，与 `/mnt/e/k60-work/ledger.jsonl` 的镜像哈希求差集。
+   实测做法：`ls -dt /mnt/e/iOS Port/Work/artifacts/*/` + 每张 `build-manifest.json` 的
+   `components.boot_img`，与 `/mnt/e/iOS Port/Work/ledger.jsonl` 的镜像哈希求差集。
 3. **子集数 ≥ 8 时，先算清楚要飞多少格再开始**。四 hunk 的 15 个子集里，只要 {h1,h2,h3}
    这一格就能定案——但前提是知道自己在找「最小致命集」，而不是「逐个排除」。
 
@@ -5737,7 +5737,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 1. **`discover_branches()` 把裸 `origin` 当成分支**。它只过滤 `endswith('/HEAD')`，
    于是 `refs/remotes/origin/` 本身（短名 `origin`）被留下，`git rev-parse origin` 的
    输出是字面量 `origin/origin`，被写进 seen 水位文件。这个字符串永远不等于任何真实 sha，
-   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/k60-work/.pick-upstream-seen.json`
+   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/iOS Port/Work/.pick-upstream-seen.json`
    里三条脏记录 `"UniXNU-mondrian/origin": "origin/origin"`、`"UniXNU/origin": "origin/origin"`、
    `"uefi-mondrian/origin": "origin/origin"`。
 2. **新分支的比对是逐文件子进程**。`collect()` 先 `git ls-tree -r` 拿到路径清单，然后对
@@ -5797,7 +5797,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 ### 根因
 
-`/mnt/e/k60-work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
+`/mnt/e/iOS Port/Work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
 里面找「最后一条 `result == ok` 的记录」。任何一条线飞图都会把「上次成功」改写成
 它自己的指纹，于是：
 
@@ -5816,7 +5816,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 1. 与全局 ledger 的最后一条成功记录相同 → PASS（原逻辑）。
 2. 与账本里某条 **booted** 基线相同 → PASS，detail 打印 `sha` + `image` + `console`
-   路径，例如 `b48613d baseline-20261116a E:/k60-work/evidence/usblog-20261116-073639/console.log`。
+   路径，例如 `b48613d baseline-20261116a E:/iOS Port/Work/evidence/usblog-20261116-073639/console.log`。
 3. 两者都不匹配 → 才按 `--force-new-series` / 特性分支 / main 三档处理。
 
 `state = "build-only"` 的条目**永远不能**用来背书：它从没上过设备。
@@ -5872,7 +5872,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
    load/copy、`auth_and_reset`、发布各为 **0 次**，SMEM 保持 byte-identical，
    `resources_held`/证据/lease 不残留。不能只数 return code，也不能称 board8 单独证明下游零副作用。
    板级 exclusive 自身的只读 SMEM 检查映射不等于这里禁止的下游 `map_smem`。
-   父任务验证 focused host log `E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log`（1458 行，SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）：真实 board refusal、owner-claim 18 场景和 board 8 场景均通过；完整 runner exit 0。
+   父任务验证 focused host log `E:/iOS Port/Work/artifacts/adsp-board-20261116/refusal/host-tests.log`（1458 行，SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）：真实 board refusal、owner-claim 18 场景和 board 8 场景均通过；完整 runner exit 0。
 3. legacy rail 检查保留，但没有功能图授权。未来只读探针先核对 caps、实际 slot/command 数、
    cmd_stride、`TCS_STATUS(+0x18)`/`CMD_STATUS(+0x3c)` 与 enable/msgid 语义；
    现采样器固定 5 槽且每槽只扫首 command、idle 位解释和单次 attempted 门均**尚未审计闭合**。
@@ -5887,7 +5887,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 **Check.** `python3 scripts/check-rule-registry.py`；门禁命令见
 `docs/engineering/RULES.toml` 的 `P-223` 项。历史 rail 49 例不等于采样器已审计；
-board 8 场景（第 8 场景为回调拒绝）与 production owner-claim 18 场景通过；拒绝轨迹见 `E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log`（SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）。
+board 8 场景（第 8 场景为回调拒绝）与 production owner-claim 18 场景通过；拒绝轨迹见 `E:/iOS Port/Work/artifacts/adsp-board-20261116/refusal/host-tests.log`（SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）。
 
 ## P-224
 
@@ -6163,7 +6163,7 @@ wifi c7 的诊断镜像里，我加了一条 `Pong MHI: irq entered er_index=0 d
 而后者是
 
 ```c
-/* /mnt/e/k60-work/impl/wifi/work/build/ath11k/lx_rt_pong.c:597 */
+/* /mnt/e/iOS Port/Work/impl/wifi/work/build/ath11k/lx_rt_pong.c:597 */
 void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_irq[i].pending = 1; }
 ```
 
@@ -6173,7 +6173,7 @@ void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_
 **2026-11-16 重新审视后的第二次纠正：缺失日志也不能证明 MSI 没到。**
 `msiArrivals` 只在真正的 GIC 回调中读到 `dbi.r(MsiStatus)` 非零时才自增，这个计数与
 软件重放的 MHI handler 不同；但 `QCA6490 MSI delivered by GIC` 的打印不在失败路径上。
-在实验源树 `E:/hackios/k60-wifi/drivers/PongWifi/PongWifiPlatform.cpp:690`，
+在实验源树 `E:/iOS Port/Sources/Hardware/k60-wifi/drivers/PongWifi/PongWifiPlatform.cpp:690`，
 `nw_wifi_start()` 返回错误就 `goto done`；`:692` 才进入检查计数并打印该行的循环。
 c7 在初始化中返回 `-110`，因此根本不会执行这条打印。日志 0 命中不能判断计数是否非零，
 更不能证明 MSI 到达或未到达。必须在实际超时点采集 GIC 入口计数、pending 读回和上下文，
@@ -6515,7 +6515,7 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 就先 `adb reboot bootloader`。于是两个 agent 可以同时走到 `fastboot boot`，
 后者的抓取对着已经换了镜像的设备。
 
-**修法**：机器级 claim（`E:\k60-work\state\k60-device-boot.lock`），
+**修法**：机器级 claim（`E:\iOS Port\Work\state\k60-device-boot.lock`），
 `scripts/k60-boot-lock.ps1` 用 `FileShare.None` 独占句柄（进程退出即由内核释放，
 不需要死锁清理），`boot-and-capture.ps1` 在碰设备前获取、`finally` 释放、
 拿不到以 rc=6 退出且**不发出 boot**；`flash.sh` 只要求 `K60_AGENT_ID` 署名（缺失 rc=7），
@@ -7313,7 +7313,7 @@ scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
 
     ff8304d1fc6f0ca9  ->  20008052c0035fd6
 
-这不是损坏，是 payload 步声明的两个变换之一：`E:/hackios/UniXNU/scripts/unixnu/payload.py:180-192`
+这不是损坏，是 payload 步声明的两个变换之一：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/scripts/unixnu/payload.py:180-192`
 先 `shutil.copyfile` 原始内核，再跑 `scripts/patch-armcpu-validate.py --apply`，把
 AppleARMPlatform 的 `_validateConfiguration()` 改成「返回成功」。AppleARMPlatform 会对非
 Apple 设备树 `panic("CPU configuration in device tree is invalid")`
@@ -7341,7 +7341,7 @@ Apple 设备树 `panic("CPU configuration in device tree is invalid")`
 「`mov w0, #1` 然后返回」。第一版写的是普通 `ret`（`20008052c0035fd6`），在 16.6.1 的核上
 完全正确——那个函数是普通 arm64，入口前后全是普通 `ret`。
 
-27 的核不是这样。实测两个真实内核同一个函数（`E:/k60-work/scratch/inspect_armcpu_prefix.py`）：
+27 的核不是这样。实测两个真实内核同一个函数（`E:/iOS Port/Work/scratch/inspect_armcpu_prefix.py`）：
 
 | 内核 | 补丁点 | 紧邻入口 | 函数尾部 0x900 内 | 整个镜像 |
 | --- | --- | --- | --- | --- |
@@ -7523,3 +7523,650 @@ flag) yet」；`CPU_SUBTYPE_ARM64E_KERNEL_PTRAUTH_ABI_MASK = 0x40000000` 只在 
 一般化教训：判「我们的产物没问题、是消费方太严」之前，要做两件事而不是一件——按 P-280 把消费方
 接受过的同类产物逐字段摆开，**并且**确认自己的工具链能不能表达它要求的那个值。一个只会写一种形式的
 编译器是流水线的缺陷；修法要落在能把值写对的地方，并配一个拒绝代劳其余字段的门禁。
+
+## P-286 — 门禁读基础表而不是生效表，等于在量一棵没人编的板子
+
+2026-11-21，`scan/check-ios27-geometry.py`（从 xNekom `19ae38bc` 拣来）报 `error: [payload.adt].random_seed is not pinned`，而我们这次构建**确实**钉了 seed。真因是它读 `board['payload']['adt']` 这一层，而本板把 27 的值放在 `[os_overrides."ios-27.0.1-24A446".payload.adt]`，基础表仍是 16.6.1 的身份。框架解析板级配置的顺序是 `profiles/arch/<arch>` → `soc.toml` → `profiles/os/<os>` → 设备 `board.toml`，最后才合并 `[os_overrides."<profile>"]` 并按其 `remove` 删键（`scripts/unixnu/profiles.py:9-65`）。
+
+一条门禁如果自己吞 `tomllib.load(board.toml)` 就直接查键，它量的永远是**基础表**——也就是「没选任何 profile 时的那块板子」。危险方向是双向的：基础表有、override 删掉的键会假通过；基础表没有、override 补上的键会假失败（本例）。
+
+正确形状：门禁必须复刻框架的合并语义。`scripts/check-ios27-geometry.py` 现在有 `merge(base, overlay, remove)`（递归字典合并 + 按点号路径删除）与 `profiles_named(board)`（读 `[board].os_profile` 找对应 override），并把它正在量的 profile 名字打进输出：`geometry: profile ios-27.0.1-24A446`。没有这个名字，读数就无法与某次构建对应。
+
+一般化：**任何「读配置文件做判定」的门禁，都要声明它读的是哪一层**，并把层名打进输出；读基础表而不声明，迟早会去校验一棵没人编的树。
+
+## P-287 — 三份审计互相矛盾时，判据在构建产物里，不在任何一份报告里
+
+2026-11-21，官方页 `drivers/uefi-drivers` 要求固件卷带 `DiskIoDxe`、`EnhancedFatDxe`、`UniXNURamDiskDxe`。三份独立审计给出两种结论：一份说三个都在（`Include/DXE.inc`、`Include/APRIORI.inc` 里）；一份说只有 `UniXNURamDiskDxe`、缺另外两个；还有一份说 `UniXNURamDiskDxe` 在 DSC 里有、FDF 里没有。
+
+三条说法都能自圆其说，因为它们各自只读了一处：DSC 的 `[Components]`、FDF 的 `[FV.FvMain]`、或某个 `Include/*.inc`。真正决定的是**包含链**：`mondrian.fdf:61 [FV.FvMain]` 在 `:82` `!include Include/APRIORI.inc`、`:83` `!include Include/DXE.inc`，于是那 13 行直接 INF 之外还有 66 行从两个 `.inc` 里进来——`DiskIoDxe.inf` 在 `DXE.inc:26`、`Fat.inf` 在 `DXE.inc:28`、`UniXNURamDiskDxe.inf` 在 `DXE.inc:33`。
+
+第二层判据在**产物**里：`Build/mondrianPkg/DEBUG_CLANGPDB/AARCH64/{DiskIoDxe.efi,Fat.efi,UniXNURamDiskDxe.efi}` 三个文件都在。只看源码里有没有那行 INF，无法区分「列了但没编」和「真的进了卷」。
+
+现在这条判据是 `scripts/check-uefi-volume.py`：读 `[FV.FvMain]`、跟着 `!include` 递归、按 `[section]` 限制作用域，然后要求每个必需驱动既**被列出**又**有 `.efi`**；只要一个不满足就退 1，平台读不到退 2。六个自检里包含「列了但没编」与「include 出现在别的 FV section 里」两个假通过方向。
+
+一般化：**多份报告互相矛盾时，不要投票，去读决定它的那个文件链和那个产物**；并且把这次读法变成门禁，让下一次不必再投票。
+
+第二例，同一晚：一份审计报告说「`dts/mondrian.dts` 里 0 处 `unixnu,cluster-type`，所以 SM8475 的核簇没有声明」。那个文件确实 0 处——它只有一行 `/include/ "sm8475.dtsi"`，八个 cpu 节点的 cluster-type 全在被包含的 SoC dtsi 里（`sm8475.dtsi:22-59`），编出来的 `hardware.dtb` 里也确实有 8 处。判据在包含链和产物里，不在被审计的那一个文件里。
+
+两次的错法是同一个：**把一个文件的独立程度当成了事实的独立程度**。
+
+## P-288 — 同一个页面写两遍就是"两页"，覆盖率会因此虚高
+
+官方页审计按批返回 JSON，`path` 一处写成相对 `docs/zh` 的名字、一处写成
+`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/...` 的绝对路径。报告按字符串比对，于是同一页
+在表里出现两次：一次算"已审"，一次算"注册表里没有这个页面"——一个真页面被判成
+未知，另一个真页面被算成没读，`never audited` 反而变小。
+
+修法是把引用在入口处归一化（`page_name()` 截到 `docs/zh/` 之后、统一斜杠、
+去掉前导 `./`），并让"同一页出现两次"成为失败而不是相加。
+
+一般化教训：**任何"覆盖率"都要求键是规范化的**。同一实体的两种写法在计数上等价于
+两个实体，而计数恰好是这类报告最容易被相信的部分（P-281 是同一枚硬币的另一面：
+把计数按读者以为的含义命名）。
+
+## P-289 — 报告里的字段可以是常量：`missing_address_space` 从来没被测过
+
+`kernel.json` 有一个 `missing_address_space` 字段，值是 `"output collection"`。它读起来像
+「这些未配对地址属于输出集合的地址空间」，实际是 `fileset_emit.py:740` 里写死的字面量：
+
+```python
+'missing_address_space': 'output collection',
+```
+
+同一份报告里 `loadable`、`runtime_qualified` 也是常量（`False`），所以任何据此推断「这些
+指针是安全的 / 那些指针指错了空间」的结论都没有依据。真实情况只能靠测量：把 19 个未配对
+目标与输出集合的段表对照，得到 13 个落进无关节、6 个落在全部段之外。
+
+这条与 P-279（读不到被当成没有）、P-281（计数按读者以为的含义命名）同一族：**报告字段必须
+能指回一段真正计算它的代码**。
+
+## P-290 — 一条永远为红的规则等于没有规则
+
+`iron-14` 的 `check` 直接跑 `eight-step-gate.py --flash`。那个门禁在飞行欠账没还清时**按设计
+是红的**，于是「规范与铁则门禁」这套东西永远红一条，所有人（包括我）就开始把红当背景色——
+这正是 P-251「永远为真的门禁」的镜像：**永远为假的门禁同样不提供信息**。
+
+判据：规则注册表里的每条 check 必须在「当前状态合规」时能变绿。真正上机前的拦截点应该在
+上机入口（`scripts/flash.sh` 调 `--flash`），而不是常驻注册表。同理 `iron-15` 检查「只读参
+考仓落后」也属于债务而不是违规：改成只对「fetch 过期 / HEAD 移动」报错，落后用 note 打印。
+
+## P-291 — 闭门造车：先设计再看参考源，等于把别人的答案重新猜一遍
+
+一天里两次同一个形状。第一次是加载器：我先把「catalog 的 DarwinBoot 拒绝 MH_FILESET」写成
+结论，理由是本地工作副本的旧守卫；而 `components.toml` 固定的 `3c75734` 早就接受
+filetype 12 与 arm64e 的 subtype 掩码，Apple 自己的 24A446 kernelcache 也是 305/305
+子头 `0xc0000002`。第二次是 prelink 残留：我准备把它当成「必须清零」的阻塞，直到翻到
+`profiles/os/ipados-27.0.1-24A446/profile.toml` 的 `regression_policy` 与那份
+`prelink-regression.json`——**能进 SpringBoard 的 iPad17,3 基线自身就带着 missing 2 /
+stubbed 24（10 bundle）**，文件自述 "This bounds regressions, not runtime qualification"。
+
+两次都不是「参考源里没有答案」，而是「还没去读就先开始设计」。代价是可量化的：一天，
+以及一版建立在错误前提上的补丁。
+
+判据（现在由 iron-16 强制执行）：每个仍 open 的阻塞必须在
+`docs/engineering/IOS27-REFERENCE-FIRST.toml` 里有**至少两条**读数，每条给
+`source/path/line/what/verdict`，路径与行号必须当场解析得开。写不出读数不是「参考源没写」，
+是**还没读**；行号解析失败不是门禁噪音，是「该回去重读」的提醒（P-259 家族）。
+
+一般化：把「我查过参考源」从叙述变成**可以被机器重放的证据**。同族教训：P-251（永远为真）、
+P-279（读不到当成没有）、P-290（永远为红）、P-289（字段可写死）。
+
+## P-292 — 没有基线的残留数字，等于每次都在和昨天没记过的自己比
+
+「还剩 203 个桩」这句话在我们仓库里飘了一天。它既没说是好是坏，也没说比昨天多了还是少了，
+更没法回答「这次改配置有没有让它变差」。上游对同一个问题的处置是把残留写成
+`regression_policy`：`scripts/unixnu/kernel.py:300` 的 `check_prelink_regressions` 把记录里的
+地址减去 `collection_slide` 还原成原始地址，逐 owner 比对计数——**只允许变小**，并要求
+`required_original_branches` 全部在场。
+
+我们照抄了这条判据（`scripts/check-prelink-regressions.py`），并把 build 20 的
+**208 个缺口（3 missing + 205 stubbed，28 个 owner）** 登记成 `IOS27-PRELINK-POLICY.json` 的
+基线。三条附加判据是上游没有的：基线条目**消失**也算陈旧债务（P-259：写死的旧值会静默过期）、
+`required_original_branches` 为空时必须带**有到期日**的 waiver（P-290：永远为真的条款不是条款）、
+记录文件不存在时退 2 而不是 0（P-279：判不了不是通过）。
+
+一般化：**任何「还剩 N 个」都必须先有 N₀**。没有 N₀ 的数字只能用来写报告，不能用来判断今天
+比昨天好还是坏，而后者才是门禁存在的理由。
+
+## P-293 — 没有官方出处的步骤就是猜，猜的代价是一次上机
+
+2026-11-21 我为了让 27 的文件集内核被接受，直接改了固件里的 `DarwinBoot.c`（把 catalog pin 的
+`ParseKernelHeader` 移植到 vendored 副本，PE 从 `cb175e4d…` 变成 `52b064d6…`），随后让这张卷进了
+三张要上机的镜像。三张全是黑屏，连固件界面都没有，设备每次都要人工长按电源复位。
+
+事后核对官方文档，缺的正是三处有明确写法的步骤：
+
+1. `porting/uefi-firmware.md#required-integration` — 固件 DSC/FDF 的六项必需模块与库映射，改加载器
+   属于改这条链，改完必须按该节逐项复核，而不是只看「解析能过」。
+2. `building.md#build-artifacts` — 内核/package/固件/payload/bootimg 的构建顺序与产物核对。
+3. `guide/debugging.md#green-bar` — 画面停在加载器交接阶段时，官方给的是绿条 + 入口探针 + 串口日志
+   这一套判据；我当时既没画探针也没记录 `DARWINBOOT:` 日志，等于把「有判据的故障」当成「随便再飞一张」。
+
+**教训**：可以自己写代码，但不能自己发明流程。凡是「下一步做什么」的问题，答案先到官方文档里找
+到具体一节；找不到才说明这是文档缺口，那也要先记录下来再动手。
+
+**门禁**：`scripts/check-official-steps.py`（账本 `docs/engineering/OFFICIAL-STEPS.toml`）——
+构建脚本里每个 `unixnu` 子命令都必须有一行账本，且该行指向的页与锚点必须在官方文档镜像里真实存在；
+账本或镜像缺失时退 2（判不了不等于通过）。
+
+## P-296 — 两份材料各自自洽，拼起来才矛盾
+
+**现象**：v2 的 wire 把 `target`@52 写成「扫出映射里的字节偏移；0 = 没有 dbuf」，参考实现的注释
+写的是同一个词（「字节偏移」）。两份材料单独读都自洽。但参考实现里 `db[0].offset` 恰好是 0
+（zizhan `PongAdrenoScanout.cpp:547`），而 `dbTarget()` 返回的是**索引**（`:436-456`），消费点全按索引
+（`:1368`、`:1276`）。两句话拼起来才矛盾：`0` 既是「第 0 块」也是「没有」。
+
+**真因**：字段的**缺席值落在合法值域内**。尺寸还相同（偏移 52，帧仍 56 B），`static_assert` 只能钉住
+偏移，钉不住含义。
+
+**为什么危险**：fail-open。内核写 0（单缓冲）、presenter 把 0 读成第 0 块，两段代码都不报错；
+第一次双缓冲飞行表现为「跳过翻页、帧停在旧缓冲」——没有错误码、没有日志行，屏幕上只是一帧不动。
+而尺寸一致性检查全部通过，所以 review 也拦不住。
+
+**修法**：索引 + 1（0 = 无 dbuf，1..N = `db[i-1]`），或换哨兵 `0xFFFFFFFF` 让缺席值落在值域外。
+采用前者（消费点一次 `-1`，比每个点一次哨兵比较便宜）。改后尺寸不变，所以断言不需要改。
+
+**教训**：跨线会签只签「尺寸与偏移」不够——语义要单独签，并且要把两份材料拼起来跑一个最小例子
+（把 `db[0].offset` 与「0 = 无」并排放）。凡是「缺席」与「第一个」可能是同一个值，就让缺席落在
+值域外。
+
+**门禁**：`scripts/check-gpu27-target-index.py` 从 `GPU-27-V2-FIELDS.md` 读口径标记（标记消失即退 2，
+不许静默通过），再扫消费点的 `db[...]` 形式：index+1 口径下出现 `db[frame.target]` 就红；把口径改成
+raw 时 `db[frame.target - 1]` 同样红（两份反例夹具固定在 `fixtures/gpu27/` 里）。今天休眠（树里还没有
+`.target` 消费点），`--strict` 时休眠算红。
+
+
+## P-298 — 板级 ADT 节点只在 board.toml 里「写对了」
+
+**现象**：27 设备仓 board.toml 的 `[adt.buttons.*]` 与 `[adt.arm-io.pong-*]` 一直写得很齐，`tomllib` 解析通过、
+字段个数与取值都对，但没人核对这些字段是否真的进了生成的 ADT。2026-11-12 两次 upstream pick 把
+`[adt.arm-io.pong-buttons]` 删掉之后（`97b84eb7` 加、`3b3ff9ce` 删），仓内 board.toml 只剩 `[adt.buttons.*]`，
+没有任何检查红过——那些节点当时只活在 `/opt` 装配输入里（同一件事见 `docs/research/EIGHT-STEPS.toml:406`）。
+
+**真因**：board.toml 与 ADT 字节之间隔着 `devicetree.py` 的发射条件：`/buttons` 只在 platform 里有 buttons 时
+发射（`scripts/unixnu/devicetree.py:388-390`），`/arm-io/*` 只从 `[adt.arm-io.*]` 发射（`:384`），硬件 dts 还要
+先过 `dtc`（`:422`）。表级解析成功 ≠ 节点进了 ADT 字节。
+
+**为什么危险**：驱动按精确名断言节点（`pong_buttons.c:42`「Pong keys: DT node /arm-io/pong-buttons not found」、
+`:45-50` 六个属性、`:56-58` ppid 不匹配），节点没了驱动就静默 SKIP；内核照常启动、不 panic，只有按键与触摸
+消失，而构建与表级检查全绿。
+
+**修法**：把「生成 ADT 再逐属性比字节」做成判据。硬件 dts 经 `dtc -I dts -O dtb` 编出 dtb、再
+`dtc -I dtb -O dts` 反编译回文本（往返合法才证明输入是真 FDT），走仓内 `devicetree.py:311 generate()`
+（与 payload 同一条路径），解码 ADT 后逐属性比字节。实现见 `scripts/gen-27-adt-buttons.py`。
+
+**教训**：板级节点的正确性有两层——表里写对、字节里有；只测一层的门禁会在 pick 或合并时静默放行。
+
+**门禁**：`RULES.toml` 的 check 是一行零依赖 `python3 -c`（宿主 Windows 侧没有 `dtc`，门禁跑表级核对；
+字节级由 `scripts/gen-27-adt-buttons.py` 在 WSL 跑）。反例已实测：删掉 board.toml 里的 `home-button-type` 与
+`pon-ppid` → `FAIL: /buttons home-button-type, pong-buttons pon-ppid`，rc=1；真板 rc=0，输出
+`ok input-adt-nodes: …`。
+
+### 报「我这棵树编不过」必须同时给三样东西
+
+同一族错误在 2026-11-21 又出现一次：线内报「27 设备仓的 `dts/mondrian.dts` 今天编不过」，实际是**它读的那棵检出 stale**。逐项对齐后是两棵树两个阶段：
+
+| 项 | 报错的那棵 | 实际那棵 |
+| --- | --- | --- |
+| 检出 | `E:/iOS Port/Sources/Repos/UEFI/xnekom-ios27` | `E:/iOS Port/Sources/Hardware/k60-gates` |
+| 分支 / HEAD | `feat/xnu27-data-gate` @ `7fd04d89` | `diag/menu-hold-20261121` @ `988f7ee8` |
+| `dts/mondrian.dts` sha256 | `e9871e43…`（缺 `/*`，dtc 报 syntax error） | `ea688315…`（零诊断，4,307 B） |
+
+因果链：合并提交 `585fe75a` 把 `1e2e6814` 那段注释开头的 `/*` 丢了，修复提交 `e1b6c15f`（`dts/mondrian.dts | 2 ++`）已经在 `remotes/emilelu/main`，那棵 stale 检出还没带它。
+
+判据（写进报告前必须齐）：`git rev-parse HEAD` + 该文件 `sha256` + 完整工具输出。三条不齐，就不许把「编不过 / 跑不了 / 不生效」写进坑位或交付报告——缺任何一条时，先怀疑自己读的是哪棵树，而不是别人的仓库。与 P-297 同族：**没跑出结论不等于结论是坏的**，读错对象不等于对象是坏的。
+
+### 交付补丁前必须在目标分支上 `git apply --check`
+
+同一族第三次：本线把一处 dts 修复以「可直接 apply」交给 Lead，而该修复早已在目标分支落地（`e1b6c15f`），
+再插一行 `/*` 就成了嵌套注释。在目标分支上 `git apply --check` 会立刻报
+`patch failed: dts/mondrian.dts:95` / `patch does not apply`——我此前只在「我以为的基线」上验过，所以没看见。
+
+规矩：任何交出去的补丁，先**在目标分支上**跑 `git apply --check`，把输出粘进报告；在别处验过不算。
+
+同一件事的另一半（2026-11-21 当场学到）：**已落地的补丁再 apply 必然失败**。本线的
+`pitfall-p298-p299.patch` 随后在 `diag/menu-hold-20261121` 上报四处 `patch does not apply`，而
+`RULES.toml` 里 `P-298`/`P-299` 已经在（`:1313` 处，179 条规则末两条）。那不是上下文漂移、更不是补丁坏了，
+是它已经被 apply 过——所以 `apply --check` 失败时先查目标里有没有，而不是先改上下文。
+
+
+## P-300 从别的 OS 线继承来的仪器是假设，不是资产
+
+27 线的内核里**没有任何控制台接收端**。`llvm-nm --defined-only` 在 16.6.1 内核上
+有 `_pong_ramoops_console_init` / `_pong_ramoops_console_write` /
+`_k60_usblog_console_up` / `_k60_console_export_sysctl`，在 27 内核上只有
+`_k60_serial_clock`。装这套东西的四个补丁（`zzzzz-pong-ramoops-minimal`、
+`0232`、`0243`、`0300`）只在 16 系列，`patches/xnu-12377/series` 里一个都没有；
+27 现有的 `0543`/`0544` 是往屏幕上画字，不是往串口送字。
+
+于是两次 0 字节飞行被读成「内核在 console 起来之前就死了」，而真相是**我们听不到**。
+十道门禁全都在问「镜像会不会被接受」（参数预算、头、加载器契约、prelink 闭合），
+没有一道问「内核有没有话要说」。
+
+**两层原因，都要记。**
+
+1. 参考源不可能给出这个答案：sheng 的 18 条 27 补丁里 `ramoops`/`console_write`/
+   `usblog` 命中 **0**（`grep -lie` 逐个补丁）。它不需要串口就进了系统，所以
+   「仔细对比 sheng」这条路本身查不出缺口——它也从来没有这条仪器。对比能做的是
+   别的三件事（`--lto` 参考、`sheng_sigp_recover`、T0SZ 两个载体），这三件我们取到了。
+2. 官方文档这一层**只取了一半**：`porting/log-capture.md` 是 mapped，但挂的断言是
+   「console arguments are on the command line」（`check-image-args.py`）——那是
+   **参数**那一半；`guide/debugging.md` 至今 `unmapped`，从没被审计过。把一页里
+   能机器判的那半条映射掉，就宣布这页做完了，是这次漏检的直接机制。
+
+判据：`scripts/check-kernel-console.py --kernel <path>` 在符号表里找一个接收端
+（四个里任一），一个都没有就退 2；带 `--flight` 时退 2 并给出修法。反向对照是
+16.6.1 内核（必须过）与 0546 之前的 27 内核（必须不过），两条都写进自测。
+
+
+## P-299 — 上游 pick 会把别人正依赖的 board.toml 块先加后删
+
+**现象**：2026-11-12 的两次 upstream pick 落在同一个 `board.toml` 上：`97b84eb7`（21:33，「pick 88 commits」）
+加进了 `[adt.arm-io.pong-buttons]`，两分钟后 `3b3ff9ce`（21:35，「never let a pick overwrite the board contract」）
+又把它删掉。两次提交各自都干净、都能解释，合起来的效果是：设备仓里再没有这个节点，而按键驱动仍在按
+精确名断言它。
+
+**真因**：`board.toml` 是多线共写的单文件。批量 pick 时，后一条提交会把前一条刚加的块当成本地改动回退掉；
+回退只看文件差异，不看「谁在依赖这个块」。
+
+**为什么危险**：回退不报错。下游驱动按精确名查节点，查不到就 SKIP；两条线各自的检查都是绿的，
+现象要到下一次上机才出现（按键或触摸静默消失），而那时已经隔了好几轮构建。
+
+**修法**：只要有驱动按精确名断言某个节点或属性，删掉它的那次提交就必须让某条门禁红——也就是把
+「谁在断言什么」变成可检查的表（节点名 → 断言方 file:line → 现存字段）。
+
+**教训**：pick 不只搬代码，还搬「我不知道谁在依赖这个块」的风险；回退一个块的提交必须能被门禁看见。
+
+**门禁**：本条的自动判据尚未落地，`check` 暂记 `false`（恒红，提示「还没有判据」），由 Lead 挂
+`scripts/check-dt-asserts.py`。反例就是 `97b84eb7` → `3b3ff9ce` 这一对提交本身：加与删都通过了当时的全部检查。
+
+## P-301 `-D` 开关的传递通道从未被验证，于是第三次「补丁打了、代码不在内核里」
+
+**日期**：2026-11-21
+
+**现象**：`patches/xnu-12377/0546-k60-ramoops-console-27.patch` 应用成功（构建日志 `== kernel: patch
+0546-k60-ramoops-console-27.patch`），内核也链接成功，但 `scripts/check-kernel-console.py` 仍然报
+`FAIL: the kernel defines none of _pong_ramoops_console_write, _pong_ramoops_console_init,
+_k60_usblog_console_up, _k60_console_export_sysctl`。
+
+**真因**：补丁里的钩子用 `#if defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE` 守卫，
+define 由内核步的 `env "arm_init.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1"`（点号环境变量）交给构建。
+实测对象记录 `tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/serial_console.o.json`
+里该宏出现 **0** 次 ⇒ 预处理器把两处钩子整段删掉，镜像与「没打补丁」逐字节同效。
+
+对照组在同一构建里：`startup.o.json` **含** `-DXNU_NATIVE_TRUST_CACHE`，而它是 builder 自己用
+`EXTRA_MAKE_ARGS+=("startup.o_CFLAGS_ADD=…")` 传的 **make 参数**。`makedefs/MakeInc.rule:521` 的规则是
+`$($@_CFLAGS_ADD)`，接受的是 make 变量，不是「进程环境里恰好有个同名项」。
+
+**为什么危险**：文本门禁（`check-audio27-builder.py` 那类「脚本里有这行字」的断言）会全绿；`git apply`
+会成功；编译零警告；症状和「补丁根本没打」完全一样，而且**只能靠数对象里的宏或数最终符号发现**。
+这是同一天第三次同族事故（P-300 是「没有控制台所以沉默」，本条是「有钩子但被编译掉所以继续沉默」）。
+
+**修法**：这类开关的正确形态有两条，任选其一并**用对象记录复核**：
+1. 不要开关——把代码编成无条件，运行时用状态变量自我守卫（`0546` 采用：`pong_ramoops_base` 为 NULL 时
+   每次写都直接返回，init 只在 `ml_io_map_wcomb` 成功后才置位）；
+2. 要开关——走 builder 自己的 make 参数通道（`EXTRA_MAKE_ARGS+=("<obj>_CFLAGS_ADD=-D…")`），并在读回
+   `<obj>.o.json` 时确认宏在里面。
+
+**教训**：`-D` 是否生效，判据只有两处能回答——对象构建记录（`.o.json` 的 arguments）或最终符号表；
+构建脚本里的字面量、门禁里对脚本文本的 grep，都不能回答「宏到了编译器没有」。
+
+**门禁**：`scripts/check-kernel-console.py`（P-300 那条）在现象层拦住它：只要四个接收端一个都没有，就退 2。
+本条另要求：任何新增 `-D` 开关，落地时必须在提交说明里贴一次「读回 `.o.json` 的 grep 结果」。
+
+## P-303 门禁尾部有一段永远不会执行的检查
+
+`scripts/eight-step-gate.py` 在 `if __name__ == '__main__':` 里先 `sys.exit(0 if ok else 1)`，随后还有
+53 行「W. STATUS.md 与 EIGHT-STEPS.toml 硬件覆盖一致」的检查（`sec('W', …)`、`_MAP` 十项硬件名、
+`_tracked`/`_seen`/`_missing`、`bad('W', …)`/`warn('W', …)`）。这些函数在本文件里根本没有定义——
+它们是另一个脚本的片段，被粘在这个文件末尾。
+
+后果有两层，都很安静：
+
+- **它从来没跑过**。`sys.exit()` 在它之前，所以 `--build`/`--flash` 走到结论行就结束了。README 与
+  STATUS 里那句「八步记录覆盖 10 项硬件」没有任何机器在核，直到有人手动对。
+- **它让文件不可 import**。谁想写单测就得 `import`，而 import 会执行到 `sec(...)` 立刻
+  `NameError: name 'sec' is not defined`。于是这个门禁只剩下「当成子进程跑」一种测试方式，
+  而绕开 import 的测试正好不会碰到这段死代码。
+
+判据：**门禁必须可 import**，且「结论行之后的代码」等于「不存在的代码」。写单测时先 `importlib`
+加载一次，`NameError` 会当场把它变成红。
+
+实测（2026-11-21 23:36）：删掉那 53 行（452 → 399 行）后 `import` 通过，`choose_ledger('ios-27.0.1-24A446')`
+正常返回 27 账本路径；`scripts/tests/test-eight-step-ledger-choice.py` 11 例全过。若要恢复那条覆盖检查，
+它必须**在 `sys.exit()` 之前**被调用，且自带 `sec`/`ok`/`bad` 的实现或被删。
+
+## P-302 门禁读的是另一个操作系统的账本
+
+`scripts/eight-step-gate.py:55` 把 `DATA` 写死成 `docs/research/EIGHT-STEPS.toml`——那是 iOS 16.6.1
+（20G81）的八步账本。这棵树已经是 iOS 27.0.1（24A446），xnu-12377 里没有 16 线的文件，于是
+`--flash` 每次都拒绝：
+
+- `P-122` / `P-126` / `P-140` 三条在 `RULES.toml` 里已不存在（16 线编号在那次重排里改过号）；
+- `build-pong-adreno-platform.py:96`、`NativeUfs.cpp:146`、`iokit/Kernel/MiniIOMobileFramebuffer.cpp:1032`、
+  `docs/zh/porting/display.md:80`、`ButtonProbe.cpp:26` 五个文件在 27 树里不存在。
+
+实测（2026-11-21 23:05，`scripts/flash.sh` 对 `boot.img 227fa840…`）：`通过 54 项检查 / 问题 18 处`，
+全部是上两类。27 线自己的账本 `docs/research/EIGHT-STEPS-27.toml`（56 个 `[hardware.*]`，由
+`scripts/assemble-27-eight-step.py` 生成）**根本没被读过**。
+
+两个后果：一、27 上任何飞行都被拒，连「固件侧读数器」这种不改硬件的诊断也一样；二、如果有人
+为了让门禁变绿去改证据串，账本就会记下「16 线的文件在 27 树里通过检查」这种不成立的事。
+
+判据：门禁选账本必须与选 defconfig、选 device-tree 同源——按 `board.toml` 的 `os_profile` 选，
+且两个账本的 schema 差异（27 的 `evidence` 是列表、每项有 `why`/`revisit`）必须在读取层收敂，
+不能靠改内容对齐。修法见 `docs/engineering/IOS27.md` 的同日条目。
+
+## P-304 路径拼接把 Windows 盘符引用全部判成「文件不存在」
+
+**症状**。八步门禁对 27 账本报了 15 处问题，其中 7 处是「引用解析不到」。逐条看文件都在：
+`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb:1`、`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:30` 都能打开。
+
+**机制**。两层叠加，任一层单独都不显形：
+
+1. 门禁的正则是 `[\w./-]+\.(?:ext):\d+`，`E:` 里的冒号不在字符集里 ⇒ 匹配从 `E:` **之后**开始，
+   得到 `/k60-work/reports/...`（前导斜杠是 `E:/` 的第二个字符）。
+2. `resolve_file_line` 用 `Path(base) / path` 拼候选。**pathlib 在右侧是绝对路径时会丢掉左侧**
+   （`Path('/mnt/e/iOS Port/Work') / '/k60-work/x'` 等于 `/k60-work/x`），于是候选指向文件系统根，
+   而 `EVIDENCE_ROOTS` 里的前缀一次都没被用上。
+
+**判据**。
+
+- 锚点正则前面加 `(?:[A-Za-z]:)?`，让盘符进入匹配；
+- 解析走一个显式的候选生成器：`E:/x` → `/mnt/e/x` 与 `E:/x` 两形态；前导 `/` 时同时试原样和
+  「每个根 + `lstrip('/')`」；候选去重后逐个 `is_file()`。
+- 测试要覆盖「盘符形态映射到 `/mnt/<drive>/`」这一条，不能只测相对路径——只测相对路径时
+  两层缺陷都碰不到。
+
+**同类**。这与 P-227 是同一个家族（MSYS 把 `/mnt/e` 解析成 `E:\mnt\e`），区别是这次发生在
+**门禁内部**，症状是「证据文件不存在」，看起来像账本写错了。
+
+## P-305 与参考源的「合规」只能逐字段比对，不能凭「照它写的」
+
+**症状**。为了回答「当前 27 内核镜像是否严格遵守官方文档、严格参考 Sheng」，我先凭记忆列了
+一张「已符合 / 已偏离 / 未知」的表。写脚本逐字段比对后发现，凭记忆漏掉的不是细节而是整块：
+`board.toml` 里我们**根本没有 `[kernel.prelink]` 段**（Sheng 声明 44 个 root），
+defconfig 我们 8 个键、Sheng 19 个键。
+
+**第二个症状**（同一轮内自伤）。检查器第一版用**我们的** OS profile 名去查 Sheng 的
+`[package.defconfig]`，于是 Sheng 那边一律显示「absent」——两边都没读到值，
+却在输出里长得像「Sheng 没有 defconfig」。改成各查各自的 profile 之后 `SAME` 从 6 变 10。
+
+**判据**。合规性是可复核的**差分**：
+
+1. 两侧各用**自己的标识符**查表（profile 名、defconfig 名、路径大小写），
+   绝不能拿一侧的名字去读另一侧。
+2. 差异分三态：`same` / `justified`（有理由且理由引用的文件可解析）/ `GAP`。
+   缺一段配置不是「没有差异」，是 `GAP`——`(absent)` 必须显示出来。
+3. 只有 `GAP` 归零才能说「严格参考」。`CONFORMANCE.md` 写死「GAP 数必须单调下降」，
+   `prelink-root:*` 不许用「stage-0 不需要」冒充理由：roots 决定集合里有哪些 kext，
+   它直接决定那 203 个桩会不会被调用。
+
+**工具**。`scripts/audit-ios27-conformance.py`（9 例测试）+ `docs/research/ios27/CONFORMANCE.md`
++ `docs/research/ios27/CONFORMANCE-DEVIATIONS.toml`（理由与证据）。首跑读数
+`SAME 10 / JUSTIFIED 34 / GAP 47`，全部 GAP 都是 prelink roots；官方 registry 103 页里
+mapped 21 / na 4 / unmapped 78。
+
+## P-308 内核起来了、控制台也画了，但每一个 kprintf 都是空操作
+
+**症状**。27 stage-0 的四次飞行里，屏幕能显示固件的红/蓝/绿黄见证（GOP `Blt`），
+也能看到视频控制台的白色竖线 `|`（`vcputc` 画的光标），但**一行内核文字都没有**。
+于是所有「内核死在 console 初始化之前」的判断都建立在「它没打印」上——而它本来就不打印。
+
+**机制**。`pexpert/arm/pe_kprintf.c` 里：
+
+- `:26-27` 两个门都是 `SECURITY_READ_ONLY_LATE(bool) … = true;`
+  （`disable_serial_output`、`disable_kprintf_output`）。
+- `PE_init_kprintf_config()`（`:38-57`）只做三件事：
+  `if (debug_boot_arg & (DB_KPRT | DB_PRT)) { disable_serial_output = false; }`；
+  `#if DEBUG` → `disable_kprintf_output = false;`；
+  `#elif DEVELOPMENT` → 只有解析到 `-enable_kprintf_spam` 才 `disable_kprintf_output = false;`。
+- `kprintf()`（`:110`）的第一道门是
+  `if (!disable_serial_output && !disable_kprintf_output) { … }` —— 两个都得是 false。
+
+我们的 27 构建是 **DEVELOPMENT**（`MACHINE_CONFIGS=BCM2837 KERNEL_CONFIGS=DEVELOPMENT`），
+不是 DEBUG；`debug=0x14e` 的位是 `DB_HALT 0x1 | DB_PRT 0x2 | DB_KPRT 0x8 | 0x144`，
+`0x14e & (0x2|0x8)` 非零 ⇒ 只清 `disable_serial_output`，**`disable_kprintf_output` 仍是 true**
+⇒ 每个 `kprintf` 都在第一道门返回。
+
+**为什么难看出来**。`vcputc` 不走 `kprintf`，所以「光标画出来了」恰恰**不能**证明
+`kprintf` 通路是通的；而 `debug=0x14e` 在 16 线（DEBUG 构建）是能打印的，于是同一个参数
+在 27 上行为不同。判据只能落在「内核镜像的构建类型 + 启动行有没有那个参数」两处，
+不能落在「屏幕上有没有字」。
+
+**判据**。`board.toml` 的 27 `kernel_args` 必须含 `-enable_kprintf_spam`；
+`check-boot-args.py` 把它算进「已声明范围的参数」；飞行的判据改成「出现内核文字」。
+
+**代价**。这条错误让四张镜像、四次上机、约两小时都花在「为什么它不说话」上，
+而它从第一张镜像起就不可能说话。
+
+## P-307 仪器的寿命必须写进判据：ramoops 只在同一次上电周期内存在
+
+**事实**。ramoops 落在 DRAM（`0xa7000000`，4 MiB），长按电源、复位或断电都会让 DRAM 归零，
+内容必然丢失。这条 2026-10-30 就记进 `docs/archive/PROGRESS-2026-10-30-PM.md` §三，
+`docs/research/ios27/CONSOLE-GAP.md` 的四问表也引了它——但一直没落成 `RULES.toml` 的条目，
+于是同一个错误又犯了一次：我为「第二次 boot 读上一次日志」设计了整套飞行方案，
+被用户当场指出「一复位就断电，内存就清掉了」。
+
+**判据**。`scripts/check-channel-lifetime.py`：任何被当作仪器的通道，其文档必须显式写
+`instrument:` 并回答四问——`lifetime` / `read_moment` / `writer` / `loss_condition`。
+缺一条就红；答案里出现「复位后仍在」而通道是 DRAM 环时直接判错。
+
+**顺带的反证**。固件 `FrameBufferSerialPortLib.c:255-274` 的 `RamoopsInit()` 每次启动
+`ZeroMem(RAMOOPS_BASE + 0x10, 0x200000 - 0x10)`（注释 `fresh log per boot`），
+所以连「同一次上电」的旧内容都不会留——这个自擦是 `RamoopsDumpDxe` 读不到内核日志的第二个原因。
+
+## P-306 预链接 root 列表是从别的板子抄来的，抄完没人判过
+
+**症状**。`audit-ios27-conformance.py` 首跑报「我们缺 44 个 prelink root」。逐条查下去发现两件事：
+
+1. **工具先错了一次**：我只读了 `board.toml`，而有效的 kernel spec 是 arch → soc → os → device
+   四层合并。构建日志里 `--root com.apple.driver.AppleMobileFileIntegrity` 等 30 条其实都来自
+   OS profile。修正后 `GAP` 从 47 落到 17，`SAME` 从 10 升到 40。这与 P-305 是同一形状：
+   **比错了层，结论就整块是假的**。
+2. **剩下的 12 条是真缺**：`IOUSBHostFamily`、`IOUSBDeviceFamily`、`AppleUSBXHCI`、
+   `AppleUSBHub`、`AppleUSBHostCompositeDevice`、`IOUSBHostHIDDevice`、`IOHIDEventDriver`、
+   `IOSCSIArchitectureModelFamily`、`IOSCSIBlockCommandsDevice`、`IOUSBMassStorageDriver`、
+   `AppleUSBDeviceMux`、`AppleUSBXDCI` —— 全是 USB / HID / SCSI 家族。Sheng 有，我们没有。
+   而我们的 USB 控制台工作（`0243`/`0300`）正是靠这些 kext 才可能被调用。
+
+**为什么不能直接抄**。`fileset_emit.dependency_closure()` 对不在 kernelcache 里的 root 直接
+`raise ValueError('Missing prelink dependency: …')`，而 `profiles.merge()` **替换**列表而不是追加
+⇒ 设备层要么一个都不写（继承 profile），要么写全（含 profile 那 30 条）。抄错一个名字，
+构建在 prelink 阶段崩，且崩的是 10 分钟之后。
+
+**判据**（`scripts/check-prelink-roots.py`，8 例测试）：
+
+1. 无重复条目；
+2. 每个被包含的 root 在**我们预链接的那份 kernelcache** 里存在（323 个 bundle，逐个核）；
+3. 任何 bundle 不能同时是 root 与排除项（`!bundle`）；
+4. 列表必须覆盖 OS profile 声明的每一条（设备层替换语义下，漏一条就是悄悄缩窄集合）；
+5. kernelcache 读不到时是「无法判定」（打印 note），不是「通过」——P-279 形状。
+
+**结果**。`board.toml` 新增 `[kernel.prelink].roots`：42 个包含 + 2 个排除
+（`!AppleOnboardSerial`、`!AppleSMC`，Sheng 自己的注释说明它们只经 metaclass 到达），
+合计 44，与 Sheng 同数。加上这份列表后 `audit-ios27-conformance.py` 读数
+`SAME 55 / JUSTIFIED 36 / GAP 0`。
+
+**还没证的**：这 12 个家族进了集合之后，prelink 残留（94 项无地址 / 203 项落桩）会不会变、
+`bsd_init` 是否因此更容易走到 —— 那要一次构建 + 一次日志，不是靠列表能推的。
+
+
+## P-309 — 门禁报文件名时截掉第一个字符，等于把可行动的信息换成噪声
+
+**现象**。构建被 registry 拒绝，报文写：
+
+```
+❌ iron-2  - 2 tracked file(s) modified but not committed (iron rule 2): oard.toml, scripts/check-kprintf-enabled.py
+```
+
+`oard.toml` 在仓库里不存在；实际文件是 `board.toml`。两个文件里只有一个能被 grep 到，另一个是噪声。
+
+**根因**。`scripts/check-tree-clean.py` 用 `line[3:]` 切 `git status --porcelain`
+的行，假定前缀恰好三个字符；一旦 porcelain 给出别的形状（或行首空白被吃掉），
+切出来的路径就少一个字符，而报文本身仍然「看起来正常」。
+
+**修法**。新增 `path_of(line)`：`line.split(maxsplit=1)[1].strip()`，保留 rename 的
+`old -> new` 形态；`scripts/tests/test-check-tree-clean.py` 在临时 git 仓库里复制
+该脚本、修改 `board.toml`，断言输出含 `board.toml` 且不含截断形态。
+
+**教训**。门禁的产物是「人下一步要执行的动作」，文件名、行号、命令三者任一不可
+grep，门禁就只是把问题换了一种表现方式。
+
+## P-311 — anchor-drift 必须附锚点命中证据
+
+**事实**。2026-11-23 的 iOS 16 补丁分类把 35 个补丁标成 `anchor-drift`（“锚点漂移，重切即可”）。
+抽查三个（`0218`/`0222`/`0234`）发现它们要的锚点 `if (actual != device ||` 与 `k60_watch_thread`
+在 27 的 `bsd/kern/kern_exec.c`（9,078 行）**一次都不出现**：它们依赖的是 16 线 `load_init_program`
+那一带的代码，27 用 `native_owner_data_mount`。这不是漂移，是这棵树从来没有过那段东西。
+
+**规则**。任何 `anchor-drift` 判定必须附一条可复现的命中证据——
+`grep -F '<anchor>' '<27 file>'` 的真实输出行与行号。贴不出来就只能判
+`missing-file` 或 `sixteen-only`，不许判 `anchor-drift`。门禁：`scripts/check-anchor-evidence.py`
+读分类报告（TSV，`category`/`note` 两列，`note` 里写 `anchor=\`...\``）逐条核。
+
+**为什么**。`anchor-drift` 的含义是“补丁本身可用，只需挪几行上下文”，它会直接进移植队列；
+`missing-file` 的含义是“目标机制不存在”，它进的是 `not-applicable` 并要写不存在的证据。
+两者混一次，就会花一整轮去重切一个没有落点的补丁。
+
+## P-310 — `-force_load` 指到的档案必须有人生产
+
+**事实**。`scripts/build-xnu-generic.sh:228-229` 在 `XNU_NATIVE_UFS=1` 时追加
+`-DXNU_NATIVE_UFS=1`，`:646` 追加 `-force_load …/build/native-ufs/libNativeUfs.a`；
+而本机唯一的生产者 `scripts/build-pong-ufs-probe-macos.py` 调 `xcrun`，Linux 上不存在。
+`drivers/NativeUfs` 的 32 个文件在树里，但不参与链接。
+
+**为什么现在没炸**。`configs/mondrian_ios27_defconfig:20` 是 `CONFIG_XNU_NATIVE_UFS=n`。
+一旦打开，链接期才会报「找不到 libNativeUfs.a」，而那时已经烧掉 10 分钟构建。
+
+**判据**。每条 `-force_load` / `KERNEL_EXTRA_ARCHIVES` 都必须有一个 Linux 可执行的
+生成步骤；没有生产者是失败，不是「跳过」。这条与 P-190（归档整段在死分支里从未链接）
+是同一族：链接输入必须两端都有人。
+
+## P-312 — 序列顺序必须由重放证明，不能由编号推断
+
+`patches/xnu-12377/series` 是按文件顺序严格 `git apply` 的：一条失败，整个 kernel 步骤就失败。
+但两条门禁都不看顺序——`check-patch-apply.py` 只证明每个补丁单独能被解析，
+`check-series-numbering.py` 只证明编号不重复。于是「series 里有 57 条、编号都唯一」可以同时为真，
+而按顺序重放时 15 条打不上（`0548` 要 `arm_init.c:98` 的上下文、`0551` 要 `bsd_init.c:1334`、
+`0554`/`0556` 要 `video_console.c:3120` 之后的状态）。
+
+判据是重放，不是阅读：`scripts/check-series-order.py` 在临时 clone 上按
+`arch → soc → os → device` 逐层应用，只有 `applied == 总条数, failed == 0` 才退 0。
+层根必须来自 `profiles.py` 的真实解析（`profiles/arch/<arch>`、soc feed、`profiles/os/<profile>`、设备仓），
+不是猜的目录；`arch:` 前缀要按 root 解析，不能当相对路径。
+
+两条反例（都发生过）：
+- 用裸 feed 重放设备层，21 条失败全是「缺 arch/soc/os 层前提」，被误读成顺序错；
+- 用 `arm64` 而不是 profile 声明的 `arm64e` 当 arch 根，18 条 arch 补丁失败，被误读成补丁坏。
+
+## P-313 — 缩放字体不能把 VC_CH 当字形位图的行数
+
+`iso_font` 一个字形固定 `ISO_CHAR_HEIGHT = 16` 字节（每字节一行 8 像素）。K60 的
+`k60_fontscale` 把 `VC_CH` 重定义成 `ISO_CHAR_HEIGHT * vc_k60_sy`，于是同一份补丁把
+`vc_render_char()` 的 `for (line = 0; line < ISO_CHAR_HEIGHT; ...)` 也改成了 `VC_CH`——
+scale=3 时它按 48 行读一个 16 字节的字形（越过两个字形），并按 48 行写
+`48 * 32 = 1536` 字节进 `static unsigned char vc_rendered_char[ISO_CHAR_HEIGHT * 4 * ISO_CHAR_WIDTH]`
+（512 字节），每个字符溢出 1024 字节。症状不是黑屏：行距、左边界、每行长度都正常，
+但每个字形变成实心色块，整屏看起来是一条条洋红横杠（现场照片 `e4027cca…`），
+极容易被误判成「显示通路没通」而转去移植整个 `GopFramebuffer`。
+
+判据是静态可判的：`scripts/check-font-render-bounds.py --tree <xnu 树>` 要求
+`vc_render_char` 的循环边界是 `ISO_CHAR_HEIGHT`，并且 `VC_CH` 只允许出现在
+`vc_reverse_cursor` / `vc_scroll_down` / `vc_scroll_up` 这三个走屏幕行的函数里。
+教训与 P-260 同族：宏代表「一个格子的高度」时，不能再把它当「一张位图的行数」。
+
+## P-314 — 固件写出的 boot_args 必须与内核读取的布局逐字段一致
+
+同一块板子上，DarwinBoot 的 BootArgs.h 与内核的 pexpert/pexpert/arm64/boot.h 是两份独立定义。
+K60 的平台头仍是 Darwin 22（CommandLine[608]、BootFlags 在 0x2d0、MemorySizeActual 在 0x2d8、
+sizeof 0x2e0），而 27 内核按 Darwin 23 读取（CommandLine[1024]、0x470、0x478、0x480）。
+字段偏移一旦错位，memSizeActual 会落到别的字段上，内核要么回退到 mem_size、要么读到垃圾。
+判据：scripts/check-bootargs-abi.py --header <BootArgs.h> --boot-h <boot.h> 四项逐字段比对。
+
+## P-315 — 跨 kernelcache 枚举出来的 slot 表不能直接用于本机
+
+legacy-display-24A446.json 的 kernelcache_sha256 记着它是从哪份 kernelcache 枚举出来的
+（sheng 的 38e6d9fa…），本机 24A446 是 fa07057b…。slots 里 213 条绝对地址中，205 条落在
+两边都有的 IOMobileGraphicsFamily 上，另外 8 个 _native_legacy_surface_* 在 sheng 的缓存里属于
+另一个 kext；在本机上加上 slide 后落进 IOThunderboltFamily，prelink 报
+Original target is not retained executable code。判据：gen-legacy-display-abi.py 在读取 fixture 后
+比对 kernelcache_sha256 与本机 kernelcache 的 sha256，不一致就拒绝生成（K60_ALLOW_FOREIGN_FIXTURE=1
+只用于查看，不得用于构建）。
+
+## P-316 — 打包进 boot.img 的内核必须是「声明 transform」的那份，不是构建产物原样
+
+2026-11-24：`unixnu build payload` 会对自己 `payload/stage` 里的副本执行
+`patch-armcpu-validate.py --apply`（把 `mov w0,#1; retab` 写进 `_validateConfiguration`），
+但 `scripts/k60-kernel-swap.py` 随后用 `$BOARD_DIR/kernel/kernel.macho`（未打补丁的构建产物）
+同时覆盖 payload 与 boot 的 ramdisk，`k60-fast-payload.py` 也拿同一份原文件。结果每次
+`check-ios27-artifacts.py` 都报
+`payload kernel.macho is not the declared transform of the kernel output (first difference at 0x15f2bac:
+payload has ff8304d1fc6f0ca9, the declared transform writes 20008052ff0f5fd6)`，而构建日志里
+payload 阶段是绿的——因为被覆盖发生在它之后。
+
+判据/修法：kernel 阶段结束后生成一份 `kernel/kernel.patched.macho`（`cp` + `patch-armcpu-validate.py
+--apply`），payload 快路径与 boot swap 都必须从这份取；`scripts/tests/test-kernel-swap-patched.py`
+禁止 `--kernel "$BOARD_DIR/kernel/kernel.macho"` 再次出现在这两个调用点。
+
+## P-317 — 固件复用键只看 HEAD，看不见未提交的头文件改动
+
+2026-11-24：为了让 Darwin 23 的 `BootArgs.h` 参与构建，我把它提交成 `8d46bc3`；随后为做 A/B 把工作区里的头文件临时改回 Darwin 22，并用 `K60_FORCE_FIRMWARE=1` 建了一张对照镜像。`fw_key` 只由 `board.toml`、`git rev-parse HEAD`、submodule 指针和 uefi 补丁目录计算，工作区里那份 Darwin 22 头文件不在键里，于是键仍记成 HEAD `8d46bc3`。恢复 Darwin 23 后再构建，脚本判定「输入没变」直接复用那张 Darwin 22 的卷。
+
+判据/修法：`fw_key` 里加 `git -C "$UNIXNU_UEFI" diff HEAD --binary | sha256sum`，让未提交改动进入键；`scripts/build-ios27-linux.sh` 已改。
+
+## P-318 — 固件重建了，boot.img 却还复用旧卷
+
+2026-11-24：P-317 修好后 `firmware-built` 确实跑了 442 s，但 boot 阶段走 `note bootimg: reused (inputs unchanged …)`：`boot_key` 由 `scripts/ios27-inputs.py bootimg` 计算，不包含固件卷的字节，所以卷换了、键没换。
+
+判据/修法：同一次构建里只要固件被重建（`fw_rebuilt=1`），bootimg 的复用分支必须跳过；`scripts/build-ios27-linux.sh` 已把 `-z "${fw_rebuilt:-}"` 加进 bootimg 复用条件。
+
+## P-319 — 固件重建后仍走「就地换内核」，卷根本没换
+
+2026-11-24：即使加了 P-318 的条件，`K60_FORCE_BOOTIMG=1` 仍走 `bootimg-swapped`：换内核的分支只改 payload/boot 的 ramdisk，不重打包固件，所以 boot.img 的 FD 还是旧的 `8e99af40`。只有 `K60_NO_KERNEL_SWAP=1` 才走完整 `unixnu bootimg`。
+
+判据/修法：`fw_rebuilt` 也要挡住换内核分支；`K60_NO_KERNEL_SWAP=1` 与 `K60_FORCE_BOOTIMG=1` 一起用可以强制整包。`scripts/build-ios27-linux.sh` 已改。这三条共同的教训：**缓存的键必须覆盖它实际读取的每一个输入；「快路径」也算一条读取路径。**
+
+## P-320 ios16 自有补丁被排除在覆盖率审计之外
+
+覆盖率审计对 ios16 本仓做了例外，于是 9 个参考仓都审计了，唯独我们自己 16 线的 69 条补丁从未对照 27。正确形状：audit-ios16-carryover.py 生成 IOS16-CARRYOVER.toml，check-ios16-carryover.py 要求每条有 verdict；partial/missing 不得谎报 carried。
+
+## P-321 分支没有登记表
+
+多线并行后出现 80 条远端分支、46 个 worktree，没人能说出哪条为什么建、什么时候建的、要合什么。分支名与领先数是 git 能回答的，目的与合并条件是只有创建者才知道的。
+
+正确形状：BRANCH-REGISTRY.toml 一条 [[branch]] 对应一条存活分支（name/line/purpose/state/merge_plan/flight），check-branch-registry.py 拒绝未登记的分支；purpose 为 TBD 的条目在每次构建日志里作为 WARN 重复出现，直到所属线填完。
+
+## P-322 根设备发布顺序让第一个块设备没有 MBR
+
+27 的 `drivers/NativeUfs/RootPublication.h:17` 原本 `plan.order[0] = system`（SystemOS 先发、OS 最后）。SystemOS 窗口是裸 APFS 卷（NXSB 在 +32），OS 窗口是带保护 MBR 的 GPT 盘（`0x55AA` 在 +510）。内核按 partition 0 / disk0 读 MBR 时拿到的是 SystemOS 的超级块，`0x55AA` 自然缺失，根设备挂不上、`bsd_init` 走不到 —— 日志表现为 `K60UFS` 停在读分区 0。
+
+正确形状：第一个发布的块设备必须是 OS 盘；`prepareForPublish()` 除 GPT 签名（+512）外还要校验保护 MBR（+510/+511 = `55 AA`），两者缺一即 `transportFailure`，不得发布。16.6.1 的顺序是 OS、SystemOS、Data（`PongUfsTransport.cpp:604-612`）。
+
+回归：`drivers/NativeUfs/tests/RootPublication.cpp` 断言 `plan.order == {0,2,1,3}` 且 `startOrder == waitOrder`。
+
+## P-323 fast-payload 拿到的必须是链接器输出，不是打过补丁的副本
+
+r290k（2026-11-24）：`payload-fast` 被传入 `kernel/kernel.patched.macho`。`k60-fast-payload.py` 自己会执行声明的 transform，并把传入文件的哈希写进 `payload.json` 的 `kernel_sha256`；传入已打补丁的副本等于把补丁后的哈希写成"链接器输出"，`check-ios27-artifacts.py:266` 再拿它和 `kernel/kernel.macho` 比对，必然报 `payload.json records kernel_sha256 3980761…, but kernel/kernel.macho is e0c083eb…`——镜像字节其实是对的。
+
+正确形状：`fast-payload --kernel` 收链接器输出（`$BOARD_DIR/kernel/kernel.macho`），`kernel-swap --kernel` 收打过补丁的副本（`kernel.patched.macho`）；两个消费点的参数不能互换。
+
+回归：`scripts/tests/test-fast-payload-linker.py` 断言 fast-payload 调用点只出现链接器路径。
+
+## P-324 先查自家：同一基类的实现在别的分支里已经有了一份
+
+2026-11-24：为了让 27 内核挂上根设备，我把 sheng 的 `drivers/ShengUfs` 作为子模块引入，理由是「sheng 的 27 已经跑通」。用户当场指出：iOS 16 的 UFS 驱动本来就是从 ShengUfs 改的，`drivers/NativeUfs/PongUfsTransport.cpp:289` 就是 `PongUfsBlock : IOBlockStorageDevice`，`:967` 还主动加载 `com.apple.iokit.IOStorageFamily`——SourceStorage 需要的那份类早就在我们自己仓库里。
+
+为什么会漏：①`audit-precedent-coverage.py` 把本仓 ios16 自有补丁排除在外，本仓的既有实现不在任何「先例」清单里；②`BRANCH-REGISTRY.toml` 里 `feat/ufs-27` 与 `feat/ufs-27` 所需的 `purpose` 是 `TBD`，登记了分支却没登记它实现了什么能力；③没有门禁把「新增的类」与「仓库里已有的同基类」做比对。
+
+正确形状：新增驱动源码前先跑 `scripts/check-capability-reuse.py`；它对每个新增文件的基类，在 `refs/heads` 与 `refs/remotes` 全量 `git grep` 同基类声明，命中就必须在 `docs/engineering/CAPABILITY-REUSE.toml` 写下 `reuse`/`derived`/`not-applicable` 与实现路径，否则拒绝。任何 `drivers/**`/`package/**` 分支的 `purpose`/`merge_plan` 不得是 `TBD`，`check-branch-registry.py` 直接报错。
+
+回归：`scripts/tests/test-capability-reuse.py` 在临时仓库里先造一个 `main` 上的 `OldBlock : IOBlockStorageDevice`，再在分支上造 `NewBlock : IOBlockStorageDevice`，断言检查器先 FAIL、写入 reuse 决策后 PASS。
+
+## P-325 选项加在复制之前：编译命令里看起来有，clang 从没收到
+
+2026-11-24：`drivers/ShengUfs/NativeUfs.cpp` 让 clang 24 在 `ParseBraceInitializer` 处崩溃（frontend signal，无限栈也不救）。第一版修法是在 `source_flags.append('-fbracket-depth=4096')`，但紧接着一行 `source_flags = list(flags)` 把这个列表整个换掉——构建日志里没有任何提示，clang 仍然按默认 256 层解析并崩溃，看起来像「这个 flag 没用」。
+
+正确形状：所有 `append` 必须在 `source_flags = list(flags)` 之后；并且编译前打印 `source-storage: compiling <name>`，否则失败时只能看到一个没有文件名的 signal 栈。
+
+回归：`scripts/tests/test-sheng-source-storage-flags.py` 用一段最小 Python 片段断言「append 在复制之前」时列表不含该选项、在之后时含。

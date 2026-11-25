@@ -9,9 +9,9 @@
  * driver code exists.
  *
  * Evidence for every constant is cited next to it.
- *   E:/k60-work/scratch/usb/linux/pmic_glink.h        (owner ids, hdr, msg types)
- *   E:/k60-work/scratch/usb/linux/ucsi_glink.c        (0x11/0x12/0x13, 48-byte buf)
- *   E:/k60-work/scratch/usb/linux/ucsi.h              (UCSI offsets, CCI bits, commands,
+ *   E:/iOS Port/Work/scratch/usb/linux/pmic_glink.h        (owner ids, hdr, msg types)
+ *   E:/iOS Port/Work/scratch/usb/linux/ucsi_glink.c        (0x11/0x12/0x13, 48-byte buf)
+ *   E:/iOS Port/Work/scratch/usb/linux/ucsi.h              (UCSI offsets, CCI bits, commands,
  *                                                      struct ucsi_connector_status)
  *
  * Build/run: cc -std=c11 -Wall -Wextra -o ucsi-host-selftest ucsi-host-selftest.c && ./ucsi-host-selftest
@@ -119,7 +119,7 @@ static uint32_t ucsi_get_cci(const uint8_t buf[UCSI_BUF_SIZE])
 }
 
 /* -------------------------------------------------------------------------
- * Role decision. Official QcomDwc3 documentation, E:/k60-work/references/
+ * Role decision. Official QcomDwc3 documentation, E:/iOS Port/Work/references/
  * UniXNU-upstream/docs/porting/usb.md:
  *   "A host on the cable selects the device role and a peripheral selects the
  *    host role. With no answer from either source, the device role runs."

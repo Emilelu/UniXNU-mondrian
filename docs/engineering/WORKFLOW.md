@@ -6,7 +6,7 @@
 
 完整清单见 `AGENTS.md` 与 `docs/engineering/RULES.toml`（`scripts/check-rules.py` 执行）。
 
-1. 不用 `/tmp` 做持久化；所有证据、镜像、日志落在 `E:/k60-work/`。
+1. 不用 `/tmp` 做持久化；所有证据、镜像、日志落在 `E:/iOS Port/Work/`。
 2. 改动必须提交并推送；未提交的文件会挡住构建（iron-2 / hard-5 / hard-10 / hard-11）。
 3. 每个硬件修复走八步：①同型号 ②官方文档 ③反编译/参考实现 ④广覆盖 ⑤方案 ⑥深入 ⑦验证 ⑧上机；
    构建要求 ①–⑥，上机要求 ①–⑦ + ⑧。
@@ -40,12 +40,12 @@
 ## 3. 构建
 
 ```bash
-cd /mnt/e/hackios/k60-gates
+cd /mnt/e/iOS Port/Sources/Hardware/k60-gates
 K60_DEVICE_INPUT=/opt/k60/trees/gates-device \
 K60_OUT=/opt/k60/trees/ios27-out \
 UNIXNU=/opt/k60/trees/ios27-fw \
 UNIXNU_OUT=/opt/k60/trees/ios27-out \
-UNIXNU_UEFI=/mnt/e/hackios/uefi-mondrian \
+UNIXNU_UEFI=/mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian \
 bash scripts/build-ios27-linux.sh
 ```
 
@@ -58,9 +58,9 @@ bash scripts/build-ios27-linux.sh
 ## 4. 上机
 
 ```bash
-cd /mnt/e/hackios/k60-gates
+cd /mnt/e/iOS Port/Sources/Hardware/k60-gates
 K60_DEVICE_INPUT=/opt/k60/trees/gates-device K60_AGENT_ID=lead \
-bash scripts/flash.sh /mnt/e/k60-work/artifacts/boot-*.img 300
+bash scripts/flash.sh /mnt/e/iOS Port/Work/artifacts/boot-*.img 300
 ```
 
 - 只 `fastboot boot`；`scripts/flash.sh` 是唯一允许调 fastboot 的入口（`check-fastboot-callers.py` 执行）。
@@ -70,8 +70,8 @@ bash scripts/flash.sh /mnt/e/k60-work/artifacts/boot-*.img 300
 
 ## 5. 证据与记账
 
-- 每次上机：`E:/k60-work/evidence/usblog-YYYYMMDD-HHMMSS/{console.log,capture.json,boot.json}`。
-- `scripts/record-boot.py --image --log --note` 写 `E:/k60-work/ledger.jsonl`；SB<100 拒记。
+- 每次上机：`E:/iOS Port/Work/evidence/usblog-YYYYMMDD-HHMMSS/{console.log,capture.json,boot.json}`。
+- `scripts/record-boot.py --image --log --note` 写 `E:/iOS Port/Work/ledger.jsonl`；SB<100 拒记。
 - 构建产物：`/opt/k60/trees/ios27-out/.../boot/boot.img` 与 `build-manifest.json` 必须同时归档。
 - 文档：`docs/research/ios27/BUILD-YYYYMMDD.md` 记录每张图；`docs/engineering/PITFALLS.md` 记录每次踩坑（P-编号唯一）。
 
@@ -115,12 +115,12 @@ bash scripts/flash.sh /mnt/e/k60-work/artifacts/boot-*.img 300
 
 ### 8.2 多线协作规则
 
-- **一线一树**：每条线有自己的 linked worktree（`E:/hackios/k60-<line>`）与自己的
+- **一线一树**：每条线有自己的 linked worktree（`E:/iOS Port/Sources/Build/k60-<line>`）与自己的
   `K60_DEVICE_INPUT` / `K60_OUT`；禁止共用构建目录（会把别线的产物当成本线的）。
 - **树归属**：`docs/engineering/TREE-OWNERS.toml` 记录每个 checkout 的 owner；`check-tree-owner.py` 与
   系统级 `/usr/local/bin/git` 守卫会在非 owner 执行危险 git 操作（`worktree prune`/`gc`/`repack`）时拒绝。
 - **消息**：先 `steer`（运行中插话），被拒（idle）才 `followup`；这是铁则 12，`check-agent-messaging.py` 校验。
-  每条线一个双向通道文件 `E:/k60-work/scratch/reply-<line>-YYYYMMDD.md`：**覆盖写之前必须先读**，
+  每条线一个双向通道文件 `E:/iOS Port/Work/scratch/reply-<line>-YYYYMMDD.md`：**覆盖写之前必须先读**，
   先执行/回应对方的新汇报，再写本轮回复。
 - **上机权**：只有 Lead 可以 `fastboot boot`；其他线只能提交镜像与判据，不能动设备。
 - **分支**：每条线的实验分支必须在 `docs/engineering/BRANCH-REGISTRY.toml` 登记 `purpose` 与 `merge_plan`；

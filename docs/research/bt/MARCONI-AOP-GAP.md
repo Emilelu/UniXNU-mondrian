@@ -72,7 +72,7 @@
 
 ## 6. 引用
 
-- 证据：`E:\k60-work\evidence\usblog-20261116-064150\console.log`（d5 图 `bt-d5-iomap`）
+- 证据：`E:\iOS Port\Work\evidence\usblog-20261116-064150\console.log`（d5 图 `bt-d5-iomap`）
 - 内核侧发布：`patches/xnu/0509-k60-bt-s3-identity-publish.patch`
 - userland 限制：`UniXNU-pong/userland/board_services18.py:84-89`
 - 飞行记录：`docs/research/bt/S4-SPEC.md` §7.13、`docs/research/bt/HANDOFF.md` item 27

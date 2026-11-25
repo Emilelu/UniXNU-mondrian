@@ -1831,3 +1831,19 @@ sha = "bd5b50f597fc21fd6d7949ef2aaa2c103d6b7568"
 verdict = "deferred"
 reason = "Code on a touch/GPU/display line: fix(gpu): deploy with mapped scratch and real dirs. Re-judge once the touch and GPU candidates are through the eight steps."
 review_after = "2026-11-21"
+
+[[commit]]
+sha = "667c171"
+verdict = "not-applicable"
+reason = "zizhan aligns its own prelink/boot args with its daily baseline; no patches/xnu-12377 or board.toml change reached this tree."
+
+[[commit]]
+sha = "49dee66"
+verdict = "not-applicable"
+reason = "zizhan GPU compositor fence and six zero-copy slots: its backend is PongPlatform24, our stage-0 uses the CPU presenter and has no GPU client."
+
+[[commit]]
+sha = "1b92407"
+verdict = "not-applicable"
+reason = "zizhan HID accelerometer/orientation services: no sensor driver in our stage-0 and no sensor hardware node in the K60 DTB."
+

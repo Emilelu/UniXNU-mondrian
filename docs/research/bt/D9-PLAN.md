@@ -4,9 +4,9 @@
 
 ## 1. 唯一变量
 
-- 基线：d8 观测镜像 `E:/k60-work/artifacts/bt-d8-tlv/boot.img`，
+- 基线：d8 观测镜像 `E:/iOS Port/Work/artifacts/bt-d8-tlv/boot.img`，
   sha256 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`，201,887,744 B。
-- 候选：`E:/k60-work/artifacts/bt-0516-uart-clock/boot.img`，
+- 候选：`E:/iOS Port/Work/artifacts/bt-0516-uart-clock/boot.img`，
   sha256 `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`，201,887,744 B。
 - 与 d8 的唯一运行时差别：`patches/xnu/0516-k60-bt-qbt-uart-clock.patch`
   （135 行，4 文件 +35/-10，sha256 `0134a31bedb65fe6669a7ce7745bc5b9fcb6a7cd44ac66f96f3f604bb01ac6c8`），
@@ -18,7 +18,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| build manifest | `E:/k60-work/artifacts/bt-0516-uart-clock/build-manifest.json` |
+| build manifest | `E:/iOS Port/Work/artifacts/bt-0516-uart-clock/build-manifest.json` |
 | 构建时间 / tag | `2026-11-17T01:47:01+08:00` / `bt-0516-uart-clock` |
 | repo head / dirty | `32243230a5d7fccac3c19d76e9daae2bcbaf0bb5` / 0 |
 | series | 236 条；`e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db2` |
@@ -32,7 +32,7 @@
 
 - `python3 scripts/eight-step-gate.py --flash` → 7 个硬件项（touch, gpu, storage, display,
   bootchain, bluetooth, battery），56 项通过，RC=0；日志
-  `E:/k60-work/scratch/bt-s4/0516-flash-gate-20261117.log`。
+  `E:/iOS Port/Work/scratch/bt-s4/0516-flash-gate-20261117.log`。
 - `python3 scripts/verify-boot-image.py --manifest .../build-manifest.json` → OK。
 - `python3 scripts/check-image-args.py --image ... --board board.toml` → 31 arguments / 598 bytes，OK。
 - 宿主 0516 套件 81 cases、d8 adapter 90 cases、0514 33、0515 28，全部 0 failure；
@@ -41,17 +41,17 @@
 ## 3. 飞前检查（Lead 执行，任何一项红就不飞）
 
 1. `bash scripts/k60-device.sh state` 返回 `fastboot`；记录设备序列 `6033dbec`。
-2. `sha256sum E:/k60-work/artifacts/bt-0516-uart-clock/boot.img` 必须等于
+2. `sha256sum E:/iOS Port/Work/artifacts/bt-0516-uart-clock/boot.img` 必须等于
    `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`。
-3. `python3 scripts/verify-boot-image.py --manifest E:/k60-work/artifacts/bt-0516-uart-clock/build-manifest.json` → OK。
-4. 保留 d8 回滚镜像 `E:/k60-work/artifacts/bt-d8-tlv/boot.img`（sha `0297012d...`）。
+3. `python3 scripts/verify-boot-image.py --manifest E:/iOS Port/Work/artifacts/bt-0516-uart-clock/build-manifest.json` → OK。
+4. 保留 d8 回滚镜像 `E:/iOS Port/Work/artifacts/bt-d8-tlv/boot.img`（sha `0297012d...`）。
 5. 只用 `fastboot boot`；绝不 `fastboot flash`，绝不写 `persist` / `/dev/block/sda38`。
 
 ## 4. 执行
 
 ```sh
 bash scripts/k60-device.sh state
-bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0516-uart-clock/boot.img
+bash scripts/k60-device.sh boot E:/iOS Port/Work/artifacts/bt-0516-uart-clock/boot.img
 ```
 
 按现有 usblog 流程采集 console 与 `boot.json` / `capture.json`；保留完整日志与屏幕照片（若早期失败）。
@@ -109,7 +109,7 @@ bash scripts/k60-device.sh boot E:/k60-work/artifacts/bt-0516-uart-clock/boot.im
 
 ## 8. d9 实飞结果（2026-11-17 12:03，FAIL）
 
-- 证据目录 `E:/k60-work/evidence/usblog-20261117-115842`；boot.img `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`，boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、`panicMarker=null`、`resetMarker=null`、`stopReason=budget`。
+- 证据目录 `E:/iOS Port/Work/evidence/usblog-20261117-115842`；boot.img `8a211a7608186990951a94a6c26b04dc0c1d4ea53ab937cbcfb55d8acc447095`，boot.json `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；capture.json `complete=true`、`bytes=282532`、`panicMarker=null`、`resetMarker=null`、`stopReason=budget`。
 - console：PATCH `tlv done type=1 segs=602 sent=602 acks=1 final=0 ret=0`；NVM 第一次 `type=2 segs=7 ret=-60`；fallback `type=2 segs=21 ret=-60`；`power=1 result=-60`；仍无 `nvm done`。
 - 对预声明判据：镜像哈希、boot 接受、capture 完整通过；但出现 `boot: budget exhausted`、最后一个 NVM `done type=2 ret=-60`、`power=1 result=-60`，因此 **FAIL**。
 - 结论：0516 的 UART-clock/control 修复没有改变 NVM 失败形状；它不是足够修复。下一步在未取得控制器/UART 新观测前不要改预算、段长、下载模式、状态机或地址。

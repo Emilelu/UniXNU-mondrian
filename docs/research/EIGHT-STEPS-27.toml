@@ -1,0 +1,392 @@
+# iOS 27.0.1 (24A446) eight-step ledger — assembled, do not hand-edit.
+#
+# One [hardware.<item>] block per line, steps 1-7 only: step 8 (device) is
+# written by the Lead after a flight, because it needs a boot that happened.
+# Regenerate with: python3 scripts/assemble-27-eight-step.py
+
+schema_version = 1
+
+[hardware.audio]
+name = "音频（WCD938x + AW88261 / ADSP PAS1）"
+status = "parked"
+why = "PAS1 owner 缺失（电池与音频共用）；io_submap 仅 8 MiB 会 panic。iOS 27 stage 0 的 board.toml 有意 remove kernel.pong_native_driver_source，components.include 不含音频；本记录只覆盖已离线验证的音频线，F3 才把它放回构建。"
+revisit = "iOS 27 stage-0 进入 SpringBoard 后按线恢复；若 PAS1 owner 或音频成为 stage-0 阻塞则提前恢复"
+
+[hardware.audio.step.same_model]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = ["K60（mondrian）没有公开的同型号音频栈；最近的是同 SoC 的 Pong（Nothing Phone (1)，SM8475），它带着完整音频栈：PongAdsp.cpp 34,547 B、PongAudio.cpp 29,263 B、PongIOAudio2.h 23,857 B、PongWcd938.h 6,262 B、PongAudioService.cpp 7,509 B；见 docs/research/audio/RESEARCH.md:11-23。", "Pong 的硬件真值来自实际 DT：WCD938x、PM8350 S10B 供 RXTX/buck/IO 1.8V，CMD DB 0x80860000；PRM 每个 rate 试 rate 与 19.2/9.6 MHz 两档、attribute 1/0 两档，见 docs/research/audio/RESEARCH.md:25-59。", "Pong 明确要求在物理采集图真正返回 PCM 前不要宣布麦克风可用；K60 不能把 Pong 的 codec/功放寄存器表当同板事实，见 docs/research/audio/RESEARCH.md:28-40 与 docs/research/audio/GAP-ANALYSIS.md:111-126。", "K60 与 Pong 同为 SM8475 但功放不同：Pong 用 CS35L43 形状，K60 是两颗 AW88261（I2C 0x34/0x35）；只能借 PAS1/SMEM/GLINK 的过程，不能借寄存器表，见 docs/research/audio/RESEARCH.md:186-195 与 docs/research/audio/IOS27-SHENG-REFS.md:101-107。"]
+
+[hardware.audio.step.official]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = ["官方 §3「实现音频流」按 AudioReach/GPR 排六步：打开并识别服务、描述完整路由、发图命令、接缓冲路径、接 OS 服务、验证路由；见 UniXNU:docs/zh/porting/power.md:44-74。", "官方五条硬事实：DSP 缓冲用 32 位地址并在高字放流索引 0x1001&0xf；GLINK 先小 intent 再大 intent；PRM 用自有端口、TX core clock 0x30c；VA/TX macro 都要开 TX SoundWire master 门控；24 MHz 假设要按 19.2 MHz 修正否则 IO 周期偏 25%；见 UniXNU:docs/zh/porting/power.md:76-82。", "官方要求采集在流之外做 codec 上电、SoundWire 枚举、模拟/数字通路、周期读和输入发布；见 UniXNU:docs/zh/porting/power.md:87-100。", "官方 GENI I2C 要求先 prepare、再读写、事件交 event、到期交 timeout，当前一次完成/取消后才能发下一次；本板按 UniXNU:docs/zh/porting/display.md:91-96 这条要求实现，drivers/PongAudio/PongAudioGeniI2c.c:15/:106/:149 是这个形状，满足的是总线契约，不是音频图。", "官方记录要求音频写清 DSP、codec、时钟、固件服务、路由和播放/录音；本文件逐项给出证据，未做的项在 verify.plan 里标注；见 UniXNU:docs/zh/porting/records.md:30。", "官方把 DSP/音频归到 AdspProbe/AudioProbe（UniXNU:docs/zh/porting/drivers.md:45），但当前 UniXNU/components.toml 的 29 个 id 里没有 AudioProbe/AdspProbe（末尾 QcomBaseband 在 UniXNU:components.toml:564）；本板不适用“直接取组件”，只能按 F3 新建 Pong 音频。", "蓝牙页的 audio_system_plugins 是蓝牙 HAL 覆盖，不是扬声器/麦克风路径；本板音频线不接它，见 UniXNU:docs/zh/drivers/qca-bluetooth.md:67-71。"]
+
+[hardware.audio.step.decompile]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = ["K60 live FDT 的 adsp_region@9fd00000 是 0x9fd00000 + 0x3100000，UEFI MemoryMapLib 也记这个区间；旧文档里的 0x0a000000/0x01c00000 是错值，现行 dts/mondrian.dts:54-80 已改对，见 docs/research/audio/GAP-ANALYSIS.md:65-75。", "PAS1 不是“拷完再调 SCM”：PAS_INIT_IMAGE 只取一次 5404 B metadata（884 B header + 4520 B hash），PAS_MEM_SETUP 一次圈 region 0x9fd00000/0x3100000，随后逐段 COPY/BSS，最后 AUTH_AND_RESET；见 docs/research/audio/ADSP-PAS1.md:29-39。", "ADSP 镜像链接基址 0x86300000，装载到 0x9fd00000..0xa2e00000；adsp.mdt 26 个 phdr、24 个有效 PT_LOAD，adsp.b10 在 0x86e0b2c0 非页对齐必须逐字节拷，adsp.b24 是 7,245,824 B 纯 bss；见 docs/research/audio/ADSP-PAS1.md:41-47。", "K60 两颗 AW88261 的 I2C 地址 0x34/0x35、reset GPIO 1/3、irq 88/63、spksw 52、codec reset 43、TDM clk 0x177000（1.536 MHz）、tx-lines=3、dev-id=2、TDM 引脚 121/123/122/124 来自 K60 live FDT 与 Android audio-kernel；见 docs/research/audio/GAP-ANALYSIS.md:111-126。", "Pong 的 I2C 事务状态机是 prepare 后 write_command 设 M_CMD0，event 处理 CANCEL/ABORT/DONE、FIFO 水位和错误，poll 轮询；见 drivers/PongAudio/PongAudioGeniI2c.c:15、:42-52、:106-149。", "Pong 的 codec 身份由 SoundWire slave ID 两半拼出，只有 pong_swr_is_wcd938x(id) 成立才认；见 drivers/PongAudio/PongCodecProbe.c:200-206。", "功放入口是 pong_audio_amp_probe()/play()/stop()（drivers/PongAudio/PongAudioAmp.c:944/:903/:925），io 表在 :511-513 由 se_rd/se_wr（:418/:425）填；这些是当前内核源码，不是反编译猜测。"]
+
+[hardware.audio.step.wide]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+catalog_checked = true
+catalog_result = "UniXNU/components.toml 现有 29 个 id（末尾 QcomBaseband 在 :564），其中没有 AudioProbe、AdspProbe、PongAudio 或任何音频组件；官方 docs/zh/porting/drivers.md:45 把音频归到 AdspProbe/AudioProbe 是待建组件，不是可直接取用的 wheel。因此本板没有可用的官方音频驱动，只有 GENI/SPI、XnuPrelink 与 sheng 的板级参考可借，不能重复造一个已有组件。"
+evidence = ["官方组件目录 UniXNU/components.toml 现在 29 个 id（QcomBaseband 在 UniXNU:components.toml:564），没有 AudioProbe/AdspProbe/音频组件；所以没有可直接引用的官方音频 wheel，不能把“官方有 AudioProbe”当成已实现。", "上游 16.x 的 0503/0504 只是骨架：0503 只有 GENI 通路与探测，0504 是 AudioReach/GPR 图且绑 iOS 16 文件位置；两者都不能直接搬进 27，见 docs/research/audio/GAP-ANALYSIS.md:9-30 与 docs/research/audio/IOS27-MIGRATION.md:43-50。", "sheng（Xiaomi Pad 6S Pro，SM8550，iPadOS 27）有完整 AudioReach/PRM 与 WCD938x 采集路径，可借的是顺序与 ABI；它的板级 I2C/reset/供电/TX master 全与 K60 不同，见 docs/research/audio/RESEARCH.md:186-195 与 docs/research/audio/IOS27-SHENG-REFS.md:101-107。", "Pong（SM8475）提供同 SoC 的 PAS1/SMEM/GLINK 过程与 WCD938x codec 事实；它的 CS35L43 功放和 K60 的 AW88261 不同，寄存器表不能照抄，见 docs/research/audio/RESEARCH.md:11-23 与 docs/research/audio/RESEARCH.md:186-195。", "蓝牙的 audio_system_plugins 只是蓝牙 HAL 覆盖，不是扬声器路径；把它当音频驱动会重复造轮子，见 UniXNU:docs/zh/drivers/qca-bluetooth.md:67-71。"]
+
+[hardware.audio.step.plan]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = ["十步最小出声路径按依赖排序：DT 值/io_submap → PAS1 owner → SMP2P/GLINK/IPCC → GPR/APM 图 → 低 4 GiB DMA → AW882xx → TDM/PRM → CoreAudio/HAL → 24→19.2 MHz；仅做 PAS1+GPR 不会出声，见 docs/research/audio/GAP-ANALYSIS.md:111-126。", "27 的迁移分两段：先搬 18 个纯 C 文件 + 2 个 glue，host 测试 979 例；再把 PongAudioAmp.o 强制进链接、列 0531 调用点；见 docs/research/audio/IOS27-MIGRATION.md:8-35 与 :54-73。", "构建侧只有三处接缝：源文件进 conf/files、applier 追加两行、每目标 -DXNU_PONG_AUDIO=1；三处都在音频仓，不碰共享 main，见 docs/research/audio/IOS27-WIRING.md:524-590。", "stage 0 仍 park 音频的三个前提（board.toml 的 remove/include 与 gates 缺 k60-conf-files-hook.py）见 docs/research/audio/IOS27-STAGE0-STATE.md:24-38；改这三处才进构建。", "验证顺序固定：先 host 979 + fptrs 19 + weak 14 + --pac-only 4 行，再等 F3 的 UFS/固件，最后 F4 面板/音频图；不能用“能编译”代替出声，见 docs/research/audio/IOS27-MIGRATION.md:54-73。", "stage-0 的 conf-hook 行读 seam inert：gates 树没有 k60-conf-files-hook.py（它不是本仓路径），构建驱动的钩子分支不设 K60_CONF_FILES_HOOK，所以这一行是设计上的 no-op，不是接缝坏了；见 docs/research/audio/IOS27-STAGE0-STATE.md:16-20 与 scripts/check-audio27-preflight.sh:53。", "上机判据：F3 后先看 pong_audio_amp_probe 返回与 audio=4 的 [mic]/[mic capture] 两行，F4 后看 CoreAudio provider 与真实 PCM 周期；任一行缺失都回到 ④/⑥ 补证据，见 docs/research/audio/RESEARCH.md:183-184。"]
+
+[hardware.audio.step.deep]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+evidence = ["PAS1 顺序的不可逆点：AUTH_AND_RESET 是最后一步，PAS_MEM_SETUP 只圈一次 region，INIT_IMAGE 只拿 metadata；任何“先逐段拷贝再 INIT_IMAGE”的顺序都会失败，见 docs/research/audio/ADSP-PAS1.md:32-39。", "K60 的 ADSP 物理区是 0x9fd00000/0x3100000；链接基址 0x86300000 只用于重定位，不是加载地址；b10 非页对齐、b24 纯 bss 是逐段拷贝的两个边界，见 docs/research/audio/ADSP-PAS1.md:41-47。", "电流/电池线已在 16.x 发布 PAS1 epoch=1（/mnt/e/iOS Port/Work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:189）与电池 sample=4（/mnt/e/iOS Port/Work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:596），但同一份记录明确不证明音频路由；27 不能拿它当音频证据，见 docs/research/audio/ADSP-ROUTE-A.md:97-112。", "三处 io 表（PongGeniIo/PongCodecLpiIo/PongCodecMacroIo/PongSwrIo）在 arm64e 下由 blr 变 blraaz，drivers/PongAudio/PongAudioAmp.c:511-512 的 se_rd/se_wr 先 paciza 再存；无 __AUTH 段、无 authenticated-pointer relocation，见 docs/research/audio/IOS27-PAC.md:52-60 与 docs/research/audio/IOS27-PAC.md:93-116。", "dts/mondrian.dts:54-80 现在是正确的 adsp 0x9fd00000/0x03100000，但还有 9 个 0 占位（tx-master、codec/amp i2c、reset、irq、spksw、TDM、mic 等）；填之前不能宣布音频可用。", "Pong 的功放探针先读 ID/状态、再回放 ACF、最后开 spk switch；入口在 drivers/PongAudio/PongAudioAmp.c:944，播放/停止在 :903/:925，寄存器常量在 drivers/PongAudio/PongAudioRegs.h:47-49 与 :97/:155。"]
+
+[hardware.audio.step.verify]
+done = true
+recorded_at = "2026-11-21T04:06:00"
+local_verified = true
+evidence = ["四项静态/单测均已在本工作树跑过：fptrs 19 例、weak-link 14 例、host 979 例、并发 3 例；形状与读数见 docs/research/audio/IOS27-PAC.md:93-116。", "预检本身只有四行 PAC 行（scripts/check-audio27-preflight.sh:53 声明总行数 58；--pac-only 固定 4 行），四行全绿才算本步通过。", "产物层是 arm64/arm64e 两份 object 的 ptrauth 形状，不是内核镜像；stage 0 仍读 strings 0/3、symbols 0/3，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。"]
+static_check = ["python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 53 evidence reference(s) resolve, 8 root(s), no device step。", "python3 scripts/check-audio27-fptrs.py --repo . -> FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 assignment site(s) whose signatures match what they fill, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides。", "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/iOS Port/Sources/Hardware/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。"]
+unit_test = ["python3 scripts/tests/test-audio27-eight-step.py -> TESTS OK 9 cases。", "drivers/PongAudio/tests/run-tests.sh -> TESTS OK 979 cases。", "python3 scripts/tests/test-audio27-fptrs.py -> TESTS OK 19 cases。", "python3 scripts/tests/test-audio27-weak-link.py -> TESTS OK 14 cases。", "python3 -B scripts/tests/test-audio27-host-concurrency.py -> TESTS OK 3 cases。"]
+artifact_check = ["本机 clang 24.0.0git 用 --target=arm64-apple-ios27.0 与 --target=arm64e-apple-ios27.0 各编 PongAudioGeniI2c.c / PongAudioAmp.c：Geni 62 条 ptrauth、Amp 22 条，0 个 __AUTH 段与 authenticated-pointer relocation；形状见 docs/research/audio/IOS27-PAC.md:52-60。", "python3 scripts/check-audio27-kernel.py 读 stage 0 产物 -> rc1，strings 0/3、symbols 0/3；这是 stage 0 无音频的预期，不是回归，见 docs/research/audio/IOS27-STAGE0-STATE.md:8-22。", "sh scripts/check-audio27-preflight.sh --pac-only -> PAC PREFLIGHT OK 4 rows (4 ok, 0 skip, 0 FAIL), as declared。"]
+
+[hardware.battery]
+name = "电池（IOPMPowerSource / PMIC GLINK，27 离线账本）"
+label = "电池研究线：PMIC GLINK 订阅与发布契约已离线固定，真实电量计对比等第一次 27 上机"
+status = "planned"
+why = "27 树还没有 bsd/dev/PongPower* 锚点，live [hardware.battery] 仍是 16.6.1 的设备证据。本块把 27 可直接复用的协议、单位、发布和断线语义固定下来，避免在 27 上重新猜一遍；上机仍归 Lead。"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复；本文件先固定离线七步，device 步等 F1 后由 Lead 追加"
+
+[hardware.battery.step.same_model]
+done = true
+evidence = "同型号没有 27 实现可抄；唯一同型号消费者是本仓库 16.6.1 线的 K60Battery/K60Battmgr。它已经把 ADSP 发来的字节解码成 IOPMPowerSource 属性，并在串口打印 raw 与 published 两套值：drivers/PongPower/K60Battery.cpp:290 的 sample 行包含 SOC、charge/design、voltage、current、temp、external、charging、full、subscribed；drivers/PongPower/K60Battmgr.c:51 把电流符号限定为 -1/0/+1。27 迁移不重写这两层，只把它们当作同型号基线。缺口仍是 docs/research/charger/10-POWER-DOC-CONFORMANCE.md:483-509 记的五项（C3 全窗口电流、真机插拔/超时/重启、§5 调频、§3 音频、§4 charge-auth），其中只有 C3 属于本块。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.battery.step.official]
+done = true
+evidence = "官方页 docs/zh/porting/power.md 第 1、4 节（E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/power.md:8-19、:116-139）逐条对应：\n- R1 收集电量计/固件协议、属性 ID、单位、电流符号、通知：docs/research/charger/01-SYMBOL-MAP.md:17-28 记录 .ko 与 ADSP 两侧；WIRE-PROPS.toml 的 19 个字段给出 wire 到 OS 属性的映射；drivers/PongPower/K60Battmgr.c:51 固定符号。\n- R2 在固件清单记录每个二进制的来源和版本：docs/research/charger/01-SYMBOL-MAP.md:21-24 记录 .ko 的 247,776 B、BuildID e852b83c589f773d7cb09e6793ac59fd33086c58 与 SHA-256；docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:35-58 记录 ADSP adsp.b14 的段地址和 sha256。\n- R3 直接 I2C 电量计走寄存器，DSP 电池管理器走消息协议：本板是后者，drivers/PongPower/K60Battmgr.c:47-56 的白名单就是消息协议的入口；没有增加 I2C gauge 路径。\n- R4 先定传输再选参考代码：drivers/PongPower/K60PmicGlink.cpp:84 打开 PMIC_RTR_ADSP_APPS，256 B intent、4 个 intent；27 dts 的节点链见 docs/research/charger/PMIC-REWIRING-WORKORDER.md:31-40。\n- R10 核对 owner/type/opcode/property/length，单飞行，超时后再推进刷新：drivers/PongPower/K60Battmgr.c:47-56 校验 type/bytes，:162-171 校验 ACK 的 type/bytes 与 +0xc 起的零字，:194-200 在超时后作废 flight。\n- R11 有效读数与失败状态分开，快照八项并做单位/符号转换：drivers/PongPower/K60Battery.cpp:176-183 的 stale 路径保留最后有效值；drivers/PongPower/K60Battmgr.c:251-253 做 /1000 的电压电流，:269-270 做秒转分钟；符号在 drivers/PongPower/K60Battmgr.c:51 限定。\n- R12 继承 IOPMPowerSource、工作循环、响应队列、请求/刷新计时器，快照完整后再更新：drivers/PongPower/K60Battery.cpp:316-329 注册服务，:426 设请求超时，:548 设刷新周期。\n- R13 初始有效属性后 registerService，后续 updateStatus，适配器按 OS 属性：drivers/PongPower/K60Battery.cpp:274 调 updateStatus，:319 调 registerService，:330-365 逐个发布 adapter 键并在 :356 记录失败。\n- R14 订阅通知、周期刷新、断线取消请求并标 stale：drivers/PongPower/K60Battery.cpp:442-451 在通道断开时取消并 stale，drivers/PongPower/K60Battmgr.c:80-84 组订阅帧，drivers/PongPower/K60Battery.cpp:548 维持周期。\n- R15 原始/发布值与目标电量计或原厂读数比较，验证插拔、充放、超时、服务重启：判据已写成 docs/research/charger/07-DEVICE-CRITERIA.md:10-17 的 C1/C2/C3；真机对比仍未做，这是本块唯一没有离线证据的条款。\nR5-R9 是传输层，见 [hardware.charger.step.official]；R16-R20 已由 live [hardware.power] 覆盖。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.battery.step.decompile]
+done = true
+evidence = "两侧反汇编都落在 docs/research/charger/。.ko 侧：qti_battery_charger_main_m81.ko（247,776 B，BuildID e852b83c589f773d7cb09e6793ac59fd33086c58）的 battery_chg_probe 0xedc-0xf08 组 28 B 订阅帧，battery_chg_callback 0x211c 的跳转表把 opcode 4 引到 0x2464，那里只 complete、不校验 type/长度（docs/research/charger/03-REVERSE.md:204-225）。ADSP 侧：adsp.b14 的 opcode 分发器 0x60155570 与 opcode 4 handler 0x60155910 回 16 B {0x800a, type 1, opcode 4, result}，r3=#0x10 由 0x601559f0 的 03c20078 证明（docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:35-58）。因此 (type, bytes)=(1,16) 不是猜的，而是两侧固件互证。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.battery.step.wide]
+done = true
+evidence = "广域核对三处。一，官方组件目录 E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml 的 25 个组件没有电池/电量计组件，不能声明依赖。二，Linux qcom_battmgr.c 是同一 PMIC GLINK 协议的变体，但只把 payload 长度当下限、不校验 type，不能覆盖本板 ADSP 的精确回包。三，sheng 的 E:/iOS Port/Work/references/pong-power/ShengBattmgr.c:170-197 两种 type 都收，同样是宽松实现。三处都不构成 (1,16) 的反证，真正的判据仍是 06-SUBSCRIPTION-CONSTANT.md 与 03-REVERSE.md 的实测；组件结论写在 docs/research/charger/04-PROP-MAP.md:389。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.battery.step.plan]
+done = true
+evidence = "27 的接线方案保持 16.6.1 的三层不变：传输层打开 PMIC_RTR_ADSP_APPS（drivers/PongPower/K60PmicGlink.cpp:84，256/4 intent）；协议层由 K60Battmgr 组 28 B 订阅帧、收 16 B ACK、发 24 B 属性请求；发布层在 /chosen 读到 104 B PAS1 handoff 后才允许 MMIO/FIFO（drivers/PongPower/K60Battery.cpp:656-665）。27 只改两件事：dts 必须保留 remoteproc-adsp→glink-edge→pmic_glink→battery-charger 链，以及发布必须先于通道打开；逐项改线与判据见 docs/research/charger/PMIC-REWIRING-WORKORDER.md:31-40。drivers/PongPower/K60Battmgr.h:64-81 记录单飞行、无 transaction id、超时毒化通道的约束，方案不扩大 104 B handoff，也不新增 AP SPMI。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.battery.step.deep]
+done = true
+evidence = "深挖结论三条。一，协议没有 transaction id，所以每次只能有一个未完成请求；超时后不是重发同一帧，而是把通道标成 poisoned 并 CLOSE/ACK/OPEN（drivers/PongPower/K60Battmgr.h:64-81、drivers/PongPower/K60Battmgr.c:194-200）。二，断线时 drivers/PongPower/K60Battmgr.c:61 清 flight/cycle/subscribed，drivers/PongPower/K60Battery.cpp:534-539 在超时后调用 k60_battmgr_timeout 并把读数标 stale，保证不会把旧值当新值发布。三，stale 不是清零：drivers/PongPower/K60Battery.cpp:176-183 保留最后有效测量值，只把 stale 键置真，OS 侧因此能区分「没有新样本」和「读数为 0」。这三点是 27 复用的硬约束。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.battery.step.verify]
+done = true
+local_verified = true
+evidence = "离线核验全部可重跑。一，单位/符号：scripts/tests/test-battery-units.py 27/27 通过，固定 µV→mV、µA→mA、0.01%→%、秒→分钟与符号翻转绝对值不变。二，订阅状态机：scripts/tests/test-k60-charger-subscription.c 30 个断言通过（TESTS OK 30），覆盖 28 B 订阅帧、四类错形 ACK、result=0x206、opcode 7 通知。三，只读出站帧：scripts/check-battmgr-wire.py 通过，19 个 wire 字段一致，且要求 k60_battmgr_next 的 put32 只用 0/4/8/16 四个偏移，禁止 TYPE_SET/OP_CHARGER/OP_CHARGING/OP_SET/OP_WRITE（22 项夹具）。真机 C3 仍未做，故本步只证明离线契约，不证明 27 读数。"
+static_check = "scripts/check-battmgr-wire.py 对 drivers/PongPower/K60Battmgr.c 的 k60_battmgr_next 做函数体级检查：偏移 0 必须是 K60_BATTMGR_OWNER，4 只能是 TYPE_NOTIFY 或 TYPE_REQUEST，8 只能是 OP_NOTIFY_ENABLE 或 fields[b->cursor].opcode，16 只能是 fields[b->cursor].property，并各有一个 NOTIFY/REQUEST 字节返回。docs/research/charger/04-PROP-MAP.md:389 记录该只读规则与 22 项夹具。"
+unit_test = "scripts/tests/test-battery-units.py 27 个用例与 scripts/tests/test-k60-charger-subscription.c 30 个断言均在主机侧通过；后者覆盖订阅、ACK、超时/错误和通知四类路径。"
+artifact_check = "scripts/build-k60-physical-battery.py:29-39 把 MEASURED_NOTIFY_REPLY=(1,16) 写成生成器常量，并在抓包矛盾时抛 ValueError；WIRE-PROPS.toml 的 19 个字段与 04-PROP-MAP.md 的映射表一致。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.bluetooth]
+name = "蓝牙（QCA6490 / HCI over UART）"
+label = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
+status = "parked"
+why = "2026-11-21 re-read for the 27 line: the series, the DT node and the static checks exist, but no 24A446 payload, no stage-0 SpringBoard and no single bluetoothd start have been observed. The 18.x device line stopped in the NVM budget (d7) and d8 was paused; this record does not inherit that device run. The only green 27 kernel build is CI 44518998961, whose head 33f5229 is not an ancestor of this branch. The files this record reads are docs/plans/BT-IOS27-PORT.md, dts/mondrian.dts, configs/mondrian_ios27_defconfig and patches/xnu-12377/series."
+revisit = "stage-0 SpringBoard, or an F1/F2 signal that yields a bootable 24A446 payload"
+
+[hardware.bluetooth.step.same_model]
+done = true
+recorded_at = "2026-11-21T03:40:00+08:00"
+evidence = "No same-model target runs iPadOS 27: the search covers the SM8475 / Redmi K60 trees and finds no second 27 implementation. t970 is a QCA6390 / QUP0 SE6 board on iPadOS 18, so its four patches are a transport contrast only (docs/plans/BT-IOS27-PORT.md:556-560). zizhan is an iPadOS 18 product-id counterexample, not a 27 implementation (docs/plans/BT-IOS27-PORT.md:562-569). The nearest 27 reference is sheng's two xnu-12377 runtime patches. Files: docs/plans/BT-IOS27-PORT.md."
+
+[hardware.bluetooth.step.official]
+done = true
+recorded_at = "2026-11-21T03:41:00+08:00"
+evidence = "Page UniXNU/docs/zh/porting/bluetooth.md:19-31 labels its table as sheng's values, and UniXNU/docs/zh/porting/bluetooth.md:21 says to read the target DTS, so 0x898000, SE6, GIC493, 51.2 MHz, 3.2 Mbaud and hmtbtfw20.tlv are reference values, not this board's. Our node dts/mondrian.dts:109-116 declares device_type bluetooth, compatible qcom,wcn6855-bt, unixnu,adt-name bluetooth, encoding 1 (H4), speed 3000000 and status okay; scripts/check-bluetooth-dt.py:101-107 enforces speed equals K60_BT_RUN_BAUD and encoding 1. The seven-step power order (UniXNU/docs/zh/porting/bluetooth.md:46-55) is checked by scripts/check-bluetooth-power.py:4-8. The worker and transport model (UniXNU/docs/zh/porting/bluetooth.md:60-67) is the qbt engine in the 0500-0523 series, with the GENI model at docs/plans/BT-IOS27-PORT.md:306-329. The payload.runtime requirement (UniXNU/docs/zh/porting/bluetooth.md:87-106) is not wired: board.toml has no [payload.runtime], so the framework will not stage BlueTool or bluetoothd, and it will not mount the OS image (docs/plans/BT-IOS27-PORT.md:614-620). The three named checks (UniXNU/docs/zh/porting/bluetooth.md:113-115) do not exist here; five equivalents exist (docs/plans/BT-IOS27-PORT.md:528-548). The expected state=2 / error=0 and one bluetoothd (UniXNU/docs/zh/porting/bluetooth.md:126-128) have not been observed. Files: UniXNU/docs/zh/porting/bluetooth.md, dts/mondrian.dts, scripts/check-bluetooth-dt.py, docs/plans/BT-IOS27-PORT.md."
+
+[hardware.bluetooth.step.decompile]
+done = true
+recorded_at = "2026-11-21T03:42:00+08:00"
+evidence = "Local facts: the six DT properties are at dts/mondrian.dts:109-116; the native stack is still off in configs/mondrian_ios27_defconfig:17-21; QcaBluetooth is pinned at revision 22ff97f93416452335bb61badb14c762da653487 in UniXNU/components.toml:494-508 with sheng as the only verified device. The 24A446 kernelcache is pinned and its IOStorageFamily entry is at fileoff 0xa0e670, but no 24A446 bluetoothd has been extracted (docs/plans/BT-IOS27-PORT.md:580-583). 20G81 bluetoothd imports MGGetProductType (docs/plans/BT-IOS27-PORT.md:578-579), which is why zizhan's product-id SIGSEGV is the relevant failure mode (docs/plans/BT-IOS27-PORT.md:562-569). Files: dts/mondrian.dts, configs/mondrian_ios27_defconfig, UniXNU/components.toml, docs/plans/BT-IOS27-PORT.md."
+
+[hardware.bluetooth.step.wide]
+done = true
+recorded_at = "2026-11-21T03:43:00+08:00"
+catalog_checked = true
+catalog_result = "46 个字段逐个核对：QcaBluetooth 组件元数据、五个 runtime identifier、DT 接线与 series 接线；没有第二个 27 消费者。"
+evidence = "UniXNU/components.toml:494-508 declares QcaBluetooth at revision 22ff97f93416452335bb61badb14c762da653487, path drivers/QcaBluetooth, os_abi ipados-27.0.1-24A446, verified_devices sheng-only, and runtime identifiers qbt_transport, com.apple.uart.sk.bluetooth, kern.qbt_boot, kern.qbt_power_on and kern.qbt_firmware. A catalog search found no second 27 consumer; 46 fields were checked (component metadata, five runtime identifiers, DT and series wiring). Files: UniXNU/components.toml, docs/plans/BT-IOS27-PORT.md."
+
+[hardware.bluetooth.step.plan]
+done = true
+recorded_at = "2026-11-21T03:44:00+08:00"
+evidence = "The order of record is docs/plans/BT-IOS27-PORT.md:107-127: 23 patches in four layers, with the device series carrying the 0500-0523 order (no 0513). The 0521 blob is a 106-entry manifest, not the 113-file payload (docs/plans/BT-IOS27-PORT.md:129-153). CI 44518998961 built the 23-patch kernel at 93,077,504 B, sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86 (docs/plans/BT-IOS27-PORT.md:265-274), but its head 33f5229 is not an ancestor of a2a75813 (git merge-base --is-ancestor returned 1). This tip sets CONFIG_XNU_NATIVE_UFS=y at configs/mondrian_ios27_defconfig:21 and board.toml:361 includes NativeUfs, but build/native-ufs/libNativeUfs.a has no producer in the selected build graph. The host script scripts/build-native-ufs-linux.py:18-20 can build drivers/NativeUfs into that archive, but it says it does not wire anything up, and nothing invokes it; this branch's scripts/build-xnu-generic.sh:646-650 force-loads build/native-ufs/libNativeUfs.a when XNU_NATIVE_UFS=1, the shared 27 builder still points at build/sheng-ufs/libPongUfs.a (k60-gates/scripts/build-xnu-generic.sh:647), and the 16-line builder links build/native-ufs/libNativeUfs.a at scripts/build-xnu-4k-baseline.sh:1054 and :1278. This is not a configuration error: either add the producer or set CONFIG_XNU_NATIVE_UFS=n. BT-only 构建前置 = NativeUfs off（引用 33f5229）；不改共享 configs/，不新建第二份 defconfig。Plan actions carried by the seven steps: keep t970 as the SE6-versus-SE20 contrast and zizhan as the product-id failure mode, neither is a same-model proof; wire payload.runtime before the first 27 payload; extract 24A446 bluetoothd and BlueTool and diff their MobileGestalt imports against 20G81; if a second 27 board selects QcaBluetooth, re-run the same 46-field check; for a BT-only compile use the NativeUfs-off config at 33f5229 and do not edit the shared configs/ or add a second defconfig; a BT preflight must fail on a missing [payload.runtime], a missing 24A446 bluetoothd, an ADT without one of the six properties, or a half-set F3/F4 switch. Do not flash. Close the four gates in step.verify.plan and record a device run with the exact head sha. Stop at compile plus static: flight needs all four: (a) a build of this tip or a BT-only config; (b) F1 loader accepts MH_FILESET and the F2 prelink map closes; (c) payload.runtime, the ADT export, 24A446 bluetoothd and product-id are wired; (d) the device prints [bluetooth] state=2 error=0 and exactly one [bluetooth proc] bluetoothd. Missing any one leaves this open."
+
+[hardware.bluetooth.step.deep]
+done = true
+recorded_at = "2026-11-21T03:45:00+08:00"
+evidence = "The prelink closure has 38 bundles and none is Bluetooth (docs/plans/BT-IOS27-PORT.md:523-526); the 28 missing and 29 stubbed entries are owner-target references, not Apple's Bluetooth kexts, so they neither prove nor disprove Bluetooth. The 0521 blob is an empty 106-entry manifest, not the 113-file payload (docs/plans/BT-IOS27-PORT.md:129-153 and docs/plans/BT-IOS27-PORT.md:511-513). 24A446 bluetoothd is not extracted, so the product-id answer remains unproven (docs/plans/BT-IOS27-PORT.md:580-586). The storage line's PENDING-safe entry prints the switch state last and refuses a half-set switch (scripts/check-ios27-storage-preflight.py:18-25); Bluetooth has no equivalent entry. Files: docs/plans/BT-IOS27-PORT.md, scripts/check-ios27-storage-preflight.py."
+
+[hardware.bluetooth.step.verify]
+done = true
+recorded_at = "2026-11-21T03:46:00+08:00"
+local_verified = true
+evidence = "Static only: five checks pass on the 27 image (docs/plans/BT-IOS27-PORT.md:481-499); the GENI model has 64 assertions over 36 registers and 26 test cases (docs/plans/BT-IOS27-PORT.md:306-329); the three checks the page names are absent (docs/plans/BT-IOS27-PORT.md:528-548). No [bluetooth] state=2 error=0 line, no single [bluetooth proc] line and no hardware run have been observed. Files: docs/plans/BT-IOS27-PORT.md, scripts/check-bluetooth-dt.py, scripts/check-bluetooth-kernel.py."
+static_check = "scripts/check-bluetooth-dt.py:101-107 ties transport-speed to K60_BT_RUN_BAUD and encoding to 1; test-bluetooth-dt.py, test-bt-0524-dt-node.py, test-bt-geni-model.py, test-bt-power-check.py and test-bt-kernel-check.py pass."
+unit_test = "14 test-bt-* files exist under scripts/tests; the GENI model has 26 cases over 36 registers and 64 assertions (docs/plans/BT-IOS27-PORT.md:306-329)."
+artifact_check = "CI 44518998961 kernel is 93,077,504 B, sha256 4e57f1822d352022b2a825f93ac41d653a149c63872a6cca8e42d505a0bb9f86; five contract checks pass (docs/plans/BT-IOS27-PORT.md:481-499). No boot and no 24A446 payload."
+
+[hardware.cellular]
+name = "蜂窝（X70 modem / DXE 载具 / QRTR）"
+status = "planned"
+why = "研究线：27 的载具、QRTR/EFS 与 IPA 代码已有离线判据和宿主测试，但 27 设备仓还没有 0626–0630，data-mount 锚点未落，也没有任何一次 modem 上机；因此不进构建门禁，W1/W2/F3 全部保持 PENDING"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复，或该硬件成为 stage-0 阻塞时提前恢复"
+
+[hardware.cellular.step.same_model]
+done = true
+evidence = "27 线的载具不是把 modem 编进内核，而是把固件当外部载具放进固定物理窗口：16 线六个补丁在 27 上重排为 0626 镜像段表 + pong_modem_boot/pas、0627 QRTR/GLINK/RMTFS/EFS/memshare/SMP2P、0628 IPA 十一对、0629 两处调用、0630 smem，见 /mnt/e/iOS Port/Work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:14-19 与同文件 :29-32。27 的 UEFI 侧以 27 个 modem.bNN.lzma 流和固定窗口 0x8bc00000/0x13200000 对齐，见同文件 :602-608。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.official]
+done = true
+evidence = "页面要求逐条对照，缺一条就写缺口，不用「本板 na」掩盖：\n- /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/baseband.md:22-31 要求先完成平台内存与 DMA，再按四步启动 modem，结果必须是 modem 持续运行、QMI 响应、IPA 初始化完成。16 线已有 /mnt/e/iOS Port/Work/wt-k55/drivers/PongCellular/K60ModemBoot.c:82-164 的五步、/mnt/e/iOS Port/Work/wt-k55/drivers/PongCellular/K60ModemLink.c:423-429 的 storage 名映射、/mnt/e/iOS Port/Work/wt-k55/drivers/PongCellular/K60ModemEfs.c:149 的读服务；27 线还没有 0626–0630 与 data mount，故 27 尚未满足。\n- /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/baseband.md:25 要求原厂 FSG/EFS/NV 并核对摘要，同页第 29 行要求 proprietary-files.txt 记录固件来源、哈希与打包路径。当前 proprietary-files.txt:1-7 只有 iOS 16.6.1 的 KernelCache/DeviceTree/StaticTrustCache/Cryptex1 条目，没有任何 modem/fsg/fsc/modemst 条目，这是 F3 前必须补的缺口，不是 na。\n- /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/baseband.md:56 明确 EFS 写入在 bring-up 阶段只保存在内存、重启后重新加载原厂数据。/mnt/e/iOS Port/Work/wt-k55/drivers/PongCellular/K60ModemEfs.h:92-95 正是 boot-session shadow：写方向 ACK 但不落盘；这与该页一致，但不能宣称持久化。\n- /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/guide/userdata.md:60-85 要求 Data 卷来自 payload seed、按目标布局扩种子，同页第 82 行说 seed 大小变化会改变持久化身份并初始化新 Data store；/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/concepts/userdata.md:68-70 说持久 store 从 userdata 末尾窗口提供，窗口不适用时内核拒绝 seed。本板 na 的部分：modem EFS 不走 userdata Data store，它走 modemst1/modemst2/fsg/fsc 四个独立分区，见 /mnt/e/iOS Port/Work/wt-k55/drivers/PongCellular/K60ModemEfs.c:12-17 与 /mnt/e/iOS Port/Work/wt-k55/drivers/PongCellular/K60ModemGpt.h:4-5；依赖的部分：PAS 必须在 native Data 挂载之后，27 的 data-mount 尚未落，见 /mnt/e/iOS Port/Work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:95-99，所以 F3 不能开始。\n- /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/drivers/qcom-baseband.md:7-9 要求板级提供 modem 启动、固件、电源、DMA、GLINK/QRTR 与 rmtfs，组件只提供桥；16 线实现正在这些位置，27 侧搬运清单见 /mnt/e/iOS Port/Work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:29-32。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.decompile]
+done = false
+evidence = "只做到「27 载体与 UFS 描述符形状」这一层：27 个 modem.bNN.lzma 流的 13 字节头、declared 尺寸与 109,060,761 B 总量已与 UEFI 表逐条对齐，见 /mnt/e/iOS Port/Work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:14-19 与同文件 :316-318。27 UEFI feed mu_basecore-8f10084c 的 UFS_UNIT_DESC 前五字节已按 packed 结构逐行核对，见 /mnt/e/iOS Port/Work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:227-244。未完成的是 modem 固件内部的 GLINK/QRTR 服务表：没有服务号、通道名或初始化顺序的反汇编，不能把「27 流能打进去」当成「服务表已懂」。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.wide]
+done = true
+catalog_checked = true
+evidence = "先查组件目录再写驱动。/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml:563-581 的 QcomBaseband 是 SC7180 IPA v4.2 的 QMUX/QRTR/QMI CTL/SAHARA/AppleBaseband/IPA-GSI-QMAP 桥，board_dependencies 明确把 modem 启动、固件、电源、DMA、GLINK/QRTR、rmtfs 留给板级；同文件第 575 行 verified_devices 为空。27 stage-0 的 board.toml:358-360 只 include ArmDTPlatform/ArmCpu/XnuPrelink，不含 QcomBaseband；board.toml:359 注明 PongUfs 到 F3 才回来。/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml:555-560 是 ShengUfs/NativeUfs，不是可直接复用的 PongUfs 组件。结论：传输层语义可参考，Pong 载具、EFS 服务与 27 的 4 KiB 适配必须自建，没有现成轮子可复用。"
+catalog_result = "QcomBaseband 只提供 SC7180 IPA v4.2 的传输层语义，verified_devices 为空；PongUfs/NativeUfs 是 Sheng 路线的存储实现，不是本板 27 的 PongUfs 组件；27 stage-0 的 include 只有 ArmDTPlatform/ArmCpu/XnuPrelink。载具、EFS 与 4 KiB 适配必须自建。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.plan]
+done = true
+evidence = "27 的落地顺序已定：先把 Lead 的 data-mount 补丁搬到 27，再在 native_owner_data_stage 推进到 3 的那一行之前插 k60_modem_probe_from_handoff 与 k60_ipa_probe_from_handoff，然后生成 0629；0626/0627/0628/0630 只新增文件，可先打。生成器与锚点契约见 /mnt/e/iOS Port/Work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:95-99 与同文件 :109-117。对真实 27 树逐条 git apply --check 的结果是 0626/0627/0628/0630 rc=0、0629 等锚点，见同文件 :602-608；当前 27 树仍没有 native_owner_data_stage，见同文件 :654-661。0629 的两个入口分别由 0626 与 0628 提供，否则链接期未定义，见同文件 :147-148。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.deep]
+done = true
+evidence = "三条深挖结论。第一，27 的 PAGE_SHIFT 是运行期变量，16 线唯一的硬编码 >>12 已改成 /ptoa_64(1)，见 /mnt/e/iOS Port/Work/wt-pitfall/docs/research/cellular/20-IOS27-PORT-PLAN.md:38-46；K60_IPA_GSI_PAGE_SIZE 0x1000 是 GSI TRE 硬件粒度，不是 VM 页，见同文件 :38-46。第二，27 的 rmtfs 读走 native_pong_ufs_read_named_volume 的同文件弱定义；27 没有 drivers/NativeUfs 时它返回 0，调用点把 ==0 当失败，于是 RMTFS 读被拒绝为 result 1，能编能链但静默，见同文件 :177-195。第三，IPA 的 /mnt/e/iOS Port/Work/wt-k55/drivers/PongCellular/K60Ipa.c:1402 仍是返回 not-ready 的 stub，KMA_PERMANENT 只剩 IPA 一处，见同文件 :90-93；27 的 Data 命名空间要求 PAS 在 Data 挂载之后，见同文件 :208-211。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.cellular.step.verify]
+done = false
+local_verified = true
+evidence = "三条证据门全部还是 PENDING，不能写成 PASS：\n- W1 控制器 LUN：Leg A 读 /sys/class/block/<sdX>/device 规范路径末段 H:C:T:L 的第四字段，Leg B 读 UFS Unit Descriptor IDN 0x02 的 byte2 bUnitIndex 与 byte3 bLUEnable；A=5、B byte2=5/byte3=1 才 PASS，只有 A 是 PENDING，A=5 而 B=4 或 enable=0 是 FAIL，没有 bsg/工具也是 PENDING。判据见 /mnt/e/iOS Port/Work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:144-146，判官见 /mnt/e/iOS Port/Work/wt-k55/scripts/check-w1-lun-evidence.py:1，退出码 0/2/1。\n- W2 完整 4 KiB：不是只比 offset 0 的 16 字节头，而是 storage 1..4 各取 4096 字节，十个头部 LE32、0x28 label、0x2f、四个尾部 LE32、0x40..0x1ff 全零、0x200..0xfff data sha256 与完整 sha256 全部匹配；缺文件或短于 4096 是 PENDING，任一字段或哈希不符是 FAIL，头 16 字节对而整块错仍是 FAIL。判据见 /mnt/e/iOS Port/Work/wt-k55/docs/research/cellular/23-W2-FULL-SUPERBLOCK.md:99-110 与同文件 :117-133，判官见 /mnt/e/iOS Port/Work/wt-k55/scripts/check-efs-full.py:1。\n- F3 真实 modem/RF：W1 PASS 且 W2 PASS 后，才看同一 storage 的第二次 rmtfs rw、fsg/fsc 被 open、K60MODEM qrtr 服务数从 2 涨到 >2、RMTFS 14/1 端口 0x102 有请求/应答，再看 PAS4 的 auth_reset/init_image/mem_setup、dms revision、verdict ok、bridge enabled 与 COACHZ 发布；EFS 4 KiB 全对但无 PAS4/RF/QMI 时查固件/EFS 版本，不能回头改字节。判据见 /mnt/e/iOS Port/Work/wt-k55/docs/research/cellular/22-W1-READONLY-CAPTURE.md:279-284 与同文件 :306-322。F3 的前置是 PongUfs 进 27 package、QcomBaseband 进 include/archives、27 data-mount 锚点落地；当前 board.toml:358-360 没有 PongUfs，见同文件 :333-337。\n当前 blocker 状态：loader-rejects-fileset 与 firmware-fileset-provider 已 closed，见 docs/engineering/IOS27-FLIGHT-BLOCKERS.toml:12-20 与同文件 :30-37；prelink-map-unresolved 仍 open，见同文件 :22-29。W1/W2/F3 只关各自证据门，不能关闭 prelink blocker；后者要独立修。\n哪一条通过才能关：W1 的判官退 0 才关 W1；W2 的判官退 0 才关 W2；F3 的 PAS4/RF 行全部出现且无 panic 才关 F3。当前没有 w1-lun-* 设备采集，也没有完整 4 KiB 块，故 verify.done=false。"
+static_check = "27 UEFI feed mu_basecore-8f10084c 的 Ufs.h 第 32 行是 #pragma pack(1)，同文件第 874-878 行的 Length/DescType/UnitIdx/LunEn/BootLunId 都是 UINT8，声明顺序就是 byte0..4；UfsPassThru.c 第 996-1008 行循环 Index 0..7 调 UfsRwDeviceDesc，并在第 1004 行比较 LunEn==0x1。Linux v6.12 commit adc218676eef 的 include/ufs/ufs.h 第 207-216 行独立定义 byte2 UNIT_INDEX/byte3 LU_ENABLE，ufshcd.c 第 3637-3703 行按字节拷贝。上述行号的逐条引文见 /mnt/e/iOS Port/Work/wt-k55/docs/research/cellular/21-IOS27-W1-AND-BLOCKER-REVIEW.md:227-244 与 /mnt/e/iOS Port/Work/wt-k55/docs/research/cellular/W1-DECISION-SHEET.md:249-256。"
+unit_test = "本地已通过：/mnt/e/iOS Port/Work/wt-k55/scripts/tests/test-w1-lun-evidence.py:1 的 20 个 W1 用例；/mnt/e/iOS Port/Work/wt-k55/scripts/tests/test-efs-full.py:1 的 12 个完整 4 KiB 用例；/mnt/e/iOS Port/Work/wt-k55/scripts/tests/test-capture-bundle.py:1 的 8 个组合用例；/mnt/e/iOS Port/Work/wt-k55/scripts/tests/test-capture-autocheck-e2e.py:1 的 PASS/FAIL/PENDING 三态自证。判官与夹具的读数见 /mnt/e/iOS Port/Work/wt-k55/docs/research/cellular/23-W2-FULL-SUPERBLOCK.md:282-289。"
+artifact_check = "离线产物检查：/mnt/e/iOS Port/Work/wt-k55/scripts/check-efs-full.py:1 对四个 4096 B 参照文件逐 storage 校验并通过；/mnt/e/iOS Port/Work/wt-k55/scripts/judge-cellular-flight.py:1 对 16 字节头与九个合成 console 夹具通过；/mnt/e/iOS Port/Work/wt-k55/scripts/check-capture-bundle.py:1 对 W1/W2/完整块三态合成输入给出 PASS/PENDING/FAIL 并拒绝把缺项当 PASS。没有真实设备采集，故这些只能证明判据实现，不是 W1/W2/F3 的硬件结论。"
+recorded_at = "2026-11-21T03:40:00"
+
+[hardware.charger]
+name = "充电 / 电池协议（qti_battery_charger + pmic_glink，27 离线账本）"
+label = "充电研究线：传输与订阅协议已定，真实通道打开和订阅 ACK 等第一次 27 上机"
+status = "planned"
+why = "27 树没有 PongPower 锚点，且当前 27 设备证据止步于 K60Battery: blocked rc=-4。本块把 PMIC GLINK 传输、订阅常量、断线重连和 104 B handoff 的离线契约固定下来，供第一次 27 上机按 C0→C1→C2 顺序判读。"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复；本文件先固定离线七步，device 步等 F1 后由 Lead 追加"
+
+[hardware.charger.step.same_model]
+done = true
+evidence = "同型号 27 实现不存在；同型参考是 sheng（SM8550，不是 SM8475）。E:/iOS Port/Work/references/pong-power/ShengBattmgr.c:170-197 的 opcode 0x04 判定接受 type==REQUEST 或 NOTIFY 且不校验长度，opcode 0x07 通知要求 type==NOTIFY 且 length>=16；E:/iOS Port/Work/references/pong-power/ShengBattmgr.h:16-26 定义 OWNER 32778、REQUEST_BYTES 24、ENABLE_BYTES 28。K60 的 .ko 订阅帧 28 B 与它逐字节同形，但 K60 的 ADSP 回包更严格，是 16 B type 1（docs/research/charger/01-SYMBOL-MAP.md:17-28）。因此同型参考只能借结构，不能借宽松判据。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.charger.step.official]
+done = true
+evidence = "官方页 docs/zh/porting/power.md 第 2 节（E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/power.md:29-39）是 DSP 传输要求，逐条对应：\n- R5 打开通道前先适配固件认证、预留内存、电源投票，并建立邮箱和 ready/crash 路径：drivers/PongPower/K60HandoffRuntime.cpp:74 在 PAS1 失败时不发布租约，:81 成功后发布 104 B flags=15；drivers/PongPower/K60PmicGlink.cpp:84 才打开通道。27 当前仍可能停在 blocked rc=-4，故这一条只有代码路径，没有 27 成功样本。\n- R6 通道状态/接收回调、把字节复制到有界队列、请求处理放消费者侧：drivers/PongPower/K60PmicGlink.cpp:84 注册 callbacks/context，drivers/PongPower/K60Battmgr.c:47-56 在消费者侧做有界校验。\n- R7 用 sheng_adsp_channel(name,intent_size,intent_count,initiator,callbacks,context) 注册：NA，本板用 XNU 原生 qcom_glink_channel，等价参数是 PMIC_RTR_ADSP_APPS、256、4、callbacks、this（drivers/PongPower/K60PmicGlink.cpp:84）；sheng API 是 SM8550 参考，不是本板 ABI。\n- R8 处理 send 的 0/-1/-2 与 512 B 上限：NA，本板没有 sheng_adsp_send；等价失败路径是 FIFO/intent backpressure，drivers/PongPower/K60Battery.cpp:509-512 会标 stale 并 reopen，而不是继续塞帧。\n- R9 断开时取消请求、使远端句柄失效，重连后重新协商并恢复订阅：drivers/PongPower/K60Battery.cpp:446-451 在通道断开时 cancel/stale，drivers/PongPower/K60Battmgr.c:61 清 flight/cycle/subscribed，重连后由 drivers/PongPower/K60Battmgr.c:80-84 重新组订阅帧。\nR10-R15 属于电池上报，见 [hardware.battery.step.official]；R16-R20 已由 live [hardware.power] 覆盖。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.charger.step.decompile]
+done = true
+evidence = "两侧反汇编都做了。.ko 侧：battery_chg_probe 0xedc-0xf08 与 battery_chg_subsys_up_work 0x11b0 组 28 B {0x800a, 2, 4, +0xc 起全 0}；battery_chg_callback 0x211c 的跳转表把 opcode 4 引到 0x2464，只 complete（docs/research/charger/03-REVERSE.md:204-225）。ADSP 侧：adsp.b14 的 0x60155570 分发器与 0x60155910 handler 回 16 B {0x800a, 1, 4, result}，r3=#0x10；订阅帧 28 B 的四个零字和回包 16 B 的常量都在 docs/research/charger/06-SUBSCRIPTION-CONSTANT.md:11-17、:35-58 固定。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.charger.step.wide]
+done = true
+evidence = "广域交叉核对三方语义：本仓库消费方 drivers/PongPower/K60Battmgr.c:47-56 的 init 白名单、:162-171 的精确 ACK、:194-200 的超时作废；上游 Linux qcom_battmgr.c 只要求总长 >=16 且不校验 type；sheng E:/iOS Port/Work/references/pong-power/ShengBattmgr.c:170-183 两种 type 都收。三者对 (type 1, 16 B) 均无反证；ADSP 固件 30 处 0x800a 组包点的 type 直方图为 {1:27, 2:1, 无:2}，唯一 type 2 是 0x60158884 的 opcode 7 主动通知，不是应答。官方组件目录 E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml 没有充电组件，只能自建。"
+catalog_checked = true
+catalog_result = "UniXNU/components.toml 的 25 个组件没有电池/充电协议组件；QcomDwc3 只声明 UCSI over charger channel，QcomBaseband 只提供 GLINK/QRTR 传输参考，都不含 battmgr 帧格式。结论：按 06-SUBSCRIPTION-CONSTANT.md 的实测值自建，不依赖组件。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.charger.step.plan]
+done = true
+evidence = "27 接线方案分两段。传输层：dts 保留 remoteproc-adsp→glink-edge（remote-pid 2，mboxes ipcc 3 0）→pmic_glink（tms/servreg + msm/adsp/charger_pd）→battery-charger，驱动用名字通道 PMIC_RTR_ADSP_APPS 打开 256 B × 4 intent（drivers/PongPower/K60PmicGlink.cpp:84）。发布层：104 B handoff 必须在通道打开前发布，drivers/PongPower/K60Battery.cpp:656-665 从 /chosen 读取 K60_ADSP_HANDOFF_PROPERTY；27 的逐项改线和判据见 docs/research/charger/PMIC-REWIRING-WORKORDER.md:31-40，读顺序是 C0 发布行→C1 订阅→C2 四属性→C3 与 Android 对比。传输细节见 docs/research/charger/02-GLINK-CONTRACT.md。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.charger.step.deep]
+done = true
+evidence = "深挖结论三条。一，订阅 ACK 的 type/长度只能从固件定：.ko 与 Linux 都不校验，本仓库却要求精确匹配，所以必须用 ADSP 0x60155910 的 16 B type 1，不能照抄 Linux 的宽松判据。二，opcode 4 的应答与 opcode 7 的通知是不同帧：0x800a 的 type 2 帧只用于主动推 opcode 7（16 B），混淆会让订阅永远不成立。三，协议无 transaction id，超时只能靠 poisoned + 重开通道兜底（drivers/PongPower/K60Battmgr.c:194-200），因此单飞行请求是硬约束；drivers/PongPower/K60Battery.cpp:534-539 在超时后标 stale，不重发旧帧。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.charger.step.verify]
+done = true
+local_verified = true
+evidence = "离线核验通过。scripts/tests/test-k60-charger-subscription.c 30 个断言全过（TESTS OK 30），把 K60_BATTERY_NOTIFY_REPLY_TYPE=1 / _BYTES=16 钉死并覆盖订阅帧、四类错形 ACK、result=0x206、opcode 7 通知。scripts/build-k60-physical-battery.py:29-39 的 MEASURED_NOTIFY_REPLY=(1,16) 实跑核对：无抓包返回 (1,16)，抓包矛盾抛 ValueError。scripts/check-battmgr-wire.py 通过，19 个字段一致且出站帧只读（22 项夹具）。27 真机的 C0/C1/C2 仍未发生，故本步只证明离线协议。"
+static_check = "逐行对照 ADSP handler 0x60155910 的组包顺序（result→owner 0x800a→type 1→opcode 4→r3=#0x10）与 drivers/PongPower/K60Battmgr.c:162-171 的校验（bytes==16、type==1、+0xc 起逐 4 字全 0），两者在 (1,16) 自洽；订阅帧 28 B 与 .ko 0xedc-0xf08 逐字节一致。"
+unit_test = "scripts/tests/test-k60-charger-subscription.c：TESTS OK 30，覆盖 init 接受 (1,16)、(0,0) 不订阅、28 B 四零字订阅帧、四种错形 ACK、result=0x206、16 B type1 result=0、16 B type2 opcode 7 通知。"
+artifact_check = "scripts/build-k60-physical-battery.py:29-39 的 MEASURED_NOTIFY_REPLY=(1,16) 已写入生成器，头注释标明来自 0x60155910 的 16 B 回包；WIRE-PROPS.toml 与 04-PROP-MAP.md 的 19 个字段一致。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.thermal]
+name = "热管理 / tsens-v2（27 离线账本）"
+label = "热管理研究线：tsens 只读解码与压力等级已固定，27 上机等冷却图接线后由 Lead 统一执行"
+status = "planned"
+why = "27 树没有 thermal 锚点，live [hardware.thermal] 的 decompile/deep 仍写着 SROT 未读。后续两次真机冷跑已经读到 ctrl=0x9d67fff9、enabled=1 和 32/32 传感器，本块把这两个历史 false 用真实证据关掉，并把可复用的 tsens/压力模型固定下来。"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复；本文件先固定离线七步，device 步等 F1 后由 Lead 追加"
+
+[hardware.thermal.step.same_model]
+done = true
+evidence = "同型号没有移植过 thermal。对 E:/iOS Port/Work/references 下 44 个参考树 grep -ril 'tsens|thermal'，K60 系命中全部是文档或研究笔记，没有一份热管理驱动源码；*Thermal*.cpp 只出现在别的 SoC（SM8550 sheng 的 ThermalProbe.cpp、SM6375 phk110 的 hakios.thermal.c）。可复用的只有「读 32 路 tsens、映射 5 个压力域、按 trip 算等级」这个结构，本板自己实现为 K60Tsens/K60ThermalLevel/K60ThermalService。见 docs/research/thermal/03-REVERSE.md 与 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.thermal.step.official]
+done = true
+evidence = "官方页没有 thermal 子系统章节；power.md 只有两句与热有关：§1 的输入表 E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/power.md:15 要求收集「温控限制」，§5 的工作点顺序 E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/power.md:152 要求「按规定顺序执行目标稳压器、互连和温控要求」。本块对这两句的落法是：tsens 只读、32 路传感器、5 个域和 trip 表提供「温控限制」的数值；K60ThermalService 把等级发布成 Thermal_Level_Warning，供电源/调频消费者按序读取。其余 R1-R21 中，R16-R20 属于 CPU/GPU/睡眠，已由 live [hardware.power] 覆盖；R1-R15 属于电池/充电，见前两块；R21 由本块 verify 落实。硬件语义不是从 power.md 猜的，而是与 mainline qcom-tsens.yaml/tsens-v2.c 一致，记录在 docs/research/thermal/02-OFFICIAL-DOCS.md。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.thermal.step.decompile]
+done = true
+evidence = "反编译与运行时证据已闭合历史上「SROT 未读」的缺口。vendor qcom_tsens.ko（77,928 B，sha256 22334f6d246cf1b67e238027a2d04ac19b588d47d73301bb7577c2dc9c6981a9）的 tsens_v2_regfields 给出 LAST_TEMP off=0xa0+4n、width=0x0b，get_temp_tsens_valid 走 adc=0 分支（符号扩展后 ×100）；本板没有 nvmem 节点，标定代码不走。运行时冷跑 usblog-20261117-122800 读到 tsens0 tm=0xc263000 srot=0xc222000 ver=2.8.0 ctrl=0x9d67fff9 enabled=1，32 路全部有读数。细节见 docs/research/thermal/04-ANDROID-EVIDENCE.md 与 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.thermal.step.wide]
+done = true
+evidence = "按规范查三处。一，官方组件目录 E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml 的 25 个组件对 thermal/tsens/温度零命中，没有可复用组件。二，官方驱动仓库列表没有 thermal 驱动仓库。三，社区只有 SM8550 sheng 的 ThermalProbe.cpp（3 控制器、纯只读）和 SM6375 phk110 的 hakios.thermal.c（27 传感器、真机 27/27 有读数），都不属本板、不在官方组件库，只能当实现参考。结论：继续自建 drivers/PongThermal。见 docs/research/thermal/03-REVERSE.md 与 02-OFFICIAL-DOCS.md。"
+catalog_checked = true
+catalog_result = "UniXNU/components.toml 的 25 个组件没有 thermal/tsens/温度相关项；官方组件面向 IOPMPowerSource、USB、UFS 这类有 ABI 契约的子系统，热管理在本项目一直是板级实现（sheng 也写在 package/ThermalProbe.cpp），因此不能声明组件依赖。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.thermal.step.plan]
+done = true
+evidence = "改动清单已经落地为代码。解码层：drivers/PongThermal/K60Tsens.c:11-16 对 12 位状态做符号扩展再 ×100，:35-45 要求 bit21 VALID 且读数在 min/max 内，:107-124 是 32 项传感器表（tsens0 0..15、tsens1 0..15，zone 24..55）。压力层：drivers/PongThermal/K60ThermalLevel.c:17-41 是五组 trip（CPU/big 110/10、115/5、125/1；GPU/NPU 95/5、115/5、125/1；DDR 90/5、115/5、125/1），:43-45 是五个输入，:51-66 是 32 项映射。服务层：drivers/PongThermal/K60ThermalService.cpp:364-367 映射两个 TM+SROT 窗口，:425-428 发布后打印 2 controllers/%u sensors。构建脚本 scripts/build-thermal-kext.sh 生成 libK60ThermalKext.a。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.thermal.step.deep]
+done = true
+evidence = "关键不确定项已消解：SROT_CTRL bit0 不是 0，冷跑读到 ctrl=0x9d67fff9 enabled=1；32 个 STATUS 的 VALID 位不是全 0，usblog-20261117-122800 的 32/32 传感器各有读数；125/115/110℃ 三档 trip 的用途由 drivers/PongThermal/K60ThermalLevel.c:17-41 的等级表和 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49 的「取跨过的最高档」确定。服务只读 MMIO，不开中断、不写 SROT；drivers/PongThermal/K60ThermalService.cpp:364-367 的两个窗口是 TM+SROT 只读映射。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.thermal.step.verify]
+done = true
+local_verified = true
+evidence = "离线与真机核验都有。主机侧 scripts/tests/test-k60-thermal-tsens.c 16 个断言通过，覆盖 0xa0+4n、12 位符号扩展、VALID 缺失、越界拒绝、32 项表；scripts/tests/test-k60-thermal-level.c 72 个断言通过，覆盖五组 trip、等级/hysteresis、32 项映射。产物侧 scripts/build-thermal-kext.sh 生成 libK60ThermalKext.a（sha256 8fa4bf72e931d3d79e66d281ed43849ab129e36fd0a71b0a272d0fcd6dfbb8d4，160 defined/10 required/219 imports）。真机侧 usblog-20261117-122800 冷跑 32/32 传感器、level 0/3 nominal、published Thermal_Level_Warning=0 恰好一次，check-thermal-log.py --profile cold 为 21 passed/0 failed；详见 docs/research/thermal/08-KERNEL-DRIVER.md:420-458。"
+static_check = "K60Tsens.c 全文没有对 volatile 的写、不开中断、不碰 SROT；K60ThermalLevel.c 的 trip 表与 docs/research/thermal/05-PRESSURE-LEVEL.md:30-49 逐项一致；drivers/PongThermal/K60ThermalService.cpp:364-367 只映射 TM+SROT 两个只读窗口。"
+unit_test = "scripts/tests/test-k60-thermal-tsens.c TESTS OK 16，scripts/tests/test-k60-thermal-level.c TESTS OK 72；两者都在主机侧用假窗口/假输入驱动纯函数。"
+artifact_check = "libK60ThermalKext.a sha256 8fa4bf72e931d3d79e66d281ed43849ab129e36fd0a71b0a272d0fcd6dfbb8d4，160 个已定义符号、10 个必需符号全在、219 个导入全在 all-kpi.exp；XNU_PONG_THERMAL=1 的 kernel.macho sha256 cb35295c1ea81fbe4935309e45e2548b0aa8b6ca6e4e12367292c87d4192d0e3、54,190,080 B，strings 命中 8 条 K60Thermal:，对照 =n 的 1ebb6052d91da63397722e6e9722f1008fe464c3a67d0d888a4a00c9d6e73187、54,181,888 B 为 0。"
+recorded_at = "2026-11-21T03:41:45"
+
+[hardware.wifi]
+name = "无线（QCA6490 / PCIe + MHI）"
+label = "WiFi（QCA6490 / WCN6855）"
+status = "parked"
+why = "2026-11-21：24A446 Wi-Fi 线只做离线契约与验收工具，不构建、不上机；C1/C2/C3 仍 open，完整 arm64e station 归档尚不存在。见 docs/plans/WIFI-IOS27-CHECKLIST.md:76 与 docs/research/wifi/IOS27-STATION-API-GAP.md:39。"
+revisit = "27 stage-0 进入 SpringBoard 后按线恢复；本文件的 active 只表示 Wi-Fi 27 迁移线在离线推进，不改变 k60-gates 全局条目的 parked 状态"
+
+[hardware.wifi.step.same_model]
+done = true
+evidence = "Pong 是 SM8475 + QCA6490，与 K60 同 SoC 同芯片：docs/research/wifi/RESEARCH.md:21；K60 实测端点 17CB:1103、BAR0 0x60200000/2 MiB、subsystem 0x0108 见 docs/research/wifi/RESEARCH.md:153-155 与 E:/iOS Port/Work/evidence/pci-id-20261114/pci-identity.txt:1。板级冷启动逐段对应 drivers/PongWifi/PongWifiPlatform.cpp:355-388（训练）、drivers/PongWifi/PongWifiPlatform.cpp:412-414（BAR）、drivers/PongWifi/PongWifiPlatform.cpp:468-492（MSI 与 SMMU）。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.official]
+done = true
+evidence = "逐页核对（页面要求 → 本板落点 / 为什么 na）：\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:30-38 的 PCIe 六步（窗口、复位、参考时钟、稳压器、互连投票、SMMU stream、MSI 路由）→ drivers/PongWifi/PongWifiPlatform.cpp:376-388 训练、drivers/PongWifi/PongWifiPlatform.cpp:412-414 BAR、drivers/PongWifi/PongWifiPlatform.cpp:468-492 MSI 与 ArmSmmu4KBuild；本板端点是 17cb:1103、MSI SPI140，不照抄页面的 17cb:1107/SPI141（E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:92-93，drivers/PongWifi/PongWifiPlatform.cpp:815-825）。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:46-61 的回调与所有权：lx_platform 的 dma_alloc/dma_map/dma_sync/fw_get、nw_board 的 BAR/配置空间/MSI、先装 events 再启动 → drivers/PongWifi/ath11k/PongAth11k.c:55 要求五个 DMA/固件回调齐全，drivers/PongWifi/PongWifiNet.cpp:563 定义 gEvents；固件加载说明在 docs/research/wifi/RESEARCH.md:57（本树没有独立的 PongWifiFirmware.cpp 源文件，归档成员来自历史构建）。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:63 要求固件与 QRTR 服务启动后扫描产生 BSS → 16 线只到 MHI READY，随后 mhi_sync_power_up 超时 -110，见 docs/research/wifi/SBL-QUEUE.md:167-174；27 线未飞行，因此这一条只到“回调具备、运行未验”，不是已满足。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:67-68 的 OS 接口 nw_wifi_scan/connect/tx 与 MAC/信道/监管/请求布局 → drivers/PongWifi/PongWifiNet.cpp:758-760（扫描二选一）、drivers/PongWifi/PongWifiNet.cpp:815（connect）、drivers/PongWifi/PongWifiNet.cpp:900-912（频道表）；选择器表在 drivers/PongWifi/PongWifiNet.cpp:82-84。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:70-77 要求选 Ath12kWifi 并在构建树检查链接 → 本板是 QCA6490/ath11k，官方组件不覆盖（见 wide 步）；本板构建侧用 scripts/build-k60-wifi-native.py:133-160 收集对象、scripts/build-k60-wifi-native.py:181 libtool 打包，输入检查用 scripts/check-wifi27-link-inputs.py:56-81。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:95-97 的参考策略（不扫 6 GHz、关联用对端 HT/VHT、忽略 beacon 丢失并丢 VHT MCS10/11）→ 本板只在 gModern27Client 置位后隐藏 >=5925（drivers/PongWifi/PongWifiNet.cpp:900-912），首次应答仍列 6 GHz；后两条本板未实现，na（27 station 尚未产出，不把 sheng 的策略当成本板事实）。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/drivers/ath12k-wifi.md:51-52 的 24A446 关联结果 540 B、结果/有效位在 0x214/0x218 → drivers/PongWifi/PongWifiNet.cpp:258-264、drivers/PongWifi/PongWifiNet.cpp:304-306 构造并投递 pong_assoc_event27，内核侧由 patches/xnu-12377/0542-k60-association-event-cluster.patch:22-43 放宽到 MCLBYTES。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/drivers/ath12k-wifi.md:36-49 的 sheng 集成（/arm-io/wlan、128 MiB DMA、签名 supplicant、launchd 缓存、/private/var/ngpu 固件）→ 本板只有 dts/mondrian.dts:85-98 的 wlan 节点；supplicant/launchd 属 C2 且 open（docs/research/wifi/SHENG-KERNEL-REFERENCE.md:81-103），固件走 vendor 分区而非 sheng 路径，na。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/drivers/ath12k-wifi.md:62-64 的 sheng-wifi=5 等启动参数 → 本板用 XNU_PONG_WIFI 构建开关而不是该参数，na（scripts/build-wifi27-kernel.sh:48-56）。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/platform.md:23-39 的 CPU/GIC/PSCI/定时器/DTS → patches/xnu-12377/series:91（0540 PSCI SMP）、patches/xnu-12377/series:95（0541 虚拟定时器守卫）；设备树 dts/mondrian.dts:85-98。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/platform.md:62-66 的 DMA 地址宽度/IOVA/SMMU stream/context/缓存策略 → drivers/PongWifi/PongWifiPlatform.cpp:468-492、drivers/PongWifi/PongWifiPlatform.cpp:544（exclusive SID 0x1c01、native 4 KiB 页）。\n- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/drivers.md:63-88 的接入七步与 llvm-ar t / llvm-nm --defined-only 检查已链接实现 → scripts/check-wifi-station-archive.py:37-123 把成员架构、两个 API 与 stamp 绑成一条命令；E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/drivers.md:97 的记录要求落在 porting.toml:151-199。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.decompile]
+done = true
+evidence = "离线反汇编与实测身份：K60 端点 17CB:1103、BAR0 0x60200000+2 MiB、subsystem 0x0108 已在 2026-11-14 实测（docs/research/wifi/RESEARCH.md:153-155，E:/iOS Port/Work/evidence/pci-id-20261114/pci-identity.txt:1）；wifid 20G81 的列表删除路径已离线拆到只剩 WAPI 一条（docs/research/wifi/SBL-MISSION.md:1183，§32）。24A446 的 wifid/IO80211Family 不在 pinned kernelcache，反汇编边界见 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186 的 C3 阶梯；本步只对可得二进制完成，未把 20G81 的结论移植到 24A446。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.wide]
+done = true
+evidence = "官方目录只覆盖 ath12k 一代：E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml:473 的 Ath12kWifi 面向 qcc2072/qcn9274/wcn7850（WiFi 7），K60 是 QCA6490/WCN6855（ath11k 族），MHI 通道、CE 数量、HAL ring 与 WMI 命令集不同，复用会把板级差异藏进组件（docs/research/wifi/RESEARCH.md:110-112）。同 SoC 的 Pong 与 mainline ath11k 是可用参考；nw_abi.h 只借形状不借实现。结论：官方组件不可直接用，本线自建 ath11k 路径。"
+catalog_checked = true
+catalog_result = "components.toml:473 的 Ath12kWifi 绑定 ath12k/WiFi 7（qcc2072/qcn9274/wcn7850）；K60 的 QCA6490/WCN6855 是 ath11k，MHI/QRTR/CE/WMI 不同，不能作为本板组件；只能参考同 SoC 的 Pong 与 mainline ath11k。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.plan]
+done = true
+evidence = "27 线的前置条件与出口写在 docs/plans/WIFI-IOS27-CHECKLIST.md:76（B 节：链接前必须拿到的 27 内核/归档/构建器条件）与 docs/plans/WIFI-IOS27-CHECKLIST.md:166（C 节：只有 24A446 二进制能定的形状）；板级寄存器与 IOVA 计划在 docs/plans/WIFI-PORT-PLAN.md:15，当前状态与下一步在 porting.toml:151-199。方案顺序：先补完整 arm64e station 归档，再用 scripts/build-wifi27-kernel.sh 链接并数符号；C1/C2/C3 不以 16/22H374 代替。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.deep]
+done = true
+evidence = "深挖结果落在三份记录：docs/research/wifi/SBL-MISSION.md:1706（§65 三处设备侧遮蔽）、docs/research/wifi/SBL-MISSION.md:1926（§68 合并与 0542）、docs/research/wifi/SBL-MISSION.md:2004（§69 0542 四层证据与 25 对 31 审计）；docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186（§I C3 的 0x80 离线阶梯）与 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:148（H.1 最小补证）；docs/research/wifi/IOS27-STATION-API-GAP.md:39（两个 API 的关闭条件）与 docs/research/wifi/IOS27-STATION-API-GAP.md:70（最小补丁形态）。另：0542 的基线拒绝/补丁通过由 scripts/tests/test-wifi-association-event.py:39-61 钉住；站归档契约由 scripts/check-wifi-station-archive.py:37-123 实现。"
+recorded_at = "2026-11-21"
+
+[hardware.wifi.step.verify]
+done = true
+evidence = "本地已验证（离线，不含构建与上机）：\n1) /usr/bin/python3 scripts/check-wifi-station-archive.py <libPongAth11k.a> --ar llvm-ar --nm llvm-nm —— 成员必须 arm64e（scripts/check-wifi-station-archive.py:105-107）、_nw_wifi_power 与 _nw_wifi_scan_frequencies 必须已定义（scripts/check-wifi-station-archive.py:37）、abi/nw_abi.stamp 的 ie_bytes=2048 且 header_sha256 对齐 abi/nw_abi.h（scripts/check-wifi-station-archive.py:111-123）；exit 0/1/2。\n2) /usr/bin/python3 scripts/tests/test-wifi-station-archive.py —— 5 例固定五种假绿，见 scripts/tests/test-wifi-station-archive.py:85-119。\n3) /usr/bin/python3 scripts/check-wifi27-link-inputs.py --link-record <linkarchives> --allow-root <tree> --allow-root /opt/k60/trees/k60build/wifi --ar <llvm-ar> --nm <llvm-nm> —— arch/provenance/stubs 三条断言，stub 符号见 scripts/check-wifi27-link-inputs.py:56、forced load 解析见 scripts/check-wifi27-link-inputs.py:81、符号检查见 scripts/check-wifi27-link-inputs.py:208；9 例见 scripts/tests/test-wifi27-link-inputs.py:75-176。\n实测：ath11k-abi27e（sha256 8bc323b63e4ad3fde07a2db7ac30e93cd37b1cfcd0165bdee1419452e85a8e59）成员 PASS arm64e、stamp PASS、两个 API FAIL，rc=1；teardown27g 的 8 个成员全 ARM64E 且两符号为 U；历史 linkarchives 原样 FAIL provenance 与 stubs（libStub27.a），改名 libInputs.a 仍 FAIL stubs。没有候选归档通过完整契约，也没有 stub-free 27 镜像。\nC1/C2/C3 的 open 边界：C1 只到 22H374 的 selector/ioctl 形状与 sheng macOS 分支参考，目标 24A446 传输未证就停在 open；C2 只到挂载/路径可见（5/0）与 job 定义，服务是否启动、信任是否附加未证就停在 open；C3 只到 L0（字段位置与 sheng 写入点）与 L1b（16/22H374 行为），没有 24A446 consumer 的 GET 27/254 证据就停在 open。三者都不得用 16/22H374 结果替代。"
+local_verified = true
+static_check = "scripts/check-wifi-station-archive.py:105-123 检查成员架构、两个 station API 与 stamp/header 绑定；scripts/check-wifi27-link-inputs.py:56-208 检查 forced load 解析、来源白名单与五个桩符号。"
+unit_test = "scripts/tests/test-wifi-station-archive.py:85-119 五例；scripts/tests/test-wifi27-link-inputs.py:75-176 九例；scripts/tests/test-wifi-association-event.py:39-61 基线与补丁在 MLEN 224/256 下各 19 项检查。"
+artifact_check = "ath11k-abi27e（sha256 8bc323b6…）：成员 arm64e、stamp ie_bytes=2048/header_sha256 ec0b8227… 通过，两个 station API 缺失，rc=1。teardown27g（sha256 8e8175a5…）：8 个 ARM64E 成员，两符号为 U。历史 link 记录：arch 7 个通过，provenance 与 stubs 失败。没有候选归档通过完整契约。"
+recorded_at = "2026-11-21"
+
+[hardware.console]
+name = "内核控制台镜像（ramoops 0xA7000000 + 固件读数器）"
+label = "控制台（ramoops 镜像 / RamoopsDumpDxe）"
+status = "active"
+why = "2026-11-22：27 内核从 2026-11-21 起才第一次定义 _pong_ramoops_console_write/_pong_ramoops_console_init（patches/xnu-12377/0546-k60-ramoops-console-27.patch），固件侧读数器 RamoopsDumpDxe（uefi-mondrian c52a080）随镜像 227fa840 进入卷。此前两次 0 字节串口飞行无法区分「内核没跑」与「我们听不到」（P-300）。本次修复的就是这条可见性通路本身，因此它必须先飞。"
+revisit = "进入 SpringBoard 之后改用官方 USB 终端（scripts/debug_terminal.py，协议 2）作为常规日志通道；本项届时降回 parked"
+
+[hardware.console.step.same_model]
+done = true
+evidence = "同型证据不是「别人成功过」，而是「同一块板子上这块内存在、用途一致」：设备 live FDT 的 ramoops@0xa7000000 给出 reg = <0x00 0xa7000000 0x00 0x400000> 与 pmsg-size = <0x200000>，与补丁常量 PONG_RAMOOPS_PHYS_BASE 0xA7000000 / PONG_RAMOOPS_CONSOLE_BYTES 0x00200000 逐字节一致；记录见 docs/research/ios27/CONSOLE-GAP.md:1。16 线在 K60 上用同一窗口跑通控制台导出（016.6.1 内核符号 _pong_ramoops_console_write 等四个，见 docs/research/ios27/CONSOLE-GAP.md:1 的符号表）。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.official]
+done = true
+evidence = "官方 porting/guide 的调试阶梯要求先确定日志来源再谈判据，本板落点逐条记在 docs/research/ios27/OFFICIAL-DEBUGGING-PAGE.md:1（页面 https://unixnu.com/zh/guide/debugging，2026-11-21 用 scripts/k60-docsearch.py 抓取）。其中两条直接约束本项：①入口探针（本板实现是 Platforms/Xiaomi/DarwinBootPkg/Driver/Entry.S:12-18 的绿条，色值 0xFF00FF00）；②官方 USB 终端 scripts/debug_terminal.py 属长期通道，且「改 USB ID 本身不提供协议兼容性」，所以本次不能用它替代读数器。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.decompile]
+done = true
+evidence = "对两个内核做符号级比对（llvm-nm-18 --defined-only）：16.6.1 内核（/opt/k60/trees/cellular-k49/mondrian/ipados-16.6.1-20G81/mondrian/kernel/kernel.macho）有 _pong_ramoops_console_write、_pong_ramoops_console_init、_k60_usblog_console_up、_k60_console_export_sysctl；27 内核在修复前只有 _k60_serial_clock，其余四个一个都没有。判据与读数记在 scripts/check-kernel-console.py:1 与 docs/research/ios27/CONSOLE-GAP.md:1。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.wide]
+done = true
+evidence = "广域检索结论：sheng 的 18 条 27 补丁里 ramoops/console_write/usblog 零命中（grep -lie 三条模式全空），说明这条通路不能在 SM8550 线找到现成实现；27 的 series 里原来的 0543/0544 是在屏上画字，不是往串口送字；真正的底座是 16 线四层链 zzzzz-pong-ramoops-minimal → 0232 → 0243 → 0300，且它们全包在 #if defined(PONG) 里，而 27 构建 -DPONG 出现 0 次。结论与 gating 细节写在 docs/research/ios27/CONSOLE-GAP.md:1。"
+catalog_checked = true
+catalog_result = "官方组件里没有控制台镜像组件：E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml:1 的组件表不含 ramoops/pstore 类 driver，27 的控制台要么由内核补丁提供（本项做法），要么由固件侧读数（RamoopsDumpDxe）。因此 wide 步的结论是「没有可复用的官方组件」，而不是「没查」。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.plan]
+done = true
+evidence = "方案与判据先写死再看结果：docs/research/ios27/F2-PREDICTION.md:1 给出两次启动的分工（第 1 次应打 no signature，第 2 次应打 sig ok + 文本，且第 2 次之前不复位），以及 PASS/FAIL/INVALID 的定义。补丁本体 patches/xnu-12377/0546-k60-ramoops-console-27.patch:1（5,977 B，守卫为零，安装点在 boot_progress_stage 的 arm_vm_init returned 那一行之后）。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.deep]
+done = true
+evidence = "深挖得到两条可复算的教训并已登记：P-300（10 道门禁都在问「镜像会不会被接受」，没有一道问「内核有没有话要说」）与 P-301（-D 是否生效只能由对象记录 .o.json 或最终符号表回答）。两次误判的机制写在 docs/engineering/PITFALLS.md:1 的 P-300/P-301 两节；复算命令是 /usr/bin/llvm-nm-18 --defined-only <kernel> | grep _pong_ramoops 与 llvm-nm-18 -A <osfmk/DEVELOPMENT/serial_console.o.json>。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.verify]
+done = true
+evidence = "docs/research/ios27/CONSOLE-GAP.md:1 —— 本地已验证（离线）：①scripts/check-kernel-console.py 对 16.6.1 内核 PASS、对修复前的 27 内核 FAIL，修复后对 27 内核 PASS（rc=0）；②scripts/tests/test-check-kernel-console.py 8 例全过；③从 payload FAT 里 mcopy 出内核独立复核（P-177 形状）：93,061,120 B sha256 b997f4eeb316…，fffffff00ad8a768 S _pong_ramoops_console_init、fffffff00ad8a56c S _pong_ramoops_console_write 都在；④check-ios27-artifacts.py --flight-ready rc=0（boot.img 227fa840…，FD 8102da7d766a，含 RamoopsDumpDxe.efi 11,264 B）。"
+local_verified = true
+static_check = "scripts/check-kernel-console.py:1 用 llvm-nm-18 --defined-only 查四个 sink 符号，退出码 0/2；--flight 在缺失时退 2 并给修法。"
+unit_test = "scripts/tests/test-check-kernel-console.py 8 例（含 16 线正向对照、缺符号反向对照、无内核时不可判定）。"
+artifact_check = "boot.img 227fa8407fd96a9f5f47db239516ca97535df9065c3e6916c1569be1eb173196（201,900,032 B）；FD 3,145,728 B sha256 8102da7d766a；RamoopsDumpDxe.efi 11,264 B；payload 内内核 b997f4eeb316… 含两个 ramoops 符号。"
+recorded_at = "2026-11-22T03:05:00"
+
+[hardware.console.step.device]
+done = false
+prediction = { success = "第 1 次启动固件打印 RAMOOPS: no signature（读数器被调度、窗口可读、窗口为空）；随后第 2 次启动（不复位）打印 RAMOOPS: sig ok 与环形缓冲首尾文本，且文本里出现内核自己写的第一行。", failure = "第 1 次就打印 sig ok 说明窗口里是上一轮的残留而本轮没重写；第 2 次仍是 no signature 说明内核没有执行到 pong_ramoops_console_init（此时才轮到查控制台初始化顺序，而不是查补丁有没有编进去）。" }
+note = "两次启动都只 fastboot boot；第 2 次之前不得断电或进 Android，否则 DRAM 内容丢失，读数器读到的是空窗口。"

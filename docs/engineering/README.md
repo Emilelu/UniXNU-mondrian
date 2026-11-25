@@ -15,6 +15,11 @@
 |---|---|
 | [STATUS.md](STATUS.md) | **当前硬件状态明细** + 重新审视结论 + 历史变更记录（README 的详细版） |
 | [IOS27.md](IOS27.md) | **iOS 27.0.1 线**：iPhone 16 Pro Max（iPhone17,2）、arm64e 4 KiB、xnu-12377 + Darwin 26、F0–F4 阶段门、IPSW 与 kernelcache 哈希 |
+| [BOOT-FREEZE.md](BOOT-FREEZE.md) | **上机冻结**：`state = "frozen"` 时任何 `fastboot boot` 被拦；解冻要同时满足五条件，环境变量不可绕过 |
+| [OFFICIAL-STEPS.toml](OFFICIAL-STEPS.toml) | **铁则 17 的步骤账本**：每条流水线命令对应的官方页与锚点，由 scripts/check-official-steps.py 校验 |
+| [IOS27-REFERENCE-FIRST.toml](IOS27-REFERENCE-FIRST.toml) | **铁则 16 的读数账本**：每个仍 open 的飞行阻塞至少两条参考源读数（仓/文件/行/它怎么解决/我们的处置），由 `scripts/check-reference-first.py` 校验路径与行号能否当场解析 |
+| [LANE-CONTRACT-ios27.md](LANE-CONTRACT-ios27.md) | 七条车道的统一约定：参考源先行（iron-16）、官网页锚点（iron-17）、八步①②–⑦、禁构建/禁上机/禁写共享树。 |
+| [IOS27-DRIVER-ARCH.md](IOS27-DRIVER-ARCH.md) | 27 每个硬件层的架构归属：官方 sheng/官文优先，只有硬件不同导致抄不了的才参考同 SoC；pong 谱系不作架构来源。 |
 - [`BOOT-ARGS.md`](BOOT-ARGS.md) —— 每个 boot 参数的接受值、默认与陷阱；608 字节预算；三个 GPU 开关的串行依赖。
 | [EIGHT-STEP-SPEC.md](EIGHT-STEP-SPEC.md) | **八步流程规范**：① 同型 ② 官方 ③ 反编译 ④ 广域 ⑤ 方案 ⑥ 深挖 ⑦ 核验 ⑧ 上机。每步含目的/必做/证据格式/通过条件/反模式 |
 | [FIRMWARE-REBUILD.md](FIRMWARE-REBUILD.md) | **固件卷重建手册**：构建入口、为什么同一个 pin 三次重建得三个哈希（P-216）、`Mu_Basecore` 必须停在记录的 pin 上（P-217）、现场四个卷、P-154 已关闭、下次重建的五步实验协议、DarwinBoot 只认固定属性名的硬约束 |
@@ -87,3 +92,19 @@
 - **P-130**：手工搬运 fork 里的代码会丢失 GitHub contributors 署名
 - **★32**：跟进上游必须覆盖全部分支，单分支 refspec 会漏掉关键修复
 - **★34**：同 SoC 兄弟移植的记录优先于官方通用驱动
+- [OFFICIAL-REQUIREMENTS.toml](OFFICIAL-REQUIREMENTS.toml) — 官网每页一条要求（铁则 13）
+- [UPSTREAM-REPOS.toml](UPSTREAM-REPOS.toml) — 参考仓库与同步基线（铁则 15）
+- [REFERENCE-PROVENANCE.md](REFERENCE-PROVENANCE.md) —— 哪个「第三方」其实是我自己的 fork（GitHub API 实测）
+- [BUILD-FREEZE.md](BUILD-FREEZE.md) — build and flight freeze until the precedent parity ledger is complete (2026-11-23)
+
+## 交接与协作（2026-11-26）
+
+| 文档 | 作用 |
+|---|---|
+| [`PORTING-PLAN.md`](PORTING-PLAN.md) | 四层移植方案、启动链、当前缺口与回退 |
+| [`WORKFLOW.md`](WORKFLOW.md) | 构建 / 上机 / 证据 / 多线协作工作流 |
+| [`PROJECT-AGENTS.md`](PROJECT-AGENTS.md) | 项目总闸（目录布局、先读顺序、门禁清单） |
+| [`COLLABORATION-RULES.md`](COLLABORATION-RULES.md) | 多线并行协作规则 |
+| [`FIRST-BOOT-PLAYBOOK.md`](FIRST-BOOT-PLAYBOOK.md) | 首次启动操作顺序与判据 |
+| [`FAILURE-MODE-MATRIX.md`](FAILURE-MODE-MATRIX.md) | 症状 → 分层 → 下一动作 |
+| [`EARLY-BOOT-EVIDENCE-PLAN.md`](EARLY-BOOT-EVIDENCE-PLAN.md) | 早期启动取证计划 |

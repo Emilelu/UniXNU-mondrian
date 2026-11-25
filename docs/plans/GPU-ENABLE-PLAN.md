@@ -205,7 +205,7 @@ EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_K60_ACCEL_STUB=$((1 - PONG_ADRENO_PLATFORM))"
 
 - `:3-10` 在 `bsd_init()` 的 `dtrace_postinit()` 之后，如果 `(DEVELOPMENT || DEBUG) && defined(XNU_NATIVE_OFFLINE_GPU) && XNU_NATIVE_OFFLINE_GPU`，调用 `native_offline_gpu_publish()`。
 
-**它是什么**：`native_offline_gpu_publish()` 属于 `E:/hackios/UniXNU/drivers/AdrenoMetal/NativeOfflineGPU.cpp` 的离线 broker 路径：它通过 VirtIO console 把 Metal 请求转发到主机侧渲染器，不是 PongAdreno 的 CP/scanout。它的 `start()` 要求 `provider->open()` 成功（`NativeOfflineGPU.cpp:129-134`），传输层是 `NativeVirtioConsoleTransport`（`:8`）。
+**它是什么**：`native_offline_gpu_publish()` 属于 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/drivers/AdrenoMetal/NativeOfflineGPU.cpp` 的离线 broker 路径：它通过 VirtIO console 把 Metal 请求转发到主机侧渲染器，不是 PongAdreno 的 CP/scanout。它的 `start()` 要求 `provider->open()` 成功（`NativeOfflineGPU.cpp:129-134`），传输层是 `NativeVirtioConsoleTransport`（`:8`）。
 
 **依赖**：
 - `XNU_NATIVE_OFFLINE_GPU=1` 才会链接 `libNativeOfflineGPU.late.a`（`BUILD:1042`）。
@@ -230,7 +230,7 @@ EXTRA_CFLAGS="$EXTRA_CFLAGS -DXNU_K60_ACCEL_STUB=$((1 - PONG_ADRENO_PLATFORM))"
 
 - 六个补丁里**没有**任何 DSI/VIG 寄存器写。`SCANOUTCPP:30-58` 只校验 `PE_current_console()` 并把物理地址包成 `IOMemoryDescriptor`；`SCANOUTCPP:135-163` 只做 offer/map/complete。`PLATFORMCPP` 的窗口列表（`PongAdrenoGmu.c:10-13`）是 GPU/GMU/RSCC/PDC/GPUCC/SMMU/AO，不含 DSI。
 - K60 的 panel 是 ABL 点亮的；`PLAN120:44-46` 记录“整棵 K60 内核没有一行 DSI/MDSS/PLL 代码”，面板当前是 ABL 点亮、纯软件 memcpy 到 boot framebuffer。
-- 120 Hz 的 DSI 切档在 `E:/hackios/UniXNU-zizhan` 的 `PongAdrenoScanout.cpp` 里，不在 pong16 的六个补丁里（`PLAN120:203-211` 引用的是 zizhan 路径）。
+- 120 Hz 的 DSI 切档在 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan` 的 `PongAdrenoScanout.cpp` 里，不在 pong16 的六个补丁里（`PLAN120:203-211` 引用的是 zizhan 路径）。
 
 **结论**：GPU scanout 不需要移植 DSI/VIG；它只要求 boot framebuffer 仍然有效。120 Hz 是后续独立工作，见 ⑥。
 

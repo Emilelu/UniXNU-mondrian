@@ -3,8 +3,8 @@
 日期：2026-11-17
 范围：`drivers/PongAdreno/`、`drivers/PongMetal/`、`scripts/build-pong-metal-plugin.py`、`scripts/gen-k60-metal-blob.py`、`scripts/stage-metal-plugin.sh`、`userland/init.c`、`patches/xnu/{*metal*,*gpu*,04*,06*}`。
 
-对账基线：`E:/k60-work/references/yibiya-upstream`（`origin/main` = `27a33321`）。
-工具：`E:/k60-work/scratch/gpu_vs_upstream.py`（按文件 sha256 比对，输出 SAME/DIFF/ONLY-OURS/ONLY-THEIRS）。
+对账基线：`E:/iOS Port/Work/references/yibiya-upstream`（`origin/main` = `27a33321`）。
+工具：`E:/iOS Port/Work/scratch/gpu_vs_upstream.py`（按文件 sha256 比对，输出 SAME/DIFF/ONLY-OURS/ONLY-THEIRS）。
 
 ## 1. 总体结果
 
@@ -57,7 +57,7 @@
 `/System/Library/Extensions/PongAdrenoMetal.bundle/Info.plist`），**上游副本**仍是错的，见下。
 这条记录的意义是：与 yibiya 对齐时**不能**把这行一起对齐回去。
 
-上游 `E:/k60-work/references/yibiya-upstream/patches/xnu/zzy-native-gpu-addon-mount.patch:77-78`：
+上游 `E:/iOS Port/Work/references/yibiya-upstream/patches/xnu/zzy-native-gpu-addon-mount.patch:77-78`：
 
 ```
 sizeof(extensions_point), "/System/Library/Extensions/AGXMetalA10.bundle",

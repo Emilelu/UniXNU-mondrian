@@ -88,7 +88,7 @@ struct Entry {char name[32];uint32_t offset,bytes;};
 }
 ```
 
-**`subsystem_device` 已核对** —— K60 实测 `0x0108`（264），与 Pong 相同（2026-11-14，证据 `E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）。原先担心的「不同会导致枚举失败」不成立。
+**`subsystem_device` 已核对** —— K60 实测 `0x0108`（264），与 Pong 相同（2026-11-14，证据 `E:/iOS Port/Work/evidence/pci-id-20261114/pci-identity.txt`）。原先担心的「不同会导致枚举失败」不成立。
 
 ---
 
@@ -145,7 +145,7 @@ K60 是 **QCA6490 / WCN6855**（`ath11k` 族）。两者 MHI/QRTR 接口不同�
 
 ### ③ 已补齐：K60 本机真值（2026-11-14，live FDT 反编译）
 
-来源：`dtc -I dtb -O dts E:\k60-work\reports\live-6033dbec-fdt.dtb`（34,801 行），
+来源：`dtc -I dtb -O dts E:\iOS Port\Work\reports\live-6033dbec-fdt.dtb`（34,801 行），
 逐项出处与完整证据表见 `docs/research/wifi/GAP-ANALYSIS.md` §2。
 
 | 项 | 真值 | 出处 |
@@ -174,7 +174,7 @@ owner，否则 `armcpu_spi_attach` 直接 panic。
 
 ### 待补的 ③ 项
 
-- [x] K60 的 **PCI 设备 ID** —— 实测 `0x17CB:0x1103`（sysfs `vendor/device`；`E:/k60-work/evidence/pci-id-20261114/pci-identity.txt`）
+- [x] K60 的 **PCI 设备 ID** —— 实测 `0x17CB:0x1103`（sysfs `vendor/device`；`E:/iOS Port/Work/evidence/pci-id-20261114/pci-identity.txt`）
 - [x] K60 的 **BAR0 基址与大小** —— 实测 `0x60200000-0x603fffff`，2 MiB（`resource.txt`、`iomem-pci.txt`）
 - [x] K60 的 **subsystem_device** —— 实测 `0x0108`（264），与 Pong 相同（`pci-identity.txt`）
 - [ ] K60 的 **PCIe0 GDSC 偏移**（Pong 注释说 SM8475 是 `7b004`）—— 本表按 Pong 注释与 `PongWifiPlatform.cpp:221` 记 `0x7b004`，尚未在 K60 实测

@@ -202,7 +202,7 @@ kernel_args = [
   "k60_skip_iosurface=1", "k60_panic_reset=1", "pong_adreno_start=1",
   "pong_metal=1", "pong_gpu_scanout=1", "sheng-gpu-addon=1",
   "k60_autoreset=300", "applog=1",
-]
+  "-uketextconsole", "-ukedeferredconsole"]
 # All eight CPUs. The AppleARMCPU device-tree validation that required a
 # single-CPU ADT is bypassed by the kext patch on _validateConfiguration, and the
 # K60 ArmCpu driver instantiates every device_type=cpu node then starts the
@@ -216,7 +216,11 @@ tools = true
 # default entry ("xnu") after that many seconds. If the kernel then fails and the
 # menu falls back to "Return to firmware", the unit lands in BDS -> Android,
 # which is the state a host-side watchdog can recover from.
-timeout = 5
+# 2026-11-22 03:04 (user): no more manual steps. The countdown is back on and the
+# default entry is the 27 kernel, so "power on -> kernel" needs nobody at the panel.
+# The black-panel discrimination it was disabled for is now covered by the stage
+# bars and by BOOT-FREEZE.md, not by parking the menu.
+timeout = 10
 
 # B decision (2026-11-03): align with pong and drop the whole trust-cache path.
 # The payload ships no trust-cache sidecar (no --trust-cache anywhere in the
@@ -369,6 +373,9 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sm8475.config", "
 patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:patches/xnu/series", "device:patches/xnu-12377/series"]
 # The fileset reference builds here without --lto: cctools-port's ld64 reads no
 # LLVM bitcode and the pinned LLVM 24 has no llvm-link, so the LTO variant stays
+# 2026-11-22: --skip-build because the framework builder cannot link the 27 reference
+# (IOUnifiedAddressTranslator has no source in either the 16 or the 27 tree; the carried
+# LTO reference is the authoritative artifact and its sha256 is recorded). CONSOLE-GAP.md.
 # a macOS/Xcode 26 artifact. patches/unixnu-core/fileset-reference-linux.patch
 # stubs its two LLVM profile-runtime calls.
 # The framework catalog declares ArmDTPlatform and ArmCpu without a build
@@ -380,7 +387,58 @@ patch_series = ["arch:patches/xnu/series", "soc:patches/xnu-12377/series", "os:p
 # build-k60-platform-archives.py drives those same recipes against the tree
 # this build just resolved, so the archives appear where the fileset step
 # looks for them.
-archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-fileset-release-reference.py --tree ."]
+archives = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "build-libpthread-kernel.py", "build-firehose-stub.py --tree .", "build-k60-platform-archives.py --tree .", "build-k60-fileset-reference.py --tree . --skip-build", "build-k60-legacy-display-archive.py --tree .", "build-sheng-source-storage.py --tree ."]
+
+[kernel.prelink]
+# Copied from UniXNU-sheng board.toml on 2026-11-23: the profile roots plus the
+# USB device and host stacks, which stage-0 needs for a console. The two
+# leading "!" entries are exclusions sheng measured; keep them verbatim.
+"roots" = [
+    "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
+    "com.apple.driver.AppleARMPlatform",
+    "com.apple.driver.AppleARMWatchdogTimer",
+    "com.apple.driver.AppleAudioClockLibs",
+    "com.apple.driver.AppleEffaceableStorage",
+    "com.apple.driver.AppleIISController",
+    "com.apple.driver.AppleM2ScalerCSCDriver",
+    "com.apple.driver.AppleMobileFileIntegrity",
+    "com.apple.driver.ApplePMGR",
+    "com.apple.driver.IODARTFamily",
+    "com.apple.filesystems.apfs",
+    "com.apple.iokit.CoreAnalyticsFamily",
+    "com.apple.iokit.IOAVFamily",
+    "com.apple.iokit.IOAudio2Family",
+    "com.apple.iokit.IOCECFamily",
+    "com.apple.iokit.IOCryptoAcceleratorFamily",
+    "com.apple.iokit.IOGPUFamily",
+    "com.apple.iokit.IOHDCPFamily",
+    "com.apple.iokit.IOMobileGraphicsFamily",
+    "com.apple.iokit.IOReportFamily",
+    "com.apple.iokit.IOSlowAdaptiveClockingFamily",
+    "com.apple.iokit.IOStorageFamily",
+    "com.apple.iokit.IOSurface",
+    "com.apple.kec.Libm",
+    "com.apple.kec.corecrypto",
+    "com.apple.kext.AppleMatch",
+    "com.apple.kext.CoreTrust",
+    "com.apple.security.AppleImage4",
+    "com.apple.security.sandbox",
+    "com.apple.iokit.IOHIDFamily",
+    "com.apple.iokit.IOHIDEventDriver",
+    "com.apple.iokit.IOUSBDeviceFamily",
+    "com.apple.driver.AppleUSBXDCI",
+    "com.apple.driver.AppleUSBDeviceMux",
+    "com.apple.iokit.IOUSBHostFamily",
+    "com.apple.driver.usb.AppleUSBXHCI",
+    "com.apple.driver.usb.AppleUSBHub",
+    "com.apple.driver.usb.AppleUSBHostCompositeDevice",
+    "com.apple.driver.usb.IOUSBHostHIDDevice",
+    "com.apple.iokit.IOUSBMassStorageDriver",
+    "com.apple.iokit.IOSCSIArchitectureModelFamily",
+    "com.apple.iokit.IOSCSIBlockCommandsDevice",
+    "!com.apple.driver.AppleOnboardSerial",
+    "!com.apple.driver.AppleSMC",
+]
 # Boot-record label. The object tree is BCM2837, the 4 KiB machine config this
 # profile builds; PONG belongs to the 16.6.1 line and would point the next
 # reader at a target this profile never produces.
@@ -394,8 +452,22 @@ title = "iOS 27"
 # debug flags - the combination that reached BSD init on SM8450.
 # serial=3 replaces k60_usblog=2: the 12377 console is the firmware one.
 kernel_args = [
-  "-v", "serial=3", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
-  "use_contiguous_hint=0", "amfi_get_out_of_my_way=1",
+  "-v", "debug=0x14e", "kt_fixed_zones=120", "-no_slto_panic",
+  "use_contiguous_hint=0", "amfi_get_out_of_my_way=1", "k60_fontscale=3",
+  # -enable_kprintf_spam turns kprintf on (a DEVELOPMENT build keeps it off,
+  # P-308).  It is only safe together with 0557: that patch removes the print
+  # inside initialize_screen() that runs before v_rows exists (xNekom c3c89df:
+  # the scroll then writes past the framebuffer and the board hangs) and prints
+  # the same geometry after gc_initialize().  check-kprintf-enabled.py requires
+  # the flag and 0557 to travel together.
+  # 0558 (vcattach text console) is gated on -uketextconsole and 0559 (deferred
+  # video kprintf) on -ukedeferredconsole; without these two the patches are
+  # inert and the console still never switches to text (uke PROGRESS.md:229).
+  "-uketextconsole", "-ukedeferredconsole",
+  "-enable_kprintf_spam",
+  # USB CDC console: the same k60_usblog=2 that enumerates on 16.6.1. serial=3
+  # only covers the firmware menu; it does not carry kernel text to the host.
+  "k60_usblog=2", "k60_console_export=1",
 ]
 
 [os_overrides."ios-27.0.1-24A446".payload.adt]

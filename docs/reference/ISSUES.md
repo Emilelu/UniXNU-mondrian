@@ -24,7 +24,7 @@
 - **现象**（2026-11-04 晚，用户核对屏摄读数）：`boot-usb-cdc2-20261104.img`（sha `5606aabd…`）boot 屏两行：
   1. `Attempt to take mutex 0xfffffff007ad3ac0 with preemption disabled (1) @lock_mtx.c:194`（**警告，非死因**）；
   2. `panic(cpu 0 caller 0xfffffff007772940): failed to load static trust cache module: 0 @kern_trustcache.c:921`（**真 panic**）。
-- **根因**（文档+实测级）：cdc2 = 新鲜 clone 主线 `3c1bea3` + 0300 + 0301–0305 探针；`3c1bea3` 的 repo 真值 = `CONFIG_XNU_NATIVE_TRUST_CACHE=y`、`CONFIG_XNU_TRUST_CACHE_RUNTIME=y`、`board.toml trust_cache_sha256=["344ae644…"]`（`git show` 实测），miniamfi = pong 原文 `kTCReturnUnsupported`；而 v5 不 panic 靠的是 **v4「B 决策」**（摘掉整条 tc 路径，D-2026-11-04-04），该决策只存于 `E:\k60-work\diffs\v4-baseline-*.patch` + 构建树，**未入 series/未入库**，新鲜 clone 天然丢失。「0301–0305 = v5 事实补丁面」口径错误（INDEX §7 11-04 cdc2 条，已更正）。
+- **根因**（文档+实测级）：cdc2 = 新鲜 clone 主线 `3c1bea3` + 0300 + 0301–0305 探针；`3c1bea3` 的 repo 真值 = `CONFIG_XNU_NATIVE_TRUST_CACHE=y`、`CONFIG_XNU_TRUST_CACHE_RUNTIME=y`、`board.toml trust_cache_sha256=["344ae644…"]`（`git show` 实测），miniamfi = pong 原文 `kTCReturnUnsupported`；而 v5 不 panic 靠的是 **v4「B 决策」**（摘掉整条 tc 路径，D-2026-11-04-04），该决策只存于 `E:\iOS Port\Work\diffs\v4-baseline-*.patch` + 构建树，**未入 series/未入库**，新鲜 clone 天然丢失。「0301–0305 = v5 事实补丁面」口径错误（INDEX §7 11-04 cdc2 条，已更正）。
 - **离线实证**（不需上机）：`grep -a -c trust_cache_init`：cdc2 boot img=1、v5 boot img=0（该串在 `startup.c:742` 的 `#if … XNU_NATIVE_TRUST_CACHE` 块内，是有无该路径的编译期指纹）。
 - **修复**：cdc3 = cdc2 构建面 + `diffs/v4-baseline-config.patch` + `v4-baseline-miniamfi-revert.patch`（其余不动）；根治 = 两件入 series（待拍板，D-2026-11-04-04 ③）。
 - **最小验证判据表**：
@@ -69,8 +69,8 @@
 
 **显示交接（2026-11-04 增补，新现场事实吸收）**：
 - **新现场事实（用户确认）**：屏**停在最后一帧控制台文字**（非黑屏非白屏），**无苹果标、无进度条**——内核控制台仍持有帧缓冲，画面不再刷新；与盘侧「launchd/installd/SpringBoard/Setup 均运行时新写」**一致且不矛盾：系统在跑，显示没交出去**。
-- **交接链路（源码走读）**：iOS 用户态画面（backboardd/SpringBoard → IOSurface → `IOMobileFramebufferUserClient` → swap）到达显示驱动时，在 [MiniIOMobileFramebuffer.cpp:1008-1012](file:///E:/k60-work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L1008-L1012) 触发**唯一交接点**：`fGraphics=true` + `PE_initialize_console(NULL, kPEGraphicsMode)` + `drawLayer(...)`——首帧后内核文字让位、UI 上屏。
-- **`k60_textonly` 作用点（实测）**：定义于 [MiniIOMobileFramebuffer.cpp:138](file:///E:/k60-work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L138)（`TUNABLE(uint32_t, gK60TextOnly, "k60_textonly", 0)`，默认 0）；拦截于 [:999-1007](file:///E:/k60-work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L999-L1007)——`if (gK60TextOnly != 0) { continue; }`：每个 UI 帧被跳过（只计数不绘制），`fGraphics` 永不置位 ⇒ **交接永不发生，内核文本独占面板**。在役 cmdline 实证含 `-v … k60_textonly=1 …`（[4g-quiet/extracted/unixnu.toml:12](file:///E:/k60-work/candidates/4g-quiet/extracted/unixnu.toml#L12)）。
+- **交接链路（源码走读）**：iOS 用户态画面（backboardd/SpringBoard → IOSurface → `IOMobileFramebufferUserClient` → swap）到达显示驱动时，在 [MiniIOMobileFramebuffer.cpp:1008-1012](file:///E:/iOS Port/Work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L1008-L1012) 触发**唯一交接点**：`fGraphics=true` + `PE_initialize_console(NULL, kPEGraphicsMode)` + `drawLayer(...)`——首帧后内核文字让位、UI 上屏。
+- **`k60_textonly` 作用点（实测）**：定义于 [MiniIOMobileFramebuffer.cpp:138](file:///E:/iOS Port/Work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L138)（`TUNABLE(uint32_t, gK60TextOnly, "k60_textonly", 0)`，默认 0）；拦截于 [:999-1007](file:///E:/iOS Port/Work/git/progress-bar-20261102/iokit/Kernel/MiniIOMobileFramebuffer.cpp#L999-L1007)——`if (gK60TextOnly != 0) { continue; }`：每个 UI 帧被跳过（只计数不绘制），`fGraphics` 永不置位 ⇒ **交接永不发生，内核文本独占面板**。在役 cmdline 实证含 `-v … k60_textonly=1 …`（[4g-quiet/extracted/unixnu.toml:12](file:///E:/iOS Port/Work/candidates/4g-quiet/extracted/unixnu.toml#L12)）。
 - **「无苹果标/进度条」归因**：① 内核进度条/苹果标——`-v` 文本路径（pexpert/arm/pe_init.c:542-558）下 vc_progress 不激活，**本来就不画**；② 用户态画面——被 `k60_textonly=1` 拦下。两者都是**有意设置的诊断位**，与「停在最后一帧文字」完全互洽。
 - **A/B 判定**：
   - **A（`k60_textonly=1` 是用户态画面的唯一拦路点）——成立（实测级）**：机制见上；显示驱动**存在**（B 不成立——MiniIOMobileFramebuffer start() :390-483 起线程/发布 UserClient/报模式，MiniIOSurface.cpp:2050 启动；软件合成 CPU 绘制，不依赖 GPU/Adreno DPU）。**修正判据措辞**：去掉后看到的**不是苹果标**（苹果标属 iBoot/内核进度 UI 阶段，-v 模式本无），而是 **SpringBoard/purplebuddy 的 UI**（Hello 屏或 Setup 完成后的画面）。
@@ -88,7 +88,7 @@
 ### I-20261104-06 写盘能力验证（实读卷目录）：写盘可用已证实；「hang」叙事翻转——console 静默死亡是真故障，新前线在 launchd/console
 
 - **任务**：重估「这个卷到底能不能写」前提——设备现读 OwnerData 卷目录项，判定 `.pong-write-check`/`status.txt`/`pong/init` 存在性（只读，未写盘未 boot）。
-- **证据（全部实测；sidecar `E:\k60-work\evidence\data-live-20261104\SIDECAR.json`）**：容器头 128 MiB（skip=2494976 count=32768，sha `a1ce6709…`）+ 尾区 334 MiB（skip=7623424 count=81664，含现行 omap 根块 5128782——容器经扩容，omap 在高块，sha `73324ee1…`）dd 拉取，设备/主机双 sha 一致；稀疏装配 + **读护栏**解析（任何越出证据区的块读即报错；枚举共 83 次块读全部在界内）。
+- **证据（全部实测；sidecar `E:\iOS Port\Work\evidence\data-live-20261104\SIDECAR.json`）**：容器头 128 MiB（skip=2494976 count=32768，sha `a1ce6709…`）+ 尾区 334 MiB（skip=7623424 count=81664，含现行 omap 根块 5128782——容器经扩容，omap 在高块，sha `73324ee1…`）dd 拉取，设备/主机双 sha 一致；稀疏装配 + **读护栏**解析（任何越出证据区的块读即报错；枚举共 83 次块读全部在界内）。
 - **目录项关键事实**（live xid=15 vs 基线 xid=7；files 42 vs 37、dirs 178 vs 163、symlinks 2 vs 1）：
   - `/pong` = { `init`, **`status.txt`** }；`/pong/init` 实读 36864 B sha `ed6c3bf1…`（== Gate3 段值）、前 34880 B sha `db7e4eee…`（== init-v10guard）——「init 从 `/private/var/pong/init` 加载」在 FS 层证实。**注意**：inode.size 字段残留 35160（raw 覆写不更新 inode，PITFALLS 46）。
   - `/pong/status.txt` 39 B（uid 0 mode 644），内容 = **`A0 A1 A2 B0 B1 B4a B4e B4s C1 D1 D2 E1`**（12 token 全链，sha `b823e52c…`）——**E1 是 execve 前最后一 token：v9alias 完整跑完整个 init 并 exec 了 launchd**（A2 后无 A3/A4 = var.skel 缺席按设计早退；B4e+B4s = 第 5 条走 stock-skip；D2 = libpong-ui 缺席 SKIP）。

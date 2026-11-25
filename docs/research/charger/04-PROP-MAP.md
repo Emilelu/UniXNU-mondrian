@@ -1,6 +1,6 @@
 # 04 — prop 映射与 wire prop_id 语义（charger .ko 反编译）
 
-> 目标件：`/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko`
+> 目标件：`/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko`
 > 247,776 B，ELF64 LSB aarch64 relocatable，BuildID `e852b83c589f773d7cb09e6793ac59fd33086c58`
 > 所有地址均为**节内偏移**（VMA 全 0），与 `01-SYMBOL-MAP.md` §1.2 一致。
 > 证据一律来自 `llvm-objdump -d/-dr`、`llvm-readelf -x .rodata`、`llvm-nm -S` 的原始输出。
@@ -18,7 +18,7 @@
 ## 1. 取证方法
 
 ```bash
-K=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+K=/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
 llvm-nm -S --defined-only  "$K" | grep -iE 'prop_map|psy_get|psy_set'
 llvm-readelf -x .rodata    "$K" | sed -n '2,12p'      # 跳转表 + map 原始字节
 llvm-objdump -d --start-address=0x7c4  --stop-address=0x8b0 "$K"
@@ -388,7 +388,7 @@ map 本身是只读常量，`probe` 用 `devm_kmalloc` 另开四块可写缓存�
 
 ## 9. 与上游 Linux `qcom_battmgr.c` 对照
 
-| 项 | 上游（`E:/k60-work/scratch/power-work/assets/linux/drivers_power_supply_qcom_battmgr.c`） | 本 .ko |
+| 项 | 上游（`E:/iOS Port/Work/scratch/power-work/assets/linux/drivers_power_supply_qcom_battmgr.c`） | 本 .ko |
 | --- | --- | --- |
 | battery map 条目 | `sm8350_bat_prop_map[]` `:401-421` = 19 项 | 25 项 |
 | usb map 条目 | `sm8350_usb_prop_map[]` `:715-723` = 7 项 | 13 项 |
@@ -411,7 +411,7 @@ map 本身是只读常量，`probe` 用 `devm_kmalloc` 另开四块可写缓存�
 ## 11. 复现命令
 
 ```bash
-K=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+K=/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
 # 1) map 尺寸
 llvm-nm -S --defined-only "$K" | grep -E 'prop_map$'
 # 2) map 原始字节（25/13/7 项）

@@ -2,7 +2,7 @@
 /* Copyright (c) 2026, UniXNU contributors. */
 /* Offline host fixture only. No generator, physical mapping, PAS or device I/O.
  * argv[1] is the captured firmware directory (normally
- * /mnt/e/k60-work/firmware/adsp). All existing bNN files are included verbatim.
+ * /mnt/e/iOS Port/Work/firmware/adsp). All existing bNN files are included verbatim.
  * The K60A and FAT carriers below are constructed only in process memory. */
 #include <errno.h>
 #include <limits.h>

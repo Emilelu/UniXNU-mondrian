@@ -1,6 +1,6 @@
 # IOUSBHost 绑定路径（只读调研）
 
-> 调研对象：K60（Redmi K60 / mondrian / SM8475）UniXNU+iOS 移植仓库 `E:\hackios\k60-usb`（WSL `/mnt/e/hackios/k60-usb`）。
+> 调研对象：K60（Redmi K60 / mondrian / SM8475）UniXNU+iOS 移植仓库 `E:\iOS Port\Sources\Hardware\k60-usb`（WSL `/mnt/e/iOS Port/Sources/Hardware/k60-usb`）。
 > 本文只读产出，未构建、未刷机、未修改任何既有文件。
 > 路径约定：**仓库内**文件用相对路径（相对仓库根）；**仓库外**用绝对路径。构建产物在 WSL 内，路径前缀 `/opt/k60/trees/k60build`。
 > 关键产物：

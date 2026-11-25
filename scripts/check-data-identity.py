@@ -34,8 +34,8 @@ REPO = Path(__file__).resolve().parent.parent
 CONFIG_DIR = REPO / "configs"
 CONFIG = CONFIG_DIR / "mondrian_defconfig"
 PATCH = REPO / "patches" / "xnu" / "offline-owner-systemos-mount.patch"
-EVIDENCE = Path("/mnt/e/k60-work/evidence")
-MANIFEST = Path("/mnt/e/k60-work/scratch/cur-manifest.bin")
+EVIDENCE = Path("/mnt/e/iOS Port/Work/evidence")
+MANIFEST = Path("/mnt/e/iOS Port/Work/scratch/cur-manifest.bin")
 
 DATA_MOUNT_KEY = "CONFIG_XNU_OWNER_DATA_MOUNT=y"
 UUID_RE = re.compile(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}")
@@ -142,7 +142,7 @@ def check_ceiling(problems: list[str], notes: list[str],
         return
     ceiling = max(ceilings)
     if not manifest_path.is_file():
-        notes.append("no manifest dump at /mnt/e/k60-work/scratch/cur-manifest.bin -> ceiling cross-check skipped")
+        notes.append("no manifest dump at /mnt/e/iOS Port/Work/scratch/cur-manifest.bin -> ceiling cross-check skipped")
         return
     raw = manifest_path.read_bytes()
     rows = DATALINE_RE.findall(raw.decode("latin-1"))

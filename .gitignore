@@ -40,6 +40,13 @@
 *.kernelcache
 *.log
 !scripts/tests/fixtures/*.log
+# Fixtures live in per-suite subdirectories too; without this line the gpu27
+# fixtures were ignored, so the committed judge test passed only on the machine
+# that wrote it (P-205 family).
+!scripts/tests/fixtures/*/*.log
+# The post-flip fixtures sit one level deeper than the others; without this
+# line they are untracked and the test passes only where it was written (P-205).
+!scripts/tests/fixtures/*/*/*.log
 .DS_Store
 __pycache__/
 *.py[cod]
@@ -49,3 +56,7 @@ mac-build/*/cache/
 mac-build/*/build-report.json
 build/
 /.cache/
+
+# AOCI runtime state (baseline, ledger, transactions)
+.aoci/*
+!.aoci/config.json

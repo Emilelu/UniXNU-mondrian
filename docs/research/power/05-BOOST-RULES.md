@@ -2,7 +2,7 @@
 
 状态：**规则模块 + host 40 项断言；触摸与帧输入已接线并在真机触发，触摸写回已在 image ab 上机成立（d0 `state=15->94`、`hw=1804800kHz`），票数预算与全簇 boost 由 `43af2a5c` 修正，image ac 待上机**（触摸计数补丁 `0626-k60-touch-activity.patch`，消费方 `aa3bada7`，重开窗口 `9b8a36b6`，预算/boost `43af2a5c`；GPU 预唤醒 `34ab1da1`，host 140）。
 官网 `https://unixnu.com/zh/porting/power` §5 在 CPU/GPU 调频之后还有四条规则
-（快照 `E:/k60-work/scratch/power-page-20261117.txt:115-117`）：
+（快照 `E:/iOS Port/Work/scratch/power-page-20261117.txt:115-117`）：
 
 > 触摸：收到触摸报告后，P 频域和 GPU 保持最高档，直到最后一次报告后 1 s
 > （cpufreq-boost-ms、gpu-dcvs-boost-ms）。
@@ -99,7 +99,7 @@ cc -Wall -Wextra -Werror -std=c11 -o /tmp/tboost \
 
 ## 5. 参考
 
-- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:115-117`。
+- 官网快照：`E:/iOS Port/Work/scratch/power-page-20261117.txt:115-117`。
 - sheng：`package/GpuPowerProbe.cpp` 的 `gpu-dcvs-boost-ms`、
   `package/CpuFreqProbe.cpp` 的 `cpufreq-boost-ms`/`cpufreq-frame-ms`/`cpufreq-frame-pct`。
 - 相邻模块：`docs/research/power/01-EPSS-PROBE.md`、`04-GPU-FREQUENCY.md`。

@@ -1,0 +1,226 @@
+# Precedent-gap adjudication for 28 patch files found outside the ledger.
+# Every evidence line quotes our tree at the cited file:line.
+
+[[item]]
+repo = "asteroids"
+file = "patches/xnu-12377-ios27/zzzzzzzzzz-ios27-dataconst-room.patch"
+verdict = "unknown"
+what = "Moves the DTrace SDT probe cstring to __TEXT and the probe records to __DATA, and disables the 30-entry pageout stat table under DEVELOPMENT so the kernelcache's __DATA_CONST section fits."
+reason = "No equivalent exists in our series or tree; the patch is sized for the iPhone17,4 kernelcache's __DATA_CONST overflow and K60 is iPhone17,2, so whether our kernelcache overflows the same section is unmeasured."
+evidence = 'board.toml:360 description = "Redmi K60 (mondrian/SM8475): iOS 27.0.1 (iPhone17,2) bring-up"'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/contig-search-report.patch"
+verdict = "have"
+what = "Adds a failure diagnostic printf to vm_page_find_contiguous when the contiguous page list comes out empty."
+reason = "Our tree already prints the same diagnostic from vm_page_find_contiguous, including scanned, yielded, stolen and wired counters."
+evidence = 'osfmk/vm/vm_resident.c:8366 printf("%s(num=%d,low=%d): found %d pages at 0x%llx...scanned %d pages...  yielded %d times...  dumped run %d times... stole %d pages... stole %d compressed pages... wired count is %d\n"'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/cshash-native4k-lazy.patch"
+verdict = "not-applicable"
+what = "Adds a lazy native-4K code-signature authentication mode (boot argument cs-lazy=1) that hashes 16 KiB blocks at first fault instead of during load."
+reason = "Stage 0 stops at bsd_init and registers no dyld shared cache or userland, so the lazy first-use path has no caller in our build."
+evidence = 'configs/mondrian_ios27_defconfig:17 # Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/cshash-native4k-parallel.patch"
+verdict = "not-applicable"
+what = "Parallelises cs_native4k_prepare with one helper thread per additional CPU and atomic chunk stealing for images over 32 MiB."
+reason = "The parallel prepare runs only for large signed dyld images; stage 0 stops at bsd_init and never registers such an image."
+evidence = 'configs/mondrian_ios27_defconfig:17 # Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/cshash-native4k-stats.patch"
+verdict = "not-applicable"
+what = "Adds per-class native-4K hash-cache byte and page accounting plus a vm.cs_native4k_stats sysctl."
+reason = "The accounting is for dyld shared-cache files that stage 0 never loads; the kernel stops at bsd_init."
+evidence = 'configs/mondrian_ios27_defconfig:17 # Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/cssha-digest-time.patch"
+verdict = "not-applicable"
+what = "Adds wall and CPU time counters around cs_native4k_prepare and extends the native-4K stats text."
+reason = "It extends the missing stats sysctl and measures dyld image authentication, which stage 0 does not perform."
+evidence = 'configs/mondrian_ios27_defconfig:17 # Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/gpupool-device-pager-close.patch"
+verdict = "not-applicable"
+what = "Adds a close-notification callback on physical IOMemoryDescriptor mappings for GPU pool pages."
+reason = "K60 stage 0 builds with the native Adreno driver disabled and has no IOGPUFamily GPU pool to register the callback."
+evidence = 'configs/mondrian_ios27_defconfig:21 CONFIG_XNU_NATIVE_ADRENO=n'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/kmem-alloc-failure-report.patch"
+verdict = "unknown"
+what = "Adds a kmem_alloc failure counter and a detailed map, free-space and reserved-range report on allocation failure."
+reason = "No equivalent exists in our series or tree; this is a generic xnu-12377 diagnostic that could apply, but no K60 patch carries it and it has not been built or tested here."
+evidence = 'osfmk/vm/vm_kern.c:185 panic("kmem_%s(%p, %zd, 0x%x): failed with %d", ...)'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/kperf-static-if-builtin-args.patch"
+verdict = "have"
+what = "Makes static_if_boot_arg_uint64 consult the built-in PE_builtin_boot_args array when the command line lacks an argument."
+reason = "Our tree already carries the weak PE_builtin_boot_args array and 0564 wires PE_parse_boot_argn to it; K60 defines no built-in arguments, so an extra static_if lookup would return nothing either way."
+evidence = 'pexpert/gen/bootargs.c:198 __attribute__((weak)) char PE_builtin_boot_args[] = "";'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/memwired-booter-size-accounting.patch"
+verdict = "have"
+what = "Clamps ml_get_booter_memory_size to zero when memSizeActual is set and the computed size is smaller than memSize."
+reason = "K60's DarwinBoot sets MemorySizeActual equal to MemorySize, so the wrap condition the patch guards against cannot occur."
+evidence = 'drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:636 Args->MemorySize = WindowSize;'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/memwired-cs-lazy-page-chunks.patch"
+verdict = "not-applicable"
+what = "Reduces the lazy native-4K chunk from four 4 KiB pages to one page (127 to 31 blocks, 16 KiB to 4 KiB)."
+reason = "It only tunes the lazy mode, which K60 never enables: the 27 kernel argument list has no cs-lazy entry."
+evidence = 'board.toml:454 kernel_args = ['
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/memwired-kc-segment-release.patch"
+verdict = "not-applicable"
+what = "Releases the kernel collection's LINKEDIT, BOOTDATA, KLD and KLDDATA segments after use through a kc-segment-release tunable."
+reason = "It requires boot-payload-release=1 and the payload-addon release callsite from uke-addon-memory-release.patch, neither of which exists in the K60 27 build."
+evidence = 'board.toml:454 kernel_args = ['
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/payload-addon-release.patch"
+verdict = "not-applicable"
+what = "Lets ml_static_protect and ml_static_mfree handle loader image-tail addresses and exposes ml_static_mfree_prepare."
+reason = "The only consumer is uke-addon-memory-release.patch in the uke boot chain; K60 has no boot-payload-release argument or addon release path."
+evidence = 'board.toml:454 kernel_args = ['
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/payload-boot-memory-report.patch"
+verdict = "unknown"
+what = "Adds a kern.boot_payload_memory sysctl reporting payload window, image and kernel ranges and ml_static_mfree counters."
+reason = "No equivalent sysctl exists in our tree; K60 has no boot-payload-release argument, so the report's payload-release section would be empty, and its usefulness for K60 memory debugging is unproven."
+evidence = 'osfmk/arm64/machine_routines.c:2174 if (vaddr < physmap_base) {'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/payload-radix-root-at-startup.patch"
+verdict = "not-applicable"
+what = "Creates the vm_pages radix root in a STARTUP(ZALLOC, STARTUP_RANK_LAST) callback instead of lazily."
+reason = "It exists to make ml_static_mfree work after lockdown with boot-payload-release=1; K60 never enables that release path."
+evidence = 'osfmk/vm/vm_resident.c:3100 node = vm_pages_radix_init_root(&level);'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/platform-error-name-address.patch"
+verdict = "unknown"
+what = "Adds esr and far values to the arm64 implementation-specific-error panic."
+reason = "No equivalent exists in our series or tree; K60's sleh.c still has the stock panic without the registers, and this generic diagnostic has not been built or tested here."
+evidence = 'osfmk/arm64/sleh.c:555 panic_plain("Unhandled implementation specific error\n");'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/vfs-union-below-walk.patch"
+verdict = "not-applicable"
+what = "Rewrites lookup_traverse_union to copy vp->v_name under the name-cache shared lock and adds union-walk counters and sysctls."
+reason = "K60 stage 0 has no SystemOS owner union mount; the kernel stops at bsd_init before any root or union path lookup exists."
+evidence = 'configs/mondrian_ios27_defconfig:17 # Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/vmwait-dyld-pager-source-release.patch"
+verdict = "copied"
+what = "Releases the dyld pager source and top pages as soon as each fixup part is copied and skips null source pages."
+reason = "Our 27 series contains the equivalent patch as 0575-k60-vmwait-dyld-pager-source-release.patch with the same vm_page_wakeup_done and VM_PAGE_FREE hunks."
+evidence = 'patches/xnu-12377/0575-k60-vmwait-dyld-pager-source-release.patch:39 + vm_page_wakeup_done(src_page_object, src_page);'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/vmwait-vnode-pager-peek-name.patch"
+verdict = "not-applicable"
+what = "Adds lockless vnode_pager_peek_name using ml_nofault_copy for a paging-wait diagnostic."
+reason = "The function exists only for sheng's external BootUiTraceProbe.c diagnostic and nothing in the kernel calls it; K60 stage 0 builds no such probe."
+evidence = 'configs/mondrian_ios27_defconfig:17 # Stage 0 stops at bsd_init: no root, no panel, no GPU. PongUfs returns in F3'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/window-memory-excluded-ranges.patch"
+verdict = "not-applicable"
+what = "Parses /chosen/darwinboot-memory-excluded and keeps excluded DRAM ranges out of the VM page tables and free lists."
+reason = "K60's DarwinBoot has no darwinboot-memory-excluded property parser; it only handles darwinboot-memory-size, so no excluded-range table can ever be populated."
+evidence = 'drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:249 if (AsciiStrCmp ((CONST CHAR8 *)(Data + *Offset - 36), "darwinboot-memory-size") == 0)'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/window-outside-memory-adoption.patch"
+verdict = "not-applicable"
+what = "Parses /chosen/darwinboot-memory-outside and adopts pages from outside the static VM window through a probe bitmap."
+reason = "K60's DarwinBoot has no darwinboot-memory-outside property parser, so the outside ranges are never described to the kernel."
+evidence = 'drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:249 if (AsciiStrCmp ((CONST CHAR8 *)(Data + *Offset - 36), "darwinboot-memory-size") == 0)'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/xnuconfig-timebase-trap-count.patch"
+verdict = "not-applicable"
+what = "Counts mach absolute and continuous timebase traps per CPU and exports a machdep.timebase_traps sysctl."
+reason = "K60 has no 24 MHz timebase scaling: its device tree sets timebase-hz to 19.2 MHz and the kernel arguments carry no timebase-hz."
+evidence = 'dts/mondrian.dts:75 timebase-hz = <19200000>;'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/xnuconfig-work-interval-counters.patch"
+verdict = "unknown"
+what = "Adds create/notify/late and instance start/update/finish counters plus a kern.work_interval_stats sysctl."
+reason = "K60 has the base native_wi_log trace in patches/xnu/native-work-interval-trace.patch, and the uke patch is written directly on top of that exact code, but the counters and sysctl are not in our tree; whether to copy this extension is unresolved."
+evidence = 'patches/xnu/native-work-interval-trace.patch:13 + char native_wi_log[4][100];'
+
+[[item]]
+repo = "uke"
+file = "patches/xnu-12377/upstream/zzzzzzzzzzz-sheng-edge-matrix.patch"
+verdict = "not-applicable"
+what = "Replaces the Edge scheduler UI bucket hint with explicit P-to-E and E-to-P spill and steal counters and fixed-priority migration."
+reason = "The matrix is built for sheng's SM8550 two-cluster A510/A715 topology; K60 is SM8475, and 0564 only downgrades the edge verify assert rather than implementing the matrix."
+evidence = 'patches/xnu-12377/0564-k60-sheng-27-bringup-part1.patch:878 - assert(sched_edge_config_verify());'
+
+[[item]]
+repo = "cupid"
+file = "patches/darwinboot/0001-darwinboot-log-window-failure.patch"
+verdict = "have"
+what = "Adds duplicate DEBUG prints when DarwinBoot cannot allocate its log window and for each freed descriptor."
+reason = "K60's DarwinBoot already emits both messages once at DarwinBoot.c:463 and :470; the cupid patch only duplicates each print."
+evidence = 'drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:463 DEBUG ((DEBUG_ERROR, "DARWINBOOT: no window 0x%lx, biggest run 0x%lx at 0x%lx\n", ...)'
+
+[[item]]
+repo = "cupid"
+file = "patches/unixnu/0001-patch-xnu-entry-probe-skip-nm-headers.patch"
+verdict = "unknown"
+what = "Skips nm header lines in patch-xnu-entry-probe.py by catching ValueError around the address parse."
+reason = "K60 carries the same stock patch-xnu-entry-probe.py without the ValueError guard; whether K60's llvm-nm emits header lines that would trigger the failure is unproven."
+evidence = 'UniXNU/scripts/patch-xnu-entry-probe.py:143 table.setdefault(int(parts[0], 16), parts[2])'
+
+[[item]]
+repo = "cupid"
+file = "patches/unixnu/0002-ramdisk-find-fat-in-initrd.patch"
+verdict = "have"
+what = "Finds the FAT boot sector anywhere in the initrd (up to 256 MiB) or by CUPIDESP label and publishes it at that offset."
+reason = "K60's vendored initrd code already scans byte by byte for a FAT boot sector and logs its offset; the CUPIDESP label search is cupid-specific."
+evidence = 'patches/unixnu-core/legacy/k60-unixnu-core.patch:101 + for (Probe = Start; Probe < End; Probe++)'
+
+[[item]]
+repo = "t970"
+file = "patches/native-ufs/0001-t970-rootlayout-pinned-shngroot.patch"
+verdict = "not-applicable"
+what = "Pins t970's native UFS root layout with SHNGEXT1 extent tables, 4 KiB block translation and an SM8475 GCC profile."
+reason = "K60 stage 0 disables the native UFS driver and returns PongUfs in F3, so the t970 pinned-SHNGROOT native driver is never built."
+evidence = 'configs/mondrian_ios27_defconfig:20 CONFIG_XNU_NATIVE_UFS=n'

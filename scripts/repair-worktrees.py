@@ -8,7 +8,7 @@ Why this exists
 worktree it deletes every admin directory it can no longer resolve, and the
 worktree keeps a .git file that points at nothing:
 
-    fatal: gitfile does not point to a valid repository: E:/hackios/k60-bt/.git
+    fatal: gitfile does not point to a valid repository: E:/iOS Port/Sources/Hardware/k60-bt/.git
 
 "git worktree add" will not rebuild the entry (the path already exists), and
 "git worktree prune" only makes it worse. On 2026-11-15 one such command took

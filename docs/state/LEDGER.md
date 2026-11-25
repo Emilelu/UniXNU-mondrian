@@ -15,7 +15,7 @@
    - `docs/plans/APPLY-PIPELINE.md`（381 行，apply() 全流程）
    本次会话 15 个坑里 **14 个早就写在这些文件里**，我却重造了 4 个抓取脚本、
    6 个构建脚本、几十个 scratch 文件——**问题不是没记录，是我没读**。
-   配套脚本清单也先查：`ls E:\k60-work\usb-a-stage\scripts\`。
+   配套脚本清单也先查：`ls E:\iOS Port\Work\usb-a-stage\scripts\`。
 
 1. **只改 patch 文件，绝不手改 `tree/.cache/xnu-work/`**
    `tree/.cache/xnu-work` 是生成物。直接编辑会在下一次清树重建时丢失。
@@ -23,7 +23,7 @@
 
 2. **两个仓库必须同步**
    - 构建读：`/tmp/usb-cdc-mainline/device`
-   - Git 跟踪：`E:/hackios/UniXNU-mondrian`
+   - Git 跟踪：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`
    改 E 仓不影响构建；改 D 仓不入库。`0391` 曾来回同步 6 次以上。
 
 3. **一次只改一个变量**，构建后固定输出三个判据再上机：
@@ -71,7 +71,7 @@ __PAGEZERO vmaddr=0 vmsize=0x100000000      (mach_loader.c:655 硬性要求 4 Gi
 LC_UNIXTHREAD 提供入口（不是 LC_MAIN）
 LC_CODE_SIGNATURE 存在
 ```
-参照物：`E:/k60-work/deliverables/pong-init/init`（35,160 B，pong 真实 init）。
+参照物：`E:/iOS Port/Work/deliverables/pong-init/init`（35,160 B，pong 真实 init）。
 
 ### 我们的 stub 为什么曾被 `BAD_MACHO` 拒绝
 `init-stub3`（我手工 clang 编的）：`flags=0x200085` = `DYLDLINK|TWOLEVEL|PIE`，
@@ -84,7 +84,7 @@ LC_CODE_SIGNATURE 存在
 cd /tmp/k60build
 ./unixnu build kernel -D /tmp/usb-cdc-mainline/device \
   --out /opt/k60/trees/k60build/out-baseline \
-  --kernelcache /mnt/e/hackios/UniXNU/out/ipsw/20G81/kernelcache.decompressed
+  --kernelcache /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/kernelcache.decompressed
 ```
 - patch 顺序 = 黄金 `xnu-patches.list`（191 条）+ `0391` 追加（共 192）
   不可用文件名字母序：`offline-owner-systemos-mount` 必须在
@@ -105,8 +105,8 @@ cd /tmp/k60build
 
 **黄金 payload 原件在磁盘上，不要重新打包**：
 ```
-/mnt/e/k60-work/scratch/payload-0461.img   201326592 B  2026-11-07 21:25:57  tol=YES initblob=no
-/mnt/e/k60-work/scratch/payload-0461c.img  201326592 B  2026-11-07 21:25:58  tol=YES initblob=no
+/mnt/e/iOS Port/Work/scratch/payload-0461.img   201326592 B  2026-11-07 21:25:57  tol=YES initblob=no
+/mnt/e/iOS Port/Work/scratch/payload-0461c.img  201326592 B  2026-11-07 21:25:58  tol=YES initblob=no
 ```
 （原记录说 `payload-0461` 是打进 `boot-0461` 的原始 payload。**实测不成立**：只读 FAT
 目录链解析 `boot-0461-20261107.img@552960` 得到 **28 项 / `debug=0x140`**，而
@@ -164,7 +164,7 @@ k60_selftest_reboot=300
 | **"内核里缺 init / 需要内嵌 init blob"** | 实测 `boot-0461` 的 kernel.macho **既没有** `faa38544…` 也**没有**我的补丁版 blob。它直接用设备上 dd 写入的 init |
 | **"`0391` 是必要的"** | 黄金没有内嵌 blob 也能进 SpringBoard。`0391` 是自造路线，且**用 `O_TRUNC` 破坏了设备上的正确 init** |
 | **"`launchd.ios` 需要我们用字符串替换来修"** | 设备上的 init 是 dd 写入的 v10guard 系列，源码级就已经是 `/sbin/launchd`；我那个二进制替换是多余的，且破坏了签名页哈希 |
-| ~~"`68d9bb06…` 不存在"~~ **错！它在 `E:\k60-work\deliverables\pong-init\init-v2`（35,160 B）** | 我按文件名 `init` 搜，漏了 `init-v2`。该件 `flags=0x1`、`__PAGEZERO 0x100000000`、`UNIXTHREAD`、`CODE_SIG`、内含 `/sbin/launchd`（无 `.ios`）——正是需要的形态 |
+| ~~"`68d9bb06…` 不存在"~~ **错！它在 `E:\iOS Port\Work\deliverables\pong-init\init-v2`（35,160 B）** | 我按文件名 `init` 搜，漏了 `init-v2`。该件 `flags=0x1`、`__PAGEZERO 0x100000000`、`UNIXTHREAD`、`CODE_SIG`、内含 `/sbin/launchd`（无 `.ios`）——正是需要的形态 |
 
 ---
 
@@ -207,7 +207,7 @@ k60_selftest_reboot=300
   **v10guard 34,880/`db7e4eee`**（最后写入）；段回读 `ed6c3bf1…`
 - 我的 `0391` 用 `O_TRUNC` 覆盖过它，**现值未知**，必须重新核实
 
-**init 全谱系（`E:\k60-work\deliverables\pong-init\`，15 个版本都在）**：
+**init 全谱系（`E:\iOS Port\Work\deliverables\pong-init\`，15 个版本都在）**：
 ```
 init          faa38544  35160  原始（exec /sbin/launchd.ios）
 init-v2       68d9bb06  35160  exec→/sbin/launchd  ← 正确形态，有签名，就用它
@@ -224,10 +224,10 @@ init-v12union 3703f983  34464
 
 ### 抓取与自动化工具（**用现成的，不要重造**）
 ```powershell
-pwsh E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1 `
+pwsh E:\iOS Port\Work\usb-a-stage\scripts\boot-and-capture.ps1 `
   -Image <img> -Seconds 300 -WaitFastboot 90
 ```
-`E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1`（11-06，259 行）已实现：
+`E:\iOS Port\Work\usb-a-stage\scripts\boot-and-capture.ps1`（11-06，259 行）已实现：
 自动 boot、从注册表 `\Device\USBSER000` 找端口、逐块 Flush、
 **端口消失后重开**（`-ReopenSeconds`）、**panic 后等静默再收尾**（`-PanicGraceSeconds`）、
 **等设备自动回 fastboot**（`-WaitFastboot`，靠 0311）、写 `capture.json` 含 `complete` 判定。
@@ -254,14 +254,14 @@ UI 按钮插件 `@local/k60-console-buttons` 仅作辅助，不替代上面的�
 | 10 | 用 `k60_init_blob` 覆盖设备 init | `O_TRUNC` 破坏 dd 写入的正确文件 | **永不用 `k60_init_blob`**。需要换 init 时走 `write-pong-init-*.ps1` 四闸门 dd |
 | 11 | boot args 只用 20 项 | 漏 `k60_skip_firmware_mount=1` → launchd mount-phase EPERM → PID 1 panic | 打包前必须与 `boot-0461` 的 **28 项**逐字比对（2026-11-09 复测：28 项 / `debug=0x140`，不是 29 项；见上文「boot args」节） |
 | 12 | `debug=0x144` 而非 `0x140` | `0x144` 含 `DB_NMI`，panic 卡在 NMI 不复位，必须手动长按电源 | 固定 `debug=0x140` |
-| 13 | 重造抓取/引导脚本 | 没 `ls` 就开工，`boot-and-capture.ps1` 早有全部功能 | **先查 `E:\k60-work\usb-a-stage\scripts\`**，已有就不再写 |
+| 13 | 重造抓取/引导脚本 | 没 `ls` 就开工，`boot-and-capture.ps1` 早有全部功能 | **先查 `E:\iOS Port\Work\usb-a-stage\scripts\`**，已有就不再写 |
 | 14 | 抓取器没启动就 boot | 工具调用被中断，daemon 没起，panic 现场丢失 | 用 `boot-and-capture.ps1`，它一个进程内完成 boot+capture |
 | 15 | 改 boot 镜像后设备静默 | 镜像格式/args/或内核早期挂死 | 每次 boot 只用 `boot-and-capture.ps1` 并检查 `capture.json` 的 `complete` |
 
 ## 六、下一步（唯一正确的路径）
 
 1. 设备进 fastboot（需人工长按电源 10–15s → 音量下+电源）
-2. `boot-and-capture.ps1 -Image E:\k60-work\usb-a-stage\out\boot-0461-20261107.img -Seconds 300 -WaitFastboot 90`
+2. `boot-and-capture.ps1 -Image E:\iOS Port\Work\usb-a-stage\out\boot-0461-20261107.img -Seconds 300 -WaitFastboot 90`
    → 建立基线，同时确认设备上的 init 是否还完好
 3. 基线确认后：从 `series` **删除 `0391`**，脚本回退到与黄金脚本逐行一致，
    重建并验证 `diff` 源码树 0 差异（内核对黄金等价）

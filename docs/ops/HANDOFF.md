@@ -72,7 +72,7 @@ Pong touch: missing/incompatible Pong DT; SKIP
 ### 构建状态
 
 - GPU：**BUILD OK** — 内核 `10a4dd55`（199 补丁，含 GPU scanout）。`gpu-rebaser` 定位到 bootstrap
-  pass 的 `LD_KERNEL_ARCHIVES` 问题并给出验证过的修法（`/mnt/e/k60-work/impl/gpu/FIX.md`）。
+  pass 的 `LD_KERNEL_ARCHIVES` 问题并给出验证过的修法（`/mnt/e/iOS Port/Work/impl/gpu/FIX.md`）。
 - 输入修复版：内核 `cad10574`（SE4+HWCG）BUILD OK；`8be538ae`（+devfs 修复）BUILD OK；
   `7da999e`（+enabled=1+thread 修复）构建中（b129）。
 - 设备已拔，**上机验证待做**：判据 = 日志出现 `Pong keys:` / `Pong touch:`；用户态不再
@@ -138,7 +138,7 @@ Pong UI: UIApplication _run entered
 ### 下一手（已编译好，等设备）
 
 `init-v18pb`：34,904 B，sha `e8c6593628759c4bfe52ce0489d1dd6d5f4ebbfa9db9d6b83ced5a64598fd3ea`
-（`E:\k60-work\scratch\init-v18pb`）：
+（`E:\iOS Port\Work\scratch\init-v18pb`）：
 1. 在 `/private/var/Cryptexes/App/...`（= Data 卷根）建全目录 + 8 个 **0755 空文件**；
 2. `mount("apfs", "/private/preboot", MNT_RDONLY, payload)`，device 用 **`/dev/disk2s1`**（实测 Data 卷，5,210,112 块 = 21,342,715,904 B）。
 判据日志：`Pong init: app-cryptex stubs ready` + `Pong init: preboot remount result=0 errno=0`；
@@ -155,7 +155,7 @@ Pong UI: UIApplication _run entered
 
 ### 一句话：**dyld 根因已解决，iOS 用户态全面启动，SpringBoard 已进入主循环**
 
-实测日志 `E:\k60-work\evidence\usblog-20261108-135117\console.log`（246 KB+）：
+实测日志 `E:\iOS Port\Work\evidence\usblog-20261108-135117\console.log`（246 KB+）：
 ```
 K60: launchd_cache_loader reported as clean exit (was 0x0)
 K60PSX pid=24 err=0 / pid=45 / pid=79 / pid=44
@@ -180,12 +180,12 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 ```
 产物：`/tmp/initbuild/init-v13dylc`，34,912 B，sha `7fb46a4ea2ec1b6af073ee09dd77bb61d46a89cb0cf876b7b346016762274982`
 （flags=0x1、DYLDLINK=False、CODE_SIG/UNIXTHREAD/__PAGEZERO 全过）。已四闸门写入设备
-（Gate3 `ce10f640…`、Gate3b `7fb46a4e…`，备份在 `E:\k60-work\rollback\pong-init-20261108-135500`）。
+（Gate3 `ce10f640…`、Gate3b `7fb46a4e…`，备份在 `E:\iOS Port\Work\rollback\pong-init-20261108-135500`）。
 
 ### 当前可复现链路（照做即可）
 
 1. 设备进 fastboot；
-2. `pwsh E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1 -Image E:\k60-work\usb-a-stage\out\boot-probe-dyld5-20261108.img -Seconds 180 -WaitFastboot 60`
+2. `pwsh E:\iOS Port\Work\usb-a-stage\scripts\boot-and-capture.ps1 -Image E:\iOS Port\Work\usb-a-stage\out\boot-probe-dyld5-20261108.img -Seconds 180 -WaitFastboot 60`
    （该镜像 = 新内核 `f89112e9` + ARMCPU validate 补丁 + 黄金 28 项 args + 配套 ADT `c5dee1bb`）；
 3. 日志出现 `launchd_cache_loader ... clean exit` + `entered SpringBoard` + `UIApplication -_run hooked` = 进系统成功。
 
@@ -221,8 +221,8 @@ P-24（换核必须重跑 `patch-armcpu-validate.py --apply`，历史坑 64-2 �
 
 | 项 | 值 |
 |---|---|
-| 镜像 | `E:\k60-work\usb-a-stage\out\boot-0461-20261107.img`（201,883,648 B） |
-| 黄金 payload 原件 | `E:\k60-work\scratch\payload-0461.img`（201,326,592 B，2026-11-07 21:25:57，`tol=YES initblob=no`） |
+| 镜像 | `E:\iOS Port\Work\usb-a-stage\out\boot-0461-20261107.img`（201,883,648 B） |
+| 黄金 payload 原件 | `E:\iOS Port\Work\scratch\payload-0461.img`（201,326,592 B，2026-11-07 21:25:57，`tol=YES initblob=no`） |
 | 黄金内核 | `/opt/k60/trees/usb-cdc-mainline/out3/.../kernel/kernel.macho`（53,952,512 B，sha `78a0951a…`） |
 | 完整 boot args | 29 项，实读 `payload-0461.img` 内 `unixnu.toml`（见下） |
 
@@ -248,7 +248,7 @@ k60_entitlement_allow=1 k60_skip_iosurface=1 k60_panic_reset=1 k60_selftest_rebo
 ### 自动化工具（**已有，禁止重造**）
 
 ```
-pwsh E:\k60-work\usb-a-stage\scripts\boot-and-capture.ps1 `
+pwsh E:\iOS Port\Work\usb-a-stage\scripts\boot-and-capture.ps1 `
   -Image <img> -Seconds 300 -WaitFastboot 90
 ```
 259 行，已实现：自动 boot、注册表 `\Device\USBSER000` 找端口、逐块 Flush、端口消失后重开
@@ -439,12 +439,12 @@ pid 1 exited -- exit reason namespace 7 subcode 0x1, description No service cach
 
 | 用途 | 路径 |
 |---|---|
-| 最新镜像 | `E:\k60-work\usb-a-stage\out\boot-amfi0333-20261105.img`（sha `D926AABA…`） |
-| 突破日志 | `E:\k60-work\evidence\usblog-20261106-002647\console.log`（sha `5C7DD213…`） |
-| boot-arg 改写 | `E:\k60-work\scratch\rewrite-toml-0333.py` |
+| 最新镜像 | `E:\iOS Port\Work\usb-a-stage\out\boot-amfi0333-20261105.img`（sha `D926AABA…`） |
+| 突破日志 | `E:\iOS Port\Work\evidence\usblog-20261106-002647\console.log`（sha `5C7DD213…`） |
+| boot-arg 改写 | `E:\iOS Port\Work\scratch\rewrite-toml-0333.py` |
 | 打包 | `/tmp/payload-0333.img` + `scratch/splice-generic.py` |
-| plist/sig 恢复 | `E:\k60-work\usb-a-stage\scripts\restore-plist-twrp.ps1` |
-| loader 反汇编 | `E:\k60-work\scratch\lcl.dis`（`llvm-objdump --macho -d`） |
+| plist/sig 恢复 | `E:\iOS Port\Work\usb-a-stage\scripts\restore-plist-twrp.ps1` |
+| loader 反汇编 | `E:\iOS Port\Work\scratch\lcl.dis`（`llvm-objdump --macho -d`） |
 | 完整分析 | `docs/references/USB-SERIAL-AND-AMFI-CHANNEL-20261105.md` §18 |
 
 ### 设备状态
@@ -481,7 +481,7 @@ pid 1 exited -- exit reason namespace 7 subcode 0x1, description No service cach
   - `/db/com.apple.xpc.launchd/disabled.plist`、`/keybags/systembag.kb`、`/mobile/Library/Preferences/com.apple.{springboard,purplebuddy}.plist` mtime = epoch+36s（基线均无此四件）；init trace `/pong/status.txt` create = epoch+44s（token 全链 `A0…E1`）；
   - 内容验证：`disabled.plist={'com.apple.watchdogd': True}`；`com.apple.springboard.plist={'BKNoWatchdogs':1,'FBLaunchWatchdogExceptions':{purplebuddy:100}}`；**`com.apple.purplebuddy.plist={'SetupDone':1,'SetupFinishedAllSteps':1,'SetupVersion':11}`**；`systembag.kb={'KeyBagKeys':b'SWEET'}`（占位，判移植侧 stub 写）。
   - **剔除项**：`/mobile/Library/Preferences/.GlobalPreferences.plist`（89 B）**基线已有且 sha 相同（`633dfefd…`）= 种子自带，不作运行时证据**。
-  - **独立复核（2026-11-04，本 agent 经 adb+KernelSU 只读 dd + 项目 apfs.py 重跑，容器 xid=16）**：`/codes` 仅空目录本身；`/containers = {Bundle, Data, Data/System, Shared, Shared/SystemGroup, Temp}` 全为空目录；**`/containers/Data/Application` 不存在、无 UUID 容器、无 Bundle 内容、无 metadata.plist** → 判定「无真实 app 容器入驻，仅空骨架」，与上条里程碑一致。设备=基线镜像 + 运行时增量（+15 目录 / +6 文件，零删除）；读取 240 块 ×4 KiB、12 次 dd、零写入。报告 `E:\k60-work\tmp\codes-containers-{device,local}.json`。
+  - **独立复核（2026-11-04，本 agent 经 adb+KernelSU 只读 dd + 项目 apfs.py 重跑，容器 xid=16）**：`/codes` 仅空目录本身；`/containers = {Bundle, Data, Data/System, Shared, Shared/SystemGroup, Temp}` 全为空目录；**`/containers/Data/Application` 不存在、无 UUID 容器、无 Bundle 内容、无 metadata.plist** → 判定「无真实 app 容器入驻，仅空骨架」，与上条里程碑一致。设备=基线镜像 + 运行时增量（+15 目录 / +6 文件，零删除）；读取 240 块 ×4 KiB、12 次 dd、零写入。报告 `E:\iOS Port\Work\tmp\codes-containers-{device,local}.json`。
 - **当前卡点（2026-11-05 深夜）——AMFI 已解决，mount 全通，剩 `launchd_cache_loader` 签名验证**：
   0318 按 pong `ios16` 配方让 `amfi` 表保持 NULL（`AMFI interface left NULL` + `accelerate_entitlement_queries` bypass 分支命中），AMFI 查找问题解决（`Unable to find AMFI` **0 次**）。0320 补丁让 mount-phase-1/2 的 firmware/factorydata bind mount 在 union 模式下放行（`k60_skip_firmware_mount=1`）。launchd 跑完全部 boot task 直到 task 22 `launchd_cache_loader`。
   **新卡点**：cache loader 读 plist+sig 后需要通过 Security.framework 验证签名 → plist+sig 已被我们从 TWRP 清零 → `errSecCSSignatureInvalid` → abort → launchd panic。**注意**：AMFI 查找那关已经过了（错误从 `Unable to find AMFI` 变为 `errSecCSSignatureInvalid`），说明 `amfi==NULL` bypass 生效。
@@ -501,7 +501,7 @@ pid 1 exited -- exit reason namespace 7 subcode 0x1, description No service cach
 | 到 SpringBoard 差距评估 | `bf327214dc1a8cd77d0afc76` | **已完成**：`references/GAP-TO-SPRINGBOARD.md`（26 KB：8 级进度表、12 环依赖链、16 行硬件缺口表、19 项未调研清单、审阅记录 12 条） |
 | `unixnu.com` 官网全站程序化索引 | `65e4603067d46f893d704c29` | **已完成**：664 页全量 / 0 失败 / 370.7s / 存档 10.6 MB / `devices-map.json` 234 条 / 增量 0.3s 验证通过；产物 `UNIXNU-SITE-INDEX.md` + `unixnu-site-index.json` + `tools\unixnu-site\`；每日 07:00 定时增量已挂 |
 | 上游同步机制（UniXNU org + devices 页 + 同 SoC 仓） | `84c1751be1d956093c2084f3` | 产出 `DEVICE-REPOS.md` + `devices.py list/find` + `push-check.py` + `UPSTREAM-SYNC.md` |
-| console 全量落盘（内核环形区 → Data 卷文件） | `195c52805ef0d3aca0863a7e` | **2026-11-05 单变量 boot 已完成，盘侧判读：未打通，I-20261105-01**。v11drain init 34,912 B / `12b9df42…` 写入 sda38 前先备份完整 LBA 2501111..2501119（36,864 B，sha `ED6C3BF1…`）；写后 extent 和 34,912 B bare-prefix 回读 sha 均过。镜像 `boot-usb-console-export-20261104.img` / `a246507b…` 只 `fastboot boot` 成功。用户报告屏显 `Pong init: var: stat root`，之后 Android ADB 回连；屏行不作死点。完整 APFS OwnerData xid=18 盘侧解析：新 `/pong/console.log` inode 249 root:wheel 0644，size=0 B；旧 `/pong/status.txt` 39 B；没有轮转文件。由新 inode + init 源码执行顺序，确认 init 已 fork drainer 且跑到 mkdir/open。**源码接口缺陷已确认，运行时 errno 未直接记录**：drainer 传 cursor `newp`，0243 OID 仅 `CTLFLAG_RD`；实际 XNU `kern_newsysctl.c:1709-1714` 对这种请求形态会在 handler 前返回 EPERM，handler 不可达；这与 APFS 空日志相符。修复前置 = 评审启用 `CTLFLAG_WR` 的权限/安全边界，或另定 cursor 协议；本轮未改代码/重构建。完整取证 sidecar `E:\k60-work\evidence\console-drain-20261105\SIDECAR.json`；原始 dd dump sha `35E496AB…`，精确 APFS image sha `257AEC0B…`。**当前不要再次 boot**；下一步先离线核对 0243 sysctl ABI、header 大小、libmini 返回长度和 payload args，再出新验证单等批准。写前备份和闸门记录 `E:\k60-work\rollback\pong-init-20261105-011015\`。 |
+| console 全量落盘（内核环形区 → Data 卷文件） | `195c52805ef0d3aca0863a7e` | **2026-11-05 单变量 boot 已完成，盘侧判读：未打通，I-20261105-01**。v11drain init 34,912 B / `12b9df42…` 写入 sda38 前先备份完整 LBA 2501111..2501119（36,864 B，sha `ED6C3BF1…`）；写后 extent 和 34,912 B bare-prefix 回读 sha 均过。镜像 `boot-usb-console-export-20261104.img` / `a246507b…` 只 `fastboot boot` 成功。用户报告屏显 `Pong init: var: stat root`，之后 Android ADB 回连；屏行不作死点。完整 APFS OwnerData xid=18 盘侧解析：新 `/pong/console.log` inode 249 root:wheel 0644，size=0 B；旧 `/pong/status.txt` 39 B；没有轮转文件。由新 inode + init 源码执行顺序，确认 init 已 fork drainer 且跑到 mkdir/open。**源码接口缺陷已确认，运行时 errno 未直接记录**：drainer 传 cursor `newp`，0243 OID 仅 `CTLFLAG_RD`；实际 XNU `kern_newsysctl.c:1709-1714` 对这种请求形态会在 handler 前返回 EPERM，handler 不可达；这与 APFS 空日志相符。修复前置 = 评审启用 `CTLFLAG_WR` 的权限/安全边界，或另定 cursor 协议；本轮未改代码/重构建。完整取证 sidecar `E:\iOS Port\Work\evidence\console-drain-20261105\SIDECAR.json`；原始 dd dump sha `35E496AB…`，精确 APFS image sha `257AEC0B…`。**当前不要再次 boot**；下一步先离线核对 0243 sysctl ABI、header 大小、libmini 返回长度和 payload args，再出新验证单等批准。写前备份和闸门记录 `E:\iOS Port\Work\rollback\pong-init-20261105-011015\`。 |
 | USB 内核日志通道 | `0a3dfab398a69b8f463bfa96` | **按用户优先级暂停**：cdc4 镜像仍仅为离线构建件，未用本轮 boot 窗口测试；console-export 首轮问题定位期间不再启动 USB 线。已有 cdc3 B 决策证据留档：`:921` 指纹为 0；B 决策载体 `d881352`、0301–0305 `1c0f468`。 |
 
 ## 3. 拍板状态
@@ -975,7 +975,7 @@ Pong touch: Goodix initialization failed; normal UI boot continues
 ### UFS S1 已应用（行为等价，零风险）
 
 ```bash
-cd E:/hackios/UniXNU-mondrian
+cd E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian
 git apply impl/ufs-port/s1-geometry-only.patch   # ✅ 已应用
 ```
 

@@ -45,7 +45,7 @@
 
 ---
 
-## 2. 上机真值（证据 `E:/k60-work/evidence/usblog-20261114-touchd/console.log`）
+## 2. 上机真值（证据 `E:/iOS Port/Work/evidence/usblog-20261114-touchd/console.log`）
 
 同一次启动（`capture.json` verdict=captured，panicMarker=null）里，`K60 USBLOG` 行给出的寄存器快照：
 
@@ -314,7 +314,7 @@ QSCRATCH 因为 worker 里的映射（`:1810`）是局部的，心跳自己再 m
 | pmic-glink / UCSI 在 ADSP 侧 | `mondrian.dts:8555,8567,8568,21364` |
 | 现有 CDC-ACM 与 boot-arg | `patches/xnu/series:124,132,138`；`docs/engineering/BOOT-ARGS.md:34` |
 | 能力上限（非 usbmux） | `porting.toml:187` |
-| 上机寄存器真值 | `E:/k60-work/evidence/usblog-20261114-touchd/console.log` |
+| 上机寄存器真值 | `E:/iOS Port/Work/evidence/usblog-20261114-touchd/console.log` |
 | 同 SoC 复合描述符 / 端点布局 | `references/pong-usb/PongUsbDevice.h:60,66-69,214-216` |
 | eUSB2 不是 FEMTO | `references/pong-usb/PongUsbPhy.h:142` |
 | mux 的 socket 契约 | `references/pong-usb/PongUsbMux.h:58-59,144-146,156-157` |
@@ -340,15 +340,15 @@ sha256 `c21618e49643513a0fe42609de45ba688afb3691338e07657cfc644927426389`，
 | DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd` |
 | FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
 
-manifest：`E:/k60-work/artifacts/usb-20261114b/build-manifest.json`；boot.img：
-`E:/k60-work/artifacts/usb-20261114b/boot.img`。
+manifest：`E:/iOS Port/Work/artifacts/usb-20261114b/build-manifest.json`；boot.img：
+`E:/iOS Port/Work/artifacts/usb-20261114b/boot.img`。
 
 **两次 `fastboot boot` 同一镜像**：
 
 | # | 证据目录 | console.log | capture.json | 心跳行 |
 |---|---|---|---|---|
-| 1 | `E:/k60-work/evidence/usblog-20261114-usb-hb1/` | 251274 B，sha256 `8BC69E2F…1FEFAD62` | `captured-budget-complete` / complete=true / stopReason=budget / panicMarker=null / resetMarker=`K60 USBLOG: restart reason published` | 300 |
-| 2 | `E:/k60-work/evidence/usblog-20261114-usb-hb2/` | 258773 B，sha256 `0BEBFCB9…380FEDB1` | 同上（openErrors=3） | 300 |
+| 1 | `E:/iOS Port/Work/evidence/usblog-20261114-usb-hb1/` | 251274 B，sha256 `8BC69E2F…1FEFAD62` | `captured-budget-complete` / complete=true / stopReason=budget / panicMarker=null / resetMarker=`K60 USBLOG: restart reason published` | 300 |
+| 2 | `E:/iOS Port/Work/evidence/usblog-20261114-usb-hb2/` | 258773 B，sha256 `0BEBFCB9…380FEDB1` | 同上（openErrors=3） | 300 |
 
 两次都进账本：`scripts/record-boot.py` → `✅ recorded series 2e90b3e865611f67 (230 patches)`，
 SpringBoard 行数 130 / 134。300 s 后 `K60AUTORESET: 300 s since boot` 自动回 fastboot（boot-arg 既有行为）。
@@ -417,7 +417,7 @@ P1 只做**一件事**：让主机看到的配置从「1 个功能 / 2 个接口
 3. `CLEAR_FEATURE(ENDPOINT_HALT)` 白名单补 `ep 6/7`（主机可能对任一使能端点发）。
 4. 注释指明本节。
 
-字节布局（`E:/k60-work/scratch/usb/check_desc.py` 逐描述符校验：98 字节、14 个描述符、长度自洽）：
+字节布局（`E:/iOS Port/Work/scratch/usb/check_desc.py` 逐描述符校验：98 字节、14 个描述符、长度自洽）：
 
 | 偏移 | 长度 | 描述符 | 关键字段 |
 |---|---|---|---|
@@ -550,7 +550,7 @@ if (!ud.configured || !ud.dtr || ud.failed) return;   /* k60_usblog.c:1332 附�
 
 ```
 export K60_DEVICE_INPUT=/opt/k60/trees/usb-device
-export K60_SERIES_FINAL=/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt
+export K60_SERIES_FINAL=/mnt/e/iOS Port/Work/scratch/usb/SERIES-FINAL.txt
 python3 scripts/sync-device-input.py      # 同步 4 个文件（0406 / 0407 / patches/usb/series / patches/xnu/series）
 python3 scripts/porting-gate.py --quick   # ✅ 门禁通过（6 项警告）
 ```
@@ -570,7 +570,7 @@ python3 scripts/porting-gate.py --quick   # ✅ 门禁通过（6 项警告）
 | FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
 | series（232 条） | `ca9dc29d58e24e0df2d3f886cf5b54c470ad4936f6e555b67d20f630c0c38528` |
 
-manifest：`E:/k60-work/artifacts/usb-20261114e/build-manifest.json`（kernel 54181888 B，series 232 条，
+manifest：`E:/iOS Port/Work/artifacts/usb-20261114e/build-manifest.json`（kernel 54181888 B，series 232 条，
 frozen `317469bc3c078b97…`）。
 
 ### 14.3 构建期门禁
@@ -588,7 +588,7 @@ frozen `317469bc3c078b97…`）。
 镜像已就绪但**未 boot**。获准后按 RESEARCH.md §13.3 的五条判据执行：
 `fastboot boot usb-20261114e/boot.img` → 300 s 采集 → 第 70 s / 130 s 两次主机侧 `Get-PnpDevice` 采样，
 重点读 `composite cfg 98 bytes ep6 %d ep7 %d DALEPENA 0x%08x` 这一行与新增的 `GHWPARAMS1/3 GTXFIFOSIZ` 行。
-脚本已备好：`E:/k60-work/scratch/usb/boot0407e.sh`（门禁四连 + boot + 双采样），**当前未运行**。
+脚本已备好：`E:/iOS Port/Work/scratch/usb/boot0407e.sh`（门禁四连 + boot + 双采样），**当前未运行**。
 
 ## 15. P2 前置设计：8 槽 TRB、传输资源收尾、FIFO 预算（尚未实现）
 
@@ -777,11 +777,11 @@ P2-b 依赖 0407 证明 EP6/EP7 确实可配置。
 | series | 233 条，`sha256 18d72571e489bccf1e1d5e9b6134dba0ab24add21be0e554b064cf051f6ecefe` |
 | frozen | `list_sha256 cfb61522b01990a9049e7c278ea7bbf324f58e548b5bb95d03ea61b756210850` |
 | 构建输入树 | **私有** `/opt/k60/trees/usb-device`（`K60_DEVICE_INPUT`） |
-| SERIES-FINAL | `/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt`（`K60_SERIES_FINAL`） |
-| FD | `/mnt/e/k60-work/artifacts/fd/usb-20261114b-cf4485712c29.fd` |
+| SERIES-FINAL | `/mnt/e/iOS Port/Work/scratch/usb/SERIES-FINAL.txt`（`K60_SERIES_FINAL`） |
+| FD | `/mnt/e/iOS Port/Work/artifacts/fd/usb-20261114b-cf4485712c29.fd` |
 
 为什么必须指定这两个环境变量：共享输入树 `/opt/k60/trees/usb-cdc-mainline/device` 已被其他线覆写两次
-（§14.1），`SERIES-FINAL.txt` 的默认路径 `/mnt/e/k60-work/scratch/SERIES-FINAL.txt` 同样是跨线单例。
+（§14.1），`SERIES-FINAL.txt` 的默认路径 `/mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt` 同样是跨线单例。
 两者任一被别的线改写，`porting-gate.py` 的 iron-4 / hard-33 就会因为"三处 series 不一致"直接拒绝构建。
 
 ### 17.2 产物（`build-manifest.json`）
@@ -796,7 +796,7 @@ P2-b 依赖 0407 证明 EP6/EP7 确实可配置。
 | DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（与 usb-20261114b/c/e 完全相同） |
 | FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f` |
 
-manifest：`/mnt/e/k60-work/artifacts/usb-20261114f/build-manifest.json`
+manifest：`/mnt/e/iOS Port/Work/artifacts/usb-20261114f/build-manifest.json`
 
 ### 17.3 门禁（全绿）
 
@@ -819,11 +819,11 @@ manifest：`/mnt/e/k60-work/artifacts/usb-20261114f/build-manifest.json`
 
 ### 17.5 上机计划（**未执行**，等用户批准）
 
-脚本 `E:/k60-work/scratch/usb/boot0408f.sh` 已写好但**没有运行**（用户 m01929「禁止擅自 boot」）。
+脚本 `E:/iOS Port/Work/scratch/usb/boot0408f.sh` 已写好但**没有运行**（用户 m01929「禁止擅自 boot」）。
 批准后的动作序列：门禁四连（`porting-gate --quick` / `eight-step-gate --flash` / `check-boot-procedure` / `research-gate`）
 → `adb reboot bootloader` 等 fastboot（150 s 上限）→ `boot-and-capture.ps1`
-`-Image E:\k60-work\artifacts\usb-20261114f\boot.img -Seconds 300`
-`-OutDir E:\k60-work\evidence\usblog-20261114-usb-f1 -Serial 6033dbec`
+`-Image E:\iOS Port\Work\artifacts\usb-20261114f\boot.img -Seconds 300`
+`-OutDir E:\iOS Port\Work\evidence\usblog-20261114-usb-f1 -Serial 6033dbec`
 → 第 70 s / 130 s 各采一次 `host-pnp.ps1` → 收 supervisor rc。
 判据见 §16.3（回归性质：控制台不变、心跳不断流、收尾不报错、采集完整）。
 
@@ -879,7 +879,7 @@ manifest：`/mnt/e/k60-work/artifacts/usb-20261114f/build-manifest.json`
 
 用户 m01929：“禁止擅自 boot”。两张镜像、脚本（`boot0407e.sh` / `boot0408f.sh`）与证据目录都已就绪，
 设备 `6033dbec` 停在 fastboot，本轮**没有**任何 `fastboot boot` / `boot-and-capture.ps1` 进程。
-批准后**只需跑 f**（`E:/k60-work/scratch/usb/boot0408f.sh`），预计 300 s 采集 + 约 2 min 起机。
+批准后**只需跑 f**（`E:/iOS Port/Work/scratch/usb/boot0408f.sh`），预计 300 s 采集 + 约 2 min 起机。
 
 ## 19. 判据执行器：`docs/research/usb/analyze-capture.py`
 
@@ -887,7 +887,7 @@ manifest：`/mnt/e/k60-work/artifacts/usb-20261114f/build-manifest.json`
 上机后一条命令出结论：
 
 ```
-python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-<stamp>
+python3 docs/research/usb/analyze-capture.py /mnt/e/iOS Port/Work/evidence/usblog-<stamp>
 ```
 
 退出码 0 = 无 FAIL，1 = 有 FAIL，2 = 用法/证据目录错误。脚本**只读**，不修改证据。
@@ -916,7 +916,7 @@ python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-<st
 `usb-20261114f` 上机后：
 
 ```
-python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-20261114-usb-f1
+python3 docs/research/usb/analyze-capture.py /mnt/e/iOS Port/Work/evidence/usblog-20261114-usb-f1
 ```
 
 期望：6 条全 PASS（判据 3 要求 `NUM_EPS ≥ 8` 且 `NUM_IN_EPS ≥ 4`；判据 4 要求 `ep6=0 ep7=0 DALEPENA=0x000000ef`）。
@@ -957,12 +957,12 @@ python3 docs/research/usb/analyze-capture.py /mnt/e/k60-work/evidence/usblog-202
 - 改成 `EF/02/01` 后，Windows 走 `usbccgp`，把 IF0+IF1（IAD 已声明）交给 `usbser.sys`，IF2 交给 vendor 驱动 —— 这是 IAD 生效的**必要条件**。
 - 风险：一旦 `usbccgp` 不绑，控制台会**整条消失**（不是降级）。所以它必须在分支 A 之后单独上机，且要准备好回退镜像。
 
-草稿已生成并本地验证（**未入库、未进 series**）：`E:/k60-work/scratch/usb/0410-k60-usb-device-class-composite.patch`（22 行，只改 `ud_dev_desc[18]` 的 3 个字节 `2, 2, 0` → `0xef, 0x02, 0x01`）；对 post-0408 源 `patch -p1 --dry-run` → `APPLY_OK`。是否入库由 §20.2 的分支结论决定（分支 D 会先走它，其余分支先走 0409）。
+草稿已生成并本地验证（**未入库、未进 series**）：`E:/iOS Port/Work/scratch/usb/0410-k60-usb-device-class-composite.patch`（22 行，只改 `ud_dev_desc[18]` 的 3 个字节 `2, 2, 0` → `0xef, 0x02, 0x01`）；对 post-0408 源 `patch -p1 --dry-run` → `APPLY_OK`。是否入库由 §20.2 的分支结论决定（分支 D 会先走它，其余分支先走 0409）。
 
 ### 20.4 当前状态
 
 - 镜像 `usb-20261114f` 已构建、门禁全绿、**未上机**（用户 m01929 禁止擅自 boot）。
-- 脚本 `E:/k60-work/scratch/usb/boot0408f.sh` 就绪；执行后先跑 `docs/research/usb/analyze-capture.py` 再按本节分支表决策。
+- 脚本 `E:/iOS Port/Work/scratch/usb/boot0408f.sh` 就绪；执行后先跑 `docs/research/usb/analyze-capture.py` 再按本节分支表决策。
 
 
 ## 21. 0409 控制台恢复镜像 usb-20261114g（诊断优先）
@@ -1001,7 +1001,7 @@ Windows 建出 `USB\VID_1209&PID_0001\0001`，`Service=usbser`，`FriendlyName=U
   于是这张镜像**同时**给出「控制台是否恢复」与「EP6/EP7 是否可配置」两件事；
 - 0407 的 `GHWPARAMS1/GHWPARAMS3/GTXFIFOSIZ` probe 打印仍在。
 
-字节自检（`E:/k60-work/scratch/usb/check0409.py`）：67 B、10 个描述符全部长度自洽
+字节自检（`E:/iOS Port/Work/scratch/usb/check0409.py`）：67 B、10 个描述符全部长度自洽
 （config 9 / IF0 9 class 2/2/1 / CS_INTERFACE 5+5+4+5 / EP 0x82 int 16 / IF1 9 class 10/0/0 /
 EP 0x81 bulk 64 / EP 0x01 bulk 64），`bNumInterfaces=2`。
 
@@ -1013,8 +1013,8 @@ EP 0x81 bulk 64 / EP 0x01 bulk 64），`bNumInterfaces=2`。
   三处指纹一致 `88846d3552c8b0042bfef9ae092c5d32cf92bb6c3edd8c181e841b10cf2bac0e`
   （仓库 / `/opt/k60/trees/usb-device` / `SERIES-FINAL.txt`）。
 - 构建环境：`K60_DEVICE_INPUT=/opt/k60/trees/usb-device`（私有树）、
-  `K60_SERIES_FINAL=/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt`。
-- 产物（`/mnt/e/k60-work/artifacts/usb-20261114g/build-manifest.json`）：
+  `K60_SERIES_FINAL=/mnt/e/iOS Port/Work/scratch/usb/SERIES-FINAL.txt`。
+- 产物（`/mnt/e/iOS Port/Work/artifacts/usb-20261114g/build-manifest.json`）：
 
 | 产物 | SHA-256 |
 | --- | --- |
@@ -1119,8 +1119,8 @@ Lead 指派（m02635）"把 QMP PHY 与 UCSI 的 host 可验证部分做完"。�
 ### 22.4 复现
 
 ```sh
-python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/k60-work/scratch/usb/mondrian.dts --check
-python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/k60-work/scratch/usb/mondrian.dts \
+python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/iOS Port/Work/scratch/usb/mondrian.dts --check
+python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/iOS Port/Work/scratch/usb/mondrian.dts \
     --emit-c --out /tmp/kQmpPhyK60.h
 cc -std=c11 -Wall -Wextra -o /tmp/ucsi-host-selftest docs/research/usb/ucsi-host-selftest.c \
     && /tmp/ucsi-host-selftest
@@ -1207,7 +1207,7 @@ printf("K60 USBLOG: echo %u bytes on ep%u (total %u)\n",
 
 第三个 `%u` 从可变参数的栈/寄存器里取值，打印出的端点号与累计字节都是垃圾值。发现方式是给整份
 `k60_usblog.c` 做机械体检：剥掉字符串与注释后按顶层逗号切参数，统计格式串里的转换符个数与实参个数
-（脚本 `E:/k60-work/scratch/usb/fmtcheck.py`，只做这一件事）。**全文件 2263 行只有这一处不匹配**，
+（脚本 `E:/iOS Port/Work/scratch/usb/fmtcheck.py`，只做这一件事）。**全文件 2263 行只有这一处不匹配**，
 说明 `0300`/`0405`–`0409` 里既有的打印都是配平的，缺陷是 `0410` 新引入的。
 
 修复后重新生成补丁：`mkpatch0410.sh` 用 `diff -u` 产出 14 个 hunk（11861 B，sha256
@@ -1238,7 +1238,7 @@ printf("K60 USBLOG: echo %u bytes on ep%u (total %u)\n",
 main 在 2026-11-14 22:18–22:28 连落两笔未登记的风险路径提交（`3c69c80` board.toml 内存窗口、
 `92c9251` Metal container padding），book 仍是 7 条 entry（anchor `bf487cc`）。
 `docs/engineering/MAIN-BASELINE.toml` 不在 usb 线写作用域，**只能由 gates 线在 main 侧登记**；
-登记条目与验证脚本已备好（`E:/k60-work/scratch/usb/entry.toml` + `verify_entry.py`）。
+登记条目与验证脚本已备好（`E:/iOS Port/Work/scratch/usb/entry.toml` + `verify_entry.py`）。
 在它被登记之前，**任何分线的 `scripts/build-strict.sh` 都会在 registry 阶段被拒**，与本线改动无关。
 
 ### 23.8 `--kernel-arg` 曾经静默丢失（`239a277`）
@@ -1338,7 +1338,7 @@ Lead（m04369）要求：本线 series 在合并前必须 rebase 到当前 `orig
 | DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（未变） |
 | FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`（未变） |
 | **boot.img** | **`704fa9b2bb5ae52798406bc4a219c47efc3ba73f72bfb94a36cd12ae7535ff6f`**（201887744 B） |
-| manifest | `/mnt/e/k60-work/artifacts/usb-20261115a/build-manifest.json` |
+| manifest | `/mnt/e/iOS Port/Work/artifacts/usb-20261115a/build-manifest.json` |
 | 请求参数 | `k60_usbvend=2`；payload 30 项 589 B（末尾 `k60_usbvend=2`） |
 
 - 门禁：`eight-step` 30 项通过；`verify-boot-image.py --manifest` → `verify-boot-image: OK`；`check-image-args.py` → `image-arg-audit: OK (30 arguments, 589 bytes)`；`check-rules.py` → **登记 78 条、失败 0、waiver 37、结论 ✅**（rebase 前的 3 条陈旧记录全部清除）。
@@ -1359,7 +1359,7 @@ Lead（m04369）要求：本线 series 在合并前必须 rebase 到当前 `orig
 
 - COM5 在 6.5 s 后出现（`port COM5 appeared after 6.5s`）。
 - `sent=64 received=64`，回显逐字节一致（`echo matched byte for byte`）。
-- 证据：`E:/k60-work/evidence/usb-echo-20261115/echo.log`（150 B，UTF-16LE，两行：`port=COM5 sent=64 received=64` / `RESULT: PASS (echo matched byte for byte)`）。
+- 证据：`E:/iOS Port/Work/evidence/usb-echo-20261115/echo.log`（150 B，UTF-16LE，两行：`port=COM5 sent=64 received=64` / `RESULT: PASS (echo matched byte for byte)`）。
 
 ### 三条判据的对照（RESEARCH §23.3 / §15.5）
 
@@ -1398,7 +1398,7 @@ Lead（m04369）要求：本线 series 在合并前必须 rebase 到当前 `orig
   `447860c8` P-203：worktree prune 被 guard 拒绝；`a3d55d33` gate 白名单）。
 - 本线从 `5b7b26f` rebase 到 `133473e`，27/27 无冲突 → **`e199e9b`**，`dirty_files=0`。
   与 main 的 series 差异仍然只有 `../usb/0405..0410` 六行。
-- `scripts/sync-device-input.py`（`K60_DEVICE_INPUT=/opt/k60/trees/usb-device`、`K60_SERIES_FINAL=/mnt/e/k60-work/scratch/usb/SERIES-FINAL.txt`）
+- `scripts/sync-device-input.py`（`K60_DEVICE_INPUT=/opt/k60/trees/usb-device`、`K60_SERIES_FINAL=/mnt/e/iOS Port/Work/scratch/usb/SERIES-FINAL.txt`）
   → `检查: 719 个文件已一致`；三处 series 同 sha256 `34a6ce2227f57bbe31674262352b0051be27f875768e73aabcf2505b1ebbaaca`（230 行）。
 - `porting-gate.py --quick` ✅ 7 警告（账本 ok=18 bad=5、这组 series+args 没跑过、内核 76110 s 前）。
 
@@ -1410,7 +1410,7 @@ Lead（m04369）要求：本线 series 在合并前必须 rebase 到当前 `orig
 ### 24.3 构建结果
 
 `K60_OUT=/opt/k60/trees/usb-out`、`K60_DEVICE_INPUT=/opt/k60/trees/usb-device`、`K60_AGENT_ID=usb-agent`，
-fd `/mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，`BUILD_EXIT=0`（`2026-11-15T11:19:42+08:00`）。
+fd `/mnt/e/iOS Port/Work/artifacts/old-fd-cf448571.fd`，`BUILD_EXIT=0`（`2026-11-15T11:19:42+08:00`）。
 
 | 项 | 值 |
 | --- | --- |
@@ -1425,7 +1425,7 @@ fd `/mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，`BUILD_EXIT=0`（`2026-11-15
 | DTB | `2d044eaa08b7e58c0510a33da795c960085e13d6943cd4c25e0e050e0bfa33cd`（未变） |
 | FD | `cf4485712c2999c1fb7c1937a5b1f836dd3e9150073fb9b151b581d375195d0f`（未变） |
 | **boot.img** | **`7e90fa5f5f3c4ad0c26ac281b0dc6c50c63f15a7a922c285b7214c7896488bc7`**（201887744 B） |
-| manifest | `/mnt/e/k60-work/artifacts/usb-20261115b/build-manifest.json` |
+| manifest | `/mnt/e/iOS Port/Work/artifacts/usb-20261115b/build-manifest.json` |
 | `kernel_args_requested` | `["k60_usbvend=1"]` |
 | payload args | 30 项 589 B，末尾 `k60_usbvend=1` |
 
@@ -1437,7 +1437,7 @@ fd `/mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，`BUILD_EXIT=0`（`2026-11-15
 ### 24.4 补丁入镜像的证据（不再有 per-patch 日志）
 
 rebase 后的 `logs/kernel.log`（3449 B）只剩 bootstrap/prelink 摘要，**没有** 早期的 `== kernel: patch 04xx` 行，
-所以 `strings` 或描述符字节扫描是唯一证据。用 `E:/k60-work/scratch/usb/desc-check.py` 在 `kernel.macho` 里计数：
+所以 `strings` 或描述符字节扫描是唯一证据。用 `E:/iOS Port/Work/scratch/usb/desc-check.py` 在 `kernel.macho` 里计数：
 
 | 描述符 | 命中次数 |
 | --- | --- |
@@ -1475,7 +1475,7 @@ rebase 后的 `logs/kernel.log`（3449 B）只剩 bootstrap/prelink 摘要，**�
 
 ### 24.6 mode-1 上机（Lead 执行，本线不 boot）
 
-脚本：`E:/k60-work/scratch/usb/boot0410b-lead.sh`（门禁四连 → 等 fastboot → 300 s 采集 → 判据执行器 → 寄存器行）。
+脚本：`E:/iOS Port/Work/scratch/usb/boot0410b-lead.sh`（门禁四连 → 等 fastboot → 300 s 采集 → 判据执行器 → 寄存器行）。
 判读顺序：
 
 1. `K60 USBLOG: DWC3 GHWPARAMS1 … GHWPARAMS3 …`：期望 `(>>12)&0x3f ≥ 8` 且 `(>>18)&0x1f ≥ 4`（判据 3）；
@@ -1486,7 +1486,7 @@ rebase 后的 `logs/kernel.log`（3449 B）只剩 bootstrap/prelink 摘要，**�
 
 判读结论：①②全 0 且 ④出现 echo 行 → 判据 2 成立、P2-b 立项完成；`ep6/ep7` 任一非零 → 按 §20.2 分支 B/C 回滚 0406/0407 的 EP6/EP7 配置段。
 
-结果（Lead 执行，2026-11-15 14:24–14:28，证据 `E:/k60-work/evidence/usblog-20261115-142432`）：
+结果（Lead 执行，2026-11-15 14:24–14:28，证据 `E:/iOS Port/Work/evidence/usblog-20261115-142432`）：
 
 - COM5 在 `ready` 之后 20 s 出现、1 s 后打开，DTR=1；300 s 内 **0 字节**；
 - `capture.json` = `state=opened-no-data`、`bytes=0`、`openErrors=0`、`stopReason=budget`、`returnedToFastboot=false`，无重枚举；
@@ -1521,7 +1521,7 @@ mode 1 不被第四道门挡（只有 mode 2 挡），所以现象只能落在�
 而不是 IF1 的 0x81/0x01 管道。这也正好解释了为什么 `usb-20261114c` 与 `usb-20261114f` 都「枚举正常、0 字节」。
 
 证伪镜像：把设备描述符 class 三个字节改成 `0xEF/0x02/0x01`（misc/composite）。草稿件已经存在：
-`E:/k60-work/scratch/usb/0410-k60-usb-device-class-composite.patch`（22 行，只改这三位；对 post-0408 源 `patch -p1 --dry-run` = `APPLY_OK`，当时未入库）。
+`E:/iOS Port/Work/scratch/usb/0410-k60-usb-device-class-composite.patch`（22 行，只改这三位；对 post-0408 源 `patch -p1 --dry-run` = `APPLY_OK`，当时未入库）。
 
 判据：设备管理器出现 `MI_00`（乃至 `MI_01/MI_02`）子节点 = 主机确实按复合功能绑定；同一镜像控制台出字 = P1 成立。
 若 `MI_xx` 出现但依旧 0 字节 = P1 被否证，转 P2/P3。
@@ -1640,11 +1640,11 @@ payload 与 boot.img 的 sha 差异才是模式参数的真实差异。
 **c = PASS（0411 对 mode 2 无副作用）。** 第一飞 opened-no-data 0 字节 —— autoreset=300 窗口到期、
 设备已回 fastboot，采集作废；第二飞 `boot-and-echo.ps1` 全流程：COM5 在 9.5 s 出现，
 `sent=64 received=64`，`RESULT: PASS (echo matched byte for byte)`，echo-exit=0。证据
-`E:/k60-work/evidence/usb-echo-20261115-c/`（echo.log 为 UTF-16LE）。判据口径修正（Lead 裁决）：
+`E:/iOS Port/Work/evidence/usb-echo-20261115-c/`（echo.log 为 UTF-16LE）。判据口径修正（Lead 裁决）：
 0 字节必须附主机侧枚举 + echo 可达性才允许判有罪/无罪——同一镜像两飞两结果，单次 0 字节不能反推有罪
 （`returnedToFastboot=true` / 端口未出现 = 采集作废）。
 
-**d = PASS。P1 成立且已修复；P2 以修正后的判据 PASS；P3 不做。** 证据 `E:/k60-work/evidence/usblog-20261115-170518/`：
+**d = PASS。P1 成立且已修复；P2 以修正后的判据 PASS；P3 不做。** 证据 `E:/iOS Port/Work/evidence/usblog-20261115-170518/`：
 `console.log` 3733 行 / 265,561 B，state=captured-budget-complete、complete=true、openErrors=0、
 returnedToFastboot=false。
 

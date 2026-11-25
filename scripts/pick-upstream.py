@@ -28,7 +28,7 @@ from pathlib import Path
 
 # 仓库根：默认本脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
 REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
-WORK = '/mnt/e/k60-work'
+WORK = '/mnt/e/iOS Port/Work'
 
 
 # 三个目标树：每个上游仓库的文件要写到对应的本地仓库，而不是全塞进设备仓库。
@@ -506,6 +506,23 @@ def main():
             save_seen(seen)
             print('  已推进水位')
         return 0
+
+    if a.mark:
+        # Every candidate already has a verdict in the triage ledger (the usual
+        # case for a line that is deferred while a migration is frozen): record
+        # nothing, write nothing, only advance the watermark so the next run
+        # does not re-offer the same reviewed commits.
+        triage_text = io.open(TRIAGE, encoding='utf-8', errors='ignore').read() if os.path.isfile(TRIAGE) else ''
+        known = set(re.findall(r'sha = "([0-9a-f]+)"', triage_text))
+        known_short = {sha[:9] for sha in known}
+        if all(e[2] in known or e[2][:9] in known_short for e, files in items):
+            record_triage(entries, [])
+            seen = load_seen()
+            for key, branch, sha, date, subj, files in entries:
+                seen['%s/%s' % (key, branch)] = sha
+            save_seen(seen)
+            print('  所有候选都已在台账里（verdict 已记），水位已推进，未写任何文件')
+            return 0
 
     if a.plan or not a.apply:
         for (key, branch, sha, date, subj, all_files), files in items:

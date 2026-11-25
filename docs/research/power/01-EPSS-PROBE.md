@@ -8,7 +8,7 @@ mode 1 读数：17:30 image i 的早期快照、17:55 image j 在电池 `begin` 
 
 ## 1. 官方要求
 
-官网快照 `E:/k60-work/scratch/power-page-20261117.txt`：
+官网快照 `E:/iOS Port/Work/scratch/power-page-20261117.txt`：
 
 - `:105-118`：CPU 用 EPSS 频率表与工作点请求；外设供电投票要有归属与引用计数；
   OS 电源回调、休眠/唤醒、负载测量；16 ms governor；GPU GMU/HFI；触摸 boost 1 s；
@@ -28,7 +28,7 @@ mode 1 读数：17:30 image i 的早期快照、17:55 image j 在电池 `begin` 
 
 ## 3. 现场设备树证据
 
-对 `E:/k60-work/reports/live-6033dbec-fdt.dtb` 反编译（`dtc`，2026-11-18），K60 的 EPSS
+对 `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb` 反编译（`dtc`，2026-11-18），K60 的 EPSS
 与 SM8550 参考是同一套窗口：
 
 ```
@@ -276,7 +276,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   image aa 用的是 137,440 字节（`3046ece1`）版本（`~0u` 哨兵，未上机、作废）；image ab 用的是
   137,512 字节（`254bd713`）版本，含 `forceVote` 强制首票；image ac 用的是 137,520 字节
   （`5d6d1203`）版本，含每窗口票数重置与全簇 boost。
-- 镜像 g 链接验证（**离线，未启动**）：`E:/k60-work/artifacts/power-conformance-20261118g/boot.img`
+- 镜像 g 链接验证（**离线，未启动**）：`E:/iOS Port/Work/artifacts/power-conformance-20261118g/boot.img`
   201,887,744 字节，sha256 `7b0473aed1ce8c6ea6c0076bcce2b6e05070daa6a8994d9ff253625726e6b77c`；
   kernel.macho `8b75664005c86f2248510cbba85b5f118b04e3a79b91fb7068b686a5d7cf2aaa`，
   payload `39ea4cc5f3724774d6d6d6b57bca18e2eacef49c6a937a4b217f12839b77b4e9`。
@@ -286,7 +286,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   payload 字符串里 `K60CpuFreq: d`/`K60CpuFreq: L3` 各 2 次、`K60CpuFreq: mode=` 1 次，
   kernel.macho 符号表含 `_k60_cpufreq_probe/build_table/pick_highest/target/step/domain_*`；
   `boot.json` 的 `hardware_tested` 为 `false`，即没有任何真机读数。
-- 镜像 h 链接验证（**离线，未启动**，含 mode 2/3 投票代码）：`E:/k60-work/artifacts/power-conformance-20261118h/boot.img`
+- 镜像 h 链接验证（**离线，未启动**，含 mode 2/3 投票代码）：`E:/iOS Port/Work/artifacts/power-conformance-20261118h/boot.img`
   201,887,744 字节，sha256 `7ef07b95ff0977a113b665e13bdbc38e50c74efa1ec86b7515f106d853cb7eba`；
   kernel.macho `f63db805b421d80066dda7c766c6f1cd7023e41b9e449471f1eb940a14a3b102`，
   payload `8d4e0969390f5dedc4c78996cec0306e5a59fb091109fbb3f935fccf8ea87966`。
@@ -296,7 +296,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   kernel.macho 有 14 条 `k60_cpufreq` 符号；`boot.json` 仍为 `hardware_tested=false`。
   注意 image h 内打包的是当时的 archive `c42a8f7b…`；governor 核心之后的 archive
   `7a19051a…` 还没有打包进任何镜像。
-- 镜像 i 链接验证（**离线构建**，带 `k60_cpufreq=1`；随后于 17:30 首次上机，见下一条）：`E:/k60-work/artifacts/power-conformance-20261118i/boot.img`
+- 镜像 i 链接验证（**离线构建**，带 `k60_cpufreq=1`；随后于 17:30 首次上机，见下一条）：`E:/iOS Port/Work/artifacts/power-conformance-20261118i/boot.img`
   201,887,744 字节，sha256 `f2d91f1358f23d121d524c624eeafa8b03ff93b374eb3ae2515967f13b76d472`；
   kernel.macho `e39a45cba7ea6f3b96c5f2b85d639bff8ccb1fa33ff3d64aed4670bf6859efaf`，
   payload `d35816c3a500b83cf02e981aa5f93b8ccb76fcb6d933a0409b18132ad089a36e`。
@@ -310,7 +310,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   恢复 board.toml 的 `applog=1`；该镜像只用于一次 EPSS 探针读取，不作为发布镜像。
   构建产物 `boot.json` 的 `hardware_tested` 为 `false`（构建时标记；本次已实际启动）。
 - 镜像 j 链接验证（**离线构建**，含第二次只读读取；2026-11-18 17:52）：
-  `E:/k60-work/artifacts/power-conformance-20261118j/boot.img` 201,887,744 字节，
+  `E:/iOS Port/Work/artifacts/power-conformance-20261118j/boot.img` 201,887,744 字节，
   sha256 `ff5fd1780d03dbb906dc44d96c43560bd04ee3984c522ed13e4b7b5abed86401`；
   kernel.macho `0a53cc36422fd0b37b42d13240ced6780b3d7c6fdf0b2a0dbb9d8f396e16faba`，
   payload `8fd783ccdd8450053c53181db70429763c0c07554b9ea053becec583318114ba`。
@@ -321,7 +321,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `check-image-args.py` 与 image i 一样 REFUSED（`k60_cpufreq` 不在 `ALLOWED_ADDITIONS`、
   board 的 `applog=1` 缺失）。构建期间再次临时去掉 `applog=1`，构建结束后已恢复。
 - 镜像 j 首次上机（**只读 mode 1，含第二次读取**，2026-11-18 17:55:18–18:00:49，
-  `E:/k60-work/evidence/power-conformance/epss-late-20261118-1755`）：`boot.json`
+  `E:/iOS Port/Work/evidence/power-conformance/epss-late-20261118-1755`）：`boot.json`
   `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；`capture.json`
   `complete=true`、`bytes=134249`、`stopReason=budget`、`reopenCount=0`、`openErrors=4`
   （COM5 早期重开口志，最终完整），console.log 134,249 字节，sha256
@@ -343,7 +343,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   `enable=1`。d1/d2 的 `state` 33/41 即 633,600/787,200 kHz（读时负载低），
   `vote` 16/19 是各自最高档；d0 与 L3 不变。本轮仍无写入，mode 2/3 未执行。
 - 镜像 i 首次上机（**只读 mode 1**，2026-11-18 17:30:19–17:35:43，
-  `E:/k60-work/evidence/power-conformance/epss-probe-20261118-1730`）：`boot.json`
+  `E:/iOS Port/Work/evidence/power-conformance/epss-probe-20261118-1730`）：`boot.json`
   `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`；`capture.json`
   `complete=true`、`bytes=136714`、`stopReason=budget`、`reopenCount=0`，控制台
   `console.log` 136,714 字节，sha256 `a40ab2cfdeb9bbf4403bf157cc98585a10e2bdb92f7b64e42d637cc918578c60`；
@@ -364,9 +364,9 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   1,555,200 kHz）与 `vote=11`、L3 `vote=13` 是第一批真机 EPSS 读数；d0/d1/d2 的
   `rows` 14/17/20 与 `top` 1,804,800/2,496,000/2,995,200 kHz 正好对应 K60 的 4/3/1 核
   SM8475 频率上限。本轮没有写任何寄存器，mode 2/3 未执行。
-- 镜像 i 第二次上机（**重复只读 mode 1**，2026-11-18 19:14:10–19:19:37，`E:/k60-work/evidence/power-conformance-epss-20261118-1913`）：`boot.json` `bootAccepted=true`、`bootExitCode=0`、`finishedAt=19:19:37`；`console.log` 135,440 B，sha256 `01f82fa0…`。探针行在 `:191–:195`，与 17:30 首次 image i 完全一致（d0 `enable=1 state=81` = 1,555,200 kHz、`vote=11`；d1/d2 `enable=0` 是早读时序；L3 `vote=13`）。CPU 1–7 在 `:205–:210` PSCI start PASS；电池 `:472` SOC=89.00% charge=3973/4464mAh 4271mV 397mA 33.40°C，`:2183` SOC=88.00% 3928/4464mAh 4223mV 397mA 34.40°C。19:20 `k60-device.sh state` = fastboot，无 watcher。本轮无写入，mode 2/3 未执行。
+- 镜像 i 第二次上机（**重复只读 mode 1**，2026-11-18 19:14:10–19:19:37，`E:/iOS Port/Work/evidence/power-conformance-epss-20261118-1913`）：`boot.json` `bootAccepted=true`、`bootExitCode=0`、`finishedAt=19:19:37`；`console.log` 135,440 B，sha256 `01f82fa0…`。探针行在 `:191–:195`，与 17:30 首次 image i 完全一致（d0 `enable=1 state=81` = 1,555,200 kHz、`vote=11`；d1/d2 `enable=0` 是早读时序；L3 `vote=13`）。CPU 1–7 在 `:205–:210` PSCI start PASS；电池 `:472` SOC=89.00% charge=3973/4464mAh 4271mV 397mA 33.40°C，`:2183` SOC=88.00% 3928/4464mAh 4223mV 397mA 34.40°C。19:20 `k60-device.sh state` = fastboot，无 watcher。本轮无写入，mode 2/3 未执行。
 - 镜像 k 链接验证（**离线构建**，含逐行 LUT dump；2026-11-18 18:18）：
-  `E:/k60-work/artifacts/power-conformance-20261118k/boot.img` 201,887,744 字节，
+  `E:/iOS Port/Work/artifacts/power-conformance-20261118k/boot.img` 201,887,744 字节，
   sha256 `74e66779201fa61bd9038ddd3ae3e8f89a52de82576d43839a05779b27612f0b`；
   kernel.macho `6399b94e5f2cb81527917c5f2acbf6eb4993b93a943d82f958ca6567eaa19b10`，
   payload `89bfbb30ff57f1513484491d067c70fd7851d564a40f4b16d774d70ff6f381d3`。
@@ -380,7 +380,7 @@ CPU 到 domain 的映射（`qcom,freq-domain`，phandle 0x06）：
   gate 仍因 `k60_cpufreq` 不在 `ALLOWED_ADDITIONS` 且 board 的 `applog=1` 缺失而 REFUSED；
   构建结束后 `applog=1` 已恢复。`boot.json` 的 `hardware_tested` 在构建时为 `false`；2026-11-18 18:22 已首次上机，逐行结果见下节。
 - 镜像 k 首次上机（**只读 mode 1 + 逐行 dump**，2026-11-18 18:22）：证据目录
-  `E:/k60-work/evidence/power-conformance/epss-lut-20261118-1822`；`boot.json` 的
+  `E:/iOS Port/Work/evidence/power-conformance/epss-lut-20261118-1822`；`boot.json` 的
   `bootAccepted=true`、`bootExitCode=0`、`returnedToFastboot=false`（18:22:22–18:27:54）；
   `capture.json` 为 `captured-budget-complete`、`complete=true`、133,807 B、
   `logSha256=15143B46F4CE069767EF752F5C4E2BDFB256AED8E311DE8876A61C2E5D9BD5CE`、
@@ -430,8 +430,8 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   image l 就是用这份快照构建并通过同一 gate 的。
 
 - 镜像 l 与 mode 5 首次上机（**16 ms 只读采样**，2026-11-18 23:19:20–23:24:44，
-  `E:/k60-work/evidence/power-conformance-mode5-20261118-2319`）：image l
-  `E:/k60-work/artifacts/power-conformance-20261118l/boot.img` 201,887,744 B，
+  `E:/iOS Port/Work/evidence/power-conformance-mode5-20261118-2319`）：image l
+  `E:/iOS Port/Work/artifacts/power-conformance-20261118l/boot.img` 201,887,744 B，
   sha256 `86d1933f949e54f856d8f9cc16ef5e79c9b868acb8b07fb5364422e60d205149`；
   kernel `cad33d06…`，payload `cee0ff23…`；参数 30 个/603 字节，
   `pong_handoff_publish=1 k60_cpufreq=5`，构建时去掉 `applog=1`，gate
@@ -467,7 +467,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   没有 `sample stop`；没有任何 EPSS 写入，mode 2/3 未执行。EPSS 硬件自身在采样期间把 d0
   在 691.2/1555.2 MHz、d1 到 2.496 GHz、d2 到 2.9952 GHz 之间移动，说明写路径必须先处理
   硬件自主 DCVS/所有权，不能把只读采样当作写频闭环。
-- 镜像 m 与 quiet 修复复测（2026-11-18 23:53–23:55，`E:/k60-work/evidence/power-conformance-mode5fix-20261118-2353`）：
+- 镜像 m 与 quiet 修复复测（2026-11-18 23:53–23:55，`E:/iOS Port/Work/evidence/power-conformance-mode5fix-20261118-2353`）：
   image m 的 `boot.img` 201,887,744 B，sha256 `51ddb82ae276a87af641922f67a9bc9eee93dc793cecba427193b30e503b78e7`；
   kernel.macho `4195a842f815965e5a2b2075150112657505ce68608726d25b1afb708ea5e173`，payload
   `a83d31b81d8ad7943431d99bc5eaf9e8f3ba8b987e276bcdbd24b7c3818778b7`；参数 gate `OK (30 arguments, 603 bytes)`。
@@ -477,7 +477,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   d0 在 300 MHz 与 1.8048 GHz 之间跟随负载，说明 quiet 收敛修复生效。探针仍只读，无 `sample stop`：
   捕获在 300 s autoreset 前被工具调用超时截断，`boot.json` 的 bootAccepted=false/-1 是 supervisor 被截断后的
   默认值，`fastboot.log` 的 `Booting OKAY` 才是启动证据；设备随后回到 fastboot，无 EPSS 写入，mode 2/3 未执行。
-- 镜像 n 与首次 EPSS 写入（2026-11-19 02:47–02:52，`E:/k60-work/evidence/power-conformance-mode6-20261119-0247`）：
+- 镜像 n 与首次 EPSS 写入（2026-11-19 02:47–02:52，`E:/iOS Port/Work/evidence/power-conformance-mode6-20261119-0247`）：
   image n 的 `boot.img` 201,887,744 B，sha256 `25f106995601f47c4c098906ddbf549e761ec68891ff403fa874ad6638dfc52c`，
   参数 gate `OK (30 arguments, 603 bytes)`（`k60_cpufreq=6` + `pong_handoff_publish=1`，探针 board 去掉 `applog=1`）。
   `boot.json` bootAccepted=true、bootExitCode=0；console.log 128,863 B / 2,049 行，sha256
@@ -488,7 +488,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   **这是本板第一次在真机上完成 EPSS 频率寄存器的写入、回读与恢复**，且只降不升、不涉及抬压。
   同一镜像的 mode 6 只动 d0 一个域，d1/d2/L3 与 mode 2/3 均未执行；没有温度/throttle 读数，
   也没有验证 governor 写回（governor 仍只打印）。
-- 镜像 s 与双向 governor 写回（2026-11-19 03:58–04:04，`E:/k60-work/evidence/power-conformance-mode8-20261119-0400`）：
+- 镜像 s 与双向 governor 写回（2026-11-19 03:58–04:04，`E:/iOS Port/Work/evidence/power-conformance-mode8-20261119-0400`）：
   image s 的 `boot.img` 201,887,744 B，sha256 `47c2197696a78249314d38ba6386585b69da9f74aae0d5a97a8001832089c819`；
   kernel.macho `aace59b0bd8ca2ab477603c442051423ca7bfd6df994e2ff6e1a7be7f1973d48`，payload
   `9e8d734ffe71e92606e3b9069712ab74244d2188ba1bcec88fc974bbbec0da64`；参数 gate `OK (30 arguments, 603 bytes)`。
@@ -503,7 +503,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   `:809` `mode8 restore domains=2 votes=11`；恢复后 `sample win=1280` 的 d0 `hw` 从 1.8048 GHz 回到 1.5552 GHz。
   判读：d0 的双向写回与恢复都在真机成立；d1 的行写入回读成功但 EPSS 不接受持续投票，大核簇仍自主变频。
   该轮探针还没有触摸计数（补丁 0622 在 image x 才进入），没有温度/throttle 读数，300 s autoreset 先到，没有 `sample stop`，mode 2/3 未执行。
-- 镜像 w 与帧下限调用路径（2026-11-19 05:07–05:13，`E:/k60-work/evidence/power-conformance-frame-20261119-0510`）：
+- 镜像 w 与帧下限调用路径（2026-11-19 05:07–05:13，`E:/iOS Port/Work/evidence/power-conformance-frame-20261119-0510`）：
   image w 的 `boot.img` 201,887,744 B，sha256 `005b3095600174911d29d4769ce31385fb296447505c07b707d39d719605f94c`；
   kernel.macho `ca262497406d0b6986ac75c838a95da0f63d4fc5a068a9086775a9f9d3a3a23c`，payload
   `4afb4bd7904a1acdd14e6e396225d9b9ef0727e68d0d662a3f952696a5d83af0`；参数 gate `OK (30 arguments, 603 bytes)`。
@@ -516,7 +516,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   判读：新的 CP 环采样与 `framing` 调用路径在真机上执行且没有 panic，mode 8 行为与 image s 一致；
   但启动全程没有 GPU 提交，帧下限没有触发，§5 :116 的 300 ms / 60 % 效果仍待有 GPU 负载的镜像验证。
 
-- 镜像 t 与 mode 9 卡死（2026-11-19 07:56，`E:/k60-work/evidence/power-conformance-mode9-20261119-0756`）：
+- 镜像 t 与 mode 9 卡死（2026-11-19 07:56，`E:/iOS Port/Work/evidence/power-conformance-mode9-20261119-0756`）：
   image t 的 `boot.img` 201,887,744 B，sha256 `567d9b62290903afae7e6de000d9f219a9520f57b4f436660db23745183775d7`，参数
   `k60_cpufreq=9`，30 项 603 B。`fastboot.log` 记录 `Sending 'boot.img' OKAY` 与 `Booting OKAY`，但 console.log
   到 07:59 仍是 0 字节，`capture.json` 为 `state=port-not-observed`、`bytes=0`、`complete=false`、
@@ -524,12 +524,12 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   判读：卡死与 mode 9 **主动写 DCVS 控制位**相关，与温控补丁无关；mode 9 已由 `3a0a5511` 禁用，不再上机。
 
 - 镜像 w11（**离线构建，未上机**，2026-11-19 21:55，构建树 `/home/emilelu/k60-build/power-mode1-w11`）：
-  `E:/k60-work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B，sha256
+  `E:/iOS Port/Work/artifacts/power-conformance-20261119w11/boot.img` 201,887,744 B，sha256
   `6db4e6b78bdab557d4f34b17aaf6a25caa9990d564faf94ef18853fbde589844`；
   kernel.macho 129,146,880 B，sha256 `069e70752164c9d26a4d782d774d4f4e0b4a6768b1b447cd5dba5af317e33cc9`；
   payload.img 201,326,592 B，sha256 `bd8ed29dd420be2829d68f9b3887b29976a3b0b3f79a3bf1c9dd40bc0cf2e63f`。
   参数 30 项 601 B，含 `k60_cpufreq=1`，不含 `applog=1`；对探针 board 快照
-  （`/mnt/e/k60-work/scratch/board.toml.mode1.probe`，即去掉 `applog=1` 的副本）跑
+  （`/mnt/e/iOS Port/Work/scratch/board.toml.mode1.probe`，即去掉 `applog=1` 的副本）跑
   `check-image-args.py` 得 `OK (30 arguments, 601 bytes)`。**601 而不是 603**：
   board 契约在这两天加了 `pong_metal=1` 与 `sheng-gpu-addon=1`，30 项共 596 B；
   去掉 `applog=1`（9 B）后只剩 11 B 空间，只够 `k60_cpufreq=1`（13 B 换 9 B，净 +4）。
@@ -548,7 +548,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
   （约 5 个/90 s，8 个 clang 各占 4–10% CPU、负载 9–10 但 83% 空闲），换到 ext4
   `/home/emilelu/k60-build` 后 7 分钟就到 673 个、13 分钟到 950 个——瓶颈是 9p 写延迟而不是 CPU。
   另外 `pkill -f build-mode1-w11d.sh` / `pkill -f build-xnu-4k-baseline.sh` 都停不掉旧构建
-  （make 会重造子进程），只有按 **OUT 路径** `pgrep -f /mnt/e/k60-work/build/power-mode1-w11`
+  （make 会重造子进程），只有按 **OUT 路径** `pgrep -f /mnt/e/iOS Port/Work/build/power-mode1-w11`
   再 TERM/KILL 才干净（29 个 pid 一次清掉）。
 
 - sheng 最新对比（2026-11-19，`origin/main c8f92b2`，`package/CpuFreqProbe.cpp:132-142`）：
@@ -664,7 +664,7 @@ L3 的 15 档 0.3–1.7088 GHz 与 `rows/top/level` 摘要一致；早期 d1/d2 
 
 ## 9. 参考
 
-- 官网：`E:/k60-work/scratch/power-page-20261117.txt:105-121`
-- 现场 DTB：`E:/k60-work/reports/live-6033dbec-fdt.dtb`
+- 官网：`E:/iOS Port/Work/scratch/power-page-20261117.txt:105-121`
+- 现场 DTB：`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`
 - 参考实现：`UniXNU-sheng` `origin/main` `package/CpuFreqProbe.cpp`
 - 已有总表：`docs/research/charger/10-POWER-DOC-CONFORMANCE.md`（§4 电池；§5 另行跟踪）

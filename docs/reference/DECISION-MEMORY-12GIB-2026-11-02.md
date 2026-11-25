@@ -149,6 +149,6 @@ green bar at the top => DarwinEnter trampoline ran # 仅证明 trampoline 执行
 
 ## 附：本次取证产物
 
-- `E:\k60-work\reports\mem-audit-dump.txt` — 现役 ADT 全量解码 + hardware.dtb + 真机 FDT reserved-memory
-- `E:\k60-work\reports\mem-audit-dump2.txt` — mondrian.ours.dtb 与真机 FDT 内存段对照
-- `E:\k60-work\tools\mem-audit-dump.py` / `mem-audit-dump2.py` / `mem-audit-archive.sh` — 只读解析脚本（可复跑）
+- `E:\iOS Port\Work\reports\mem-audit-dump.txt` — 现役 ADT 全量解码 + hardware.dtb + 真机 FDT reserved-memory
+- `E:\iOS Port\Work\reports\mem-audit-dump2.txt` — mondrian.ours.dtb 与真机 FDT 内存段对照
+- `E:\iOS Port\Work\tools\mem-audit-dump.py` / `mem-audit-dump2.py` / `mem-audit-archive.sh` — 只读解析脚本（可复跑）

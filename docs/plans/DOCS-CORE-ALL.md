@@ -1,8 +1,8 @@
 # DOCS-CORE-ALL — UniXNU 核心文档全量研读（26/26）
 
-> 研读对象：`E:/hackios/UniXNU/docs/{concepts,guide,reference,xnu}` 下全部 26 篇 Markdown。
-> 研读方式：逐文件全文读取（`read` 全文，无抽样、无截断；含仅作重定向的 `guide/overview.md`）。文中 `docs/...:line` 均指 `E:/hackios/UniXNU` 主仓路径。
-> K60 基线：`E:/hackios/UniXNU-mondrian`，分支 `fix/k60-measured-high-window`，HEAD `9b4fec1`；`board.toml` 为 `schema_version = 2`（format 2）。
+> 研读对象：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/{concepts,guide,reference,xnu}` 下全部 26 篇 Markdown。
+> 研读方式：逐文件全文读取（`read` 全文，无抽样、无截断；含仅作重定向的 `guide/overview.md`）。文中 `docs/...:line` 均指 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU` 主仓路径。
+> K60 基线：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`，分支 `fix/k60-measured-high-window`，HEAD `9b4fec1`；`board.toml` 为 `schema_version = 2`（format 2）。
 > 生成日期：2026-11-08。
 
 ## 0. 结论速览
@@ -449,7 +449,7 @@
 
 ## 2. 对 K60 的硬性约束清单
 
-> 本节把 26 篇文档中的“必须/不超过/只有…才”提取为可执行判定。K60 当前值来自 `E:/hackios/UniXNU-mondrian` 的 `board.toml`（format 2）与构建脚本；与文档示例不同处明确标注。
+> 本节把 26 篇文档中的“必须/不超过/只有…才”提取为可执行判定。K60 当前值来自 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` 的 `board.toml`（format 2）与构建脚本；与文档示例不同处明确标注。
 
 ### 2.1 boot-args：581 字符是否超限
 
@@ -663,4 +663,4 @@ find docs/concepts docs/guide docs/reference docs/xnu -name '*.md' | sort
 
 - 读取方式：对每个路径调用 `read` 全文（无 `limit` 截断）；所有文件均返回 `(End of file - total N lines)`。
 - 行数/字节数由 `[System.IO.File]::ReadAllLines(...).Count` 与文件长度复核，和 `read` 返回的行数一致（26 个文件共 3,722 行、167,253 bytes）。
-- 本文只新增 `docs/plans/DOCS-CORE-ALL.md`；未修改 `E:/hackios/UniXNU` 或 `E:/hackios/UniXNU-mondrian` 的其他文件。
+- 本文只新增 `docs/plans/DOCS-CORE-ALL.md`；未修改 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU` 或 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` 的其他文件。

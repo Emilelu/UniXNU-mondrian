@@ -8,8 +8,6 @@ Redmi K60（代号 **mondrian**，高通 **SM8475**）的 UniXNU 设备支持仓
 
 > 最后更新：2026-11-25。状态明细见 [`docs/engineering/STATUS.md`](docs/engineering/STATUS.md)，总方案见 [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md)，工作流见 [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md)。
 
-## 现状
-
 - `main` 是 27 线唯一基线；iOS 16.6.1（20G81）线已归档为 `archive/ios16-20261120`，仍可用 `--os ipados-16.6.1-20G81` 构建。
 - 27 内核已能打印完整文本（r290n，`boot.img 311f4f54…`）；r313h 首次把 source-storage 链接进内核（`boot.img 932d50ad…`），但上机全绿屏、console 0 字节，正在按单变量二分定位（首嫌疑 `0580` GIC 补丁）。
 - `unixnu` 分区已写入 27 三窗口镜像（34,359,738,368 B；OS / SystemOS / Data 四段 `cmp -n` 全部 MATCH）。
@@ -145,7 +143,24 @@ bash scripts/build-ios27-linux.sh
 | [`CREDITS.md`](CREDITS.md) | 贡献者与全部外部来源 |
 | [`README_EN.md`](README_EN.md) | English |
 
+**交接阅读顺序**（新接手的人按这个顺序读）
+
+新接手的人按这个顺序读，不用先翻历史：
+1. [`AGENTS.md`](AGENTS.md) — 项目总闸：目录布局、先读顺序、铁则与门禁清单
+2. [`docs/engineering/PROJECT-AGENTS.md`](docs/engineering/PROJECT-AGENTS.md) — 同上，详版
+3. [`docs/engineering/PORTING-PLAN.md`](docs/engineering/PORTING-PLAN.md) — 四层移植方案、启动链、缺口与回退
+4. [`docs/engineering/WORKFLOW.md`](docs/engineering/WORKFLOW.md) — 构建/上机/证据/多线协作工作流
+5. [`docs/engineering/COLLABORATION-RULES.md`](docs/engineering/COLLABORATION-RULES.md) — 多线并行规则
+6. [`docs/engineering/FIRST-BOOT-PLAYBOOK.md`](docs/engineering/FIRST-BOOT-PLAYBOOK.md) — 首次启动操作顺序与判据
+7. [`docs/engineering/FAILURE-MODE-MATRIX.md`](docs/engineering/FAILURE-MODE-MATRIX.md) — 症状到下一动作
+8. [`docs/engineering/EARLY-BOOT-EVIDENCE-PLAN.md`](docs/engineering/EARLY-BOOT-EVIDENCE-PLAN.md) — 早期启动取证
+9. [`docs/INDEX.md`](docs/INDEX.md) — 全量文档索引
+10. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — 第三方代码与许可
+认知索引（上下文压缩后仍可用）：[`aoci.txt`](aoci.txt) / [`aoci.code.txt`](aoci.code.txt)，由 `scripts/check-aoci-index.py` 校验 1050 条路径全部可解析。
+
 ## 许可
 
 设备级代码采用 BSD-2-Clause-Patent。导入组件保留各自 SPDX 标记与原始许可证。
 第三方来源见 [`CREDITS.md`](CREDITS.md)。
+
+历史材料：[`v98-source.md`](v98-source.md)（早期方案源稿，已过时，仅作记录）。

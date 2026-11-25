@@ -1,0 +1,1263 @@
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index b1ac3ad..7e93e95 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1980,6 +1980,13 @@ proc_handle_critical_exit(proc_t p, int rv)
+ 
+ 	char *exit_reason_desc = exit_reason_get_string_desc(p->p_exit_reason);
+ 
++#if __arm64__
++	if (current_proc() == p) {
++		extern void sheng_dump_user_backtrace(const char *tag);
++		sheng_dump_user_backtrace(proc_best_name(p));
++	}
++#endif /* __arm64__ */
++
+ 	if (p->p_exit_reason == OS_REASON_NULL) {
+ 		printf("pid %d exited -- no exit reason available -- (signal %d, exit %d)\n",
+ 		    proc_getpid(p), WTERMSIG(rv), WEXITSTATUS(rv));
+@@ -2051,6 +2058,14 @@ proc_prepareexit(proc_t p, int rv, boolean_t perf_notify)
+ 		proc_handle_critical_exit(p, rv);
+ 	}
+ 
++	/* Bring-up: why the home-screen processes exit (the abort message travels in the exit reason). */
++	if (!strcmp(p->p_name, "chronod") || !strcmp(p->p_name, "backboardd") || !strcmp(p->p_name, "SpringBoard")) {
++		char *desc = p->p_exit_reason ? exit_reason_get_string_desc(p->p_exit_reason) : NULL;
++		printf("sheng-exit: %s[%d] status 0x%x reason ns %u code 0x%llx: %s\n", p->p_name, proc_getpid(p), rv,
++		    p->p_exit_reason ? p->p_exit_reason->osr_namespace : 0,
++		    p->p_exit_reason ? (unsigned long long)p->p_exit_reason->osr_code : 0ULL, desc ? desc : "(no description)");
++	}
++
+ 	if (task) {
+ 		corpse_source = vm_map_is_corpse_source(get_task_map(task));
+ 	}
+diff --git a/bsd/kern/kern_newsysctl.c b/bsd/kern/kern_newsysctl.c
+index 20d071c..7b0e929 100644
+--- a/bsd/kern/kern_newsysctl.c
++++ b/bsd/kern/kern_newsysctl.c
+@@ -1920,7 +1920,13 @@ found:
+ 	lck_rw_done(&sysctl_geometry_lock);
+ 
+ #if CONFIG_MACF
+-	if (!from_kernel) {
++	/*
++	 * Reading the page size (hw.pagesize, which getpagesize() and sysconf(_SC_PAGESIZE) ask) is left to everyone: the GPU's
++	 * userspace -- the Metal plugin, its Vulkan bridge and driver -- sizes its mappings by it inside WebKit's GPU process, whose
++	 * sandbox refuses the read, and a page size of -1 refused every IOSurface it was to draw into.
++	 */
++	const bool page_size_read = namelen == 2 && name[0] == CTL_HW && name[1] == HW_PAGESIZE && req->newptr == USER_ADDR_NULL;
++	if (!from_kernel && !page_size_read) {
+ 		error = mac_system_check_sysctlbyname(kauth_cred_get(),
+ 		    namestring,
+ 		    name,
+diff --git a/bsd/kern/lockdown_mode.c b/bsd/kern/lockdown_mode.c
+index 1c104b3..324460f 100644
+--- a/bsd/kern/lockdown_mode.c
++++ b/bsd/kern/lockdown_mode.c
+@@ -83,6 +83,22 @@ STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, lockdown_mode_init_async);
+ STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, lockdown_mode_init);
+ #endif
+ 
++int get_lockdown_mode_state(void);
++
++/*
++ * Darwin 26 libsystem reads Lockdown Mode through this name (os_lockdown_mode_enabled aborts when the
++ * lookup fails). It reports the same state once lockdown_mode_init has run.
++ */
++static int
++sysctl_lockdown_mode_state_public SYSCTL_HANDLER_ARGS
++{
++#pragma unused(oidp, arg1, arg2)
++	int state = get_lockdown_mode_state();
++	return SYSCTL_OUT(req, &state, sizeof(state));
++}
++SYSCTL_PROC(_security_mac, OID_AUTO, lockdown_mode_state_public, CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_LOCKED,
++    0, 0, sysctl_lockdown_mode_state_public, "I", "Lockdown Mode state");
++
+ int
+ get_lockdown_mode_state(void)
+ {
+diff --git a/bsd/miscfs/bindfs/bind_vfsops.c b/bsd/miscfs/bindfs/bind_vfsops.c
+index 199a91b..7ccec6c 100644
+--- a/bsd/miscfs/bindfs/bind_vfsops.c
++++ b/bsd/miscfs/bindfs/bind_vfsops.c
+@@ -222,6 +222,8 @@ bindfs_mount(struct mount * mp, __unused vnode_t devvp, user_addr_t user_data, v
+ 	vfs_setfsprivate(mp, xmp);
+ 	vfs_getnewfsid(mp);
+ 	vfs_setlocklocal(mp);
++	/* Paths from file IDs (fsgetpath, volfs): mount_lookupby_volfsid only finds a mount that says it can. See bindfs_vget. */
++	mp->mnt_kern_flag |= MNTK_PATH_FROM_ID;
+ 
+ 	/* fill in the stat block */
+ 	sp = vfs_statfs(mp);
+@@ -413,13 +415,10 @@ bindfs_vfs_getattr(struct mount * mp, struct vfs_attr * vfap, vfs_context_t ctx)
+ 	if (bindfs_vfs_getlowerattr(vnode_mount(bind_mp->bindm_lowerrootvp), &vfa, ctx) == 0) {
+ 		if (VFSATTR_IS_SUPPORTED(&vfa, f_capabilities)) {
+ 			memcpy(&capabilities, &vfa.f_capabilities, sizeof(capabilities));
+-			/* don't support vget */
+-			capabilities.capabilities[VOL_CAPABILITIES_FORMAT] &= ~(VOL_CAP_FMT_PERSISTENTOBJECTIDS | VOL_CAP_FMT_PATH_FROM_ID);
+-
++			/* File IDs are the lower file system's and bindfs_vget resolves them, so its persistent object IDs and paths
++			 * from IDs are kept (CoreFoundation gives no file ID, which LaunchServices records bundles by, without them). */
+ 			capabilities.capabilities[VOL_CAPABILITIES_FORMAT] |= VOL_CAP_FMT_HIDDEN_FILES; /* Always support UF_HIDDEN */
+ 
+-			capabilities.valid[VOL_CAPABILITIES_FORMAT] &= ~(VOL_CAP_FMT_PERSISTENTOBJECTIDS | VOL_CAP_FMT_PATH_FROM_ID);
+-
+ 			capabilities.valid[VOL_CAPABILITIES_FORMAT] |= VOL_CAP_FMT_HIDDEN_FILES; /* Always support UF_HIDDEN */
+ 
+ 			/* dont' support interfaces that only make sense on a writable file system
+@@ -539,6 +538,64 @@ bindfs_vfs_start(__unused struct mount * mp, __unused int flags, __unused vfs_co
+ 	return 0;
+ }
+ 
++/*
++ * Lookup by file ID (fsgetpath, volfs paths). LaunchServices records a bundle's files by volume and file ID and resolves them
++ * back through fsgetpath; without a vfs_vget every bundle seen through a bind mount came back unresolvable, so it was registered
++ * with no platform and its plug-ins with no extension point (a widget extension then looks "restricted" to chronod). bindfs
++ * reports the lower file system's file IDs, so: get the lower vnode, take its path relative to the bound root, and look that
++ * path up from our root -- the vnode returned is ours, named and parented under the mount point, as build_path needs. An ID
++ * outside the bound tree is not found.
++ */
++static int
++bindfs_vget(struct mount * mp, ino64_t ino, struct vnode ** vpp, vfs_context_t ctx)
++{
++	struct bind_mount * bindm = MOUNTTOBINDMOUNT(mp);
++	vnode_t lowervp = NULLVP;
++	char * lowerpath = NULL;
++	char * rootpath = NULL;
++	const char * relative = NULL;
++	size_t rootlen;
++	int len, error;
++
++	*vpp = NULLVP;
++	if (bindm == NULL || bindm->bindm_rootvp == NULLVP || bindm->bindm_lowerrootvp == NULLVP) {
++		return ENOTSUP;
++	}
++	error = VFS_VGET(vnode_mount(bindm->bindm_lowerrootvp), ino, &lowervp, ctx);
++	if (error) {
++		return error;
++	}
++	if (lowervp == bindm->bindm_lowerrootvp) {
++		vnode_put(lowervp);
++		error = vnode_get(bindm->bindm_rootvp);
++		if (error == 0) {
++			*vpp = bindm->bindm_rootvp;
++		}
++		return error;
++	}
++	lowerpath = kalloc_data(MAXPATHLEN, Z_WAITOK | Z_NOFAIL);
++	rootpath = kalloc_data(MAXPATHLEN, Z_WAITOK | Z_NOFAIL);
++	len = MAXPATHLEN;
++	error = vn_getpath(lowervp, lowerpath, &len);
++	vnode_put(lowervp);
++	if (error == 0) {
++		len = MAXPATHLEN;
++		error = vn_getpath(bindm->bindm_lowerrootvp, rootpath, &len);
++	}
++	if (error == 0) {
++		rootlen = strlen(rootpath);
++		if (rootlen == 1 && rootpath[0] == '/') {
++			relative = lowerpath + 1;
++		} else if (strncmp(lowerpath, rootpath, rootlen) == 0 && lowerpath[rootlen] == '/') {
++			relative = lowerpath + rootlen + 1;
++		}
++		error = relative && *relative ? vnode_lookupat(relative, VNODE_LOOKUP_NOFOLLOW, vpp, ctx, bindm->bindm_rootvp) : ENOENT;
++	}
++	kfree_data(lowerpath, MAXPATHLEN);
++	kfree_data(rootpath, MAXPATHLEN);
++	return error;
++}
++
+ extern const struct vnodeopv_desc bindfs_vnodeop_opv_desc;
+ 
+ const struct vnodeopv_desc * bindfs_vnodeopv_descs[] = {
+@@ -552,6 +609,7 @@ struct vfsops bindfs_vfsops = {
+ 	.vfs_root               = bindfs_root,
+ 	.vfs_getattr            = bindfs_vfs_getattr,
+ 	.vfs_sync               = bindfs_sync,
++	.vfs_vget               = bindfs_vget,
+ 	.vfs_init               = bindfs_init,
+ 	.vfs_sysctl             = NULL,
+ 	.vfs_setattr            = NULL,
+diff --git a/bsd/vfs/kpi_vfs.c b/bsd/vfs/kpi_vfs.c
+index 75816a5..0e222bf 100644
+--- a/bsd/vfs/kpi_vfs.c
++++ b/bsd/vfs/kpi_vfs.c
+@@ -105,6 +105,7 @@
+ #include <sys/user.h>
+ #include <sys/lockf.h>
+ #include <sys/xattr.h>
++#include <pexpert/pexpert.h>
+ #include <sys/kdebug.h>
+ #include <vfs/vfs_disk_conditioner.h>
+ 
+@@ -3738,6 +3739,65 @@ VNOP_CREATE(vnode_t dvp, vnode_t * vpp, struct componentname * cnp, struct vnode
+ 	return _err;
+ }
+ 
++/*
++ * Data protection on a volume without content protection (a UniXNU owner Data volume is an unencrypted APFS volume, MNT_CPROTECT
++ * clear). APFS answers class 0 ("none") for every file there and keeps no class a caller sets, so a daemon that sets one and checks
++ * it back never sees it: PosterBoard creates its poster data store with NSFileProtectionNone (class D), finds the class missing,
++ * judges the store not viable and has no wallpaper. With boot-arg owner-dataprotect=1 a writable volume without content
++ * protection keeps the class a caller sets in an extended attribute, and a file without one reads as class D, which is what an
++ * unencrypted file is. Nothing is encrypted either way.
++ */
++#define NATIVE_DATAPROTECT_XATTR "com.unixnu.dataprotect-class"
++#define NATIVE_DATAPROTECT_CLASS_D 4
++
++static int
++native_dataprotect_emulated(vnode_t vp)
++{
++	static int enabled = -1;
++	if (enabled < 0) {
++		uint32_t value = 0;
++		enabled = PE_parse_boot_argn("owner-dataprotect", &value, sizeof(value)) && value == 1;
++	}
++	mount_t mp = vnode_mount(vp);
++	return enabled && mp != NULL && !(vfs_flags(mp) & MNT_CPROTECT) && !vfs_isrdonly(mp) &&
++	       (vnode_isreg(vp) || vnode_isdir(vp));
++}
++
++static void
++native_dataprotect_getattr(vnode_t vp, struct vnode_attr *vap, vfs_context_t ctx)
++{
++	uint32_t class = 0;
++	size_t size = sizeof(class);
++	uio_t uio = uio_create(1, 0, UIO_SYSSPACE, UIO_READ);
++	if (uio == NULL) {
++		return;
++	}
++	uio_addiov(uio, CAST_USER_ADDR_T(&class), sizeof(class));
++	if (vn_getxattr(vp, NATIVE_DATAPROTECT_XATTR, uio, &size, XATTR_NOSECURITY, ctx) != 0 || class == 0 || class > 7) {
++		class = NATIVE_DATAPROTECT_CLASS_D;
++	}
++	uio_free(uio);
++	vap->va_dataprotect_class = class;
++	VATTR_SET_SUPPORTED(vap, va_dataprotect_class);
++}
++
++/* Keeps the class asked for and takes it out of what the file system is asked to set (which would only drop it). */
++static void
++native_dataprotect_setattr(vnode_t vp, struct vnode_attr *vap, vfs_context_t ctx)
++{
++	uint32_t class = vap->va_dataprotect_class;
++	uio_t uio = uio_create(1, 0, UIO_SYSSPACE, UIO_WRITE);
++	if (uio == NULL) {
++		return;
++	}
++	uio_addiov(uio, CAST_USER_ADDR_T(&class), sizeof(class));
++	if (vn_setxattr(vp, NATIVE_DATAPROTECT_XATTR, uio, XATTR_NOSECURITY, ctx) == 0) {
++		VATTR_SET_SUPPORTED(vap, va_dataprotect_class);
++		VATTR_CLEAR_ACTIVE(vap, va_dataprotect_class);
++	}
++	uio_free(uio);
++}
++
+ #if 0
+ /*
+ *#
+@@ -3925,6 +3985,9 @@ VNOP_GETATTR(vnode_t vp, struct vnode_attr * vap, vfs_context_t ctx)
+ 
+ 	_err = (*vp->v_op[vnop_getattr_desc.vdesc_offset])(&a);
+ 	DTRACE_FSINFO(getattr, vnode_t, vp);
++	if (_err == 0 && VATTR_IS_ACTIVE(vap, va_dataprotect_class) && native_dataprotect_emulated(vp)) {
++		native_dataprotect_getattr(vp, vap, ctx);
++	}
+ 
+ 	return _err;
+ }
+@@ -3953,6 +4016,12 @@ VNOP_SETATTR(vnode_t vp, struct vnode_attr * vap, vfs_context_t ctx)
+ 	a.a_vap = vap;
+ 	a.a_context = ctx;
+ 
++	if (VATTR_IS_ACTIVE(vap, va_dataprotect_class) && native_dataprotect_emulated(vp)) {
++		native_dataprotect_setattr(vp, vap, ctx);
++		if (vap->va_active == 0) {
++			return 0;
++		}
++	}
+ 	_err = (*vp->v_op[vnop_setattr_desc.vdesc_offset])(&a);
+ 	DTRACE_FSINFO(setattr, vnode_t, vp);
+ 
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+index 930dac3..ab2489f 100644
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -2575,8 +2575,9 @@ map_with_linking_np(
+ 	}
+ 
+ 	/* some older devs have s/w page size > h/w page size, no need to support them */
+-	if (info_hdr->mwli_page_size != PAGE_SIZE) {
+-		/* no printf, since this is expected on some devices */
++	if (info_hdr->mwli_page_size != PAGE_SIZE && info_hdr->mwli_page_size != (4 * PAGE_SIZE)) {
++		printf("%s: [%d(%s)]: mwli_page_size(0x%x) != PAGE_SIZE(0x%lx) -- MWL rejected\n",
++		    __func__, proc_getpid(p), p->p_comm, info_hdr->mwli_page_size, (unsigned long)PAGE_SIZE);
+ 		kr = KERN_INVALID_ARGUMENT;
+ 		goto done;
+ 	}
+diff --git a/libkern/c++/OSArray.cpp b/libkern/c++/OSArray.cpp
+index 08db030..a7c759b 100644
+--- a/libkern/c++/OSArray.cpp
++++ b/libkern/c++/OSArray.cpp
+@@ -127,8 +127,12 @@ OSArray::withCapacity(unsigned int capacity)
+ 	OSSharedPtr<OSArray> me = OSMakeShared<OSArray>();
+ 
+ 	if (me && !me->initWithCapacity(capacity)) {
++		printf("sheng-os: OSArray::withCapacity(%u) failed from %p\n", capacity, __builtin_ptrauth_strip(__builtin_return_address(0), 0));
+ 		return nullptr;
+ 	}
++	if (!me) {
++		printf("sheng-os: OSArray alloc failed from %p\n", __builtin_ptrauth_strip(__builtin_return_address(0), 0));
++	}
+ 
+ 	return me;
+ }
+@@ -262,6 +266,7 @@ OSArray::setObject(unsigned int index, const OSMetaClassBase *anObject)
+ 	unsigned int newCount = count + 1;
+ 
+ 	if ((index > count) || !anObject) {
++		printf("sheng-os: OSArray::setObject(%u/%u, %p) rejected from %p\n", index, count, anObject, __builtin_ptrauth_strip(__builtin_return_address(0), 0));
+ 		return false;
+ 	}
+ 
+diff --git a/libkern/c++/OSData.cpp b/libkern/c++/OSData.cpp
+index 0cad743..7c9f112 100644
+--- a/libkern/c++/OSData.cpp
++++ b/libkern/c++/OSData.cpp
+@@ -178,6 +178,7 @@ OSData::withBytes(const void *bytes, unsigned int inLength)
+ 	OSSharedPtr<OSData> me = OSMakeShared<OSData>();
+ 
+ 	if (me && !me->initWithBytes(bytes, inLength)) {
++		printf("sheng-os: OSData::withBytes(%p, %u) failed from %p\n", bytes, inLength, __builtin_ptrauth_strip(__builtin_return_address(0), 0));
+ 		return nullptr;
+ 	}
+ 	return me;
+diff --git a/libkern/c++/OSDictionary.cpp b/libkern/c++/OSDictionary.cpp
+index 67e94c1..ca3d1a8 100644
+--- a/libkern/c++/OSDictionary.cpp
++++ b/libkern/c++/OSDictionary.cpp
+@@ -225,6 +225,7 @@ OSDictionary::withCapacity(unsigned int capacity)
+ 	OSSharedPtr<OSDictionary> me = OSMakeShared<OSDictionary>();
+ 
+ 	if (me && !me->initWithCapacity(capacity)) {
++		printf("sheng-os: OSDictionary::withCapacity(%u) failed from %p\n", capacity, __builtin_ptrauth_strip(__builtin_return_address(0), 0));
+ 		return nullptr;
+ 	}
+ 
+diff --git a/libkern/c++/OSNumber.cpp b/libkern/c++/OSNumber.cpp
+index dc2ed78..2c19d17 100644
+--- a/libkern/c++/OSNumber.cpp
++++ b/libkern/c++/OSNumber.cpp
+@@ -88,6 +88,7 @@ OSNumber::withNumber(unsigned long long value,
+ 	OSSharedPtr<OSNumber> me = OSMakeShared<OSNumber>();
+ 
+ 	if (me && !me->init(value, newNumberOfBits)) {
++		printf("sheng-os: OSNumber::withNumber(0x%llx, %u) failed from %p\n", value, newNumberOfBits, __builtin_ptrauth_strip(__builtin_return_address(0), 0));
+ 		return nullptr;
+ 	}
+ 
+diff --git a/libkern/c++/OSString.cpp b/libkern/c++/OSString.cpp
+index 6418d83..b696593 100644
+--- a/libkern/c++/OSString.cpp
++++ b/libkern/c++/OSString.cpp
+@@ -209,8 +209,12 @@ OSString::withCString(const char *cString, size_t length)
+ 	OSSharedPtr<OSString> me = OSMakeShared<OSString>();
+ 
+ 	if (me && !me->initWithStringOfLength(cString, length)) {
++		printf("sheng-os: OSString::withCString(%p, %zu) failed from %p\n", cString, length, __builtin_ptrauth_strip(__builtin_return_address(0), 0));
+ 		return nullptr;
+ 	}
++	if (!me) {
++		printf("sheng-os: OSString alloc failed from %p\n", __builtin_ptrauth_strip(__builtin_return_address(0), 0));
++	}
+ 
+ 	return me;
+ }
+diff --git a/libkern/c++/OSSymbol.cpp b/libkern/c++/OSSymbol.cpp
+index 9d4e084..e63b148 100644
+--- a/libkern/c++/OSSymbol.cpp
++++ b/libkern/c++/OSSymbol.cpp
+@@ -430,7 +430,11 @@ OSSymbol::withString(const OSString *aString)
+ 	} else if (((const OSSymbol *) aString)->flags & kOSStringNoCopy) {
+ 		return OSSymbol::withCStringNoCopy(aString->getCStringNoCopy());
+ 	} else {
+-		return OSSymbol::withCString(aString->getCStringNoCopy());
++		OSSharedPtr<const OSSymbol> sym = OSSymbol::withCString(aString->getCStringNoCopy());
++		if (!sym) {
++			printf("sheng-os: OSSymbol::withString(%s) failed from %p\n", aString->getCStringNoCopy(), __builtin_ptrauth_strip(__builtin_return_address(0), 0));
++		}
++		return sym;
+ 	}
+ }
+ 
+@@ -445,6 +449,7 @@ OSSymbol::withCString(const char *cString)
+ 	bool permanent = false;
+ 
+ 	if (key.smrk_len >= kMaxStringLength) {
++		printf("sheng-os: OSSymbol::withCString length %zu\n", key.smrk_len);
+ 		return nullptr;
+ 	}
+ 
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 72d3561..e8db5d8 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -357,6 +357,12 @@ arm_init(
+ 	DTEntry chosen = NULL;
+ 	unsigned int dt_entry_size = 0;
+ 
++#if T0SZ_USER != T0SZ_BOOT
++	/* Final TTBR0 size before the first pointer is signed (see TCR_EL1_KVA_ENTRY). */
++	set_tcr(TCR_EL1_KVA_ENTRY);
++	flush_core_tlb();
++#endif /* T0SZ_USER != T0SZ_BOOT */
++
+ 	arm_slide_rebase_and_sign_image();
+ 
+ 	arm_static_if_init(args);
+diff --git a/osfmk/arm/cpu_common.c b/osfmk/arm/cpu_common.c
+index eadffaf..8776f16 100644
+--- a/osfmk/arm/cpu_common.c
++++ b/osfmk/arm/cpu_common.c
+@@ -409,6 +409,21 @@ cpu_immediate_xcall(int cpu_number, broadcastFunc func, void *param)
+ 	return cpu_xcall_internal(SIGPxcallImm, cpu_number, func, param);
+ }
+ 
++/* sheng (UniXNU): a started core whose SIGPdisabled is still set lost the self-IPI that should have cleared it (seen as random early hangs
++ * and UFS root failures under SMP: the I/O thread's wakeup IPI to that core was silently dropped). A core in InitState|StartedState runs and
++ * takes interrupts, so the flag is cleared here and the signal sent. Counted in sheng_sigp_recovered. */
++volatile uint32_t sheng_sigp_recovered;
++bool
++sheng_sigp_recover(cpu_data_t *target_proc)
++{
++	if ((os_atomic_load(&target_proc->cpu_flags, relaxed) & (InitState | StartedState)) != (InitState | StartedState)) {
++		return false;
++	}
++	os_atomic_andnot(&target_proc->cpu_signal, SIGPdisabled, acq_rel);
++	os_atomic_inc(&sheng_sigp_recovered, relaxed);
++	return true;
++}
++
+ static kern_return_t
+ cpu_signal_internal(cpu_data_t *target_proc,
+     cpu_signal_t signal,
+@@ -438,6 +453,9 @@ cpu_signal_internal(cpu_data_t *target_proc,
+ 
+ 		do {
+ 			current_signals = target_proc->cpu_signal;
++			if ((current_signals & SIGPdisabled) == SIGPdisabled && sheng_sigp_recover(target_proc)) {
++				current_signals = target_proc->cpu_signal;
++			}
+ 			if ((current_signals & SIGPdisabled) == SIGPdisabled) {
+ 				ml_set_interrupts_enabled(interruptible);
+ 				return KERN_FAILURE;
+@@ -481,6 +499,9 @@ cpu_signal_internal(cpu_data_t *target_proc,
+ 	} else {
+ 		do {
+ 			current_signals = target_proc->cpu_signal;
++			if ((current_signals & SIGPdisabled) == SIGPdisabled && current_proc != target_proc && sheng_sigp_recover(target_proc)) {
++				current_signals = target_proc->cpu_signal;
++			}
+ 			if ((current_signals & SIGPdisabled) == SIGPdisabled) {
+ 				if (current_proc == target_proc) {
+ 					panic("cpu_signal of self while signals are disabled");
+diff --git a/osfmk/arm/pmap/pmap.h b/osfmk/arm/pmap/pmap.h
+index 0c6ba7c..9b9da2b 100644
+--- a/osfmk/arm/pmap/pmap.h
++++ b/osfmk/arm/pmap/pmap.h
+@@ -295,6 +295,9 @@ extern void set_mmu_ttb(uint64_t);
+ extern void set_mmu_ttb_alternate(uint64_t);
+ extern uint64_t get_tcr(void);
+ extern void set_tcr(uint64_t);
++#if T0SZ_USER != T0SZ_BOOT
++extern void pmap_apply_user_tcr(void);
++#endif
+ extern uint64_t pmap_get_arm64_prot(pmap_t, vm_offset_t);
+ #else /* defined(__arm64__) */
+ #error Unsupported architecture
+diff --git a/osfmk/arm/pmap/pmap_pt_geometry.h b/osfmk/arm/pmap/pmap_pt_geometry.h
+index fc64830..dd93d91 100644
+--- a/osfmk/arm/pmap/pmap_pt_geometry.h
++++ b/osfmk/arm/pmap/pmap_pt_geometry.h
+@@ -168,8 +168,14 @@ extern const struct page_table_ops native_pt_ops;
+ 
+ #else /* ARM_PARAMETERIZED_PMAP */
+ 
++#if T0SZ_USER != T0SZ_BOOT
++/* User pmaps use a wider TTBR0 range than the kernel's TTBR1 (see T0SZ_USER). */
++extern const struct page_table_attr * const native_user_pt_attr;
++#define pmap_get_pt_attr(pmap) ((pmap)->type == PMAP_TYPE_KERNEL ? native_pt_attr : native_user_pt_attr)
++#else
+ /* The page table attributes are fixed (to allow for const propagation) */
+ #define pmap_get_pt_attr(pmap) (native_pt_attr)
++#endif
+ #define pmap_get_pt_ops(pmap) (&native_pt_ops)
+ 
+ #endif /* ARM_PARAMETERIZED_PMAP */
+diff --git a/osfmk/arm64/cpu.c b/osfmk/arm64/cpu.c
+index 53f9ce5..8312c43 100644
+--- a/osfmk/arm64/cpu.c
++++ b/osfmk/arm64/cpu.c
+@@ -139,12 +139,17 @@ uint64_t expecting_ipi_wfe_timeout_mt = 0x0ULL; /* initialized to a non-zero val
+  * loop. The default.
+  */
+ uint32_t idle_proximate_io_wfe_unmasked = 1;
++/* sheng (UniXNU): off Apple silicon the cores belong to a hypervisor that traps WFI and blocks the vCPU but may run WFE in the guest,
++ * so a core awaiting a proximate timer in WFE keeps its physical core awake. Await it in WFI there. */
++/* Measured on the board (2026-10-28): with WFI in the idle path every core went to sleep and nothing woke the system again (boot stalled
++ * 30 s after the data disk started), so the stock WFE polling stays. */
++#define IDLE_PROXIMATE_TIMER_WFE 1
+ #if DEVELOPMENT || DEBUG
+-uint32_t idle_proximate_timer_wfe = 1;
++uint32_t idle_proximate_timer_wfe = IDLE_PROXIMATE_TIMER_WFE;
+ uint32_t idle_proximate_io_wfe_masked = 0;
+ #else
+ /* Issue WFE in lieu of WFI when awaiting a proximate timer. */
+-static uint32_t idle_proximate_timer_wfe = 1;
++static uint32_t idle_proximate_timer_wfe = IDLE_PROXIMATE_TIMER_WFE;
+ /* When recommended, issue WFE with [FI]IRQ masked in the idle loop.
+  * Non-default, retained for experimentation.
+  */
+@@ -379,7 +384,7 @@ cpu_proximate_timer(void)
+ 	return !SetIdlePop();
+ }
+ 
+-#ifdef ARM64_BOARD_CONFIG_T6000
++#if defined(ARM64_BOARD_CONFIG_T6000)
+ int wfe_allowed = 0;
+ #else
+ int wfe_allowed = 1;
+@@ -477,6 +482,9 @@ wfe_to_deadline_or_interrupt(uint32_t cid, uint64_t wfe_deadline, cpu_data_t *cd
+  *	Routine:	cpu_idle
+  *	Function:
+  */
++extern bool sheng_sigp_recover(cpu_data_t *target_proc);
++volatile uint32_t sheng_idle_sigp_cleared, sheng_idle_sigp_refused, sheng_idle_enter[8], sheng_idle_disallowed[8];
++
+ void __attribute__((noreturn))
+ cpu_idle(void)
+ {
+@@ -488,10 +496,20 @@ cpu_idle(void)
+ 	if (__improbable((!idle_enable))) {
+ 		idle_disallowed = true;
+ 	} else if (__improbable(cpu_data_ptr->cpu_signal & SIGPdisabled)) {
+-		idle_disallowed = true;
++		/* sheng (UniXNU): SIGPdisabled leaves a core only when it takes an IPI, and an idle core is never signalled, so a core that
++		 * missed its start-up self-IPI kept this flag and spun in the idle thread at full speed (every cluster read busy=100% on the
++		 * idle desktop). A started core takes interrupts: clear the flag here instead of refusing to idle. */
++		if (sheng_sigp_recover(cpu_data_ptr)) {
++			sheng_idle_sigp_cleared++;
++		} else {
++			sheng_idle_sigp_refused++;
++			idle_disallowed = true;
++		}
+ 	}
+ 
++	sheng_idle_enter[cpu_data_ptr->cpu_number & 7]++;
+ 	if (__improbable(idle_disallowed)) {
++		sheng_idle_disallowed[cpu_data_ptr->cpu_number & 7]++;
+ 		Idle_load_context();
+ 	}
+ 
+@@ -843,8 +861,10 @@ cpu_data_init(cpu_data_t *cpu_data_ptr)
+ 	pmap_cpu_data_ptr->pv_free_spill_marker = NULL;
+ #if !CONFIG_SPTM
+ 	pmap_cpu_data_ptr->cpu_nested_pmap = (struct pmap *) NULL;
++#if !HAS_16BIT_ASID
+ 	bzero(&(pmap_cpu_data_ptr->cpu_sw_asids[0]), sizeof(pmap_cpu_data_ptr->cpu_sw_asids));
+ #endif
++#endif
+ #endif /* !XNU_MONITOR */
+ 	cpu_data_ptr->halt_status = CPU_NOT_HALTED;
+ #if __ARM_KERNEL_PROTECT__
+@@ -934,6 +954,18 @@ cpu_start(int cpu)
+ 
+ 		flush_dcache((vm_offset_t)&CpuDataEntries[cpu], sizeof(cpu_data_entry_t), FALSE);
+ 		flush_dcache((vm_offset_t)cpu_data_ptr, sizeof(cpu_data_t), FALSE);
++#if !defined(APPLE_ARM64_ARCH_FAMILY)
++		{
++			/* UniXNU: the new core reads these with its MMU off, uncached, from DRAM (reset_vector, start_cpu, common_start):
++			 * written once at boot, they can still be dirty in this core's caches, and a core that reads a stale
++			 * ResetHandlerData, const_boot_args or cpu_ttep finds no cpu data or builds a wrong address space and spins in the
++			 * early vectors. Write them back to the point of coherency, as the cpu data above. */
++			extern boot_args const_boot_args;
++			flush_dcache((vm_offset_t)&ResetHandlerData, sizeof(ResetHandlerData), FALSE);
++			flush_dcache((vm_offset_t)&const_boot_args, sizeof(const_boot_args), FALSE);
++			flush_dcache((vm_offset_t)&cpu_ttep, sizeof(cpu_ttep), FALSE);
++		}
++#endif
+ #if CONFIG_SPTM
+ 		/**
+ 		 * On SPTM devices, CTRR is configured entirely by the SPTM. Due to this, this logic
+diff --git a/osfmk/arm64/proc_reg.h b/osfmk/arm64/proc_reg.h
+index 51fdc9d..8f83d0a 100644
+--- a/osfmk/arm64/proc_reg.h
++++ b/osfmk/arm64/proc_reg.h
+@@ -1103,6 +1103,17 @@
+ #endif /* __ARM64_PMAP_SUBPAGE_L1__ */
+ #endif /* __ARM_16K_PG__ */
+ 
++/*
++ * TTBR0 size once a CPU is past its V=P bootstrap. arm64e user code expects pointer
++ * authentication codes above bit 46 (libobjc strips isa with a 43-bit mask), so a native
++ * 4K kernel gives user pmaps four-level tables with a 47-bit range; TTBR1 keeps T1SZ_BOOT.
++ */
++#if defined(BCM2837) && !defined(__ARM_16K_PG__) && defined(__arm64e__)
++#define T0SZ_USER 17ULL
++#else
++#define T0SZ_USER T0SZ_BOOT
++#endif
++
+ #if __ARM64_PMAP_SUBPAGE_L1__ && CONFIG_SPTM
+ #define T0SZ_EARLY_BOOT 17ULL
+ #endif /*__ARM64_PMAP_SUBPAGE_L1__ && CONFIG_SPTM */
+@@ -1182,6 +1193,17 @@
+ #define TCR_EL1_4KB  (TCR_EL1_BASE | (T1SZ_BOOT << TCR_T1SZ_SHIFT) | (TCR_TG0_GRANULE_4KB))
+ #define TCR_EL1_16KB (TCR_EL1_BASE | (T1SZ_BOOT << TCR_T1SZ_SHIFT) | (TCR_TG0_GRANULE_16KB))
+ 
++#define TCR_EPD0_DISABLE        (1ULL << 7)
++
++#if T0SZ_USER != T0SZ_BOOT
++/*
++ * TCR once a CPU runs at kernel addresses: TTBR0 already has its final size, so every pointer
++ * signed from then on (NULL included, it is a TTBR0-range value) carries its PAC at the final
++ * position. TTBR0 walks stay off until it holds a T0SZ_USER-format table.
++ */
++#define TCR_EL1_KVA_ENTRY ((TCR_EL1_BOOT & ~(TCR_TSZ_MASK << TCR_T0SZ_SHIFT)) | (T0SZ_USER << TCR_T0SZ_SHIFT) | TCR_EPD0_DISABLE)
++#endif /* T0SZ_USER != T0SZ_BOOT */
++
+ /*
+  * Bit 55 of the VA is used to select which TTBR to use during a translation table walk.
+  */
+@@ -1807,7 +1829,11 @@
+ 
+ #endif /* HAS_FEAT_XS */
+ 
+-#if HAS_UCNORMAL_MEM || APPLEVIRTUALPLATFORM
++/*
++ * BCM2837 (the sheng native kernel): real-time memory is Normal non-cacheable, as with HAS_UCNORMAL_MEM, so user code may
++ * use unaligned and vector accesses on real-time-mapped surfaces (Device memory would raise alignment faults).
++ */
++#if HAS_UCNORMAL_MEM || APPLEVIRTUALPLATFORM || defined(BCM2837)
+ #define CACHE_ATTRINDX_RT CACHE_ATTRINDX_WRITECOMB
+ #else
+ #define CACHE_ATTRINDX_RT CACHE_ATTRINDX_POSTED_COMBINED_REORDERED
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index ad43956..05d38d6 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -879,6 +879,15 @@ arm_init_tramp:
+ 	 */
+ 
+ 
++#if T0SZ_USER != T0SZ_BOOT
++	MOV64	x1, TCR_EL1_KVA_ENTRY
++	MSR_TCR_EL1_X1
++	isb		sy
++	tlbi	vmalle1
++	dsb		ish
++	isb		sy
++#endif /* T0SZ_USER != T0SZ_BOOT */
++
+ 	mov		x19, lr
+ 	// Convert CPU data PA to VA and set as first argument
+ 	mov		x0, x21
+diff --git a/osfmk/device/iokit_rpc.c b/osfmk/device/iokit_rpc.c
+index fd3e49e..64bcd3f 100644
+--- a/osfmk/device/iokit_rpc.c
++++ b/osfmk/device/iokit_rpc.c
+@@ -125,6 +125,25 @@ iokit_lookup_connect_port(ipc_port_t port)
+ 	return iokit_lookup_io_object(port, IKOT_IOKIT_CONNECT);
+ }
+ 
++/* io_connect_map_memory_into_task (2863) and io_connect_unmap_memory_from_task (2864) on the native GPU driver's user client:
++ * allowed past the sandbox's kobject filter (ipc_kobject_server_internal). Any other routine or object: false. */
++extern boolean_t native_adreno_connect_granted(io_object_t obj);
++boolean_t native_kobj_map_grant(ipc_port_t port, mach_msg_id_t msgh_id);
++boolean_t
++native_kobj_map_grant(ipc_port_t port, mach_msg_id_t msgh_id)
++{
++	if ((msgh_id != 2863 && msgh_id != 2864) || !IP_VALID(port) || ip_type(port) != IKOT_IOKIT_CONNECT) {
++		return FALSE;
++	}
++	io_object_t obj = iokit_lookup_connect_port(port);
++	if (!obj) {
++		return FALSE;
++	}
++	boolean_t granted = native_adreno_connect_granted(obj);
++	iokit_remove_connect_reference(obj);
++	return granted;
++}
++
+ MIGEXTERN io_object_t
+ iokit_lookup_ident_port(ipc_port_t port)
+ {
+diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
+index 29d7dbe..af797d0 100644
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -94,6 +94,9 @@
+ #include <string.h>
+ 
+ #include <pexpert/pexpert.h>
++#if __arm64__
++#include <arm/thread.h>
++#endif
+ 
+ #include <os/log.h>
+ #include <os/system_event_log.h>
+@@ -101,6 +104,14 @@
+ #include <libkern/coreanalytics/coreanalytics.h>
+ 
+ #include <sys/code_signing.h> /* for developer mode state */
++#include <vm/vm_protos.h> /* proc_best_name; proc_pid is declared there only for DEVELOPMENT, so the same declaration follows */
++#ifdef MACH_BSD
++extern int proc_pid(struct proc *);
++#endif
++/* The last four user exceptions of the processes sheng-exc-name lists, for the board's boot log (the message buffer wraps). */
++struct sheng_exc_record {char name[20]; uint32_t pid, type, esr, frames; uint64_t pc, lr, far, ret[12];};
++struct sheng_exc_record sheng_exc_ring[4];
++volatile uint32_t sheng_exc_count;
+ 
+ bool panic_on_exception_triage = false;
+ 
+@@ -957,9 +964,115 @@ exception_triage(
+ 		/* Note this may consume control flow if it decides the exception is unrecoverable. */
+ 		maybe_unrecoverable_exception_triage(exception, code);
+ 	}
++#ifdef MACH_BSD
++	/* Processes whose exceptions are dumped: launchd, plus the comma-separated names in sheng-exc-name. */
++	char sheng_exc_names[96] = "backboardd,chronod,liveactivitiesd";
++	PE_parse_boot_argn("sheng-exc-name", sheng_exc_names, sizeof(sheng_exc_names));
++	bool sheng_exc_match = false;
++	if (get_bsdtask_info(task)) {
++		const char *name = proc_best_name(get_bsdtask_info(task));
++		size_t length = strlen(name);
++		for (const char *at = sheng_exc_names; *at;) {
++			const char *end = strchr(at, ',');
++			size_t n = end ? (size_t)(end - at) : strlen(at);
++			if (n == length && !strncmp(at, name, n)) {
++				sheng_exc_match = true;
++			}
++			at += n + (end ? 1 : 0);
++		}
++	}
++	if (get_bsdtask_info(task) && (proc_pid(get_bsdtask_info(task)) == 1 || sheng_exc_match)) {
++		printf("sheng-exc: %s[%d] exception type=0x%x code=0x%llx subcode=0x%llx\n",
++		    proc_best_name(get_bsdtask_info(task)), proc_pid(get_bsdtask_info(task)),
++		    exception, (unsigned long long)code[0], codeCnt > 1 ? (unsigned long long)code[1] : 0ULL);
++#if __arm64__
++		arm_saved_state_t *ss = find_user_regs(thread);
++		if (ss != NULL) {
++			uint64_t pc = get_saved_state_pc(ss);
++			/* The boot log's copy (the message buffer wraps long before a late look at it): the last four, with the frame chain. */
++			{
++				struct sheng_exc_record *rec = &sheng_exc_ring[sheng_exc_count & 3];
++				*rec = (struct sheng_exc_record){};
++				strlcpy(rec->name, proc_best_name(get_bsdtask_info(task)), sizeof(rec->name));
++				rec->pid = (uint32_t)proc_pid(get_bsdtask_info(task));rec->type = (uint32_t)exception;
++				rec->pc = pc;rec->lr = get_saved_state_lr(ss);rec->far = get_saved_state_far(ss);rec->esr = get_saved_state_esr(ss);
++				uint64_t fp = get_saved_state_fp(ss);
++				for (unsigned i = 0; thread == current_thread() && i < 12 && fp && !(fp & 7); i++) {
++					uint64_t frame[2];
++					if (copyin((user_addr_t)fp, frame, sizeof(frame)) != 0) {
++						break;
++					}
++					rec->ret[i] = frame[1] & 0x00007fffffffffffULL;rec->frames = i + 1;
++					if (frame[0] <= fp) {
++						break;
++					}
++					fp = frame[0];
++				}
++				sheng_exc_count = sheng_exc_count + 1;
++			}
++			printf("sheng-exc: pc=0x%llx lr=0x%llx sp=0x%llx far=0x%llx esr=0x%x\n",
++			    pc, get_saved_state_lr(ss), get_saved_state_sp(ss), get_saved_state_far(ss), get_saved_state_esr(ss));
++			for (unsigned r = 0; r < 29; r += 4) {
++				printf("sheng-exc: x%u=0x%llx 0x%llx 0x%llx 0x%llx\n", r,
++				    get_saved_state_reg(ss, r), get_saved_state_reg(ss, r + 1),
++				    r + 2 < 29 ? get_saved_state_reg(ss, r + 2) : 0ULL, r + 3 < 29 ? get_saved_state_reg(ss, r + 3) : 0ULL);
++			}
++			uint32_t insn[8] = {};
++			if (copyin((user_addr_t)(pc - 16), insn, sizeof(insn)) == 0) {
++				printf("sheng-exc: insn@pc-16 %08x %08x %08x %08x | %08x %08x %08x %08x\n",
++				    insn[0], insn[1], insn[2], insn[3], insn[4], insn[5], insn[6], insn[7]);
++			}
++			/* What the fault address maps to: physical page, managed DRAM or not, cache attributes. */
++			extern ppnum_t pmap_find_phys(pmap_t, addr64_t);
++			extern unsigned int pmap_cache_attributes(ppnum_t);
++			extern boolean_t pmap_valid_page(ppnum_t);
++			ppnum_t pn = pmap_find_phys(get_task_pmap(task), get_saved_state_far(ss));
++			printf("sheng-exc: far page 0x%x managed=%d wimg=0x%x\n", pn, pn ? pmap_valid_page(pn) : -1,
++			    pn ? pmap_cache_attributes(pn) : 0);
++			if (thread == current_thread()) {
++				/* The attributes the MMU uses for this user address (PAR_EL1[63:56] is the MAIR encoding) and SCTLR_EL1. */
++				uint64_t par = 0, sctlr = 0, mair = 0;
++				__asm__ volatile ("at s1e0w, %3\n isb\n mrs %0, par_el1\n mrs %1, sctlr_el1\n mrs %2, mair_el1"
++				    : "=r"(par), "=r"(sctlr), "=r"(mair) : "r"(get_saved_state_far(ss)) : "memory");
++				printf("sheng-exc: par=0x%llx (attr 0x%llx) sctlr=0x%llx mair=0x%llx\n", par, par >> 56, sctlr, mair);
++				void sheng_dump_user_backtrace(const char *tag);
++				sheng_dump_user_backtrace("sheng-exc");
++			}
++		}
++#endif /* __arm64__ */
++	}
++#endif /* MACH_BSD */
+ 	return exception_triage_thread(exception, code, codeCnt, thread);
+ }
+ 
++#if __arm64__
++/* Print the current thread's user registers and frame-pointer chain (launchd bring-up diagnostics). */
++void sheng_dump_user_backtrace(const char *tag);
++void
++sheng_dump_user_backtrace(const char *tag)
++{
++	arm_saved_state_t *ss = find_user_regs(current_thread());
++	if (ss == NULL) {
++		return;
++	}
++	printf("sheng-ubt %s: pc=0x%llx lr=0x%llx sp=0x%llx fp=0x%llx x0=0x%llx x1=0x%llx x2=0x%llx\n", tag,
++	    get_saved_state_pc(ss), get_saved_state_lr(ss), get_saved_state_sp(ss), get_saved_state_fp(ss),
++	    get_saved_state_reg(ss, 0), get_saved_state_reg(ss, 1), get_saved_state_reg(ss, 2));
++	uint64_t fp = get_saved_state_fp(ss);
++	for (int i = 0; i < 32 && fp != 0 && (fp & 7) == 0; i++) {
++		uint64_t frame[2];
++		if (copyin((user_addr_t)fp, frame, sizeof(frame)) != 0) {
++			break;
++		}
++		printf("sheng-ubt %s: #%d fp=0x%llx ret=0x%llx\n", tag, i, fp, frame[1] & 0x00007fffffffffffULL);
++		if (frame[0] <= fp) {
++			break;
++		}
++		fp = frame[0];
++	}
++}
++#endif /* __arm64__ */
++
+ kern_return_t
+ bsd_exception(
+ 	exception_type_t        exception,
+diff --git a/osfmk/kern/ipc_kobject.c b/osfmk/kern/ipc_kobject.c
+index d4272a1..fb9b778 100644
+--- a/osfmk/kern/ipc_kobject.c
++++ b/osfmk/kern/ipc_kobject.c
+@@ -129,6 +129,8 @@
+ #include <ipc/ipc_kmsg.h>
+ #include <ipc/ipc_policy.h>
+ #include <ipc/ipc_port.h>
++
++extern boolean_t native_kobj_map_grant(ipc_port_t port, mach_msg_id_t msgh_id);
+ #include <ipc/ipc_voucher.h>
+ #include <kern/sync_sema.h>
+ #include <kern/work_interval.h>
+@@ -562,10 +564,13 @@ ipc_kobject_server_internal(
+ 	int idx = ptr->kobjidx;
+ 	uint8_t *filter_mask = task_get_mach_kobj_filter_mask(curtask);
+ 
+-	/* Check kobject mig filter mask, if exists. */
++	/* Check kobject mig filter mask, if exists. The native GPU driver's own user client is mapped and unmapped by its
++	 * sandboxed Metal clients (iconservicesagent, the poster extensions), which the original profiles never let reach
++	 * io_connect_map_memory_into_task: native_kobj_map_grant lets those two routines through for that client only. */
+ 	if (filter_mask != NULL &&
+ 	    (idx == KOBJ_IDX_NOT_SET || !bitstr_test(filter_mask, idx)) &&
+-	    mac_task_kobj_msg_evaluate != NULL) {
++	    mac_task_kobj_msg_evaluate != NULL &&
++	    !native_kobj_map_grant(port, request_msgh_id)) {
+ 		/* No index registered by Sandbox, or not in filter mask: evaluate policy. */
+ 		kern_return_t kr = mac_task_kobj_msg_evaluate(curproc,
+ 		    request_msgh_id, idx);
+diff --git a/osfmk/kern/sched_clutch.c b/osfmk/kern/sched_clutch.c
+index b27d291..01e48b2 100644
+--- a/osfmk/kern/sched_clutch.c
++++ b/osfmk/kern/sched_clutch.c
+@@ -6504,7 +6504,10 @@ sched_edge_cpu_init_completed(void)
+ 	}
+ 	sched_edge_config_final_push();
+ #if DEVELOPMENT || DEBUG
+-	assert(sched_edge_config_verify());
++	/* The matrix check is advisory: the board's two-cluster matrix (UI buckets stay on P) is reported, not fatal. */
++	if (!sched_edge_config_verify()) {
++		kprintf("warn: sched_edge_config_verify failed; continuing\n");
++	}
+ #endif /* DEVELOPMENT || DEBUG */
+ 	splx(s);
+ }
+diff --git a/osfmk/mach/arm/vm_param.h b/osfmk/mach/arm/vm_param.h
+index 8d11b54..6b12ab1 100644
+--- a/osfmk/mach/arm/vm_param.h
++++ b/osfmk/mach/arm/vm_param.h
+@@ -293,7 +293,7 @@ extern int PAGE_SHIFT_CONST;
+ 
+ #if XNU_KERNEL_PRIVATE
+ #define VM_KERNEL_STRIP_MASK            (-1ULL << (64 - T1SZ_BOOT))
+-#define VM_USER_STRIP_MASK              (-1ULL >> (T0SZ_BOOT))
++#define VM_USER_STRIP_MASK              (-1ULL >> (T0SZ_USER))
+ #define _VM_KERNEL_STRIP_PTR(_va)       ({((_va) & 1ULL << 55) ? ((_va) | VM_KERNEL_STRIP_MASK) : ((_va) & VM_USER_STRIP_MASK);})
+ #else /* XNU_KERNEL_PRIVATE */
+ 
+diff --git a/osfmk/vm/vm_dyld_pager.c b/osfmk/vm/vm_dyld_pager.c
+index d3cd6e8..a8ba8cf 100644
+--- a/osfmk/vm/vm_dyld_pager.c
++++ b/osfmk/vm/vm_dyld_pager.c
+@@ -145,12 +145,12 @@ const struct memory_object_pager_ops dyld_pager_ops = {
+ 
+ /* funciton that calculates delta pointer that remains within the same page by using nospec ISA */
+ static inline bool
+-_delta_ptr_within_page_nospec(uint64_t ** __nonnull ptr, uint64_t deltaByteCount, bool *crossing_page, uintptr_t userVA)
++_delta_ptr_within_page_nospec(uint64_t ** __nonnull ptr, uint64_t deltaByteCount, bool *crossing_page, uintptr_t userVA, unsigned int page_shift)
+ {
+-	uintptr_t old_page = (uintptr_t)*ptr >> PAGE_SHIFT;
+-	uintptr_t new_page = ((uintptr_t)*ptr + deltaByteCount) >> PAGE_SHIFT;
++	uintptr_t old_page = (uintptr_t)*ptr >> page_shift;
++	uintptr_t new_page = ((uintptr_t)*ptr + deltaByteCount) >> page_shift;
+ 	uint64_t  nospec_delta = deltaByteCount;
+-	uintptr_t page_offset = (uintptr_t)*ptr & PAGE_MASK;
++	uintptr_t page_offset = (uintptr_t)*ptr & ((1UL << page_shift) - 1);
+ #if __arm64__
+ 	bool      nospec_delta_valid = false;
+ 	SPECULATION_GUARD_ZEROING_XXX(
+@@ -372,7 +372,8 @@ fixupPage64(
+ 	struct mwl_info_hdr                   *hdr = (struct mwl_info_hdr *)link_info;
+ 	uint64_t                              *bindsArray  = (uint64_t *)((uintptr_t)hdr + hdr->mwli_binds_offset);
+ 	uint16_t                              firstStartOffset = segInfo->page_start[pageIndex];
+-	vm_offset_t                           end_contents = contents + PAGE_SIZE;
++	vm_offset_t                           end_contents = contents + segInfo->page_size;
++	unsigned int                          page_shift = __builtin_ctz((uint32_t)segInfo->page_size);
+ 	//  For DYLD_CHAINED_PTR_64 (arm64 and x86_64) and DYLD_CHAINED_PTR_32 (arm64_32) the stride is always 4
+ 	uint64_t                              step_multiplier = 4; // 4-byte stride
+ 	/*
+@@ -428,7 +429,7 @@ fixupPage64(
+ 		}
+ 		/* shifts chain to a delta, chain cannot be used to access outside of page speculatively after this point */
+ 		bool crossing_page = false;
+-		valid_chain = _delta_ptr_within_page_nospec(&chain, delta, &crossing_page, (uintptr_t)userVA);
++		valid_chain = _delta_ptr_within_page_nospec(&chain, delta, &crossing_page, (uintptr_t)userVA, page_shift);
+ 		if (crossing_page) {
+ 			return KERN_FAILURE;
+ 		}
+@@ -585,11 +586,19 @@ signPointer(
+ 	switch (key) {
+ 	case ptrauth_key_asia:
+ 	case ptrauth_key_asda:
+ 		if (pager->dyld_a_key == 0 || arm_user_jop_disabled()) {
+ 			*signedAddr = unsignedAddr;
+ 		} else {
+ 			*signedAddr = (uintptr_t)pmap_sign_user_ptr((void *)unsignedAddr, key, extendedDiscriminator, pager->dyld_a_key);
+ 		}
++		static int sheng_sign_logged = 0;
++		if (!sheng_sign_logged) {
++			sheng_sign_logged = 1;
++			printf("sheng-sign: unsignedAddr=0x%llx key=%d addrDiv=%d diversity=0x%x disc=0x%llx a_key=0x%llx result=0x%llx\n",
++			    (unsigned long long)unsignedAddr, key, addrDiv, diversity,
++			    (unsigned long long)extendedDiscriminator, (unsigned long long)pager->dyld_a_key,
++			    (unsigned long long)*signedAddr);
++		}
+ 		break;
+ 
+ 	default:
+@@ -619,7 +628,8 @@ fixupPageAuth64(
+ 	uint32_t             link_info_size = pager->dyld_link_info_size;
+ 	struct mwl_info_hdr  *hdr = (struct mwl_info_hdr *)link_info;
+ 	uint64_t             *bindsArray = (uint64_t*)((uintptr_t)link_info + hdr->mwli_binds_offset);
+-	vm_offset_t          end_contents = contents + PAGE_SIZE;
++	vm_offset_t          end_contents = contents + segInfo->page_size;
++	unsigned int         page_shift = __builtin_ctz((uint32_t)segInfo->page_size);
+ 	bool                 valid_chain = false;
+ 	uint64_t             step_multiplier = 8; // always 8-bytes stride for arm64e pages
+ 
+@@ -664,6 +674,12 @@ fixupPageAuth64(
+ 		/* delta that can be used speculatively */
+ 		delta = (value >> 51) & 0x7FF;
+ 		delta *= step_multiplier;
++		static int sheng_fixup64_logged = 0;
++		if (sheng_fixup64_logged < 12) {
++			printf("sheng-chain[%d]: off=0x%llx value=0x%llx\n",
++			    sheng_fixup64_logged, (unsigned long long)((uintptr_t)chain - contents), (unsigned long long)value);
++			sheng_fixup64_logged++;
++		}
+ 		bool isAuth = (value & 0x8000000000000000ULL);
+ 		bool isBind = (value & 0x4000000000000000ULL);
+ 		if (isAuth) {
+@@ -719,7 +735,7 @@ fixupPageAuth64(
+ 			}
+ 		}
+ 		bool crossing_page = false;;
+-		valid_chain = _delta_ptr_within_page_nospec(&chain, delta, &crossing_page, (uintptr_t)userVA);
++		valid_chain = _delta_ptr_within_page_nospec(&chain, delta, &crossing_page, (uintptr_t)userVA, page_shift);
+ 
+ 		if (crossing_page) {
+ 			return KERN_FAILURE;
+@@ -742,7 +758,8 @@ fixupCachePageAuth64(
+ 	void                 *link_info = pager->dyld_link_info;
+ 	uint32_t             link_info_size = pager->dyld_link_info_size;
+ 	struct mwl_info_hdr  *hdr = (struct mwl_info_hdr *)link_info;
+-	vm_offset_t          end_contents = contents + PAGE_SIZE;
++	vm_offset_t          end_contents = contents + segInfo->page_size;
++	unsigned int         page_shift = __builtin_ctz((uint32_t)segInfo->page_size);
+ 	bool                 valid_chain = false;
+ 	uint64_t             step_multiplier = 8; // always 8-bytes stride for arm64e
+ 
+@@ -786,6 +803,13 @@ fixupCachePageAuth64(
+ 		/* delta that can be used speculatively */
+ 		delta = (value >> 52) & 0x7FF;
+ 		delta *= step_multiplier;
++		static int sheng_fixup_logged = 0;
++		if (!sheng_fixup_logged) {
++			sheng_fixup_logged = 1;
++			printf("sheng-fixup: value=0x%llx image_address=0x%llx slide=0x%llx startOff=0x%x pageIndex=%u userVA=0x%llx\n",
++			    (unsigned long long)value, (unsigned long long)hdr->mwli_image_address,
++			    (unsigned long long)hdr->mwli_slide, firstStartOffset, pageIndex, (unsigned long long)userVA);
++		}
+ 		bool isAuth = (value & 0x8000000000000000ULL);
+ 		if (isAuth) {
+ 			bool        addrDiv = ((value & (1ULL << 50)) != 0);
+@@ -806,7 +830,7 @@ fixupCachePageAuth64(
+ 			*chain = target + high8;
+ 		}
+ 		bool crossing_page = false;
+-		valid_chain = _delta_ptr_within_page_nospec(&chain, delta, &crossing_page, (uintptr_t)userVA);
++		valid_chain = _delta_ptr_within_page_nospec(&chain, delta, &crossing_page, (uintptr_t)userVA, page_shift);
+ 		if (crossing_page) {
+ 			return KERN_FAILURE;
+ 		}
+@@ -865,7 +889,14 @@ fixup_page(
+ 		segEndAddress = segStartAddress + seg->page_count * seg->page_size;
+ 		if (segStartAddress <= userVA && userVA < segEndAddress) {
+ 			segInfo = seg;
+-			pageIndex = (uint32_t)(userVA - segStartAddress) / PAGE_SIZE;
++			pageIndex = (uint32_t)(userVA - segStartAddress) / seg->page_size;
++			static int sheng_mwl_logged = 0;
++			if (!sheng_mwl_logged) {
++				sheng_mwl_logged = 1;
++				printf("sheng-mwl: fmt=0x%x hdr_page_size=0x%x seg_page_size=0x%x seg_count=%u pageIndex=%u userVA=0x%llx segStart=0x%llx\n",
++				    hdr->mwli_pointer_format, hdr->mwli_page_size, seg->page_size, seg->page_count, pageIndex,
++				    (unsigned long long)userVA, (unsigned long long)segStartAddress);
++			}
+ 
+ 			/* ensure seg->size fits in link_info_size */
+ 			if ((uintptr_t)seg + seg->size > (uintptr_t)link_info + link_info_size) {
+@@ -954,6 +985,82 @@ fixup_page(
+ 	return KERN_SUCCESS;
+ }
+ 
++/*
++ * Fault one backing page into a kernel buffer (mirrors shared_region_pager_peek).
++ * Used when the fixup page size exceeds PAGE_SIZE so the full fixup page can be assembled.
++ */
++static kern_return_t
++dyld_pager_peek(
++	vm_object_t                    object,
++	vm_object_offset_t             backing_offset,
++	void                           *buffer,
++	struct vm_object_fault_info    *fault_info)
++{
++	vm_page_t page, top_page;
++	vm_prot_t prot;
++	kern_return_t error_code;
++	vm_fault_return_t vmfr;
++	/* The caller's fault_info may have been mutated by the page's own fault (shadow offset); fault the peeked page at its own range. */
++	struct vm_object_fault_info local_fault = *fault_info;
++	local_fault.lo_offset = backing_offset;
++	local_fault.hi_offset = backing_offset + PAGE_SIZE;
++
++retry:
++	vm_page_grab_prime();
++	vm_object_lock(object);
++	vm_object_paging_begin(object);
++	error_code = 0;
++	prot = VM_PROT_READ;
++	page = VM_PAGE_NULL;
++	vmfr = vm_fault_page(object, backing_offset, VM_PROT_READ, FALSE, FALSE, &prot, &page, &top_page, NULL,
++	    &error_code, FALSE, &local_fault, NULL);
++	switch (vmfr) {
++	case VM_FAULT_SUCCESS:
++		break;
++	case VM_FAULT_RETRY:
++		goto retry;
++	case VM_FAULT_MEMORY_SHORTAGE:
++		if (vm_page_wait(local_fault.interruptible)) {
++			goto retry;
++		}
++		return KERN_RESOURCE_SHORTAGE;
++	case VM_FAULT_SUCCESS_NO_VM_PAGE:
++		vm_object_paging_end(object);
++		vm_object_unlock(object);
++		return KERN_MEMORY_ERROR;
++	default:
++		return KERN_MEMORY_ERROR;
++	}
++	vm_object_t page_object = VM_PAGE_OBJECT(page);
++	const void *source = (const void *)phystokv((pmap_paddr_t)VM_PAGE_GET_PHYS_PAGE(page) << PAGE_SHIFT);
++	if (page_object->code_signed) {
++		vm_page_validate_cs_mapped(page, PAGE_SIZE, 0, source);
++	}
++	const bool tainted = page->vmp_cs_tainted;
++	if (!tainted) {
++		bcopy(source, buffer, PAGE_SIZE);
++	}
++	static int sheng_peek_logged = 0;
++	if (sheng_peek_logged < 8) {
++		uint64_t first8 = 0;
++		memcpy(&first8, buffer, sizeof(first8));
++		printf("sheng-peek[%d]: off=0x%llx tainted=%d first8=0x%llx pnum=0x%x page_obj=%p top_obj=%p\n",
++		    sheng_peek_logged, (unsigned long long)backing_offset, tainted, (unsigned long long)first8,
++		    (unsigned int)VM_PAGE_GET_PHYS_PAGE(page), (void *)page_object, (void *)VM_PAGE_OBJECT(top_page));
++		sheng_peek_logged++;
++	}
++	vm_page_wakeup_done(page_object, page);
++	vm_object_paging_end(page_object);
++	vm_object_unlock(page_object);
++	if (top_page != VM_PAGE_NULL) {
++		vm_object_lock(object);
++		VM_PAGE_FREE(top_page);
++		vm_object_paging_end(object);
++		vm_object_unlock(object);
++	}
++	return tainted ? KERN_CODESIGN_ERROR : KERN_SUCCESS;
++}
++
+ /*
+  * dyld_pager_data_request()
+  *
+@@ -991,6 +1098,10 @@ dyld_pager_data_request(
+ 	struct mwl_info_hdr     *hdr;
+ 	uint32_t                r;
+ 	uint64_t                userVA;
++	uint32_t                mwli_page_size;
++	void                   *fixup_buffer = NULL;
++	void                   *fixup_alloc = NULL;
++	uint32_t                i;
+ 
+ 	fault_info.stealth = TRUE;
+ 	fault_info.io_sync = FALSE;
+@@ -1003,6 +1114,7 @@ dyld_pager_data_request(
+ 	assert(os_ref_get_count_raw(&pager->dyld_ref_count) > 1); /* pager is alive */
+ 	assert(pager->dyld_is_mapped); /* pager is mapped */
+ 	hdr = (struct mwl_info_hdr *)pager->dyld_link_info;
++	mwli_page_size = hdr->mwli_page_size;
+ 
+ 	/*
+ 	 * Gather in a UPL all the VM pages requested by VM.
+@@ -1041,6 +1153,20 @@ dyld_pager_data_request(
+ 	assert(src_top_object != VM_OBJECT_NULL);
+ 	vm_object_reference(src_top_object); /* keep the source object alive */
+ 
++	/*
++	 * 16 KiB fixup pages on a 4 KiB kernel: assemble the whole fixup page in a scratch
++	 * buffer, apply the chain once, then copy out the requested 4 KiB part.
++	 */
++	if (mwli_page_size > PAGE_SIZE) {
++		/* The chain walk finds page boundaries from the buffer address, so align it to the fixup page size. */
++		fixup_alloc = kalloc_data(2 * (vm_size_t)mwli_page_size, Z_WAITOK);
++		if (fixup_alloc == NULL) {
++			retval = KERN_RESOURCE_SHORTAGE;
++			goto done;
++		}
++		fixup_buffer = (void *)(((uintptr_t)fixup_alloc + mwli_page_size - 1) & ~((uintptr_t)mwli_page_size - 1));
++	}
++
+ 	/*
+ 	 * Fill in the contents of the pages requested by VM.
+ 	 */
+@@ -1164,6 +1290,16 @@ retry_src_fault:
+ 		 */
+ 		bcopy((const char *)src_vaddr, (char *)dst_vaddr, PAGE_SIZE);
+ 
++		static int sheng_src_logged = 0;
++		if (sheng_src_logged < 4) {
++			uint64_t src8 = 0;
++			memcpy(&src8, (const void *)src_vaddr, sizeof(src8));
++			printf("sheng-src[%d]: off=0x%llx src8=0x%llx src_pnum=0x%x\n",
++			    sheng_src_logged, (unsigned long long)(offset + cur_offset), (unsigned long long)src8,
++			    (unsigned int)VM_PAGE_GET_PHYS_PAGE(src_page));
++			sheng_src_logged++;
++		}
++
+ 		/*
+ 		 * Figure out what the original user virtual address was, based on the offset.
+ 		 */
+@@ -1187,6 +1323,34 @@ retry_src_fault:
+ 				panic("%s(): Range not found for offset 0x%llx", __func__, (long long)cur_offset);
+ 			}
+ 			retval = KERN_FAILURE;
++		} else if (mwli_page_size > PAGE_SIZE) {
++			/* Assemble the whole fixup page, apply the chain once, copy out the requested part. */
++			vm_object_offset_t page_off = offset + cur_offset;
++			vm_object_offset_t base_off = page_off & ~(vm_object_offset_t)(mwli_page_size - 1);
++			uint32_t part = (uint32_t)((page_off - base_off) / PAGE_SIZE);
++			uint64_t base_userVA = userVA - (uint64_t)(page_off - base_off);
++
++			/* The current page's source is already faulted and still mapped; fill the rest by peeking. */
++			bcopy((const char *)src_vaddr, (char *)fixup_buffer + (vm_offset_t)part * PAGE_SIZE, PAGE_SIZE);
++			retval = KERN_SUCCESS;
++			for (i = 0; i < mwli_page_size / PAGE_SIZE; ++i) {
++				if (i == part) {
++					continue;
++				}
++				kr = dyld_pager_peek(src_top_object, base_off + (vm_object_offset_t)i * PAGE_SIZE,
++				    (char *)fixup_buffer + (vm_offset_t)i * PAGE_SIZE, &fault_info);
++				if (kr != KERN_SUCCESS) {
++					retval = kr;
++					break;
++				}
++			}
++			if (retval == KERN_SUCCESS) {
++				if (fixup_page((vm_offset_t)fixup_buffer, base_userVA, pager) != KERN_SUCCESS) {
++					retval = KERN_FAILURE;
++				} else {
++					bcopy((const char *)fixup_buffer + (vm_offset_t)part * PAGE_SIZE, (char *)dst_vaddr, PAGE_SIZE);
++				}
++			}
+ 		} else if (fixup_page(dst_vaddr, userVA, pager) != KERN_SUCCESS) {
+ 			/* KDBG / printf was done under fixup_page() */
+ 			retval = KERN_FAILURE;
+@@ -1253,6 +1417,9 @@ done:
+ 	if (src_top_object != VM_OBJECT_NULL) {
+ 		vm_object_deallocate(src_top_object);
+ 	}
++	if (fixup_alloc != NULL) {
++		kfree_data(fixup_alloc, 2 * (vm_size_t)mwli_page_size);
++	}
+ 	return retval;
+ }
+ 
+diff --git a/pexpert/gen/bootargs.c b/pexpert/gen/bootargs.c
+index 1ef8caa..36275ba 100644
+--- a/pexpert/gen/bootargs.c
++++ b/pexpert/gen/bootargs.c
+@@ -188,13 +188,23 @@ gotit:
+ 	return arg_found;
+ }
+ 
++/*
++ * UniXNU: boot arguments a board builds into its kernel, the switches it always sets, so the boot
++ * loader's command line (DarwinBoot keeps at most 1023 bytes) carries only what changes between
++ * boots. An argument on the command line wins; one absent from it is looked up here (a switch the
++ * board sets is turned off with name=0 on the command line). A board that defines none gets this
++ * empty one.
++ */
++__attribute__((weak)) char PE_builtin_boot_args[] = "";
++
+ boolean_t
+ PE_parse_boot_argn(
+ 	const char      *arg_string,
+ 	void            *arg_ptr,
+ 	int                     max_len)
+ {
+-	return PE_parse_boot_argn_internal(PE_boot_args(), arg_string, arg_ptr, max_len, FALSE);
++	return PE_parse_boot_argn_internal(PE_boot_args(), arg_string, arg_ptr, max_len, FALSE) ||
++	       PE_parse_boot_argn_internal(PE_builtin_boot_args, arg_string, arg_ptr, max_len, FALSE);
+ }
+ 
+ boolean_t
+@@ -214,7 +224,8 @@ PE_parse_boot_arg_str(
+ 	char            *arg_ptr,
+ 	int                     strlen)
+ {
+-	return PE_parse_boot_argn_internal(PE_boot_args(), arg_string, arg_ptr, strlen, TRUE);
++	return PE_parse_boot_argn_internal(PE_boot_args(), arg_string, arg_ptr, strlen, TRUE) ||
++	       PE_parse_boot_argn_internal(PE_builtin_boot_args, arg_string, arg_ptr, strlen, TRUE);
+ }
+ 
+ #if defined(CONFIG_XNUPOST)

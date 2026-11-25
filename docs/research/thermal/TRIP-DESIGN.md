@@ -7,7 +7,7 @@
 > ① 板级 DTS `/tmp/mondrian.dts`（由 UEFI 的 `sm8475-xiaomi-mondrian.dtb` 反编译；与 `vendor_boot`
 >    里的 DTB 实质相同，只有根节点三行差异，见 `04-ANDROID-EVIDENCE.md:236-256`）。下文所有
 >    `mondrian.dts:N` 都指这份文件，重建命令见 §5。
-> ② Android 现场取证 `/mnt/e/k60-work/evidence/thermal-android-20261114/`（设备 6033dbec，2026-11-14 11:43-12:01）。
+> ② Android 现场取证 `/mnt/e/iOS Port/Work/evidence/thermal-android-20261114/`（设备 6033dbec，2026-11-14 11:43-12:01）。
 > ③ 本树源码与内核导出表：`/opt/k60/trees/thermal-out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work`
 >    与同树 `build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/all-kpi.exp`。
 
@@ -48,7 +48,7 @@
 
 | 候选来源 | 实测结论 | 证据 |
 |---|---|---|
-| `/vendor/etc/thermal-engine.conf` | **不是来源**：84 字节，内容是 `# File empty by default`。本机不用 thermal-engine，用 thermald | `04-ANDROID-EVIDENCE.md:231`；`/mnt/e/k60-work/evidence/thermal-android-20261114/thermal-engine.conf` |
+| `/vendor/etc/thermal-engine.conf` | **不是来源**：84 字节，内容是 `# File empty by default`。本机不用 thermal-engine，用 thermald | `04-ANDROID-EVIDENCE.md:231`；`/mnt/e/iOS Port/Work/evidence/thermal-android-20261114/thermal-engine.conf` |
 | `/vendor/etc/thermald-devices.conf` | **只列执行器，不列阈值**：2266 B 明文，21 个 `[name:...]` 块，全是 `cooling_name`/`path`/`def_target`，没有温度 | `thermald-devices.conf:1-169`；`04-ANDROID-EVIDENCE.md:232` |
 | `thermal-map.conf` / `thermal-normal.conf` / `thermal-phone.conf` | **不可解**：厂商加密二进制（`xxd` 头部 `01f8 9f93…`，无 gzip 头，`strings` 无明文），已放弃 | `04-ANDROID-EVIDENCE.md:266` |
 | 固件（`qcom_tsens.ko`） | **不含阈值表**：`.rodata` 只有寄存器字段表 `tsens_v2_regfields`，trip 由 vendor 内核从 DT 注册 | `04-ANDROID-EVIDENCE.md:153-174` |
@@ -167,7 +167,7 @@ CPU phandle 对照：`0x15`=cpu@0 `:479`、`0x16`=cpu@100 `:507`、`0x17`=cpu@20
 | 停核 | 有 `ArmCpu::haltCPU()`，但是**单向**：`quiesceCPU()` + `setCPUState(kIOCPUStateStopped)` + `daifset` + 死循环 `wfi` | `drivers/ArmCpu/ArmCpu.cpp:55`（声明）、`:489-495`（定义） |
 | 重新上核 | 有 `startCPU()` → `psci_smp_start_cpu()` | `drivers/ArmCpu/ArmCpu.cpp:497-500` |
 | CPU 频率/电压 | **没有**。XNU 只在 `IOCPU.cpp:369/:373` 把 `gPEClockFrequencyInfo.cpu_frequency_hz` 当属性发布，不设频率 | `iokit/Kernel/IOCPU.cpp:369-373` |
-| GPU 频率 | 没有（Adreno 归档只做 MMU/固件探针，`CONFIG_XNU_NATIVE_ADRENO` 未启用） | 构建 manifest 的 skip 列表（`/mnt/e/k60-work/artifacts/thermal-20261114c/build-manifest.json`） |
+| GPU 频率 | 没有（Adreno 归档只做 MMU/固件探针，`CONFIG_XNU_NATIVE_ADRENO` 未启用） | 构建 manifest 的 skip 列表（`/mnt/e/iOS Port/Work/artifacts/thermal-20261114c/build-manifest.json`） |
 | DDR 频率 | 没有 | 同上 |
 | 充电电流 | 没有：`K60Battmgr` 只有 init/channel_up/channel_down/refresh/sent/receive/timeout/sample | `drivers/PongPower/K60Battmgr.h:55-68` |
 | 电池属性发布 | 有，但只读：`K60Battery : IOPMPowerSource` | `drivers/PongPower/K60Battery.cpp:46`、`:85`、`:349` |
@@ -251,7 +251,7 @@ CPU phandle 对照：`0x15`=cpu@0 `:479`、`0x16`=cpu@100 `:507`、`0x17`=cpu@20
 ```bash
 # 重建 DTS（UEFI 的 DTB 与 vendor_boot 的 DTB 实质相同，见 04 篇 §7）
 dtc -I dtb -O dts \
-  /mnt/e/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb \
+  /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb \
   -o /tmp/mondrian.dts
 
 # trip 温度直方图（本文 §1.1 的数字）

@@ -14,6 +14,16 @@ allocates numbers in this file and the lanes read it before writing one.
 | P-283 | wifi | an archive that passes arch/provenance can still be a stub container |
 | P-284 | cellular | a preflight that must stay pending cannot borrow the flight ledger's verdict |
 | P-285 | audio | a bare `void *` across an io boundary compiles and links; only a type pair does not |
+| P-288 | 官方页审计覆盖率 | lead | 2026-11-21 |
+| P-289 | 门禁自身语义 | lead | 2026-11-21 |
+| P-290 | 门禁自身语义 | lead | 2026-11-21 |
+| P-291 | 流程（先读参考源） | lead | 2026-11-21 |
+| P-292 | 基线（残留计数） | lead | 2026-11-21 |
+| P-293 | 流程（官网页出处） | lead | 2026-11-21 |
+| P-294 | 证据（候选哈希≠产物哈希） | lead | 2026-11-21 |
+| P-295 | 度量（量错一组=量错全部） | lead | 2026-11-21 |
+| P-296 | 语义（缺席值落在合法值域内） | gpu27 | 2026-11-21 |
+| P-301 | 构建（开关未到编译器） | lead | 2026-11-21 |
 
 Rules:
 
@@ -24,3 +34,13 @@ Rules:
 3. This file is the only place that records a reservation; a number that appears
    nowhere here is not allocated, and `scripts/check-pitfall-numbers.py` treats a
    duplicate as a failure.
+| P-303 | 门禁（不可 import 的死代码） | lead | 2026-11-21 |
+| P-302 | 门禁（账本选错操作系统） | lead | 2026-11-21 |
+| P-304 | 门禁（路径锚点） | lead | 2026-11-21 |
+| P-305 | 预链接 / 合规对照 | lead | 2026-11-22 |
+| P-306 | 预链接（root 列表） | lead | 2026-11-22 |
+| P-307 | 仪器（寿命假设） | lead | 2026-11-22 |
+| P-308 | 内核（kprintf 未开） | lead | 2026-11-22 |
+| P-309 | 门禁（报文截名） | lead | 2026-11-22 |
+| P-310 | 构建（链接输入无生产者） | lead | 2026-11-22 |
+| P-311 | 移植（判定缺证据） | lead | 2026-11-23 |

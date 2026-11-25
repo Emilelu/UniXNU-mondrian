@@ -1,0 +1,67 @@
+--- a/bsd/dev/k60_usblog_reset.c
++++ b/bsd/dev/k60_usblog_reset.c
+@@ -42,3 +42,64 @@
+ 
+ 	kprintf("k60-reset: SYSTEM_RESET and HVC both returned; staying put\n");
+ }
++#include <kern/clock.h>   /* delay() */
++/*
++ * 0550: autoreset, from patches/xnu/0334b-k60-autoreset.patch without the SPMI
++ * restart-reason preamble that decision A dropped (CARRY-OVER-INVENTORY.md).
++ * Both boot arguments keep their 16-series names, so board.toml already carries
++ * k60_autoreset=300 and nothing new has to fit in the command line.
++ */
++void k60_autoreset_start(void);   /* call site: bsd_init.c, added by 0547 */
++
++static int k60_autoreset_seconds = -1;
++static int k60_autoreset_idle_seconds = 30;
++
++static void
++k60_autoreset_parse(void)
++{
++	int value = 0;
++
++	if (PE_parse_boot_argn("k60_autoreset", &value, sizeof(value)) && value > 0) {
++		k60_autoreset_seconds = value;
++	}
++	value = 0;
++	if (PE_parse_boot_argn("k60_autoreset_idle", &value, sizeof(value)) && value >= 0) {
++		k60_autoreset_idle_seconds = value;
++	}
++}
++
++static void
++k60_autoreset_thread(void *arg __unused, wait_result_t wr __unused)
++{
++	int elapsed = 0;
++
++	delay(1000000ULL * (unsigned)k60_autoreset_idle_seconds);
++	while (elapsed < k60_autoreset_seconds) {
++		delay(1000000ULL);
++		elapsed++;
++	}
++	kprintf("k60-autoreset: %d s after %d s idle; resetting\n",
++	    k60_autoreset_seconds, k60_autoreset_idle_seconds);
++	k60_usblog_reset_to_fastboot();
++}
++
++void
++k60_autoreset_start(void)
++{
++	thread_t thread = NULL;
++	kern_return_t kr;
++
++	k60_autoreset_parse();
++	if (k60_autoreset_seconds <= 0) {
++		kprintf("k60-autoreset: disabled\n");
++		return;
++	}
++	kr = kernel_thread_start(k60_autoreset_thread, NULL, &thread);
++	if (kr != KERN_SUCCESS) {
++		kprintf("k60-autoreset: kernel_thread_start failed %d\n", kr);
++		return;
++	}
++	thread_deallocate(thread);
++	kprintf("k60-autoreset: armed for %d s after %d s idle\n",
++	    k60_autoreset_seconds, k60_autoreset_idle_seconds);
++}

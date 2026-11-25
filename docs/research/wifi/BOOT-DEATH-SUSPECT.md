@@ -60,7 +60,7 @@ the first image that tests the current tree.
   container (PongWifiFirmware.bin, 11,189,974 B) lands in the kernel's
   read-only first segment.
 - Measured on six payload kernels, section table of the `kernel.macho`
-  extracted from each `boot.img` (`E:/k60-work/scratch/constsz.py`):
+  extracted from each `boot.img` (`E:/iOS Port/Work/scratch/constsz.py`):
 
   | image | kernel bytes | `__TEXT` vmsize | `__const` | PWF2 magic | on device |
   |---|---|---|---|---|---|
@@ -302,7 +302,7 @@ Building it exposed two fixed infra gaps, both recorded on main:
 
 | field | value |
 |---|---|
-| evidence | `E:/k60-work/evidence/usblog-20261115-213221` |
+| evidence | `E:/iOS Port/Work/evidence/usblog-20261115-213221` |
 | `boot.img` | `25c9821510ca50032617b61e63b058580722e375ee5b533badf3d74c07a9d074` (matches the built artifact) |
 | console | **0 bytes**; `port-not-observed`, `returnedToFastboot`, `fastboot-return` |
 | judge | `silent` / exit 2 (`scripts/judge-z0.sh … --expect-arg pong_wifi=0`) |
@@ -321,7 +321,7 @@ they were — on the 117 MB family.
 ## 3d. The 66 MB wifi kernel against the 106/129 MB kernels that boot
 
 Method: `mcopy -o -i boot.img@@557056 ::/EFI/UniXNU/Payloads/kernel.macho`, then
-walk `LC_SEGMENT_64` / `section_64` (`E:/k60-work/scratch/table4.py`). All four
+walk `LC_SEGMENT_64` / `section_64` (`E:/iOS Port/Work/scratch/table4.py`). All four
 images carry the same 4.5 GiB ADT window (`0x120000000`), so the window is not a
 variable here. Sizes are vmsize unless two numbers are given (`vmsize /
 filesize`).
@@ -547,7 +547,7 @@ The Lead's remaining layout hypothesis was that the wifi kernels push a segment
 or the total image past a granularity the loader allocates in. It is answerable
 without a flight: read every `LC_SEGMENT_64` from the payload kernel, add the
 ADT size, and compare against the four limits `DarwinBoot.c` actually enforces.
-Measured with `E:/k60-work/scratch/winmath3.py` (`mcopy` the payload kernel and
+Measured with `E:/iOS Port/Work/scratch/winmath3.py` (`mcopy` the payload kernel and
 its `.adt` out of each `boot.img`, then follow the loader's own arithmetic):
 
 | limit | `DarwinBoot.c` | value |
@@ -788,7 +788,7 @@ blob in `__DATA` is a proven layout on this board, not an experiment.
 ### 4.3 The segment budget checks out
 
 Measured with `mcopy` on the payload kernel (script
-`E:/k60-work/scratch/prec.py`):
+`E:/iOS Port/Work/scratch/prec.py`):
 
 | segment / section | gpu-20261114t (boots) | wifi-20261116mhi5 (silent) |
 |---|---|---|
@@ -838,25 +838,25 @@ It stays the fallback if `__DATA` placement turns out to be insufficient.
 
 ## 5. Evidence index
 
-- Flights: `/mnt/e/k60-work/evidence/usblog-20261115-002243` (mhi4),
+- Flights: `/mnt/e/iOS Port/Work/evidence/usblog-20261115-002243` (mhi4),
   `usblog-20261115-002804` (mhi3); healthy peers
   `usblog-20261115-012913` (bt-s4a), `usblog-20261115-013520`
   (brightness-4), `usblog-20261114-150931` (touch-20261114a).
 - Kernel forensics: `out-wifi/mondrian/…/kernel/stale/kernel-20261114-2312.macho`
   vs current `kernel.macho`; segment tables in the section above measured
-  with `E:/k60-work/scratch/seg3.py`.
+  with `E:/iOS Port/Work/scratch/seg3.py`.
 - Loader constraints: `DarwinBoot.c:168` (segment ≤ 256 MB),
   `:195-196` (span ≤ 254 MB), `:452-509` (contiguous
   `AllocateWindow`), `:723` (ADT `darwinboot-memory-size`),
   `:775` (`Used > WindowSize - BLOCK_SIZE`), `:794`
   (`Args->MemorySize = WindowSize`).
-- Probe script: `E:/k60-work/scratch/seg3.py` (segment tables).
+- Probe script: `E:/iOS Port/Work/scratch/seg3.py` (segment tables).
 - Post-T0 flights: `usblog-20261115-135859` (z0/T0, silent),
   `usblog-20261115-161102` (t2, silent),
   `usblog-20261115-140927` (bt-s4b-20261115b, alive),
   `usblog-20261115-163144` (bt-s4b-20261115c, silent),
   `usblog-20261115-162553` (bt-s4c-20261115c, alive).
-- c1 build: `/mnt/e/k60-work/artifacts/wifi-20261116c1/build-manifest.json`
+- c1 build: `/mnt/e/iOS Port/Work/artifacts/wifi-20261116c1/build-manifest.json`
   (built 2026-11-15T23:10:57+08:00); payload-kernel byte diff against c0 with
   `cmp -l` on the two `mcopy` extracts; UUID literal test with `grep -c -a`.
 - Pool/window analysis: `DARWINBOOT-POOL.md` (the three DarwinBoot memory
@@ -864,7 +864,7 @@ It stays the fallback if `__DATA` placement turns out to be insufficient.
   5120 MiB arena, and the one-flight discriminator).
 - c2/c3 pair and the UFS lease: `patches/wifi/0012-drivers-PongWifi-lease-lock-lazy-init.patch`,
   `scripts/tests/test-pong-smmu-lease.py`, and
-  `/mnt/e/k60-work/artifacts/wifi-20261116c3/build-manifest.json` (§3h).
-- Static segment arithmetic for every flown image: `E:/k60-work/scratch/winmath3.py`
+  `/mnt/e/iOS Port/Work/artifacts/wifi-20261116c3/build-manifest.json` (§3h).
+- Static segment arithmetic for every flown image: `E:/iOS Port/Work/scratch/winmath3.py`
   (`mcopy` the payload kernel and its `.adt`, then apply `DarwinBoot.c:757-772`
   `Used`); the resulting table is §3g.

@@ -1,0 +1,26 @@
+# SYNTHETIC. Not evidence. Twenty stage lines and no bench, so the judge has to read the
+# copy out of the stage line itself - which is where the group numbering of the optional
+# client= field matters. submit=111 is deliberately different from gpu=2222: a judge that
+# reads the wrong group reports 111 as the copy and looks fine.
+Pong Metal: gpuonly=1
+Pong Metal: scanout frames=101 at 1.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=101 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=102 at 2.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=102 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=103 at 3.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=103 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=104 at 4.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=104 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=105 at 5.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=105 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=106 at 6.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=106 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=107 at 7.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=107 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=108 at 8.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=108 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=109 at 9.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=109 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=110 at 10.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=110 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=111 at 11.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=111 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=112 at 12.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=112 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=113 at 13.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=113 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=114 at 14.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=114 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=115 at 15.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=115 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=116 at 16.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=116 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=117 at 17.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=117 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=118 at 18.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=118 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=119 at 19.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=119 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+Pong Metal: scanout frames=120 at 20.5 s; last frame: wait=400 us copy=1200 us done=40 us client=8333 us; imports=120 import=27 us encode=300 us submit=111 us gpu=2222 us sum=4444 us
+K60 PANEL: INTF1 after the UI frame te 120/s period 8333 us

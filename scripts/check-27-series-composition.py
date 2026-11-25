@@ -30,6 +30,7 @@ prints the composition and the per-layer counts.
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import re
 import sys
@@ -113,15 +114,40 @@ def from_log(path: pathlib.Path) -> list[str]:
     return re.findall(r"^== kernel: patch (\S+)", text, re.MULTILINE)
 
 
+def resolve_trees(args):
+    """Fill the tree arguments from the environment when they are omitted.
+
+    The trees are discovered, never guessed: UNIXNU names the staged framework and
+    UNIXNU_OUT is where the soc feed sits. A missing input is an error, not a reason
+    to compare against some other tree (P-220).
+    """
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    env = os.environ
+    framework = args.framework or env.get('UNIXNU')
+    device = args.device or str(repo)
+    soc = args.soc
+    if not soc and env.get('UNIXNU_OUT'):
+        feeds = pathlib.Path(env['UNIXNU_OUT']) / 'feeds'
+        found = sorted(q for q in feeds.glob('UniXNU-sm8475-common-*') if q.is_dir())
+        if found:
+            soc = str(found[-1])
+    if not framework:
+        raise SystemExit('no framework tree: pass --framework or set UNIXNU')
+    if not pathlib.Path(framework).is_dir():
+        raise SystemExit('framework tree does not exist: %s' % framework)
+    return pathlib.Path(framework), pathlib.Path(device), (pathlib.Path(soc) if soc else None)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--framework", required=True, type=pathlib.Path)
-    parser.add_argument("--device", required=True, type=pathlib.Path)
+    parser.add_argument("--framework")
+    parser.add_argument("--device")
     parser.add_argument("--soc", type=pathlib.Path)
     parser.add_argument("--profile")
     parser.add_argument("--log", type=pathlib.Path)
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
+    args.framework, args.device, args.soc = resolve_trees(args)
 
     layers, counts = composition(args.framework, args.device, args.soc, args.profile)
     names = [name for _, name in layers]

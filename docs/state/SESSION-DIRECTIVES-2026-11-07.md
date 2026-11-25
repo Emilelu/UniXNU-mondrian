@@ -5,7 +5,7 @@
 
 ## 0. 铁则（已写入各仓 `AGENTS.md`，此处为摘要）
 
-1. **非临时文件不许放 `/tmp`。** 补丁、`series`、构建脚本、笔记、被结果引用的产物 → 仓库或 `E:\k60-work`。
+1. **非临时文件不许放 `/tmp`。** 补丁、`series`、构建脚本、笔记、被结果引用的产物 → 仓库或 `E:\iOS Port\Work`。
 2. **源码必须先纳入 git 并 push，再进入下一步。** 只在临时 worktree 里的工作等于没做。
 3. **遇到问题先查 `UniXNU-pong` 的解决方案，禁止在没调研该仓库的情况下瞎猜瞎搞。** 方案必须给出 `文件:行号`，或明确声明"没找到先行实现"。
 
@@ -15,21 +15,21 @@
 
 **顺序**：
 1. `D:\Android`（含 `D:\Android\k60-ios`、`deliverables/`、`config/`、`archive/`）
-2. `E:`（`E:\hackios`、`E:\k60-work`、`E:\k60-archive`）
+2. `E:`（`E:\iOS Port\Sources`、`E:\iOS Port\Work`、`E:\k60-archive`）
 3. `F:`（`F:\k60-archive`，含 `dtb/`）
 4. WSL 内部（`/tmp`、`/opt`、`/home`）
 
 **血泪教训（本会话三次误判"文件丢了"）**：
 - 用 **MSYS 的 `/tmp`** 去看 **WSL 的 `/tmp`** → 误判 `k60build`/`usb-cdc-mainline`/IPSW 全丢。**MSYS `/tmp` ≠ WSL `/tmp`**；查 WSL 必须 `wsl -u root -e bash -c ...`。
 - 误判 dtbo 丢失 → 实际在 `F:/k60-archive/dtb/`（65 个文件，含 `dtbo_a_fdt15.dtb` 752,562 B、`dtbo_a_fdt19.dtb` 509,088 B）。
-- 误判 IPSW 分量丢失 → 实际在 `E:/hackios/UniXNU/out/ipsw/20G81/`：`096-57366-083.dmg`(4,250,815,697 B=OS 窗口)、`096-56782-083.dmg`(2,665,480,192 B=裸 APFS SystemOS)、`kernelcache.decompressed`(48,644,096 B)，合计 6.5 GB。
+- 误判 IPSW 分量丢失 → 实际在 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/`：`096-57366-083.dmg`(4,250,815,697 B=OS 窗口)、`096-56782-083.dmg`(2,665,480,192 B=裸 APFS SystemOS)、`kernelcache.decompressed`(48,644,096 B)，合计 6.5 GB。
 
 **结论**：宣布"文件丢失"之前，必须在上述四个位置都搜过，并记录搜索命令与结果。
 
 ## 2. 参照对象：pong 的 **ios16 分支**（不是 main）
 
 - `UniXNU-pong` = **Nothing Phone (2)，SM8475**，iOS 16.6.1 / 20G81 —— 与我们同 SoC、同 OS 版本；README 明确写「**曾进入 iOS 主界面**」。
-- 读取方式：`git -C E:/hackios/UniXNU-pong show FETCH_HEAD:<路径>`（`ios16` 已 fetch 为 `FETCH_HEAD`）。
+- 读取方式：`git -C E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong show FETCH_HEAD:<路径>`（`ios16` 已 fetch 为 `FETCH_HEAD`）。
 - pong 的 **main 分支是 iPadOS 18（22H374）**，方案不同（App cryptex 装进 OS：`install_app_cryptex()`）；**ios16 分支才是我们的同款**（`source_path` 对 App cryptex 返回 `None`，注释就是 `no matching 20G81 App cryptex in this port yet`）。
 
 ## 3. 三层对比结论（机械 diff，均已实测）
@@ -126,7 +126,7 @@
 ## 12. 今天已恢复/已入库的东西
 
 - WSL `/tmp/usb-cdc-mainline/device/patches/xnu/` 里 **0384–0390 全部存在**（含 `0390-k60-cryptex-app-access.patch`）。
-- 已复制到 `E:/hackios/UniXNU-mondrian/patches/xnu/` 并补进 `series`：**0384 pid_hibernate、0385 AKS 93/34、0386 exec 探针守卫、0387 panic args、0388 n4k cache I/O、0389 KXPC**。
+- 已复制到 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/patches/xnu/` 并补进 `series`：**0384 pid_hibernate、0385 AKS 93/34、0386 exec 探针守卫、0387 panic args、0388 n4k cache I/O、0389 KXPC**。
 - **0390 不启用**：它是"对 `/System/Cryptexes/App` 的 access 假成功"，属自创路线，Pong 没有此做法（铁则 3）。
 - 构建环境（WSL 侧）**仍然完整**：`/opt/unixnu-linux`、`/tmp/k60build`、`/tmp/usb-cdc-mainline`。
 

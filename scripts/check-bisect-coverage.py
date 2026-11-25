@@ -24,8 +24,8 @@ import json
 import os
 import sys
 
-ARTIFACTS = '/mnt/e/k60-work/artifacts'
-EVIDENCE = '/mnt/e/k60-work/evidence'
+ARTIFACTS = '/mnt/e/iOS Port/Work/artifacts'
+EVIDENCE = '/mnt/e/iOS Port/Work/evidence'
 
 
 def built_images(artifacts, prefix=''):

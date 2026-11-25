@@ -21,14 +21,14 @@
 
 ### 1.1 profiles/os/ 目录现状
 
-- `/mnt/e/hackios/UniXNU/profiles/os/` 只有 4 个目录：ipados-16.6.1-20G81、ipados-17.7.11-21H461、ipados-26.5.2-23F84、ipados-27.0.1-24A446（实测 ls）。git log --all -- profiles/os 从未出现过 ios-* 目录（只有 macos-27.3-26C5035r 系列与 ipados 系列）。
+- `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/profiles/os/` 只有 4 个目录：ipados-16.6.1-20G81、ipados-17.7.11-21H461、ipados-26.5.2-23F84、ipados-27.0.1-24A446（实测 ls）。git log --all -- profiles/os 从未出现过 ios-* 目录（只有 macos-27.3-26C5035r 系列与 ipados 系列）。
 - 官方文档对 os_profile 的全部定义：`board | os_profile | Directory under profiles/os/`（UniXNU-docs/docs/reference/configuration.md:45）；分层合并 `Layers apply as ARM64, SoC, OS, device. Tables merge by key; arrays replace.`（:52）。
 - **resolver 没有 ipados 白名单**：`scripts/unixnu/profiles.py:19-27 resolve_os()` 先按完整目录名匹配（:22-23 `if wanted in names: return wanted`），短名才走 `ipados-{wanted}.` 前缀（:24）；`load()` 只校验目录名合法与 `arch ∈ {arm64, arm64e}`（:42-44，arch 键从 os profile 的 `[os] arch` 读，默认 arm64）。**新建 profiles/os/ios-* 目录即可被选中，无需改 resolver**；同时 CLI 有 `--os` 参数（cli.py:23）可在不改 board.toml 的情况下试跑。
 - 用户提到的 os-config 文档页不存在：unixnu.com/zh/porting/ 下没有 os-config 页（20 个页面列表实测，无 os-config），os_profile 的说明只在 reference/configuration.md:45 与 porting/device-repository.md:147-178。
 
 ### 1.2 profile.toml 逐字段对比（16.6.1 iPadOS 现行 vs 换 iOS 需要改的值）
 
-现值（/mnt/e/hackios/UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml）：
+现值（/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/profiles/os/ipados-16.6.1-20G81/profile.toml）：
 
 | 字段（行号） | 现值 | 换 iOS（iPhone12,1 n104ap） | 换 iOS（A11 iPhone10,6 d221ap） | 证据 |
 | --- | --- | --- | --- | --- |

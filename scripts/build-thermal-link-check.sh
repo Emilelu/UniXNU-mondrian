@@ -22,7 +22,7 @@ set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$ROOT/build/thermal-link-check
-TREE=${K60_XNU_TREE:-/mnt/e/hackios/UniXNU/out/mondrian/tree}
+TREE=${K60_XNU_TREE:-/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/mondrian/tree}
 
 while [ $# -gt 0 ]; do
     case "$1" in

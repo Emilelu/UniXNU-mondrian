@@ -9,13 +9,13 @@ component and (c) the K60 vendor `btpower.c`/`hci_qca.c`. This is the ⑥ deep d
 The file under review is `bsd/dev/qbt_k60.c` **as created by `patches/xnu/0500`**:
 1249 lines, sha256 `8451c8706ecf75a79fba49ba7e3bda769ee73fcac5f357a46c9d484df3878748`.
 Line numbers below are for that exact extract. It is **not** the older copy in
-`/mnt/e/k60-work/impl/bt/bsd/dev/qbt_k60.c` (sha256 `9b506121…`), which predates the stage
+`/mnt/e/iOS Port/Work/impl/bt/bsd/dev/qbt_k60.c` (sha256 `9b506121…`), which predates the stage
 gating added before `main` was frozen at `f119a80`.
 
 Reference copies used for every claim: `docs/research/bt/evidence/linux-geni-se-v6.6.h`,
 `linux-qcom-geni-se-v6.6.c`, `linux-qcom_geni_serial-v6.6.c`, `clk-rcg2.c`, `clk-branch.h`,
 `k60-android-btpower.c`, `k60-android-hci_qca.c`, plus the official component at
-`E:/hackios/QcaBluetooth/src/qbt_geni.c` / `src/qbt_geni_regs.h` and
+`E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth/src/qbt_geni.c` / `src/qbt_geni_regs.h` and
 `docs/porting/bluetooth.md`.
 
 ## 0. Verdict
@@ -120,7 +120,7 @@ ud.dma_pa = ptoa_64(pn);
 ```
 
 That path is proven on this board: the CDC console it feeds is the same console every boot log in
-`/mnt/e/k60-work/evidence/` comes from, and its SMMU dump prints a live `sCR0 0x00200406`
+`/mnt/e/iOS Port/Work/evidence/` comes from, and its SMMU dump prints a live `sCR0 0x00200406`
 (`console.log:246`). BT's stream is 0x483 (FDT `iommus = <0x5b 0x483 0>`, `mondrian.dts:10715`), so S2
 must call the same planner with `stream = 0x483`. The helpers are `static` inside `k60_usblog.c`, so
 the two options are (a) lift them into a shared `bsd/dev/k60_smmu.c` and add it to `bsd/conf/files`
@@ -323,7 +323,7 @@ Nothing in `0500` reads `/chosen/unique-chip-id`, creates an `/arm-io/bluetooth`
 
 The device agrees: the healthy `bt-s1-20261114a` boot prints, in a repeating block,
 `marconi-bt: Unable to match bluetooth service in device tree.`, `Not a valid MAC address (all 00s).`
-and `bluetoothd: No bluetooth on this device.` (`E:/k60-work/evidence/usblog-20261114-bts1-run1/console.log:1249-1260`).
+and `bluetoothd: No bluetooth on this device.` (`E:/iOS Port/Work/evidence/usblog-20261114-bts1-run1/console.log:1249-1260`).
 So even a perfectly working SE20 would be invisible to userland.
 
 **Fix landed (2026-11-14, `patches/xnu/0509`, spec `S3-SPEC.md`):** the weak stub became a strong
@@ -384,23 +384,23 @@ turned on" — the touch line proves the latter is a real failure mode on this S
 
 ```bash
 # extract the file exactly as 0500 creates it
-cd /mnt/e/hackios/k60-bt
+cd /mnt/e/iOS Port/Sources/Hardware/k60-bt
 git apply --numstat patches/xnu/0500-k60-bt-qbt-new-files.patch | head
 # the extract used here:
-sha256sum /mnt/e/k60-work/scratch/bt-0500/qbt_k60.c
+sha256sum /mnt/e/iOS Port/Work/scratch/bt-0500/qbt_k60.c
 # -> 8451c8706ecf75a79fba49ba7e3bda769ee73fcac5f357a46c9d484df3878748  (1249 lines)
 ```
 
 Cross-check lines against `docs/research/bt/evidence/linux-geni-se-v6.6.h` (register map),
 `linux-qcom-geni-se-v6.6.c` (`geni_se_irq_clear` 239-246, `geni_se_get_qup_hw_version` 196-202),
-`clk-rcg2.c` (MND 288-350), `E:/hackios/QcaBluetooth/src/qbt_geni.c` (prepare/set_rate/rfr).
+`clk-rcg2.c` (MND 288-350), `E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth/src/qbt_geni.c` (prepare/set_rate/rfr).
 
 ## 7. Sources
 
 - `patches/xnu/0500-k60-bt-qbt-new-files.patch` (main, f119a80) — code under review.
 - `docs/research/bt/evidence/linux-geni-se-v6.6.h`, `linux-qcom-geni-se-v6.6.c`,
   `linux-qcom_geni_serial-v6.6.c`, `clk-rcg2.c`, `clk-branch.h`, `clk-branch.c` — Linux GENI/clk.
-- `E:/hackios/QcaBluetooth/src/qbt_geni.c`, `src/qbt_geni_regs.h`, `include/qbt.h` — component contract.
-- `E:/hackios/UniXNU/docs/porting/bluetooth.md:45-62` — official power/DMA sequence.
-- `E:/k60-work/scratch/bt/mondrian.dts:10707-10720` — wrapper SMMU binding, live FDT.
+- `E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth/src/qbt_geni.c`, `src/qbt_geni_regs.h`, `include/qbt.h` — component contract.
+- `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/porting/bluetooth.md:45-62` — official power/DMA sequence.
+- `E:/iOS Port/Work/scratch/bt/mondrian.dts:10707-10720` — wrapper SMMU binding, live FDT.
 - Vendor `k60-android-btpower.c`, `k60-android-hci_qca.c`, `k60-android-gcc-waipio.c` — K60 measured/vendor behaviour.

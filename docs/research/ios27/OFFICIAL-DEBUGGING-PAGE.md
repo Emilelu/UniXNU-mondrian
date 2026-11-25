@@ -1,7 +1,7 @@
 # 官方调试页与 ramoops 判据（iron-13 证据）
 
 页面：`https://unixnu.com/zh/guide/debugging`（registry 里原为 `unmapped`，本文件是它的第一条审计记录）。
-取法：`python3 scripts/k60-docsearch.py --page /zh/guide/debugging --fetch`（站点 VitePress 本地索引，2026-11-21 抓取，正文 821 行落在 `E:/k60-work/scratch/page-cb826fe0.txt`）。
+取法：`python3 scripts/k60-docsearch.py --page /zh/guide/debugging --fetch`（站点 VitePress 本地索引，2026-11-21 抓取，正文 821 行落在 `E:/iOS Port/Work/scratch/page-cb826fe0.txt`）。
 
 ## 页面给的诊断阶梯（原文要点，逐条对应本板落点）
 

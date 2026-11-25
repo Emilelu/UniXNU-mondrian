@@ -35,7 +35,7 @@ unsigned long long native_ufs_dpu_map(void) { return 0; }
 unsigned long long native_ufs_dpu_state(void) { return 0; }
 """
 
-REFERENCE = Path("/mnt/e/k60-work/references/GopFramebuffer")
+REFERENCE = Path("/mnt/e/iOS Port/Work/references/GopFramebuffer")
 FILES = ("NativeLegacyDisplay.cpp", "NativeGOPresenter.cpp", "NativeLegacyRequest.h",
          "NativeGOPWire.h", "NativeHalfCodes.h", "NativeGpuTrace.h")
 

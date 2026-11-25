@@ -2,7 +2,7 @@
 
 - 镜像标签：`gpu-rpath-20261117`
 - 分支/提交：`feat/gpu-metal-hw` @ 本卡提交之后的第一笔代码提交
-- 插件来源：`K60_METAL_PLUGIN_SRC` = `/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin-20261117`
+- 插件来源：`K60_METAL_PLUGIN_SRC` = `/mnt/e/iOS Port/Work/impl/gpu-mac-build/out/metal-plugin-20261117`
   （2026-11-17 用当前 `scripts/build-pong-metal-plugin.py` 从当前源码重编）
 
 ## 1. 目的
@@ -30,7 +30,7 @@ boot-arg、不改 `0610` 的部署逻辑、不改 init helper。
 
 ## 3. 抓取
 
-- 复用 `scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`。
+- 复用 `scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`。
 - 判读必须引用 `console.log` 行号；计数用 `grep -c`，不得用「看起来没有」。
 
 ## 4. 判据

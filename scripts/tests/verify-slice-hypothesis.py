@@ -17,8 +17,8 @@
 """
 import struct
 
-C = '/mnt/e/k60-work/scratch/goodix-fw/goodix_cfg_group_m11a.bin'
-OURS = '/mnt/e/k60-work/scratch/goodix-fw/cfg_pkg0_sensor255_type1.bin'
+C = '/mnt/e/iOS Port/Work/scratch/goodix-fw/goodix_cfg_group_m11a.bin'
+OURS = '/mnt/e/iOS Port/Work/scratch/goodix-fw/cfg_pkg0_sensor255_type1.bin'
 
 d = open(C, 'rb').read()
 ours = open(OURS, 'rb').read()

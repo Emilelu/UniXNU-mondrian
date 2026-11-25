@@ -148,8 +148,8 @@ slot1）。`board.toml` 的 `bitbang-pins` 因此是
 
 - yibiya `fix/goodix-reset-handshake`：`d82df47`（实现）、`71d8941`（契约文档）、
   `e72c735`（内核内初始化互斥量）、`f8c49f8`/`ec82bc9`/`fb74efc`（observer 取证）。
-- `/mnt/e/hackios/UniXNU-sheng/package/QcomRpmh.c`（`qcom_cmd_db_find` /
+- `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/QcomRpmh.c`（`qcom_cmd_db_find` /
   `qcom_rsc_layout` / `qcom_rpmh_active_request`）。注意该参考板是 SM8550，
   只能作结构参考，常量必须用本板实测值。
 - Lead 的只读探针：`drivers/PongPower/K60PmicRail.c`，上机日志
-  `E:\k60-work\evidence\usblog-20261114-railh\console.log:477-479`。
+  `E:\iOS Port\Work\evidence\usblog-20261114-railh\console.log:477-479`。

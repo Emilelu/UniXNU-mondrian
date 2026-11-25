@@ -26,7 +26,7 @@
 
 ## 3. 抓取
 
-- 命令：`scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`
+- 命令：`scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`
 - 只看 `console.log`；`capture.json` 的 `complete` 必须为真
 - 新节奏下前 8 帧每帧一条、之后每 10 帧一条；至少有 2 条样本才算有效
 
@@ -60,7 +60,7 @@
 
 - 镜像 `gpu-import-scope2-20261118`：`boot.img` `f67c49834963dc46c611893a67dbd49921613d586a7dc5bc7a7c238eb0475510`，
   内核 `4c06353bd3364e3b8803156e256fa922f0d504cb306aada25ad5002c2c45c6a6`，插件 `metal-plugin-20261118i`。
-- 抓取 `E:/k60-work/evidence/usblog-20261118-171507`：`console.log` 279,455 B / 3,928 行，`capture.json complete=true`，
+- 抓取 `E:/iOS Port/Work/evidence/usblog-20261118-171507`：`console.log` 279,455 B / 3,928 行，`capture.json complete=true`，
   监督脚本 rc=0，**54 条 `scanout frames=` 样本**，帧号 1→400，`K60KEXC` 0、`K60PANIC: ring kept` 0、`crashed: backboardd` 0。
 
 ### 判决：PASS（S1–S8 全过）

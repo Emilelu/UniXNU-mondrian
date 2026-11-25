@@ -14,8 +14,8 @@
 
 ```bash
 # ① Linux ath11k 侧（libPongAth11k.a）
-cd /mnt/e/hackios/k60-wifi
-export PONG_SHENG_ROOT=/mnt/e/k60-work/impl/wifi/work/src/UniXNU-sheng
+cd /mnt/e/iOS Port/Sources/Hardware/k60-wifi
+export PONG_SHENG_ROOT=/mnt/e/iOS Port/Work/impl/wifi/work/src/UniXNU-sheng
 export UNIXNU_SDKROOT=$T/.cache/fakeroot          # T = 下面内核构建树里的 tree
 export PATH="/opt/unixnu-linux/CommandLineTools/usr/bin:/opt/unixnu-linux/llvm/bin:/usr/lib/llvm-18/bin:$PATH"
 python3 scripts/build-k60-ath11k.py --linux /home/emilelu/wifi-inputs/linux \
@@ -24,7 +24,7 @@ python3 scripts/build-k60-ath11k.py --linux /home/emilelu/wifi-inputs/linux \
 # ② 板级 + 固件打包（libPongWifiNative.a）
 python3 scripts/build-k60-wifi-native.py --tree $T \
     --ath11k /opt/k60/trees/k60build/wifi/ath11k/libPongAth11k.a \
-    --firmware /mnt/e/k60-work/firmware/qca6490-wifi \
+    --firmware /mnt/e/iOS Port/Work/firmware/qca6490-wifi \
     --output-dir /opt/k60/trees/k60build/wifi/native-real
 ```
 
@@ -34,7 +34,7 @@ python3 scripts/build-k60-wifi-native.py --tree $T \
    `/opt/k60/trees/k60build/out-wifi/mondrian/ipados-16.6.1-20G81/mondrian/tree`。
    传仓库根会报 `fatal error: 'IOKit/IOLib.h' file not found`（builder 用
    `a.tree/'.cache/fakeroot/...'` 拼 Kernel.framework 头路径）。
-2. `--firmware` 必须指**干净的四文件目录**（`/mnt/e/k60-work/firmware/qca6490-wifi`：
+2. `--firmware` 必须指**干净的四文件目录**（`/mnt/e/iOS Port/Work/firmware/qca6490-wifi`：
    amss.bin / amss20.bin / m3.bin / regdb.bin）。指向设备原目录会把 222 个文件
    全部打进 PWF2 包（实测 13,029,078 B、10 个文件）。
 
@@ -86,8 +86,8 @@ mondrian 走 **B**：`.config` 里 `CONFIG_XNU_SOURCE_CORECRYPTO14` 出现两次
 
 ## 2. 离线单测（unit_test）
 
-`E:\k60-work\evidence\wifi-trial\test_pwf2.py`，日志
-`E:\k60-work\evidence\wifi-trial\test-pwf2.log`，**PASS / 0 failures**。
+`E:\iOS Port\Work\evidence\wifi-trial\test_pwf2.py`，日志
+`E:\iOS Port\Work\evidence\wifi-trial\test-pwf2.log`，**PASS / 0 failures**。
 
 覆盖项：
 
@@ -101,7 +101,7 @@ mondrian 走 **B**：`.config` 里 `CONFIG_XNU_SOURCE_CORECRYPTO14` 出现两次
    | m3.bin | 0xa46000 (10,772,480) | 266,684 | ad234ac8… |
    | regdb.bin | 0xa88000 (11,042,816) | 24,278 | 06810e85… |
 
-3. 每一片的 sha256 与 `/mnt/e/k60-work/firmware/qca6490-wifi/<name>` **逐字节相同**。
+3. 每一片的 sha256 与 `/mnt/e/iOS Port/Work/firmware/qca6490-wifi/<name>` **逐字节相同**。
 4. blob 总长 11,067,094 B。
 5. Mach-O 解析（自写 LC_SEGMENT_64 遍历）：
    `_pong_wifi_firmware = 0xfffffff007096000`、
@@ -116,7 +116,7 @@ mondrian 走 **B**：`.config` 里 `CONFIG_XNU_SOURCE_CORECRYPTO14` 出现两次
 
 | 项 | 值 |
 |---|---|
-| 路径 | `/mnt/e/k60-work/artifacts/wifi-20261114a/boot.img` |
+| 路径 | `/mnt/e/iOS Port/Work/artifacts/wifi-20261114a/boot.img` |
 | 大小 | 201,887,744 B |
 | sha256 | `1bf90492b89b4f898b8163a7946c8bdf18ab56b25ff1711e15c3bfe5a6a1a481` |
 | payload.img | 201,326,592 B，sha256 `9a82302b4388ecdb5bf1634ce74cd632643355074eb88648b76cd4f21ba3641b` |
@@ -130,7 +130,7 @@ mondrian 走 **B**：`.config` 里 `CONFIG_XNU_SOURCE_CORECRYPTO14` 出现两次
 
 ### 3.2 verify-boot-image.py
 
-`python3 scripts/verify-boot-image.py --manifest /mnt/e/k60-work/artifacts/wifi-20261114a/build-manifest.json`
+`python3 scripts/verify-boot-image.py --manifest /mnt/e/iOS Port/Work/artifacts/wifi-20261114a/build-manifest.json`
 → `verify-boot-image: OK`（VERIFY_RC=0）。七项全过：
 
 1. ANDROID! magic + v4 + header_size 1584
@@ -141,7 +141,7 @@ mondrian 走 **B**：`.config` 里 `CONFIG_XNU_SOURCE_CORECRYPTO14` 出现两次
 6. payload 内 `unixnu.toml` 的 args 与 manifest 一致
 7. 策略项：无 `pong_adsp=1`（该参数会让 boot 被拒）
 
-manifest 由 `E:\k60-work\evidence\wifi-trial\mkmanifest.py` 生成（因为这张
+manifest 由 `E:\iOS Port\Work\evidence\wifi-trial\mkmanifest.py` 生成（因为这张
 boot.img 不是 build-strict.sh 出的，没有自动 manifest）。
 
 ### 3.3 内核启动参数（payload.json 实测，顺序即实际顺序）
@@ -229,7 +229,7 @@ k60_autoreset=300 applog=1 pong_wifi=1 k60_wifi_rsc=1
 | `wifi-20261114b/boot.img` `cf1d1ed8…` | `pong_wifi=1 k60_wifi_rsc=2` | 已构建，未上机（设备随后失联） |
 | `wifi-20261114c/boot.img` `622a1fd6…` | `pong_wifi=0`（对照） | 已构建，未上机 |
 
-证据 `/mnt/e/k60-work/evidence/usblog-20261114-wifi-b`：`capture.json` 是
+证据 `/mnt/e/iOS Port/Work/evidence/usblog-20261114-wifi-b`：`capture.json` 是
 `portSeen=false, portOpened=false, openErrors=0, stopReason="fastboot-return"`，
 `console.log` 0 字节；`boot.json` 却是 `captureArmed=true, bootAccepted=true,
 bootExitCode=0, returnedToFastboot=true`。同一 supervisor、同一 fd、同一设备
@@ -267,11 +267,11 @@ bootExitCode=0, returnedToFastboot=true`。同一 supervisor、同一 fd、同�
 | archive | `/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` 11,941,816 B（05:18） |
 | kernel.macho | 65,863,680 B，sha256 `f19ba0b37b9f7f30e49c0249cd4e9a397100df9dfd95da4788d0ab6488ec9bfc`（05:21） |
 | linkarchives 证据 | 含 `-Wl,-force_load,/opt/k60/trees/k60build/wifi/native-stage/libPongWifiNative.a` |
-| boot.img（stage=1） | `/mnt/e/k60-work/artifacts/wifi-20261114d/boot.img` 201,887,744 B，sha256 `4b5c7dfd0e74dbf7efa61247e27754b24f11b0df068129a82adfac3e7549abc7` |
-| boot.img（同内核对照） | `/mnt/e/k60-work/artifacts/wifi-20261114e/boot.img`，sha256 `a6eb8d5aabebc9382ab5687059cf28dc2e52854f34873d731be1fe8167979e3f`，args 尾部 `pong_wifi=0` |
+| boot.img（stage=1） | `/mnt/e/iOS Port/Work/artifacts/wifi-20261114d/boot.img` 201,887,744 B，sha256 `4b5c7dfd0e74dbf7efa61247e27754b24f11b0df068129a82adfac3e7549abc7` |
+| boot.img（同内核对照） | `/mnt/e/iOS Port/Work/artifacts/wifi-20261114e/boot.img`，sha256 `a6eb8d5aabebc9382ab5687059cf28dc2e52854f34873d731be1fe8167979e3f`，args 尾部 `pong_wifi=0` |
 | args | `… applog=1 pong_wifi=1 k60_wifi_rsc=1 k60_wifi_stage=1` |
-| 构建日志 | `/mnt/e/k60-work/evidence/wifi-trial/{build-stage-archive.log,tree-stage.log,kernel-stage.log,payload-stage1.log,bootimg-stage1.log}` |
-| 构建脚本 | `E:\k60-work\evidence\wifi-trial\{build-stage-archive.sh,build-stage-kernel.sh,mkboot-stage1.sh}` |
+| 构建日志 | `/mnt/e/iOS Port/Work/evidence/wifi-trial/{build-stage-archive.log,tree-stage.log,kernel-stage.log,payload-stage1.log,bootimg-stage1.log}` |
+| 构建脚本 | `E:\iOS Port\Work\evidence\wifi-trial\{build-stage-archive.sh,build-stage-kernel.sh,mkboot-stage1.sh}` |
 
 `unixnu build payload` / `bootimg` 同样要过 `gates.py`，在 `wifi-device`
 上必须带 `UNIXNU_SKIP_GATES=1`（否则 `build refused: … has no
@@ -325,7 +325,7 @@ docs/engineering/RULES.toml`）。
 每题目录都有 `build-manifest.json`，`python3 scripts/verify-boot-image.py
 --manifest <dir>/build-manifest.json` 全部 `OK`（v4 头、shim、FD、FDT、payload、
 payload 内 kernel、unixnu.toml args 七项）。构建脚本
-`E:\k60-work\evidence\wifi-trial\mkboot-stages.sh`。
+`E:\iOS Port\Work\evidence\wifi-trial\mkboot-stages.sh`。
 
 **payload 是共享产物**：`unixnu build payload` 每次覆盖
 `out-wifi/…/payload/payload.img`，所以每张 boot.img 必须在它自己那次 payload
@@ -349,7 +349,7 @@ archive `/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a` 12,066,184
 八张镜像全部用上面那个六文件内核重出，并且每张都跑了
 `argcheck1.py`（解 boot v4 头 → ramdisk 槽 → `mtype` 读
 `::EFI/UniXNU/unixnu.toml` → 正则取 `args`，上限 607）。构建脚本
-`E:\k60-work\evidence\wifi-trial\mkboot-ladder4.sh`，命令里带
+`E:\iOS Port\Work\evidence\wifi-trial\mkboot-ladder4.sh`，命令里带
 `TRIM="--kernel-arg epoch=1 --kernel-arg debug=1"`（让出 25 字节）。
 
 | 目录 | args 尾部 | 长度 | boot.img sha256（前 32 位） |
@@ -390,7 +390,7 @@ if ((Index >= sizeof (CommandLine) - 1) || (Request->BootArgs[Index] > 0x7f)) {
 「DarwinBoot copies the command line into a 1024-byte buffer」是过时的，
 不会替我们拦住 607–1000。
 
-静态门禁（`E:\k60-work\evidence\wifi-trial\static-stage-gates.log`）：
+静态门禁（`E:\iOS Port\Work\evidence\wifi-trial\static-stage-gates.log`）：
 archive 里存在 `PongWifi: stage %u (%s)`、`held back by k60_wifi_stage=%u`、
 `console up after %u ms`、`console never came up; WiFi skipped before any MMIO`
 四组字符串，未定义符号只有 `_PongWifiRandom`、`_PE_parse_boot_argn`、
@@ -428,7 +428,7 @@ different faults that the first failed boot could not separate.
 
 To separate them without touching the source, the same archive was rebuilt
 against a synthetic firmware directory
-(`/mnt/e/k60-work/impl/wifi/work/fake-fw/`, four 23-byte placeholder files):
+(`/mnt/e/iOS Port/Work/impl/wifi/work/fake-fw/`, four 23-byte placeholder files):
 
 - `build-tiny-archive.sh` → `/opt/k60/trees/k60build/wifi/native-tiny/libPongWifiNative.a`
   892,616 B (vs 12,066,184 B for the six-file pack);
@@ -451,12 +451,12 @@ The canonical six-file kernel is preserved outside the build tree as
 `73c33075…`), because `unixnu build kernel` overwrites
 `out-wifi/…/kernel/kernel.macho` in place and the tiny build replaced it.
 
-上机脚本 `E:\k60-work\evidence\wifi-trial\ladder6-run.ps1`
+上机脚本 `E:\iOS Port\Work\evidence\wifi-trial\ladder6-run.ps1`
 （`-RaceSeconds 7200 -Seconds 180 -Tag ladder9`）：每 0.7 s 抢一次
 fastboot 窗口，命中后先 boot 控制镜像 `a`，再 boot 全十级镜像 `g`
 （一次启动就能打出所有 `stage N` 行，最后一条就是挂了的那块），只有
 `g` 也静默时才退回线性阶梯 `b → c → p → d → e → f`。每张把结果写进
-`E:\k60-work\evidence\usblog-<stamp>-<tag>`，并在每轮之后等设备回 fastboot
+`E:\iOS Port\Work\evidence\usblog-<stamp>-<tag>`，并在每轮之后等设备回 fastboot
 （最多 240 s）；任何一张零字节控制台就停下（exit 12）。
 
 ### 5.12 The small-kernel ladder (54.8 MB) and the stock control
@@ -481,7 +481,7 @@ All nine passed `verify-boot-image.py`, and every rung passed `argcheck1.py`
 DarwinBoot limit). The `z0` image reuses the stock baseline kernel, which is the
 strongest control available: it contains no PongWifi code at all.
 
-Runner: `E:\k60-work\evidence\wifi-trial\ladder5-run.ps1`, which walks
+Runner: `E:\iOS Port\Work\evidence\wifi-trial\ladder5-run.ps1`, which walks
 `a → b → c → p → d → e → f → g` and stops on the first zero-byte console
 (exit 12). The `t*` rungs and `z0` are held back as a fallback: they are only
 booted when the control image `a` is itself silent, in which case the walk
@@ -526,7 +526,7 @@ Every rung therefore really does contain the console gate and the staging
 predicate. That is the precondition for reading a zero-byte console as "the gate
 never opened" rather than "the gate was not in the image".
 
-Scripts: `E:\k60-work\evidence\wifi-trial\verify-embedded.py` and `cmpkern.py`.
+Scripts: `E:\iOS Port\Work\evidence\wifi-trial\verify-embedded.py` and `cmpkern.py`.
 The payload kernel sha256 differs from the build product (`73c33075` for the
 six-file kernel) because `unixnu build payload` rewrites the Mach-O on the way
 into the FAT volume; `verify-boot-image.py` compares against the manifest, which
@@ -537,7 +537,7 @@ records the post-payload value.
 The ladder was rebuilt several times while the phone was dark, and each rebuild
 overwrites the shared `out-wifi/.../payload/payload.img`. A manifest that was
 written one build late would silently point a rung at a kernel it does not
-carry. `E:\k60-work\evidence\wifi-trial\check-artifacts.py` re-derives three
+carry. `E:\iOS Port\Work\evidence\wifi-trial\check-artifacts.py` re-derives three
 facts straight from the bytes on disk and compares them with
 `build-manifest.json`:
 
@@ -574,7 +574,7 @@ stale `payload.img` would make a silent capture mean the wrong thing: a rung wit
 no console gate in it would be silent for the old reason, and the ladder would be
 read backwards.
 
-`E:\k60-work\evidence\wifi-trial\preflight-embedded.py` splits the v4 boot header
+`E:\iOS Port\Work\evidence\wifi-trial\preflight-embedded.py` splits the v4 boot header
 (`ramdisk offset = 4096 + page_up(kernel_size)`), extracts
 `::EFI/UniXNU/Payloads/kernel.macho` with `mtype`, and counts five strings. Result
 for all twelve images that can be booted:
@@ -784,7 +784,7 @@ python3 scripts/build-k60-ath11k.py --linux /home/emilelu/wifi-inputs/linux \
 # 2) native 归档（把 ath11k 归档链进 PongWifiPlatform/PongWifiNet）
 python3 scripts/build-k60-wifi-native.py --tree $T \
     --ath11k /opt/k60/trees/k60build/wifi/ath11k-mhiboot/libPongAth11k.a \
-    --firmware /mnt/e/k60-work/firmware/qca6490-wifi-bdf \
+    --firmware /mnt/e/iOS Port/Work/firmware/qca6490-wifi-bdf \
     --output-dir /opt/k60/trees/k60build/wifi/native-mhiboot
 #    -> libPongWifiNative.a 12,067,744 B；同样 11 条
 ```
@@ -801,7 +801,7 @@ WiFi 代码，而在脚本与构建输入：门禁脚本指向别的线的工作
 
 1. **三道门禁指向别的线的树**（提交 `f8207ea`）。`scripts/check-build-applied.py`
    原来硬编码 `/tmp/usb-cdc-mainline/device/patches/xnu/series`；
-   `scripts/porting-gate.py` 硬编码 `/mnt/e/hackios/UniXNU-mondrian` 与
+   `scripts/porting-gate.py` 硬编码 `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` 与
    `scratch/SERIES-FINAL.txt`；`scripts/sync-device-input.py` 同样指向
    `UniXNU-mondrian` 与 `usb-cdc-mainline/device`。于是 P-165/P-166、iron-4/hard-33、
    iron-5 恒红，而它们比对的是别人的补丁集。改法照搬 Lead 版：`REPO` 由
@@ -809,7 +809,7 @@ WiFi 代码，而在脚本与构建输入：门禁脚本指向别的线的工作
    `patches/xnu/series`，并新增 `K60_BUILD_IN_PROGRESS`（构建进行中时，补丁戳过期
    表示「本轮会重写」，不是「有人改了没构建」）。`scripts/build-strict.sh` 补上
    `export K60_DEVICE_INPUT/K60_OUT/K60_BUILD_IN_PROGRESS`。
-2. **构建输入不是 git 仓库**。`/opt/k60/trees/k60-wifi-device` 是 `/mnt/e/hackios/k60-wifi`
+2. **构建输入不是 git 仓库**。`/opt/k60/trees/k60-wifi-device` 是 `/mnt/e/iOS Port/Sources/Hardware/k60-wifi`
    的镜像（`board.toml`、`patches/xnu/series` 与仓库逐字节相同），但没有 `.git`，
    `feeds.update_submodules`（`/opt/k60/trees/k60build/scripts/unixnu/feeds.py:208`）
    执行 git 时 `fatal: not a git repository`，payload 阶段直接失败。已在其中
@@ -859,7 +859,7 @@ verify-boot-image: OK
 内核里 `strings | grep -c "Pong MHI"` = **11**，11 条格式串全部在
 `kernel.macho` 里；`_pong_wifi_start_optional` / `_nw_wifi_start` /
 `_pong11_pong_ath11k_pci_init` / `_armcpu_spi_attach` 四个符号都在
-（`llvm-nm -n`）。manifest 在 `/mnt/e/k60-work/artifacts/wifi-20261116mhi3/build-manifest.json`。
+（`llvm-nm -n`）。manifest 在 `/mnt/e/iOS Port/Work/artifacts/wifi-20261116mhi3/build-manifest.json`。
 
 **上机时按这个顺序读控制台**（任何一行缺失就是定位点）：
 

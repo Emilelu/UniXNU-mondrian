@@ -3,15 +3,15 @@
 """Self-test for scripts/research-gate.py reference resolution.
 
 The gate used to resolve a reference path against exactly two places: the
-device checkout and `/mnt/e/k60-work`. Two reference repositories are checked
-out under `/mnt/e/hackios` instead (QcaBluetooth, UniXNU-liuqin), so a
+device checkout and `/mnt/e/iOS Port/Work`. Two reference repositories are checked
+out under `/mnt/e/iOS Port/Sources` instead (QcaBluetooth, UniXNU-liuqin), so a
 `required` entry naming either of them failed forever and the refmine line had
 to keep those findings in prose.
 
 These cases pin the resolution order and the failure message:
 
   1. REPO comes from K60_REPO or the script's own checkout, never a literal.
-  2. `/mnt/e/hackios` is one of the prefixes.
+  2. `/mnt/e/iOS Port/Sources` is one of the prefixes.
   3. A path that exists under the hackios prefix resolves (QcaBluetooth).
   4. A path that exists nowhere is reported with the prefix count.
   5. A relative path inside the repo still wins over a reference checkout.
@@ -60,7 +60,7 @@ def the_repo_root_is_not_a_literal_checkout():
 def the_hackios_prefix_is_searched():
     gate = load_gate()
     prefixes = [str(p) for p in gate.REFERENCE_PREFIXES]
-    assert '/mnt/e/hackios' in prefixes, f"missing /mnt/e/hackios in {prefixes}"
+    assert '/mnt/e/iOS Port/Sources' in prefixes, f"missing /mnt/e/iOS Port/Sources in {prefixes}"
     assert prefixes[0] == str(gate.REPO), "the repo itself must be searched first"
 
 
@@ -68,12 +68,12 @@ def the_hackios_prefix_is_searched():
 def a_reference_under_hackios_resolves():
     gate = load_gate()
     probe = 'QcaBluetooth/README.md'
-    if not os.path.exists('/mnt/e/hackios/' + probe):
-        print('   (skipped: /mnt/e/hackios/QcaBluetooth is not checked out here)')
+    if not os.path.exists('/mnt/e/iOS Port/Sources/' + probe):
+        print('   (skipped: /mnt/e/iOS Port/Sources/Repos/Drivers/QcaBluetooth is not checked out here)')
         return
     tried = [os.path.join(prefix, probe) for prefix in gate.REFERENCE_PREFIXES]
     assert any(os.path.exists(t) for t in tried), (
-        f"{probe} exists under /mnt/e/hackios but no prefix found it: {tried}"
+        f"{probe} exists under /mnt/e/iOS Port/Sources but no prefix found it: {tried}"
     )
 
 

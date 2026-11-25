@@ -38,7 +38,7 @@ import urllib.request
 
 BASE = 'https://unixnu.com/'
 BOX = 'assets/chunks/VPLocalSearchBox.BuZN87Uj.js'   # discovered 2026-11-21
-CACHE = os.environ.get('K60_DOCSEARCH_CACHE') or '/mnt/e/k60-work/unixnu-index'
+CACHE = os.environ.get('K60_DOCSEARCH_CACHE') or '/mnt/e/iOS Port/Work/unixnu-index'
 MIN_BYTES = 1_000_000
 UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) k60-docsearch/1'
 

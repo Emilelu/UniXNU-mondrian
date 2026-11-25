@@ -190,10 +190,10 @@
 
 ```sh
 # 数据：每个检出当前分支、HEAD、docs/research 中不在 main 的文件（97 个）
-wsl -u root -e python3 /mnt/e/k60-work/scratch/refmine/linemap.py
+wsl -u root -e python3 /mnt/e/iOS Port/Work/scratch/refmine/linemap.py
 # 标题：取每个文件第一个 `# ` 标题
-wsl -u root -e python3 /mnt/e/k60-work/scratch/refmine/linemap2.py
+wsl -u root -e python3 /mnt/e/iOS Port/Work/scratch/refmine/linemap2.py
 ```
 
-复核方法：`git -C /mnt/e/hackios/<检出> rev-parse --short HEAD` 与表中 HEAD 比对；
+复核方法：`git -C /mnt/e/iOS Port/Sources/<检出> rev-parse --short HEAD` 与表中 HEAD 比对；
 若分支已推进而本表未更新，按上表口径重跑两条脚本即可。

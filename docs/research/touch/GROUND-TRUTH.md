@@ -22,7 +22,7 @@ The rows below preserve historical device or console observations. Interpret eac
 
 `/sys/kernel/debug/regulator` does not exist (no `CONFIG_REGULATOR_DEBUG`);
 `/sys/class/regulator` does. Reproduce with `scripts/reg8350c.sh` in
-`E:\k60-work\scratch`.
+`E:\iOS Port\Work\scratch`.
 
 Android reported `pm8350c_l2` enabled at 1.8 V. The available records do not establish that Android's touch driver is the only voter, whether XNU or firmware votes it, or its state at `bring_up()`. The handoff state is unknown.
 

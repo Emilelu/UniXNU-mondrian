@@ -28,7 +28,7 @@
 ## 3 167 个的构成
 
 - **140 个是 GPU 翻译层**：`patches/mesa/**` 与 `patches/metal2vulkan/**`（t970 60 个里 59 个、zizhan 15 个全部、pong 65 个全部）。stage-0 27 配方不启用 Vulkan 翻译层，`docs/engineering/IOS-SCOPE.md` 已把 16 线的 `patches/metal2vulkan` 迭代列为停止项；这批要等 GPU 线重开时逐条判，现在既不能说「不需要」也不能说「已抄」。
-- **27 个非 GPU**：`uke` 23 个 upstream 补丁、`cupid` 3 个（darwinboot 日志窗口失败、entry-probe 跳过 nm 头、ramdisk 在 initrd 里找 FAT）、`asteroids` 1 个（`zzzzzzzzzz-ios27-dataconst-room.patch`）、`t970` 1 个（`0001-t970-rootlayout-pinned-shngroot.patch`）。这 27 个已派子代理逐条判定（交付 `/mnt/e/k60-work/scratch/precedent-gap-verdicts.toml`），判据要求每条给出我们树里的 `file:line` 或明确的不适用理由，不允许 `deferred`。
+- **27 个非 GPU**：`uke` 23 个 upstream 补丁、`cupid` 3 个（darwinboot 日志窗口失败、entry-probe 跳过 nm 头、ramdisk 在 initrd 里找 FAT）、`asteroids` 1 个（`zzzzzzzzzz-ios27-dataconst-room.patch`）、`t970` 1 个（`0001-t970-rootlayout-pinned-shngroot.patch`）。这 27 个已派子代理逐条判定（交付 `/mnt/e/iOS Port/Work/scratch/precedent-gap-verdicts.toml`），判据要求每条给出我们树里的 `file:line` 或明确的不适用理由，不允许 `deferred`。
 
 ## 4 门禁
 

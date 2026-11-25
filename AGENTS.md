@@ -59,7 +59,7 @@
 1. 先按铁则 12 尝试 `steer`（目标 running 时）；被拒（idle/offline）再用 `followup`。
 2. 消息正文固定五段，不超过 8 行：①分支名 ②HEAD sha ③本轮做了什么（一句）
    ④证据（`file:line` 或 commit） ⑤下一步判据。
-3. 同一轮更新 `E:\k60-work\scratch\reply-<line>-20261115.md`。
+3. 同一轮更新 `E:\iOS Port\Work\scratch\reply-<line>-20261115.md`。
 
 只写 reply md 不发消息 = 未交付。只发消息不更新 reply md 同样不合格。Lead 只按收到的
 消息计数与验收；reply md 是细节附录，不是交付本身。这条规则的成因是 2026-11-24 多条线

@@ -1,6 +1,6 @@
 # zizhan 的扫描目标和我们不一样：它写的是慢不了的那种内存
 
-来源：`E:/hackios/UniXNU-zizhan`（zizhan 的完整移植树）。这一页只记录**可引用的机制**，
+来源：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan`（zizhan 的完整移植树）。这一页只记录**可引用的机制**，
 不推断没量过的数字。写它的原因：`FLIGHT-CARD-20261119d.md` 的判据 F4 需要提前知道
 「如果目标端是慢的那个，下一步长什么样」。
 

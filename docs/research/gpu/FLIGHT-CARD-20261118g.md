@@ -30,7 +30,7 @@
 ## 3. 抓取
 
 - 镜像：`gpu-stages-20261118`
-- 命令：`scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`
+- 命令：`scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`
 - 只看 `console.log`；`capture.json` 的 `complete` 必须为真
 
 ## 4. 判据
@@ -58,7 +58,7 @@
 
 ### 判决：PASS（归因成功）—— 成本在 `presenter->present()`
 
-证据 `E:/k60-work/evidence/usblog-20261118-135714`（3,716 行，
+证据 `E:/iOS Port/Work/evidence/usblog-20261118-135714`（3,716 行，
 `capture.json` `complete`=true，`K60KEXC` 0，`crashed: backboardd` 0）。
 
 | 判据 | 结果 |

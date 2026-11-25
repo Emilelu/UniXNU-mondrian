@@ -48,7 +48,7 @@ production path.
 ## 1. Wi-Fi 6 (HE): what the station must actually do
 
 `ath11k` already consumes the peer HE capability and the BSS HE operation:
-`E:/k60-work/impl/wifi/work/src/linux-7.0.14/drivers/net/wireless/ath/ath11k/mac.c:2352`
+`E:/iOS Port/Work/impl/wifi/work/src/linux-7.0.14/drivers/net/wireless/ath/ath11k/mac.c:2352`
 `ath11k_peer_assoc_h_he()`, `:2375` `if (!he_cap->has_he) return;`,
 `:2424-2432` copies `peer_he_cap_macinfo` / `peer_he_cap_phyinfo`, `:2433-2437`
 sets `peer_he_ops` from `vif->bss_conf.he_oper.params`, and `:6055-6076`

@@ -4,8 +4,8 @@
 
 ## 1. 先读：d11 不是 d10 的替代品
 
-- d10 = 0517 单变量，候选 `E:/k60-work/artifacts/bt-0517-power-order/boot.img`，sha256 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`，**已于 2026-11-18 21:32 飞行，FAIL**（见 `D10-PLAN.md` §8）。
-- d11 = 0517 + 0518 累积候选，候选 `E:/k60-work/artifacts/bt-0518-gic-intid/boot.img`，sha256 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`，**已于 2026-11-18 22:19 飞行，PASS**（见 §9）。
+- d10 = 0517 单变量，候选 `E:/iOS Port/Work/artifacts/bt-0517-power-order/boot.img`，sha256 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`，**已于 2026-11-18 21:32 飞行，FAIL**（见 `D10-PLAN.md` §8）。
+- d11 = 0517 + 0518 累积候选，候选 `E:/iOS Port/Work/artifacts/bt-0518-gic-intid/boot.img`，sha256 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`，**已于 2026-11-18 22:19 飞行，PASS**（见 §9）。
 - **相对 d10 的唯一运行时差别是 0518**（GIC INTID 修正）。相对 d9（0516）则同时多了 0517 和 0518 两个变量。
 - 因此权威顺序是 **先 d10，后 d11**；d10 已飞 FAIL，但 fallback 从 d9 的 21 段变成 1 段，失败形状并非完全不变。
   - d10 FAIL 且失败形状不变 → d11 才有单变量意义：只把 0518 叠在 d10 上，检验“UART/TLMM handler 挂错 INTID”是否为 NVM 失败的原因。
@@ -26,7 +26,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| build manifest | `E:/k60-work/artifacts/bt-0518-gic-intid/build-manifest.json` |
+| build manifest | `E:/iOS Port/Work/artifacts/bt-0518-gic-intid/build-manifest.json` |
 | 构建时间 / tag | `2026-11-18T18:08:47+08:00` / `bt-0518-gic-intid` |
 | repo head / dirty | `3aa6910a720eddbc65c5adacfb75660231899450` / 0 |
 | series | 238 条；全文件 `4a39a8d2fddf0da93dbcab18a2302c69bab8f34955d56e9172c1a395e8b12e11`；前 237 行 `3339e34f664d8eee48ab366ec98bffd00018aafe82821c1b7f9b5eecd8dcbcba`；前 236 行 `e7de39278e0eb0da1c5a5036e0645466885678eefdf57835e279f0bef2717db2` |
@@ -50,8 +50,8 @@
 
 1. `bash scripts/k60-device.sh state` 返回 `fastboot`，记录设备序列（当前 `6033dbec`）；不是 fastboot 就停。
 2. 按统一 supervisor 的机器级 boot claim 规则取得 claim；若另一个 agent 已持有 claim 或 COM 口已被 collector 占用，**不得启动**。本仓没有 claim 文件，不能用一个本地文件假装 claim。
-3. `sha256sum E:/k60-work/artifacts/bt-0518-gic-intid/boot.img` 必须等于 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`。
-4. `python3 scripts/verify-boot-image.py --manifest E:/k60-work/artifacts/bt-0518-gic-intid/build-manifest.json` → OK。
+3. `sha256sum E:/iOS Port/Work/artifacts/bt-0518-gic-intid/boot.img` 必须等于 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`。
+4. `python3 scripts/verify-boot-image.py --manifest E:/iOS Port/Work/artifacts/bt-0518-gic-intid/build-manifest.json` → OK。
 5. d10 与 d11 均已有设备结果：d10（0517）21:32 FAIL；d11（0517+0518）22:19 PASS（本页 §9）。后续若再飞，只能针对新的单变量，不得重复 d11。
 6. 回滚镜像必须同时保留并核对：d8 `0297012d47eb727bd52c164076bd60bdf90ee47d56eacdf19a89142f794fef2b`，d10 `6c631bc42a41117e6330a614558edc9240d67554ea3d053ca414fae89c872d69`。d9 的 `8a211a76…` 当前不可用，不得声称保留。
 7. 只用 `fastboot boot`；绝不 `fastboot flash`，绝不写 `persist` / `/dev/block/sda38`。
@@ -62,7 +62,7 @@
 ```sh
 export K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device
 bash scripts/k60-device.sh state
-bash scripts/flash.sh E:/k60-work/artifacts/bt-0518-gic-intid/boot.img
+bash scripts/flash.sh E:/iOS Port/Work/artifacts/bt-0518-gic-intid/boot.img
 ```
 
 `flash.sh` 先跑 porting / 八步（flash）/ 启动流程 / 研究四道门，再由单一 supervisor 先武装 capture 再 `fastboot boot`。保留完整 console、`boot.json`、`capture.json` 与屏幕照片（若早期失败）。
@@ -115,7 +115,7 @@ bash scripts/flash.sh E:/k60-work/artifacts/bt-0518-gic-intid/boot.img
 ## 8. 边界
 
 - d10 与 d11 均由 bt-agent 按用户 2026-11-18 先到先得规则、在无其他 supervisor/collector 时飞行；下一次飞行仍须重新确认单设备单写者。
-- d8 产物 `E:/k60-work/artifacts/bt-d8-tlv` 与 d8 结论不变：PATCH 软件路径返回成功、两次 NVM 失败、`result=-60`、蓝牙不可用。
+- d8 产物 `E:/iOS Port/Work/artifacts/bt-d8-tlv` 与 d8 结论不变：PATCH 软件路径返回成功、两次 NVM 失败、`result=-60`、蓝牙不可用。
 - d9 的 FAIL 结论不变；0518 不是对 d9 或 d10 的追认。
 - d11 把 `EIGHT-STEPS.toml` 的蓝牙 device 步从 false 改为 true：设备已观测到 patch+NVM 下载、HCI reset、BD_ADDR 设置和 UART SK 注册成功；这只证明传输/下载路径，不证明蓝牙可用。
 - 不再改 budget/段长/状态机/地址；下一步是用户态 DT 的 bluetooth 服务节点与 BD_ADDR 来源。
@@ -123,7 +123,7 @@ bash scripts/flash.sh E:/k60-work/artifacts/bt-0518-gic-intid/boot.img
 
 ## 9. d11 飞行结果（2026-11-18 22:19–22:23，PASS）
 
-- 设备 6033dbec；镜像 sha256 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`；命令 `K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/k60-work/artifacts/bt-0518-gic-intid/boot.img 220`；supervisor rc=0。
+- 设备 6033dbec；镜像 sha256 `d6beec4c6bfbb09c1d11076db0239ead0ee357dd2ba58bfb4f92a69c9d7158ec`；命令 `K60_DEVICE_INPUT=/opt/k60/trees/k60build/bt-device bash scripts/flash.sh /mnt/e/iOS Port/Work/artifacts/bt-0518-gic-intid/boot.img 220`；supervisor rc=0。
 - `boot.json`：bootAccepted=true、bootExitCode=0、returnedToFastboot=false，22:19:28 开始、22:23:33 结束。
 - `capture.json`：state=captured-budget-complete、complete=true、bytes=278123、panic/reset=null、stopReason=budget；console 278123 B，logSha256 `591CD9A6256F1D16F3D87AE4642DED4D90B73208D9A457D57CBDF50715BB0162`。
 - console：PATCH `type=1 segs=602 sent=602 acks=1 final=0 ret=0`；NVM 单轮 27 段，26 段 `dt_ms=1`、末段 124 B `dt_ms=120`，`type=2 segs=27 sent=629 acks=28 final=0 ret=0`；`boot: nvm done`；`boot: hci reset done`；`boot: bdaddr check done`；`boot: uart setup done e=0`；`boot: set bdaddr done e=0`；`boot: return e=0 baud=3000000`；`power=1 result=0 ... firmware=BTFW.HSP.2.1.0-00570-PATCHZ-1 tlv_sent=629 tlv_acks=28 tlv_final=0`；`[bluetooth sk] ctl_register com.apple.uart.sk.bluetooth error=0`。

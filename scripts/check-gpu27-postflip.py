@@ -73,7 +73,7 @@ def rebuild(path):
 
     Only a Windows host wants the E:/ spelling. Rewriting on POSIX handed
     python a path that does not exist there, and the helper then failed with
-    "can't open file ... E:/hackios/..." joined onto the working directory -
+    "can't open file ... E:/iOS Port/Sources/..." joined onto the working directory -
     the same wrong-host translation as P-227.
     """
     if not path:

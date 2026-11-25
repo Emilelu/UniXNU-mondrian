@@ -11,48 +11,48 @@
 
 [[repo]]
 name = "framework"
-path = "/mnt/e/hackios/UniXNU"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU"
 description = "官方框架仓库（origin 只读，写走 fork）"
 read_only = true
 
 [[repo]]
 name = "sheng"
-path = "/mnt/e/hackios/UniXNU-sheng"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng"
 description = "同代 SM8550 线，arm64e/27 的主要参考"
 read_only = true
 
 [[repo]]
 name = "t970"
-path = "/mnt/e/hackios/UniXNU-t970"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-t970"
 description = "SM8475 同 SoC（Galaxy Tab S7+）"
 read_only = true
 
 [[repo]]
 name = "zizhan"
-path = "/mnt/e/hackios/UniXNU-zizhan"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan"
 description = "SM8475 同 SoC（小米 MIX Fold 2）"
 read_only = true
 
 [[repo]]
 name = "sm8475-common"
-path = "/mnt/e/hackios/UniXNU-sm8475-common"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sm8475-common"
 description = "本板 SoC feed（27 系列的 soc 层）"
 read_only = false
 
 [[repo]]
 name = "gates"
-path = "/mnt/e/hackios/k60-gates"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-gates"
 description = "本仓主检出"
 read_only = false
 
 [[repo]]
 name = "device"
-path = "/mnt/e/hackios/UniXNU-mondrian"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian"
 description = "设备仓共享检出"
 read_only = false
 
 [[repo]]
 name = "uefi"
-path = "/mnt/e/hackios/uefi-mondrian"
+path = "/mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian"
 description = "固件仓"
 read_only = false

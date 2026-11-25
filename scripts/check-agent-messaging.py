@@ -32,7 +32,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 AGENTS = REPO / 'AGENTS.md'
 RULES = REPO / 'docs/engineering/RULES.toml'
-BUS = Path('/mnt/e/k60-work/bus/bus.jsonl')
+BUS = Path('/mnt/e/iOS Port/Work/bus/bus.jsonl')
 HEADING = re.compile(r'^### Iron rule 12\b.*$', re.MULTILINE)
 HEADING19 = re.compile(r'^### Iron rule 19\b.*$', re.MULTILINE)
 

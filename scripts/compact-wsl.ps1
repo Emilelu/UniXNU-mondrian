@@ -7,7 +7,7 @@
   never gives the space back: deleting files inside the guest frees blocks for
   the guest filesystem, not for Windows. Only `diskpart compact vdisk` returns
   them, and it refuses to run unless the disk is *uncompressed*, *unencrypted*
-  and *not sparse* (/mnt/e/k60-work/scratch notes, P-246 family).
+  and *not sparse* (/mnt/e/iOS Port/Work/scratch notes, P-246 family).
 
   The order therefore matters and this script is that order:
 

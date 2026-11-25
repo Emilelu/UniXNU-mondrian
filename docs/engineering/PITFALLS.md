@@ -563,7 +563,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
 ### P-44 改补丁必须改**三方**（repo 补丁 / device 补丁 / 构建树），只改一处会被覆盖
 
 - **三方位置**：
-  1. `E:\hackios\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
+  1. `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\patches\xnu\<补丁>`（git 真源）
   2. `/tmp/usb-cdc-mainline/device/patches/xnu/<补丁>`（buildv15 会从 repo 覆盖这里）
   3. `$B/tree/.cache/xnu-work/...`（**构建真正编译的树**，每次清树重建）
 - **本轮实证的踩坑链**：
@@ -591,7 +591,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   `@@` 头（含 `-0,0 +1,N` 新文件形式），并已**集成进 `buildv15.sh` 的第 2b 步**——
   每次构建前自动运行，手改正文再也不会弄坏构建。
 - **30 秒判定**：任何 `corrupt patch` / `unterminated` 报错，先跑一次
-  `python3 E:/k60-work/scratch/fix-patch-hunks.py`，通常直接解决。
+  `python3 E:/iOS Port/Work/scratch/fix-patch-hunks.py`，通常直接解决。
 
 ### P-47 `if (!PE_parse_boot_argn(...) || !enabled) return;` —— 真正的门控杀手
 
@@ -1090,7 +1090,7 @@ DYLD_FALLBACK_LIBRARY_PATH=/usr/lib
   `completion = ["在设备上观察该接口的实际工作结果并保存对应日志"]`，
   就断定「pong 自己也没验证过 Goodix 触摸」。**这是错的。**
 
-- **铁证**（`/mnt/e/hackios/UniXNU-pong/migration/ipados18/services.md`）：
+- **铁证**（`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/migration/ipados18/services.md`）：
   | 行 | 原文 |
   |---|---|
   | 296 | `touch/key HID 事件继续出现` |
@@ -1209,7 +1209,7 @@ commit message、issue 回复里都有 `P-NN` 引用。
 ### P-76 不查 `UniXNU-zizhan` 就动手 = 必然重复造轮子（2026-11-10）
 
 **症状**：触摸 SE4 的 GENI DMA 问题上耗了 20+ 轮、改了 15 个配置项、刷机十余次，
-最后发现 `E:\hackios\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
+最后发现 `E:\iOS Port\Sources\Repos\UniXNU\UniXNU-zizhan\patches\xnu-ipados18\0002-zizhan-fts.patch`
 早就写好了答案。
 
 **根因**：`UniXNU-zizhan` 是 **pong 的超集**，同 SM8475、同 QUP0 SE4、同 GPIO16-19 /
@@ -1567,7 +1567,7 @@ if ((st & 0x10100) == 0x10100 && idle &&
   后台运行没有 TTY → **永久阻塞在 HTTP 401**。
 - **正解**：**push 在 Windows 侧执行**（Windows 有 gh 凭据 + 凭据管理器）。
   ```powershell
-  Set-Location 'E:\hackios\UniXNU-mondrian'
+  Set-Location 'E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian'
   $env:GIT_TERMINAL_PROMPT='0'
   git push --force --progress origin main
   ```
@@ -3493,7 +3493,7 @@ goodix_report / goodix_poll / bring_up / touch_thread / pong_goodix_init
   ```
   而 `porting.toml:248` 早就写着这句话：
   > The GPU firmware set is complete under D:/Android/k60-ios/firmware/k60-gpu
-- **我当时的搜索范围**：`<workspace>`、`/mnt/e/hackios`、`/opt/k60`
+- **我当时的搜索范围**：`<workspace>`、`/mnt/e/iOS Port/Sources`、`/opt/k60`
   —— **漏了 /mnt/d**。而 REPO-INVENTORY.md 明确写着 `D:\Android\k60-ios` 是
   48 个仓库的分布位置之一。
 - **恢复**：复制回 `.cache/firmware/k60-gpu/`，SHA256 校验一致，
@@ -3714,7 +3714,7 @@ strings 里 "M11HTC":  present      <- 同上
 
 - **症状**：同一个文件存在于三个地方，靠手工 `cp` 同步：
   ```
-  E:\hackios\UniXNU-mondrian          仓库（版本控制）
+  E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian          仓库（版本控制）
   /opt/k60/trees/usb-cdc-mainline/device  构建输入（构建实际读的）
   <workspace>/scratch                    草稿
   ```
@@ -3879,7 +3879,7 @@ strings 里 "M11HTC":  present      <- 同上
 - **症状**：`configs/mondrian_defconfig` 里 `CONFIG_XNU_K60_PHYSICAL_BATTERY=y`，
   `.config` 里也是 `y`，但内核里既没有 `K60Battery` 的对象文件也没有一个字串，
   串口日志零 `K60Battery` 行——看上去"电池驱动没工作"。
-- **根因**：`E:\hackios\UniXNU\scripts\unixnu\kernel.py:17-26` 只导出
+- **根因**：`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\scripts\unixnu\kernel.py:17-26` 只导出
   `XNU_K60_PHYSICAL_BATTERY=1`；真正把 `libK60PhysicalBattery.a` 链进去的是
   `tree/scripts/build-xnu-4k-baseline.sh`，而它**既不读这个环境变量，也没有
   `-Wl,-force_load`**。`patches/xnu/0602-physical-battery.patch:10-12` 明写
@@ -3969,7 +3969,7 @@ CP ME_INIT、nonsecure 切换、认证栅栏、IRQ 332 归属、BO 池都通过�
 ## P-166 构建脚本不许写补丁清单
 
 `buildv15.sh` 曾在每次构建开头把 `patches/xnu/series` 覆盖成
-`/mnt/e/k60-work/scratch/SERIES-FINAL.txt`。后果是双向的：改仓库里的序列不生效，
+`/mnt/e/iOS Port/Work/scratch/SERIES-FINAL.txt`。后果是双向的：改仓库里的序列不生效，
 改 scratch 里那份却会静默改变整个补丁集。2026-11-13 的一次误删就是这样发生的——
 按编号前缀删除了两条 `0341`，其中一条是别人写的 `0341-k60-setprop-probe.patch`，
 于是 `0342` 找不到它要改的 `printf`，构建停在 157/222，而错误只说
@@ -4065,7 +4065,7 @@ grep -n 'PongPower\|K60Smem\|K60Handoff' scripts/build-xnu-4k-baseline.sh \
 
 ### P-170 追加实测：归档这条路在本机走不通，正路是 patch 进 bsd/dev
 
-`E:\hackios\UniXNU-mondrian\scripts\build-pong-ram-block-macos.py:32-38` 的编译命令是
+`E:\iOS Port\Sources\Repos\UniXNU\UniXNU-mondrian\scripts\build-pong-ram-block-macos.py:32-38` 的编译命令是
 
 ```python
 subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], ...)
@@ -4102,7 +4102,7 @@ command = ['xcrun', '--sdk', 'iphoneos', 'clang++', '-target', 'arm64-apple-ios1
 补丁阶段之后执行，并且**轮询等待锚点出现**——树刚解包时 `pong_buttons.c` 那行还不存在，
 固定等待或立刻执行都会得到 `anchor missing`。
 
-`E:\k60-work\scratch\append_conffiles.py` 就是该模式：每秒重读，看到
+`E:\iOS Port\Work\scratch\append_conffiles.py` 就是该模式：每秒重读，看到
 `bsd/dev/pong_buttons.c\t\t\tstandard` 才插入 `pong_smem.c` / `pong_handoff.c`，
 已插入则直接返回。
 
@@ -4168,7 +4168,7 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 
 根因不在 Mu_Basecore 的 pin，也不在 MuPatches：`board.toml [firmware].packages` 里
 `{tree}/package` 排在 `{uefi}/Platforms/Xiaomi` 前面，而 tree 里那份 `UniXNUPkg` 是从
-`E:\hackios\UniXNU\package` 复制来的旧副本。EDK II 按 PACKAGES_PATH 顺序解析
+`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\package` 复制来的旧副本。EDK II 按 PACKAGES_PATH 顺序解析
 `UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf`，于是整个 FD 的 UniXNUPkg
 驱动都编译自框架仓库的旧源码——包括负责把 initrd 发布成块设备的 `UniXNURamDiskDxe`。
 旧副本缺少本仓库版本里的 initrd 追踪/映射检查，发布路径不同，固件就拿不到 payload FAT。
@@ -4180,7 +4180,7 @@ boot-args 那一层），md0 建立时的原始串已经不在那儿了。
 2. 用 `strings` 对比 `75CA63AD-FBAE-4A06-92A0-F937C671251D`（UniXNURamDiskDxe）：
    新 FD 里有 `rounded to 0x%lx bytes`、没有 `selfread`、没有 `not inside mapped memory`——
    与本仓库 `Platforms/Xiaomi/UniXNUPkg/.../UniXNURamDiskDxe.c` 对不上，却与
-   `E:\hackios\UniXNU\package\UniXNUPkg\...` 完全一致。这就是「编的不是这份源码」的铁证。
+   `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\package\UniXNUPkg\...` 完全一致。这就是「编的不是这份源码」的铁证。
 3. `--dry-run` 打印的 `tree` 是 `out-baseline/.../tree`，`{tree}/package/UniXNUPkg` 正是那份旧副本。
 
 修法：把 `"{uefi}/Platforms/Xiaomi"` 移到 `"{tree}/package"` 之前（`board.toml [firmware].packages`），
@@ -4334,7 +4334,7 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 换掉旧补丁整体回退的方案不可行：`git show 29827f5:patches/xnu/0391-k60-embedded-init.patch`
 覆盖 0401 后 `kern_exec.c` 上下文已被 0394/0398 改动，`patch does not apply`。
 
-证据：`E:\k60-work\evidence\usblog-20261113-allold2`（SB=129）、
+证据：`E:\iOS Port\Work\evidence\usblog-20261113-allold2`（SB=129）、
 `usblog-20261113-cut0401b`（SB=133）、`usblog-20261113-noinitblob`（SB=129）、
 对照组 `usblog-20261113-rev0340`（SB=7）。
 
@@ -4355,18 +4355,18 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
 ### P-184 共享检出目录只有一个：Lead 和子 agent 同时改同一棵树会互相吃掉未提交改动
 
 2026-11-14 02:03，我为了让自己那次 strict 构建通过八步门禁，在
-`E:/hackios/UniXNU-mondrian`（当时正被触摸 agent 用来写文档）上执行
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`（当时正被触摸 agent 用来写文档）上执行
 `git checkout -- <8 个文档>`，把它的未提交修改全部抹掉：`EIGHT-STEPS.toml` 里把 touch
 ④⑤⑥ 从 `done=true` 改成 `false` 的诚实修正、`GROUND-TRUTH.md`、
 `TOUCH-STATEMACHINE.md`、`03-reverse-and-device-data.md`、`PITFALLS.md`、`INDEX.md`、
 `README.md`、`README_EN.md` 的编辑全部丢失；只有未跟踪的
 `docs/research/touch/13-STAGE-ONE-ROOT-CAUSE-MATRIX.md` 幸存（已另存到
-`E:/k60-work/scratch/SALVAGE-touch-agent-edits-20261114.md`）。
+`E:/iOS Port/Work/scratch/SALVAGE-touch-agent-edits-20261114.md`）。
 
 根因不是 `git checkout`，是**两个人共用一棵检出树**。修法：
 
-- Lead 用独立 worktree：`git worktree add E:/hackios/k60-lead <branch>`，
-  在 `E:/hackios/k60-lead` 里做自己的构建与提交；`E:/hackios/UniXNU-mondrian`
+- Lead 用独立 worktree：`git worktree add E:/iOS Port/Sources/Hardware/k60-lead <branch>`，
+  在 `E:/iOS Port/Sources/Hardware/k60-lead` 里做自己的构建与提交；`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`
   归触摸 agent。
 - 任何时候都不要对**不属于自己分支**的未提交文件跑 `git checkout --` / `git restore`。
   要让门禁通过就改门禁的适用范围（见下条），不要动别人的工作区。
@@ -4376,14 +4376,14 @@ bootstrap 阶段本来就会打印 `== kernel: bootstrap pass for the compile re
   flash 模式保持整机校验。
 
 证据：`git branch -f feat/touch-power 3330e1c` 恢复分支；`git worktree list` 显示
-`E:/hackios/k60-lead 84523c0 [feat/pmic-rail]`。
+`E:/iOS Port/Sources/Hardware/k60-lead 84523c0 [feat/pmic-rail]`。
 
 ### P-185 新检出缺的不是代码，是"只在构建副本里才存在"的工具链与 fakeroot
 
 从 `main` 切一个 `git worktree` 出来，代码是全的，构建却会在第三步莫名其妙地 127 / 找不到头文件：
 
 - `scripts/build-firehose.sh:24` 调 `xcodebuild`。`xcodebuild` / `xcrun` / `clang` 这些 Darwin 工具在 Linux 上靠
-  `scripts/linux/` 的 13 个 shim 顶替。这些 shim **在框架仓库 `E:/hackios/UniXNU` 里是被跟踪的**，
+  `scripts/linux/` 的 13 个 shim 顶替。这些 shim **在框架仓库 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU` 里是被跟踪的**，
   但设备仓库没有它们，构建副本 `/opt/k60/trees/k60build/scripts/linux/` 是从框架同步过去的。
   一个只有设备仓库的新 worktree 因此完全没有 shim → `xcodebuild: command not found` → `bash failed (127)`。
 - 同一棵新树第一次构建时，`tree/.cache/fakeroot/` 是空的。`libfirehose_kernel.a`（40,480 B）、
@@ -4525,20 +4525,20 @@ git 比较的是字节，所以每一行都"变了"。真正的 37 行改动被�
 **症状**：refmine 线要把 `QcaBluetooth` 与 `UniXNU-liuqin` 写进
 `docs/research/SOURCES.toml` 的 `required`，`scripts/research-gate.py` 永远报
 `文件不存在`，只能把结论留在散文里、进不了门禁。同时每个 worktree 跑这个门禁，
-校验的都是 `/mnt/e/hackios/UniXNU-mondrian` 那棵树的文件，不是自己这棵。
+校验的都是 `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian` 那棵树的文件，不是自己这棵。
 
 **根因**（两处，同一形状）：
 
 ```python
-REPO = '/mnt/e/hackios/UniXNU-mondrian'          # 字面路径
+REPO = '/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian'          # 字面路径
 full = os.path.join(REPO, path)
-alt = os.path.join('/mnt/e/k60-work', path)       # 只有两个前缀
+alt = os.path.join('/mnt/e/iOS Port/Work', path)       # 只有两个前缀
 exists = os.path.exists(full) or os.path.exists(alt)
 ```
 
 1. `REPO` 是写死的共享检出。十一个 worktree 里只有一个是那个路径，其余全部在
    校验别人的文件 —— 门禁绿了不代表自己这棵树没问题。
-2. 参考源只认「本仓检出」和 `/mnt/e/k60-work`。`/mnt/e/hackios` 下直接 clone 的
+2. 参考源只认「本仓检出」和 `/mnt/e/iOS Port/Work`。`/mnt/e/iOS Port/Sources` 下直接 clone 的
    `QcaBluetooth`、`UniXNU-liuqin` 永远解析不到，于是**合法的参考源被门禁拒绝**，
    而不是被记录。
 
@@ -4546,7 +4546,7 @@ exists = os.path.exists(full) or os.path.exists(alt)
 
 ```python
 REPO = os.environ.get('K60_REPO') or str(Path(__file__).resolve().parents[1])
-REFERENCE_PREFIXES = (str(REPO), '/mnt/e/k60-work', '/mnt/e/hackios')
+REFERENCE_PREFIXES = (str(REPO), '/mnt/e/iOS Port/Work', '/mnt/e/iOS Port/Sources')
 ...
 tried = [os.path.join(prefix, path) for prefix in REFERENCE_PREFIXES]
 if not any(os.path.exists(candidate) for candidate in tried):
@@ -4557,7 +4557,7 @@ if not any(os.path.exists(candidate) for candidate in tried):
 
 **怎么避免再踩**：
 
-1. 任何门禁脚本里出现 `/mnt/e/hackios/…` 这种字面检出路径，都是 bug。
+1. 任何门禁脚本里出现 `/mnt/e/iOS Port/Sources/…` 这种字面检出路径，都是 bug。
    `scripts/check-repo-paths.py`（hygiene 线）现在会报 ERROR。
 2. 参考源解析写成**前缀元组**，不是两次 `os.path.exists` 的 `or`。新增参考仓库
    只改元组，不改查找逻辑。
@@ -4715,7 +4715,7 @@ total = len(head) + sum(size for _, size, _ in files)
 是**假设，不是实测**。实测：
 
 ```
-$ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
+$ cd /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 （零命中）
 ```
 
@@ -4750,7 +4750,7 @@ $ cd /mnt/e/hackios/uefi-mondrian && git grep -ci 'addon' HEAD -- .
 - 一处错误注释会传染：`patches/bt/0004` 与 `patches/xnu/0510` 的补丁注释也抄了
   同一个假设，两份补丁一起把假前提变成了"设计依据"。
 
-**Check.** `git -C /mnt/e/hackios/uefi-mondrian grep -ci 'addon' HEAD -- .`
+**Check.** `git -C /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian grep -ci 'addon' HEAD -- .`
 必须为 0 时，任何"固件会发布 GpuAddon"的说法都作废；
 真机判据因此换成内核内嵌 blob 的那一行：`[bluetooth] addon: linked blob bytes=1027584 records=106`
 （旧通道的 `addon: loaded bytes records …` 永远不会出现；`addon: unusable range 0 0` 才是 P-197 的实测症状）。
@@ -4780,7 +4780,7 @@ error=0`。
 ## P-199 — `check-tree-owner` 默认把操作者当成 lead
 
 **现象.** 子代理在自己名下的 checkout 里跑 `scripts/check-rules.py`，其它 77 条全绿，只有
-`iron-11` 报 `/mnt/e/hackios/k60-springboard belongs to springboard-agent, not lead, and holds 1
+`iron-11` 报 `/mnt/e/iOS Port/Sources/Hardware/k60-springboard belongs to springboard-agent, not lead, and holds 1
 uncommitted path(s)`，看起来像"别人占了我的树"，实际那 1 个未提交文件就是自己刚改的。
 
 **根因.** `scripts/check-tree-owner.py:44` `ACTOR = os.environ.get("K60_AGENT_ID", "lead")`：没设
@@ -4806,7 +4806,7 @@ export K60_AGENT_ID=springboard-agent
 一方说「mhi3/mhi4 的内核逐字节相同，所以变量只有内存窗口」，另一方说「内核
 不同」。两边都没量错文件，是**字段名错了**。
 
-**实测.** `E:\k60-work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
+**实测.** `E:\iOS Port\Work\artifacts\` 下 11 张完全不同的镜像，`boot.json` 的
 `kernel_sha256` **全是** `83b52b566b9cd0e0a2f13854f7da4c67…`：
 
 ```
@@ -4933,7 +4933,7 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 ## P-203 — 不要在 linked worktree 里跑 `git worktree prune`
 
 **现象**：refmine 线为了拿一个「干净环境」的基线，在一个 linked worktree 里执行了
-`git worktree prune`。主仓 `E:/hackios/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
+`git worktree prune`。主仓 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian/.git/worktrees/` 下 19 个链接工作树的
 管理目录被一次性删除（只剩 `d-main`），随后 `/e/hackios/k60-*` 全部立刻报
 `fatal: gitfile does not point to a valid repository`——二十条线同时失去工作树。
 
@@ -4943,7 +4943,7 @@ thermal 线当时的绕过方式是 `mv $KERNEL $KERNEL.bak-<tag>` 让脚本走 
 一旦有任何一棵树短暂不可解析（或工作树目录被移动、盘符变化），它就把那棵树的 admin 目录当垃圾删掉。
 **删除不可逆、没有备份**，`git worktree add` 也不会自动重建。
 
-**恢复方法**（`E:/k60-work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
+**恢复方法**（`E:/iOS Port/Work/scratch/refmine/{repair-wts,fix6,infer2}.py` 已实现）：
 1. 对每个失去 admin 目录的工作树目录，用「分支 blob 与工作树文件比对打分」反推它原本在哪个分支——
    文件内容未提交的工作树会和几个候选分支算出不同的匹配度，取最高分。
 2. 重建 admin 三件套：`.git/worktrees/<name>/{HEAD,gitdir,commondir}`，`HEAD` 写
@@ -5484,7 +5484,7 @@ build-id 不同（`c61b6000b5826a234c4c44205044422e` vs `0b5c83d97f72b6714c4c442
 
 - `baseline-20261115d` 的 payload 逐字节复用（`fbc87102d1cb10df080d7dc6135e9e5b995e1f791ab5d2aa0a8e37a872271e3f`），
   只把 FD 换成重建的 `9f20de15388a`，重打 `boot.img`（`51d2053891569eeeb33a9f78989de6d66a111aa594541d9c7c5fb89622b3f3ce`）。
-- 上机（`E:\k60-work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
+- 上机（`E:\iOS Port\Work\evidence\usblog-20261116-025525`）：3384 行 / 230,107 B / **SpringBoard 129** /
   `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 / `menu:` 与 `config: no boot entry` **0 次**。
 - ⇒ **P-154 正式关闭**：从当前 pin 重建的固件卷能找到 payload。
 
@@ -5588,8 +5588,8 @@ h12，按「h3×h4」让它出 h34，两次都白跑。而正确答案需要的�
 1. **二分要么飞满，要么把「已构建未飞」显式列出来**。矩阵不是「我飞过哪些」，而是
    「全集里哪些还没飞」——只有后者能回答「结论是否已定案」。
 2. **每轮开始先扫产物目录**，按 mtime 列出现存的镜像，对照已飞清单，先补齐缺口再出新的。
-   实测做法：`ls -dt /mnt/e/k60-work/artifacts/*/` + 每张 `build-manifest.json` 的
-   `components.boot_img`，与 `/mnt/e/k60-work/ledger.jsonl` 的镜像哈希求差集。
+   实测做法：`ls -dt /mnt/e/iOS Port/Work/artifacts/*/` + 每张 `build-manifest.json` 的
+   `components.boot_img`，与 `/mnt/e/iOS Port/Work/ledger.jsonl` 的镜像哈希求差集。
 3. **子集数 ≥ 8 时，先算清楚要飞多少格再开始**。四 hunk 的 15 个子集里，只要 {h1,h2,h3}
    这一格就能定案——但前提是知道自己在找「最小致命集」，而不是「逐个排除」。
 
@@ -5737,7 +5737,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 1. **`discover_branches()` 把裸 `origin` 当成分支**。它只过滤 `endswith('/HEAD')`，
    于是 `refs/remotes/origin/` 本身（短名 `origin`）被留下，`git rev-parse origin` 的
    输出是字面量 `origin/origin`，被写进 seen 水位文件。这个字符串永远不等于任何真实 sha，
-   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/k60-work/.pick-upstream-seen.json`
+   所以**每次运行它都被判成「新分支」**。现场证据：`/mnt/e/iOS Port/Work/.pick-upstream-seen.json`
    里三条脏记录 `"UniXNU-mondrian/origin": "origin/origin"`、`"UniXNU/origin": "origin/origin"`、
    `"uefi-mondrian/origin": "origin/origin"`。
 2. **新分支的比对是逐文件子进程**。`collect()` 先 `git ls-tree -r` 拿到路径清单，然后对
@@ -5797,7 +5797,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 ### 根因
 
-`/mnt/e/k60-work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
+`/mnt/e/iOS Port/Work/ledger.jsonl` 是**跨 worktree 全局**的一份账本，`[S]` 检查只从它
 里面找「最后一条 `result == ok` 的记录」。任何一条线飞图都会把「上次成功」改写成
 它自己的指纹，于是：
 
@@ -5816,7 +5816,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 1. 与全局 ledger 的最后一条成功记录相同 → PASS（原逻辑）。
 2. 与账本里某条 **booted** 基线相同 → PASS，detail 打印 `sha` + `image` + `console`
-   路径，例如 `b48613d baseline-20261116a E:/k60-work/evidence/usblog-20261116-073639/console.log`。
+   路径，例如 `b48613d baseline-20261116a E:/iOS Port/Work/evidence/usblog-20261116-073639/console.log`。
 3. 两者都不匹配 → 才按 `--force-new-series` / 特性分支 / main 三档处理。
 
 `state = "build-only"` 的条目**永远不能**用来背书：它从没上过设备。
@@ -5872,7 +5872,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
    load/copy、`auth_and_reset`、发布各为 **0 次**，SMEM 保持 byte-identical，
    `resources_held`/证据/lease 不残留。不能只数 return code，也不能称 board8 单独证明下游零副作用。
    板级 exclusive 自身的只读 SMEM 检查映射不等于这里禁止的下游 `map_smem`。
-   父任务验证 focused host log `E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log`（1458 行，SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）：真实 board refusal、owner-claim 18 场景和 board 8 场景均通过；完整 runner exit 0。
+   父任务验证 focused host log `E:/iOS Port/Work/artifacts/adsp-board-20261116/refusal/host-tests.log`（1458 行，SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）：真实 board refusal、owner-claim 18 场景和 board 8 场景均通过；完整 runner exit 0。
 3. legacy rail 检查保留，但没有功能图授权。未来只读探针先核对 caps、实际 slot/command 数、
    cmd_stride、`TCS_STATUS(+0x18)`/`CMD_STATUS(+0x3c)` 与 enable/msgid 语义；
    现采样器固定 5 槽且每槽只扫首 command、idle 位解释和单次 attempted 门均**尚未审计闭合**。
@@ -5887,7 +5887,7 @@ P-211（记账工具描述的是仓库而非镜像）。四条都属「证据与
 
 **Check.** `python3 scripts/check-rule-registry.py`；门禁命令见
 `docs/engineering/RULES.toml` 的 `P-223` 项。历史 rail 49 例不等于采样器已审计；
-board 8 场景（第 8 场景为回调拒绝）与 production owner-claim 18 场景通过；拒绝轨迹见 `E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log`（SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）。
+board 8 场景（第 8 场景为回调拒绝）与 production owner-claim 18 场景通过；拒绝轨迹见 `E:/iOS Port/Work/artifacts/adsp-board-20261116/refusal/host-tests.log`（SHA256 `e1457b20f26c27c77fb4d72b0170f74e896bd850cd284c146fe199cde29da89c`）。
 
 ## P-224
 
@@ -6163,7 +6163,7 @@ wifi c7 的诊断镜像里，我加了一条 `Pong MHI: irq entered er_index=0 d
 而后者是
 
 ```c
-/* /mnt/e/k60-work/impl/wifi/work/build/ath11k/lx_rt_pong.c:597 */
+/* /mnt/e/iOS Port/Work/impl/wifi/work/build/ath11k/lx_rt_pong.c:597 */
 void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_irq[i].pending = 1; }
 ```
 
@@ -6173,7 +6173,7 @@ void lx_irq_raise_all(void) { for (int i = 0; i < 64; i++) if (g_irq[i].used) g_
 **2026-11-16 重新审视后的第二次纠正：缺失日志也不能证明 MSI 没到。**
 `msiArrivals` 只在真正的 GIC 回调中读到 `dbi.r(MsiStatus)` 非零时才自增，这个计数与
 软件重放的 MHI handler 不同；但 `QCA6490 MSI delivered by GIC` 的打印不在失败路径上。
-在实验源树 `E:/hackios/k60-wifi/drivers/PongWifi/PongWifiPlatform.cpp:690`，
+在实验源树 `E:/iOS Port/Sources/Hardware/k60-wifi/drivers/PongWifi/PongWifiPlatform.cpp:690`，
 `nw_wifi_start()` 返回错误就 `goto done`；`:692` 才进入检查计数并打印该行的循环。
 c7 在初始化中返回 `-110`，因此根本不会执行这条打印。日志 0 命中不能判断计数是否非零，
 更不能证明 MSI 到达或未到达。必须在实际超时点采集 GIC 入口计数、pending 读回和上下文，
@@ -6515,7 +6515,7 @@ P-207（门禁不许判陈旧产物）、P-218（一次一变量）、P-194（�
 就先 `adb reboot bootloader`。于是两个 agent 可以同时走到 `fastboot boot`，
 后者的抓取对着已经换了镜像的设备。
 
-**修法**：机器级 claim（`E:\k60-work\state\k60-device-boot.lock`），
+**修法**：机器级 claim（`E:\iOS Port\Work\state\k60-device-boot.lock`），
 `scripts/k60-boot-lock.ps1` 用 `FileShare.None` 独占句柄（进程退出即由内核释放，
 不需要死锁清理），`boot-and-capture.ps1` 在碰设备前获取、`finally` 释放、
 拿不到以 rc=6 退出且**不发出 boot**；`flash.sh` 只要求 `K60_AGENT_ID` 署名（缺失 rc=7），
@@ -7313,7 +7313,7 @@ scripts/tests/test-k60-flight-fixtures.py 逐份断言退出码 0/1/1/2。
 
     ff8304d1fc6f0ca9  ->  20008052c0035fd6
 
-这不是损坏，是 payload 步声明的两个变换之一：`E:/hackios/UniXNU/scripts/unixnu/payload.py:180-192`
+这不是损坏，是 payload 步声明的两个变换之一：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/scripts/unixnu/payload.py:180-192`
 先 `shutil.copyfile` 原始内核，再跑 `scripts/patch-armcpu-validate.py --apply`，把
 AppleARMPlatform 的 `_validateConfiguration()` 改成「返回成功」。AppleARMPlatform 会对非
 Apple 设备树 `panic("CPU configuration in device tree is invalid")`
@@ -7341,7 +7341,7 @@ Apple 设备树 `panic("CPU configuration in device tree is invalid")`
 「`mov w0, #1` 然后返回」。第一版写的是普通 `ret`（`20008052c0035fd6`），在 16.6.1 的核上
 完全正确——那个函数是普通 arm64，入口前后全是普通 `ret`。
 
-27 的核不是这样。实测两个真实内核同一个函数（`E:/k60-work/scratch/inspect_armcpu_prefix.py`）：
+27 的核不是这样。实测两个真实内核同一个函数（`E:/iOS Port/Work/scratch/inspect_armcpu_prefix.py`）：
 
 | 内核 | 补丁点 | 紧邻入口 | 函数尾部 0x900 内 | 整个镜像 |
 | --- | --- | --- | --- | --- |
@@ -7553,7 +7553,7 @@ flag) yet」；`CPU_SUBTYPE_ARM64E_KERNEL_PTRAUTH_ABI_MASK = 0x40000000` 只在 
 ## P-288 — 同一个页面写两遍就是"两页"，覆盖率会因此虚高
 
 官方页审计按批返回 JSON，`path` 一处写成相对 `docs/zh` 的名字、一处写成
-`/mnt/e/hackios/UniXNU/docs/zh/...` 的绝对路径。报告按字符串比对，于是同一页
+`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/...` 的绝对路径。报告按字符串比对，于是同一页
 在表里出现两次：一次算"已审"，一次算"注册表里没有这个页面"——一个真页面被判成
 未知，另一个真页面被算成没读，`never audited` 反而变小。
 
@@ -7708,7 +7708,7 @@ raw 时 `db[frame.target - 1]` 同样红（两份反例夹具固定在 `fixtures
 
 | 项 | 报错的那棵 | 实际那棵 |
 | --- | --- | --- |
-| 检出 | `E:/hackios/xnekom-ios27` | `E:/hackios/k60-gates` |
+| 检出 | `E:/iOS Port/Sources/Repos/UEFI/xnekom-ios27` | `E:/iOS Port/Sources/Hardware/k60-gates` |
 | 分支 / HEAD | `feat/xnu27-data-gate` @ `7fd04d89` | `diag/menu-hold-20261121` @ `988f7ee8` |
 | `dts/mondrian.dts` sha256 | `e9871e43…`（缺 `/*`，dtc 报 syntax error） | `ea688315…`（零诊断，4,307 B） |
 
@@ -7860,14 +7860,14 @@ define 由内核步的 `env "arm_init.o_CFLAGS_ADD=-DXNU_PONG_RAMOOPS_CONSOLE=1"
 ## P-304 路径拼接把 Windows 盘符引用全部判成「文件不存在」
 
 **症状**。八步门禁对 27 账本报了 15 处问题，其中 7 处是「引用解析不到」。逐条看文件都在：
-`E:/k60-work/reports/live-6033dbec-fdt.dtb:1`、`E:/hackios/UniXNU/docs/zh/porting/network.md:30` 都能打开。
+`E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb:1`、`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:30` 都能打开。
 
 **机制**。两层叠加，任一层单独都不显形：
 
 1. 门禁的正则是 `[\w./-]+\.(?:ext):\d+`，`E:` 里的冒号不在字符集里 ⇒ 匹配从 `E:` **之后**开始，
    得到 `/k60-work/reports/...`（前导斜杠是 `E:/` 的第二个字符）。
 2. `resolve_file_line` 用 `Path(base) / path` 拼候选。**pathlib 在右侧是绝对路径时会丢掉左侧**
-   （`Path('/mnt/e/k60-work') / '/k60-work/x'` 等于 `/k60-work/x`），于是候选指向文件系统根，
+   （`Path('/mnt/e/iOS Port/Work') / '/k60-work/x'` 等于 `/k60-work/x`），于是候选指向文件系统根，
    而 `EVIDENCE_ROOTS` 里的前缀一次都没被用上。
 
 **判据**。

@@ -28,7 +28,7 @@ version = 1
 
 [log]
 # 不给 --log 时，脚本取这个目录下最新的 usblog-*/console.log
-evidence_root = "/mnt/e/k60-work/evidence"
+evidence_root = "/mnt/e/iOS Port/Work/evidence"
 # console.log 内含 NUL 字节（console 采集路径的产物），必须按字节读再解码
 encoding = "utf-8"
 errors = "replace"

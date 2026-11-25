@@ -7,8 +7,8 @@
 
 ## 参考源优先级（自上而下，不许跳级）
 
-1. **官方 sheng 主干**：`E:/hackios/UniXNU-sheng`（同 `ipados-27.0.1-24A446` profile，27 是它在维护的那条）。
-2. **官方文档**：`unixnu.com/zh/...`（本地镜像 `E:/hackios/UniXNU/docs/zh`），每步要 `{#anchor}`（iron-17）。
+1. **官方 sheng 主干**：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng`（同 `ipados-27.0.1-24A446` profile，27 是它在维护的那条）。
+2. **官方文档**：`unixnu.com/zh/...`（本地镜像 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh`），每步要 `{#anchor}`（iron-17）。
 3. **同 SoC 实现**：`UniXNU-t970`（SM8550）、`UniXNU-zizhan`、`UniXNU-liuqin` —— **仅当 1、2 都没有对应实现**，
    且必须写明「硬件哪里不同，所以官方那份不能用」。
 4. pong 谱系 / 我们自己 16.6.1 的代码：只允许用来**解释旧行为**（为什么当年这么做），不允许作为新代码的蓝本。

@@ -1,7 +1,7 @@
 # 官网 power 页逐节对照（§1–§6）
 
 本文件是 `https://unixnu.com/zh/porting/power` 的**整页**状态表。快照
-`E:/k60-work/scratch/power-page-20261117.txt` 共六节：§1 目标接口 :8-15、
+`E:/iOS Port/Work/scratch/power-page-20261117.txt` 共六节：§1 目标接口 :8-15、
 §2 DSP 传输 :16-27、§3 音频流 :28-67、§4 电池 :68-104、§5 调频与电源操作 :105-121、
 §6 构建并验证 :123-131。`docs/research/charger/10-POWER-DOC-CONFORMANCE.md`
 只覆盖 §4 的电池测量；§2/§3 由音频分支负责，本分支不重复实现。
@@ -112,7 +112,7 @@
    启动与 mode 8 写回正常（`restore domains=2 votes=9` 与 `votes=7`），但采集窗口内没有触摸，
    276/273 条样本全 `tb=0`；「轻触摸抬 d0」与「第二触仍有预算」仍未上机验证。
    GPU DCVS（GMU 忙碌计数器 + HFI 投票 + 16 ms 线程，窗口规则已抽进 host 140 项的模块）已实现；image o 02:14 验证线程与计数器读取，image q 02:36 验证 HFI 投票被接受，但还没有负载驱动的升档
-   （`E:/k60-work/artifacts/power-conformance-20261119o/boot.img`，201,887,744 B，sha256
+   （`E:/iOS Port/Work/artifacts/power-conformance-20261119o/boot.img`，201,887,744 B，sha256
    `b8e44043…`，kernel `d2b246bc…`；参数 gate OK，30 项 605 字节；`pong_gpu_dcvs=1` 默认关闭），o/q 均已上机，只缺负载驱动的升档闭环。
 - 2026-11-19 04:36 的 image u（`k60_cpufreq=9` + 导入的 0617 thermal 补丁，boot.img sha256 `fab4fe61…`，30 项 603 字节）与 07:56 的 image t（只含 mode 9、无温控补丁，boot.img sha256 `567d9b62…`，30 项 603 字节）**都未能启动**：fastboot 接受镜像，但 CDC-ACM 串口从未枚举（`capture.json state=port-not-observed`、0 字节、`returnedToFastboot=false`），设备失联直到强制复位。两次唯一的共同因素是 mode 9，温控补丁没有被证明有罪；`3a0a5511` 已在入口拒绝 9，thermal 导入仍由 `27ceb919` 回滚、只留在自己的分支。
 - 平台睡眠于 2026-11-19 落地：`ArmCpuSleep.h` + `ArmCpu.cpp` 等待路径（保存 GICD_ISENABLER、只留唤醒源、CNTV 期限、timer PPI 27、storm 掩码、PSCI CPU_OFF）、XNU hook `0623`、板级 `K60PlatformSleep.cpp`（timer-only，10 s tick）；`test-armcpu-sleep.c` 1038 项，七套件 1530 项全过，battery archive 140,048 B `f867efca…`。image z 首次 bootstrap 链接只带 GPU/电池 archive，电池新增的 `armcpu_sleep_register` 未定义，407ea557 在电池之前补 `-force_load libArmCpu.a` 后重建成功：boot.img 201,887,744 B sha256 `b167d4f9…`、kernel `df50f894…`、payload `facd5bc5…`，kernel 符号 `_armcpu_sleep_register`/`_k60_platform_sleep_register`/`_arm64_platform_sleep_hook` 都在；默认启动已于 2026-11-19 10:12 到 SpringBoard（console 168,735 B sha256 `4ec7b2c6…`，2491 行，panicMarker null，无 prepare/restore）；w9/w10 已进入 IOCPUSleepKernel 并完成 prepare/restore 与 timer PPI 27 唤醒，但 w9 panic Spurious wakeup、w10 在 secondary processor_start 硬挂，完整恢复未过。PON SPI 481/INTID 513 路由、看门狗喂狗、背光/触摸恢复仍缺。
@@ -147,7 +147,7 @@ GPU DCVS 也已接上 GMU XO 忙碌计数器、HFI id 30 投票与 16 ms 线程�
 
 ## 参考
 
-- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt`。
+- 官网快照：`E:/iOS Port/Work/scratch/power-page-20261117.txt`。
 - §4：`docs/research/charger/10-POWER-DOC-CONFORMANCE.md`。
 - §5：`docs/research/power/01-EPSS-PROBE.md`、`02-PLATFORM-SLEEP.md`、
   `03-POWER-VOTES.md`、`04-GPU-FREQUENCY.md`、`05-BOOST-RULES.md`、

@@ -8,7 +8,7 @@ FDF's `[FV.FvMain]` and the `!include` chain it pulls in. This gate reads both,
 then checks that EDK II actually produced an EFI image for every driver it
 found, so "listed in a .inc" cannot pass on its own.
 
-    python3 scripts/check-uefi-volume.py --uefi /mnt/e/hackios/uefi-mondrian
+    python3 scripts/check-uefi-volume.py --uefi /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian
     python3 scripts/check-uefi-volume.py --uefi ... --require MdeModulePkg/.../DiskIoDxe.inf
 
 Exit 0 when every required driver is in the volume and built, 1 when one is
@@ -166,7 +166,7 @@ def check(uefi: Path, required: tuple[str, ...] = REQUIRED) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--uefi', default='/mnt/e/hackios/uefi-mondrian')
+    parser.add_argument('--uefi', default='/mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian')
     parser.add_argument('--require', action='append', default=[],
                         help='an additional INF the volume must carry')
     parser.add_argument('--self-test', action='store_true')

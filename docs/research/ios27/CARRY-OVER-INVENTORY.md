@@ -191,6 +191,6 @@ the latter can simply return, which is what left this board sitting at the panic
   3. 到点调 `k60_usblog_reset_to_fastboot()`（`0549` 已定义并已被符号表证实）。
 - 唯一要改的现有文件是 `bsd/kern/bsd_init.c`，锚点 `k60_usblog_start();`（`0547` 在 `@@ -1334,7 +1334,11 @@` 里加的，实测存在于补丁第 1368 行，全树唯一），调用 `k60_autoreset_start();`。
 - `patches/xnu-12377/conf-files.txt` 加一行 `bsd/dev/k60_autoreset.c		standard`。
-- 切补丁方式：**仍用生成脚本**（`E:/k60-work/scratch/cut_autoreset_v27.py`，仿 `cut_ep0_v27.py`），因为要改新增行计数（P-155），手写 hunk 已咬过多次。
+- 切补丁方式：**仍用生成脚本**（`E:/iOS Port/Work/scratch/cut_autoreset_v27.py`，仿 `cut_ep0_v27.py`），因为要改新增行计数（P-155），手写 hunk 已咬过多次。
 - 判据（先写死）：`== kernel: patch 0550`、`llvm-nm` 有 `_k60_autoreset_start`、`strings kernel.macho | grep -c "k60_autoreset"` ≥ 1、`check-image-args.py` 仍 OK、prelink 两数仍 94/203。
 - 不使用 `0311`：`0311` 是 restart-reason 名字表，而裁决 A 已决定原因记静态变量；引入它只会把 SPMI 前置再拉回来。

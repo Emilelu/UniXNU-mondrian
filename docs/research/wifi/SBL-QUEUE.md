@@ -9,7 +9,7 @@ note is the evidence record for the gated SBL-queue candidate; c8 remains HOLD.
 
 | question | answer |
 |---|---|
-| What does c7 prove? | MHI reaches READY and M0, but `ee=0`, `pm_state=2`, `exec_env=1` (SBL); the event-ring read pointer never advances. The host waits for an EE event that never arrives. `E:/k60-work/evidence/usblog-20261116-122546/console.log:632` |
+| What does c7 prove? | MHI reaches READY and M0, but `ee=0`, `pm_state=2`, `exec_env=1` (SBL); the event-ring read pointer never advances. The host waits for an EE event that never arrives. `E:/iOS Port/Work/evidence/usblog-20261116-122546/console.log:632` |
 | What does the official path do? | `MhiBoot.c:91-98` requires `BHI_STATUS >> 30 == 2`; `MhiBoot.c:104-107` polls `BHI_EXECENV` and calls `start_image()` (BHIe write of `TXVECADDR/TXVECSIZE/TXVECDB`) when it reads `MHI_EE_SBL`. It never waits for an EE event packet. |
 | What is the K60 change? | Build-time host patch: after `mhi_ready_state_transition`, poll `mhi_get_exec_env` for up to 200 x 10 ms while `MHI_REG_ACCESS_VALID(pm_state)`; on SBL read `BHI_STATUS` and queue the stock `DEV_ST_TRANSITION_SBL` work item **only when `BHI_STATUS >> 30 == 2` (success)**, stop on `== 3` (error), and keep waiting otherwise. A `pong_sbl_pushed` latch makes the existing worker's `mhi_create_devices` + `mhi_download_amss_image` run once. |
 | Why not call `mhi_download_amss_image` from boot.c? | c8's direct call was held because it assumed a powered MMIO/DMA lease and could duplicate an already queued SBL transition. Queueing the stock transition keeps the worker, locks and `fbc_image` ownership in one place; the only new register reads use the existing MHI helpers while `pm_state` says access is valid. |
@@ -83,11 +83,11 @@ the next candidate.
 |---|---|
 | tag | `wifi-20261118sbl-gated` |
 | branch / head | `fix/wifi-bhi-execenv-wifi` / `4e00d56943d2fd280cd83cf06e630395050c1b1c` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-gated/boot.img`, 201,887,744 B, SHA256 `34867c7f26e975c7043e5d4c9ea7c00259374d7eeb24e83bbb655a3b1967e24c` |
+| `boot.img` | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-gated/boot.img`, 201,887,744 B, SHA256 `34867c7f26e975c7043e5d4c9ea7c00259374d7eeb24e83bbb655a3b1967e24c` |
 | kernel | `4603d0c6ccb86a287049479720e6af96af51eb67f52443f21cb7ba2995ae7754` |
 | payload kernel | `f857369b948f6d56b642e8c8985a9cff391dbba3b01e8c1811dcda23078a7dba` |
 | WiFi archive | `c03534a77386b6ed17094e0fc63116dcf80e5d20911cebe5ea6732bd9cd44f8e` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-gated/build-manifest.json` |
+| manifest | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-gated/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
 
 The earlier `wifi-20261117sbl-queue` image (head `e6b71ba8`) was built before
@@ -151,7 +151,7 @@ still HOLD and must not be built, booted or merged.
 
 The gated queue image `wifi-20261118sbl-gated` was flown with serial capture
 attached before boot. It reached SpringBoard, and the log is complete:
-`E:/k60-work/evidence/usblog-20261118-005525/console.log` (143,253 bytes,
+`E:/iOS Port/Work/evidence/usblog-20261118-005525/console.log` (143,253 bytes,
 2,079 lines). The MHI sequence is:
 
 - `:586` 64 MiB wired DMA mapped, 35 native-4K table pages.

@@ -4,7 +4,7 @@
 
 ## 规模上的事实
 
-`OFFICIAL-REQUIREMENTS.toml` 登记 **103 页**，全部来自文档树的中段；`E:/hackios/UniXNU/docs/devices/`
+`OFFICIAL-REQUIREMENTS.toml` 登记 **103 页**，全部来自文档树的中段；`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/devices/`
 下有 **266 个页面**，`mondrian` 开头的有四页：
 
 | 文件 | 行数 | 是什么 |

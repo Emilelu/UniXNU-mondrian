@@ -6,12 +6,12 @@
 > 路径约定：**仓库内**用相对路径；**仓库外**用绝对路径。WSL 侧构建树前缀 `/opt/k60/trees`。
 >
 > 上游/下游源码副本（本机已落地，供复核）：
-> * 主线 v6.6：`/mnt/e/k60-work/scratch/usb/linux/phy-qcom-qmp-combo.c`（124459 B）、`phy-qcom-qmp.h`、
+> * 主线 v6.6：`/mnt/e/iOS Port/Work/scratch/usb/linux/phy-qcom-qmp-combo.c`（124459 B）、`phy-qcom-qmp.h`、
 >   `phy-qcom-qmp-pcs-v5.h`、`phy-qcom-qmp-pcs-usb-v5.h`、`phy-qcom-qmp-qserdes-txrx-v6.h`
-> * 下游 SM8450：`/mnt/e/k60-work/scratch/usb/linux/phy-msm-ssusb-qmp-sm8450.c`（32741 B）
-> * 同 SoC 实机 DT 快照：`E:/k60-work/references/UniXNU-pong/configs/pong-usb-sm8475.json`
-> * UEFI 侧 DT（固件树，**不是**随镜像走的 DT）：`E:/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`
-> * 反编译文本：`E:/k60-work/scratch/usb/mondrian.dts`（21954 行）
+> * 下游 SM8450：`/mnt/e/iOS Port/Work/scratch/usb/linux/phy-msm-ssusb-qmp-sm8450.c`（32741 B）
+> * 同 SoC 实机 DT 快照：`E:/iOS Port/Work/references/UniXNU-pong/configs/pong-usb-sm8475.json`
+> * UEFI 侧 DT（固件树，**不是**随镜像走的 DT）：`E:/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb`
+> * 反编译文本：`E:/iOS Port/Work/scratch/usb/mondrian.dts`（21954 行）
 
 ---
 
@@ -28,7 +28,7 @@ txb 10 / rxb 39 / pcs 14 / pcs_usb 4），其中 **tx / rx / pcs / pcs_usb 与�
 
 ## 1. DT 真值（节点、电源、时钟、复位）
 
-`E:/k60-work/scratch/usb/mondrian.dts:16899-16917`（`ssphy@88e8000`）：
+`E:/iOS Port/Work/scratch/usb/mondrian.dts:16899-16917`（`ssphy@88e8000`）：
 
 | 项 | 值 | 证据 |
 |---|---|---|
@@ -173,7 +173,7 @@ lane1/lane2 差异**已经展开成两份相同值**。⇒ 写入时必须按 rx
 
 ## 4. 同 SoC 实机校正：Pong 的 override-seq
 
-`E:/k60-work/references/UniXNU-pong/configs/pong-usb-sm8475.json` 的 ssphy 节点比 mondrian 多一条：
+`E:/iOS Port/Work/references/UniXNU-pong/configs/pong-usb-sm8475.json` 的 ssphy 节点比 mondrian 多一条：
 
 ```
 qcom,qmp-phy-override-seq = <0x1580 0x0d  0x1614 0x38  0x1980 0x0d>
@@ -234,7 +234,7 @@ lane 写入统一走 `qmp_combo_configure_lane`（:1870），单表全 lane 时 
 
 ## 6. 上机证据：QMP 段至今未初始化
 
-`E:/k60-work/evidence/usblog-20261114-usb-hb2/console.log`：
+`E:/iOS Port/Work/evidence/usblog-20261114-usb-hb2/console.log`：
 * :9 `DWC3 GSNPSID 0x33313130 GCTL 0x00102001 GSTS 0x7e800000 GUSB2PHYCFG 0x00102400`
 * :12 `eUSB2[0x88e3000] +0x1a0 0 +0x210 0 +0x240 0 +0x254 0x0b0b0b0b`
 * :257 起 QSCRATCH 全 0；:263 起心跳 `GDSC 0xf822f000 QSCRATCH HS 0x10100000 SS 0x01000000`
@@ -252,7 +252,7 @@ lane 写入统一走 `qmp_combo_configure_lane`（:1870），单表全 lane 时 
 2. **clamp 用 0x1e00 还是 0x1a0c**：以 DT 为准（0x1e00）。主线值在本硅上无证据。
 3. **serdes 表不可套主线**（§3.1）：任何"从主线搬表"的实现都算违反铁则 3。
 4. **Pong override-seq 是否对 K60 必需**：同 SoC 但不同板（Pong 是平板），只能作为实验项，不能作为默认。
-5. **PHY 参考时钟频率**：官方文档写 eUSB2 参考 38.4 MHz（`E:/k60-work/references/yibiya-unixnu-upstream/docs/drivers/qcom-dwc3.md`），
+5. **PHY 参考时钟频率**：官方文档写 eUSB2 参考 38.4 MHz（`E:/iOS Port/Work/references/yibiya-unixnu-upstream/docs/drivers/qcom-dwc3.md`），
    但 K60 DT 的 `ref_clk_src` 只给了 phandle+序号，没有频率；serdes 表的 PLL 参数（§3.1）是间接证据。
    若要写死频率，需要 clock 驱动的 rate 表作依据 —— 本机没有该表。
 
@@ -275,15 +275,15 @@ lane 写入统一走 `qmp_combo_configure_lane`（:1870），单表全 lane 时 
 
 ```bash
 # 1) 反编译固件侧 DT（只读）
-dtc -I dtb -O dts -o /mnt/e/k60-work/scratch/usb/mondrian.dts \
-    /mnt/e/hackios/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb
+dtc -I dtb -O dts -o /mnt/e/iOS Port/Work/scratch/usb/mondrian.dts \
+    /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/FdtBlob/sm8475-xiaomi-mondrian.dtb
 
 # 2) 表提取 + 五项一致性检查（RESULT: OK 才算通过）
-python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/k60-work/scratch/usb/mondrian.dts --check
+python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/iOS Port/Work/scratch/usb/mondrian.dts --check
 
 # 3) 生成 C 头并编译验证（enum kQmp* + 164 条 kK60QmpInit[]）
-python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/k60-work/scratch/usb/mondrian.dts \
-        --emit-c --out /mnt/e/k60-work/scratch/usb/kQmpPhyK60.h
+python3 docs/research/usb/qmp-phy-table.py --dts /mnt/e/iOS Port/Work/scratch/usb/mondrian.dts \
+        --emit-c --out /mnt/e/iOS Port/Work/scratch/usb/kQmpPhyK60.h
 printf '#include "kQmpPhyK60.h"\nint main(void){return (sizeof(kK60QmpInit)/sizeof(kK60QmpInit[0]))==164?0:1;}\n' > t.c
 cc -std=c11 -Wall -Wextra -Werror -o t t.c && ./t   # rc=0
 ```
@@ -300,7 +300,7 @@ cc -std=c11 -Wall -Wextra -Werror -o t t.c && ./t   # rc=0
 
 | 事实 | 位置 |
 |---|---|
-| ssphy 节点全文 | `E:/k60-work/scratch/usb/mondrian.dts:16899-16917` |
+| ssphy 节点全文 | `E:/iOS Port/Work/scratch/usb/mondrian.dts:16899-16917` |
 | vdd / core 电源 | 同文件 :5212-5219、:5657-5664 |
 | 13 项枚举 | `phy-msm-ssusb-qmp-sm8450.c:82-101` |
 | 13 项解析 + 越界报错 | 同文件 :1066-1086（:1071-1072） |
@@ -319,6 +319,6 @@ cc -std=c11 -Wall -Wextra -Werror -o t t.c && ./t   # rc=0
 | PCS v5 寄存器 | `phy-qcom-qmp-pcs-v5.h:10-13` |
 | PCS_USB v5 寄存器 | `phy-qcom-qmp-pcs-usb-v5.h:10,12,15,16` |
 | QSERDES v6 tx/rx | `phy-qcom-qmp-qserdes-txrx-v6.h:11,33,60,69` |
-| Pong override-seq | `E:/k60-work/references/UniXNU-pong/configs/pong-usb-sm8475.json` |
-| 上机 PHY 真值 | `E:/k60-work/evidence/usblog-20261114-usb-hb2/console.log:9,12,257,263,269` |
-| DSTS 速度编码 | `E:/k60-work/references/uefi-pong/Silicon/Samsung/SamsungPkg/Include/Device/Dwc3.h:205-209` |
+| Pong override-seq | `E:/iOS Port/Work/references/UniXNU-pong/configs/pong-usb-sm8475.json` |
+| 上机 PHY 真值 | `E:/iOS Port/Work/evidence/usblog-20261114-usb-hb2/console.log:9,12,257,263,269` |
+| DSTS 速度编码 | `E:/iOS Port/Work/references/uefi-pong/Silicon/Samsung/SamsungPkg/Include/Device/Dwc3.h:205-209` |

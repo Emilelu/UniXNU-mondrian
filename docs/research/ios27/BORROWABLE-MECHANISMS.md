@@ -1,6 +1,6 @@
 # 可借用机制清单（zizhan 27 线的两条）
 
-来源：`/mnt/e/k60-work/references/latest/UniXNU-zizhan` @ `a7f8ae2`（2026-11-23 导出）。
+来源：`/mnt/e/iOS Port/Work/references/latest/UniXNU-zizhan` @ `a7f8ae2`（2026-11-23 导出）。
 两条都判 `DEFERRED`：机制本身可用，但我们 stage-0 用不上。**没有经过我们的构建或上机验证**，借用前必须先在 27 树上重放并证明。
 
 ---

@@ -38,12 +38,12 @@ SOURCES = os.path.join(REPO, 'docs', 'research', 'SOURCES.toml')
 
 # 参考源搜索前缀。SOURCES.toml 里的 path 相对这些前缀之一；顺序即优先级。
 #   REPO            -- 本仓库内的文件（docs/、references/ 的本地副本）
-#   /mnt/e/k60-work -- 参考仓库的规范检出位置
-#   /mnt/e/hackios  -- 直接从上游 clone 的参考仓库（QcaBluetooth、UniXNU-liuqin 等）
+#   /mnt/e/iOS Port/Work -- 参考仓库的规范检出位置
+#   /mnt/e/iOS Port/Sources  -- 直接从上游 clone 的参考仓库（QcaBluetooth、UniXNU-liuqin 等）
 REFERENCE_PREFIXES = (
     str(REPO),
-    '/mnt/e/k60-work',
-    '/mnt/e/hackios',
+    '/mnt/e/iOS Port/Work',
+    '/mnt/e/iOS Port/Sources',
 )
 
 

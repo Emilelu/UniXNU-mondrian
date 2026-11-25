@@ -1,6 +1,6 @@
 # 七项「必须补」清单的收口 — 2026-11-23
 
-来源：`E:/k60-work/scratch/parity-expand-report.md`（9 来源 1460 条账本）。
+来源：`E:/iOS Port/Work/scratch/parity-expand-report.md`（9 来源 1460 条账本）。
 
 | # | 条目 | 处置 | 证据 / 提交 |
 | --- | --- | --- | --- |

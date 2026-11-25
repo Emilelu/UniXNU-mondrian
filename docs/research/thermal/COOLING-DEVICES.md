@@ -68,7 +68,7 @@
 
 ## 2 三个没人实现的冷却设备（各两行）
 
-「没人实现」的总证据（grep，模式与范围如下）：`grep -rn 'cpufreq-cdev\|devfreq-cdev\|display-fps' /mnt/e/hackios/k60-thermal/` 只在 `docs/research/thermal/TRIP-DESIGN.md:132-134` 命中（文档表格），代码零命中。
+「没人实现」的总证据（grep，模式与范围如下）：`grep -rn 'cpufreq-cdev\|devfreq-cdev\|display-fps' /mnt/e/iOS Port/Sources/Hardware/k60-thermal/` 只在 `docs/research/thermal/TRIP-DESIGN.md:132-134` 命中（文档表格），代码零命中。
 
 ### 2.1 cpufreq-cdev
 
@@ -107,15 +107,15 @@ TRIP-DESIGN.md §4 的候选排序「充电限流 > 背光/HBM > Thermal_Level_W
 
 ```
 # 46 条 map 全表（花括号深度解析，输出 zones.json）
-python3 /mnt/e/k60-work/scratch/dts_parse.py
+python3 /mnt/e/iOS Port/Work/scratch/dts_parse.py
 # 三个设备的节点本体
 sed -n '16790,16808p' /tmp/mondrian.dts
 # 「没人实现」的零命中 grep（模式与范围）
 grep -rn 'kgsl\|devfreq' /opt/k60/trees/thermal-out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/
 grep -rln 'qmi' /opt/k60/trees/thermal-out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/bsd/dev /opt/k60/trees/thermal-out/mondrian/ipados-16.6.1-20G81/mondrian/tree/.cache/xnu-work/osfmk
-grep -rn 'cpufreq-cdev\|devfreq-cdev\|display-fps' /mnt/e/hackios/k60-thermal/
+grep -rn 'cpufreq-cdev\|devfreq-cdev\|display-fps' /mnt/e/iOS Port/Sources/Hardware/k60-thermal/
 # 停核执行路径
-grep -n 'haltCPU\|startCPU\|setCPUState' /mnt/e/hackios/k60-thermal/drivers/ArmCpu/ArmCpu.cpp
+grep -n 'haltCPU\|startCPU\|setCPUState' /mnt/e/iOS Port/Sources/Hardware/k60-thermal/drivers/ArmCpu/ArmCpu.cpp
 ```
 
 ## 5 与其它文档的关系

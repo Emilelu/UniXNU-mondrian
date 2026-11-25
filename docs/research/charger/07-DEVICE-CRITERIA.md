@@ -145,7 +145,7 @@ sysfs 单位换算：`voltage_now` µV ÷1000 → mV；`current_now` µA ÷1000 
 status Charging、current_now 836 mA、voltage_now 4 333 mV、USB CDP online。
 
 **第三条通道：Android 自己的 dmesg**（没有 root/adb 取 sysfs 时用）。判据器直接吃这份 dmesg，
-匹配行是充电器驱动打的电池帧（`/mnt/e/k60-work/evidence/wifi-trial/dmesg-android-20261114.txt` 实测 117 行）：
+匹配行是充电器驱动打的电池帧（`/mnt/e/iOS Port/Work/evidence/wifi-trial/dmesg-android-20261114.txt` 实测 117 行）：
 
 ```
 [ 6380.688186] BATTERY_CHG: handle_message: [ADSP] fg_update_status:: ssoc:100, rsoc:99,
@@ -204,7 +204,7 @@ status Charging、current_now 836 mA、voltage_now 4 333 mV、USB CDP online。
 `TOTAL: n PASS / n FAIL / n INVALID`（没有 TOTAL 行等于没跑过）。
 
 ```
-python3 scripts/judge-battery.py --log E:/k60-work/evidence/usblog-20261116-xxxxxx
+python3 scripts/judge-battery.py --log E:/iOS Port/Work/evidence/usblog-20261116-xxxxxx
 python3 scripts/judge-battery.py --log <usblog-dir> --android android-samples.tsv \
     --window-start 1763000000 --window-end 1763001800
 python3 scripts/judge-battery.py --log <usblog-dir> --android dmesg-android.txt \
@@ -252,7 +252,7 @@ grep -nE 'K60Handoff: published authenticated|K60ADSP owner stage=|K60Battery: a
 `NEGATIVES: N rows, N ok, N mismatch`。任何人改 `scripts/judge-battery.py` 的判据，
 先跑这张表再谈改对没改对。
 
-取材说明（重要，别把这张表读成「已验证」）：`/mnt/e/k60-work/evidence` 共 631 个目录、
+取材说明（重要，别把这张表读成「已验证」）：`/mnt/e/iOS Port/Work/evidence` 共 631 个目录、
 其中 535 个含 `console.log`，对全部 535 个跑判定器**全部 INVALID**——整棵证据树里
 `published authenticated PAS1` = 0、`PMIC_RTR_ADSP_APPS channel up` = 0、`subscribed=1` = 0。
 也就是说 **C1/C2 的 FAIL 形态目前没有真实抓包**，表里标 `synthetic` 的行是按真实日志的

@@ -40,8 +40,8 @@
 - 用户确认屏幕：**全黑，什么都没显示**。
 
 ⇒ 补齐 DSC 集成**没有**让固件界面起来。下一格是单变量 A/B：用**已知能起界面**的旧固件卷
-`cf448571…`（3,145,728 B，`E:\k60-work\artifacts\old-fd-cf448571.fd`）+ 同一个 27 payload 打一张图，
-`E:\k60-work\artifacts\f2-oldfd\boot.img`（201,887,744 B）。
+`cf448571…`（3,145,728 B，`E:\iOS Port\Work\artifacts\old-fd-cf448571.fd`）+ 同一个 27 payload 打一张图，
+`E:\iOS Port\Work\artifacts\f2-oldfd\boot.img`（201,887,744 B）。
 
 判据：旧卷 + 27 payload 出现绿条/菜单 ⇒ 问题在新固件卷（PE 或卷内容）；仍然全黑 ⇒ 问题在 payload 侧
 （27 内核在固件读取 payload 之后、界面绘制之前就出事），此时才轮到入口探针。

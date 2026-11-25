@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-DEFAULT_DIR = Path("/mnt/e/k60-work/scratch")
+DEFAULT_DIR = Path("/mnt/e/iOS Port/Work/scratch")
 
 # Reports written before the marker existed cannot declare it.  They are reported
 # as notes instead of failures, and the cutoff is a constant so the exemption

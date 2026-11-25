@@ -37,9 +37,9 @@ blit 编码）、**submit**（`commit` 返回）、**gpu**（`waitUntilCompleted
 
 ## 3. 抓取
 
-- 镜像目录：`E:/k60-work/artifacts/gpu-split-20261118`
+- 镜像目录：`E:/iOS Port/Work/artifacts/gpu-split-20261118`
 - 命令行必须含 `pong_metal=1 pong_gpu_scanout=1 sheng-gpu-addon=1`
-- 抓取 240 s，证据落 `E:/k60-work/evidence/usblog-<ts>/`
+- 抓取 240 s，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`
 
 ## 4. 判据
 

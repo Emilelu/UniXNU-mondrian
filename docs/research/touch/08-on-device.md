@@ -16,9 +16,9 @@
   `0b2003f45603449b28194e29def3302d84f1de508895581c0cd0417dcf9d88e9`（201,887,744 B）；
   `kernel.macho` sha256
   `c78a5cc93c3ec6e24de34a4a31e1b7639607fb45c2b024cb78b32753b8451b09`（105,476,096 B）。
-- **日志**：`E:\k60-work\evidence\usblog-20261114-150931\console.log`，268,137 B / 3,870 行；
+- **日志**：`E:\iOS Port\Work\evidence\usblog-20261114-150931\console.log`，268,137 B / 3,870 行；
   `capture.json` `complete=true`、`panicMarker=null`、`resetMarker=null`、`portSeen=true`。
-- **命令**：`bash scripts/flash.sh /mnt/e/k60-work/artifacts/touch-20261114a/boot.img 240`
+- **命令**：`bash scripts/flash.sh /mnt/e/iOS Port/Work/artifacts/touch-20261114a/boot.img 240`
   （经 `boot-and-capture.ps1` 监督，单串口写者）。
 - **判据**：SpringBoard 254 行；`K60PANIC: ring kept` / `initproc exited` / `panic(` /
   `Debugger called` 各 0 次。用户在场，屏幕出现真实触点响应。

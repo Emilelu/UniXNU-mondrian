@@ -18,7 +18,7 @@ Also produced: `NativeLegacyDisplay.o` 408,520 B, `original-bindings.o` 34,328 B
 `NativeLegacyDisplay: -Werror build and arm64e-apple-ios27.0 object audit passed`,
 `compile.log` empty.
 
-Archived at `E:\k60-work\artifacts\display-abi\`.
+Archived at `E:\iOS Port\Work\artifacts\display-abi\`.
 
 Open: wiring the archive into `board.toml` `kernel.archives` and enabling
 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY` still has to be done together with the

@@ -14,7 +14,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'k60-capture-state.ps1')
-if (-not $OutDir) { $OutDir = "E:\k60-work\evidence\usblog-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')" }
+if (-not $OutDir) { $OutDir = "E:\iOS Port\Work\evidence\usblog-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')" }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $log = Join-Path $OutDir 'console.log'
 $events = Join-Path $OutDir 'capture-events.jsonl'

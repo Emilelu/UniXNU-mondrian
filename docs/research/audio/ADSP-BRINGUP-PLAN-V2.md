@@ -5,8 +5,8 @@
 
 ## 0. Pins and boundaries
 
-- Vendor source: Xiaomi K60 Android S [989b27aa8391a2ede9b067b53877c4c3343955fe](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/blob/989b27aa8391a2ede9b067b53877c4c3343955fe/drivers/remoteproc/qcom_q6v5_pas.c), local copy `E:/k60-work/scratch/survey-linux/vendor_q6v5_pas.c`; DT `E:/k60-work/scratch/dtb/mondrian.dts`.
-- AOSS message transport: same pin, `drivers/soc/qcom/qcom_aoss.c`; MDT loader: same pin, `drivers/soc/qcom/mdt_loader.c`, local copy `E:/k60-work/scratch/survey-linux/mdt_loader.c`.
+- Vendor source: Xiaomi K60 Android S [989b27aa8391a2ede9b067b53877c4c3343955fe](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/blob/989b27aa8391a2ede9b067b53877c4c3343955fe/drivers/remoteproc/qcom_q6v5_pas.c), local copy `E:/iOS Port/Work/scratch/survey-linux/vendor_q6v5_pas.c`; DT `E:/iOS Port/Work/scratch/dtb/mondrian.dts`.
+- AOSS message transport: same pin, `drivers/soc/qcom/qcom_aoss.c`; MDT loader: same pin, `drivers/soc/qcom/mdt_loader.c`, local copy `E:/iOS Port/Work/scratch/survey-linux/mdt_loader.c`.
 - HR-01 still forbids AP TCS writes and `CONTROL_TRIGGER`; the only allowed RSC read is DRV-2 `w[0]` under the four conditions. QMP descriptor reads are a different window and still need the same opt-in boot; this document does not add one.
 - Production `resources_cb` remains `K60BoardUnsupported`(-63); the legacy rail gate remains only on `k60_adsp_probe_from_handoff()`; the publish path does not pass it.
 

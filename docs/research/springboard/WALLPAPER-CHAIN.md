@@ -1,6 +1,6 @@
 # WALLPAPER-CHAIN — 壁纸纯黑 / 换壁纸后进不去系统 / 桌面小组件加载不出来
 
-- 线：springboard（工作树 `E:/hackios/k60-springboard`，分支 `feat/springboard`）
+- 线：springboard（工作树 `E:/iOS Port/Sources/Hardware/k60-springboard`，分支 `feat/springboard`）
 - 日期：2026-11-14
 - 状态：证据链已闭合（host 侧）；设备判据未验证（按铁则禁止自行 boot，交 Lead）
 - 适用范围：本文所有 `文件:行` 均可在工作树内直接检索；日志行号指 `docs/research/evidence/` 下文件的行号
@@ -101,7 +101,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ### 2.7 "换壁纸后进不去系统"
 
-- 现状：**没有当次日志**。已穷尽搜索 `/opt/k60`、`/mnt/e/hackios`、`/mnt/e/k60-work`（只有旧 `springboard-truth.txt`，全文无 wallpaper 行）；Lead 引用的 528-529/2241/2247/2257 行号无法复核，需提供文件路径。
+- 现状：**没有当次日志**。已穷尽搜索 `/opt/k60`、`/mnt/e/iOS Port/Sources`、`/mnt/e/iOS Port/Work`（只有旧 `springboard-truth.txt`，全文无 wallpaper 行）；Lead 引用的 528-529/2241/2247/2257 行号无法复核，需提供文件路径。
 - 候选机制 A（数据侧）：在设置里换壁纸 → WallpaperKit 写 Data 侧 store（`/private/var/mobile/Library/SpringBoard/`）；重启后 SpringBoard/PosterBoard 读新配置，若资产引用不可达则启动期卡住。
 - 候选机制 B（挂载侧）：`userland/init.c@2101281:373-378` 的 guard 只挡"目录不存在"；一旦目录存在而 bindfs 失败/成功状态变化，会进入 `mount()`。历史教训 `docs/reference/ISSUES.md:325-327`：v7probe 把带 `mount` 的第 5 条放进 views 表导致 hang（"定住不重启"），修法是加 guard——说明"进不去系统"曾真实由 mount 阶段触发。
 - 下次上机应抓：`Pong init: boot view %s -> %s result=%d errno=%d`（`:380-381`）、SpringBoard 崩溃前的 `Pong UI:` 序列、以及 `kern.pong_diagnostic`。
@@ -214,11 +214,11 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ### 5.1 strict 构建（2026-11-14 21:46，springboard-20261114c）
 
-- 命令：`K60_OUT=/opt/k60/trees/springboard-out K60_DEVICE_INPUT=/opt/k60/trees/springboard-device K60_EIGHT_STEP_ITEMS=springboard bash scripts/build-strict.sh springboard-20261114c --fd /mnt/e/k60-work/artifacts/fd/gpu-20261114n-cf4485712c29.fd`。
+- 命令：`K60_OUT=/opt/k60/trees/springboard-out K60_DEVICE_INPUT=/opt/k60/trees/springboard-device K60_EIGHT_STEP_ITEMS=springboard bash scripts/build-strict.sh springboard-20261114c --fd /mnt/e/iOS Port/Work/artifacts/fd/gpu-20261114n-cf4485712c29.fd`。
 - 结果：`BUILD_EXIT=0`；kernel `95fe8809…` 105,480,192 B；payload kernel `e4f13116…`；`boot.img` `3ada9562…` 201,887,744 B；`verify-boot-image: OK`；`image-arg-audit: OK (29 arguments, 575 bytes)`；frozen-before/after 一致。
 - **判据自证**：`strings -a boot.img | grep -c "Pong UI:"` = 39（旧 28）；命中 `Pong UI: wallpaper existing-content=%d restore-stock=%d`、`Pong UI: submitting genuine wallpaper 7410 native lock+home path=%s`、`/Library/Wallpaper/Stills/iPad/7410.WWDC_2022-1024w-1366h@2x~ipad.wallpaper` ⇒ **F1 的壁纸选择代码确实进了本次镜像**。
 - 构建期间排除的两处跨树污染（都写进了仓库）：`scripts/tests/test-series-source.py` 的 P-194 假红（共享 artifacts 目录里最新的 224 补丁 manifest 把 223 补丁的树判红，改为"优先取与本仓库 series 一致的 manifest"）；`/opt/k60/trees/springboard-out` 从 lead-out `cp -a` 播种时带进来的 141 个引用 `/opt/k60/trees/lead-out` 的旧对象文件（`make[7]: No rule to make target …/lead-out/…/nx_netif_gso.c`），删除 `tree/build/{xnu,native-ufs,storage-abi}` 后重建通过。
-- 产物：`/mnt/e/k60-work/artifacts/springboard-20261114c/boot.img`、`build-manifest.json`（components: kernel_built `95fe8809…`、boot_img `3ada9562…`、fd `cf448571…`）、`fd/springboard-20261114c-cf4485712c29.fd`。**未上机**（用户铁则：boot 由 Lead 执行）。
+- 产物：`/mnt/e/iOS Port/Work/artifacts/springboard-20261114c/boot.img`、`build-manifest.json`（components: kernel_built `95fe8809…`、boot_img `3ada9562…`、fd `cf448571…`）、`fd/springboard-20261114c-cf4485712c29.fd`。**未上机**（用户铁则：boot 由 Lead 执行）。
 
 ---
 
@@ -243,8 +243,8 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ### 5.4 strict 构建（2026-11-15 00:49，springboard-20261114e，含 0618）
 
-- 命令：`K60_OUT=/opt/k60/trees/springboard-out K60_DEVICE_INPUT=/opt/k60/trees/springboard-device K60_EIGHT_STEP_ITEMS=springboard K60_ARTIFACTS=/mnt/e/k60-work/artifacts bash scripts/build-strict.sh springboard-20261114e --fd /mnt/e/k60-work/artifacts/fd/gpu-20261114n-cf4485712c29.fd`，BUILD_EXIT=0，series=225（0618 在 series 尾部）。
-- 产物：`/mnt/e/k60-work/artifacts/springboard-20261114e/{boot.img 201,887,744 B, boot.json, build-manifest.json, logs/}` 与 `fd/springboard-20261114e-cf4485712c29.fd`；kernel 105,484,288 B（sha256 `7e289c5a…`）；boot.img sha256 `3748387823d0a86968d54296f1a1941a88ff62f8abbe6fd942a242c27be35954`；`verify-boot-image.py` OK；image-arg-audit OK（29 参数 575 B，无 k60_wallpaper_reset）。
+- 命令：`K60_OUT=/opt/k60/trees/springboard-out K60_DEVICE_INPUT=/opt/k60/trees/springboard-device K60_EIGHT_STEP_ITEMS=springboard K60_ARTIFACTS=/mnt/e/iOS Port/Work/artifacts bash scripts/build-strict.sh springboard-20261114e --fd /mnt/e/iOS Port/Work/artifacts/fd/gpu-20261114n-cf4485712c29.fd`，BUILD_EXIT=0，series=225（0618 在 series 尾部）。
+- 产物：`/mnt/e/iOS Port/Work/artifacts/springboard-20261114e/{boot.img 201,887,744 B, boot.json, build-manifest.json, logs/}` 与 `fd/springboard-20261114e-cf4485712c29.fd`；kernel 105,484,288 B（sha256 `7e289c5a…`）；boot.img sha256 `3748387823d0a86968d54296f1a1941a88ff62f8abbe6fd942a242c27be35954`；`verify-boot-image.py` OK；image-arg-audit OK（29 参数 575 B，无 k60_wallpaper_reset）。
 - 镜像自证：`strings -a boot.img | grep -c "Pong UI:"` = 39（F1 在）、`grep -c "K60WALL"` = 5、`stock-wallpaper/Collections/Collections~ipad.plist` 命中（0618 在）；`genuine stock wallpaper aliases` = 0（0401 blob 不生效，符合 P-198）。
 - 前两次构建失败教训：iron-2 会拦"未提交就构建"，所以 0618 与文档必须先提交（commit `3e09ce3` fix(xnu)、`2202042` docs）再启动构建；P-194 在 series 变更后需 `touch patches/xnu/series` 让旧 manifest 判 stale（否则 springboard-20261114d 的 manifest 224≠225 报真红）。
 - **未上机**（铁则），判据见 §3。
@@ -253,7 +253,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 - 重命名：`patches/xnu/0617-k60-wallpaper-seed.patch` → `0618-k60-wallpaper-seed.patch`（0617 已归 ADSP glink handoff，cellular 占 0620-0622；Lead 指示），series 第 225 行同步。
 - 命令：同上 §5.4 加 `--kernel-arg k60_wallpaper_reset=1`；BUILD_EXIT=0，series=225，frozen=`8cfac80e…`。
-- 产物：`/mnt/e/k60-work/artifacts/springboard-20261115a/{boot.img 201,887,744 B, boot.json, build-manifest.json, logs/}`，fd `fd/springboard-20261115a-cf4485712c29.fd`；kernel 105,484,288 B（sha256 `6817ffde…`）；boot.img sha256 `5c6ce1d474ce6e4f19deb00dec38deb87a9e03b642b55e89ad5b6e815a73c2f5`。
+- 产物：`/mnt/e/iOS Port/Work/artifacts/springboard-20261115a/{boot.img 201,887,744 B, boot.json, build-manifest.json, logs/}`，fd `fd/springboard-20261115a-cf4485712c29.fd`；kernel 105,484,288 B（sha256 `6817ffde…`）；boot.img sha256 `5c6ce1d474ce6e4f19deb00dec38deb87a9e03b642b55e89ad5b6e815a73c2f5`。
 - args 自证：`image-arg-audit: OK (30 arguments, 597 bytes)`（575 + 22 = 597 ≤ 607 字节预算），`manifest.kernel_args_requested = ["k60_wallpaper_reset=1"]`，镜像内 `strings -a boot.img | grep -c "applog=1 k60_wallpaper_reset=1"` = 1。
 - 镜像自证：`K60WALL` = 5、`Pong UI:` = 39；`verify-boot-image.py` OK。
 - **该参数每次启动都会恢复 stock 壁纸**，因此这只是一张验证镜像；验证通过后需出一张不带该参数的常规镜像。
@@ -263,7 +263,7 @@ Pong init: wallpaper aliases SKIP (stock view unavailable)
 
 ## 6. 未决问题 / 下一步
 
-1. **"换壁纸后进不去系统"的 console.log：不再等待**（Lead m01860 裁决）。Lead 在 `E:\k60-work\evidence`、`E:\hackios\*`、`E:\k60-ios` 按 `SB<100 行 + backboardd crashed` 扫过一遍，只有 Lead 自己采集的 30 份 `usblog-*`，用户说的那次发生在 yibiya 侧、日志在用户手里 ⇒ 按「已知现象、无证据」处理，本线按 F1/F3 推进，该链只能停留在候选机制（§2.7）。
+1. **"换壁纸后进不去系统"的 console.log：不再等待**（Lead m01860 裁决）。Lead 在 `E:\iOS Port\Work\evidence`、`E:\iOS Port\Sources\*`、`E:\k60-ios` 按 `SB<100 行 + backboardd crashed` 扫过一遍，只有 Lead 自己采集的 30 份 `usblog-*`，用户说的那次发生在 yibiya 侧、日志在用户手里 ⇒ 按「已知现象、无证据」处理，本线按 F1/F3 推进，该链只能停留在候选机制（§2.7）。
 2. 设备上 bindfs 的实际返回值需 `Pong init: boot view … result=` 行确认（P-27 是另一次量测）。
 3. F2 复查：0616 把 0401 的 installer 调用换成 34,904 B 旧助手（P-182），F2 的 52,456 B init 与 varpack 是死代码（§4 F2 复查、P-198）。生效项是 F3（0618：内核预置目录 + 复制 catalog），与 F1 一起进 springboard-20261114e（§5.4，已构建自证）；上机后按 §3 三行判据核对，重点抓 `K60WALL catalogue …` 与 `Pong init: boot view …` 两组日志。
 4. 上机（交 Lead，用户明确同意后执行）：刷 0340 新 blob + `k60_wallpaper_reset=1` 启动一次；抓 `Pong UI: wallpaper …` 与 `Pong init: boot view …` 两组日志。

@@ -1,6 +1,6 @@
 # 预链接残留：205 个桩到底是什么
 
-来源：2026-11-21 独立审计（`E:/k60-work/scratch/stubs/{classify.py,REPORT.md,unreachable.toml}`，
+来源：2026-11-21 独立审计（`E:/iOS Port/Work/scratch/stubs/{classify.py,REPORT.md,unreachable.toml}`，
 `check` 子命令能在 1.8 s 内复现记录：`205 items / 203 keys / 25 bundles`，`check: OK`）。
 本文只保留结论与判据，细节与逐目标表在那份交付里。
 
@@ -87,10 +87,10 @@ AppleARMPlatform 有 5 个 `__const` 的 IOCPU/IOInterruptController 槽。
 这给出比日期更硬的复审条件：若哪天把 `CONFIG_XNU_NATIVE_LEGACY_DISPLAY` 打开并链接
 `libNativeLegacyDisplay.late.a`，`required_original_branches` 必须变成非空；反之保持空并写明原因。
 证据来自 bt 线 `feat/xnu27-data-gate` 的 `docs/research/storage/PRELINK-ORIGINAL-BRANCHES.md`
-（234 行）与 `E:/k60-work/scratch/reply-bt-20261115.md`。
+（234 行）与 `E:/iOS Port/Work/scratch/reply-bt-20261115.md`。
 ## 地址不能用来回答「我们到底有没有编出来」
 
-一次直接的测量（`E:/k60-work/scratch/classify_targets.py`，读 `unreachable.toml` 的 131 个 target，
+一次直接的测量（`E:/iOS Port/Work/scratch/classify_targets.py`，读 `unreachable.toml` 的 131 个 target，
 对两份内核按 `__TEXT_EXEC` 段范围筛符号）：
 
 | 产物 | `__TEXT_EXEC` | 段内符号 |

@@ -96,7 +96,7 @@ kOSBooleanTrue` 就 `return false`（`K60ThermalService.cpp:253-260`），与参
 C++，既不能用 `build-thermal-driver.sh` 的 freestanding 配方（那里没有 IOKit 头），也不能用未打补丁的
 feed（`osfmk/arm64/proc_reg.h` 末尾是 `#error processor not supported`，PONG 分支只存在于
 `patches/xnu/zzzz-pong-machine.patch:120-131` 打过的树里）。它需要的四样东西全部来自一棵**已构建**的
-本板 XNU 树（默认 `/mnt/e/hackios/UniXNU/out/mondrian/tree`）：
+本板 XNU 树（默认 `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/out/mondrian/tree`）：
 
 | 用途 | 路径 |
 |---|---|

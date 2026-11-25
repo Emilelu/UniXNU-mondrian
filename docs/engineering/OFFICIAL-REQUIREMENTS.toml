@@ -1,6 +1,6 @@
 # Official documentation requirements — one entry per page of the zh mirror.
 #
-# The mirror is E:/hackios/UniXNU/docs/zh (upstream UniXNU). A page is satisfied only
+# The mirror is E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh (upstream UniXNU). A page is satisfied only
 # when its entry names a gate and that gate passes; `state` records where we stand:
 #   mapped   - a gate enforces the page
 #   unmapped - nobody checked this page yet (the debt)

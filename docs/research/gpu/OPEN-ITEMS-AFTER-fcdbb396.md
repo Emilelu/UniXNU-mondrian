@@ -12,7 +12,7 @@ Now `vnode_open(path, O_CREAT | O_WRONLY | O_TRUNC, ...)`: a crash mid-write lea
 half `.clients`, and `selectedClient()` then silently returns false.
 
 Copy the durability pattern recorded in
-`E:/k60-work/research/sm8475/nagatoquin33-diting/AGENTS.md:1202`
+`E:/iOS Port/Work/research/sm8475/nagatoquin33-diting/AGENTS.md:1202`
 (`zzzzzzzzzzzzzzzzzz-diting-gpu-addon-durability.patch`):
 write `<path>.k60seed-tmp` → `vn_rdwr(..., IO_SYNC)` → `vnode_close` → `vnode_rename`
 to the final name.
@@ -40,8 +40,8 @@ Copy the `M ... n%u` / `S...<P|F><macf>` line from
 - `first frame presented` >= 1;
 - `crashed: backboardd` == 0.
 
-Reference: `E:/k60-work/scratch/METAL-INJECT-PARITY.md` §7 (copy list) and
-`E:/k60-work/scratch/EXEC-INJECT-SEMANTICS.md` (exec_inject is not the mechanism; the
+Reference: `E:/iOS Port/Work/scratch/METAL-INJECT-PARITY.md` §7 (copy list) and
+`E:/iOS Port/Work/scratch/EXEC-INJECT-SEMANTICS.md` (exec_inject is not the mechanism; the
 per-exec read happens long before backboardd execs).
 
 ## 2026-11-18 判定：第 1 项（temp+rename）不必要，理由与证据

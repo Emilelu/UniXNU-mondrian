@@ -516,7 +516,7 @@ pong_gpu_scanout=1    需 19 字节，当前余 17 —— 官方要求先确认 
 
 **为什么默认关闭**：`docs/ops/HARD-RULES.md` 的 HR-01 规定默认不得访问 RSC —— 2026-11-09 有两次
 早期启动阶段首读即整机死（零控制台）。2026-11-14 的 `rail-20261114h` 记录了一次 **Data 挂载之后只读**存活
-（`E:\k60-work\evidence\usblog-20261114-railh\console.log:477-479`，3,366 行、129 行 SpringBoard、
+（`E:\iOS Port\Work\evidence\usblog-20261114-railh\console.log:477-479`，3,366 行、129 行 SpringBoard、
 `panicMarker=null`），但一次存活不足以改成默认。所以：只读、单次、必须显式开启；**写 TCS 与
 `CONTROL_TRIGGER` 仍然全面禁止**。2026-11-16 15:03 裁决撤回 C 与功能图批准；
 `adsp-20261116a` 被门禁拒绝，无 boot.img、未上机。下一次 rail-only 须先完成离线审计再由 Lead 决定，

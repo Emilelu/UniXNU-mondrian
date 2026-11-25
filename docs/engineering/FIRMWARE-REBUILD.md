@@ -70,12 +70,12 @@ PE 头时间戳）。**它不影响 LLD 自己派生的 CodeView build-id**，�
 
 | sha256（前 12） | 大小 | 出现在 | 结论 |
 | --- | --- | --- | --- |
-| `cf4485712c29` | 3,145,728 B | 2026-11-12 之后几乎所有镜像（`/mnt/e/k60-work/artifacts/old-fd-cf448571.fd`，`--fd` 的默认归档） | 已验证能找 payload |
+| `cf4485712c29` | 3,145,728 B | 2026-11-12 之后几乎所有镜像（`/mnt/e/iOS Port/Work/artifacts/old-fd-cf448571.fd`，`--fd` 的默认归档） | 已验证能找 payload |
 | `4bbe7601 7eb4` | 3,145,728 B | `audio-probe-20261114j` / `-k` / `20261115l` / `-m` | 重建的卷，j/k 上机进过 SpringBoard |
-| `9f20de15388a` | 3,145,728 B | `fdtest-20261116a`（`/mnt/e/k60-work/artifacts/fd/fresh-9f20de15388a.fd`） | 从当前 pin 重建，**上机进 SpringBoard 129** |
+| `9f20de15388a` | 3,145,728 B | `fdtest-20261116a`（`/mnt/e/iOS Port/Work/artifacts/fd/fresh-9f20de15388a.fd`） | 从当前 pin 重建，**上机进 SpringBoard 129** |
 
 第三行是 P-154 的终结证据：同一个 payload（`fbc87102…`）只换 FD，`boot.img` 重打成
-`51d20538…`，上机 `E:\k60-work\evidence\usblog-20261116-025525`：3384 行 / 230,107 B /
+`51d20538…`，上机 `E:\iOS Port\Work\evidence\usblog-20261116-025525`：3384 行 / 230,107 B /
 SpringBoard 129 / `Early boot complete` 1 次 / `K60DATA mounted` 1 次 / panic 标记 0 /
 `menu:` 与 `config: no boot entry` **0 次**。
 
@@ -98,10 +98,10 @@ EDK II 于是编译了框架里那份陈旧的 `UniXNUPkg`，而它携带的 `Un
 
 ## 5. 下一次重建怎么做（实验协议）
 
-1. 记录基线：`git -C /mnt/e/hackios/uefi-mondrian rev-parse HEAD`、`board.toml` 的 `[firmware]` 段、
+1. 记录基线：`git -C /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian rev-parse HEAD`、`board.toml` 的 `[firmware]` 段、
    edk2 检出路径与版本。
 2. `unixnu build`（带 firmware 步骤）→ 得到 `SILICIUM_UEFI.fd`，`sha256sum` 它，并把副本归档到
-   `/mnt/e/k60-work/artifacts/fd/<tag>-<前 12>.fd`。
+   `/mnt/e/iOS Port/Work/artifacts/fd/<tag>-<前 12>.fd`。
 3. 用一个**已知能启动的 payload** 打包：`unixnu bootimg --kernel <payload> --fd <新 FD> --out <img>`，
    同时用 `scripts/check-image-args.py` 与 `scripts/verify-boot-image.py` 过一遍。
 4. 上机，判据两条：控制台出现 `Early boot complete`（说明 payload 找到了、内核起来了），

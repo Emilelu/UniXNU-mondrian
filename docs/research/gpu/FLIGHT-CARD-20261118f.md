@@ -24,7 +24,7 @@ series 227→228），把 `IOMemoryDescriptor::populateDevicePager` 里那段
 
 ## 3. 抓取
 
-`K60_FORCE_NEW=1 bash scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`。
+`K60_FORCE_NEW=1 bash scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`。
 只在 `fastboot devices` 非空时飞。
 
 ## 4. 判据
@@ -49,7 +49,7 @@ series 227→228），把 `IOMemoryDescriptor::populateDevicePager` 里那段
 - **F7** S7 的速率 < 15 fps ⇒ 打印风暴消失但帧率没改善，卡顿另有原因（下一层查映射粒度）。
 
 2026-11-18 13:10:41 飞 `gpu-quiet-20261118`（`boot.img 3893cb5d…`），证据
-`E:/k60-work/evidence/usblog-20261118-131041`（console **268,776 B / 3,748 行**，抓取完整、无 panic）。
+`E:/iOS Port/Work/evidence/usblog-20261118-131041`（console **268,776 B / 3,748 行**，抓取完整、无 panic）。
 
 | 判据 | 实测 | 结论 |
 | --- | --- | --- |

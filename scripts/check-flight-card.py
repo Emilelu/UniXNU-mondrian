@@ -29,7 +29,7 @@ Exit 0 = the card is fit to fly, 1 = refused, 2 = the gate could not judge.
 
 Usage:
     python3 scripts/check-flight-card.py --card docs/research/gpu/FLIGHT-CARD-20261116.md \
-        --image /mnt/e/k60-work/artifacts/gpu-scanout2-20261116/boot.img
+        --image /mnt/e/iOS Port/Work/artifacts/gpu-scanout2-20261116/boot.img
 """
 
 import argparse

@@ -1,15 +1,15 @@
 # BOARD-PARITY — K60 iOS 27 板级配置与成功先例的逐项差异
 
 状态：**只读审计**（冻结期，未构建、未上机、未写 `/dev/block/sda38`）。
-对象：`E:/hackios/k60-gates/board.toml`（27 profile `ios-27.0.1-24A446`）对比
-`E:/hackios/UniXNU-sheng/board.toml`（`ipados-27.0.1-24A446`，已进 SpringBoard）。
-同芯片对照：`E:/hackios/UniXNU-zizhan/board.toml`（SM8475，`ipados-18.7.10-22H374`）。
+对象：`E:/iOS Port/Sources/Hardware/k60-gates/board.toml`（27 profile `ios-27.0.1-24A446`）对比
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/board.toml`（`ipados-27.0.1-24A446`，已进 SpringBoard）。
+同芯片对照：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/board.toml`（SM8475，`ipados-18.7.10-22H374`）。
 
 复现：
 
 ```bash
-python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/hackios/UniXNU-sheng
-python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/hackios/UniXNU-zizhan \
+python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng
+python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan \
     --profile ipados-18.7.10-22H374
 ```
 

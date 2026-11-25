@@ -141,7 +141,7 @@ CarKit soft link（已定位：公开路径不存在，20G81 只有 PrivateFrame
 **结论口径**：verdict = `half` + 用户目视确认壁纸可见 ⇒ **达成，不追 F2/F4**。依据：0618 种子路线（第 1/2/4 步）与 OS 窗路线（第 5 步）互斥（§4 互斥段）；带 `k60_wallpaper_reset=1` 的验证镜像走 OS 窗路线，第 1/2/4 步的 SKIP 不构成欠账。判定器对 a 日志（`usblog-20261115-132805/console.log`，3,263 行 / SpringBoard 134 行 / 无 panic）的六步：FAIL 1/2（resid 判据回归，旧 0618）→ §1、PASS 3、FAIL 4 → §2、PASS 5（`submitting genuine wallpaper 7410 native lock+home`）、EYES 6。
 
 **已交付镜像与 boot-arg**：
-- `springboard-20261115a`：boot.img 201,887,744 B，sha256 `5c6ce1d474ce6e4f19deb00dec38deb87a9e03b642b55e89ad5b6e815a73c2f5`；series 225 / `aba3b40a…`；构建命令 `scripts/build-strict.sh springboard-20261115a --fd /mnt/e/k60-work/artifacts/fd/springboard-20261115a-cf4485712c29.fd --kernel-arg k60_wallpaper_reset=1`；上机方式 `fastboot boot`（Lead 执行，未写分区）。
+- `springboard-20261115a`：boot.img 201,887,744 B，sha256 `5c6ce1d474ce6e4f19deb00dec38deb87a9e03b642b55e89ad5b6e815a73c2f5`；series 225 / `aba3b40a…`；构建命令 `scripts/build-strict.sh springboard-20261115a --fd /mnt/e/iOS Port/Work/artifacts/fd/springboard-20261115a-cf4485712c29.fd --kernel-arg k60_wallpaper_reset=1`；上机方式 `fastboot boot`（Lead 执行，未写分区）。
 - `k60_wallpaper_reset=1` 语义：**仅验证镜像使用**——每次启动重选壁纸并直走 OS 窗路线提交 7410；常规镜像不带该 arg（保留用户壁纸）。出常规镜像时在 0618 头注写明这一语义。
 - `springboard-20261115b`（boot.img sha256 `32723da1…`）是 resid 修复（5e88609）后重建的**留档证据**：`hardware_tested=false`、**不上机**；构建头是 5e88609、不含 3ea8d71 的 identity seed，不能当交付镜像，只作「resid 修复已进镜像」的证据。
 

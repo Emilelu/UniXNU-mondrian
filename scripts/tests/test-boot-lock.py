@@ -57,7 +57,7 @@ def scratch_parent():
     open — every case then fails for a path reason and the test looks like a
     locking regression. Use the durable state directory when it exists.
     """
-    for candidate in ("/mnt/e/k60-work/state", "E:/k60-work/state"):
+    for candidate in ("/mnt/e/iOS Port/Work/state", "E:/iOS Port/Work/state"):
         if os.path.isdir(candidate):
             return candidate
     return None

@@ -1,6 +1,6 @@
 # K60 按键线的板级配置记录（board.toml）
 
-> 基线：`/mnt/e/hackios/k60-buttons` 的 `feat/buttons` 分支，已 rebase 到 `origin/main` = `314497d`。
+> 基线：`/mnt/e/iOS Port/Sources/Hardware/k60-buttons` 的 `feat/buttons` 分支，已 rebase 到 `origin/main` = `314497d`。
 > 本目录只放**本线（buttons）**的产出。内核侧按键驱动
 > （`patches/xnu/zzzz…-pong-physical-keys.patch`）由触摸线持有，本线不改。
 > `board.toml` 属 **Lead 写作用域**，本线只记录结论，不落盘。
@@ -91,7 +91,7 @@ volume-up-ppid = "0x18d"
   **14,660 B / 23 节点**：`/device-tree/buttons`（`button-names` = `hold / voldown / volup`、
   `home-button-type=0x2`）与 `/device-tree/arm-io/pong-buttons`（六属性）**同时存在**。
   干净重建不再需要任何构建机本地改动。
-- 历史（已不再依赖）：2026-11-14 的上机镜像（`E:/k60-work/artifacts/usb-20261114b`，
+- 历史（已不再依赖）：2026-11-14 的上机镜像（`E:/iOS Port/Work/artifacts/usb-20261114b`，
   ADT sha256 `18a514e7…`）里只有 `/arm-io/pong-buttons`、没有 `/buttons`，其节点来自 WSL 框架树
   `/opt/k60/trees/k60build/profiles/os/ipados-16.6.1-20G81/profile.toml:149-158` 的未提交改动。
   `5cd8924` 把这六行搬进 `board.toml` 后该依赖消失（`merge()` 顺序 arch → soc → os profile → board，

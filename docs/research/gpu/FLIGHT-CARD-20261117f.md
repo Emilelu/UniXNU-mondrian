@@ -35,7 +35,7 @@
 ## 3. 抓取
 
 `K60_DEVICE_INPUT=/opt/k60/trees/gates-device K60_FORCE_NEW=1 bash scripts/flash.sh <boot.img> 240`，
-证据落 `E:/k60-work/evidence/usblog-<时间戳>/`（`console.log` + `capture.json` + `boot.json`）。
+证据落 `E:/iOS Port/Work/evidence/usblog-<时间戳>/`（`console.log` + `capture.json` + `boot.json`）。
 
 ## 4. 判据
 

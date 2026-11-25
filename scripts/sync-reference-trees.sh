@@ -6,17 +6,17 @@
 # t970, liuqin) carry local commits or are deliberately detached, so every four
 # hours they were fetched and then reported as "behind": fetched forever, never
 # actually refreshed. This script makes "fetched" mean "a readable tree at the
-# upstream commit" under /mnt/e/k60-work/references/latest, without touching the
+# upstream commit" under /mnt/e/iOS Port/Work/references/latest, without touching the
 # working copy and without any force operation (iron rule 18).
 set -euo pipefail
 
-OUT=/mnt/e/k60-work/references/latest
+OUT=/mnt/e/iOS Port/Work/references/latest
 REPOS=${K60_REFERENCE_REPOS:-"UniXNU-sheng UniXNU-zizhan UniXNU-pong UniXNU-t970 UniXNU-liuqin"}
 mkdir -p "$OUT"
 
 status=0
 for name in $REPOS; do
-    repo=/mnt/e/hackios/$name
+    repo=/mnt/e/iOS Port/Sources/$name
     if [ ! -e "$repo/.git" ]; then
         echo "reference $name: no git checkout; skipped"
         continue

@@ -52,13 +52,13 @@ def evidence_roots() -> list[Path]:
     """Where an evidence tree may live, most specific first.
 
     The documented location comes before a sibling of the checkout: a stray
-    `evidence/` next to the repo must not shadow E:\\k60-work\\evidence.
+    `evidence/` next to the repo must not shadow E:\\iOS Port\\Work\\evidence.
     """
     roots: list[Path] = []
     env = os.environ.get('K60_EVIDENCE')
     if env:
         roots.append(Path(env))
-    roots.append(Path('E:/k60-work/evidence'))
+    roots.append(Path('E:/iOS Port/Work/evidence'))
     roots.append(REPO.parent / 'evidence')
     return roots
 

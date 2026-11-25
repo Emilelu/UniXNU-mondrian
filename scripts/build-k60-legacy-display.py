@@ -144,7 +144,7 @@ def plan(component: Path, fixture: Path, xnu: Path, output: Path, cc: str) -> di
 def main(argv: list[str]) -> int:
     repo = Path(__file__).resolve().parents[1]
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--component", default="/mnt/e/k60-work/references/GopFramebuffer",
+    ap.add_argument("--component", default="/mnt/e/iOS Port/Work/references/GopFramebuffer",
                     help="GopFramebuffer component checkout")
     ap.add_argument("--fixture", default=str(repo / "scripts/legacy-display-24A446.json"),
                     help="vtable fixture copied from the reference device")

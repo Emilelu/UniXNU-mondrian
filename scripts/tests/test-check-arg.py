@@ -69,8 +69,8 @@ def main() -> int:
 
         # unit: the WSL mount mapping is a pure function, test it on both hosts
         check("wsl_of maps E:/... to /mnt/e/...",
-              _CHECK_ARG.wsl_of(r"E:\k60-work\artifacts\x\boot.img")
-              == pathlib.Path("/mnt/e/k60-work/artifacts/x/boot.img"))
+              _CHECK_ARG.wsl_of(r"E:\iOS Port\Work\artifacts\x\boot.img")
+              == pathlib.Path("/mnt/e/iOS Port/Work/artifacts/x/boot.img"))
         check("wsl_of maps a drive root",
               _CHECK_ARG.wsl_of(r"C:\a\b") == pathlib.Path("/mnt/c/a/b"))
         check("wsl_of leaves non-Windows paths alone",
@@ -120,7 +120,7 @@ def main() -> int:
         # through the /mnt/e mount when running under WSL.  On hosts without
         # the mount the case is skipped out loud, never silently dropped.
         mount = pathlib.Path("/mnt/e")
-        scratch = pathlib.Path("/mnt/e/k60-work/scratch/refmine")
+        scratch = pathlib.Path("/mnt/e/iOS Port/Work/scratch/refmine")
         etmp = pathlib.Path("/mnt/e/tmp")
         base = scratch if scratch.exists() else (etmp if etmp.exists() else None)
         if mount.exists() and base is not None:

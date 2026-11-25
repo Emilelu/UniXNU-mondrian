@@ -96,17 +96,17 @@ BUILD_STEPS = STEPS[:6]
 FLASH_STEPS = STEPS[:7]
 
 
-EVIDENCE_ROOTS = ['/mnt/e/k60-work/evidence', '/mnt/e/k60-work/reports',
-                  '/mnt/e/k60-work', '/mnt/e/hackios']
+EVIDENCE_ROOTS = ['/mnt/e/iOS Port/Work/evidence', '/mnt/e/iOS Port/Work/reports',
+                  '/mnt/e/iOS Port/Work', '/mnt/e/iOS Port/Sources']
 
 
 def _anchor_candidates(path, root=None):
     """Every place an anchor of this shape could legitimately live.
 
     Windows drive paths and leading-slash paths used to be turned into a single
-    absolute path that does not exist: `Path('/mnt/e/k60-work') / '/k60-work/x'`
+    absolute path that does not exist: `Path('/mnt/e/iOS Port/Work') / '/k60-work/x'`
     is `/k60-work/x` because pathlib drops the base for an absolute right side.
-    The ledgers are written in the Windows form (`E:/k60-work/...`), so this is the
+    The ledgers are written in the Windows form (`E:/iOS Port/Work/...`), so this is the
     common case, not the corner case (P-304).
     """
     raw = str(path).replace('\\', '/')
@@ -382,7 +382,7 @@ def validate(mode='build', verbose=True):
     return len(problems) == 0, problems
 
 
-LEDGER = '/mnt/e/k60-work/ledger.jsonl'
+LEDGER = '/mnt/e/iOS Port/Work/ledger.jsonl'
 
 
 def _resolves(text):

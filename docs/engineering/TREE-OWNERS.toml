@@ -9,92 +9,92 @@
 # in a tree it does not own when that tree has uncommitted changes.
 
 [[tree]]
-path = "/mnt/e/hackios/UniXNU-mondrian"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian"
 owner = "touch-agent"
 note = "Shared device checkout. Only the touch agent works here. Lead must use its own worktree."
 
 [[tree]]
-path = "/mnt/e/hackios/k60-lead"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-lead"
 owner = "lead"
 note = "Lead worktree (feat/pmic-rail). Lead's only writable checkout."
 
 [[tree]]
-path = "/mnt/e/hackios/UniXNU"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU"
 owner = "lead"
 note = "Framework. Push to remote `fork`, never to `origin`."
 
 [[tree]]
-path = "/mnt/e/hackios/uefi-mondrian"
+path = "/mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian"
 owner = "lead"
 
 # The five delegated lines (2026-11-14). Each agent gets its own worktree; the
-# shared checkout /mnt/e/hackios/UniXNU-mondrian stays with the touch agent.
+# shared checkout /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian stays with the touch agent.
 [[tree]]
-path = "/mnt/e/hackios/k60-wifi"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-wifi"
 owner = "wifi-agent"
 scope = ["patches/wifi", "drivers/PongWifi", "docs/research/wifi"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-bt"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-bt"
 owner = "bt-agent"
 scope = ["drivers/PongBluetooth", "docs/research/bluetooth"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-usb"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-usb"
 owner = "usb-agent"
 scope = ["drivers/PongUsb", "docs/research/usb"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-refmine"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-refmine"
 owner = "refmine-agent"
 scope = ["docs/research/reference"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-audio"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-audio"
 owner = "audio-agent"
 scope = ["drivers/PongAudio", "docs/research/audio"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-thermal"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-thermal"
 owner = "thermal-agent"
 scope = ["drivers/PongThermal", "docs/research/thermal"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-cellular"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-cellular"
 owner = "cellular-agent"
 scope = ["drivers/PongCellular", "docs/research/cellular"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-charger"
+path = "/mnt/e/iOS Port/Sources/Repos/Drivers/k60-charger"
 owner = "charger-agent"
 scope = ["drivers/PongPower", "docs/research/charger"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-buttons"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-buttons"
 owner = "buttons-agent"
 scope = ["drivers/PongButtons", "docs/research/buttons"]
 
 # Repo-hygiene line (2026-11-14). Owns the checkout-path gate (hard-39) and the
 # six scripts that used to hardcode the shared checkout.
 [[tree]]
-path = "/mnt/e/hackios/k60-hygiene"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-hygiene"
 owner = "hygiene-agent"
 scope = ["scripts", "docs/engineering", "docs/engineering/TOOLBOX.md"]
 note = "Repo-hygiene worktree (feat/repo-hygiene). Pure code, no device work."
 
 [[tree]]
-path = "/mnt/e/hackios/k60-gates"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-gates"
 owner = "lead"
 scope = ["scripts", "docs/engineering", "AGENTS.md"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-pitfalls"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-pitfalls"
 owner = "cellular-agent"
 scope = ["docs/engineering", "README.md", "README_EN.md", "scripts"]
 note = "Pitfall-log worktree (docs/pitfalls-p227). Branched from main so a new P-number follows main instead of a long-lived feature branch."
 
 [[tree]]
-path = "/mnt/e/hackios/k60-wifi-lead"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-wifi-lead"
 owner = "lead"
 scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]
 
@@ -102,17 +102,17 @@ scope = ["drivers/PongWifi", "configs", "scripts", "docs/research/wifi"]
 # drivers page names but no existing line covered: display/brightness,
 # GPU userland, SpringBoard stability, and the iOS-profile feasibility study.
 [[tree]]
-path = "/mnt/e/hackios/k60-display"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-display"
 owner = "display-agent"
 scope = ["drivers/PongDisplay", "patches/display", "docs/research/display"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-gpu-user"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-gpu-user"
 owner = "gpu-user-agent"
 scope = ["patches/xnu", "docs/research/gpu"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-springboard"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-springboard"
 owner = "springboard-agent"
 # The wallpaper fix has to reach the uilib blob that userland loads, and
 # that blob lives in patches/xnu/0340-k60-uilib-deploy.patch, so this line
@@ -120,39 +120,39 @@ owner = "springboard-agent"
 scope = ["userland", "docs/research/springboard", "patches/xnu"]
 
 [[tree]]
-path = "/mnt/e/hackios/k60-ios-profile"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-ios-profile"
 owner = "ios-profile-agent"
 scope = ["docs/research/ios-profile"]
 
 # New line (2026-11-14): thermal / tsens research. Owns its own worktree; the
 # two registration files are append-only for this actor.
 [[tree]]
-path = "/mnt/e/hackios/k60-thermal"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-thermal"
 owner = "thermal-agent"
 scope = ["drivers/PongThermal", "docs/research/thermal", "patches/thermal", "docs/research/EIGHT-STEPS.toml", "porting.toml"]
 
 # Explicit Lead authorization relayed by the user on 2026-11-14.
 # Dedicated checkout; the shared touch checkout and other owners are unchanged.
 [[tree]]
-path = "/mnt/e/hackios/k60-adsp-handoff"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-adsp-handoff"
 owner = "adsp-handoff-agent"
 scope = ["drivers/PongPower", "patches/xnu/0619-k60-adsp-glink-handoff.patch", "patches/xnu/series", "scripts/append-conffiles.py", "scripts/sync-device-input.py", "scripts/tests/test-sync-device-input.py", "scripts/build-k60-physical-battery.py", "scripts/tests/run-k60-handoff-host.sh", "scripts/tests/test-k60-adsp-mdt.py", "scripts/tests/test-k60-adsp-reader.c", "scripts/tests/test-k60-adsp-blob.c", "scripts/tests/test-k60-adsp-platform.c", "scripts/tests/test-k60-adsp-board.c", "scripts/gen-k60-adsp-blob.py", "scripts/check-adsp-blob.py", "scripts/tests/test-k60-adsp-owner.c", "scripts/tests/test-k60-owner-", "porting.toml", "scripts/tests/test-k60-adsp-startup.c", "scripts/tests/test-k60-handoff-integration.py", "scripts/tests/test-k60-handoff-publish.c", "scripts/tests/test-k60-notification-qualification.py", "docs/research/battery", "docs/research/EIGHT-STEPS.toml", "docs/INDEX.md", "README.md", "README_EN.md", "docs/engineering/TREE-OWNERS.toml"]
 note = "ADSP handoff producer and notification qualification. Ownership registration and the feed metadata sync regression are explicitly authorized out-of-scope work; the five-stage task adds test-k60-owner-* and the required power porting record; the reader task adds test-k60-adsp-reader.c and the Lead-authorized offline carrier plan adds test-k60-adsp-blob.c; the production K60A container task adds scripts/gen-k60-adsp-blob.py and scripts/check-adsp-blob.py (host fixtures and offline generation only; Lead owns build-strict and the assembly carrier); the Lead-authorized platform task adds test-k60-adsp-platform.c; the Lead-authorized board ownership task adds drivers/PongPower/K60AdspBoard.{c,h} and test-k60-adsp-board.c; no device, boot or serial access. Gate assertions and other owners are not changed."
 
 [[tree]]
-path = "/mnt/e/hackios/k60-display27"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-display27"
 owner = "display-agent"
 scope = ["drivers", "docs/research/display", "docs/research/eight-step"]
 note = "iOS 27 display lane (feat/display-27). Offline evidence only: no build, no flight."
 
 [[tree]]
-path = "/mnt/e/hackios/k60-input27"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-input27"
 owner = "input-agent"
 scope = ["drivers", "docs/research/eight-step"]
 note = "iOS 27 input lane (feat/input-27). Offline evidence only: no build, no flight."
 
 [[tree]]
-path = "/mnt/e/hackios/k60-gpu-27"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-gpu-27"
 owner = "gpu-agent"
 scope = ["drivers", "docs/research/gpu", "scripts", "docs/research/eight-step"]
 note = "iOS 27 GPU lane (feat/gpu-27). Parked until SpringBoard; offline evidence only."

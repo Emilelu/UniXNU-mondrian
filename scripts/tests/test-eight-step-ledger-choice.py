@@ -215,9 +215,9 @@ def _(gate):
 @check('anchor.windows_drive_form_maps_to_mnt')
 def _(gate):
     """E:/... is how the ledgers are written; it must become /mnt/e/... on Linux."""
-    candidates = [str(c) for c in gate._anchor_candidates('E:/k60-work/reports/x.dtb')]
-    assert '/mnt/e/k60-work/reports/x.dtb' in candidates, candidates
-    assert 'E:/k60-work/reports/x.dtb' in candidates, candidates
+    candidates = [str(c) for c in gate._anchor_candidates('E:/iOS Port/Work/reports/x.dtb')]
+    assert '/mnt/e/iOS Port/Work/reports/x.dtb' in candidates, candidates
+    assert 'E:/iOS Port/Work/reports/x.dtb' in candidates, candidates
 
 
 @check('anchor.leading_slash_keeps_the_base')
@@ -232,8 +232,8 @@ def _(gate):
         try:
             assert gate.resolve_file_line('/k60-work/x.txt:1') is None
         finally:
-            gate.EVIDENCE_ROOTS = ['/mnt/e/k60-work/evidence', '/mnt/e/k60-work/reports',
-                                   '/mnt/e/k60-work', '/mnt/e/hackios']
+            gate.EVIDENCE_ROOTS = ['/mnt/e/iOS Port/Work/evidence', '/mnt/e/iOS Port/Work/reports',
+                                   '/mnt/e/iOS Port/Work', '/mnt/e/iOS Port/Sources']
 
 
 @check('anchor.repo_relative_still_works')

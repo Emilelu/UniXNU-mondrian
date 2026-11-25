@@ -8,7 +8,7 @@ keystore、键盘、USB、蓝牙四个探针。直接整支拷过来会把我们
 
 ## 1. catalog 侧已有的东西
 
-`E:/hackios/UniXNU/components.toml:206-225`：
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml:206-225`：
 
 | 字段 | 值 |
 |---|---|
@@ -65,7 +65,7 @@ Test/check-fence-wait.py
 穷举过的证据（2026-11-23，全部只读）：
 
 ```bash
-cd /mnt/e/hackios/UniXNU-sheng
+cd /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng
 git ls-files kits/            # 只有 kits/.gitkeep
 git log --all --oneline -- 'kits/sheng*'   # 空
 grep -n 'kit' board.toml      # 只有 :7 "kit" = "sheng"（名字，不是来源）
@@ -154,9 +154,9 @@ native_legacy_ioav_timing_colors       native_legacy_snap
 ## 7. 复现与参考
 
 ```bash
-ls /mnt/e/k60-work/references/GopFramebuffer            # 组件源码克隆（不入库）
-sed -n '95,260p' /mnt/e/hackios/UniXNU-sheng/scripts/build-gop-legacy-display-27.py
-python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/hackios/UniXNU-sheng \
+ls /mnt/e/iOS Port/Work/references/GopFramebuffer            # 组件源码克隆（不入库）
+sed -n '95,260p' /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/scripts/build-gop-legacy-display-27.py
+python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng \
   --profile ios-27.0.1-24A446
 ```
 
@@ -211,4 +211,4 @@ python3 scripts/compare-board-parity.py --ours . --theirs /mnt/e/hackios/UniXNU-
 `IOThunderboltFamily` 的 `__TEXT_EXEC` 内，不在 `IOMobileGraphicsFamily`（结束于
 `0xfffffff00a39aa20`）。这与 §10 的结论一致：它们属于另一份 kernelcache 的另一个 kext。
 
-复现命令：`python3 /mnt/e/k60-work/scratch/probe_kexts.py`（脚本只读，不构建）。
+复现命令：`python3 /mnt/e/iOS Port/Work/scratch/probe_kexts.py`（脚本只读，不构建）。

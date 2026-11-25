@@ -17,7 +17,7 @@ DECL = re.compile(r'extern\s+"C"\s+([^;{}]*?\b(native_legacy_[a-z0-9_]+)\s*\([^;
 
 
 def main(argv: list[str]) -> int:
-    component = Path(argv[0] if argv else "/mnt/e/k60-work/references/GopFramebuffer")
+    component = Path(argv[0] if argv else "/mnt/e/iOS Port/Work/references/GopFramebuffer")
     out = Path(argv[1] if len(argv) > 1 else "kits/mondrian/LegacyDisplayProbe.cpp")
     text = (component / "NativeLegacyDisplay.cpp").read_text() + (component / "NativeGOPPresenter.cpp").read_text()
     defined = set()

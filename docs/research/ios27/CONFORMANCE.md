@@ -1,6 +1,6 @@
 # 与 Sheng 的 27 配方逐项对照（机器生成 + 人工理由）
 
-`scripts/audit-ios27-conformance.py` 把我们的 27 内核配方与 `E:/hackios/UniXNU-sheng`
+`scripts/audit-ios27-conformance.py` 把我们的 27 内核配方与 `E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng`
 （同一 OS profile 家族、同一 xnu-12377）逐字段比对。三态：
 
 - `same` 两边一致；

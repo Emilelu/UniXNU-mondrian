@@ -21,7 +21,7 @@
 | # | 断言 | 出处 A | 出处 B（反证） | 状态 |
 |---|---|---|---|---|
 | C1 | K60 raw dtbo 已不在盘上，无法解析 `dtbo_a_fdt15/fdt19` | `docs/plans/K60-TOUCH-PARAMS.md` §1.1（只搜 D/E 盘，未搜 F 盘） | `docs/state/SESSION-DIRECTIVES-2026-11-07.md` §1：`F:/k60-archive/dtb/` 有 65 个文件，含 `dtbo_a_fdt15.dtb` 752,562 B、`dtbo_a_fdt19.dtb` 509,088 B | **已证伪（可用性误判）** |
-| C2 | IPSW 分量本地已丢，重建前必须重新下载 | `docs/state/STATE-2026-11-07.md` §10 旧标题 | `docs/state/SESSION-DIRECTIVES-2026-11-07.md` §1：`E:/hackios/UniXNU/out/ipsw/20G81/` 有 `096-57366-083.dmg` 4,250,815,697 B、`096-56782-083.dmg` 2,665,480,192 B、`kernelcache.decompressed` 48,644,096 B（合计约 6.5 GB） | **已证伪（可用性误判）** |
+| C2 | IPSW 分量本地已丢，重建前必须重新下载 | `docs/state/STATE-2026-11-07.md` §10 旧标题 | `docs/state/SESSION-DIRECTIVES-2026-11-07.md` §1：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/out/ipsw/20G81/` 有 `096-57366-083.dmg` 4,250,815,697 B、`096-56782-083.dmg` 2,665,480,192 B、`kernelcache.decompressed` 48,644,096 B（合计约 6.5 GB） | **已证伪（可用性误判）** |
 
 ## 2. 需要复算才能用的
 

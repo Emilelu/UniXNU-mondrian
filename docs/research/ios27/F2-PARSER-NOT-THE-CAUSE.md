@@ -47,7 +47,7 @@ DarwinBootPkg/Driver/DarwinBoot.c            Status = ParseKernel (Image, ImageS
 
 ## 5. 宿主 harness 在真实内核上通过
 
-`E:\k60-work\scratch\fileset-parser\`（`harness.c` 用 EDK2 薄壳 + `PROT_NONE` 守卫页 + poison + `sigsetjmp` + `alarm(5)`）：
+`E:\iOS Port\Work\scratch\fileset-parser\`（`harness.c` 用 EDK2 薄壳 + `PROT_NONE` 守卫页 + poison + `sigsetjmp` + `alarm(5)`）：
 
 ```
 kernel : /opt/k60/trees/ios27-out/…/kernel/kernel.macho  93061120 bytes

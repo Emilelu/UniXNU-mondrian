@@ -45,7 +45,7 @@ kernel 步骤不读这个键（`scripts/unixnu/kernel.py` 只在 :260 读 `[kern
 
 | 变量 | build-strict 里的位置 | 决定什么 | mhi3/mhi4 的值 |
 |---|---|---|---|
-| `REPO` | :36（脚本父目录，不可覆盖） | freeze 清单、`series` 计数、eight-step、manifest 的 `repo` 字段、`scripts/*` 工具 | `/mnt/e/hackios/k60-wifi` |
+| `REPO` | :36（脚本父目录，不可覆盖） | freeze 清单、`series` 计数、eight-step、manifest 的 `repo` 字段、`scripts/*` 工具 | `/mnt/e/iOS Port/Sources/Hardware/k60-wifi` |
 | `K60_DEVICE_INPUT` | :38 | `unixnu build kernel/payload/bootimg -D $DEV`（:135/:156/:189）；`board.toml`、`dts/`、`patches/xnu/series` **都从它读** | `/opt/k60/trees/k60-wifi-device` |
 | `K60_BUILD_TREE` | :39 | `$BUILD/unixnu`（165 B 启动器）+ `$BUILD/out-*` | `/opt/k60/trees/k60build` |
 | `K60_OUT` | :40 | 产物目录（`$OUT/mondrian/ipados-16.6.1-20G81/mondrian`） | `/opt/k60/trees/k60build/out-wifi` |
@@ -154,7 +154,7 @@ find board.toml dts patches/xnu scripts -type f -print0 | sort -z | xargs -0 sha
 
 → `frozen-before.txt` 与 `frozen-after.txt` 相同**不证明** wifi 侧没变。mhi3/mhi4 的
 `frozen-before.txt` 都是 425 行（board.toml 记的是 `c63cd936…`，即 wifi 的 board.toml，
-反过来印证 REPO=`/mnt/e/hackios/k60-wifi`）。
+反过来印证 REPO=`/mnt/e/iOS Port/Sources/Hardware/k60-wifi`）。
 
 **判据**：重出报告里必须单独给出 `patches/wifi/` 与 `drivers/PongWifi/` 的清单 sha
 （`git -C $DEV ls-tree -r` 或逐文件 sha256），不能拿 freeze 清单顶替。
@@ -241,10 +241,10 @@ python3 scripts/verify-boot-image.py --manifest <build-manifest.json>
 5. **确认 archive**：`build-xnu-4k-baseline.sh` 默认 `PONG_WIFI_ARCHIVE=$ROOT/build/pong-wifi/libPongWifiNative.a`
    （当前 11,939,768 B，sha256 `bb258ff5…`）；另有 `$ROOT/wifi/native-real/libPongWifiNative.a`
    （sha256 `cda85a49…`）——**两个不同，必须显式确认链接的是哪一个**。
-6. **确认固件**：`/mnt/e/k60-work/firmware/qca6490-wifi/` 四文件（amss.bin 5,470,128 B
+6. **确认固件**：`/mnt/e/iOS Port/Work/firmware/qca6490-wifi/` 四文件（amss.bin 5,470,128 B
    `a626cfc1…`、amss20.bin 5,296,128 B `903c378a…`、m3.bin 266,684 B `ad234ac8…`、
    regdb.bin 24,278 B `06810e85…`）；PWF2 头 4096 B，四条目 offset 0x1000/0x539000/0xa46000/0xa88000。
-7. **复用 FD**：拿 `cf4485712c29` 那份（`/mnt/e/k60-work/artifacts/fd/wifi-20261116mhi{3,4}-cf4485712c29.fd`），
+7. **复用 FD**：拿 `cf4485712c29` 那份（`/mnt/e/iOS Port/Work/artifacts/fd/wifi-20261116mhi{3,4}-cf4485712c29.fd`），
    这样 `boot.json` 的 `fd_sha256` 与 `kernel_sha256` 才有可比性。
 8. **跑 build-strict**：`scripts/build-strict.sh <tag> --fd <fd> --kernel-arg pong_wifi=1`。
 9. **按 §4 逐字段比对**，并单独产出 `patches/wifi` + `drivers/PongWifi` 的清单 sha（§3.5）。
@@ -288,10 +288,10 @@ python3 scripts/verify-boot-image.py --manifest <build-manifest.json>
 
 ## 8. 证据位置
 
-- 两张基准镜像：`E:/k60-work/artifacts/wifi-20261116mhi3/`、`…/wifi-20261116mhi4/`
+- 两张基准镜像：`E:/iOS Port/Work/artifacts/wifi-20261116mhi3/`、`…/wifi-20261116mhi4/`
   （`boot.json`、`build-manifest.json`、`frozen-before.txt`、`frozen-after.txt`、`logs/`）。
 - 静态判据：`docs/research/wifi/LOCAL-VERIFICATION.md`（k60-wifi 分支）§11-111。
 - 上机时序与两道门：`docs/research/wifi/STAGE-BRINGUP.md`（k60-wifi 分支）。
 - 板级真值与差异表：`docs/plans/WIFI-PORT-PLAN.md` §0、§2.1、§2.2、§4.0。
-- 端点身份实测：`E:/k60-work/evidence/pci-id-20261114/`（17CB:1103 / 子系统 17CB:0108 / rev 1 /
+- 端点身份实测：`E:/iOS Port/Work/evidence/pci-id-20261114/`（17CB:1103 / 子系统 17CB:0108 / rev 1 /
   BAR0 0x60200000 2 MiB / Gen2 x1）。

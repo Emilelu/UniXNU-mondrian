@@ -2,7 +2,7 @@
 
 状态：**研究记录 + 纯顺序/回滚模型（`K60RailPlan`，134 项断言）；没有新增寄存器写路径**。
 官网要求「实现工作点请求和状态回读，按规定顺序执行目标稳压器、互连和温控要求」
-（`E:/k60-work/scratch/power-page-20261117.txt:108`）。
+（`E:/iOS Port/Work/scratch/power-page-20261117.txt:108`）。
 本文件回答三件事：K60 现在有没有这些写路径、允许写到什么程度、下一步按什么顺序做。
 
 ## 1. 官网要求
@@ -73,8 +73,8 @@ HR-01 只允许路线 A 的 TCS4 `lcx.lvl`/`lmx.lvl` 两条命令；0x17a00000 �
 
 ## 6. 参考
 
-- 官网快照：`E:/k60-work/scratch/power-page-20261117.txt:105-110`。
+- 官网快照：`E:/iOS Port/Work/scratch/power-page-20261117.txt:105-110`。
 - HR-01：`docs/ops/HARD-RULES.md:24-72`。
-- 路线 A 实测：`E:/k60-work/evidence/usblog-20261114-railh/console.log:477-479`。
+- 路线 A 实测：`E:/iOS Port/Work/evidence/usblog-20261114-railh/console.log:477-479`。
 - EPSS：`docs/research/power/01-EPSS-PROBE.md`；GPU：`04-GPU-FREQUENCY.md`；
   投票：`03-POWER-VOTES.md`；睡眠：`02-PLATFORM-SLEEP.md`。

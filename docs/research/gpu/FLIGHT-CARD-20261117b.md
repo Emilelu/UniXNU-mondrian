@@ -20,7 +20,7 @@
 
 ## 3. 抓取
 
-- 复用 `scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`。
+- 复用 `scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`。
 - 判读必须引用 `console.log` 行号；计数用 `grep -c`，不得用「看起来没有」。
 
 ## 4. 判据
@@ -43,7 +43,7 @@
 
 ## 5. 结果登记
 
-**判决：FAIL(F3)** — 2026-11-17 01:46:04 上机，证据 `E:/k60-work/evidence/usblog-20261117-014604`
+**判决：FAIL(F3)** — 2026-11-17 01:46:04 上机，证据 `E:/iOS Port/Work/evidence/usblog-20261117-014604`
 （`console.log` 184,769 B，抓取完整、未因 panic/复位中断，supervisor rc=0）。
 
 | 判据 | 实测 | 结论 |

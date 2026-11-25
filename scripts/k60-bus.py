@@ -30,7 +30,7 @@ And from the lead, waiting inside one turn for an answer:
 Whoever is idle can sit on `watch --for <lane>` and see messages as they land.
 
 The bus lives outside the repository on purpose: it is runtime state, not
-history. Default `E:/k60-work/bus`, override with `K60_BUS`.
+history. Default `E:/iOS Port/Work/bus`, override with `K60_BUS`.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def bus_root() -> Path:
     same physical directory must resolve for both, so an `E:` path is rewritten
     when we are on POSIX and a `/mnt/<drive>/` path when we are on Windows.
     """
-    raw = os.environ.get("K60_BUS") or "E:/k60-work/bus"
+    raw = os.environ.get("K60_BUS") or "E:/iOS Port/Work/bus"
     if os.name == "posix":
         if len(raw) > 2 and raw[1] == ":":
             drive, rest = raw[0].lower(), raw[2:].lstrip("/\\").replace("\\", "/")

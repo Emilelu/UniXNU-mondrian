@@ -8,34 +8,34 @@ label = "WiFi（QCA6490 / WCN6855）"
 
 [hardware.wifi.step.same_model]
 done = true
-evidence = "Pong 是 SM8475 + QCA6490，与 K60 同 SoC 同芯片：docs/research/wifi/RESEARCH.md:21；K60 实测端点 17CB:1103、BAR0 0x60200000/2 MiB、subsystem 0x0108 见 docs/research/wifi/RESEARCH.md:153-155 与 E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1。板级冷启动逐段对应 drivers/PongWifi/PongWifiPlatform.cpp:355-388（训练）、drivers/PongWifi/PongWifiPlatform.cpp:412-414（BAR）、drivers/PongWifi/PongWifiPlatform.cpp:468-492（MSI 与 SMMU）。"
+evidence = "Pong 是 SM8475 + QCA6490，与 K60 同 SoC 同芯片：docs/research/wifi/RESEARCH.md:21；K60 实测端点 17CB:1103、BAR0 0x60200000/2 MiB、subsystem 0x0108 见 docs/research/wifi/RESEARCH.md:153-155 与 E:/iOS Port/Work/evidence/pci-id-20261114/pci-identity.txt:1。板级冷启动逐段对应 drivers/PongWifi/PongWifiPlatform.cpp:355-388（训练）、drivers/PongWifi/PongWifiPlatform.cpp:412-414（BAR）、drivers/PongWifi/PongWifiPlatform.cpp:468-492（MSI 与 SMMU）。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.official]
 done = true
 evidence = '''逐页核对（页面要求 → 本板落点 / 为什么 na）：
-- E:/hackios/UniXNU/docs/zh/porting/network.md:30-38 的 PCIe 六步（窗口、复位、参考时钟、稳压器、互连投票、SMMU stream、MSI 路由）→ drivers/PongWifi/PongWifiPlatform.cpp:376-388 训练、drivers/PongWifi/PongWifiPlatform.cpp:412-414 BAR、drivers/PongWifi/PongWifiPlatform.cpp:468-492 MSI 与 ArmSmmu4KBuild；本板端点是 17cb:1103、MSI SPI140，不照抄页面的 17cb:1107/SPI141（E:/hackios/UniXNU/docs/zh/porting/network.md:92-93，drivers/PongWifi/PongWifiPlatform.cpp:815-825）。
-- E:/hackios/UniXNU/docs/zh/porting/network.md:46-61 的回调与所有权：lx_platform 的 dma_alloc/dma_map/dma_sync/fw_get、nw_board 的 BAR/配置空间/MSI、先装 events 再启动 → drivers/PongWifi/ath11k/PongAth11k.c:55 要求五个 DMA/固件回调齐全，drivers/PongWifi/PongWifiNet.cpp:563 定义 gEvents；固件加载说明在 docs/research/wifi/RESEARCH.md:57（本树没有独立的 PongWifiFirmware.cpp 源文件，归档成员来自历史构建）。
-- E:/hackios/UniXNU/docs/zh/porting/network.md:63 要求固件与 QRTR 服务启动后扫描产生 BSS → 16 线只到 MHI READY，随后 mhi_sync_power_up 超时 -110，见 docs/research/wifi/SBL-QUEUE.md:167-174；27 线未飞行，因此这一条只到“回调具备、运行未验”，不是已满足。
-- E:/hackios/UniXNU/docs/zh/porting/network.md:67-68 的 OS 接口 nw_wifi_scan/connect/tx 与 MAC/信道/监管/请求布局 → drivers/PongWifi/PongWifiNet.cpp:758-760（扫描二选一）、drivers/PongWifi/PongWifiNet.cpp:815（connect）、drivers/PongWifi/PongWifiNet.cpp:900-912（频道表）；选择器表在 drivers/PongWifi/PongWifiNet.cpp:82-84。
-- E:/hackios/UniXNU/docs/zh/porting/network.md:70-77 要求选 Ath12kWifi 并在构建树检查链接 → 本板是 QCA6490/ath11k，官方组件不覆盖（见 wide 步）；本板构建侧用 scripts/build-k60-wifi-native.py:133-160 收集对象、scripts/build-k60-wifi-native.py:181 libtool 打包，输入检查用 scripts/check-wifi27-link-inputs.py:56-81。
-- E:/hackios/UniXNU/docs/zh/porting/network.md:95-97 的参考策略（不扫 6 GHz、关联用对端 HT/VHT、忽略 beacon 丢失并丢 VHT MCS10/11）→ 本板只在 gModern27Client 置位后隐藏 >=5925（drivers/PongWifi/PongWifiNet.cpp:900-912），首次应答仍列 6 GHz；后两条本板未实现，na（27 station 尚未产出，不把 sheng 的策略当成本板事实）。
-- E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:51-52 的 24A446 关联结果 540 B、结果/有效位在 0x214/0x218 → drivers/PongWifi/PongWifiNet.cpp:258-264、drivers/PongWifi/PongWifiNet.cpp:304-306 构造并投递 pong_assoc_event27，内核侧由 patches/xnu-12377/0542-k60-association-event-cluster.patch:22-43 放宽到 MCLBYTES。
-- E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:36-49 的 sheng 集成（/arm-io/wlan、128 MiB DMA、签名 supplicant、launchd 缓存、/private/var/ngpu 固件）→ 本板只有 dts/mondrian.dts:85-98 的 wlan 节点；supplicant/launchd 属 C2 且 open（docs/research/wifi/SHENG-KERNEL-REFERENCE.md:81-103），固件走 vendor 分区而非 sheng 路径，na。
-- E:/hackios/UniXNU/docs/zh/drivers/ath12k-wifi.md:62-64 的 sheng-wifi=5 等启动参数 → 本板用 XNU_PONG_WIFI 构建开关而不是该参数，na（scripts/build-wifi27-kernel.sh:48-56）。
-- E:/hackios/UniXNU/docs/zh/porting/platform.md:23-39 的 CPU/GIC/PSCI/定时器/DTS → patches/xnu-12377/series:91（0540 PSCI SMP）、patches/xnu-12377/series:95（0541 虚拟定时器守卫）；设备树 dts/mondrian.dts:85-98。
-- E:/hackios/UniXNU/docs/zh/porting/platform.md:62-66 的 DMA 地址宽度/IOVA/SMMU stream/context/缓存策略 → drivers/PongWifi/PongWifiPlatform.cpp:468-492、drivers/PongWifi/PongWifiPlatform.cpp:544（exclusive SID 0x1c01、native 4 KiB 页）。
-- E:/hackios/UniXNU/docs/zh/porting/drivers.md:63-88 的接入七步与 llvm-ar t / llvm-nm --defined-only 检查已链接实现 → scripts/check-wifi-station-archive.py:37-123 把成员架构、两个 API 与 stamp 绑成一条命令；E:/hackios/UniXNU/docs/zh/porting/drivers.md:97 的记录要求落在 porting.toml:151-199。'''
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:30-38 的 PCIe 六步（窗口、复位、参考时钟、稳压器、互连投票、SMMU stream、MSI 路由）→ drivers/PongWifi/PongWifiPlatform.cpp:376-388 训练、drivers/PongWifi/PongWifiPlatform.cpp:412-414 BAR、drivers/PongWifi/PongWifiPlatform.cpp:468-492 MSI 与 ArmSmmu4KBuild；本板端点是 17cb:1103、MSI SPI140，不照抄页面的 17cb:1107/SPI141（E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:92-93，drivers/PongWifi/PongWifiPlatform.cpp:815-825）。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:46-61 的回调与所有权：lx_platform 的 dma_alloc/dma_map/dma_sync/fw_get、nw_board 的 BAR/配置空间/MSI、先装 events 再启动 → drivers/PongWifi/ath11k/PongAth11k.c:55 要求五个 DMA/固件回调齐全，drivers/PongWifi/PongWifiNet.cpp:563 定义 gEvents；固件加载说明在 docs/research/wifi/RESEARCH.md:57（本树没有独立的 PongWifiFirmware.cpp 源文件，归档成员来自历史构建）。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:63 要求固件与 QRTR 服务启动后扫描产生 BSS → 16 线只到 MHI READY，随后 mhi_sync_power_up 超时 -110，见 docs/research/wifi/SBL-QUEUE.md:167-174；27 线未飞行，因此这一条只到“回调具备、运行未验”，不是已满足。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:67-68 的 OS 接口 nw_wifi_scan/connect/tx 与 MAC/信道/监管/请求布局 → drivers/PongWifi/PongWifiNet.cpp:758-760（扫描二选一）、drivers/PongWifi/PongWifiNet.cpp:815（connect）、drivers/PongWifi/PongWifiNet.cpp:900-912（频道表）；选择器表在 drivers/PongWifi/PongWifiNet.cpp:82-84。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:70-77 要求选 Ath12kWifi 并在构建树检查链接 → 本板是 QCA6490/ath11k，官方组件不覆盖（见 wide 步）；本板构建侧用 scripts/build-k60-wifi-native.py:133-160 收集对象、scripts/build-k60-wifi-native.py:181 libtool 打包，输入检查用 scripts/check-wifi27-link-inputs.py:56-81。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/network.md:95-97 的参考策略（不扫 6 GHz、关联用对端 HT/VHT、忽略 beacon 丢失并丢 VHT MCS10/11）→ 本板只在 gModern27Client 置位后隐藏 >=5925（drivers/PongWifi/PongWifiNet.cpp:900-912），首次应答仍列 6 GHz；后两条本板未实现，na（27 station 尚未产出，不把 sheng 的策略当成本板事实）。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/drivers/ath12k-wifi.md:51-52 的 24A446 关联结果 540 B、结果/有效位在 0x214/0x218 → drivers/PongWifi/PongWifiNet.cpp:258-264、drivers/PongWifi/PongWifiNet.cpp:304-306 构造并投递 pong_assoc_event27，内核侧由 patches/xnu-12377/0542-k60-association-event-cluster.patch:22-43 放宽到 MCLBYTES。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/drivers/ath12k-wifi.md:36-49 的 sheng 集成（/arm-io/wlan、128 MiB DMA、签名 supplicant、launchd 缓存、/private/var/ngpu 固件）→ 本板只有 dts/mondrian.dts:85-98 的 wlan 节点；supplicant/launchd 属 C2 且 open（docs/research/wifi/SHENG-KERNEL-REFERENCE.md:81-103），固件走 vendor 分区而非 sheng 路径，na。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/drivers/ath12k-wifi.md:62-64 的 sheng-wifi=5 等启动参数 → 本板用 XNU_PONG_WIFI 构建开关而不是该参数，na（scripts/build-wifi27-kernel.sh:48-56）。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/platform.md:23-39 的 CPU/GIC/PSCI/定时器/DTS → patches/xnu-12377/series:91（0540 PSCI SMP）、patches/xnu-12377/series:95（0541 虚拟定时器守卫）；设备树 dts/mondrian.dts:85-98。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/platform.md:62-66 的 DMA 地址宽度/IOVA/SMMU stream/context/缓存策略 → drivers/PongWifi/PongWifiPlatform.cpp:468-492、drivers/PongWifi/PongWifiPlatform.cpp:544（exclusive SID 0x1c01、native 4 KiB 页）。
+- E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/drivers.md:63-88 的接入七步与 llvm-ar t / llvm-nm --defined-only 检查已链接实现 → scripts/check-wifi-station-archive.py:37-123 把成员架构、两个 API 与 stamp 绑成一条命令；E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/drivers.md:97 的记录要求落在 porting.toml:151-199。'''
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.decompile]
 done = true
-evidence = "离线反汇编与实测身份：K60 端点 17CB:1103、BAR0 0x60200000+2 MiB、subsystem 0x0108 已在 2026-11-14 实测（docs/research/wifi/RESEARCH.md:153-155，E:/k60-work/evidence/pci-id-20261114/pci-identity.txt:1）；wifid 20G81 的列表删除路径已离线拆到只剩 WAPI 一条（docs/research/wifi/SBL-MISSION.md:1183，§32）。24A446 的 wifid/IO80211Family 不在 pinned kernelcache，反汇编边界见 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186 的 C3 阶梯；本步只对可得二进制完成，未把 20G81 的结论移植到 24A446。"
+evidence = "离线反汇编与实测身份：K60 端点 17CB:1103、BAR0 0x60200000+2 MiB、subsystem 0x0108 已在 2026-11-14 实测（docs/research/wifi/RESEARCH.md:153-155，E:/iOS Port/Work/evidence/pci-id-20261114/pci-identity.txt:1）；wifid 20G81 的列表删除路径已离线拆到只剩 WAPI 一条（docs/research/wifi/SBL-MISSION.md:1183，§32）。24A446 的 wifid/IO80211Family 不在 pinned kernelcache，反汇编边界见 docs/research/wifi/SHENG-KERNEL-REFERENCE.md:186 的 C3 阶梯；本步只对可得二进制完成，未把 20G81 的结论移植到 24A446。"
 recorded_at = "2026-11-21"
 
 [hardware.wifi.step.wide]
 done = true
-evidence = "官方目录只覆盖 ath12k 一代：E:/hackios/UniXNU/components.toml:473 的 Ath12kWifi 面向 qcc2072/qcn9274/wcn7850（WiFi 7），K60 是 QCA6490/WCN6855（ath11k 族），MHI 通道、CE 数量、HAL ring 与 WMI 命令集不同，复用会把板级差异藏进组件（docs/research/wifi/RESEARCH.md:110-112）。同 SoC 的 Pong 与 mainline ath11k 是可用参考；nw_abi.h 只借形状不借实现。结论：官方组件不可直接用，本线自建 ath11k 路径。"
+evidence = "官方目录只覆盖 ath12k 一代：E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml:473 的 Ath12kWifi 面向 qcc2072/qcn9274/wcn7850（WiFi 7），K60 是 QCA6490/WCN6855（ath11k 族），MHI 通道、CE 数量、HAL ring 与 WMI 命令集不同，复用会把板级差异藏进组件（docs/research/wifi/RESEARCH.md:110-112）。同 SoC 的 Pong 与 mainline ath11k 是可用参考；nw_abi.h 只借形状不借实现。结论：官方组件不可直接用，本线自建 ath11k 路径。"
 catalog_checked = true
 catalog_result = "components.toml:473 的 Ath12kWifi 绑定 ath12k/WiFi 7（qcc2072/qcn9274/wcn7850）；K60 的 QCA6490/WCN6855 是 ath11k，MHI/QRTR/CE/WMI 不同，不能作为本板组件；只能参考同 SoC 的 Pong 与 mainline ath11k。"
 recorded_at = "2026-11-21"

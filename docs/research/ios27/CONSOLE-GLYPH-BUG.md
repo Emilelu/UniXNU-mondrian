@@ -5,7 +5,7 @@
 
 ## 1. 现场照片
 
-`E:\k60-work\scratch\photo-band1.png` 取自用户照片 `e4027cca7c14286838f2237cd937b0b0b5e0589e4618c98de9f37fab1b573a4a`
+`E:\iOS Port\Work\scratch\photo-band1.png` 取自用户照片 `e4027cca7c14286838f2237cd937b0b0b5e0589e4618c98de9f37fab1b573a4a`
 （870×1803）。逐像素测量：
 
 - 洋红（`#FF00FF`）横条 **29 行**，条高 25–29 px，**条间距固定 50 px**；

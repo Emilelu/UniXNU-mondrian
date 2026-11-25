@@ -29,7 +29,7 @@ if (coherentMapping(m.writeback) || importedUntouched(m.memory)) { ...skips...; 
 
 而它们都要求 `native_adreno_io_coherent` 非零。**本仓库从来没有给这个变量赋过值**（`NativeAdrenoVm.cpp:20` 与 `NativeAdrenoUserClient.cpp:20` 都只是声明），所以三处跳过都是死代码。
 
-`E:/hackios/UniXNU-zizhan/drivers/PongAdreno/PongAdrenoNativeGlue.cpp:64-72` 的注释记录了同一个病的实测修法：
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/drivers/PongAdreno/PongAdrenoNativeGlue.cpp:64-72` 的注释记录了同一个病的实测修法：
 
 > Only both proofs set native_adreno_io_coherent; imported IOSurfaces are then no longer cleaned and invalidated around every submission. **g40/g41 (forced on): the scanout blit went from 24-35 ms to 5-6 ms a frame.**
 

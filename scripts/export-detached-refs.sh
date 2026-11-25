@@ -4,13 +4,13 @@
 # Why: `merge --ff-only` does nothing on a detached HEAD, so a repo can be
 # fetched every four hours and still be weeks stale (this is exactly how the
 # sheng reference stayed at a68ee4e while origin/main was c8f92b2). This script
-# turns "fetched" into "readable latest tree" under /mnt/e/k60-work/references.
+# turns "fetched" into "readable latest tree" under /mnt/e/iOS Port/Work/references.
 set -euo pipefail
 
-OUT=/mnt/e/k60-work/references/latest
+OUT=/mnt/e/iOS Port/Work/references/latest
 mkdir -p "$OUT"
 
-for repo in /mnt/e/hackios/*/ /mnt/e/hackios/UniXNU-sheng; do
+for repo in /mnt/e/iOS Port/Sources/*/ /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng; do
     name=$(basename "$repo")
     [ -e "$repo/.git" ] || continue
     branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")

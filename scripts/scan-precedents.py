@@ -27,17 +27,17 @@ import sys
 import tomllib
 
 REPOS = {
-    'asteroids': '/mnt/e/k60-work/references/community/asteroids',
-    'uke': '/mnt/e/k60-work/references/community/uke',
-    'cupid': '/mnt/e/k60-work/references/community/cupid',
-    'vermeer': '/mnt/e/k60-work/references/community/vermeer',
+    'asteroids': '/mnt/e/iOS Port/Work/references/community/asteroids',
+    'uke': '/mnt/e/iOS Port/Work/references/community/uke',
+    'cupid': '/mnt/e/iOS Port/Work/references/community/cupid',
+    'vermeer': '/mnt/e/iOS Port/Work/references/community/vermeer',
     # The three same-SoC sources are scanned from read-only reference exports,
     # not from the older working checkouts: the export's .reference-commit names
     # the exact commit it was taken from.
-    'sheng': '/mnt/e/k60-work/references/latest/UniXNU-sheng',
-    't970': '/mnt/e/hackios/UniXNU-t970',
-    'zizhan': '/mnt/e/k60-work/references/latest/UniXNU-zizhan',
-    'pong': '/mnt/e/k60-work/references/latest/UniXNU-pong',
+    'sheng': '/mnt/e/iOS Port/Work/references/latest/UniXNU-sheng',
+    't970': '/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-t970',
+    'zizhan': '/mnt/e/iOS Port/Work/references/latest/UniXNU-zizhan',
+    'pong': '/mnt/e/iOS Port/Work/references/latest/UniXNU-pong',
     'ios16': str(pathlib.Path(__file__).resolve().parents[1]),
 }
 OURS = pathlib.Path(__file__).resolve().parents[1]

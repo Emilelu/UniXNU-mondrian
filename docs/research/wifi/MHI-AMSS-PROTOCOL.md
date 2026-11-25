@@ -56,7 +56,7 @@ FBC 下载」这条链上；补丁后源码里这条链有**两条**可达路径
 
 ## 3. c7 已观测到的事实（只作边界，不作因果）
 
-证据 `E:/k60-work/evidence/usblog-20261116-122546/console.log`（227,186 B / 3,367 行 / SpringBoard 128）：
+证据 `E:/iOS Port/Work/evidence/usblog-20261116-122546/console.log`（227,186 B / 3,367 行 / SpringBoard 128）：
 
 ```
 :608  Pong MHI: irq entered er_index=0 dev rp=0xa0001a00 host rp=0xfffffff9bb055a00

@@ -31,11 +31,11 @@
 > 上表记的是**发现时**的状态。截至 2026-11-17：G1–G3 已修；G4 已有门禁（2,294 处引用 / **101** 个目标缺失 / 0 处行号越界，
 > 基线冻结，124 个跨仓目标已加前缀）；G5 已有 `LINE-RESEARCH-MAP.md`（108 个分支文件，05:45 复核）与 `LINE-MAP.md`（21 条线）；
 > G6 的 wifi 段已按 c1–c8 重评（①–⑦ 记 done，`status` 仍保留 parked 并写明是门禁范围而非进度）；
-> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/hackios` 已可用）；G7 的 UFS 部分已在 `k60-ufs-verified:feat/ufs-verified-table` 移植（verified-root policy/cache/read path + 3b 异步根发布 `46545497`，`NATIVE_VERIFIED_BLOCK` 默认关闭，未合 main）；PongMetal、G8 与 AW882xx/pong-metal 两项仍只报告、未动（G8 的补丁字节差已在干净分支 `feat/wifi-patch-sync` `5d70dd08` 同步，等合入与接线；旧的 `feat/wifi-series-sync` `e1a46146` 基于 docs 分支、不可直接合 main，保留为历史）。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
+> G9 已登记进 `PATCH-CATALOG.toml`（retired）；G10 已把 QcaBluetooth / UniXNU-liuqin / Device-Binaries 三处写进 `SOURCES.toml` 的 required（研究源从 53 增至 **58**，2026-11-17，第三前缀 `/mnt/e/iOS Port/Sources` 已可用）；G7 的 UFS 部分已在 `k60-ufs-verified:feat/ufs-verified-table` 移植（verified-root policy/cache/read path + 3b 异步根发布 `46545497`，`NATIVE_VERIFIED_BLOCK` 默认关闭，未合 main）；PongMetal、G8 与 AW882xx/pong-metal 两项仍只报告、未动（G8 的补丁字节差已在干净分支 `feat/wifi-patch-sync` `5d70dd08` 同步，等合入与接线；旧的 `feat/wifi-series-sync` `e1a46146` 基于 docs 分支、不可直接合 main，保留为历史）。另：QcaBluetooth 本地参考仓已到 `effe4ec`，k60-bt vendored `986d631`，4 个诊断提交未移植（见 §8.3）。
 
 ## 1. 方法与可复现性
 
-- 脚本在 `E:/k60-work/scratch/refmine/`：`doc-cite-scan*.py`（引用完整性）、`line-research-map2.py`（跨检出研究分布）、
+- 脚本在 `E:/iOS Port/Work/scratch/refmine/`：`doc-cite-scan*.py`（引用完整性）、`line-research-map2.py`（跨检出研究分布）、
   `num-audit.py` 类小脚本（规则/坑/补丁计数）。全部在 WSL 里对 `/mnt/e/...` 运行。
 - 计数一律用脚本读文件，不靠记忆；本文每个数字都可用 §附录 A 的命令复算。
 - 未做：全仓库全文语义审阅（只对入口文档、规则文件、`docs/research` 与 `docs/ops` 做逐条核对）；
@@ -87,7 +87,7 @@
 | `docs/engineering/HARD-RULES.md:8-25` | 开头必读区仍称 PITFALLS「88 条」、反查表「99 条坑」、总量「99 条 PITFALLS」，第一章引言还称「这 25 条」 | 2026-11-17 改为 P-01–P-231、2026-11-11 快照与不提旧总数；当前台账最大 P-231；第一章改为「这些铁则」 | 【已修】 |
 | `CREDITS.md:112,139,169`、`docs/engineering/EIGHT-STEP-SPEC.md:103,123`、`docs/engineering/PITFALLS.md`（缺 P-130） | CREDITS 称 components.toml「25 个组件」、把音频来源重复写成 `UniXNU/Ath12kWifi`、末尾引用不存在的 P-130 与 ★35；EIGHT-STEP-SPEC 也写 25 个组件；PITFALLS 没有 P-130 条目，但 CREDITS、工程 README 与 AGENTS 都引用它 | 2026-11-17 复核官方 `UniXNU/components.toml`（HEAD 92bb60f）为 29 个组件；CREDITS 改 29、把音频参考并入 `UniXNU-sheng` 行并删重复行、末尾改指真实 P-130；补写 P-130（手工搬运代码必须保留署名）；EIGHT-STEP-SPEC 两处改为 29 | 【已修】 |
 | `docs/engineering/PITFALLS.md`（P-91/P-150/P-189） | 三个编号在 HARD-RULES、PITFALL-TO-RULE-INDEX、SUBAGENT-DELIVERABLES、check-subagent-ledger.py、check-build-applied.py 与 P-220 中被引用，但 PITFALLS 无对应标题；P-189 条目只存在于未合入 main 的 `feat/wifi-integration` 分支 | 2026-11-17 补录三条：P-91 开放任务空转、P-150 调研写文档不等于改动落地、P-189 多输出树按最新存根判错；P-189 在 RULES.toml 登记 `test-check-build-applied.py` 为检查 | 【已修】 |
-| `docs/engineering/HARD-RULES.md`、`docs/engineering/PITFALLS.md` | 大量纯文本 `docs/*.md` 路径仍指文档搬走前的旧位置（如 `docs/PITFALLS.md`、`docs/TOOLBOX.md`、`docs/DATA-VOLUME-DEPLOY.md`），check-docs 只查 Markdown 链接、抓不到反引号路径 | 2026-11-17 复核：34 处改为 `docs/engineering/...`；HARD-RULES 顶部加 workspace 文档路径说明（`E:/k60-work/docs/` 下 5 份未收入仓库）；PITFALLS 的 `PITFALLS-FROM-HISTORY.md` 改为 `docs/reference/...`，USB/DATA 证据改为 workspace 绝对路径 | 【已修】 |
+| `docs/engineering/HARD-RULES.md`、`docs/engineering/PITFALLS.md` | 大量纯文本 `docs/*.md` 路径仍指文档搬走前的旧位置（如 `docs/PITFALLS.md`、`docs/TOOLBOX.md`、`docs/DATA-VOLUME-DEPLOY.md`），check-docs 只查 Markdown 链接、抓不到反引号路径 | 2026-11-17 复核：34 处改为 `docs/engineering/...`；HARD-RULES 顶部加 workspace 文档路径说明（`E:/iOS Port/Work/docs/` 下 5 份未收入仓库）；PITFALLS 的 `PITFALLS-FROM-HISTORY.md` 改为 `docs/reference/...`，USB/DATA 证据改为 workspace 绝对路径 | 【已修】 |
 | `docs/research/audio/GAP-ANALYSIS.md:39`、`docs/research/audio/RESEARCH.md:65`、`docs/research/battery/RESEARCH.md:62` | 三处研究文档仍写 `components.toml`「25 个组件」 | 2026-11-17 复核 `UniXNU/components.toml` 为 29 个组件（仍无音频/电池组件），三处改为“当时 25 个（2026-11-17 复核 29 个，仍无音频/电池组件）” | 【已修】 |
 | `docs/research/EIGHT-STEPS.toml:41,369,449,458,545`、`docs/research/SOURCES.toml:238` | 八步证据与 SOURCES finding 仍写 `components.toml`「25 个组件」 | 2026-11-17 复核为 29 个组件；六处均加“当时 25 个（2026-11-17 复核 29 个）”限定，仍无音频/电池组件 | 【已修】 |
 | `README.md:135`、`README_EN.md:139`、`docs/INDEX.md:19,53`、`docs/engineering/README.md:24`、`docs/engineering/STATUS.md:344`、`docs/ops/README.md:9` | 六处入口写「★1–★37」，未说明 ★29–★31、★35 不存在 | 2026-11-17 复核 HARD-RULES 实有 33 条（1–28、32–34、36–37）；顶部加「编号说明」，入口行补「33 条，缺 ★29–★31、★35」；`check-readme.py` 增加空缺必须申报的检查（测试 15 例） | 【已修】 |
@@ -194,7 +194,7 @@ README_EN / AGENTS / CREDITS，行号支持 `:12-34` 范围），首版实测 **
 修法：每个硬件"结案"时把该线研究**整目录**合进 main（而不是留分支）。
 **映射已建**：`docs/research/LINE-RESEARCH-MAP.md`（2026-11-17 05:45 复核为 **16 个检出 / 108 个文件**，00:20 首扫为 97，
 本段此前按 92 计，漏了 `UniXNU-zizhan` 的 4 个与个别新增；以那份为准），
-由 `E:/k60-work/scratch/refmine/linemap{,2}.py` 生成，可直接改成仓库脚本。
+由 `E:/iOS Port/Work/scratch/refmine/linemap{,2}.py` 生成，可直接改成仓库脚本。
 本轮仍不搬文件：这些内容可能已被各自的新结论取代，搬运要各线 owner 点头。
 
 ### 6.1 `EIGHT-STEPS.toml` 的 wifi 段已过期（G6）
@@ -442,9 +442,9 @@ grep -c '^\[\[rule\]\]' docs/engineering/RULES.toml # 108（2026-11-17 起；审
 grep -vc '^#' patches/xnu/series                        # 227
 ls patches/xnu/*.patch | wc -l                          # 268
 # 引用完整性（WSL）
-wsl -u root -e python3 /mnt/e/k60-work/scratch/refmine/doc-cite-scan.py
+wsl -u root -e python3 /mnt/e/iOS Port/Work/scratch/refmine/doc-cite-scan.py
 # 跨检出研究分布
-wsl -u root -e python3 /mnt/e/k60-work/scratch/refmine/line-research-map2.py
+wsl -u root -e python3 /mnt/e/iOS Port/Work/scratch/refmine/line-research-map2.py
 # 死补丁
 grep -n 'metal-seeds' patches/xnu/series || echo NOT-IN-SERIES
 # patches/wifi 的读者

@@ -360,7 +360,7 @@ probe 建 `battery_charger` 目录（`.rodata:0x259a`）+ `block_tx` bool（`.ro
 ## 9. 复现命令
 
 ```bash
-KO=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+KO=/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
 llvm-objdump -dr --section=.init.text "$KO"                            # init_module
 llvm-objdump -dr --section=.exit.text "$KO"                            # cleanup_module
 llvm-objdump -dr --start-address=0x754  --stop-address=0x10a4 "$KO"    # probe

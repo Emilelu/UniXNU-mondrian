@@ -20,11 +20,11 @@ evidence = "同 SoC SM8475 实机证据三份：references/UniXNU-pong/configs/p
 
 [hardware.usb.step.official]
 done = true
-evidence = "官方文档 https://unixnu.com/zh/porting/usb 全文（本地副本 E:/k60-work/references/UniXNU-upstream/docs/porting/usb.md，156 行）：bringUp 九阶段、AppleUSBXDCI/AppleUSBXHCI 的 OSKextLoadKextWithIdentifier 加载序列、qcom_dwc3_vbus/qcom_ucsi_start/qcom_ucsi_receive/qcom_ucsi_tick/qcom_ucsi_polling 五个板级入口（:90-105）、角色裁决原句（:100-101）、故障表六条。官方组件目录见 wide 步。"
+evidence = "官方文档 https://unixnu.com/zh/porting/usb 全文（本地副本 E:/iOS Port/Work/references/UniXNU-upstream/docs/porting/usb.md，156 行）：bringUp 九阶段、AppleUSBXDCI/AppleUSBXHCI 的 OSKextLoadKextWithIdentifier 加载序列、qcom_dwc3_vbus/qcom_ucsi_start/qcom_ucsi_receive/qcom_ucsi_tick/qcom_ucsi_polling 五个板级入口（:90-105）、角色裁决原句（:100-101）、故障表六条。官方组件目录见 wide 步。"
 
 [hardware.usb.step.decompile]
 done = true
-evidence = "Apple 20G81 kernelcache 与本仓 kernel.macho 的 USB kext 清单来自 strings -a 实测，34 个 USB kext 在 kc、本仓 macho 全 0（含 AppleUSBXDCI / IOUSBHostFamily / AppleUSBXHCI），见 docs/research/usb/IOUSBHOST-BINDING.md §1.1 表。UEFI 侧 sm8475-xiaomi-mondrian.dtb 用 dtc -I dtb -O dts 反编译为 21954 行文本（E:/k60-work/scratch/usb/mondrian.dts），ssphy 节点在 :16899-16917、pmic_glink 在 :8555-8578。"
+evidence = "Apple 20G81 kernelcache 与本仓 kernel.macho 的 USB kext 清单来自 strings -a 实测，34 个 USB kext 在 kc、本仓 macho 全 0（含 AppleUSBXDCI / IOUSBHostFamily / AppleUSBXHCI），见 docs/research/usb/IOUSBHOST-BINDING.md §1.1 表。UEFI 侧 sm8475-xiaomi-mondrian.dtb 用 dtc -I dtb -O dts 反编译为 21954 行文本（E:/iOS Port/Work/scratch/usb/mondrian.dts），ssphy 节点在 :16899-16917、pmic_glink 在 :8555-8578。"
 
 [hardware.usb.step.wide]
 done = true
@@ -83,7 +83,7 @@ failure = "采集 0 字节（控制台完全无声），或出现 K60PANIC/K60CA
 ## 3. 重新生成 README 的八步表格
 
 ```sh
-cd /mnt/e/hackios/k60-usb
+cd /mnt/e/iOS Port/Sources/Hardware/k60-usb
 PYTHONIOENCODING=utf-8 python3 scripts/render-eight-step-table.py --apply
 PYTHONIOENCODING=utf-8 python3 scripts/render-eight-step-table.py --check
 PYTHONIOENCODING=utf-8 python3 scripts/eight-step-gate.py --build

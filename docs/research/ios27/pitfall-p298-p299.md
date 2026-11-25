@@ -33,7 +33,7 @@ runner 是 `k60-gates/scripts/check-rules.py:75` 的 `subprocess.run(command, sh
 （工作机 MSYS 侧没有 dtc，字节级验证只能留在 WSL 脚本里）。
 
 成稿的 check 是一条 1,262 字符的 `python3 -c "…"`（原文也留了一份在
-`E:/k60-work/scratch/input27/check-input-adt-nodes.oneline.txt`），读
+`E:/iOS Port/Work/scratch/input27/check-input-adt-nodes.oneline.txt`），读
 `${K60_XNEKOM_IOS27:-../xnekom-ios27}/board.toml`，要求：
 
 - `[adt.buttons].string`：`compatible` / `device_type` == `buttons`
@@ -42,7 +42,7 @@ runner 是 `k60-gates/scripts/check-rules.py:75` 的 `subprocess.run(command, sh
 - `[adt.arm-io.pong-buttons].u64`：`core-base` / `cnfg-base` / `observer-base` == `0xc400000` / `0xc42d000` / `0xc440000`
 - `[adt.arm-io.pong-buttons].u32`：`ee` / `pon-ppid` / `volume-up-ppid` == `0` / `0x13` / `0x18d`（`int(str(v),0)`，所以 `"0x013"` 也认）
 
-**双判实测**（同一外壳：`shell=True, cwd=E:/hackios/k60-gates`）：
+**双判实测**（同一外壳：`shell=True, cwd=E:/iOS Port/Sources/Hardware/k60-gates`）：
 
 | 输入 | 输出 | rc |
 | --- | --- | --- |

@@ -69,7 +69,7 @@ main = `5d8a09a5`。`origin` 上未合入的分支 **49** 条，按线分组编�
 
 ## 其它 remote（不参与）
 
-`yibiya/*` 13 条（remote `yibiya` = github.com/yibiya/UniXNU-mondromian 的镜像）、`yib/*` 13 条（本地镜像 `/mnt/e/k60-work/references/yibiya-upstream`）。这些是参考源，不合并、不改名、不删除。
+`yibiya/*` 13 条（remote `yibiya` = github.com/yibiya/UniXNU-mondromian 的镜像）、`yib/*` 13 条（本地镜像 `/mnt/e/iOS Port/Work/references/yibiya-upstream`）。这些是参考源，不合并、不改名、不删除。
 
 共 49 条。
 

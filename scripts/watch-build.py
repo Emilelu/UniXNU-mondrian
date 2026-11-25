@@ -16,7 +16,7 @@ a verdict word), UNKNOWN (log missing).
 Exit codes: 0 running, 1 stalled, 2 finished-with-failure, 3 finished-ok, 4 unknown.
 
 Usage:
-    python3 scripts/watch-build.py /mnt/e/k60-work/scratch/build-menu-14.log
+    python3 scripts/watch-build.py /mnt/e/iOS Port/Work/scratch/build-menu-14.log
 """
 
 from __future__ import annotations

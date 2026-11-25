@@ -7,7 +7,7 @@ ndp->ni_cnd.cn_nameptr)` faulted the kernel:
 
     K60KEXC msg=Kernel data abort. pc=0xfffffff0072f9ed8 far=0xfffffff14d513c27 esr=0x96000007
     _vprintf_internal+0xd50 <- _printf+0x24 <- _open1+0x200 <- _open1at+0xb4 <- _openat_nocancel+0xe8
-    (E:/k60-work/evidence/usblog-20261116-232947/console.log, 2026-11-16 23:29)
+    (E:/iOS Port/Work/evidence/usblog-20261116-232947/console.log, 2026-11-16 23:29)
 
 The trace may print `cn_namelen` (an integer) but never the string. This test pins
 that in the patch that carries the trace, so a later edit cannot reintroduce it.

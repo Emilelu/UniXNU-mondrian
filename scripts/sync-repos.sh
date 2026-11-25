@@ -12,7 +12,7 @@ set -uo pipefail
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
-WROOT="${K60_W_ROOT:-/mnt/e/hackios}"
+WROOT="${K60_W_ROOT:-/mnt/e/iOS Port/Sources}"
 LOG=/mnt/d/Android/k60-ios/SYNC-LOG.md
 STAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
 

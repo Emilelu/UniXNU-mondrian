@@ -115,6 +115,6 @@
 
 ## 9. 收工闸门（2026-11-04 立，强制）
 
-1. **任何会话在宣布完成前必须跑** `python E:\k60-work\tools\docs\check-docs.py`；**退出码非 0 不得收工**（FAIL=2 必须修完，WARN=1 必须在回报里说明原因）。
-2. **新增坑条目必须先调用** `python E:\k60-work\tools\docs\alloc-pitfall-number.py` **取号**（锁文件 + 计数器，并发安全；每次调用按坑表当前最大号自愈兜底），**禁止自行读 max+1**——并发场景下读 max+1 必然撞号（实证：PITFALLS-FROM-HISTORY 第 37 条）。
+1. **任何会话在宣布完成前必须跑** `python E:\iOS Port\Work\tools\docs\check-docs.py`；**退出码非 0 不得收工**（FAIL=2 必须修完，WARN=1 必须在回报里说明原因）。
+2. **新增坑条目必须先调用** `python E:\iOS Port\Work\tools\docs\alloc-pitfall-number.py` **取号**（锁文件 + 计数器，并发安全；每次调用按坑表当前最大号自愈兜底），**禁止自行读 max+1**——并发场景下读 max+1 必然撞号（实证：PITFALLS-FROM-HISTORY 第 37 条）。
 3. 改号规则：撞号时**后加者改号**（移卷末 + 条末写「编号说明：初记编号 X，因与 Y 重号改为 Z」），先加者与既有引用一律不动。

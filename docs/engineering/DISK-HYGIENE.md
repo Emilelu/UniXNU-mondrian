@@ -1,7 +1,7 @@
 # 磁盘卫生（空间门禁与回收流程）
 
 这条规矩是因为同一件事被提醒了三次才写下来的：构建跑到一半磁盘满、`/opt/k60/trees`
-每棵线各留一份 17–18 GiB 的旧 `out-*`、`E:\k60-work\scratch` 里躺着
+每棵线各留一份 17–18 GiB 的旧 `out-*`、`E:\iOS Port\Work\scratch` 里躺着
 24,141,365,248 B 的 `data-window.img`（一次性副本，构建从未引用）。清理总是等用户开口才开始。
 
 现在的做法：**门禁自己看**。`scripts/check-disk-space.py` 和别的门禁一起跑（`hard-41`），
@@ -29,7 +29,7 @@ python3 scripts/tests/test-check-disk-space.py # 16 例
 
 1. **`fstrim`**：`wsl -u root -e bash -lc 'fstrim -av'`。把已删除块告诉虚拟盘。
 2. **删可再生产物**：`/opt/k60/trees/*-out`、`/opt/k60/trees/k60build/out-*` 里除当前
-   `K60_OUT` 以外的目录；`E:\k60-work\artifacts` 里同一系列只留最新一两张。
+   `K60_OUT` 以外的目录；`E:\iOS Port\Work\artifacts` 里同一系列只留最新一两张。
    判据是「能不能从仓库 + `build-strict.sh` 重建」，不是「看起来没用」。
 3. **删一次性副本**：任何 `*.img` / `*.bin` 只要构建与门禁都不引用就可以删；
    删之前 `grep -rn '<文件名>' --include=*.py --include=*.sh --include=*.toml` 确认零引用，

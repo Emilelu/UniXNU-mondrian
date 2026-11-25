@@ -10,7 +10,7 @@
 + * builders of PongPower/ShengAudioReach.c (both BSD-2-Clause-Patent), with
 + * K60 board constants from the live FDT.
 + *
-+ * K60 facts used here (see /mnt/e/k60-work/scratch/audio-work/EVIDENCE.md):
++ * K60 facts used here (see /mnt/e/iOS Port/Work/scratch/audio-work/EVIDENCE.md):
 + *   - ADSP: remoteproc-adsp@03000000, qcom,cape-adsp-pas,
 + *     reserved memory 0x9fd00000 + 0x3100000 (49 MiB)
 + *   - SMEM: 0x80900000 + 0x200000; IPCC: 0xed18000 IRQ 261;
@@ -21,7 +21,7 @@
 + *   - TDM: tert MI2S/TDM, 1.536 MHz, tx-lines=0x3 (SD0+SD1),
 + *     GPIO121=SCK/123=WS/122=SD0/124=SD1
 + *
-+ * Eight-step pipeline status (E:/k60-work/docs/PORTING-PIPELINE.md):
++ * Eight-step pipeline status (E:/iOS Port/Work/docs/PORTING-PIPELINE.md):
 + *   (1) same-hardware: Pong/Sheng AudioReach implementations (REUSE.md)
 + *   (2) official docs: no K60 audio datasheet; AudioReach opcodes from
 + *       Sheng/Pong source

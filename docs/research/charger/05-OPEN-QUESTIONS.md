@@ -1,6 +1,6 @@
 # 05 — 未决问题逐条结案（charger .ko 反编译）
 
-> 目标件：`/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko`
+> 目标件：`/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko`
 > 247,776 B，ELF64 LSB aarch64 relocatable，BuildID `e852b83c589f773d7cb09e6793ac59fd33086c58`
 > 地址为**节内偏移**（VMA 全 0）。证据全部来自 `llvm-objdump -dr` / `llvm-readelf -p` / `llvm-nm -S`。
 > 本文结案 `02-GLINK-CONTRACT.md` §8 与 `03-REVERSE.md` 遗留的 5 个问题，并新增 bcdev 字段表。
@@ -367,7 +367,7 @@
 ## 8. 复现命令
 
 ```bash
-K=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
+K=/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
 # 未决 1：请求 +0xc 槽位与 +0x10 下标
 llvm-objdump -dr --start-address=0x3344 --stop-address=0x3378 "$K"
 llvm-objdump -dr --start-address=0x3648 --stop-address=0x3664 "$K"

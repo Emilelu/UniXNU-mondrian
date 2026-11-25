@@ -6,7 +6,7 @@
  * host test pins the mask and wake arithmetic first.
  *
  * Facts from the live K60 device tree
- * (E:/k60-work/reports/live-6033dbec-fdt.dtb, decompiled 2026-11-18):
+ * (E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb, decompiled 2026-11-18):
  *   /soc/pinctrl@f000000  compatible "qcom,cape-pinctrl", reg 0x0f000000
  *                         (0x1000000), interrupts <0 0xd0 4> = SPI 208,
  *                         qcom,gpios-reserved = <28 29 30 31 36 37 38 39>;

@@ -14,7 +14,7 @@ param(
     [string]$Adb='D:\Android\platform-tools\adb.exe',
     [string]$Serial='6033dbec',
     [string]$Actor='',
-    [string]$LockPath='E:\k60-work\state\k60-device-boot.lock'
+    [string]$LockPath='E:\iOS Port\Work\state\k60-device-boot.lock'
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'k60-boot-lock.ps1')
@@ -22,7 +22,7 @@ if (-not (Test-Path -LiteralPath $Image -PathType Leaf)) { throw "image not foun
 if (-not (Test-Path -LiteralPath $Fastboot -PathType Leaf)) { throw "fastboot not found: $Fastboot" }
 $Image=(Resolve-Path -LiteralPath $Image).Path
 $imageSha=(Get-FileHash -LiteralPath $Image -Algorithm SHA256).Hash
-if (-not $OutDir) { $OutDir="E:\k60-work\evidence\usblog-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')" }
+if (-not $OutDir) { $OutDir="E:\iOS Port\Work\evidence\usblog-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')" }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 if (Test-Path -LiteralPath (Join-Path $OutDir 'boot.json')) { throw "evidence directory already contains a boot: $OutDir" }
 $ready=Join-Path $OutDir 'capture.ready'; $stopFile=Join-Path $OutDir 'capture.stop'

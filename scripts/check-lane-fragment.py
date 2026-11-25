@@ -40,12 +40,12 @@ ITEM_KEYS = {"name", "label", "status", "why", "revisit", "paths", "files", "ste
 HERE = Path(__file__).resolve().parents[1]
 ROOTS = (
     HERE,
-    Path("/mnt/e/k60-work"),
+    Path("/mnt/e/iOS Port/Work"),
     Path("/opt/k60/trees/ios27-out"),
 )
 ANCHOR = re.compile(r"\{#([^}]+)\}")
 # The leading slash is part of the token: without it an absolute path such as
-# /mnt/e/k60-work/wt-k55/docs/... was matched from `mnt/...` and then resolved
+# /mnt/e/iOS Port/Work/wt-k55/docs/... was matched from `mnt/...` and then resolved
 # relative to the checkout, which can only fail (measured 2026-11-21: two lanes
 # reported red for evidence that exists on disk).
 PATHLIKE = re.compile(r"/?[\w.-]+(?:/[\w.-]+)+\.(?:c|h|cpp|hpp|py|sh|toml|json|md|txt|dtb|dts|dtsi|macho|img|log)\b")
@@ -191,7 +191,7 @@ def check(fragment: Path, lane_root: Path | None, docs: Path,
 def main(argv: list[str]) -> int:
     args = [a for a in argv[1:] if not a.startswith("--")]
     lane_root = None
-    docs = Path("/mnt/e/hackios/UniXNU/docs/zh")
+    docs = Path("/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh")
     allow_device = "--allow-device" in argv
     require_paths = "--require-paths" in argv
     for a in argv[1:]:

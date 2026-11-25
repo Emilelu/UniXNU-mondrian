@@ -17,7 +17,7 @@
 | U | [Linux 固定提交寄存器表](https://github.com/gregkh/linux/blob/458c6079fc1d41d564c37679c8ace02cd83ee817/drivers/soc/qcom/rpmh-rsc.c#L157-L204) | 固定 `458c6079fc1d41d564c37679c8ace02cd83ee817`；v2.7/v3.0 布局交叉核验。不可拿另一 SoC 的 DRV 窗口替换本板 DT。 |
 | A | [Linux v6.1 rpmhpd.c](https://github.com/torvalds/linux/blob/v6.1/drivers/soc/qcom/rpmhpd.c#L450-L486) | ARC 发送的是 corner；active/sleep/wake 请求时机不同。[609–635](https://github.com/torvalds/linux/blob/v6.1/drivers/soc/qcom/rpmhpd.c#L609-L635) 为 ARC hlvl→vlvl 辅助表；不是 mV 实测。 |
 | D | [Linux v6.1 cmd-db.c](https://github.com/torvalds/linux/blob/v6.1/drivers/soc/qcom/cmd-db.c#L177-L196) | 按资源名返回命令地址；不返回聚合或实际轨状态。[230–241](https://github.com/torvalds/linux/blob/v6.1/drivers/soc/qcom/cmd-db.c#L230-L241) 为命令地址内的 slave-id 解析。 |
-| B | [本板导出 DTS](E:/k60-work/scratch/dtb/mondrian.dts#L5119-L5130) | RSC 的 named windows、逻辑 drv-id、TCS 偏移和配置；必须和同一次采样的 version/caps 分开记录。 |
+| B | [本板导出 DTS](E:/iOS Port/Work/scratch/dtb/mondrian.dts#L5119-L5130) | RSC 的 named windows、逻辑 drv-id、TCS 偏移和配置；必须和同一次采样的 version/caps 分开记录。 |
 
 以上远端原文均通过固定地址读取成功（HTTP 200、完整内容）。GPL 来源仅用于寄存器事实与语义核验，
 未移植其实现。当前实现与内嵌副本的问题属于本仓库代码，不以 Linux 有此接口推导 XNU 已满足条件。
@@ -42,9 +42,9 @@ X [1237–1251](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/blob/989b27aa
 | ADDR/DATA | v2 +0x34/+0x38，v3 +0x38/+0x3c；完整地址还需 slot×tcs_stride + command×cmd_stride。 | 当前首个地址命中即返回，重复/冲突记录丢失；记录缺 command index。软件 `complete` 不是硬件完成位。 |
 | 访问范围 | caps、DT 配置、映射 bounds、实际访问许可是四种约束，应取经审查的合法交集。 | 当前未证明每个拟读槽/command 可访问；本文不授权把扫描扩成 8×16。未知许可必须阻断，不能猜数值。 |
 
-[历史 touch 日志](E:/k60-work/evidence/usblog-20261110-191312/console.log#L627) 曾报
+[历史 touch 日志](E:/iOS Port/Work/evidence/usblog-20261110-191312/console.log#L627) 曾报
 `caps=0x800c8104 count=8 ncpt=16 ver=0x20700`；用上述字段算术确实得到 8/16。
-但 [railh 日志](E:/k60-work/evidence/usblog-20261114-railh/console.log#L477-L479) 只有 cmd-db magic、
+但 [railh 日志](E:/iOS Port/Work/evidence/usblog-20261114-railh/console.log#L477-L479) 只有 cmd-db magic、
 ldoc2、版本/布局三行，没有同次 caps 或 LCX/LMX 记录。不得拼成一份同 boot 快照。
 假设已批准的 v2 8×16 窗口，最后 CMD_STATUS 偏移算术为 `0xd00+7*672+15*20+0x3c=0x20c8`；
 end=`0x20cc` 小于映射长度，只说明 bounds 算术，不说明该地址可访问。
@@ -114,9 +114,9 @@ legacy 中 [inherit:416–422](../../../drivers/PongPower/K60PmicRail.c#L416) �
 
 ### 5.1 helper：9 个案例
 
-源码 [helper-audit.c](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/helper/helper-audit.c)、
-执行命令 [run.sh](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/helper/run.sh)、
-[原始结果](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/helper/results.log)。
+源码 [helper-audit.c](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/helper/helper-audit.c)、
+执行命令 [run.sh](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/helper/run.sh)、
+[原始结果](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/helper/results.log)。
 编译 C11/O1/Wall/Wextra/Werror；每例重置合成数组，检查数组字节未变。
 
 | 案例 | 当前结果 | 说明 |
@@ -136,11 +136,11 @@ SHA256 `1e1bca11ae9a340de7ff1ac4c9e5222b4271189cbbe4caace7a153498bf2de89`。
 
 ### 5.2 KERNEL entry：10 个独立进程
 
-源码 [entry-audit.c](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/entry/entry-audit.c)、
-[runner](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/entry/run-entry-audit.sh)、
-[完整方法](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/entry/AUDIT.md)、
-[运行汇总](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/entry/run.log)、
-[校验清单](E:/k60-work/artifacts/adsp-board-20261116/rail-audit/entry/artifact-sha256.txt)。
+源码 [entry-audit.c](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/entry/entry-audit.c)、
+[runner](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/entry/run-entry-audit.sh)、
+[完整方法](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/entry/AUDIT.md)、
+[运行汇总](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/entry/run.log)、
+[校验清单](E:/iOS Port/Work/artifacts/adsp-board-20261116/rail-audit/entry/artifact-sha256.txt)。
 GCC13.3.0，C11/O0/Wall/Wextra/Werror/`KERNEL=1`，fake pexpert/machine/sys 头与 map/parse stub；
 没有 PAS/SCM 链接。每个案例新 exec，先断言原 static ledger 为空；cache 案例再显式 seed。
 计数为真实 map/parser stub 调用，**没有对 volatile loads 逐条插桩，不宣称读取次数**。
@@ -208,7 +208,7 @@ late-owner 设计应保留 early owner1 reservation，late resume 消费同一 r
 legacy owner2 继续被排除。battery 需区分“等待依赖”与“已执行一次”，只在有效 lease commit 后通知一次，
 失败不建服务，Poisoned/Published 继续保留所有权。此处只列下一份设计的验收项，未变更 0602/0614/0619。
 
-生产拒绝的既有宿主证据见 [refusal log:27](E:/k60-work/artifacts/adsp-board-20261116/refusal/host-tests.log#L27)：
+生产拒绝的既有宿主证据见 [refusal log:27](E:/iOS Port/Work/artifacts/adsp-board-20261116/refusal/host-tests.log#L27)：
 `map_smem=0 alloc=0 init=0 mem=0 load=0 auth=0 publish=0`；排他证明所需只读 map 不在该下游计数中。
 本审计不把该证据写成 Native 执行或硬件验证。任何 rail-only 构建/启动仍须 Lead 新的具体裁决；
 真实候选镜像的完整参数与字节数尚不存在，旧 592/593 B 估算不作证据。

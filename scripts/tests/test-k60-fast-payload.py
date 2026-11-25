@@ -16,7 +16,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 BOARD = pathlib.Path('/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27')
-SCRATCH = pathlib.Path('/mnt/e/k60-work/scratch')
+SCRATCH = pathlib.Path('/mnt/e/iOS Port/Work/scratch')
 
 
 def run(board, kernel, dry=False):

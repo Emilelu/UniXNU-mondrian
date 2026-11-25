@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-KIT = Path(os.environ.get('K60_PONG_REF', '/mnt/e/hackios/UniXNU-pong')) / 'kits/NativePrelink'
+KIT = Path(os.environ.get('K60_PONG_REF', '/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-pong')) / 'kits/NativePrelink'
 TREE = Path('/tmp/k60build/out/route-a18/Pong-iPadOS18-native')
 DEFAULT_KERNEL = TREE / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_PONG/mach.development.pong.unstripped.noctf'
 DEFAULT_ORIGINAL = Path('/tmp/k60build/out/ipsw/22H374/kernelcache.decompressed')

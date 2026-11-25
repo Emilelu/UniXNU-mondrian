@@ -82,7 +82,7 @@
 | 内核 | `98fb8d874f2cda4b28374ece163bee2036041b2aa653c91c342c96f2f4c604a6`（105,693,184 B） |
 | 命令行 | 31 条 605 B，末项 `gperf=13`（`image-arg-audit: OK`） |
 | 插件 | `metal-plugin-20261119p` |
-| 证据 | `E:\k60-work\evidence\usblog-20261119-163734`，`console.log` 249,356 B，supervisor rc=0，抓取完整 |
+| 证据 | `E:\iOS Port\Work\evidence\usblog-20261119-163734`，`console.log` 249,356 B，supervisor rc=0，抓取完整 |
 
 ### 5.2 判据
 

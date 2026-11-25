@@ -44,7 +44,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 DEV=${K60_DEVICE_INPUT:-/opt/k60/trees/usb-cdc-mainline/device}
 BUILD=${K60_BUILD_TREE:-/opt/k60/trees/k60build}
 OUT=${K60_OUT:-$BUILD/out-baseline}
-ART=${K60_ARTIFACTS:-/mnt/e/k60-work/artifacts}
+ART=${K60_ARTIFACTS:-/mnt/e/iOS Port/Work/artifacts}
 RUN=$ART/$TAG
 LOGS=$RUN/logs
 MARK=$RUN/.build-marker
@@ -225,7 +225,7 @@ fi
 # a missing directory is a hard failure rather than a silent skip.
 GPU_ADDON=$(sed -n 's/^CONFIG_XNU_GPU_ADDON=y$/1/p' "$M/.config" | head -1)
 if [ -n "$GPU_ADDON" ]; then
-  PLUGIN_SRC=${K60_METAL_PLUGIN_SRC:-/mnt/e/k60-work/impl/gpu-mac-build/out/metal-plugin}
+  PLUGIN_SRC=${K60_METAL_PLUGIN_SRC:-/mnt/e/iOS Port/Work/impl/gpu-mac-build/out/metal-plugin}
   PLUGIN_DIR=$REPO/build/metal-plugin
   # The macOS build writes a real bundle; the blob generator reads a flat
   # directory. Stage it instead of teaching the generator two layouts.
@@ -377,8 +377,8 @@ cp -f "$FD" "$FD_ARCH" || die "cannot archive the firmware volume"
 FD_SHA=$(sha256sum "$FD_ARCH" | cut -d' ' -f1)
 
 BOOTIMG=("$BUILD/unixnu" bootimg -D "$DEV" --out "$OUT"
-         --uefi /mnt/e/hackios/uefi-mondrian
-         --edk2 /mnt/e/hackios/uefi-mondrian/Mu_Basecore
+         --uefi /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian
+         --edk2 /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian/Mu_Basecore
          --dtb "$M/device-tree/hardware.dtb"
          --fd "$FD_ARCH" -o "$RUN/boot.img")
 for kv in ${KARGS[@]+"${KARGS[@]}"}; do

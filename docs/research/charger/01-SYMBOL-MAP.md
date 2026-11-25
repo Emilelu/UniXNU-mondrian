@@ -18,7 +18,7 @@
 
 | 项 | 值 | 取证方式 |
 |---|---|---|
-| 路径 | `/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko` | — |
+| 路径 | `/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko` | — |
 | 大小 | 247,776 B | `stat` |
 | SHA-256 | `914d12fe026f13bd6c8e0b470872502e6560a2f2d51278d30e1822d1cd758a48` | `sha256sum` |
 | BuildID | `e852b83c589f773d7cb09e6793ac59fd33086c58` | `llvm-readelf -n` |
@@ -244,8 +244,8 @@
 
 ```bash
 # 全部在 WSL 内执行（Windows 侧无 LLVM）
-KO=/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko
-OUT=/mnt/e/hackios/_scratch/charger-ko
+KO=/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko
+OUT=/mnt/e/iOS Port/Sources/_scratch/charger-ko
 
 llvm-readelf -h -S -n "$KO"            > $OUT/00-elf-header.txt   # 37 节 + BuildID
 llvm-nm -S --defined-only -n "$KO"     > $OUT/02-nm-defined.txt   # 675 行

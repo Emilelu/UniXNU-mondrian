@@ -17,7 +17,7 @@ the evidence record for the direct candidate; c8 remains HOLD.
 ## 1. Why the queue form was replaced
 
 The queue candidate `wifi-20261118sbl-gated` was flown once at 2026-11-18
-00:55. The complete console `E:/k60-work/evidence/usblog-20261118-005525/console.log`
+00:55. The complete console `E:/iOS Port/Work/evidence/usblog-20261118-005525/console.log`
 (143,253 bytes, 2,079 lines) shows:
 
 - `:631` `Pong MHI: device is in SBL without an EE event, BHI_STATUS=0x8b9a74ae; queueing the SBL transition`
@@ -40,7 +40,7 @@ worker-queue delay without changing the device-side handshake.
 The patch lives in the build generator, not in a checked-in copy of the Linux
 source. The line numbers in this section are as of the direct build head
 `0782eddc`; the current head has the same direct block at `:330-379`.
-`E:/hackios/k60-wifi/scripts/build-k60-ath11k.py`:
+`E:/iOS Port/Sources/Hardware/k60-wifi/scripts/build-k60-ath11k.py`:
 
 - `:319-364`: replaces the passive wait with a bounded `for (i = 0; i < 200; i++)`
   poll while `MHI_REG_ACCESS_VALID(pm_state)`. It reads `mhi_get_exec_env`;
@@ -61,7 +61,7 @@ source. The line numbers in this section are as of the direct build head
 - `:370-393`: retains the c8 AMSS vector logging
   (`amss download begin entries=...`, `amss vec[...]`, `amss bhie load ret=... exec_env=...`).
 
-Generated source anchors from `E:/k60-work/build/wifi-sbl-direct`:
+Generated source anchors from `E:/iOS Port/Work/build/wifi-sbl-direct`:
 
 | file | anchor |
 |---|---|
@@ -83,14 +83,14 @@ vector table is already owned and no duplicate allocation occurs.
 |---|---|
 | tag | `wifi-20261118sbl-direct` |
 | built_at | 2026-11-18T01:26:58+08:00 |
-| first flight | 2026-11-18 01:29, console `E:/k60-work/evidence/usblog-20261118-012938/console.log`, 237,343 B / 3,591 lines, SHA256 `9fff4a26237a3b6e795263a0a241c4dd2ab6aa42a84adbdde6b28cdaa3609c05` |
+| first flight | 2026-11-18 01:29, console `E:/iOS Port/Work/evidence/usblog-20261118-012938/console.log`, 237,343 B / 3,591 lines, SHA256 `9fff4a26237a3b6e795263a0a241c4dd2ab6aa42a84adbdde6b28cdaa3609c05` |
 | branch / head | `fix/wifi-bhie-direct` / `0782eddcfbd3f503db8089a4f7b8a3d1de9c0200` (dirty 0) |
-| `boot.img` | `E:/k60-work/artifacts/wifi-20261118sbl-direct/boot.img`, 201,887,744 B, SHA256 `03e11c823672930b8c4140b27b4576d68a10459baa9bfcdf9ef03d18979332e1` |
+| `boot.img` | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-direct/boot.img`, 201,887,744 B, SHA256 `03e11c823672930b8c4140b27b4576d68a10459baa9bfcdf9ef03d18979332e1` |
 | kernel | `64694fa5e1b6e7c83f5cd4080ef781ebe4355693bd1fc25b75ed561b5c117ba5` (117,342,208 B) |
 | payload kernel | `41c7ef00db65af102523dba2ef44c7f9826a7480b6f650f35208b78b76704f61` |
 | WiFi archive | `a9cf5a4397078d660fb04573ebf0341de39d5fd42e0cd673d43c8938e1cc744e` |
 | ath11k archive | `82463ea28fc3f1e424e55ba1621318e23119b1f132a09300acce2f82b1a04af6` |
-| manifest | `E:/k60-work/artifacts/wifi-20261118sbl-direct/build-manifest.json` |
+| manifest | `E:/iOS Port/Work/artifacts/wifi-20261118sbl-direct/build-manifest.json` |
 | args | 31 / 602 bytes, ending `pong_wifi=1 k60_wifi_rsc=2` |
 
 This candidate is a single-variable test: stock six WLAN rails, `amss20.bin`,
@@ -150,7 +150,7 @@ HOLD and must not be built, booted or merged.
 
 The direct image `wifi-20261118sbl-direct` was flown with serial capture
 attached before boot. The log is complete:
-`E:/k60-work/evidence/usblog-20261118-012938/console.log` (237,343 bytes,
+`E:/iOS Port/Work/evidence/usblog-20261118-012938/console.log` (237,343 bytes,
 3,591 lines, SHA256 `9fff4a26237a3b6e795263a0a241c4dd2ab6aa42a84adbdde6b28cdaa3609c05`).
 Boot was accepted, the console was captured, and SpringBoard was reached at
 `:1630`.

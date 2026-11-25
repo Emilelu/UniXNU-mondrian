@@ -187,9 +187,9 @@ def emit_c(base, offsets, pairs, counts, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--dts', default='/mnt/e/k60-work/scratch/usb/mondrian.dts')
+    ap.add_argument('--dts', default='/mnt/e/iOS Port/Work/scratch/usb/mondrian.dts')
     ap.add_argument('--emit-c', action='store_true')
-    ap.add_argument('--out', default='/mnt/e/k60-work/scratch/usb/kQmpPhyK60.h')
+    ap.add_argument('--out', default='/mnt/e/iOS Port/Work/scratch/usb/kQmpPhyK60.h')
     ap.add_argument('--check', action='store_true')
     args = ap.parse_args()
 

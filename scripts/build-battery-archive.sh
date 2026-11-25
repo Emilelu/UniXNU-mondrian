@@ -16,8 +16,8 @@ die() { echo "build-battery-archive: FATAL: $*" >&2; exit 1; }
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 BUILD=${K60_BUILD_TREE:-/opt/k60/trees/k60build}
 OUT=${K60_OUT:-$BUILD/out-baseline}
-FRAMEWORK=${K60_FRAMEWORK:-/mnt/e/hackios/UniXNU}
-MODULE=${K60_BATTERY_MODULE:-/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko}
+FRAMEWORK=${K60_FRAMEWORK:-/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU}
+MODULE=${K60_BATTERY_MODULE:-/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko}
 DEST=${1:-$REPO/build/k60-battery}
 
 board_dir() {

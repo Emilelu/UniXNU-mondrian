@@ -42,8 +42,8 @@ def evidence_root() -> pathlib.Path:
     """The capture tree, spelled for whichever side runs this suite."""
     override = os.environ.get("K60_EVIDENCE")
     candidates = [pathlib.Path(override)] if override else []
-    candidates += [pathlib.Path("/mnt/e/k60-work/evidence"),
-                   pathlib.Path("E:/k60-work/evidence")]
+    candidates += [pathlib.Path("/mnt/e/iOS Port/Work/evidence"),
+                   pathlib.Path("E:/iOS Port/Work/evidence")]
     for cand in candidates:
         if cand.is_dir():
             return cand

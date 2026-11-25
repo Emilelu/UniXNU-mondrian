@@ -5,8 +5,8 @@
 # PowerShell only starts it hidden and waits.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wsl-hidden.ps1 `
-#       -Command 'cd /mnt/e/hackios/k60-gates && K60_ALLOW_BUILD=1 bash scripts/build-ios27-linux.sh' `
-#       -Log 'E:\hackios\k60-gates\build\build.log'
+#       -Command 'cd /mnt/e/iOS Port/Sources/Hardware/k60-gates && K60_ALLOW_BUILD=1 bash scripts/build-ios27-linux.sh' `
+#       -Log 'E:\iOS Port\Sources\Hardware\k60-gates\build\build.log'
 param(
     [Parameter(Mandatory = $true)][string]$Command,
     [Parameter(Mandatory = $true)][string]$Log,

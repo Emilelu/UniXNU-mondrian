@@ -1,7 +1,7 @@
 # K60 触摸参数表（Goodix / GENI-SPI）
 
 > 调研日期：2026-11-07。只读调研，只写本文件。
-> 结论先行：请求的 raw dtbo `D:/Android/k60-ios/dtb/dtbo_a_fdt15.dtb` **不存在**，本文件无法解析该文件本身；改用同板 **live merged FDT** `E:/k60-work/reports/live-6033dbec-fdt.dtb`（FDT v17，sha256 `95c02052…`）解析出已应用的触摸节点。下表所有数值均标来源；没有查到的项写“未核实”，不猜。
+> 结论先行：请求的 raw dtbo `D:/Android/k60-ios/dtb/dtbo_a_fdt15.dtb` **不存在**，本文件无法解析该文件本身；改用同板 **live merged FDT** `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（FDT v17，sha256 `95c02052…`）解析出已应用的触摸节点。下表所有数值均标来源；没有查到的项写“未核实”，不猜。
 
 ## ① 触摸节点在 dtbo 里的位置与原始值
 
@@ -12,7 +12,7 @@
 | `D:/Android/k60-ios/dtb/dtbo_a_fdt15.dtb` | 目录不存在（`D:/Android/k60-ios` 下没有 `dtb` 目录） |
 | `cmd.exe /c "dir /s /b D:\dtbo_a_fdt15.dtb"` | `File Not Found` |
 | `find E:/ -iname 'dtbo_a_fdt15.dtb'` | 无结果 |
-| 全盘 FDT magic 扫描（D:/Android/k60-ios、E:/k60-work、E:/hackios/k60） | 只找到 live FDT、pong DT 和若干 UEFI/pong 参考 DTB；没有 raw K60 dtbo |
+| 全盘 FDT magic 扫描（D:/Android/k60-ios、E:/iOS Port/Work、E:/iOS Port/Sources/Build/k60） | 只找到 live FDT、pong DT 和若干 UEFI/pong 参考 DTB；没有 raw K60 dtbo |
 
 `D:/Android/k60-ios/AGENT-COORDINATION.md:826` 记录过 2026-10-27 存在 `dtb\` 目录（64 个 dtb，含 `dtbo_a_fdt*`），但该目录和 `D:/Android/k60-ios-backup-20261027` 现在都不在盘上。**因此 raw dtbo 的 `fragment@N` / `target` 路径无法给出，不能猜。**
 
@@ -20,7 +20,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文件 | `E:/k60-work/reports/live-6033dbec-fdt.dtb` |
+| 文件 | `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb` |
 | 文件大小 | 919,210 bytes（`totalsize 0x000e06aa`） |
 | FDT 版本 | `0x11`（17），last_comp `0x10`（16） |
 | SHA-256 | `95c02052b773a1b8df8ec20f6368ba80c87717206ed40682046e2ad6f29fdac8` |

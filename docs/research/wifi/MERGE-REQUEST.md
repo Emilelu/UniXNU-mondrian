@@ -91,7 +91,7 @@ export XNU_PONG_WIFI_ARCHIVE=/opt/k60/trees/k60build/wifi/native-real/libPongWif
 
 ```bash
 # 步骤 1：ath11k
-export PONG_SHENG_ROOT=/mnt/e/k60-work/impl/wifi/work/src/UniXNU-sheng
+export PONG_SHENG_ROOT=/mnt/e/iOS Port/Work/impl/wifi/work/src/UniXNU-sheng
 python3 scripts/build-k60-ath11k.py \
   --linux /home/emilelu/wifi-inputs/linux \
   --output-dir /opt/k60/trees/k60build/wifi/ath11k
@@ -104,7 +104,7 @@ export PATH="/opt/unixnu-linux/CommandLineTools/usr/bin:/opt/unixnu-linux/llvm/b
 python3 scripts/build-k60-wifi-native.py \
   --tree $T \
   --ath11k /opt/k60/trees/k60build/wifi/ath11k/libPongAth11k.a \
-  --firmware /mnt/e/k60-work/firmware/qca6490-wifi \
+  --firmware /mnt/e/iOS Port/Work/firmware/qca6490-wifi \
   --output-dir /opt/k60/trees/k60build/wifi/native-real
 ```
 
@@ -139,7 +139,7 @@ so the registry cannot run. Point K60_REPO at the device repository that produce
 
 **解法（二选一，需 Lead 定）**：
 
-- **A（推荐）**：`export K60_REPO=/mnt/e/hackios/k60-wifi` —— 该仓有
+- **A（推荐）**：`export K60_REPO=/mnt/e/iOS Port/Sources/Hardware/k60-wifi` —— 该仓有
   `docs/engineering/RULES.toml` 与 `scripts/check-rules.py`，门禁能真跑。
 - **B**：`export UNIXNU_SKIP_GATES=1` —— 只打印
   `GATES SKIPPED on request; the result is not gated`，**`build-strict.sh` 会硬拒**，
@@ -227,7 +227,7 @@ Undefined symbols for architecture arm64:
 -done = false
 -evidence = "K60 的 PCI device id / BAR0 / subsystem_device / PCIe0 GDSC 偏移 / SPMI 通道号均未实测，列在 docs/research/wifi/RESEARCH.md 的待补项。"
 +done = true
-+evidence = "2026-11-14 用实机 live FDT（E:\\k60-work\\reports\\live-6033dbec-fdt.dtb，dtc 反编译 34801 行）逐节点实测并逐条对照 drivers/PongWifi/PongWifiPlatform.cpp：端点 17CB:1103 来自 /soc/mhi_qrtr_cnss 的 qcom,dev-id=<0x1103> 与 PongWifiPlatform.cpp:356 的 cfg.r(0)==0x110317cb；BAR0 0x60200000 来自 /soc/qcom,pcie@1c00000 的 ranges（mem32 段 0x60200000 + 0x100000）与 :368 的 bar.open(0x60200000,0x200000)；IOVA 0xA0000000 来自 cnss_pci_iommu_group 的 qcom,iommu-dma-addr-pool=<0xa0000000 0x10000000> 与 :40 的 constexpr Iova；MSI 来自 msi-map=<0 0x237 0x5980 1 …> 加 :42 的 PcieGlobalIntid=32+140 / ParfMsi0=1u<<23；SID 来自 iommu-map=<0 0x5b 0x1c00 1 …>（qcom,smmu-sid-base=<0x1c00>）；refgen 100 MHz 是 max-clock-frequency-hz 的 index 10（clock_names[8]=pcie_phy_refgen_clk），:233 已用 (1u<<8)|10u；GDSC 折叠票 0x162128 bit0（非 Sheng 的 0x152020）。82 项 PHY 表与 Pong 逐 cell 相同（different=0）。全套出处见 docs/research/wifi/GAP-ANALYSIS.md 的 ③ 表。"
++evidence = "2026-11-14 用实机 live FDT（E:\\iOS Port\\Work\\reports\\live-6033dbec-fdt.dtb，dtc 反编译 34801 行）逐节点实测并逐条对照 drivers/PongWifi/PongWifiPlatform.cpp：端点 17CB:1103 来自 /soc/mhi_qrtr_cnss 的 qcom,dev-id=<0x1103> 与 PongWifiPlatform.cpp:356 的 cfg.r(0)==0x110317cb；BAR0 0x60200000 来自 /soc/qcom,pcie@1c00000 的 ranges（mem32 段 0x60200000 + 0x100000）与 :368 的 bar.open(0x60200000,0x200000)；IOVA 0xA0000000 来自 cnss_pci_iommu_group 的 qcom,iommu-dma-addr-pool=<0xa0000000 0x10000000> 与 :40 的 constexpr Iova；MSI 来自 msi-map=<0 0x237 0x5980 1 …> 加 :42 的 PcieGlobalIntid=32+140 / ParfMsi0=1u<<23；SID 来自 iommu-map=<0 0x5b 0x1c00 1 …>（qcom,smmu-sid-base=<0x1c00>）；refgen 100 MHz 是 max-clock-frequency-hz 的 index 10（clock_names[8]=pcie_phy_refgen_clk），:233 已用 (1u<<8)|10u；GDSC 折叠票 0x162128 bit0（非 Sheng 的 0x152020）。82 项 PHY 表与 Pong 逐 cell 相同（different=0）。全套出处见 docs/research/wifi/GAP-ANALYSIS.md 的 ③ 表。"
 @@ [hardware.wifi.step.verify]
 -done = false
 -evidence = "未做。"
@@ -263,7 +263,7 @@ Undefined symbols for architecture arm64:
 
 17 张全部通过 `verify-boot-image.py` 与 `argcheck1.py`（命令行 574–606 字节，
 都在 DarwinBoot 的 607 字节上限内）。runner 是
-`E:\k60-work\evidence\wifi-trial\ladder6-run.ps1`：先跑控制镜像 `a`，再跑
+`E:\iOS Port\Work\evidence\wifi-trial\ladder6-run.ps1`：先跑控制镜像 `a`，再跑
 全十级镜像 `g`（一次启动打出所有 `stage N` 行，最后一条即故障块），
 首张零字节控制台就停（exit 12）。只有 `g` 也静默时才退回线性阶梯
 `b → c → p → d → e → f`；只有 `a` 本身没有控制台时才退到体积二分 `z0 → t0 → t1`；
@@ -284,7 +284,7 @@ Undefined symbols for architecture arm64:
 ✅「已声明范围的 7 个参数都在范围内」，`check-rules.py` 的 `hard-8` 与 `P-156` 转绿。
 下面保留当时的合并请求原文与离线验证记录，供复核。
 
-**完整替换文本**：`E:\k60-work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`（135 行）。
+**完整替换文本**：`E:\iOS Port\Work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`（135 行）。
 它做四件事：
 
 1. 修正字节预算。现有文字写「上限 608 字节，当前 30 项 591，余 17」——
@@ -322,7 +322,7 @@ board.toml 的 575 字节里，`pong_wifi=1` 要 **12** 字节、`k60_wifi_rsc=2
 0 会被忽略、字节照旧。
 
 5. **离线验证过这个片段确实能关掉 hard-8 与 P-156**（脚本
-   `E:\k60-work\evidence\wifi-trial\simulate-bootargs.py`，直接复刻
+   `E:\iOS Port\Work\evidence\wifi-trial\simulate-bootargs.py`，直接复刻
    `check-boot-args.py` 的两段逻辑，把片段追加在现有 BOOT-ARGS.md 之后跑）：
 
    ```
@@ -338,13 +338,13 @@ board.toml 的 575 字节里，`pong_wifi=1` 要 **12** 字节、`k60_wifi_rsc=2
 
    即：9 个缺口全补上，且新登记的三条范围判据（`k60_wifi_rsc` 0..2、`k60_wifi_stage` 0..10、
    `pong_wifi_dma_mib` 64..128）对 board.toml 现值全部通过。片段全文在
-   `E:\k60-work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`。
+   `E:\iOS Port\Work\evidence\wifi-trial\BOOT-ARGS-MERGE.md`。
 
 ---
 
 ## 11. `scripts/check-rules.py` 现状：8 条失败里只有 2 条是 WiFi 的
 
-在 `/mnt/e/hackios/k60-wifi` 跑 `python3 scripts/check-rules.py --repo /mnt/e/hackios/k60-wifi`：
+在 `/mnt/e/iOS Port/Sources/Hardware/k60-wifi` 跑 `python3 scripts/check-rules.py --repo /mnt/e/iOS Port/Sources/Hardware/k60-wifi`：
 登记 65 条、执行 19 个不同命令、**失败 6 条**（BOOT-ARGS 落地前是 8 条）、waiver 37 条。
 剩下的 6 条没有一条属于 WiFi：
 
@@ -391,10 +391,10 @@ scripts/tests/test-build-strict-gates.py
 - 新增 `patches/wifi/0011-drivers-PongWifi-k60-bringup-stages.patch`（141 行，
   49 增 10 删），只改 `drivers/PongWifi/PongWifiPlatform.cpp`。
 - `patches/wifi/series` 追加该行，现 11 个补丁。
-- 复核方法（可重跑）：把 `/mnt/e/k60-work/impl/wifi/repo`（干净的 device 基线，
+- 复核方法（可重跑）：把 `/mnt/e/iOS Port/Work/impl/wifi/repo`（干净的 device 基线，
   没有 `drivers/PongWifi`）复制到 `/tmp`，按 `series` 顺序 `git apply` 全部 11 个，
   然后与仓库 HEAD 逐文件比对 → **14 个 `drivers/PongWifi` 文件全部 `SAME`**，
-  脚本 `E:\k60-work\evidence\wifi-trial\verify-series-repro.sh`。
+  脚本 `E:\iOS Port\Work\evidence\wifi-trial\verify-series-repro.sh`。
 - 同一份系列**不能**直接打在仓库 HEAD 上（0001–0010 的内容已由 `f4717ef` 提交，
   会报 `already exists in working directory` / `patch does not apply`）。系列只用于
   向上游 device 树移植，这一点已写进 `patches/wifi/README.md`。
@@ -402,7 +402,7 @@ scripts/tests/test-build-strict-gates.py
 
 ## 13. 顺带发现：别的线有 12 张镜像超过 DarwinBoot 的 607 字节命令行上限
 
-跑 `E:\k60-work\evidence\wifi-trial\check-artifacts.py` 时，它顺手校验了 `E:\k60-work\artifacts\*` 下所有镜像。
+跑 `E:\iOS Port\Work\evidence\wifi-trial\check-artifacts.py` 时，它顺手校验了 `E:\iOS Port\Work\artifacts\*` 下所有镜像。
 结果里有 12 张**不是 WiFi 的**镜像命令行超限（判据见 §10 与 `STAGE-BRINGUP.md` §7：
 `DarwinBoot.c:678-684` 在 `ReadFile` 之前就 `return EFI_BAD_BUFFER_SIZE`）：
 
@@ -421,7 +421,7 @@ scripts/tests/test-build-strict-gates.py
 差别就在这里，不是抓取链路、也不是内核。
 
 建议：其它线在下次上机前用 `argcheck1.py` 过一遍自己的镜像
-（`python3 E:\k60-work\evidence\wifi-trial\argcheck1.py <boot.img> …`，上限 607），
+（`python3 E:\iOS Port\Work\evidence\wifi-trial\argcheck1.py <boot.img> …`，上限 607），
 并考虑把 `payload.py` 的 `check_args()` 上限从 1000 改成 607 ——
 那里现在注释写的是「DarwinBoot copies the command line into a 1024-byte buffer」，
 与 `DarwinBoot.c` 的 608 不符，所以 `unixnu` 不会替任何人拦住 607–1000 的参数。
@@ -492,7 +492,7 @@ XNU 可管理内存就少 256 MiB**。4.5 GiB 仍是原版 Pong board（`UniXNU-
 | `wifi-20261116h3q-s1`（`stage=1`） | 4.5 GiB | 31 / 604 B | `92b7b9ff80e7efc3` |
 | `wifi-20261116h3r-s1`（`stage=1`） | 4.625 GiB | 31 / 604 B | `be75dd3dff58d33f` |
 
-工具：`E:\k60-work\evidence\wifi-trial\patchadt.py <boot.img> <window_bytes>`（改窗口）、
+工具：`E:\iOS Port\Work\evidence\wifi-trial\patchadt.py <boot.img> <window_bytes>`（改窗口）、
 `readwindow.py <boot.img>`（回读）、`qemu-window-probe.sh <tag> <mem_mb>…`（测阈值）、
 `qemu-winsize.sh <tag> <bytes>…`（扫窗口）。全部细节见 `LOCAL-VERIFICATION.md` §5.16。
 
@@ -535,7 +535,7 @@ XNU 可管理内存就少 256 MiB**。4.5 GiB 仍是原版 Pong board（`UniXNU-
 
 | # | 阻塞 | 修法 | 提交 |
 |---|---|---|---|
-| 1 | `check-build-applied.py` / `porting-gate.py` / `sync-device-input.py` 硬编码别的线路径（`/tmp/usb-cdc-mainline/device`、`/mnt/e/hackios/UniXNU-mondrian`、`scratch/SERIES-FINAL.txt`） | 照搬 Lead 版：`REPO` 由 `__file__` 推导、`DEV` 走 `K60_DEVICE_INPUT`、`SERIES` 走仓库 `patches/xnu/series`、新增 `K60_BUILD_IN_PROGRESS`；`build-strict.sh` 补三个 export | `f8207ea` |
+| 1 | `check-build-applied.py` / `porting-gate.py` / `sync-device-input.py` 硬编码别的线路径（`/tmp/usb-cdc-mainline/device`、`/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian`、`scratch/SERIES-FINAL.txt`） | 照搬 Lead 版：`REPO` 由 `__file__` 推导、`DEV` 走 `K60_DEVICE_INPUT`、`SERIES` 走仓库 `patches/xnu/series`、新增 `K60_BUILD_IN_PROGRESS`；`build-strict.sh` 补三个 export | `f8207ea` |
 | 2 | 构建输入 `/opt/k60/trees/k60-wifi-device` 不是 git 仓库 → `feeds.py:208` `fatal: not a git repository` | 在其中 `git init` + 提交 904 个文件 | — |
 | 3 | 缺 `<device>/.cache/firmware/k60-gpu/` → `build-pong-adreno-platform-linux.py:91` `FileNotFoundError` | 从 `wifi-device` 拷入 5 个文件 | — |
 | 4 | `mac-build/native-ufs/bindings.json` 的 `compiled_object_sha256` 过期（`f4717ef` 改了 `PongUfsTransport.cpp` 却没重生成）→ iron-5 恒红 | 按当前源码重新生成并提交（全仓无消费方，`bindings` 字典逐字节相同） | `1149bf5` |

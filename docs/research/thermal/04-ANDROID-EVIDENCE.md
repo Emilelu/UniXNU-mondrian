@@ -5,7 +5,7 @@
 每条都给可复现的采集命令与产物 sha256。厂商二进制里读到的事实，一律注明"偏移/行号"，不写推测。
 
 设备侧采集由 Lead 执行（adb root，uid=0，SELinux `u:r:ksu:s0`），产物与原始 README 在
-`E:/k60-work/evidence/thermal-android-20261114/`（WSL `/mnt/e/k60-work/evidence/thermal-android-20261114/`）。
+`E:/iOS Port/Work/evidence/thermal-android-20261114/`（WSL `/mnt/e/iOS Port/Work/evidence/thermal-android-20261114/`）。
 本篇只引用该目录里已落盘的文件，不引用"当时看到过"的屏幕内容。
 
 ## 0. 产物清单与校验
@@ -17,7 +17,7 @@
 | `tsens-symbols.txt` | 60 行 | `318577190923a72b977bdc67a13385a47f58c6e7b8684649bf8e7f52be0da20f` | /proc/kallsyms 里 qcom_tsens 相关行 |
 | `qcom_tsens.ko` | 77928 B | `22334f6d246cf1b67e238027a2d04ac19b588d47d73301bb7577c2dc9c6981a9` | 从 vendor_boot ramdisk 取出（§4） |
 | `vendor_boot.dts` | 618636 B | `decf8fc5863aea74796df78ec484157c648a10e6077733c2cae0270d452fc897` | vendor_boot 里那份 DTB 的反编译 |
-| `uefi-vs-vendorboot.dts.diff` | 465 B | — | 与 `/mnt/e/k60-work/scratch/mondrian.dts` 的差异（§7） |
+| `uefi-vs-vendorboot.dts.diff` | 465 B | — | 与 `/mnt/e/iOS Port/Work/scratch/mondrian.dts` 的差异（§7） |
 | `thermal-engine.conf` | 84 B | `c32b39af7a19759a7db7f8b2d92d069a0534848aa7a195ca2cec24aa6c317cb3` | 明文，内容见 §6 |
 | `thermald-devices.conf` | 2266 B | `d1b129f1ef37ac4efc584ee14cdff1e56c14a17e1cf70fbf04523407ad63df92` | 明文 |
 | `thermal-map.conf` / `thermal-normal.conf` / `thermal-phone.conf` | 7504 / 4464 / 2176 B | `50e9f3f1…` / `53f2c122…` / `26ed2f35…` | 厂商加密二进制，未解（§6） |
@@ -145,7 +145,7 @@ strings -a qcom_tsens.ko | grep -E 'alias=of:'
 `qfprom_read`、`compute_intercept_slope`、`calibrate_v1`、`calibrate_8916/8939/8960/8974/8976`、
 `init_8960/enable_8960/disable_8960/suspend_8960/resume_8960`、`ops_generic_v2`、`data_tsens_v2`、
 `tsens_v2_feat`、`tsens_v2_regfields`、`tsens_srot_config`、`tsens_config`、`tsens_table` ——
-与 `/mnt/e/k60-work/scratch/refs/tsens.c`、`tsens-v2.c` 的符号集合一一对应。
+与 `/mnt/e/iOS Port/Work/scratch/refs/tsens.c`、`tsens-v2.c` 的符号集合一一对应。
 modinfo 的 7 个 alias 只有 `qcom,msm8916/8939/8974/8976/8996-tsens`、`qcom,tsens-v1`、`qcom,tsens-v2`，
 **没有 sm8475 专属 alias** → 本板走 `"qcom,tsens-v2"` fallback，与 02 篇 binding 的枚举一致
 （`qcom-tsens.yaml:55-68` 里只有 sm8450/sm8550，没有 sm8475）。
@@ -208,7 +208,7 @@ ko 里**确实带**完整的 Linux 标定机器：
 
 **但本板没有标定源**：
 
-- UEFI DTB 上 `grep -cE "qfprom|efuse|nvmem"` = **0**（`/mnt/e/k60-work/scratch/mondrian.dts`，21954 行）；
+- UEFI DTB 上 `grep -cE "qfprom|efuse|nvmem"` = **0**（`/mnt/e/iOS Port/Work/scratch/mondrian.dts`，21954 行）；
 - 设备上活节点 `/proc/device-tree/soc/thermal-sensor@c263000/` 只有 `#qcom,sensors`、
   `#thermal-sensor-cells`、`compatible`、`interrupt-names`、`interrupts`、`name`、`phandle`、`reg`
   八个属性，**没有 `nvmem-cells`，也没有 `qcom,tsens-calibration`**；
@@ -236,7 +236,7 @@ ko 里**确实带**完整的 Linux 标定机器：
 ## 7. vendor_boot 的 DTB 与 UEFI 的 DTB 实质相同
 
 把 vendor_boot 里的 dtb（6443651 B @ 偏移 23719936）单独反编译后与
-`/mnt/e/k60-work/scratch/mondrian.dts` 做 diff，**只有一个 15 行的 hunk，全在根节点**：
+`/mnt/e/iOS Port/Work/scratch/mondrian.dts` 做 diff，**只有一个 15 行的 hunk，全在根节点**：
 
 ```diff
 -model = "Qualcomm Technologies, Inc. Cape SoC";

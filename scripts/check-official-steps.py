@@ -87,7 +87,7 @@ def check(ledger: Path, docs: Path, script: Path) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ledger', default=str(LEDGER))
-    parser.add_argument('--docs', default='/mnt/e/hackios/UniXNU/docs/zh')
+    parser.add_argument('--docs', default='/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh')
     parser.add_argument('--script', default=str(SCRIPT))
     args = parser.parse_args(argv)
 

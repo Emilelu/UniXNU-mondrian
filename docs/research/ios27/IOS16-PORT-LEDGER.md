@@ -52,4 +52,4 @@ A 类中 easy 23 条、medium 12 条；hard 未出现（44 hunk 的 `ios16-clang
 
 ### 复现
 
-逐补丁 TSV 为工作区 `E:/k60-work/scratch/ios16-anchor-report.tsv`（241 行，列 `patch category target_file hunks difficulty note`），每行 `note` 带可复现的 `grep`/`test`/`git apply --reverse --check` 命令。生成器为同目录 `ios16_classify.py`，原始解析记录为 `ios16-facts.json`。所有检查以 27 树 `/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work`（commit `ac9718f`）或仓库根目录为工作目录。
+逐补丁 TSV 为工作区 `E:/iOS Port/Work/scratch/ios16-anchor-report.tsv`（241 行，列 `patch category target_file hunks difficulty note`），每行 `note` 带可复现的 `grep`/`test`/`git apply --reverse --check` 命令。生成器为同目录 `ios16_classify.py`，原始解析记录为 `ios16-facts.json`。所有检查以 27 树 `/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work`（commit `ac9718f`）或仓库根目录为工作目录。

@@ -38,7 +38,7 @@
 ## 3. 抓取
 
 - 镜像：`gpu-import-scope-20261118`
-- 命令：`scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`
+- 命令：`scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`
 - 只看 `console.log`；`capture.json` 的 `complete` 必须为真
 - 报告行每 60 帧一条，取**末条**为准；`scanout frames=` 的首末两条用于算帧率
 
@@ -85,7 +85,7 @@ backboardd` > 0 ⇒ 抓取或运行无效，本轮结论作废，重飞同一张
   `111851fac41d8b0e242fe6670730dd0cc00caead5b55317f3019157792bfd1ff`，
   `kernel_built` `d85f2d17111affdd2bf0174db3ac571801a0a04bbf04e366f99cf70ddcf517b7`，
   `payload_kernel` `cef829c74c5f9437edf7cfc1b07451cda7135e3d1e4c29f32e739efb952136c6`。
-- 证据 `E:/k60-work/evidence/usblog-20261118-161936`：`console.log` 231,325 B / 3,400 行，
+- 证据 `E:/iOS Port/Work/evidence/usblog-20261118-161936`：`console.log` 231,325 B / 3,400 行，
   `capture.json` `complete=true`，supervisor rc=0。
 - **S1 PASS**：`K60KEXC` 0 命中，`K60PANIC: ring kept` / `Debugger called` / `initproc exited` 均 0。
 - **S2/S3/S4/S5/S6/S7/S8 全部 FAIL**，原因同一个：**一条 `scanout frames=` 报告行都没有**。

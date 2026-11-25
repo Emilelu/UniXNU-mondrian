@@ -39,7 +39,7 @@ mode 2 按设计把控制台门掉（`k60_usbvend_mode == 2`），所以 `consol
 - 第一飞：opened-no-data，0 字节 —— autoreset=300 窗口已到期，设备已回 fastboot，采集作废；
 - 第二飞 `boot-and-echo.ps1` 全流程：COM5 在 9.5 s 出现，`sent=64 received=64`，
   `RESULT: PASS (echo matched byte for byte)`，echo-exit=0；
-- 证据：`E:/k60-work/evidence/usb-echo-20261115-c/`（echo.log 为 UTF-16LE）。
+- 证据：`E:/iOS Port/Work/evidence/usb-echo-20261115-c/`（echo.log 为 UTF-16LE）。
 - **结论：0411 没有破坏 mode-2 回环。c = PASS。**
 
 ## d：mode 1 判 P1 / P2
@@ -74,7 +74,7 @@ K60BEACON: gate open
 
 ### d 实测（2026-11-15，Lead 飞）
 
-证据 `E:/k60-work/evidence/usblog-20261115-170518/`：`console.log` 3733 行 / 265,561 B；
+证据 `E:/iOS Port/Work/evidence/usblog-20261115-170518/`：`console.log` 3733 行 / 265,561 B；
 `capture.json` state=captured-budget-complete、complete=true、openErrors=0、returnedToFastboot=false。
 
 1. **主机侧（P1 判定）**：MI_00 → USB Serial Device (COM6)，Ports OK；MI_02 → "K60 XNU console"
@@ -115,5 +115,5 @@ K60BEACON: gate open
 
 - 设计与证伪方法：RESEARCH.md §24.8、§25（§25.2 为本文实测记录）
 - 补丁：`patches/usb/0411-k60-usb-composite-beacon.patch`
-- 采集：`E:/hackios/k60-gates/scripts/capture-k60-usblog.ps1`；上机脚本 `E:/k60-work/scratch/usb/boot0410b-lead.sh`（Lead-only）
-- 实测证据：`E:/k60-work/evidence/usb-echo-20261115-c/`（c）、`E:/k60-work/evidence/usblog-20261115-170518/`（d）
+- 采集：`E:/iOS Port/Sources/Hardware/k60-gates/scripts/capture-k60-usblog.ps1`；上机脚本 `E:/iOS Port/Work/scratch/usb/boot0410b-lead.sh`（Lead-only）
+- 实测证据：`E:/iOS Port/Work/evidence/usb-echo-20261115-c/`（c）、`E:/iOS Port/Work/evidence/usblog-20261115-170518/`（d）

@@ -15,7 +15,7 @@ Type-C 的 CC 检测与角色裁决**不在 AP 侧寄存器里**，它在 ADSP �
 
 | # | 结论 | 证据类别 | 位置 |
 | --- | --- | --- | --- |
-| 1 | UCSI 挂在 `qcom,pmic_glink` 下，protection domain 是 `msm/adsp/charger_pd` | 同型（固件 DT） | `E:/k60-work/scratch/usb/mondrian.dts:8555-8578` |
+| 1 | UCSI 挂在 `qcom,pmic_glink` 下，protection domain 是 `msm/adsp/charger_pd` | 同型（固件 DT） | `E:/iOS Port/Work/scratch/usb/mondrian.dts:8555-8578` |
 | 2 | 随镜像的 DT **没有** ucsi / altmode 子节点 | 实测（构建产物） | `hardware.dtb` sha256 `2d044eaa…f33cd`，反编译 210 行 |
 | 3 | GLINK 线格式：owner 32779、type 1、opcode 0x11/0x12/0x13、48 字节 UCSI 缓冲 | 官方（主线 v6.6） | `linux/pmic_glink.h`、`linux/ucsi_glink.c:14-22` |
 | 4 | UCSI 数据结构偏移与 CCI 位定义 | 官方（主线 v6.6） | `linux/ucsi.h:21-36`、`:75`、`:99-100`、`:234`、`:260-263` |
@@ -26,7 +26,7 @@ Type-C 的 CC 检测与角色裁决**不在 AP 侧寄存器里**，它在 ADSP �
 
 ## 2. DT：固件侧有，随镜像侧没有
 
-**固件侧 DT**（`E:/k60-work/scratch/usb/mondrian.dts`，来自 UEFI 的 `sm8475-xiaomi-mondrian.dtb`）：
+**固件侧 DT**（`E:/iOS Port/Work/scratch/usb/mondrian.dts`，来自 UEFI 的 `sm8475-xiaomi-mondrian.dtb`）：
 
 ```
 dts:8555  qcom,pmic_glink {
@@ -320,7 +320,7 @@ dtc -I dtb -O dts /opt/k60/trees/lead-out/mondrian/ipados-16.6.1-20G81/mondrian/
   | grep -nE 'ucsi|pmic-glink|battery'
 
 # 固件 DT 的 UCSI 节点
-grep -n 'qcom,ucsi\|qcom,altmode\|ucsi = ' /mnt/e/k60-work/scratch/usb/mondrian.dts
+grep -n 'qcom,ucsi\|qcom,altmode\|ucsi = ' /mnt/e/iOS Port/Work/scratch/usb/mondrian.dts
 
 # K60 侧 owner 过滤点
 grep -n 'K60_BATTMGR_OWNER\|qcom_glink_channel' drivers/PongPower/K60Battmgr.c drivers/PongPower/K60PmicGlink.cpp
@@ -332,12 +332,12 @@ grep -n 'K60_BATTMGR_OWNER\|qcom_glink_channel' drivers/PongPower/K60Battmgr.c d
 | --- | --- |
 | `docs/research/usb/ucsi-host-selftest.c` | 线格式与角色表的主机回归（287 行） |
 | `docs/research/usb/UCSI-SELFTEST-OUTPUT.txt` | 最近一次输出，`RESULT: PASS (0 failures)` |
-| `E:/k60-work/scratch/usb/linux/pmic_glink.h` | owner id / hdr / msg type（主线 v6.6） |
-| `E:/k60-work/scratch/usb/linux/pmic_glink.c` | owner 多路复用模型（`:84`、`:90`、`:131`、`:272/277/282`） |
-| `E:/k60-work/scratch/usb/linux/ucsi_glink.c` | 0x11/0x12/0x13 与 48 字节缓冲（`:14-22`、`:76-94`、`:209-232`） |
-| `E:/k60-work/scratch/usb/linux/ucsi.h` | 偏移、CCI 位、命令、伙伴类型 |
-| `E:/k60-work/references/UniXNU-upstream/docs/porting/usb.md` | 角色裁决官方表述（`:90-101`） |
-| `E:/k60-work/references/UniXNU-sheng/package/ShengBattery.cpp` | 同 SoC 实机客户端（`:30-91`） |
-| `E:/k60-work/references/UniXNU-sheng/package/BootLog.c` | `[usb ucsi] state/status/cci/changes` 遥测格式（`:304`、`:1944`） |
+| `E:/iOS Port/Work/scratch/usb/linux/pmic_glink.h` | owner id / hdr / msg type（主线 v6.6） |
+| `E:/iOS Port/Work/scratch/usb/linux/pmic_glink.c` | owner 多路复用模型（`:84`、`:90`、`:131`、`:272/277/282`） |
+| `E:/iOS Port/Work/scratch/usb/linux/ucsi_glink.c` | 0x11/0x12/0x13 与 48 字节缓冲（`:14-22`、`:76-94`、`:209-232`） |
+| `E:/iOS Port/Work/scratch/usb/linux/ucsi.h` | 偏移、CCI 位、命令、伙伴类型 |
+| `E:/iOS Port/Work/references/UniXNU-upstream/docs/porting/usb.md` | 角色裁决官方表述（`:90-101`） |
+| `E:/iOS Port/Work/references/UniXNU-sheng/package/ShengBattery.cpp` | 同 SoC 实机客户端（`:30-91`） |
+| `E:/iOS Port/Work/references/UniXNU-sheng/package/BootLog.c` | `[usb ucsi] state/status/cci/changes` 遥测格式（`:304`、`:1944`） |
 | `docs/research/battery/GLINK-HANDOFF.md` | lease 契约与"无生产者"事实 |
-| `E:/k60-work/scratch/usb/mondrian.dts` | 固件侧 UCSI/altmode 节点（`:8555-8578`） |
+| `E:/iOS Port/Work/scratch/usb/mondrian.dts` | 固件侧 UCSI/altmode 节点（`:8555-8578`） |

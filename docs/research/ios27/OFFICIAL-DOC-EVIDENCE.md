@@ -67,12 +67,12 @@ KB 条目：`sheng-mataht.md`。
 | --- | --- |
 | `docs/devices/**` 纳入 `OFFICIAL-REQUIREMENTS.toml` | 待做（266 页） |
 | 用 `web_search` 交叉验证上面 1/2 两条 | 待做 |
-| `.kb` 共享库的 `kb_root` 已可用（`E:\k60-work\kb`，6,194 文档） | ✅ 本次已用 |
+| `.kb` 共享库的 `kb_root` 已可用（`E:\iOS Port\Work\kb`，6,194 文档） | ✅ 本次已用 |
 
 ## 复跑命令
 
 ```
 python3 scripts/k60-docsearch.py --lang both --limit 6 "framebuffer console text console"
 python3 scripts/k60-docsearch.py --page /zh/guide/debugging --fetch
-python3 -c "..."   # kb_search(kb_root='E:\\k60-work\\kb', query='framebuffer console text console')
+python3 -c "..."   # kb_search(kb_root='E:\\iOS Port\\Work\\kb', query='framebuffer console text console')
 ```

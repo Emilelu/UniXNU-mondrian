@@ -78,7 +78,7 @@ recorded_at = "2026-11-21T04:06:00"
 evidence = [
   "PAS1 顺序的不可逆点：AUTH_AND_RESET 是最后一步，PAS_MEM_SETUP 只圈一次 region，INIT_IMAGE 只拿 metadata；任何“先逐段拷贝再 INIT_IMAGE”的顺序都会失败，见 docs/research/audio/ADSP-PAS1.md:32-39。",
   "K60 的 ADSP 物理区是 0x9fd00000/0x3100000；链接基址 0x86300000 只用于重定位，不是加载地址；b10 非页对齐、b24 纯 bss 是逐段拷贝的两个边界，见 docs/research/audio/ADSP-PAS1.md:41-47。",
-  "电流/电池线已在 16.x 发布 PAS1 epoch=1（/mnt/e/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:189）与电池 sample=4（/mnt/e/k60-work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:596），但同一份记录明确不证明音频路由；27 不能拿它当音频证据，见 docs/research/audio/ADSP-ROUTE-A.md:97-112。",
+  "电流/电池线已在 16.x 发布 PAS1 epoch=1（/mnt/e/iOS Port/Work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:189）与电池 sample=4（/mnt/e/iOS Port/Work/evidence/route-a/usblog-boot-20261117-0726-final/console.log:596），但同一份记录明确不证明音频路由；27 不能拿它当音频证据，见 docs/research/audio/ADSP-ROUTE-A.md:97-112。",
   "三处 io 表（PongGeniIo/PongCodecLpiIo/PongCodecMacroIo/PongSwrIo）在 arm64e 下由 blr 变 blraaz，drivers/PongAudio/PongAudioAmp.c:511-512 的 se_rd/se_wr 先 paciza 再存；无 __AUTH 段、无 authenticated-pointer relocation，见 docs/research/audio/IOS27-PAC.md:52-60 与 docs/research/audio/IOS27-PAC.md:93-116。",
   "dts/mondrian.dts:54-80 现在是正确的 adsp 0x9fd00000/0x03100000，但还有 9 个 0 占位（tx-master、codec/amp i2c、reset、irq、spksw、TDM、mic 等）；填之前不能宣布音频可用。",
   "Pong 的功放探针先读 ID/状态、再回放 ACF、最后开 spk switch；入口在 drivers/PongAudio/PongAudioAmp.c:944，播放/停止在 :903/:925，寄存器常量在 drivers/PongAudio/PongAudioRegs.h:47-49 与 :97/:155。",
@@ -96,7 +96,7 @@ evidence = [
 static_check = [
   "python3 scripts/check-audio27-eight-step.py -> AUDIO27 EIGHT-STEP OK: 7 steps, 53 evidence reference(s) resolve, 8 root(s), no device step。",
   "python3 scripts/check-audio27-fptrs.py --repo . -> FPTRS OK: 4 tables, 10 callbacks in 5 pairs, 12 assignment site(s) whose signatures match what they fill, 12 calls pass their own context, no other table under drivers/PongAudio, and the weak call is int (void) on both sides。",
-  "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/hackios/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。",
+  "python3 scripts/check-audio27-weak-link.py --tree /mnt/e/iOS Port/Sources/Hardware/k60-gates -> rc0，只打印 NOTE audio: switch off, the call site is not linked；HOLD 系列不把 0531 算进链接。",
 ]
 unit_test = [
   "python3 scripts/tests/test-audio27-eight-step.py -> TESTS OK 9 cases。",

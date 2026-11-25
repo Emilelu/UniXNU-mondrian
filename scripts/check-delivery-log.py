@@ -30,8 +30,8 @@ from pathlib import Path
 # history (see check()).
 LOG_START = datetime.fromisoformat("2026-11-21T16:00:00+08:00")
 
-DEFAULT_LOG = Path("/mnt/e/k60-work/scratch/delivery-log.tsv")
-DEFAULT_REPORTS = Path("/mnt/e/k60-work/scratch")
+DEFAULT_LOG = Path("/mnt/e/iOS Port/Work/scratch/delivery-log.tsv")
+DEFAULT_REPORTS = Path("/mnt/e/iOS Port/Work/scratch")
 HEADER = re.compile(r"^delivery:\s*(steer|followup)\s*(?:,\s*steer-rejected:\s*(.+))?$")
 LANE = re.compile(r"^(?:session-)?([0-9a-f-]{36})$")
 

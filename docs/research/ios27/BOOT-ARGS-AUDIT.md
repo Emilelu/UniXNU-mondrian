@@ -55,7 +55,7 @@
 
 ```bash
 python3 scripts/audit-boot-args.py \
-  --ours . --theirs /mnt/e/hackios/UniXNU-sheng \
+  --ours . --theirs /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng \
   --profile ios-27.0.1-24A446 \
   --tree /opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/.cache/xnu-work
 ```

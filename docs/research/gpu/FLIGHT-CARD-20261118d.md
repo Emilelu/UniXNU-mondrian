@@ -1,6 +1,6 @@
 # 上机卡：gpu-cbtrace-20261118
 
-镜像目录：`E:/k60-work/artifacts/gpu-cbtrace-20261118`
+镜像目录：`E:/iOS Port/Work/artifacts/gpu-cbtrace-20261118`
 
 ## 1. 目的
 
@@ -15,7 +15,7 @@
 
 ## 3. 抓取
 
-`scripts/flash.sh <boot.img> 240`，证据落 `E:/k60-work/evidence/usblog-<ts>/`。
+`scripts/flash.sh <boot.img> 240`，证据落 `E:/iOS Port/Work/evidence/usblog-<ts>/`。
 
 ## 4. 判据
 

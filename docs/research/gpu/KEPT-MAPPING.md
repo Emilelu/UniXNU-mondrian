@@ -23,7 +23,7 @@ F3 明确写着，如果地址会重复而导入仍然贵（H2），就**不要*
 
 ## 2. 内核侧（`drivers/PongAdreno/PongAdrenoScanout.cpp`）
 
-zizhan 的实现已经读过，形状如下（`E:/hackios/UniXNU-zizhan/drivers/PongAdreno/PongAdrenoScanout.cpp`）：
+zizhan 的实现已经读过，形状如下（`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/drivers/PongAdreno/PongAdrenoScanout.cpp`）：
 
 - `struct Kept {IOMemoryDescriptor *source; size_t offset, bytes; IOMemoryDescriptor *memory;
   IOMemoryMap *map; uint32_t token; uint64_t used;};` 加 `constexpr unsigned KeptCount=4;`（`:105-107`）。

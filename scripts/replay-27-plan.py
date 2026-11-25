@@ -64,7 +64,7 @@ def main():
     print(f'plan: {len(patches)} patch(es)')
     for path in patches[:4]:
         print('  ', path)
-    work = pathlib.Path('/mnt/e/k60-work/scratch/replay-plan')
+    work = pathlib.Path('/mnt/e/iOS Port/Work/scratch/replay-plan')
     if work.exists():
         shutil.rmtree(work)
     subprocess.run(['git', 'clone', '--quiet', '--shared', str(FEED), str(work)], check=True)

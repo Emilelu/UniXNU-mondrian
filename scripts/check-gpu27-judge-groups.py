@@ -48,7 +48,7 @@ FIXTURES = os.path.join(REPO, "scripts", "tests", "fixtures", "gpu27")
 # from (docs/research/gpu/FLIGHT-CARD-20261119j.md): 34 stage samples, 24 bench
 # samples, and a flight card that published gpu 5,983 us and sum 8,281 us as the
 # medians. Those two numbers are the absolute pin.
-REAL_LOG = "E:/k60-work/evidence/usblog-20261119-151837/console.log"
+REAL_LOG = "E:/iOS Port/Work/evidence/usblog-20261119-151837/console.log"
 REAL_EXPECT = {"source": "stage", "gpu_us": 5983, "sum_us": 8281}
 
 # fixture carrying the field, fixture not carrying it, and the name the judge

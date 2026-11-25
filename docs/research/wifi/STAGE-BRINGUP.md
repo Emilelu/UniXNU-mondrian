@@ -11,7 +11,7 @@ returned `port-not-observed` with a zero-byte console.
 | `wifi-20261114b/boot.img` sha256 `cf1d1ed8…` | `pong_wifi=1 k60_wifi_rsc=2` | built, never booted (device went dark) |
 | `wifi-20261114c/boot.img` sha256 `622a1fd6…` | `pong_wifi=0` (control) | built, never booted |
 
-The failing capture is `/mnt/e/k60-work/evidence/usblog-20261114-wifi-b`:
+The failing capture is `/mnt/e/iOS Port/Work/evidence/usblog-20261114-wifi-b`:
 `capture.json` has `portSeen=false, portOpened=false, openErrors=0,
 stopReason="fastboot-return"`, and `console.log` is 0 bytes. The collector was
 armed before `fastboot boot` and the boot itself was accepted
@@ -136,7 +136,7 @@ so this does not disturb the argument sequence. Do **not** try
 `k60_fontscale=0`: `osfmk/console/video_console.c:2844` requires
 `scale >= 2 && scale <= 4` and silently ignores 0.
 
-Measured with `E:\k60-work\evidence\wifi-trial\argcheck1.py` (limit 607):
+Measured with `E:\iOS Port\Work\evidence\wifi-trial\argcheck1.py` (limit 607):
 574 / 591 / 591 / 606 / 606 / 606 / 606 / 589 — all compliant.
 
 ### 4.1 The eight rungs
@@ -148,7 +148,7 @@ All eight images share one kernel: `kernel.macho` sha256
 `fffffff007b3fed6`, span 11,189,974 B — see `FIRMWARE.md` §9). Archive:
 `/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a` 12,066,184 B.
 Each image passed `scripts/verify-boot-image.py` **and** `argcheck1.py`.
-Build recipe: `E:\k60-work\evidence\wifi-trial\mkboot-ladder4.sh`.
+Build recipe: `E:\iOS Port\Work\evidence\wifi-trial\mkboot-ladder4.sh`.
 
 | image | boot-args (after the two overrides) | len | what it must prove |
 | --- | --- | --- | --- |
@@ -194,7 +194,7 @@ Milestones inside the ladder:
   name ath11k asked for — that name is the board selection evidence
   (`FIRMWARE.md` §8/§9).
 
-Runner: `E:\k60-work\evidence\wifi-trial\ladder6-run.ps1`
+Runner: `E:\iOS Port\Work\evidence\wifi-trial\ladder6-run.ps1`
 (parameters `-RaceSeconds`, `-Seconds`, `-Tag`). It races fastboot every 0.7 s,
 converting an ADB-visible phone to the bootloader first. Because the console
 gate makes a WiFi fault verbose instead of silent, the runner now spends its
@@ -253,7 +253,7 @@ command line. If **it** gives no console, nothing about WiFi can be blamed and
 the runner stops with exit 13.
 
 The `t*` family is the same archive rebuilt against
-`/mnt/e/k60-work/impl/wifi/work/fake-fw/` (four 23-byte files), giving
+`/mnt/e/iOS Port/Work/impl/wifi/work/fake-fw/` (four 23-byte files), giving
 `kernel.macho` 54,804,480 B sha256
 `92fad10599f5ded612426e555093d20e9ac9f4a9ae641da73aa60a56185059cd` — only
 622,592 B above the baseline, i.e. the driver code without the blob. Archive
@@ -293,7 +293,7 @@ Reading the families:
 
 ## 7. Loader facts checked while the phone was dark
 
-These were read out of `/mnt/e/hackios/uefi-mondrian` and they constrain what a
+These were read out of `/mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian` and they constrain what a
 "no console at all" capture can mean.
 
 - **Command line ≤ 607 bytes** (`DarwinBoot.c:678-684`, `BootArgs.h:8`). Over
@@ -306,7 +306,7 @@ These were read out of `/mnt/e/hackios/uefi-mondrian` and they constrain what a
   `fileoff + filesize <= file size`; `LC_MAIN` must point into a file-backed
   executable segment; segments may not overlap; and
   `Kernel.End - Kernel.Base` must stay under 254 MB. A local reimplementation of
-  those rules (`E:\k60-work\evidence\wifi-trial\parsecheck.py`) passes both the
+  those rules (`E:\iOS Port\Work\evidence\wifi-trial\parsecheck.py`) passes both the
   65.9 MB WiFi kernel (span 78,213,120 B) and the 54.2 MB baseline
   (66,301,952 B), with zero overlaps, so the WiFi kernel is **not** malformed.
 - **Order matters for the heap question**: `AllocateWindow` runs at
@@ -337,7 +337,7 @@ These were read out of `/mnt/e/hackios/uefi-mondrian` and they constrain what a
 
 ## 6. How to read each rung's capture
 
-Run `python3 E:\k60-work\evidence\wifi-trial\analyze-ladder.py <evidence dir>`
+Run `python3 E:\iOS Port\Work\evidence\wifi-trial\analyze-ladder.py <evidence dir>`
 (it prints the capture verdict plus an ordered timeline of the PongWifi markers).
 The verdict decides the next move:
 
@@ -373,7 +373,7 @@ Everything that can be prepared without the phone is prepared and byte-checked:
 
 - 17 rungs exist and every one matches its own `build-manifest.json` on fd,
   ramdisk kernel and command line (see `LOCAL-VERIFICATION.md` §5.14).
-- The runner `E:\k60-work\evidence\wifi-trial\ladder6-run.ps1` polls
+- The runner `E:\iOS Port\Work\evidence\wifi-trial\ladder6-run.ps1` polls
   `fastboot devices` every 0.7 s, converts an ADB device to the bootloader
   first, then boots control `a` → full ten-stage `g`, and only falls back to the
   linear `b → c → p → d → e → f` walk if `g` is silent.
@@ -381,7 +381,7 @@ Everything that can be prepared without the phone is prepared and byte-checked:
   the control one, and stops on the first zero-byte console so a silent rung is
   never followed by another boot.
 - Resume command:
-  `powershell -File E:\k60-work\evidence\wifi-trial\ladder6-run.ps1 -RaceSeconds 7200 -Seconds 180 -Tag ladder9`
+  `powershell -File E:\iOS Port\Work\evidence\wifi-trial\ladder6-run.ps1 -RaceSeconds 7200 -Seconds 180 -Tag ladder9`
 
 
 ## 8. Why a silent boot leaves no log anywhere (checked 2026-11-14)
@@ -407,7 +407,7 @@ firmware, not in XNU.
   (`mRamoopsReady` is a per-boot static). So by the time XNU looks, the magic is
   `0x43455343`, not `0x43474244`, and the payload is firmware text.
 - Measured: `K60PREV none (first boot after power cycle)` appears in **409**
-  captured consoles under `E:\k60-work\evidence`, and `K60PREV begin` appears
+  captured consoles under `E:\iOS Port\Work\evidence`, and `K60PREV begin` appears
   in **zero** of them. No capture in the whole archive has ever replayed a
   previous boot.
 
@@ -426,6 +426,6 @@ Consequences for this bring-up:
 When ADB comes back, pull the board data **before** the next boot, so the
 `Pong: actual QMI board firmware <name>` line from stage 10 can be matched
 against files that are already local:
-`bash E:\k60-work\evidence\wifi-trial\pull-board-data.sh 6033dbec`
+`bash E:\iOS Port\Work\evidence\wifi-trial\pull-board-data.sh 6033dbec`
 (it lists `/vendor/firmware_mnt/image/qca6490`, pulls only the `bdwlan*`
-entries into `E:\k60-work\firmware\qca6490-board`, and prints their sha256).
+entries into `E:\iOS Port\Work\firmware\qca6490-board`, and prints their sha256).

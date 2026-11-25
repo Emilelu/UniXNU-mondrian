@@ -1,6 +1,6 @@
 """Check that every official documentation page is accounted for.
 
-The zh documentation mirror under E:/hackios/UniXNU/docs/zh is the contract we
+The zh documentation mirror under E:/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh is the contract we
 port against. Reading it once is not compliance, so docs/engineering/
 OFFICIAL-REQUIREMENTS.toml carries one entry per page:
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / 'docs/engineering/OFFICIAL-REQUIREMENTS.toml'
-DEFAULT_DOCS = Path('/mnt/e/hackios/UniXNU/docs/zh')
+DEFAULT_DOCS = Path('/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh')
 STATES = {'mapped', 'unmapped', 'na'}
 EXEMPT_DIRECTORIES = {'devices'}      # one page per device; not this board's contract
 

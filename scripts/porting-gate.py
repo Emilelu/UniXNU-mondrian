@@ -32,7 +32,7 @@ import time
 # 从脚本位置推仓库根。写死路径会让门禁去量另一棵检出树（P-184/P-185），
 # 报出来的『未同步』其实是两个 worktree 之间的差异。
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WORK = '/mnt/e/k60-work'
+WORK = '/mnt/e/iOS Port/Work'
 # 真相源是 board.toml 的 patch_series（device:patches/xnu/series）。
 # SERIES-FINAL.txt 只是 P-90 时代的 scratch 副本，早已漂移（227 vs 223），
 # 用它算指纹会量到一个没人构建的序列（P-194）。
@@ -229,7 +229,7 @@ else:
         try:
             import importlib.util as _ilu
             _spec = _ilu.spec_from_file_location(
-                'pr', '/mnt/e/k60-work/references/UniXNU/scripts/porting-record.py')
+                'pr', '/mnt/e/iOS Port/Work/references/UniXNU/scripts/porting-record.py')
             if _spec:
                 _pr = _ilu.module_from_spec(_spec)
                 _spec.loader.exec_module(_pr)

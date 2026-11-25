@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / 'docs/engineering/UPSTREAM-REPOS.toml'
 STATE = ROOT / '.cache/upstream-sync.json'
-DOCS = Path('/mnt/e/hackios/UniXNU/docs/zh/devices')
+DOCS = Path('/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/devices')
 WATCHED = ('sm8475', 'sm8550', 'mondrian', 'k60')
 DEFAULT_HOURS = 6.0
 

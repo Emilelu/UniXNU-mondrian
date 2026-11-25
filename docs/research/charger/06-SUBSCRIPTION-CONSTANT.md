@@ -2,8 +2,8 @@
 
 > 目标：把仓库里两个一直为 0 的生成常量定死，交给 handoff 发布者（touch agent）使用。
 > 结论：**`TYPE = 1`、`BYTES = 16`**，证据来自 K60 ADSP 固件自身的 opcode-0x04 handler，不是从 Linux 的宽松 ACK 反推。
-> 取证件：`/mnt/e/k60-work/firmware/adsp/adsp.b14`（3,167,652 B，sha256 `2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d`），
-> 以及 `/mnt/e/k60-work/firmware/qti_battery_charger_main_m81.ko`（247,776 B，BuildID `e852b83c589f773d7cb09e6793ac59fd33086c58`）。
+> 取证件：`/mnt/e/iOS Port/Work/firmware/adsp/adsp.b14`（3,167,652 B，sha256 `2284e98961fc542ca215a4e94c7ad00269f03d0a2651a5d7c2cf5329c8ade00d`），
+> 以及 `/mnt/e/iOS Port/Work/firmware/qti_battery_charger_main_m81.ko`（247,776 B，BuildID `e852b83c589f773d7cb09e6793ac59fd33086c58`）。
 > ADSP 段 14 的 `p_vaddr = 0x60000000`，**文件偏移 = link 地址 − 0x60000000**；下文所有 ADSP 地址都是 link 地址。
 
 ## 0. 结案摘要
@@ -188,14 +188,14 @@ b->cycle_active = 0;
 
 ```bash
 # 1) 反汇编 ADSP 段 14（裸段需要先包成 ELF32 Hexagon，脚本见 _scratch/charger-ko/wrap_hexagon.py）
-python3 wrap_hexagon.py /mnt/e/k60-work/firmware/adsp/adsp.b14 /tmp/adsp_b14.elf 0x60000000
+python3 wrap_hexagon.py /mnt/e/iOS Port/Work/firmware/adsp/adsp.b14 /tmp/adsp_b14.elf 0x60000000
 llvm-objdump -D --triple=hexagon /tmp/adsp_b14.elf > /tmp/adsp_b14.dis
 sed -n '/^ *60155910:/,/^ *60155a14:/p' /tmp/adsp_b14.dis
 
 # 2) 校验四字节锚点 + 跳转表
 python3 -c "
 import struct, hashlib
-b = open('/mnt/e/k60-work/firmware/adsp/adsp.b14','rb').read()
+b = open('/mnt/e/iOS Port/Work/firmware/adsp/adsp.b14','rb').read()
 print(len(b), hashlib.sha256(b).hexdigest())
 for va in (0x601559c0,0x601559cc,0x601559d8,0x601559f0,0x601559f4):
     print(hex(va), b[va-0x60000000:va-0x60000000+4].hex())
@@ -204,7 +204,7 @@ print([hex(x) for x in struct.unpack_from('<6I', b, 0x2bfc28)])
 # 期望：0ac0423c 81c0423c 04c1423c 03c20078 c6faff5b；表首项 0x60155614，索引 4 = 0x60155910
 
 # 3) 跑仓库 codec 的钉死测试（不需要真机）
-cd /mnt/e/hackios/k60-charger
+cd /mnt/e/iOS Port/Sources/Repos/Drivers/k60-charger
 cc -Wall -Wextra -std=c11 -o /tmp/tk60sub scripts/tests/test-k60-charger-subscription.c
 /tmp/tk60sub        # 期望输出 TESTS OK 30
 

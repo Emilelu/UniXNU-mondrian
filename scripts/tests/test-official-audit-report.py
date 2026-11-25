@@ -87,7 +87,7 @@ def main():
     result = run(REGISTRY, {
         'audit-a.json': [page('porting/gpu.md')],
         'audit-b.json': [page(
-            '/mnt/e/hackios/UniXNU/docs/zh/porting/power.md')],
+            '/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU/docs/zh/porting/power.md')],
     }, expect_rc=0)
     check('absolute and relative spellings both resolve',
           'porting/power.md' in result.stdout and 'never audited             : 1'

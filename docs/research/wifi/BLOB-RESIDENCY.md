@@ -64,7 +64,7 @@
 **PWF2 头与实际 payload 不一致（实测，mhi4 内核）**：头声明 `count=6`，
 但只有 entry[0] 非空（`amss.bin` offset 4096 bytes 5,470,128）；entry[1..5]
 全空。而 `__const` 里实际塞了 4 个真实固件（与
-`/mnt/e/k60-work/firmware/qca6490-wifi/` 逐字节相同）：
+`/mnt/e/iOS Port/Work/firmware/qca6490-wifi/` 逐字节相同）：
 
 | 文件 | bytes | const 内偏移 |
 |---|---|---|
@@ -212,11 +212,11 @@ worker 根本没启动），blob / 117 MB 版式这一支被钉住但没被证�
 
 | 事实 | 证据 |
 |---|---|
-| 段表逐段扫描（含 105 MB 家族） | `E:/k60-work/scratch/refmine/probe-segs.py`、`probe-seg.py`、`probe-allwifi.py`（46 张 boot.img 汇总） |
+| 段表逐段扫描（含 105 MB 家族） | `E:/iOS Port/Work/scratch/refmine/probe-segs.py`、`probe-seg.py`、`probe-allwifi.py`（46 张 boot.img 汇总） |
 | 窗口值逐镜像 | `probe-window3.py`：ADT 属性 `darwinboot-memory-size` 解码——thermal/springboard/gpu/base/touch=0x130000000（4.75 GiB）alive；brightness-4=0x120000000（4.5 GiB）alive；mhi3=0x130000000 死；mhi4/mhi5/z0=0x120000000（z0 已判 silent）；a2/t1/t1c=0x130000000 未飞 |
 | `z0` 判决 | `judge-z0.sh usblog-20261115-135859 --expect-arg pong_wifi=0` → `wifi-boot-judge: silent (console.log, 0 bytes on disk, capture.json declares 0) [exit 2]`；MSYS 与 WSL 两侧 `RC=2`；参数自检 manifest `["pong_wifi=0"]` + 镜像字节 `pong_wifi=0 x1` |
 | alive 归属（join image sha → evidence） | `probe-join2.py`：thermal adc796b6→usblog-20261115-003922（232,670 B）；springboard 3ada9562→003207；gpu ba783b74→212253；brightness e41eb797→013520（185,701 B）；a2/mhi5/z0/t1/t1c 全库零命中（从未上机） |
-| `__const` 内固件逐字节匹配 | `probe-const.py` / `probe-const2.py`：四文件与 `/mnt/e/k60-work/firmware/qca6490-wifi/` 相同；非零字节合计 7,030,971 |
+| `__const` 内固件逐字节匹配 | `probe-const.py` / `probe-const2.py`：四文件与 `/mnt/e/iOS Port/Work/firmware/qca6490-wifi/` 相同；非零字节合计 7,030,971 |
 | DarwinBoot 检查 | drivers/DarwinBoot22/DarwinBootPkg/Driver/DarwinBoot.c:160,168,190-191,194-196,558,607,619 |
 | XNU 侧无上限 | xnu-work（`.cache/xnu-work`）grep `KERNEL_TEXT_MAX\|kPrelinkTextMax\|MAX_KERNEL_TEXT` = 0 命中 |
 | VA 布局注释 | xnu-work `osfmk/arm64/arm_vm_init.c:165-181`（顺序）、:2087（取段）、:1415（RNX）、:2306（紧邻断言） |
@@ -266,7 +266,7 @@ sha 只在那批镜像内可比）；`t2` 及以后的窗口必须逐镜像重�
    大」是两件互不蕴含的事，前者已被 alive 样本证明无害，后者才是 wifi 家族独有的。
 
 这张表的生成方式：`mtype -i <boot.img 的 ramdisk 卷> ::EFI/UniXNU/Payloads/kernel.macho`
-再按 `LC_SEGMENT_64` 解段；脚本 `E:/k60-work/scratch/refmine/probe-family.py`。
+再按 `LC_SEGMENT_64` 解段；脚本 `E:/iOS Port/Work/scratch/refmine/probe-family.py`。
 ## 10. `z0` 判决：117 MB 版式 + blob + `pong_wifi=0` 上机（2026-11-15）
 
 §6 的 E 格已经飞了。本节记判决、它为什么读得动、三条推翻条件，以及它为 §7 三个
@@ -276,7 +276,7 @@ sha 只在那批镜像内可比）；`t2` 及以后的窗口必须逐镜像重�
 
 | 项 | 值 |
 |---|---|
-| 采集目录 | `E:/k60-work/evidence/usblog-20261115-135859` |
+| 采集目录 | `E:/iOS Port/Work/evidence/usblog-20261115-135859` |
 | boot.img sha256 | `c2e069f0088a0728e24dbc89338edee2ba9d5f453265d63d42ccb64bc3303728`（容器 201,887,744 B；payload kernel 117,305,344 B） |
 | 时间 | 13:59:01.478 → 14:00:27.593，86.114 s；`capture-events` 13:59:03.230 ready → 14:00:27.272 finished `port-not-observed` |
 | console.log | **0 字节**；`portSeen=false`、`portOpened=false`、`stopReason=fastboot-return` |

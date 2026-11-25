@@ -46,7 +46,7 @@
 | `Cryptex1,SystemOS` | `--system-cryptex`（挂载成目录，只读） | `096-56782-083.dmg`：2,665,480,192 B，本身已是 raw APFS（`NXSB@32`，无 UDIF 尾），等于 SystemOS 窗口长度 | 否 |
 | Data 镜像 | 只作为 `apply()` 的可写 APFS 目标 | 可为空卷；真实种子非必需 | 否 |
 
-本机已有的分量在 `E:\hackios\UniXNU\out\ipsw\20G81\`（`UniXNU` 的忽略输出目录，
+本机已有的分量在 `E:\iOS Port\Sources\Repos\UniXNU\UniXNU\out\ipsw\20G81\`（`UniXNU` 的忽略输出目录，
 不是仓库内容），同目录的 `096-*.dmg.json` 记录了成员名与长度。
 
 Data 为什么可以合成：`prepare()` 只把 `--data-image` 克隆成
@@ -369,7 +369,7 @@ shasum -a 256 "$IMG"
 
 ## 7. 当前缺口
 
-- 两个 20G81 分量本机已有（`E:\hackios\UniXNU\out\ipsw\20G81\`），但本机是
+- 两个 20G81 分量本机已有（`E:\iOS Port\Sources\Repos\UniXNU\UniXNU\out\ipsw\20G81\`），但本机是
   Windows，没有 `hdiutil`/Xcode，`prepare`/`apply` 只能在 Actions 或一台真实
   Mac 上跑。workflow 还没有实际跑过一次，`pong-ios1661-system.cdr` 尚未产出。
 - 设备当前的 SHNGROOT 没有在本次工作中重新读回；`OS_offset=1048576`、

@@ -22,8 +22,8 @@
 
 本地存放（不进仓库，体积太大）：
 
-- 干净四文件目录（**打包必须用这个**）：`E:\k60-work\firmware\qca6490-wifi\`
-- 完整原始提取目录（222 个文件）：`E:\k60-work\firmware\qca6490\`
+- 干净四文件目录（**打包必须用这个**）：`E:\iOS Port\Work\firmware\qca6490-wifi\`
+- 完整原始提取目录（222 个文件）：`E:\iOS Port\Work\firmware\qca6490\`
 
 **为什么要单独建干净目录**：`build-k60-wifi-native.py` 会把 `--firmware` 目录下
 **所有**文件都打进 PWF2 包。直接指向原始目录会得到 13,029,078 B / 10 个文件的包，
@@ -202,7 +202,7 @@ Windows 侧 adb 必须用 Windows 路径（WSL 的 `/mnt/e` 路径会报
 `cannot create file/directory`）：
 
 ```bash
-./adb.exe pull /vendor/firmware_mnt/image/qca6490/m3.bin 'E:\k60-work\firmware\qca6490\m3.bin'
+./adb.exe pull /vendor/firmware_mnt/image/qca6490/m3.bin 'E:\iOS Port\Work\firmware\qca6490\m3.bin'
 ```
 
 ---
@@ -210,7 +210,7 @@ Windows 侧 adb 必须用 Windows 路径（WSL 的 `/mnt/e` 路径会报
 ## 7. 验证方式
 
 ```bash
-sha256sum /mnt/e/k60-work/firmware/qca6490-wifi/*
+sha256sum /mnt/e/iOS Port/Work/firmware/qca6490-wifi/*
 # 对照 §1 表格四行
 ```
 
@@ -240,24 +240,24 @@ board data（`bdwlan*`）才能过 WMI 初始化**，而它不在包里。
    firmware bdwlan.eXX`），紧接着才会因为包里没有它而失败。这行日志就是选择依据，
    不需要猜（proprietary-files.txt 明确禁止乱挑 bdwlan）。
 2. 拿到名字后回 Android 用 adb pull 那一个文件（或整套 `bdwlan.*`/`bdwlang.*`），
-   放进 `/mnt/e/k60-work/firmware/qca6490-wifi/`，重编 archive + 内核。注意
+   放进 `/mnt/e/iOS Port/Work/firmware/qca6490-wifi/`，重编 archive + 内核。注意
    `build-k60-wifi-native.py` 会把目录里**所有**文件打进 PWF2，所以目录要保持
    "只放需要的"。
 3. 本机已有两个可直接用的候选（真机 pull，未打包）：
    `bdwlan.elf` 59,932 B `2ddf43c01f2ef490cd5128c56e6ef0f8704dbc675a351ea37d8ae6eb93404231`、
    `bdwlang.elf` 59,936 B `895d5028b5a40f9e0ca84c0f3ac9619d5f99f97d0f36031310f2638f4c7e002b`，
-   位于 `/mnt/e/k60-work/firmware/qca6490/`。它们覆盖 `board_id == 0xff` 的情况；
+   位于 `/mnt/e/iOS Port/Work/firmware/qca6490/`。它们覆盖 `board_id == 0xff` 的情况；
    设备上还有 `bdwlan.e01..ee1` 约 160 个分片（未 pull）。
 4. stages 1–8 的 host 侧流程都不需要 BDF，BDF 只在最后一级 `ath11k start`
    之后才被请求，届时按上面第 1 步读日志再补（六文件包见 §9）。
 
 ## 9. 六文件包（含板级数据）已预构建
 
-上面的第 3 步已经做了：`/mnt/e/k60-work/firmware/qca6490-wifi-bdf/` 里放了
+上面的第 3 步已经做了：`/mnt/e/iOS Port/Work/firmware/qca6490-wifi-bdf/` 里放了
 六个文件（四个原样 + `bdwlan.elf` + `bdwlang.elf`），用它编出的 archive 是
 `/opt/k60/trees/k60build/wifi/native-bdf/libPongWifiNative.a`（12,066,184 B，
 `build-report.json` 记 `firmware_files=6, firmware_bytes=11,189,974`）。
-配方：`E:\k60-work\evidence\wifi-trial\build-bdf-archive.sh`（archive）、
+配方：`E:\iOS Port\Work\evidence\wifi-trial\build-bdf-archive.sh`（archive）、
 `build-bdf-kernel.sh`（内核）。
 
 这两份 BDF 覆盖 `board_id == 0xff` 的情形。若上机日志里的
@@ -271,14 +271,14 @@ board data（`bdwlan*`）才能过 WMI 初始化**，而它不在包里。
 名字由日志给出（`Pong: actual QMI board firmware bdwlan.eXX`），接下来的重编已经脚本化，不需要手改目录：
 
 ```
-bash E:\k60-work\evidence\wifi-trial\pull-board-data.sh 6033dbec      # 只在手机能 adb 时
-bash E:\k60-work\evidence\wifi-trial\mkboot-bdf-add.sh bdwlan.e1a bdf1
+bash E:\iOS Port\Work\evidence\wifi-trial\pull-board-data.sh 6033dbec      # 只在手机能 adb 时
+bash E:\iOS Port\Work\evidence\wifi-trial\mkboot-bdf-add.sh bdwlan.e1a bdf1
 ```
 
 `mkboot-bdf-add.sh` 做的事（全部在 WSL 里跑，`UNIXNU_SKIP_GATES=1`）：
 
-1. 以六文件包 `/mnt/e/k60-work/firmware/qca6490-wifi-bdf/` 为底，把
-   `/mnt/e/k60-work/firmware/qca6490-board/<名字>` 拷进去，得到
+1. 以六文件包 `/mnt/e/iOS Port/Work/firmware/qca6490-wifi-bdf/` 为底，把
+   `/mnt/e/iOS Port/Work/firmware/qca6490-board/<名字>` 拷进去，得到
    `qca6490-wifi-bdf-<tag>/`（`build-k60-wifi-native.py` 会把目录里所有文件打进 PWF2，所以**只放需要的**）；
 2. 重编 archive 到 `wifi/native-<tag>/`；
 3. 重链内核（先删 `mach.development.pong` 强制重链），打印新内核 sha256 与大小；

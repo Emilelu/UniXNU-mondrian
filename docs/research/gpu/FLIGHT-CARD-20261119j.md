@@ -60,7 +60,7 @@
 | 项 | 值 |
 |---|---|
 | 镜像 | `gpu-pitchoff-20261119`，`boot.img a4cb3375b9e0e8c18a277c11b45547b8c27bb6549c02a9926f5d607177528d79` |
-| 证据 | `E:/k60-work/evidence/usblog-20261119-151837`，`console.log` 283,510 B |
+| 证据 | `E:/iOS Port/Work/evidence/usblog-20261119-151837`，`console.log` 283,510 B |
 | supervisor | rc=0，`✅ 抓取完整、未因 panic/复位中断` |
 | 启动参数 | 30 条 / 596 B（`image-arg-audit: OK`） |
 | 插件 | `metal-plugin-20261119p`（`gmem,nocb` 仍在，本卡没动它） |

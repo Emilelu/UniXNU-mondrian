@@ -46,7 +46,7 @@ K60RAIL ldoc2 address=0x42c00 levels=1 idx1800=0->0 l0=10753
 K60RAIL rsc drv_id=0x20700 version=2 stride=672 cmd=20 ctrl=0x14 enable=0x1c msgid=0x30 addr=0x34 data=0x38
 ```
 
-证据：`E:\k60-work\evidence\usblog-20261114-railh\console.log:477-479`；同一次启动 3,366 行、
+证据：`E:\iOS Port\Work\evidence\usblog-20261114-railh\console.log:477-479`；同一次启动 3,366 行、
 129 行 SpringBoard、`capture.json` 的 `panicMarker` 为 `null`、五个失败标记全 0。
 
 **但一次存活不推翻 2026-11-09 的两次首读即死。** 差别在于访问时机与方式，不在于"RSC 安全"。

@@ -49,7 +49,7 @@ echo "installed $GUARD"
 # from a commit older than TREE-OWNERS.toml has no copy, so keep one at a fixed
 # path and let the guard fall back to it.
 OWNERS_SRC="$ROOT/docs/engineering/TREE-OWNERS.toml"
-OWNERS_DST=/mnt/e/k60-work/TREE-OWNERS.toml
+OWNERS_DST=/mnt/e/iOS Port/Work/TREE-OWNERS.toml
 if [ -f "$OWNERS_SRC" ]; then
     install -m 0644 "$OWNERS_SRC" "$OWNERS_DST"
     echo "installed $OWNERS_DST"

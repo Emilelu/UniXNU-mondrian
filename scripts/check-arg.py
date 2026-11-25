@@ -14,7 +14,7 @@ Two sources, in this order:
      authoritative one: trial builds keep only four manifest keys and have no
      kernel_args_requested at all (wifi-20261116a2).
 
-boot.json writes the image as a Windows path (like E:/k60-work/...).  Under WSL
+boot.json writes the image as a Windows path (like E:/iOS Port/Work/...).  Under WSL
 that path does not exist, so find_image also tries its /mnt/e/... mount;
 under MSYS python the raw path resolves natively and the mount is skipped.
 

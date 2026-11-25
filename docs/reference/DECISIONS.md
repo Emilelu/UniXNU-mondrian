@@ -3,14 +3,14 @@
 ## D-2026-11-04-04 trust cache 路径定案补录：v4「B 决策」入册 + cdc2 复发判定
 
 - **日期**：2026-11-04（补录 11-03 定案 + 11-04 晚复发判定）
-- **背景**：v2 boot panic `failed to load static trust cache module: 0 @kern_trustcache.c:921`（miniamfi `loadModule` 返回 `kTCReturnUnsupported`）；v3 把返回码改 `kTCReturnSuccess` 但不供模块 → EL1 数据中止（实测，INDEX §5/§7）。11-03 定「B 决策」：**对齐 pong，摘掉整条 trust cache 路径**——但当时只落在 `E:\k60-work\diffs\v4-baseline-config.patch` / `v4-baseline-miniamfi-revert.patch` 与构建树，**未入册、未入 series**。
+- **背景**：v2 boot panic `failed to load static trust cache module: 0 @kern_trustcache.c:921`（miniamfi `loadModule` 返回 `kTCReturnUnsupported`）；v3 把返回码改 `kTCReturnSuccess` 但不供模块 → EL1 数据中止（实测，INDEX §5/§7）。11-03 定「B 决策」：**对齐 pong，摘掉整条 trust cache 路径**——但当时只落在 `E:\iOS Port\Work\diffs\v4-baseline-config.patch` / `v4-baseline-miniamfi-revert.patch` 与构建树，**未入册、未入 series**。
 - **B 决策内容（以 v4-baseline-config.patch 原文为准）**：`configs/mondrian_defconfig` 置 `CONFIG_XNU_NATIVE_TRUST_CACHE=n` + `CONFIG_XNU_TRUST_CACHE_RUNTIME=n`；`board.toml` `trust_cache_sha256=[]`；打包链不再传 `--trust-cache`（payload 无 sidecar）；miniamfi 两个装载桩**回退 pong 原文**（`kTCReturnUnsupported`）。效果：`startup.c:741-749` 的 `trust_cache_runtime_init()`+`load_static_trust_cache()` 块被 `#if … XNU_NATIVE_TRUST_CACHE` 编译期排除，`loadModule` 永不被调，与 pong 结构级一致（pong 两 defconfig 同双 n）。
 - **复发判定（2026-11-04 晚，cdc2）**：`boot-usb-cdc2-20261104.img`（sha `5606aabd…`，新鲜 clone `3c1bea3` + 0300 + 0301–0305 探针）上机 panic 于同一 `:921`（用户核对的屏摄读数）。根因：`3c1bea3` 的 repo 真值仍是 `TRUST_CACHE=y/y` + 白名单 `["344ae644…"]`（`git show 3c1bea3:` 实测），**B 决策不在 series 里**，新鲜 clone 不携带；「0301–0305=v5 事实补丁面」口径错误（0301–0305 仅诊断探针，v5 功能面 = v4 基线两件 + v5-step1..4）。
 - **离线实证**：`grep -a -c trust_cache_init` —— cdc2 boot img = **1**（路径编入），v5 boot img = **0**（路径摘除）；v5 payload 无 `kernel.macho.trustcache` sidecar。
 - **决定**：① B 决策为现行定案，禁止回退到 v3 式「空 success」（TRUSTCACHE-UPSTREAM-PRIOR-ART §0/§3 已证雪崩）；② 后续一切基于新鲜 clone 的构建必须把 `diffs/v4-baseline-config.patch` + `v4-baseline-miniamfi-revert.patch` 当**基线组成部分**同步叠加（cdc3 = cdc2 + 这两件，其余不动）；③ 根治方向 = 把 v4 两件做成 series patch 提交入库（待用户拍板后执行，消除「clone 即丢」形态）。
 - **验证方式**：离线三道闸（见 ISSUES I-20261104-08 判据表）全过后才上机；上机判据 = 无 `:921` panic，进度至少追平 v5 阶段。
 - **回滚方式**：纯打包/config 层改动，不涉及设备写；回退 = 撤两件补丁重打。
-- **相关文件**：`E:\k60-work\diffs\v4-baseline-{config,miniamfi-revert}.patch`、`references/TRUSTCACHE-UPSTREAM-PRIOR-ART.md`、PITFALLS-FROM-HISTORY 第 47 条、I-20261104-08。
+- **相关文件**：`E:\iOS Port\Work\diffs\v4-baseline-{config,miniamfi-revert}.patch`、`references/TRUSTCACHE-UPSTREAM-PRIOR-ART.md`、PITFALLS-FROM-HISTORY 第 47 条、I-20261104-08。
 
 ## D-2026-11-04-03 USB 日志通道形态定案：pong-usb CDC-ACM（弃 ECM 虚拟网卡），一档到底
 
@@ -19,9 +19,9 @@
 - **证据**：①B 有**同 SoC SM8475 真机实测**（pong-usb `6070a991`，12 s 收 108,518 B，`UniXNU-pong-upstream` services135 L45）+ SM8850 独立旁证（pandora `PLAN.md`「USB 串口实时日志」列真机已验收，2026-11-04 实时抓取）；②A 仅 SM7150 实测（无 apps_smmu 前提，不适用 K60），K60 适配（ios-sweet-k60 0143/0148）**0 次上机**（commit `b2ae97e` 缺口表原文）；③UniXNU 主线全分支仅 1 条 USB commit（`b9ecfdb`，纯宿主侧工具，内核侧零实现）；④两条路内核硬前置（SMMU SID0/GCC/DMA 高字/cache）完全相同，ECM 额外多 ifnet/mbuf/UDP 三层失败面且 Windows 无 inbox 驱动。
 - **决定**：USB 日志通道 = pong-usb CDC-ACM 形态，单点 `bsd/dev/k60_usblog.c`，`k60_usblog=2` 一档到底（无 v1/v2/v3 分档）；宿主侧 Windows usbser 免驱 COM 口。`USB-LOG-CHANNEL.md` 的 ECM 推荐作废（该文 §0 已加更正指针，原文保留备查）。若未来需要网络形态（KDP/gdb），通道稳定后单独立项。
 - **实施要点（随案定）**：静息顺序 halt→SMMU→CSFTRST；SMMU bypass 移植 `SmmuTakeover.h` 并补 R-B1（NUMS2CB 拒绝）；C3 的 UFS 等待由「kext 导出」改为「worker 硬件轮询 SMR 0xe0」（内核本体链接期引用不了 kext 符号，语义等价且更真）；环消费遵守 D-2026-11-04-02（只读、独立游标、seqlock 双重读）。
-- **验证方式**：上机判据与失败形态矩阵见 `E:\k60-work\usb-a-stage\REPORT-CDC.md` §4/§5（宿主收到真实 console 字节流 = 打通）。
+- **验证方式**：上机判据与失败形态矩阵见 `E:\iOS Port\Work\usb-a-stage\REPORT-CDC.md` §4/§5（宿主收到真实 console 字节流 = 打通）。
 - **回滚方式**：去掉 `k60_usblog` boot-arg 即现状；镜像只 boot 不 flash，零持久副作用。
-- **相关文件**：`references/USBM-LOG-CHANNEL-AUDIT.md` §9/§10/§11、`E:\k60-work\usb-smmu\`（DESIGN/RISKS/draft）、`E:\k60-work\usb-a-stage\REPORT-CDC.md`、坑表第 39/40 条。
+- **相关文件**：`references/USBM-LOG-CHANNEL-AUDIT.md` §9/§10/§11、`E:\iOS Port\Work\usb-smmu\`（DESIGN/RISKS/draft）、`E:\iOS Port\Work\usb-a-stage\REPORT-CDC.md`、坑表第 39/40 条。
 
 > **用途**：所有「这么干而不是那么干」的定案——**结论类信息的唯一权威源（SSOT）**。
 > **谁该读**：新 agent 进场必读三份之一；要引用任何已定案结论时来这里找编号。
@@ -82,7 +82,7 @@
 - **收尾清理（同日用户批准）**：mondrian 本地 `ios16-main-20261103`（`c39ff29`）经前置核对（`rev-parse` 与 `origin/main` 同 sha、`log -1 %H` 一致）后 `git branch -D` 删除——尖端内容已达远端 main 且 tag `v0.1.1-ios16-main-merged` 锚定同内容。fork 远端 `k60`（`db7177c`）保留不动（fork 固有分支，非我方工作线，已在 REPO-BRANCH-MAP 标注）。
 - **最终形态（ls-remote 实证）**：mondrian = `main`(c39ff29) + `archive/darwin24-main-20261103`(10d1be3) + 5 tags；fork = `main` + `k60` + `k60build` + 1 tag；uefi = `main` + 2 tags。
 - **回退方式**：所有被删分支的 sha 均有 tag 锚定（或 diff 存档），`git push origin <sha>:refs/heads/<name>` 可恢复。
-- **相关文件**：`E:\k60-work\git\conv-*.txt`、`docs/archive/a5-timeout-fef75ea.diff`。
+- **相关文件**：`E:\iOS Port\Work\git\conv-*.txt`、`docs/archive/a5-timeout-fef75ea.diff`。
 
 ## D-2026-11-03-16 推送 11 条提交 + 远端 main 一次性切换为 iOS16 主线（已执行）
 
@@ -101,7 +101,7 @@
 - **远端分支最终形态**：`main` = iOS16 主线（开发主线，持续前进）；`progress-bar-20261102` = 里程碑永久保留；`baseline/*`、`archive/*` = 锚定保留；`fix/k60-measured-high-window` = 设备配置工作线（已合入 main，可继续用或退役待用户定）。
 - **回退方式**：`git push --force-with-lease origin 8598c97:main`（tag/存档分支均在）。
 - **纪律遵守**：xnu-work 脏树未碰、构建树未碰、参考仓库未碰；fork 仓 remote 归属已登记（origin=org 只读，fork=自有可写）；子模块指针未 bump。
-- **相关文件**：`E:\k60-work\git\push-p*.txt`、`p2-*.txt`、`docs/MAIN-SWITCH-PLAN.md`。
+- **相关文件**：`E:\iOS Port\Work\git\push-p*.txt`、`p2-*.txt`、`docs/MAIN-SWITCH-PLAN.md`。
 
 ## D-2026-11-03-15 三组脏改动整理为合规提交（mondrian 6 + fork 4 + uefi 1）+ 子模块本地提交
 
@@ -116,7 +116,7 @@
 - **不提交项**：mondrian `mac-build/`（94 MB 构建产物）、3 个孤儿补丁草稿（zzyb-cryptex / zzyc-skip-launch / quiet-watch，未入 series，保持 untracked，见 HISTORY-LEDGER §7.2）；fork `pong-driver/`（symlink 农场，已整体 gitignore）、`pong-adreno-*/`、profiles 18.7.10 实验目录。
 - **验证**：三仓 `git status --porcelain` 复核——mondrian 剩 4 项 untracked（mac-build + 3 孤儿补丁，全部刻意保留）；fork 仅子模块指针（不 bump 是刻意的）；uefi 仅子模块指针（同理）。敏感扫描零命中。
 - **回滚方式**：全部为新提交未推送，`git reset --hard <旧HEAD>` 即可（mondrian `48abe35`、fork `db7177c`、uefi `e06211d`）。
-- **相关文件**：`E:\k60-work\git\`（msg-*.txt、commit-log-*.txt、pong-driver-audit-*.txt）
+- **相关文件**：`E:\iOS Port\Work\git\`（msg-*.txt、commit-log-*.txt、pong-driver-audit-*.txt）
 
 ## D-2026-11-03-14 路线决策：iOS 18（Darwin 24）推进排到 iOS 16 修得差不多之后
 
@@ -151,7 +151,7 @@
   - 敏感点：设备序列号 `6033dbec` 新增 5 处（**已存在于 origin/main 五个文档**，非新暴露）；`deepseek-harness` 绝对路径为新暴露（`/mnt/c/Users/Emilelu/Documents/deepseek-harness/…`，无凭据性质）；其余为本机 WSL/Windows 工作路径。
   - 与 123 补丁系列关系：无内容重复；仅 `e5f23c4`/`6e94f41` 曾把 `patches/xnu/series` 改成 17.7.11 的 62 项旧集（main 现承载 64 项），现役 123 项系列从未提交，不存在冲突。
 - **推送建议（本轮未执行，待用户确认）**：建议**直接推 main**（fast-forward，`git push origin main:main`）。理由：main 的身份本就是 darwin24 归档线，45 个提交是其应有内容；`progress-bar-20261102` 是无关历史的内核源树分支，两者不会混淆；A/B 锚定已由 `baseline/progressbar-device-20261102` 承担，无需再建 `archive/darwin24-main-20261103`。双保险备选：`git push origin main:refs/heads/archive/darwin24-main-20261103`（建存档分支）+ `git push origin main:main`。
-- **相关文件**：`E:\k60-work\git\main45-report.txt`（逐提交清单与扫描原文）、`E:\k60-work\git\analyze-main45.sh`。
+- **相关文件**：`E:\iOS Port\Work\git\main45-report.txt`（逐提交清单与扫描原文）、`E:\iOS Port\Work\git\analyze-main45.sh`。
 
 ## D-2026-11-03-11 仓库分支整理与进度条基线归档（git 状态盘点 + 基线推 GitHub）
 
@@ -163,7 +163,7 @@
   - fork 本地 18 分支中 16 个已完全并入 `fork/k60`（0 独有提交）；`smp-0340` 有 1 个独有提交；远端 17 个 topic 分支均为 fork 时 org 快照。
   - mondrian 远端 `k60`、`route-a-18` 已并入 main；`a5-timeout` 有 1 个未并入提交（仅改 board.toml 菜单倒计时）。
 - **决定/动作**：
-  1. 基线归档：从 xnu-work 仓 `git worktree add` 出 `E:\k60-work\git\progress-bar-20261102`，以自包含根 `cad1c22`（树与 apple-oss `1b191cb` 逐字节一致；浅克隆悬空父指针导致 GitHub 拒收，`commit-tree` 重建无父根后 rebase 重放）+ 123 补丁逐补丁提交（应用器 `git apply`，与构建链 `patches.py` 完全一致）+ 诊断残差单提交（`e4778db`，重放后与 xnu-work 全部 125 脏路径逐字节一致）+ README 文档提交（`66a603f`）。
+  1. 基线归档：从 xnu-work 仓 `git worktree add` 出 `E:\iOS Port\Work\git\progress-bar-20261102`，以自包含根 `cad1c22`（树与 apple-oss `1b191cb` 逐字节一致；浅克隆悬空父指针导致 GitHub 拒收，`commit-tree` 重建无父根后 rebase 重放）+ 123 补丁逐补丁提交（应用器 `git apply`，与构建链 `patches.py` 完全一致）+ 诊断残差单提交（`e4778db`，重放后与 xnu-work 全部 125 脏路径逐字节一致）+ README 文档提交（`66a603f`）。
   2. 推送：mondrian 仓新增 `progress-bar-20261102`（分 3 批快进推送，最终 `66a603fbf1bd75ff2ec6a0fe3db1b5c159c9a6a4`）与 `baseline/progressbar-device-20261102`（`48abe35`）；fork 仓新增 `baseline/progressbar-core-20261102`（`db7177c`）；uefi 仓新增 `baseline/high-window-fd-20261102`（`e06211d`）。
   3. Tag（annotated，均已推送）：`v0.1.0-progressbar`（mondrian，`66a603f`）、`v0.1.0-progressbar-core`（fork，`db7177c`）、`v0.1.0-high-window-fd`（uefi，`e06211d`）。tag 消息含达成能力 + 镜像 sha + 已知缺陷。
   4. 登记：里程碑表入 `HISTORY-LEDGER.md` §7；commit 规范落地映射入 `COMMIT-CONVENTION.md`。
@@ -171,7 +171,7 @@
 - **验证**：推送后 `git ls-remote` 三仓逐一核对 sha 一致；重放树与 xnu-work 逐字节比对（121 路径由 series 覆盖 + 4 诊断文件补齐）。
 - **回滚方式**：删除远端新分支/tag 即可（全部为新增引用，未触碰任何既有分支；不删除本地归档）。
 - **纪律遵守**：未删任何分支（删除清单仅提交建议待用户确认）；未 force push；未在 xnu-work 提交/改写；未碰参考仓库。
-- **相关文件**：`E:\k60-work\git\`（replay-baseline.sh、msg-*.txt、k60-readme-section.md）、`docs/COMMIT-CONVENTION.md`、`docs/HISTORY-LEDGER.md` §7。
+- **相关文件**：`E:\iOS Port\Work\git\`（replay-baseline.sh、msg-*.txt、k60-readme-section.md）、`docs/COMMIT-CONVENTION.md`、`docs/HISTORY-LEDGER.md` §7。
 
 ## D-2026-11-03-10 进度条基线（11-02 20:03）之后改动台账与「UI 消失」归因（含 USB 专项）
 
@@ -324,15 +324,15 @@
 ## D-2026-11-03-03 AMFI prelink 降级（用户批准）与 v1/v2 拆分构建
 
 - **日期**：2026-11-03（用户当日上午拍板「直接做」，随后拍板「分两版出，先出第一版」）
-- **背景**：xpcproxy posix_spawn EACCES(13) 风暴；0305 boot 的 prelink 中真 AMFI（`com.apple.driver.AppleMobileFileIntegrity`）与真 sandbox（`com.apple.security.sandbox`）均为完整组件在载，exec/签名决策方是真 AMFI；pong ios16 路线以 miniamfi/minisandbox stand-in 替代（`E:\k60-work\docs\references\ADOPTION-PONG-USERLAND.md`）。
+- **背景**：xpcproxy posix_spawn EACCES(13) 风暴；0305 boot 的 prelink 中真 AMFI（`com.apple.driver.AppleMobileFileIntegrity`）与真 sandbox（`com.apple.security.sandbox`）均为完整组件在载，exec/签名决策方是真 AMFI；pong ios16 路线以 miniamfi/minisandbox stand-in 替代（`E:\iOS Port\Work\docs\references\ADOPTION-PONG-USERLAND.md`）。
 - **证据（结构性约束，干跑 `tools/dryrun-amfi-prelink.py`）**：roots 级移除对 **sandbox 有效**（无人依赖，plan 30 组件 OK）；对 **AMFI 无效**——`IOGPUFamily`/`IOHIDFamily`/`IOMobileGraphicsFamily`（均在 roots）以 OSBundleLibraries 强制拉回（共 12 家声明依赖）。故 AMFI 只能「留在 prelink + 防撞名 panic」：`libkern/amfi/amfi.c` 改 keep-first 注册（miniamfi `EARLY_BOOT/STARTUP_RANK_FIRST` 先注册，真 AMFI 后到只留日志不再 panic `interface already set`）。
 - **决定**：
   1. **v1（已构建）**：只含 UFS/Data 尺寸上限三处 → `UINT64_C(0x600000000)`（kern_exec.c :7557/:7561；:7547 此前已抬）+ 树内已有的 Data 自检 panic 降级与心跳 `sf=/svm=`；**不含** AMFI 任何改动、不含 boot-args 调整（保持 `k60_sandbox=1` 原串）。`pong_init_path` hunk 为本树既有未提交改动，未被激活，予以保留登记。
-  2. **v2（待 v1 验证后执行）**：profile roots 去 `com.apple.security.sandbox`（消除「Sandbox」MAC 撞名 + 移除其 `mpo_cred_label_update_execve` 拒源）+ `amfi.c` keep-first + boot-args 去 `k60_sandbox=1`、加 `amfi_get_out_of_my_way=1 pong_init_path=/private/var/pong/init epoch=<打包时刻>` + pong init（已编译签名，`E:\k60-work\deliverables\pong-init\init` sha256 `faa38544…`）写入 Data。
-- **验证方式**：v1 上机判据见 `E:\k60-work\usb-a-stage\DIFF-AMFI-PRELINK.md` §6（`dm=1`/`dw=20354`/`block count 5210112`/`K60DATA mounted ro=0 rw=1`/mkdir/心跳 `sf=0 svm=0`/进度条）。
+  2. **v2（待 v1 验证后执行）**：profile roots 去 `com.apple.security.sandbox`（消除「Sandbox」MAC 撞名 + 移除其 `mpo_cred_label_update_execve` 拒源）+ `amfi.c` keep-first + boot-args 去 `k60_sandbox=1`、加 `amfi_get_out_of_my_way=1 pong_init_path=/private/var/pong/init epoch=<打包时刻>` + pong init（已编译签名，`E:\iOS Port\Work\deliverables\pong-init\init` sha256 `faa38544…`）写入 Data。
+- **验证方式**：v1 上机判据见 `E:\iOS Port\Work\usb-a-stage\DIFF-AMFI-PRELINK.md` §6（`dm=1`/`dw=20354`/`block count 5210112`/`K60DATA mounted ro=0 rw=1`/mkdir/心跳 `sf=0 svm=0`/进度条）。
 - **代价**：v1 无新增风险（纯上限值 + 注释）；v2 的 keep-first 使真 AMFI 的 `amfi` 接口被 miniamfi 抢先接管（entitlement/信任缓存回答变宽容），真 AMFI 的 MAC 策略仍在载（行为与现状一致）；`amfi_get_out_of_my_way` 与 `k60_sandbox` 在 `kern_minimac.c:386-398` 互斥，不可同给。
-- **回滚方式**：boot-args 还原（恢复 `k60_sandbox=1`、去三个新 arg）即回 13:05 行为；roots 恢复 `cp E:\k60-work\archive\prelink-before-amfi-20261103\profile.toml.bak` → `profiles/os/ipados-16.6.1-20G81/profile.toml` 后重跑 `unixnu prelink payload bootimg`（纯打包，内核不必重编）；`amfi.c`/上限两处用补丁反向 apply；备份与说明见 `E:\k60-work\archive\prelink-before-amfi-20261103\README-ROLLBACK.md`。
-- **相关文件**：`tools/dryrun-amfi-prelink.py`、`tools/apply-amfi-round-edits.py`、`tools/revert-amfi-for-v1.py`、`tools/edit-profile-roots.py`、`E:\k60-work\usb-a-stage\DIFF-AMFI-PRELINK.md`、`E:\k60-work\deliverables\pong-init\`
+- **回滚方式**：boot-args 还原（恢复 `k60_sandbox=1`、去三个新 arg）即回 13:05 行为；roots 恢复 `cp E:\iOS Port\Work\archive\prelink-before-amfi-20261103\profile.toml.bak` → `profiles/os/ipados-16.6.1-20G81/profile.toml` 后重跑 `unixnu prelink payload bootimg`（纯打包，内核不必重编）；`amfi.c`/上限两处用补丁反向 apply；备份与说明见 `E:\iOS Port\Work\archive\prelink-before-amfi-20261103\README-ROLLBACK.md`。
+- **相关文件**：`tools/dryrun-amfi-prelink.py`、`tools/apply-amfi-round-edits.py`、`tools/revert-amfi-for-v1.py`、`tools/edit-profile-roots.py`、`E:\iOS Port\Work\usb-a-stage\DIFF-AMFI-PRELINK.md`、`E:\iOS Port\Work\deliverables\pong-init\`
 
 ## D-2026-11-03-04 v2 Pong 用户态前置层落地（kernel/payload/Data 全链路完成，待放行上机）+ init exec 目标 mondrian 修正
 
@@ -342,11 +342,11 @@
   1. **内核**：mfi.c keep-first（libkern/amfi/amfi.c:7-19）；心跳删 svm= 保留 sf=（kern_exec.c:7499-7504，namei 跟随挂载点导致 svm 恒 0 的语义缺陷，按用户指示删除）；miniamfi/minisandbox/pong_init_path 为树内既有件直接激活。prelink roots 去 com.apple.security.sandbox（31 roots），AMFI 保留 + keep-first。内核 macho（prelink 出）sha 73a30ea7…；payload 抽取 sha 66dcc802…。
   2. **boot-args**：去 k60_sandbox=1（kern_minimac.c:386-398 结构性互斥），加 mfi_get_out_of_my_way=1（pong ios18 build-ipados18-prelinked-boot.py:50 原文；本树 kern_minimac.c:395 + miniamfi.c:266 消费）、pong_init_path=/private/var/pong/init（kern_exec.c:8209-8210 强校验唯一路径）、epoch=1793695092（打包时刻；pong userland init.c prepare_calendar 消费，来源行 UniXNU-pong/userland/init.c:292-309）。
   3. **init 修正（deviation）**：pong 原版 execve( /sbin/launchd.ios) 依赖其可写 root 上的改名文件；我方 root 为密封只读 union 无此文件，照原样 boot 必以 ENOENT 于 PID 1 exec 失败。按 pong 模型语义（自研 init → 官方 launchd）改为 exec /sbin/launchd（stock，未动），源级两行修正 + 注释；重编译（Apple ld64 工具链，未改动源码复现原版仅 LC_UUID 16 字节差）+ 自写 ad-hoc 签名器（与原签名字节级一致验证：除 UUID 与覆盖页哈希外零差异）。新 init sha256 68d9bb06fa6411b12f2bb1cd4dd7e12b9a8a46fc4ae1573aea8511633738e53e；原件 aa38544… 保留于 deliverables 作回退。
-  4. **Data 侧**：/private/var/pong/init（0755 root:wheel）经 linux-apfs-rw 写入 20 GiB 窗镜像（窗 sha 81a2662f…，写入前备份 dbbf0dd… 校验一致），readback 校验 sha/mode/owner 全对；清单重生 shngroot-v2.bin（5dfc7ea7…，OS/SystemOS digest 沿用现机清单值）。设备侧四闸门写入：gate1 窗头+清单备份（E:\k60-work\archive\rollback-v2-ponginit\）、gate2 设备端 sha 一致、gate3 落点 EFI PART 签名核对、gate4a 全窗 readback sha 81a2662f… 一致、gate4b 清单 readback 5dfc7ea7… 一致。只写 unixnu 的 Data 窗与清单块，未 flash、未动任何安卓分区。
-- **产物**：E:\k60-work\candidates\4g-quiet\boot-ios16-4g-quiet-v2.img sha 9ae831e…（payload cf8e920…）；**未上机，等用户放行**。
+  4. **Data 侧**：/private/var/pong/init（0755 root:wheel）经 linux-apfs-rw 写入 20 GiB 窗镜像（窗 sha 81a2662f…，写入前备份 dbbf0dd… 校验一致），readback 校验 sha/mode/owner 全对；清单重生 shngroot-v2.bin（5dfc7ea7…，OS/SystemOS digest 沿用现机清单值）。设备侧四闸门写入：gate1 窗头+清单备份（E:\iOS Port\Work\archive\rollback-v2-ponginit\）、gate2 设备端 sha 一致、gate3 落点 EFI PART 签名核对、gate4a 全窗 readback sha 81a2662f… 一致、gate4b 清单 readback 5dfc7ea7… 一致。只写 unixnu 的 Data 窗与清单块，未 flash、未动任何安卓分区。
+- **产物**：E:\iOS Port\Work\candidates\4g-quiet\boot-ios16-4g-quiet-v2.img sha 9ae831e…（payload cf8e920…）；**未上机，等用户放行**。
 - **预期（上机判据）**：Pong init: loading helper … + helper exec result=0；init 本体行（static 20G81 helper entered/HackiOS userland adapter/preparing writable Data seed/ar.skel unavailable（root 无 /pong/etc，预期内）/calendar epoch=1793695092 result=0/boot view SKIP/UI compatibility library absent; SKIP/exec original /sbin/launchd）；miniamfi/minisandbox 承接后 xpcproxy **78 风暴应消失**（KX?/bad 行终止或改码）；AppleMobileFileIntegrity interface already set; keeping first registration 一行（真 AMFI 后到不 panic）。
 - **回滚**：boot-args 还原（恢复 k60_sandbox=1、去三新 arg）→ 重打 payload 即回 v1 行为；roots 用 rchive/prelink-before-amfi-20261103/profile.toml.bak 还原；Data 用 data-window-20354-pre-ponginit-backup.img（sha dbbf0dd…）按同一四闸门写回 + 旧清单（rchive/unixnu-rollback-20261103-0330 或 rollback 目录 rb-manifest.bin）；init 回退直接使用原件 aa38544…。
-- **相关文件**：	ools/build-v2-round.sh、	ools/package-v2.py、E:\k60-work\deliverables\pong-init\（init-v2 + init.c.v2-mondrian-src）、E:\k60-work\candidates\data-20352\（镜像/备份/清单）、E:\k60-work\logs\{kernel,payload,package}-v2.log、提交 cafab71（依赖恢复）。
+- **相关文件**：	ools/build-v2-round.sh、	ools/package-v2.py、E:\iOS Port\Work\deliverables\pong-init\（init-v2 + init.c.v2-mondrian-src）、E:\iOS Port\Work\candidates\data-20352\（镜像/备份/清单）、E:\iOS Port\Work\logs\{kernel,payload,package}-v2.log、提交 cafab71（依赖恢复）。
 
 ## D-2026-11-04-03 init 改由 apfs.ko 正常分配，后续更新走已分配 extent 内同长原地覆盖
 

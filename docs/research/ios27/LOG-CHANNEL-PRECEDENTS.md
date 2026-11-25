@@ -57,12 +57,12 @@
 已记入 `docs/engineering/IOS27-FLIGHT-BLOCKERS.toml` 的 `boot-args-abi-608`，此处只记证据位置：
 
 - 平台 `Platforms/Xiaomi/DarwinBootPkg/Driver/BootArgs.h`：`DARWIN_BOOT_LINE_LENGTH 608`、`CommandLine[608]`、`BootFlags == 0x2d0`、`MemorySizeActual == 0x2d8`、`sizeof == 0x2e0`。
-- 框架 catalog `E:/hackios/UniXNU/drivers/DarwinBoot/DarwinBootPkg/Driver/BootArgs.h`：`CommandLine[1024]`、`MemorySizeActual == 0x478`、`sizeof == 0x480`。
+- 框架 catalog `E:/iOS Port/Sources/Repos/UniXNU/UniXNU/drivers/DarwinBoot/DarwinBootPkg/Driver/BootArgs.h`：`CommandLine[1024]`、`MemorySizeActual == 0x478`、`sizeof == 0x480`。
 - 27 内核 `pexpert/pexpert/arm64/boot.h`：`BOOT_LINE_LENGTH 1024`、`bootFlags` 0x470、`memSizeActual` 0x478。
 
 ## 6 UART 通道的具体位置（live FDT，2026-11-02 dump）
 
-`/mnt/e/k60-work/reports/live-6033dbec-fdt.dts`：
+`/mnt/e/iOS Port/Work/reports/live-6033dbec-fdt.dts`：
 
 - 头顶 `chosen` 节点第 17 行：`stdout-path = "/soc/qcom,qup_uart@99c000:115200n8"` —— **bootloader 的 stdout 就是这颗 UART，115200 8N1**。
 - `/aliases` 第 422 行：`serial0 = "/soc/qcom,qup_uart@99c000"`；第 423 行 `hsuart0 = "/soc/qcom,qup_uart@894000"`。

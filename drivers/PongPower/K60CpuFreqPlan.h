@@ -7,7 +7,7 @@
  * every number; drivers/PongPower/K60CpuFreqProbe.cpp owns the registers.
  *
  * Register facts come from the live K60 device tree
- * (E:/k60-work/reports/live-6033dbec-fdt.dtb, decompiled 2026-11-18):
+ * (E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb, decompiled 2026-11-18):
  *   /soc/qcom,cpufreq-hw-epss  reg 0x17d91000/0x17d92000/0x17d93000, 0x1000 each,
  *                             qcom,lut-row-size = 4, qcom,skip-enable-check;
  *   /soc/dcvs ... dcvs-hw-type 2, reg 0x17d90000 (0x4000) + 0x17d90100 (0xa0),

@@ -36,7 +36,7 @@
 | 芯片表只有 BCM/CSR 语义 | `Server/Chipsets/LEHardwareModel.cpp`；`Couldn't find a platform / chipset / firmware combination for the HW`；`Unknown platform/chipset/manufacturer combination, restarting` |
 | BlueTool 内置固件表是 BCM 专用 | 0x100014f10 的 24 字节条目表；QCA 无条目 → `Error - no firmware for th…` → 返回 10 |
 
-d12 实测（`E:/k60-work/evidence/usblog-20261119-000246/console.log`）：BlueTool 每次启动都打印
+d12 实测（`E:/iOS Port/Work/evidence/usblog-20261119-000246/console.log`）：BlueTool 每次启动都打印
 `Device not open yet, use 'device' to open it.`（:2085/:2876/:3287/:3528/:3730），从不开 transport socket，
 约 33 s 后被 30 s XPC 看门狗杀死（:2871 `KX! 15 137 BlueTool exit=1`），launchd 连续重启 5 次。
 bluetoothd 自 1723 起再无日志，也没有任何 `[bluetooth sk] connect` —— **它卡在 BlueTool 这一步**。
@@ -49,7 +49,7 @@ bluetoothd 自 1723 起再无日志，也没有任何 `[bluetooth sk] connect` �
 
 ### 2.3 iOS 27（24A446）的参考实现
 
-`E:/hackios/QcaBluetooth`（BSD-2-Clause-Patent）：
+`E:/iOS Port/Sources/Repos/Drivers/QcaBluetooth`（BSD-2-Clause-Patent）：
 
 | 文件 | 行数 | 作用 | 版本锁定 |
 | --- | --- | --- | --- |

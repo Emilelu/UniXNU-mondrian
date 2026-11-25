@@ -27,10 +27,10 @@
 
 ## 2. 镜像与前提
 
-- 镜像目录：`/mnt/e/k60-work/artifacts/gpu-wc-class-20261118/`
+- 镜像目录：`/mnt/e/iOS Port/Work/artifacts/gpu-wc-class-20261118/`
 - 构建：`bash scripts/build-strict.sh gpu-wc-class-20261118 --fd …/gpu-drawfix-20261118-cf4485712c29.fd`
 - 插件沿用 `metal-plugin-20261118k`（这一飞不碰 `drivers/PongMetal`，避免第二个变量）
-- 串口采集由 `scripts/flash.sh` 负责，证据落 `E:/k60-work/evidence/usblog-<时间戳>/`
+- 串口采集由 `scripts/flash.sh` 负责，证据落 `E:/iOS Port/Work/evidence/usblog-<时间戳>/`
 
 ## 3. 前置检查（不满足就不飞）
 
@@ -92,7 +92,7 @@
 | boot.img | `b02be6d8d99ce6c014fbea75cd15057eeea34e1a9d78db8820286b2158fe1f85` |
 | kernel | `4c97a9007681c6e513f72365a4f1d25552ca1efce446d1fa22ee1a0f0d6e48c9` (105,603,072 B) |
 | 命令行 | 30 项 / 596 B（`pong_metal=1 pong_gpu_scanout=1 sheng-gpu-addon=1 k60_autoreset=300 applog=1`） |
-| 证据 | `E:/k60-work/evidence/usblog-20261118-233946`（306,107 B / 3,9xx 行） |
+| 证据 | `E:/iOS Port/Work/evidence/usblog-20261118-233946`（306,107 B / 3,9xx 行） |
 | 上机时间 | 2026-11-18 23:39（`K60_AGENT_ID=lead`，先到先得的机器级 claim） |
 
 ### 5.2 S1–S8 逐条

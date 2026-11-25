@@ -7,7 +7,7 @@
 # build\ios27-<Tag>.log; the exit code is the build's exit code.
 param(
     [string]$Tag = "local",
-    [string]$Repo = "E:\hackios\k60-gates",
+    [string]$Repo = "E:\iOS Port\Sources\Hardware\k60-gates",
     [string]$ExtraArgs = ""
 )
 
@@ -16,7 +16,7 @@ $logDir = Join-Path $Repo 'build'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir ("ios27-{0}.log" -f $Tag)
 
-$command = "cd /mnt/e/hackios/k60-gates && K60_ALLOW_BUILD=1 bash scripts/build-ios27-linux.sh"
+$command = "cd /mnt/e/iOS Port/Sources/Hardware/k60-gates && K60_ALLOW_BUILD=1 bash scripts/build-ios27-linux.sh"
 if ($ExtraArgs) { $command = "$command $ExtraArgs" }
 
 & (Join-Path $PSScriptRoot 'wsl-hidden.ps1') -Command $command -Log $log

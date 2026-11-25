@@ -214,10 +214,10 @@ def main():
               'capture.json names the log when console.log is absent', proc.stdout[:200])
 
     # Real captures, when this host has them (they are not in the repo).
-    for path in (Path('/mnt/e/k60-work/evidence/audio-probe-j/run1/console.log'),
-                 Path('/mnt/e/k60-work/evidence/usblog-20261115-013520/console.log'),
-                 Path('/mnt/e/k60-work/evidence/usblog-20261115-003207'),
-                 Path('/mnt/e/k60-work/evidence/usblog-20261114-235957')):
+    for path in (Path('/mnt/e/iOS Port/Work/evidence/audio-probe-j/run1/console.log'),
+                 Path('/mnt/e/iOS Port/Work/evidence/usblog-20261115-013520/console.log'),
+                 Path('/mnt/e/iOS Port/Work/evidence/usblog-20261115-003207'),
+                 Path('/mnt/e/iOS Port/Work/evidence/usblog-20261114-235957')):
         if not path.exists():
             continue
         proc = subprocess.run([sys.executable, str(JUDGE), str(path), '--quiet'], **RUN)

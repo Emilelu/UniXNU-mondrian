@@ -110,7 +110,7 @@ ObjC 异常**（见 §4）。把两者当成同一种「int-236」会得出错�
 
 Lead 的描述是「gpu-20261114t（pong_metal=1 + control=1，backboardd SIGABRT 16 次）」。实测三点都不成立：
 
-1. **没有 control=1**：`/mnt/e/k60-work/artifacts/gpu-20261114t/build-manifest.json` 的
+1. **没有 control=1**：`/mnt/e/iOS Port/Work/artifacts/gpu-20261114t/build-manifest.json` 的
    `kernel_args_requested` 是 `['']`，`payload_args` 里没有任何 `k60_backlight*`。
 2. **没有背光服务**：该镜像是 `feat/gpu-yibiya` 的产物，那时 `K60Backlight.cpp` 还不在 `origin/main`
    （`git ls-tree origin/main drivers/PongAdreno/` 无此文件），日志 0 条 `K60 BACKLIGHT`。
@@ -132,7 +132,7 @@ gpu-t 的 16 个 `Process[N] crashed: backboardd`（例子 `:1400` 起共 17 条
 
 ## 5 int-236 原文与拆解
 
-sheng 的 `/mnt/e/hackios/UniXNU-sheng/package/AppleARMBacklight.cpp` 在 `publishFirst` 上方逐字写着：
+sheng 的 `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/AppleARMBacklight.cpp` 在 `publishFirst` 上方逐字写着：
 
 > CoreBrightness finds the backlight by backlight-control = true and takes it for the built-in
 > display's only when IOObjectConformsTo(service, "AppleARMBacklight") holds (CBDisplayContaineriOS
@@ -215,7 +215,7 @@ b4 首崩 `pc=0x1afa3f668 lr=0x1d7c90aa4`。两者都在 dyld 共享缓存地址
 
 - **每 boot 的 slide 不同**：同一 exit stub 在 b4 是 `pc=0x1e9c9f538`（launchd），b13 是 `0x1df0ab538`，
   gpu-t 是 `0x1e2237538`。所以 pc 不能跨日志直接比，必须先对齐 slide 再落到镜像偏移。
-- **本地没有 cache**：`find /mnt/e/hackios /mnt/e/k60-work/firmware -maxdepth 6 -name 'dyld_shared_cache*'`
+- **本地没有 cache**：`find /mnt/e/iOS Port/Sources /mnt/e/iOS Port/Work/firmware -maxdepth 6 -name 'dyld_shared_cache*'`
   → 0 命中。没有 20G81 的 `dyld_shared_cache_arm64e` 就无法把偏移翻译成符号。
 - **设备侧也没戏**：b4 末尾 `:2864-2865`
   `Attempt to create [/private/var/root/Library/Caches/com.apple.coresymbolicationd/20G81] failed. No such file or directory`
@@ -303,7 +303,7 @@ EDR/背光路径，而我们的显示栈承受不了那条路径」。
 
 ## 10 引用清单
 
-- `/mnt/e/hackios/UniXNU-sheng/package/AppleARMBacklight.cpp`：impersonate 与 publishFirst 上方注释、
+- `/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng/package/AppleARMBacklight.cpp`：impersonate 与 publishFirst 上方注释、
   `publishFirst` 的 control/impersonate/stats[0] 代码。
 - `xnu-work/bsd/kern/kern_exit.c:1776`、`:1791`（KX!/KXPC 格式与 find_user_regs）。
 - `xnu-work/libkern/c++/OSMetaClass.cpp:415`、`:1326`、`:1381-1402`（metaCast / checkMetaCast 链）。
@@ -318,7 +318,7 @@ EDR/背光路径，而我们的显示栈承受不了那条路径」。
 - `docs/engineering/PITFALLS.md:2644`（P-120）、`:2679-2683`（exec_inject 注入代码）、`:1835`（P-98）。
 - `docs/reference/PITFALLS-FROM-HISTORY.md` #131（syncdefaultsd NSURL nil）、#132（注入钩子导致 SpringBoard 循环）。
 - `docs/engineering/BOOT-ARGS.md:54`（k60_skip_iosurface）、`board.toml:192`（payload 默认参数）。
-- 日志：`/mnt/e/k60-work/evidence/usblog-20261115-013520/console.log`（b4）、
+- 日志：`/mnt/e/iOS Port/Work/evidence/usblog-20261115-013520/console.log`（b4）、
   `usblog-20261115-134638/console.log`（b13）、`usblog-20261114-235957/console.log`（gpu-t）。
 
 ---
@@ -448,7 +448,7 @@ Android 两端亮度而做的 12 位 DCS 0x51 改动。所有数字都来自对�
 
 ### 13.3 Android 对照：12 位双字节 DCS 0x51
 
-本地 LineageOS sm8250 源码（`/mnt/e/k60-work/scratch/dsi_panel_sm8250.c`、`drm_mipi_dsi_sm8250.c`、
+本地 LineageOS sm8250 源码（`/mnt/e/iOS Port/Work/scratch/dsi_panel_sm8250.c`、`drm_mipi_dsi_sm8250.c`、
 `sde_connector.c`）给出：
 - `mipi_dsi_dcs_set_display_brightness(dsi, u16 brightness)` 固定发
   `u8 payload[2] = { brightness & 0xff, brightness >> 8 }`（永远两个参数）。

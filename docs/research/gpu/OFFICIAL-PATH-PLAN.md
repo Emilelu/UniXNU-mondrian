@@ -61,7 +61,7 @@
 - 标识：`compatible = "qcom,adreno-gpu-gen7-4-0", "qcom,kgsl-3d0"`、`qcom,gpu-model = "Adreno730v3"`、`qcom,chipid = <0x7030002>`、`qcom,ubwc-mode = <0x04>`、`qcom,min-access-length = <0x20>`、`qcom,initial-pwrlevel = <0x0b>`。
 - 中断：GPU `0x12c`(300) + `0x11e`(286)；GMU `0x130`(304) + `0x131`(305)。
 - 电源：GMU 节点 `regulator-names = "vddcx", "vdd"`；`iommus = <0x221 0x05 0x400>`、`qcom,iommu-dma = "disabled"`（SID 由 `NativeAdrenoBoard::parseIommus` 从同一属性提取，不猜 context bank）。
-- **固件（已在本机，来自设备只读提取）**：`gmu_gen70000.bin` 57,272 B（GMU，gen70000 即 A730）、`a730_sqe.fw` 74,676 B（SQE）、`a730_zap.mdt` 3,564 B + `a730_zap.b01` 2,236 B + `a730_zap.b02` 3,416 B（Zap shader）。路径 `E:/k60-work/adsp-device-20261116/.cache/firmware/k60-gpu/`。
+- **固件（已在本机，来自设备只读提取）**：`gmu_gen70000.bin` 57,272 B（GMU，gen70000 即 A730）、`a730_sqe.fw` 74,676 B（SQE）、`a730_zap.mdt` 3,564 B + `a730_zap.b01` 2,236 B + `a730_zap.b02` 3,416 B（Zap shader）。路径 `E:/iOS Port/Work/adsp-device-20261116/.cache/firmware/k60-gpu/`。
 - **时钟档表（12 档，`qcom,gpu-pwrlevels`，实测原值）**：
 
 | 档 | MHz | level |

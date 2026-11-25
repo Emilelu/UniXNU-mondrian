@@ -8,7 +8,7 @@ unjudged and no item carries the retired gap label. The manifest was rewritten w
 TOML writer: `tomllib` load, dict mutation, JSON-quoted string emission,
 `tomllib.loads` round-trip, then `os.replace`. The pre-write backup is kept
 outside the repository at
-`/mnt/e/k60-work/scratch/PRECEDENT-MANIFEST.toml.bak-20261123-104024`.
+`/mnt/e/iOS Port/Work/scratch/PRECEDENT-MANIFEST.toml.bak-20261123-104024`.
 
 ## Counts per repository
 
@@ -72,7 +72,7 @@ working checkouts of those three trees (`a68ee4e`, `034a0b0`, `e0ee6df`).
 - One patch is genuinely missing: `vmwait-dyld-pager-source-release.patch`.
   It fails `git apply --check` on the clean base feed at
   `osfmk/vm/vm_dyld_pager.c:1330` but passes after our 0564 re-cut in
-  `/mnt/e/k60-work/scratch/xnu-check`; it releases the source page and
+  `/mnt/e/iOS Port/Work/scratch/xnu-check`; it releases the source page and
   placeholder before the other 16 KiB fixup parts are read. It does not
   duplicate 0561-0574 and is recorded as the must-copy candidate.
 
@@ -141,7 +141,7 @@ working checkouts of those three trees (`a68ee4e`, `034a0b0`, `e0ee6df`).
   Eleven of the 15 copied files fail base-feed apply because they were re-cut
   when landed (0243, 0300, 0308, 0334b, 0501, 0502, 0502b, virtual-timer,
   ramoops, video-console, psci-smp). All 69 passing-but-uncopied files are enumerated in
-  `E:/k60-work/scratch/parity-expand-report.md`, Appendix A.
+  `E:/iOS Port/Work/scratch/parity-expand-report.md`, Appendix A.
 - Two stage-0 assets do not apply to the base feed as-is and must be re-cut:
   `0306-k60-console-snapshot.patch` and `0331-k60-prevlog-replay.patch`; the
   second half of the trust-cache fix, `zzzz...-k60-trustcache-ready-guard.patch`,
@@ -152,7 +152,7 @@ working checkouts of those three trees (`a68ee4e`, `034a0b0`, `e0ee6df`).
 This list records the gap set as first written. Status at the 2026-11-23
 sheng/zizhan/pong rescan: items 1, 2 and 5 have landed in the 27 series (0572,
 0574 and 0573); items 3, 4, 6 and 7 remain open; item 8 is the new sheng gap.
-`E:/k60-work/scratch/parity-expand-report.md` gives the per-patch
+`E:/iOS Port/Work/scratch/parity-expand-report.md` gives the per-patch
 `git apply --check` output and the duplicate analysis against 0561-0574 for
 every one.
 
@@ -198,7 +198,7 @@ every one.
    `corecrypto_kext_start` caller (grep: 0 hits). The 16-line patch adds the
    `STARTUP(EARLY_BOOT, STARTUP_RANK_FIRST, ...)` bootstrap; the build input
    has a newer, more defensive variant at
-   `E:/k60-work/artifacts/modem-carrier-verify/port-run2/framework/patches/xnu-12377/source-corecrypto14-bootstrap.patch`
+   `E:/iOS Port/Work/artifacts/modem-carrier-verify/port-run2/framework/patches/xnu-12377/source-corecrypto14-bootstrap.patch`
    that must be reconciled before landing. Without this the source corecrypto
    provider is linked but never started.
 5. **`zzx-pmap-sync-64bit-pa.patch` — landed as 0573** — 402 B, applies PASS.
@@ -227,7 +227,7 @@ every one.
 8. **`vmwait-dyld-pager-source-release.patch`** — 3,730 B, touches only
    `osfmk/vm/vm_dyld_pager.c`. Base-feed `git apply --check` fails at
    `osfmk/vm/vm_dyld_pager.c:1330`; after our 0564 re-cut in
-   `/mnt/e/k60-work/scratch/xnu-check` it applies PASS. It releases the source
+   `/mnt/e/iOS Port/Work/scratch/xnu-check` it applies PASS. It releases the source
    page and placeholder before the other 16 KiB fixup parts are read; the sheng
    header notes `Not run on hardware`. It does not duplicate any of 0561-0574.
 
@@ -270,7 +270,7 @@ The following 69 files passed `git apply --check` on xnu-3199e8bc at the origina
   xnu-12377 (`bsd/dev/pong_*.c`, `iokit/Kernel/MiniIOMobileFramebuffer.cpp`,
   `iokit/Kernel/MiniIOSurface.cpp`, `pexpert/pexpert/arm64/PONG.h`, ...) or
   their hunk context is anchored to the Pong device tree. Per-patch reasons are
-  in the manifest and in `E:/k60-work/scratch/parity-expand-report.md`.
+  in the manifest and in `E:/iOS Port/Work/scratch/parity-expand-report.md`.
 
 ### Cannot decide in this task
 

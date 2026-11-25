@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | 1 | 小米官方 kernel 开源页（marble / fuxi） | Goodix 触摸驱动源码位置、板级 DTS | `docs/plans/DOCS-DRIVERS-ALL.md`、`DOCS-DEVICES-A-M.md`、`DOCS-DEVICES-N-Z.md` | 2026-11-08 01:04–01:19 |
 | 2 | OFFICIAL-DRIVER-MAP 第 4 项（输入） | 触摸在 16 项覆盖表中的位置与要求 | `docs/plans/OFFICIAL-DRIVER-MAP.md` | 2026-11-07 |
-| 3 | K60 live FDT（**事实上的官方硬件描述**） | `soc/spi@990000/xiaomi_touch@0` 全部属性 | `E:/k60-work/reports/live-6033dbec-fdt.dtb`（sha256 `95c02052…`） | 2026-11-02 从设备导出 |
+| 3 | K60 live FDT（**事实上的官方硬件描述**） | `soc/spi@990000/xiaomi_touch@0` 全部属性 | `E:/iOS Port/Work/reports/live-6033dbec-fdt.dtb`（sha256 `95c02052…`） | 2026-11-02 从设备导出 |
 
 ## K60 原厂触摸参数（摘自 `K60-TOUCH-PARAMS.md`，逐项有来源）
 

@@ -14,7 +14,7 @@
 set -uo pipefail
 
 DROOT="${K60_D_ROOT:-/mnt/d/Android/k60-ios}"
-WROOT="${K60_W_ROOT:-/mnt/e/hackios}"
+WROOT="${K60_W_ROOT:-/mnt/e/iOS Port/Sources}"
 QUIET=0
 [ "${1:-}" = "--quiet" ] && QUIET=1
 

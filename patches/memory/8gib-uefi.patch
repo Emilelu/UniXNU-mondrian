@@ -1,12 +1,12 @@
 # K60 memory-window change: 4.75 GiB -> 8 GiB
 #
-# Apply from /mnt/e/hackios with:
+# Apply from /mnt/e/iOS Port/Sources with:
 #   patch -p1 --dry-run < proposed.patch
 #   patch -p1 < proposed.patch
 #
 # Source trees:
-#   /mnt/e/hackios/uefi-mondrian
-#   /mnt/e/hackios/UniXNU-mondrian
+#   /mnt/e/iOS Port/Sources/Repos/UEFI/uefi-mondrian
+#   /mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-mondrian
 #
 --- a/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c
 +++ b/uefi-mondrian/Platforms/Xiaomi/mondrianPkg/Library/MemoryMapLib/MemoryMapLib.c

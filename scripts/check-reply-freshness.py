@@ -29,8 +29,8 @@ import pathlib
 import re
 import sys
 
-WSL_SCRATCH = pathlib.Path('/mnt/e/k60-work/scratch')
-WIN_SCRATCH = pathlib.Path('E:/k60-work/scratch')
+WSL_SCRATCH = pathlib.Path('/mnt/e/iOS Port/Work/scratch')
+WIN_SCRATCH = pathlib.Path('E:/iOS Port/Work/scratch')
 SCRATCH = pathlib.Path(os.environ.get('K60_SCRATCH')
                        or (WSL_SCRATCH if WSL_SCRATCH.is_dir() else WIN_SCRATCH))
 PROMPT_HOURS = 24

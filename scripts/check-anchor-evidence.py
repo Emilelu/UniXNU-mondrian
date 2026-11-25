@@ -75,10 +75,10 @@ def series_tree(feed, series, workdir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--report', default='/mnt/e/k60-work/scratch/ios16-anchor-report.tsv')
+    parser.add_argument('--report', default='/mnt/e/iOS Port/Work/scratch/ios16-anchor-report.tsv')
     parser.add_argument('--tree', default='/opt/k60/trees/ios27-out/feeds/xnu-3199e8bc')
     parser.add_argument('--series', help='replay this series on a shared clone and check against it')
-    parser.add_argument('--workdir', default='/mnt/e/k60-work/scratch')
+    parser.add_argument('--workdir', default='/mnt/e/iOS Port/Work/scratch')
     args = parser.parse_args()
     tree = series_tree(args.tree, args.series, args.workdir) if args.series else args.tree
     counted, problems = check(args.report, tree)

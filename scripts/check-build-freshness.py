@@ -5,7 +5,7 @@
 分区镜像都要确保都是用最新的代码来进行的」。
 
 三个组件各有各的「旧」法：
-  uniXNU 框架  /opt/k60/trees/k60build 是 E:\\hackios\\UniXNU 的副本，会漂移
+  uniXNU 框架  /opt/k60/trees/k60build 是 E:\\iOS Port\\Sources\\UniXNU 的副本，会漂移
   xnu 内核      由 framework + series 决定，series 变了但没重建就是旧的
   uefi 固件     .fd 是编译产物，uefi-mondrian 变了但没重编就是旧的
 

@@ -21,7 +21,7 @@ the offset are already the answer, and they cost no adb pull.
 Usage:
     # once, from the local IPSW (about 90 s on the 2.5 GB cryptex image)
     python3 scripts/dyld-cache-index.py --dmg 096-56782-083.dmg \
-        --out /mnt/e/k60-work/caches/20G81/dyld-index-20G81.json
+        --out /mnt/e/iOS Port/Work/caches/20G81/dyld-index-20G81.json
 
     # per crash log
     python3 scripts/dyld-cache-index.py --index dyld-index-20G81.json \

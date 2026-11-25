@@ -432,7 +432,7 @@ def scratch_parent(explicit: str | None) -> Path:
         path = Path(explicit)
         path.mkdir(parents=True, exist_ok=True)
         return path
-    for candidate in (os.environ.get("K60_SCRATCH"), "/mnt/e/k60-work/scratch"):
+    for candidate in (os.environ.get("K60_SCRATCH"), "/mnt/e/iOS Port/Work/scratch"):
         if candidate and os.path.isdir(candidate):
             return Path(candidate)
     home = Path(os.path.expanduser("~")) / ".cache" / "k60"

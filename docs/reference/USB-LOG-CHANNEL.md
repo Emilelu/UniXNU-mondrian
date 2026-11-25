@@ -46,7 +46,7 @@ ifnet ue0（内核自创，192.168.7.2/24）──► DWC3 bulk IN（ep 0x81）�
 
 | 仓库 | 角色 | 本地副本 |
 |---|---|---|
-| `github.com/dipa-studio/ios-sweet`（用户 dipa-studio，237 commits，最后 push 2026-10-23） | 原始实现与全部 commit | `E:\k60-work\forks-review\ios-sweet`（本次克隆） |
+| `github.com/dipa-studio/ios-sweet`（用户 dipa-studio，237 commits，最后 push 2026-10-23） | 原始实现与全部 commit | `E:\iOS Port\Work\forks-review\ios-sweet`（本次克隆） |
 | `github.com/XTOM0706/ios-sweet-k60`（非 fork，2026-10-21 建库，首提交 `2df0f31` 导入全部补丁） | K60 适配版 | `D:\Android\k60-ios\ios-sweet-k60`（原有克隆） |
 
 关键 commit（dipa-studio/ios-sweet，日期均为 2026-10-17/18，`git log` 实测）：
@@ -123,7 +123,7 @@ ifnet ue0（内核自创，192.168.7.2/24）──► DWC3 bulk IN（ep 0x81）�
 
 ### 1.7 hakios 现主线的状态（防止找错地方）
 
-`oosexgang` 组织 7 个仓库（GitHub API，2026-11-02）：`hakios-xnu-kernel`（2026-11-01 仍在更新）、`hakios-metal`、`hakios-sm7325`（redwood 设备）、`hakios-uefi`、`hackios-web`、`hakios-mt6768`、`hackios-xnu-userland`。已克隆 `hakios-xnu-kernel`（`96ffbc5`）到 `E:\k60-work\forks-review\hakios-xnu-kernel`：**全树 grep 无 DWC3/USB gadget**；网络改为 `drivers/net/hakios.net.c` 的 en0 抽象（链接层是 Wi-Fi / QEMU virtio / modem IPA，`xnu/README.md` 驱动表）。**即「hakios 的 USB 读日志」只在 ios-sweet 时代的补丁系列里，不在当前主线。** 该仓库另有一个相关机制 `xnu/files/osfmk/arm64/loader_return.c`（见 §4.5）。
+`oosexgang` 组织 7 个仓库（GitHub API，2026-11-02）：`hakios-xnu-kernel`（2026-11-01 仍在更新）、`hakios-metal`、`hakios-sm7325`（redwood 设备）、`hakios-uefi`、`hackios-web`、`hakios-mt6768`、`hackios-xnu-userland`。已克隆 `hakios-xnu-kernel`（`96ffbc5`）到 `E:\iOS Port\Work\forks-review\hakios-xnu-kernel`：**全树 grep 无 DWC3/USB gadget**；网络改为 `drivers/net/hakios.net.c` 的 en0 抽象（链接层是 Wi-Fi / QEMU virtio / modem IPA，`xnu/README.md` 驱动表）。**即「hakios 的 USB 读日志」只在 ios-sweet 时代的补丁系列里，不在当前主线。** 该仓库另有一个相关机制 `xnu/files/osfmk/arm64/loader_return.c`（见 §4.5）。
 
 ---
 
@@ -140,7 +140,7 @@ ifnet ue0（内核自创，192.168.7.2/24）──► DWC3 bulk IN（ep 0x81）�
 | 原语 | `ml_io_map`（osfmk/arm/machine_routines.h:703）、`kernel_thread_start`（osfmk/kern/thread.h:1793）、`PE_parse_boot_argn`（pexpert.h:337）、`kmem_alloc_contig`/`pmap_find_phys` 均在（hakios 用到的全部） | 各头文件 |
 | SMMU 能力 | **有 kit 可用**：`/tmp/k60build/kits/ArmSmmu4K`；PongUfs 已有 `SmmuTakeover.h`（ARM SMMUv2 context 规划） | /tmp/k60build/kits、feeds/PongUfs-245e493f/SmmuTakeover.h:2 |
 | KDP | `osfmk/kdp/`（kdp.c、kdp_udp.c、kdp_serial.c）在树中，但 KDP 需要 IOKit NIC 轮询驱动挂 `kdp_register_send_receive`，我们没有 | 树内文件列表 |
-| boot-args | 打包期组装：`UniXNU-mondrian/scripts/build-native-bootimg-local.py:108-146` 写 `unixnu.toml args="..."`；`build-pong-prelinked-boot.py:110-113` 支持 `--kernel-arg` 追加（**加 arg 不改脚本**）。当前命令行约 263 字节（`E:\k60-work\candidates\4g-quiet\extracted\unixnu.toml:12`）；命令行预算两处口径不一：`drivers/DarwinBoot/.../BootArgs.h:21` 为 `CommandLine[1024]`，`scripts/build-darwinboot22-macos.py:61` 为 608，以实际构建链为准——加 `k60_usblog=1`（13 字节）均无压力 | 各文件行号 |
+| boot-args | 打包期组装：`UniXNU-mondrian/scripts/build-native-bootimg-local.py:108-146` 写 `unixnu.toml args="..."`；`build-pong-prelinked-boot.py:110-113` 支持 `--kernel-arg` 追加（**加 arg 不改脚本**）。当前命令行约 263 字节（`E:\iOS Port\Work\candidates\4g-quiet\extracted\unixnu.toml:12`）；命令行预算两处口径不一：`drivers/DarwinBoot/.../BootArgs.h:21` 为 `CommandLine[1024]`，`scripts/build-darwinboot22-macos.py:61` 为 608，以实际构建链为准——加 `k60_usblog=1`（13 字节）均无压力 | 各文件行号 |
 | 驱动形态 | 我们的带外驱动是 prelinked KEXT feed（PongUfs：`NativeUfs : IOService` + Info.plist），但 hakios 的 sweet_usb.c 是纯 BSD 文件 + 一个初始化调用，**不必套 IOKit**：新文件经 `UniXNU-mondrian/patches/xnu/` 补丁系列（现有 123 个，`xnu-patches.list`）进树，在 `arm_init.c:669` 附近加一行 `k60_usblog_init()` | feeds/PongUfs-245e493f/NativeUfs.cpp:123-127 |
 
 ### 2.2 K60 硬件事实（USB）
@@ -261,6 +261,6 @@ socat -u udp-recv:5140 - | tee logs/k60-usb-first.log
 
 ## 附：本次调研产物位置
 
-- 克隆：`E:\k60-work\forks-review\ios-sweet`（dipa-studio 上游全史）、`E:\k60-work\forks-review\hakios-xnu-kernel`（oosexgang 主线，blobless）
-- 既有相关文档：`UniXNU-mondrian/docs/USB-LOGGING-PLAN.zh.md`（pong 时代 CDC-ACM 设计稿，未实现，被本报告的 ECM 实证路线取代）；`E:\k60-work\docs\ISSUES.md` I-20261102-03（取证手段约束）；`E:\k60-work\docs\DECISIONS.md`（4g-quiet 诊断形态）
+- 克隆：`E:\iOS Port\Work\forks-review\ios-sweet`（dipa-studio 上游全史）、`E:\iOS Port\Work\forks-review\hakios-xnu-kernel`（oosexgang 主线，blobless）
+- 既有相关文档：`UniXNU-mondrian/docs/USB-LOGGING-PLAN.zh.md`（pong 时代 CDC-ACM 设计稿，未实现，被本报告的 ECM 实证路线取代）；`E:\iOS Port\Work\docs\ISSUES.md` I-20261102-03（取证手段约束）；`E:\iOS Port\Work\docs\DECISIONS.md`（4g-quiet 诊断形态）
 - 未找到/未确认清单：SM8475 GCC USB 时钟偏移（需 Linux gcc-sm8450.c）；K60 USB SMMU stream 编号与行为；Android 侧是否有 root（落盘回读用）；Windows 原生 ECM 驱动的官方说法；EUD 可用性。

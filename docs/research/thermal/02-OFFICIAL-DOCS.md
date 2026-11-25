@@ -11,9 +11,9 @@
 本地副本（供复核，均可从下面的 URL 重新下载）：
 
 ```
-/mnt/e/k60-work/thermal-refs/qcom-tsens.yaml    11884 B / 413 行
-/mnt/e/k60-work/thermal-refs/tsens-v2.c          4537 B / 131 行
-/mnt/e/k60-work/thermal-refs/tsens.c            34575 B / 1348 行
+/mnt/e/iOS Port/Work/thermal-refs/qcom-tsens.yaml    11884 B / 413 行
+/mnt/e/iOS Port/Work/thermal-refs/tsens-v2.c          4537 B / 131 行
+/mnt/e/iOS Port/Work/thermal-refs/tsens.c            34575 B / 1348 行
 ```
 
 下载源（v6.6 标签，jsdelivr 镜像；raw.githubusercontent 会 429，git.kernel.org 直连失败）：

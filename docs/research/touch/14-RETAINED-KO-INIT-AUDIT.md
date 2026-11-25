@@ -18,7 +18,7 @@ Status as of 2026-11-14: offline binary evidence only, describing candidate `tou
 
 ## Identity and reproducibility
 
-- Input: E:/k60-work/scratch/goodix_core.ko (WSL /mnt/e/k60-work/scratch/goodix_core.ko), 614,896 bytes.
+- Input: E:/iOS Port/Work/scratch/goodix_core.ko (WSL /mnt/e/iOS Port/Work/scratch/goodix_core.ko), 614,896 bytes.
 - SHA-256 before/after analysis: 381b1969f45a65b5922387091b6a8e8bacd452ab5b135eab3824b079c6e6b977.
 - ELF64, little-endian, AArch64, **ET_REL**; retained symbol and RELA tables; no DWARF. Earlier ET_EXEC descriptions were incorrect. The .text file offset is 0x14000. All instruction addresses below are .text-relative offsets, not loaded virtual addresses.
 - Embedded metadata: vermagic 5.10.160-gki-gf555d54c041a; scmversion gf205246a249c; Build-ID c82140295cf1e2d2c56f0a1cf9c4488ee0004491; dependencies xiaomi_touch, sched-walt, panel_event_notifier. Embedded source path names touchfeature_v2/touch_driver/m11a/goodix_9916r/goodix_ts_core.c and compatible xiaomi,m11a-spi.
@@ -27,18 +27,18 @@ Status as of 2026-11-14: offline binary evidence only, describing candidate `tou
 Use existing WSL tools; the earlier MSYS readelf-not-found result did not establish WSL tool absence. These are read-only commands, not build commands:
 
 ~~~bash
-sha256sum /mnt/e/k60-work/scratch/goodix_core.ko
-readelf -h /mnt/e/k60-work/scratch/goodix_core.ko
-readelf -sW /mnt/e/k60-work/scratch/goodix_core.ko
-readelf -rW /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0x3110 --stop-address=0x32b4 /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0xbadc --stop-address=0xbc90 /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0x11104 --stop-address=0x12068 /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0x12068 --stop-address=0x12198 /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0x2c070 --stop-address=0x2c230 /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0x1700 --stop-address=0x23d0 /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0x136e8 --stop-address=0x13b9c /mnt/e/k60-work/scratch/goodix_core.ko
-llvm-objdump -dr --start-address=0x18bc8 --stop-address=0x18cec /mnt/e/k60-work/scratch/goodix_core.ko
+sha256sum /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+readelf -h /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+readelf -sW /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+readelf -rW /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0x3110 --stop-address=0x32b4 /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0xbadc --stop-address=0xbc90 /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0x11104 --stop-address=0x12068 /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0x12068 --stop-address=0x12198 /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0x2c070 --stop-address=0x2c230 /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0x1700 --stop-address=0x23d0 /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0x136e8 --stop-address=0x13b9c /mnt/e/iOS Port/Work/scratch/goodix_core.ko
+llvm-objdump -dr --start-address=0x18bc8 --stop-address=0x18cec /mnt/e/iOS Port/Work/scratch/goodix_core.ko
 ~~~
 
 Relocation records are necessary: an unrelocated BL/B label can point misleadingly at another local label. The retained-module subagent completed the bounded power/confirm disassemblies and call-table tracing; the Lead independently cross-checked the file digest/header, probe callsite, confirm instructions and CFI jump relocations. This is not runtime evidence.

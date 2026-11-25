@@ -422,7 +422,7 @@ the framework's copy.
 
 ## What the sheng port already answers
 
-`E:/hackios/UniXNU-sheng` maintains the same OS profile
+`E:/iOS Port/Sources/Repos/UniXNU/UniXNU-sheng` maintains the same OS profile
 (`"os_profile" = "ipados-27.0.1-24A446"`, `board.toml:9`) on an SM8550 board, so
 its `patches/xnu-12377/series` is a second opinion on the same kernel. It has 17
 entries against our 30. Reading the difference answers a question our series

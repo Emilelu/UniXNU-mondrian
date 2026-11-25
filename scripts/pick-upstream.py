@@ -28,7 +28,7 @@ from pathlib import Path
 
 # 仓库根：默认本脚本所在的检出（worktree 里跑就用 worktree），K60_REPO 可覆盖。
 REPO = Path(os.environ.get('K60_REPO') or Path(__file__).resolve().parents[1])
-WORK = '/mnt/e/k60-work'
+WORK = '/mnt/e/iOS Port/Work'
 
 
 # 三个目标树：每个上游仓库的文件要写到对应的本地仓库，而不是全塞进设备仓库。

@@ -223,15 +223,15 @@ def doctor_reports_every_lane_cursor():
 def bus_root_translates_between_windows_and_wsl_paths():
     previous = os.environ.get("K60_BUS")
     try:
-        os.environ["K60_BUS"] = "E:/k60-work/bus"
+        os.environ["K60_BUS"] = "E:/iOS Port/Work/bus"
         first = bus.bus_root()
         if os.name == "posix":
-            check(str(first) == "/mnt/e/k60-work/bus",
-                  f"POSIX must see /mnt/e/k60-work/bus, got {first}")
+            check(str(first) == "/mnt/e/iOS Port/Work/bus",
+                  f"POSIX must see /mnt/e/iOS Port/Work/bus, got {first}")
         else:
             check(str(first).lower().startswith("e:"), f"Windows keeps E:, got {first}")
         if os.name != "posix":
-            os.environ["K60_BUS"] = "/mnt/e/k60-work/bus"
+            os.environ["K60_BUS"] = "/mnt/e/iOS Port/Work/bus"
             check(str(bus.bus_root()).lower().startswith("e:"),
                   "Windows must translate /mnt/e back to E:")
     finally:

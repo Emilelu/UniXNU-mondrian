@@ -20,7 +20,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-RECORD = Path('/mnt/e/k60-work/scratch/stubs/unreachable.toml')
+RECORD = Path('/mnt/e/iOS Port/Work/scratch/stubs/unreachable.toml')
 NM = '/usr/bin/llvm-nm-18'
 DEV = Path('/opt/k60/trees/ios27-out/mondrian/ios-27.0.1-24A446/mondrian_ios27/tree/build/xnu/ios-obj/'
            'DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf')

@@ -15,7 +15,7 @@ AOCI-CODE 是一个 Go 单二进制 + stdio MCP Server，用「模型给每个�
 
 ## 2 本机实测（不是读文档得来的）
 
-二进制：`E:\k60-work\tools\aoci\aoci.exe`，`aoci version 0.2.0-rc3 (commit 0a00a2b9…)`，zip sha256 `0a342721…`（与 Release `SHA256SUMS` 一致），exe sha256 `d5e74716…`。
+二进制：`E:\iOS Port\Work\tools\aoci\aoci.exe`，`aoci version 0.2.0-rc3 (commit 0a00a2b9…)`，zip sha256 `0a342721…`（与 Release `SHA256SUMS` 一致），exe sha256 `d5e74716…`。
 
 | 实测项 | 结果 |
 | --- | --- |

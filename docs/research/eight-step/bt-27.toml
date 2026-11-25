@@ -6,7 +6,7 @@
 revisit = "stage-0 SpringBoard, or an F1/F2 signal that yields a bootable 24A446 payload"
 name = "蓝牙（QCA6490 / HCI over UART）"
 status = "parked"
-paths = ["dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "patches/xnu-12377/series", "/mnt/e/hackios/QcaBluetooth"]
+paths = ["dts/mondrian.dts", "configs/mondrian_ios27_defconfig", "patches/xnu-12377/series", "/mnt/e/iOS Port/Sources/Repos/Drivers/QcaBluetooth"]
 why = "2026-11-21 re-read for the 27 line: the series, the DT node and the static checks exist, but no 24A446 payload, no stage-0 SpringBoard and no single bluetoothd start have been observed. The 18.x device line stopped in the NVM budget (d7) and d8 was paused; this record does not inherit that device run. The only green 27 kernel build is CI 44518998961, whose head 33f5229 is not an ancestor of this branch. The files this record reads are docs/plans/BT-IOS27-PORT.md, dts/mondrian.dts, configs/mondrian_ios27_defconfig and patches/xnu-12377/series."
 label = "蓝牙（QCA6490 / UART SE20 0x894000 / GENI + QCA 固件 addon）"
 

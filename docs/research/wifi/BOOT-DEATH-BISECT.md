@@ -102,7 +102,7 @@ PongWifiPci.cpp / PongWifiFirmware.cpp / ath11k/PongAth11k.c），由 patches/wi
 | wifi-20261116c4 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,888 B | **进桌面并跑到驱动 stage 4**（`pong_wifi=1`，停在 RSC 门口） |
 | wifi-20261116c5 | 226 / `d83fb189…` | 4.5 GiB | 117,325,824 B | 221,969 B | **进桌面 + RSC 只读探针成立**（`pong_wifi=1 k60_wifi_rsc=1`，`:489` 读到 `id=0x00020700 caps=0x800c8104 tcs4Idle=1 tcs4Status=0`） |
 
-（console 证据：`E:/k60-work/evidence/usblog-20261113-basef2`、`usblog-20261113-basef4`、
+（console 证据：`E:/iOS Port/Work/evidence/usblog-20261113-basef2`、`usblog-20261113-basef4`、
 `usblog-20261114-150931`、`usblog-20261115-002804`、`usblog-20261115-002243`、c3 与 c4 见 §6.5、
 c5 见 `usblog-20261116-075300/console.log`。）
 
@@ -340,7 +340,7 @@ c3 与 c2 的唯一差别是 `patches/wifi/0012`（惰性分配 SMMU 锁），�
 `${PIPESTATUS[0]}`，过滤过输出时以行内的 `[exit N]` 为准：
 
 ```sh
-python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
+python3 scripts/judge-wifi-boot.py E:/iOS Port/Work/evidence/usblog-20261116-xxxxxx
 ```
 
 自测 `python3 scripts/tests/test-judge-wifi-boot.py`（11 例：两份真静默
@@ -358,7 +358,7 @@ python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
 
 **测试纪律**（P-202「绿得没有区分力」的同类）：判定器的测试必须跑真样本，且
 真样本缺失时不能静默降级成 SKIP 还报绿。这套测试原先写死 WSL 路径
-`/mnt/e/k60-work/evidence`，在宿主 MSYS 侧跑时四份真日志全部 SKIP，输出照样是
+`/mnt/e/iOS Port/Work/evidence`，在宿主 MSYS 侧跑时四份真日志全部 SKIP，输出照样是
 `TESTS OK`——门禁在，但已经没有区分力。现在路径按 `K60_EVIDENCE` → `/mnt/e` →
 `E:/` 三段探测，WSL 与 MSYS 两侧都是 `11 cases (0 failure(s), 0 skipped)`；
 任何一个真样本找不到就应当显式 SKIP 并在汇总行报出 skip 数，而不是假装通过。
@@ -400,18 +400,18 @@ python3 scripts/judge-wifi-boot.py E:/k60-work/evidence/usblog-20261116-xxxxxx
 
 | 事实 | 证据路径 |
 |---|---|
-| mhi3/mhi4 都 0 字节 | `E:/k60-work/evidence/usblog-20261115-002804/{console.log,capture.json}`、`…/usblog-20261115-002243/` |
-| base-20261113d/f 进用户态 | `E:/k60-work/evidence/usblog-20261113-basef2/console.log`（218,488 B）、`…-basef4/console.log`（223,923 B） |
-| touch-20261114a 进 SpringBoard | `E:/k60-work/evidence/usblog-20261114-150931/console.log`（268,137 B） |
-| wifi-20261115a 非法参数 | `E:/k60-work/artifacts/wifi-20261115a/build-manifest.json`（`epoch=1 debug=1`）+ `scripts/check-image-args.py:52-56` |
-| wifi-20261115h2 合规但 0 字节 | `E:/k60-work/artifacts/wifi-20261115h2/build-manifest.json`（`pong_wifi=1 k60_wifi_rsc=2 debug=0x140 epoch=1793709100`，602 B） |
+| mhi3/mhi4 都 0 字节 | `E:/iOS Port/Work/evidence/usblog-20261115-002804/{console.log,capture.json}`、`…/usblog-20261115-002243/` |
+| base-20261113d/f 进用户态 | `E:/iOS Port/Work/evidence/usblog-20261113-basef2/console.log`（218,488 B）、`…-basef4/console.log`（223,923 B） |
+| touch-20261114a 进 SpringBoard | `E:/iOS Port/Work/evidence/usblog-20261114-150931/console.log`（268,137 B） |
+| wifi-20261115a 非法参数 | `E:/iOS Port/Work/artifacts/wifi-20261115a/build-manifest.json`（`epoch=1 debug=1`）+ `scripts/check-image-args.py:52-56` |
+| wifi-20261115h2 合规但 0 字节 | `E:/iOS Port/Work/artifacts/wifi-20261115h2/build-manifest.json`（`pong_wifi=1 k60_wifi_rsc=2 debug=0x140 epoch=1793709100`，602 B） |
 | wifi-20261116a2 从未上机 | evidence 全库按 imageSha256 join 零命中；其 args 30 项 587 B（`pong_wifi=0`，`debug=0x140`，`epoch=1793709100`） |
 | series 229 全量 | `git show backup/pre-rebase-aad0e6d:patches/xnu/series`（229 行，sha256 `0076aa20…`） |
-| 当前 wifi 分支 series 已退役探针 | `/mnt/e/hackios/k60-wifi/patches/xnu/series` = 224 行 `34cf51e4…`（e0825c6 retire the six one-off probe patches） |
+| 当前 wifi 分支 series 已退役探针 | `/mnt/e/iOS Port/Sources/Hardware/k60-wifi/patches/xnu/series` = 224 行 `34cf51e4…`（e0825c6 retire the six one-off probe patches） |
 | MHI 日志注入出处 | k60-wifi `6c99d35`；产物 `/opt/k60/trees/k60build/wifi/ath11k-mhiboot/` |
 | 内核段表与尺寸 | `/opt/k60/trees/k60build/out-wifi/…/.cache/xnu-work` 产物；`build-manifest.json` 的 `components.kernel_built` |
 | 固件 .incbin | `/opt/k60/trees/k60build/wifi/native-mhiboot/PongWifiFirmware.s`（215 B）+ `PongWifiFirmware.bin`（11,189,974 B） |
-| 重复类日志无害实证 | `E:/k60-work/evidence/usblog-20261112-203710/console.log:125,134`（boot-ab2.img 进 launchd） |
+| 重复类日志无害实证 | `E:/iOS Port/Work/evidence/usblog-20261112-203710/console.log:125,134`（boot-ab2.img 进 launchd） |
 | 窗口 QEMU 定量模型 | k60-wifi `docs/research/wifi/LOCAL-VERIFICATION.md` §5.16 |
 
 **口径冲突记录**：Lead 在 m04661 称 mhi4 为「224-series」，但

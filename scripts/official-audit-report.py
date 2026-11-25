@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / 'docs/engineering/OFFICIAL-REQUIREMENTS.toml'
-DEFAULT_AUDIT_DIR = Path('/mnt/e/k60-work/scratch')
+DEFAULT_AUDIT_DIR = Path('/mnt/e/iOS Port/Work/scratch')
 STATUSES = ('satisfied', 'unknown', 'na')
 KINDS = ('config', 'build', 'artifact', 'runtime', 'doc', 'process')
 

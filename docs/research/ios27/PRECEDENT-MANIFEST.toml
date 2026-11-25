@@ -4,7 +4,7 @@
 
 [[repo]]
 name = "asteroids"
-path = "/mnt/e/k60-work/references/community/asteroids"
+path = "/mnt/e/iOS Port/Work/references/community/asteroids"
 measured_items = 180
 
   [[repo.item]]
@@ -1053,7 +1053,7 @@ measured_items = 180
 
 [[repo]]
 name = "uke"
-path = "/mnt/e/k60-work/references/community/uke"
+path = "/mnt/e/iOS Port/Work/references/community/uke"
 measured_items = 230
 
   [[repo.item]]
@@ -2456,7 +2456,7 @@ measured_items = 230
 
 [[repo]]
 name = "cupid"
-path = "/mnt/e/k60-work/references/community/cupid"
+path = "/mnt/e/iOS Port/Work/references/community/cupid"
 measured_items = 67
 
   [[repo.item]]
@@ -2830,7 +2830,7 @@ measured_items = 67
 
 [[repo]]
 name = "vermeer"
-path = "/mnt/e/k60-work/references/community/vermeer"
+path = "/mnt/e/iOS Port/Work/references/community/vermeer"
 measured_items = 52
 
   [[repo.item]]
@@ -3117,7 +3117,7 @@ measured_items = 52
 
 [[repo]]
 name = "sheng"
-path = "/mnt/e/k60-work/references/latest/UniXNU-sheng"
+path = "/mnt/e/iOS Port/Work/references/latest/UniXNU-sheng"
 commit = "c8f92b208068eeaa4cd2b0f592671f04ee70076e"
 measured_items = 188
 
@@ -3224,7 +3224,7 @@ measured_items = 188
   id = "vmwait-dyld-pager-source-release.patch"
   sha256 = "916c930f4b6b2e7515329bafc8d2ab52ba014d4dacbc8c706e8cc5d603ff5a32"
   verdict = "not-applicable"
-  reason = "applies cleanly after 0564 in /mnt/e/k60-work/scratch/xnu-check; releases the dyld pager source page and placeholder before reading the other 16 KiB fixup parts, fixing a 4K self-deadlock. Not copied in this read-only task; must-copy candidate recorded in PRECEDENT-PARITY.md"
+  reason = "applies cleanly after 0564 in /mnt/e/iOS Port/Work/scratch/xnu-check; releases the dyld pager source page and placeholder before reading the other 16 KiB fixup parts, fixing a 4K self-deadlock. Not copied in this read-only task; must-copy candidate recorded in PRECEDENT-PARITY.md"
 
   [[repo.item]]
   kind = "patch"
@@ -4231,7 +4231,7 @@ measured_items = 188
 
 [[repo]]
 name = "t970"
-path = "/mnt/e/hackios/UniXNU-t970"
+path = "/mnt/e/iOS Port/Sources/Repos/UniXNU/UniXNU-t970"
 measured_items = 278
 
   [[repo.item]]
@@ -4239,14 +4239,14 @@ measured_items = 278
   id = "0001-pong-darwin24.patch"
   sha256 = "5f887f88822fd8161f93bec7441ce554819823091b8905166df640acb887be56"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exit.c:139 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/0001-pong-darwin24.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exit.c:139 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/0001-pong-darwin24.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "0002-pong-idle-cpu-preference.patch"
   sha256 = "a2910cc9e1aff86ebea552b65de777ed149138772f0a0ef74c6aad1ce5aeb231"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at osfmk/kern/sched_prim.c:5801 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/0002-pong-idle-cpu-preference.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at osfmk/kern/sched_prim.c:5801 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/0002-pong-idle-cpu-preference.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
@@ -4260,70 +4260,70 @@ measured_items = 278
   id = "zz-pong-main-native4k-cache-io.patch"
   sha256 = "555885d8fa665d218f5228fdc4659728d37ec8df083d64dca12caac60692403c"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5875 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zz-pong-main-native4k-cache-io.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5875 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zz-pong-main-native4k-cache-io.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzz-pong-native4k-diag-bypass.patch"
   sha256 = "704d0121183e847c4aafbcfae0e18e36f3248df555485cc9600b1d4473f6cc91"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5901 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzz-pong-native4k-diag-bypass.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5901 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzz-pong-native4k-diag-bypass.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzz-pong-scanout-idle.patch"
   sha256 = "ecea742d016c4f6f465fbbedbb653723cebade69b6a0d6b662b92b140103d093"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzz-pong-scanout-idle.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzz-pong-scanout-idle.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzz-pong-wake-scanout-alpha.patch"
   sha256 = "5783a42ee8dcedcc90257a4868f865394db2de45cbcef6629c033e0eaa7452fb"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzz-pong-wake-scanout-alpha.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzz-pong-wake-scanout-alpha.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzz-pong-runtime-rule-capacity.patch"
   sha256 = "5406e098506816f6326da4abb989df706ed37f2c69a0e939a54e8f161b2ae41a"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5972 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzz-pong-runtime-rule-capacity.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5972 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzz-pong-runtime-rule-capacity.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzz-pong-frame-links.patch"
   sha256 = "2035e5a827c9f45549e75a67eb3d6cb96ddee1d8c9ca8a2642590436ffaa3fc1"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzz-pong-frame-links.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzz-pong-frame-links.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzz-pong-native-pac-keys.patch"
   sha256 = "6de300a505506b045e71f97bfe643e0890b31bfd8ef4445ca40b3b1fa8f2e91a"
   verdict = "not-applicable"
-  reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzz-pong-native-pac-keys.patch:1)"
+  reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzz-pong-native-pac-keys.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzz-pong-sr-quiet.patch"
   sha256 = "f3378c34f9a88abf35185a4d1a28218d206dde769455b7d9d8f70a138116e68f"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at osfmk/vm/vm_shared_region.c:136 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzz-pong-sr-quiet.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at osfmk/vm/vm_shared_region.c:136 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzz-pong-sr-quiet.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzz-pong-pmsg-exec.patch"
   sha256 = "1aaaf6d6e5a34f9e02f2a5a49da96812359d294e618874c4e990a909b531be37"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/kern/pong_userland.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzz-pong-pmsg-exec.patch:1)"
+  reason = "precedent-only target bsd/kern/pong_userland.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzz-pong-pmsg-exec.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzz-pong-boot-snapshot.patch"
   sha256 = "f83ead19e889aea1e37ebe622f4a816a7dd3c9569851c4e76e51e2fce834c7a1"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/kern/pong_userland.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzz-pong-boot-snapshot.patch:1)"
+  reason = "precedent-only target bsd/kern/pong_userland.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzz-pong-boot-snapshot.patch:1)"
 
   [[repo.item]]
   kind = "patch"
@@ -4337,1085 +4337,1085 @@ measured_items = 278
   id = "zzzzzzzzzzzzz-pong-ufs-stat.patch"
   sha256 = "0ce2eeb7b2571088337c856476d300d2bd0f3900277ac3033d4791f853b54088"
   verdict = "not-applicable"
-  reason = "precedent-only target osfmk/arm64/pong_ramoops_console.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzz-pong-ufs-stat.patch:1)"
+  reason = "precedent-only target osfmk/arm64/pong_ramoops_console.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzz-pong-ufs-stat.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzz-pong-xpc-checkin.patch"
   sha256 = "058f8fdb3a2b68d21db0b53275a7d947b37f8b33728534d02c4d0a5669a8dbaa"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at osfmk/ipc/mach_port.c:2952 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzz-pong-xpc-checkin.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at osfmk/ipc/mach_port.c:2952 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzz-pong-xpc-checkin.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzz-pong-var-seed.patch"
   sha256 = "aabf6275feb0455df3c5b4d942878aa3312774c8341b3105f297cd9a86784dfe"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:7660 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzz-pong-var-seed.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:7660 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzz-pong-var-seed.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzz-pong-msg-trace.patch"
   sha256 = "3e4784ae9a87a4be007409639cdfb9811842f482d89150aadd3d0b1a4c5f7346"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/kern/pong_userland.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzz-pong-msg-trace.patch:1)"
+  reason = "precedent-only target bsd/kern/pong_userland.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzz-pong-msg-trace.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzz-pong-touch-fts.patch"
   sha256 = "3354f52273550ece4e1deb4e322dd9998205c92f8decdaadbc500f5ecf33c72f"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:403 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzz-pong-touch-fts.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:403 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzz-pong-touch-fts.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzz-pong-usb-ctl.patch"
   sha256 = "e3053c9bb330f71597720a4e14acb7195447ca0b037f93983a4908b2fdfe4d16"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:404 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzz-pong-usb-ctl.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:404 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzz-pong-usb-ctl.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzz-pong-cpu-perf.patch"
   sha256 = "40c0d7f783d9131f39a33b3068a8f369b6d43bae9d2df37404705b1b9bfdc52e"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:404 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzz-pong-cpu-perf.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:404 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzz-pong-cpu-perf.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzz-pong-battery.patch"
   sha256 = "caba20f9df8ae52ac5c40b31b727e7544a6f8d6bd9ca792eeaf292e035583573"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMrootDomain.cpp:1528 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzz-pong-battery.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMrootDomain.cpp:1528 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzz-pong-battery.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzz-pong-buttons-pm8150.patch"
   sha256 = "cb2ac582e0e44c30e10f035a9d276ffbc64275ee2d1fe97251247efda72987b9"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzz-pong-buttons-pm8150.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzz-pong-buttons-pm8150.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzz-pong-pogo.patch"
   sha256 = "1003c26b2246eee3e079d247acc9f894cf3916e486aa9db6978deec3c075ebdd"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:406 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzz-pong-pogo.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:406 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzz-pong-pogo.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzz-pong-wifi-survey.patch"
   sha256 = "d071043d8f52176cfcea328e14c5f1c25f17c57e4b13d9c1fe314a4bdbe11616"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:408 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzz-pong-wifi-survey.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:408 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzz-pong-wifi-survey.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzz-pong-testbench.patch"
   sha256 = "9cce9ac2bab5c3087b3d329fa6a093c96b872498dec2db30c33ec0945212b584"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzz-pong-testbench.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzz-pong-testbench.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench2.patch"
   sha256 = "c5866d4ad1a5a4c11d4937f17dd7ccdfa74932068cd3f1d26988b9fcf3c82423"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench2.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench2.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench3.patch"
   sha256 = "af562f753b48a4ae9c9aeb70e0524c63881758ec03c7e0cc104283a51ac4f845"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench3.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench3.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench4.patch"
   sha256 = "5bd8a844edda113f53c5f84d9eeee37cbbaf99c4e36f616fd01d28b7fe2acf89"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench4.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench4.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-link.patch"
   sha256 = "d452e5caf902b1694f04db2137458e94dbf1e7125864bf8faebe93097d75d9b8"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:408 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-link.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:408 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-link.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench5.patch"
   sha256 = "828dc815ba3ca1ca0013173e1f4724cee11716d7681b5bec8b9bceefe2bfb82f"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench5.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-testbench5.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-buttons-compat.patch"
   sha256 = "5e7281b6d5a925be3b3737418df88119312d2615693f0b4d9ec42b57aa7d9e90"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-buttons-compat.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-buttons-compat.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ipi-late.patch"
   sha256 = "28d2a3261c1c0df37bf8f8d1e5aba62ba8b8514978eb96fc04ef2e1b413d8010"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ipi-late.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ipi-late.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe.patch"
   sha256 = "5b0e6fd170df25689622fc8028581b54637e97dd02f0105e6df5896be5ec48ec"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:409 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:409 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-mhi.patch"
   sha256 = "d712a8e1319695432ab95241747384401abcc1176f66fa3cef95656a12186508"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-mhi.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-mhi.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-fix.patch"
   sha256 = "efb86fddd8f4b52e8789a50bf825340ab744aa03cf5e18ee12019ef0685ddb00"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-fix.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-fix.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s3a.patch"
   sha256 = "fb18203b6c24888ef03707d5704e999420aee5cfd0d97118d526be4c9717e7f9"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s3a.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s3a.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-cx.patch"
   sha256 = "ca1ff551b8829647e6dc453dd3a3c18e61d2f560b7d7db71458c7ef983de8ea2"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-cx.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-cx.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmuclk.patch"
   sha256 = "cc71006335a31da0716a5b6d3e0f70e8fae7473b8d610976c2df8ebbbbe65317"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmuclk.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmuclk.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s3b.patch"
   sha256 = "037b0931e3c4e136bd8abb0f786cddfd36567231ff2af3fcae8413a1f7ca93e1"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s3b.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s3b.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmu.patch"
   sha256 = "ea5bd7342ab58129872746d1dd550d59b51f10dae0f891f6be2048539856628b"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmu.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmu.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-charger-temp-backlight.patch"
   sha256 = "979bfb1dbaf3a7ac51816411d537cd3cb77fbe11b7906c99e7f71cf736e405f9"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:410 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-charger-temp-backlight.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:410 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-charger-temp-backlight.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-slider.patch"
   sha256 = "274c73836fbba03484c53346c010e79d2d8b74f719ab1be52812b030a71c2e83"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-slider.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-slider.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fwput-wifi-s3cd.patch"
   sha256 = "6623d75c19059ef9908b56f3a200ff2a66cf3193646e769fecd4b31099fc20a9"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fwput-wifi-s3cd.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fwput-wifi-s3cd.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-irqdbg.patch"
   sha256 = "ddcba8aa21e1275b8e1e6d60609378cb02706f3eae57c1f72c2c11f1dfab8282"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-irqdbg.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-irqdbg.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-slider-fix.patch"
   sha256 = "1ae4eeea6705f769a7dcae4e4801de517171329f831273887029e2dab361470a"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/PongBacklightT970.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-slider-fix.patch:1)"
+  reason = "precedent-only target iokit/Kernel/PongBacklightT970.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-slider-fix.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-battery-knobs.patch"
   sha256 = "6db53f11733cd3df40e0f944852a115ad0b1bb71ebd028943f48749992079983"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMPowerSource.cpp:625 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-battery-knobs.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMPowerSource.cpp:625 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-battery-knobs.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-battery-knobs-fix.patch"
   sha256 = "503b46b7c5704843457f37f589a3a499c9eb3ea6952c349fa36a538e34c83bac"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMPowerSource.cpp:854 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-battery-knobs-fix.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMPowerSource.cpp:854 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-battery-knobs-fix.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-wait-class.patch"
   sha256 = "1b179743fb3e57d6c1e8bbb75e1af7969b829ab56f7a98df56c5ee7b11c3de51"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/PongBacklightT970.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-wait-class.patch:1)"
+  reason = "precedent-only target iokit/Kernel/PongBacklightT970.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-backlight-wait-class.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s4-bl-status.patch"
   sha256 = "89b528f3700e7bf12dd4a70df80473253acbd6dbd15fbb057469dad18b297d94"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s4-bl-status.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s4-bl-status.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmufw.patch"
   sha256 = "994c796a6fcea431eb129ff0d6bf22f3b198f9dc8a4fd062cdbd5b9836912f6f"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmufw.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gmufw.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-power-off.patch"
   sha256 = "b4ac6494bc7410576e02bc79a2f634027031363223365aa58a0fa9d743ab1dc3"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-power-off.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-power-off.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s4-no-iomap.patch"
   sha256 = "815a0e931c8d0679456f44f7f03a5046d434d7bcc843812a370502d743ba9e60"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s4-no-iomap.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-s4-no-iomap.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cleanup-chg-diag.patch"
   sha256 = "cd645b53cb2697a9d9e971d763e6b6ccb48b8b3411266017eea67053dd9bfb1d"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cleanup-chg-diag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cleanup-chg-diag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-rsc.patch"
   sha256 = "521b33aa71b614900caf8a26c3747b2ade4bd2e7366f2930a97e6d762b982c40"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-rsc.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-rsc.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ipi-send-time.patch"
   sha256 = "0cfde8ed4e45f6c6a46a516812f34f18a1c2c905c898e6f512f27561002225db"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ipi-send-time.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ipi-send-time.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-survey.patch"
   sha256 = "bee783693e410e3518c4198d3f57486cd68edf0663da291df44727cef9417ba1"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-survey.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-survey.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-survey.patch"
   sha256 = "55c9983f9aa9c1816a16ab5ec039a8894f560638dfe37558c3f6f5e156b1d5cb"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:412 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-survey.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:412 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-survey.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-survey-usb-fix.patch"
   sha256 = "cad5f4000c60db2128092d059173da4b2d2c4193459eeb236ada3fefce6da773"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-survey-usb-fix.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-survey-usb-fix.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gsmmu.patch"
   sha256 = "64a4708a6f72fc9726a1313c0689b99b45ed6f1221473c639b75fd60a0f6c9ae"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gsmmu.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gsmmu.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifimhi-guard-recovery-reason.patch"
   sha256 = "01d8e0d4899942954e7669d1efc755f30208aa77a01e595f297c90f5f11f618d"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifimhi-guard-recovery-reason.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifimhi-guard-recovery-reason.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-board.patch"
   sha256 = "fd67b7a31d139c31e4b2221937c47cec70c172b99d5b8efbadfdbeaa5254ebf4"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:409 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-board.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:409 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-board.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gsmmu-pairs.patch"
   sha256 = "7529f057eaea4644427b8b107c6e115c81f790f967c5f7ad1a327187aa854a23"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gsmmu-pairs.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_probe.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-probe-gsmmu-pairs.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-window-pages.patch"
   sha256 = "a5c62a0e2911d0fdcb57713a1386fd085731ef11c266ecde34b15777044561c8"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-window-pages.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-window-pages.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-net.patch"
   sha256 = "6795a5d5559b6787c4d91536d28a3ecdbd2ffbd5b6f30853bf6b8f7020a50dd0"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-net.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stack-net.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-blocks-ponstat.patch"
   sha256 = "928c4102d3b5eaac44ecffc8411ad2c84e0ab8f37ede01d28ef26a445facc516"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-blocks-ponstat.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-blocks-ponstat.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-eapol-eth-log.patch"
   sha256 = "02a7a8f589ae3e043a9e046df21d3c6b242a0d9a8c143a501e8d88cad0784aaa"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-eapol-eth-log.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-eapol-eth-log.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-net-traffic.patch"
   sha256 = "a17540079355ca36b29ee66004311873d4babafb6396e469eabcb0d7b60e5489"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-net-traffic.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-net-traffic.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-log-160.patch"
   sha256 = "69e6828d0005ea7ccc0e304a2e8451144c9a3aa242235d7fcad4641e6dde0314"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-log-160.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-log-160.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-net-counters.patch"
   sha256 = "1cee8b853533a845e03fd397af6351a95738355ab6e44d153c2b6f95eb921d39"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-net-counters.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-net-counters.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fwput-heap-fallback.patch"
   sha256 = "e3e0f85e318885b4faf1aa4ce37fa8319cc401f3bc26d68c73954e95dc238a42"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fwput-heap-fallback.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fwput-heap-fallback.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-station-drop-stats.patch"
   sha256 = "8d98531b86261b8c9374c6b33a10c38494fec9fe84868247a0eca918b88e9622"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-station-drop-stats.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-station-drop-stats.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-auto-nettest.patch"
   sha256 = "ad1799dc9cc14c235d62c7de459bc9069bc48de1f4ddbd5b61d7d160a85ba3bd"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:410 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-auto-nettest.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:410 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-auto-nettest.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-boot-write.patch"
   sha256 = "7e587b092a82f1354c9ca1287cc209e0d86a49681f926405b4f81f3873d90cce"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-boot-write.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-boot-write.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-nettest-dns.patch"
   sha256 = "3f55771cd83b1f6f66592a3a4006c6dbf385f7ccbadbb6c7626a668d87168c33"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-nettest-dns.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-nettest-dns.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-tx-reasons-fileget.patch"
   sha256 = "772ff676d0b49aa8e99b16b72b5d9bace3911157572f4c5054eb523680f56c48"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-tx-reasons-fileget.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-tx-reasons-fileget.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-proc-diag.patch"
   sha256 = "ab58ef3da8df9013bac409d0bf2ecd83236533c553bf302f444dd5f8de488973"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-proc-diag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-proc-diag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-launch-policy.patch"
   sha256 = "1ef462bf9ed13748f842045c80c3e070f9a288862d014f7499336451fe67d84a"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-launch-policy.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-launch-policy.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-surface-usb.patch"
   sha256 = "f53ddf1bda5be571c8f7b8bcb7d0db8a7c2bc0766a8c544fab0733c79aee209f"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-surface-usb.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-surface-usb.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-button.patch"
   sha256 = "0d85e87a5783ada818b41a2b51f6dfb46e2b2d62f22663fe98106ceea5711260"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-button.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-button.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-stackshot.patch"
   sha256 = "876658080103be776741951156866f876d2b9ae8a027c02e54c09a2a94269a17"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-stackshot.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-stackshot.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-bareaccel.patch"
   sha256 = "c84ea4c45eaacd2fd7a08ea10731e3ea37ba2a033d0cf2a54675d3e2fd55397a"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-bareaccel.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-bareaccel.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-accel-standin.patch"
   sha256 = "6a17957a80543214d9849ef941689ea788b753acb1e167df1f30d937249365b5"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-accel-standin.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-accel-standin.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-gmustart.patch"
   sha256 = "b1f4cc2b084763d94069e62fd2b6aba4b2bed9b5282fed44cf970935fe2d3319"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-gmustart.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-gmustart.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-charge-limits.patch"
   sha256 = "d749dd11918540afdf367ec0c63e1d86498120a3ab8c6edd801842447514844c"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMPowerSource.cpp:589 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-charge-limits.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at iokit/Kernel/IOPMPowerSource.cpp:589 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-charge-limits.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-gxon.patch"
   sha256 = "3fa12eeeb6f48e8e735dd7ed44e7b87ac3f6744655195dfa43cdab929f4c2970"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-gxon.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-gxon.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-cpinit.patch"
   sha256 = "03164a64dd47ebc4a43d7f06f309dd6e05284d8160f9e939cfa98d0c73dc0c16"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-cpinit.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-cpinit.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-cpzap.patch"
   sha256 = "c3d0794d7478bdbc6b05c08f03cffecfc79374a6830f3a5d6fec556592ee3480"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-cpzap.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-cpzap.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-t970-backend.patch"
   sha256 = "6bee9aa558fc3f480eb38f5cc9c3127005e9fdb2ddb104a157469198e32c0fe6"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-t970-backend.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gpu_gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-t970-backend.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-autostart.patch"
   sha256 = "e159bfdae603cddff70f865760697e7fe04375a2de88b8700d214f02286cc80b"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-autostart.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-autostart.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-fs.patch"
   sha256 = "b609a4fc1f3dd917b00eb0cc9b42aab56635f3617aaba09cb2b260270a7fef94"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-fs.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-fs.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-rtc-calendar.patch"
   sha256 = "eeeb21669f6f193efc48ee6974585243504698204be9a46a916ceddb1a057e7d"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-rtc-calendar.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-rtc-calendar.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-metaldiag.patch"
   sha256 = "e2fb2c1fae53f8ac1373fea1dfffafcc1deeffab7e6fedb1e189e11a495e4ec9"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-metaldiag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-metaldiag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-rejoin.patch"
   sha256 = "d7f4bbc167a29cf2b60c963bcbff3a69607cb816793ca346e86d5cef7fb86123"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-rejoin.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-rejoin.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-gpudiag.patch"
   sha256 = "8dba7b181e3123afd5dff29745529fdad3075a54542bf7a00dfa98a563eddab9"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-gpudiag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-gpudiag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-sync.patch"
   sha256 = "333e5163adcc6a78ac3f04b0e4a6e1f49d223fc5596baebcfa9615cffe15b9ac"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-sync.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usb-sync.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-mac.patch"
   sha256 = "9a9e54446267a115aedbb1624cf63a497d6b9c068b6e524c0bd4c7f45dbbe228"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-mac.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-mac.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-boot.patch"
   sha256 = "1ba88ebdf5464ae0ef9ce41c085d26ca2b28ac9f982c9e11f33cee2921b01509"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:421 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-boot.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:421 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-boot.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-surf-order.patch"
   sha256 = "fb7c2f07734c9b679180dbe8d8e27fdd4fcf28b5f83a7248963bab1b24afd7c6"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOSurface.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-surf-order.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOSurface.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-surf-order.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-hci.patch"
   sha256 = "1205243552d7490b905a57b9f16b0cbb7e0339bcc40dcb4d1342301079335ebc"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_bt.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-hci.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_bt.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-hci.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-boot.patch"
   sha256 = "1b236f25bd3802e0cdbcf1dde572fd3ab7415da82ceedc19f24046db8e8aae2f"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-boot.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-boot.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-spen-read.patch"
   sha256 = "fd1fbc0edaa111433bc847739bf0e9b3d3768e8b24feafb3e6b13eaf2567f122"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:404 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-spen-read.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:404 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-spen-read.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-locks.patch"
   sha256 = "739d6138e4786e6ad23e83982d608b9c87a4b4ed0ae22526734e2588aa19692f"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_slpi.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-locks.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_slpi.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-locks.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-usb.patch"
   sha256 = "77273f180d149d7ed2dc16112aedd7ac4d5b7d08458d14766ffc4f883d2f8b71"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_pogo.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-usb.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_pogo.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-usb.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-haptic.patch"
   sha256 = "34041540fbc3eaad1b1281556f7de6458c78f47110e3efc5b37006a976793e8e"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:408 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-haptic.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:408 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-haptic.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-power.patch"
   sha256 = "240f2f068d9cb5570499c704aca29c81263715daed4dc1bcfb510be518452782"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-power.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-power.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-power-idle.patch"
   sha256 = "30c6033073de21186572df059c44aaf6161e009b9a86624acea38c58c63dc92d"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-power-idle.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-power-idle.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cover-hall.patch"
   sha256 = "0be29e22b74438338f1c9e1dba0af7abdb4c70e286c94e8e1ad1a6d3797c4e58"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cover-hall.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cover-hall.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-batt-current.patch"
   sha256 = "a8f60bd546ede008a63061da5a02b42d76a0ba2758fac5b376093dd6881b79fc"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-batt-current.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-batt-current.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbrole.patch"
   sha256 = "44b5aebea33e0bcbbec7e5ec709d6b5130b8b5485e153cbc8ad84315d4d42ff3"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbrole.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbrole.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-dpu-flip.patch"
   sha256 = "dd1b372cdd56f4ed997750d0ffe26477f742e978bfb4f5719447c041a076ebb2"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-dpu-flip.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-dpu-flip.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-lp-storage.patch"
   sha256 = "221cc81afd19b57688f5ab711f1d953669d086a97422ca863d11bd18419d0b19"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-lp-storage.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-lp-storage.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-tz-charge-stop.patch"
   sha256 = "853b13cb1c5c64447f154843d4f58e531417a13da04599c72d8e8f255c43489b"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:7889 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-tz-charge-stop.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:7889 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-tz-charge-stop.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-hid.patch"
   sha256 = "a3154c43c3a4e47f7aef2f3db42c9d9927c1712f9bb7d5b1279f1b523aa1c773"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_haptic.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-hid.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_haptic.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-hid.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbhost.patch"
   sha256 = "2e272d9f495066de1455301a0d7c45a78a9e01fa5e06d00706ade2f6d0f151ae"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:409 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbhost.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:409 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbhost.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-audio.patch"
   sha256 = "e3165a2c3b046397038a96095009ec5e988a4ab08cb5bed3f54f278b3dc37a86"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:432 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-audio.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:432 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-audio.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-spen-hid.patch"
   sha256 = "c066a244d1ad2a51a49a54cc4ff42840a6b72f1ce3b21d4a255de9bc7399a7aa"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_input.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-spen-hid.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_input.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-spen-hid.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-color.patch"
   sha256 = "d2982550226ccabc93e31115dccee5f18ec9c0fba6fdb56f0060f922ecdff950"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-color.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-color.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-fw-sk.patch"
   sha256 = "4f2d3d156529455c30bac03ca11ecab56c3b74ad7be47d3ca0393709bcc4d301"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:424 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-fw-sk.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:424 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-fw-sk.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ssc-client.patch"
   sha256 = "43f44a6c12ac9b73f7540666e8fdff732e80f85ad88fb05c804d4ea1a20207ce"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:426 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ssc-client.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:426 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ssc-client.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-haptic-unmap.patch"
   sha256 = "e705e25d672b137517b8e290b68c8b20733edd26dae47c8bd816d08ff830f428"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_haptic.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-haptic-unmap.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_haptic.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-haptic-unmap.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-iobusy.patch"
   sha256 = "e1a24a4927586dc5d60980e5dc00b7f2d5383d18828ec2779c3d94493d4282c3"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-iobusy.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-iobusy.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-diag.patch"
   sha256 = "3a10f20f7ec4603e4c57096008ab42d9a28751437e72fc1f74e77064c9484825"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-diag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-diag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pas-probe.patch"
   sha256 = "b98ab4b25cdf1d2eafbc52102f597d53006d07fee1eb040af20a2a19878bd83a"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_slpi.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pas-probe.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_slpi.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pas-probe.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ssc-diag.patch"
   sha256 = "dd96894ac1b017986fa1f9c503a874651e38c444743727034c5f5b859bf73d6d"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_ssc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ssc-diag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_ssc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ssc-diag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-120hz.patch"
   sha256 = "61951cdb4bbc411bcefb624dfabd8eac1c418db5d236faedaeb44763500182ba"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-120hz.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-120hz.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbnet.patch"
   sha256 = "c2bbc8f4a35e50b7266d24ea530a636bb6057312a452e13b4c5b75ff0ccba1c7"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:410 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbnet.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:410 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbnet.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ui18-var.patch"
   sha256 = "e5f4e465e631171e92b450b45fec125dde47e464c1ee27239e08ca691b9ec16c"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5995 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ui18-var.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5995 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-ui18-var.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio-hal-view.patch"
   sha256 = "94f2a740802f0e1faf7df79535e1e097f7505c43ae4e80382302411f2d642e22"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio-hal-view.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio-hal-view.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-3m.patch"
   sha256 = "6a0dfcf421b2836271d23972ac79c7d943860ef323eb7bc5488e48190648ee48"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_bt.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-3m.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_bt.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-bt-3m.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-fastrpc.patch"
   sha256 = "81aaa6bfb4501e4fa1529a9a22df5755cf50dfd875759d7e758fdd549d07721c"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:428 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-fastrpc.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:428 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-fastrpc.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr.patch"
   sha256 = "f4bbbc39b5cca350a687057f31a06766c6e77fd7a68297dd7fb7326cd25bc0e1"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-dirlist.patch"
   sha256 = "de5918b1802c6eaa13f93325c6f76f8f82835a56c7881cb41aa8699f67728cd4"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_fastrpc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-dirlist.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_fastrpc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-dirlist.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-early.patch"
   sha256 = "758459de9941b1b937b1d0aae119061bbeed7352adcda06c142196c0097fee1b"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-early.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-early.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-userland-overlay.patch"
   sha256 = "056b2934f89b958a33ed91888e1d2e1bf9565aaa7a0033696acf4b0c2576d917"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5995 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-userland-overlay.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5995 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-userland-overlay.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-passcode-keybag.patch"
   sha256 = "937ef1af91f4a7e9e3382529536325d17ef6c91be4246ab4d2332ef18792635c"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-passcode-keybag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-passcode-keybag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-dark-idle.patch"
   sha256 = "951a23b69afd74ae1e52c66df5606165fa3425ed62e66d6b0af9e431f0cc49a6"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-dark-idle.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_backlight_t970.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-dark-idle.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbmux.patch"
   sha256 = "4aba506f186940ccb75387c5329afcce41f9d7ba8cbbea9a39be0d86a186d641"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbmux.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:411 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbmux.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-strstr.patch"
   sha256 = "774a338c9e92143219770f7a13bad56af772c67decb8901f6522eb41ee57373a"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_fastrpc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-strstr.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_fastrpc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-strstr.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gps-camera.patch"
   sha256 = "19a68a6b84cbc3705fdbb90e02ca7a1264e4db3caf3b1672882586d769877670"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:426 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gps-camera.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:426 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gps-camera.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbmux-fix.patch"
   sha256 = "a147c1a1791c7b26d01ba586f0fe11fd8b5fd98fc83e1a008a1b6d20c8cb3841"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usbmux.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbmux-fix.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usbmux.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-usbmux-fix.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gps-include.patch"
   sha256 = "3ffc1e89abecbb6dcc10b9503a5ea9d2a284dd93de97b76e82cdb9dd845e6386"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_gps.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gps-include.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_gps.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gps-include.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-pmsg.patch"
   sha256 = "12705e8422d1e7759d6416307d4d9415a034aaad170955f6d5f7c2725eb52a82"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_slpi.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-pmsg.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_slpi.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-slpi-pmsg.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-sysfs.patch"
   sha256 = "2cc35bc78c9a186c977ebdf1ec369af02259931cce69621c5ce9edc27e11c68a"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_fastrpc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-sysfs.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_fastrpc.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fastrpc-sysfs.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-boot-diff.patch"
   sha256 = "002b5e077206c2887c0dc8e9228151eaf87539551d85ed785988bbff39be7b72"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_boot_write.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-boot-diff.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_boot_write.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-boot-diff.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stats-minute.patch"
   sha256 = "96c9dda9b1e1269a1cc4e826d6de6a0f2216d3708f828115cf472e4587c80735"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stats-minute.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_stack.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stats-minute.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr-active.patch"
   sha256 = "55af58397181c5afdc4c97eb03ab77888564a8ab5b6dd1137605ef971d942546"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr-active.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr-active.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-diag.patch"
   sha256 = "f12bc65115c1733f05c0b2454eb1eebfadd59181872aa8a797d293df8ea49b74"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_pogo.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-diag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_pogo.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-pogo-diag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr-still.patch"
   sha256 = "2d7baf5a91d908a6f7c651e69323a7d595053cd554ad2ec287d030f414943b65"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr-still.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-vrr-still.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2.patch"
   sha256 = "0170aa921a8334d5b8219622f8b890c0cc036e850be7d49e6f0c046023064a29"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-include.patch"
   sha256 = "8a28daeccf80dcf048da8eb3787576b19a9bc980cce0c0eef0a2fd5a95cf7469"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/T970IOAudio2.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-include.patch:1)"
+  reason = "precedent-only target iokit/Kernel/T970IOAudio2.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-include.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-devstat.patch"
   sha256 = "456e9ec541c9afe700f826ce18a8eba08b5cc50452422435ce5e2668a9bcc909"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-devstat.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-adsp-devstat.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-in.patch"
   sha256 = "553370000f07c368979b6df1cb82e5b911017b152f0202cda1c8100653066e5d"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-in.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-in.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cam-safe.patch"
   sha256 = "28b0f93120b32f80acd584d182c4e4087f0c3240dabea4a164c6fe623f0e4891"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_camera.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cam-safe.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_camera.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-cam-safe.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-diag.patch"
   sha256 = "0762d11e21495c443a0b6c9ee9ff021866120ea6e46511176cc72c110c2c0798"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-diag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-diag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fileraw.patch"
   sha256 = "41adb45472121c4fc24caf6bd14df4259a633b93bc879608121adf46723598ed"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fileraw.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fileraw.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-hangwatch.patch"
   sha256 = "37308dbf0a857e910e04960793ca58c438031e293804ef345b7f715c36b87e7b"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:416 (git apply --check: patch does not apply; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-hangwatch.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/conf/files:416 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-hangwatch.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-hangwatch-ring.patch"
   sha256 = "40660d744cfb103bdad2601bbde8cc67f262636efa721d44bb5919e7e0fdaaf0"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_hangwatch.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-hangwatch-ring.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_hangwatch.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-hangwatch-ring.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-vol.patch"
   sha256 = "e0ec20759cd6d8f82bae7cb50a11720b2c387b796ce27b1168d2c56c98f031c2"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-vol.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_adsp.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-audio2-vol.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-idle-wakeups.patch"
   sha256 = "f1b60a0cb8de41984a7a08370dd030d51e2de346ed7eeb9b2154b886f43d82a9"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_cpu_perf.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-idle-wakeups.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_cpu_perf.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-idle-wakeups.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-ar-idle.patch"
   sha256 = "35d6134720b05882021ddf603c82c6c5c144993e4024bcbe1adc6181ef92d8d0"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-ar-idle.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-ar-idle.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-smooth-touch.patch"
   sha256 = "1007bebd40e63777de3aa762853af252eb44b83875c79c9fdb33e17a2bd9a15c"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_fts.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-smooth-touch.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_fts.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-smooth-touch.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-pacing.patch"
   sha256 = "f2631781210fecd218f0a1e59ca7a4c7ccd0a38bffd3486692ffb49dc661bea2"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-pacing.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_usb_ctl.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-pacing.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-flip-guard.patch"
   sha256 = "9a1f33921da2c82344865f9cb4008794a3cb44e14b436ef0ac7257b6132a85fd"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-flip-guard.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-fb-flip-guard.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-lp-perfpower.patch"
   sha256 = "864966d6b056275dd4887a591c0ffa02485a95e540dea8b976961502af71c8c4"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-lp-perfpower.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_tools.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-lp-perfpower.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stage8-marks.patch"
   sha256 = "6c58fcab7c155c688eb662fc1a5dd0166ae6f7f7ecabf37e30ae41af6ec04827"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stage8-marks.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-stage8-marks.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-perf.patch"
   sha256 = "fbee961a17cc0bb43a74fbc3a227a73b8d5b78adea19b60b1761e5e53c6d7a77"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/adreno/A650Gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-perf.patch:1)"
+  reason = "precedent-only target bsd/dev/adreno/A650Gmu.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-gpu-perf.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-link-watch.patch"
   sha256 = "7812663d5144f52cdd830a4240340f903bc9f0198402e8a0e22118a93b1079da"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-link-watch.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-link-watch.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-start-marks.patch"
   sha256 = "337454dd61b6ccdcaef3af242edf8edae35b27eb5ceedc34b113e78fa83e0d4d"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-start-marks.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_wifi_link.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-t970/patches/xnu-ipados18/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-pong-wifi-start-marks.patch:1)"
 
   [[repo.item]]
   kind = "board-key"
@@ -6073,7 +6073,7 @@ measured_items = 278
 
 [[repo]]
 name = "zizhan"
-path = "/mnt/e/k60-work/references/latest/UniXNU-zizhan"
+path = "/mnt/e/iOS Port/Work/references/latest/UniXNU-zizhan"
 commit = "a7f8ae2934c579c619a8c7b035f05163103b6b24"
 measured_items = 130
 
@@ -6082,7 +6082,7 @@ measured_items = 130
   id = "0001-pong-darwin24.patch"
   sha256 = "1dece3f3da74696482879ea6cd40c46cea9c1bc19105219afb515a23665b57d4"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exit.c:139 (git apply --check: patch does not apply; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0001-pong-darwin24.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exit.c:139 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0001-pong-darwin24.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
@@ -6124,84 +6124,84 @@ measured_items = 130
   id = "0008-zizhan-amp.patch"
   sha256 = "f1cd18e83579cae39c44171c10d59689cc772c12661f6530a942c58f7b75829b"
   verdict = "not-applicable"
-  reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0008-zizhan-amp.patch:1)"
+  reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0008-zizhan-amp.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0009-zizhan-dpu-flip-cpu-frame.patch"
   sha256 = "6f3a429607f1a130ea11b8bd2f6b7d228eb020c506e994e4943caf6798afadd7"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0009-zizhan-dpu-flip-cpu-frame.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0009-zizhan-dpu-flip-cpu-frame.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0010-pong-power-key-reset.patch"
   sha256 = "bc97e3ee94e26416d164dcd99bebb1d6d3dccb851b822ba8d3433f6864600d1c"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0010-pong-power-key-reset.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_buttons.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0010-pong-power-key-reset.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0011-zizhan-panel-pool-canvases.patch"
   sha256 = "300d01c0b6b358cf8ad8e3587b21d96dc34f8184d4be208b0886e8752cbb4f4f"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOSurface.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0011-zizhan-panel-pool-canvases.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOSurface.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0011-zizhan-panel-pool-canvases.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0012-zizhan-swapwait.patch"
   sha256 = "4bedffb624258e89cb02035bcaa8e3dd88ab1b0fe8c6f3738f267b7a2a05c9b8"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0012-zizhan-swapwait.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0012-zizhan-swapwait.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0013-zizhan-latch-async.patch"
   sha256 = "23a14c5f355a29895aaee30b2ead16233063cfaa7d4a5f0b26fd63987147e879"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0013-zizhan-latch-async.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0013-zizhan-latch-async.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0014-zizhan-fast-core.patch"
   sha256 = "cc49da482bfb6f5a09b8c2e2a5543737f13de6ac2f69cfb2aff375cd60682c44"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at osfmk/kern/sched_prim.c:248 (git apply --check: patch does not apply; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0014-zizhan-fast-core.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at osfmk/kern/sched_prim.c:248 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0014-zizhan-fast-core.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "0015-zizhan-panel-slot-mapping.patch"
   sha256 = "dce59bffcf5d4494ac35252758e3ed06a7a58e59104d42a9c7f2dcd052c5874f"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOSurface.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0015-zizhan-panel-slot-mapping.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOSurface.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0015-zizhan-panel-slot-mapping.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0016-zizhan-scroll-probe.patch"
   sha256 = "4d5cd4a05478bc0354ce20f82dfd488498f6fc2428db70013c81987f96e51f1c"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_fts.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0016-zizhan-scroll-probe.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_fts.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0016-zizhan-scroll-probe.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0017-zizhan-cs-cache-failure-stage.patch"
   sha256 = "65c6ce72fbeb0b6b357638a324ad2278623be65139a3583ae669acd3bce72fb4"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5912 (git apply --check: patch does not apply; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0017-zizhan-cs-cache-failure-stage.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5912 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0017-zizhan-cs-cache-failure-stage.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "0018-zizhan-bounded-control-drag.patch"
   sha256 = "adda6fe9585cf00e2f563ab1522aa30f139bb107eaff541be42459c84aa22611"
   verdict = "not-applicable"
-  reason = "precedent-only target bsd/dev/pong_fts.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0018-zizhan-bounded-control-drag.patch:1)"
+  reason = "precedent-only target bsd/dev/pong_fts.c does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0018-zizhan-bounded-control-drag.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "0019-zizhan-cs-cache-map-diagnostics.patch"
   sha256 = "72ef61a0d78a457c3b2999a1778e9cd10322e818ae63bafc3bb2bd5e4f915eab"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5912 (git apply --check: patch does not apply; E:/hackios/UniXNU-zizhan/patches/xnu-ipados18/0019-zizhan-cs-cache-map-diagnostics.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5912 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-zizhan/patches/xnu-ipados18/0019-zizhan-cs-cache-map-diagnostics.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
@@ -6893,7 +6893,7 @@ measured_items = 130
 
 [[repo]]
 name = "pong"
-path = "/mnt/e/k60-work/references/latest/UniXNU-pong"
+path = "/mnt/e/iOS Port/Work/references/latest/UniXNU-pong"
 commit = "08c1f94ba60ea57db4ddb4bfe20cff983d09931e"
 measured_items = 126
 
@@ -6916,42 +6916,42 @@ measured_items = 126
   id = "zz-pong-main-native4k-cache-io.patch"
   sha256 = "555885d8fa665d218f5228fdc4659728d37ec8df083d64dca12caac60692403c"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5875 (git apply --check: patch does not apply; E:/hackios/UniXNU-pong/patches/xnu-ipados18/zz-pong-main-native4k-cache-io.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/ubc_subr.c:5875 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/patches/xnu-ipados18/zz-pong-main-native4k-cache-io.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzz-pong-scanout-idle.patch"
   sha256 = "ecea742d016c4f6f465fbbedbb653723cebade69b6a0d6b662b92b140103d093"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-pong/patches/xnu-ipados18/zzzz-pong-scanout-idle.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/patches/xnu-ipados18/zzzz-pong-scanout-idle.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzz-pong-wake-scanout-alpha.patch"
   sha256 = "5783a42ee8dcedcc90257a4868f865394db2de45cbcef6629c033e0eaa7452fb"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-pong/patches/xnu-ipados18/zzzzz-pong-wake-scanout-alpha.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/patches/xnu-ipados18/zzzzz-pong-wake-scanout-alpha.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzz-pong-runtime-rule-capacity.patch"
   sha256 = "b584ae641fac06faab22d6d95664add1794d43fcb08fba858afec55da679e209"
   verdict = "not-applicable"
-  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5972 (git apply --check: patch does not apply; E:/hackios/UniXNU-pong/patches/xnu-ipados18/zzzzzz-pong-runtime-rule-capacity.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
+  reason = "xnu-3199e8bc hunk context differs at bsd/kern/kern_exec.c:5972 (git apply --check: patch does not apply; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/patches/xnu-ipados18/zzzzzz-pong-runtime-rule-capacity.patch:1; the patch is anchored to the Pong device tree, not the 27 base feed)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzz-pong-frame-links.patch"
   sha256 = "2035e5a827c9f45549e75a67eb3d6cb96ddee1d8c9ca8a2642590436ffaa3fc1"
   verdict = "not-applicable"
-  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-pong/patches/xnu-ipados18/zzzzzzz-pong-frame-links.patch:1)"
+  reason = "precedent-only target iokit/Kernel/MiniIOMobileFramebuffer.cpp does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/patches/xnu-ipados18/zzzzzzz-pong-frame-links.patch:1)"
 
   [[repo.item]]
   kind = "patch"
   id = "zzzzzzzz-pong-native-pac-keys.patch"
   sha256 = "6de300a505506b045e71f97bfe643e0890b31bfd8ef4445ca40b3b1fa8f2e91a"
   verdict = "not-applicable"
-  reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/hackios/UniXNU-pong/patches/xnu-ipados18/zzzzzzzz-pong-native-pac-keys.patch:1)"
+  reason = "precedent-only target pexpert/pexpert/arm64/PONG.h does not exist in xnu-3199e8bc (git apply --check: No such file or directory; E:/iOS Port/Sources/Repos/UniXNU/UniXNU-pong/patches/xnu-ipados18/zzzzzzzz-pong-native-pac-keys.patch:1)"
 
   [[repo.item]]
   kind = "patch"
@@ -7683,7 +7683,7 @@ measured_items = 126
 
 [[repo]]
 name = "ios16"
-path = "/mnt/e/hackios/k60-gates"
+path = "/mnt/e/iOS Port/Sources/Hardware/k60-gates"
 measured_items = 276
 
   [[repo.item]]

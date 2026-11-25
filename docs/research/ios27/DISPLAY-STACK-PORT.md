@@ -8,11 +8,11 @@
 
 - 我们的 27 profile：`board.toml:364` 的 `include = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]` —— 没有 `GopFramebuffer`，仓库里也没有 `drivers/GopFramebuffer`、`scripts/build-gop-legacy-display*.py`。
 - 能进系统的 sheng（同 `ipados-27.0.1-24A446`、同 arm64e）：`UniXNU-sheng/board.toml:117/174/194` 的 include 都含 `GopFramebuffer`，`:20` 的 archives 含 `build-gop-legacy-display-27.py`，`:66` 的 kernel_args 带 `offline-legacy-gop=1`、`sheng-fb-gpu=1`、`sheng-dpu-scanout=2`、`sheng-fb-bgra=1`。
-- 组件目录明确把它标成 27 可用且已在 sheng 验证：`E:/hackios/UniXNU/components.toml:206-225`，`os_abi = ["ipados-17.7.11-21H461", "ipados-27.0.1-24A446"]`、`verified_devices = ["sheng"]`、`source_files = ["NativeMobileDisplay.cpp", "NativeLegacyDisplay.cpp"]`、`outputs = ["build/gop-framebuffer/libGopFramebuffer.a", "build/gop-framebuffer/libGopFramebuffer.late.a"]`。
+- 组件目录明确把它标成 27 可用且已在 sheng 验证：`E:/iOS Port/Sources/Repos/UniXNU/UniXNU/components.toml:206-225`，`os_abi = ["ipados-17.7.11-21H461", "ipados-27.0.1-24A446"]`、`verified_devices = ["sheng"]`、`source_files = ["NativeMobileDisplay.cpp", "NativeLegacyDisplay.cpp"]`、`outputs = ["build/gop-framebuffer/libGopFramebuffer.a", "build/gop-framebuffer/libGopFramebuffer.late.a"]`。
 
 没有这个组件，内核里就没有任何 `IOFramebuffer` / `IOMobileFramebuffer` 实现，PE 文本控制台直接写物理帧缓冲是唯一输出路径；而 iOS 27 的 WindowServer 要求存在 framebuffer provider 才会出画面 —— 所以即使 stage-0 走通，也仍然是黑屏。
 
-## 2. 组件能做什么（读 `E:/k60-work/references/GopFramebuffer` 源码）
+## 2. 组件能做什么（读 `E:/iOS Port/Work/references/GopFramebuffer` 源码）
 
 克隆：`https://github.com/UniXNU/GopFramebuffer.git`（catalog 固定 `revision = e47c1b8de169cd2bd0b885c7d85e433010e3cdf2`）。
 

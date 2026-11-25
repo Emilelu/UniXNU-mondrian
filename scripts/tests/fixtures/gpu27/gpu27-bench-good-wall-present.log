@@ -1,4 +1,4 @@
-# Real excerpt: bench 24 samples from E:/k60-work/evidence/usblog-20261119-173454/console.log:2455-2506
+# Real excerpt: bench 24 samples from E:/iOS Port/Work/evidence/usblog-20261119-173454/console.log:2455-2506
 Pong Metal: scanout bench n=1/24 import=30 us encode=5536 us submit=469 us gpu=2410 us sum=8445 us status=0x0 status=0x0
 Pong Metal: scanout bench n=2/24 import=32 us encode=3328 us submit=390 us gpu=2526 us sum=6276 us status=0x0 status=0x0
 Pong Metal: scanout bench n=3/24 import=40 us encode=3041 us submit=407 us gpu=2377 us sum=5865 us status=0x0 status=0x0
@@ -51,5 +51,5 @@ Pong Metal: scanout bench n=23/24 import=21 us encode=958 us submit=179 us gpu=2
 2026-11-03 04:33:07.513 SpringBoard[26:287] <CATransformLayer: 0x2816cbf40> - changing property allowsEdgeAntialiasing in transform-only layer, will have no effect
 2026-11-03 04:33:07.513 SpringBoard[26:287] <CATransformLayer: 0x2816cbf40> - changing property allowsGroupOpacity in transform-only layer, will have no effect
 Pong Metal: scanout bench n=24/24 import=19 us encode=951 us submit=162 us gpu=2520 us sum=3652 us status=0x0 status=0x0
-# plus the composition-wall statistic from E:/k60-work/evidence/usblog-20261119-151837/console.log:3341 (same device, earlier flight)
+# plus the composition-wall statistic from E:/iOS Port/Work/evidence/usblog-20261119-151837/console.log:3341 (same device, earlier flight)
 MiniIOMobileFramebuffer: 104 frames in 5111 ms (20 a second), 13183 us each in the driver, after 1 us waiting for the GPU and, 3 of them, 3359 us for the next refresh; 0 swaps waited for the frame before, 0 gave up; 93 swaps came a refresh late themselvesK60 ex=594 kx=98 abn=31 | mem=4608 actual=4608 managed=4608 free_pages=230477 spec=345782

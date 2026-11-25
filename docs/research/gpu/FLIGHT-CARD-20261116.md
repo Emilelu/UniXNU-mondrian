@@ -2,7 +2,7 @@
 
 写入时间：2026-11-16 23:47 +08:00（**上机之前**）
 分支：`feat/gpu-metal-hw`（HEAD 含 `7ee283f0`）
-镜像：`E:/k60-work/artifacts/gpu-scanout2-20261116/boot.img`
+镜像：`E:/iOS Port/Work/artifacts/gpu-scanout2-20261116/boot.img`
 
 ## 1. 本飞唯一目的
 
@@ -52,7 +52,7 @@
 
 - 镜像：`dbb93478107fa55adee61a9759e48b7339882b8b5a59e5b5403eacb1ca95a45e`（30 args / 594 B）
 - 内核：`ce1f37298b86772d3b00dfec25b030aece4f7e25cbcd0b2e351f412cc264fce3`
-- 证据目录：`E:/k60-work/evidence/usblog-20261117-000745`（206,291 B / 3,206 行，抓取完整，未因 panic/复位中断）
+- 证据目录：`E:/iOS Port/Work/evidence/usblog-20261117-000745`（206,291 B / 3,206 行，抓取完整，未因 panic/复位中断）
 - S1 ✅：`K60KEXC` 0 次；`K60PANIC` 唯一 1 次是 `:474 K60PANIC: restart windows ready` banner（P-204：banner 不是失败）
 - S2 ❌：`present #` 0 次
 - S3 ❌：`software renderer fallback installed` 18 次
